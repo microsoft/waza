@@ -6,7 +6,7 @@ readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.11"
 authors = [
-    { name = "Scott Boyer", email = "spboyer@microsoft.com" }
+    { name = "Shayne Boyer", email = "spboyer@microsoft.com" }
 ]
 keywords = ["ai", "agents", "skills", "evaluation", "testing", "llm", "waza"]
 classifiers = [
