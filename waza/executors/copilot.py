@@ -28,28 +28,31 @@ import os
 import shutil
 import tempfile
 import time
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from waza.executors.base import BaseExecutor, ExecutionResult, SessionEvent
 
+if TYPE_CHECKING:
+    from copilot import CopilotClient as CopilotClientType
+    from copilot import SessionEvent as SessionEventType
+
 # Lazy import for optional dependency
-CopilotClient = None
+_CopilotClientClass: type[CopilotClientType] | None = None
 
-
-def _get_copilot_client():
+def _get_copilot_client() -> type[CopilotClientType]:
     """Lazy load the Copilot SDK client."""
-    global CopilotClient
-    if CopilotClient is None:
+    global _CopilotClientClass
+    if _CopilotClientClass is None:
         try:
-            from copilot import CopilotClient as _CopilotClient
-            CopilotClient = _CopilotClient
+            from copilot import CopilotClient
+            _CopilotClientClass = CopilotClient
         except ImportError as e:
             raise ImportError(
                 "Copilot SDK not installed. Install with: pip install waza[copilot]\n"
                 "Or: pip install github-copilot-sdk\n"
                 "Also requires Copilot CLI: https://docs.github.com/en/copilot/how-tos/set-up/install-copilot-cli"
             ) from e
-    return CopilotClient
+    return _CopilotClientClass
 
 
 class CopilotExecutor(BaseExecutor):
@@ -83,7 +86,7 @@ class CopilotExecutor(BaseExecutor):
         self.timeout_seconds = timeout_seconds
         self.streaming = streaming
 
-        self._client = None
+        self._client: CopilotClientType | None = None
         self._workspace: str | None = None
 
     async def setup(self) -> None:
@@ -157,7 +160,7 @@ class CopilotExecutor(BaseExecutor):
             # Set up event collection
             done_event = asyncio.Event()
 
-            def handle_event(event: Any) -> None:
+            def handle_event(event: SessionEventType) -> None:
                 # Convert SDK event to our SessionEvent format
                 event_type = event.type.value if hasattr(event.type, 'value') else str(event.type)
                 session_event = SessionEvent(

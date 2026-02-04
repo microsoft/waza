@@ -434,7 +434,7 @@ graders:
         - "len(output) > 0"
 
 tasks:
-  - include: tasks/*.yaml
+  - "tasks/*.yaml"
 """
     (output_dir / "eval.yaml").write_text(eval_yaml)
 

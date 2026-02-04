@@ -2,20 +2,20 @@
 
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 from pydantic import BaseModel, Field
 
 
-class ExecutorType(str, Enum):
+class ExecutorType(StrEnum):
     """Types of executors available."""
 
     MOCK = "mock"
     COPILOT_SDK = "copilot-sdk"
 
 
-class GraderType(str, Enum):
+class GraderType(StrEnum):
     """Types of graders available."""
 
     CODE = "code"
