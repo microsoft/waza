@@ -383,12 +383,15 @@ func (r *TestRunner) loadResources(tc *models.TestCase) []execution.ResourceFile
 			// Load from file
 			fullPath := filepath.Join(fixtureDir, ref.Location)
 			content, err := os.ReadFile(fullPath)
-			if err == nil {
-				resources = append(resources, execution.ResourceFile{
-					Path:    ref.Location,
-					Content: string(content),
-				})
+			if err != nil {
+				// Log error but continue - let the test fail if resource is critical
+				fmt.Fprintf(os.Stderr, "Warning: failed to load resource file %s: %v\n", fullPath, err)
+				continue
 			}
+			resources = append(resources, execution.ResourceFile{
+				Path:    ref.Location,
+				Content: string(content),
+			})
 		}
 	}
 

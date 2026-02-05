@@ -90,7 +90,11 @@ func runCommand() error {
 		// Default to "fixtures" subdirectory in spec directory
 		fixtureDir = filepath.Join(specDir, "fixtures")
 	} else if !filepath.IsAbs(fixtureDir) {
-		fixtureDir = filepath.Join(specDir, fixtureDir)
+		// If relative, make it relative to current working directory, not spec dir
+		absFixtureDir, err := filepath.Abs(fixtureDir)
+		if err == nil {
+			fixtureDir = absFixtureDir
+		}
 	}
 
 	// Create config with both directories

@@ -109,8 +109,9 @@ func evaluateAssertion(assertion string, ctx *ValidationContext) bool {
 		return strings.Contains(ctx.Output, text)
 	}
 
-	// Default: treat as true for unknown patterns
-	return true
+	// Unknown pattern - return false to avoid false positives
+	// User should be notified that their assertion syntax is not recognized
+	return false
 }
 
 // RegexValidator validates using regex patterns

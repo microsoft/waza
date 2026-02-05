@@ -91,7 +91,10 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 
 	// Clean up any previous workspace and create fresh one
 	if e.workspace != "" {
-		os.RemoveAll(e.workspace)
+		if err := os.RemoveAll(e.workspace); err != nil {
+			// Log but don't fail - try to create new workspace anyway
+			fmt.Fprintf(os.Stderr, "Warning: failed to remove old workspace %s: %v\n", e.workspace, err)
+		}
 	}
 
 	tmpDir, err := os.MkdirTemp("", "waza-go-*")
