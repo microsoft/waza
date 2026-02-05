@@ -1,0 +1,48 @@
+# golangci-lint configuration for waza-go
+# Custom configuration with practical settings
+
+linters-settings:
+  errcheck:
+    check-type-assertions: true
+    check-blank: true
+  
+  gocyclo:
+    min-complexity: 15
+  
+  govet:
+    enable-all: true
+    disable:
+      - shadow
+  
+  misspell:
+    locale: US
+
+linters:
+  enable:
+    - errcheck
+    - gofmt
+    - goimports
+    - govet
+    - ineffassign
+    - misspell
+    - unconvert
+    - unused
+    - staticcheck
+  disable:
+    - structcheck
+    - deadcode
+    - varcheck
+
+issues:
+  exclude-rules:
+    # Exclude error checks in main.go for CLI commands
+    - path: cmd/waza/main.go
+      linters:
+        - errcheck
+  max-same-issues: 0
+  max-issues-per-linter: 0
+
+run:
+  timeout: 5m
+  tests: true
+  modules-download-mode: readonly
