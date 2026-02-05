@@ -12,12 +12,12 @@ type TestCase struct {
 	DisplayName string            `yaml:"name" json:"display_name"`
 	Summary     string            `yaml:"description,omitempty" json:"summary,omitempty"`
 	Stimulus    TestStimulus      `yaml:"inputs" json:"stimulus"`
-	Expectation TestExpectation   `yaml:"expected,omitempty" json:"expectation,omitempty"`
-	Validators  []ValidatorInline `yaml:"graders,omitempty" json:"validators,omitempty"`
-	Labels      []string          `yaml:"tags,omitempty" json:"labels,omitempty"`
-	Active      bool              `yaml:"enabled,omitempty" json:"active,omitempty"`
-	TimeoutSec  *int              `yaml:"timeout_seconds,omitempty" json:"timeout_sec,omitempty"`
-	ContextRoot string            `yaml:"context_dir,omitempty" json:"context_root,omitempty"`
+	Expectation TestExpectation    `yaml:"expected,omitempty" json:"expectation,omitempty"`
+	Validators  []ValidatorInline  `yaml:"graders,omitempty" json:"validators,omitempty"`
+	Labels      []string           `yaml:"tags,omitempty" json:"labels,omitempty"`
+	Active      *bool              `yaml:"enabled,omitempty" json:"active,omitempty"`
+	TimeoutSec  *int               `yaml:"timeout_seconds,omitempty" json:"timeout_sec,omitempty"`
+	ContextRoot string             `yaml:"context_dir,omitempty" json:"context_root,omitempty"`
 }
 
 // TestStimulus defines the input for a test
@@ -79,10 +79,14 @@ func LoadTestCase(path string) (*TestCase, error) {
 		return nil, err
 	}
 
-	// Default to enabled
-	if !tc.Active {
-		tc.Active = true
+	// Default Active to true if not specified
+	if tc.Active == nil {
+		tc.Active = boolPtr(true)
 	}
 
 	return &tc, nil
+}
+
+func boolPtr(b bool) *bool {
+	return &b
 }

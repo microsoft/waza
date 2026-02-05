@@ -145,7 +145,8 @@ func (r *TestRunner) loadTestCases() ([]*models.TestCase, error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to load test case %s: %w", path, err)
 		}
-		if tc.Active {
+		// Only include active test cases
+		if tc.Active != nil && *tc.Active {
 			testCases = append(testCases, tc)
 		}
 	}

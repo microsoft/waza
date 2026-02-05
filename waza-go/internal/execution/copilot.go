@@ -282,7 +282,3 @@ func getMapFromPayload(payload map[string]any, key string) map[string]any {
 	}
 	return nil
 }
-
-func stringPtr(s string) *string {
-	return &s
-}
