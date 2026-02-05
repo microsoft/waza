@@ -1,0 +1,15 @@
+# Binaries
+waza
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Test results
+results.json
+transcript.json
+
+# Go build artifacts
+*.test
+*.out
+*.prof
