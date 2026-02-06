@@ -63,7 +63,7 @@ jobs:
       - name: Verify Binary Execution
         run: |
           chmod +x ./waza
-          ./waza version
+          ./waza --version
       
       - name: Integration Test
         run: |
@@ -84,7 +84,7 @@ jobs:
       - name: Setup Go Environment
         uses: actions/setup-go@v5
         with:
-          go-version: '1.21'
+          go-version: '1.25'
       
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@v4
