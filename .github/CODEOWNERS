@@ -1,2 +1,4 @@
 # Default owners for everything in the repo
+# @spboyer is the primary owner, @chlowell and @richardpark-msft are additional reviewers
+# All three will be auto-assigned as reviewers on any new or opened PR
 * @spboyer @chlowell @richardpark-msft
