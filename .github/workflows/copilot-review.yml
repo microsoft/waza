@@ -1,0 +1,38 @@
+# Automatically request GitHub Copilot code review on all PRs
+name: Copilot Code Review
+
+on:
+  pull_request:
+    types: [opened, ready_for_review, reopened]
+
+permissions:
+  pull-requests: write
+
+jobs:
+  request-copilot-review:
+    runs-on: ubuntu-latest
+    # Skip draft PRs
+    if: github.event.pull_request.draft == false
+    steps:
+      - name: Request Copilot Review
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const pull_number = context.payload.pull_request.number;
+            
+            try {
+              // Request review from Copilot
+              await github.rest.pulls.requestReviewers({
+                owner,
+                repo,
+                pull_number,
+                reviewers: ['copilot-pull-request-reviewer']
+              });
+              
+              console.log(`✅ Requested Copilot review for PR #${pull_number}`);
+            } catch (error) {
+              // Copilot review might not be available for all repos
+              console.log(`⚠️ Could not request Copilot review: ${error.message}`);
+              console.log('This may be expected if Copilot code review is not enabled for this repository.');
+            }
