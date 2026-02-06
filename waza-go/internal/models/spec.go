@@ -8,15 +8,17 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// TODO: why are the JSON specs so different than the YAML? Also, when do we even use JSON?
+
 // BenchmarkSpec represents a complete evaluation specification
 type BenchmarkSpec struct {
-	SpecIdentity   `yaml:",inline"`
-	SkillName      string            `yaml:"skill" json:"skill_name"`
-	Version        string            `yaml:"version" json:"version"`
-	RuntimeOptions RuntimeOptions    `yaml:"config" json:"runtime_options"`
-	Validators     []ValidatorConfig `yaml:"graders" json:"validators"`
-	Measurements   []MeasurementDef  `yaml:"metrics" json:"measurements"`
-	TestPatterns   []string          `yaml:"tasks" json:"test_patterns"`
+	SpecIdentity `yaml:",inline"`
+	SkillName    string           `yaml:"skill"`
+	Version      string           `yaml:"version"`
+	Config       Config           `yaml:"config"`
+	Graders      []GraderConfig   `yaml:"graders"`
+	Metrics      []MeasurementDef `yaml:"metrics"`
+	Tasks        []string         `yaml:"tasks"`
 }
 
 type SpecIdentity struct {
@@ -24,8 +26,8 @@ type SpecIdentity struct {
 	Description string `yaml:"description,omitempty" json:"description,omitempty"`
 }
 
-// RuntimeOptions controls execution behavior
-type RuntimeOptions struct {
+// Config controls execution behavior
+type Config struct {
 	RunsPerTest   int            `yaml:"trials_per_task" json:"runs_per_test"`
 	TimeoutSec    int            `yaml:"timeout_seconds" json:"timeout_sec"`
 	Concurrent    bool           `yaml:"parallel" json:"concurrent"`
@@ -37,8 +39,8 @@ type RuntimeOptions struct {
 	ServerConfigs map[string]any `yaml:"mcp_servers,omitempty" json:"server_configs,omitempty"`
 }
 
-// ValidatorConfig defines a validator/grader
-type ValidatorConfig struct {
+// GraderConfig defines a validator/grader
+type GraderConfig struct {
 	Kind       string         `yaml:"type" json:"kind"`
 	Identifier string         `yaml:"name" json:"identifier"`
 	ScriptPath string         `yaml:"script,omitempty" json:"script_path,omitempty"`
@@ -78,11 +80,11 @@ func LoadBenchmarkSpec(path string) (*BenchmarkSpec, error) {
 
 // Validate checks that the spec is valid
 func (s *BenchmarkSpec) Validate() error {
-	if s.RuntimeOptions.RunsPerTest < 1 {
-		return fmt.Errorf("trials_per_task must be at least 1, got %d", s.RuntimeOptions.RunsPerTest)
+	if s.Config.RunsPerTest < 1 {
+		return fmt.Errorf("trials_per_task must be at least 1, got %d", s.Config.RunsPerTest)
 	}
-	if s.RuntimeOptions.TimeoutSec < 1 {
-		return fmt.Errorf("timeout_seconds must be at least 1, got %d", s.RuntimeOptions.TimeoutSec)
+	if s.Config.TimeoutSec < 1 {
+		return fmt.Errorf("timeout_seconds must be at least 1, got %d", s.Config.TimeoutSec)
 	}
 	return nil
 }
@@ -90,7 +92,7 @@ func (s *BenchmarkSpec) Validate() error {
 // ResolveTestFiles expands glob patterns to actual test files
 func (s *BenchmarkSpec) ResolveTestFiles(basePath string) ([]string, error) {
 	var files []string
-	for _, pattern := range s.TestPatterns {
+	for _, pattern := range s.Tasks {
 		fullPattern := filepath.Join(basePath, pattern)
 		matches, err := filepath.Glob(fullPattern)
 		if err != nil {

@@ -105,7 +105,7 @@ func (r *TestRunner) RunBenchmark(ctx context.Context) (*models.EvaluationOutcom
 	spec := r.cfg.Spec()
 	// Now that CopilotEngine is concurrency-safe (protected by mutex),
 	// we can safely use concurrent execution when configured
-	if spec.RuntimeOptions.Concurrent {
+	if spec.Config.Concurrent {
 		testOutcomes = r.runConcurrent(ctx, testCases)
 	} else {
 		testOutcomes = r.runSequential(ctx, testCases)
@@ -133,7 +133,7 @@ func (r *TestRunner) loadTestCases() ([]*models.TestCase, error) {
 
 	// Resolve test file patterns relative to the spec directory
 	testFiles := []string{}
-	for _, pattern := range spec.TestPatterns {
+	for _, pattern := range spec.Tasks {
 		fullPattern := filepath.Join(baseDir, pattern)
 		matches, err := filepath.Glob(fullPattern)
 		if err != nil {
@@ -143,7 +143,7 @@ func (r *TestRunner) loadTestCases() ([]*models.TestCase, error) {
 	}
 
 	if len(testFiles) == 0 {
-		return nil, fmt.Errorf("no test files matched patterns: %v in directory: %s", spec.TestPatterns, baseDir)
+		return nil, fmt.Errorf("no test files matched patterns: %v in directory: %s", spec.Tasks, baseDir)
 	}
 
 	var testCases []*models.TestCase
@@ -168,7 +168,7 @@ func (r *TestRunner) runSequential(ctx context.Context, testCases []*models.Test
 
 	for i, tc := range testCases {
 		// Check if we should stop on error
-		if spec.RuntimeOptions.StopOnError && i > 0 {
+		if spec.Config.StopOnError && i > 0 {
 			// Check if any previous test failed or had an error
 			for _, prevResult := range outcomes {
 				if prevResult.Status != "passed" {
@@ -207,7 +207,7 @@ func (r *TestRunner) runSequential(ctx context.Context, testCases []*models.Test
 func (r *TestRunner) runConcurrent(ctx context.Context, testCases []*models.TestCase) []models.TestOutcome {
 	// Simple concurrent implementation
 	spec := r.cfg.Spec()
-	workers := spec.RuntimeOptions.Workers
+	workers := spec.Config.Workers
 	if workers <= 0 {
 		workers = 4
 	}
@@ -266,7 +266,7 @@ func (r *TestRunner) runConcurrent(ctx context.Context, testCases []*models.Test
 
 func (r *TestRunner) runTest(ctx context.Context, tc *models.TestCase, testNum, totalTests int) models.TestOutcome {
 	spec := r.cfg.Spec()
-	runsPerTest := spec.RuntimeOptions.RunsPerTest
+	runsPerTest := spec.Config.RunsPerTest
 
 	runs := make([]models.RunResult, 0, runsPerTest)
 
@@ -372,7 +372,7 @@ func (r *TestRunner) buildExecutionRequest(tc *models.TestCase) *execution.Execu
 	resources := r.loadResources(tc)
 
 	spec := r.cfg.Spec()
-	timeout := spec.RuntimeOptions.TimeoutSec
+	timeout := spec.Config.TimeoutSec
 	if tc.TimeoutSec != nil {
 		timeout = *tc.TimeoutSec
 	}
@@ -478,7 +478,7 @@ func (r *TestRunner) runValidators(tc *models.TestCase, ctx *scoring.ValidationC
 
 	// Run global validators
 	spec := r.cfg.Spec()
-	for _, vCfg := range spec.Validators {
+	for _, vCfg := range spec.Graders {
 		validator := scoring.CreateValidator(vCfg.Kind, vCfg.Identifier, vCfg.Parameters)
 		result := validator.Validate(ctx)
 		validations[result.Identifier] = *result
@@ -604,10 +604,10 @@ func (r *TestRunner) buildOutcome(testOutcomes []models.TestOutcome, startTime t
 		BenchName:   spec.Name,
 		Timestamp:   startTime,
 		Setup: models.OutcomeSetup{
-			RunsPerTest: spec.RuntimeOptions.RunsPerTest,
-			ModelID:     spec.RuntimeOptions.ModelID,
-			EngineType:  spec.RuntimeOptions.EngineType,
-			TimeoutSec:  spec.RuntimeOptions.TimeoutSec,
+			RunsPerTest: spec.Config.RunsPerTest,
+			ModelID:     spec.Config.ModelID,
+			EngineType:  spec.Config.EngineType,
+			TimeoutSec:  spec.Config.TimeoutSec,
 		},
 		Digest: models.OutcomeDigest{
 			TotalTests:     totalTests,

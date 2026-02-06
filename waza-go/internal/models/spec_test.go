@@ -37,8 +37,8 @@ config:
 	if spec.SkillName != "test-skill" {
 		t.Errorf("Expected skill 'test-skill', got '%s'", spec.SkillName)
 	}
-	if spec.RuntimeOptions.RunsPerTest != 2 {
-		t.Errorf("Expected 2 trials, got %d", spec.RuntimeOptions.RunsPerTest)
+	if spec.Config.RunsPerTest != 2 {
+		t.Errorf("Expected 2 trials, got %d", spec.Config.RunsPerTest)
 	}
 }
 
@@ -100,13 +100,13 @@ config:
 	}
 
 	// Check loaded values
-	if spec.RuntimeOptions.RunsPerTest != 1 {
-		t.Errorf("Expected trials=1, got %d", spec.RuntimeOptions.RunsPerTest)
+	if spec.Config.RunsPerTest != 1 {
+		t.Errorf("Expected trials=1, got %d", spec.Config.RunsPerTest)
 	}
-	if spec.RuntimeOptions.TimeoutSec != 300 {
-		t.Errorf("Expected timeout=300, got %d", spec.RuntimeOptions.TimeoutSec)
+	if spec.Config.TimeoutSec != 300 {
+		t.Errorf("Expected timeout=300, got %d", spec.Config.TimeoutSec)
 	}
-	if spec.RuntimeOptions.EngineType != "mock" {
-		t.Errorf("Expected engine='mock', got '%s'", spec.RuntimeOptions.EngineType)
+	if spec.Config.EngineType != "mock" {
+		t.Errorf("Expected engine='mock', got '%s'", spec.Config.EngineType)
 	}
 }

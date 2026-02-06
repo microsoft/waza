@@ -24,7 +24,7 @@ var (
 
 func newRunCommand() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "run <spec.yaml>",
+		Use:   "run <eval.yaml>",
 		Short: "Run an evaluation benchmark",
 		Long: `Run an evaluation benchmark from a spec file.
 
@@ -83,13 +83,13 @@ func runCommandE(cmd *cobra.Command, args []string) error {
 	// Create engine based on spec
 	var engine execution.AgentEngine
 
-	switch spec.RuntimeOptions.EngineType {
+	switch spec.Config.EngineType {
 	case "mock":
-		engine = execution.NewMockEngine(spec.RuntimeOptions.ModelID)
+		engine = execution.NewMockEngine(spec.Config.ModelID)
 	case "copilot-sdk":
-		engine = execution.NewCopilotEngineBuilder(spec.RuntimeOptions.ModelID).Build()
+		engine = execution.NewCopilotEngineBuilder(spec.Config.ModelID).Build()
 	default:
-		return fmt.Errorf("unknown engine type: %s", spec.RuntimeOptions.EngineType)
+		return fmt.Errorf("unknown engine type: %s", spec.Config.EngineType)
 	}
 
 	// Create runner
@@ -107,8 +107,8 @@ func runCommandE(cmd *cobra.Command, args []string) error {
 
 	fmt.Printf("Running benchmark: %s\n", spec.Name)
 	fmt.Printf("Skill: %s\n", spec.SkillName)
-	fmt.Printf("Engine: %s\n", spec.RuntimeOptions.EngineType)
-	fmt.Printf("Model: %s\n", spec.RuntimeOptions.ModelID)
+	fmt.Printf("Engine: %s\n", spec.Config.EngineType)
+	fmt.Printf("Model: %s\n", spec.Config.ModelID)
 	fmt.Println()
 
 	outcome, err := runner.RunBenchmark(ctx)
