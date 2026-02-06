@@ -1,6 +1,7 @@
 package models
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 
@@ -9,7 +10,7 @@ import (
 
 // BenchmarkSpec represents a complete evaluation specification
 type BenchmarkSpec struct {
-	Identity       SpecIdentity      `yaml:"name,inline" json:"identity"`
+	SpecIdentity   `yaml:",inline"`
 	SkillName      string            `yaml:"skill" json:"skill_name"`
 	Version        string            `yaml:"version" json:"version"`
 	RuntimeOptions RuntimeOptions    `yaml:"config" json:"runtime_options"`
@@ -67,7 +68,23 @@ func LoadBenchmarkSpec(path string) (*BenchmarkSpec, error) {
 		return nil, err
 	}
 
+	// Validate spec
+	if err := spec.Validate(); err != nil {
+		return nil, err
+	}
+
 	return &spec, nil
+}
+
+// Validate checks that the spec is valid
+func (s *BenchmarkSpec) Validate() error {
+	if s.RuntimeOptions.RunsPerTest < 1 {
+		return fmt.Errorf("trials_per_task must be at least 1, got %d", s.RuntimeOptions.RunsPerTest)
+	}
+	if s.RuntimeOptions.TimeoutSec < 1 {
+		return fmt.Errorf("timeout_seconds must be at least 1, got %d", s.RuntimeOptions.TimeoutSec)
+	}
+	return nil
 }
 
 // ResolveTestFiles expands glob patterns to actual test files

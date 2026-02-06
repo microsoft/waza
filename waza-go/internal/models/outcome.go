@@ -4,14 +4,14 @@ import "time"
 
 // EvaluationOutcome represents the complete result of an evaluation run
 type EvaluationOutcome struct {
-	RunID        string                   `json:"run_id"`
-	SkillTested  string                   `json:"skill_tested"`
-	BenchName    string                   `json:"bench_name"`
+	RunID        string                   `json:"eval_id"`
+	SkillTested  string                   `json:"skill"`
+	BenchName    string                   `json:"eval_name"`
 	Timestamp    time.Time                `json:"timestamp"`
-	Setup        OutcomeSetup             `json:"setup"`
-	Digest       OutcomeDigest            `json:"digest"`
-	Measures     map[string]MeasureResult `json:"measures"`
-	TestOutcomes []TestOutcome            `json:"test_outcomes"`
+	Setup        OutcomeSetup             `json:"config"`
+	Digest       OutcomeDigest            `json:"summary"`
+	Measures     map[string]MeasureResult `json:"metrics"`
+	TestOutcomes []TestOutcome            `json:"tasks"`
 	Metadata     map[string]any           `json:"metadata,omitempty"`
 }
 

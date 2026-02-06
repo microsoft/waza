@@ -15,6 +15,8 @@ import (
 	"github.com/spboyer/waza/waza-go/internal/orchestration"
 )
 
+var version = "dev"
+
 func main() {
 	if err := run(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -34,7 +36,7 @@ func run() error {
 	case "run":
 		return runCommand()
 	case "version":
-		fmt.Println("waza-go v0.1.0")
+		fmt.Printf("waza-go %s\n", version)
 		return nil
 	default:
 		return fmt.Errorf("unknown command: %s", command)
@@ -135,7 +137,7 @@ func runCommand() error {
 	// Run benchmark
 	ctx := context.Background()
 
-	fmt.Printf("Running benchmark: %s\n", spec.Identity.Name)
+	fmt.Printf("Running benchmark: %s\n", spec.Name)
 	fmt.Printf("Skill: %s\n", spec.SkillName)
 	fmt.Printf("Engine: %s\n", spec.RuntimeOptions.EngineType)
 	fmt.Printf("Model: %s\n", spec.RuntimeOptions.ModelID)

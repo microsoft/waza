@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -98,11 +99,14 @@ func (r *TestRunner) RunBenchmark(ctx context.Context) (*models.EvaluationOutcom
 	testOutcomes := make([]models.TestOutcome, 0, len(testCases))
 
 	spec := r.cfg.Spec()
-	if spec.RuntimeOptions.Concurrent {
-		testOutcomes = r.runConcurrent(ctx, testCases)
-	} else {
-		testOutcomes = r.runSequential(ctx, testCases)
-	}
+	// NOTE: Although spec.RuntimeOptions.Concurrent may be set, the current
+	// AgentEngine implementation (particularly CopilotEngine) is not safe for
+	// concurrent use due to shared workspace and client state. To avoid data
+	// races and workspace/session corruption, we execute tests sequentially here.
+	// If/when engines become concurrency-safe or a per-worker engine factory is
+	// available, concurrent execution can be revisited.
+	_ = spec // Keep for documentation but suppress unused warning
+	testOutcomes = r.runSequential(ctx, testCases)
 
 	// Compute statistics
 	outcome := r.buildOutcome(testOutcomes, startTime)
@@ -157,8 +161,24 @@ func (r *TestRunner) loadTestCases() ([]*models.TestCase, error) {
 
 func (r *TestRunner) runSequential(ctx context.Context, testCases []*models.TestCase) []models.TestOutcome {
 	outcomes := make([]models.TestOutcome, 0, len(testCases))
+	spec := r.cfg.Spec()
 
 	for i, tc := range testCases {
+		// Check if we should stop on error
+		if spec.RuntimeOptions.StopOnError && i > 0 {
+			// Check if any previous test failed or had an error
+			for _, prevResult := range outcomes {
+				if prevResult.Status != "passed" {
+					r.notifyProgress(ProgressEvent{
+						EventType: "benchmark_stopped",
+						Details:   map[string]any{"reason": "fail_fast enabled and previous test failed"},
+					})
+					// Skip remaining tests
+					return outcomes
+				}
+			}
+		}
+
 		r.notifyProgress(ProgressEvent{
 			EventType:  "test_start",
 			TestName:   tc.DisplayName,
@@ -381,8 +401,38 @@ func (r *TestRunner) loadResources(tc *models.TestCase) []execution.ResourceFile
 				Content: ref.Body,
 			})
 		} else if ref.Location != "" && fixtureDir != "" {
-			// Load from file
-			fullPath := filepath.Join(fixtureDir, ref.Location)
+			// Load from file - validate path to prevent directory traversal
+			if filepath.IsAbs(ref.Location) {
+				fmt.Fprintf(os.Stderr, "Warning: absolute resource path %q rejected\n", ref.Location)
+				continue
+			}
+
+			cleanPath := filepath.Clean(ref.Location)
+			if strings.Contains(cleanPath, "..") {
+				fmt.Fprintf(os.Stderr, "Warning: resource path %q contains '..' and is rejected\n", ref.Location)
+				continue
+			}
+
+			fullPath := filepath.Join(fixtureDir, cleanPath)
+
+			// Ensure the resolved path is still within fixtureDir
+			absFixtureDir, err := filepath.Abs(fixtureDir)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: failed to get absolute path for fixture dir: %v\n", err)
+				continue
+			}
+
+			absFullPath, err := filepath.Abs(fullPath)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: failed to get absolute path for resource: %v\n", err)
+				continue
+			}
+
+			if !strings.HasPrefix(absFullPath, absFixtureDir+string(filepath.Separator)) {
+				fmt.Fprintf(os.Stderr, "Warning: resource path %q escapes fixture directory\n", ref.Location)
+				continue
+			}
+
 			content, err := os.ReadFile(fullPath)
 			if err != nil {
 				// Log error but continue - let the test fail if resource is critical
@@ -548,7 +598,7 @@ func (r *TestRunner) buildOutcome(testOutcomes []models.TestOutcome, startTime t
 	return &models.EvaluationOutcome{
 		RunID:       fmt.Sprintf("run-%d", time.Now().Unix()),
 		SkillTested: spec.SkillName,
-		BenchName:   spec.Identity.Name,
+		BenchName:   spec.Name,
 		Timestamp:   startTime,
 		Setup: models.OutcomeSetup{
 			RunsPerTest: spec.RuntimeOptions.RunsPerTest,

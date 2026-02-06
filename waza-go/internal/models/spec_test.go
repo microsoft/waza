@@ -31,8 +31,8 @@ config:
 	}
 
 	// Validate fields
-	if spec.Identity.Name != "test-benchmark" {
-		t.Errorf("Expected name 'test-benchmark', got '%s'", spec.Identity.Name)
+	if spec.Name != "test-benchmark" {
+		t.Errorf("Expected name 'test-benchmark', got '%s'", spec.Name)
 	}
 	if spec.SkillName != "test-skill" {
 		t.Errorf("Expected skill 'test-skill', got '%s'", spec.SkillName)
