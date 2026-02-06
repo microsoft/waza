@@ -2,93 +2,113 @@
 
 ## Overview
 
-This repository contains `waza`, a CLI tool for evaluating Agent Skills. When making changes, follow these guidelines to maintain consistency and quality.
+This repository contains `waza`, a CLI tool for evaluating Agent Skills. **The primary implementation is Go** (`waza-go/`). The Python implementation (`waza/`) is legacy and no longer actively developed.
 
-## Copilot SDK Usage
+When making changes, follow these guidelines to maintain consistency and quality.
 
-**IMPORTANT:** The GitHub Copilot SDK package is `copilot`, NOT `copilot_sdk`.
+## Project Tracking
 
-### Correct Import Pattern
+**Keep issues and tracking up to date:**
+- **Tracking Issue:** [#66 - Waza Platform Roadmap](https://github.com/spboyer/waza/issues/66)
+- **PRD:** [docs/PRD.md](docs/PRD.md)
+- When completing work, update the relevant GitHub issue
+- Reference issue numbers in commit messages (e.g., `feat: Add tokens command #47`)
 
-```python
-# ✅ CORRECT - Use this pattern
-from copilot import CopilotClient
+## Code Structure (Go - Primary)
 
-# ❌ WRONG - This package doesn't exist
-from copilot_sdk import create_session
+```
+waza-go/
+├── cmd/waza/              # CLI entrypoint
+│   └── main.go            # Command parsing and execution
+├── internal/
+│   ├── config/            # Configuration with functional options
+│   ├── execution/         # AgentEngine interface and implementations
+│   │   ├── engine.go      # Core engine interface
+│   │   ├── mock.go        # Mock engine for testing
+│   │   └── copilot.go     # Copilot SDK integration
+│   ├── models/            # Data structures
+│   │   ├── spec.go        # BenchmarkSpec (eval configuration)
+│   │   ├── testcase.go    # TestCase (task definition)
+│   │   └── outcome.go     # EvaluationOutcome (results)
+│   ├── orchestration/     # TestRunner for coordinating execution
+│   │   └── runner.go      # Benchmark orchestration
+│   └── scoring/           # Validator interface and implementations
+│       ├── validator.go   # Validator registry pattern
+│       └── code_validators.go  # Code and regex validators
+├── go.mod
+├── go.sum
+├── Makefile               # Build and test commands
+└── .golangci.yml          # Linter configuration
 ```
 
-### Standard SDK Usage Pattern
+## Go Naming Conventions
 
-When using the Copilot SDK for LLM calls, follow this pattern (used in `generator.py`, `executors/copilot.py`, and `cli.py`):
+The Go implementation uses idiomatic Go naming:
 
-```python
-import asyncio
-import contextlib
-import tempfile
-from copilot import CopilotClient
+| Concept | Go Name | Python Equivalent |
+|---------|---------|-------------------|
+| Eval configuration | `BenchmarkSpec` | `EvalSpec` |
+| Executor | `AgentEngine` | `BaseExecutor` |
+| Grader | `Validator` | `Grader` |
+| Task | `TestCase` | `Task` |
+| Result | `EvaluationOutcome` | `EvalResult` |
 
-async def call_llm(prompt: str, model: str = "claude-sonnet-4-20250514") -> str:
-    """Standard pattern for Copilot SDK LLM calls."""
-    # Create temp workspace (required by SDK)
-    workspace = tempfile.mkdtemp(prefix="waza-")
-    
-    # Initialize client
-    client = CopilotClient({
-        "cwd": workspace,
-        "log_level": "error",
-    })
-    await client.start()
-    
-    try:
-        # Create session
-        session = await client.create_session({
-            "model": model,
-            "streaming": True,
-        })
-        
-        # Collect response
-        output_parts: list[str] = []
-        done_event = asyncio.Event()
-        
-        def handle_event(event) -> None:
-            event_type = event.type.value if hasattr(event.type, 'value') else str(event.type)
-            if event_type == "assistant.message":
-                if hasattr(event.data, 'content') and event.data.content:
-                    output_parts.append(event.data.content)
-            elif event_type == "assistant.message_delta" and hasattr(event.data, 'delta_content') and event.data.delta_content:
-                output_parts.append(event.data.delta_content)
-            if event_type in ("session.idle", "session.error"):
-                done_event.set()
-        
-        session.on(handle_event)
-        await session.send({"prompt": prompt})
-        
-        # Wait for completion
-        with contextlib.suppress(TimeoutError):
-            await asyncio.wait_for(done_event.wait(), timeout=120)
-        
-        # Cleanup session
-        with contextlib.suppress(Exception):
-            await session.destroy()
-        
-        return "".join(output_parts)
-    finally:
-        # Always cleanup client and workspace
-        await client.stop()
-        import shutil
-        shutil.rmtree(workspace, ignore_errors=True)
+## Key Go Patterns
+
+### Functional Options for Configuration
+```go
+engine := execution.NewCopilotEngine(
+    execution.WithModel("gpt-4o"),
+    execution.WithTimeout(300 * time.Second),
+    execution.WithVerbose(true),
+)
 ```
 
-### Key SDK Concepts
+### Interface-based Design
+```go
+type AgentEngine interface {
+    Execute(ctx context.Context, testCase *models.TestCase) (*models.ExecutionResult, error)
+    Shutdown() error
+}
+```
 
-1. **CopilotClient** requires a `cwd` (working directory) - use temp directories
-2. **Sessions** are created per-conversation with model config
-3. **Events** are streamed - use event handlers to collect responses
-4. **Event types**: `assistant.message`, `assistant.message_delta`, `session.idle`, `session.error`
-5. **Always cleanup**: Stop client, destroy sessions, remove temp directories
+### Validator Registry
+```go
+registry := scoring.NewValidatorRegistry()
+registry.Register("code", &scoring.CodeValidator{})
+registry.Register("regex", &scoring.RegexValidator{})
+```
 
-### Fixture Isolation
+## Building and Testing
+
+```bash
+cd waza-go
+
+# Build
+make build
+# or: go build -o waza ./cmd/waza
+
+# Run tests
+make test
+# or: go test -v ./...
+
+# Lint
+make lint
+# or: golangci-lint run
+
+# Run evaluation
+./waza run ../examples/code-explainer/eval.yaml --context-dir ../examples/code-explainer/fixtures -v
+```
+
+## CI/CD
+
+**Go CI is required for all PRs.** Branch protection enforces:
+- `Build and Test Go Implementation` must pass
+- `Lint Go Code` must pass
+
+The workflow is defined in `.github/workflows/go-ci.yml`.
+
+## Fixture Isolation
 
 Each task execution gets a **fresh temp workspace** with fixtures copied in:
 
@@ -107,149 +127,59 @@ Each task execution gets a **fresh temp workspace** with fixtures copied in:
 
 | File | Purpose | Update When |
 |------|---------|-------------|
-| `README.md` | Main project overview, CLI commands, examples | Any CLI change, new feature |
-| `DEMO-SCRIPT.md` | Video demo walkthrough | New features, workflow changes, version bumps |
-| `docs/TUTORIAL.md` | Step-by-step user guide | New features, config options |
-| `docs/GRADERS.md` | Grader types reference | New grader types |
-| `docs/INTEGRATION-TESTING.md` | Copilot SDK usage | Executor changes, auth changes |
-| `docs/TELEMETRY.md` | Telemetry/metrics docs | New metrics, output changes |
+| `README.md` | Main project overview | Any CLI change, new feature |
+| `waza-go/README.md` | Go implementation details | Go code changes |
+| `docs/PRD.md` | Product requirements | Feature scope changes |
+| `AGENTS.md` | Agent coding guidelines | Process/pattern changes |
 
 ### Documentation Checklist
 
-When adding a new CLI option:
-- [ ] Update `README.md` CLI commands table
-- [ ] Update `README.md` common options section
-- [ ] Update `DEMO-SCRIPT.md` quick reference commands
-- [ ] Update `docs/TUTORIAL.md` relevant sections
-- [ ] Add example usage in appropriate docs
+When adding a new CLI command:
+- [ ] Update `waza-go/README.md` usage section
+- [ ] Update `README.md` if user-facing
+- [ ] Add example in appropriate docs
+- [ ] Update tracking issue #66 if related to roadmap
 
-When adding a new feature:
-- [ ] Update `README.md` with feature overview
-- [ ] Add section to `DEMO-SCRIPT.md` if demo-worthy
-- [ ] Add step-by-step in `docs/TUTORIAL.md`
-- [ ] Update any affected reference docs
+When completing a feature:
+- [ ] Close related GitHub issue with comment
+- [ ] Update tracking issue #66 checkbox
+- [ ] Update docs as needed
 
-### DEMO-SCRIPT.md Maintenance
+## Adding New Features
 
-The demo script requires special attention because it contains **hardcoded values** that must be updated:
+### Adding a CLI Command
 
-#### Version Bump Checklist
-When releasing a new version, search and update these in `DEMO-SCRIPT.md`:
+1. Add command handling in `cmd/waza/main.go`
+2. Implement logic in appropriate `internal/` package
+3. Add tests in `*_test.go` files
+4. Update `waza-go/README.md`
 
-- [ ] **Install URL**: `waza-X.Y.Z-py3-none-any.whl` (Pre-Demo Setup section)
-- [ ] **Expected output versions**: `waza vX.Y.Z` in all code block outputs
-- [ ] **Download URLs**: Any GitHub release download links
+### Adding a Validator (Grader)
 
-#### Content Accuracy Checklist
-After any rename or major change, verify:
+1. Implement `Validator` interface in `internal/scoring/`
+2. Register in `ValidatorRegistry`
+3. Add tests
+4. Document in README
 
-- [ ] **Product name**: Search for old names (e.g., "skill-eval", "Skill-eval", "Skill Eval")
-- [ ] **Package names**: Search for old package names (e.g., "skill_eval")
-- [ ] **Repo URLs**: Verify all `github.com/...` URLs point to correct repo
-- [ ] **Example paths**: Verify `examples/` paths match actual directory structure
-- [ ] **CLI output examples**: Run actual commands and verify output matches docs
-- [ ] **File structure examples**: Verify `tree` output matches actual structure
+### Adding an Engine (Executor)
 
-#### Quick Verification Commands
-```bash
-# Find version references
-grep -n "waza-[0-9]" DEMO-SCRIPT.md
-grep -n "waza v[0-9]" DEMO-SCRIPT.md
-
-# Find potential old names (adjust pattern as needed)
-grep -in "skill-eval\|skill_eval" DEMO-SCRIPT.md
-
-# Verify example commands work
-waza run examples/code-explainer/eval.yaml --executor mock -v
-```
-
-#### Common Mistakes to Avoid
-1. **Forgetting expected output blocks** - These often have version strings embedded
-2. **Mixed casing** - "Skill-eval" vs "skill-eval" vs "waza"
-3. **Install URLs** - Often overlooked in setup sections
-4. **Workflow file references** - `.github/workflows/` filenames
-
-## Code Structure
-
-```
-waza/
-├── cli.py              # CLI entrypoint (click commands)
-├── runner.py           # Eval orchestration
-├── generator.py        # SKILL.md → eval generation (includes AssistedGenerator)
-├── schemas/
-│   ├── eval_spec.py    # EvalSpec model
-│   └── task.py         # Task model
-├── executors/
-│   ├── base.py         # BaseExecutor interface
-│   ├── copilot.py      # Copilot SDK executor
-│   └── mock.py         # Mock executor for testing
-├── graders/            # Grader implementations
-└── reporters/          # Output formatters
-```
-
-## Key Patterns
-
-### Adding CLI Options
-
-1. Add option to `cli.py` command decorator
-2. Pass through to runner/executor as needed
-3. Add validation in CLI if required
-4. Update all docs (see checklist above)
-
-### Adding Task Fields
-
-1. Add field to `Task` model in `schemas/task.py`
-2. Handle in `runner.py` `_run_trial()` method
-3. Update task YAML examples in docs
-4. Add to generated tasks in `generator.py` if applicable
-
-### Adding Executor Features
-
-1. Update `BaseExecutor` interface if needed
-2. Implement in `CopilotExecutor` and `MockExecutor`
-3. Update `docs/INTEGRATION-TESTING.md`
-
-### LLM-Assisted Generation
-
-The `AssistedGenerator` class in `generator.py` uses Copilot SDK to generate better evals:
-
-1. `generate_tasks()` - Asks LLM to create realistic test tasks
-2. `generate_fixtures()` - Asks LLM for domain-appropriate fixture files  
-3. `suggest_graders()` - Asks LLM for relevant graders/assertions
-
-Falls back to pattern-based `EvalGenerator` if LLM fails.
+1. Implement `AgentEngine` interface in `internal/execution/`
+2. Add configuration options
+3. Add tests
+4. Document usage
 
 ## Code Ownership and Review
 
 ### CODEOWNERS File
 
-The `.github/CODEOWNERS` file automatically assigns reviewers to PRs based on changed files:
+The `.github/CODEOWNERS` file automatically assigns reviewers:
+- All files → @spboyer @chlowell @richardpark-msft
 
-- **Go implementation** (`waza-go/`, `*.go`, `go.mod`, `go.sum`) → @richardpark-msft
+### Branch Protection
 
-When you create a PR that modifies files matching these patterns, GitHub automatically:
-1. Requests review from the specified code owner
-2. Requires their approval if branch protection is enabled
-3. Notifies them of the PR
-
-To add new code owners:
-1. Edit `.github/CODEOWNERS`
-2. Use GitHub username format (`@username`) or team format (`@org/team-name`)
-3. Test with a draft PR to verify the pattern matches correctly
-
-## Testing
-
-```bash
-# Run tests
-pytest tests/
-
-# Run with coverage
-pytest tests/ --cov=waza
-
-# Test CLI manually
-waza --help
-waza run examples/code-explainer/eval.yaml -v
-```
+PRs to `main` require:
+- Go CI must pass (`Build and Test Go Implementation`, `Lint Go Code`)
+- Auto-merge enabled for convenience
 
 ## Commit Messages
 
@@ -257,53 +187,49 @@ Use conventional commits:
 - `feat:` New feature
 - `fix:` Bug fix
 - `docs:` Documentation only
+- `ci:` CI/CD changes
 - `chore:` Maintenance tasks
 - `refactor:` Code restructuring
+
+**Reference issues:** `feat: Add tokens command #47`
 
 ## Files to Ignore
 
 These are generated/temporary and should not be committed:
-- `transcript.json` - Conversation logs
 - `results.json` - Eval results
-- `azure-functions-eval/` - Generated test eval
-- `.venv/` - Virtual environment
-- `__pycache__/` - Python cache
+- `coverage.txt` - Test coverage
+- `waza` (binary) - Built executable
 
 ## Quick Reference
 
-### Generate eval from SKILL.md
+### Build and run
 ```bash
-# Pattern-based generation
-waza generate <SKILL.md URL or path> -o ./my-eval
-
-# LLM-assisted generation (better quality)
-waza generate <SKILL.md URL or path> -o ./my-eval --assist --model claude-opus-4.5
-
-# Generate from a specific skill in a repo (recommended - no long URLs!)
-waza generate --repo microsoft/GitHub-Copilot-for-Azure --skill azure-functions -o ./eval
+cd waza-go
+make build
+./waza run ../examples/code-explainer/eval.yaml -v
 ```
 
-### Run eval with all options
+### Run tests
 ```bash
-waza run ./eval.yaml \
-  --executor copilot-sdk \
-  --model claude-sonnet-4-20250514 \
-  --context-dir ./fixtures \
-  --log transcript.json \
-  --output results.json \
-  --suggestions-file suggestions.md \
-  -v
+cd waza-go
+make test
 ```
 
 ### Key CLI flags
-- `-v, --verbose` - Real-time conversation display
+- `-v, --verbose` - Verbose output
 - `-o, --output` - Save results JSON
-- `--log` - Save conversation transcript
-- `--context-dir` - Project files for context
-- `--executor` - mock or copilot-sdk
-- `--model` - LLM model to use
-- `--assist` - Use LLM for better task/fixture generation (generate command only)
-- `--repo` - Scan GitHub repo for skills (generate command only)
-- `--skill` - Filter to specific skill name (use with --repo or --scan)
-- `--suggestions` - Get LLM-powered improvement suggestions for failed tasks (run command)
-- `--suggestions-file` - Save suggestions to markdown file (implies --suggestions)
+- `--context-dir` - Fixtures directory
+
+## Epics and Priorities
+
+See [Tracking Issue #66](https://github.com/spboyer/waza/issues/66) for the full roadmap.
+
+| Epic | Priority | Description |
+|------|----------|-------------|
+| E1: Go CLI Foundation | P0 | Core CLI commands |
+| E2: Sensei Engine | P0 | Compliance scoring |
+| E3: Evaluation Framework | P0 | Cross-model testing |
+| E4: Token Management | P1 | Budget tracking |
+| E5: Waza Skill | P1 | Conversational interface |
+| E6: CI/CD Integration | P1 | GitHub Actions |
+| E7: AZD Extension | P2 | azd packaging |
