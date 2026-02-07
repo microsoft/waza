@@ -123,21 +123,21 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 		}
 
 		// Extract message content from Data based on event type
-		if evt.Type == "assistant.message" || evt.Type == "assistant.message_delta" {
-			if evt.Data.Message != nil {
-				event.Payload["content"] = *evt.Data.Message
-				outputParts = append(outputParts, *evt.Data.Message)
+		if evt.Type == copilot.AssistantMessage || evt.Type == copilot.AssistantMessageDelta {
+			if evt.Data.Content != nil {
+				event.Payload["content"] = *evt.Data.Content
+				outputParts = append(outputParts, *evt.Data.Content)
 			}
 		}
 
 		// Check for completion
-		if evt.Type == "session.idle" {
+		if evt.Type == copilot.SessionIdle {
 			select {
 			case <-done:
 			default:
 				close(done)
 			}
-		} else if evt.Type == "session.error" {
+		} else if evt.Type == copilot.SessionError {
 			if evt.Data.Message != nil {
 				errorMsg = *evt.Data.Message
 			}

@@ -56,16 +56,16 @@ type RunResult struct {
 	RunNumber     int                      `json:"run_number"`
 	Status        string                   `json:"status"`
 	DurationMs    int64                    `json:"duration_ms"`
-	Validations   map[string]ValidationOut `json:"validations"`
+	Validations   map[string]GraderResults `json:"validations"`
 	SessionDigest SessionDigest            `json:"session_digest"`
 	Transcript    []TranscriptEntry        `json:"transcript,omitempty"`
 	FinalOutput   string                   `json:"final_output"`
 	ErrorMsg      string                   `json:"error_msg,omitempty"`
 }
 
-type ValidationOut struct {
-	Identifier string         `json:"identifier"`
-	Kind       string         `json:"kind"`
+type GraderResults struct {
+	Name       string         `json:"identifier"`
+	Type       string         `json:"type"`
 	Score      float64        `json:"score"`
 	Passed     bool           `json:"passed"`
 	Feedback   string         `json:"feedback"`

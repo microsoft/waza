@@ -196,7 +196,7 @@ func printSummary(outcome *models.EvaluationOutcome) {
 					for _, run := range to.Runs {
 						for _, val := range run.Validations {
 							if !val.Passed {
-								fmt.Printf("    • %s: %s\n", val.Identifier, val.Feedback)
+								fmt.Printf("    • %s: %s\n", val.Name, val.Feedback)
 							}
 						}
 					}
