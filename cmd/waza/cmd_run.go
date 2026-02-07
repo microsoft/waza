@@ -137,18 +137,18 @@ func runCommandE(cmd *cobra.Command, args []string) error {
 
 func verboseProgressListener(event orchestration.ProgressEvent) {
 	switch event.EventType {
-	case "benchmark_start":
+	case orchestration.EventBenchmarkStart:
 		fmt.Printf("Starting benchmark with %d test(s)...\n\n", event.TotalTests)
-	case "test_start":
+	case orchestration.EventTestStart:
 		fmt.Printf("[%d/%d] Running test: %s\n", event.TestNum, event.TotalTests, event.TestName)
-	case "run_start":
+	case orchestration.EventRunStart:
 		fmt.Printf("  Run %d/%d...", event.RunNum, event.TotalRuns)
-	case "run_complete":
+	case orchestration.EventRunComplete:
 		duration := time.Duration(event.DurationMs) * time.Millisecond
 		fmt.Printf(" %s (%v)\n", event.Status, duration)
-	case "test_complete":
+	case orchestration.EventTestComplete:
 		fmt.Printf("  Test %s: %s\n\n", event.TestName, event.Status)
-	case "benchmark_complete":
+	case orchestration.EventBenchmarkComplete:
 		duration := time.Duration(event.DurationMs) * time.Millisecond
 		fmt.Printf("Benchmark completed in %v\n\n", duration)
 	}
@@ -156,7 +156,7 @@ func verboseProgressListener(event orchestration.ProgressEvent) {
 
 func simpleProgressListener(event orchestration.ProgressEvent) {
 	switch event.EventType {
-	case "test_complete":
+	case orchestration.EventTestComplete:
 		status := "✓"
 		if event.Status != "passed" {
 			status = "✗"
@@ -196,7 +196,7 @@ func printSummary(outcome *models.EvaluationOutcome) {
 					for _, run := range to.Runs {
 						for _, val := range run.Validations {
 							if !val.Passed {
-								fmt.Printf("    • %s: %s\n", val.Identifier, val.Feedback)
+								fmt.Printf("    • %s: %s\n", val.Name, val.Feedback)
 							}
 						}
 					}

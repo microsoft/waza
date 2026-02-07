@@ -11,8 +11,8 @@ import (
 
 	"github.com/spboyer/waza/internal/config"
 	"github.com/spboyer/waza/internal/execution"
+	"github.com/spboyer/waza/internal/graders"
 	"github.com/spboyer/waza/internal/models"
-	"github.com/spboyer/waza/internal/scoring"
 )
 
 // TestRunner orchestrates the execution of tests
@@ -29,9 +29,23 @@ type TestRunner struct {
 // ProgressListener receives progress updates
 type ProgressListener func(event ProgressEvent)
 
+// EventType represents the type of progress event
+type EventType string
+
+// EventType constants
+const (
+	EventBenchmarkStart    EventType = "benchmark_start"
+	EventBenchmarkComplete EventType = "benchmark_complete"
+	EventBenchmarkStopped  EventType = "benchmark_stopped"
+	EventTestStart         EventType = "test_start"
+	EventTestComplete      EventType = "test_complete"
+	EventRunStart          EventType = "run_start"
+	EventRunComplete       EventType = "run_complete"
+)
+
 // ProgressEvent represents a progress update
 type ProgressEvent struct {
-	EventType  string
+	EventType  EventType
 	TestName   string
 	TestNum    int
 	TotalTests int
@@ -95,7 +109,7 @@ func (r *TestRunner) RunBenchmark(ctx context.Context) (*models.EvaluationOutcom
 	}
 
 	r.notifyProgress(ProgressEvent{
-		EventType:  "benchmark_start",
+		EventType:  EventBenchmarkStart,
 		TotalTests: len(testCases),
 	})
 
@@ -115,7 +129,7 @@ func (r *TestRunner) RunBenchmark(ctx context.Context) (*models.EvaluationOutcom
 	outcome := r.buildOutcome(testOutcomes, startTime)
 
 	r.notifyProgress(ProgressEvent{
-		EventType:  "benchmark_complete",
+		EventType:  EventBenchmarkComplete,
 		DurationMs: time.Since(startTime).Milliseconds(),
 	})
 
@@ -173,7 +187,7 @@ func (r *TestRunner) runSequential(ctx context.Context, testCases []*models.Test
 			for _, prevResult := range outcomes {
 				if prevResult.Status != "passed" {
 					r.notifyProgress(ProgressEvent{
-						EventType: "benchmark_stopped",
+						EventType: EventBenchmarkStopped,
 						Details:   map[string]any{"reason": "fail_fast enabled and previous test failed"},
 					})
 					// Skip remaining tests
@@ -183,7 +197,7 @@ func (r *TestRunner) runSequential(ctx context.Context, testCases []*models.Test
 		}
 
 		r.notifyProgress(ProgressEvent{
-			EventType:  "test_start",
+			EventType:  EventTestStart,
 			TestName:   tc.DisplayName,
 			TestNum:    i + 1,
 			TotalTests: len(testCases),
@@ -193,7 +207,7 @@ func (r *TestRunner) runSequential(ctx context.Context, testCases []*models.Test
 		outcomes = append(outcomes, outcome)
 
 		r.notifyProgress(ProgressEvent{
-			EventType:  "test_complete",
+			EventType:  EventTestComplete,
 			TestName:   tc.DisplayName,
 			TestNum:    i + 1,
 			TotalTests: len(testCases),
@@ -231,7 +245,7 @@ func (r *TestRunner) runConcurrent(ctx context.Context, testCases []*models.Test
 			defer func() { <-semaphore }()
 
 			r.notifyProgress(ProgressEvent{
-				EventType:  "test_start",
+				EventType:  EventTestStart,
 				TestName:   test.DisplayName,
 				TestNum:    idx + 1,
 				TotalTests: len(testCases),
@@ -241,7 +255,7 @@ func (r *TestRunner) runConcurrent(ctx context.Context, testCases []*models.Test
 			resultChan <- result{index: idx, outcome: outcome}
 
 			r.notifyProgress(ProgressEvent{
-				EventType:  "test_complete",
+				EventType:  EventTestComplete,
 				TestName:   test.DisplayName,
 				TestNum:    idx + 1,
 				TotalTests: len(testCases),
@@ -272,7 +286,7 @@ func (r *TestRunner) runTest(ctx context.Context, tc *models.TestCase, testNum, 
 
 	for runNum := 1; runNum <= runsPerTest; runNum++ {
 		r.notifyProgress(ProgressEvent{
-			EventType:  "run_start",
+			EventType:  EventRunStart,
 			TestName:   tc.DisplayName,
 			TestNum:    testNum,
 			TotalTests: totalTests,
@@ -284,7 +298,7 @@ func (r *TestRunner) runTest(ctx context.Context, tc *models.TestCase, testNum, 
 		runs = append(runs, run)
 
 		r.notifyProgress(ProgressEvent{
-			EventType:  "run_complete",
+			EventType:  EventRunComplete,
 			TestName:   tc.DisplayName,
 			TestNum:    testNum,
 			TotalTests: totalTests,
@@ -334,17 +348,25 @@ func (r *TestRunner) executeRun(ctx context.Context, tc *models.TestCase, runNum
 	}
 
 	// Build validation context
-	vCtx := r.buildValidationContext(tc, resp)
+	vCtx := r.buildGraderContext(tc, resp)
 
-	// Run validators
-	validations := r.runValidators(tc, vCtx)
+	gradersResults, err := r.runGraders(ctx, tc, vCtx)
+
+	if err != nil {
+		return models.RunResult{
+			RunNumber:  runNum,
+			Status:     "error",
+			DurationMs: time.Since(startTime).Milliseconds(),
+			ErrorMsg:   err.Error(),
+		}
+	}
 
 	// Determine status
 	status := "passed"
 	if resp.ErrorMsg != "" {
 		status = "error"
 	} else {
-		for _, v := range validations {
+		for _, v := range gradersResults {
 			if !v.Passed {
 				status = "failed"
 				break
@@ -359,7 +381,7 @@ func (r *TestRunner) executeRun(ctx context.Context, tc *models.TestCase, runNum
 		RunNumber:     runNum,
 		Status:        status,
 		DurationMs:    resp.DurationMs,
-		Validations:   validations,
+		Validations:   gradersResults,
 		SessionDigest: r.buildSessionDigest(resp),
 		Transcript:    transcript,
 		FinalOutput:   resp.FinalOutput,
@@ -452,7 +474,7 @@ func (r *TestRunner) loadResources(tc *models.TestCase) []execution.ResourceFile
 	return resources
 }
 
-func (r *TestRunner) buildValidationContext(tc *models.TestCase, resp *execution.ExecutionResponse) *scoring.ValidationContext {
+func (r *TestRunner) buildGraderContext(tc *models.TestCase, resp *execution.ExecutionResponse) *graders.Context {
 	// Convert events to transcript entries
 	var transcript []models.TranscriptEntry
 	for _, evt := range resp.Events {
@@ -463,32 +485,42 @@ func (r *TestRunner) buildValidationContext(tc *models.TestCase, resp *execution
 		transcript = append(transcript, entry)
 	}
 
-	return &scoring.ValidationContext{
+	return &graders.Context{
 		TestCase:   tc,
 		Transcript: transcript,
 		Output:     resp.FinalOutput,
 		Outcome:    make(map[string]any),
-		DurationMs: resp.DurationMs,
+		DurationMS: resp.DurationMs,
 		Metadata:   make(map[string]any),
 	}
 }
 
-func (r *TestRunner) runValidators(tc *models.TestCase, ctx *scoring.ValidationContext) map[string]models.ValidationOut {
-	validations := make(map[string]models.ValidationOut)
+func (r *TestRunner) runGraders(ctx context.Context, tc *models.TestCase, gradersContext *graders.Context) (map[string]models.GraderResults, error) {
+	graderResults := make(map[string]models.GraderResults)
 
 	// Run global validators
 	spec := r.cfg.Spec()
 	for _, vCfg := range spec.Graders {
-		validator := scoring.CreateValidator(vCfg.Kind, vCfg.Identifier, vCfg.Parameters)
-		result := validator.Validate(ctx)
-		validations[result.Identifier] = *result
+		grader, err := graders.Create(graders.Type(vCfg.Kind), vCfg.Identifier, vCfg.Parameters)
+
+		if err != nil {
+			return nil, err
+		}
+
+		result, err := grader.Grade(ctx, gradersContext)
+
+		if err != nil {
+			return nil, err
+		}
+
+		graderResults[result.Name] = *result
 	}
 
 	// Run test-specific validators
 	for _, vCfg := range tc.Validators {
 		kind := vCfg.Kind
 		if kind == "" {
-			kind = "code"
+			return nil, fmt.Errorf("no kind associated with grader %s", vCfg.Identifier)
 		}
 
 		params := vCfg.Parameters
@@ -499,12 +531,22 @@ func (r *TestRunner) runValidators(tc *models.TestCase, ctx *scoring.ValidationC
 			params["assertions"] = vCfg.Checks
 		}
 
-		validator := scoring.CreateValidator(kind, vCfg.Identifier, params)
-		result := validator.Validate(ctx)
-		validations[result.Identifier] = *result
+		grader, err := graders.Create(graders.Type(kind), vCfg.Identifier, params)
+
+		if err != nil {
+			return nil, fmt.Errorf("failed to create grader %s: %w", vCfg.Identifier, err)
+		}
+
+		result, err := grader.Grade(ctx, gradersContext)
+
+		if err != nil {
+			return nil, fmt.Errorf("failed to run grader %s: %w", vCfg.Identifier, err)
+		}
+
+		graderResults[result.Name] = *result
 	}
 
-	return validations
+	return graderResults, nil
 }
 
 func (r *TestRunner) buildSessionDigest(resp *execution.ExecutionResponse) models.SessionDigest {
