@@ -41,7 +41,6 @@ waza-demo.sh
 suggesstions.mdsuggestions.md
 
 # Binaries
-# waza
 *.exe
 *.dll
 *.so
@@ -55,3 +54,8 @@ transcript.json
 *.test
 *.out
 *.prof
+
+# ignore common waza locations
+/waza
+/cmd/waza/waza
+
