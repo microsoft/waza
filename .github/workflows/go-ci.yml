@@ -6,12 +6,17 @@ on:
     paths:
       - 'cmd/**'
       - 'internal/**'
+      - go.mod
+      - go.sum
       - '.github/workflows/go-ci.yml'
   pull_request:
     branches: [ main, develop ]
     paths:
       - 'cmd/**'
       - 'internal/**'
+      - go.mod
+      - go.sum
+      - '.github/workflows/go-ci.yml'
 
 jobs:
   build-and-test:
