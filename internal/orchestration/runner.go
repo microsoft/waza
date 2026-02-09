@@ -3,6 +3,7 @@ package orchestration
 import (
 	"context"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"sort"
@@ -631,8 +632,8 @@ func (r *TestRunner) computeTestStats(runs []models.RunResult) *models.TestStats
 
 	passed := 0
 	totalScore := 0.0
-	minScore := 1.0
-	maxScore := 0.0
+	minScore := math.Inf(1)
+	maxScore := math.Inf(-1)
 	totalDuration := int64(0)
 	scores := make([]float64, 0, len(runs))
 
@@ -720,6 +721,8 @@ func (r *TestRunner) buildOutcome(testOutcomes []models.TestOutcome, startTime t
 	}
 }
 
+// computeAggregateScore returns the mean of per-test average scores.
+// Tests with nil Stats are treated as having an average score of 0.0.
 func (r *TestRunner) computeAggregateScore(testOutcomes []models.TestOutcome) float64 {
 	if len(testOutcomes) == 0 {
 		return 0.0
