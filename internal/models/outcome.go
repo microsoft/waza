@@ -1,6 +1,9 @@
 package models
 
-import "time"
+import (
+	"math"
+	"time"
+)
 
 // EvaluationOutcome represents the complete result of an evaluation run
 type EvaluationOutcome struct {
@@ -30,6 +33,9 @@ type OutcomeDigest struct {
 	Skipped        int     `json:"skipped"`
 	SuccessRate    float64 `json:"success_rate"`
 	AggregateScore float64 `json:"aggregate_score"`
+	MinScore       float64 `json:"min_score"`
+	MaxScore       float64 `json:"max_score"`
+	StdDev         float64 `json:"std_dev"`
 	DurationMs     int64   `json:"duration_ms"`
 }
 
@@ -95,6 +101,11 @@ type TestStats struct {
 	AvgScore      float64 `json:"avg_score"`
 	MinScore      float64 `json:"min_score"`
 	MaxScore      float64 `json:"max_score"`
+	StdDevScore   float64 `json:"std_dev_score"`
+	ScoreVariance float64 `json:"score_variance"`
+	CI95Lo        float64 `json:"ci95_lo"`
+	CI95Hi        float64 `json:"ci95_hi"`
+	Flaky         bool    `json:"flaky"`
 	AvgDurationMs int64   `json:"avg_duration_ms"`
 }
 
@@ -118,4 +129,23 @@ func (r *RunResult) AllValidationsPassed() bool {
 		}
 	}
 	return true
+}
+
+// ComputeStdDev returns the population standard deviation for a slice of float64 values.
+func ComputeStdDev(values []float64) float64 {
+	n := len(values)
+	if n == 0 {
+		return 0.0
+	}
+	sum := 0.0
+	for _, v := range values {
+		sum += v
+	}
+	mean := sum / float64(n)
+	variance := 0.0
+	for _, v := range values {
+		diff := v - mean
+		variance += diff * diff
+	}
+	return math.Sqrt(variance / float64(n))
 }

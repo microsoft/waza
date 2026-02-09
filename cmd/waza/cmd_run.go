@@ -248,6 +248,28 @@ func printSummary(outcome *models.EvaluationOutcome) {
 		}
 		fmt.Println()
 	}
+
+	// Show flaky tasks
+	var flakyTasks []models.TestOutcome
+	for _, to := range outcome.TestOutcomes {
+		if to.Stats != nil && to.Stats.Flaky {
+			flakyTasks = append(flakyTasks, to)
+		}
+	}
+	if len(flakyTasks) > 0 {
+		fmt.Println("\u26a0 Flaky Tasks (inconsistent pass/fail across trials):")
+		for _, to := range flakyTasks {
+			fmt.Printf("  - %s  pass_rate=%.0f%%  score=%.2f\u00b1%.2f  CI95=[%.2f, %.2f]\n",
+				to.DisplayName,
+				to.Stats.PassRate*100,
+				to.Stats.AvgScore,
+				to.Stats.StdDevScore,
+				to.Stats.CI95Lo,
+				to.Stats.CI95Hi,
+			)
+		}
+		fmt.Println()
+	}
 }
 
 func saveOutcome(outcome *models.EvaluationOutcome, path string) error {
