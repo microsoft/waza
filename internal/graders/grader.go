@@ -52,7 +52,7 @@ type Context struct {
 	Metadata   map[string]any
 
 	// WorkspaceDir is the sandbox folder we used for this session - it should contain any edits
-	// or other changes we've made. This can be useful for things like the [graders.FileGrader],
+	// or other changes we've made. This can be useful for things like the [FileGrader],
 	// where you want to verify artifacts or outputs.
 	WorkspaceDir string
 }
