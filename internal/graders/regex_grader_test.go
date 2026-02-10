@@ -152,7 +152,7 @@ func TestRegexGrader_Grade(t *testing.T) {
 		})
 		require.NoError(t, err)
 		require.Equal(t, "detail-test", results.Name)
-		require.Equal(t, "regex", string(results.Type))
+		require.Equal(t, models.GraderKindRegex, results.Type)
 		require.Equal(t, []string{"a"}, results.Details["must_match"])
 		require.Equal(t, []string{"z"}, results.Details["must_not_match"])
 	})
