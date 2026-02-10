@@ -180,6 +180,10 @@ func matchRegexPatterns(content, filePath string, regexPatterns []string, mustMa
 
 // validatePathInWorkspace resolves the given relative path against workspaceDir and
 // returns an error if the result escapes the workspace (e.g. via ".." traversal).
+//
+// NOTE: this isn't for security (users control the entire file, including all things that are written), but more
+// to keep people from accidentally adding in hardcoded paths, or paths to files that are outside of the
+// sandbox (ie, their tests would be considered dirty).
 func validatePathInWorkspace(workspaceDir, relPath string) error {
 	absWorkspace, err := filepath.Abs(workspaceDir)
 	if err != nil {
