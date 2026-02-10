@@ -213,7 +213,7 @@ func TestFileGrader_Grade(t *testing.T) {
 		require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "test.txt"), []byte("content"), 0644))
 
 		g, err := NewFileGrader(FileGraderArgs{Name: "test", ContentPatterns: []FileContentPattern{
-			{Path: "test.txt", MustMatch: []string{`[invalid`}},
+			{Path: "test.txt", MustMatch: []string{`[invalid`}}, //nolint:staticcheck // intentionally invalid regex for testing
 		}})
 		require.NoError(t, err)
 
@@ -230,7 +230,7 @@ func TestFileGrader_Grade(t *testing.T) {
 		tmpDir := t.TempDir()
 		require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "test.txt"), []byte("content"), 0644))
 
-		badRegexPattern := `[invalid` + `_regex`
+		badRegexPattern := `[invalid` + `_regex` //nolint:staticcheck // intentionally invalid regex for testing
 
 		g, err := NewFileGrader(FileGraderArgs{Name: "test", ContentPatterns: []FileContentPattern{
 			{Path: "test.txt", MustNotMatch: []string{badRegexPattern}}, // invalid (on purpose): no closing ]
