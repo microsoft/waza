@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"unicode/utf8"
@@ -108,8 +109,13 @@ func runCompare(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	// summarize before filtering out unchanged files so totals reflect all files, not just changed ones
 	summary := calculateSummary(comparisons)
-
+	if !showUnchanged {
+		comparisons = slices.DeleteFunc(comparisons, func(c fileComparison) bool {
+			return c.Status == "unchanged"
+		})
+	}
 	// Sort: changed first, then alphabetical
 	sort.Slice(comparisons, func(i, j int) bool {
 		ci := comparisons[i].Status != "unchanged"
@@ -129,7 +135,7 @@ func runCompare(cmd *cobra.Command, args []string) error {
 		fmt.Fprint(out, s)
 		return nil
 	}
-	fmt.Fprint(out, compareTable(comparisons, summary, baseRef, headRef, showUnchanged))
+	fmt.Fprint(out, compareTable(comparisons, summary, baseRef, headRef))
 	return nil
 }
 
@@ -306,17 +312,10 @@ func calculateSummary(comparisons []fileComparison) comparisonSummary {
 	return s
 }
 
-func compareTable(comparisons []fileComparison, summary comparisonSummary, baseRef, headRef string, showUnchanged bool) string {
+func compareTable(comparisons []fileComparison, summary comparisonSummary, baseRef, headRef string) string {
 	var sb strings.Builder
 
-	var filtered []fileComparison
-	for _, c := range comparisons {
-		if showUnchanged || c.Status != "unchanged" {
-			filtered = append(filtered, c)
-		}
-	}
-
-	if len(filtered) == 0 {
+	if len(comparisons) == 0 {
 		sb.WriteString("No changes detected.\n")
 		return sb.String()
 	}
@@ -324,7 +323,7 @@ func compareTable(comparisons []fileComparison, summary comparisonSummary, baseR
 	fmt.Fprintf(&sb, "\n📊 Token Comparison: %s → %s\n\n", baseRef, headRef)
 
 	maxPath := 4
-	for _, c := range filtered {
+	for _, c := range comparisons {
 		if len(c.File) > maxPath {
 			maxPath = len(c.File)
 		}
@@ -334,7 +333,7 @@ func compareTable(comparisons []fileComparison, summary comparisonSummary, baseR
 	sb.WriteString(header + "\n")
 	sb.WriteString(strings.Repeat("-", len(header)+10) + "\n")
 
-	for _, c := range filtered {
+	for _, c := range comparisons {
 		before := "-"
 		if c.Before != nil {
 			before = fmt.Sprintf("%d", c.Before.Tokens)
