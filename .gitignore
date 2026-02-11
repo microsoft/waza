@@ -84,8 +84,18 @@ transcript.json
 *.test
 *.out
 *.prof
+bin/
+dist/
 
 # ignore common waza locations
 /waza
 /cmd/waza/waza
+
+# Go vendor (if used)
+vendor/
+
+# Go coverage
+coverage.out
+coverage.txt
+coverage.html
 

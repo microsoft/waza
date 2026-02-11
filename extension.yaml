@@ -1,0 +1,26 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/Azure/azure-dev/main/cli/azd/extensions/extension.schema.json
+id: microsoft.azd.waza
+namespace: waza
+displayName: Waza - AI Agent Skill Evaluator
+description: A CLI for evaluating AI agent skills — scaffold eval suites, run benchmarks, and compare results across models.
+usage: azd waza <command> [options]
+version: 0.1.0
+language: go
+capabilities:
+  - custom-commands
+examples:
+  - name: init
+    description: Scaffold a new eval suite with eval.yaml, tasks/, and fixtures/ directories.
+    usage: azd waza init my-eval --interactive
+  - name: generate
+    description: Generate evals from a SKILL.md file.
+    usage: azd waza generate skills/my-skill/SKILL.md
+  - name: run
+    description: Run an evaluation benchmark from a spec file.
+    usage: azd waza run examples/code-explainer/eval.yaml --context-dir examples/code-explainer/fixtures -v
+  - name: compare
+    description: Compare results across models.
+    usage: azd waza compare results-gpt4.json results-sonnet.json
+  - name: tokens
+    description: Count tokens in skill files.
+    usage: azd waza tokens count skills/
