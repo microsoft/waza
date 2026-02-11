@@ -9,4 +9,5 @@
 ## Learnings
 
 <!-- Append new learnings below. Each entry is something lasting about the project. -->
+📌 Team update (2026-02-11): Run command tests must reset package-level flag vars (contextDir, outputPath, verbose) at top of each test body to prevent state leakage. — decided by Linus
 <!-- Append new learnings below. -->

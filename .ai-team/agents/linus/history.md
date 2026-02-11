@@ -21,4 +21,8 @@
 - **Mock engine (`execution.NewMockEngine`)** — Returns deterministic responses. Useful for testing the full pipeline without a real Copilot SDK connection. Spec YAML with `executor: mock` triggers it.
 - **Fixture isolation** — The runner resolves `--context-dir` relative to CWD and task glob patterns relative to the spec file directory. Tests use `t.TempDir()` for full isolation.
 - **Shared workspace hazard** — Multiple agents may work concurrently in this repo. Always verify `git branch --show-current` before committing; stash operations can carry changes across branches.
+- **Nil session pattern (#105 review fix):** Graders that depend on `SessionDigest` must return a graceful zero-score `GraderResults` (not an error) when `session == nil`. The runner treats grader errors differently from zero-score results — errors may abort the run while zero-scores are recorded as failed validations. Follow `behavior_grader.go` as the canonical pattern. Fixed in `action_sequence_grader.go` per PR #110 review from Rusty.
+📌 Team update (2026-02-11): Grader nil-session error handling contract — all graders depending on SessionDigest must return zero-score GraderResults with nil error when session is nil, not (nil, error). — decided by Rusty
+
+📌 Team update (2026-02-11): PR #103 azd extension packaging approved and merged. Registry URLs need update to spboyer/waza for production. — decided by Rusty
 <!-- Append new learnings below. -->

@@ -102,6 +102,14 @@ func Create(graderType models.GraderKind, identifier string, params map[string]a
 		}
 
 		return NewBehaviorGrader(identifier, v)
+	case models.GraderKindActionSequence:
+		var v ActionSequenceGraderParams
+
+		if err := mapstructure.Decode(params, &v); err != nil {
+			return nil, err
+		}
+
+		return NewActionSequenceGrader(identifier, v)
 	case models.GraderKindPrompt, models.GraderKindKeyword, models.GraderKindJSONSchema, models.GraderKindProgram:
 		return nil, fmt.Errorf("'%s' is not yet implemented", graderType)
 	default:
