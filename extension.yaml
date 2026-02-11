@@ -8,6 +8,7 @@ version: 0.1.0
 language: go
 capabilities:
   - custom-commands
+  - metadata
 examples:
   - name: init
     description: Scaffold a new eval suite with eval.yaml, tasks/, and fixtures/ directories.
