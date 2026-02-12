@@ -8,7 +8,7 @@ Waza is available as an [azd extension](https://learn.microsoft.com/azure/develo
 
 ```bash
 # Add the waza extension registry
-azd ext source add waza https://raw.githubusercontent.com/spboyer/waza/main/registry.json
+azd ext source add -n waza -t url -l https://raw.githubusercontent.com/spboyer/waza/main/registry.json
 
 # Install the extension
 azd ext install microsoft.azd.waza
