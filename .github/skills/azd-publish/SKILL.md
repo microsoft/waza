@@ -99,8 +99,8 @@ Perform these updates:
 
 4. **Update comparison links** at the bottom of the file:
    ```markdown
-   [Unreleased]: https://github.com/spboyer/waza/compare/vX.Y.Z...HEAD
-   [X.Y.Z]: https://github.com/spboyer/waza/compare/vPREVIOUS...vX.Y.Z
+   [Unreleased]: https://github.com/spboyer/waza/compare/azd-ext-microsoft-azd-waza_X.Y.Z...HEAD
+   [X.Y.Z]: https://github.com/spboyer/waza/compare/azd-ext-microsoft-azd-waza_PREVIOUS...azd-ext-microsoft-azd-waza_X.Y.Z
    ```
 
 5. **Clear the Unreleased section**: Leave `## [Unreleased]` with empty subsections or blank.
