@@ -132,10 +132,14 @@ func runCompare(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return err
 		}
-		fmt.Fprint(out, s)
+		if _, err := fmt.Fprint(out, s); err != nil {
+			return fmt.Errorf("writing output: %w", err)
+		}
 		return nil
 	}
-	fmt.Fprint(out, compareTable(comparisons, summary, baseRef, headRef))
+	if _, err := fmt.Fprint(out, compareTable(comparisons, summary, baseRef, headRef)); err != nil {
+		return fmt.Errorf("writing output: %w", err)
+	}
 	return nil
 }
 

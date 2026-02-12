@@ -134,7 +134,7 @@ func sortResults(results []FileResult, by string) {
 
 func outputCountTable(w io.Writer, results []FileResult, showTotal bool) {
 	if len(results) == 0 {
-		fmt.Fprintln(w, "No markdown files found.")
+		fmt.Fprintln(w, "No markdown files found.") //nolint:errcheck
 		return
 	}
 
@@ -146,23 +146,23 @@ func outputCountTable(w io.Writer, results []FileResult, showTotal bool) {
 	}
 
 	header := fmt.Sprintf("%-*s  %8s  %8s  %6s", maxPath, "File", "Tokens", "Chars", "Lines")
-	fmt.Fprintln(w, header)
-	fmt.Fprintln(w, strings.Repeat("-", len(header)))
+	fmt.Fprintln(w, header)                           //nolint:errcheck
+	fmt.Fprintln(w, strings.Repeat("-", len(header))) //nolint:errcheck
 
 	for _, r := range results {
-		fmt.Fprintf(w, "%-*s  %8d  %8d  %6d\n", maxPath, r.Path, r.Tokens, r.Characters, r.Lines)
+		fmt.Fprintf(w, "%-*s  %8d  %8d  %6d\n", maxPath, r.Path, r.Tokens, r.Characters, r.Lines) //nolint:errcheck
 	}
 
 	if showTotal {
-		fmt.Fprintln(w, strings.Repeat("-", len(header)))
+		fmt.Fprintln(w, strings.Repeat("-", len(header))) //nolint:errcheck
 		var totalTokens, totalChars, totalLines int
 		for _, r := range results {
 			totalTokens += r.Tokens
 			totalChars += r.Characters
 			totalLines += r.Lines
 		}
-		fmt.Fprintf(w, "%-*s  %8d  %8d  %6d\n", maxPath, "Total", totalTokens, totalChars, totalLines)
-		fmt.Fprintf(w, "\n%d file(s) scanned\n", len(results))
+		fmt.Fprintf(w, "%-*s  %8d  %8d  %6d\n", maxPath, "Total", totalTokens, totalChars, totalLines) //nolint:errcheck
+		fmt.Fprintf(w, "\n%d file(s) scanned\n", len(results))                                         //nolint:errcheck
 	}
 }
 

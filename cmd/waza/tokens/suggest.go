@@ -121,7 +121,7 @@ func runSuggest(cmd *cobra.Command, args []string) error {
 		engine := newChatEngine(modelID)
 		defer func() {
 			if shutdownErr := engine.Shutdown(cmd.Context()); shutdownErr != nil {
-				fmt.Fprintf(errOut, "⚠️  error shutting down Copilot engine: %v\n", shutdownErr)
+				fmt.Fprintf(errOut, "⚠️  error shutting down Copilot engine: %v\n", shutdownErr) //nolint:errcheck
 			}
 		}()
 
@@ -185,7 +185,7 @@ func runSuggest(cmd *cobra.Command, args []string) error {
 				return ctx.Err()
 			}
 			if r.err != nil {
-				fmt.Fprintf(errOut, "⚠️  %s\n", r.err)
+				fmt.Fprintf(errOut, "⚠️  %s\n", r.err) //nolint:errcheck
 				continue
 			}
 			analyses = append(analyses, r.analysis)
@@ -195,7 +195,7 @@ func runSuggest(cmd *cobra.Command, args []string) error {
 		for _, f := range files {
 			a, err := analyzeFile(counter, f, rootDir, cfg)
 			if err != nil {
-				fmt.Fprintf(errOut, "⚠️  Error analyzing %s: %s\n", f, err)
+				fmt.Fprintf(errOut, "⚠️  Error analyzing %s: %s\n", f, err) //nolint:errcheck
 				continue
 			}
 			analyses = append(analyses, *a)
@@ -212,10 +212,10 @@ func runSuggest(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return err
 		}
-		fmt.Fprint(out, s)
+		fmt.Fprint(out, s) //nolint:errcheck
 		return nil
 	}
-	fmt.Fprint(out, suggestionText(analyses))
+	fmt.Fprint(out, suggestionText(analyses)) //nolint:errcheck
 	return nil
 }
 
@@ -501,11 +501,11 @@ func startSpinner(w io.Writer) func() {
 		for {
 			select {
 			case <-done:
-				fmt.Fprintf(w, "\r%s\r", strings.Repeat(" ", len(msg)+1))
+				fmt.Fprintf(w, "\r%s\r", strings.Repeat(" ", len(msg)+1)) //nolint:errcheck
 				close(cleared)
 				return
 			case <-time.After(80 * time.Millisecond):
-				fmt.Fprintf(w, "\r%s%s", frames[i%len(frames)], msg)
+				fmt.Fprintf(w, "\r%s%s", frames[i%len(frames)], msg) //nolint:errcheck
 				i++
 			}
 		}

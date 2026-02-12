@@ -143,7 +143,9 @@ func runCheck(cmd *cobra.Command, args []string) error {
 	}
 
 	if !quiet {
-		fmt.Fprint(cmd.OutOrStdout(), output)
+		if _, err := fmt.Fprint(cmd.OutOrStdout(), output); err != nil {
+			return fmt.Errorf("writing output: %w", err)
+		}
 	}
 
 	return nil

@@ -119,7 +119,7 @@ func (isg *InlineScriptGrader) runScript(ctx context.Context, gradingContext *Co
 
 	if err != nil {
 		// let's not quit the entire thing, but we can mark this failure.
-		return nil, 0, fmt.Errorf("Failed: script conversion failed for assertions: %w", err)
+		return nil, 0, fmt.Errorf("failed: script conversion failed for assertions: %w", err)
 	}
 
 	tempScriptFile, err := os.CreateTemp("", "waza-inline-script-*."+isg.scriptExt)
@@ -129,7 +129,7 @@ func (isg *InlineScriptGrader) runScript(ctx context.Context, gradingContext *Co
 	}
 
 	defer func() {
-		_ = os.Remove(tempScriptFile.Name())
+		os.Remove(tempScriptFile.Name()) //nolint:errcheck
 	}()
 
 	if _, err := tempScriptFile.Write([]byte(isg.scriptContents)); err != nil {
