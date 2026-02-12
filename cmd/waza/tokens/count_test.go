@@ -19,12 +19,12 @@ func TestCount_TableFormat(t *testing.T) {
 
 	expected := `File                                Tokens     Chars   Lines
 ------------------------------------------------------------
-testdata/count/README.md                 7        27       2
-testdata/count/SKILL.md                402      1608      84
-testdata/count/references/one.md         9        35       2
-testdata/count/references/two.md        10        40       2
+testdata/count/README.md                 7        27       1
+testdata/count/SKILL.md                402      1608      83
+testdata/count/references/one.md         9        35       1
+testdata/count/references/two.md        10        40       1
 ------------------------------------------------------------
-Total                                  428      1710      90
+Total                                  428      1710      86
 
 4 file(s) scanned
 `
@@ -52,10 +52,10 @@ func TestCount_JSONFormat(t *testing.T) {
 	}
 
 	expected := map[string]countFileEntry{
-		"testdata/count/README.md":         {Tokens: 7, Characters: 27, Lines: 2},
-		"testdata/count/SKILL.md":          {Tokens: 402, Characters: 1608, Lines: 84},
-		"testdata/count/references/one.md": {Tokens: 9, Characters: 35, Lines: 2},
-		"testdata/count/references/two.md": {Tokens: 10, Characters: 40, Lines: 2},
+		"testdata/count/README.md":         {Tokens: 7, Characters: 27, Lines: 1},
+		"testdata/count/SKILL.md":          {Tokens: 402, Characters: 1608, Lines: 83},
+		"testdata/count/references/one.md": {Tokens: 9, Characters: 35, Lines: 1},
+		"testdata/count/references/two.md": {Tokens: 10, Characters: 40, Lines: 1},
 	}
 	for file, want := range expected {
 		got := result.Files[file]
@@ -151,7 +151,7 @@ func TestCount_SpecificPath(t *testing.T) {
 	entry := result.Files["testdata/count/SKILL.md"]
 	require.Equal(t, 402, entry.Tokens)
 	require.Equal(t, 1608, entry.Characters)
-	require.Equal(t, 84, entry.Lines)
+	require.Equal(t, 83, entry.Lines)
 }
 
 func TestCount_DirectoryPath(t *testing.T) {

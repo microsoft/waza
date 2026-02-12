@@ -266,20 +266,6 @@ func compareRefs(baseRef, headRef, rootDir string) ([]fileComparison, error) {
 	return comparisons, nil
 }
 
-// countLines returns the number of lines in s. An empty string has 0 lines.
-// A trailing newline does not count as an additional line (matches wc -l behavior
-// for files that end with a newline).
-func countLines(s string) int {
-	if s == "" {
-		return 0
-	}
-	n := strings.Count(s, "\n")
-	if !strings.HasSuffix(s, "\n") {
-		n++
-	}
-	return n
-}
-
 func calculateSummary(comparisons []fileComparison) comparisonSummary {
 	var s comparisonSummary
 	for _, c := range comparisons {

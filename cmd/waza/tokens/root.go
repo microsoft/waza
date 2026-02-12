@@ -11,10 +11,12 @@ func NewCommand() *cobra.Command {
 		Long: `Analyze token counts in markdown files. Subcommands:
   check     Check files against token limits
   compare   Compare tokens between git refs
-  count     Count tokens in markdown files`,
+  count     Count tokens in markdown files
+  suggest   Get optimization suggestions`,
 	}
 	cmd.AddCommand(newCheckCmd())
 	cmd.AddCommand(newCompareCmd())
 	cmd.AddCommand(newCountCmd())
+	cmd.AddCommand(newSuggestCmd())
 	return cmd
 }

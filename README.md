@@ -22,6 +22,9 @@ make build
 
 # Count tokens in skill files
 ./waza tokens count skills/
+
+# Suggest token optimizations
+./waza tokens suggest skills/
 ```
 
 ## Commands
@@ -75,6 +78,18 @@ Count tokens in markdown files. Paths may be files or directories (scanned recur
 | `--sort <field>` | Sort by: `tokens`, `name`, or `path` (default: `path`) |
 | `--min-tokens <n>` | Filter files below n tokens |
 | `--no-total` | Hide total row in table output |
+
+### `waza tokens suggest [paths...]`
+
+Suggest ways to reduce token usage in markdown files. Paths may be files or
+directories (scanned recursively for `.md`/`.mdx`).
+
+| Flag | Description |
+|------|-------------|
+| `--format <fmt>` | Output format: `text` or `json` (default: `text`) |
+| `--min-savings <n>` | Minimum estimated token savings for heuristic suggestions |
+| `--copilot` | Enable Copilot-powered suggestions |
+| `--model <id>` | Model to use with `--copilot` |
 
 ## Building
 

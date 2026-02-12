@@ -12,9 +12,7 @@ import (
 )
 
 const (
-	// fallbackLimit is the default token limit for files that match no pattern.
-	fallbackLimit = 2000
-	// maxPatternLength prevents ReDoS attacks on glob patterns.
+	fallbackLimit    = 2000
 	maxPatternLength = 500
 )
 

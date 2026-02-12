@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -92,10 +93,15 @@ func runCheck(cmd *cobra.Command, args []string) error {
 	counter := tokens.NewEstimatingCounter()
 	var results []checkResult
 	for _, f := range files {
-		r, err := countFile(counter, f, rootDir)
+		content, err := os.ReadFile(f)
 		if err != nil {
 			return fmt.Errorf("⚠️  Error reading %s: %w", f, err)
 		}
+		rel, err := filepath.Rel(rootDir, f)
+		if err != nil {
+			rel = f
+		}
+		r := countTokens(counter, string(content), rel)
 
 		lr := internal.GetLimitForFile(r.Path, cfg)
 		results = append(results, checkResult{

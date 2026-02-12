@@ -5,18 +5,21 @@ linters-settings:
   errcheck:
     check-type-assertions: true
     check-blank: true
-  
+
   gocyclo:
     min-complexity: 15
-  
+
   govet:
     enable-all: true
     disable:
       - shadow
       - fieldalignment
-  
+
   misspell:
     locale: US
+    extra-words:
+      - typo: "analyses"
+        correction: "analyses"
 
 linters:
   enable:
