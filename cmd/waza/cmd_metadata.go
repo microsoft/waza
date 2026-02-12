@@ -8,7 +8,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// metadataSchemaVersion must match the azd extension framework's expected schema version.
 const metadataSchemaVersion = "1.0"
+
+// extensionID is the registered azd extension identifier for waza.
 const extensionID = "microsoft.azd.waza"
 
 func newMetadataCommand(rootCmd *cobra.Command) *cobra.Command {
