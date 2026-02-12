@@ -1,6 +1,11 @@
 name: Publish azd Extension
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - 'version.txt'
+      - 'extension.yaml'
   workflow_dispatch:
     inputs:
       version:
@@ -69,7 +74,8 @@ jobs:
       - name: Release Extension
         run: |
           PRERELEASE_FLAG=""
-          if [ "${{ inputs.prerelease }}" = "true" ]; then
+          PRERELEASE="${{ inputs.prerelease }}"
+          if [ "$PRERELEASE" = "true" ] || [ -z "$PRERELEASE" ]; then
             PRERELEASE_FLAG="--prerelease"
           fi
 
