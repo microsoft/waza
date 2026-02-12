@@ -77,7 +77,7 @@ jobs:
             --repo spboyer/waza \
             --version "$VERSION" \
             --title "Waza azd Extension v${VERSION}" \
-            --notes "Release v${VERSION} of the waza azd extension" \
+            --notes-file "./CHANGELOG.md" \
             --artifacts "./artifacts/*.zip,./artifacts/*.tar.gz" \
             $PRERELEASE_FLAG \
             --confirm
