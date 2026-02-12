@@ -151,3 +151,8 @@ jobs:
             --head "$BRANCH")
 
           echo "Created PR: $PR_URL"
+
+          # Auto-merge: registry-only PRs from the bot don't trigger CI checks,
+          # so we merge with --admin to bypass required status checks.
+          gh pr merge "$PR_URL" --squash --admin --delete-branch
+          echo "Auto-merged registry PR"
