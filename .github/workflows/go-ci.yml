@@ -3,20 +3,8 @@ name: Go Build and Test
 on:
   push:
     branches: [ main, develop ]
-    paths:
-      - 'cmd/**'
-      - 'internal/**'
-      - go.mod
-      - go.sum
-      - '.github/workflows/**'
   pull_request:
     branches: [ main, develop ]
-    paths:
-      - 'cmd/**'
-      - 'internal/**'
-      - go.mod
-      - go.sum
-      - '.github/workflows/**'
 
 jobs:
   build-and-test:
