@@ -41,3 +41,25 @@
 **Related:** PR #110
 **What:** All graders depending on `SessionDigest` must return a zero-score `GraderResults` with `nil` error when session is nil — not `(nil, error)`. Matches `behavior_grader.go` pattern (lines 56-62). Returning an error would abort the entire run instead of gracefully recording a zero score.
 **Why:** Runner distinguishes grader errors (may abort) from zero-score results (contribute to scoring). Affects `action_sequence_grader.go` and future session-dependent graders.
+
+### 2026-02-11: PR #111 approved — tokens compare command
+**By:** Rusty (Lead)
+**What:** Approved Charles Lowell's `waza tokens compare` implementation. New `internal/git` package lives under `cmd/waza/tokens/internal/git/` — correctly scoped as a tokens-internal dependency. Command follows established Cobra factory patterns (`newCompareCmd()`). Closes #51 (E4: Token Management).
+**Why:** Clean architecture, comprehensive tests, CI green. One non-blocking nit: `RefExists()` is dead code. No security concerns.
+
+### 2026-02-12: azd-publish skill location convention
+**By:** Wallace Breza (via Copilot)
+**What:** The azd-publish skill is a repo-level skill (lives at `.github/skills/azd-publish/`), NOT part of the project eval skills under `skills/`. Repo-level automation skills go under `.github/skills/`, project eval skills go under `skills/`.
+**Why:** User request — captured for team memory
+
+### 2026-02-12: azd extension uses non-standard tag pattern
+**By:** Linus (Backend Dev)
+**Related:** PR #113, E7
+**What:** The azd extension release pipeline uses tags of the form `azd-ext-microsoft-azd-waza_VERSION` (e.g., `azd-ext-microsoft-azd-waza_0.2.0`), not `vVERSION`. Any tooling or documentation that references version tags for the azd extension must use this pattern. The SKILL.md comparison link examples have been updated accordingly.
+**Why:** The `azd-publish` skill's Step 5 instructions referenced `vX.Y.Z` tags which don't match the actual tag convention, leading to broken comparison links in changelogs.
+
+### 2026-02-12: PR #115 review feedback addressed
+**By:** Linus (Backend Dev)
+**Related:** PR #115, E7 (#62)
+**What:** Rebased `feat/metadata-capability` onto latest `main` (797f72c), resolved `.golangci.yml` conflict (kept v2 format with `version: "2"` header), added doc comments on `metadataSchemaVersion` and `extensionID` constants per Rusty's review. All 4 metadata tests pass. Force-pushed to `wbreza/feat/metadata-capability`.
+**Why:** PR had merge conflicts after main advanced; review requested clarifying comments on constants.

@@ -8,7 +8,7 @@ on:
       - 'internal/**'
       - go.mod
       - go.sum
-      - '.github/workflows/go-ci.yml'
+      - '.github/workflows/**'
   pull_request:
     branches: [ main, develop ]
     paths:
@@ -16,7 +16,7 @@ on:
       - 'internal/**'
       - go.mod
       - go.sum
-      - '.github/workflows/go-ci.yml'
+      - '.github/workflows/**'
 
 jobs:
   build-and-test:

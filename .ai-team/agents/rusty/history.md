@@ -57,3 +57,7 @@
 - **Alignment:** Directly advances E7 (AZD Extension). Completes metadata discovery story alongside PR #113 (release pipeline).
 - **CI:** Both build/test and lint failing (gofmt + golangci-lint version mismatch).
 - **Lesson:** When adding dependencies that require a Go version bump, check that CI toolchain (especially golangci-lint) supports the new version. Coordinate go.mod and CI workflow changes in the same PR.
+
+📌 Team update (2026-02-12): azd-publish skill location convention — repo-level skills go under `.github/skills/`, project eval skills go under `skills/`. — decided by Wallace Breza
+📌 Team update (2026-02-12): azd extension uses tag pattern `azd-ext-microsoft-azd-waza_VERSION`, not `vVERSION`. — decided by Linus
+📌 Team update (2026-02-12): PR #115 review feedback addressed — Linus rebased, resolved conflicts, added doc comments per review. — decided by Linus
