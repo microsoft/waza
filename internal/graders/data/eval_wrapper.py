@@ -1,6 +1,5 @@
 import json
 import sys
-from typing import Any, TypedDict
 import re
 
 ## NOTE: if you're editing this file do NOT print to stdout - we parse that in the caller to determine
