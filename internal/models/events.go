@@ -21,7 +21,7 @@ type TranscriptEvent struct {
 func (te TranscriptEvent) MarshalJSON() ([]byte, error) {
 	v := struct {
 		Content *string                  `json:"content,omitempty"`
-		Type    copilot.SessionEventType `json:"type,omitempty"`
+		Type    copilot.SessionEventType `json:"type"`
 
 		Message *string `json:"message,omitempty"`
 
