@@ -7,11 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-02-12
+
 ### Added
 
+- `waza dev` command for interactive skill development and testing (#117)
+- Prerelease input to azd publish workflow
+- CHANGELOG.md as release notes source for azd extension releases
 - `waza generate --skill <name>` - Filter to specific skill when using `--repo` or `--scan`
-  - Avoids need for long raw GitHub URLs
-  - Example: `waza generate --repo microsoft/GitHub-Copilot-for-Azure --skill azure-functions`
+
+### Fixed
+
+- Fixed azd extensions documentation link
+- Corrected `azd ext source add` command syntax
+- Branch release PR from origin/main to avoid workflow permission error (#121)
+
+### Changed
+
+- Removed path filters from Go CI to unblock non-code PRs
+- Removed auto-merge from azd publish PR workflow
+- Added azd extension installation instructions to README
 
 ## [0.2.0] - 2026-02-02
 
@@ -121,7 +136,8 @@ pip install waza
 - YAML escaping for regex patterns with backslashes
 - Progress bar now shows 100% on completion
 
-[Unreleased]: https://github.com/spboyer/waza/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/spboyer/waza/compare/azd-ext-microsoft-azd-waza_0.2.1...HEAD
+[0.2.1]: https://github.com/spboyer/waza/compare/azd-ext-microsoft-azd-waza_0.2.0...azd-ext-microsoft-azd-waza_0.2.1
 [0.2.0]: https://github.com/spboyer/waza/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/spboyer/waza/compare/v0.0.2...v0.1.0
 [0.0.2]: https://github.com/spboyer/waza/compare/v0.0.1...v0.0.2
