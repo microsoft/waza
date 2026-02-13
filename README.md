@@ -172,6 +172,18 @@ graders:
     name: pattern_check
     config:
       must_match: ["\\d+ tests passed"]
+  
+  - type: behavior
+    name: efficiency
+    config:
+      max_tool_calls: 20
+      max_duration_ms: 300000
+  
+  - type: action_sequence
+    name: workflow_check
+    config:
+      matching_mode: in_order_match
+      expected_actions: ["bash", "edit", "report_progress"]
 
 tasks:
   - "tasks/*.yaml"
@@ -199,6 +211,20 @@ jobs:
 3. The workflow automatically runs on PRs that modify evaluation files or skills
 
 See [`examples/ci/README.md`](examples/ci/README.md) for detailed documentation and more examples.
+
+### Available Grader Types
+
+Waza supports multiple grader types for comprehensive evaluation:
+
+| Grader | Purpose | Documentation |
+|--------|---------|---------------|
+| `code` | Python/JavaScript assertion-based validation | [docs/GRADERS.md](docs/GRADERS.md#code---assertion-based-grader) |
+| `regex` | Pattern matching in output | [docs/GRADERS.md](docs/GRADERS.md#regex---pattern-matching-grader) |
+| `behavior` | Agent behavior constraints (tool calls, tokens, duration) | [docs/GRADERS.md](docs/GRADERS.md#behavior---agent-behavior-validation) |
+| `action_sequence` | Tool call sequence validation with F1 scoring | [docs/GRADERS.md](docs/GRADERS.md#action_sequence---tool-call-sequence-validation) |
+| `prompt` | LLM-as-judge evaluation with rubrics (planned) | [docs/GRADERS.md](docs/GRADERS.md#prompt---llm-based-evaluation) |
+
+See the complete [Grader Reference](docs/GRADERS.md) for detailed configuration options and examples.
 
 ## Contributing
 
