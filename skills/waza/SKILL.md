@@ -23,7 +23,7 @@ When user says "waza help" or asks how to use waza:
 ║    waza init [directory]       # Initialize a new eval suite     ║
 ║    waza generate <SKILL.md>    # Generate eval from SKILL.md     ║
 ║    waza compare <r1> <r2> ...  # Compare result files            ║
-║    waza dev                    # Improve SKILL.md frontmatter    ║
+║    waza dev [skill-path]       # Improve SKILL.md compliance     ║
 ║                                                                  ║
 ║  RUN FLAGS:                                                      ║
 ║    --context-dir, -c   Fixtures directory (default: ./fixtures)  ║
@@ -39,6 +39,11 @@ When user says "waza help" or asks how to use waza:
 ║                                                                  ║
 ║  GENERATE FLAGS:                                                 ║
 ║    --output-dir, -d    Output directory for generated files      ║
+║                                                                  ║
+║  DEV FLAGS:                                                      ║
+║    --target            Adherence level: low|medium|high          ║
+║    --max-iterations    Max improvement iterations (default: 5)   ║
+║    --auto              Auto-apply without prompting              ║
 ║                                                                  ║
 ║  WORKFLOW:                                                       ║
 ║    1. waza init my-eval        # Scaffold eval suite             ║
@@ -123,7 +128,33 @@ Shows per-task score deltas, pass rate differences, and aggregate statistics.
 
 ### `waza dev`
 
-Iterate on SKILL.md frontmatter with compliance scoring and improvement suggestions.
+Iteratively improve SKILL.md frontmatter compliance with automated scoring.
+
+```bash
+# Score current skill and suggest improvements
+waza dev skills/my-skill
+
+# Target high compliance level
+waza dev skills/my-skill --target high
+
+# Auto-apply improvements without prompts
+waza dev skills/my-skill --target medium --auto --max-iterations 3
+```
+
+**Compliance Levels:**
+- **Low** (< 150 chars or no triggers) — Minimal description
+- **Medium** (150+ chars, has triggers) — Basic trigger coverage
+- **Medium-High** (+ anti-triggers) — Routing clarity improved
+- **High** (+ routing markers like INVOKES/FOR SINGLE OPERATIONS) — Full compliance
+
+**Scoring Checks:**
+- Description length (150+ chars required, 1024 max)
+- Trigger phrases (USE FOR: patterns)
+- Anti-trigger phrases (DO NOT USE FOR: patterns)
+- Routing clarity markers (**WORKFLOW SKILL**, INVOKES:, etc.)
+- Token budget (500 soft limit, 5000 hard limit)
+
+**Coming Soon:** Trigger accuracy tests (#36), `--skip-integration` (#37), `--fast` (#38), improvement suggestions engine (#34).
 
 ## Evaluation Spec Format
 
