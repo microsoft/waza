@@ -10,7 +10,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/spboyer/waza/cmd/waza/tokens/internal/tokens"
+	"github.com/spboyer/waza/internal/tokens"
 	"github.com/spf13/cobra"
 )
 
@@ -84,10 +84,15 @@ func runCount(cmd *cobra.Command, args []string) error {
 	counter := tokens.NewEstimatingCounter()
 	var results []FileResult
 	for _, f := range files {
-		r, err := countFile(counter, f, rootDir)
+		content, err := os.ReadFile(f)
 		if err != nil {
-			return fmt.Errorf("⚠️  Error reading %s: %s\n", f, err)
+			return fmt.Errorf("⚠️  Error reading %s: %w", f, err)
 		}
+		rel, err := filepath.Rel(rootDir, f)
+		if err != nil {
+			rel = f
+		}
+		r := countTokens(counter, string(content), rel)
 		if r.Tokens >= minTokens {
 			results = append(results, *r)
 		}
@@ -103,24 +108,13 @@ func runCount(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func countFile(counter tokens.Counter, filePath, rootDir string) (*FileResult, error) {
-	content, err := os.ReadFile(filePath)
-	if err != nil {
-		return nil, fmt.Errorf("reading %s: %w", filePath, err)
-	}
-
-	rel, err := filepath.Rel(rootDir, filePath)
-	if err != nil {
-		rel = filePath
-	}
-
-	text := string(content)
+func countTokens(counter tokens.Counter, text, relPath string) *FileResult {
 	return &FileResult{
-		Path:       filepath.Clean(rel),
+		Path:       filepath.Clean(relPath),
 		Tokens:     counter.Count(text),
 		Characters: len(text),
-		Lines:      len(strings.Split(text, "\n")),
-	}, nil
+		Lines:      countLines(text),
+	}
 }
 
 func sortResults(results []FileResult, by string) {
@@ -140,7 +134,7 @@ func sortResults(results []FileResult, by string) {
 
 func outputCountTable(w io.Writer, results []FileResult, showTotal bool) {
 	if len(results) == 0 {
-		fmt.Fprintln(w, "No markdown files found.")
+		fmt.Fprintln(w, "No markdown files found.") //nolint:errcheck
 		return
 	}
 
@@ -152,23 +146,23 @@ func outputCountTable(w io.Writer, results []FileResult, showTotal bool) {
 	}
 
 	header := fmt.Sprintf("%-*s  %8s  %8s  %6s", maxPath, "File", "Tokens", "Chars", "Lines")
-	fmt.Fprintln(w, header)
-	fmt.Fprintln(w, strings.Repeat("-", len(header)))
+	fmt.Fprintln(w, header)                           //nolint:errcheck
+	fmt.Fprintln(w, strings.Repeat("-", len(header))) //nolint:errcheck
 
 	for _, r := range results {
-		fmt.Fprintf(w, "%-*s  %8d  %8d  %6d\n", maxPath, r.Path, r.Tokens, r.Characters, r.Lines)
+		fmt.Fprintf(w, "%-*s  %8d  %8d  %6d\n", maxPath, r.Path, r.Tokens, r.Characters, r.Lines) //nolint:errcheck
 	}
 
 	if showTotal {
-		fmt.Fprintln(w, strings.Repeat("-", len(header)))
+		fmt.Fprintln(w, strings.Repeat("-", len(header))) //nolint:errcheck
 		var totalTokens, totalChars, totalLines int
 		for _, r := range results {
 			totalTokens += r.Tokens
 			totalChars += r.Characters
 			totalLines += r.Lines
 		}
-		fmt.Fprintf(w, "%-*s  %8d  %8d  %6d\n", maxPath, "Total", totalTokens, totalChars, totalLines)
-		fmt.Fprintf(w, "\n%d file(s) scanned\n", len(results))
+		fmt.Fprintf(w, "%-*s  %8d  %8d  %6d\n", maxPath, "Total", totalTokens, totalChars, totalLines) //nolint:errcheck
+		fmt.Fprintf(w, "\n%d file(s) scanned\n", len(results))                                         //nolint:errcheck
 	}
 }
 

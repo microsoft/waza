@@ -3,20 +3,8 @@ name: Go Build and Test
 on:
   push:
     branches: [ main, develop ]
-    paths:
-      - 'cmd/**'
-      - 'internal/**'
-      - go.mod
-      - go.sum
-      - '.github/workflows/go-ci.yml'
   pull_request:
     branches: [ main, develop ]
-    paths:
-      - 'cmd/**'
-      - 'internal/**'
-      - go.mod
-      - go.sum
-      - '.github/workflows/go-ci.yml'
 
 jobs:
   build-and-test:
@@ -94,8 +82,8 @@ jobs:
           go-version: '1.25'
       
       - name: Run golangci-lint
-        uses: golangci/golangci-lint-action@v4
+        uses: golangci/golangci-lint-action@v7
         with:
-          version: v1.64.8
+          version: v2.8.0
           working-directory: ./
           args: --timeout=5m

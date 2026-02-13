@@ -65,7 +65,7 @@ func initCommandE(cmd *cobra.Command, args []string, interactive bool) error {
 		if err := os.WriteFile(skillPath, []byte(content), 0o644); err != nil {
 			return fmt.Errorf("failed to write SKILL.md: %w", err)
 		}
-		fmt.Fprintf(cmd.OutOrStdout(), "  %s\n", skillPath)
+		fmt.Fprintf(cmd.OutOrStdout(), "  %s\n", skillPath) //nolint:errcheck
 	}
 
 	// Create tasks/ and fixtures/ subdirectories
@@ -156,10 +156,10 @@ expected:
 	}
 
 	// Print summary
-	fmt.Fprintln(cmd.OutOrStdout(), "Initialized eval suite:")
-	fmt.Fprintf(cmd.OutOrStdout(), "  %s\n", specPath)
-	fmt.Fprintf(cmd.OutOrStdout(), "  %s\n", taskPath)
-	fmt.Fprintf(cmd.OutOrStdout(), "  %s\n", fixturePath)
+	fmt.Fprintln(cmd.OutOrStdout(), "Initialized eval suite:") //nolint:errcheck
+	fmt.Fprintf(cmd.OutOrStdout(), "  %s\n", specPath)         //nolint:errcheck
+	fmt.Fprintf(cmd.OutOrStdout(), "  %s\n", taskPath)         //nolint:errcheck
+	fmt.Fprintf(cmd.OutOrStdout(), "  %s\n", fixturePath)      //nolint:errcheck
 
 	return nil
 }

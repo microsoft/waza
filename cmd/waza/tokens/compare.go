@@ -13,7 +13,7 @@ import (
 
 	"github.com/spboyer/waza/cmd/waza/tokens/internal"
 	"github.com/spboyer/waza/cmd/waza/tokens/internal/git"
-	"github.com/spboyer/waza/cmd/waza/tokens/internal/tokens"
+	"github.com/spboyer/waza/internal/tokens"
 	"github.com/spf13/cobra"
 )
 
@@ -132,10 +132,14 @@ func runCompare(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return err
 		}
-		fmt.Fprint(out, s)
+		if _, err := fmt.Fprint(out, s); err != nil {
+			return fmt.Errorf("writing output: %w", err)
+		}
 		return nil
 	}
-	fmt.Fprint(out, compareTable(comparisons, summary, baseRef, headRef))
+	if _, err := fmt.Fprint(out, compareTable(comparisons, summary, baseRef, headRef)); err != nil {
+		return fmt.Errorf("writing output: %w", err)
+	}
 	return nil
 }
 
@@ -264,20 +268,6 @@ func compareRefs(baseRef, headRef, rootDir string) ([]fileComparison, error) {
 	}
 
 	return comparisons, nil
-}
-
-// countLines returns the number of lines in s. An empty string has 0 lines.
-// A trailing newline does not count as an additional line (matches wc -l behavior
-// for files that end with a newline).
-func countLines(s string) int {
-	if s == "" {
-		return 0
-	}
-	n := strings.Count(s, "\n")
-	if !strings.HasSuffix(s, "\n") {
-		n++
-	}
-	return n
 }
 
 func calculateSummary(comparisons []fileComparison) comparisonSummary {

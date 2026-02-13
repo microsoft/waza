@@ -17,12 +17,16 @@ type SkillFrontmatter struct {
 }
 
 // ParseSkillMD reads a SKILL.md file and extracts the YAML frontmatter.
-func ParseSkillMD(path string) (*SkillFrontmatter, error) {
+func ParseSkillMD(path string) (fm *SkillFrontmatter, err error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("opening skill file: %w", err)
 	}
-	defer f.Close()
+	defer func() {
+		if cerr := f.Close(); cerr != nil && err == nil {
+			err = cerr
+		}
+	}()
 
 	scanner := bufio.NewScanner(f)
 	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
@@ -54,20 +58,20 @@ func ParseSkillMD(path string) (*SkillFrontmatter, error) {
 	}
 
 	raw := strings.Join(lines, "\n")
-	var fm SkillFrontmatter
-	if err := yaml.Unmarshal([]byte(raw), &fm); err != nil {
+	var parsed SkillFrontmatter
+	if err := yaml.Unmarshal([]byte(raw), &parsed); err != nil {
 		return nil, fmt.Errorf("parsing frontmatter YAML: %w", err)
 	}
 
-	if fm.Name == "" {
+	if parsed.Name == "" {
 		return nil, fmt.Errorf("skill frontmatter missing required 'name' field")
 	}
 
-	if err := sanitizeSkillName(fm.Name); err != nil {
+	if err := sanitizeSkillName(parsed.Name); err != nil {
 		return nil, err
 	}
 
-	return &fm, nil
+	return &parsed, nil
 }
 
 // sanitizeSkillName rejects names that could cause path traversal or are empty.

@@ -1,0 +1,158 @@
+name: Publish azd Extension
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'version.txt'
+      - 'extension.yaml'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish (leave empty to use version.txt)'
+        required: false
+        type: string
+      prerelease:
+        description: 'Create as a prerelease'
+        required: false
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  publish:
+    name: Build, Pack & Publish Extension
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Go Environment
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+          cache-dependency-path: go.sum
+
+      - name: Determine Version
+        id: version
+        run: |
+          if [ -n "${{ inputs.version }}" ]; then
+            VERSION="${{ inputs.version }}"
+          else
+            VERSION=$(cat version.txt)
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Using version: $VERSION"
+
+      - name: Install Azure Developer CLI
+        uses: Azure/setup-azd@v2
+
+      - name: Enable azd Extensions
+        run: azd config set alpha.extensions on
+
+      - name: Install azd Extensions Developer Kit
+        run: azd extension install microsoft.azd.extensions --source azd
+
+      - name: Build Extension
+        run: azd x build --all --skip-install
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+
+      - name: Pack Extension
+        run: azd x pack -o ./artifacts
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+
+      - name: Release Extension
+        run: |
+          PRERELEASE_FLAG=""
+          PRERELEASE="${{ inputs.prerelease }}"
+          if [ "$PRERELEASE" = "true" ] || [ -z "$PRERELEASE" ]; then
+            PRERELEASE_FLAG="--prerelease"
+          fi
+
+          azd x release \
+            --repo spboyer/waza \
+            --version "$VERSION" \
+            --title "Waza azd Extension v${VERSION}" \
+            --notes-file "./CHANGELOG.md" \
+            --artifacts "./artifacts/*.zip,./artifacts/*.tar.gz" \
+            $PRERELEASE_FLAG \
+            --confirm
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+
+      - name: Publish Extension
+        run: |
+          azd x publish \
+            --repo spboyer/waza \
+            --version "$VERSION" \
+            --artifacts "./artifacts/*.zip,./artifacts/*.tar.gz" \
+            --registry ./registry.json
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+
+      - name: Create PR with Updated Registry
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          # Check if registry.json was updated
+          if git diff --quiet registry.json 2>/dev/null; then
+            echo "registry.json was not modified, skipping PR creation"
+            exit 0
+          fi
+
+          BRANCH="release/ext-v${VERSION}"
+
+          # Configure git
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Delete existing remote branch if it exists (handle retries)
+          git push origin --delete "$BRANCH" 2>/dev/null || true
+
+          # Save the updated registry.json, then create a branch from origin/main
+          # so the branch only diverges by this one commit. This avoids pushing
+          # workflow file changes that exist in the local checkout, which would
+          # require the 'workflows' token permission.
+          cp registry.json /tmp/registry.json
+          git checkout -b "$BRANCH" origin/main
+          cp /tmp/registry.json registry.json
+          git add registry.json
+          git commit -m "chore: Update registry.json for extension v${VERSION}"
+
+          # Push branch
+          git push origin "$BRANCH"
+
+          # Create PR for registry update
+          PR_URL=$(gh pr create \
+            --title "chore: Update extension registry for v${VERSION}" \
+            --body "## Extension Registry Update
+
+          Automated update from the [Publish azd Extension](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) workflow.
+
+          ### Changes
+          - Updated \`registry.json\` with artifacts for extension version **${VERSION}**
+          - Checksums and download URLs for all 6 platform targets
+
+          ### Verification
+          - [ ] Artifact URLs are correct (\`spboyer/waza\` releases)
+          - [ ] SHA256 checksums match uploaded archives
+          - [ ] Version number matches expected release" \
+            --base main \
+            --head "$BRANCH")
+
+          echo "Created PR: $PR_URL"
+
+          # Auto-merge: registry-only PRs from the bot don't trigger CI checks,
+          # so we merge with --admin to bypass required status checks.
+          gh pr merge "$PR_URL" --squash --admin --delete-branch
+          echo "Auto-merged registry PR"

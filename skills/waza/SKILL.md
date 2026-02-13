@@ -1,6 +1,6 @@
 ---
 name: waza
-description: "**WORKFLOW SKILL** - Evaluate AI agent skills using structured benchmarks with YAML specs, fixture isolation, and pluggable validators. USE FOR: run waza, waza help, run eval, run benchmark, evaluate skill, test agent, generate eval suite, init eval, compare results, score agent, agent evaluation, skill testing, cross-model comparison. DO NOT USE FOR: improving skill frontmatter (use sensei), creating new skills from scratch (use skill-creator), token counting or budget checks (use sensei or token CLI directly). INVOKES: Copilot SDK executor, mock engine, code/regex validators. FOR SINGLE OPERATIONS: use waza run directly for a single benchmark."
+description: "**WORKFLOW SKILL** - Evaluate AI agent skills using structured benchmarks with YAML specs, fixture isolation, and pluggable validators. USE FOR: run waza, waza help, run eval, run benchmark, evaluate skill, test agent, generate eval suite, init eval, compare results, score agent, agent evaluation, skill testing, cross-model comparison. DO NOT USE FOR: improving skill frontmatter (use waza dev), creating new skills from scratch (use skill-creator), token counting or budget checks (use waza tokens). INVOKES: Copilot SDK executor, mock engine, code/regex validators. FOR SINGLE OPERATIONS: use waza run directly for a single benchmark."
 ---
 
 # Waza
@@ -23,7 +23,7 @@ When user says "waza help" or asks how to use waza:
 ║    waza init [directory]       # Initialize a new eval suite     ║
 ║    waza generate <SKILL.md>    # Generate eval from SKILL.md     ║
 ║    waza compare <r1> <r2> ...  # Compare result files            ║
-║    waza dev                    # (coming soon)                   ║
+║    waza dev                    # Improve SKILL.md frontmatter    ║
 ║                                                                  ║
 ║  RUN FLAGS:                                                      ║
 ║    --context-dir, -c   Fixtures directory (default: ./fixtures)  ║
@@ -47,7 +47,7 @@ When user says "waza help" or asks how to use waza:
 ║    4. waza compare a.json b.json  # Cross-model comparison       ║
 ║                                                                  ║
 ║  FIXTURE ISOLATION:                                              ║
-║    Each task gets a fresh temp workspace with fixtures copied     ║
+║    Each task gets a fresh temp workspace with fixtures copied    ║
 ║    in. Original fixtures are never modified.                     ║
 ║                                                                  ║
 ╚══════════════════════════════════════════════════════════════════╝
@@ -123,9 +123,7 @@ Shows per-task score deltas, pass rate differences, and aggregate statistics.
 
 ### `waza dev`
 
-> **Coming soon** — sensei engine integration pending.
-
-Interactive development mode for iterating on eval specs with live feedback.
+Iterate on SKILL.md frontmatter with compliance scoring and improvement suggestions.
 
 ## Evaluation Spec Format
 

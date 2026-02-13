@@ -302,7 +302,7 @@ func loadSampleEvents(t *testing.T) []copilot.SessionEvent {
 	reader, err := os.Open("../testdata/copilot_events_using_skill.json")
 	require.NoError(t, err)
 
-	defer func() { _ = reader.Close() }()
+	defer reader.Close() //nolint:errcheck
 
 	decoder := json.NewDecoder(reader)
 

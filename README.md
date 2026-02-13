@@ -2,6 +2,28 @@
 
 A Go CLI for evaluating AI agent skills — scaffold eval suites, run benchmarks, and compare results across models.
 
+## Installation via Azure Developer CLI (azd)
+
+Waza is available as an [azd extension](https://learn.microsoft.com/azure/developer/azure-developer-cli/extensions/overview). Add the custom extension source and install:
+
+```bash
+# Add the waza extension registry
+azd ext source add -n waza -t url -l https://raw.githubusercontent.com/spboyer/waza/main/registry.json
+
+# Install the extension
+azd ext install microsoft.azd.waza
+
+# Verify it's working
+azd waza --help
+```
+
+Once installed, all waza commands are available under `azd waza`. For example:
+
+```bash
+azd waza init my-eval --interactive
+azd waza run examples/code-explainer/eval.yaml -v
+```
+
 ## Quick Start
 
 ```bash
@@ -22,6 +44,9 @@ make build
 
 # Count tokens in skill files
 ./waza tokens count skills/
+
+# Suggest token optimizations
+./waza tokens suggest skills/
 ```
 
 ## Commands
@@ -65,6 +90,16 @@ Compare results from multiple evaluation runs side by side — per-task score de
 |------|-------|-------------|
 | `--format <fmt>` | `-f` | Output format: `table` or `json` (default: `table`) |
 
+### `waza dev [skill-path]`
+
+Iteratively score and improve skill frontmatter in a SKILL.md file.
+
+| Flag | Description |
+|------|-------------|
+| `--target <level>` | Target adherence level: `low`, `medium`, `medium-high`, `high` (default: `medium-high`) |
+| `--max-iterations <n>` | Maximum improvement iterations (default: 5) |
+| `--auto` | Apply improvements without prompting |
+
 ### `waza tokens count [paths...]`
 
 Count tokens in markdown files. Paths may be files or directories (scanned recursively for `.md`/`.mdx`).
@@ -75,6 +110,18 @@ Count tokens in markdown files. Paths may be files or directories (scanned recur
 | `--sort <field>` | Sort by: `tokens`, `name`, or `path` (default: `path`) |
 | `--min-tokens <n>` | Filter files below n tokens |
 | `--no-total` | Hide total row in table output |
+
+### `waza tokens suggest [paths...]`
+
+Suggest ways to reduce token usage in markdown files. Paths may be files or
+directories (scanned recursively for `.md`/`.mdx`).
+
+| Flag | Description |
+|------|-------------|
+| `--format <fmt>` | Output format: `text` or `json` (default: `text`) |
+| `--min-savings <n>` | Minimum estimated token savings for heuristic suggestions |
+| `--copilot` | Enable Copilot-powered suggestions |
+| `--model <id>` | Model to use with `--copilot` |
 
 ## Building
 

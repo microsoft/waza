@@ -18,6 +18,10 @@ func NewEstimatingCounter() *EstimatingCounter {
 	return &EstimatingCounter{}
 }
 
-func (c *EstimatingCounter) Count(text string) int {
+func (*EstimatingCounter) Count(text string) int {
+	return Estimate(text)
+}
+
+func Estimate(text string) int {
 	return int(math.Ceil(float64(len(text)) / float64(charsPerToken)))
 }

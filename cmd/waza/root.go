@@ -3,6 +3,7 @@ package main
 import (
 	"log/slog"
 
+	"github.com/spboyer/waza/cmd/waza/dev"
 	"github.com/spboyer/waza/cmd/waza/tokens"
 	"github.com/spf13/cobra"
 )
@@ -34,6 +35,8 @@ performance against predefined test cases.`,
 	cmd.AddCommand(newGenerateCommand())
 	cmd.AddCommand(tokens.NewCommand())
 	cmd.AddCommand(newCompareCommand())
+	cmd.AddCommand(dev.NewCommand())
+	cmd.AddCommand(newMetadataCommand(cmd))
 
 	return cmd
 }

@@ -1,36 +1,36 @@
 # golangci-lint configuration for waza
 # Custom configuration with practical settings
 
-linters-settings:
-  errcheck:
-    check-type-assertions: true
-    check-blank: true
-  
-  gocyclo:
-    min-complexity: 15
-  
-  govet:
-    enable-all: true
-    disable:
-      - shadow
-      - fieldalignment
-  
-  misspell:
-    locale: US
+version: "2"
 
 linters:
   enable:
     - errcheck
-    - gofmt
-    - goimports
     - govet
     - ineffassign
     - misspell
     - unconvert
     - unused
     - staticcheck
+  settings:
+    errcheck:
+      check-type-assertions: true
+      check-blank: true
+    gocyclo:
+      min-complexity: 15
+    govet:
+      enable-all: true
+      disable:
+        - shadow
+        - fieldalignment
+    misspell:
+      locale: US
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
 
 run:
-  timeout: 5m
   tests: true
   modules-download-mode: readonly
