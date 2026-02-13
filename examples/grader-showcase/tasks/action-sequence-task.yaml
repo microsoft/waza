@@ -1,0 +1,68 @@
+# Task: Demonstrate action_sequence grader
+# Tests the agent's tool call sequence matches expected patterns
+id: action-sequence-demo-001
+name: Tool Call Sequence Validation Demo
+description: |
+  This task demonstrates the action_sequence grader, which validates that
+  the agent's tool calls follow an expected sequence.
+  
+  Three matching modes are available:
+  - exact_match: Sequence must match exactly
+  - in_order_match: Expected actions must appear in order (extras allowed)
+  - any_order_match: All expected actions must appear (any order)
+  
+  The agent is asked to add a function to a file, which should require:
+  1. Viewing the file first
+  2. Editing the file
+  3. Potentially viewing again to verify
+
+tags:
+  - action-sequence
+  - workflow
+  - tool-calls
+  - demo
+
+inputs:
+  prompt: |
+    Add a new function called 'farewell' to sample.py that takes a name
+    parameter and returns a goodbye message. Then verify your changes.
+  context:
+    task_type: code_modification
+  files:
+    - path: sample.py
+
+expected:
+  outcomes:
+    - type: task_completed
+
+# Task-specific graders
+graders:
+  # Action sequence grader validates tool call order
+  - name: expected_workflow
+    type: action_sequence
+    config:
+      # in_order_match: Actions must appear in this order (extras allowed between)
+      matching_mode: in_order_match
+      expected_actions:
+        - "view"      # Should view the file first
+        - "edit"      # Should edit the file
+        - "view"      # Should verify changes
+  
+  # Alternative: strict exact matching (uncomment to try)
+  # - name: strict_workflow
+  #   type: action_sequence
+  #   config:
+  #     matching_mode: exact_match
+  #     expected_actions:
+  #       - "view"
+  #       - "edit"
+  #       - "view"
+  
+  # Alternative: just ensure tools were used (any order)
+  # - name: tools_used
+  #   type: action_sequence
+  #   config:
+  #     matching_mode: any_order_match
+  #     expected_actions:
+  #       - "view"
+  #       - "edit"

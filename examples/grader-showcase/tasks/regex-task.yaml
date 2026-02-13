@@ -1,0 +1,41 @@
+# Task: Demonstrate regex grader
+# Tests the agent's ability to produce output matching specific patterns
+id: regex-demo-001
+name: Regex Pattern Matching Demo
+description: |
+  This task demonstrates the regex grader, which validates that the agent's
+  output matches (or doesn't match) specific regular expression patterns.
+  
+  The agent is asked to list programming languages, and we verify the output
+  contains expected patterns and excludes unwanted ones.
+
+tags:
+  - regex
+  - pattern-matching
+  - demo
+
+inputs:
+  prompt: "List 3 popular programming languages for web development"
+  context:
+    task_type: information_query
+
+expected:
+  # Expected patterns we'd like to see
+  output_contains:
+    - "Python"
+    - "JavaScript"
+
+# Task-specific graders
+graders:
+  # Regex grader validates output patterns
+  - name: language_patterns
+    type: regex
+    config:
+      # Patterns that MUST match in the output
+      must_match:
+        - "(?i)(python|javascript|typescript|ruby|php|java)"
+        - "(?i)(web|development|backend|frontend)"
+      # Patterns that MUST NOT match
+      must_not_match:
+        - "(?i)error|exception|failed"
+        - "(?i)COBOL|Fortran"  # Unlikely for web dev!

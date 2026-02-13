@@ -1,0 +1,53 @@
+# Task: Demonstrate behavior grader
+# Tests the agent's behavioral patterns like tool usage and efficiency
+id: behavior-demo-001
+name: Agent Behavior Validation Demo
+description: |
+  This task demonstrates the behavior grader, which validates how the agent
+  behaves during task execution:
+  - Tool call limits (max_tool_calls)
+  - Token usage limits (max_tokens)
+  - Execution time limits (max_duration_ms)
+  - Required tools that must be used
+  - Forbidden tools that must not be used
+  
+  The agent is asked to read and explain a file, which should require
+  viewing the file but not making destructive edits.
+
+tags:
+  - behavior
+  - efficiency
+  - tool-usage
+  - demo
+
+inputs:
+  prompt: "Read the sample.py file and explain what it does in one sentence"
+  context:
+    task_type: code_review
+  files:
+    - path: sample.py
+
+expected:
+  output_contains:
+    - "greet"
+    - "function"
+
+# Task-specific graders
+graders:
+  # Behavior grader validates agent behavior patterns
+  - name: efficient_behavior
+    type: behavior
+    config:
+      # Maximum number of tool calls allowed
+      max_tool_calls: 10
+      # Maximum tokens allowed (for cost control)
+      max_tokens: 5000
+      # Maximum execution time in milliseconds (5 minutes)
+      max_duration_ms: 300000
+      # Tools that MUST be called (exact tool name match)
+      required_tools:
+        - "view"
+      # Tools that MUST NOT be called (exact tool name match)
+      forbidden_tools:
+        - "bash"
+        - "edit"

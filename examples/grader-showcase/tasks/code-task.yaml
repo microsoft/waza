@@ -1,0 +1,75 @@
+# Task: Demonstrate code (inline_script) grader
+# Tests the agent's output using Python assertion expressions
+id: code-demo-001
+name: Code Assertion Validation Demo
+description: |
+  This task demonstrates the code grader (also called inline_script grader),
+  which evaluates Python expressions against the execution context.
+  
+  Available context variables:
+  - output: Final skill output (string)
+  - outcome: Outcome state (dict)
+  - transcript: Full execution transcript (list)
+  - tool_calls: Tool calls from transcript (list)
+  - errors: Errors from transcript (list)
+  - duration_ms: Execution duration (int)
+  
+  The agent is asked to count files, and we verify the output format
+  and numeric accuracy using Python expressions.
+
+tags:
+  - code
+  - assertions
+  - validation
+  - demo
+
+inputs:
+  prompt: "Count how many files are in the current directory and tell me the total"
+  context:
+    task_type: filesystem_query
+  files:
+    - path: sample.py
+    - path: config.json
+
+expected:
+  output_contains:
+    - "2"
+    - "files"
+
+# Task-specific graders
+graders:
+  # Code grader evaluates Python assertions
+  - name: output_validation
+    type: code
+    config:
+      assertions:
+        # Basic output checks
+        - "len(output) > 0"
+        - "'file' in output.lower()"
+        
+        # Check for numeric content
+        - "'2' in output or 'two' in output.lower()"
+        
+        # Verify no errors occurred
+        - "len(errors) == 0"
+        
+        # Check execution was reasonably fast (< 30 seconds)
+        - "duration_ms < 30000"
+        
+        # Verify at least one tool was called
+        - "len(tool_calls) > 0"
+
+  # Additional validation: response format
+  - name: response_format
+    type: code
+    config:
+      assertions:
+        # Output should be a complete sentence
+        - "len(output.split()) > 3"
+        
+        # Should not be overly verbose
+        - "len(output) < 500"
+        
+        # Should not contain error indicators
+        - "'error' not in output.lower()"
+        - "'exception' not in output.lower()"

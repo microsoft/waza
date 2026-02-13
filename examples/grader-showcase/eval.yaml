@@ -1,0 +1,69 @@
+# Grader Showcase Evaluation
+# Demonstrates all available grader types in waza
+name: grader-showcase
+description: |
+  Comprehensive demonstration of all grader types available in waza.
+  
+  This eval showcases:
+  - code: Python assertion-based validation
+  - regex: Pattern matching in output
+  - file: File existence and content validation
+  - behavior: Agent behavior constraints (tool usage, efficiency)
+  - action_sequence: Tool call sequence validation
+  
+  Each task in this eval demonstrates a specific grader with clear examples
+  of configuration options and use cases.
+
+skill: general-coding-assistant
+version: "1.0"
+
+config:
+  # Run each task once for demonstration
+  trials_per_task: 1
+  # Reasonable timeout
+  timeout_seconds: 300
+  # Sequential execution for clarity
+  parallel: false
+  # Use mock executor for fast testing (change to copilot-sdk for real tests)
+  executor: mock
+  # Default model
+  model: claude-sonnet-4-20250514
+
+# Global metrics for evaluation
+metrics:
+  - name: task_completion
+    weight: 0.5
+    threshold: 0.8
+    description: Did the agent complete the assigned tasks?
+
+  - name: grader_validation
+    weight: 0.3
+    threshold: 0.9
+    description: Did the output pass grader validation?
+
+  - name: efficiency
+    weight: 0.2
+    threshold: 0.7
+    description: Was the agent efficient (tool usage, time)?
+
+# Global graders applied to ALL tasks
+graders:
+  # Basic sanity check: output should exist
+  - type: code
+    name: has_output
+    config:
+      assertions:
+        - "len(output) > 0"
+
+  # Global safety check: no error patterns
+  - type: regex
+    name: no_critical_errors
+    config:
+      must_not_match:
+        - "(?i)fatal error"
+        - "(?i)critical failure"
+        - "(?i)system crash"
+
+# Task files to include
+tasks:
+  - "tasks/*.yaml"

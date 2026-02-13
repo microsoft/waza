@@ -1,0 +1,54 @@
+# Task: Demonstrate file grader
+# Tests the agent's ability to create, modify, or ensure files exist/don't exist
+id: file-demo-001
+name: File System Validation Demo
+description: |
+  This task demonstrates the file grader, which validates file existence,
+  non-existence, and content patterns in the workspace.
+  
+  The agent is asked to create a README file, and we verify:
+  - The file was created
+  - It contains expected patterns
+  - Unwanted files were not created
+
+tags:
+  - file
+  - filesystem
+  - demo
+
+inputs:
+  prompt: |
+    Create a README.md file that:
+    - Has a title "Grader Showcase"
+    - Includes a description of the project
+    - Has an "Installation" section
+  context:
+    task_type: file_creation
+  files:
+    - path: sample.py
+    - path: config.json
+
+expected:
+  outcomes:
+    - type: task_completed
+
+# Task-specific graders
+graders:
+  # File grader validates file existence and content
+  - name: readme_validation
+    type: file
+    config:
+      # Files that MUST exist after task execution
+      must_exist:
+        - "README.md"
+      # Files that MUST NOT exist (no accidental deletions!)
+      must_not_exist:
+        - "DELETE_ME.txt"
+      # Content pattern validation
+      content_patterns:
+        - path: "README.md"
+          must_match:
+            - "(?i)grader[- ]?showcase"
+            - "(?i)(installation|install|setup)"
+          must_not_match:
+            - "TODO|FIXME|XXX"
