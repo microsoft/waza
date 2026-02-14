@@ -44,6 +44,9 @@ results-*.json
 *.results.json
 /output/
 
+# Cache directory
+.waza-cache/
+
 # Telemetry data
 telemetry-*.json
 *.telemetry.json

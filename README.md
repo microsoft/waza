@@ -66,6 +66,31 @@ Run an evaluation benchmark from a spec file.
 | `--workers <n>` | | Concurrent workers (default: 4, requires `--parallel`) |
 | `--interpret` | | Print plain-language result interpretation |
 | `--format <fmt>` | | Output format: `default` or `github-comment` (default: `default`) |
+| `--cache` | | Enable result caching to speed up repeated runs |
+| `--no-cache` | | Explicitly disable result caching |
+| `--cache-dir <dir>` | | Cache directory (default: `.waza-cache`) |
+
+**Result Caching**
+
+Enable caching with `--cache` to store test results and skip re-execution on repeated runs:
+
+```bash
+# First run executes all tests and caches results
+waza run eval.yaml --cache
+
+# Second run uses cached results (much faster)
+waza run eval.yaml --cache
+
+# Clear the cache when needed
+waza cache clear
+```
+
+Cached results are automatically invalidated when:
+- Spec configuration changes (model, timeout, graders, etc.)
+- Task definitions change
+- Fixture files change
+
+**Note:** Caching is automatically disabled for evaluations using non-deterministic graders (`behavior`, `prompt`).
 
 **Exit Codes**
 
@@ -120,6 +145,14 @@ Compare results from multiple evaluation runs side by side — per-task score de
 | Flag | Short | Description |
 |------|-------|-------------|
 | `--format <fmt>` | `-f` | Output format: `table` or `json` (default: `table`) |
+
+### `waza cache clear`
+
+Clear all cached evaluation results to force re-execution on the next run.
+
+| Flag | Description |
+|------|-------------|
+| `--cache-dir <dir>` | Cache directory to clear (default: `.waza-cache`) |
 
 ### `waza dev [skill-path]`
 
