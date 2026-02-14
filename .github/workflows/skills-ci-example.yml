@@ -1,0 +1,172 @@
+name: Skills CI Example - Waza Evaluation
+
+# This is a template workflow for microsoft/skills repositories.
+# Copy this file to your skill repository's .github/workflows/ directory
+# and customize it for your skill.
+#
+# This example shows how to:
+# 1. Install waza from source
+# 2. Run evaluations with the mock executor (no API keys needed)
+# 3. Upload results as artifacts
+# 4. Use exit codes for CI pass/fail
+
+on:
+  # Trigger on pull requests
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'SKILL.md'
+      - 'eval/**'
+      - '.github/workflows/skills-ci-example.yml'
+  
+  # Trigger on pushes to main
+  push:
+    branches: [ main ]
+    paths:
+      - 'SKILL.md'
+      - 'eval/**'
+  
+  # Allow manual trigger
+  workflow_dispatch:
+    inputs:
+      eval-yaml:
+        description: 'Path to evaluation YAML file'
+        required: false
+        type: string
+        default: 'eval/eval.yaml'
+
+permissions:
+  contents: read
+
+jobs:
+  evaluate-skill:
+    name: Evaluate Skill with Waza
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+      
+      - name: Setup Go Environment
+        uses: actions/setup-go@v5
+        with:
+          # Waza requires Go 1.25+
+          go-version: '1.25'
+      
+      # Option 1: Install from source (recommended for CI)
+      - name: Install Waza from Source
+        run: |
+          go install github.com/spboyer/waza/cmd/waza@latest
+          waza --version
+      
+      # Option 2: Build from Dockerfile (alternative)
+      # Uncomment this block if you prefer Docker-based builds
+      # - name: Build Waza Docker Image
+      #   run: |
+      #     docker build -t waza:local .
+      #     docker run waza:local --version
+      
+      - name: Determine Eval File
+        id: eval-file
+        run: |
+          # Use workflow input if provided, otherwise default
+          if [ -n "${{ inputs.eval-yaml }}" ]; then
+            EVAL_FILE="${{ inputs.eval-yaml }}"
+          else
+            # Default location for skill evals
+            EVAL_FILE="eval/eval.yaml"
+          fi
+          
+          # Verify file exists
+          if [ ! -f "$EVAL_FILE" ]; then
+            echo "::error::Evaluation file not found: $EVAL_FILE"
+            echo "Expected structure:"
+            echo "  your-skill/"
+            echo "  ├── SKILL.md"
+            echo "  └── eval/"
+            echo "      ├── eval.yaml"
+            echo "      ├── tasks/"
+            echo "      └── fixtures/"
+            exit 1
+          fi
+          
+          echo "eval-file=$EVAL_FILE" >> "$GITHUB_OUTPUT"
+          echo "Using eval file: $EVAL_FILE"
+      
+      - name: Run Waza Evaluation
+        id: run-eval
+        run: |
+          EVAL_FILE="${{ steps.eval-file.outputs.eval-file }}"
+          
+          # Run waza with mock executor (no API keys needed)
+          # The mock executor simulates agent behavior for testing
+          # Exit codes: 0=success, 1=test failure, 2=config error
+          waza run "$EVAL_FILE" \
+            --verbose \
+            --output results.json
+          
+          # The workflow will fail if tests fail (exit code 1)
+          # or if there's a configuration error (exit code 2)
+      
+      - name: Upload Results Artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: waza-evaluation-results
+          path: |
+            results.json
+            transcripts/
+          retention-days: 30
+          if-no-files-found: warn
+      
+      - name: Display Results Summary
+        if: always()
+        run: |
+          if [ -f results.json ]; then
+            echo "## Evaluation Results" >> "$GITHUB_STEP_SUMMARY"
+            echo '```json' >> "$GITHUB_STEP_SUMMARY"
+            head -50 results.json >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          fi
+      
+      - name: Check Evaluation Status
+        if: steps.run-eval.outcome == 'failure'
+        run: |
+          echo "::error::Waza evaluation failed. Check the results artifact for details."
+          exit 1
+
+  # Optional: Test with Copilot SDK executor (requires GITHUB_TOKEN)
+  # Uncomment this job if you want to test with actual AI models
+  # evaluate-with-copilot:
+  #   name: Evaluate with Copilot SDK
+  #   runs-on: ubuntu-latest
+  #   if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+  #   
+  #   steps:
+  #     - name: Checkout Repository
+  #       uses: actions/checkout@v4
+  #     
+  #     - name: Setup Go Environment
+  #       uses: actions/setup-go@v5
+  #       with:
+  #         go-version: '1.25'
+  #     
+  #     - name: Install Waza
+  #       run: |
+  #         go install github.com/spboyer/waza/cmd/waza@latest
+  #         waza --version
+  #     
+  #     - name: Run Evaluation with Copilot
+  #       env:
+  #         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  #       run: |
+  #         # Update eval.yaml to use copilot-sdk executor
+  #         # Then run evaluation
+  #         waza run eval/eval.yaml --verbose --output results-copilot.json
+  #     
+  #     - name: Upload Copilot Results
+  #       if: always()
+  #       uses: actions/upload-artifact@v4
+  #       with:
+  #         name: waza-copilot-results
+  #         path: results-copilot.json

@@ -2,6 +2,24 @@
 
 This directory contains example GitHub Actions workflows for running waza evaluations in CI/CD pipelines.
 
+## For microsoft/skills Contributors
+
+If you're contributing a skill to [microsoft/skills](https://github.com/microsoft/skills), see the comprehensive integration guide:
+
+**📖 [microsoft/skills CI Integration Guide](../../docs/SKILLS_CI_INTEGRATION.md)**
+
+The guide covers:
+- Installation methods (go install, Docker)
+- Skill repository structure
+- Creating evaluation suites
+- CI/CD workflow setup
+- Exit codes and output formats
+- Best practices and troubleshooting
+
+Quick start: Copy [`.github/workflows/skills-ci-example.yml`](../../.github/workflows/skills-ci-example.yml) to your skill repo.
+
+---
+
 ## Files
 
 ### `eval-on-pr.yml`

@@ -1,0 +1,51 @@
+# Git files
+.git
+.gitignore
+.gitattributes
+
+# CI/CD
+.github
+
+# Documentation
+*.md
+docs/
+DEMO-SCRIPT.md
+IMPLEMENTATION.md
+AGENTS.md
+CHANGELOG.md
+
+# Build artifacts
+waza
+coverage.txt
+coverage.out
+results.json
+transcripts/
+
+# Development
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Test files
+*_test.go
+
+# Examples (not needed in image)
+examples/
+skills/
+
+# Web assets (if not needed)
+web/
+
+# Templates
+.ai-team
+.ai-team-templates
+
+# Python legacy
+waza/
+__pycache__/
+*.pyc
+
+# Misc
+.DS_Store

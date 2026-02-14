@@ -222,24 +222,86 @@ tasks:
 
 ## CI/CD Integration
 
-Waza includes reusable GitHub Actions workflows for running evaluations in CI/CD pipelines.
+Waza is designed to work seamlessly with CI/CD pipelines, including **microsoft/skills** repositories.
 
-### Quick Setup
+### For microsoft/skills Contributors
 
-1. Use the reusable workflow in your `.github/workflows/`:
+If you're contributing a skill to [microsoft/skills](https://github.com/microsoft/skills), waza can validate your skill in CI:
+
+#### Installation in CI
+
+**Option 1: Install from source (recommended)**
+```bash
+# Requires Go 1.25+
+go install github.com/spboyer/waza/cmd/waza@latest
+```
+
+**Option 2: Use Docker**
+```bash
+docker build -t waza:local .
+docker run -v $(pwd):/workspace waza:local run eval/eval.yaml
+```
+
+#### Quick Workflow Setup
+
+Copy [`.github/workflows/skills-ci-example.yml`](.github/workflows/skills-ci-example.yml) to your skill repository:
 
 ```yaml
 jobs:
-  eval:
-    uses: ./.github/workflows/waza-eval.yml
-    with:
-      eval-yaml: 'examples/code-explainer/eval.yaml'
-      verbose: true
+  evaluate-skill:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+      - run: go install github.com/spboyer/waza/cmd/waza@latest
+      - run: waza run eval/eval.yaml --verbose --output results.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: waza-evaluation-results
+          path: results.json
 ```
 
-2. For matrix testing across multiple models, see the example at [`examples/ci/eval-on-pr.yml`](examples/ci/eval-on-pr.yml)
+#### Environment Requirements
 
-3. The workflow automatically runs on PRs that modify evaluation files or skills
+| Requirement | Details |
+|-------------|---------|
+| **Go Version** | 1.25 or higher |
+| **Executor** | Use `mock` executor for CI (no API keys needed) |
+| **GitHub Token** | Only required for `copilot-sdk` executor: set `GITHUB_TOKEN` env var |
+| **Exit Codes** | 0=success, 1=test failure, 2=config error |
+
+#### Expected Skill Structure
+
+```
+your-skill/
+├── SKILL.md              # Skill definition
+└── eval/                 # Evaluation suite
+    ├── eval.yaml         # Benchmark spec
+    ├── tasks/            # Task definitions
+    │   └── *.yaml
+    └── fixtures/         # Context files
+        └── *.txt
+```
+
+### For Waza Repository
+
+This repository includes reusable workflows:
+
+1. **[`.github/workflows/waza-eval.yml`](.github/workflows/waza-eval.yml)** - Reusable workflow for running evals
+   ```yaml
+   jobs:
+     eval:
+       uses: ./.github/workflows/waza-eval.yml
+       with:
+         eval-yaml: 'examples/code-explainer/eval.yaml'
+         verbose: true
+   ```
+
+2. **[`examples/ci/eval-on-pr.yml`](examples/ci/eval-on-pr.yml)** - Matrix testing across models
+
+3. **[`examples/ci/basic-example.yml`](examples/ci/basic-example.yml)** - Minimal workflow example
 
 See [`examples/ci/README.md`](examples/ci/README.md) for detailed documentation and more examples.
 
