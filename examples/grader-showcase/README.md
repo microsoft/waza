@@ -199,21 +199,68 @@ graders:
 
 ---
 
+### 6. Skill Invocation Grader (`skill_invocation`)
+**File**: `tasks/skill-invocation-example.yaml`
+
+Validates that dependent skills were invoked in the correct sequence during orchestration.
+
+**Matching Modes**:
+
+1. **`exact_match`** - Perfect match required
+   - Same length, same order, same skills
+   - Example: `["azure-prepare", "azure-deploy"]` only matches `["azure-prepare", "azure-deploy"]`
+
+2. **`in_order`** - Skills must appear in order
+   - Can have extra skills between required ones (if allow_extra: true)
+   - Example: `["azure-prepare", "azure-deploy"]` matches `["azure-prepare", "azure-validate", "azure-deploy"]`
+
+3. **`any_order`** - All skills present regardless of order
+   - Order doesn't matter, but frequency must match
+   - Example: `["azure-deploy", "azure-prepare"]` matches `["azure-prepare", "azure-validate", "azure-deploy"]`
+
+**Example**:
+```yaml
+graders:
+  - type: skill_invocation
+    name: deployment_flow
+    config:
+      mode: in_order
+      required_skills:
+        - azure-prepare
+        - azure-deploy
+        - azure-monitor
+      allow_extra: true
+```
+
+**Scoring**:
+- **Precision**: `true_positives / len(actual_skills)`
+- **Recall**: `true_positives / len(required_skills)`
+- **F1 Score**: Harmonic mean (with optional penalty for extras when allow_extra: false)
+
+**Use Cases**:
+- Verify orchestration workflows invoke correct skills
+- Ensure skill dependencies are respected
+- Validate multi-skill coordination patterns
+- Check that required skills are called in proper order
+
+---
+
 ## Directory Structure
 
 ```
 examples/grader-showcase/
-├── eval.yaml                      # Main benchmark spec
-├── README.md                      # This file
-├── fixtures/                      # Context files for tasks
-│   ├── sample.py                  # Sample Python file
-│   └── config.json                # Sample config file
-└── tasks/                         # Individual task definitions
-    ├── code-task.yaml             # Code grader demo
-    ├── regex-task.yaml            # Regex grader demo
-    ├── file-task.yaml             # File grader demo
-    ├── behavior-task.yaml         # Behavior grader demo
-    └── action-sequence-task.yaml  # Action sequence grader demo
+├── eval.yaml                         # Main benchmark spec
+├── README.md                         # This file
+├── fixtures/                         # Context files for tasks
+│   ├── sample.py                     # Sample Python file
+│   └── config.json                   # Sample config file
+└── tasks/                            # Individual task definitions
+    ├── code-task.yaml                # Code grader demo
+    ├── regex-task.yaml               # Regex grader demo
+    ├── file-task.yaml                # File grader demo
+    ├── behavior-task.yaml            # Behavior grader demo
+    ├── action-sequence-task.yaml     # Action sequence grader demo
+    └── skill-invocation-example.yaml # Skill invocation grader demo
 ```
 
 ## Task Breakdown
@@ -237,6 +284,10 @@ examples/grader-showcase/
 ### 5. Action Sequence Task (`action-sequence-task.yaml`)
 **Agent Task**: Add function and verify  
 **Grader Focus**: Tool call sequence (view → edit → view)
+
+### 6. Skill Invocation Task (`skill-invocation-example.yaml`)
+**Agent Task**: Create a deployment orchestration workflow  
+**Grader Focus**: Skill invocation sequence validation
 
 ## Global vs Task-Specific Graders
 

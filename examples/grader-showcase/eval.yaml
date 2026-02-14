@@ -10,6 +10,7 @@ description: |
   - file: File existence and content validation
   - behavior: Agent behavior constraints (tool usage, efficiency)
   - action_sequence: Tool call sequence validation
+  - skill_invocation: Skill invocation sequence validation (for orchestration)
   
   Each task in this eval demonstrates a specific grader with clear examples
   of configuration options and use cases.

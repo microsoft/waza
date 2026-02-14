@@ -1,0 +1,56 @@
+# Skill Invocation Grader Example
+# Demonstrates the skill_invocation grader type
+
+name: orchestration-flow
+description: |
+  Verify that an orchestration skill invokes dependent skills in the correct order.
+  
+  This example demonstrates:
+  - Using skill_invocation grader to validate orchestration workflows
+  - Three matching modes: exact_match, in_order, any_order
+  - The allow_extra flag for controlling extra invocations
+
+prompt: |
+  Create a deployment workflow that prepares the environment, deploys the application,
+  and then monitors the deployment status.
+
+# Task-specific graders
+graders:
+  # Exact match mode: Must invoke exactly these skills in this order
+  - type: skill_invocation
+    name: exact_orchestration_flow
+    config:
+      mode: exact_match
+      required_skills:
+        - azure-prepare
+        - azure-deploy
+        - azure-monitor
+      allow_extra: false
+
+  # In-order mode: These skills must appear in order, but extras are allowed
+  - type: skill_invocation
+    name: flexible_orchestration_flow
+    config:
+      mode: in_order
+      required_skills:
+        - azure-prepare
+        - azure-deploy
+      allow_extra: true
+
+  # Any-order mode: All required skills must be invoked, order doesn't matter
+  - type: skill_invocation
+    name: required_skills_check
+    config:
+      mode: any_order
+      required_skills:
+        - azure-prepare
+        - azure-deploy
+        - azure-monitor
+      allow_extra: true
+
+  # Validate output mentions deployment
+  - type: regex
+    name: mentions_deployment
+    config:
+      must_match:
+        - "(?i)deploy"

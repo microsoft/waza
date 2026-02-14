@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/go-viper/mapstructure/v2"
+	"github.com/spboyer/waza/internal/execution"
 	"github.com/spboyer/waza/internal/models"
 )
 
@@ -38,6 +39,10 @@ type Context struct {
 	// Session holds the session digest with tool call counts, token usage, and tools used.
 	// Used by the behavior grader to validate agent behavior constraints.
 	Session *models.SessionDigest
+
+	// SkillInvocations is a chronological list of skills invoked during the session.
+	// Used by the skill_invocation grader to verify orchestration workflows.
+	SkillInvocations []execution.SkillInvocation
 }
 
 // Create creates a validator from the global registry
@@ -115,6 +120,14 @@ func Create(graderType models.GraderKind, identifier string, params map[string]a
 		}
 
 		return NewActionSequenceGrader(identifier, v)
+	case models.GraderKindSkillInvocation:
+		var v SkillInvocationGraderParams
+
+		if err := mapstructure.Decode(params, &v); err != nil {
+			return nil, err
+		}
+
+		return NewSkillInvocationGrader(identifier, v)
 	case models.GraderKindPrompt, models.GraderKindKeyword, models.GraderKindJSONSchema, models.GraderKindProgram:
 		return nil, fmt.Errorf("'%s' is not yet implemented", graderType)
 	default:
