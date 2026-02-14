@@ -14,6 +14,7 @@ import (
 	"github.com/spboyer/waza/internal/models"
 	"github.com/spboyer/waza/internal/orchestration"
 	"github.com/spboyer/waza/internal/reporting"
+	"github.com/spboyer/waza/internal/utils"
 	"github.com/spf13/cobra"
 )
 
@@ -136,6 +137,16 @@ func runCommandE(cmd *cobra.Command, args []string) error {
 		}
 		fmt.Printf("Parallel: %d workers\n", w)
 	}
+	
+	// Print skill directories in verbose mode
+	if verbose && len(spec.Config.SkillPaths) > 0 {
+		fmt.Printf("Skill Directories:\n")
+		resolvedPaths := utils.ResolvePaths(spec.Config.SkillPaths, specDir)
+		for _, path := range resolvedPaths {
+			fmt.Printf("  - %s\n", path)
+		}
+	}
+	
 	fmt.Println()
 
 	outcome, err := runner.RunBenchmark(ctx)

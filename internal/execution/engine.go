@@ -27,6 +27,7 @@ type ExecutionRequest struct {
 	Context    map[string]any
 	Resources  []ResourceFile
 	SkillName  string
+	SkillPaths []string // Directories to search for skills
 	TimeoutSec int
 }
 

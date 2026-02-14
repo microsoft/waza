@@ -15,6 +15,7 @@ import (
 	"github.com/spboyer/waza/internal/execution"
 	"github.com/spboyer/waza/internal/graders"
 	"github.com/spboyer/waza/internal/models"
+	"github.com/spboyer/waza/internal/utils"
 )
 
 // TestRunner orchestrates the execution of tests
@@ -486,12 +487,16 @@ func (r *TestRunner) buildExecutionRequest(tc *models.TestCase) *execution.Execu
 		timeout = *tc.TimeoutSec
 	}
 
+	// Resolve skill paths relative to spec directory
+	resolvedSkillPaths := utils.ResolvePaths(spec.Config.SkillPaths, r.cfg.SpecDir())
+
 	return &execution.ExecutionRequest{
 		TestID:     tc.TestID,
 		Message:    tc.Stimulus.Message,
 		Context:    tc.Stimulus.Metadata,
 		Resources:  resources,
 		SkillName:  spec.SkillName,
+		SkillPaths: resolvedSkillPaths,
 		TimeoutSec: timeout,
 	}
 }
