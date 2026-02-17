@@ -128,6 +128,34 @@ func Create(graderType models.GraderKind, identifier string, params map[string]a
 		}
 
 		return NewSkillInvocationGrader(identifier, v)
+	case models.GraderKindDiff:
+		var v *struct {
+			ExpectedFiles []struct {
+				Path     string   `mapstructure:"path"`
+				Snapshot string   `mapstructure:"snapshot"`
+				Contains []string `mapstructure:"contains"`
+			} `mapstructure:"expected_files"`
+			ContextDir string `mapstructure:"context_dir"`
+		}
+
+		if err := mapstructure.Decode(params, &v); err != nil {
+			return nil, err
+		}
+
+		var expectedFiles []ExpectedFile
+		for _, ef := range v.ExpectedFiles {
+			expectedFiles = append(expectedFiles, ExpectedFile{
+				Path:     ef.Path,
+				Snapshot: ef.Snapshot,
+				Contains: ef.Contains,
+			})
+		}
+
+		return NewDiffGrader(DiffGraderArgs{
+			Name:          identifier,
+			ExpectedFiles: expectedFiles,
+			ContextDir:    v.ContextDir,
+		})
 	case models.GraderKindPrompt, models.GraderKindKeyword, models.GraderKindJSONSchema, models.GraderKindProgram:
 		return nil, fmt.Errorf("'%s' is not yet implemented", graderType)
 	default:
