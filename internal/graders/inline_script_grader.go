@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"strings"
@@ -215,6 +216,9 @@ func getStdinTextForScript(gradingContext *Context, assertions []string) ([]byte
 		ToolCalls  []models.ToolCall        `json:"tool_calls"`
 		DurationMS int64                    `json:"duration_ms"`
 		Assertions []string                 `json:"assertions"`
+
+		// Debug causes the underlying scripts to print, to stderr, their stdin contents.
+		Debug bool `json:"debug"`
 	}{
 		Output:     gradingContext.Output,
 		Outcome:    outcome,
@@ -222,6 +226,7 @@ func getStdinTextForScript(gradingContext *Context, assertions []string) ([]byte
 		ToolCalls:  toolCalls,
 		DurationMS: gradingContext.DurationMS,
 		Assertions: assertions,
+		Debug:      slog.Default().Enabled(context.Background(), slog.LevelDebug),
 	}
 
 	scriptJSON, err := json.MarshalIndent(scriptStdin, "  ", "  ")

@@ -11,6 +11,10 @@ const data = (JSON.parse(inputData));
 // stderr isn't captured by the caller, so you can use this to do some print debugging.
 // process.stderr.write(`Received data: ${inputData}\n`);
 
+if (data.debug) {
+  process.stderr.write(inputData);
+}
+
 const evalContext = {
   output: data.output,
   outcome: data.outcome,

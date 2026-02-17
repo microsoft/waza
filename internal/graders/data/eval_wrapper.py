@@ -14,6 +14,9 @@ data = json.loads(input_data)
 def print_stderr(*args, **kwargs):
     print(*args, **kwargs, file=sys.stderr)
 
+if data.get('debug'):
+    print_stderr(input_data)
+
 eval_context = {
     "output": data['output'] or "",
     "outcome": data['outcome'],

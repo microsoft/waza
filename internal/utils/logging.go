@@ -7,6 +7,9 @@ import (
 	copilot "github.com/github/copilot-sdk/go"
 )
 
+// SessionToSlog tries to be a low-overhead method for dumping out any session events coming from
+// the copilot client to slog. It's safe to add this to your copilot session instances, in
+// their [copilot.Session.On] handler.
 func SessionToSlog(event copilot.SessionEvent) {
 	if !slog.Default().Enabled(context.Background(), slog.LevelDebug) {
 		return

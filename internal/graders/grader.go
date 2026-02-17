@@ -43,6 +43,9 @@ type Context struct {
 	// SkillInvocations is a chronological list of skills invoked during the session.
 	// Used by the skill_invocation grader to verify orchestration workflows.
 	SkillInvocations []execution.SkillInvocation
+
+	// SessionID from this evaluation run.
+	SessionID string
 }
 
 // Create creates a validator from the global registry
@@ -156,7 +159,15 @@ func Create(graderType models.GraderKind, identifier string, params map[string]a
 			ExpectedFiles: expectedFiles,
 			ContextDir:    v.ContextDir,
 		})
-	case models.GraderKindPrompt, models.GraderKindKeyword, models.GraderKindJSONSchema, models.GraderKindProgram:
+	case models.GraderKindPrompt:
+		var v PromptGraderArgs
+
+		if err := mapstructure.Decode(params, &v); err != nil {
+			return nil, err
+		}
+
+		return NewPromptGrader(identifier, v)
+	case models.GraderKindKeyword, models.GraderKindJSONSchema, models.GraderKindProgram:
 		return nil, fmt.Errorf("'%s' is not yet implemented", graderType)
 	default:
 		return nil, fmt.Errorf("'%s' is not a valid grader type", graderType)

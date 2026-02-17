@@ -485,4 +485,3 @@ func TestFileGrader_CountTotalChecks(t *testing.T) {
 
 // Ensure FileGrader satisfies the Grader interface at compile time.
 var _ Grader = (*fileGrader)(nil)
-var _ *models.GraderResults // ensure import is used

@@ -55,6 +55,7 @@ type ExecutionResponse struct {
 	ErrorMsg         string
 	Success          bool
 	WorkspaceDir     string // Path to workspace directory (for file grading)
+	SessionID        string // Copilot session ID
 }
 
 // ExtractMessages gets all assistant messages from events
