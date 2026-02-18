@@ -1,7 +1,6 @@
 package dev
 
 import (
-	"bufio"
 	"context"
 	"errors"
 	"fmt"
@@ -28,14 +27,6 @@ type devConfig struct {
 	Err           io.Writer
 	In            io.Reader
 	Scorer        Scorer
-	scan          *bufio.Scanner
-}
-
-func (c *devConfig) Scanner() *bufio.Scanner {
-	if c.scan == nil {
-		c.scan = bufio.NewScanner(c.In)
-	}
-	return c.scan
 }
 
 func runDev(cmd *cobra.Command, args []string) error {
@@ -242,7 +233,7 @@ func improve(cfg *devConfig, skill *skill.Skill, score *ScoreResult) (bool, erro
 }
 
 func confirmApply(cfg *devConfig) bool {
-	return PromptConfirm(cfg.Scanner(), cfg.Out, "Apply this improvement?")
+	return promptConfirm(cfg.In, cfg.Out, "Apply this improvement?")
 }
 
 type frontmatterSuggestion struct {

@@ -2,6 +2,7 @@ package dev
 
 import (
 	"bytes"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -395,6 +396,10 @@ Anti-triggers: 2
 }
 
 func TestDevLoop_NoSummaryWhenDeclined(t *testing.T) {
+	withDevTestConfirm(t, func(_ io.Reader, _ io.Writer, _ string) bool {
+		return false
+	})
+
 	dir := t.TempDir()
 	skillDir := filepath.Join(dir, "declined-skill")
 	require.NoError(t, os.MkdirAll(skillDir, 0o755))
@@ -415,7 +420,7 @@ description: "Short"
 		MaxIterations: 3,
 		Auto:          false,
 		Out:           &buf,
-		In:            strings.NewReader("n\n"),
+		In:            strings.NewReader(""),
 	}
 
 	err := runDevLoop(cfg)
@@ -438,12 +443,12 @@ Issues:
 ────────────────────────────────────────
 Short. Provides comprehensive support for common use cases and edge cases. Provides comprehensive support for common use cases and edge cases. Provides comprehensive support for common use cases and edge cases.
 ────────────────────────────────────────
-Apply this improvement? [y/N]
+
 📝 Suggested improvement (triggers):
 ────────────────────────────────────────
 USE FOR: declined-skill, declined-skill help, use declined-skill, how to declined-skill, declined-skill guide.
 ────────────────────────────────────────
-Apply this improvement? [y/N]
+
 No improvements applied.
 `
 	require.Equal(t, expected, buf.String())
