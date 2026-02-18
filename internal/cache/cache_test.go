@@ -98,6 +98,46 @@ func TestCacheKey_DifferentModelChangesKey(t *testing.T) {
 	assert.NotEqual(t, key1, key2)
 }
 
+func TestCacheKey_DifferentSkillPathsChangesKey(t *testing.T) {
+	spec1 := &models.BenchmarkSpec{
+		SpecIdentity: models.SpecIdentity{Name: "test"},
+		SkillName:    "skill",
+		Config: models.Config{
+			ModelID:    "gpt-4",
+			EngineType: "copilot-sdk",
+			TimeoutSec: 300,
+			SkillPaths: []string{"skills/my-skill"},
+		},
+	}
+
+	spec2 := &models.BenchmarkSpec{
+		SpecIdentity: models.SpecIdentity{Name: "test"},
+		SkillName:    "skill",
+		Config: models.Config{
+			ModelID:    "gpt-4",
+			EngineType: "copilot-sdk",
+			TimeoutSec: 300,
+			SkillPaths: []string{}, // No skills (baseline pass)
+		},
+	}
+
+	task := &models.TestCase{
+		TestID:      "test-1",
+		DisplayName: "Test",
+		Stimulus: models.TestStimulus{
+			Message: "Test",
+		},
+	}
+
+	key1, err := CacheKey(spec1, task, "")
+	require.NoError(t, err)
+
+	key2, err := CacheKey(spec2, task, "")
+	require.NoError(t, err)
+
+	assert.NotEqual(t, key1, key2, "with-skills and without-skills runs must have different cache keys")
+}
+
 func TestCacheKey_DifferentFixturesChangesKey(t *testing.T) {
 	spec := &models.BenchmarkSpec{
 		SpecIdentity: models.SpecIdentity{Name: "test"},

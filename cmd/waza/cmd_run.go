@@ -38,6 +38,7 @@ var (
 	runCacheDir    string
 	modelOverrides []string
 	recommendFlag  bool
+	baselineFlag   bool
 )
 
 // modelResult pairs a model identifier with its evaluation outcome.
@@ -79,6 +80,7 @@ You can also specify a skill name to run its eval:
 	cmd.Flags().StringVar(&runCacheDir, "cache-dir", ".waza-cache", "Cache directory for storing results")
 	cmd.Flags().StringArrayVar(&modelOverrides, "model", nil, "Model to use (overrides spec config, can be repeated for comparison)")
 	cmd.Flags().BoolVar(&recommendFlag, "recommend", false, "Generate heuristic recommendation after multi-model run")
+	cmd.Flags().BoolVar(&baselineFlag, "baseline", false, "Run A/B comparison: with skills vs without skills")
 
 	return cmd
 }
@@ -212,6 +214,9 @@ func runCommandForSpec(cmd *cobra.Command, sp skillSpecPath) error {
 	}
 	if workers > 0 {
 		spec.Config.Workers = workers
+	}
+	if baselineFlag {
+		spec.Baseline = true
 	}
 
 	// Determine the list of models to evaluate
@@ -486,6 +491,23 @@ func runSingleModel(_ *cobra.Command, spec *models.BenchmarkSpec, specPath strin
 	}
 
 	// Return test failure as error so caller can decide how to handle it
+	// In baseline mode, exit code is based on skill impact (0=improvement, 1=regression/neutral)
+	if outcome.IsBaseline {
+		withPassRate := outcome.Digest.SuccessRate
+		withoutPassRate := outcome.BaselineOutcome.Digest.SuccessRate
+
+		if withPassRate <= withoutPassRate {
+			// Skills hurt or neutral → exit 1
+			return outcome, &TestFailureError{
+				Message: fmt.Sprintf("baseline comparison: skills have negative/neutral impact (%.1f%% vs %.1f%%)",
+					withPassRate*100, withoutPassRate*100),
+			}
+		}
+		// Skills improved → exit 0
+		return outcome, nil
+	}
+
+	// Normal mode: fail if tests failed or errors occurred
 	var failures []string
 	if outcome.Digest.Failed > 0 || outcome.Digest.Errors > 0 {
 		failures = append(failures, fmt.Sprintf("%d failed and %d error(s)", outcome.Digest.Failed, outcome.Digest.Errors))

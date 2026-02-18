@@ -126,7 +126,19 @@ func (r *TestRunner) notifyProgress(event ProgressEvent) {
 }
 
 // RunBenchmark executes the entire benchmark
+// If Baseline is enabled, runs twice: skills-enabled and skills-disabled
 func (r *TestRunner) RunBenchmark(ctx context.Context) (*models.EvaluationOutcome, error) {
+	spec := r.cfg.Spec()
+
+	if spec.Baseline {
+		return r.runBaselineComparison(ctx)
+	}
+
+	return r.runNormalBenchmark(ctx)
+}
+
+// runNormalBenchmark executes a normal single-pass evaluation
+func (r *TestRunner) runNormalBenchmark(ctx context.Context) (*models.EvaluationOutcome, error) {
 	startTime := time.Now()
 
 	// Initialize engine
@@ -212,6 +224,196 @@ func (r *TestRunner) RunBenchmark(ctx context.Context) (*models.EvaluationOutcom
 	})
 
 	return outcome, nil
+}
+
+// runBaselineComparison orchestrates A/B testing: skills-enabled vs skills-disabled
+func (r *TestRunner) runBaselineComparison(ctx context.Context) (*models.EvaluationOutcome, error) {
+	spec := r.cfg.Spec()
+
+	// Validation: eval must have skills configured
+	if len(spec.Config.SkillPaths) == 0 && len(spec.Config.RequiredSkills) == 0 {
+		fmt.Println("[WARN] --baseline specified but eval has no skills configured (skill_directories, required_skills empty). Skipping baseline comparison.")
+		return r.runNormalBenchmark(ctx)
+	}
+
+	// PASS 1: Skills-Enabled
+	fmt.Println("\n════════════════════════════════════════════════════════════════")
+	fmt.Println("PASS 1: Skills-Enabled Run")
+	fmt.Println("════════════════════════════════════════════════════════════════")
+	outcomesWithSkills, err := r.runNormalBenchmark(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("skills-enabled run failed: %w", err)
+	}
+
+	// PASS 2: Skills Disabled (baseline)
+	savedSkillPaths := spec.Config.SkillPaths
+	savedRequiredSkills := spec.Config.RequiredSkills
+	spec.Config.SkillPaths = []string{}
+	spec.Config.RequiredSkills = []string{}
+	defer func() {
+		spec.Config.SkillPaths = savedSkillPaths
+		spec.Config.RequiredSkills = savedRequiredSkills
+	}()
+
+	fmt.Println("\n════════════════════════════════════════════════════════════════")
+	fmt.Println("PASS 2: Skills Baseline (skills stripped)")
+	fmt.Println("════════════════════════════════════════════════════════════════")
+	outcomesWithoutSkills, err := r.runNormalBenchmark(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("baseline run (skills disabled) failed: %w", err)
+	}
+
+	// Restore skills before merging
+	spec.Config.SkillPaths = savedSkillPaths
+	spec.Config.RequiredSkills = savedRequiredSkills
+
+	// PASS 3: Compare and merge results
+	return r.mergeBaselineOutcomes(outcomesWithSkills, outcomesWithoutSkills)
+}
+
+// mergeBaselineOutcomes pairs task results and computes skill impact
+func (r *TestRunner) mergeBaselineOutcomes(
+	withSkills, withoutSkills *models.EvaluationOutcome,
+) (*models.EvaluationOutcome, error) {
+
+	// Build maps: TestID → TestOutcome for quick lookup
+	withMap := make(map[string]*models.TestOutcome)
+	withoutMap := make(map[string]*models.TestOutcome)
+
+	for i := range withSkills.TestOutcomes {
+		withMap[withSkills.TestOutcomes[i].TestID] = &withSkills.TestOutcomes[i]
+	}
+	for i := range withoutSkills.TestOutcomes {
+		withoutMap[withoutSkills.TestOutcomes[i].TestID] = &withoutSkills.TestOutcomes[i]
+	}
+
+	// Merge: for each task, compute skill_impact
+	for testID, withTo := range withMap {
+		withoutTo, ok := withoutMap[testID]
+		if !ok {
+			return nil, fmt.Errorf("baseline mismatch: task %q present in skills-enabled but not baseline", testID)
+		}
+
+		withTo.SkillImpact = computeSkillImpact(withTo, withoutTo)
+	}
+
+	// Check for extra tasks in baseline
+	for testID := range withoutMap {
+		if _, ok := withMap[testID]; !ok {
+			return nil, fmt.Errorf("baseline mismatch: task %q present in baseline but not skills-enabled", testID)
+		}
+	}
+
+	// Print comparison report
+	r.printSkillImpactReport(withSkills, withoutSkills)
+
+	// Return merged outcome (use withSkills as the primary result)
+	withSkills.IsBaseline = true
+	withSkills.BaselineOutcome = withoutSkills
+	return withSkills, nil
+}
+
+// computeSkillImpact calculates per-task impact metric
+func computeSkillImpact(withSkills, without *models.TestOutcome) *models.SkillImpactMetric {
+	passRateWith := computePassRate(withSkills)
+	passRateWithout := computePassRate(without)
+
+	delta := passRateWith - passRateWithout
+
+	// Compute % improvement (with div-by-zero guard)
+	denom := math.Max(passRateWithout, 0.01)
+	percentImprovement := (delta / denom) * 100.0
+
+	return &models.SkillImpactMetric{
+		PassRateWithSkills: passRateWith,
+		PassRateBaseline:   passRateWithout,
+		Delta:              delta,
+		PercentChange:      percentImprovement,
+	}
+}
+
+func computePassRate(outcome *models.TestOutcome) float64 {
+	if outcome.Stats != nil {
+		return outcome.Stats.PassRate
+	}
+	// Fallback: compute from runs when stats haven't been populated yet
+	if len(outcome.Runs) == 0 {
+		return 0.0
+	}
+	passed := 0
+	for _, r := range outcome.Runs {
+		if r.Status == models.StatusPassed {
+			passed++
+		}
+	}
+	return float64(passed) / float64(len(outcome.Runs))
+}
+
+// printSkillImpactReport prints the A/B comparison summary
+func (r *TestRunner) printSkillImpactReport(withSkills, withoutSkills *models.EvaluationOutcome) {
+	fmt.Println("\n════════════════════════════════════════════════════════════════")
+	fmt.Println("SKILL IMPACT ANALYSIS")
+	fmt.Println("════════════════════════════════════════════════════════════════")
+
+	withPassRate := withSkills.Digest.SuccessRate
+	withoutPassRate := withoutSkills.Digest.SuccessRate
+	delta := withPassRate - withoutPassRate
+
+	fmt.Printf("Overall Performance Delta:\n")
+	fmt.Printf("  With Skills:    %.1f%% (%d/%d tasks passed)\n",
+		withPassRate*100, withSkills.Digest.Succeeded, withSkills.Digest.TotalTests)
+	fmt.Printf("  Without Skills: %.1f%% (%d/%d tasks passed)\n",
+		withoutPassRate*100, withoutSkills.Digest.Succeeded, withoutSkills.Digest.TotalTests)
+
+	if delta > 0 {
+		fmt.Printf("  Impact:         +%.1f percentage points\n\n", delta*100)
+	} else if delta < 0 {
+		fmt.Printf("  Impact:         %.1f percentage points\n\n", delta*100)
+	} else {
+		fmt.Printf("  Impact:         no change\n\n")
+	}
+
+	fmt.Println("Per-Task Breakdown:")
+	improved := 0
+	regressed := 0
+	neutral := 0
+
+	for i := range withSkills.TestOutcomes {
+		to := &withSkills.TestOutcomes[i]
+		if to.SkillImpact == nil {
+			continue
+		}
+
+		impact := to.SkillImpact
+		status := "[NEUTRAL]"
+		if impact.Delta > 0 {
+			status = "[IMPROVED]"
+			improved++
+		} else if impact.Delta < 0 {
+			status = "[REGRESSED]"
+			regressed++
+		} else {
+			neutral++
+		}
+
+		fmt.Printf("  • %-30s %s  %.0f%% → %.0f%% (%+.0fpp)\n",
+			to.DisplayName,
+			status,
+			impact.PassRateBaseline*100,
+			impact.PassRateWithSkills*100,
+			impact.Delta*100,
+		)
+	}
+
+	fmt.Println()
+	if delta > 0 {
+		fmt.Printf("Verdict: Skills have POSITIVE IMPACT (improved %d/%d tasks)\n", improved, len(withSkills.TestOutcomes))
+	} else if delta < 0 {
+		fmt.Printf("Verdict: Skills have NEGATIVE IMPACT (regressed %d/%d tasks)\n", regressed, len(withSkills.TestOutcomes))
+	} else {
+		fmt.Printf("Verdict: Skills have NEUTRAL IMPACT (no net change)\n")
+	}
+	fmt.Println("════════════════════════════════════════════════════════════════")
 }
 
 func (r *TestRunner) loadTestCases() ([]*models.TestCase, error) {

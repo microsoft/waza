@@ -35,16 +35,18 @@ const (
 
 // EvaluationOutcome represents the complete result of an evaluation run
 type EvaluationOutcome struct {
-	RunID          string                   `json:"eval_id"`
-	SkillTested    string                   `json:"skill"`
-	BenchName      string                   `json:"eval_name"`
-	Timestamp      time.Time                `json:"timestamp"`
-	Setup          OutcomeSetup             `json:"config"`
-	Digest         OutcomeDigest            `json:"summary"`
-	Measures       map[string]MeasureResult `json:"metrics"`
-	TestOutcomes   []TestOutcome            `json:"tasks"`
-	TriggerMetrics *TriggerMetrics          `json:"trigger_metrics,omitempty"`
-	Metadata       map[string]any           `json:"metadata,omitempty"`
+	RunID           string                   `json:"eval_id"`
+	SkillTested     string                   `json:"skill"`
+	BenchName       string                   `json:"eval_name"`
+	Timestamp       time.Time                `json:"timestamp"`
+	Setup           OutcomeSetup             `json:"config"`
+	Digest          OutcomeDigest            `json:"summary"`
+	Measures        map[string]MeasureResult `json:"metrics"`
+	TestOutcomes    []TestOutcome            `json:"tasks"`
+	TriggerMetrics  *TriggerMetrics          `json:"trigger_metrics,omitempty"`
+	Metadata        map[string]any           `json:"metadata,omitempty"`
+	IsBaseline      bool                     `json:"is_baseline,omitempty"`
+	BaselineOutcome *EvaluationOutcome       `json:"baseline_outcome,omitempty"`
 }
 
 type OutcomeSetup struct {
@@ -80,12 +82,13 @@ type MeasureResult struct {
 
 // TestOutcome represents the result of one test case
 type TestOutcome struct {
-	TestID      string      `json:"test_id"`
-	DisplayName string      `json:"display_name"`
-	Group       string      `json:"group,omitempty"`
-	Status      Status      `json:"status"`
-	Runs        []RunResult `json:"runs"`
-	Stats       *TestStats  `json:"stats,omitempty"`
+	TestID      string             `json:"test_id"`
+	DisplayName string             `json:"display_name"`
+	Group       string             `json:"group,omitempty"`
+	Status      Status             `json:"status"`
+	Runs        []RunResult        `json:"runs"`
+	Stats       *TestStats         `json:"stats,omitempty"`
+	SkillImpact *SkillImpactMetric `json:"skill_impact,omitempty"`
 }
 
 // GroupStats holds aggregate statistics for a group of test outcomes.
@@ -143,6 +146,14 @@ type TestStats struct {
 	CI95Hi        float64 `json:"ci95_hi"`
 	Flaky         bool    `json:"flaky"`
 	AvgDurationMs int64   `json:"avg_duration_ms"`
+}
+
+// SkillImpactMetric represents A/B comparison for a single task
+type SkillImpactMetric struct {
+	PassRateWithSkills float64 `json:"pass_rate_with_skills"`
+	PassRateBaseline   float64 `json:"pass_rate_baseline"`
+	Delta              float64 `json:"delta"`
+	PercentChange      float64 `json:"percent_change"`
 }
 
 // ComputeRunScore calculates the average score across all validations

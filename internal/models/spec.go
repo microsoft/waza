@@ -22,6 +22,7 @@ type BenchmarkSpec struct {
 	Graders      []GraderConfig    `yaml:"graders"`
 	Metrics      []MeasurementDef  `yaml:"metrics"`
 	Tasks        []string          `yaml:"tasks"`
+	Baseline     bool              `yaml:"baseline,omitempty" json:"baseline,omitempty"`
 }
 
 type SpecIdentity struct {

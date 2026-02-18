@@ -59,6 +59,16 @@ func CacheKey(spec *models.BenchmarkSpec, task *models.TestCase, fixtureDir stri
 		return "", err
 	}
 
+	// Include skill paths (critical for baseline A/B: with-skills vs without-skills
+	// must produce different cache keys)
+	skillsJSON, err := json.Marshal(spec.Config.SkillPaths)
+	if err != nil {
+		return "", fmt.Errorf("marshaling skill paths: %w", err)
+	}
+	if _, err := h.Write(skillsJSON); err != nil {
+		return "", err
+	}
+
 	// Include graders configuration
 	gradersJSON, err := json.Marshal(spec.Graders)
 	if err != nil {
