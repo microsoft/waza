@@ -32,15 +32,17 @@ func TestInitCommand_CreatesProjectStructure(t *testing.T) {
 	assert.FileExists(t, filepath.Join(target, ".gitignore"))
 	assert.FileExists(t, filepath.Join(target, "README.md"))
 
-	// Verify output mentions created status
+	// Verify output mentions items and descriptions
 	output := buf.String()
-	assert.Contains(t, output, "created")
+	assert.Contains(t, output, "Project created")
 	assert.Contains(t, output, "skills")
 	assert.Contains(t, output, "evals")
 	assert.Contains(t, output, ".waza.yaml")
-	assert.Contains(t, output, "eval.yml")
+	assert.Contains(t, output, "CI pipeline")
 	assert.Contains(t, output, ".gitignore")
 	assert.Contains(t, output, "README.md")
+	assert.Contains(t, output, "Skill definitions")
+	assert.Contains(t, output, "Evaluation suites")
 }
 
 func TestInitCommand_Idempotent(t *testing.T) {
@@ -63,7 +65,7 @@ func TestInitCommand_Idempotent(t *testing.T) {
 	require.NoError(t, cmd2.Execute())
 
 	output := buf.String()
-	assert.Contains(t, output, "exists")
+	assert.Contains(t, output, "up to date")
 }
 
 func TestInitCommand_NeverOverwrites(t *testing.T) {
@@ -125,9 +127,11 @@ func TestInitCommand_NoSkillFlag(t *testing.T) {
 	cmd.SetArgs([]string{dir, "--no-skill"})
 	require.NoError(t, cmd.Execute())
 
-	// Should NOT contain the skill prompt
-	output := buf.String()
-	assert.NotContains(t, output, "Create your first skill?")
+	// With --no-skill, the skill-related files should not exist
+	assert.NoDirExists(t, filepath.Join(dir, "skills", "my-skill"))
+	// But project structure should exist
+	assert.DirExists(t, filepath.Join(dir, "skills"))
+	assert.DirExists(t, filepath.Join(dir, "evals"))
 }
 
 func TestInitCommand_SkillPromptSkip(t *testing.T) {
@@ -259,47 +263,4 @@ func TestRootCommand_HasInitSubcommand(t *testing.T) {
 		}
 	}
 	assert.True(t, found, "root command should have 'init' subcommand")
-}
-
-func TestEnsureDir_Creates(t *testing.T) {
-	dir := t.TempDir()
-	target := filepath.Join(dir, "new-dir")
-	status, err := ensureDir(target)
-	require.NoError(t, err)
-	assert.Equal(t, "✅ created", status)
-	assert.DirExists(t, target)
-}
-
-func TestEnsureDir_Exists(t *testing.T) {
-	dir := t.TempDir()
-	status, err := ensureDir(dir)
-	require.NoError(t, err)
-	assert.Equal(t, "✓ exists", status)
-}
-
-func TestEnsureFile_Creates(t *testing.T) {
-	dir := t.TempDir()
-	target := filepath.Join(dir, "sub", "file.txt")
-	status, err := ensureFile(target, "hello")
-	require.NoError(t, err)
-	assert.Equal(t, "✅ created", status)
-
-	data, err := os.ReadFile(target)
-	require.NoError(t, err)
-	assert.Equal(t, "hello", string(data))
-}
-
-func TestEnsureFile_Exists(t *testing.T) {
-	dir := t.TempDir()
-	target := filepath.Join(dir, "file.txt")
-	require.NoError(t, os.WriteFile(target, []byte("original"), 0o644))
-
-	status, err := ensureFile(target, "replaced")
-	require.NoError(t, err)
-	assert.Equal(t, "✓ exists", status)
-
-	// Content should NOT have changed
-	data, err := os.ReadFile(target)
-	require.NoError(t, err)
-	assert.Equal(t, "original", string(data))
 }
