@@ -280,7 +280,7 @@ func sortRuns(runs []RunSummary, field, order string) {
 	if order == "asc" {
 		sort.Slice(runs, less)
 	} else {
-		sort.Slice(runs, func(i, j int) bool { return !less(i, j) })
+		sort.Slice(runs, func(i, j int) bool { return less(j, i) })
 	}
 }
 

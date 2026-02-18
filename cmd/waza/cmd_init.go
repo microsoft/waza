@@ -350,7 +350,7 @@ jobs:
           azd ext source add -n waza -t url -l https://raw.githubusercontent.com/spboyer/waza/main/registry.json
           azd ext install microsoft.azd.waza
       - name: Run evaluations
-        run: azd waza run
+        run: azd waza run --output results.json
       - name: Upload results
         if: always()
         uses: actions/upload-artifact@v4

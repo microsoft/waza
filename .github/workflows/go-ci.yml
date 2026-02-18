@@ -43,6 +43,14 @@ jobs:
         if: hashFiles('web/package.json') != ''
         working-directory: web
         run: npm ci && npm run build
+
+      - name: Ensure web/dist exists (stub for go:embed)
+        run: |
+          if [ ! -f web/dist/index.html ]; then
+            mkdir -p web/dist
+            echo '<!doctype html><html><head><title>waza</title></head><body>placeholder</body></html>' > web/dist/index.html
+            echo '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y="80" font-size="80">w</text></svg>' > web/dist/favicon.svg
+          fi
       
       - name: Format Check
         run: |
@@ -94,6 +102,14 @@ jobs:
         with:
           go-version: '1.25'
       
+      - name: Ensure web/dist exists (stub for go:embed)
+        run: |
+          if [ ! -f web/dist/index.html ]; then
+            mkdir -p web/dist
+            echo '<!doctype html><html><head><title>waza</title></head><body>placeholder</body></html>' > web/dist/index.html
+            echo '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y="80" font-size="80">w</text></svg>' > web/dist/favicon.svg
+          fi
+
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@v7
         with:

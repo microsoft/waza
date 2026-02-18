@@ -28,7 +28,7 @@ type Server struct {
 }
 
 // New creates a new HTTP server with the given configuration.
-func New(cfg Config) *Server {
+func New(cfg Config) (*Server, error) {
 	if cfg.Logger == nil {
 		cfg.Logger = slog.Default()
 	}
@@ -44,14 +44,16 @@ func New(cfg Config) *Server {
 		cfg:    cfg,
 		logger: cfg.Logger,
 		srv: &http.Server{
-			Addr:              fmt.Sprintf(":%d", cfg.Port),
+			Addr:              fmt.Sprintf("127.0.0.1:%d", cfg.Port),
 			Handler:           mux,
 			ReadHeaderTimeout: 10 * time.Second,
 		},
 	}
 
-	registerRoutes(mux, cfg)
-	return s
+	if err := registerRoutes(mux, cfg); err != nil {
+		return nil, err
+	}
+	return s, nil
 }
 
 // ListenAndServe starts the HTTP server and optionally opens a browser.
@@ -101,7 +103,7 @@ func openBrowser(url string) error {
 	case "linux":
 		cmd = exec.Command("xdg-open", url)
 	case "windows":
-		cmd = exec.Command("cmd", "/c", "start", url)
+		cmd = exec.Command("cmd", "/c", "start", "", url)
 	default:
 		return fmt.Errorf("unsupported platform: %s", runtime.GOOS)
 	}

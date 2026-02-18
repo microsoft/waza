@@ -101,9 +101,9 @@ func sampleRun(id, spec, model string, passed, total int, tokens int, ts time.Ti
 		},
 		Tasks: []TaskResult{
 			{
-				Name:    "explain-fibonacci",
-				Outcome: "passed",
-				Score:   0.95,
+				Name:     "explain-fibonacci",
+				Outcome:  "passed",
+				Score:    0.95,
 				Duration: 38.2,
 				GraderResults: []GraderResult{
 					{
@@ -227,10 +227,10 @@ func TestHandleRunsWithSort(t *testing.T) {
 	h := NewHandlers(store)
 
 	tests := []struct {
-		name      string
-		sort      string
-		order     string
-		firstID   string
+		name    string
+		sort    string
+		order   string
+		firstID string
 	}{
 		{"default desc", "", "", "r2"},
 		{"timestamp asc", "timestamp", "asc", "r1"},

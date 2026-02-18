@@ -24,11 +24,11 @@ type RunDetail struct {
 
 // TaskResult is a per-task result within a run.
 type TaskResult struct {
-	Name           string          `json:"name"`
-	Outcome        string          `json:"outcome"`
-	Score          float64         `json:"score"`
-	Duration       float64         `json:"duration"`
-	GraderResults  []GraderResult  `json:"graderResults"`
+	Name          string         `json:"name"`
+	Outcome       string         `json:"outcome"`
+	Score         float64        `json:"score"`
+	Duration      float64        `json:"duration"`
+	GraderResults []GraderResult `json:"graderResults"`
 }
 
 // GraderResult is a single grader/validator result.

@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"syscall"
 
 	"github.com/spboyer/waza/internal/jsonrpc"
 	"github.com/spboyer/waza/internal/webserver"
@@ -51,15 +52,18 @@ JSON-RPC methods (when using --tcp or stdin/stdout):
 
 			// HTTP mode (default)
 			if httpMode || !cmd.Flags().Changed("tcp") {
-				ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt)
+				ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 				defer stop()
 
-				srv := webserver.New(webserver.Config{
+				srv, err := webserver.New(webserver.Config{
 					Port:       httpPort,
 					ResultsDir: resultsDir,
 					NoBrowser:  noBrowser,
 					Logger:     logger,
 				})
+				if err != nil {
+					return fmt.Errorf("failed to initialize web server: %w", err)
+				}
 				return srv.ListenAndServe(ctx)
 			}
 

@@ -12,11 +12,12 @@ import (
 
 func newTestServer(t *testing.T) http.Handler {
 	t.Helper()
-	srv := New(Config{
+	srv, err := New(Config{
 		Port:       0,
 		ResultsDir: t.TempDir(),
 		NoBrowser:  true,
 	})
+	require.NoError(t, err)
 	return srv.Handler()
 }
 
