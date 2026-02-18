@@ -5,28 +5,34 @@ import (
 	"log/slog"
 	"net"
 	"os"
+	"os/signal"
 
 	"github.com/spboyer/waza/internal/jsonrpc"
+	"github.com/spboyer/waza/internal/webserver"
 	"github.com/spf13/cobra"
 )
 
 func newServeCommand() *cobra.Command {
 	var tcpAddr string
 	var tcpAllowRemote bool
+	var httpMode bool
+	var httpPort int
+	var noBrowser bool
+	var resultsDir string
 
 	cmd := &cobra.Command{
 		Use:   "serve",
-		Short: "Start a JSON-RPC 2.0 server for IDE integration",
-		Long: `Start a JSON-RPC 2.0 server for IDE integration.
+		Short: "Start the waza server (HTTP dashboard or JSON-RPC)",
+		Long: `Start the waza server.
 
-By default, the server communicates over stdin/stdout using newline-delimited JSON.
-This enables VS Code, JetBrains, and other editors to run evals programmatically.
+By default, an HTTP server is started that serves the waza dashboard and API.
+The browser is opened automatically (disable with --no-browser).
 
-Use --tcp to start a TCP server instead (useful for debugging).
+Use --tcp to start a JSON-RPC 2.0 server instead (for IDE integration).
 TCP defaults to loopback (127.0.0.1) for security. Use --tcp-allow-remote to bind
 to all interfaces.
 
-Supported methods:
+JSON-RPC methods (when using --tcp or stdin/stdout):
   eval.run       Run an eval (returns run ID)
   eval.list      List available evals in a directory
   eval.get       Get eval details
@@ -36,36 +42,69 @@ Supported methods:
   run.status     Get run status
   run.cancel     Cancel a running eval`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			registry := jsonrpc.NewMethodRegistry()
-			hctx := jsonrpc.NewHandlerContext()
-			jsonrpc.RegisterHandlers(registry, hctx)
-
 			logger := slog.Default()
-			server := jsonrpc.NewServer(registry, logger)
 
+			// JSON-RPC TCP mode
 			if tcpAddr != "" {
-				tcpAddr = resolveTCPAddr(tcpAddr, tcpAllowRemote, logger)
-
-				listener, err := jsonrpc.NewTCPListener(tcpAddr, server)
-				if err != nil {
-					return fmt.Errorf("failed to start TCP server: %w", err)
-				}
-				defer listener.Close() //nolint:errcheck
-				fmt.Fprintf(os.Stderr, "JSON-RPC server listening on %s\n", listener.Addr())
-				return listener.Serve()
+				return runJSONRPC(tcpAddr, tcpAllowRemote, logger)
 			}
 
-			fmt.Fprintln(os.Stderr, "JSON-RPC server running on stdio")
-			server.ServeStdio(os.Stdin, os.Stdout)
-			return nil
+			// HTTP mode (default)
+			if httpMode || !cmd.Flags().Changed("tcp") {
+				ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt)
+				defer stop()
+
+				srv := webserver.New(webserver.Config{
+					Port:       httpPort,
+					ResultsDir: resultsDir,
+					NoBrowser:  noBrowser,
+					Logger:     logger,
+				})
+				return srv.ListenAndServe(ctx)
+			}
+
+			// Fallback: JSON-RPC on stdio
+			return runJSONRPCStdio(logger)
 		},
 	}
 
-	cmd.Flags().StringVar(&tcpAddr, "tcp", "", "TCP address to listen on (e.g., :9000)")
+	cmd.Flags().StringVar(&tcpAddr, "tcp", "", "TCP address to listen on for JSON-RPC (e.g., :9000)")
 	cmd.Flags().BoolVar(&tcpAllowRemote, "tcp-allow-remote", false,
 		"Allow binding to non-loopback addresses (WARNING: exposes the server to the network with no authentication)")
+	cmd.Flags().BoolVar(&httpMode, "http", false, "Start HTTP dashboard server (default when --tcp is not set)")
+	cmd.Flags().IntVar(&httpPort, "port", 3000, "HTTP server port")
+	cmd.Flags().BoolVar(&noBrowser, "no-browser", false, "Don't auto-open the browser")
+	cmd.Flags().StringVar(&resultsDir, "results-dir", ".", "Directory to read results from")
 
 	return cmd
+}
+
+func runJSONRPC(tcpAddr string, allowRemote bool, logger *slog.Logger) error {
+	registry := jsonrpc.NewMethodRegistry()
+	hctx := jsonrpc.NewHandlerContext()
+	jsonrpc.RegisterHandlers(registry, hctx)
+
+	server := jsonrpc.NewServer(registry, logger)
+
+	tcpAddr = resolveTCPAddr(tcpAddr, allowRemote, logger)
+	listener, err := jsonrpc.NewTCPListener(tcpAddr, server)
+	if err != nil {
+		return fmt.Errorf("failed to start TCP server: %w", err)
+	}
+	defer listener.Close() //nolint:errcheck
+	fmt.Fprintf(os.Stderr, "JSON-RPC server listening on %s\n", listener.Addr())
+	return listener.Serve()
+}
+
+func runJSONRPCStdio(logger *slog.Logger) error {
+	registry := jsonrpc.NewMethodRegistry()
+	hctx := jsonrpc.NewHandlerContext()
+	jsonrpc.RegisterHandlers(registry, hctx)
+
+	server := jsonrpc.NewServer(registry, logger)
+	fmt.Fprintln(os.Stderr, "JSON-RPC server running on stdio")
+	server.ServeStdio(os.Stdin, os.Stdout)
+	return nil
 }
 
 // resolveTCPAddr ensures TCP addresses default to loopback unless --tcp-allow-remote is set.
