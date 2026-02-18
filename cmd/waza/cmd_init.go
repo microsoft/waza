@@ -8,6 +8,7 @@ import (
 
 	"github.com/charmbracelet/huh"
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 )
 
 func newInitCommand() *cobra.Command {
@@ -85,8 +86,13 @@ func initCommandE(cmd *cobra.Command, args []string, interactive bool, noSkill b
 
 	// Collect all prompt values
 	var engine, model, skillName string
+	var createSkill bool
 	engine = "copilot-sdk"
 	model = "gpt-4o"
+
+	// Use interactive (arrow-key) mode when running in a terminal,
+	// fall back to accessible (number-entry) mode for pipes/CI.
+	accessible := !term.IsTerminal(int(os.Stdin.Fd()))
 
 	// Build a single form with all needed prompts to avoid reader buffering issues
 	var groups []*huh.Group
@@ -95,34 +101,60 @@ func initCommandE(cmd *cobra.Command, args []string, interactive bool, noSkill b
 		groups = append(groups, huh.NewGroup(
 			huh.NewSelect[string]().
 				Title("Default evaluation engine").
-				Description("Used when generating eval.yaml files with 'waza new'").
+				Description("Choose how evals are executed").
 				Options(
-					huh.NewOption("Copilot SDK (real model execution)", "copilot-sdk"),
-					huh.NewOption("Mock (fast iteration, no API calls)", "mock"),
+					huh.NewOption("Copilot SDK — real model execution", "copilot-sdk"),
+					huh.NewOption("Mock — fast iteration, no API calls", "mock"),
 				).
 				Value(&engine),
 
-			huh.NewInput().
+			huh.NewSelect[string]().
 				Title("Default model").
-				Description("Model identifier for evaluations").
-				Placeholder("gpt-4o").
+				Description("Model used for evaluations").
+				Options(
+					huh.NewOption("gpt-4o", "gpt-4o"),
+					huh.NewOption("gpt-4o-mini", "gpt-4o-mini"),
+					huh.NewOption("claude-sonnet-4", "claude-sonnet-4"),
+					huh.NewOption("claude-haiku-4", "claude-haiku-4"),
+					huh.NewOption("o3-mini", "o3-mini"),
+				).
 				Value(&model),
 		))
 	}
 
 	if needSkillPrompt {
 		groups = append(groups, huh.NewGroup(
-			huh.NewInput().
+			huh.NewConfirm().
 				Title("Create your first skill?").
-				Description("Enter a skill name, or leave empty to skip").
-				Placeholder("my-skill").
-				Value(&skillName),
+				Affirmative("Yes").
+				Negative("No").
+				Value(&createSkill),
 		))
+
+		groups = append(groups, huh.NewGroup(
+			huh.NewInput().
+				Title("Skill name").
+				Description("A kebab-case name for your skill (e.g. azure-deploy)").
+				Placeholder("my-skill").
+				Value(&skillName).
+				Validate(func(s string) error {
+					s = strings.TrimSpace(s)
+					if s == "" {
+						return fmt.Errorf("skill name is required")
+					}
+					if strings.ContainsAny(s, `/\ `) {
+						return fmt.Errorf("skill name cannot contain spaces or path separators")
+					}
+					return nil
+				}),
+		).WithHideFunc(func() bool {
+			return !createSkill
+		}))
 	}
 
 	if len(groups) > 0 {
 		form := huh.NewForm(groups...).
-			WithAccessible(true).
+			WithAccessible(accessible).
 			WithInput(cmd.InOrStdin()).
 			WithOutput(cmd.OutOrStdout())
 
@@ -130,12 +162,8 @@ func initCommandE(cmd *cobra.Command, args []string, interactive bool, noSkill b
 			// Non-interactive — use defaults, skip skill creation
 			engine = "copilot-sdk"
 			model = "gpt-4o"
-			skillName = ""
+			createSkill = false
 		}
-	}
-
-	if strings.TrimSpace(model) == "" {
-		model = "gpt-4o"
 	}
 
 	// Write .waza.yaml if needed
@@ -182,7 +210,7 @@ defaults:
 
 	// Create first skill if requested
 	skillName = strings.TrimSpace(skillName)
-	if skillName != "" && !strings.EqualFold(skillName, "skip") {
+	if createSkill && skillName != "" {
 		origDir, err := os.Getwd()
 		if err != nil {
 			return fmt.Errorf("failed to get working directory: %w", err)

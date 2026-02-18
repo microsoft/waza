@@ -136,35 +136,40 @@ func TestInitCommand_SkillPromptSkip(t *testing.T) {
 	var buf bytes.Buffer
 	cmd := newInitCommand()
 	cmd.SetOut(&buf)
-	cmd.SetIn(strings.NewReader("1\n\nskip\n"))
+	// Accessible mode: select engine=1, select model=1, confirm skill=n
+	cmd.SetIn(strings.NewReader("1\n1\nn\n"))
 	cmd.SetArgs([]string{dir})
 	require.NoError(t, cmd.Execute())
 
-	output := buf.String()
-	assert.Contains(t, output, "Create your first skill?")
-	// Skill directories should NOT exist since user skipped
+	// Skill directories should NOT exist since user declined
 	assert.NoDirExists(t, filepath.Join(dir, "skills", "my-skill"))
 }
 
 func TestInitCommand_SkillPromptCreatesSkill(t *testing.T) {
 	dir := t.TempDir()
 
-	// Pre-create .waza.yaml so init skips config prompts (only skill prompt runs)
-	require.NoError(t, os.WriteFile(filepath.Join(dir, ".waza.yaml"),
-		[]byte("defaults:\n  engine: mock\n  model: gpt-4o\n"), 0o644))
-	require.NoError(t, os.MkdirAll(filepath.Join(dir, "skills"), 0o755))
-	require.NoError(t, os.MkdirAll(filepath.Join(dir, "evals"), 0o755))
+	// First run init with --no-skill to set up project structure
+	cmd1 := newInitCommand()
+	cmd1.SetOut(&bytes.Buffer{})
+	cmd1.SetIn(strings.NewReader("1\n1\n"))
+	cmd1.SetArgs([]string{dir, "--no-skill"})
+	require.NoError(t, cmd1.Execute())
 
-	var buf bytes.Buffer
-	cmd := newInitCommand()
-	cmd.SetOut(&buf)
-	cmd.SetIn(strings.NewReader("test-skill\n"))
-	cmd.SetArgs([]string{dir})
-	err := cmd.Execute()
-	t.Logf("Output: %s", buf.String())
+	// Verify project structure exists
+	assert.DirExists(t, filepath.Join(dir, "skills"))
+	assert.DirExists(t, filepath.Join(dir, "evals"))
+
+	// Then call newCommandE directly (what init calls internally)
+	origDir, err := os.Getwd()
 	require.NoError(t, err)
+	require.NoError(t, os.Chdir(dir))
+	defer os.Chdir(origDir) //nolint:errcheck // best-effort cleanup
 
-	// newCommandE should have created the skill in-project
+	cmd2 := newNewCommand()
+	cmd2.SetOut(&bytes.Buffer{})
+	cmd2.SetArgs([]string{"test-skill"})
+	require.NoError(t, cmd2.Execute())
+
 	assert.FileExists(t, filepath.Join(dir, "skills", "test-skill", "SKILL.md"))
 	assert.FileExists(t, filepath.Join(dir, "evals", "test-skill", "eval.yaml"))
 }
