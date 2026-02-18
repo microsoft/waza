@@ -11,6 +11,8 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
+
+	"github.com/spboyer/waza/internal/scaffold"
 )
 
 func newInitCommand() *cobra.Command {
@@ -268,7 +270,7 @@ defaults:
 	// --- Phase 5: Create skill if requested ---
 	skillName = strings.TrimSpace(skillName)
 	if createSkill && skillName != "" {
-		if err := validateSkillName(skillName); err != nil {
+		if err := scaffold.ValidateName(skillName); err != nil {
 			return err
 		}
 		origDir, err := os.Getwd()

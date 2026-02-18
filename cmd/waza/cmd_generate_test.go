@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"testing"
@@ -24,7 +25,9 @@ func TestGenerateCommand_RequiresArg(t *testing.T) {
 
 func TestGenerateCommand_MissingFile(t *testing.T) {
 	resetGenerateGlobals()
+	var buf bytes.Buffer
 	cmd := newGenerateCommand()
+	cmd.SetOut(&buf)
 	cmd.SetArgs([]string{"/nonexistent/SKILL.md"})
 	err := cmd.Execute()
 	assert.Error(t, err)
@@ -40,7 +43,9 @@ func TestGenerateCommand_ValidSkill(t *testing.T) {
 
 	outDir := filepath.Join(dir, "output")
 
+	var buf bytes.Buffer
 	cmd := newGenerateCommand()
+	cmd.SetOut(&buf)
 	cmd.SetArgs([]string{skillPath, "--output-dir", outDir})
 	err := cmd.Execute()
 	require.NoError(t, err)
@@ -48,6 +53,9 @@ func TestGenerateCommand_ValidSkill(t *testing.T) {
 	assert.FileExists(t, filepath.Join(outDir, "eval.yaml"))
 	assert.FileExists(t, filepath.Join(outDir, "tasks", "test-gen-basic.yaml"))
 	assert.FileExists(t, filepath.Join(outDir, "fixtures", "sample.txt"))
+
+	// Verify deprecation notice
+	assert.Contains(t, buf.String(), "alias for 'waza new'")
 }
 
 func TestGenerateCommand_DefaultOutputDir(t *testing.T) {
@@ -67,13 +75,41 @@ func TestGenerateCommand_DefaultOutputDir(t *testing.T) {
 		}
 	}()
 
+	var buf bytes.Buffer
 	cmd := newGenerateCommand()
+	cmd.SetOut(&buf)
 	cmd.SetArgs([]string{skillPath})
 	err = cmd.Execute()
 	require.NoError(t, err)
 
-	assert.DirExists(t, filepath.Join(dir, "eval-my-skill"))
-	assert.FileExists(t, filepath.Join(dir, "eval-my-skill", "eval.yaml"))
+	// Without --output-dir, generate now delegates to waza new (standalone mode)
+	assert.DirExists(t, filepath.Join(dir, "my-skill"))
+	assert.FileExists(t, filepath.Join(dir, "my-skill", "SKILL.md"))
+	assert.FileExists(t, filepath.Join(dir, "my-skill", "evals", "eval.yaml"))
+
+	// Verify deprecation notice
+	assert.Contains(t, buf.String(), "alias for 'waza new'")
+}
+
+func TestGenerateCommand_DeprecationNotice(t *testing.T) {
+	resetGenerateGlobals()
+	dir := t.TempDir()
+	skillPath := filepath.Join(dir, "SKILL.md")
+	content := "---\nname: test-dep\ndescription: Test deprecation notice\n---\n\n# Skill\n"
+	require.NoError(t, os.WriteFile(skillPath, []byte(content), 0644))
+
+	origDir, err := os.Getwd()
+	require.NoError(t, err)
+	require.NoError(t, os.Chdir(dir))
+	defer os.Chdir(origDir) //nolint:errcheck // best-effort cleanup
+
+	var buf bytes.Buffer
+	cmd := newGenerateCommand()
+	cmd.SetOut(&buf)
+	cmd.SetArgs([]string{skillPath})
+	require.NoError(t, cmd.Execute())
+
+	assert.Contains(t, buf.String(), "Note: 'waza generate' is an alias for 'waza new'. Use 'waza new <name>' instead.")
 }
 
 func TestGenerateCommand_RegisteredInRoot(t *testing.T) {

@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/spboyer/waza/internal/scaffold"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -131,6 +132,71 @@ func TestNewCommand_NoOverwriteSafety(t *testing.T) {
 
 	// Other files should still be created
 	assert.FileExists(t, filepath.Join(dir, "evals", "my-skill", "eval.yaml"))
+}
+
+// ── Idempotent Behavior Tests ──────────────────────────────────────────────────
+
+func TestNewCommand_IdempotentWithExistingSkillMD(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "skills"), 0o755))
+
+	origDir, err := os.Getwd()
+	require.NoError(t, err)
+	require.NoError(t, os.Chdir(dir))
+	t.Cleanup(func() { _ = os.Chdir(origDir) }) //nolint:errcheck // best-effort cleanup
+
+	// Pre-create SKILL.md with valid frontmatter
+	skillDir := filepath.Join(dir, "skills", "my-skill")
+	require.NoError(t, os.MkdirAll(skillDir, 0o755))
+	validSkillMD := "---\nname: my-skill\ndescription: A test skill\n---\n\n# My Skill\n"
+	require.NoError(t, os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(validSkillMD), 0o644))
+
+	var buf bytes.Buffer
+	cmd := newNewCommand()
+	cmd.SetOut(&buf)
+	cmd.SetArgs([]string{"my-skill"})
+	require.NoError(t, cmd.Execute())
+
+	// SKILL.md should be unchanged (idempotent — detected and skipped)
+	data, err := os.ReadFile(filepath.Join(skillDir, "SKILL.md"))
+	require.NoError(t, err)
+	assert.Equal(t, validSkillMD, string(data), "existing SKILL.md should not be overwritten")
+
+	// Output should mention skip
+	assert.Contains(t, buf.String(), "skip")
+
+	// Eval files should be created
+	assert.FileExists(t, filepath.Join(dir, "evals", "my-skill", "eval.yaml"))
+	assert.FileExists(t, filepath.Join(dir, "evals", "my-skill", "tasks", "basic-usage.yaml"))
+	assert.FileExists(t, filepath.Join(dir, "evals", "my-skill", "fixtures", "sample.py"))
+}
+
+func TestNewCommand_IdempotentRunTwice(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "skills"), 0o755))
+
+	origDir, err := os.Getwd()
+	require.NoError(t, err)
+	require.NoError(t, os.Chdir(dir))
+	t.Cleanup(func() { _ = os.Chdir(origDir) }) //nolint:errcheck // best-effort cleanup
+
+	// First run
+	cmd1 := newNewCommand()
+	cmd1.SetOut(&bytes.Buffer{})
+	cmd1.SetArgs([]string{"my-skill"})
+	require.NoError(t, cmd1.Execute())
+
+	// Second run should succeed (idempotent, skip all existing)
+	var buf bytes.Buffer
+	cmd2 := newNewCommand()
+	cmd2.SetOut(&buf)
+	cmd2.SetArgs([]string{"my-skill"})
+	require.NoError(t, cmd2.Execute())
+
+	output := buf.String()
+	assert.Contains(t, output, "skip")
+	// Should not contain "create" for any file
+	assert.NotContains(t, output, "create ")
 }
 
 // ── Name Validation Tests ──────────────────────────────────────────────────────
@@ -475,7 +541,7 @@ func TestTitleCase(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.input, func(t *testing.T) {
-			assert.Equal(t, tc.want, titleCase(tc.input))
+			assert.Equal(t, tc.want, scaffold.TitleCase(tc.input))
 		})
 	}
 }

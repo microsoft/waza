@@ -4,11 +4,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
+	"github.com/spboyer/waza/internal/generate"
+	"github.com/spboyer/waza/internal/scaffold"
 	"github.com/spboyer/waza/internal/wizard"
 )
 
@@ -19,6 +20,10 @@ func newNewCommand() *cobra.Command {
 		Use:   "new <skill-name>",
 		Short: "Create a new skill with its eval suite",
 		Long: `Create a new skill and its evaluation suite with a compliant directory structure.
+
+Idempotent: detects what already exists and fills in only the missing pieces.
+If SKILL.md already exists, it is parsed for the skill name instead of being
+regenerated.
 
 Two modes of operation:
 
@@ -46,7 +51,7 @@ metadata collection. In non-interactive environments (CI, pipes), uses defaults.
 func newCommandE(cmd *cobra.Command, args []string, templatePack string) error {
 	skillName := args[0]
 
-	if err := validateSkillName(skillName); err != nil {
+	if err := scaffold.ValidateName(skillName); err != nil {
 		return err
 	}
 
@@ -57,30 +62,33 @@ func newCommandE(cmd *cobra.Command, args []string, templatePack string) error {
 	// Determine mode based on skills/ directory presence
 	projectRoot, inProject := findProjectRoot()
 
-	var skillMDContent string
-	// Check TTY from the command's input stream, not os.Stdin directly.
-	inReader := cmd.InOrStdin()
-	isTTY := false
-	if f, ok := inReader.(*os.File); ok {
-		isTTY = term.IsTerminal(int(f.Fd()))
-	}
-	if isTTY {
-		spec, err := wizard.RunSkillWizard(cmd.InOrStdin(), cmd.OutOrStdout())
-		if err != nil {
-			return fmt.Errorf("wizard failed: %w", err)
+	// Check if SKILL.md already exists — if so, skip wizard/generation
+	skillMDContent, skillMDExists := detectExistingSkillMD(projectRoot, inProject, skillName)
+
+	if !skillMDExists {
+		// Check TTY from the command's input stream, not os.Stdin directly.
+		inReader := cmd.InOrStdin()
+		isTTY := false
+		if f, ok := inReader.(*os.File); ok {
+			isTTY = term.IsTerminal(int(f.Fd()))
 		}
-		// Validate wizard name against CLI arg
-		if spec.Name != "" && spec.Name != skillName {
-			return fmt.Errorf("wizard name %q does not match CLI argument %q", spec.Name, skillName)
+		if isTTY {
+			spec, err := wizard.RunSkillWizard(cmd.InOrStdin(), cmd.OutOrStdout())
+			if err != nil {
+				return fmt.Errorf("wizard failed: %w", err)
+			}
+			if spec.Name != "" && spec.Name != skillName {
+				return fmt.Errorf("wizard name %q does not match CLI argument %q", spec.Name, skillName)
+			}
+			spec.Name = skillName
+			content, err := wizard.GenerateSkillMD(spec)
+			if err != nil {
+				return fmt.Errorf("failed to generate SKILL.md: %w", err)
+			}
+			skillMDContent = content
+		} else {
+			skillMDContent = defaultSkillMD(skillName)
 		}
-		spec.Name = skillName
-		content, err := wizard.GenerateSkillMD(spec)
-		if err != nil {
-			return fmt.Errorf("failed to generate SKILL.md: %w", err)
-		}
-		skillMDContent = content
-	} else {
-		skillMDContent = defaultSkillMD(skillName)
 	}
 
 	if inProject {
@@ -89,16 +97,25 @@ func newCommandE(cmd *cobra.Command, args []string, templatePack string) error {
 	return scaffoldStandalone(cmd, skillName, skillMDContent)
 }
 
-// validateSkillName rejects names with path-traversal characters or empty names.
-func validateSkillName(name string) error {
-	if name == "" {
-		return fmt.Errorf("skill name must not be empty")
+// detectExistingSkillMD checks whether a SKILL.md already exists for the given
+// skill name and returns its content if so. Returns ("", false) if not found.
+func detectExistingSkillMD(projectRoot string, inProject bool, skillName string) (string, bool) {
+	var skillMDPath string
+	if inProject {
+		skillMDPath = filepath.Join(projectRoot, "skills", skillName, "SKILL.md")
+	} else {
+		skillMDPath = filepath.Join(skillName, "SKILL.md")
 	}
-	cleaned := filepath.Clean(name)
-	if cleaned == ".." || strings.Contains(cleaned, "/") || strings.Contains(cleaned, "\\") {
-		return fmt.Errorf("skill name %q contains invalid path characters", name)
+
+	if _, err := os.Stat(skillMDPath); err == nil {
+		// Try to parse for validation; either way keep existing content
+		generate.ParseSkillMD(skillMDPath) //nolint:errcheck // validation only; we keep existing content regardless
+		data, readErr := os.ReadFile(skillMDPath)
+		if readErr == nil {
+			return string(data), true
+		}
 	}
-	return nil
+	return "", false
 }
 
 // findProjectRoot walks up from CWD looking for a skills/ directory.
@@ -128,6 +145,7 @@ func findProjectRoot() (string, bool) {
 
 // scaffoldInProject creates files within an existing project structure.
 func scaffoldInProject(cmd *cobra.Command, projectRoot, skillName, skillMD string) error {
+	engine, model := scaffold.ReadProjectDefaults()
 	skillDir := filepath.Join(projectRoot, "skills", skillName)
 	evalDir := filepath.Join(projectRoot, "evals", skillName)
 	tasksDir := filepath.Join(evalDir, "tasks")
@@ -140,20 +158,22 @@ func scaffoldInProject(cmd *cobra.Command, projectRoot, skillName, skillMD strin
 		}
 	}
 
+	tasks := scaffold.TaskFiles(skillName)
 	files := []fileEntry{
 		{filepath.Join(skillDir, "SKILL.md"), skillMD},
-		{filepath.Join(evalDir, "eval.yaml"), defaultEvalYAML(skillName)},
-		{filepath.Join(tasksDir, "basic-usage.yaml"), defaultBasicUsageTask()},
-		{filepath.Join(tasksDir, "edge-case.yaml"), defaultEdgeCaseTask()},
-		{filepath.Join(tasksDir, "should-not-trigger.yaml"), defaultShouldNotTriggerTask()},
-		{filepath.Join(fixturesDir, "sample.py"), defaultFixture()},
+		{filepath.Join(evalDir, "eval.yaml"), scaffold.EvalYAML(skillName, engine, model)},
 	}
+	for name, content := range tasks {
+		files = append(files, fileEntry{filepath.Join(tasksDir, name), content})
+	}
+	files = append(files, fileEntry{filepath.Join(fixturesDir, "sample.py"), scaffold.Fixture()})
 
 	return writeFiles(cmd, files)
 }
 
 // scaffoldStandalone creates a self-contained skill directory.
 func scaffoldStandalone(cmd *cobra.Command, skillName, skillMD string) error {
+	engine, model := scaffold.ReadProjectDefaults()
 	rootDir := skillName
 	evalsDir := filepath.Join(rootDir, "evals")
 	tasksDir := filepath.Join(evalsDir, "tasks")
@@ -167,17 +187,20 @@ func scaffoldStandalone(cmd *cobra.Command, skillName, skillMD string) error {
 		}
 	}
 
+	tasks := scaffold.TaskFiles(skillName)
 	files := []fileEntry{
 		{filepath.Join(rootDir, "SKILL.md"), skillMD},
-		{filepath.Join(evalsDir, "eval.yaml"), defaultEvalYAML(skillName)},
-		{filepath.Join(tasksDir, "basic-usage.yaml"), defaultBasicUsageTask()},
-		{filepath.Join(tasksDir, "edge-case.yaml"), defaultEdgeCaseTask()},
-		{filepath.Join(tasksDir, "should-not-trigger.yaml"), defaultShouldNotTriggerTask()},
-		{filepath.Join(fixturesDir, "sample.py"), defaultFixture()},
-		{filepath.Join(workflowDir, "eval.yml"), defaultCIWorkflow(skillName)},
-		{filepath.Join(rootDir, ".gitignore"), defaultGitignore()},
-		{filepath.Join(rootDir, "README.md"), defaultReadme(skillName)},
+		{filepath.Join(evalsDir, "eval.yaml"), scaffold.EvalYAML(skillName, engine, model)},
 	}
+	for name, content := range tasks {
+		files = append(files, fileEntry{filepath.Join(tasksDir, name), content})
+	}
+	files = append(files, fileEntry{filepath.Join(fixturesDir, "sample.py"), scaffold.Fixture()})
+	files = append(files,
+		fileEntry{filepath.Join(workflowDir, "eval.yml"), defaultCIWorkflow(skillName)},
+		fileEntry{filepath.Join(rootDir, ".gitignore"), defaultGitignore()},
+		fileEntry{filepath.Join(rootDir, "README.md"), defaultReadme(skillName)},
+	)
 
 	return writeFiles(cmd, files)
 }
@@ -207,18 +230,7 @@ func writeFiles(cmd *cobra.Command, files []fileEntry) error {
 	return nil
 }
 
-// titleCase converts a kebab-case name to Title Case.
-func titleCase(s string) string {
-	words := strings.Split(s, "-")
-	for i, w := range words {
-		if len(w) > 0 {
-			words[i] = strings.ToUpper(w[:1]) + w[1:]
-		}
-	}
-	return strings.Join(words, " ")
-}
-
-// --- Template content functions ---
+// --- Template content functions (standalone-only templates remain here) ---
 
 func defaultSkillMD(name string) string {
 	return fmt.Sprintf(`---
@@ -242,132 +254,7 @@ Provide examples of prompts that should trigger this skill.
 ## References
 
 List any reference documents or APIs this skill depends on.
-`, name, name, titleCase(name))
-}
-
-func defaultEvalYAML(name string) string {
-	engine, model := readProjectDefaults()
-	return fmt.Sprintf(`name: %s-eval
-description: Evaluation suite for %s.
-skill: %s
-version: "1.0"
-config:
-  trials_per_task: 1
-  timeout_seconds: 300
-  parallel: false
-  executor: %s
-  model: %s
-graders:
-  - type: code
-    name: has_output
-    config:
-      assertions:
-        - "len(output) > 0"
-  - type: regex
-    name: relevant_content
-    config:
-      pattern: "(?i)(explain|describe|analyze|implement)"
-tasks:
-  - "tasks/*.yaml"
-`, name, name, name, engine, model)
-}
-
-// readProjectDefaults reads engine and model from .waza.yaml if it exists.
-// Falls back to copilot-sdk and claude-sonnet-4.6.
-func readProjectDefaults() (engine, model string) {
-	engine = "copilot-sdk"
-	model = "claude-sonnet-4.6"
-
-	// Walk up from CWD looking for .waza.yaml
-	dir, err := os.Getwd()
-	if err != nil {
-		return
-	}
-	for i := 0; i < 10; i++ {
-		configPath := filepath.Join(dir, ".waza.yaml")
-		data, err := os.ReadFile(configPath)
-		if err == nil {
-			for _, line := range strings.Split(string(data), "\n") {
-				line = strings.TrimSpace(line)
-				if strings.HasPrefix(line, "engine:") {
-					if v := strings.TrimSpace(strings.TrimPrefix(line, "engine:")); v != "" {
-						engine = v
-					}
-				}
-				if strings.HasPrefix(line, "model:") {
-					if v := strings.TrimSpace(strings.TrimPrefix(line, "model:")); v != "" {
-						model = v
-					}
-				}
-			}
-			return
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			break
-		}
-		dir = parent
-	}
-	return
-}
-
-func defaultBasicUsageTask() string {
-	return `id: basic-usage-001
-name: Basic Usage
-description: |
-  Test that the skill handles a typical request correctly.
-tags:
-  - basic
-  - happy-path
-inputs:
-  prompt: "Help me with this task"
-  files:
-    - path: sample.py
-expected:
-  output_contains:
-    - "function"
-  outcomes:
-    - type: task_completed
-`
-}
-
-func defaultEdgeCaseTask() string {
-	return `id: edge-case-001
-name: Edge Case - Empty Input
-description: |
-  Test that the skill handles edge cases gracefully.
-tags:
-  - edge-case
-inputs:
-  prompt: ""
-expected:
-  outcomes:
-    - type: task_completed
-`
-}
-
-func defaultShouldNotTriggerTask() string {
-	return `id: should-not-trigger-001
-name: Should Not Trigger
-description: |
-  Test that the skill does NOT activate on unrelated prompts.
-  This validates trigger specificity.
-tags:
-  - anti-trigger
-  - negative-test
-inputs:
-  prompt: "What is the weather today?"
-expected:
-  output_not_contains:
-    - "skill activated"
-`
-}
-
-func defaultFixture() string {
-	return `def hello(name):
-    """Greet someone by name."""
-    return f"Hello, {name}!"
-`
+`, name, name, scaffold.TitleCase(name))
 }
 
 func defaultCIWorkflow(name string) string {
@@ -394,7 +281,7 @@ jobs:
       - name: Run eval
         run: |
           waza run evals/eval.yaml --context-dir evals/fixtures -v
-`, titleCase(name))
+`, scaffold.TitleCase(name))
 }
 
 func defaultGitignore() string {
@@ -442,5 +329,5 @@ waza run evals/eval.yaml --context-dir evals/fixtures -v
 ## Learn More
 
 - [Waza Documentation](https://github.com/spboyer/waza)
-`, titleCase(name), name)
+`, scaffold.TitleCase(name), name)
 }
