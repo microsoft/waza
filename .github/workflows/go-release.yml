@@ -44,6 +44,17 @@ jobs:
           go-version: '1.25'
           cache-dependency-path: go.sum
 
+      - name: Setup Node.js (for web UI build)
+        if: hashFiles('web/package.json') != ''
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Build Web UI
+        if: hashFiles('web/package.json') != ''
+        working-directory: web
+        run: npm ci && npm run build
+
       - name: Determine Version
         id: version
         run: |

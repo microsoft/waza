@@ -30,6 +30,19 @@ jobs:
       
       - name: Download Dependencies
         run: go mod download
+
+      - name: Setup Node.js (for web UI build)
+        if: hashFiles('web/package.json') != ''
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: web/package-lock.json
+
+      - name: Build Web UI
+        if: hashFiles('web/package.json') != ''
+        working-directory: web
+        run: npm ci && npm run build
       
       - name: Format Check
         run: |
