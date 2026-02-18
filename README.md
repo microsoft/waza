@@ -48,33 +48,131 @@ azd waza run examples/code-explainer/eval.yaml -v
 
 ## Quick Start
 
+### For New Users: Get Started in 5 Minutes
+
+See **[Getting Started Guide](docs/GETTING-STARTED.md)** for a complete walkthrough:
+
+```bash
+# Initialize a new project
+waza init my-project && cd my-project
+
+# Create a new skill
+waza new my-skill
+
+# Define the skill in skills/my-skill/SKILL.md
+# Write evaluation tasks in evals/my-skill/tasks/
+# Add test fixtures in evals/my-skill/fixtures/
+
+# Run evaluations
+waza run my-skill
+
+# Check skill readiness
+waza check my-skill
+```
+
+### All Commands
+
 ```bash
 # Build
 make build
 
-# Check if a skill is ready for submission
-./waza check skills/my-skill
+# Initialize a project workspace
+waza init [directory]
 
-# Scaffold a new eval suite
-./waza init my-eval --interactive
+# Create a new skill
+waza new skill-name
+
+# Check if a skill is ready for submission
+waza check skills/my-skill
 
 # Generate evals from a SKILL.md
-./waza generate skills/my-skill/SKILL.md
+waza generate skills/my-skill/SKILL.md
 
 # Run evaluations
-./waza run examples/code-explainer/eval.yaml --context-dir examples/code-explainer/fixtures -v
+waza run examples/code-explainer/eval.yaml --context-dir examples/code-explainer/fixtures -v
 
 # Compare results across models
-./waza compare results-gpt4.json results-sonnet.json
+waza compare results-gpt4.json results-sonnet.json
 
 # Count tokens in skill files
-./waza tokens count skills/
+waza tokens count skills/
 
 # Suggest token optimizations
-./waza tokens suggest skills/
+waza tokens suggest skills/
 ```
 
 ## Commands
+
+### `waza init [directory]`
+
+Initialize a waza project workspace with separated `skills/` and `evals/` directories. Idempotent — creates only missing files.
+
+| Flag | Description |
+|------|-------------|
+| `--interactive` | Project-level setup wizard (reserved for future use) |
+| `--no-skill` | Skip the first-skill creation prompt |
+
+Creates:
+- `skills/` — Skill definitions directory
+- `evals/` — Evaluation suites directory
+- `.github/workflows/eval.yml` — CI/CD pipeline for running evals on PR
+- `.gitignore` — Waza-specific exclusions
+- `README.md` — Getting started guide for your project
+
+**Example:**
+```bash
+waza init my-project
+# Optionally creates first skill interactively
+
+waza init my-project --no-skill
+# Skip skill creation prompt
+```
+
+### `waza new <skill-name>`
+
+Create a new skill with scaffolded structure and evaluation suite. Detects workspace context and adapts output.
+
+| Flag | Short | Description |
+|------|-------|-------------|
+| `--interactive` | `-i` | Run guided skill metadata wizard |
+| `--template` | `-t` | Template pack (coming soon) |
+
+**Modes:**
+
+*Project mode* (detects `skills/` directory):
+```
+project/
+├── skills/{skill-name}/SKILL.md
+└── evals/{skill-name}/
+    ├── eval.yaml
+    ├── tasks/*.yaml
+    └── fixtures/
+```
+
+*Standalone mode* (no `skills/` detected):
+```
+{skill-name}/
+├── SKILL.md
+├── evals/
+│   ├── eval.yaml
+│   ├── tasks/*.yaml
+│   └── fixtures/
+├── .github/workflows/eval.yml
+├── .gitignore
+└── README.md
+```
+
+**Example:**
+```bash
+# In project: creates skills/code-explainer/SKILL.md + evals/code-explainer/
+waza new code-explainer
+
+# Standalone: creates code-explainer/ self-contained directory
+waza new code-explainer
+
+# With wizard
+waza new code-explainer --interactive
+```
 
 ### `waza run <eval.yaml>`
 
@@ -146,14 +244,6 @@ fi
 waza run eval.yaml --format github-comment > comment.md
 gh pr comment $PR_NUMBER --body-file comment.md
 ```
-
-### `waza init [directory]`
-
-Scaffold a new eval suite with `eval.yaml`, `tasks/`, and `fixtures/` directories.
-
-| Flag | Description |
-|------|-------------|
-| `--interactive` | Guided wizard that collects skill metadata and generates a SKILL.md scaffold |
 
 ### `waza generate <SKILL.md>`
 
@@ -443,6 +533,7 @@ See the complete [Grader Reference](docs/GRADERS.md) for detailed configuration 
 
 ## Documentation
 
+- **[Getting Started](docs/GETTING-STARTED.md)** - Complete walkthrough: init → new → run → check
 - **[Demo Guide](docs/DEMO-GUIDE.md)** - 7 live demo scenarios for presentations
 - **[Grader Reference](docs/GRADERS.md)** - Complete grader types and configuration
 - **[Tutorial](docs/TUTORIAL.md)** - Getting started with writing skill evals
