@@ -131,7 +131,10 @@ func runSuggest(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	counter := tokens.NewEstimatingCounter()
+	counter, err := tokens.NewCounter(tokens.TokenizerDefault)
+	if err != nil {
+		return err
+	}
 	out := cmd.OutOrStdout()
 	errOut := cmd.ErrOrStderr()
 

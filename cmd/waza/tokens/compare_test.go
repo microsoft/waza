@@ -72,11 +72,11 @@ func TestCompare(t *testing.T) {
 		expected := "\n📊 Token Comparison: HEAD → WORKING\n\n" +
 			"File                  Before     After      Diff  Status\n" +
 			"------------------------------------------------------------------\n" +
-			"README.md                  -         1        +1  🆕\n" +
-			"references/spec.md         -         7        +7  🆕\n" +
-			"unchanged.md               -         1        +1  🆕\n" +
+			"README.md                  -         3        +3  🆕\n" +
+			"references/spec.md         -         4        +4  🆕\n" +
+			"unchanged.md               -         3        +3  🆕\n" +
 			"------------------------------------------------------------------\n" +
-			"Total                      0         9        +9  100.0%\n" +
+			"Total                      0        10       +10  100.0%\n" +
 			"\n📋 Summary:\n" +
 			"   Added: 3, Removed: 0, Modified: 0\n" +
 			"   Increased: 3, Decreased: 0\n"
@@ -100,7 +100,7 @@ func TestCompare(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "README.md"), []byte("# V3 is like V2 but has even more content"), 0o644))
 	commit(t, dir, "commit3")
 
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "README.md"), []byte("# V4 is the most content-rich version you've ever seen"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "README.md"), []byte("# V4 is the most content-rich version you've ever seen and it keeps going with even more words to ensure a different count"), 0o644))
 
 	for _, test := range []struct {
 		args          []string
@@ -111,9 +111,9 @@ func TestCompare(t *testing.T) {
 			expectedTable: "\n📊 Token Comparison: HEAD~2 → HEAD~1\n\n" +
 				"File         Before     After      Diff  Status\n" +
 				"---------------------------------------------------------\n" +
-				"README.md         1         7        +6  📈\n" +
+				"README.md         3         7        +4  📈\n" +
 				"---------------------------------------------------------\n" +
-				"Total             9        15        +6  66.7%\n" +
+				"Total            10        14        +4  40.0%\n" +
 				"\n📋 Summary:\n" +
 				"   Added: 0, Removed: 0, Modified: 1\n" +
 				"   Increased: 1, Decreased: 0\n",
@@ -123,9 +123,9 @@ func TestCompare(t *testing.T) {
 			expectedTable: "\n📊 Token Comparison: HEAD~2 → HEAD\n\n" +
 				"File         Before     After      Diff  Status\n" +
 				"---------------------------------------------------------\n" +
-				"README.md         1        11       +10  📈\n" +
+				"README.md         3        12        +9  📈\n" +
 				"---------------------------------------------------------\n" +
-				"Total             9        19       +10  111.1%\n" +
+				"Total            10        19        +9  90.0%\n" +
 				"\n📋 Summary:\n" +
 				"   Added: 0, Removed: 0, Modified: 1\n" +
 				"   Increased: 1, Decreased: 0\n",
@@ -135,9 +135,9 @@ func TestCompare(t *testing.T) {
 			expectedTable: "\n📊 Token Comparison: HEAD~1 → HEAD\n\n" +
 				"File         Before     After      Diff  Status\n" +
 				"---------------------------------------------------------\n" +
-				"README.md         7        11        +4  📈\n" +
+				"README.md         7        12        +5  📈\n" +
 				"---------------------------------------------------------\n" +
-				"Total            15        19        +4  26.7%\n" +
+				"Total            14        19        +5  35.7%\n" +
 				"\n📋 Summary:\n" +
 				"   Added: 0, Removed: 0, Modified: 1\n" +
 				"   Increased: 1, Decreased: 0\n",
@@ -147,9 +147,9 @@ func TestCompare(t *testing.T) {
 			expectedTable: "\n📊 Token Comparison: HEAD → WORKING\n\n" +
 				"File         Before     After      Diff  Status\n" +
 				"---------------------------------------------------------\n" +
-				"README.md        11        14        +3  📈\n" +
+				"README.md        12        25       +13  📈\n" +
 				"---------------------------------------------------------\n" +
-				"Total            19        22        +3  15.8%\n" +
+				"Total            19        32       +13  68.4%\n" +
 				"\n📋 Summary:\n" +
 				"   Added: 0, Removed: 0, Modified: 1\n" +
 				"   Increased: 1, Decreased: 0\n",
@@ -158,9 +158,9 @@ func TestCompare(t *testing.T) {
 			expectedTable: "\n📊 Token Comparison: HEAD → WORKING\n\n" +
 				"File         Before     After      Diff  Status\n" +
 				"---------------------------------------------------------\n" +
-				"README.md        11        14        +3  📈\n" +
+				"README.md        12        25       +13  📈\n" +
 				"---------------------------------------------------------\n" +
-				"Total            19        22        +3  15.8%\n" +
+				"Total            19        32       +13  68.4%\n" +
 				"\n📋 Summary:\n" +
 				"   Added: 0, Removed: 0, Modified: 1\n" +
 				"   Increased: 1, Decreased: 0\n",
@@ -191,11 +191,11 @@ func TestCompare(t *testing.T) {
 		expected := "\n📊 Token Comparison: HEAD → WORKING\n\n" +
 			"File                  Before     After      Diff  Status\n" +
 			"------------------------------------------------------------------\n" +
-			"README.md                 11        14        +3  📈\n" +
-			"references/spec.md         7         7         0  ➡️\n" +
-			"unchanged.md               1         1         0  ➡️\n" +
+			"README.md                 12        25       +13  📈\n" +
+			"references/spec.md         4         4         0  ➡️\n" +
+			"unchanged.md               3         3         0  ➡️\n" +
 			"------------------------------------------------------------------\n" +
-			"Total                     19        22        +3  15.8%\n" +
+			"Total                     19        32       +13  68.4%\n" +
 			"\n📋 Summary:\n" +
 			"   Added: 0, Removed: 0, Modified: 1\n" +
 			"   Increased: 1, Decreased: 0\n"
@@ -212,10 +212,10 @@ func TestCompare(t *testing.T) {
 		expected := "\n📊 Token Comparison: HEAD → WORKING\n\n" +
 			"File            Before     After      Diff  Status\n" +
 			"------------------------------------------------------------\n" +
-			"README.md           11        14        +3  📈\n" +
-			"unchanged.md         1         -        -1  🗑️\n" +
+			"README.md           12        25       +13  📈\n" +
+			"unchanged.md         3         -        -3  🗑️\n" +
 			"------------------------------------------------------------\n" +
-			"Total               19        21        +2  10.5%\n" +
+			"Total               19        29       +10  52.6%\n" +
 			"\n📋 Summary:\n" +
 			"   Added: 0, Removed: 1, Modified: 1\n" +
 			"   Increased: 1, Decreased: 1\n"
@@ -247,14 +247,14 @@ func TestCompare(t *testing.T) {
 				require.Equal(t, "modified", f.Status)
 				require.NotNil(t, f.Before)
 				require.NotNil(t, f.After)
-				require.Equal(t, 11, f.Before.Tokens)
-				require.Equal(t, 14, f.After.Tokens)
+				require.Equal(t, 12, f.Before.Tokens)
+				require.Equal(t, 25, f.After.Tokens)
 			case "unchanged.md":
 				foundUnchanged = true
 				require.Equal(t, "removed", f.Status)
 				require.NotNil(t, f.Before)
 				require.Nil(t, f.After)
-				require.Equal(t, 1, f.Before.Tokens)
+				require.Equal(t, 3, f.Before.Tokens)
 			}
 		}
 		require.True(t, foundReadme, "README.md should be in results")
@@ -295,11 +295,11 @@ func TestCompare_Branches(t *testing.T) {
 		expected := "\n📊 Token Comparison: branch-a → branch-b\n\n" +
 			"File            Before     After      Diff  Status\n" +
 			"------------------------------------------------------------\n" +
-			"README.md           10        16        +6  📈\n" +
+			"README.md            8        11        +3  📈\n" +
 			"feature-a.md         3         -        -3  🗑️\n" +
 			"feature-b.md         -         4        +4  🆕\n" +
 			"------------------------------------------------------------\n" +
-			"Total               13        20        +7  53.8%\n" +
+			"Total               11        15        +4  36.4%\n" +
 			"\n📋 Summary:\n" +
 			"   Added: 1, Removed: 1, Modified: 1\n" +
 			"   Increased: 2, Decreased: 1\n"

@@ -27,7 +27,10 @@ used as-is. When no path is given, the working directory is scanned.
 
 If the first argument looks like a skill name (no path separators or file
 extension), it is resolved via workspace detection to scope counting to that
-skill's directory.`,
+skill's directory.
+
+The default tokenizer uses a byte-pair encoding (BPE) algorithm. The "estimate"
+tokenizer provides a faster, less accurate estimate based on character count.`,
 		Args: cobra.ArbitraryArgs,
 		RunE: runCount,
 	}
@@ -35,6 +38,7 @@ skill's directory.`,
 	cmd.Flags().String("sort", "path", "Sort table rows by: tokens | name | path")
 	cmd.Flags().Int("min-tokens", 0, "Filter files with less than n tokens")
 	cmd.Flags().Bool("no-total", false, "Hide total row in table output")
+	cmd.Flags().String("tokenizer", "bpe", "Tokenizer to use: "+strings.Join(tokens.ValidTokenizers, " | "))
 	return cmd
 }
 
@@ -66,6 +70,13 @@ func runCount(cmd *cobra.Command, args []string) error {
 	}
 	noTotal, err := cmd.Flags().GetBool("no-total")
 	if err != nil {
+		return err
+	}
+	tokenizer, err := cmd.Flags().GetString("tokenizer")
+	if err != nil {
+		return err
+	}
+	if err = tokens.ValidateTokenizer(tokenizer); err != nil {
 		return err
 	}
 	if format == "json" {
@@ -101,7 +112,10 @@ func runCount(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	counter := tokens.NewEstimatingCounter()
+	counter, err := tokens.NewCounter(tokens.Tokenizer(tokenizer))
+	if err != nil {
+		return err
+	}
 	var results []FileResult
 	for _, f := range files {
 		content, err := os.ReadFile(f)

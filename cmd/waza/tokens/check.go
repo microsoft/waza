@@ -109,7 +109,10 @@ func runCheck(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	counter := tokens.NewEstimatingCounter()
+	counter, err := tokens.NewCounter(tokens.TokenizerDefault)
+	if err != nil {
+		return err
+	}
 	var results []checkResult
 	for _, f := range files {
 		content, err := os.ReadFile(f)

@@ -160,7 +160,10 @@ func listRefFiles(dir, ref string) map[string]bool {
 }
 
 func compareRefs(baseRef, headRef, rootDir string) ([]fileComparison, error) {
-	counter := tokens.NewEstimatingCounter()
+	counter, err := tokens.NewCounter(tokens.TokenizerDefault)
+	if err != nil {
+		return nil, err
+	}
 
 	baseFiles := listRefFiles(rootDir, baseRef)
 	headFiles := listRefFiles(rootDir, headRef)

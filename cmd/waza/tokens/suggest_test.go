@@ -41,7 +41,7 @@ func TestSuggest_ExcessiveEmojis(t *testing.T) {
 	require.NoError(t, cmd.Execute())
 
 	expected := `
-📄 emojis.md (25 tokens)
+📄 emojis.md (33 tokens)
 ------------------------------------------------------------
   Line 1: Found 9 emojis (7 over recommended 2)
     💡 Remove decorative emojis that don't aid comprehension (~14 tokens)
@@ -63,7 +63,7 @@ func TestSuggest_LargeCodeBlock(t *testing.T) {
 	require.NoError(t, cmd.Execute())
 
 	expected := `
-📄 bigcode.md (56 tokens)
+📄 bigcode.md (59 tokens)
 ------------------------------------------------------------
   Line 3: Code block with 20 lines (10 over 10)
     💡 Consider truncating example or moving to reference file (~160 tokens)
@@ -85,7 +85,7 @@ func TestSuggest_LargeTable(t *testing.T) {
 	require.NoError(t, cmd.Execute())
 
 	expected := `
-📄 bigtable.md (90 tokens)
+📄 bigtable.md (190 tokens)
 ------------------------------------------------------------
   Line 3: Table with 15 rows (5 over 10)
     💡 Consider summarizing or moving to reference file (~60 tokens)
@@ -127,9 +127,9 @@ func TestSuggest_ExceedsLimit(t *testing.T) {
 	require.NoError(t, cmd.Execute())
 
 	expected := `
-📄 big.md (23 tokens)
+📄 big.md (19 tokens)
 ------------------------------------------------------------
-  Line 1: File exceeds token limit (23/5)
+  Line 1: File exceeds token limit (19/5)
     💡 Split content into multiple files or use reference documents
 
 📊 Summary: 1 file(s) with suggestions

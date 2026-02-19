@@ -29,10 +29,10 @@ func TestCheck_AllWithinLimit(t *testing.T) {
 
 	expected := `File               Tokens  Limit  Status
 --------------------------------------------------
-README.md               7  10000  ✅ OK
-SKILL.md              402  10000  ✅ OK
-references/one.md       9  10000  ✅ OK
-references/two.md      10  10000  ✅ OK
+README.md               6  10000  ✅ OK
+SKILL.md              424  10000  ✅ OK
+references/one.md       6  10000  ✅ OK
+references/two.md       6  10000  ✅ OK
 --------------------------------------------------
 
 4/4 files within limits
@@ -51,16 +51,16 @@ func TestCheck_SomeExceedLimit(t *testing.T) {
 
 	expected := `File               Tokens  Limit  Status
 --------------------------------------------------
-SKILL.md              402    100  ❌ EXCEEDED
-README.md               7    100  ✅ OK
-references/one.md       9    100  ✅ OK
-references/two.md      10    100  ✅ OK
+SKILL.md              424    100  ❌ EXCEEDED
+README.md               6    100  ✅ OK
+references/one.md       6    100  ✅ OK
+references/two.md       6    100  ✅ OK
 --------------------------------------------------
 
 3/4 files within limits
 
 ⚠️  1 file(s) exceed their token limits:
-   SKILL.md: 402 tokens (302 over limit of 100)
+   SKILL.md: 424 tokens (324 over limit of 100)
 `
 	require.Equal(t, expected, out.String())
 }
@@ -77,16 +77,16 @@ func TestCheck_StrictFails(t *testing.T) {
 
 	expected := `File               Tokens  Limit  Status
 --------------------------------------------------
-SKILL.md              402    100  ❌ EXCEEDED
-README.md               7    100  ✅ OK
-references/one.md       9    100  ✅ OK
-references/two.md      10    100  ✅ OK
+SKILL.md              424    100  ❌ EXCEEDED
+README.md               6    100  ✅ OK
+references/one.md       6    100  ✅ OK
+references/two.md       6    100  ✅ OK
 --------------------------------------------------
 
 3/4 files within limits
 
 ⚠️  1 file(s) exceed their token limits:
-   SKILL.md: 402 tokens (302 over limit of 100)
+   SKILL.md: 424 tokens (324 over limit of 100)
 `
 	require.Equal(t, expected, err.Error())
 }
@@ -181,16 +181,16 @@ func TestCheck_QuietStrictWithExceeded(t *testing.T) {
 
 	expected := `File               Tokens  Limit  Status
 --------------------------------------------------
-SKILL.md              402    100  ❌ EXCEEDED
-README.md               7    100  ✅ OK
-references/one.md       9    100  ✅ OK
-references/two.md      10    100  ✅ OK
+SKILL.md              424    100  ❌ EXCEEDED
+README.md               6    100  ✅ OK
+references/one.md       6    100  ✅ OK
+references/two.md       6    100  ✅ OK
 --------------------------------------------------
 
 3/4 files within limits
 
 ⚠️  1 file(s) exceed their token limits:
-   SKILL.md: 402 tokens (302 over limit of 100)
+   SKILL.md: 424 tokens (324 over limit of 100)
 `
 	require.Equal(t, expected, err.Error())
 }
@@ -290,8 +290,8 @@ func TestCheck_DefaultLimitsWhenNoConfig(t *testing.T) {
 
 	expected := `File       Tokens  Limit  Status
 ------------------------------------------
-README.md       3   3000  ✅ OK
-SKILL.md        2    500  ✅ OK
+README.md       4   3000  ✅ OK
+SKILL.md        3    500  ✅ OK
 ------------------------------------------
 
 2/2 files within limits

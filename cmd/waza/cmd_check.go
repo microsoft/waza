@@ -165,7 +165,10 @@ func checkReadiness(skillDir string) (*readinessReport, error) {
 	report.complianceLevel = report.complianceScore.Level
 
 	// 4. Check token budget
-	counter := internalTokens.NewEstimatingCounter()
+	counter, err := internalTokens.NewCounter(internalTokens.TokenizerDefault)
+	if err != nil {
+		return report, err
+	}
 	tokens := counter.Count(string(data))
 	report.tokenCount = tokens
 

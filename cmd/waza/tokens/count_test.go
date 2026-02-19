@@ -19,12 +19,12 @@ func TestCount_TableFormat(t *testing.T) {
 
 	expected := `File                                Tokens     Chars   Lines
 ------------------------------------------------------------
-testdata/count/README.md                 7        27       1
-testdata/count/SKILL.md                402      1608      83
-testdata/count/references/one.md         9        35       1
-testdata/count/references/two.md        10        40       1
+testdata/count/README.md                 6        27       1
+testdata/count/SKILL.md                424      1608      83
+testdata/count/references/one.md         6        35       1
+testdata/count/references/two.md         6        40       1
 ------------------------------------------------------------
-Total                                  428      1710      86
+Total                                  442      1710      86
 
 4 file(s) scanned
 `
@@ -45,17 +45,17 @@ func TestCount_JSONFormat(t *testing.T) {
 
 	expectedFiles := []string{"testdata/count/README.md", "testdata/count/SKILL.md", "testdata/count/references/one.md", "testdata/count/references/two.md"}
 	require.Equal(t, len(expectedFiles), result.TotalFiles)
-	require.Equal(t, 428, result.TotalTokens) // 7 + 402 + 9 + 10
+	require.Equal(t, 442, result.TotalTokens)
 
 	for _, f := range expectedFiles {
 		require.Contains(t, result.Files, f)
 	}
 
 	expected := map[string]countFileEntry{
-		"testdata/count/README.md":         {Tokens: 7, Characters: 27, Lines: 1},
-		"testdata/count/SKILL.md":          {Tokens: 402, Characters: 1608, Lines: 83},
-		"testdata/count/references/one.md": {Tokens: 9, Characters: 35, Lines: 1},
-		"testdata/count/references/two.md": {Tokens: 10, Characters: 40, Lines: 1},
+		"testdata/count/README.md":         {Tokens: 6, Characters: 27, Lines: 1},
+		"testdata/count/SKILL.md":          {Tokens: 424, Characters: 1608, Lines: 83},
+		"testdata/count/references/one.md": {Tokens: 6, Characters: 35, Lines: 1},
+		"testdata/count/references/two.md": {Tokens: 6, Characters: 40, Lines: 1},
 	}
 	for file, want := range expected {
 		got := result.Files[file]
@@ -145,11 +145,11 @@ func TestCount_SpecificPath(t *testing.T) {
 	require.NoError(t, json.Unmarshal(out.Bytes(), &result))
 
 	require.Equal(t, 1, result.TotalFiles)
-	require.Equal(t, 402, result.TotalTokens)
+	require.Equal(t, 424, result.TotalTokens)
 
 	require.Contains(t, result.Files, "testdata/count/SKILL.md")
 	entry := result.Files["testdata/count/SKILL.md"]
-	require.Equal(t, 402, entry.Tokens)
+	require.Equal(t, 424, entry.Tokens)
 	require.Equal(t, 1608, entry.Characters)
 	require.Equal(t, 83, entry.Lines)
 }
@@ -165,7 +165,7 @@ func TestCount_DirectoryPath(t *testing.T) {
 	require.NoError(t, json.Unmarshal(out.Bytes(), &result))
 
 	require.Equal(t, 2, result.TotalFiles)
-	require.Equal(t, 19, result.TotalTokens) // 9 + 10
+	require.Equal(t, 12, result.TotalTokens)
 }
 
 func TestCount_EmptyDirectory(t *testing.T) {
@@ -208,7 +208,7 @@ func TestCount_AbsoluteDirectoryPath(t *testing.T) {
 	require.NoError(t, json.Unmarshal(out.Bytes(), &result))
 
 	require.Equal(t, 2, result.TotalFiles)
-	require.Equal(t, 19, result.TotalTokens)
+	require.Equal(t, 12, result.TotalTokens)
 }
 
 func TestCount_AbsoluteFilePath(t *testing.T) {
