@@ -196,17 +196,12 @@ jobs:
           if-no-files-found: error
 
   # ──────────────────────────────────────────────
-  # 4. Create GitHub Release with all binaries
+  # 4. Create CLI GitHub Release
   # ──────────────────────────────────────────────
-  create-release:
-    name: Create Release
-    needs: [setup-version, build-cli, build-extension]
-    if: |
-      always() &&
-      needs.setup-version.result == 'success' &&
-      (needs.build-cli.result == 'success' || needs.build-cli.result == 'skipped') &&
-      (needs.build-extension.result == 'success' || needs.build-extension.result == 'skipped') &&
-      (needs.build-cli.result == 'success' || needs.build-extension.result == 'success')
+  create-cli-release:
+    name: Create CLI Release
+    needs: [setup-version, build-cli]
+    if: inputs.build_cli != false
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
@@ -214,9 +209,10 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Download All Artifacts
+      - name: Download CLI Artifacts
         uses: actions/download-artifact@v4
         with:
+          pattern: cli-*
           path: artifacts
           merge-multiple: true
 
@@ -248,7 +244,7 @@ jobs:
             artifacts/*
 
   # ──────────────────────────────────────────────
-  # 5. Publish extension to azd registry
+  # 5. Release & publish extension to azd registry
   # ──────────────────────────────────────────────
   publish-extension:
     name: Publish Extension
@@ -276,6 +272,9 @@ jobs:
 
       - name: Enable azd Extensions
         run: azd config set alpha.extensions on
+
+      - name: Install azd Extensions Developer Kit
+        run: azd extension install microsoft.azd.extensions --source azd
 
       - name: Release Extension
         run: |
@@ -346,7 +345,12 @@ jobs:
   # ──────────────────────────────────────────────
   sync-versions:
     name: Sync Versions
-    needs: [setup-version, create-release, publish-extension]
+    needs: [setup-version, create-cli-release, publish-extension]
+    if: |
+      always() &&
+      needs.setup-version.result == 'success' &&
+      (needs.create-cli-release.result == 'success' || needs.create-cli-release.result == 'skipped') &&
+      (needs.publish-extension.result == 'success' || needs.publish-extension.result == 'skipped')
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
