@@ -37,20 +37,20 @@ func TestHealthEndpoint(t *testing.T) {
 	assert.Equal(t, "ok", body["status"])
 }
 
-func TestAPIPlaceholderReturns501(t *testing.T) {
+func TestAPISummaryReturnsJSON(t *testing.T) {
 	handler := newTestServer(t)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/results", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/summary", nil)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
-	assert.Equal(t, http.StatusNotImplemented, rec.Code)
+	assert.Equal(t, http.StatusOK, rec.Code)
 	assert.Equal(t, "application/json", rec.Header().Get("Content-Type"))
 
-	var body map[string]string
+	var body map[string]any
 	err := json.Unmarshal(rec.Body.Bytes(), &body)
 	require.NoError(t, err)
-	assert.Equal(t, "not implemented", body["error"])
+	assert.Contains(t, body, "totalRuns")
 }
 
 func TestSPAServesIndexHTML(t *testing.T) {

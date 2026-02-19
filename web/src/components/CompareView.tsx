@@ -217,13 +217,13 @@ function TaskComparisonTable({
 
 function OutcomeCell({ outcome }: { outcome?: string }) {
   if (!outcome) return <span className="text-zinc-500">—</span>;
-  if (outcome === "pass")
+  if (outcome.startsWith("pass"))
     return (
       <span className="rounded-full bg-green-500/10 px-2 py-0.5 text-xs font-medium text-green-500">
         pass
       </span>
     );
-  if (outcome === "fail")
+  if (outcome.startsWith("fail"))
     return (
       <span className="rounded-full bg-red-500/10 px-2 py-0.5 text-xs font-medium text-red-500">
         fail

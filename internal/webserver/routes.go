@@ -1,20 +1,20 @@
 package webserver
 
 import (
-	"encoding/json"
 	"fmt"
 	"io/fs"
 	"net/http"
 	"strings"
 
+	"github.com/spboyer/waza/internal/webapi"
 	"github.com/spboyer/waza/web"
 )
 
 // registerRoutes sets up API and SPA routes on the given mux.
 func registerRoutes(mux *http.ServeMux, cfg Config) error {
-	// API routes
-	mux.HandleFunc("GET /api/health", handleHealth)
-	mux.HandleFunc("/api/", handleAPIPlaceholder)
+	// Wire up real API routes with FileStore
+	store := webapi.NewFileStore(cfg.ResultsDir)
+	webapi.RegisterRoutes(mux, store)
 
 	// SPA static files with HTML5 history API fallback
 	handler, err := spaHandler()
@@ -23,19 +23,6 @@ func registerRoutes(mux *http.ServeMux, cfg Config) error {
 	}
 	mux.Handle("/", handler)
 	return nil
-}
-
-// handleHealth returns a simple health check response.
-func handleHealth(w http.ResponseWriter, _ *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "ok"}) //nolint:errcheck
-}
-
-// handleAPIPlaceholder returns 501 for unimplemented API endpoints.
-func handleAPIPlaceholder(w http.ResponseWriter, _ *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusNotImplemented)
-	json.NewEncoder(w).Encode(map[string]string{"error": "not implemented"}) //nolint:errcheck
 }
 
 // spaHandler returns an http.Handler that serves the embedded SPA assets.

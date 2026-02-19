@@ -18,9 +18,9 @@ import {
 } from "../lib/format";
 
 function OutcomeBadge({ outcome }: { outcome: string }) {
-  if (outcome === "pass")
+  if (outcome.startsWith("pass"))
     return <CheckCircle2 className="h-4 w-4 text-green-500" />;
-  if (outcome === "fail")
+  if (outcome.startsWith("fail"))
     return <XCircle className="h-4 w-4 text-red-500" />;
   return <AlertCircle className="h-4 w-4 text-yellow-500" />;
 }

@@ -21,13 +21,13 @@ import { exportRunDetailToCSV } from "../lib/export";
 import TrajectoryViewer from "./TrajectoryViewer";
 
 function OutcomeBadge({ outcome }: { outcome: string }) {
-  if (outcome === "pass")
+  if (outcome.startsWith("pass"))
     return (
       <span className="inline-flex items-center gap-1 rounded-full bg-green-500/10 px-2 py-0.5 text-xs font-medium text-green-500">
         <CheckCircle2 className="h-3 w-3" /> pass
       </span>
     );
-  if (outcome === "fail")
+  if (outcome.startsWith("fail"))
     return (
       <span className="inline-flex items-center gap-1 rounded-full bg-red-500/10 px-2 py-0.5 text-xs font-medium text-red-500">
         <XCircle className="h-3 w-3" /> fail

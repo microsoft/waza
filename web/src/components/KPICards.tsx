@@ -11,12 +11,11 @@ import {
   formatNumber,
   formatCost,
   formatDuration,
-  formatPercent,
 } from "../lib/format";
 
 function passRateColor(rate: number): string {
-  if (rate >= 0.8) return "text-green-500";
-  if (rate >= 0.5) return "text-yellow-500";
+  if (rate >= 80) return "text-green-500";
+  if (rate >= 50) return "text-yellow-500";
   return "text-red-500";
 }
 
@@ -79,7 +78,7 @@ export default function KPICards({ data }: { data: SummaryResponse }) {
       />
       <Card
         label="Pass Rate"
-        value={formatPercent(data.passRate)}
+        value={`${Math.round(data.passRate)}%`}
         icon={<CheckCircle2 className={iconSize} />}
         valueClass={passRateColor(data.passRate)}
       />
