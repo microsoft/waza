@@ -111,6 +111,3 @@ web/playwright-report/
 web/test-results/
 web/blob-report/
 
-# Squad team state (runtime only, blocked by CI guard)
-.ai-team/
-
