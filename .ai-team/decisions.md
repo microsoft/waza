@@ -69,3 +69,15 @@ Added Documentation Impact Matrix mapping code paths to required doc updates, sh
 - **history.md:** Recorded doc-freshness reviews as a key learning
 
 **Impact:** All code PRs (`cmd/waza/`, `internal/`, `web/src/`) now automatically routed to Saul for doc-impact review. All doc PRs (`docs/`, `README.md`, `DEMO-SCRIPT.md`) routed to Saul for consistency check. Clear accountability: Saul owns the matrix and updates it as new paths are discovered. Screenshot maintenance can be automated via Playwright tests.
+
+## 2026-02-19: --tokenizer flag should be available on all token commands
+
+**By:** Rusty (Lead / Architect)  
+**PR:** #260  
+**Date:** 2026-02-19
+
+**What:** The `--tokenizer` flag is currently only on `waza tokens count`. The `check`, `compare`, and `suggest` commands hardcode `TokenizerDefault`. For consistency, all token commands should accept `--tokenizer` so users can choose between BPE and estimate across the board.
+
+**Why:** If a user needs the fast estimate for CI (where speed matters more than precision), they should be able to use it from any token command — not just `count`. The current design forces BPE on `check` and `compare` with no escape hatch.
+
+**Status:** Follow-up work, not blocking PR #260.

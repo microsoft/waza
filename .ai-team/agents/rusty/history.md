@@ -27,6 +27,15 @@
 
 ## Work Log
 
+### 2026-02-19: #80 — BPE Tokenizer (PR #260)
+- **Reviewed PR** by Charles Lowell (chlowell) — ported BPE tokenizer from Microsoft/Tokenizer
+- **Architecture:** `Counter` interface preserved. `NewCounter(tokenizer)` factory replaces `NewEstimatingCounter()`. BPE is new default via `TokenizerDefault`.
+- **New package:** `internal/tokens/bpe/` — BinaryMap, LRU cache, byte-pair encoder, tokenizer, builder
+- **Embedded model:** `o200k_base.tiktoken` (~3.6MB) via `go:embed` — adds to binary size
+- **Flag design:** `--tokenizer` flag only on `count` command; `check`/`compare`/`suggest` hardcode `TokenizerDefault`
+- **Findings:** `regex` field on Tokenizer struct is dead code (set but never read); `NewTokenizerFromFile` is dead code (defined but never called); `Cache` field is exported unnecessarily; LRU cache is not thread-safe (fine for CLI but should be documented)
+- **Verdict:** APPROVE with comments — architecture is sound, implementation correct, concerns are improvements not blockers
+
 ### 2025-07-25: #238 — True trajectory replay viewer (PR #243)
 - **Branch:** `squad/238-trajectory-viewer`
 - Full rewrite of `TrajectoryViewer.tsx` to consume real `TranscriptEvent` data
