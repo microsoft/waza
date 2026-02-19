@@ -31,6 +31,9 @@ type TestRunner struct {
 	// Task filtering
 	taskFilters []string
 
+	// Tag filtering for tasks
+	tagFilters []string
+
 	// Result caching
 	cache *cache.Cache
 
@@ -83,6 +86,12 @@ type RunnerOption func(*TestRunner)
 func WithTaskFilters(patterns ...string) RunnerOption {
 	return func(r *TestRunner) {
 		r.taskFilters = patterns
+	}
+}
+
+func WithTagFilters(patterns ...string) RunnerOption {
+	return func(r *TestRunner) {
+		r.tagFilters = patterns
 	}
 }
 
@@ -197,13 +206,13 @@ func (r *TestRunner) runNormalBenchmark(ctx context.Context) (*models.Evaluation
 		return nil, fmt.Errorf("failed to load test cases: %w", err)
 	}
 
-	// Apply task filters
-	if len(r.taskFilters) > 0 {
-		testCases, err = FilterTestCases(testCases, r.taskFilters)
+	// Apply task/tag filters
+	if len(r.taskFilters) > 0 || len(r.tagFilters) > 0 {
+		testCases, err = FilterTestCases(testCases, r.taskFilters, r.tagFilters)
 		if err != nil {
-			return nil, fmt.Errorf("task filter error: %w", err)
+			return nil, fmt.Errorf("task/tag filter error: %w", err)
 		}
-		fmt.Printf("Task filter matched %d test(s):\n", len(testCases))
+		fmt.Printf("Task and tag filters matched %d test(s):\n", len(testCases))
 		for _, tc := range testCases {
 			fmt.Printf("  • %s (%s)\n", tc.DisplayName, tc.TestID)
 		}

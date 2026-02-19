@@ -30,6 +30,7 @@ var (
 	verbose        bool
 	transcriptDir  string
 	taskFilters    []string
+	tagFilters     []string
 	parallel       bool
 	workers        int
 	interpret      bool
@@ -73,7 +74,8 @@ You can also specify a skill name to run its eval:
 	cmd.Flags().StringVarP(&outputPath, "output", "o", "", "Output JSON file for results")
 	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Verbose output with detailed progress")
 	cmd.Flags().StringVar(&transcriptDir, "transcript-dir", "", "Directory to save per-task transcript JSON files")
-	cmd.Flags().StringArrayVar(&taskFilters, "task", nil, "Filter tasks by name/ID glob pattern (can be repeated)")
+	cmd.Flags().StringArrayVar(&taskFilters, "task", nil, "Filter tasks by name/ID glob pattern (can be repeated).")
+	cmd.Flags().StringArrayVar(&tagFilters, "tags", nil, "Filter tasks by tags, using glob patterns (can be repeated)")
 	cmd.Flags().BoolVar(&parallel, "parallel", false, "Run tasks concurrently")
 	cmd.Flags().IntVar(&workers, "workers", 0, "Number of concurrent workers (default: 4, requires --parallel)")
 	cmd.Flags().BoolVar(&interpret, "interpret", false, "Print a plain-language interpretation of the results")
@@ -379,6 +381,7 @@ func runSingleModel(_ *cobra.Command, spec *models.BenchmarkSpec, specPath strin
 	// Create runner with optional task filters and cache
 	runnerOpts := []orchestration.RunnerOption{
 		orchestration.WithTaskFilters(taskFilters...),
+		orchestration.WithTagFilters(tagFilters...),
 	}
 	if resultCache != nil {
 		runnerOpts = append(runnerOpts, orchestration.WithCache(resultCache))
