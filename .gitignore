@@ -85,6 +85,7 @@ suggestions.md
 *.prof
 bin/
 dist/
+!web/dist/
 
 # ignore common waza locations
 /waza
@@ -102,8 +103,8 @@ coverage.html
 # Downloaded tools
 actionlint
 
-# Web UI build artifacts
-web/dist/
+# Web UI build artifacts (hashed bundles only; stub index.html is tracked)
+web/dist/assets/
 
 # Playwright test artifacts
 web/playwright-report/
