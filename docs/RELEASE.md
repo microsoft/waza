@@ -29,10 +29,10 @@ Manual dispatch creates the git tag automatically if it doesn't exist.
 ## What the Workflow Does
 
 1. **setup-version** — Extracts version from the tag (strips `v`) or manual input. Validates semver format.
-2. **build-cli** — Matrix build for 6 platforms (linux, darwin, windows × amd64, arm64). Produces `waza-{os}-{arch}` binaries.
-3. **build-extension** — Builds the azd extension via `azd x build` and `azd x pack`. Produces platform-specific archives.
-4. **create-release** — Downloads all artifacts, generates SHA256 checksums, creates a GitHub Release with all binaries attached.
-5. **publish-extension** — Runs `azd x publish` to update the registry, creates a PR with the updated `registry.json`, and auto-merges it.
+2. **build-cli** — Matrix build for 6 platforms (linux, darwin, windows × amd64, arm64). Builds the web UI then produces `waza-{os}-{arch}` binaries.
+3. **build-extension** — Builds the web UI, then the azd extension via `azd x build` and `azd x pack`. Produces platform-specific archives.
+4. **create-cli-release** — Downloads CLI artifacts, generates SHA256 checksums, creates a **CLI GitHub Release** (`Waza vX.Y.Z`) with standalone binaries attached.
+5. **publish-extension** — Runs `azd x release` to create a separate **Extension GitHub Release** (`Waza azd Extension vX.Y.Z`), then runs `azd x publish` to update the registry. Creates a PR with the updated `registry.json` and auto-merges it.
 6. **sync-versions** — Updates `version.txt` and `extension.yaml` to match the released version, commits to `main` if changed.
 
 ## Version File Locations

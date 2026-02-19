@@ -158,6 +158,17 @@ jobs:
           go-version: '1.25'
           cache-dependency-path: go.sum
 
+      - name: Setup Node.js (for web UI build)
+        if: hashFiles('web/package.json') != ''
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Build Web UI
+        if: hashFiles('web/package.json') != ''
+        working-directory: web
+        run: npm ci && npm run build
+
       - name: Install Azure Developer CLI
         uses: Azure/setup-azd@v2
 
@@ -185,17 +196,12 @@ jobs:
           if-no-files-found: error
 
   # ──────────────────────────────────────────────
-  # 4. Create GitHub Release with all binaries
+  # 4. Create CLI GitHub Release
   # ──────────────────────────────────────────────
-  create-release:
-    name: Create Release
-    needs: [setup-version, build-cli, build-extension]
-    if: |
-      always() &&
-      needs.setup-version.result == 'success' &&
-      (needs.build-cli.result == 'success' || needs.build-cli.result == 'skipped') &&
-      (needs.build-extension.result == 'success' || needs.build-extension.result == 'skipped') &&
-      (needs.build-cli.result == 'success' || needs.build-extension.result == 'success')
+  create-cli-release:
+    name: Create CLI Release
+    needs: [setup-version, build-cli]
+    if: inputs.build_cli != false
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
@@ -203,9 +209,10 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Download All Artifacts
+      - name: Download CLI Artifacts
         uses: actions/download-artifact@v4
         with:
+          pattern: cli-*
           path: artifacts
           merge-multiple: true
 
@@ -237,7 +244,7 @@ jobs:
             artifacts/*
 
   # ──────────────────────────────────────────────
-  # 5. Publish extension to azd registry
+  # 5. Release & publish extension to azd registry
   # ──────────────────────────────────────────────
   publish-extension:
     name: Publish Extension
@@ -265,6 +272,9 @@ jobs:
 
       - name: Enable azd Extensions
         run: azd config set alpha.extensions on
+
+      - name: Install azd Extensions Developer Kit
+        run: azd extension install microsoft.azd.extensions --source azd
 
       - name: Release Extension
         run: |
@@ -327,15 +337,17 @@ jobs:
 
           echo "Created PR: $PR_URL"
 
-          gh pr merge "$PR_URL" --squash --admin --delete-branch
-          echo "Auto-merged registry PR"
-
   # ──────────────────────────────────────────────
   # 6. Sync version files to match the release
   # ──────────────────────────────────────────────
   sync-versions:
     name: Sync Versions
-    needs: [setup-version, create-release, publish-extension]
+    needs: [setup-version, create-cli-release, publish-extension]
+    if: |
+      always() &&
+      needs.setup-version.result == 'success' &&
+      (needs.create-cli-release.result == 'success' || needs.create-cli-release.result == 'skipped') &&
+      (needs.publish-extension.result == 'success' || needs.publish-extension.result == 'skipped')
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
