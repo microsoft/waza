@@ -7,7 +7,7 @@
       "description": "A CLI for evaluating AI agent skills — scaffold eval suites, run benchmarks, and compare results across models.",
       "versions": [
         {
-          "version": "0.5.0-alpha.7",
+          "version": "0.5.0-alpha.8",
           "capabilities": [
             "custom-commands",
             "metadata"
@@ -44,50 +44,50 @@
             "darwin/amd64": {
               "checksum": {
                 "algorithm": "sha256",
-                "value": "31f16ab39983112cd16354f0dedc8d26198d303355e6c6b379fb86cd74aee3ea"
+                "value": "db98c47395fb92ca6488f47c2e06fa197175821d220e72e2373c8269d241e3e1"
               },
               "entryPoint": "microsoft-azd-waza-darwin-amd64",
-              "url": "https://github.com/wbreza/waza/releases/download/azd-ext-microsoft-azd-waza_0.5.0-alpha.7/microsoft-azd-waza-darwin-amd64.zip"
+              "url": "https://github.com/wbreza/waza/releases/download/azd-ext-microsoft-azd-waza_0.5.0-alpha.8/microsoft-azd-waza-darwin-amd64.zip"
             },
             "darwin/arm64": {
               "checksum": {
                 "algorithm": "sha256",
-                "value": "4c8df8748fa5916f34376bd93afd2d7952de5f35973c8d5b48c80a1f3bef944b"
+                "value": "436807952c0f973e0d5e187d475990a4d7005d50f9275e9313e2dd1b3020eacb"
               },
               "entryPoint": "microsoft-azd-waza-darwin-arm64",
-              "url": "https://github.com/wbreza/waza/releases/download/azd-ext-microsoft-azd-waza_0.5.0-alpha.7/microsoft-azd-waza-darwin-arm64.zip"
+              "url": "https://github.com/wbreza/waza/releases/download/azd-ext-microsoft-azd-waza_0.5.0-alpha.8/microsoft-azd-waza-darwin-arm64.zip"
             },
             "linux/amd64": {
               "checksum": {
                 "algorithm": "sha256",
-                "value": "16910f9aeab6700732d125ca88198fc67b1e6b0a7725935cf62a16b7d248e509"
+                "value": "7192cfbee32b727460d5d806e40673e8b723910d424e5984f20fbd45d739056b"
               },
               "entryPoint": "microsoft-azd-waza-linux-amd64",
-              "url": "https://github.com/wbreza/waza/releases/download/azd-ext-microsoft-azd-waza_0.5.0-alpha.7/microsoft-azd-waza-linux-amd64.tar.gz"
+              "url": "https://github.com/wbreza/waza/releases/download/azd-ext-microsoft-azd-waza_0.5.0-alpha.8/microsoft-azd-waza-linux-amd64.tar.gz"
             },
             "linux/arm64": {
               "checksum": {
                 "algorithm": "sha256",
-                "value": "188cbd1cec6f58c954b67a208d55d41878b0199cb7e7c5995d2a8fd93a7aa98a"
+                "value": "67f62b5743cceb8bd59736d4bc1c802400a42531429f8c08badb7056b3d03b7c"
               },
               "entryPoint": "microsoft-azd-waza-linux-arm64",
-              "url": "https://github.com/wbreza/waza/releases/download/azd-ext-microsoft-azd-waza_0.5.0-alpha.7/microsoft-azd-waza-linux-arm64.tar.gz"
+              "url": "https://github.com/wbreza/waza/releases/download/azd-ext-microsoft-azd-waza_0.5.0-alpha.8/microsoft-azd-waza-linux-arm64.tar.gz"
             },
             "windows/amd64": {
               "checksum": {
                 "algorithm": "sha256",
-                "value": "6a2352b56d67afd688c9a45e91acf7044e1e23e886fb19fd6993d2b142bd282b"
+                "value": "4d59f559758ca94fdc6ab6f6051de31530fb1a1ca8825e2b5aa311bc8701a0a7"
               },
               "entryPoint": "microsoft-azd-waza-windows-amd64.exe",
-              "url": "https://github.com/wbreza/waza/releases/download/azd-ext-microsoft-azd-waza_0.5.0-alpha.7/microsoft-azd-waza-windows-amd64.zip"
+              "url": "https://github.com/wbreza/waza/releases/download/azd-ext-microsoft-azd-waza_0.5.0-alpha.8/microsoft-azd-waza-windows-amd64.zip"
             },
             "windows/arm64": {
               "checksum": {
                 "algorithm": "sha256",
-                "value": "1f2cc5709ac026afd88630687e02162175ee5ce1eb495c2c5a463203cc6253dc"
+                "value": "0c14171f617e20eb5afa25c049fa09f73f6f9f418d819c37eaaecd71c11b2506"
               },
               "entryPoint": "microsoft-azd-waza-windows-arm64.exe",
-              "url": "https://github.com/wbreza/waza/releases/download/azd-ext-microsoft-azd-waza_0.5.0-alpha.7/microsoft-azd-waza-windows-arm64.zip"
+              "url": "https://github.com/wbreza/waza/releases/download/azd-ext-microsoft-azd-waza_0.5.0-alpha.8/microsoft-azd-waza-windows-arm64.zip"
             }
           }
         }

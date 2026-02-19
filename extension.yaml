@@ -4,7 +4,7 @@ namespace: waza
 displayName: Waza - AI Agent Skill Evaluator
 description: A CLI for evaluating AI agent skills — scaffold eval suites, run benchmarks, and compare results across models.
 usage: azd waza <command> [options]
-version: 0.5.0-alpha.7
+version: 0.5.0-alpha.8
 language: go
 capabilities:
   - custom-commands
