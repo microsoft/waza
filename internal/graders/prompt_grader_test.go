@@ -4,12 +4,14 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"fmt"
 	"log/slog"
 	"os"
 	"strings"
 	"testing"
 
 	copilot "github.com/github/copilot-sdk/go"
+	"github.com/spboyer/waza/internal/models"
 	"github.com/spboyer/waza/internal/utils"
 	"github.com/stretchr/testify/require"
 )
@@ -224,4 +226,36 @@ func TestUsingPreviousSessionID(t *testing.T) {
 
 	// check that our random string was actually found by the chat session!
 	require.Contains(t, results.Details["passes"], randomString)
+}
+
+func TestLoadPromptGrader(t *testing.T) {
+	spec, err := models.LoadBenchmarkSpec("testdata/eval-grader-prompt.yaml")
+	require.NoError(t, err)
+
+	grader, err := Create(spec.Graders[0].Kind, spec.Graders[0].Identifier, spec.Graders[0].Parameters)
+	require.NoError(t, err)
+	require.Equal(t, &promptGrader{
+		args: PromptGraderArgs{
+			Prompt: fmt.Sprintf("Check if the responses include proper explanations for our skill.\n"+
+				"If it does, call %s.\n"+
+				"If it does not, then call %s, with your reasoning.", wazaPassToolName, wazaFailToolName),
+			Model:           "gpt-4o-mini",
+			ContinueSession: true,
+		},
+		name: "with-continue-session",
+	}, grader)
+
+	grader, err = Create(spec.Graders[1].Kind, spec.Graders[1].Identifier, spec.Graders[1].Parameters)
+	require.NoError(t, err)
+
+	require.Equal(t, &promptGrader{
+		args: PromptGraderArgs{
+			Prompt: fmt.Sprintf("Check to see that the files on disk are properly updated, by some criteria. "+
+				"If they are correct, call %s. "+
+				"If it's not, then call %s, with your reasoning.", wazaPassToolName, wazaFailToolName),
+			Model:           "claude-sonnet-4.5",
+			ContinueSession: false,
+		},
+		name: "without-continue-session",
+	}, grader)
 }

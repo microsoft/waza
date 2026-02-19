@@ -1,0 +1,23 @@
+id: grader-prompt
+config:
+  trials_per_task: 1
+  timeout_seconds: 1
+# graders provide more options for validating the output of your workflow. 
+graders:
+  # with continue session
+  - type: prompt
+    name: with-continue-session
+    config:
+      prompt: |-
+        Check if the responses include proper explanations for our skill.
+        If it does, call set_waza_grade_pass.
+        If it does not, then call set_waza_grade_fail, with your reasoning.
+      model: "gpt-4o-mini"
+      continue_session: true
+  - type: prompt
+    name: without-continue-session
+    config:
+      prompt: Check to see that the files on disk are properly updated, by some criteria.
+        If they are correct, call set_waza_grade_pass.
+        If it's not, then call set_waza_grade_fail, with your reasoning.
+      model: "claude-sonnet-4.5"

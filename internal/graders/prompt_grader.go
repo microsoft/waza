@@ -14,6 +14,8 @@ import (
 )
 
 const AllPromptsPassed = "All prompts passed"
+const wazaPassToolName = "set_waza_grade_pass"
+const wazaFailToolName = "set_waza_grade_fail"
 
 type PromptGraderArgs struct {
 	Prompt          string `mapstructure:"prompt"`
@@ -158,7 +160,7 @@ func newWazaGraderTools() *struct {
 
 	r.Tools = []copilot.Tool{
 		{
-			Name:        "set_waza_grade_pass",
+			Name:        wazaPassToolName,
 			Description: "Used by waza graders, this marks the check as passed. This can be called multiple times.",
 			Parameters: map[string]any{
 				"type": "object",
@@ -192,7 +194,7 @@ func newWazaGraderTools() *struct {
 			},
 		},
 		{
-			Name:        "set_waza_grade_fail",
+			Name:        wazaFailToolName,
 			Description: "Used by waza graders, this marks the check as failed, with an optional reason. This can be called multiple times.",
 			Parameters: map[string]any{
 				"type": "object",

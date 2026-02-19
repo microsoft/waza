@@ -543,99 +543,98 @@ echo "  ❌ Skip GPT-4o for now (not worth 5x cost for 5% quality gain)"
 
 ---
 
-## Demo 8: Azure ML Rubric Evaluation Demo (5 min)
+## Demo 8: Prompt Grader Use Cases (5 min)
 
-**What it shows:** Using pre-built Azure ML evaluation rubrics with the `prompt` grader for LLM-as-judge evaluation.
+**What it shows:** How to use the `prompt` grader for qualitative checks that are hard to express with regex/code assertions.
 
 ### Setup
 
-- **Location:** `examples/rubrics/`
-- **Prerequisite:** waza binary installed, `prompt` grader available
-- **Rubrics:** 8 pre-built YAML rubrics adapted from Azure ML evaluators
+- **Location:** A temporary demo folder (all files included in the commands)
+- **Prerequisite:** waza binary installed and Copilot authenticated (the prompt grader runs an LLM judge)
+- **Use Cases:** explanation quality, requirement adherence, and output completeness checks
 
 ### Commands
 
 ```bash
-# Show the available rubrics
-echo "📚 Azure ML evaluation rubrics:"
-ls -1 examples/rubrics/*.yaml
+# Navigate to a temporary working directory
+cd /<working-directory>
 
-# Show the rubric README for context
-echo ""
-echo "📖 Rubric documentation:"
-head -40 examples/rubrics/README.md
+# Create a small demo eval
+mkdir -p waza-prompt-demo/{tasks,fixtures}
 
-# Examine a tool call rubric (composite evaluator)
-echo ""
-echo "🔧 Tool Call Accuracy rubric (1-5 ordinal):"
-head -30 examples/rubrics/tool_call_accuracy.yaml
+cat > waza-prompt-demo/fixtures/sample.py << 'EOF'
+def normalize_price(cents):
+    return cents / 100.0
+EOF
 
-# Examine a task evaluation rubric (binary pass/fail)
-echo ""
-echo "✅ Task Completion rubric (binary):"
-head -25 examples/rubrics/task_completion.yaml
+cat > waza-prompt-demo/tasks/prompt-quality.yaml << 'EOF'
+id: prompt-quality-001
+name: Prompt Grader Quality Demo
+description: Demonstrates qualitative grading with LLM-as-judge
 
-# Show how to reference rubrics in an eval spec
-echo ""
-echo "📋 Example eval.yaml using rubrics:"
-cat << 'EOF'
-name: tool-quality-eval
-skill: my-agent-skill
+inputs:
+  prompt: "Explain what sample.py does, include one example, and mention edge cases"
+  files:
+    - path: sample.py
+
+graders:
+  - type: prompt
+    name: explanation_quality
+    config:
+      model: gpt-4o-mini
+      continue_session: true
+      prompt: |-
+        Evaluate the assistant's response for:
+        1) technical correctness,
+        2) inclusion of at least one concrete example,
+        3) mention of at least one edge case.
+
+        If all checks pass, call set_waza_grade_pass with a short reason.
+        If any check fails, call set_waza_grade_fail with the missing criteria.
+EOF
+
+cat > waza-prompt-demo/eval.yaml << 'EOF'
+name: prompt-grader-demo
+description: Demo for prompt grader use cases
+skill: general-coding-assistant
 version: "1.0"
 
 config:
+  trials_per_task: 1
+  timeout_seconds: 180
+  parallel: false
   executor: copilot-sdk
-  model: gpt-4o
+  model: claude-sonnet-4-20250514
+
+metrics:
+  - name: quality
+    weight: 1.0
+    threshold: 0.8
 
 tasks:
-  - name: "api-integration"
-    prompt: "Create a REST API client for the weather service"
-    graders:
-      # Composite tool call quality (1-5 score)
-      - type: prompt
-        name: tool_accuracy
-        config:
-          rubric: examples/rubrics/tool_call_accuracy.yaml
-
-      # Was the task fully completed? (binary)
-      - type: prompt
-        name: completion
-        config:
-          rubric: examples/rubrics/task_completion.yaml
-
-      # Did the agent follow rules and procedures? (binary flag)
-      - type: prompt
-        name: adherence
-        config:
-          rubric: examples/rubrics/task_adherence.yaml
+  - "tasks/*.yaml"
 EOF
 
-# Show the rubric decomposition
-echo ""
-echo "🔍 Tool call rubric decomposition:"
-echo "  tool_call_accuracy (umbrella, 1-5 score)"
-echo "  ├── tool_selection        — Right tools chosen?"
-echo "  ├── tool_input_accuracy   — Correct parameters?"
-echo "  └── tool_output_utilization — Results used correctly?"
-echo ""
-echo "  Use the umbrella for a single score, or the"
-echo "  focused evaluators for granular pass/fail signals."
+# Run the demo
+/path/to/waza/waza-bin run waza-prompt-demo/eval.yaml \
+  --context-dir waza-prompt-demo/fixtures \
+  -v
 ```
 
 ### Expected Output
 
-- List of 8 rubric YAML files covering tool call and task evaluation
-- Rubric structure showing evaluation criteria, rating levels, and scoring
-- Example eval spec demonstrating how to wire rubrics into the `prompt` grader
-- Decomposition diagram showing composite vs. focused evaluators
+- Prompt grader appears in task results (e.g., `explanation_quality`)
+- Pass/fail reflects whether the judge called `set_waza_grade_pass` or `set_waza_grade_fail`
+- Feedback includes grader reasoning when checks fail
+- Overall task score changes based on prompt grader outcome
 
 ### Talking Points
 
-1. **Standards-Based:** "These rubrics are adapted from Azure ML's production evaluators—battle-tested at scale."
-2. **Ready to Use:** "Drop rubric YAML paths into your eval spec. No custom prompts needed."
-3. **Complementary Dimensions:** "Tool call rubrics evaluate *how* the agent uses tools. Task rubrics evaluate *what* the agent delivers."
-4. **Granular or Composite:** "Use `tool_call_accuracy` for a single 1-5 score, or the three focused evaluators for pass/fail on each dimension."
-5. **Extensible:** "Write your own rubric YAMLs following the same schema—evaluation criteria, rating levels, chain-of-thought, output format."
+1. **Qualitative Validation:** "Use prompt graders when you need judgment-based checks, not just exact string matches."
+2. **Policy Enforcement:** "Prompt graders are great for rubric-like requirements: style, completeness, safety, and adherence."
+3. **Composable:** "Combine prompt graders with code/regex/file graders for both hard constraints and soft quality criteria."
+4. **Model Flexibility:** "Run the task model and judge model independently (`config.model` inside the prompt grader)."
+5. **Explicit Verdicts:** "Your judge prompt should always call `set_waza_grade_pass` or `set_waza_grade_fail` with reasoning."
 
 ---
 
