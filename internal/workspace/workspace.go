@@ -160,7 +160,8 @@ func tryParseSkill(dir string) (SkillInfo, bool) {
 
 	name, err := parseSkillName(skillPath)
 	if err != nil || name == "" {
-		return SkillInfo{}, false
+		// Fall back to directory name when frontmatter is missing/invalid
+		name = filepath.Base(dir)
 	}
 
 	return SkillInfo{

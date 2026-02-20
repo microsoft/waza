@@ -253,6 +253,172 @@ func TestInitCommand_WazaYAMLContent(t *testing.T) {
 	assert.Contains(t, content, "defaults:")
 }
 
+func TestInitCommand_InventoryDiscoversSkills(t *testing.T) {
+	dir := t.TempDir()
+
+	// Set up project structure with a skill but no eval
+	skillDir := filepath.Join(dir, "skills", "my-analyzer")
+	require.NoError(t, os.MkdirAll(skillDir, 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "evals"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(`---
+name: my-analyzer
+type: utility
+description: |
+  USE FOR: analysis
+---
+
+# My Analyzer
+`), 0o644))
+
+	var buf bytes.Buffer
+	cmd := newInitCommand()
+	cmd.SetOut(&buf)
+	cmd.SetArgs([]string{dir, "--no-skill"})
+	require.NoError(t, cmd.Execute())
+
+	output := buf.String()
+	assert.Contains(t, output, "1 skills found, 1 missing eval")
+	assert.Contains(t, output, "Skill: my-analyzer")
+}
+
+func TestInitCommand_InventoryScaffoldsEvals(t *testing.T) {
+	dir := t.TempDir()
+
+	// Set up project with a skill missing its eval
+	skillDir := filepath.Join(dir, "skills", "code-explainer")
+	require.NoError(t, os.MkdirAll(skillDir, 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "evals"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(`---
+name: code-explainer
+type: utility
+description: |
+  USE FOR: explaining code
+---
+
+# Code Explainer
+`), 0o644))
+
+	// Pre-create .waza.yaml so the config prompt is skipped
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".waza.yaml"), []byte("defaults:\n  engine: mock\n  model: gpt-5\n"), 0o644))
+
+	var buf bytes.Buffer
+	cmd := newInitCommand()
+	cmd.SetOut(&buf)
+	cmd.SetArgs([]string{dir, "--no-skill"})
+	require.NoError(t, cmd.Execute())
+
+	output := buf.String()
+	// Non-TTY auto-scaffolds evals for skills missing them
+	assert.Contains(t, output, "Eval: code-explainer")
+
+	// Verify eval files were created (uses scaffold package — same as waza new)
+	assert.FileExists(t, filepath.Join(dir, "evals", "code-explainer", "eval.yaml"))
+	assert.FileExists(t, filepath.Join(dir, "evals", "code-explainer", "tasks", "basic-usage.yaml"))
+	assert.FileExists(t, filepath.Join(dir, "evals", "code-explainer", "fixtures", "sample.py"))
+}
+
+func TestInitCommand_InventorySkipsExistingEvals(t *testing.T) {
+	dir := t.TempDir()
+
+	// Set up skill WITH its eval already present
+	skillDir := filepath.Join(dir, "skills", "summarizer")
+	evalDir := filepath.Join(dir, "evals", "summarizer")
+	require.NoError(t, os.MkdirAll(skillDir, 0o755))
+	require.NoError(t, os.MkdirAll(evalDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(`---
+name: summarizer
+type: utility
+description: |
+  USE FOR: summarizing
+---
+
+# Summarizer
+`), 0o644))
+	evalContent := "name: summarizer-eval\n"
+	require.NoError(t, os.WriteFile(filepath.Join(evalDir, "eval.yaml"), []byte(evalContent), 0o644))
+
+	// Pre-create config
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".waza.yaml"), []byte("defaults:\n  engine: mock\n  model: gpt-5\n"), 0o644))
+
+	var buf bytes.Buffer
+	cmd := newInitCommand()
+	cmd.SetOut(&buf)
+	cmd.SetArgs([]string{dir, "--no-skill"})
+	require.NoError(t, cmd.Execute())
+
+	output := buf.String()
+	assert.Contains(t, output, "1 skills found, 0 missing eval")
+	assert.Contains(t, output, "Skill: summarizer")
+	assert.Contains(t, output, "Eval: summarizer")
+
+	// Verify eval was NOT overwritten
+	data, err := os.ReadFile(filepath.Join(evalDir, "eval.yaml"))
+	require.NoError(t, err)
+	assert.Equal(t, evalContent, string(data))
+}
+
+func TestInitCommand_InventoryMixedSkills(t *testing.T) {
+	dir := t.TempDir()
+
+	// Skill A: has eval
+	skillDirA := filepath.Join(dir, "skills", "alpha")
+	evalDirA := filepath.Join(dir, "evals", "alpha")
+	require.NoError(t, os.MkdirAll(skillDirA, 0o755))
+	require.NoError(t, os.MkdirAll(evalDirA, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(skillDirA, "SKILL.md"), []byte("---\nname: alpha\ntype: utility\ndescription: |\n  USE FOR: alpha\n---\n# Alpha\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(evalDirA, "eval.yaml"), []byte("name: alpha-eval\n"), 0o644))
+
+	// Skill B: missing eval
+	skillDirB := filepath.Join(dir, "skills", "beta")
+	require.NoError(t, os.MkdirAll(skillDirB, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(skillDirB, "SKILL.md"), []byte("---\nname: beta\ntype: utility\ndescription: |\n  USE FOR: beta\n---\n# Beta\n"), 0o644))
+
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "evals"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".waza.yaml"), []byte("defaults:\n  engine: copilot-sdk\n  model: claude-sonnet-4.6\n"), 0o644))
+
+	var buf bytes.Buffer
+	cmd := newInitCommand()
+	cmd.SetOut(&buf)
+	cmd.SetArgs([]string{dir, "--no-skill"})
+	require.NoError(t, cmd.Execute())
+
+	output := buf.String()
+	assert.Contains(t, output, "2 skills found, 1 missing eval")
+
+	// Beta's eval should be scaffolded
+	assert.FileExists(t, filepath.Join(dir, "evals", "beta", "eval.yaml"))
+
+	// Alpha's eval should be untouched
+	data, err := os.ReadFile(filepath.Join(evalDirA, "eval.yaml"))
+	require.NoError(t, err)
+	assert.Equal(t, "name: alpha-eval\n", string(data))
+}
+
+func TestInitCommand_ScaffoldedEvalContent(t *testing.T) {
+	dir := t.TempDir()
+
+	// Set up skill without eval, with specific engine/model config
+	skillDir := filepath.Join(dir, "skills", "test-skill")
+	require.NoError(t, os.MkdirAll(skillDir, 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "evals"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("---\nname: test-skill\ntype: utility\ndescription: |\n  USE FOR: testing\n---\n# Test\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".waza.yaml"), []byte("defaults:\n  engine: mock\n  model: gpt-5\n"), 0o644))
+
+	cmd := newInitCommand()
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetArgs([]string{dir, "--no-skill"})
+	require.NoError(t, cmd.Execute())
+
+	// Verify eval.yaml content uses values from existing .waza.yaml
+	data, err := os.ReadFile(filepath.Join(dir, "evals", "test-skill", "eval.yaml"))
+	require.NoError(t, err)
+	content := string(data)
+	assert.Contains(t, content, "name: test-skill-eval")
+	assert.Contains(t, content, "skill: test-skill")
+	assert.Contains(t, content, "executor: mock")
+	assert.Contains(t, content, "model: gpt-5")
+}
+
 func TestRootCommand_HasInitSubcommand(t *testing.T) {
 	root := newRootCommand()
 	found := false

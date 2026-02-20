@@ -346,3 +346,34 @@ func TestFindEval_SkillNotInContext(t *testing.T) {
 		t.Fatal("expected error for skill not in context")
 	}
 }
+
+func TestTryParseSkill_NoFrontmatter_FallsBackToDirName(t *testing.T) {
+	dir := t.TempDir()
+	skillDir := filepath.Join(dir, "my-cool-skill")
+	writeFile(t, filepath.Join(skillDir, "SKILL.md"), "# My Cool Skill\n\nNo frontmatter here.\n")
+
+	info, ok := tryParseSkill(skillDir)
+	if !ok {
+		t.Fatal("tryParseSkill should return true when SKILL.md exists without frontmatter")
+	}
+	if info.Name != "my-cool-skill" {
+		t.Errorf("expected name %q, got %q", "my-cool-skill", info.Name)
+	}
+	if info.Dir != skillDir {
+		t.Errorf("expected dir %q, got %q", skillDir, info.Dir)
+	}
+}
+
+func TestTryParseSkill_EmptyFrontmatterName_FallsBackToDirName(t *testing.T) {
+	dir := t.TempDir()
+	skillDir := filepath.Join(dir, "another-skill")
+	writeFile(t, filepath.Join(skillDir, "SKILL.md"), "---\nname: \"\"\n---\n# Another Skill\n")
+
+	info, ok := tryParseSkill(skillDir)
+	if !ok {
+		t.Fatal("tryParseSkill should return true when SKILL.md has empty name in frontmatter")
+	}
+	if info.Name != "another-skill" {
+		t.Errorf("expected name %q, got %q", "another-skill", info.Name)
+	}
+}
