@@ -1,0 +1,274 @@
+---
+title: About
+description: About waza, architecture, and how to contribute.
+---
+
+## What is Waza?
+
+**Waza** (技 - Japanese for "skill/technique") is a unified CLI platform for creating, testing, and evaluating AI agent skills.
+
+It consolidates existing skill development tools into a single binary that provides the complete developer experience for contributing to the [microsoft/skills](https://github.com/microsoft/skills) repository.
+
+## The Problem
+
+The microsoft/skills repository hosts 132+ skills for AI coding agents, but the contribution process lacks:
+
+- **Automated compliance validation** — No standardized scoring before PR submission
+- **Trigger testing** — Manual verification of skill activation patterns
+- **Cross-model evaluation** — No framework for testing skills across GPT-4o, Claude, etc.
+- **Token budget enforcement** — Guidelines exist but aren't automatically checked
+
+## The Solution
+
+Waza automates the skill development workflow:
+
+| Phase | Capability |
+|-------|-----------|
+| **Scaffold** | Generate compliant skill structure matching microsoft/skills conventions |
+| **Develop** | Iterate with real-time compliance scoring |
+| **Test** | Run agentic test loops with real LLM execution |
+| **Evaluate** | Cross-model comparison with comprehensive metrics |
+
+## Architecture
+
+Waza is built in **Go** for:
+- Single-binary distribution (no dependencies)
+- Fast execution
+- Cross-platform compatibility (Linux, macOS, Windows)
+
+### Components
+
+```
+waza/
+├── cmd/waza/              # CLI entrypoint
+├── internal/
+│   ├── config/            # Configuration
+│   ├── execution/         # Agent engines
+│   ├── models/            # Data structures
+│   ├── orchestration/     # Test runner
+│   └── scoring/           # Validators
+├── web/                   # Dashboard (React + Tailwind)
+└── examples/              # Example evals
+```
+
+### Design Principles
+
+1. **Fixture Isolation** — Each task gets a fresh temp workspace. Original fixtures never modified.
+2. **Pluggable Validators** — 11 grader types, easily extended
+3. **Cross-Model Support** — Test skills against multiple LLM providers
+4. **Local-First** — Mock executor for development, real API for CI/CD
+5. **Observability** — Full transcripts, detailed metrics, dashboard visualization
+
+## Key Features
+
+### Structured Benchmarks
+
+Define test cases in YAML:
+
+```yaml
+name: code-explainer-eval
+tasks:
+  - "tasks/*.yaml"
+
+graders:
+  - type: regex
+    config:
+      must_match: ["function", "parameter"]
+```
+
+### 11 Built-In Validators
+
+- **Code** — Python assertions
+- **Regex** — Pattern matching
+- **Keyword** — Keyword presence
+- **File** — Output file checking
+- **Diff** — Diff comparison
+- **JSON Schema** — JSON structure validation
+- **Prompt** — LLM-powered evaluation
+- **Behavior** — Agent behavior validation
+- **Action Sequence** — Tool call sequence validation
+- **Skill Invocation** — Skill invocation validation
+- **Program** — Program execution validation
+
+### Multi-Model Comparison
+
+```bash
+waza run eval.yaml --model gpt-4o -o gpt4.json
+waza run eval.yaml --model claude-sonnet-4.6 -o sonnet.json
+waza compare gpt4.json sonnet.json
+```
+
+### Interactive Dashboard
+
+```bash
+waza serve
+```
+
+Explore results, trends, and comparisons in a web interface.
+
+### CI/CD Ready
+
+Pre-configured GitHub Actions workflow:
+
+```bash
+waza init my-project
+# Creates .github/workflows/eval.yml
+```
+
+## Contributing
+
+We welcome contributions! Here's how to get involved:
+
+### Report Issues
+
+Found a bug or have a feature request?
+
+1. Check [existing issues](https://github.com/spboyer/waza/issues)
+2. Open a new issue with clear reproduction steps
+3. Include error logs and environment details
+
+### Contribute Code
+
+1. **Fork** the repository
+2. **Create a branch** for your feature: `git checkout -b feature/my-feature`
+3. **Make changes** following the code style
+4. **Write tests** for new functionality
+5. **Run linter and tests**:
+   ```bash
+   make lint
+   make test
+   ```
+6. **Commit** with clear messages: `feat: Add my feature`
+7. **Push** to your fork and open a pull request
+
+### Development Setup
+
+```bash
+# Clone repository
+git clone https://github.com/spboyer/waza.git
+cd waza
+
+# Set up Go environment
+go version  # Requires 1.25+
+
+# Build
+make build
+
+# Test
+make test
+
+# Lint
+make lint
+
+# Run
+./waza --help
+```
+
+### Code Style
+
+- Follow Go idioms ([Effective Go](https://golang.org/doc/effective_go))
+- Use `gofmt` for formatting
+- Include unit tests for new code
+- Document public functions
+
+### Adding Validators
+
+To add a new grader type:
+
+1. Implement `Validator` interface in `internal/scoring/`
+2. Register in `ValidatorRegistry`
+3. Add tests
+4. Document in README
+
+Example:
+
+```go
+type MyValidator struct {
+    Config interface{} `json:"config"`
+}
+
+func (v *MyValidator) Grade(ctx *models.GradeContext) (*models.ValidationResult, error) {
+    // Implementation
+}
+```
+
+### Documentation
+
+- Update relevant docs when changing behavior
+- Add examples for new features
+- Keep README.md and GUIDE.md in sync
+
+## Community
+
+### Discussions
+
+Have questions or ideas? Join the conversation:
+
+- **[GitHub Discussions](https://github.com/spboyer/waza/discussions)** — Ask questions, share ideas
+- **[GitHub Issues](https://github.com/spboyer/waza/issues)** — Report bugs, request features
+
+### Support
+
+- **Documentation:** [docs/](https://github.com/spboyer/waza/tree/main/docs)
+- **Examples:** [examples/](https://github.com/spboyer/waza/tree/main/examples)
+- **Skill Repository:** [microsoft/skills](https://github.com/microsoft/skills)
+
+## Roadmap
+
+### E1: Go CLI Foundation (✅ Complete)
+
+- ✅ waza run — Execute benchmarks
+- ✅ waza init — Scaffold projects
+- ✅ waza new — Create skills
+- ✅ waza compare — Cross-model comparison
+- ✅ All 11 grader types
+
+### E2: Sensei Engine (🟡 In Progress)
+
+- ✅ waza check — Compliance scoring
+- ✅ waza dev — Iterative improvement
+- 🟡 Token budget optimization
+- 🟡 Trigger accuracy testing
+
+### E3: Evaluation Framework (🟡 In Progress)
+
+- ✅ Multi-model testing
+- ✅ Comprehensive metrics
+- 🟡 Statistical analysis
+- 🟡 LLM-powered suggestions
+
+### E4: Token Management (⏳ Planned)
+
+- Token counting across models
+- Budget enforcement
+- Optimization recommendations
+
+### E5: Waza Skill (⏳ Planned)
+
+- Conversational skill interface
+- Interactive development
+
+### E6: CI/CD Integration (✅ Complete)
+
+- ✅ GitHub Actions workflow
+- ✅ Artifact handling
+- ✅ PR comments
+
+### E7: AZD Extension (✅ Complete)
+
+- ✅ Azure Developer CLI integration
+- ✅ Registry publishing
+
+## License
+
+[MIT License](https://github.com/spboyer/waza/blob/main/LICENSE)
+
+## Author
+
+**Shayne Boyer** ([@spboyer](https://github.com/spboyer))
+
+Maintained by the waza team and community contributors.
+
+---
+
+**Questions?** [Open an issue](https://github.com/spboyer/waza/issues) or start a [discussion](https://github.com/spboyer/waza/discussions).

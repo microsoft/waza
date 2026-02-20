@@ -1,0 +1,743 @@
+---
+title: Graders
+description: Complete reference for all 11 grader types — how they work, configuration options, and real-world examples.
+---
+
+import { Aside, Tabs, TabItem } from '@astrojs/starlight/components';
+
+Graders are the scoring engine behind every waza evaluation. After an agent executes a task, one or more graders inspect the result and produce a verdict.
+
+## How graders work
+
+1. The agent runs a task inside an isolated workspace.
+2. waza collects the **output text**, **transcript** (tool calls, events), **session digest** (token counts, tools used), and the **workspace directory** (files on disk).
+3. Each grader receives that context and returns a result:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `score` | `float` | 0.0 – 1.0 (proportion of checks passed) |
+| `passed` | `bool` | Whether the grader considers the task successful |
+| `feedback` | `string` | Human-readable explanation |
+| `details` | `object` | Structured metadata for debugging |
+
+You can attach graders **globally** (applied to every task) or **per-task** in your eval YAML.
+
+---
+
+## At a glance
+
+waza ships with **11 built-in grader types**. Pick the right one for the job:
+
+| Type | YAML key | What it checks |
+|------|----------|----------------|
+| [Inline Script](#inline-script-code) | `code` | Python/JS assertion expressions against output |
+| [Regex](#regex) | `regex` | Regex patterns that must / must not appear |
+| [Keyword](#keyword) | `keyword` | Case-insensitive keyword presence / absence |
+| [File](#file) | `file` | File existence and content patterns in workspace |
+| [Diff](#diff) | `diff` | Workspace files vs. expected snapshots or fragments |
+| [JSON Schema](#json-schema-json_schema) | `json_schema` | Output validates against a JSON Schema |
+| [Prompt (LLM-as-judge)](#prompt-llm-as-judge) | `prompt` | A second LLM grades the result |
+| [Behavior](#behavior) | `behavior` | Agent metrics — tool calls, tokens, duration |
+| [Action Sequence](#action-sequence-action_sequence) | `action_sequence` | Tool call ordering and completeness |
+| [Skill Invocation](#skill-invocation-skill_invocation) | `skill_invocation` | Which skills were invoked and in what order |
+| [Program](#program) | `program` | External command (any language) grades via exit code |
+
+---
+
+## Inline Script (`code`)
+
+Evaluates Python or JavaScript assertion expressions against the execution context. Each assertion is a one-liner that must evaluate to `True`.
+
+```yaml
+- type: code
+  name: output_quality
+  config:
+    language: python          # or "javascript" — default is python
+    assertions:
+      - "len(output) > 100"
+      - "'function' in output.lower()"
+      - "len(transcript) > 0"
+```
+
+### Context variables
+
+| Variable | Type | Description |
+|----------|------|-------------|
+| `output` | `str` | Agent's final text output |
+| `outcome` | `dict` | Structured outcome state |
+| `transcript` | `list` | Full execution transcript events |
+| `tool_calls` | `list` | Tool calls extracted from transcript |
+| `errors` | `list` | Errors from transcript |
+| `duration_ms` | `int` | Execution wall-clock time |
+
+**Built-in functions:** `len`, `any`, `all`, `str`, `int`, `float`, `bool`, `list`, `dict`, `re`
+
+**Scoring:** `passed_assertions / total_assertions`
+
+<Aside type="caution" title="No generator expressions">
+Python's `eval()` does not support generator expressions in a restricted scope.
+
+```yaml
+# ❌ Fails at runtime
+assertions:
+  - "any(kw in output for kw in ['azure', 'deploy'])"
+
+# ✅ Use explicit boolean chains instead
+assertions:
+  - "'azure' in output.lower() or 'deploy' in output.lower()"
+```
+</Aside>
+
+### JavaScript example
+
+```yaml
+- type: code
+  name: js_checks
+  config:
+    language: javascript
+    assertions:
+      - "output.length > 50"
+      - "output.includes('hello')"
+```
+
+---
+
+## Regex
+
+Matches the agent output against regular expression patterns. Supports both "must match" and "must not match" lists.
+
+```yaml
+- type: regex
+  name: format_checker
+  config:
+    must_match:
+      - "deployed to https?://.+"
+      - "Resource group: .+"
+    must_not_match:
+      - "(?i)error|failed|exception"
+      - "permission denied"
+```
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `must_match` | `list[str]` | Regex patterns that **must** appear in output |
+| `must_not_match` | `list[str]` | Regex patterns that **must not** appear |
+
+**Scoring:** `passed_checks / total_checks`
+
+### Example: code quality gate
+
+```yaml
+- type: regex
+  name: code_quality
+  config:
+    must_match:
+      - "def \\w+\\(.*\\):"   # Has function definitions
+      - "return .+"            # Has return statements
+    must_not_match:
+      - "TODO|FIXME"           # No incomplete work
+      - "print\\("             # No debug prints
+```
+
+---
+
+## Keyword
+
+Simple case-insensitive keyword presence or absence checks. Lighter-weight than regex when you don't need patterns.
+
+```yaml
+- type: keyword
+  name: covers_concepts
+  config:
+    must_contain:
+      - algorithm
+      - optimization
+      - efficiency
+    must_not_contain:
+      - hack
+      - workaround
+```
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `must_contain` | `list[str]` | `[]` | Keywords that must appear |
+| `must_not_contain` | `list[str]` | `[]` | Keywords that must not appear |
+
+**Scoring:** `passed_checks / total_checks` (all matching is case-insensitive)
+
+---
+
+## File
+
+Validates file existence and content patterns in the agent's workspace directory. Use when the agent creates, modifies, or should avoid certain files.
+
+```yaml
+- type: file
+  name: project_structure
+  config:
+    must_exist:
+      - "src/index.ts"
+      - "package.json"
+      - "tsconfig.json"
+    must_not_exist:
+      - "node_modules/"
+      - ".env"
+    content_patterns:
+      - path: "package.json"
+        must_match:
+          - '"name":\\s*"my-app"'
+        must_not_match:
+          - '"version":\\s*"0\\.0\\.0"'
+```
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `must_exist` | `list[str]` | Workspace-relative paths that must be present |
+| `must_not_exist` | `list[str]` | Paths that must **not** be present |
+| `content_patterns` | `list` | Regex checks against file contents (see below) |
+
+Each `content_patterns` entry:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `path` | `string` | Workspace-relative file path |
+| `must_match` | `list[str]` | Regex patterns the file content must match |
+| `must_not_match` | `list[str]` | Regex patterns the file must not match |
+
+<Aside>
+At least one of `must_exist`, `must_not_exist`, or `content_patterns` is required.
+</Aside>
+
+---
+
+## Diff
+
+Compares post-execution workspace files against expected snapshots or content fragments. Ideal for testing file-editing tasks where you know the expected output.
+
+```yaml
+- type: diff
+  name: code_edits
+  config:
+    expected_files:
+      - path: "src/main.py"
+        contains:
+          - "+def new_function():"
+          - "+    return 42"
+          - "-def old_function():"
+      - path: "README.md"
+        snapshot: "expected/README.md"
+```
+
+Each `expected_files` entry supports:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `path` | `string` | Workspace-relative file path (required) |
+| `snapshot` | `string` | Path to expected file for exact matching |
+| `contains` | `list[str]` | Content fragments to check (see prefix rules) |
+
+### Contains prefix rules
+
+| Prefix | Meaning |
+|--------|---------|
+| `+` | Fragment **must** be present in the file |
+| `-` | Fragment **must not** be present |
+| *(none)* | Fragment must be present (same as `+`) |
+
+**Scoring:** `passed_checks / total_checks`
+
+<Tabs>
+  <TabItem label="Fragment checking">
+```yaml
+- type: diff
+  name: api_updates
+  config:
+    expected_files:
+      - path: "src/api.py"
+        contains:
+          - "+from fastapi import FastAPI"
+          - "+@app.get('/health')"
+          - "-import flask"
+```
+  </TabItem>
+  <TabItem label="Snapshot matching">
+```yaml
+- type: diff
+  name: exact_config
+  config:
+    expected_files:
+      - path: "config.json"
+        snapshot: "snapshots/expected_config.json"
+```
+  </TabItem>
+</Tabs>
+
+---
+
+## JSON Schema (`json_schema`)
+
+Validates that the agent output is valid JSON conforming to a given schema. Supports both inline schemas and schema files.
+
+```yaml
+- type: json_schema
+  name: api_response
+  config:
+    schema:
+      type: object
+      required: [status, data]
+      properties:
+        status:
+          type: string
+          enum: [success, error]
+        data:
+          type: object
+```
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `schema` | `object` | Inline JSON Schema definition |
+| `schema_file` | `string` | Path to a `.json` schema file |
+
+One of `schema` or `schema_file` is required.
+
+### Example: schema file
+
+```yaml
+- type: json_schema
+  name: validate_manifest
+  config:
+    schema_file: "schemas/manifest.schema.json"
+```
+
+---
+
+## Prompt (LLM-as-judge)
+
+Uses a second LLM to evaluate the agent's work. The judge LLM calls `set_waza_grade_pass` or `set_waza_grade_fail` tool functions to render its verdict. This is the most flexible grader — it can assess quality, correctness, style, or anything you can describe in natural language.
+
+```yaml
+- type: prompt
+  name: quality_check
+  config:
+    prompt: |
+      Review the agent's response. Check that the explanation is:
+      1. Technically accurate
+      2. Easy to understand
+      3. Includes code examples
+
+      If all criteria are met, call set_waza_grade_pass.
+      Otherwise, call set_waza_grade_fail with your reasoning.
+    model: "gpt-4o-mini"
+```
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `prompt` | `string` | *(required)* | Instructions for the judge LLM |
+| `model` | `string` | *(required)* | Model to use for judging |
+| `continue_session` | `bool` | `false` | Resume the agent's session (judge sees full context) |
+
+### How it works
+
+1. waza starts a new Copilot session (or resumes the agent's session if `continue_session: true`).
+2. The judge receives your prompt plus two tool definitions: `set_waza_grade_pass` and `set_waza_grade_fail`.
+3. The judge calls one of the tools. If it calls `set_waza_grade_pass`, score is `1.0`; if `set_waza_grade_fail`, score is `0.0`.
+
+<Aside type="tip" title="When to use continue_session">
+Set `continue_session: true` when the judge needs to inspect files on disk or see the full conversation history. The judge resumes the same session the agent used, so it has access to the workspace and prior context.
+</Aside>
+
+### Example: file review with continue_session
+
+```yaml
+- type: prompt
+  name: file_review
+  config:
+    prompt: |
+      Check that the files on disk are properly updated.
+      Verify the code compiles and follows best practices.
+      If correct, call set_waza_grade_pass.
+      If not, call set_waza_grade_fail with your reasoning.
+    model: "claude-sonnet-4.5"
+    continue_session: true
+```
+
+---
+
+## Behavior
+
+Validates agent behavior metrics — how many tool calls were made, token consumption, required/forbidden tools, and execution duration. Use this to enforce efficiency and safety guardrails.
+
+```yaml
+- type: behavior
+  name: efficiency_check
+  config:
+    max_tool_calls: 15
+    max_tokens: 50000
+    max_duration_ms: 60000
+    required_tools:
+      - bash
+      - edit
+    forbidden_tools:
+      - rm
+      - sudo
+```
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `max_tool_calls` | `int` | Maximum allowed tool calls (0 = no limit) |
+| `max_tokens` | `int` | Maximum total token usage (0 = no limit) |
+| `max_duration_ms` | `int` | Maximum execution time in ms (0 = no limit) |
+| `required_tools` | `list[str]` | Tool names that **must** be used |
+| `forbidden_tools` | `list[str]` | Tool names that **must not** be used |
+
+At least one option must be configured. Each configured rule counts as one check.
+
+**Scoring:** `passed_checks / total_checks`
+
+<Aside>
+The behavior grader reads from the **session digest**, which tracks aggregate tool call counts, token usage, and tools used during the session.
+</Aside>
+
+---
+
+## Action Sequence (`action_sequence`)
+
+Validates the sequence of tool calls the agent made against an expected action path. Supports three matching modes for different levels of strictness.
+
+```yaml
+- type: action_sequence
+  name: deploy_workflow
+  config:
+    matching_mode: in_order_match
+    expected_actions:
+      - bash
+      - edit
+      - bash
+      - git
+```
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `expected_actions` | `list[str]` | The expected tool call sequence |
+| `matching_mode` | `string` | How to compare actual vs. expected (see below) |
+
+### Matching modes
+
+| Mode | Description |
+|------|-------------|
+| `exact_match` | Actual tool calls must exactly match the expected list (same tools, same order, same count) |
+| `in_order_match` | Expected tools must appear in order, but extra tools between them are allowed |
+| `any_order_match` | All expected tools must appear, but order doesn't matter |
+
+**Scoring:** F1 score computed from precision (correct calls / total actual) and recall (matched / total expected).
+
+---
+
+## Skill Invocation (`skill_invocation`)
+
+Validates which Copilot skills the agent invoked during a session. Useful for multi-skill orchestration testing — verifying the agent delegates to the right skills.
+
+```yaml
+- type: skill_invocation
+  name: routing_check
+  config:
+    required_skills:
+      - azure-prepare
+      - azure-deploy
+    mode: in_order
+    allow_extra: true
+```
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `required_skills` | `list[str]` | *(required)* | Skills that must be invoked |
+| `mode` | `string` | *(required)* | Matching mode: `exact_match`, `in_order`, or `any_order` |
+| `allow_extra` | `bool` | `true` | Whether extra skill invocations are penalized |
+
+When `allow_extra: false`, extra invocations beyond the required list reduce the score by up to 60%.
+
+**Scoring:** F1 score (precision × recall), with optional penalty for extra invocations.
+
+---
+
+## Program
+
+Runs any external command to grade the agent output. The agent output is passed via **stdin**, and the workspace directory is available as the `WAZA_WORKSPACE_DIR` environment variable. Exit code 0 means pass (score `1.0`); non-zero means fail (score `0.0`).
+
+```yaml
+- type: program
+  name: lint_check
+  config:
+    command: "python3"
+    args: ["scripts/grade.py"]
+    timeout: 60
+```
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `command` | `string` | *(required)* | Program to execute |
+| `args` | `list[str]` | `[]` | Arguments passed to the program |
+| `timeout` | `int` | `30` | Max execution time in seconds |
+
+### Example: shell script grader
+
+```yaml
+- type: program
+  name: build_test
+  config:
+    command: "bash"
+    args: ["-c", "cd $WAZA_WORKSPACE_DIR && npm test"]
+    timeout: 120
+```
+
+### Example: custom Python grader
+
+```python
+#!/usr/bin/env python3
+"""scripts/grade.py — reads agent output from stdin, exits 0 or 1."""
+import sys, json, os
+
+output = sys.stdin.read()
+workspace = os.environ.get("WAZA_WORKSPACE_DIR", "")
+
+# Check that a required file was created
+if os.path.exists(os.path.join(workspace, "result.json")):
+    print("✓ result.json created")
+    sys.exit(0)
+else:
+    print("✗ result.json missing")
+    sys.exit(1)
+```
+
+---
+
+## Using graders in eval YAML
+
+### Global graders
+
+Defined at the top level of `eval.yaml`, applied to **every task**:
+
+```yaml
+graders:
+  - type: regex
+    name: no_errors
+    config:
+      must_not_match:
+        - "(?i)fatal error|crashed|exception occurred"
+
+  - type: code
+    name: has_output
+    config:
+      assertions:
+        - "len(output) > 10"
+
+tasks:
+  - task_files: ["tasks/*.yaml"]
+```
+
+### Per-task graders (by reference)
+
+Define graders globally, then reference them by name in individual tasks:
+
+```yaml
+graders:
+  - type: regex
+    name: format_check
+    config:
+      must_match: ["^[A-Z]"]
+
+  - type: code
+    name: length_check
+    config:
+      assertions:
+        - "len(output) > 100"
+
+tasks:
+  - id: task-001
+    inputs:
+      prompt: "Explain this code"
+    expected:
+      graders:
+        - format_check
+        - length_check
+```
+
+### Per-task graders (inline)
+
+Define graders directly inside a task:
+
+```yaml
+tasks:
+  - id: task-001
+    inputs:
+      prompt: "Create a REST API"
+    expected:
+      graders:
+        - type: file
+          name: api_files
+          config:
+            must_exist:
+              - "src/api.py"
+              - "requirements.txt"
+        - type: diff
+          name: api_content
+          config:
+            expected_files:
+              - path: "src/api.py"
+                contains:
+                  - "+from fastapi import FastAPI"
+```
+
+---
+
+## Combining graders
+
+You can stack multiple graders on a single task. All graders run independently and each produces its own score. A task passes when **all** graders pass.
+
+```yaml
+graders:
+  # 1. Output mentions key concepts
+  - type: keyword
+    name: concepts
+    config:
+      must_contain: [authentication, JWT, middleware]
+
+  # 2. No error patterns
+  - type: regex
+    name: no_errors
+    config:
+      must_not_match: ["(?i)error|exception"]
+
+  # 3. Required files exist
+  - type: file
+    name: deliverables
+    config:
+      must_exist: ["src/auth.ts", "src/middleware.ts"]
+
+  # 4. Agent was efficient
+  - type: behavior
+    name: efficiency
+    config:
+      max_tool_calls: 20
+      max_tokens: 40000
+
+  # 5. LLM judge confirms quality
+  - type: prompt
+    name: quality
+    config:
+      prompt: |
+        Review the implementation for security best practices.
+        Call set_waza_grade_pass if secure, set_waza_grade_fail if not.
+      model: gpt-4o-mini
+```
+
+---
+
+## Real-world examples
+
+### Skill trigger accuracy
+
+Verify a skill activates on the right prompts and stays silent on the wrong ones:
+
+```yaml
+tasks:
+  - id: should-trigger
+    inputs:
+      prompt: "Deploy my app to Azure"
+    expected:
+      graders:
+        - type: keyword
+          name: azure_response
+          config:
+            must_contain: [azure, deploy, resource]
+
+  - id: should-not-trigger
+    inputs:
+      prompt: "What's the weather today?"
+    expected:
+      graders:
+        - type: keyword
+          name: no_azure
+          config:
+            must_not_contain: [azure, deploy, bicep]
+```
+
+### Code editing task
+
+Test that the agent correctly modifies source files:
+
+```yaml
+graders:
+  - type: file
+    name: files_created
+    config:
+      must_exist:
+        - "src/utils.ts"
+        - "tests/utils.test.ts"
+
+  - type: diff
+    name: correct_edits
+    config:
+      expected_files:
+        - path: "src/utils.ts"
+          contains:
+            - "+export function formatDate"
+            - "+export function parseConfig"
+        - path: "tests/utils.test.ts"
+          contains:
+            - "+describe('formatDate'"
+
+  - type: program
+    name: tests_pass
+    config:
+      command: bash
+      args: ["-c", "cd $WAZA_WORKSPACE_DIR && npm test --silent"]
+      timeout: 60
+```
+
+### Multi-skill orchestration
+
+Verify the agent invokes the right skills in the right order:
+
+```yaml
+graders:
+  - type: skill_invocation
+    name: correct_workflow
+    config:
+      required_skills:
+        - brainstorming
+        - azure-prepare
+        - azure-deploy
+      mode: in_order
+      allow_extra: false
+
+  - type: action_sequence
+    name: tool_usage
+    config:
+      matching_mode: in_order_match
+      expected_actions:
+        - bash
+        - create
+        - edit
+        - bash
+```
+
+---
+
+## Best practices
+
+1. **Start simple** — Begin with `keyword` or `regex` graders, then add stricter graders as you identify failure modes.
+2. **Layer your checks** — Combine output graders (`regex`, `keyword`) with workspace graders (`file`, `diff`) and behavior graders for comprehensive coverage.
+3. **Use descriptive names** — `checks_auth_flow` beats `grader1`. Names appear in the dashboard and CLI output.
+4. **Use `prompt` for subjective quality** — When you can't express the check as a pattern or assertion, let an LLM judge it.
+5. **Set behavior budgets** — Use the `behavior` grader to catch runaway agents that burn too many tokens or tool calls.
+6. **Test graders in isolation** — Run a single task with `waza run eval.yaml --task my-task -v` to verify graders before running the full suite.
+7. **Use `program` as an escape hatch** — When you need full programmatic control, write a script in any language and use the `program` grader.
+
+---
+
+## Next steps
+
+- **[Writing Eval Specs](/guides/eval-yaml/)** — Task and fixture configuration
+- **[Web Dashboard](/guides/dashboard/)** — Visualize grader results
+- **[CLI Reference](/reference/cli/)** — All commands and flags

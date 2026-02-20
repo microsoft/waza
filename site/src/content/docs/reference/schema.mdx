@@ -1,0 +1,516 @@
+---
+title: YAML Schema
+description: Complete reference for eval.yaml and task file formats.
+---
+
+Complete reference for YAML schema used in waza evaluations.
+
+## eval.yaml
+
+Main evaluation configuration file.
+
+```yaml
+name: code-explainer-eval          # Required: eval suite name
+description: "..."                 # Required: what this eval tests
+skill: code-explainer              # Required: skill name
+version: "1.0"                      # Optional: version number
+
+config:
+  trials_per_task: 1               # Runs per task
+  timeout_seconds: 300             # Task timeout
+  parallel: false                  # Concurrent execution
+  workers: 4                        # Parallel workers
+  model: claude-sonnet-4.6          # Default model
+  executor: mock                    # mock or copilot-sdk
+
+graders:                            # Validation rules
+  - type: regex
+    name: checks_logic
+    config:
+      pattern: "(?i)(function)"
+
+tasks:                              # Test cases
+  - "tasks/*.yaml"                 # From files
+  - id: inline-001                 # Or inline
+    name: Inline Task
+    inputs:
+      prompt: "..."
+```
+
+## Top-Level Fields
+
+### name
+
+**Type:** string  
+**Required:** yes
+
+The unique name of this evaluation suite. Used in reports and result files.
+
+```yaml
+name: code-explainer-eval
+```
+
+### description
+
+**Type:** string  
+**Required:** yes
+
+Describes what this evaluation tests. Appears in reports.
+
+```yaml
+description: "Evaluates agent's ability to explain Python code"
+```
+
+### skill
+
+**Type:** string  
+**Required:** yes
+
+The skill being evaluated.
+
+```yaml
+skill: code-explainer
+```
+
+### version
+
+**Type:** string  
+**Required:** no  
+**Default:** (empty)
+
+Version number of the evaluation suite.
+
+```yaml
+version: "1.0"
+```
+
+## config Section
+
+### trials_per_task
+
+**Type:** integer  
+**Default:** 1
+
+How many times each task is run. Use > 1 for statistical confidence.
+
+```yaml
+config:
+  trials_per_task: 3
+```
+
+### timeout_seconds
+
+**Type:** integer  
+**Default:** 300
+
+Maximum seconds per task before timeout.
+
+```yaml
+config:
+  timeout_seconds: 300  # 5 minutes
+```
+
+Common values:
+- `60` — Quick validation tasks
+- `300` — Standard code analysis
+- `600` — Complex multi-file tasks
+
+### parallel
+
+**Type:** boolean  
+**Default:** false
+
+Run tasks concurrently instead of sequentially.
+
+```yaml
+config:
+  parallel: true
+```
+
+### workers
+
+**Type:** integer  
+**Default:** 4
+
+Number of concurrent workers when `parallel: true`.
+
+```yaml
+config:
+  parallel: true
+  workers: 8
+```
+
+### model
+
+**Type:** string  
+**Default:** (empty)
+
+Default LLM model. Override with `--model` flag.
+
+```yaml
+config:
+  model: claude-sonnet-4.6
+```
+
+### executor
+
+**Type:** string  
+**Default:** mock  
+**Options:** `mock`, `copilot-sdk`
+
+Execution engine:
+- `mock` — Local testing (no API calls)
+- `copilot-sdk` — Real LLM execution
+
+```yaml
+config:
+  executor: copilot-sdk
+```
+
+## graders Section
+
+List of validation rules. Used across tasks.
+
+```yaml
+graders:
+  - type: regex
+    name: pattern_check
+    config:
+      must_match: ["success"]
+  
+  - type: code
+    name: logic_check
+    config:
+      assertions:
+        - "len(output) > 0"
+```
+
+### Grader Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `type` | string | Grader type: `code`, `regex`, `keyword`, `file`, `diff`, `json_schema`, `prompt`, `behavior`, `action_sequence`, `skill_invocation`, `program` |
+| `name` | string | Unique grader name (used to reference in tasks) |
+| `config` | object | Type-specific configuration |
+
+See **[Validators & Graders](/guides/graders/)** for complete documentation.
+
+## tasks Section
+
+List of test cases to run.
+
+```yaml
+tasks:
+  - "tasks/*.yaml"          # Load from files
+  - "tasks/basic.yaml"      # Specific file
+  - id: inline-001          # Inline task
+    name: "Test 1"
+    inputs:
+      prompt: "..."
+```
+
+### Loading from Files
+
+```yaml
+tasks:
+  - "tasks/*.yaml"              # All YAML files
+  - "tasks/basic/*.yaml"        # Subdirectory
+  - "tasks/important.yaml"      # Single file
+```
+
+File path is relative to `eval.yaml`.
+
+### Inline Tasks
+
+Define tasks directly in `eval.yaml`:
+
+```yaml
+tasks:
+  - id: task-001
+    name: "Basic Usage"
+    inputs:
+      prompt: "Explain this"
+```
+
+## Task File Format
+
+Individual task files (`tasks/task-name.yaml`).
+
+```yaml
+id: basic-usage-001              # Required: unique ID
+name: Basic Usage                # Required: display name
+description: "..."               # Optional: full description
+
+tags:                            # Optional: for filtering
+  - basic
+  - happy-path
+
+inputs:                          # Required: test inputs
+  prompt: "Your instruction"
+  files:
+    - path: sample.py
+
+expected:                        # Required: validation rules
+  output_contains: ["function"]
+  behavior:
+    max_tool_calls: 5
+```
+
+### id
+
+**Type:** string  
+**Required:** yes
+
+Unique task identifier within the eval suite.
+
+```yaml
+id: basic-usage-001
+```
+
+### name
+
+**Type:** string  
+**Required:** yes
+
+Human-readable task name.
+
+```yaml
+name: "Basic Usage - Python Function"
+```
+
+### description
+
+**Type:** string  
+**Required:** no
+
+Full description of what the task tests.
+
+```yaml
+description: "Test that the agent explains a simple Python function correctly"
+```
+
+### tags
+
+**Type:** array of strings  
+**Required:** no
+
+Tags for filtering and categorization.
+
+```yaml
+tags:
+  - basic
+  - happy-path
+  - python
+```
+
+Usage:
+
+```bash
+waza run eval.yaml --tags "basic"
+waza run eval.yaml --tags "edge-case"
+```
+
+## inputs Section
+
+Test inputs passed to the agent.
+
+```yaml
+inputs:
+  prompt: "Your instruction here"
+  files:
+    - path: sample.py
+    - path: nested/module.py
+    - content: |
+        def hello():
+            print("Hi")
+```
+
+### prompt
+
+**Type:** string  
+**Required:** yes
+
+Instruction text sent to the agent. Supports templating:
+
+```yaml
+inputs:
+  prompt: |
+    Explain this Python code:
+    {{fixture:sample.py}}
+```
+
+### files
+
+**Type:** array  
+**Required:** no
+
+Files to include in the task context.
+
+```yaml
+inputs:
+  files:
+    - path: sample.py           # Reference fixture
+    - content: "def foo(): ..."  # Or inline content
+```
+
+## expected Section
+
+Validation rules and constraints.
+
+```yaml
+expected:
+  output_contains: ["function", "parameter"]
+  output_excludes: ["error"]
+  matches: ["def\\s+\\w+"]
+  outcomes:
+    - type: task_completed
+  behavior:
+    max_tool_calls: 5
+    max_response_time_ms: 30000
+    max_tokens: 4096
+```
+
+### output_contains
+
+**Type:** array of strings
+
+Strings that must appear in output.
+
+```yaml
+expected:
+  output_contains:
+    - "function"
+    - "parameter"
+    - "return"
+```
+
+### output_excludes
+
+**Type:** array of strings
+
+Strings that must NOT appear.
+
+```yaml
+expected:
+  output_excludes:
+    - "error"
+    - "failed"
+```
+
+### matches
+
+**Type:** array of strings
+
+Regex patterns to match.
+
+```yaml
+expected:
+  matches:
+    - "returns\\s+.*value"
+    - "def\\s+\\w+\\("
+```
+
+### outcomes
+
+**Type:** array of objects
+
+Expected execution outcomes.
+
+```yaml
+expected:
+  outcomes:
+    - type: task_completed
+    - type: tool_called
+      tool_name: code_analyzer
+```
+
+### behavior
+
+**Type:** object
+
+Behavioral constraints.
+
+```yaml
+expected:
+  behavior:
+    max_tool_calls: 5           # Max tools to invoke
+    max_response_time_ms: 30000  # Max execution time
+    max_tokens: 4096            # Max tokens in response
+```
+
+## .waza.yaml Configuration
+
+Optional project-level configuration file.
+
+```yaml
+# Root of waza project
+name: my-eval-suite
+version: "1.0"
+
+# Model defaults
+model: claude-sonnet-4.6
+timeout_seconds: 300
+
+# Directories
+skills_dir: skills
+evals_dir: evals
+fixtures_dir: fixtures
+
+# CI/CD
+github_actions: true
+```
+
+## Example Complete eval.yaml
+
+```yaml
+name: code-explainer-eval
+description: "Evaluation suite for code-explainer skill"
+skill: code-explainer
+version: "1.0"
+
+config:
+  trials_per_task: 1
+  timeout_seconds: 300
+  parallel: false
+  workers: 4
+  model: claude-sonnet-4.6
+  executor: copilot-sdk
+
+graders:
+  - type: regex
+    name: explains_concepts
+    config:
+      must_match:
+        - "function"
+        - "parameter"
+        - "return"
+  
+  - type: code
+    name: minimum_length
+    config:
+      assertions:
+        - "len(output) > 200"
+  
+  - type: tool_calls
+    name: reasonable_calls
+    config:
+      max_calls: 5
+
+tasks:
+  - "tasks/*.yaml"
+```
+
+## JSON Schema (programmatic access)
+
+See `schemas/waza-config.schema.json` in the repository for complete JSON Schema.
+
+```bash
+# Validate eval.yaml
+jq . schemas/waza-config.schema.json
+```
+
+## Next Steps
+
+- **[Writing Eval Specs](/guides/eval-yaml/)** — Full guide with examples
+- **[CLI Reference](/reference/cli/)** — All commands
+- **[GitHub Repository](https://github.com/spboyer/waza)** — Source code

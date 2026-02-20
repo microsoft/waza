@@ -1,0 +1,292 @@
+---
+title: Getting Started
+description: Complete walkthrough for installing and running waza.
+---
+
+A complete walkthrough for installing waza and running your first evaluation.
+
+## Installation
+
+Choose one of three methods:
+
+### 1. Binary Install (Recommended)
+
+The fastest way to get started. The script auto-detects your OS and architecture:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/spboyer/waza/main/install.sh | bash
+```
+
+This downloads the latest release, verifies the checksum, and installs the `waza` binary to:
+- `/usr/local/bin/waza` (if writable), or
+- `~/bin/waza` (if `/usr/local/bin` is not writable)
+
+Verify installation:
+
+```bash
+waza --version
+```
+
+### 2. Install from Source
+
+Requires **Go 1.25 or later**:
+
+```bash
+go install github.com/spboyer/waza/cmd/waza@latest
+```
+
+### 3. Azure Developer CLI Extension
+
+If you use Azure Developer CLI (`azd`):
+
+```bash
+# Add the waza extension registry
+azd ext source add -n waza -t url -l https://raw.githubusercontent.com/spboyer/waza/main/registry.json
+
+# Install the extension
+azd ext install microsoft.azd.waza
+
+# Verify
+azd waza --help
+```
+
+All waza commands are available under `azd waza`:
+
+```bash
+azd waza init my-project
+azd waza run eval.yaml
+azd waza serve
+```
+
+## Quick Start
+
+Get a complete evaluation suite running in 5 minutes.
+
+### Step 1: Initialize a Project
+
+Create a new directory and initialize a waza project:
+
+```bash
+mkdir my-eval-suite
+cd my-eval-suite
+waza init
+```
+
+You'll be prompted to create your first skill. Enter a name like `code-explainer`:
+
+```
+my-eval-suite/
+├── skills/
+│   └── code-explainer/
+│       └── SKILL.md
+├── evals/
+│   └── code-explainer/
+│       ├── eval.yaml
+│       ├── tasks/
+│       │   ├── basic-usage.yaml
+│       │   └── edge-cases.yaml
+│       └── fixtures/
+│           └── sample.py
+├── .github/workflows/
+│   └── eval.yml
+└── .gitignore
+```
+
+Skip the prompt with `--no-skill`:
+
+```bash
+waza init --no-skill
+```
+
+### Step 2: Create a New Skill
+
+If you didn't create one during `init`, add a new skill:
+
+```bash
+waza new code-analyzer
+```
+
+The interactive wizard collects metadata (name, description, use cases).
+
+### Step 3: Define Your Skill
+
+Edit `skills/code-explainer/SKILL.md`:
+
+```yaml
+---
+name: code-explainer
+type: utility
+description: |
+  USE FOR: Explaining code, analyzing code patterns, refactoring suggestions
+  DO NOT USE FOR: Running code, generating boilerplate
+---
+
+# Code Explainer
+
+## Overview
+
+Helps developers understand existing code by breaking down logic and identifying patterns.
+
+## Usage
+
+**Triggers:**
+- "Explain this Python function"
+- "What does this code do?"
+```
+
+### Step 4: Write Evaluation Tasks
+
+Edit `evals/code-explainer/tasks/basic-usage.yaml`:
+
+```yaml
+id: basic-usage-001
+name: Basic Usage - Python Function
+description: Test that the skill explains a simple Python function correctly.
+tags:
+  - basic
+  - happy-path
+inputs:
+  prompt: "Explain this function"
+  files:
+    - path: sample.py
+expected:
+  output_contains:
+    - "function"
+    - "parameter"
+    - "return"
+  behavior:
+    max_tool_calls: 5
+    max_response_time_ms: 30000
+```
+
+### Step 5: Add Test Fixtures
+
+Create test files in `evals/code-explainer/fixtures/sample.py`:
+
+```python
+def fibonacci(n):
+    """Calculate the nth Fibonacci number."""
+    if n <= 1:
+        return n
+    return fibonacci(n - 1) + fibonacci(n - 2)
+```
+
+### Step 6: Configure Your Evaluation
+
+Edit `evals/code-explainer/eval.yaml`:
+
+```yaml
+name: code-explainer-eval
+description: Evaluation suite for code-explainer skill
+skill: code-explainer
+version: "1.0"
+
+config:
+  trials_per_task: 1
+  timeout_seconds: 300
+  parallel: false
+  model: claude-sonnet-4.6
+
+graders:
+  - type: regex
+    name: explains_concepts
+    config:
+      pattern: "(?i)(function|variable|parameter|return)"
+
+tasks:
+  - "tasks/*.yaml"
+```
+
+### Step 7: Run Evaluations
+
+```bash
+# Run all evaluations
+waza run
+
+# Run one skill's evaluations
+waza run code-explainer
+
+# Verbose output
+waza run code-explainer -v
+
+# Save results
+waza run code-explainer -o results.json
+```
+
+Example output:
+
+```
+Running evaluations for code-explainer...
+  ✓ basic-usage-001 passed
+  ✓ edge-case-001 passed
+
+Results: 2/2 tasks passed ✓
+```
+
+### Step 8: Check Skill Readiness
+
+Validate your skill is production-ready:
+
+```bash
+waza check code-explainer
+```
+
+Output:
+
+```
+🔍 Skill Readiness Check
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Skill: code-explainer
+
+📋 Compliance Score: High
+   ✅ Excellent! Your skill meets all compliance requirements.
+
+✅ Your skill is ready for submission!
+```
+
+### Step 9: View Results in Dashboard
+
+Start the interactive web dashboard:
+
+```bash
+waza serve
+```
+
+Opens http://localhost:3000. View runs, detailed results, comparisons, and trends.
+
+## Next Steps
+
+- **[Writing Eval Specs](/guides/eval-yaml/)** — Master YAML structure and task definitions
+- **[Validators & Graders](/guides/graders/)** — Reference for all grader types
+- **[Web Dashboard](/guides/dashboard/)** — Explore interactive results
+- **[CLI Reference](/reference/cli/)** — All commands and flags
+- **[GitHub Repository](https://github.com/spboyer/waza)** — Source code, examples, issues
+
+## Troubleshooting
+
+### "skill not found"
+
+Make sure you're in a project with `skills/` directory or a standalone skill with `SKILL.md`.
+
+### "eval.yaml not found"
+
+Check that:
+- File is at `evals/{skill-name}/eval.yaml` (project mode)
+- Or at `{skill}/evals/eval.yaml` (standalone)
+
+### "No tasks in eval.yaml"
+
+Ensure your `eval.yaml` has:
+
+```yaml
+tasks:
+  - "tasks/*.yaml"
+```
+
+And that you have `.yaml` files in the `tasks/` directory.
+
+## Support
+
+- **Issues:** [github.com/spboyer/waza/issues](https://github.com/spboyer/waza/issues)
+- **GitHub:** [github.com/spboyer/waza](https://github.com/spboyer/waza)

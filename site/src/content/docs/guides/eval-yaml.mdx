@@ -1,0 +1,435 @@
+---
+title: Writing Eval Specs
+description: Complete guide to YAML structure for evaluation benchmarks.
+---
+
+A complete reference for writing `eval.yaml` specifications and task definitions.
+
+## eval.yaml Structure
+
+The evaluation spec defines the benchmark configuration, graders, and task files:
+
+```yaml
+name: code-explainer-eval
+description: Evaluation suite for code-explainer skill
+skill: code-explainer
+version: "1.0"
+
+config:
+  trials_per_task: 1
+  timeout_seconds: 300
+  parallel: false
+  model: claude-sonnet-4.6
+
+graders:
+  - type: regex
+    name: explains_concepts
+    config:
+      pattern: "(?i)(function|logic|parameter)"
+  - type: code
+    name: has_output
+    config:
+      assertions:
+        - "len(output) > 100"
+
+tasks:
+  - "tasks/*.yaml"
+```
+
+## Top-Level Fields
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `name` | string | ✓ | Eval suite name |
+| `description` | string | ✓ | What the eval tests |
+| `skill` | string | ✓ | Associated skill name |
+| `version` | string | ✗ | Version number (e.g., "1.0") |
+
+## Config Section
+
+The `config` block controls execution behavior:
+
+```yaml
+config:
+  trials_per_task: 1        # Run each task this many times
+  timeout_seconds: 300      # Task timeout in seconds
+  parallel: false           # Run tasks sequentially (true = concurrent)
+  workers: 4                # Parallel workers if parallel: true
+  model: claude-sonnet-4.6  # Default model (override with --model)
+  executor: mock            # mock (local) or copilot-sdk (real API)
+```
+
+**Common Timeouts:**
+- `60` — Quick tasks (single-file review, validation)
+- `300` — Standard tasks (code explanation, analysis)
+- `600` — Complex tasks (multi-file refactoring, design)
+
+## Graders Section
+
+Graders validate task outputs. Define once, reuse across tasks:
+
+```yaml
+graders:
+  - type: regex
+    name: checks_logic
+    config:
+      pattern: "(?i)(function|variable|parameter)"
+      
+  - type: code
+    name: has_minimum_output
+    config:
+      assertions:
+        - "len(output) > 100"
+        - "'success' in output.lower()"
+        
+  - type: keyword
+    name: mentions_key_concepts
+    config:
+      keywords: ["algorithm", "optimization"]
+      must_include_all: true
+```
+
+All graders return:
+- `score`: 0.0 to 1.0
+- `passed`: boolean
+- `message`: human-readable result
+
+See the **[Validators & Graders](/guides/graders/)** guide for all 11 types and examples.
+
+## Tasks Section
+
+Tasks define individual test cases. Either inline or from files:
+
+### Inline Tasks
+
+```yaml
+tasks:
+  - id: basic-001
+    name: Basic Usage
+    description: Test basic functionality
+    inputs:
+      prompt: "Explain this code"
+      files:
+        - path: sample.py
+    expected:
+      output_contains:
+        - "function"
+        - "variable"
+      behavior:
+        max_tool_calls: 5
+```
+
+### From Files
+
+Load tasks from YAML files in a directory:
+
+```yaml
+tasks:
+  - "tasks/*.yaml"          # All YAML files in tasks/
+  - "tasks/basic/*.yaml"    # Specific subdirectory
+  - "tasks/advanced.yaml"   # Single file
+```
+
+## Task File Format
+
+Individual task files (e.g., `tasks/basic-usage.yaml`):
+
+```yaml
+id: basic-usage-001
+name: Basic Usage - Python Function
+description: Test that the skill explains a simple Python function correctly.
+
+tags:
+  - basic
+  - happy-path
+
+inputs:
+  prompt: "Explain this function"
+  files:
+    - path: sample.py
+
+expected:
+  output_contains:
+    - "function"
+    - "parameter"
+    - "return"
+  outcomes:
+    - type: task_completed
+  behavior:
+    max_tool_calls: 5
+    max_response_time_ms: 30000
+```
+
+### Task Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | string | Unique task identifier |
+| `name` | string | Human-readable task name |
+| `description` | string | What the task tests |
+| `tags` | array | Tags for filtering (e.g., `["basic", "edge-case"]`) |
+| `inputs` | object | Test inputs (prompt, files) |
+| `expected` | object | Validation rules and expected behavior |
+
+### Inputs Section
+
+```yaml
+inputs:
+  prompt: "Your instruction to the agent"
+  files:
+    - path: sample.py         # Fixture file (relative to fixtures dir)
+      content: |              # Or inline content
+        def hello():
+            print("Hello")
+```
+
+Prompt supports templating:
+
+```yaml
+inputs:
+  prompt: |
+    Explain this code:
+    {{fixture:sample.py}}
+```
+
+### Expected Section
+
+```yaml
+expected:
+  # Strings that must appear in output
+  output_contains:
+    - "function"
+    - "parameter"
+  
+  # Output must NOT contain these
+  output_excludes:
+    - "error"
+    - "failed"
+  
+  # Regex patterns to match
+  matches:
+    - "returns\\s+.*value"
+    - "def\\s+\\w+\\("
+  
+  # Task outcomes
+  outcomes:
+    - type: task_completed
+    - type: tool_called
+      tool_name: code_analyzer
+  
+  # Behavioral constraints
+  behavior:
+    max_tool_calls: 5
+    max_response_time_ms: 30000
+    max_tokens: 4096
+```
+
+## Fixture Isolation
+
+Fixtures are test files (code, documents, data) that tasks reference.
+
+**Important:** Each task gets a fresh temp workspace with fixtures copied in. Original fixtures are never modified.
+
+### Using Fixtures
+
+Create a `fixtures/` directory:
+
+```
+evals/code-explainer/
+├── eval.yaml
+├── tasks/
+│   └── basic-usage.yaml
+└── fixtures/
+    ├── sample.py
+    ├── complex.py
+    └── README.md
+```
+
+Reference in tasks:
+
+```yaml
+inputs:
+  prompt: "Analyze {{fixture:sample.py}}"
+  files:
+    - path: sample.py
+```
+
+### Directory Structure
+
+```bash
+# Project mode
+evals/
+└── code-explainer/
+    ├── eval.yaml
+    ├── tasks/
+    │   ├── basic-usage.yaml
+    │   ├── edge-case.yaml
+    │   └── should-not-trigger.yaml
+    └── fixtures/
+        ├── sample.py
+        ├── complex.py
+        └── nested/
+            └── module.py
+```
+
+Specify context directory when running:
+
+```bash
+waza run eval.yaml --context-dir evals/code-explainer/fixtures
+```
+
+Or use relative paths in eval.yaml if fixtures are adjacent.
+
+## Multi-Model Comparison
+
+Run the same eval against multiple models:
+
+```bash
+# Run with gpt-4o
+waza run eval.yaml --model gpt-4o -o gpt4.json
+
+# Run with Claude
+waza run eval.yaml --model claude-sonnet-4.6 -o sonnet.json
+
+# Compare results
+waza compare gpt4.json sonnet.json
+```
+
+Override the default model in eval.yaml:
+
+```bash
+waza run eval.yaml --model gpt-4o  # Overrides config.model
+```
+
+## Filtering and Parallel Execution
+
+### Filter by Task Name
+
+```bash
+waza run eval.yaml --task "basic*" --task "edge*"
+```
+
+### Filter by Tags
+
+```bash
+waza run eval.yaml --tags "happy-path"
+```
+
+### Parallel Execution
+
+```bash
+# Run tasks concurrently with 4 workers
+waza run eval.yaml --parallel --workers 4
+```
+
+## Saving Results
+
+Save eval results for later analysis or comparison:
+
+```bash
+waza run eval.yaml -o results.json
+```
+
+**Output format:**
+
+```json
+{
+  "name": "code-explainer-eval",
+  "model": "claude-sonnet-4.6",
+  "pass_rate": 0.8,
+  "tasks": [
+    {
+      "id": "basic-001",
+      "name": "Basic Usage",
+      "passed": true,
+      "graders": [
+        {
+          "name": "checks_logic",
+          "passed": true,
+          "score": 1.0
+        }
+      ]
+    }
+  ]
+}
+```
+
+## Caching
+
+For iterative testing, cache results:
+
+```bash
+waza run eval.yaml --cache --cache-dir .waza-cache
+```
+
+Only tasks with changed inputs/config re-run.
+
+## Common Patterns
+
+### Simple Validation
+
+```yaml
+graders:
+  - type: regex
+    name: format_check
+    config:
+      pattern: "^[A-Z].*\\.$"  # Sentence starting with capital, ending with period
+
+tasks:
+  - id: format-001
+    inputs:
+      prompt: "Write a single sentence"
+    expected:
+      matches:
+        - "^[A-Z].*\\.$"
+```
+
+### Multi-Criteria Scoring
+
+```yaml
+graders:
+  - type: code
+    name: completeness
+    config:
+      assertions:
+        - "len(output) > 500"
+        - "'function' in output"
+        - "'parameter' in output"
+
+tasks:
+  - id: complete-001
+    inputs:
+      prompt: "Explain this function"
+    expected:
+      # All 3 assertions must pass
+```
+
+### Behavioral Constraints
+
+```yaml
+tasks:
+  - id: efficient-001
+    inputs:
+      prompt: "Refactor this code"
+    expected:
+      behavior:
+        max_tool_calls: 3        # Efficient
+        max_response_time_ms: 5000  # Quick
+        max_tokens: 1000         # Concise
+```
+
+## Best Practices
+
+1. **Clear task descriptions** — Future reviewers should understand what's being tested
+2. **Realistic validators** — Don't over-specify. A few key checks beat 20 strict rules
+3. **Fixture diversity** — Include basic, edge case, and negative test fixtures
+4. **Tag your tasks** — Makes filtering and analysis easier
+5. **Use timeout appropriately** — Too short = false failures, too long = slow tests
+6. **Reuse graders** — Define once, apply across multiple tasks
+7. **Version your evals** — Track improvements with version numbers
+
+## Next Steps
+
+- **[Validators & Graders](/guides/graders/)** — Reference for all grader types
+- **[Web Dashboard](/guides/dashboard/)** — Explore results interactively
+- **[CLI Reference](/reference/cli/)** — All commands and flags

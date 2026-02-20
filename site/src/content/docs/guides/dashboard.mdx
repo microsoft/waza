@@ -1,0 +1,223 @@
+---
+title: Web Dashboard
+description: Interactive dashboard for viewing and comparing evaluation results.
+---
+
+The waza dashboard provides an interactive web interface for exploring evaluation results, comparing models, and tracking metrics.
+
+## Starting the Dashboard
+
+```bash
+waza serve
+```
+
+Opens http://localhost:3000 automatically.
+
+## Views
+
+### Dashboard Overview
+
+Summary of all evaluation runs:
+
+- **Recent Runs** — List of recent evaluations with pass rate and model
+- **Pass Rate Trend** — Historical pass rate over time
+- **Model Comparison** — Side-by-side performance metrics
+- **Top Failing Tasks** — Tasks with lowest pass rate
+
+### Run Details
+
+Detailed results for a single evaluation run:
+
+- **Task List** — All tasks with pass/fail status
+- **Validator Results** — Per-validator scores and messages
+- **Execution Stats** — Duration, token usage, tool calls
+- **Full Transcript** — Agent conversation and tool interactions
+- **Export** — Download run as JSON
+
+### Compare View
+
+Side-by-side comparison of two or more runs:
+
+- **Model Metrics** — Pass rate, average duration, tool call efficiency
+- **Task Comparison** — Which model passed each task
+- **Validator Performance** — Per-validator scores across models
+- **Statistical Analysis** — Confidence intervals, effect sizes
+
+### Trends
+
+Historical metrics over time:
+
+- **Pass Rate Trend** — Model performance trending
+- **Duration Trend** — Execution speed over time
+- **Task Coverage** — Which tasks are consistently tested
+- **Model Adoption** — Usage patterns across models
+
+## Features
+
+### Live Updates
+
+Dashboard auto-refreshes when new results are saved:
+
+```bash
+# Terminal 1: Serve dashboard
+waza serve
+
+# Terminal 2: Run evaluations
+waza run eval.yaml -o results.json
+# Dashboard refreshes automatically
+```
+
+### Filtering
+
+Filter results by:
+
+- **Status** — Passed / Failed
+- **Tags** — Task tags (e.g., "basic", "edge-case")
+- **Date Range** — Last 7 days, month, all-time
+- **Model** — Specific model only
+
+### Search
+
+Full-text search across:
+
+- Task names and descriptions
+- Validator messages
+- Error messages
+- Transcripts
+
+### Export
+
+Export data in multiple formats:
+
+- **JSON** — Complete result structure
+- **CSV** — Task results for spreadsheet analysis
+- **PDF** — Formatted report for sharing
+
+## Configuration
+
+### Dashboard Port
+
+Change the default port (3000):
+
+```bash
+waza serve --port 8080
+```
+
+### JSON-RPC Server
+
+Run as a JSON-RPC TCP server instead of HTTP:
+
+```bash
+waza serve --tcp :9000
+```
+
+Connect from other applications using JSON-RPC 2.0 protocol.
+
+### Stdin/Stdout
+
+Use stdio for piping:
+
+```bash
+waza serve --stdio
+```
+
+## Result Format
+
+Dashboard loads JSON results with this structure:
+
+```json
+{
+  "name": "code-explainer-eval",
+  "model": "claude-sonnet-4.6",
+  "timestamp": "2025-02-20T10:30:00Z",
+  "pass_rate": 0.8,
+  "duration_ms": 30000,
+  "tasks": [
+    {
+      "id": "basic-001",
+      "name": "Basic Usage",
+      "passed": true,
+      "duration_ms": 5000,
+      "graders": [
+        {
+          "name": "checks_logic",
+          "passed": true,
+          "score": 1.0,
+          "message": "All patterns matched"
+        }
+      ]
+    }
+  ]
+}
+```
+
+## Workflow
+
+**Local iteration with dashboard:**
+
+```bash
+# Terminal 1: Start dashboard
+cd my-eval-suite
+waza serve
+
+# Terminal 2: Run evaluations
+waza run code-explainer -o results.json
+
+# Terminal 3 (optional): Monitor results
+# Dashboard auto-refreshes, or manually refresh in browser
+```
+
+**Comparison workflow:**
+
+```bash
+# Run with multiple models
+waza run eval.yaml --model gpt-4o -o gpt4.json
+waza run eval.yaml --model claude-sonnet-4.6 -o sonnet.json
+
+# View in dashboard
+# Select both results for side-by-side comparison
+```
+
+## Integration with CI/CD
+
+Dashboard works with GitHub Actions:
+
+1. Evaluation runs in CI generate `results.json`
+2. Results uploaded as workflow artifact
+3. Download artifact and open in dashboard:
+
+```bash
+# Download from GitHub
+gh run download <run-id> -n results
+
+# View in dashboard
+waza serve
+```
+
+## Troubleshooting
+
+### "Connection refused"
+
+Dashboard not running. Start with `waza serve`.
+
+### Port already in use
+
+Use a different port:
+
+```bash
+waza serve --port 8080
+```
+
+### Results not loading
+
+Ensure JSON is valid:
+
+```bash
+jq . results.json
+```
+
+## Next Steps
+
+- **[CLI Reference](/reference/cli/)** — All commands
+- **[YAML Schema](/reference/schema/)** — eval.yaml format
+- **[GitHub Repository](https://github.com/spboyer/waza)** — Source and examples

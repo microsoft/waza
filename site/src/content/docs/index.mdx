@@ -1,0 +1,147 @@
+---
+title: waza
+description: CLI tool for evaluating AI Agent Skills
+template: splash
+---
+
+import { Card, CardGrid, LinkCard, Aside } from '@astrojs/starlight/components';
+
+## The way of technique — measure, refine, master 🥋
+
+**Waza** is a Go CLI tool for evaluating AI agent skills through structured benchmarks. Define test cases in YAML, run them against AI models, and validate results with pluggable validators.
+
+Perfect for skill authors, platform teams, and developers building AI-powered applications.
+
+## What can waza do?
+
+<CardGrid stagger>
+	<Card title="Define Skills" icon="pencil">
+		Create comprehensive skill definitions with YAML-based evaluation specs and task fixtures.
+	</Card>
+	<Card title="Run Benchmarks" icon="rocket">
+		Execute evaluations against different AI models with fixture isolation and pluggable validators.
+	</Card>
+	<Card title="Compare Results" icon="magnifying-glass">
+		Cross-model comparison to measure skill effectiveness and track improvements.
+	</Card>
+	<Card title="Validate Quality" icon="approve">
+		Use 11 built-in grader types to validate task completion, behavior, and quality metrics.
+	</Card>
+	<Card title="View Metrics" icon="chart">
+		Interactive web dashboard with live results, trends, detailed analysis, and exports.
+	</Card>
+	<Card title="Integrate with CI/CD" icon="seti:github">
+		Automated evaluation runs on pull requests with GitHub Actions integration.
+	</Card>
+</CardGrid>
+
+## Quick Start
+
+Install waza in seconds:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/spboyer/waza/main/install.sh | bash
+```
+
+Or via azd extension:
+
+```bash
+azd ext source add -n waza -t url -l https://raw.githubusercontent.com/spboyer/waza/main/registry.json
+azd ext install microsoft.azd.waza
+```
+
+Then initialize your first eval suite:
+
+```bash
+waza init my-eval-suite
+cd my-eval-suite
+waza new my-skill
+waza run my-skill -v
+waza serve  # View results in the dashboard
+```
+
+<LinkCard title="Get Started" href="/getting-started/" icon="rocket" />
+
+## Key Features
+
+### Structured YAML Benchmarks
+
+Define evaluation specs, tasks, and validation rules in simple YAML:
+
+```yaml
+name: code-explainer-eval
+description: Test agent's ability to explain code
+
+config:
+  model: claude-sonnet-4.6
+  timeout_seconds: 300
+
+graders:
+  - type: regex
+    name: checks_logic
+    config:
+      pattern: "(?i)(function|logic|parameter)"
+  - type: code
+    name: has_output
+    config:
+      assertions:
+        - "len(output) > 100"
+
+tasks:
+  - "tasks/*.yaml"
+```
+
+### Pluggable Validators
+
+11 grader types built-in:
+
+- **Code** — Python assertions
+- **Regex** — Pattern matching
+- **Keyword** — Keyword presence
+- **File** — Output file checking
+- **Diff** — Diff comparison
+- **JSON Schema** — JSON structure validation
+- **Prompt** — LLM-powered evaluation
+- **Behavior** — Agent behavior validation
+- **Action Sequence** — Tool call sequence validation
+- **Skill Invocation** — Skill invocation validation
+- **Program** — Program execution validation
+
+### Fixture Isolation
+
+Each task gets a fresh temp workspace with fixtures copied in. Original fixtures never modified.
+
+### Cross-Model Comparison
+
+Test skills against multiple AI models:
+
+```bash
+waza run eval.yaml --model gpt-4o -o gpt4.json
+waza run eval.yaml --model claude-sonnet-4.6 -o sonnet.json
+waza compare gpt4.json sonnet.json
+```
+
+### Web Dashboard
+
+Serve interactive results:
+
+```bash
+waza serve
+# opens http://localhost:3000 — view runs, comparisons, trends, and live updates
+```
+
+### CI/CD Ready
+
+Integrated GitHub Actions support for automated evaluation runs.
+
+## Navigation
+
+<LinkCard title="Getting Started" href="/getting-started/" />
+<LinkCard title="Writing Eval Specs" href="/guides/eval-yaml/" />
+<LinkCard title="Validators & Graders" href="/guides/graders/" />
+<LinkCard title="Web Dashboard" href="/guides/dashboard/" />
+<LinkCard title="CLI Reference" href="/reference/cli/" />
+
+---
+
+**Questions?** [Open an issue](https://github.com/spboyer/waza/issues) or check the [GitHub repository](https://github.com/spboyer/waza).

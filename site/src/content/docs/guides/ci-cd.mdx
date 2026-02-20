@@ -1,0 +1,318 @@
+---
+title: CI/CD Integration
+description: Automate evaluation runs in GitHub Actions.
+---
+
+Integrate waza evaluations into your GitHub Actions CI/CD pipeline.
+
+## GitHub Actions Workflow
+
+Waza scaffolds a ready-to-use workflow with `waza init`:
+
+```bash
+waza init my-project
+```
+
+Creates `.github/workflows/eval.yml`:
+
+```yaml
+name: Evaluation
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  evaluate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install waza
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/spboyer/waza/main/install.sh | bash
+          echo "$HOME/bin" >> $GITHUB_PATH
+      
+      - name: Run evaluations
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: waza run -v -o results.json
+      
+      - name: Upload results
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-results
+          path: results.json
+```
+
+## Custom Workflow
+
+Create your own workflow in `.github/workflows/eval.yml`:
+
+```yaml
+name: Run Evaluations
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    types: [opened, synchronize]
+
+jobs:
+  evaluate:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        model: [gpt-4o, claude-sonnet-4.6]
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install waza
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/spboyer/waza/main/install.sh | bash
+      
+      - name: Run evals with ${{ matrix.model }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          waza run \
+            --model "${{ matrix.model }}" \
+            -o "results-${{ matrix.model }}.json" \
+            -v
+      
+      - name: Upload results
+        uses: actions/upload-artifact@v4
+        with:
+          name: results-${{ matrix.model }}
+          path: results-${{ matrix.model }}.json
+```
+
+## Multi-Model Matrix
+
+Test across multiple models in parallel:
+
+```yaml
+strategy:
+  matrix:
+    model:
+      - gpt-4o
+      - claude-sonnet-4.6
+      - claude-opus-4
+  max-parallel: 3
+
+steps:
+  - name: Run evals for ${{ matrix.model }}
+    run: waza run --model "${{ matrix.model }}" -o "results-${{ matrix.model }}.json"
+```
+
+## Filtering Tasks
+
+Run subset of tasks in CI to save time:
+
+```yaml
+- name: Run fast tests
+  run: waza run --tags "smoke" -v
+
+- name: Run comprehensive tests (nightly)
+  if: github.event_name == 'schedule'
+  run: waza run -v
+```
+
+## Parallel Execution
+
+Run tasks in parallel:
+
+```yaml
+- name: Run evaluations in parallel
+  run: waza run --parallel --workers 8 -v
+```
+
+## Result Artifacts
+
+Save results for later analysis:
+
+```yaml
+- name: Upload evaluation results
+  uses: actions/upload-artifact@v4
+  with:
+    name: eval-results-${{ github.run_id }}
+    path: results.json
+    retention-days: 30
+```
+
+Download in dashboard:
+
+```bash
+gh run download <run-id> -n eval-results-<run-id>
+waza serve
+```
+
+## PR Comments
+
+Post results as GitHub comment:
+
+```yaml
+- name: Run evaluations
+  run: waza run -o results.json --format github-comment > comment.md
+
+- name: Post comment
+  uses: actions/github-script@v7
+  with:
+    script: |
+      const fs = require('fs');
+      const comment = fs.readFileSync('comment.md', 'utf8');
+      github.rest.issues.createComment({
+        issue_number: context.issue.number,
+        owner: context.repo.owner,
+        repo: context.repo.repo,
+        body: comment
+      });
+```
+
+## Conditional Execution
+
+Run evaluations only on specific conditions:
+
+```yaml
+- name: Check if eval config changed
+  id: check
+  run: |
+    if git diff-tree --no-commit-id --name-only -r HEAD | grep -q "evals/"; then
+      echo "EVAL_CHANGED=true" >> $GITHUB_OUTPUT
+    fi
+
+- name: Run evaluations
+  if: steps.check.outputs.EVAL_CHANGED == 'true' || github.event_name == 'workflow_dispatch'
+  run: waza run -v
+```
+
+## Caching
+
+Cache evaluation results to speed up repeated runs:
+
+```yaml
+- name: Cache waza results
+  uses: actions/cache@v3
+  with:
+    path: .waza-cache
+    key: waza-cache-${{ hashFiles('evals/**') }}
+    restore-keys: waza-cache-
+
+- name: Run evaluations with cache
+  run: waza run --cache --cache-dir .waza-cache -v
+```
+
+## Scheduled Runs
+
+Run evaluations on a schedule (e.g., daily):
+
+```yaml
+on:
+  schedule:
+    - cron: '0 0 * * *'  # Daily at midnight UTC
+```
+
+## Secrets and Environment Variables
+
+Pass credentials safely:
+
+```yaml
+- name: Run evaluations
+  env:
+    GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    API_KEY: ${{ secrets.API_KEY }}
+  run: waza run -v
+```
+
+## Setup Guide
+
+### 1. Create Workflow File
+
+Create `.github/workflows/eval.yml` in your repository.
+
+### 2. Configure Permissions
+
+If using `github.rest.issues.createComment`:
+
+```yaml
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+```
+
+### 3. Set Up Credentials
+
+GitHub Actions automatically provides `GITHUB_TOKEN`. For other APIs, add secrets in repository settings.
+
+### 4. Test Locally
+
+Test workflow locally with `act`:
+
+```bash
+# Install act
+brew install act
+
+# Run workflow
+act push
+```
+
+## Status Checks
+
+Fail the workflow if evaluation fails:
+
+```yaml
+- name: Run evaluations
+  run: waza run -v
+  # Exit code 1 if tasks fail, workflow fails
+```
+
+## Best Practices
+
+1. **Cache fixtures** — Speed up repeated runs
+2. **Matrix testing** — Test multiple models in parallel
+3. **Artifact retention** — Keep results for dashboard analysis
+4. **Conditional runs** — Skip unnecessary evaluations
+5. **Timeout** — Set reasonable timeouts to catch hanging tasks
+6. **Notify on failure** — Post comments or create issues
+
+## Troubleshooting
+
+### "waza: command not found"
+
+Ensure `$HOME/bin` is in PATH:
+
+```yaml
+- name: Install waza
+  run: |
+    curl -fsSL https://raw.githubusercontent.com/spboyer/waza/main/install.sh | bash
+    echo "$HOME/bin" >> $GITHUB_PATH
+```
+
+### "eval.yaml not found"
+
+Check working directory:
+
+```yaml
+- name: Run from correct directory
+  run: |
+    ls -la
+    waza run evals/my-skill/eval.yaml -v
+```
+
+### Tests timeout
+
+Increase timeout or use `--parallel`:
+
+```yaml
+- name: Run with longer timeout
+  run: waza run --config.timeout_seconds 600 -v
+```
+
+## Next Steps
+
+- **[Writing Eval Specs](/guides/eval-yaml/)** — Create evaluation benchmarks
+- **[CLI Reference](/reference/cli/)** — All commands and flags
+- **[GitHub Repository](https://github.com/spboyer/waza)** — Examples and issues

@@ -1,0 +1,365 @@
+---
+title: CLI Commands
+description: Complete reference for all waza commands and flags.
+---
+
+Complete reference for all `waza` CLI commands and their options.
+
+## Installation
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/spboyer/waza/main/install.sh | bash
+waza --version
+```
+
+## waza run
+
+Run an evaluation benchmark.
+
+```bash
+waza run [eval.yaml | skill-name]
+```
+
+### Arguments
+
+| Argument | Description |
+|----------|-------------|
+| `[eval.yaml]` | Path to evaluation spec file |
+| `[skill-name]` | Skill name (auto-detects eval.yaml) |
+| *(none)* | Auto-detect using workspace detection |
+
+### Flags
+
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `--context-dir` | `-c` | string | `./fixtures` | Fixtures directory path |
+| `--output` | `-o` | string | | Save results JSON to file |
+| `--output-dir` | `-d` | string | | Save output artifacts to directory |
+| `--verbose` | `-v` | bool | false | Detailed progress output |
+| `--parallel` | | bool | false | Run tasks concurrently |
+| `--workers` | `-w` | int | 4 | Number of concurrent workers |
+| `--task` | `-t` | string | | Filter tasks by name (repeatable) |
+| `--tags` | | string | | Filter tasks by tags (repeatable) |
+| `--model` | `-m` | string | | Override model (repeatable) |
+| `--cache` | | bool | false | Enable result caching |
+| `--cache-dir` | | string | `.waza-cache` | Cache directory path |
+| `--format` | `-f` | string | `default` | Output format: `default`, `github-comment` |
+| `--timeout` | | int | 300 | Task timeout in seconds |
+
+### Examples
+
+```bash
+# Run all tasks
+waza run eval.yaml -v
+
+# Run specific skill
+waza run code-explainer
+
+# Specify fixtures directory
+waza run eval.yaml -c ./fixtures -v
+
+# Save results
+waza run eval.yaml -o results.json
+
+# Filter to specific tasks
+waza run eval.yaml --task "basic*" --task "edge*"
+
+# Multiple models (parallel)
+waza run eval.yaml --model gpt-4o --model claude-sonnet-4.6
+
+# Parallel execution with 8 workers
+waza run eval.yaml --parallel --workers 8
+
+# With caching
+waza run eval.yaml --cache --cache-dir .waza-cache
+```
+
+## waza init
+
+Initialize a new waza project.
+
+```bash
+waza init [directory]
+```
+
+### Arguments
+
+| Argument | Description |
+|----------|-------------|
+| `[directory]` | Project directory (default: current dir) |
+
+### Flags
+
+| Flag | Description |
+|------|-------------|
+| `--no-skill` | Skip first skill creation prompt |
+
+### Creates
+
+```
+project-root/
+├── skills/
+├── evals/
+├── .github/workflows/eval.yml
+├── .gitignore
+└── README.md
+```
+
+### Examples
+
+```bash
+waza init my-project
+waza init my-project --no-skill
+```
+
+## waza new
+
+Create a new skill.
+
+```bash
+waza new [skill-name]
+```
+
+### Modes
+
+**Project mode** (inside a `skills/` directory):
+```bash
+cd my-skills-repo
+waza new code-explainer
+# Creates skills/code-explainer/SKILL.md + evals/code-explainer/
+```
+
+**Standalone mode** (no `skills/` directory):
+```bash
+waza new my-skill
+# Creates my-skill/ with all files
+```
+
+### Flags
+
+| Flag | Description |
+|------|-------------|
+| `--template` | Template pack (coming soon) |
+| `--interactive` | Interactive metadata collection |
+
+### Examples
+
+```bash
+# Interactive wizard
+waza new code-analyzer --interactive
+
+# Non-interactive (CI/CD)
+waza new code-analyzer << EOF
+Code Analyzer
+Analyzes code for patterns and issues
+code, analysis
+EOF
+```
+
+## waza check
+
+Validate skill compliance and readiness.
+
+```bash
+waza check [skill-name | skill-path]
+```
+
+### Arguments
+
+| Argument | Description |
+|----------|-------------|
+| `[skill-name]` | Skill name (e.g., `code-explainer`) |
+| `[skill-path]` | Path to skill directory |
+| *(none)* | Check all skills in workspace |
+
+### Flags
+
+| Flag | Description |
+|------|-------------|
+| `--verbose` | Detailed compliance report |
+
+### Output
+
+```
+🔍 Skill Readiness Check
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Skill: code-explainer
+
+📋 Compliance Score: High
+   ✅ Excellent! Your skill meets all requirements.
+
+📊 Token Budget: 420 / 500 tokens
+   ✅ Within budget.
+
+🧪 Evaluation Suite: Found
+   ✅ eval.yaml detected.
+
+✅ Your skill is ready for submission!
+```
+
+### Examples
+
+```bash
+waza check code-explainer
+waza check ./skills/code-explainer
+waza check --verbose
+```
+
+## waza compare
+
+Compare evaluation results across models.
+
+```bash
+waza compare [results-1.json] [results-2.json] ...
+```
+
+### Arguments
+
+| Argument | Description |
+|----------|-------------|
+| `[results-N.json]` | Result files to compare (2+ required) |
+
+### Flags
+
+| Flag | Description |
+|------|-------------|
+| `--format` | Output format: `table` (default), `json` |
+
+### Examples
+
+```bash
+waza compare gpt4.json sonnet.json
+waza compare gpt4.json sonnet.json opus.json
+waza compare results-*.json --format json
+```
+
+## waza tokens
+
+Token budget management.
+
+### waza tokens count
+
+Count tokens in skill files.
+
+```bash
+waza tokens count [path]
+```
+
+```bash
+waza tokens count skills/code-explainer/SKILL.md
+waza tokens count skills/
+```
+
+### waza tokens check
+
+Check token usage against budget.
+
+```bash
+waza tokens check [skill-name]
+```
+
+```bash
+waza tokens check code-explainer
+# Output:
+# code-explainer: 420 / 500 tokens (84%)
+# ✅ Within budget
+```
+
+### waza tokens suggest
+
+Get optimization suggestions.
+
+```bash
+waza tokens suggest [skill-name]
+```
+
+Analyzes SKILL.md and suggests:
+- Sections to shorten
+- Removable content
+- Restructuring opportunities
+
+## waza dev
+
+Improve skill compliance iteratively.
+
+```bash
+waza dev [skill-name | skill-path]
+```
+
+### Flags
+
+| Flag | Description |
+|------|-------------|
+| `--target` | Target level: `low`, `medium`, `high` |
+| `--max-iterations` | Max improvement loops (default: 5) |
+| `--auto` | Auto-apply without prompting |
+| `--fast` | Skip integration tests |
+
+### Workflow
+
+```bash
+waza dev code-explainer --target high --auto
+```
+
+Iteratively:
+1. Scores current compliance
+2. Identifies issues
+3. Suggests improvements
+4. Applies changes
+5. Re-scores
+6. Repeats until target reached
+
+## waza serve
+
+Start the interactive dashboard.
+
+```bash
+waza serve
+```
+
+### Flags
+
+| Flag | Description |
+|------|-------------|
+| `--port` | Port (default: 3000) |
+| `--tcp` | TCP address for JSON-RPC (e.g., `:9000`) |
+| `--stdio` | Use stdin/stdout for piping |
+
+### Examples
+
+```bash
+waza serve                    # http://localhost:3000
+waza serve --port 8080        # http://localhost:8080
+waza serve --tcp :9000        # JSON-RPC TCP server
+```
+
+## Exit Codes
+
+| Code | Meaning |
+|------|---------|
+| `0` | Success |
+| `1` | One or more tasks failed |
+| `2` | Configuration or runtime error |
+
+## Global Flags
+
+| Flag | Description |
+|------|-------------|
+| `--help` | Show help |
+| `--version` | Show version |
+| `--verbose` | Enable debug output |
+
+## Environment Variables
+
+| Variable | Description |
+|----------|-------------|
+| `GITHUB_TOKEN` | Token for Copilot SDK execution |
+| `WAZA_HOME` | Config directory (default: `~/.waza`) |
+| `WAZA_CACHE` | Cache directory (default: `.waza-cache`) |
+
+## Next Steps
+
+- **[Writing Eval Specs](/guides/eval-yaml/)** — Create benchmarks
+- **[YAML Schema](/reference/schema/)** — eval.yaml format
+- **[GitHub Repository](https://github.com/spboyer/waza)** — Source code
