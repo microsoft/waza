@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import {
   Wrench,
   Play,
@@ -11,10 +11,13 @@ import {
   ChevronRight,
   Brain,
   FileText,
+  BarChart3,
+  List,
 } from "lucide-react";
 import type { TaskResult, TranscriptEvent } from "../api/client";
 import SessionDigestCard from "./SessionDigestCard";
 import ToolCallDetail from "./ToolCallDetail";
+import WaterfallTimeline from "./WaterfallTimeline";
 
 // ---------------------------------------------------------------------------
 // Event type → visual mapping
@@ -373,25 +376,75 @@ function FallbackRow({ event }: { event: FallbackEvent }) {
 // Main component
 // ---------------------------------------------------------------------------
 
+type ViewMode = "timeline" | "events";
+
 export default function TrajectoryViewer({ task }: { task: TaskResult }) {
   const hasTranscript = task.transcript && task.transcript.length > 0;
+  const hasToolEvents = useMemo(
+    () =>
+      hasTranscript &&
+      task.transcript!.some(
+        (e) =>
+          e.type === "ToolExecutionStart" ||
+          e.type === "ToolExecutionComplete",
+      ),
+    [hasTranscript, task.transcript],
+  );
+
+  const [view, setView] = useState<ViewMode>(
+    hasToolEvents ? "timeline" : "events",
+  );
+
   const correlated = hasTranscript
     ? correlateToolCalls(task.transcript!)
     : new Map<string, CorrelatedToolCall>();
 
   return (
     <div className="space-y-4">
-      <h3 className="text-sm font-medium text-zinc-400">
-        Trajectory — {task.name}
-      </h3>
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-medium text-zinc-400">
+          Trajectory — {task.name}
+        </h3>
+
+        {/* View toggle (only when transcript has tool events) */}
+        {hasToolEvents && (
+          <div className="flex rounded-lg border border-zinc-700 overflow-hidden">
+            <button
+              onClick={() => setView("timeline")}
+              className={`flex items-center gap-1.5 px-3 py-1 text-xs font-medium transition-colors ${
+                view === "timeline"
+                  ? "bg-zinc-700 text-zinc-200"
+                  : "bg-zinc-800 text-zinc-500 hover:text-zinc-300"
+              }`}
+            >
+              <BarChart3 className="h-3 w-3" />
+              Timeline
+            </button>
+            <button
+              onClick={() => setView("events")}
+              className={`flex items-center gap-1.5 px-3 py-1 text-xs font-medium transition-colors ${
+                view === "events"
+                  ? "bg-zinc-700 text-zinc-200"
+                  : "bg-zinc-800 text-zinc-500 hover:text-zinc-300"
+              }`}
+            >
+              <List className="h-3 w-3" />
+              Events
+            </button>
+          </div>
+        )}
+      </div>
 
       {/* Session digest card */}
       {task.sessionDigest && (
         <SessionDigestCard digest={task.sessionDigest} />
       )}
 
-      {/* Real transcript timeline */}
-      {hasTranscript ? (
+      {/* Waterfall timeline view */}
+      {hasTranscript && view === "timeline" ? (
+        <WaterfallTimeline events={task.transcript!} />
+      ) : hasTranscript ? (
+        /* Vertical event list (original) */
         <div className="rounded-lg border border-zinc-700 bg-zinc-800 p-4">
           {task.transcript!.map((event, i) => (
             <TimelineRow

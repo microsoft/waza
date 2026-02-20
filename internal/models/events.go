@@ -49,6 +49,34 @@ func (te TranscriptEvent) MarshalJSON() ([]byte, error) {
 	return json.Marshal(v)
 }
 
+func (te *TranscriptEvent) UnmarshalJSON(data []byte) error {
+	var v struct {
+		Content    *string                  `json:"content,omitempty"`
+		Type       copilot.SessionEventType `json:"type"`
+		Message    *string                  `json:"message,omitempty"`
+		Arguments  any                      `json:"arguments,omitempty"`
+		Success    *bool                    `json:"success,omitempty"`
+		ToolCallID *string                  `json:"tool_call_id,omitempty"`
+		ToolName   *string                  `json:"tool_name,omitempty"`
+		ToolResult *copilot.Result          `json:"tool_result,omitempty"`
+	}
+
+	if err := json.Unmarshal(data, &v); err != nil {
+		return err
+	}
+
+	te.Type = v.Type
+	te.Data.Content = v.Content
+	te.Data.Message = v.Message
+	te.Data.ToolCallID = v.ToolCallID
+	te.Data.ToolName = v.ToolName
+	te.Data.Arguments = v.Arguments
+	te.Data.Result = v.ToolResult
+	te.Data.Success = v.Success
+
+	return nil
+}
+
 // FilterToolCalls goes through the list of session events and correlates tool starts
 // with Success.
 func FilterToolCalls(sessionEvents []copilot.SessionEvent) []ToolCall {
