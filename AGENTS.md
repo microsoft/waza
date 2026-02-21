@@ -133,6 +133,8 @@ Each task execution gets a **fresh temp workspace** with fixtures copied in:
 
 ## Documentation Requirements
 
+**Use Mermaid for all diagrams** in markdown files (docs, design docs, plans). No ASCII art diagrams.
+
 **Always update documentation when making changes.** The following files must be kept in sync:
 
 | File | Purpose | Update When |
