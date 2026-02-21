@@ -32,6 +32,7 @@ With two refs, compares the first ref to the second.`,
 	}
 	cmd.Flags().String("format", "table", "Output format: json | table")
 	cmd.Flags().Bool("show-unchanged", false, "Include unchanged files in output")
+	cmd.Flags().Bool("strict", false, "Exit with code 1 if any file exceeds its token limit")
 	return cmd
 }
 
@@ -48,6 +49,8 @@ type fileComparison struct {
 	Diff          int         `json:"diff"`
 	PercentChange float64     `json:"percentChange"`
 	Status        string      `json:"status"`
+	Limit         int         `json:"limit,omitempty"`
+	Exceeded      bool        `json:"exceeded,omitempty"`
 }
 
 type comparisonSummary struct {
@@ -60,6 +63,7 @@ type comparisonSummary struct {
 	FilesModified  int     `json:"filesModified"`
 	FilesIncreased int     `json:"filesIncreased"`
 	FilesDecreased int     `json:"filesDecreased"`
+	ExceededCount  int     `json:"exceededCount,omitempty"`
 }
 
 type comparisonReport struct {
@@ -79,6 +83,10 @@ func runCompare(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf(`unsupported format %q; expected "table" or "json"`, format)
 	}
 	showUnchanged, err := cmd.Flags().GetBool("show-unchanged")
+	if err != nil {
+		return err
+	}
+	strict, err := cmd.Flags().GetBool("strict")
 	if err != nil {
 		return err
 	}
@@ -109,6 +117,22 @@ func runCompare(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+
+	// When --strict, load token limits and mark files that exceed their budget
+	if strict {
+		cfg, cfgErr := internal.LoadConfig(rootDir)
+		if cfgErr != nil {
+			return cfgErr
+		}
+		for i := range comparisons {
+			if comparisons[i].After != nil {
+				lr := internal.GetLimitForFile(comparisons[i].File, cfg)
+				comparisons[i].Limit = lr.Limit
+				comparisons[i].Exceeded = comparisons[i].After.Tokens > lr.Limit
+			}
+		}
+	}
+
 	// summarize before filtering out unchanged files so totals reflect all files, not just changed ones
 	summary := calculateSummary(comparisons)
 	if !showUnchanged {
@@ -135,10 +159,20 @@ func runCompare(cmd *cobra.Command, args []string) error {
 		if _, err := fmt.Fprint(out, s); err != nil {
 			return fmt.Errorf("writing output: %w", err)
 		}
+		if strict && summary.ExceededCount > 0 {
+			cmd.SilenceErrors = true
+			cmd.SilenceUsage = true
+			return fmt.Errorf("%d file(s) exceed token limits after changes", summary.ExceededCount)
+		}
 		return nil
 	}
 	if _, err := fmt.Fprint(out, compareTable(comparisons, summary, baseRef, headRef)); err != nil {
 		return fmt.Errorf("writing output: %w", err)
+	}
+	if strict && summary.ExceededCount > 0 {
+		cmd.SilenceErrors = true
+		cmd.SilenceUsage = true
+		return fmt.Errorf("%d file(s) exceed token limits after changes", summary.ExceededCount)
 	}
 	return nil
 }
@@ -295,6 +329,9 @@ func calculateSummary(comparisons []fileComparison) comparisonSummary {
 		} else if c.Diff < 0 {
 			s.FilesDecreased++
 		}
+		if c.Exceeded {
+			s.ExceededCount++
+		}
 	}
 	s.TotalDiff = s.TotalAfter - s.TotalBefore
 	if s.TotalBefore > 0 {
@@ -371,6 +408,16 @@ func compareTable(comparisons []fileComparison, summary comparisonSummary, baseR
 	fmt.Fprintf(&sb, "\n📋 Summary:\n")
 	fmt.Fprintf(&sb, "   Added: %d, Removed: %d, Modified: %d\n", summary.FilesAdded, summary.FilesRemoved, summary.FilesModified)
 	fmt.Fprintf(&sb, "   Increased: %d, Decreased: %d\n", summary.FilesIncreased, summary.FilesDecreased)
+
+	if summary.ExceededCount > 0 {
+		fmt.Fprintf(&sb, "\n⚠️  %d file(s) exceed token limits:\n", summary.ExceededCount)
+		for _, c := range comparisons {
+			if c.Exceeded && c.After != nil {
+				over := c.After.Tokens - c.Limit
+				fmt.Fprintf(&sb, "   %s: %d tokens (%d over limit of %d)\n", c.File, c.After.Tokens, over, c.Limit)
+			}
+		}
+	}
 
 	return sb.String()
 }

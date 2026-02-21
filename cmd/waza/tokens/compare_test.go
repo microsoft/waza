@@ -391,3 +391,128 @@ func TestCompare_InvalidRef(t *testing.T) {
 		require.Equal(t, "No changes detected.\n", out.String())
 	})
 }
+
+func TestCompare_Strict(t *testing.T) {
+	t.Run("passes when under limit", func(t *testing.T) {
+		dir := initRepo(t)
+
+		// Set a generous limit
+		limits := `{"defaults": {"*.md": 100}}`
+		require.NoError(t, os.WriteFile(filepath.Join(dir, ".token-limits.json"), []byte(limits), 0o644))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "README.md"), []byte("# Hello"), 0o644))
+		commit(t, dir, "initial")
+
+		// Modify but stay under limit
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "README.md"), []byte("# Hello World"), 0o644))
+
+		out := new(bytes.Buffer)
+		cmd := newCompareCmd()
+		cmd.SetOut(out)
+		cmd.SetArgs([]string{"--strict"})
+
+		require.NoError(t, cmd.Execute())
+		require.NotContains(t, out.String(), "exceed token limits")
+	})
+
+	t.Run("fails when over limit", func(t *testing.T) {
+		dir := initRepo(t)
+
+		// Set a very low limit
+		limits := `{"defaults": {"*.md": 3}}`
+		require.NoError(t, os.WriteFile(filepath.Join(dir, ".token-limits.json"), []byte(limits), 0o644))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "README.md"), []byte("# V1"), 0o644))
+		commit(t, dir, "initial")
+
+		// Modify to exceed limit (>3 tokens)
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "README.md"), []byte("# V2 with more content here"), 0o644))
+
+		out := new(bytes.Buffer)
+		cmd := newCompareCmd()
+		cmd.SetOut(out)
+		cmd.SetErr(new(bytes.Buffer))
+		cmd.SetArgs([]string{"--strict"})
+
+		err := cmd.Execute()
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "exceed token limits")
+		require.Contains(t, out.String(), "⚠️")
+		require.Contains(t, out.String(), "exceed token limits")
+	})
+
+	t.Run("only checks after ref not removed files", func(t *testing.T) {
+		dir := initRepo(t)
+
+		// Set a very low limit
+		limits := `{"defaults": {"*.md": 3}}`
+		require.NoError(t, os.WriteFile(filepath.Join(dir, ".token-limits.json"), []byte(limits), 0o644))
+		// This file has >3 tokens but will be removed
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "big.md"), []byte("# Big file with many tokens"), 0o644))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "ok.md"), []byte("# OK"), 0o644))
+		commit(t, dir, "initial")
+
+		// Remove the big file — should not trigger exceeded
+		require.NoError(t, os.Remove(filepath.Join(dir, "big.md")))
+
+		out := new(bytes.Buffer)
+		cmd := newCompareCmd()
+		cmd.SetOut(out)
+		cmd.SetArgs([]string{"--strict"})
+
+		require.NoError(t, cmd.Execute())
+	})
+
+	t.Run("json includes limit info", func(t *testing.T) {
+		dir := initRepo(t)
+
+		limits := `{"defaults": {"*.md": 3}}`
+		require.NoError(t, os.WriteFile(filepath.Join(dir, ".token-limits.json"), []byte(limits), 0o644))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "README.md"), []byte("# V1"), 0o644))
+		commit(t, dir, "initial")
+
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "README.md"), []byte("# V2 with extra content exceeding the limit"), 0o644))
+
+		out := new(bytes.Buffer)
+		cmd := newCompareCmd()
+		cmd.SetOut(out)
+		cmd.SetErr(new(bytes.Buffer))
+		cmd.SetArgs([]string{"--strict", "--format", "json"})
+
+		err := cmd.Execute()
+		require.Error(t, err)
+
+		var report comparisonReport
+		require.NoError(t, json.Unmarshal(out.Bytes(), &report))
+		require.Greater(t, report.Summary.ExceededCount, 0)
+
+		found := false
+		for _, f := range report.Files {
+			if f.File == "README.md" {
+				found = true
+				require.True(t, f.Exceeded)
+				require.Equal(t, 3, f.Limit)
+			}
+		}
+		require.True(t, found, "README.md should be in results")
+	})
+
+	t.Run("without strict flag no limit check", func(t *testing.T) {
+		dir := initRepo(t)
+
+		// Set a very low limit — but don't use --strict
+		limits := `{"defaults": {"*.md": 3}}`
+		require.NoError(t, os.WriteFile(filepath.Join(dir, ".token-limits.json"), []byte(limits), 0o644))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "README.md"), []byte("# V1"), 0o644))
+		commit(t, dir, "initial")
+
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "README.md"), []byte("# V2 with more content here"), 0o644))
+
+		out := new(bytes.Buffer)
+		cmd := newCompareCmd()
+		cmd.SetOut(out)
+		cmd.SetArgs(nil)
+
+		// Without --strict, should succeed even though file exceeds limit
+		require.NoError(t, cmd.Execute())
+		require.NotContains(t, out.String(), "exceed token limits")
+	})
+}
