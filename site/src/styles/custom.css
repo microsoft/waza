@@ -142,6 +142,13 @@ header.header {
   border-bottom: 1px solid var(--waza-border);
 }
 
+/* GitHub icon alignment in header */
+.social-links svg,
+[class*='social'] svg {
+  vertical-align: middle;
+  display: inline-block;
+}
+
 nav.sidebar {
   background-color: var(--waza-surface);
   border-right: 1px solid var(--waza-border);
@@ -160,6 +167,18 @@ nav.sidebar a[aria-current='true'] {
   color: var(--sl-color-accent) !important;
   font-weight: 600;
   box-shadow: inset 2px 0 0 0 var(--sl-color-accent);
+}
+
+/* Sidebar group collapsibility and smooth transitions */
+[class*='sidebar-group'],
+.sidebar-group-details summary {
+  transition: all 0.2s ease-in-out;
+}
+[class*='sidebar-group'] {
+  margin-bottom: 0.5rem;
+}
+.sidebar-group-details[open] {
+  background-color: rgba(16, 185, 129, 0.05);
 }
 
 /* ─── Content typography ────────────────────────────────────────────── */
@@ -233,6 +252,13 @@ tbody tr:hover {
   --pagefind-ui-primary: var(--sl-color-accent);
   --pagefind-ui-background: var(--waza-search-bg);
   --pagefind-ui-border: var(--waza-search-border);
+}
+
+/* Widen search bar */
+[data-pagefind-ui] input,
+.search-button,
+[class*='search'] {
+  min-width: 200px !important;
 }
 
 /* ─── Banner / callouts ─────────────────────────────────────────────── */
