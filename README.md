@@ -191,6 +191,7 @@ Run an evaluation benchmark from a spec file.
 | `--cache` | | Enable result caching to speed up repeated runs |
 | `--no-cache` | | Explicitly disable result caching |
 | `--cache-dir <dir>` | | Cache directory (default: `.waza-cache`) |
+| `--reporter <spec>` | | Output reporters: `json` (default), `junit:<path>` (repeatable) |
 
 **Result Caching**
 
@@ -242,6 +243,12 @@ fi
 # Post results as PR comment (GitHub Actions)
 waza run eval.yaml --format github-comment > comment.md
 gh pr comment $PR_NUMBER --body-file comment.md
+
+# Generate JUnit XML for CI test reporting
+waza run eval.yaml --reporter junit:results.xml
+
+# Both JSON output and JUnit XML
+waza run eval.yaml -o results.json --reporter junit:results.xml
 ```
 
 **Note:** `waza generate` is an alias for `waza new`. Both commands support the same functionality with the `--output-dir` flag for specifying custom output locations.

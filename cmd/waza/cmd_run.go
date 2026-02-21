@@ -46,6 +46,7 @@ var (
 	sessionDir     string
 	noSummary      bool
 	judgeModel     string
+	reporters      []string
 )
 
 // modelResult pairs a model identifier with its evaluation outcome.
@@ -94,6 +95,7 @@ You can also specify a skill name to run its eval:
 	cmd.Flags().StringVar(&sessionDir, "session-dir", "", "Directory for session log files (default: current directory)")
 	cmd.Flags().BoolVar(&noSummary, "no-summary", false, "Skip writing combined summary.json for multi-skill runs")
 	cmd.Flags().StringVar(&judgeModel, "judge-model", "", "Model for prompt graders (overrides execution model for LLM-as-judge)")
+	cmd.Flags().StringArrayVar(&reporters, "reporter", nil, "Output reporters: json (default), junit:path.xml (can be repeated)")
 
 	return cmd
 }
@@ -400,6 +402,16 @@ func runCommandForSpec(cmd *cobra.Command, sp skillSpecPath) ([]modelResult, err
 
 	if lastErr != nil {
 		return allResults, lastErr
+	}
+
+	// Write reporter outputs for the last model result
+	if len(allResults) > 0 {
+		last := allResults[len(allResults)-1]
+		if last.outcome != nil {
+			if err := writeReporters(last.outcome); err != nil {
+				return allResults, err
+			}
+		}
 	}
 
 	return allResults, nil
@@ -936,6 +948,29 @@ func saveOutcome(outcome *models.EvaluationOutcome, path string) error {
 	}
 
 	return os.WriteFile(path, data, 0644)
+}
+
+// writeReporters processes --reporter flags and writes the requested outputs.
+func writeReporters(outcome *models.EvaluationOutcome) error {
+	for _, r := range reporters {
+		switch {
+		case r == "json":
+			// JSON is already handled by --output; this is a no-op explicit selection
+			continue
+		case strings.HasPrefix(r, "junit:"):
+			path := strings.TrimPrefix(r, "junit:")
+			if path == "" {
+				return fmt.Errorf("--reporter junit requires a file path (e.g. junit:results.xml)")
+			}
+			if err := reporting.WriteJUnitXML(outcome, path); err != nil {
+				return fmt.Errorf("failed to write JUnit XML: %w", err)
+			}
+			fmt.Printf("JUnit XML saved to: %s\n", path)
+		default:
+			return fmt.Errorf("unknown reporter: %s (supported: json, junit:<path>)", r)
+		}
+	}
+	return nil
 }
 
 // computeAndPrintRecommendation runs the heuristic engine and prints results.

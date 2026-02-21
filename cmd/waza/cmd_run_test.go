@@ -38,6 +38,7 @@ func resetRunGlobals() {
 	sessionLog = false
 	sessionDir = ""
 	noSummary = false
+	reporters = nil
 }
 
 // helper creates a valid minimal eval spec YAML in a temp dir,
@@ -263,6 +264,53 @@ func TestRunCommand_OutputJSON(t *testing.T) {
 	require.NoError(t, json.Unmarshal(data, &result))
 	assert.Equal(t, "test-eval", result["eval_name"])
 	assert.Equal(t, "test-skill", result["skill"])
+}
+
+func TestRunCommand_ReporterJUnit(t *testing.T) {
+	resetRunGlobals()
+
+	specPath := createTestSpec(t, "mock")
+	junitFile := filepath.Join(t.TempDir(), "results.xml")
+
+	cmd := newRunCommand()
+	cmd.SetArgs([]string{specPath, "--reporter", "junit:" + junitFile})
+
+	err := cmd.Execute()
+	require.NoError(t, err)
+
+	data, err := os.ReadFile(junitFile)
+	require.NoError(t, err)
+	content := string(data)
+	assert.Contains(t, content, "<?xml")
+	assert.Contains(t, content, "<testsuites")
+	assert.Contains(t, content, "<testsuite")
+	assert.Contains(t, content, "<testcase")
+	assert.Contains(t, content, "test-eval")
+}
+
+func TestRunCommand_ReporterFlagParsed(t *testing.T) {
+	cmd := newRunCommand()
+	require.NoError(t, cmd.ParseFlags([]string{
+		"--reporter", "junit:out.xml",
+		"--reporter", "json",
+	}))
+
+	vals, err := cmd.Flags().GetStringArray("reporter")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"junit:out.xml", "json"}, vals)
+}
+
+func TestRunCommand_ReporterUnknown(t *testing.T) {
+	resetRunGlobals()
+
+	specPath := createTestSpec(t, "mock")
+
+	cmd := newRunCommand()
+	cmd.SetArgs([]string{specPath, "--reporter", "csv"})
+
+	err := cmd.Execute()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unknown reporter")
 }
 
 func TestRunCommand_ContextDirFlag(t *testing.T) {

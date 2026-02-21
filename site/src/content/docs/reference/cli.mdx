@@ -44,6 +44,7 @@ waza run [eval.yaml | skill-name]
 | `--cache` | | bool | false | Enable result caching |
 | `--cache-dir` | | string | `.waza-cache` | Cache directory path |
 | `--format` | `-f` | string | `default` | Output format: `default`, `github-comment` |
+| `--reporter` | | string[] | | Output reporters: `json`, `junit:<path>` (repeatable) |
 | `--timeout` | | int | 300 | Task timeout in seconds |
 
 ### Examples
@@ -72,6 +73,9 @@ waza run eval.yaml --parallel --workers 8
 
 # With caching
 waza run eval.yaml --cache --cache-dir .waza-cache
+
+# Generate JUnit XML for CI test reporting
+waza run eval.yaml --reporter junit:results.xml
 ```
 
 ## waza init
