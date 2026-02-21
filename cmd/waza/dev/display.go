@@ -45,6 +45,10 @@ func DisplayScore(w io.Writer, sk *skill.Skill, score *ScoreResult) {
 	// Run and display spec compliance
 	specResult := (SpecScorer{}).Score(sk)
 	DisplaySpecResult(w, specResult)
+
+	// Run and display SkillsBench advisory checks
+	advisoryResult := (AdvisoryScorer{}).Score(sk)
+	DisplayAdvisory(w, advisoryResult)
 }
 
 // DisplaySpecResult shows agentskills.io spec compliance results.
@@ -140,6 +144,24 @@ func DisplayTargetReached(w io.Writer, level AdherenceLevel) {
 // DisplayMaxIterations shows timeout message.
 func DisplayMaxIterations(w io.Writer, currentLevel AdherenceLevel) {
 	fprintf(w, "\n⏱️  Max iterations reached. Current level: %s\n", currentLevel)
+}
+
+// DisplayAdvisory shows SkillsBench research-backed advisory findings.
+func DisplayAdvisory(w io.Writer, r *AdvisoryResult) {
+	if r == nil || len(r.Advisories) == 0 {
+		return
+	}
+	fprintf(w, "\nSkillsBench Advisory:\n")
+	for _, a := range r.Advisories {
+		icon := "⚠️"
+		switch a.Kind {
+		case "positive":
+			icon = "✅"
+		case "info":
+			icon = "ℹ️"
+		}
+		fprintf(w, "  %s [%s] %s\n", icon, a.Check, a.Message)
+	}
 }
 
 // DisplayBatchSummary shows the batch summary table with before/after for each skill.
