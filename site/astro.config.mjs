@@ -12,9 +12,8 @@ export default defineConfig({
 			components: {
 				Header: './src/components/Header.astro',
 			},
-			// Force dark mode only — no toggle
 			expressiveCode: {
-				themes: ['github-dark'],
+				themes: ['github-light', 'github-dark'],
 			},
 			social: [
 				{ icon: 'github', label: 'GitHub', href: 'https://github.com/spboyer/waza' }

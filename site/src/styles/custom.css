@@ -1,18 +1,72 @@
 /*
- * waza docs — dark-only theme matching the waza serve dashboard
- * Design reference: spboyer.github.io/sensei, microsoft.github.io/skills
+ * waza docs — light/dark theme with zinc + emerald palette
+ * Design reference: aspire.dev, spboyer.github.io/sensei
  * Palette: Tailwind zinc + emerald accents
  */
 
-/* ─── Starlight color mapping (dark-only) ───────────────────────────── */
-:root,
-[data-theme='light'],
+/* ─── Light mode (default) ──────────────────────────────────────────── */
+:root {
+  color-scheme: light;
+
+  --sl-color-white: #18181b;      /* zinc-900 — darkest (text / headings) */
+  --sl-color-gray-1: #3f3f46;     /* zinc-700 — secondary text */
+  --sl-color-gray-2: #52525b;     /* zinc-600 — muted text */
+  --sl-color-gray-3: #a1a1aa;     /* zinc-400 — dimmed text */
+  --sl-color-gray-4: #d4d4d8;     /* zinc-300 — subtle borders */
+  --sl-color-gray-5: #f4f4f5;     /* zinc-100 — elevated surfaces */
+  --sl-color-gray-6: #fafafa;     /* zinc-50  — main background */
+  --sl-color-gray-7: #ffffff;     /* white    — deepest wells */
+  --sl-color-black: #ffffff;      /* white    — lightest (background base) */
+
+  /* Accent — emerald (darker for light bg contrast) */
+  --sl-color-accent-low: #d1fae5;  /* emerald-100 */
+  --sl-color-accent: #059669;      /* emerald-600 */
+  --sl-color-accent-high: #065f46; /* emerald-800 */
+
+  /* Text */
+  --sl-color-text: #3f3f46;
+  --sl-color-text-accent: #059669;
+
+  /* Backgrounds */
+  --sl-color-bg: #ffffff;
+  --sl-color-bg-nav: #fafafa;
+  --sl-color-bg-sidebar: #fafafa;
+  --sl-color-bg-inline-code: #f4f4f5;
+
+  /* Borders */
+  --sl-color-hairline-light: #e4e4e7;
+  --sl-color-hairline-shade: #d4d4d8;
+
+  /* Font */
+  --sl-font: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+    'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+
+  /* Waza custom properties — themed element colors */
+  --waza-surface: #ffffff;
+  --waza-surface-raised: #f4f4f5;
+  --waza-border: #e4e4e7;
+  --waza-border-hover: #d4d4d8;
+  --waza-text: #3f3f46;
+  --waza-text-heading: #18181b;
+  --waza-text-muted: #71717a;
+  --waza-code-bg: #f4f4f5;
+  --waza-code-border: #e4e4e7;
+  --waza-code-text: #3f3f46;
+  --waza-pre-bg: #fafafa;
+  --waza-table-header-bg: #f4f4f5;
+  --waza-table-header-text: #71717a;
+  --waza-search-bg: #f4f4f5;
+  --waza-search-border: #e4e4e7;
+  --waza-banner-bg: #f4f4f5;
+  --waza-banner-border: #e4e4e7;
+  --waza-link: #059669;
+  --waza-link-hover: #10b981;
+}
+
+/* ─── Dark mode ─────────────────────────────────────────────────────── */
 [data-theme='dark'] {
   color-scheme: dark;
 
-  /* Gray scale — Starlight maps these to UI surfaces.
-     --sl-color-white is always the lightest value (text in dark mode),
-     --sl-color-black is always the darkest value (backgrounds). */
   --sl-color-white: #f4f4f5;      /* zinc-100 — lightest (text / headings) */
   --sl-color-gray-1: #d4d4d8;     /* zinc-300 — secondary text */
   --sl-color-gray-2: #a1a1aa;     /* zinc-400 — muted text */
@@ -42,27 +96,34 @@
   --sl-color-hairline-light: #27272a;
   --sl-color-hairline-shade: #18181b;
 
-  /* Font */
-  --sl-font: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
-    'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-}
-
-/* ─── Hide theme toggle — dark only ─────────────────────────────────── */
-starlight-theme-select,
-[data-select-theme] {
-  display: none !important;
+  /* Waza custom properties — dark */
+  --waza-surface: #09090b;
+  --waza-surface-raised: #18181b;
+  --waza-border: #27272a;
+  --waza-border-hover: #3f3f46;
+  --waza-text: #d4d4d8;
+  --waza-text-heading: #f4f4f5;
+  --waza-text-muted: #a1a1aa;
+  --waza-code-bg: #18181b;
+  --waza-code-border: #27272a;
+  --waza-code-text: #e4e4e7;
+  --waza-pre-bg: #0a0a0a;
+  --waza-table-header-bg: #18181b;
+  --waza-table-header-text: #a1a1aa;
+  --waza-search-bg: #18181b;
+  --waza-search-border: #27272a;
+  --waza-banner-bg: #18181b;
+  --waza-banner-border: #27272a;
+  --waza-link: #10b981;
+  --waza-link-hover: #34d399;
 }
 
 /* ─── Kill the gray content band ────────────────────────────────────── */
-/* Starlight's .sl-container gets a gray bg from --sl-color-gray-5 and
-   max-width that creates a visible center column against the body.
-   Make it transparent and full-width so everything is edge-to-edge. */
 .sl-container {
   background-color: transparent !important;
   max-width: none !important;
 }
 
-/* The content-panel inside should still be readable width and centered */
 .content-panel {
   max-width: 75ch;
   margin: 0 auto;
@@ -71,66 +132,66 @@ starlight-theme-select,
 /* ─── Global surfaces ───────────────────────────────────────────────── */
 html,
 body {
-  background-color: #09090b;
-  color: #d4d4d8;
+  background-color: var(--waza-surface);
+  color: var(--waza-text);
 }
 
 /* ─── Navigation ────────────────────────────────────────────────────── */
 header.header {
-  background-color: #09090b;
-  border-bottom: 1px solid #27272a;
+  background-color: var(--waza-surface);
+  border-bottom: 1px solid var(--waza-border);
 }
 
 nav.sidebar {
-  background-color: #09090b;
-  border-right: 1px solid #27272a;
+  background-color: var(--waza-surface);
+  border-right: 1px solid var(--waza-border);
 }
 
 /* Sidebar links */
 nav.sidebar a {
-  color: #a1a1aa;
+  color: var(--waza-text-muted);
 }
 nav.sidebar a:hover {
-  color: #f4f4f5;
+  color: var(--waza-text-heading);
 }
 nav.sidebar a[aria-current='page'],
 nav.sidebar a[aria-current='true'] {
   background-color: transparent !important;
-  color: #10b981 !important;
+  color: var(--sl-color-accent) !important;
   font-weight: 600;
-  box-shadow: inset 2px 0 0 0 #10b981;
+  box-shadow: inset 2px 0 0 0 var(--sl-color-accent);
 }
 
 /* ─── Content typography ────────────────────────────────────────────── */
 h1, h2, h3, h4, h5, h6 {
-  color: #f4f4f5;
+  color: var(--waza-text-heading);
 }
 
 a {
-  color: #10b981;
+  color: var(--waza-link);
 }
 a:hover {
-  color: #34d399;
+  color: var(--waza-link-hover);
 }
 
 /* ─── Cards (feature cards, link cards) ─────────────────────────────── */
 .card,
 .sl-link-card,
 [class*='card'] {
-  background-color: #18181b !important;
-  border: 1px solid #27272a !important;
+  background-color: var(--waza-surface-raised) !important;
+  border: 1px solid var(--waza-border) !important;
   border-radius: 8px;
 }
 .card:hover,
 [class*='card']:hover {
-  border-color: #3f3f46 !important;
+  border-color: var(--waza-border-hover) !important;
 }
 
 /* ─── Code blocks ───────────────────────────────────────────────────── */
 code:not(pre code) {
-  background-color: #18181b;
-  border: 1px solid #27272a;
-  color: #e4e4e7;
+  background-color: var(--waza-code-bg);
+  border: 1px solid var(--waza-code-border);
+  color: var(--waza-code-text);
   padding: 0.15em 0.35em;
   border-radius: 4px;
 }
@@ -138,8 +199,8 @@ code:not(pre code) {
 .expressive-code,
 .expressive-code pre,
 pre {
-  background-color: #0a0a0a !important;
-  border: 1px solid #27272a !important;
+  background-color: var(--waza-pre-bg) !important;
+  border: 1px solid var(--waza-border) !important;
 }
 
 pre code {
@@ -149,17 +210,17 @@ pre code {
 
 /* ─── Tables ────────────────────────────────────────────────────────── */
 table {
-  border-color: #27272a;
+  border-color: var(--waza-border);
 }
 th {
-  background-color: #18181b;
-  color: #a1a1aa;
+  background-color: var(--waza-table-header-bg);
+  color: var(--waza-table-header-text);
   text-transform: uppercase;
   font-size: 0.75rem;
   letter-spacing: 0.05em;
 }
 tbody tr:hover {
-  background-color: #18181b;
+  background-color: var(--waza-surface-raised);
 }
 
 /* ─── Hero section (landing page) ───────────────────────────────────── */
@@ -169,15 +230,15 @@ tbody tr:hover {
 
 /* ─── Search ────────────────────────────────────────────────────────── */
 [data-pagefind-ui] {
-  --pagefind-ui-primary: #10b981;
-  --pagefind-ui-background: #18181b;
-  --pagefind-ui-border: #27272a;
+  --pagefind-ui-primary: var(--sl-color-accent);
+  --pagefind-ui-background: var(--waza-search-bg);
+  --pagefind-ui-border: var(--waza-search-border);
 }
 
 /* ─── Banner / callouts ─────────────────────────────────────────────── */
 .sl-banner {
-  background-color: #18181b;
-  border-color: #27272a;
+  background-color: var(--waza-banner-bg);
+  border-color: var(--waza-banner-border);
 }
 
 /* Remove any gradients/images — flat surfaces only */
@@ -195,9 +256,9 @@ main,
 /* ─── Mobile nav ────────────────────────────────────────────────────── */
 @media (max-width: 72rem) {
   .sidebar {
-    background-color: #09090b;
+    background-color: var(--waza-surface);
   }
   .mobile-menu-toggle {
-    color: #d4d4d8;
+    color: var(--waza-text);
   }
 }
