@@ -48,6 +48,20 @@
 
 ## Learnings
 
+### Eval & Grader Registry Architecture (Issues #385–#390, Feb 25)
+
+**Key Design Decisions:**
+- **Repos-as-registry, not a central JSON file.** A Git repo with `waza.registry.yaml` IS a waza module. Same model as Go modules — zero infrastructure to publish. Shayne explicitly rejected single-file registries.
+- **Federated index for discovery, not resolution.** Discovery is optional (like GOPROXY). Resolution is always direct Git clone. Offline-first, air-gap friendly.
+- **OCI artifacts rejected for Phase 1.** Overkill for YAML+script packages. Docker concepts don't belong in eval authoring UX. Can revisit as alternative transport later.
+- **External programs before WASM.** `program` grader already exists. Enhance it with `waza-grader-v1` protocol (stdin JSON → stdout JSON). WASM waits for WASI ecosystem maturity. Go plugins are dead — don't use them.
+- **OpenAI battle.yaml doesn't map 1:1.** It's a completion-era pattern (compare two outputs). Agent-native equivalent is `waza compare` across runs. Don't cargo-cult completion patterns into agent eval.
+- **`choice_scores` on prompt grader, not a new grader type.** One grader type handles classification, CoT, and scoring. Composability > type proliferation.
+- **`extends:` uses shallow merge, local wins.** Predictable over clever. Deep merge of eval configs causes surprises.
+- **Lock file with SHA-256 hashes.** Supply chain security is non-negotiable for a registry. `waza.lock` committed to source control, verified on every run.
+
+**Document:** `tmp/waza-eval-registry-design.md`
+
 ### Release Infrastructure Audit (Issue #223, Feb 20)
 
 **Version Management State:**
@@ -97,3 +111,16 @@ All code roles now use `claude-opus-4.6`. Docs/Scribe/diversity use `gemini-3-pr
 - OpenAI Evals cannot evaluate agents without a ground-up redesign. As the industry moves from completions to agents, this becomes a legacy framework for a shrinking use case.
 
 **Document:** `tmp/waza-vs-openai-evals.md`
+
+### Competitive Analysis: Waza vs skill-validator (Feb 25)
+
+**Key Findings:**
+- skill-validator is the closest peer competitor — same SDK (Copilot SDK), same domain (agent skill eval), same eval format (YAML scenarios). Not a legacy framework like OpenAI Evals; this is a real threat.
+- Waza wins 9 of 15 dimensions (platform depth, visualization, multi-model, grader variety, data-driven testing, caching, MCP, distribution, hooks). skill-validator wins 4 (A/B testing, pairwise judging, tool constraints, auto-discovery). 2 at parity.
+- skill-validator's 4 wins are concentrated in one coherent insight: **A/B testing (with/without skill)**. This answers "does the skill *help*?" — a question waza cannot answer with absolute grading alone. This is the single most important idea to adopt.
+- Pairwise comparative judging with position-swap bias mitigation is architecturally more rigorous than waza's independent `prompt` grader for relative quality assessment.
+- Tool constraint assertions (`expect_tools`/`reject_tools`) are a real gap — waza captures tool calls in trajectories but has no grader that inspects them.
+- The strategic move: adopt skill-validator's A/B methodology (`--baseline` mode, pairwise judging, tool constraints) while maintaining platform advantages. Moving right on the "validates improvement" axis is easier than skill-validator moving up on the "full lifecycle" axis.
+- Worst-case scenario: skill-validator becomes the "correct" way to validate skills internally at Microsoft while waza is seen as "just an eval runner." Best-case: waza ships `--baseline` before skill-validator ships a dashboard.
+
+**Document:** `tmp/waza-vs-skill-validator.md`
