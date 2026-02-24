@@ -138,6 +138,20 @@ func (mr *MockcopilotClientMockRecorder) ResumeSessionWithOptions(ctx, sessionID
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ResumeSessionWithOptions", reflect.TypeOf((*MockcopilotClient)(nil).ResumeSessionWithOptions), ctx, sessionID, config)
 }
 
+// Start mocks base method.
+func (m *MockcopilotClient) Start(ctx context.Context) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Start", ctx)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Start indicates an expected call of Start.
+func (mr *MockcopilotClientMockRecorder) Start(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Start", reflect.TypeOf((*MockcopilotClient)(nil).Start), ctx)
+}
+
 // Stop mocks base method.
 func (m *MockcopilotClient) Stop() error {
 	m.ctrl.T.Helper()
