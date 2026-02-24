@@ -43,6 +43,7 @@ func TestCopilotEngine_Execute_CreateSessionError(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	clientMock := NewMockcopilotClient(ctrl)
 
+	clientMock.EXPECT().Start(gomock.Any())
 	clientMock.EXPECT().CreateSession(gomock.Any(), gomock.Any()).Return(nil, errors.New("session create failed"))
 
 	engine := NewCopilotEngineBuilder("test", &CopilotEngineBuilderOptions{
@@ -62,6 +63,7 @@ func TestCopilotEngine_Execute_SendError(t *testing.T) {
 	clientMock := NewMockcopilotClient(ctrl)
 	sessionMock := NewMockcopilotSession(ctrl)
 
+	clientMock.EXPECT().Start(gomock.Any())
 	clientMock.EXPECT().CreateSession(gomock.Any(), gomock.Any()).Return(sessionMock, nil)
 
 	sessionMock.EXPECT().On(gomock.Any()).Return(func() {}).AnyTimes()

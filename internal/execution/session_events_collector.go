@@ -10,14 +10,6 @@ import (
 
 const sessionFailedUnknown = "session failed with unknown error"
 
-// NewSessionEventsCollector creates a new SessionEvents.
-func NewSessionEventsCollector() *SessionEventsCollector {
-	return &SessionEventsCollector{
-		done:          make(chan struct{}),
-		intentToolIDs: map[string]bool{},
-	}
-}
-
 type SessionEventsCollector struct {
 	// SkillInvocations is a chronological list of skills invoked during the session
 	SkillInvocations []SkillInvocation
@@ -27,6 +19,14 @@ type SessionEventsCollector struct {
 	errorMsg      string
 	done          chan struct{}
 	intentToolIDs map[string]bool
+}
+
+// NewSessionEventsCollector creates a new SessionEvents.
+func NewSessionEventsCollector() *SessionEventsCollector {
+	return &SessionEventsCollector{
+		done:          make(chan struct{}),
+		intentToolIDs: map[string]bool{},
+	}
 }
 
 // SessionEvents returns the collected session events.
