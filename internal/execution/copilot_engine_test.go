@@ -20,7 +20,7 @@ func TestCopilotEngine_Initialize(t *testing.T) {
 	cancel()
 
 	err := engine.Initialize(ctx)
-	require.NoError(t, err)
+	require.Error(t, err) // looks like copilot not forwarding the context.Canceled error back to us but it does cancel
 }
 
 func TestCopilotEngine_SetupResources(t *testing.T) {

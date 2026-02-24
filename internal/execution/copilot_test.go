@@ -33,6 +33,7 @@ func TestCopilotNoSessionID(t *testing.T) {
 		},
 	}
 
+	clientMock.EXPECT().Start(gomock.Any())
 	clientMock.EXPECT().CreateSession(gomock.Any(), expectedConfig).Return(sessionMock, nil)
 	clientMock.EXPECT().Stop()
 
@@ -88,6 +89,7 @@ func TestCopilotResumeSessionID(t *testing.T) {
 		},
 	}
 
+	clientMock.EXPECT().Start(gomock.Any())
 	clientMock.EXPECT().ResumeSessionWithOptions(gomock.Any(), "session-1", expectedConfig).Return(sessionMock, nil)
 	clientMock.EXPECT().Stop()
 
@@ -139,6 +141,7 @@ func TestCopilotSendAndWaitReturnsErrorInResult(t *testing.T) {
 		},
 	}
 
+	clientMock.EXPECT().Start(gomock.Any())
 	clientMock.EXPECT().CreateSession(gomock.Any(), expectedConfig).Return(sessionMock, nil)
 	clientMock.EXPECT().Stop()
 
