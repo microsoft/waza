@@ -60,7 +60,6 @@ func TestCopilotNoSessionID(t *testing.T) {
 	require.NoError(t, err)
 
 	resp, err := engine.Execute(ctx, &ExecutionRequest{
-		TestID:    "test-id-1",
 		Message:   "hello?",
 		ModelID:   "this-model-wins",
 		SessionID: "", // ie, create a new session each time
@@ -116,7 +115,6 @@ func TestCopilotResumeSessionID(t *testing.T) {
 	require.NoError(t, err)
 
 	resp, err := engine.Execute(ctx, &ExecutionRequest{
-		TestID:    "test-id-1",
 		Message:   "hello?",
 		SessionID: "session-1",
 		Timeout:   time.Minute,

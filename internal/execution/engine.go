@@ -23,7 +23,6 @@ type AgentEngine interface {
 
 // ExecutionRequest represents a test execution request
 type ExecutionRequest struct {
-	TestID    string
 	ModelID   string
 	Message   string
 	Context   map[string]any

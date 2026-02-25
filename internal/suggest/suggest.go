@@ -71,7 +71,6 @@ func Generate(ctx context.Context, engine execution.AgentEngine, opts Options) (
 		selectionPrompt := renderSelectionPrompt(data)
 		resp, err := engine.Execute(ctx, &execution.ExecutionRequest{
 			Message: selectionPrompt,
-			TestID:  "waza-suggest-select",
 			Timeout: time.Duration(timeoutSec) * time.Second,
 		})
 		if err != nil {
@@ -91,7 +90,6 @@ func Generate(ctx context.Context, engine execution.AgentEngine, opts Options) (
 	implPrompt := renderImplementationPrompt(data, graderDocs)
 	resp, err := engine.Execute(ctx, &execution.ExecutionRequest{
 		Message: implPrompt,
-		TestID:  "waza-suggest",
 		Timeout: time.Duration(timeoutSec) * time.Second,
 	})
 	if err != nil {

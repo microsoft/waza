@@ -70,7 +70,6 @@ func TestMockEngine_Shutdown_AfterExecute(t *testing.T) {
 	ctx := context.Background()
 
 	_, err := engine.Execute(ctx, &ExecutionRequest{
-		TestID:  "t1",
 		Message: "hello",
 	})
 	require.NoError(t, err)
@@ -134,7 +133,6 @@ func TestSpyEngine_DelegatesExecute(t *testing.T) {
 	spy := NewSpyEngine(inner)
 
 	resp, err := spy.Execute(context.Background(), &ExecutionRequest{
-		TestID:  "t1",
 		Message: "hello",
 	})
 	require.NoError(t, err)

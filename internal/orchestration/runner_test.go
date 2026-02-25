@@ -140,7 +140,6 @@ func TestBuildExecutionRequest_BasicFields(t *testing.T) {
 	req := runner.buildExecutionRequest(tc)
 
 	// Verify basic fields
-	assert.Equal(t, "test-001", req.TestID)
 	assert.Equal(t, "Hello world", req.Message)
 	assert.Equal(t, "my-skill", req.SkillName)
 	assert.Equal(t, float64(120), req.Timeout.Seconds())

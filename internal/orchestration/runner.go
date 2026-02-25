@@ -1069,7 +1069,6 @@ func (r *TestRunner) buildExecutionRequest(tc *models.TestCase) *execution.Execu
 	resolvedSkillPaths := utils.ResolvePaths(spec.Config.SkillPaths, r.cfg.SpecDir())
 
 	return &execution.ExecutionRequest{
-		TestID:     tc.TestID,
 		Message:    tc.Stimulus.Message,
 		Context:    tc.Stimulus.Metadata,
 		Resources:  resources,
