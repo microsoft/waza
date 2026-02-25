@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/spboyer/waza/internal/models"
+	"github.com/spboyer/waza/internal/projectconfig"
 )
 
 // defaultProgramTimeoutSeconds is the default timeout for program graders when none is specified.
@@ -45,7 +46,13 @@ func NewProgramGrader(args ProgramGraderArgs) (*programGrader, error) {
 
 	timeout := args.Timeout
 	if timeout <= 0 {
-		timeout = defaultProgramTimeoutSeconds
+		// Per-grader timeout not specified; use project config default
+		cfg, err := projectconfig.Load(".")
+		if err == nil && cfg != nil && cfg.Graders.ProgramTimeout > 0 {
+			timeout = cfg.Graders.ProgramTimeout
+		} else {
+			timeout = defaultProgramTimeoutSeconds
+		}
 	}
 
 	return &programGrader{
