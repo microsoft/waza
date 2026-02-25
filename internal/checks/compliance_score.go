@@ -9,8 +9,9 @@ import (
 
 // ComplianceScoreChecker validates skill frontmatter quality using heuristic scoring.
 type ComplianceScoreChecker struct {
-	Scorer     scoring.Scorer
-	TokenLimit int // overrides the default token soft limit when > 0
+	Scorer           scoring.Scorer
+	TokenLimit       int // overrides the default token hard limit when > 0
+	WarningThreshold int // overrides the default token warning threshold when > 0
 }
 
 // ComplianceScoreData holds the structured output of a compliance score check.
@@ -26,7 +27,7 @@ func (c *ComplianceScoreChecker) Name() string { return "compliance-score" }
 func (c *ComplianceScoreChecker) Check(sk skill.Skill) (*CheckResult, error) {
 	scorer := c.Scorer
 	if scorer == nil {
-		scorer = &scoring.HeuristicScorer{TokenSoftLimit: c.TokenLimit}
+		scorer = &scoring.HeuristicScorer{TokenSoftLimit: c.WarningThreshold, TokenLimit: c.TokenLimit}
 	}
 
 	score := scorer.Score(&sk)

@@ -454,3 +454,272 @@ func TestGenerateWazaConfig(t *testing.T) {
 	assert.Contains(t, content, "# graders:")
 	assert.Contains(t, content, "$schema")
 }
+
+// --- Path Detection Tests ---
+
+func TestDetectPaths_SkillsAtNonStandardPath(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create skills at a non-standard path: plugin/skills/my-skill/SKILL.md
+	skillDir := filepath.Join(dir, "plugin", "skills", "my-skill")
+	require.NoError(t, os.MkdirAll(skillDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("# Skill\n"), 0o644))
+
+	dp := detectPaths(dir)
+	assert.Equal(t, "plugin/skills/", dp.SkillsDir)
+}
+
+func TestDetectPaths_EvalsAtNonStandardPath(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create evals at a non-standard path: tests/evals/my-skill/eval.yaml
+	evalDir := filepath.Join(dir, "tests", "evals", "my-skill")
+	require.NoError(t, os.MkdirAll(evalDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(evalDir, "eval.yaml"), []byte("name: test\n"), 0o644))
+
+	dp := detectPaths(dir)
+	assert.Equal(t, "tests/evals/", dp.EvalsDir)
+}
+
+func TestDetectPaths_ResultsDetected(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create results at output/results.json
+	outputDir := filepath.Join(dir, "output")
+	require.NoError(t, os.MkdirAll(outputDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(outputDir, "results.json"), []byte("{}"), 0o644))
+
+	dp := detectPaths(dir)
+	assert.Equal(t, "output/", dp.ResultsDir)
+}
+
+func TestDetectPaths_ResultsWithPrefix(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create results with a prefixed name: data/eval-results.json
+	dataDir := filepath.Join(dir, "data")
+	require.NoError(t, os.MkdirAll(dataDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(dataDir, "eval-results.json"), []byte("{}"), 0o644))
+
+	dp := detectPaths(dir)
+	assert.Equal(t, "data/", dp.ResultsDir)
+}
+
+func TestDetectPaths_NothingFound(t *testing.T) {
+	dir := t.TempDir()
+
+	dp := detectPaths(dir)
+	assert.Empty(t, dp.SkillsDir)
+	assert.Empty(t, dp.EvalsDir)
+	assert.Empty(t, dp.ResultsDir)
+}
+
+func TestDetectPaths_RejectsPathTraversal(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create a SKILL.md directly in a subdirectory (no grandchild)
+	// This means grandparent would be the parent of dir itself → ".."
+	skillDir := filepath.Join(dir, "my-skill")
+	require.NoError(t, os.MkdirAll(skillDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("# Skill\n"), 0o644))
+
+	dp := detectPaths(dir)
+	// Should NOT detect — the grandparent would be outside the project root
+	assert.Empty(t, dp.SkillsDir)
+}
+
+func TestDetectPaths_RejectsNonEvalDirectory(t *testing.T) {
+	dir := t.TempDir()
+
+	// eval.yaml inside tests/azure-prepare/ should NOT be detected as evals root
+	// because "tests" does not contain "eval" in its name
+	testDir := filepath.Join(dir, "tests", "azure-prepare")
+	require.NoError(t, os.MkdirAll(testDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(testDir, "eval.yaml"), []byte("name: test\n"), 0o644))
+
+	dp := detectPaths(dir)
+	assert.Empty(t, dp.EvalsDir, "tests/ should not be detected as evals root")
+}
+
+func TestDetectPaths_RejectsNonSkillDirectory(t *testing.T) {
+	dir := t.TempDir()
+
+	// SKILL.md inside docs/my-guide/ should NOT be detected as skills root
+	// because "docs" does not contain "skill" in its name
+	docsDir := filepath.Join(dir, "docs", "my-guide")
+	require.NoError(t, os.MkdirAll(docsDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(docsDir, "SKILL.md"), []byte("# Guide\n"), 0o644))
+
+	dp := detectPaths(dir)
+	assert.Empty(t, dp.SkillsDir, "docs/ should not be detected as skills root")
+}
+
+func TestDetectPaths_SkipsHiddenDirs(t *testing.T) {
+	dir := t.TempDir()
+
+	// Put skills inside a hidden directory — should be skipped
+	hiddenDir := filepath.Join(dir, ".hidden", "skills", "my-skill")
+	require.NoError(t, os.MkdirAll(hiddenDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(hiddenDir, "SKILL.md"), []byte("# Skill\n"), 0o644))
+
+	dp := detectPaths(dir)
+	assert.Empty(t, dp.SkillsDir)
+}
+
+func TestDetectPaths_SkipsNodeModules(t *testing.T) {
+	dir := t.TempDir()
+
+	// Put skills inside node_modules — should be skipped
+	nmDir := filepath.Join(dir, "node_modules", "some-pkg", "skills", "my-skill")
+	require.NoError(t, os.MkdirAll(nmDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(nmDir, "SKILL.md"), []byte("# Skill\n"), 0o644))
+
+	dp := detectPaths(dir)
+	assert.Empty(t, dp.SkillsDir)
+}
+
+func TestDetectPaths_FirstMatchWins(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create two skills directories — first found should win
+	// "aaa" sorts before "zzz" so aaa/skills should be found first
+	skill1 := filepath.Join(dir, "aaa", "skills", "s1")
+	skill2 := filepath.Join(dir, "zzz", "skills", "s2")
+	require.NoError(t, os.MkdirAll(skill1, 0o755))
+	require.NoError(t, os.MkdirAll(skill2, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(skill1, "SKILL.md"), []byte("# S1\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(skill2, "SKILL.md"), []byte("# S2\n"), 0o644))
+
+	dp := detectPaths(dir)
+	assert.Equal(t, "aaa/skills/", dp.SkillsDir)
+}
+
+func TestDetectPaths_AllThreeDetected(t *testing.T) {
+	dir := t.TempDir()
+
+	// Skills
+	skillDir := filepath.Join(dir, "src", "skills", "analyzer")
+	require.NoError(t, os.MkdirAll(skillDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("# Analyzer\n"), 0o644))
+
+	// Evals
+	evalDir := filepath.Join(dir, "test", "evals", "analyzer")
+	require.NoError(t, os.MkdirAll(evalDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(evalDir, "eval.yaml"), []byte("name: test\n"), 0o644))
+
+	// Results
+	resultsDir := filepath.Join(dir, "output")
+	require.NoError(t, os.MkdirAll(resultsDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(resultsDir, "results.json"), []byte("{}"), 0o644))
+
+	dp := detectPaths(dir)
+	assert.Equal(t, "src/skills/", dp.SkillsDir)
+	assert.Equal(t, "test/evals/", dp.EvalsDir)
+	assert.Equal(t, "output/", dp.ResultsDir)
+}
+
+// --- CLI Flag Tests ---
+
+func TestInitCommand_SkillsDirFlag(t *testing.T) {
+	dir := t.TempDir()
+
+	var buf bytes.Buffer
+	cmd := newInitCommand()
+	cmd.SetOut(&buf)
+	cmd.SetArgs([]string{dir, "--no-skill", "--skills-dir", "my-skills/"})
+	require.NoError(t, cmd.Execute())
+
+	// Verify custom skills directory was created
+	assert.DirExists(t, filepath.Join(dir, "my-skills"))
+
+	// Verify .waza.yaml uses the custom path
+	data, err := os.ReadFile(filepath.Join(dir, ".waza.yaml"))
+	require.NoError(t, err)
+	assert.Contains(t, string(data), "skills: my-skills/")
+}
+
+func TestInitCommand_AllDirFlags(t *testing.T) {
+	dir := t.TempDir()
+
+	var buf bytes.Buffer
+	cmd := newInitCommand()
+	cmd.SetOut(&buf)
+	cmd.SetArgs([]string{dir, "--no-skill", "--skills-dir", "custom-skills/", "--evals-dir", "custom-evals/", "--results-dir", "custom-results/"})
+	require.NoError(t, cmd.Execute())
+
+	// Verify custom directories were created
+	assert.DirExists(t, filepath.Join(dir, "custom-skills"))
+	assert.DirExists(t, filepath.Join(dir, "custom-evals"))
+
+	// Verify .waza.yaml uses custom paths
+	data, err := os.ReadFile(filepath.Join(dir, ".waza.yaml"))
+	require.NoError(t, err)
+	content := string(data)
+	assert.Contains(t, content, "skills: custom-skills/")
+	assert.Contains(t, content, "evals: custom-evals/")
+	assert.Contains(t, content, "results: custom-results/")
+}
+
+func TestInitCommand_FlagOverridesDetection(t *testing.T) {
+	dir := t.TempDir()
+
+	// Set up skills at a detectable path
+	skillDir := filepath.Join(dir, "plugin", "skills", "my-skill")
+	require.NoError(t, os.MkdirAll(skillDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("# Skill\n"), 0o644))
+
+	var buf bytes.Buffer
+	cmd := newInitCommand()
+	cmd.SetOut(&buf)
+	// Flag should override the detected path
+	cmd.SetArgs([]string{dir, "--no-skill", "--skills-dir", "override-skills/"})
+	require.NoError(t, cmd.Execute())
+
+	// Verify the flag value was used, not the detected one
+	data, err := os.ReadFile(filepath.Join(dir, ".waza.yaml"))
+	require.NoError(t, err)
+	assert.Contains(t, string(data), "skills: override-skills/")
+}
+
+func TestInitCommand_DetectionPrePopulatesConfig(t *testing.T) {
+	dir := t.TempDir()
+
+	// Set up skills at a non-standard path
+	skillDir := filepath.Join(dir, "src", "skills", "my-skill")
+	require.NoError(t, os.MkdirAll(skillDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("---\nname: my-skill\ntype: utility\ndescription: |\n  USE FOR: testing\n---\n# Skill\n"), 0o644))
+
+	var buf bytes.Buffer
+	cmd := newInitCommand()
+	cmd.SetOut(&buf)
+	cmd.SetArgs([]string{dir, "--no-skill"})
+	require.NoError(t, cmd.Execute())
+
+	// Verify .waza.yaml uses the detected path (forward-slash normalized)
+	data, err := os.ReadFile(filepath.Join(dir, ".waza.yaml"))
+	require.NoError(t, err)
+	assert.Contains(t, string(data), "skills: src/skills/")
+
+	// Verify detection message was shown
+	output := buf.String()
+	assert.Contains(t, output, "Detected existing paths")
+}
+
+func TestInitCommand_DetectionShowsMessage(t *testing.T) {
+	dir := t.TempDir()
+
+	// Set up evals at non-standard path
+	evalDir := filepath.Join(dir, "test", "evals", "my-eval")
+	require.NoError(t, os.MkdirAll(evalDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(evalDir, "eval.yaml"), []byte("name: test\n"), 0o644))
+
+	var buf bytes.Buffer
+	cmd := newInitCommand()
+	cmd.SetOut(&buf)
+	cmd.SetArgs([]string{dir, "--no-skill"})
+	require.NoError(t, cmd.Execute())
+
+	output := buf.String()
+	assert.Contains(t, output, "Detected existing paths")
+	assert.Contains(t, output, "Evals:")
+}

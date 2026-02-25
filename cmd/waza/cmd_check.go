@@ -58,6 +58,7 @@ type readinessReport struct {
 	tokenCount      int
 	tokenLimit      int
 	tokenExceeded   bool
+	tokenWarning    bool
 	hasEval         bool
 	skillName       string
 	skillPath       string
@@ -192,6 +193,8 @@ func printCheckSummaryTable(w interface{ Write([]byte) (int, error) }, reports [
 		tokenStatus := "✅"
 		if r.tokenExceeded {
 			tokenStatus = "❌"
+		} else if r.tokenWarning {
+			tokenStatus = "⚠️ "
 		}
 		specStatus := "✅"
 		if r.specResult != nil && !r.specResult.Passed() {
@@ -270,7 +273,8 @@ func checkReadiness(skillDir string, wsCtx *workspace.WorkspaceContext) (*readin
 
 	// 3. Run compliance scoring
 	tokenLimit := resolveSkillTokenLimit(filepath.Dir(skillDir))
-	complianceData, err := (&checks.ComplianceScoreChecker{TokenLimit: tokenLimit}).Score(sk)
+	warnThreshold := resolveWarningThreshold(filepath.Dir(skillDir))
+	complianceData, err := (&checks.ComplianceScoreChecker{TokenLimit: tokenLimit, WarningThreshold: warnThreshold}).Score(sk)
 	if err != nil {
 		return nil, err
 	}
@@ -297,6 +301,14 @@ func checkReadiness(skillDir string, wsCtx *workspace.WorkspaceContext) (*readin
 	report.tokenCount = tokenData.TokenCount
 	report.tokenLimit = tokenData.TokenLimit
 	report.tokenExceeded = tokenData.Exceeded
+
+	// 4b. Check token warning threshold
+	if !report.tokenExceeded {
+		warnThreshold := resolveWarningThreshold(filepath.Dir(skillDir))
+		if warnThreshold > 0 && report.tokenCount >= warnThreshold {
+			report.tokenWarning = true
+		}
+	}
 
 	// 5. Check for eval.yaml (try workspace-aware detection first, then co-located)
 	if wsCtx != nil {
@@ -363,6 +375,16 @@ func resolveSkillTokenLimit(startDir string) int {
 	}
 
 	return 0 // fall back to TokenBudgetChecker default (scoring.TokenSoftLimit)
+}
+
+// resolveWarningThreshold returns the configured token warning threshold
+// from .waza.yaml. Returns 0 if not configured.
+func resolveWarningThreshold(startDir string) int {
+	cfg, err := projectconfig.Load(startDir)
+	if err != nil {
+		return 0
+	}
+	return cfg.Tokens.WarningThreshold
 }
 
 //nolint:errcheck // display function — fmt.Fprintf errors to stdout are not actionable
@@ -483,6 +505,9 @@ func displayReadinessReport(out interface{ Write([]byte) (int, error) }, report 
 	if report.tokenExceeded {
 		over := report.tokenCount - report.tokenLimit
 		fmt.Fprintf(w, "   ❌  Exceeds limit by %d tokens. Consider reducing content.\n", over)
+	} else if report.tokenWarning {
+		remaining := report.tokenLimit - report.tokenCount
+		fmt.Fprintf(w, "   ⚠️  Approaching limit (%d tokens remaining). Consider optimizing.\n", remaining)
 	} else {
 		remaining := report.tokenLimit - report.tokenCount
 		fmt.Fprintf(w, "   ✅  Within budget (%d tokens remaining).\n", remaining)
@@ -626,6 +651,9 @@ func generateNextSteps(report *readinessReport) []string {
 	if report.tokenExceeded {
 		over := report.tokenCount - report.tokenLimit
 		steps = append(steps, fmt.Sprintf("Reduce SKILL.md by %d tokens. Run 'waza tokens suggest' for optimization tips", over))
+	} else if report.tokenWarning {
+		remaining := report.tokenLimit - report.tokenCount
+		steps = append(steps, fmt.Sprintf("SKILL.md is approaching the token limit (%d remaining). Run 'waza tokens suggest' for optimization tips", remaining))
 	}
 
 	// Evaluation suite (third priority)
