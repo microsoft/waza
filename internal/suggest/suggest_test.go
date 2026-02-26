@@ -35,6 +35,7 @@ This skill summarizes docs.
 	require.Contains(t, prompt, "Skill content (SKILL.md)")
 	require.Contains(t, prompt, "NEVER use bare strings")
 	require.Contains(t, prompt, "required_skills")
+	require.Contains(t, prompt, "Task YAML must use inputs")
 }
 
 func TestSelectionPromptIncludesGraderSummaries(t *testing.T) {

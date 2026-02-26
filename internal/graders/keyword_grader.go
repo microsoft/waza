@@ -14,6 +14,8 @@ type KeywordGraderArgs struct {
 	Name string
 	// MustContain lists keywords that must appear in the output (case-insensitive).
 	MustContain []string `mapstructure:"must_contain"`
+	// Keywords is a backward-compatible alias for MustContain.
+	Keywords []string `mapstructure:"keywords"`
 	// MustNotContain lists keywords that must NOT appear in the output (case-insensitive).
 	MustNotContain []string `mapstructure:"must_not_contain"`
 }
@@ -30,7 +32,7 @@ type keywordGrader struct {
 func NewKeywordGrader(args KeywordGraderArgs) (*keywordGrader, error) {
 	return &keywordGrader{
 		name:           args.Name,
-		mustContain:    args.MustContain,
+		mustContain:    append(append([]string{}, args.MustContain...), args.Keywords...),
 		mustNotContain: args.MustNotContain,
 	}, nil
 }

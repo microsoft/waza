@@ -210,6 +210,21 @@ func TestKeywordGrader_ViaCreate(t *testing.T) {
 		require.True(t, results.Passed)
 		require.Equal(t, 1.0, results.Score)
 	})
+
+	t.Run("Create with keywords alias works", func(t *testing.T) {
+		g, err := Create(models.GraderKindKeyword, "from-alias", map[string]any{
+			"keywords": []string{"hello"},
+		})
+		require.NoError(t, err)
+		require.Equal(t, "from-alias", g.Name())
+
+		results, err := g.Grade(context.Background(), &Context{
+			Output: "hello world",
+		})
+		require.NoError(t, err)
+		require.True(t, results.Passed)
+		require.Equal(t, 1.0, results.Score)
+	})
 }
 
 // Ensure keywordGrader satisfies the Grader interface at compile time.
