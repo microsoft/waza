@@ -4,7 +4,11 @@
   "title": "Waza Task Definition",
   "description": "Schema for waza task YAML files that define individual evaluation test cases.",
   "type": "object",
-  "required": ["id", "name", "inputs"],
+  "required": [
+    "id",
+    "name",
+    "inputs"
+  ],
   "properties": {
     "id": {
       "type": "string",
@@ -57,7 +61,9 @@
   "$defs": {
     "inputs": {
       "type": "object",
-      "required": ["prompt"],
+      "required": [
+        "prompt"
+      ],
       "description": "Input stimulus for the task.",
       "properties": {
         "prompt": {
@@ -189,7 +195,9 @@
     },
     "validatorInline": {
       "type": "object",
-      "required": ["name"],
+      "required": [
+        "name"
+      ],
       "description": "A grader/validator embedded in a task.",
       "properties": {
         "name": {
@@ -238,157 +246,272 @@
       "allOf": [
         {
           "if": {
-            "properties": { "type": { "const": "code" } },
-            "required": ["type"]
+            "properties": {
+              "type": {
+                "const": "code"
+              }
+            },
+            "required": [
+              "type"
+            ]
           },
           "then": {
             "properties": {
-              "config": { "$ref": "#/$defs/codeGraderConfig" }
+              "config": {
+                "$ref": "#/$defs/codeGraderConfig"
+              }
             }
           }
         },
         {
           "if": {
-            "properties": { "type": { "const": "regex" } },
-            "required": ["type"]
+            "properties": {
+              "type": {
+                "const": "regex"
+              }
+            },
+            "required": [
+              "type"
+            ]
           },
           "then": {
             "properties": {
-              "config": { "$ref": "#/$defs/regexGraderConfig" }
+              "config": {
+                "$ref": "#/$defs/regexGraderConfig"
+              }
             }
           }
         },
         {
           "if": {
-            "properties": { "type": { "const": "file" } },
-            "required": ["type"]
+            "properties": {
+              "type": {
+                "const": "file"
+              }
+            },
+            "required": [
+              "type"
+            ]
           },
           "then": {
             "properties": {
-              "config": { "$ref": "#/$defs/fileGraderConfig" }
+              "config": {
+                "$ref": "#/$defs/fileGraderConfig"
+              }
             }
           }
         },
         {
           "if": {
-            "properties": { "type": { "const": "keyword" } },
-            "required": ["type"]
+            "properties": {
+              "type": {
+                "const": "keyword"
+              }
+            },
+            "required": [
+              "type"
+            ]
           },
           "then": {
             "properties": {
-              "config": { "$ref": "#/$defs/keywordGraderConfig" }
+              "config": {
+                "$ref": "#/$defs/keywordGraderConfig"
+              }
             }
           }
         },
         {
           "if": {
-            "properties": { "type": { "const": "behavior" } },
-            "required": ["type"]
+            "properties": {
+              "type": {
+                "const": "behavior"
+              }
+            },
+            "required": [
+              "type"
+            ]
           },
           "then": {
             "properties": {
-              "config": { "$ref": "#/$defs/behaviorGraderConfig" }
+              "config": {
+                "$ref": "#/$defs/behaviorGraderConfig"
+              }
             }
           }
         },
         {
           "if": {
-            "properties": { "type": { "const": "action_sequence" } },
-            "required": ["type"]
+            "properties": {
+              "type": {
+                "const": "action_sequence"
+              }
+            },
+            "required": [
+              "type"
+            ]
           },
           "then": {
             "properties": {
-              "config": { "$ref": "#/$defs/actionSequenceGraderConfig" }
+              "config": {
+                "$ref": "#/$defs/actionSequenceGraderConfig"
+              }
             },
-            "required": ["config"]
+            "required": [
+              "config"
+            ]
           }
         },
         {
           "if": {
-            "properties": { "type": { "const": "skill_invocation" } },
-            "required": ["type"]
+            "properties": {
+              "type": {
+                "const": "skill_invocation"
+              }
+            },
+            "required": [
+              "type"
+            ]
           },
           "then": {
             "properties": {
-              "config": { "$ref": "#/$defs/skillInvocationGraderConfig" }
+              "config": {
+                "$ref": "#/$defs/skillInvocationGraderConfig"
+              }
             },
-            "required": ["config"]
+            "required": [
+              "config"
+            ]
           }
         },
         {
           "if": {
-            "properties": { "type": { "const": "tool_constraint" } },
-            "required": ["type"]
+            "properties": {
+              "type": {
+                "const": "tool_constraint"
+              }
+            },
+            "required": [
+              "type"
+            ]
           },
           "then": {
             "properties": {
-              "config": { "$ref": "#/$defs/toolConstraintGraderConfig" }
+              "config": {
+                "$ref": "#/$defs/toolConstraintGraderConfig"
+              }
             }
           }
         },
         {
           "if": {
-            "properties": { "type": { "const": "prompt" } },
-            "required": ["type"]
+            "properties": {
+              "type": {
+                "const": "prompt"
+              }
+            },
+            "required": [
+              "type"
+            ]
           },
           "then": {
             "properties": {
-              "config": { "$ref": "#/$defs/promptGraderConfig" }
+              "config": {
+                "$ref": "#/$defs/promptGraderConfig"
+              }
             },
-            "required": ["config"]
+            "required": [
+              "config"
+            ]
           }
         },
         {
           "if": {
-            "properties": { "type": { "const": "json_schema" } },
-            "required": ["type"]
+            "properties": {
+              "type": {
+                "const": "json_schema"
+              }
+            },
+            "required": [
+              "type"
+            ]
           },
           "then": {
             "properties": {
-              "config": { "$ref": "#/$defs/jsonSchemaGraderConfig" }
+              "config": {
+                "$ref": "#/$defs/jsonSchemaGraderConfig"
+              }
             },
-            "required": ["config"]
+            "required": [
+              "config"
+            ]
           }
         },
         {
           "if": {
-            "properties": { "type": { "const": "program" } },
-            "required": ["type"]
+            "properties": {
+              "type": {
+                "const": "program"
+              }
+            },
+            "required": [
+              "type"
+            ]
           },
           "then": {
             "properties": {
-              "config": { "$ref": "#/$defs/programGraderConfig" }
+              "config": {
+                "$ref": "#/$defs/programGraderConfig"
+              }
             },
-            "required": ["config"]
+            "required": [
+              "config"
+            ]
           }
         },
         {
           "if": {
-            "properties": { "type": { "const": "diff" } },
-            "required": ["type"]
+            "properties": {
+              "type": {
+                "const": "diff"
+              }
+            },
+            "required": [
+              "type"
+            ]
           },
           "then": {
             "properties": {
-              "config": { "$ref": "#/$defs/diffGraderConfig" }
+              "config": {
+                "$ref": "#/$defs/diffGraderConfig"
+              }
             },
-            "required": ["config"]
+            "required": [
+              "config"
+            ]
           }
         }
       ]
     },
     "codeGraderConfig": {
       "type": "object",
-      "required": ["assertions"],
+      "required": [
+        "assertions"
+      ],
       "additionalProperties": false,
       "properties": {
         "assertions": {
           "type": "array",
           "minItems": 1,
-          "items": { "type": "string" }
+          "items": {
+            "type": "string"
+          }
         },
         "language": {
           "type": "string",
-          "enum": ["python", "javascript"],
+          "enum": [
+            "python",
+            "javascript"
+          ],
           "default": "python"
         }
       }
@@ -397,17 +520,29 @@
       "type": "object",
       "additionalProperties": false,
       "anyOf": [
-        { "required": ["must_match"] },
-        { "required": ["must_not_match"] }
+        {
+          "required": [
+            "must_match"
+          ]
+        },
+        {
+          "required": [
+            "must_not_match"
+          ]
+        }
       ],
       "properties": {
         "must_match": {
           "type": "array",
-          "items": { "type": "string" }
+          "items": {
+            "type": "string"
+          }
         },
         "must_not_match": {
           "type": "array",
-          "items": { "type": "string" }
+          "items": {
+            "type": "string"
+          }
         }
       }
     },
@@ -415,32 +550,62 @@
       "type": "object",
       "additionalProperties": false,
       "anyOf": [
-        { "required": ["must_exist"] },
-        { "required": ["must_not_exist"] },
-        { "required": ["content_patterns"] }
+        {
+          "required": [
+            "must_exist"
+          ]
+        },
+        {
+          "required": [
+            "must_not_exist"
+          ]
+        },
+        {
+          "required": [
+            "content_patterns"
+          ]
+        }
       ],
       "properties": {
         "must_exist": {
           "type": "array",
-          "items": { "type": "string" }
+          "items": {
+            "type": "string"
+          }
         },
         "must_not_exist": {
           "type": "array",
-          "items": { "type": "string" }
+          "items": {
+            "type": "string"
+          }
         },
         "content_patterns": {
           "type": "array",
-          "items": { "$ref": "#/$defs/fileContentPattern" }
+          "items": {
+            "$ref": "#/$defs/fileContentPattern"
+          }
         }
       }
     },
     "fileContentPattern": {
       "type": "object",
-      "required": ["path"],
+      "required": [
+        "path"
+      ],
       "additionalProperties": false,
       "anyOf": [
-        { "required": ["path", "must_match"] },
-        { "required": ["path", "must_not_match"] }
+        {
+          "required": [
+            "path",
+            "must_match"
+          ]
+        },
+        {
+          "required": [
+            "path",
+            "must_not_match"
+          ]
+        }
       ],
       "properties": {
         "path": {
@@ -449,11 +614,15 @@
         },
         "must_match": {
           "type": "array",
-          "items": { "type": "string" }
+          "items": {
+            "type": "string"
+          }
         },
         "must_not_match": {
           "type": "array",
-          "items": { "type": "string" }
+          "items": {
+            "type": "string"
+          }
         }
       }
     },
@@ -461,17 +630,29 @@
       "type": "object",
       "additionalProperties": false,
       "anyOf": [
-        { "required": ["must_contain"] },
-        { "required": ["must_not_contain"] }
+        {
+          "required": [
+            "must_contain"
+          ]
+        },
+        {
+          "required": [
+            "must_not_contain"
+          ]
+        }
       ],
       "properties": {
         "must_contain": {
           "type": "array",
-          "items": { "type": "string" }
+          "items": {
+            "type": "string"
+          }
         },
         "must_not_contain": {
           "type": "array",
-          "items": { "type": "string" }
+          "items": {
+            "type": "string"
+          }
         }
       }
     },
@@ -479,11 +660,31 @@
       "type": "object",
       "additionalProperties": false,
       "anyOf": [
-        { "required": ["max_tool_calls"] },
-        { "required": ["max_tokens"] },
-        { "required": ["required_tools"] },
-        { "required": ["forbidden_tools"] },
-        { "required": ["max_duration_ms"] }
+        {
+          "required": [
+            "max_tool_calls"
+          ]
+        },
+        {
+          "required": [
+            "max_tokens"
+          ]
+        },
+        {
+          "required": [
+            "required_tools"
+          ]
+        },
+        {
+          "required": [
+            "forbidden_tools"
+          ]
+        },
+        {
+          "required": [
+            "max_duration_ms"
+          ]
+        }
       ],
       "properties": {
         "max_tool_calls": {
@@ -496,11 +697,15 @@
         },
         "required_tools": {
           "type": "array",
-          "items": { "type": "string" }
+          "items": {
+            "type": "string"
+          }
         },
         "forbidden_tools": {
           "type": "array",
-          "items": { "type": "string" }
+          "items": {
+            "type": "string"
+          }
         },
         "max_duration_ms": {
           "type": "integer",
@@ -510,33 +715,51 @@
     },
     "actionSequenceGraderConfig": {
       "type": "object",
-      "required": ["matching_mode", "expected_actions"],
+      "required": [
+        "matching_mode",
+        "expected_actions"
+      ],
       "additionalProperties": false,
       "properties": {
         "matching_mode": {
           "type": "string",
-          "enum": ["exact_match", "in_order_match", "any_order_match"]
+          "enum": [
+            "exact_match",
+            "in_order_match",
+            "any_order_match"
+          ]
         },
         "expected_actions": {
           "type": "array",
           "minItems": 1,
-          "items": { "type": "string" }
+          "items": {
+            "type": "string"
+          }
         }
       }
     },
     "skillInvocationGraderConfig": {
       "type": "object",
-      "required": ["mode", "required_skills"],
+      "required": [
+        "mode",
+        "required_skills"
+      ],
       "additionalProperties": false,
       "properties": {
         "mode": {
           "type": "string",
-          "enum": ["exact_match", "in_order", "any_order"]
+          "enum": [
+            "exact_match",
+            "in_order",
+            "any_order"
+          ]
         },
         "required_skills": {
           "type": "array",
           "minItems": 1,
-          "items": { "type": "string" }
+          "items": {
+            "type": "string"
+          }
         },
         "allow_extra": {
           "type": "boolean",
@@ -548,33 +771,75 @@
       "type": "object",
       "additionalProperties": false,
       "anyOf": [
-        { "required": ["expect_tools"] },
-        { "required": ["reject_tools"] },
-        { "required": ["max_turns"] },
-        { "required": ["max_tokens"] }
+        {
+          "required": [
+            "expect_tools"
+          ]
+        },
+        {
+          "required": [
+            "reject_tools"
+          ]
+        }
       ],
       "properties": {
         "expect_tools": {
           "type": "array",
-          "items": { "type": "string" }
+          "items": {
+            "type": "object",
+            "required": [
+              "tool"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "tool": {
+                "type": "string",
+                "minLength": 1
+              },
+              "command_pattern": {
+                "type": "string"
+              },
+              "skill_pattern": {
+                "type": "string"
+              },
+              "path_pattern": {
+                "type": "string"
+              }
+            }
+          }
         },
         "reject_tools": {
           "type": "array",
-          "items": { "type": "string" }
-        },
-        "max_turns": {
-          "type": "integer",
-          "minimum": 1
-        },
-        "max_tokens": {
-          "type": "integer",
-          "minimum": 1
+          "items": {
+            "type": "object",
+            "required": [
+              "tool"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "tool": {
+                "type": "string",
+                "minLength": 1
+              },
+              "command_pattern": {
+                "type": "string"
+              },
+              "skill_pattern": {
+                "type": "string"
+              },
+              "path_pattern": {
+                "type": "string"
+              }
+            }
+          }
         }
       }
     },
     "promptGraderConfig": {
       "type": "object",
-      "required": ["prompt"],
+      "required": [
+        "prompt"
+      ],
       "additionalProperties": false,
       "properties": {
         "prompt": {
@@ -590,7 +855,10 @@
         },
         "mode": {
           "type": "string",
-          "enum": ["independent", "pairwise"],
+          "enum": [
+            "independent",
+            "pairwise"
+          ],
           "default": "independent"
         }
       }
@@ -599,8 +867,16 @@
       "type": "object",
       "additionalProperties": false,
       "anyOf": [
-        { "required": ["schema"] },
-        { "required": ["schema_file"] }
+        {
+          "required": [
+            "schema"
+          ]
+        },
+        {
+          "required": [
+            "schema_file"
+          ]
+        }
       ],
       "properties": {
         "schema": {
@@ -613,7 +889,9 @@
     },
     "programGraderConfig": {
       "type": "object",
-      "required": ["command"],
+      "required": [
+        "command"
+      ],
       "additionalProperties": false,
       "properties": {
         "command": {
@@ -622,7 +900,9 @@
         },
         "args": {
           "type": "array",
-          "items": { "type": "string" }
+          "items": {
+            "type": "string"
+          }
         },
         "timeout": {
           "type": "integer",
@@ -633,13 +913,17 @@
     },
     "diffGraderConfig": {
       "type": "object",
-      "required": ["expected_files"],
+      "required": [
+        "expected_files"
+      ],
       "additionalProperties": false,
       "properties": {
         "expected_files": {
           "type": "array",
           "minItems": 1,
-          "items": { "$ref": "#/$defs/expectedFile" }
+          "items": {
+            "$ref": "#/$defs/expectedFile"
+          }
         },
         "context_dir": {
           "type": "string"
@@ -648,11 +932,23 @@
     },
     "expectedFile": {
       "type": "object",
-      "required": ["path"],
+      "required": [
+        "path"
+      ],
       "additionalProperties": false,
       "anyOf": [
-        { "required": ["path", "snapshot"] },
-        { "required": ["path", "contains"] }
+        {
+          "required": [
+            "path",
+            "snapshot"
+          ]
+        },
+        {
+          "required": [
+            "path",
+            "contains"
+          ]
+        }
       ],
       "properties": {
         "path": {
@@ -664,7 +960,9 @@
         },
         "contains": {
           "type": "array",
-          "items": { "type": "string" }
+          "items": {
+            "type": "string"
+          }
         }
       }
     }

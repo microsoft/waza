@@ -4,7 +4,14 @@
   "title": "Waza Eval Specification",
   "description": "Schema for waza eval.yaml files that define skill evaluation suites. Validates the complete evaluation specification including config, metrics, graders, hooks, and task references.",
   "type": "object",
-  "required": ["name", "skill", "version", "config", "metrics", "tasks"],
+  "required": [
+    "name",
+    "skill",
+    "version",
+    "config",
+    "metrics",
+    "tasks"
+  ],
   "additionalProperties": false,
   "properties": {
     "name": {
@@ -86,7 +93,12 @@
   "$defs": {
     "config": {
       "type": "object",
-      "required": ["trials_per_task", "timeout_seconds", "executor", "model"],
+      "required": [
+        "trials_per_task",
+        "timeout_seconds",
+        "executor",
+        "model"
+      ],
       "additionalProperties": false,
       "description": "Execution configuration for the evaluation.",
       "properties": {
@@ -117,14 +129,21 @@
         },
         "executor": {
           "type": "string",
-          "enum": ["copilot-sdk", "mock"],
+          "enum": [
+            "copilot-sdk",
+            "mock"
+          ],
           "description": "Execution engine to use. 'copilot-sdk' for real evaluations, 'mock' for testing."
         },
         "model": {
           "type": "string",
           "minLength": 1,
           "description": "Default model identifier for evaluations.",
-          "examples": ["gpt-4o", "claude-sonnet-4-20250514", "gpt-4o-mini"]
+          "examples": [
+            "gpt-4o",
+            "claude-sonnet-4-20250514",
+            "gpt-4o-mini"
+          ]
         },
         "max_attempts": {
           "type": "integer",
@@ -167,29 +186,39 @@
       "properties": {
         "before_run": {
           "type": "array",
-          "items": { "$ref": "#/$defs/hookConfig" },
+          "items": {
+            "$ref": "#/$defs/hookConfig"
+          },
           "description": "Commands to run before the entire evaluation starts."
         },
         "after_run": {
           "type": "array",
-          "items": { "$ref": "#/$defs/hookConfig" },
+          "items": {
+            "$ref": "#/$defs/hookConfig"
+          },
           "description": "Commands to run after the entire evaluation completes."
         },
         "before_task": {
           "type": "array",
-          "items": { "$ref": "#/$defs/hookConfig" },
+          "items": {
+            "$ref": "#/$defs/hookConfig"
+          },
           "description": "Commands to run before each task execution."
         },
         "after_task": {
           "type": "array",
-          "items": { "$ref": "#/$defs/hookConfig" },
+          "items": {
+            "$ref": "#/$defs/hookConfig"
+          },
           "description": "Commands to run after each task execution."
         }
       }
     },
     "hookConfig": {
       "type": "object",
-      "required": ["command"],
+      "required": [
+        "command"
+      ],
       "additionalProperties": false,
       "description": "A single hook command configuration.",
       "properties": {
@@ -218,7 +247,11 @@
     },
     "metric": {
       "type": "object",
-      "required": ["name", "weight", "threshold"],
+      "required": [
+        "name",
+        "weight",
+        "threshold"
+      ],
       "additionalProperties": false,
       "description": "Defines a measurement dimension for the evaluation.",
       "properties": {
@@ -251,7 +284,10 @@
     },
     "graderConfig": {
       "type": "object",
-      "required": ["type", "name"],
+      "required": [
+        "type",
+        "name"
+      ],
       "additionalProperties": false,
       "description": "Configuration for a grader that scores agent output.",
       "properties": {
@@ -304,147 +340,257 @@
       "allOf": [
         {
           "if": {
-            "properties": { "type": { "const": "code" } },
-            "required": ["type"]
+            "properties": {
+              "type": {
+                "const": "code"
+              }
+            },
+            "required": [
+              "type"
+            ]
           },
           "then": {
             "properties": {
-              "config": { "$ref": "#/$defs/codeGraderConfig" }
+              "config": {
+                "$ref": "#/$defs/codeGraderConfig"
+              }
             }
           }
         },
         {
           "if": {
-            "properties": { "type": { "const": "regex" } },
-            "required": ["type"]
+            "properties": {
+              "type": {
+                "const": "regex"
+              }
+            },
+            "required": [
+              "type"
+            ]
           },
           "then": {
             "properties": {
-              "config": { "$ref": "#/$defs/regexGraderConfig" }
+              "config": {
+                "$ref": "#/$defs/regexGraderConfig"
+              }
             }
           }
         },
         {
           "if": {
-            "properties": { "type": { "const": "file" } },
-            "required": ["type"]
+            "properties": {
+              "type": {
+                "const": "file"
+              }
+            },
+            "required": [
+              "type"
+            ]
           },
           "then": {
             "properties": {
-              "config": { "$ref": "#/$defs/fileGraderConfig" }
+              "config": {
+                "$ref": "#/$defs/fileGraderConfig"
+              }
             }
           }
         },
         {
           "if": {
-            "properties": { "type": { "const": "keyword" } },
-            "required": ["type"]
+            "properties": {
+              "type": {
+                "const": "keyword"
+              }
+            },
+            "required": [
+              "type"
+            ]
           },
           "then": {
             "properties": {
-              "config": { "$ref": "#/$defs/keywordGraderConfig" }
+              "config": {
+                "$ref": "#/$defs/keywordGraderConfig"
+              }
             }
           }
         },
         {
           "if": {
-            "properties": { "type": { "const": "behavior" } },
-            "required": ["type"]
+            "properties": {
+              "type": {
+                "const": "behavior"
+              }
+            },
+            "required": [
+              "type"
+            ]
           },
           "then": {
             "properties": {
-              "config": { "$ref": "#/$defs/behaviorGraderConfig" }
+              "config": {
+                "$ref": "#/$defs/behaviorGraderConfig"
+              }
             }
           }
         },
         {
           "if": {
-            "properties": { "type": { "const": "action_sequence" } },
-            "required": ["type"]
+            "properties": {
+              "type": {
+                "const": "action_sequence"
+              }
+            },
+            "required": [
+              "type"
+            ]
           },
           "then": {
             "properties": {
-              "config": { "$ref": "#/$defs/actionSequenceGraderConfig" }
+              "config": {
+                "$ref": "#/$defs/actionSequenceGraderConfig"
+              }
             },
-            "required": ["config"]
+            "required": [
+              "config"
+            ]
           }
         },
         {
           "if": {
-            "properties": { "type": { "const": "skill_invocation" } },
-            "required": ["type"]
+            "properties": {
+              "type": {
+                "const": "skill_invocation"
+              }
+            },
+            "required": [
+              "type"
+            ]
           },
           "then": {
             "properties": {
-              "config": { "$ref": "#/$defs/skillInvocationGraderConfig" }
+              "config": {
+                "$ref": "#/$defs/skillInvocationGraderConfig"
+              }
             },
-            "required": ["config"]
+            "required": [
+              "config"
+            ]
           }
         },
         {
           "if": {
-            "properties": { "type": { "const": "tool_constraint" } },
-            "required": ["type"]
+            "properties": {
+              "type": {
+                "const": "tool_constraint"
+              }
+            },
+            "required": [
+              "type"
+            ]
           },
           "then": {
             "properties": {
-              "config": { "$ref": "#/$defs/toolConstraintGraderConfig" }
+              "config": {
+                "$ref": "#/$defs/toolConstraintGraderConfig"
+              }
             }
           }
         },
         {
           "if": {
-            "properties": { "type": { "const": "prompt" } },
-            "required": ["type"]
+            "properties": {
+              "type": {
+                "const": "prompt"
+              }
+            },
+            "required": [
+              "type"
+            ]
           },
           "then": {
             "properties": {
-              "config": { "$ref": "#/$defs/promptGraderConfig" }
+              "config": {
+                "$ref": "#/$defs/promptGraderConfig"
+              }
             },
-            "required": ["config"]
+            "required": [
+              "config"
+            ]
           }
         },
         {
           "if": {
-            "properties": { "type": { "const": "json_schema" } },
-            "required": ["type"]
+            "properties": {
+              "type": {
+                "const": "json_schema"
+              }
+            },
+            "required": [
+              "type"
+            ]
           },
           "then": {
             "properties": {
-              "config": { "$ref": "#/$defs/jsonSchemaGraderConfig" }
+              "config": {
+                "$ref": "#/$defs/jsonSchemaGraderConfig"
+              }
             },
-            "required": ["config"]
+            "required": [
+              "config"
+            ]
           }
         },
         {
           "if": {
-            "properties": { "type": { "const": "program" } },
-            "required": ["type"]
+            "properties": {
+              "type": {
+                "const": "program"
+              }
+            },
+            "required": [
+              "type"
+            ]
           },
           "then": {
             "properties": {
-              "config": { "$ref": "#/$defs/programGraderConfig" }
+              "config": {
+                "$ref": "#/$defs/programGraderConfig"
+              }
             },
-            "required": ["config"]
+            "required": [
+              "config"
+            ]
           }
         },
         {
           "if": {
-            "properties": { "type": { "const": "diff" } },
-            "required": ["type"]
+            "properties": {
+              "type": {
+                "const": "diff"
+              }
+            },
+            "required": [
+              "type"
+            ]
           },
           "then": {
             "properties": {
-              "config": { "$ref": "#/$defs/diffGraderConfig" }
+              "config": {
+                "$ref": "#/$defs/diffGraderConfig"
+              }
             },
-            "required": ["config"]
+            "required": [
+              "config"
+            ]
           }
         }
       ]
     },
     "codeGraderConfig": {
       "type": "object",
-      "required": ["assertions"],
+      "required": [
+        "assertions"
+      ],
       "additionalProperties": false,
       "description": "Config for the code (inline script) grader. Evaluates assertions against agent output using Python or JavaScript.",
       "properties": {
@@ -458,7 +604,10 @@
         },
         "language": {
           "type": "string",
-          "enum": ["python", "javascript"],
+          "enum": [
+            "python",
+            "javascript"
+          ],
           "default": "python",
           "description": "Language for the assertion expressions. Defaults to 'python'."
         }
@@ -469,8 +618,16 @@
       "additionalProperties": false,
       "description": "Config for the regex grader. Validates agent output against regular expression patterns.",
       "anyOf": [
-        { "required": ["must_match"] },
-        { "required": ["must_not_match"] }
+        {
+          "required": [
+            "must_match"
+          ]
+        },
+        {
+          "required": [
+            "must_not_match"
+          ]
+        }
       ],
       "properties": {
         "must_match": {
@@ -494,9 +651,21 @@
       "additionalProperties": false,
       "description": "Config for the file grader. Validates file existence and content in the workspace.",
       "anyOf": [
-        { "required": ["must_exist"] },
-        { "required": ["must_not_exist"] },
-        { "required": ["content_patterns"] }
+        {
+          "required": [
+            "must_exist"
+          ]
+        },
+        {
+          "required": [
+            "must_not_exist"
+          ]
+        },
+        {
+          "required": [
+            "content_patterns"
+          ]
+        }
       ],
       "properties": {
         "must_exist": {
@@ -524,12 +693,24 @@
     },
     "fileContentPattern": {
       "type": "object",
-      "required": ["path"],
+      "required": [
+        "path"
+      ],
       "additionalProperties": false,
       "description": "Content validation rules for a specific file.",
       "anyOf": [
-        { "required": ["path", "must_match"] },
-        { "required": ["path", "must_not_match"] }
+        {
+          "required": [
+            "path",
+            "must_match"
+          ]
+        },
+        {
+          "required": [
+            "path",
+            "must_not_match"
+          ]
+        }
       ],
       "properties": {
         "path": {
@@ -558,8 +739,16 @@
       "additionalProperties": false,
       "description": "Config for the keyword grader. Case-insensitive keyword presence/absence checking.",
       "anyOf": [
-        { "required": ["must_contain"] },
-        { "required": ["must_not_contain"] }
+        {
+          "required": [
+            "must_contain"
+          ]
+        },
+        {
+          "required": [
+            "must_not_contain"
+          ]
+        }
       ],
       "properties": {
         "must_contain": {
@@ -583,11 +772,31 @@
       "additionalProperties": false,
       "description": "Config for the behavior grader. Validates agent behavior constraints like tool usage and efficiency.",
       "anyOf": [
-        { "required": ["max_tool_calls"] },
-        { "required": ["max_tokens"] },
-        { "required": ["required_tools"] },
-        { "required": ["forbidden_tools"] },
-        { "required": ["max_duration_ms"] }
+        {
+          "required": [
+            "max_tool_calls"
+          ]
+        },
+        {
+          "required": [
+            "max_tokens"
+          ]
+        },
+        {
+          "required": [
+            "required_tools"
+          ]
+        },
+        {
+          "required": [
+            "forbidden_tools"
+          ]
+        },
+        {
+          "required": [
+            "max_duration_ms"
+          ]
+        }
       ],
       "properties": {
         "max_tool_calls": {
@@ -623,13 +832,20 @@
     },
     "actionSequenceGraderConfig": {
       "type": "object",
-      "required": ["matching_mode", "expected_actions"],
+      "required": [
+        "matching_mode",
+        "expected_actions"
+      ],
       "additionalProperties": false,
       "description": "Config for the action sequence grader. Validates the sequence of tool calls made by the agent.",
       "properties": {
         "matching_mode": {
           "type": "string",
-          "enum": ["exact_match", "in_order_match", "any_order_match"],
+          "enum": [
+            "exact_match",
+            "in_order_match",
+            "any_order_match"
+          ],
           "description": "How to compare actual tool calls against expected. 'exact_match': identical sequence. 'in_order_match': all expected actions appear in order (extras allowed). 'any_order_match': all expected actions appear in any order."
         },
         "expected_actions": {
@@ -644,13 +860,20 @@
     },
     "skillInvocationGraderConfig": {
       "type": "object",
-      "required": ["mode", "required_skills"],
+      "required": [
+        "mode",
+        "required_skills"
+      ],
       "additionalProperties": false,
       "description": "Config for the skill invocation grader. Validates that specific skills were invoked during execution.",
       "properties": {
         "mode": {
           "type": "string",
-          "enum": ["exact_match", "in_order", "any_order"],
+          "enum": [
+            "exact_match",
+            "in_order",
+            "any_order"
+          ],
           "description": "How to compare actual skill invocations against expected."
         },
         "required_skills": {
@@ -673,41 +896,85 @@
       "additionalProperties": false,
       "description": "Config for the tool constraint grader. Validates tool usage constraints.",
       "anyOf": [
-        { "required": ["expect_tools"] },
-        { "required": ["reject_tools"] },
-        { "required": ["max_turns"] },
-        { "required": ["max_tokens"] }
+        {
+          "required": [
+            "expect_tools"
+          ]
+        },
+        {
+          "required": [
+            "reject_tools"
+          ]
+        }
       ],
       "properties": {
         "expect_tools": {
           "type": "array",
           "items": {
-            "type": "string"
+            "type": "object",
+            "required": [
+              "tool"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "tool": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Regex matched against tool name (case-insensitive)."
+              },
+              "command_pattern": {
+                "type": "string",
+                "description": "Optional regex matched against serialized tool arguments (case-insensitive)."
+              },
+              "skill_pattern": {
+                "type": "string",
+                "description": "Optional regex matched against the skill argument (case-insensitive)."
+              },
+              "path_pattern": {
+                "type": "string",
+                "description": "Optional regex matched against the path argument (case-insensitive)."
+              }
+            }
           },
-          "description": "Tools that MUST be used during execution."
+          "description": "Tool specs that MUST be used during execution."
         },
         "reject_tools": {
           "type": "array",
           "items": {
-            "type": "string"
+            "type": "object",
+            "required": [
+              "tool"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "tool": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Regex matched against tool name (case-insensitive)."
+              },
+              "command_pattern": {
+                "type": "string",
+                "description": "Optional regex matched against serialized tool arguments (case-insensitive)."
+              },
+              "skill_pattern": {
+                "type": "string",
+                "description": "Optional regex matched against the skill argument (case-insensitive)."
+              },
+              "path_pattern": {
+                "type": "string",
+                "description": "Optional regex matched against the path argument (case-insensitive)."
+              }
+            }
           },
-          "description": "Tools that MUST NOT be used during execution."
-        },
-        "max_turns": {
-          "type": "integer",
-          "minimum": 1,
-          "description": "Maximum number of conversation turns allowed."
-        },
-        "max_tokens": {
-          "type": "integer",
-          "minimum": 1,
-          "description": "Maximum token usage allowed."
+          "description": "Tool specs that MUST NOT be used during execution."
         }
       }
     },
     "promptGraderConfig": {
       "type": "object",
-      "required": ["prompt"],
+      "required": [
+        "prompt"
+      ],
       "additionalProperties": false,
       "description": "Config for the prompt grader. Uses an LLM to evaluate agent output against a rubric or prompt.",
       "properties": {
@@ -727,7 +994,10 @@
         },
         "mode": {
           "type": "string",
-          "enum": ["independent", "pairwise"],
+          "enum": [
+            "independent",
+            "pairwise"
+          ],
           "default": "independent",
           "description": "'independent': grade output alone. 'pairwise': compare baseline vs skill output with position bias detection."
         }
@@ -738,8 +1008,16 @@
       "additionalProperties": false,
       "description": "Config for the JSON schema grader. Validates that agent output is valid JSON conforming to a schema.",
       "anyOf": [
-        { "required": ["schema"] },
-        { "required": ["schema_file"] }
+        {
+          "required": [
+            "schema"
+          ]
+        },
+        {
+          "required": [
+            "schema_file"
+          ]
+        }
       ],
       "properties": {
         "schema": {
@@ -754,7 +1032,9 @@
     },
     "programGraderConfig": {
       "type": "object",
-      "required": ["command"],
+      "required": [
+        "command"
+      ],
       "additionalProperties": false,
       "description": "Config for the program grader. Runs an external program to grade agent output. Output is passed via stdin; exit code 0 = pass.",
       "properties": {
@@ -780,7 +1060,9 @@
     },
     "diffGraderConfig": {
       "type": "object",
-      "required": ["expected_files"],
+      "required": [
+        "expected_files"
+      ],
       "additionalProperties": false,
       "description": "Config for the diff grader. Compares workspace files against expected snapshots and content fragments.",
       "properties": {
@@ -800,12 +1082,24 @@
     },
     "expectedFile": {
       "type": "object",
-      "required": ["path"],
+      "required": [
+        "path"
+      ],
       "additionalProperties": false,
       "description": "A single file expectation for the diff grader. At least one of 'snapshot' or 'contains' must be specified.",
       "anyOf": [
-        { "required": ["path", "snapshot"] },
-        { "required": ["path", "contains"] }
+        {
+          "required": [
+            "path",
+            "snapshot"
+          ]
+        },
+        {
+          "required": [
+            "path",
+            "contains"
+          ]
+        }
       ],
       "properties": {
         "path": {

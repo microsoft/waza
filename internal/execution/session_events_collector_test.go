@@ -48,9 +48,11 @@ func TestNewSessionEventsCollector(t *testing.T) {
 	toolCalls := coll.ToolCalls()
 	require.Equal(t, []models.ToolCall{
 		{
-			Name:      "skill",
-			Arguments: map[string]any{"skill": "example"},
-			Success:   true,
+			Name: "skill",
+			Arguments: models.ToolCallArgs{
+				Skill: "example",
+			},
+			Success: true,
 			Result: &copilot.Result{
 				Content:         "Skill \"example\" loaded successfully. Follow the instructions in the skill context.",
 				DetailedContent: utils.Ptr("Skill loaded successfully ✅\n\n---\nname: example\ndescription: \"Checks to see if skills are enabled - if you use this skill it prints out yes\"\n---\n"),

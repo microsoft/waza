@@ -420,7 +420,7 @@ Waza supports multiple grader types for comprehensive evaluation. See the comple
 | `action_sequence` | Tool call sequence validation with F1 scoring |
 | `skill_invocation` | Skill orchestration sequence validation |
 | `prompt` | LLM-as-judge evaluation with rubrics |
-| `tool_constraint` | Validate tool usage constraints (e.g., allowed/disallowed tools, turn limits) |
+| `tool_constraint` | Validate tool usage constraints (e.g., required/forbidden tools, argument patterns) |
 | `trigger_tests` | Prompt trigger accuracy detection |
 
 ### tool_constraint Grader
@@ -432,10 +432,17 @@ graders:
   - type: tool_constraint
     name: check_tools
     config:
-      expect_tools: ["bash", "edit"]        # Required tools (any can be used)
-      reject_tools: ["create_file"]         # Prohibited tools
-      max_turns: 15                         # Maximum conversation turns
-      max_tokens: 5000                      # Maximum token usage
+      expect_tools:
+        - tool: "bash"                         # Required tool call
+          command_pattern: "azd\\s+up"         # Optional regex on the command argument
+        - tool: "skill"
+          skill_pattern: "my-skill"            # Optional regex on the skill argument
+        - tool: "edit"
+          path_pattern: "\\.go$"               # Optional regex on the path argument
+      reject_tools:
+        - tool: "bash"                         # Prohibited when args match this pattern
+          command_pattern: "rm\\s+-rf"         # Optional regex on the command argument
+        - tool: "create_file"                  # Always prohibited
 ```
 
 All config fields are optional. Omitted fields skip that constraint.

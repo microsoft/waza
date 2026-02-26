@@ -136,7 +136,7 @@ func Create(graderType models.GraderKind, identifier string, params map[string]a
 
 		return NewSkillInvocationGrader(identifier, v)
 	case models.GraderKindToolConstraint:
-		var v ToolConstraintGraderParams
+		var v ToolConstraintGraderConfig
 
 		if err := mapstructure.Decode(params, &v); err != nil {
 			return nil, err

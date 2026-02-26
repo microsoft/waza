@@ -249,7 +249,7 @@ func TestFileGrader_Grade(t *testing.T) {
 
 		// we should also see the actual regex compilation error in there. I'll create an invalid regex
 		// so I know what the error message should be.
-		_, err = regexp.Compile(badRegexPattern) //nolint:staticcheck // intentionally invalid regex for testing
+		_, err = regexp.Compile(badRegexPattern) //nolint:staticcheck,gocritic // intentionally invalid regex for testing
 		require.Error(t, err)
 		require.Contains(t, results.Feedback, err.Error())
 	})

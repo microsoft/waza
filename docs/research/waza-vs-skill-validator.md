@@ -125,8 +125,10 @@ skill-validator's `expect_tools` and `reject_tools` express behavioral requireme
 
 ```yaml
 # "Use bash for execution but don't create files directly"
-expect_tools: ["bash"]
-reject_tools: ["create_file"]
+expect_tools:
+    - tool: "bash"
+reject_tools:
+    - tool: "create_file"
 ```
 
 This is particularly valuable for skill evaluation because *how* the agent solves a problem matters as much as *whether* it solves it. A skill that encourages the agent to use `create_file` for everything instead of using existing project tools is a bad skill, even if the output is correct.

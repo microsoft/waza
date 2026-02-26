@@ -1151,6 +1151,8 @@ func (r *TestRunner) buildGraderContext(tc *models.TestCase, resp *execution.Exe
 		transcript = append(transcript, entry)
 	}
 
+	sessionDigest := r.buildSessionDigest(resp)
+
 	return &graders.Context{
 		TestCase:         tc,
 		Transcript:       transcript,
@@ -1161,6 +1163,7 @@ func (r *TestRunner) buildGraderContext(tc *models.TestCase, resp *execution.Exe
 		WorkspaceDir:     resp.WorkspaceDir,
 		SkillInvocations: resp.SkillInvocations,
 		SessionID:        resp.SessionID,
+		Session:          &sessionDigest,
 	}
 }
 
@@ -1252,6 +1255,7 @@ func (r *TestRunner) buildSessionDigest(resp *execution.ExecutionResponse) model
 		TotalTurns:    len(resp.Events),
 		ToolCallCount: len(resp.ToolCalls),
 		ToolsUsed:     toolsUsed,
+		ToolCalls:     resp.ToolCalls,
 		Errors:        []string{},
 	}
 }

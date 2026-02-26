@@ -135,13 +135,14 @@ type GraderResults struct {
 }
 
 type SessionDigest struct {
-	TotalTurns    int      `json:"total_turns"`
-	ToolCallCount int      `json:"tool_call_count"`
-	TokensIn      int      `json:"tokens_in"`
-	TokensOut     int      `json:"tokens_out"`
-	TokensTotal   int      `json:"tokens_total"`
-	ToolsUsed     []string `json:"tools_used"`
-	Errors        []string `json:"errors"`
+	TotalTurns    int        `json:"total_turns"`
+	ToolCallCount int        `json:"tool_call_count"`
+	TokensIn      int        `json:"tokens_in"`
+	TokensOut     int        `json:"tokens_out"`
+	TokensTotal   int        `json:"tokens_total"`
+	ToolsUsed     []string   `json:"tools_used"`
+	ToolCalls     []ToolCall `json:"tool_calls,omitempty"`
+	Errors        []string   `json:"errors"`
 }
 
 type TestStats struct {

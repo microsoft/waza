@@ -2,16 +2,31 @@ package models
 
 import (
 	"encoding/json"
+	"log/slog"
 
 	copilot "github.com/github/copilot-sdk/go"
+	"github.com/go-viper/mapstructure/v2"
 )
 
 // ToolCall represents a tool invocation
 type ToolCall struct {
 	Name      string          `json:"name"`
-	Arguments any             `json:"arguments,omitempty"`
+	Arguments ToolCallArgs    `json:"arguments,omitempty"`
 	Result    *copilot.Result `json:"result,omitempty"`
 	Success   bool            `json:"success"`
+}
+
+type ToolCallArgs struct {
+	// these are filled out for file-based tools (view/edit)
+	Path     string `json:"path"      mapstructure:"path"`
+	FileText string `json:"file_text" mapstructure:"file_text"`
+
+	// filled out for tools like bash or powershell
+	Command     string `json:"command"     mapstructure:"command"`
+	Description string `json:"description" mapstructure:"description"`
+
+	// filled out for skill invocations
+	Skill string `json:"skill" mapstructure:"skill"`
 }
 
 type TranscriptEvent struct {
@@ -89,10 +104,15 @@ func FilterToolCalls(sessionEvents []copilot.SessionEvent) []ToolCall {
 			if evt.Data.ToolName == nil || evt.Data.ToolCallID == nil {
 				continue
 			}
+
 			tc := &ToolCall{
-				Name:      *evt.Data.ToolName,
-				Arguments: evt.Data.Arguments,
+				Name: *evt.Data.ToolName,
 			}
+
+			if err := mapstructure.Decode(evt.Data.Arguments, &tc.Arguments); err != nil {
+				slog.Warn("tool argument format wasn't recognized", "error", err, "name", *evt.Data.ToolName, "args", evt.Data.Arguments)
+			}
+
 			toolCallsMap[*evt.Data.ToolCallID] = tc
 			toolCallIDs = append(toolCallIDs, *evt.Data.ToolCallID)
 		case copilot.ToolExecutionComplete, copilot.ToolExecutionPartialResult:
