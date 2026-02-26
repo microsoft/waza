@@ -17,8 +17,7 @@ type ToolSpec struct {
 	PathPattern    string `mapstructure:"path_pattern"`    // optional regex matched against the path argument
 }
 
-// toolConstraintGrader validates which tools an agent should/shouldn't use,
-// plus turn and token limits.
+// toolConstraintGrader validates which tools an agent should/shouldn't use
 type toolConstraintGrader struct {
 	name        string
 	expectTools []ToolSpec
@@ -159,14 +158,15 @@ func (tc *toolConstraintGrader) Grade(ctx context.Context, gradingContext *Conte
 // NOTE: this function assumes that the regexes have already been validated.
 func matchesToolCall(spec ToolSpec, call models.ToolCall) bool {
 	checkPattern := func(pattern, text string) bool {
-		// pre-req that the regex is valid.
-		matched, _ := regexp.MatchString("(?i)"+pattern, text)
-
-		if pattern == "" || matched {
+		// empty pattern automatically passes - we validate that they have passed at least one check in
+		// validateToolSpecs().
+		if pattern == "" {
 			return true
 		}
 
-		return false
+		// pre-req that the regex is valid.
+		matched, _ := regexp.MatchString("(?i)"+pattern, text)
+		return matched
 	}
 
 	if !checkPattern(spec.Tool, call.Name) {
@@ -190,10 +190,23 @@ func matchesToolCall(spec ToolSpec, call models.ToolCall) bool {
 
 // describeToolSpec returns a human-readable label for a ToolSpec.
 func describeToolSpec(spec ToolSpec) string {
-	if spec.CommandPattern == "" {
+	var qualifiers []string
+
+	if spec.CommandPattern != "" {
+		qualifiers = append(qualifiers, fmt.Sprintf("command_pattern: %s", spec.CommandPattern))
+	}
+	if spec.SkillPattern != "" {
+		qualifiers = append(qualifiers, fmt.Sprintf("skill_pattern: %s", spec.SkillPattern))
+	}
+	if spec.PathPattern != "" {
+		qualifiers = append(qualifiers, fmt.Sprintf("path_pattern: %s", spec.PathPattern))
+	}
+
+	if len(qualifiers) == 0 {
 		return spec.Tool
 	}
-	return fmt.Sprintf("%s (command_pattern: %s)", spec.Tool, spec.CommandPattern)
+
+	return fmt.Sprintf("%s (%s)", spec.Tool, strings.Join(qualifiers, ", "))
 }
 
 // describeToolSpecs returns human-readable labels for a slice of ToolSpecs.
