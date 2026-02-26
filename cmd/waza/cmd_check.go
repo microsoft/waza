@@ -685,46 +685,121 @@ func buildSkillJSON(report *readinessReport) skillJSONReport {
 	return jr
 }
 
+// ---------------------------------------------------------------------------
+// Shared display helpers — single source of truth for check output formatting.
+//
+// Convention:
+//   Section header:  "emoji Title: summary\n"
+//   Status line:     "   emoji  message\n"   (3-space indent, emoji, 2-space gap)
+//   Detail line:     "   emoji  [label] message\n"
+//   Evidence line:   "     📎  evidence\n"   (5-space indent for sub-detail)
+//
+// 3-state icons:  ✅ = ok/passed   ⚠️ = warning   ❌ = error/failed
+// ---------------------------------------------------------------------------
+
+type writer = interface{ Write([]byte) (int, error) }
+
+// writeSection prints a section header: "emoji Title: summary\n".
+//
+//nolint:errcheck
+func writeSection(w writer, emoji, title, summary string) {
+	if summary != "" {
+		fmt.Fprintf(w, "%s %s: %s\n", emoji, title, summary)
+	} else {
+		fmt.Fprintf(w, "%s %s\n", emoji, title)
+	}
+}
+
+// writeStatus prints a status line: "   icon  message\n".
+//
+//nolint:errcheck
+func writeStatus(w writer, icon, message string) {
+	fmt.Fprintf(w, "   %s  %s\n", icon, message)
+}
+
+// statusIcon returns the standard 3-state icon for the given state.
+func statusIcon(state string) string {
+	switch state {
+	case "ok":
+		return "✅"
+	case "warning":
+		return "⚠️"
+	case "error":
+		return "❌"
+	default:
+		return "—"
+	}
+}
+
+// writeCheckItems renders a list of CheckResult items using the shared format.
+//
+//nolint:errcheck
+func writeCheckItems(w writer, results []*checks.CheckResult, showPassed bool) {
+	for _, r := range results {
+		icon := "✅"
+		if sh, ok := r.Data.(checks.StatusHolder); ok {
+			switch sh.GetStatus() {
+			case checks.StatusWarning:
+				icon = "⚠️"
+			case checks.StatusOptimal:
+				icon = "✅"
+			}
+		}
+		if !r.Passed {
+			icon = "❌"
+		}
+
+		if !showPassed && r.Passed {
+			continue
+		}
+
+		writeStatus(w, icon, fmt.Sprintf("[%s] %s", r.Name, r.Summary))
+
+		if d, ok := r.Data.(*checks.ScoreCheckData); ok && d.Evidence != "" && (!r.Passed || d.Status == checks.StatusWarning) {
+			fmt.Fprintf(w, "     📎  %s\n", d.Evidence)
+		}
+	}
+}
+
 //nolint:errcheck // display function — fmt.Fprintf errors to stdout are not actionable
-func displayReadinessReport(out interface{ Write([]byte) (int, error) }, report *readinessReport) {
+func displayReadinessReport(out writer, report *readinessReport) {
 	w := out
 
 	// Header
-	fmt.Fprintf(w, "\n🔍 Skill Readiness Check\n")                        //nolint:errcheck
-	fmt.Fprintf(w, "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n") //nolint:errcheck
+	fmt.Fprintf(w, "\n🔍 Skill Readiness Check\n")
+	fmt.Fprintf(w, "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n")
 
 	skillName := report.skillName
 	if skillName == "" {
 		skillName = "unnamed-skill"
 	}
-	fmt.Fprintf(w, "Skill: %s\n\n", skillName) //nolint:errcheck
+	fmt.Fprintf(w, "Skill: %s\n\n", skillName)
 
 	// 1. Compliance Check
-	fmt.Fprintf(w, "📋 Compliance Score: %s\n", report.complianceLevel)
+	writeSection(w, "📋", "Compliance Score", string(report.complianceLevel))
 	switch report.complianceLevel {
 	case scoring.AdherenceHigh:
-		fmt.Fprintf(w, "   ✅  Excellent! Your skill meets all compliance requirements.\n")
+		writeStatus(w, statusIcon("ok"), "Excellent! Your skill meets all compliance requirements.")
 	case scoring.AdherenceMediumHigh:
-		fmt.Fprintf(w, "   ⚠️  Good, but could be improved. Missing routing clarity.\n")
+		writeStatus(w, statusIcon("warning"), "Good, but could be improved. Missing routing clarity.")
 	case scoring.AdherenceMedium:
-		fmt.Fprintf(w, "   ⚠️  Needs improvement. Missing anti-triggers and routing clarity.\n")
+		writeStatus(w, statusIcon("warning"), "Needs improvement. Missing anti-triggers and routing clarity.")
 	default:
-		fmt.Fprintf(w, "   ❌  Needs significant improvement. Description too short or missing triggers.\n")
+		writeStatus(w, statusIcon("error"), "Needs significant improvement. Description too short or missing triggers.")
 	}
-
 	if len(report.complianceScore.Issues) > 0 {
-		fmt.Fprintf(w, "   Issues found:\n")
+		fmt.Fprintf(w, "\n   Issues found:\n")
 		for _, issue := range report.complianceScore.Issues {
-			emoji := "⚠️"
+			state := "warning"
 			if issue.Severity == "error" {
-				emoji = "❌"
+				state = "error"
 			}
-			fmt.Fprintf(w, "   %s  %s\n", emoji, issue.Message)
+			writeStatus(w, statusIcon(state), issue.Message)
 		}
 	}
 	fmt.Fprintf(w, "\n")
 
-	// 1b. Spec Compliance
+	// 2. Spec Compliance
 	if len(report.scoreSpecChecks) > 0 {
 		pass := 0
 		for _, c := range report.scoreSpecChecks {
@@ -733,113 +808,108 @@ func displayReadinessReport(out interface{ Write([]byte) (int, error) }, report 
 			}
 		}
 		total := len(report.scoreSpecChecks)
-		fmt.Fprintf(w, "📐 Spec Compliance: %d/%d checks passed\n", pass, total)
+		writeSection(w, "📐", "Spec Compliance", fmt.Sprintf("%d/%d checks passed", pass, total))
 		if pass == total {
-			fmt.Fprintf(w, "   ✅  Meets agentskills.io specification.\n")
+			writeStatus(w, statusIcon("ok"), "Meets agentskills.io specification.")
 		} else {
-			fmt.Fprintf(w, "   ❌  Does not fully meet agentskills.io specification.\n")
+			writeStatus(w, statusIcon("error"), "Does not fully meet agentskills.io specification.")
 		}
-		for _, c := range report.scoreSpecChecks {
-			if !c.Passed {
-				fmt.Fprintf(w, "   ❌  [%s] %s\n", c.Name, c.Summary)
-			}
-		}
+		writeCheckItems(w, report.scoreSpecChecks, false)
 		fmt.Fprintf(w, "\n")
 	}
 
-	// 1c. MCP Integration
+	// 3. MCP Integration
 	if report.mcpResult != nil {
-		fmt.Fprintf(w, "🔌 MCP Integration: %d/4\n", report.mcpResult.SubScore)
+		writeSection(w, "🔌", "MCP Integration", fmt.Sprintf("%d/4", report.mcpResult.SubScore))
 		if report.mcpResult.SubScore == 4 {
-			fmt.Fprintf(w, "   ✅  All MCP integration checks passed.\n")
+			writeStatus(w, statusIcon("ok"), "All MCP integration checks passed.")
 		} else {
-			fmt.Fprintf(w, "   ⚠️  MCP documentation incomplete (%d/4 checks passed).\n", report.mcpResult.SubScore)
+			writeStatus(w, statusIcon("warning"), fmt.Sprintf("MCP documentation incomplete (%d/4 checks passed).", report.mcpResult.SubScore))
 		}
 		for _, issue := range report.mcpResult.Issues {
-			emoji := "⚠️"
+			state := "warning"
 			if issue.Severity == "error" {
-				emoji = "❌"
+				state = "error"
 			}
-			fmt.Fprintf(w, "   %s  [%s] %s\n", emoji, issue.Rule, issue.Message)
+			writeStatus(w, statusIcon(state), fmt.Sprintf("[%s] %s", issue.Rule, issue.Message))
 		}
 		fmt.Fprintf(w, "\n")
 	}
 
-	// 1d. Link Validation
+	// 4. Link Validation
 	if report.linkResult != nil {
-		fmt.Fprintf(w, "📎 Links: %d/%d valid\n", report.linkResult.ValidLinks, report.linkResult.TotalLinks)
+		writeSection(w, "📎", "Links", fmt.Sprintf("%d/%d valid", report.linkResult.ValidLinks, report.linkResult.TotalLinks))
 		if report.linkResult.Passed() {
 			if report.linkResult.TotalLinks == 0 {
-				fmt.Fprintf(w, "   —  No links found.\n")
+				writeStatus(w, statusIcon("neutral"), "No links found.")
 			} else {
-				fmt.Fprintf(w, "   ✅  All links valid.\n")
+				writeStatus(w, statusIcon("ok"), "All links valid.")
 			}
 		} else {
 			problems := len(report.linkResult.BrokenLinks) + len(report.linkResult.DirectoryLinks) +
 				len(report.linkResult.ScopeEscapes) + len(report.linkResult.DeadURLs) +
 				len(report.linkResult.OrphanedFiles)
-			fmt.Fprintf(w, "   ⚠️  %d link issue(s) found.\n", problems)
+			writeStatus(w, statusIcon("warning"), fmt.Sprintf("%d link issue(s) found.", problems))
 		}
 		for _, bl := range report.linkResult.BrokenLinks {
-			fmt.Fprintf(w, "   ❌  [%s] → %s: %s\n", bl.Source, bl.Target, bl.Reason)
+			writeStatus(w, statusIcon("error"), fmt.Sprintf("[%s] → %s: %s", bl.Source, bl.Target, bl.Reason))
 		}
 		for _, dl := range report.linkResult.DirectoryLinks {
-			fmt.Fprintf(w, "   ⚠️  [%s] → %s: %s\n", dl.Source, dl.Target, dl.Reason)
+			writeStatus(w, statusIcon("warning"), fmt.Sprintf("[%s] → %s: %s", dl.Source, dl.Target, dl.Reason))
 		}
 		for _, se := range report.linkResult.ScopeEscapes {
-			fmt.Fprintf(w, "   ❌  [%s] → %s: %s\n", se.Source, se.Target, se.Reason)
+			writeStatus(w, statusIcon("error"), fmt.Sprintf("[%s] → %s: %s", se.Source, se.Target, se.Reason))
 		}
 		for _, du := range report.linkResult.DeadURLs {
-			fmt.Fprintf(w, "   ⚠️  [%s] → %s: %s\n", du.Source, du.Target, du.Reason)
+			writeStatus(w, statusIcon("warning"), fmt.Sprintf("[%s] → %s: %s", du.Source, du.Target, du.Reason))
 		}
 		if len(report.linkResult.OrphanedFiles) > 0 {
-			fmt.Fprintf(w, "   Orphaned files in references/:\n")
+			fmt.Fprintf(w, "\n   Orphaned files in references/:\n")
 			for _, f := range report.linkResult.OrphanedFiles {
-				fmt.Fprintf(w, "   ⚠️  %s\n", f)
+				writeStatus(w, statusIcon("warning"), f)
 			}
 		}
 		fmt.Fprintf(w, "\n")
 	}
 
-	// 2. Token Budget Check
-	fmt.Fprintf(w, "📊 Token Budget: %d / %d tokens\n", report.tokenCount, report.tokenLimit)
+	// 5. Token Budget Check
+	writeSection(w, "📊", "Token Budget", fmt.Sprintf("%d / %d tokens", report.tokenCount, report.tokenLimit))
 	if report.tokenExceeded {
 		over := report.tokenCount - report.tokenLimit
-		fmt.Fprintf(w, "   ❌  Exceeds limit by %d tokens. Consider reducing content.\n", over)
+		writeStatus(w, statusIcon("error"), fmt.Sprintf("Exceeds limit by %d tokens. Consider reducing content.", over))
 	} else if report.tokenWarning {
 		remaining := report.tokenLimit - report.tokenCount
-		fmt.Fprintf(w, "   ⚠️  Approaching limit (%d tokens remaining). Consider optimizing.\n", remaining)
+		writeStatus(w, statusIcon("warning"), fmt.Sprintf("Approaching limit (%d tokens remaining). Consider optimizing.", remaining))
 	} else {
 		remaining := report.tokenLimit - report.tokenCount
-		fmt.Fprintf(w, "   ✅  Within budget (%d tokens remaining).\n", remaining)
+		writeStatus(w, statusIcon("ok"), fmt.Sprintf("Within budget (%d tokens remaining).", remaining))
 	}
 	fmt.Fprintf(w, "\n")
 
-	// 3. Evaluation Check
-	fmt.Fprintf(w, "🧪 Evaluation Suite: ")
+	// 6. Evaluation Check
 	if report.hasEval {
-		fmt.Fprintf(w, "Found\n")
-		fmt.Fprintf(w, "   ✅  eval.yaml detected. Run 'waza run eval.yaml' to test.\n")
+		writeSection(w, "🧪", "Evaluation Suite", "Found")
+		writeStatus(w, statusIcon("ok"), "eval.yaml detected. Run 'waza run eval.yaml' to test.")
 	} else {
-		fmt.Fprintf(w, "Not Found\n")
-		fmt.Fprintf(w, "   ⚠️  No eval.yaml found. Consider creating tests.\n")
+		writeSection(w, "🧪", "Evaluation Suite", "Not Found")
+		writeStatus(w, statusIcon("warning"), "No eval.yaml found. Consider creating tests.")
 	}
 	fmt.Fprintf(w, "\n")
 
-	// 4. Schema Validation (only when eval exists)
+	// 7. Schema Validation (only when eval exists)
 	if report.hasEval {
 		hasEvalSchemaErrs := len(report.evalSchemaErrs) > 0
 		hasTaskSchemaErrs := len(report.taskSchemaErrs) > 0
 
 		if hasEvalSchemaErrs {
-			fmt.Fprintf(w, "📐 Eval Schema: %d error(s)\n", len(report.evalSchemaErrs))
+			writeSection(w, "📐", "Eval Schema", fmt.Sprintf("%d error(s)", len(report.evalSchemaErrs)))
 			for _, e := range report.evalSchemaErrs {
-				fmt.Fprintf(w, "   ❌  %s\n", e)
+				writeStatus(w, statusIcon("error"), e)
 			}
 			fmt.Fprintf(w, "\n")
 		}
 		if hasTaskSchemaErrs {
-			fmt.Fprintf(w, "📐 Task Schema: %d file(s) with errors\n", len(report.taskSchemaErrs))
+			writeSection(w, "📐", "Task Schema", fmt.Sprintf("%d file(s) with errors", len(report.taskSchemaErrs)))
 			for file, errs := range report.taskSchemaErrs {
 				fmt.Fprintf(w, "   %s:\n", file)
 				for _, e := range errs {
@@ -849,22 +919,22 @@ func displayReadinessReport(out interface{ Write([]byte) (int, error) }, report 
 			fmt.Fprintf(w, "\n")
 		}
 		if !hasEvalSchemaErrs && !hasTaskSchemaErrs {
-			fmt.Fprintf(w, "📐 Schema Validation: Passed\n")
-			fmt.Fprintf(w, "   ✅  eval.yaml schema valid\n")
-			// Count validated task files
+			writeSection(w, "📐", "Schema Validation", "Passed")
+			writeStatus(w, statusIcon("ok"), "eval.yaml schema valid")
 			taskCount := countValidatedTasks(report)
 			if taskCount > 0 {
-				fmt.Fprintf(w, "   ✅  %d task file(s) validated\n", taskCount)
+				writeStatus(w, statusIcon("ok"), fmt.Sprintf("%d task file(s) validated", taskCount))
 			}
 			fmt.Fprintf(w, "\n")
 		}
 	}
 
-	// 5. Score-command spec compliance checks
-	dev.DisplayCheckResults(w, "Spec Compliance (agentskills.io)", report.scoreSpecChecks)
-
-	// 6. Score-command advisory checks
-	dev.DisplayCheckResults(w, "Advisory Checks", report.scoreAdvisoryChecks)
+	// 8. Advisory Checks
+	if len(report.scoreAdvisoryChecks) > 0 {
+		writeSection(w, "💡", "Advisory Checks", "")
+		writeCheckItems(w, report.scoreAdvisoryChecks, true)
+		fmt.Fprintf(w, "\n")
+	}
 
 	// Overall Readiness Assessment
 	fmt.Fprintf(w, "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
