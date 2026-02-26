@@ -36,8 +36,7 @@ type ExecutionRequest struct {
 
 	Timeout time.Duration
 
-	// PermissionHandler controls is called when the copilot SDK wants to determine if a tool can
-	// be used.
+	// PermissionHandler called when the copilot SDK wants to determine if a tool can be used.
 	// Default: allows all tools.
 	PermissionHandler copilot.PermissionHandler
 }
