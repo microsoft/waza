@@ -480,6 +480,121 @@ The dashboard displays evaluation results with:
 
 For detailed documentation on the dashboard and result visualization, see [docs/GUIDE.md](docs/GUIDE.md).
 
+### `waza results`
+
+Manage evaluation results stored in cloud or local storage.
+
+#### `waza results list`
+
+List all evaluation runs from configured cloud storage or local results directory.
+
+| Flag | Description |
+|------|-------------|
+| `--limit <n>` | Maximum results to display (default: 10) |
+| `--format <fmt>` | Output format: `table` or `json` (default: `table`) |
+
+```bash
+# List recent results
+waza results list
+
+# List with custom limit
+waza results list --limit 20
+
+# Output as JSON
+waza results list --format json
+```
+
+#### `waza results compare <id1> <id2>`
+
+Compare two evaluation runs side by side. Displays per-task score deltas, pass rate differences, and key metrics.
+
+| Flag | Description |
+|------|-------------|
+| `--format <fmt>` | Output format: `table` or `json` (default: `table`) |
+
+```bash
+# Compare two runs
+waza results compare run-20250226-001 run-20250226-002
+
+# Output as JSON for further processing
+waza results compare run-20250226-001 run-20250226-002 --format json
+```
+
+## Cloud Storage
+
+Waza can automatically upload evaluation results to Azure Blob Storage for team collaboration and historical tracking.
+
+### Configuration
+
+Add a `storage:` section to your `.waza.yaml`:
+
+```yaml
+storage:
+  provider: azure-blob
+  accountName: "myteamwaza"
+  containerName: "waza-results"
+  enabled: true
+```
+
+| Field | Description | Required |
+|-------|-------------|----------|
+| `provider` | Cloud provider (`azure-blob` currently supported) | Yes |
+| `accountName` | Azure Storage account name | Yes |
+| `containerName` | Blob container name (default: `waza-results`) | No |
+| `enabled` | Enable/disable uploads (default: `true` when configured) | No |
+
+### Authentication
+
+Waza uses **DefaultAzureCredential** — it automatically detects and uses available credentials in this order:
+
+1. **Environment variables** (`AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`, `AZURE_TENANT_ID`)
+2. **Managed Identity** (on Azure services)
+3. **Azure CLI** (`az login`)
+4. **Visual Studio Code** (if signed in)
+5. **Azure PowerShell** (if signed in)
+
+In most cases, running `az login` is all you need:
+
+```bash
+az login
+waza run eval.yaml  # Results auto-upload to Azure Storage
+```
+
+### How It Works
+
+1. **Auto-upload on run:** When `storage:` is configured, `waza run` automatically uploads results to Azure Blob Storage
+2. **Organized by timestamp:** Results are stored as `{year}/{month}/{day}/{timestamp}-{result-id}.json`
+3. **Local copy kept:** Results are also saved locally (via `-o` flag)
+4. **List remote results:** Use `waza results list` to browse uploaded runs
+5. **Compare runs:** Use `waza results compare` to diff two remote results
+
+### Example Workflow
+
+```bash
+# Configure once (edit .waza.yaml)
+cat > .waza.yaml <<EOF
+storage:
+  provider: azure-blob
+  accountName: "myteamwaza"
+  containerName: "waza-results"
+  enabled: true
+EOF
+
+# Authenticate
+az login
+
+# Run evaluations — results auto-upload
+waza run evals/my-skill/eval.yaml -v
+
+# Browse uploaded results
+waza results list
+
+# Compare two runs
+waza results compare run-id-1 run-id-2
+```
+
+For step-by-step setup and troubleshooting, see [Getting Started with Azure Storage](../docs/guides/azure-storage/) guide.
+
 ## Building
 
 ```bash

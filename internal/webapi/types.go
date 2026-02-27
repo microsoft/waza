@@ -15,6 +15,7 @@ type RunSummary struct {
 	Cost       float64   `json:"cost"`
 	Duration   float64   `json:"duration"`
 	Timestamp  time.Time `json:"timestamp"`
+	Source     string    `json:"source,omitempty"` // "local" or "azure-blob"
 }
 
 // RunDetail is the API response for a single run with per-task results.
@@ -97,4 +98,11 @@ type HealthResponse struct {
 type ErrorResponse struct {
 	Error string `json:"error"`
 	Code  int    `json:"code"`
+}
+
+// StorageStatusResponse is the storage configuration status.
+type StorageStatusResponse struct {
+	Configured bool   `json:"configured"`
+	Provider   string `json:"provider,omitempty"`
+	Account    string `json:"account,omitempty"`
 }

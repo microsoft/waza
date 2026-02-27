@@ -1,0 +1,11 @@
+# Example .waza.yaml with Azure Blob Storage configuration
+
+storage:
+  enabled: true
+  provider: azure-blob
+  accountName: myaccount
+  containerName: waza-results
+
+server:
+  port: 3000
+  resultsDir: results/

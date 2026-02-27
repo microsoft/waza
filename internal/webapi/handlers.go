@@ -12,12 +12,28 @@ var Version = "0.4.0-alpha.1"
 
 // Handlers holds the HTTP handler methods for the web API.
 type Handlers struct {
-	store RunStore
+	store         RunStore
+	storageConfig *StorageConfig
+}
+
+// StorageConfig holds storage configuration for the status endpoint.
+type StorageConfig struct {
+	Configured bool
+	Provider   string
+	Account    string
 }
 
 // NewHandlers creates a new Handlers with the given store.
 func NewHandlers(store RunStore) *Handlers {
 	return &Handlers{store: store}
+}
+
+// NewHandlersWithStorage creates a new Handlers with storage configuration.
+func NewHandlersWithStorage(store RunStore, cfg *StorageConfig) *Handlers {
+	return &Handlers{
+		store:         store,
+		storageConfig: cfg,
+	}
 }
 
 // HandleHealth returns a simple health check response.
@@ -78,6 +94,19 @@ func (h *Handlers) HandleRunDetail(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, detail)
 }
 
+// HandleStorageStatus returns the current storage configuration status.
+func (h *Handlers) HandleStorageStatus(w http.ResponseWriter, _ *http.Request) {
+	resp := &StorageStatusResponse{
+		Configured: false,
+	}
+	if h.storageConfig != nil {
+		resp.Configured = h.storageConfig.Configured
+		resp.Provider = h.storageConfig.Provider
+		resp.Account = h.storageConfig.Account
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
 // RegisterRoutes registers all web API routes on the given mux.
 func RegisterRoutes(mux *http.ServeMux, store RunStore) {
 	h := NewHandlers(store)
@@ -85,6 +114,17 @@ func RegisterRoutes(mux *http.ServeMux, store RunStore) {
 	mux.HandleFunc("GET /api/summary", h.HandleSummary)
 	mux.HandleFunc("GET /api/runs", h.HandleRuns)
 	mux.HandleFunc("GET /api/runs/{id}", h.HandleRunDetail)
+	mux.HandleFunc("GET /api/storage/status", h.HandleStorageStatus)
+}
+
+// RegisterRoutesWithStorage registers all web API routes with storage config.
+func RegisterRoutesWithStorage(mux *http.ServeMux, store RunStore, cfg *StorageConfig) {
+	h := NewHandlersWithStorage(store, cfg)
+	mux.HandleFunc("GET /api/health", h.HandleHealth)
+	mux.HandleFunc("GET /api/summary", h.HandleSummary)
+	mux.HandleFunc("GET /api/runs", h.HandleRuns)
+	mux.HandleFunc("GET /api/runs/{id}", h.HandleRunDetail)
+	mux.HandleFunc("GET /api/storage/status", h.HandleStorageStatus)
 }
 
 // CORSMiddleware wraps a handler with CORS headers.

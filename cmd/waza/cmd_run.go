@@ -20,6 +20,7 @@ import (
 	"github.com/spboyer/waza/internal/recommend"
 	"github.com/spboyer/waza/internal/reporting"
 	"github.com/spboyer/waza/internal/session"
+	"github.com/spboyer/waza/internal/storage"
 	"github.com/spboyer/waza/internal/trigger"
 	"github.com/spboyer/waza/internal/utils"
 	"github.com/spboyer/waza/internal/workspace"
@@ -165,7 +166,8 @@ func runCommandE(cmd *cobra.Command, args []string) error {
 	}
 
 	if len(specPaths) == 1 {
-		_, err := runCommandForSpec(cmd, specPaths[0])
+		results, err := runCommandForSpec(cmd, specPaths[0])
+		autoUploadOutcomes(cmd, cfg, results)
 		return err
 	}
 
@@ -240,6 +242,11 @@ func runCommandE(cmd *cobra.Command, args []string) error {
 		if err := writeOutputDir(outputDir, allSkillResults); err != nil {
 			return fmt.Errorf("failed to write output directory: %w", err)
 		}
+	}
+
+	// Auto-upload to configured storage
+	for _, sr := range allSkillResults {
+		autoUploadOutcomes(cmd, cfg, sr.outcomes)
 	}
 
 	return lastErr
@@ -1019,6 +1026,36 @@ func saveOutcome(outcome *models.EvaluationOutcome, path string) error {
 	}
 
 	return os.WriteFile(path, data, 0644)
+}
+
+// autoUploadOutcomes uploads outcomes to configured remote storage.
+// Errors are reported as warnings — local results are always preserved.
+func autoUploadOutcomes(cmd *cobra.Command, cfg *projectconfig.ProjectConfig, results []modelResult) {
+	if cfg == nil || cfg.Storage.Provider == "" || !cfg.Storage.Enabled {
+		return
+	}
+
+	store, err := storage.NewStore(&cfg.Storage, outputDir)
+	if err != nil {
+		_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "⚠️  Azure Storage setup failed: %v. Results saved locally.\n", err)
+		return
+	}
+
+	ctx := cmd.Context()
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	for _, mr := range results {
+		if mr.outcome == nil {
+			continue
+		}
+		if err := store.Upload(ctx, mr.outcome); err != nil {
+			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "⚠️  Failed to upload results to Azure Storage: %v. Results saved locally.\n", err)
+		} else {
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "☁️  Results uploaded to Azure Storage\n")
+		}
+	}
 }
 
 // writeReporters processes --reporter flags and writes the requested outputs.

@@ -36,6 +36,8 @@ const (
 	DefaultTokenFallbackLimit    = 1000
 
 	DefaultGraderProgramTimeout = 30
+
+	DefaultStorageContainerName = "waza-results"
 )
 
 // PathsConfig holds directory paths for skills, evals, and results.
@@ -94,6 +96,14 @@ type GradersConfig struct {
 	ProgramTimeout int `yaml:"programTimeout,omitempty"`
 }
 
+// StorageConfig holds remote result storage settings.
+type StorageConfig struct {
+	Provider      string `yaml:"provider,omitempty"`      // "azure-blob" or empty for local
+	AccountName   string `yaml:"accountName,omitempty"`   // Azure storage account name
+	ContainerName string `yaml:"containerName,omitempty"` // blob container (default: "waza-results")
+	Enabled       bool   `yaml:"enabled,omitempty"`       // true when remote storage is configured
+}
+
 // ProjectConfig is the top-level configuration loaded from .waza.yaml.
 type ProjectConfig struct {
 	Paths    PathsConfig    `yaml:"paths,omitempty"`
@@ -103,6 +113,7 @@ type ProjectConfig struct {
 	Dev      DevConfig      `yaml:"dev,omitempty"`
 	Tokens   TokensConfig   `yaml:"tokens,omitempty"`
 	Graders  GradersConfig  `yaml:"graders,omitempty"`
+	Storage  StorageConfig  `yaml:"storage,omitempty"`
 }
 
 // New returns a ProjectConfig with all hard-coded defaults populated.
@@ -142,6 +153,9 @@ func New() *ProjectConfig {
 		},
 		Graders: GradersConfig{
 			ProgramTimeout: DefaultGraderProgramTimeout,
+		},
+		Storage: StorageConfig{
+			ContainerName: DefaultStorageContainerName,
 		},
 	}
 }
@@ -280,6 +294,20 @@ func mergeConfig(dst, src *ProjectConfig) {
 	// Graders
 	if src.Graders.ProgramTimeout != 0 {
 		dst.Graders.ProgramTimeout = src.Graders.ProgramTimeout
+	}
+
+	// Storage
+	if src.Storage.Provider != "" {
+		dst.Storage.Provider = src.Storage.Provider
+	}
+	if src.Storage.AccountName != "" {
+		dst.Storage.AccountName = src.Storage.AccountName
+	}
+	if src.Storage.ContainerName != "" {
+		dst.Storage.ContainerName = src.Storage.ContainerName
+	}
+	if src.Storage.Enabled {
+		dst.Storage.Enabled = true
 	}
 }
 

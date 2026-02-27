@@ -254,6 +254,147 @@ cache:
 	})
 }
 
+// ========================================
+// STORAGE CONFIG TESTS
+// ========================================
+
+func TestNew_StorageDefaults(t *testing.T) {
+	cfg := New()
+
+	// Storage should have default container name
+	assertEqual(t, "Storage.ContainerName", "waza-results", cfg.Storage.ContainerName)
+	assertEqual(t, "Storage.Provider", "", cfg.Storage.Provider)
+	assertEqual(t, "Storage.AccountName", "", cfg.Storage.AccountName)
+	if cfg.Storage.Enabled {
+		t.Error("Storage.Enabled should default to false")
+	}
+}
+
+func TestLoad_StorageConfig_WithAzureBlob(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, ".waza.yaml", `
+storage:
+  provider: azure-blob
+  accountName: myaccount
+  containerName: my-results
+  enabled: true
+`)
+
+	cfg, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+
+	assertEqual(t, "Storage.Provider", "azure-blob", cfg.Storage.Provider)
+	assertEqual(t, "Storage.AccountName", "myaccount", cfg.Storage.AccountName)
+	assertEqual(t, "Storage.ContainerName", "my-results", cfg.Storage.ContainerName)
+	if !cfg.Storage.Enabled {
+		t.Error("Storage.Enabled should be true")
+	}
+}
+
+func TestLoad_StorageConfig_WithoutSection(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, ".waza.yaml", `
+defaults:
+  model: gpt-4o
+`)
+
+	cfg, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+
+	// Should have default container name even without storage section
+	assertEqual(t, "Storage.ContainerName", "waza-results", cfg.Storage.ContainerName)
+	assertEqual(t, "Storage.Provider", "", cfg.Storage.Provider)
+	if cfg.Storage.Enabled {
+		t.Error("Storage.Enabled should default to false when section is missing")
+	}
+}
+
+func TestLoad_StorageConfig_PartialConfig(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, ".waza.yaml", `
+storage:
+  provider: azure-blob
+  enabled: true
+`)
+
+	cfg, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+
+	assertEqual(t, "Storage.Provider", "azure-blob", cfg.Storage.Provider)
+	if !cfg.Storage.Enabled {
+		t.Error("Storage.Enabled should be true")
+	}
+	// ContainerName should fall back to default
+	assertEqual(t, "Storage.ContainerName", "waza-results", cfg.Storage.ContainerName)
+	// AccountName not specified, should be empty
+	assertEqual(t, "Storage.AccountName", "", cfg.Storage.AccountName)
+}
+
+func TestLoad_StorageConfig_Disabled(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, ".waza.yaml", `
+storage:
+  provider: azure-blob
+  accountName: myaccount
+  enabled: false
+`)
+
+	cfg, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+
+	assertEqual(t, "Storage.Provider", "azure-blob", cfg.Storage.Provider)
+	if cfg.Storage.Enabled {
+		t.Error("Storage.Enabled should be false")
+	}
+}
+
+func TestLoad_StorageConfig_CustomContainerName(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, ".waza.yaml", `
+storage:
+  containerName: custom-container-123
+`)
+
+	cfg, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+
+	assertEqual(t, "Storage.ContainerName", "custom-container-123", cfg.Storage.ContainerName)
+}
+
+func TestLoad_StorageConfig_MergeBehavior(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, ".waza.yaml", `
+storage:
+  provider: azure-blob
+  # containerName not specified, should use default
+  enabled: true
+`)
+
+	cfg, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+
+	// Provider from file
+	assertEqual(t, "Storage.Provider", "azure-blob", cfg.Storage.Provider)
+	// Enabled from file
+	if !cfg.Storage.Enabled {
+		t.Error("Storage.Enabled should be true")
+	}
+	// ContainerName from default (not specified in file)
+	assertEqual(t, "Storage.ContainerName", "waza-results", cfg.Storage.ContainerName)
+}
+
 // --- test helpers ---
 
 func writeFile(t *testing.T, dir, name, content string) {

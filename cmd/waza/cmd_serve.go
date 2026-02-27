@@ -75,11 +75,18 @@ JSON-RPC methods (when using --tcp or stdin/stdout):
 					mcp.ServeStdio(ctx, os.Stdin, os.Stdout, logger)
 				}()
 
+				// Prepare storage config if enabled.
+				var storageCfg *projectconfig.StorageConfig
+				if cfg.Storage.Enabled {
+					storageCfg = &cfg.Storage
+				}
+
 				srv, err := webserver.New(webserver.Config{
-					Port:       httpPort,
-					ResultsDir: resultsDir,
-					NoBrowser:  noBrowser,
-					Logger:     logger,
+					Port:          httpPort,
+					ResultsDir:    resultsDir,
+					NoBrowser:     noBrowser,
+					Logger:        logger,
+					StorageConfig: storageCfg,
 				})
 				if err != nil {
 					return fmt.Errorf("failed to initialize web server: %w", err)

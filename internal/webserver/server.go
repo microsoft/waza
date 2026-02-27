@@ -10,14 +10,17 @@ import (
 	"os/exec"
 	"runtime"
 	"time"
+
+	"github.com/spboyer/waza/internal/projectconfig"
 )
 
 // Config holds the HTTP server configuration.
 type Config struct {
-	Port       int
-	ResultsDir string
-	NoBrowser  bool
-	Logger     *slog.Logger
+	Port          int
+	ResultsDir    string
+	NoBrowser     bool
+	Logger        *slog.Logger
+	StorageConfig *projectconfig.StorageConfig // Optional storage config
 }
 
 // Server wraps the HTTP server with configuration.

@@ -157,6 +157,7 @@ func outcomeToSummary(o *models.EvaluationOutcome) RunSummary {
 		Cost:       estimateCost(tokens),
 		Duration:   float64(o.Digest.DurationMs) / 1000.0,
 		Timestamp:  o.Timestamp,
+		Source:     "local",
 	}
 }
 

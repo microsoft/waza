@@ -350,6 +350,42 @@ Analyzes SKILL.md and suggests:
 - Removable content
 - Restructuring opportunities
 
+## waza results
+
+Manage evaluation results from cloud storage or local storage.
+
+### waza results list
+
+List evaluation runs from configured cloud storage.
+
+```bash
+waza results list
+waza results list --limit 20
+waza results list --format json
+```
+
+#### Flags
+
+| Flag | Description |
+|------|-------------|
+| `--limit <n>` | Maximum results to display (default: 10) |
+| `--format` | Output format: `table` or `json` (default: `table`) |
+
+### waza results compare
+
+Compare two evaluation runs side by side.
+
+```bash
+waza results compare run-id-1 run-id-2
+waza results compare run-id-1 run-id-2 --format json
+```
+
+#### Flags
+
+| Flag | Description |
+|------|-------------|
+| `--format` | Output format: `table` or `json` (default: `table`) |
+
 ## waza dev
 
 Improve skill compliance iteratively.

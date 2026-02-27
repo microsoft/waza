@@ -1,0 +1,350 @@
+---
+title: Azure Blob Storage
+description: Store and share evaluation results in Azure Blob Storage for team collaboration.
+---
+
+Store evaluation results in Azure Blob Storage to enable team collaboration, centralized result browsing, and easy run comparison.
+
+## Why Azure Storage?
+
+Without centralized storage:
+- Results live on developers' machines
+- Hard to compare runs across team members
+- No historical tracking
+- Results deleted when workspace cleaned up
+
+With Azure Storage:
+- **Automatic uploads** — Results upload immediately after `waza run`
+- **Team visibility** — Browse all runs with `waza results list`
+- **Easy comparison** — Compare any two runs with `waza results compare`
+- **Historical archive** — Results organized by date
+- **No extra config** — Uses your existing Azure credentials
+
+## Prerequisites
+
+### Azure Account
+
+You need an Azure Storage account. You can:
+
+**Option 1: Create a new storage account** (recommended for team evaluation results)
+```bash
+# Create resource group
+az group create -n waza-eval -l eastus
+
+# Create storage account
+az storage account create \
+  -n myteamwaza \  # Must be unique globally, lowercase alphanumeric
+  -g waza-eval \
+  --sku Standard_LRS
+
+# Create container
+az storage container create -n waza-results -a myteamwaza
+```
+
+**Option 2: Use existing storage account**
+```bash
+# List your storage accounts
+az storage account list --query "[].name"
+
+# Use the account name in your .waza.yaml
+```
+
+### Azure Authentication
+
+Waza uses **DefaultAzureCredential** to automatically detect your Azure identity. It tries credentials in this order:
+
+1. **Environment variables** (`AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`, `AZURE_TENANT_ID`)
+2. **Managed Identity** (when running on Azure VMs, App Service, etc.)
+3. **Azure CLI** (`az login`)
+4. **Visual Studio Code** (if you've signed in)
+5. **Azure PowerShell** (if you've signed in)
+
+**In 99% of cases**, just run:
+```bash
+az login
+```
+
+If you don't have `az` CLI installed:
+- **macOS:** `brew install azure-cli`
+- **Linux:** `curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash`
+- **Windows:** Download from [Azure CLI releases](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli-windows)
+
+## Configuration
+
+Add a `storage:` section to your `.waza.yaml` file in your project root:
+
+```yaml
+storage:
+  provider: azure-blob
+  accountName: "myteamwaza"    # Replace with your storage account name
+  containerName: "waza-results" # Optional (default: waza-results)
+  enabled: true                 # Optional (default: true when configured)
+```
+
+**Configuration fields:**
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `provider` | Yes | Must be `azure-blob` |
+| `accountName` | Yes | Your Azure Storage account name (e.g., `myteamwaza`) |
+| `containerName` | No | Blob container name. Default: `waza-results` |
+| `enabled` | No | Toggle uploads on/off. Default: `true` when storage is configured |
+
+## Getting Started
+
+### Step 1: Authenticate with Azure
+
+```bash
+az login
+```
+
+You'll be guided to a browser to sign in with your Azure account.
+
+Verify you're logged in:
+```bash
+az account show
+```
+
+### Step 2: Create a Storage Account (if needed)
+
+If you don't have a storage account yet:
+
+```bash
+# Create resource group
+az group create -n waza-eval -l eastus
+
+# Create storage account (account name must be globally unique, 3-24 chars, lowercase)
+az storage account create \
+  -n myteamwaza \
+  -g waza-eval \
+  --sku Standard_LRS
+
+# Create container
+az storage container create -n waza-results -a myteamwaza
+```
+
+Note the storage account name — you'll use it in `.waza.yaml`.
+
+### Step 3: Configure .waza.yaml
+
+```bash
+cat > .waza.yaml <<EOF
+storage:
+  provider: azure-blob
+  accountName: "myteamwaza"
+  containerName: "waza-results"
+  enabled: true
+EOF
+```
+
+Replace `myteamwaza` with your actual storage account name.
+
+### Step 4: Run Evaluations
+
+```bash
+waza run evals/my-skill/eval.yaml -v
+```
+
+During the run, you'll see:
+```
+📤 Uploading results to Azure Blob Storage...
+✅ Results uploaded: waza-results/2025/02/26/20250226-143025-abc123.json
+```
+
+## Using Results from Storage
+
+### List All Runs
+
+Browse all uploaded evaluation results:
+
+```bash
+waza results list
+```
+
+Output:
+```
+ID                          Skill           Model              Status   Timestamp
+20250226-143025-abc123     code-explainer  claude-sonnet-4.6  passed   2025-02-26 14:30:25
+20250226-135410-def456     code-explainer  gpt-4o             passed   2025-02-26 13:54:10
+20250226-124800-ghi789     math-solver     claude-sonnet-4.6  failed   2025-02-26 12:48:00
+```
+
+Show more results:
+```bash
+waza results list --limit 50
+```
+
+Export as JSON:
+```bash
+waza results list --format json | jq .
+```
+
+### Compare Two Runs
+
+Compare results side-by-side to see what changed:
+
+```bash
+waza results compare 20250226-143025-abc123 20250226-135410-def456
+```
+
+Output shows:
+- Task-level score changes
+- Pass/fail differences
+- Key metrics (tokens used, time taken, etc.)
+
+Example:
+```
+Task Comparison
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Task                      Score Δ    Status      
+basic-explanation         -5 (-2%)   ↓ regressed
+edge-case-handling        +10 (+5%)  ↑ improved
+performance-check         0 (0%)     ↔ unchanged
+
+Aggregate Metrics
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Pass rate:                85% → 90% (+5%)
+Avg completion time:      1.2s → 0.9s (-25%)
+Tokens used:              2,450 → 2,380 (-3%)
+```
+
+View comparison as JSON:
+```bash
+waza results compare run-id-1 run-id-2 --format json
+```
+
+## Full Example Workflow
+
+Here's a complete example using Azure Storage for team evaluation:
+
+```bash
+# 1. Set up Azure (one-time)
+az login
+az group create -n waza-eval -l eastus
+az storage account create -n myteamwaza -g waza-eval --sku Standard_LRS
+az storage container create -n waza-results -a myteamwaza
+
+# 2. Configure project (one-time)
+cat > .waza.yaml <<EOF
+storage:
+  provider: azure-blob
+  accountName: "myteamwaza"
+  containerName: "waza-results"
+  enabled: true
+EOF
+
+# 3. Run evaluations (repeatable)
+waza run evals/code-explainer/eval.yaml -v -o results-$(date +%s).json
+
+# 4. Browse team's results
+waza results list --limit 20
+
+# 5. Compare your run with previous run
+waza results compare 20250226-143025-abc123 20250226-135410-def456
+```
+
+## Troubleshooting
+
+### ❌ Error: "Subscription not found"
+
+**Cause:** `az login` didn't work or you don't have Azure access.
+
+**Fix:**
+```bash
+# Clear cached credentials
+az logout
+
+# Re-authenticate
+az login
+
+# Verify access
+az account show
+```
+
+### ❌ Error: "Storage account not found"
+
+**Cause:** Account name in `.waza.yaml` doesn't exist or has a typo.
+
+**Fix:**
+```bash
+# List your storage accounts
+az storage account list --query "[].name"
+
+# Update .waza.yaml with the correct name
+```
+
+### ❌ Error: "Container not found"
+
+**Cause:** The blob container doesn't exist in the storage account.
+
+**Fix:**
+```bash
+# Create the container (replace account name)
+az storage container create -n waza-results -a myteamwaza
+```
+
+### ❌ Error: "Access Denied"
+
+**Cause:** Your Azure user doesn't have storage permissions.
+
+**Fix:** Contact your Azure admin to grant you the **Storage Blob Data Contributor** role on the storage account.
+
+### ❌ Results not uploading
+
+**Fix:** Verify storage is enabled and configured:
+```bash
+cat .waza.yaml | grep -A 5 "^storage:"
+```
+
+Upload is automatic only if:
+- `storage:` section exists
+- `enabled: true` (or omitted, since it defaults to true)
+- You've run `az login`
+
+### ❌ Where did my results go?
+
+Results are stored in your Azure Storage account:
+```bash
+# View results in storage
+az storage blob list -c waza-results -a myteamwaza
+
+# Download a specific result
+az storage blob download \
+  -c waza-results \
+  -n 2025/02/26/20250226-143025-abc123.json \
+  -a myteamwaza \
+  -f result.json
+```
+
+## Advanced
+
+### Disable uploads for a single run
+
+```bash
+# Create a temporary config with storage disabled
+cat > .waza-local.yaml <<EOF
+storage:
+  enabled: false
+EOF
+
+# Run with local-only results (doesn't upload)
+waza run eval.yaml -v
+```
+
+### Use a custom Azure credential
+
+For CI/CD or service accounts, set environment variables:
+
+```bash
+export AZURE_CLIENT_ID="your-app-id"
+export AZURE_CLIENT_SECRET="your-secret"
+export AZURE_TENANT_ID="your-tenant-id"
+
+waza run eval.yaml  # Uses these credentials
+```
+
+## Next Steps
+
+- **[CLI Reference](../../reference/cli/#waza-results)** — Complete `waza results` command docs
+- **[YAML Schema](../../reference/schema/#storage-section)** — Full storage configuration reference
+- **[Dashboard Guide](../dashboard-explore/)** — Visualize results in the web dashboard

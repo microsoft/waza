@@ -460,6 +460,65 @@ defaults:
 cache:
   enabled: false
   dir: .waza-cache
+
+# Cloud storage (optional)
+storage:
+  provider: azure-blob
+  accountName: "myteamwaza"
+  containerName: "waza-results"
+  enabled: true
+```
+
+### storage Section
+
+Configuration for uploading evaluation results to cloud storage.
+
+#### provider
+
+**Type:** string  
+**Values:** `azure-blob`
+
+The cloud provider to use for result storage.
+
+```yaml
+storage:
+  provider: azure-blob
+```
+
+#### accountName
+
+**Type:** string  
+**Required:** yes (when `storage:` is configured)
+
+The Azure Storage account name. Results are uploaded to blob storage in this account.
+
+```yaml
+storage:
+  accountName: "myteamwaza"
+```
+
+#### containerName
+
+**Type:** string  
+**Default:** `waza-results`
+
+The blob container where results are stored.
+
+```yaml
+storage:
+  containerName: "waza-results"
+```
+
+#### enabled
+
+**Type:** boolean  
+**Default:** `true` (when `storage:` is configured)
+
+Enable or disable automatic result uploads. When `false`, results are only saved locally.
+
+```yaml
+storage:
+  enabled: true
 ```
 
 ## Example Complete eval.yaml
