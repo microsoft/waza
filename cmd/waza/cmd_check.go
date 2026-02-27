@@ -173,6 +173,12 @@ func runCheck(cmd *cobra.Command, args []string) error {
 			}
 			skillDir = filepath.Join(wd, skillDir)
 		}
+		// If the path points directly to a SKILL.md file, use its parent directory.
+		if filepath.Base(skillDir) == "SKILL.md" {
+			if info, err := os.Stat(skillDir); err == nil && !info.IsDir() {
+				skillDir = filepath.Dir(skillDir)
+			}
+		}
 		report, err := checkReadiness(skillDir, nil)
 		if err != nil {
 			return err

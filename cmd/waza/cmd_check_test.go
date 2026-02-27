@@ -54,6 +54,35 @@ This is the body of the test skill.
 	assert.Contains(t, result, "Next Steps")
 }
 
+func TestCheckCommandWithSkillMdFilePath(t *testing.T) {
+	// Passing the path directly to SKILL.md should work the same as passing the directory.
+	tmpDir := t.TempDir()
+	skillContent := `---
+name: test-skill-file-path
+description: This is a test skill for testing direct SKILL.md path argument.
+---
+
+# Test Skill
+
+This is the body of the test skill.
+`
+	skillPath := filepath.Join(tmpDir, "SKILL.md")
+	require.NoError(t, os.WriteFile(skillPath, []byte(skillContent), 0644))
+
+	cmd := newCheckCommand()
+	var output bytes.Buffer
+	cmd.SetOut(&output)
+	cmd.SetErr(&output)
+	cmd.SetArgs([]string{skillPath}) // pass SKILL.md file directly
+
+	err := cmd.Execute()
+	assert.NoError(t, err)
+
+	result := output.String()
+	assert.Contains(t, result, "test-skill-file-path")
+	assert.Contains(t, result, "Compliance Score:")
+}
+
 func TestCheckCommandNoSkillMd(t *testing.T) {
 	tmpDir := t.TempDir()
 
