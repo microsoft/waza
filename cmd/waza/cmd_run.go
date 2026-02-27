@@ -44,6 +44,7 @@ var (
 	modelOverrides []string
 	recommendFlag  bool
 	baselineFlag   bool
+	suggestFlag    bool
 	sessionLog     bool
 	sessionDir     string
 	noSummary      bool
@@ -95,6 +96,7 @@ You can also specify a skill name to run its eval:
 	cmd.Flags().StringArrayVar(&modelOverrides, "model", nil, "Model to use (overrides spec config, can be repeated for comparison)")
 	cmd.Flags().BoolVar(&recommendFlag, "recommend", false, "Generate heuristic recommendation after multi-model run")
 	cmd.Flags().BoolVar(&baselineFlag, "baseline", false, "Run A/B comparison: with skills vs without skills")
+	cmd.Flags().BoolVar(&suggestFlag, "suggest", false, "Generate a Copilot report suggesting skill improvements based on test outcomes")
 	cmd.Flags().BoolVar(&sessionLog, "session-log", false, "Enable session event logging (NDJSON)")
 	cmd.Flags().StringVar(&sessionDir, "session-dir", "", "Directory for session log files (default: current directory)")
 	cmd.Flags().BoolVar(&noSummary, "no-summary", false, "Skip writing combined summary.json for multi-skill runs")
@@ -469,7 +471,7 @@ func runCommandForSpec(cmd *cobra.Command, sp skillSpecPath) ([]modelResult, err
 
 // runSingleModel executes a benchmark for one model and returns the outcome.
 // It prints the per-model summary and saves output for single-model runs.
-func runSingleModel(_ *cobra.Command, spec *models.BenchmarkSpec, specPath string) (*models.EvaluationOutcome, error) {
+func runSingleModel(cmd *cobra.Command, spec *models.BenchmarkSpec, specPath string) (*models.EvaluationOutcome, error) {
 	// Get spec directory for resolving relative paths
 	specDir := filepath.Dir(specPath)
 	if !filepath.IsAbs(specDir) {
@@ -531,6 +533,9 @@ func runSingleModel(_ *cobra.Command, spec *models.BenchmarkSpec, specPath strin
 		engine = execution.NewCopilotEngineBuilder(spec.Config.ModelID, nil).Build()
 	default:
 		return nil, fmt.Errorf("unknown engine type: %s", spec.Config.EngineType)
+	}
+	if err := engine.Initialize(context.Background()); err != nil {
+		return nil, fmt.Errorf("failed to initialize agent: %w", err)
 	}
 	defer func() {
 		if err := engine.Shutdown(context.Background()); err != nil {
@@ -644,6 +649,8 @@ func runSingleModel(_ *cobra.Command, spec *models.BenchmarkSpec, specPath strin
 		sessLogger.Log(ev) //nolint:errcheck
 	}
 
+	var triggerResults []models.TriggerResult
+
 	// Discover and run trigger tests if present alongside the eval spec
 	if triggerSpec, err := trigger.Discover(specDir); err != nil {
 		return outcome, fmt.Errorf("loading trigger tests: %w", err)
@@ -668,13 +675,14 @@ func runSingleModel(_ *cobra.Command, spec *models.BenchmarkSpec, specPath strin
 					DidTrigger:    false,
 				})
 			}
+			triggerResults = results
 			tm = models.ComputeTriggerMetrics(results)
 		} else {
 			tr := trigger.NewRunner(triggerSpec, engine, cfg, os.Stdout)
 			if verbose {
 				fmt.Println("Running trigger tests...")
 			}
-			if tm, err = tr.Run(ctx); err != nil {
+			if triggerResults, tm, err = tr.RunDetailed(ctx); err != nil {
 				fmt.Fprintf(os.Stderr, "Warning: trigger tests failed: %v\n", err)
 			}
 		}
@@ -707,6 +715,19 @@ func runSingleModel(_ *cobra.Command, spec *models.BenchmarkSpec, specPath strin
 		}
 	default:
 		return nil, fmt.Errorf("unknown output format: %s (supported: default, github-comment)", format)
+	}
+
+	if suggestFlag {
+		report, err := generateEvalAnalysis(cmd.Context(), engine, spec, specPath, outcome, triggerResults)
+		if err != nil {
+			fmt.Fprintf(cmd.ErrOrStderr(), "error generating suggestions: %v\n", err) //nolint:errcheck
+		} else if report != "" {
+			if outcome.Metadata == nil {
+				outcome.Metadata = make(map[string]any)
+			}
+			outcome.Metadata["suggestion_report"] = report
+			displaySuggestionReport(cmd.OutOrStdout(), spec.Config.ModelID, report)
+		}
 	}
 
 	// Save output for single-model runs (multi-model saves are handled by the caller)

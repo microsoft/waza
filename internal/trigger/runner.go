@@ -12,6 +12,7 @@ import (
 	"github.com/spboyer/waza/internal/config"
 	"github.com/spboyer/waza/internal/execution"
 	"github.com/spboyer/waza/internal/models"
+	"github.com/spboyer/waza/internal/transcript"
 	"github.com/spboyer/waza/internal/utils"
 )
 
@@ -30,9 +31,11 @@ type task struct {
 }
 
 type taskResult struct {
-	triggered bool
-	response  string
-	err       error
+	triggered  bool
+	response   string
+	transcript []models.TranscriptEvent
+	toolCalls  []models.ToolCall
+	err        error
 }
 
 func NewRunner(spec *TestSpec, engine execution.AgentEngine, cfg *config.BenchmarkConfig, out io.Writer) *Runner {
@@ -40,6 +43,11 @@ func NewRunner(spec *TestSpec, engine execution.AgentEngine, cfg *config.Benchma
 }
 
 func (r *Runner) Run(ctx context.Context) (*models.TriggerMetrics, error) {
+	_, m, err := r.RunDetailed(ctx)
+	return m, err
+}
+
+func (r *Runner) RunDetailed(ctx context.Context) ([]models.TriggerResult, *models.TriggerMetrics, error) {
 	var tasks []task
 	for _, p := range r.spec.ShouldTriggerPrompts {
 		tasks = append(tasks, task{prompt: p.Prompt, confidence: p.Confidence, shouldTrigger: true})
@@ -69,7 +77,12 @@ func (r *Runner) Run(ctx context.Context) (*models.TriggerMetrics, error) {
 			triggered := slices.ContainsFunc(resp.SkillInvocations, func(si execution.SkillInvocation) bool {
 				return si.Name == r.spec.Skill
 			})
-			outcomes[i] = taskResult{triggered: triggered, response: resp.FinalOutput}
+			outcomes[i] = taskResult{
+				triggered:  triggered,
+				response:   resp.FinalOutput,
+				transcript: transcript.BuildFromSessionEvents(resp.Events),
+				toolCalls:  resp.ToolCalls,
+			}
 		}(i, t)
 	}
 	wg.Wait()
@@ -90,6 +103,7 @@ func (r *Runner) Run(ctx context.Context) (*models.TriggerMetrics, error) {
 				Confidence:    t.confidence,
 				ShouldTrigger: t.shouldTrigger,
 				DidTrigger:    !t.shouldTrigger,
+				ErrorMsg:      o.err.Error(),
 			})
 			continue
 		}
@@ -124,15 +138,18 @@ func (r *Runner) Run(ctx context.Context) (*models.TriggerMetrics, error) {
 			Confidence:    t.confidence,
 			DidTrigger:    o.triggered,
 			ShouldTrigger: t.shouldTrigger,
+			FinalOutput:   o.response,
+			Transcript:    o.transcript,
+			ToolCalls:     o.toolCalls,
 		})
 	}
 
 	m := models.ComputeTriggerMetrics(results)
 	if m == nil {
-		return nil, fmt.Errorf("no trigger test results collected")
+		return nil, nil, fmt.Errorf("no trigger test results collected")
 	}
 	m.Errors = errorCount
-	return m, nil
+	return results, m, nil
 }
 
 func (r *Runner) testTrigger(ctx context.Context, prompt string) (*execution.ExecutionResponse, error) {

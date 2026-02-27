@@ -104,7 +104,7 @@ func WithCache(c *cache.Cache) RunnerOption {
 	}
 }
 
-// NewTestRunner creates a new test runner
+// NewTestRunner creates a new test runner. The caller owns the engine and is responsible for initializing and shutting it down as needed.
 func NewTestRunner(cfg *config.BenchmarkConfig, engine execution.AgentEngine, opts ...RunnerOption) *TestRunner {
 	r := &TestRunner{
 		cfg:       cfg,
@@ -166,16 +166,6 @@ func (r *TestRunner) RunBenchmark(ctx context.Context) (*models.EvaluationOutcom
 // runNormalBenchmark executes a normal single-pass evaluation
 func (r *TestRunner) runNormalBenchmark(ctx context.Context) (*models.EvaluationOutcome, error) {
 	startTime := time.Now()
-
-	// Initialize engine
-	if err := r.engine.Initialize(ctx); err != nil {
-		return nil, fmt.Errorf("failed to initialize engine: %w", err)
-	}
-	defer func() {
-		if err := r.engine.Shutdown(ctx); err != nil {
-			fmt.Printf("warning: failed to shutdown engine: %v\n", err)
-		}
-	}()
 
 	// Set up hooks runner
 	spec := r.cfg.Spec()
@@ -1261,11 +1251,7 @@ func (r *TestRunner) buildSessionDigest(resp *execution.ExecutionResponse) model
 }
 
 func (r *TestRunner) buildTranscript(resp *execution.ExecutionResponse) []models.TranscriptEvent {
-	entries := make([]models.TranscriptEvent, 0, len(resp.Events))
-	for _, evt := range resp.Events {
-		entries = append(entries, models.TranscriptEvent{SessionEvent: evt})
-	}
-	return entries
+	return transcript.BuildFromSessionEvents(resp.Events)
 }
 
 func (r *TestRunner) computeTestStats(runs []models.RunResult) *models.TestStats {

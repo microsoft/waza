@@ -17,10 +17,14 @@ type TriggerMetrics struct {
 
 // TriggerResult pairs an expected trigger label with the actual outcome.
 type TriggerResult struct {
-	Prompt        string
-	Confidence    string
-	ShouldTrigger bool
-	DidTrigger    bool
+	Prompt        string            `json:"prompt"`
+	Confidence    string            `json:"confidence,omitempty"`
+	ShouldTrigger bool              `json:"should_trigger"`
+	DidTrigger    bool              `json:"did_trigger"`
+	ErrorMsg      string            `json:"error_msg,omitempty"`
+	FinalOutput   string            `json:"final_output,omitempty"`
+	Transcript    []TranscriptEvent `json:"transcript,omitempty"`
+	ToolCalls     []ToolCall        `json:"tool_calls,omitempty"`
 }
 
 // ComputeTriggerMetrics calculates precision, recall, F1, and accuracy

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	copilot "github.com/github/copilot-sdk/go"
 	"github.com/spboyer/waza/internal/models"
 )
 
@@ -49,6 +50,16 @@ func Write(dir string, t *models.TaskTranscript) (string, error) {
 	}
 
 	return path, nil
+}
+
+// BuildFromSessionEvents converts a slice of Copilot session events
+// into TranscriptEvents.
+func BuildFromSessionEvents(events []copilot.SessionEvent) []models.TranscriptEvent {
+	entries := make([]models.TranscriptEvent, 0, len(events))
+	for _, evt := range events {
+		entries = append(entries, models.TranscriptEvent{SessionEvent: evt})
+	}
+	return entries
 }
 
 // BuildTaskTranscript constructs a TaskTranscript from run results.

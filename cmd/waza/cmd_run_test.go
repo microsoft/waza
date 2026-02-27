@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -39,6 +40,7 @@ func resetRunGlobals() {
 	sessionDir = ""
 	noSummary = false
 	reporters = nil
+	suggestFlag = false
 }
 
 // helper creates a valid minimal eval spec YAML in a temp dir,
@@ -66,6 +68,44 @@ config:
   parallel: false
   executor: ` + engine + `
   model: test-model
+tasks:
+  - "tasks/*.yaml"
+`
+	specPath := filepath.Join(dir, "eval.yaml")
+	require.NoError(t, os.WriteFile(specPath, []byte(spec), 0o644))
+	return specPath
+}
+
+// helper creates a valid eval spec that deterministically fails via a regex grader.
+func createFailingTestSpec(t *testing.T, engine string) string {
+	t.Helper()
+	dir := t.TempDir()
+
+	taskDir := filepath.Join(dir, "tasks")
+	require.NoError(t, os.MkdirAll(taskDir, 0o755))
+
+	task := `id: test-task-001
+name: Test Task
+inputs:
+  prompt: "Explain this code"
+`
+	require.NoError(t, os.WriteFile(filepath.Join(taskDir, "task.yaml"), []byte(task), 0o644))
+
+	spec := `name: test-eval
+skill: test-skill
+version: "1.0"
+config:
+  trials_per_task: 1
+  timeout_seconds: 30
+  parallel: false
+  executor: ` + engine + `
+  model: test-model
+graders:
+  - type: regex
+    name: must-contain-never-match
+    config:
+      must_match:
+        - "NEVER_MATCH_VALUE_12345"
 tasks:
   - "tasks/*.yaml"
 `
@@ -987,6 +1027,81 @@ func TestRunCommand_RecommendSetsMetadata(t *testing.T) {
 		_, hasRec := meta["recommendation"]
 		assert.True(t, hasRec, "metadata should contain recommendation key for %s", model)
 	}
+}
+
+func TestRunCommand_SuggestFlagSkipsReportWhenAllPass(t *testing.T) {
+	resetRunGlobals()
+
+	specPath := createTestSpec(t, "mock")
+
+	cmd := newRunCommand()
+	cmd.SetArgs([]string{specPath, "--suggest"})
+	var buf bytes.Buffer
+	cmd.SetOut(&buf)
+	cmd.SetErr(io.Discard)
+
+	execErr := cmd.Execute()
+
+	require.NoError(t, execErr)
+
+	output := buf.String()
+	assert.NotContains(t, output, "SUGGESTIONS (test-model)")
+	assert.NotContains(t, output, "Deterministic mock suggestion report")
+}
+
+func TestRunCommand_SuggestSkipsMetadataWhenAllPass(t *testing.T) {
+	resetRunGlobals()
+
+	specPath := createTestSpec(t, "mock")
+	outFile := filepath.Join(t.TempDir(), "results.json")
+
+	cmd := newRunCommand()
+	cmd.SetArgs([]string{specPath, "--suggest", "--output", outFile})
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+
+	err := cmd.Execute()
+	require.NoError(t, err)
+
+	data, err := os.ReadFile(outFile)
+	require.NoError(t, err)
+
+	var result map[string]any
+	require.NoError(t, json.Unmarshal(data, &result))
+
+	meta, ok := result["metadata"].(map[string]any)
+	if !ok {
+		return
+	}
+	_, hasSuggestion := meta["suggestion_report"]
+	assert.False(t, hasSuggestion, "metadata should not contain suggestion_report when all tests pass")
+}
+
+func TestRunCommand_SuggestSetsMetadataWhenFailuresExist(t *testing.T) {
+	resetRunGlobals()
+
+	specPath := createFailingTestSpec(t, "mock")
+	outFile := filepath.Join(t.TempDir(), "results.json")
+
+	cmd := newRunCommand()
+	cmd.SetArgs([]string{specPath, "--suggest", "--output", outFile})
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+
+	err := cmd.Execute()
+	require.Error(t, err)
+
+	data, err := os.ReadFile(outFile)
+	require.NoError(t, err)
+
+	var result map[string]any
+	require.NoError(t, json.Unmarshal(data, &result))
+
+	meta, ok := result["metadata"].(map[string]any)
+	require.True(t, ok, "expected metadata key in output JSON")
+	suggestion, hasSuggestion := meta["suggestion_report"].(string)
+	require.True(t, hasSuggestion, "metadata should contain suggestion_report")
+	assert.Contains(t, suggestion, "Deterministic mock suggestion report")
 }
 
 // ---------------------------------------------------------------------------

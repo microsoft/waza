@@ -199,6 +199,7 @@ Run an evaluation benchmark from a spec file.
 | `--baseline` | | A/B testing mode — runs each task twice (without skill = baseline, with skill = normal) and computes improvement scores |
 | `--discover` | | Auto skill discovery — walks directory tree for SKILL.md + eval.yaml (root/tests/evals) |
 | `--strict` | | Fail if any SKILL.md lacks eval coverage (use with `--discover`) |
+| `--suggest` | | Generate a Copilot suggestion report based on test outcomes (`mock` engine emits a deterministic fake report) |
 
 **Result Caching**
 
@@ -536,19 +537,19 @@ hooks:
       working_directory: "."
       exit_codes: [0]
       error_on_fail: false
-  
+
   after_run:
     - command: "echo 'Evaluation complete'"
       working_directory: "."
       exit_codes: [0]
       error_on_fail: false
-  
+
   before_task:
     - command: "echo 'Running task: {{.TaskName}}'"
       working_directory: "."
       exit_codes: [0]
       error_on_fail: false
-  
+
   after_task:
     - command: "echo 'Task {{.TaskName}} completed'"
       working_directory: "."
@@ -560,13 +561,13 @@ graders:
     name: pattern_check
     config:
       must_match: ["\\d+ tests passed"]
-  
+
   - type: behavior
     name: efficiency
     config:
       max_tool_calls: 20
       max_duration_ms: 300000
-  
+
   - type: action_sequence
     name: workflow_check
     config:
@@ -576,7 +577,7 @@ graders:
 # Task definitions: glob patterns or CSV dataset
 tasks:
   - "tasks/*.yaml"
-  
+
 # Optional: Generate tasks from CSV dataset
 # tasks_from: ./test-cases.csv
 # range: [1, 10]  # Only include rows 1-10 (0-indexed, skips header)
@@ -642,7 +643,7 @@ Tasks can also be mixed — use both explicit task files and CSV-generated tasks
 ```yaml
 tasks:
   - "tasks/*.yaml"        # Explicit tasks
-  
+
 tasks_from: ./test-cases.csv    # CSV-generated tasks
 range: [0, 20]                  # Only first 20 rows
 ```
@@ -699,19 +700,19 @@ hooks:
       working_directory: "."
       exit_codes: [0]
       error_on_fail: true
-  
+
   after_run:
     - command: "rm -rf node_modules"
       working_directory: "."
       exit_codes: [0]
       error_on_fail: false
-  
+
   before_task:
     - command: "echo 'Task: {{.TaskName}}'"
       working_directory: "."
       exit_codes: [0]
       error_on_fail: false
-  
+
   after_task:
     - command: "echo 'Done: {{.TaskName}}'"
       working_directory: "."
