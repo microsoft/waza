@@ -178,7 +178,8 @@ func TestCopilotExecute_RequiredFields(t *testing.T) {
 	ctrl := gomock.NewController(t)
 
 	client := NewMockcopilotClient(ctrl)
-	client.EXPECT().Start(gomock.Any())
+	// Start() should NOT be called when the request is invalid (e.g. Timeout == 0),
+	// because extractReqParams now runs before startOnce.Do.
 
 	builder := NewCopilotEngineBuilder("gpt-4o-mini", &CopilotEngineBuilderOptions{
 		NewCopilotClient: func(clientOptions *copilot.ClientOptions) copilotClient {

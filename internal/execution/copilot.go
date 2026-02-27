@@ -83,6 +83,19 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 		return nil, fmt.Errorf("nil req was passed to CopilotEngine.Execute")
 	}
 
+	modelID, sourceDir, err := e.extractReqParams(req)
+
+	if err != nil {
+		return nil, err
+	}
+
+	// Apply the timeout before Start() so a non-responsive copilot CLI does not
+	// block indefinitely.  Previously the timeout context was created after the
+	// startOnce.Do block, which meant Start() ran with an unbounded context and
+	// could deadlock when the JSON-RPC ping never received a response.
+	ctx, cancel := context.WithTimeout(ctx, req.Timeout)
+	defer cancel()
+
 	var startErr error
 
 	e.startOnce.Do(func() {
@@ -93,12 +106,6 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 
 	if startErr != nil {
 		return nil, fmt.Errorf("copilot failed to start: %w", startErr)
-	}
-
-	modelID, sourceDir, err := e.extractReqParams(req)
-
-	if err != nil {
-		return nil, err
 	}
 
 	start := time.Now()
@@ -120,9 +127,6 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 			Content: msg,
 		}
 	}
-
-	ctx, cancel := context.WithTimeout(ctx, req.Timeout)
-	defer cancel()
 
 	var session copilotSession
 

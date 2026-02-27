@@ -39,6 +39,38 @@ func TestJoinStrings(t *testing.T) {
 	assert.Equal(t, "abc", joinStrings([]string{"a", "b", "c"}))
 }
 
+// TestCopilotEngine_Execute_StartRespectsTimeout verifies that a Start() call
+// that blocks indefinitely is canceled by req.Timeout, preventing a deadlock.
+func TestCopilotEngine_Execute_StartRespectsTimeout(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	clientMock := NewMockcopilotClient(ctrl)
+
+	// Simulate a Start() that blocks until its context is canceled (mimicking
+	// the copilot SDK hanging on the JSON-RPC Ping during protocol negotiation).
+	clientMock.EXPECT().Start(gomock.Any()).DoAndReturn(func(ctx context.Context) error {
+		<-ctx.Done()
+		return ctx.Err()
+	})
+
+	engine := NewCopilotEngineBuilder("test", &CopilotEngineBuilderOptions{
+		NewCopilotClient: func(clientOptions *copilot.ClientOptions) copilotClient {
+			return clientMock
+		},
+	}).Build()
+
+	start := time.Now()
+	_, err := engine.Execute(context.Background(), &ExecutionRequest{
+		Message: "hello",
+		Timeout: 50 * time.Millisecond,
+	})
+	elapsed := time.Since(start)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "copilot failed to start")
+	// Must have returned within a reasonable multiple of the timeout.
+	assert.Less(t, elapsed, 5*time.Second)
+}
+
 func TestCopilotEngine_Execute_CreateSessionError(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	clientMock := NewMockcopilotClient(ctrl)
