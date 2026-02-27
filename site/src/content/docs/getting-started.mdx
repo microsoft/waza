@@ -265,6 +265,19 @@ Opens http://localhost:3000. View runs, detailed results, comparisons, and trend
 
 ## Troubleshooting
 
+### Install script fails or binary not found
+
+If the install script exits with a download error or 404, check the [Releases page](https://github.com/spboyer/waza/releases/latest) to confirm a binary for your platform is available. You can also install manually:
+
+```bash
+# Example: macOS ARM64 (Apple Silicon) — replace <version> with the latest tag (e.g. v0.9.0)
+curl -fSL -o waza https://github.com/spboyer/waza/releases/download/<version>/waza-darwin-arm64
+chmod +x waza
+sudo mv waza /usr/local/bin/waza
+```
+
+Replace `<version>` and the platform suffix (`darwin-arm64`, `linux-amd64`, etc.) with the values that match your system.
+
 ### "skill not found"
 
 Make sure you're in a project with `skills/` directory or a standalone skill with `SKILL.md`.

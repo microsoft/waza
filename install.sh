@@ -7,6 +7,9 @@ set -euo pipefail
 REPO="spboyer/waza"
 BINARY_NAME="waza"
 
+# Global so the EXIT trap can access it after main() returns
+tmpdir=""
+
 # Detect OS
 detect_os() {
   local os
@@ -42,16 +45,16 @@ install_dir() {
 }
 
 main() {
-  local os arch version tag asset_name install_path tmpdir
+  local os arch version tag asset_name install_path
 
   os="$(detect_os)"
   arch="$(detect_arch)"
 
   echo "Detected platform: ${os}/${arch}"
 
-  # Get latest release tag
-  tag="$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" \
-    | grep '"tag_name"' | head -1 | cut -d'"' -f4)"
+  # Get latest binary release tag (filter for v* tags; skip azd extension releases)
+  tag="$(curl -fsSL "https://api.github.com/repos/${REPO}/releases" \
+    | grep '"tag_name": "v' | head -1 | cut -d'"' -f4)"
 
   if [ -z "$tag" ]; then
     echo "Error: could not determine latest release." >&2
@@ -67,11 +70,15 @@ main() {
   fi
 
   tmpdir="$(mktemp -d)"
-  trap 'rm -rf "$tmpdir"' EXIT
+  trap '[ -n "$tmpdir" ] && rm -rf "$tmpdir"' EXIT
 
   echo "Downloading ${asset_name}..."
-  curl -fSL -o "${tmpdir}/${asset_name}" \
-    "https://github.com/${REPO}/releases/download/${tag}/${asset_name}"
+  if ! curl -fSL -o "${tmpdir}/${asset_name}" \
+    "https://github.com/${REPO}/releases/download/${tag}/${asset_name}"; then
+    echo "Error: Failed to download '${asset_name}' from release '${tag}'." >&2
+    echo "Check available assets at: https://github.com/${REPO}/releases/tag/${tag}" >&2
+    exit 1
+  fi
 
   echo "Downloading checksums..."
   curl -fSL -o "${tmpdir}/checksums.txt" \
