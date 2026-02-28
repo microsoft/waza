@@ -671,7 +671,7 @@ jobs:
       - name: Install waza extension
         run: |
           azd config set alpha.extensions on
-          azd ext source add -n waza -t url -l https://raw.githubusercontent.com/spboyer/waza/main/registry.json
+          azd ext source add -n waza -t url -l https://raw.githubusercontent.com/microsoft/waza/main/registry.json
           azd ext install microsoft.azd.waza
       - name: Run evaluations
         run: azd waza run --output-dir ./results
@@ -747,7 +747,7 @@ func generateWazaConfig(engine, model, skillsPath, evalsPath, resultsPath string
 	_ = enc.Close()
 
 	var sb strings.Builder
-	sb.WriteString("# yaml-language-server: $schema=https://raw.githubusercontent.com/spboyer/waza/main/schemas/config.schema.json\n\n")
+	sb.WriteString("# yaml-language-server: $schema=https://raw.githubusercontent.com/microsoft/waza/main/schemas/config.schema.json\n\n")
 	sb.Write(buf.Bytes())
 
 	return sb.String()

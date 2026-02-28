@@ -508,7 +508,7 @@ jobs:
 
       - name: Install waza
         run: |
-          curl -fsSL https://raw.githubusercontent.com/spboyer/waza/main/install.sh | bash
+          curl -fsSL https://raw.githubusercontent.com/microsoft/waza/main/install.sh | bash
 
       - name: Run eval
         run: |
