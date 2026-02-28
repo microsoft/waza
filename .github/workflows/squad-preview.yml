@@ -1,4 +1,5 @@
 name: Squad Preview Validation
+# go project — configure build, test, and validation commands below
 
 on:
   push:
@@ -13,26 +14,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-
-      - name: Run tests
-        run: node --test test/*.test.js
-
-      - name: Check no .ai-team/ files are tracked
+      - name: Build and test
         run: |
-          if git ls-files --error-unmatch .ai-team/ 2>/dev/null; then
-            echo "::error::❌ .ai-team/ files are tracked on preview — this must not ship."
-            exit 1
-          fi
-          echo "✅ No .ai-team/ files tracked — clean for release."
+          # TODO: Add your go build/test commands here
+          # Go:            go test ./...
+          # Python:        pip install -r requirements.txt && pytest
+          # .NET:          dotnet test
+          # Java (Maven):  mvn test
+          # Java (Gradle): ./gradlew test
+          echo "No build commands configured — update squad-preview.yml"
 
-      - name: Validate package.json version
+      - name: Validate
         run: |
-          VERSION=$(node -e "console.log(require('./package.json').version)")
-          if [ -z "$VERSION" ]; then
-            echo "::error::❌ No version field found in package.json."
-            exit 1
-          fi
-          echo "✅ package.json version: $VERSION"
+          # TODO: Add pre-release validation commands here
+          echo "No validation commands configured — update squad-preview.yml"

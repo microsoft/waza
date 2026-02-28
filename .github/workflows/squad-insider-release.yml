@@ -1,9 +1,9 @@
-name: Squad Release
-# go project — configure build, test, and release commands below
+name: Squad Insider Release
+# go project — configure build, test, and insider release commands below
 
 on:
   push:
-    branches: [main]
+    branches: [insider]
 
 permissions:
   contents: write
@@ -24,11 +24,11 @@ jobs:
           # .NET:          dotnet test
           # Java (Maven):  mvn test
           # Java (Gradle): ./gradlew test
-          echo "No build commands configured — update squad-release.yml"
+          echo "No build commands configured — update squad-insider-release.yml"
 
-      - name: Create release
+      - name: Create insider release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # TODO: Add your release commands here (e.g., git tag, gh release create)
-          echo "No release commands configured — update squad-release.yml"
+          # TODO: Add your insider/pre-release commands here
+          echo "No release commands configured — update squad-insider-release.yml"
