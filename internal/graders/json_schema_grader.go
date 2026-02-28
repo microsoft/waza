@@ -7,8 +7,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/santhosh-tekuri/jsonschema/v6"
 	"github.com/microsoft/waza/internal/models"
+	"github.com/santhosh-tekuri/jsonschema/v6"
 )
 
 // JSONSchemaGraderArgs holds the arguments for creating a JSON schema grader.
