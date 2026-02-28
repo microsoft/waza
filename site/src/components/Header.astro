@@ -11,14 +11,13 @@ const shouldRenderSearch =
 	config.pagefind || config.components.Search !== '@astrojs/starlight/components/Search.astro';
 
 const navLinks = [
-	{ label: 'Getting Started', href: '/waza/getting-started/' },
-	{ label: 'Guides', href: '/waza/guides/eval-yaml/' },
-	{ label: 'Reference', href: '/waza/reference/cli/' },
-	{ label: 'About', href: '/waza/about/' },
+	{ label: 'Getting Started', href: '/getting-started/' },
+	{ label: 'Guides', href: '/guides/eval-yaml/' },
+	{ label: 'Reference', href: '/reference/cli/' },
+	{ label: 'About', href: '/about/' },
 ];
 
 const currentPath = Astro.url.pathname;
-const isLandingPage = currentPath === '/waza/' || currentPath === '/waza';
 ---
 
 <div class="header">
@@ -26,7 +25,7 @@ const isLandingPage = currentPath === '/waza/' || currentPath === '/waza';
 		<SiteTitle />
 	</div>
 	<nav class="site-nav sl-hidden md:sl-flex print:hidden">
-		{isLandingPage && navLinks.map((link) => (
+		{navLinks.map((link) => (
 			<a
 				href={link.href}
 				class:list={['nav-link', { active: currentPath.startsWith(link.href) }]}
