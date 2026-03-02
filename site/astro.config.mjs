@@ -4,6 +4,8 @@ import starlight from '@astrojs/starlight';
 
 // https://astro.build/config
 export default defineConfig({
+	site: 'https://microsoft.github.io/waza',
+	base: '/waza',
 	integrations: [
 		starlight({
 			title: 'waza',
