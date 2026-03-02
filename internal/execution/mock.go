@@ -87,3 +87,7 @@ func (m *MockEngine) Shutdown(ctx context.Context) error {
 	}
 	return nil
 }
+
+func (m *MockEngine) SessionUsage(sessionID string) *models.UsageStats {
+	return nil
+}

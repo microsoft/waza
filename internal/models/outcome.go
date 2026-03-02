@@ -46,6 +46,7 @@ type EvaluationOutcome struct {
 	Measures        map[string]MeasureResult `json:"metrics"`
 	TestOutcomes    []TestOutcome            `json:"tasks"`
 	TriggerMetrics  *TriggerMetrics          `json:"trigger_metrics,omitempty"`
+	TriggerResults  []TriggerResult          `json:"trigger_results,omitempty"`
 	Metadata        map[string]any           `json:"metadata,omitempty"`
 	IsBaseline      bool                     `json:"is_baseline,omitempty"`
 	BaselineOutcome *EvaluationOutcome       `json:"baseline_outcome,omitempty"`
@@ -73,6 +74,7 @@ type OutcomeDigest struct {
 	StdDev         float64      `json:"std_dev"`
 	DurationMs     int64        `json:"duration_ms"`
 	Groups         []GroupStats `json:"groups,omitempty"`
+	Usage          *UsageStats  `json:"usage,omitempty"`
 
 	// Statistical summary populated when trials_per_task > 1
 	Statistics *StatisticalSummary `json:"statistics,omitempty"`
@@ -134,14 +136,76 @@ type GraderResults struct {
 }
 
 type SessionDigest struct {
-	TotalTurns    int        `json:"total_turns"`
-	ToolCallCount int        `json:"tool_call_count"`
-	TokensIn      int        `json:"tokens_in"`
-	TokensOut     int        `json:"tokens_out"`
-	TokensTotal   int        `json:"tokens_total"`
-	ToolsUsed     []string   `json:"tools_used"`
-	ToolCalls     []ToolCall `json:"tool_calls,omitempty"`
-	Errors        []string   `json:"errors"`
+	TotalTurns    int         `json:"total_turns"`
+	ToolCallCount int         `json:"tool_call_count"`
+	TokensIn      int         `json:"tokens_in"`
+	TokensOut     int         `json:"tokens_out"`
+	TokensTotal   int         `json:"tokens_total"`
+	ToolsUsed     []string    `json:"tools_used"`
+	ToolCalls     []ToolCall  `json:"tool_calls,omitempty"`
+	Errors        []string    `json:"errors"`
+	Usage         *UsageStats `json:"usage,omitempty"`
+	SessionID     string      `json:"session_id,omitempty"`
+}
+
+// UsageStats holds token and premium request usage data from a Copilot SDK session.
+type UsageStats struct {
+	Turns            int                   `json:"turns"`
+	InputTokens      int                   `json:"input_tokens"`
+	OutputTokens     int                   `json:"output_tokens"`
+	CacheReadTokens  int                   `json:"cache_read_tokens"`
+	CacheWriteTokens int                   `json:"cache_write_tokens"`
+	PremiumRequests  float64               `json:"premium_requests"`
+	ModelMetrics     map[string]ModelUsage `json:"model_metrics,omitempty"`
+}
+
+// IsZero returns true if no usage data has been recorded.
+func (u *UsageStats) IsZero() bool {
+	return u.InputTokens == 0 && u.OutputTokens == 0 &&
+		u.CacheReadTokens == 0 && u.CacheWriteTokens == 0 &&
+		u.PremiumRequests == 0 && u.Turns == 0
+}
+
+// ModelUsage holds per-model token and request usage.
+type ModelUsage struct {
+	InputTokens      int     `json:"input_tokens"`
+	OutputTokens     int     `json:"output_tokens"`
+	CacheReadTokens  int     `json:"cache_read_tokens"`
+	CacheWriteTokens int     `json:"cache_write_tokens"`
+	RequestCount     float64 `json:"request_count"`
+	RequestCost      float64 `json:"request_cost"`
+}
+
+// AggregateUsageStats sums usage across multiple UsageStats (e.g. across runs).
+func AggregateUsageStats(stats []*UsageStats) *UsageStats {
+	agg := &UsageStats{
+		ModelMetrics: make(map[string]ModelUsage),
+	}
+	for _, s := range stats {
+		if s == nil {
+			continue
+		}
+		agg.Turns += s.Turns
+		agg.InputTokens += s.InputTokens
+		agg.OutputTokens += s.OutputTokens
+		agg.CacheReadTokens += s.CacheReadTokens
+		agg.CacheWriteTokens += s.CacheWriteTokens
+		agg.PremiumRequests += s.PremiumRequests
+		for model, mu := range s.ModelMetrics {
+			existing := agg.ModelMetrics[model]
+			existing.InputTokens += mu.InputTokens
+			existing.OutputTokens += mu.OutputTokens
+			existing.CacheReadTokens += mu.CacheReadTokens
+			existing.CacheWriteTokens += mu.CacheWriteTokens
+			existing.RequestCount += mu.RequestCount
+			existing.RequestCost += mu.RequestCost
+			agg.ModelMetrics[model] = existing
+		}
+	}
+	if agg.IsZero() && len(agg.ModelMetrics) == 0 {
+		return nil
+	}
+	return agg
 }
 
 type TestStats struct {

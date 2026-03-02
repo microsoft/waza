@@ -39,9 +39,11 @@ func TestCopilotNoSessionID(t *testing.T) {
 
 	clientMock.EXPECT().Start(gomock.Any())
 	clientMock.EXPECT().CreateSession(gomock.Any(), expectedConfig).Return(sessionMock, nil)
+	sessionMock.EXPECT().Destroy()
+	clientMock.EXPECT().DeleteSession(gomock.Any(), "session-1")
 	clientMock.EXPECT().Stop()
 
-	sessionMock.EXPECT().On(gomock.Any()).Times(2).Return(unregister)
+	sessionMock.EXPECT().On(gomock.Any()).Times(3).Return(unregister)
 	sessionMock.EXPECT().SendAndWait(gomock.Any(), gomock.Any()).Return(&copilot.SessionEvent{}, nil)
 	sessionMock.EXPECT().SessionID().Return("session-1")
 
@@ -72,7 +74,7 @@ func TestCopilotNoSessionID(t *testing.T) {
 	require.Empty(t, resp.ErrorMsg)
 	require.True(t, resp.Success)
 	require.Equal(t, "this-model-wins", resp.ModelID)
-	require.Equal(t, unregisterCount, 2)
+	require.Equal(t, 1, unregisterCount) // only slog handler is unsubscribed; events collector stays alive for shutdown
 }
 
 func TestCopilotResumeSessionID(t *testing.T) {
@@ -95,9 +97,11 @@ func TestCopilotResumeSessionID(t *testing.T) {
 
 	clientMock.EXPECT().Start(gomock.Any())
 	clientMock.EXPECT().ResumeSessionWithOptions(gomock.Any(), "session-1", expectedConfig).Return(sessionMock, nil)
+	sessionMock.EXPECT().Destroy()
+	clientMock.EXPECT().DeleteSession(gomock.Any(), "session-1")
 	clientMock.EXPECT().Stop()
 
-	sessionMock.EXPECT().On(gomock.Any()).Times(2).Return(func() {})
+	sessionMock.EXPECT().On(gomock.Any()).Times(3).Return(func() {})
 	sessionMock.EXPECT().SendAndWait(gomock.Any(), gomock.Any()).Return(&copilot.SessionEvent{}, nil)
 	sessionMock.EXPECT().SessionID().Return("session-1")
 
@@ -147,9 +151,11 @@ func TestCopilotSendAndWaitReturnsErrorInResult(t *testing.T) {
 
 	clientMock.EXPECT().Start(gomock.Any())
 	clientMock.EXPECT().CreateSession(gomock.Any(), expectedConfig).Return(sessionMock, nil)
+	sessionMock.EXPECT().Destroy()
+	clientMock.EXPECT().DeleteSession(gomock.Any(), "session-1")
 	clientMock.EXPECT().Stop()
 
-	sessionMock.EXPECT().On(gomock.Any()).Times(2).Return(func() {})
+	sessionMock.EXPECT().On(gomock.Any()).Times(3).Return(func() {})
 	sessionMock.EXPECT().SendAndWait(gomock.Any(), gomock.Any()).Return(nil, errors.New(sessionErrorMsg))
 	sessionMock.EXPECT().SessionID().Return("session-1")
 

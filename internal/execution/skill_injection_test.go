@@ -173,9 +173,11 @@ func TestCopilotEngine_Execute_InjectsSkillSystemMessage(t *testing.T) {
 			assert.Contains(t, config.SystemMessage.Content, "<description>Deploy to test env</description>")
 			return sessionMock, nil
 		})
+	sessionMock.EXPECT().Destroy()
+	clientMock.EXPECT().DeleteSession(gomock.Any(), "session-1")
 	clientMock.EXPECT().Stop()
 
-	sessionMock.EXPECT().On(gomock.Any()).Times(2).Return(func() {})
+	sessionMock.EXPECT().On(gomock.Any()).Times(3).Return(func() {})
 	sessionMock.EXPECT().SendAndWait(gomock.Any(), gomock.Any()).Return(&copilot.SessionEvent{}, nil)
 	sessionMock.EXPECT().SessionID().Return("session-1")
 
@@ -210,9 +212,11 @@ func TestCopilotEngine_Execute_NoSystemMessageWithoutSkills(t *testing.T) {
 			assert.Nil(t, config.SystemMessage, "SystemMessage should be nil when no skills found")
 			return sessionMock, nil
 		})
+	sessionMock.EXPECT().Destroy()
+	clientMock.EXPECT().DeleteSession(gomock.Any(), "session-1")
 	clientMock.EXPECT().Stop()
 
-	sessionMock.EXPECT().On(gomock.Any()).Times(2).Return(func() {})
+	sessionMock.EXPECT().On(gomock.Any()).Times(3).Return(func() {})
 	sessionMock.EXPECT().SendAndWait(gomock.Any(), gomock.Any()).Return(&copilot.SessionEvent{}, nil)
 	sessionMock.EXPECT().SessionID().Return("session-1")
 
@@ -250,9 +254,11 @@ func TestCopilotEngine_ResumeSession_InjectsSkillSystemMessage(t *testing.T) {
 			assert.Contains(t, config.SystemMessage.Content, "<name>resume-skill</name>")
 			return sessionMock, nil
 		})
+	sessionMock.EXPECT().Destroy()
+	clientMock.EXPECT().DeleteSession(gomock.Any(), "existing-session")
 	clientMock.EXPECT().Stop()
 
-	sessionMock.EXPECT().On(gomock.Any()).Times(2).Return(func() {})
+	sessionMock.EXPECT().On(gomock.Any()).Times(3).Return(func() {})
 	sessionMock.EXPECT().SendAndWait(gomock.Any(), gomock.Any()).Return(&copilot.SessionEvent{}, nil)
 	sessionMock.EXPECT().SessionID().Return("existing-session")
 

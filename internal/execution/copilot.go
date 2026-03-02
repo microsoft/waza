@@ -11,6 +11,7 @@ import (
 	"time"
 
 	copilot "github.com/github/copilot-sdk/go"
+	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/utils"
 )
 
@@ -24,6 +25,18 @@ type CopilotEngine struct {
 
 	workspacesMu sync.Mutex
 	workspaces   []string // workspaces to clean up at Shutdown
+
+	// sessions maps session IDs to copilotSessions
+	sessions   map[string]copilotSession
+	sessionsMu sync.Mutex
+
+	// collectors tracks usage collectors by session ID so we can read
+	// shutdown-event usage after client.Stop() fires session.shutdown events.
+	usageCollectors   map[string]*SessionUsageCollector
+	usageCollectorsMu sync.RWMutex
+
+	shutdownOnce sync.Once
+	shutdownErr  error
 }
 
 // CopilotEngineBuilder builds a CopilotEngine with options
@@ -168,13 +181,40 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 		}
 	}
 
+	sessionID := session.SessionID()
+	defer func() {
+		// Close the session, release its resources, and trigger any session end events. The destroy
+		// operation doesn't remove data and isn't final in that the caller can resume the session by
+		// calling Execute again with [ExecutionRequest.SessionID] set
+		if err := session.Destroy(); err != nil {
+			slog.Info("failed to destroy session", "sessionID", sessionID, "error", err)
+		}
+	}()
+
 	eventsCollector := NewSessionEventsCollector()
+	usageCollector := NewSessionUsageCollector()
 
-	// Event handler with updated API
-	unsubscribe := session.On(eventsCollector.On)
-	defer unsubscribe()
+	// Event handler — NOT deferred for unsubscribe because we need to receive
+	// session.shutdown events later during client.Stop(). The usage handler is
+	// stored in e.collectors so we can read final usage after shutdown.
+	session.On(eventsCollector.On)
+	session.On(usageCollector.On)
 
-	unsubscribe = session.On(utils.SessionToSlog)
+	e.sessionsMu.Lock()
+	if e.sessions == nil {
+		e.sessions = make(map[string]copilotSession)
+	}
+	e.sessions[sessionID] = session
+	e.sessionsMu.Unlock()
+
+	e.usageCollectorsMu.Lock()
+	if e.usageCollectors == nil {
+		e.usageCollectors = make(map[string]*SessionUsageCollector)
+	}
+	e.usageCollectors[sessionID] = usageCollector
+	e.usageCollectorsMu.Unlock()
+
+	unsubscribe := session.On(utils.SessionToSlog)
 	defer unsubscribe()
 
 	// Send prompt with updated API
@@ -204,17 +244,40 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 		ErrorMsg:         errMsg,
 		Success:          err == nil,
 		WorkspaceDir:     workspaceDir,
-		SessionID:        session.SessionID(),
+		SessionID:        sessionID,
+		Usage:            usageCollector.UsageStats(),
 	}
 
 	return resp, nil
 }
 
-// Shutdown cleans up resources
+// Shutdown cleans up resources, deleting session and workspace data. It is safe to call
+// multiple times; subsequent calls after the first are no-ops that return the original
+// error.
 func (e *CopilotEngine) Shutdown(ctx context.Context) error {
+	e.shutdownOnce.Do(func() {
+		e.shutdownErr = e.doShutdown(ctx)
+	})
+	return e.shutdownErr
+}
+
+func (e *CopilotEngine) doShutdown(ctx context.Context) error {
+	sessions := func() map[string]copilotSession {
+		e.sessionsMu.Lock()
+		defer e.sessionsMu.Unlock()
+		s := e.sessions
+		e.sessions = nil
+		return s
+	}()
+
+	for id := range sessions {
+		if err := e.client.DeleteSession(ctx, id); err != nil {
+			slog.Warn("failed to delete session", "sessionID", id, "error", err)
+		}
+	}
+
 	if err := e.client.Stop(); err != nil {
-		// Log but continue cleanup
-		slog.Info("failed to stop client", "error", err)
+		return fmt.Errorf("failed to stop client: %w", err)
 	}
 
 	// remove the workspace folders - should be safe now that all the copilot sessions are shut down
@@ -238,6 +301,19 @@ func (e *CopilotEngine) Shutdown(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+// SessionUsage returns the final usage stats for a session. Call after Shutdown()
+// to get data from session.shutdown events (ModelMetrics, TotalPremiumRequests).
+func (e *CopilotEngine) SessionUsage(sessionID string) *models.UsageStats {
+	e.usageCollectorsMu.RLock()
+	defer e.usageCollectorsMu.RUnlock()
+
+	var usage *models.UsageStats
+	if u := e.usageCollectors[sessionID]; u != nil {
+		usage = u.UsageStats()
+	}
+	return usage
 }
 
 func (e *CopilotEngine) extractReqParams(req *ExecutionRequest) (modelID string, sourceDir string, err error) {

@@ -25,6 +25,7 @@ type TriggerResult struct {
 	FinalOutput   string            `json:"final_output,omitempty"`
 	Transcript    []TranscriptEvent `json:"transcript,omitempty"`
 	ToolCalls     []ToolCall        `json:"tool_calls,omitempty"`
+	SessionID     string            `json:"session_id,omitempty"`
 }
 
 // ComputeTriggerMetrics calculates precision, recall, F1, and accuracy

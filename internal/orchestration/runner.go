@@ -1241,13 +1241,25 @@ func (r *TestRunner) buildSessionDigest(resp *execution.ExecutionResponse) model
 		toolsUsed = append(toolsUsed, call.Name)
 	}
 
-	return models.SessionDigest{
+	digest := models.SessionDigest{
 		TotalTurns:    len(resp.Events),
 		ToolCallCount: len(resp.ToolCalls),
 		ToolsUsed:     toolsUsed,
 		ToolCalls:     resp.ToolCalls,
 		Errors:        []string{},
+		Usage:         resp.Usage,
+		SessionID:     resp.SessionID,
 	}
+
+	// Populate legacy token fields for backward compatibility
+	if resp.Usage != nil {
+		digest.TokensIn = resp.Usage.InputTokens
+		digest.TokensOut = resp.Usage.OutputTokens
+		digest.TokensTotal = resp.Usage.InputTokens + resp.Usage.OutputTokens
+		digest.TotalTurns = resp.Usage.Turns
+	}
+
+	return digest
 }
 
 func (r *TestRunner) buildTranscript(resp *execution.ExecutionResponse) []models.TranscriptEvent {
@@ -1370,6 +1382,7 @@ func (r *TestRunner) buildOutcome(testOutcomes []models.TestOutcome, startTime t
 		StdDev:         digestStdDev,
 		DurationMs:     time.Since(startTime).Milliseconds(),
 		Groups:         groupStats,
+		Usage:          aggregateUsageFromOutcomes(testOutcomes),
 	}
 
 	// Compute digest-level bootstrap CI over per-test weighted scores when multi-trial
@@ -1535,4 +1548,17 @@ func computeGroupStats(outcomes []models.TestOutcome) []models.GroupStats {
 		})
 	}
 	return result
+}
+
+// aggregateUsageFromOutcomes collects usage stats from all runs across all test outcomes.
+func aggregateUsageFromOutcomes(testOutcomes []models.TestOutcome) *models.UsageStats {
+	var allUsage []*models.UsageStats
+	for _, to := range testOutcomes {
+		for _, run := range to.Runs {
+			if run.SessionDigest.Usage != nil {
+				allUsage = append(allUsage, run.SessionDigest.Usage)
+			}
+		}
+	}
+	return models.AggregateUsageStats(allUsage)
 }

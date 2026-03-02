@@ -17,8 +17,15 @@ type AgentEngine interface {
 	// Execute runs a test with the given stimulus
 	Execute(ctx context.Context, req *ExecutionRequest) (*ExecutionResponse, error)
 
-	// Shutdown cleans up resources
+	// Shutdown cleans up resources. It is safe to call multiple times;
+	// subsequent calls after the first are no-ops. After Shutdown returns,
+	// SessionUsage results include data from session termination events.
 	Shutdown(ctx context.Context) error
+
+	// SessionUsage returns the final usage stats for a session, including
+	// data from session.shutdown events that fire during Shutdown().
+	// Returns nil if no usage data is available for the given session.
+	SessionUsage(sessionID string) *models.UsageStats
 }
 
 // ExecutionRequest represents a test execution request
@@ -66,6 +73,7 @@ type ExecutionResponse struct {
 	Success          bool
 	WorkspaceDir     string // Path to workspace directory (for file grading)
 	SessionID        string // Copilot session ID
+	Usage            *models.UsageStats
 }
 
 // ExtractMessages gets all assistant messages from events

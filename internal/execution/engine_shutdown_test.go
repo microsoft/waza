@@ -6,6 +6,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/microsoft/waza/internal/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -36,6 +37,10 @@ func (s *SpyEngine) Shutdown(ctx context.Context) error {
 		return s.ShutdownErr
 	}
 	return s.Inner.Shutdown(ctx)
+}
+
+func (s *SpyEngine) SessionUsage(sessionID string) *models.UsageStats {
+	return s.Inner.SessionUsage(sessionID)
 }
 
 func (s *SpyEngine) WasCalled() bool {

@@ -101,6 +101,7 @@ func TestCopilotEngine_Execute_SendError(t *testing.T) {
 	sessionMock.EXPECT().On(gomock.Any()).Return(func() {}).AnyTimes()
 	sessionMock.EXPECT().SessionID().Return("session-1")
 	sessionMock.EXPECT().SendAndWait(gomock.Any(), gomock.Any()).Return(nil, errors.New("send failed"))
+	sessionMock.EXPECT().Destroy()
 
 	engine := NewCopilotEngineBuilder("test-model", &CopilotEngineBuilderOptions{
 		NewCopilotClient: func(clientOptions *copilot.ClientOptions) copilotClient {

@@ -3,6 +3,8 @@ package models
 import (
 	"math"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestComputeStdDev(t *testing.T) {
@@ -20,9 +22,7 @@ func TestComputeStdDev(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := ComputeStdDev(tt.values)
-			if math.Abs(got-tt.want) > 1e-9 {
-				t.Errorf("ComputeStdDev(%v) = %f, want %f", tt.values, got, tt.want)
-			}
+			require.InDelta(t, tt.want, got, 1e-9)
 		})
 	}
 }
@@ -51,9 +51,7 @@ func TestComputeRunScore(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := tt.run.ComputeRunScore()
-			if math.Abs(got-tt.want) > 1e-9 {
-				t.Errorf("ComputeRunScore() = %f, want %f", got, tt.want)
-			}
+			require.InDelta(t, tt.want, got, 1e-9)
 		})
 	}
 }
@@ -98,9 +96,7 @@ func TestComputeWeightedRunScore(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := tt.run.ComputeWeightedRunScore()
-			if math.Abs(got-tt.want) > 1e-9 {
-				t.Errorf("ComputeWeightedRunScore() = %f, want %f", got, tt.want)
-			}
+			require.InDelta(t, tt.want, got, 1e-9)
 		})
 	}
 }
@@ -126,9 +122,7 @@ func TestAllValidationsPassed(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := tt.run.AllValidationsPassed()
-			if got != tt.want {
-				t.Errorf("AllValidationsPassed() = %v, want %v", got, tt.want)
-			}
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -141,7 +135,52 @@ func TestTestStatsStdDevScore(t *testing.T) {
 	variance := ((1.0-mean)*(1.0-mean) + (0.5-mean)*(0.5-mean) + (0.5-mean)*(0.5-mean)) / 3.0
 	want := math.Sqrt(variance)
 
-	if math.Abs(got-want) > 1e-9 {
-		t.Errorf("ComputeStdDev() = %f, want %f", got, want)
+	require.InDelta(t, want, got, 1e-9)
+}
+
+func TestUsageStats_IsZero(t *testing.T) {
+	require.True(t, (&UsageStats{}).IsZero())
+	require.False(t, (&UsageStats{InputTokens: 1}).IsZero())
+	require.False(t, (&UsageStats{PremiumRequests: 1}).IsZero())
+}
+
+func TestAggregateUsageStats(t *testing.T) {
+	stats := []*UsageStats{
+		{
+			InputTokens:     1000,
+			OutputTokens:    500,
+			PremiumRequests: 2,
+			ModelMetrics: map[string]ModelUsage{
+				"gpt-4o": {InputTokens: 1000, OutputTokens: 500, RequestCost: 2},
+			},
+		},
+		{
+			InputTokens:     800,
+			OutputTokens:    300,
+			CacheReadTokens: 100,
+			PremiumRequests: 1,
+			ModelMetrics: map[string]ModelUsage{
+				"gpt-4o":          {InputTokens: 400, OutputTokens: 150, RequestCost: 0.5},
+				"claude-sonnet-4": {InputTokens: 400, OutputTokens: 150, RequestCost: 0.5},
+			},
+		},
+		nil, // should be skipped
 	}
+
+	agg := AggregateUsageStats(stats)
+	require.NotNil(t, agg)
+	require.Equal(t, 1800, agg.InputTokens)
+	require.Equal(t, 800, agg.OutputTokens)
+	require.Equal(t, 100, agg.CacheReadTokens)
+	require.Equal(t, 3.0, agg.PremiumRequests)
+	require.Len(t, agg.ModelMetrics, 2)
+	require.Equal(t, 1400, agg.ModelMetrics["gpt-4o"].InputTokens)
+}
+
+func TestAggregateUsageStats_AllNil(t *testing.T) {
+	require.Nil(t, AggregateUsageStats([]*UsageStats{nil, nil}))
+}
+
+func TestAggregateUsageStats_Empty(t *testing.T) {
+	require.Nil(t, AggregateUsageStats(nil))
 }

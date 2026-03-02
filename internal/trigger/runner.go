@@ -35,6 +35,7 @@ type taskResult struct {
 	response   string
 	transcript []models.TranscriptEvent
 	toolCalls  []models.ToolCall
+	sessionID  string
 	err        error
 }
 
@@ -82,6 +83,7 @@ func (r *Runner) RunDetailed(ctx context.Context) ([]models.TriggerResult, *mode
 				response:   resp.FinalOutput,
 				transcript: transcript.BuildFromSessionEvents(resp.Events),
 				toolCalls:  resp.ToolCalls,
+				sessionID:  resp.SessionID,
 			}
 		}(i, t)
 	}
@@ -141,6 +143,7 @@ func (r *Runner) RunDetailed(ctx context.Context) ([]models.TriggerResult, *mode
 			FinalOutput:   o.response,
 			Transcript:    o.transcript,
 			ToolCalls:     o.toolCalls,
+			SessionID:     o.sessionID,
 		})
 	}
 

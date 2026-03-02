@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/microsoft/waza/internal/execution"
+	"github.com/microsoft/waza/internal/models"
 	"github.com/stretchr/testify/require"
 )
 
@@ -411,6 +412,8 @@ func (e *copilotTestEngine) Execute(ctx context.Context, req *execution.Executio
 }
 
 func (e *copilotTestEngine) Shutdown(context.Context) error { return nil }
+
+func (e *copilotTestEngine) SessionUsage(string) *models.UsageStats { return nil }
 
 func (e *copilotTestEngine) LastSuggestionMessage() string {
 	e.mu.Lock()

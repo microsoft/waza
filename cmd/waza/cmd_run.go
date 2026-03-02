@@ -1,14 +1,20 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
+
+	"golang.org/x/text/language"
+	"golang.org/x/text/message"
 
 	"github.com/microsoft/waza/internal/cache"
 	"github.com/microsoft/waza/internal/config"
@@ -695,6 +701,7 @@ func runSingleModel(cmd *cobra.Command, spec *models.BenchmarkSpec, specPath str
 		}
 		if tm != nil {
 			outcome.TriggerMetrics = tm
+			outcome.TriggerResults = triggerResults
 			for _, m := range spec.Metrics {
 				if m.Identifier == "trigger_accuracy" {
 					outcome.Measures[m.Identifier] = models.MeasureResult{
@@ -710,6 +717,24 @@ func runSingleModel(cmd *cobra.Command, spec *models.BenchmarkSpec, specPath str
 		}
 	}
 
+	if suggestFlag {
+		report, err := generateEvalAnalysis(cmd.Context(), engine, spec, specPath, outcome, triggerResults)
+		if err != nil {
+			fmt.Fprintf(cmd.ErrOrStderr(), "error generating suggestions: %v\n", err) //nolint:errcheck
+		} else if report != "" {
+			if outcome.Metadata == nil {
+				outcome.Metadata = make(map[string]any)
+			}
+			outcome.Metadata["suggestion_report"] = report
+		}
+	}
+
+	// shut down the engine and update outcome with final usage data
+	if err := engine.Shutdown(context.Background()); err != nil {
+		fmt.Fprintf(os.Stderr, "WARN: engine shutdown: %v\n", err)
+	}
+	execution.UpdateOutcomeUsage(outcome, engine)
+
 	// Print results based on format
 	switch format {
 	case "github-comment":
@@ -720,21 +745,12 @@ func runSingleModel(cmd *cobra.Command, spec *models.BenchmarkSpec, specPath str
 			fmt.Println()
 			fmt.Print(reporting.FormatSummaryReport(outcome))
 		}
-	default:
-		return nil, fmt.Errorf("unknown output format: %s (supported: default, github-comment)", format)
-	}
-
-	if suggestFlag {
-		report, err := generateEvalAnalysis(cmd.Context(), engine, spec, specPath, outcome, triggerResults)
-		if err != nil {
-			fmt.Fprintf(cmd.ErrOrStderr(), "error generating suggestions: %v\n", err) //nolint:errcheck
-		} else if report != "" {
-			if outcome.Metadata == nil {
-				outcome.Metadata = make(map[string]any)
-			}
-			outcome.Metadata["suggestion_report"] = report
+		if report, ok := outcome.Metadata["suggestion_report"].(string); ok && report != "" {
+			fmt.Println()
 			displaySuggestionReport(cmd.OutOrStdout(), spec.Config.ModelID, report)
 		}
+	default:
+		return nil, fmt.Errorf("unknown output format: %s (supported: default, github-comment)", format)
 	}
 
 	// Save output for single-model runs (multi-model saves are handled by the caller)
@@ -781,26 +797,43 @@ func runSingleModel(cmd *cobra.Command, spec *models.BenchmarkSpec, specPath str
 
 // printModelComparison renders a comparison table for multi-model runs.
 func printModelComparison(results []modelResult) {
+	slices.SortFunc(results, func(a, b modelResult) int {
+		return cmp.Compare(a.modelID, b.modelID)
+	})
+
 	fmt.Println()
-	fmt.Println("═" + strings.Repeat("═", 54))
+	fmt.Println("═" + strings.Repeat("═", 95))
 	fmt.Println(" MODEL COMPARISON")
-	fmt.Println("═" + strings.Repeat("═", 54))
+	fmt.Println("═" + strings.Repeat("═", 95))
 	fmt.Println()
-	fmt.Printf("%-20s %-8s %-10s %s\n", "Model", "Score", "Pass Rate", "Duration")
-	fmt.Println("─" + strings.Repeat("─", 54))
+	fmt.Printf("%-20s %-8s %-10s %-12s %-8s %-14s %s\n", "Model", "Score", "Pass Rate", "Duration", "Turns", "Total Tokens", "Premium Reqs")
+	fmt.Println("─" + strings.Repeat("─", 95))
 
 	for _, mr := range results {
 		score := 0.0
 		passRate := 0.0
 		durationMs := int64(0)
+		premReqs := ""
+		totalTokens := ""
+		turns := ""
 		if mr.outcome != nil {
 			score = mr.outcome.Digest.AggregateScore
 			passRate = mr.outcome.Digest.SuccessRate * 100
 			durationMs = mr.outcome.Digest.DurationMs
+			if mr.outcome.Digest.Usage != nil && !mr.outcome.Digest.Usage.IsZero() {
+				printer := message.NewPrinter(language.English)
+				totalTokens = printer.Sprint(mr.outcome.Digest.Usage.InputTokens + mr.outcome.Digest.Usage.OutputTokens)
+				if mr.outcome.Digest.Usage.PremiumRequests > 0 {
+					premReqs = fmt.Sprintf("%.0f", mr.outcome.Digest.Usage.PremiumRequests)
+				}
+				if mr.outcome.Digest.Usage.Turns > 0 {
+					turns = printer.Sprint(mr.outcome.Digest.Usage.Turns)
+				}
+			}
 		}
 		duration := time.Duration(durationMs) * time.Millisecond
 		passStr := fmt.Sprintf("%.1f%%", passRate)
-		fmt.Printf("%-20s %-8.2f %-10s %v\n", mr.modelID, score, passStr, duration)
+		fmt.Printf("%-20s %-8.2f %-10s %-12v %-8s %-14s %s\n", mr.modelID, score, passStr, duration, turns, totalTokens, premReqs)
 	}
 	fmt.Println()
 }
@@ -1017,6 +1050,53 @@ func printSummary(outcome *models.EvaluationOutcome) {
 		fmt.Printf("  TP: %d  FP: %d  FN: %d  TN: %d\n", m.TP, m.FP, m.FN, m.TN)
 		fmt.Println()
 	}
+
+	// Show usage summary if available
+	printUsageSummary(digest.Usage)
+}
+
+func printUsageSummary(usage *models.UsageStats) {
+	if usage == nil || usage.IsZero() {
+		return
+	}
+
+	printer := message.NewPrinter(language.English)
+
+	fmt.Println("-" + strings.Repeat("-", 50))
+	fmt.Println(" USAGE SUMMARY")
+	fmt.Println("-" + strings.Repeat("-", 50))
+
+	if usage.PremiumRequests > 0 {
+		fmt.Printf("  Premium Requests:         %.0f\n", usage.PremiumRequests)
+	}
+	if usage.Turns > 0 {
+		fmt.Printf("  Turns:                    %s\n", printer.Sprint(usage.Turns))
+	}
+	fmt.Printf("  Input Tokens:             %s\n", printer.Sprint(usage.InputTokens))
+	fmt.Printf("  Output Tokens:            %s\n", printer.Sprint(usage.OutputTokens))
+	if usage.CacheReadTokens > 0 {
+		fmt.Printf("  Cached Tokens Read:       %s\n", printer.Sprint(usage.CacheReadTokens))
+	}
+	if usage.CacheWriteTokens > 0 {
+		fmt.Printf("  Cached Tokens Written:    %s\n", printer.Sprint(usage.CacheWriteTokens))
+	}
+	fmt.Printf("  Total Tokens (in + out):  %s\n", printer.Sprint(usage.InputTokens+usage.OutputTokens))
+
+	if len(usage.ModelMetrics) > 1 {
+		fmt.Println()
+		fmt.Printf("  %-25s %-12s %-12s %s\n", "Model", "In", "Out", "Requests")
+		fmt.Println("  " + strings.Repeat("─", 55))
+		for _, model := range slices.Sorted(maps.Keys(usage.ModelMetrics)) {
+			mu := usage.ModelMetrics[model]
+			fmt.Printf("  %-25s %-12s %-12s %.0f\n",
+				truncate(model, 25),
+				printer.Sprint(mu.InputTokens),
+				printer.Sprint(mu.OutputTokens),
+				mu.RequestCount,
+			)
+		}
+	}
+	fmt.Println()
 }
 
 func saveOutcome(outcome *models.EvaluationOutcome, path string) error {

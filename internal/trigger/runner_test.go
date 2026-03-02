@@ -120,8 +120,9 @@ type stubEngine struct {
 	skill string
 }
 
-func (e *stubEngine) Initialize(_ context.Context) error { return nil }
-func (e *stubEngine) Shutdown(_ context.Context) error   { return nil }
+func (e *stubEngine) Initialize(_ context.Context) error     { return nil }
+func (e *stubEngine) Shutdown(_ context.Context) error       { return nil }
+func (e *stubEngine) SessionUsage(string) *models.UsageStats { return nil }
 
 func (e *stubEngine) Execute(_ context.Context, req *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
 	return &execution.ExecutionResponse{
@@ -167,8 +168,9 @@ type capturingEngine struct {
 	lastReq *execution.ExecutionRequest
 }
 
-func (e *capturingEngine) Initialize(context.Context) error { return nil }
-func (e *capturingEngine) Shutdown(context.Context) error   { return nil }
+func (e *capturingEngine) Initialize(context.Context) error       { return nil }
+func (e *capturingEngine) Shutdown(context.Context) error         { return nil }
+func (e *capturingEngine) SessionUsage(string) *models.UsageStats { return nil }
 
 func (e *capturingEngine) Execute(_ context.Context, req *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
 	e.lastReq = req
@@ -267,8 +269,9 @@ func TestRunnerAllErrors(t *testing.T) {
 
 type noTriggerEngine struct{}
 
-func (e *noTriggerEngine) Initialize(context.Context) error { return nil }
-func (e *noTriggerEngine) Shutdown(context.Context) error   { return nil }
+func (e *noTriggerEngine) Initialize(context.Context) error       { return nil }
+func (e *noTriggerEngine) Shutdown(context.Context) error         { return nil }
+func (e *noTriggerEngine) SessionUsage(string) *models.UsageStats { return nil }
 
 func (e *noTriggerEngine) Execute(context.Context, *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
 	return &execution.ExecutionResponse{
@@ -282,8 +285,9 @@ type errorOnPromptEngine struct {
 	skill       string
 }
 
-func (e *errorOnPromptEngine) Initialize(context.Context) error { return nil }
-func (e *errorOnPromptEngine) Shutdown(context.Context) error   { return nil }
+func (e *errorOnPromptEngine) Initialize(context.Context) error       { return nil }
+func (e *errorOnPromptEngine) Shutdown(context.Context) error         { return nil }
+func (e *errorOnPromptEngine) SessionUsage(string) *models.UsageStats { return nil }
 
 func (e *errorOnPromptEngine) Execute(_ context.Context, req *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
 	if req.Message == e.errorPrompt {

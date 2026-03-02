@@ -41,6 +41,19 @@ func (m *MockcopilotSession) EXPECT() *MockcopilotSessionMockRecorder {
 	return m.recorder
 }
 
+func (m *MockcopilotSession) Destroy() error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Destroy")
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Destroy indicates an expected call of Destroy.
+func (mr *MockcopilotSessionMockRecorder) Destroy() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Destroy", reflect.TypeOf((*MockcopilotSession)(nil).Destroy))
+}
+
 // On mocks base method.
 func (m *MockcopilotSession) On(handler copilot.SessionEventHandler) func() {
 	m.ctrl.T.Helper()
@@ -121,6 +134,20 @@ func (m *MockcopilotClient) CreateSession(ctx context.Context, config *copilot.S
 func (mr *MockcopilotClientMockRecorder) CreateSession(ctx, config any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateSession", reflect.TypeOf((*MockcopilotClient)(nil).CreateSession), ctx, config)
+}
+
+// DeleteSession mocks base method.
+func (m *MockcopilotClient) DeleteSession(ctx context.Context, sessionID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteSession", ctx, sessionID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteSession indicates an expected call of DeleteSession.
+func (mr *MockcopilotClientMockRecorder) DeleteSession(ctx, sessionID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteSession", reflect.TypeOf((*MockcopilotClient)(nil).DeleteSession), ctx, sessionID)
 }
 
 // ResumeSessionWithOptions mocks base method.

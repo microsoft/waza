@@ -8,6 +8,10 @@ import (
 
 // copilotSession is just an interface over [*copilot.Session]
 type copilotSession interface {
+	// Destroy maps to [copilot.Session.Destroy]. It closes the session and releases resources, however it
+	// doesn't delete data and the session is still resumable until deleted via [copilot.Client.DeleteSession].
+	Destroy() error
+
 	// On maps to [copilot.Session.On]
 	On(handler copilot.SessionEventHandler) func()
 
@@ -31,6 +35,9 @@ type copilotClient interface {
 
 	// ResumeSessionWithOptions maps to [copilot.Client.ResumeSessionWithOptions]
 	ResumeSessionWithOptions(ctx context.Context, sessionID string, config *copilot.ResumeSessionConfig) (copilotSession, error)
+
+	// DeleteSession maps to [copilot.Client.DeleteSession]
+	DeleteSession(ctx context.Context, sessionID string) error
 }
 
 func newCopilotClient(clientOptions *copilot.ClientOptions) copilotClient {
@@ -71,11 +78,19 @@ func (w *copilotClientWrapper) Stop() error {
 	return w.inner.Stop()
 }
 
+func (w *copilotClientWrapper) DeleteSession(ctx context.Context, sessionID string) error {
+	return w.inner.DeleteSession(ctx, sessionID)
+}
+
 // copilotSessionWrapper is a light wrapper that forwards all calls to [copilot.Session]
 // and only has to exist because [copilot.Session.SessionID] is a field, so we can't represent
 // it in an interface...
 type copilotSessionWrapper struct {
 	inner *copilot.Session
+}
+
+func (w *copilotSessionWrapper) Destroy() error {
+	return w.inner.Destroy()
 }
 
 func (w *copilotSessionWrapper) On(handler copilot.SessionEventHandler) func() {

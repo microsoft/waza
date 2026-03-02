@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/microsoft/waza/internal/execution"
+	"github.com/microsoft/waza/internal/models"
 	"github.com/stretchr/testify/require"
 )
 
@@ -33,6 +34,8 @@ func (e *suggestTestEngine) Execute(_ context.Context, _ *execution.ExecutionReq
 }
 
 func (e *suggestTestEngine) Shutdown(context.Context) error { return nil }
+
+func (e *suggestTestEngine) SessionUsage(string) *models.UsageStats { return nil }
 
 func writeSuggestSkill(t *testing.T) string {
 	t.Helper()
