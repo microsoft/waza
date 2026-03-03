@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`waza suggest` deadlock** — `Execute()` now applies the request timeout before calling `Start()`, so an unresponsive copilot CLI no longer causes a fatal goroutine deadlock. Previously, `Start()` ran with an unbounded context and deadlocked when the JSON-RPC ping never received a response. The fix also ensures the command exits with a non-zero exit code on failure rather than exit 0.
+
 ## [0.9.0] - 2026-02-23
 
 ### Added
