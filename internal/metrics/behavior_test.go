@@ -28,7 +28,7 @@ func TestComputeBehaviorMetrics(t *testing.T) {
 			run: models.RunResult{
 				SessionDigest: models.SessionDigest{
 					ToolCallCount: 3,
-					TotalTurns:    5,
+					Usage:         &models.UsageStats{Turns: 5},
 					ToolsUsed:     []string{"grep", "edit"},
 				},
 			},
@@ -47,7 +47,7 @@ func TestComputeBehaviorMetrics(t *testing.T) {
 			run: models.RunResult{
 				SessionDigest: models.SessionDigest{
 					ToolCallCount: 3,
-					TotalTurns:    2,
+					Usage:         &models.UsageStats{Turns: 2},
 					ToolsUsed:     []string{"grep", "edit", "bash"},
 				},
 			},
@@ -74,7 +74,7 @@ func TestComputeBehaviorMetrics(t *testing.T) {
 			run: models.RunResult{
 				SessionDigest: models.SessionDigest{
 					ToolCallCount: 10,
-					TotalTurns:    2,
+					Usage:         &models.UsageStats{Turns: 2},
 					ToolsUsed:     []string{"grep"},
 				},
 			},
@@ -95,7 +95,7 @@ func TestComputeBehaviorMetrics(t *testing.T) {
 			run: models.RunResult{
 				SessionDigest: models.SessionDigest{
 					ToolCallCount: 2,
-					TotalTurns:    10,
+					Usage:         &models.UsageStats{Turns: 10},
 					ToolsUsed:     []string{"edit"},
 				},
 			},
@@ -116,7 +116,7 @@ func TestComputeBehaviorMetrics(t *testing.T) {
 			run: models.RunResult{
 				SessionDigest: models.SessionDigest{
 					ToolCallCount: 3,
-					TotalTurns:    2,
+					Usage:         &models.UsageStats{Turns: 2},
 					ToolsUsed:     []string{"grep"},
 				},
 			},
@@ -139,7 +139,7 @@ func TestComputeBehaviorMetrics(t *testing.T) {
 			run: models.RunResult{
 				SessionDigest: models.SessionDigest{
 					ToolCallCount: 3,
-					TotalTurns:    2,
+					Usage:         &models.UsageStats{Turns: 2},
 					ToolsUsed:     []string{"grep", "rm", "edit"},
 				},
 			},
@@ -161,7 +161,7 @@ func TestComputeBehaviorMetrics(t *testing.T) {
 			run: models.RunResult{
 				SessionDigest: models.SessionDigest{
 					ToolCallCount: 20,
-					TotalTurns:    15,
+					Usage:         &models.UsageStats{Turns: 15},
 					ToolsUsed:     []string{"rm"},
 				},
 			},
@@ -188,7 +188,7 @@ func TestComputeBehaviorMetrics(t *testing.T) {
 			run: models.RunResult{
 				SessionDigest: models.SessionDigest{
 					ToolCallCount: 5,
-					TotalTurns:    3,
+					Usage:         &models.UsageStats{Turns: 3},
 					ToolsUsed:     []string{"grep"},
 				},
 			},
@@ -210,7 +210,7 @@ func TestComputeBehaviorMetrics(t *testing.T) {
 			run: models.RunResult{
 				SessionDigest: models.SessionDigest{
 					ToolCallCount: 0,
-					TotalTurns:    0,
+					Usage:         &models.UsageStats{Turns: 0},
 					ToolsUsed:     nil,
 				},
 			},

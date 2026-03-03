@@ -23,9 +23,13 @@ type BehaviorMetrics struct {
 // ComputeBehaviorMetrics analyzes a RunResult against BehaviorRules and returns
 // quality metrics including compliance checks and an efficiency score.
 func ComputeBehaviorMetrics(run *models.RunResult, rules *models.BehaviorRules) *BehaviorMetrics {
+	iterationCount := 0
+	if run.SessionDigest.Usage != nil {
+		iterationCount = run.SessionDigest.Usage.Turns
+	}
 	m := &BehaviorMetrics{
 		ToolCallCount:  run.SessionDigest.ToolCallCount,
-		IterationCount: run.SessionDigest.TotalTurns,
+		IterationCount: iterationCount,
 	}
 
 	toolSet := make(map[string]bool, len(run.SessionDigest.ToolsUsed))

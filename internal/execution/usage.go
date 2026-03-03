@@ -18,9 +18,6 @@ func UpdateOutcomeUsage(outcome *models.EvaluationOutcome, engine AgentEngine) {
 			}
 			if usage := engine.SessionUsage(run.SessionDigest.SessionID); usage != nil {
 				run.SessionDigest.Usage = usage
-				run.SessionDigest.TokensIn = usage.InputTokens
-				run.SessionDigest.TokensOut = usage.OutputTokens
-				run.SessionDigest.TokensTotal = usage.InputTokens + usage.OutputTokens
 			}
 		}
 	}

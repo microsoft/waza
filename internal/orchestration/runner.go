@@ -1242,21 +1242,12 @@ func (r *TestRunner) buildSessionDigest(resp *execution.ExecutionResponse) model
 	}
 
 	digest := models.SessionDigest{
-		TotalTurns:    len(resp.Events),
 		ToolCallCount: len(resp.ToolCalls),
 		ToolsUsed:     toolsUsed,
 		ToolCalls:     resp.ToolCalls,
 		Errors:        []string{},
 		Usage:         resp.Usage,
 		SessionID:     resp.SessionID,
-	}
-
-	// Populate legacy token fields for backward compatibility
-	if resp.Usage != nil {
-		digest.TokensIn = resp.Usage.InputTokens
-		digest.TokensOut = resp.Usage.OutputTokens
-		digest.TokensTotal = resp.Usage.InputTokens + resp.Usage.OutputTokens
-		digest.TotalTurns = resp.Usage.Turns
 	}
 
 	return digest

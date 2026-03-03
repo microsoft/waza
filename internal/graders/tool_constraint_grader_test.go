@@ -125,10 +125,9 @@ func TestToolConstraintGrader_AllConstraints_Pass(t *testing.T) {
 
 	result, err := g.Grade(context.Background(), &Context{
 		Session: &models.SessionDigest{
-			ToolsUsed:   []string{"bash", "edit", "view"},
-			ToolCalls:   []models.ToolCall{{Name: "bash"}, {Name: "edit"}, {Name: "view"}},
-			TotalTurns:  10,
-			TokensTotal: 4000,
+			ToolsUsed: []string{"bash", "edit", "view"},
+			ToolCalls: []models.ToolCall{{Name: "bash"}, {Name: "edit"}, {Name: "view"}},
+			Usage:     &models.UsageStats{Turns: 10, InputTokens: 4000},
 		},
 	})
 	if err != nil {
@@ -152,10 +151,9 @@ func TestToolConstraintGrader_AllConstraints_PartialFail(t *testing.T) {
 	// bash used, edit missing, create_file used
 	result, err := g.Grade(context.Background(), &Context{
 		Session: &models.SessionDigest{
-			ToolsUsed:   []string{"bash", "create_file"},
-			ToolCalls:   []models.ToolCall{{Name: "bash"}, {Name: "create_file"}},
-			TotalTurns:  10,
-			TokensTotal: 8000,
+			ToolsUsed: []string{"bash", "create_file"},
+			ToolCalls: []models.ToolCall{{Name: "bash"}, {Name: "create_file"}},
+			Usage:     &models.UsageStats{Turns: 10, InputTokens: 8000},
 		},
 	})
 	require.NoError(t, err)

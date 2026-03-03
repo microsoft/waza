@@ -83,24 +83,27 @@ func (bg *behaviorGrader) Grade(ctx context.Context, gradingContext *Context) (*
 			feedback = strings.Join(failures, "; ")
 		}
 
+		details := map[string]any{
+			"max_tool_calls":  bg.maxToolCalls,
+			"max_tokens":      bg.maxTokens,
+			"required_tools":  bg.requiredTools,
+			"forbidden_tools": bg.forbiddenTools,
+			"max_duration_ms": bg.maxDurationMS,
+			"failures":        failures,
+			"tool_call_count": session.ToolCallCount,
+			"tools_used":      session.ToolsUsed,
+			"actual_duration": gradingContext.DurationMS,
+		}
+		if session.Usage != nil {
+			details["tokens_total"] = session.Usage.InputTokens + session.Usage.OutputTokens
+		}
 		return &models.GraderResults{
 			Name:     bg.name,
 			Type:     models.GraderKindBehavior,
 			Score:    score,
 			Passed:   len(failures) == 0,
 			Feedback: feedback,
-			Details: map[string]any{
-				"max_tool_calls":  bg.maxToolCalls,
-				"max_tokens":      bg.maxTokens,
-				"required_tools":  bg.requiredTools,
-				"forbidden_tools": bg.forbiddenTools,
-				"max_duration_ms": bg.maxDurationMS,
-				"failures":        failures,
-				"tool_call_count": session.ToolCallCount,
-				"tokens_total":    session.TokensTotal,
-				"tools_used":      session.ToolsUsed,
-				"actual_duration": gradingContext.DurationMS,
-			},
+			Details:  details,
 		}, nil
 	})
 }
@@ -123,8 +126,10 @@ func (bg *behaviorGrader) checkMaxTokens(session *models.SessionDigest) []string
 		return nil
 	}
 
-	if session.TokensTotal > bg.maxTokens {
-		return []string{fmt.Sprintf("Token usage %d exceeds max allowed %d", session.TokensTotal, bg.maxTokens)}
+	if session.Usage == nil {
+		return []string{"No usage data available to check max tokens"}
+	} else if total := session.Usage.InputTokens + session.Usage.OutputTokens; total > bg.maxTokens {
+		return []string{fmt.Sprintf("Token usage %d exceeds max allowed %d", total, bg.maxTokens)}
 	}
 	return nil
 }

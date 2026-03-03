@@ -15,8 +15,7 @@ func TestComputeImprovement_SkillBetter(t *testing.T) {
 			"g1": {Score: 0.3, Weight: 1.0},
 		},
 		SessionDigest: models.SessionDigest{
-			TotalTurns:  10,
-			TokensTotal: 5000,
+			Usage: &models.UsageStats{Turns: 10, InputTokens: 5000},
 		},
 	}
 	withSkill := &models.RunResult{
@@ -26,8 +25,7 @@ func TestComputeImprovement_SkillBetter(t *testing.T) {
 			"g1": {Score: 0.9, Weight: 1.0},
 		},
 		SessionDigest: models.SessionDigest{
-			TotalTurns:  6,
-			TokensTotal: 3000,
+			Usage: &models.UsageStats{Turns: 6, InputTokens: 3000},
 		},
 	}
 
@@ -49,8 +47,7 @@ func TestComputeImprovement_SkillWorse(t *testing.T) {
 			"g1": {Score: 0.9, Weight: 1.0},
 		},
 		SessionDigest: models.SessionDigest{
-			TotalTurns:  5,
-			TokensTotal: 2000,
+			Usage: &models.UsageStats{Turns: 5, InputTokens: 2000},
 		},
 	}
 	withSkill := &models.RunResult{
@@ -60,8 +57,7 @@ func TestComputeImprovement_SkillWorse(t *testing.T) {
 			"g1": {Score: 0.2, Weight: 1.0},
 		},
 		SessionDigest: models.SessionDigest{
-			TotalTurns:  15,
-			TokensTotal: 8000,
+			Usage: &models.UsageStats{Turns: 15, InputTokens: 8000},
 		},
 	}
 
@@ -83,8 +79,7 @@ func TestComputeImprovement_Equal(t *testing.T) {
 			"g1": {Score: 0.8, Weight: 1.0},
 		},
 		SessionDigest: models.SessionDigest{
-			TotalTurns:  5,
-			TokensTotal: 2000,
+			Usage: &models.UsageStats{Turns: 5, InputTokens: 2000},
 		},
 	}
 
@@ -106,8 +101,7 @@ func TestComputeImprovement_ZeroBaseline(t *testing.T) {
 			"g1": {Score: 0.0, Weight: 1.0},
 		},
 		SessionDigest: models.SessionDigest{
-			TotalTurns:  0,
-			TokensTotal: 0,
+			Usage: &models.UsageStats{Turns: 0, InputTokens: 0},
 		},
 	}
 	withSkill := &models.RunResult{
@@ -117,8 +111,7 @@ func TestComputeImprovement_ZeroBaseline(t *testing.T) {
 			"g1": {Score: 1.0, Weight: 1.0},
 		},
 		SessionDigest: models.SessionDigest{
-			TotalTurns:  5,
-			TokensTotal: 3000,
+			Usage: &models.UsageStats{Turns: 5, InputTokens: 3000},
 		},
 	}
 
@@ -142,8 +135,7 @@ func TestComputeImprovement_ClampedToRange(t *testing.T) {
 			"g1": {Score: 0.0, Weight: 1.0},
 		},
 		SessionDigest: models.SessionDigest{
-			TotalTurns:  1,
-			TokensTotal: 100,
+			Usage: &models.UsageStats{Turns: 1, InputTokens: 100},
 		},
 	}
 	withSkill := &models.RunResult{
@@ -153,8 +145,7 @@ func TestComputeImprovement_ClampedToRange(t *testing.T) {
 			"g1": {Score: 1.0, Weight: 1.0},
 		},
 		SessionDigest: models.SessionDigest{
-			TotalTurns:  1,
-			TokensTotal: 10,
+			Usage: &models.UsageStats{Turns: 1, InputTokens: 10},
 		},
 	}
 
@@ -189,7 +180,7 @@ func TestComputeFromOutcomes_WithRuns(t *testing.T) {
 					"g1": {Score: 0.9, Weight: 1.0},
 				},
 				SessionDigest: models.SessionDigest{
-					TotalTurns: 5, TokensTotal: 2000,
+					Usage: &models.UsageStats{Turns: 5, InputTokens: 2000},
 				},
 			},
 		},
@@ -204,7 +195,7 @@ func TestComputeFromOutcomes_WithRuns(t *testing.T) {
 					"g1": {Score: 0.3, Weight: 1.0},
 				},
 				SessionDigest: models.SessionDigest{
-					TotalTurns: 10, TokensTotal: 5000,
+					Usage: &models.UsageStats{Turns: 10, InputTokens: 5000},
 				},
 			},
 		},

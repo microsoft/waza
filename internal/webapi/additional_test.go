@@ -224,11 +224,8 @@ func TestOutcomeToDetailMapsStatsTranscriptAndDigest(t *testing.T) {
 							},
 						},
 						SessionDigest: models.SessionDigest{
-							TotalTurns:    2,
 							ToolCallCount: 1,
-							TokensIn:      10,
-							TokensOut:     20,
-							TokensTotal:   30,
+							Usage:         &models.UsageStats{Turns: 2, InputTokens: 10, OutputTokens: 20},
 						},
 					},
 				},

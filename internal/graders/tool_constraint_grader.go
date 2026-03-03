@@ -136,20 +136,23 @@ func (tc *toolConstraintGrader) Grade(ctx context.Context, gradingContext *Conte
 			feedback = strings.Join(failures, "; ")
 		}
 
+		details := map[string]any{
+			"expect_tools": describeToolSpecs(tc.expectTools),
+			"reject_tools": describeToolSpecs(tc.rejectTools),
+			"failures":     failures,
+			"tools_used":   session.ToolsUsed,
+		}
+		if session.Usage != nil {
+			details["tokens_total"] = session.Usage.InputTokens + session.Usage.OutputTokens
+			details["total_turns"] = session.Usage.Turns
+		}
 		return &models.GraderResults{
 			Name:     tc.name,
 			Type:     models.GraderKindToolConstraint,
 			Score:    score,
 			Passed:   len(failures) == 0,
 			Feedback: feedback,
-			Details: map[string]any{
-				"expect_tools": describeToolSpecs(tc.expectTools),
-				"reject_tools": describeToolSpecs(tc.rejectTools),
-				"failures":     failures,
-				"tools_used":   session.ToolsUsed,
-				"total_turns":  session.TotalTurns,
-				"tokens_total": session.TokensTotal,
-			},
+			Details:  details,
 		}, nil
 	})
 }

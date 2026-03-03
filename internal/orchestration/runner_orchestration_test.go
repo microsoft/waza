@@ -114,7 +114,7 @@ graders:
 			assert.Equal(t, models.StatusPassed, run.Status)
 			assert.Contains(t, run.Validations, "global-regex")
 			assert.Equal(t, 2.5, run.Validations["global-regex"].Weight)
-			assert.Equal(t, 0, run.SessionDigest.TotalTurns)
+			assert.Nil(t, run.SessionDigest.Usage)
 			assert.Equal(t, 0, run.SessionDigest.ToolCallCount)
 			assert.Empty(t, run.SessionDigest.ToolsUsed)
 			assert.Empty(t, run.SessionDigest.Errors)
@@ -278,6 +278,7 @@ func TestBuildGraderContextAndScoreHelpers(t *testing.T) {
 			{Name: "azure-prepare", Path: "/skills/azure-prepare/SKILL.md"},
 		},
 		ToolCalls: []models.ToolCall{{Name: "bash"}, {Name: "view"}},
+		Usage:     &models.UsageStats{Turns: 1},
 		Events: []copilot.SessionEvent{
 			{Type: copilot.UserMessage, Data: copilot.Data{Content: &content}},
 		},
@@ -293,7 +294,8 @@ func TestBuildGraderContextAndScoreHelpers(t *testing.T) {
 	assert.Equal(t, "azure-prepare", graderCtx.SkillInvocations[0].Name)
 
 	digest := runner.buildSessionDigest(resp)
-	assert.Equal(t, 1, digest.TotalTurns)
+	require.NotNil(t, digest.Usage)
+	assert.Equal(t, 1, digest.Usage.Turns)
 	assert.Equal(t, 2, digest.ToolCallCount)
 	assert.Equal(t, []string{"bash", "view"}, digest.ToolsUsed)
 

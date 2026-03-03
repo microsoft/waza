@@ -11,6 +11,7 @@ import (
 	copilot "github.com/github/copilot-sdk/go"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/utils"
+	"github.com/stretchr/testify/require"
 )
 
 func TestSanitizeName(t *testing.T) {
@@ -79,11 +80,12 @@ func TestWrite(t *testing.T) {
 			},
 		},
 		Session: models.SessionDigest{
-			TotalTurns:    2,
 			ToolCallCount: 0,
-			TokensIn:      50,
-			TokensOut:     100,
-			TokensTotal:   150,
+			Usage: &models.UsageStats{
+				Turns:        2,
+				InputTokens:  50,
+				OutputTokens: 100,
+			},
 		},
 	}
 
@@ -126,8 +128,9 @@ func TestWrite(t *testing.T) {
 	if decoded.Prompt != "Explain this function" {
 		t.Errorf("Prompt = %q, want %q", decoded.Prompt, "Explain this function")
 	}
-	if decoded.Session.TokensTotal != 150 {
-		t.Errorf("Session.TokensTotal = %d, want %d", decoded.Session.TokensTotal, 150)
+	require.NotNil(t, decoded.Session.Usage)
+	if decoded.Session.Usage.InputTokens+decoded.Session.Usage.OutputTokens != 150 {
+		t.Errorf("Session tokens total = %d, want %d", decoded.Session.Usage.InputTokens+decoded.Session.Usage.OutputTokens, 150)
 	}
 }
 
@@ -179,7 +182,7 @@ func TestBuildTaskTranscript(t *testing.T) {
 				Validations: map[string]models.GraderResults{
 					"check": {Name: "check", Score: 1.0, Passed: true},
 				},
-				SessionDigest: models.SessionDigest{TotalTurns: 2, TokensTotal: 100},
+				SessionDigest: models.SessionDigest{Usage: &models.UsageStats{Turns: 2, InputTokens: 100}},
 				FinalOutput:   "Sure, this code...",
 			},
 		},

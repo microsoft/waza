@@ -141,7 +141,9 @@ func outcomeToSummary(o *models.EvaluationOutcome) RunSummary {
 	tokens := 0
 	for _, t := range o.TestOutcomes {
 		for _, r := range t.Runs {
-			tokens += r.SessionDigest.TokensTotal
+			if r.SessionDigest.Usage != nil {
+				tokens += r.SessionDigest.Usage.InputTokens + r.SessionDigest.Usage.OutputTokens
+			}
 		}
 	}
 
@@ -343,15 +345,18 @@ func mapSessionDigest(d *models.SessionDigest) *SessionDigestResponse {
 	if errs == nil {
 		errs = []string{}
 	}
-	return &SessionDigestResponse{
-		TotalTurns:    d.TotalTurns,
+	res := &SessionDigestResponse{
 		ToolCallCount: d.ToolCallCount,
-		TokensIn:      d.TokensIn,
-		TokensOut:     d.TokensOut,
-		TokensTotal:   d.TokensTotal,
 		ToolsUsed:     toolsUsed,
 		Errors:        errs,
 	}
+	if d.Usage != nil {
+		res.TokensIn = d.Usage.InputTokens
+		res.TokensOut = d.Usage.OutputTokens
+		res.TokensTotal = d.Usage.InputTokens + d.Usage.OutputTokens
+		res.TotalTurns = d.Usage.Turns
+	}
+	return res
 }
 
 func sortRuns(runs []RunSummary, field, order string) {

@@ -38,17 +38,21 @@ func ComputeImprovement(baseline, withSkill *models.RunResult) (float64, Improve
 	breakdown.QualityDelta = skillScore - baselineScore
 
 	// Token reduction: negative means fewer tokens (good)
-	baseTok := float64(baseline.SessionDigest.TokensTotal)
-	skillTok := float64(withSkill.SessionDigest.TokensTotal)
-	if baseTok > 0 {
-		breakdown.TokenReduction = (skillTok - baseTok) / baseTok
+	if baseline.SessionDigest.Usage != nil && withSkill.SessionDigest.Usage != nil {
+		baseTok := float64(baseline.SessionDigest.Usage.InputTokens + baseline.SessionDigest.Usage.OutputTokens)
+		skillTok := float64(withSkill.SessionDigest.Usage.InputTokens + withSkill.SessionDigest.Usage.OutputTokens)
+		if baseTok > 0 {
+			breakdown.TokenReduction = (skillTok - baseTok) / baseTok
+		}
 	}
 
 	// Turn reduction: negative means fewer turns (good)
-	baseTurns := float64(baseline.SessionDigest.TotalTurns)
-	skillTurns := float64(withSkill.SessionDigest.TotalTurns)
-	if baseTurns > 0 {
-		breakdown.TurnReduction = (skillTurns - baseTurns) / baseTurns
+	if baseline.SessionDigest.Usage != nil && withSkill.SessionDigest.Usage != nil {
+		baseTurns := float64(baseline.SessionDigest.Usage.Turns)
+		skillTurns := float64(withSkill.SessionDigest.Usage.Turns)
+		if baseTurns > 0 {
+			breakdown.TurnReduction = (skillTurns - baseTurns) / baseTurns
+		}
 	}
 
 	// Time reduction: negative means faster (good)
