@@ -70,17 +70,15 @@ func Create(graderType models.GraderKind, identifier string, params map[string]a
 		}
 
 		return NewInlineScriptGrader(identifier, v.Language, v.Assertions)
-	case models.GraderKindRegex:
-		var v *struct {
-			MustMatch    []string `mapstructure:"must_match"`
-			MustNotMatch []string `mapstructure:"must_not_match"`
-		}
+	case models.GraderKindText:
+		var v TextGraderArgs
 
 		if err := mapstructure.Decode(params, &v); err != nil {
 			return nil, err
 		}
 
-		return NewRegexGrader(identifier, v.MustMatch, v.MustNotMatch)
+		v.Name = identifier
+		return NewTextGrader(v)
 	case models.GraderKindFile:
 		var v *struct {
 			MustExist       []string `mapstructure:"must_exist"`
@@ -179,15 +177,6 @@ func Create(graderType models.GraderKind, identifier string, params map[string]a
 		}
 
 		return NewPromptGrader(identifier, v)
-	case models.GraderKindKeyword:
-		var v KeywordGraderArgs
-
-		if err := mapstructure.Decode(params, &v); err != nil {
-			return nil, err
-		}
-
-		v.Name = identifier
-		return NewKeywordGrader(v)
 	case models.GraderKindJSONSchema:
 		var v JSONSchemaGraderArgs
 

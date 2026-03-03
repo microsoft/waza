@@ -34,7 +34,7 @@ waza-go/
 │   │   └── runner.go      # Benchmark orchestration
 │   └── scoring/           # Validator interface and implementations
 │       ├── validator.go   # Validator registry pattern
-│       └── code_validators.go  # Code and regex validators
+│       └── code_validators.go  # Code and text validators
 ├── go.mod
 ├── go.sum
 ├── Makefile               # Build and test commands
@@ -76,7 +76,7 @@ type AgentEngine interface {
 ```go
 registry := scoring.NewValidatorRegistry()
 registry.Register("code", &scoring.CodeValidator{})
-registry.Register("regex", &scoring.RegexValidator{})
+registry.Register("text", &scoring.TextValidator{})
 ```
 
 ## Building and Testing

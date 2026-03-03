@@ -170,13 +170,13 @@ should_not_trigger_prompts:
 
 ### Regex Grader (Pattern Matching)
 ```yaml
-- type: regex
+- type: text
   name: format_check
   config:
-    must_match:
+    regex_match:
       - "deployed to .+"
       - "https?://.+"
-    must_not_match:
+    regex_not_match:
       - "error|failed|exception"
 ```
 

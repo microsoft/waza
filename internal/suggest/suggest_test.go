@@ -54,7 +54,7 @@ description: "A test skill."
 	require.Contains(t, prompt, "selecting grader types")
 	require.Contains(t, prompt, "Name: test-skill")
 	require.Contains(t, prompt, "code: Assertion-based")
-	require.Contains(t, prompt, "keyword: Keyword check")
+	require.Contains(t, prompt, "text: Text matching")
 	require.Contains(t, prompt, "skill_invocation: Skill invocation")
 }
 
@@ -78,27 +78,27 @@ description: "A test skill."
 }
 
 func TestParseGraderSelectionStructured(t *testing.T) {
-	input := "graders:\n  - code\n  - keyword\n  - skill_invocation\n"
+	input := "graders:\n  - code\n  - text\n  - skill_invocation\n"
 	result := parseGraderSelection(input)
-	require.Equal(t, []string{"code", "keyword", "skill_invocation"}, result)
+	require.Equal(t, []string{"code", "text", "skill_invocation"}, result)
 }
 
 func TestParseGraderSelectionBareList(t *testing.T) {
-	input := "- code\n- regex\n- file\n"
+	input := "- code\n- text\n- file\n"
 	result := parseGraderSelection(input)
-	require.Equal(t, []string{"code", "regex", "file"}, result)
+	require.Equal(t, []string{"code", "text", "file"}, result)
 }
 
 func TestParseGraderSelectionFiltersInvalid(t *testing.T) {
-	input := "graders:\n  - code\n  - not_a_real_grader\n  - keyword\n"
+	input := "graders:\n  - code\n  - not_a_real_grader\n  - text\n"
 	result := parseGraderSelection(input)
-	require.Equal(t, []string{"code", "keyword"}, result)
+	require.Equal(t, []string{"code", "text"}, result)
 }
 
 func TestParseGraderSelectionCodeFence(t *testing.T) {
-	input := "```yaml\ngraders:\n  - regex\n  - diff\n```\n"
+	input := "```yaml\ngraders:\n  - text\n  - diff\n```\n"
 	result := parseGraderSelection(input)
-	require.Equal(t, []string{"regex", "diff"}, result)
+	require.Equal(t, []string{"text", "diff"}, result)
 }
 
 func TestParseGraderSelectionEmpty(t *testing.T) {
@@ -114,14 +114,14 @@ func TestGraderSummariesListsAllTypes(t *testing.T) {
 }
 
 func TestLoadGraderDocsNilFS(t *testing.T) {
-	result := LoadGraderDocs(nil, []string{"code", "regex"})
+	result := LoadGraderDocs(nil, []string{"code", "text"})
 	require.Equal(t, "", result)
 }
 
 func TestLoadGraderDocsFromEmbeddedFS(t *testing.T) {
-	docs := LoadGraderDocs(waza.GraderDocsFS, []string{"code", "keyword"})
+	docs := LoadGraderDocs(waza.GraderDocsFS, []string{"code", "text"})
 	require.Contains(t, docs, "Assertion-Based Grader")
-	require.Contains(t, docs, "Keyword Matching Grader")
+	require.Contains(t, docs, "Text Matching Grader")
 	// unknown types silently skipped
 	docs2 := LoadGraderDocs(waza.GraderDocsFS, []string{"not_a_type"})
 	require.Equal(t, "", docs2)
@@ -186,7 +186,7 @@ config:
   executor: copilot-sdk
   model: gpt-4o
 graders:
-  - type: keyword
+  - type: text
     name: check_keywords
     config:
       must_include:

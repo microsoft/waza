@@ -181,9 +181,8 @@ func AvailableGraderTypes() []string {
 	return []string{
 		string(models.GraderKindInlineScript),
 		string(models.GraderKindPrompt),
-		string(models.GraderKindRegex),
+		string(models.GraderKindText),
 		string(models.GraderKindFile),
-		string(models.GraderKindKeyword),
 		string(models.GraderKindJSONSchema),
 		string(models.GraderKindProgram),
 		string(models.GraderKindBehavior),

@@ -243,10 +243,10 @@ graders:
       ruleset: owasp-top-10
 
   # Local grader (unchanged from today)
-  - type: regex
+  - type: text
     name: no_errors
     config:
-      must_not_match: ["(?i)fatal error"]
+      regex_not_match: ["(?i)fatal error"]
 
   # Remote eval (import entire eval spec)
   - ref: github.com/waza-evals/skill-baseline@v1.0.0
@@ -466,10 +466,10 @@ graders:
       ruleset: owasp-top-10
 
   # My custom grader (local)
-  - type: regex
+  - type: text
     name: has_fix_applied
     config:
-      must_match: ["TODO removed"]
+      regex_match: ["TODO removed"]
 ```
 
 **Pattern 2: Eval presets (full eval templates)**
@@ -503,9 +503,9 @@ groups:
         config:
           assertions: ["len(output) > 0"]
       - name: no-error-patterns
-        type: regex
+        type: text
         config:
-          must_not_match: ["(?i)fatal error|crashed|exception|panic"]
+          regex_not_match: ["(?i)fatal error|crashed|exception|panic"]
       - name: reasonable-duration
         type: behavior
         config:

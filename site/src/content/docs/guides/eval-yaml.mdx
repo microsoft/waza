@@ -22,7 +22,7 @@ config:
   model: claude-sonnet-4.6
 
 graders:
-  - type: regex
+  - type: text
     name: explains_concepts
     config:
       pattern: "(?i)(function|logic|parameter)"
@@ -91,7 +91,7 @@ Graders validate task outputs. Define once, reuse across tasks:
 
 ```yaml
 graders:
-  - type: regex
+  - type: text
     name: checks_logic
     weight: 2.0
     config:
@@ -104,7 +104,7 @@ graders:
         - "len(output) > 100"
         - "'success' in output.lower()"
         
-  - type: keyword
+  - type: text
     name: mentions_key_concepts
     config:
       keywords: ["algorithm", "optimization"]
@@ -394,7 +394,7 @@ Only tasks with changed inputs/config re-run.
 
 ```yaml
 graders:
-  - type: regex
+  - type: text
     name: format_check
     config:
       pattern: "^[A-Z].*\\.$"  # Sentence starting with capital, ending with period

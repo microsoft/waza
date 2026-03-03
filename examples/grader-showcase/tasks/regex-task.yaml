@@ -1,16 +1,16 @@
-# Task: Demonstrate regex grader
+# Task: Demonstrate text grader
 # Tests the agent's ability to produce output matching specific patterns
 id: regex-demo-001
-name: Regex Pattern Matching Demo
+name: Text Pattern Matching Demo
 description: |
-  This task demonstrates the regex grader, which validates that the agent's
-  output matches (or doesn't match) specific regular expression patterns.
+  This task demonstrates the text grader, which validates that the agent's
+  output matches (or doesn't match) specific substrings and regular expression patterns.
   
   The agent is asked to list programming languages, and we verify the output
   contains expected patterns and excludes unwanted ones.
 
 tags:
-  - regex
+  - text
   - pattern-matching
   - demo
 
@@ -27,15 +27,15 @@ expected:
 
 # Task-specific graders
 graders:
-  # Regex grader validates output patterns
+  # Text grader validates output patterns
   - name: language_patterns
-    type: regex
+    type: text
     config:
-      # Patterns that MUST match in the output
-      must_match:
+      # Regex patterns that MUST match in the output
+      regex_match:
         - "(?i)(python|javascript|typescript|ruby|php|java)"
         - "(?i)(web|development|backend|frontend)"
-      # Patterns that MUST NOT match
-      must_not_match:
+      # Regex patterns that MUST NOT match
+      regex_not_match:
         - "(?i)error|exception|failed"
         - "(?i)COBOL|Fortran"  # Unlikely for web dev!

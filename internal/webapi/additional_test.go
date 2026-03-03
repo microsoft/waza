@@ -109,7 +109,7 @@ func TestFileStoreGetRunSummaryAndReload(t *testing.T) {
 					{
 						DurationMs: 1400,
 						Validations: map[string]models.GraderResults{
-							"regex": {Name: "regex", Type: models.GraderKindRegex, Passed: false, Score: 0.2, Weight: 1, Feedback: "failed"},
+							"text": {Name: "text", Type: models.GraderKindText, Passed: false, Score: 0.2, Weight: 1, Feedback: "failed"},
 						},
 					},
 				},

@@ -184,7 +184,7 @@ graders:
       assertions:
         - "len(output) > 100"
   
-  - type: regex
+  - type: text
     name: explains_concepts
     config:
       pattern: "(?i)(function|variable|parameter|return|logic)"

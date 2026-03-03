@@ -24,7 +24,7 @@ func TestCacheKey(t *testing.T) {
 			TimeoutSec: 300,
 		},
 		Graders: []models.GraderConfig{
-			{Kind: models.GraderKindRegex, Identifier: "test-grader"},
+			{Kind: models.GraderKindText, Identifier: "test-grader"},
 		},
 	}
 
@@ -280,7 +280,7 @@ func TestHasNonDeterministicGraders(t *testing.T) {
 		{
 			name: "only deterministic graders",
 			graders: []models.GraderConfig{
-				{Kind: models.GraderKindRegex},
+				{Kind: models.GraderKindText},
 				{Kind: models.GraderKindFile},
 				{Kind: models.GraderKindInlineScript},
 			},
@@ -289,7 +289,7 @@ func TestHasNonDeterministicGraders(t *testing.T) {
 		{
 			name: "has behavior grader",
 			graders: []models.GraderConfig{
-				{Kind: models.GraderKindRegex},
+				{Kind: models.GraderKindText},
 				{Kind: models.GraderKindBehavior},
 			},
 			expected: true,
@@ -297,7 +297,7 @@ func TestHasNonDeterministicGraders(t *testing.T) {
 		{
 			name: "has prompt grader",
 			graders: []models.GraderConfig{
-				{Kind: models.GraderKindRegex},
+				{Kind: models.GraderKindText},
 				{Kind: models.GraderKindPrompt},
 			},
 			expected: true,

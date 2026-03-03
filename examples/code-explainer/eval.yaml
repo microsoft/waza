@@ -50,10 +50,10 @@ graders:
         - "len(output) > 10"
 
   # Check output doesn't contain error patterns
-  - type: regex
+  - type: text
     name: no_errors
     config:
-      must_not_match:
+      regex_not_match:
         - "(?i)fatal error|crashed|exception occurred"
 
 # Task files to include (glob pattern)

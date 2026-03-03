@@ -64,8 +64,8 @@ func TestSessionStartData(t *testing.T) {
 }
 
 func TestGraderResultData(t *testing.T) {
-	d := GraderResultData("regex-check", "regex", true, 1.0, "all patterns matched")
-	if d["grader_name"] != "regex-check" {
+	d := GraderResultData("text-check", "text", true, 1.0, "all patterns matched")
+	if d["grader_name"] != "text-check" {
 		t.Errorf("grader_name = %v", d["grader_name"])
 	}
 	if d["passed"] != true {
@@ -259,7 +259,7 @@ func TestRenderTimeline(t *testing.T) {
 	events := []Event{
 		{Timestamp: base, Type: EventSessionStart, Data: SessionStartData("e.yaml", "gpt-4o", "mock", 2)},
 		{Timestamp: base.Add(100 * time.Millisecond), Type: EventTaskStart, Data: TaskStartData("task-1", 1, 2)},
-		{Timestamp: base.Add(200 * time.Millisecond), Type: EventGraderResult, Data: GraderResultData("regex", "regex", true, 1.0, "ok")},
+		{Timestamp: base.Add(200 * time.Millisecond), Type: EventGraderResult, Data: GraderResultData("text", "text", true, 1.0, "ok")},
 		{Timestamp: base.Add(300 * time.Millisecond), Type: EventTaskComplete, Data: TaskCompleteData("task-1", "passed", 1.0, 200)},
 		{Timestamp: base.Add(400 * time.Millisecond), Type: EventError, Data: ErrorData("something broke", nil)},
 		{Timestamp: base.Add(500 * time.Millisecond), Type: EventSessionEnd, Data: SessionCompleteData(2, 1, 1, 0, 500)},

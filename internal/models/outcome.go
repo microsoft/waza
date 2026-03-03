@@ -24,9 +24,8 @@ type GraderKind string
 const (
 	GraderKindInlineScript    GraderKind = "code"
 	GraderKindPrompt          GraderKind = "prompt"
-	GraderKindRegex           GraderKind = "regex"
+	GraderKindText            GraderKind = "text"
 	GraderKindFile            GraderKind = "file"
-	GraderKindKeyword         GraderKind = "keyword"
 	GraderKindJSONSchema      GraderKind = "json_schema"
 	GraderKindProgram         GraderKind = "program"
 	GraderKindBehavior        GraderKind = "behavior"

@@ -218,10 +218,10 @@ graders:
       assertions:
         - "'azure-deploy' in str(transcript)"
   
-  - type: regex
+  - type: text
     name: deployment_link
     config:
-      must_match:
+      regex_match:
         - "azurewebsites\\.net|azurestaticapps\\.net"
 ```
 

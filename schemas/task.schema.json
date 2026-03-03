@@ -210,9 +210,8 @@
           "enum": [
             "code",
             "prompt",
-            "regex",
+            "text",
             "file",
-            "keyword",
             "json_schema",
             "program",
             "behavior",
@@ -267,7 +266,7 @@
           "if": {
             "properties": {
               "type": {
-                "const": "regex"
+                "const": "text"
               }
             },
             "required": [
@@ -277,7 +276,7 @@
           "then": {
             "properties": {
               "config": {
-                "$ref": "#/$defs/regexGraderConfig"
+                "$ref": "#/$defs/textGraderConfig"
               }
             }
           }
@@ -516,33 +515,83 @@
         }
       }
     },
-    "regexGraderConfig": {
+    "textGraderConfig": {
       "type": "object",
       "additionalProperties": false,
       "anyOf": [
         {
           "required": [
-            "must_match"
+            "contains"
           ]
         },
         {
           "required": [
-            "must_not_match"
+            "not_contains"
+          ]
+        },
+        {
+          "required": [
+            "contains_cs"
+          ]
+        },
+        {
+          "required": [
+            "not_contains_cs"
+          ]
+        },
+        {
+          "required": [
+            "regex_match"
+          ]
+        },
+        {
+          "required": [
+            "regex_not_match"
           ]
         }
       ],
       "properties": {
-        "must_match": {
+        "contains": {
           "type": "array",
           "items": {
             "type": "string"
-          }
+          },
+          "description": "Substrings that MUST appear in the output (case-insensitive)."
         },
-        "must_not_match": {
+        "not_contains": {
           "type": "array",
           "items": {
             "type": "string"
-          }
+          },
+          "description": "Substrings that MUST NOT appear in the output (case-insensitive)."
+        },
+        "contains_cs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Substrings that MUST appear in the output (case-sensitive)."
+        },
+        "not_contains_cs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Substrings that MUST NOT appear in the output (case-sensitive)."
+        },
+        "regex_match": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Regex patterns that MUST match somewhere in the output."
+        },
+        "regex_not_match": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Regex patterns that MUST NOT match anywhere in the output."
         }
       }
     },

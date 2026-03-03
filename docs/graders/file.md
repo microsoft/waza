@@ -60,7 +60,7 @@ Each check counts separately:
       - "node_modules"
     content_patterns:
       - path: "package.json"
-        must_match:
+        regex_match:
           - '"name"'
           - '"scripts"'
 ```

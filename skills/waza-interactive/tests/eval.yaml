@@ -8,51 +8,57 @@ tasks:
     prompt: "Can you run my evals and tell me how my skill is doing?"
     expected: "Should activate waza-interactive skill and start Scenario 2 (Run and Interpret Results)"
     validators:
-      - type: regex
+      - type: text
         config:
-          pattern: "waza_eval_run|run.*eval|Scenario 2"
+          regex_match:
+            - "waza_eval_run|run.*eval|Scenario 2"
 
   - id: trigger-create-eval
     name: "Trigger: create eval suite"
     prompt: "I need to create an eval suite for my new code-reviewer skill"
     expected: "Should activate waza-interactive skill and start Scenario 1 (Create a New Eval)"
     validators:
-      - type: regex
+      - type: text
         config:
-          pattern: "waza_eval_list|waza init|Scenario 1|scaffold"
+          regex_match:
+            - "waza_eval_list|waza init|Scenario 1|scaffold"
 
   - id: trigger-compare-models
     name: "Trigger: compare models"
     prompt: "Which model works better for my skill — gpt-4o or claude-sonnet?"
     expected: "Should activate waza-interactive skill and start Scenario 3 (Compare Models)"
     validators:
-      - type: regex
+      - type: text
         config:
-          pattern: "compare|model.*A|model.*B|Scenario 3"
+          regex_match:
+            - "compare|model.*A|model.*B|Scenario 3"
 
   - id: trigger-debug-failing
     name: "Trigger: debug failing tests"
     prompt: "My skill keeps failing its eval tests, can you help me debug?"
     expected: "Should activate waza-interactive skill and start Scenario 4 (Debug a Failing Skill)"
     validators:
-      - type: regex
+      - type: text
         config:
-          pattern: "waza_skill_check|debug|fail|Scenario 4"
+          regex_match:
+            - "waza_skill_check|debug|fail|Scenario 4"
 
   - id: trigger-ship-readiness
     name: "Trigger: is my skill ready"
     prompt: "Is my skill ready to ship? Give me the full readiness check."
     expected: "Should activate waza-interactive skill and start Scenario 5 (Ship Readiness Check)"
     validators:
-      - type: regex
+      - type: text
         config:
-          pattern: "readiness|checklist|waza_skill_check|Scenario 5"
+          regex_match:
+            - "readiness|checklist|waza_skill_check|Scenario 5"
 
   - id: anti-trigger-general-coding
     name: "Anti-trigger: general coding request"
     prompt: "Write me a Python function that sorts a list"
     expected: "Should NOT activate waza-interactive skill — this is general coding"
     validators:
-      - type: regex
+      - type: text
         config:
-          pattern: "def sort|sorted|python"
+          regex_match:
+            - "def sort|sorted|python"

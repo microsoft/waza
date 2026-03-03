@@ -44,7 +44,7 @@ func newTestOutcome() *models.EvaluationOutcome {
 					{
 						RunNumber: 1, Status: models.StatusPassed, DurationMs: 1000,
 						Validations: map[string]models.GraderResults{
-							"regex": {Name: "regex", Type: "regex", Score: 1.0, Passed: true, Feedback: "ok"},
+							"text": {Name: "text", Type: "text", Score: 1.0, Passed: true, Feedback: "ok"},
 						},
 					},
 				},
@@ -58,8 +58,8 @@ func newTestOutcome() *models.EvaluationOutcome {
 					{
 						RunNumber: 1, Status: models.StatusFailed, DurationMs: 1500,
 						Validations: map[string]models.GraderResults{
-							"regex":   {Name: "regex", Type: "regex", Score: 0.0, Passed: false, Feedback: "pattern not found"},
-							"keyword": {Name: "keyword", Type: "keyword", Score: 0.8, Passed: true, Feedback: "ok"},
+							"text":     {Name: "text", Type: "text", Score: 0.0, Passed: false, Feedback: "pattern not found"},
+							"behavior": {Name: "behavior", Type: "behavior", Score: 0.8, Passed: true, Feedback: "ok"},
 						},
 					},
 				},
@@ -122,10 +122,10 @@ func TestConvertToJUnit_FailedTestCase(t *testing.T) {
 	require.NotNil(t, tc.Failure)
 	assert.Equal(t, "GraderFailure", tc.Failure.Type)
 	assert.Contains(t, tc.Failure.Message, "score=0.40")
-	assert.Contains(t, tc.Failure.Body, "[FAIL] regex")
+	assert.Contains(t, tc.Failure.Body, "[FAIL] text")
 	assert.Contains(t, tc.Failure.Body, "pattern not found")
-	// keyword passed, so it should NOT appear in failure body
-	assert.NotContains(t, tc.Failure.Body, "[FAIL] keyword")
+	// behavior passed, so it should NOT appear in failure body
+	assert.NotContains(t, tc.Failure.Body, "[FAIL] behavior")
 }
 
 func TestConvertToJUnit_ErrorTestCase(t *testing.T) {

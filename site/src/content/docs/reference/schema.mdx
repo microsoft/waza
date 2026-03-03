@@ -24,10 +24,10 @@ config:
   executor: mock                    # mock or copilot-sdk
 
 graders:                            # Validation rules
-  - type: regex
+  - type: text
     name: checks_logic
     config:
-      pattern: "(?i)(function)"
+      regex_match: "(?i)(function)"
 
 tasks:                              # Test cases
   - "tasks/*.yaml"                 # From files
@@ -173,10 +173,10 @@ List of validation rules. Used across tasks.
 
 ```yaml
 graders:
-  - type: regex
+  - type: text
     name: pattern_check
     config:
-      must_match: ["success"]
+      regex_match: ["success"]
   
   - type: code
     name: logic_check
@@ -538,10 +538,10 @@ config:
   executor: copilot-sdk
 
 graders:
-  - type: regex
+  - type: text
     name: explains_concepts
     config:
-      must_match:
+      regex_match:
         - "function"
         - "parameter"
         - "return"

@@ -20,14 +20,13 @@ Graders evaluate skill execution and produce scores. Each grader returns:
 - [`human` - Manual Review Grader (not implemented)](human.md)
 - [`human_calibration` - Calibration Grader (not implemented)](human_calibration.md)
 - [`json_schema` - JSON Schema Validation Grader](json_schema.md)
-- [`keyword` - Keyword Matching Grader](keyword.md)
 - [`llm` - LLM-as-Judge Grader (not implemented)](llm.md)
 - [`llm_comparison` - Reference Comparison Grader (not implemented)](llm_comparison.md)
 - [`program` - External Program Grader](program.md)
 - [`prompt` - LLM-Based Evaluation](prompt.md)
-- [`regex` - Pattern Matching Grader](regex.md)
 - [`script` - External Script Grader (not implemented)](script.md)
 - [`skill_invocation` - Skill Invocation Sequence Validation](skill_invocation.md)
+- [`text` - Pattern Matching Grader](text.md)
 - [`tool_calls` - Tool Usage Grader (not implemented)](tool_calls.md)
 - [`tool_constraint` - Tool Usage Constraint Grader](tool_constraint.md)
 
@@ -48,10 +47,10 @@ graders:
         - "len(output) > 10"
         - "'success' in output.lower()"
 
-  - type: regex
+  - type: text
     name: format_check
     config:
-      must_match:
+      regex_match:
         - "deployed to .+"
 ```
 
@@ -261,7 +260,7 @@ graders:
     name: basic_check
     # Default weight: 1.0
 
-  - type: regex
+  - type: text
     name: format_check
     # Default weight: 1.0
 ```

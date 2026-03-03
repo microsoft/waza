@@ -127,10 +127,10 @@ config:
   parallel: false
 
 graders:
-  - type: regex
+  - type: text
     name: output_check
     config:
-      must_match: ["expected pattern"]
+      regex_match: ["expected pattern"]
 
 tasks:
   - "tasks/*.yaml"

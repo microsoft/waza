@@ -207,14 +207,14 @@ config:
   executor: mock
 graders:
   - name: important
-    type: regex
+    type: text
     weight: 3.0
     config:
-      must_match: ["foo"]
+      regex_match: ["foo"]
   - name: minor
-    type: regex
+    type: text
     config:
-      must_match: ["bar"]
+      regex_match: ["bar"]
 `
 	specPath := filepath.Join(tempDir, "weighted.yaml")
 	if err := os.WriteFile(specPath, []byte(yamlContent), 0644); err != nil {

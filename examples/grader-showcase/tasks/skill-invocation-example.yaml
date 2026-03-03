@@ -51,8 +51,8 @@ graders:
       allow_extra: true
 
   # Validate output mentions deployment
-  - type: regex
+  - type: text
     name: mentions_deployment
     config:
-      must_match:
+      regex_match:
         - "(?i)deploy"

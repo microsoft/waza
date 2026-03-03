@@ -17,7 +17,7 @@ const evalYAMLSchemaSummary = `Top-level eval.yaml fields:
   - executor (mock|copilot-sdk)
   - model (string)
 - graders[]: Each entry MUST be an object with "type" and "name" fields (never a bare string).
-  - type (code|prompt|regex|file|keyword|json_schema|program|behavior|action_sequence|skill_invocation|diff|tool_constraint)
+  - type (code|prompt|text|file|json_schema|program|behavior|action_sequence|skill_invocation|diff|tool_constraint)
   - name (string, required)
   - config (map, required fields depend on type — see grader documentation below)
 - metrics[]:
@@ -42,10 +42,10 @@ graders:
     config:
       assertions:
         - "len(output) > 0"
-  - type: regex
+  - type: text
     name: no_errors
     config:
-      must_not_match:
+      regex_not_match:
         - "(?i)error|exception"
   - type: skill_invocation
     name: skill_was_invoked
@@ -77,7 +77,7 @@ func renderSelectionPrompt(data promptData) string {
 	b.WriteString("You are selecting grader types for a waza evaluation suite.\n")
 	b.WriteString("Given the skill description below, choose which grader types are most appropriate.\n\n")
 	b.WriteString("Return ONLY a YAML list of grader type names, one per line, like:\n")
-	b.WriteString("```yaml\ngraders:\n  - code\n  - keyword\n  - skill_invocation\n```\n\n")
+	b.WriteString("```yaml\ngraders:\n  - code\n  - text\n  - skill_invocation\n```\n\n")
 	b.WriteString("Choose 2-5 grader types that best validate this skill's behavior.\n")
 	b.WriteString("Consider: does the skill produce text output? files? invoke other skills? need format checks?\n\n")
 	b.WriteString("Skill metadata:\n")

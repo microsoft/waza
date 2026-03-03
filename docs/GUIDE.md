@@ -154,7 +154,7 @@ tasks:
 validators:
   - type: contains
     caseSensitive: false
-  - type: regex
+  - type: text
     caseSensitive: false
 ```
 
@@ -168,7 +168,7 @@ prompt: "Explain what this function does:\n{{fixture:sample.py}}"
 expectedOutput:
   - type: contains
     value: "function"
-  - type: regex
+  - type: text
     value: "returns.*value"
 tags: ["basic", "core"]
 ```
