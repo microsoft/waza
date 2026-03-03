@@ -22,7 +22,9 @@ func (d DiscoveredSkill) HasEval() bool {
 
 // Discover walks the given root directory and finds all skills with eval configs.
 // A skill is a directory containing SKILL.md. An eval config is eval.yaml either
-// in the same directory, in an evals/ subdirectory, or in a tests/ subdirectory.
+// in the same directory, in an evals/ subdirectory, in a tests/ subdirectory, or
+// in a project-layout evals/{name}/ directory two levels above the skill directory
+// (e.g. project-root/skills/{name}/SKILL.md → project-root/evals/{name}/eval.yaml).
 func Discover(root string) ([]DiscoveredSkill, error) {
 	absRoot, err := filepath.Abs(root)
 	if err != nil {
@@ -60,7 +62,7 @@ func Discover(root string) ([]DiscoveredSkill, error) {
 		if !info.IsDir() && info.Name() == "SKILL.md" {
 			dir := filepath.Dir(path)
 			name := filepath.Base(dir)
-			evalPath := findEvalConfig(dir)
+			evalPath := findEvalConfig(dir, name)
 
 			skills = append(skills, DiscoveredSkill{
 				Name:      name,
@@ -80,12 +82,16 @@ func Discover(root string) ([]DiscoveredSkill, error) {
 }
 
 // findEvalConfig looks for eval.yaml in standard locations relative to a skill directory.
-// Priority: tests/eval.yaml > evals/eval.yaml > eval.yaml
-func findEvalConfig(skillDir string) string {
+// Priority: tests/eval.yaml > evals/eval.yaml > eval.yaml > ../../evals/{name}/eval.yaml
+// The last candidate handles the project layout produced by `waza new` in project mode,
+// where SKILL.md lives at skills/{name}/SKILL.md and eval.yaml at evals/{name}/eval.yaml.
+func findEvalConfig(skillDir, name string) string {
 	candidates := []string{
 		filepath.Join(skillDir, "tests", "eval.yaml"),
 		filepath.Join(skillDir, "evals", "eval.yaml"),
 		filepath.Join(skillDir, "eval.yaml"),
+		// Project layout: project-root/skills/{name}/SKILL.md → project-root/evals/{name}/eval.yaml
+		filepath.Join(filepath.Dir(filepath.Dir(skillDir)), "evals", name, "eval.yaml"),
 	}
 
 	for _, c := range candidates {

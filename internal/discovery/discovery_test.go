@@ -193,6 +193,35 @@ func TestDiscoverEvalsSubdir(t *testing.T) {
 	}
 }
 
+func TestDiscoverProjectLayout(t *testing.T) {
+	// Simulates the layout produced by `waza new` in project mode:
+	//   project-root/skills/{name}/SKILL.md
+	//   project-root/evals/{name}/eval.yaml
+	root := t.TempDir()
+
+	setupSkillDir(t, filepath.Join(root, "skills", "my-skill"))
+	setupEvalFile(t, filepath.Join(root, "evals", "my-skill", "eval.yaml"))
+
+	skills, err := Discover(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(skills) != 1 {
+		t.Fatalf("expected 1 skill, got %d", len(skills))
+	}
+	if skills[0].Name != "my-skill" {
+		t.Errorf("expected my-skill, got %s", skills[0].Name)
+	}
+	if !skills[0].HasEval() {
+		t.Error("my-skill should have eval (project layout evals/{name}/eval.yaml)")
+	}
+	wantEvalPath := filepath.Join(root, "evals", "my-skill", "eval.yaml")
+	if skills[0].EvalPath != wantEvalPath {
+		t.Errorf("expected EvalPath %s, got %s", wantEvalPath, skills[0].EvalPath)
+	}
+}
+
 func TestDiscoverNonexistentRoot(t *testing.T) {
 	_, err := Discover("/nonexistent/path/that/does/not/exist")
 	if err == nil {
