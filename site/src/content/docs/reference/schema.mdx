@@ -27,7 +27,7 @@ graders:                            # Validation rules
   - type: text
     name: checks_logic
     config:
-      pattern: "(?i)(function)"
+      regex_match: "(?i)(function)"
 
 tasks:                              # Test cases
   - "tasks/*.yaml"                 # From files
