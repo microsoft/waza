@@ -5,10 +5,12 @@ interface Props {
 }
 
 const { src, alt } = Astro.props;
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+const resolvedSrc = src.startsWith('/') ? `${base}${src}` : src;
 ---
 
-<a href={src} target="_blank" rel="noopener noreferrer" class="zoom-image-link" title="Click to view full size">
-	<img src={src} alt={alt} class="zoom-image" />
+<a href={resolvedSrc} target="_blank" rel="noopener noreferrer" class="zoom-image-link" title="Click to view full size">
+	<img src={resolvedSrc} alt={alt} class="zoom-image" />
 	<span class="zoom-hint">🔍 Click to enlarge</span>
 </a>
 

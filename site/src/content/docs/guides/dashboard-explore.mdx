@@ -15,7 +15,7 @@ waza serve --results-dir ./results
 
 The landing page shows all evaluation runs at a glance. Six KPI cards summarize your total runs, tasks, pass rate, token usage, cost, and duration. Below the cards, a sortable table lists every run with its spec, model, pass rate, weighted score, task count, tokens, cost, duration, and relative timestamp.
 
-<ZoomImage src="/waza/images/explore/runs-overview.png" alt="Eval Runs overview showing KPI cards and sortable runs table" />
+<ZoomImage src="/images/explore/runs-overview.png" alt="Eval Runs overview showing KPI cards and sortable runs table" />
 
 - **KPI cards** — Total Runs, Total Tasks, Pass Rate, Avg Tokens, Avg Cost, and Avg Duration update in real time as results load
 - **Sortable columns** — click any column header (Spec, Model, Tasks, Tokens, Cost, Duration, When) to sort ascending or descending
@@ -27,7 +27,7 @@ The landing page shows all evaluation runs at a glance. Six KPI cards summarize 
 
 Clicking a run opens its detail page. The Tasks tab shows every task in the evaluation with its outcome, raw score, weighted score, and duration. Expand any row to see individual grader results.
 
-<ZoomImage src="/waza/images/explore/run-detail-tasks.png" alt="Run detail showing the Tasks tab with outcome badges and scores" />
+<ZoomImage src="/images/explore/run-detail-tasks.png" alt="Run detail showing the Tasks tab with outcome badges and scores" />
 
 - **Outcome badges** — green `pass` and red `fail` badges make it easy to spot problems
 - **Score vs. W. Score** — the raw grader score and the weighted aggregate score are shown side by side
@@ -38,7 +38,7 @@ Clicking a run opens its detail page. The Tasks tab shows every task in the eval
 
 Switch to the **Trajectory** tab to see the agent's execution path. The task selector lists every task with its pass/fail badge.
 
-<ZoomImage src="/waza/images/explore/trajectory-task-selector.png" alt="Trajectory tab showing the task selector with pass/fail badges" />
+<ZoomImage src="/images/explore/trajectory-task-selector.png" alt="Trajectory tab showing the task selector with pass/fail badges" />
 
 - **Task selector** — every task listed as a clickable button with its outcome badge
 - **Color-coded badges** — green for pass, red for fail
@@ -48,7 +48,7 @@ Switch to the **Trajectory** tab to see the agent's execution path. The task sel
 
 After selecting a task, the waterfall timeline shows a **session digest** and **execution spans**. Each span represents a tool call the agent made.
 
-<ZoomImage src="/waza/images/explore/waterfall-timeline.png" alt="Waterfall timeline showing session digest and tool call spans" />
+<ZoomImage src="/images/explore/waterfall-timeline.png" alt="Waterfall timeline showing session digest and tool call spans" />
 
 - **Session digest** — Turns, Tool Calls, Tokens In/Out/Total, and Tools Used at a glance
 - **Trace header** — total span count and tool call breakdown (e.g., `read_file × 2 create_file × 4 bash × 1`)
@@ -59,7 +59,7 @@ After selecting a task, the waterfall timeline shows a **session digest** and **
 
 Click any span bar to open the detail panel with full tool call information.
 
-<ZoomImage src="/waza/images/explore/waterfall-span-detail.png" alt="Span detail panel showing tool name, attributes, arguments, and result" />
+<ZoomImage src="/images/explore/waterfall-span-detail.png" alt="Span detail panel showing tool name, attributes, arguments, and result" />
 
 - **Tool name** — which tool was called (bash, create_file, read_file, etc.)
 - **Status badge** — Passed/Failed indicator
@@ -71,13 +71,13 @@ Click any span bar to open the detail panel with full tool call information.
 
 Toggle from **Timeline** to **Events** to see a chronological list of every event in the agent session.
 
-<ZoomImage src="/waza/images/explore/trajectory-events-list.png" alt="Events list showing assistant turns and tool start/complete events" />
+<ZoomImage src="/images/explore/trajectory-events-list.png" alt="Events list showing assistant turns and tool start/complete events" />
 
 - **Assistant turns** — the agent's reasoning text before and after tool calls
 - **Tool start/complete pairs** — each tool call shown as start → complete with tool name and call ID
 - **Show details** — expand any event to see its full content
 
-<ZoomImage src="/waza/images/explore/trajectory-event-expanded.png" alt="Event expanded showing the assistant's reasoning text" />
+<ZoomImage src="/images/explore/trajectory-event-expanded.png" alt="Event expanded showing the assistant's reasoning text" />
 
 - **Expanded detail** — full text of assistant reasoning or tool arguments/results
 - **Collapsible** — click "Hide details" to collapse back
@@ -86,7 +86,7 @@ Toggle from **Timeline** to **Events** to see a chronological list of every even
 
 Back on the **Tasks** tab, click any task row to expand and see individual grader results.
 
-<ZoomImage src="/waza/images/explore/task-grader-expansion.png" alt="Task expanded showing per-grader results with weights and scores" />
+<ZoomImage src="/images/explore/task-grader-expansion.png" alt="Task expanded showing per-grader results with weights and scores" />
 
 - **Per-grader rows** — each grader shows name, type, pass/fail, score, and weight
 - **Weight display** — grader weights shown as `×N` multiplier badges
@@ -96,7 +96,7 @@ Back on the **Tasks** tab, click any task row to expand and see individual grade
 
 The Compare view lets you select any two runs and see their differences side by side. Select runs from the dropdowns and the comparison appears instantly.
 
-<ZoomImage src="/waza/images/explore/compare-runs.png" alt="Compare view showing side-by-side metrics and per-task comparison" />
+<ZoomImage src="/images/explore/compare-runs.png" alt="Compare view showing side-by-side metrics and per-task comparison" />
 
 - **Run cards** — each selected run shows its spec, model, and timestamp
 - **Metrics comparison** — Pass Rate, Tokens, Cost, and Duration are compared with delta indicators (↑ increase in red, ↓ decrease in green)
@@ -108,7 +108,7 @@ The Compare view lets you select any two runs and see their differences side by 
 
 The Trends page charts your evaluation metrics over time. Four line charts show Pass Rate, Tokens per Run, Cost per Run, and Duration per Run across all runs, ordered chronologically.
 
-<ZoomImage src="/waza/images/explore/trends.png" alt="Trends page with pass rate, tokens, cost, and duration charts" />
+<ZoomImage src="/images/explore/trends.png" alt="Trends page with pass rate, tokens, cost, and duration charts" />
 
 - **Pass Rate** — track whether your agent skills are improving or regressing
 - **Tokens per Run** — monitor token consumption trends to catch runaway prompts
@@ -120,7 +120,7 @@ The Trends page charts your evaluation metrics over time. Four line charts show 
 
 The Live view connects to the waza server via WebSocket to show real-time evaluation progress. When no evaluation is running, it shows a disconnected state with instructions to start one.
 
-<ZoomImage src="/waza/images/explore/live-view.png" alt="Live view showing disconnected state with WebSocket status" />
+<ZoomImage src="/images/explore/live-view.png" alt="Live view showing disconnected state with WebSocket status" />
 
 - **WebSocket status** — a red "Disconnected" badge (top-right) shows the current connection state; it turns green when an evaluation is running
 - **Start prompt** — when idle, the view shows a `waza run` command hint to start a new evaluation
@@ -136,7 +136,7 @@ waza run eval.yaml --context-dir ./fixtures --live
 
 The W. Score column in the Tasks table shows the weighted aggregate score for each task. When graders have different weights configured in the eval YAML, the weighted score reflects their relative importance.
 
-<ZoomImage src="/waza/images/explore/weighted-scores.png" alt="Full task table showing weighted scores and confidence intervals" />
+<ZoomImage src="/images/explore/weighted-scores.png" alt="Full task table showing weighted scores and confidence intervals" />
 
 - **W. Score column** — appears in both the Runs overview and Run Detail views
 - **Per-grader weights** — configure weights in your eval YAML under each grader's `weight` field
@@ -146,7 +146,7 @@ The W. Score column in the Tasks table shows the weighted aggregate score for ea
 
 Tasks with weighted scores display statistical significance indicators. These help you determine whether score differences between models or runs are meaningful or just noise.
 
-<ZoomImage src="/waza/images/explore/statistical-confidence.png" alt="Task rows showing significance badges and confidence interval ranges" />
+<ZoomImage src="/images/explore/statistical-confidence.png" alt="Task rows showing significance badges and confidence interval ranges" />
 
 - **✓ significant** (green) — the score is statistically significant with tight confidence intervals (e.g., [82.0%, 85.0%])
 - **⚠ not significant** (yellow) — the score has wide confidence intervals (e.g., [45.0%, 90.0%]), meaning more data is needed
