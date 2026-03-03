@@ -13,10 +13,10 @@ Validates file existence, absence, and content patterns in the post-execution wo
       - "temp/debug.log"
     content_patterns:
       - path: "src/main.py"
-        regex_match:
+        must_match:
           - "def main\\("
           - "import os"
-        regex_not_match:
+        must_not_match:
           - "TODO"
           - "HACK"
 ```
