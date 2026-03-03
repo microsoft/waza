@@ -168,9 +168,9 @@ Validates file existence and content patterns in the agent's workspace directory
       - ".env"
     content_patterns:
       - path: "package.json"
-        regex_match:
+        must_match:
           - '"name":\\s*"my-app"'
-        regex_not_match:
+        must_not_match:
           - '"version":\\s*"0\\.0\\.0"'
 ```
 
