@@ -103,9 +103,9 @@ graders:
         - "temp.txt"
       content_patterns:
         - path: "README.md"
-          regex_match:
+          must_match:
             - "(?i)installation"
-          regex_not_match:
+          must_not_match:
             - "TODO|FIXME"
 ```
 
