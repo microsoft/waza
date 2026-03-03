@@ -169,6 +169,48 @@ func TestSessionUsageCollector_SessionErrorCapturesUsage(t *testing.T) {
 	require.Equal(t, 400, usage.InputTokens)
 }
 
+func TestSessionUsageCollector_TurnsFromAssistantTurnStart(t *testing.T) {
+	coll := NewSessionUsageCollector()
+
+	// Send three AssistantTurnStart events
+	for range 3 {
+		coll.On(copilot.SessionEvent{Type: copilot.AssistantTurnStart})
+	}
+
+	// Also send a session-level event so UsageStats() returns non-nil
+	premReqs := float64(1)
+	coll.On(copilot.SessionEvent{
+		Type: copilot.SessionIdle,
+		Data: copilot.Data{
+			TotalPremiumRequests: &premReqs,
+		},
+	})
+
+	usage := coll.UsageStats()
+	require.NotNil(t, usage)
+	require.Equal(t, 3, usage.Turns)
+}
+
+func TestSessionUsageCollector_TurnsWithTurnUsageFallback(t *testing.T) {
+	coll := NewSessionUsageCollector()
+
+	// AssistantTurnStart events increment the counter
+	coll.On(copilot.SessionEvent{Type: copilot.AssistantTurnStart})
+	coll.On(copilot.SessionEvent{Type: copilot.AssistantTurnStart})
+
+	// Per-turn usage (no session-level event) triggers fallback path
+	in := float64(100)
+	coll.On(copilot.SessionEvent{
+		Type: copilot.AssistantUsage,
+		Data: copilot.Data{InputTokens: &in},
+	})
+
+	usage := coll.UsageStats()
+	require.NotNil(t, usage)
+	require.Equal(t, 2, usage.Turns)
+	require.Equal(t, 100, usage.InputTokens)
+}
+
 func TestSessionUsageCollector_PremiumRequestsOnlyFallsBackToTurnTokens(t *testing.T) {
 	coll := NewSessionUsageCollector()
 
