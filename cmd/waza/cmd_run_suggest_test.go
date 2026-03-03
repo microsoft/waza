@@ -158,7 +158,7 @@ func TestBuildRunSuggestionPrompt_IncludesOnlyFailureEvidence(t *testing.T) {
 			{
 				Kind:       models.GraderKindText,
 				Identifier: "must-mention-foo",
-				Parameters: map[string]any{"pattern": "foo"},
+				Parameters: map[string]any{"contains": "foo"},
 			},
 		},
 	}
