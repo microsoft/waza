@@ -26,13 +26,12 @@ You can attach graders **globally** (applied to every task) or **per-task** in y
 
 ## At a glance
 
-waza ships with **11 built-in grader types**. Pick the right one for the job:
+waza ships with **several built-in grader types**. Pick the right one for the job:
 
 | Type | YAML key | What it checks |
 |------|----------|----------------|
 | [Inline Script](#inline-script-code) | `code` | Python/JS assertion expressions against output |
-| [Regex](#regex) | `regex` | Regex patterns that must / must not appear |
-| [Keyword](#keyword) | `keyword` | Case-insensitive keyword presence / absence |
+| [Text](#Text) | `text` | Text and regex matching against output |
 | [File](#file) | `file` | File existence and content patterns in workspace |
 | [Diff](#diff) | `diff` | Workspace files vs. expected snapshots or fragments |
 | [JSON Schema](#json-schema-json_schema) | `json_schema` | Output validates against a JSON Schema |
