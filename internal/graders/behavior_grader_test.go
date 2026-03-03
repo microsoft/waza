@@ -148,6 +148,19 @@ func TestBehaviorGrader_MaxTokens(t *testing.T) {
 		require.False(t, results.Passed)
 		require.Contains(t, results.Feedback, "Token")
 	})
+
+	t.Run("pass when usage is nil", func(t *testing.T) {
+		g, err := NewBehaviorGrader("test", BehaviorGraderParams{
+			MaxTokens: 500,
+		})
+		require.NoError(t, err)
+
+		results, err := g.Grade(context.Background(), &Context{
+			Session: &models.SessionDigest{},
+		})
+		require.NoError(t, err)
+		require.True(t, results.Passed)
+	})
 }
 
 func TestBehaviorGrader_RequiredTools(t *testing.T) {

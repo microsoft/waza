@@ -127,8 +127,9 @@ func (bg *behaviorGrader) checkMaxTokens(session *models.SessionDigest) []string
 	}
 
 	if session.Usage == nil {
-		return []string{"No usage data available to check max tokens"}
-	} else if total := session.Usage.InputTokens + session.Usage.OutputTokens; total > bg.maxTokens {
+		return nil
+	}
+	if total := session.Usage.InputTokens + session.Usage.OutputTokens; total > bg.maxTokens {
 		return []string{fmt.Sprintf("Token usage %d exceeds max allowed %d", total, bg.maxTokens)}
 	}
 	return nil
