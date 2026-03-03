@@ -962,7 +962,7 @@ func displayReadinessReport(out writer, report *readinessReport) {
 		specChecksPassed
 
 	if isReady {
-		fmt.Fprintf(w, "✅ Your skill is ready for submission!\n\n")
+		fmt.Fprintf(w, "✅  Your skill is ready for submission!\n\n")
 	} else {
 		fmt.Fprintf(w, "⚠️  Your skill needs some work before submission.\n\n")
 	}

@@ -728,17 +728,17 @@ Body.
 	require.NoError(t, err)
 
 	result := output.String()
-	// All sub-item lines with status emojis should use 2-space gap after emoji
+	// All status-emoji lines should use 2-space gap after emoji (both indented and top-level)
 	for _, line := range strings.Split(result, "\n") {
 		trimmed := strings.TrimSpace(line)
-		// Check indented lines starting with status emojis (sub-items)
-		if strings.HasPrefix(line, "   ") {
-			if strings.HasPrefix(trimmed, "✅ ") && !strings.HasPrefix(trimmed, "✅  ") {
-				t.Errorf("inconsistent spacing in line (expected 2 spaces after emoji): %q", line)
-			}
-			if strings.HasPrefix(trimmed, "❌ ") && !strings.HasPrefix(trimmed, "❌  ") {
-				t.Errorf("inconsistent spacing in line (expected 2 spaces after emoji): %q", line)
-			}
+		if strings.HasPrefix(trimmed, "✅ ") && !strings.HasPrefix(trimmed, "✅  ") {
+			t.Errorf("inconsistent spacing in line (expected 2 spaces after emoji): %q", line)
+		}
+		if strings.HasPrefix(trimmed, "❌ ") && !strings.HasPrefix(trimmed, "❌  ") {
+			t.Errorf("inconsistent spacing in line (expected 2 spaces after emoji): %q", line)
+		}
+		if strings.HasPrefix(trimmed, "⚠️ ") && !strings.HasPrefix(trimmed, "⚠️  ") {
+			t.Errorf("inconsistent spacing in line (expected 2 spaces after emoji): %q", line)
 		}
 	}
 }
