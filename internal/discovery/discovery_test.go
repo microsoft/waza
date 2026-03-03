@@ -216,9 +216,17 @@ func TestDiscoverProjectLayout(t *testing.T) {
 	if !skills[0].HasEval() {
 		t.Error("my-skill should have eval (project layout evals/{name}/eval.yaml)")
 	}
-	wantEvalPath := filepath.Join(root, "evals", "my-skill", "eval.yaml")
-	if skills[0].EvalPath != wantEvalPath {
-		t.Errorf("expected EvalPath %s, got %s", wantEvalPath, skills[0].EvalPath)
+	// Check structural aspects: eval.yaml should be inside an evals/my-skill/ directory.
+	// Avoid exact path comparison because filepath.EvalSymlinks can expand short
+	// Windows paths (e.g. RUNNER~1 → runneradmin), making exact matches unreliable.
+	if filepath.Base(skills[0].EvalPath) != "eval.yaml" {
+		t.Errorf("expected eval.yaml filename, got %s", filepath.Base(skills[0].EvalPath))
+	}
+	if filepath.Base(filepath.Dir(skills[0].EvalPath)) != "my-skill" {
+		t.Errorf("expected eval inside my-skill dir, got %s", filepath.Dir(skills[0].EvalPath))
+	}
+	if filepath.Base(filepath.Dir(filepath.Dir(skills[0].EvalPath))) != "evals" {
+		t.Errorf("expected eval inside evals/ dir, got %s", filepath.Dir(filepath.Dir(skills[0].EvalPath)))
 	}
 }
 
