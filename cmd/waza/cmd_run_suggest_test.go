@@ -156,7 +156,7 @@ func TestBuildRunSuggestionPrompt_IncludesOnlyFailureEvidence(t *testing.T) {
 		},
 		Graders: []models.GraderConfig{
 			{
-				Kind:       models.GraderKindRegex,
+				Kind:       models.GraderKindText,
 				Identifier: "must-mention-foo",
 				Parameters: map[string]any{"pattern": "foo"},
 			},
@@ -312,7 +312,7 @@ func TestBuildRunSuggestionPrompt_IncludesGraderDocs(t *testing.T) {
 			ModelID:    "gpt-4o",
 		},
 		Graders: []models.GraderConfig{
-			{Kind: models.GraderKindRegex, Identifier: "format-check"},
+			{Kind: models.GraderKindText, Identifier: "format-check"},
 		},
 	}
 
@@ -328,7 +328,7 @@ func TestBuildRunSuggestionPrompt_IncludesGraderDocs(t *testing.T) {
 					Validations: map[string]models.GraderResults{
 						"kw-check": {
 							Name:     "kw-check",
-							Type:     models.GraderKindKeyword,
+							Type:     models.GraderKindText,
 							Passed:   false,
 							Score:    0.0,
 							Feedback: "missing keyword",
@@ -344,11 +344,9 @@ func TestBuildRunSuggestionPrompt_IncludesGraderDocs(t *testing.T) {
 	// Should include the grader reference section
 	assert.Contains(t, prompt, "## Grader reference")
 	// Should include docs for the regex grader (from spec) and keyword grader (from failed validation)
-	assert.Contains(t, prompt, "--- keyword grader ---")
-	assert.Contains(t, prompt, "--- regex grader ---")
+	assert.Contains(t, prompt, "--- text grader ---")
 	// Should include actual doc content
-	assert.Contains(t, prompt, "Pattern Matching")
-	assert.Contains(t, prompt, "Keyword Matching")
+	assert.Contains(t, prompt, "Text Matching")
 }
 
 func TestBuildGraderDocsSection_EmptyWhenNoGraders(t *testing.T) {
@@ -368,8 +366,8 @@ func TestCollectFailedGraderKinds(t *testing.T) {
 			Runs: []models.RunResult{
 				{
 					Validations: map[string]models.GraderResults{
-						"pass": {Type: models.GraderKindRegex, Passed: true},
-						"fail": {Type: models.GraderKindKeyword, Passed: false},
+						"pass": {Type: models.GraderKindDiff, Passed: true},
+						"fail": {Type: models.GraderKindText, Passed: false},
 					},
 				},
 			},
@@ -381,9 +379,9 @@ func TestCollectFailedGraderKinds(t *testing.T) {
 	// Global grader from spec (always included)
 	assert.True(t, kinds["code"])
 	// Failed grader from validation
-	assert.True(t, kinds["keyword"])
-	// Passed grader should NOT be included
-	assert.False(t, kinds["regex"])
+	assert.True(t, kinds["text"])
+	// Passed grader should not be included
+	assert.False(t, kinds["diff"])
 }
 
 func TestWriteSuggestionTranscript_WritesFile(t *testing.T) {

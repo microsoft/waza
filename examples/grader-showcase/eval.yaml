@@ -57,10 +57,10 @@ graders:
         - "len(output) > 0"
 
   # Global safety check: no error patterns
-  - type: regex
+  - type: text
     name: no_critical_errors
     config:
-      must_not_match:
+      regex_not_match:
         - "(?i)fatal error"
         - "(?i)critical failure"
         - "(?i)system crash"

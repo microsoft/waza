@@ -459,7 +459,7 @@ func TestNewCommand_EvalYAMLContent(t *testing.T) {
 
 	// Verify 2 grader types (no behavior — requires real sessions)
 	assert.Contains(t, content, "type: code")
-	assert.Contains(t, content, "type: regex")
+	assert.Contains(t, content, "type: text")
 	assert.NotContains(t, content, "type: behavior")
 
 	// Verify default engine is copilot-sdk (not mock)

@@ -78,7 +78,7 @@ export const RUN_DETAIL = {
         },
         {
           name: "mentions-recursion",
-          type: "regex",
+          type: "text",
           passed: true,
           score: 1.0,
           weight: 2.0,
@@ -141,7 +141,7 @@ export const RUN_DETAIL = {
         },
         {
           name: "mentions-divide-conquer",
-          type: "regex",
+          type: "text",
           passed: false,
           score: 0.0,
           weight: 2.0,

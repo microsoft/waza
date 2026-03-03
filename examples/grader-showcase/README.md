@@ -67,13 +67,13 @@ Matches output against regular expression patterns.
 **Example**:
 ```yaml
 graders:
-  - type: regex
+  - type: text
     name: pattern_check
     config:
-      must_match:
+      regex_match:
         - "(?i)deployed to https?://.+"
         - "Resource group: .+"
-      must_not_match:
+      regex_not_match:
         - "error|failed|exception"
 ```
 
@@ -103,9 +103,9 @@ graders:
         - "temp.txt"
       content_patterns:
         - path: "README.md"
-          must_match:
+          regex_match:
             - "(?i)installation"
-          must_not_match:
+          regex_not_match:
             - "TODO|FIXME"
 ```
 
@@ -306,10 +306,10 @@ graders:
 Applied only to that task:
 ```yaml
 graders:
-  - type: regex
+  - type: text
     name: task_specific_check
     config:
-      must_match:
+      regex_match:
         - "expected pattern for this task only"
 ```
 
@@ -326,7 +326,7 @@ graders:
 Tasks can use multiple graders for comprehensive validation:
 ```yaml
 graders:
-  - type: regex        # Check output format
+  - type: text        # Check output format
   - type: code         # Validate logic
   - type: behavior     # Ensure efficiency
 ```
@@ -341,11 +341,11 @@ graders:
 Good grader names help debug failures:
 ```yaml
 # ❌ Bad
-- type: regex
+- type: text
   name: check1
 
 # ✅ Good  
-- type: regex
+- type: text
   name: deployment_url_format
 ```
 
@@ -386,8 +386,8 @@ waza run examples/grader-showcase/eval.yaml -o results.json
 
 ### Filter Specific Tasks
 ```bash
-# Run only regex demo
-waza run examples/grader-showcase/eval.yaml --filter="regex"
+# Run only text demo
+waza run examples/grader-showcase/eval.yaml --filter="text"
 
 # Run only behavior and action sequence demos
 waza run examples/grader-showcase/eval.yaml --filter="behavior|action"

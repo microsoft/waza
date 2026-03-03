@@ -102,68 +102,53 @@ assertions:
 
 ---
 
-## Regex
+## Text
 
-Matches the agent output against regular expression patterns. Supports both "must match" and "must not match" lists.
+Validates the agent output using substring matching and regex patterns. Supports case-insensitive and case-sensitive substring checks, plus regex pattern matching.
 
 ```yaml
-- type: regex
+- type: text
   name: format_checker
   config:
-    must_match:
-      - "deployed to https?://.+"
-      - "Resource group: .+"
-    must_not_match:
-      - "(?i)error|failed|exception"
+    contains:
+      - "deployed to"
+      - "Resource group"
+    not_contains:
       - "permission denied"
+    regex_match:
+      - "https?://.+"
+    regex_not_match:
+      - "(?i)error|failed|exception"
 ```
 
 | Option | Type | Description |
 |--------|------|-------------|
-| `must_match` | `list[str]` | Regex patterns that **must** appear in output |
-| `must_not_match` | `list[str]` | Regex patterns that **must not** appear |
+| `contains` | `list[str]` | Substrings that **must** appear (case-insensitive) |
+| `not_contains` | `list[str]` | Substrings that **must not** appear (case-insensitive) |
+| `contains_cs` | `list[str]` | Substrings that **must** appear (case-sensitive) |
+| `not_contains_cs` | `list[str]` | Substrings that **must not** appear (case-sensitive) |
+| `regex_match` | `list[str]` | Regex patterns that **must** match in output |
+| `regex_not_match` | `list[str]` | Regex patterns that **must not** match |
 
 **Scoring:** `passed_checks / total_checks`
 
 ### Example: code quality gate
 
 ```yaml
-- type: regex
+- type: text
   name: code_quality
   config:
-    must_match:
+    contains:
+      - "def "
+      - "return"
+    not_contains:
+      - "TODO"
+      - "FIXME"
+    regex_match:
       - "def \\w+\\(.*\\):"   # Has function definitions
-      - "return .+"            # Has return statements
-    must_not_match:
-      - "TODO|FIXME"           # No incomplete work
+    regex_not_match:
       - "print\\("             # No debug prints
 ```
-
----
-
-## Keyword
-
-Simple case-insensitive keyword presence or absence checks. Lighter-weight than regex when you don't need patterns.
-
-```yaml
-- type: keyword
-  name: covers_concepts
-  config:
-    must_contain:
-      - algorithm
-      - optimization
-      - efficiency
-    must_not_contain:
-      - hack
-      - workaround
-```
-
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| `must_contain` | `list[str]` | `[]` | Keywords that must appear |
-| `must_not_contain` | `list[str]` | `[]` | Keywords that must not appear |
-
-**Scoring:** `passed_checks / total_checks` (all matching is case-insensitive)
 
 ---
 
@@ -184,9 +169,9 @@ Validates file existence and content patterns in the agent's workspace directory
       - ".env"
     content_patterns:
       - path: "package.json"
-        must_match:
+        regex_match:
           - '"name":\\s*"my-app"'
-        must_not_match:
+        regex_not_match:
           - '"version":\\s*"0\\.0\\.0"'
 ```
 
@@ -580,10 +565,10 @@ Defined at the top level of `eval.yaml`, applied to **every task**:
 
 ```yaml
 graders:
-  - type: regex
+  - type: text
     name: no_errors
     config:
-      must_not_match:
+      regex_not_match:
         - "(?i)fatal error|crashed|exception occurred"
 
   - type: code
@@ -602,10 +587,10 @@ Define graders globally, then reference them by name in individual tasks:
 
 ```yaml
 graders:
-  - type: regex
+  - type: text
     name: format_check
     config:
-      must_match: ["^[A-Z]"]
+      regex_match: ["^[A-Z]"]
 
   - type: code
     name: length_check
@@ -657,17 +642,17 @@ By default every grader counts equally toward the composite score. Add a `weight
 
 ```yaml
 graders:
-  - type: regex
+  - type: text
     name: critical_check
     weight: 3.0          # Counts 3×
     config:
-      must_match: ["deployed"]
+      regex_match: ["deployed"]
 
-  - type: keyword
+  - type: text
     name: nice_to_have
     weight: 0.5          # Counts 0.5×
     config:
-      must_contain: [summary]
+      contains: [summary]
 
   - type: code
     name: basic_length
@@ -698,16 +683,16 @@ You can stack multiple graders on a single task. All graders run independently a
 ```yaml
 graders:
   # 1. Output mentions key concepts
-  - type: keyword
+  - type: text
     name: concepts
     config:
-      must_contain: [authentication, JWT, middleware]
+      contains: [authentication, JWT, middleware]
 
   # 2. No error patterns
-  - type: regex
+  - type: text
     name: no_errors
     config:
-      must_not_match: ["(?i)error|exception"]
+      regex_not_match: ["(?i)error|exception"]
 
   # 3. Required files exist
   - type: file
@@ -747,20 +732,20 @@ tasks:
       prompt: "Deploy my app to Azure"
     expected:
       graders:
-        - type: keyword
+        - type: text
           name: azure_response
           config:
-            must_contain: [azure, deploy, resource]
+            contains: [azure, deploy, resource]
 
   - id: should-not-trigger
     inputs:
       prompt: "What's the weather today?"
     expected:
       graders:
-        - type: keyword
+        - type: text
           name: no_azure
           config:
-            must_not_contain: [azure, deploy, bicep]
+            not_contains: [azure, deploy, bicep]
 ```
 
 ### Code editing task

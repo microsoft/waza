@@ -172,7 +172,7 @@ tasks:
       - type: code
         config:
           language: go
-      - type: regex
+      - type: text
         config:
           pattern: "expected pattern"
 ```

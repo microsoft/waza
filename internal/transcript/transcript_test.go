@@ -73,7 +73,7 @@ func TestWrite(t *testing.T) {
 		Validations: map[string]models.GraderResults{
 			"contains-check": {
 				Name:   "contains-check",
-				Type:   models.GraderKindRegex,
+				Type:   models.GraderKindText,
 				Score:  1.0,
 				Passed: true,
 			},

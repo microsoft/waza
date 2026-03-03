@@ -1004,7 +1004,7 @@ def grade(testbed_dir, output_dir):
     except AssertionError as e:
         results.append({"name": "has_explanation", "passed": False, "score": 0.0, "error": str(e)})
 
-    # Grader: no_errors (type: regex, must_not_match)
+    # Grader: no_errors (type: text, must_not_match)
     # Patterns: ["(?i)fatal error|crashed|exception occurred"]
     error_patterns = [r"(?i)fatal error|crashed|exception occurred"]
     regex_passed = True

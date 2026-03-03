@@ -71,9 +71,9 @@ tasks:
   - "tasks/*.yaml"
 
 graders:
-  - type: regex
+  - type: text
     config:
-      must_match: ["function", "parameter"]
+      regex_match: ["function", "parameter"]
 ```
 
 ### 11 Built-In Validators

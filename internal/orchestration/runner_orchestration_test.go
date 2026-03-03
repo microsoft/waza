@@ -41,9 +41,9 @@ inputs:
       content: "inline-a"
 graders:
   - name: task-a-regex
-    type: regex
+    type: text
     config:
-      must_match:
+      regex_match:
         - "Mock response"
 `)
 	writeTaskFile(t, filepath.Join(tasksDir, "task-b.yaml"), `id: task-b
@@ -54,10 +54,10 @@ inputs:
     - path: "resource-b.txt"
 graders:
   - name: task-b-regex
-    type: regex
+    type: text
     weight: 0.25
     config:
-      must_match:
+      regex_match:
         - "Mock response"
 `)
 
@@ -73,11 +73,11 @@ graders:
 		},
 		Graders: []models.GraderConfig{
 			{
-				Kind:       models.GraderKindRegex,
+				Kind:       models.GraderKindText,
 				Identifier: "global-regex",
 				Weight:     2.5,
 				Parameters: map[string]any{
-					"must_match": []string{"Mock response"},
+					"regex_match": []string{"Mock response"},
 				},
 			},
 		},
@@ -172,10 +172,10 @@ inputs:
 		},
 		Graders: []models.GraderConfig{
 			{
-				Kind:       models.GraderKindRegex,
+				Kind:       models.GraderKindText,
 				Identifier: "global-regex",
 				Parameters: map[string]any{
-					"must_match": []string{"Mock response"},
+					"regex_match": []string{"Mock response"},
 				},
 			},
 		},
@@ -197,10 +197,10 @@ func TestRunGraders_WeightsAndErrors(t *testing.T) {
 		Config: models.Config{ModelID: "mock-model"},
 		Graders: []models.GraderConfig{
 			{
-				Kind:       models.GraderKindRegex,
+				Kind:       models.GraderKindText,
 				Identifier: "global",
 				Weight:     3.0,
-				Parameters: map[string]any{"must_match": []string{"Mock"}},
+				Parameters: map[string]any{"regex_match": []string{"Mock"}},
 			},
 		},
 	}
@@ -211,14 +211,14 @@ func TestRunGraders_WeightsAndErrors(t *testing.T) {
 		Validators: []models.ValidatorInline{
 			{
 				Identifier: "task-default-weight",
-				Kind:       models.GraderKindRegex,
-				Parameters: map[string]any{"must_match": []string{"response"}},
+				Kind:       models.GraderKindText,
+				Parameters: map[string]any{"regex_match": []string{"response"}},
 			},
 			{
 				Identifier: "task-explicit-weight",
-				Kind:       models.GraderKindRegex,
+				Kind:       models.GraderKindText,
 				Weight:     0.5,
-				Parameters: map[string]any{"must_match": []string{"Mock"}},
+				Parameters: map[string]any{"regex_match": []string{"Mock"}},
 			},
 		},
 	}
@@ -321,9 +321,9 @@ func TestRunTest_CacheHitAndTranscriptWrite(t *testing.T) {
 		},
 		Graders: []models.GraderConfig{
 			{
-				Kind:       models.GraderKindRegex,
+				Kind:       models.GraderKindText,
 				Identifier: "global-regex",
-				Parameters: map[string]any{"must_match": []string{"Mock response"}},
+				Parameters: map[string]any{"regex_match": []string{"Mock response"}},
 			},
 		},
 	}

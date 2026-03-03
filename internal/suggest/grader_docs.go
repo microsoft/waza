@@ -10,9 +10,8 @@ import (
 var graderSummary = map[string]string{
 	"code":             "Assertion-based: evaluate Python/JS expressions against execution context (output, tool_calls, etc.)",
 	"prompt":           "LLM-as-judge: use a language model to evaluate quality via a rubric prompt",
-	"regex":            "Pattern matching: check output against regex must_match / must_not_match lists",
+	"text":            "Text matching: check output with substring contains/not_contains and regex_match/regex_not_match",
 	"file":             "File validation: verify file existence, absence, and content patterns in workspace",
-	"keyword":          "Keyword check: case-insensitive substring matching for must_contain / must_not_contain",
 	"json_schema":      "JSON schema: validate that output is valid JSON conforming to a schema",
 	"program":          "External program: run a script/binary that grades via exit code (0=pass)",
 	"behavior":         "Behavior constraints: validate tool call counts, token usage, required/forbidden tools",

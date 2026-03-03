@@ -46,7 +46,7 @@ test.describe("Run Detail", () => {
     await expect(page.getByText("mentions-recursion")).toBeVisible();
     // Grader type badges
     await expect(page.getByText("code").first()).toBeVisible();
-    await expect(page.getByText("regex").first()).toBeVisible();
+    await expect(page.getByText("text").first()).toBeVisible();
   });
 
   test("back navigation returns to dashboard", async ({ page }) => {

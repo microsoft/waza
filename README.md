@@ -674,11 +674,11 @@ hooks:
       error_on_fail: false
 
 graders:
-  - type: regex
+  - type: text
     name: pattern_check
     config:
-      must_match: ["\\d+ tests passed"]
-
+      regex_match: ["\\d+ tests passed"]
+  
   - type: behavior
     name: efficiency
     config:
@@ -972,7 +972,7 @@ Waza supports multiple grader types for comprehensive evaluation:
 | Grader | Purpose | Documentation |
 |--------|---------|---------------|
 | `code` | Python/JavaScript assertion-based validation | [docs/GRADERS.md](docs/GRADERS.md#code---assertion-based-grader) |
-| `regex` | Pattern matching in output | [docs/GRADERS.md](docs/GRADERS.md#regex---pattern-matching-grader) |
+| `text` | Substring and pattern matching in output | [docs/GRADERS.md](docs/GRADERS.md#text---text-matching-grader) |
 | `file` | File existence and content validation | [docs/GRADERS.md](docs/GRADERS.md#file---file-system-validation) |
 | `diff` | Workspace file comparison with snapshots and fragments | [docs/GRADERS.md](docs/GRADERS.md#diff---workspace-file-comparison) |
 | `behavior` | Agent behavior constraints (tool calls, tokens, duration) | [docs/GRADERS.md](docs/GRADERS.md#behavior---agent-behavior-validation) |

@@ -43,9 +43,9 @@ func TestFormatGitHubComment_PassedEval(t *testing.T) {
 						Status:     models.StatusPassed,
 						DurationMs: 20000,
 						Validations: map[string]models.GraderResults{
-							"regex": {
-								Name:   "regex",
-								Type:   models.GraderKindRegex,
+							"text": {
+								Name:   "text",
+								Type:   models.GraderKindText,
 								Score:  0.95,
 								Passed: true,
 							},
@@ -74,9 +74,9 @@ func TestFormatGitHubComment_PassedEval(t *testing.T) {
 						Status:     models.StatusPassed,
 						DurationMs: 25000,
 						Validations: map[string]models.GraderResults{
-							"regex": {
-								Name:   "regex",
-								Type:   models.GraderKindRegex,
+							"text": {
+								Name:   "text",
+								Type:   models.GraderKindText,
 								Score:  0.85,
 								Passed: true,
 							},
@@ -155,8 +155,8 @@ func TestFormatGitHubComment_FailedEval(t *testing.T) {
 						Status:     models.StatusPassed,
 						DurationMs: 15000,
 						Validations: map[string]models.GraderResults{
-							"regex": {
-								Name:     "regex",
+							"text": {
+								Name:     "text",
 								Score:    0.80,
 								Passed:   true,
 								Feedback: "Pattern matched",

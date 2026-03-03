@@ -296,9 +296,8 @@
           "enum": [
             "code",
             "prompt",
-            "regex",
+            "text",
             "file",
-            "keyword",
             "json_schema",
             "program",
             "behavior",
@@ -361,7 +360,7 @@
           "if": {
             "properties": {
               "type": {
-                "const": "regex"
+                "const": "text"
               }
             },
             "required": [
@@ -371,7 +370,7 @@
           "then": {
             "properties": {
               "config": {
-                "$ref": "#/$defs/regexGraderConfig"
+                "$ref": "#/$defs/textGraderConfig"
               }
             }
           }
@@ -391,25 +390,6 @@
             "properties": {
               "config": {
                 "$ref": "#/$defs/fileGraderConfig"
-              }
-            }
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "type": {
-                "const": "keyword"
-              }
-            },
-            "required": [
-              "type"
-            ]
-          },
-          "then": {
-            "properties": {
-              "config": {
-                "$ref": "#/$defs/keywordGraderConfig"
               }
             }
           }
@@ -613,31 +593,79 @@
         }
       }
     },
-    "regexGraderConfig": {
+    "textGraderConfig": {
       "type": "object",
       "additionalProperties": false,
-      "description": "Config for the regex grader. Validates agent output against regular expression patterns.",
+      "description": "Config for the text grader. Validates agent output using substring matching and regex patterns.",
       "anyOf": [
         {
           "required": [
-            "must_match"
+            "contains"
           ]
         },
         {
           "required": [
-            "must_not_match"
+            "not_contains"
+          ]
+        },
+        {
+          "required": [
+            "contains_cs"
+          ]
+        },
+        {
+          "required": [
+            "not_contains_cs"
+          ]
+        },
+        {
+          "required": [
+            "regex_match"
+          ]
+        },
+        {
+          "required": [
+            "regex_not_match"
           ]
         }
       ],
       "properties": {
-        "must_match": {
+        "contains": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Substrings that MUST appear in the output (case-insensitive)."
+        },
+        "not_contains": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Substrings that MUST NOT appear in the output (case-insensitive)."
+        },
+        "contains_cs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Substrings that MUST appear in the output (case-sensitive)."
+        },
+        "not_contains_cs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Substrings that MUST NOT appear in the output (case-sensitive)."
+        },
+        "regex_match": {
           "type": "array",
           "items": {
             "type": "string"
           },
           "description": "Regex patterns that MUST match somewhere in the output."
         },
-        "must_not_match": {
+        "regex_not_match": {
           "type": "array",
           "items": {
             "type": "string"
@@ -731,39 +759,6 @@
             "type": "string"
           },
           "description": "Regex patterns that must NOT match in the file content."
-        }
-      }
-    },
-    "keywordGraderConfig": {
-      "type": "object",
-      "additionalProperties": false,
-      "description": "Config for the keyword grader. Case-insensitive keyword presence/absence checking.",
-      "anyOf": [
-        {
-          "required": [
-            "must_contain"
-          ]
-        },
-        {
-          "required": [
-            "must_not_contain"
-          ]
-        }
-      ],
-      "properties": {
-        "must_contain": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          },
-          "description": "Keywords that must appear in the output (case-insensitive)."
-        },
-        "must_not_contain": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          },
-          "description": "Keywords that must NOT appear in the output (case-insensitive)."
         }
       }
     },

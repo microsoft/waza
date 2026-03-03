@@ -48,10 +48,10 @@ graders:
         - "len(output) > 10"
         - "'success' in output.lower()"
 
-  - type: regex
+  - type: text
     name: format_check
     config:
-      must_match:
+      regex_match:
         - "deployed to .+"
 ```
 
@@ -261,7 +261,7 @@ graders:
     name: basic_check
     # Default weight: 1.0
 
-  - type: regex
+  - type: text
     name: format_check
     # Default weight: 1.0
 ```

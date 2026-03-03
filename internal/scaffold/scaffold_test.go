@@ -70,7 +70,7 @@ func TestEvalYAML(t *testing.T) {
 	assert.Contains(t, content, "executor: copilot-sdk")
 	assert.Contains(t, content, "model: claude-sonnet-4.6")
 	assert.Contains(t, content, "type: code")
-	assert.Contains(t, content, "type: regex")
+	assert.Contains(t, content, "type: text")
 	assert.Contains(t, content, `"tasks/*.yaml"`)
 }
 
