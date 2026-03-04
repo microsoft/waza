@@ -5,21 +5,31 @@ on:
     branches: [main]
     paths:
       - 'Dockerfile'
+      - '.dockerignore'
       - 'go.mod'
       - 'go.sum'
       - 'cmd/**'
       - 'internal/**'
       - 'web/**'
+      - 'schemas/**'
+      - 'docs.go'
+      - 'docs/graders/**'
+      - 'version.txt'
       - '.github/workflows/docker-ci.yml'
   pull_request:
     branches: [main]
     paths:
       - 'Dockerfile'
+      - '.dockerignore'
       - 'go.mod'
       - 'go.sum'
       - 'cmd/**'
       - 'internal/**'
       - 'web/**'
+      - 'schemas/**'
+      - 'docs.go'
+      - 'docs/graders/**'
+      - 'version.txt'
       - '.github/workflows/docker-ci.yml'
 
 jobs:
