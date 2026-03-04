@@ -191,6 +191,10 @@ func TestSuggestCommand_InvalidResponseFromMockEngine(t *testing.T) {
 }
 
 func TestSuggestCommand_MissingSkill(t *testing.T) {
+	orig := newSuggestEngine
+	newSuggestEngine = func(model string) execution.AgentEngine { return execution.NewMockEngine(model) }
+	t.Cleanup(func() { newSuggestEngine = orig })
+
 	cmd := newSuggestCommand()
 	cmd.SetArgs([]string{"/tmp/does-not-exist"})
 	err := cmd.Execute()
