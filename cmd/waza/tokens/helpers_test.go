@@ -66,10 +66,11 @@ func TestResolveLimitsConfig_WazaYamlOnly(t *testing.T) {
 func TestResolveLimitsConfig_LegacyJSONOnly(t *testing.T) {
 	dir := t.TempDir()
 
-	limitsJSON, _ := json.Marshal(map[string]any{
+	limitsJSON, err := json.Marshal(map[string]any{
 		"defaults":  map[string]int{"*.md": 100},
 		"overrides": map[string]int{},
 	})
+	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(filepath.Join(dir, ".token-limits.json"), limitsJSON, 0644))
 
 	cfg, usedLegacy := resolveLimitsConfig(dir)
@@ -83,10 +84,11 @@ func TestResolveLimitsConfig_BothPresent_WazaYamlWins(t *testing.T) {
 	yaml := "tokens:\n  limits:\n    defaults:\n      \"*.md\": 900\n    overrides:\n      \"special.md\": 6000\n"
 	require.NoError(t, os.WriteFile(filepath.Join(dir, ".waza.yaml"), []byte(yaml), 0644))
 
-	limitsJSON, _ := json.Marshal(map[string]any{
+	limitsJSON, err := json.Marshal(map[string]any{
 		"defaults":  map[string]int{"*.md": 10},
 		"overrides": map[string]int{"special.md": 20},
 	})
+	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(filepath.Join(dir, ".token-limits.json"), limitsJSON, 0644))
 
 	cfg, usedLegacy := resolveLimitsConfig(dir)
@@ -102,4 +104,16 @@ func TestResolveLimitsConfig_NeitherPresent(t *testing.T) {
 	cfg, usedLegacy := resolveLimitsConfig(dir)
 	require.False(t, usedLegacy, "no legacy usage when neither config exists")
 	require.Nil(t, cfg.Defaults, "should return empty config so Check() uses built-in defaults")
+}
+
+func TestResolveLimitsConfig_OverridesOnly(t *testing.T) {
+	dir := t.TempDir()
+
+	yaml := "tokens:\n  limits:\n    overrides:\n      \"special.md\": 4000\n"
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".waza.yaml"), []byte(yaml), 0644))
+
+	cfg, usedLegacy := resolveLimitsConfig(dir)
+	require.False(t, usedLegacy, "should not flag legacy when .waza.yaml has overrides")
+	require.NotNil(t, cfg.Defaults, "defaults map should be initialized even when only overrides are set")
+	require.Equal(t, 4000, cfg.Overrides["special.md"])
 }

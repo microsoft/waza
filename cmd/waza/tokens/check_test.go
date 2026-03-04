@@ -365,3 +365,33 @@ func TestCheck_BothConfigs_WazaYamlWins(t *testing.T) {
 	require.Equal(t, 900, limitsByFile["normal.md"], ".waza.yaml limits should take priority over .token-limits.json")
 	require.Equal(t, 6000, limitsByFile["special.md"], ".waza.yaml overrides should take priority over .token-limits.json")
 }
+
+func TestCheck_LegacyWarningEmitted(t *testing.T) {
+	td := checkFixture(t, "legacy-json-only")
+	t.Chdir(td)
+
+	outBuf := new(bytes.Buffer)
+	errBuf := new(bytes.Buffer)
+	cmd := newCheckCmd()
+	cmd.SetOut(outBuf)
+	cmd.SetErr(errBuf)
+	cmd.SetArgs([]string{"--format", "json"})
+	require.NoError(t, cmd.Execute())
+
+	require.Contains(t, errBuf.String(), "legacy .token-limits.json", "should emit deprecation warning on stderr")
+}
+
+func TestCheck_NoWarningWithWazaYaml(t *testing.T) {
+	td := checkFixture(t, "waza-yaml-limits")
+	t.Chdir(td)
+
+	outBuf := new(bytes.Buffer)
+	errBuf := new(bytes.Buffer)
+	cmd := newCheckCmd()
+	cmd.SetOut(outBuf)
+	cmd.SetErr(errBuf)
+	cmd.SetArgs([]string{"--format", "json"})
+	require.NoError(t, cmd.Execute())
+
+	require.NotContains(t, errBuf.String(), "legacy", "should not emit deprecation warning when .waza.yaml is used")
+}

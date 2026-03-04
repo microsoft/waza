@@ -120,26 +120,30 @@ func ConfigDetectOptions() []workspace.DetectOption {
 //  2. .token-limits.json (legacy fallback — caller emits deprecation warning)
 //  3. Built-in defaults
 func resolveLimitsConfig(skillDir string) (cfg checks.TokenLimitsConfig, usedLegacy bool) {
-// Primary: .waza.yaml tokens.limits
-pcfg, err := projectconfig.Load(skillDir)
-if err == nil && pcfg.Tokens.Limits != nil && pcfg.Tokens.Limits.Defaults != nil {
-overrides := pcfg.Tokens.Limits.Overrides
-if overrides == nil {
-overrides = make(map[string]int)
-}
-return checks.TokenLimitsConfig{
-Defaults:  pcfg.Tokens.Limits.Defaults,
-Overrides: overrides,
-}, false
-}
+	// Primary: .waza.yaml tokens.limits
+	pcfg, err := projectconfig.Load(skillDir)
+	if err == nil && pcfg.Tokens.Limits != nil && (pcfg.Tokens.Limits.Defaults != nil || pcfg.Tokens.Limits.Overrides != nil) {
+		defaults := pcfg.Tokens.Limits.Defaults
+		if defaults == nil {
+			defaults = make(map[string]int)
+		}
+		overrides := pcfg.Tokens.Limits.Overrides
+		if overrides == nil {
+			overrides = make(map[string]int)
+		}
+		return checks.TokenLimitsConfig{
+			Defaults:  defaults,
+			Overrides: overrides,
+		}, false
+	}
 
-// Legacy fallback: .token-limits.json — let Check() load it.
-if _, statErr := os.Stat(filepath.Join(skillDir, ".token-limits.json")); statErr == nil {
-return checks.TokenLimitsConfig{}, true
-}
+	// Legacy fallback: .token-limits.json — let Check() load it.
+	if _, statErr := os.Stat(filepath.Join(skillDir, ".token-limits.json")); statErr == nil {
+		return checks.TokenLimitsConfig{}, true
+	}
 
-// Neither source has limits — Check() will apply built-in defaults.
-return checks.TokenLimitsConfig{}, false
+	// Neither source has limits — Check() will apply built-in defaults.
+	return checks.TokenLimitsConfig{}, false
 }
 // computeWorkspaceRelPrefix returns the forward-slash-separated path from
 // workspaceRoot to skillDir, or "" when they are the same or the relation

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -117,7 +118,7 @@ func runCheck(cmd *cobra.Command, args []string) error {
 		// ContextNone or error: fall through to CWD scan
 	}
 
-	results, err := computeCheckResults(rootDir, paths, computeWorkspaceRelPrefix(workspaceRoot, rootDir))
+	results, err := computeCheckResults(rootDir, paths, computeWorkspaceRelPrefix(workspaceRoot, rootDir), cmd.ErrOrStderr())
 	if err != nil {
 		return err
 	}
@@ -236,10 +237,10 @@ func checkJSON(results []checkResult) (string, error) {
 }
 
 // computeCheckResults runs the token limits checker and returns sorted results.
-func computeCheckResults(rootDir string, paths []string, workspaceRelPrefix string) ([]checkResult, error) {
+func computeCheckResults(rootDir string, paths []string, workspaceRelPrefix string, errW io.Writer) ([]checkResult, error) {
 	cfg, usedLegacy := resolveLimitsConfig(rootDir)
 	if usedLegacy {
-		fmt.Fprintf(os.Stderr, "⚠️  Using legacy .token-limits.json — consider moving limits to .waza.yaml\n")
+		fmt.Fprintf(errW, "⚠️  Using legacy .token-limits.json — consider moving limits to .waza.yaml\n")
 	}
 	checker := &checks.TokenLimitsChecker{
 		Config:             cfg,
@@ -304,7 +305,7 @@ func runCheckBatch(cmd *cobra.Command, skills []workspace.SkillInfo, format stri
 			}
 		}
 
-		results, err := computeCheckResults(si.Dir, nil, computeWorkspaceRelPrefix(workspaceRoot, si.Dir))
+		results, err := computeCheckResults(si.Dir, nil, computeWorkspaceRelPrefix(workspaceRoot, si.Dir), cmd.ErrOrStderr())
 		if err != nil {
 			fmt.Fprintf(cmd.ErrOrStderr(), "  ⚠️  %s: %s\n", si.Name, err) //nolint:errcheck
 			if format == "json" {
