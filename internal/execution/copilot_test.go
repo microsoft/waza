@@ -3,7 +3,6 @@ package execution
 import (
 	"context"
 	"errors"
-	"fmt"
 	"os"
 	"testing"
 	"time"
@@ -211,15 +210,14 @@ func TestCopilotExecute_RequiredFields(t *testing.T) {
 	}
 }
 
-func TestCopilotExecute_StartRespectsTimeout(t *testing.T) {
-	// Regression test for: waza suggest deadlocks — goroutine panic on copilot SDK stdio transport.
-	// Verifies that Initialize() propagates Start() errors so callers know the
-	// copilot CLI failed to start rather than hanging indefinitely.
+func TestCopilotExecute_InitializePropagatesStartError(t *testing.T) {
+	// Regression test: Initialize() must propagate Start() errors so callers see
+	// copilot CLI startup failures instead of hanging or proceeding silently.
 	ctrl := gomock.NewController(t)
 	clientMock := NewMockcopilotClient(ctrl)
 
 	// Start returns an error, simulating a copilot CLI that fails to start.
-	clientMock.EXPECT().Start(gomock.Any()).Return(fmt.Errorf("context canceled"))
+	clientMock.EXPECT().Start(gomock.Any()).Return(errors.New("context canceled"))
 	clientMock.EXPECT().Stop().AnyTimes()
 
 	engine := NewCopilotEngineBuilder("gpt-4o-mini", &CopilotEngineBuilderOptions{
