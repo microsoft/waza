@@ -170,7 +170,8 @@ func TestUsingPreviousSessionID(t *testing.T) {
 		})
 
 		session, err := client.CreateSession(context.Background(), &copilot.SessionConfig{
-			Model: basicModel,
+			Model:               basicModel,
+			OnPermissionRequest: copilot.PermissionHandler.ApproveAll,
 		})
 		require.NoError(t, err)
 

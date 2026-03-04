@@ -23,6 +23,9 @@ func TestMockEngine_Initialize(t *testing.T) {
 func TestMockEngine_Execute_WritesResources(t *testing.T) {
 	engine := NewMockEngine("test-model")
 
+	err := engine.Initialize(context.Background())
+	require.NoError(t, err)
+
 	resp, err := engine.Execute(context.Background(), &ExecutionRequest{
 		Message: "hello",
 		Resources: []ResourceFile{{
@@ -46,6 +49,9 @@ func TestMockEngine_Execute_WritesResources(t *testing.T) {
 func TestMockEngine_Execute_ReplacesWorkspace(t *testing.T) {
 	engine := NewMockEngine("test-model")
 
+	err := engine.Initialize(context.Background())
+	require.NoError(t, err)
+
 	resp1, err := engine.Execute(context.Background(), &ExecutionRequest{Message: "one"})
 	require.NoError(t, err)
 	firstWorkspace := resp1.WorkspaceDir
@@ -63,6 +69,9 @@ func TestMockEngine_Execute_ReplacesWorkspace(t *testing.T) {
 
 func TestMockEngine_Execute_SetupResourcesError(t *testing.T) {
 	engine := NewMockEngine("test-model")
+
+	err := engine.Initialize(context.Background())
+	require.NoError(t, err)
 
 	absPath := "/absolute/path.txt"
 	if runtime.GOOS == "windows" {

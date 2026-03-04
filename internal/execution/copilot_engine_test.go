@@ -15,6 +15,9 @@ import (
 )
 
 func TestCopilotEngine_Initialize(t *testing.T) {
+	t.Attr("Issue", "https://github.com/github/copilot-sdk/issues/668")
+	t.Skip("Skipping - passing a context to copilot.Start causes copilot CLI to exit")
+
 	engine := NewCopilotEngineBuilder("test-model", nil).Build()
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -42,6 +45,9 @@ func TestJoinStrings(t *testing.T) {
 // TestCopilotEngine_Execute_StartRespectsTimeout verifies that a Start() call
 // that blocks indefinitely is canceled by req.Timeout, preventing a deadlock.
 func TestCopilotEngine_Execute_StartRespectsTimeout(t *testing.T) {
+	t.Attr("Issue", "https://github.com/github/copilot-sdk/issues/668")
+	t.Skip("Skipping - passing a context to copilot.Start causes copilot CLI to exit")
+
 	ctrl := gomock.NewController(t)
 	clientMock := NewMockcopilotClient(ctrl)
 
@@ -84,6 +90,8 @@ func TestCopilotEngine_Execute_CreateSessionError(t *testing.T) {
 		},
 	}).Build()
 
+	require.NoError(t, engine.Initialize(context.Background()))
+
 	resp, err := engine.Execute(context.Background(), &ExecutionRequest{Message: "hello", Timeout: time.Second})
 	require.Error(t, err)
 	assert.Nil(t, resp)
@@ -108,6 +116,9 @@ func TestCopilotEngine_Execute_SendError(t *testing.T) {
 			return clientMock
 		},
 	}).Build()
+
+	err := engine.Initialize(context.Background())
+	require.NoError(t, err)
 
 	resp, err := engine.Execute(context.Background(), &ExecutionRequest{Message: "hello", Timeout: time.Second})
 	require.NoError(t, err)

@@ -56,8 +56,10 @@ func NewCopilotEngineBuilder(defaultModelID string, options *CopilotEngineBuilde
 
 	copilotOptions := &copilot.ClientOptions{
 		// workspace is set at the session level, instead of at the client.
-		LogLevel:  "error",
-		AutoStart: copilot.Bool(false),
+		LogLevel: "error",
+
+		AutoStart:   new(false), // we handle start in Initialize()
+		AutoRestart: new(true),  // this is a default, but just in case the defaults change...
 	}
 
 	if options == nil || options.NewCopilotClient == nil {
@@ -82,12 +84,21 @@ func (b *CopilotEngineBuilder) Build() *CopilotEngine {
 
 // Initialize sets up the Copilot client
 func (e *CopilotEngine) Initialize(ctx context.Context) error {
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	default:
-		return nil
+	var startErr error
+
+	e.startOnce.Do(func() {
+		// NOTE: we _have_ to use context.Background() - the copilot SDK is using exec.CommandContext() to run
+		// the background process which means we _cannot_ cancel the context passed to this function or else
+		// it'll kill the copilot process.
+		// Tracking here: https://github.com/github/copilot-sdk/issues/668
+		startErr = e.client.Start(context.Background())
+	})
+
+	if startErr != nil {
+		return fmt.Errorf("copilot failed to start: %w", startErr)
 	}
+
+	return nil
 }
 
 // Execute runs a test with Copilot SDK
@@ -100,25 +111,6 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 
 	if err != nil {
 		return nil, err
-	}
-
-	// Apply the timeout before Start() so a non-responsive copilot CLI does not
-	// block indefinitely.  Previously the timeout context was created after the
-	// startOnce.Do block, which meant Start() ran with an unbounded context and
-	// could deadlock when the JSON-RPC ping never received a response.
-	ctx, cancel := context.WithTimeout(ctx, req.Timeout)
-	defer cancel()
-
-	var startErr error
-
-	e.startOnce.Do(func() {
-		// NOTE: this is a workaround, copilot client has an 'autostart' feature, but it runs into issues
-		// when it tries to autostart from separate goroutines.
-		startErr = e.client.Start(ctx)
-	})
-
-	if startErr != nil {
-		return nil, fmt.Errorf("copilot failed to start: %w", startErr)
 	}
 
 	start := time.Now()
@@ -272,7 +264,7 @@ func (e *CopilotEngine) doShutdown(ctx context.Context) error {
 
 	for id := range sessions {
 		if err := e.client.DeleteSession(ctx, id); err != nil {
-			slog.Warn("failed to delete session", "sessionID", id, "error", err)
+			slog.Debug("failed to delete session", "sessionID", id, "error", err)
 		}
 	}
 

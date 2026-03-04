@@ -58,6 +58,11 @@ func runDevCopilot(cfg *devConfig) error {
 	}
 
 	engine := newDevEngine(cfg.ModelID)
+
+	if err := engine.Initialize(ctx); err != nil {
+		return err
+	}
+
 	defer func() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()

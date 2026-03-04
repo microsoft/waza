@@ -346,6 +346,9 @@ func TestRunTest_CacheHitAndTranscriptWrite(t *testing.T) {
 		},
 	}
 
+	err := runner.engine.Initialize(context.Background())
+	require.NoError(t, err)
+
 	outcome, wasCached := runner.runTest(context.Background(), testCase, 1, 1)
 	assert.False(t, wasCached)
 	runner.writeTaskTranscript(testCase, outcome, time.Now())

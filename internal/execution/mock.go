@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	copilot "github.com/github/copilot-sdk/go"
@@ -13,9 +14,10 @@ import (
 
 // MockEngine is a simple mock implementation for testing
 type MockEngine struct {
-	modelID   string
-	workspace string
-	mtx       *sync.Mutex
+	modelID    string
+	workspace  string
+	mtx        *sync.Mutex
+	initCalled atomic.Bool
 }
 
 // NewMockEngine creates a new mock engine
@@ -27,10 +29,15 @@ func NewMockEngine(modelID string) *MockEngine {
 }
 
 func (m *MockEngine) Initialize(ctx context.Context) error {
+	m.initCalled.Store(true)
 	return nil
 }
 
 func (m *MockEngine) Execute(ctx context.Context, req *ExecutionRequest) (*ExecutionResponse, error) {
+	if !m.initCalled.Load() {
+		return nil, fmt.Errorf("engine was not initialized. Initialize needs to be called before Execute")
+	}
+
 	m.mtx.Lock()
 	defer m.mtx.Unlock()
 
