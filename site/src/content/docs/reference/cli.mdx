@@ -319,6 +319,9 @@ waza tokens check code-explainer
 # ✅ Within budget
 ```
 
+Token limits are resolved in priority order: `.waza.yaml tokens.limits` → `.token-limits.json` (legacy, emits a deprecation warning) → built-in defaults.
+See the **[Token Limits guide](../../guides/token-limits/)** for configuration details, pattern syntax, and migration instructions.
+
 ### waza tokens profile
 
 Structural analysis of SKILL.md files — reports token count, section count, code block count, and workflow step detection.

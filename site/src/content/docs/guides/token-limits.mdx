@@ -1,0 +1,204 @@
+---
+title: Token Limits Configuration
+description: How to configure per-file token budgets using .waza.yaml or the legacy .token-limits.json fallback.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+`waza tokens check` enforces per-file token budgets so skills stay within the context window constraints required for submission.
+
+## Configuration Priority
+
+Token limits are resolved in this order — the first source that provides limits wins:
+
+| Priority | Source | Notes |
+|----------|--------|-------|
+| 1 | `.waza.yaml` → `tokens.limits` | **Recommended.** Workspace-level config. |
+| 2 | `.token-limits.json` in the skill directory | Legacy fallback. Emits a deprecation warning. |
+| 3 | Built-in defaults | Applied when neither source is present. |
+
+<Aside type="caution" title="Deprecation warning">
+If `.token-limits.json` is the active source, `waza tokens check` and `waza tokens suggest` will print:
+
+```
+⚠️  Using legacy .token-limits.json — consider moving limits to .waza.yaml
+```
+
+Migrate to `.waza.yaml tokens.limits` to silence this warning.
+</Aside>
+
+## .waza.yaml tokens Section (Recommended)
+
+Add a `tokens` section to your project's `.waza.yaml` to manage all limits in one place:
+
+```yaml
+tokens:
+  warningThreshold: 2500   # Print a warning when a file exceeds this many tokens
+  fallbackLimit: 2000      # Limit applied to files that match no pattern
+  limits:
+    defaults:
+      "SKILL.md": 500
+      "references/**/*.md": 1000
+      "*.md": 2000
+    overrides:
+      "README.md": 3000
+```
+
+### tokens fields
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `warningThreshold` | integer | `2500` | Token count at which a soft warning is shown |
+| `fallbackLimit` | integer | `1000` | Limit for files that match no pattern |
+| `limits.defaults` | map | (built-in) | Glob patterns → token limits |
+| `limits.overrides` | map | `{}` | Exact file paths → token limits (take precedence over `defaults`) |
+
+Both `limits.defaults` and `limits.overrides` are optional — you can set only one of them. If `tokens.limits` is present in `.waza.yaml` but neither map is set, `.token-limits.json` is **not** consulted as a fallback; `.waza.yaml` is the definitive source.
+
+## .token-limits.json (Legacy Fallback)
+
+Skills that don't use `.waza.yaml` can still configure limits in a `.token-limits.json` file placed inside the skill directory:
+
+```json
+{
+  "description": "Optional human-readable description",
+  "defaults": {
+    "SKILL.md": 500,
+    "references/**/*.md": 1000,
+    "*.md": 2000
+  },
+  "overrides": {
+    "README.md": 3000
+  }
+}
+```
+
+| Field | Required | Type | Description |
+|-------|----------|------|-------------|
+| `description` | No | string | Ignored by the CLI; for humans only |
+| `defaults` | Yes | object | Glob patterns → token limits |
+| `overrides` | No | object | Exact file paths → token limits |
+
+## Pattern Matching
+
+The same pattern matching rules apply to both `.waza.yaml limits.defaults` and `.token-limits.json defaults`.
+
+### Overrides (exact-path matching)
+
+Entries in `overrides` match by **suffix** — the pattern is compared against the end of the normalized file path:
+
+```yaml
+overrides:
+  "README.md": 4000       # matches ./README.md and subdir/README.md
+  "docs/API.md": 3000     # matches ./docs/API.md and subdir/docs/API.md
+```
+
+Overrides are checked before defaults and always take precedence.
+
+### Defaults (glob matching)
+
+| Pattern | Matches |
+|---------|---------|
+| `*.md` | Any `.md` file at any depth |
+| `SKILL.md` | Files named exactly `SKILL.md` in any directory |
+| `references/*.md` | `.md` files directly in `references/` |
+| `references/**/*.md` | `.md` files in subdirectories of `references/` |
+| `docs/**/*.md` | `.md` files in subdirectories of `docs/` |
+
+### Glob Syntax Reference
+
+| Syntax | Meaning |
+|--------|---------|
+| `*` | Any characters except `/` |
+| `**` | Any characters including `/` (recursive) |
+| `/` | Directory separator; patterns containing `/` are anchored to the project root |
+| `.` | Literal dot (automatically escaped) |
+
+### Pattern Specificity
+
+When multiple patterns in `defaults` match the same file, the **most specific** pattern wins:
+
+1. Exact match (no wildcards): +10 000 points
+2. Path depth: +100 points per `/` in the pattern
+3. Single wildcards (`*`): +10 points each
+4. Globstars (`**`): −50 points each
+5. Pattern length: +1 point per character
+
+**Example** — resolving `references/test-templates/jest.md`:
+
+| Pattern | Specificity | Result |
+|---------|-------------|--------|
+| `*.md` | Low | Fallback |
+| `references/*.md` | Medium | No match (file is nested) |
+| `references/**/*.md` | Medium-high | Match |
+| `references/test-templates/*.md` | Higher | **Wins** |
+
+## Built-in Defaults
+
+When neither `.waza.yaml` nor `.token-limits.json` provides limits, these defaults apply:
+
+```json
+{
+  "defaults": {
+    "SKILL.md": 500,
+    "references/**/*.md": 1000,
+    "docs/**/*.md": 1500,
+    "*.md": 2000
+  },
+  "overrides": {
+    "README.md": 3000,
+    "CONTRIBUTING.md": 2500
+  }
+}
+```
+
+## Complete Example
+
+### Resolution table
+
+Given this `.waza.yaml` configuration:
+
+```yaml
+tokens:
+  limits:
+    defaults:
+      "SKILL.md": 500
+      "references/*.md": 2000
+      "references/**/*.md": 2000
+      "references/test-templates/*.md": 1500
+      "*.md": 4000
+    overrides:
+      "README.md": 4000
+```
+
+| File | Matching Rule | Limit |
+|------|---------------|-------|
+| `SKILL.md` | `SKILL.md` in defaults | 500 |
+| `README.md` | `README.md` in overrides | 4000 |
+| `references/scoring.md` | `references/*.md` | 2000 |
+| `references/test-templates/jest.md` | `references/test-templates/*.md` | 1500 |
+| `assets/guide.md` | `*.md` | 4000 |
+
+## Migrating from .token-limits.json
+
+1. Copy the `defaults` and `overrides` maps from `.token-limits.json` into `.waza.yaml`:
+
+   ```yaml
+   tokens:
+     limits:
+       defaults:
+         "SKILL.md": 500
+         "*.md": 2000
+       overrides:
+         "README.md": 3000
+   ```
+
+2. Delete (or keep for reference) `.token-limits.json`.
+
+3. Run `waza tokens check` — no more deprecation warning.
+
+## Related Commands
+
+- [`waza tokens check`](/waza/reference/cli/#waza-tokens-check) — validate files against limits
+- [`waza tokens suggest`](/waza/reference/cli/#waza-tokens-suggest) — get optimization suggestions
+- [`waza tokens profile`](/waza/reference/cli/#waza-tokens-profile) — structural token analysis
