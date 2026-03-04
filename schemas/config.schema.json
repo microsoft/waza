@@ -108,7 +108,7 @@
         "resultsDir": {
           "type": "string",
           "description": "Directory to scan for result JSON files.",
-          "default": "."
+          "default": "results/"
         }
       },
       "additionalProperties": false
@@ -144,13 +144,13 @@
         "warningThreshold": {
           "type": "integer",
           "description": "Token count above which a warning is emitted for a skill file.",
-          "default": 2500,
+          "default": 500,
           "minimum": 0
         },
         "fallbackLimit": {
           "type": "integer",
           "description": "Token limit used when no specific limit matches a file.",
-          "default": 2000,
+          "default": 1000,
           "minimum": 0
         },
         "limits": {
@@ -188,6 +188,33 @@
           "description": "Maximum time in seconds for a program grader to execute.",
           "default": 30,
           "minimum": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "storage": {
+      "type": "object",
+      "description": "Remote result storage settings (e.g., Azure Blob Storage).",
+      "properties": {
+        "provider": {
+          "type": "string",
+          "description": "Storage provider type (e.g., 'azure-blob'). Empty means local storage only.",
+          "default": ""
+        },
+        "accountName": {
+          "type": "string",
+          "description": "Azure storage account name.",
+          "default": ""
+        },
+        "containerName": {
+          "type": "string",
+          "description": "Blob container name for result storage.",
+          "default": "waza-results"
+        },
+        "enabled": {
+          "type": "boolean",
+          "description": "Whether remote storage is configured and active.",
+          "default": false
         }
       },
       "additionalProperties": false
