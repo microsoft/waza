@@ -26,7 +26,7 @@ func repoRoot(t *testing.T) string {
 	if !ok {
 		t.Fatal("unable to determine test file path")
 	}
-	// thisFile: …/internal/projectconfig/schema_parity_test.go → repo root is 3 levels up
+	// thisFile: …/internal/projectconfig/schema_parity_test.go → repo root is 2 levels up
 	return filepath.Join(filepath.Dir(thisFile), "..", "..")
 }
 
@@ -118,8 +118,8 @@ func assertIntDefault(t *testing.T, schemaVal any, goVal int, field string) {
 		t.Errorf("%s: schema default is %T(%v), expected number", field, schemaVal, schemaVal)
 		return
 	}
-	if int(f) != goVal {
-		t.Errorf("%s: schema default %d != Go default %d", field, int(f), goVal)
+	if f != float64(goVal) {
+		t.Errorf("%s: schema default %v != Go default %d", field, f, goVal)
 	}
 }
 
