@@ -1,6 +1,7 @@
 package tokens
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"sort"
@@ -45,4 +46,60 @@ func TestFindMarkdownFilesEmpty(t *testing.T) {
 func TestFindMarkdownFilesNonexistent(t *testing.T) {
 	_, err := findMarkdownFiles(nil, "/nonexistent/path")
 	require.Error(t, err)
+}
+
+// --- resolveLimitsConfig priority tests ---
+
+func TestResolveLimitsConfig_WazaYamlOnly(t *testing.T) {
+	dir := t.TempDir()
+
+	yaml := "tokens:\n  limits:\n    defaults:\n      \"*.md\": 800\n    overrides:\n      \"special.md\": 5000\n"
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".waza.yaml"), []byte(yaml), 0644))
+
+	cfg, usedLegacy := resolveLimitsConfig(dir)
+	require.False(t, usedLegacy, "should not use legacy path when .waza.yaml has limits")
+	require.NotNil(t, cfg.Defaults, "config defaults should be populated from .waza.yaml")
+	require.Equal(t, 800, cfg.Defaults["*.md"])
+	require.Equal(t, 5000, cfg.Overrides["special.md"])
+}
+
+func TestResolveLimitsConfig_LegacyJSONOnly(t *testing.T) {
+	dir := t.TempDir()
+
+	limitsJSON, _ := json.Marshal(map[string]any{
+		"defaults":  map[string]int{"*.md": 100},
+		"overrides": map[string]int{},
+	})
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".token-limits.json"), limitsJSON, 0644))
+
+	cfg, usedLegacy := resolveLimitsConfig(dir)
+	require.True(t, usedLegacy, "should flag legacy usage when only .token-limits.json exists")
+	require.Nil(t, cfg.Defaults, "should return empty config so Check() loads .token-limits.json")
+}
+
+func TestResolveLimitsConfig_BothPresent_WazaYamlWins(t *testing.T) {
+	dir := t.TempDir()
+
+	yaml := "tokens:\n  limits:\n    defaults:\n      \"*.md\": 900\n    overrides:\n      \"special.md\": 6000\n"
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".waza.yaml"), []byte(yaml), 0644))
+
+	limitsJSON, _ := json.Marshal(map[string]any{
+		"defaults":  map[string]int{"*.md": 10},
+		"overrides": map[string]int{"special.md": 20},
+	})
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".token-limits.json"), limitsJSON, 0644))
+
+	cfg, usedLegacy := resolveLimitsConfig(dir)
+	require.False(t, usedLegacy, ".waza.yaml should win when both are present")
+	require.NotNil(t, cfg.Defaults, "config should come from .waza.yaml")
+	require.Equal(t, 900, cfg.Defaults["*.md"], ".waza.yaml limits should take priority")
+	require.Equal(t, 6000, cfg.Overrides["special.md"], ".waza.yaml overrides should take priority")
+}
+
+func TestResolveLimitsConfig_NeitherPresent(t *testing.T) {
+	dir := t.TempDir()
+
+	cfg, usedLegacy := resolveLimitsConfig(dir)
+	require.False(t, usedLegacy, "no legacy usage when neither config exists")
+	require.Nil(t, cfg.Defaults, "should return empty config so Check() uses built-in defaults")
 }

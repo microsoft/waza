@@ -318,3 +318,50 @@ func TestCheck_ConfigPatternInJSON(t *testing.T) {
 	require.Len(t, result.Results, 1)
 	require.Equal(t, "*.md", result.Results[0].Pattern)
 }
+
+func TestCheck_WazaYamlLimits(t *testing.T) {
+	td := checkFixture(t, "waza-yaml-limits")
+	t.Chdir(td)
+
+	out := new(bytes.Buffer)
+	cmd := newCheckCmd()
+	cmd.SetOut(out)
+	cmd.SetArgs([]string{"--format", "json"})
+	require.NoError(t, cmd.Execute())
+
+	var report checkReport
+	require.NoError(t, json.Unmarshal(out.Bytes(), &report))
+
+	require.Equal(t, 2, report.TotalFiles)
+
+	limitsByFile := make(map[string]int)
+	for _, r := range report.Results {
+		limitsByFile[r.File] = r.Limit
+	}
+	require.Equal(t, 800, limitsByFile["normal.md"], "should use .waza.yaml default limit")
+	require.Equal(t, 5000, limitsByFile["special.md"], "should use .waza.yaml override")
+}
+
+func TestCheck_BothConfigs_WazaYamlWins(t *testing.T) {
+	td := checkFixture(t, "both-configs")
+	t.Chdir(td)
+
+	out := new(bytes.Buffer)
+	cmd := newCheckCmd()
+	cmd.SetOut(out)
+	cmd.SetArgs([]string{"--format", "json"})
+	require.NoError(t, cmd.Execute())
+
+	var report checkReport
+	require.NoError(t, json.Unmarshal(out.Bytes(), &report))
+
+	require.Equal(t, 2, report.TotalFiles)
+
+	limitsByFile := make(map[string]int)
+	for _, r := range report.Results {
+		limitsByFile[r.File] = r.Limit
+	}
+	// .waza.yaml has 900 for *.md; .token-limits.json has 10 — .waza.yaml must win
+	require.Equal(t, 900, limitsByFile["normal.md"], ".waza.yaml limits should take priority over .token-limits.json")
+	require.Equal(t, 6000, limitsByFile["special.md"], ".waza.yaml overrides should take priority over .token-limits.json")
+}

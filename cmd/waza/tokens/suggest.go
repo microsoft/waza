@@ -198,8 +198,12 @@ func runSuggest(cmd *cobra.Command, args []string) error {
 // collectFileAnalyses discovers and analyzes files in rootDir.
 // When engine is non-nil, Copilot-based analysis is used; otherwise heuristic analysis.
 func collectFileAnalyses(rootDir string, paths []string, counter tokens.Counter, engine execution.AgentEngine, cmd *cobra.Command, workspaceRelPrefix string) ([]fileAnalysis, error) {
+	cfg, usedLegacy := resolveLimitsConfig(rootDir)
+	if usedLegacy {
+		fmt.Fprintf(os.Stderr, "⚠️  Using legacy .token-limits.json — consider moving limits to .waza.yaml\n")
+	}
 	checker := &checks.TokenLimitsChecker{
-		Config:             resolveLimitsConfig(rootDir),
+		Config:             cfg,
 		Paths:              paths,
 		WorkspaceRelPrefix: workspaceRelPrefix,
 	}

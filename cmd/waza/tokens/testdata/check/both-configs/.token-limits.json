@@ -1,0 +1,8 @@
+{
+    "defaults": {
+        "*.md": 10
+    },
+    "overrides": {
+        "special.md": 20
+    }
+}

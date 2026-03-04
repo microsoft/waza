@@ -1,0 +1,6 @@
+tokens:
+  limits:
+    defaults:
+      "*.md": 900
+    overrides:
+      "special.md": 6000
