@@ -321,6 +321,81 @@ func (*SpecLicenseChecker) Check(sk skill.Skill) (*CheckResult, error) {
 	}, nil
 }
 
+// SpecSecurityChecker flags security risks in frontmatter string values.
+type SpecSecurityChecker struct{}
+
+var _ ComplianceChecker = (*SpecSecurityChecker)(nil)
+
+func (*SpecSecurityChecker) Name() string { return "spec-security" }
+
+func (*SpecSecurityChecker) Check(sk skill.Skill) (*CheckResult, error) {
+	if sk.FrontmatterRaw == nil {
+		return &CheckResult{
+			Name:    "spec-security",
+			Passed:  true,
+			Summary: "No frontmatter to validate",
+			Data:    &ScoreCheckData{Status: StatusOK},
+		}, nil
+	}
+
+	var violations []string
+
+	// Check all string values in frontmatter for XML angle brackets
+	checkStringValue := func(key string, val any) {
+		s, isStr := val.(string)
+		if !isStr {
+			return
+		}
+		if strings.ContainsAny(s, "<>") {
+			violations = append(violations, fmt.Sprintf("%s contains XML angle brackets", key))
+		}
+	}
+
+	// Recursively check frontmatter fields
+	var checkMap func(prefix string, m map[string]any)
+	checkMap = func(prefix string, m map[string]any) {
+		for k, v := range m {
+			fullKey := k
+			if prefix != "" {
+				fullKey = prefix + "." + k
+			}
+			if mm, ok := v.(map[string]any); ok {
+				checkMap(fullKey, mm)
+			} else {
+				checkStringValue(fullKey, v)
+			}
+		}
+	}
+	checkMap("", sk.FrontmatterRaw)
+
+	// Check for reserved name prefixes
+	name := sk.Frontmatter.Name
+	if name != "" {
+		if strings.HasPrefix(name, "claude-") {
+			violations = append(violations, "name starts with reserved prefix 'claude-'")
+		}
+		if strings.HasPrefix(name, "anthropic-") {
+			violations = append(violations, "name starts with reserved prefix 'anthropic-'")
+		}
+	}
+
+	if len(violations) > 0 {
+		return &CheckResult{
+			Name:    "spec-security",
+			Passed:  false,
+			Summary: fmt.Sprintf("Security risks detected: %s", strings.Join(violations, "; ")),
+			Data:    &ScoreCheckData{Status: StatusWarning, Evidence: "XML angle brackets and reserved prefixes pose injection and naming conflict risks"},
+		}, nil
+	}
+
+	return &CheckResult{
+		Name:    "spec-security",
+		Passed:  true,
+		Summary: "No security risks detected in frontmatter",
+		Data:    &ScoreCheckData{Status: StatusOK},
+	}, nil
+}
+
 // SpecVersionChecker recommends including a metadata.version field.
 type SpecVersionChecker struct{}
 

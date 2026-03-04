@@ -352,3 +352,67 @@ func TestSpecVersionChecker(t *testing.T) {
 		})
 	}
 }
+
+// Test #73: SpecSecurityChecker
+func TestSpecSecurityChecker(t *testing.T) {
+	tests := []struct {
+		name   string
+		sk     skill.Skill
+		passed bool
+		status CheckStatus
+	}{
+		{
+			name:   "clean frontmatter",
+			sk:     makeSkill("my-skill", "A description", map[string]any{}, ""),
+			passed: true,
+			status: StatusOK,
+		},
+		{
+			name:   "XML angle brackets in description",
+			sk:     makeSkill("my-skill", "Use <tag> for things", map[string]any{"description": "Use <tag> for things"}, ""),
+			passed: false,
+			status: StatusWarning,
+		},
+		{
+			name:   "reserved prefix claude-",
+			sk:     makeSkill("claude-helper", "A description", map[string]any{}, ""),
+			passed: false,
+			status: StatusWarning,
+		},
+		{
+			name:   "reserved prefix anthropic-",
+			sk:     makeSkill("anthropic-tool", "A description", map[string]any{}, ""),
+			passed: false,
+			status: StatusWarning,
+		},
+		{
+			name:   "angle brackets in metadata",
+			sk:     makeSkill("my-skill", "A description", map[string]any{"metadata": map[string]any{"author": "<script>"}}, ""),
+			passed: false,
+			status: StatusWarning,
+		},
+		{
+			name:   "multiple violations",
+			sk:     makeSkill("claude-tool", "Use <tag>", map[string]any{}, ""),
+			passed: false,
+			status: StatusWarning,
+		},
+		{
+			name:   "no frontmatter",
+			sk:     skill.Skill{Frontmatter: skill.Frontmatter{Name: "test", Description: "test"}},
+			passed: true,
+			status: StatusOK,
+		},
+	}
+	checker := &SpecSecurityChecker{}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := checker.Check(tt.sk)
+			require.NoError(t, err)
+			require.Equal(t, tt.passed, result.Passed)
+			data, ok := result.Data.(*ScoreCheckData)
+			require.True(t, ok)
+			require.Equal(t, tt.status, data.Status)
+		})
+	}
+}
