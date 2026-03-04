@@ -487,13 +487,6 @@ func initCommandE(cmd *cobra.Command, args []string, noSkill bool, flagSkillsDir
 	}
 
 	// --- Phase 5: Create/verify project structure ---
-	type initItem struct {
-		path    string
-		label   string
-		isDir   bool
-		content string
-	}
-
 	wazaConfigContent := ""
 	if needConfigPrompt {
 		wazaConfigContent = generateWazaConfig(engine, model, skillsPath, evalsPath, resultsPath)
@@ -501,74 +494,31 @@ func initCommandE(cmd *cobra.Command, args []string, noSkill bool, flagSkillsDir
 
 	configLabel := fmt.Sprintf("Project defaults (%s, %s)", engine, model)
 
-	items := []initItem{
-		{filepath.Join(absDir, skillsPath), "Skill definitions", true, ""},
-		{filepath.Join(absDir, evalsPath), "Evaluation suites", true, ""},
-		{filepath.Join(absDir, ".waza.yaml"), configLabel, false, wazaConfigContent},
-		{filepath.Join(absDir, ".github", "workflows", "eval.yml"), "CI pipeline", false, initCIWorkflow()},
-		{filepath.Join(absDir, ".gitignore"), "Build artifacts excluded", false, initGitignore()},
-		{filepath.Join(absDir, "README.md"), "Getting started guide", false, initReadme(projectName)},
+	entries := []scaffold.FileEntry{
+		{Path: filepath.Join(absDir, skillsPath), Label: "Skill definitions", IsDir: true},
+		{Path: filepath.Join(absDir, evalsPath), Label: "Evaluation suites", IsDir: true},
+		{Path: filepath.Join(absDir, ".waza.yaml"), Label: configLabel, Content: wazaConfigContent},
+		{Path: filepath.Join(absDir, ".github", "workflows", "eval.yml"), Label: "CI pipeline", Content: initCIWorkflow()},
+		{Path: filepath.Join(absDir, ".gitignore"), Label: "Build artifacts excluded", Content: initGitignore()},
+		{Path: filepath.Join(absDir, "README.md"), Label: "Getting started guide", Content: initReadme(projectName)},
+	}
+
+	fw := scaffold.NewFileWriter(absDir)
+	inv, err := fw.Write(entries)
+	if err != nil {
+		return err
 	}
 
 	fmt.Fprintf(out, "\nProject structure:\n\n") //nolint:errcheck
+	inv.Fprint(out)
 
-	var buf2 bytes.Buffer
-	tw2 := tabwriter.NewWriter(&buf2, 0, 0, 2, ' ', 0)
-	created := 0
-	for _, item := range items {
-		var indicator string
-		var existed bool
-
-		if item.isDir {
-			if info, err := os.Stat(item.path); err == nil && info.IsDir() {
-				existed = true
-			} else {
-				if err := os.MkdirAll(item.path, 0o755); err != nil {
-					return fmt.Errorf("failed to create %s: %w", item.path, err)
-				}
-			}
-		} else {
-			if _, err := os.Stat(item.path); err == nil {
-				existed = true
-			} else if item.content != "" {
-				if err := os.MkdirAll(filepath.Dir(item.path), 0o755); err != nil {
-					return fmt.Errorf("failed to create directory for %s: %w", item.path, err)
-				}
-				if err := os.WriteFile(item.path, []byte(item.content), 0o644); err != nil {
-					return fmt.Errorf("failed to write %s: %w", item.path, err)
-				}
-			}
-		}
-
-		// Relative path for display
-		relPath := item.path
-		if rel, err := filepath.Rel(absDir, item.path); err == nil {
-			relPath = rel
-		}
-		if item.isDir {
-			relPath += string(filepath.Separator)
-		}
-
-		if existed {
-			indicator = "{exist}"
-		} else {
-			indicator = "{new}"
-			created++
-		}
-
-		fmt.Fprintf(tw2, "  %s\t%s\t%s\n", indicator, relPath, item.label) //nolint:errcheck
-	}
-	tw2.Flush() //nolint:errcheck
-	result2 := buf2.String()
-	result2 = strings.ReplaceAll(result2, "{exist}", "✅")
-	result2 = strings.ReplaceAll(result2, "{new}", "➕")
-	fmt.Fprint(out, result2) //nolint:errcheck
+	created := inv.CreatedCount()
 
 	// --- Phase 5b: Summary ---
 	fmt.Fprintln(out) //nolint:errcheck
 	if created == 0 {
 		fmt.Fprintf(out, "✅ Project up to date.\n") //nolint:errcheck
-	} else if created == len(items) {
+	} else if created == len(entries) {
 		fmt.Fprintf(out, "✅ Project created — %d items set up.\n", created) //nolint:errcheck
 	} else {
 		fmt.Fprintf(out, "✅ Repaired — %d item(s) added.\n", created) //nolint:errcheck
