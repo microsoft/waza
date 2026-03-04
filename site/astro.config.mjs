@@ -2,10 +2,18 @@
 import { defineConfig } from 'astro/config';
 import starlight from '@astrojs/starlight';
 
+// Normalize base path: ensure leading slash, strip trailing slashes.
+const base = (() => {
+	const raw = process.env.ASTRO_BASE ?? '/waza';
+	if (!raw || raw === '/') return '/';
+	const normalized = raw.startsWith('/') ? raw : `/${raw}`;
+	return normalized.replace(/\/+$/, '') || '/';
+})();
+
 // https://astro.build/config
 export default defineConfig({
 	site: process.env.ASTRO_SITE || 'https://microsoft.github.io/waza',
-	base: process.env.ASTRO_BASE || '/waza',
+	base,
 	integrations: [
 		starlight({
 			title: 'waza',
