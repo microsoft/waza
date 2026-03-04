@@ -6,16 +6,19 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	copilot "github.com/github/copilot-sdk/go"
 	"github.com/go-viper/mapstructure/v2"
+	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/models"
-	"github.com/microsoft/waza/internal/utils"
 )
 
 const AllPromptsPassed = "All prompts passed"
 const wazaPassToolName = "set_waza_grade_pass"
 const wazaFailToolName = "set_waza_grade_fail"
+
+const promptGraderDefaultTimeout = 120 * time.Second
 
 type PromptGraderArgs struct {
 	Prompt          string `mapstructure:"prompt"`
@@ -65,60 +68,42 @@ func (p *promptGrader) Name() string {
 // gradeIndependent runs the standard single-output prompt grading.
 func (p *promptGrader) gradeIndependent(ctx context.Context, gradingContext *Context) (*models.GraderResults, error) {
 	return measureTime(func() (*models.GraderResults, error) {
-		client := copilot.NewClient(&copilot.ClientOptions{
-			Cwd:             gradingContext.WorkspaceDir,
-			AutoStart:       utils.Ptr(true),
-			AutoRestart:     utils.Ptr(true),
-			UseLoggedInUser: utils.Ptr(true),
-			LogLevel:        "error",
-		})
+		if p.args.ContinueSession && gradingContext.SessionID == "" {
+			return nil, errors.New("no session id set, can't continue session in prmopt grading")
+		}
 
+		wazaTools := newWazaGraderTools()
+
+		engine := execution.NewCopilotEngineBuilder("", nil).Build()
 		defer func() {
-			if err := client.Stop(); err != nil {
-				slog.ErrorContext(ctx, "error stopping client for prompt grader")
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			if err := engine.Shutdown(shutdownCtx); err != nil {
+				slog.ErrorContext(ctx, "error shutting down engine for prompt grader", "error", err)
 			}
 		}()
 
-		var session *copilot.Session
-		var err error
-		wazaTools := newWazaGraderTools()
-
-		if p.args.ContinueSession {
-			if gradingContext.SessionID == "" {
-				return nil, errors.New("no session id set, can't continue session in prmopt grading")
-			}
-
-			// resume the previous session, but use a different model for the judge.
-			session, err = client.ResumeSessionWithOptions(ctx,
-				gradingContext.SessionID,
-				&copilot.ResumeSessionConfig{
-					OnPermissionRequest: copilot.PermissionHandler.ApproveAll,
-					Model:               p.args.Model,
-					Streaming:           true,
-					Tools:               wazaTools.Tools,
-				})
-		} else {
-			session, err = client.CreateSession(ctx, &copilot.SessionConfig{
-				OnPermissionRequest: copilot.PermissionHandler.ApproveAll,
-				Model:               p.args.Model,
-				Streaming:           true,
-				Tools:               wazaTools.Tools,
-			})
+		if err := engine.Initialize(ctx); err != nil {
+			return nil, fmt.Errorf("failed to initialize engine for prompt grader: %w", err)
 		}
 
+		req := &execution.ExecutionRequest{
+			ModelID: p.args.Model,
+			Message: p.args.Prompt,
+			Tools:   wazaTools.Tools,
+			Timeout: promptGraderDefaultTimeout,
+		}
+
+		if p.args.ContinueSession {
+			req.SessionID = gradingContext.SessionID
+		}
+
+		resp, err := engine.Execute(ctx, req)
 		if err != nil {
 			return nil, fmt.Errorf("failed to start up copilot session for prompt grading: %w", err)
 		}
-
-		session.On(utils.SessionToSlog)
-
-		resp, err := session.SendAndWait(ctx, copilot.MessageOptions{
-			Prompt: p.args.Prompt,
-			Mode:   "enqueue",
-		})
-
-		if err != nil {
-			return nil, fmt.Errorf("failed to send prompt: %w", err)
+		if resp.ErrorMsg != "" {
+			return nil, fmt.Errorf("failed to send prompt: %s", resp.ErrorMsg)
 		}
 
 		var score = 0.0
@@ -130,10 +115,9 @@ func (p *promptGrader) gradeIndependent(ctx context.Context, gradingContext *Con
 			score = float64(len(wazaTools.Passes)) / float64(total)
 		}
 
-		respContent := resp.Data.Content
-
-		if respContent == nil {
-			respContent = utils.Ptr("<no response content>")
+		respContent := resp.FinalOutput
+		if respContent == "" {
+			respContent = "<no response content>"
 		}
 
 		feedback := AllPromptsPassed
@@ -149,7 +133,7 @@ func (p *promptGrader) gradeIndependent(ctx context.Context, gradingContext *Con
 			Score:    score,
 			Feedback: feedback,
 			Details: map[string]any{
-				"response": *respContent,
+				"response": respContent,
 				"prompt":   p.args.Prompt,
 				"passes":   strings.Join(wazaTools.Passes, ";"),
 				"failures": strings.Join(wazaTools.Failures, ";"),
@@ -316,20 +300,6 @@ func (p *promptGrader) runPairwiseOnce(
 	outputA, outputB string,
 	labelA, labelB string,
 ) (*pairwiseJudgment, error) {
-	client := copilot.NewClient(&copilot.ClientOptions{
-		Cwd:             gradingContext.WorkspaceDir,
-		AutoStart:       utils.Ptr(true),
-		AutoRestart:     utils.Ptr(true),
-		UseLoggedInUser: utils.Ptr(true),
-		LogLevel:        "error",
-	})
-
-	defer func() {
-		if err := client.Stop(); err != nil {
-			slog.ErrorContext(ctx, "error stopping client for pairwise grader")
-		}
-	}()
-
 	judgment := &pairwiseJudgment{
 		winner:    "tie",
 		magnitude: "equal",
@@ -376,26 +346,32 @@ func (p *promptGrader) runPairwiseOnce(
 		},
 	}
 
-	session, err := client.CreateSession(ctx, &copilot.SessionConfig{
-		OnPermissionRequest: copilot.PermissionHandler.ApproveAll,
-		Model:               p.args.Model,
-		Streaming:           true,
-		Tools:               tools,
+	engine := execution.NewCopilotEngineBuilder("", nil).Build()
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := engine.Shutdown(shutdownCtx); err != nil {
+			slog.ErrorContext(ctx, "error shutting down engine for pairwise grader", "error", err)
+		}
+	}()
+
+	if err := engine.Initialize(ctx); err != nil {
+		return nil, fmt.Errorf("failed to initialize engine for pairwise grading: %w", err)
+	}
+
+	prompt := buildPairwisePrompt(p.args.Prompt, outputA, outputB, labelA, labelB)
+
+	resp, err := engine.Execute(ctx, &execution.ExecutionRequest{
+		ModelID: p.args.Model,
+		Message: prompt,
+		Tools:   tools,
+		Timeout: promptGraderDefaultTimeout,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create session for pairwise grading: %w", err)
 	}
-
-	session.On(utils.SessionToSlog)
-
-	prompt := buildPairwisePrompt(p.args.Prompt, outputA, outputB, labelA, labelB)
-
-	_, err = session.SendAndWait(ctx, copilot.MessageOptions{
-		Prompt: prompt,
-		Mode:   "enqueue",
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to send pairwise prompt: %w", err)
+	if resp.ErrorMsg != "" {
+		return nil, fmt.Errorf("failed to send pairwise prompt: %s", resp.ErrorMsg)
 	}
 
 	return judgment, nil

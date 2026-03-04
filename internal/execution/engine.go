@@ -46,6 +46,9 @@ type ExecutionRequest struct {
 	// PermissionHandler called when the copilot SDK wants to determine if a tool can be used.
 	// Default: allows all tools.
 	PermissionHandler copilot.PermissionHandlerFunc
+
+	// Tools is a list of caller-implemented tools exposed to the agent during the session.
+	Tools []copilot.Tool
 }
 
 // ResourceFile represents a file resource

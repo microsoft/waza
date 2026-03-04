@@ -82,23 +82,16 @@ func (b *CopilotEngineBuilder) Build() *CopilotEngine {
 	return b.engine
 }
 
-// Initialize sets up the Copilot client
+// Initialize implements [AgentEngine]. The Copilot client is started lazily on the first
+// call to Execute, bounded by req.Timeout, so there is nothing to do here.
+// This method is kept to satisfy the AgentEngine interface and as a pre-flight context check.
 func (e *CopilotEngine) Initialize(ctx context.Context) error {
-	var startErr error
-
-	e.startOnce.Do(func() {
-		// NOTE: we _have_ to use context.Background() - the copilot SDK is using exec.CommandContext() to run
-		// the background process which means we _cannot_ cancel the context passed to this function or else
-		// it'll kill the copilot process.
-		// Tracking here: https://github.com/github/copilot-sdk/issues/668
-		startErr = e.client.Start(context.Background())
-	})
-
-	if startErr != nil {
-		return fmt.Errorf("copilot failed to start: %w", startErr)
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+		return nil
 	}
-
-	return nil
 }
 
 // Execute runs a test with Copilot SDK
@@ -111,6 +104,23 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 
 	if err != nil {
 		return nil, err
+	}
+
+	// Apply the timeout before Start() so a non-responsive copilot CLI does not
+	// block indefinitely. extractReqParams validates Timeout > 0, so this is safe.
+	ctx, cancel := context.WithTimeout(ctx, req.Timeout)
+	defer cancel()
+
+	var startErr error
+
+	e.startOnce.Do(func() {
+		// NOTE: this is a workaround - copilot client has an 'autostart' feature, but it runs into
+		// issues when it tries to autostart from separate goroutines.
+		startErr = e.client.Start(ctx)
+	})
+
+	if startErr != nil {
+		return nil, fmt.Errorf("copilot failed to start: %w", startErr)
 	}
 
 	start := time.Now()
@@ -151,6 +161,7 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 			SkillDirectories: skillDirs,
 			WorkingDirectory: workspaceDir,
 			SystemMessage:    systemMessage,
+			Tools:            req.Tools,
 		})
 
 		if err != nil {
@@ -166,6 +177,7 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 			SkillDirectories: skillDirs,
 			WorkingDirectory: workspaceDir,
 			SystemMessage:    systemMessage,
+			Tools:            req.Tools,
 		})
 
 		if err != nil {

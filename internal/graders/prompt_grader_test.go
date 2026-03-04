@@ -9,10 +9,10 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
-	copilot "github.com/github/copilot-sdk/go"
+	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/models"
-	"github.com/microsoft/waza/internal/utils"
 	"github.com/stretchr/testify/require"
 )
 
@@ -164,18 +164,11 @@ func TestUsingPreviousSessionID(t *testing.T) {
 	{
 		// we're going to create a session and "store" a number in it, and then see if we can recall it in our
 		// prompt evaluation below.
-		client := copilot.NewClient(&copilot.ClientOptions{
-			AutoStart:       utils.Ptr(true),
-			UseLoggedInUser: utils.Ptr(true),
-		})
+		engine := execution.NewCopilotEngineBuilder(basicModel, nil).Build()
+		// Note: we intentionally do not call Shutdown here so the session is not deleted and
+		// can be resumed by the prompt grader below.
 
-		session, err := client.CreateSession(context.Background(), &copilot.SessionConfig{
-			Model:               basicModel,
-			OnPermissionRequest: copilot.PermissionHandler.ApproveAll,
-		})
-		require.NoError(t, err)
-
-		sessionID = session.SessionID
+		require.NoError(t, engine.Initialize(context.Background()))
 
 		numBytes := [8]byte{}
 		n, err := rand.Read(numBytes[:])
@@ -184,24 +177,15 @@ func TestUsingPreviousSessionID(t *testing.T) {
 
 		randomString = hex.EncodeToString(numBytes[:])
 
-		resp, err := session.SendAndWait(context.Background(), copilot.MessageOptions{
-			Prompt: "Remember this random string: " + randomString,
+		resp, err := engine.Execute(context.Background(), &execution.ExecutionRequest{
+			Message: "Remember this random string: " + randomString,
+			Timeout: 120 * time.Second,
 		})
 		require.NoError(t, err)
 
-		t.Logf("Content: %s", *resp.Data.Content)
+		t.Logf("Content: %s", resp.FinalOutput)
 
-		resp, err = session.SendAndWait(context.Background(), copilot.MessageOptions{
-			Prompt: "what was the random string?",
-		})
-		require.NoError(t, err)
-
-		if resp.Data.Content != nil {
-			t.Logf("Content: %s", *resp.Data.Content)
-		}
-
-		err = client.Stop()
-		require.NoError(t, err)
+		sessionID = resp.SessionID
 	}
 
 	promptGrader, err := NewPromptGrader("my-prompt-grader", PromptGraderArgs{
