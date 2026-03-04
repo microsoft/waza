@@ -185,11 +185,14 @@ func TestCopilotEngine_Execute_InjectsSkillSystemMessage(t *testing.T) {
 		NewCopilotClient: func(clientOptions *copilot.ClientOptions) copilotClient { return clientMock },
 	}).Build()
 
+	err := engine.Initialize(context.Background())
+	require.NoError(t, err)
+
 	defer func() {
 		require.NoError(t, engine.Shutdown(context.Background()))
 	}()
 
-	_, err := engine.Execute(context.Background(), &ExecutionRequest{
+	_, err = engine.Execute(context.Background(), &ExecutionRequest{
 		Message:    "deploy my app",
 		Timeout:    time.Minute,
 		SkillPaths: []string{skillDir},
@@ -224,11 +227,15 @@ func TestCopilotEngine_Execute_NoSystemMessageWithoutSkills(t *testing.T) {
 		NewCopilotClient: func(clientOptions *copilot.ClientOptions) copilotClient { return clientMock },
 	}).Build()
 
+	err := engine.Initialize(context.Background())
+	require.NoError(t, err)
+
+
 	defer func() {
 		require.NoError(t, engine.Shutdown(context.Background()))
 	}()
 
-	_, err := engine.Execute(context.Background(), &ExecutionRequest{
+	_, err = engine.Execute(context.Background(), &ExecutionRequest{
 		Message:   "hello",
 		Timeout:   time.Minute,
 		SourceDir: sourceDir,

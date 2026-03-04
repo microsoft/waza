@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"maps"
 	"os"
 	"path/filepath"
@@ -552,7 +553,7 @@ func runSingleModel(cmd *cobra.Command, spec *models.BenchmarkSpec, specPath str
 	}
 	defer func() {
 		if err := engine.Shutdown(context.Background()); err != nil {
-			fmt.Fprintf(os.Stderr, "WARN: engine shutdown: %v\n", err)
+			slog.Warn("engine shutdown failed", "error", err)
 		}
 	}()
 
@@ -731,7 +732,7 @@ func runSingleModel(cmd *cobra.Command, spec *models.BenchmarkSpec, specPath str
 
 	// shut down the engine and update outcome with final usage data
 	if err := engine.Shutdown(context.Background()); err != nil {
-		fmt.Fprintf(os.Stderr, "WARN: engine shutdown: %v\n", err)
+		slog.Warn("engine shutdown failed", "error", err)
 	}
 	execution.UpdateOutcomeUsage(outcome, engine)
 

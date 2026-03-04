@@ -218,6 +218,9 @@ func TestCopilotExecuteParallel(t *testing.T) {
 	for range 5 {
 		engine := NewCopilotEngineBuilder("gpt-4o-mini", nil).Build()
 
+		err := engine.Initialize(context.Background())
+		require.NoError(t, err)
+
 		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 		defer cancel()
 
@@ -233,7 +236,7 @@ func TestCopilotExecuteParallel(t *testing.T) {
 			})
 		}
 
-		err := eg.Wait()
+		err = eg.Wait()
 		require.NoError(t, err)
 		require.NoError(t, engine.Shutdown(context.Background()))
 	}

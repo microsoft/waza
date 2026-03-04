@@ -92,15 +92,17 @@ func (p *promptGrader) gradeIndependent(ctx context.Context, gradingContext *Con
 			session, err = client.ResumeSessionWithOptions(ctx,
 				gradingContext.SessionID,
 				&copilot.ResumeSessionConfig{
-					Model:     p.args.Model,
-					Streaming: true,
-					Tools:     wazaTools.Tools,
+					OnPermissionRequest: copilot.PermissionHandler.ApproveAll,
+					Model:               p.args.Model,
+					Streaming:           true,
+					Tools:               wazaTools.Tools,
 				})
 		} else {
 			session, err = client.CreateSession(ctx, &copilot.SessionConfig{
-				Model:     p.args.Model,
-				Streaming: true,
-				Tools:     wazaTools.Tools,
+				OnPermissionRequest: copilot.PermissionHandler.ApproveAll,
+				Model:               p.args.Model,
+				Streaming:           true,
+				Tools:               wazaTools.Tools,
 			})
 		}
 
@@ -375,9 +377,10 @@ func (p *promptGrader) runPairwiseOnce(
 	}
 
 	session, err := client.CreateSession(ctx, &copilot.SessionConfig{
-		Model:     p.args.Model,
-		Streaming: true,
-		Tools:     tools,
+		OnPermissionRequest: copilot.PermissionHandler.ApproveAll,
+		Model:               p.args.Model,
+		Streaming:           true,
+		Tools:               tools,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create session for pairwise grading: %w", err)
