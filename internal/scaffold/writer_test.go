@@ -88,9 +88,9 @@ func TestFileWriter_MixedCreateAndSkip(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, 2, inv.CreatedCount())
-	assert.Equal(t, OutcomeCreated, inv.Items[0].Outcome)  // skills dir
-	assert.Equal(t, OutcomeSkipped, inv.Items[1].Outcome)   // README.md
-	assert.Equal(t, OutcomeCreated, inv.Items[2].Outcome)   // .gitignore
+	assert.Equal(t, OutcomeCreated, inv.Items[0].Outcome) // skills dir
+	assert.Equal(t, OutcomeSkipped, inv.Items[1].Outcome) // README.md
+	assert.Equal(t, OutcomeCreated, inv.Items[2].Outcome) // .gitignore
 }
 
 func TestFileWriter_CreatesParentDirectories(t *testing.T) {
