@@ -461,6 +461,18 @@ cache:
   enabled: false
   dir: .waza-cache
 
+# Token budget configuration
+tokens:
+  warningThreshold: 2500
+  fallbackLimit: 1000
+  limits:
+    defaults:
+      "SKILL.md": 500
+      "references/**/*.md": 1000
+      "*.md": 2000
+    overrides:
+      "README.md": 3000
+
 # Cloud storage (optional)
 storage:
   provider: azure-blob
@@ -468,6 +480,22 @@ storage:
   containerName: "waza-results"
   enabled: true
 ```
+
+### tokens Section
+
+Per-file token budget configuration used by `waza tokens check` and `waza tokens suggest`.
+See the **[Token Limits guide](../../guides/token-limits/)** for full documentation including pattern matching rules and migration from `.token-limits.json`.
+
+**Priority order:** `.waza.yaml tokens.limits` → `.token-limits.json` (legacy, emits deprecation warning) → built-in defaults.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `warningThreshold` | integer | `2500` | Token count at which a soft warning is shown |
+| `fallbackLimit` | integer | `1000` | Limit applied to files that match no pattern |
+| `limits.defaults` | map | (built-in) | Glob patterns → token limits |
+| `limits.overrides` | map | `{}` | Exact file paths → token limits (take precedence over `defaults`) |
+
+Both `limits.defaults` and `limits.overrides` are optional. When `tokens.limits` is present in `.waza.yaml`, `.token-limits.json` is **not** consulted.
 
 ### storage Section
 
