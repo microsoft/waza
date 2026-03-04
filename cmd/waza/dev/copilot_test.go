@@ -370,11 +370,20 @@ type copilotTestEngine struct {
 	respectContext   bool
 	messages         []string
 	triggerCalls     int
+
+	initCalled bool
 }
 
-func (e *copilotTestEngine) Initialize(context.Context) error { return nil }
+func (e *copilotTestEngine) Initialize(context.Context) error {
+	e.initCalled = true
+	return nil
+}
 
 func (e *copilotTestEngine) Execute(ctx context.Context, req *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
+	if !e.initCalled {
+		return nil, fmt.Errorf("Initialize was not called before Execute")
+	}
+
 	if e.respectContext {
 		select {
 		case <-ctx.Done():

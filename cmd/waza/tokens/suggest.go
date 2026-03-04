@@ -155,6 +155,11 @@ func runSuggest(cmd *cobra.Command, args []string) error {
 	var engine execution.AgentEngine
 	if copilot {
 		engine = newChatEngine(modelID)
+
+		if err := engine.Initialize(cmd.Context()); err != nil {
+			return err
+		}
+
 		defer func() {
 			if shutdownErr := engine.Shutdown(cmd.Context()); shutdownErr != nil {
 				fmt.Fprintf(errOut, "⚠️  error shutting down Copilot engine: %v\n", shutdownErr) //nolint:errcheck
