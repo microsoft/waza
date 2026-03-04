@@ -2,10 +2,10 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 
-	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
@@ -250,25 +250,30 @@ func scaffoldInProject(cmd *cobra.Command, projectRoot, skillName, skillMD strin
 		}
 	}
 
-	files := []fileEntry{
-		{filepath.Join(skillDir, "SKILL.md"), skillMD, "Skill definition", overwriteSkill},
-		{filepath.Join(evalDir, "eval.yaml"), scaffold.EvalYAML(skillName, engine, model), "Eval configuration", false},
+	// If malformed SKILL.md needs replacement, remove it so FileWriter creates fresh
+	if overwriteSkill {
+		_ = os.Remove(filepath.Join(skillDir, "SKILL.md"))
+	}
+
+	entries := []scaffold.FileEntry{
+		{Path: filepath.Join(skillDir, "SKILL.md"), Label: "Skill definition", Content: skillMD},
+		{Path: filepath.Join(evalDir, "eval.yaml"), Label: "Eval configuration", Content: scaffold.EvalYAML(skillName, engine, model)},
 	}
 
 	// Only add default tasks if the tasks directory is empty
 	if !dirHasFiles(tasksDir) {
 		tasks := scaffold.TaskFiles(skillName)
 		for name, content := range tasks {
-			files = append(files, fileEntry{filepath.Join(tasksDir, name), content, taskLabel(name), false})
+			entries = append(entries, scaffold.FileEntry{Path: filepath.Join(tasksDir, name), Label: taskLabel(name), Content: content})
 		}
 	}
 
 	// Only add default fixture if the fixtures directory is empty
 	if !dirHasFiles(fixturesDir) {
-		files = append(files, fileEntry{filepath.Join(fixturesDir, "sample.py"), scaffold.Fixture(), "Fixture", false})
+		entries = append(entries, scaffold.FileEntry{Path: filepath.Join(fixturesDir, "sample.py"), Label: "Fixture", Content: scaffold.Fixture()})
 	}
 
-	return writeFiles(cmd, files, skillName, existing, tasksDir, fixturesDir)
+	return writeScaffold(cmd, entries, skillName, existing, tasksDir, fixturesDir)
 }
 
 // scaffoldStandalone creates a self-contained skill directory.
@@ -287,136 +292,98 @@ func scaffoldStandalone(cmd *cobra.Command, skillName, skillMD string, existing,
 		}
 	}
 
-	files := []fileEntry{
-		{filepath.Join(rootDir, "SKILL.md"), skillMD, "Skill definition", overwriteSkill},
-		{filepath.Join(evalsDir, "eval.yaml"), scaffold.EvalYAML(skillName, engine, model), "Eval configuration", false},
+	// If malformed SKILL.md needs replacement, remove it so FileWriter creates fresh
+	if overwriteSkill {
+		_ = os.Remove(filepath.Join(rootDir, "SKILL.md"))
+	}
+
+	entries := []scaffold.FileEntry{
+		{Path: filepath.Join(rootDir, "SKILL.md"), Label: "Skill definition", Content: skillMD},
+		{Path: filepath.Join(evalsDir, "eval.yaml"), Label: "Eval configuration", Content: scaffold.EvalYAML(skillName, engine, model)},
 	}
 
 	// Only add default tasks if the tasks directory is empty
 	if !dirHasFiles(tasksDir) {
 		tasks := scaffold.TaskFiles(skillName)
 		for name, content := range tasks {
-			files = append(files, fileEntry{filepath.Join(tasksDir, name), content, taskLabel(name), false})
+			entries = append(entries, scaffold.FileEntry{Path: filepath.Join(tasksDir, name), Label: taskLabel(name), Content: content})
 		}
 	}
 
 	// Only add default fixture if the fixtures directory is empty
 	if !dirHasFiles(fixturesDir) {
-		files = append(files, fileEntry{filepath.Join(fixturesDir, "sample.py"), scaffold.Fixture(), "Fixture", false})
+		entries = append(entries, scaffold.FileEntry{Path: filepath.Join(fixturesDir, "sample.py"), Label: "Fixture", Content: scaffold.Fixture()})
 	}
 
-	files = append(files,
-		fileEntry{filepath.Join(workflowDir, "eval.yml"), defaultCIWorkflow(skillName), "CI pipeline", false},
-		fileEntry{filepath.Join(rootDir, ".gitignore"), defaultGitignore(), "Build artifacts excluded", false},
-		fileEntry{filepath.Join(rootDir, "README.md"), defaultReadme(skillName), "Getting started guide", false},
+	entries = append(entries,
+		scaffold.FileEntry{Path: filepath.Join(workflowDir, "eval.yml"), Label: "CI pipeline", Content: defaultCIWorkflow(skillName)},
+		scaffold.FileEntry{Path: filepath.Join(rootDir, ".gitignore"), Label: "Build artifacts excluded", Content: defaultGitignore()},
+		scaffold.FileEntry{Path: filepath.Join(rootDir, "README.md"), Label: "Getting started guide", Content: defaultReadme(skillName)},
 	)
 
-	return writeFiles(cmd, files, skillName, existing, tasksDir, fixturesDir)
+	return writeScaffold(cmd, entries, skillName, existing, tasksDir, fixturesDir)
 }
 
-// fileEntry pairs a path with its content and display label for batch writing.
-type fileEntry struct {
-	path      string
-	content   string
-	label     string
-	overwrite bool // when true, overwrite existing file (e.g., malformed SKILL.md)
-}
+// writeScaffold uses the shared FileWriter to create missing files, then prints
+// the inventory with header and summary footer.
+func writeScaffold(cmd *cobra.Command, entries []scaffold.FileEntry, skillName string, existing bool, tasksDir, fixturesDir string) error {
+	out := cmd.OutOrStdout()
+	baseDir, _ := os.Getwd() //nolint:errcheck // best-effort for display paths
 
-// writeFiles writes each file, skipping any that already exist.
-// Prints grouped inventory output with header, section heading, and labels.
-// tasksDir and fixturesDir are used to show summary lines for user-owned content.
-func writeFiles(cmd *cobra.Command, files []fileEntry, skillName string, existing bool, tasksDir, fixturesDir string) error {
-	greenCheck := lipgloss.NewStyle().Foreground(lipgloss.Color("2")).Render("✓")
-	yellowPlus := lipgloss.NewStyle().Foreground(lipgloss.Color("3")).Render("+")
+	fw := scaffold.NewFileWriter(baseDir)
+	inv, err := fw.Write(entries)
+	if err != nil {
+		return err
+	}
 
 	if existing {
-		fmt.Fprintf(cmd.OutOrStdout(), "🔧 Checking skill: %s\n", skillName) //nolint:errcheck
+		fmt.Fprintf(out, "🔧 Checking skill: %s\n", skillName) //nolint:errcheck
 	} else {
-		fmt.Fprintf(cmd.OutOrStdout(), "🔧 Scaffolding skill: %s\n", skillName) //nolint:errcheck
+		fmt.Fprintf(out, "🔧 Scaffolding skill: %s\n", skillName) //nolint:errcheck
 	}
-	fmt.Fprintf(cmd.OutOrStdout(), "\nSkill structure:\n\n") //nolint:errcheck
+	fmt.Fprintf(out, "\nSkill structure:\n\n") //nolint:errcheck
 
-	baseDir, _ := os.Getwd() //nolint:errcheck // best-effort for display paths
-	created := 0
-	for _, f := range files {
-		relPath := f.path
-		if baseDir != "" {
-			if abs, absErr := filepath.Abs(f.path); absErr == nil {
-				if rel, relErr := filepath.Rel(baseDir, abs); relErr == nil {
-					relPath = rel
-				}
-			}
-		}
-
-		if _, err := os.Stat(f.path); err == nil {
-			if f.overwrite {
-				// Overwrite existing file (e.g., malformed SKILL.md being repaired)
-				if err := os.WriteFile(f.path, []byte(f.content), 0o644); err != nil {
-					return fmt.Errorf("failed to write %s: %w", f.path, err)
-				}
-				fmt.Fprintf(cmd.OutOrStdout(), "  %s %-40s %s (updated)\n", yellowPlus, relPath, f.label) //nolint:errcheck
-				created++
-				continue
-			}
-			fmt.Fprintf(cmd.OutOrStdout(), "  %s %-40s %s\n", greenCheck, relPath, f.label) //nolint:errcheck
-			continue
-		}
-
-		if err := os.WriteFile(f.path, []byte(f.content), 0o644); err != nil {
-			return fmt.Errorf("failed to write %s: %w", f.path, err)
-		}
-		fmt.Fprintf(cmd.OutOrStdout(), "  %s %-40s %s\n", yellowPlus, relPath, f.label) //nolint:errcheck
-		created++
-	}
+	inv.Fprint(out)
 
 	// Show summary lines for user-owned tasks/fixtures directories
-	if taskCount := dirFileCount(tasksDir); taskCount > 0 {
-		hasDefaultTasks := false
-		for _, f := range files {
-			if filepath.Dir(f.path) == tasksDir {
-				hasDefaultTasks = true
-				break
-			}
-		}
-		if !hasDefaultTasks {
-			relDir := tasksDir
-			if abs, err := filepath.Abs(tasksDir); err == nil {
-				if rel, err := filepath.Rel(baseDir, abs); err == nil {
-					relDir = rel
-				}
-			}
-			fmt.Fprintf(cmd.OutOrStdout(), "  %s %-40s %s\n", greenCheck, relDir+string(filepath.Separator), fmt.Sprintf("Tasks (%d files)", taskCount)) //nolint:errcheck
-		}
-	}
-	if fixtureCount := dirFileCount(fixturesDir); fixtureCount > 0 {
-		hasDefaultFixtures := false
-		for _, f := range files {
-			if filepath.Dir(f.path) == fixturesDir {
-				hasDefaultFixtures = true
-				break
-			}
-		}
-		if !hasDefaultFixtures {
-			relDir := fixturesDir
-			if abs, err := filepath.Abs(fixturesDir); err == nil {
-				if rel, err := filepath.Rel(baseDir, abs); err == nil {
-					relDir = rel
-				}
-			}
-			fmt.Fprintf(cmd.OutOrStdout(), "  %s %-40s %s\n", greenCheck, relDir+string(filepath.Separator), fmt.Sprintf("Fixtures (%d files)", fixtureCount)) //nolint:errcheck
-		}
-	}
+	printDirSummary(out, inv, tasksDir, baseDir, "Tasks")
+	printDirSummary(out, inv, fixturesDir, baseDir, "Fixtures")
 
-	fmt.Fprintln(cmd.OutOrStdout()) //nolint:errcheck
+	created := inv.CreatedCount()
+
+	fmt.Fprintln(out) //nolint:errcheck
 	if created == 0 {
-		fmt.Fprintf(cmd.OutOrStdout(), "%s Project up to date.\n", greenCheck) //nolint:errcheck
-	} else if created == len(files) {
-		fmt.Fprintf(cmd.OutOrStdout(), "✅ Skill created — %d file(s) scaffolded.\n", created) //nolint:errcheck
+		fmt.Fprintf(out, "✅ Project up to date.\n") //nolint:errcheck
+	} else if created == len(entries) {
+		fmt.Fprintf(out, "✅ Skill created — %d file(s) scaffolded.\n", created) //nolint:errcheck
 	} else {
-		fmt.Fprintf(cmd.OutOrStdout(), "✅ Repaired — %d item(s) added.\n", created) //nolint:errcheck
+		fmt.Fprintf(out, "✅ Repaired — %d item(s) added.\n", created) //nolint:errcheck
 	}
 
 	return nil
+}
+
+// printDirSummary prints a summary line for a directory that has existing files
+// but wasn't part of the scaffolded entries.
+func printDirSummary(out io.Writer, inv *scaffold.Inventory, dir, baseDir, label string) {
+	count := dirFileCount(dir)
+	if count == 0 {
+		return
+	}
+
+	for _, item := range inv.Items {
+		if filepath.Dir(item.Entry.Path) == dir {
+			return
+		}
+	}
+
+	relDir := dir
+	if abs, err := filepath.Abs(dir); err == nil {
+		if rel, err := filepath.Rel(baseDir, abs); err == nil {
+			relDir = rel
+		}
+	}
+	fmt.Fprintf(out, "  ✅  %s  %s (%d files)\n", relDir+string(filepath.Separator), label, count) //nolint:errcheck
 }
 
 // taskLabel returns a descriptive label for a task file.

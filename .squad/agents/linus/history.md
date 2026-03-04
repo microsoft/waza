@@ -99,3 +99,10 @@ All code roles now use `claude-opus-4.6`. Docs/Scribe/diversity use `gemini-3-pr
 - **Files changed:** `internal/scaffold/writer.go` (new), `internal/scaffold/writer_test.go` (new), `cmd/waza/cmd_init.go` (modified)
 - **What:** Created `FileWriter` service in `internal/scaffold/` that encapsulates the create-if-missing + skip-if-exists pattern used by `waza init`. Returns structured `Inventory` with per-entry outcomes. Refactored `cmd_init.go` Phase 5 to use `FileWriter` instead of its inline write loop. Inventory is always visible with ➕/✅ indicators. 8 unit tests covering all paths.
 - **Key learning:** The `internal/scaffold/` package already existed with template functions for eval/skill generation — `FileWriter` fits naturally alongside those. The `FileEntry` type mirrors the old `initItem` struct but is exported for reuse by `cmd_new.go` in a future PR. Empty-content file entries (e.g., when `needConfigPrompt` is false) are treated as skipped — the writer doesn't create zero-byte files.
+
+### #58 — Refactor waza new to use shared FileWriter (PR pending)
+- **Date:** 2026-02-26
+- **Branch:** `squad/58-new-use-filewriter`
+- **Files changed:** `cmd/waza/cmd_new.go`, `cmd/waza/cmd_new_test.go`
+- **What:** Replaced the inline `writeFiles()` loop and `fileEntry` type in `cmd_new.go` with the shared `FileWriter` from `internal/scaffold/writer.go`. The malformed SKILL.md detection (`detectExistingSkillMD`) still runs before FileWriter — when overwrite is needed, the malformed file is deleted so FileWriter creates it fresh with ➕. Removed `lipgloss` dependency from the file. Updated 5 test assertions to match ➕/✅ emoji indicators instead of lipgloss-styled ✓/+.
+- **Key learning:** The `overwrite` flag pattern from the old `fileEntry` struct doesn't map directly to FileWriter's create-if-missing model. The clean solution is to `os.Remove` the malformed file before passing it to FileWriter, so the writer sees it as absent and creates it normally. This avoids adding overwrite complexity to the shared FileWriter API while keeping the malformed-detection logic intact.

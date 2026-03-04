@@ -127,8 +127,8 @@ func TestNewCommand_NoOverwriteSafety(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, customContent, string(data), "valid SKILL.md should not be overwritten")
 
-	// Output should mention ✓ for skipped file
-	assert.Contains(t, buf.String(), "✓")
+	// Output should mention ✅ for skipped file
+	assert.Contains(t, buf.String(), "✅")
 	assert.FileExists(t, filepath.Join(dir, "evals", "my-skill", "eval.yaml"))
 }
 
@@ -160,8 +160,8 @@ func TestNewCommand_IdempotentWithExistingSkillMD(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, validSkillMD, string(data), "existing SKILL.md should not be overwritten")
 
-	// Output should mention ✓ for skipped file
-	assert.Contains(t, buf.String(), "✓")
+	// Output should mention ✅ for skipped file
+	assert.Contains(t, buf.String(), "✅")
 
 	// Eval files should be created
 	assert.FileExists(t, filepath.Join(dir, "evals", "my-skill", "eval.yaml"))
@@ -192,7 +192,7 @@ func TestNewCommand_IdempotentRunTwice(t *testing.T) {
 	require.NoError(t, cmd2.Execute())
 
 	output := buf.String()
-	assert.Contains(t, output, "✓")
+	assert.Contains(t, output, "✅")
 	assert.Contains(t, output, "Project up to date")
 }
 
@@ -227,7 +227,7 @@ func TestNewCommand_EmptySkillMD_NonTTY_OverwritesWithDefaults(t *testing.T) {
 	// Warning should appear in output
 	output := buf.String()
 	assert.Contains(t, output, "empty or malformed")
-	assert.Contains(t, output, "updated")
+	assert.Contains(t, output, "➕")
 
 	// Other eval files should still be created
 	assert.FileExists(t, filepath.Join(dir, "evals", "my-skill", "eval.yaml"))
@@ -357,9 +357,9 @@ func TestNewCommand_EmptySkillMD_EvalFilesPreExist(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "existing eval", string(evalData), "eval.yaml should not be overwritten")
 
-	// Output should show updated for SKILL.md, ✓ for eval.yaml
+	// Output should show ➕ for repaired SKILL.md, ✅ for existing eval.yaml
 	output := buf.String()
-	assert.Contains(t, output, "updated")
+	assert.Contains(t, output, "➕")
 }
 
 // ── Name Validation Tests ──────────────────────────────────────────────────────
