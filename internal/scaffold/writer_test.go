@@ -183,3 +183,35 @@ func TestInventory_CreatedCount(t *testing.T) {
 	}
 	assert.Equal(t, 2, inv.CreatedCount())
 }
+
+func TestFileWriter_DirEntry_FileExistsAtPath(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create a regular file where we expect a directory
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "skills"), []byte("not a dir"), 0o644))
+
+	fw := NewFileWriter(dir)
+	entries := []FileEntry{
+		{Path: filepath.Join(dir, "skills"), Label: "Skill definitions", IsDir: true},
+	}
+
+	_, err := fw.Write(entries)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "exists but is not a directory")
+}
+
+func TestFileWriter_FileEntry_DirExistsAtPath(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create a directory where we expect a file
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "README.md"), 0o755))
+
+	fw := NewFileWriter(dir)
+	entries := []FileEntry{
+		{Path: filepath.Join(dir, "README.md"), Label: "Readme", Content: "# Hello\n"},
+	}
+
+	_, err := fw.Write(entries)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "exists but is a directory")
+}

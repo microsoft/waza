@@ -103,29 +103,41 @@ func (fw *FileWriter) Write(entries []FileEntry) (*Inventory, error) {
 		}
 
 		if entry.IsDir {
-			if info, err := os.Stat(entry.Path); err == nil && info.IsDir() {
+			info, err := os.Stat(entry.Path)
+			if err == nil && info.IsDir() {
 				item.Outcome = OutcomeSkipped
-			} else {
+			} else if err == nil {
+				return nil, fmt.Errorf("path %s exists but is not a directory", entry.Path)
+			} else if os.IsNotExist(err) {
 				if err := os.MkdirAll(entry.Path, 0o755); err != nil {
 					return nil, fmt.Errorf("failed to create %s: %w", entry.Path, err)
 				}
 				item.Outcome = OutcomeCreated
+			} else {
+				return nil, fmt.Errorf("failed to stat %s: %w", entry.Path, err)
 			}
 		} else {
-			if _, err := os.Stat(entry.Path); err == nil {
+			info, err := os.Stat(entry.Path)
+			if err == nil {
+				if info.IsDir() {
+					return nil, fmt.Errorf("path %s exists but is a directory", entry.Path)
+				}
 				item.Outcome = OutcomeSkipped
-			} else if entry.Content != "" {
-				if err := os.MkdirAll(filepath.Dir(entry.Path), 0o755); err != nil {
-					return nil, fmt.Errorf("failed to create directory for %s: %w", entry.Path, err)
+			} else if os.IsNotExist(err) {
+				if entry.Content != "" {
+					if err := os.MkdirAll(filepath.Dir(entry.Path), 0o755); err != nil {
+						return nil, fmt.Errorf("failed to create directory for %s: %w", entry.Path, err)
+					}
+					if err := os.WriteFile(entry.Path, []byte(entry.Content), 0o644); err != nil {
+						return nil, fmt.Errorf("failed to write %s: %w", entry.Path, err)
+					}
+					item.Outcome = OutcomeCreated
+				} else {
+					// No content and file doesn't exist — nothing to create.
+					item.Outcome = OutcomeSkipped
 				}
-				if err := os.WriteFile(entry.Path, []byte(entry.Content), 0o644); err != nil {
-					return nil, fmt.Errorf("failed to write %s: %w", entry.Path, err)
-				}
-				item.Outcome = OutcomeCreated
 			} else {
-				// No content and file doesn't exist — nothing to create.
-				// This happens when e.g. config content is empty string.
-				item.Outcome = OutcomeSkipped
+				return nil, fmt.Errorf("failed to stat %s: %w", entry.Path, err)
 			}
 		}
 
