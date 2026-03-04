@@ -92,3 +92,10 @@ All code roles now use `claude-opus-4.6`. Docs/Scribe/diversity use `gemini-3-pr
 - **Files changed:** `cmd/waza/cmd_suggest.go` (new), `cmd/waza/cmd_suggest_test.go` (new), `internal/suggest/prompt.go` (new), `internal/suggest/suggest.go` (new), `internal/suggest/suggest_test.go` (new), `cmd/waza/root.go`, `README.md`, `site/src/content/docs/reference/cli.mdx`
 - **What:** Added `waza suggest <skill-path>` for LLM-driven eval generation. Command supports `--model`, `--dry-run` (default), `--apply`, `--output-dir`, and `--format yaml|json`. New `internal/suggest` package builds prompt context from SKILL.md + grader types + eval schema summary + example eval, parses structured YAML responses, validates generated `eval_yaml`, and writes `eval.yaml`/task/fixture files when applying.
 - **Key learning:** A robust parser needs to handle both structured wrapper YAML (`eval_yaml` + files) and fenced YAML blocks from models. Validating generated `eval_yaml` against `models.BenchmarkSpec.Validate()` catches malformed model output early before writing files.
+
+### #48 — FileWriter Service & Init Inventory Refactor (PR pending)
+- **Date:** 2026-02-26
+- **Branch:** `squad/48-filewriter-init-inventory`
+- **Files changed:** `internal/scaffold/writer.go` (new), `internal/scaffold/writer_test.go` (new), `cmd/waza/cmd_init.go` (modified)
+- **What:** Created `FileWriter` service in `internal/scaffold/` that encapsulates the create-if-missing + skip-if-exists pattern used by `waza init`. Returns structured `Inventory` with per-entry outcomes. Refactored `cmd_init.go` Phase 5 to use `FileWriter` instead of its inline write loop. Inventory is always visible with ➕/✅ indicators. 8 unit tests covering all paths.
+- **Key learning:** The `internal/scaffold/` package already existed with template functions for eval/skill generation — `FileWriter` fits naturally alongside those. The `FileEntry` type mirrors the old `initItem` struct but is exported for reuse by `cmd_new.go` in a future PR. Empty-content file entries (e.g., when `needConfigPrompt` is false) are treated as skipped — the writer doesn't create zero-byte files.
