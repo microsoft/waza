@@ -10,11 +10,13 @@ import ThemeSelect from 'virtual:starlight/components/ThemeSelect';
 const shouldRenderSearch =
 	config.pagefind || config.components.Search !== '@astrojs/starlight/components/Search.astro';
 
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+
 const navLinks = [
-	{ label: 'Getting Started', href: `${import.meta.env.BASE_URL}/getting-started/` },
-	{ label: 'Guides', href: `${import.meta.env.BASE_URL}/guides/eval-yaml/` },
-	{ label: 'Reference', href: `${import.meta.env.BASE_URL}/reference/cli/` },
-	{ label: 'About', href: `${import.meta.env.BASE_URL}/about/` },
+	{ label: 'Getting Started', href: `${base}/getting-started/` },
+	{ label: 'Guides', href: `${base}/guides/eval-yaml/` },
+	{ label: 'Reference', href: `${base}/reference/cli/` },
+	{ label: 'About', href: `${base}/about/` },
 ];
 
 const currentPath = Astro.url.pathname;
