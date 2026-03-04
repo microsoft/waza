@@ -154,6 +154,11 @@ func (r *TestRunner) notifyProgress(event ProgressEvent) {
 // RunBenchmark executes the entire benchmark
 // If Baseline is enabled, runs twice: skills-enabled and skills-disabled
 func (r *TestRunner) RunBenchmark(ctx context.Context) (*models.EvaluationOutcome, error) {
+
+	if err := r.engine.Initialize(ctx); err != nil {
+		return nil, err
+	}
+
 	spec := r.cfg.Spec()
 
 	if spec.Baseline {
