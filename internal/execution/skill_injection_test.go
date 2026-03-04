@@ -229,6 +229,7 @@ func TestCopilotEngine_Execute_NoSystemMessageWithoutSkills(t *testing.T) {
 
 	err := engine.Initialize(context.Background())
 	require.NoError(t, err)
+
 	defer func() {
 		require.NoError(t, engine.Shutdown(context.Background()))
 	}()
@@ -271,11 +272,14 @@ func TestCopilotEngine_ResumeSession_InjectsSkillSystemMessage(t *testing.T) {
 		NewCopilotClient: func(clientOptions *copilot.ClientOptions) copilotClient { return clientMock },
 	}).Build()
 
+	err := engine.Initialize(context.Background())
+	require.NoError(t, err)
+
 	defer func() {
 		require.NoError(t, engine.Shutdown(context.Background()))
 	}()
 
-	_, err := engine.Execute(context.Background(), &ExecutionRequest{
+	_, err = engine.Execute(context.Background(), &ExecutionRequest{
 		Message:    "continue",
 		SessionID:  "existing-session",
 		Timeout:    time.Minute,
