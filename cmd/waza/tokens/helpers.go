@@ -145,6 +145,7 @@ func resolveLimitsConfig(skillDir string) (cfg checks.TokenLimitsConfig, usedLeg
 	// Neither source has limits — Check() will apply built-in defaults.
 	return checks.TokenLimitsConfig{}, false
 }
+
 // computeWorkspaceRelPrefix returns the forward-slash-separated path from
 // workspaceRoot to skillDir, or "" when they are the same or the relation
 // cannot be computed.
