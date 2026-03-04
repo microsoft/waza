@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -13,14 +14,22 @@ import (
 )
 
 type suggestTestEngine struct {
-	outputs []string // sequential outputs for each Execute call
-	err     error
-	callIdx int
+	outputs    []string // sequential outputs for each Execute call
+	err        error
+	callIdx    int
+	initCalled bool
 }
 
-func (e *suggestTestEngine) Initialize(context.Context) error { return nil }
+func (e *suggestTestEngine) Initialize(context.Context) error {
+	e.initCalled = true
+	return nil
+}
 
 func (e *suggestTestEngine) Execute(_ context.Context, _ *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
+	if !e.initCalled {
+		return nil, fmt.Errorf("initialize was not called before Execute!")
+	}
+
 	if e.err != nil {
 		return nil, e.err
 	}
@@ -182,6 +191,10 @@ func TestSuggestCommand_InvalidResponseFromMockEngine(t *testing.T) {
 }
 
 func TestSuggestCommand_MissingSkill(t *testing.T) {
+	orig := newSuggestEngine
+	newSuggestEngine = func(model string) execution.AgentEngine { return execution.NewMockEngine(model) }
+	t.Cleanup(func() { newSuggestEngine = orig })
+
 	cmd := newSuggestCommand()
 	cmd.SetArgs([]string{"/tmp/does-not-exist"})
 	err := cmd.Execute()

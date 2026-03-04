@@ -74,7 +74,10 @@ func TestMockEngine_Shutdown_AfterExecute(t *testing.T) {
 	engine := NewMockEngine("test-model")
 	ctx := context.Background()
 
-	_, err := engine.Execute(ctx, &ExecutionRequest{
+	err := engine.Initialize(context.Background())
+	require.NoError(t, err)
+
+	_, err = engine.Execute(ctx, &ExecutionRequest{
 		Message: "hello",
 	})
 	require.NoError(t, err)
@@ -136,6 +139,9 @@ func TestSpyEngine_PropagatesShutdownError(t *testing.T) {
 func TestSpyEngine_DelegatesExecute(t *testing.T) {
 	inner := NewMockEngine("test-model")
 	spy := NewSpyEngine(inner)
+
+	err := spy.Initialize(context.Background())
+	require.NoError(t, err)
 
 	resp, err := spy.Execute(context.Background(), &ExecutionRequest{
 		Message: "hello",

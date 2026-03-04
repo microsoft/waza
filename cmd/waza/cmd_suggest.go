@@ -78,6 +78,11 @@ func runSuggestCommand(cmd *cobra.Command, skillPath string, flags *suggestFlags
 	}
 
 	engine := newSuggestEngine(flags.model)
+
+	if err := engine.Initialize(cmd.Context()); err != nil {
+		return err
+	}
+
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	defer func() {
