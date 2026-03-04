@@ -252,7 +252,9 @@ func scaffoldInProject(cmd *cobra.Command, projectRoot, skillName, skillMD strin
 
 	// If malformed SKILL.md needs replacement, remove it so FileWriter creates fresh
 	if overwriteSkill {
-		_ = os.Remove(filepath.Join(skillDir, "SKILL.md"))
+		if err := os.Remove(filepath.Join(skillDir, "SKILL.md")); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("failed to remove malformed SKILL.md: %w", err)
+		}
 	}
 
 	entries := []scaffold.FileEntry{
@@ -294,7 +296,9 @@ func scaffoldStandalone(cmd *cobra.Command, skillName, skillMD string, existing,
 
 	// If malformed SKILL.md needs replacement, remove it so FileWriter creates fresh
 	if overwriteSkill {
-		_ = os.Remove(filepath.Join(rootDir, "SKILL.md"))
+		if err := os.Remove(filepath.Join(rootDir, "SKILL.md")); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("failed to remove malformed SKILL.md: %w", err)
+		}
 	}
 
 	entries := []scaffold.FileEntry{
