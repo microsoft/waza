@@ -1,0 +1,45 @@
+name: Docker Build and Verify
+
+on:
+  push:
+    branches: [main]
+    paths: &docker-paths
+      - 'Dockerfile'
+      - '.dockerignore'
+      - 'go.mod'
+      - 'go.sum'
+      - 'cmd/**'
+      - 'internal/**'
+      - 'web/**'
+      - 'schemas/**'
+      - 'docs.go'
+      - 'docs/graders/**'
+      - '.github/workflows/docker-ci.yml'
+  pull_request:
+    branches: [main]
+    paths: *docker-paths
+
+jobs:
+  docker-build:
+    name: Build and Verify Docker Image
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          load: true
+          tags: waza:ci-${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=min
+
+      - name: Verify
+        run: docker run --rm waza:ci-${{ github.sha }} --version
