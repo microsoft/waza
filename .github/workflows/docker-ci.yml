@@ -3,7 +3,7 @@ name: Docker Build and Verify
 on:
   push:
     branches: [main]
-    paths:
+    paths: &docker-paths
       - 'Dockerfile'
       - '.dockerignore'
       - 'go.mod'
@@ -14,23 +14,10 @@ on:
       - 'schemas/**'
       - 'docs.go'
       - 'docs/graders/**'
-      - 'version.txt'
       - '.github/workflows/docker-ci.yml'
   pull_request:
     branches: [main]
-    paths:
-      - 'Dockerfile'
-      - '.dockerignore'
-      - 'go.mod'
-      - 'go.sum'
-      - 'cmd/**'
-      - 'internal/**'
-      - 'web/**'
-      - 'schemas/**'
-      - 'docs.go'
-      - 'docs/graders/**'
-      - 'version.txt'
-      - '.github/workflows/docker-ci.yml'
+    paths: *docker-paths
 
 jobs:
   docker-build:
