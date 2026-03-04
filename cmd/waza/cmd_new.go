@@ -337,7 +337,39 @@ func writeFiles(cmd *cobra.Command, files []fileEntry, skillName string, existin
 	fmt.Fprintf(cmd.OutOrStdout(), "\nSkill structure:\n\n") //nolint:errcheck
 
 	baseDir, _ := os.Getwd() //nolint:errcheck // best-effort for display paths
+
+	// Separate files into overwrite and normal entries
+	var normalEntries []scaffold.FileEntry
+	var overwriteFiles []fileEntry
+
+	for _, f := range files {
+		if f.overwrite {
+			overwriteFiles = append(overwriteFiles, f)
+		} else {
+			normalEntries = append(normalEntries, scaffold.FileEntry{
+				Path:    f.path,
+				Content: f.content,
+				Label:   f.label,
+			})
+		}
+	}
+
+	// Use FileWriter for normal files
+	writer := scaffold.NewFileWriter(normalEntries)
+	fileInventory, err := writer.Write()
+	if err != nil {
+		return err
+	}
+
+	// Build outcome map
+	fileOutcomes := make(map[string]scaffold.FileOutcome)
+	for _, inv := range fileInventory {
+		fileOutcomes[inv.Path] = inv.Outcome
+	}
+
 	created := 0
+
+	// Display outcomes for all files
 	for _, f := range files {
 		relPath := f.path
 		if baseDir != "" {
@@ -348,25 +380,26 @@ func writeFiles(cmd *cobra.Command, files []fileEntry, skillName string, existin
 			}
 		}
 
-		if _, err := os.Stat(f.path); err == nil {
-			if f.overwrite {
-				// Overwrite existing file (e.g., malformed SKILL.md being repaired)
+		if f.overwrite {
+			// Handle overwrite files (malformed SKILL.md repair)
+			if _, statErr := os.Stat(f.path); statErr == nil {
 				if err := os.WriteFile(f.path, []byte(f.content), 0o644); err != nil {
 					return fmt.Errorf("failed to write %s: %w", f.path, err)
 				}
 				fmt.Fprintf(cmd.OutOrStdout(), "  %s %-40s %s (updated)\n", yellowPlus, relPath, f.label) //nolint:errcheck
 				created++
-				continue
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "  %s %-40s %s\n", greenCheck, relPath, f.label) //nolint:errcheck
-			continue
+		} else {
+			// Use outcome from FileWriter
+			if outcome, ok := fileOutcomes[f.path]; ok {
+				if outcome == scaffold.FileCreated {
+					fmt.Fprintf(cmd.OutOrStdout(), "  %s %-40s %s\n", yellowPlus, relPath, f.label) //nolint:errcheck
+					created++
+				} else {
+					fmt.Fprintf(cmd.OutOrStdout(), "  %s %-40s %s\n", greenCheck, relPath, f.label) //nolint:errcheck
+				}
+			}
 		}
-
-		if err := os.WriteFile(f.path, []byte(f.content), 0o644); err != nil {
-			return fmt.Errorf("failed to write %s: %w", f.path, err)
-		}
-		fmt.Fprintf(cmd.OutOrStdout(), "  %s %-40s %s\n", yellowPlus, relPath, f.label) //nolint:errcheck
-		created++
 	}
 
 	// Show summary lines for user-owned tasks/fixtures directories

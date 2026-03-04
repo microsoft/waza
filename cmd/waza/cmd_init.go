@@ -512,33 +512,47 @@ func initCommandE(cmd *cobra.Command, args []string, noSkill bool, flagSkillsDir
 
 	fmt.Fprintf(out, "\nProject structure:\n\n") //nolint:errcheck
 
+	// Handle directories first
+	for _, item := range items {
+		if item.isDir {
+			if err := os.MkdirAll(item.path, 0o755); err != nil {
+				return fmt.Errorf("failed to create %s: %w", item.path, err)
+			}
+		}
+	}
+
+	// Prepare file entries for FileWriter
+	var fileEntries []scaffold.FileEntry
+	for _, item := range items {
+		if !item.isDir && item.content != "" {
+			fileEntries = append(fileEntries, scaffold.FileEntry{
+				Path:    item.path,
+				Content: item.content,
+				Label:   item.label,
+			})
+		}
+	}
+
+	// Write files using FileWriter
+	writer := scaffold.NewFileWriter(fileEntries)
+	fileInventory, err := writer.Write()
+	if err != nil {
+		return err
+	}
+
+	// Build outcome map for files
+	fileOutcomes := make(map[string]scaffold.FileOutcome)
+	for _, inv := range fileInventory {
+		fileOutcomes[inv.Path] = inv.Outcome
+	}
+
+	// Display inventory
 	var buf2 bytes.Buffer
 	tw2 := tabwriter.NewWriter(&buf2, 0, 0, 2, ' ', 0)
 	created := 0
+
 	for _, item := range items {
 		var indicator string
-		var existed bool
-
-		if item.isDir {
-			if info, err := os.Stat(item.path); err == nil && info.IsDir() {
-				existed = true
-			} else {
-				if err := os.MkdirAll(item.path, 0o755); err != nil {
-					return fmt.Errorf("failed to create %s: %w", item.path, err)
-				}
-			}
-		} else {
-			if _, err := os.Stat(item.path); err == nil {
-				existed = true
-			} else if item.content != "" {
-				if err := os.MkdirAll(filepath.Dir(item.path), 0o755); err != nil {
-					return fmt.Errorf("failed to create directory for %s: %w", item.path, err)
-				}
-				if err := os.WriteFile(item.path, []byte(item.content), 0o644); err != nil {
-					return fmt.Errorf("failed to write %s: %w", item.path, err)
-				}
-			}
-		}
 
 		// Relative path for display
 		relPath := item.path
@@ -549,11 +563,19 @@ func initCommandE(cmd *cobra.Command, args []string, noSkill bool, flagSkillsDir
 			relPath += string(filepath.Separator)
 		}
 
-		if existed {
+		if item.isDir {
+			// Directories always show as existing (we created them if needed above)
 			indicator = "{exist}"
-		} else {
-			indicator = "{new}"
-			created++
+		} else if item.content != "" {
+			// File - check outcome from FileWriter
+			if outcome, ok := fileOutcomes[item.path]; ok {
+				if outcome == scaffold.FileCreated {
+					indicator = "{new}"
+					created++
+				} else {
+					indicator = "{exist}"
+				}
+			}
 		}
 
 		fmt.Fprintf(tw2, "  %s\t%s\t%s\n", indicator, relPath, item.label) //nolint:errcheck
@@ -568,7 +590,7 @@ func initCommandE(cmd *cobra.Command, args []string, noSkill bool, flagSkillsDir
 	fmt.Fprintln(out) //nolint:errcheck
 	if created == 0 {
 		fmt.Fprintf(out, "✅ Project up to date.\n") //nolint:errcheck
-	} else if created == len(items) {
+	} else if created == len(fileEntries) {
 		fmt.Fprintf(out, "✅ Project created — %d items set up.\n", created) //nolint:errcheck
 	} else {
 		fmt.Fprintf(out, "✅ Repaired — %d item(s) added.\n", created) //nolint:errcheck
