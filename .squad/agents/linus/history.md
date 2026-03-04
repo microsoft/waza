@@ -92,3 +92,10 @@ All code roles now use `claude-opus-4.6`. Docs/Scribe/diversity use `gemini-3-pr
 - **Files changed:** `cmd/waza/cmd_suggest.go` (new), `cmd/waza/cmd_suggest_test.go` (new), `internal/suggest/prompt.go` (new), `internal/suggest/suggest.go` (new), `internal/suggest/suggest_test.go` (new), `cmd/waza/root.go`, `README.md`, `site/src/content/docs/reference/cli.mdx`
 - **What:** Added `waza suggest <skill-path>` for LLM-driven eval generation. Command supports `--model`, `--dry-run` (default), `--apply`, `--output-dir`, and `--format yaml|json`. New `internal/suggest` package builds prompt context from SKILL.md + grader types + eval schema summary + example eval, parses structured YAML responses, validates generated `eval_yaml`, and writes `eval.yaml`/task/fixture files when applying.
 - **Key learning:** A robust parser needs to handle both structured wrapper YAML (`eval_yaml` + files) and fenced YAML blocks from models. Validating generated `eval_yaml` against `models.BenchmarkSpec.Validate()` catches malformed model output early before writing files.
+
+### #59 — Token Limits Priority Inversion (PR pending)
+- **Date:** 2026-02-26
+- **Branch:** `squad/59-token-limits-priority`
+- **Files changed:** `cmd/waza/tokens/helpers.go`, `cmd/waza/tokens/helpers_test.go`, `cmd/waza/tokens/check.go`, `cmd/waza/tokens/check_test.go`, `cmd/waza/tokens/suggest.go`, test fixtures
+- **What:** Inverted `resolveLimitsConfig()` priority so `.waza.yaml tokens.limits` is checked first, `.token-limits.json` is legacy fallback with deprecation warning, built-in defaults last. Updated both call sites (`computeCheckResults` in check.go and `collectFileAnalyses` in suggest.go). 4 unit tests + 2 integration tests covering all scenarios.
+- **Key learning:** `resolveLimitsConfig` returning a `usedLegacy` bool is cleaner than printing to stderr inside the helper — lets callers decide where the warning goes. The `projectconfig.Load()` walk-up behavior means test fixtures in temp dirs won't find a repo-level `.waza.yaml` as long as there isn't one at the root (there isn't).
