@@ -316,6 +316,14 @@ func TestCrossModelDensityChecker(t *testing.T) {
 			wordCount:     61,
 			hasActionVerb: false,
 		},
+		{
+			name:          "action verb with punctuation",
+			description:   "WHEN: processing files quickly",
+			passed:        true,
+			status:        StatusOptimal,
+			wordCount:     3,
+			hasActionVerb: true,
+		},
 	}
 
 	checker := &CrossModelDensityChecker{}
@@ -476,6 +484,16 @@ name: test
 			passed: true,
 			status: StatusOK,
 		},
+		{
+			name: "large code block with inline backticks",
+			rawContent: `---
+name: test
+---
+` + "```go\nfmt.Println(\"``` not a fence\")\n" + strings.Repeat("echo line\n", 51) + "```",
+			passed:          false,
+			status:          StatusWarning,
+			expectBlockWarn: true,
+		},
 	}
 
 	checker := &ProgressiveDisclosureChecker{}
@@ -490,4 +508,24 @@ name: test
 			require.Equal(t, tt.status, data.Status)
 		})
 	}
+}
+
+func TestBodyStructureChecker_UsesBodyNotFrontmatter(t *testing.T) {
+	checker := &BodyStructureChecker{}
+	sk := skill.Skill{
+		Body: `## Example
+` + "```bash\necho hello\n```" + `
+## Troubleshooting
+Error handling guidance.`,
+		RawContent: `---
+name: test
+description: "for example: this appears only in frontmatter"
+---
+placeholder`,
+	}
+
+	result, err := checker.Check(sk)
+	require.NoError(t, err)
+	require.True(t, result.Passed)
+	require.Equal(t, "Advisory 17: body structure quality", result.Summary)
 }

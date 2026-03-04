@@ -353,19 +353,39 @@ func (*SpecSecurityChecker) Check(sk skill.Skill) (*CheckResult, error) {
 
 	// Recursively check frontmatter fields
 	var checkMap func(prefix string, m map[string]any)
+	var checkSlice func(prefix string, s []any)
+
 	checkMap = func(prefix string, m map[string]any) {
 		for k, v := range m {
 			fullKey := k
 			if prefix != "" {
 				fullKey = prefix + "." + k
 			}
-			if mm, ok := v.(map[string]any); ok {
-				checkMap(fullKey, mm)
-			} else {
+			switch vv := v.(type) {
+			case map[string]any:
+				checkMap(fullKey, vv)
+			case []any:
+				checkSlice(fullKey, vv)
+			default:
 				checkStringValue(fullKey, v)
 			}
 		}
 	}
+
+	checkSlice = func(prefix string, s []any) {
+		for i, elem := range s {
+			elemKey := fmt.Sprintf("%s[%d]", prefix, i)
+			switch vv := elem.(type) {
+			case map[string]any:
+				checkMap(elemKey, vv)
+			case []any:
+				checkSlice(elemKey, vv)
+			default:
+				checkStringValue(elemKey, elem)
+			}
+		}
+	}
+
 	checkMap("", sk.FrontmatterRaw)
 
 	// Check for reserved name prefixes

@@ -146,7 +146,8 @@ func (h HeuristicScorer) Score(sk *skill.Skill) *ScoreResult {
 	}
 
 	result.HasTriggers = containsAny(trimmedDesc, triggerPatterns)
-	result.TriggerCount = countPhrasesAfterPattern(trimmedDesc, "USE FOR:")
+	result.TriggerCount = countPhrasesAfterPattern(trimmedDesc, "USE FOR:") +
+		countPhrasesAfterPattern(trimmedDesc, "WHEN:")
 
 	result.HasAntiTriggers = containsAny(trimmedDesc, antiTriggerPatterns)
 	result.AntiTriggerCount = countPhrasesAfterPattern(trimmedDesc, "DO NOT USE FOR:")

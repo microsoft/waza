@@ -398,6 +398,17 @@ func TestSpecSecurityChecker(t *testing.T) {
 			status: StatusWarning,
 		},
 		{
+			name: "angle brackets in nested slice",
+			sk: makeSkill("my-skill", "A description", map[string]any{
+				"allowed-tools": []any{
+					"safe-tool",
+					map[string]any{"name": "<danger>"},
+				},
+			}, ""),
+			passed: false,
+			status: StatusWarning,
+		},
+		{
 			name:   "no frontmatter",
 			sk:     skill.Skill{Frontmatter: skill.Frontmatter{Name: "test", Description: "test"}},
 			passed: true,

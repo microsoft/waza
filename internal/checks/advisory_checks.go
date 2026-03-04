@@ -400,6 +400,7 @@ func (*CrossModelDensityChecker) Check(sk skill.Skill) (*CheckResult, error) {
 	firstSentenceWords := strings.Fields(firstSentence)
 	if len(firstSentenceWords) > 0 {
 		firstWord = strings.ToLower(strings.TrimSpace(firstSentenceWords[0]))
+		firstWord = strings.TrimRight(firstWord, ":;,.!?")
 	}
 	hasActionVerb := false
 	for _, verb := range commonActionVerbs {
@@ -469,7 +470,7 @@ var errorHandlingPatterns = []string{
 }
 
 func (*BodyStructureChecker) Check(sk skill.Skill) (*CheckResult, error) {
-	content := strings.ToLower(sk.RawContent)
+	content := strings.ToLower(skillBodyContent(sk))
 
 	hasCodeBlocks := strings.Contains(content, "```")
 	hasNumberedSteps := regexp.MustCompile(`(?m)^\s*\d+\.\s+`).MatchString(content)
@@ -511,10 +512,15 @@ func (*BodyStructureChecker) Check(sk skill.Skill) (*CheckResult, error) {
 		passed = false
 	}
 
+	summary := "Advisory 17: body structure quality"
+	if len(findings) > 0 {
+		summary = fmt.Sprintf("%s — %s", summary, strings.Join(findings, "; "))
+	}
+
 	return &CheckResult{
 		Name:    "body-structure",
 		Passed:  passed,
-		Summary: fmt.Sprintf("Advisory 17: body structure quality — %s", strings.Join(findings, "; ")),
+		Summary: summary,
 		Data:    &BodyStructureData{Status: status, HasExamples: hasExamples, HasCodeBlocks: hasCodeBlocks, HasErrorHandling: hasErrorHandling, Findings: findings},
 	}, nil
 }
@@ -538,17 +544,34 @@ type ProgressiveDisclosureData struct {
 func (d *ProgressiveDisclosureData) GetStatus() CheckStatus { return d.Status }
 
 func (*ProgressiveDisclosureChecker) Check(sk skill.Skill) (*CheckResult, error) {
-	lines := strings.Split(sk.RawContent, "\n")
+	content := skillBodyContent(sk)
+	lines := strings.Split(content, "\n")
 	bodyLines := len(lines)
 
-	// Count large code blocks (>50 lines)
-	codeBlockPattern := regexp.MustCompile("(?s)```[^`]*```")
-	blocks := codeBlockPattern.FindAllString(sk.RawContent, -1)
 	largeBlocks := 0
-	for _, block := range blocks {
-		if len(strings.Split(block, "\n")) > 50 {
-			largeBlocks++
+	inFence := false
+	blockLines := 0
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "```") {
+			if inFence {
+				if blockLines > 50 {
+					largeBlocks++
+				}
+				inFence = false
+				blockLines = 0
+			} else {
+				inFence = true
+				blockLines = 0
+			}
+			continue
 		}
+		if inFence {
+			blockLines++
+		}
+	}
+	if inFence && blockLines > 50 {
+		largeBlocks++
 	}
 
 	var recommendations []string
@@ -582,4 +605,25 @@ func (*ProgressiveDisclosureChecker) Check(sk skill.Skill) (*CheckResult, error)
 		Summary: "Content structure supports progressive disclosure",
 		Data:    &ProgressiveDisclosureData{Status: StatusOK, BodyLines: bodyLines, LargeCodeBlocks: largeBlocks},
 	}, nil
+}
+
+func skillBodyContent(sk skill.Skill) string {
+	if sk.Body != "" {
+		return sk.Body
+	}
+	if !strings.HasPrefix(sk.RawContent, "---") {
+		return sk.RawContent
+	}
+
+	rest := sk.RawContent[3:]
+	if strings.HasPrefix(rest, "\r\n") {
+		rest = rest[2:]
+	} else if strings.HasPrefix(rest, "\n") {
+		rest = rest[1:]
+	}
+	idx := strings.Index(rest, "\n---")
+	if idx < 0 {
+		return sk.RawContent
+	}
+	return rest[idx+4:]
 }

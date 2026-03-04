@@ -514,6 +514,16 @@ func TestWhenTriggerPattern(t *testing.T) {
 	}
 }
 
+func TestTriggerCountIncludesWhenPattern(t *testing.T) {
+	desc := `WHEN: process files, validate config.
+USE FOR: run checks, format output.
+DO NOT USE FOR: deployments.`
+	sk := mkSkill("when-skill", desc)
+
+	result := (&HeuristicScorer{}).Score(sk)
+	require.Equal(t, 5, result.TriggerCount)
+}
+
 // Test #74: Invalid adherence level for >1024 char descriptions
 func TestInvalidAdherenceLevel(t *testing.T) {
 	// Test that Invalid level exists and ranks below Low
