@@ -118,7 +118,7 @@ func TestCopilotEngine_Execute_SendError(t *testing.T) {
 	}).Build()
 
 	err := engine.Initialize(context.Background())
-	require.NoError(t, err)	
+	require.NoError(t, err)
 
 	resp, err := engine.Execute(context.Background(), &ExecutionRequest{Message: "hello", Timeout: time.Second})
 	require.NoError(t, err)

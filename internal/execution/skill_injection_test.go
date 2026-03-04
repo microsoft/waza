@@ -230,7 +230,6 @@ func TestCopilotEngine_Execute_NoSystemMessageWithoutSkills(t *testing.T) {
 	err := engine.Initialize(context.Background())
 	require.NoError(t, err)
 
-
 	defer func() {
 		require.NoError(t, engine.Shutdown(context.Background()))
 	}()
