@@ -217,7 +217,7 @@ func TestCopilotExecute_StartRespectsTimeout(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	clientMock := NewMockcopilotClient(ctrl)
 
-	// Start blocks until its context is cancelled, simulating a non-responsive copilot CLI.
+	// Start blocks until its context is canceled, simulating a non-responsive copilot CLI.
 	clientMock.EXPECT().Start(gomock.Any()).DoAndReturn(func(ctx context.Context) error {
 		<-ctx.Done()
 		return ctx.Err()
