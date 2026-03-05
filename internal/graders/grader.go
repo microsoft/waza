@@ -133,6 +133,14 @@ func Create(graderType models.GraderKind, identifier string, params map[string]a
 		}
 
 		return NewSkillInvocationGrader(identifier, v)
+	case models.GraderKindTrigger:
+		var v TriggerHeuristicGraderParams
+
+		if err := mapstructure.Decode(params, &v); err != nil {
+			return nil, err
+		}
+
+		return NewTriggerHeuristicGrader(identifier, v)
 	case models.GraderKindToolConstraint:
 		var v ToolConstraintGraderConfig
 

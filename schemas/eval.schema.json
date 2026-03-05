@@ -303,6 +303,7 @@
             "behavior",
             "action_sequence",
             "skill_invocation",
+            "trigger",
             "diff",
             "tool_constraint"
           ],
@@ -474,6 +475,28 @@
                 "$ref": "#/$defs/toolConstraintGraderConfig"
               }
             }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "trigger"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "config": {
+                "$ref": "#/$defs/triggerGraderConfig"
+              }
+            },
+            "required": [
+              "config"
+            ]
           }
         },
         {
@@ -883,6 +906,37 @@
           "type": "boolean",
           "default": true,
           "description": "When true, extra skill invocations beyond the required list are allowed."
+        }
+      }
+    },
+    "triggerGraderConfig": {
+      "type": "object",
+      "required": [
+        "skill_path",
+        "mode"
+      ],
+      "additionalProperties": false,
+      "description": "Config for the trigger heuristic grader. Scores whether a prompt should activate a skill.",
+      "properties": {
+        "skill_path": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Path to the skill SKILL.md used for keyword extraction."
+        },
+        "mode": {
+          "type": "string",
+          "enum": [
+            "positive",
+            "negative"
+          ],
+          "description": "positive expects trigger relevance >= threshold; negative expects relevance < threshold."
+        },
+        "threshold": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "default": 0.6,
+          "description": "Relevance threshold between 0 and 1."
         }
       }
     },
