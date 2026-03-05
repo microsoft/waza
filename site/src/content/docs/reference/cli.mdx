@@ -177,6 +177,40 @@ code, analysis
 EOF
 ```
 
+## waza eval
+
+Evaluation scaffolding commands.
+
+### waza eval new
+
+Generate an eval scaffold from an existing `SKILL.md`.
+
+```bash
+waza eval new [skill-name]
+```
+
+Creates:
+- `evals/[skill-name]/eval.yaml`
+- `evals/[skill-name]/tasks/positive-trigger-1.yaml`
+- `evals/[skill-name]/tasks/positive-trigger-2.yaml`
+- `evals/[skill-name]/tasks/negative-trigger-1.yaml`
+
+### Flags
+
+| Flag | Description |
+|------|-------------|
+| `--output` | Custom path for generated `eval.yaml` |
+
+### Examples
+
+```bash
+# Generate eval scaffold using skills/my-skill/SKILL.md
+waza eval new my-skill
+
+# Write eval.yaml to a custom location
+waza eval new my-skill --output evals/custom/my-skill-eval.yaml
+```
+
 ## waza check
 
 Validate skill compliance and readiness.
