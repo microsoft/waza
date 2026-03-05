@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -121,6 +122,41 @@ func TestRenderCoverageMarkdown(t *testing.T) {
 	assert.Contains(t, out, "| Skill | Tasks | Graders | Coverage |")
 	assert.Contains(t, out, "| alpha | 1 | prompt | ⚠️ Partial |")
 	assert.Contains(t, out, "| beta | 2 | file, prompt | ✅ Full |")
+}
+
+func TestRenderCoverageJSON(t *testing.T) {
+	report := &coverageReport{
+		TotalSkills: 1,
+		Covered:     1,
+		Partial:     0,
+		Uncovered:   0,
+		CoveragePct: 100,
+		Skills: []coverageSkillRow{
+			{Skill: "alpha", Tasks: 2, Graders: []string{"file", "prompt"}, Coverage: "✅ Full"},
+		},
+	}
+
+	var buf bytes.Buffer
+	require.NoError(t, renderCoverageJSON(&buf, report))
+
+	var decoded map[string]any
+	require.NoError(t, json.Unmarshal(buf.Bytes(), &decoded))
+	assert.Equal(t, float64(1), decoded["total_skills"])
+	assert.Contains(t, buf.String(), "\n  \"total_skills\"")
+}
+
+func TestCoverageCommand_UnsupportedFormat(t *testing.T) {
+	root := t.TempDir()
+	writeSkill(t, root, filepath.Join("skills", "alpha"), "alpha")
+
+	cmd := newCoverageCommand()
+	cmd.SetOut(new(bytes.Buffer))
+	cmd.SetErr(new(bytes.Buffer))
+	cmd.SetArgs([]string{root, "--format", "xml"})
+
+	err := cmd.Execute()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `unsupported format "xml"`)
 }
 
 func TestRootCommand_HasCoverageSubcommand(t *testing.T) {

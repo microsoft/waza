@@ -204,7 +204,7 @@ func discoverSkillFiles(root string, discoverPaths []string) (map[string]string,
 		}
 		err := filepath.WalkDir(sr, func(path string, d fs.DirEntry, err error) error {
 			if err != nil {
-				return nil
+				return fmt.Errorf("error walking %s: %w", path, err)
 			}
 			if d.IsDir() {
 				name := d.Name()
@@ -216,7 +216,10 @@ func discoverSkillFiles(root string, discoverPaths []string) (map[string]string,
 			if d.Name() != "SKILL.md" {
 				return nil
 			}
-			absPath, _ := filepath.Abs(path)
+			absPath, absErr := filepath.Abs(path)
+			if absErr != nil {
+				absPath = filepath.Clean(path)
+			}
 			if _, ok := seenPaths[absPath]; ok {
 				return nil
 			}
@@ -252,7 +255,7 @@ func discoverEvalFiles(root string, skillPaths map[string]string, discoverPaths 
 		}
 		if err := filepath.WalkDir(evalRoot, func(path string, d fs.DirEntry, err error) error {
 			if err != nil {
-				return nil
+				return fmt.Errorf("error walking %s: %w", path, err)
 			}
 			if d.IsDir() {
 				name := d.Name()
@@ -262,7 +265,10 @@ func discoverEvalFiles(root string, skillPaths map[string]string, discoverPaths 
 				return nil
 			}
 			if d.Name() == "eval.yaml" || d.Name() == "eval.yml" {
-				absPath, _ := filepath.Abs(path)
+				absPath, absErr := filepath.Abs(path)
+				if absErr != nil {
+					absPath = filepath.Clean(path)
+				}
 				candidates[absPath] = struct{}{}
 			}
 			return nil
@@ -280,7 +286,10 @@ func discoverEvalFiles(root string, skillPaths map[string]string, discoverPaths 
 		} {
 			p := filepath.Join(skillDir, rel)
 			if isFile(p) {
-				absPath, _ := filepath.Abs(p)
+				absPath, absErr := filepath.Abs(p)
+				if absErr != nil {
+					absPath = filepath.Clean(p)
+				}
 				candidates[absPath] = struct{}{}
 			}
 		}
