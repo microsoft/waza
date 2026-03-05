@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/microsoft/waza/internal/graders"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -761,6 +762,33 @@ func TestRunCommand_ModelFlagEdgeCases(t *testing.T) {
 			assert.Equal(t, tt.expected, vals)
 		})
 	}
+}
+
+func TestParseSnapshotUpdates_DirectTypedSlice(t *testing.T) {
+	input := []graders.SnapshotUpdate{
+		{Path: "a.txt", Snapshot: "expected/a.txt", Status: "updated", LinesChanged: 2},
+	}
+
+	updates, err := parseSnapshotUpdates(input)
+	require.NoError(t, err)
+	require.Len(t, updates, 1)
+	assert.Equal(t, "updated", updates[0].Status)
+}
+
+func TestParseSnapshotUpdates_JSONCompatibleShape(t *testing.T) {
+	input := []map[string]any{
+		{
+			"path":         "b.txt",
+			"snapshot":     "expected/b.txt",
+			"status":       "created",
+			"lines_changed": 1,
+		},
+	}
+
+	updates, err := parseSnapshotUpdates(input)
+	require.NoError(t, err)
+	require.Len(t, updates, 1)
+	assert.Equal(t, "created", updates[0].Status)
 }
 
 func TestRunCommand_ModelOverridesSpec(t *testing.T) {

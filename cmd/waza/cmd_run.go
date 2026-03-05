@@ -21,6 +21,7 @@ import (
 	"github.com/microsoft/waza/internal/config"
 	"github.com/microsoft/waza/internal/discovery"
 	"github.com/microsoft/waza/internal/execution"
+	"github.com/microsoft/waza/internal/graders"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/orchestration"
 	"github.com/microsoft/waza/internal/projectconfig"
@@ -947,14 +948,7 @@ func printSnapshotUpdateSummary(outcome *models.EvaluationOutcome) {
 		return
 	}
 
-	type snapshotRow struct {
-		Path         string
-		Snapshot     string
-		Status       string
-		LinesChanged int
-	}
-
-	var rows []snapshotRow
+	var rows []graders.SnapshotUpdate
 	for _, testOutcome := range outcome.TestOutcomes {
 		for _, run := range testOutcome.Runs {
 			for _, gr := range run.Validations {
@@ -967,12 +961,11 @@ func printSnapshotUpdateSummary(outcome *models.EvaluationOutcome) {
 					continue
 				}
 
-				data, err := json.Marshal(rawUpdates)
+				parsed, err := parseSnapshotUpdates(rawUpdates)
 				if err != nil {
-					continue
-				}
-				var parsed []snapshotRow
-				if err := json.Unmarshal(data, &parsed); err != nil {
+					if verbose {
+						fmt.Fprintf(os.Stderr, "warning: failed to parse snapshot_updates for grader %q: %v\n", gr.Name, err)
+					}
 					continue
 				}
 				rows = append(rows, parsed...)
@@ -1000,6 +993,32 @@ func printSnapshotUpdateSummary(outcome *models.EvaluationOutcome) {
 		}
 	}
 	fmt.Println()
+}
+
+func parseSnapshotUpdates(raw any) ([]graders.SnapshotUpdate, error) {
+	switch updates := raw.(type) {
+	case []graders.SnapshotUpdate:
+		return updates, nil
+	case []*graders.SnapshotUpdate:
+		parsed := make([]graders.SnapshotUpdate, 0, len(updates))
+		for _, update := range updates {
+			if update == nil {
+				continue
+			}
+			parsed = append(parsed, *update)
+		}
+		return parsed, nil
+	default:
+		data, err := json.Marshal(raw)
+		if err != nil {
+			return nil, err
+		}
+		var parsed []graders.SnapshotUpdate
+		if err := json.Unmarshal(data, &parsed); err != nil {
+			return nil, err
+		}
+		return parsed, nil
+	}
 }
 
 func printSummary(outcome *models.EvaluationOutcome) {
