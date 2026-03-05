@@ -778,9 +778,9 @@ func TestParseSnapshotUpdates_DirectTypedSlice(t *testing.T) {
 func TestParseSnapshotUpdates_JSONCompatibleShape(t *testing.T) {
 	input := []map[string]any{
 		{
-			"path":         "b.txt",
-			"snapshot":     "expected/b.txt",
-			"status":       "created",
+			"path":          "b.txt",
+			"snapshot":      "expected/b.txt",
+			"status":        "created",
 			"lines_changed": 1,
 		},
 	}
