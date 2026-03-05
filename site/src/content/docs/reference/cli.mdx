@@ -322,6 +322,22 @@ waza tokens check code-explainer
 Token limits are resolved in priority order: `.waza.yaml tokens.limits` → `.token-limits.json` (legacy, emits a deprecation warning) → built-in defaults.
 See the **[Token Limits guide](../../guides/token-limits/)** for configuration details, pattern syntax, and migration instructions.
 
+### waza tokens diff
+
+Compare per-skill `SKILL.md` token deltas against a base ref.
+
+```bash
+waza tokens diff [base-ref]
+```
+
+```bash
+waza tokens diff main
+waza tokens diff main --threshold 10
+waza tokens diff main --format json
+```
+
+**Flags:** `--format table|json`, `--threshold <percent>`
+
 ### waza tokens profile
 
 Structural analysis of SKILL.md files — reports token count, section count, code block count, and workflow step detection.

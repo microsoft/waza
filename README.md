@@ -102,6 +102,9 @@ waza compare results-gpt4.json results-sonnet.json
 # Count tokens in skill files
 waza tokens count skills/
 
+# Compare token budget deltas vs main
+waza tokens diff main --threshold 10
+
 # Suggest token optimizations
 waza tokens suggest skills/
 ```
@@ -408,6 +411,15 @@ Count tokens in markdown files. Paths may be files or directories (scanned recur
 | `--sort <field>` | Sort by: `tokens`, `name`, or `path` (default: `path`) |
 | `--min-tokens <n>` | Filter files below n tokens |
 | `--no-total` | Hide total row in table output |
+
+### `waza tokens diff [base-ref]`
+
+Compare per-skill `SKILL.md` token deltas against a base git ref (default: `origin/main`, falls back to `main` when missing). Scans skill roots from `.waza.yaml` (`paths.skills`) plus `skills/` and `.github/skills/`.
+
+| Flag | Description |
+|------|-------------|
+| `--format <fmt>` | Output format: `table` or `json` (default: `table`) |
+| `--threshold <n>` | Fail when any skill increases by more than n percent (default: `10`) |
 
 ### `waza tokens profile [skill-name | path]`
 

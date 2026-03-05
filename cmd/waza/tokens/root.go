@@ -15,11 +15,13 @@ Limits are loaded from .waza.yaml (tokens.limits), falling back to
 
 Subcommands:
   check     Check files against token limits
+  diff      Compare skill token budgets vs a base ref
   compare   Compare tokens between git refs
   count     Count tokens in markdown files
   suggest   Get optimization suggestions`,
 	}
 	cmd.AddCommand(newCheckCmd())
+	cmd.AddCommand(newDiffCmd())
 	cmd.AddCommand(newCompareCmd())
 	cmd.AddCommand(newCountCmd())
 	cmd.AddCommand(newProfileCmd())
