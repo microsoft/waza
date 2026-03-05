@@ -11,6 +11,7 @@ import (
 
 	"github.com/microsoft/waza/internal/generate"
 	"github.com/microsoft/waza/internal/scaffold"
+	"github.com/microsoft/waza/internal/workspace"
 	"github.com/spf13/cobra"
 )
 
@@ -29,7 +30,7 @@ func newEvalNewCommand() *cobra.Command {
 	var output string
 
 	cmd := &cobra.Command{
-		Use:   "new [skill-name]",
+		Use:   "new <skill-name>",
 		Short: "Scaffold a new eval suite for a skill",
 		Long: `Generate an eval scaffold using a skill's SKILL.md frontmatter.
 
@@ -114,6 +115,15 @@ func evalNewCommandE(cmd *cobra.Command, skillName, outputPath string) error {
 }
 
 func resolveSkillMDPath(skillName string) (string, error) {
+	wd, err := os.Getwd()
+	if err == nil {
+		if ctx, detectErr := workspace.DetectContext(wd, configDetectOptions()...); detectErr == nil && ctx.Type != workspace.ContextNone {
+			if si, findErr := workspace.FindSkill(ctx, skillName); findErr == nil {
+				return si.SkillPath, nil
+			}
+		}
+	}
+
 	candidates := []string{
 		filepath.Join("skills", skillName, "SKILL.md"),
 		filepath.Join(skillName, "SKILL.md"),

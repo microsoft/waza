@@ -24,10 +24,7 @@ description: |
 `
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "skills", "deploy-assistant", "SKILL.md"), []byte(skillMD), 0o644))
 
-	origDir, err := os.Getwd()
-	require.NoError(t, err)
-	require.NoError(t, os.Chdir(dir))
-	t.Cleanup(func() { _ = os.Chdir(origDir) })
+	t.Chdir(dir)
 
 	var out bytes.Buffer
 	root := newRootCommand()
@@ -73,10 +70,7 @@ description: |
 ---
 `), 0o644))
 
-	origDir, err := os.Getwd()
-	require.NoError(t, err)
-	require.NoError(t, os.Chdir(dir))
-	t.Cleanup(func() { _ = os.Chdir(origDir) })
+	t.Chdir(dir)
 
 	customEvalPath := filepath.Join("custom", "evals", "my-skill", "eval.yaml")
 
@@ -93,16 +87,13 @@ description: |
 func TestEvalNewCommand_MissingSkillMDError(t *testing.T) {
 	dir := t.TempDir()
 
-	origDir, err := os.Getwd()
-	require.NoError(t, err)
-	require.NoError(t, os.Chdir(dir))
-	t.Cleanup(func() { _ = os.Chdir(origDir) })
+	t.Chdir(dir)
 
 	root := newRootCommand()
 	root.SetOut(&bytes.Buffer{})
 	root.SetErr(&bytes.Buffer{})
 	root.SetArgs([]string{"eval", "new", "missing-skill"})
-	err = root.Execute()
+	err := root.Execute()
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "SKILL.md not found")
 }
@@ -118,4 +109,27 @@ func TestRootCommand_HasEvalSubcommand(t *testing.T) {
 		}
 	}
 	assert.True(t, found, "root command should have 'eval' subcommand")
+}
+
+func TestEvalNewCommand_RespectsCustomSkillsDirFromConfig(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".waza.yaml"), []byte("paths:\n  skills: custom-skills/\n"), 0o644))
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "custom-skills", "deploy-assistant"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "custom-skills", "deploy-assistant", "SKILL.md"), []byte(`---
+name: deploy-assistant
+description: |
+  USE FOR: "deploy web applications"
+  DO NOT USE FOR: "write a poem"
+---
+`), 0o644))
+
+	t.Chdir(dir)
+
+	root := newRootCommand()
+	root.SetOut(&bytes.Buffer{})
+	root.SetErr(&bytes.Buffer{})
+	root.SetArgs([]string{"eval", "new", "deploy-assistant"})
+	require.NoError(t, root.Execute())
+
+	assert.FileExists(t, filepath.Join(dir, "evals", "deploy-assistant", "eval.yaml"))
 }
