@@ -78,7 +78,7 @@ type DevConfig struct {
 	MaxIterations int    `yaml:"maxIterations,omitempty"`
 }
 
-// TokenLimitsConfig holds per-model token limit maps.
+// TokenLimitsConfig holds per-file token limit maps, keyed by glob/path patterns.
 type TokenLimitsConfig struct {
 	Defaults  map[string]int `yaml:"defaults,omitempty"`
 	Overrides map[string]int `yaml:"overrides,omitempty"`
