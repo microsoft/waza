@@ -10,7 +10,7 @@
 ## Key Learnings
 
 ### Go Architecture
-- **Model directive:** Coding in Claude Opus 4.6 (user requirement)
+- **Model directive:** Code generation in GPT-5.3-Codex; review/verification in Claude Opus 4.6 (user requirement)
 - **Code structure:** Functional options pattern for configuration
 - **Interfaces:** AgentEngine, Validator, Grader (extensible design)
 - **Testing:** Unit tests in internal packages, integration tests for CLI

@@ -15,7 +15,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  # issues:  # DISABLED write
+  issues: write
   contents: read
   pull-requests: read
 
