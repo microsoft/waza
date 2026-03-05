@@ -4,7 +4,7 @@
 - **Project:** waza — CLI tool for evaluating Agent Skills
 - **Stack:** Go (primary), React 19 + Tailwind CSS v4 (web UI)
 - **User:** Shayne Boyer (spboyer)
-- **Repo:** spboyer/waza
+- **Repo:** microsoft/waza
 - **Universe:** The Usual Suspects
 
 ## Key Learnings

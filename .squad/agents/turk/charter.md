@@ -4,7 +4,7 @@
 
 - **Name:** Turk
 - **Role:** Go Performance Specialist
-- **Team:** waza (spboyer/waza)
+- **Team:** waza (microsoft/waza)
 
 ## Expertise
 
