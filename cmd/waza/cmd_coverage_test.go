@@ -74,6 +74,36 @@ graders:
 	assert.Equal(t, []string{"file", "prompt"}, rows["full-skill"].Graders)
 }
 
+func TestBuildCoverageReport_IncludesEvalYML(t *testing.T) {
+	root := t.TempDir()
+	writeSkill(t, root, filepath.Join("skills", "alpha"), "alpha")
+	writeEval(t, root, filepath.Join("evals", "alpha", "eval.yml"), `
+skill: alpha
+tasks:
+  - tasks/*.yaml
+graders:
+  - type: prompt
+    name: judge
+  - type: file
+    name: files
+`)
+
+	report, err := buildCoverageReport(root, nil)
+	require.NoError(t, err)
+	require.Len(t, report.Skills, 1)
+	assert.Equal(t, "✅ Full", report.Skills[0].Coverage)
+}
+
+func TestBuildCoverageReport_ReturnsParseErrors(t *testing.T) {
+	root := t.TempDir()
+	writeSkill(t, root, filepath.Join("skills", "alpha"), "alpha")
+	writeEval(t, root, filepath.Join("evals", "alpha", "eval.yaml"), "skill: [bad")
+
+	_, err := buildCoverageReport(root, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to parse 1 eval files")
+}
+
 func TestRenderCoverageMarkdown(t *testing.T) {
 	report := &coverageReport{
 		TotalSkills: 2,
