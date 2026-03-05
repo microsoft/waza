@@ -41,7 +41,7 @@ type evalSpecLite struct {
 
 func newCoverageCommand() *cobra.Command {
 	var outputFormat string
-	var discoverPaths []string
+	var searchPaths []string
 
 	cmd := &cobra.Command{
 		Use:   "coverage [root]",
@@ -52,7 +52,7 @@ By default, this command scans:
   - skills/ and .github/skills for SKILL.md files
   - evals/ and skill directories for eval.yaml files
 
-Use --discover to add additional directories to scan for eval and skill files.`,
+Use --path to add additional directories to scan for eval and skill files.`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			root := "."
@@ -60,7 +60,7 @@ Use --discover to add additional directories to scan for eval and skill files.`,
 				root = args[0]
 			}
 
-			report, err := buildCoverageReport(root, discoverPaths)
+			report, err := buildCoverageReport(root, searchPaths)
 			if err != nil {
 				return err
 			}
@@ -82,7 +82,7 @@ Use --discover to add additional directories to scan for eval and skill files.`,
 	}
 
 	cmd.Flags().StringVarP(&outputFormat, "format", "f", "text", "Output format: text, markdown, or json")
-	cmd.Flags().StringArrayVar(&discoverPaths, "discover", nil, "Additional directories to scan for skills/evals (repeatable)")
+	cmd.Flags().StringArrayVar(&searchPaths, "path", nil, "Additional directories to scan for skills/evals (repeatable)")
 	return cmd
 }
 
@@ -106,6 +106,7 @@ func buildCoverageReport(root string, discoverPaths []string) (*coverageReport, 
 	evalBySkill := make(map[string][]string)
 	tasksBySkill := make(map[string]int)
 	gradersBySkill := make(map[string]map[string]struct{})
+	var parseFailures []string
 
 	evalPaths, err := discoverEvalFiles(absRoot, skillPaths, discoverPaths)
 	if err != nil {
@@ -115,6 +116,7 @@ func buildCoverageReport(root string, discoverPaths []string) (*coverageReport, 
 	for _, evalPath := range evalPaths {
 		spec, parseErr := parseEvalSpec(evalPath)
 		if parseErr != nil {
+			parseFailures = append(parseFailures, fmt.Sprintf("%s (%v)", evalPath, parseErr))
 			continue
 		}
 		skillName := strings.TrimSpace(spec.Skill)
@@ -135,6 +137,10 @@ func buildCoverageReport(root string, discoverPaths []string) (*coverageReport, 
 				gradersBySkill[skillName][kind] = struct{}{}
 			}
 		}
+	}
+	if len(parseFailures) > 0 {
+		sort.Strings(parseFailures)
+		return nil, fmt.Errorf("failed to parse %d eval files: %s", len(parseFailures), strings.Join(parseFailures, "; "))
 	}
 
 	skillNames := make([]string, 0, len(skillPaths))
@@ -255,7 +261,7 @@ func discoverEvalFiles(root string, skillPaths map[string]string, discoverPaths 
 				}
 				return nil
 			}
-			if d.Name() == "eval.yaml" {
+			if d.Name() == "eval.yaml" || d.Name() == "eval.yml" {
 				absPath, _ := filepath.Abs(path)
 				candidates[absPath] = struct{}{}
 			}
@@ -267,7 +273,11 @@ func discoverEvalFiles(root string, skillPaths map[string]string, discoverPaths 
 
 	for _, skillPath := range skillPaths {
 		skillDir := filepath.Dir(skillPath)
-		for _, rel := range []string{"eval.yaml", filepath.Join("evals", "eval.yaml"), filepath.Join("tests", "eval.yaml")} {
+		for _, rel := range []string{
+			"eval.yaml", "eval.yml",
+			filepath.Join("evals", "eval.yaml"), filepath.Join("evals", "eval.yml"),
+			filepath.Join("tests", "eval.yaml"), filepath.Join("tests", "eval.yml"),
+		} {
 			p := filepath.Join(skillDir, rel)
 			if isFile(p) {
 				absPath, _ := filepath.Abs(p)
