@@ -524,3 +524,19 @@ func TestDetectContext_GitHubSkillsDirWithCustomOverride(t *testing.T) {
 		t.Errorf("expected skills custom-skill and github-skill, got %v", names)
 	}
 }
+
+func TestDetectContext_GitHubSkillsDirCustomPathNoDuplicateScan(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, ".github", "skills", "github-skill", "SKILL.md"), skillMD("github-skill"))
+
+	ctx, err := DetectContext(root, WithSkillsDir(filepath.Join(".github", "skills")))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(ctx.Skills) != 1 {
+		t.Fatalf("expected 1 skill without duplicate scan, got %d", len(ctx.Skills))
+	}
+	if ctx.Skills[0].Name != "github-skill" {
+		t.Errorf("expected 'github-skill', got %q", ctx.Skills[0].Name)
+	}
+}

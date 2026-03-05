@@ -125,7 +125,7 @@ func DetectContext(dir string, opts ...DetectOption) (*WorkspaceContext, error) 
 
 	// 3b. Also check .github/skills/ directory (GitHub Copilot convention)
 	githubSkillsDir := filepath.Join(absDir, ".github", "skills")
-	if isDir(githubSkillsDir) {
+	if isDir(githubSkillsDir) && !samePath(skillsDir, githubSkillsDir) {
 		githubSkills := scanForSkills(githubSkillsDir)
 		// Merge with configured skills, deduplicating by name (configured wins)
 		existingNames := make(map[string]bool)
@@ -281,6 +281,10 @@ func isFile(path string) bool {
 func isDir(path string) bool {
 	fi, err := os.Stat(path)
 	return err == nil && fi.IsDir()
+}
+
+func samePath(a, b string) bool {
+	return filepath.Clean(a) == filepath.Clean(b)
 }
 
 // LooksLikePath returns true if the string appears to be a file path

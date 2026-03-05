@@ -40,19 +40,29 @@ func Discover(root string) ([]DiscoveredSkill, error) {
 	}
 
 	var skills []DiscoveredSkill
+	rootGitHubDir := filepath.Join(resolvedRoot, ".github")
+	rootGitHubSkillsDir := filepath.Join(rootGitHubDir, "skills")
 
 	err = filepath.Walk(resolvedRoot, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return nil // skip inaccessible entries
 		}
 
-		// Skip hidden directories, except .github at the root level
+		// Skip hidden directories, except root-level .github
 		if info.IsDir() && strings.HasPrefix(info.Name(), ".") {
-			if info.Name() == ".github" && filepath.Dir(path) == resolvedRoot {
-				// Allow root-level .github directory
+			if path == rootGitHubDir {
+				// Allow entering root-level .github to reach .github/skills.
 			} else {
 				return filepath.SkipDir
 			}
+		}
+
+		// Under root .github, only recurse into .github/skills.
+		if info.IsDir() &&
+			strings.HasPrefix(path, rootGitHubDir+string(filepath.Separator)) &&
+			path != rootGitHubSkillsDir &&
+			!strings.HasPrefix(path, rootGitHubSkillsDir+string(filepath.Separator)) {
+			return filepath.SkipDir
 		}
 
 		// Skip node_modules and similar

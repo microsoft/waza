@@ -210,7 +210,7 @@ func TestCopilotExecute_RequiredFields(t *testing.T) {
 	}
 }
 
-func TestCopilotExecute_InitializePropagatesStartError(t *testing.T) {
+func TestCopilotInitialize_PropagatesStartError(t *testing.T) {
 	// Regression test: Initialize() must propagate Start() errors so callers see
 	// copilot CLI startup failures instead of hanging or proceeding silently.
 	ctrl := gomock.NewController(t)

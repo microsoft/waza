@@ -281,3 +281,24 @@ func TestDiscoverOtherHiddenDirsStillSkipped(t *testing.T) {
 		t.Errorf("expected github-skill, got %s", skills[0].Name)
 	}
 }
+
+func TestDiscoverSkipsNonSkillsUnderGitHubDir(t *testing.T) {
+	root := t.TempDir()
+
+	setupSkillDir(t, filepath.Join(root, ".github", "skills", "github-skill"))
+	setupEvalFile(t, filepath.Join(root, ".github", "skills", "github-skill", "eval.yaml"))
+	setupSkillDir(t, filepath.Join(root, ".github", "workflows", "not-a-skill"))
+	setupEvalFile(t, filepath.Join(root, ".github", "workflows", "not-a-skill", "eval.yaml"))
+
+	skills, err := Discover(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(skills) != 1 {
+		t.Fatalf("expected 1 skill from .github/skills only, got %d", len(skills))
+	}
+	if skills[0].Name != "github-skill" {
+		t.Errorf("expected github-skill, got %s", skills[0].Name)
+	}
+}
