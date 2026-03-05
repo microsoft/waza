@@ -99,6 +99,9 @@ waza run examples/code-explainer/eval.yaml --context-dir examples/code-explainer
 # Compare results across models
 waza compare results-gpt4.json results-sonnet.json
 
+# Generate eval coverage grid
+waza coverage --format markdown
+
 # Count tokens in skill files
 waza tokens count skills/
 
@@ -270,6 +273,15 @@ Compare results from multiple evaluation runs side by side — per-task score de
 | Flag | Short | Description |
 |------|-------|-------------|
 | `--format <fmt>` | `-f` | Output format: `table` or `json` (default: `table`) |
+
+### `waza coverage [root]`
+
+Generate a skill-to-eval coverage grid showing which skills are fully covered, partially covered, or missing evals.
+
+| Flag | Short | Description |
+|------|-------|-------------|
+| `--format <fmt>` | `-f` | Output format: `text`, `markdown`, or `json` (default: `text`) |
+| `--discover <dir>` | | Additional directory to scan for skills/evals (repeatable) |
 
 ### `waza cache clear`
 
