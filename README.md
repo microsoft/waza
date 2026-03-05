@@ -281,7 +281,7 @@ Generate a skill-to-eval coverage grid showing which skills are fully covered, p
 | Flag | Short | Description |
 |------|-------|-------------|
 | `--format <fmt>` | `-f` | Output format: `text`, `markdown`, or `json` (default: `text`) |
-| `--discover <dir>` | | Additional directory to scan for skills/evals (repeatable) |
+| `--path <dir>` | | Additional directory to scan for skills/evals (repeatable) |
 
 ### `waza cache clear`
 
