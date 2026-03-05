@@ -336,6 +336,9 @@ waza tokens diff main --threshold 10
 waza tokens diff main --format json
 ```
 
+Without an argument, `waza tokens diff` compares against `origin/main` by default and
+falls back to `main` if `origin/main` is unavailable.
+
 **Flags:** `--format table|json`, `--threshold <percent>`
 
 ### waza tokens profile

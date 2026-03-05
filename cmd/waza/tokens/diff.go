@@ -95,6 +95,9 @@ func runDiff(cmd *cobra.Command, args []string) error {
 	baseRef := defaultDiffBaseRef
 	if len(args) == 1 {
 		baseRef = args[0]
+		if !git.RefExists(rootDir, baseRef) {
+			return fmt.Errorf("unknown base ref %q", baseRef)
+		}
 	} else if !git.RefExists(rootDir, baseRef) && git.RefExists(rootDir, "main") {
 		baseRef = "main"
 	}
@@ -173,8 +176,14 @@ func compareSkillDiffs(rootDir, baseRef, headRef string, threshold float64, limi
 	diffs := make([]skillDiff, 0, len(keys))
 	summary := diffSummary{SkillsCompared: len(keys)}
 	for _, key := range keys {
-		before := countSkillTokensAtRef(rootDir, baseRef, baseSkills[key], counter)
-		after := countSkillTokensAtRef(rootDir, headRef, headSkills[key], counter)
+		before, err := countSkillTokensAtRef(rootDir, baseRef, baseSkills[key], counter)
+		if err != nil {
+			return nil, diffSummary{}, err
+		}
+		after, err := countSkillTokensAtRef(rootDir, headRef, headSkills[key], counter)
+		if err != nil {
+			return nil, diffSummary{}, err
+		}
 		delta := after - before
 		percent := percentageDiff(before, delta)
 		thresholdExceeded := delta > 0 && percent > threshold
@@ -216,7 +225,7 @@ func formatSkillDiffTable(baseRef, headRef string, threshold float64, diffs []sk
 		status := "✅ No change"
 		switch {
 		case d.OverLimit:
-			status = fmt.Sprintf("❌ Over limit (%d)", d.Limit)
+			status = fmt.Sprintf("⚠️ Over limit (%d)", d.Limit)
 		case d.Delta < 0:
 			status = fmt.Sprintf("✅ %.1f%%", d.PercentChange)
 		case d.Delta > 0 && d.ThresholdExceeded:
@@ -233,25 +242,31 @@ func formatSkillDiffTable(baseRef, headRef string, threshold float64, diffs []sk
 	return sb.String()
 }
 
-func countSkillTokensAtRef(rootDir, ref, relPath string, counter tokens.Counter) int {
+func countSkillTokensAtRef(rootDir, ref, relPath string, counter tokens.Counter) (int, error) {
 	if relPath == "" {
-		return 0
+		return 0, nil
 	}
 	content := ""
 	if ref == git.WorkingTreeRef {
 		data, err := os.ReadFile(filepath.Join(rootDir, relPath))
 		if err != nil {
-			return 0
+			if errors.Is(err, os.ErrNotExist) {
+				return 0, nil
+			}
+			return 0, fmt.Errorf("reading %q from working tree: %w", relPath, err)
 		}
 		content = string(data)
 	} else {
 		c, err := git.GetFileFromRef(rootDir, relPath, ref)
 		if err != nil {
-			return 0
+			if errors.Is(err, git.ErrFileNotFound) {
+				return 0, nil
+			}
+			return 0, fmt.Errorf("reading %q at %s: %w", relPath, ref, err)
 		}
 		content = c
 	}
-	return counter.Count(content)
+	return counter.Count(content), nil
 }
 
 func collectSkillFilesForRef(rootDir, ref string, roots []string) map[string]string {

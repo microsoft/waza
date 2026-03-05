@@ -100,3 +100,21 @@ func TestDiff_DefaultBaseRefFallbackToMain(t *testing.T) {
 	require.NoError(t, cmd.Execute())
 	require.Contains(t, out.String(), "main → WORKING")
 }
+
+func TestDiff_UnknownBaseRefFailsFast(t *testing.T) {
+	dir := initRepo(t)
+	configureSafeCRLF(t, dir)
+
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "skills", "alpha"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "skills", "alpha", "SKILL.md"), []byte("# Alpha"), 0o644))
+	commit(t, dir, "initial")
+
+	cmd := newDiffCmd()
+	cmd.SetOut(new(bytes.Buffer))
+	cmd.SetErr(new(bytes.Buffer))
+	cmd.SetArgs([]string{"not-a-real-ref"})
+
+	err := cmd.Execute()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), `unknown base ref "not-a-real-ref"`)
+}
