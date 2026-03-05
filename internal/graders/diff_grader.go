@@ -54,6 +54,12 @@ type SnapshotUpdate struct {
 	LinesChanged int    `json:"lines_changed"`
 }
 
+const (
+	SnapshotUpdated   = "updated"
+	SnapshotCreated   = "created"
+	SnapshotUnchanged = "unchanged"
+)
+
 // NewDiffGrader creates a [diffGrader] that validates workspace files against expected
 // snapshots (exact match) and/or contains-line fragments (must appear / must not appear).
 func NewDiffGrader(args DiffGraderArgs) (*diffGrader, error) {
@@ -165,7 +171,7 @@ func (dg *diffGrader) checkSnapshot(ef ExpectedFile, actualContent string) ([]st
 			return nil, &SnapshotUpdate{
 				Path:         ef.Path,
 				Snapshot:     ef.Snapshot,
-				Status:       "created",
+				Status:       SnapshotCreated,
 				LinesChanged: countChangedLines("", actualContent),
 			}
 		}
@@ -181,7 +187,7 @@ func (dg *diffGrader) checkSnapshot(ef ExpectedFile, actualContent string) ([]st
 			return nil, &SnapshotUpdate{
 				Path:         ef.Path,
 				Snapshot:     ef.Snapshot,
-				Status:       "updated",
+				Status:       SnapshotUpdated,
 				LinesChanged: countChangedLines(string(expectedContent), actualContent),
 			}
 		}
@@ -192,7 +198,7 @@ func (dg *diffGrader) checkSnapshot(ef ExpectedFile, actualContent string) ([]st
 		return nil, &SnapshotUpdate{
 			Path:         ef.Path,
 			Snapshot:     ef.Snapshot,
-			Status:       "unchanged",
+			Status:       SnapshotUnchanged,
 			LinesChanged: 0,
 		}
 	}
@@ -218,7 +224,16 @@ func (dg *diffGrader) resolveSnapshotPath(snapshot string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	relPath, err := filepath.Rel(absContextDir, absSnapshotPath)
+	resolvedContextDir, err := filepath.EvalSymlinks(absContextDir)
+	if err != nil {
+		return "", err
+	}
+	resolvedSnapshotPath, err := resolvePathWithSymlinks(absSnapshotPath)
+	if err != nil {
+		return "", err
+	}
+
+	relPath, err := filepath.Rel(resolvedContextDir, resolvedSnapshotPath)
 	if err != nil {
 		return "", err
 	}
@@ -227,6 +242,23 @@ func (dg *diffGrader) resolveSnapshotPath(snapshot string) (string, error) {
 	}
 
 	return absSnapshotPath, nil
+}
+
+func resolvePathWithSymlinks(path string) (string, error) {
+	resolved, err := filepath.EvalSymlinks(path)
+	if err == nil {
+		return resolved, nil
+	}
+	if !os.IsNotExist(err) {
+		return "", err
+	}
+
+	resolvedDir, dirErr := filepath.EvalSymlinks(filepath.Dir(path))
+	if dirErr != nil {
+		return "", dirErr
+	}
+
+	return filepath.Join(resolvedDir, filepath.Base(path)), nil
 }
 
 // checkContains validates that required line fragments are present or absent in the file.
@@ -308,11 +340,11 @@ func (dg *diffGrader) buildResult(failures []string, workspaceDir string, snapsh
 		var updatedCount, createdCount, unchangedCount int
 		for _, su := range snapshotUpdates {
 			switch su.Status {
-			case "updated":
+			case SnapshotUpdated:
 				updatedCount++
-			case "created":
+			case SnapshotCreated:
 				createdCount++
-			case "unchanged":
+			case SnapshotUnchanged:
 				unchangedCount++
 			}
 		}
