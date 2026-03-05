@@ -50,9 +50,7 @@ func Discover(root string) ([]DiscoveredSkill, error) {
 
 		// Skip hidden directories, except root-level .github
 		if info.IsDir() && strings.HasPrefix(info.Name(), ".") {
-			if path == rootGitHubDir {
-				// Allow entering root-level .github to reach .github/skills.
-			} else {
+			if path != rootGitHubDir {
 				return filepath.SkipDir
 			}
 		}

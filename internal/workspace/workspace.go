@@ -284,7 +284,23 @@ func isDir(path string) bool {
 }
 
 func samePath(a, b string) bool {
-	return filepath.Clean(a) == filepath.Clean(b)
+	resolve := func(p string) string {
+		abs, err := filepath.Abs(p)
+		if err != nil {
+			return filepath.Clean(p)
+		}
+		if real, err := filepath.EvalSymlinks(abs); err == nil {
+			abs = real
+		}
+		return filepath.Clean(abs)
+	}
+
+	aResolved := resolve(a)
+	bResolved := resolve(b)
+	if os.PathSeparator == '\\' {
+		return strings.EqualFold(aResolved, bResolved)
+	}
+	return aResolved == bResolved
 }
 
 // LooksLikePath returns true if the string appears to be a file path
