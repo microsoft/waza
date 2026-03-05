@@ -101,7 +101,10 @@ func runDiff(cmd *cobra.Command, args []string) error {
 	headRef := git.WorkingTreeRef
 
 	limits := loadDiffLimitsConfig(rootDir)
-	diffs, summary := compareSkillDiffs(rootDir, baseRef, headRef, threshold, limits)
+	diffs, summary, err := compareSkillDiffs(rootDir, baseRef, headRef, threshold, limits)
+	if err != nil {
+		return err
+	}
 	passed := true
 	for _, d := range diffs {
 		if d.ThresholdExceeded {
@@ -141,7 +144,7 @@ func runDiff(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func compareSkillDiffs(rootDir, baseRef, headRef string, threshold float64, limits checks.TokenLimitsConfig) ([]skillDiff, diffSummary) {
+func compareSkillDiffs(rootDir, baseRef, headRef string, threshold float64, limits checks.TokenLimitsConfig) ([]skillDiff, diffSummary, error) {
 	baseRoots := skillRootsForRef(rootDir, baseRef)
 	headRoots := skillRootsForRef(rootDir, headRef)
 
@@ -164,7 +167,7 @@ func compareSkillDiffs(rootDir, baseRef, headRef string, threshold float64, limi
 
 	counter, err := tokens.NewCounter(tokens.TokenizerDefault)
 	if err != nil {
-		return nil, diffSummary{}
+		return nil, diffSummary{}, fmt.Errorf("failed to initialize token counter: %w", err)
 	}
 
 	diffs := make([]skillDiff, 0, len(keys))
@@ -192,7 +195,7 @@ func compareSkillDiffs(rootDir, baseRef, headRef string, threshold float64, limi
 		summary.TotalAfter += after
 	}
 	summary.TotalDelta = summary.TotalAfter - summary.TotalBefore
-	return diffs, summary
+	return diffs, summary, nil
 }
 
 func formatSkillDiffTable(baseRef, headRef string, threshold float64, diffs []skillDiff, summary diffSummary) string {
@@ -202,7 +205,7 @@ func formatSkillDiffTable(baseRef, headRef string, threshold float64, diffs []sk
 
 	var sb strings.Builder
 	_, _ = fmt.Fprintf(&sb, "🔢 Token Budget Diff (%s → %s)\n\n", baseRef, headRef)
-	sb.WriteString("| Skill | Before | After | Delta | Status |\n")
+	sb.WriteString("| Path | Before | After | Delta | Status |\n")
 	sb.WriteString("|-------|--------|-------|-------|--------|\n")
 
 	for _, d := range diffs {
