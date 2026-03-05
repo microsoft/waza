@@ -48,7 +48,7 @@ waza run [eval.yaml | skill-name]
 | `--reporter` | | string[] | | Output reporters: `json`, `junit:<path>` (repeatable) |
 | `--timeout` | | int | 300 | Task timeout in seconds |
 | `--baseline` | | bool | false | A/B testing mode — runs each task twice (without skill = baseline, with skill = normal) and computes improvement scores |
-| `--update-snapshots` | | bool | false | Update `diff` grader snapshot files when workspace output differs |
+| `--update-snapshots` | | bool | false | Update or create `diff` grader snapshot files to match current workspace output |
 | `--discover` | | string | | Auto skill discovery — walks directory tree for SKILL.md + eval.yaml (root/tests/evals) |
 | `--strict` | | bool | false | Fail if any SKILL.md lacks eval coverage (use with `--discover`) |
 

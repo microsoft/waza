@@ -187,12 +187,16 @@ func (dg *diffGrader) checkSnapshot(ef ExpectedFile, actualContent string) ([]st
 		return []string{fmt.Sprintf("File %s does not match snapshot %s", ef.Path, ef.Snapshot)}, nil
 	}
 
-	return nil, &snapshotUpdate{
-		Path:         ef.Path,
-		Snapshot:     ef.Snapshot,
-		Status:       "unchanged",
-		LinesChanged: 0,
+	if dg.updateSnapshots {
+		return nil, &snapshotUpdate{
+			Path:         ef.Path,
+			Snapshot:     ef.Snapshot,
+			Status:       "unchanged",
+			LinesChanged: 0,
+		}
 	}
+
+	return nil, nil
 }
 
 // checkContains validates that required line fragments are present or absent in the file.

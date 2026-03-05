@@ -113,7 +113,7 @@ You can also specify a skill name to run its eval:
 	cmd.Flags().StringArrayVar(&reporters, "reporter", nil, "Output reporters: json (default), junit:path.xml (can be repeated)")
 	cmd.Flags().BoolVar(&discoverFlag, "discover", false, "Walk directory tree to discover and run all skill evals")
 	cmd.Flags().BoolVar(&strictFlag, "strict", false, "With --discover, fail if any SKILL.md lacks an eval.yaml")
-	cmd.Flags().BoolVar(&updateSnapshots, "update-snapshots", false, "Update diff grader snapshots when they differ")
+	cmd.Flags().BoolVar(&updateSnapshots, "update-snapshots", false, "Update or create diff grader snapshot files to match current workspace output")
 
 	return cmd
 }

@@ -1179,10 +1179,7 @@ func (r *TestRunner) runGraders(ctx context.Context, tc *models.TestCase, grader
 	spec := r.cfg.Spec()
 	judgeModel := spec.Config.JudgeModel
 	for _, vCfg := range spec.Graders {
-		params := vCfg.Parameters
-		if params == nil {
-			params = make(map[string]any)
-		}
+		params := cloneParams(vCfg.Parameters)
 		if judgeModel != "" && vCfg.Kind == models.GraderKindPrompt {
 			params = injectJudgeModel(params, judgeModel)
 		}
@@ -1212,10 +1209,7 @@ func (r *TestRunner) runGraders(ctx context.Context, tc *models.TestCase, grader
 			return nil, fmt.Errorf("no kind associated with grader %s", vCfg.Identifier)
 		}
 
-		params := vCfg.Parameters
-		if params == nil {
-			params = make(map[string]any)
-		}
+		params := cloneParams(vCfg.Parameters)
 		if len(vCfg.Checks) > 0 {
 			params["assertions"] = vCfg.Checks
 		}
@@ -1256,6 +1250,18 @@ func injectJudgeModel(params map[string]any, judgeModel string) map[string]any {
 		merged[k] = v
 	}
 	merged["model"] = judgeModel
+	return merged
+}
+
+func cloneParams(params map[string]any) map[string]any {
+	if params == nil {
+		return make(map[string]any)
+	}
+
+	merged := make(map[string]any, len(params))
+	for k, v := range params {
+		merged[k] = v
+	}
 	return merged
 }
 
