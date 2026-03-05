@@ -112,14 +112,14 @@ func ConfigDetectOptions() []workspace.DetectOption {
 // resolveLimitsConfig returns a TokenLimitsConfig using .waza.yaml as the
 // primary source. Falls back to .token-limits.json (handled by Check()),
 // then built-in defaults when neither provides limits.
-func resolveLimitsConfig(skillDir string) checks.TokenLimitsConfig {
-	// Skill-level .token-limits.json takes precedence — let Check() load it.
-	if _, err := os.Stat(filepath.Join(skillDir, ".token-limits.json")); err == nil {
-		return checks.TokenLimitsConfig{}
-	}
+// The returned bool reports whether legacy .token-limits.json fallback was used.
+func resolveLimitsConfig(skillDir string) (checks.TokenLimitsConfig, bool) {
 	pcfg, err := projectconfig.Load(skillDir)
 	if err != nil || pcfg.Tokens.Limits == nil || pcfg.Tokens.Limits.Defaults == nil {
-		return checks.TokenLimitsConfig{}
+		if _, statErr := os.Stat(filepath.Join(skillDir, ".token-limits.json")); statErr == nil {
+			return checks.TokenLimitsConfig{}, true
+		}
+		return checks.TokenLimitsConfig{}, false
 	}
 	overrides := pcfg.Tokens.Limits.Overrides
 	if overrides == nil {
@@ -128,7 +128,7 @@ func resolveLimitsConfig(skillDir string) checks.TokenLimitsConfig {
 	return checks.TokenLimitsConfig{
 		Defaults:  pcfg.Tokens.Limits.Defaults,
 		Overrides: overrides,
-	}
+	}, false
 }
 
 // computeWorkspaceRelPrefix returns the forward-slash-separated path from

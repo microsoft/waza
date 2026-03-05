@@ -319,6 +319,20 @@ waza tokens check code-explainer
 # ✅ Within budget
 ```
 
+Configure per-file limits in `.waza.yaml`:
+
+```yaml
+tokens:
+  limits:
+    defaults:
+      "*.md": 2000
+      "skills/**/SKILL.md": 5000
+    overrides:
+      "skills/complex-skill/SKILL.md": 7500
+```
+
+`waza tokens check` falls back to `.token-limits.json` when `.waza.yaml` limits are missing and prints a deprecation warning.
+
 ### waza tokens profile
 
 Structural analysis of SKILL.md files — reports token count, section count, code block count, and workflow step detection.

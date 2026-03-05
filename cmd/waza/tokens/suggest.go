@@ -198,8 +198,9 @@ func runSuggest(cmd *cobra.Command, args []string) error {
 // collectFileAnalyses discovers and analyzes files in rootDir.
 // When engine is non-nil, Copilot-based analysis is used; otherwise heuristic analysis.
 func collectFileAnalyses(rootDir string, paths []string, counter tokens.Counter, engine execution.AgentEngine, cmd *cobra.Command, workspaceRelPrefix string) ([]fileAnalysis, error) {
+	limitsConfig, _ := resolveLimitsConfig(rootDir)
 	checker := &checks.TokenLimitsChecker{
-		Config:             resolveLimitsConfig(rootDir),
+		Config:             limitsConfig,
 		Paths:              paths,
 		WorkspaceRelPrefix: workspaceRelPrefix,
 	}

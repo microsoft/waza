@@ -11,7 +11,7 @@ func NewCommand() *cobra.Command {
 		Long: `Analyze token counts in markdown files.
 
 Limits are loaded from .waza.yaml (tokens.limits), falling back to
-.token-limits.json, then built-in defaults.
+.token-limits.json (deprecated), then built-in defaults.
 
 Subcommands:
   check     Check files against token limits
