@@ -34,13 +34,23 @@ type DiffGraderArgs struct {
 	ExpectedFiles []ExpectedFile
 	// ContextDir is the base directory for resolving snapshot paths.
 	ContextDir string
+	// UpdateSnapshots updates snapshot files when differences are detected.
+	UpdateSnapshots bool
 }
 
 // diffGrader compares post-execution workspace files against expected snapshots and diff fragments.
 type diffGrader struct {
-	name          string
-	expectedFiles []ExpectedFile
-	contextDir    string
+	name            string
+	expectedFiles   []ExpectedFile
+	contextDir      string
+	updateSnapshots bool
+}
+
+type snapshotUpdate struct {
+	Path         string
+	Snapshot     string
+	Status       string
+	LinesChanged int
 }
 
 // NewDiffGrader creates a [diffGrader] that validates workspace files against expected
@@ -60,9 +70,10 @@ func NewDiffGrader(args DiffGraderArgs) (*diffGrader, error) {
 	}
 
 	return &diffGrader{
-		name:          args.Name,
-		expectedFiles: args.ExpectedFiles,
-		contextDir:    args.ContextDir,
+		name:            args.Name,
+		expectedFiles:   args.ExpectedFiles,
+		contextDir:      args.ContextDir,
+		updateSnapshots: args.UpdateSnapshots,
 	}, nil
 }
 
@@ -87,16 +98,21 @@ func (dg *diffGrader) Grade(ctx context.Context, gradingContext *Context) (*mode
 		}
 
 		var failures []string
+		snapshotUpdates := make([]snapshotUpdate, 0)
 		for _, ef := range dg.expectedFiles {
-			failures = append(failures, dg.checkExpectedFile(workspaceDir, ef)...)
+			fileFailures, update := dg.checkExpectedFile(workspaceDir, ef)
+			failures = append(failures, fileFailures...)
+			if update != nil {
+				snapshotUpdates = append(snapshotUpdates, *update)
+			}
 		}
 
-		return dg.buildResult(failures, workspaceDir), nil
+		return dg.buildResult(failures, workspaceDir, snapshotUpdates), nil
 	})
 }
 
 // checkExpectedFile validates a single expected file against the workspace.
-func (dg *diffGrader) checkExpectedFile(workspaceDir string, ef ExpectedFile) []string {
+func (dg *diffGrader) checkExpectedFile(workspaceDir string, ef ExpectedFile) ([]string, *snapshotUpdate) {
 	var failures []string
 
 	fullPath := filepath.Join(workspaceDir, ef.Path)
@@ -114,22 +130,25 @@ func (dg *diffGrader) checkExpectedFile(workspaceDir string, ef ExpectedFile) []
 		for _, c := range ef.Contains {
 			failures = append(failures, fmt.Sprintf("Contains check skipped (file not found): %s → %s", ef.Path, c))
 		}
-		return failures
+		return failures, nil
 	}
 
+	var update *snapshotUpdate
 	if ef.Snapshot != "" {
-		failures = append(failures, dg.checkSnapshot(ef, string(actualContent))...)
+		snapshotFailures, snapshotUpdate := dg.checkSnapshot(ef, string(actualContent))
+		failures = append(failures, snapshotFailures...)
+		update = snapshotUpdate
 	}
 
 	if len(ef.Contains) > 0 {
 		failures = append(failures, dg.checkContains(ef, string(actualContent))...)
 	}
 
-	return failures
+	return failures, update
 }
 
 // checkSnapshot compares workspace file content against the expected snapshot file.
-func (dg *diffGrader) checkSnapshot(ef ExpectedFile, actualContent string) []string {
+func (dg *diffGrader) checkSnapshot(ef ExpectedFile, actualContent string) ([]string, *snapshotUpdate) {
 	snapshotPath := ef.Snapshot
 	if dg.contextDir != "" && !filepath.IsAbs(snapshotPath) {
 		snapshotPath = filepath.Join(dg.contextDir, snapshotPath)
@@ -137,14 +156,43 @@ func (dg *diffGrader) checkSnapshot(ef ExpectedFile, actualContent string) []str
 
 	expectedContent, err := os.ReadFile(snapshotPath)
 	if err != nil {
-		return []string{fmt.Sprintf("Failed to read snapshot file %s for %s: %v", ef.Snapshot, ef.Path, err)}
+		if dg.updateSnapshots && os.IsNotExist(err) {
+			if writeErr := dg.writeSnapshot(snapshotPath, actualContent); writeErr != nil {
+				return []string{fmt.Sprintf("Failed to write snapshot file %s for %s: %v", ef.Snapshot, ef.Path, writeErr)}, nil
+			}
+
+			return nil, &snapshotUpdate{
+				Path:         ef.Path,
+				Snapshot:     ef.Snapshot,
+				Status:       "created",
+				LinesChanged: countChangedLines("", actualContent),
+			}
+		}
+		return []string{fmt.Sprintf("Failed to read snapshot file %s for %s: %v", ef.Snapshot, ef.Path, err)}, nil
 	}
 
 	if actualContent != string(expectedContent) {
-		return []string{fmt.Sprintf("File %s does not match snapshot %s", ef.Path, ef.Snapshot)}
+		if dg.updateSnapshots {
+			if writeErr := dg.writeSnapshot(snapshotPath, actualContent); writeErr != nil {
+				return []string{fmt.Sprintf("Failed to write snapshot file %s for %s: %v", ef.Snapshot, ef.Path, writeErr)}, nil
+			}
+
+			return nil, &snapshotUpdate{
+				Path:         ef.Path,
+				Snapshot:     ef.Snapshot,
+				Status:       "updated",
+				LinesChanged: countChangedLines(string(expectedContent), actualContent),
+			}
+		}
+		return []string{fmt.Sprintf("File %s does not match snapshot %s", ef.Path, ef.Snapshot)}, nil
 	}
 
-	return nil
+	return nil, &snapshotUpdate{
+		Path:         ef.Path,
+		Snapshot:     ef.Snapshot,
+		Status:       "unchanged",
+		LinesChanged: 0,
+	}
 }
 
 // checkContains validates that required line fragments are present or absent in the file.
@@ -210,7 +258,7 @@ func (dg *diffGrader) countTotalChecks() int {
 }
 
 // buildResult constructs the final GraderResults from the collected failures.
-func (dg *diffGrader) buildResult(failures []string, workspaceDir string) *models.GraderResults {
+func (dg *diffGrader) buildResult(failures []string, workspaceDir string, snapshotUpdates []snapshotUpdate) *models.GraderResults {
 	totalChecks := dg.countTotalChecks()
 	passedChecks := totalChecks - len(failures)
 
@@ -222,6 +270,24 @@ func (dg *diffGrader) buildResult(failures []string, workspaceDir string) *model
 	feedback := "All diff checks passed"
 	if len(failures) > 0 {
 		feedback = strings.Join(failures, "; ")
+	} else if dg.updateSnapshots {
+		var updatedCount, createdCount, unchangedCount int
+		for _, su := range snapshotUpdates {
+			switch su.Status {
+			case "updated":
+				updatedCount++
+			case "created":
+				createdCount++
+			case "unchanged":
+				unchangedCount++
+			}
+		}
+		feedback = fmt.Sprintf(
+			"All diff checks passed (snapshots: %d updated, %d created, %d unchanged)",
+			updatedCount,
+			createdCount,
+			unchangedCount,
+		)
 	}
 
 	// Build per-file summary for details
@@ -246,9 +312,47 @@ func (dg *diffGrader) buildResult(failures []string, workspaceDir string) *model
 		Passed:   len(failures) == 0,
 		Feedback: feedback,
 		Details: map[string]any{
-			"expected_files": fileChecks,
-			"failures":       failures,
-			"workspace_dir":  workspaceDir,
+			"expected_files":   fileChecks,
+			"failures":         failures,
+			"workspace_dir":    workspaceDir,
+			"snapshot_updates": snapshotUpdates,
 		},
 	}
+}
+
+func (dg *diffGrader) writeSnapshot(snapshotPath, content string) error {
+	if err := os.MkdirAll(filepath.Dir(snapshotPath), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(snapshotPath, []byte(content), 0o644)
+}
+
+func countChangedLines(before, after string) int {
+	normalize := func(s string) []string {
+		s = strings.ReplaceAll(s, "\r\n", "\n")
+		return strings.Split(s, "\n")
+	}
+
+	beforeLines := normalize(before)
+	afterLines := normalize(after)
+	maxLen := len(beforeLines)
+	if len(afterLines) > maxLen {
+		maxLen = len(afterLines)
+	}
+
+	changed := 0
+	for i := 0; i < maxLen; i++ {
+		var b, a string
+		if i < len(beforeLines) {
+			b = beforeLines[i]
+		}
+		if i < len(afterLines) {
+			a = afterLines[i]
+		}
+		if b != a {
+			changed++
+		}
+	}
+
+	return changed
 }
