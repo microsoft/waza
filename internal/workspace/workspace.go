@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/microsoft/waza/internal/skill"
+	"github.com/microsoft/waza/internal/utils"
 )
 
 // ContextType represents the type of workspace detected.
@@ -118,20 +119,29 @@ func DetectContext(dir string, opts ...DetectOption) (*WorkspaceContext, error) 
 
 	// 3. Check for configured skills subdirectory with SKILL.md children
 	skillsDir := filepath.Join(absDir, o.skillsDir)
+	var skills []SkillInfo
 	if isDir(skillsDir) {
-		skills := scanForSkills(skillsDir)
-		if len(skills) > 0 {
-			return &WorkspaceContext{
-				Type:     ContextMultiSkill,
-				Root:     absDir,
-				Skills:   skills,
-				EvalsDir: o.evalsDir,
-			}, nil
-		}
+		skills = scanForSkills(skillsDir)
+	}
+
+	// 3b. Also check .github/skills/ directory (GitHub Copilot convention)
+	githubSkillsDir := filepath.Join(absDir, ".github", "skills")
+	if isDir(githubSkillsDir) && !samePath(skillsDir, githubSkillsDir) {
+		githubSkills := scanForSkills(githubSkillsDir)
+		skills = mergeSkillsByName(skills, githubSkills)
+	}
+
+	if len(skills) > 0 {
+		return &WorkspaceContext{
+			Type:     ContextMultiSkill,
+			Root:     absDir,
+			Skills:   skills,
+			EvalsDir: o.evalsDir,
+		}, nil
 	}
 
 	// 4. Scan immediate children of dir for SKILL.md
-	skills := scanForSkills(absDir)
+	skills = scanForSkills(absDir)
 	if len(skills) > 0 {
 		return &WorkspaceContext{
 			Type:     ContextMultiSkill,
@@ -262,6 +272,32 @@ func isFile(path string) bool {
 func isDir(path string) bool {
 	fi, err := os.Stat(path)
 	return err == nil && fi.IsDir()
+}
+
+func samePath(a, b string) bool {
+	resolve := func(p string) string {
+		abs, err := filepath.Abs(p)
+		if err != nil {
+			return filepath.Clean(p)
+		}
+		if real, err := filepath.EvalSymlinks(abs); err == nil {
+			abs = real
+		}
+		return filepath.Clean(abs)
+	}
+
+	aResolved := resolve(a)
+	bResolved := resolve(b)
+	if os.PathSeparator == '\\' {
+		return strings.EqualFold(aResolved, bResolved)
+	}
+	return aResolved == bResolved
+}
+
+func mergeSkillsByName(base, additional []SkillInfo) []SkillInfo {
+	return utils.MergeByKey(base, additional, func(s SkillInfo) string {
+		return s.Name
+	})
 }
 
 // LooksLikePath returns true if the string appears to be a file path

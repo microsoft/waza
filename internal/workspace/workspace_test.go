@@ -3,6 +3,8 @@ package workspace
 import (
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -424,5 +426,171 @@ func TestFindEval_WithCustomEvalsDir(t *testing.T) {
 	expected := filepath.Join(root, "my-evals", "my-skill", "eval.yaml")
 	if evalPath != expected {
 		t.Errorf("expected %q, got %q", expected, evalPath)
+	}
+}
+
+func TestDetectContext_GitHubSkillsDir(t *testing.T) {
+	// Skills in .github/skills/ are auto-discovered
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, ".github", "skills", "github-skill", "SKILL.md"), skillMD("github-skill"))
+
+	ctx, err := DetectContext(root)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if ctx.Type != ContextMultiSkill {
+		t.Fatalf("expected ContextMultiSkill, got %d", ctx.Type)
+	}
+	if len(ctx.Skills) != 1 {
+		t.Fatalf("expected 1 skill, got %d", len(ctx.Skills))
+	}
+	if ctx.Skills[0].Name != "github-skill" {
+		t.Errorf("expected 'github-skill', got %q", ctx.Skills[0].Name)
+	}
+}
+
+func TestDetectContext_BothSkillsDirs(t *testing.T) {
+	// Skills in both skills/ and .github/skills/ are merged
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "skills", "regular-skill", "SKILL.md"), skillMD("regular-skill"))
+	writeFile(t, filepath.Join(root, ".github", "skills", "github-skill", "SKILL.md"), skillMD("github-skill"))
+
+	ctx, err := DetectContext(root)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if ctx.Type != ContextMultiSkill {
+		t.Fatalf("expected ContextMultiSkill, got %d", ctx.Type)
+	}
+	if len(ctx.Skills) != 2 {
+		t.Fatalf("expected 2 skills, got %d", len(ctx.Skills))
+	}
+
+	names := map[string]bool{}
+	for _, s := range ctx.Skills {
+		names[s.Name] = true
+	}
+	if !names["regular-skill"] || !names["github-skill"] {
+		t.Errorf("expected skills regular-skill and github-skill, got %v", names)
+	}
+}
+
+func TestDetectContext_GitHubSkillsDirDedup(t *testing.T) {
+	// Same skill name in both dirs: configured skills/ wins
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "skills", "shared-name", "SKILL.md"), skillMD("shared-name"))
+	writeFile(t, filepath.Join(root, ".github", "skills", "shared-name", "SKILL.md"), skillMD("shared-name"))
+
+	ctx, err := DetectContext(root)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if ctx.Type != ContextMultiSkill {
+		t.Fatalf("expected ContextMultiSkill, got %d", ctx.Type)
+	}
+	if len(ctx.Skills) != 1 {
+		t.Fatalf("expected 1 skill (deduped), got %d", len(ctx.Skills))
+	}
+	if ctx.Skills[0].Name != "shared-name" {
+		t.Errorf("expected 'shared-name', got %q", ctx.Skills[0].Name)
+	}
+	// Verify that skills/ directory won (not .github/skills/)
+	expectedDir := filepath.Join(root, "skills", "shared-name")
+	if ctx.Skills[0].Dir != expectedDir {
+		t.Errorf("expected dir %q (configured should win), got %q", expectedDir, ctx.Skills[0].Dir)
+	}
+}
+
+func TestDetectContext_GitHubSkillsDirWithCustomOverride(t *testing.T) {
+	// Custom paths.skills + .github/skills/ both work
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "my-skills", "custom-skill", "SKILL.md"), skillMD("custom-skill"))
+	writeFile(t, filepath.Join(root, ".github", "skills", "github-skill", "SKILL.md"), skillMD("github-skill"))
+
+	ctx, err := DetectContext(root, WithSkillsDir("my-skills"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if ctx.Type != ContextMultiSkill {
+		t.Fatalf("expected ContextMultiSkill, got %d", ctx.Type)
+	}
+	if len(ctx.Skills) != 2 {
+		t.Fatalf("expected 2 skills, got %d", len(ctx.Skills))
+	}
+
+	names := map[string]bool{}
+	for _, s := range ctx.Skills {
+		names[s.Name] = true
+	}
+	if !names["custom-skill"] || !names["github-skill"] {
+		t.Errorf("expected skills custom-skill and github-skill, got %v", names)
+	}
+}
+
+func TestDetectContext_GitHubSkillsDirCustomPathNoDuplicateScan(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, ".github", "skills", "github-skill", "SKILL.md"), skillMD("github-skill"))
+
+	ctx, err := DetectContext(root, WithSkillsDir(filepath.Join(".github", "skills")))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(ctx.Skills) != 1 {
+		t.Fatalf("expected 1 skill without duplicate scan, got %d", len(ctx.Skills))
+	}
+	if ctx.Skills[0].Name != "github-skill" {
+		t.Errorf("expected 'github-skill', got %q", ctx.Skills[0].Name)
+	}
+}
+
+func TestSamePath(t *testing.T) {
+	root := t.TempDir()
+
+	if !samePath(filepath.Join(root, "a", "..", "b"), filepath.Join(root, "b")) {
+		t.Fatal("expected cleaned equivalent paths to match")
+	}
+
+	targetDir := filepath.Join(root, "target")
+	if err := os.MkdirAll(targetDir, 0o755); err != nil {
+		t.Fatalf("creating target dir: %v", err)
+	}
+	linkDir := filepath.Join(root, "link")
+	if err := os.Symlink(targetDir, linkDir); err != nil {
+		t.Skipf("symlink not supported in this environment: %v", err)
+	}
+	if !samePath(linkDir, targetDir) {
+		t.Fatal("expected symlink path and target path to match")
+	}
+
+	if runtime.GOOS == "windows" {
+		if !samePath(strings.ToUpper(targetDir), strings.ToLower(targetDir)) {
+			t.Fatal("expected path comparison to be case-insensitive on windows")
+		}
+	}
+
+	if samePath(filepath.Join(root, "b"), filepath.Join(root, "c")) {
+		t.Fatal("expected different paths to not match")
+	}
+}
+
+func TestMergeSkillsByName(t *testing.T) {
+	base := []SkillInfo{
+		{Name: "base"},
+		{Name: "shared", Dir: "skills-shared"},
+	}
+	additional := []SkillInfo{
+		{Name: "shared", Dir: "github-shared"},
+		{Name: "github-only"},
+	}
+
+	merged := mergeSkillsByName(base, additional)
+	if len(merged) != 3 {
+		t.Fatalf("expected 3 merged skills, got %d", len(merged))
+	}
+	if merged[1].Dir != "skills-shared" {
+		t.Fatalf("expected base skill to win for duplicates, got %q", merged[1].Dir)
+	}
+	if merged[2].Name != "github-only" {
+		t.Fatalf("expected github-only to be appended, got %q", merged[2].Name)
 	}
 }

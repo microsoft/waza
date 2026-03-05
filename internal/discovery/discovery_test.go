@@ -229,3 +229,98 @@ func TestFilterWithEval(t *testing.T) {
 		t.Errorf("expected no-eval, got %s", withoutEval[0].Name)
 	}
 }
+
+func TestDiscoverGitHubSkillsDir(t *testing.T) {
+	// Discover() finds skills under .github/skills/
+	root := t.TempDir()
+
+	setupSkillDir(t, filepath.Join(root, ".github", "skills", "github-skill"))
+	setupEvalFile(t, filepath.Join(root, ".github", "skills", "github-skill", "eval.yaml"))
+
+	skills, err := Discover(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(skills) != 1 {
+		t.Fatalf("expected 1 skill, got %d", len(skills))
+	}
+	if skills[0].Name != "github-skill" {
+		t.Errorf("expected github-skill, got %s", skills[0].Name)
+	}
+	if !skills[0].HasEval() {
+		t.Error("github-skill should have eval")
+	}
+}
+
+func TestDiscoverOtherHiddenDirsStillSkipped(t *testing.T) {
+	// .github is exempted, but other hidden dirs (.hidden, .secret) are still skipped
+	root := t.TempDir()
+
+	// .github/skills/ should be found
+	setupSkillDir(t, filepath.Join(root, ".github", "skills", "github-skill"))
+	setupEvalFile(t, filepath.Join(root, ".github", "skills", "github-skill", "eval.yaml"))
+
+	// .hidden/ should be skipped
+	setupSkillDir(t, filepath.Join(root, ".hidden", "secret-skill"))
+	setupEvalFile(t, filepath.Join(root, ".hidden", "secret-skill", "eval.yaml"))
+
+	// .secret/ should be skipped
+	setupSkillDir(t, filepath.Join(root, ".secret", "another-skill"))
+	setupEvalFile(t, filepath.Join(root, ".secret", "another-skill", "eval.yaml"))
+
+	skills, err := Discover(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(skills) != 1 {
+		t.Fatalf("expected 1 skill (.github only), got %d", len(skills))
+	}
+	if skills[0].Name != "github-skill" {
+		t.Errorf("expected github-skill, got %s", skills[0].Name)
+	}
+}
+
+func TestDiscoverSkipsNonSkillsUnderGitHubDir(t *testing.T) {
+	root := t.TempDir()
+
+	setupSkillDir(t, filepath.Join(root, ".github", "skills", "github-skill"))
+	setupEvalFile(t, filepath.Join(root, ".github", "skills", "github-skill", "eval.yaml"))
+	setupSkillDir(t, filepath.Join(root, ".github", "workflows", "not-a-skill"))
+	setupEvalFile(t, filepath.Join(root, ".github", "workflows", "not-a-skill", "eval.yaml"))
+
+	skills, err := Discover(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(skills) != 1 {
+		t.Fatalf("expected 1 skill from .github/skills only, got %d", len(skills))
+	}
+	if skills[0].Name != "github-skill" {
+		t.Errorf("expected github-skill, got %s", skills[0].Name)
+	}
+}
+
+func TestMergeSkillsByName(t *testing.T) {
+	base := []DiscoveredSkill{
+		{Name: "base"},
+		{Name: "shared", Dir: "skills-shared"},
+	}
+	additional := []DiscoveredSkill{
+		{Name: "shared", Dir: "github-shared"},
+		{Name: "github-only"},
+	}
+
+	merged := mergeSkillsByName(base, additional)
+	if len(merged) != 3 {
+		t.Fatalf("expected 3 skills, got %d", len(merged))
+	}
+	if merged[1].Dir != "skills-shared" {
+		t.Fatalf("expected base entry to win duplicate, got %q", merged[1].Dir)
+	}
+	if merged[2].Name != "github-only" {
+		t.Fatalf("expected github-only appended, got %q", merged[2].Name)
+	}
+}

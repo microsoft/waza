@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/microsoft/waza/internal/utils"
 )
 
 // DiscoveredSkill represents a skill found during directory traversal.
@@ -40,14 +42,27 @@ func Discover(root string) ([]DiscoveredSkill, error) {
 	}
 
 	var skills []DiscoveredSkill
+	seenNames := make(map[string]struct{})
+	rootGitHubDir := filepath.Join(resolvedRoot, ".github")
+	rootGitHubSkillsDir := filepath.Join(rootGitHubDir, "skills")
 
 	err = filepath.Walk(resolvedRoot, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return nil // skip inaccessible entries
 		}
 
-		// Skip hidden directories
+		// Skip hidden directories, except root-level .github
 		if info.IsDir() && strings.HasPrefix(info.Name(), ".") {
+			if path != rootGitHubDir {
+				return filepath.SkipDir
+			}
+		}
+
+		// Under root .github, only recurse into .github/skills.
+		if info.IsDir() &&
+			strings.HasPrefix(path, rootGitHubDir+string(filepath.Separator)) &&
+			path != rootGitHubSkillsDir &&
+			!strings.HasPrefix(path, rootGitHubSkillsDir+string(filepath.Separator)) {
 			return filepath.SkipDir
 		}
 
@@ -60,14 +75,18 @@ func Discover(root string) ([]DiscoveredSkill, error) {
 		if !info.IsDir() && info.Name() == "SKILL.md" {
 			dir := filepath.Dir(path)
 			name := filepath.Base(dir)
-			evalPath := findEvalConfig(dir)
+			if _, exists := seenNames[name]; exists {
+				return nil
+			}
 
+			evalPath := findEvalConfig(dir)
 			skills = append(skills, DiscoveredSkill{
 				Name:      name,
 				SkillPath: path,
 				EvalPath:  evalPath,
 				Dir:       dir,
 			})
+			seenNames[name] = struct{}{}
 		}
 
 		return nil
@@ -125,4 +144,10 @@ func fileExists(path string) bool {
 		return false
 	}
 	return !info.IsDir()
+}
+
+func mergeSkillsByName(base, additional []DiscoveredSkill) []DiscoveredSkill {
+	return utils.MergeByKey(base, additional, func(skill DiscoveredSkill) string {
+		return skill.Name
+	})
 }
