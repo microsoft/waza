@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/microsoft/waza/internal/skill"
+	"github.com/microsoft/waza/internal/utils"
 )
 
 // ContextType represents the type of workspace detected.
@@ -294,21 +295,9 @@ func samePath(a, b string) bool {
 }
 
 func mergeSkillsByName(base, additional []SkillInfo) []SkillInfo {
-	seen := make(map[string]bool, len(base))
-	for _, s := range base {
-		seen[s.Name] = true
-	}
-
-	merged := append([]SkillInfo{}, base...)
-	for _, s := range additional {
-		if seen[s.Name] {
-			continue
-		}
-		merged = append(merged, s)
-		seen[s.Name] = true
-	}
-
-	return merged
+	return utils.MergeByKey(base, additional, func(s SkillInfo) string {
+		return s.Name
+	})
 }
 
 // LooksLikePath returns true if the string appears to be a file path

@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/microsoft/waza/internal/utils"
 )
 
 // DiscoveredSkill represents a skill found during directory traversal.
@@ -40,6 +42,7 @@ func Discover(root string) ([]DiscoveredSkill, error) {
 	}
 
 	var skills []DiscoveredSkill
+	seenNames := make(map[string]struct{})
 	rootGitHubDir := filepath.Join(resolvedRoot, ".github")
 	rootGitHubSkillsDir := filepath.Join(rootGitHubDir, "skills")
 
@@ -72,13 +75,18 @@ func Discover(root string) ([]DiscoveredSkill, error) {
 		if !info.IsDir() && info.Name() == "SKILL.md" {
 			dir := filepath.Dir(path)
 			name := filepath.Base(dir)
+			if _, exists := seenNames[name]; exists {
+				return nil
+			}
+
 			evalPath := findEvalConfig(dir)
-			skills = mergeSkillsByName(skills, []DiscoveredSkill{{
+			skills = append(skills, DiscoveredSkill{
 				Name:      name,
 				SkillPath: path,
 				EvalPath:  evalPath,
 				Dir:       dir,
-			}})
+			})
+			seenNames[name] = struct{}{}
 		}
 
 		return nil
@@ -139,19 +147,7 @@ func fileExists(path string) bool {
 }
 
 func mergeSkillsByName(base, additional []DiscoveredSkill) []DiscoveredSkill {
-	seen := make(map[string]bool, len(base))
-	for _, skill := range base {
-		seen[skill.Name] = true
-	}
-
-	merged := append([]DiscoveredSkill{}, base...)
-	for _, skill := range additional {
-		if seen[skill.Name] {
-			continue
-		}
-		merged = append(merged, skill)
-		seen[skill.Name] = true
-	}
-
-	return merged
+	return utils.MergeByKey(base, additional, func(skill DiscoveredSkill) string {
+		return skill.Name
+	})
 }
