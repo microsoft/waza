@@ -244,3 +244,56 @@ Top issues are multiplicative with benchmark scale (tasks × runs × graders). C
 ### Session Log
 
 See `.squad/log/2026-02-26-performance-audit.md` for detailed session notes.
+
+## 2026-03-05: Token Diff Distribution Strategy (Issue #81)
+
+**By:** Rusty (Lead / Architect)  
+**Issue:** #81  
+**Status:** APPROVED
+
+### What
+
+For the GitHub Action token budget PR comment feature (#81), **implement `waza tokens diff` CLI command + lightweight wrapper action**, not action-only or CLI-only.
+
+### Implementation
+
+1. **CLI command:** `waza tokens diff [ref1] [ref2] [--format json|table] [--strict]`
+   - Compares token counts between git refs (default: origin/main to HEAD)
+   - Outputs JSON or formatted table
+   - Exit code 1 if limits exceeded and --strict is set
+   - Works everywhere: GitHub, GitLab, Azure Repos, local CI
+
+2. **Wrapper action:** `.github/actions/token-diff/action.yml` (thin, ~20 lines)
+   - Calls `waza tokens diff`, posts PR comment
+   - For GitHub users who want automation without custom workflow logic
+   - Optional convenience layer, not required
+
+### Why This Over Alternatives
+
+**Rejected: Action-only (#1)** — Vendor lock-in to GitHub; semantically wrong (action is infrastructure, token-diff is product).
+
+**Rejected: CLI-only (#2)** — Ignores GitHub users who want PR comment automation without custom workflow YAML.
+
+**Rejected: azd extension (#3)** — Redundant wrapper; doesn't solve the underlying problem.
+
+**Rejected: Template (#4)** — Doesn't scale; requires manual sync; no centralized maintenance.
+
+**Chosen: Combination (#5)** — Splits concerns cleanly: domain logic (diff) in CLI, GitHub automation (posting) in action. Serves all audiences (binary, azd, GitHub). No vendor lock-in. Semantically correct. Low maintenance.
+
+### User Choice
+
+- **GitHub workflow (simple):** `uses: microsoft/waza/.github/actions/token-diff@main`
+- **Custom workflow:** Call `waza tokens diff` directly, parse JSON
+- **Non-GitHub CI:** Use `waza tokens diff` CLI directly
+- **azd users:** `azd waza tokens diff` (auto-wrapped)
+
+### Reasoning
+
+Distribution should serve the user, not reverse-engineer infrastructure. The action is infrastructure; token tooling is product. Keeping token-diff in the CLI makes it independently useful (other tools can integrate, no GitHub lock-in). The action is optional, thin, and can be maintained with minimal effort. This avoids the semantic inversion of "GitHub Actions are user-facing product distribution mechanisms."
+
+### Impact
+
+- Code: Add `diff.go` (~100-150 lines, reuse `compare` logic)
+- Tests: Unit tests for CLI, e2e test for action
+- Docs: CLI reference, usage guide
+- Maintenance: Single source of truth (CLI), thin wrapper (action)
