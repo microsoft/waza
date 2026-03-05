@@ -240,7 +240,7 @@ func checkJSON(results []checkResult) (string, error) {
 func computeCheckResults(rootDir string, paths []string, workspaceRelPrefix string, errW io.Writer) ([]checkResult, error) {
 	cfg, usedLegacy := resolveLimitsConfig(rootDir)
 	if usedLegacy {
-		fmt.Fprintf(errW, "⚠️  Using legacy .token-limits.json — consider moving limits to .waza.yaml\n")
+		_, _ = fmt.Fprintf(errW, "⚠️  Using legacy .token-limits.json — consider moving limits to .waza.yaml\n")
 	}
 	checker := &checks.TokenLimitsChecker{
 		Config:             cfg,

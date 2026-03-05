@@ -200,7 +200,7 @@ func runSuggest(cmd *cobra.Command, args []string) error {
 func collectFileAnalyses(rootDir string, paths []string, counter tokens.Counter, engine execution.AgentEngine, cmd *cobra.Command, workspaceRelPrefix string) ([]fileAnalysis, error) {
 	cfg, usedLegacy := resolveLimitsConfig(rootDir)
 	if usedLegacy {
-		fmt.Fprintf(cmd.ErrOrStderr(), "⚠️  Using legacy .token-limits.json — consider moving limits to .waza.yaml\n")
+		_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "⚠️  Using legacy .token-limits.json — consider moving limits to .waza.yaml\n")
 	}
 	checker := &checks.TokenLimitsChecker{
 		Config:             cfg,
