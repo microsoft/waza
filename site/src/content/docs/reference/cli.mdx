@@ -38,7 +38,7 @@ waza run [eval.yaml | skill-name]
 | `--verbose` | `-v` | bool | false | Detailed progress output |
 | `--parallel` | | bool | false | Run tasks concurrently |
 | `--workers` | `-w` | int | 4 | Number of concurrent workers |
-| `--trials` | | int | 1 | Run each task N times for flakiness detection (overrides `config.trials_per_task`) |
+| `--trials` | | int | 0 (unset) | Run each task N times for flakiness detection (0 = use `config.trials_per_task`; overrides only when explicitly provided) |
 | `--task` | `-t` | string | | Filter tasks by name (repeatable) |
 | `--tags` | | string | | Filter tasks by tags (repeatable) |
 | `--model` | `-m` | string | | Override model (repeatable) |

@@ -97,7 +97,7 @@ You can also specify a skill name to run its eval:
 	cmd.Flags().StringArrayVar(&tagFilters, "tags", nil, "Filter tasks by tags, using glob patterns (can be repeated)")
 	cmd.Flags().BoolVar(&parallel, "parallel", false, "Run tasks concurrently")
 	cmd.Flags().IntVar(&workers, "workers", 0, "Number of concurrent workers (default: 4, requires --parallel)")
-	cmd.Flags().IntVar(&trials, "trials", 0, "Number of trials per task (overrides config.trials_per_task)")
+	cmd.Flags().IntVar(&trials, "trials", 0, "Number of trials per task (overrides config.trials_per_task only when explicitly provided)")
 	cmd.Flags().BoolVar(&interpret, "interpret", false, "Print a plain-language interpretation of the results")
 	cmd.Flags().StringVar(&format, "format", "default", "Output format: default, github-comment")
 	cmd.Flags().BoolVar(&enableCache, "cache", false, "Enable result caching (default: false)")
@@ -387,7 +387,11 @@ func runCommandForSpec(cmd *cobra.Command, sp skillSpecPath) ([]modelResult, err
 	if workers > 0 {
 		spec.Config.Workers = workers
 	}
-	if trials > 0 {
+	shouldOverrideTrials := trials > 0
+	if cmd != nil {
+		shouldOverrideTrials = cmd.Flags().Changed("trials")
+	}
+	if shouldOverrideTrials {
 		spec.Config.RunsPerTest = trials
 	}
 	if baselineFlag {
