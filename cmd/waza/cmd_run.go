@@ -44,6 +44,7 @@ var (
 	tagFilters     []string
 	parallel       bool
 	workers        int
+	trials         int
 	interpret      bool
 	format         string
 	enableCache    bool
@@ -96,6 +97,7 @@ You can also specify a skill name to run its eval:
 	cmd.Flags().StringArrayVar(&tagFilters, "tags", nil, "Filter tasks by tags, using glob patterns (can be repeated)")
 	cmd.Flags().BoolVar(&parallel, "parallel", false, "Run tasks concurrently")
 	cmd.Flags().IntVar(&workers, "workers", 0, "Number of concurrent workers (default: 4, requires --parallel)")
+	cmd.Flags().IntVar(&trials, "trials", 0, "Number of trials per task (overrides config.trials_per_task)")
 	cmd.Flags().BoolVar(&interpret, "interpret", false, "Print a plain-language interpretation of the results")
 	cmd.Flags().StringVar(&format, "format", "default", "Output format: default, github-comment")
 	cmd.Flags().BoolVar(&enableCache, "cache", false, "Enable result caching (default: false)")
@@ -147,6 +149,9 @@ func runCommandE(cmd *cobra.Command, args []string) error {
 	// Validate mutual exclusion
 	if outputPath != "" && outputDir != "" {
 		return fmt.Errorf("--output and --output-dir are mutually exclusive")
+	}
+	if cmd.Flags().Changed("trials") && trials < 1 {
+		return fmt.Errorf("--trials must be at least 1")
 	}
 
 	// Apply config defaults for output-dir when not explicitly set
@@ -381,6 +386,9 @@ func runCommandForSpec(cmd *cobra.Command, sp skillSpecPath) ([]modelResult, err
 	}
 	if workers > 0 {
 		spec.Config.Workers = workers
+	}
+	if trials > 0 {
+		spec.Config.RunsPerTest = trials
 	}
 	if baselineFlag {
 		spec.Baseline = true
@@ -1025,9 +1033,10 @@ func printSummary(outcome *models.EvaluationOutcome) {
 	if len(flakyTasks) > 0 {
 		fmt.Println("\u26a0 Flaky Tasks (inconsistent pass/fail across trials):")
 		for _, to := range flakyTasks {
-			fmt.Printf("  - %s  pass_rate=%.0f%%  score=%.2f\u00b1%.2f  CI95=[%.2f, %.2f]\n",
+			fmt.Printf("  - %s  pass_rate=%.0f%%  flakiness=%.1f%%  score=%.2f\u00b1%.2f  CI95=[%.2f, %.2f]\n",
 				to.DisplayName,
 				to.Stats.PassRate*100,
+				to.Stats.FlakinessPercent,
 				to.Stats.AvgScore,
 				to.Stats.StdDevScore,
 				to.Stats.CI95Lo,

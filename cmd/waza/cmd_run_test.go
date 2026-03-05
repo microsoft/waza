@@ -28,6 +28,7 @@ func resetRunGlobals() {
 	tagFilters = nil
 	parallel = false
 	workers = 0
+	trials = 0
 	interpret = false
 	format = "default"
 	enableCache = false
@@ -484,6 +485,53 @@ func TestRunCommand_ParallelFlagDefaultWorkers(t *testing.T) {
 	intVal, err := cmd.Flags().GetInt("workers")
 	require.NoError(t, err)
 	assert.Equal(t, 0, intVal, "workers should default to 0 (runner defaults to 4)")
+}
+
+func TestRunCommand_TrialsFlagParsed(t *testing.T) {
+	cmd := newRunCommand()
+	require.NoError(t, cmd.ParseFlags([]string{"--trials", "5"}))
+
+	intVal, err := cmd.Flags().GetInt("trials")
+	require.NoError(t, err)
+	assert.Equal(t, 5, intVal)
+}
+
+func TestRunCommand_TrialsFlagInvalidValue(t *testing.T) {
+	resetRunGlobals()
+
+	specPath := createTestSpec(t, "mock")
+	cmd := newRunCommand()
+	cmd.SetArgs([]string{specPath, "--trials", "0"})
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+
+	err := cmd.Execute()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "--trials must be at least 1")
+}
+
+func TestRunCommand_TrialsOverridesSpec(t *testing.T) {
+	resetRunGlobals()
+
+	specPath := createTestSpec(t, "mock")
+	outFile := filepath.Join(t.TempDir(), "results.json")
+	cmd := newRunCommand()
+	cmd.SetArgs([]string{specPath, "--trials", "3", "--output", outFile})
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+
+	err := cmd.Execute()
+	require.NoError(t, err)
+
+	data, err := os.ReadFile(outFile)
+	require.NoError(t, err)
+
+	var result models.EvaluationOutcome
+	require.NoError(t, json.Unmarshal(data, &result))
+	require.NotEmpty(t, result.TestOutcomes)
+	assert.Equal(t, 3, result.Setup.RunsPerTest)
+	assert.Len(t, result.TestOutcomes[0].Runs, 3)
+	assert.Equal(t, 3, result.TestOutcomes[0].Stats.TotalRuns)
 }
 
 func TestRunCommand_ParallelRunsMock(t *testing.T) {
