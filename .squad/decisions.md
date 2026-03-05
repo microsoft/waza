@@ -310,3 +310,92 @@ Distribution should serve the user, not reverse-engineer infrastructure. The act
 - **PR gating:** All PRs must be green (CI passing) before merge
 
 **Why:** User request — captured for team memory. Codex excels at code generation speed and large context. Opus excels at review and logical verification. Worktrees enable parallel work on multiple issues without context switching. Green CI enforces quality.
+
+## 2026-03-05: CI Fixes — git config for temp repositories (Issue various)
+
+**By:** Linus (Backend Dev)  
+**Date:** 2026-03-05  
+**PRs:** #65, #64, #55 (merge conflict and test failure fixes)
+
+**What:** When git-history tests create temporary repositories (`cmd/waza/tokens/internal/git/git_test.go`), configure those temp repos with:
+- `core.autocrlf=false`
+- `core.safecrlf=false`
+
+**Why:** On Windows, strict LF/CRLF conversion checks can fail `git add -A` inside temp repos even when test logic is correct. Setting repo-local git config in test setup removes environment-specific failures and keeps test behavior consistent across Ubuntu and Windows CI.
+
+## 2026-03-05: CI/CD Integration Guide Structure (Issue #89)
+
+**By:** Livingston (Documentation Specialist)  
+**Date:** 2026-03-05  
+**Status:** INFORMATIONAL  
+**Related Issue:** #89  
+**PR:** squad/89-ci-integration-guide
+
+**What:** Expanded the CI/CD integration guide from GitHub Actions–only to a comprehensive multi-platform guide covering GitHub Actions, Azure DevOps, and GitLab CI.
+
+**Key Decisions:**
+
+1. **Structure: Installation → Platform Guides → Best Practices → Troubleshooting**
+   - Installation first — azd extension (recommended), binary, source — reduces friction
+   - Platform guides — Complete, runnable examples for each major platform
+   - Best practices — 8 focused practices (filters, caching, timeouts, fail-fast, budgets, secrets, artifact retention)
+   - Troubleshooting — Common issues: PATH, timeouts, token auditing, rate limits
+
+2. **Real Patterns from the Repo** — All workflow examples based on:
+   - `.github/workflows/go-ci.yml` — Multi-OS matrix pattern
+   - `.github/workflows/waza-eval.yml` — Context-dir detection, input dispatch, artifact upload
+
+3. **Token Budget as Core Pattern** — Included `waza tokens diff` command prominently (Issue #81 implementation) for PR-level token budget enforcement.
+
+4. **MDX Tabs for Secrets Management** — Used Starlight's `<Tabs>` component for platform-specific secrets handling without duplication.
+
+**Why:** 
+1. **Visibility:** Users on different CI platforms deserve equal-quality guidance
+2. **Real patterns:** All examples based on actual waza patterns from go-ci.yml and waza-eval.yml
+3. **Installation upfront:** Developers often don't know how to install waza in their CI — covering this first prevents blocking issues
+4. **Best practices driven by cost:** Path filtering and caching examples emphasize cost reduction (key concern in CI/CD)
+5. **Platform-agnostic secrets:** Used MDX Tabs to show secrets management across three platforms without repeating boilerplate
+
+**Impact:**
+- **Docs site:** Guide is now comprehensive and covers 3 major CI/CD platforms
+- **Build:** Site builds successfully, all 14 pages including ci-cd page
+- **Sidebar:** No changes needed — entry already existed in astro.config.mjs
+- **Users:** Single source of truth for CI/CD integration across platforms
+
+## 2026-03-05: Batch PR Review & Issue Triage Routing
+
+**By:** Rusty (Lead / Architect)  
+**Date:** 2026-03-05T00:37Z  
+**Status:** COMPLETED
+
+**What:**
+
+### PR Reviews (6 total)
+All 6 PRs reviewed and set to auto-merge via squash:
+
+| PR | Title | Verdict |
+|----|-------|---------|
+| #88 | Dependabot: svgo 4.0.0→4.0.1 | ✅ Approved + merged |
+| #87 | fix: docs link to GitHub Pages | ✅ LGTM comment + auto-merge |
+| #71 | chore: add MIT LICENSE | ✅ LGTM comment + auto-merge |
+| #44 | fix: --discover project-root layout | ✅ Approved + auto-merge |
+| #69 | fix: discover .github/skills/ | ✅ LGTM comment + auto-merge |
+| #79 | feat: sensei scoring parity | ✅ LGTM comment + auto-merge |
+
+PRs #87, #71, #69, #79 authored by spboyer — GitHub API prevents self-approval, so review comments were left confirming LGTM status.
+
+### Issue Triage (8 issues)
+All issues routed to qualified squad members:
+
+| Issue | Title | Routed To | Rationale |
+|-------|-------|-----------|-----------|
+| #80 | Trigger heuristic grader (P0) | squad:linus | Go grader implementation |
+| #81 | Token budget diff CLI (P1) | squad:linus | Go CLI command |
+| #82 | Eval coverage grid (P1) | squad:linus | Go CLI command |
+| #83 | Eval scaffolding waza eval new (P1) | squad:linus | Go CLI command |
+| #84 | Multi-trial flakiness (P1) | squad:linus | Go orchestration engine |
+| #85 | Snapshot auto-update (P2) | squad:linus | Go grader integration |
+| #86 | Per-file token budget (P2) | squad:linus | Go config + token system |
+| #89 | CI/CD integration guide (P1) | squad:livingston + squad:saul | Documentation with doc-review gate |
+
+**Why:** Batch review + triage ensures all green PRs merge cleanly and new work is routed to the right specialist without manual coordination. Parallel work begins immediately once triage is complete.
