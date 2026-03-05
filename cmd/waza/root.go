@@ -40,6 +40,7 @@ performance against predefined test cases.`,
 	cmd.AddCommand(newInitCommand())
 	cmd.AddCommand(tokens.NewCommand())
 	cmd.AddCommand(newCompareCommand())
+	cmd.AddCommand(newCoverageCommand())
 	cmd.AddCommand(dev.NewCommand())
 	cmd.AddCommand(newMetadataCommand(cmd))
 	cmd.AddCommand(newCheckCommand())

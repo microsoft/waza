@@ -256,6 +256,36 @@ waza compare gpt4.json sonnet.json opus.json
 waza compare results-*.json --format json
 ```
 
+## waza coverage
+
+Generate an eval coverage grid for discovered skills.
+
+```bash
+waza coverage [root]
+```
+
+### Arguments
+
+| Argument | Description |
+|----------|-------------|
+| `[root]` | Root directory to scan (default: current directory) |
+
+### Flags
+
+| Flag | Description |
+|------|-------------|
+| `--format` | Output format: `text` (default), `markdown`, `json` |
+| `--discover` | Additional directories to scan for skills/evals (repeatable) |
+
+### Examples
+
+```bash
+waza coverage
+waza coverage --format markdown
+waza coverage --format json
+waza coverage --discover custom-evals --discover plugins
+```
+
 ## waza suggest
 
 Generate suggested eval artifacts from a skill's `SKILL.md` using an LLM.
