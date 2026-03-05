@@ -190,16 +190,16 @@ waza eval new <skill-name>
 ```
 
 Creates:
-- `evals/[skill-name]/eval.yaml`
-- `evals/[skill-name]/tasks/positive-trigger-1.yaml`
-- `evals/[skill-name]/tasks/positive-trigger-2.yaml`
-- `evals/[skill-name]/tasks/negative-trigger-1.yaml`
+- `evals/<skill-name>/eval.yaml`
+- `evals/<skill-name>/tasks/positive-trigger-1.yaml`
+- `evals/<skill-name>/tasks/positive-trigger-2.yaml`
+- `evals/<skill-name>/tasks/negative-trigger-1.yaml`
 
 ### Flags
 
 | Flag | Description |
 |------|-------------|
-| `--output` | Custom path for generated `eval.yaml` |
+| `--output` | Custom path for generated `eval.yaml`; task YAMLs are created in a sibling `tasks/` directory next to this file. |
 
 ### Examples
 

@@ -80,29 +80,40 @@ func evalNewCommandE(cmd *cobra.Command, skillName, outputPath string) error {
 
 	engine, model := scaffold.ReadProjectDefaults()
 	evalContent := evalScaffoldYAML(skillName, engine, model)
-	taskFiles := map[string]string{
-		"positive-trigger-1.yaml": triggerTaskYAML("positive-trigger-001", "Positive Trigger 1", positivePrompts[0], true, keywords),
-		"positive-trigger-2.yaml": triggerTaskYAML("positive-trigger-002", "Positive Trigger 2", positivePrompts[1], true, keywords),
-		"negative-trigger-1.yaml": triggerTaskYAML("negative-trigger-001", "Negative Trigger 1", negativePrompt, false, keywords),
+	files := []struct {
+		path    string
+		content string
+	}{
+		{path: outputPath, content: evalContent},
+		{
+			path:    filepath.Join(tasksDir, "positive-trigger-1.yaml"),
+			content: triggerTaskYAML("positive-trigger-001", "Positive Trigger 1", positivePrompts[0], true, keywords),
+		},
+		{
+			path:    filepath.Join(tasksDir, "positive-trigger-2.yaml"),
+			content: triggerTaskYAML("positive-trigger-002", "Positive Trigger 2", positivePrompts[1], true, keywords),
+		},
+		{
+			path:    filepath.Join(tasksDir, "negative-trigger-1.yaml"),
+			content: triggerTaskYAML("negative-trigger-001", "Negative Trigger 1", negativePrompt, false, keywords),
+		},
 	}
 
-	files := map[string]string{
-		outputPath: evalContent,
-	}
-	for name, content := range taskFiles {
-		files[filepath.Join(tasksDir, name)] = content
-	}
-
-	for path := range files {
-		if _, statErr := os.Stat(path); statErr == nil {
-			return fmt.Errorf("refusing to overwrite existing file: %s", path)
+	for _, file := range files {
+		if _, statErr := os.Stat(file.path); statErr == nil {
+			return fmt.Errorf("refusing to overwrite existing file: %s", file.path)
 		}
 	}
 
-	for path, content := range files {
-		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-			return fmt.Errorf("writing %s: %w", path, err)
+	createdFiles := make([]string, 0, len(files))
+	for _, file := range files {
+		if err := os.WriteFile(file.path, []byte(file.content), 0o644); err != nil {
+			for _, createdPath := range createdFiles {
+				_ = os.Remove(createdPath)
+			}
+			return fmt.Errorf("writing %s: %w", file.path, err)
 		}
+		createdFiles = append(createdFiles, file.path)
 	}
 
 	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "✅ Eval scaffold created for %s\n", skillName)
@@ -117,10 +128,13 @@ func evalNewCommandE(cmd *cobra.Command, skillName, outputPath string) error {
 func resolveSkillMDPath(skillName string) (string, error) {
 	wd, err := os.Getwd()
 	if err == nil {
-		if ctx, detectErr := workspace.DetectContext(wd, configDetectOptions()...); detectErr == nil && ctx.Type != workspace.ContextNone {
-			if si, findErr := workspace.FindSkill(ctx, skillName); findErr == nil {
-				return si.SkillPath, nil
+		ctx, detectErr := workspace.DetectContext(wd, configDetectOptions()...)
+		if detectErr == nil && ctx.Type != workspace.ContextNone {
+			si, findErr := workspace.FindSkill(ctx, skillName)
+			if findErr != nil {
+				return "", fmt.Errorf("finding skill %q in workspace: %w", skillName, findErr)
 			}
+			return si.SkillPath, nil
 		}
 	}
 
