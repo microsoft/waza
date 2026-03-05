@@ -297,3 +297,16 @@ Distribution should serve the user, not reverse-engineer infrastructure. The act
 - Tests: Unit tests for CLI, e2e test for action
 - Docs: CLI reference, usage guide
 - Maintenance: Single source of truth (CLI), thin wrapper (action)
+
+## 2026-03-05: Model + Workflow Directive — Code in Codex, Verify in Opus, Use Worktrees
+
+**By:** Shayne Boyer (via Copilot)
+**Date:** 2026-03-05T00:36Z
+
+**What:** 
+- **Code generation:** Use GPT-5.3-Codex (speed + 400K context for large skills)
+- **Code review/verification:** Use Claude Opus 4.6 (highest quality, best reasoning)
+- **Workflow:** Use worktrees for parallel issue work across issues #80-89
+- **PR gating:** All PRs must be green (CI passing) before merge
+
+**Why:** User request — captured for team memory. Codex excels at code generation speed and large context. Opus excels at review and logical verification. Worktrees enable parallel work on multiple issues without context switching. Green CI enforces quality.
