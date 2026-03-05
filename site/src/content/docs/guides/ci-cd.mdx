@@ -3,7 +3,7 @@ title: CI/CD Integration
 description: Integrate waza into your CI/CD pipeline ΓÇö GitHub Actions, Azure DevOps, GitLab CI, and more.
 ---
 
-import { Tabs, TabItem, Aside } from '@astrojs/starlight/components';
+import { Tabs, TabItem } from '@astrojs/starlight/components';
 
 Automate waza evaluations in your CI/CD pipeline to catch regressions early and validate agent behavior across models.
 
@@ -33,11 +33,9 @@ Download the latest waza binary for your platform:
 # Linux / macOS
 curl -fsSL https://raw.githubusercontent.com/microsoft/waza/main/install.sh | bash
 export PATH="$HOME/bin:$PATH"
-
-# Windows (PowerShell)
-$ProgressPreference = 'SilentlyContinue'
-Invoke-WebRequest -Uri "https://github.com/microsoft/waza/releases/latest" -OutFile waza.exe
 ```
+
+For Windows, download `waza.exe` from the latest GitHub release assets and add its directory to `PATH`.
 
 ### Via Source (if Go is available)
 
@@ -120,18 +118,18 @@ jobs:
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: `### Eval Results: ${{ matrix.model }}\n\nΓ£à **Passed:** ${results.passed}\nΓ¥î **Failed:** ${results.failed}`
+              body: `### Eval Results: ${{ matrix.model }}\n\nΓ£à **Passed:** ${results.summary.succeeded}\nΓ¥î **Failed:** ${results.summary.failed}`
             });
 ```
 
 ### Token Budget Checks
 
-Use `waza tokens diff` to track token usage across PRs and fail if budgets are exceeded:
+Use `waza tokens compare` to track token usage across PRs and fail if budgets are exceeded:
 
 ```yaml
 - name: Check token budget
   run: |
-    waza tokens diff origin/main HEAD \
+    waza tokens compare origin/main HEAD \
       --format table \
       --strict
 ```
@@ -216,11 +214,6 @@ jobs:
       - checkout: self
         fetchDepth: 0  # Full history for diffs
       
-      - task: UsePythonVersion@0
-        inputs:
-          versionSpec: '3.11'
-        displayName: 'Setup Python'
-      
       - script: |
           curl -fsSL https://raw.githubusercontent.com/microsoft/waza/main/install.sh | bash
           echo "##vso[task.prependpath]$HOME/bin"
@@ -253,16 +246,9 @@ jobs:
 
 ```yaml
 - script: |
-    waza tokens diff \
-      --ref1 origin/main \
-      --ref2 HEAD \
-      --format json > token-diff.json
-    
-    EXCEEDED=$(jq '.exceeded' token-diff.json)
-    if [ "$EXCEEDED" == "true" ]; then
-      echo "##vso[task.logissue type=error;]Token budget exceeded"
-      exit 1
-    fi
+    waza tokens compare origin/main HEAD \
+      --format table \
+      --strict
   displayName: 'Check token budget'
 ```
 
@@ -375,7 +361,7 @@ Prevent models from exceeding token budgets in PRs:
 
 ```yaml
 - name: Check token budget
-  run: waza tokens diff --strict
+  run: waza tokens compare origin/main HEAD --format table --strict
 ```
 
 ### 7. **Cache Results Intelligently**
@@ -456,7 +442,7 @@ config:
 Use `waza tokens check` to audit token consumption before running full evaluations:
 
 ```bash
-waza tokens check ./evals/my-skill/eval.yaml
+waza tokens check ./skills/my-skill/
 ```
 
 ### Rate Limiting from API Calls
@@ -486,7 +472,7 @@ config:
 Then in CI, compare with:
 
 ```bash
-waza compare baseline-eval.yaml --model gpt-4o
+waza compare baseline-results.json candidate-results.json
 ```
 
 ### Multi-Stage Pipeline: PR ΓåÆ Staging ΓåÆ Production
