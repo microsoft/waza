@@ -104,3 +104,37 @@ func TestDiffGrader_UpdateSnapshots_NoChangesFlow(t *testing.T) {
 	assert.Contains(t, result.Feedback, "0 created")
 	assert.Contains(t, result.Feedback, "1 unchanged")
 }
+
+func TestDiffGrader_UpdateSnapshots_BlocksPathTraversal(t *testing.T) {
+	workspaceDir := t.TempDir()
+	contextDir := t.TempDir()
+	outsideDir := t.TempDir()
+	outsideSnapshot := filepath.Join(outsideDir, "escape.txt")
+
+	require.NoError(t, os.WriteFile(filepath.Join(workspaceDir, "stable.txt"), []byte("same\n"), 0o644))
+
+	relEscape, err := filepath.Rel(contextDir, outsideSnapshot)
+	require.NoError(t, err)
+	require.NotContains(t, relEscape, ":", "expected a relative path for traversal test")
+
+	grader, err := NewDiffGrader(DiffGraderArgs{
+		Name: "diff",
+		ExpectedFiles: []ExpectedFile{
+			{
+				Path:     "stable.txt",
+				Snapshot: relEscape,
+			},
+		},
+		ContextDir:      contextDir,
+		UpdateSnapshots: true,
+	})
+	require.NoError(t, err)
+
+	result, err := grader.Grade(context.Background(), &Context{WorkspaceDir: workspaceDir})
+	require.NoError(t, err)
+	assert.False(t, result.Passed)
+	assert.Contains(t, result.Feedback, "Invalid snapshot file")
+
+	_, statErr := os.Stat(outsideSnapshot)
+	assert.ErrorIs(t, statErr, os.ErrNotExist)
+}
