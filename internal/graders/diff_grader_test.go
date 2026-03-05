@@ -113,7 +113,19 @@ func TestDiffGrader_UpdateSnapshots_BlocksPathTraversal(t *testing.T) {
 
 	require.NoError(t, os.WriteFile(filepath.Join(workspaceDir, "stable.txt"), []byte("same\n"), 0o644))
 
-	relEscape, err := filepath.Rel(contextDir, outsideSnapshot)
+	absContextDir, err := filepath.Abs(contextDir)
+	require.NoError(t, err)
+	absOutsideSnapshot, err := filepath.Abs(outsideSnapshot)
+	require.NoError(t, err)
+	if filepath.VolumeName(absContextDir) != filepath.VolumeName(absOutsideSnapshot) {
+		t.Skipf(
+			"skipping traversal test: contextDir (%s) and outsideSnapshot (%s) are on different volumes",
+			absContextDir,
+			absOutsideSnapshot,
+		)
+	}
+
+	relEscape, err := filepath.Rel(absContextDir, absOutsideSnapshot)
 	require.NoError(t, err)
 	require.NotContains(t, relEscape, ":", "expected a relative path for traversal test")
 

@@ -974,22 +974,22 @@ func printSnapshotUpdateSummary(outcome *models.EvaluationOutcome) {
 	}
 
 	if len(rows) == 0 {
-		fmt.Println("📸 Snapshot Updates: none")
+		fmt.Println("Snapshot updates: none")
 		fmt.Println()
 		return
 	}
 
-	fmt.Println("📸 Snapshot Updates:")
+	fmt.Println("Snapshot updates:")
 	for _, row := range rows {
 		switch row.Status {
-		case "updated":
-			fmt.Printf("  ✏️ %s — updated (%d lines changed)\n", row.Snapshot, row.LinesChanged)
-		case "created":
-			fmt.Printf("  ✏️ %s — created\n", row.Snapshot)
-		case "unchanged":
-			fmt.Printf("  ✅ %s — no changes\n", row.Snapshot)
+		case graders.SnapshotUpdated:
+			fmt.Printf("  %s - updated (%d lines changed)\n", row.Snapshot, row.LinesChanged)
+		case graders.SnapshotCreated:
+			fmt.Printf("  %s - created\n", row.Snapshot)
+		case graders.SnapshotUnchanged:
+			fmt.Printf("  %s - no changes\n", row.Snapshot)
 		default:
-			fmt.Printf("  • %s — %s\n", row.Snapshot, row.Status)
+			fmt.Printf("  %s - %s\n", row.Snapshot, row.Status)
 		}
 	}
 	fmt.Println()
