@@ -46,9 +46,13 @@ func Discover(root string) ([]DiscoveredSkill, error) {
 			return nil // skip inaccessible entries
 		}
 
-		// Skip hidden directories
+		// Skip hidden directories, except .github at the root level
 		if info.IsDir() && strings.HasPrefix(info.Name(), ".") {
-			return filepath.SkipDir
+			if info.Name() == ".github" && filepath.Dir(path) == resolvedRoot {
+				// Allow root-level .github directory
+			} else {
+				return filepath.SkipDir
+			}
 		}
 
 		// Skip node_modules and similar

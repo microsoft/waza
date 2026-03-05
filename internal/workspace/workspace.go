@@ -118,20 +118,39 @@ func DetectContext(dir string, opts ...DetectOption) (*WorkspaceContext, error) 
 
 	// 3. Check for configured skills subdirectory with SKILL.md children
 	skillsDir := filepath.Join(absDir, o.skillsDir)
+	var skills []SkillInfo
 	if isDir(skillsDir) {
-		skills := scanForSkills(skillsDir)
-		if len(skills) > 0 {
-			return &WorkspaceContext{
-				Type:     ContextMultiSkill,
-				Root:     absDir,
-				Skills:   skills,
-				EvalsDir: o.evalsDir,
-			}, nil
+		skills = scanForSkills(skillsDir)
+	}
+
+	// 3b. Also check .github/skills/ directory (GitHub Copilot convention)
+	githubSkillsDir := filepath.Join(absDir, ".github", "skills")
+	if isDir(githubSkillsDir) {
+		githubSkills := scanForSkills(githubSkillsDir)
+		// Merge with configured skills, deduplicating by name (configured wins)
+		existingNames := make(map[string]bool)
+		for _, s := range skills {
+			existingNames[s.Name] = true
+		}
+		for _, s := range githubSkills {
+			if !existingNames[s.Name] {
+				skills = append(skills, s)
+				existingNames[s.Name] = true
+			}
 		}
 	}
 
+	if len(skills) > 0 {
+		return &WorkspaceContext{
+			Type:     ContextMultiSkill,
+			Root:     absDir,
+			Skills:   skills,
+			EvalsDir: o.evalsDir,
+		}, nil
+	}
+
 	// 4. Scan immediate children of dir for SKILL.md
-	skills := scanForSkills(absDir)
+	skills = scanForSkills(absDir)
 	if len(skills) > 0 {
 		return &WorkspaceContext{
 			Type:     ContextMultiSkill,
