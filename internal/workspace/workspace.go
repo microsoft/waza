@@ -127,17 +127,7 @@ func DetectContext(dir string, opts ...DetectOption) (*WorkspaceContext, error) 
 	githubSkillsDir := filepath.Join(absDir, ".github", "skills")
 	if isDir(githubSkillsDir) && !samePath(skillsDir, githubSkillsDir) {
 		githubSkills := scanForSkills(githubSkillsDir)
-		// Merge with configured skills, deduplicating by name (configured wins)
-		existingNames := make(map[string]bool)
-		for _, s := range skills {
-			existingNames[s.Name] = true
-		}
-		for _, s := range githubSkills {
-			if !existingNames[s.Name] {
-				skills = append(skills, s)
-				existingNames[s.Name] = true
-			}
-		}
+		skills = mergeSkillsByName(skills, githubSkills)
 	}
 
 	if len(skills) > 0 {
@@ -301,6 +291,24 @@ func samePath(a, b string) bool {
 		return strings.EqualFold(aResolved, bResolved)
 	}
 	return aResolved == bResolved
+}
+
+func mergeSkillsByName(base, additional []SkillInfo) []SkillInfo {
+	seen := make(map[string]bool, len(base))
+	for _, s := range base {
+		seen[s.Name] = true
+	}
+
+	merged := append([]SkillInfo{}, base...)
+	for _, s := range additional {
+		if seen[s.Name] {
+			continue
+		}
+		merged = append(merged, s)
+		seen[s.Name] = true
+	}
+
+	return merged
 }
 
 // LooksLikePath returns true if the string appears to be a file path

@@ -73,13 +73,12 @@ func Discover(root string) ([]DiscoveredSkill, error) {
 			dir := filepath.Dir(path)
 			name := filepath.Base(dir)
 			evalPath := findEvalConfig(dir)
-
-			skills = append(skills, DiscoveredSkill{
+			skills = mergeSkillsByName(skills, []DiscoveredSkill{{
 				Name:      name,
 				SkillPath: path,
 				EvalPath:  evalPath,
 				Dir:       dir,
-			})
+			}})
 		}
 
 		return nil
@@ -137,4 +136,22 @@ func fileExists(path string) bool {
 		return false
 	}
 	return !info.IsDir()
+}
+
+func mergeSkillsByName(base, additional []DiscoveredSkill) []DiscoveredSkill {
+	seen := make(map[string]bool, len(base))
+	for _, skill := range base {
+		seen[skill.Name] = true
+	}
+
+	merged := append([]DiscoveredSkill{}, base...)
+	for _, skill := range additional {
+		if seen[skill.Name] {
+			continue
+		}
+		merged = append(merged, skill)
+		seen[skill.Name] = true
+	}
+
+	return merged
 }

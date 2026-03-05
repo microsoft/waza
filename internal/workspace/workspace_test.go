@@ -3,6 +3,8 @@ package workspace
 import (
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -538,5 +540,57 @@ func TestDetectContext_GitHubSkillsDirCustomPathNoDuplicateScan(t *testing.T) {
 	}
 	if ctx.Skills[0].Name != "github-skill" {
 		t.Errorf("expected 'github-skill', got %q", ctx.Skills[0].Name)
+	}
+}
+
+func TestSamePath(t *testing.T) {
+	root := t.TempDir()
+
+	if !samePath(filepath.Join(root, "a", "..", "b"), filepath.Join(root, "b")) {
+		t.Fatal("expected cleaned equivalent paths to match")
+	}
+
+	targetDir := filepath.Join(root, "target")
+	if err := os.MkdirAll(targetDir, 0o755); err != nil {
+		t.Fatalf("creating target dir: %v", err)
+	}
+	linkDir := filepath.Join(root, "link")
+	if err := os.Symlink(targetDir, linkDir); err != nil {
+		t.Skipf("symlink not supported in this environment: %v", err)
+	}
+	if !samePath(linkDir, targetDir) {
+		t.Fatal("expected symlink path and target path to match")
+	}
+
+	if runtime.GOOS == "windows" {
+		if !samePath(strings.ToUpper(targetDir), strings.ToLower(targetDir)) {
+			t.Fatal("expected path comparison to be case-insensitive on windows")
+		}
+	}
+
+	if samePath(filepath.Join(root, "b"), filepath.Join(root, "c")) {
+		t.Fatal("expected different paths to not match")
+	}
+}
+
+func TestMergeSkillsByName(t *testing.T) {
+	base := []SkillInfo{
+		{Name: "base"},
+		{Name: "shared", Dir: "skills-shared"},
+	}
+	additional := []SkillInfo{
+		{Name: "shared", Dir: "github-shared"},
+		{Name: "github-only"},
+	}
+
+	merged := mergeSkillsByName(base, additional)
+	if len(merged) != 3 {
+		t.Fatalf("expected 3 merged skills, got %d", len(merged))
+	}
+	if merged[1].Dir != "skills-shared" {
+		t.Fatalf("expected base skill to win for duplicates, got %q", merged[1].Dir)
+	}
+	if merged[2].Name != "github-only" {
+		t.Fatalf("expected github-only to be appended, got %q", merged[2].Name)
 	}
 }

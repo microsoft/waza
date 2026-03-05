@@ -302,3 +302,25 @@ func TestDiscoverSkipsNonSkillsUnderGitHubDir(t *testing.T) {
 		t.Errorf("expected github-skill, got %s", skills[0].Name)
 	}
 }
+
+func TestMergeSkillsByName(t *testing.T) {
+	base := []DiscoveredSkill{
+		{Name: "base"},
+		{Name: "shared", Dir: "skills-shared"},
+	}
+	additional := []DiscoveredSkill{
+		{Name: "shared", Dir: "github-shared"},
+		{Name: "github-only"},
+	}
+
+	merged := mergeSkillsByName(base, additional)
+	if len(merged) != 3 {
+		t.Fatalf("expected 3 skills, got %d", len(merged))
+	}
+	if merged[1].Dir != "skills-shared" {
+		t.Fatalf("expected base entry to win duplicate, got %q", merged[1].Dir)
+	}
+	if merged[2].Name != "github-only" {
+		t.Fatalf("expected github-only appended, got %q", merged[2].Name)
+	}
+}
