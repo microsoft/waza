@@ -41,6 +41,7 @@ func resetRunGlobals() {
 	noSummary = false
 	reporters = nil
 	suggestFlag = false
+	updateSnapshots = false
 }
 
 // helper creates a valid minimal eval spec YAML in a temp dir,
@@ -158,6 +159,7 @@ func TestRunCommand_FlagsParsed(t *testing.T) {
 		"--context-dir", tmpCtx,
 		"--output", tmpOut,
 		"--verbose",
+		"--update-snapshots",
 	}))
 
 	val, err := cmd.Flags().GetString("context-dir")
@@ -171,6 +173,10 @@ func TestRunCommand_FlagsParsed(t *testing.T) {
 	boolVal, err := cmd.Flags().GetBool("verbose")
 	require.NoError(t, err)
 	assert.True(t, boolVal)
+
+	updateVal, err := cmd.Flags().GetBool("update-snapshots")
+	require.NoError(t, err)
+	assert.True(t, updateVal)
 }
 
 func TestRunCommand_ShortFlags(t *testing.T) {

@@ -35,31 +35,32 @@ import (
 )
 
 var (
-	contextDir     string
-	outputPath     string
-	outputDir      string
-	verbose        bool
-	transcriptDir  string
-	taskFilters    []string
-	tagFilters     []string
-	parallel       bool
-	workers        int
-	interpret      bool
-	format         string
-	enableCache    bool
-	disableCache   bool
-	runCacheDir    string
-	modelOverrides []string
-	recommendFlag  bool
-	baselineFlag   bool
-	suggestFlag    bool
-	sessionLog     bool
-	sessionDir     string
-	noSummary      bool
-	judgeModel     string
-	reporters      []string
-	discoverFlag   bool
-	strictFlag     bool
+	contextDir      string
+	outputPath      string
+	outputDir       string
+	verbose         bool
+	transcriptDir   string
+	taskFilters     []string
+	tagFilters      []string
+	parallel        bool
+	workers         int
+	interpret       bool
+	format          string
+	enableCache     bool
+	disableCache    bool
+	runCacheDir     string
+	modelOverrides  []string
+	recommendFlag   bool
+	baselineFlag    bool
+	suggestFlag     bool
+	sessionLog      bool
+	sessionDir      string
+	noSummary       bool
+	judgeModel      string
+	reporters       []string
+	discoverFlag    bool
+	strictFlag      bool
+	updateSnapshots bool
 )
 
 // modelResult pairs a model identifier with its evaluation outcome.
@@ -112,6 +113,7 @@ You can also specify a skill name to run its eval:
 	cmd.Flags().StringArrayVar(&reporters, "reporter", nil, "Output reporters: json (default), junit:path.xml (can be repeated)")
 	cmd.Flags().BoolVar(&discoverFlag, "discover", false, "Walk directory tree to discover and run all skill evals")
 	cmd.Flags().BoolVar(&strictFlag, "strict", false, "With --discover, fail if any SKILL.md lacks an eval.yaml")
+	cmd.Flags().BoolVar(&updateSnapshots, "update-snapshots", false, "Update diff grader snapshots when they differ")
 
 	return cmd
 }
@@ -565,6 +567,9 @@ func runSingleModel(cmd *cobra.Command, spec *models.BenchmarkSpec, specPath str
 	if resultCache != nil {
 		runnerOpts = append(runnerOpts, orchestration.WithCache(resultCache))
 	}
+	if updateSnapshots {
+		runnerOpts = append(runnerOpts, orchestration.WithUpdateSnapshots(true))
+	}
 	runner := orchestration.NewTestRunner(cfg, engine, runnerOpts...)
 
 	// Setup session logger if enabled
@@ -742,6 +747,7 @@ func runSingleModel(cmd *cobra.Command, spec *models.BenchmarkSpec, specPath str
 		fmt.Print(FormatGitHubComment(outcome))
 	case "default":
 		printSummary(outcome)
+		printSnapshotUpdateSummary(outcome)
 		if interpret {
 			fmt.Println()
 			fmt.Print(reporting.FormatSummaryReport(outcome))
@@ -934,6 +940,66 @@ func simpleProgressListener(event orchestration.ProgressEvent) {
 		}
 		fmt.Printf("%s [%d/%d] %s\n", status, event.TestNum, event.TotalTests, event.TestName)
 	}
+}
+
+func printSnapshotUpdateSummary(outcome *models.EvaluationOutcome) {
+	if !updateSnapshots || outcome == nil {
+		return
+	}
+
+	type snapshotRow struct {
+		Path         string
+		Snapshot     string
+		Status       string
+		LinesChanged int
+	}
+
+	var rows []snapshotRow
+	for _, testOutcome := range outcome.TestOutcomes {
+		for _, run := range testOutcome.Runs {
+			for _, gr := range run.Validations {
+				if gr.Type != models.GraderKindDiff {
+					continue
+				}
+
+				rawUpdates, ok := gr.Details["snapshot_updates"]
+				if !ok {
+					continue
+				}
+
+				data, err := json.Marshal(rawUpdates)
+				if err != nil {
+					continue
+				}
+				var parsed []snapshotRow
+				if err := json.Unmarshal(data, &parsed); err != nil {
+					continue
+				}
+				rows = append(rows, parsed...)
+			}
+		}
+	}
+
+	if len(rows) == 0 {
+		fmt.Println("📸 Snapshot Updates: none")
+		fmt.Println()
+		return
+	}
+
+	fmt.Println("📸 Snapshot Updates:")
+	for _, row := range rows {
+		switch row.Status {
+		case "updated":
+			fmt.Printf("  ✏️ %s — updated (%d lines changed)\n", row.Snapshot, row.LinesChanged)
+		case "created":
+			fmt.Printf("  ✏️ %s — created\n", row.Snapshot)
+		case "unchanged":
+			fmt.Printf("  ✅ %s — no changes\n", row.Snapshot)
+		default:
+			fmt.Printf("  • %s — %s\n", row.Snapshot, row.Status)
+		}
+	}
+	fmt.Println()
 }
 
 func printSummary(outcome *models.EvaluationOutcome) {

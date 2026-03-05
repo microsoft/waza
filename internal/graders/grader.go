@@ -148,7 +148,8 @@ func Create(graderType models.GraderKind, identifier string, params map[string]a
 				Snapshot string   `mapstructure:"snapshot"`
 				Contains []string `mapstructure:"contains"`
 			} `mapstructure:"expected_files"`
-			ContextDir string `mapstructure:"context_dir"`
+			ContextDir      string `mapstructure:"context_dir"`
+			UpdateSnapshots bool   `mapstructure:"update_snapshots"`
 		}
 
 		if err := mapstructure.Decode(params, &v); err != nil {
@@ -165,9 +166,10 @@ func Create(graderType models.GraderKind, identifier string, params map[string]a
 		}
 
 		return NewDiffGrader(DiffGraderArgs{
-			Name:          identifier,
-			ExpectedFiles: expectedFiles,
-			ContextDir:    v.ContextDir,
+			Name:            identifier,
+			ExpectedFiles:   expectedFiles,
+			ContextDir:      v.ContextDir,
+			UpdateSnapshots: v.UpdateSnapshots,
 		})
 	case models.GraderKindPrompt:
 		var v PromptGraderArgs

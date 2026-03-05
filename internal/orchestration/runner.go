@@ -39,6 +39,9 @@ type TestRunner struct {
 	// Result caching
 	cache *cache.Cache
 
+	// Snapshot updates for diff graders.
+	updateSnapshots bool
+
 	// Lifecycle hooks
 	hookRunner *hooks.Runner
 
@@ -101,6 +104,13 @@ func WithTagFilters(patterns ...string) RunnerOption {
 func WithCache(c *cache.Cache) RunnerOption {
 	return func(r *TestRunner) {
 		r.cache = c
+	}
+}
+
+// WithUpdateSnapshots enables snapshot file updates in diff graders.
+func WithUpdateSnapshots(enabled bool) RunnerOption {
+	return func(r *TestRunner) {
+		r.updateSnapshots = enabled
 	}
 }
 
@@ -1170,8 +1180,14 @@ func (r *TestRunner) runGraders(ctx context.Context, tc *models.TestCase, grader
 	judgeModel := spec.Config.JudgeModel
 	for _, vCfg := range spec.Graders {
 		params := vCfg.Parameters
+		if params == nil {
+			params = make(map[string]any)
+		}
 		if judgeModel != "" && vCfg.Kind == models.GraderKindPrompt {
 			params = injectJudgeModel(params, judgeModel)
+		}
+		if r.updateSnapshots && vCfg.Kind == models.GraderKindDiff {
+			params["update_snapshots"] = true
 		}
 		grader, err := graders.Create(vCfg.Kind, vCfg.Identifier, params)
 
@@ -1205,6 +1221,9 @@ func (r *TestRunner) runGraders(ctx context.Context, tc *models.TestCase, grader
 		}
 		if judgeModel != "" && kind == models.GraderKindPrompt {
 			params = injectJudgeModel(params, judgeModel)
+		}
+		if r.updateSnapshots && kind == models.GraderKindDiff {
+			params["update_snapshots"] = true
 		}
 
 		grader, err := graders.Create(kind, vCfg.Identifier, params)

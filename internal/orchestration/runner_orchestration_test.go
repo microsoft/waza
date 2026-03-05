@@ -236,6 +236,43 @@ func TestRunGraders_WeightsAndErrors(t *testing.T) {
 	assert.Contains(t, err.Error(), "no kind associated with grader missing-kind")
 }
 
+func TestRunGraders_DiffSnapshotUpdateOption(t *testing.T) {
+	workspaceDir := t.TempDir()
+	contextDir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(workspaceDir, "output.txt"), []byte("new snapshot"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(contextDir, "expected.txt"), []byte("old snapshot"), 0o644))
+
+	spec := &models.BenchmarkSpec{
+		Config: models.Config{ModelID: "mock-model"},
+		Graders: []models.GraderConfig{
+			{
+				Kind:       models.GraderKindDiff,
+				Identifier: "diff",
+				Parameters: map[string]any{
+					"expected_files": []map[string]any{
+						{
+							"path":     "output.txt",
+							"snapshot": "expected.txt",
+						},
+					},
+					"context_dir": contextDir,
+				},
+			},
+		},
+	}
+
+	runner := NewTestRunner(config.NewBenchmarkConfig(spec), nil, WithUpdateSnapshots(true))
+	graderCtx := &graders.Context{WorkspaceDir: workspaceDir}
+
+	results, err := runner.runGraders(context.Background(), &models.TestCase{}, graderCtx)
+	require.NoError(t, err)
+	assert.True(t, results["diff"].Passed)
+
+	updated, err := os.ReadFile(filepath.Join(contextDir, "expected.txt"))
+	require.NoError(t, err)
+	assert.Equal(t, "new snapshot", string(updated))
+}
+
 func TestLoadResources_PathValidation(t *testing.T) {
 	fixtureDir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(fixtureDir, "ok.txt"), []byte("ok"), 0o644))
