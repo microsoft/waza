@@ -1291,14 +1291,20 @@ func (r *TestRunner) computeTestStats(runs []models.RunResult) *models.TestStats
 			maxScore = score
 		}
 
-		if run.AllValidationsPassed() {
+		switch run.Status {
+		case models.StatusPassed:
 			passed++
-		} else {
+		case models.StatusFailed:
 			failed++
-		}
-
-		if run.Status == models.StatusError {
+		case models.StatusError:
+			failed++
 			errored++
+		default:
+			if run.AllValidationsPassed() {
+				passed++
+			} else {
+				failed++
+			}
 		}
 
 		totalDuration += run.DurationMs
