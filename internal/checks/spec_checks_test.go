@@ -414,6 +414,12 @@ func TestSpecSecurityChecker(t *testing.T) {
 			passed: true,
 			status: StatusOK,
 		},
+		{
+			name:   "no frontmatter but reserved prefix",
+			sk:     skill.Skill{Frontmatter: skill.Frontmatter{Name: "claude-bot", Description: "test"}},
+			passed: false,
+			status: StatusWarning,
+		},
 	}
 	checker := &SpecSecurityChecker{}
 	for _, tt := range tests {

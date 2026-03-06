@@ -408,8 +408,8 @@ name: test
 2. Second step
 ## Example
 Steps example
-## Important
-Handle errors.
+## Troubleshooting
+If the command fails, check your config.
 `,
 			passed: true,
 			status: StatusOK,

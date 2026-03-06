@@ -153,13 +153,17 @@ func (h HeuristicScorer) Score(sk *skill.Skill) *ScoreResult {
 	result.AntiTriggerCount = countPhrasesAfterPattern(trimmedDesc, "DO NOT USE FOR:")
 
 	// Context-dependent anti-trigger risk (Issue #78)
+	// Severity scales with catalog size: High (≥15) → error, Moderate (6-14) → warning.
+	// Low (≤5) is silent — acceptable risk in small catalogs.
 	if h.SkillCount > 0 && !result.HasAntiTriggers {
-		var riskLevel string
+		var riskLevel, severity string
 		switch {
 		case h.SkillCount >= 15:
 			riskLevel = "High"
+			severity = "error"
 		case h.SkillCount > 5:
 			riskLevel = "Moderate"
+			severity = "warning"
 		default:
 			riskLevel = "Low"
 		}
@@ -167,7 +171,7 @@ func (h HeuristicScorer) Score(sk *skill.Skill) *ScoreResult {
 			result.Issues = append(result.Issues, Issue{
 				Rule:     "anti-trigger-risk",
 				Message:  fmt.Sprintf("Missing anti-triggers with %d skills in catalog (risk: %s)", h.SkillCount, riskLevel),
-				Severity: "warning",
+				Severity: severity,
 			})
 		}
 	}
@@ -226,7 +230,14 @@ func countPhrasesAfterPattern(text, pat string) int {
 		return 0
 	}
 	after := text[idx+len(pat):]
-	for _, stop := range []string{"DO NOT USE FOR:", "INVOKES:", "FOR SINGLE OPERATIONS:", "\n\n"} {
+	// Stop at any subsequent section header to avoid double-counting across sections.
+	for _, stop := range []string{
+		"USE FOR:", "WHEN:", "DO NOT USE FOR:", "NOT FOR:",
+		"TRIGGERS:", "INVOKES:", "FOR SINGLE OPERATIONS:", "\n\n",
+	} {
+		if strings.EqualFold(stop, pat) {
+			continue // don't stop at the pattern we're counting
+		}
 		if si := strings.Index(strings.ToUpper(after), strings.ToUpper(stop)); si >= 0 {
 			after = after[:si]
 		}

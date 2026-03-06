@@ -520,8 +520,10 @@ USE FOR: run checks, format output.
 DO NOT USE FOR: deployments.`
 	sk := mkSkill("when-skill", desc)
 
+	// WHEN: yields 2 ("process files", "validate config") — stops at "USE FOR:"
+	// USE FOR: yields 2 ("run checks", "format output") — stops at "DO NOT USE FOR:"
 	result := (&HeuristicScorer{}).Score(sk)
-	require.Equal(t, 5, result.TriggerCount)
+	require.Equal(t, 4, result.TriggerCount)
 }
 
 // Test #74: Invalid adherence level for >1024 char descriptions
@@ -575,17 +577,18 @@ func TestContextDependentAntiTriggerRisk(t *testing.T) {
 	sk := mkSkill("test-skill", desc)
 
 	tests := []struct {
-		name          string
-		skillCount    int
-		expectWarning bool
-		expectedRisk  string
+		name             string
+		skillCount       int
+		expectIssue      bool
+		expectedRisk     string
+		expectedSeverity string
 	}{
-		{"Low risk: 3 skills", 3, false, ""},
-		{"Low risk: 5 skills", 5, false, ""},
-		{"Moderate risk: 6 skills", 6, true, "Moderate"},
-		{"Moderate risk: 10 skills", 10, true, "Moderate"},
-		{"High risk: 15 skills", 15, true, "High"},
-		{"High risk: 20 skills", 20, true, "High"},
+		{"Low risk: 3 skills", 3, false, "", ""},
+		{"Low risk: 5 skills", 5, false, "", ""},
+		{"Moderate risk: 6 skills", 6, true, "Moderate", "warning"},
+		{"Moderate risk: 10 skills", 10, true, "Moderate", "warning"},
+		{"High risk: 15 skills", 15, true, "High", "error"},
+		{"High risk: 20 skills", 20, true, "High", "error"},
 	}
 
 	for _, tt := range tests {
@@ -593,19 +596,19 @@ func TestContextDependentAntiTriggerRisk(t *testing.T) {
 			scorer := &HeuristicScorer{SkillCount: tt.skillCount}
 			result := scorer.Score(sk)
 
-			foundWarning := false
+			foundIssue := false
 			for _, iss := range result.Issues {
 				if iss.Rule == "anti-trigger-risk" {
-					foundWarning = true
+					foundIssue = true
 					require.Contains(t, iss.Message, tt.expectedRisk)
-					require.Equal(t, "warning", iss.Severity)
+					require.Equal(t, tt.expectedSeverity, iss.Severity)
 				}
 			}
 
-			if tt.expectWarning {
-				require.True(t, foundWarning, "expected anti-trigger-risk warning for %d skills", tt.skillCount)
+			if tt.expectIssue {
+				require.True(t, foundIssue, "expected anti-trigger-risk issue for %d skills", tt.skillCount)
 			} else {
-				require.False(t, foundWarning, "did not expect anti-trigger-risk warning for %d skills", tt.skillCount)
+				require.False(t, foundIssue, "did not expect anti-trigger-risk issue for %d skills", tt.skillCount)
 			}
 		})
 	}

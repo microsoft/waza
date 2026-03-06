@@ -465,7 +465,8 @@ var examplePatterns = []string{
 }
 
 var errorHandlingPatterns = []string{
-	"error", "troubleshooting", "common issues", "known limitations",
+	"## error", "error handling", "## troubleshooting", "troubleshooting",
+	"common issues", "known limitations",
 	"warnings", "caveats", "note:", "important:",
 }
 
@@ -545,7 +546,9 @@ func (d *ProgressiveDisclosureData) GetStatus() CheckStatus { return d.Status }
 
 func (*ProgressiveDisclosureChecker) Check(sk skill.Skill) (*CheckResult, error) {
 	content := skillBodyContent(sk)
-	lines := strings.Split(content, "\n")
+	// Trim a single trailing newline so a 500-line file isn't reported as 501.
+	trimmedContent := strings.TrimSuffix(content, "\n")
+	lines := strings.Split(trimmedContent, "\n")
 	bodyLines := len(lines)
 
 	largeBlocks := 0
