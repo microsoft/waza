@@ -39,6 +39,9 @@ type TestRunner struct {
 	// Result caching
 	cache *cache.Cache
 
+	// Snapshot updates for diff graders.
+	updateSnapshots bool
+
 	// Lifecycle hooks
 	hookRunner *hooks.Runner
 
@@ -101,6 +104,13 @@ func WithTagFilters(patterns ...string) RunnerOption {
 func WithCache(c *cache.Cache) RunnerOption {
 	return func(r *TestRunner) {
 		r.cache = c
+	}
+}
+
+// WithUpdateSnapshots enables snapshot file updates in diff graders.
+func WithUpdateSnapshots(enabled bool) RunnerOption {
+	return func(r *TestRunner) {
+		r.updateSnapshots = enabled
 	}
 }
 
@@ -1169,9 +1179,12 @@ func (r *TestRunner) runGraders(ctx context.Context, tc *models.TestCase, grader
 	spec := r.cfg.Spec()
 	judgeModel := spec.Config.JudgeModel
 	for _, vCfg := range spec.Graders {
-		params := vCfg.Parameters
+		params := cloneParams(vCfg.Parameters)
 		if judgeModel != "" && vCfg.Kind == models.GraderKindPrompt {
 			params = injectJudgeModel(params, judgeModel)
+		}
+		if r.updateSnapshots && vCfg.Kind == models.GraderKindDiff {
+			params["update_snapshots"] = true
 		}
 		grader, err := graders.Create(vCfg.Kind, vCfg.Identifier, params)
 
@@ -1196,15 +1209,15 @@ func (r *TestRunner) runGraders(ctx context.Context, tc *models.TestCase, grader
 			return nil, fmt.Errorf("no kind associated with grader %s", vCfg.Identifier)
 		}
 
-		params := vCfg.Parameters
-		if params == nil {
-			params = make(map[string]any)
-		}
+		params := cloneParams(vCfg.Parameters)
 		if len(vCfg.Checks) > 0 {
 			params["assertions"] = vCfg.Checks
 		}
 		if judgeModel != "" && kind == models.GraderKindPrompt {
 			params = injectJudgeModel(params, judgeModel)
+		}
+		if r.updateSnapshots && kind == models.GraderKindDiff {
+			params["update_snapshots"] = true
 		}
 
 		grader, err := graders.Create(kind, vCfg.Identifier, params)
@@ -1237,6 +1250,18 @@ func injectJudgeModel(params map[string]any, judgeModel string) map[string]any {
 		merged[k] = v
 	}
 	merged["model"] = judgeModel
+	return merged
+}
+
+func cloneParams(params map[string]any) map[string]any {
+	if params == nil {
+		return make(map[string]any)
+	}
+
+	merged := make(map[string]any, len(params))
+	for k, v := range params {
+		merged[k] = v
+	}
 	return merged
 }
 

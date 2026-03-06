@@ -21,6 +21,7 @@ import (
 	"github.com/microsoft/waza/internal/config"
 	"github.com/microsoft/waza/internal/discovery"
 	"github.com/microsoft/waza/internal/execution"
+	"github.com/microsoft/waza/internal/graders"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/orchestration"
 	"github.com/microsoft/waza/internal/projectconfig"
@@ -35,31 +36,32 @@ import (
 )
 
 var (
-	contextDir     string
-	outputPath     string
-	outputDir      string
-	verbose        bool
-	transcriptDir  string
-	taskFilters    []string
-	tagFilters     []string
-	parallel       bool
-	workers        int
-	interpret      bool
-	format         string
-	enableCache    bool
-	disableCache   bool
-	runCacheDir    string
-	modelOverrides []string
-	recommendFlag  bool
-	baselineFlag   bool
-	suggestFlag    bool
-	sessionLog     bool
-	sessionDir     string
-	noSummary      bool
-	judgeModel     string
-	reporters      []string
-	discoverFlag   bool
-	strictFlag     bool
+	contextDir      string
+	outputPath      string
+	outputDir       string
+	verbose         bool
+	transcriptDir   string
+	taskFilters     []string
+	tagFilters      []string
+	parallel        bool
+	workers         int
+	interpret       bool
+	format          string
+	enableCache     bool
+	disableCache    bool
+	runCacheDir     string
+	modelOverrides  []string
+	recommendFlag   bool
+	baselineFlag    bool
+	suggestFlag     bool
+	sessionLog      bool
+	sessionDir      string
+	noSummary       bool
+	judgeModel      string
+	reporters       []string
+	discoverFlag    bool
+	strictFlag      bool
+	updateSnapshots bool
 )
 
 // modelResult pairs a model identifier with its evaluation outcome.
@@ -112,6 +114,7 @@ You can also specify a skill name to run its eval:
 	cmd.Flags().StringArrayVar(&reporters, "reporter", nil, "Output reporters: json (default), junit:path.xml (can be repeated)")
 	cmd.Flags().BoolVar(&discoverFlag, "discover", false, "Walk directory tree to discover and run all skill evals")
 	cmd.Flags().BoolVar(&strictFlag, "strict", false, "With --discover, fail if any SKILL.md lacks an eval.yaml")
+	cmd.Flags().BoolVar(&updateSnapshots, "update-snapshots", false, "Update or create diff grader snapshot files to match current workspace output")
 
 	return cmd
 }
@@ -565,6 +568,9 @@ func runSingleModel(cmd *cobra.Command, spec *models.BenchmarkSpec, specPath str
 	if resultCache != nil {
 		runnerOpts = append(runnerOpts, orchestration.WithCache(resultCache))
 	}
+	if updateSnapshots {
+		runnerOpts = append(runnerOpts, orchestration.WithUpdateSnapshots(true))
+	}
 	runner := orchestration.NewTestRunner(cfg, engine, runnerOpts...)
 
 	// Setup session logger if enabled
@@ -742,6 +748,7 @@ func runSingleModel(cmd *cobra.Command, spec *models.BenchmarkSpec, specPath str
 		fmt.Print(FormatGitHubComment(outcome))
 	case "default":
 		printSummary(outcome)
+		printSnapshotUpdateSummary(outcome)
 		if interpret {
 			fmt.Println()
 			fmt.Print(reporting.FormatSummaryReport(outcome))
@@ -933,6 +940,84 @@ func simpleProgressListener(event orchestration.ProgressEvent) {
 			status = "✗"
 		}
 		fmt.Printf("%s [%d/%d] %s\n", status, event.TestNum, event.TotalTests, event.TestName)
+	}
+}
+
+func printSnapshotUpdateSummary(outcome *models.EvaluationOutcome) {
+	if !updateSnapshots || outcome == nil {
+		return
+	}
+
+	var rows []graders.SnapshotUpdate
+	for _, testOutcome := range outcome.TestOutcomes {
+		for _, run := range testOutcome.Runs {
+			for _, gr := range run.Validations {
+				if gr.Type != models.GraderKindDiff {
+					continue
+				}
+
+				rawUpdates, ok := gr.Details["snapshot_updates"]
+				if !ok {
+					continue
+				}
+
+				parsed, err := parseSnapshotUpdates(rawUpdates)
+				if err != nil {
+					if verbose {
+						fmt.Fprintf(os.Stderr, "warning: failed to parse snapshot_updates for grader %q: %v\n", gr.Name, err)
+					}
+					continue
+				}
+				rows = append(rows, parsed...)
+			}
+		}
+	}
+
+	if len(rows) == 0 {
+		fmt.Println("Snapshot updates: none")
+		fmt.Println()
+		return
+	}
+
+	fmt.Println("Snapshot updates:")
+	for _, row := range rows {
+		switch row.Status {
+		case graders.SnapshotUpdated:
+			fmt.Printf("  %s - updated (%d lines changed)\n", row.Snapshot, row.LinesChanged)
+		case graders.SnapshotCreated:
+			fmt.Printf("  %s - created\n", row.Snapshot)
+		case graders.SnapshotUnchanged:
+			fmt.Printf("  %s - no changes\n", row.Snapshot)
+		default:
+			fmt.Printf("  %s - %s\n", row.Snapshot, row.Status)
+		}
+	}
+	fmt.Println()
+}
+
+func parseSnapshotUpdates(raw any) ([]graders.SnapshotUpdate, error) {
+	switch updates := raw.(type) {
+	case []graders.SnapshotUpdate:
+		return updates, nil
+	case []*graders.SnapshotUpdate:
+		parsed := make([]graders.SnapshotUpdate, 0, len(updates))
+		for _, update := range updates {
+			if update == nil {
+				continue
+			}
+			parsed = append(parsed, *update)
+		}
+		return parsed, nil
+	default:
+		data, err := json.Marshal(raw)
+		if err != nil {
+			return nil, err
+		}
+		var parsed []graders.SnapshotUpdate
+		if err := json.Unmarshal(data, &parsed); err != nil {
+			return nil, err
+		}
+		return parsed, nil
 	}
 }
 
