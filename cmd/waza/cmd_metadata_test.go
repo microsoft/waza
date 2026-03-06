@@ -51,7 +51,7 @@ func TestMetadataCommand_ContainsExpectedCommands(t *testing.T) {
 		}
 	}
 
-	expectedCmds := []string{"run", "init", "new", "compare", "tokens"}
+	expectedCmds := []string{"run", "init", "new", "eval", "compare", "tokens"}
 	for _, name := range expectedCmds {
 		require.True(t, cmdNames[name], "expected command %q in metadata output", name)
 	}
