@@ -3,6 +3,7 @@ package checks
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/microsoft/waza/internal/skill"
@@ -257,4 +258,274 @@ func TestOverSpecificityChecker(t *testing.T) {
 			require.Len(t, data.Categories, tt.categories)
 		})
 	}
+}
+
+// Test #75: CrossModelDensityChecker
+func TestCrossModelDensityChecker(t *testing.T) {
+	tests := []struct {
+		name          string
+		description   string
+		passed        bool
+		status        CheckStatus
+		wordCount     int
+		hasActionVerb bool
+	}{
+		{
+			name:          "optimal - short with action verb",
+			description:   "Use this skill to process files quickly",
+			passed:        true,
+			status:        StatusOptimal,
+			wordCount:     7,
+			hasActionVerb: true,
+		},
+		{
+			name:          "warning - over 60 words",
+			description:   strings.Repeat("word ", 65),
+			passed:        false,
+			status:        StatusWarning,
+			wordCount:     65,
+			hasActionVerb: false,
+		},
+		{
+			name:          "no action verb - still passes",
+			description:   "This skill is useful for processing files",
+			passed:        true,
+			status:        StatusOK,
+			wordCount:     7,
+			hasActionVerb: false,
+		},
+		{
+			name:        "empty description",
+			description: "",
+			passed:      true,
+			status:      StatusOK,
+		},
+		{
+			name:          "exactly 60 words - OK",
+			description:   "Use " + strings.Repeat("word ", 59),
+			passed:        true,
+			status:        StatusOptimal,
+			wordCount:     60,
+			hasActionVerb: true,
+		},
+		{
+			name:          "61 words - warning",
+			description:   strings.Repeat("word ", 61),
+			passed:        false,
+			status:        StatusWarning,
+			wordCount:     61,
+			hasActionVerb: false,
+		},
+		{
+			name:          "action verb with punctuation",
+			description:   "WHEN: processing files quickly",
+			passed:        true,
+			status:        StatusOptimal,
+			wordCount:     3,
+			hasActionVerb: true,
+		},
+	}
+
+	checker := &CrossModelDensityChecker{}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sk := skill.Skill{Frontmatter: skill.Frontmatter{Description: tt.description}}
+			result, err := checker.Check(sk)
+			require.NoError(t, err)
+			require.Equal(t, tt.passed, result.Passed)
+			data, ok := result.Data.(*CrossModelDensityData)
+			require.True(t, ok)
+			require.Equal(t, tt.status, data.Status)
+		})
+	}
+}
+
+// Test #76: BodyStructureChecker
+func TestBodyStructureChecker(t *testing.T) {
+	tests := []struct {
+		name       string
+		rawContent string
+		passed     bool
+		status     CheckStatus
+	}{
+		{
+			name: "complete structure",
+			rawContent: `---
+name: test
+---
+## Example
+Here's an example:
+` + "```bash\necho hello\n```" + `
+
+## Troubleshooting
+Common errors and how to fix them.
+`,
+			passed: true,
+			status: StatusOK,
+		},
+		{
+			name: "missing examples",
+			rawContent: `---
+name: test
+---
+` + "```bash\necho hello\n```" + `
+## Error Handling
+Handle errors carefully.
+`,
+			passed: false,
+			status: StatusWarning,
+		},
+		{
+			name: "missing error handling",
+			rawContent: `---
+name: test
+---
+## Example
+` + "```bash\necho hello\n```",
+			passed: false,
+			status: StatusWarning,
+		},
+		{
+			name: "no actionable instructions",
+			rawContent: `---
+name: test
+---
+Just plain text with no code blocks or numbered steps.
+## Example
+Another plain section.
+## Note
+Be careful.
+`,
+			passed: false,
+			status: StatusWarning,
+		},
+		{
+			name: "numbered steps count as actionable",
+			rawContent: `---
+name: test
+---
+1. First step
+2. Second step
+## Example
+Steps example
+## Troubleshooting
+If the command fails, check your config.
+`,
+			passed: true,
+			status: StatusOK,
+		},
+	}
+
+	checker := &BodyStructureChecker{}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sk := skill.Skill{RawContent: tt.rawContent}
+			result, err := checker.Check(sk)
+			require.NoError(t, err)
+			require.Equal(t, tt.passed, result.Passed, "result.Summary: %s", result.Summary)
+			data, ok := result.Data.(*BodyStructureData)
+			require.True(t, ok)
+			require.Equal(t, tt.status, data.Status)
+		})
+	}
+}
+
+// Test #77: ProgressiveDisclosureChecker
+func TestProgressiveDisclosureChecker(t *testing.T) {
+	tests := []struct {
+		name            string
+		rawContent      string
+		passed          bool
+		status          CheckStatus
+		expectBodyWarn  bool
+		expectBlockWarn bool
+	}{
+		{
+			name: "compact content",
+			rawContent: `---
+name: test
+---
+Short content with ` + "```bash\necho hello\n```",
+			passed: true,
+			status: StatusOK,
+		},
+		{
+			name:           "body over 500 lines",
+			rawContent:     strings.Repeat("line\n", 501),
+			passed:         false,
+			status:         StatusWarning,
+			expectBodyWarn: true,
+		},
+		{
+			name: "large code block",
+			rawContent: `---
+name: test
+---
+` + "```bash\n" + strings.Repeat("echo line\n", 55) + "```",
+			passed:          false,
+			status:          StatusWarning,
+			expectBlockWarn: true,
+		},
+		{
+			name: "code block exactly 50 lines - OK",
+			rawContent: `---
+name: test
+---
+` + "```bash\n" + strings.Repeat("echo line\n", 48) + "```",
+			passed: true,
+			status: StatusOK,
+		},
+		{
+			name: "multiple small code blocks - OK",
+			rawContent: `---
+name: test
+---
+` + "```bash\necho 1\n```\n```bash\necho 2\n```",
+			passed: true,
+			status: StatusOK,
+		},
+		{
+			name: "large code block with inline backticks",
+			rawContent: `---
+name: test
+---
+` + "```go\nfmt.Println(\"``` not a fence\")\n" + strings.Repeat("echo line\n", 51) + "```",
+			passed:          false,
+			status:          StatusWarning,
+			expectBlockWarn: true,
+		},
+	}
+
+	checker := &ProgressiveDisclosureChecker{}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sk := skill.Skill{RawContent: tt.rawContent}
+			result, err := checker.Check(sk)
+			require.NoError(t, err)
+			require.Equal(t, tt.passed, result.Passed)
+			data, ok := result.Data.(*ProgressiveDisclosureData)
+			require.True(t, ok)
+			require.Equal(t, tt.status, data.Status)
+		})
+	}
+}
+
+func TestBodyStructureChecker_UsesBodyNotFrontmatter(t *testing.T) {
+	checker := &BodyStructureChecker{}
+	sk := skill.Skill{
+		Body: `## Example
+` + "```bash\necho hello\n```" + `
+## Troubleshooting
+Error handling guidance.`,
+		RawContent: `---
+name: test
+description: "for example: this appears only in frontmatter"
+---
+placeholder`,
+	}
+
+	result, err := checker.Check(sk)
+	require.NoError(t, err)
+	require.True(t, result.Passed)
+	require.Equal(t, "Advisory 17: body structure quality", result.Summary)
 }

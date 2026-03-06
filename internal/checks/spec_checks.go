@@ -321,6 +321,94 @@ func (*SpecLicenseChecker) Check(sk skill.Skill) (*CheckResult, error) {
 	}, nil
 }
 
+// SpecSecurityChecker flags security risks in frontmatter string values.
+type SpecSecurityChecker struct{}
+
+var _ ComplianceChecker = (*SpecSecurityChecker)(nil)
+
+func (*SpecSecurityChecker) Name() string { return "spec-security" }
+
+func (*SpecSecurityChecker) Check(sk skill.Skill) (*CheckResult, error) {
+	var violations []string
+
+	// Check for reserved name prefixes regardless of FrontmatterRaw presence,
+	// since Frontmatter.Name can be populated programmatically.
+	name := sk.Frontmatter.Name
+	if name != "" {
+		if strings.HasPrefix(name, "claude-") {
+			violations = append(violations, "name starts with reserved prefix 'claude-'")
+		}
+		if strings.HasPrefix(name, "anthropic-") {
+			violations = append(violations, "name starts with reserved prefix 'anthropic-'")
+		}
+	}
+
+	// Scan raw frontmatter values for XML angle brackets when available.
+	if sk.FrontmatterRaw != nil {
+		checkStringValue := func(key string, val any) {
+			s, isStr := val.(string)
+			if !isStr {
+				return
+			}
+			if strings.ContainsAny(s, "<>") {
+				violations = append(violations, fmt.Sprintf("%s contains XML angle brackets", key))
+			}
+		}
+
+		var checkMap func(prefix string, m map[string]any)
+		var checkSlice func(prefix string, s []any)
+
+		checkMap = func(prefix string, m map[string]any) {
+			for k, v := range m {
+				fullKey := k
+				if prefix != "" {
+					fullKey = prefix + "." + k
+				}
+				switch vv := v.(type) {
+				case map[string]any:
+					checkMap(fullKey, vv)
+				case []any:
+					checkSlice(fullKey, vv)
+				default:
+					checkStringValue(fullKey, v)
+				}
+			}
+		}
+
+		checkSlice = func(prefix string, s []any) {
+			for i, elem := range s {
+				elemKey := fmt.Sprintf("%s[%d]", prefix, i)
+				switch vv := elem.(type) {
+				case map[string]any:
+					checkMap(elemKey, vv)
+				case []any:
+					checkSlice(elemKey, vv)
+				default:
+					checkStringValue(elemKey, elem)
+				}
+			}
+		}
+
+		checkMap("", sk.FrontmatterRaw)
+	}
+
+	if len(violations) > 0 {
+		return &CheckResult{
+			Name:    "spec-security",
+			Passed:  false,
+			Summary: fmt.Sprintf("Security risks detected: %s", strings.Join(violations, "; ")),
+			Data:    &ScoreCheckData{Status: StatusWarning, Evidence: "XML angle brackets and reserved prefixes pose injection and naming conflict risks"},
+		}, nil
+	}
+
+	return &CheckResult{
+		Name:    "spec-security",
+		Passed:  true,
+		Summary: "No security risks detected in frontmatter",
+		Data:    &ScoreCheckData{Status: StatusOK},
+	}, nil
+}
+
 // SpecVersionChecker recommends including a metadata.version field.
 type SpecVersionChecker struct{}
 
