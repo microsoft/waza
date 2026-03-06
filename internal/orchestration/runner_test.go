@@ -180,6 +180,29 @@ func TestBuildExecutionRequest_TimeoutOverride(t *testing.T) {
 	assert.Equal(t, float64(300), req.Timeout.Seconds(), "test case timeout should override spec timeout")
 }
 
+func TestComputeTestStats_ErrorRunsCountAsFailed(t *testing.T) {
+	runner := &TestRunner{}
+	runs := []models.RunResult{
+		{
+			Status: models.StatusPassed,
+			Validations: map[string]models.GraderResults{
+				"g": {Passed: true, Score: 1.0},
+			},
+		},
+		{
+			Status:      models.StatusError,
+			Validations: nil,
+		},
+	}
+
+	stats := runner.computeTestStats(runs)
+	require.NotNil(t, stats)
+	assert.Equal(t, 1, stats.PassedRuns)
+	assert.Equal(t, 1, stats.FailedRuns)
+	assert.Equal(t, 1, stats.ErrorRuns)
+	assert.Equal(t, 0.5, stats.PassRate)
+}
+
 func TestValidateRequiredSkills_Integration(t *testing.T) {
 	// Create temporary directories for testing
 	tmpDir := t.TempDir()

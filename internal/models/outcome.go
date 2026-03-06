@@ -206,6 +206,11 @@ func AggregateUsageStats(stats []*UsageStats) *UsageStats {
 
 type TestStats struct {
 	PassRate         float64 `json:"pass_rate"`
+	FlakinessPercent float64 `json:"flakiness_percent"`
+	PassedRuns       int     `json:"passed_runs"`
+	FailedRuns       int     `json:"failed_runs"`
+	ErrorRuns        int     `json:"error_runs"`
+	TotalRuns        int     `json:"total_runs"`
 	AvgScore         float64 `json:"avg_score"`
 	AvgWeightedScore float64 `json:"avg_weighted_score"`
 	MinScore         float64 `json:"min_score"`

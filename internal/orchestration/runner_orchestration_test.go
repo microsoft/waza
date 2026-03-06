@@ -312,6 +312,43 @@ func TestBuildGraderContextAndScoreHelpers(t *testing.T) {
 	assert.Equal(t, 0.0, stdDev)
 }
 
+func TestComputeTestStats_FlakinessPercent(t *testing.T) {
+	runner := NewTestRunner(config.NewBenchmarkConfig(&models.BenchmarkSpec{}), nil)
+	runs := []models.RunResult{
+		{
+			Status:     models.StatusPassed,
+			DurationMs: 10,
+			Validations: map[string]models.GraderResults{
+				"check": {Passed: true, Score: 1},
+			},
+		},
+		{
+			Status:     models.StatusPassed,
+			DurationMs: 20,
+			Validations: map[string]models.GraderResults{
+				"check": {Passed: true, Score: 1},
+			},
+		},
+		{
+			Status:     models.StatusFailed,
+			DurationMs: 30,
+			Validations: map[string]models.GraderResults{
+				"check": {Passed: false, Score: 0},
+			},
+		},
+	}
+
+	stats := runner.computeTestStats(runs)
+	require.NotNil(t, stats)
+	assert.Equal(t, 3, stats.TotalRuns)
+	assert.Equal(t, 2, stats.PassedRuns)
+	assert.Equal(t, 1, stats.FailedRuns)
+	assert.Equal(t, 0, stats.ErrorRuns)
+	assert.InDelta(t, 66.6667, stats.PassRate*100, 0.1)
+	assert.True(t, stats.Flaky)
+	assert.InDelta(t, 33.3333, stats.FlakinessPercent, 0.1)
+}
+
 func TestRunTest_CacheHitAndTranscriptWrite(t *testing.T) {
 	spec := &models.BenchmarkSpec{
 		SkillName: "cache-skill",
