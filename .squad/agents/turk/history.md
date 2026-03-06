@@ -5,7 +5,7 @@
 - **Project:** waza — CLI tool for evaluating Agent Skills
 - **Owner:** Shayne Boyer
 - **Stack:** Go (primary), TypeScript/React 19 (dashboard)
-- **Repository:** spboyer/waza
+- **Repository:** microsoft/waza
 - **Codebase:** 239 Go files, ~53K LOC across `cmd/waza/` and `internal/`
 - **Azure integration:** azd SDK, azcore, Copilot SDK via JSON-RPC
 

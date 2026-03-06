@@ -7,7 +7,7 @@
 - **Owner:** Shayne Boyer
 - **Stack:** Go (primary), TypeScript/React 19, Tailwind CSS v4, Vite, Playwright
 - **Description:** waza evaluates how well AI agents can perform complex coding tasks
-- **Repository:** spboyer/waza
+- **Repository:** microsoft/waza
 - **Universe:** The Usual Suspects
 
 ## Coordinator
