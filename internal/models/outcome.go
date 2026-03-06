@@ -31,6 +31,7 @@ const (
 	GraderKindBehavior        GraderKind = "behavior"
 	GraderKindActionSequence  GraderKind = "action_sequence"
 	GraderKindSkillInvocation GraderKind = "skill_invocation"
+	GraderKindTrigger         GraderKind = "trigger"
 	GraderKindDiff            GraderKind = "diff"
 	GraderKindToolConstraint  GraderKind = "tool_constraint"
 )

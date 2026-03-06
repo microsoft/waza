@@ -217,6 +217,7 @@
             "behavior",
             "action_sequence",
             "skill_invocation",
+            "trigger",
             "diff",
             "tool_constraint"
           ],
@@ -399,6 +400,28 @@
                 "$ref": "#/$defs/toolConstraintGraderConfig"
               }
             }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "trigger"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "config": {
+                "$ref": "#/$defs/triggerGraderConfig"
+              }
+            },
+            "required": [
+              "config"
+            ]
           }
         },
         {
@@ -813,6 +836,33 @@
         "allow_extra": {
           "type": "boolean",
           "default": true
+        }
+      }
+    },
+    "triggerGraderConfig": {
+      "type": "object",
+      "required": [
+        "skill_path",
+        "mode"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "skill_path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "mode": {
+          "type": "string",
+          "enum": [
+            "positive",
+            "negative"
+          ]
+        },
+        "threshold": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "default": 0.6
         }
       }
     },
