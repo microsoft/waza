@@ -322,6 +322,41 @@ waza tokens check code-explainer
 Token limits are resolved in priority order: `.waza.yaml tokens.limits` → `.token-limits.json` (legacy, emits a deprecation warning) → built-in defaults.
 See the **[Token Limits guide](../../guides/token-limits/)** for configuration details, pattern syntax, and migration instructions.
 
+### waza tokens compare
+
+Compare markdown token counts between git refs. Supports general-purpose
+file-level comparison and skill-aware comparison with CI gating.
+
+```bash
+waza tokens compare [refs...]
+```
+
+```bash
+# Compare HEAD to working tree (default)
+waza tokens compare
+
+# Compare a specific ref to working tree
+waza tokens compare main
+
+# Skill-aware comparison with CI threshold
+waza tokens compare main --skills --threshold 10
+
+# JSON output with strict absolute limits
+waza tokens compare main --skills --threshold 10 --strict --format json
+```
+
+**Flags:** `--format table|json`, `--show-unchanged`, `--strict`, `--skills`,
+`--threshold <percent>`
+
+Without `--skills`, compares all markdown files. With `--skills`, restricts
+comparison to `SKILL.md` files under configured skill roots (`skills/`,
+`.github/skills/`, and `paths.skills` from `.waza.yaml`). In skills mode the
+default base ref is `origin/main` (falling back to `main`).
+
+`--threshold` sets a percentage-change gate for CI — newly added files are
+exempt from threshold checks (no baseline to compare) but still subject to
+absolute limit checks when `--strict` is set.
+
 ### waza tokens profile
 
 Structural analysis of SKILL.md files — reports token count, section count, code block count, and workflow step detection.

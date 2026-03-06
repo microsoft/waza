@@ -102,6 +102,9 @@ waza compare results-gpt4.json results-sonnet.json
 # Count tokens in skill files
 waza tokens count skills/
 
+# Compare skill token budgets vs main
+waza tokens compare main --skills --threshold 10
+
 # Suggest token optimizations
 waza tokens suggest skills/
 ```
@@ -408,6 +411,40 @@ Count tokens in markdown files. Paths may be files or directories (scanned recur
 | `--sort <field>` | Sort by: `tokens`, `name`, or `path` (default: `path`) |
 | `--min-tokens <n>` | Filter files below n tokens |
 | `--no-total` | Hide total row in table output |
+
+### `waza tokens compare [refs...]`
+
+Compare markdown token counts between git refs.
+
+With no arguments, compares HEAD to the working tree.
+With one ref, compares that ref to the working tree.
+With two refs, compares the first ref to the second.
+
+| Flag | Description |
+|------|-------------|
+| `--format <fmt>` | Output format: `table` or `json` (default: `table`) |
+| `--show-unchanged` | Include unchanged files in output |
+| `--strict` | Exit with code 1 if any file exceeds its absolute token limit |
+| `--skills` | Only compare SKILL.md files under configured skill roots |
+| `--threshold <n>` | Fail when any existing file increases by more than n percent (0 = disabled) |
+
+Use `--skills` to restrict comparison to SKILL.md files under configured skill
+roots (`skills/`, `.github/skills/`, and `paths.skills` from `.waza.yaml`). In
+skills mode the default base ref is `origin/main` (falling back to `main`).
+
+Use `--threshold` for CI gating — newly added files are exempt from threshold
+checks (no baseline) but still subject to absolute limit checks with `--strict`.
+
+```bash
+# Compare all markdown tokens between HEAD and working tree
+waza tokens compare
+
+# Skill-aware comparison vs main with CI threshold
+waza tokens compare main --skills --threshold 10
+
+# JSON output for CI pipelines
+waza tokens compare main --skills --threshold 10 --strict --format json
+```
 
 ### `waza tokens profile [skill-name | path]`
 

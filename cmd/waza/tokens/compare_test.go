@@ -33,6 +33,7 @@ func initRepo(t *testing.T) string {
 		{"git", "init", "-b", "main"},
 		{"git", "config", "user.email", "test@test.com"},
 		{"git", "config", "user.name", "Test"},
+		{"git", "config", "core.safecrlf", "false"},
 	}
 	for _, args := range cmds {
 		cmd := exec.Command(args[0], args[1:]...)
@@ -434,9 +435,9 @@ func TestCompare_Strict(t *testing.T) {
 
 		err := cmd.Execute()
 		require.Error(t, err)
-		require.Contains(t, err.Error(), "exceed token limits")
+		require.Contains(t, err.Error(), "over absolute token limit")
 		require.Contains(t, out.String(), "⚠️")
-		require.Contains(t, out.String(), "exceed token limits")
+		require.Contains(t, out.String(), "exceed limits")
 	})
 
 	t.Run("only checks after ref not removed files", func(t *testing.T) {
@@ -483,6 +484,7 @@ func TestCompare_Strict(t *testing.T) {
 		var report comparisonReport
 		require.NoError(t, json.Unmarshal(out.Bytes(), &report))
 		require.Greater(t, report.Summary.ExceededCount, 0)
+		require.False(t, report.Passed)
 
 		found := false
 		for _, f := range report.Files {
@@ -513,6 +515,238 @@ func TestCompare_Strict(t *testing.T) {
 
 		// Without --strict, should succeed even though file exceeds limit
 		require.NoError(t, cmd.Execute())
-		require.NotContains(t, out.String(), "exceed token limits")
+		require.NotContains(t, out.String(), "exceed limits")
+	})
+}
+
+func TestCompare_Skills(t *testing.T) {
+	t.Run("filters to skill files only", func(t *testing.T) {
+		dir := initRepo(t)
+
+		require.NoError(t, os.MkdirAll(filepath.Join(dir, "skills", "alpha"), 0o755))
+		require.NoError(t, os.MkdirAll(filepath.Join(dir, ".github", "skills", "beta"), 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "skills", "alpha", "SKILL.md"), []byte("# Alpha\nbase content"), 0o644))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, ".github", "skills", "beta", "SKILL.md"), []byte("# Beta\nunchanged"), 0o644))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "README.md"), []byte("# Repo readme"), 0o644))
+		commit(t, dir, "initial skills")
+
+		// Modify skill and README — only skill should appear with --skills
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "skills", "alpha", "SKILL.md"), []byte("# Alpha\nbase content with extra words to increase tokens"), 0o644))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "README.md"), []byte("# Repo readme with lots more text added here"), 0o644))
+
+		out := new(bytes.Buffer)
+		cmd := newCompareCmd()
+		cmd.SetOut(out)
+		cmd.SetErr(new(bytes.Buffer))
+		cmd.SetArgs([]string{"main", "--skills"})
+
+		require.NoError(t, cmd.Execute())
+		require.Contains(t, out.String(), "skills/alpha/SKILL.md")
+		require.NotContains(t, out.String(), "README.md")
+	})
+
+	t.Run("default base ref falls back to main", func(t *testing.T) {
+		dir := initRepo(t)
+
+		require.NoError(t, os.MkdirAll(filepath.Join(dir, "skills", "gamma"), 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "skills", "gamma", "SKILL.md"), []byte("# Gamma\nv1"), 0o644))
+		commit(t, dir, "initial")
+
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "skills", "gamma", "SKILL.md"), []byte("# Gamma\nv2 expanded"), 0o644))
+
+		out := new(bytes.Buffer)
+		cmd := newCompareCmd()
+		cmd.SetOut(out)
+		cmd.SetErr(new(bytes.Buffer))
+		cmd.SetArgs([]string{"--skills"})
+
+		require.NoError(t, cmd.Execute())
+		require.Contains(t, out.String(), "main → WORKING")
+	})
+
+	t.Run("custom skill roots from waza.yaml", func(t *testing.T) {
+		dir := initRepo(t)
+
+		cfg := "paths:\n  skills: custom-skills\n"
+		require.NoError(t, os.WriteFile(filepath.Join(dir, ".waza.yaml"), []byte(cfg), 0o644))
+		require.NoError(t, os.MkdirAll(filepath.Join(dir, "custom-skills", "delta"), 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "custom-skills", "delta", "SKILL.md"), []byte("# Delta\none two"), 0o644))
+		commit(t, dir, "initial custom skill")
+
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "custom-skills", "delta", "SKILL.md"), []byte("# Delta\none two three four five six seven"), 0o644))
+
+		out := new(bytes.Buffer)
+		cmd := newCompareCmd()
+		cmd.SetOut(out)
+		cmd.SetErr(new(bytes.Buffer))
+		cmd.SetArgs([]string{"main", "--skills", "--format", "json"})
+
+		require.NoError(t, cmd.Execute())
+
+		var report comparisonReport
+		require.NoError(t, json.Unmarshal(out.Bytes(), &report))
+		require.True(t, report.Passed)
+		require.Len(t, report.Files, 1)
+		require.Equal(t, "custom-skills/delta/SKILL.md", report.Files[0].File)
+	})
+}
+
+func TestCompare_Threshold(t *testing.T) {
+	t.Run("fails when threshold exceeded", func(t *testing.T) {
+		dir := initRepo(t)
+
+		require.NoError(t, os.MkdirAll(filepath.Join(dir, "skills", "alpha"), 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "skills", "alpha", "SKILL.md"), []byte("# Alpha\nbase content"), 0o644))
+		commit(t, dir, "initial skills")
+
+		// Large increase to trigger threshold
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "skills", "alpha", "SKILL.md"), []byte("# Alpha\nbase content with extra words to increase tokens significantly"), 0o644))
+
+		out := new(bytes.Buffer)
+		cmd := newCompareCmd()
+		cmd.SetOut(out)
+		cmd.SetErr(new(bytes.Buffer))
+		cmd.SetArgs([]string{"main", "--skills", "--threshold", "5"})
+
+		err := cmd.Execute()
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "exceeded")
+		require.Contains(t, out.String(), "⚠️")
+	})
+
+	t.Run("passes when under threshold", func(t *testing.T) {
+		dir := initRepo(t)
+
+		require.NoError(t, os.MkdirAll(filepath.Join(dir, "skills", "alpha"), 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "skills", "alpha", "SKILL.md"), []byte("# Alpha\nbase content"), 0o644))
+		commit(t, dir, "initial skills")
+
+		// Small increase within threshold
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "skills", "alpha", "SKILL.md"), []byte("# Alpha\nbase content v2"), 0o644))
+
+		out := new(bytes.Buffer)
+		cmd := newCompareCmd()
+		cmd.SetOut(out)
+		cmd.SetErr(new(bytes.Buffer))
+		cmd.SetArgs([]string{"main", "--skills", "--threshold", "500"})
+
+		require.NoError(t, cmd.Execute())
+	})
+
+	t.Run("newly added files exempt from threshold", func(t *testing.T) {
+		dir := initRepo(t)
+
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "README.md"), []byte("# V1"), 0o644))
+		commit(t, dir, "initial")
+
+		// Add a brand new file — would be +100% but should not trigger threshold
+		require.NoError(t, os.MkdirAll(filepath.Join(dir, "skills", "new-skill"), 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "skills", "new-skill", "SKILL.md"), []byte("# Brand New Skill\nwith content"), 0o644))
+
+		out := new(bytes.Buffer)
+		cmd := newCompareCmd()
+		cmd.SetOut(out)
+		cmd.SetErr(new(bytes.Buffer))
+		cmd.SetArgs([]string{"main", "--skills", "--threshold", "5"})
+
+		// Should pass — new files are exempt from threshold
+		require.NoError(t, cmd.Execute())
+	})
+
+	t.Run("over-limit fails even when under threshold", func(t *testing.T) {
+		dir := initRepo(t)
+
+		// Low absolute limit
+		cfg := "paths:\n  skills: skills\ntokens:\n  limits:\n    defaults:\n      \"skills/**/SKILL.md\": 5\n"
+		require.NoError(t, os.WriteFile(filepath.Join(dir, ".waza.yaml"), []byte(cfg), 0o644))
+		require.NoError(t, os.MkdirAll(filepath.Join(dir, "skills", "big"), 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "skills", "big", "SKILL.md"), []byte("# Big\none two three four"), 0o644))
+		commit(t, dir, "initial")
+
+		// Small change (under threshold) but still over absolute limit
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "skills", "big", "SKILL.md"), []byte("# Big\none two three four five"), 0o644))
+
+		out := new(bytes.Buffer)
+		cmd := newCompareCmd()
+		cmd.SetOut(out)
+		cmd.SetErr(new(bytes.Buffer))
+		cmd.SetArgs([]string{"main", "--skills", "--threshold", "500", "--strict"})
+
+		err := cmd.Execute()
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "over absolute token limit")
+	})
+
+	t.Run("json report includes threshold and passed", func(t *testing.T) {
+		dir := initRepo(t)
+
+		require.NoError(t, os.MkdirAll(filepath.Join(dir, "skills", "alpha"), 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "skills", "alpha", "SKILL.md"), []byte("# Alpha\nbase"), 0o644))
+		commit(t, dir, "initial")
+
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "skills", "alpha", "SKILL.md"), []byte("# Alpha\nbase v2"), 0o644))
+
+		out := new(bytes.Buffer)
+		cmd := newCompareCmd()
+		cmd.SetOut(out)
+		cmd.SetErr(new(bytes.Buffer))
+		cmd.SetArgs([]string{"main", "--skills", "--threshold", "500", "--format", "json"})
+
+		require.NoError(t, cmd.Execute())
+
+		var report comparisonReport
+		require.NoError(t, json.Unmarshal(out.Bytes(), &report))
+		require.True(t, report.Passed)
+		require.Equal(t, 500.0, report.Threshold)
+	})
+
+	t.Run("over-limit with threshold only does not fail", func(t *testing.T) {
+		dir := initRepo(t)
+
+		// Low absolute limit so the file exceeds it
+		cfg := "paths:\n  skills: skills\ntokens:\n  limits:\n    defaults:\n      \"skills/**/SKILL.md\": 5\n"
+		require.NoError(t, os.WriteFile(filepath.Join(dir, ".waza.yaml"), []byte(cfg), 0o644))
+		require.NoError(t, os.MkdirAll(filepath.Join(dir, "skills", "big"), 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "skills", "big", "SKILL.md"), []byte("# Big\none two three four"), 0o644))
+		commit(t, dir, "initial")
+
+		// Small change (under threshold) but still over absolute limit
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "skills", "big", "SKILL.md"), []byte("# Big\none two three four five"), 0o644))
+
+		out := new(bytes.Buffer)
+		cmd := newCompareCmd()
+		cmd.SetOut(out)
+		cmd.SetErr(new(bytes.Buffer))
+		// threshold is set, but --strict is intentionally omitted
+		cmd.SetArgs([]string{"main", "--skills", "--threshold", "500"})
+
+		// With threshold only, absolute-limit breaches should not cause failure
+		require.NoError(t, cmd.Execute())
+	})
+
+	t.Run("both threshold and strict report independently", func(t *testing.T) {
+		dir := initRepo(t)
+
+		// Low absolute limit
+		cfg := "paths:\n  skills: skills\ntokens:\n  limits:\n    defaults:\n      \"skills/**/SKILL.md\": 5\n"
+		require.NoError(t, os.WriteFile(filepath.Join(dir, ".waza.yaml"), []byte(cfg), 0o644))
+		require.NoError(t, os.MkdirAll(filepath.Join(dir, "skills", "big"), 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "skills", "big", "SKILL.md"), []byte("# Big\none two"), 0o644))
+		commit(t, dir, "initial")
+
+		// Large change: over threshold AND over absolute limit
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "skills", "big", "SKILL.md"), []byte("# Big\none two three four five six seven eight nine ten"), 0o644))
+
+		out := new(bytes.Buffer)
+		cmd := newCompareCmd()
+		cmd.SetOut(out)
+		cmd.SetErr(new(bytes.Buffer))
+		cmd.SetArgs([]string{"main", "--skills", "--threshold", "5", "--strict"})
+
+		err := cmd.Execute()
+		require.Error(t, err)
+		// Both categories should appear in the error
+		require.Contains(t, err.Error(), "exceeded")
+		require.Contains(t, err.Error(), "over absolute token limit")
 	})
 }
