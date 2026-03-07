@@ -122,7 +122,7 @@ func ConfigDetectOptions() []workspace.DetectOption {
 func resolveLimitsConfig(skillDir string) (cfg checks.TokenLimitsConfig, usedLegacy bool) {
 	// Primary: .waza.yaml tokens.limits
 	pcfg, err := projectconfig.Load(skillDir)
-	if err == nil && pcfg.Tokens.Limits != nil && (pcfg.Tokens.Limits.Defaults != nil || pcfg.Tokens.Limits.Overrides != nil) {
+	if err == nil && hasConfiguredTokenLimits(pcfg.Tokens.Limits) {
 		defaults := pcfg.Tokens.Limits.Defaults
 		if defaults == nil {
 			defaults = make(map[string]int)
@@ -144,6 +144,13 @@ func resolveLimitsConfig(skillDir string) (cfg checks.TokenLimitsConfig, usedLeg
 
 	// Neither source has limits — Check() will apply built-in defaults.
 	return checks.TokenLimitsConfig{}, false
+}
+
+func hasConfiguredTokenLimits(limits *projectconfig.TokenLimitsConfig) bool {
+	if limits == nil {
+		return false
+	}
+	return limits.Defaults != nil || limits.Overrides != nil
 }
 
 // computeWorkspaceRelPrefix returns the forward-slash-separated path from

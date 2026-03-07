@@ -117,3 +117,22 @@ func TestResolveLimitsConfig_OverridesOnly(t *testing.T) {
 	require.NotNil(t, cfg.Defaults, "defaults map should be initialized even when only overrides are set")
 	require.Equal(t, 4000, cfg.Overrides["special.md"])
 }
+
+func TestResolveLimitsConfig_OverridesOnly_WazaYamlWinsOverLegacyJSON(t *testing.T) {
+	dir := t.TempDir()
+
+	yaml := "tokens:\n  limits:\n    overrides:\n      \"special.md\": 4000\n"
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".waza.yaml"), []byte(yaml), 0644))
+
+	limitsJSON, err := json.Marshal(map[string]any{
+		"defaults":  map[string]int{"*.md": 10},
+		"overrides": map[string]int{"special.md": 20},
+	})
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".token-limits.json"), limitsJSON, 0644))
+
+	cfg, usedLegacy := resolveLimitsConfig(dir)
+	require.False(t, usedLegacy, "overrides-only .waza.yaml should still take precedence over legacy limits")
+	require.NotNil(t, cfg.Defaults, "defaults map should be initialized even when only overrides are configured")
+	require.Equal(t, 4000, cfg.Overrides["special.md"], ".waza.yaml overrides should win over legacy limits")
+}
