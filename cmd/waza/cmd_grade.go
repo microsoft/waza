@@ -44,7 +44,7 @@ Example:
   waza grade eval.yaml --task my-task --results results.json`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runGrade(cmd.OutOrStdout(), cmd.ErrOrStderr(), args[0], taskID, resultsFile, workspace, judgeModel, outputPath, verbose)
+			return runGrade(cmd.Context(), cmd.OutOrStdout(), cmd.ErrOrStderr(), args[0], taskID, resultsFile, workspace, judgeModel, outputPath, verbose)
 		},
 	}
 
@@ -59,7 +59,7 @@ Example:
 	return cmd
 }
 
-func runGrade(w, errW io.Writer, specPath, taskID, resultsFile, workspace, judgeModel, outputFile string, verbose bool) error {
+func runGrade(ctx context.Context, w, errW io.Writer, specPath, taskID, resultsFile, workspace, judgeModel, outputFile string, verbose bool) error {
 	spec, err := models.LoadBenchmarkSpec(specPath)
 	if err != nil {
 		return fmt.Errorf("failed to load spec: %w", err)
@@ -100,17 +100,28 @@ func runGrade(w, errW io.Writer, specPath, taskID, resultsFile, workspace, judge
 	gradedOutcomes := make([]models.TestOutcome, 0, len(allTasks))
 	for _, tc := range allTasks {
 		runs, ok := runsByTask[tc.TestID]
-		if !ok || len(runs) == 0 {
+		if !ok {
 			if taskID != "" {
-				return fmt.Errorf("task %q not found or has no runs in results file", tc.TestID)
+				return fmt.Errorf("task %q not found in results file", tc.TestID)
 			}
 			if verbose {
 				_, _ = fmt.Fprintf(errW, "warning: task %q not found in results file, skipping\n", tc.TestID)
 			}
 			continue
 		}
+		if len(runs) == 0 {
+			if taskID != "" {
+				return fmt.Errorf("task %q has no runs in results file", tc.TestID)
+			}
+			if verbose {
+				if _, err = fmt.Fprintf(errW, "warning: task %q has no runs in results file, skipping\n", tc.TestID); err != nil {
+					return fmt.Errorf("failed to write verbose output: %w", err)
+				}
+			}
+			continue
+		}
 
-		result, gradedRuns, gradeErr := gradeTaskRuns(spec, tc, runs, workspace, effectiveJudgeModel, errW, verbose)
+		result, gradedRuns, gradeErr := gradeTaskRuns(ctx, spec, tc, runs, workspace, effectiveJudgeModel, errW, verbose)
 		if gradeErr != nil {
 			return fmt.Errorf("grading task %q: %w", tc.TestID, gradeErr)
 		}
@@ -142,9 +153,11 @@ func runGrade(w, errW io.Writer, specPath, taskID, resultsFile, workspace, judge
 		Passed       bool                       `json:"passed"`
 		Tasks        map[string]taskGradeResult `json:"tasks"`
 	}{
-		OverallScore: overallSum / float64(len(taskResults)),
-		Passed:       allPassed,
-		Tasks:        taskResults,
+		Passed: allPassed,
+		Tasks:  taskResults,
+	}
+	if len(taskResults) > 0 {
+		output.OverallScore = overallSum / float64(len(taskResults))
 	}
 
 	enc := json.NewEncoder(w)
@@ -199,14 +212,14 @@ func loadGradeTasks(spec *models.BenchmarkSpec, specDir, taskID string) ([]*mode
 	return allTasks, nil
 }
 
-func gradeTaskRuns(spec *models.BenchmarkSpec, tc *models.TestCase, runs []models.RunResult, workspace, judgeModel string, errW io.Writer, verbose bool) (taskGradeResult, []models.RunResult, error) {
+func gradeTaskRuns(ctx context.Context, spec *models.BenchmarkSpec, tc *models.TestCase, runs []models.RunResult, workspace, judgeModel string, errW io.Writer, verbose bool) (taskGradeResult, []models.RunResult, error) {
 	totalScore := 0.0
 	allPassed := true
 	graderTotals := make(map[string]float64)
 	gradedRuns := make([]models.RunResult, 0, len(runs))
 
 	for i := range runs {
-		gradedRun, err := gradeRun(spec, tc, &runs[i], workspace, judgeModel, errW, verbose)
+		gradedRun, err := gradeRun(ctx, spec, tc, &runs[i], workspace, judgeModel, errW, verbose)
 		if err != nil {
 			return taskGradeResult{}, nil, err
 		}
@@ -234,7 +247,7 @@ func gradeTaskRuns(spec *models.BenchmarkSpec, tc *models.TestCase, runs []model
 	}, gradedRuns, nil
 }
 
-func gradeRun(spec *models.BenchmarkSpec, tc *models.TestCase, run *models.RunResult, workspace, judgeModel string, errW io.Writer, verbose bool) (*models.RunResult, error) {
+func gradeRun(ctx context.Context, spec *models.BenchmarkSpec, tc *models.TestCase, run *models.RunResult, workspace, judgeModel string, errW io.Writer, verbose bool) (*models.RunResult, error) {
 	gradedRun := *run
 	if gradedRun.ErrorMsg != "" || gradedRun.Status == models.StatusError {
 		gradedRun.Validations = map[string]models.GraderResults{}
@@ -261,7 +274,6 @@ func gradeRun(spec *models.BenchmarkSpec, tc *models.TestCase, run *models.RunRe
 		}
 	}
 
-	ctx := context.Background()
 	graderResults, err := graders.RunAll(ctx, spec.Graders, tc, gradingCtx, judgeModel, false)
 	if err != nil {
 		return nil, err

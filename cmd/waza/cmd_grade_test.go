@@ -170,7 +170,7 @@ func TestGradeCommand_TaskNotInResults(t *testing.T) {
 
 	results := gradeResultsFile(t, dir, outcomeWithTasks(taskOutcome("other-task", "output")))
 	_, err := executeGrade(t, specPath, "--task", "task-001", "--results", results)
-	require.ErrorContains(t, err, "not found or has no runs in results file")
+	require.ErrorContains(t, err, "not found in results file")
 }
 
 func TestGradeCommand_TaskZeroRuns(t *testing.T) {
@@ -183,7 +183,7 @@ func TestGradeCommand_TaskZeroRuns(t *testing.T) {
 		Runs:   []models.RunResult{},
 	}))
 	_, err := executeGrade(t, specPath, "--task", "task-001", "--results", results)
-	require.ErrorContains(t, err, "not found or has no runs in results file")
+	require.ErrorContains(t, err, "has no runs")
 }
 
 func TestGradeCommand_SingleTask_Passing(t *testing.T) {
