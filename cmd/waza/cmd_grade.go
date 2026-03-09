@@ -215,7 +215,8 @@ func loadGradeTasks(spec *models.BenchmarkSpec, specDir, taskID string) ([]*mode
 func gradeTaskRuns(ctx context.Context, spec *models.BenchmarkSpec, tc *models.TestCase, runs []models.RunResult, workspace, judgeModel string, errW io.Writer, verbose bool) (taskGradeResult, []models.RunResult, error) {
 	totalScore := 0.0
 	allPassed := true
-	graderTotals := make(map[string]float64)
+	graderWeightedTotals := make(map[string]float64)
+	graderWeights := make(map[string]float64)
 	gradedRuns := make([]models.RunResult, 0, len(runs))
 
 	for i := range runs {
@@ -230,14 +231,19 @@ func gradeTaskRuns(ctx context.Context, spec *models.BenchmarkSpec, tc *models.T
 		}
 
 		for name, result := range gradedRun.Validations {
-			graderTotals[name] += result.Score
+			w := result.Weight
+			if w <= 0 {
+				w = 1.0
+			}
+			graderWeightedTotals[name] += result.Score * w
+			graderWeights[name] += w
 		}
 		gradedRuns = append(gradedRuns, *gradedRun)
 	}
 
-	graderAverages := make(map[string]float64, len(graderTotals))
-	for name, total := range graderTotals {
-		graderAverages[name] = total / float64(len(runs))
+	graderAverages := make(map[string]float64, len(graderWeightedTotals))
+	for name, total := range graderWeightedTotals {
+		graderAverages[name] = total / graderWeights[name]
 	}
 
 	return taskGradeResult{
