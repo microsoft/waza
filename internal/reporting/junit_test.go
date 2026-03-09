@@ -153,6 +153,29 @@ func TestConvertToJUnit_ErrorTestCase(t *testing.T) {
 	assert.Equal(t, "timeout after 60s", tc.Error.Message)
 }
 
+func TestConvertToJUnit_SkippedTestCase(t *testing.T) {
+	outcome := &models.EvaluationOutcome{
+		BenchName: "skip-test",
+		Timestamp: time.Now(),
+		Digest:    models.OutcomeDigest{TotalTests: 1, Skipped: 1, DurationMs: 500},
+		TestOutcomes: []models.TestOutcome{
+			{
+				DisplayName: "ungraded-task",
+				Status:      models.StatusNA,
+			},
+		},
+	}
+
+	suites := ConvertToJUnit(outcome)
+	tc := suites.TestSuites[0].TestCases[0]
+
+	assert.Nil(t, tc.Failure)
+	assert.Nil(t, tc.Error)
+	require.NotNil(t, tc.Skipped)
+	assert.Equal(t, "grading skipped", tc.Skipped.Message)
+	assert.Equal(t, 1, suites.TestSuites[0].Skipped)
+}
+
 func TestConvertToJUnit_Properties(t *testing.T) {
 	outcome := newTestOutcome()
 	suites := ConvertToJUnit(outcome)

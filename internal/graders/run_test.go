@@ -1,4 +1,4 @@
-package orchestration
+package graders
 
 import (
 	"testing"
@@ -6,15 +6,15 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestInjectJudgeModel(t *testing.T) {
+func TestWithModel(t *testing.T) {
 	t.Run("nil params", func(t *testing.T) {
-		result := injectJudgeModel(nil, "claude-opus-4.6")
+		result := WithModel(nil, "claude-opus-4.6")
 		assert.Equal(t, "claude-opus-4.6", result["model"])
 		assert.Len(t, result, 1)
 	})
 
 	t.Run("empty params", func(t *testing.T) {
-		result := injectJudgeModel(map[string]any{}, "claude-opus-4.6")
+		result := WithModel(map[string]any{}, "claude-opus-4.6")
 		assert.Equal(t, "claude-opus-4.6", result["model"])
 		assert.Len(t, result, 1)
 	})
@@ -24,7 +24,7 @@ func TestInjectJudgeModel(t *testing.T) {
 			"prompt":           "Check something",
 			"continue_session": true,
 		}
-		result := injectJudgeModel(original, "gpt-4o")
+		result := WithModel(original, "gpt-4o")
 		assert.Equal(t, "gpt-4o", result["model"])
 		assert.Equal(t, "Check something", result["prompt"])
 		assert.Equal(t, true, result["continue_session"])
@@ -36,9 +36,8 @@ func TestInjectJudgeModel(t *testing.T) {
 			"prompt": "Check something",
 			"model":  "gpt-4o-mini",
 		}
-		result := injectJudgeModel(original, "claude-opus-4.6")
+		result := WithModel(original, "claude-opus-4.6")
 		assert.Equal(t, "claude-opus-4.6", result["model"])
-		// original is not mutated
 		assert.Equal(t, "gpt-4o-mini", original["model"])
 	})
 
@@ -46,7 +45,7 @@ func TestInjectJudgeModel(t *testing.T) {
 		original := map[string]any{
 			"prompt": "Test prompt",
 		}
-		result := injectJudgeModel(original, "new-model")
+		result := WithModel(original, "new-model")
 		result["extra"] = "should not appear in original"
 		_, exists := original["extra"]
 		assert.False(t, exists)

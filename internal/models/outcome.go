@@ -14,7 +14,8 @@ const (
 	StatusPassed Status = "passed"
 	StatusFailed Status = "failed"
 	StatusError  Status = "error"
-	// StatusNA is used in comparison reports when a task is not found in a result file.
+	// StatusNA indicates grading was skipped (e.g. --skip-graders) or a task
+	// was absent from a comparison report.
 	StatusNA Status = "n/a"
 )
 

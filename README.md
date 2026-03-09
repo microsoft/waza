@@ -99,6 +99,9 @@ waza suggest skills/my-skill --apply
 # Run evaluations
 waza run examples/code-explainer/eval.yaml --context-dir examples/code-explainer/fixtures -v
 
+# Grade output from a previous `waza run --output results.json ...`
+waza grade eval.yaml --results results.json
+
 # Compare results across models
 waza compare results-gpt4.json results-sonnet.json
 
@@ -586,6 +589,24 @@ waza results compare run-20250226-001 run-20250226-002
 waza results compare run-20250226-001 run-20250226-002 --format json
 ```
 
+### `waza grade <eval.yaml>`
+
+Run graders against agent output without executing an agent. Designed for standalone grading of previous eval runs.
+
+| Flag | Description |
+|------|-------------|
+| `--task <id>` | Task ID to grade |
+| `--results <file>` | Path to waza run output JSON |
+| `--workspace <dir>` | Agent workspace directory for file-based graders; must point to the agent's actual workspace (default: `.`) |
+| `--judge-model <model>` | Model for prompt graders |
+| `-o, --output <file>` | Write full EvaluationOutcome JSON (compatible with `waza compare`) |
+| `-v, --verbose` | Verbose output |
+
+```bash
+waza run eval.yaml --output results.json
+waza grade eval.yaml --results results.json
+```
+
 ## Cloud Storage
 
 Waza can automatically upload evaluation results to Azure Blob Storage for team collaboration and historical tracking.
@@ -742,7 +763,7 @@ graders:
     name: pattern_check
     config:
       regex_match: ["\\d+ tests passed"]
-  
+
   - type: behavior
     name: efficiency
     config:

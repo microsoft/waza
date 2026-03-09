@@ -181,7 +181,6 @@ func TestBuildExecutionRequest_TimeoutOverride(t *testing.T) {
 }
 
 func TestComputeTestStats_ErrorRunsAreSeparateFromFailed(t *testing.T) {
-	runner := &TestRunner{}
 	runs := []models.RunResult{
 		{
 			Status: models.StatusPassed,
@@ -195,7 +194,7 @@ func TestComputeTestStats_ErrorRunsAreSeparateFromFailed(t *testing.T) {
 		},
 	}
 
-	stats := runner.computeTestStats(runs)
+	stats := ComputeTestStats(runs)
 	require.NotNil(t, stats)
 	assert.Equal(t, 1, stats.PassedRuns)
 	assert.Equal(t, 0, stats.FailedRuns, "Error runs should not count as FailedRuns")

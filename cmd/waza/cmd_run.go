@@ -63,6 +63,7 @@ var (
 	discoverFlag    bool
 	strictFlag      bool
 	updateSnapshots bool
+	skipGradersFlag bool
 )
 
 // modelResult pairs a model identifier with its evaluation outcome.
@@ -117,6 +118,7 @@ You can also specify a skill name to run its eval:
 	cmd.Flags().BoolVar(&discoverFlag, "discover", false, "Walk directory tree to discover and run all skill evals")
 	cmd.Flags().BoolVar(&strictFlag, "strict", false, "With --discover, fail if any SKILL.md lacks an eval.yaml")
 	cmd.Flags().BoolVar(&updateSnapshots, "update-snapshots", false, "Update or create diff grader snapshot files to match current workspace output")
+	cmd.Flags().BoolVar(&skipGradersFlag, "skip-graders", false, "Skip grading (execution only); use with waza grade to grade later")
 
 	return cmd
 }
@@ -584,6 +586,9 @@ func runSingleModel(cmd *cobra.Command, spec *models.BenchmarkSpec, specPath str
 	}
 	if updateSnapshots {
 		runnerOpts = append(runnerOpts, orchestration.WithUpdateSnapshots(true))
+	}
+	if skipGradersFlag {
+		runnerOpts = append(runnerOpts, orchestration.WithSkipGraders())
 	}
 	runner := orchestration.NewTestRunner(cfg, engine, runnerOpts...)
 

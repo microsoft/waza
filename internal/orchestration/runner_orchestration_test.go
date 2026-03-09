@@ -192,6 +192,78 @@ inputs:
 	assert.Equal(t, "b-second", outcome.TestOutcomes[1].TestID)
 }
 
+func TestRunBenchmark_SkipGradersMarksTasksSkipped(t *testing.T) {
+	tmpDir := t.TempDir()
+	tasksDir := filepath.Join(tmpDir, "tasks")
+	require.NoError(t, os.MkdirAll(tasksDir, 0o755))
+
+	writeTaskFile(t, filepath.Join(tasksDir, "task.yaml"), `id: skip-graders-task
+name: Skip Graders Task
+inputs:
+  prompt: "run without grading"
+`)
+
+	spec := &models.BenchmarkSpec{
+		SpecIdentity: models.SpecIdentity{Name: "skip-graders"},
+		SkillName:    "test-skill",
+		Config: models.Config{
+			RunsPerTest: 2,
+			TimeoutSec:  30,
+			EngineType:  "mock",
+			ModelID:     "mock-model",
+		},
+		Tasks: []string{"tasks/*.yaml"},
+	}
+
+	cfg := config.NewBenchmarkConfig(spec, config.WithSpecDir(tmpDir))
+	runner := NewTestRunner(cfg, execution.NewMockEngine("mock-model"), WithSkipGraders())
+
+	outcome, err := runner.RunBenchmark(context.Background())
+	require.NoError(t, err)
+	require.Len(t, outcome.TestOutcomes, 1)
+
+	task := outcome.TestOutcomes[0]
+	assert.Equal(t, models.StatusNA, task.Status)
+	require.Len(t, task.Runs, 2)
+	assert.Equal(t, models.StatusNA, task.Runs[0].Status)
+	assert.Equal(t, models.StatusNA, task.Runs[1].Status)
+	assert.Empty(t, task.Runs[0].Validations)
+	require.NotNil(t, task.Stats)
+	assert.Equal(t, 0.0, task.Stats.PassRate)
+
+	assert.Equal(t, 0, outcome.Digest.Succeeded)
+	assert.Equal(t, 0, outcome.Digest.Failed)
+	assert.Equal(t, 0, outcome.Digest.Errors)
+	assert.Equal(t, 1, outcome.Digest.Skipped)
+}
+
+func TestOverallStatus(t *testing.T) {
+	tests := []struct {
+		name     string
+		statuses []models.Status
+		want     models.Status
+	}{
+		{"all passed", []models.Status{models.StatusPassed, models.StatusPassed}, models.StatusPassed},
+		{"all failed", []models.Status{models.StatusFailed, models.StatusFailed}, models.StatusFailed},
+		{"all skipped", []models.Status{models.StatusNA, models.StatusNA}, models.StatusNA},
+		{"mixed passed and failed", []models.Status{models.StatusPassed, models.StatusFailed}, models.StatusFailed},
+		{"mixed passed and NA", []models.Status{models.StatusPassed, models.StatusNA}, models.StatusPassed},
+		{"mixed NA and passed", []models.Status{models.StatusNA, models.StatusPassed}, models.StatusPassed},
+		{"mixed failed and NA", []models.Status{models.StatusFailed, models.StatusNA}, models.StatusFailed},
+		{"error among passed", []models.Status{models.StatusPassed, models.StatusError}, models.StatusFailed},
+		{"no runs", nil, models.StatusNA},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			runs := make([]models.RunResult, len(tt.statuses))
+			for i, s := range tt.statuses {
+				runs[i] = models.RunResult{RunNumber: i + 1, Status: s}
+			}
+			assert.Equal(t, tt.want, overallStatus(runs))
+		})
+	}
+}
+
 func TestRunGraders_WeightsAndErrors(t *testing.T) {
 	spec := &models.BenchmarkSpec{
 		Config: models.Config{ModelID: "mock-model"},
@@ -339,18 +411,9 @@ func TestBuildGraderContextAndScoreHelpers(t *testing.T) {
 	transcript := runner.buildTranscript(resp)
 	require.Len(t, transcript, 1)
 	assert.Equal(t, copilot.UserMessage, transcript[0].Type)
-
-	assert.Nil(t, runner.computeTestStats(nil))
-	assert.Equal(t, 0.0, runner.computeAggregateScore(nil))
-	assert.Equal(t, 0.0, runner.computeWeightedAggregateScore(nil))
-	minScore, maxScore, stdDev := runner.computeDigestScoreStats(nil)
-	assert.Equal(t, 0.0, minScore)
-	assert.Equal(t, 0.0, maxScore)
-	assert.Equal(t, 0.0, stdDev)
 }
 
 func TestComputeTestStats_FlakinessPercent(t *testing.T) {
-	runner := NewTestRunner(config.NewBenchmarkConfig(&models.BenchmarkSpec{}), nil)
 	runs := []models.RunResult{
 		{
 			Status:     models.StatusPassed,
@@ -381,7 +444,7 @@ func TestComputeTestStats_FlakinessPercent(t *testing.T) {
 		},
 	}
 
-	stats := runner.computeTestStats(runs)
+	stats := ComputeTestStats(runs)
 	require.NotNil(t, stats)
 	assert.Equal(t, 4, stats.TotalRuns)
 	assert.Equal(t, 2, stats.PassedRuns)

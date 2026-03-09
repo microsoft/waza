@@ -18,7 +18,6 @@ import (
 	"github.com/microsoft/waza/internal/graders"
 	"github.com/microsoft/waza/internal/hooks"
 	"github.com/microsoft/waza/internal/models"
-	"github.com/microsoft/waza/internal/statistics"
 	"github.com/microsoft/waza/internal/template"
 	"github.com/microsoft/waza/internal/transcript"
 	"github.com/microsoft/waza/internal/utils"
@@ -41,6 +40,9 @@ type TestRunner struct {
 
 	// Snapshot updates for diff graders.
 	updateSnapshots bool
+
+	// Skip grading (execution only)
+	skipGraders bool
 
 	// Lifecycle hooks
 	hookRunner *hooks.Runner
@@ -111,6 +113,13 @@ func WithCache(c *cache.Cache) RunnerOption {
 func WithUpdateSnapshots(enabled bool) RunnerOption {
 	return func(r *TestRunner) {
 		r.updateSnapshots = enabled
+	}
+}
+
+// WithSkipGraders disables grading so only execution occurs.
+func WithSkipGraders() RunnerOption {
+	return func(r *TestRunner) {
+		r.skipGraders = true
 	}
 }
 
@@ -247,7 +256,24 @@ func (r *TestRunner) runNormalBenchmark(ctx context.Context) (*models.Evaluation
 	}
 
 	// Compute statistics
-	outcome := r.buildOutcome(testOutcomes, startTime)
+	digest := BuildDigest(testOutcomes, time.Since(startTime).Milliseconds(), spec.Config.RunsPerTest)
+	outcome := &models.EvaluationOutcome{
+		RunID:       fmt.Sprintf("run-%d", time.Now().Unix()),
+		SkillTested: spec.SkillName,
+		BenchName:   spec.Name,
+		Timestamp:   startTime,
+		Setup: models.OutcomeSetup{
+			RunsPerTest: spec.Config.RunsPerTest,
+			ModelID:     spec.Config.ModelID,
+			EngineType:  spec.Config.EngineType,
+			TimeoutSec:  spec.Config.TimeoutSec,
+			JudgeModel:  spec.Config.JudgeModel,
+		},
+		Digest:       digest,
+		Measures:     make(map[string]models.MeasureResult),
+		TestOutcomes: testOutcomes,
+		Metadata:     make(map[string]any),
+	}
 
 	r.notifyProgress(ProgressEvent{
 		EventType:  EventBenchmarkComplete,
@@ -904,7 +930,7 @@ func (r *TestRunner) runTestUncached(ctx context.Context, tc *models.TestCase, t
 			run.Attempts = attempt
 
 			// If all graders passed or this is an infrastructure error, stop retrying
-			if run.Status == models.StatusPassed || run.Status == models.StatusError {
+			if run.Status == models.StatusPassed || run.Status == models.StatusError || run.Status == models.StatusNA {
 				break
 			}
 
@@ -935,16 +961,10 @@ func (r *TestRunner) runTestUncached(ctx context.Context, tc *models.TestCase, t
 	}
 
 	// Compute test statistics
-	stats := r.computeTestStats(runs)
+	stats := ComputeTestStats(runs)
 
 	// Determine overall status
-	status := models.StatusPassed
-	for _, run := range runs {
-		if run.Status != models.StatusPassed {
-			status = models.StatusFailed
-			break
-		}
-	}
+	status := overallStatus(runs)
 
 	return models.TestOutcome{
 		TestID:      tc.TestID,
@@ -954,6 +974,29 @@ func (r *TestRunner) runTestUncached(ctx context.Context, tc *models.TestCase, t
 		Runs:        runs,
 		Stats:       stats,
 	}
+}
+
+func overallStatus(runs []models.RunResult) models.Status {
+	if len(runs) == 0 {
+		return models.StatusNA
+	}
+	status := models.StatusPassed
+	allSkipped := true
+	for _, run := range runs {
+		switch run.Status {
+		case models.StatusNA:
+			continue
+		case models.StatusPassed:
+			allSkipped = false
+		default:
+			allSkipped = false
+			status = models.StatusFailed
+		}
+	}
+	if allSkipped {
+		status = models.StatusNA
+	}
+	return status
 }
 
 func (r *TestRunner) executeRun(ctx context.Context, tc *models.TestCase, runNum int) models.RunResult {
@@ -999,14 +1042,20 @@ func (r *TestRunner) executeRun(ctx context.Context, tc *models.TestCase, runNum
 	// Build validation context
 	vCtx := r.buildGraderContext(tc, resp)
 
-	gradersResults, err := r.runGraders(ctx, tc, vCtx)
+	var gradersResults map[string]models.GraderResults
+	if r.skipGraders {
+		gradersResults = make(map[string]models.GraderResults)
+	} else {
+		var err error
+		gradersResults, err = r.runGraders(ctx, tc, vCtx)
 
-	if err != nil {
-		return models.RunResult{
-			RunNumber:  runNum,
-			Status:     models.StatusError,
-			DurationMs: time.Since(startTime).Milliseconds(),
-			ErrorMsg:   "running graders: " + err.Error(),
+		if err != nil {
+			return models.RunResult{
+				RunNumber:  runNum,
+				Status:     models.StatusError,
+				DurationMs: time.Since(startTime).Milliseconds(),
+				ErrorMsg:   "running graders: " + err.Error(),
+			}
 		}
 	}
 
@@ -1036,6 +1085,8 @@ func (r *TestRunner) executeRun(ctx context.Context, tc *models.TestCase, runNum
 	status := models.StatusPassed
 	if resp.ErrorMsg != "" {
 		status = models.StatusError
+	} else if r.skipGraders {
+		status = models.StatusNA
 	} else {
 		for _, v := range gradersResults {
 			if !v.Passed {
@@ -1173,96 +1224,8 @@ func (r *TestRunner) buildGraderContext(tc *models.TestCase, resp *execution.Exe
 }
 
 func (r *TestRunner) runGraders(ctx context.Context, tc *models.TestCase, gradersContext *graders.Context) (map[string]models.GraderResults, error) {
-	graderResults := make(map[string]models.GraderResults)
-
-	// Run global validators
 	spec := r.cfg.Spec()
-	judgeModel := spec.Config.JudgeModel
-	for _, vCfg := range spec.Graders {
-		params := cloneParams(vCfg.Parameters)
-		if judgeModel != "" && vCfg.Kind == models.GraderKindPrompt {
-			params = injectJudgeModel(params, judgeModel)
-		}
-		if r.updateSnapshots && vCfg.Kind == models.GraderKindDiff {
-			params["update_snapshots"] = true
-		}
-		grader, err := graders.Create(vCfg.Kind, vCfg.Identifier, params)
-
-		if err != nil {
-			return nil, err
-		}
-
-		result, err := grader.Grade(ctx, gradersContext)
-
-		if err != nil {
-			return nil, err
-		}
-
-		result.Weight = vCfg.EffectiveWeight()
-		graderResults[result.Name] = *result
-	}
-
-	// Run test-specific validators
-	for _, vCfg := range tc.Validators {
-		kind := vCfg.Kind
-		if kind == "" {
-			return nil, fmt.Errorf("no kind associated with grader %s", vCfg.Identifier)
-		}
-
-		params := cloneParams(vCfg.Parameters)
-		if len(vCfg.Checks) > 0 {
-			params["assertions"] = vCfg.Checks
-		}
-		if judgeModel != "" && kind == models.GraderKindPrompt {
-			params = injectJudgeModel(params, judgeModel)
-		}
-		if r.updateSnapshots && kind == models.GraderKindDiff {
-			params["update_snapshots"] = true
-		}
-
-		grader, err := graders.Create(kind, vCfg.Identifier, params)
-
-		if err != nil {
-			return nil, fmt.Errorf("failed to create grader %s: %w", vCfg.Identifier, err)
-		}
-
-		result, err := grader.Grade(ctx, gradersContext)
-
-		if err != nil {
-			return nil, fmt.Errorf("failed to run grader %s: %w", vCfg.Identifier, err)
-		}
-
-		w := vCfg.Weight
-		if w <= 0 {
-			w = 1.0
-		}
-		result.Weight = w
-		graderResults[result.Name] = *result
-	}
-
-	return graderResults, nil
-}
-
-// injectJudgeModel returns a copy of params with the "model" key set to judgeModel.
-func injectJudgeModel(params map[string]any, judgeModel string) map[string]any {
-	merged := make(map[string]any, len(params)+1)
-	for k, v := range params {
-		merged[k] = v
-	}
-	merged["model"] = judgeModel
-	return merged
-}
-
-func cloneParams(params map[string]any) map[string]any {
-	if params == nil {
-		return make(map[string]any)
-	}
-
-	merged := make(map[string]any, len(params))
-	for k, v := range params {
-		merged[k] = v
-	}
-	return merged
+	return graders.RunAll(ctx, spec.Graders, tc, gradersContext, spec.Config.JudgeModel, r.updateSnapshots)
 }
 
 func (r *TestRunner) buildSessionDigest(resp *execution.ExecutionResponse) models.SessionDigest {
@@ -1287,243 +1250,6 @@ func (r *TestRunner) buildTranscript(resp *execution.ExecutionResponse) []models
 	return transcript.BuildFromSessionEvents(resp.Events)
 }
 
-func (r *TestRunner) computeTestStats(runs []models.RunResult) *models.TestStats {
-	if len(runs) == 0 {
-		return nil
-	}
-
-	passed := 0
-	failed := 0
-	errored := 0
-	totalScore := 0.0
-	totalWeightedScore := 0.0
-	minScore := math.Inf(1)
-	maxScore := math.Inf(-1)
-	totalDuration := int64(0)
-	scores := make([]float64, 0, len(runs))
-
-	for _, run := range runs {
-		score := run.ComputeRunScore()
-		weightedScore := run.ComputeWeightedRunScore()
-		totalScore += score
-		totalWeightedScore += weightedScore
-		scores = append(scores, score)
-
-		if score < minScore {
-			minScore = score
-		}
-		if score > maxScore {
-			maxScore = score
-		}
-
-		switch run.Status {
-		case models.StatusPassed:
-			passed++
-		case models.StatusFailed:
-			failed++
-		case models.StatusError:
-			errored++
-		default:
-			if run.AllValidationsPassed() {
-				passed++
-			} else {
-				failed++
-			}
-		}
-
-		totalDuration += run.DurationMs
-	}
-
-	stdDev := models.ComputeStdDev(scores)
-
-	stats := &models.TestStats{
-		PassRate:         float64(passed) / float64(len(runs)),
-		PassedRuns:       passed,
-		FailedRuns:       failed,
-		ErrorRuns:        errored,
-		TotalRuns:        len(runs),
-		AvgScore:         totalScore / float64(len(runs)),
-		AvgWeightedScore: totalWeightedScore / float64(len(runs)),
-		MinScore:         minScore,
-		MaxScore:         maxScore,
-		StdDevScore:      stdDev,
-		ScoreVariance:    stdDev * stdDev,
-		AvgDurationMs:    totalDuration / int64(len(runs)),
-	}
-
-	// Populate flaky, CI, and bootstrap stats for multi-trial runs
-	stats.Flaky = stats.PassRate > 0 && stats.PassRate < 1
-	if stats.Flaky {
-		minorityOutcomes := min(passed, len(runs)-passed)
-		stats.FlakinessPercent = (float64(minorityOutcomes) / float64(len(runs))) * 100
-	}
-
-	if len(runs) >= 2 {
-		// Collect weighted scores for bootstrap
-		weightedScores := make([]float64, 0, len(runs))
-		for _, run := range runs {
-			weightedScores = append(weightedScores, run.ComputeWeightedRunScore())
-		}
-
-		ci := statistics.BootstrapCI(weightedScores, 0.95)
-		stats.BootstrapCI = &ci
-		stats.CI95Lo = ci.Lower
-		stats.CI95Hi = ci.Upper
-
-		sig := statistics.IsSignificant(ci)
-		stats.IsSignificant = &sig
-	}
-
-	return stats
-}
-
-func (r *TestRunner) buildOutcome(testOutcomes []models.TestOutcome, startTime time.Time) *models.EvaluationOutcome {
-	spec := r.cfg.Spec()
-
-	// Compute digest
-	succeeded := 0
-	failed := 0
-	errors := 0
-
-	for _, to := range testOutcomes {
-		switch to.Status {
-		case models.StatusPassed:
-			succeeded++
-		case models.StatusFailed:
-			failed++
-		case models.StatusError:
-			errors++
-		}
-	}
-
-	totalTests := len(testOutcomes)
-	successRate := 0.0
-	if totalTests > 0 {
-		successRate = float64(succeeded) / float64(totalTests)
-	}
-
-	// Compute aggregate score, min, max, and stddev across tests
-	aggregateScore := r.computeAggregateScore(testOutcomes)
-	weightedScore := r.computeWeightedAggregateScore(testOutcomes)
-	digestMin, digestMax, digestStdDev := r.computeDigestScoreStats(testOutcomes)
-
-	// Compute group stats if grouping is configured
-	groupStats := computeGroupStats(testOutcomes)
-
-	digest := models.OutcomeDigest{
-		TotalTests:     totalTests,
-		Succeeded:      succeeded,
-		Failed:         failed,
-		Errors:         errors,
-		Skipped:        0,
-		SuccessRate:    successRate,
-		AggregateScore: aggregateScore,
-		WeightedScore:  weightedScore,
-		MinScore:       digestMin,
-		MaxScore:       digestMax,
-		StdDev:         digestStdDev,
-		DurationMs:     time.Since(startTime).Milliseconds(),
-		Groups:         groupStats,
-		Usage:          aggregateUsageFromOutcomes(testOutcomes),
-	}
-
-	// Compute digest-level bootstrap CI over per-test weighted scores when multi-trial
-	if spec.Config.RunsPerTest > 1 && len(testOutcomes) > 0 {
-		perTestScores := make([]float64, 0, len(testOutcomes))
-		for _, to := range testOutcomes {
-			if to.Stats != nil {
-				perTestScores = append(perTestScores, to.Stats.AvgWeightedScore)
-			}
-		}
-		if len(perTestScores) >= 2 {
-			ci := statistics.BootstrapCI(perTestScores, 0.95)
-			sig := statistics.IsSignificant(ci)
-			digest.Statistics = &models.StatisticalSummary{
-				BootstrapCI:   ci,
-				IsSignificant: sig,
-			}
-		}
-	}
-
-	return &models.EvaluationOutcome{
-		RunID:       fmt.Sprintf("run-%d", time.Now().Unix()),
-		SkillTested: spec.SkillName,
-		BenchName:   spec.Name,
-		Timestamp:   startTime,
-		Setup: models.OutcomeSetup{
-			RunsPerTest: spec.Config.RunsPerTest,
-			ModelID:     spec.Config.ModelID,
-			EngineType:  spec.Config.EngineType,
-			TimeoutSec:  spec.Config.TimeoutSec,
-			JudgeModel:  spec.Config.JudgeModel,
-		},
-		Digest:       digest,
-		Measures:     make(map[string]models.MeasureResult),
-		TestOutcomes: testOutcomes,
-		Metadata:     make(map[string]any),
-	}
-}
-
-// computeAggregateScore returns the mean of per-test average scores.
-// Tests with nil Stats are treated as having an average score of 0.0.
-func (r *TestRunner) computeAggregateScore(testOutcomes []models.TestOutcome) float64 {
-	if len(testOutcomes) == 0 {
-		return 0.0
-	}
-
-	totalScore := 0.0
-	for _, to := range testOutcomes {
-		if to.Stats != nil {
-			totalScore += to.Stats.AvgScore
-		}
-	}
-
-	return totalScore / float64(len(testOutcomes))
-}
-
-// computeWeightedAggregateScore returns the mean of per-test weighted scores.
-func (r *TestRunner) computeWeightedAggregateScore(testOutcomes []models.TestOutcome) float64 {
-	if len(testOutcomes) == 0 {
-		return 0.0
-	}
-
-	totalScore := 0.0
-	for _, to := range testOutcomes {
-		if to.Stats != nil {
-			totalScore += to.Stats.AvgWeightedScore
-		}
-	}
-
-	return totalScore / float64(len(testOutcomes))
-}
-
-// computeDigestScoreStats returns min, max, and stddev of per-test average scores.
-func (r *TestRunner) computeDigestScoreStats(testOutcomes []models.TestOutcome) (float64, float64, float64) {
-	if len(testOutcomes) == 0 {
-		return 0.0, 0.0, 0.0
-	}
-
-	scores := make([]float64, 0, len(testOutcomes))
-	minScore := 1.0
-	maxScore := 0.0
-
-	for _, to := range testOutcomes {
-		s := 0.0
-		if to.Stats != nil {
-			s = to.Stats.AvgScore
-		}
-		scores = append(scores, s)
-		if s < minScore {
-			minScore = s
-		}
-		if s > maxScore {
-			maxScore = s
-		}
-	}
-
-	return minScore, maxScore, models.ComputeStdDev(scores)
-}
-
 // resolveGroup returns the group value for the current benchmark configuration.
 // Currently only "model" is supported; CSV column grouping will be added with #187.
 func (r *TestRunner) resolveGroup() string {
@@ -1537,70 +1263,4 @@ func (r *TestRunner) resolveGroup() string {
 		fmt.Printf("[WARN] unknown group_by value %q, grouping disabled\n", spec.Config.GroupBy)
 		return ""
 	}
-}
-
-// computeGroupStats aggregates per-group statistics from test outcomes.
-func computeGroupStats(outcomes []models.TestOutcome) []models.GroupStats {
-	type accumulator struct {
-		passed     int
-		total      int
-		scoreTotal float64
-		scoreCount int
-	}
-
-	groups := make(map[string]*accumulator)
-	var order []string
-
-	for _, to := range outcomes {
-		if to.Group == "" {
-			continue
-		}
-		acc, exists := groups[to.Group]
-		if !exists {
-			acc = &accumulator{}
-			groups[to.Group] = acc
-			order = append(order, to.Group)
-		}
-		acc.total++
-		if to.Status == models.StatusPassed {
-			acc.passed++
-		}
-		if to.Stats != nil {
-			acc.scoreTotal += to.Stats.AvgScore
-			acc.scoreCount++
-		}
-	}
-
-	if len(groups) == 0 {
-		return nil
-	}
-
-	result := make([]models.GroupStats, 0, len(order))
-	for _, name := range order {
-		acc := groups[name]
-		avg := 0.0
-		if acc.scoreCount > 0 {
-			avg = acc.scoreTotal / float64(acc.scoreCount)
-		}
-		result = append(result, models.GroupStats{
-			Name:     name,
-			Passed:   acc.passed,
-			Total:    acc.total,
-			AvgScore: avg,
-		})
-	}
-	return result
-}
-
-// aggregateUsageFromOutcomes collects usage stats from all runs across all test outcomes.
-func aggregateUsageFromOutcomes(testOutcomes []models.TestOutcome) *models.UsageStats {
-	var allUsage []*models.UsageStats
-	for _, to := range testOutcomes {
-		for _, run := range to.Runs {
-			if run.SessionDigest.Usage != nil {
-				allUsage = append(allUsage, run.SessionDigest.Usage)
-			}
-		}
-	}
-	return models.AggregateUsageStats(allUsage)
 }

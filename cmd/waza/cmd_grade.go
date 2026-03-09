@@ -1,0 +1,288 @@
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+
+	"github.com/microsoft/waza/internal/graders"
+	"github.com/microsoft/waza/internal/models"
+	"github.com/microsoft/waza/internal/orchestration"
+	"github.com/spf13/cobra"
+)
+
+type taskGradeResult struct {
+	OverallScore   float64            `json:"overall_score"`
+	Passed         bool               `json:"passed"`
+	GraderAverages map[string]float64 `json:"grader_averages,omitempty"`
+}
+
+func newGradeCommand() *cobra.Command {
+	var (
+		taskID      string
+		resultsFile string
+		workspace   string
+		judgeModel  string
+		verbose     bool
+		outputPath  string
+	)
+
+	cmd := &cobra.Command{
+		Use:   "grade <eval.yaml>",
+		Short: "Run graders against results from `waza run --output` without executing an agent",
+		Long: `Grade output with the graders defined in an eval spec.
+
+Takes the JSON output of a previous waza run (produced by waza run --output)
+and grades the specified task using the eval's grader configuration.
+
+Example:
+  waza run eval.yaml --output results.json
+  waza grade eval.yaml --task my-task --results results.json`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runGrade(cmd.OutOrStdout(), cmd.ErrOrStderr(), args[0], taskID, resultsFile, workspace, judgeModel, outputPath, verbose)
+		},
+	}
+
+	cmd.Flags().StringVar(&taskID, "task", "", "task ID to grade (omit to grade all tasks)")
+	cmd.Flags().StringVar(&resultsFile, "results", "", "path to waza run JSON output")
+	cmd.Flags().StringVar(&workspace, "workspace", ".", "agent workspace directory for file-based graders; must point to the agent's actual workspace")
+	cmd.Flags().StringVar(&judgeModel, "judge-model", "", "model override for prompt graders")
+	cmd.Flags().StringVarP(&outputPath, "output", "o", "", "write full EvaluationOutcome JSON to file (compatible with waza compare)")
+	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "verbose output")
+	_ = cmd.MarkFlagRequired("results")
+
+	return cmd
+}
+
+func runGrade(w, errW io.Writer, specPath, taskID, resultsFile, workspace, judgeModel, outputFile string, verbose bool) error {
+	spec, err := models.LoadBenchmarkSpec(specPath)
+	if err != nil {
+		return fmt.Errorf("failed to load spec: %w", err)
+	}
+
+	specDir := filepath.Dir(specPath)
+	allTasks, err := loadGradeTasks(spec, specDir, taskID)
+	if err != nil {
+		return err
+	}
+	if len(allTasks) == 0 {
+		if taskID != "" {
+			return fmt.Errorf("task %q not found in spec", taskID)
+		}
+		return errors.New("no tasks found in spec")
+	}
+
+	data, readErr := os.ReadFile(resultsFile)
+	if readErr != nil {
+		return fmt.Errorf("failed to read results file: %w", readErr)
+	}
+	var outcome models.EvaluationOutcome
+	if jsonErr := json.Unmarshal(data, &outcome); jsonErr != nil {
+		return fmt.Errorf("failed to parse results JSON: %w", jsonErr)
+	}
+
+	runsByTask := make(map[string][]models.RunResult)
+	for _, to := range outcome.TestOutcomes {
+		runsByTask[to.TestID] = append([]models.RunResult(nil), to.Runs...)
+	}
+
+	effectiveJudgeModel := judgeModel
+	if effectiveJudgeModel == "" {
+		effectiveJudgeModel = spec.Config.JudgeModel
+	}
+
+	taskResults := make(map[string]taskGradeResult)
+	gradedOutcomes := make([]models.TestOutcome, 0, len(allTasks))
+	for _, tc := range allTasks {
+		runs, ok := runsByTask[tc.TestID]
+		if !ok || len(runs) == 0 {
+			if taskID != "" {
+				return fmt.Errorf("task %q not found or has no runs in results file", tc.TestID)
+			}
+			if verbose {
+				_, _ = fmt.Fprintf(errW, "warning: task %q not found in results file, skipping\n", tc.TestID)
+			}
+			continue
+		}
+
+		result, gradedRuns, gradeErr := gradeTaskRuns(spec, tc, runs, workspace, effectiveJudgeModel, errW, verbose)
+		if gradeErr != nil {
+			return fmt.Errorf("grading task %q: %w", tc.TestID, gradeErr)
+		}
+		taskResults[tc.TestID] = result
+
+		status := models.StatusPassed
+		if !result.Passed {
+			status = models.StatusFailed
+		}
+		gradedOutcomes = append(gradedOutcomes, models.TestOutcome{
+			TestID:      tc.TestID,
+			DisplayName: tc.DisplayName,
+			Status:      status,
+			Runs:        gradedRuns,
+		})
+	}
+
+	var overallSum float64
+	allPassed := true
+	for _, r := range taskResults {
+		overallSum += r.OverallScore
+		if !r.Passed {
+			allPassed = false
+		}
+	}
+
+	output := struct {
+		OverallScore float64                    `json:"overall_score"`
+		Passed       bool                       `json:"passed"`
+		Tasks        map[string]taskGradeResult `json:"tasks"`
+	}{
+		OverallScore: overallSum / float64(len(taskResults)),
+		Passed:       allPassed,
+		Tasks:        taskResults,
+	}
+
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(output); err != nil {
+		return fmt.Errorf("failed to encode results: %w", err)
+	}
+
+	if outputFile != "" {
+		// Preserve test outcomes that weren't regraded in this run
+		gradedIDs := make(map[string]bool)
+		for _, to := range gradedOutcomes {
+			gradedIDs[to.TestID] = true
+		}
+
+		finalOutcomes := append([]models.TestOutcome{}, gradedOutcomes...)
+		for _, orig := range outcome.TestOutcomes {
+			if !gradedIDs[orig.TestID] {
+				finalOutcomes = append(finalOutcomes, orig)
+			}
+		}
+
+		graded := orchestration.RegradeOutcome(&outcome, finalOutcomes, effectiveJudgeModel)
+		if err := saveOutcome(graded, outputFile); err != nil {
+			return fmt.Errorf("failed to save graded outcome: %w", err)
+		}
+	}
+
+	return nil
+}
+
+func loadGradeTasks(spec *models.BenchmarkSpec, specDir, taskID string) ([]*models.TestCase, error) {
+	taskFiles, err := spec.ResolveTestFiles(specDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve test files: %w", err)
+	}
+
+	allTasks := make([]*models.TestCase, 0, len(taskFiles))
+	for _, f := range taskFiles {
+		loaded, loadErr := models.LoadTestCase(f)
+		if loadErr != nil {
+			return nil, fmt.Errorf("failed to load test case from %s: %w", f, loadErr)
+		}
+		if loaded.Active != nil && !*loaded.Active {
+			continue
+		}
+		if taskID == "" || loaded.TestID == taskID {
+			allTasks = append(allTasks, loaded)
+		}
+	}
+
+	return allTasks, nil
+}
+
+func gradeTaskRuns(spec *models.BenchmarkSpec, tc *models.TestCase, runs []models.RunResult, workspace, judgeModel string, errW io.Writer, verbose bool) (taskGradeResult, []models.RunResult, error) {
+	totalScore := 0.0
+	allPassed := true
+	graderTotals := make(map[string]float64)
+	gradedRuns := make([]models.RunResult, 0, len(runs))
+
+	for i := range runs {
+		gradedRun, err := gradeRun(spec, tc, &runs[i], workspace, judgeModel, errW, verbose)
+		if err != nil {
+			return taskGradeResult{}, nil, err
+		}
+
+		totalScore += gradedRun.ComputeWeightedRunScore()
+		if gradedRun.Status != models.StatusPassed {
+			allPassed = false
+		}
+
+		for name, result := range gradedRun.Validations {
+			graderTotals[name] += result.Score
+		}
+		gradedRuns = append(gradedRuns, *gradedRun)
+	}
+
+	graderAverages := make(map[string]float64, len(graderTotals))
+	for name, total := range graderTotals {
+		graderAverages[name] = total / float64(len(runs))
+	}
+
+	return taskGradeResult{
+		OverallScore:   totalScore / float64(len(runs)),
+		Passed:         allPassed,
+		GraderAverages: graderAverages,
+	}, gradedRuns, nil
+}
+
+func gradeRun(spec *models.BenchmarkSpec, tc *models.TestCase, run *models.RunResult, workspace, judgeModel string, errW io.Writer, verbose bool) (*models.RunResult, error) {
+	gradedRun := *run
+	if gradedRun.ErrorMsg != "" || gradedRun.Status == models.StatusError {
+		gradedRun.Validations = map[string]models.GraderResults{}
+		gradedRun.Status = models.StatusError
+		return &gradedRun, nil
+	}
+
+	gradingCtx := &graders.Context{
+		TestCase:     tc,
+		Output:       run.FinalOutput,
+		Transcript:   run.Transcript,
+		Session:      &run.SessionDigest,
+		DurationMS:   run.DurationMs,
+		SessionID:    run.SessionDigest.SessionID,
+		WorkspaceDir: workspace,
+		Outcome:      make(map[string]any),
+		Metadata:     make(map[string]any),
+	}
+
+	if verbose {
+		if _, err := fmt.Fprintf(errW, "grading %s: %d transcript events, duration=%dms, session=%s\n",
+			tc.TestID, len(run.Transcript), run.DurationMs, run.SessionDigest.SessionID); err != nil {
+			return nil, fmt.Errorf("failed to write verbose output: %w", err)
+		}
+	}
+
+	ctx := context.Background()
+	graderResults, err := graders.RunAll(ctx, spec.Graders, tc, gradingCtx, judgeModel, false)
+	if err != nil {
+		return nil, err
+	}
+
+	if verbose {
+		for name, result := range graderResults {
+			if _, err := fmt.Fprintf(errW, "  grader %s: score=%.2f passed=%v\n", name, result.Score, result.Passed); err != nil {
+				return nil, fmt.Errorf("failed to write verbose output: %w", err)
+			}
+		}
+	}
+
+	gradedRun.Validations = graderResults
+	gradedRun.Status = models.StatusPassed
+	for _, result := range graderResults {
+		if !result.Passed {
+			gradedRun.Status = models.StatusFailed
+			break
+		}
+	}
+
+	return &gradedRun, nil
+}
