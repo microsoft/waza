@@ -8,9 +8,9 @@ import (
 
 // copilotSession is just an interface over [*copilot.Session]
 type copilotSession interface {
-	// Destroy maps to [copilot.Session.Destroy]. It closes the session and releases resources, however it
+	// Disconnect maps to [copilot.Session.Disconnect]. It closes the session and releases resources, however it
 	// doesn't delete data and the session is still resumable until deleted via [copilot.Client.DeleteSession].
-	Destroy() error
+	Disconnect() error
 
 	// On maps to [copilot.Session.On]
 	On(handler copilot.SessionEventHandler) func()
@@ -89,8 +89,8 @@ type copilotSessionWrapper struct {
 	inner *copilot.Session
 }
 
-func (w *copilotSessionWrapper) Destroy() error {
-	return w.inner.Destroy()
+func (w *copilotSessionWrapper) Disconnect() error {
+	return w.inner.Disconnect()
 }
 
 func (w *copilotSessionWrapper) On(handler copilot.SessionEventHandler) func() {

@@ -173,7 +173,7 @@ func TestCopilotEngine_Execute_InjectsSkillSystemMessage(t *testing.T) {
 			assert.Contains(t, config.SystemMessage.Content, "<description>Deploy to test env</description>")
 			return sessionMock, nil
 		})
-	sessionMock.EXPECT().Destroy()
+	sessionMock.EXPECT().Disconnect()
 	clientMock.EXPECT().DeleteSession(gomock.Any(), "session-1")
 	clientMock.EXPECT().Stop()
 
@@ -215,7 +215,7 @@ func TestCopilotEngine_Execute_NoSystemMessageWithoutSkills(t *testing.T) {
 			assert.Nil(t, config.SystemMessage, "SystemMessage should be nil when no skills found")
 			return sessionMock, nil
 		})
-	sessionMock.EXPECT().Destroy()
+	sessionMock.EXPECT().Disconnect()
 	clientMock.EXPECT().DeleteSession(gomock.Any(), "session-1")
 	clientMock.EXPECT().Stop()
 
@@ -260,7 +260,7 @@ func TestCopilotEngine_ResumeSession_InjectsSkillSystemMessage(t *testing.T) {
 			assert.Contains(t, config.SystemMessage.Content, "<name>resume-skill</name>")
 			return sessionMock, nil
 		})
-	sessionMock.EXPECT().Destroy()
+	sessionMock.EXPECT().Disconnect()
 	clientMock.EXPECT().DeleteSession(gomock.Any(), "existing-session")
 	clientMock.EXPECT().Stop()
 

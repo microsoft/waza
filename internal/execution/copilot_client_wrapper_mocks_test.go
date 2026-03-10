@@ -41,17 +41,18 @@ func (m *MockcopilotSession) EXPECT() *MockcopilotSessionMockRecorder {
 	return m.recorder
 }
 
-func (m *MockcopilotSession) Destroy() error {
+// Disconnect mocks base method.
+func (m *MockcopilotSession) Disconnect() error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Destroy")
+	ret := m.ctrl.Call(m, "Disconnect")
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
-// Destroy indicates an expected call of Destroy.
-func (mr *MockcopilotSessionMockRecorder) Destroy() *gomock.Call {
+// Disconnect indicates an expected call of Disconnect.
+func (mr *MockcopilotSessionMockRecorder) Disconnect() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Destroy", reflect.TypeOf((*MockcopilotSession)(nil).Destroy))
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Disconnect", reflect.TypeOf((*MockcopilotSession)(nil).Disconnect))
 }
 
 // On mocks base method.
