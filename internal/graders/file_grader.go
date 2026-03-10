@@ -21,18 +21,6 @@ type FileContentPattern struct {
 	MustNotMatch []string // Regex patterns that must not match
 }
 
-// // FileGraderArgs holds the arguments for creating a file grader.
-// type FileGraderArgs struct {
-// 	// Name is the identifier for this grader, used in results and error messages.
-// 	Name string
-// 	// MustExist lists file paths (relative to workspace) that must be present.
-// 	MustExist []string
-// 	// MustNotExist lists file paths (relative to workspace) that must be absent.
-// 	MustNotExist []string
-// 	// ContentPatterns defines regex patterns to match against file contents.
-// 	ContentPatterns []FileContentPattern
-// }
-
 // fileGrader validates file existence and content patterns
 type fileGrader struct {
 	name            string
