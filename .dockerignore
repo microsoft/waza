@@ -5,12 +5,12 @@
 !cmd/
 !internal/
 !schemas/
-!web/embed.go
-!web/dist/
+!web/
 !docs.go
 !docs/graders/
 !version.txt
 
-# Re-exclude test files pulled in by the allowlist above
+# Re-exclude some files pulled in by the allowlist above
 **/*_test.go
 **/testdata/
+node_modules

@@ -5,16 +5,19 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/fs"
 	"log/slog"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"testing"
 	"time"
 
+	"github.com/microsoft/waza/web"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -127,6 +130,89 @@ func TestWebSocketUpgradeRequestFallsBackToSPA(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 	assert.Contains(t, string(body), "<!doctype html>")
+}
+
+// TestEmbeddedAssetsDirectoryContainsBundles verifies that the embedded
+// web/dist filesystem includes at least one JS and one CSS bundle inside
+// the assets/ subdirectory.  A missing assets/ directory (or empty one) is
+// exactly the bug that caused the blank-page issue.
+func TestEmbeddedAssetsDirectoryContainsBundles(t *testing.T) {
+	distFS, err := fs.Sub(web.Assets, "dist")
+	require.NoError(t, err, "fs.Sub for dist should succeed")
+
+	entries, err := fs.ReadDir(distFS, "assets")
+	require.NoError(t, err, "dist/assets directory must exist in embedded FS")
+
+	var hasJS, hasCSS bool
+	for _, e := range entries {
+		if !e.IsDir() {
+			switch {
+			case filepath.Ext(e.Name()) == ".js":
+				hasJS = true
+			case filepath.Ext(e.Name()) == ".css":
+				hasCSS = true
+			}
+		}
+	}
+	assert.True(t, hasJS, "dist/assets must contain at least one .js bundle")
+	assert.True(t, hasCSS, "dist/assets must contain at least one .css bundle")
+}
+
+// TestIndexHTMLReferencesExistingAssets parses the embedded index.html for
+// <script src="..."> and <link href="..."> tags pointing at /assets/*, then
+// verifies that every referenced file actually exists in the embedded FS and
+// is served with the correct content type — not the SPA HTML fallback.
+func TestIndexHTMLReferencesExistingAssets(t *testing.T) {
+	distFS, err := fs.Sub(web.Assets, "dist")
+	require.NoError(t, err)
+
+	indexBytes, err := fs.ReadFile(distFS, "index.html")
+	require.NoError(t, err, "index.html must be readable")
+	html := string(indexBytes)
+
+	// Extract asset paths referenced in index.html.
+	scriptRe := regexp.MustCompile(`<script[^>]+src="(/assets/[^"]+)"`)
+	linkRe := regexp.MustCompile(`<link[^>]+href="(/assets/[^"]+)"`)
+
+	var refs []string
+	for _, m := range scriptRe.FindAllStringSubmatch(html, -1) {
+		refs = append(refs, m[1])
+	}
+	for _, m := range linkRe.FindAllStringSubmatch(html, -1) {
+		refs = append(refs, m[1])
+	}
+	require.NotEmpty(t, refs, "index.html must reference at least one asset in /assets/")
+
+	handler := newTestServer(t)
+
+	for _, ref := range refs {
+		t.Run(ref, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, ref, nil)
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+
+			assert.Equal(t, http.StatusOK, rec.Code)
+
+			ct := rec.Header().Get("Content-Type")
+			body := rec.Body.String()
+
+			// The critical assertion: the response must NOT be the
+			// HTML fallback. Before the fix, missing assets would
+			// silently return index.html (text/html), causing a
+			// blank page.
+			assert.NotContains(t, body, "<!doctype html>",
+				"asset %s returned HTML fallback instead of the actual bundle", ref)
+
+			switch filepath.Ext(ref) {
+			case ".js":
+				assert.Contains(t, ct, "javascript",
+					"JS bundle should be served with a javascript content type")
+			case ".css":
+				assert.Contains(t, ct, "css",
+					"CSS bundle should be served with a css content type")
+			}
+		})
+	}
 }
 
 func TestNewAppliesDefaults(t *testing.T) {

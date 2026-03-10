@@ -15,6 +15,10 @@ OUTPUT_DIR="${OUTPUT_DIR:-$SCRIPT_DIR/bin}"
 # Create output directory if it doesn't exist
 mkdir -p "$OUTPUT_DIR"
 
+# Build web dashboard
+echo "Building web dashboard..."
+(cd "$SCRIPT_DIR/web" && npm ci --silent && npm run build)
+
 # Get Git commit hash and build date
 COMMIT=$(git rev-parse HEAD 2>/dev/null || echo "unknown")
 BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)

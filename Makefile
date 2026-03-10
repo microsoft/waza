@@ -1,5 +1,5 @@
 # Waza Build System
-.PHONY: all build clean test lint fmt install help
+.PHONY: all build build-web clean test lint fmt install help
 
 # Build configuration
 BINARY_NAME=waza
@@ -11,8 +11,13 @@ LDFLAGS=-ldflags "-X main.version=$(VERSION)"
 # Default target
 all: fmt lint test build
 
-# Build the binary
-build:
+# Build the web dashboard (React SPA)
+build-web:
+	@echo "Building web dashboard..."
+	@cd web && npm ci --silent && npm run build
+
+# Build the binary (includes web dashboard)
+build: build-web
 	@echo "Building $(BINARY_NAME)..."
 	@go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME) ./cmd/waza
 
@@ -48,6 +53,7 @@ clean:
 	@echo "Cleaning..."
 	@rm -f $(BUILD_DIR)/$(BINARY_NAME)
 	@rm -f coverage.out
+	@rm -rf web/dist/assets
 	@go clean -cache -testcache
 
 # Show help
@@ -59,5 +65,6 @@ help:
 	@echo "  lint     - Run golangci-lint"
 	@echo "  fmt      - Format Go code and tidy modules"
 	@echo "  install  - Install binary to GOPATH"
+	@echo "  build-web - Build the web dashboard (React SPA)"
 	@echo "  clean    - Remove build artifacts"
 	@echo "  help     - Show this help message"
