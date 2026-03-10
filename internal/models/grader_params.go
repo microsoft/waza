@@ -144,7 +144,7 @@ type DiffExpectedFileParameters struct {
 type DiffGraderParameters struct {
 	ExpectedFiles   []DiffExpectedFileParameters `yaml:"expected_files,omitempty" json:"expected_files,omitempty"`
 	ContextDir      string                       `yaml:"context_dir,omitempty" json:"context_dir,omitempty"`
-	UpdateSnapshots bool                         `yaml:"update_snapshots" json:"update_snapshots"`
+	UpdateSnapshots bool                         `yaml:"update_snapshots,omitempty" json:"update_snapshots,omitempty"`
 }
 
 func (DiffGraderParameters) isGraderParameters() {}
