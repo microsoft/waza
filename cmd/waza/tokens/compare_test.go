@@ -349,6 +349,38 @@ func TestCompare_Branches(t *testing.T) {
 	})
 }
 
+// TestCompare_Subdirectory verifies that compare works correctly when the
+// working directory is a subdirectory of the git repository. This is a
+// regression test for a bug where git show HEAD:file treated paths as
+// repo-root-relative while ls-tree returned CWD-relative paths.
+func TestCompare_Subdirectory(t *testing.T) {
+	dir := initRepo(t)
+
+	// Create files in a subdirectory and commit them
+	subDir := filepath.Join(dir, "skills", "my-skill")
+	require.NoError(t, os.MkdirAll(subDir, 0700))
+	require.NoError(t, os.WriteFile(filepath.Join(subDir, "SKILL.md"), []byte("# My Skill"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(subDir, "README.md"), []byte("# Hello"), 0o644))
+	commit(t, dir, "add skill files")
+
+	// Modify a file without committing
+	require.NoError(t, os.WriteFile(filepath.Join(subDir, "README.md"), []byte("# Hello with more content added"), 0o644))
+
+	// Run compare from the subdirectory
+	t.Chdir(subDir)
+
+	out := new(bytes.Buffer)
+	cmd := newCompareCmd()
+	cmd.SetOut(out)
+
+	require.NoError(t, cmd.Execute())
+	output := out.String()
+
+	// README.md should be "modified", not "added"
+	require.Contains(t, output, "📈", "README.md should show as modified (📈), not added (🆕)")
+	require.NotContains(t, output, "🆕", "no files should show as added since all exist at HEAD")
+}
+
 // TestCompare_InvalidRef verifies that an invalid/nonexistent ref does not cause
 // a hard error. The TypeScript implementation catches all git errors and returns
 // empty results; the Go implementation should behave the same way.
@@ -588,6 +620,47 @@ func TestCompare_Skills(t *testing.T) {
 		require.True(t, report.Passed)
 		require.Len(t, report.Files, 1)
 		require.Equal(t, "custom-skills/delta/SKILL.md", report.Files[0].File)
+	})
+
+	t.Run("compares two git refs with custom roots", func(t *testing.T) {
+		dir := initRepo(t)
+
+		// Set up .waza.yaml with custom skill root and a skill file
+		cfg := "paths:\n  skills: my-skills\n"
+		require.NoError(t, os.WriteFile(filepath.Join(dir, ".waza.yaml"), []byte(cfg), 0o644))
+		require.NoError(t, os.MkdirAll(filepath.Join(dir, "my-skills", "echo"), 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "my-skills", "echo", "SKILL.md"), []byte("# Echo\nv1 content"), 0o644))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "README.md"), []byte("# Repo readme"), 0o644))
+		commit(t, dir, "initial")
+
+		// Create branch with modified skill
+		gitCmd := exec.Command("git", "checkout", "-b", "updated")
+		gitCmd.Dir = dir
+		require.NoError(t, gitCmd.Run())
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "my-skills", "echo", "SKILL.md"), []byte("# Echo\nv2 content with extra words added"), 0o644))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "README.md"), []byte("# Updated readme with more text"), 0o644))
+		commit(t, dir, "update skill")
+
+		// Compare main to updated branch with --skills
+		out := new(bytes.Buffer)
+		cmd := newCompareCmd()
+		cmd.SetOut(out)
+		cmd.SetErr(new(bytes.Buffer))
+		cmd.SetArgs([]string{"main", "updated", "--skills", "--format", "json"})
+
+		require.NoError(t, cmd.Execute())
+
+		var report comparisonReport
+		require.NoError(t, json.Unmarshal(out.Bytes(), &report))
+		require.Equal(t, "main", report.BaseRef)
+		require.Equal(t, "updated", report.HeadRef)
+		// Only SKILL.md under my-skills/ should appear — README.md is excluded
+		require.Len(t, report.Files, 1)
+		require.Equal(t, "my-skills/echo/SKILL.md", report.Files[0].File)
+		require.Equal(t, "modified", report.Files[0].Status)
+		require.NotNil(t, report.Files[0].Before, "Before should be populated from base ref")
+		require.NotNil(t, report.Files[0].After, "After should be populated from head ref")
+		require.Greater(t, report.Files[0].After.Tokens, report.Files[0].Before.Tokens)
 	})
 }
 

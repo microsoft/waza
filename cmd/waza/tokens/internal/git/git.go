@@ -58,10 +58,32 @@ func RefExists(dir, ref string) bool {
 }
 
 // GetFileFromRef retrieves the content of a file at a given git ref.
+// The file path is resolved relative to the repository root, regardless
+// of the working directory. Use [GetCWDFileFromRef] when the path comes
+// from a CWD-relative listing such as git ls-tree run from a subdirectory.
 // It returns [ErrFileNotFound] (wrapped) when the path does not exist at the
 // given ref, so callers can distinguish "missing file" from other git errors.
 func GetFileFromRef(dir, file, ref string) (string, error) {
 	cmd := exec.Command("git", "-C", dir, "show", ref+":"+file)
+	out, err := cmd.Output()
+	if err != nil {
+		if exitErr, ok := errors.AsType[*exec.ExitError](err); ok {
+			stderr := string(exitErr.Stderr)
+			if strings.Contains(stderr, "does not exist") {
+				return "", fmt.Errorf("reading %q at %s: %w", file, ref, ErrFileNotFound)
+			}
+		}
+		return "", fmt.Errorf("reading %q at %s: %w", file, ref, err)
+	}
+	return string(out), nil
+}
+
+// GetCWDFileFromRef retrieves the content of a file at a given git ref,
+// resolving the path relative to dir (the working directory) rather than the
+// repository root. This matches how [GetFilesFromRef] returns CWD-relative
+// paths from git ls-tree when run from a subdirectory.
+func GetCWDFileFromRef(dir, file, ref string) (string, error) {
+	cmd := exec.Command("git", "-C", dir, "show", ref+":./"+file)
 	out, err := cmd.Output()
 	if err != nil {
 		var exitErr *exec.ExitError

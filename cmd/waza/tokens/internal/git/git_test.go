@@ -178,3 +178,56 @@ func TestGetFileFromRefNotFoundAndOtherErrors(t *testing.T) {
 		t.Fatalf("did not expect ErrFileNotFound for invalid ref")
 	}
 }
+
+func TestGetCWDFileFromRef(t *testing.T) {
+	repo := initTestRepo(t)
+	writeFile(t, repo, "root.md", "root content\n")
+	writeFile(t, repo, "sub/nested.md", "nested content\n")
+	_ = commitAll(t, repo, "initial")
+
+	t.Run("from repo root", func(t *testing.T) {
+		content, err := GetCWDFileFromRef(repo, "sub/nested.md", "HEAD")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if content != "nested content\n" {
+			t.Fatalf("expected nested content, got %q", content)
+		}
+	})
+
+	t.Run("from subdirectory", func(t *testing.T) {
+		subDir := filepath.Join(repo, "sub")
+		// GetCWDFileFromRef resolves paths relative to dir, so "nested.md"
+		// from the sub/ directory should find sub/nested.md in the tree.
+		content, err := GetCWDFileFromRef(subDir, "nested.md", "HEAD")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if content != "nested content\n" {
+			t.Fatalf("expected nested content, got %q", content)
+		}
+	})
+
+	t.Run("repo-root file not visible from subdirectory", func(t *testing.T) {
+		subDir := filepath.Join(repo, "sub")
+		// "root.md" exists at the repo root but not under sub/,
+		// so GetCWDFileFromRef from sub/ should not find it.
+		_, err := GetCWDFileFromRef(subDir, "root.md", "HEAD")
+		if err == nil {
+			t.Fatalf("expected error reading repo-root file from subdirectory")
+		}
+	})
+
+	t.Run("GetFileFromRef still uses repo-root paths", func(t *testing.T) {
+		subDir := filepath.Join(repo, "sub")
+		// GetFileFromRef always resolves relative to repo root,
+		// so "root.md" should be found even when dir is a subdirectory.
+		content, err := GetFileFromRef(subDir, "root.md", "HEAD")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if content != "root content\n" {
+			t.Fatalf("expected root content, got %q", content)
+		}
+	})
+}

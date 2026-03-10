@@ -370,7 +370,7 @@ func compareFilesets(baseRef, headRef, rootDir string, baseFiles, headFiles map[
 		var hasBase bool
 		if baseFiles[file] {
 			var err error
-			baseContent, err = git.GetFileFromRef(rootDir, file, baseRef)
+			baseContent, err = git.GetCWDFileFromRef(rootDir, file, baseRef)
 			if err == nil {
 				hasBase = true
 			}
@@ -392,7 +392,7 @@ func compareFilesets(baseRef, headRef, rootDir string, baseFiles, headFiles map[
 				}
 			} else {
 				var err error
-				headContent, err = git.GetFileFromRef(rootDir, file, headRef)
+				headContent, err = git.GetCWDFileFromRef(rootDir, file, headRef)
 				if err == nil {
 					hasHead = true
 				}
