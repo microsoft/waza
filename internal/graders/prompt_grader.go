@@ -39,7 +39,8 @@ func NewPromptGrader(name string, args models.PromptGraderParameters) (*promptGr
 
 // Grade implements [Grader].
 func (p *promptGrader) Grade(ctx context.Context, gradingContext *Context) (*models.GraderResults, error) {
-	if p.args.Mode == "pairwise" && gradingContext.BaselineOutput != "" {
+
+	if p.args.Mode == models.PromptGraderModePairwise && gradingContext.BaselineOutput != "" {
 		return p.gradePairwise(ctx, gradingContext)
 	}
 	return p.gradeIndependent(ctx, gradingContext)

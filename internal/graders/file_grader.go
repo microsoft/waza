@@ -14,13 +14,6 @@ import (
 // errFileGraderNoChecks is the error format string returned when a file grader is created without any checks.
 const errFileGraderNoChecks = "file grader '%s' must have at least one of 'must_exist', 'must_not_exist', or 'content_patterns'"
 
-// FileContentPattern defines regex patterns to match against a file's content
-type FileContentPattern struct {
-	Path         string   // Path to file (relative to workspace)
-	MustMatch    []string // Regex patterns that must match
-	MustNotMatch []string // Regex patterns that must not match
-}
-
 // fileGrader validates file existence and content patterns
 type fileGrader struct {
 	name            string
