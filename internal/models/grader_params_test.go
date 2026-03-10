@@ -119,6 +119,3 @@ graders:
 	}
 }
 
-func TestDecodeYAMLNode(t *testing.T) {
-	yaml.Unmarshal([]byte(`config:`), )
-}
