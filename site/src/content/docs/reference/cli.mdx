@@ -182,6 +182,40 @@ code, analysis
 EOF
 ```
 
+## waza new eval
+
+Scaffold an eval suite for an existing skill.
+
+### waza new eval
+
+Generate an eval scaffold from an existing `SKILL.md`.
+
+```bash
+waza new eval <skill-name>
+```
+
+Creates:
+- `evals/<skill-name>/eval.yaml`
+- `evals/<skill-name>/tasks/positive-trigger-1.yaml`
+- `evals/<skill-name>/tasks/positive-trigger-2.yaml`
+- `evals/<skill-name>/tasks/negative-trigger-1.yaml`
+
+### Flags
+
+| Flag | Description |
+|------|-------------|
+| `--output` | Custom path for generated `eval.yaml`; task YAMLs are created in a sibling `tasks/` directory next to this file. |
+
+### Examples
+
+```bash
+# Generate eval scaffold using skills/my-skill/SKILL.md
+waza new eval my-skill
+
+# Write eval.yaml to a custom location
+waza new eval my-skill --output evals/custom/my-skill-eval.yaml
+```
+
 ## waza check
 
 Validate skill compliance and readiness.

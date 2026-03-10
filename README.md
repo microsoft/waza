@@ -84,6 +84,9 @@ waza init [directory]
 # Create a new skill
 waza new skill-name
 
+# Create a new eval scaffold from an existing SKILL.md
+waza new eval skill-name
+
 # Check if a skill is ready for submission
 waza check skills/my-skill
 
@@ -180,6 +183,29 @@ waza new code-explainer
 
 # With wizard
 waza new code-explainer --interactive
+```
+
+### `waza new eval <skill-name>`
+
+Scaffold an eval suite from an existing `SKILL.md` (reads frontmatter trigger hints from `USE FOR` and `DO NOT USE FOR`).
+
+Creates:
+- `evals/<skill-name>/eval.yaml`
+- `evals/<skill-name>/tasks/positive-trigger-1.yaml`
+- `evals/<skill-name>/tasks/positive-trigger-2.yaml`
+- `evals/<skill-name>/tasks/negative-trigger-1.yaml`
+
+| Flag | Description |
+|------|-------------|
+| `--output <path>` | Custom path for `eval.yaml` (tasks are generated under sibling `tasks/`) |
+
+**Example:**
+```bash
+# Default output location
+waza new eval code-explainer
+
+# Custom eval path
+waza new eval code-explainer --output evals/custom-code-explainer/eval.yaml
 ```
 
 ### `waza run <eval.yaml>`
