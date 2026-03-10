@@ -217,7 +217,7 @@ func TestOutcomeToDetailMapsStatsTranscriptAndDigest(t *testing.T) {
 										ToolCallID: &toolCallID,
 										ToolName:   &toolName,
 										Arguments:  map[string]any{"command": "echo hi"},
-										Result:     &copilot.Result{Content: "hi"},
+										Result:     &copilot.Result{Content: new("hi")},
 										Success:    &success,
 									},
 								},

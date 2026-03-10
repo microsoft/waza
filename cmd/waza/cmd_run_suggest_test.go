@@ -112,7 +112,7 @@ func TestBuildNoSuggestionsError_IncludesSessionTranscript(t *testing.T) {
 					ToolCallID: &toolCallID,
 					Success:    &succeeded,
 					Result: &copilot.Result{
-						Content: toolResultText,
+						Content: &toolResultText,
 					},
 				},
 			},
@@ -212,7 +212,7 @@ func TestBuildRunSuggestionPrompt_IncludesOnlyFailureEvidence(t *testing.T) {
 									ToolCallID: &toolCallID,
 									Success:    &succeeded,
 									Result: &copilot.Result{
-										Content: toolResultText,
+										Content: &toolResultText,
 									},
 								},
 							},

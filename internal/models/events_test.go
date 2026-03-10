@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	copilot "github.com/github/copilot-sdk/go"
+	"github.com/stretchr/testify/require"
 )
 
 func TestTranscriptEventRoundTrip(t *testing.T) {
@@ -23,7 +24,7 @@ func TestTranscriptEventRoundTrip(t *testing.T) {
 				ToolCallID: &toolCallID,
 				ToolName:   &toolName,
 				Arguments:  map[string]any{"command": "ls"},
-				Result:     &copilot.Result{Content: "file1.go"},
+				Result:     &copilot.Result{Content: new("file1.go")},
 				Success:    &success,
 			},
 		},
@@ -51,9 +52,8 @@ func TestTranscriptEventRoundTrip(t *testing.T) {
 	if restored.Data.Result == nil {
 		t.Fatal("Result is nil after round-trip")
 	}
-	if restored.Data.Result.Content != original.Data.Result.Content {
-		t.Errorf("Result.Content: got %q, want %q", restored.Data.Result.Content, original.Data.Result.Content)
-	}
+
+	require.Equal(t, original.Data.Result.Content, restored.Data.Result.Content)
 
 	// Arguments round-trips as map[string]any via JSON
 	argsMap, ok := restored.Data.Arguments.(map[string]any)
