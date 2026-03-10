@@ -13,4 +13,7 @@
 # Re-exclude some files pulled in by the allowlist above
 **/*_test.go
 **/testdata/
-node_modules
+web/node_modules/
+web/dist/
+web/test-results/
+web/playwright-report/
