@@ -43,8 +43,8 @@ fmt:
 	@gofmt -w $(GO_FILES)
 	@go mod tidy
 
-# Install binary to GOPATH
-install:
+# Install binary to GOPATH (builds web dashboard first)
+install: build-web
 	@echo "Installing $(BINARY_NAME)..."
 	@go install $(LDFLAGS) ./cmd/waza
 

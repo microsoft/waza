@@ -3,6 +3,7 @@ package webserver
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -140,12 +141,12 @@ func TestEmbeddedAssetsDirectoryContainsBundles(t *testing.T) {
 	distFS, err := fs.Sub(web.Assets, "dist")
 	require.NoError(t, err, "fs.Sub for dist should succeed")
 
-	if _, err := fs.ReadDir(distFS, "assets"); err != nil {
+	entries, err := fs.ReadDir(distFS, "assets")
+	if errors.Is(err, fs.ErrNotExist) {
 		t.Skip("skipping: web/dist/assets not built (run 'cd web && npm run build' or 'make build-web')")
 	}
+	require.NoError(t, err, "unexpected error reading dist/assets")
 
-	entries, err := fs.ReadDir(distFS, "assets")
-	require.NoError(t, err)
 	var hasJS, hasCSS bool
 	for _, e := range entries {
 		if !e.IsDir() {
@@ -169,8 +170,10 @@ func TestIndexHTMLReferencesExistingAssets(t *testing.T) {
 	distFS, err := fs.Sub(web.Assets, "dist")
 	require.NoError(t, err)
 
-	if _, err := fs.ReadDir(distFS, "assets"); err != nil {
+	if _, err := fs.ReadDir(distFS, "assets"); errors.Is(err, fs.ErrNotExist) {
 		t.Skip("skipping: web/dist/assets not built (run 'cd web && npm run build' or 'make build-web')")
+	} else if err != nil {
+		require.NoError(t, err, "unexpected error reading dist/assets")
 	}
 
 	indexBytes, err := fs.ReadFile(distFS, "index.html")
@@ -201,14 +204,13 @@ func TestIndexHTMLReferencesExistingAssets(t *testing.T) {
 			assert.Equal(t, http.StatusOK, rec.Code)
 
 			ct := rec.Header().Get("Content-Type")
-			body := rec.Body.String()
 
-			// The critical assertion: the response must NOT be the
-			// HTML fallback. Before the fix, missing assets would
-			// silently return index.html (text/html), causing a
-			// blank page.
-			assert.NotContains(t, body, "<!doctype html>",
-				"asset %s returned HTML fallback instead of the actual bundle", ref)
+			// The critical assertion: the Content-Type must NOT be
+			// text/html. Before the fix, missing assets would
+			// silently return index.html via the SPA fallback,
+			// causing a blank page.
+			assert.NotContains(t, ct, "text/html",
+				"asset %s was served as text/html (SPA fallback); bundle is missing", ref)
 
 			switch filepath.Ext(ref) {
 			case ".js":

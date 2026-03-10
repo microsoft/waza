@@ -26,7 +26,7 @@ BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 VERSION="${VERSION:-0.1.0}"
 
 # List of OS and architecture combinations
-if [ -n "$PLATFORM" ]; then
+if [ -n "${PLATFORM:-}" ]; then
     PLATFORMS=("$PLATFORM")
 else
     PLATFORMS=(
