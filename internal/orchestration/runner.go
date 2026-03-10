@@ -1199,7 +1199,7 @@ func (r *TestRunner) runGraders(ctx context.Context, tc *models.TestCase, grader
 	for _, vCfg := range spec.Graders {
 		params := r.applyDefaults(vCfg.Parameters, judgeModel)
 
-		grader, err := graders.Create(vCfg.Kind, vCfg.Identifier, params)
+		grader, err := graders.Create(vCfg.Identifier, params)
 
 		if err != nil {
 			return nil, err
@@ -1224,7 +1224,7 @@ func (r *TestRunner) runGraders(ctx context.Context, tc *models.TestCase, grader
 
 		params := r.applyDefaults(vCfg.Parameters, judgeModel)
 
-		grader, err := graders.Create(kind, vCfg.Identifier, params)
+		grader, err := graders.Create(vCfg.Identifier, params)
 
 		if err != nil {
 			return nil, fmt.Errorf("failed to create grader %s: %w", vCfg.Identifier, err)

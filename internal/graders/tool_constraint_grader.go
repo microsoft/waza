@@ -9,40 +9,11 @@ import (
 	"github.com/microsoft/waza/internal/models"
 )
 
-// ToolSpec describes a tool matching rule with an optional arguments pattern.
-type ToolSpec struct {
-	Tool           string `mapstructure:"tool"`                                              // regex matched against tool name
-	CommandPattern string `mapstructure:"command_pattern"  yaml:"command_pattern,omitempty"` // optional regex matched against the command argument
-	SkillPattern   string `mapstructure:"skill_pattern" yaml:"skill_pattern,omitempty"`      // optional regex matched against the skill argument
-	PathPattern    string `mapstructure:"path_pattern" yaml:"path_pattern,omitempty"`        // optional regex matched against the path argument
-}
-
 // toolConstraintGrader validates which tools an agent should/shouldn't use
 type toolConstraintGrader struct {
 	name        string
-	expectTools []ToolSpec
-	rejectTools []ToolSpec
-}
-
-// ToolConstraintGraderConfig holds the mapstructure-decoded parameters.
-// expect_tools and reject_tools must be objects with "tool" and optional
-// "command_pattern" fields for regex matching.
-type ToolConstraintGraderConfig struct {
-	ExpectTools []ToolSpec `mapstructure:"expect_tools"`
-	RejectTools []ToolSpec `mapstructure:"reject_tools"`
-}
-
-func (p ToolConstraintGraderConfig) Config() map[string]any {
-	config := make(map[string]any)
-
-	if len(p.ExpectTools) > 0 {
-		config["expect_tools"] = p.ExpectTools
-	}
-	if len(p.RejectTools) > 0 {
-		config["reject_tools"] = p.RejectTools
-	}
-
-	return config
+	expectTools []models.ToolSpecParameters
+	rejectTools []models.ToolSpecParameters
 }
 
 // validateToolSpecs ensures each spec has a valid tool regex and optional args regex.
@@ -163,7 +134,7 @@ func (tc *toolConstraintGrader) Grade(ctx context.Context, gradingContext *Conte
 
 // matchesToolCall returns true if spec matches the given tool call constraints.
 // NOTE: this function assumes that the regexes have already been validated.
-func matchesToolCall(spec ToolSpec, call models.ToolCall) bool {
+func matchesToolCall(spec models.ToolSpecParameters, call models.ToolCall) bool {
 	checkPattern := func(pattern, text string) bool {
 		// empty pattern automatically passes - we validate that they have passed at least one check in
 		// validateToolSpecs().
@@ -196,7 +167,7 @@ func matchesToolCall(spec ToolSpec, call models.ToolCall) bool {
 }
 
 // describeToolSpec returns a human-readable label for a ToolSpec.
-func describeToolSpec(spec ToolSpec) string {
+func describeToolSpec(spec models.ToolSpecParameters) string {
 	var qualifiers []string
 
 	if spec.CommandPattern != "" {
@@ -217,7 +188,7 @@ func describeToolSpec(spec ToolSpec) string {
 }
 
 // describeToolSpecs returns human-readable labels for a slice of ToolSpecs.
-func describeToolSpecs(specs []ToolSpec) []string {
+func describeToolSpecs(specs []models.ToolSpecParameters) []string {
 	out := make([]string, len(specs))
 	for i, s := range specs {
 		out[i] = describeToolSpec(s)

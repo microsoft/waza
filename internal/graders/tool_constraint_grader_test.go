@@ -5,48 +5,20 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/go-viper/mapstructure/v2"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/stretchr/testify/require"
 )
 
-func TestToolConstraintGraderConfig_ConfigOmitsEmptyFields(t *testing.T) {
-	original := ToolConstraintGraderConfig{}
-
-	config := original.Config()
-	require.NotContains(t, config, "expect_tools")
-	require.NotContains(t, config, "reject_tools")
-
-	var decoded ToolConstraintGraderConfig
-	require.NoError(t, mapstructure.Decode(config, &decoded))
-	require.Equal(t, original, decoded)
-}
-
-func TestToolConstraintGraderConfig_ConfigRoundTrip(t *testing.T) {
-	original := ToolConstraintGraderConfig{
-		ExpectTools: []ToolSpec{{Tool: "bash", CommandPattern: "azd up"}},
-		RejectTools: []ToolSpec{{Tool: "delete"}},
-	}
-
-	config := original.Config()
-	require.Contains(t, config, "expect_tools")
-	require.Contains(t, config, "reject_tools")
-
-	var decoded ToolConstraintGraderConfig
-	require.NoError(t, mapstructure.Decode(config, &decoded))
-	require.Equal(t, original, decoded)
-}
-
 func TestToolConstraintGrader_RequiresAtLeastOneConstraint(t *testing.T) {
-	_, err := NewToolConstraintGrader("empty", ToolConstraintGraderConfig{})
+	_, err := NewToolConstraintGrader("empty", models.ToolConstraintGraderParameters{})
 	if err == nil {
 		t.Fatal("expected error for empty params")
 	}
 }
 
 func TestToolConstraintGrader_ExpectTools_Pass(t *testing.T) {
-	g, err := NewToolConstraintGrader("test", ToolConstraintGraderConfig{
-		ExpectTools: []ToolSpec{{Tool: "bash"}, {Tool: "edit"}},
+	g, err := NewToolConstraintGrader("test", models.ToolConstraintGraderParameters{
+		ExpectTools: []models.ToolSpecParameters{{Tool: "bash"}, {Tool: "edit"}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -70,8 +42,8 @@ func TestToolConstraintGrader_ExpectTools_Pass(t *testing.T) {
 }
 
 func TestToolConstraintGrader_ExpectTools_Fail(t *testing.T) {
-	g, err := NewToolConstraintGrader("test", ToolConstraintGraderConfig{
-		ExpectTools: []ToolSpec{{Tool: "bash"}, {Tool: "edit"}},
+	g, err := NewToolConstraintGrader("test", models.ToolConstraintGraderParameters{
+		ExpectTools: []models.ToolSpecParameters{{Tool: "bash"}, {Tool: "edit"}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -95,8 +67,8 @@ func TestToolConstraintGrader_ExpectTools_Fail(t *testing.T) {
 }
 
 func TestToolConstraintGrader_RejectTools_Pass(t *testing.T) {
-	g, err := NewToolConstraintGrader("test", ToolConstraintGraderConfig{
-		RejectTools: []ToolSpec{{Tool: "create_file"}},
+	g, err := NewToolConstraintGrader("test", models.ToolConstraintGraderParameters{
+		RejectTools: []models.ToolSpecParameters{{Tool: "create_file"}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -117,8 +89,8 @@ func TestToolConstraintGrader_RejectTools_Pass(t *testing.T) {
 }
 
 func TestToolConstraintGrader_RejectTools_Fail(t *testing.T) {
-	g, err := NewToolConstraintGrader("test", ToolConstraintGraderConfig{
-		RejectTools: []ToolSpec{{Tool: "create_file"}, {Tool: "delete"}},
+	g, err := NewToolConstraintGrader("test", models.ToolConstraintGraderParameters{
+		RejectTools: []models.ToolSpecParameters{{Tool: "create_file"}, {Tool: "delete"}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -143,9 +115,9 @@ func TestToolConstraintGrader_RejectTools_Fail(t *testing.T) {
 }
 
 func TestToolConstraintGrader_AllConstraints_Pass(t *testing.T) {
-	g, err := NewToolConstraintGrader("full", ToolConstraintGraderConfig{
-		ExpectTools: []ToolSpec{{Tool: "bash"}, {Tool: "edit"}},
-		RejectTools: []ToolSpec{{Tool: "create_file"}},
+	g, err := NewToolConstraintGrader("full", models.ToolConstraintGraderParameters{
+		ExpectTools: []models.ToolSpecParameters{{Tool: "bash"}, {Tool: "edit"}},
+		RejectTools: []models.ToolSpecParameters{{Tool: "create_file"}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -170,9 +142,9 @@ func TestToolConstraintGrader_AllConstraints_Pass(t *testing.T) {
 }
 
 func TestToolConstraintGrader_AllConstraints_PartialFail(t *testing.T) {
-	g, err := NewToolConstraintGrader("partial", ToolConstraintGraderConfig{
-		ExpectTools: []ToolSpec{{Tool: "bash"}, {Tool: "edit"}},
-		RejectTools: []ToolSpec{{Tool: "create_file"}},
+	g, err := NewToolConstraintGrader("partial", models.ToolConstraintGraderParameters{
+		ExpectTools: []models.ToolSpecParameters{{Tool: "bash"}, {Tool: "edit"}},
+		RejectTools: []models.ToolSpecParameters{{Tool: "create_file"}},
 	})
 	require.NoError(t, err)
 
@@ -194,8 +166,8 @@ func TestToolConstraintGrader_AllConstraints_PartialFail(t *testing.T) {
 }
 
 func TestToolConstraintGrader_NilSession(t *testing.T) {
-	g, err := NewToolConstraintGrader("test", ToolConstraintGraderConfig{
-		ExpectTools: []ToolSpec{{Tool: "bash"}},
+	g, err := NewToolConstraintGrader("test", models.ToolConstraintGraderParameters{
+		ExpectTools: []models.ToolSpecParameters{{Tool: "bash"}},
 	})
 	require.NoError(t, err)
 
@@ -208,8 +180,8 @@ func TestToolConstraintGrader_NilSession(t *testing.T) {
 }
 
 func TestToolConstraintGrader_Kind(t *testing.T) {
-	g, err := NewToolConstraintGrader("test", ToolConstraintGraderConfig{
-		ExpectTools: []ToolSpec{
+	g, err := NewToolConstraintGrader("test", models.ToolConstraintGraderParameters{
+		ExpectTools: []models.ToolSpecParameters{
 			{Tool: "hello"},
 		},
 	})
@@ -226,9 +198,9 @@ func TestToolConstraintGrader_Kind(t *testing.T) {
 }
 
 func TestToolConstraintGrader_EmptyToolsUsed(t *testing.T) {
-	g, err := NewToolConstraintGrader("test", ToolConstraintGraderConfig{
-		ExpectTools: []ToolSpec{{Tool: "bash"}},
-		RejectTools: []ToolSpec{{Tool: "delete"}},
+	g, err := NewToolConstraintGrader("test", models.ToolConstraintGraderParameters{
+		ExpectTools: []models.ToolSpecParameters{{Tool: "bash"}},
+		RejectTools: []models.ToolSpecParameters{{Tool: "delete"}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -255,8 +227,8 @@ func TestToolConstraintGrader_EmptyToolsUsed(t *testing.T) {
 // --- New tests for structured ToolSpec matching ---
 
 func TestToolConstraintGrader_StructuredExpect_ToolNameOnly(t *testing.T) {
-	g, err := NewToolConstraintGrader("test", ToolConstraintGraderConfig{
-		ExpectTools: []ToolSpec{{Tool: "bash"}},
+	g, err := NewToolConstraintGrader("test", models.ToolConstraintGraderParameters{
+		ExpectTools: []models.ToolSpecParameters{{Tool: "bash"}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -277,8 +249,8 @@ func TestToolConstraintGrader_StructuredExpect_ToolNameOnly(t *testing.T) {
 }
 
 func TestToolConstraintGrader_StructuredExpect_WithArgsPattern_Pass(t *testing.T) {
-	g, err := NewToolConstraintGrader("test", ToolConstraintGraderConfig{
-		ExpectTools: []ToolSpec{{Tool: "bash", CommandPattern: `azd\s+up`}},
+	g, err := NewToolConstraintGrader("test", models.ToolConstraintGraderParameters{
+		ExpectTools: []models.ToolSpecParameters{{Tool: "bash", CommandPattern: `azd\s+up`}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -301,8 +273,8 @@ func TestToolConstraintGrader_StructuredExpect_WithArgsPattern_Pass(t *testing.T
 }
 
 func TestToolConstraintGrader_StructuredExpect_WithArgsPattern_Fail(t *testing.T) {
-	g, err := NewToolConstraintGrader("test", ToolConstraintGraderConfig{
-		ExpectTools: []ToolSpec{{Tool: "bash", CommandPattern: `azd\s+up`}},
+	g, err := NewToolConstraintGrader("test", models.ToolConstraintGraderParameters{
+		ExpectTools: []models.ToolSpecParameters{{Tool: "bash", CommandPattern: `azd\s+up`}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -326,8 +298,8 @@ func TestToolConstraintGrader_StructuredExpect_WithArgsPattern_Fail(t *testing.T
 
 func TestToolConstraintGrader_StructuredReject_WithArgsPattern_Pass(t *testing.T) {
 	// bash is used but NOT with rm -rf args, so should pass
-	g, err := NewToolConstraintGrader("test", ToolConstraintGraderConfig{
-		RejectTools: []ToolSpec{{Tool: "bash", CommandPattern: `rm\s+-rf`}},
+	g, err := NewToolConstraintGrader("test", models.ToolConstraintGraderParameters{
+		RejectTools: []models.ToolSpecParameters{{Tool: "bash", CommandPattern: `rm\s+-rf`}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -350,8 +322,8 @@ func TestToolConstraintGrader_StructuredReject_WithArgsPattern_Pass(t *testing.T
 }
 
 func TestToolConstraintGrader_StructuredReject_WithArgsPattern_Fail(t *testing.T) {
-	g, err := NewToolConstraintGrader("test", ToolConstraintGraderConfig{
-		RejectTools: []ToolSpec{{Tool: "bash", CommandPattern: `rm\s+-rf`}},
+	g, err := NewToolConstraintGrader("test", models.ToolConstraintGraderParameters{
+		RejectTools: []models.ToolSpecParameters{{Tool: "bash", CommandPattern: `rm\s+-rf`}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -374,8 +346,8 @@ func TestToolConstraintGrader_StructuredReject_WithArgsPattern_Fail(t *testing.T
 }
 
 func TestToolConstraintGrader_EmptyToolField(t *testing.T) {
-	_, err := NewToolConstraintGrader("test", ToolConstraintGraderConfig{
-		ExpectTools: []ToolSpec{{Tool: ""}},
+	_, err := NewToolConstraintGrader("test", models.ToolConstraintGraderParameters{
+		ExpectTools: []models.ToolSpecParameters{{Tool: ""}},
 	})
 	if err == nil {
 		t.Fatal("expected error for empty tool field")
@@ -387,8 +359,8 @@ func TestToolConstraintGrader_EmptyToolField(t *testing.T) {
 
 func TestToolConstraintGrader_RegexToolName(t *testing.T) {
 	// Regex match: "bash|shell" should match "bash"
-	g, err := NewToolConstraintGrader("test", ToolConstraintGraderConfig{
-		ExpectTools: []ToolSpec{{Tool: "bash|shell"}},
+	g, err := NewToolConstraintGrader("test", models.ToolConstraintGraderParameters{
+		ExpectTools: []models.ToolSpecParameters{{Tool: "bash|shell"}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -409,8 +381,8 @@ func TestToolConstraintGrader_RegexToolName(t *testing.T) {
 }
 
 func TestToolConstraintGrader_EmptyRejectToolField(t *testing.T) {
-	_, err := NewToolConstraintGrader("test", ToolConstraintGraderConfig{
-		RejectTools: []ToolSpec{{Tool: ""}},
+	_, err := NewToolConstraintGrader("test", models.ToolConstraintGraderParameters{
+		RejectTools: []models.ToolSpecParameters{{Tool: ""}},
 	})
 	if err == nil {
 		t.Fatal("expected error for empty reject tool field")
@@ -421,8 +393,8 @@ func TestToolConstraintGrader_EmptyRejectToolField(t *testing.T) {
 }
 
 func TestToolConstraintGrader_InvalidToolRegex(t *testing.T) {
-	_, err := NewToolConstraintGrader("test", ToolConstraintGraderConfig{
-		ExpectTools: []ToolSpec{{Tool: "("}},
+	_, err := NewToolConstraintGrader("test", models.ToolConstraintGraderParameters{
+		ExpectTools: []models.ToolSpecParameters{{Tool: "("}},
 	})
 	if err == nil {
 		t.Fatal("expected error for invalid tool regex")
@@ -433,8 +405,8 @@ func TestToolConstraintGrader_InvalidToolRegex(t *testing.T) {
 }
 
 func TestToolConstraintGrader_InvalidArgsPatternRegex(t *testing.T) {
-	_, err := NewToolConstraintGrader("test", ToolConstraintGraderConfig{
-		RejectTools: []ToolSpec{{Tool: "bash", CommandPattern: "("}},
+	_, err := NewToolConstraintGrader("test", models.ToolConstraintGraderParameters{
+		RejectTools: []models.ToolSpecParameters{{Tool: "bash", CommandPattern: "("}},
 	})
 	if err == nil {
 		t.Fatal("expected error for invalid command_pattern regex")

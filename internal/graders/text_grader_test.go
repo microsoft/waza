@@ -4,47 +4,12 @@ import (
 	"context"
 	"testing"
 
-	"github.com/go-viper/mapstructure/v2"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/stretchr/testify/require"
 )
 
-func TestTextGraderArgs_ConfigRoundTrip(t *testing.T) {
-	original := TextGraderArgs{
-		Contains:      []string{"hello", "world"},
-		NotContains:   []string{"error"},
-		ContainsCS:    []string{"Hello"},
-		NotContainsCS: []string{"ERROR"},
-		RegexMatch:    []string{`he.*`, `world$`},
-		RegexNotMatch: []string{`panic`, `fail`},
-	}
-
-	var decoded TextGraderArgs
-	require.NoError(t, mapstructure.Decode(original.Config(), &decoded))
-	require.Equal(t, original, decoded)
-}
-
-func TestTextGraderArgs_ConfigOmitsEmptyFields(t *testing.T) {
-	original := TextGraderArgs{}
-
-	config := original.Config()
-	require.NotContains(t, config, "contains")
-	require.NotContains(t, config, "not_contains")
-	require.NotContains(t, config, "contains_cs")
-	require.NotContains(t, config, "not_contains_cs")
-	require.NotContains(t, config, "regex_match")
-	require.NotContains(t, config, "regex_not_match")
-
-	var decoded TextGraderArgs
-	require.NoError(t, mapstructure.Decode(config, &decoded))
-	require.Equal(t, original, decoded)
-}
-
 func TestTextGrader_Basic(t *testing.T) {
-	g, err := NewTextGrader(TextGraderArgs{
-		Name:       "test",
-		RegexMatch: []string{`he.*`, `world`},
-	})
+	g, err := NewTextGrader("test", models.TextGraderParameters{RegexMatch: []string{`he.*`, `world`}})
 	require.NoError(t, err)
 
 	require.Equal(t, models.GraderKindText, g.Kind())
@@ -88,10 +53,7 @@ func TestTextGrader_RegexMatch(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			g, err := NewTextGrader(TextGraderArgs{
-				Name:       "test",
-				RegexMatch: tt.regexMatch,
-			})
+			g, err := NewTextGrader("test", models.TextGraderParameters{RegexMatch: tt.regexMatch})
 			require.NoError(t, err)
 
 			results, err := g.Grade(context.Background(), &Context{Output: tt.output})
@@ -145,10 +107,7 @@ func TestTextGrader_RegexNotMatch(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			g, err := NewTextGrader(TextGraderArgs{
-				Name:          "test",
-				RegexNotMatch: tt.regexNotMatch,
-			})
+			g, err := NewTextGrader("test", models.TextGraderParameters{RegexNotMatch: tt.regexNotMatch})
 			require.NoError(t, err)
 
 			results, err := g.Grade(context.Background(), &Context{Output: tt.output})
@@ -192,10 +151,7 @@ func TestTextGrader_Contains(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			g, err := NewTextGrader(TextGraderArgs{
-				Name:     "test",
-				Contains: tt.contains,
-			})
+			g, err := NewTextGrader("test", models.TextGraderParameters{Contains: tt.contains})
 			require.NoError(t, err)
 
 			results, err := g.Grade(context.Background(), &Context{Output: tt.output})
@@ -237,10 +193,7 @@ func TestTextGrader_NotContains(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			g, err := NewTextGrader(TextGraderArgs{
-				Name:        "test",
-				NotContains: tt.notContains,
-			})
+			g, err := NewTextGrader("test", models.TextGraderParameters{NotContains: tt.notContains})
 			require.NoError(t, err)
 
 			results, err := g.Grade(context.Background(), &Context{Output: tt.output})
@@ -282,10 +235,7 @@ func TestTextGrader_ContainsCS(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			g, err := NewTextGrader(TextGraderArgs{
-				Name:       "test",
-				ContainsCS: tt.containsCS,
-			})
+			g, err := NewTextGrader("test", models.TextGraderParameters{ContainsCS: tt.containsCS})
 			require.NoError(t, err)
 
 			results, err := g.Grade(context.Background(), &Context{Output: tt.output})
@@ -327,10 +277,7 @@ func TestTextGrader_NotContainsCS(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			g, err := NewTextGrader(TextGraderArgs{
-				Name:          "test",
-				NotContainsCS: tt.notContainsCS,
-			})
+			g, err := NewTextGrader("test", models.TextGraderParameters{NotContainsCS: tt.notContainsCS})
 			require.NoError(t, err)
 
 			results, err := g.Grade(context.Background(), &Context{Output: tt.output})
@@ -346,9 +293,7 @@ func TestTextGrader_NotContainsCS(t *testing.T) {
 
 func TestTextGrader_Combined(t *testing.T) {
 	t.Run("all six fields pass together", func(t *testing.T) {
-		g, err := NewTextGrader(TextGraderArgs{
-			Name:          "test",
-			Contains:      []string{"hello"},
+		g, err := NewTextGrader("test", models.TextGraderParameters{Contains: []string{"hello"},
 			NotContains:   []string{"error"},
 			ContainsCS:    []string{"Hello"},
 			NotContainsCS: []string{"ERROR"},
@@ -367,9 +312,7 @@ func TestTextGrader_Combined(t *testing.T) {
 	})
 
 	t.Run("mixed failures across field types", func(t *testing.T) {
-		g, err := NewTextGrader(TextGraderArgs{
-			Name:          "test",
-			Contains:      []string{"hello"},   // pass
+		g, err := NewTextGrader("test", models.TextGraderParameters{Contains: []string{"hello"}, // pass
 			NotContains:   []string{"world"},   // fail (world is present)
 			ContainsCS:    []string{"Missing"}, // fail
 			NotContainsCS: []string{"xyz"},     // pass
@@ -390,7 +333,7 @@ func TestTextGrader_Combined(t *testing.T) {
 
 func TestTextGrader_EdgeCases(t *testing.T) {
 	t.Run("no fields yields score 1 and passes", func(t *testing.T) {
-		g, err := NewTextGrader(TextGraderArgs{Name: "test"})
+		g, err := NewTextGrader("test", models.TextGraderParameters{})
 		require.NoError(t, err)
 
 		results, err := g.Grade(context.Background(), &Context{
@@ -402,10 +345,7 @@ func TestTextGrader_EdgeCases(t *testing.T) {
 	})
 
 	t.Run("empty output fails contains", func(t *testing.T) {
-		g, err := NewTextGrader(TextGraderArgs{
-			Name:     "test",
-			Contains: []string{"something"},
-		})
+		g, err := NewTextGrader("test", models.TextGraderParameters{Contains: []string{"something"}})
 		require.NoError(t, err)
 
 		results, err := g.Grade(context.Background(), &Context{
@@ -417,9 +357,7 @@ func TestTextGrader_EdgeCases(t *testing.T) {
 	})
 
 	t.Run("result details contains expected fields", func(t *testing.T) {
-		g, err := NewTextGrader(TextGraderArgs{
-			Name:       "detail-test",
-			Contains:   []string{"a"},
+		g, err := NewTextGrader("detail-test", models.TextGraderParameters{Contains: []string{"a"},
 			RegexMatch: []string{`b`},
 		})
 		require.NoError(t, err)
@@ -435,10 +373,7 @@ func TestTextGrader_EdgeCases(t *testing.T) {
 	})
 
 	t.Run("duration is recorded", func(t *testing.T) {
-		g, err := NewTextGrader(TextGraderArgs{
-			Name:     "test",
-			Contains: []string{"ok"},
-		})
+		g, err := NewTextGrader("test", models.TextGraderParameters{Contains: []string{"ok"}})
 		require.NoError(t, err)
 
 		results, err := g.Grade(context.Background(), &Context{
@@ -451,7 +386,7 @@ func TestTextGrader_EdgeCases(t *testing.T) {
 
 func TestTextGrader_ViaCreate(t *testing.T) {
 	t.Run("Create with GraderKindText works", func(t *testing.T) {
-		g, err := Create(models.GraderKindText, "from-create", models.TextGraderParameters{
+		g, err := Create("from-create", models.TextGraderParameters{
 			Contains:      []string{"hello"},
 			RegexMatch:    []string{`world`},
 			RegexNotMatch: []string{`bye`},

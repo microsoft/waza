@@ -67,6 +67,7 @@ type TextGrader struct {
 // and regex pattern matching in the agent output.
 func NewTextGrader(name string, args models.TextGraderParameters) (*TextGrader, error) {
 	return &TextGrader{
+		name:          name,
 		contains:      args.Contains,
 		notContains:   args.NotContains,
 		containsCS:    args.ContainsCS,

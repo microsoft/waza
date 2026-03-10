@@ -534,7 +534,7 @@ func TestActionSequenceGrader_EdgeCases(t *testing.T) {
 
 func TestActionSequenceGrader_ViaCreate(t *testing.T) {
 	t.Run("Create with GraderKindActionSequence works", func(t *testing.T) {
-		g, err := Create(models.GraderKindActionSequence, "from-create", models.ActionSequenceGraderParameters{
+		g, err := Create("from-create", models.ActionSequenceGraderParameters{
 			MatchingMode:    "exact_match",
 			ExpectedActions: []string{"read_file", "write_file"},
 		})
@@ -553,7 +553,7 @@ func TestActionSequenceGrader_ViaCreate(t *testing.T) {
 	})
 
 	t.Run("Create with invalid params returns error", func(t *testing.T) {
-		_, err := Create(models.GraderKindActionSequence, "bad", models.ActionSequenceGraderParameters{
+		_, err := Create("bad", models.ActionSequenceGraderParameters{
 			MatchingMode:    "invalid",
 			ExpectedActions: []string{"a"},
 		})

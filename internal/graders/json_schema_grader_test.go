@@ -12,8 +12,7 @@ import (
 )
 
 func TestJSONSchemaGrader_Basic(t *testing.T) {
-	g, err := NewJSONSchemaGrader(JSONSchemaGraderArgs{
-		Name: "test",
+	g, err := NewJSONSchemaGrader("test", models.JSONSchemaGraderParameters{
 		Schema: map[string]any{
 			"type": "object",
 		},
@@ -26,7 +25,7 @@ func TestJSONSchemaGrader_Basic(t *testing.T) {
 
 func TestJSONSchemaGrader_Constructor(t *testing.T) {
 	t.Run("requires schema or schema_file", func(t *testing.T) {
-		_, err := NewJSONSchemaGrader(JSONSchemaGraderArgs{Name: "test"})
+		_, err := NewJSONSchemaGrader("test", models.JSONSchemaGraderParameters{})
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "must have either 'schema' or 'schema_file'")
 	})
@@ -34,8 +33,7 @@ func TestJSONSchemaGrader_Constructor(t *testing.T) {
 
 func TestJSONSchemaGrader_Grade(t *testing.T) {
 	t.Run("valid JSON matching schema passes", func(t *testing.T) {
-		g, err := NewJSONSchemaGrader(JSONSchemaGraderArgs{
-			Name: "test",
+		g, err := NewJSONSchemaGrader("test", models.JSONSchemaGraderParameters{
 			Schema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -57,8 +55,7 @@ func TestJSONSchemaGrader_Grade(t *testing.T) {
 	})
 
 	t.Run("invalid JSON fails with score 0", func(t *testing.T) {
-		g, err := NewJSONSchemaGrader(JSONSchemaGraderArgs{
-			Name:   "test",
+		g, err := NewJSONSchemaGrader("test", models.JSONSchemaGraderParameters{
 			Schema: map[string]any{"type": "object"},
 		})
 		require.NoError(t, err)
@@ -74,7 +71,6 @@ func TestJSONSchemaGrader_Grade(t *testing.T) {
 
 	t.Run("valid JSON not matching schema fails", func(t *testing.T) {
 		g, err := NewJSONSchemaGrader("test", models.JSONSchemaGraderParameters{
-			Name: "test",
 			Schema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
