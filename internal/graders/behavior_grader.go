@@ -19,17 +19,8 @@ type behaviorGrader struct {
 	maxDurationMS  int64
 }
 
-// BehaviorGraderParams holds the mapstructure-decoded parameters for the behavior grader.
-type BehaviorGraderParams struct {
-	MaxToolCalls   int      `mapstructure:"max_tool_calls"`
-	MaxTokens      int      `mapstructure:"max_tokens"`
-	RequiredTools  []string `mapstructure:"required_tools"`
-	ForbiddenTools []string `mapstructure:"forbidden_tools"`
-	MaxDurationMS  int64    `mapstructure:"max_duration_ms"`
-}
-
 // NewBehaviorGrader creates a behaviorGrader from decoded parameters.
-func NewBehaviorGrader(name string, params BehaviorGraderParams) (*behaviorGrader, error) {
+func NewBehaviorGrader(name string, params models.BehaviorGraderParameters) (*behaviorGrader, error) {
 	if params.MaxToolCalls == 0 && params.MaxTokens == 0 &&
 		len(params.RequiredTools) == 0 && len(params.ForbiddenTools) == 0 &&
 		params.MaxDurationMS == 0 {

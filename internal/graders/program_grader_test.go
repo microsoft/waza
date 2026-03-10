@@ -206,10 +206,10 @@ func TestProgramGrader_ViaCreate(t *testing.T) {
 	}
 
 	t.Run("Create with GraderKindProgram works", func(t *testing.T) {
-		g, err := Create(models.GraderKindProgram, "from-create", map[string]any{
-			"command": "echo",
-			"args":    []string{"graded"},
-			"timeout": 10,
+		g, err := Create(models.GraderKindProgram, "from-create", models.ProgramGraderParameters{
+			Command: "echo",
+			Args:    []string{"graded"},
+			Timeout: 10,
 		})
 		require.NoError(t, err)
 		require.Equal(t, "from-create", g.Name())

@@ -4,9 +4,41 @@ import (
 	"context"
 	"testing"
 
+	"github.com/go-viper/mapstructure/v2"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/stretchr/testify/require"
 )
+
+func TestTextGraderArgs_ConfigRoundTrip(t *testing.T) {
+	original := TextGraderArgs{
+		Contains:      []string{"hello", "world"},
+		NotContains:   []string{"error"},
+		ContainsCS:    []string{"Hello"},
+		NotContainsCS: []string{"ERROR"},
+		RegexMatch:    []string{`he.*`, `world$`},
+		RegexNotMatch: []string{`panic`, `fail`},
+	}
+
+	var decoded TextGraderArgs
+	require.NoError(t, mapstructure.Decode(original.Config(), &decoded))
+	require.Equal(t, original, decoded)
+}
+
+func TestTextGraderArgs_ConfigOmitsEmptyFields(t *testing.T) {
+	original := TextGraderArgs{}
+
+	config := original.Config()
+	require.NotContains(t, config, "contains")
+	require.NotContains(t, config, "not_contains")
+	require.NotContains(t, config, "contains_cs")
+	require.NotContains(t, config, "not_contains_cs")
+	require.NotContains(t, config, "regex_match")
+	require.NotContains(t, config, "regex_not_match")
+
+	var decoded TextGraderArgs
+	require.NoError(t, mapstructure.Decode(config, &decoded))
+	require.Equal(t, original, decoded)
+}
 
 func TestTextGrader_Basic(t *testing.T) {
 	g, err := NewTextGrader(TextGraderArgs{
@@ -419,10 +451,10 @@ func TestTextGrader_EdgeCases(t *testing.T) {
 
 func TestTextGrader_ViaCreate(t *testing.T) {
 	t.Run("Create with GraderKindText works", func(t *testing.T) {
-		g, err := Create(models.GraderKindText, "from-create", map[string]any{
-			"contains":        []string{"hello"},
-			"regex_match":     []string{`world`},
-			"regex_not_match": []string{`bye`},
+		g, err := Create(models.GraderKindText, "from-create", models.TextGraderParameters{
+			Contains:      []string{"hello"},
+			RegexMatch:    []string{`world`},
+			RegexNotMatch: []string{`bye`},
 		})
 		require.NoError(t, err)
 		require.Equal(t, "from-create", g.Name())

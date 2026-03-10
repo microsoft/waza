@@ -21,36 +21,36 @@ type FileContentPattern struct {
 	MustNotMatch []string // Regex patterns that must not match
 }
 
-// FileGraderArgs holds the arguments for creating a file grader.
-type FileGraderArgs struct {
-	// Name is the identifier for this grader, used in results and error messages.
-	Name string
-	// MustExist lists file paths (relative to workspace) that must be present.
-	MustExist []string
-	// MustNotExist lists file paths (relative to workspace) that must be absent.
-	MustNotExist []string
-	// ContentPatterns defines regex patterns to match against file contents.
-	ContentPatterns []FileContentPattern
-}
+// // FileGraderArgs holds the arguments for creating a file grader.
+// type FileGraderArgs struct {
+// 	// Name is the identifier for this grader, used in results and error messages.
+// 	Name string
+// 	// MustExist lists file paths (relative to workspace) that must be present.
+// 	MustExist []string
+// 	// MustNotExist lists file paths (relative to workspace) that must be absent.
+// 	MustNotExist []string
+// 	// ContentPatterns defines regex patterns to match against file contents.
+// 	ContentPatterns []FileContentPattern
+// }
 
 // fileGrader validates file existence and content patterns
 type fileGrader struct {
 	name            string
 	mustExist       []string
 	mustNotExist    []string
-	contentPatterns []FileContentPattern
+	contentPatterns []models.FileContentPatternParameters
 }
 
 // NewFileGrader creates a [fileGrader], which can be used to perform simple existence (or non-existence) checks with
 // 'mustExist'/'mustNotExist', or validate that the contents of the file match or do not match certain
 // regex patterns, using 'contentPatterns'.
-func NewFileGrader(args FileGraderArgs) (*fileGrader, error) {
+func NewFileGrader(name string, args models.FileGraderParameters) (*fileGrader, error) {
 	if len(args.MustExist) == 0 && len(args.MustNotExist) == 0 && len(args.ContentPatterns) == 0 {
-		return nil, fmt.Errorf(errFileGraderNoChecks, args.Name)
+		return nil, fmt.Errorf(errFileGraderNoChecks, name)
 	}
 
 	return &fileGrader{
-		name:            args.Name,
+		name:            name,
 		mustExist:       args.MustExist,
 		mustNotExist:    args.MustNotExist,
 		contentPatterns: args.ContentPatterns,
@@ -131,7 +131,7 @@ func (fg *fileGrader) checkContentPatterns(workspaceDir string) []string {
 }
 
 // fileReadFailures returns failure messages when a file required for content checking cannot be read.
-func fileReadFailures(contentPattern FileContentPattern, err error) []string {
+func fileReadFailures(contentPattern models.FileContentPatternParameters, err error) []string {
 	var failures []string
 
 	if os.IsNotExist(err) {

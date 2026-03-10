@@ -17,19 +17,12 @@ const AllPromptsPassed = "All prompts passed"
 const wazaPassToolName = "set_waza_grade_pass"
 const wazaFailToolName = "set_waza_grade_fail"
 
-type PromptGraderArgs struct {
-	Prompt          string `mapstructure:"prompt"`
-	Model           string `mapstructure:"model"`
-	ContinueSession bool   `mapstructure:"continue_session"`
-	Mode            string `mapstructure:"mode"` // "independent" (default) or "pairwise"
-}
-
 type promptGrader struct {
-	args PromptGraderArgs
+	args models.PromptGraderParameters
 	name string
 }
 
-func NewPromptGrader(name string, args PromptGraderArgs) (*promptGrader, error) {
+func NewPromptGrader(name string, args models.PromptGraderParameters) (*promptGrader, error) {
 	if name == "" {
 		return nil, errors.New("missing name")
 	}

@@ -8,39 +8,24 @@ import (
 	"github.com/microsoft/waza/internal/models"
 )
 
-// ActionSequenceMatchingMode controls how actual tool calls are compared to expected actions.
-type ActionSequenceMatchingMode string
-
-const (
-	MatchingModeExact    ActionSequenceMatchingMode = "exact_match"
-	MatchingModeInOrder  ActionSequenceMatchingMode = "in_order_match"
-	MatchingModeAnyOrder ActionSequenceMatchingMode = "any_order_match"
-)
-
 // actionSequenceGrader compares the agent's actual tool call sequence against
 // an expected action path. It supports three matching modes and calculates
 // precision, recall, and F1 scores.
 type actionSequenceGrader struct {
 	name            string
-	matchingMode    ActionSequenceMatchingMode
+	matchingMode    models.ActionSequenceMatchingMode
 	expectedActions []string
 }
 
-// ActionSequenceGraderParams holds the mapstructure-decoded parameters for the action sequence grader.
-type ActionSequenceGraderParams struct {
-	MatchingMode    string   `mapstructure:"matching_mode"`
-	ExpectedActions []string `mapstructure:"expected_actions"`
-}
-
 // NewActionSequenceGrader creates an actionSequenceGrader from decoded parameters.
-func NewActionSequenceGrader(name string, params ActionSequenceGraderParams) (*actionSequenceGrader, error) {
+func NewActionSequenceGrader(name string, params models.ActionSequenceGraderParameters) (*actionSequenceGrader, error) {
 	if len(params.ExpectedActions) == 0 {
 		return nil, fmt.Errorf("action_sequence grader '%s' must have at least one expected_actions entry", name)
 	}
 
-	mode := ActionSequenceMatchingMode(params.MatchingMode)
+	mode := params.MatchingMode
 	switch mode {
-	case MatchingModeExact, MatchingModeInOrder, MatchingModeAnyOrder:
+	case models.ActionSequenceMatchingModeExact, models.ActionSequenceMatchingModeInOrder, models.ActionSequenceMatchingModeAnyOrder:
 		// valid
 	default:
 		return nil, fmt.Errorf("action_sequence grader '%s' has invalid matching_mode %q (must be exact_match, in_order_match, or any_order_match)", name, params.MatchingMode)
@@ -101,11 +86,11 @@ func (g *actionSequenceGrader) Grade(ctx context.Context, gradingContext *Contex
 // checkMatch returns true if the actual sequence satisfies the matching mode constraint.
 func (g *actionSequenceGrader) checkMatch(actual []string) bool {
 	switch g.matchingMode {
-	case MatchingModeExact:
+	case models.ActionSequenceMatchingModeExact:
 		return g.exactMatch(actual)
-	case MatchingModeInOrder:
+	case models.ActionSequenceMatchingModeInOrder:
 		return g.inOrderMatch(actual)
-	case MatchingModeAnyOrder:
+	case models.ActionSequenceMatchingModeAnyOrder:
 		return g.anyOrderMatch(actual)
 	default:
 		return false
@@ -211,13 +196,13 @@ func (g *actionSequenceGrader) buildFailureFeedback(actual []string) string {
 	var parts []string
 
 	switch g.matchingMode {
-	case MatchingModeExact:
+	case models.ActionSequenceMatchingModeExact:
 		parts = append(parts, fmt.Sprintf("Exact match failed: expected %d actions %v, got %d actions %v",
 			len(g.expectedActions), g.expectedActions, len(actual), actual))
-	case MatchingModeInOrder:
+	case models.ActionSequenceMatchingModeInOrder:
 		parts = append(parts, fmt.Sprintf("In-order match failed: not all expected actions %v appeared in order within actual %v",
 			g.expectedActions, actual))
-	case MatchingModeAnyOrder:
+	case models.ActionSequenceMatchingModeAnyOrder:
 		// Identify which expected actions are missing or insufficient
 		expectedCounts := make(map[string]int, len(g.expectedActions))
 		for _, e := range g.expectedActions {

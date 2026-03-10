@@ -14,17 +14,42 @@ type TextGraderArgs struct {
 	Name string
 
 	// Contains lists substrings that must appear in the output (case-insensitive).
-	Contains []string `mapstructure:"contains"`
+	Contains []string `mapstructure:"contains" yaml:"contains,omitempty"`
 	// NotContains lists substrings that must NOT appear in the output (case-insensitive).
-	NotContains []string `mapstructure:"not_contains"`
+	NotContains []string `mapstructure:"not_contains" yaml:"not_contains,omitempty"`
 	// ContainsCS lists substrings that must appear in the output (case-sensitive).
-	ContainsCS []string `mapstructure:"contains_cs"`
+	ContainsCS []string `mapstructure:"contains_cs" yaml:"contains_cs,omitempty"`
 	// NotContainsCS lists substrings that must NOT appear in the output (case-sensitive).
-	NotContainsCS []string `mapstructure:"not_contains_cs"`
+	NotContainsCS []string `mapstructure:"not_contains_cs" yaml:"not_contains_cs,omitempty"`
 	// RegexMatch lists regex patterns that must match somewhere in the output.
-	RegexMatch []string `mapstructure:"regex_match"`
+	RegexMatch []string `mapstructure:"regex_match" yaml:"regex_match,omitempty"`
 	// RegexNotMatch lists regex patterns that must NOT match anywhere in the output.
-	RegexNotMatch []string `mapstructure:"regex_not_match"`
+	RegexNotMatch []string `mapstructure:"regex_not_match" yaml:"regex_not_match,omitempty"`
+}
+
+func (tga TextGraderArgs) Config() map[string]any {
+	config := make(map[string]any)
+
+	if len(tga.Contains) > 0 {
+		config["contains"] = tga.Contains
+	}
+	if len(tga.NotContains) > 0 {
+		config["not_contains"] = tga.NotContains
+	}
+	if len(tga.ContainsCS) > 0 {
+		config["contains_cs"] = tga.ContainsCS
+	}
+	if len(tga.NotContainsCS) > 0 {
+		config["not_contains_cs"] = tga.NotContainsCS
+	}
+	if len(tga.RegexMatch) > 0 {
+		config["regex_match"] = tga.RegexMatch
+	}
+	if len(tga.RegexNotMatch) > 0 {
+		config["regex_not_match"] = tga.RegexNotMatch
+	}
+
+	return config
 }
 
 // TextGrader validates output using substring matching and regex patterns.
@@ -40,9 +65,8 @@ type TextGrader struct {
 
 // NewTextGrader creates a [TextGrader] that checks for substring presence/absence
 // and regex pattern matching in the agent output.
-func NewTextGrader(args TextGraderArgs) (*TextGrader, error) {
+func NewTextGrader(name string, args models.TextGraderParameters) (*TextGrader, error) {
 	return &TextGrader{
-		name:          args.Name,
 		contains:      args.Contains,
 		notContains:   args.NotContains,
 		containsCS:    args.ContainsCS,

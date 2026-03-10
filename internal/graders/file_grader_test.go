@@ -11,7 +11,6 @@ import (
 
 	"github.com/microsoft/waza/internal/models"
 	"github.com/stretchr/testify/require"
-	"gopkg.in/yaml.v3"
 )
 
 func TestFileGrader_Basic(t *testing.T) {
@@ -393,21 +392,16 @@ func TestFileGrader_ViaCreate(t *testing.T) {
 		tmpDir := t.TempDir()
 		require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "hello.txt"), []byte("hello world"), 0644))
 
-		// Parse config from YAML to mirror how eval specs define file graders.
-		yamlConfig := `
-must_exist:
-  - "hello.txt"
-must_not_exist:
-  - "bad.txt"
-content_patterns:
-  - path: "hello.txt"
-    must_match:
-      - "hello"
-`
-		var config map[string]any
-		require.NoError(t, yaml.Unmarshal([]byte(yamlConfig), &config))
-
-		g, err := Create(models.GraderKindFile, "from-create", config)
+		g, err := Create(models.GraderKindFile, "from-create", models.FileGraderParameters{
+			MustExist:    []string{"hello.txt"},
+			MustNotExist: []string{"bad.txt"},
+			ContentPatterns: []models.FileContentPatternParameters{
+				{
+					Path:      "hello.txt",
+					MustMatch: []string{"hello"},
+				},
+			},
+		})
 		require.NoError(t, err)
 		require.Equal(t, "from-create", g.Name())
 		require.Equal(t, models.GraderKindFile, g.Kind())

@@ -11,10 +11,10 @@ import (
 
 // ToolSpec describes a tool matching rule with an optional arguments pattern.
 type ToolSpec struct {
-	Tool           string `mapstructure:"tool"`            // regex matched against tool name
-	CommandPattern string `mapstructure:"command_pattern"` // optional regex matched against the command argument
-	SkillPattern   string `mapstructure:"skill_pattern"`   // optional regex matched against the skill argument
-	PathPattern    string `mapstructure:"path_pattern"`    // optional regex matched against the path argument
+	Tool           string `mapstructure:"tool"`                                              // regex matched against tool name
+	CommandPattern string `mapstructure:"command_pattern"  yaml:"command_pattern,omitempty"` // optional regex matched against the command argument
+	SkillPattern   string `mapstructure:"skill_pattern" yaml:"skill_pattern,omitempty"`      // optional regex matched against the skill argument
+	PathPattern    string `mapstructure:"path_pattern" yaml:"path_pattern,omitempty"`        // optional regex matched against the path argument
 }
 
 // toolConstraintGrader validates which tools an agent should/shouldn't use
@@ -33,17 +33,21 @@ type ToolConstraintGraderConfig struct {
 }
 
 func (p ToolConstraintGraderConfig) Config() map[string]any {
-	m := map[string]any{
-		"expect_tools": p.ExpectTools,
-		"reject_tools": p.RejectTools,
+	config := make(map[string]any)
+
+	if len(p.ExpectTools) > 0 {
+		config["expect_tools"] = p.ExpectTools
+	}
+	if len(p.RejectTools) > 0 {
+		config["reject_tools"] = p.RejectTools
 	}
 
-	return m
+	return config
 }
 
 // validateToolSpecs ensures each spec has a valid tool regex and optional args regex.
-func validateToolSpecs(specs []ToolSpec, fieldName string) ([]ToolSpec, error) {
-	normalized := make([]ToolSpec, len(specs))
+func validateToolSpecs(specs []models.ToolSpecParameters, fieldName string) ([]models.ToolSpecParameters, error) {
+	normalized := make([]models.ToolSpecParameters, len(specs))
 	copy(normalized, specs)
 
 	for i, spec := range normalized {
@@ -81,7 +85,7 @@ func validateToolSpecs(specs []ToolSpec, fieldName string) ([]ToolSpec, error) {
 }
 
 // NewToolConstraintGrader creates a toolConstraintGrader from decoded parameters.
-func NewToolConstraintGrader(name string, params ToolConstraintGraderConfig) (*toolConstraintGrader, error) {
+func NewToolConstraintGrader(name string, params models.ToolConstraintGraderParameters) (*toolConstraintGrader, error) {
 	if len(params.ExpectTools) == 0 && len(params.RejectTools) == 0 {
 		return nil, fmt.Errorf("tool_constraint grader '%s' must have at least one constraint configured", name)
 	}

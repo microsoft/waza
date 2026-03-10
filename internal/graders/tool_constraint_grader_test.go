@@ -5,9 +5,37 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/go-viper/mapstructure/v2"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/stretchr/testify/require"
 )
+
+func TestToolConstraintGraderConfig_ConfigOmitsEmptyFields(t *testing.T) {
+	original := ToolConstraintGraderConfig{}
+
+	config := original.Config()
+	require.NotContains(t, config, "expect_tools")
+	require.NotContains(t, config, "reject_tools")
+
+	var decoded ToolConstraintGraderConfig
+	require.NoError(t, mapstructure.Decode(config, &decoded))
+	require.Equal(t, original, decoded)
+}
+
+func TestToolConstraintGraderConfig_ConfigRoundTrip(t *testing.T) {
+	original := ToolConstraintGraderConfig{
+		ExpectTools: []ToolSpec{{Tool: "bash", CommandPattern: "azd up"}},
+		RejectTools: []ToolSpec{{Tool: "delete"}},
+	}
+
+	config := original.Config()
+	require.Contains(t, config, "expect_tools")
+	require.Contains(t, config, "reject_tools")
+
+	var decoded ToolConstraintGraderConfig
+	require.NoError(t, mapstructure.Decode(config, &decoded))
+	require.Equal(t, original, decoded)
+}
 
 func TestToolConstraintGrader_RequiresAtLeastOneConstraint(t *testing.T) {
 	_, err := NewToolConstraintGrader("empty", ToolConstraintGraderConfig{})

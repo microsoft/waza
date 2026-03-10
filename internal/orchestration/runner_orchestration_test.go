@@ -76,9 +76,7 @@ graders:
 				Kind:       models.GraderKindText,
 				Identifier: "global-regex",
 				Weight:     2.5,
-				Parameters: map[string]any{
-					"regex_match": []string{"Mock response"},
-				},
+				Parameters: models.TextGraderParameters{RegexMatch: []string{"Mock response"}},
 			},
 		},
 		Tasks: []string{"tasks/*.yaml"},
@@ -174,9 +172,7 @@ inputs:
 			{
 				Kind:       models.GraderKindText,
 				Identifier: "global-regex",
-				Parameters: map[string]any{
-					"regex_match": []string{"Mock response"},
-				},
+				Parameters: models.TextGraderParameters{RegexMatch: []string{"Mock response"}},
 			},
 		},
 		Tasks: []string{"tasks/*.yaml"},
@@ -200,7 +196,7 @@ func TestRunGraders_WeightsAndErrors(t *testing.T) {
 				Kind:       models.GraderKindText,
 				Identifier: "global",
 				Weight:     3.0,
-				Parameters: map[string]any{"regex_match": []string{"Mock"}},
+				Parameters: models.TextGraderParameters{RegexMatch: []string{"Mock"}},
 			},
 		},
 	}
@@ -212,13 +208,13 @@ func TestRunGraders_WeightsAndErrors(t *testing.T) {
 			{
 				Identifier: "task-default-weight",
 				Kind:       models.GraderKindText,
-				Parameters: map[string]any{"regex_match": []string{"response"}},
+				Parameters: models.TextGraderParameters{RegexMatch: []string{"response"}},
 			},
 			{
 				Identifier: "task-explicit-weight",
 				Kind:       models.GraderKindText,
 				Weight:     0.5,
-				Parameters: map[string]any{"regex_match": []string{"Mock"}},
+				Parameters: models.TextGraderParameters{RegexMatch: []string{"Mock"}},
 			},
 		},
 	}
@@ -248,14 +244,14 @@ func TestRunGraders_DiffSnapshotUpdateOption(t *testing.T) {
 			{
 				Kind:       models.GraderKindDiff,
 				Identifier: "diff",
-				Parameters: map[string]any{
-					"expected_files": []map[string]any{
+				Parameters: models.DiffGraderParameters{
+					ExpectedFiles: []models.DiffExpectedFileParameters{
 						{
-							"path":     "output.txt",
-							"snapshot": "expected.txt",
+							Path:     "output.txt",
+							Snapshot: "expected.txt",
 						},
 					},
-					"context_dir": contextDir,
+					ContextDir: contextDir,
 				},
 			},
 		},
@@ -405,7 +401,7 @@ func TestRunTest_CacheHitAndTranscriptWrite(t *testing.T) {
 			{
 				Kind:       models.GraderKindText,
 				Identifier: "global-regex",
-				Parameters: map[string]any{"regex_match": []string{"Mock response"}},
+				Parameters: models.TextGraderParameters{RegexMatch: []string{"Mock response"}},
 			},
 		},
 	}

@@ -1148,6 +1148,23 @@ func (r *TestRunner) loadResources(tc *models.TestCase) []execution.ResourceFile
 	return resources
 }
 
+func (r *TestRunner) applyDefaults(gp models.GraderParameters, judgeModel string) models.GraderParameters {
+	switch p := gp.(type) {
+	case models.PromptGraderParameters:
+		if p.Model == "" {
+			p.Model = judgeModel
+		}
+		return p
+	case models.DiffGraderParameters:
+		if r.updateSnapshots {
+			p.UpdateSnapshots = true
+		}
+		return p
+	default:
+		return p
+	}
+}
+
 func (r *TestRunner) buildGraderContext(tc *models.TestCase, resp *execution.ExecutionResponse) *graders.Context {
 	// Convert events to transcript entries
 	var transcript []models.TranscriptEvent
@@ -1178,14 +1195,10 @@ func (r *TestRunner) runGraders(ctx context.Context, tc *models.TestCase, grader
 	// Run global validators
 	spec := r.cfg.Spec()
 	judgeModel := spec.Config.JudgeModel
+
 	for _, vCfg := range spec.Graders {
-		params := cloneParams(vCfg.Parameters)
-		if judgeModel != "" && vCfg.Kind == models.GraderKindPrompt {
-			params = injectJudgeModel(params, judgeModel)
-		}
-		if r.updateSnapshots && vCfg.Kind == models.GraderKindDiff {
-			params["update_snapshots"] = true
-		}
+		params := r.applyDefaults(vCfg.Parameters, judgeModel)
+
 		grader, err := graders.Create(vCfg.Kind, vCfg.Identifier, params)
 
 		if err != nil {
@@ -1209,16 +1222,7 @@ func (r *TestRunner) runGraders(ctx context.Context, tc *models.TestCase, grader
 			return nil, fmt.Errorf("no kind associated with grader %s", vCfg.Identifier)
 		}
 
-		params := cloneParams(vCfg.Parameters)
-		if len(vCfg.Checks) > 0 {
-			params["assertions"] = vCfg.Checks
-		}
-		if judgeModel != "" && kind == models.GraderKindPrompt {
-			params = injectJudgeModel(params, judgeModel)
-		}
-		if r.updateSnapshots && kind == models.GraderKindDiff {
-			params["update_snapshots"] = true
-		}
+		params := r.applyDefaults(vCfg.Parameters, judgeModel)
 
 		grader, err := graders.Create(kind, vCfg.Identifier, params)
 
@@ -1241,28 +1245,6 @@ func (r *TestRunner) runGraders(ctx context.Context, tc *models.TestCase, grader
 	}
 
 	return graderResults, nil
-}
-
-// injectJudgeModel returns a copy of params with the "model" key set to judgeModel.
-func injectJudgeModel(params map[string]any, judgeModel string) map[string]any {
-	merged := make(map[string]any, len(params)+1)
-	for k, v := range params {
-		merged[k] = v
-	}
-	merged["model"] = judgeModel
-	return merged
-}
-
-func cloneParams(params map[string]any) map[string]any {
-	if params == nil {
-		return make(map[string]any)
-	}
-
-	merged := make(map[string]any, len(params))
-	for k, v := range params {
-		merged[k] = v
-	}
-	return merged
 }
 
 func (r *TestRunner) buildSessionDigest(resp *execution.ExecutionResponse) models.SessionDigest {
