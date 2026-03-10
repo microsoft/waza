@@ -9,7 +9,7 @@ VERSION?=0.1.0
 LDFLAGS=-ldflags "-X main.version=$(VERSION)"
 
 # Default target
-all: fmt lint test build
+all: fmt lint build test
 
 # Build the web dashboard (React SPA)
 build-web:
@@ -21,8 +21,8 @@ build: build-web
 	@echo "Building $(BINARY_NAME)..."
 	@go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME) ./cmd/waza
 
-# Run tests
-test:
+# Run tests (requires web assets for embedded FS tests)
+test: build-web
 	@echo "Running tests..."
 	@go test -v -race -coverprofile=coverage.out ./...
 	@go tool cover -func=coverage.out | tail -1
@@ -59,7 +59,7 @@ clean:
 # Show help
 help:
 	@echo "Waza Makefile Targets:"
-	@echo "  all      - Format, lint, test, and build (default)"
+	@echo "  all      - Format, lint, build, and test (default)"
 	@echo "  build    - Compile the binary"
 	@echo "  test     - Run all tests with coverage"
 	@echo "  lint     - Run golangci-lint"
