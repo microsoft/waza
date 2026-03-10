@@ -182,7 +182,6 @@ func runCommandE(cmd *cobra.Command, args []string) error {
 
 	if len(specPaths) == 1 {
 		results, err := runCommandForSpec(cmd, specPaths[0])
-		autoUploadOutcomes(cmd, cfg, results)
 
 		// Write structured directory output when --output-dir is specified
 		if outputDir != "" {
@@ -193,6 +192,8 @@ func runCommandE(cmd *cobra.Command, args []string) error {
 			}
 		}
 
+		// Auto-upload after all local writes succeed
+		autoUploadOutcomes(cmd, cfg, results)
 		return err
 	}
 
