@@ -184,39 +184,40 @@ type ProgramGraderParameters struct {
 
 func (ProgramGraderParameters) isGraderParameters() {}
 
-func decodeGraderParameters(kind GraderKind, node *yaml.Node) (GraderParameters, error) {
+func decodeGraderParameters(kind GraderKind, configNode *yaml.Node) (GraderParameters, error) {
 	switch kind {
 	case GraderKindInlineScript:
-		return decodeYAMLNode[InlineScriptGraderParameters](node)
+		return decodeYAMLNode[InlineScriptGraderParameters](configNode)
 	case GraderKindText:
-		return decodeYAMLNode[TextGraderParameters](node)
+		return decodeYAMLNode[TextGraderParameters](configNode)
 	case GraderKindFile:
-		return decodeYAMLNode[FileGraderParameters](node)
+		return decodeYAMLNode[FileGraderParameters](configNode)
 	case GraderKindBehavior:
-		return decodeYAMLNode[BehaviorGraderParameters](node)
+		return decodeYAMLNode[BehaviorGraderParameters](configNode)
 	case GraderKindActionSequence:
-		return decodeYAMLNode[ActionSequenceGraderParameters](node)
+		return decodeYAMLNode[ActionSequenceGraderParameters](configNode)
 	case GraderKindSkillInvocation:
-		return decodeYAMLNode[SkillInvocationGraderParameters](node)
+		return decodeYAMLNode[SkillInvocationGraderParameters](configNode)
 	case GraderKindToolConstraint:
-		return decodeYAMLNode[ToolConstraintGraderParameters](node)
+		return decodeYAMLNode[ToolConstraintGraderParameters](configNode)
 	case GraderKindDiff:
-		return decodeYAMLNode[DiffGraderParameters](node)
+		return decodeYAMLNode[DiffGraderParameters](configNode)
 	case GraderKindPrompt:
-		return decodeYAMLNode[PromptGraderParameters](node)
+		return decodeYAMLNode[PromptGraderParameters](configNode)
 	case GraderKindJSONSchema:
-		return decodeYAMLNode[JSONSchemaGraderParameters](node)
+		return decodeYAMLNode[JSONSchemaGraderParameters](configNode)
 	case GraderKindProgram:
-		return decodeYAMLNode[ProgramGraderParameters](node)
+		return decodeYAMLNode[ProgramGraderParameters](configNode)
 	default:
-		return decodeYAMLNode[GenericGraderParameters](node)
+		return decodeYAMLNode[GenericGraderParameters](configNode)
 	}
 }
 
 func decodeYAMLNode[T GraderParameters](node *yaml.Node) (T, error) {
 	var target T
 
-	if node == nil {
+	if node == nil ||
+		node.Kind == 0 { // apparently you can get an empty YAML node
 		return target, nil
 	}
 

@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
 
 func TestLoadBenchmarkSpec_PolymorphicGraderParameters(t *testing.T) {
@@ -115,4 +117,8 @@ graders:
 	if !ok || typeVal != "object" {
 		t.Fatalf("unexpected schema params: %#v", schemaParams)
 	}
+}
+
+func TestDecodeYAMLNode(t *testing.T) {
+	yaml.Unmarshal([]byte(`config:`), )
 }
