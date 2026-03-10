@@ -32,12 +32,24 @@ type InlineScriptGraderParameters struct {
 
 func (InlineScriptGraderParameters) isGraderParameters() {}
 
+// TextGraderParameters holds the arguments for creating a text grader.
 type TextGraderParameters struct {
-	Contains      []string `yaml:"contains,omitempty" json:"contains,omitempty"`
-	NotContains   []string `yaml:"not_contains,omitempty" json:"not_contains,omitempty"`
-	ContainsCS    []string `yaml:"contains_cs,omitempty" json:"contains_cs,omitempty"`
+	// Contains lists substrings that must appear in the output (case-insensitive).
+	Contains []string `yaml:"contains,omitempty" json:"contains,omitempty"`
+
+	// NotContains lists substrings that must NOT appear in the output (case-insensitive).
+	NotContains []string `yaml:"not_contains,omitempty" json:"not_contains,omitempty"`
+
+	// ContainsCS lists substrings that must appear in the output (case-sensitive).
+	ContainsCS []string `yaml:"contains_cs,omitempty" json:"contains_cs,omitempty"`
+
+	// NotContainsCS lists substrings that must NOT appear in the output (case-sensitive).
 	NotContainsCS []string `yaml:"not_contains_cs,omitempty" json:"not_contains_cs,omitempty"`
-	RegexMatch    []string `yaml:"regex_match,omitempty" json:"regex_match,omitempty"`
+
+	// RegexMatch lists regex patterns that must match somewhere in the output.
+	RegexMatch []string `yaml:"regex_match,omitempty" json:"regex_match,omitempty"`
+
+	// RegexNotMatch lists regex patterns that must NOT match anywhere in the output.
 	RegexNotMatch []string `yaml:"regex_not_match,omitempty" json:"regex_not_match,omitempty"`
 }
 
