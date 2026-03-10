@@ -212,9 +212,8 @@ func TestGetCWDFileFromRef(t *testing.T) {
 		subDir := filepath.Join(repo, "sub")
 		// "root.md" exists at the repo root but not under sub/,
 		// so GetCWDFileFromRef from sub/ should not find it.
-		_, err := GetCWDFileFromRef(subDir, "root.md", "HEAD")
-		if err == nil {
-			t.Fatalf("expected error reading repo-root file from subdirectory")
+		if _, err := GetCWDFileFromRef(subDir, "root.md", "HEAD"); !errors.Is(err, ErrFileNotFound) {
+			t.Fatalf("expected ErrFileNotFound for root.md from subdirectory, got %v", err)
 		}
 	})
 
