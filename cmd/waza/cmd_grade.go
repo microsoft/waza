@@ -15,12 +15,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-type taskGradeResult struct {
-	OverallScore   float64            `json:"overall_score"`
-	Passed         bool               `json:"passed"`
-	GraderAverages map[string]float64 `json:"grader_averages,omitempty"`
-}
-
 func newGradeCommand() *cobra.Command {
 	var (
 		taskID      string
@@ -96,7 +90,7 @@ func runGrade(ctx context.Context, w, errW io.Writer, specPath, taskID, resultsF
 		effectiveJudgeModel = spec.Config.JudgeModel
 	}
 
-	taskResults := make(map[string]taskGradeResult)
+	taskResults := make(map[string]models.GradeOutcome)
 	gradedOutcomes := make([]models.TestOutcome, 0, len(allTasks))
 	for _, tc := range allTasks {
 		runs, ok := runsByTask[tc.TestID]
@@ -148,11 +142,7 @@ func runGrade(ctx context.Context, w, errW io.Writer, specPath, taskID, resultsF
 		}
 	}
 
-	output := struct {
-		OverallScore float64                    `json:"overall_score"`
-		Passed       bool                       `json:"passed"`
-		Tasks        map[string]taskGradeResult `json:"tasks"`
-	}{
+	output := models.GradeOutcome{
 		Passed: allPassed,
 		Tasks:  taskResults,
 	}
@@ -212,7 +202,7 @@ func loadGradeTasks(spec *models.BenchmarkSpec, specDir, taskID string) ([]*mode
 	return allTasks, nil
 }
 
-func gradeTaskRuns(ctx context.Context, spec *models.BenchmarkSpec, tc *models.TestCase, runs []models.RunResult, workspace, judgeModel string, errW io.Writer, verbose bool) (taskGradeResult, []models.RunResult, error) {
+func gradeTaskRuns(ctx context.Context, spec *models.BenchmarkSpec, tc *models.TestCase, runs []models.RunResult, workspace, judgeModel string, errW io.Writer, verbose bool) (models.GradeOutcome, []models.RunResult, error) {
 	totalScore := 0.0
 	allPassed := true
 	graderWeightedTotals := make(map[string]float64)
@@ -222,7 +212,7 @@ func gradeTaskRuns(ctx context.Context, spec *models.BenchmarkSpec, tc *models.T
 	for i := range runs {
 		gradedRun, err := gradeRun(ctx, spec, tc, &runs[i], workspace, judgeModel, errW, verbose)
 		if err != nil {
-			return taskGradeResult{}, nil, err
+			return models.GradeOutcome{}, nil, err
 		}
 
 		totalScore += gradedRun.ComputeWeightedRunScore()
@@ -246,7 +236,7 @@ func gradeTaskRuns(ctx context.Context, spec *models.BenchmarkSpec, tc *models.T
 		graderAverages[name] = total / graderWeights[name]
 	}
 
-	return taskGradeResult{
+	return models.GradeOutcome{
 		OverallScore:   totalScore / float64(len(runs)),
 		Passed:         allPassed,
 		GraderAverages: graderAverages,
