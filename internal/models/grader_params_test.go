@@ -4,8 +4,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-
-	"gopkg.in/yaml.v3"
 )
 
 func TestLoadBenchmarkSpec_PolymorphicGraderParameters(t *testing.T) {
@@ -118,4 +116,3 @@ graders:
 		t.Fatalf("unexpected schema params: %#v", schemaParams)
 	}
 }
-
