@@ -25,7 +25,7 @@ func NewSkillInvocationGrader(name string, params models.SkillInvocationGraderPa
 		return nil, fmt.Errorf("skill_invocation grader '%s' must have at least one required_skills entry", name)
 	}
 
-	mode := models.SkillInvocationMatchingMode(params.Mode)
+	mode := params.Mode
 	switch mode {
 	case models.SkillMatchingModeExact, models.SkillMatchingModeInOrder, models.SkillMatchingModeAnyOrder:
 		// valid
