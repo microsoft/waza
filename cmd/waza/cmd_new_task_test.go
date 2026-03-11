@@ -256,13 +256,13 @@ func TestNewTaskRecordCommand_EndToEndCreatesTaskFile(t *testing.T) {
 
 	sessionID := "session-end-to-end"
 	home := t.TempDir()
-	t.Setenv("HOME", home) // this is so UserHomeDir() will pick our temp folder
+	tempCopilotDir := filepath.Join(home, ".copilot", "session-state")
 
 	fixturePath := filepath.Join("..", "..", "internal", "testdata", "copilot_events_using_skill.json")
 	fixtureBytes, err := os.ReadFile(fixturePath)
 	require.NoError(t, err)
 
-	logPath := filepath.Join(home, ".copilot", "session-state", sessionID, "events.jsonl")
+	logPath := filepath.Join(tempCopilotDir, sessionID, "events.jsonl")
 	require.NoError(t, os.MkdirAll(filepath.Dir(logPath), 0o755))
 	require.NoError(t, os.WriteFile(logPath, fixtureBytes, 0o644))
 
@@ -278,11 +278,11 @@ func TestNewTaskRecordCommand_EndToEndCreatesTaskFile(t *testing.T) {
 	client.EXPECT().Stop().Return(nil)
 
 	outputPath := filepath.Join(t.TempDir(), "nested", "generated-task.yaml")
+
 	cmd := newTaskFromPromptCmd(&newTaskFromPromptCmdOptions{
-		NewTaskList: func(*ux.TaskListOptions) taskList { return &fakeTaskList{runAll: true} },
-		NewCopilotClient: func(*copilot.ClientOptions) execution.CopilotClient {
-			return client
-		},
+		NewTaskList:      func(*ux.TaskListOptions) taskList { return &fakeTaskList{runAll: true} },
+		NewCopilotClient: func(*copilot.ClientOptions) execution.CopilotClient { return client },
+		CopilotLogDir:    func() (string, error) { return tempCopilotDir, nil },
 	})
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetErr(&bytes.Buffer{})

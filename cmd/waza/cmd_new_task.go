@@ -32,6 +32,7 @@ type newTaskFromPromptCmdOptions struct {
 	NewTaskList      func(options *ux.TaskListOptions) taskList
 	Discover         func(root string) ([]discovery.DiscoveredSkill, error)
 	NewCopilotClient func(clientOptions *copilot.ClientOptions) execution.CopilotClient
+	CopilotLogDir    func() (string, error)
 }
 
 var defaultNewTaskList = func(options *ux.TaskListOptions) taskList {
@@ -55,6 +56,12 @@ func newTaskFromPromptCmd(options *newTaskFromPromptCmdOptions) *cobra.Command {
 
 	if options.Discover != nil {
 		discoverSkills = options.Discover
+	}
+
+	copilotLogDirFn := copilotLogDir
+
+	if options.CopilotLogDir != nil {
+		copilotLogDirFn = options.CopilotLogDir
 	}
 
 	newCopilotClient := options.NewCopilotClient
@@ -162,7 +169,7 @@ func newTaskFromPromptCmd(options *newTaskFromPromptCmdOptions) *cobra.Command {
 			taskList.AddTask(ux.TaskOptions{
 				Title: "Creating eval task",
 				Action: func(spf ux.SetProgressFunc) (state ux.TaskState, finalErr error) {
-					logDir, err := copilotLogDir()
+					logDir, err := copilotLogDirFn()
 
 					if err != nil {
 						return ux.Error, err
