@@ -178,14 +178,11 @@ project/
 
 **Example:**
 ```bash
-# In project: creates skills/code-explainer/SKILL.md + evals/code-explainer/
+# In project mode (explained Modes section, above): creates skills/code-explainer/SKILL.md + evals/code-explainer/
 waza new skill code-explainer
 
-# Standalone: creates code-explainer/ self-contained directory
+# In standalone mode (explained Modes section, above): creates code-explainer/ self-contained directory
 waza new skill code-explainer
-
-# With wizard
-waza new skill code-explainer --interactive
 ```
 
 ### `waza new eval <skill-name>`
