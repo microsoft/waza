@@ -222,7 +222,7 @@ func newTaskFromPromptCmd(options *newTaskFromPromptCmdOptions) *cobra.Command {
 				return err
 			}
 
-			fmt.Printf("New task file written to %s\n", taskFilePath)
+			cmd.Printf("New task file written to %s\n", taskFilePath)
 			return nil
 		},
 	}
