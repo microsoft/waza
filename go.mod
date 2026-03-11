@@ -7,7 +7,6 @@ require (
 	github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.13.1
 	github.com/Azure/azure-sdk-for-go/sdk/storage/azblob v1.6.4
 	github.com/azure/azure-dev/cli/azd v0.0.0-20260310201311-bf9ff08dc845
-	github.com/braydonk/yaml v0.9.0
 	github.com/charmbracelet/huh v1.0.0
 	github.com/github/copilot-sdk/go v0.1.32
 	github.com/go-viper/mapstructure/v2 v2.5.0
@@ -35,6 +34,7 @@ require (
 	github.com/aymerick/douceur v0.2.0 // indirect
 	github.com/bahlo/generic-list-go v0.2.0 // indirect
 	github.com/blang/semver/v4 v4.0.0 // indirect
+	github.com/braydonk/yaml v0.9.0 // indirect
 	github.com/buger/jsonparser v1.1.1 // indirect
 	github.com/catppuccin/go v0.3.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect

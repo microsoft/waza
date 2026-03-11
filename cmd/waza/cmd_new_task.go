@@ -10,11 +10,11 @@ import (
 	"time"
 
 	"github.com/azure/azure-dev/cli/azd/pkg/ux"
-	"github.com/braydonk/yaml"
 	"github.com/microsoft/waza/cmd/waza/newtask"
 	"github.com/microsoft/waza/internal/discovery"
 	"github.com/microsoft/waza/internal/execution"
 	"github.com/spf13/cobra"
+	"gopkg.in/yaml.v3"
 )
 
 func newNewTaskCommand() *cobra.Command {
@@ -167,7 +167,6 @@ func newTaskFromPromptCmd() *cobra.Command {
 					}()
 
 					encoder := yaml.NewEncoder(writer)
-					encoder.SetArrayIndent(0)
 					encoder.SetIndent(2)
 
 					if err := encoder.Encode(root); err != nil {
