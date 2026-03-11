@@ -436,7 +436,7 @@ Body content.
 }
 
 func TestCheckCommand_ScaffoldedSkillPassesSchemaValidation(t *testing.T) {
-	// Build a workspace that mimics waza init + waza new output:
+	// Build a workspace that mimics waza init + waza new skill output:
 	//   dir/
 	//     skills/my-skill/SKILL.md
 	//     evals/my-skill/eval.yaml

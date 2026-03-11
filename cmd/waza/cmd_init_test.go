@@ -229,7 +229,7 @@ func TestInitCommand_ReadmeContent(t *testing.T) {
 	require.NoError(t, err)
 	content := string(data)
 	assert.Contains(t, content, "# my-project")
-	assert.Contains(t, content, "waza new my-skill")
+	assert.Contains(t, content, "waza new skill my-skill")
 	assert.Contains(t, content, "waza run")
 	assert.Contains(t, content, "waza check")
 	assert.Contains(t, content, "git push")

@@ -1,5 +1,5 @@
 // Package scaffold provides shared template functions for generating
-// eval suites, task files, and fixtures used by both waza new and waza generate.
+// eval suites, task files, and fixtures used by both waza new skill and waza generate.
 package scaffold
 
 import (
