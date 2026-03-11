@@ -31,9 +31,8 @@ func newNewSkillCommand() *cobra.Command {
 	var outputDir string
 
 	cmd := &cobra.Command{
-		Use:     "skill [skill-name]",
-		Aliases: []string{"generate"},
-		Short:   "Create a new skill with its eval suite",
+		Use:   "skill [skill-name]",
+		Short: "Create a new skill with its eval suite",
 		Long: `Create a new skill and its evaluation suite with a compliant directory structure.
 
 Idempotent: detects what already exists and fills in only the missing pieces.
