@@ -155,7 +155,7 @@ func newTaskFromPromptCmd() *cobra.Command {
 
 					root.HeadComment = "yaml-language-server: $schema=https://raw.githubusercontent.com/microsoft/waza/main/schemas/task.schema.json"
 
-					if err := os.MkdirAll(filepath.Dir(taskFilePath)); err != nil {
+					if err := os.MkdirAll(filepath.Dir(taskFilePath), 0755); err != nil {
 						return ux.Error, fmt.Errorf("failed to create directory for %s: %w", taskFilePath, err)
 					}
 
