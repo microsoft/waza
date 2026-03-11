@@ -98,7 +98,7 @@ your-skill/
 cd your-skill
 
 # Run the interactive wizard
-waza init eval --interactive
+waza init eval
 
 # Follow the prompts to configure your evaluation
 ```

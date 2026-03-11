@@ -383,7 +383,7 @@ waza run              # Run all discovered skills
 Create skills with guided metadata collection:
 
 ```bash
-waza new skill code-formatter --interactive
+waza new skill code-formatter
 ```
 
 The wizard asks:

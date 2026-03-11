@@ -123,7 +123,6 @@ Initialize a waza project workspace with separated `skills/` and `evals/` direct
 
 | Flag | Description |
 |------|-------------|
-| `--interactive` | Project-level setup wizard (reserved for future use) |
 | `--no-skill` | Skip the first-skill creation prompt |
 
 Creates:
@@ -148,7 +147,6 @@ Create a new skill with scaffolded structure and evaluation suite. Detects works
 
 | Flag | Short | Description |
 |------|-------|-------------|
-| `--interactive` | `-i` | Run guided skill metadata wizard |
 | `--template` | `-t` | Template pack (coming soon) |
 
 **Modes:**
