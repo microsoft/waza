@@ -22,6 +22,7 @@ func newNewCommand() *cobra.Command {
 
 	cmd.AddCommand(newNewSkillCommand())
 	cmd.AddCommand(newNewTaskCommand())
+	cmd.AddCommand(newEvalNewCommand())
 	return cmd
 }
 
@@ -64,8 +65,6 @@ current working directory.`,
 
 	cmd.Flags().StringVarP(&template, "template", "t", "", "Template pack to use (coming soon)")
 	cmd.Flags().StringVarP(&outputDir, "output-dir", "d", "", "Directory to scaffold into (default: current directory)")
-
-	cmd.AddCommand(newEvalNewCommand())
 
 	return cmd
 }
