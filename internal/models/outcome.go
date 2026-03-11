@@ -50,6 +50,7 @@ func AllGraderKinds() []string {
 		string(GraderKindBehavior),
 		string(GraderKindActionSequence),
 		string(GraderKindSkillInvocation),
+		string(GraderKindTrigger),
 		string(GraderKindDiff),
 		string(GraderKindToolConstraint),
 	}
