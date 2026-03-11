@@ -85,12 +85,19 @@ func TestNewTaskRecordCommand_ExistingFileNeedsOverwrite(t *testing.T) {
 	taskPath := filepath.Join(dir, "existing-task.yaml")
 	require.NoError(t, os.WriteFile(taskPath, []byte("id: existing\n"), 0o644))
 
-	root := newRootCommand()
-	root.SetOut(&bytes.Buffer{})
-	root.SetErr(&bytes.Buffer{})
-	root.SetArgs([]string{"new", "task", "record", "collect telemetry", taskPath})
+	cmd := newTaskFromPromptCmd(&newTaskFromPromptCmdOptions{
+		NewTaskList: func(options *ux.TaskListOptions) taskList {
+			return &fakeTaskList{
+				runAll: true,
+			}
+		},
+	})
 
-	err := root.Execute()
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"my prompt", taskPath})
+
+	err := cmd.Execute()
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "already exists")
 	assert.Contains(t, err.Error(), "--overwrite")
