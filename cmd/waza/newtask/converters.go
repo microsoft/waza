@@ -90,14 +90,24 @@ func CreateTestCaseFromCopilotLog(copilotLog string, options *CreateTestCaseFrom
 
 		switch e.Type {
 		case copilot.UserMessage:
-			task.Stimulus.Message = *e.Data.Content
+			if e.Data.Content != nil {
+				task.Stimulus.Message = *e.Data.Content
+			}
 		case copilot.ToolExecutionStart:
+			if e.Data.ToolCallID == nil {
+				continue
+			}
+
 			toolsInOrder = append(toolsInOrder, *e.Data.ToolCallID)
 
 			var ta *toolArgs
 
-			if err := mapstructure.Decode(e.Data.Arguments, &ta); err != nil {
-				return nil, err
+			if e.Data.Arguments != nil {
+				if err := mapstructure.Decode(e.Data.Arguments, &ta); err != nil {
+					return nil, err
+				}
+			} else {
+				ta = &toolArgs{}
 			}
 
 			tools[*e.Data.ToolCallID] = &tool{
@@ -105,13 +115,12 @@ func CreateTestCaseFromCopilotLog(copilotLog string, options *CreateTestCaseFrom
 				Name:      *e.Data.ToolName,
 				Arguments: *ta,
 			}
-
-			// we can fill out the right args too.
 		case copilot.ToolExecutionComplete:
-			t := tools[*e.Data.ToolCallID]
-			t.End = e.Timestamp
-			t.Success = *e.Data.Success
-
+			if e.Data.ToolCallID != nil {
+				t := tools[*e.Data.ToolCallID]
+				t.End = e.Timestamp
+				t.Success = *e.Data.Success
+			}
 		case copilot.AssistantMessage:
 			if e.Data.Content != nil {
 				responses.WriteString(*e.Data.Content)
@@ -136,7 +145,6 @@ func CreateTestCaseFromCopilotLog(copilotLog string, options *CreateTestCaseFrom
 				Name: *name,
 				Path: *path,
 			})
-
 		}
 	}
 
