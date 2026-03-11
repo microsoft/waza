@@ -22,9 +22,6 @@ The fastest way to get started:
 # Create a new skill with eval suite
 waza new skill my-awesome-skill
 
-# Or use the alias
-waza generate my-awesome-skill
-
 # Scaffold into a specific directory
 waza new skill my-awesome-skill --output-dir ./my-evals
 ```
