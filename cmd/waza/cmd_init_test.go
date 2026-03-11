@@ -169,7 +169,7 @@ func TestInitCommand_SkillPromptCreatesSkill(t *testing.T) {
 	require.NoError(t, os.Chdir(dir))
 	defer os.Chdir(origDir) //nolint:errcheck // best-effort cleanup
 
-	cmd2 := newNewCommand()
+	cmd2 := newNewSkillCommand()
 	cmd2.SetOut(&bytes.Buffer{})
 	cmd2.SetArgs([]string{"test-skill"})
 	require.NoError(t, cmd2.Execute())

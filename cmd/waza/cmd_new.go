@@ -15,11 +15,22 @@ import (
 )
 
 func newNewCommand() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "new",
+		Short: "Create new skills and tasks",
+	}
+
+	cmd.AddCommand(newNewSkillCommand())
+	cmd.AddCommand(newNewTaskCommand())
+	return cmd
+}
+
+func newNewSkillCommand() *cobra.Command {
 	var template string
 	var outputDir string
 
 	cmd := &cobra.Command{
-		Use:     "new [skill-name]",
+		Use:     "skill [skill-name]",
 		Aliases: []string{"generate"},
 		Short:   "Create a new skill with its eval suite",
 		Long: `Create a new skill and its evaluation suite with a compliant directory structure.
