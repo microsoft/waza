@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/azure/azure-dev/cli/azd/pkg/ux"
+	copilot "github.com/github/copilot-sdk/go"
 	"github.com/microsoft/waza/cmd/waza/newtask"
 	"github.com/microsoft/waza/internal/discovery"
 	"github.com/microsoft/waza/internal/execution"
@@ -23,11 +24,41 @@ func newNewTaskCommand() *cobra.Command {
 		Short: "Automatically create tasks, using copilot logs or prompts",
 	}
 
-	rootCmd.AddCommand(newTaskFromPromptCmd())
+	rootCmd.AddCommand(newTaskFromPromptCmd(nil))
 	return rootCmd
 }
 
-func newTaskFromPromptCmd() *cobra.Command {
+type newTaskFromPromptCmdOptions struct {
+	NewTaskList      func(options *ux.TaskListOptions) taskList
+	Discover         func(root string) ([]discovery.DiscoveredSkill, error)
+	NewCopilotClient func(clientOptions *copilot.ClientOptions) execution.CopilotClient
+}
+
+var defaultNewTaskList = func(options *ux.TaskListOptions) taskList {
+	return &taskListWrapper{
+		inner: ux.NewTaskList(options),
+	}
+}
+
+func newTaskFromPromptCmd(options *newTaskFromPromptCmdOptions) *cobra.Command {
+	if options == nil {
+		options = &newTaskFromPromptCmdOptions{}
+	}
+
+	newTaskListFn := defaultNewTaskList
+
+	if options.NewTaskList != nil {
+		newTaskListFn = options.NewTaskList
+	}
+
+	discoverSkills := discovery.Discover
+
+	if options.Discover != nil {
+		discoverSkills = options.Discover
+	}
+
+	newCopilotClient := options.NewCopilotClient
+
 	var model string
 	var rootDir string
 	var testName string
@@ -43,7 +74,7 @@ func newTaskFromPromptCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) (finalErr error) {
 			prompt, taskFilePath := args[0], args[1]
 
-			taskList := ux.NewTaskList(&ux.TaskListOptions{})
+			taskList := newTaskListFn(&ux.TaskListOptions{})
 
 			taskList.AddTask(ux.TaskOptions{
 				Title: "Getting evaluation tasks folder",
@@ -60,7 +91,9 @@ func newTaskFromPromptCmd() *cobra.Command {
 			taskList.AddTask(ux.TaskOptions{
 				Title: "Starting copilot",
 				Action: func(spf ux.SetProgressFunc) (ux.TaskState, error) {
-					tmpEngine := execution.NewCopilotEngineBuilder("", nil).Build()
+					tmpEngine := execution.NewCopilotEngineBuilder("", &execution.CopilotEngineBuilderOptions{
+						NewCopilotClient: newCopilotClient,
+					}).Build()
 
 					if err := tmpEngine.Initialize(cmd.Context()); err != nil {
 						return ux.Error, fmt.Errorf("failed to initialize copilot SDK: %w", err)
@@ -77,7 +110,7 @@ func newTaskFromPromptCmd() *cobra.Command {
 
 				if engine != nil {
 					if engineErr := engine.Shutdown(ctx); engineErr != nil {
-						finalErr = engineErr
+						finalErr = errors.Join(finalErr, engineErr)
 						return
 					}
 				}
@@ -89,7 +122,7 @@ func newTaskFromPromptCmd() *cobra.Command {
 				taskList.AddTask(ux.TaskOptions{
 					Title: "Discovering skills",
 					Action: func(spf ux.SetProgressFunc) (ux.TaskState, error) {
-						discoveredSkills, err := discovery.Discover(rootDir)
+						discoveredSkills, err := discoverSkills(rootDir)
 
 						if err != nil {
 							return ux.Error, err
@@ -213,4 +246,22 @@ func copilotLogDir() (string, error) {
 	}
 
 	return filepath.Join(homeDir, ".copilot", "session-state"), nil
+}
+
+type taskList interface {
+	AddTask(options ux.TaskOptions) taskList
+	Run() error
+}
+
+type taskListWrapper struct {
+	inner *ux.TaskList
+}
+
+func (tlw *taskListWrapper) AddTask(options ux.TaskOptions) taskList {
+	_ = tlw.inner.AddTask(options)
+	return tlw
+}
+
+func (tlw *taskListWrapper) Run() error {
+	return tlw.inner.Run()
 }

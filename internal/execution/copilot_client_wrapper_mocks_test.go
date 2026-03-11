@@ -123,10 +123,10 @@ func (m *MockcopilotClient) EXPECT() *MockcopilotClientMockRecorder {
 }
 
 // CreateSession mocks base method.
-func (m *MockcopilotClient) CreateSession(ctx context.Context, config *copilot.SessionConfig) (copilotSession, error) {
+func (m *MockcopilotClient) CreateSession(ctx context.Context, config *copilot.SessionConfig) (CopilotSession, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "CreateSession", ctx, config)
-	ret0, _ := ret[0].(copilotSession)
+	ret0, _ := ret[0].(CopilotSession)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -152,10 +152,10 @@ func (mr *MockcopilotClientMockRecorder) DeleteSession(ctx, sessionID any) *gomo
 }
 
 // ResumeSessionWithOptions mocks base method.
-func (m *MockcopilotClient) ResumeSessionWithOptions(ctx context.Context, sessionID string, config *copilot.ResumeSessionConfig) (copilotSession, error) {
+func (m *MockcopilotClient) ResumeSessionWithOptions(ctx context.Context, sessionID string, config *copilot.ResumeSessionConfig) (CopilotSession, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ResumeSessionWithOptions", ctx, sessionID, config)
-	ret0, _ := ret[0].(copilotSession)
+	ret0, _ := ret[0].(CopilotSession)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }

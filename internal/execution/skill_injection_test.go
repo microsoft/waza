@@ -164,7 +164,7 @@ func TestCopilotEngine_Execute_InjectsSkillSystemMessage(t *testing.T) {
 
 	clientMock.EXPECT().Start(gomock.Any())
 	clientMock.EXPECT().CreateSession(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(ctx context.Context, config *copilot.SessionConfig) (copilotSession, error) {
+		func(ctx context.Context, config *copilot.SessionConfig) (CopilotSession, error) {
 			// Verify that SystemMessage is set with skill definitions
 			require.NotNil(t, config.SystemMessage, "SystemMessage should be set when skills are available")
 			assert.Equal(t, "append", config.SystemMessage.Mode)
@@ -182,7 +182,7 @@ func TestCopilotEngine_Execute_InjectsSkillSystemMessage(t *testing.T) {
 	sessionMock.EXPECT().SessionID().Return("session-1")
 
 	engine := NewCopilotEngineBuilder("test-model", &CopilotEngineBuilderOptions{
-		NewCopilotClient: func(clientOptions *copilot.ClientOptions) copilotClient { return clientMock },
+		NewCopilotClient: func(clientOptions *copilot.ClientOptions) CopilotClient { return clientMock },
 	}).Build()
 
 	err := engine.Initialize(context.Background())
@@ -210,7 +210,7 @@ func TestCopilotEngine_Execute_NoSystemMessageWithoutSkills(t *testing.T) {
 
 	clientMock.EXPECT().Start(gomock.Any())
 	clientMock.EXPECT().CreateSession(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(ctx context.Context, config *copilot.SessionConfig) (copilotSession, error) {
+		func(ctx context.Context, config *copilot.SessionConfig) (CopilotSession, error) {
 			// SystemMessage should be nil when no skills are found
 			assert.Nil(t, config.SystemMessage, "SystemMessage should be nil when no skills found")
 			return sessionMock, nil
@@ -224,7 +224,7 @@ func TestCopilotEngine_Execute_NoSystemMessageWithoutSkills(t *testing.T) {
 	sessionMock.EXPECT().SessionID().Return("session-1")
 
 	engine := NewCopilotEngineBuilder("test-model", &CopilotEngineBuilderOptions{
-		NewCopilotClient: func(clientOptions *copilot.ClientOptions) copilotClient { return clientMock },
+		NewCopilotClient: func(clientOptions *copilot.ClientOptions) CopilotClient { return clientMock },
 	}).Build()
 
 	err := engine.Initialize(context.Background())
@@ -254,7 +254,7 @@ func TestCopilotEngine_ResumeSession_InjectsSkillSystemMessage(t *testing.T) {
 
 	clientMock.EXPECT().Start(gomock.Any())
 	clientMock.EXPECT().ResumeSessionWithOptions(gomock.Any(), "existing-session", gomock.Any()).DoAndReturn(
-		func(ctx context.Context, sessionID string, config *copilot.ResumeSessionConfig) (copilotSession, error) {
+		func(ctx context.Context, sessionID string, config *copilot.ResumeSessionConfig) (CopilotSession, error) {
 			require.NotNil(t, config.SystemMessage, "SystemMessage should be set on resume when skills are available")
 			assert.Equal(t, "append", config.SystemMessage.Mode)
 			assert.Contains(t, config.SystemMessage.Content, "<name>resume-skill</name>")
@@ -269,7 +269,7 @@ func TestCopilotEngine_ResumeSession_InjectsSkillSystemMessage(t *testing.T) {
 	sessionMock.EXPECT().SessionID().Return("existing-session")
 
 	engine := NewCopilotEngineBuilder("test-model", &CopilotEngineBuilderOptions{
-		NewCopilotClient: func(clientOptions *copilot.ClientOptions) copilotClient { return clientMock },
+		NewCopilotClient: func(clientOptions *copilot.ClientOptions) CopilotClient { return clientMock },
 	}).Build()
 
 	err := engine.Initialize(context.Background())

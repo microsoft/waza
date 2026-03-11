@@ -59,7 +59,7 @@ func TestCopilotEngine_Execute_StartRespectsTimeout(t *testing.T) {
 	})
 
 	engine := NewCopilotEngineBuilder("test", &CopilotEngineBuilderOptions{
-		NewCopilotClient: func(clientOptions *copilot.ClientOptions) copilotClient {
+		NewCopilotClient: func(clientOptions *copilot.ClientOptions) CopilotClient {
 			return clientMock
 		},
 	}).Build()
@@ -85,7 +85,7 @@ func TestCopilotEngine_Execute_CreateSessionError(t *testing.T) {
 	clientMock.EXPECT().CreateSession(gomock.Any(), gomock.Any()).Return(nil, errors.New("session create failed"))
 
 	engine := NewCopilotEngineBuilder("test", &CopilotEngineBuilderOptions{
-		NewCopilotClient: func(clientOptions *copilot.ClientOptions) copilotClient {
+		NewCopilotClient: func(clientOptions *copilot.ClientOptions) CopilotClient {
 			return clientMock
 		},
 	}).Build()
@@ -112,7 +112,7 @@ func TestCopilotEngine_Execute_SendError(t *testing.T) {
 	sessionMock.EXPECT().Disconnect()
 
 	engine := NewCopilotEngineBuilder("test-model", &CopilotEngineBuilderOptions{
-		NewCopilotClient: func(clientOptions *copilot.ClientOptions) copilotClient {
+		NewCopilotClient: func(clientOptions *copilot.ClientOptions) CopilotClient {
 			return clientMock
 		},
 	}).Build()
@@ -132,7 +132,7 @@ func TestCopilotEngine_Shutdown_StopsClientAndCleansWorkspaces(t *testing.T) {
 	clientMock := NewMockcopilotClient(ctrl)
 
 	engine := NewCopilotEngineBuilder("test-model", &CopilotEngineBuilderOptions{
-		NewCopilotClient: func(clientOptions *copilot.ClientOptions) copilotClient { return clientMock },
+		NewCopilotClient: func(clientOptions *copilot.ClientOptions) CopilotClient { return clientMock },
 	}).Build()
 
 	workspaceDir := t.TempDir()
