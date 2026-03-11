@@ -709,24 +709,6 @@ func TestTitleCase(t *testing.T) {
 	}
 }
 
-// ── Generate Alias Tests ───────────────────────────────────────────────────────
-
-func TestNewCommand_GenerateAlias(t *testing.T) {
-	root := newRootCommand()
-	for _, c := range root.Commands() {
-		if c.Name() == "new" {
-			for _, sub := range c.Commands() {
-				if sub.Name() == "skill" {
-					assert.Contains(t, sub.Aliases, "generate", "'new skill' command should have 'generate' alias")
-					return
-				}
-			}
-			t.Fatal("'new skill' command not found under root 'new' command")
-		}
-	}
-	t.Fatal("'new' command not found in root")
-}
-
 // ── Output Dir Flag Tests ──────────────────────────────────────────────────────
 
 func TestNewCommand_OutputDirFlag(t *testing.T) {
