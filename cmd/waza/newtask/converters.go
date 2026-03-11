@@ -110,9 +110,15 @@ func CreateTestCaseFromCopilotLog(copilotLog string, options *CreateTestCaseFrom
 				ta = &toolArgs{}
 			}
 
+			toolName := "<unknown>"
+
+			if e.Data.ToolName != nil { // have yet to see the tool name NOT be filled in, but being defensive.
+				toolName = *e.Data.ToolName
+			}
+
 			tools[*e.Data.ToolCallID] = &tool{
 				Start:     e.Timestamp,
-				Name:      *e.Data.ToolName,
+				Name:      toolName,
 				Arguments: *ta,
 			}
 		case copilot.ToolExecutionComplete:
