@@ -55,21 +55,21 @@ func (f *fakeTaskList) titles() []string {
 	return titles
 }
 
-func TestNewTaskCommand_HasRecordSubcommand(t *testing.T) {
+func TestNewTaskCommand_HasFromPromptSubcommand(t *testing.T) {
 	cmd := newNewTaskCommand()
 
 	found := false
 	for _, c := range cmd.Commands() {
-		if c.Name() == "record" {
+		if c.Name() == "from-prompt" {
 			found = true
 			break
 		}
 	}
 
-	assert.True(t, found, "new task command should include the record subcommand")
+	assert.True(t, found, "new task command should include the from-prompt subcommand")
 }
 
-func TestNewTaskRecordCommand_RequiresTwoArgs(t *testing.T) {
+func TestNewTaskFromPromptCommand_RequiresTwoArgs(t *testing.T) {
 	cmd := newTaskFromPromptCmd(nil)
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetErr(&bytes.Buffer{})
@@ -80,7 +80,7 @@ func TestNewTaskRecordCommand_RequiresTwoArgs(t *testing.T) {
 	assert.Contains(t, err.Error(), "accepts 2 arg(s)")
 }
 
-func TestNewTaskRecordCommand_ExistingFileNeedsOverwrite(t *testing.T) {
+func TestNewTaskFromPromptCommand_ExistingFileNeedsOverwrite(t *testing.T) {
 	dir := t.TempDir()
 	taskPath := filepath.Join(dir, "existing-task.yaml")
 	require.NoError(t, os.WriteFile(taskPath, []byte("id: existing\n"), 0o644))
@@ -103,7 +103,7 @@ func TestNewTaskRecordCommand_ExistingFileNeedsOverwrite(t *testing.T) {
 	assert.Contains(t, err.Error(), "--overwrite")
 }
 
-func TestNewTaskRecordCommand_TaskListRegistersExpectedTasks(t *testing.T) {
+func TestNewTaskFromPromptCommand_TaskListRegistersExpectedTasks(t *testing.T) {
 	fakeTaskList := &fakeTaskList{}
 
 	cmd := newTaskFromPromptCmd(&newTaskFromPromptCmdOptions{
@@ -128,7 +128,7 @@ func TestNewTaskRecordCommand_TaskListRegistersExpectedTasks(t *testing.T) {
 	}, fakeTaskList.titles())
 }
 
-func TestNewTaskRecordCommand_DisableRepoSkillsSkipsDiscoveryTask(t *testing.T) {
+func TestNewTaskFromPromptCommand_DisableRepoSkillsSkipsDiscoveryTask(t *testing.T) {
 	fakeTaskList := &fakeTaskList{}
 
 	cmd := newTaskFromPromptCmd(&newTaskFromPromptCmdOptions{
@@ -152,7 +152,7 @@ func TestNewTaskRecordCommand_DisableRepoSkillsSkipsDiscoveryTask(t *testing.T) 
 	}, fakeTaskList.titles())
 }
 
-func TestNewTaskRecordCommand_TaskListRunErrorReturned(t *testing.T) {
+func TestNewTaskFromPromptCommand_TaskListRunErrorReturned(t *testing.T) {
 	expectedErr := errors.New("task list run failed")
 
 	fakeTaskList := &fakeTaskList{
@@ -173,7 +173,7 @@ func TestNewTaskRecordCommand_TaskListRunErrorReturned(t *testing.T) {
 	assert.ErrorIs(t, err, expectedErr)
 }
 
-func TestNewTaskRecordCommand_CopilotInitErrorReturned(t *testing.T) {
+func TestNewTaskFromPromptCommand_CopilotInitErrorReturned(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	client := NewMockCopilotClient(ctrl)
 
@@ -195,7 +195,7 @@ func TestNewTaskRecordCommand_CopilotInitErrorReturned(t *testing.T) {
 	assert.Contains(t, err.Error(), "engine failed to initialize")
 }
 
-func TestNewTaskRecordCommand_DiscoverErrorReturned(t *testing.T) {
+func TestNewTaskFromPromptCommand_DiscoverErrorReturned(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	client := NewMockCopilotClient(ctrl)
 
@@ -225,7 +225,7 @@ func TestNewTaskRecordCommand_DiscoverErrorReturned(t *testing.T) {
 	assert.Contains(t, err.Error(), "discover failed")
 }
 
-func TestNewTaskRecordCommand_DiscoveredSkillsPassedToCopilotSession(t *testing.T) {
+func TestNewTaskFromPromptCommand_DiscoveredSkillsPassedToCopilotSession(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	client := NewMockCopilotClient(ctrl)
 
@@ -256,7 +256,7 @@ func TestNewTaskRecordCommand_DiscoveredSkillsPassedToCopilotSession(t *testing.
 	assert.Contains(t, err.Error(), "failed to create session")
 }
 
-func TestNewTaskRecordCommand_EndToEndCreatesTaskFile(t *testing.T) {
+func TestNewTaskFromPromptCommand_EndToEndCreatesTaskFile(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	client := NewMockCopilotClient(ctrl)
 	session := NewMockCopilotSession(ctrl)

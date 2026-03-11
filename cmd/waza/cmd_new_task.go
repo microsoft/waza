@@ -75,7 +75,7 @@ func newTaskFromPromptCmd(options *newTaskFromPromptCmdOptions) *cobra.Command {
 	var disableRepoSkills bool
 
 	cmd := &cobra.Command{
-		Use:   "record <prompt> <task path>",
+		Use:   "from-prompt <prompt> <task path>",
 		Short: "Run your scenario test prompt and automatically generate a task file with graders",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) (finalErr error) {

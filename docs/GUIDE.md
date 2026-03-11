@@ -281,7 +281,7 @@ EOF
 
 ---
 
-### `waza new task record <prompt> <task-path>`
+### `waza new task from-prompt <prompt> <task-path>`
 
 Record a prompt execution and generate a reusable task YAML from the observed run.
 
@@ -302,10 +302,10 @@ The generated task includes inferred validators based on:
 **Examples:**
 ```bash
 # Create a task from one recorded prompt run
-waza new task record "Refactor this function for readability" evals/code-explainer/tasks/refactor-readability.yaml
+waza new task from-prompt "Refactor this function for readability" evals/code-explainer/tasks/refactor-readability.yaml
 
 # Add task metadata and overwrite if needed
-waza new task record "Explain this diff and risks" evals/code-explainer/tasks/diff-analysis.yaml \
+waza new task from-prompt "Explain this diff and risks" evals/code-explainer/tasks/diff-analysis.yaml \
   --testname diff-analysis \
   --tags recorded,regression \
   --overwrite
