@@ -119,7 +119,10 @@ func CreateTestCaseFromCopilotLog(copilotLog string, options *CreateTestCaseFrom
 			if e.Data.ToolCallID != nil {
 				t := tools[*e.Data.ToolCallID]
 				t.End = e.Timestamp
-				t.Success = *e.Data.Success
+
+				if e.Data.Success != nil {
+					t.Success = *e.Data.Success
+				}
 			}
 		case copilot.AssistantMessage:
 			if e.Data.Content != nil {
