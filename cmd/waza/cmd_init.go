@@ -650,7 +650,7 @@ func initReadme(projectName string) string {
 
 1. Create a new skill:
    `+"`"+``+"`"+``+"`"+`bash
-	waza new skill my-skill
+    waza new skill my-skill
    `+"`"+``+"`"+``+"`"+`
 
 2. Edit your skill:
