@@ -117,7 +117,12 @@ func CreateTestCaseFromCopilotLog(copilotLog string, options *CreateTestCaseFrom
 			}
 		case copilot.ToolExecutionComplete:
 			if e.Data.ToolCallID != nil {
-				t := tools[*e.Data.ToolCallID]
+				t, exists := tools[*e.Data.ToolCallID]
+
+				if !exists { // _shouldn't_ happen, but we'll be defensive
+					continue
+				}
+
 				t.End = e.Timestamp
 
 				if e.Data.Success != nil {
