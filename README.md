@@ -88,7 +88,7 @@ waza new skill skill-name
 waza new eval skill-name
 
 # Generate a task YAML by recording a prompt run
-waza new task record "Explain this code and suggest fixes" evals/code-explainer/tasks/recorded-task.yaml
+waza new task from-prompt "Explain this code and suggest fixes" evals/code-explainer/tasks/recorded-task.yaml
 
 # Check if a skill is ready for submission
 waza check skills/my-skill
@@ -206,7 +206,7 @@ waza new eval code-explainer
 waza new eval code-explainer --output evals/custom-code-explainer/eval.yaml
 ```
 
-### `waza new task record <prompt> <task-path>`
+### `waza new task from-prompt <prompt> <task-path>`
 
 Run a prompt through Copilot and generate a task YAML with inferred validators based on observed behavior (response text, tool usage, and invoked skills).
 
@@ -223,10 +223,10 @@ Run a prompt through Copilot and generate a task YAML with inferred validators b
 **Example:**
 ```bash
 # Record a prompt and generate a reusable task YAML
-waza new task record "Refactor this function for readability" evals/code-explainer/tasks/refactor-readability.yaml
+waza new task from-prompt "Refactor this function for readability" evals/code-explainer/tasks/refactor-readability.yaml
 
 # Add metadata and overwrite an existing file
-waza new task record "Explain this diff and risks" evals/code-explainer/tasks/diff-analysis.yaml \
+waza new task from-prompt "Explain this diff and risks" evals/code-explainer/tasks/diff-analysis.yaml \
   --testname diff-analysis \
   --tags recorded,regression \
   --overwrite
