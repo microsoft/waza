@@ -89,7 +89,7 @@ func newTaskFromPromptCmd() *cobra.Command {
 				taskList.AddTask(ux.TaskOptions{
 					Title: "Discovering skills",
 					Action: func(spf ux.SetProgressFunc) (ux.TaskState, error) {
-						discoveredSkills, err := discovery.Discover(".")
+						discoveredSkills, err := discovery.Discover(rootDir)
 
 						if err != nil {
 							return ux.Error, err
