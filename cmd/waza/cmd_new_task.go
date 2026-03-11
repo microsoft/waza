@@ -49,7 +49,7 @@ func newTaskFromPromptCmd() *cobra.Command {
 				Title: "Getting evaluation tasks folder",
 				Action: func(spf ux.SetProgressFunc) (ux.TaskState, error) {
 					if _, err := os.Stat(taskFilePath); err == nil && !overwrite {
-						return ux.Error, fmt.Errorf("%s already exists, can't ovewrite without --overwrite", taskFilePath)
+						return ux.Error, fmt.Errorf("%s already exists, can't overwrite without --overwrite", taskFilePath)
 					}
 					return ux.Success, nil
 				},
