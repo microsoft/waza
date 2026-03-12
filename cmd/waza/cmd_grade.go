@@ -54,6 +54,14 @@ Example:
 }
 
 func runGrade(ctx context.Context, w, errW io.Writer, specPath, taskID, resultsFile, workspace, judgeModel, outputFile string, verbose bool) error {
+	info, err := os.Stat(workspace)
+	if err != nil {
+		return fmt.Errorf("--workspace path %q: %w", workspace, err)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("--workspace path %q is not a directory", workspace)
+	}
+
 	spec, err := models.LoadBenchmarkSpec(specPath)
 	if err != nil {
 		return fmt.Errorf("failed to load spec: %w", err)

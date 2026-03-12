@@ -570,3 +570,26 @@ func TestGradeCommand_OutputFlag_PreservesUnmodifiedTasks(t *testing.T) {
 	require.True(t, found1, "missing task-001")
 	require.True(t, found2, "missing task-002")
 }
+
+func TestGradeCommand_WorkspaceNotExist(t *testing.T) {
+	dir := t.TempDir()
+	specPath := gradeSpec(t, dir, minimalSpec)
+	writeTaskFile(t, dir, "task.yaml", taskWithCodeGrader)
+	resultsPath := gradeResultsFile(t, dir, outcomeWithTasks(taskOutcome("task-001", "hello world")))
+
+	_, err := executeGrade(t, specPath, "--results", resultsPath, "--workspace", "/nonexistent/path")
+	require.ErrorContains(t, err, "--workspace path")
+}
+
+func TestGradeCommand_WorkspaceIsFile(t *testing.T) {
+	dir := t.TempDir()
+	specPath := gradeSpec(t, dir, minimalSpec)
+	writeTaskFile(t, dir, "task.yaml", taskWithCodeGrader)
+	resultsPath := gradeResultsFile(t, dir, outcomeWithTasks(taskOutcome("task-001", "hello world")))
+
+	filePath := filepath.Join(dir, "afile.txt")
+	require.NoError(t, os.WriteFile(filePath, []byte("x"), 0o644))
+
+	_, err := executeGrade(t, specPath, "--results", resultsPath, "--workspace", filePath)
+	require.ErrorContains(t, err, "not a directory")
+}
