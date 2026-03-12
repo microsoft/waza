@@ -7,9 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.21.0] - 2026-03-12
+
+### Added
+
+- **`waza new task from-prompt` command** — Record Copilot sessions into task YAML files for eval creation (#110)
+- **Trigger heuristic grader** — New grader type that scores based on trigger/anti-trigger matching heuristics (#90)
+- **Eval scaffolding command** — `waza eval new` generates eval.yaml scaffolding for skills (#94)
+- **Multi-trial flakiness detection** — Detect flaky evals across multiple trial runs (#103)
+- **Snapshot auto-update workflow** — Diff grader can now auto-update snapshot files on mismatch (#95)
+- **Per-file token budget configuration** — Configure token budgets per-file in `.waza.yaml` (#96)
+- **Skill-aware thresholds** — `waza tokens compare` supports skill-specific threshold configuration (#93)
+- **Sensei scoring parity** — WHEN triggers, spec-security, invalid level, and advisory checks 16-18 (#79)
+- **CI/CD integration guide** — GitHub Actions and Azure DevOps integration documentation (#100)
+- **FileWriter service** — Refactored `waza init` inventory with FileWriter abstraction (#63)
+
 ### Fixed
 
-- **`waza suggest` deadlock** — `Execute()` now applies the request timeout before calling `Start()`, so an unresponsive copilot CLI no longer causes a fatal goroutine deadlock. Previously, `Start()` ran with an unbounded context and deadlocked when the JSON-RPC ping never received a response. The fix also ensures the command exits with a non-zero exit code on failure rather than exit 0.
+- **`waza suggest` deadlock** — `Execute()` now applies the request timeout before calling `Start()`, preventing goroutine deadlock (#43)
+- **`ResourceFile.Content` type** — Changed from `string` to `[]byte` for proper binary file handling (#117)
+- **`tokens compare` in subdirectory** — No longer shows all files as "added" when run from a subdirectory (#105)
+- **`--output-dir` ignored** — Fixed `--output-dir` having no effect for single-skill runs (#109)
+- **Web dashboard build order** — Build dashboard assets before Go compilation (#107)
+- **Test file leak** — Fixed test that leaked files into the repo (#120)
+- **Config schema defaults** — Aligned `config.schema.json` defaults with Go source of truth (#65)
+- **Skill discovery path** — Discover skills under `.github/skills/` directory (#69)
+
+### Changed
+
+- Custom YAML deserializers for config types (#106)
+- Token limits priority inverted to `.waza.yaml` first (#64)
+- `@wbreza` added to CODEOWNERS (#111)
+- Go 1.26+ noted in agent instruction files (#108)
 
 ## [0.9.0] - 2026-02-23
 
@@ -256,7 +285,9 @@ pip install waza
 - YAML escaping for regex patterns with backslashes
 - Progress bar now shows 100% on completion
 
-[Unreleased]: https://github.com/microsoft/waza/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/microsoft/waza/compare/azd-ext-microsoft-azd-waza_0.21.0...HEAD
+[0.21.0]: https://github.com/microsoft/waza/compare/azd-ext-microsoft-azd-waza_0.20.0...azd-ext-microsoft-azd-waza_0.21.0
+[0.9.0]: https://github.com/microsoft/waza/compare/v0.8.0...azd-ext-microsoft-azd-waza_0.20.0
 [0.8.0]: https://github.com/microsoft/waza/compare/v0.4.0-alpha.1...v0.8.0
 [0.4.0-alpha.1]: https://github.com/microsoft/waza/compare/azd-ext-microsoft-azd-waza_0.3.0...v0.4.0-alpha.1
 [0.3.0]: https://github.com/microsoft/waza/compare/azd-ext-microsoft-azd-waza_0.2.1...azd-ext-microsoft-azd-waza_0.3.0
