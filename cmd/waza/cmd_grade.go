@@ -75,7 +75,7 @@ func runGrade(ctx context.Context, w, errW io.Writer, specPath, taskID, resultsF
 	}
 	if len(allTasks) == 0 {
 		if taskID != "" {
-			return fmt.Errorf("task %q not found in spec", taskID)
+			return fmt.Errorf("task %q not found in spec or is disabled", taskID)
 		}
 		return errors.New("no tasks found in spec")
 	}

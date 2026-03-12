@@ -303,7 +303,7 @@ func RegradeOutcome(original *models.EvaluationOutcome, gradedOutcomes []models.
 		RunID:        original.RunID,
 		SkillTested:  original.SkillTested,
 		BenchName:    original.BenchName,
-		Timestamp:    time.Now(),
+		Timestamp:    original.Timestamp,
 		Setup:        setup,
 		Digest:       BuildDigest(gradedOutcomes, original.Digest.DurationMs, runsPerTest),
 		Measures:     make(map[string]models.MeasureResult),
