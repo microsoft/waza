@@ -930,7 +930,7 @@ func (r *TestRunner) runTestUncached(ctx context.Context, tc *models.TestCase, t
 			run.Attempts = attempt
 
 			// If all graders passed or this is an infrastructure error, stop retrying
-			if run.Status == models.StatusPassed || run.Status == models.StatusError || run.Status == models.StatusNA {
+			if run.Status == models.StatusPassed || run.Status == models.StatusError || run.Status == models.StatusSkipped {
 				break
 			}
 
@@ -978,13 +978,13 @@ func (r *TestRunner) runTestUncached(ctx context.Context, tc *models.TestCase, t
 
 func overallStatus(runs []models.RunResult) models.Status {
 	if len(runs) == 0 {
-		return models.StatusNA
+		return models.StatusSkipped
 	}
 	status := models.StatusPassed
 	allSkipped := true
 	for _, run := range runs {
 		switch run.Status {
-		case models.StatusNA:
+		case models.StatusSkipped:
 			continue
 		case models.StatusPassed:
 			allSkipped = false
@@ -994,7 +994,7 @@ func overallStatus(runs []models.RunResult) models.Status {
 		}
 	}
 	if allSkipped {
-		status = models.StatusNA
+		status = models.StatusSkipped
 	}
 	return status
 }
@@ -1086,7 +1086,7 @@ func (r *TestRunner) executeRun(ctx context.Context, tc *models.TestCase, runNum
 	if resp.ErrorMsg != "" {
 		status = models.StatusError
 	} else if r.skipGraders {
-		status = models.StatusNA
+		status = models.StatusSkipped
 	} else {
 		for _, v := range gradersResults {
 			if !v.Passed {

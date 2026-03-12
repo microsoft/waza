@@ -219,10 +219,10 @@ inputs:
 	require.Len(t, outcome.TestOutcomes, 1)
 
 	task := outcome.TestOutcomes[0]
-	assert.Equal(t, models.StatusNA, task.Status)
+	assert.Equal(t, models.StatusSkipped, task.Status)
 	require.Len(t, task.Runs, 2)
-	assert.Equal(t, models.StatusNA, task.Runs[0].Status)
-	assert.Equal(t, models.StatusNA, task.Runs[1].Status)
+	assert.Equal(t, models.StatusSkipped, task.Runs[0].Status)
+	assert.Equal(t, models.StatusSkipped, task.Runs[1].Status)
 	assert.Empty(t, task.Runs[0].Validations)
 	require.NotNil(t, task.Stats)
 	assert.Equal(t, 0.0, task.Stats.PassRate)
@@ -241,13 +241,13 @@ func TestOverallStatus(t *testing.T) {
 	}{
 		{"all passed", []models.Status{models.StatusPassed, models.StatusPassed}, models.StatusPassed},
 		{"all failed", []models.Status{models.StatusFailed, models.StatusFailed}, models.StatusFailed},
-		{"all skipped", []models.Status{models.StatusNA, models.StatusNA}, models.StatusNA},
+		{"all skipped", []models.Status{models.StatusSkipped, models.StatusSkipped}, models.StatusSkipped},
 		{"mixed passed and failed", []models.Status{models.StatusPassed, models.StatusFailed}, models.StatusFailed},
-		{"mixed passed and NA", []models.Status{models.StatusPassed, models.StatusNA}, models.StatusPassed},
-		{"mixed NA and passed", []models.Status{models.StatusNA, models.StatusPassed}, models.StatusPassed},
-		{"mixed failed and NA", []models.Status{models.StatusFailed, models.StatusNA}, models.StatusFailed},
+		{"mixed passed and skipped", []models.Status{models.StatusPassed, models.StatusSkipped}, models.StatusPassed},
+		{"mixed skipped and passed", []models.Status{models.StatusSkipped, models.StatusPassed}, models.StatusPassed},
+		{"mixed failed and skipped", []models.Status{models.StatusFailed, models.StatusSkipped}, models.StatusFailed},
 		{"error among passed", []models.Status{models.StatusPassed, models.StatusError}, models.StatusFailed},
-		{"no runs", nil, models.StatusNA},
+		{"no runs", nil, models.StatusSkipped},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

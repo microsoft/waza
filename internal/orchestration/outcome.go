@@ -45,7 +45,7 @@ func ComputeTestStats(runs []models.RunResult) *models.TestStats {
 			failed++
 		case models.StatusError:
 			errored++
-		case models.StatusNA:
+		case models.StatusSkipped:
 			// skipped — don't count as passed or failed
 		default:
 			if run.AllValidationsPassed() {
@@ -116,7 +116,7 @@ func BuildDigest(testOutcomes []models.TestOutcome, durationMs int64, runsPerTes
 			failed++
 		case models.StatusError:
 			errors++
-		case models.StatusNA:
+		case models.StatusSkipped:
 			skipped++
 		}
 	}

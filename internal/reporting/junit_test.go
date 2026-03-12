@@ -161,7 +161,7 @@ func TestConvertToJUnit_SkippedTestCase(t *testing.T) {
 		TestOutcomes: []models.TestOutcome{
 			{
 				DisplayName: "ungraded-task",
-				Status:      models.StatusNA,
+				Status:      models.StatusSkipped,
 			},
 		},
 	}

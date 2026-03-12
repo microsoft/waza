@@ -130,7 +130,7 @@ func convertTestOutcome(skill string, to *models.TestOutcome) JUnitTestCase {
 		tc.Failure = buildFailure(to)
 	case models.StatusError:
 		tc.Error = buildError(to)
-	case models.StatusNA:
+	case models.StatusSkipped:
 		tc.Skipped = &JUnitSkipped{Message: "grading skipped"}
 	}
 
