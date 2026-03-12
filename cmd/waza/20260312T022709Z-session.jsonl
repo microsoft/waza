@@ -1,3 +1,0 @@
-{"timestamp":"2026-03-12T02:27:09.481329839Z","type":"session_start","data":{"engine":"mock","model":"mock-model","spec_path":"/tmp/TestRunCommandForSpec_NilCmd_OverridesTrials494662716/001/eval.yaml","task_count":1}}
-{"timestamp":"2026-03-12T02:27:09.481372656Z","type":"task_start","data":{"task_name":"test-task","task_num":1,"total_tasks":1}}
-{"timestamp":"2026-03-12T02:27:09.481518612Z","type":"session_complete","data":{"duration_ms":0,"errors":0,"failed":0,"passed":1,"total_tests":1}}
