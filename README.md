@@ -59,7 +59,7 @@ See **[Getting Started Guide](docs/GETTING-STARTED.md)** for a complete walkthro
 waza init my-project && cd my-project
 
 # Create a new skill
-waza new my-skill
+waza new skill my-skill
 
 # Define the skill in skills/my-skill/SKILL.md
 # Write evaluation tasks in evals/my-skill/tasks/
@@ -82,10 +82,13 @@ make build
 waza init [directory]
 
 # Create a new skill
-waza new skill-name
+waza new skill skill-name
 
 # Create a new eval scaffold from an existing SKILL.md
 waza new eval skill-name
+
+# Generate a task YAML by recording a prompt run
+waza new task from-prompt "Explain this code and suggest fixes" evals/code-explainer/tasks/recorded-task.yaml
 
 # Check if a skill is ready for submission
 waza check skills/my-skill
@@ -120,7 +123,6 @@ Initialize a waza project workspace with separated `skills/` and `evals/` direct
 
 | Flag | Description |
 |------|-------------|
-| `--interactive` | Project-level setup wizard (reserved for future use) |
 | `--no-skill` | Skip the first-skill creation prompt |
 
 Creates:
@@ -139,13 +141,12 @@ waza init my-project --no-skill
 # Skip skill creation prompt
 ```
 
-### `waza new <skill-name>`
+### `waza new skill <skill-name>`
 
 Create a new skill with scaffolded structure and evaluation suite. Detects workspace context and adapts output.
 
 | Flag | Short | Description |
 |------|-------|-------------|
-| `--interactive` | `-i` | Run guided skill metadata wizard |
 | `--template` | `-t` | Template pack (coming soon) |
 
 **Modes:**
@@ -175,14 +176,11 @@ project/
 
 **Example:**
 ```bash
-# In project: creates skills/code-explainer/SKILL.md + evals/code-explainer/
-waza new code-explainer
+# In project mode (explained Modes section, above): creates skills/code-explainer/SKILL.md + evals/code-explainer/
+waza new skill code-explainer
 
-# Standalone: creates code-explainer/ self-contained directory
-waza new code-explainer
-
-# With wizard
-waza new code-explainer --interactive
+# In standalone mode (explained Modes section, above): creates code-explainer/ self-contained directory
+waza new skill code-explainer
 ```
 
 ### `waza new eval <skill-name>`
@@ -206,6 +204,31 @@ waza new eval code-explainer
 
 # Custom eval path
 waza new eval code-explainer --output evals/custom-code-explainer/eval.yaml
+```
+
+### `waza new task from-prompt <prompt> <task-path>`
+
+Run a prompt through Copilot and generate a task YAML with inferred validators based on observed behavior (response text, tool usage, and invoked skills).
+
+| Flag | Description |
+|------|-------------|
+| `--model <name>` | Copilot model to run for recording (default: `claude-sonnet-4.5`) |
+| `--testname <name>` | Test name and ID written into the generated task (default: `auto-generated-test`) |
+| `--tags <a,b,...>` | Comma-separated tags to attach to the generated task |
+| `--timeout <duration>` | Max time for prompt execution (default: `5m`) |
+| `--overwrite` | Overwrite the output task file if it already exists |
+| `--root <dir>` | Root directory used for skill discovery (default: `.`) |
+
+**Example:**
+```bash
+# Record a prompt and generate a reusable task YAML
+waza new task from-prompt "Refactor this function for readability" evals/code-explainer/tasks/refactor-readability.yaml
+
+# Add metadata and overwrite an existing file
+waza new task from-prompt "Explain this diff and risks" evals/code-explainer/tasks/diff-analysis.yaml \
+  --testname diff-analysis \
+  --tags recorded,regression \
+  --overwrite
 ```
 
 ### `waza run <eval.yaml>`

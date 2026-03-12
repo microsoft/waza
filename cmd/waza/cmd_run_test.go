@@ -2221,6 +2221,8 @@ tasks:
 }
 
 func TestRunCommandForSpec_NilCmd_OverridesTrials(t *testing.T) {
+	resetRunGlobals()
+
 	// Setup
 	tmp := t.TempDir()
 	specPath := filepath.Join(tmp, "eval.yaml")
@@ -2253,18 +2255,6 @@ metrics: []
 `, filepath.Base(taskPath))
 
 	require.NoError(t, os.WriteFile(specPath, []byte(specYAML), 0644))
-
-	// Save/Restore globals
-	oldTrials := trials
-	oldOutputPath := outputPath
-	oldContextDir := contextDir
-	oldFormat := format
-	defer func() {
-		trials = oldTrials
-		outputPath = oldOutputPath
-		contextDir = oldContextDir
-		format = oldFormat
-	}()
 
 	// Set flags
 	trials = 3

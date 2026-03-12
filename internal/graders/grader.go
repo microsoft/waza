@@ -3,6 +3,7 @@ package graders
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/microsoft/waza/internal/execution"
@@ -79,7 +80,7 @@ func Create(identifier string, params models.GraderParameters) (Grader, error) {
 	case models.TriggerHeuristicGraderParameters:
 		return NewTriggerHeuristicGrader(identifier, p)
 	default:
-		return nil, fmt.Errorf("'%T' is not a valid grader configuration", params)
+		return nil, fmt.Errorf("grader with identifier %q is using an unsupported grader type. Valid grader types: %s", identifier, strings.Join(models.AllGraderKinds(), ", "))
 	}
 }
 

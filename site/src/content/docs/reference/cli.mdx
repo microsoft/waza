@@ -138,12 +138,12 @@ waza init my-project
 waza init my-project --no-skill
 ```
 
-## waza new
+## waza new skill
 
 Create a new skill.
 
 ```bash
-waza new [skill-name]
+waza new skill [skill-name]
 ```
 
 ### Modes
@@ -151,13 +151,13 @@ waza new [skill-name]
 **Project mode** (inside a `skills/` directory):
 ```bash
 cd my-skills-repo
-waza new code-explainer
+waza new skill code-explainer
 # Creates skills/code-explainer/SKILL.md + evals/code-explainer/
 ```
 
 **Standalone mode** (no `skills/` directory):
 ```bash
-waza new my-skill
+waza new skill my-skill
 # Creates my-skill/ with all files
 ```
 
@@ -166,16 +166,15 @@ waza new my-skill
 | Flag | Description |
 |------|-------------|
 | `--template` | Template pack (coming soon) |
-| `--interactive` | Interactive metadata collection |
 
 ### Examples
 
 ```bash
 # Interactive wizard
-waza new code-analyzer --interactive
+waza new skill code-analyzer
 
 # Non-interactive (CI/CD)
-waza new code-analyzer << EOF
+waza new skill code-analyzer << EOF
 Code Analyzer
 Analyzes code for patterns and issues
 code, analysis
@@ -214,6 +213,49 @@ waza new eval my-skill
 
 # Write eval.yaml to a custom location
 waza new eval my-skill --output evals/custom/my-skill-eval.yaml
+```
+
+## waza new task
+
+Generate task YAML files from a recorded prompt execution.
+
+### waza new task from-prompt
+
+Run your prompt through Copilot and generate a task file with inferred validators from the recorded session.
+
+```bash
+waza new task from-prompt <prompt> <task-path>
+```
+
+### Arguments
+
+| Argument | Description |
+|----------|-------------|
+| `<prompt>` | Prompt to execute during recording |
+| `<task-path>` | Output path for the generated task YAML |
+
+### Flags
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--model` | string | `claude-sonnet-4.5` | Copilot model to use for recording |
+| `--testname` | string | `auto-generated-test` | Test name and test ID for generated task |
+| `--tags` | string[] | | Tags to add to generated task |
+| `--timeout` | duration | `5m0s` | Max time to allow prompt completion |
+| `--overwrite` | bool | `false` | Overwrite output file if it already exists |
+| `--root` | string | `.` | Directory used to discover skills |
+
+### Examples
+
+```bash
+# Generate a task from a recorded prompt run
+waza new task from-prompt "Refactor this function for readability" evals/code-explainer/tasks/refactor-readability.yaml
+
+# Add metadata and allow file replacement
+waza new task from-prompt "Explain this diff and risks" evals/code-explainer/tasks/diff-analysis.yaml \
+  --testname diff-analysis \
+  --tags recorded,regression \
+  --overwrite
 ```
 
 ## waza check

@@ -53,7 +53,7 @@ You'll be prompted to create your first skill. You can:
 
 ```bash
 cd my-skills-repo
-waza new code-explainer
+waza new skill code-explainer
 ```
 
 This scaffolds:
@@ -289,7 +289,7 @@ Use this for a single skill, quick prototypes, or when you don't need a workspac
 ### Step 1: Create a Standalone Skill
 
 ```bash
-waza new my-translator
+waza new skill my-translator
 ```
 
 This creates a self-contained directory:
@@ -383,7 +383,7 @@ waza run              # Run all discovered skills
 Create skills with guided metadata collection:
 
 ```bash
-waza new code-formatter --interactive
+waza new skill code-formatter
 ```
 
 The wizard asks:
@@ -439,7 +439,7 @@ waza run code-explainer
 waza init my-project && cd my-project
 
 # 2. Create a skill
-waza new my-skill
+waza new skill my-skill
 
 # 3. Define the skill
 edit skills/my-skill/SKILL.md

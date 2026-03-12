@@ -24,7 +24,7 @@ func TestNewCommand_InProjectMode(t *testing.T) {
 	t.Cleanup(func() { _ = os.Chdir(origDir) }) //nolint:errcheck // best-effort cleanup
 
 	var buf bytes.Buffer
-	cmd := newNewCommand()
+	cmd := newNewSkillCommand()
 	cmd.SetOut(&buf)
 	cmd.SetArgs([]string{"my-skill"})
 	require.NoError(t, cmd.Execute())
@@ -72,7 +72,7 @@ func TestNewCommand_StandaloneMode(t *testing.T) {
 	t.Cleanup(func() { _ = os.Chdir(origDir) }) //nolint:errcheck // best-effort cleanup
 
 	var buf bytes.Buffer
-	cmd := newNewCommand()
+	cmd := newNewSkillCommand()
 	cmd.SetOut(&buf)
 	cmd.SetArgs([]string{"my-skill"})
 	require.NoError(t, cmd.Execute())
@@ -117,7 +117,7 @@ func TestNewCommand_NoOverwriteSafety(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(customContent), 0o644))
 
 	var buf bytes.Buffer
-	cmd := newNewCommand()
+	cmd := newNewSkillCommand()
 	cmd.SetOut(&buf)
 	cmd.SetArgs([]string{"my-skill"})
 	require.NoError(t, cmd.Execute())
@@ -150,7 +150,7 @@ func TestNewCommand_IdempotentWithExistingSkillMD(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(validSkillMD), 0o644))
 
 	var buf bytes.Buffer
-	cmd := newNewCommand()
+	cmd := newNewSkillCommand()
 	cmd.SetOut(&buf)
 	cmd.SetArgs([]string{"my-skill"})
 	require.NoError(t, cmd.Execute())
@@ -179,14 +179,14 @@ func TestNewCommand_IdempotentRunTwice(t *testing.T) {
 	t.Cleanup(func() { _ = os.Chdir(origDir) }) //nolint:errcheck // best-effort cleanup
 
 	// First run
-	cmd1 := newNewCommand()
+	cmd1 := newNewSkillCommand()
 	cmd1.SetOut(&bytes.Buffer{})
 	cmd1.SetArgs([]string{"my-skill"})
 	require.NoError(t, cmd1.Execute())
 
 	// Second run should succeed (idempotent, skip all existing)
 	var buf bytes.Buffer
-	cmd2 := newNewCommand()
+	cmd2 := newNewSkillCommand()
 	cmd2.SetOut(&buf)
 	cmd2.SetArgs([]string{"my-skill"})
 	require.NoError(t, cmd2.Execute())
@@ -213,7 +213,7 @@ func TestNewCommand_EmptySkillMD_NonTTY_OverwritesWithDefaults(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte{}, 0o644))
 
 	var buf bytes.Buffer
-	cmd := newNewCommand()
+	cmd := newNewSkillCommand()
 	cmd.SetOut(&buf)
 	cmd.SetArgs([]string{"my-skill"})
 	require.NoError(t, cmd.Execute())
@@ -248,7 +248,7 @@ func TestNewCommand_MalformedSkillMD_NonTTY_OverwritesWithDefaults(t *testing.T)
 	require.NoError(t, os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("just some text, no frontmatter"), 0o644))
 
 	var buf bytes.Buffer
-	cmd := newNewCommand()
+	cmd := newNewSkillCommand()
 	cmd.SetOut(&buf)
 	cmd.SetArgs([]string{"my-skill"})
 	require.NoError(t, cmd.Execute())
@@ -278,7 +278,7 @@ func TestNewCommand_ValidSkillMD_NonTTY_SkipsToInventory(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(validContent), 0o644))
 
 	var buf bytes.Buffer
-	cmd := newNewCommand()
+	cmd := newNewSkillCommand()
 	cmd.SetOut(&buf)
 	cmd.SetArgs([]string{"my-skill"})
 	require.NoError(t, cmd.Execute())
@@ -307,7 +307,7 @@ func TestNewCommand_NoSkillMD_NonTTY_CreatesEverything(t *testing.T) {
 	t.Cleanup(func() { _ = os.Chdir(origDir) }) //nolint:errcheck // best-effort cleanup
 
 	var buf bytes.Buffer
-	cmd := newNewCommand()
+	cmd := newNewSkillCommand()
 	cmd.SetOut(&buf)
 	cmd.SetArgs([]string{"my-skill"})
 	require.NoError(t, cmd.Execute())
@@ -342,7 +342,7 @@ func TestNewCommand_EmptySkillMD_EvalFilesPreExist(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(evalDir, "eval.yaml"), []byte("existing eval"), 0o644))
 
 	var buf bytes.Buffer
-	cmd := newNewCommand()
+	cmd := newNewSkillCommand()
 	cmd.SetOut(&buf)
 	cmd.SetArgs([]string{"my-skill"})
 	require.NoError(t, cmd.Execute())
@@ -415,7 +415,7 @@ func TestNewCommand_NameValidation(t *testing.T) {
 			require.NoError(t, os.Chdir(dir))
 			t.Cleanup(func() { _ = os.Chdir(origDir) }) //nolint:errcheck // best-effort cleanup
 
-			cmd := newNewCommand()
+			cmd := newNewSkillCommand()
 			cmd.SetOut(&bytes.Buffer{})
 			cmd.SetErr(&bytes.Buffer{})
 			cmd.SetArgs(tc.args)
@@ -444,7 +444,7 @@ func TestNewCommand_EvalYAMLContent(t *testing.T) {
 	require.NoError(t, os.Chdir(dir))
 	t.Cleanup(func() { _ = os.Chdir(origDir) }) //nolint:errcheck // best-effort cleanup
 
-	cmd := newNewCommand()
+	cmd := newNewSkillCommand()
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetArgs([]string{"code-analyzer"})
 	require.NoError(t, cmd.Execute())
@@ -483,7 +483,7 @@ func TestNewCommand_WazaYAMLDefaults(t *testing.T) {
 	require.NoError(t, os.Chdir(dir)) //nolint:errcheck
 	defer os.Chdir(origDir)           //nolint:errcheck // best-effort cleanup
 
-	cmd := newNewCommand()
+	cmd := newNewSkillCommand()
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetArgs([]string{"my-skill"})
 	require.NoError(t, cmd.Execute())
@@ -506,7 +506,7 @@ func TestNewCommand_SkillMDContent(t *testing.T) {
 	require.NoError(t, os.Chdir(dir))
 	t.Cleanup(func() { _ = os.Chdir(origDir) }) //nolint:errcheck // best-effort cleanup
 
-	cmd := newNewCommand()
+	cmd := newNewSkillCommand()
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetArgs([]string{"code-analyzer"})
 	require.NoError(t, cmd.Execute())
@@ -533,7 +533,7 @@ func TestNewCommand_TaskFileIDs(t *testing.T) {
 	require.NoError(t, os.Chdir(dir))
 	t.Cleanup(func() { _ = os.Chdir(origDir) }) //nolint:errcheck // best-effort cleanup
 
-	cmd := newNewCommand()
+	cmd := newNewSkillCommand()
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetArgs([]string{"my-skill"})
 	require.NoError(t, cmd.Execute())
@@ -562,7 +562,7 @@ func TestNewCommand_TaskFileIDs(t *testing.T) {
 
 func TestNewCommand_InteractiveFlagRemoved(t *testing.T) {
 	// Verify --interactive flag is no longer accepted
-	cmd := newNewCommand()
+	cmd := newNewSkillCommand()
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetErr(&bytes.Buffer{})
 	cmd.SetArgs([]string{"--interactive", "test-skill"})
@@ -581,7 +581,7 @@ func TestNewCommand_TemplateFlagNote(t *testing.T) {
 	t.Cleanup(func() { _ = os.Chdir(origDir) }) //nolint:errcheck // best-effort cleanup
 
 	var buf bytes.Buffer
-	cmd := newNewCommand()
+	cmd := newNewSkillCommand()
 	cmd.SetOut(&buf)
 	cmd.SetArgs([]string{"--template", "fancy", "my-skill"})
 	require.NoError(t, cmd.Execute())
@@ -613,7 +613,7 @@ func TestNewCommand_StandaloneCIWorkflowContent(t *testing.T) {
 	require.NoError(t, os.Chdir(dir))
 	t.Cleanup(func() { _ = os.Chdir(origDir) }) //nolint:errcheck // best-effort cleanup
 
-	cmd := newNewCommand()
+	cmd := newNewSkillCommand()
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetArgs([]string{"code-analyzer"})
 	require.NoError(t, cmd.Execute())
@@ -634,7 +634,7 @@ func TestNewCommand_StandaloneGitignoreContent(t *testing.T) {
 	require.NoError(t, os.Chdir(dir))
 	t.Cleanup(func() { _ = os.Chdir(origDir) }) //nolint:errcheck // best-effort cleanup
 
-	cmd := newNewCommand()
+	cmd := newNewSkillCommand()
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetArgs([]string{"my-skill"})
 	require.NoError(t, cmd.Execute())
@@ -655,7 +655,7 @@ func TestNewCommand_StandaloneReadmeContent(t *testing.T) {
 	require.NoError(t, os.Chdir(dir))
 	t.Cleanup(func() { _ = os.Chdir(origDir) }) //nolint:errcheck // best-effort cleanup
 
-	cmd := newNewCommand()
+	cmd := newNewSkillCommand()
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetArgs([]string{"my-skill"})
 	require.NoError(t, cmd.Execute())
@@ -679,7 +679,7 @@ func TestNewCommand_FixtureContent(t *testing.T) {
 	require.NoError(t, os.Chdir(dir))
 	t.Cleanup(func() { _ = os.Chdir(origDir) }) //nolint:errcheck // best-effort cleanup
 
-	cmd := newNewCommand()
+	cmd := newNewSkillCommand()
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetArgs([]string{"my-skill"})
 	require.NoError(t, cmd.Execute())
@@ -709,19 +709,6 @@ func TestTitleCase(t *testing.T) {
 	}
 }
 
-// ── Generate Alias Tests ───────────────────────────────────────────────────────
-
-func TestNewCommand_GenerateAlias(t *testing.T) {
-	root := newRootCommand()
-	for _, c := range root.Commands() {
-		if c.Name() == "new" {
-			assert.Contains(t, c.Aliases, "generate", "'new' command should have 'generate' alias")
-			return
-		}
-	}
-	t.Fatal("'new' command not found in root")
-}
-
 // ── Output Dir Flag Tests ──────────────────────────────────────────────────────
 
 func TestNewCommand_OutputDirFlag(t *testing.T) {
@@ -734,7 +721,7 @@ func TestNewCommand_OutputDirFlag(t *testing.T) {
 	t.Cleanup(func() { _ = os.Chdir(origDir) }) //nolint:errcheck // best-effort cleanup
 
 	var buf bytes.Buffer
-	cmd := newNewCommand()
+	cmd := newNewSkillCommand()
 	cmd.SetOut(&buf)
 	cmd.SetArgs([]string{"my-skill", "--output-dir", outDir})
 	require.NoError(t, cmd.Execute())

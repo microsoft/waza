@@ -2,6 +2,7 @@ package models
 
 import (
 	"math"
+	"sort"
 	"time"
 
 	"github.com/microsoft/waza/internal/statistics"
@@ -22,6 +23,8 @@ const (
 type GraderKind string
 
 const (
+	// NOTE: if you add more, make sure you add them to [AllGraderKinds], below.
+
 	GraderKindInlineScript    GraderKind = "code"
 	GraderKindPrompt          GraderKind = "prompt"
 	GraderKindText            GraderKind = "text"
@@ -35,6 +38,26 @@ const (
 	GraderKindDiff            GraderKind = "diff"
 	GraderKindToolConstraint  GraderKind = "tool_constraint"
 )
+
+func AllGraderKinds() []string {
+	names := []string{
+		string(GraderKindInlineScript),
+		string(GraderKindPrompt),
+		string(GraderKindText),
+		string(GraderKindFile),
+		string(GraderKindJSONSchema),
+		string(GraderKindProgram),
+		string(GraderKindBehavior),
+		string(GraderKindActionSequence),
+		string(GraderKindSkillInvocation),
+		string(GraderKindTrigger),
+		string(GraderKindDiff),
+		string(GraderKindToolConstraint),
+	}
+
+	sort.Strings(names)
+	return names
+}
 
 // EvaluationOutcome represents the complete result of an evaluation run
 type EvaluationOutcome struct {

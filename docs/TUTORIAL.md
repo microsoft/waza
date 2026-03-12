@@ -20,13 +20,10 @@ The fastest way to get started:
 
 ```bash
 # Create a new skill with eval suite
-waza new my-awesome-skill
-
-# Or use the alias
-waza generate my-awesome-skill
+waza new skill my-awesome-skill
 
 # Scaffold into a specific directory
-waza new my-awesome-skill --output-dir ./my-evals
+waza new skill my-awesome-skill --output-dir ./my-evals
 ```
 
 `waza new` is idempotent — run it again on an existing skill and it checks what's missing, filling in only the gaps without overwriting your work.
@@ -41,7 +38,7 @@ waza new my-awesome-skill --output-dir ./my-evals
 waza init my-awesome-skill
 
 # Then create skills within it
-waza new my-skill
+waza new skill my-skill
 ```
 
 ## Step 2: Configure Your Eval Specification

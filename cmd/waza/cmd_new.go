@@ -15,13 +15,24 @@ import (
 )
 
 func newNewCommand() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "new",
+		Short: "Create new skills and tasks",
+	}
+
+	cmd.AddCommand(newNewSkillCommand())
+	cmd.AddCommand(newNewTaskCommand())
+	cmd.AddCommand(newEvalNewCommand())
+	return cmd
+}
+
+func newNewSkillCommand() *cobra.Command {
 	var template string
 	var outputDir string
 
 	cmd := &cobra.Command{
-		Use:     "new [skill-name]",
-		Aliases: []string{"generate"},
-		Short:   "Create a new skill with its eval suite",
+		Use:   "skill [skill-name]",
+		Short: "Create a new skill with its eval suite",
 		Long: `Create a new skill and its evaluation suite with a compliant directory structure.
 
 Idempotent: detects what already exists and fills in only the missing pieces.
@@ -53,8 +64,6 @@ current working directory.`,
 
 	cmd.Flags().StringVarP(&template, "template", "t", "", "Template pack to use (coming soon)")
 	cmd.Flags().StringVarP(&outputDir, "output-dir", "d", "", "Directory to scaffold into (default: current directory)")
-
-	cmd.AddCommand(newEvalNewCommand())
 
 	return cmd
 }
