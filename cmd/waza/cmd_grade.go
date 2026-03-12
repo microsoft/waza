@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/graders"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/orchestration"
@@ -263,16 +264,22 @@ func gradeRun(ctx context.Context, spec *models.BenchmarkSpec, tc *models.TestCa
 		return &gradedRun, nil
 	}
 
+	skillInvocations := make([]execution.SkillInvocation, len(run.SkillInvocations))
+	for i, si := range run.SkillInvocations {
+		skillInvocations[i] = execution.SkillInvocation{Name: si.Name, Path: si.Path}
+	}
+
 	gradingCtx := &graders.Context{
-		TestCase:     tc,
-		Output:       run.FinalOutput,
-		Transcript:   run.Transcript,
-		Session:      &run.SessionDigest,
-		DurationMS:   run.DurationMs,
-		SessionID:    run.SessionDigest.SessionID,
-		WorkspaceDir: workspace,
-		Outcome:      make(map[string]any),
-		Metadata:     make(map[string]any),
+		TestCase:         tc,
+		Output:           run.FinalOutput,
+		Transcript:       run.Transcript,
+		Session:          &run.SessionDigest,
+		DurationMS:       run.DurationMs,
+		SessionID:        run.SessionDigest.SessionID,
+		WorkspaceDir:     workspace,
+		SkillInvocations: skillInvocations,
+		Outcome:          make(map[string]any),
+		Metadata:         make(map[string]any),
 	}
 
 	if verbose {

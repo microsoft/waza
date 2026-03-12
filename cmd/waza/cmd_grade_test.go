@@ -603,3 +603,43 @@ func TestGradeCommand_NoTasksGraded(t *testing.T) {
 	_, err := executeGrade(t, specPath, "--results", resultsPath)
 	require.ErrorContains(t, err, "no tasks were graded")
 }
+
+func TestGradeCommand_SkillInvocationGrader(t *testing.T) {
+	const taskWithSkillInvocation = `id: task-skill
+name: Skill Task
+inputs:
+  prompt: "Do something"
+graders:
+  - name: skill_check
+    type: skill_invocation
+    config:
+      required_skills:
+        - my-skill
+      mode: any_order
+`
+	dir := t.TempDir()
+	specPath := gradeSpec(t, dir, minimalSpec)
+	writeTaskFile(t, dir, "task.yaml", taskWithSkillInvocation)
+
+	outcome := outcomeWithTasks(models.TestOutcome{
+		TestID: "task-skill",
+		Runs: []models.RunResult{{
+			FinalOutput:   "output",
+			DurationMs:    1000,
+			SessionDigest: models.SessionDigest{SessionID: "s-1"},
+			SkillInvocations: []models.SkillInvocation{
+				{Name: "my-skill", Path: "/skills/my-skill/SKILL.md"},
+			},
+		}},
+	})
+	resultsPath := gradeResultsFile(t, dir, outcome)
+
+	out, err := executeGrade(t, specPath, "--results", resultsPath)
+	require.NoError(t, err)
+
+	var result map[string]any
+	require.NoError(t, json.Unmarshal([]byte(out), &result))
+	passed, ok := result["passed"].(bool)
+	require.True(t, ok)
+	require.True(t, passed)
+}

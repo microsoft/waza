@@ -1099,15 +1099,21 @@ func (r *TestRunner) executeRun(ctx context.Context, tc *models.TestCase, runNum
 	// Build transcript
 	transcript := r.buildTranscript(resp)
 
+	skillInvocations := make([]models.SkillInvocation, len(resp.SkillInvocations))
+	for i, si := range resp.SkillInvocations {
+		skillInvocations[i] = models.SkillInvocation{Name: si.Name, Path: si.Path}
+	}
+
 	return models.RunResult{
-		RunNumber:     runNum,
-		Status:        status,
-		DurationMs:    resp.DurationMs,
-		Validations:   gradersResults,
-		SessionDigest: r.buildSessionDigest(resp),
-		Transcript:    transcript,
-		FinalOutput:   resp.FinalOutput,
-		ErrorMsg:      resp.ErrorMsg,
+		RunNumber:        runNum,
+		Status:           status,
+		DurationMs:       resp.DurationMs,
+		Validations:      gradersResults,
+		SessionDigest:    r.buildSessionDigest(resp),
+		Transcript:       transcript,
+		FinalOutput:      resp.FinalOutput,
+		ErrorMsg:         resp.ErrorMsg,
+		SkillInvocations: skillInvocations,
 	}
 }
 
