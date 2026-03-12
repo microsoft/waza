@@ -46,7 +46,7 @@ Example:
 	cmd.Flags().StringVar(&resultsFile, "results", "", "path to waza run JSON output")
 	cmd.Flags().StringVar(&workspace, "workspace", ".", "agent workspace directory for file-based graders; must point to the agent's actual workspace")
 	cmd.Flags().StringVar(&judgeModel, "judge-model", "", "model override for prompt graders")
-	cmd.Flags().StringVarP(&outputPath, "output", "o", "", "write full EvaluationOutcome JSON to file (compatible with waza compare)")
+	cmd.Flags().StringVarP(&outputPath, "output", "o", "", "write full EvaluationOutcome JSON to file (grading results merged with the original task outcomes)")
 	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "verbose output")
 	_ = cmd.MarkFlagRequired("results")
 
