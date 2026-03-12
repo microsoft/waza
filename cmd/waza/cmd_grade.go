@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 
 	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/graders"
@@ -68,8 +67,7 @@ func runGrade(ctx context.Context, w, errW io.Writer, specPath, taskID, resultsF
 		return fmt.Errorf("failed to load spec: %w", err)
 	}
 
-	specDir := filepath.Dir(specPath)
-	allTasks, err := loadGradeTasks(spec, specDir, taskID)
+	allTasks, err := loadGradeTasks(spec, specPath, taskID)
 	if err != nil {
 		return err
 	}
@@ -192,27 +190,22 @@ func runGrade(ctx context.Context, w, errW io.Writer, specPath, taskID, resultsF
 	return nil
 }
 
-func loadGradeTasks(spec *models.BenchmarkSpec, specDir, taskID string) ([]*models.TestCase, error) {
-	taskFiles, err := spec.ResolveTestFiles(specDir)
+func loadGradeTasks(spec *models.BenchmarkSpec, specPath, taskID string) ([]*models.TestCase, error) {
+	all, err := loadTestCases(spec, specPath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to resolve test files: %w", err)
+		return nil, err
 	}
 
-	allTasks := make([]*models.TestCase, 0, len(taskFiles))
-	for _, f := range taskFiles {
-		loaded, loadErr := models.LoadTestCase(f)
-		if loadErr != nil {
-			return nil, fmt.Errorf("failed to load test case from %s: %w", f, loadErr)
-		}
-		if loaded.Active != nil && !*loaded.Active {
-			continue
-		}
-		if taskID == "" || loaded.TestID == taskID {
-			allTasks = append(allTasks, loaded)
-		}
+	if taskID == "" {
+		return all, nil
 	}
 
-	return allTasks, nil
+	for _, tc := range all {
+		if tc.TestID == taskID {
+			return []*models.TestCase{tc}, nil
+		}
+	}
+	return nil, nil
 }
 
 func gradeTaskRuns(ctx context.Context, spec *models.BenchmarkSpec, tc *models.TestCase, runs []models.RunResult, workspace, judgeModel string, errW io.Writer, verbose bool) (models.GradeOutcome, []models.RunResult, error) {
