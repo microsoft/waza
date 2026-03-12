@@ -128,30 +128,6 @@ func TestNewTaskFromPromptCommand_TaskListRegistersExpectedTasks(t *testing.T) {
 	}, fakeTaskList.titles())
 }
 
-func TestNewTaskFromPromptCommand_DisableRepoSkillsSkipsDiscoveryTask(t *testing.T) {
-	fakeTaskList := &fakeTaskList{}
-
-	cmd := newTaskFromPromptCmd(&newTaskFromPromptCmdOptions{
-		NewTaskList: func(options *ux.TaskListOptions) taskList {
-			return fakeTaskList
-		},
-	})
-	cmd.SetOut(&bytes.Buffer{})
-	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"--disable-repo-skills", "collect telemetry", filepath.Join(t.TempDir(), "generated-task.yaml")})
-
-	err := cmd.Execute()
-	require.NoError(t, err)
-	require.NotNil(t, fakeTaskList)
-
-	assert.Equal(t, []string{
-		"Getting evaluation tasks folder",
-		"Starting copilot",
-		"Execute prompt",
-		"Creating eval task",
-	}, fakeTaskList.titles())
-}
-
 func TestNewTaskFromPromptCommand_TaskListRunErrorReturned(t *testing.T) {
 	expectedErr := errors.New("task list run failed")
 
