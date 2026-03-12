@@ -10,9 +10,9 @@ import (
 
 	"github.com/azure/azure-dev/cli/azd/pkg/ux"
 	copilot "github.com/github/copilot-sdk/go"
-	"github.com/microsoft/waza/internal/discovery"
 	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/models"
+	"github.com/microsoft/waza/internal/workspace"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
@@ -210,8 +210,8 @@ func TestNewTaskFromPromptCommand_DiscoverErrorReturned(t *testing.T) {
 		NewCopilotClient: func(*copilot.ClientOptions) execution.CopilotClient {
 			return client
 		},
-		Discover: func(root string) ([]discovery.DiscoveredSkill, error) {
-			calledRoot = root
+		DetectContext: func(dir string, opts ...workspace.DetectOption) (*workspace.WorkspaceContext, error) {
+			calledRoot = dir
 			return nil, errors.New("discover failed")
 		},
 	})
@@ -243,8 +243,10 @@ func TestNewTaskFromPromptCommand_DiscoveredSkillsPassedToCopilotSession(t *test
 		NewCopilotClient: func(*copilot.ClientOptions) execution.CopilotClient {
 			return client
 		},
-		Discover: func(string) ([]discovery.DiscoveredSkill, error) {
-			return []discovery.DiscoveredSkill{{Dir: skillDir}}, nil
+		DetectContext: func(dir string, opts ...workspace.DetectOption) (*workspace.WorkspaceContext, error) {
+			return &workspace.WorkspaceContext{
+				Skills: []workspace.SkillInfo{{Dir: skillDir}},
+			}, nil
 		},
 	})
 	cmd.SetOut(&bytes.Buffer{})

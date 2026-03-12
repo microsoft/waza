@@ -12,8 +12,8 @@ import (
 	"github.com/azure/azure-dev/cli/azd/pkg/ux"
 	copilot "github.com/github/copilot-sdk/go"
 	"github.com/microsoft/waza/cmd/waza/newtask"
-	"github.com/microsoft/waza/internal/discovery"
 	"github.com/microsoft/waza/internal/execution"
+	"github.com/microsoft/waza/internal/workspace"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 )
@@ -30,7 +30,7 @@ func newNewTaskCommand() *cobra.Command {
 
 type newTaskFromPromptCmdOptions struct {
 	NewTaskList      func(options *ux.TaskListOptions) taskList
-	Discover         func(root string) ([]discovery.DiscoveredSkill, error)
+	DetectContext    func(dir string, opts ...workspace.DetectOption) (*workspace.WorkspaceContext, error)
 	NewCopilotClient func(clientOptions *copilot.ClientOptions) execution.CopilotClient
 	CopilotLogDir    func() (string, error)
 }
@@ -52,10 +52,10 @@ func newTaskFromPromptCmd(options *newTaskFromPromptCmdOptions) *cobra.Command {
 		newTaskListFn = options.NewTaskList
 	}
 
-	discoverSkills := discovery.Discover
+	detectContext := workspace.DetectContext
 
-	if options.Discover != nil {
-		discoverSkills = options.Discover
+	if options.DetectContext != nil {
+		detectContext = options.DetectContext
 	}
 
 	copilotLogDirFn := copilotLogDir
@@ -129,13 +129,13 @@ func newTaskFromPromptCmd(options *newTaskFromPromptCmdOptions) *cobra.Command {
 				taskList.AddTask(ux.TaskOptions{
 					Title: "Discovering skills",
 					Action: func(spf ux.SetProgressFunc) (ux.TaskState, error) {
-						discoveredSkills, err := discoverSkills(rootDir)
+						ctx, err := detectContext(rootDir, configDetectOptions()...)
 
 						if err != nil {
 							return ux.Error, err
 						}
 
-						for _, skill := range discoveredSkills {
+						for _, skill := range ctx.Skills {
 							skillPaths = append(skillPaths, skill.Dir)
 						}
 
