@@ -114,7 +114,3 @@ web/blob-report/
 
 # Internal research docs
 docs/research/
-
-# Session files
-*-session.jsonl
-.override-cache/
