@@ -141,6 +141,10 @@ func runGrade(ctx context.Context, w, errW io.Writer, specPath, taskID, resultsF
 		})
 	}
 
+	if len(taskResults) == 0 {
+		return errors.New("no tasks were graded: none of the spec's tasks had matching runs in the results file")
+	}
+
 	var overallSum float64
 	allPassed := true
 	for _, r := range taskResults {

@@ -593,3 +593,13 @@ func TestGradeCommand_WorkspaceIsFile(t *testing.T) {
 	_, err := executeGrade(t, specPath, "--results", resultsPath, "--workspace", filePath)
 	require.ErrorContains(t, err, "not a directory")
 }
+
+func TestGradeCommand_NoTasksGraded(t *testing.T) {
+	dir := t.TempDir()
+	specPath := gradeSpec(t, dir, minimalSpec)
+	writeTaskFile(t, dir, "task.yaml", taskWithCodeGrader)
+	resultsPath := gradeResultsFile(t, dir, outcomeWithTasks(taskOutcome("unrelated-task", "output")))
+
+	_, err := executeGrade(t, specPath, "--results", resultsPath)
+	require.ErrorContains(t, err, "no tasks were graded")
+}
