@@ -2,7 +2,6 @@ package orchestration
 
 import (
 	"math"
-	"time"
 
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/statistics"
