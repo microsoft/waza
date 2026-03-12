@@ -380,8 +380,8 @@ func checkReadiness(skillDir string, wsCtx *workspace.WorkspaceContext) (*readin
 	report.skillName = sk.Frontmatter.Name
 
 	// 3. Run compliance scoring
-	tokenLimit := resolveSkillTokenLimit(filepath.Dir(skillDir))
-	warnThreshold := resolveWarningThreshold(filepath.Dir(skillDir))
+	tokenLimit := resolveSkillTokenLimit(skillDir)
+	warnThreshold := resolveWarningThreshold(skillDir)
 	complianceData, err := (&checks.ComplianceScoreChecker{TokenLimit: tokenLimit, WarningThreshold: warnThreshold}).Score(sk)
 	if err != nil {
 		return nil, err
@@ -408,7 +408,6 @@ func checkReadiness(skillDir string, wsCtx *workspace.WorkspaceContext) (*readin
 
 	// 4b. Check token warning threshold
 	if !report.tokenExceeded {
-		warnThreshold := resolveWarningThreshold(filepath.Dir(skillDir))
 		if warnThreshold > 0 && report.tokenCount >= warnThreshold {
 			report.tokenWarning = true
 		}
@@ -480,24 +479,30 @@ func checkReadiness(skillDir string, wsCtx *workspace.WorkspaceContext) (*readin
 func resolveSkillTokenLimit(startDir string) int {
 	// Try project config first (.waza.yaml tokens.limits section)
 	if cfg, err := projectconfig.Load(startDir); err == nil && cfg.Tokens.Limits != nil {
-		limCfg := checks.TokenLimitsConfig{
-			Defaults:  cfg.Tokens.Limits.Defaults,
-			Overrides: cfg.Tokens.Limits.Overrides,
+		defaults := cfg.Tokens.Limits.Defaults
+		if defaults == nil {
+			defaults = make(map[string]int)
 		}
-		if limCfg.Defaults != nil {
-			// Compute workspace-relative prefix so workspace-root-relative
-			// patterns (e.g. "plugin/skills/**/SKILL.md") can match.
-			prefix := ""
-			if wd, wdErr := os.Getwd(); wdErr == nil {
-				if abs, absErr := filepath.Abs(startDir); absErr == nil {
-					if rel, relErr := filepath.Rel(wd, abs); relErr == nil && rel != "." {
-						prefix = filepath.ToSlash(rel)
-					}
+		overrides := cfg.Tokens.Limits.Overrides
+		if overrides == nil {
+			overrides = make(map[string]int)
+		}
+		limCfg := checks.TokenLimitsConfig{
+			Defaults:  defaults,
+			Overrides: overrides,
+		}
+		// Compute workspace-relative prefix so workspace-root-relative
+		// patterns (e.g. "plugin/skills/**/SKILL.md") can match.
+		prefix := ""
+		if wd, wdErr := os.Getwd(); wdErr == nil {
+			if abs, absErr := filepath.Abs(startDir); absErr == nil {
+				if rel, relErr := filepath.Rel(wd, abs); relErr == nil && rel != "." {
+					prefix = filepath.ToSlash(rel)
 				}
 			}
-			lr := checks.GetLimitForFile("SKILL.md", limCfg, prefix)
-			return lr.Limit
 		}
+		lr := checks.GetLimitForFile("SKILL.md", limCfg, prefix)
+		return lr.Limit
 	}
 
 	// Try .token-limits.json (fallback)

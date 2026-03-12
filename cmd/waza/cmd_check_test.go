@@ -233,6 +233,69 @@ Body content here.
 	assert.False(t, report.hasEval)
 }
 
+func TestCheckReadiness_WazaYamlOverridesOnly(t *testing.T) {
+	// Regression: resolveSkillTokenLimit must honor overrides even when
+	// defaults is absent from .waza.yaml tokens.limits.
+	tmpDir := t.TempDir()
+
+	wazaYAML := `tokens:
+  limits:
+    overrides:
+      "SKILL.md": 3000
+`
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, ".waza.yaml"), []byte(wazaYAML), 0644))
+
+	skillContent := `---
+name: override-limit-test
+description: This is a test skill to verify that waza check reads token limits from the overrides section of waza yaml config.
+---
+
+# Override Limit Test
+
+Body content here.
+`
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "SKILL.md"), []byte(skillContent), 0644))
+
+	// checkReadiness resolves the token limit via resolveSkillTokenLimit.
+	// Before the fix, an overrides-only config fell through to DefaultLimits
+	// (SKILL.md: 500). After the fix it should pick up the 3000 override.
+	t.Chdir(tmpDir)
+
+	report, err := checkReadiness(tmpDir, nil)
+	require.NoError(t, err)
+	assert.Equal(t, 3000, report.tokenLimit, "should use override limit from .waza.yaml, not built-in default 500")
+	assert.False(t, report.tokenExceeded)
+}
+
+func TestCheckReadiness_WazaYamlDefaultsLimit(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	wazaYAML := `tokens:
+  limits:
+    defaults:
+      "SKILL.md": 4000
+`
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, ".waza.yaml"), []byte(wazaYAML), 0644))
+
+	skillContent := `---
+name: defaults-limit-test
+description: This is a test skill to verify that waza check reads token limits from the defaults section of waza yaml config.
+---
+
+# Defaults Limit Test
+
+Body content here.
+`
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "SKILL.md"), []byte(skillContent), 0644))
+
+	t.Chdir(tmpDir)
+
+	report, err := checkReadiness(tmpDir, nil)
+	require.NoError(t, err)
+	assert.Equal(t, 4000, report.tokenLimit, "should use default limit from .waza.yaml")
+	assert.False(t, report.tokenExceeded)
+}
+
 func TestGenerateNextSteps(t *testing.T) {
 	// Test with high compliance - should have no steps
 	t.Run("high compliance no issues", func(t *testing.T) {
