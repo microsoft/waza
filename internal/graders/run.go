@@ -44,11 +44,7 @@ func RunAll(ctx context.Context, specGraders []models.GraderConfig, tc *models.T
 			return nil, fmt.Errorf("failed to run grader %s: %w", vCfg.Identifier, err)
 		}
 
-		w := vCfg.Weight
-		if w <= 0 {
-			w = 1.0
-		}
-		result.Weight = w
+		result.Weight = vCfg.EffectiveWeight()
 		results[result.Name] = *result
 	}
 

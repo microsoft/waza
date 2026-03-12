@@ -69,6 +69,13 @@ type ValidatorInline struct {
 	Parameters GraderParameters `yaml:"config,omitempty" json:"parameters,omitempty"`
 }
 
+func (v *ValidatorInline) EffectiveWeight() float64 {
+	if v.Weight <= 0 {
+		return 1.0
+	}
+	return v.Weight
+}
+
 func (v *ValidatorInline) UnmarshalYAML(node *yaml.Node) error {
 	type rawValidatorInline struct {
 		Identifier string     `yaml:"name"`
