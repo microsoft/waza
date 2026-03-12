@@ -296,7 +296,6 @@ The generated task includes inferred validators based on:
 - `--tags` — Comma-separated tags added to the generated task
 - `--timeout` — Prompt execution timeout (default: `5m`)
 - `--overwrite` — Replace output file if it already exists
-- `--disable-repo-skills` — Ignore auto-discovered skills from the repo
 - `--root` — Root directory used for skill discovery
 
 **Examples:**

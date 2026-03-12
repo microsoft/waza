@@ -217,7 +217,6 @@ Run a prompt through Copilot and generate a task YAML with inferred validators b
 | `--tags <a,b,...>` | Comma-separated tags to attach to the generated task |
 | `--timeout <duration>` | Max time for prompt execution (default: `5m`) |
 | `--overwrite` | Overwrite the output task file if it already exists |
-| `--disable-repo-skills` | Skip auto-discovered repo skills during recording |
 | `--root <dir>` | Root directory used for skill discovery (default: `.`) |
 
 **Example:**
