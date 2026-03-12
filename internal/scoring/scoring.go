@@ -13,6 +13,7 @@ import (
 type AdherenceLevel string
 
 const (
+	AdherenceInvalid    AdherenceLevel = "Invalid"
 	AdherenceLow        AdherenceLevel = "Low"
 	AdherenceMedium     AdherenceLevel = "Medium"
 	AdherenceMediumHigh AdherenceLevel = "Medium-High"
@@ -23,6 +24,7 @@ const (
 )
 
 var adherenceRank = map[AdherenceLevel]int{
+	AdherenceInvalid:    -1,
 	AdherenceLow:        0,
 	AdherenceMedium:     1,
 	AdherenceMediumHigh: 2,
@@ -41,6 +43,8 @@ func (a AdherenceLevel) AtLeast(target AdherenceLevel) bool {
 // ParseAdherenceLevel converts a string flag value to an AdherenceLevel.
 func ParseAdherenceLevel(s string) (AdherenceLevel, error) {
 	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "invalid":
+		return AdherenceInvalid, nil
 	case "low":
 		return AdherenceLow, nil
 	case "medium":
@@ -50,7 +54,7 @@ func ParseAdherenceLevel(s string) (AdherenceLevel, error) {
 	case "high":
 		return AdherenceHigh, nil
 	default:
-		return AdherenceLow, fmt.Errorf("invalid adherence level %q: must be low, medium, medium-high, or high", s)
+		return AdherenceLow, fmt.Errorf("invalid adherence level %q: must be invalid, low, medium, medium-high, or high", s)
 	}
 }
 
@@ -74,6 +78,7 @@ type ScoreResult struct {
 }
 
 var triggerPatterns = []string{
+	"when:",
 	"use for:",
 	"use this skill",
 	"triggers:",
@@ -106,6 +111,11 @@ type HeuristicScorer struct {
 	TokenSoftLimit int
 	// TokenLimit overrides the default hard limit when > 0.
 	TokenLimit int
+	// SkillCount is the total number of skills in the catalog (for context-dependent scoring).
+	// Optional; if 0, context-dependent checks are skipped.
+	// TODO: Callers should plumb the catalog skill count from workspace detection
+	// to enable context-dependent anti-trigger risk scaling in production runs.
+	SkillCount int
 }
 
 func (h HeuristicScorer) Score(sk *skill.Skill) *ScoreResult {
@@ -126,11 +136,47 @@ func (h HeuristicScorer) Score(sk *skill.Skill) *ScoreResult {
 	trimmedDesc := strings.TrimSpace(desc)
 	result.DescriptionLen = utf8.RuneCountInString(trimmedDesc)
 
+	// Short-circuit: description >1024 chars is Invalid
+	if result.DescriptionLen > 1024 {
+		result.Level = AdherenceInvalid
+		result.Issues = append(result.Issues, Issue{
+			Rule:     "description-too-long",
+			Message:  fmt.Sprintf("Description is %d chars (max 1024)", result.DescriptionLen),
+			Severity: "error",
+		})
+		return result
+	}
+
 	result.HasTriggers = containsAny(trimmedDesc, triggerPatterns)
-	result.TriggerCount = countPhrasesAfterPattern(trimmedDesc, "USE FOR:")
+	result.TriggerCount = countPhrasesAfterPattern(trimmedDesc, "USE FOR:") +
+		countPhrasesAfterPattern(trimmedDesc, "WHEN:")
 
 	result.HasAntiTriggers = containsAny(trimmedDesc, antiTriggerPatterns)
 	result.AntiTriggerCount = countPhrasesAfterPattern(trimmedDesc, "DO NOT USE FOR:")
+
+	// Context-dependent anti-trigger risk (Issue #78)
+	// Severity scales with catalog size: High (≥15) → error, Moderate (6-14) → warning.
+	// Low (≤5) is silent — acceptable risk in small catalogs.
+	if h.SkillCount > 0 && !result.HasAntiTriggers {
+		var riskLevel, severity string
+		switch {
+		case h.SkillCount >= 15:
+			riskLevel = "High"
+			severity = "error"
+		case h.SkillCount > 5:
+			riskLevel = "Moderate"
+			severity = "warning"
+		default:
+			riskLevel = "Low"
+		}
+		if riskLevel != "Low" {
+			result.Issues = append(result.Issues, Issue{
+				Rule:     "anti-trigger-risk",
+				Message:  fmt.Sprintf("Missing anti-triggers with %d skills in catalog (risk: %s)", h.SkillCount, riskLevel),
+				Severity: severity,
+			})
+		}
+	}
 
 	result.HasRoutingClarity = containsAny(trimmedDesc, routingClarityPatterns)
 
@@ -186,9 +232,18 @@ func countPhrasesAfterPattern(text, pat string) int {
 		return 0
 	}
 	after := text[idx+len(pat):]
-	for _, stop := range []string{"DO NOT USE FOR:", "INVOKES:", "FOR SINGLE OPERATIONS:", "\n\n"} {
-		if si := strings.Index(strings.ToUpper(after), strings.ToUpper(stop)); si >= 0 {
+	upperAfter := strings.ToUpper(after)
+	// Stop at any subsequent section header to avoid double-counting across sections.
+	for _, stop := range []string{
+		"USE FOR:", "WHEN:", "DO NOT USE FOR:", "NOT FOR:",
+		"TRIGGERS:", "INVOKES:", "FOR SINGLE OPERATIONS:", "\n\n",
+	} {
+		if strings.EqualFold(stop, pat) {
+			continue // don't stop at the pattern we're counting
+		}
+		if si := strings.Index(upperAfter, strings.ToUpper(stop)); si >= 0 {
 			after = after[:si]
+			upperAfter = upperAfter[:si]
 		}
 	}
 	segments := strings.Split(after, ",")
@@ -240,13 +295,8 @@ func validateDescriptionLength(length int, r *ScoreResult) {
 			Message:  fmt.Sprintf("Description is %d chars (need 150+)", length),
 			Severity: "error",
 		})
-	} else if length > 1024 {
-		r.Issues = append(r.Issues, Issue{
-			Rule:     "description-too-long",
-			Message:  fmt.Sprintf("Description is %d chars (max 1024)", length),
-			Severity: "warning",
-		})
 	}
+	// Note: >1024 is now handled as Invalid short-circuit in Score()
 }
 
 func validateTokenBudget(tokenCount int, softLimit int, hardLimit int, r *ScoreResult) {

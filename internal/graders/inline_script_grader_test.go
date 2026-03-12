@@ -38,9 +38,9 @@ func TestInlineScriptGrader(t *testing.T) {
 	skipIfNoPython(t)
 
 	t.Run("basic_success", func(t *testing.T) {
-		grader, err := NewInlineScriptGrader("test", LanguagePython, []string{
+		grader, err := NewInlineScriptGrader("test", models.InlineScriptGraderParameters{Language: models.LanguagePython, Assertions: []string{
 			"1 == 1",
-		})
+		}})
 		require.NoError(t, err)
 
 		results, err := grader.Grade(context.Background(), &Context{})
@@ -67,9 +67,9 @@ func TestInlineScriptGrader(t *testing.T) {
 	})
 
 	t.Run("basic_failure", func(t *testing.T) {
-		grader, err := NewInlineScriptGrader("test", LanguagePython, []string{
+		grader, err := NewInlineScriptGrader("test", models.InlineScriptGraderParameters{Language: models.LanguagePython, Assertions: []string{
 			"1 == 0",
-		})
+		}})
 		require.NoError(t, err)
 		require.Equal(t, "test", grader.Name())
 		require.Equal(t, models.GraderKindInlineScript, grader.Kind())
@@ -98,12 +98,12 @@ func TestInlineScriptGrader(t *testing.T) {
 	})
 
 	t.Run("partial_pass_fail", func(t *testing.T) {
-		grader, err := NewInlineScriptGrader("test", LanguagePython, []string{
+		grader, err := NewInlineScriptGrader("test", models.InlineScriptGraderParameters{Language: models.LanguagePython, Assertions: []string{
 			"1 == 1",
 			"2 == 3",
 			"3 == 3",
 			"4 == 5",
-		})
+		}})
 		require.NoError(t, err)
 
 		results, err := grader.Grade(context.Background(), &Context{})
@@ -128,10 +128,10 @@ func TestInlineScriptGrader(t *testing.T) {
 	})
 
 	t.Run("with_context_output", func(t *testing.T) {
-		grader, err := NewInlineScriptGrader("test", LanguagePython, []string{
+		grader, err := NewInlineScriptGrader("test", models.InlineScriptGraderParameters{Language: models.LanguagePython, Assertions: []string{
 			`"hello" in output`,
 			`len(output) > 0`,
-		})
+		}})
 		require.NoError(t, err)
 
 		results, err := grader.Grade(context.Background(), &Context{
@@ -159,7 +159,7 @@ func TestInlineScriptGrader(t *testing.T) {
 }
 
 func TestEmptyAssertions(t *testing.T) {
-	grader, err := NewInlineScriptGrader("test", LanguagePython, []string{})
+	grader, err := NewInlineScriptGrader("test", models.InlineScriptGraderParameters{Language: models.LanguagePython, Assertions: []string{}})
 	require.NoError(t, err)
 
 	results, err := grader.Grade(context.Background(), &Context{})
@@ -180,7 +180,7 @@ func TestWithRealContextPython(t *testing.T) {
 	sessionEvents := loadSampleEvents(t)
 	transcript := convertToTranscriptEvents(sessionEvents)
 
-	grader, err := NewInlineScriptGrader("test", LanguagePython, []string{
+	grader, err := NewInlineScriptGrader("test", models.InlineScriptGraderParameters{Language: models.LanguagePython, Assertions: []string{
 		fmt.Sprintf("len(transcript) == %d", len(sessionEvents)),
 		"len(errors) == 0",
 		"len(tool_calls) == 1",
@@ -188,7 +188,7 @@ func TestWithRealContextPython(t *testing.T) {
 		"output == 'hello world'",
 		"duration_ms < 102 and duration_ms > 100",
 		"len(tool_calls[0]['result']['content']) > 0",
-	})
+	}})
 	require.NoError(t, err)
 
 	results, err := grader.Grade(context.Background(), &Context{
@@ -210,7 +210,7 @@ func TestWithRealContextJavascript(t *testing.T) {
 	sessionEvents := loadSampleEvents(t)
 	transcript := convertToTranscriptEvents(sessionEvents)
 
-	grader, err := NewInlineScriptGrader("test", LanguageJavascript, []string{
+	grader, err := NewInlineScriptGrader("test", models.InlineScriptGraderParameters{Language: models.LanguageJavascript, Assertions: []string{
 		fmt.Sprintf("transcript.length === %d", len(sessionEvents)),
 		"errors.length === 0",
 		"tool_calls.length === 1",
@@ -218,7 +218,7 @@ func TestWithRealContextJavascript(t *testing.T) {
 		"output === 'hello world'",
 		"duration_ms < 102 && duration_ms > 100",
 		"tool_calls[0].result.content.length > 0",
-	})
+	}})
 	require.NoError(t, err)
 
 	results, err := grader.Grade(context.Background(), &Context{
@@ -249,11 +249,11 @@ func TestWithError(t *testing.T) {
 
 	transcript := convertToTranscriptEvents(collector.SessionEvents())
 
-	grader, err := NewInlineScriptGrader("test", LanguagePython, []string{
+	grader, err := NewInlineScriptGrader("test", models.InlineScriptGraderParameters{Language: models.LanguagePython, Assertions: []string{
 		"len(transcript) == 1",
 		"len(errors) == 1", // ie, we expect some errors.
 		"len(tool_calls) == 0",
-	})
+	}})
 	require.NoError(t, err)
 
 	results, err := grader.Grade(context.Background(), &Context{
@@ -267,9 +267,9 @@ func TestWithSyntaxError(t *testing.T) {
 	t.Run("python", func(t *testing.T) {
 		skipIfNoPython(t)
 
-		grader, err := NewInlineScriptGrader("test", LanguagePython, []string{
+		grader, err := NewInlineScriptGrader("test", models.InlineScriptGraderParameters{Language: models.LanguagePython, Assertions: []string{
 			"what language is this, anyways?",
-		})
+		}})
 		require.NoError(t, err)
 
 		results, err := grader.Grade(context.Background(), &Context{})
@@ -281,9 +281,9 @@ func TestWithSyntaxError(t *testing.T) {
 	t.Run("javascript", func(t *testing.T) {
 		skipIfNoJavascript(t)
 
-		grader, err := NewInlineScriptGrader("test", LanguageJavascript, []string{
+		grader, err := NewInlineScriptGrader("test", models.InlineScriptGraderParameters{Language: models.LanguageJavascript, Assertions: []string{
 			"what language is this, anyways?",
-		})
+		}})
 		require.NoError(t, err)
 
 		results, err := grader.Grade(context.Background(), &Context{})
@@ -294,7 +294,7 @@ func TestWithSyntaxError(t *testing.T) {
 }
 
 func TestUnsupportedLanguage(t *testing.T) {
-	_, err := NewInlineScriptGrader("test", Language("ruby"), []string{"true"})
+	_, err := NewInlineScriptGrader("test", models.InlineScriptGraderParameters{Language: models.Language("ruby"), Assertions: []string{"true"}})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "language 'ruby' is not yet supported")
 }

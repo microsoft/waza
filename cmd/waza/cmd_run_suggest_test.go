@@ -112,7 +112,7 @@ func TestBuildNoSuggestionsError_IncludesSessionTranscript(t *testing.T) {
 					ToolCallID: &toolCallID,
 					Success:    &succeeded,
 					Result: &copilot.Result{
-						Content: toolResultText,
+						Content: &toolResultText,
 					},
 				},
 			},
@@ -158,7 +158,7 @@ func TestBuildRunSuggestionPrompt_IncludesOnlyFailureEvidence(t *testing.T) {
 			{
 				Kind:       models.GraderKindText,
 				Identifier: "must-mention-foo",
-				Parameters: map[string]any{"contains": "foo"},
+				Parameters: models.TextGraderParameters{Contains: []string{"foo"}},
 			},
 		},
 	}
@@ -212,7 +212,7 @@ func TestBuildRunSuggestionPrompt_IncludesOnlyFailureEvidence(t *testing.T) {
 									ToolCallID: &toolCallID,
 									Success:    &succeeded,
 									Result: &copilot.Result{
-										Content: toolResultText,
+										Content: &toolResultText,
 									},
 								},
 							},

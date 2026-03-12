@@ -1905,6 +1905,39 @@ func TestRunCommand_OutputDirMutualExclusion(t *testing.T) {
 	assert.Contains(t, err.Error(), "--output and --output-dir are mutually exclusive")
 }
 
+func TestRunCommand_OutputDirSingleSkill(t *testing.T) {
+	resetRunGlobals()
+	defer resetRunGlobals()
+
+	specPath := createTestSpec(t, "mock")
+	outDir := filepath.Join(t.TempDir(), "results")
+
+	cmd := newRunCommand()
+	cmd.SetArgs([]string{specPath, "--output-dir", outDir})
+
+	err := cmd.Execute()
+	require.NoError(t, err)
+
+	// Verify output directory was created with a result JSON file
+	entries, err := os.ReadDir(outDir)
+	require.NoError(t, err)
+	require.NotEmpty(t, entries, "expected output files in --output-dir")
+
+	// Find and validate the JSON result file
+	var found bool
+	for _, e := range entries {
+		if filepath.Ext(e.Name()) == ".json" {
+			data, err := os.ReadFile(filepath.Join(outDir, e.Name()))
+			require.NoError(t, err)
+			var outcome models.EvaluationOutcome
+			require.NoError(t, json.Unmarshal(data, &outcome))
+			assert.Equal(t, "test-eval", outcome.BenchName)
+			found = true
+		}
+	}
+	assert.True(t, found, "expected at least one .json result in output dir")
+}
+
 func TestWriteOutputDir_SingleSkill(t *testing.T) {
 	dir := t.TempDir()
 

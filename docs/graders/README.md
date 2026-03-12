@@ -26,6 +26,7 @@ Graders evaluate skill execution and produce scores. Each grader returns:
 - [`prompt` - LLM-Based Evaluation](prompt.md)
 - [`script` - External Script Grader (not implemented)](script.md)
 - [`skill_invocation` - Skill Invocation Sequence Validation](skill_invocation.md)
+- [`trigger` - Trigger Heuristic Grader](trigger.md)
 - [`text` - Pattern Matching Grader](text.md)
 - [`tool_calls` - Tool Usage Grader (not implemented)](tool_calls.md)
 - [`tool_constraint` - Tool Usage Constraint Grader](tool_constraint.md)

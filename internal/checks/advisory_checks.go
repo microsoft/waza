@@ -161,6 +161,9 @@ var constraintKeywords = []string{
 // duplicateStepPattern matches "Step 1:" blocks; assumes content is lowercase
 var duplicateStepPattern = regexp.MustCompile(`(?m)^step\s+1\s*:`)
 
+// numberedStepsPattern matches lines like "1. step text"
+var numberedStepsPattern = regexp.MustCompile(`(?m)^\s*\d+\.\s+`)
+
 func (*NegativeDeltaRiskChecker) Check(sk skill.Skill) (*CheckResult, error) {
 	content := strings.ToLower(sk.RawContent)
 	var risks []string
@@ -213,15 +216,15 @@ func (*ProceduralContentChecker) Name() string { return "procedural-content" }
 
 // ProceduralContentData holds the structured output.
 type ProceduralContentData struct {
-	Status          CheckStatus
-	HasActionVerbs  bool
-	HasProcedureKWs bool
+	Status             CheckStatus
+	HasCommonLeadWords bool
+	HasProcedureKWs    bool
 }
 
 // GetStatus implements StatusHolder.
 func (d *ProceduralContentData) GetStatus() CheckStatus { return d.Status }
 
-var actionVerbs = []string{
+var commonLeadWords = []string{
 	"process", "extract", "deploy", "configure", "analyze",
 	"create", "build", "run", "execute", "validate",
 	"check", "test", "install", "set up", "implement",
@@ -236,22 +239,22 @@ var procedureKeywords = []string{
 func (*ProceduralContentChecker) Check(sk skill.Skill) (*CheckResult, error) {
 	desc := strings.ToLower(strings.TrimSpace(sk.Frontmatter.Description))
 
-	hasAction := containsAnyWord(desc, actionVerbs)
+	hasLeadWord := containsAnyWord(desc, commonLeadWords)
 	hasProc := containsAnyWord(desc, procedureKeywords)
 
-	if !hasAction && !hasProc {
+	if !hasLeadWord && !hasProc {
 		return &CheckResult{
 			Name:    "procedural-content",
 			Passed:  false,
-			Summary: "Description lacks procedural language (no action verbs or procedure keywords found)",
-			Data:    &ProceduralContentData{Status: StatusWarning, HasActionVerbs: false, HasProcedureKWs: false},
+			Summary: "Description lacks procedural language (no common lead words or procedure keywords found)",
+			Data:    &ProceduralContentData{Status: StatusWarning, HasCommonLeadWords: false, HasProcedureKWs: false},
 		}, nil
 	}
 	return &CheckResult{
 		Name:    "procedural-content",
 		Passed:  true,
 		Summary: "Description contains procedural language",
-		Data:    &ProceduralContentData{Status: StatusOK, HasActionVerbs: hasAction, HasProcedureKWs: hasProc},
+		Data:    &ProceduralContentData{Status: StatusOK, HasCommonLeadWords: hasLeadWord, HasProcedureKWs: hasProc},
 	}, nil
 }
 
@@ -353,4 +356,284 @@ func (*OverSpecificityChecker) Check(sk skill.Skill) (*CheckResult, error) {
 		Summary: "No over-specificity patterns detected",
 		Data:    &OverSpecificityData{Status: StatusOK},
 	}, nil
+}
+
+// CrossModelDensityChecker checks description word count and action verb usage.
+type CrossModelDensityChecker struct{}
+
+var _ ComplianceChecker = (*CrossModelDensityChecker)(nil)
+
+func (*CrossModelDensityChecker) Name() string { return "cross-model-density" }
+
+// CrossModelDensityData holds the structured output.
+type CrossModelDensityData struct {
+	Status           CheckStatus
+	WordCount        int
+	HasActionVerb    bool
+	ActionVerbIssues []string
+}
+
+// GetStatus implements StatusHolder.
+func (d *CrossModelDensityData) GetStatus() CheckStatus { return d.Status }
+
+// commonActionVerbs are verbs commonly starting a description.
+// Note: Includes "when" which acts as a conditional lead.
+var commonActionVerbs = []string{
+	"use", "when", "help", "enable", "provide", "support", "create",
+	"build", "run", "execute", "analyze", "process", "extract", "deploy",
+	"configure", "validate", "check", "test", "install", "implement",
+}
+
+func (*CrossModelDensityChecker) Check(sk skill.Skill) (*CheckResult, error) {
+	desc := strings.TrimSpace(sk.Frontmatter.Description)
+	if desc == "" {
+		return &CheckResult{
+			Name:    "cross-model-density",
+			Passed:  true,
+			Summary: "No description to check",
+			Data:    &CrossModelDensityData{Status: StatusOK},
+		}, nil
+	}
+
+	// Count words
+	words := strings.Fields(desc)
+	wordCount := len(words)
+
+	// Check if first sentence leads with action verb (heuristic)
+	firstSentence := strings.Split(desc, ".")[0]
+	firstWord := ""
+	firstSentenceWords := strings.Fields(firstSentence)
+	if len(firstSentenceWords) > 0 {
+		firstWord = strings.ToLower(strings.TrimSpace(firstSentenceWords[0]))
+		firstWord = strings.TrimRight(firstWord, ":;,.!?")
+	}
+	hasActionVerb := false
+	for _, verb := range commonActionVerbs {
+		if firstWord == verb {
+			hasActionVerb = true
+			break
+		}
+	}
+
+	var issues []string
+	status := StatusOK
+	passed := true
+
+	if wordCount > 60 {
+		issues = append(issues, fmt.Sprintf("word count is %d (>60 may reduce cross-model effectiveness)", wordCount))
+		status = StatusWarning
+		passed = false
+	}
+
+	if !hasActionVerb {
+		issues = append(issues, "first sentence doesn't lead with action verb (reduces clarity)")
+	}
+
+	if len(issues) > 0 {
+		return &CheckResult{
+			Name:    "cross-model-density",
+			Passed:  passed,
+			Summary: fmt.Sprintf("Advisory 16: %s", strings.Join(issues, "; ")),
+			Data:    &CrossModelDensityData{Status: status, WordCount: wordCount, HasActionVerb: hasActionVerb, ActionVerbIssues: issues},
+		}, nil
+	}
+
+	return &CheckResult{
+		Name:    "cross-model-density",
+		Passed:  true,
+		Summary: "Description density is optimal for cross-model use",
+		Data:    &CrossModelDensityData{Status: StatusOptimal, WordCount: wordCount, HasActionVerb: hasActionVerb},
+	}, nil
+}
+
+// BodyStructureChecker scans SKILL.md body for actionable structure.
+type BodyStructureChecker struct{}
+
+var _ ComplianceChecker = (*BodyStructureChecker)(nil)
+
+func (*BodyStructureChecker) Name() string { return "body-structure" }
+
+// BodyStructureData holds the structured output.
+type BodyStructureData struct {
+	Status           CheckStatus
+	HasExamples      bool
+	HasCodeBlocks    bool
+	HasErrorHandling bool
+	Findings         []string
+}
+
+// GetStatus implements StatusHolder.
+func (d *BodyStructureData) GetStatus() CheckStatus { return d.Status }
+
+var examplePatterns = []string{
+	"## example", "### example", "**example", "for example:",
+}
+
+// errorHandlingPatterns matches common error handling keywords or section headers.
+// These are broad matches (substring) to catch various styles.
+var errorHandlingPatterns = []string{
+	"## error", "error handling", "## troubleshooting", "troubleshooting",
+	"common issues", "known limitations",
+	"warnings", "caveats", "note:", "important:",
+}
+
+func (*BodyStructureChecker) Check(sk skill.Skill) (*CheckResult, error) {
+	content := strings.ToLower(skillBodyContent(sk))
+
+	hasCodeBlocks := strings.Contains(content, "```")
+	hasNumberedSteps := numberedStepsPattern.MatchString(content)
+
+	hasExamples := false
+	for _, pattern := range examplePatterns {
+		if strings.Contains(content, strings.ToLower(pattern)) {
+			hasExamples = true
+			break
+		}
+	}
+
+	hasErrorHandling := false
+	for _, pattern := range errorHandlingPatterns {
+		if strings.Contains(content, pattern) {
+			hasErrorHandling = true
+			break
+		}
+	}
+
+	var findings []string
+	hasActionable := hasCodeBlocks || hasNumberedSteps
+
+	if !hasActionable {
+		findings = append(findings, "body lacks actionable instructions (no code blocks, numbered steps, or commands)")
+	}
+	if !hasExamples {
+		findings = append(findings, "no examples section found")
+	}
+	if !hasErrorHandling {
+		findings = append(findings, "no error handling or troubleshooting section found")
+	}
+
+	status := StatusOK
+	passed := true
+
+	if len(findings) > 0 {
+		status = StatusWarning
+		passed = false
+	}
+
+	summary := "Advisory 17: body structure quality"
+	if len(findings) > 0 {
+		summary = fmt.Sprintf("%s — %s", summary, strings.Join(findings, "; "))
+	}
+
+	return &CheckResult{
+		Name:    "body-structure",
+		Passed:  passed,
+		Summary: summary,
+		Data:    &BodyStructureData{Status: status, HasExamples: hasExamples, HasCodeBlocks: hasCodeBlocks, HasErrorHandling: hasErrorHandling, Findings: findings},
+	}, nil
+}
+
+// ProgressiveDisclosureChecker flags large inline content.
+type ProgressiveDisclosureChecker struct{}
+
+var _ ComplianceChecker = (*ProgressiveDisclosureChecker)(nil)
+
+func (*ProgressiveDisclosureChecker) Name() string { return "progressive-disclosure" }
+
+// ProgressiveDisclosureData holds the structured output.
+type ProgressiveDisclosureData struct {
+	Status          CheckStatus
+	BodyLines       int
+	LargeCodeBlocks int
+	Recommendations []string
+}
+
+// GetStatus implements StatusHolder.
+func (d *ProgressiveDisclosureData) GetStatus() CheckStatus { return d.Status }
+
+func (*ProgressiveDisclosureChecker) Check(sk skill.Skill) (*CheckResult, error) {
+	content := skillBodyContent(sk)
+	// Trim a single trailing newline so a 500-line file isn't reported as 501.
+	trimmedContent := strings.TrimSuffix(content, "\n")
+	lines := strings.Split(trimmedContent, "\n")
+	bodyLines := len(lines)
+
+	largeBlocks := 0
+	inFence := false
+	blockLines := 0
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "```") {
+			if inFence {
+				if blockLines > 50 {
+					largeBlocks++
+				}
+				inFence = false
+				blockLines = 0
+			} else {
+				inFence = true
+				blockLines = 0
+			}
+			continue
+		}
+		if inFence {
+			blockLines++
+		}
+	}
+	if inFence && blockLines > 50 {
+		largeBlocks++
+	}
+
+	var recommendations []string
+	status := StatusOK
+	passed := true
+
+	if bodyLines > 500 {
+		recommendations = append(recommendations, fmt.Sprintf("SKILL.md body is %d lines (>500 lines reduces scannability; consider moving detail to references/)", bodyLines))
+		status = StatusWarning
+		passed = false
+	}
+
+	if largeBlocks > 0 {
+		recommendations = append(recommendations, fmt.Sprintf("%d code block(s) exceed 50 lines (suggest moving to references/)", largeBlocks))
+		status = StatusWarning
+		passed = false
+	}
+
+	if len(recommendations) > 0 {
+		return &CheckResult{
+			Name:    "progressive-disclosure",
+			Passed:  passed,
+			Summary: fmt.Sprintf("Advisory 18: progressive disclosure — %s", strings.Join(recommendations, "; ")),
+			Data:    &ProgressiveDisclosureData{Status: status, BodyLines: bodyLines, LargeCodeBlocks: largeBlocks, Recommendations: recommendations},
+		}, nil
+	}
+
+	return &CheckResult{
+		Name:    "progressive-disclosure",
+		Passed:  true,
+		Summary: "Content structure supports progressive disclosure",
+		Data:    &ProgressiveDisclosureData{Status: StatusOK, BodyLines: bodyLines, LargeCodeBlocks: largeBlocks},
+	}, nil
+}
+
+func skillBodyContent(sk skill.Skill) string {
+	if sk.Body != "" {
+		return sk.Body
+	}
+	if !strings.HasPrefix(sk.RawContent, "---") {
+		return sk.RawContent
+	}
+
+	rest := sk.RawContent[3:]
+	if strings.HasPrefix(rest, "\r\n") {
+		rest = rest[2:]
+	} else if strings.HasPrefix(rest, "\n") {
+		rest = rest[1:]
+	}
+	idx := strings.Index(rest, "\n---")
+	if idx < 0 {
+		return sk.RawContent
+	}
+	return rest[idx+4:]
 }

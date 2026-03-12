@@ -12,7 +12,7 @@ capabilities:
 examples:
   - name: init
     description: Scaffold a new eval suite with eval.yaml, tasks/, and fixtures/ directories.
-    usage: azd waza init my-eval --interactive
+    usage: azd waza init my-eval
   - name: generate
     description: Generate evals from a SKILL.md file.
     usage: azd waza generate skills/my-skill/SKILL.md

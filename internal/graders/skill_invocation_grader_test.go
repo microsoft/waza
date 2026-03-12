@@ -7,6 +7,7 @@ import (
 	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 )
 
 // ---------------------------------------------------------------------------
@@ -14,7 +15,7 @@ import (
 // ---------------------------------------------------------------------------
 
 func TestSkillInvocationGrader_Basic(t *testing.T) {
-	g, err := NewSkillInvocationGrader("test", SkillInvocationGraderParams{
+	g, err := NewSkillInvocationGrader("test", models.SkillInvocationGraderParameters{
 		Mode:           "exact_match",
 		RequiredSkills: []string{"azure-prepare", "azure-deploy"},
 	})
@@ -25,9 +26,67 @@ func TestSkillInvocationGrader_Basic(t *testing.T) {
 	require.True(t, g.allowExtra) // default value
 }
 
+func TestSkillInvocationGraderParams_ConfigRoundTrip(t *testing.T) {
+	t.Run("roundtrip_allow_extra_omitted", func(t *testing.T) {
+		original := models.SkillInvocationGraderParameters{
+			RequiredSkills: []string{"azure-prepare", "azure-deploy"},
+			Mode:           models.SkillMatchingModeAnyOrder,
+		}
+
+		raw, err := yaml.Marshal(original)
+		require.NoError(t, err)
+
+		config := map[string]any{}
+		require.NoError(t, yaml.Unmarshal(raw, &config))
+		require.NotContains(t, config, "allow_extra")
+
+		var decoded models.SkillInvocationGraderParameters
+		require.NoError(t, yaml.Unmarshal(raw, &decoded))
+		require.Equal(t, original, decoded)
+	})
+
+	t.Run("roundtrip_allow_extra_set", func(t *testing.T) {
+		allowExtra := false
+		original := models.SkillInvocationGraderParameters{
+			RequiredSkills: []string{"azure-prepare", "azure-deploy"},
+			Mode:           models.SkillMatchingModeExact,
+			AllowExtra:     &allowExtra,
+		}
+
+		raw, err := yaml.Marshal(original)
+		require.NoError(t, err)
+
+		config := map[string]any{}
+		require.NoError(t, yaml.Unmarshal(raw, &config))
+		require.Contains(t, config, "allow_extra")
+		require.Equal(t, false, config["allow_extra"])
+
+		var decoded models.SkillInvocationGraderParameters
+		require.NoError(t, yaml.Unmarshal(raw, &decoded))
+		require.Equal(t, original, decoded)
+	})
+
+	t.Run("roundtrip_empty_fields_omitted", func(t *testing.T) {
+		original := models.SkillInvocationGraderParameters{}
+
+		raw, err := yaml.Marshal(original)
+		require.NoError(t, err)
+
+		config := map[string]any{}
+		require.NoError(t, yaml.Unmarshal(raw, &config))
+		require.NotContains(t, config, "required_skills")
+		require.NotContains(t, config, "mode")
+		require.NotContains(t, config, "allow_extra")
+
+		var decoded models.SkillInvocationGraderParameters
+		require.NoError(t, yaml.Unmarshal(raw, &decoded))
+		require.Equal(t, original, decoded)
+	})
+}
+
 func TestSkillInvocationGrader_Constructor(t *testing.T) {
 	t.Run("no required_skills returns error", func(t *testing.T) {
-		_, err := NewSkillInvocationGrader("test", SkillInvocationGraderParams{
+		_, err := NewSkillInvocationGrader("test", models.SkillInvocationGraderParameters{
 			Mode:           "exact_match",
 			RequiredSkills: nil,
 		})
@@ -35,7 +94,7 @@ func TestSkillInvocationGrader_Constructor(t *testing.T) {
 	})
 
 	t.Run("empty required_skills returns error", func(t *testing.T) {
-		_, err := NewSkillInvocationGrader("test", SkillInvocationGraderParams{
+		_, err := NewSkillInvocationGrader("test", models.SkillInvocationGraderParameters{
 			Mode:           "exact_match",
 			RequiredSkills: []string{},
 		})
@@ -43,7 +102,7 @@ func TestSkillInvocationGrader_Constructor(t *testing.T) {
 	})
 
 	t.Run("invalid mode returns error", func(t *testing.T) {
-		_, err := NewSkillInvocationGrader("test", SkillInvocationGraderParams{
+		_, err := NewSkillInvocationGrader("test", models.SkillInvocationGraderParameters{
 			Mode:           "invalid_mode",
 			RequiredSkills: []string{"skill1"},
 		})
@@ -51,7 +110,7 @@ func TestSkillInvocationGrader_Constructor(t *testing.T) {
 	})
 
 	t.Run("valid exact_match params succeeds", func(t *testing.T) {
-		g, err := NewSkillInvocationGrader("test", SkillInvocationGraderParams{
+		g, err := NewSkillInvocationGrader("test", models.SkillInvocationGraderParameters{
 			Mode:           "exact_match",
 			RequiredSkills: []string{"skill1"},
 		})
@@ -61,7 +120,7 @@ func TestSkillInvocationGrader_Constructor(t *testing.T) {
 	})
 
 	t.Run("valid in_order params succeeds", func(t *testing.T) {
-		g, err := NewSkillInvocationGrader("test", SkillInvocationGraderParams{
+		g, err := NewSkillInvocationGrader("test", models.SkillInvocationGraderParameters{
 			Mode:           "in_order",
 			RequiredSkills: []string{"skill1", "skill2"},
 		})
@@ -70,7 +129,7 @@ func TestSkillInvocationGrader_Constructor(t *testing.T) {
 	})
 
 	t.Run("valid any_order params succeeds", func(t *testing.T) {
-		g, err := NewSkillInvocationGrader("test", SkillInvocationGraderParams{
+		g, err := NewSkillInvocationGrader("test", models.SkillInvocationGraderParameters{
 			Mode:           "any_order",
 			RequiredSkills: []string{"skill1", "skill2"},
 		})
@@ -80,7 +139,7 @@ func TestSkillInvocationGrader_Constructor(t *testing.T) {
 
 	t.Run("allow_extra flag can be set to false", func(t *testing.T) {
 		allowExtra := false
-		g, err := NewSkillInvocationGrader("test", SkillInvocationGraderParams{
+		g, err := NewSkillInvocationGrader("test", models.SkillInvocationGraderParameters{
 			Mode:           "exact_match",
 			RequiredSkills: []string{"skill1"},
 			AllowExtra:     &allowExtra,
@@ -95,7 +154,7 @@ func TestSkillInvocationGrader_Constructor(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestSkillInvocationGrader_ExactMatch(t *testing.T) {
-	g, err := NewSkillInvocationGrader("test", SkillInvocationGraderParams{
+	g, err := NewSkillInvocationGrader("test", models.SkillInvocationGraderParameters{
 		Mode:           "exact_match",
 		RequiredSkills: []string{"azure-prepare", "azure-deploy"},
 	})
@@ -174,7 +233,7 @@ func TestSkillInvocationGrader_ExactMatch(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestSkillInvocationGrader_InOrder(t *testing.T) {
-	g, err := NewSkillInvocationGrader("test", SkillInvocationGraderParams{
+	g, err := NewSkillInvocationGrader("test", models.SkillInvocationGraderParameters{
 		Mode:           "in_order",
 		RequiredSkills: []string{"azure-prepare", "azure-deploy"},
 	})
@@ -240,7 +299,7 @@ func TestSkillInvocationGrader_InOrder(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestSkillInvocationGrader_AnyOrder(t *testing.T) {
-	g, err := NewSkillInvocationGrader("test", SkillInvocationGraderParams{
+	g, err := NewSkillInvocationGrader("test", models.SkillInvocationGraderParameters{
 		Mode:           "any_order",
 		RequiredSkills: []string{"azure-prepare", "azure-deploy"},
 	})
@@ -302,7 +361,7 @@ func TestSkillInvocationGrader_AnyOrder(t *testing.T) {
 	})
 
 	t.Run("duplicate required skills handled correctly", func(t *testing.T) {
-		g2, err := NewSkillInvocationGrader("test", SkillInvocationGraderParams{
+		g2, err := NewSkillInvocationGrader("test", models.SkillInvocationGraderParameters{
 			Mode:           "any_order",
 			RequiredSkills: []string{"skill1", "skill1", "skill2"},
 		})
@@ -329,7 +388,7 @@ func TestSkillInvocationGrader_AnyOrder(t *testing.T) {
 func TestSkillInvocationGrader_AllowExtra(t *testing.T) {
 	t.Run("allow_extra=true does not penalize extras", func(t *testing.T) {
 		allowExtra := true
-		g, err := NewSkillInvocationGrader("test", SkillInvocationGraderParams{
+		g, err := NewSkillInvocationGrader("test", models.SkillInvocationGraderParameters{
 			Mode:           "in_order",
 			RequiredSkills: []string{"skill1"},
 			AllowExtra:     &allowExtra,
@@ -352,7 +411,7 @@ func TestSkillInvocationGrader_AllowExtra(t *testing.T) {
 
 	t.Run("allow_extra=false penalizes extras", func(t *testing.T) {
 		allowExtra := false
-		g, err := NewSkillInvocationGrader("test", SkillInvocationGraderParams{
+		g, err := NewSkillInvocationGrader("test", models.SkillInvocationGraderParameters{
 			Mode:           "in_order",
 			RequiredSkills: []string{"skill1"},
 			AllowExtra:     &allowExtra,
@@ -381,7 +440,7 @@ func TestSkillInvocationGrader_AllowExtra(t *testing.T) {
 
 func TestSkillInvocationGrader_EdgeCases(t *testing.T) {
 	t.Run("nil skill invocations treated as empty", func(t *testing.T) {
-		g, err := NewSkillInvocationGrader("test", SkillInvocationGraderParams{
+		g, err := NewSkillInvocationGrader("test", models.SkillInvocationGraderParameters{
 			Mode:           "any_order",
 			RequiredSkills: []string{"skill1"},
 		})
@@ -398,7 +457,7 @@ func TestSkillInvocationGrader_EdgeCases(t *testing.T) {
 	})
 
 	t.Run("empty skill names are extracted", func(t *testing.T) {
-		g, err := NewSkillInvocationGrader("test", SkillInvocationGraderParams{
+		g, err := NewSkillInvocationGrader("test", models.SkillInvocationGraderParameters{
 			Mode:           "exact_match",
 			RequiredSkills: []string{"skill1"},
 		})
@@ -417,7 +476,7 @@ func TestSkillInvocationGrader_EdgeCases(t *testing.T) {
 	})
 
 	t.Run("details contain expected fields", func(t *testing.T) {
-		g, err := NewSkillInvocationGrader("test", SkillInvocationGraderParams{
+		g, err := NewSkillInvocationGrader("test", models.SkillInvocationGraderParameters{
 			Mode:           "exact_match",
 			RequiredSkills: []string{"skill1"},
 		})
@@ -447,7 +506,7 @@ func TestSkillInvocationGrader_EdgeCases(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestSkillInvocationGrader_PrecisionRecall(t *testing.T) {
-	g, err := NewSkillInvocationGrader("test", SkillInvocationGraderParams{
+	g, err := NewSkillInvocationGrader("test", models.SkillInvocationGraderParameters{
 		Mode:           "any_order",
 		RequiredSkills: []string{"skill1", "skill2"},
 	})

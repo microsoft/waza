@@ -9,24 +9,6 @@ import (
 	"github.com/microsoft/waza/internal/models"
 )
 
-// TextGraderArgs holds the arguments for creating a text grader.
-type TextGraderArgs struct {
-	Name string
-
-	// Contains lists substrings that must appear in the output (case-insensitive).
-	Contains []string `mapstructure:"contains"`
-	// NotContains lists substrings that must NOT appear in the output (case-insensitive).
-	NotContains []string `mapstructure:"not_contains"`
-	// ContainsCS lists substrings that must appear in the output (case-sensitive).
-	ContainsCS []string `mapstructure:"contains_cs"`
-	// NotContainsCS lists substrings that must NOT appear in the output (case-sensitive).
-	NotContainsCS []string `mapstructure:"not_contains_cs"`
-	// RegexMatch lists regex patterns that must match somewhere in the output.
-	RegexMatch []string `mapstructure:"regex_match"`
-	// RegexNotMatch lists regex patterns that must NOT match anywhere in the output.
-	RegexNotMatch []string `mapstructure:"regex_not_match"`
-}
-
 // TextGrader validates output using substring matching and regex patterns.
 type TextGrader struct {
 	name          string
@@ -40,9 +22,9 @@ type TextGrader struct {
 
 // NewTextGrader creates a [TextGrader] that checks for substring presence/absence
 // and regex pattern matching in the agent output.
-func NewTextGrader(args TextGraderArgs) (*TextGrader, error) {
+func NewTextGrader(name string, args models.TextGraderParameters) (*TextGrader, error) {
 	return &TextGrader{
-		name:          args.Name,
+		name:          name,
 		contains:      args.Contains,
 		notContains:   args.NotContains,
 		containsCS:    args.ContainsCS,

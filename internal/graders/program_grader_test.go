@@ -12,10 +12,8 @@ import (
 )
 
 func TestProgramGrader_Basic(t *testing.T) {
-	g, err := NewProgramGrader(ProgramGraderArgs{
-		Name:    "test",
-		Command: "echo",
-		Args:    []string{"hello"},
+	g, err := NewProgramGrader("test", models.ProgramGraderParameters{Command: "echo",
+		Args: []string{"hello"},
 	})
 	require.NoError(t, err)
 
@@ -25,24 +23,19 @@ func TestProgramGrader_Basic(t *testing.T) {
 
 func TestProgramGrader_Constructor(t *testing.T) {
 	t.Run("requires command", func(t *testing.T) {
-		_, err := NewProgramGrader(ProgramGraderArgs{Name: "test"})
+		_, err := NewProgramGrader("test", models.ProgramGraderParameters{})
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "must have a 'command'")
 	})
 
 	t.Run("default timeout is 30 seconds", func(t *testing.T) {
-		g, err := NewProgramGrader(ProgramGraderArgs{
-			Name:    "test",
-			Command: "echo",
-		})
+		g, err := NewProgramGrader("test", models.ProgramGraderParameters{Command: "echo"})
 		require.NoError(t, err)
 		require.Equal(t, defaultProgramTimeoutSeconds, int(g.timeout.Seconds()))
 	})
 
 	t.Run("custom timeout is respected", func(t *testing.T) {
-		g, err := NewProgramGrader(ProgramGraderArgs{
-			Name:    "test",
-			Command: "echo",
+		g, err := NewProgramGrader("test", models.ProgramGraderParameters{Command: "echo",
 			Timeout: 60,
 		})
 		require.NoError(t, err)
@@ -56,10 +49,8 @@ func TestProgramGrader_Grade(t *testing.T) {
 	}
 
 	t.Run("program exits 0 passes with score 1.0", func(t *testing.T) {
-		g, err := NewProgramGrader(ProgramGraderArgs{
-			Name:    "test",
-			Command: "sh",
-			Args:    []string{"-c", "echo grading passed"},
+		g, err := NewProgramGrader("test", models.ProgramGraderParameters{Command: "sh",
+			Args: []string{"-c", "echo grading passed"},
 		})
 		require.NoError(t, err)
 
@@ -74,10 +65,8 @@ func TestProgramGrader_Grade(t *testing.T) {
 	})
 
 	t.Run("program exits non-zero fails with score 0.0", func(t *testing.T) {
-		g, err := NewProgramGrader(ProgramGraderArgs{
-			Name:    "test",
-			Command: "sh",
-			Args:    []string{"-c", "echo fail reason; exit 1"},
+		g, err := NewProgramGrader("test", models.ProgramGraderParameters{Command: "sh",
+			Args: []string{"-c", "echo fail reason; exit 1"},
 		})
 		require.NoError(t, err)
 
@@ -92,10 +81,8 @@ func TestProgramGrader_Grade(t *testing.T) {
 	})
 
 	t.Run("agent output is passed via stdin", func(t *testing.T) {
-		g, err := NewProgramGrader(ProgramGraderArgs{
-			Name:    "test",
-			Command: "sh",
-			Args:    []string{"-c", "cat"},
+		g, err := NewProgramGrader("test", models.ProgramGraderParameters{Command: "sh",
+			Args: []string{"-c", "cat"},
 		})
 		require.NoError(t, err)
 
@@ -112,10 +99,8 @@ func TestProgramGrader_Grade(t *testing.T) {
 	t.Run("workspace dir is available as env var", func(t *testing.T) {
 		tmpDir := t.TempDir()
 
-		g, err := NewProgramGrader(ProgramGraderArgs{
-			Name:    "test",
-			Command: "sh",
-			Args:    []string{"-c", "echo $WAZA_WORKSPACE_DIR"},
+		g, err := NewProgramGrader("test", models.ProgramGraderParameters{Command: "sh",
+			Args: []string{"-c", "echo $WAZA_WORKSPACE_DIR"},
 		})
 		require.NoError(t, err)
 
@@ -129,10 +114,7 @@ func TestProgramGrader_Grade(t *testing.T) {
 	})
 
 	t.Run("program not found returns failure result", func(t *testing.T) {
-		g, err := NewProgramGrader(ProgramGraderArgs{
-			Name:    "test",
-			Command: "/nonexistent/program",
-		})
+		g, err := NewProgramGrader("test", models.ProgramGraderParameters{Command: "/nonexistent/program"})
 		require.NoError(t, err)
 
 		results, err := g.Grade(context.Background(), &Context{
@@ -149,10 +131,7 @@ func TestProgramGrader_Grade(t *testing.T) {
 		scriptPath := filepath.Join(tmpDir, "grade.sh")
 		require.NoError(t, os.WriteFile(scriptPath, []byte("#!/bin/sh\necho \"script ran\"\nexit 0\n"), 0o755))
 
-		g, err := NewProgramGrader(ProgramGraderArgs{
-			Name:    "test",
-			Command: scriptPath,
-		})
+		g, err := NewProgramGrader("test", models.ProgramGraderParameters{Command: scriptPath})
 		require.NoError(t, err)
 
 		results, err := g.Grade(context.Background(), &Context{
@@ -166,10 +145,8 @@ func TestProgramGrader_Grade(t *testing.T) {
 	})
 
 	t.Run("result details contains expected fields", func(t *testing.T) {
-		g, err := NewProgramGrader(ProgramGraderArgs{
-			Name:    "detail-test",
-			Command: "echo",
-			Args:    []string{"ok"},
+		g, err := NewProgramGrader("detail-test", models.ProgramGraderParameters{Command: "echo",
+			Args: []string{"ok"},
 		})
 		require.NoError(t, err)
 
@@ -184,10 +161,8 @@ func TestProgramGrader_Grade(t *testing.T) {
 	})
 
 	t.Run("duration is recorded", func(t *testing.T) {
-		g, err := NewProgramGrader(ProgramGraderArgs{
-			Name:    "test",
-			Command: "echo",
-			Args:    []string{"ok"},
+		g, err := NewProgramGrader("test", models.ProgramGraderParameters{Command: "echo",
+			Args: []string{"ok"},
 		})
 		require.NoError(t, err)
 
@@ -206,10 +181,10 @@ func TestProgramGrader_ViaCreate(t *testing.T) {
 	}
 
 	t.Run("Create with GraderKindProgram works", func(t *testing.T) {
-		g, err := Create(models.GraderKindProgram, "from-create", map[string]any{
-			"command": "echo",
-			"args":    []string{"graded"},
-			"timeout": 10,
+		g, err := Create("from-create", models.ProgramGraderParameters{
+			Command: "echo",
+			Args:    []string{"graded"},
+			Timeout: 10,
 		})
 		require.NoError(t, err)
 		require.Equal(t, "from-create", g.Name())

@@ -39,7 +39,7 @@ func TestCopilotNoSessionID(t *testing.T) {
 
 	clientMock.EXPECT().Start(gomock.Any())
 	clientMock.EXPECT().CreateSession(gomock.Any(), expectedConfig).Return(sessionMock, nil)
-	sessionMock.EXPECT().Destroy()
+	sessionMock.EXPECT().Disconnect()
 	clientMock.EXPECT().DeleteSession(gomock.Any(), "session-1")
 	clientMock.EXPECT().Stop()
 
@@ -51,7 +51,7 @@ func TestCopilotNoSessionID(t *testing.T) {
 	defer cancel()
 
 	engine := NewCopilotEngineBuilder("gpt-4o-mini", &CopilotEngineBuilderOptions{
-		NewCopilotClient: func(clientOptions *copilot.ClientOptions) copilotClient { return clientMock },
+		NewCopilotClient: func(clientOptions *copilot.ClientOptions) CopilotClient { return clientMock },
 	}).Build()
 
 	defer func() {
@@ -97,7 +97,7 @@ func TestCopilotResumeSessionID(t *testing.T) {
 
 	clientMock.EXPECT().Start(gomock.Any())
 	clientMock.EXPECT().ResumeSessionWithOptions(gomock.Any(), "session-1", expectedConfig).Return(sessionMock, nil)
-	sessionMock.EXPECT().Destroy()
+	sessionMock.EXPECT().Disconnect()
 	clientMock.EXPECT().DeleteSession(gomock.Any(), "session-1")
 	clientMock.EXPECT().Stop()
 
@@ -109,7 +109,7 @@ func TestCopilotResumeSessionID(t *testing.T) {
 	defer cancel()
 
 	engine := NewCopilotEngineBuilder("gpt-4o-mini", &CopilotEngineBuilderOptions{
-		NewCopilotClient: func(clientOptions *copilot.ClientOptions) copilotClient { return clientMock },
+		NewCopilotClient: func(clientOptions *copilot.ClientOptions) CopilotClient { return clientMock },
 	}).Build()
 
 	defer func() {
@@ -151,7 +151,7 @@ func TestCopilotSendAndWaitReturnsErrorInResult(t *testing.T) {
 
 	clientMock.EXPECT().Start(gomock.Any())
 	clientMock.EXPECT().CreateSession(gomock.Any(), expectedConfig).Return(sessionMock, nil)
-	sessionMock.EXPECT().Destroy()
+	sessionMock.EXPECT().Disconnect()
 	clientMock.EXPECT().DeleteSession(gomock.Any(), "session-1")
 	clientMock.EXPECT().Stop()
 
@@ -160,7 +160,7 @@ func TestCopilotSendAndWaitReturnsErrorInResult(t *testing.T) {
 	sessionMock.EXPECT().SessionID().Return("session-1")
 
 	engine := NewCopilotEngineBuilder("gpt-4o-mini", &CopilotEngineBuilderOptions{
-		NewCopilotClient: func(clientOptions *copilot.ClientOptions) copilotClient { return clientMock },
+		NewCopilotClient: func(clientOptions *copilot.ClientOptions) CopilotClient { return clientMock },
 	}).Build()
 
 	defer func() {
@@ -188,7 +188,7 @@ func TestCopilotExecute_RequiredFields(t *testing.T) {
 	// because extractReqParams now runs before startOnce.Do.
 
 	builder := NewCopilotEngineBuilder("gpt-4o-mini", &CopilotEngineBuilderOptions{
-		NewCopilotClient: func(clientOptions *copilot.ClientOptions) copilotClient {
+		NewCopilotClient: func(clientOptions *copilot.ClientOptions) CopilotClient {
 			return client
 		},
 	})
@@ -221,7 +221,7 @@ func TestCopilotInitialize_PropagatesStartError(t *testing.T) {
 	clientMock.EXPECT().Stop().AnyTimes()
 
 	engine := NewCopilotEngineBuilder("gpt-4o-mini", &CopilotEngineBuilderOptions{
-		NewCopilotClient: func(clientOptions *copilot.ClientOptions) copilotClient { return clientMock },
+		NewCopilotClient: func(clientOptions *copilot.ClientOptions) CopilotClient { return clientMock },
 	}).Build()
 	defer func() { require.NoError(t, engine.Shutdown(context.Background())) }()
 

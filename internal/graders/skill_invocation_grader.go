@@ -9,44 +9,31 @@ import (
 	"github.com/microsoft/waza/internal/models"
 )
 
-// SkillInvocationMatchingMode controls how actual skill invocations are compared to expected skills.
-type SkillInvocationMatchingMode string
-
-const (
-	SkillMatchingModeExact    SkillInvocationMatchingMode = "exact_match"
-	SkillMatchingModeInOrder  SkillInvocationMatchingMode = "in_order"
-	SkillMatchingModeAnyOrder SkillInvocationMatchingMode = "any_order"
-)
-
 // skillInvocationGrader compares the agent's actual skill invocation sequence against
 // an expected set of skills. It supports three matching modes and calculates
 // precision, recall, and F1 scores.
 type skillInvocationGrader struct {
 	name           string
-	matchingMode   SkillInvocationMatchingMode
+	matchingMode   models.SkillInvocationMatchingMode
 	requiredSkills []string
 	allowExtra     bool
 }
 
-// SkillInvocationGraderParams holds the mapstructure-decoded parameters for the skill invocation grader.
-type SkillInvocationGraderParams struct {
-	RequiredSkills []string `mapstructure:"required_skills"`
-	Mode           string   `mapstructure:"mode"`
-	AllowExtra     *bool    `mapstructure:"allow_extra"`
-}
-
 // NewSkillInvocationGrader creates a skillInvocationGrader from decoded parameters.
-func NewSkillInvocationGrader(name string, params SkillInvocationGraderParams) (*skillInvocationGrader, error) {
+func NewSkillInvocationGrader(name string, params models.SkillInvocationGraderParameters) (*skillInvocationGrader, error) {
 	if len(params.RequiredSkills) == 0 {
 		return nil, fmt.Errorf("skill_invocation grader '%s' must have at least one required_skills entry", name)
 	}
 
-	mode := SkillInvocationMatchingMode(params.Mode)
+	mode := params.Mode
 	switch mode {
-	case SkillMatchingModeExact, SkillMatchingModeInOrder, SkillMatchingModeAnyOrder:
+	case models.SkillMatchingModeExact, models.SkillMatchingModeInOrder, models.SkillMatchingModeAnyOrder:
 		// valid
 	default:
-		return nil, fmt.Errorf("skill_invocation grader '%s' has invalid mode %q (must be exact_match, in_order, or any_order)", name, params.Mode)
+		return nil, fmt.Errorf("skill_invocation grader '%s' has invalid mode %q (must be %s, %s, or %s)", name, params.Mode,
+			models.SkillMatchingModeExact,
+			models.SkillMatchingModeInOrder,
+			models.SkillMatchingModeAnyOrder)
 	}
 
 	// Default allow_extra to true if not specified
@@ -123,11 +110,11 @@ func (g *skillInvocationGrader) Grade(ctx context.Context, gradingContext *Conte
 // checkMatch returns true if the actual sequence satisfies the matching mode constraint.
 func (g *skillInvocationGrader) checkMatch(actual []string) bool {
 	switch g.matchingMode {
-	case SkillMatchingModeExact:
+	case models.SkillMatchingModeExact:
 		return g.exactMatch(actual)
-	case SkillMatchingModeInOrder:
+	case models.SkillMatchingModeInOrder:
 		return g.inOrderMatch(actual)
-	case SkillMatchingModeAnyOrder:
+	case models.SkillMatchingModeAnyOrder:
 		return g.anyOrderMatch(actual)
 	default:
 		return false
@@ -225,13 +212,13 @@ func (g *skillInvocationGrader) buildFailureFeedback(actual []string) string {
 	var parts []string
 
 	switch g.matchingMode {
-	case SkillMatchingModeExact:
+	case models.SkillMatchingModeExact:
 		parts = append(parts, fmt.Sprintf("Exact match failed: expected %d skills %v, got %d skills %v",
 			len(g.requiredSkills), g.requiredSkills, len(actual), actual))
-	case SkillMatchingModeInOrder:
+	case models.SkillMatchingModeInOrder:
 		parts = append(parts, fmt.Sprintf("In-order match failed: not all required skills %v appeared in order within actual %v",
 			g.requiredSkills, actual))
-	case SkillMatchingModeAnyOrder:
+	case models.SkillMatchingModeAnyOrder:
 		// Identify which required skills are missing or insufficient
 		requiredCounts := make(map[string]int, len(g.requiredSkills))
 		for _, e := range g.requiredSkills {

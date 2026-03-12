@@ -129,7 +129,7 @@ waza init --no-skill
 If you didn't create one during `init`, add a new skill:
 
 ```bash
-waza new code-analyzer
+waza new skill code-analyzer
 ```
 
 This scaffolds a new skill with SKILL.md and eval suite. The interactive wizard will collect metadata (name, description, use cases).
@@ -243,7 +243,7 @@ waza init my-skills --no-skill
 
 ---
 
-### `waza new [skill-name]`
+### `waza new skill [skill-name]`
 
 Create a new skill with its evaluation suite.
 
@@ -255,28 +255,59 @@ Create a new skill with its evaluation suite.
 **Project mode** (inside a `skills/` directory):
 ```bash
 cd my-skills-repo
-waza new code-explainer
+waza new skill code-explainer
 ```
 Creates `skills/code-explainer/SKILL.md` and `evals/code-explainer/`.
 
 **Standalone mode** (no `skills/` directory):
 ```bash
 cd my-project
-waza new my-skill
+waza new skill my-skill
 ```
 Creates `my-skill/` with `SKILL.md`, `evals/`, CI/CD pipeline, and README.
 
 **Examples:**
 ```bash
 # Interactive wizard in a terminal
-waza new code-analyzer
+waza new skill code-analyzer
 
 # Non-interactive (CI/CD)
-waza new code-analyzer << EOF
+waza new skill code-analyzer << EOF
 Code Analyzer
 Analyzes code for patterns and issues
 code, analysis
 EOF
+```
+
+---
+
+### `waza new task from-prompt <prompt> <task-path>`
+
+Record a prompt execution and generate a reusable task YAML from the observed run.
+
+The generated task includes inferred validators based on:
+- Assistant response content
+- Tool usage sequence
+- Skill invocation events
+
+**Flags:**
+- `--model` — Model used for recording (default: `claude-sonnet-4.5`)
+- `--testname` — Test ID/name to write to task YAML (default: `auto-generated-test`)
+- `--tags` — Comma-separated tags added to the generated task
+- `--timeout` — Prompt execution timeout (default: `5m`)
+- `--overwrite` — Replace output file if it already exists
+- `--root` — Root directory used for skill discovery
+
+**Examples:**
+```bash
+# Create a task from one recorded prompt run
+waza new task from-prompt "Refactor this function for readability" evals/code-explainer/tasks/refactor-readability.yaml
+
+# Add task metadata and overwrite if needed
+waza new task from-prompt "Explain this diff and risks" evals/code-explainer/tasks/diff-analysis.yaml \
+  --testname diff-analysis \
+  --tags recorded,regression \
+  --overwrite
 ```
 
 ---

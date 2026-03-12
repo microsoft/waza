@@ -24,6 +24,7 @@ func TestHandleInitialize(t *testing.T) {
 	resp := srv.HandleRequest(context.Background(), req)
 	if resp == nil {
 		t.Fatal("expected response, got nil")
+		return
 	}
 	if resp.Error != nil {
 		t.Fatalf("unexpected error: %v", resp.Error)
@@ -57,6 +58,7 @@ func TestHandleToolsList(t *testing.T) {
 	resp := srv.HandleRequest(context.Background(), req)
 	if resp == nil {
 		t.Fatal("expected response, got nil")
+		return
 	}
 	if resp.Error != nil {
 		t.Fatalf("unexpected error: %v", resp.Error)
@@ -113,6 +115,7 @@ func TestHandleToolsCallEvalList(t *testing.T) {
 	resp := srv.HandleRequest(context.Background(), req)
 	if resp == nil {
 		t.Fatal("expected response, got nil")
+		return
 	}
 	if resp.Error != nil {
 		t.Fatalf("unexpected error: %v", resp.Error)
@@ -147,6 +150,7 @@ func TestHandleToolsCallSkillCheck(t *testing.T) {
 	resp := srv.HandleRequest(context.Background(), req)
 	if resp == nil {
 		t.Fatal("expected response, got nil")
+		return
 	}
 
 	data, _ := json.Marshal(resp.Result)
@@ -185,6 +189,7 @@ func TestHandleToolsCallUnknownTool(t *testing.T) {
 	resp := srv.HandleRequest(context.Background(), req)
 	if resp == nil {
 		t.Fatal("expected response, got nil")
+		return
 	}
 
 	data, _ := json.Marshal(resp.Result)
@@ -209,6 +214,7 @@ func TestHandleUnknownMethod(t *testing.T) {
 	resp := srv.HandleRequest(context.Background(), req)
 	if resp == nil {
 		t.Fatal("expected response, got nil")
+		return
 	}
 	if resp.Error == nil {
 		t.Fatal("expected error for unknown method")
@@ -234,6 +240,7 @@ func TestHandleResultsSummary(t *testing.T) {
 	resp := srv.HandleRequest(context.Background(), req)
 	if resp == nil {
 		t.Fatal("expected response, got nil")
+		return
 	}
 	data, _ := json.Marshal(resp.Result)
 	var result toolsCallResult
@@ -261,6 +268,7 @@ func TestHandleResultsRuns(t *testing.T) {
 	resp := srv.HandleRequest(context.Background(), req)
 	if resp == nil {
 		t.Fatal("expected response, got nil")
+		return
 	}
 	data, _ := json.Marshal(resp.Result)
 	var result toolsCallResult

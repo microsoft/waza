@@ -11,11 +11,10 @@ import (
 
 	"github.com/microsoft/waza/internal/models"
 	"github.com/stretchr/testify/require"
-	"gopkg.in/yaml.v3"
 )
 
 func TestFileGrader_Basic(t *testing.T) {
-	g, err := NewFileGrader(FileGraderArgs{Name: "test", MustExist: []string{"file.txt"}})
+	g, err := NewFileGrader("test", models.FileGraderParameters{MustExist: []string{"file.txt"}})
 	require.NoError(t, err)
 
 	require.Equal(t, models.GraderKindFile, g.Kind())
@@ -27,7 +26,7 @@ func TestFileGrader_Grade(t *testing.T) {
 		tmpDir := t.TempDir()
 		require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "test.txt"), []byte("hello"), 0644))
 
-		g, err := NewFileGrader(FileGraderArgs{Name: "test", MustExist: []string{"test.txt"}})
+		g, err := NewFileGrader("test", models.FileGraderParameters{MustExist: []string{"test.txt"}})
 		require.NoError(t, err)
 
 		results, err := g.Grade(context.Background(), &Context{
@@ -42,7 +41,7 @@ func TestFileGrader_Grade(t *testing.T) {
 	t.Run("file must_exist fails when file missing", func(t *testing.T) {
 		tmpDir := t.TempDir()
 
-		g, err := NewFileGrader(FileGraderArgs{Name: "test", MustExist: []string{"missing.txt"}})
+		g, err := NewFileGrader("test", models.FileGraderParameters{MustExist: []string{"missing.txt"}})
 		require.NoError(t, err)
 
 		results, err := g.Grade(context.Background(), &Context{
@@ -57,7 +56,7 @@ func TestFileGrader_Grade(t *testing.T) {
 	t.Run("file must_not_exist passes when file absent", func(t *testing.T) {
 		tmpDir := t.TempDir()
 
-		g, err := NewFileGrader(FileGraderArgs{Name: "test", MustNotExist: []string{"should-not-exist.txt"}})
+		g, err := NewFileGrader("test", models.FileGraderParameters{MustNotExist: []string{"should-not-exist.txt"}})
 		require.NoError(t, err)
 
 		results, err := g.Grade(context.Background(), &Context{
@@ -72,7 +71,7 @@ func TestFileGrader_Grade(t *testing.T) {
 		tmpDir := t.TempDir()
 		require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "forbidden.txt"), []byte("oops"), 0644))
 
-		g, err := NewFileGrader(FileGraderArgs{Name: "test", MustNotExist: []string{"forbidden.txt"}})
+		g, err := NewFileGrader("test", models.FileGraderParameters{MustNotExist: []string{"forbidden.txt"}})
 		require.NoError(t, err)
 
 		results, err := g.Grade(context.Background(), &Context{
@@ -88,7 +87,7 @@ func TestFileGrader_Grade(t *testing.T) {
 		tmpDir := t.TempDir()
 		require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "code.go"), []byte("func main() {\n\tfmt.Println(\"hello\")\n}"), 0644))
 
-		g, err := NewFileGrader(FileGraderArgs{Name: "test", ContentPatterns: []FileContentPattern{
+		g, err := NewFileGrader("test", models.FileGraderParameters{ContentPatterns: []models.FileContentPatternParameters{
 			{Path: "code.go", MustMatch: []string{`func main`, `fmt\.Println`}},
 		}})
 		require.NoError(t, err)
@@ -105,7 +104,7 @@ func TestFileGrader_Grade(t *testing.T) {
 		tmpDir := t.TempDir()
 		require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "code.go"), []byte("package main"), 0644))
 
-		g, err := NewFileGrader(FileGraderArgs{Name: "test", ContentPatterns: []FileContentPattern{
+		g, err := NewFileGrader("test", models.FileGraderParameters{ContentPatterns: []models.FileContentPatternParameters{
 			{Path: "code.go", MustMatch: []string{`func main`}},
 		}})
 		require.NoError(t, err)
@@ -123,7 +122,7 @@ func TestFileGrader_Grade(t *testing.T) {
 		tmpDir := t.TempDir()
 		require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "safe.go"), []byte("func main() {}"), 0644))
 
-		g, err := NewFileGrader(FileGraderArgs{Name: "test", ContentPatterns: []FileContentPattern{
+		g, err := NewFileGrader("test", models.FileGraderParameters{ContentPatterns: []models.FileContentPatternParameters{
 			{Path: "safe.go", MustNotMatch: []string{`panic`, `os\.Exit`}},
 		}})
 		require.NoError(t, err)
@@ -140,7 +139,7 @@ func TestFileGrader_Grade(t *testing.T) {
 		tmpDir := t.TempDir()
 		require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "bad.go"), []byte("func main() { panic(\"boom\") }"), 0644))
 
-		g, err := NewFileGrader(FileGraderArgs{Name: "test", ContentPatterns: []FileContentPattern{
+		g, err := NewFileGrader("test", models.FileGraderParameters{ContentPatterns: []models.FileContentPatternParameters{
 			{Path: "bad.go", MustNotMatch: []string{`panic`}},
 		}})
 		require.NoError(t, err)
@@ -157,7 +156,7 @@ func TestFileGrader_Grade(t *testing.T) {
 	t.Run("content patterns file not found", func(t *testing.T) {
 		tmpDir := t.TempDir()
 
-		g, err := NewFileGrader(FileGraderArgs{Name: "test", ContentPatterns: []FileContentPattern{
+		g, err := NewFileGrader("test", models.FileGraderParameters{ContentPatterns: []models.FileContentPatternParameters{
 			{Path: "missing.go", MustMatch: []string{`anything`}},
 		}})
 		require.NoError(t, err)
@@ -174,7 +173,7 @@ func TestFileGrader_Grade(t *testing.T) {
 	t.Run("content patterns must_not_match on missing file reports unverifiable", func(t *testing.T) {
 		tmpDir := t.TempDir()
 
-		g, err := NewFileGrader(FileGraderArgs{Name: "test", ContentPatterns: []FileContentPattern{
+		g, err := NewFileGrader("test", models.FileGraderParameters{ContentPatterns: []models.FileContentPatternParameters{
 			{Path: "missing.go", MustNotMatch: []string{`forbidden_pattern`, `another_bad`}},
 		}})
 		require.NoError(t, err)
@@ -195,7 +194,7 @@ func TestFileGrader_Grade(t *testing.T) {
 		require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "exists.txt"), []byte("content"), 0644))
 		require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "forbidden.txt"), []byte("bad"), 0644))
 
-		g, err := NewFileGrader(FileGraderArgs{Name: "test", MustExist: []string{"exists.txt", "missing.txt"}, MustNotExist: []string{"forbidden.txt"}})
+		g, err := NewFileGrader("test", models.FileGraderParameters{MustExist: []string{"exists.txt", "missing.txt"}, MustNotExist: []string{"forbidden.txt"}})
 		require.NoError(t, err)
 
 		results, err := g.Grade(context.Background(), &Context{
@@ -213,7 +212,7 @@ func TestFileGrader_Grade(t *testing.T) {
 		tmpDir := t.TempDir()
 		require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "test.txt"), []byte("content"), 0644))
 
-		g, err := NewFileGrader(FileGraderArgs{Name: "test", ContentPatterns: []FileContentPattern{
+		g, err := NewFileGrader("test", models.FileGraderParameters{ContentPatterns: []models.FileContentPatternParameters{
 			{Path: "test.txt", MustMatch: []string{`[invalid`}}, //nolint:staticcheck // intentionally invalid regex for testing
 		}})
 		require.NoError(t, err)
@@ -233,7 +232,7 @@ func TestFileGrader_Grade(t *testing.T) {
 
 		const badRegexPattern = `[invalid` + `_regex`
 
-		g, err := NewFileGrader(FileGraderArgs{Name: "test", ContentPatterns: []FileContentPattern{
+		g, err := NewFileGrader("test", models.FileGraderParameters{ContentPatterns: []models.FileContentPatternParameters{
 			{Path: "test.txt", MustNotMatch: []string{badRegexPattern}}, // invalid (on purpose): no closing ]
 		}})
 		require.NoError(t, err)
@@ -255,7 +254,7 @@ func TestFileGrader_Grade(t *testing.T) {
 	})
 
 	t.Run("no workspace directory fails gracefully", func(t *testing.T) {
-		g, err := NewFileGrader(FileGraderArgs{Name: "test", MustExist: []string{"file.txt"}})
+		g, err := NewFileGrader("test", models.FileGraderParameters{MustExist: []string{"file.txt"}})
 		require.NoError(t, err)
 
 		results, err := g.Grade(context.Background(), &Context{
@@ -268,7 +267,7 @@ func TestFileGrader_Grade(t *testing.T) {
 	})
 
 	t.Run("no checks returns error from constructor", func(t *testing.T) {
-		_, err := NewFileGrader(FileGraderArgs{Name: "test"})
+		_, err := NewFileGrader("test", models.FileGraderParameters{})
 		require.Error(t, err)
 		require.EqualError(t, err, fmt.Sprintf(errFileGraderNoChecks, "test"))
 	})
@@ -278,10 +277,8 @@ func TestFileGrader_Grade(t *testing.T) {
 		require.NoError(t, os.MkdirAll(filepath.Join(tmpDir, "src", "pkg"), 0755))
 		require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "src", "pkg", "main.go"), []byte("package main"), 0644))
 
-		g, err := NewFileGrader(FileGraderArgs{
-			Name:      "test",
-			MustExist: []string{"src/pkg/main.go"},
-			ContentPatterns: []FileContentPattern{
+		g, err := NewFileGrader("test", models.FileGraderParameters{MustExist: []string{"src/pkg/main.go"},
+			ContentPatterns: []models.FileContentPatternParameters{
 				{Path: "src/pkg/main.go", MustMatch: []string{`package main`}},
 			},
 		})
@@ -299,7 +296,7 @@ func TestFileGrader_Grade(t *testing.T) {
 		tmpDir := t.TempDir()
 		require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "test.txt"), []byte("hello"), 0644))
 
-		g, err := NewFileGrader(FileGraderArgs{Name: "detail-test", MustExist: []string{"test.txt"}, MustNotExist: []string{"bad.txt"}})
+		g, err := NewFileGrader("detail-test", models.FileGraderParameters{MustExist: []string{"test.txt"}, MustNotExist: []string{"bad.txt"}})
 		require.NoError(t, err)
 
 		results, err := g.Grade(context.Background(), &Context{
@@ -318,7 +315,7 @@ func TestFileGrader_Grade(t *testing.T) {
 		tmpDir := t.TempDir()
 		require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "exists.txt"), []byte("hi"), 0644))
 
-		g, err := NewFileGrader(FileGraderArgs{Name: "test", MustExist: []string{"exists.txt"}})
+		g, err := NewFileGrader("test", models.FileGraderParameters{MustExist: []string{"exists.txt"}})
 		require.NoError(t, err)
 
 		results, err := g.Grade(context.Background(), &Context{
@@ -331,7 +328,7 @@ func TestFileGrader_Grade(t *testing.T) {
 	t.Run("path traversal in must_exist is rejected", func(t *testing.T) {
 		tmpDir := t.TempDir()
 
-		g, err := NewFileGrader(FileGraderArgs{Name: "test", MustExist: []string{"../../etc/passwd"}})
+		g, err := NewFileGrader("test", models.FileGraderParameters{MustExist: []string{"../../etc/passwd"}})
 		require.NoError(t, err)
 
 		_, err = g.Grade(context.Background(), &Context{
@@ -344,7 +341,7 @@ func TestFileGrader_Grade(t *testing.T) {
 	t.Run("path traversal in must_not_exist is rejected", func(t *testing.T) {
 		tmpDir := t.TempDir()
 
-		g, err := NewFileGrader(FileGraderArgs{Name: "test", MustNotExist: []string{"../secret.key"}})
+		g, err := NewFileGrader("test", models.FileGraderParameters{MustNotExist: []string{"../secret.key"}})
 		require.NoError(t, err)
 
 		_, err = g.Grade(context.Background(), &Context{
@@ -357,7 +354,7 @@ func TestFileGrader_Grade(t *testing.T) {
 	t.Run("path traversal in content_patterns is rejected", func(t *testing.T) {
 		tmpDir := t.TempDir()
 
-		g, err := NewFileGrader(FileGraderArgs{Name: "test", ContentPatterns: []FileContentPattern{
+		g, err := NewFileGrader("test", models.FileGraderParameters{ContentPatterns: []models.FileContentPatternParameters{
 			{Path: "../../../etc/shadow", MustMatch: []string{`root`}},
 		}})
 		require.NoError(t, err)
@@ -377,7 +374,7 @@ func TestFileGrader_Grade(t *testing.T) {
 			absPath = `C:\Windows\System32\drivers\etc\hosts`
 		}
 
-		g, err := NewFileGrader(FileGraderArgs{Name: "test", MustExist: []string{absPath}})
+		g, err := NewFileGrader("test", models.FileGraderParameters{MustExist: []string{absPath}})
 		require.NoError(t, err)
 
 		_, err = g.Grade(context.Background(), &Context{
@@ -393,21 +390,16 @@ func TestFileGrader_ViaCreate(t *testing.T) {
 		tmpDir := t.TempDir()
 		require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "hello.txt"), []byte("hello world"), 0644))
 
-		// Parse config from YAML to mirror how eval specs define file graders.
-		yamlConfig := `
-must_exist:
-  - "hello.txt"
-must_not_exist:
-  - "bad.txt"
-content_patterns:
-  - path: "hello.txt"
-    must_match:
-      - "hello"
-`
-		var config map[string]any
-		require.NoError(t, yaml.Unmarshal([]byte(yamlConfig), &config))
-
-		g, err := Create(models.GraderKindFile, "from-create", config)
+		g, err := Create("from-create", models.FileGraderParameters{
+			MustExist:    []string{"hello.txt"},
+			MustNotExist: []string{"bad.txt"},
+			ContentPatterns: []models.FileContentPatternParameters{
+				{
+					Path:      "hello.txt",
+					MustMatch: []string{"hello"},
+				},
+			},
+		})
 		require.NoError(t, err)
 		require.Equal(t, "from-create", g.Name())
 		require.Equal(t, models.GraderKindFile, g.Kind())
@@ -424,43 +416,43 @@ content_patterns:
 func TestFileGrader_CountTotalChecks(t *testing.T) {
 	tests := []struct {
 		name     string
-		args     FileGraderArgs
+		args     models.FileGraderParameters
 		expected int
 	}{
 		{
 			name:     "must_exist only",
-			args:     FileGraderArgs{Name: "t", MustExist: []string{"a.txt", "b.txt"}},
+			args:     models.FileGraderParameters{MustExist: []string{"a.txt", "b.txt"}},
 			expected: 2,
 		},
 		{
 			name:     "must_not_exist only",
-			args:     FileGraderArgs{Name: "t", MustNotExist: []string{"a.txt"}},
+			args:     models.FileGraderParameters{MustNotExist: []string{"a.txt"}},
 			expected: 1,
 		},
 		{
 			name: "content pattern adds implicit file existence check",
-			args: FileGraderArgs{Name: "t", ContentPatterns: []FileContentPattern{
+			args: models.FileGraderParameters{ContentPatterns: []models.FileContentPatternParameters{
 				{Path: "f.go", MustMatch: []string{`a`, `b`}},
 			}},
 			expected: 3, // 2 must_match + 1 implicit file existence
 		},
 		{
 			name: "content pattern with must_not_match",
-			args: FileGraderArgs{Name: "t", ContentPatterns: []FileContentPattern{
+			args: models.FileGraderParameters{ContentPatterns: []models.FileContentPatternParameters{
 				{Path: "f.go", MustNotMatch: []string{`x`}},
 			}},
 			expected: 2, // 1 must_not_match + 1 implicit file existence
 		},
 		{
 			name: "content pattern with both match types",
-			args: FileGraderArgs{Name: "t", ContentPatterns: []FileContentPattern{
+			args: models.FileGraderParameters{ContentPatterns: []models.FileContentPatternParameters{
 				{Path: "f.go", MustMatch: []string{`a`}, MustNotMatch: []string{`b`, `c`}},
 			}},
 			expected: 4, // 1 must_match + 2 must_not_match + 1 implicit file existence
 		},
 		{
 			name: "multiple content patterns each get implicit check",
-			args: FileGraderArgs{Name: "t", ContentPatterns: []FileContentPattern{
+			args: models.FileGraderParameters{ContentPatterns: []models.FileContentPatternParameters{
 				{Path: "a.go", MustMatch: []string{`x`}},
 				{Path: "b.go", MustNotMatch: []string{`y`}},
 			}},
@@ -468,11 +460,10 @@ func TestFileGrader_CountTotalChecks(t *testing.T) {
 		},
 		{
 			name: "combined must_exist, must_not_exist, and content patterns",
-			args: FileGraderArgs{
-				Name:         "t",
+			args: models.FileGraderParameters{
 				MustExist:    []string{"a.txt", "b.txt"},
 				MustNotExist: []string{"c.txt"},
-				ContentPatterns: []FileContentPattern{
+				ContentPatterns: []models.FileContentPatternParameters{
 					{Path: "d.go", MustMatch: []string{`p1`, `p2`}, MustNotMatch: []string{`p3`}},
 				},
 			},
@@ -482,7 +473,7 @@ func TestFileGrader_CountTotalChecks(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			g, err := NewFileGrader(tt.args)
+			g, err := NewFileGrader("t", tt.args)
 			require.NoError(t, err)
 			require.Equal(t, tt.expected, g.countTotalChecks())
 		})

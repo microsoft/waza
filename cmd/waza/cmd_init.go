@@ -46,7 +46,7 @@ Idempotently ensures the project has:
 
 Only creates what's missing — never overwrites existing files.
 
-After scaffolding, prompts to create a new skill (calls waza new internally).
+After scaffolding, prompts to create a new skill (calls waza new skill internally).
 
 Use --no-skill to skip the skill creation prompt.
 
@@ -579,7 +579,7 @@ func printNextSteps(out io.Writer) {
 	fmt.Fprintln(out)                                                         //nolint:errcheck
 	fmt.Fprintln(out, "Next steps:")                                          //nolint:errcheck
 	fmt.Fprintln(out)                                                         //nolint:errcheck
-	fmt.Fprintln(out, "  waza new <name>          Create another skill")      //nolint:errcheck
+	fmt.Fprintln(out, "  waza new skill <name>    Create another skill")      //nolint:errcheck
 	fmt.Fprintln(out, "  waza dev <name>          Improve skill compliance")  //nolint:errcheck
 	fmt.Fprintln(out, "  waza run                 Run all evaluations")       //nolint:errcheck
 	fmt.Fprintln(out, "  waza check               Check all skill readiness") //nolint:errcheck
@@ -650,7 +650,7 @@ func initReadme(projectName string) string {
 
 1. Create a new skill:
    `+"`"+``+"`"+``+"`"+`bash
-   waza new my-skill
+    waza new skill my-skill
    `+"`"+``+"`"+``+"`"+`
 
 2. Edit your skill:

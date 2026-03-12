@@ -13,7 +13,7 @@ import (
 // ---------------------------------------------------------------------------
 
 func TestActionSequenceGrader_Basic(t *testing.T) {
-	g, err := NewActionSequenceGrader("test", ActionSequenceGraderParams{
+	g, err := NewActionSequenceGrader("test", models.ActionSequenceGraderParameters{
 		MatchingMode:    "exact_match",
 		ExpectedActions: []string{"read_file", "write_file"},
 	})
@@ -25,7 +25,7 @@ func TestActionSequenceGrader_Basic(t *testing.T) {
 
 func TestActionSequenceGrader_Constructor(t *testing.T) {
 	t.Run("no expected_actions returns error", func(t *testing.T) {
-		_, err := NewActionSequenceGrader("test", ActionSequenceGraderParams{
+		_, err := NewActionSequenceGrader("test", models.ActionSequenceGraderParameters{
 			MatchingMode:    "exact_match",
 			ExpectedActions: nil,
 		})
@@ -33,7 +33,7 @@ func TestActionSequenceGrader_Constructor(t *testing.T) {
 	})
 
 	t.Run("empty expected_actions returns error", func(t *testing.T) {
-		_, err := NewActionSequenceGrader("test", ActionSequenceGraderParams{
+		_, err := NewActionSequenceGrader("test", models.ActionSequenceGraderParameters{
 			MatchingMode:    "exact_match",
 			ExpectedActions: []string{},
 		})
@@ -41,7 +41,7 @@ func TestActionSequenceGrader_Constructor(t *testing.T) {
 	})
 
 	t.Run("invalid matching_mode returns error", func(t *testing.T) {
-		_, err := NewActionSequenceGrader("test", ActionSequenceGraderParams{
+		_, err := NewActionSequenceGrader("test", models.ActionSequenceGraderParameters{
 			MatchingMode:    "invalid_mode",
 			ExpectedActions: []string{"read_file"},
 		})
@@ -49,7 +49,7 @@ func TestActionSequenceGrader_Constructor(t *testing.T) {
 	})
 
 	t.Run("valid exact_match params succeeds", func(t *testing.T) {
-		g, err := NewActionSequenceGrader("test", ActionSequenceGraderParams{
+		g, err := NewActionSequenceGrader("test", models.ActionSequenceGraderParameters{
 			MatchingMode:    "exact_match",
 			ExpectedActions: []string{"read_file"},
 		})
@@ -58,7 +58,7 @@ func TestActionSequenceGrader_Constructor(t *testing.T) {
 	})
 
 	t.Run("valid in_order_match params succeeds", func(t *testing.T) {
-		g, err := NewActionSequenceGrader("test", ActionSequenceGraderParams{
+		g, err := NewActionSequenceGrader("test", models.ActionSequenceGraderParameters{
 			MatchingMode:    "in_order_match",
 			ExpectedActions: []string{"read_file", "write_file"},
 		})
@@ -67,7 +67,7 @@ func TestActionSequenceGrader_Constructor(t *testing.T) {
 	})
 
 	t.Run("valid any_order_match params succeeds", func(t *testing.T) {
-		g, err := NewActionSequenceGrader("test", ActionSequenceGraderParams{
+		g, err := NewActionSequenceGrader("test", models.ActionSequenceGraderParameters{
 			MatchingMode:    "any_order_match",
 			ExpectedActions: []string{"read_file", "write_file"},
 		})
@@ -82,7 +82,7 @@ func TestActionSequenceGrader_Constructor(t *testing.T) {
 
 func TestActionSequenceGrader_ExactMatch(t *testing.T) {
 	t.Run("exact match passes when actual equals expected", func(t *testing.T) {
-		g, err := NewActionSequenceGrader("test", ActionSequenceGraderParams{
+		g, err := NewActionSequenceGrader("test", models.ActionSequenceGraderParameters{
 			MatchingMode:    "exact_match",
 			ExpectedActions: []string{"read_file", "write_file", "search"},
 		})
@@ -99,7 +99,7 @@ func TestActionSequenceGrader_ExactMatch(t *testing.T) {
 	})
 
 	t.Run("exact match fails with extra step in actual", func(t *testing.T) {
-		g, err := NewActionSequenceGrader("test", ActionSequenceGraderParams{
+		g, err := NewActionSequenceGrader("test", models.ActionSequenceGraderParameters{
 			MatchingMode:    "exact_match",
 			ExpectedActions: []string{"read_file", "write_file"},
 		})
@@ -116,7 +116,7 @@ func TestActionSequenceGrader_ExactMatch(t *testing.T) {
 	})
 
 	t.Run("exact match fails with missing step in actual", func(t *testing.T) {
-		g, err := NewActionSequenceGrader("test", ActionSequenceGraderParams{
+		g, err := NewActionSequenceGrader("test", models.ActionSequenceGraderParameters{
 			MatchingMode:    "exact_match",
 			ExpectedActions: []string{"read_file", "write_file", "search"},
 		})
@@ -133,7 +133,7 @@ func TestActionSequenceGrader_ExactMatch(t *testing.T) {
 	})
 
 	t.Run("exact match fails with wrong order", func(t *testing.T) {
-		g, err := NewActionSequenceGrader("test", ActionSequenceGraderParams{
+		g, err := NewActionSequenceGrader("test", models.ActionSequenceGraderParameters{
 			MatchingMode:    "exact_match",
 			ExpectedActions: []string{"read_file", "write_file"},
 		})
@@ -149,7 +149,7 @@ func TestActionSequenceGrader_ExactMatch(t *testing.T) {
 	})
 
 	t.Run("exact match with empty actual tools", func(t *testing.T) {
-		g, err := NewActionSequenceGrader("test", ActionSequenceGraderParams{
+		g, err := NewActionSequenceGrader("test", models.ActionSequenceGraderParameters{
 			MatchingMode:    "exact_match",
 			ExpectedActions: []string{"read_file"},
 		})
@@ -166,7 +166,7 @@ func TestActionSequenceGrader_ExactMatch(t *testing.T) {
 	})
 
 	t.Run("exact match with single tool", func(t *testing.T) {
-		g, err := NewActionSequenceGrader("test", ActionSequenceGraderParams{
+		g, err := NewActionSequenceGrader("test", models.ActionSequenceGraderParameters{
 			MatchingMode:    "exact_match",
 			ExpectedActions: []string{"read_file"},
 		})
@@ -189,7 +189,7 @@ func TestActionSequenceGrader_ExactMatch(t *testing.T) {
 
 func TestActionSequenceGrader_InOrderMatch(t *testing.T) {
 	t.Run("in-order match passes with exact sequence", func(t *testing.T) {
-		g, err := NewActionSequenceGrader("test", ActionSequenceGraderParams{
+		g, err := NewActionSequenceGrader("test", models.ActionSequenceGraderParameters{
 			MatchingMode:    "in_order_match",
 			ExpectedActions: []string{"read_file", "write_file", "search"},
 		})
@@ -206,7 +206,7 @@ func TestActionSequenceGrader_InOrderMatch(t *testing.T) {
 	})
 
 	t.Run("in-order match passes with extra steps interspersed", func(t *testing.T) {
-		g, err := NewActionSequenceGrader("test", ActionSequenceGraderParams{
+		g, err := NewActionSequenceGrader("test", models.ActionSequenceGraderParameters{
 			MatchingMode:    "in_order_match",
 			ExpectedActions: []string{"read_file", "write_file"},
 		})
@@ -224,7 +224,7 @@ func TestActionSequenceGrader_InOrderMatch(t *testing.T) {
 	})
 
 	t.Run("in-order match fails with wrong order of expected steps", func(t *testing.T) {
-		g, err := NewActionSequenceGrader("test", ActionSequenceGraderParams{
+		g, err := NewActionSequenceGrader("test", models.ActionSequenceGraderParameters{
 			MatchingMode:    "in_order_match",
 			ExpectedActions: []string{"read_file", "write_file"},
 		})
@@ -242,7 +242,7 @@ func TestActionSequenceGrader_InOrderMatch(t *testing.T) {
 	})
 
 	t.Run("in-order match fails with missing expected step", func(t *testing.T) {
-		g, err := NewActionSequenceGrader("test", ActionSequenceGraderParams{
+		g, err := NewActionSequenceGrader("test", models.ActionSequenceGraderParameters{
 			MatchingMode:    "in_order_match",
 			ExpectedActions: []string{"read_file", "write_file", "deploy"},
 		})
@@ -259,7 +259,7 @@ func TestActionSequenceGrader_InOrderMatch(t *testing.T) {
 	})
 
 	t.Run("in-order match passes when expected is subset in correct order", func(t *testing.T) {
-		g, err := NewActionSequenceGrader("test", ActionSequenceGraderParams{
+		g, err := NewActionSequenceGrader("test", models.ActionSequenceGraderParameters{
 			MatchingMode:    "in_order_match",
 			ExpectedActions: []string{"read_file", "deploy"},
 		})
@@ -283,7 +283,7 @@ func TestActionSequenceGrader_InOrderMatch(t *testing.T) {
 
 func TestActionSequenceGrader_AnyOrderMatch(t *testing.T) {
 	t.Run("any-order match passes with same tools different order", func(t *testing.T) {
-		g, err := NewActionSequenceGrader("test", ActionSequenceGraderParams{
+		g, err := NewActionSequenceGrader("test", models.ActionSequenceGraderParameters{
 			MatchingMode:    "any_order_match",
 			ExpectedActions: []string{"read_file", "write_file", "search"},
 		})
@@ -300,7 +300,7 @@ func TestActionSequenceGrader_AnyOrderMatch(t *testing.T) {
 	})
 
 	t.Run("any-order match passes with extra tools present", func(t *testing.T) {
-		g, err := NewActionSequenceGrader("test", ActionSequenceGraderParams{
+		g, err := NewActionSequenceGrader("test", models.ActionSequenceGraderParameters{
 			MatchingMode:    "any_order_match",
 			ExpectedActions: []string{"read_file", "write_file"},
 		})
@@ -318,7 +318,7 @@ func TestActionSequenceGrader_AnyOrderMatch(t *testing.T) {
 	})
 
 	t.Run("any-order match fails with missing expected tool", func(t *testing.T) {
-		g, err := NewActionSequenceGrader("test", ActionSequenceGraderParams{
+		g, err := NewActionSequenceGrader("test", models.ActionSequenceGraderParameters{
 			MatchingMode:    "any_order_match",
 			ExpectedActions: []string{"read_file", "write_file", "deploy"},
 		})
@@ -335,7 +335,7 @@ func TestActionSequenceGrader_AnyOrderMatch(t *testing.T) {
 	})
 
 	t.Run("any-order match with duplicate tools expected", func(t *testing.T) {
-		g, err := NewActionSequenceGrader("test", ActionSequenceGraderParams{
+		g, err := NewActionSequenceGrader("test", models.ActionSequenceGraderParameters{
 			MatchingMode:    "any_order_match",
 			ExpectedActions: []string{"read_file", "read_file", "write_file"},
 		})
@@ -353,7 +353,7 @@ func TestActionSequenceGrader_AnyOrderMatch(t *testing.T) {
 	})
 
 	t.Run("any-order match with insufficient duplicates fails", func(t *testing.T) {
-		g, err := NewActionSequenceGrader("test", ActionSequenceGraderParams{
+		g, err := NewActionSequenceGrader("test", models.ActionSequenceGraderParameters{
 			MatchingMode:    "any_order_match",
 			ExpectedActions: []string{"read_file", "read_file", "write_file"},
 		})
@@ -377,7 +377,7 @@ func TestActionSequenceGrader_AnyOrderMatch(t *testing.T) {
 
 func TestActionSequenceGrader_ScoreCalculations(t *testing.T) {
 	t.Run("perfect match yields score 1.0 and passed true", func(t *testing.T) {
-		g, err := NewActionSequenceGrader("test", ActionSequenceGraderParams{
+		g, err := NewActionSequenceGrader("test", models.ActionSequenceGraderParameters{
 			MatchingMode:    "exact_match",
 			ExpectedActions: []string{"a", "b", "c"},
 		})
@@ -394,7 +394,7 @@ func TestActionSequenceGrader_ScoreCalculations(t *testing.T) {
 	})
 
 	t.Run("partial match yields score between 0 and 1", func(t *testing.T) {
-		g, err := NewActionSequenceGrader("test", ActionSequenceGraderParams{
+		g, err := NewActionSequenceGrader("test", models.ActionSequenceGraderParameters{
 			MatchingMode:    "any_order_match",
 			ExpectedActions: []string{"a", "b", "c", "d"},
 		})
@@ -413,7 +413,7 @@ func TestActionSequenceGrader_ScoreCalculations(t *testing.T) {
 	})
 
 	t.Run("no match yields score 0.0 and passed false", func(t *testing.T) {
-		g, err := NewActionSequenceGrader("test", ActionSequenceGraderParams{
+		g, err := NewActionSequenceGrader("test", models.ActionSequenceGraderParameters{
 			MatchingMode:    "exact_match",
 			ExpectedActions: []string{"a", "b"},
 		})
@@ -430,7 +430,7 @@ func TestActionSequenceGrader_ScoreCalculations(t *testing.T) {
 	})
 
 	t.Run("details contain precision recall f1_score and matching_mode", func(t *testing.T) {
-		g, err := NewActionSequenceGrader("detail-test", ActionSequenceGraderParams{
+		g, err := NewActionSequenceGrader("detail-test", models.ActionSequenceGraderParameters{
 			MatchingMode:    "any_order_match",
 			ExpectedActions: []string{"a", "b"},
 		})
@@ -453,7 +453,7 @@ func TestActionSequenceGrader_ScoreCalculations(t *testing.T) {
 	})
 
 	t.Run("f1 score is used as the result Score", func(t *testing.T) {
-		g, err := NewActionSequenceGrader("test", ActionSequenceGraderParams{
+		g, err := NewActionSequenceGrader("test", models.ActionSequenceGraderParameters{
 			MatchingMode:    "any_order_match",
 			ExpectedActions: []string{"a", "b"},
 		})
@@ -478,7 +478,7 @@ func TestActionSequenceGrader_ScoreCalculations(t *testing.T) {
 
 func TestActionSequenceGrader_EdgeCases(t *testing.T) {
 	t.Run("nil session returns graceful zero-score", func(t *testing.T) {
-		g, err := NewActionSequenceGrader("test", ActionSequenceGraderParams{
+		g, err := NewActionSequenceGrader("test", models.ActionSequenceGraderParameters{
 			MatchingMode:    "exact_match",
 			ExpectedActions: []string{"read_file"},
 		})
@@ -495,7 +495,7 @@ func TestActionSequenceGrader_EdgeCases(t *testing.T) {
 	})
 
 	t.Run("nil tools_used treated as empty", func(t *testing.T) {
-		g, err := NewActionSequenceGrader("test", ActionSequenceGraderParams{
+		g, err := NewActionSequenceGrader("test", models.ActionSequenceGraderParameters{
 			MatchingMode:    "exact_match",
 			ExpectedActions: []string{"read_file"},
 		})
@@ -512,7 +512,7 @@ func TestActionSequenceGrader_EdgeCases(t *testing.T) {
 	})
 
 	t.Run("duration is recorded", func(t *testing.T) {
-		g, err := NewActionSequenceGrader("test", ActionSequenceGraderParams{
+		g, err := NewActionSequenceGrader("test", models.ActionSequenceGraderParameters{
 			MatchingMode:    "exact_match",
 			ExpectedActions: []string{"a"},
 		})
@@ -534,9 +534,9 @@ func TestActionSequenceGrader_EdgeCases(t *testing.T) {
 
 func TestActionSequenceGrader_ViaCreate(t *testing.T) {
 	t.Run("Create with GraderKindActionSequence works", func(t *testing.T) {
-		g, err := Create(models.GraderKindActionSequence, "from-create", map[string]any{
-			"matching_mode":    "exact_match",
-			"expected_actions": []string{"read_file", "write_file"},
+		g, err := Create("from-create", models.ActionSequenceGraderParameters{
+			MatchingMode:    "exact_match",
+			ExpectedActions: []string{"read_file", "write_file"},
 		})
 		require.NoError(t, err)
 		require.Equal(t, "from-create", g.Name())
@@ -553,9 +553,9 @@ func TestActionSequenceGrader_ViaCreate(t *testing.T) {
 	})
 
 	t.Run("Create with invalid params returns error", func(t *testing.T) {
-		_, err := Create(models.GraderKindActionSequence, "bad", map[string]any{
-			"matching_mode":    "invalid",
-			"expected_actions": []string{"a"},
+		_, err := Create("bad", models.ActionSequenceGraderParameters{
+			MatchingMode:    "invalid",
+			ExpectedActions: []string{"a"},
 		})
 		require.Error(t, err)
 	})

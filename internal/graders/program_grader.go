@@ -15,18 +15,6 @@ import (
 // defaultProgramTimeoutSeconds is the default timeout for program graders when none is specified.
 const defaultProgramTimeoutSeconds = 30
 
-// ProgramGraderArgs holds the arguments for creating a program grader.
-type ProgramGraderArgs struct {
-	// Name is the identifier for this grader, used in results and error messages.
-	Name string
-	// Command is the program to execute for grading.
-	Command string `mapstructure:"command"`
-	// Args are the arguments to pass to the program.
-	Args []string `mapstructure:"args"`
-	// Timeout is the maximum execution time in seconds. Defaults to 30 if not set.
-	Timeout int `mapstructure:"timeout"`
-}
-
 // programGrader runs an external program/script to grade agent output.
 // The agent output is passed via stdin, and the workspace directory is
 // available as the WAZA_WORKSPACE_DIR environment variable.
@@ -39,9 +27,9 @@ type programGrader struct {
 }
 
 // NewProgramGrader creates a [programGrader] that runs an external command to grade output.
-func NewProgramGrader(args ProgramGraderArgs) (*programGrader, error) {
+func NewProgramGrader(name string, args models.ProgramGraderParameters) (*programGrader, error) {
 	if args.Command == "" {
-		return nil, fmt.Errorf("program grader '%s' must have a 'command'", args.Name)
+		return nil, fmt.Errorf("program grader '%s' must have a 'command'", name)
 	}
 
 	timeout := args.Timeout
@@ -56,7 +44,7 @@ func NewProgramGrader(args ProgramGraderArgs) (*programGrader, error) {
 	}
 
 	return &programGrader{
-		name:    args.Name,
+		name:    name,
 		command: args.Command,
 		args:    args.Args,
 		timeout: time.Duration(timeout) * time.Second,

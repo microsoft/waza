@@ -81,6 +81,8 @@ registry.Register("text", &scoring.TextValidator{})
 
 ## Building and Testing
 
+> **Requires Go 1.26 or later.** The module targets `go 1.26` (`go.mod`), which means Go 1.26 language features and standard library APIs are safe to use. If you want to rely on features or stdlib additions introduced after Go 1.26, first bump the `go` version in `go.mod` to that minimum version.
+
 ```bash
 cd waza-go
 

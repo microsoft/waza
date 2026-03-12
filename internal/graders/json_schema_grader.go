@@ -11,16 +11,6 @@ import (
 	"github.com/santhosh-tekuri/jsonschema/v6"
 )
 
-// JSONSchemaGraderArgs holds the arguments for creating a JSON schema grader.
-type JSONSchemaGraderArgs struct {
-	// Name is the identifier for this grader, used in results and error messages.
-	Name string
-	// Schema is an inline JSON schema object used for validation.
-	Schema map[string]any `mapstructure:"schema"`
-	// SchemaFile is a path to a JSON schema file. Used when Schema is not provided.
-	SchemaFile string `mapstructure:"schema_file"`
-}
-
 // jsonSchemaGrader validates that the agent output is valid JSON matching a given schema.
 type jsonSchemaGrader struct {
 	name       string
@@ -30,13 +20,13 @@ type jsonSchemaGrader struct {
 
 // NewJSONSchemaGrader creates a [jsonSchemaGrader] that validates agent output against
 // a JSON schema provided inline or via a file path.
-func NewJSONSchemaGrader(args JSONSchemaGraderArgs) (*jsonSchemaGrader, error) {
+func NewJSONSchemaGrader(name string, args models.JSONSchemaGraderParameters) (*jsonSchemaGrader, error) {
 	if args.Schema == nil && args.SchemaFile == "" {
-		return nil, fmt.Errorf("json_schema grader '%s' must have either 'schema' or 'schema_file'", args.Name)
+		return nil, fmt.Errorf("json_schema grader '%s' must have either 'schema' or 'schema_file'", name)
 	}
 
 	return &jsonSchemaGrader{
-		name:       args.Name,
+		name:       name,
 		schema:     args.Schema,
 		schemaFile: args.SchemaFile,
 	}, nil

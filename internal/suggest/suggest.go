@@ -188,6 +188,7 @@ func AvailableGraderTypes() []string {
 		string(models.GraderKindBehavior),
 		string(models.GraderKindActionSequence),
 		string(models.GraderKindSkillInvocation),
+		string(models.GraderKindTrigger),
 		string(models.GraderKindDiff),
 	}
 }

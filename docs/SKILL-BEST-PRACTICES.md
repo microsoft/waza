@@ -156,8 +156,8 @@ When generating evals with waza, the tool will automatically:
 ### Generate and Test
 
 ```bash
-# Generate eval from your skill (using 'waza new' - 'generate' is an alias)
-waza new my-skill --output-dir ./eval
+# Generate eval from your skill (using 'waza new skill')
+waza new skill my-skill --output-dir ./eval
 
 # Run evaluation
 waza run ./eval/eval.yaml --executor mock -v

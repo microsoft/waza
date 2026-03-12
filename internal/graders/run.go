@@ -3,7 +3,6 @@ package graders
 import (
 	"context"
 	"fmt"
-	"maps"
 
 	"github.com/microsoft/waza/internal/models"
 )
@@ -14,14 +13,8 @@ func RunAll(ctx context.Context, specGraders []models.GraderConfig, tc *models.T
 	results := make(map[string]models.GraderResults)
 
 	for _, vCfg := range specGraders {
-		params := cloneParams(vCfg.Parameters)
-		if judgeModel != "" && vCfg.Kind == models.GraderKindPrompt {
-			params = WithModel(params, judgeModel)
-		}
-		if updateSnapshots && vCfg.Kind == models.GraderKindDiff {
-			params["update_snapshots"] = true
-		}
-		grader, err := Create(vCfg.Kind, vCfg.Identifier, params)
+		params := applyDefaults(vCfg.Parameters, judgeModel, updateSnapshots)
+		grader, err := Create(vCfg.Identifier, params)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create grader %s: %w", vCfg.Identifier, err)
 		}
@@ -36,20 +29,12 @@ func RunAll(ctx context.Context, specGraders []models.GraderConfig, tc *models.T
 	}
 
 	for _, vCfg := range tc.Validators {
-		kind := vCfg.Kind
-		if kind == "" {
+		if vCfg.Kind == "" {
 			return nil, fmt.Errorf("no kind associated with grader %s", vCfg.Identifier)
 		}
 
-		params := mergeValidatorParams(vCfg)
-		if judgeModel != "" && kind == models.GraderKindPrompt {
-			params = WithModel(params, judgeModel)
-		}
-		if updateSnapshots && kind == models.GraderKindDiff {
-			params["update_snapshots"] = true
-		}
-
-		grader, err := Create(kind, vCfg.Identifier, params)
+		params := applyDefaults(vCfg.Parameters, judgeModel, updateSnapshots)
+		grader, err := Create(vCfg.Identifier, params)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create grader %s: %w", vCfg.Identifier, err)
 		}
@@ -70,29 +55,19 @@ func RunAll(ctx context.Context, specGraders []models.GraderConfig, tc *models.T
 	return results, nil
 }
 
-func cloneParams(params map[string]any) map[string]any {
-	if params == nil {
-		return make(map[string]any)
+func applyDefaults(gp models.GraderParameters, judgeModel string, updateSnapshots bool) models.GraderParameters {
+	switch p := gp.(type) {
+	case models.PromptGraderParameters:
+		if judgeModel != "" && p.Model == "" {
+			p.Model = judgeModel
+		}
+		return p
+	case models.DiffGraderParameters:
+		if updateSnapshots {
+			p.UpdateSnapshots = true
+		}
+		return p
+	default:
+		return p
 	}
-	merged := make(map[string]any, len(params))
-	maps.Copy(merged, params)
-	return merged
-}
-
-// mergeValidatorParams returns a copy of the validator's parameters with
-// assertions merged in, so the original map is never mutated.
-func mergeValidatorParams(v models.ValidatorInline) map[string]any {
-	params := cloneParams(v.Parameters)
-	if len(v.Checks) > 0 {
-		params["assertions"] = v.Checks
-	}
-	return params
-}
-
-// WithModel returns a copy of params with the "model" key set.
-func WithModel(params map[string]any, model string) map[string]any {
-	merged := make(map[string]any, len(params)+1)
-	maps.Copy(merged, params)
-	merged["model"] = model
-	return merged
 }

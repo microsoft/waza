@@ -13,35 +13,10 @@ import (
 // errDiffGraderNoChecks is the error format string returned when a diff grader has no expected files.
 const errDiffGraderNoChecks = "diff grader '%s' must have at least one expected_files entry"
 
-// ExpectedFile defines a single file expectation for the diff grader.
-// Either Snapshot or Contains (or both) must be specified.
-type ExpectedFile struct {
-	// Path is the workspace-relative path to the file being checked.
-	Path string
-	// Snapshot is the path (relative to context/fixtures dir) of the expected file content.
-	// When set, the workspace file must match this snapshot exactly.
-	Snapshot string
-	// Contains lists line fragments that must appear in the workspace file.
-	// Prefixed with "+" means the line must be present; "-" means it must be absent.
-	Contains []string
-}
-
-// DiffGraderArgs holds the arguments for creating a diff grader.
-type DiffGraderArgs struct {
-	// Name is the identifier for this grader, used in results and error messages.
-	Name string
-	// ExpectedFiles lists the file expectations to check against the workspace.
-	ExpectedFiles []ExpectedFile
-	// ContextDir is the base directory for resolving snapshot paths.
-	ContextDir string
-	// UpdateSnapshots updates snapshot files when differences are detected.
-	UpdateSnapshots bool
-}
-
 // diffGrader compares post-execution workspace files against expected snapshots and diff fragments.
 type diffGrader struct {
 	name            string
-	expectedFiles   []ExpectedFile
+	expectedFiles   []models.DiffExpectedFileParameters
 	contextDir      string
 	updateSnapshots bool
 }
@@ -62,22 +37,22 @@ const (
 
 // NewDiffGrader creates a [diffGrader] that validates workspace files against expected
 // snapshots (exact match) and/or contains-line fragments (must appear / must not appear).
-func NewDiffGrader(args DiffGraderArgs) (*diffGrader, error) {
+func NewDiffGrader(name string, args models.DiffGraderParameters) (*diffGrader, error) {
 	if len(args.ExpectedFiles) == 0 {
-		return nil, fmt.Errorf(errDiffGraderNoChecks, args.Name)
+		return nil, fmt.Errorf(errDiffGraderNoChecks, name)
 	}
 
 	for i, ef := range args.ExpectedFiles {
 		if ef.Path == "" {
-			return nil, fmt.Errorf("diff grader '%s': expected_files[%d] missing required 'path'", args.Name, i)
+			return nil, fmt.Errorf("diff grader '%s': expected_files[%d] missing required 'path'", name, i)
 		}
 		if ef.Snapshot == "" && len(ef.Contains) == 0 {
-			return nil, fmt.Errorf("diff grader '%s': expected_files[%d] ('%s') must have 'snapshot' or 'contains'", args.Name, i, ef.Path)
+			return nil, fmt.Errorf("diff grader '%s': expected_files[%d] ('%s') must have 'snapshot' or 'contains'", name, i, ef.Path)
 		}
 	}
 
 	return &diffGrader{
-		name:            args.Name,
+		name:            name,
 		expectedFiles:   args.ExpectedFiles,
 		contextDir:      args.ContextDir,
 		updateSnapshots: args.UpdateSnapshots,
@@ -119,7 +94,7 @@ func (dg *diffGrader) Grade(ctx context.Context, gradingContext *Context) (*mode
 }
 
 // checkExpectedFile validates a single expected file against the workspace.
-func (dg *diffGrader) checkExpectedFile(workspaceDir string, ef ExpectedFile) ([]string, *SnapshotUpdate) {
+func (dg *diffGrader) checkExpectedFile(workspaceDir string, ef models.DiffExpectedFileParameters) ([]string, *SnapshotUpdate) {
 	var failures []string
 
 	fullPath := filepath.Join(workspaceDir, ef.Path)
@@ -155,7 +130,7 @@ func (dg *diffGrader) checkExpectedFile(workspaceDir string, ef ExpectedFile) ([
 }
 
 // checkSnapshot compares workspace file content against the expected snapshot file.
-func (dg *diffGrader) checkSnapshot(ef ExpectedFile, actualContent string) ([]string, *SnapshotUpdate) {
+func (dg *diffGrader) checkSnapshot(ef models.DiffExpectedFileParameters, actualContent string) ([]string, *SnapshotUpdate) {
 	snapshotPath, pathErr := dg.resolveSnapshotPath(ef.Snapshot)
 	if pathErr != nil {
 		return []string{fmt.Sprintf("Invalid snapshot file %s for %s: %v", ef.Snapshot, ef.Path, pathErr)}, nil
@@ -264,7 +239,7 @@ func resolvePathWithSymlinks(path string) (string, error) {
 // checkContains validates that required line fragments are present or absent in the file.
 // Lines prefixed with "+" must appear; lines prefixed with "-" must not appear.
 // Lines without a prefix are treated as must-appear.
-func (dg *diffGrader) checkContains(ef ExpectedFile, actualContent string) []string {
+func (dg *diffGrader) checkContains(ef models.DiffExpectedFileParameters, actualContent string) []string {
 	var failures []string
 
 	for _, fragment := range ef.Contains {

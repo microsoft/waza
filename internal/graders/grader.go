@@ -3,9 +3,9 @@ package graders
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
-	"github.com/go-viper/mapstructure/v2"
 	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/models"
 )
@@ -53,152 +53,34 @@ type Context struct {
 }
 
 // Create creates a validator from the global registry
-func Create(graderType models.GraderKind, identifier string, params map[string]any) (Grader, error) {
-	switch graderType {
-	case models.GraderKindInlineScript:
-		var v *struct {
-			Assertions []string
-			Language   Language
-		}
-
-		if err := mapstructure.Decode(params, &v); err != nil {
-			return nil, err
-		}
-
-		if v.Language == "" {
-			v.Language = LanguagePython
-		}
-
-		return NewInlineScriptGrader(identifier, v.Language, v.Assertions)
-	case models.GraderKindText:
-		var v TextGraderArgs
-
-		if err := mapstructure.Decode(params, &v); err != nil {
-			return nil, err
-		}
-
-		v.Name = identifier
-		return NewTextGrader(v)
-	case models.GraderKindFile:
-		var v *struct {
-			MustExist       []string `mapstructure:"must_exist"`
-			MustNotExist    []string `mapstructure:"must_not_exist"`
-			ContentPatterns []struct {
-				Path         string   `mapstructure:"path"`
-				MustMatch    []string `mapstructure:"must_match"`
-				MustNotMatch []string `mapstructure:"must_not_match"`
-			} `mapstructure:"content_patterns"`
-		}
-
-		if err := mapstructure.Decode(params, &v); err != nil {
-			return nil, err
-		}
-
-		var contentPatterns []FileContentPattern
-		for _, cp := range v.ContentPatterns {
-			contentPatterns = append(contentPatterns, FileContentPattern{
-				Path:         cp.Path,
-				MustMatch:    cp.MustMatch,
-				MustNotMatch: cp.MustNotMatch,
-			})
-		}
-
-		return NewFileGrader(FileGraderArgs{
-			Name:            identifier,
-			MustExist:       v.MustExist,
-			MustNotExist:    v.MustNotExist,
-			ContentPatterns: contentPatterns,
-		})
-	case models.GraderKindBehavior:
-		var v BehaviorGraderParams
-
-		if err := mapstructure.Decode(params, &v); err != nil {
-			return nil, err
-		}
-
-		return NewBehaviorGrader(identifier, v)
-	case models.GraderKindActionSequence:
-		var v ActionSequenceGraderParams
-
-		if err := mapstructure.Decode(params, &v); err != nil {
-			return nil, err
-		}
-
-		return NewActionSequenceGrader(identifier, v)
-	case models.GraderKindSkillInvocation:
-		var v SkillInvocationGraderParams
-
-		if err := mapstructure.Decode(params, &v); err != nil {
-			return nil, err
-		}
-
-		return NewSkillInvocationGrader(identifier, v)
-	case models.GraderKindToolConstraint:
-		var v ToolConstraintGraderConfig
-
-		if err := mapstructure.Decode(params, &v); err != nil {
-			return nil, err
-		}
-
-		return NewToolConstraintGrader(identifier, v)
-	case models.GraderKindDiff:
-		var v *struct {
-			ExpectedFiles []struct {
-				Path     string   `mapstructure:"path"`
-				Snapshot string   `mapstructure:"snapshot"`
-				Contains []string `mapstructure:"contains"`
-			} `mapstructure:"expected_files"`
-			ContextDir      string `mapstructure:"context_dir"`
-			UpdateSnapshots bool   `mapstructure:"update_snapshots"`
-		}
-
-		if err := mapstructure.Decode(params, &v); err != nil {
-			return nil, err
-		}
-
-		var expectedFiles []ExpectedFile
-		for _, ef := range v.ExpectedFiles {
-			expectedFiles = append(expectedFiles, ExpectedFile{
-				Path:     ef.Path,
-				Snapshot: ef.Snapshot,
-				Contains: ef.Contains,
-			})
-		}
-
-		return NewDiffGrader(DiffGraderArgs{
-			Name:            identifier,
-			ExpectedFiles:   expectedFiles,
-			ContextDir:      v.ContextDir,
-			UpdateSnapshots: v.UpdateSnapshots,
-		})
-	case models.GraderKindPrompt:
-		var v PromptGraderArgs
-
-		if err := mapstructure.Decode(params, &v); err != nil {
-			return nil, err
-		}
-
-		return NewPromptGrader(identifier, v)
-	case models.GraderKindJSONSchema:
-		var v JSONSchemaGraderArgs
-
-		if err := mapstructure.Decode(params, &v); err != nil {
-			return nil, err
-		}
-
-		v.Name = identifier
-		return NewJSONSchemaGrader(v)
-	case models.GraderKindProgram:
-		var v ProgramGraderArgs
-
-		if err := mapstructure.Decode(params, &v); err != nil {
-			return nil, err
-		}
-
-		v.Name = identifier
-		return NewProgramGrader(v)
+func Create(identifier string, params models.GraderParameters) (Grader, error) {
+	switch p := params.(type) {
+	case models.InlineScriptGraderParameters:
+		return NewInlineScriptGrader(identifier, p)
+	case models.TextGraderParameters:
+		return NewTextGrader(identifier, p)
+	case models.FileGraderParameters:
+		return NewFileGrader(identifier, p)
+	case models.BehaviorGraderParameters:
+		return NewBehaviorGrader(identifier, p)
+	case models.ActionSequenceGraderParameters:
+		return NewActionSequenceGrader(identifier, p)
+	case models.SkillInvocationGraderParameters:
+		return NewSkillInvocationGrader(identifier, p)
+	case models.ToolConstraintGraderParameters:
+		return NewToolConstraintGrader(identifier, p)
+	case models.DiffGraderParameters:
+		return NewDiffGrader(identifier, p)
+	case models.PromptGraderParameters:
+		return NewPromptGrader(identifier, p)
+	case models.JSONSchemaGraderParameters:
+		return NewJSONSchemaGrader(identifier, p)
+	case models.ProgramGraderParameters:
+		return NewProgramGrader(identifier, p)
+	case models.TriggerHeuristicGraderParameters:
+		return NewTriggerHeuristicGrader(identifier, p)
 	default:
-		return nil, fmt.Errorf("'%s' is not a valid grader type", graderType)
+		return nil, fmt.Errorf("grader with identifier %q is using an unsupported grader type. Valid grader types: %s", identifier, strings.Join(models.AllGraderKinds(), ", "))
 	}
 }
 

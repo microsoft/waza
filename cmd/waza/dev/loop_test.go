@@ -109,6 +109,7 @@ Anti-triggers: 0
   ✅ spec-name: Name follows spec naming rules
   ✅ spec-dir-match: Directory name matches skill name
   ✅ spec-description: Description is valid
+  ✅ spec-security: No security risks detected in frontmatter
   ✅ spec-compatibility: No compatibility field (optional)
   ⚠️ spec-license: No license field found
      📎 Best practice: include a license field (e.g., MIT, Apache-2.0)
@@ -121,6 +122,9 @@ Anti-triggers: 0
   ✅ negative-delta-risk: No negative delta risk patterns detected
   ✅ procedural-content: Description contains procedural language
   ✅ over-specificity: No over-specificity patterns detected
+  🌟 cross-model-density: Description density is optimal for cross-model use
+  ⚠️ body-structure: Advisory 17: body structure quality — body lacks actionable instructions (no code blocks, numbered steps, or commands); no examples section found; no error handling or troubleshooting section found
+  ✅ progressive-disclosure: Content structure supports progressive disclosure
 `
 	require.Equal(t, expected, buf.String())
 }
@@ -208,6 +212,7 @@ Anti-triggers: 1
   ✅ spec-name: Name follows spec naming rules
   ✅ spec-dir-match: Directory name matches skill name
   ✅ spec-description: Description is valid
+  ✅ spec-security: No security risks detected in frontmatter
   ✅ spec-compatibility: No compatibility field (optional)
   ⚠️ spec-license: No license field found
      📎 Best practice: include a license field (e.g., MIT, Apache-2.0)
@@ -225,6 +230,9 @@ MCP Integration: 1/4
   ✅ negative-delta-risk: No negative delta risk patterns detected
   ✅ procedural-content: Description contains procedural language
   ✅ over-specificity: No over-specificity patterns detected
+  ✅ cross-model-density: Advisory 16: first sentence doesn't lead with action verb (reduces clarity)
+  ⚠️ body-structure: Advisory 17: body structure quality — body lacks actionable instructions (no code blocks, numbered steps, or commands); no examples section found; no error handling or troubleshooting section found
+  ✅ progressive-disclosure: Content structure supports progressive disclosure
 
 ✅ Target adherence level High reached!
 `
@@ -278,6 +286,7 @@ Issues:
   ✅ spec-name: Name follows spec naming rules
   ✅ spec-dir-match: Directory name matches skill name
   ✅ spec-description: Description is valid
+  ✅ spec-security: No security risks detected in frontmatter
   ✅ spec-compatibility: No compatibility field (optional)
   ⚠️ spec-license: No license field found
      📎 Best practice: include a license field (e.g., MIT, Apache-2.0)
@@ -288,8 +297,11 @@ Issues:
   ✅ module-count: Found 0 reference module(s)
   ✅ complexity: Complexity: compact (15 tokens, 0 modules)
   ✅ negative-delta-risk: No negative delta risk patterns detected
-  ⚠️ procedural-content: Description lacks procedural language (no action verbs or procedure keywords found)
+  ⚠️ procedural-content: Description lacks procedural language (no common lead words or procedure keywords found)
   ✅ over-specificity: No over-specificity patterns detected
+  ✅ cross-model-density: Advisory 16: first sentence doesn't lead with action verb (reduces clarity)
+  ⚠️ body-structure: Advisory 17: body structure quality — body lacks actionable instructions (no code blocks, numbered steps, or commands); no examples section found; no error handling or troubleshooting section found
+  ✅ progressive-disclosure: Content structure supports progressive disclosure
 
 📝 Suggested improvement (description-length):
 ────────────────────────────────────────
@@ -385,6 +397,7 @@ Issues:
   ✅ spec-name: Name follows spec naming rules
   ✅ spec-dir-match: Directory name matches skill name
   ✅ spec-description: Description is valid
+  ✅ spec-security: No security risks detected in frontmatter
   ✅ spec-compatibility: No compatibility field (optional)
   ⚠️ spec-license: No license field found
      📎 Best practice: include a license field (e.g., MIT, Apache-2.0)
@@ -395,8 +408,11 @@ Issues:
   ✅ module-count: Found 0 reference module(s)
   ✅ complexity: Complexity: compact (31 tokens, 0 modules)
   ✅ negative-delta-risk: No negative delta risk patterns detected
-  ⚠️ procedural-content: Description lacks procedural language (no action verbs or procedure keywords found)
+  ⚠️ procedural-content: Description lacks procedural language (no common lead words or procedure keywords found)
   ✅ over-specificity: No over-specificity patterns detected
+  ✅ cross-model-density: Advisory 16: first sentence doesn't lead with action verb (reduces clarity)
+  ⚠️ body-structure: Advisory 17: body structure quality — body lacks actionable instructions (no code blocks, numbered steps, or commands); no examples section found; no error handling or troubleshooting section found
+  ✅ progressive-disclosure: Content structure supports progressive disclosure
 
 📝 Suggested improvement (description-length):
 ────────────────────────────────────────
@@ -420,6 +436,7 @@ Anti-triggers: 0
   ✅ spec-name: Name follows spec naming rules
   ✅ spec-dir-match: Directory name matches skill name
   ✅ spec-description: Description is valid
+  ✅ spec-security: No security risks detected in frontmatter
   ✅ spec-compatibility: No compatibility field (optional)
   ⚠️ spec-license: No license field found
      📎 Best practice: include a license field (e.g., MIT, Apache-2.0)
@@ -432,6 +449,9 @@ Anti-triggers: 0
   ✅ negative-delta-risk: No negative delta risk patterns detected
   ✅ procedural-content: Description contains procedural language
   ✅ over-specificity: No over-specificity patterns detected
+  ✅ cross-model-density: Advisory 16: first sentence doesn't lead with action verb (reduces clarity)
+  ⚠️ body-structure: Advisory 17: body structure quality — body lacks actionable instructions (no code blocks, numbered steps, or commands); no examples section found; no error handling or troubleshooting section found
+  ✅ progressive-disclosure: Content structure supports progressive disclosure
 
 📝 Suggested improvement (triggers):
 ────────────────────────────────────────
@@ -455,6 +475,7 @@ Anti-triggers: 0
   ✅ spec-name: Name follows spec naming rules
   ✅ spec-dir-match: Directory name matches skill name
   ✅ spec-description: Description is valid
+  ✅ spec-security: No security risks detected in frontmatter
   ✅ spec-compatibility: No compatibility field (optional)
   ⚠️ spec-license: No license field found
      📎 Best practice: include a license field (e.g., MIT, Apache-2.0)
@@ -467,6 +488,9 @@ Anti-triggers: 0
   ✅ negative-delta-risk: No negative delta risk patterns detected
   ✅ procedural-content: Description contains procedural language
   ✅ over-specificity: No over-specificity patterns detected
+  ✅ cross-model-density: Advisory 16: first sentence doesn't lead with action verb (reduces clarity)
+  ⚠️ body-structure: Advisory 17: body structure quality — body lacks actionable instructions (no code blocks, numbered steps, or commands); no examples section found; no error handling or troubleshooting section found
+  ✅ progressive-disclosure: Content structure supports progressive disclosure
 
 📝 Suggested improvement (anti-triggers):
 ────────────────────────────────────────
@@ -490,6 +514,7 @@ Anti-triggers: 2
   ✅ spec-name: Name follows spec naming rules
   ✅ spec-dir-match: Directory name matches skill name
   ✅ spec-description: Description is valid
+  ✅ spec-security: No security risks detected in frontmatter
   ✅ spec-compatibility: No compatibility field (optional)
   ⚠️ spec-license: No license field found
      📎 Best practice: include a license field (e.g., MIT, Apache-2.0)
@@ -502,6 +527,9 @@ Anti-triggers: 2
   ✅ negative-delta-risk: No negative delta risk patterns detected
   ✅ procedural-content: Description contains procedural language
   ✅ over-specificity: No over-specificity patterns detected
+  ✅ cross-model-density: Advisory 16: first sentence doesn't lead with action verb (reduces clarity)
+  ⚠️ body-structure: Advisory 17: body structure quality — body lacks actionable instructions (no code blocks, numbered steps, or commands); no examples section found; no error handling or troubleshooting section found
+  ✅ progressive-disclosure: Content structure supports progressive disclosure
 
 📝 Suggested improvement (routing-clarity):
 ────────────────────────────────────────
@@ -584,6 +612,7 @@ Issues:
   ✅ spec-name: Name follows spec naming rules
   ✅ spec-dir-match: Directory name matches skill name
   ✅ spec-description: Description is valid
+  ✅ spec-security: No security risks detected in frontmatter
   ✅ spec-compatibility: No compatibility field (optional)
   ⚠️ spec-license: No license field found
      📎 Best practice: include a license field (e.g., MIT, Apache-2.0)
@@ -594,8 +623,11 @@ Issues:
   ✅ module-count: Found 0 reference module(s)
   ✅ complexity: Complexity: compact (17 tokens, 0 modules)
   ✅ negative-delta-risk: No negative delta risk patterns detected
-  ⚠️ procedural-content: Description lacks procedural language (no action verbs or procedure keywords found)
+  ⚠️ procedural-content: Description lacks procedural language (no common lead words or procedure keywords found)
   ✅ over-specificity: No over-specificity patterns detected
+  ✅ cross-model-density: Advisory 16: first sentence doesn't lead with action verb (reduces clarity)
+  ⚠️ body-structure: Advisory 17: body structure quality — body lacks actionable instructions (no code blocks, numbered steps, or commands); no examples section found; no error handling or troubleshooting section found
+  ✅ progressive-disclosure: Content structure supports progressive disclosure
 
 📝 Suggested improvement (description-length):
 ────────────────────────────────────────

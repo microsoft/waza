@@ -38,6 +38,9 @@ func TestAdherenceLevel_AtLeast(t *testing.T) {
 		target AdherenceLevel
 		want   bool
 	}{
+		{"Invalid >= Invalid", AdherenceInvalid, AdherenceInvalid, true},
+		{"Invalid >= Low", AdherenceInvalid, AdherenceLow, false},
+		{"Low >= Invalid", AdherenceLow, AdherenceInvalid, true},
 		{"Low >= Low", AdherenceLow, AdherenceLow, true},
 		{"Low >= Medium", AdherenceLow, AdherenceMedium, false},
 		{"Low >= MediumHigh", AdherenceLow, AdherenceMediumHigh, false},
@@ -60,6 +63,7 @@ func TestAdherenceLevel_AtLeast(t *testing.T) {
 }
 
 func TestAdherenceLevel_Constants(t *testing.T) {
+	require.Equal(t, AdherenceLevel("Invalid"), AdherenceInvalid)
 	require.Equal(t, AdherenceLevel("Low"), AdherenceLow)
 	require.Equal(t, AdherenceLevel("Medium"), AdherenceMedium)
 	require.Equal(t, AdherenceLevel("Medium-High"), AdherenceMediumHigh)
@@ -72,6 +76,7 @@ func TestParseAdherenceLevel(t *testing.T) {
 		want    AdherenceLevel
 		wantErr bool
 	}{
+		{"invalid", AdherenceInvalid, false},
 		{"low", AdherenceLow, false},
 		{"medium", AdherenceMedium, false},
 		{"medium-high", AdherenceMediumHigh, false},
@@ -81,9 +86,10 @@ func TestParseAdherenceLevel(t *testing.T) {
 		{"Medium-High", AdherenceMediumHigh, false},
 		{"HIGH", AdherenceHigh, false},
 		{"MEDIUM-HIGH", AdherenceMediumHigh, false},
-		{"invalid", AdherenceLow, true},
+		{"INVALID", AdherenceInvalid, false},
 		{"", AdherenceLow, true},
 		{"mega-high", AdherenceLow, true},
+		{"bogus", AdherenceLow, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
@@ -391,7 +397,7 @@ func TestValidateDescriptionLength(t *testing.T) {
 		{"short — error", 50, true, "description-length"},
 		{"min — no issue", 150, false, ""},
 		{"ideal — no issue", 300, false, ""},
-		{"over max — warning", 1100, true, "description-too-long"},
+		// Note: >1024 is now handled as short-circuit in Score(), not in validateDescriptionLength
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -443,15 +449,15 @@ func TestHeuristicScorer_DescriptionOverMax(t *testing.T) {
 	sk := mkSkill("test-skill", desc)
 	result := (&HeuristicScorer{}).Score(sk)
 	require.NotNil(t, result)
-	require.True(t, result.Level.AtLeast(AdherenceMediumHigh))
+	require.Equal(t, AdherenceInvalid, result.Level, "description >1024 should be Invalid")
 	var found bool
 	for _, iss := range result.Issues {
 		if iss.Rule == "description-too-long" {
 			found = true
-			require.Equal(t, "warning", iss.Severity)
+			require.Equal(t, "error", iss.Severity)
 		}
 	}
-	require.True(t, found, "expected a description-too-long warning issue")
+	require.True(t, found, "expected a description-too-long error issue")
 }
 
 func TestHeuristicScorer_RealCodeExplainer(t *testing.T) {
@@ -487,4 +493,137 @@ func TestHeuristicScorer_TestdataValid(t *testing.T) {
 	require.True(t, result.HasTriggers)
 	require.True(t, result.HasAntiTriggers)
 	require.False(t, result.HasRoutingClarity)
+}
+
+// Test #72: WHEN: trigger pattern recognition
+func TestWhenTriggerPattern(t *testing.T) {
+	tests := []struct {
+		name string
+		desc string
+		want bool
+	}{
+		{"WHEN uppercase", "WHEN: processing files", true},
+		{"when lowercase", "when: processing files", true},
+		{"WHEN in sentence", "Use this WHEN: you need to process data", true},
+		{"no when", "Process files for tasks", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, containsAny(tt.desc, triggerPatterns))
+		})
+	}
+}
+
+func TestTriggerCountIncludesWhenPattern(t *testing.T) {
+	desc := `WHEN: process files, validate config.
+USE FOR: run checks, format output.
+DO NOT USE FOR: deployments.`
+	sk := mkSkill("when-skill", desc)
+
+	// WHEN: yields 2 ("process files", "validate config") — stops at "USE FOR:"
+	// USE FOR: yields 2 ("run checks", "format output") — stops at "DO NOT USE FOR:"
+	result := (&HeuristicScorer{}).Score(sk)
+	require.Equal(t, 4, result.TriggerCount)
+}
+
+// Test #74: Invalid adherence level for >1024 char descriptions
+func TestInvalidAdherenceLevel(t *testing.T) {
+	// Test that Invalid level exists and ranks below Low
+	require.Equal(t, AdherenceLevel("Invalid"), AdherenceInvalid)
+	require.Equal(t, -1, adherenceRank[AdherenceInvalid])
+	require.False(t, AdherenceInvalid.AtLeast(AdherenceLow))
+
+	// Test ParseAdherenceLevel with "invalid"
+	level, err := ParseAdherenceLevel("invalid")
+	require.NoError(t, err)
+	require.Equal(t, AdherenceInvalid, level)
+
+	// Test short-circuit on >1024 char description
+	desc := strings.Repeat("a", 1025) + "\nUSE FOR: \"thing\".\nDO NOT USE FOR: other.\nINVOKES: tools."
+	sk := mkSkill("test-skill", desc)
+	result := (&HeuristicScorer{}).Score(sk)
+
+	require.Equal(t, AdherenceInvalid, result.Level, "description >1024 chars should be Invalid")
+
+	// Should have description-too-long error
+	foundError := false
+	for _, iss := range result.Issues {
+		if iss.Rule == "description-too-long" && iss.Severity == "error" {
+			foundError = true
+			break
+		}
+	}
+	require.True(t, foundError, "expected description-too-long error for >1024 chars")
+}
+
+// Test #74: Boundary case - exactly 1024 chars is OK
+func TestDescriptionLengthBoundary(t *testing.T) {
+	// 1024 chars should be OK
+	desc1024 := strings.Repeat("a", 1024)
+	sk1024 := mkSkill("test", desc1024)
+	result1024 := (&HeuristicScorer{}).Score(sk1024)
+	require.NotEqual(t, AdherenceInvalid, result1024.Level, "1024 chars should not be Invalid")
+
+	// 1025 chars should be Invalid
+	desc1025 := strings.Repeat("a", 1025)
+	sk1025 := mkSkill("test", desc1025)
+	result1025 := (&HeuristicScorer{}).Score(sk1025)
+	require.Equal(t, AdherenceInvalid, result1025.Level, "1025 chars should be Invalid")
+}
+
+// Test #78: Context-dependent anti-trigger risk
+func TestContextDependentAntiTriggerRisk(t *testing.T) {
+	desc := strings.Repeat("a", 200) + "\nUSE FOR: thing." // Has triggers but no anti-triggers
+	sk := mkSkill("test-skill", desc)
+
+	tests := []struct {
+		name             string
+		skillCount       int
+		expectIssue      bool
+		expectedRisk     string
+		expectedSeverity string
+	}{
+		{"Low risk: 3 skills", 3, false, "", ""},
+		{"Low risk: 5 skills", 5, false, "", ""},
+		{"Moderate risk: 6 skills", 6, true, "Moderate", "warning"},
+		{"Moderate risk: 10 skills", 10, true, "Moderate", "warning"},
+		{"High risk: 15 skills", 15, true, "High", "error"},
+		{"High risk: 20 skills", 20, true, "High", "error"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			scorer := &HeuristicScorer{SkillCount: tt.skillCount}
+			result := scorer.Score(sk)
+
+			foundIssue := false
+			for _, iss := range result.Issues {
+				if iss.Rule == "anti-trigger-risk" {
+					foundIssue = true
+					require.Contains(t, iss.Message, tt.expectedRisk)
+					require.Equal(t, tt.expectedSeverity, iss.Severity)
+				}
+			}
+
+			if tt.expectIssue {
+				require.True(t, foundIssue, "expected anti-trigger-risk issue for %d skills", tt.skillCount)
+			} else {
+				require.False(t, foundIssue, "did not expect anti-trigger-risk issue for %d skills", tt.skillCount)
+			}
+		})
+	}
+}
+
+// Test #78: No warning if anti-triggers are present
+func TestContextDependentAntiTriggerRisk_NoWarningWhenPresent(t *testing.T) {
+	desc := strings.Repeat("a", 200) + "\nUSE FOR: thing.\nDO NOT USE FOR: other."
+	sk := mkSkill("test-skill", desc)
+
+	scorer := &HeuristicScorer{SkillCount: 20} // High risk context
+	result := scorer.Score(sk)
+
+	// Should not have anti-trigger-risk warning because anti-triggers are present
+	for _, iss := range result.Issues {
+		require.NotEqual(t, "anti-trigger-risk", iss.Rule)
+	}
 }

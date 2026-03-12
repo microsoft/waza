@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/microsoft/waza/internal/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -17,9 +18,8 @@ func TestDiffGrader_SnapshotMismatchFailsWithoutUpdate(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(workspaceDir, "output.txt"), []byte("new content"), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(contextDir, "expected.txt"), []byte("old content"), 0o644))
 
-	grader, err := NewDiffGrader(DiffGraderArgs{
-		Name: "diff",
-		ExpectedFiles: []ExpectedFile{
+	grader, err := NewDiffGrader("diff", models.DiffGraderParameters{
+		ExpectedFiles: []models.DiffExpectedFileParameters{
 			{
 				Path:     "output.txt",
 				Snapshot: "expected.txt",
@@ -44,9 +44,8 @@ func TestDiffGrader_UpdateSnapshots_UpdatesAndCreatesSnapshots(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Join(contextDir, "expected"), 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(contextDir, "expected", "changed.txt"), []byte("old line\n"), 0o644))
 
-	grader, err := NewDiffGrader(DiffGraderArgs{
-		Name: "diff",
-		ExpectedFiles: []ExpectedFile{
+	grader, err := NewDiffGrader("diff", models.DiffGraderParameters{
+		ExpectedFiles: []models.DiffExpectedFileParameters{
 			{
 				Path:     "changed.txt",
 				Snapshot: filepath.Join("expected", "changed.txt"),
@@ -84,9 +83,8 @@ func TestDiffGrader_UpdateSnapshots_NoChangesFlow(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(workspaceDir, "stable.txt"), []byte("same\n"), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(contextDir, "expected.txt"), []byte("same\n"), 0o644))
 
-	grader, err := NewDiffGrader(DiffGraderArgs{
-		Name: "diff",
-		ExpectedFiles: []ExpectedFile{
+	grader, err := NewDiffGrader("diff", models.DiffGraderParameters{
+		ExpectedFiles: []models.DiffExpectedFileParameters{
 			{
 				Path:     "stable.txt",
 				Snapshot: "expected.txt",
@@ -129,9 +127,8 @@ func TestDiffGrader_UpdateSnapshots_BlocksPathTraversal(t *testing.T) {
 	require.NoError(t, err)
 	require.NotContains(t, relEscape, ":", "expected a relative path for traversal test")
 
-	grader, err := NewDiffGrader(DiffGraderArgs{
-		Name: "diff",
-		ExpectedFiles: []ExpectedFile{
+	grader, err := NewDiffGrader("diff", models.DiffGraderParameters{
+		ExpectedFiles: []models.DiffExpectedFileParameters{
 			{
 				Path:     "stable.txt",
 				Snapshot: relEscape,

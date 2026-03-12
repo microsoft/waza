@@ -49,13 +49,45 @@ type Config struct {
 
 // GraderConfig defines a validator/grader
 type GraderConfig struct {
-	Kind       GraderKind     `yaml:"type" json:"kind"`
-	Identifier string         `yaml:"name" json:"identifier"`
-	ScriptPath string         `yaml:"script,omitempty" json:"script_path,omitempty"`
-	Rubric     string         `yaml:"rubric,omitempty" json:"rubric,omitempty"`
-	ModelID    string         `yaml:"model,omitempty" json:"model_id,omitempty"`
-	Weight     float64        `yaml:"weight,omitempty" json:"weight,omitempty"`
-	Parameters map[string]any `yaml:"config,omitempty" json:"parameters,omitempty"`
+	Kind       GraderKind       `yaml:"type" json:"kind"`
+	Identifier string           `yaml:"name" json:"identifier"`
+	ScriptPath string           `yaml:"script,omitempty" json:"script_path,omitempty"`
+	Rubric     string           `yaml:"rubric,omitempty" json:"rubric,omitempty"`
+	ModelID    string           `yaml:"model,omitempty" json:"model_id,omitempty"`
+	Weight     float64          `yaml:"weight,omitempty" json:"weight,omitempty"`
+	Parameters GraderParameters `yaml:"config,omitempty" json:"parameters,omitempty"`
+}
+
+func (g *GraderConfig) UnmarshalYAML(node *yaml.Node) error {
+	type rawGraderConfig struct {
+		Kind       GraderKind `yaml:"type"`
+		Identifier string     `yaml:"name"`
+		ScriptPath string     `yaml:"script,omitempty"`
+		Rubric     string     `yaml:"rubric,omitempty"`
+		ModelID    string     `yaml:"model,omitempty"`
+		Weight     float64    `yaml:"weight,omitempty"`
+		Parameters yaml.Node  `yaml:"config,omitempty"`
+	}
+
+	var raw rawGraderConfig
+	if err := node.Decode(&raw); err != nil {
+		return err
+	}
+
+	params, err := decodeGraderParameters(raw.Kind, &raw.Parameters)
+	if err != nil {
+		return fmt.Errorf("invalid grader config for %q (type %q): %w", raw.Identifier, raw.Kind, err)
+	}
+
+	g.Kind = raw.Kind
+	g.Identifier = raw.Identifier
+	g.ScriptPath = raw.ScriptPath
+	g.Rubric = raw.Rubric
+	g.ModelID = raw.ModelID
+	g.Weight = raw.Weight
+	g.Parameters = params
+
+	return nil
 }
 
 // EffectiveWeight returns the grader weight, defaulting to 1.0 if unset.

@@ -1,6 +1,7 @@
 package models
 
 import (
+	"fmt"
 	"os"
 
 	"gopkg.in/yaml.v3"
@@ -60,12 +61,42 @@ type BehaviorRules struct {
 
 // ValidatorInline is a validator embedded in a test case
 type ValidatorInline struct {
-	Identifier string         `yaml:"name" json:"identifier"`
-	Kind       GraderKind     `yaml:"type,omitempty" json:"kind,omitempty"`
-	Checks     []string       `yaml:"assertions,omitempty" json:"checks,omitempty"`
-	Rubric     string         `yaml:"rubric,omitempty" json:"rubric,omitempty"`
-	Weight     float64        `yaml:"weight,omitempty" json:"weight,omitempty"`
-	Parameters map[string]any `yaml:"config,omitempty" json:"parameters,omitempty"`
+	Identifier string           `yaml:"name" json:"identifier"`
+	Kind       GraderKind       `yaml:"type,omitempty" json:"kind,omitempty"`
+	Checks     []string         `yaml:"assertions,omitempty" json:"checks,omitempty"`
+	Rubric     string           `yaml:"rubric,omitempty" json:"rubric,omitempty"`
+	Weight     float64          `yaml:"weight,omitempty" json:"weight,omitempty"`
+	Parameters GraderParameters `yaml:"config,omitempty" json:"parameters,omitempty"`
+}
+
+func (v *ValidatorInline) UnmarshalYAML(node *yaml.Node) error {
+	type rawValidatorInline struct {
+		Identifier string     `yaml:"name"`
+		Kind       GraderKind `yaml:"type,omitempty"`
+		Checks     []string   `yaml:"assertions,omitempty"`
+		Rubric     string     `yaml:"rubric,omitempty"`
+		Weight     float64    `yaml:"weight,omitempty"`
+		Parameters yaml.Node  `yaml:"config,omitempty"`
+	}
+
+	var raw rawValidatorInline
+	if err := node.Decode(&raw); err != nil {
+		return err
+	}
+
+	params, err := decodeGraderParameters(raw.Kind, &raw.Parameters)
+	if err != nil {
+		return fmt.Errorf("invalid grader config for %q (type %q): %w", raw.Identifier, raw.Kind, err)
+	}
+
+	v.Identifier = raw.Identifier
+	v.Kind = raw.Kind
+	v.Checks = raw.Checks
+	v.Rubric = raw.Rubric
+	v.Weight = raw.Weight
+	v.Parameters = params
+
+	return nil
 }
 
 // LoadTestCase loads a test case from YAML

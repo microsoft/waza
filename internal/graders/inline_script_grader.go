@@ -17,13 +17,6 @@ import (
 	"github.com/microsoft/waza/internal/models"
 )
 
-type Language string
-
-const (
-	LanguagePython     Language = "python"
-	LanguageJavascript Language = "javascript"
-)
-
 const allAssertionsPassedMsg = "All assertions passed"
 
 //go:embed data/eval_wrapper.py
@@ -49,23 +42,27 @@ type InlineScriptResult struct {
 	Failures         []string
 }
 
-func NewInlineScriptGrader(name string, language Language, assertions []string) (*InlineScriptGrader, error) {
+func NewInlineScriptGrader(name string, args models.InlineScriptGraderParameters) (*InlineScriptGrader, error) {
 	var g = &InlineScriptGrader{
 		name:       name,
-		assertions: assertions,
+		assertions: args.Assertions,
 	}
 
-	switch language {
-	case LanguagePython:
+	if args.Language == "" {
+		args.Language = models.LanguagePython
+	}
+
+	switch args.Language {
+	case models.LanguagePython:
 		g.scriptExt = "py"
 		g.scriptBin = resolvePythonBin()
 		g.scriptContents = evalWrapperPy
-	case LanguageJavascript:
+	case models.LanguageJavascript:
 		g.scriptExt = "js"
 		g.scriptBin = "node"
 		g.scriptContents = evalWrapperJS
 	default:
-		return nil, fmt.Errorf("language '%s' is not yet supported with inline scripts", language)
+		return nil, fmt.Errorf("language '%s' is not yet supported with inline scripts", args.Language)
 	}
 
 	return g, nil

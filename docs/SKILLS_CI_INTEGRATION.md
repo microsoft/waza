@@ -98,7 +98,7 @@ your-skill/
 cd your-skill
 
 # Run the interactive wizard
-waza init eval --interactive
+waza init eval
 
 # Follow the prompts to configure your evaluation
 ```
@@ -108,7 +108,7 @@ waza init eval --interactive
 If you have a skill, create the eval suite using `waza new`:
 
 ```bash
-waza new my-skill --output-dir eval
+waza new skill my-skill --output-dir eval
 ```
 
 ### Method 3: Manual Creation

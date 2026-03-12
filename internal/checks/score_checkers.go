@@ -31,6 +31,7 @@ func SpecCheckers() []ComplianceChecker {
 		&SpecNameChecker{},
 		&SpecDirMatchChecker{},
 		&SpecDescriptionChecker{},
+		&SpecSecurityChecker{},
 		&SpecCompatibilityChecker{},
 		&SpecLicenseChecker{},
 		&SpecVersionChecker{},
@@ -45,5 +46,8 @@ func AdvisoryCheckers() []ComplianceChecker {
 		&NegativeDeltaRiskChecker{},
 		&ProceduralContentChecker{},
 		&OverSpecificityChecker{},
+		&CrossModelDensityChecker{},
+		&BodyStructureChecker{},
+		&ProgressiveDisclosureChecker{},
 	}
 }

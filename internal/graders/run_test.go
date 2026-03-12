@@ -3,53 +3,59 @@ package graders
 import (
 	"testing"
 
+	"github.com/microsoft/waza/internal/models"
 	"github.com/stretchr/testify/assert"
 )
 
-func TestWithModel(t *testing.T) {
-	t.Run("nil params", func(t *testing.T) {
-		result := WithModel(nil, "claude-opus-4.6")
-		assert.Equal(t, "claude-opus-4.6", result["model"])
-		assert.Len(t, result, 1)
+func TestApplyDefaults_PromptGrader(t *testing.T) {
+	t.Run("sets judge model when empty", func(t *testing.T) {
+		p := models.PromptGraderParameters{Prompt: "check"}
+		result := applyDefaults(p, "gpt-4o", false)
+		pp, ok := result.(models.PromptGraderParameters)
+		assert.True(t, ok)
+		assert.Equal(t, "gpt-4o", pp.Model)
+		assert.Equal(t, "check", pp.Prompt)
 	})
 
-	t.Run("empty params", func(t *testing.T) {
-		result := WithModel(map[string]any{}, "claude-opus-4.6")
-		assert.Equal(t, "claude-opus-4.6", result["model"])
-		assert.Len(t, result, 1)
+	t.Run("preserves existing model", func(t *testing.T) {
+		p := models.PromptGraderParameters{Model: "existing"}
+		result := applyDefaults(p, "gpt-4o", false)
+		pp, ok := result.(models.PromptGraderParameters)
+		assert.True(t, ok)
+		assert.Equal(t, "existing", pp.Model)
 	})
 
-	t.Run("preserves existing params", func(t *testing.T) {
-		original := map[string]any{
-			"prompt":           "Check something",
-			"continue_session": true,
-		}
-		result := WithModel(original, "gpt-4o")
-		assert.Equal(t, "gpt-4o", result["model"])
-		assert.Equal(t, "Check something", result["prompt"])
-		assert.Equal(t, true, result["continue_session"])
-		assert.Len(t, result, 3)
+	t.Run("no judge model", func(t *testing.T) {
+		p := models.PromptGraderParameters{Prompt: "check"}
+		result := applyDefaults(p, "", false)
+		pp, ok := result.(models.PromptGraderParameters)
+		assert.True(t, ok)
+		assert.Equal(t, "", pp.Model)
+	})
+}
+
+func TestApplyDefaults_DiffGrader(t *testing.T) {
+	t.Run("sets update snapshots", func(t *testing.T) {
+		p := models.DiffGraderParameters{}
+		result := applyDefaults(p, "", true)
+		dp, ok := result.(models.DiffGraderParameters)
+		assert.True(t, ok)
+		assert.True(t, dp.UpdateSnapshots)
 	})
 
-	t.Run("overrides existing model", func(t *testing.T) {
-		original := map[string]any{
-			"prompt": "Check something",
-			"model":  "gpt-4o-mini",
-		}
-		result := WithModel(original, "claude-opus-4.6")
-		assert.Equal(t, "claude-opus-4.6", result["model"])
-		assert.Equal(t, "gpt-4o-mini", original["model"])
+	t.Run("no update snapshots", func(t *testing.T) {
+		p := models.DiffGraderParameters{}
+		result := applyDefaults(p, "", false)
+		dp, ok := result.(models.DiffGraderParameters)
+		assert.True(t, ok)
+		assert.False(t, dp.UpdateSnapshots)
 	})
+}
 
-	t.Run("does not mutate original", func(t *testing.T) {
-		original := map[string]any{
-			"prompt": "Test prompt",
-		}
-		result := WithModel(original, "new-model")
-		result["extra"] = "should not appear in original"
-		_, exists := original["extra"]
-		assert.False(t, exists)
-		_, exists = original["model"]
-		assert.False(t, exists)
-	})
+func TestApplyDefaults_OtherGrader(t *testing.T) {
+	p := models.TextGraderParameters{Contains: []string{"hello"}}
+	result := applyDefaults(p, "gpt-4o", true)
+	tp, ok := result.(models.TextGraderParameters)
+	assert.True(t, ok)
+	assert.Equal(t, []string{"hello"}, tp.Contains)
 }

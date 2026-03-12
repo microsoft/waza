@@ -184,6 +184,26 @@ func runCommandE(cmd *cobra.Command, args []string) error {
 
 	if len(specPaths) == 1 {
 		results, err := runCommandForSpec(cmd, specPaths[0])
+
+		// Only write outputs when the run produced meaningful results:
+		// either success (err == nil) or test failures (outcomes are still valid).
+		// For other errors (spec load/parse failures), skip writing and return early.
+		if err != nil {
+			if _, ok := errors.AsType[*TestFailureError](err); !ok {
+				return err
+			}
+		}
+
+		// Write structured directory output when --output-dir is specified
+		if outputDir != "" {
+			if wErr := writeOutputDir(outputDir, []skillRunResult{
+				{skillName: specPaths[0].skillName, outcomes: results},
+			}); wErr != nil {
+				return fmt.Errorf("failed to write output directory: %w", wErr)
+			}
+		}
+
+		// Auto-upload after all local writes succeed
 		autoUploadOutcomes(cmd, cfg, results)
 		return err
 	}

@@ -19,7 +19,7 @@ import (
 type CopilotEngine struct {
 	defaultModelID string
 
-	client copilotClient
+	client CopilotClient
 
 	startOnce sync.Once
 
@@ -27,7 +27,7 @@ type CopilotEngine struct {
 	workspaces   []string // workspaces to clean up at Shutdown
 
 	// sessions maps session IDs to copilotSessions
-	sessions   map[string]copilotSession
+	sessions   map[string]CopilotSession
 	sessionsMu sync.Mutex
 
 	// collectors tracks usage collectors by session ID so we can read
@@ -45,14 +45,14 @@ type CopilotEngineBuilder struct {
 }
 
 type CopilotEngineBuilderOptions struct {
-	NewCopilotClient func(clientOptions *copilot.ClientOptions) copilotClient
+	NewCopilotClient func(clientOptions *copilot.ClientOptions) CopilotClient
 }
 
 // NewCopilotEngineBuilder creates a builder for CopilotEngine
 //   - defaultModelID - used if no model ID is specified in session creation. Can be blank, which means the copilot
 //     CLI will choose its own fallback model.
 func NewCopilotEngineBuilder(defaultModelID string, options *CopilotEngineBuilderOptions) *CopilotEngineBuilder {
-	var client copilotClient
+	var client CopilotClient
 
 	copilotOptions := &copilot.ClientOptions{
 		// workspace is set at the session level, instead of at the client.
@@ -133,7 +133,7 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 		}
 	}
 
-	var session copilotSession
+	var session CopilotSession
 
 	permRequestCallback := allowAllTools
 
@@ -178,7 +178,7 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 		// Close the session, release its resources, and trigger any session end events. The destroy
 		// operation doesn't remove data and isn't final in that the caller can resume the session by
 		// calling Execute again with [ExecutionRequest.SessionID] set
-		if err := session.Destroy(); err != nil {
+		if err := session.Disconnect(); err != nil {
 			slog.Info("failed to destroy session", "sessionID", sessionID, "error", err)
 		}
 	}()
@@ -194,7 +194,7 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 
 	e.sessionsMu.Lock()
 	if e.sessions == nil {
-		e.sessions = make(map[string]copilotSession)
+		e.sessions = make(map[string]CopilotSession)
 	}
 	e.sessions[sessionID] = session
 	e.sessionsMu.Unlock()
@@ -254,7 +254,7 @@ func (e *CopilotEngine) Shutdown(ctx context.Context) error {
 }
 
 func (e *CopilotEngine) doShutdown(ctx context.Context) error {
-	sessions := func() map[string]copilotSession {
+	sessions := func() map[string]CopilotSession {
 		e.sessionsMu.Lock()
 		defer e.sessionsMu.Unlock()
 		s := e.sessions
