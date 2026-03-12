@@ -72,8 +72,6 @@ func newTaskFromPromptCmd(options *newTaskFromPromptCmdOptions) *cobra.Command {
 	var tags []string
 	var overwrite bool
 	var timeout time.Duration
-	var disableRepoSkills bool
-
 	cmd := &cobra.Command{
 		Use:   "from-prompt <prompt> <task path>",
 		Short: "Run your scenario test prompt and automatically generate a task file with graders",
@@ -125,26 +123,23 @@ func newTaskFromPromptCmd(options *newTaskFromPromptCmdOptions) *cobra.Command {
 
 			var skillPaths []string
 
-			if !disableRepoSkills {
-				taskList.AddTask(ux.TaskOptions{
-					Title: "Discovering skills",
-					Action: func(spf ux.SetProgressFunc) (ux.TaskState, error) {
-						ctx, err := detectContext(rootDir, configDetectOptions()...)
+			taskList.AddTask(ux.TaskOptions{
+				Title: "Discovering skills",
+				Action: func(spf ux.SetProgressFunc) (ux.TaskState, error) {
+					ctx, err := detectContext(rootDir, configDetectOptions()...)
 
-						if err != nil {
-							return ux.Error, err
-						}
+					if err != nil {
+						return ux.Error, err
+					}
 
-						for _, skill := range ctx.Skills {
-							skillPaths = append(skillPaths, skill.Dir)
-						}
+					for _, skill := range ctx.Skills {
+						skillPaths = append(skillPaths, skill.Dir)
+					}
 
-						slog.Debug("Adding discovered skill files", slog.Any("skills", skillPaths))
-						return ux.Success, nil
-					},
-				})
-			}
-
+					slog.Debug("Adding discovered skill files", slog.Any("skills", skillPaths))
+					return ux.Success, nil
+				},
+			})
 			var sessionID string
 
 			taskList.AddTask(ux.TaskOptions{
@@ -240,7 +235,6 @@ func newTaskFromPromptCmd(options *newTaskFromPromptCmdOptions) *cobra.Command {
 	cmd.Flags().StringSliceVar(&tags, "tags", nil, "Comma-separated tags to add to the generated task")
 	cmd.Flags().BoolVar(&overwrite, "overwrite", false, "Overwrite output file if it already exists")
 	cmd.Flags().DurationVar(&timeout, "timeout", 5*time.Minute, "Maximum time to allow for the prompt to complete")
-	cmd.Flags().BoolVar(&disableRepoSkills, "disable-repo-skills", false, "Prevents loading skills that are discoverable in the repo. Good for isolated testing.")
 
 	return cmd
 }
