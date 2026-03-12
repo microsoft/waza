@@ -29,7 +29,7 @@ func TestCopilotEngine_Initialize(t *testing.T) {
 func TestCopilotEngine_SetupResources(t *testing.T) {
 	workspaceDir := t.TempDir()
 
-	err := setupWorkspaceResources(workspaceDir, []ResourceFile{{Path: "data.txt", Content: "value"}})
+	err := setupWorkspaceResources(workspaceDir, []ResourceFile{{Path: "data.txt", Content: []byte("value")}})
 	require.NoError(t, err)
 
 	content, err := os.ReadFile(filepath.Join(workspaceDir, "data.txt"))

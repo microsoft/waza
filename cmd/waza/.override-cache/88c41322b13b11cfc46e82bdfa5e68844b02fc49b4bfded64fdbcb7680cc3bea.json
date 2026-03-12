@@ -1,0 +1,129 @@
+{
+  "test_id": "t1",
+  "display_name": "test-task",
+  "status": "passed",
+  "runs": [
+    {
+      "run_number": 1,
+      "attempts": 1,
+      "status": "passed",
+      "duration_ms": 0,
+      "validations": {
+        "check": {
+          "identifier": "check",
+          "type": "text",
+          "score": 1,
+          "weight": 1,
+          "passed": true,
+          "feedback": "All text checks passed",
+          "details": {
+            "contains": null,
+            "contains_cs": null,
+            "failures": null,
+            "not_contains": null,
+            "not_contains_cs": null,
+            "regex_match": null,
+            "regex_not_match": null
+          },
+          "duration_ms": 0
+        }
+      },
+      "session_digest": {
+        "tool_call_count": 0,
+        "tools_used": [],
+        "errors": []
+      },
+      "final_output": "Mock response for: test"
+    },
+    {
+      "run_number": 2,
+      "attempts": 1,
+      "status": "passed",
+      "duration_ms": 0,
+      "validations": {
+        "check": {
+          "identifier": "check",
+          "type": "text",
+          "score": 1,
+          "weight": 1,
+          "passed": true,
+          "feedback": "All text checks passed",
+          "details": {
+            "contains": null,
+            "contains_cs": null,
+            "failures": null,
+            "not_contains": null,
+            "not_contains_cs": null,
+            "regex_match": null,
+            "regex_not_match": null
+          },
+          "duration_ms": 0
+        }
+      },
+      "session_digest": {
+        "tool_call_count": 0,
+        "tools_used": [],
+        "errors": []
+      },
+      "final_output": "Mock response for: test"
+    },
+    {
+      "run_number": 3,
+      "attempts": 1,
+      "status": "passed",
+      "duration_ms": 0,
+      "validations": {
+        "check": {
+          "identifier": "check",
+          "type": "text",
+          "score": 1,
+          "weight": 1,
+          "passed": true,
+          "feedback": "All text checks passed",
+          "details": {
+            "contains": null,
+            "contains_cs": null,
+            "failures": null,
+            "not_contains": null,
+            "not_contains_cs": null,
+            "regex_match": null,
+            "regex_not_match": null
+          },
+          "duration_ms": 0
+        }
+      },
+      "session_digest": {
+        "tool_call_count": 0,
+        "tools_used": [],
+        "errors": []
+      },
+      "final_output": "Mock response for: test"
+    }
+  ],
+  "stats": {
+    "pass_rate": 1,
+    "flakiness_percent": 0,
+    "passed_runs": 3,
+    "failed_runs": 0,
+    "error_runs": 0,
+    "total_runs": 3,
+    "avg_score": 1,
+    "avg_weighted_score": 1,
+    "min_score": 1,
+    "max_score": 1,
+    "std_dev_score": 0,
+    "score_variance": 0,
+    "ci95_lo": 1,
+    "ci95_hi": 1,
+    "flaky": false,
+    "avg_duration_ms": 0,
+    "bootstrap_ci": {
+      "lower": 1,
+      "upper": 1,
+      "mean": 1,
+      "confidence_level": 0.95,
+      "num_bootstraps": 10000
+    },
+    "is_significant": true
+  }
+}

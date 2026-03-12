@@ -245,7 +245,7 @@ func loadSkillResources(paths []string) []execution.ResourceFile {
 			seen[rel] = true
 			resources = append(resources, execution.ResourceFile{
 				Path:    rel,
-				Content: string(content),
+				Content: content,
 			})
 			return nil
 		})

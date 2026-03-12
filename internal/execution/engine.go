@@ -51,7 +51,7 @@ type ExecutionRequest struct {
 // ResourceFile represents a file resource
 type ResourceFile struct {
 	Path    string
-	Content string
+	Content []byte
 }
 
 type SkillInvocation struct {

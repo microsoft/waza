@@ -292,9 +292,9 @@ func TestLoadResources_PathValidation(t *testing.T) {
 	resources := runner.loadResources(testCase)
 	require.Len(t, resources, 2)
 	assert.Equal(t, "inline.txt", resources[0].Path)
-	assert.Equal(t, "inline", resources[0].Content)
+	assert.Equal(t, []byte("inline"), resources[0].Content)
 	assert.Equal(t, "ok.txt", resources[1].Path)
-	assert.Equal(t, "ok", resources[1].Content)
+	assert.Equal(t, []byte("ok"), resources[1].Content)
 }
 
 func TestBuildGraderContextAndScoreHelpers(t *testing.T) {

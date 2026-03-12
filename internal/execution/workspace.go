@@ -43,7 +43,7 @@ func setupWorkspaceResources(workspaceDir string, resources []ResourceFile) erro
 			return fmt.Errorf("creating directory for resource %q: %w", res.Path, err)
 		}
 
-		if err := os.WriteFile(fullPathClean, []byte(res.Content), 0644); err != nil {
+		if err := os.WriteFile(fullPathClean, res.Content, 0644); err != nil {
 			return fmt.Errorf("writing resource %q: %w", res.Path, err)
 		}
 	}

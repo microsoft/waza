@@ -30,7 +30,7 @@ func TestMockEngine_Execute_WritesResources(t *testing.T) {
 		Message: "hello",
 		Resources: []ResourceFile{{
 			Path:    "fixtures/input.txt",
-			Content: "test-content",
+			Content: []byte("test-content"),
 		}},
 	})
 	require.NoError(t, err)
@@ -82,7 +82,7 @@ func TestMockEngine_Execute_SetupResourcesError(t *testing.T) {
 		Message: "hello",
 		Resources: []ResourceFile{{
 			Path:    absPath,
-			Content: "x",
+			Content: []byte("x"),
 		}},
 	})
 	require.Error(t, err)

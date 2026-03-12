@@ -14,9 +14,9 @@ func TestSetupWorkspaceResources_WritesFiles(t *testing.T) {
 	workspace := t.TempDir()
 
 	resources := []ResourceFile{
-		{Path: "root.txt", Content: "root"},
-		{Path: "nested/child.txt", Content: "child"},
-		{Path: "", Content: "ignored"},
+		{Path: "root.txt", Content: []byte("root")},
+		{Path: "nested/child.txt", Content: []byte("child")},
+		{Path: "", Content: []byte("ignored")},
 	}
 
 	err := setupWorkspaceResources(workspace, resources)
@@ -36,19 +36,19 @@ func TestSetupWorkspaceResources_RejectsAbsolutePath(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		absPath = `C:\etc\passwd`
 	}
-	err := setupWorkspaceResources(t.TempDir(), []ResourceFile{{Path: absPath, Content: "x"}})
+	err := setupWorkspaceResources(t.TempDir(), []ResourceFile{{Path: absPath, Content: []byte("x")}})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "must be relative")
 }
 
 func TestSetupWorkspaceResources_RejectsPathTraversal(t *testing.T) {
-	err := setupWorkspaceResources(t.TempDir(), []ResourceFile{{Path: "../outside.txt", Content: "x"}})
+	err := setupWorkspaceResources(t.TempDir(), []ResourceFile{{Path: "../outside.txt", Content: []byte("x")}})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "escapes workspace")
 }
 
 func TestSetupWorkspaceResources_EmptyWorkspace(t *testing.T) {
-	err := setupWorkspaceResources("", []ResourceFile{{Path: "file.txt", Content: "x"}})
+	err := setupWorkspaceResources("", []ResourceFile{{Path: "file.txt", Content: []byte("x")}})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "escapes workspace")
 }

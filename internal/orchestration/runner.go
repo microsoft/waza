@@ -1097,7 +1097,7 @@ func (r *TestRunner) loadResources(tc *models.TestCase) []execution.ResourceFile
 			// Inline content
 			resources = append(resources, execution.ResourceFile{
 				Path:    ref.Location,
-				Content: ref.Body,
+				Content: []byte(ref.Body),
 			})
 		} else if ref.Location != "" && fixtureDir != "" {
 			// Load from file - validate path to prevent directory traversal
@@ -1140,7 +1140,7 @@ func (r *TestRunner) loadResources(tc *models.TestCase) []execution.ResourceFile
 			}
 			resources = append(resources, execution.ResourceFile{
 				Path:    ref.Location,
-				Content: string(content),
+				Content: content,
 			})
 		}
 	}

@@ -442,7 +442,7 @@ func TestLoadSkillResources_LoadsTextFiles(t *testing.T) {
 
 	paths := make(map[string]string)
 	for _, r := range resources {
-		paths[r.Path] = r.Content
+		paths[r.Path] = string(r.Content)
 	}
 
 	assert.Equal(t, "# My Skill", paths["SKILL.md"])
@@ -481,7 +481,7 @@ func TestLoadSkillResources_DeduplicatesAcrossPaths(t *testing.T) {
 	for _, r := range resources {
 		if r.Path == "SKILL.md" {
 			count++
-			assert.Equal(t, "first", r.Content, "first occurrence should win")
+			assert.Equal(t, []byte("first"), r.Content, "first occurrence should win")
 		}
 	}
 	assert.Equal(t, 1, count, "SKILL.md should appear once")
