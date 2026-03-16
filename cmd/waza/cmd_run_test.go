@@ -2333,7 +2333,7 @@ func TestRun_Skills_RunInsideEvalFolder(t *testing.T) {
 		t.Run(fmt.Sprintf("cwd=%s", td[0]), func(t *testing.T) {
 			evals, skills := testWazaRun(t, td[0], []string{"eval.yaml"})
 			require.Equal(t, []string{td[1]}, evals)
-			require.Equal(t, []string{td[0], ".github/skills/test-skill-a", ".github/skills/test-skill-b"}, skills)
+			require.Equal(t, []string{strings.ReplaceAll(td[0], "\\", "/"), ".github/skills/test-skill-a", ".github/skills/test-skill-b"}, skills)
 		})
 	}
 }
@@ -2370,8 +2370,7 @@ func testWazaRun(t *testing.T, cwd string, args []string) (evalNames []string, s
 			rel, err := filepath.Rel(tmp, sp)
 			require.NoError(t, err)
 
-			// normalize the skills to /'s.
-			skillsLoaded = append(skillsLoaded, strings.ReplaceAll(rel, "\\", "/"))
+			skillsLoaded = append(skillsLoaded, filepath.ToSlash(rel))
 		}
 
 		return sess, nil
