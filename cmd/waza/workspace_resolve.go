@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/microsoft/waza/internal/projectconfig"
 	"github.com/microsoft/waza/internal/workspace"
@@ -14,13 +15,23 @@ func configDetectOptions() []workspace.DetectOption {
 	if err != nil {
 		return nil
 	}
+
 	cfg, err := projectconfig.Load(wd)
 	if err != nil {
 		return nil
 	}
+
+	skillsDir := cfg.Paths.Skills
+	evalsDir := cfg.Paths.Evals
+
+	if cfg.Dir != "" {
+		skillsDir = filepath.Join(cfg.Dir, skillsDir)
+		evalsDir = filepath.Join(cfg.Dir, evalsDir)
+	}
+
 	return []workspace.DetectOption{
-		workspace.WithSkillsDir(cfg.Paths.Skills),
-		workspace.WithEvalsDir(cfg.Paths.Evals),
+		workspace.WithSkillsDir(skillsDir),
+		workspace.WithEvalsDir(evalsDir),
 	}
 }
 
@@ -37,6 +48,7 @@ func resolveWorkspace(args []string) (*workspace.WorkspaceContext, error) {
 	if err != nil {
 		return nil, fmt.Errorf("getting working directory: %w", err)
 	}
+
 	ctx, err := workspace.DetectContext(wd, configDetectOptions()...)
 	if err != nil {
 		return nil, fmt.Errorf("detecting workspace: %w", err)
@@ -72,22 +84,22 @@ func resolveEvalPath(si *workspace.SkillInfo) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("getting working directory: %w", err)
 	}
-	ctx, err := workspace.DetectContext(wd, configDetectOptions()...)
+	wsCtx, err := workspace.DetectContext(wd, configDetectOptions()...)
 	if err != nil {
 		return "", fmt.Errorf("detecting workspace: %w", err)
 	}
 	// Ensure the skill is in the context so FindEval can locate it
 	found := false
-	for _, s := range ctx.Skills {
+	for _, s := range wsCtx.Skills {
 		if s.Name == si.Name {
 			found = true
 			break
 		}
 	}
 	if !found {
-		ctx.Skills = append(ctx.Skills, *si)
+		wsCtx.Skills = append(wsCtx.Skills, *si)
 	}
-	evalPath, err := workspace.FindEval(ctx, si.Name)
+	evalPath, err := workspace.FindEval(wsCtx, si.Name)
 	if err != nil {
 		return "", err
 	}

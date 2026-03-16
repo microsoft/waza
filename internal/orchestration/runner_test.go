@@ -244,7 +244,7 @@ description: Validate Azure config
 				EngineType:     "mock",
 				ModelID:        "gpt-4",
 				TimeoutSec:     60,
-				RunsPerTest:    1,
+				TrialsPerTask:  1,
 				SkillPaths:     []string{skill1Dir, skill2Dir, skill3Dir},
 				RequiredSkills: []string{"azure-deploy", "azure-prepare", "azure-validate"},
 			},
@@ -267,7 +267,7 @@ description: Validate Azure config
 				EngineType:     "mock",
 				ModelID:        "gpt-4",
 				TimeoutSec:     60,
-				RunsPerTest:    1,
+				TrialsPerTask:  1,
 				SkillPaths:     []string{skill1Dir}, // Only has azure-deploy
 				RequiredSkills: []string{"azure-deploy", "azure-prepare", "azure-validate"},
 			},
@@ -294,7 +294,7 @@ description: Validate Azure config
 				EngineType:     "mock",
 				ModelID:        "gpt-4",
 				TimeoutSec:     60,
-				RunsPerTest:    1,
+				TrialsPerTask:  1,
 				SkillPaths:     []string{skill1Dir},
 				RequiredSkills: []string{}, // Empty list
 			},
@@ -314,11 +314,11 @@ description: Validate Azure config
 			},
 			SkillName: "azure-deploy",
 			Config: models.Config{
-				EngineType:  "mock",
-				ModelID:     "gpt-4",
-				TimeoutSec:  60,
-				RunsPerTest: 1,
-				SkillPaths:  []string{skill1Dir},
+				EngineType:    "mock",
+				ModelID:       "gpt-4",
+				TimeoutSec:    60,
+				TrialsPerTask: 1,
+				SkillPaths:    []string{skill1Dir},
 				// RequiredSkills not set (nil)
 			},
 		}
@@ -340,7 +340,7 @@ description: Validate Azure config
 				EngineType:     "mock",
 				ModelID:        "gpt-4",
 				TimeoutSec:     60,
-				RunsPerTest:    1,
+				TrialsPerTask:  1,
 				SkillPaths:     []string{}, // Empty
 				RequiredSkills: []string{"azure-deploy"},
 			},
@@ -364,7 +364,7 @@ description: Validate Azure config
 				EngineType:     "mock",
 				ModelID:        "gpt-4",
 				TimeoutSec:     60,
-				RunsPerTest:    1,
+				TrialsPerTask:  1,
 				SkillPaths:     []string{"skill1", "skill2"}, // Relative paths
 				RequiredSkills: []string{"azure-deploy", "azure-prepare"},
 			},

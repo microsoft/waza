@@ -120,7 +120,7 @@ func TestResolveSpecPaths_ExplicitEvalYaml(t *testing.T) {
 	paths, err := resolveSpecPaths([]string{"some/eval.yaml"})
 	require.NoError(t, err)
 	require.Len(t, paths, 1)
-	assert.Equal(t, "some/eval.yaml", paths[0].specPath)
+	assert.Equal(t, "some/eval.yaml", paths[0].evalSpecPath)
 }
 
 func TestResolveSpecPaths_MultiSkill(t *testing.T) {

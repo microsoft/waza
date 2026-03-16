@@ -409,10 +409,10 @@ func TestCacheKey_DifferentRunsPerTaskChangesKey(t *testing.T) {
 		SpecIdentity: models.SpecIdentity{Name: "test"},
 		SkillName:    "skill",
 		Config: models.Config{
-			ModelID:     "gpt-4",
-			EngineType:  "copilot-sdk",
-			TimeoutSec:  300,
-			RunsPerTest: 3,
+			ModelID:       "gpt-4",
+			EngineType:    "copilot-sdk",
+			TimeoutSec:    300,
+			TrialsPerTask: 3,
 		},
 	}
 
@@ -420,10 +420,10 @@ func TestCacheKey_DifferentRunsPerTaskChangesKey(t *testing.T) {
 		SpecIdentity: models.SpecIdentity{Name: "test"},
 		SkillName:    "skill",
 		Config: models.Config{
-			ModelID:     "gpt-4",
-			EngineType:  "copilot-sdk",
-			TimeoutSec:  300,
-			RunsPerTest: 5, // Different runs
+			ModelID:       "gpt-4",
+			EngineType:    "copilot-sdk",
+			TimeoutSec:    300,
+			TrialsPerTask: 5, // Different runs
 		},
 	}
 
@@ -449,10 +449,10 @@ func TestCacheKey_NoHashCollision(t *testing.T) {
 		SpecIdentity: models.SpecIdentity{Name: "ab"},
 		SkillName:    "cd",
 		Config: models.Config{
-			ModelID:     "gpt-4",
-			EngineType:  "copilot-sdk",
-			TimeoutSec:  300,
-			RunsPerTest: 1,
+			ModelID:       "gpt-4",
+			EngineType:    "copilot-sdk",
+			TimeoutSec:    300,
+			TrialsPerTask: 1,
 		},
 	}
 
@@ -460,10 +460,10 @@ func TestCacheKey_NoHashCollision(t *testing.T) {
 		SpecIdentity: models.SpecIdentity{Name: "abc"},
 		SkillName:    "d",
 		Config: models.Config{
-			ModelID:     "gpt-4",
-			EngineType:  "copilot-sdk",
-			TimeoutSec:  300,
-			RunsPerTest: 1,
+			ModelID:       "gpt-4",
+			EngineType:    "copilot-sdk",
+			TimeoutSec:    300,
+			TrialsPerTask: 1,
 		},
 	}
 

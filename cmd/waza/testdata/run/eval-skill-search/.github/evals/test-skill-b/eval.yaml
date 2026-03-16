@@ -1,0 +1,16 @@
+name: eval-b
+skill: test-skill-b
+version: ""
+config:
+    trials_per_task: 1
+    timeout_seconds: 100
+    parallel: false
+    executor: copilot-sdk
+    model: mymodel
+range:
+    - 0
+    - 0
+graders: []
+metrics: []
+tasks:
+    - tasks/*

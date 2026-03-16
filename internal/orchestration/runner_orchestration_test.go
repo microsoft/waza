@@ -65,11 +65,11 @@ graders:
 		SpecIdentity: models.SpecIdentity{Name: "orchestration-sequential"},
 		SkillName:    "test-skill",
 		Config: models.Config{
-			RunsPerTest: 2,
-			TimeoutSec:  30,
-			EngineType:  "mock",
-			ModelID:     "mock-model",
-			GroupBy:     "model",
+			TrialsPerTask: 2,
+			TimeoutSec:    30,
+			EngineType:    "mock",
+			ModelID:       "mock-model",
+			GroupBy:       "model",
 		},
 		Graders: []models.GraderConfig{
 			{
@@ -161,12 +161,12 @@ inputs:
 		SpecIdentity: models.SpecIdentity{Name: "orchestration-concurrent"},
 		SkillName:    "test-skill",
 		Config: models.Config{
-			RunsPerTest: 1,
-			TimeoutSec:  30,
-			EngineType:  "mock",
-			ModelID:     "mock-model",
-			Concurrent:  true,
-			Workers:     2,
+			TrialsPerTask: 1,
+			TimeoutSec:    30,
+			EngineType:    "mock",
+			ModelID:       "mock-model",
+			Concurrent:    true,
+			Workers:       2,
 		},
 		Graders: []models.GraderConfig{
 			{
@@ -203,10 +203,10 @@ inputs:
 		SpecIdentity: models.SpecIdentity{Name: "skip-graders"},
 		SkillName:    "test-skill",
 		Config: models.Config{
-			RunsPerTest: 2,
-			TimeoutSec:  30,
-			EngineType:  "mock",
-			ModelID:     "mock-model",
+			TrialsPerTask: 2,
+			TimeoutSec:    30,
+			EngineType:    "mock",
+			ModelID:       "mock-model",
 		},
 		Tasks: []string{"tasks/*.yaml"},
 	}
@@ -370,7 +370,7 @@ func TestLoadResources_PathValidation(t *testing.T) {
 }
 
 func TestBuildGraderContextAndScoreHelpers(t *testing.T) {
-	spec := &models.BenchmarkSpec{Config: models.Config{RunsPerTest: 2}}
+	spec := &models.BenchmarkSpec{Config: models.Config{TrialsPerTask: 2}}
 	runner := NewTestRunner(config.NewBenchmarkConfig(spec), nil)
 
 	content := "hi"
@@ -455,10 +455,10 @@ func TestRunTest_CacheHitAndTranscriptWrite(t *testing.T) {
 	spec := &models.BenchmarkSpec{
 		SkillName: "cache-skill",
 		Config: models.Config{
-			RunsPerTest: 1,
-			TimeoutSec:  30,
-			EngineType:  "mock",
-			ModelID:     "mock-model",
+			TrialsPerTask: 1,
+			TimeoutSec:    30,
+			EngineType:    "mock",
+			ModelID:       "mock-model",
 		},
 		Graders: []models.GraderConfig{
 			{

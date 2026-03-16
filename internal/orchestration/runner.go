@@ -256,14 +256,14 @@ func (r *TestRunner) runNormalBenchmark(ctx context.Context) (*models.Evaluation
 	}
 
 	// Compute statistics
-	digest := BuildDigest(testOutcomes, time.Since(startTime).Milliseconds(), spec.Config.RunsPerTest)
+	digest := BuildDigest(testOutcomes, time.Since(startTime).Milliseconds(), spec.Config.TrialsPerTask)
 	outcome := &models.EvaluationOutcome{
 		RunID:       fmt.Sprintf("run-%d", time.Now().Unix()),
 		SkillTested: spec.SkillName,
 		BenchName:   spec.Name,
 		Timestamp:   startTime,
 		Setup: models.OutcomeSetup{
-			RunsPerTest: spec.Config.RunsPerTest,
+			RunsPerTest: spec.Config.TrialsPerTask,
 			ModelID:     spec.Config.ModelID,
 			EngineType:  spec.Config.EngineType,
 			TimeoutSec:  spec.Config.TimeoutSec,
@@ -906,7 +906,7 @@ func (r *TestRunner) writeTaskTranscript(tc *models.TestCase, outcome models.Tes
 
 func (r *TestRunner) runTestUncached(ctx context.Context, tc *models.TestCase, testNum, totalTests int) models.TestOutcome {
 	spec := r.cfg.Spec()
-	runsPerTest := spec.Config.RunsPerTest
+	runsPerTest := spec.Config.TrialsPerTask
 	maxAttempts := spec.Config.MaxAttempts
 	if maxAttempts < 1 {
 		maxAttempts = 1

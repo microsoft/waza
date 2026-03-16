@@ -2,20 +2,29 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
+	"sort"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	copilot "github.com/github/copilot-sdk/go"
+	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/graders"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 )
 
 // resetRunGlobals zeroes the package-level flag vars so prior tests don't leak.
@@ -44,6 +53,7 @@ func resetRunGlobals() {
 	reporters = nil
 	suggestFlag = false
 	updateSnapshots = false
+	newCopilotClientFn = nil
 }
 
 // helper creates a valid minimal eval spec YAML in a temp dir,
@@ -1767,7 +1777,7 @@ tasks:
 	// Run skill 1 with multi-model
 	modelOverrides = []string{"gpt-4o", "claude-sonnet"}
 
-	outcomes1, err := runCommandForSpec(nil, skillSpecPath{specPath: eval1, skillName: "code-explainer"})
+	outcomes1, err := runCommandForSpec(nil, skillSpecPath{evalSpecPath: eval1, skillName: "code-explainer"}, []string{})
 	if err != nil {
 		var testErr *TestFailureError
 		if !errors.As(err, &testErr) {
@@ -1780,7 +1790,7 @@ tasks:
 	})
 
 	// Run skill 2 with multi-model
-	outcomes2, err := runCommandForSpec(nil, skillSpecPath{specPath: eval2, skillName: "sql-generator"})
+	outcomes2, err := runCommandForSpec(nil, skillSpecPath{evalSpecPath: eval2, skillName: "sql-generator"}, []string{})
 	if err != nil {
 		var testErr *TestFailureError
 		if !errors.As(err, &testErr) {
@@ -2123,17 +2133,14 @@ tasks:
 	require.NoError(t, os.WriteFile(specPath, []byte(spec), 0o644))
 
 	// Change to dir so projectconfig.Load(".") finds .waza.yaml
-	origDir, err := os.Getwd()
-	require.NoError(t, err)
-	require.NoError(t, os.Chdir(dir))
-	t.Cleanup(func() { _ = os.Chdir(origDir) })
+	t.Chdir(dir)
 
 	cmd := newRunCommand()
 	cmd.SetArgs([]string{specPath})
 	cmd.SetOut(io.Discard)
 	cmd.SetErr(io.Discard)
 
-	err = cmd.Execute()
+	err := cmd.Execute()
 	assert.NoError(t, err)
 
 	// After execution, the globals should have been set from .waza.yaml
@@ -2189,10 +2196,7 @@ tasks:
 	require.NoError(t, os.WriteFile(specPath, []byte(spec), 0o644))
 
 	// Change to dir so projectconfig.Load(".") finds .waza.yaml
-	origDir, err := os.Getwd()
-	require.NoError(t, err)
-	require.NoError(t, os.Chdir(dir))
-	t.Cleanup(func() { _ = os.Chdir(origDir) })
+	t.Chdir(dir)
 
 	cmd := newRunCommand()
 	// Explicitly set CLI flags that should override .waza.yaml
@@ -2205,7 +2209,7 @@ tasks:
 	cmd.SetOut(io.Discard)
 	cmd.SetErr(io.Discard)
 
-	err = cmd.Execute()
+	err := cmd.Execute()
 	assert.NoError(t, err)
 
 	// CLI flags should override .waza.yaml values
@@ -2263,7 +2267,7 @@ metrics: []
 	format = "default"
 
 	// Call
-	results, err := runCommandForSpec(nil, skillSpecPath{specPath: specPath})
+	results, err := runCommandForSpec(nil, skillSpecPath{evalSpecPath: specPath}, nil)
 	require.NoError(t, err)
 	require.Len(t, results, 1)
 	require.NotNil(t, results[0].outcome)
@@ -2271,4 +2275,159 @@ metrics: []
 	// Check overrides
 	require.Len(t, results[0].outcome.TestOutcomes, 1)
 	assert.Len(t, results[0].outcome.TestOutcomes[0].Runs, 3)
+}
+
+func TestRun_Skills_RunAtRoot_NoArgs(t *testing.T) {
+	resetRunGlobals()
+	evals, skills := testWazaRun(t, "", []string{})
+	require.Equal(t, []string{"eval-a", "eval-b"}, evals)
+	require.Equal(t, []string{".", ".github/skills/test-skill-a", ".github/skills/test-skill-b"}, skills)
+}
+
+func TestRun_Skills_RunAtRoot_SpecificEval(t *testing.T) {
+	resetRunGlobals()
+	evals, skills := testWazaRun(t, "", []string{".github/evals/test-skill-a/eval.yaml"})
+	require.Equal(t, []string{"eval-a"}, evals)
+	require.Equal(t, []string{".", ".github/skills/test-skill-a", ".github/skills/test-skill-b"}, skills)
+}
+
+func TestRun_Skills_RunInsideSkillFolder(t *testing.T) {
+	resetRunGlobals()
+
+	for _, td := range [][]string{
+		{filepath.Join(".github", "skills", "test-skill-a"), "eval-a"},
+		{filepath.Join(".github", "skills", "test-skill-b"), "eval-b"},
+	} {
+		t.Run(fmt.Sprintf("cwd=%s", td[0]), func(t *testing.T) {
+			evals, skills := testWazaRun(t, td[0], []string{})
+			require.Equal(t, []string{td[1]}, evals)
+			require.Equal(t, []string{".github/skills/test-skill-a", ".github/skills/test-skill-b"}, skills)
+		})
+	}
+}
+
+func TestRun_Skills_RunAtSkillRoot(t *testing.T) {
+	resetRunGlobals()
+
+	evals, skills := testWazaRun(t, filepath.Join(".github", "skills"), []string{})
+	require.Equal(t, []string{"eval-a", "eval-b"}, evals)
+	require.Equal(t, []string{".github/skills", ".github/skills/test-skill-a", ".github/skills/test-skill-b"}, skills)
+
+}
+
+func TestRun_Skills_RunAtEvalsRoot(t *testing.T) {
+	resetRunGlobals()
+
+	evals, skills := testWazaRun(t, filepath.Join(".github", "evals"), []string{})
+	require.Equal(t, []string{"eval-a", "eval-b"}, evals)
+	require.Equal(t, []string{".github/evals", ".github/skills/test-skill-a", ".github/skills/test-skill-b"}, skills)
+}
+
+func TestRun_Skills_RunInsideEvalFolder(t *testing.T) {
+	resetRunGlobals()
+
+	for _, td := range [][]string{
+		{filepath.Join(".github", "evals", "test-skill-a"), "eval-a"},
+		{filepath.Join(".github", "evals", "test-skill-b"), "eval-b"},
+	} {
+		t.Run(fmt.Sprintf("cwd=%s", td[0]), func(t *testing.T) {
+			evals, skills := testWazaRun(t, td[0], []string{"eval.yaml"})
+			require.Equal(t, []string{td[1]}, evals)
+			require.Equal(t, []string{td[0], ".github/skills/test-skill-a", ".github/skills/test-skill-b"}, skills)
+		})
+	}
+}
+
+func mustCreateFiles(t *testing.T) string {
+	tmp := t.TempDir()
+
+	destFS := os.DirFS("testdata/run/eval-skill-search")
+
+	err := os.CopyFS(tmp, destFS)
+	require.NoError(t, err)
+
+	return tmp
+}
+
+func testWazaRun(t *testing.T, cwd string, args []string) (evalNames []string, skillsLoaded []string) {
+	tmp := mustCreateFiles(t)
+
+	cwd = filepath.Join(tmp, cwd)
+
+	// TODO: we need to figure out which evals were selected.
+	ctrl := gomock.NewController(t)
+	client := NewMockCopilotClient(ctrl)
+	sess := NewMockCopilotSession(ctrl)
+
+	// currently, each run of an eval spec requires us a new copilot engine.
+	client.EXPECT().Start(gomock.Any()).AnyTimes()
+	client.EXPECT().Stop().AnyTimes()
+
+	client.EXPECT().CreateSession(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, config *copilot.SessionConfig) (execution.CopilotSession, error) {
+		require.NotEmpty(t, config.SkillDirectories, "all of our tests expect some skills to be found")
+
+		for _, sp := range config.SkillDirectories {
+			rel, err := filepath.Rel(tmp, sp)
+			require.NoError(t, err)
+
+			// normalize the skills to /'s.
+			skillsLoaded = append(skillsLoaded, strings.ReplaceAll(rel, "\\", "/"))
+		}
+
+		return sess, nil
+	}).AnyTimes()
+
+	sessionIDCounter := &atomic.Int32{}
+
+	sess.EXPECT().SessionID().DoAndReturn(func() string {
+		id := sessionIDCounter.Add(1)
+		return fmt.Sprintf("ID: %d", id)
+	}).AnyTimes()
+	sess.EXPECT().SendAndWait(gomock.Any(), gomock.Any()).AnyTimes()
+	sess.EXPECT().On(gomock.Any()).Return(func() {}).AnyTimes()
+	sess.EXPECT().Disconnect().AnyTimes()
+	client.EXPECT().DeleteSession(gomock.Any(), gomock.Any()).AnyTimes()
+
+	newCopilotClientFn = func(clientOptions *copilot.ClientOptions) execution.CopilotClient {
+		return client
+	}
+
+	t.Chdir(cwd)
+
+	cmd := newRunCommand()
+
+	outputFolder := filepath.Join(tmp, "output")
+	args = append(args, "--output-dir", outputFolder)
+	cmd.SetArgs(args)
+
+	err := cmd.Execute()
+	require.NoError(t, err)
+
+	evalNamesMap := map[string]bool{}
+
+	err = filepath.WalkDir(outputFolder, func(path string, d fs.DirEntry, err error) error {
+		require.NoError(t, err)
+
+		if filepath.Ext(d.Name()) != ".json" {
+			return nil
+		}
+
+		var eo *models.EvaluationOutcome
+
+		// deserialize, uniqify the names, and use that to validate which skills were invoked.
+		jsonBytes, err := os.ReadFile(path)
+		require.NoError(t, err)
+
+		err = json.Unmarshal(jsonBytes, &eo)
+		require.NoError(t, err)
+
+		// ex: "eval-a"
+		evalNamesMap[eo.BenchName] = true
+		return nil
+	})
+	require.NoError(t, err)
+
+	sort.Strings(skillsLoaded)
+
+	return slices.Sorted(maps.Keys(evalNamesMap)), slices.Compact(skillsLoaded)
 }

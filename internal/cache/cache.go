@@ -52,7 +52,7 @@ func CacheKey(spec *models.BenchmarkSpec, task *models.TestCase, fixtureDir stri
 	if err := writeInt(h, spec.Config.TimeoutSec); err != nil {
 		return "", err
 	}
-	if err := writeInt(h, spec.Config.RunsPerTest); err != nil {
+	if err := writeInt(h, spec.Config.TrialsPerTask); err != nil {
 		return "", err
 	}
 	if err := writeInt(h, spec.Config.MaxAttempts); err != nil {

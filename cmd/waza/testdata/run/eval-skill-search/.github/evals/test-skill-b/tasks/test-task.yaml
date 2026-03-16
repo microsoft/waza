@@ -1,0 +1,4 @@
+name: test-skill-b
+inputs:
+    prompt: this is test skill b's test prompt
+id: test-skill-b

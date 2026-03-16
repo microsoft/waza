@@ -37,8 +37,8 @@ config:
 	if spec.SkillName != "test-skill" {
 		t.Errorf("Expected skill 'test-skill', got '%s'", spec.SkillName)
 	}
-	if spec.Config.RunsPerTest != 2 {
-		t.Errorf("Expected 2 trials, got %d", spec.Config.RunsPerTest)
+	if spec.Config.TrialsPerTask != 2 {
+		t.Errorf("Expected 2 trials, got %d", spec.Config.TrialsPerTask)
 	}
 }
 
@@ -163,8 +163,8 @@ config:
 	}
 
 	// Check loaded values
-	if spec.Config.RunsPerTest != 1 {
-		t.Errorf("Expected trials=1, got %d", spec.Config.RunsPerTest)
+	if spec.Config.TrialsPerTask != 1 {
+		t.Errorf("Expected trials=1, got %d", spec.Config.TrialsPerTask)
 	}
 	if spec.Config.TimeoutSec != 300 {
 		t.Errorf("Expected timeout=300, got %d", spec.Config.TimeoutSec)

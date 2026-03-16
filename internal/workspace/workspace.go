@@ -118,7 +118,16 @@ func DetectContext(dir string, opts ...DetectOption) (*WorkspaceContext, error) 
 	}
 
 	// 3. Check for configured skills subdirectory with SKILL.md children
-	skillsDir := filepath.Join(absDir, o.skillsDir)
+	var skillsDir string
+
+	// in some situations we have an absolute path to the skillsDir (for instance, from .waza.yaml)
+	// and it'd be incorrect to use a relative path.
+	if filepath.IsAbs(o.skillsDir) {
+		skillsDir = o.skillsDir
+	} else {
+		skillsDir = filepath.Join(absDir, o.skillsDir)
+	}
+
 	var skills []SkillInfo
 	if isDir(skillsDir) {
 		skills = scanForSkills(skillsDir)
@@ -175,19 +184,28 @@ func FindSkill(ctx *WorkspaceContext, name string) (*SkillInfo, error) {
 // 2. {skill-dir}/evals/eval.yaml          (nested subdir)
 // 3. {skill-dir}/eval.yaml                (co-located/legacy)
 // Returns empty string if none found (not an error).
-func FindEval(ctx *WorkspaceContext, skillName string) (string, error) {
-	si, err := FindSkill(ctx, skillName)
+func FindEval(wsCtx *WorkspaceContext, skillName string) (string, error) {
+	si, err := FindSkill(wsCtx, skillName)
 	if err != nil {
 		return "", err
 	}
 
-	evalsDir := ctx.EvalsDir
+	evalsDir := wsCtx.EvalsDir
 	if evalsDir == "" {
 		evalsDir = "evals"
 	}
 
 	// Priority 1: separated convention
-	separated := filepath.Join(ctx.Root, evalsDir, skillName, "eval.yaml")
+	var separated string
+
+	// in some situations we have an absolute path to the evalsDir (for instance, from .waza.yaml)
+	// and it'd be incorrect to use a relative path.
+	if !filepath.IsAbs(evalsDir) {
+		separated = filepath.Join(wsCtx.Root, evalsDir, skillName, "eval.yaml")
+	} else {
+		separated = filepath.Join(evalsDir, skillName, "eval.yaml")
+	}
+
 	if isFile(separated) {
 		return separated, nil
 	}
