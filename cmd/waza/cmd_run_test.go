@@ -2370,6 +2370,8 @@ func testWazaRun(t *testing.T, cwd string, args []string) (evalNames []string, s
 			rel, err := filepath.Rel(tmp, sp)
 			require.NoError(t, err)
 
+			t.Logf("Root path is %s, skill path is %s", tmp, sp)
+
 			skillsLoaded = append(skillsLoaded, filepath.ToSlash(rel))
 		}
 
