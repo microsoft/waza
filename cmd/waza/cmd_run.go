@@ -196,10 +196,23 @@ func runCommandE(cmd *cobra.Command, args []string) error {
 			skillsPath = filepath.Join(cfg.Dir, skillsPath)
 		}
 
+		stat, err := os.Stat(skillsPath)
+
 		// it's possible for the user to run waza where all they care about is what's in the current folder
-		// and it won't conform to our default .waza.yaml structure. So we'll just bypass this discovery
+		// and it won't conform to our default .waza.yaml structure. We'll bypass this skill discovery
 		// if the skill folder doesn't exist.
-		if _, err := os.Stat(skillsPath); err == nil {
+		switch {
+		case err != nil && errors.Is(err, os.ErrNotExist):
+			slog.Warn("skills folder is not a directory, skipping skills discovery",
+				slog.String("path", skillsPath))
+		case err != nil:
+			slog.Warn("error accessing skills folder, will not do skills discovery",
+				slog.String("error", err.Error()),
+				slog.String("path", skillsPath))
+		case !stat.IsDir():
+			slog.Warn("skills folder is not a directory, will not do skills discovery",
+				slog.String("path", skillsPath))
+		default:
 			discoveredSkills, err := discovery.Discover(skillsPath)
 
 			if err != nil {
