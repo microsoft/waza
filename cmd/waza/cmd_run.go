@@ -203,7 +203,7 @@ func runCommandE(cmd *cobra.Command, args []string) error {
 		// if the skill folder doesn't exist.
 		switch {
 		case err != nil && errors.Is(err, os.ErrNotExist):
-			slog.Warn("skills folder is not a directory, skipping skills discovery",
+			slog.Warn("skills folder does not exist, skipping skills discovery",
 				slog.String("path", skillsPath))
 		case err != nil:
 			slog.Warn("error accessing skills folder, will not do skills discovery",
