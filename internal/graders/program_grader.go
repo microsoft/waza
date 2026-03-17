@@ -52,7 +52,7 @@ func NewProgramGrader(name string, args models.ProgramGraderParameters) (*progra
 }
 
 func (pg *programGrader) Name() string            { return pg.name }
-func (pg *programGrader) Kind() models.GraderType { return models.GraderTypeProgram }
+func (pg *programGrader) Type() models.GraderType { return models.GraderTypeProgram }
 
 func (pg *programGrader) Grade(ctx context.Context, gradingContext *Context) (*models.GraderResults, error) {
 	return measureTime(func() (*models.GraderResults, error) {

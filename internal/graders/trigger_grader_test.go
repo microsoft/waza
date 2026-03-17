@@ -49,7 +49,7 @@ func TestTriggerHeuristicGrader_PositiveAndNegativeModes(t *testing.T) {
 			Mode:      "positive",
 		})
 		require.NoError(t, err)
-		require.Equal(t, models.GraderTypeTrigger, g.Kind())
+		require.Equal(t, models.GraderTypeTrigger, g.Type())
 
 		result, err := g.Grade(context.Background(), &Context{
 			TaskSpec: &models.TaskSpec{
@@ -152,7 +152,7 @@ func TestTriggerHeuristicGrader_ViaCreate(t *testing.T) {
 		Threshold: &threshold,
 	})
 	require.NoError(t, err)
-	require.Equal(t, models.GraderTypeTrigger, g.Kind())
+	require.Equal(t, models.GraderTypeTrigger, g.Type())
 }
 
 func writeTestSkillFile(t *testing.T) string {

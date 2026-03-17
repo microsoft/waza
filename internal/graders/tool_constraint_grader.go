@@ -78,7 +78,7 @@ func NewToolConstraintGrader(name string, params models.ToolConstraintGraderPara
 }
 
 func (tc *toolConstraintGrader) Name() string            { return tc.name }
-func (tc *toolConstraintGrader) Kind() models.GraderType { return models.GraderTypeToolConstraint }
+func (tc *toolConstraintGrader) Type() models.GraderType { return models.GraderTypeToolConstraint }
 
 func (tc *toolConstraintGrader) Grade(ctx context.Context, gradingContext *Context) (*models.GraderResults, error) {
 	return measureTime(func() (*models.GraderResults, error) {

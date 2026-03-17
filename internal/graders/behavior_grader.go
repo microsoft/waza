@@ -38,7 +38,7 @@ func NewBehaviorGrader(name string, params models.BehaviorGraderParameters) (*be
 }
 
 func (bg *behaviorGrader) Name() string            { return bg.name }
-func (bg *behaviorGrader) Kind() models.GraderType { return models.GraderTypeBehavior }
+func (bg *behaviorGrader) Type() models.GraderType { return models.GraderTypeBehavior }
 
 func (bg *behaviorGrader) Grade(ctx context.Context, gradingContext *Context) (*models.GraderResults, error) {
 	return measureTime(func() (*models.GraderResults, error) {

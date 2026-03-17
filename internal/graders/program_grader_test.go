@@ -17,7 +17,7 @@ func TestProgramGrader_Basic(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	require.Equal(t, models.GraderTypeProgram, g.Kind())
+	require.Equal(t, models.GraderTypeProgram, g.Type())
 	require.Equal(t, "test", g.Name())
 }
 
@@ -188,7 +188,7 @@ func TestProgramGrader_ViaCreate(t *testing.T) {
 		})
 		require.NoError(t, err)
 		require.Equal(t, "from-create", g.Name())
-		require.Equal(t, models.GraderTypeProgram, g.Kind())
+		require.Equal(t, models.GraderTypeProgram, g.Type())
 
 		results, err := g.Grade(context.Background(), &Context{
 			Output:       "test",

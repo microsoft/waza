@@ -68,7 +68,7 @@ func NewTriggerHeuristicGrader(name string, params models.TriggerHeuristicGrader
 }
 
 func (g *triggerHeuristicGrader) Name() string            { return g.name }
-func (g *triggerHeuristicGrader) Kind() models.GraderType { return models.GraderTypeTrigger }
+func (g *triggerHeuristicGrader) Type() models.GraderType { return models.GraderTypeTrigger }
 
 func (g *triggerHeuristicGrader) Grade(ctx context.Context, gradingContext *Context) (*models.GraderResults, error) {
 	return measureTime(func() (*models.GraderResults, error) {

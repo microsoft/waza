@@ -46,8 +46,8 @@ func (p *promptGrader) Grade(ctx context.Context, gradingContext *Context) (*mod
 	return p.gradeIndependent(ctx, gradingContext)
 }
 
-// Kind implements [Grader].
-func (p *promptGrader) Kind() models.GraderType {
+// Type implements [Grader].
+func (p *promptGrader) Type() models.GraderType {
 	return models.GraderTypePrompt
 }
 
@@ -138,7 +138,7 @@ func (p *promptGrader) gradeIndependent(ctx context.Context, gradingContext *Con
 
 		return &models.GraderResults{
 			Name:     p.name,
-			Type:     p.Kind(),
+			Type:     p.Type(),
 			Passed:   len(wazaTools.Failures) == 0 && len(wazaTools.Passes) > 0,
 			Score:    score,
 			Feedback: feedback,
@@ -280,7 +280,7 @@ func (p *promptGrader) gradePairwise(ctx context.Context, gradingContext *Contex
 
 		return &models.GraderResults{
 			Name:   p.name,
-			Type:   p.Kind(),
+			Type:   p.Type(),
 			Passed: passed,
 			Score:  score,
 			Feedback: fmt.Sprintf("pairwise: winner=%s, magnitude=%s, consistent=%v",

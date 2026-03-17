@@ -72,7 +72,7 @@ func TestInlineScriptGrader(t *testing.T) {
 		}})
 		require.NoError(t, err)
 		require.Equal(t, "test", grader.Name())
-		require.Equal(t, models.GraderTypeInlineScript, grader.Kind())
+		require.Equal(t, models.GraderTypeInlineScript, grader.Type())
 
 		results, err := grader.Grade(context.Background(), &Context{})
 		require.NoError(t, err)

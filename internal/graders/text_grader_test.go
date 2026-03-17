@@ -12,7 +12,7 @@ func TestTextGrader_Basic(t *testing.T) {
 	g, err := NewTextGrader("test", models.TextGraderParameters{RegexMatch: []string{`he.*`, `world`}})
 	require.NoError(t, err)
 
-	require.Equal(t, models.GraderTypeText, g.Kind())
+	require.Equal(t, models.GraderTypeText, g.Type())
 	require.Equal(t, "test", g.Name())
 }
 
@@ -393,7 +393,7 @@ func TestTextGrader_ViaCreate(t *testing.T) {
 		})
 		require.NoError(t, err)
 		require.Equal(t, "from-create", g.Name())
-		require.Equal(t, models.GraderTypeText, g.Kind())
+		require.Equal(t, models.GraderTypeText, g.Type())
 
 		results, err := g.Grade(context.Background(), &Context{
 			Output: "hello world",

@@ -33,7 +33,7 @@ func NewJSONSchemaGrader(name string, args models.JSONSchemaGraderParameters) (*
 }
 
 func (jsg *jsonSchemaGrader) Name() string            { return jsg.name }
-func (jsg *jsonSchemaGrader) Kind() models.GraderType { return models.GraderTypeJSONSchema }
+func (jsg *jsonSchemaGrader) Type() models.GraderType { return models.GraderTypeJSONSchema }
 
 func (jsg *jsonSchemaGrader) Grade(ctx context.Context, gradingContext *Context) (*models.GraderResults, error) {
 	return measureTime(func() (*models.GraderResults, error) {

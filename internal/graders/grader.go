@@ -16,7 +16,7 @@ type Grader interface {
 	Name() string
 
 	// Category returns the validator type
-	Kind() models.GraderType
+	Type() models.GraderType
 
 	// Validate performs validation and returns a result
 	Grade(ctx context.Context, gradingContext *Context) (*models.GraderResults, error)

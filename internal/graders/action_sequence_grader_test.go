@@ -19,7 +19,7 @@ func TestActionSequenceGrader_Basic(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	require.Equal(t, models.GraderTypeActionSequence, g.Kind())
+	require.Equal(t, models.GraderTypeActionSequence, g.Type())
 	require.Equal(t, "test", g.Name())
 }
 
@@ -535,12 +535,12 @@ func TestActionSequenceGrader_EdgeCases(t *testing.T) {
 func TestActionSequenceGrader_ViaCreate(t *testing.T) {
 	t.Run("Create with GraderTypeActionSequence works", func(t *testing.T) {
 		g, err := Create("from-create", models.ActionSequenceGraderParameters{
-			MatchingMode:    "exact_match",
+ 			MatchingMode:    "exact_match",
 			ExpectedActions: []string{"read_file", "write_file"},
 		})
 		require.NoError(t, err)
 		require.Equal(t, "from-create", g.Name())
-		require.Equal(t, models.GraderTypeActionSequence, g.Kind())
+		require.Equal(t, models.GraderTypeActionSequence, g.Type())
 
 		results, err := g.Grade(context.Background(), &Context{
 			Session: &models.SessionDigest{

@@ -39,7 +39,7 @@ func NewFileGrader(name string, args models.FileGraderParameters) (*fileGrader, 
 }
 
 func (fg *fileGrader) Name() string            { return fg.name }
-func (fg *fileGrader) Kind() models.GraderType { return models.GraderTypeFile }
+func (fg *fileGrader) Type() models.GraderType { return models.GraderTypeFile }
 
 func (fg *fileGrader) Grade(ctx context.Context, gradingContext *Context) (*models.GraderResults, error) {
 	return measureTime(func() (*models.GraderResults, error) {

@@ -35,7 +35,7 @@ func NewTextGrader(name string, args models.TextGraderParameters) (*TextGrader, 
 }
 
 func (tg *TextGrader) Name() string            { return tg.name }
-func (tg *TextGrader) Kind() models.GraderType { return models.GraderTypeText }
+func (tg *TextGrader) Type() models.GraderType { return models.GraderTypeText }
 
 func (tg *TextGrader) Grade(ctx context.Context, gradingContext *Context) (*models.GraderResults, error) {
 	return measureTime(func() (*models.GraderResults, error) {

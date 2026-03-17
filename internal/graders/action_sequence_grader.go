@@ -39,7 +39,7 @@ func NewActionSequenceGrader(name string, params models.ActionSequenceGraderPara
 }
 
 func (g *actionSequenceGrader) Name() string            { return g.name }
-func (g *actionSequenceGrader) Kind() models.GraderType { return models.GraderTypeActionSequence }
+func (g *actionSequenceGrader) Type() models.GraderType { return models.GraderTypeActionSequence }
 
 func (g *actionSequenceGrader) Grade(ctx context.Context, gradingContext *Context) (*models.GraderResults, error) {
 	return measureTime(func() (*models.GraderResults, error) {
