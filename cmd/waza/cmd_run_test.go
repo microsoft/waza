@@ -2281,14 +2281,14 @@ func TestRun_Skills_RunAtRoot_NoArgs(t *testing.T) {
 	resetRunGlobals()
 	evals, skills := testWazaRun(t, "", []string{})
 	require.Equal(t, []string{"eval-a", "eval-b"}, evals)
-	require.Equal(t, []string{".", ".github/skills/test-skill-a", ".github/skills/test-skill-b"}, skills)
+	require.Equal(t, []string{"root", "test-skill-a", "test-skill-b"}, skills)
 }
 
 func TestRun_Skills_RunAtRoot_SpecificEval(t *testing.T) {
 	resetRunGlobals()
 	evals, skills := testWazaRun(t, "", []string{".github/evals/test-skill-a/eval.yaml"})
 	require.Equal(t, []string{"eval-a"}, evals)
-	require.Equal(t, []string{".", ".github/skills/test-skill-a", ".github/skills/test-skill-b"}, skills)
+	require.Equal(t, []string{"root", "test-skill-a", "test-skill-b"}, skills)
 }
 
 func TestRun_Skills_RunInsideSkillFolder(t *testing.T) {
@@ -2301,7 +2301,7 @@ func TestRun_Skills_RunInsideSkillFolder(t *testing.T) {
 		t.Run(fmt.Sprintf("cwd=%s", td[0]), func(t *testing.T) {
 			evals, skills := testWazaRun(t, td[0], []string{})
 			require.Equal(t, []string{td[1]}, evals)
-			require.Equal(t, []string{".github/skills/test-skill-a", ".github/skills/test-skill-b"}, skills)
+			require.Equal(t, []string{"test-skill-a", "test-skill-b"}, skills)
 		})
 	}
 }
@@ -2311,7 +2311,7 @@ func TestRun_Skills_RunAtSkillRoot(t *testing.T) {
 
 	evals, skills := testWazaRun(t, filepath.Join(".github", "skills"), []string{})
 	require.Equal(t, []string{"eval-a", "eval-b"}, evals)
-	require.Equal(t, []string{".github/skills", ".github/skills/test-skill-a", ".github/skills/test-skill-b"}, skills)
+	require.Equal(t, []string{"skills", "test-skill-a", "test-skill-b"}, skills)
 
 }
 
@@ -2320,7 +2320,7 @@ func TestRun_Skills_RunAtEvalsRoot(t *testing.T) {
 
 	evals, skills := testWazaRun(t, filepath.Join(".github", "evals"), []string{})
 	require.Equal(t, []string{"eval-a", "eval-b"}, evals)
-	require.Equal(t, []string{".github/evals", ".github/skills/test-skill-a", ".github/skills/test-skill-b"}, skills)
+	require.Equal(t, []string{"evals", "test-skill-a", "test-skill-b"}, skills)
 }
 
 func TestRun_Skills_RunInsideEvalFolder(t *testing.T) {
@@ -2333,17 +2333,21 @@ func TestRun_Skills_RunInsideEvalFolder(t *testing.T) {
 		t.Run(fmt.Sprintf("cwd=%s", td[0]), func(t *testing.T) {
 			evals, skills := testWazaRun(t, td[0], []string{"eval.yaml"})
 			require.Equal(t, []string{td[1]}, evals)
-			require.Equal(t, []string{strings.ReplaceAll(td[0], "\\", "/"), ".github/skills/test-skill-a", ".github/skills/test-skill-b"}, skills)
+			require.Equal(t, []string{"test-skill-a", "test-skill-b"}, skills)
 		})
 	}
 }
 
 func mustCreateFiles(t *testing.T) string {
 	tmp := t.TempDir()
+	tmp = filepath.Join(tmp, "root")
+
+	err := os.Mkdir(tmp, 0755)
+	require.NoError(t, err)
 
 	destFS := os.DirFS("testdata/run/eval-skill-search")
 
-	err := os.CopyFS(tmp, destFS)
+	err = os.CopyFS(tmp, destFS)
 	require.NoError(t, err)
 
 	return tmp
@@ -2367,12 +2371,7 @@ func testWazaRun(t *testing.T, cwd string, args []string) (evalNames []string, s
 		require.NotEmpty(t, config.SkillDirectories, "all of our tests expect some skills to be found")
 
 		for _, sp := range config.SkillDirectories {
-			rel, err := filepath.Rel(tmp, sp)
-			require.NoError(t, err)
-
-			t.Logf("Root path is %s, skill path is %s", tmp, sp)
-
-			skillsLoaded = append(skillsLoaded, filepath.ToSlash(rel))
+			skillsLoaded = append(skillsLoaded, filepath.Base(sp))
 		}
 
 		return sess, nil
