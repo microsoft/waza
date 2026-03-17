@@ -111,11 +111,11 @@ type StorageConfig struct {
 
 // ProjectConfig is the top-level configuration loaded from .waza.yaml.
 type ProjectConfig struct {
-	// Dir is the directory of the .waza.yaml file. If this projectconfig was not
+	// Dir is the directory of the .waza.yaml file. If this ProjectConfig was not
 	// loaded from disk then this field will be empty.
 	//
 	// Dir affects:
-	// 	- [Paths],
+	// 	- [ProjectConfig.Paths],
 	// 	- [ServerConfig.ResultsDir]
 	// 	- [CacheConfig.Dir]
 	Dir string `yaml:"-"`
