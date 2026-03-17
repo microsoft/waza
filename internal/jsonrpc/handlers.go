@@ -87,7 +87,7 @@ func (h *HandlerContext) handleEvalList(_ context.Context, params json.RawMessag
 		}
 		base := filepath.Base(path)
 		if base == "eval.yaml" || base == "eval.yml" {
-			spec, loadErr := models.LoadBenchmarkSpec(path)
+			spec, loadErr := models.LoadEvalSpec(path)
 			summary := EvalSummary{Path: path}
 			if loadErr == nil {
 				summary.Name = spec.Name
@@ -113,12 +113,12 @@ type EvalGetParams struct {
 }
 
 type EvalGetResult struct {
-	Name        string          `json:"name"`
-	Description string          `json:"description,omitempty"`
-	SkillName   string          `json:"skill,omitempty"`
-	Config      models.Config   `json:"config"`
-	Tasks       []string        `json:"tasks"`
-	Graders     []GraderSummary `json:"graders"`
+	Name        string            `json:"name"`
+	Description string            `json:"description,omitempty"`
+	SkillName   string            `json:"skill,omitempty"`
+	Config      models.EvalConfig `json:"config"`
+	Tasks       []string          `json:"tasks"`
+	Graders     []GraderSummary   `json:"graders"`
 }
 
 type GraderSummary struct {
@@ -139,7 +139,7 @@ func (h *HandlerContext) handleEvalGet(_ context.Context, params json.RawMessage
 		return nil, ErrEvalNotFound(p.Path)
 	}
 
-	spec, err := models.LoadBenchmarkSpec(p.Path)
+	spec, err := models.LoadEvalSpec(p.Path)
 	if err != nil {
 		return nil, ErrInternalError(err.Error())
 	}
@@ -191,7 +191,7 @@ func (h *HandlerContext) handleEvalValidate(_ context.Context, params json.RawMe
 		return nil, ErrInternalError(err.Error())
 	}
 
-	var spec models.BenchmarkSpec
+	var spec models.EvalSpec
 	var errs []string
 
 	if yerr := yaml.Unmarshal(data, &spec); yerr != nil {
@@ -253,7 +253,7 @@ func (h *HandlerContext) handleEvalRun(_ context.Context, params json.RawMessage
 	}
 
 	// Validate the spec can be loaded
-	if _, err := models.LoadBenchmarkSpec(p.Path); err != nil {
+	if _, err := models.LoadEvalSpec(p.Path); err != nil {
 		return nil, ErrValidationFailed(err.Error())
 	}
 
@@ -311,7 +311,7 @@ func (h *HandlerContext) handleTaskList(_ context.Context, params json.RawMessag
 		return nil, ErrEvalNotFound(p.Path)
 	}
 
-	spec, err := models.LoadBenchmarkSpec(p.Path)
+	spec, err := models.LoadEvalSpec(p.Path)
 	if err != nil {
 		return nil, ErrInternalError(err.Error())
 	}
@@ -324,7 +324,7 @@ func (h *HandlerContext) handleTaskList(_ context.Context, params json.RawMessag
 
 	var tasks []TaskSummary
 	for _, tf := range taskFiles {
-		tc, loadErr := models.LoadTestCase(tf)
+		tc, loadErr := models.LoadTaskSpec(tf)
 		if loadErr != nil {
 			tasks = append(tasks, TaskSummary{ID: tf, Name: filepath.Base(tf)})
 			continue
@@ -358,7 +358,7 @@ func (h *HandlerContext) handleTaskGet(_ context.Context, params json.RawMessage
 		return nil, ErrEvalNotFound(p.Path)
 	}
 
-	spec, err := models.LoadBenchmarkSpec(p.Path)
+	spec, err := models.LoadEvalSpec(p.Path)
 	if err != nil {
 		return nil, ErrInternalError(err.Error())
 	}
@@ -370,7 +370,7 @@ func (h *HandlerContext) handleTaskGet(_ context.Context, params json.RawMessage
 	}
 
 	for _, tf := range taskFiles {
-		tc, loadErr := models.LoadTestCase(tf)
+		tc, loadErr := models.LoadTaskSpec(tf)
 		if loadErr != nil {
 			continue
 		}

@@ -11,7 +11,7 @@ import (
 func TestCreateTestCaseFromCopilotLog_UsingSkillFixture(t *testing.T) {
 	testCopilotLog := filepath.Join("..", "..", "..", "internal", "testdata", "copilot_events_using_skill.json")
 
-	tc, err := CreateTestCaseFromCopilotLog(testCopilotLog, &CreateTestCaseFromCopilotLogOptions{
+	tc, err := CreateTaskSpecFromCopilotLog(testCopilotLog, &CreateTaskSpecFromCopilotLogOptions{
 		DisplayName: "fixture-case",
 		TestID:      "fixture-id",
 		Tags:        []string{"from-fixture"},
@@ -19,17 +19,17 @@ func TestCreateTestCaseFromCopilotLog_UsingSkillFixture(t *testing.T) {
 
 	require.NoError(t, err)
 
-	expected := &models.TestCase{
+	expected := &models.TaskSpec{
 		DisplayName: "fixture-case",
 		TestID:      "fixture-id",
 		Tags:        []string{"from-fixture"},
-		Stimulus: models.TestStimulus{
+		Stimulus: models.TaskInputs{
 			Message: "use the example horn",
 		},
-		Validators: []models.ValidatorInline{
+		Graders: []models.Grader{
 			{
 				Identifier: "skills-check",
-				Kind:       models.GraderKindSkillInvocation,
+				Type:       models.GraderKindSkillInvocation,
 				Parameters: models.SkillInvocationGraderParameters{
 					RequiredSkills: []string{"example"},
 					Mode:           models.SkillMatchingModeAnyOrder,
@@ -37,7 +37,7 @@ func TestCreateTestCaseFromCopilotLog_UsingSkillFixture(t *testing.T) {
 			},
 			{
 				Identifier: "tools-check",
-				Kind:       models.GraderKindToolConstraint,
+				Type:       models.GraderKindToolConstraint,
 				Parameters: models.ToolConstraintGraderParameters{
 					ExpectTools: []models.ToolSpecParameters{{
 						Tool:         "skill",
@@ -47,7 +47,7 @@ func TestCreateTestCaseFromCopilotLog_UsingSkillFixture(t *testing.T) {
 			},
 			{
 				Identifier: "check-response",
-				Kind:       models.GraderKindText,
+				Type:       models.GraderKindText,
 				Parameters: models.TextGraderParameters{
 					ContainsCS: []string{"yesyes"}, // response from the assistant in our test file
 				},

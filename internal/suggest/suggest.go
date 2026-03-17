@@ -329,7 +329,7 @@ func extractYAML(raw string) string {
 }
 
 func validateEvalYAML(raw string) error {
-	var spec models.BenchmarkSpec
+	var spec models.EvalSpec
 	if err := yaml.Unmarshal([]byte(raw), &spec); err != nil {
 		return fmt.Errorf("invalid eval_yaml: %w", err)
 	}

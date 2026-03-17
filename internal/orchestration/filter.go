@@ -13,12 +13,12 @@ import (
 //
 // If taskPatterns and tagPatterns are specified the result is the intersection of the matches between them.
 // If both taskPatterns and tagPatterns are empty, all test cases are returned.
-func FilterTestCases(testCases []*models.TestCase, taskPatterns []string, tagPatterns []string) ([]*models.TestCase, error) {
+func FilterTestCases(testCases []*models.TaskSpec, taskPatterns []string, tagPatterns []string) ([]*models.TaskSpec, error) {
 	if len(taskPatterns) == 0 && len(tagPatterns) == 0 {
 		return testCases, nil
 	}
 
-	var matched []*models.TestCase
+	var matched []*models.TaskSpec
 
 	for _, tc := range testCases {
 		taskNameMatch, err := matchesTaskOrDisplayName(tc, taskPatterns)
@@ -42,7 +42,7 @@ func FilterTestCases(testCases []*models.TestCase, taskPatterns []string, tagPat
 }
 
 // matchesTaskOrDisplayName reports whether a test case's DisplayName or TestID matches any pattern.
-func matchesTaskOrDisplayName(tc *models.TestCase, patterns []string) (bool, error) {
+func matchesTaskOrDisplayName(tc *models.TaskSpec, patterns []string) (bool, error) {
 	if len(patterns) == 0 {
 		return true, nil
 	}
@@ -71,7 +71,7 @@ func matchesTaskOrDisplayName(tc *models.TestCase, patterns []string) (bool, err
 	return false, nil
 }
 
-func matchesTags(tc *models.TestCase, patterns []string) (bool, error) {
+func matchesTags(tc *models.TaskSpec, patterns []string) (bool, error) {
 	if len(patterns) == 0 {
 		return true, nil
 	}

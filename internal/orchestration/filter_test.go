@@ -8,8 +8,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func sampleCases() []*models.TestCase {
-	return []*models.TestCase{
+func sampleCases() []*models.TaskSpec {
+	return []*models.TaskSpec{
 		{TestID: "tc-001", DisplayName: "Create a REST API", Tags: []string{"fast", "red"}},
 		{TestID: "tc-002", DisplayName: "Fix login bug", Tags: []string{"fast", "blue"}},
 		{TestID: "tc-003", DisplayName: "Create a CLI tool", Tags: []string{"medium", "green"}},
@@ -156,7 +156,7 @@ func TestFilterTestCases_TagsAndTasks_Intersection(t *testing.T) {
 	}
 }
 
-func testCaseIDs(testCases []*models.TestCase) []string {
+func testCaseIDs(testCases []*models.TaskSpec) []string {
 	var ids []string
 	for _, tc := range testCases {
 		ids = append(ids, tc.TestID)

@@ -242,13 +242,13 @@ func TestComputeSkillImpact(t *testing.T) {
 func TestRunBenchmark_BaselineNoSkills(t *testing.T) {
 	t.Skip("Requires baseline implementation and task loading setup")
 
-	spec := &models.BenchmarkSpec{
+	spec := &models.EvalSpec{
 		SpecIdentity: models.SpecIdentity{
 			Name: "test-eval",
 		},
 		SkillName: "test-skill",
 		Baseline:  true,
-		Config: models.Config{
+		Config: models.EvalConfig{
 			EngineType:    "mock",
 			ModelID:       "gpt-4",
 			TrialsPerTask: 1,
@@ -280,13 +280,13 @@ func TestRunBenchmark_BaselineWithSkills(t *testing.T) {
 
 	tmpSkillDir := t.TempDir()
 
-	spec := &models.BenchmarkSpec{
+	spec := &models.EvalSpec{
 		SpecIdentity: models.SpecIdentity{
 			Name: "test-eval",
 		},
 		SkillName: "test-skill",
 		Baseline:  true,
-		Config: models.Config{
+		Config: models.EvalConfig{
 			EngineType:    "mock",
 			ModelID:       "gpt-4",
 			TrialsPerTask: 1,
@@ -324,13 +324,13 @@ func TestRunBenchmark_BaselineEmptyTasks(t *testing.T) {
 
 	tmpSkillDir := t.TempDir()
 
-	spec := &models.BenchmarkSpec{
+	spec := &models.EvalSpec{
 		SpecIdentity: models.SpecIdentity{
 			Name: "test-eval",
 		},
 		SkillName: "test-skill",
 		Baseline:  true,
-		Config: models.Config{
+		Config: models.EvalConfig{
 			EngineType:    "mock",
 			ModelID:       "gpt-4",
 			TrialsPerTask: 1,
@@ -356,12 +356,12 @@ func TestRunBenchmark_BaselineEmptyTasks(t *testing.T) {
 
 // TestMergeBaselineOutcomes_TaskMismatch tests error handling when task sets don't align
 func TestMergeBaselineOutcomes_TaskMismatch(t *testing.T) {
-	spec := &models.BenchmarkSpec{
+	spec := &models.EvalSpec{
 		SpecIdentity: models.SpecIdentity{
 			Name: "test-eval",
 		},
 		SkillName: "test-skill",
-		Config: models.Config{
+		Config: models.EvalConfig{
 			EngineType:    "mock",
 			ModelID:       "gpt-4",
 			TrialsPerTask: 1,
@@ -394,12 +394,12 @@ func TestMergeBaselineOutcomes_TaskMismatch(t *testing.T) {
 
 // TestMergeBaselineOutcomes_ExtraTaskInBaseline tests error when baseline has tasks not in skills-enabled
 func TestMergeBaselineOutcomes_ExtraTaskInBaseline(t *testing.T) {
-	spec := &models.BenchmarkSpec{
+	spec := &models.EvalSpec{
 		SpecIdentity: models.SpecIdentity{
 			Name: "test-eval",
 		},
 		SkillName: "test-skill",
-		Config: models.Config{
+		Config: models.EvalConfig{
 			EngineType:    "mock",
 			ModelID:       "gpt-4",
 			TrialsPerTask: 1,
@@ -432,12 +432,12 @@ func TestMergeBaselineOutcomes_ExtraTaskInBaseline(t *testing.T) {
 
 // TestMergeBaselineOutcomes_Success tests successful outcome merging
 func TestMergeBaselineOutcomes_Success(t *testing.T) {
-	spec := &models.BenchmarkSpec{
+	spec := &models.EvalSpec{
 		SpecIdentity: models.SpecIdentity{
 			Name: "test-eval",
 		},
 		SkillName: "test-skill",
-		Config: models.Config{
+		Config: models.EvalConfig{
 			EngineType:    "mock",
 			ModelID:       "gpt-4",
 			TrialsPerTask: 3,

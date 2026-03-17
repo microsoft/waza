@@ -13,12 +13,12 @@ import (
 )
 
 func TestCacheKey(t *testing.T) {
-	spec := &models.BenchmarkSpec{
+	spec := &models.EvalSpec{
 		SpecIdentity: models.SpecIdentity{
 			Name: "test-spec",
 		},
 		SkillName: "test-skill",
-		Config: models.Config{
+		Config: models.EvalConfig{
 			ModelID:    "gpt-4",
 			EngineType: "copilot-sdk",
 			TimeoutSec: 300,
@@ -28,10 +28,10 @@ func TestCacheKey(t *testing.T) {
 		},
 	}
 
-	task := &models.TestCase{
+	task := &models.TaskSpec{
 		TestID:      "test-1",
 		DisplayName: "Test Task",
-		Stimulus: models.TestStimulus{
+		Stimulus: models.TaskInputs{
 			Message: "Do something",
 			Resources: []models.ResourceRef{
 				{Location: "file1.txt"},
@@ -61,30 +61,30 @@ func TestCacheKey(t *testing.T) {
 }
 
 func TestCacheKey_DifferentModelChangesKey(t *testing.T) {
-	spec1 := &models.BenchmarkSpec{
+	spec1 := &models.EvalSpec{
 		SpecIdentity: models.SpecIdentity{Name: "test"},
 		SkillName:    "skill",
-		Config: models.Config{
+		Config: models.EvalConfig{
 			ModelID:    "gpt-4",
 			EngineType: "copilot-sdk",
 			TimeoutSec: 300,
 		},
 	}
 
-	spec2 := &models.BenchmarkSpec{
+	spec2 := &models.EvalSpec{
 		SpecIdentity: models.SpecIdentity{Name: "test"},
 		SkillName:    "skill",
-		Config: models.Config{
+		Config: models.EvalConfig{
 			ModelID:    "gpt-4o", // Different model
 			EngineType: "copilot-sdk",
 			TimeoutSec: 300,
 		},
 	}
 
-	task := &models.TestCase{
+	task := &models.TaskSpec{
 		TestID:      "test-1",
 		DisplayName: "Test",
-		Stimulus: models.TestStimulus{
+		Stimulus: models.TaskInputs{
 			Message: "Test",
 		},
 	}
@@ -99,10 +99,10 @@ func TestCacheKey_DifferentModelChangesKey(t *testing.T) {
 }
 
 func TestCacheKey_DifferentSkillPathsChangesKey(t *testing.T) {
-	spec1 := &models.BenchmarkSpec{
+	spec1 := &models.EvalSpec{
 		SpecIdentity: models.SpecIdentity{Name: "test"},
 		SkillName:    "skill",
-		Config: models.Config{
+		Config: models.EvalConfig{
 			ModelID:    "gpt-4",
 			EngineType: "copilot-sdk",
 			TimeoutSec: 300,
@@ -110,10 +110,10 @@ func TestCacheKey_DifferentSkillPathsChangesKey(t *testing.T) {
 		},
 	}
 
-	spec2 := &models.BenchmarkSpec{
+	spec2 := &models.EvalSpec{
 		SpecIdentity: models.SpecIdentity{Name: "test"},
 		SkillName:    "skill",
-		Config: models.Config{
+		Config: models.EvalConfig{
 			ModelID:    "gpt-4",
 			EngineType: "copilot-sdk",
 			TimeoutSec: 300,
@@ -121,10 +121,10 @@ func TestCacheKey_DifferentSkillPathsChangesKey(t *testing.T) {
 		},
 	}
 
-	task := &models.TestCase{
+	task := &models.TaskSpec{
 		TestID:      "test-1",
 		DisplayName: "Test",
-		Stimulus: models.TestStimulus{
+		Stimulus: models.TaskInputs{
 			Message: "Test",
 		},
 	}
@@ -139,20 +139,20 @@ func TestCacheKey_DifferentSkillPathsChangesKey(t *testing.T) {
 }
 
 func TestCacheKey_DifferentFixturesChangesKey(t *testing.T) {
-	spec := &models.BenchmarkSpec{
+	spec := &models.EvalSpec{
 		SpecIdentity: models.SpecIdentity{Name: "test"},
 		SkillName:    "skill",
-		Config: models.Config{
+		Config: models.EvalConfig{
 			ModelID:    "gpt-4",
 			EngineType: "copilot-sdk",
 			TimeoutSec: 300,
 		},
 	}
 
-	task := &models.TestCase{
+	task := &models.TaskSpec{
 		TestID:      "test-1",
 		DisplayName: "Test",
-		Stimulus: models.TestStimulus{
+		Stimulus: models.TaskInputs{
 			Message: "Test",
 			Resources: []models.ResourceRef{
 				{Location: "file1.txt"},
@@ -314,7 +314,7 @@ func TestHasNonDeterministicGraders(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			spec := &models.BenchmarkSpec{
+			spec := &models.EvalSpec{
 				Graders: tt.graders,
 			}
 			result := HasNonDeterministicGraders(spec)
@@ -324,10 +324,10 @@ func TestHasNonDeterministicGraders(t *testing.T) {
 }
 
 func TestCacheKey_FixtureOrdering(t *testing.T) {
-	spec := &models.BenchmarkSpec{
+	spec := &models.EvalSpec{
 		SpecIdentity: models.SpecIdentity{Name: "test"},
 		SkillName:    "skill",
-		Config: models.Config{
+		Config: models.EvalConfig{
 			ModelID:    "gpt-4",
 			EngineType: "copilot-sdk",
 			TimeoutSec: 300,
@@ -336,9 +336,9 @@ func TestCacheKey_FixtureOrdering(t *testing.T) {
 
 	// Different fixture order in task definition will produce different keys
 	// because the task structure itself is different. This is acceptable.
-	task1 := &models.TestCase{
+	task1 := &models.TaskSpec{
 		TestID: "test-1",
-		Stimulus: models.TestStimulus{
+		Stimulus: models.TaskInputs{
 			Message: "Test",
 			Resources: []models.ResourceRef{
 				{Location: "b.txt"},
@@ -348,9 +348,9 @@ func TestCacheKey_FixtureOrdering(t *testing.T) {
 		},
 	}
 
-	task2 := &models.TestCase{
+	task2 := &models.TaskSpec{
 		TestID: "test-1",
-		Stimulus: models.TestStimulus{
+		Stimulus: models.TaskInputs{
 			Message: "Test",
 			Resources: []models.ResourceRef{
 				{Location: "a.txt"},
@@ -376,19 +376,19 @@ func TestCacheKey_FixtureOrdering(t *testing.T) {
 }
 
 func TestCacheKey_MissingFixtures(t *testing.T) {
-	spec := &models.BenchmarkSpec{
+	spec := &models.EvalSpec{
 		SpecIdentity: models.SpecIdentity{Name: "test"},
 		SkillName:    "skill",
-		Config: models.Config{
+		Config: models.EvalConfig{
 			ModelID:    "gpt-4",
 			EngineType: "copilot-sdk",
 			TimeoutSec: 300,
 		},
 	}
 
-	task := &models.TestCase{
+	task := &models.TaskSpec{
 		TestID: "test-1",
-		Stimulus: models.TestStimulus{
+		Stimulus: models.TaskInputs{
 			Message: "Test",
 			Resources: []models.ResourceRef{
 				{Location: "nonexistent.txt"},
@@ -405,10 +405,10 @@ func TestCacheKey_MissingFixtures(t *testing.T) {
 }
 
 func TestCacheKey_DifferentRunsPerTaskChangesKey(t *testing.T) {
-	spec1 := &models.BenchmarkSpec{
+	spec1 := &models.EvalSpec{
 		SpecIdentity: models.SpecIdentity{Name: "test"},
 		SkillName:    "skill",
-		Config: models.Config{
+		Config: models.EvalConfig{
 			ModelID:       "gpt-4",
 			EngineType:    "copilot-sdk",
 			TimeoutSec:    300,
@@ -416,10 +416,10 @@ func TestCacheKey_DifferentRunsPerTaskChangesKey(t *testing.T) {
 		},
 	}
 
-	spec2 := &models.BenchmarkSpec{
+	spec2 := &models.EvalSpec{
 		SpecIdentity: models.SpecIdentity{Name: "test"},
 		SkillName:    "skill",
-		Config: models.Config{
+		Config: models.EvalConfig{
 			ModelID:       "gpt-4",
 			EngineType:    "copilot-sdk",
 			TimeoutSec:    300,
@@ -427,9 +427,9 @@ func TestCacheKey_DifferentRunsPerTaskChangesKey(t *testing.T) {
 		},
 	}
 
-	task := &models.TestCase{
+	task := &models.TaskSpec{
 		TestID: "test-1",
-		Stimulus: models.TestStimulus{
+		Stimulus: models.TaskInputs{
 			Message: "Test",
 		},
 	}
@@ -445,10 +445,10 @@ func TestCacheKey_DifferentRunsPerTaskChangesKey(t *testing.T) {
 
 func TestCacheKey_NoHashCollision(t *testing.T) {
 	// Test that field delimiters prevent hash collisions
-	spec1 := &models.BenchmarkSpec{
+	spec1 := &models.EvalSpec{
 		SpecIdentity: models.SpecIdentity{Name: "ab"},
 		SkillName:    "cd",
-		Config: models.Config{
+		Config: models.EvalConfig{
 			ModelID:       "gpt-4",
 			EngineType:    "copilot-sdk",
 			TimeoutSec:    300,
@@ -456,10 +456,10 @@ func TestCacheKey_NoHashCollision(t *testing.T) {
 		},
 	}
 
-	spec2 := &models.BenchmarkSpec{
+	spec2 := &models.EvalSpec{
 		SpecIdentity: models.SpecIdentity{Name: "abc"},
 		SkillName:    "d",
-		Config: models.Config{
+		Config: models.EvalConfig{
 			ModelID:       "gpt-4",
 			EngineType:    "copilot-sdk",
 			TimeoutSec:    300,
@@ -467,9 +467,9 @@ func TestCacheKey_NoHashCollision(t *testing.T) {
 		},
 	}
 
-	task := &models.TestCase{
+	task := &models.TaskSpec{
 		TestID: "test-1",
-		Stimulus: models.TestStimulus{
+		Stimulus: models.TaskInputs{
 			Message: "Test",
 		},
 	}

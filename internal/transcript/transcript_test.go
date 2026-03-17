@@ -158,10 +158,10 @@ func TestWrite_CreatesDir(t *testing.T) {
 }
 
 func TestBuildTaskTranscript(t *testing.T) {
-	tc := &models.TestCase{
+	tc := &models.TaskSpec{
 		TestID:      "tc-1",
 		DisplayName: "Code Explain",
-		Stimulus: models.TestStimulus{
+		Stimulus: models.TaskInputs{
 			Message: "Explain this code",
 		},
 	}

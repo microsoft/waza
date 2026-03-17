@@ -58,12 +58,12 @@ func TestBuildExecutionRequest_SkillPaths(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Create a minimal spec
-			spec := &models.BenchmarkSpec{
+			spec := &models.EvalSpec{
 				SpecIdentity: models.SpecIdentity{
 					Name: "test-benchmark",
 				},
 				SkillName: "test-skill",
-				Config: models.Config{
+				Config: models.EvalConfig{
 					EngineType: "mock",
 					ModelID:    "gpt-4",
 					SkillPaths: tt.skillPaths,
@@ -78,10 +78,10 @@ func TestBuildExecutionRequest_SkillPaths(t *testing.T) {
 			)
 
 			// Create a test case
-			tc := &models.TestCase{
+			tc := &models.TaskSpec{
 				TestID:      "test-001",
 				DisplayName: "Test Case",
-				Stimulus: models.TestStimulus{
+				Stimulus: models.TaskInputs{
 					Message: "Test message",
 				},
 			}
@@ -110,12 +110,12 @@ func TestBuildExecutionRequest_SkillPaths(t *testing.T) {
 
 func TestBuildExecutionRequest_BasicFields(t *testing.T) {
 	// Create a spec
-	spec := &models.BenchmarkSpec{
+	spec := &models.EvalSpec{
 		SpecIdentity: models.SpecIdentity{
 			Name: "test-benchmark",
 		},
 		SkillName: "my-skill",
-		Config: models.Config{
+		Config: models.EvalConfig{
 			EngineType: "mock",
 			ModelID:    "gpt-4",
 			TimeoutSec: 120,
@@ -125,10 +125,10 @@ func TestBuildExecutionRequest_BasicFields(t *testing.T) {
 	cfg := config.NewBenchmarkConfig(spec)
 
 	// Create a test case
-	tc := &models.TestCase{
+	tc := &models.TaskSpec{
 		TestID:      "test-001",
 		DisplayName: "Test Case",
-		Stimulus: models.TestStimulus{
+		Stimulus: models.TaskInputs{
 			Message: "Hello world",
 			Metadata: map[string]any{
 				"key": "value",
@@ -148,12 +148,12 @@ func TestBuildExecutionRequest_BasicFields(t *testing.T) {
 
 func TestBuildExecutionRequest_TimeoutOverride(t *testing.T) {
 	// Create a spec with default timeout
-	spec := &models.BenchmarkSpec{
+	spec := &models.EvalSpec{
 		SpecIdentity: models.SpecIdentity{
 			Name: "test-benchmark",
 		},
 		SkillName: "my-skill",
-		Config: models.Config{
+		Config: models.EvalConfig{
 			EngineType: "mock",
 			ModelID:    "gpt-4",
 			TimeoutSec: 120,
@@ -164,10 +164,10 @@ func TestBuildExecutionRequest_TimeoutOverride(t *testing.T) {
 
 	// Create a test case with custom timeout
 	customTimeout := 300
-	tc := &models.TestCase{
+	tc := &models.TaskSpec{
 		TestID:      "test-001",
 		DisplayName: "Test Case",
-		Stimulus: models.TestStimulus{
+		Stimulus: models.TaskInputs{
 			Message: "Hello world",
 		},
 		TimeoutSec: &customTimeout,
@@ -235,12 +235,12 @@ description: Validate Azure config
 	require.NoError(t, os.WriteFile(filepath.Join(skill3Dir, "SKILL.md"), []byte(skill3Content), 0644))
 
 	t.Run("all required skills found", func(t *testing.T) {
-		spec := &models.BenchmarkSpec{
+		spec := &models.EvalSpec{
 			SpecIdentity: models.SpecIdentity{
 				Name: "test-benchmark",
 			},
 			SkillName: "azure-deploy",
-			Config: models.Config{
+			Config: models.EvalConfig{
 				EngineType:     "mock",
 				ModelID:        "gpt-4",
 				TimeoutSec:     60,
@@ -258,12 +258,12 @@ description: Validate Azure config
 	})
 
 	t.Run("some required skills missing", func(t *testing.T) {
-		spec := &models.BenchmarkSpec{
+		spec := &models.EvalSpec{
 			SpecIdentity: models.SpecIdentity{
 				Name: "test-benchmark",
 			},
 			SkillName: "azure-deploy",
-			Config: models.Config{
+			Config: models.EvalConfig{
 				EngineType:     "mock",
 				ModelID:        "gpt-4",
 				TimeoutSec:     60,
@@ -285,12 +285,12 @@ description: Validate Azure config
 	})
 
 	t.Run("empty required_skills list skips validation", func(t *testing.T) {
-		spec := &models.BenchmarkSpec{
+		spec := &models.EvalSpec{
 			SpecIdentity: models.SpecIdentity{
 				Name: "test-benchmark",
 			},
 			SkillName: "azure-deploy",
-			Config: models.Config{
+			Config: models.EvalConfig{
 				EngineType:     "mock",
 				ModelID:        "gpt-4",
 				TimeoutSec:     60,
@@ -308,12 +308,12 @@ description: Validate Azure config
 	})
 
 	t.Run("nil required_skills skips validation", func(t *testing.T) {
-		spec := &models.BenchmarkSpec{
+		spec := &models.EvalSpec{
 			SpecIdentity: models.SpecIdentity{
 				Name: "test-benchmark",
 			},
 			SkillName: "azure-deploy",
-			Config: models.Config{
+			Config: models.EvalConfig{
 				EngineType:    "mock",
 				ModelID:       "gpt-4",
 				TimeoutSec:    60,
@@ -331,12 +331,12 @@ description: Validate Azure config
 	})
 
 	t.Run("empty skill_directories with required_skills returns error", func(t *testing.T) {
-		spec := &models.BenchmarkSpec{
+		spec := &models.EvalSpec{
 			SpecIdentity: models.SpecIdentity{
 				Name: "test-benchmark",
 			},
 			SkillName: "azure-deploy",
-			Config: models.Config{
+			Config: models.EvalConfig{
 				EngineType:     "mock",
 				ModelID:        "gpt-4",
 				TimeoutSec:     60,
@@ -355,12 +355,12 @@ description: Validate Azure config
 	})
 
 	t.Run("relative skill paths are resolved correctly", func(t *testing.T) {
-		spec := &models.BenchmarkSpec{
+		spec := &models.EvalSpec{
 			SpecIdentity: models.SpecIdentity{
 				Name: "test-benchmark",
 			},
 			SkillName: "azure-deploy",
-			Config: models.Config{
+			Config: models.EvalConfig{
 				EngineType:     "mock",
 				ModelID:        "gpt-4",
 				TimeoutSec:     60,
@@ -430,8 +430,8 @@ func TestComputeGroupStats_NoGroupSet(t *testing.T) {
 }
 
 func TestResolveGroup_Model(t *testing.T) {
-	spec := &models.BenchmarkSpec{
-		Config: models.Config{
+	spec := &models.EvalSpec{
+		Config: models.EvalConfig{
 			ModelID: "gpt-4o",
 			GroupBy: "model",
 		},
@@ -443,8 +443,8 @@ func TestResolveGroup_Model(t *testing.T) {
 }
 
 func TestResolveGroup_Empty(t *testing.T) {
-	spec := &models.BenchmarkSpec{
-		Config: models.Config{
+	spec := &models.EvalSpec{
+		Config: models.EvalConfig{
 			ModelID: "gpt-4o",
 			GroupBy: "",
 		},
@@ -456,8 +456,8 @@ func TestResolveGroup_Empty(t *testing.T) {
 }
 
 func TestResolveGroup_Unknown(t *testing.T) {
-	spec := &models.BenchmarkSpec{
-		Config: models.Config{
+	spec := &models.EvalSpec{
+		Config: models.EvalConfig{
 			ModelID: "gpt-4o",
 			GroupBy: "region",
 		},

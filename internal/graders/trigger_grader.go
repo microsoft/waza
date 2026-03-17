@@ -72,7 +72,7 @@ func (g *triggerHeuristicGrader) Kind() models.GraderKind { return models.Grader
 
 func (g *triggerHeuristicGrader) Grade(ctx context.Context, gradingContext *Context) (*models.GraderResults, error) {
 	return measureTime(func() (*models.GraderResults, error) {
-		if gradingContext == nil || gradingContext.TestCase == nil {
+		if gradingContext == nil || gradingContext.TaskSpec == nil {
 			return &models.GraderResults{
 				Name:     g.name,
 				Type:     models.GraderKindTrigger,
@@ -82,7 +82,7 @@ func (g *triggerHeuristicGrader) Grade(ctx context.Context, gradingContext *Cont
 			}, nil
 		}
 
-		prompt := gradingContext.TestCase.Stimulus.Message
+		prompt := gradingContext.TaskSpec.Stimulus.Message
 		score, phraseScore, matchedKeywords := g.scorePrompt(prompt)
 
 		passed := score >= g.threshold

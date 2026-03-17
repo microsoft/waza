@@ -47,15 +47,15 @@ type skill struct {
 	Path string
 }
 
-type CreateTestCaseFromCopilotLogOptions struct {
+type CreateTaskSpecFromCopilotLogOptions struct {
 	DisplayName string
 	TestID      string
 	Tags        []string
 }
 
-func CreateTestCaseFromCopilotLog(copilotLog string, options *CreateTestCaseFromCopilotLogOptions) (*models.TestCase, error) {
+func CreateTaskSpecFromCopilotLog(copilotLog string, options *CreateTaskSpecFromCopilotLogOptions) (*models.TaskSpec, error) {
 	if options == nil {
-		options = &CreateTestCaseFromCopilotLogOptions{}
+		options = &CreateTaskSpecFromCopilotLogOptions{}
 	}
 
 	toolsInOrder := []string{}
@@ -75,7 +75,7 @@ func CreateTestCaseFromCopilotLog(copilotLog string, options *CreateTestCaseFrom
 	}
 
 	// let's compose a single task
-	task := &models.TestCase{
+	task := &models.TaskSpec{
 		DisplayName: displayName,
 		TestID:      testID,
 		Tags:        options.Tags,
@@ -169,9 +169,9 @@ func CreateTestCaseFromCopilotLog(copilotLog string, options *CreateTestCaseFrom
 			skillNames = append(skillNames, sk.Name)
 		}
 
-		task.Validators = append(task.Validators, models.ValidatorInline{
+		task.Graders = append(task.Graders, models.Grader{
 			Identifier: "skills-check",
-			Kind:       models.GraderKindSkillInvocation,
+			Type:       models.GraderKindSkillInvocation,
 			Parameters: models.SkillInvocationGraderParameters{
 				RequiredSkills: skillNames,
 				Mode:           models.SkillMatchingModeAnyOrder,
@@ -195,18 +195,18 @@ func CreateTestCaseFromCopilotLog(copilotLog string, options *CreateTestCaseFrom
 			})
 		}
 
-		task.Validators = append(task.Validators, models.ValidatorInline{
+		task.Graders = append(task.Graders, models.Grader{
 			Identifier: "tools-check",
-			Kind:       models.GraderKindToolConstraint,
+			Type:       models.GraderKindToolConstraint,
 			Parameters: models.ToolConstraintGraderParameters{
 				ExpectTools: toolNames,
 			},
 		})
 	}
 
-	task.Validators = append(task.Validators, models.ValidatorInline{
+	task.Graders = append(task.Graders, models.Grader{
 		Identifier: "check-response",
-		Kind:       models.GraderKindText,
+		Type:       models.GraderKindText,
 		Parameters: models.TextGraderParameters{
 			ContainsCS: []string{
 				responses.String(),

@@ -173,7 +173,7 @@ func TestParseResponseRejectsBareStringGraders(t *testing.T) {
 }
 
 // TestEvalYAMLRoundTrip verifies that valid eval YAML can be marshaled and
-// then unmarshalled back into a BenchmarkSpec without loss.
+// then unmarshalled back into a EvalSpec without loss.
 func TestEvalYAMLRoundTrip(t *testing.T) {
 	evalYAML := `name: roundtrip-eval
 description: test round-trip

@@ -61,10 +61,10 @@ graders:
         - "Mock response"
 `)
 
-	spec := &models.BenchmarkSpec{
+	spec := &models.EvalSpec{
 		SpecIdentity: models.SpecIdentity{Name: "orchestration-sequential"},
 		SkillName:    "test-skill",
-		Config: models.Config{
+		Config: models.EvalConfig{
 			TrialsPerTask: 2,
 			TimeoutSec:    30,
 			EngineType:    "mock",
@@ -157,10 +157,10 @@ inputs:
   prompt: "second"
 `)
 
-	spec := &models.BenchmarkSpec{
+	spec := &models.EvalSpec{
 		SpecIdentity: models.SpecIdentity{Name: "orchestration-concurrent"},
 		SkillName:    "test-skill",
-		Config: models.Config{
+		Config: models.EvalConfig{
 			TrialsPerTask: 1,
 			TimeoutSec:    30,
 			EngineType:    "mock",
@@ -199,10 +199,10 @@ inputs:
   prompt: "run without grading"
 `)
 
-	spec := &models.BenchmarkSpec{
+	spec := &models.EvalSpec{
 		SpecIdentity: models.SpecIdentity{Name: "skip-graders"},
 		SkillName:    "test-skill",
-		Config: models.Config{
+		Config: models.EvalConfig{
 			TrialsPerTask: 2,
 			TimeoutSec:    30,
 			EngineType:    "mock",
@@ -261,8 +261,8 @@ func TestOverallStatus(t *testing.T) {
 }
 
 func TestRunGraders_WeightsAndErrors(t *testing.T) {
-	spec := &models.BenchmarkSpec{
-		Config: models.Config{ModelID: "mock-model"},
+	spec := &models.EvalSpec{
+		Config: models.EvalConfig{ModelID: "mock-model"},
 		Graders: []models.GraderConfig{
 			{
 				Kind:       models.GraderKindText,
@@ -275,16 +275,16 @@ func TestRunGraders_WeightsAndErrors(t *testing.T) {
 	runner := NewTestRunner(config.NewBenchmarkConfig(spec), nil)
 	graderCtx := &graders.Context{Output: "Mock response"}
 
-	testCase := &models.TestCase{
-		Validators: []models.ValidatorInline{
+	testCase := &models.TaskSpec{
+		Graders: []models.Grader{
 			{
 				Identifier: "task-default-weight",
-				Kind:       models.GraderKindText,
+				Type:       models.GraderKindText,
 				Parameters: models.TextGraderParameters{RegexMatch: []string{"response"}},
 			},
 			{
 				Identifier: "task-explicit-weight",
-				Kind:       models.GraderKindText,
+				Type:       models.GraderKindText,
 				Weight:     0.5,
 				Parameters: models.TextGraderParameters{RegexMatch: []string{"Mock"}},
 			},
@@ -297,8 +297,8 @@ func TestRunGraders_WeightsAndErrors(t *testing.T) {
 	assert.Equal(t, 1.0, results["task-default-weight"].Weight)
 	assert.Equal(t, 0.5, results["task-explicit-weight"].Weight)
 
-	_, err = runner.runGraders(context.Background(), &models.TestCase{
-		Validators: []models.ValidatorInline{{Identifier: "missing-kind"}},
+	_, err = runner.runGraders(context.Background(), &models.TaskSpec{
+		Graders: []models.Grader{{Identifier: "missing-kind"}},
 	}, graderCtx)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no kind associated with grader missing-kind")
@@ -310,8 +310,8 @@ func TestRunGraders_DiffSnapshotUpdateOption(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(workspaceDir, "output.txt"), []byte("new snapshot"), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(contextDir, "expected.txt"), []byte("old snapshot"), 0o644))
 
-	spec := &models.BenchmarkSpec{
-		Config: models.Config{ModelID: "mock-model"},
+	spec := &models.EvalSpec{
+		Config: models.EvalConfig{ModelID: "mock-model"},
 		Graders: []models.GraderConfig{
 			{
 				Kind:       models.GraderKindDiff,
@@ -332,7 +332,7 @@ func TestRunGraders_DiffSnapshotUpdateOption(t *testing.T) {
 	runner := NewTestRunner(config.NewBenchmarkConfig(spec), nil, WithUpdateSnapshots(true))
 	graderCtx := &graders.Context{WorkspaceDir: workspaceDir}
 
-	results, err := runner.runGraders(context.Background(), &models.TestCase{}, graderCtx)
+	results, err := runner.runGraders(context.Background(), &models.TaskSpec{}, graderCtx)
 	require.NoError(t, err)
 	assert.True(t, results["diff"].Passed)
 
@@ -345,12 +345,12 @@ func TestLoadResources_PathValidation(t *testing.T) {
 	fixtureDir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(fixtureDir, "ok.txt"), []byte("ok"), 0o644))
 
-	spec := &models.BenchmarkSpec{}
+	spec := &models.EvalSpec{}
 	cfg := config.NewBenchmarkConfig(spec, config.WithFixtureDir(fixtureDir))
 	runner := NewTestRunner(cfg, nil)
 
-	testCase := &models.TestCase{
-		Stimulus: models.TestStimulus{
+	testCase := &models.TaskSpec{
+		Stimulus: models.TaskInputs{
 			Resources: []models.ResourceRef{
 				{Location: "inline.txt", Body: "inline"},
 				{Location: "ok.txt"},
@@ -370,7 +370,7 @@ func TestLoadResources_PathValidation(t *testing.T) {
 }
 
 func TestBuildGraderContextAndScoreHelpers(t *testing.T) {
-	spec := &models.BenchmarkSpec{Config: models.Config{TrialsPerTask: 2}}
+	spec := &models.EvalSpec{Config: models.EvalConfig{TrialsPerTask: 2}}
 	runner := NewTestRunner(config.NewBenchmarkConfig(spec), nil)
 
 	content := "hi"
@@ -389,7 +389,7 @@ func TestBuildGraderContextAndScoreHelpers(t *testing.T) {
 		},
 	}
 
-	graderCtx := runner.buildGraderContext(&models.TestCase{TestID: "tc"}, resp)
+	graderCtx := runner.buildGraderContext(&models.TaskSpec{TestID: "tc"}, resp)
 	require.Len(t, graderCtx.Transcript, 1)
 	assert.Equal(t, "final output", graderCtx.Output)
 	assert.Equal(t, int64(42), graderCtx.DurationMS)
@@ -452,9 +452,9 @@ func TestComputeTestStats_FlakinessPercent(t *testing.T) {
 }
 
 func TestRunTest_CacheHitAndTranscriptWrite(t *testing.T) {
-	spec := &models.BenchmarkSpec{
+	spec := &models.EvalSpec{
 		SkillName: "cache-skill",
-		Config: models.Config{
+		Config: models.EvalConfig{
 			TrialsPerTask: 1,
 			TimeoutSec:    30,
 			EngineType:    "mock",
@@ -477,10 +477,10 @@ func TestRunTest_CacheHitAndTranscriptWrite(t *testing.T) {
 	)
 	runner := NewTestRunner(cfg, execution.NewMockEngine("mock-model"), WithCache(cache.New(cacheDir)))
 
-	testCase := &models.TestCase{
+	testCase := &models.TaskSpec{
 		TestID:      "cache-task",
 		DisplayName: "Cache Task",
-		Stimulus: models.TestStimulus{
+		Stimulus: models.TaskInputs{
 			Message: "cache me",
 		},
 	}

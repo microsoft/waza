@@ -97,7 +97,7 @@ func TestRunnerWithMockEngine(t *testing.T) {
 	}
 
 	engine := &stubEngine{skill: "mock-skill"}
-	cfg := config.NewBenchmarkConfig(&models.BenchmarkSpec{SkillName: "mock-skill"})
+	cfg := config.NewBenchmarkConfig(&models.EvalSpec{SkillName: "mock-skill"})
 	r := NewRunner(spec, engine, cfg, nil)
 	m, err := r.Run(t.Context())
 	if err != nil {
@@ -144,9 +144,9 @@ func TestRunnerRunConfig(t *testing.T) {
 
 	engine := &capturingEngine{}
 	cfg := config.NewBenchmarkConfig(
-		&models.BenchmarkSpec{
+		&models.EvalSpec{
 			SkillName: "my-skill",
-			Config: models.Config{
+			Config: models.EvalConfig{
 				TimeoutSec: 120,
 				SkillPaths: []string{"skills/a", "skills/b"},
 			},
@@ -189,7 +189,7 @@ func TestRunnerNeverTriggers(t *testing.T) {
 	}
 
 	engine := &noTriggerEngine{}
-	cfg := config.NewBenchmarkConfig(&models.BenchmarkSpec{SkillName: "my-skill"})
+	cfg := config.NewBenchmarkConfig(&models.EvalSpec{SkillName: "my-skill"})
 	r := NewRunner(spec, engine, cfg, nil)
 	m, err := r.Run(t.Context())
 	if err != nil {
@@ -221,7 +221,7 @@ func TestRunnerPartialErrors(t *testing.T) {
 	}
 
 	engine := &errorOnPromptEngine{errorPrompt: "bad", skill: "my-skill"}
-	cfg := config.NewBenchmarkConfig(&models.BenchmarkSpec{SkillName: "my-skill"})
+	cfg := config.NewBenchmarkConfig(&models.EvalSpec{SkillName: "my-skill"})
 	r := NewRunner(spec, engine, cfg, nil)
 	m, err := r.Run(t.Context())
 	if err != nil {
@@ -252,7 +252,7 @@ func TestRunnerAllErrors(t *testing.T) {
 	}
 
 	engine := &errorOnPromptEngine{errorPrompt: "bad", skill: "my-skill"}
-	cfg := config.NewBenchmarkConfig(&models.BenchmarkSpec{SkillName: "my-skill"})
+	cfg := config.NewBenchmarkConfig(&models.EvalSpec{SkillName: "my-skill"})
 	r := NewRunner(spec, engine, cfg, nil)
 	m, err := r.Run(t.Context())
 	if err != nil {

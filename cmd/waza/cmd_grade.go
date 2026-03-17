@@ -62,7 +62,7 @@ func runGrade(ctx context.Context, w, errW io.Writer, specPath, taskID, resultsF
 		return fmt.Errorf("--workspace path %q is not a directory", workspace)
 	}
 
-	spec, err := models.LoadBenchmarkSpec(specPath)
+	spec, err := models.LoadEvalSpec(specPath)
 	if err != nil {
 		return fmt.Errorf("failed to load spec: %w", err)
 	}
@@ -190,7 +190,7 @@ func runGrade(ctx context.Context, w, errW io.Writer, specPath, taskID, resultsF
 	return nil
 }
 
-func loadGradeTasks(spec *models.BenchmarkSpec, specPath, taskID string) ([]*models.TestCase, error) {
+func loadGradeTasks(spec *models.EvalSpec, specPath, taskID string) ([]*models.TaskSpec, error) {
 	all, err := loadTestCases(spec, specPath)
 	if err != nil {
 		return nil, err
@@ -202,13 +202,13 @@ func loadGradeTasks(spec *models.BenchmarkSpec, specPath, taskID string) ([]*mod
 
 	for _, tc := range all {
 		if tc.TestID == taskID {
-			return []*models.TestCase{tc}, nil
+			return []*models.TaskSpec{tc}, nil
 		}
 	}
 	return nil, nil
 }
 
-func gradeTaskRuns(ctx context.Context, spec *models.BenchmarkSpec, tc *models.TestCase, runs []models.RunResult, workspace, judgeModel string, errW io.Writer, verbose bool) (models.GradeOutcome, []models.RunResult, error) {
+func gradeTaskRuns(ctx context.Context, spec *models.EvalSpec, tc *models.TaskSpec, runs []models.RunResult, workspace, judgeModel string, errW io.Writer, verbose bool) (models.GradeOutcome, []models.RunResult, error) {
 	totalScore := 0.0
 	allPassed := true
 	graderWeightedTotals := make(map[string]float64)
@@ -249,7 +249,7 @@ func gradeTaskRuns(ctx context.Context, spec *models.BenchmarkSpec, tc *models.T
 	}, gradedRuns, nil
 }
 
-func gradeRun(ctx context.Context, spec *models.BenchmarkSpec, tc *models.TestCase, run *models.RunResult, workspace, judgeModel string, errW io.Writer, verbose bool) (*models.RunResult, error) {
+func gradeRun(ctx context.Context, spec *models.EvalSpec, tc *models.TaskSpec, run *models.RunResult, workspace, judgeModel string, errW io.Writer, verbose bool) (*models.RunResult, error) {
 	gradedRun := *run
 	if gradedRun.ErrorMsg != "" || gradedRun.Status == models.StatusError {
 		gradedRun.Validations = map[string]models.GraderResults{}
@@ -263,7 +263,7 @@ func gradeRun(ctx context.Context, spec *models.BenchmarkSpec, tc *models.TestCa
 	}
 
 	gradingCtx := &graders.Context{
-		TestCase:         tc,
+		TaskSpec:         tc,
 		Output:           run.FinalOutput,
 		Transcript:       run.Transcript,
 		Session:          &run.SessionDigest,

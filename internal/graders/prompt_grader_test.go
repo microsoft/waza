@@ -230,7 +230,7 @@ func TestUsingPreviousSessionID(t *testing.T) {
 }
 
 func TestLoadPromptGrader(t *testing.T) {
-	spec, err := models.LoadBenchmarkSpec("testdata/eval-grader-prompt.yaml")
+	spec, err := models.LoadEvalSpec("testdata/eval-grader-prompt.yaml")
 	require.NoError(t, err)
 
 	grader, err := Create(spec.Graders[0].Identifier, spec.Graders[0].Parameters)

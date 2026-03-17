@@ -9,7 +9,7 @@ import (
 
 // RunAll runs spec-level graders and task-level validators, returning the
 // combined results. judgeModel overrides the model for prompt graders.
-func RunAll(ctx context.Context, specGraders []models.GraderConfig, tc *models.TestCase, gCtx *Context, judgeModel string, updateSnapshots bool) (map[string]models.GraderResults, error) {
+func RunAll(ctx context.Context, specGraders []models.GraderConfig, tc *models.TaskSpec, gCtx *Context, judgeModel string, updateSnapshots bool) (map[string]models.GraderResults, error) {
 	results := make(map[string]models.GraderResults)
 
 	for _, vCfg := range specGraders {
@@ -28,8 +28,8 @@ func RunAll(ctx context.Context, specGraders []models.GraderConfig, tc *models.T
 		results[result.Name] = *result
 	}
 
-	for _, vCfg := range tc.Validators {
-		if vCfg.Kind == "" {
+	for _, vCfg := range tc.Graders {
+		if vCfg.Type == "" {
 			return nil, fmt.Errorf("no kind associated with grader %s", vCfg.Identifier)
 		}
 

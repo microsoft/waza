@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-func TestLoadBenchmarkSpec_PolymorphicGraderParameters(t *testing.T) {
+func TestLoadEvalSpec_PolymorphicGraderParameters(t *testing.T) {
 	tempDir := t.TempDir()
 	yamlContent := `name: typed-graders
 skill: test-skill
@@ -38,9 +38,9 @@ tasks: []
 		t.Fatalf("write spec file: %v", err)
 	}
 
-	spec, err := LoadBenchmarkSpec(specPath)
+	spec, err := LoadEvalSpec(specPath)
 	if err != nil {
-		t.Fatalf("LoadBenchmarkSpec: %v", err)
+		t.Fatalf("LoadEvalSpec: %v", err)
 	}
 
 	textParams, ok := spec.Graders[0].Parameters.(TextGraderParameters)
@@ -94,22 +94,22 @@ graders:
 		t.Fatalf("write test case file: %v", err)
 	}
 
-	tc, err := LoadTestCase(testPath)
+	tc, err := LoadTaskSpec(testPath)
 	if err != nil {
-		t.Fatalf("LoadTestCase: %v", err)
+		t.Fatalf("LoadTaskSpec: %v", err)
 	}
 
-	inlineParams, ok := tc.Validators[0].Parameters.(InlineScriptGraderParameters)
+	inlineParams, ok := tc.Graders[0].Parameters.(InlineScriptGraderParameters)
 	if !ok {
-		t.Fatalf("expected InlineScriptGraderParameters, got %T", tc.Validators[0].Parameters)
+		t.Fatalf("expected InlineScriptGraderParameters, got %T", tc.Graders[0].Parameters)
 	}
 	if inlineParams.Language != "javascript" || len(inlineParams.Assertions) != 1 {
 		t.Fatalf("unexpected inline params: %#v", inlineParams)
 	}
 
-	schemaParams, ok := tc.Validators[1].Parameters.(JSONSchemaGraderParameters)
+	schemaParams, ok := tc.Graders[1].Parameters.(JSONSchemaGraderParameters)
 	if !ok {
-		t.Fatalf("expected JSONSchemaGraderParameters, got %T", tc.Validators[1].Parameters)
+		t.Fatalf("expected JSONSchemaGraderParameters, got %T", tc.Graders[1].Parameters)
 	}
 	typeVal, ok := schemaParams.Schema["type"].(string)
 	if !ok || typeVal != "object" {

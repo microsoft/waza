@@ -56,9 +56,9 @@ inputs:
 				t.Fatalf("write file: %v", err)
 			}
 
-			tc, err := LoadTestCase(p)
+			tc, err := LoadTaskSpec(p)
 			if err != nil {
-				t.Fatalf("LoadTestCase: %v", err)
+				t.Fatalf("LoadTaskSpec: %v", err)
 			}
 
 			if tt.wantNil {

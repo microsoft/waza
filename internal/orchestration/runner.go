@@ -473,7 +473,7 @@ func (r *TestRunner) printSkillImpactReport(withSkills, withoutSkills *models.Ev
 	fmt.Println("════════════════════════════════════════════════════════════════")
 }
 
-func (r *TestRunner) loadTestCases() ([]*models.TestCase, error) {
+func (r *TestRunner) loadTestCases() ([]*models.TaskSpec, error) {
 	spec := r.cfg.Spec()
 
 	// CSV dataset path: generate tasks from CSV rows
@@ -486,7 +486,7 @@ func (r *TestRunner) loadTestCases() ([]*models.TestCase, error) {
 }
 
 // loadTestCasesFromCSV generates in-memory TestCases from CSV rows.
-func (r *TestRunner) loadTestCasesFromCSV() ([]*models.TestCase, error) {
+func (r *TestRunner) loadTestCasesFromCSV() ([]*models.TaskSpec, error) {
 	spec := r.cfg.Spec()
 
 	// Resolve CSV path relative to spec directory
@@ -542,7 +542,7 @@ func (r *TestRunner) loadTestCasesFromCSV() ([]*models.TestCase, error) {
 		baseCtx.Vars[k] = v
 	}
 
-	testCases := make([]*models.TestCase, 0, len(rows))
+	testCases := make([]*models.TaskSpec, 0, len(rows))
 	for i, row := range rows {
 		rowNum := i + 1
 
@@ -585,10 +585,10 @@ func (r *TestRunner) loadTestCasesFromCSV() ([]*models.TestCase, error) {
 			}
 		}
 
-		tc := &models.TestCase{
+		tc := &models.TaskSpec{
 			TestID:      testID,
 			DisplayName: displayName,
-			Stimulus: models.TestStimulus{
+			Stimulus: models.TaskInputs{
 				Message: prompt,
 			},
 		}
@@ -599,7 +599,7 @@ func (r *TestRunner) loadTestCasesFromCSV() ([]*models.TestCase, error) {
 }
 
 // loadTestCasesFromFiles loads test cases from YAML files via glob patterns.
-func (r *TestRunner) loadTestCasesFromFiles() ([]*models.TestCase, error) {
+func (r *TestRunner) loadTestCasesFromFiles() ([]*models.TaskSpec, error) {
 	spec := r.cfg.Spec()
 
 	// Get base directory for test file resolution (spec directory)
@@ -623,14 +623,14 @@ func (r *TestRunner) loadTestCasesFromFiles() ([]*models.TestCase, error) {
 		return nil, fmt.Errorf("no test files matched patterns: %v in directory: %s", spec.Tasks, baseDir)
 	}
 
-	var testCases []*models.TestCase
+	var testCases []*models.TaskSpec
 	for _, path := range testFiles {
-		tc, err := models.LoadTestCase(path)
+		tc, err := models.LoadTaskSpec(path)
 		if err != nil {
 			return nil, fmt.Errorf("failed to load test case %s: %w", path, err)
 		}
 		// Only include active test cases
-		// LoadTestCase defaults Active to true (nil case), so include nil or explicitly true
+		// LoadTaskSpec defaults Active to true (nil case), so include nil or explicitly true
 		if tc.Active == nil || *tc.Active {
 			testCases = append(testCases, tc)
 		}
@@ -681,7 +681,7 @@ func (r *TestRunner) validateRequiredSkills() error {
 	return nil
 }
 
-func (r *TestRunner) runSequential(ctx context.Context, testCases []*models.TestCase) []models.TestOutcome {
+func (r *TestRunner) runSequential(ctx context.Context, testCases []*models.TaskSpec) []models.TestOutcome {
 	outcomes := make([]models.TestOutcome, 0, len(testCases))
 	spec := r.cfg.Spec()
 
@@ -766,7 +766,7 @@ func (r *TestRunner) runSequential(ctx context.Context, testCases []*models.Test
 	return outcomes
 }
 
-func (r *TestRunner) runConcurrent(ctx context.Context, testCases []*models.TestCase) []models.TestOutcome {
+func (r *TestRunner) runConcurrent(ctx context.Context, testCases []*models.TaskSpec) []models.TestOutcome {
 	// Simple concurrent implementation
 	spec := r.cfg.Spec()
 	workers := spec.Config.Workers
@@ -786,7 +786,7 @@ func (r *TestRunner) runConcurrent(ctx context.Context, testCases []*models.Test
 
 	for i, tc := range testCases {
 		wg.Add(1)
-		go func(idx int, test *models.TestCase) {
+		go func(idx int, test *models.TaskSpec) {
 			defer wg.Done()
 
 			semaphore <- struct{}{}
@@ -867,7 +867,7 @@ func (r *TestRunner) runConcurrent(ctx context.Context, testCases []*models.Test
 	return results
 }
 
-func (r *TestRunner) runTest(ctx context.Context, tc *models.TestCase, testNum, totalTests int) (models.TestOutcome, bool) {
+func (r *TestRunner) runTest(ctx context.Context, tc *models.TaskSpec, testNum, totalTests int) (models.TestOutcome, bool) {
 	spec := r.cfg.Spec()
 
 	// Check cache if enabled
@@ -892,7 +892,7 @@ func (r *TestRunner) runTest(ctx context.Context, tc *models.TestCase, testNum, 
 	return r.runTestUncached(ctx, tc, testNum, totalTests), false
 }
 
-func (r *TestRunner) writeTaskTranscript(tc *models.TestCase, outcome models.TestOutcome, startTime time.Time) {
+func (r *TestRunner) writeTaskTranscript(tc *models.TaskSpec, outcome models.TestOutcome, startTime time.Time) {
 	transcriptDir := r.cfg.TranscriptDir()
 	if transcriptDir == "" {
 		return
@@ -904,7 +904,7 @@ func (r *TestRunner) writeTaskTranscript(tc *models.TestCase, outcome models.Tes
 	}
 }
 
-func (r *TestRunner) runTestUncached(ctx context.Context, tc *models.TestCase, testNum, totalTests int) models.TestOutcome {
+func (r *TestRunner) runTestUncached(ctx context.Context, tc *models.TaskSpec, testNum, totalTests int) models.TestOutcome {
 	spec := r.cfg.Spec()
 	runsPerTest := spec.Config.TrialsPerTask
 	maxAttempts := spec.Config.MaxAttempts
@@ -999,7 +999,7 @@ func overallStatus(runs []models.RunResult) models.Status {
 	return status
 }
 
-func (r *TestRunner) executeRun(ctx context.Context, tc *models.TestCase, runNum int) models.RunResult {
+func (r *TestRunner) executeRun(ctx context.Context, tc *models.TaskSpec, runNum int) models.RunResult {
 	startTime := time.Now()
 
 	// Prepare execution request
@@ -1117,7 +1117,7 @@ func (r *TestRunner) executeRun(ctx context.Context, tc *models.TestCase, runNum
 	}
 }
 
-func (r *TestRunner) buildExecutionRequest(tc *models.TestCase) *execution.ExecutionRequest {
+func (r *TestRunner) buildExecutionRequest(tc *models.TaskSpec) *execution.ExecutionRequest {
 	// Load resource files
 	resources := r.loadResources(tc)
 
@@ -1140,7 +1140,7 @@ func (r *TestRunner) buildExecutionRequest(tc *models.TestCase) *execution.Execu
 	}
 }
 
-func (r *TestRunner) loadResources(tc *models.TestCase) []execution.ResourceFile {
+func (r *TestRunner) loadResources(tc *models.TaskSpec) []execution.ResourceFile {
 	var resources []execution.ResourceFile
 
 	// Determine fixture directory (for loading resource files)
@@ -1205,7 +1205,7 @@ func (r *TestRunner) loadResources(tc *models.TestCase) []execution.ResourceFile
 	return resources
 }
 
-func (r *TestRunner) buildGraderContext(tc *models.TestCase, resp *execution.ExecutionResponse) *graders.Context {
+func (r *TestRunner) buildGraderContext(tc *models.TaskSpec, resp *execution.ExecutionResponse) *graders.Context {
 	// Convert events to transcript entries
 	var transcript []models.TranscriptEvent
 	for _, evt := range resp.Events {
@@ -1216,7 +1216,7 @@ func (r *TestRunner) buildGraderContext(tc *models.TestCase, resp *execution.Exe
 	sessionDigest := r.buildSessionDigest(resp)
 
 	return &graders.Context{
-		TestCase:         tc,
+		TaskSpec:         tc,
 		Transcript:       transcript,
 		Output:           resp.FinalOutput,
 		Outcome:          make(map[string]any),
@@ -1229,7 +1229,7 @@ func (r *TestRunner) buildGraderContext(tc *models.TestCase, resp *execution.Exe
 	}
 }
 
-func (r *TestRunner) runGraders(ctx context.Context, tc *models.TestCase, gradersContext *graders.Context) (map[string]models.GraderResults, error) {
+func (r *TestRunner) runGraders(ctx context.Context, tc *models.TaskSpec, gradersContext *graders.Context) (map[string]models.GraderResults, error) {
 	spec := r.cfg.Spec()
 	return graders.RunAll(ctx, spec.Graders, tc, gradersContext, spec.Config.JudgeModel, r.updateSnapshots)
 }

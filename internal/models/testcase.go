@@ -7,22 +7,22 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// TestCase represents a single evaluation test
-type TestCase struct {
-	Active      *bool             `yaml:"enabled,omitempty" json:"active,omitempty"`
-	ContextRoot string            `yaml:"context_dir,omitempty" json:"context_root,omitempty"`
-	DisplayName string            `yaml:"name" json:"display_name"`
-	Expectation TestExpectation   `yaml:"expected,omitempty" json:"expectation,omitempty"`
-	Stimulus    TestStimulus      `yaml:"inputs" json:"stimulus"`
-	Summary     string            `yaml:"description,omitempty" json:"summary,omitempty"`
-	Tags        []string          `yaml:"tags,omitempty" json:"labels,omitempty"`
-	TestID      string            `yaml:"id" json:"test_id"`
-	TimeoutSec  *int              `yaml:"timeout_seconds,omitempty" json:"timeout_sec,omitempty"`
-	Validators  []ValidatorInline `yaml:"graders,omitempty" json:"validators,omitempty"`
+// TaskSpec represents a single evaluation test
+type TaskSpec struct {
+	Active      *bool           `yaml:"enabled,omitempty" json:"active,omitempty"`
+	ContextRoot string          `yaml:"context_dir,omitempty" json:"context_root,omitempty"`
+	DisplayName string          `yaml:"name" json:"display_name"`
+	Expectation TestExpectation `yaml:"expected,omitempty" json:"expectation,omitempty"`
+	Stimulus    TaskInputs      `yaml:"inputs" json:"stimulus"`
+	Summary     string          `yaml:"description,omitempty" json:"summary,omitempty"`
+	Tags        []string        `yaml:"tags,omitempty" json:"labels,omitempty"`
+	TestID      string          `yaml:"id" json:"test_id"`
+	TimeoutSec  *int            `yaml:"timeout_seconds,omitempty" json:"timeout_sec,omitempty"`
+	Graders     []Grader        `yaml:"graders,omitempty" json:"graders,omitempty"`
 }
 
-// TestStimulus defines the input for a test
-type TestStimulus struct {
+// TaskInputs defines the input for a test
+type TaskInputs struct {
 	Message     string            `yaml:"prompt" json:"message"`
 	Metadata    map[string]any    `yaml:"context,omitempty" json:"metadata,omitempty"`
 	Resources   []ResourceRef     `yaml:"files,omitempty" json:"resources,omitempty"`
@@ -59,27 +59,27 @@ type BehaviorRules struct {
 	ForbidTool         []string `yaml:"forbidden_tools,omitempty" json:"forbid_tool,omitempty"`
 }
 
-// ValidatorInline is a validator embedded in a test case
-type ValidatorInline struct {
+// Grader is a validator embedded in a test case
+type Grader struct {
 	Identifier string           `yaml:"name" json:"identifier"`
-	Kind       GraderKind       `yaml:"type,omitempty" json:"kind,omitempty"`
+	Type       GraderKind       `yaml:"type,omitempty" json:"type,omitempty"`
 	Checks     []string         `yaml:"assertions,omitempty" json:"checks,omitempty"`
 	Rubric     string           `yaml:"rubric,omitempty" json:"rubric,omitempty"`
 	Weight     float64          `yaml:"weight,omitempty" json:"weight,omitempty"`
 	Parameters GraderParameters `yaml:"config,omitempty" json:"parameters,omitempty"`
 }
 
-func (v *ValidatorInline) EffectiveWeight() float64 {
+func (v *Grader) EffectiveWeight() float64 {
 	if v.Weight <= 0 {
 		return 1.0
 	}
 	return v.Weight
 }
 
-func (v *ValidatorInline) UnmarshalYAML(node *yaml.Node) error {
+func (v *Grader) UnmarshalYAML(node *yaml.Node) error {
 	type rawValidatorInline struct {
 		Identifier string     `yaml:"name"`
-		Kind       GraderKind `yaml:"type,omitempty"`
+		Type       GraderKind `yaml:"type,omitempty"`
 		Checks     []string   `yaml:"assertions,omitempty"`
 		Rubric     string     `yaml:"rubric,omitempty"`
 		Weight     float64    `yaml:"weight,omitempty"`
@@ -91,13 +91,13 @@ func (v *ValidatorInline) UnmarshalYAML(node *yaml.Node) error {
 		return err
 	}
 
-	params, err := decodeGraderParameters(raw.Kind, &raw.Parameters)
+	params, err := decodeGraderParameters(raw.Type, &raw.Parameters)
 	if err != nil {
-		return fmt.Errorf("invalid grader config for %q (type %q): %w", raw.Identifier, raw.Kind, err)
+		return fmt.Errorf("invalid grader config for %q (type %q): %w", raw.Identifier, raw.Type, err)
 	}
 
 	v.Identifier = raw.Identifier
-	v.Kind = raw.Kind
+	v.Type = raw.Type
 	v.Checks = raw.Checks
 	v.Rubric = raw.Rubric
 	v.Weight = raw.Weight
@@ -106,14 +106,14 @@ func (v *ValidatorInline) UnmarshalYAML(node *yaml.Node) error {
 	return nil
 }
 
-// LoadTestCase loads a test case from YAML
-func LoadTestCase(path string) (*TestCase, error) {
+// LoadTaskSpec loads a test case from YAML
+func LoadTaskSpec(path string) (*TaskSpec, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
 
-	var tc TestCase
+	var tc TaskSpec
 	if err := yaml.Unmarshal(data, &tc); err != nil {
 		return nil, err
 	}

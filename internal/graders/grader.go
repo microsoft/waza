@@ -24,7 +24,7 @@ type Grader interface {
 
 // Context provides context for validation
 type Context struct {
-	TestCase   *models.TestCase
+	TaskSpec   *models.TaskSpec
 	Transcript []models.TranscriptEvent
 	Output     string
 	Outcome    map[string]any

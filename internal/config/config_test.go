@@ -7,7 +7,7 @@ import (
 )
 
 func TestNewBenchmarkConfig_DefaultValues(t *testing.T) {
-	spec := &models.BenchmarkSpec{SpecIdentity: models.SpecIdentity{Name: "test-spec"}}
+	spec := &models.EvalSpec{SpecIdentity: models.SpecIdentity{Name: "test-spec"}}
 
 	cfg := NewBenchmarkConfig(spec)
 
@@ -38,7 +38,7 @@ func TestNewBenchmarkConfig_DefaultValues(t *testing.T) {
 }
 
 func TestNewBenchmarkConfig_AppliesFunctionalOptions(t *testing.T) {
-	spec := &models.BenchmarkSpec{}
+	spec := &models.EvalSpec{}
 
 	cfg := NewBenchmarkConfig(
 		spec,
@@ -74,7 +74,7 @@ func TestNewBenchmarkConfig_AppliesFunctionalOptions(t *testing.T) {
 }
 
 func TestWithContextRoot_Alias(t *testing.T) {
-	cfg := NewBenchmarkConfig(&models.BenchmarkSpec{}, WithContextRoot("fixtures"))
+	cfg := NewBenchmarkConfig(&models.EvalSpec{}, WithContextRoot("fixtures"))
 
 	if cfg.FixtureDir() != "fixtures" {
 		t.Fatalf("FixtureDir() = %q, want %q", cfg.FixtureDir(), "fixtures")
@@ -86,7 +86,7 @@ func TestWithContextRoot_Alias(t *testing.T) {
 
 func TestOptionOrder_LastOptionWins(t *testing.T) {
 	cfg := NewBenchmarkConfig(
-		&models.BenchmarkSpec{},
+		&models.EvalSpec{},
 		WithVerbose(true),
 		WithVerbose(false),
 		WithFixtureDir("first"),
@@ -128,5 +128,5 @@ func TestNewBenchmarkConfig_NilOptionPanics(t *testing.T) {
 		}
 	}()
 
-	_ = NewBenchmarkConfig(&models.BenchmarkSpec{}, nil)
+	_ = NewBenchmarkConfig(&models.EvalSpec{}, nil)
 }
