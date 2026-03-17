@@ -24,7 +24,7 @@ func TestCacheKey(t *testing.T) {
 			TimeoutSec: 300,
 		},
 		Graders: []models.GraderConfig{
-			{Kind: models.GraderKindText, Identifier: "test-grader"},
+			{Type: models.GraderTypeText, Identifier: "test-grader"},
 		},
 	}
 
@@ -181,7 +181,7 @@ func TestCache_GetPut(t *testing.T) {
 	c := New(cacheDir)
 
 	key := "test-key-123"
-	outcome := &models.TestOutcome{
+	outcome := &models.TaskOutcome{
 		TestID:      "test-1",
 		DisplayName: "Test Task",
 		Status:      models.StatusPassed,
@@ -220,7 +220,7 @@ func TestCache_Clear(t *testing.T) {
 	// Add some entries
 	key1 := "key1"
 	key2 := "key2"
-	outcome := &models.TestOutcome{
+	outcome := &models.TaskOutcome{
 		TestID: "test",
 		Status: models.StatusPassed,
 	}
@@ -257,7 +257,7 @@ func TestCache_EmptyDir(t *testing.T) {
 	assert.False(t, found)
 
 	// Put should be no-op
-	outcome := &models.TestOutcome{TestID: "test"}
+	outcome := &models.TaskOutcome{TestID: "test"}
 	err := c.Put("key", outcome)
 	assert.NoError(t, err)
 
@@ -280,33 +280,33 @@ func TestHasNonDeterministicGraders(t *testing.T) {
 		{
 			name: "only deterministic graders",
 			graders: []models.GraderConfig{
-				{Kind: models.GraderKindText},
-				{Kind: models.GraderKindFile},
-				{Kind: models.GraderKindInlineScript},
+				{Type: models.GraderTypeText},
+				{Type: models.GraderTypeFile},
+				{Type: models.GraderTypeInlineScript},
 			},
 			expected: false,
 		},
 		{
 			name: "has behavior grader",
 			graders: []models.GraderConfig{
-				{Kind: models.GraderKindText},
-				{Kind: models.GraderKindBehavior},
+				{Type: models.GraderTypeText},
+				{Type: models.GraderTypeBehavior},
 			},
 			expected: true,
 		},
 		{
 			name: "has prompt grader",
 			graders: []models.GraderConfig{
-				{Kind: models.GraderKindText},
-				{Kind: models.GraderKindPrompt},
+				{Type: models.GraderTypeText},
+				{Type: models.GraderTypePrompt},
 			},
 			expected: true,
 		},
 		{
 			name: "has both non-deterministic graders",
 			graders: []models.GraderConfig{
-				{Kind: models.GraderKindBehavior},
-				{Kind: models.GraderKindPrompt},
+				{Type: models.GraderTypeBehavior},
+				{Type: models.GraderTypePrompt},
 			},
 			expected: true,
 		},
@@ -489,7 +489,7 @@ func TestCache_Clear_SafetyChecks(t *testing.T) {
 		c := New(cacheDir)
 
 		// Add a cache file
-		outcome := &models.TestOutcome{TestID: "test", Status: models.StatusPassed}
+		outcome := &models.TaskOutcome{TestID: "test", Status: models.StatusPassed}
 		require.NoError(t, c.Put("key1", outcome))
 
 		// Add a subdirectory
@@ -511,7 +511,7 @@ func TestCache_Clear_SafetyChecks(t *testing.T) {
 		c := New(cacheDir)
 
 		// Add a cache file
-		outcome := &models.TestOutcome{TestID: "test", Status: models.StatusPassed}
+		outcome := &models.TaskOutcome{TestID: "test", Status: models.StatusPassed}
 		require.NoError(t, c.Put("key1", outcome))
 
 		// Add a non-JSON file
@@ -533,7 +533,7 @@ func TestCache_Clear_SafetyChecks(t *testing.T) {
 		c := New(cacheDir)
 
 		// Add cache files
-		outcome := &models.TestOutcome{TestID: "test", Status: models.StatusPassed}
+		outcome := &models.TaskOutcome{TestID: "test", Status: models.StatusPassed}
 		require.NoError(t, c.Put("key1", outcome))
 		require.NoError(t, c.Put("key2", outcome))
 
@@ -576,7 +576,7 @@ func TestCache_ConcurrentOperations(t *testing.T) {
 				defer wg.Done()
 				for j := 0; j < numOperations; j++ {
 					key := fmt.Sprintf("key-%d-%d", id, j)
-					outcome := &models.TestOutcome{
+					outcome := &models.TaskOutcome{
 						TestID: fmt.Sprintf("test-%d-%d", id, j),
 						Status: models.StatusPassed,
 					}
@@ -596,7 +596,7 @@ func TestCache_ConcurrentOperations(t *testing.T) {
 	t.Run("concurrent Get operations", func(t *testing.T) {
 		// Pre-populate cache
 		testKey := "shared-key"
-		testOutcome := &models.TestOutcome{
+		testOutcome := &models.TaskOutcome{
 			TestID: "shared-test",
 			Status: models.StatusPassed,
 		}
@@ -628,7 +628,7 @@ func TestCache_ConcurrentOperations(t *testing.T) {
 			wg.Add(1)
 			go func(id int) {
 				defer wg.Done()
-				outcome := &models.TestOutcome{
+				outcome := &models.TaskOutcome{
 					TestID: fmt.Sprintf("test-%d", id),
 					Status: models.StatusPassed,
 				}
@@ -655,7 +655,7 @@ func TestCache_ConcurrentOperations(t *testing.T) {
 					if j%2 == 0 {
 						// Put operation
 						key := fmt.Sprintf("mixed-key-%d", id)
-						outcome := &models.TestOutcome{
+						outcome := &models.TaskOutcome{
 							TestID: fmt.Sprintf("mixed-test-%d", id),
 							Status: models.StatusPassed,
 						}

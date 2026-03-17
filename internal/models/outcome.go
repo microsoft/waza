@@ -20,64 +20,64 @@ const (
 	StatusNA Status = "n/a"
 )
 
-// GraderKind identifies the type of grader (e.g. regex, file, code).
-type GraderKind string
+// GraderType identifies the type of grader (e.g. regex, file, code).
+type GraderType string
 
 const (
-	// NOTE: if you add more, make sure you add them to [AllGraderKinds], below.
+	// NOTE: if you add more, make sure you add them to [AllGraderTypes], below.
 
-	GraderKindInlineScript    GraderKind = "code"
-	GraderKindPrompt          GraderKind = "prompt"
-	GraderKindText            GraderKind = "text"
-	GraderKindFile            GraderKind = "file"
-	GraderKindJSONSchema      GraderKind = "json_schema"
-	GraderKindProgram         GraderKind = "program"
-	GraderKindBehavior        GraderKind = "behavior"
-	GraderKindActionSequence  GraderKind = "action_sequence"
-	GraderKindSkillInvocation GraderKind = "skill_invocation"
-	GraderKindTrigger         GraderKind = "trigger"
-	GraderKindDiff            GraderKind = "diff"
-	GraderKindToolConstraint  GraderKind = "tool_constraint"
+	GraderTypeInlineScript    GraderType = "code"
+	GraderTypePrompt          GraderType = "prompt"
+	GraderTypeText            GraderType = "text"
+	GraderTypeFile            GraderType = "file"
+	GraderTypeJSONSchema      GraderType = "json_schema"
+	GraderTypeProgram         GraderType = "program"
+	GraderTypeBehavior        GraderType = "behavior"
+	GraderTypeActionSequence  GraderType = "action_sequence"
+	GraderTypeSkillInvocation GraderType = "skill_invocation"
+	GraderTypeTrigger         GraderType = "trigger"
+	GraderTypeDiff            GraderType = "diff"
+	GraderTypeToolConstraint  GraderType = "tool_constraint"
 )
 
-func AllGraderKinds() []string {
+func AllGraderTypes() []string {
 	names := []string{
-		string(GraderKindInlineScript),
-		string(GraderKindPrompt),
-		string(GraderKindText),
-		string(GraderKindFile),
-		string(GraderKindJSONSchema),
-		string(GraderKindProgram),
-		string(GraderKindBehavior),
-		string(GraderKindActionSequence),
-		string(GraderKindSkillInvocation),
-		string(GraderKindTrigger),
-		string(GraderKindDiff),
-		string(GraderKindToolConstraint),
+		string(GraderTypeInlineScript),
+		string(GraderTypePrompt),
+		string(GraderTypeText),
+		string(GraderTypeFile),
+		string(GraderTypeJSONSchema),
+		string(GraderTypeProgram),
+		string(GraderTypeBehavior),
+		string(GraderTypeActionSequence),
+		string(GraderTypeSkillInvocation),
+		string(GraderTypeTrigger),
+		string(GraderTypeDiff),
+		string(GraderTypeToolConstraint),
 	}
 
 	sort.Strings(names)
 	return names
 }
 
-// EvaluationOutcome represents the complete result of an evaluation run
-type EvaluationOutcome struct {
+// EvalOutcome represents the complete result of an evaluation run
+type EvalOutcome struct {
 	RunID           string                   `json:"eval_id"`
 	SkillTested     string                   `json:"skill"`
-	BenchName       string                   `json:"eval_name"`
+	EvalName        string                   `json:"eval_name"`
 	Timestamp       time.Time                `json:"timestamp"`
-	Setup           OutcomeSetup             `json:"config"`
-	Digest          OutcomeDigest            `json:"summary"`
+	Setup           EvalSetup                `json:"config"`
+	Digest          EvalDigest               `json:"summary"`
 	Measures        map[string]MeasureResult `json:"metrics"`
-	TestOutcomes    []TestOutcome            `json:"tasks"`
+	TaskOutcomes    []TaskOutcome            `json:"tasks"`
 	TriggerMetrics  *TriggerMetrics          `json:"trigger_metrics,omitempty"`
 	TriggerResults  []TriggerResult          `json:"trigger_results,omitempty"`
 	Metadata        map[string]any           `json:"metadata,omitempty"`
 	IsBaseline      bool                     `json:"is_baseline,omitempty"`
-	BaselineOutcome *EvaluationOutcome       `json:"baseline_outcome,omitempty"`
+	BaselineOutcome *EvalOutcome             `json:"baseline_outcome,omitempty"`
 }
 
-type OutcomeSetup struct {
+type EvalSetup struct {
 	RunsPerTest int    `json:"runs_per_test"`
 	ModelID     string `json:"model_id"`
 	EngineType  string `json:"engine_type"`
@@ -85,7 +85,7 @@ type OutcomeSetup struct {
 	JudgeModel  string `json:"judge_model,omitempty"`
 }
 
-type OutcomeDigest struct {
+type EvalDigest struct {
 	TotalTests     int          `json:"total_tests"`
 	Succeeded      int          `json:"succeeded"`
 	Failed         int          `json:"failed"`
@@ -114,14 +114,14 @@ type MeasureResult struct {
 	Details    map[string]any `json:"details,omitempty"`
 }
 
-// TestOutcome represents the result of one test case
-type TestOutcome struct {
+// TaskOutcome represents the result of one test case
+type TaskOutcome struct {
 	TestID      string             `json:"test_id"`
 	DisplayName string             `json:"display_name"`
 	Group       string             `json:"group,omitempty"`
 	Status      Status             `json:"status"`
 	Runs        []RunResult        `json:"runs"`
-	Stats       *TestStats         `json:"stats,omitempty"`
+	Stats       *TaskStats         `json:"stats,omitempty"`
 	SkillImpact *SkillImpactMetric `json:"skill_impact,omitempty"`
 }
 
@@ -148,7 +148,7 @@ type RunResult struct {
 	// message from the error.
 	Status           Status                   `json:"status"`
 	DurationMs       int64                    `json:"duration_ms"`
-	Validations      map[string]GraderResults `json:"validations"`
+	GraderScores     map[string]GraderResults `json:"validations"`
 	SessionDigest    SessionDigest            `json:"session_digest"`
 	Transcript       []TranscriptEvent        `json:"transcript,omitempty"`
 	FinalOutput      string                   `json:"final_output"`
@@ -158,7 +158,7 @@ type RunResult struct {
 
 type GraderResults struct {
 	Name       string         `json:"identifier"`
-	Type       GraderKind     `json:"type"`
+	Type       GraderType     `json:"type"`
 	Score      float64        `json:"score"`
 	Weight     float64        `json:"weight"`
 	Passed     bool           `json:"passed"`
@@ -236,7 +236,7 @@ func AggregateUsageStats(stats []*UsageStats) *UsageStats {
 	return agg
 }
 
-type TestStats struct {
+type TaskStats struct {
 	PassRate         float64 `json:"pass_rate"`
 	FlakinessPercent float64 `json:"flakiness_percent"`
 	PassedRuns       int     `json:"passed_runs"`
@@ -285,25 +285,25 @@ type PairwiseResult struct {
 
 // ComputeRunScore calculates the average score across all validations (unweighted, for backward compat)
 func (r *RunResult) ComputeRunScore() float64 {
-	if len(r.Validations) == 0 {
+	if len(r.GraderScores) == 0 {
 		return 0.0
 	}
 	total := 0.0
-	for _, v := range r.Validations {
+	for _, v := range r.GraderScores {
 		total += v.Score
 	}
-	return total / float64(len(r.Validations))
+	return total / float64(len(r.GraderScores))
 }
 
 // ComputeWeightedRunScore calculates the weighted composite score (0.0–1.0)
 // using each grader's Weight field. If all weights are zero, falls back to simple average.
 func (r *RunResult) ComputeWeightedRunScore() float64 {
-	if len(r.Validations) == 0 {
+	if len(r.GraderScores) == 0 {
 		return 0.0
 	}
 	totalWeight := 0.0
 	weightedSum := 0.0
-	for _, v := range r.Validations {
+	for _, v := range r.GraderScores {
 		w := v.Weight
 		if w <= 0 {
 			w = 1.0
@@ -317,9 +317,9 @@ func (r *RunResult) ComputeWeightedRunScore() float64 {
 	return weightedSum / totalWeight
 }
 
-// AllValidationsPassed checks if all validations passed
-func (r *RunResult) AllValidationsPassed() bool {
-	for _, v := range r.Validations {
+// AllGradersPassed checks if all validations passed
+func (r *RunResult) AllGradersPassed() bool {
+	for _, v := range r.GraderScores {
 		if !v.Passed {
 			return false
 		}

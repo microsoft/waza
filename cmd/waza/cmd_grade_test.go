@@ -26,7 +26,7 @@ func writeTaskFile(t *testing.T, dir, filename, yaml string) {
 	require.NoError(t, os.WriteFile(filepath.Join(taskDir, filename), []byte(yaml), 0o644))
 }
 
-func gradeResultsFile(t *testing.T, dir string, outcome *models.EvaluationOutcome) string {
+func gradeResultsFile(t *testing.T, dir string, outcome *models.EvalOutcome) string {
 	t.Helper()
 	data, err := json.Marshal(outcome)
 	require.NoError(t, err)
@@ -35,12 +35,12 @@ func gradeResultsFile(t *testing.T, dir string, outcome *models.EvaluationOutcom
 	return p
 }
 
-func outcomeWithTasks(tasks ...models.TestOutcome) *models.EvaluationOutcome {
-	return &models.EvaluationOutcome{TestOutcomes: tasks}
+func outcomeWithTasks(tasks ...models.TaskOutcome) *models.EvalOutcome {
+	return &models.EvalOutcome{TaskOutcomes: tasks}
 }
 
-func taskOutcome(taskID, output string) models.TestOutcome {
-	return models.TestOutcome{
+func taskOutcome(taskID, output string) models.TaskOutcome {
+	return models.TaskOutcome{
 		TestID: taskID,
 		Runs: []models.RunResult{{
 			FinalOutput:   output,
@@ -178,7 +178,7 @@ func TestGradeCommand_TaskZeroRuns(t *testing.T) {
 	specPath := gradeSpec(t, dir, minimalSpec)
 	writeTaskFile(t, dir, "task.yaml", taskWithCodeGrader)
 
-	results := gradeResultsFile(t, dir, outcomeWithTasks(models.TestOutcome{
+	results := gradeResultsFile(t, dir, outcomeWithTasks(models.TaskOutcome{
 		TestID: "task-001",
 		Runs:   []models.RunResult{},
 	}))
@@ -285,7 +285,7 @@ tasks:
 `)
 	writeTaskFile(t, dir, "task.yaml", taskWithCodeGrader)
 
-	results := gradeResultsFile(t, dir, outcomeWithTasks(models.TestOutcome{
+	results := gradeResultsFile(t, dir, outcomeWithTasks(models.TaskOutcome{
 		TestID: "task-001",
 		Runs: []models.RunResult{
 			{
@@ -495,7 +495,7 @@ func TestGradeCommand_OutputStructure(t *testing.T) {
 	}
 }
 
-func TestGradeCommand_OutputFlag_WritesEvaluationOutcome(t *testing.T) {
+func TestGradeCommand_OutputFlag_WritesEvalOutcome(t *testing.T) {
 	dir := t.TempDir()
 	specPath := gradeSpec(t, dir, minimalSpec)
 	writeTaskFile(t, dir, "task.yaml", taskWithCodeGrader)
@@ -509,16 +509,16 @@ func TestGradeCommand_OutputFlag_WritesEvaluationOutcome(t *testing.T) {
 	data, err := os.ReadFile(outputFile)
 	require.NoError(t, err)
 
-	var outcome models.EvaluationOutcome
+	var outcome models.EvalOutcome
 	require.NoError(t, json.Unmarshal(data, &outcome))
 
-	require.Len(t, outcome.TestOutcomes, 1)
-	require.Equal(t, "task-001", outcome.TestOutcomes[0].TestID)
-	require.Equal(t, models.StatusPassed, outcome.TestOutcomes[0].Status)
-	require.NotEmpty(t, outcome.TestOutcomes[0].Runs)
-	require.NotEmpty(t, outcome.TestOutcomes[0].Runs[0].Validations)
-	require.NotNil(t, outcome.TestOutcomes[0].Stats, "graded outcome must have computed stats")
-	require.InDelta(t, 1.0, outcome.TestOutcomes[0].Stats.PassRate, 0.001)
+	require.Len(t, outcome.TaskOutcomes, 1)
+	require.Equal(t, "task-001", outcome.TaskOutcomes[0].TestID)
+	require.Equal(t, models.StatusPassed, outcome.TaskOutcomes[0].Status)
+	require.NotEmpty(t, outcome.TaskOutcomes[0].Runs)
+	require.NotEmpty(t, outcome.TaskOutcomes[0].Runs[0].GraderScores)
+	require.NotNil(t, outcome.TaskOutcomes[0].Stats, "graded outcome must have computed stats")
+	require.InDelta(t, 1.0, outcome.TaskOutcomes[0].Stats.PassRate, 0.001)
 
 	require.Equal(t, 1, outcome.Digest.TotalTests)
 	require.Equal(t, 1, outcome.Digest.Succeeded)
@@ -547,24 +547,24 @@ func TestGradeCommand_OutputFlag_PreservesUnmodifiedTasks(t *testing.T) {
 	data, err := os.ReadFile(outputFile)
 	require.NoError(t, err)
 
-	var outcome models.EvaluationOutcome
+	var outcome models.EvalOutcome
 	require.NoError(t, json.Unmarshal(data, &outcome))
 
 	// Should have both tasks in the outcome
-	require.Len(t, outcome.TestOutcomes, 2)
+	require.Len(t, outcome.TaskOutcomes, 2)
 
 	// One should be regraded and passed
 	// The other should be preserved as-is
 	var found1, found2 bool
-	for _, to := range outcome.TestOutcomes {
+	for _, to := range outcome.TaskOutcomes {
 		switch to.TestID {
 		case "task-001":
 			found1 = true
 			require.Equal(t, models.StatusPassed, to.Status)
-			require.NotEmpty(t, to.Runs[0].Validations)
+			require.NotEmpty(t, to.Runs[0].GraderScores)
 		case "task-002":
 			found2 = true
-			require.Empty(t, to.Runs[0].Validations, "should not have regraded task-002")
+			require.Empty(t, to.Runs[0].GraderScores, "should not have regraded task-002")
 		}
 	}
 	require.True(t, found1, "missing task-001")
@@ -621,7 +621,7 @@ graders:
 	specPath := gradeSpec(t, dir, minimalSpec)
 	writeTaskFile(t, dir, "task.yaml", taskWithSkillInvocation)
 
-	outcome := outcomeWithTasks(models.TestOutcome{
+	outcome := outcomeWithTasks(models.TaskOutcome{
 		TestID: "task-skill",
 		Runs: []models.RunResult{{
 			FinalOutput:   "output",

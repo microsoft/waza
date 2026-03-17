@@ -72,7 +72,7 @@ func TestBuildExecutionRequest_SkillPaths(t *testing.T) {
 			}
 
 			// Create config
-			cfg := config.NewBenchmarkConfig(
+			cfg := config.NewRunConfig(
 				spec,
 				config.WithSpecDir(tt.specDir),
 			)
@@ -87,7 +87,7 @@ func TestBuildExecutionRequest_SkillPaths(t *testing.T) {
 			}
 
 			// Create runner (engine can be nil for this test)
-			runner := NewTestRunner(cfg, nil)
+			runner := NewEvalRunner(cfg, nil)
 
 			// Build execution request
 			req := runner.buildExecutionRequest(tc)
@@ -122,7 +122,7 @@ func TestBuildExecutionRequest_BasicFields(t *testing.T) {
 		},
 	}
 
-	cfg := config.NewBenchmarkConfig(spec)
+	cfg := config.NewRunConfig(spec)
 
 	// Create a test case
 	tc := &models.TaskSpec{
@@ -136,7 +136,7 @@ func TestBuildExecutionRequest_BasicFields(t *testing.T) {
 		},
 	}
 
-	runner := NewTestRunner(cfg, nil)
+	runner := NewEvalRunner(cfg, nil)
 	req := runner.buildExecutionRequest(tc)
 
 	// Verify basic fields
@@ -160,7 +160,7 @@ func TestBuildExecutionRequest_TimeoutOverride(t *testing.T) {
 		},
 	}
 
-	cfg := config.NewBenchmarkConfig(spec)
+	cfg := config.NewRunConfig(spec)
 
 	// Create a test case with custom timeout
 	customTimeout := 300
@@ -173,7 +173,7 @@ func TestBuildExecutionRequest_TimeoutOverride(t *testing.T) {
 		TimeoutSec: &customTimeout,
 	}
 
-	runner := NewTestRunner(cfg, nil)
+	runner := NewEvalRunner(cfg, nil)
 	req := runner.buildExecutionRequest(tc)
 
 	// Verify timeout is overridden
@@ -184,13 +184,13 @@ func TestComputeTestStats_ErrorRunsAreSeparateFromFailed(t *testing.T) {
 	runs := []models.RunResult{
 		{
 			Status: models.StatusPassed,
-			Validations: map[string]models.GraderResults{
+			GraderScores: map[string]models.GraderResults{
 				"g": {Passed: true, Score: 1.0},
 			},
 		},
 		{
-			Status:      models.StatusError,
-			Validations: nil,
+			Status:       models.StatusError,
+			GraderScores: nil,
 		},
 	}
 
@@ -250,8 +250,8 @@ description: Validate Azure config
 			},
 		}
 
-		cfg := config.NewBenchmarkConfig(spec, config.WithSpecDir(tmpDir))
-		runner := NewTestRunner(cfg, nil)
+		cfg := config.NewRunConfig(spec, config.WithSpecDir(tmpDir))
+		runner := NewEvalRunner(cfg, nil)
 
 		err := runner.validateRequiredSkills()
 		assert.NoError(t, err)
@@ -273,8 +273,8 @@ description: Validate Azure config
 			},
 		}
 
-		cfg := config.NewBenchmarkConfig(spec, config.WithSpecDir(tmpDir))
-		runner := NewTestRunner(cfg, nil)
+		cfg := config.NewRunConfig(spec, config.WithSpecDir(tmpDir))
+		runner := NewEvalRunner(cfg, nil)
 
 		err := runner.validateRequiredSkills()
 		require.Error(t, err)
@@ -300,8 +300,8 @@ description: Validate Azure config
 			},
 		}
 
-		cfg := config.NewBenchmarkConfig(spec, config.WithSpecDir(tmpDir))
-		runner := NewTestRunner(cfg, nil)
+		cfg := config.NewRunConfig(spec, config.WithSpecDir(tmpDir))
+		runner := NewEvalRunner(cfg, nil)
 
 		err := runner.validateRequiredSkills()
 		assert.NoError(t, err)
@@ -323,8 +323,8 @@ description: Validate Azure config
 			},
 		}
 
-		cfg := config.NewBenchmarkConfig(spec, config.WithSpecDir(tmpDir))
-		runner := NewTestRunner(cfg, nil)
+		cfg := config.NewRunConfig(spec, config.WithSpecDir(tmpDir))
+		runner := NewEvalRunner(cfg, nil)
 
 		err := runner.validateRequiredSkills()
 		assert.NoError(t, err)
@@ -346,8 +346,8 @@ description: Validate Azure config
 			},
 		}
 
-		cfg := config.NewBenchmarkConfig(spec, config.WithSpecDir(tmpDir))
-		runner := NewTestRunner(cfg, nil)
+		cfg := config.NewRunConfig(spec, config.WithSpecDir(tmpDir))
+		runner := NewEvalRunner(cfg, nil)
 
 		err := runner.validateRequiredSkills()
 		require.Error(t, err)
@@ -370,8 +370,8 @@ description: Validate Azure config
 			},
 		}
 
-		cfg := config.NewBenchmarkConfig(spec, config.WithSpecDir(tmpDir))
-		runner := NewTestRunner(cfg, nil)
+		cfg := config.NewRunConfig(spec, config.WithSpecDir(tmpDir))
+		runner := NewEvalRunner(cfg, nil)
 
 		err := runner.validateRequiredSkills()
 		assert.NoError(t, err)
@@ -379,10 +379,10 @@ description: Validate Azure config
 }
 
 func TestComputeGroupStats_MixedGroups(t *testing.T) {
-	outcomes := []models.TestOutcome{
-		{TestID: "t1", Group: "gpt-4o", Status: models.StatusPassed, Stats: &models.TestStats{AvgScore: 0.9}},
-		{TestID: "t2", Group: "gpt-4o", Status: models.StatusFailed, Stats: &models.TestStats{AvgScore: 0.4}},
-		{TestID: "t3", Group: "claude", Status: models.StatusPassed, Stats: &models.TestStats{AvgScore: 1.0}},
+	outcomes := []models.TaskOutcome{
+		{TestID: "t1", Group: "gpt-4o", Status: models.StatusPassed, Stats: &models.TaskStats{AvgScore: 0.9}},
+		{TestID: "t2", Group: "gpt-4o", Status: models.StatusFailed, Stats: &models.TaskStats{AvgScore: 0.4}},
+		{TestID: "t3", Group: "claude", Status: models.StatusPassed, Stats: &models.TaskStats{AvgScore: 1.0}},
 	}
 
 	stats := computeGroupStats(outcomes)
@@ -400,7 +400,7 @@ func TestComputeGroupStats_MixedGroups(t *testing.T) {
 }
 
 func TestComputeGroupStats_SingleGroup(t *testing.T) {
-	outcomes := []models.TestOutcome{
+	outcomes := []models.TaskOutcome{
 		{TestID: "t1", Group: "alpha", Status: models.StatusPassed},
 		{TestID: "t2", Group: "alpha", Status: models.StatusPassed},
 	}
@@ -417,12 +417,12 @@ func TestComputeGroupStats_EmptyOutcomes(t *testing.T) {
 	stats := computeGroupStats(nil)
 	assert.Nil(t, stats)
 
-	stats = computeGroupStats([]models.TestOutcome{})
+	stats = computeGroupStats([]models.TaskOutcome{})
 	assert.Nil(t, stats)
 }
 
 func TestComputeGroupStats_NoGroupSet(t *testing.T) {
-	outcomes := []models.TestOutcome{
+	outcomes := []models.TaskOutcome{
 		{TestID: "t1", Group: "", Status: models.StatusPassed},
 	}
 	stats := computeGroupStats(outcomes)
@@ -436,8 +436,8 @@ func TestResolveGroup_Model(t *testing.T) {
 			GroupBy: "model",
 		},
 	}
-	cfg := config.NewBenchmarkConfig(spec)
-	runner := NewTestRunner(cfg, nil)
+	cfg := config.NewRunConfig(spec)
+	runner := NewEvalRunner(cfg, nil)
 
 	assert.Equal(t, "gpt-4o", runner.resolveGroup())
 }
@@ -449,8 +449,8 @@ func TestResolveGroup_Empty(t *testing.T) {
 			GroupBy: "",
 		},
 	}
-	cfg := config.NewBenchmarkConfig(spec)
-	runner := NewTestRunner(cfg, nil)
+	cfg := config.NewRunConfig(spec)
+	runner := NewEvalRunner(cfg, nil)
 
 	assert.Equal(t, "", runner.resolveGroup())
 }
@@ -462,8 +462,8 @@ func TestResolveGroup_Unknown(t *testing.T) {
 			GroupBy: "region",
 		},
 	}
-	cfg := config.NewBenchmarkConfig(spec)
-	runner := NewTestRunner(cfg, nil)
+	cfg := config.NewRunConfig(spec)
+	runner := NewEvalRunner(cfg, nil)
 
 	assert.Equal(t, "", runner.resolveGroup())
 }

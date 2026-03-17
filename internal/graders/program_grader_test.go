@@ -17,7 +17,7 @@ func TestProgramGrader_Basic(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	require.Equal(t, models.GraderKindProgram, g.Kind())
+	require.Equal(t, models.GraderTypeProgram, g.Kind())
 	require.Equal(t, "test", g.Name())
 }
 
@@ -156,7 +156,7 @@ func TestProgramGrader_Grade(t *testing.T) {
 		})
 		require.NoError(t, err)
 		require.Equal(t, "detail-test", results.Name)
-		require.Equal(t, models.GraderKindProgram, results.Type)
+		require.Equal(t, models.GraderTypeProgram, results.Type)
 		require.Equal(t, "echo", results.Details["command"])
 	})
 
@@ -180,7 +180,7 @@ func TestProgramGrader_ViaCreate(t *testing.T) {
 		t.Skip("skipping program grader tests on Windows")
 	}
 
-	t.Run("Create with GraderKindProgram works", func(t *testing.T) {
+	t.Run("Create with GraderTypeProgram works", func(t *testing.T) {
 		g, err := Create("from-create", models.ProgramGraderParameters{
 			Command: "echo",
 			Args:    []string{"graded"},
@@ -188,7 +188,7 @@ func TestProgramGrader_ViaCreate(t *testing.T) {
 		})
 		require.NoError(t, err)
 		require.Equal(t, "from-create", g.Name())
-		require.Equal(t, models.GraderKindProgram, g.Kind())
+		require.Equal(t, models.GraderTypeProgram, g.Kind())
 
 		results, err := g.Grade(context.Background(), &Context{
 			Output:       "test",

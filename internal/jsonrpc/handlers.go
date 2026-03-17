@@ -148,7 +148,7 @@ func (h *HandlerContext) handleEvalGet(_ context.Context, params json.RawMessage
 	for _, g := range spec.Graders {
 		graders = append(graders, GraderSummary{
 			Name: g.Identifier,
-			Type: string(g.Kind),
+			Type: string(g.Type),
 		})
 	}
 

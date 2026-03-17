@@ -19,8 +19,8 @@ func formatDuration(d time.Duration) string {
 	return d.String()
 }
 
-// FormatGitHubComment formats an EvaluationOutcome as a markdown comment for GitHub PRs
-func FormatGitHubComment(outcome *models.EvaluationOutcome) string {
+// FormatGitHubComment formats an EvalOutcome as a markdown comment for GitHub PRs
+func FormatGitHubComment(outcome *models.EvalOutcome) string {
 	var b strings.Builder
 
 	digest := outcome.Digest
@@ -50,7 +50,7 @@ func FormatGitHubComment(outcome *models.EvaluationOutcome) string {
 	b.WriteString("| Task | Score | Status | Graders |\n")
 	b.WriteString("|------|-------|--------|----------|\n")
 
-	for _, to := range outcome.TestOutcomes {
+	for _, to := range outcome.TaskOutcomes {
 		statusIcon := "✅"
 		if to.Status != models.StatusPassed {
 			statusIcon = "❌"
@@ -71,7 +71,7 @@ func FormatGitHubComment(outcome *models.EvaluationOutcome) string {
 		// Collect grader names from first run
 		graderNames := []string{}
 		if len(to.Runs) > 0 {
-			for name := range to.Runs[0].Validations {
+			for name := range to.Runs[0].GraderScores {
 				graderNames = append(graderNames, name)
 			}
 		}
@@ -89,8 +89,8 @@ func FormatGitHubComment(outcome *models.EvaluationOutcome) string {
 	b.WriteString("\n")
 
 	// Flaky tasks warning
-	var flakyTasks []models.TestOutcome
-	for _, to := range outcome.TestOutcomes {
+	var flakyTasks []models.TaskOutcome
+	for _, to := range outcome.TaskOutcomes {
 		if to.Stats != nil && to.Stats.Flaky {
 			flakyTasks = append(flakyTasks, to)
 		}
@@ -112,7 +112,7 @@ func FormatGitHubComment(outcome *models.EvaluationOutcome) string {
 	// Grader breakdown for failed tasks
 	if digest.Failed > 0 || digest.Errors > 0 {
 		b.WriteString("### Failed Task Details\n\n")
-		for _, to := range outcome.TestOutcomes {
+		for _, to := range outcome.TaskOutcomes {
 			if to.Status != models.StatusPassed {
 				fmt.Fprintf(&b, "#### %s\n\n", to.DisplayName)
 
@@ -124,15 +124,15 @@ func FormatGitHubComment(outcome *models.EvaluationOutcome) string {
 								runIdx+1, len(to.Runs), run.Status)
 
 							// Collect and sort validation names for consistent output
-							valNames := make([]string, 0, len(run.Validations))
-							for name := range run.Validations {
+							valNames := make([]string, 0, len(run.GraderScores))
+							for name := range run.GraderScores {
 								valNames = append(valNames, name)
 							}
 							sort.Strings(valNames)
 
 							// Print validations in sorted order
 							for _, name := range valNames {
-								val := run.Validations[name]
+								val := run.GraderScores[name]
 								icon := "✅"
 								if !val.Passed {
 									icon = "❌"
@@ -151,7 +151,7 @@ func FormatGitHubComment(outcome *models.EvaluationOutcome) string {
 	// Footer with metadata
 	b.WriteString("---\n\n")
 	fmt.Fprintf(&b, "**Benchmark:** %s | **Skill:** %s | **Model:** %s\n",
-		outcome.BenchName, outcome.SkillTested, outcome.Setup.ModelID)
+		outcome.EvalName, outcome.SkillTested, outcome.Setup.ModelID)
 
 	return b.String()
 }

@@ -72,12 +72,12 @@ type JUnitProperty struct {
 	Value string `xml:"value,attr"`
 }
 
-// ConvertToJUnit converts an EvaluationOutcome to JUnit XML format.
-func ConvertToJUnit(outcome *models.EvaluationOutcome) *JUnitTestSuites {
+// ConvertToJUnit converts an EvalOutcome to JUnit XML format.
+func ConvertToJUnit(outcome *models.EvalOutcome) *JUnitTestSuites {
 	durationSec := float64(outcome.Digest.DurationMs) / 1000.0
 
 	suite := JUnitTestSuite{
-		Name:      outcome.BenchName,
+		Name:      outcome.EvalName,
 		Tests:     outcome.Digest.TotalTests,
 		Failures:  outcome.Digest.Failed,
 		Errors:    outcome.Digest.Errors,
@@ -92,7 +92,7 @@ func ConvertToJUnit(outcome *models.EvaluationOutcome) *JUnitTestSuites {
 		},
 	}
 
-	for _, to := range outcome.TestOutcomes {
+	for _, to := range outcome.TaskOutcomes {
 		tc := convertTestOutcome(outcome.SkillTested, &to)
 		suite.TestCases = append(suite.TestCases, tc)
 	}
@@ -106,7 +106,7 @@ func ConvertToJUnit(outcome *models.EvaluationOutcome) *JUnitTestSuites {
 	}
 }
 
-func convertTestOutcome(skill string, to *models.TestOutcome) JUnitTestCase {
+func convertTestOutcome(skill string, to *models.TaskOutcome) JUnitTestCase {
 	// Compute duration from stats or runs
 	var durationSec float64
 	if to.Stats != nil && to.Stats.AvgDurationMs > 0 {
@@ -137,12 +137,12 @@ func convertTestOutcome(skill string, to *models.TestOutcome) JUnitTestCase {
 	return tc
 }
 
-func buildFailure(to *models.TestOutcome) *JUnitFailure {
+func buildFailure(to *models.TaskOutcome) *JUnitFailure {
 	// Collect failed graders from the first failed run
 	var details string
 	for _, run := range to.Runs {
 		if run.Status != models.StatusPassed {
-			details = formatFailedGraders(run.Validations)
+			details = formatFailedGraders(run.GraderScores)
 			break
 		}
 	}
@@ -159,7 +159,7 @@ func buildFailure(to *models.TestOutcome) *JUnitFailure {
 	}
 }
 
-func buildError(to *models.TestOutcome) *JUnitError {
+func buildError(to *models.TaskOutcome) *JUnitError {
 	var msg string
 	for _, run := range to.Runs {
 		if run.ErrorMsg != "" {
@@ -200,7 +200,7 @@ func formatFailedGraders(validations map[string]models.GraderResults) string {
 }
 
 // WriteJUnitXML writes JUnit XML to the specified file path.
-func WriteJUnitXML(outcome *models.EvaluationOutcome, path string) error {
+func WriteJUnitXML(outcome *models.EvalOutcome, path string) error {
 	suites := ConvertToJUnit(outcome)
 
 	data, err := xml.MarshalIndent(suites, "", "  ")

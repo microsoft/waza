@@ -39,7 +39,7 @@ func NewActionSequenceGrader(name string, params models.ActionSequenceGraderPara
 }
 
 func (g *actionSequenceGrader) Name() string            { return g.name }
-func (g *actionSequenceGrader) Kind() models.GraderKind { return models.GraderKindActionSequence }
+func (g *actionSequenceGrader) Kind() models.GraderType { return models.GraderTypeActionSequence }
 
 func (g *actionSequenceGrader) Grade(ctx context.Context, gradingContext *Context) (*models.GraderResults, error) {
 	return measureTime(func() (*models.GraderResults, error) {
@@ -47,7 +47,7 @@ func (g *actionSequenceGrader) Grade(ctx context.Context, gradingContext *Contex
 		if session == nil {
 			return &models.GraderResults{
 				Name:     g.name,
-				Type:     models.GraderKindActionSequence,
+				Type:     models.GraderTypeActionSequence,
 				Score:    0.0,
 				Passed:   false,
 				Feedback: fmt.Sprintf("action_sequence grader '%s': no session digest available", g.name),
@@ -67,7 +67,7 @@ func (g *actionSequenceGrader) Grade(ctx context.Context, gradingContext *Contex
 
 		return &models.GraderResults{
 			Name:     g.name,
-			Type:     models.GraderKindActionSequence,
+			Type:     models.GraderTypeActionSequence,
 			Score:    f1,
 			Passed:   passed,
 			Feedback: feedback,

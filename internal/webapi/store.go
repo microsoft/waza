@@ -25,12 +25,12 @@ type RunStore interface {
 	Summary() (*SummaryResponse, error)
 }
 
-// FileStore reads EvaluationOutcome JSON files from a directory.
+// FileStore reads EvalOutcome JSON files from a directory.
 type FileStore struct {
 	dir string
 
 	mu      sync.RWMutex
-	runs    map[string]*models.EvaluationOutcome
+	runs    map[string]*models.EvalOutcome
 	loaded  bool
 	loadErr error
 }
@@ -39,7 +39,7 @@ type FileStore struct {
 func NewFileStore(dir string) *FileStore {
 	return &FileStore{
 		dir:  dir,
-		runs: make(map[string]*models.EvaluationOutcome),
+		runs: make(map[string]*models.EvalOutcome),
 	}
 }
 
@@ -48,7 +48,7 @@ func (fs *FileStore) load() error {
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
 
-	fs.runs = make(map[string]*models.EvaluationOutcome)
+	fs.runs = make(map[string]*models.EvalOutcome)
 
 	if fs.dir == "" {
 		fs.loaded = true
@@ -84,13 +84,13 @@ func (fs *FileStore) load() error {
 			return nil
 		}
 
-		var outcome models.EvaluationOutcome
+		var outcome models.EvalOutcome
 		if err := json.Unmarshal(data, &outcome); err != nil {
 			return nil
 		}
 
-		// Validate that this is a real EvaluationOutcome, not summary.json or other JSON
-		if outcome.BenchName == "" && outcome.Digest.TotalTests == 0 {
+		// Validate that this is a real EvalOutcome, not summary.json or other JSON
+		if outcome.EvalName == "" && outcome.Digest.TotalTests == 0 {
 			return nil
 		}
 
@@ -132,14 +132,14 @@ func (fs *FileStore) Reload() error {
 	return fs.load()
 }
 
-func outcomeToSummary(o *models.EvaluationOutcome) RunSummary {
+func outcomeToSummary(o *models.EvalOutcome) RunSummary {
 	outcome := "passed"
 	if o.Digest.Failed > 0 || o.Digest.Errors > 0 {
 		outcome = "failed"
 	}
 
 	tokens := 0
-	for _, t := range o.TestOutcomes {
+	for _, t := range o.TaskOutcomes {
 		for _, r := range t.Runs {
 			if r.SessionDigest.Usage != nil {
 				tokens += r.SessionDigest.Usage.InputTokens + r.SessionDigest.Usage.OutputTokens
@@ -149,7 +149,7 @@ func outcomeToSummary(o *models.EvaluationOutcome) RunSummary {
 
 	return RunSummary{
 		ID:         o.RunID,
-		Spec:       o.BenchName,
+		Spec:       o.EvalName,
 		Model:      o.Setup.ModelID,
 		JudgeModel: o.Setup.JudgeModel,
 		Outcome:    outcome,
@@ -169,11 +169,11 @@ func estimateCost(tokens int) float64 {
 	return float64(tokens) * 0.00025
 }
 
-func outcomeToDetail(o *models.EvaluationOutcome) *RunDetail {
+func outcomeToDetail(o *models.EvalOutcome) *RunDetail {
 	s := outcomeToSummary(o)
 	detail := &RunDetail{RunSummary: s}
 
-	for _, to := range o.TestOutcomes {
+	for _, to := range o.TaskOutcomes {
 		tr := TaskResult{
 			Name:    to.DisplayName,
 			Outcome: string(to.Status),
@@ -198,7 +198,7 @@ func outcomeToDetail(o *models.EvaluationOutcome) *RunDetail {
 			if tr.Duration == 0 {
 				tr.Duration = float64(run.DurationMs) / 1000.0
 			}
-			for _, v := range run.Validations {
+			for _, v := range run.GraderScores {
 				tr.GraderResults = append(tr.GraderResults, GraderResult{
 					Name:    v.Name,
 					Type:    string(v.Type),

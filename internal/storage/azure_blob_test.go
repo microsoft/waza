@@ -79,14 +79,14 @@ type blobItem struct {
 // Note: These tests assume AzureBlobStore will be implemented with a similar interface.
 // Adjust once the actual implementation exists.
 
-func makeAzureOutcome(runID, skill, model string, passed, total int) *models.EvaluationOutcome {
-	return &models.EvaluationOutcome{
+func makeAzureOutcome(runID, skill, model string, passed, total int) *models.EvalOutcome {
+	return &models.EvalOutcome{
 		RunID:       runID,
 		SkillTested: skill,
-		BenchName:   "test-bench",
+		EvalName:    "test-bench",
 		Timestamp:   time.Date(2026, 2, 27, 12, 0, 0, 0, time.UTC),
-		Setup:       models.OutcomeSetup{ModelID: model},
-		Digest: models.OutcomeDigest{
+		Setup:       models.EvalSetup{ModelID: model},
+		Digest: models.EvalDigest{
 			TotalTests:     total,
 			Succeeded:      passed,
 			Failed:         total - passed,
@@ -149,7 +149,7 @@ func TestAzureBlobStore_Download_Deserialization(t *testing.T) {
 		t.Fatalf("Download() error: %v", err)
 	}
 
-	var got models.EvaluationOutcome
+	var got models.EvalOutcome
 	if err := json.Unmarshal(downloaded, &got); err != nil {
 		t.Fatalf("Unmarshal error: %v", err)
 	}
@@ -169,7 +169,7 @@ func TestAzureBlobStore_List_MetadataFiltering(t *testing.T) {
 	ctx := context.Background()
 
 	// Upload multiple outcomes with different metadata
-	outcomes := []*models.EvaluationOutcome{
+	outcomes := []*models.EvalOutcome{
 		makeAzureOutcome("run-1", "skill-a", "gpt-4o", 5, 10),
 		makeAzureOutcome("run-2", "skill-a", "claude-sonnet", 8, 10),
 		makeAzureOutcome("run-3", "skill-b", "gpt-4o", 9, 10),
@@ -217,7 +217,7 @@ func TestAzureBlobStore_Compare_DeltaCalculation(t *testing.T) {
 	o2 := makeAzureOutcome("run-2", "skill-x", "gpt-4o", 9, 10)
 	o2.Digest.AggregateScore = 0.9
 
-	for i, o := range []*models.EvaluationOutcome{o1, o2} {
+	for i, o := range []*models.EvalOutcome{o1, o2} {
 		data, _ := json.Marshal(o)
 		path := fmt.Sprintf("skill-x/2026-02-27/run-%d.json", i+1)
 		_ = mock.Upload(ctx, path, data, nil)
@@ -227,7 +227,7 @@ func TestAzureBlobStore_Compare_DeltaCalculation(t *testing.T) {
 	data1, _ := mock.Download(ctx, "skill-x/2026-02-27/run-1.json")
 	data2, _ := mock.Download(ctx, "skill-x/2026-02-27/run-2.json")
 
-	var downloaded1, downloaded2 models.EvaluationOutcome
+	var downloaded1, downloaded2 models.EvalOutcome
 	_ = json.Unmarshal(data1, &downloaded1)
 	_ = json.Unmarshal(data2, &downloaded2)
 

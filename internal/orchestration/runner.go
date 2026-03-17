@@ -23,9 +23,9 @@ import (
 	"github.com/microsoft/waza/internal/utils"
 )
 
-// TestRunner orchestrates the execution of tests
-type TestRunner struct {
-	cfg     *config.BenchmarkConfig
+// EvalRunner orchestrates the execution of tests
+type EvalRunner struct {
+	cfg     *config.RunConfig
 	engine  execution.AgentEngine
 	verbose bool
 
@@ -60,17 +60,17 @@ type EventType string
 
 // EventType constants
 const (
-	EventBenchmarkStart    EventType = "benchmark_start"
-	EventBenchmarkComplete EventType = "benchmark_complete"
-	EventBenchmarkStopped  EventType = "benchmark_stopped"
-	EventTestStart         EventType = "test_start"
-	EventTestComplete      EventType = "test_complete"
-	EventTestCached        EventType = "test_cached"
-	EventRunStart          EventType = "run_start"
-	EventRunComplete       EventType = "run_complete"
-	EventAgentPrompt       EventType = "agent_prompt"
-	EventAgentResponse     EventType = "agent_response"
-	EventGraderResult      EventType = "grader_result"
+	EventEvalStart     EventType = "benchmark_start"
+	EventEvalComplete  EventType = "benchmark_complete"
+	EventEvalStopped   EventType = "benchmark_stopped"
+	EventTaskStart     EventType = "test_start"
+	EventTaskComplete  EventType = "test_complete"
+	EventTaskCached    EventType = "test_cached"
+	EventRunStart      EventType = "run_start"
+	EventRunComplete   EventType = "run_complete"
+	EventAgentPrompt   EventType = "agent_prompt"
+	EventAgentResponse EventType = "agent_response"
+	EventGraderResult  EventType = "grader_result"
 )
 
 // ProgressEvent represents a progress update
@@ -86,46 +86,46 @@ type ProgressEvent struct {
 	Details    map[string]any
 }
 
-// RunnerOption configures a TestRunner.
-type RunnerOption func(*TestRunner)
+// RunnerOption configures a EvalRunner.
+type RunnerOption func(*EvalRunner)
 
 // WithTaskFilters sets glob patterns used to filter test cases by DisplayName or TestID.
 func WithTaskFilters(patterns ...string) RunnerOption {
-	return func(r *TestRunner) {
+	return func(r *EvalRunner) {
 		r.taskFilters = patterns
 	}
 }
 
 func WithTagFilters(patterns ...string) RunnerOption {
-	return func(r *TestRunner) {
+	return func(r *EvalRunner) {
 		r.tagFilters = patterns
 	}
 }
 
 // WithCache enables result caching
 func WithCache(c *cache.Cache) RunnerOption {
-	return func(r *TestRunner) {
+	return func(r *EvalRunner) {
 		r.cache = c
 	}
 }
 
 // WithUpdateSnapshots enables snapshot file updates in diff graders.
 func WithUpdateSnapshots(enabled bool) RunnerOption {
-	return func(r *TestRunner) {
+	return func(r *EvalRunner) {
 		r.updateSnapshots = enabled
 	}
 }
 
 // WithSkipGraders disables grading so only execution occurs.
 func WithSkipGraders() RunnerOption {
-	return func(r *TestRunner) {
+	return func(r *EvalRunner) {
 		r.skipGraders = true
 	}
 }
 
-// NewTestRunner creates a new test runner. The caller owns the engine and is responsible for initializing and shutting it down as needed.
-func NewTestRunner(cfg *config.BenchmarkConfig, engine execution.AgentEngine, opts ...RunnerOption) *TestRunner {
-	r := &TestRunner{
+// NewEvalRunner creates a new test runner. The caller owns the engine and is responsible for initializing and shutting it down as needed.
+func NewEvalRunner(cfg *config.RunConfig, engine execution.AgentEngine, opts ...RunnerOption) *EvalRunner {
+	r := &EvalRunner{
 		cfg:       cfg,
 		engine:    engine,
 		verbose:   cfg.Verbose(),
@@ -138,15 +138,15 @@ func NewTestRunner(cfg *config.BenchmarkConfig, engine execution.AgentEngine, op
 }
 
 // OnProgress registers a progress listener
-func (r *TestRunner) OnProgress(listener ProgressListener) {
+func (r *EvalRunner) OnProgress(listener ProgressListener) {
 	r.progressMu.Lock()
 	defer r.progressMu.Unlock()
 	r.listeners = append(r.listeners, listener)
 }
 
-// testOutcomeDetails extracts score and duration from a TestOutcome for inclusion
-// in EventTestComplete Details.
-func testOutcomeDetails(o *models.TestOutcome) map[string]any {
+// testOutcomeDetails extracts score and duration from a TaskOutcome for inclusion
+// in EventTaskComplete Details.
+func testOutcomeDetails(o *models.TaskOutcome) map[string]any {
 	score := 0.0
 	durationMs := int64(0)
 	if o.Stats != nil {
@@ -159,7 +159,7 @@ func testOutcomeDetails(o *models.TestOutcome) map[string]any {
 	}
 }
 
-func (r *TestRunner) notifyProgress(event ProgressEvent) {
+func (r *EvalRunner) notifyProgress(event ProgressEvent) {
 	r.progressMu.Lock()
 	listeners := make([]ProgressListener, len(r.listeners))
 	copy(listeners, r.listeners)
@@ -170,9 +170,9 @@ func (r *TestRunner) notifyProgress(event ProgressEvent) {
 	}
 }
 
-// RunBenchmark executes the entire benchmark
+// RunEval executes the entire benchmark
 // If Baseline is enabled, runs twice: skills-enabled and skills-disabled
-func (r *TestRunner) RunBenchmark(ctx context.Context) (*models.EvaluationOutcome, error) {
+func (r *EvalRunner) RunEval(ctx context.Context) (*models.EvalOutcome, error) {
 
 	if err := r.engine.Initialize(ctx); err != nil {
 		return nil, err
@@ -188,7 +188,7 @@ func (r *TestRunner) RunBenchmark(ctx context.Context) (*models.EvaluationOutcom
 }
 
 // runNormalBenchmark executes a normal single-pass evaluation
-func (r *TestRunner) runNormalBenchmark(ctx context.Context) (*models.EvaluationOutcome, error) {
+func (r *EvalRunner) runNormalBenchmark(ctx context.Context) (*models.EvalOutcome, error) {
 	startTime := time.Now()
 
 	// Set up hooks runner
@@ -240,12 +240,12 @@ func (r *TestRunner) runNormalBenchmark(ctx context.Context) (*models.Evaluation
 	}
 
 	r.notifyProgress(ProgressEvent{
-		EventType:  EventBenchmarkStart,
+		EventType:  EventEvalStart,
 		TotalTests: len(testCases),
 	})
 
 	// Execute tests
-	var testOutcomes []models.TestOutcome
+	var testOutcomes []models.TaskOutcome
 
 	// Now that CopilotEngine is concurrency-safe (protected by mutex),
 	// we can safely use concurrent execution when configured
@@ -257,12 +257,12 @@ func (r *TestRunner) runNormalBenchmark(ctx context.Context) (*models.Evaluation
 
 	// Compute statistics
 	digest := BuildDigest(testOutcomes, time.Since(startTime).Milliseconds(), spec.Config.TrialsPerTask)
-	outcome := &models.EvaluationOutcome{
+	outcome := &models.EvalOutcome{
 		RunID:       fmt.Sprintf("run-%d", time.Now().Unix()),
 		SkillTested: spec.SkillName,
-		BenchName:   spec.Name,
+		EvalName:    spec.Name,
 		Timestamp:   startTime,
-		Setup: models.OutcomeSetup{
+		Setup: models.EvalSetup{
 			RunsPerTest: spec.Config.TrialsPerTask,
 			ModelID:     spec.Config.ModelID,
 			EngineType:  spec.Config.EngineType,
@@ -271,12 +271,12 @@ func (r *TestRunner) runNormalBenchmark(ctx context.Context) (*models.Evaluation
 		},
 		Digest:       digest,
 		Measures:     make(map[string]models.MeasureResult),
-		TestOutcomes: testOutcomes,
+		TaskOutcomes: testOutcomes,
 		Metadata:     make(map[string]any),
 	}
 
 	r.notifyProgress(ProgressEvent{
-		EventType:  EventBenchmarkComplete,
+		EventType:  EventEvalComplete,
 		DurationMs: time.Since(startTime).Milliseconds(),
 	})
 
@@ -284,7 +284,7 @@ func (r *TestRunner) runNormalBenchmark(ctx context.Context) (*models.Evaluation
 }
 
 // runBaselineComparison orchestrates A/B testing: skills-enabled vs skills-disabled
-func (r *TestRunner) runBaselineComparison(ctx context.Context) (*models.EvaluationOutcome, error) {
+func (r *EvalRunner) runBaselineComparison(ctx context.Context) (*models.EvalOutcome, error) {
 	spec := r.cfg.Spec()
 
 	// Validation: eval must have skills configured
@@ -329,19 +329,19 @@ func (r *TestRunner) runBaselineComparison(ctx context.Context) (*models.Evaluat
 }
 
 // mergeBaselineOutcomes pairs task results and computes skill impact
-func (r *TestRunner) mergeBaselineOutcomes(
-	withSkills, withoutSkills *models.EvaluationOutcome,
-) (*models.EvaluationOutcome, error) {
+func (r *EvalRunner) mergeBaselineOutcomes(
+	withSkills, withoutSkills *models.EvalOutcome,
+) (*models.EvalOutcome, error) {
 
-	// Build maps: TestID → TestOutcome for quick lookup
-	withMap := make(map[string]*models.TestOutcome)
-	withoutMap := make(map[string]*models.TestOutcome)
+	// Build maps: TestID → TaskOutcome for quick lookup
+	withMap := make(map[string]*models.TaskOutcome)
+	withoutMap := make(map[string]*models.TaskOutcome)
 
-	for i := range withSkills.TestOutcomes {
-		withMap[withSkills.TestOutcomes[i].TestID] = &withSkills.TestOutcomes[i]
+	for i := range withSkills.TaskOutcomes {
+		withMap[withSkills.TaskOutcomes[i].TestID] = &withSkills.TaskOutcomes[i]
 	}
-	for i := range withoutSkills.TestOutcomes {
-		withoutMap[withoutSkills.TestOutcomes[i].TestID] = &withoutSkills.TestOutcomes[i]
+	for i := range withoutSkills.TaskOutcomes {
+		withoutMap[withoutSkills.TaskOutcomes[i].TestID] = &withoutSkills.TaskOutcomes[i]
 	}
 
 	// Merge: for each task, compute skill_impact
@@ -371,7 +371,7 @@ func (r *TestRunner) mergeBaselineOutcomes(
 }
 
 // computeSkillImpact calculates per-task impact metric
-func computeSkillImpact(withSkills, without *models.TestOutcome) *models.SkillImpactMetric {
+func computeSkillImpact(withSkills, without *models.TaskOutcome) *models.SkillImpactMetric {
 	passRateWith := computePassRate(withSkills)
 	passRateWithout := computePassRate(without)
 
@@ -389,7 +389,7 @@ func computeSkillImpact(withSkills, without *models.TestOutcome) *models.SkillIm
 	}
 }
 
-func computePassRate(outcome *models.TestOutcome) float64 {
+func computePassRate(outcome *models.TaskOutcome) float64 {
 	if outcome.Stats != nil {
 		return outcome.Stats.PassRate
 	}
@@ -407,7 +407,7 @@ func computePassRate(outcome *models.TestOutcome) float64 {
 }
 
 // printSkillImpactReport prints the A/B comparison summary
-func (r *TestRunner) printSkillImpactReport(withSkills, withoutSkills *models.EvaluationOutcome) {
+func (r *EvalRunner) printSkillImpactReport(withSkills, withoutSkills *models.EvalOutcome) {
 	fmt.Println("\n════════════════════════════════════════════════════════════════")
 	fmt.Println("SKILL IMPACT ANALYSIS")
 	fmt.Println("════════════════════════════════════════════════════════════════")
@@ -435,8 +435,8 @@ func (r *TestRunner) printSkillImpactReport(withSkills, withoutSkills *models.Ev
 	regressed := 0
 	neutral := 0
 
-	for i := range withSkills.TestOutcomes {
-		to := &withSkills.TestOutcomes[i]
+	for i := range withSkills.TaskOutcomes {
+		to := &withSkills.TaskOutcomes[i]
 		if to.SkillImpact == nil {
 			continue
 		}
@@ -464,16 +464,16 @@ func (r *TestRunner) printSkillImpactReport(withSkills, withoutSkills *models.Ev
 
 	fmt.Println()
 	if delta > 0 {
-		fmt.Printf("Verdict: Skills have POSITIVE IMPACT (improved %d/%d tasks)\n", improved, len(withSkills.TestOutcomes))
+		fmt.Printf("Verdict: Skills have POSITIVE IMPACT (improved %d/%d tasks)\n", improved, len(withSkills.TaskOutcomes))
 	} else if delta < 0 {
-		fmt.Printf("Verdict: Skills have NEGATIVE IMPACT (regressed %d/%d tasks)\n", regressed, len(withSkills.TestOutcomes))
+		fmt.Printf("Verdict: Skills have NEGATIVE IMPACT (regressed %d/%d tasks)\n", regressed, len(withSkills.TaskOutcomes))
 	} else {
 		fmt.Printf("Verdict: Skills have NEUTRAL IMPACT (no net change)\n")
 	}
 	fmt.Println("════════════════════════════════════════════════════════════════")
 }
 
-func (r *TestRunner) loadTestCases() ([]*models.TaskSpec, error) {
+func (r *EvalRunner) loadTestCases() ([]*models.TaskSpec, error) {
 	spec := r.cfg.Spec()
 
 	// CSV dataset path: generate tasks from CSV rows
@@ -486,7 +486,7 @@ func (r *TestRunner) loadTestCases() ([]*models.TaskSpec, error) {
 }
 
 // loadTestCasesFromCSV generates in-memory TestCases from CSV rows.
-func (r *TestRunner) loadTestCasesFromCSV() ([]*models.TaskSpec, error) {
+func (r *EvalRunner) loadTestCasesFromCSV() ([]*models.TaskSpec, error) {
 	spec := r.cfg.Spec()
 
 	// Resolve CSV path relative to spec directory
@@ -599,7 +599,7 @@ func (r *TestRunner) loadTestCasesFromCSV() ([]*models.TaskSpec, error) {
 }
 
 // loadTestCasesFromFiles loads test cases from YAML files via glob patterns.
-func (r *TestRunner) loadTestCasesFromFiles() ([]*models.TaskSpec, error) {
+func (r *EvalRunner) loadTestCasesFromFiles() ([]*models.TaskSpec, error) {
 	spec := r.cfg.Spec()
 
 	// Get base directory for test file resolution (spec directory)
@@ -640,7 +640,7 @@ func (r *TestRunner) loadTestCasesFromFiles() ([]*models.TaskSpec, error) {
 }
 
 // validateRequiredSkills performs preflight validation that all required skills are present.
-func (r *TestRunner) validateRequiredSkills() error {
+func (r *EvalRunner) validateRequiredSkills() error {
 	spec := r.cfg.Spec()
 
 	// If no required skills specified, skip validation
@@ -681,8 +681,8 @@ func (r *TestRunner) validateRequiredSkills() error {
 	return nil
 }
 
-func (r *TestRunner) runSequential(ctx context.Context, testCases []*models.TaskSpec) []models.TestOutcome {
-	outcomes := make([]models.TestOutcome, 0, len(testCases))
+func (r *EvalRunner) runSequential(ctx context.Context, testCases []*models.TaskSpec) []models.TaskOutcome {
+	outcomes := make([]models.TaskOutcome, 0, len(testCases))
 	spec := r.cfg.Spec()
 
 	for i, tc := range testCases {
@@ -692,7 +692,7 @@ func (r *TestRunner) runSequential(ctx context.Context, testCases []*models.Task
 			for _, prevResult := range outcomes {
 				if prevResult.Status != models.StatusPassed {
 					r.notifyProgress(ProgressEvent{
-						EventType: EventBenchmarkStopped,
+						EventType: EventEvalStopped,
 						Details:   map[string]any{"reason": "fail_fast enabled and previous test failed"},
 					})
 					// Skip remaining tests
@@ -705,14 +705,14 @@ func (r *TestRunner) runSequential(ctx context.Context, testCases []*models.Task
 		if r.hookRunner != nil && len(spec.Hooks.BeforeTask) > 0 {
 			if err := r.hookRunner.Execute(ctx, "before_task", spec.Hooks.BeforeTask); err != nil {
 				// before_task failure with error_on_fail: mark task as failed and skip
-				outcomes = append(outcomes, models.TestOutcome{
+				outcomes = append(outcomes, models.TaskOutcome{
 					TestID:      tc.TestID,
 					DisplayName: tc.DisplayName,
 					Status:      models.StatusFailed,
 					Runs:        []models.RunResult{},
 				})
 				r.notifyProgress(ProgressEvent{
-					EventType:  EventTestComplete,
+					EventType:  EventTaskComplete,
 					TestName:   tc.DisplayName,
 					TestNum:    i + 1,
 					TotalTests: len(testCases),
@@ -724,7 +724,7 @@ func (r *TestRunner) runSequential(ctx context.Context, testCases []*models.Task
 		}
 
 		r.notifyProgress(ProgressEvent{
-			EventType:  EventTestStart,
+			EventType:  EventTaskStart,
 			TestName:   tc.DisplayName,
 			TestNum:    i + 1,
 			TotalTests: len(testCases),
@@ -745,7 +745,7 @@ func (r *TestRunner) runSequential(ctx context.Context, testCases []*models.Task
 		if wasCached {
 			// Emit cached event instead of complete
 			r.notifyProgress(ProgressEvent{
-				EventType:  EventTestCached,
+				EventType:  EventTaskCached,
 				TestName:   tc.DisplayName,
 				TestNum:    i + 1,
 				TotalTests: len(testCases),
@@ -753,7 +753,7 @@ func (r *TestRunner) runSequential(ctx context.Context, testCases []*models.Task
 			})
 		} else {
 			r.notifyProgress(ProgressEvent{
-				EventType:  EventTestComplete,
+				EventType:  EventTaskComplete,
 				TestName:   tc.DisplayName,
 				TestNum:    i + 1,
 				TotalTests: len(testCases),
@@ -766,7 +766,7 @@ func (r *TestRunner) runSequential(ctx context.Context, testCases []*models.Task
 	return outcomes
 }
 
-func (r *TestRunner) runConcurrent(ctx context.Context, testCases []*models.TaskSpec) []models.TestOutcome {
+func (r *EvalRunner) runConcurrent(ctx context.Context, testCases []*models.TaskSpec) []models.TaskOutcome {
 	// Simple concurrent implementation
 	spec := r.cfg.Spec()
 	workers := spec.Config.Workers
@@ -776,7 +776,7 @@ func (r *TestRunner) runConcurrent(ctx context.Context, testCases []*models.Task
 
 	type result struct {
 		index   int
-		outcome models.TestOutcome
+		outcome models.TaskOutcome
 	}
 
 	resultChan := make(chan result, len(testCases))
@@ -795,14 +795,14 @@ func (r *TestRunner) runConcurrent(ctx context.Context, testCases []*models.Task
 			// Run before_task hooks
 			if r.hookRunner != nil && len(spec.Hooks.BeforeTask) > 0 {
 				if err := r.hookRunner.Execute(ctx, "before_task", spec.Hooks.BeforeTask); err != nil {
-					resultChan <- result{index: idx, outcome: models.TestOutcome{
+					resultChan <- result{index: idx, outcome: models.TaskOutcome{
 						TestID:      test.TestID,
 						DisplayName: test.DisplayName,
 						Status:      models.StatusFailed,
 						Runs:        []models.RunResult{},
 					}}
 					r.notifyProgress(ProgressEvent{
-						EventType:  EventTestComplete,
+						EventType:  EventTaskComplete,
 						TestName:   test.DisplayName,
 						TestNum:    idx + 1,
 						TotalTests: len(testCases),
@@ -814,7 +814,7 @@ func (r *TestRunner) runConcurrent(ctx context.Context, testCases []*models.Task
 			}
 
 			r.notifyProgress(ProgressEvent{
-				EventType:  EventTestStart,
+				EventType:  EventTaskStart,
 				TestName:   test.DisplayName,
 				TestNum:    idx + 1,
 				TotalTests: len(testCases),
@@ -834,7 +834,7 @@ func (r *TestRunner) runConcurrent(ctx context.Context, testCases []*models.Task
 
 			if wasCached {
 				r.notifyProgress(ProgressEvent{
-					EventType:  EventTestCached,
+					EventType:  EventTaskCached,
 					TestName:   test.DisplayName,
 					TestNum:    idx + 1,
 					TotalTests: len(testCases),
@@ -842,7 +842,7 @@ func (r *TestRunner) runConcurrent(ctx context.Context, testCases []*models.Task
 				})
 			} else {
 				r.notifyProgress(ProgressEvent{
-					EventType:  EventTestComplete,
+					EventType:  EventTaskComplete,
 					TestName:   test.DisplayName,
 					TestNum:    idx + 1,
 					TotalTests: len(testCases),
@@ -859,7 +859,7 @@ func (r *TestRunner) runConcurrent(ctx context.Context, testCases []*models.Task
 	}()
 
 	// Collect results
-	results := make([]models.TestOutcome, len(testCases))
+	results := make([]models.TaskOutcome, len(testCases))
 	for res := range resultChan {
 		results[res.index] = res.outcome
 	}
@@ -867,7 +867,7 @@ func (r *TestRunner) runConcurrent(ctx context.Context, testCases []*models.Task
 	return results
 }
 
-func (r *TestRunner) runTest(ctx context.Context, tc *models.TaskSpec, testNum, totalTests int) (models.TestOutcome, bool) {
+func (r *EvalRunner) runTest(ctx context.Context, tc *models.TaskSpec, testNum, totalTests int) (models.TaskOutcome, bool) {
 	spec := r.cfg.Spec()
 
 	// Check cache if enabled
@@ -892,7 +892,7 @@ func (r *TestRunner) runTest(ctx context.Context, tc *models.TaskSpec, testNum, 
 	return r.runTestUncached(ctx, tc, testNum, totalTests), false
 }
 
-func (r *TestRunner) writeTaskTranscript(tc *models.TaskSpec, outcome models.TestOutcome, startTime time.Time) {
+func (r *EvalRunner) writeTaskTranscript(tc *models.TaskSpec, outcome models.TaskOutcome, startTime time.Time) {
 	transcriptDir := r.cfg.TranscriptDir()
 	if transcriptDir == "" {
 		return
@@ -904,7 +904,7 @@ func (r *TestRunner) writeTaskTranscript(tc *models.TaskSpec, outcome models.Tes
 	}
 }
 
-func (r *TestRunner) runTestUncached(ctx context.Context, tc *models.TaskSpec, testNum, totalTests int) models.TestOutcome {
+func (r *EvalRunner) runTestUncached(ctx context.Context, tc *models.TaskSpec, testNum, totalTests int) models.TaskOutcome {
 	spec := r.cfg.Spec()
 	runsPerTest := spec.Config.TrialsPerTask
 	maxAttempts := spec.Config.MaxAttempts
@@ -966,7 +966,7 @@ func (r *TestRunner) runTestUncached(ctx context.Context, tc *models.TaskSpec, t
 	// Determine overall status
 	status := overallStatus(runs)
 
-	return models.TestOutcome{
+	return models.TaskOutcome{
 		TestID:      tc.TestID,
 		DisplayName: tc.DisplayName,
 		Group:       r.resolveGroup(),
@@ -999,7 +999,7 @@ func overallStatus(runs []models.RunResult) models.Status {
 	return status
 }
 
-func (r *TestRunner) executeRun(ctx context.Context, tc *models.TaskSpec, runNum int) models.RunResult {
+func (r *EvalRunner) executeRun(ctx context.Context, tc *models.TaskSpec, runNum int) models.RunResult {
 	startTime := time.Now()
 
 	// Prepare execution request
@@ -1108,7 +1108,7 @@ func (r *TestRunner) executeRun(ctx context.Context, tc *models.TaskSpec, runNum
 		RunNumber:        runNum,
 		Status:           status,
 		DurationMs:       resp.DurationMs,
-		Validations:      gradersResults,
+		GraderScores:     gradersResults,
 		SessionDigest:    r.buildSessionDigest(resp),
 		Transcript:       transcript,
 		FinalOutput:      resp.FinalOutput,
@@ -1117,7 +1117,7 @@ func (r *TestRunner) executeRun(ctx context.Context, tc *models.TaskSpec, runNum
 	}
 }
 
-func (r *TestRunner) buildExecutionRequest(tc *models.TaskSpec) *execution.ExecutionRequest {
+func (r *EvalRunner) buildExecutionRequest(tc *models.TaskSpec) *execution.ExecutionRequest {
 	// Load resource files
 	resources := r.loadResources(tc)
 
@@ -1140,7 +1140,7 @@ func (r *TestRunner) buildExecutionRequest(tc *models.TaskSpec) *execution.Execu
 	}
 }
 
-func (r *TestRunner) loadResources(tc *models.TaskSpec) []execution.ResourceFile {
+func (r *EvalRunner) loadResources(tc *models.TaskSpec) []execution.ResourceFile {
 	var resources []execution.ResourceFile
 
 	// Determine fixture directory (for loading resource files)
@@ -1205,7 +1205,7 @@ func (r *TestRunner) loadResources(tc *models.TaskSpec) []execution.ResourceFile
 	return resources
 }
 
-func (r *TestRunner) buildGraderContext(tc *models.TaskSpec, resp *execution.ExecutionResponse) *graders.Context {
+func (r *EvalRunner) buildGraderContext(tc *models.TaskSpec, resp *execution.ExecutionResponse) *graders.Context {
 	// Convert events to transcript entries
 	var transcript []models.TranscriptEvent
 	for _, evt := range resp.Events {
@@ -1229,12 +1229,12 @@ func (r *TestRunner) buildGraderContext(tc *models.TaskSpec, resp *execution.Exe
 	}
 }
 
-func (r *TestRunner) runGraders(ctx context.Context, tc *models.TaskSpec, gradersContext *graders.Context) (map[string]models.GraderResults, error) {
+func (r *EvalRunner) runGraders(ctx context.Context, tc *models.TaskSpec, gradersContext *graders.Context) (map[string]models.GraderResults, error) {
 	spec := r.cfg.Spec()
 	return graders.RunAll(ctx, spec.Graders, tc, gradersContext, spec.Config.JudgeModel, r.updateSnapshots)
 }
 
-func (r *TestRunner) buildSessionDigest(resp *execution.ExecutionResponse) models.SessionDigest {
+func (r *EvalRunner) buildSessionDigest(resp *execution.ExecutionResponse) models.SessionDigest {
 	toolsUsed := make([]string, 0)
 	for _, call := range resp.ToolCalls {
 		toolsUsed = append(toolsUsed, call.Name)
@@ -1252,13 +1252,13 @@ func (r *TestRunner) buildSessionDigest(resp *execution.ExecutionResponse) model
 	return digest
 }
 
-func (r *TestRunner) buildTranscript(resp *execution.ExecutionResponse) []models.TranscriptEvent {
+func (r *EvalRunner) buildTranscript(resp *execution.ExecutionResponse) []models.TranscriptEvent {
 	return transcript.BuildFromSessionEvents(resp.Events)
 }
 
 // resolveGroup returns the group value for the current benchmark configuration.
 // Currently only "model" is supported; CSV column grouping will be added with #187.
-func (r *TestRunner) resolveGroup() string {
+func (r *EvalRunner) resolveGroup() string {
 	spec := r.cfg.Spec()
 	switch spec.Config.GroupBy {
 	case "model":

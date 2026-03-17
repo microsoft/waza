@@ -26,8 +26,8 @@ func TestLoadTestCasesFromCSV_BasicLoading(t *testing.T) {
 		TasksFrom: "data.csv",
 		Config:    models.EvalConfig{ModelID: "test-model"},
 	}
-	cfg := config.NewBenchmarkConfig(spec, config.WithSpecDir(tmpDir))
-	runner := NewTestRunner(cfg, nil)
+	cfg := config.NewRunConfig(spec, config.WithSpecDir(tmpDir))
+	runner := NewEvalRunner(cfg, nil)
 
 	cases, err := runner.loadTestCasesFromCSV()
 	require.NoError(t, err)
@@ -46,8 +46,8 @@ func TestLoadTestCasesFromCSV_TemplateResolution(t *testing.T) {
 		TasksFrom: "data.csv",
 		Config:    models.EvalConfig{ModelID: "test-model"},
 	}
-	cfg := config.NewBenchmarkConfig(spec, config.WithSpecDir(tmpDir))
-	runner := NewTestRunner(cfg, nil)
+	cfg := config.NewRunConfig(spec, config.WithSpecDir(tmpDir))
+	runner := NewEvalRunner(cfg, nil)
 
 	cases, err := runner.loadTestCasesFromCSV()
 	require.NoError(t, err)
@@ -65,8 +65,8 @@ func TestLoadTestCasesFromCSV_RangeFiltering(t *testing.T) {
 		Range:     [2]int{2, 4},
 		Config:    models.EvalConfig{ModelID: "test-model"},
 	}
-	cfg := config.NewBenchmarkConfig(spec, config.WithSpecDir(tmpDir))
-	runner := NewTestRunner(cfg, nil)
+	cfg := config.NewRunConfig(spec, config.WithSpecDir(tmpDir))
+	runner := NewEvalRunner(cfg, nil)
 
 	cases, err := runner.loadTestCasesFromCSV()
 	require.NoError(t, err)
@@ -96,8 +96,8 @@ func TestLoadTestCasesFromCSV_InvalidRange(t *testing.T) {
 				Range:     tt.rng,
 				Config:    models.EvalConfig{ModelID: "test-model"},
 			}
-			cfg := config.NewBenchmarkConfig(spec, config.WithSpecDir(tmpDir))
-			runner := NewTestRunner(cfg, nil)
+			cfg := config.NewRunConfig(spec, config.WithSpecDir(tmpDir))
+			runner := NewEvalRunner(cfg, nil)
 
 			_, err := runner.loadTestCasesFromCSV()
 			require.Error(t, err)
@@ -116,8 +116,8 @@ func TestLoadTestCasesFromCSV_PathTraversal(t *testing.T) {
 		TasksFrom: "../escape.csv",
 		Config:    models.EvalConfig{ModelID: "test-model"},
 	}
-	cfg := config.NewBenchmarkConfig(spec, config.WithSpecDir(tmpDir))
-	runner := NewTestRunner(cfg, nil)
+	cfg := config.NewRunConfig(spec, config.WithSpecDir(tmpDir))
+	runner := NewEvalRunner(cfg, nil)
 
 	_, err := runner.loadTestCasesFromCSV()
 	require.Error(t, err)

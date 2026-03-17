@@ -60,7 +60,7 @@ func compareCommandE(_ *cobra.Command, args []string) error {
 		return fmt.Errorf("unsupported format %q: must be table or json", compareOutputFormat)
 	}
 
-	outcomes := make([]*models.EvaluationOutcome, 0, len(args))
+	outcomes := make([]*models.EvalOutcome, 0, len(args))
 	for _, path := range args {
 		o, err := loadOutcomeFile(path)
 		if err != nil {
@@ -78,19 +78,19 @@ func compareCommandE(_ *cobra.Command, args []string) error {
 	return nil
 }
 
-func loadOutcomeFile(path string) (*models.EvaluationOutcome, error) {
+func loadOutcomeFile(path string) (*models.EvalOutcome, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
-	var outcome models.EvaluationOutcome
+	var outcome models.EvalOutcome
 	if err := json.Unmarshal(data, &outcome); err != nil {
 		return nil, err
 	}
 	return &outcome, nil
 }
 
-func buildComparisonReport(files []string, outcomes []*models.EvaluationOutcome) *comparisonReport {
+func buildComparisonReport(files []string, outcomes []*models.EvalOutcome) *comparisonReport {
 	report := &comparisonReport{
 		Files: files,
 	}
@@ -116,7 +116,7 @@ func buildComparisonReport(files []string, outcomes []*models.EvaluationOutcome)
 	allTasks := make([]taskKey, 0)
 	seen := make(map[string]bool)
 	for _, o := range outcomes {
-		for _, t := range o.TestOutcomes {
+		for _, t := range o.TaskOutcomes {
 			if !seen[t.TestID] {
 				seen[t.TestID] = true
 				allTasks = append(allTasks, taskKey{id: t.TestID, name: t.DisplayName})
@@ -131,7 +131,7 @@ func buildComparisonReport(files []string, outcomes []*models.EvaluationOutcome)
 		}
 		for _, o := range outcomes {
 			found := false
-			for _, t := range o.TestOutcomes {
+			for _, t := range o.TaskOutcomes {
 				if t.TestID == tk.id {
 					found = true
 					score := 0.0

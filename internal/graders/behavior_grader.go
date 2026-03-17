@@ -38,7 +38,7 @@ func NewBehaviorGrader(name string, params models.BehaviorGraderParameters) (*be
 }
 
 func (bg *behaviorGrader) Name() string            { return bg.name }
-func (bg *behaviorGrader) Kind() models.GraderKind { return models.GraderKindBehavior }
+func (bg *behaviorGrader) Kind() models.GraderType { return models.GraderTypeBehavior }
 
 func (bg *behaviorGrader) Grade(ctx context.Context, gradingContext *Context) (*models.GraderResults, error) {
 	return measureTime(func() (*models.GraderResults, error) {
@@ -46,7 +46,7 @@ func (bg *behaviorGrader) Grade(ctx context.Context, gradingContext *Context) (*
 		if session == nil {
 			return &models.GraderResults{
 				Name:     bg.name,
-				Type:     models.GraderKindBehavior,
+				Type:     models.GraderTypeBehavior,
 				Score:    0.0,
 				Passed:   false,
 				Feedback: "No session digest available for behavior grading",
@@ -90,7 +90,7 @@ func (bg *behaviorGrader) Grade(ctx context.Context, gradingContext *Context) (*
 		}
 		return &models.GraderResults{
 			Name:     bg.name,
-			Type:     models.GraderKindBehavior,
+			Type:     models.GraderTypeBehavior,
 			Score:    score,
 			Passed:   len(failures) == 0,
 			Feedback: feedback,

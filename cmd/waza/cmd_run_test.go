@@ -543,12 +543,12 @@ func TestRunCommand_TrialsOverridesSpec(t *testing.T) {
 	data, err := os.ReadFile(outFile)
 	require.NoError(t, err)
 
-	var result models.EvaluationOutcome
+	var result models.EvalOutcome
 	require.NoError(t, json.Unmarshal(data, &result))
-	require.NotEmpty(t, result.TestOutcomes)
+	require.NotEmpty(t, result.TaskOutcomes)
 	assert.Equal(t, 3, result.Setup.RunsPerTest)
-	assert.Len(t, result.TestOutcomes[0].Runs, 3)
-	assert.Equal(t, 3, result.TestOutcomes[0].Stats.TotalRuns)
+	assert.Len(t, result.TaskOutcomes[0].Runs, 3)
+	assert.Equal(t, 3, result.TaskOutcomes[0].Stats.TotalRuns)
 }
 
 func TestRunCommand_ParallelRunsMock(t *testing.T) {
@@ -1224,9 +1224,9 @@ func TestRunCommand_DuplicateModelRejected(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestSkillRunResult_CapturesOutcomes(t *testing.T) {
-	// Test the enhanced skillRunResult struct captures EvaluationOutcome data
-	outcome := &models.EvaluationOutcome{
-		Digest: models.OutcomeDigest{
+	// Test the enhanced skillRunResult struct captures EvalOutcome data
+	outcome := &models.EvalOutcome{
+		Digest: models.EvalDigest{
 			TotalTests:     10,
 			Succeeded:      8,
 			Failed:         2,
@@ -1250,8 +1250,8 @@ func TestSkillRunResult_CapturesOutcomes(t *testing.T) {
 
 func TestSkillRunResult_MultipleModelOutcomesAggregated(t *testing.T) {
 	// Test aggregation across multiple models including edge case with zeros
-	outcome1 := &models.EvaluationOutcome{
-		Digest: models.OutcomeDigest{
+	outcome1 := &models.EvalOutcome{
+		Digest: models.EvalDigest{
 			TotalTests:     10,
 			Succeeded:      8,
 			Failed:         2,
@@ -1259,8 +1259,8 @@ func TestSkillRunResult_MultipleModelOutcomesAggregated(t *testing.T) {
 			AggregateScore: 0.85,
 		},
 	}
-	outcome2 := &models.EvaluationOutcome{
-		Digest: models.OutcomeDigest{
+	outcome2 := &models.EvalOutcome{
+		Digest: models.EvalDigest{
 			TotalTests:     5,
 			Succeeded:      5,
 			Failed:         0,
@@ -1268,8 +1268,8 @@ func TestSkillRunResult_MultipleModelOutcomesAggregated(t *testing.T) {
 			AggregateScore: 0.95,
 		},
 	}
-	outcome3 := &models.EvaluationOutcome{
-		Digest: models.OutcomeDigest{
+	outcome3 := &models.EvalOutcome{
+		Digest: models.EvalDigest{
 			TotalTests:     0,
 			Succeeded:      0,
 			Failed:         0,
@@ -1299,8 +1299,8 @@ func TestSkillRunResult_MultipleModelOutcomesAggregated(t *testing.T) {
 
 func TestSkillRunResult_MixedNilAndValidOutcomes(t *testing.T) {
 	// Test edge case where some modelResult entries have nil outcomes
-	outcome := &models.EvaluationOutcome{
-		Digest: models.OutcomeDigest{
+	outcome := &models.EvalOutcome{
+		Digest: models.EvalDigest{
 			TotalTests:     8,
 			Succeeded:      6,
 			Failed:         2,
@@ -1538,8 +1538,8 @@ func TestBuildMultiSkillSummary_AggregatesCorrectly(t *testing.T) {
 			outcomes: []modelResult{
 				{
 					modelID: "gpt-4o",
-					outcome: &models.EvaluationOutcome{
-						Digest: models.OutcomeDigest{
+					outcome: &models.EvalOutcome{
+						Digest: models.EvalDigest{
 							TotalTests:     10,
 							Succeeded:      8,
 							AggregateScore: 0.85,
@@ -1553,8 +1553,8 @@ func TestBuildMultiSkillSummary_AggregatesCorrectly(t *testing.T) {
 			outcomes: []modelResult{
 				{
 					modelID: "claude-sonnet",
-					outcome: &models.EvaluationOutcome{
-						Digest: models.OutcomeDigest{
+					outcome: &models.EvalOutcome{
+						Digest: models.EvalDigest{
 							TotalTests:     20,
 							Succeeded:      18,
 							AggregateScore: 0.90,
@@ -1598,8 +1598,8 @@ func TestBuildMultiSkillSummary_MultiModelPerSkill(t *testing.T) {
 			outcomes: []modelResult{
 				{
 					modelID: "gpt-4o",
-					outcome: &models.EvaluationOutcome{
-						Digest: models.OutcomeDigest{
+					outcome: &models.EvalOutcome{
+						Digest: models.EvalDigest{
 							TotalTests:     10,
 							Succeeded:      8,
 							AggregateScore: 0.80,
@@ -1608,8 +1608,8 @@ func TestBuildMultiSkillSummary_MultiModelPerSkill(t *testing.T) {
 				},
 				{
 					modelID: "claude-sonnet",
-					outcome: &models.EvaluationOutcome{
-						Digest: models.OutcomeDigest{
+					outcome: &models.EvalOutcome{
+						Digest: models.EvalDigest{
 							TotalTests:     10,
 							Succeeded:      9,
 							AggregateScore: 0.90,
@@ -1649,8 +1649,8 @@ func TestBuildMultiSkillSummary_OutputFilesPaths(t *testing.T) {
 		{
 			skillName: "skill-a",
 			outcomes: []modelResult{
-				{modelID: "gpt-4o", outcome: &models.EvaluationOutcome{}},
-				{modelID: "claude-sonnet-4", outcome: &models.EvaluationOutcome{}},
+				{modelID: "gpt-4o", outcome: &models.EvalOutcome{}},
+				{modelID: "claude-sonnet-4", outcome: &models.EvalOutcome{}},
 			},
 		},
 	}
@@ -1841,7 +1841,7 @@ tasks:
 		data, err := os.ReadFile(ef.path)
 		require.NoError(t, err)
 
-		var outcome models.EvaluationOutcome
+		var outcome models.EvalOutcome
 		err = json.Unmarshal(data, &outcome)
 		require.NoError(t, err)
 
@@ -1939,9 +1939,9 @@ func TestRunCommand_OutputDirSingleSkill(t *testing.T) {
 		if filepath.Ext(e.Name()) == ".json" {
 			data, err := os.ReadFile(filepath.Join(outDir, e.Name()))
 			require.NoError(t, err)
-			var outcome models.EvaluationOutcome
+			var outcome models.EvalOutcome
 			require.NoError(t, json.Unmarshal(data, &outcome))
-			assert.Equal(t, "test-eval", outcome.BenchName)
+			assert.Equal(t, "test-eval", outcome.EvalName)
 			found = true
 		}
 	}
@@ -1958,8 +1958,8 @@ func TestWriteOutputDir_SingleSkill(t *testing.T) {
 			outcomes: []modelResult{
 				{
 					modelID: "gpt-4o",
-					outcome: &models.EvaluationOutcome{
-						Digest: models.OutcomeDigest{
+					outcome: &models.EvalOutcome{
+						Digest: models.EvalDigest{
 							TotalTests: 5,
 							Succeeded:  4,
 						},
@@ -1979,7 +1979,7 @@ func TestWriteOutputDir_SingleSkill(t *testing.T) {
 	// Verify JSON content
 	data, err := os.ReadFile(resultPath)
 	require.NoError(t, err)
-	var outcome models.EvaluationOutcome
+	var outcome models.EvalOutcome
 	require.NoError(t, json.Unmarshal(data, &outcome))
 	assert.Equal(t, 5, outcome.Digest.TotalTests)
 	assert.Equal(t, 4, outcome.Digest.Succeeded)
@@ -1995,14 +1995,14 @@ func TestWriteOutputDir_MultiSkill(t *testing.T) {
 			outcomes: []modelResult{
 				{
 					modelID: "gpt-4o",
-					outcome: &models.EvaluationOutcome{
-						Digest: models.OutcomeDigest{TotalTests: 5, Succeeded: 4},
+					outcome: &models.EvalOutcome{
+						Digest: models.EvalDigest{TotalTests: 5, Succeeded: 4},
 					},
 				},
 				{
 					modelID: "claude-sonnet",
-					outcome: &models.EvaluationOutcome{
-						Digest: models.OutcomeDigest{TotalTests: 5, Succeeded: 3},
+					outcome: &models.EvalOutcome{
+						Digest: models.EvalDigest{TotalTests: 5, Succeeded: 3},
 					},
 				},
 			},
@@ -2012,8 +2012,8 @@ func TestWriteOutputDir_MultiSkill(t *testing.T) {
 			outcomes: []modelResult{
 				{
 					modelID: "gpt-4o",
-					outcome: &models.EvaluationOutcome{
-						Digest: models.OutcomeDigest{TotalTests: 3, Succeeded: 2},
+					outcome: &models.EvalOutcome{
+						Digest: models.EvalDigest{TotalTests: 3, Succeeded: 2},
 					},
 				},
 			},
@@ -2038,7 +2038,7 @@ func TestWriteOutputDir_MultiSkill(t *testing.T) {
 	// Verify content
 	data, err := os.ReadFile(filepath.Join(explainerDir, "gpt-4o.json"))
 	require.NoError(t, err)
-	var outcome models.EvaluationOutcome
+	var outcome models.EvalOutcome
 	require.NoError(t, json.Unmarshal(data, &outcome))
 	assert.Equal(t, 5, outcome.Digest.TotalTests)
 	assert.Equal(t, 4, outcome.Digest.Succeeded)
@@ -2055,8 +2055,8 @@ func TestWriteOutputDir_SanitizesPaths(t *testing.T) {
 			outcomes: []modelResult{
 				{
 					modelID: "gpt-4o:latest",
-					outcome: &models.EvaluationOutcome{
-						Digest: models.OutcomeDigest{TotalTests: 1, Succeeded: 1},
+					outcome: &models.EvalOutcome{
+						Digest: models.EvalDigest{TotalTests: 1, Succeeded: 1},
 					},
 				},
 			},
@@ -2066,8 +2066,8 @@ func TestWriteOutputDir_SanitizesPaths(t *testing.T) {
 			outcomes: []modelResult{
 				{
 					modelID: "claude sonnet",
-					outcome: &models.EvaluationOutcome{
-						Digest: models.OutcomeDigest{TotalTests: 1, Succeeded: 1},
+					outcome: &models.EvalOutcome{
+						Digest: models.EvalDigest{TotalTests: 1, Succeeded: 1},
 					},
 				},
 			},
@@ -2273,8 +2273,8 @@ metrics: []
 	require.NotNil(t, results[0].outcome)
 
 	// Check overrides
-	require.Len(t, results[0].outcome.TestOutcomes, 1)
-	assert.Len(t, results[0].outcome.TestOutcomes[0].Runs, 3)
+	require.Len(t, results[0].outcome.TaskOutcomes, 1)
+	assert.Len(t, results[0].outcome.TaskOutcomes[0].Runs, 3)
 }
 
 func TestRun_Skills_RunAtRoot_NoArgs(t *testing.T) {
@@ -2358,7 +2358,7 @@ func testWazaRun(t *testing.T, cwd string, args []string) (evalNames []string, s
 
 	cwd = filepath.Join(tmp, cwd)
 
-	// This helper derives which evals were selected by inspecting EvaluationOutcome.BenchName in the output folder.
+	// This helper derives which evals were selected by inspecting EvalOutcome.EvalName in the output folder.
 	ctrl := gomock.NewController(t)
 	client := NewMockCopilotClient(ctrl)
 	sess := NewMockCopilotSession(ctrl)
@@ -2412,7 +2412,7 @@ func testWazaRun(t *testing.T, cwd string, args []string) (evalNames []string, s
 			return nil
 		}
 
-		var eo *models.EvaluationOutcome
+		var eo *models.EvalOutcome
 
 		// deserialize, uniqify the names, and use that to validate which skills were invoked.
 		jsonBytes, err := os.ReadFile(path)
@@ -2422,7 +2422,7 @@ func testWazaRun(t *testing.T, cwd string, args []string) (evalNames []string, s
 		require.NoError(t, err)
 
 		// ex: "eval-a"
-		evalNamesMap[eo.BenchName] = true
+		evalNamesMap[eo.EvalName] = true
 		return nil
 	})
 	require.NoError(t, err)

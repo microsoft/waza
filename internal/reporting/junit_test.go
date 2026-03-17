@@ -13,19 +13,19 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func newTestOutcome() *models.EvaluationOutcome {
-	return &models.EvaluationOutcome{
+func newTestOutcome() *models.EvalOutcome {
+	return &models.EvalOutcome{
 		RunID:       "run-1",
 		SkillTested: "code-explainer",
-		BenchName:   "Code Explainer Eval",
+		EvalName:    "Code Explainer Eval",
 		Timestamp:   time.Date(2025, 6, 15, 12, 0, 0, 0, time.UTC),
-		Setup: models.OutcomeSetup{
+		Setup: models.EvalSetup{
 			RunsPerTest: 1,
 			ModelID:     "gpt-4o",
 			EngineType:  "mock",
 			TimeoutSec:  60,
 		},
-		Digest: models.OutcomeDigest{
+		Digest: models.EvalDigest{
 			TotalTests:     3,
 			Succeeded:      2,
 			Failed:         1,
@@ -34,16 +34,16 @@ func newTestOutcome() *models.EvaluationOutcome {
 			AggregateScore: 0.75,
 			DurationMs:     3500,
 		},
-		TestOutcomes: []models.TestOutcome{
+		TaskOutcomes: []models.TaskOutcome{
 			{
 				TestID:      "task-1",
 				DisplayName: "explain-function",
 				Status:      models.StatusPassed,
-				Stats:       &models.TestStats{AvgScore: 0.95, AvgDurationMs: 1000},
+				Stats:       &models.TaskStats{AvgScore: 0.95, AvgDurationMs: 1000},
 				Runs: []models.RunResult{
 					{
 						RunNumber: 1, Status: models.StatusPassed, DurationMs: 1000,
-						Validations: map[string]models.GraderResults{
+						GraderScores: map[string]models.GraderResults{
 							"text": {Name: "text", Type: "text", Score: 1.0, Passed: true, Feedback: "ok"},
 						},
 					},
@@ -53,11 +53,11 @@ func newTestOutcome() *models.EvaluationOutcome {
 				TestID:      "task-2",
 				DisplayName: "explain-class",
 				Status:      models.StatusFailed,
-				Stats:       &models.TestStats{AvgScore: 0.40, AvgDurationMs: 1500},
+				Stats:       &models.TaskStats{AvgScore: 0.40, AvgDurationMs: 1500},
 				Runs: []models.RunResult{
 					{
 						RunNumber: 1, Status: models.StatusFailed, DurationMs: 1500,
-						Validations: map[string]models.GraderResults{
+						GraderScores: map[string]models.GraderResults{
 							"text":     {Name: "text", Type: "text", Score: 0.0, Passed: false, Feedback: "pattern not found"},
 							"behavior": {Name: "behavior", Type: "behavior", Score: 0.8, Passed: true, Feedback: "ok"},
 						},
@@ -68,11 +68,11 @@ func newTestOutcome() *models.EvaluationOutcome {
 				TestID:      "task-3",
 				DisplayName: "explain-module",
 				Status:      models.StatusPassed,
-				Stats:       &models.TestStats{AvgScore: 0.90, AvgDurationMs: 1000},
+				Stats:       &models.TaskStats{AvgScore: 0.90, AvgDurationMs: 1000},
 				Runs: []models.RunResult{
 					{
 						RunNumber: 1, Status: models.StatusPassed, DurationMs: 1000,
-						Validations: map[string]models.GraderResults{
+						GraderScores: map[string]models.GraderResults{
 							"code": {Name: "code", Type: "code", Score: 0.9, Passed: true, Feedback: "good"},
 						},
 					},
@@ -129,11 +129,11 @@ func TestConvertToJUnit_FailedTestCase(t *testing.T) {
 }
 
 func TestConvertToJUnit_ErrorTestCase(t *testing.T) {
-	outcome := &models.EvaluationOutcome{
-		BenchName: "err-test",
+	outcome := &models.EvalOutcome{
+		EvalName:  "err-test",
 		Timestamp: time.Now(),
-		Digest:    models.OutcomeDigest{TotalTests: 1, Errors: 1, DurationMs: 500},
-		TestOutcomes: []models.TestOutcome{
+		Digest:    models.EvalDigest{TotalTests: 1, Errors: 1, DurationMs: 500},
+		TaskOutcomes: []models.TaskOutcome{
 			{
 				DisplayName: "broken-task",
 				Status:      models.StatusError,
@@ -154,11 +154,11 @@ func TestConvertToJUnit_ErrorTestCase(t *testing.T) {
 }
 
 func TestConvertToJUnit_SkippedTestCase(t *testing.T) {
-	outcome := &models.EvaluationOutcome{
-		BenchName: "skip-test",
+	outcome := &models.EvalOutcome{
+		EvalName:  "skip-test",
 		Timestamp: time.Now(),
-		Digest:    models.OutcomeDigest{TotalTests: 1, Skipped: 1, DurationMs: 500},
-		TestOutcomes: []models.TestOutcome{
+		Digest:    models.EvalDigest{TotalTests: 1, Skipped: 1, DurationMs: 500},
+		TaskOutcomes: []models.TaskOutcome{
 			{
 				DisplayName: "ungraded-task",
 				Status:      models.StatusSkipped,
@@ -193,10 +193,10 @@ func TestConvertToJUnit_Properties(t *testing.T) {
 }
 
 func TestConvertToJUnit_EmptyOutcome(t *testing.T) {
-	outcome := &models.EvaluationOutcome{
-		BenchName: "empty",
+	outcome := &models.EvalOutcome{
+		EvalName:  "empty",
 		Timestamp: time.Now(),
-		Digest:    models.OutcomeDigest{},
+		Digest:    models.EvalDigest{},
 	}
 
 	suites := ConvertToJUnit(outcome)
@@ -247,11 +247,11 @@ func TestWriteJUnitXML_FailedGraderDetails(t *testing.T) {
 
 func TestConvertToJUnit_DurationFromRuns(t *testing.T) {
 	// Test that duration is computed from runs when stats are nil
-	outcome := &models.EvaluationOutcome{
-		BenchName: "dur-test",
+	outcome := &models.EvalOutcome{
+		EvalName:  "dur-test",
 		Timestamp: time.Now(),
-		Digest:    models.OutcomeDigest{TotalTests: 1, Succeeded: 1, DurationMs: 2000},
-		TestOutcomes: []models.TestOutcome{
+		Digest:    models.EvalDigest{TotalTests: 1, Succeeded: 1, DurationMs: 2000},
+		TaskOutcomes: []models.TaskOutcome{
 			{
 				DisplayName: "task-a",
 				Status:      models.StatusPassed,

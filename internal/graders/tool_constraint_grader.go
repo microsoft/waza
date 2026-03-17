@@ -78,7 +78,7 @@ func NewToolConstraintGrader(name string, params models.ToolConstraintGraderPara
 }
 
 func (tc *toolConstraintGrader) Name() string            { return tc.name }
-func (tc *toolConstraintGrader) Kind() models.GraderKind { return models.GraderKindToolConstraint }
+func (tc *toolConstraintGrader) Kind() models.GraderType { return models.GraderTypeToolConstraint }
 
 func (tc *toolConstraintGrader) Grade(ctx context.Context, gradingContext *Context) (*models.GraderResults, error) {
 	return measureTime(func() (*models.GraderResults, error) {
@@ -86,7 +86,7 @@ func (tc *toolConstraintGrader) Grade(ctx context.Context, gradingContext *Conte
 		if session == nil {
 			return &models.GraderResults{
 				Name:     tc.name,
-				Type:     models.GraderKindToolConstraint,
+				Type:     models.GraderTypeToolConstraint,
 				Score:    0.0,
 				Passed:   false,
 				Feedback: "No session digest available for tool constraint grading",
@@ -123,7 +123,7 @@ func (tc *toolConstraintGrader) Grade(ctx context.Context, gradingContext *Conte
 		}
 		return &models.GraderResults{
 			Name:     tc.name,
-			Type:     models.GraderKindToolConstraint,
+			Type:     models.GraderTypeToolConstraint,
 			Score:    score,
 			Passed:   len(failures) == 0,
 			Feedback: feedback,

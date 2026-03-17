@@ -47,8 +47,8 @@ func InterpretFlaky(flaky bool, passRate float64) string {
 	return fmt.Sprintf("Results are flaky — the same test passes and fails across runs (%.0f%% pass rate). Consider increasing trials or investigating non-determinism.", pct)
 }
 
-// FormatSummaryReport produces a full plain-language report from an EvaluationOutcome.
-func FormatSummaryReport(outcome *models.EvaluationOutcome) string {
+// FormatSummaryReport produces a full plain-language report from an EvalOutcome.
+func FormatSummaryReport(outcome *models.EvalOutcome) string {
 	var b strings.Builder
 
 	d := outcome.Digest
@@ -69,9 +69,9 @@ func FormatSummaryReport(outcome *models.EvaluationOutcome) string {
 	}
 
 	// Per-task interpretation
-	if len(outcome.TestOutcomes) > 0 {
+	if len(outcome.TaskOutcomes) > 0 {
 		b.WriteString("\nPer-Task Interpretation:\n")
-		for _, to := range outcome.TestOutcomes {
+		for _, to := range outcome.TaskOutcomes {
 			icon := "✓"
 			if to.Status != models.StatusPassed {
 				icon = "✗"

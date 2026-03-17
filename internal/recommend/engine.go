@@ -13,7 +13,7 @@ import (
 // The outcome may be nil if the model run failed entirely.
 type ModelInput struct {
 	ModelID string
-	Outcome *models.EvaluationOutcome
+	Outcome *models.EvalOutcome
 }
 
 // Engine computes heuristic recommendations from multi-model evaluation outcomes.

@@ -21,11 +21,11 @@ var ErrNotFound = errors.New("result not found")
 // which is required for cloud-backed implementations.
 type ResultStore interface {
 	// Upload persists an evaluation outcome.
-	Upload(ctx context.Context, outcome *models.EvaluationOutcome) error
+	Upload(ctx context.Context, outcome *models.EvalOutcome) error
 	// List returns summaries matching the given options.
 	List(ctx context.Context, opts ListOptions) ([]ResultSummary, error)
 	// Download retrieves a single evaluation outcome by run ID.
-	Download(ctx context.Context, runID string) (*models.EvaluationOutcome, error)
+	Download(ctx context.Context, runID string) (*models.EvalOutcome, error)
 	// Compare downloads two runs and produces a comparison report.
 	Compare(ctx context.Context, runID1, runID2 string) (*ComparisonReport, error)
 }
@@ -79,7 +79,7 @@ func NewStore(cfg *projectconfig.StorageConfig, localDir string) (ResultStore, e
 
 // buildMetricDeltas computes per-metric deltas between two outcomes.
 // Used by both LocalStore and AzureBlobStore in their Compare methods.
-func buildMetricDeltas(o1, o2 *models.EvaluationOutcome) map[string]MetricDelta {
+func buildMetricDeltas(o1, o2 *models.EvalOutcome) map[string]MetricDelta {
 	deltas := make(map[string]MetricDelta)
 
 	// Collect all metric names from both runs.

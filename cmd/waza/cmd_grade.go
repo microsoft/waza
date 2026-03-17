@@ -46,7 +46,7 @@ Example:
 	cmd.Flags().StringVar(&resultsFile, "results", "", "path to waza run JSON output")
 	cmd.Flags().StringVar(&workspace, "workspace", ".", "agent workspace directory for file-based graders; must point to the agent's actual workspace")
 	cmd.Flags().StringVar(&judgeModel, "judge-model", "", "model override for prompt graders")
-	cmd.Flags().StringVarP(&outputPath, "output", "o", "", "write full EvaluationOutcome JSON to file (grading results merged with the original task outcomes)")
+	cmd.Flags().StringVarP(&outputPath, "output", "o", "", "write full EvalOutcome JSON to file (grading results merged with the original task outcomes)")
 	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "verbose output")
 	_ = cmd.MarkFlagRequired("results")
 
@@ -82,13 +82,13 @@ func runGrade(ctx context.Context, w, errW io.Writer, specPath, taskID, resultsF
 	if readErr != nil {
 		return fmt.Errorf("failed to read results file: %w", readErr)
 	}
-	var outcome models.EvaluationOutcome
+	var outcome models.EvalOutcome
 	if jsonErr := json.Unmarshal(data, &outcome); jsonErr != nil {
 		return fmt.Errorf("failed to parse results JSON: %w", jsonErr)
 	}
 
 	runsByTask := make(map[string][]models.RunResult)
-	for _, to := range outcome.TestOutcomes {
+	for _, to := range outcome.TaskOutcomes {
 		runsByTask[to.TestID] = append([]models.RunResult(nil), to.Runs...)
 	}
 
@@ -98,7 +98,7 @@ func runGrade(ctx context.Context, w, errW io.Writer, specPath, taskID, resultsF
 	}
 
 	taskResults := make(map[string]models.GradeOutcome)
-	gradedOutcomes := make([]models.TestOutcome, 0, len(allTasks))
+	gradedOutcomes := make([]models.TaskOutcome, 0, len(allTasks))
 	for _, tc := range allTasks {
 		runs, ok := runsByTask[tc.TestID]
 		if !ok {
@@ -132,7 +132,7 @@ func runGrade(ctx context.Context, w, errW io.Writer, specPath, taskID, resultsF
 		if !result.Passed {
 			status = models.StatusFailed
 		}
-		gradedOutcomes = append(gradedOutcomes, models.TestOutcome{
+		gradedOutcomes = append(gradedOutcomes, models.TaskOutcome{
 			TestID:      tc.TestID,
 			DisplayName: tc.DisplayName,
 			Status:      status,
@@ -174,8 +174,8 @@ func runGrade(ctx context.Context, w, errW io.Writer, specPath, taskID, resultsF
 			gradedIDs[to.TestID] = true
 		}
 
-		finalOutcomes := append([]models.TestOutcome{}, gradedOutcomes...)
-		for _, orig := range outcome.TestOutcomes {
+		finalOutcomes := append([]models.TaskOutcome{}, gradedOutcomes...)
+		for _, orig := range outcome.TaskOutcomes {
 			if !gradedIDs[orig.TestID] {
 				finalOutcomes = append(finalOutcomes, orig)
 			}
@@ -226,7 +226,7 @@ func gradeTaskRuns(ctx context.Context, spec *models.EvalSpec, tc *models.TaskSp
 			allPassed = false
 		}
 
-		for name, result := range gradedRun.Validations {
+		for name, result := range gradedRun.GraderScores {
 			w := result.Weight
 			if w <= 0 {
 				w = 1.0
@@ -252,7 +252,7 @@ func gradeTaskRuns(ctx context.Context, spec *models.EvalSpec, tc *models.TaskSp
 func gradeRun(ctx context.Context, spec *models.EvalSpec, tc *models.TaskSpec, run *models.RunResult, workspace, judgeModel string, errW io.Writer, verbose bool) (*models.RunResult, error) {
 	gradedRun := *run
 	if gradedRun.ErrorMsg != "" || gradedRun.Status == models.StatusError {
-		gradedRun.Validations = map[string]models.GraderResults{}
+		gradedRun.GraderScores = map[string]models.GraderResults{}
 		gradedRun.Status = models.StatusError
 		return &gradedRun, nil
 	}
@@ -295,7 +295,7 @@ func gradeRun(ctx context.Context, spec *models.EvalSpec, tc *models.TaskSpec, r
 		}
 	}
 
-	gradedRun.Validations = graderResults
+	gradedRun.GraderScores = graderResults
 	gradedRun.Status = models.StatusPassed
 	for _, result := range graderResults {
 		if !result.Passed {

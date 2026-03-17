@@ -23,9 +23,9 @@ func TestDigestHelpers_Nil(t *testing.T) {
 }
 
 func TestBuildDigest_SinglePassedTask(t *testing.T) {
-	outcomes := []models.TestOutcome{{
+	outcomes := []models.TaskOutcome{{
 		Status: models.StatusPassed,
-		Stats:  &models.TestStats{AvgScore: 1.0, AvgWeightedScore: 1.0, PassRate: 1.0},
+		Stats:  &models.TaskStats{AvgScore: 1.0, AvgWeightedScore: 1.0, PassRate: 1.0},
 	}}
 	d := BuildDigest(outcomes, 500, 1)
 	assert.Equal(t, 1, d.TotalTests)
@@ -35,9 +35,9 @@ func TestBuildDigest_SinglePassedTask(t *testing.T) {
 }
 
 func TestBuildDigest_MixedTasks(t *testing.T) {
-	outcomes := []models.TestOutcome{
-		{Status: models.StatusPassed, Stats: &models.TestStats{AvgScore: 1.0, AvgWeightedScore: 1.0}},
-		{Status: models.StatusFailed, Stats: &models.TestStats{AvgScore: 0.0, AvgWeightedScore: 0.0}},
+	outcomes := []models.TaskOutcome{
+		{Status: models.StatusPassed, Stats: &models.TaskStats{AvgScore: 1.0, AvgWeightedScore: 1.0}},
+		{Status: models.StatusFailed, Stats: &models.TaskStats{AvgScore: 0.0, AvgWeightedScore: 0.0}},
 	}
 	d := BuildDigest(outcomes, 1000, 1)
 	assert.Equal(t, 2, d.TotalTests)
@@ -48,27 +48,27 @@ func TestBuildDigest_MixedTasks(t *testing.T) {
 }
 
 func TestRegradeOutcome_ComputesStatsAndDigest(t *testing.T) {
-	original := &models.EvaluationOutcome{
+	original := &models.EvalOutcome{
 		RunID:       "run-1",
 		SkillTested: "test-skill",
-		BenchName:   "test-bench",
-		Setup:       models.OutcomeSetup{RunsPerTest: 1, ModelID: "m"},
-		Digest:      models.OutcomeDigest{DurationMs: 1000},
+		EvalName:    "test-bench",
+		Setup:       models.EvalSetup{RunsPerTest: 1, ModelID: "m"},
+		Digest:      models.EvalDigest{DurationMs: 1000},
 	}
 
-	gradedOutcomes := []models.TestOutcome{{
+	gradedOutcomes := []models.TaskOutcome{{
 		TestID: "t1",
 		Status: models.StatusPassed,
 		Runs: []models.RunResult{{
-			Status:      models.StatusPassed,
-			Validations: map[string]models.GraderResults{"g": {Score: 1.0, Passed: true, Weight: 1.0}},
+			Status:       models.StatusPassed,
+			GraderScores: map[string]models.GraderResults{"g": {Score: 1.0, Passed: true, Weight: 1.0}},
 		}},
 	}}
 
 	result := RegradeOutcome(original, gradedOutcomes, "judge-model")
 
-	require.NotNil(t, result.TestOutcomes[0].Stats)
-	assert.InDelta(t, 1.0, result.TestOutcomes[0].Stats.PassRate, 0.001)
+	require.NotNil(t, result.TaskOutcomes[0].Stats)
+	assert.InDelta(t, 1.0, result.TaskOutcomes[0].Stats.PassRate, 0.001)
 	assert.Equal(t, 1, result.Digest.Succeeded)
 	assert.InDelta(t, 1.0, result.Digest.SuccessRate, 0.001)
 	assert.Equal(t, "judge-model", result.Setup.JudgeModel)

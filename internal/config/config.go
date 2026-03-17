@@ -4,8 +4,8 @@ import (
 	"github.com/microsoft/waza/internal/models"
 )
 
-// BenchmarkConfig is the main configuration with functional options
-type BenchmarkConfig struct {
+// RunConfig is the main configuration with functional options
+type RunConfig struct {
 	spec          *models.EvalSpec
 	specDir       string // Directory containing the spec file (for resolving test patterns)
 	fixtureDir    string // Directory containing fixtures/context files
@@ -15,12 +15,12 @@ type BenchmarkConfig struct {
 	transcriptDir string // Directory for per-task transcript JSON files
 }
 
-// Option is a functional option for BenchmarkConfig
-type Option func(*BenchmarkConfig)
+// Option is a functional option for RunConfig
+type Option func(*RunConfig)
 
-// NewBenchmarkConfig creates a new configuration with options
-func NewBenchmarkConfig(spec *models.EvalSpec, opts ...Option) *BenchmarkConfig {
-	cfg := &BenchmarkConfig{
+// NewRunConfig creates a new configuration with options
+func NewRunConfig(spec *models.EvalSpec, opts ...Option) *RunConfig {
+	cfg := &RunConfig{
 		spec:    spec,
 		verbose: false,
 	}
@@ -34,14 +34,14 @@ func NewBenchmarkConfig(spec *models.EvalSpec, opts ...Option) *BenchmarkConfig 
 
 // WithSpecDir sets the spec directory (for resolving test patterns)
 func WithSpecDir(path string) Option {
-	return func(c *BenchmarkConfig) {
+	return func(c *RunConfig) {
 		c.specDir = path
 	}
 }
 
 // WithFixtureDir sets the fixture directory (for loading resource files)
 func WithFixtureDir(path string) Option {
-	return func(c *BenchmarkConfig) {
+	return func(c *RunConfig) {
 		c.fixtureDir = path
 	}
 }
@@ -53,38 +53,38 @@ func WithContextRoot(path string) Option {
 
 // WithVerbose enables verbose output
 func WithVerbose(enabled bool) Option {
-	return func(c *BenchmarkConfig) {
+	return func(c *RunConfig) {
 		c.verbose = enabled
 	}
 }
 
 // WithOutputPath sets the output file path
 func WithOutputPath(path string) Option {
-	return func(c *BenchmarkConfig) {
+	return func(c *RunConfig) {
 		c.outputPath = path
 	}
 }
 
 // WithLogPath sets the log file path
 func WithLogPath(path string) Option {
-	return func(c *BenchmarkConfig) {
+	return func(c *RunConfig) {
 		c.logPath = path
 	}
 }
 
 // WithTranscriptDir sets the directory for per-task transcript files
 func WithTranscriptDir(path string) Option {
-	return func(c *BenchmarkConfig) {
+	return func(c *RunConfig) {
 		c.transcriptDir = path
 	}
 }
 
 // Getters
-func (c *BenchmarkConfig) Spec() *models.EvalSpec { return c.spec }
-func (c *BenchmarkConfig) SpecDir() string        { return c.specDir }
-func (c *BenchmarkConfig) FixtureDir() string     { return c.fixtureDir }
-func (c *BenchmarkConfig) ContextRoot() string    { return c.fixtureDir } // Alias for compatibility
-func (c *BenchmarkConfig) Verbose() bool          { return c.verbose }
-func (c *BenchmarkConfig) OutputPath() string     { return c.outputPath }
-func (c *BenchmarkConfig) LogPath() string        { return c.logPath }
-func (c *BenchmarkConfig) TranscriptDir() string  { return c.transcriptDir }
+func (c *RunConfig) Spec() *models.EvalSpec { return c.spec }
+func (c *RunConfig) SpecDir() string        { return c.specDir }
+func (c *RunConfig) FixtureDir() string     { return c.fixtureDir }
+func (c *RunConfig) ContextRoot() string    { return c.fixtureDir } // Alias for compatibility
+func (c *RunConfig) Verbose() bool          { return c.verbose }
+func (c *RunConfig) OutputPath() string     { return c.outputPath }
+func (c *RunConfig) LogPath() string        { return c.logPath }
+func (c *RunConfig) TranscriptDir() string  { return c.transcriptDir }

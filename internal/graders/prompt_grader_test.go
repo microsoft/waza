@@ -288,7 +288,7 @@ func TestPairwiseMode_FallsBackToIndependent(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, results)
 	// Should grade independently since no baseline output
-	require.Equal(t, models.GraderKindPrompt, results.Type)
+	require.Equal(t, models.GraderTypePrompt, results.Type)
 }
 
 func TestPairwiseBuildPrompt(t *testing.T) {

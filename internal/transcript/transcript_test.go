@@ -71,10 +71,10 @@ func TestWrite(t *testing.T) {
 				},
 			},
 		},
-		Validations: map[string]models.GraderResults{
+		GraderScores: map[string]models.GraderResults{
 			"contains-check": {
 				Name:   "contains-check",
-				Type:   models.GraderKindText,
+				Type:   models.GraderTypeText,
 				Score:  1.0,
 				Passed: true,
 			},
@@ -166,7 +166,7 @@ func TestBuildTaskTranscript(t *testing.T) {
 		},
 	}
 
-	outcome := models.TestOutcome{
+	outcome := models.TaskOutcome{
 		TestID:      "tc-1",
 		DisplayName: "Code Explain",
 		Status:      models.StatusPassed,
@@ -179,7 +179,7 @@ func TestBuildTaskTranscript(t *testing.T) {
 					{SessionEvent: copilot.SessionEvent{Data: copilot.Data{Content: utils.Ptr("Explain this code")}}},
 					{SessionEvent: copilot.SessionEvent{Data: copilot.Data{Content: utils.Ptr("Sure, this code...")}}},
 				},
-				Validations: map[string]models.GraderResults{
+				GraderScores: map[string]models.GraderResults{
 					"check": {Name: "check", Score: 1.0, Passed: true},
 				},
 				SessionDigest: models.SessionDigest{Usage: &models.UsageStats{Turns: 2, InputTokens: 100}},

@@ -96,7 +96,7 @@ func TestSkillImpactMetric_JSONSerialization(t *testing.T) {
 }
 
 func TestTestOutcome_SkillImpactOmittedWhenNil(t *testing.T) {
-	outcome := TestOutcome{
+	outcome := TaskOutcome{
 		TestID:      "test-001",
 		DisplayName: "Test Case",
 		Status:      StatusPassed,
@@ -114,7 +114,7 @@ func TestTestOutcome_SkillImpactOmittedWhenNil(t *testing.T) {
 }
 
 func TestTestOutcome_SkillImpactIncludedWhenPresent(t *testing.T) {
-	outcome := TestOutcome{
+	outcome := TaskOutcome{
 		TestID:      "test-001",
 		DisplayName: "Test Case",
 		Status:      StatusPassed,
@@ -129,7 +129,7 @@ func TestTestOutcome_SkillImpactIncludedWhenPresent(t *testing.T) {
 	data, err := json.Marshal(outcome)
 	require.NoError(t, err)
 
-	var decoded TestOutcome
+	var decoded TaskOutcome
 	err = json.Unmarshal(data, &decoded)
 	require.NoError(t, err)
 
@@ -140,23 +140,23 @@ func TestTestOutcome_SkillImpactIncludedWhenPresent(t *testing.T) {
 	assert.InDelta(t, 100.0, decoded.SkillImpact.PercentChange, 0.1)
 }
 
-func TestEvaluationOutcome_BaselineFieldsSerialization(t *testing.T) {
-	outcome := EvaluationOutcome{
+func TestEvalOutcome_BaselineFieldsSerialization(t *testing.T) {
+	outcome := EvalOutcome{
 		RunID:       "eval-001",
 		SkillTested: "test-skill",
-		BenchName:   "test-eval",
+		EvalName:    "test-eval",
 		IsBaseline:  true,
-		BaselineOutcome: &EvaluationOutcome{
+		BaselineOutcome: &EvalOutcome{
 			RunID:       "eval-001-baseline",
 			SkillTested: "test-skill",
-			BenchName:   "test-eval (baseline)",
+			EvalName:    "test-eval (baseline)",
 		},
 	}
 
 	data, err := json.Marshal(outcome)
 	require.NoError(t, err)
 
-	var decoded EvaluationOutcome
+	var decoded EvalOutcome
 	err = json.Unmarshal(data, &decoded)
 	require.NoError(t, err)
 
@@ -165,11 +165,11 @@ func TestEvaluationOutcome_BaselineFieldsSerialization(t *testing.T) {
 	assert.Equal(t, "eval-001-baseline", decoded.BaselineOutcome.RunID)
 }
 
-func TestEvaluationOutcome_BaselineFieldsOmittedWhenFalse(t *testing.T) {
-	outcome := EvaluationOutcome{
+func TestEvalOutcome_BaselineFieldsOmittedWhenFalse(t *testing.T) {
+	outcome := EvalOutcome{
 		RunID:       "eval-001",
 		SkillTested: "test-skill",
-		BenchName:   "test-eval",
+		EvalName:    "test-eval",
 		IsBaseline:  false,
 	}
 

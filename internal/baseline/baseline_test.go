@@ -11,7 +11,7 @@ func TestComputeImprovement_SkillBetter(t *testing.T) {
 	baseline := &models.RunResult{
 		Status:     models.StatusFailed,
 		DurationMs: 10000,
-		Validations: map[string]models.GraderResults{
+		GraderScores: map[string]models.GraderResults{
 			"g1": {Score: 0.3, Weight: 1.0},
 		},
 		SessionDigest: models.SessionDigest{
@@ -21,7 +21,7 @@ func TestComputeImprovement_SkillBetter(t *testing.T) {
 	withSkill := &models.RunResult{
 		Status:     models.StatusPassed,
 		DurationMs: 7000,
-		Validations: map[string]models.GraderResults{
+		GraderScores: map[string]models.GraderResults{
 			"g1": {Score: 0.9, Weight: 1.0},
 		},
 		SessionDigest: models.SessionDigest{
@@ -43,7 +43,7 @@ func TestComputeImprovement_SkillWorse(t *testing.T) {
 	baseline := &models.RunResult{
 		Status:     models.StatusPassed,
 		DurationMs: 5000,
-		Validations: map[string]models.GraderResults{
+		GraderScores: map[string]models.GraderResults{
 			"g1": {Score: 0.9, Weight: 1.0},
 		},
 		SessionDigest: models.SessionDigest{
@@ -53,7 +53,7 @@ func TestComputeImprovement_SkillWorse(t *testing.T) {
 	withSkill := &models.RunResult{
 		Status:     models.StatusFailed,
 		DurationMs: 12000,
-		Validations: map[string]models.GraderResults{
+		GraderScores: map[string]models.GraderResults{
 			"g1": {Score: 0.2, Weight: 1.0},
 		},
 		SessionDigest: models.SessionDigest{
@@ -75,7 +75,7 @@ func TestComputeImprovement_Equal(t *testing.T) {
 	run := &models.RunResult{
 		Status:     models.StatusPassed,
 		DurationMs: 5000,
-		Validations: map[string]models.GraderResults{
+		GraderScores: map[string]models.GraderResults{
 			"g1": {Score: 0.8, Weight: 1.0},
 		},
 		SessionDigest: models.SessionDigest{
@@ -97,7 +97,7 @@ func TestComputeImprovement_ZeroBaseline(t *testing.T) {
 	baseline := &models.RunResult{
 		Status:     models.StatusFailed,
 		DurationMs: 0,
-		Validations: map[string]models.GraderResults{
+		GraderScores: map[string]models.GraderResults{
 			"g1": {Score: 0.0, Weight: 1.0},
 		},
 		SessionDigest: models.SessionDigest{
@@ -107,7 +107,7 @@ func TestComputeImprovement_ZeroBaseline(t *testing.T) {
 	withSkill := &models.RunResult{
 		Status:     models.StatusPassed,
 		DurationMs: 5000,
-		Validations: map[string]models.GraderResults{
+		GraderScores: map[string]models.GraderResults{
 			"g1": {Score: 1.0, Weight: 1.0},
 		},
 		SessionDigest: models.SessionDigest{
@@ -131,7 +131,7 @@ func TestComputeImprovement_ClampedToRange(t *testing.T) {
 	baseline := &models.RunResult{
 		Status:     models.StatusFailed,
 		DurationMs: 100,
-		Validations: map[string]models.GraderResults{
+		GraderScores: map[string]models.GraderResults{
 			"g1": {Score: 0.0, Weight: 1.0},
 		},
 		SessionDigest: models.SessionDigest{
@@ -141,7 +141,7 @@ func TestComputeImprovement_ClampedToRange(t *testing.T) {
 	withSkill := &models.RunResult{
 		Status:     models.StatusPassed,
 		DurationMs: 1,
-		Validations: map[string]models.GraderResults{
+		GraderScores: map[string]models.GraderResults{
 			"g1": {Score: 1.0, Weight: 1.0},
 		},
 		SessionDigest: models.SessionDigest{
@@ -155,11 +155,11 @@ func TestComputeImprovement_ClampedToRange(t *testing.T) {
 }
 
 func TestComputeFromOutcomes_EmptyRuns(t *testing.T) {
-	withSkill := &models.TestOutcome{
+	withSkill := &models.TaskOutcome{
 		DisplayName: "test-task",
 		Runs:        []models.RunResult{},
 	}
-	baseline := &models.TestOutcome{
+	baseline := &models.TaskOutcome{
 		DisplayName: "test-task",
 		Runs:        []models.RunResult{},
 	}
@@ -170,13 +170,13 @@ func TestComputeFromOutcomes_EmptyRuns(t *testing.T) {
 }
 
 func TestComputeFromOutcomes_WithRuns(t *testing.T) {
-	withSkill := &models.TestOutcome{
+	withSkill := &models.TaskOutcome{
 		DisplayName: "test-task",
 		Runs: []models.RunResult{
 			{
 				Status:     models.StatusPassed,
 				DurationMs: 5000,
-				Validations: map[string]models.GraderResults{
+				GraderScores: map[string]models.GraderResults{
 					"g1": {Score: 0.9, Weight: 1.0},
 				},
 				SessionDigest: models.SessionDigest{
@@ -185,13 +185,13 @@ func TestComputeFromOutcomes_WithRuns(t *testing.T) {
 			},
 		},
 	}
-	baseline := &models.TestOutcome{
+	baseline := &models.TaskOutcome{
 		DisplayName: "test-task",
 		Runs: []models.RunResult{
 			{
 				Status:     models.StatusFailed,
 				DurationMs: 8000,
-				Validations: map[string]models.GraderResults{
+				GraderScores: map[string]models.GraderResults{
 					"g1": {Score: 0.3, Weight: 1.0},
 				},
 				SessionDigest: models.SessionDigest{

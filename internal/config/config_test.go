@@ -6,10 +6,10 @@ import (
 	"github.com/microsoft/waza/internal/models"
 )
 
-func TestNewBenchmarkConfig_DefaultValues(t *testing.T) {
+func TestNewRunConfig_DefaultValues(t *testing.T) {
 	spec := &models.EvalSpec{SpecIdentity: models.SpecIdentity{Name: "test-spec"}}
 
-	cfg := NewBenchmarkConfig(spec)
+	cfg := NewRunConfig(spec)
 
 	if cfg.Spec() != spec {
 		t.Fatalf("Spec() = %p, want %p", cfg.Spec(), spec)
@@ -37,10 +37,10 @@ func TestNewBenchmarkConfig_DefaultValues(t *testing.T) {
 	}
 }
 
-func TestNewBenchmarkConfig_AppliesFunctionalOptions(t *testing.T) {
+func TestNewRunConfig_AppliesFunctionalOptions(t *testing.T) {
 	spec := &models.EvalSpec{}
 
-	cfg := NewBenchmarkConfig(
+	cfg := NewRunConfig(
 		spec,
 		WithSpecDir("/tmp/specs"),
 		WithFixtureDir("/tmp/fixtures"),
@@ -74,7 +74,7 @@ func TestNewBenchmarkConfig_AppliesFunctionalOptions(t *testing.T) {
 }
 
 func TestWithContextRoot_Alias(t *testing.T) {
-	cfg := NewBenchmarkConfig(&models.EvalSpec{}, WithContextRoot("fixtures"))
+	cfg := NewRunConfig(&models.EvalSpec{}, WithContextRoot("fixtures"))
 
 	if cfg.FixtureDir() != "fixtures" {
 		t.Fatalf("FixtureDir() = %q, want %q", cfg.FixtureDir(), "fixtures")
@@ -85,7 +85,7 @@ func TestWithContextRoot_Alias(t *testing.T) {
 }
 
 func TestOptionOrder_LastOptionWins(t *testing.T) {
-	cfg := NewBenchmarkConfig(
+	cfg := NewRunConfig(
 		&models.EvalSpec{},
 		WithVerbose(true),
 		WithVerbose(false),
@@ -104,8 +104,8 @@ func TestOptionOrder_LastOptionWins(t *testing.T) {
 	}
 }
 
-func TestNewBenchmarkConfig_NilSpecAllowed(t *testing.T) {
-	cfg := NewBenchmarkConfig(nil, WithOutputPath(""), WithLogPath(""), WithTranscriptDir(""))
+func TestNewRunConfig_NilSpecAllowed(t *testing.T) {
+	cfg := NewRunConfig(nil, WithOutputPath(""), WithLogPath(""), WithTranscriptDir(""))
 
 	if cfg.Spec() != nil {
 		t.Fatalf("Spec() = %v, want nil", cfg.Spec())
@@ -121,12 +121,12 @@ func TestNewBenchmarkConfig_NilSpecAllowed(t *testing.T) {
 	}
 }
 
-func TestNewBenchmarkConfig_NilOptionPanics(t *testing.T) {
+func TestNewRunConfig_NilOptionPanics(t *testing.T) {
 	defer func() {
 		if r := recover(); r == nil {
 			t.Fatal("expected panic for nil option, got none")
 		}
 	}()
 
-	_ = NewBenchmarkConfig(&models.EvalSpec{}, nil)
+	_ = NewRunConfig(&models.EvalSpec{}, nil)
 }

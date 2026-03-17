@@ -73,7 +73,7 @@ var (
 // modelResult pairs a model identifier with its evaluation outcome.
 type modelResult struct {
 	modelID string
-	outcome *models.EvaluationOutcome
+	outcome *models.EvalOutcome
 }
 
 func newRunCommand() *cobra.Command {
@@ -566,7 +566,7 @@ func runCommandForSpec(cmd *cobra.Command, sp skillSpecPath, defaultSkills []str
 
 // runSingleModel executes a benchmark for one model and returns the outcome.
 // It prints the per-model summary and saves output for single-model runs.
-func runSingleModel(cmd *cobra.Command, spec *models.EvalSpec, specPath string, defaultSkills []string) (*models.EvaluationOutcome, error) {
+func runSingleModel(cmd *cobra.Command, spec *models.EvalSpec, specPath string, defaultSkills []string) (*models.EvalOutcome, error) {
 	// Get spec directory for resolving relative paths
 	specDir := filepath.Dir(specPath)
 	if !filepath.IsAbs(specDir) {
@@ -593,7 +593,7 @@ func runSingleModel(cmd *cobra.Command, spec *models.EvalSpec, specPath string, 
 	}
 
 	// Create config with both directories
-	cfg := config.NewBenchmarkConfig(spec,
+	cfg := config.NewRunConfig(spec,
 		config.WithSpecDir(specDir),
 		config.WithFixtureDir(fixtureDir),
 		config.WithVerbose(verbose),
@@ -659,7 +659,7 @@ func runSingleModel(cmd *cobra.Command, spec *models.EvalSpec, specPath string, 
 	if skipGradersFlag {
 		runnerOpts = append(runnerOpts, orchestration.WithSkipGraders())
 	}
-	runner := orchestration.NewTestRunner(cfg, engine, runnerOpts...)
+	runner := orchestration.NewEvalRunner(cfg, engine, runnerOpts...)
 
 	// Setup session logger if enabled
 	var sessLogger session.Logger = session.NopLogger{}
@@ -684,13 +684,13 @@ func runSingleModel(cmd *cobra.Command, spec *models.EvalSpec, specPath string, 
 	runner.OnProgress(func(event orchestration.ProgressEvent) {
 		var ev session.Event
 		switch event.EventType {
-		case orchestration.EventBenchmarkStart:
+		case orchestration.EventEvalStart:
 			ev = session.NewEvent(session.EventSessionStart,
 				session.SessionStartData(specPath, spec.Config.ModelID, spec.Config.EngineType, event.TotalTests))
-		case orchestration.EventTestStart:
+		case orchestration.EventTaskStart:
 			ev = session.NewEvent(session.EventTaskStart,
 				session.TaskStartData(event.TestName, event.TestNum, event.TotalTests))
-		case orchestration.EventTestComplete:
+		case orchestration.EventTaskComplete:
 			score, _ := event.Details["score"].(float64)          //nolint:errcheck
 			durationMs, _ := event.Details["duration_ms"].(int64) //nolint:errcheck
 			ev = session.NewEvent(session.EventTaskComplete,
@@ -744,7 +744,7 @@ func runSingleModel(cmd *cobra.Command, spec *models.EvalSpec, specPath string, 
 
 	fmt.Println()
 
-	outcome, err := runner.RunBenchmark(ctx)
+	outcome, err := runner.RunEval(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("benchmark failed: %w", err)
 	}
@@ -956,20 +956,20 @@ func buildOutputPath(base, ext, skillName, modelID string, multiSkill, multiMode
 
 func verboseProgressListener(event orchestration.ProgressEvent) {
 	switch event.EventType {
-	case orchestration.EventBenchmarkStart:
+	case orchestration.EventEvalStart:
 		fmt.Printf("Starting benchmark with %d test(s)...\n\n", event.TotalTests)
-	case orchestration.EventTestStart:
+	case orchestration.EventTaskStart:
 		fmt.Printf("[%d/%d] Running test: %s\n", event.TestNum, event.TotalTests, event.TestName)
-	case orchestration.EventTestCached:
+	case orchestration.EventTaskCached:
 		fmt.Printf("[%d/%d] Test: %s [cached]\n\n", event.TestNum, event.TotalTests, event.TestName)
 	case orchestration.EventRunStart:
 		fmt.Printf("  Run %d/%d...", event.RunNum, event.TotalRuns)
 	case orchestration.EventRunComplete:
 		duration := time.Duration(event.DurationMs) * time.Millisecond
 		fmt.Printf(" %s (%v)\n", event.Status, duration)
-	case orchestration.EventTestComplete:
+	case orchestration.EventTaskComplete:
 		fmt.Printf("  Test %s: %s\n\n", event.TestName, event.Status)
-	case orchestration.EventBenchmarkComplete:
+	case orchestration.EventEvalComplete:
 		duration := time.Duration(event.DurationMs) * time.Millisecond
 		fmt.Printf("Benchmark completed in %v\n\n", duration)
 	case orchestration.EventAgentPrompt:
@@ -1020,9 +1020,9 @@ func truncate(s string, maxLen int) string {
 
 func simpleProgressListener(event orchestration.ProgressEvent) {
 	switch event.EventType {
-	case orchestration.EventTestCached:
+	case orchestration.EventTaskCached:
 		fmt.Printf("✓ [%d/%d] %s [cached]\n", event.TestNum, event.TotalTests, event.TestName)
-	case orchestration.EventTestComplete:
+	case orchestration.EventTaskComplete:
 		status := "✓"
 		if event.Status != models.StatusPassed {
 			status = "✗"
@@ -1031,16 +1031,16 @@ func simpleProgressListener(event orchestration.ProgressEvent) {
 	}
 }
 
-func printSnapshotUpdateSummary(outcome *models.EvaluationOutcome) {
+func printSnapshotUpdateSummary(outcome *models.EvalOutcome) {
 	if !updateSnapshots || outcome == nil {
 		return
 	}
 
 	var rows []graders.SnapshotUpdate
-	for _, testOutcome := range outcome.TestOutcomes {
+	for _, testOutcome := range outcome.TaskOutcomes {
 		for _, run := range testOutcome.Runs {
-			for _, gr := range run.Validations {
-				if gr.Type != models.GraderKindDiff {
+			for _, gr := range run.GraderScores {
+				if gr.Type != models.GraderTypeDiff {
 					continue
 				}
 
@@ -1109,7 +1109,7 @@ func parseSnapshotUpdates(raw any) ([]graders.SnapshotUpdate, error) {
 	}
 }
 
-func printSummary(outcome *models.EvaluationOutcome) {
+func printSummary(outcome *models.EvalOutcome) {
 	fmt.Println("=" + strings.Repeat("=", 50))
 	fmt.Println(" BENCHMARK RESULTS")
 	fmt.Println("=" + strings.Repeat("=", 50))
@@ -1151,7 +1151,7 @@ func printSummary(outcome *models.EvaluationOutcome) {
 	fmt.Println("-" + strings.Repeat("-", 50))
 	fmt.Println(" PER-TASK BREAKDOWN")
 	fmt.Println("-" + strings.Repeat("-", 50))
-	for _, to := range outcome.TestOutcomes {
+	for _, to := range outcome.TaskOutcomes {
 		icon := "✓"
 		if to.Status != models.StatusPassed {
 			icon = "✗"
@@ -1169,14 +1169,14 @@ func printSummary(outcome *models.EvaluationOutcome) {
 	// Show failed tests
 	if digest.Failed > 0 || digest.Errors > 0 {
 		fmt.Println("Failed Tests:")
-		for _, to := range outcome.TestOutcomes {
+		for _, to := range outcome.TaskOutcomes {
 			if to.Status != models.StatusPassed {
 				fmt.Printf("  - %s (%s)\n", to.DisplayName, to.Status)
 
 				// Show validation failures
 				if len(to.Runs) > 0 {
 					for _, run := range to.Runs {
-						for _, val := range run.Validations {
+						for _, val := range run.GraderScores {
 							if !val.Passed {
 								fmt.Printf("    • %s: %s\n", val.Name, val.Feedback)
 							}
@@ -1189,8 +1189,8 @@ func printSummary(outcome *models.EvaluationOutcome) {
 	}
 
 	// Show flaky tasks
-	var flakyTasks []models.TestOutcome
-	for _, to := range outcome.TestOutcomes {
+	var flakyTasks []models.TaskOutcome
+	for _, to := range outcome.TaskOutcomes {
 		if to.Stats != nil && to.Stats.Flaky {
 			flakyTasks = append(flakyTasks, to)
 		}
@@ -1274,7 +1274,7 @@ func printUsageSummary(usage *models.UsageStats) {
 	fmt.Println()
 }
 
-func saveOutcome(outcome *models.EvaluationOutcome, path string) error {
+func saveOutcome(outcome *models.EvalOutcome, path string) error {
 	data, err := json.MarshalIndent(outcome, "", "  ")
 	if err != nil {
 		return err
@@ -1322,7 +1322,7 @@ func autoUploadOutcomes(cmd *cobra.Command, cfg *projectconfig.ProjectConfig, re
 }
 
 // writeReporters processes --reporter flags and writes the requested outputs.
-func writeReporters(outcome *models.EvaluationOutcome) error {
+func writeReporters(outcome *models.EvalOutcome) error {
 	for _, r := range reporters {
 		switch {
 		case r == "json":

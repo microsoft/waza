@@ -15,14 +15,14 @@ import (
 	"github.com/microsoft/waza/internal/projectconfig"
 )
 
-func makeOutcome(runID, skill, model string, passed, total int) *models.EvaluationOutcome {
-	return &models.EvaluationOutcome{
+func makeOutcome(runID, skill, model string, passed, total int) *models.EvalOutcome {
+	return &models.EvalOutcome{
 		RunID:       runID,
 		SkillTested: skill,
-		BenchName:   "test-bench",
+		EvalName:    "test-bench",
 		Timestamp:   time.Date(2026, 2, 27, 12, 0, 0, 0, time.UTC),
-		Setup:       models.OutcomeSetup{ModelID: model},
-		Digest: models.OutcomeDigest{
+		Setup:       models.EvalSetup{ModelID: model},
+		Digest: models.EvalDigest{
 			TotalTests:     total,
 			Succeeded:      passed,
 			Failed:         total - passed,
@@ -97,7 +97,7 @@ func TestLocalStore_List(t *testing.T) {
 	o3 := makeOutcome("run-c", "skill-a", "gpt-4o", 10, 10)
 	o3.Timestamp = time.Date(2026, 2, 20, 0, 0, 0, 0, time.UTC)
 
-	for _, o := range []*models.EvaluationOutcome{o1, o2, o3} {
+	for _, o := range []*models.EvalOutcome{o1, o2, o3} {
 		if err := store.Upload(ctx, o); err != nil {
 			t.Fatalf("Upload() error: %v", err)
 		}
@@ -371,9 +371,9 @@ func TestLocalStore_LargeOutcome(t *testing.T) {
 	outcome := makeOutcome("large-run", "skill-x", "model-y", 1000, 1000)
 
 	// Add 1000 test outcomes to make it large
-	outcome.TestOutcomes = make([]models.TestOutcome, 1000)
+	outcome.TaskOutcomes = make([]models.TaskOutcome, 1000)
 	for i := 0; i < 1000; i++ {
-		outcome.TestOutcomes[i] = models.TestOutcome{
+		outcome.TaskOutcomes[i] = models.TaskOutcome{
 			TestID:      fmt.Sprintf("test-%d", i),
 			DisplayName: fmt.Sprintf("Test %d", i),
 			Status:      models.StatusPassed,
@@ -382,7 +382,7 @@ func TestLocalStore_LargeOutcome(t *testing.T) {
 					RunNumber:  1,
 					Status:     models.StatusPassed,
 					DurationMs: 100,
-					Validations: map[string]models.GraderResults{
+					GraderScores: map[string]models.GraderResults{
 						"grader-1": {Score: 1.0, Passed: true},
 					},
 				},
@@ -398,8 +398,8 @@ func TestLocalStore_LargeOutcome(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Download() error: %v", err)
 	}
-	if len(got.TestOutcomes) != 1000 {
-		t.Errorf("TestOutcomes = %d, want 1000", len(got.TestOutcomes))
+	if len(got.TaskOutcomes) != 1000 {
+		t.Errorf("TaskOutcomes = %d, want 1000", len(got.TaskOutcomes))
 	}
 }
 
@@ -437,7 +437,7 @@ func TestLocalStore_InvalidJSON(t *testing.T) {
 func TestLocalStore_NonResultJSON(t *testing.T) {
 	dir := t.TempDir()
 
-	// Write non-EvaluationOutcome JSON (e.g., some other data structure)
+	// Write non-EvalOutcome JSON (e.g., some other data structure)
 	nonResult := `{"some": "other", "data": 123}`
 	if err := os.WriteFile(filepath.Join(dir, "other.json"), []byte(nonResult), 0o644); err != nil {
 		t.Fatal(err)
@@ -486,7 +486,7 @@ func TestLocalStore_List_AllFiltersCombined(t *testing.T) {
 	ctx := context.Background()
 
 	// Create varied outcomes
-	outcomes := []*models.EvaluationOutcome{
+	outcomes := []*models.EvalOutcome{
 		makeOutcome("run-1", "skill-a", "gpt-4o", 5, 10),
 		makeOutcome("run-2", "skill-a", "claude-sonnet", 8, 10),
 		makeOutcome("run-3", "skill-b", "gpt-4o", 9, 10),
@@ -527,13 +527,13 @@ func TestLocalStore_EmptyFields(t *testing.T) {
 	ctx := context.Background()
 
 	// Outcome with minimal fields
-	outcome := &models.EvaluationOutcome{
+	outcome := &models.EvalOutcome{
 		RunID:       "minimal-run",
 		SkillTested: "",          // empty skill
-		BenchName:   "bench-x",   // need this to not be filtered out
+		EvalName:    "bench-x",   // need this to not be filtered out
 		Timestamp:   time.Time{}, // zero timestamp
-		Setup:       models.OutcomeSetup{ModelID: ""},
-		Digest: models.OutcomeDigest{
+		Setup:       models.EvalSetup{ModelID: ""},
+		Digest: models.EvalDigest{
 			TotalTests: 1, // need this to not be filtered out
 		},
 	}

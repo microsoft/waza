@@ -9,13 +9,13 @@ import (
 )
 
 func TestFormatGitHubComment_PassedEval(t *testing.T) {
-	outcome := &models.EvaluationOutcome{
-		BenchName:   "Test Eval",
+	outcome := &models.EvalOutcome{
+		EvalName:    "Test Eval",
 		SkillTested: "code-explainer",
-		Setup: models.OutcomeSetup{
+		Setup: models.EvalSetup{
 			ModelID: "gpt-4o",
 		},
-		Digest: models.OutcomeDigest{
+		Digest: models.EvalDigest{
 			TotalTests:     2,
 			Succeeded:      2,
 			Failed:         0,
@@ -27,12 +27,12 @@ func TestFormatGitHubComment_PassedEval(t *testing.T) {
 			StdDev:         0.055,
 			DurationMs:     45000,
 		},
-		TestOutcomes: []models.TestOutcome{
+		TaskOutcomes: []models.TaskOutcome{
 			{
 				TestID:      "tc-001",
 				DisplayName: "code-explain-python",
 				Status:      models.StatusPassed,
-				Stats: &models.TestStats{
+				Stats: &models.TaskStats{
 					AvgScore:      0.92,
 					PassRate:      1.0,
 					AvgDurationMs: 20000,
@@ -42,16 +42,16 @@ func TestFormatGitHubComment_PassedEval(t *testing.T) {
 						RunNumber:  1,
 						Status:     models.StatusPassed,
 						DurationMs: 20000,
-						Validations: map[string]models.GraderResults{
+						GraderScores: map[string]models.GraderResults{
 							"text": {
 								Name:   "text",
-								Type:   models.GraderKindText,
+								Type:   models.GraderTypeText,
 								Score:  0.95,
 								Passed: true,
 							},
 							"behavior": {
 								Name:   "behavior",
-								Type:   models.GraderKindBehavior,
+								Type:   models.GraderTypeBehavior,
 								Score:  0.89,
 								Passed: true,
 							},
@@ -63,7 +63,7 @@ func TestFormatGitHubComment_PassedEval(t *testing.T) {
 				TestID:      "tc-002",
 				DisplayName: "code-explain-go",
 				Status:      models.StatusPassed,
-				Stats: &models.TestStats{
+				Stats: &models.TaskStats{
 					AvgScore:      0.81,
 					PassRate:      1.0,
 					AvgDurationMs: 25000,
@@ -73,16 +73,16 @@ func TestFormatGitHubComment_PassedEval(t *testing.T) {
 						RunNumber:  1,
 						Status:     models.StatusPassed,
 						DurationMs: 25000,
-						Validations: map[string]models.GraderResults{
+						GraderScores: map[string]models.GraderResults{
 							"text": {
 								Name:   "text",
-								Type:   models.GraderKindText,
+								Type:   models.GraderTypeText,
 								Score:  0.85,
 								Passed: true,
 							},
 							"behavior": {
 								Name:   "behavior",
-								Type:   models.GraderKindBehavior,
+								Type:   models.GraderTypeBehavior,
 								Score:  0.77,
 								Passed: true,
 							},
@@ -122,13 +122,13 @@ func TestFormatGitHubComment_PassedEval(t *testing.T) {
 }
 
 func TestFormatGitHubComment_FailedEval(t *testing.T) {
-	outcome := &models.EvaluationOutcome{
-		BenchName:   "Test Eval",
+	outcome := &models.EvalOutcome{
+		EvalName:    "Test Eval",
 		SkillTested: "code-explainer",
-		Setup: models.OutcomeSetup{
+		Setup: models.EvalSetup{
 			ModelID: "gpt-4o",
 		},
-		Digest: models.OutcomeDigest{
+		Digest: models.EvalDigest{
 			TotalTests:     2,
 			Succeeded:      1,
 			Failed:         1,
@@ -140,12 +140,12 @@ func TestFormatGitHubComment_FailedEval(t *testing.T) {
 			StdDev:         0.35,
 			DurationMs:     30000,
 		},
-		TestOutcomes: []models.TestOutcome{
+		TaskOutcomes: []models.TaskOutcome{
 			{
 				TestID:      "tc-001",
 				DisplayName: "passing-task",
 				Status:      models.StatusPassed,
-				Stats: &models.TestStats{
+				Stats: &models.TaskStats{
 					AvgScore: 0.80,
 					PassRate: 1.0,
 				},
@@ -154,7 +154,7 @@ func TestFormatGitHubComment_FailedEval(t *testing.T) {
 						RunNumber:  1,
 						Status:     models.StatusPassed,
 						DurationMs: 15000,
-						Validations: map[string]models.GraderResults{
+						GraderScores: map[string]models.GraderResults{
 							"text": {
 								Name:     "text",
 								Score:    0.80,
@@ -169,7 +169,7 @@ func TestFormatGitHubComment_FailedEval(t *testing.T) {
 				TestID:      "tc-002",
 				DisplayName: "failing-task",
 				Status:      models.StatusFailed,
-				Stats: &models.TestStats{
+				Stats: &models.TaskStats{
 					AvgScore: 0.10,
 					PassRate: 0.0,
 				},
@@ -178,7 +178,7 @@ func TestFormatGitHubComment_FailedEval(t *testing.T) {
 						RunNumber:  1,
 						Status:     models.StatusFailed,
 						DurationMs: 15000,
-						Validations: map[string]models.GraderResults{
+						GraderScores: map[string]models.GraderResults{
 							"code": {
 								Name:     "code",
 								Score:    0.10,
@@ -213,13 +213,13 @@ func TestFormatGitHubComment_FailedEval(t *testing.T) {
 }
 
 func TestFormatGitHubComment_FlakyTasks(t *testing.T) {
-	outcome := &models.EvaluationOutcome{
-		BenchName:   "Test Eval",
+	outcome := &models.EvalOutcome{
+		EvalName:    "Test Eval",
 		SkillTested: "code-explainer",
-		Setup: models.OutcomeSetup{
+		Setup: models.EvalSetup{
 			ModelID: "gpt-4o",
 		},
-		Digest: models.OutcomeDigest{
+		Digest: models.EvalDigest{
 			TotalTests:     1,
 			Succeeded:      0,
 			Failed:         1,
@@ -231,12 +231,12 @@ func TestFormatGitHubComment_FlakyTasks(t *testing.T) {
 			StdDev:         0.20,
 			DurationMs:     30000,
 		},
-		TestOutcomes: []models.TestOutcome{
+		TaskOutcomes: []models.TaskOutcome{
 			{
 				TestID:      "tc-001",
 				DisplayName: "flaky-task",
 				Status:      models.StatusFailed,
-				Stats: &models.TestStats{
+				Stats: &models.TaskStats{
 					AvgScore:    0.50,
 					PassRate:    0.60,
 					StdDevScore: 0.20,
@@ -247,7 +247,7 @@ func TestFormatGitHubComment_FlakyTasks(t *testing.T) {
 						RunNumber:  1,
 						Status:     models.StatusFailed,
 						DurationMs: 15000,
-						Validations: map[string]models.GraderResults{
+						GraderScores: map[string]models.GraderResults{
 							"code": {
 								Name:     "code",
 								Score:    0.50,
@@ -270,13 +270,13 @@ func TestFormatGitHubComment_FlakyTasks(t *testing.T) {
 }
 
 func TestFormatGitHubComment_EmptyGraders(t *testing.T) {
-	outcome := &models.EvaluationOutcome{
-		BenchName:   "Test Eval",
+	outcome := &models.EvalOutcome{
+		EvalName:    "Test Eval",
 		SkillTested: "test-skill",
-		Setup: models.OutcomeSetup{
+		Setup: models.EvalSetup{
 			ModelID: "gpt-4o",
 		},
-		Digest: models.OutcomeDigest{
+		Digest: models.EvalDigest{
 			TotalTests:     1,
 			Succeeded:      1,
 			Failed:         0,
@@ -288,21 +288,21 @@ func TestFormatGitHubComment_EmptyGraders(t *testing.T) {
 			StdDev:         0.0,
 			DurationMs:     10000,
 		},
-		TestOutcomes: []models.TestOutcome{
+		TaskOutcomes: []models.TaskOutcome{
 			{
 				TestID:      "tc-001",
 				DisplayName: "task-no-graders",
 				Status:      models.StatusPassed,
-				Stats: &models.TestStats{
+				Stats: &models.TaskStats{
 					AvgScore: 1.0,
 					PassRate: 1.0,
 				},
 				Runs: []models.RunResult{
 					{
-						RunNumber:   1,
-						Status:      models.StatusPassed,
-						DurationMs:  10000,
-						Validations: map[string]models.GraderResults{},
+						RunNumber:    1,
+						Status:       models.StatusPassed,
+						DurationMs:   10000,
+						GraderScores: map[string]models.GraderResults{},
 					},
 				},
 			},
@@ -317,13 +317,13 @@ func TestFormatGitHubComment_EmptyGraders(t *testing.T) {
 }
 
 func TestFormatGitHubComment_WithErrors(t *testing.T) {
-	outcome := &models.EvaluationOutcome{
-		BenchName:   "Test Eval",
+	outcome := &models.EvalOutcome{
+		EvalName:    "Test Eval",
 		SkillTested: "test-skill",
-		Setup: models.OutcomeSetup{
+		Setup: models.EvalSetup{
 			ModelID: "gpt-4o",
 		},
-		Digest: models.OutcomeDigest{
+		Digest: models.EvalDigest{
 			TotalTests:     1,
 			Succeeded:      0,
 			Failed:         0,
@@ -335,12 +335,12 @@ func TestFormatGitHubComment_WithErrors(t *testing.T) {
 			StdDev:         0.0,
 			DurationMs:     5000,
 		},
-		TestOutcomes: []models.TestOutcome{
+		TaskOutcomes: []models.TaskOutcome{
 			{
 				TestID:      "tc-001",
 				DisplayName: "error-task",
 				Status:      models.StatusError,
-				Stats: &models.TestStats{
+				Stats: &models.TaskStats{
 					AvgScore: 0.0,
 					PassRate: 0.0,
 				},
@@ -350,7 +350,7 @@ func TestFormatGitHubComment_WithErrors(t *testing.T) {
 						Status:     models.StatusError,
 						DurationMs: 5000,
 						ErrorMsg:   "Timeout exceeded",
-						Validations: map[string]models.GraderResults{
+						GraderScores: map[string]models.GraderResults{
 							"code": {
 								Name:     "code",
 								Score:    0.0,
@@ -390,18 +390,18 @@ func TestFormatGitHubComment_DurationFormatting(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			outcome := &models.EvaluationOutcome{
-				BenchName:   "Test",
+			outcome := &models.EvalOutcome{
+				EvalName:    "Test",
 				SkillTested: "skill",
-				Setup:       models.OutcomeSetup{ModelID: "model"},
-				Digest: models.OutcomeDigest{
+				Setup:       models.EvalSetup{ModelID: "model"},
+				Digest: models.EvalDigest{
 					TotalTests:     1,
 					Succeeded:      1,
 					SuccessRate:    1.0,
 					AggregateScore: 1.0,
 					DurationMs:     tt.durationMs,
 				},
-				TestOutcomes: []models.TestOutcome{},
+				TaskOutcomes: []models.TaskOutcome{},
 			}
 
 			result := FormatGitHubComment(outcome)
@@ -411,13 +411,13 @@ func TestFormatGitHubComment_DurationFormatting(t *testing.T) {
 }
 
 func TestFormatGitHubComment_MultipleRunsInFailedTask(t *testing.T) {
-	outcome := &models.EvaluationOutcome{
-		BenchName:   "Test Eval",
+	outcome := &models.EvalOutcome{
+		EvalName:    "Test Eval",
 		SkillTested: "test-skill",
-		Setup: models.OutcomeSetup{
+		Setup: models.EvalSetup{
 			ModelID: "gpt-4o",
 		},
-		Digest: models.OutcomeDigest{
+		Digest: models.EvalDigest{
 			TotalTests:     1,
 			Succeeded:      0,
 			Failed:         1,
@@ -426,12 +426,12 @@ func TestFormatGitHubComment_MultipleRunsInFailedTask(t *testing.T) {
 			AggregateScore: 0.33,
 			DurationMs:     30000,
 		},
-		TestOutcomes: []models.TestOutcome{
+		TaskOutcomes: []models.TaskOutcome{
 			{
 				TestID:      "tc-001",
 				DisplayName: "multi-run-task",
 				Status:      models.StatusFailed,
-				Stats: &models.TestStats{
+				Stats: &models.TaskStats{
 					AvgScore: 0.33,
 					PassRate: 0.33,
 				},
@@ -440,7 +440,7 @@ func TestFormatGitHubComment_MultipleRunsInFailedTask(t *testing.T) {
 						RunNumber:  1,
 						Status:     models.StatusFailed,
 						DurationMs: 10000,
-						Validations: map[string]models.GraderResults{
+						GraderScores: map[string]models.GraderResults{
 							"code": {
 								Name:     "code",
 								Score:    0.0,
@@ -453,7 +453,7 @@ func TestFormatGitHubComment_MultipleRunsInFailedTask(t *testing.T) {
 						RunNumber:  2,
 						Status:     models.StatusPassed,
 						DurationMs: 10000,
-						Validations: map[string]models.GraderResults{
+						GraderScores: map[string]models.GraderResults{
 							"code": {
 								Name:     "code",
 								Score:    1.0,
@@ -466,7 +466,7 @@ func TestFormatGitHubComment_MultipleRunsInFailedTask(t *testing.T) {
 						RunNumber:  3,
 						Status:     models.StatusFailed,
 						DurationMs: 10000,
-						Validations: map[string]models.GraderResults{
+						GraderScores: map[string]models.GraderResults{
 							"code": {
 								Name:     "code",
 								Score:    0.0,

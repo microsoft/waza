@@ -189,8 +189,8 @@ func TestToolConstraintGrader_Kind(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if g.Kind() != models.GraderKindToolConstraint {
-		t.Errorf("expected kind %s, got %s", models.GraderKindToolConstraint, g.Kind())
+	if g.Kind() != models.GraderTypeToolConstraint {
+		t.Errorf("expected kind %s, got %s", models.GraderTypeToolConstraint, g.Kind())
 	}
 	if g.Name() != "test" {
 		t.Errorf("expected name 'test', got '%s'", g.Name())

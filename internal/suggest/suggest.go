@@ -179,17 +179,17 @@ func filterValidGraderTypes(types []string) []string {
 // AvailableGraderTypes returns supported grader kinds.
 func AvailableGraderTypes() []string {
 	return []string{
-		string(models.GraderKindInlineScript),
-		string(models.GraderKindPrompt),
-		string(models.GraderKindText),
-		string(models.GraderKindFile),
-		string(models.GraderKindJSONSchema),
-		string(models.GraderKindProgram),
-		string(models.GraderKindBehavior),
-		string(models.GraderKindActionSequence),
-		string(models.GraderKindSkillInvocation),
-		string(models.GraderKindTrigger),
-		string(models.GraderKindDiff),
+		string(models.GraderTypeInlineScript),
+		string(models.GraderTypePrompt),
+		string(models.GraderTypeText),
+		string(models.GraderTypeFile),
+		string(models.GraderTypeJSONSchema),
+		string(models.GraderTypeProgram),
+		string(models.GraderTypeBehavior),
+		string(models.GraderTypeActionSequence),
+		string(models.GraderTypeSkillInvocation),
+		string(models.GraderTypeTrigger),
+		string(models.GraderTypeDiff),
 	}
 }
 
@@ -340,7 +340,7 @@ func validateEvalYAML(raw string) error {
 		if g.Identifier == "" {
 			return fmt.Errorf("invalid eval_yaml: grader[%d] is missing required 'name' field", i)
 		}
-		if g.Kind == "" {
+		if g.Type == "" {
 			return fmt.Errorf("invalid eval_yaml: grader[%d] (%s) is missing required 'type' field", i, g.Identifier)
 		}
 	}

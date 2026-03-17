@@ -33,7 +33,7 @@ func NewJSONSchemaGrader(name string, args models.JSONSchemaGraderParameters) (*
 }
 
 func (jsg *jsonSchemaGrader) Name() string            { return jsg.name }
-func (jsg *jsonSchemaGrader) Kind() models.GraderKind { return models.GraderKindJSONSchema }
+func (jsg *jsonSchemaGrader) Kind() models.GraderType { return models.GraderTypeJSONSchema }
 
 func (jsg *jsonSchemaGrader) Grade(ctx context.Context, gradingContext *Context) (*models.GraderResults, error) {
 	return measureTime(func() (*models.GraderResults, error) {
@@ -42,7 +42,7 @@ func (jsg *jsonSchemaGrader) Grade(ctx context.Context, gradingContext *Context)
 		if err := json.Unmarshal([]byte(gradingContext.Output), &outputValue); err != nil {
 			return &models.GraderResults{
 				Name:     jsg.name,
-				Type:     models.GraderKindJSONSchema,
+				Type:     models.GraderTypeJSONSchema,
 				Score:    0.0,
 				Passed:   false,
 				Feedback: fmt.Sprintf("Output is not valid JSON: %v", err),
@@ -67,7 +67,7 @@ func (jsg *jsonSchemaGrader) Grade(ctx context.Context, gradingContext *Context)
 		if len(failures) > 0 {
 			return &models.GraderResults{
 				Name:     jsg.name,
-				Type:     models.GraderKindJSONSchema,
+				Type:     models.GraderTypeJSONSchema,
 				Score:    0.0,
 				Passed:   false,
 				Feedback: strings.Join(failures, "; "),
@@ -79,7 +79,7 @@ func (jsg *jsonSchemaGrader) Grade(ctx context.Context, gradingContext *Context)
 
 		return &models.GraderResults{
 			Name:     jsg.name,
-			Type:     models.GraderKindJSONSchema,
+			Type:     models.GraderTypeJSONSchema,
 			Score:    1.0,
 			Passed:   true,
 			Feedback: "Output matches JSON schema",

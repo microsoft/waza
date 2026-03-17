@@ -20,7 +20,7 @@ type EvalSpec struct {
 	TasksFrom    string            `yaml:"tasks_from,omitempty" json:"tasks_from,omitempty"`
 	Range        [2]int            `yaml:"range,omitempty" json:"range,omitempty"`
 	Graders      []GraderConfig    `yaml:"graders"`
-	Metrics      []MeasurementDef  `yaml:"metrics"`
+	Metrics      []Metric          `yaml:"metrics"`
 	Tasks        []string          `yaml:"tasks"`
 	Baseline     bool              `yaml:"baseline,omitempty" json:"baseline,omitempty"`
 }
@@ -49,7 +49,7 @@ type EvalConfig struct {
 
 // GraderConfig defines a validator/grader
 type GraderConfig struct {
-	Kind       GraderKind       `yaml:"type" json:"kind"`
+	Type       GraderType       `yaml:"type" json:"type"`
 	Identifier string           `yaml:"name" json:"identifier"`
 	ScriptPath string           `yaml:"script,omitempty" json:"script_path,omitempty"`
 	Rubric     string           `yaml:"rubric,omitempty" json:"rubric,omitempty"`
@@ -60,7 +60,7 @@ type GraderConfig struct {
 
 func (g *GraderConfig) UnmarshalYAML(node *yaml.Node) error {
 	type rawGraderConfig struct {
-		Kind       GraderKind `yaml:"type"`
+		Type       GraderType `yaml:"type"`
 		Identifier string     `yaml:"name"`
 		ScriptPath string     `yaml:"script,omitempty"`
 		Rubric     string     `yaml:"rubric,omitempty"`
@@ -74,12 +74,12 @@ func (g *GraderConfig) UnmarshalYAML(node *yaml.Node) error {
 		return err
 	}
 
-	params, err := decodeGraderParameters(raw.Kind, &raw.Parameters)
+	params, err := decodeGraderParameters(raw.Type, &raw.Parameters)
 	if err != nil {
-		return fmt.Errorf("invalid grader config for %q (type %q): %w", raw.Identifier, raw.Kind, err)
+		return fmt.Errorf("invalid grader config for %q (type %q): %w", raw.Identifier, raw.Type, err)
 	}
 
-	g.Kind = raw.Kind
+	g.Type = raw.Type
 	g.Identifier = raw.Identifier
 	g.ScriptPath = raw.ScriptPath
 	g.Rubric = raw.Rubric
@@ -98,8 +98,8 @@ func (g *GraderConfig) EffectiveWeight() float64 {
 	return g.Weight
 }
 
-// MeasurementDef defines a metric
-type MeasurementDef struct {
+// Metric defines a metric
+type Metric struct {
 	Identifier string  `yaml:"name" json:"identifier"`
 	Weight     float64 `yaml:"weight" json:"weight"`
 	Threshold  float64 `yaml:"threshold" json:"threshold"`

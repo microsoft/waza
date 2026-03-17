@@ -19,7 +19,7 @@ func TestJSONSchemaGrader_Basic(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	require.Equal(t, models.GraderKindJSONSchema, g.Kind())
+	require.Equal(t, models.GraderTypeJSONSchema, g.Kind())
 	require.Equal(t, "test", g.Name())
 }
 
@@ -165,7 +165,7 @@ func TestJSONSchemaGrader_Grade(t *testing.T) {
 }
 
 func TestJSONSchemaGrader_ViaCreate(t *testing.T) {
-	t.Run("Create with GraderKindJSONSchema works", func(t *testing.T) {
+	t.Run("Create with GraderTypeJSONSchema works", func(t *testing.T) {
 		g, err := Create("from-create", models.JSONSchemaGraderParameters{
 			Schema: map[string]any{
 				"type": "object",
@@ -176,7 +176,7 @@ func TestJSONSchemaGrader_ViaCreate(t *testing.T) {
 		})
 		require.NoError(t, err)
 		require.Equal(t, "from-create", g.Name())
-		require.Equal(t, models.GraderKindJSONSchema, g.Kind())
+		require.Equal(t, models.GraderTypeJSONSchema, g.Kind())
 
 		results, err := g.Grade(context.Background(), &Context{
 			Output: `{"name": "test"}`,

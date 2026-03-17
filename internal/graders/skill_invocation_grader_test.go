@@ -21,7 +21,7 @@ func TestSkillInvocationGrader_Basic(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	require.Equal(t, models.GraderKindSkillInvocation, g.Kind())
+	require.Equal(t, models.GraderTypeSkillInvocation, g.Kind())
 	require.Equal(t, "test", g.Name())
 	require.True(t, g.allowExtra) // default value
 }

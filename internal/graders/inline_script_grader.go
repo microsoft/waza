@@ -84,14 +84,14 @@ func resolvePythonBin() string {
 }
 
 func (isg *InlineScriptGrader) Name() string            { return isg.name }
-func (isg *InlineScriptGrader) Kind() models.GraderKind { return models.GraderKindInlineScript }
+func (isg *InlineScriptGrader) Kind() models.GraderType { return models.GraderTypeInlineScript }
 
 func (isg *InlineScriptGrader) Grade(ctx context.Context, gradingContext *Context) (*models.GraderResults, error) {
 	return measureTime(func() (*models.GraderResults, error) {
 		if len(isg.assertions) == 0 {
 			return &models.GraderResults{
 				Name:     isg.name,
-				Type:     models.GraderKindInlineScript,
+				Type:     models.GraderTypeInlineScript,
 				Score:    1.0,
 				Passed:   true,
 				Feedback: "No assertions configured",
@@ -114,7 +114,7 @@ func (isg *InlineScriptGrader) Grade(ctx context.Context, gradingContext *Contex
 
 		return &models.GraderResults{
 			Name:     isg.name,
-			Type:     models.GraderKindInlineScript,
+			Type:     models.GraderTypeInlineScript,
 			Score:    score,
 			Passed:   allPassed,
 			Feedback: feedback,

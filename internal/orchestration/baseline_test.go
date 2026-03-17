@@ -77,7 +77,7 @@ func TestComputePassRate(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			outcome := &models.TestOutcome{
+			outcome := &models.TaskOutcome{
 				Runs: tt.runs,
 			}
 			rate := computePassRate(outcome)
@@ -212,11 +212,11 @@ func TestComputeSkillImpact(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			withSkills := &models.TestOutcome{
+			withSkills := &models.TaskOutcome{
 				TestID: "test-001",
 				Runs:   tt.withSkillsRuns,
 			}
-			without := &models.TestOutcome{
+			without := &models.TaskOutcome{
 				TestID: "test-001",
 				Runs:   tt.withoutRuns,
 			}
@@ -257,12 +257,12 @@ func TestRunBenchmark_BaselineNoSkills(t *testing.T) {
 		Tasks: []string{"task-001.yaml"},
 	}
 
-	cfg := config.NewBenchmarkConfig(spec)
+	cfg := config.NewRunConfig(spec)
 	engine := execution.NewMockEngine("gpt-4")
-	runner := NewTestRunner(cfg, engine)
+	runner := NewEvalRunner(cfg, engine)
 
 	ctx := context.Background()
-	outcome, err := runner.RunBenchmark(ctx)
+	outcome, err := runner.RunEval(ctx)
 
 	require.NoError(t, err)
 	require.NotNil(t, outcome)
@@ -270,7 +270,7 @@ func TestRunBenchmark_BaselineNoSkills(t *testing.T) {
 	assert.False(t, outcome.IsBaseline, "should not run baseline comparison when no skills configured")
 	assert.Nil(t, outcome.BaselineOutcome, "baseline outcome should be nil")
 
-	assert.Len(t, outcome.TestOutcomes, 1)
+	assert.Len(t, outcome.TaskOutcomes, 1)
 }
 
 // TestRunBenchmark_BaselineWithSkills tests baseline mode executes two passes with skills configured
@@ -296,12 +296,12 @@ func TestRunBenchmark_BaselineWithSkills(t *testing.T) {
 		Tasks: []string{"task-001.yaml"},
 	}
 
-	cfg := config.NewBenchmarkConfig(spec)
+	cfg := config.NewRunConfig(spec)
 	engine := execution.NewMockEngine("gpt-4")
-	runner := NewTestRunner(cfg, engine)
+	runner := NewEvalRunner(cfg, engine)
 
 	ctx := context.Background()
-	outcome, err := runner.RunBenchmark(ctx)
+	outcome, err := runner.RunEval(ctx)
 
 	require.NoError(t, err)
 	require.NotNil(t, outcome)
@@ -309,10 +309,10 @@ func TestRunBenchmark_BaselineWithSkills(t *testing.T) {
 	assert.True(t, outcome.IsBaseline, "should run baseline comparison with skills configured")
 	require.NotNil(t, outcome.BaselineOutcome, "baseline outcome should be present")
 
-	assert.Len(t, outcome.TestOutcomes, 1)
-	assert.Len(t, outcome.BaselineOutcome.TestOutcomes, 1)
+	assert.Len(t, outcome.TaskOutcomes, 1)
+	assert.Len(t, outcome.BaselineOutcome.TaskOutcomes, 1)
 
-	testOutcome := outcome.TestOutcomes[0]
+	testOutcome := outcome.TaskOutcomes[0]
 	require.NotNil(t, testOutcome.SkillImpact, "skill impact should be computed")
 	assert.Equal(t, "task-001", testOutcome.TestID)
 }
@@ -340,18 +340,18 @@ func TestRunBenchmark_BaselineEmptyTasks(t *testing.T) {
 		Tasks: []string{},
 	}
 
-	cfg := config.NewBenchmarkConfig(spec)
+	cfg := config.NewRunConfig(spec)
 	engine := execution.NewMockEngine("gpt-4")
-	runner := NewTestRunner(cfg, engine)
+	runner := NewEvalRunner(cfg, engine)
 
 	ctx := context.Background()
-	outcome, err := runner.RunBenchmark(ctx)
+	outcome, err := runner.RunEval(ctx)
 
 	require.NoError(t, err)
 	require.NotNil(t, outcome)
 
 	assert.True(t, outcome.IsBaseline)
-	assert.Len(t, outcome.TestOutcomes, 0)
+	assert.Len(t, outcome.TaskOutcomes, 0)
 }
 
 // TestMergeBaselineOutcomes_TaskMismatch tests error handling when task sets don't align
@@ -369,18 +369,18 @@ func TestMergeBaselineOutcomes_TaskMismatch(t *testing.T) {
 		},
 	}
 
-	cfg := config.NewBenchmarkConfig(spec)
-	runner := NewTestRunner(cfg, nil)
+	cfg := config.NewRunConfig(spec)
+	runner := NewEvalRunner(cfg, nil)
 
-	withSkills := &models.EvaluationOutcome{
-		TestOutcomes: []models.TestOutcome{
+	withSkills := &models.EvalOutcome{
+		TaskOutcomes: []models.TaskOutcome{
 			{TestID: "task-001", DisplayName: "Test 1"},
 			{TestID: "task-002", DisplayName: "Test 2"},
 		},
 	}
 
-	withoutSkills := &models.EvaluationOutcome{
-		TestOutcomes: []models.TestOutcome{
+	withoutSkills := &models.EvalOutcome{
+		TaskOutcomes: []models.TaskOutcome{
 			{TestID: "task-001", DisplayName: "Test 1"},
 		},
 	}
@@ -407,17 +407,17 @@ func TestMergeBaselineOutcomes_ExtraTaskInBaseline(t *testing.T) {
 		},
 	}
 
-	cfg := config.NewBenchmarkConfig(spec)
-	runner := NewTestRunner(cfg, nil)
+	cfg := config.NewRunConfig(spec)
+	runner := NewEvalRunner(cfg, nil)
 
-	withSkills := &models.EvaluationOutcome{
-		TestOutcomes: []models.TestOutcome{
+	withSkills := &models.EvalOutcome{
+		TaskOutcomes: []models.TaskOutcome{
 			{TestID: "task-001", DisplayName: "Test 1"},
 		},
 	}
 
-	withoutSkills := &models.EvaluationOutcome{
-		TestOutcomes: []models.TestOutcome{
+	withoutSkills := &models.EvalOutcome{
+		TaskOutcomes: []models.TaskOutcome{
 			{TestID: "task-001", DisplayName: "Test 1"},
 			{TestID: "task-002", DisplayName: "Test 2"},
 		},
@@ -445,14 +445,14 @@ func TestMergeBaselineOutcomes_Success(t *testing.T) {
 		},
 	}
 
-	cfg := config.NewBenchmarkConfig(spec)
-	runner := NewTestRunner(cfg, nil)
+	cfg := config.NewRunConfig(spec)
+	runner := NewEvalRunner(cfg, nil)
 
-	withSkills := &models.EvaluationOutcome{
+	withSkills := &models.EvalOutcome{
 		RunID:       "eval-001",
 		SkillTested: "test-skill",
-		BenchName:   "test-eval",
-		TestOutcomes: []models.TestOutcome{
+		EvalName:    "test-eval",
+		TaskOutcomes: []models.TaskOutcome{
 			{
 				TestID:      "task-001",
 				DisplayName: "Test 1",
@@ -474,11 +474,11 @@ func TestMergeBaselineOutcomes_Success(t *testing.T) {
 		},
 	}
 
-	withoutSkills := &models.EvaluationOutcome{
+	withoutSkills := &models.EvalOutcome{
 		RunID:       "eval-001-baseline",
 		SkillTested: "test-skill",
-		BenchName:   "test-eval (baseline)",
-		TestOutcomes: []models.TestOutcome{
+		EvalName:    "test-eval (baseline)",
+		TaskOutcomes: []models.TaskOutcome{
 			{
 				TestID:      "task-001",
 				DisplayName: "Test 1",
@@ -508,15 +508,15 @@ func TestMergeBaselineOutcomes_Success(t *testing.T) {
 	assert.True(t, merged.IsBaseline)
 	assert.Equal(t, withoutSkills, merged.BaselineOutcome)
 
-	require.Len(t, merged.TestOutcomes, 2)
+	require.Len(t, merged.TaskOutcomes, 2)
 
-	task1 := merged.TestOutcomes[0]
+	task1 := merged.TaskOutcomes[0]
 	require.NotNil(t, task1.SkillImpact)
 	assert.InDelta(t, 0.667, task1.SkillImpact.PassRateWithSkills, 0.001)
 	assert.InDelta(t, 0.333, task1.SkillImpact.PassRateBaseline, 0.001)
 	assert.InDelta(t, 0.334, task1.SkillImpact.Delta, 0.001)
 
-	task2 := merged.TestOutcomes[1]
+	task2 := merged.TaskOutcomes[1]
 	require.NotNil(t, task2.SkillImpact)
 	assert.InDelta(t, 1.0, task2.SkillImpact.PassRateWithSkills, 0.001)
 	assert.InDelta(t, 0.333, task2.SkillImpact.PassRateBaseline, 0.001)

@@ -62,14 +62,14 @@ func TestMaybeGenerateSuggestionReport_SkipsWhenNoFailures(t *testing.T) {
 			ModelID:    "test-model",
 		},
 	}
-	outcome := &models.EvaluationOutcome{
-		Digest: models.OutcomeDigest{
+	outcome := &models.EvalOutcome{
+		Digest: models.EvalDigest{
 			TotalTests: 1,
 			Succeeded:  1,
 			Failed:     0,
 			Errors:     0,
 		},
-		TestOutcomes: []models.TestOutcome{
+		TaskOutcomes: []models.TaskOutcome{
 			{
 				TestID:      "pass-1",
 				DisplayName: "passing-test",
@@ -156,7 +156,7 @@ func TestBuildRunSuggestionPrompt_IncludesOnlyFailureEvidence(t *testing.T) {
 		},
 		Graders: []models.GraderConfig{
 			{
-				Kind:       models.GraderKindText,
+				Type:       models.GraderTypeText,
 				Identifier: "must-mention-foo",
 				Parameters: models.TextGraderParameters{Contains: []string{"foo"}},
 			},
@@ -169,7 +169,7 @@ func TestBuildRunSuggestionPrompt_IncludesOnlyFailureEvidence(t *testing.T) {
 	toolResultText := "matched 1 file"
 	succeeded := true
 
-	failingTests := []models.TestOutcome{
+	failingTests := []models.TaskOutcome{
 		{
 			TestID:      "fail-1",
 			DisplayName: "failing-test",
@@ -179,7 +179,7 @@ func TestBuildRunSuggestionPrompt_IncludesOnlyFailureEvidence(t *testing.T) {
 					RunNumber:   1,
 					Status:      models.StatusFailed,
 					FinalOutput: "Short and wrong answer",
-					Validations: map[string]models.GraderResults{
+					GraderScores: map[string]models.GraderResults{
 						"must-mention-foo": {
 							Name:     "must-mention-foo",
 							Passed:   false,
@@ -286,7 +286,7 @@ func TestBuildRunSuggestionPrompt_OmitsTriggerSectionWhenNoTriggerFailures(t *te
 		},
 	}
 
-	failingTests := []models.TestOutcome{
+	failingTests := []models.TaskOutcome{
 		{
 			TestID:      "fail-1",
 			DisplayName: "failing-test",
@@ -312,11 +312,11 @@ func TestBuildRunSuggestionPrompt_IncludesGraderDocs(t *testing.T) {
 			ModelID:    "gpt-4o",
 		},
 		Graders: []models.GraderConfig{
-			{Kind: models.GraderKindText, Identifier: "format-check"},
+			{Type: models.GraderTypeText, Identifier: "format-check"},
 		},
 	}
 
-	failingTests := []models.TestOutcome{
+	failingTests := []models.TaskOutcome{
 		{
 			TestID:      "fail-1",
 			DisplayName: "failing-test",
@@ -325,10 +325,10 @@ func TestBuildRunSuggestionPrompt_IncludesGraderDocs(t *testing.T) {
 				{
 					RunNumber: 1,
 					Status:    models.StatusFailed,
-					Validations: map[string]models.GraderResults{
+					GraderScores: map[string]models.GraderResults{
 						"kw-check": {
 							Name:     "kw-check",
-							Type:     models.GraderKindText,
+							Type:     models.GraderTypeText,
 							Passed:   false,
 							Score:    0.0,
 							Feedback: "missing keyword",
@@ -355,26 +355,26 @@ func TestBuildGraderDocsSection_EmptyWhenNoGraders(t *testing.T) {
 	assert.Empty(t, result)
 }
 
-func TestCollectFailedGraderKinds(t *testing.T) {
+func TestCollectFailedGraderTypes(t *testing.T) {
 	spec := &models.EvalSpec{
 		Graders: []models.GraderConfig{
-			{Kind: models.GraderKindInlineScript, Identifier: "assertions"},
+			{Type: models.GraderTypeInlineScript, Identifier: "assertions"},
 		},
 	}
-	failingTests := []models.TestOutcome{
+	failingTests := []models.TaskOutcome{
 		{
 			Runs: []models.RunResult{
 				{
-					Validations: map[string]models.GraderResults{
-						"pass": {Type: models.GraderKindDiff, Passed: true},
-						"fail": {Type: models.GraderKindText, Passed: false},
+					GraderScores: map[string]models.GraderResults{
+						"pass": {Type: models.GraderTypeDiff, Passed: true},
+						"fail": {Type: models.GraderTypeText, Passed: false},
 					},
 				},
 			},
 		},
 	}
 
-	kinds := collectFailedGraderKinds(spec, failingTests)
+	kinds := collectFailedGraderTypes(spec, failingTests)
 
 	// Global grader from spec (always included)
 	assert.True(t, kinds["code"])

@@ -47,8 +47,8 @@ func (p *promptGrader) Grade(ctx context.Context, gradingContext *Context) (*mod
 }
 
 // Kind implements [Grader].
-func (p *promptGrader) Kind() models.GraderKind {
-	return models.GraderKindPrompt
+func (p *promptGrader) Kind() models.GraderType {
+	return models.GraderTypePrompt
 }
 
 // Name implements [Grader].

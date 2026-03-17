@@ -6,7 +6,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// GraderParameters is a polymorphic grader config payload decoded from YAML based on GraderKind.
+// GraderParameters is a polymorphic grader config payload decoded from YAML based on GraderType.
 type GraderParameters interface {
 	isGraderParameters()
 }
@@ -193,31 +193,31 @@ type TriggerHeuristicGraderParameters struct {
 
 func (TriggerHeuristicGraderParameters) isGraderParameters() {}
 
-func decodeGraderParameters(kind GraderKind, configNode *yaml.Node) (GraderParameters, error) {
+func decodeGraderParameters(kind GraderType, configNode *yaml.Node) (GraderParameters, error) {
 	switch kind {
-	case GraderKindInlineScript:
+	case GraderTypeInlineScript:
 		return decodeYAMLNode[InlineScriptGraderParameters](configNode)
-	case GraderKindText:
+	case GraderTypeText:
 		return decodeYAMLNode[TextGraderParameters](configNode)
-	case GraderKindFile:
+	case GraderTypeFile:
 		return decodeYAMLNode[FileGraderParameters](configNode)
-	case GraderKindBehavior:
+	case GraderTypeBehavior:
 		return decodeYAMLNode[BehaviorGraderParameters](configNode)
-	case GraderKindActionSequence:
+	case GraderTypeActionSequence:
 		return decodeYAMLNode[ActionSequenceGraderParameters](configNode)
-	case GraderKindSkillInvocation:
+	case GraderTypeSkillInvocation:
 		return decodeYAMLNode[SkillInvocationGraderParameters](configNode)
-	case GraderKindToolConstraint:
+	case GraderTypeToolConstraint:
 		return decodeYAMLNode[ToolConstraintGraderParameters](configNode)
-	case GraderKindDiff:
+	case GraderTypeDiff:
 		return decodeYAMLNode[DiffGraderParameters](configNode)
-	case GraderKindPrompt:
+	case GraderTypePrompt:
 		return decodeYAMLNode[PromptGraderParameters](configNode)
-	case GraderKindJSONSchema:
+	case GraderTypeJSONSchema:
 		return decodeYAMLNode[JSONSchemaGraderParameters](configNode)
-	case GraderKindProgram:
+	case GraderTypeProgram:
 		return decodeYAMLNode[ProgramGraderParameters](configNode)
-	case GraderKindTrigger:
+	case GraderTypeTrigger:
 		return decodeYAMLNode[TriggerHeuristicGraderParameters](configNode)
 	default:
 		return decodeYAMLNode[GenericGraderParameters](configNode)

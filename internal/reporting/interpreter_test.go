@@ -73,8 +73,8 @@ func TestInterpretFlaky(t *testing.T) {
 }
 
 func TestFormatSummaryReport(t *testing.T) {
-	outcome := &models.EvaluationOutcome{
-		Digest: models.OutcomeDigest{
+	outcome := &models.EvalOutcome{
+		Digest: models.EvalDigest{
 			TotalTests:     3,
 			Succeeded:      2,
 			Failed:         1,
@@ -83,11 +83,11 @@ func TestFormatSummaryReport(t *testing.T) {
 			AggregateScore: 0.75,
 			DurationMs:     1500,
 		},
-		TestOutcomes: []models.TestOutcome{
+		TaskOutcomes: []models.TaskOutcome{
 			{
 				DisplayName: "Task A",
 				Status:      models.StatusPassed,
-				Stats: &models.TestStats{
+				Stats: &models.TaskStats{
 					AvgScore: 0.95,
 					PassRate: 1.0,
 					Flaky:    false,
@@ -96,7 +96,7 @@ func TestFormatSummaryReport(t *testing.T) {
 			{
 				DisplayName: "Task B",
 				Status:      models.StatusFailed,
-				Stats: &models.TestStats{
+				Stats: &models.TaskStats{
 					AvgScore: 0.40,
 					PassRate: 0.5,
 					Flaky:    true,
@@ -118,8 +118,8 @@ func TestFormatSummaryReport(t *testing.T) {
 }
 
 func TestFormatSummaryReport_Empty(t *testing.T) {
-	outcome := &models.EvaluationOutcome{
-		Digest: models.OutcomeDigest{},
+	outcome := &models.EvalOutcome{
+		Digest: models.EvalDigest{},
 	}
 	report := FormatSummaryReport(outcome)
 	assert.True(t, strings.Contains(report, "Interpretation"))

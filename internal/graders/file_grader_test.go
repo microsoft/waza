@@ -17,7 +17,7 @@ func TestFileGrader_Basic(t *testing.T) {
 	g, err := NewFileGrader("test", models.FileGraderParameters{MustExist: []string{"file.txt"}})
 	require.NoError(t, err)
 
-	require.Equal(t, models.GraderKindFile, g.Kind())
+	require.Equal(t, models.GraderTypeFile, g.Kind())
 	require.Equal(t, "test", g.Name())
 }
 
@@ -304,7 +304,7 @@ func TestFileGrader_Grade(t *testing.T) {
 		})
 		require.NoError(t, err)
 		require.Equal(t, "detail-test", results.Name)
-		require.Equal(t, models.GraderKindFile, results.Type)
+		require.Equal(t, models.GraderTypeFile, results.Type)
 		require.Equal(t, 1.0, results.Score)
 		require.Equal(t, []string{"test.txt"}, results.Details["must_exist"])
 		require.Equal(t, []string{"bad.txt"}, results.Details["must_not_exist"])
@@ -386,7 +386,7 @@ func TestFileGrader_Grade(t *testing.T) {
 }
 
 func TestFileGrader_ViaCreate(t *testing.T) {
-	t.Run("Create with models.GraderKindFile works", func(t *testing.T) {
+	t.Run("Create with models.GraderTypeFile works", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "hello.txt"), []byte("hello world"), 0644))
 
@@ -402,7 +402,7 @@ func TestFileGrader_ViaCreate(t *testing.T) {
 		})
 		require.NoError(t, err)
 		require.Equal(t, "from-create", g.Name())
-		require.Equal(t, models.GraderKindFile, g.Kind())
+		require.Equal(t, models.GraderTypeFile, g.Kind())
 
 		results, err := g.Grade(context.Background(), &Context{
 			WorkspaceDir: tmpDir,

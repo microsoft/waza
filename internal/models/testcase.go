@@ -12,7 +12,7 @@ type TaskSpec struct {
 	Active      *bool           `yaml:"enabled,omitempty" json:"active,omitempty"`
 	ContextRoot string          `yaml:"context_dir,omitempty" json:"context_root,omitempty"`
 	DisplayName string          `yaml:"name" json:"display_name"`
-	Expectation TestExpectation `yaml:"expected,omitempty" json:"expectation,omitempty"`
+	Expectation TaskExpectation `yaml:"expected,omitempty" json:"expectation,omitempty"`
 	Stimulus    TaskInputs      `yaml:"inputs" json:"stimulus"`
 	Summary     string          `yaml:"description,omitempty" json:"summary,omitempty"`
 	Tags        []string        `yaml:"tags,omitempty" json:"labels,omitempty"`
@@ -35,8 +35,8 @@ type ResourceRef struct {
 	Body     string `yaml:"content,omitempty" json:"body,omitempty"`
 }
 
-// TestExpectation defines expected outcomes
-type TestExpectation struct {
+// TaskExpectation defines expected outcomes
+type TaskExpectation struct {
 	OutcomeSpecs    []OutcomeSpec  `yaml:"outcomes,omitempty" json:"outcome_specs,omitempty"`
 	ToolPatterns    map[string]any `yaml:"tool_calls,omitempty" json:"tool_patterns,omitempty"`
 	BehaviorRules   BehaviorRules  `yaml:"behavior,omitempty" json:"behavior_rules,omitempty"`
@@ -62,7 +62,7 @@ type BehaviorRules struct {
 // Grader is a validator embedded in a test case
 type Grader struct {
 	Identifier string           `yaml:"name" json:"identifier"`
-	Type       GraderKind       `yaml:"type,omitempty" json:"type,omitempty"`
+	Type       GraderType       `yaml:"type,omitempty" json:"type,omitempty"`
 	Checks     []string         `yaml:"assertions,omitempty" json:"checks,omitempty"`
 	Rubric     string           `yaml:"rubric,omitempty" json:"rubric,omitempty"`
 	Weight     float64          `yaml:"weight,omitempty" json:"weight,omitempty"`
@@ -79,7 +79,7 @@ func (v *Grader) EffectiveWeight() float64 {
 func (v *Grader) UnmarshalYAML(node *yaml.Node) error {
 	type rawGrader struct {
 		Identifier string     `yaml:"name"`
-		Type       GraderKind `yaml:"type,omitempty"`
+		Type       GraderType `yaml:"type,omitempty"`
 		Checks     []string   `yaml:"assertions,omitempty"`
 		Rubric     string     `yaml:"rubric,omitempty"`
 		Weight     float64    `yaml:"weight,omitempty"`

@@ -20,7 +20,7 @@ import (
 type Runner struct {
 	spec   *TestSpec
 	engine execution.AgentEngine
-	cfg    *config.BenchmarkConfig
+	cfg    *config.RunConfig
 	out    io.Writer
 }
 
@@ -39,7 +39,7 @@ type taskResult struct {
 	err        error
 }
 
-func NewRunner(spec *TestSpec, engine execution.AgentEngine, cfg *config.BenchmarkConfig, out io.Writer) *Runner {
+func NewRunner(spec *TestSpec, engine execution.AgentEngine, cfg *config.RunConfig, out io.Writer) *Runner {
 	return &Runner{spec: spec, engine: engine, cfg: cfg, out: out}
 }
 

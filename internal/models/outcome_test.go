@@ -36,12 +36,12 @@ func TestComputeRunScore(t *testing.T) {
 		{name: "no validations", run: RunResult{}, want: 0.0},
 		{
 			name: "single validation",
-			run:  RunResult{Validations: map[string]GraderResults{"check": {Score: 0.75, Passed: true}}},
+			run:  RunResult{GraderScores: map[string]GraderResults{"check": {Score: 0.75, Passed: true}}},
 			want: 0.75,
 		},
 		{
 			name: "multiple validations",
-			run: RunResult{Validations: map[string]GraderResults{
+			run: RunResult{GraderScores: map[string]GraderResults{
 				"a": {Score: 1.0, Passed: true},
 				"b": {Score: 0.5, Passed: false},
 			}},
@@ -65,12 +65,12 @@ func TestComputeWeightedRunScore(t *testing.T) {
 		{name: "no validations", run: RunResult{}, want: 0.0},
 		{
 			name: "single validation default weight",
-			run:  RunResult{Validations: map[string]GraderResults{"check": {Score: 0.75, Weight: 1.0}}},
+			run:  RunResult{GraderScores: map[string]GraderResults{"check": {Score: 0.75, Weight: 1.0}}},
 			want: 0.75,
 		},
 		{
 			name: "equal weights same as unweighted",
-			run: RunResult{Validations: map[string]GraderResults{
+			run: RunResult{GraderScores: map[string]GraderResults{
 				"a": {Score: 1.0, Weight: 1.0},
 				"b": {Score: 0.5, Weight: 1.0},
 			}},
@@ -78,7 +78,7 @@ func TestComputeWeightedRunScore(t *testing.T) {
 		},
 		{
 			name: "weighted favoring higher scorer",
-			run: RunResult{Validations: map[string]GraderResults{
+			run: RunResult{GraderScores: map[string]GraderResults{
 				"a": {Score: 1.0, Weight: 3.0},
 				"b": {Score: 0.0, Weight: 1.0},
 			}},
@@ -86,7 +86,7 @@ func TestComputeWeightedRunScore(t *testing.T) {
 		},
 		{
 			name: "zero weight defaults to 1.0",
-			run: RunResult{Validations: map[string]GraderResults{
+			run: RunResult{GraderScores: map[string]GraderResults{
 				"a": {Score: 1.0, Weight: 0.0},
 				"b": {Score: 0.5, Weight: 0.0},
 			}},
@@ -110,18 +110,18 @@ func TestAllValidationsPassed(t *testing.T) {
 		{name: "no validations passes", run: RunResult{}, want: true},
 		{
 			name: "all passed",
-			run:  RunResult{Validations: map[string]GraderResults{"a": {Passed: true}, "b": {Passed: true}}},
+			run:  RunResult{GraderScores: map[string]GraderResults{"a": {Passed: true}, "b": {Passed: true}}},
 			want: true,
 		},
 		{
 			name: "one failed",
-			run:  RunResult{Validations: map[string]GraderResults{"a": {Passed: true}, "b": {Passed: false}}},
+			run:  RunResult{GraderScores: map[string]GraderResults{"a": {Passed: true}, "b": {Passed: false}}},
 			want: false,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := tt.run.AllValidationsPassed()
+			got := tt.run.AllGradersPassed()
 			require.Equal(t, tt.want, got)
 		})
 	}

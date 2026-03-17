@@ -71,8 +71,8 @@ func ComputeImprovement(baseline, withSkill *models.RunResult) (float64, Improve
 	return improvement, breakdown
 }
 
-// ComputeFromOutcomes computes BaselineResults for paired TestOutcomes.
-func ComputeFromOutcomes(withSkill, baseline *models.TestOutcome) *BaselineResult {
+// ComputeFromOutcomes computes BaselineResults for paired TaskOutcomes.
+func ComputeFromOutcomes(withSkill, baseline *models.TaskOutcome) *BaselineResult {
 	if len(withSkill.Runs) == 0 || len(baseline.Runs) == 0 {
 		return &BaselineResult{
 			TaskName: withSkill.DisplayName,

@@ -14,8 +14,8 @@ func TestUpdateOutcomeUsage_NilOutcome(t *testing.T) {
 
 func TestUpdateOutcomeUsage_ReplacesAndReaggregates(t *testing.T) {
 	// Create an outcome with fallback usage
-	outcome := &models.EvaluationOutcome{
-		TestOutcomes: []models.TestOutcome{
+	outcome := &models.EvalOutcome{
+		TaskOutcomes: []models.TaskOutcome{
 			{
 				Runs: []models.RunResult{
 					{
@@ -30,7 +30,7 @@ func TestUpdateOutcomeUsage_ReplacesAndReaggregates(t *testing.T) {
 				},
 			},
 		},
-		Digest: models.OutcomeDigest{
+		Digest: models.EvalDigest{
 			Usage: &models.UsageStats{
 				InputTokens:  100,
 				OutputTokens: 50,
@@ -43,13 +43,13 @@ func TestUpdateOutcomeUsage_ReplacesAndReaggregates(t *testing.T) {
 	UpdateOutcomeUsage(outcome, engine)
 
 	// Usage should be unchanged (mock returns nil)
-	require.Equal(t, 100, outcome.TestOutcomes[0].Runs[0].SessionDigest.Usage.InputTokens)
+	require.Equal(t, 100, outcome.TaskOutcomes[0].Runs[0].SessionDigest.Usage.InputTokens)
 }
 
 func TestUpdateOutcomeUsage_SkipsEmptySessionID(t *testing.T) {
 	originalUsage := &models.UsageStats{InputTokens: 100}
-	outcome := &models.EvaluationOutcome{
-		TestOutcomes: []models.TestOutcome{
+	outcome := &models.EvalOutcome{
+		TaskOutcomes: []models.TaskOutcome{
 			{
 				Runs: []models.RunResult{
 					{
@@ -61,12 +61,12 @@ func TestUpdateOutcomeUsage_SkipsEmptySessionID(t *testing.T) {
 				},
 			},
 		},
-		Digest: models.OutcomeDigest{},
+		Digest: models.EvalDigest{},
 	}
 
 	engine := NewMockEngine("test")
 	UpdateOutcomeUsage(outcome, engine)
 
 	// Usage unchanged
-	require.Equal(t, originalUsage, outcome.TestOutcomes[0].Runs[0].SessionDigest.Usage)
+	require.Equal(t, originalUsage, outcome.TaskOutcomes[0].Runs[0].SessionDigest.Usage)
 }

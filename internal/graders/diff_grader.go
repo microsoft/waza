@@ -60,7 +60,7 @@ func NewDiffGrader(name string, args models.DiffGraderParameters) (*diffGrader, 
 }
 
 func (dg *diffGrader) Name() string            { return dg.name }
-func (dg *diffGrader) Kind() models.GraderKind { return models.GraderKindDiff }
+func (dg *diffGrader) Kind() models.GraderType { return models.GraderTypeDiff }
 
 func (dg *diffGrader) Grade(ctx context.Context, gradingContext *Context) (*models.GraderResults, error) {
 	return measureTime(func() (*models.GraderResults, error) {
@@ -68,7 +68,7 @@ func (dg *diffGrader) Grade(ctx context.Context, gradingContext *Context) (*mode
 		if workspaceDir == "" {
 			return &models.GraderResults{
 				Name:     dg.name,
-				Type:     models.GraderKindDiff,
+				Type:     models.GraderTypeDiff,
 				Score:    0.0,
 				Passed:   false,
 				Feedback: "No workspace directory available for diff grading",
@@ -348,7 +348,7 @@ func (dg *diffGrader) buildResult(failures []string, workspaceDir string, snapsh
 
 	return &models.GraderResults{
 		Name:     dg.name,
-		Type:     models.GraderKindDiff,
+		Type:     models.GraderTypeDiff,
 		Score:    score,
 		Passed:   len(failures) == 0,
 		Feedback: feedback,

@@ -12,7 +12,7 @@ func TestTextGrader_Basic(t *testing.T) {
 	g, err := NewTextGrader("test", models.TextGraderParameters{RegexMatch: []string{`he.*`, `world`}})
 	require.NoError(t, err)
 
-	require.Equal(t, models.GraderKindText, g.Kind())
+	require.Equal(t, models.GraderTypeText, g.Kind())
 	require.Equal(t, "test", g.Name())
 }
 
@@ -367,7 +367,7 @@ func TestTextGrader_EdgeCases(t *testing.T) {
 		})
 		require.NoError(t, err)
 		require.Equal(t, "detail-test", results.Name)
-		require.Equal(t, models.GraderKindText, results.Type)
+		require.Equal(t, models.GraderTypeText, results.Type)
 		require.Equal(t, []string{"a"}, results.Details["contains"])
 		require.Equal(t, []string{"b"}, results.Details["regex_match"])
 	})
@@ -385,7 +385,7 @@ func TestTextGrader_EdgeCases(t *testing.T) {
 }
 
 func TestTextGrader_ViaCreate(t *testing.T) {
-	t.Run("Create with GraderKindText works", func(t *testing.T) {
+	t.Run("Create with GraderTypeText works", func(t *testing.T) {
 		g, err := Create("from-create", models.TextGraderParameters{
 			Contains:      []string{"hello"},
 			RegexMatch:    []string{`world`},
@@ -393,7 +393,7 @@ func TestTextGrader_ViaCreate(t *testing.T) {
 		})
 		require.NoError(t, err)
 		require.Equal(t, "from-create", g.Name())
-		require.Equal(t, models.GraderKindText, g.Kind())
+		require.Equal(t, models.GraderTypeText, g.Kind())
 
 		results, err := g.Grade(context.Background(), &Context{
 			Output: "hello world",

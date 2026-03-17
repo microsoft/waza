@@ -43,10 +43,10 @@ func generateEvalAnalysis(
 	engine execution.AgentEngine,
 	spec *models.EvalSpec,
 	specPath string,
-	outcome *models.EvaluationOutcome,
+	outcome *models.EvalOutcome,
 	triggerResults []models.TriggerResult,
 ) (string, error) {
-	failingTests := selectFailingTests(outcome.TestOutcomes)
+	failingTests := selectFailingTests(outcome.TaskOutcomes)
 	failedTriggers := selectFailedTriggerResults(triggerResults)
 	if len(failingTests) == 0 && len(failedTriggers) == 0 {
 		// Nothing failed, so there's nothing to suggest.
@@ -278,7 +278,7 @@ func isTextFile(name string) bool {
 
 func buildRunAnalysisPrompt(
 	spec *models.EvalSpec,
-	failingTests []models.TestOutcome,
+	failingTests []models.TaskOutcome,
 	failedTriggers []models.TriggerResult,
 	testDefinitions map[string]string,
 ) string {
@@ -294,8 +294,8 @@ func buildRunAnalysisPrompt(
 // buildGraderDocsSection collects grader types from the spec and from failed
 // test outcomes, then returns the embedded documentation for each type so the
 // suggestion model understands how graders work and how to fix failures.
-func buildGraderDocsSection(spec *models.EvalSpec, failingTests []models.TestOutcome) string {
-	kinds := collectFailedGraderKinds(spec, failingTests)
+func buildGraderDocsSection(spec *models.EvalSpec, failingTests []models.TaskOutcome) string {
+	kinds := collectFailedGraderTypes(spec, failingTests)
 	if len(kinds) == 0 {
 		return ""
 	}
@@ -323,22 +323,22 @@ func buildGraderDocsSection(spec *models.EvalSpec, failingTests []models.TestOut
 	return b.String()
 }
 
-// collectFailedGraderKinds returns the set of grader kind strings from the
+// collectFailedGraderTypes returns the set of grader kind strings from the
 // spec's global graders and from any failed grader results in test outcomes.
-func collectFailedGraderKinds(spec *models.EvalSpec, failingTests []models.TestOutcome) map[string]bool {
+func collectFailedGraderTypes(spec *models.EvalSpec, failingTests []models.TaskOutcome) map[string]bool {
 	kinds := make(map[string]bool)
 
 	// Include global graders from the spec.
 	for _, g := range spec.Graders {
-		if g.Kind != "" {
-			kinds[string(g.Kind)] = true
+		if g.Type != "" {
+			kinds[string(g.Type)] = true
 		}
 	}
 
 	// Include grader types from failed validations in test outcomes.
 	for _, to := range failingTests {
 		for _, run := range to.Runs {
-			for _, v := range run.Validations {
+			for _, v := range run.GraderScores {
 				if !v.Passed && v.Type != "" {
 					kinds[string(v.Type)] = true
 				}
@@ -351,7 +351,7 @@ func collectFailedGraderKinds(spec *models.EvalSpec, failingTests []models.TestO
 
 func buildFailingTestEvidence(
 	spec *models.EvalSpec,
-	failingTests []models.TestOutcome,
+	failingTests []models.TaskOutcome,
 	testDefinitions map[string]string,
 ) string {
 	if len(failingTests) == 0 {
@@ -388,7 +388,7 @@ func buildFailingTestEvidence(
 				fmt.Fprintf(&b, "- Final output: %q\n", truncateForPrompt(run.FinalOutput, maxSuggestionOutputLen))
 			}
 
-			failedGraders := failedGraderFeedback(run.Validations)
+			failedGraders := failedGraderFeedback(run.GraderScores)
 			if len(failedGraders) > 0 {
 				b.WriteString("- Failed grader outcomes:\n")
 				for _, line := range failedGraders {
@@ -444,8 +444,8 @@ func buildFailedTriggerEvidence(failedTriggers []models.TriggerResult) string {
 	return strings.TrimSpace(b.String())
 }
 
-func selectFailingTests(testOutcomes []models.TestOutcome) []models.TestOutcome {
-	failing := make([]models.TestOutcome, 0, len(testOutcomes))
+func selectFailingTests(testOutcomes []models.TaskOutcome) []models.TaskOutcome {
+	failing := make([]models.TaskOutcome, 0, len(testOutcomes))
 	for _, to := range testOutcomes {
 		if to.Status != models.StatusPassed {
 			failing = append(failing, to)

@@ -19,7 +19,7 @@ type LocalStore struct {
 	dir string
 
 	mu     sync.RWMutex
-	cache  map[string]*models.EvaluationOutcome
+	cache  map[string]*models.EvalOutcome
 	loaded bool
 }
 
@@ -27,12 +27,12 @@ type LocalStore struct {
 func NewLocalStore(dir string) *LocalStore {
 	return &LocalStore{
 		dir:   dir,
-		cache: make(map[string]*models.EvaluationOutcome),
+		cache: make(map[string]*models.EvalOutcome),
 	}
 }
 
 // Upload writes an evaluation outcome as a JSON file to the local results directory.
-func (ls *LocalStore) Upload(_ context.Context, outcome *models.EvaluationOutcome) error {
+func (ls *LocalStore) Upload(_ context.Context, outcome *models.EvalOutcome) error {
 	if outcome.RunID == "" {
 		return fmt.Errorf("outcome has empty RunID")
 	}
@@ -91,7 +91,7 @@ func (ls *LocalStore) List(_ context.Context, opts ListOptions) ([]ResultSummary
 }
 
 // Download retrieves a single evaluation outcome by run ID.
-func (ls *LocalStore) Download(_ context.Context, runID string) (*models.EvaluationOutcome, error) {
+func (ls *LocalStore) Download(_ context.Context, runID string) (*models.EvalOutcome, error) {
 	if err := ls.ensureLoaded(); err != nil {
 		return nil, err
 	}
@@ -136,7 +136,7 @@ func (ls *LocalStore) load() error {
 	ls.mu.Lock()
 	defer ls.mu.Unlock()
 
-	ls.cache = make(map[string]*models.EvaluationOutcome)
+	ls.cache = make(map[string]*models.EvalOutcome)
 
 	if ls.dir == "" {
 		ls.loaded = true
@@ -167,13 +167,13 @@ func (ls *LocalStore) load() error {
 			return nil
 		}
 
-		var outcome models.EvaluationOutcome
+		var outcome models.EvalOutcome
 		if err := json.Unmarshal(data, &outcome); err != nil {
 			return nil
 		}
 
-		// Skip non-EvaluationOutcome JSON files.
-		if outcome.BenchName == "" && outcome.Digest.TotalTests == 0 {
+		// Skip non-EvalOutcome JSON files.
+		if outcome.EvalName == "" && outcome.Digest.TotalTests == 0 {
 			return nil
 		}
 
@@ -208,8 +208,8 @@ func (ls *LocalStore) ensureLoaded() error {
 	return ls.load()
 }
 
-// outcomeToResultSummary converts an EvaluationOutcome to a ResultSummary.
-func outcomeToResultSummary(o *models.EvaluationOutcome, dir string) ResultSummary {
+// outcomeToResultSummary converts an EvalOutcome to a ResultSummary.
+func outcomeToResultSummary(o *models.EvalOutcome, dir string) ResultSummary {
 	passRate := 0.0
 	if o.Digest.TotalTests > 0 {
 		passRate = float64(o.Digest.Succeeded) / float64(o.Digest.TotalTests) * 100.0
@@ -225,7 +225,7 @@ func outcomeToResultSummary(o *models.EvaluationOutcome, dir string) ResultSumma
 }
 
 // matchesFilter checks if an outcome matches the list filter options.
-func matchesFilter(o *models.EvaluationOutcome, opts ListOptions) bool {
+func matchesFilter(o *models.EvalOutcome, opts ListOptions) bool {
 	if opts.Skill != "" && o.SkillTested != opts.Skill {
 		return false
 	}

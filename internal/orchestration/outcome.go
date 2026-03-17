@@ -8,7 +8,7 @@ import (
 )
 
 // ComputeTestStats computes aggregate statistics for a set of run results.
-func ComputeTestStats(runs []models.RunResult) *models.TestStats {
+func ComputeTestStats(runs []models.RunResult) *models.TaskStats {
 	if len(runs) == 0 {
 		return nil
 	}
@@ -47,7 +47,7 @@ func ComputeTestStats(runs []models.RunResult) *models.TestStats {
 		case models.StatusSkipped:
 			// skipped — don't count as passed or failed
 		default:
-			if run.AllValidationsPassed() {
+			if run.AllGradersPassed() {
 				passed++
 			} else {
 				failed++
@@ -59,7 +59,7 @@ func ComputeTestStats(runs []models.RunResult) *models.TestStats {
 
 	stdDev := models.ComputeStdDev(scores)
 
-	stats := &models.TestStats{
+	stats := &models.TaskStats{
 		PassRate:         float64(passed) / float64(len(runs)),
 		PassedRuns:       passed,
 		FailedRuns:       failed,
@@ -98,10 +98,10 @@ func ComputeTestStats(runs []models.RunResult) *models.TestStats {
 	return stats
 }
 
-// BuildDigest computes an OutcomeDigest from test outcomes. durationMs is
+// BuildDigest computes an EvalDigest from test outcomes. durationMs is
 // the total wall-clock duration to store in the digest. runsPerTest controls
 // whether digest-level bootstrap CI is computed (requires > 1).
-func BuildDigest(testOutcomes []models.TestOutcome, durationMs int64, runsPerTest int) models.OutcomeDigest {
+func BuildDigest(testOutcomes []models.TaskOutcome, durationMs int64, runsPerTest int) models.EvalDigest {
 	succeeded := 0
 	failed := 0
 	errors := 0
@@ -131,7 +131,7 @@ func BuildDigest(testOutcomes []models.TestOutcome, durationMs int64, runsPerTes
 	digestMin, digestMax, digestStdDev := computeDigestScoreStats(testOutcomes)
 	groupStats := computeGroupStats(testOutcomes)
 
-	digest := models.OutcomeDigest{
+	digest := models.EvalDigest{
 		TotalTests:     totalTests,
 		Succeeded:      succeeded,
 		Failed:         failed,
@@ -168,7 +168,7 @@ func BuildDigest(testOutcomes []models.TestOutcome, durationMs int64, runsPerTes
 	return digest
 }
 
-func computeAggregateScore(testOutcomes []models.TestOutcome) float64 {
+func computeAggregateScore(testOutcomes []models.TaskOutcome) float64 {
 	if len(testOutcomes) == 0 {
 		return 0.0
 	}
@@ -181,7 +181,7 @@ func computeAggregateScore(testOutcomes []models.TestOutcome) float64 {
 	return totalScore / float64(len(testOutcomes))
 }
 
-func computeWeightedAggregateScore(testOutcomes []models.TestOutcome) float64 {
+func computeWeightedAggregateScore(testOutcomes []models.TaskOutcome) float64 {
 	if len(testOutcomes) == 0 {
 		return 0.0
 	}
@@ -194,7 +194,7 @@ func computeWeightedAggregateScore(testOutcomes []models.TestOutcome) float64 {
 	return totalScore / float64(len(testOutcomes))
 }
 
-func computeDigestScoreStats(testOutcomes []models.TestOutcome) (float64, float64, float64) {
+func computeDigestScoreStats(testOutcomes []models.TaskOutcome) (float64, float64, float64) {
 	if len(testOutcomes) == 0 {
 		return 0.0, 0.0, 0.0
 	}
@@ -217,7 +217,7 @@ func computeDigestScoreStats(testOutcomes []models.TestOutcome) (float64, float6
 	return minScore, maxScore, models.ComputeStdDev(scores)
 }
 
-func computeGroupStats(outcomes []models.TestOutcome) []models.GroupStats {
+func computeGroupStats(outcomes []models.TaskOutcome) []models.GroupStats {
 	type accumulator struct {
 		passed     int
 		total      int
@@ -269,7 +269,7 @@ func computeGroupStats(outcomes []models.TestOutcome) []models.GroupStats {
 	return result
 }
 
-func aggregateUsageFromOutcomes(testOutcomes []models.TestOutcome) *models.UsageStats {
+func aggregateUsageFromOutcomes(testOutcomes []models.TaskOutcome) *models.UsageStats {
 	var allUsage []*models.UsageStats
 	for _, to := range testOutcomes {
 		for _, run := range to.Runs {
@@ -281,9 +281,9 @@ func aggregateUsageFromOutcomes(testOutcomes []models.TestOutcome) *models.Usage
 	return models.AggregateUsageStats(allUsage)
 }
 
-// RegradeOutcome produces a new EvaluationOutcome by replacing test outcomes
+// RegradeOutcome produces a new EvalOutcome by replacing test outcomes
 // in the original with the graded ones and recomputing stats and digest.
-func RegradeOutcome(original *models.EvaluationOutcome, gradedOutcomes []models.TestOutcome, judgeModel string) *models.EvaluationOutcome {
+func RegradeOutcome(original *models.EvalOutcome, gradedOutcomes []models.TaskOutcome, judgeModel string) *models.EvalOutcome {
 	for i := range gradedOutcomes {
 		gradedOutcomes[i].Stats = ComputeTestStats(gradedOutcomes[i].Runs)
 	}
@@ -298,15 +298,15 @@ func RegradeOutcome(original *models.EvaluationOutcome, gradedOutcomes []models.
 		runsPerTest = 1
 	}
 
-	return &models.EvaluationOutcome{
+	return &models.EvalOutcome{
 		RunID:        original.RunID,
 		SkillTested:  original.SkillTested,
-		BenchName:    original.BenchName,
+		EvalName:     original.EvalName,
 		Timestamp:    original.Timestamp,
 		Setup:        setup,
 		Digest:       BuildDigest(gradedOutcomes, original.Digest.DurationMs, runsPerTest),
 		Measures:     make(map[string]models.MeasureResult),
-		TestOutcomes: gradedOutcomes,
+		TaskOutcomes: gradedOutcomes,
 		Metadata:     original.Metadata,
 	}
 }

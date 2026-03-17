@@ -171,7 +171,7 @@ func CreateTaskSpecFromCopilotLog(copilotLog string, options *CreateTaskSpecFrom
 
 		task.Graders = append(task.Graders, models.Grader{
 			Identifier: "skills-check",
-			Type:       models.GraderKindSkillInvocation,
+			Type:       models.GraderTypeSkillInvocation,
 			Parameters: models.SkillInvocationGraderParameters{
 				RequiredSkills: skillNames,
 				Mode:           models.SkillMatchingModeAnyOrder,
@@ -197,7 +197,7 @@ func CreateTaskSpecFromCopilotLog(copilotLog string, options *CreateTaskSpecFrom
 
 		task.Graders = append(task.Graders, models.Grader{
 			Identifier: "tools-check",
-			Type:       models.GraderKindToolConstraint,
+			Type:       models.GraderTypeToolConstraint,
 			Parameters: models.ToolConstraintGraderParameters{
 				ExpectTools: toolNames,
 			},
@@ -206,7 +206,7 @@ func CreateTaskSpecFromCopilotLog(copilotLog string, options *CreateTaskSpecFrom
 
 	task.Graders = append(task.Graders, models.Grader{
 		Identifier: "check-response",
-		Type:       models.GraderKindText,
+		Type:       models.GraderTypeText,
 		Parameters: models.TextGraderParameters{
 			ContainsCS: []string{
 				responses.String(),

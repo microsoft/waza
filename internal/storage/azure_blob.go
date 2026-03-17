@@ -105,7 +105,7 @@ func getCredentialWithAutoLogin(ctx context.Context) (azcore.TokenCredential, er
 // Upload persists an evaluation outcome to Azure Blob Storage.
 // Blob path: {skill-name}/{run-id}.json
 // Metadata: skill, model, passrate, timestamp, runid
-func (abs *AzureBlobStore) Upload(ctx context.Context, outcome *models.EvaluationOutcome) error {
+func (abs *AzureBlobStore) Upload(ctx context.Context, outcome *models.EvalOutcome) error {
 	if outcome.RunID == "" {
 		return fmt.Errorf("outcome has empty RunID")
 	}
@@ -206,7 +206,7 @@ func (abs *AzureBlobStore) List(ctx context.Context, opts ListOptions) ([]Result
 // we fall back to a full blob scan matching on metadata. The prefix approach is
 // O(1) when the blob naming convention is followed; the fallback is O(N) but
 // handles legacy or misnamed blobs.
-func (abs *AzureBlobStore) Download(ctx context.Context, runID string) (*models.EvaluationOutcome, error) {
+func (abs *AzureBlobStore) Download(ctx context.Context, runID string) (*models.EvalOutcome, error) {
 	// Fast path: try a direct download using the known blob naming pattern.
 	// Blobs are stored as {skill}/{runID}.json, so we can list with suffix match.
 	blobSuffix := sanitizePathSegment(runID) + ".json"
@@ -239,7 +239,7 @@ func (abs *AzureBlobStore) Download(ctx context.Context, runID string) (*models.
 		return nil, fmt.Errorf("azure blob download: reading blob: %w", err)
 	}
 
-	var outcome models.EvaluationOutcome
+	var outcome models.EvalOutcome
 	if err := json.Unmarshal(data, &outcome); err != nil {
 		return nil, fmt.Errorf("azure blob download: unmarshaling outcome: %w", err)
 	}
@@ -357,8 +357,8 @@ func (abs *AzureBlobStore) blobToResultSummary(blob *container.BlobItem) (Result
 	}, nil
 }
 
-// outcomeToResultSummary converts an EvaluationOutcome to a ResultSummary.
-func (abs *AzureBlobStore) outcomeToResultSummary(o *models.EvaluationOutcome) ResultSummary {
+// outcomeToResultSummary converts an EvalOutcome to a ResultSummary.
+func (abs *AzureBlobStore) outcomeToResultSummary(o *models.EvalOutcome) ResultSummary {
 	passRate := 0.0
 	if o.Digest.TotalTests > 0 {
 		passRate = float64(o.Digest.Succeeded) / float64(o.Digest.TotalTests) * 100.0

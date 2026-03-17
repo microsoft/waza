@@ -63,7 +63,7 @@ func BuildFromSessionEvents(events []copilot.SessionEvent) []models.TranscriptEv
 }
 
 // BuildTaskTranscript constructs a TaskTranscript from run results.
-func BuildTaskTranscript(tc *models.TaskSpec, outcome models.TestOutcome, startTime time.Time) *models.TaskTranscript {
+func BuildTaskTranscript(tc *models.TaskSpec, outcome models.TaskOutcome, startTime time.Time) *models.TaskTranscript {
 	var totalDurationMs int64
 	var allEntries []models.TranscriptEvent
 	allValidations := make(map[string]models.GraderResults)
@@ -74,7 +74,7 @@ func BuildTaskTranscript(tc *models.TaskSpec, outcome models.TestOutcome, startT
 	for _, run := range outcome.Runs {
 		totalDurationMs += run.DurationMs
 		allEntries = append(allEntries, run.Transcript...)
-		for k, v := range run.Validations {
+		for k, v := range run.GraderScores {
 			allValidations[k] = v
 		}
 		finalOutput = run.FinalOutput
@@ -87,17 +87,17 @@ func BuildTaskTranscript(tc *models.TaskSpec, outcome models.TestOutcome, startT
 	endTime := startTime.Add(time.Duration(totalDurationMs) * time.Millisecond)
 
 	return &models.TaskTranscript{
-		TaskID:      tc.TestID,
-		TaskName:    tc.DisplayName,
-		Status:      outcome.Status,
-		StartedAt:   startTime,
-		CompletedAt: endTime,
-		DurationMs:  totalDurationMs,
-		Prompt:      tc.Stimulus.Message,
-		FinalOutput: finalOutput,
-		Transcript:  allEntries,
-		Validations: allValidations,
-		Session:     session,
-		ErrorMsg:    errMsg,
+		TaskID:       tc.TestID,
+		TaskName:     tc.DisplayName,
+		Status:       outcome.Status,
+		StartedAt:    startTime,
+		CompletedAt:  endTime,
+		DurationMs:   totalDurationMs,
+		Prompt:       tc.Stimulus.Message,
+		FinalOutput:  finalOutput,
+		Transcript:   allEntries,
+		GraderScores: allValidations,
+		Session:      session,
+		ErrorMsg:     errMsg,
 	}
 }

@@ -8,9 +8,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func makeOutcome(aggScore float64, successRate float64, stdDev float64, durationMs int64) *models.EvaluationOutcome {
-	return &models.EvaluationOutcome{
-		Digest: models.OutcomeDigest{
+func makeOutcome(aggScore float64, successRate float64, stdDev float64, durationMs int64) *models.EvalOutcome {
+	return &models.EvalOutcome{
+		Digest: models.EvalDigest{
 			AggregateScore: aggScore,
 			SuccessRate:    successRate,
 			StdDev:         stdDev,

@@ -14,7 +14,7 @@ func TestBehaviorGrader_Basic(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	require.Equal(t, models.GraderKindBehavior, g.Kind())
+	require.Equal(t, models.GraderTypeBehavior, g.Kind())
 	require.Equal(t, "test", g.Name())
 }
 
@@ -499,7 +499,7 @@ func TestBehaviorGrader_EdgeCases(t *testing.T) {
 		})
 		require.NoError(t, err)
 		require.Equal(t, "detail-test", results.Name)
-		require.Equal(t, models.GraderKindBehavior, results.Type)
+		require.Equal(t, models.GraderTypeBehavior, results.Type)
 		require.True(t, results.Passed)
 	})
 

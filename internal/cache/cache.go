@@ -102,7 +102,7 @@ func CacheKey(spec *models.EvalSpec, task *models.TaskSpec, fixtureDir string) (
 }
 
 // Get retrieves a cached test outcome if it exists
-func (c *Cache) Get(key string) (*models.TestOutcome, bool) {
+func (c *Cache) Get(key string) (*models.TaskOutcome, bool) {
 	if c.dir == "" {
 		return nil, false
 	}
@@ -117,7 +117,7 @@ func (c *Cache) Get(key string) (*models.TestOutcome, bool) {
 		return nil, false
 	}
 
-	var outcome models.TestOutcome
+	var outcome models.TaskOutcome
 	if err := json.Unmarshal(data, &outcome); err != nil {
 		// Invalid cache entry, treat as miss
 		return nil, false
@@ -127,7 +127,7 @@ func (c *Cache) Get(key string) (*models.TestOutcome, bool) {
 }
 
 // Put stores a test outcome in the cache
-func (c *Cache) Put(key string, outcome *models.TestOutcome) error {
+func (c *Cache) Put(key string, outcome *models.TaskOutcome) error {
 	if c.dir == "" {
 		return nil
 	}
@@ -204,7 +204,7 @@ func (c *Cache) cachePath(key string) string {
 // Non-deterministic graders include: behavior and prompt
 func HasNonDeterministicGraders(spec *models.EvalSpec) bool {
 	for _, g := range spec.Graders {
-		if g.Kind == models.GraderKindBehavior || g.Kind == models.GraderKindPrompt {
+		if g.Type == models.GraderTypeBehavior || g.Type == models.GraderTypePrompt {
 			return true
 		}
 	}

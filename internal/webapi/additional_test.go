@@ -16,7 +16,7 @@ import (
 	"github.com/microsoft/waza/internal/statistics"
 )
 
-func writeOutcomeFile(t *testing.T, path string, outcome models.EvaluationOutcome) {
+func writeOutcomeFile(t *testing.T, path string, outcome models.EvalOutcome) {
 	t.Helper()
 
 	data, err := json.Marshal(outcome)
@@ -95,21 +95,21 @@ func TestFileStoreGetRunSummaryAndReload(t *testing.T) {
 	dir := t.TempDir()
 	ts := time.Date(2026, 2, 18, 10, 0, 0, 0, time.UTC)
 
-	outcome1 := models.EvaluationOutcome{
+	outcome1 := models.EvalOutcome{
 		RunID:     "run-1",
-		BenchName: "bench-a",
+		EvalName:  "bench-a",
 		Timestamp: ts,
-		Setup:     models.OutcomeSetup{ModelID: "gpt-4o"},
-		Digest:    models.OutcomeDigest{TotalTests: 2, Succeeded: 1, Failed: 1, DurationMs: 3000},
-		TestOutcomes: []models.TestOutcome{
+		Setup:     models.EvalSetup{ModelID: "gpt-4o"},
+		Digest:    models.EvalDigest{TotalTests: 2, Succeeded: 1, Failed: 1, DurationMs: 3000},
+		TaskOutcomes: []models.TaskOutcome{
 			{
 				DisplayName: "task-a",
 				Status:      models.StatusFailed,
 				Runs: []models.RunResult{
 					{
 						DurationMs: 1400,
-						Validations: map[string]models.GraderResults{
-							"text": {Name: "text", Type: models.GraderKindText, Passed: false, Score: 0.2, Weight: 1, Feedback: "failed"},
+						GraderScores: map[string]models.GraderResults{
+							"text": {Name: "text", Type: models.GraderTypeText, Passed: false, Score: 0.2, Weight: 1, Feedback: "failed"},
 						},
 					},
 				},
@@ -146,11 +146,11 @@ func TestFileStoreGetRunSummaryAndReload(t *testing.T) {
 		t.Fatalf("expected ErrRunNotFound, got %v", err)
 	}
 
-	outcome2 := models.EvaluationOutcome{
-		BenchName: "bench-b",
+	outcome2 := models.EvalOutcome{
+		EvalName:  "bench-b",
 		Timestamp: ts.Add(time.Hour),
-		Setup:     models.OutcomeSetup{ModelID: "claude-4.6"},
-		Digest:    models.OutcomeDigest{TotalTests: 1, Succeeded: 1, DurationMs: 1000},
+		Setup:     models.EvalSetup{ModelID: "claude-4.6"},
+		Digest:    models.EvalDigest{TotalTests: 1, Succeeded: 1, DurationMs: 1000},
 	}
 	writeOutcomeFile(t, filepath.Join(dir, "nested", "run-2.json"), outcome2)
 
@@ -181,16 +181,16 @@ func TestOutcomeToDetailMapsStatsTranscriptAndDigest(t *testing.T) {
 	toolCallID := "call-123"
 	toolName := "bash"
 
-	outcome := &models.EvaluationOutcome{
-		RunID:     "detail-run",
-		BenchName: "bench-detail",
-		Setup:     models.OutcomeSetup{ModelID: "gpt-4o", JudgeModel: "o3"},
-		Digest:    models.OutcomeDigest{TotalTests: 2, Succeeded: 1, Failed: 1, DurationMs: 4000},
-		TestOutcomes: []models.TestOutcome{
+	outcome := &models.EvalOutcome{
+		RunID:    "detail-run",
+		EvalName: "bench-detail",
+		Setup:    models.EvalSetup{ModelID: "gpt-4o", JudgeModel: "o3"},
+		Digest:   models.EvalDigest{TotalTests: 2, Succeeded: 1, Failed: 1, DurationMs: 4000},
+		TaskOutcomes: []models.TaskOutcome{
 			{
 				DisplayName: "task-with-data",
 				Status:      models.StatusFailed,
-				Stats: &models.TestStats{
+				Stats: &models.TaskStats{
 					AvgScore:      0.3,
 					AvgDurationMs: 2500,
 					BootstrapCI: &statistics.ConfidenceInterval{
@@ -204,8 +204,8 @@ func TestOutcomeToDetailMapsStatsTranscriptAndDigest(t *testing.T) {
 				Runs: []models.RunResult{
 					{
 						DurationMs: 1500,
-						Validations: map[string]models.GraderResults{
-							"code": {Name: "code", Type: models.GraderKindInlineScript, Passed: false, Score: 0.2, Weight: 1, Feedback: "failed"},
+						GraderScores: map[string]models.GraderResults{
+							"code": {Name: "code", Type: models.GraderTypeInlineScript, Passed: false, Score: 0.2, Weight: 1, Feedback: "failed"},
 						},
 						Transcript: []models.TranscriptEvent{
 							{
@@ -276,10 +276,10 @@ func TestOutcomeToDetailMapsStatsTranscriptAndDigest(t *testing.T) {
 }
 
 func TestOutcomeToDetailNoTasks(t *testing.T) {
-	detail := outcomeToDetail(&models.EvaluationOutcome{
-		RunID:     "empty",
-		BenchName: "bench-empty",
-		Setup:     models.OutcomeSetup{ModelID: "gpt-4o"},
+	detail := outcomeToDetail(&models.EvalOutcome{
+		RunID:    "empty",
+		EvalName: "bench-empty",
+		Setup:    models.EvalSetup{ModelID: "gpt-4o"},
 	})
 
 	if detail.Tasks == nil {

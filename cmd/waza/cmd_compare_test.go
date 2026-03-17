@@ -16,8 +16,8 @@ func resetCompareGlobals() {
 	compareOutputFormat = "table"
 }
 
-// createResultFile writes an EvaluationOutcome to a temp JSON file.
-func createResultFile(t *testing.T, dir string, name string, outcome *models.EvaluationOutcome) string {
+// createResultFile writes an EvalOutcome to a temp JSON file.
+func createResultFile(t *testing.T, dir string, name string, outcome *models.EvalOutcome) string {
 	t.Helper()
 	data, err := json.MarshalIndent(outcome, "", "  ")
 	require.NoError(t, err)
@@ -26,19 +26,19 @@ func createResultFile(t *testing.T, dir string, name string, outcome *models.Eva
 	return p
 }
 
-func sampleOutcome(modelID string, score float64, successRate float64, taskScore float64) *models.EvaluationOutcome {
-	return &models.EvaluationOutcome{
+func sampleOutcome(modelID string, score float64, successRate float64, taskScore float64) *models.EvalOutcome {
+	return &models.EvalOutcome{
 		RunID:       "eval-001",
 		SkillTested: "test-skill",
-		BenchName:   "test-eval",
+		EvalName:    "test-eval",
 		Timestamp:   time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
-		Setup: models.OutcomeSetup{
+		Setup: models.EvalSetup{
 			RunsPerTest: 1,
 			ModelID:     modelID,
 			EngineType:  "mock",
 			TimeoutSec:  30,
 		},
-		Digest: models.OutcomeDigest{
+		Digest: models.EvalDigest{
 			TotalTests:     1,
 			Succeeded:      1,
 			Failed:         0,
@@ -49,12 +49,12 @@ func sampleOutcome(modelID string, score float64, successRate float64, taskScore
 			MaxScore:       score,
 			DurationMs:     1000,
 		},
-		TestOutcomes: []models.TestOutcome{
+		TaskOutcomes: []models.TaskOutcome{
 			{
 				TestID:      "task-001",
 				DisplayName: "Sample Task",
 				Status:      models.StatusPassed,
-				Stats: &models.TestStats{
+				Stats: &models.TaskStats{
 					PassRate: successRate,
 					AvgScore: taskScore,
 					MinScore: taskScore,
@@ -201,7 +201,7 @@ func TestBuildComparisonReport_Deltas(t *testing.T) {
 
 	report := buildComparisonReport(
 		[]string{"r1.json", "r2.json"},
-		[]*models.EvaluationOutcome{o1, o2},
+		[]*models.EvalOutcome{o1, o2},
 	)
 
 	assert.Len(t, report.Files, 2)
@@ -219,11 +219,11 @@ func TestBuildComparisonReport_MissingTask(t *testing.T) {
 	o1 := sampleOutcome("gpt-4", 0.80, 1.0, 0.80)
 	o2 := sampleOutcome("gpt-4o", 0.90, 1.0, 0.90)
 	// Add extra task only in o2
-	o2.TestOutcomes = append(o2.TestOutcomes, models.TestOutcome{
+	o2.TaskOutcomes = append(o2.TaskOutcomes, models.TaskOutcome{
 		TestID:      "task-002",
 		DisplayName: "Extra Task",
 		Status:      models.StatusPassed,
-		Stats: &models.TestStats{
+		Stats: &models.TaskStats{
 			PassRate: 1.0,
 			AvgScore: 0.90,
 		},
@@ -231,7 +231,7 @@ func TestBuildComparisonReport_MissingTask(t *testing.T) {
 
 	report := buildComparisonReport(
 		[]string{"r1.json", "r2.json"},
-		[]*models.EvaluationOutcome{o1, o2},
+		[]*models.EvalOutcome{o1, o2},
 	)
 
 	require.Len(t, report.TaskDeltas, 2)

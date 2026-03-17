@@ -16,7 +16,7 @@ type Grader interface {
 	Name() string
 
 	// Category returns the validator type
-	Kind() models.GraderKind
+	Kind() models.GraderType
 
 	// Validate performs validation and returns a result
 	Grade(ctx context.Context, gradingContext *Context) (*models.GraderResults, error)
@@ -80,7 +80,7 @@ func Create(identifier string, params models.GraderParameters) (Grader, error) {
 	case models.TriggerHeuristicGraderParameters:
 		return NewTriggerHeuristicGrader(identifier, p)
 	default:
-		return nil, fmt.Errorf("grader with identifier %q is using an unsupported grader type. Valid grader types: %s", identifier, strings.Join(models.AllGraderKinds(), ", "))
+		return nil, fmt.Errorf("grader with identifier %q is using an unsupported grader type. Valid grader types: %s", identifier, strings.Join(models.AllGraderTypes(), ", "))
 	}
 }
 

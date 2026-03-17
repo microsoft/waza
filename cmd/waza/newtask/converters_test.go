@@ -29,7 +29,7 @@ func TestCreateTestCaseFromCopilotLog_UsingSkillFixture(t *testing.T) {
 		Graders: []models.Grader{
 			{
 				Identifier: "skills-check",
-				Type:       models.GraderKindSkillInvocation,
+				Type:       models.GraderTypeSkillInvocation,
 				Parameters: models.SkillInvocationGraderParameters{
 					RequiredSkills: []string{"example"},
 					Mode:           models.SkillMatchingModeAnyOrder,
@@ -37,7 +37,7 @@ func TestCreateTestCaseFromCopilotLog_UsingSkillFixture(t *testing.T) {
 			},
 			{
 				Identifier: "tools-check",
-				Type:       models.GraderKindToolConstraint,
+				Type:       models.GraderTypeToolConstraint,
 				Parameters: models.ToolConstraintGraderParameters{
 					ExpectTools: []models.ToolSpecParameters{{
 						Tool:         "skill",
@@ -47,7 +47,7 @@ func TestCreateTestCaseFromCopilotLog_UsingSkillFixture(t *testing.T) {
 			},
 			{
 				Identifier: "check-response",
-				Type:       models.GraderKindText,
+				Type:       models.GraderTypeText,
 				Parameters: models.TextGraderParameters{
 					ContainsCS: []string{"yesyes"}, // response from the assistant in our test file
 				},
