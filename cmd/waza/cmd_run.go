@@ -198,7 +198,7 @@ func runCommandE(cmd *cobra.Command, args []string) error {
 		// and it won't conform to our default .waza.yaml structure. We'll bypass this skill discovery
 		// if the skill folder doesn't exist.
 		switch {
-		case err != nil && errors.Is(err, os.ErrNotExist):
+		case errors.Is(err, os.ErrNotExist):
 			slog.Warn("skills folder does not exist, skipping skills discovery",
 				slog.String("path", skillsPath))
 		case err != nil:
