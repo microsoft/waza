@@ -2358,7 +2358,7 @@ func testWazaRun(t *testing.T, cwd string, args []string) (evalNames []string, s
 
 	cwd = filepath.Join(tmp, cwd)
 
-	// TODO: we need to figure out which evals were selected.
+	// This helper derives which evals were selected by inspecting EvaluationOutcome.BenchName in the output folder.
 	ctrl := gomock.NewController(t)
 	client := NewMockCopilotClient(ctrl)
 	sess := NewMockCopilotSession(ctrl)
