@@ -77,7 +77,7 @@ func (v *Grader) EffectiveWeight() float64 {
 }
 
 func (v *Grader) UnmarshalYAML(node *yaml.Node) error {
-	type rawValidatorInline struct {
+	type rawGrader struct {
 		Identifier string     `yaml:"name"`
 		Type       GraderKind `yaml:"type,omitempty"`
 		Checks     []string   `yaml:"assertions,omitempty"`
@@ -86,7 +86,7 @@ func (v *Grader) UnmarshalYAML(node *yaml.Node) error {
 		Parameters yaml.Node  `yaml:"config,omitempty"`
 	}
 
-	var raw rawValidatorInline
+	var raw rawGrader
 	if err := node.Decode(&raw); err != nil {
 		return err
 	}
