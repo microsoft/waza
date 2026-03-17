@@ -189,7 +189,7 @@ func runCommandE(cmd *cobra.Command, args []string) error {
 	var skillFolders []string
 
 	// load up the skills from the .waza.yaml's skills folder
-	if cfg.Paths.Skills != "" {
+	if cfg.Dir != "" {
 		skillsPath := cfg.Paths.Skills
 
 		if cfg.Dir != "" {
