@@ -535,7 +535,7 @@ func TestActionSequenceGrader_EdgeCases(t *testing.T) {
 func TestActionSequenceGrader_ViaCreate(t *testing.T) {
 	t.Run("Create with GraderTypeActionSequence works", func(t *testing.T) {
 		g, err := Create("from-create", models.ActionSequenceGraderParameters{
- 			MatchingMode:    "exact_match",
+			MatchingMode:    "exact_match",
 			ExpectedActions: []string{"read_file", "write_file"},
 		})
 		require.NoError(t, err)
