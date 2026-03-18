@@ -3,7 +3,10 @@ package execution
 import (
 	"context"
 	"errors"
+	"fmt"
+	"math/rand"
 	"os"
+	"strconv"
 	"testing"
 	"time"
 
@@ -13,12 +16,12 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-var enableCopilotTests = os.Getenv("ENABLE_COPILOT_TESTS") == "true"
+var enableLiveCopilotTests = os.Getenv("ENABLE_COPILOT_TESTS") == "true"
 
 func TestCopilotNoSessionID(t *testing.T) {
 	ctrl := gomock.NewController(t)
-	clientMock := NewMockcopilotClient(ctrl)
-	sessionMock := NewMockcopilotSession(ctrl)
+	clientMock := newClientMock(ctrl)
+	sessionMock := NewMockCopilotSession(ctrl)
 
 	const expectedModel = "this-model-wins"
 
@@ -37,11 +40,9 @@ func TestCopilotNoSessionID(t *testing.T) {
 		},
 	}
 
-	clientMock.EXPECT().Start(gomock.Any())
 	clientMock.EXPECT().CreateSession(gomock.Any(), expectedConfig).Return(sessionMock, nil)
 	sessionMock.EXPECT().Disconnect()
 	clientMock.EXPECT().DeleteSession(gomock.Any(), "session-1")
-	clientMock.EXPECT().Stop()
 
 	sessionMock.EXPECT().On(gomock.Any()).Times(3).Return(unregister)
 	sessionMock.EXPECT().SendAndWait(gomock.Any(), gomock.Any()).Return(&copilot.SessionEvent{}, nil)
@@ -79,8 +80,8 @@ func TestCopilotNoSessionID(t *testing.T) {
 
 func TestCopilotResumeSessionID(t *testing.T) {
 	ctrl := gomock.NewController(t)
-	clientMock := NewMockcopilotClient(ctrl)
-	sessionMock := NewMockcopilotSession(ctrl)
+	clientMock := newClientMock(ctrl)
+	sessionMock := NewMockCopilotSession(ctrl)
 
 	sourceDir, err := os.Getwd()
 	require.NoError(t, err)
@@ -95,11 +96,9 @@ func TestCopilotResumeSessionID(t *testing.T) {
 		},
 	}
 
-	clientMock.EXPECT().Start(gomock.Any())
 	clientMock.EXPECT().ResumeSessionWithOptions(gomock.Any(), "session-1", expectedConfig).Return(sessionMock, nil)
 	sessionMock.EXPECT().Disconnect()
 	clientMock.EXPECT().DeleteSession(gomock.Any(), "session-1")
-	clientMock.EXPECT().Stop()
 
 	sessionMock.EXPECT().On(gomock.Any()).Times(3).Return(func() {})
 	sessionMock.EXPECT().SendAndWait(gomock.Any(), gomock.Any()).Return(&copilot.SessionEvent{}, nil)
@@ -131,10 +130,46 @@ func TestCopilotResumeSessionID(t *testing.T) {
 	require.True(t, resp.Success)
 }
 
+func TestCopilotResumeSessionID_Live(t *testing.T) {
+	skipIfCopilotNotEnabled(t)
+
+	engine := NewCopilotEngineBuilder("", nil).Build()
+
+	err := engine.Initialize(context.Background())
+	require.NoError(t, err)
+
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		defer cancel()
+
+		err := engine.Shutdown(ctx)
+		require.NoError(t, err)
+	})
+
+	randIntAsStr := strconv.FormatInt(rand.Int63(), 10)
+	const timeout = time.Minute
+
+	resp, err := engine.Execute(context.Background(), &ExecutionRequest{
+		Message: fmt.Sprintf("Memorize this integer and echo it back to me: %s", randIntAsStr),
+		Timeout: timeout,
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, resp.SessionID)
+	require.Contains(t, resp.FinalOutput, randIntAsStr)
+
+	resp, err = engine.Execute(context.Background(), &ExecutionRequest{
+		SessionID: resp.SessionID,
+		Message:   "What number did I ask you to memorize?",
+		Timeout:   timeout,
+	})
+	require.NoError(t, err)
+	require.Contains(t, resp.FinalOutput, randIntAsStr)
+}
+
 func TestCopilotSendAndWaitReturnsErrorInResult(t *testing.T) {
 	ctrl := gomock.NewController(t)
-	clientMock := NewMockcopilotClient(ctrl)
-	sessionMock := NewMockcopilotSession(ctrl)
+	clientMock := newClientMock(ctrl)
+	sessionMock := NewMockCopilotSession(ctrl)
 
 	sourceDir := t.TempDir()
 	const sessionErrorMsg = "session error occurred"
@@ -149,11 +184,9 @@ func TestCopilotSendAndWaitReturnsErrorInResult(t *testing.T) {
 		},
 	}
 
-	clientMock.EXPECT().Start(gomock.Any())
 	clientMock.EXPECT().CreateSession(gomock.Any(), expectedConfig).Return(sessionMock, nil)
 	sessionMock.EXPECT().Disconnect()
 	clientMock.EXPECT().DeleteSession(gomock.Any(), "session-1")
-	clientMock.EXPECT().Stop()
 
 	sessionMock.EXPECT().On(gomock.Any()).Times(3).Return(func() {})
 	sessionMock.EXPECT().SendAndWait(gomock.Any(), gomock.Any()).Return(nil, errors.New(sessionErrorMsg))
@@ -183,7 +216,7 @@ func TestCopilotSendAndWaitReturnsErrorInResult(t *testing.T) {
 func TestCopilotExecute_RequiredFields(t *testing.T) {
 	ctrl := gomock.NewController(t)
 
-	client := NewMockcopilotClient(ctrl)
+	client := newClientMock(ctrl)
 	// Start() should NOT be called when the request is invalid (e.g. Timeout == 0),
 	// because extractReqParams now runs before startOnce.Do.
 
@@ -214,7 +247,7 @@ func TestCopilotInitialize_PropagatesStartError(t *testing.T) {
 	// Regression test: Initialize() must propagate Start() errors so callers see
 	// copilot CLI startup failures instead of hanging or proceeding silently.
 	ctrl := gomock.NewController(t)
-	clientMock := NewMockcopilotClient(ctrl)
+	clientMock := NewMockCopilotClient(ctrl)
 
 	// Start returns an error, simulating a copilot CLI that fails to start.
 	clientMock.EXPECT().Start(gomock.Any()).Return(errors.New("context canceled"))
@@ -230,10 +263,8 @@ func TestCopilotInitialize_PropagatesStartError(t *testing.T) {
 	require.ErrorContains(t, err, "copilot failed to start")
 }
 
-func TestCopilotExecuteParallel(t *testing.T) {
-	if !enableCopilotTests {
-		t.Skip("ENABLE_COPILOT_TESTS must be set in order to run live copilot tests")
-	}
+func TestCopilotExecuteParallel_Live(t *testing.T) {
+	skipIfCopilotNotEnabled(t)
 
 	for range 5 {
 		engine := NewCopilotEngineBuilder("gpt-4o-mini", nil).Build()
@@ -260,6 +291,47 @@ func TestCopilotExecuteParallel(t *testing.T) {
 		require.NoError(t, err)
 		require.NoError(t, engine.Shutdown(context.Background()))
 	}
+}
+
+func TestCopilotNotAuthenticated(t *testing.T) {
+	t.Run("not authenticated", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		clientMock := NewMockCopilotClient(ctrl)
+
+		clientMock.EXPECT().Start(gomock.Any())
+		clientMock.EXPECT().Stop()
+		clientMock.EXPECT().GetAuthStatus(gomock.Any()).Times(1).Return(&copilot.GetAuthStatusResponse{
+			IsAuthenticated: false,
+		}, nil)
+
+		engine := NewCopilotEngineBuilder("gpt-4o-mini", &CopilotEngineBuilderOptions{
+			NewCopilotClient: func(clientOptions *copilot.ClientOptions) CopilotClient { return clientMock },
+		}).Build()
+		defer func() { require.NoError(t, engine.Shutdown(context.Background())) }()
+
+		err := engine.Initialize(context.Background())
+		require.Error(t, err)
+		require.ErrorContains(t, err, "not authenticated")
+	})
+
+	t.Run("error checking authentication status", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		clientMock := NewMockCopilotClient(ctrl)
+
+		// Start returns an error, simulating a copilot CLI that fails to start.
+		clientMock.EXPECT().Start(gomock.Any())
+		clientMock.EXPECT().Stop()
+		clientMock.EXPECT().GetAuthStatus(gomock.Any()).Times(1).Return(nil, errors.New("auth status not available or something"))
+
+		engine := NewCopilotEngineBuilder("gpt-4o-mini", &CopilotEngineBuilderOptions{
+			NewCopilotClient: func(clientOptions *copilot.ClientOptions) CopilotClient { return clientMock },
+		}).Build()
+		defer func() { require.NoError(t, engine.Shutdown(context.Background())) }()
+
+		err := engine.Initialize(context.Background())
+		require.Error(t, err)
+		require.ErrorContains(t, err, "failed to get copilot authentication status")
+	})
 }
 
 type sessionConfigMatcher struct {
@@ -321,4 +393,22 @@ func (m sessionConfigMatcher) Matches(x any) bool {
 
 func (m sessionConfigMatcher) String() string {
 	return ""
+}
+
+func newClientMock(ctrl *gomock.Controller) *MockCopilotClient {
+	clientMock := NewMockCopilotClient(ctrl)
+
+	clientMock.EXPECT().Start(gomock.Any()).AnyTimes()
+	clientMock.EXPECT().Stop().AnyTimes()
+	clientMock.EXPECT().GetAuthStatus(gomock.Any()).Return(&copilot.GetAuthStatusResponse{
+		IsAuthenticated: true,
+	}, nil).AnyTimes()
+
+	return clientMock
+}
+
+func skipIfCopilotNotEnabled(t *testing.T) {
+	if !enableLiveCopilotTests {
+		t.Skip("ENABLE_COPILOT_TESTS must be set in order to run live copilot tests")
+	}
 }

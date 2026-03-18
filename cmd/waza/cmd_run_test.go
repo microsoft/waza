@@ -2360,13 +2360,10 @@ func testWazaRun(t *testing.T, cwd string, args []string) (evalNames []string, s
 
 	// This helper derives which evals were selected by inspecting EvaluationOutcome.BenchName in the output folder.
 	ctrl := gomock.NewController(t)
-	client := NewMockCopilotClient(ctrl)
+	client := newClientMock(ctrl)
 	sess := NewMockCopilotSession(ctrl)
 
 	// currently, each run of an eval spec requires us a new copilot engine.
-	client.EXPECT().Start(gomock.Any()).AnyTimes()
-	client.EXPECT().Stop().AnyTimes()
-
 	client.EXPECT().CreateSession(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, config *copilot.SessionConfig) (execution.CopilotSession, error) {
 		require.NotEmpty(t, config.SkillDirectories, "all of our tests expect some skills to be found")
 

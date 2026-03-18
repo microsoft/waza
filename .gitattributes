@@ -3,6 +3,6 @@
 .squad/agents/*/history.md merge=union
 .squad/log/** merge=union
 .squad/orchestration-log/** merge=union
-
 # Set the default behavior, in case people don't have core.autocrlf set.
 * text=auto
+*.zst filter=lfs diff=lfs merge=lfs -text

@@ -49,7 +49,7 @@ func TestCopilotEngine_Execute_StartRespectsTimeout(t *testing.T) {
 	t.Skip("Skipping - passing a context to copilot.Start causes copilot CLI to exit")
 
 	ctrl := gomock.NewController(t)
-	clientMock := NewMockcopilotClient(ctrl)
+	clientMock := NewMockCopilotClient(ctrl)
 
 	// Simulate a Start() that blocks until its context is canceled (mimicking
 	// the copilot SDK hanging on the JSON-RPC Ping during protocol negotiation).
@@ -79,7 +79,7 @@ func TestCopilotEngine_Execute_StartRespectsTimeout(t *testing.T) {
 
 func TestCopilotEngine_Execute_CreateSessionError(t *testing.T) {
 	ctrl := gomock.NewController(t)
-	clientMock := NewMockcopilotClient(ctrl)
+	clientMock := NewMockCopilotClient(ctrl)
 
 	clientMock.EXPECT().Start(gomock.Any())
 	clientMock.EXPECT().CreateSession(gomock.Any(), gomock.Any()).Return(nil, errors.New("session create failed"))
@@ -100,8 +100,8 @@ func TestCopilotEngine_Execute_CreateSessionError(t *testing.T) {
 
 func TestCopilotEngine_Execute_SendError(t *testing.T) {
 	ctrl := gomock.NewController(t)
-	clientMock := NewMockcopilotClient(ctrl)
-	sessionMock := NewMockcopilotSession(ctrl)
+	clientMock := NewMockCopilotClient(ctrl)
+	sessionMock := NewMockCopilotSession(ctrl)
 
 	clientMock.EXPECT().Start(gomock.Any())
 	clientMock.EXPECT().CreateSession(gomock.Any(), gomock.Any()).Return(sessionMock, nil)
@@ -129,7 +129,7 @@ func TestCopilotEngine_Execute_SendError(t *testing.T) {
 
 func TestCopilotEngine_Shutdown_StopsClientAndCleansWorkspaces(t *testing.T) {
 	ctrl := gomock.NewController(t)
-	clientMock := NewMockcopilotClient(ctrl)
+	clientMock := NewMockCopilotClient(ctrl)
 
 	engine := NewCopilotEngineBuilder("test-model", &CopilotEngineBuilderOptions{
 		NewCopilotClient: func(clientOptions *copilot.ClientOptions) CopilotClient { return clientMock },

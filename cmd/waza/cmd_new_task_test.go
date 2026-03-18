@@ -173,10 +173,7 @@ func TestNewTaskFromPromptCommand_CopilotInitErrorReturned(t *testing.T) {
 
 func TestNewTaskFromPromptCommand_DiscoverErrorReturned(t *testing.T) {
 	ctrl := gomock.NewController(t)
-	client := NewMockCopilotClient(ctrl)
-
-	client.EXPECT().Start(gomock.Any())
-	client.EXPECT().Stop().Return(nil)
+	client := newClientMock(ctrl)
 
 	rootDir := t.TempDir()
 	calledRoot := ""
@@ -203,16 +200,14 @@ func TestNewTaskFromPromptCommand_DiscoverErrorReturned(t *testing.T) {
 
 func TestNewTaskFromPromptCommand_DiscoveredSkillsPassedToCopilotSession(t *testing.T) {
 	ctrl := gomock.NewController(t)
-	client := NewMockCopilotClient(ctrl)
+	client := newClientMock(ctrl)
 
 	skillDir := t.TempDir()
 
-	client.EXPECT().Start(gomock.Any())
 	client.EXPECT().CreateSession(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, cfg *copilot.SessionConfig) (execution.CopilotSession, error) {
 		assert.Contains(t, cfg.SkillDirectories, skillDir)
 		return nil, errors.New("create failed")
 	})
-	client.EXPECT().Stop().Return(nil)
 
 	cmd := newTaskFromPromptCmd(&newTaskFromPromptCmdOptions{
 		NewTaskList: func(*ux.TaskListOptions) taskList { return &fakeTaskList{runAll: true} },
@@ -236,7 +231,7 @@ func TestNewTaskFromPromptCommand_DiscoveredSkillsPassedToCopilotSession(t *test
 
 func TestNewTaskFromPromptCommand_EndToEndCreatesTaskFile(t *testing.T) {
 	ctrl := gomock.NewController(t)
-	client := NewMockCopilotClient(ctrl)
+	client := newClientMock(ctrl)
 	session := NewMockCopilotSession(ctrl)
 
 	sessionID := "session-end-to-end"
@@ -251,7 +246,6 @@ func TestNewTaskFromPromptCommand_EndToEndCreatesTaskFile(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Dir(logPath), 0o755))
 	require.NoError(t, os.WriteFile(logPath, fixtureBytes, 0o644))
 
-	client.EXPECT().Start(gomock.Any())
 	client.EXPECT().CreateSession(gomock.Any(), gomock.Any()).Return(session, nil)
 
 	session.EXPECT().On(gomock.Any()).Return(func() {}).Times(3)
@@ -260,7 +254,6 @@ func TestNewTaskFromPromptCommand_EndToEndCreatesTaskFile(t *testing.T) {
 	session.EXPECT().Disconnect().Return(nil)
 
 	client.EXPECT().DeleteSession(gomock.Any(), sessionID).Return(nil)
-	client.EXPECT().Stop().Return(nil)
 
 	outputPath := filepath.Join(t.TempDir(), "nested", "generated-task.yaml")
 
@@ -315,4 +308,16 @@ func TestNewTaskFromPromptCommand_EndToEndCreatesTaskFile(t *testing.T) {
 	}
 
 	require.Equal(t, expected, actual)
+}
+
+func newClientMock(ctrl *gomock.Controller) *MockCopilotClient {
+	clientMock := NewMockCopilotClient(ctrl)
+
+	clientMock.EXPECT().Start(gomock.Any()).AnyTimes()
+	clientMock.EXPECT().Stop().AnyTimes()
+	clientMock.EXPECT().GetAuthStatus(gomock.Any()).Return(&copilot.GetAuthStatusResponse{
+		IsAuthenticated: true,
+	}, nil).AnyTimes()
+
+	return clientMock
 }

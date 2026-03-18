@@ -27,6 +27,9 @@ type CopilotClient interface {
 	// CreateSession maps to [copilot.Client.CreateSession]
 	CreateSession(ctx context.Context, config *copilot.SessionConfig) (CopilotSession, error)
 
+	// GetAuthStatus maps to [copilot.Client.GetAuthStatus]
+	GetAuthStatus(ctx context.Context) (*copilot.GetAuthStatusResponse, error)
+
 	// Start maps to [copilot.Client.Start]
 	Start(ctx context.Context) error
 
@@ -76,6 +79,10 @@ func (w *copilotClientWrapper) Start(ctx context.Context) error {
 
 func (w *copilotClientWrapper) Stop() error {
 	return w.inner.Stop()
+}
+
+func (w *copilotClientWrapper) GetAuthStatus(ctx context.Context) (*copilot.GetAuthStatusResponse, error) {
+	return w.inner.GetAuthStatus(ctx)
 }
 
 func (w *copilotClientWrapper) DeleteSession(ctx context.Context, sessionID string) error {

@@ -10,6 +10,7 @@ require (
 	github.com/charmbracelet/huh v1.0.0
 	github.com/github/copilot-sdk/go v0.1.32
 	github.com/go-viper/mapstructure/v2 v2.5.0
+	github.com/klauspost/compress v1.18.3
 	github.com/mattn/go-runewidth v0.0.21
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2
 	github.com/spf13/cobra v1.10.2
@@ -111,4 +112,7 @@ require (
 	google.golang.org/protobuf v1.36.11 // indirect
 )
 
-tool go.uber.org/mock/mockgen
+tool (
+	github.com/github/copilot-sdk/go/cmd/bundler
+	go.uber.org/mock/mockgen
+)

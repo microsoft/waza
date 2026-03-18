@@ -152,6 +152,21 @@ func (mr *MockCopilotClientMockRecorder) DeleteSession(ctx, sessionID any) *gomo
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteSession", reflect.TypeOf((*MockCopilotClient)(nil).DeleteSession), ctx, sessionID)
 }
 
+// GetAuthStatus mocks base method.
+func (m *MockCopilotClient) GetAuthStatus(ctx context.Context) (*copilot.GetAuthStatusResponse, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetAuthStatus", ctx)
+	ret0, _ := ret[0].(*copilot.GetAuthStatusResponse)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetAuthStatus indicates an expected call of GetAuthStatus.
+func (mr *MockCopilotClientMockRecorder) GetAuthStatus(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAuthStatus", reflect.TypeOf((*MockCopilotClient)(nil).GetAuthStatus), ctx)
+}
+
 // ResumeSessionWithOptions mocks base method.
 func (m *MockCopilotClient) ResumeSessionWithOptions(ctx context.Context, sessionID string, config *copilot.ResumeSessionConfig) (execution.CopilotSession, error) {
 	m.ctrl.T.Helper()

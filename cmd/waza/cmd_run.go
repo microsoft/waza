@@ -91,8 +91,9 @@ With no arguments, uses workspace detection to find eval.yaml automatically:
 
 You can also specify a skill name to run its eval:
   waza run code-explainer`,
-		Args: cobra.MaximumNArgs(1),
-		RunE: runCommandE,
+		Args:          cobra.MaximumNArgs(1),
+		RunE:          runCommandE,
+		SilenceErrors: true,
 	}
 
 	cmd.Flags().StringVar(&contextDir, "context-dir", "", "Context directory for fixtures (default: ./fixtures relative to spec)")
@@ -219,7 +220,7 @@ func runCommandE(cmd *cobra.Command, args []string) error {
 				skillFolders = append(skillFolders, ds.Dir)
 			}
 
-			slog.Info("Workspace skills added", "skills", skillFolders, "base", skillsPath)
+			slog.Debug("Workspace skills added", "skills", skillFolders, "base", skillsPath)
 		}
 	}
 
