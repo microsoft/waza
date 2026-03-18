@@ -216,7 +216,7 @@ func TestCopilotSendAndWaitReturnsErrorInResult(t *testing.T) {
 func TestCopilotExecute_RequiredFields(t *testing.T) {
 	ctrl := gomock.NewController(t)
 
-	client := newClientMock(ctrl)
+	client := NewMockCopilotClient(ctrl)
 	// Start() should NOT be called when the request is invalid (e.g. Timeout == 0),
 	// because extractReqParams now runs before startOnce.Do.
 
@@ -299,7 +299,6 @@ func TestCopilotNotAuthenticated(t *testing.T) {
 		clientMock := NewMockCopilotClient(ctrl)
 
 		clientMock.EXPECT().Start(gomock.Any())
-		clientMock.EXPECT().Stop()
 		clientMock.EXPECT().GetAuthStatus(gomock.Any()).Times(1).Return(&copilot.GetAuthStatusResponse{
 			IsAuthenticated: false,
 		}, nil)
@@ -307,8 +306,12 @@ func TestCopilotNotAuthenticated(t *testing.T) {
 		engine := NewCopilotEngineBuilder("gpt-4o-mini", &CopilotEngineBuilderOptions{
 			NewCopilotClient: func(clientOptions *copilot.ClientOptions) CopilotClient { return clientMock },
 		}).Build()
-		defer func() { require.NoError(t, engine.Shutdown(context.Background())) }()
+		defer func() {
+			clientMock.EXPECT().Stop()
+			require.NoError(t, engine.Shutdown(context.Background()))
+		}()
 
+		clientMock.EXPECT().Stop()
 		err := engine.Initialize(context.Background())
 		require.Error(t, err)
 		require.ErrorContains(t, err, "not authenticated")
@@ -320,14 +323,17 @@ func TestCopilotNotAuthenticated(t *testing.T) {
 
 		// Start returns an error, simulating a copilot CLI that fails to start.
 		clientMock.EXPECT().Start(gomock.Any())
-		clientMock.EXPECT().Stop()
 		clientMock.EXPECT().GetAuthStatus(gomock.Any()).Times(1).Return(nil, errors.New("auth status not available or something"))
 
 		engine := NewCopilotEngineBuilder("gpt-4o-mini", &CopilotEngineBuilderOptions{
 			NewCopilotClient: func(clientOptions *copilot.ClientOptions) CopilotClient { return clientMock },
 		}).Build()
-		defer func() { require.NoError(t, engine.Shutdown(context.Background())) }()
+		defer func() {
+			clientMock.EXPECT().Stop()
+			require.NoError(t, engine.Shutdown(context.Background()))
+		}()
 
+		clientMock.EXPECT().Stop() // we fail in our init
 		err := engine.Initialize(context.Background())
 		require.Error(t, err)
 		require.ErrorContains(t, err, "failed to get copilot authentication status")
@@ -398,11 +404,12 @@ func (m sessionConfigMatcher) String() string {
 func newClientMock(ctrl *gomock.Controller) *MockCopilotClient {
 	clientMock := NewMockCopilotClient(ctrl)
 
-	clientMock.EXPECT().Start(gomock.Any()).AnyTimes()
-	clientMock.EXPECT().Stop().AnyTimes()
+	// This is the basic sequence of calls that occurs anytime a copilot engine is initialized
+	clientMock.EXPECT().Start(gomock.Any()).Times(1)
+	clientMock.EXPECT().Stop().Times(1)
 	clientMock.EXPECT().GetAuthStatus(gomock.Any()).Return(&copilot.GetAuthStatusResponse{
 		IsAuthenticated: true,
-	}, nil).AnyTimes()
+	}, nil).Times(1)
 
 	return clientMock
 }

@@ -91,6 +91,11 @@ func TestCopilotEngine_Execute_CreateSessionError(t *testing.T) {
 
 	require.NoError(t, engine.Initialize(context.Background()))
 
+	t.Cleanup(func() {
+		err := engine.client.Stop()
+		require.NoError(t, err)
+	})
+
 	resp, err := engine.Execute(context.Background(), &ExecutionRequest{Message: "hello", Timeout: time.Second})
 	require.Error(t, err)
 	assert.Nil(t, resp)
@@ -117,6 +122,11 @@ func TestCopilotEngine_Execute_SendError(t *testing.T) {
 
 	err := engine.Initialize(context.Background())
 	require.NoError(t, err)
+
+	t.Cleanup(func() {
+		err := engine.client.Stop()
+		require.NoError(t, err)
+	})
 
 	resp, err := engine.Execute(context.Background(), &ExecutionRequest{Message: "hello", Timeout: time.Second})
 	require.NoError(t, err)

@@ -2360,32 +2360,33 @@ func testWazaRun(t *testing.T, cwd string, args []string) (evalNames []string, s
 
 	// This helper derives which evals were selected by inspecting EvaluationOutcome.BenchName in the output folder.
 	ctrl := gomock.NewController(t)
-	client := newClientMock(ctrl)
-	sess := NewMockCopilotSession(ctrl)
-
-	// currently, each run of an eval spec requires us a new copilot engine.
-	client.EXPECT().CreateSession(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, config *copilot.SessionConfig) (execution.CopilotSession, error) {
-		require.NotEmpty(t, config.SkillDirectories, "all of our tests expect some skills to be found")
-
-		for _, sp := range config.SkillDirectories {
-			skillsLoaded = append(skillsLoaded, filepath.Base(sp))
-		}
-
-		return sess, nil
-	}).AnyTimes()
-
-	sessionIDCounter := &atomic.Int32{}
-
-	sess.EXPECT().SessionID().DoAndReturn(func() string {
-		id := sessionIDCounter.Add(1)
-		return fmt.Sprintf("ID: %d", id)
-	}).AnyTimes()
-	sess.EXPECT().SendAndWait(gomock.Any(), gomock.Any()).AnyTimes()
-	sess.EXPECT().On(gomock.Any()).Return(func() {}).AnyTimes()
-	sess.EXPECT().Disconnect().AnyTimes()
-	client.EXPECT().DeleteSession(gomock.Any(), gomock.Any()).AnyTimes()
 
 	newCopilotClientFn = func(clientOptions *copilot.ClientOptions) execution.CopilotClient {
+		client := newClientMock(ctrl)
+		sess := NewMockCopilotSession(ctrl)
+
+		// currently, each run of an eval spec requires us a new copilot engine.
+		client.EXPECT().CreateSession(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, config *copilot.SessionConfig) (execution.CopilotSession, error) {
+			require.NotEmpty(t, config.SkillDirectories, "all of our tests expect some skills to be found")
+
+			for _, sp := range config.SkillDirectories {
+				skillsLoaded = append(skillsLoaded, filepath.Base(sp))
+			}
+
+			return sess, nil
+		}).AnyTimes()
+
+		sessionIDCounter := &atomic.Int32{}
+
+		sess.EXPECT().SessionID().DoAndReturn(func() string {
+			id := sessionIDCounter.Add(1)
+			return fmt.Sprintf("ID: %d", id)
+		}).AnyTimes()
+		sess.EXPECT().SendAndWait(gomock.Any(), gomock.Any()).AnyTimes()
+		sess.EXPECT().On(gomock.Any()).Return(func() {}).AnyTimes()
+		sess.EXPECT().Disconnect().AnyTimes()
+		client.EXPECT().DeleteSession(gomock.Any(), gomock.Any()).AnyTimes()
+
 		return client
 	}
 

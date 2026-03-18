@@ -313,11 +313,12 @@ func TestNewTaskFromPromptCommand_EndToEndCreatesTaskFile(t *testing.T) {
 func newClientMock(ctrl *gomock.Controller) *MockCopilotClient {
 	clientMock := NewMockCopilotClient(ctrl)
 
-	clientMock.EXPECT().Start(gomock.Any()).AnyTimes()
-	clientMock.EXPECT().Stop().AnyTimes()
+	// This is the basic sequence of calls that occurs anytime a copilot engine is initialized
+	clientMock.EXPECT().Start(gomock.Any()).Times(1)
+	clientMock.EXPECT().Stop().Times(1)
 	clientMock.EXPECT().GetAuthStatus(gomock.Any()).Return(&copilot.GetAuthStatusResponse{
 		IsAuthenticated: true,
-	}, nil).AnyTimes()
+	}, nil).Times(1)
 
 	return clientMock
 }
