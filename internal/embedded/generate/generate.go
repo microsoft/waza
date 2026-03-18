@@ -15,7 +15,7 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-//go:generate go run . windows/arm64 windows/amd64 linux/arm64 linux/amd64 darwin/arm64
+//go:generate go run . windows/arm64 windows/amd64 linux/arm64 linux/amd64 darwin/arm64 darwin/amd64
 
 func main() {
 	g := errgroup.Group{}
