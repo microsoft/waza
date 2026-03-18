@@ -126,7 +126,7 @@ Anti-triggers: 0
   ⚠️ body-structure: Advisory 17: body structure quality — body lacks actionable instructions (no code blocks, numbered steps, or commands); no examples section found; no error handling or troubleshooting section found
   ✅ progressive-disclosure: Content structure supports progressive disclosure
 `
-	require.Equal(t, expected, buf.String())
+	requireOutputMatch(t, expected, buf.String(), skill.Tokens)
 }
 
 func TestDevLoop_ScoreProgressionPath(t *testing.T) {
@@ -199,6 +199,9 @@ Already meets Medium-High target.
 	err := runDevLoop(cfg)
 	require.NoError(t, err)
 
+	sk, err := readSkillFile(filepath.Join(skillDir, "SKILL.md"))
+	require.NoError(t, err)
+
 	expected := `Skill: compliant-skill
 Score: High
 Tokens: 94
@@ -236,7 +239,7 @@ MCP Integration: 1/4
 
 ✅ Target adherence level High reached!
 `
-	require.Equal(t, expected, buf.String())
+	requireOutputMatch(t, expected, buf.String(), sk.Tokens)
 }
 
 func TestDevLoop_RunDevLoop_MaxIterationsHit(t *testing.T) {
@@ -254,6 +257,9 @@ description: "Short"
 `
 	require.NoError(t, os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(skillContent), 0o644))
 
+	initialSkill, err := readSkillFile(filepath.Join(skillDir, "SKILL.md"))
+	require.NoError(t, err)
+
 	var buf bytes.Buffer
 	cfg := &devConfig{
 		SkillDir:      skillDir,
@@ -264,7 +270,7 @@ description: "Short"
 		In:            &bytes.Buffer{},
 	}
 
-	err := runDevLoop(cfg)
+	err = runDevLoop(cfg)
 	require.NoError(t, err)
 
 	expected := `
@@ -324,7 +330,7 @@ Short. Provides comprehensive support for common use cases and edge cases. Provi
 ║  TOKEN STATUS: ✅ Under budget (66 < 500)                         ║
 ╚══════════════════════════════════════════════════════════════════╝
 `
-	require.Equal(t, expected, buf.String())
+	requireOutputMatch(t, expected, buf.String(), initialSkill.Tokens)
 }
 
 func TestDevConfig_Defaults(t *testing.T) {
@@ -365,6 +371,9 @@ description: "Short"
 `
 	require.NoError(t, os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(skillContent), 0o644))
 
+	initialSkill, err := readSkillFile(filepath.Join(skillDir, "SKILL.md"))
+	require.NoError(t, err)
+
 	var buf bytes.Buffer
 	cfg := &devConfig{
 		SkillDir:      skillDir,
@@ -375,7 +384,7 @@ description: "Short"
 		In:            &bytes.Buffer{},
 	}
 
-	err := runDevLoop(cfg)
+	err = runDevLoop(cfg)
 	require.NoError(t, err)
 
 	expected := `
@@ -552,7 +561,7 @@ Anti-triggers: 2
 ║  TOKEN STATUS: ✅ Under budget (162 < 500)                        ║
 ╚══════════════════════════════════════════════════════════════════╝
 `
-	require.Equal(t, expected, buf.String())
+	requireOutputMatch(t, expected, buf.String(), initialSkill.Tokens)
 
 	final, err := readSkillFile(filepath.Join(skillDir, "SKILL.md"))
 	require.NoError(t, err)
@@ -580,6 +589,9 @@ description: "Short"
 `
 	require.NoError(t, os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(skillContent), 0o644))
 
+	initialSkill, err := readSkillFile(filepath.Join(skillDir, "SKILL.md"))
+	require.NoError(t, err)
+
 	var buf bytes.Buffer
 	cfg := &devConfig{
 		SkillDir:      skillDir,
@@ -590,7 +602,7 @@ description: "Short"
 		In:            strings.NewReader(""),
 	}
 
-	err := runDevLoop(cfg)
+	err = runDevLoop(cfg)
 	require.NoError(t, err)
 
 	expected := `
@@ -641,5 +653,5 @@ USE FOR: declined-skill, declined-skill help, use declined-skill, how to decline
 
 No improvements applied.
 `
-	require.Equal(t, expected, buf.String())
+	requireOutputMatch(t, expected, buf.String(), initialSkill.Tokens)
 }

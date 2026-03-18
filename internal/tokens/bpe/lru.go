@@ -1,5 +1,7 @@
 package bpe
 
+import "sync"
+
 type lruNode struct {
 	key   string
 	value []int
@@ -7,8 +9,9 @@ type lruNode struct {
 	prev  *lruNode
 }
 
-// LRUCache is a simple O(1) LRU cache keyed by tokenized text fragments.
+// LRUCache is a concurrent-safe O(1) LRU cache keyed by tokenized text fragments.
 type LRUCache struct {
+	mu    *sync.Mutex
 	size  int
 	nodes map[string]*lruNode
 	head  *lruNode
@@ -19,10 +22,13 @@ func NewLRUCache(size int) *LRUCache {
 	return &LRUCache{
 		size:  size,
 		nodes: map[string]*lruNode{},
+		mu:    &sync.Mutex{},
 	}
 }
 
 func (c *LRUCache) Get(key string) ([]int, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	node, ok := c.nodes[key]
 	if !ok {
 		return nil, false
@@ -32,6 +38,8 @@ func (c *LRUCache) Get(key string) ([]int, bool) {
 }
 
 func (c *LRUCache) Set(key string, value []int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	if node, ok := c.nodes[key]; ok {
 		node.value = value
 		c.moveToHead(node)

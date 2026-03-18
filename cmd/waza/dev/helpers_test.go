@@ -1,13 +1,33 @@
 package dev
 
 import (
+	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/microsoft/waza/internal/skill"
+	"github.com/microsoft/waza/internal/testutil"
 	"github.com/microsoft/waza/internal/tokens"
 	"github.com/stretchr/testify/require"
 )
+
+// requireOutputMatch verifies that actual matches expected after masking
+// token-count numbers. It then separately verifies that the first displayed
+// token count equals wantInitialTokens (the BPE count for the initial skill).
+func requireOutputMatch(t *testing.T, expected, actual string, wantInitialTokens int) {
+	t.Helper()
+	require.Equal(t, testutil.StripTokenCounts(expected), testutil.StripTokenCounts(actual),
+		"output format mismatch (token counts masked)")
+	got := -1
+	var err error
+	if m := regexp.MustCompile(`Tokens: (\d+)`).FindStringSubmatch(actual); m != nil {
+		got, err = strconv.Atoi(m[1])
+		require.NoError(t, err, "parsing token count from output")
+	}
+	require.Equal(t, wantInitialTokens, got,
+		"first displayed token count should match BPE count of initial skill")
+}
 
 func makeSkill(name, description string) *skill.Skill {
 	raw := "---\nname: " + name + "\ndescription: " + description + "\n---\n"

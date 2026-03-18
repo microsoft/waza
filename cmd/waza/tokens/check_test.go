@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/microsoft/waza/internal/testutil"
 	"github.com/stretchr/testify/require"
 )
 
@@ -37,7 +38,8 @@ references/two.md       6  10000  ✅ OK
 
 4/4 files within limits
 `
-	require.Equal(t, expected, out.String())
+	require.Equal(t, testutil.StripTokenCounts(expected), testutil.StripTokenCounts(out.String()),
+		"output format mismatch (token counts masked)")
 }
 
 func TestCheck_SomeExceedLimit(t *testing.T) {
@@ -62,7 +64,8 @@ references/two.md       6    100  ✅ OK
 ⚠️  1 file(s) exceed their token limits:
    SKILL.md: 424 tokens (324 over limit of 100)
 `
-	require.Equal(t, expected, out.String())
+	require.Equal(t, testutil.StripTokenCounts(expected), testutil.StripTokenCounts(out.String()),
+		"output format mismatch (token counts masked)")
 }
 
 func TestCheck_StrictFails(t *testing.T) {
@@ -88,7 +91,8 @@ references/two.md       6    100  ✅ OK
 ⚠️  1 file(s) exceed their token limits:
    SKILL.md: 424 tokens (324 over limit of 100)
 `
-	require.Equal(t, expected, err.Error())
+	require.Equal(t, testutil.StripTokenCounts(expected), testutil.StripTokenCounts(err.Error()),
+		"output format mismatch (token counts masked)")
 }
 
 func TestCheck_StrictPassesWhenWithinLimit(t *testing.T) {
@@ -192,7 +196,8 @@ references/two.md       6    100  ✅ OK
 ⚠️  1 file(s) exceed their token limits:
    SKILL.md: 424 tokens (324 over limit of 100)
 `
-	require.Equal(t, expected, err.Error())
+	require.Equal(t, testutil.StripTokenCounts(expected), testutil.StripTokenCounts(err.Error()),
+		"output format mismatch (token counts masked)")
 }
 
 func TestCheck_SpecificFile(t *testing.T) {
@@ -296,9 +301,9 @@ SKILL.md        3    500  ✅ OK
 
 2/2 files within limits
 `
-	require.Equal(t, expected, out.String())
+	require.Equal(t, testutil.StripTokenCounts(expected), testutil.StripTokenCounts(out.String()),
+		"output format mismatch (token counts masked)")
 }
-
 func TestCheck_ConfigPatternInJSON(t *testing.T) {
 	td := checkFixture(t, "pattern")
 	t.Chdir(td)

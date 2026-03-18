@@ -143,12 +143,11 @@ func runCount(cmd *cobra.Command, args []string) error {
 }
 
 func countTokens(counter tokens.Counter, text, relPath string) *FileResult {
-	text = strings.ReplaceAll(text, "\r\n", "\n")
 	return &FileResult{
 		Path:       filepath.ToSlash(filepath.Clean(relPath)),
 		Tokens:     counter.Count(text),
 		Characters: len(text),
-		Lines:      countLines(text),
+		Lines:      tokens.CountLines(text),
 	}
 }
 

@@ -120,9 +120,14 @@ func (s *Skill) UnmarshalText(text []byte) error {
 	s.FrontmatterNode = node
 	s.Body = body
 	s.RawContent = raw
-	s.Tokens = tokens.Estimate(raw)
+
+	counter, err := tokens.DefaultCounter()
+	if err != nil {
+		return err
+	}
+	s.Tokens = counter.Count(raw)
 	s.Characters = len(raw)
-	s.Lines = strings.Count(raw, "\n") + 1
+	s.Lines = tokens.CountLines(raw)
 	return nil
 }
 

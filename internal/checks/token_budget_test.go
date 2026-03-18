@@ -5,6 +5,7 @@ import (
 
 	"github.com/microsoft/waza/internal/scoring"
 	"github.com/microsoft/waza/internal/skill"
+	"github.com/microsoft/waza/internal/tokens"
 	"github.com/stretchr/testify/require"
 )
 
@@ -57,4 +58,37 @@ func TestTokenBudgetChecker_ZeroTokens(t *testing.T) {
 	data, ok := result.Data.(*TokenBudgetData)
 	require.True(t, ok)
 	require.Equal(t, 0, data.TokenCount)
+}
+
+func TestTokenBudgetChecker_CountsRawContentWithSharedDefaultTokenizer(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		raw  []byte
+	}{
+		{
+			name: "LF",
+			raw:  []byte("---\nname: token-budget-raw-content\ndescription: Counts raw content with the shared BPE tokenizer.\n---\n\n# Token Budget\n\nVerify that check and tokens count agree.\n"),
+		},
+		{
+			name: "CRLF",
+			raw:  []byte("---\r\nname: token-budget-raw-content\r\ndescription: Counts raw content with the shared BPE tokenizer.\r\n---\r\n\r\n# Token Budget\r\n\r\nVerify that check and tokens count agree.\r\n"),
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var sk skill.Skill
+			require.NoError(t, sk.UnmarshalText(tc.raw))
+
+			counter, err := tokens.DefaultCounter()
+			require.NoError(t, err)
+			want := counter.Count(string(tc.raw))
+
+			checker := &TokenBudgetChecker{}
+			result, err := checker.Check(sk)
+			require.NoError(t, err)
+
+			data, ok := result.Data.(*TokenBudgetData)
+			require.True(t, ok)
+			require.Equal(t, want, data.TokenCount)
+		})
+	}
 }

@@ -84,6 +84,59 @@ This is the body of the test skill.
 	assert.Contains(t, result, "Compliance Score:")
 }
 
+func TestCheckTokenBudgetMatchesTokensCountForSameSkill(t *testing.T) {
+	tmpDir := t.TempDir()
+	skillContent := strings.Join([]string{
+		"---",
+		"name: shared-token-count",
+		"description: This skill exists to prove that check and tokens count agree on the token count for the same SKILL.md file.",
+		"---",
+		"",
+		"# Shared Token Count",
+		"",
+		"1. Normalize the content.",
+		"2. Count with the default tokenizer.",
+		"3. Report the same number in both commands.",
+		"",
+		"```bash",
+		"echo consistent",
+		"```",
+		"",
+	}, "\r\n")
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "SKILL.md"), []byte(skillContent), 0644))
+
+	t.Chdir(tmpDir)
+
+	checkCmd := newRootCommand()
+	var checkOut bytes.Buffer
+	checkCmd.SetOut(&checkOut)
+	checkCmd.SetErr(&checkOut)
+	checkCmd.SetArgs([]string{"check", ".", "--format", "json"})
+	require.NoError(t, checkCmd.Execute(), checkOut.String())
+
+	var checkReport checkJSONReport
+	require.NoError(t, json.Unmarshal(checkOut.Bytes(), &checkReport), checkOut.String())
+	require.Len(t, checkReport.Skills, 1)
+
+	countCmd := newRootCommand()
+	var countOut bytes.Buffer
+	countCmd.SetOut(&countOut)
+	countCmd.SetErr(&countOut)
+	countCmd.SetArgs([]string{"tokens", "count", ".", "--format", "json"})
+	require.NoError(t, countCmd.Execute(), countOut.String())
+
+	var countReport struct {
+		Files map[string]struct {
+			Tokens int `json:"tokens"`
+		} `json:"files"`
+	}
+	require.NoError(t, json.Unmarshal(countOut.Bytes(), &countReport), countOut.String())
+
+	entry, ok := countReport.Files["SKILL.md"]
+	require.True(t, ok, "expected SKILL.md in tokens count output: %s", countOut.String())
+	require.Equal(t, entry.Tokens, checkReport.Skills[0].TokenBudget.Count)
+}
+
 func TestCheckCommandNoSkillMd(t *testing.T) {
 	tmpDir := t.TempDir()
 

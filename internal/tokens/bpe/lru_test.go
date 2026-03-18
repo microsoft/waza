@@ -1,6 +1,10 @@
 package bpe
 
-import "testing"
+import (
+	"fmt"
+	"sync"
+	"testing"
+)
 
 func TestLRUGetSet(t *testing.T) {
 	cache := NewLRUCache(3)
@@ -61,4 +65,19 @@ func TestLRUEviction(t *testing.T) {
 	if got, ok := cache.Get("key4"); !ok || got[0] != 4 {
 		t.Fatalf("expected key4=4, got %v (ok=%v)", got, ok)
 	}
+}
+
+func TestLRUConcurrentAccess(t *testing.T) {
+	cache := NewLRUCache(64)
+	var wg sync.WaitGroup
+	for i := range 16 {
+		wg.Go(func() {
+			for j := range 200 {
+				key := fmt.Sprintf("g%d-k%d", i, j)
+				cache.Set(key, []int{i, j})
+				cache.Get(key)
+			}
+		})
+	}
+	wg.Wait()
 }

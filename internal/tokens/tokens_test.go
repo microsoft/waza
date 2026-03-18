@@ -40,6 +40,14 @@ func TestEstimatingCounter(t *testing.T) {
 	}
 }
 
+func TestCountLines(t *testing.T) {
+	require.Equal(t, 0, CountLines(""))
+	require.Equal(t, 1, CountLines("one"))
+	require.Equal(t, 1, CountLines("one\n"))
+	require.Equal(t, 2, CountLines("one\ntwo"))
+	require.Equal(t, 2, CountLines("one\r\ntwo"))
+}
+
 var benchInput = strings.Repeat("The quick brown fox jumps over the lazy dog. ", 100)
 
 func BenchmarkBPECounter(b *testing.B) {

@@ -5,6 +5,7 @@ import (
 	"math"
 	"slices"
 	"strings"
+	"sync"
 
 	"github.com/microsoft/waza/internal/tokens/bpe"
 )
@@ -35,12 +36,34 @@ type Counter interface {
 	Count(text string) int
 }
 
+// CountLines returns the number of lines in text.
+// An empty string has 0 lines. A trailing newline does not count as an
+// additional line, matching wc -l for files ending with a newline.
+func CountLines(text string) int {
+	if text == "" {
+		return 0
+	}
+	n := strings.Count(text, "\n")
+	if !strings.HasSuffix(text, "\n") {
+		n++
+	}
+	return n
+}
+
+// DefaultCounter returns a shared BPE counter that is initialized once and
+// reused across calls. It is safe for concurrent use.
+var DefaultCounter = sync.OnceValues(func() (Counter, error) {
+	return newBPECounter()
+})
+
+// NewCounter returns a counter for the given tokenizer. For BPE (the default)
+// it returns the shared singleton from DefaultCounter.
 func NewCounter(tokenizer Tokenizer) (Counter, error) {
 	switch tokenizer {
 	case TokenizerEstimate:
 		return &estimatingCounter{}, nil
 	case TokenizerBPE, TokenizerDefault:
-		return newBPECounter()
+		return DefaultCounter()
 	default:
 		return nil, fmt.Errorf("unsupported tokenizer %q", tokenizer)
 	}
