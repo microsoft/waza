@@ -92,7 +92,7 @@ func TestCopilotEngine_Execute_CreateSessionError(t *testing.T) {
 	require.NoError(t, engine.Initialize(context.Background()))
 
 	t.Cleanup(func() {
-		err := engine.client.Stop()
+		err := engine.Shutdown(context.Background())
 		require.NoError(t, err)
 	})
 
@@ -108,6 +108,7 @@ func TestCopilotEngine_Execute_SendError(t *testing.T) {
 	sessionMock := NewMockCopilotSession(ctrl)
 
 	clientMock.EXPECT().CreateSession(gomock.Any(), gomock.Any()).Return(sessionMock, nil)
+	clientMock.EXPECT().DeleteSession(gomock.Any(), "session-1")
 
 	sessionMock.EXPECT().On(gomock.Any()).Return(func() {}).AnyTimes()
 	sessionMock.EXPECT().SessionID().Return("session-1")
@@ -124,7 +125,7 @@ func TestCopilotEngine_Execute_SendError(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
-		err := engine.client.Stop()
+		err := engine.Shutdown(context.Background())
 		require.NoError(t, err)
 	})
 
