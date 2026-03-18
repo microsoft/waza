@@ -25,12 +25,13 @@ Requires Go 1.26+:
 NOTE, due to the use of LFS artifacts you cannot install waza using `go install`. To install waza, outside of a normal release, you'll need to clone the repository:
 
 ```bash
-git clone github.com/microsoft/waza/cmd/waza waza
-
-# allow for git LFS-based artifacts (these are used for the embedded copilot binaries)
-git lfs install
-
+git clone https://github.com/microsoft/waza.git
 cd waza
+
+# ensure git LFS-based artifacts are available (for embedded copilot binaries)
+git lfs install
+git lfs pull
+
 go build -o waza ./cmd/waza
 ./waza <waza command line>
 ```
