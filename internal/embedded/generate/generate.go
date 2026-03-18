@@ -63,6 +63,7 @@ func main() {
 		os.Exit(1)
 	} else {
 		fmt.Println("Done, no errors")
+		fmt.Println("You must delete any older .zst or .license files, manually")
 	}
 }
 
@@ -79,6 +80,13 @@ func fixCopilotPackageInGoFile(goFile string) error {
 
 	if err != nil {
 		return fmt.Errorf("failed to rewrite %q to fix the package: %w", goFile, err)
+	}
+
+	cmd := exec.Command("gofmt", "-w", goFile)
+	stdout, err := cmd.CombinedOutput()
+
+	if err != nil {
+		return fmt.Errorf("failed to gofmt %q. output: %s: %w", goFile, stdout, err)
 	}
 
 	return nil
