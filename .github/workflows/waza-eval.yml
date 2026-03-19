@@ -90,6 +90,8 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
+        with:
+          lfs: true
       
       - name: Setup Go Environment
         uses: actions/setup-go@v5
