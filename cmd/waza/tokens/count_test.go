@@ -45,7 +45,7 @@ func TestCount_JSONFormat(t *testing.T) {
 
 	output := out.String()
 
-	var result countJSONOutput
+	var result CountJSONOutput
 	require.NoError(t, json.Unmarshal([]byte(output), &result), "invalid JSON output: %s", output)
 
 	counter, err := tokens.DefaultCounter()
@@ -118,7 +118,7 @@ func TestCount_MinTokens(t *testing.T) {
 	cmd.SetArgs([]string{"--format", "json", "--min-tokens", "100", "testdata/count"})
 	require.NoError(t, cmd.Execute())
 
-	var result countJSONOutput
+	var result CountJSONOutput
 	require.NoError(t, json.Unmarshal(out.Bytes(), &result))
 
 	for file, entry := range result.Files {
@@ -146,7 +146,7 @@ func TestCount_SpecificPath(t *testing.T) {
 	cmd.SetArgs([]string{"--format", "json", filepath.Join("testdata", "count", "SKILL.md")})
 	require.NoError(t, cmd.Execute())
 
-	var result countJSONOutput
+	var result CountJSONOutput
 	require.NoError(t, json.Unmarshal(out.Bytes(), &result))
 
 	counter, err := tokens.DefaultCounter()
@@ -173,7 +173,7 @@ func TestCount_DirectoryPath(t *testing.T) {
 	cmd.SetArgs([]string{"--format", "json", filepath.Join("testdata", "count", "references")})
 	require.NoError(t, cmd.Execute())
 
-	var result countJSONOutput
+	var result CountJSONOutput
 	require.NoError(t, json.Unmarshal(out.Bytes(), &result))
 
 	require.Equal(t, 2, result.TotalFiles)
@@ -216,7 +216,7 @@ func TestCount_AbsoluteDirectoryPath(t *testing.T) {
 	cmd.SetArgs([]string{"--format", "json", absDir})
 	require.NoError(t, cmd.Execute())
 
-	var result countJSONOutput
+	var result CountJSONOutput
 	require.NoError(t, json.Unmarshal(out.Bytes(), &result))
 
 	require.Equal(t, 2, result.TotalFiles)
@@ -233,7 +233,7 @@ func TestCount_AbsoluteFilePath(t *testing.T) {
 	cmd.SetArgs([]string{"--format", "json", absFile})
 	require.NoError(t, cmd.Execute())
 
-	var result countJSONOutput
+	var result CountJSONOutput
 	require.NoError(t, json.Unmarshal(out.Bytes(), &result))
 
 	require.Equal(t, 1, result.TotalFiles)
@@ -250,7 +250,7 @@ func TestCount_AbsoluteFilePath(t *testing.T) {
 		cmd.SetArgs([]string{"--format", "json", a, b})
 		require.NoError(t, cmd.Execute())
 
-		var result countJSONOutput
+		var result CountJSONOutput
 		require.NoError(t, json.Unmarshal(out.Bytes(), &result))
 
 		require.Equal(t, 2, result.TotalFiles)

@@ -42,14 +42,14 @@ tokenizer provides a faster, less accurate estimate based on character count.`,
 	return cmd
 }
 
-type countJSONOutput struct {
+type CountJSONOutput struct {
 	GeneratedAt string                    `json:"generatedAt"`
 	TotalTokens int                       `json:"totalTokens"`
 	TotalFiles  int                       `json:"totalFiles"`
-	Files       map[string]countFileEntry `json:"files"`
+	Files       map[string]CountFileEntry `json:"files"`
 }
 
-type countFileEntry struct {
+type CountFileEntry struct {
 	Tokens     int `json:"tokens"`
 	Characters int `json:"characters"`
 	Lines      int `json:"lines"`
@@ -201,18 +201,18 @@ func outputCountTable(w io.Writer, results []FileResult, showTotal bool) {
 }
 
 func outputCountJSON(w io.Writer, results []FileResult) error {
-	files := make(map[string]countFileEntry, len(results))
+	files := make(map[string]CountFileEntry, len(results))
 	totalTokens := 0
 	for _, r := range results {
 		totalTokens += r.Tokens
-		files[r.Path] = countFileEntry{
+		files[r.Path] = CountFileEntry{
 			Tokens:     r.Tokens,
 			Characters: r.Characters,
 			Lines:      r.Lines,
 		}
 	}
 
-	out := countJSONOutput{
+	out := CountJSONOutput{
 		GeneratedAt: nowISO(),
 		TotalTokens: totalTokens,
 		TotalFiles:  len(results),

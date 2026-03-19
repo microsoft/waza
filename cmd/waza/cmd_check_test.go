@@ -10,6 +10,7 @@ import (
 	"testing"
 	"unicode/utf8"
 
+	"github.com/microsoft/waza/cmd/waza/tokens"
 	"github.com/microsoft/waza/internal/scaffold"
 	"github.com/microsoft/waza/internal/scoring"
 	"github.com/microsoft/waza/internal/validation"
@@ -125,11 +126,7 @@ func TestCheckTokenBudgetMatchesTokensCountForSameSkill(t *testing.T) {
 	countCmd.SetArgs([]string{"tokens", "count", ".", "--format", "json"})
 	require.NoError(t, countCmd.Execute(), countOut.String())
 
-	var countReport struct {
-		Files map[string]struct {
-			Tokens int `json:"tokens"`
-		} `json:"files"`
-	}
+	var countReport tokens.CountJSONOutput
 	require.NoError(t, json.Unmarshal(countOut.Bytes(), &countReport), countOut.String())
 
 	entry, ok := countReport.Files["SKILL.md"]
