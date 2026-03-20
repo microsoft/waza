@@ -34,7 +34,7 @@ waza run [eval.yaml | skill-name]
 |------|-------|------|---------|-------------|
 | `--context-dir` | `-c` | string | `./fixtures` | Fixtures directory path |
 | `--output` | `-o` | string | | Save results JSON to file |
-| `--output-dir` | `-d` | string | | Save output artifacts to directory |
+| `--output-dir` | `-d` | string | | Directory for structured output; each run creates a UTC-timestamped subdirectory (e.g., `<output-dir>/2025-06-15T103045.123/model.json`). Mutually exclusive with `--output`. |
 | `--verbose` | `-v` | bool | false | Detailed progress output |
 | `--parallel` | | bool | false | Run tasks concurrently |
 | `--workers` | `-w` | int | 4 | Number of concurrent workers |

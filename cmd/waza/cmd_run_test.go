@@ -1928,16 +1928,30 @@ func TestRunCommand_OutputDirSingleSkill(t *testing.T) {
 	err := cmd.Execute()
 	require.NoError(t, err)
 
-	// Verify output directory was created with a result JSON file
+	// Find a timestamped subdirectory (e.g. 2025-06-15T103045.000)
 	entries, err := os.ReadDir(outDir)
 	require.NoError(t, err)
-	require.NotEmpty(t, entries, "expected output files in --output-dir")
 
-	// Find and validate the JSON result file
-	var found bool
+	var runDir string
 	for _, e := range entries {
+		if e.IsDir() && len(e.Name()) >= len("2006-01-02T150405") {
+			if _, terr := time.Parse("2006-01-02T150405", e.Name()[:len("2006-01-02T150405")]); terr == nil {
+				runDir = filepath.Join(outDir, e.Name())
+				break
+			}
+		}
+	}
+	require.NotEmpty(t, runDir, "expected a timestamped subdirectory in --output-dir")
+
+	// Find and validate the JSON result file inside the timestamped subdirectory
+	runEntries, err := os.ReadDir(runDir)
+	require.NoError(t, err)
+	require.NotEmpty(t, runEntries, "expected output files in run subdirectory")
+
+	var found bool
+	for _, e := range runEntries {
 		if filepath.Ext(e.Name()) == ".json" {
-			data, err := os.ReadFile(filepath.Join(outDir, e.Name()))
+			data, err := os.ReadFile(filepath.Join(runDir, e.Name()))
 			require.NoError(t, err)
 			var outcome models.EvaluationOutcome
 			require.NoError(t, json.Unmarshal(data, &outcome))
@@ -1945,11 +1959,12 @@ func TestRunCommand_OutputDirSingleSkill(t *testing.T) {
 			found = true
 		}
 	}
-	assert.True(t, found, "expected at least one .json result in output dir")
+	assert.True(t, found, "expected at least one .json result in run subdirectory")
 }
 
 func TestWriteOutputDir_SingleSkill(t *testing.T) {
 	dir := t.TempDir()
+	fixedTime := time.Date(2025, 6, 15, 10, 30, 45, 0, time.UTC)
 
 	// Single skill with single model
 	results := []skillRunResult{
@@ -1969,11 +1984,14 @@ func TestWriteOutputDir_SingleSkill(t *testing.T) {
 		},
 	}
 
-	err := writeOutputDir(dir, results)
+	err := writeOutputDirAt(dir, results, fixedTime)
 	require.NoError(t, err)
 
-	// Single-skill mode: files written directly to output dir
-	resultPath := filepath.Join(dir, "gpt-4o.json")
+	// Single-skill mode: files written inside timestamped run directory
+	runDir := filepath.Join(dir, "2025-06-15T103045.000")
+	assert.DirExists(t, runDir)
+
+	resultPath := filepath.Join(runDir, "gpt-4o.json")
 	assert.FileExists(t, resultPath)
 
 	// Verify JSON content
@@ -1987,6 +2005,7 @@ func TestWriteOutputDir_SingleSkill(t *testing.T) {
 
 func TestWriteOutputDir_MultiSkill(t *testing.T) {
 	dir := t.TempDir()
+	fixedTime := time.Date(2025, 6, 15, 10, 30, 45, 0, time.UTC)
 
 	// Multi-skill with multiple models
 	results := []skillRunResult{
@@ -2020,12 +2039,13 @@ func TestWriteOutputDir_MultiSkill(t *testing.T) {
 		},
 	}
 
-	err := writeOutputDir(dir, results)
+	err := writeOutputDirAt(dir, results, fixedTime)
 	require.NoError(t, err)
 
-	// Multi-skill mode: subdirectories created per skill
-	explainerDir := filepath.Join(dir, "code-explainer")
-	reviewerDir := filepath.Join(dir, "code-reviewer")
+	// Multi-skill mode: timestamped run dir with skill subdirectories
+	runDir := filepath.Join(dir, "2025-06-15T103045.000")
+	explainerDir := filepath.Join(runDir, "code-explainer")
+	reviewerDir := filepath.Join(runDir, "code-reviewer")
 
 	assert.DirExists(t, explainerDir)
 	assert.DirExists(t, reviewerDir)
@@ -2046,6 +2066,7 @@ func TestWriteOutputDir_MultiSkill(t *testing.T) {
 
 func TestWriteOutputDir_SanitizesPaths(t *testing.T) {
 	dir := t.TempDir()
+	fixedTime := time.Date(2025, 6, 15, 10, 30, 45, 0, time.UTC)
 
 	// Skill and model names with special chars
 	// Multi-skill to test subdirectory creation
@@ -2074,16 +2095,49 @@ func TestWriteOutputDir_SanitizesPaths(t *testing.T) {
 		},
 	}
 
-	err := writeOutputDir(dir, results)
+	err := writeOutputDirAt(dir, results, fixedTime)
 	require.NoError(t, err)
 
-	// Paths should be sanitized
-	explainerDir := filepath.Join(dir, "code-explainer")
-	reviewerDir := filepath.Join(dir, "code-reviewer")
+	// Paths should be sanitized, inside timestamped run dir
+	runDir := filepath.Join(dir, "2025-06-15T103045.000")
+	explainerDir := filepath.Join(runDir, "code-explainer")
+	reviewerDir := filepath.Join(runDir, "code-reviewer")
 	assert.DirExists(t, explainerDir)
 	assert.DirExists(t, reviewerDir)
 	assert.FileExists(t, filepath.Join(explainerDir, "gpt-4o-latest.json"))
 	assert.FileExists(t, filepath.Join(reviewerDir, "claude-sonnet.json"))
+}
+
+func TestWriteOutputDir_RepeatRunsDoNotCollide(t *testing.T) {
+	dir := t.TempDir()
+
+	results := []skillRunResult{
+		{
+			skillName: "code-explainer",
+			outcomes: []modelResult{
+				{
+					modelID: "gpt-4o",
+					outcome: &models.EvaluationOutcome{
+						Digest: models.OutcomeDigest{TotalTests: 3, Succeeded: 2},
+					},
+				},
+			},
+		},
+	}
+
+	t1 := time.Date(2025, 6, 15, 10, 30, 45, 0, time.UTC)
+	t2 := time.Date(2025, 6, 15, 11, 0, 0, 0, time.UTC)
+
+	require.NoError(t, writeOutputDirAt(dir, results, t1))
+	require.NoError(t, writeOutputDirAt(dir, results, t2))
+
+	// Both timestamped subdirectories should exist independently
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	require.Len(t, entries, 2, "expected two timestamped subdirectories")
+
+	assert.FileExists(t, filepath.Join(dir, "2025-06-15T103045.000", "gpt-4o.json"))
+	assert.FileExists(t, filepath.Join(dir, "2025-06-15T110000.000", "gpt-4o.json"))
 }
 
 // ---------------------------------------------------------------------------

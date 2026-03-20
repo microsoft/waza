@@ -252,6 +252,7 @@ Run an evaluation benchmark from a spec file.
 |------|-------|-------------|
 | `--context-dir <dir>` | | Fixture directory (default: `./fixtures` relative to spec) |
 | `--output <file>` | `-o` | Save results to JSON |
+| `--output-dir <dir>` | | Directory for structured output; each run creates a UTC-timestamped subdirectory (e.g., `<dir>/2025-06-15T103045.123/model.json`). Mutually exclusive with `--output`. |
 | `--verbose` | `-v` | Detailed progress output |
 | `--transcript-dir <dir>` | | Save per-task transcript JSON files |
 | `--task <glob>` | | Filter tasks by name/ID pattern (repeatable) |

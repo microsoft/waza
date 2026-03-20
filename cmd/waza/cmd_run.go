@@ -98,7 +98,7 @@ You can also specify a skill name to run its eval:
 
 	cmd.Flags().StringVar(&contextDir, "context-dir", "", "Context directory for fixtures (default: ./fixtures relative to spec)")
 	cmd.Flags().StringVarP(&outputPath, "output", "o", "", "Output JSON file for results")
-	cmd.Flags().StringVar(&outputDir, "output-dir", "", "Directory for structured output (mutually exclusive with --output)")
+	cmd.Flags().StringVar(&outputDir, "output-dir", "", "Directory for structured output; each run creates a UTC-timestamped subdirectory. Mutually exclusive with --output.")
 	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Verbose output with detailed progress")
 	cmd.Flags().StringVar(&transcriptDir, "transcript-dir", "", "Directory to save per-task transcript JSON files")
 	cmd.Flags().StringArrayVar(&taskFilters, "task", nil, "Filter tasks by name/ID glob pattern (can be repeated).")
@@ -1488,10 +1488,17 @@ func saveSummary(summary *models.MultiSkillSummary, path string) error {
 }
 
 // writeOutputDir writes results to a structured directory hierarchy.
-// For multi-skill runs: {outputDir}/{skillName}/{modelName}.json
-// For single-skill runs: {outputDir}/{modelName}.json
+// Each run creates a timestamped subdirectory to avoid overwriting previous results.
+// For multi-skill runs: {outputDir}/{timestamp}/{skillName}/{modelName}.json
+// For single-skill runs: {outputDir}/{timestamp}/{modelName}.json
 func writeOutputDir(dir string, results []skillRunResult) error {
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	return writeOutputDirAt(dir, results, time.Now())
+}
+
+// writeOutputDirAt is the testable core of writeOutputDir, accepting a timestamp.
+func writeOutputDirAt(dir string, results []skillRunResult, now time.Time) error {
+	runDir := filepath.Join(dir, now.UTC().Format("2006-01-02T150405.000"))
+	if err := os.MkdirAll(runDir, 0755); err != nil {
 		return fmt.Errorf("create output directory: %w", err)
 	}
 
@@ -1506,16 +1513,16 @@ func writeOutputDir(dir string, results []skillRunResult) error {
 			var outPath string
 			if multiSkill {
 				// Multi-skill: create skill subdirectory
-				skillDir := filepath.Join(dir, sanitizePathSegment(skillResult.skillName))
+				skillDir := filepath.Join(runDir, sanitizePathSegment(skillResult.skillName))
 				if err := os.MkdirAll(skillDir, 0755); err != nil {
 					return fmt.Errorf("create skill directory %s: %w", skillDir, err)
 				}
 				modelFile := sanitizePathSegment(mr.modelID) + ".json"
 				outPath = filepath.Join(skillDir, modelFile)
 			} else {
-				// Single-skill: write directly to output dir
+				// Single-skill: write directly to run dir
 				modelFile := sanitizePathSegment(mr.modelID) + ".json"
-				outPath = filepath.Join(dir, modelFile)
+				outPath = filepath.Join(runDir, modelFile)
 			}
 
 			if err := saveOutcome(mr.outcome, outPath); err != nil {
