@@ -1,0 +1,9 @@
+id: tc-git-wt
+name: Git Worktree
+inputs:
+  prompt: "test prompt"
+  repos:
+    - type: worktree
+      source: /tmp/repo
+      commit: main
+      dest: wt-di

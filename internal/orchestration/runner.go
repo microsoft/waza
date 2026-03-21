@@ -2,9 +2,11 @@ package orchestration
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -473,16 +475,38 @@ func (r *TestRunner) printSkillImpactReport(withSkills, withoutSkills *models.Ev
 	fmt.Println("════════════════════════════════════════════════════════════════")
 }
 
-func (r *TestRunner) loadTestCases() ([]*models.TestCase, error) {
+func (r *TestRunner) loadTestCases() ([]*ExecutableTestCase, error) {
 	spec := r.cfg.Spec()
 
+	var testCases []*models.TestCase
+
 	// CSV dataset path: generate tasks from CSV rows
-	if spec.TasksFrom != "" {
-		return r.loadTestCasesFromCSV()
+	testCases, err := func() ([]*models.TestCase, error) {
+		if spec.TasksFrom != "" {
+			return r.loadTestCasesFromCSV()
+		}
+		return r.loadTestCasesFromFiles()
+	}()
+
+	if err != nil {
+		return nil, err
 	}
 
-	// Fall through to existing Tasks []string behavior
-	return r.loadTestCasesFromFiles()
+	var executableTestCases []*ExecutableTestCase
+	var errs []error
+
+	for _, tc := range testCases {
+		etc, err := NewExecutableTestCase(tc, r.cfg.FixtureDir())
+
+		if err != nil {
+			errs = append(errs, err)
+			continue
+		}
+
+		executableTestCases = append(executableTestCases, etc)
+	}
+
+	return executableTestCases, errors.Join(errs...)
 }
 
 // loadTestCasesFromCSV generates in-memory TestCases from CSV rows.
@@ -681,7 +705,7 @@ func (r *TestRunner) validateRequiredSkills() error {
 	return nil
 }
 
-func (r *TestRunner) runSequential(ctx context.Context, testCases []*models.TestCase) []models.TestOutcome {
+func (r *TestRunner) runSequential(ctx context.Context, testCases []*ExecutableTestCase) []models.TestOutcome {
 	outcomes := make([]models.TestOutcome, 0, len(testCases))
 	spec := r.cfg.Spec()
 
@@ -731,8 +755,9 @@ func (r *TestRunner) runSequential(ctx context.Context, testCases []*models.Test
 		})
 
 		taskStart := time.Now()
+
 		outcome, wasCached := r.runTest(ctx, tc, i+1, len(testCases))
-		r.writeTaskTranscript(tc, outcome, taskStart)
+		r.writeTaskTranscript(tc.TestCase, outcome, taskStart)
 		outcomes = append(outcomes, outcome)
 
 		// Run after_task hooks
@@ -766,7 +791,7 @@ func (r *TestRunner) runSequential(ctx context.Context, testCases []*models.Test
 	return outcomes
 }
 
-func (r *TestRunner) runConcurrent(ctx context.Context, testCases []*models.TestCase) []models.TestOutcome {
+func (r *TestRunner) runConcurrent(ctx context.Context, testCases []*ExecutableTestCase) []models.TestOutcome {
 	// Simple concurrent implementation
 	spec := r.cfg.Spec()
 	workers := spec.Config.Workers
@@ -786,7 +811,7 @@ func (r *TestRunner) runConcurrent(ctx context.Context, testCases []*models.Test
 
 	for i, tc := range testCases {
 		wg.Add(1)
-		go func(idx int, test *models.TestCase) {
+		go func(idx int, test *ExecutableTestCase) {
 			defer wg.Done()
 
 			semaphore <- struct{}{}
@@ -822,7 +847,7 @@ func (r *TestRunner) runConcurrent(ctx context.Context, testCases []*models.Test
 
 			taskStart := time.Now()
 			outcome, wasCached := r.runTest(ctx, test, idx+1, len(testCases))
-			r.writeTaskTranscript(test, outcome, taskStart)
+			r.writeTaskTranscript(test.TestCase, outcome, taskStart)
 			resultChan <- result{index: idx, outcome: outcome}
 
 			// Run after_task hooks
@@ -867,12 +892,12 @@ func (r *TestRunner) runConcurrent(ctx context.Context, testCases []*models.Test
 	return results
 }
 
-func (r *TestRunner) runTest(ctx context.Context, tc *models.TestCase, testNum, totalTests int) (models.TestOutcome, bool) {
+func (r *TestRunner) runTest(ctx context.Context, tc *ExecutableTestCase, testNum, totalTests int) (models.TestOutcome, bool) {
 	spec := r.cfg.Spec()
 
 	// Check cache if enabled
 	if r.cache != nil {
-		cacheKey, err := cache.CacheKey(spec, tc, r.cfg.FixtureDir())
+		cacheKey, err := cache.CacheKey(spec, tc.TestCase, r.cfg.FixtureDir())
 		if err == nil {
 			if cachedOutcome, found := r.cache.Get(cacheKey); found {
 				// Return cached outcome with cached flag
@@ -904,7 +929,7 @@ func (r *TestRunner) writeTaskTranscript(tc *models.TestCase, outcome models.Tes
 	}
 }
 
-func (r *TestRunner) runTestUncached(ctx context.Context, tc *models.TestCase, testNum, totalTests int) models.TestOutcome {
+func (r *TestRunner) runTestUncached(ctx context.Context, tc *ExecutableTestCase, testNum, totalTests int) models.TestOutcome {
 	spec := r.cfg.Spec()
 	runsPerTest := spec.Config.TrialsPerTask
 	maxAttempts := spec.Config.MaxAttempts
@@ -926,7 +951,8 @@ func (r *TestRunner) runTestUncached(ctx context.Context, tc *models.TestCase, t
 
 		var run models.RunResult
 		for attempt := 1; attempt <= maxAttempts; attempt++ {
-			run = r.executeRun(ctx, tc, runNum)
+			run = r.executeRun(ctx, tc, runNum) // NOTE: make sure the outer 'run' var is assigned to!
+
 			run.Attempts = attempt
 
 			// If all graders passed or this is an infrastructure error, stop retrying
@@ -999,10 +1025,9 @@ func overallStatus(runs []models.RunResult) models.Status {
 	return status
 }
 
-func (r *TestRunner) executeRun(ctx context.Context, tc *models.TestCase, runNum int) models.RunResult {
+func (r *TestRunner) executeRun(ctx context.Context, tc *ExecutableTestCase, runNum int) models.RunResult {
 	startTime := time.Now()
 
-	// Prepare execution request
 	req := r.buildExecutionRequest(tc)
 
 	// Emit agent prompt event before execution
@@ -1040,14 +1065,14 @@ func (r *TestRunner) executeRun(ctx context.Context, tc *models.TestCase, runNum
 	}
 
 	// Build validation context
-	vCtx := r.buildGraderContext(tc, resp)
+	vCtx := r.buildGraderContext(tc.TestCase, resp)
 
 	var gradersResults map[string]models.GraderResults
 	if r.skipGraders {
 		gradersResults = make(map[string]models.GraderResults)
 	} else {
 		var err error
-		gradersResults, err = r.runGraders(ctx, tc, vCtx)
+		gradersResults, err = r.runGraders(ctx, tc.TestCase, vCtx)
 
 		if err != nil {
 			return models.RunResult{
@@ -1117,10 +1142,8 @@ func (r *TestRunner) executeRun(ctx context.Context, tc *models.TestCase, runNum
 	}
 }
 
-func (r *TestRunner) buildExecutionRequest(tc *models.TestCase) *execution.ExecutionRequest {
-	// Load resource files
-	resources := r.loadResources(tc)
-
+func (r *TestRunner) buildExecutionRequest(tc *ExecutableTestCase) *execution.ExecutionRequest {
+	// Load resource files (file and inline resources)
 	spec := r.cfg.Spec()
 	timeout := spec.Config.TimeoutSec
 	if tc.TimeoutSec != nil {
@@ -1131,25 +1154,61 @@ func (r *TestRunner) buildExecutionRequest(tc *models.TestCase) *execution.Execu
 	resolvedSkillPaths := utils.ResolvePaths(spec.Config.SkillPaths, r.cfg.SpecDir())
 
 	return &execution.ExecutionRequest{
-		Message:    tc.Stimulus.Message,
-		Context:    tc.Stimulus.Metadata,
-		Resources:  resources,
-		SkillName:  spec.SkillName,
-		SkillPaths: resolvedSkillPaths,
-		Timeout:    time.Duration(timeout) * time.Second,
+		Message:      tc.Stimulus.Message,
+		Context:      tc.Stimulus.Metadata,
+		Resources:    tc.ResourceFiles,
+		GitResources: tc.GitResources,
+		SkillName:    spec.SkillName,
+		SkillPaths:   resolvedSkillPaths,
+		Timeout:      time.Duration(timeout) * time.Second,
 	}
 }
 
-func (r *TestRunner) loadResources(tc *models.TestCase) []execution.ResourceFile {
+// ExecutableTestCase is a test case that has done basic checks to ensure that file system
+// paths that are referenced exist.
+type ExecutableTestCase struct {
+	*models.TestCase
+
+	// ResourceFiles are files that will be copied into the workspace
+	ResourceFiles []execution.ResourceFile
+
+	// GitResources are git repos that will be cloned/created into the workspace
+	GitResources []models.GitResource
+}
+
+func NewExecutableTestCase(tc *models.TestCase, fallbackFixtureDir string) (*ExecutableTestCase, error) {
+	resourceFiles, gitResources, err := loadResources(tc, fallbackFixtureDir)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return &ExecutableTestCase{
+		TestCase:      tc,
+		ResourceFiles: resourceFiles,
+		GitResources:  gitResources,
+	}, nil
+}
+
+func loadResources(tc *models.TestCase, defaultFixtureDir string) ([]execution.ResourceFile, []models.GitResource, error) {
 	var resources []execution.ResourceFile
+	var gitResources []models.GitResource
 
 	// Determine fixture directory (for loading resource files)
-	fixtureDir := r.cfg.FixtureDir()
+	fixtureDir := defaultFixtureDir
+
 	if tc.ContextRoot != "" {
 		fixtureDir = tc.ContextRoot
 	}
 
+	var errs []error
+
 	for _, ref := range tc.Stimulus.Resources {
+		if err := ref.Validate(); err != nil {
+			errs = append(errs, fmt.Errorf("invalid resource: %w", err))
+			continue
+		}
+
 		if ref.Body != "" {
 			// Inline content
 			resources = append(resources, execution.ResourceFile{
@@ -1159,40 +1218,33 @@ func (r *TestRunner) loadResources(tc *models.TestCase) []execution.ResourceFile
 		} else if ref.Location != "" && fixtureDir != "" {
 			// Load from file - validate path to prevent directory traversal
 			if filepath.IsAbs(ref.Location) {
-				fmt.Fprintf(os.Stderr, "Warning: absolute resource path %q rejected\n", ref.Location)
+				errs = append(errs, fmt.Errorf("resource path %q cannot be absolute", ref.Location))
 				continue
 			}
 
-			cleanPath := filepath.Clean(ref.Location)
-			if strings.Contains(cleanPath, "..") {
-				fmt.Fprintf(os.Stderr, "Warning: resource path %q contains '..' and is rejected\n", ref.Location)
-				continue
-			}
-
-			fullPath := filepath.Join(fixtureDir, cleanPath)
+			fullPath := filepath.Join(fixtureDir, filepath.Clean(ref.Location))
 
 			// Ensure the resolved path is still within fixtureDir
 			absFixtureDir, err := filepath.Abs(fixtureDir)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "Warning: failed to get absolute path for fixture dir: %v\n", err)
+				errs = append(errs, fmt.Errorf("failed to get absolute path for fixture dir %q: %v", fixtureDir, err))
 				continue
 			}
 
 			absFullPath, err := filepath.Abs(fullPath)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "Warning: failed to get absolute path for resource: %v\n", err)
+				errs = append(errs, fmt.Errorf("failed to get absolute path for resource %q: %w", fullPath, err))
 				continue
 			}
 
 			if !strings.HasPrefix(absFullPath, absFixtureDir+string(filepath.Separator)) {
-				fmt.Fprintf(os.Stderr, "Warning: resource path %q escapes fixture directory\n", ref.Location)
+				errs = append(errs, fmt.Errorf("resource path %q escapes fixture directory", ref.Location))
 				continue
 			}
 
 			content, err := os.ReadFile(fullPath)
 			if err != nil {
-				// Log error but continue - let the test fail if resource is critical
-				fmt.Fprintf(os.Stderr, "Warning: failed to load resource file %s: %v\n", fullPath, err)
+				errs = append(errs, fmt.Errorf("failed to load resource file %s: %w", fullPath, err))
 				continue
 			}
 			resources = append(resources, execution.ResourceFile{
@@ -1202,7 +1254,22 @@ func (r *TestRunner) loadResources(tc *models.TestCase) []execution.ResourceFile
 		}
 	}
 
-	return resources
+	for _, repo := range tc.Stimulus.Repos {
+		switch repo.Type {
+		case models.GitTypeWorktree:
+			sourceDir := filepath.Join(filepath.Dir(tc.Path), filepath.FromSlash(repo.Source))
+
+			if err := validateGitSourceDir(context.Background(), sourceDir); err != nil {
+				errs = append(errs, fmt.Errorf("%q source dir is invalid: %w", repo.Source, err))
+			} else {
+				gitResources = append(gitResources, repo)
+			}
+		default:
+			errs = append(errs, fmt.Errorf("%q is not a valid repo type", repo.Type))
+		}
+	}
+
+	return resources, gitResources, errors.Join(errs...)
 }
 
 func (r *TestRunner) buildGraderContext(tc *models.TestCase, resp *execution.ExecutionResponse) *graders.Context {
@@ -1269,4 +1336,28 @@ func (r *TestRunner) resolveGroup() string {
 		fmt.Printf("[WARN] unknown group_by value %q, grouping disabled\n", spec.Config.GroupBy)
 		return ""
 	}
+}
+
+func validateGitSourceDir(ctx context.Context, source string) error {
+	stat, err := os.Stat(source)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("source path %q does not exist", source)
+		}
+		return fmt.Errorf("unable to inspect source path %q: %w", source, err)
+	}
+
+	if !stat.IsDir() {
+		return fmt.Errorf("source path %q is not a directory", source)
+	}
+
+	// even though it says 'work-tree', it's not just worktrees - it'll work in any non-bare git repo.
+	cmd := exec.CommandContext(ctx, "git", "rev-parse", "--is-inside-work-tree")
+	cmd.Dir = source
+
+	if _, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("source path %q is not a git repository: %w", source, err)
+	}
+
+	return nil
 }

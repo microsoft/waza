@@ -897,6 +897,57 @@ config:
   max_attempts: 3  # Retry failed graders up to 3 times (default: 1, no retries)
 ```
 
+### Git Resources
+
+Task inputs can reference git repositories as resources, checked out at a specific commit. This is useful for testing against real codebases without manually preparing fixture directories.
+
+```yaml
+# Task YAML
+inputs:
+  prompt: "Fix the bug in server.go"
+  workdir: my-repo                  # agent starts inside this subdirectory
+  files:
+    # Existing resource types still work:
+    - path: helpers/utils.js              # file from context_dir
+    - content: "package main\n..."        # inline content
+
+  repos:
+    # Git resource — checkout a commit from a local repo
+    - type: worktree                 # required (currently only worktree is supported)
+      source: /path/to/local/repo    # required for worktree strategy
+      commit: abc123def
+      dest: my-repo                  # optional: subdirectory in workspace
+```
+
+**`workdir`** (optional): A relative path within the workspace to use as the agent's working directory. When a git resource is checked out into a subdirectory via `dest`, set `workdir` to that subdirectory so the agent starts inside the repo. Must not escape the workspace root.
+
+    **Strategy support:**
+
+| Strategy | Use Case | Mechanism |
+|---|---|---|
+| `worktree` | Already inside the target repo; very cheap, no network | `git worktree add` |
+
+**Fields:**
+
+| Field | Required | Description |
+|---|---|---|
+| `type` | Yes | Currently only `worktree` |
+| `source` | Yes | Local folder where the git repository resides |
+| `commit` | No | Commit SHA, branch, or tag. Defaults to HEAD |
+| `dest` | No | Subdirectory name in workspace. Omit to use workspace root |
+
+**Examples:**
+
+```yaml
+# Worktree strategy — cheap checkout from local repo
+- type: worktree
+  source: /path/to/local/repo
+  commit: feature-branch
+  dest: feature
+```
+
+Worktrees are automatically cleaned up after each task via `git worktree remove`.
+
 When a grader fails, waza will retry the task execution up to `max_attempts` times. The evaluation outcome includes an `attempts` field showing how many executions were needed to pass. This is useful for handling transient failures in external services or non-deterministic grader behavior.
 
 **Output:** JSON results include `attempts` per task showing the number of executions performed.

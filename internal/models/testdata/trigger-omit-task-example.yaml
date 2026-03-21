@@ -1,0 +1,4 @@
+id: tc-trigger-omit
+name: Trigger Omitted
+inputs:
+  prompt: "test prompt"

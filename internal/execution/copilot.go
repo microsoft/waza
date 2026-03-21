@@ -25,8 +25,14 @@ type CopilotEngine struct {
 
 	startOnce sync.Once
 
-	workspacesMu sync.Mutex
-	workspaces   []string // workspaces to clean up at Shutdown
+	// resourcesMu protects workspaces and worktrees
+	resourcesMu sync.Mutex
+	// workspaces are temp folders - each test run gets a unique one, and it's removed at Shutdown.
+	workspaces []string
+	// gitResources that will be cleaned up at Shutdown.
+	// NOTE: in some cases there is some bookkeeping information (like with git workspaces) so cleanup
+	// must be called before the workspace is deleted.
+	gitResources []GitResource
 
 	// sessions maps session IDs to copilotSessions
 	sessions   map[string]CopilotSession
@@ -137,7 +143,7 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 
 	start := time.Now()
 
-	workspaceDir, err := e.setupWorkspace(req.Resources)
+	workspaceDir, err := e.setupWorkspace(ctx, req.Resources, req.GitResources)
 
 	if err != nil {
 		return nil, err
@@ -289,23 +295,32 @@ func (e *CopilotEngine) doShutdown(ctx context.Context) error {
 		return fmt.Errorf("failed to stop client: %w", err)
 	}
 
-	// remove the workspace folders - should be safe now that all the copilot sessions are shut down
-	// and the tests are complete.
-	workspaces := func() []string {
-		e.workspacesMu.Lock()
-		defer e.workspacesMu.Unlock()
+	workspaces, gitResources := func() ([]string, []GitResource) {
+		e.resourcesMu.Lock()
+		defer e.resourcesMu.Unlock()
+		worktrees := e.gitResources
+		e.gitResources = nil
+
 		workspaces := e.workspaces
 		e.workspaces = nil
-		return workspaces
+
+		return workspaces, worktrees
 	}()
 
+	// Clean up worktrees before removing workspaces (worktrees may be inside workspace dirs)
+	for _, wt := range gitResources {
+		if err := wt.Cleanup(ctx); err != nil {
+			slog.Warn("failed to cleanup git resource", "error", err)
+		}
+	}
+
+	// remove the workspace folders - should be safe now that all the copilot sessions are shut down
+	// and the tests are complete.
 	for _, ws := range workspaces {
-		if ws != "" {
-			if err := os.RemoveAll(ws); err != nil {
-				// errors here probably indicate some issue with our code continuing to lock files
-				// even after tests have completed...
-				slog.Warn("failed to cleanup stale workspace", "path", ws, "error", err)
-			}
+		if err := os.RemoveAll(ws); err != nil {
+			// errors here probably indicate some issue with our code continuing to lock files
+			// even after tests have completed...
+			slog.Warn("failed to cleanup stale workspace", "path", ws, "error", err)
 		}
 	}
 
@@ -376,20 +391,30 @@ func (*CopilotEngine) getSkillDirs(cwd string, req *ExecutionRequest) []string {
 	return skillDirs
 }
 
-func (e *CopilotEngine) setupWorkspace(resources []ResourceFile) (string, error) {
+func (e *CopilotEngine) setupWorkspace(ctx context.Context, resources []ResourceFile, gitResources []models.GitResource) (string, error) {
 	workspaceDir, err := os.MkdirTemp("", "waza-*")
 
 	if err != nil {
 		return "", fmt.Errorf("failed to create temp workspace: %w", err)
 	}
 
-	e.workspacesMu.Lock()
+	e.resourcesMu.Lock()
 	e.workspaces = append(e.workspaces, workspaceDir)
-	e.workspacesMu.Unlock()
+	e.resourcesMu.Unlock()
 
 	// Write resource files to workspace
 	if err := setupWorkspaceResources(workspaceDir, resources); err != nil {
 		return "", fmt.Errorf("failed to setup resources at workspace %s: %w", workspaceDir, err)
+	}
+
+	wts, err := CloneGitResources(ctx, gitResources, workspaceDir)
+	if err != nil {
+		return "", err
+	}
+	if len(wts) > 0 {
+		e.resourcesMu.Lock()
+		e.gitResources = append(e.gitResources, wts...)
+		e.resourcesMu.Unlock()
 	}
 
 	return workspaceDir, nil

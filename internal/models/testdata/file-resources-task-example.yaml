@@ -1,0 +1,6 @@
+id: tc-path
+name: Path Only
+inputs:
+  prompt: "test prompt"
+  files:
+    - path: helpers.js

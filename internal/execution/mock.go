@@ -3,6 +3,7 @@ package execution
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"sync"
 	"sync/atomic"
@@ -14,10 +15,11 @@ import (
 
 // MockEngine is a simple mock implementation for testing
 type MockEngine struct {
-	modelID    string
-	workspace  string
-	mtx        *sync.Mutex
-	initCalled atomic.Bool
+	modelID      string
+	workspace    string
+	gitResources []GitResource
+	mtx          *sync.Mutex
+	initCalled   atomic.Bool
 }
 
 // NewMockEngine creates a new mock engine
@@ -64,6 +66,13 @@ func (m *MockEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Execu
 		return nil, fmt.Errorf("failed to setup mock workspace resources: %w", err)
 	}
 
+	// Materialize git resources
+	wts, err := CloneGitResources(ctx, req.GitResources, m.workspace)
+	if err != nil {
+		return nil, fmt.Errorf("failed to materialize git resource in mock workspace: %w", err)
+	}
+	m.gitResources = append(m.gitResources, wts...)
+
 	// Simple mock response
 	output := fmt.Sprintf("Mock response for: %s", req.Message)
 
@@ -86,6 +95,13 @@ func (m *MockEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Execu
 }
 
 func (m *MockEngine) Shutdown(ctx context.Context) error {
+	for _, gr := range m.gitResources {
+		if err := gr.Cleanup(ctx); err != nil {
+			slog.Warn("failed to cleanup worktree", "error", err)
+		}
+	}
+	m.gitResources = nil
+
 	if m.workspace != "" {
 		if err := os.RemoveAll(m.workspace); err != nil {
 			return fmt.Errorf("failed to remove mock workspace %s: %w", m.workspace, err)

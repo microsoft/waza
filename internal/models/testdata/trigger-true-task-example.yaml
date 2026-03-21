@@ -1,0 +1,6 @@
+id: tc-trigger-true
+name: Trigger True
+inputs:
+  prompt: "test prompt"
+expected:
+  should_trigger: true

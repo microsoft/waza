@@ -2,6 +2,8 @@ package execution
 
 import (
 	"context"
+	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -30,10 +32,11 @@ type AgentEngine interface {
 
 // ExecutionRequest represents a test execution request
 type ExecutionRequest struct {
-	ModelID   string
-	Message   string
-	Context   map[string]any
-	Resources []ResourceFile
+	ModelID      string
+	Message      string
+	Context      map[string]any
+	Resources    []ResourceFile
+	GitResources []models.GitResource
 
 	SessionID string
 	SkillName string
@@ -52,6 +55,24 @@ type ExecutionRequest struct {
 type ResourceFile struct {
 	Path    string
 	Content []byte
+}
+
+// ResolveWorkDir returns the effective working directory for the agent session.
+// If workDir is empty, the workspace root is returned. Otherwise workDir is
+// joined to the workspace root after verifying it doesn't escape via path
+// traversal.
+func ResolveWorkDir(workspaceDir, workDir string) (string, error) {
+	if workDir == "" {
+		return workspaceDir, nil
+	}
+
+	resolved := filepath.Join(workspaceDir, workDir)
+	// Prevent traversal outside the workspace (e.g. workDir = "../../etc")
+	rel, err := filepath.Rel(workspaceDir, resolved)
+	if err != nil || strings.HasPrefix(rel, "..") {
+		return "", fmt.Errorf("workdir %q escapes the workspace", workDir)
+	}
+	return resolved, nil
 }
 
 type SkillInvocation struct {

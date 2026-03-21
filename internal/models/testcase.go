@@ -19,6 +19,8 @@ type TestCase struct {
 	TestID      string            `yaml:"id" json:"test_id"`
 	TimeoutSec  *int              `yaml:"timeout_seconds,omitempty" json:"timeout_sec,omitempty"`
 	Validators  []ValidatorInline `yaml:"graders,omitempty" json:"validators,omitempty"`
+
+	Path string `yaml:"-" json:"-"`
 }
 
 // TestStimulus defines the input for a test
@@ -26,13 +28,56 @@ type TestStimulus struct {
 	Message     string            `yaml:"prompt" json:"message"`
 	Metadata    map[string]any    `yaml:"context,omitempty" json:"metadata,omitempty"`
 	Resources   []ResourceRef     `yaml:"files,omitempty" json:"resources,omitempty"`
+	Repos       []GitResource     `yaml:"repos,omitempty" json:"repos,omitempty"`
 	Environment map[string]string `yaml:"environment,omitempty" json:"environment,omitempty"`
 }
 
-// ResourceRef points to a file or inline content
+// GitType defines how a git resource is acquired.
+type GitType string
+
+const (
+	// GitTypeWorktree uses `git worktree add`, a cheap clone that works from a local repository that's already
+	// on disk.
+	GitTypeWorktree GitType = "worktree"
+)
+
+func AllGitStrategies() []string {
+	return []string{
+		string(GitTypeWorktree),
+	}
+}
+
+// GitResource specifies a git repository at a particular commit as a task input.
+// The repo is always auto-detected from the current working directory.
+type GitResource struct {
+	// Commit is the git commit we will start the git clone at
+	// Empty string just defaults to HEAD.
+	Commit string `yaml:"commit,omitempty" json:"commit,omitempty"`
+
+	// Type is the kind of git cloning we're doing.
+	Type GitType `yaml:"type" json:"type"`
+
+	// Source varies, depending on the type.
+	// - For 'worktree', Source is the folder where the git repository resides.
+	Source string `yaml:"source" json:"source"`
+
+	// Dest is the destination, relative to the final workspace created for the testcase run
+	// An empty dest will create the worktree at workspace, instead of as a subdirectory.
+	Dest string `yaml:"dest,omitempty" json:"dest,omitempty"`
+}
+
+// ResourceRef points to a file path and/or inline content.
 type ResourceRef struct {
 	Location string `yaml:"path,omitempty" json:"location,omitempty"`
 	Body     string `yaml:"content,omitempty" json:"body,omitempty"`
+}
+
+// Validate checks that at least one file reference field is specified.
+func (r *ResourceRef) Validate() error {
+	if r.Location == "" && r.Body == "" {
+		return fmt.Errorf("resource must specify one of: path or content")
+	}
+	return nil
 }
 
 // TestExpectation defines expected outcomes
@@ -117,6 +162,8 @@ func LoadTestCase(path string) (*TestCase, error) {
 	if err := yaml.Unmarshal(data, &tc); err != nil {
 		return nil, err
 	}
+
+	tc.Path = path
 
 	// Note: Active field defaults to nil when not specified in YAML.
 	// The runner treats nil as true (enabled by default).

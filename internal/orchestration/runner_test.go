@@ -89,8 +89,11 @@ func TestBuildExecutionRequest_SkillPaths(t *testing.T) {
 			// Create runner (engine can be nil for this test)
 			runner := NewTestRunner(cfg, nil)
 
+			etc, err := NewExecutableTestCase(tc, cfg.FixtureDir())
+			require.NoError(t, err)
+
 			// Build execution request
-			req := runner.buildExecutionRequest(tc)
+			req := runner.buildExecutionRequest(etc)
 
 			// Verify skill paths
 			require.NotNil(t, req, "execution request should not be nil")
@@ -136,8 +139,11 @@ func TestBuildExecutionRequest_BasicFields(t *testing.T) {
 		},
 	}
 
+	etc, err := NewExecutableTestCase(tc, cfg.FixtureDir())
+	require.NoError(t, err)
+
 	runner := NewTestRunner(cfg, nil)
-	req := runner.buildExecutionRequest(tc)
+	req := runner.buildExecutionRequest(etc)
 
 	// Verify basic fields
 	assert.Equal(t, "Hello world", req.Message)
@@ -174,7 +180,11 @@ func TestBuildExecutionRequest_TimeoutOverride(t *testing.T) {
 	}
 
 	runner := NewTestRunner(cfg, nil)
-	req := runner.buildExecutionRequest(tc)
+
+	etc, err := NewExecutableTestCase(tc, cfg.FixtureDir())
+	require.NoError(t, err)
+
+	req := runner.buildExecutionRequest(etc)
 
 	// Verify timeout is overridden
 	assert.Equal(t, float64(300), req.Timeout.Seconds(), "test case timeout should override spec timeout")

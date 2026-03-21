@@ -8,12 +8,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func sampleCases() []*models.TestCase {
-	return []*models.TestCase{
-		{TestID: "tc-001", DisplayName: "Create a REST API", Tags: []string{"fast", "red"}},
-		{TestID: "tc-002", DisplayName: "Fix login bug", Tags: []string{"fast", "blue"}},
-		{TestID: "tc-003", DisplayName: "Create a CLI tool", Tags: []string{"medium", "green"}},
-		{TestID: "tc-004", DisplayName: "Optimize SQL query", Tags: []string{"slow", "chartreuse"}},
+func sampleCases() []*ExecutableTestCase {
+	return []*ExecutableTestCase{
+		{TestCase: &models.TestCase{TestID: "tc-001", DisplayName: "Create a REST API", Tags: []string{"fast", "red"}}},
+		{TestCase: &models.TestCase{TestID: "tc-002", DisplayName: "Fix login bug", Tags: []string{"fast", "blue"}}},
+		{TestCase: &models.TestCase{TestID: "tc-003", DisplayName: "Create a CLI tool", Tags: []string{"medium", "green"}}},
+		{TestCase: &models.TestCase{TestID: "tc-004", DisplayName: "Optimize SQL query", Tags: []string{"slow", "chartreuse"}}},
 	}
 }
 
@@ -156,7 +156,7 @@ func TestFilterTestCases_TagsAndTasks_Intersection(t *testing.T) {
 	}
 }
 
-func testCaseIDs(testCases []*models.TestCase) []string {
+func testCaseIDs(testCases []*ExecutableTestCase) []string {
 	var ids []string
 	for _, tc := range testCases {
 		ids = append(ids, tc.TestID)

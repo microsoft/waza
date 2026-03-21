@@ -1,0 +1,6 @@
+id: tc-trigger-false
+name: Trigger False
+inputs:
+  prompt: "test prompt"
+expected:
+  should_trigger: false
