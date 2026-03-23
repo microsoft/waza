@@ -48,7 +48,6 @@ func AllGitStrategies() []string {
 }
 
 // GitResource specifies a git repository at a particular commit as a task input.
-// The repo is always auto-detected from the current working directory.
 type GitResource struct {
 	// Commit is the git commit we will start the git clone at
 	// Empty string just defaults to HEAD.
@@ -58,7 +57,7 @@ type GitResource struct {
 	Type GitType `yaml:"type" json:"type"`
 
 	// Source varies, depending on the type.
-	// - For 'worktree', Source is the folder where the git repository resides.
+	// - For 'worktree', Source is the folder where the git repository resides. If empty, uses the current directory.
 	Source string `yaml:"source" json:"source"`
 
 	// Dest is the destination, relative to the final workspace created for the testcase run
