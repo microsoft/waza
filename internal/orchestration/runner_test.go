@@ -1,6 +1,7 @@
 package orchestration
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -89,7 +90,7 @@ func TestBuildExecutionRequest_SkillPaths(t *testing.T) {
 			// Create runner (engine can be nil for this test)
 			runner := NewTestRunner(cfg, nil)
 
-			etc, err := NewExecutableTestCase(tc, cfg.FixtureDir())
+			etc, err := NewExecutableTestCase(context.Background(), tc, cfg.FixtureDir())
 			require.NoError(t, err)
 
 			// Build execution request
@@ -139,7 +140,7 @@ func TestBuildExecutionRequest_BasicFields(t *testing.T) {
 		},
 	}
 
-	etc, err := NewExecutableTestCase(tc, cfg.FixtureDir())
+	etc, err := NewExecutableTestCase(context.Background(), tc, cfg.FixtureDir())
 	require.NoError(t, err)
 
 	runner := NewTestRunner(cfg, nil)
@@ -181,7 +182,7 @@ func TestBuildExecutionRequest_TimeoutOverride(t *testing.T) {
 
 	runner := NewTestRunner(cfg, nil)
 
-	etc, err := NewExecutableTestCase(tc, cfg.FixtureDir())
+	etc, err := NewExecutableTestCase(context.Background(), tc, cfg.FixtureDir())
 	require.NoError(t, err)
 
 	req := runner.buildExecutionRequest(etc)

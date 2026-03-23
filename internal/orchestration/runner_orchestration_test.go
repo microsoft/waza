@@ -361,7 +361,7 @@ func TestLoadResources_PathValidation(t *testing.T) {
 	}
 
 	// One of those interesting functions that returns an error and a result...
-	resources, gitResources, err := loadResources(testCase, cfg.FixtureDir())
+	resources, gitResources, err := loadResources(context.Background(), testCase, cfg.FixtureDir())
 
 	require.Contains(t, err.Error(), "missing.txt: no such file or directory")
 	require.Contains(t, err.Error(), "absolute.txt\" cannot be absolute")
@@ -490,7 +490,7 @@ func TestRunTest_CacheHitAndTranscriptWrite(t *testing.T) {
 		},
 	}
 
-	etc, err := NewExecutableTestCase(testCase, cfg.FixtureDir())
+	etc, err := NewExecutableTestCase(context.Background(), testCase, cfg.FixtureDir())
 	require.NoError(t, err)
 
 	err = runner.engine.Initialize(context.Background())

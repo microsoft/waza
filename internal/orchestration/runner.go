@@ -219,7 +219,7 @@ func (r *TestRunner) runNormalBenchmark(ctx context.Context) (*models.Evaluation
 	}
 
 	// Load test cases
-	testCases, err := r.loadTestCases()
+	testCases, err := r.loadTestCases(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load test cases: %w", err)
 	}
@@ -475,7 +475,7 @@ func (r *TestRunner) printSkillImpactReport(withSkills, withoutSkills *models.Ev
 	fmt.Println("════════════════════════════════════════════════════════════════")
 }
 
-func (r *TestRunner) loadTestCases() ([]*ExecutableTestCase, error) {
+func (r *TestRunner) loadTestCases(ctx context.Context) ([]*ExecutableTestCase, error) {
 	spec := r.cfg.Spec()
 
 	var testCases []*models.TestCase
@@ -496,7 +496,7 @@ func (r *TestRunner) loadTestCases() ([]*ExecutableTestCase, error) {
 	var errs []error
 
 	for _, tc := range testCases {
-		etc, err := NewExecutableTestCase(tc, r.cfg.FixtureDir())
+		etc, err := NewExecutableTestCase(ctx, tc, r.cfg.FixtureDir())
 
 		if err != nil {
 			errs = append(errs, err)
@@ -1176,8 +1176,8 @@ type ExecutableTestCase struct {
 	GitResources []models.GitResource
 }
 
-func NewExecutableTestCase(tc *models.TestCase, fallbackFixtureDir string) (*ExecutableTestCase, error) {
-	resourceFiles, gitResources, err := loadResources(tc, fallbackFixtureDir)
+func NewExecutableTestCase(ctx context.Context, tc *models.TestCase, fallbackFixtureDir string) (*ExecutableTestCase, error) {
+	resourceFiles, gitResources, err := loadResources(ctx, tc, fallbackFixtureDir)
 
 	if err != nil {
 		return nil, err
@@ -1190,7 +1190,7 @@ func NewExecutableTestCase(tc *models.TestCase, fallbackFixtureDir string) (*Exe
 	}, nil
 }
 
-func loadResources(tc *models.TestCase, defaultFixtureDir string) ([]execution.ResourceFile, []models.GitResource, error) {
+func loadResources(ctx context.Context, tc *models.TestCase, defaultFixtureDir string) ([]execution.ResourceFile, []models.GitResource, error) {
 	var resources []execution.ResourceFile
 	var gitResources []models.GitResource
 
@@ -1259,7 +1259,7 @@ func loadResources(tc *models.TestCase, defaultFixtureDir string) ([]execution.R
 		case models.GitTypeWorktree:
 			sourceDir := filepath.Join(filepath.Dir(tc.Path), filepath.FromSlash(repo.Source))
 
-			if err := validateGitSourceDir(context.Background(), sourceDir); err != nil {
+			if err := validateGitSourceDir(ctx, sourceDir); err != nil {
 				errs = append(errs, fmt.Errorf("%q source dir is invalid: %w", repo.Source, err))
 			} else {
 				gitResources = append(gitResources, repo)
