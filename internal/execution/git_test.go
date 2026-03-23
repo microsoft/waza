@@ -18,10 +18,10 @@ func TestCloneGitResource_WorktreeType(t *testing.T) {
 	destName := "wt-test"
 
 	gitRes := &models.GitResource{
-		Commit: commitSHA,
-		Type:   models.GitTypeWorktree,
-		Source: repoDir,
-		Dest:   destName,
+		Commit:       commitSHA,
+		Type:         models.GitTypeWorktree,
+		Source:       repoDir,
+		RelativeDest: destName,
 	}
 
 	ctx := context.Background()
@@ -50,9 +50,9 @@ func TestCloneGitResource_WorktreeDetachHEAD(t *testing.T) {
 	destName := "wt-detach"
 
 	gitRes := &models.GitResource{
-		Type:   models.GitTypeWorktree,
-		Source: repoDir,
-		Dest:   destName,
+		Type:         models.GitTypeWorktree,
+		Source:       repoDir,
+		RelativeDest: destName,
 	}
 
 	ctx := context.Background()
@@ -73,10 +73,10 @@ func TestCloneGitResource_UnsupportedType(t *testing.T) {
 	workspaceDir := t.TempDir()
 
 	gitRes := &models.GitResource{
-		Commit: commitSHA,
-		Type:   "clone",
-		Source: "/tmp/repo",
-		Dest:   "clone-test",
+		Commit:       commitSHA,
+		Type:         "clone",
+		Source:       "/tmp/repo",
+		RelativeDest: "clone-test",
 	}
 
 	ctx := context.Background()
@@ -90,9 +90,9 @@ func TestCloneGitResource_SourceDoesNotExist(t *testing.T) {
 	missingDir := filepath.Join(t.TempDir(), "missing-repo")
 
 	gitRes := &models.GitResource{
-		Type:   models.GitTypeWorktree,
-		Source: missingDir,
-		Dest:   "wt-test",
+		Type:         models.GitTypeWorktree,
+		Source:       missingDir,
+		RelativeDest: "wt-test",
 	}
 
 	_, err := CloneGitResource(context.Background(), *gitRes, workspaceDir)
@@ -106,9 +106,9 @@ func TestCloneGitResource_SourceIsNotDirectory(t *testing.T) {
 	require.NoError(t, os.WriteFile(notDir, []byte("not a dir"), 0o644))
 
 	gitRes := &models.GitResource{
-		Type:   models.GitTypeWorktree,
-		Source: notDir,
-		Dest:   "wt-test",
+		Type:         models.GitTypeWorktree,
+		Source:       notDir,
+		RelativeDest: "wt-test",
 	}
 
 	_, err := CloneGitResource(context.Background(), *gitRes, workspaceDir)
@@ -121,9 +121,9 @@ func TestCloneGitResource_SourceIsNotGitRepo(t *testing.T) {
 	nonRepoDir := t.TempDir()
 
 	gitRes := &models.GitResource{
-		Type:   models.GitTypeWorktree,
-		Source: nonRepoDir,
-		Dest:   "wt-test",
+		Type:         models.GitTypeWorktree,
+		Source:       nonRepoDir,
+		RelativeDest: "wt-test",
 	}
 
 	_, err := CloneGitResource(context.Background(), *gitRes, workspaceDir)
@@ -176,6 +176,24 @@ func TestResolveWorkDir(t *testing.T) {
 			assert.Equal(t, tt.want, got)
 		})
 	}
+}
+
+func TestCreateGitResources(t *testing.T) {
+	workspaceDir := t.TempDir()
+	repoDir, _ := mustCreateRepo(t)
+
+	resources := []models.GitResource{
+		{Commit: "", Type: models.GitTypeWorktree, Source: repoDir, RelativeDest: "dest"},
+
+		// will fail since we already have a worktree at 'dest'
+		{Commit: "", Type: models.GitTypeWorktree, Source: repoDir, RelativeDest: "dest"},
+	}
+
+	createdResources, err := CloneGitResources(context.Background(), resources, workspaceDir)
+	require.Error(t, err)
+	require.Empty(t, createdResources)
+	
+	require.NoDirExists(t, filepath.Join(workspaceDir, "dest"))
 }
 
 // mustCreateRepo creates a repo with a single commit, with 'test.txt' in the root (contents: "hello world")

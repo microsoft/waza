@@ -60,9 +60,9 @@ type GitResource struct {
 	// - For 'worktree', Source is the folder where the git repository resides. If empty, uses the current directory.
 	Source string `yaml:"source" json:"source"`
 
-	// Dest is the destination, relative to the final workspace created for the testcase run
+	// RelativeDest is the destination, relative to the final workspace created for the testcase run
 	// An empty dest will create the worktree at workspace, instead of as a subdirectory.
-	Dest string `yaml:"dest,omitempty" json:"dest,omitempty"`
+	RelativeDest string `yaml:"dest,omitempty" json:"dest,omitempty"`
 }
 
 // ResourceRef points to a file path and/or inline content.

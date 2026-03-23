@@ -28,8 +28,8 @@ func CloneGitResource(ctx context.Context, gitRes models.GitResource, workspaceD
 	case models.GitTypeWorktree:
 		targetDir := workspaceDir
 
-		if gitRes.Dest != "" {
-			targetDir = filepath.Join(workspaceDir, gitRes.Dest)
+		if gitRes.RelativeDest != "" {
+			targetDir = filepath.Join(workspaceDir, gitRes.RelativeDest)
 		}
 
 		// Only worktree is supported; Validate() already enforces this.
@@ -44,8 +44,18 @@ type GitResource interface {
 }
 
 // CloneGitResources materializes all git resources into the workspace.
-func CloneGitResources(ctx context.Context, gitResources []models.GitResource, workspaceDir string) ([]GitResource, error) {
-	var createdResources []GitResource
+func CloneGitResources(ctx context.Context, gitResources []models.GitResource, workspaceDir string) (createdResources []GitResource, err error) {
+	defer func() {
+		if err != nil {
+			// we've got to unroll all the worktrees we created - partial creation isn't acceptable
+			for _, res := range createdResources {
+				// best effort.
+				_ = res.Cleanup(ctx)
+			}
+
+			createdResources = nil
+		}
+	}()
 
 	for i := range gitResources {
 		gr, err := CloneGitResource(ctx, gitResources[i], workspaceDir)
