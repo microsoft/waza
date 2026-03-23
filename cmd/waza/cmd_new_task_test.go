@@ -272,6 +272,7 @@ func TestNewTaskFromPromptCommand_EndToEndCreatesTaskFile(t *testing.T) {
 	require.NoError(t, err)
 
 	expected := &models.TestCase{
+		Path:        outputPath,
 		DisplayName: "auto-generated",
 		TestID:      "auto-generated",
 		Tags:        []string{"auto-generated"},
