@@ -97,7 +97,7 @@ func TestCloneGitResource_SourceDoesNotExist(t *testing.T) {
 
 	_, err := CloneGitResource(context.Background(), *gitRes, workspaceDir)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "does not exist")
+	assert.Contains(t, err.Error(), "no such file or directory")
 }
 
 func TestCloneGitResource_SourceIsNotDirectory(t *testing.T) {
