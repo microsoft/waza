@@ -113,7 +113,7 @@ func TestCloneGitResource_SourceIsNotDirectory(t *testing.T) {
 
 	_, err := CloneGitResource(context.Background(), *gitRes, workspaceDir)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "is not a directory")
+	assert.Contains(t, err.Error(), "not a directory")
 }
 
 func TestCloneGitResource_SourceIsNotGitRepo(t *testing.T) {
