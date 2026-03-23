@@ -191,7 +191,11 @@ func mustCreateRepo(t *testing.T) (repoDir string, headCommitSHA string) {
 	_, err = runGitCommand(context.Background(), repoDir, "add", "hello.txt")
 	require.NoError(t, err)
 
-	_, err = runGitCommand(context.Background(), repoDir, "commit", "-m", "first and only file", "hello.txt")
+	_, err = runGitCommand(context.Background(), repoDir,
+		"-c", "user.name=waza",
+		"-c", "user.email=waza",
+		"commit",
+		"-m", "first and only file", "hello.txt")
 	require.NoError(t, err)
 
 	// Get commit SHA
