@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.24.0] - 2026-03-25
+
+### Changed
+
+- **Strict YAML validation** — All YAML parsers now use `KnownFields(true)` to reject unknown fields, catching typos and misconfigurations early (#132, #133)
+- **`max_workers` renamed to `workers`** — Config YAML key renamed for consistency across all config types (**breaking change**)
+- **Unified token counting** — `waza check` and `waza tokens count` now share the same counting logic for consistent results (#146)
+
+### Fixed
+
+- **Typo in prompt grader** — Fixed "prmopt" → "prompt" in error message
+
+### Dependencies
+
+- Bump h3 from 1.15.8 to 1.15.9 in /site (#155)
+- Bump github.com/buger/jsonparser from 1.1.1 to 1.1.2 (#149)
+
 ## [0.21.0] - 2026-03-12
 
 ### Added
@@ -288,7 +305,8 @@ pip install waza
 - YAML escaping for regex patterns with backslashes
 - Progress bar now shows 100% on completion
 
-[Unreleased]: https://github.com/microsoft/waza/compare/azd-ext-microsoft-azd-waza_0.21.0...HEAD
+[Unreleased]: https://github.com/microsoft/waza/compare/azd-ext-microsoft-azd-waza_0.24.0...HEAD
+[0.24.0]: https://github.com/microsoft/waza/compare/azd-ext-microsoft-azd-waza_0.23.0...azd-ext-microsoft-azd-waza_0.24.0
 [0.21.0]: https://github.com/microsoft/waza/compare/azd-ext-microsoft-azd-waza_0.20.0...azd-ext-microsoft-azd-waza_0.21.0
 [0.9.0]: https://github.com/microsoft/waza/compare/v0.8.0...azd-ext-microsoft-azd-waza_0.20.0
 [0.8.0]: https://github.com/microsoft/waza/compare/v0.4.0-alpha.1...v0.8.0
