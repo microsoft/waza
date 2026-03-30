@@ -268,6 +268,16 @@ Run an evaluation benchmark from a spec file.
 | `--discover` | | Auto skill discovery — walks directory tree for SKILL.md + eval.yaml (root/tests/evals) |
 | `--strict` | | Fail if any SKILL.md lacks eval coverage (use with `--discover`) |
 | `--suggest` | | Generate a Copilot suggestion report based on test outcomes (`mock` engine emits a deterministic fake report) |
+| `--output-dir <dir>` | | Directory for structured output; each run creates a UTC timestamped subdirectory. Mutually exclusive with `--output`. |
+| `--tags <patterns>` | | Filter tasks by tags, using glob patterns (repeatable) |
+| `--model <name>` | | Override model (repeatable for multi-model comparison) |
+| `--recommend` | | Generate heuristic recommendation after multi-model run |
+| `--judge-model <model>` | | Model for LLM-as-judge graders (overrides execution model) |
+| `--session-log` | | Enable session event logging (NDJSON) |
+| `--session-dir <dir>` | | Directory for session log files (default: current directory) |
+| `--no-summary` | | Skip writing combined summary.json for multi-skill runs |
+| `--update-snapshots` | | Update or create diff grader snapshot files to match current output |
+| `--skip-graders` | | Skip grading (execution only); grade later with `waza grade` |
 
 **Result Caching**
 
@@ -638,6 +648,27 @@ Run graders against agent output without executing an agent. Designed for standa
 ```bash
 waza run eval.yaml --output results.json
 waza grade eval.yaml --results results.json
+```
+
+### `waza session list`
+
+List session event logs in a directory.
+
+| Flag | Description |
+|------|-------------|
+| `--dir <dir>` | Directory to search for session logs (default: `.`) |
+
+```bash
+waza session list
+waza session list --dir ./sessions
+```
+
+### `waza session view <session-file>`
+
+Render a session timeline from an NDJSON event log.
+
+```bash
+waza session view session-2025-06-15.ndjson
 ```
 
 ## Cloud Storage

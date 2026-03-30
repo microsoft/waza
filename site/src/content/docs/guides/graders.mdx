@@ -3,7 +3,7 @@ title: Graders
 description: Complete reference for all 12 grader types — how they work, configuration options, and real-world examples.
 ---
 
-<!-- cspell:ignore astrojs fastapi -->
+{/* cspell:ignore astrojs fastapi */}
 
 import { Aside, Tabs, TabItem } from "@astrojs/starlight/components";
 
@@ -42,8 +42,8 @@ waza ships with **several built-in grader types**. Pick the right one for the jo
 | [Action Sequence](#action-sequence-action_sequence)    | `action_sequence`  | Tool call ordering and completeness                  |
 | [Skill Invocation](#skill-invocation-skill_invocation) | `skill_invocation` | Which skills were invoked and in what order          |
 | [Program](#program)                                    | `program`          | External command (any language) grades via exit code |
-| [Tool Constraint](#tool-constraint)                    | `tool_constraint`  | Tool Constraint                                      |
-| [Trigger](#trigger)                                    | `trigger`          | Trigger                                              |
+| [Tool Constraint](#tool-constraint)                    | `tool_constraint`  | Validate tool usage constraints (expect/reject lists and argument patterns) |
+| [Trigger](#trigger)                                    | `trigger`          | Heuristic grader for validating whether a prompt should activate a skill   |
 
 ---
 

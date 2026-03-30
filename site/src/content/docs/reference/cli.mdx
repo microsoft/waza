@@ -52,6 +52,14 @@ waza run [eval.yaml | skill-name]
 | `--update-snapshots` | | bool | false | Update or create `diff` grader snapshot files to match current workspace output |
 | `--discover` | | string | | Auto skill discovery — walks directory tree for SKILL.md + eval.yaml (root/tests/evals) |
 | `--strict` | | bool | false | Fail if any SKILL.md lacks eval coverage (use with `--discover`) |
+| `--suggest` | | bool | false | Generate a Copilot suggestion report based on test outcomes |
+| `--recommend` | | bool | false | Generate heuristic recommendation after multi-model run |
+| `--session-log` | | bool | false | Enable session event logging (NDJSON) |
+| `--session-dir` | | string | `.` | Directory for session log files |
+| `--no-summary` | | bool | false | Skip combined summary.json for multi-skill runs |
+| `--skip-graders` | | bool | false | Skip grading (execution only); grade later with `waza grade` |
+| `--transcript-dir` | | string | | Save per-task transcript JSON files |
+| `--no-cache` | | bool | false | Explicitly disable result caching |
 
 ### Examples
 
@@ -98,6 +106,16 @@ waza run --discover ./skills/
 
 # Auto discovery with strict mode (fail if any SKILL.md lacks eval coverage)
 waza run --discover --strict ./skills/
+
+# Skip grading, then grade separately
+waza run eval.yaml --skip-graders -o results.json
+waza grade eval.yaml --results results.json
+
+# Session event logging
+waza run eval.yaml --session-log --session-dir ./logs
+
+# Multi-model comparison with recommendation
+waza run eval.yaml --model gpt-4o --model claude-sonnet-4.6 --recommend
 ```
 
 ## waza init
@@ -548,6 +566,65 @@ Iteratively:
 5. Re-scores
 6. Repeats until target reached
 
+## waza grade
+
+Re-grade previous evaluation results without re-executing the agent.
+
+```bash
+waza grade <eval.yaml>
+```
+
+### Flags
+
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `--results` | | string | | **Required.** Path to `waza run` output JSON |
+| `--task` | | string | | Grade a specific task ID only |
+| `--workspace` | | string | `.` | Agent workspace directory for file-based graders |
+| `--judge-model` | | string | | Model for prompt graders (overrides execution model) |
+| `--output` | `-o` | string | | Write full EvaluationOutcome JSON |
+| `--verbose` | `-v` | bool | false | Verbose output |
+
+### Examples
+
+```bash
+# Grade all tasks from a previous run
+waza grade eval.yaml --results results.json
+
+# Grade a specific task
+waza grade eval.yaml --results results.json --task "basic-function"
+
+# Use a different judge model
+waza grade eval.yaml --results results.json --judge-model claude-opus-4.6
+
+# Save graded results for comparison
+waza grade eval.yaml --results results.json -o graded.json
+```
+
+## waza session
+
+Manage and inspect session event logs.
+
+### waza session list
+
+List session event logs in a directory.
+
+```bash
+waza session list [--dir <path>]
+```
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--dir` | string | `.` | Directory to search for session logs |
+
+### waza session view
+
+Render a session timeline from an NDJSON event log.
+
+```bash
+waza session view <session-file>
+```
+
 ## waza serve
 
 Start the interactive dashboard.
@@ -589,7 +666,7 @@ Waza supports multiple grader types for comprehensive evaluation. See the comple
 | `skill_invocation` | Skill orchestration sequence validation |
 | `prompt` | LLM-as-judge evaluation with rubrics |
 | `tool_constraint` | Validate tool usage constraints (e.g., required/forbidden tools, argument patterns) |
-| `trigger_tests` | Prompt trigger accuracy detection |
+| `trigger` | Prompt trigger accuracy — detects whether a prompt should activate a skill |
 
 ### tool_constraint Grader
 

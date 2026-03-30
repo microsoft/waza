@@ -1,0 +1,189 @@
+---
+title: Project Configuration (.waza.yaml)
+description: Complete reference for .waza.yaml project configuration.
+---
+
+The `.waza.yaml` file configures project-level defaults for Waza. Place it in your project root — Waza searches up the directory tree (max 10 levels) to find it.
+
+## Quick Start
+
+```yaml
+# .waza.yaml
+paths:
+  skills: skills/
+  evals: evals/
+  results: results/
+
+defaults:
+  model: claude-sonnet-4.6
+  timeout: 300
+  workers: 4
+```
+
+## Configuration Sections
+
+### paths
+
+Directory paths relative to the project root.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `skills` | string | `skills/` | Directory containing skill definitions |
+| `evals` | string | `evals/` | Directory containing evaluation specs |
+| `results` | string | `results/` | Directory for evaluation results |
+
+### defaults
+
+Default execution parameters applied to all commands unless overridden by CLI flags.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `engine` | string | `copilot-sdk` | Execution engine |
+| `model` | string | `claude-sonnet-4.6` | Default model for execution |
+| `judgeModel` | string | | Model for LLM-as-judge graders |
+| `timeout` | int | `300` | Task timeout in seconds |
+| `parallel` | bool | `false` | Enable parallel execution |
+| `workers` | int | `4` | Number of parallel workers |
+| `verbose` | bool | `false` | Enable verbose output |
+| `sessionLog` | bool | `false` | Enable session event logging |
+
+### cache
+
+Result caching configuration.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | bool | `false` | Enable result caching |
+| `dir` | string | `.waza-cache` | Cache directory |
+
+### server
+
+Dashboard server configuration for `waza serve`.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `port` | int | `3000` | Dashboard server port |
+| `resultsDir` | string | `results/` | Directory served by the dashboard |
+
+### dev
+
+Settings for the `waza dev` iterative improvement command.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `model` | string | `claude-sonnet-4-20250514` | Model for dev mode |
+| `target` | string | `medium-high` | Target adherence level |
+| `maxIterations` | int | `5` | Maximum improvement iterations |
+
+### tokens
+
+Token budget configuration for `waza check` and `waza tokens` commands.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `warningThreshold` | int | `500` | Token count warning threshold |
+| `fallbackLimit` | int | `1000` | Default limit for unmatched files |
+
+#### tokens.limits
+
+Per-file token limits with glob pattern matching.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `defaults` | map | Glob patterns → token limits (e.g., `"*.md": 2000`) |
+| `overrides` | map | Exact file paths → token limits (higher precedence) |
+
+```yaml
+tokens:
+  warningThreshold: 2500
+  fallbackLimit: 2000
+  limits:
+    defaults:
+      "SKILL.md": 500
+      "references/**/*.md": 1000
+      "*.md": 2000
+    overrides:
+      "README.md": 3000
+```
+
+### graders
+
+Grader execution settings.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `programTimeout` | int | `30` | Timeout for external grader programs (seconds) |
+
+### storage
+
+Remote result storage for team collaboration. See [Azure Storage Guide](../../guides/azure-storage/).
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `provider` | string | | Storage provider (`azure-blob`) |
+| `accountName` | string | | Azure Storage account name |
+| `containerName` | string | `waza-results` | Blob container name |
+| `enabled` | bool | `false` | Enable remote uploads |
+
+```yaml
+storage:
+  provider: azure-blob
+  accountName: myteamwaza
+  containerName: waza-results
+  enabled: true
+```
+
+## Complete Example
+
+```yaml
+# yaml-language-server: $schema=https://raw.githubusercontent.com/microsoft/waza/main/schemas/config.schema.json
+
+paths:
+  skills: skills/
+  evals: evals/
+  results: results/
+
+defaults:
+  engine: copilot-sdk
+  model: claude-sonnet-4.6
+  timeout: 300
+  parallel: false
+  workers: 4
+
+cache:
+  enabled: false
+  dir: .waza-cache
+
+server:
+  port: 3000
+  resultsDir: results/
+
+dev:
+  model: claude-sonnet-4-20250514
+  target: medium-high
+  maxIterations: 5
+
+tokens:
+  warningThreshold: 500
+  fallbackLimit: 1000
+  limits:
+    defaults:
+      "*.md": 800
+    overrides:
+      "special.md": 5000
+
+graders:
+  programTimeout: 30
+
+storage:
+  provider: azure-blob
+  accountName: myteamwaza
+  containerName: waza-results
+  enabled: true
+```
+
+## Next Steps
+
+- **[CLI Commands](../cli/)** — Full command reference
+- **[Token Limits Guide](../../guides/token-limits/)** — Token budget details
+- **[Azure Storage](../../guides/azure-storage/)** — Cloud storage setup
