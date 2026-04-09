@@ -1,0 +1,79 @@
+import "../../common.justfile"
+
+# List available commands
+default:
+    @just --list
+
+# 🔨 Build the SDK
+build:
+    go build ./...
+
+# 🔨 Build examples
+build-examples:
+    go build ./examples/...
+
+# 🧪 Run tests
+test:
+    go test ./...
+
+# 🧪 Run tests with verbose output
+test-verbose:
+    go test ./... -v
+
+# 🧪 Run tests with coverage
+test-coverage:
+    go test ./... -coverprofile=coverage.out
+    go tool cover -html=coverage.out -o coverage.html
+    @echo "Coverage report: coverage.html"
+
+# 💄 Format code
+format:
+    gofmt -w .
+
+# 💄 Format code (check only)
+format-check:
+    @gofmt -l . | read && echo "Formatting issues found. Run 'just format' to fix." && exit 1 || echo "All files properly formatted."
+
+# 🔍 Lint code (requires golangci-lint)
+lint:
+    golangci-lint run ./...
+
+# 🔍 Vet code
+vet:
+    go vet ./...
+
+# 📦 Download dependencies
+mod-download: go-mod-download
+
+# 📦 Tidy dependencies
+mod-tidy:
+    go mod tidy
+
+# 📦 Verify dependencies
+mod-verify:
+    go mod verify
+
+# 🧹 Clean build artifacts
+clean:
+    rm -f coverage.out coverage.html
+    go clean ./...
+
+# ✅ Run all checks (format, vet, test)
+check: format-check vet test
+    @echo "✅ All checks passed!"
+
+# Run all checks before committing
+pre-commit: format vet test
+    @echo "✅ Pre-commit checks passed!"
+
+# 🚀 Run basic usage example (requires ADC_API_KEY)
+run-basic-example:
+    go run ./examples/basic_usage
+
+# 🚀 Run public image example (requires ADC_API_KEY)
+run-public-example:
+    go run ./examples/public_image
+
+# 🚀 Run GitHub auth example
+run-github-auth-example:
+    go run ./examples/github_auth
