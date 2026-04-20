@@ -21,6 +21,8 @@ import (
 	"github.com/microsoft/waza/internal/template"
 	"github.com/microsoft/waza/internal/transcript"
 	"github.com/microsoft/waza/internal/utils"
+
+	copilot "github.com/github/copilot-sdk/go"
 )
 
 // TestRunner orchestrates the execution of tests
@@ -1137,6 +1139,7 @@ func (r *TestRunner) buildExecutionRequest(tc *models.TestCase) *execution.Execu
 		SkillName:  spec.SkillName,
 		SkillPaths: resolvedSkillPaths,
 		Timeout:    time.Duration(timeout) * time.Second,
+		MCPServers: convertMCPServers(spec.Config.ServerConfigs),
 	}
 }
 
@@ -1203,6 +1206,25 @@ func (r *TestRunner) loadResources(tc *models.TestCase) []execution.ResourceFile
 	}
 
 	return resources
+}
+
+// convertMCPServers converts the eval YAML mcp_servers config (map[string]any)
+// into the copilot SDK's MCPServerConfig type. Returns nil if no servers configured.
+func convertMCPServers(serverConfigs map[string]any) map[string]copilot.MCPServerConfig {
+	if len(serverConfigs) == 0 {
+		return nil
+	}
+
+	result := make(map[string]copilot.MCPServerConfig, len(serverConfigs))
+	for name, cfg := range serverConfigs {
+		cfgMap, ok := cfg.(map[string]any)
+		if !ok {
+			fmt.Fprintf(os.Stderr, "Warning: mcp_server %q config is not a map, skipping\n", name)
+			continue
+		}
+		result[name] = copilot.MCPServerConfig(cfgMap)
+	}
+	return result
 }
 
 func (r *TestRunner) buildGraderContext(tc *models.TestCase, resp *execution.ExecutionResponse) *graders.Context {

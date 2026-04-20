@@ -301,3 +301,109 @@ func (e *errorOnPromptEngine) Execute(_ context.Context, req *execution.Executio
 		Success: true,
 	}, nil
 }
+
+func TestRunnerPassesFixturesToExecutionRequest(t *testing.T) {
+	// Create a fixture directory with files
+	fixtureDir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(fixtureDir, "main.go"), []byte("package main"), 0644))
+
+	subDir := filepath.Join(fixtureDir, "sub")
+	require.NoError(t, os.MkdirAll(subDir, 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(subDir, "helper.go"), []byte("package sub"), 0644))
+
+	spec := &TestSpec{
+		Skill:                "my-skill",
+		ShouldTriggerPrompts: []TestPrompt{{Prompt: "hello"}},
+	}
+
+	engine := &capturingEngine{}
+	cfg := config.NewBenchmarkConfig(
+		&models.BenchmarkSpec{SkillName: "my-skill"},
+		config.WithFixtureDir(fixtureDir),
+		config.WithSpecDir("/some/spec/dir"),
+	)
+	r := NewRunner(spec, engine, cfg, nil)
+
+	_, err := r.Run(t.Context())
+	require.NoError(t, err)
+	require.NotNil(t, engine.lastReq)
+
+	// Should have loaded 2 fixture files
+	require.Len(t, engine.lastReq.Resources, 2, "expected 2 fixture files")
+
+	// Check paths are relative
+	paths := make(map[string]bool)
+	for _, res := range engine.lastReq.Resources {
+		paths[res.Path] = true
+	}
+	require.True(t, paths["main.go"], "expected main.go in resources")
+	require.True(t, paths[filepath.Join("sub", "helper.go")], "expected sub/helper.go in resources")
+
+	// Should have SourceDir set
+	require.Equal(t, "/some/spec/dir", engine.lastReq.SourceDir)
+}
+
+func TestRunnerSkipsHiddenAndVendorInFixtures(t *testing.T) {
+	fixtureDir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(fixtureDir, "visible.txt"), []byte("ok"), 0644))
+
+	// Hidden dir should be skipped
+	hidden := filepath.Join(fixtureDir, ".hidden")
+	require.NoError(t, os.MkdirAll(hidden, 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(hidden, "secret.txt"), []byte("skip"), 0644))
+
+	// vendor dir should be skipped
+	vendor := filepath.Join(fixtureDir, "vendor")
+	require.NoError(t, os.MkdirAll(vendor, 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(vendor, "dep.go"), []byte("skip"), 0644))
+
+	resources := loadFixtureDir(fixtureDir)
+	require.Len(t, resources, 1)
+	require.Equal(t, "visible.txt", resources[0].Path)
+}
+
+func TestRunnerPassesMCPServers(t *testing.T) {
+	spec := &TestSpec{
+		Skill:                "my-skill",
+		ShouldTriggerPrompts: []TestPrompt{{Prompt: "hello"}},
+	}
+
+	engine := &capturingEngine{}
+	cfg := config.NewBenchmarkConfig(
+		&models.BenchmarkSpec{
+			SkillName: "my-skill",
+			Config: models.Config{
+				ServerConfigs: map[string]any{
+					"test-mcp": map[string]any{
+						"type":    "stdio",
+						"command": "echo",
+					},
+				},
+			},
+		},
+	)
+	r := NewRunner(spec, engine, cfg, nil)
+
+	_, err := r.Run(t.Context())
+	require.NoError(t, err)
+	require.NotNil(t, engine.lastReq)
+	require.Len(t, engine.lastReq.MCPServers, 1, "expected 1 MCP server")
+	require.Contains(t, engine.lastReq.MCPServers, "test-mcp")
+}
+
+func TestLoadFixtureDir_EmptyDir(t *testing.T) {
+	require.Nil(t, loadFixtureDir(""))
+	require.Nil(t, loadFixtureDir("/nonexistent/path"))
+	require.Nil(t, loadFixtureDir(t.TempDir())) // empty dir
+}
+
+func TestConvertMCPServers_SkipsNonMapEntries(t *testing.T) {
+	result := convertMCPServers(map[string]any{
+		"good":  map[string]any{"type": "stdio"},
+		"bad":   "not-a-map",
+		"good2": map[string]any{"type": "sse"},
+	})
+	require.Len(t, result, 2)
+	require.Contains(t, result, "good")
+	require.Contains(t, result, "good2")
+}

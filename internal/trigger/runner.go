@@ -4,11 +4,15 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
+	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
+	copilot "github.com/github/copilot-sdk/go"
 	"github.com/microsoft/waza/internal/config"
 	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/models"
@@ -18,10 +22,12 @@ import (
 
 // Runner executes trigger tests and returns classification metrics.
 type Runner struct {
-	spec   *TestSpec
-	engine execution.AgentEngine
-	cfg    *config.BenchmarkConfig
-	out    io.Writer
+	spec      *TestSpec
+	engine    execution.AgentEngine
+	cfg       *config.BenchmarkConfig
+	out       io.Writer
+	fixtures  []execution.ResourceFile // cached fixture files, loaded once
+	mcpConfig map[string]copilot.MCPServerConfig
 }
 
 type task struct {
@@ -40,7 +46,10 @@ type taskResult struct {
 }
 
 func NewRunner(spec *TestSpec, engine execution.AgentEngine, cfg *config.BenchmarkConfig, out io.Writer) *Runner {
-	return &Runner{spec: spec, engine: engine, cfg: cfg, out: out}
+	r := &Runner{spec: spec, engine: engine, cfg: cfg, out: out}
+	r.fixtures = loadFixtureDir(cfg.FixtureDir())
+	r.mcpConfig = convertMCPServers(cfg.Spec().Config.ServerConfigs)
+	return r
 }
 
 func (r *Runner) Run(ctx context.Context) (*models.TriggerMetrics, error) {
@@ -165,6 +174,88 @@ func (r *Runner) testTrigger(ctx context.Context, prompt string) (*execution.Exe
 		Message:    prompt,
 		SkillName:  r.spec.Skill,
 		SkillPaths: utils.ResolvePaths(spec.Config.SkillPaths, r.cfg.SpecDir()),
+		SourceDir:  r.cfg.SpecDir(),
+		Resources:  r.fixtures,
+		MCPServers: r.mcpConfig,
 		Timeout:    time.Duration(timeout) * time.Second,
 	})
+}
+
+// loadFixtureDir recursively walks a fixture directory and returns all files
+// as ResourceFiles. Skips hidden dirs, node_modules, vendor, and binary files.
+// Returns nil if dir is empty or doesn't exist.
+func loadFixtureDir(dir string) []execution.ResourceFile {
+	if dir == "" {
+		return nil
+	}
+
+	info, err := os.Stat(dir)
+	if err != nil || !info.IsDir() {
+		return nil
+	}
+
+	var resources []execution.ResourceFile
+	absDir, err := filepath.Abs(dir)
+	if err != nil {
+		return nil
+	}
+
+	_ = filepath.WalkDir(absDir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil // skip inaccessible entries
+		}
+
+		name := d.Name()
+
+		// Skip hidden directories, node_modules, vendor
+		if d.IsDir() {
+			if strings.HasPrefix(name, ".") || name == "node_modules" || name == "vendor" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+
+		// Skip large files (>1MB) to prevent bloating workspace
+		info, err := d.Info()
+		if err != nil || info.Size() > 1<<20 {
+			return nil
+		}
+
+		content, err := os.ReadFile(path)
+		if err != nil {
+			return nil
+		}
+
+		relPath, err := filepath.Rel(absDir, path)
+		if err != nil {
+			return nil
+		}
+
+		resources = append(resources, execution.ResourceFile{
+			Path:    relPath,
+			Content: content,
+		})
+		return nil
+	})
+
+	return resources
+}
+
+// convertMCPServers converts the eval YAML mcp_servers config (map[string]any)
+// into the copilot SDK's MCPServerConfig type.
+func convertMCPServers(serverConfigs map[string]any) map[string]copilot.MCPServerConfig {
+	if len(serverConfigs) == 0 {
+		return nil
+	}
+
+	result := make(map[string]copilot.MCPServerConfig, len(serverConfigs))
+	for name, cfg := range serverConfigs {
+		cfgMap, ok := cfg.(map[string]any)
+		if !ok {
+			fmt.Fprintf(os.Stderr, "Warning: mcp_server %q config is not a map, skipping\n", name)
+			continue
+		}
+		result[name] = copilot.MCPServerConfig(cfgMap)
+	}
+	return result
 }

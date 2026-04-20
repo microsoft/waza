@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -146,6 +147,15 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 	// Build skill directories list: start with CWD, then add any from request
 	skillDirs := e.getSkillDirs(sourceDir, req)
 
+	// Load skill definitions from directories and build system message
+	var systemMessage *copilot.SystemMessageConfig
+	if msg := buildSkillSystemMessage(skillDirs, req.SkillName); msg != "" {
+		systemMessage = &copilot.SystemMessageConfig{
+			Mode:    "append",
+			Content: msg,
+		}
+	}
+
 	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, req.Timeout)
@@ -169,6 +179,8 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 
 			SkillDirectories: skillDirs,
 			WorkingDirectory: workspaceDir,
+			SystemMessage:    systemMessage,
+			MCPServers:       req.MCPServers,
 		})
 
 		if err != nil {
@@ -183,6 +195,8 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 			// these are the directory for the skill itself.
 			SkillDirectories: skillDirs,
 			WorkingDirectory: workspaceDir,
+			SystemMessage:    systemMessage,
+			MCPServers:       req.MCPServers,
 		})
 
 		if err != nil {
@@ -406,4 +420,135 @@ func joinStrings(parts []string) string {
 func allowAllTools(request copilot.PermissionRequest, invocation copilot.PermissionInvocation) (copilot.PermissionRequestResult, error) {
 	// value for 'Kind' came from the permissions_test.go in the Copilot SDK.
 	return copilot.PermissionRequestResult{Kind: "approved"}, nil
+}
+
+// skillDefinition holds the content extracted from a SKILL.md file.
+type skillDefinition struct {
+	Name        string
+	Description string
+	Content     string // full raw SKILL.md content
+	Dir         string
+}
+
+// buildSkillSystemMessage scans skill directories for SKILL.md files and returns
+// a system message that tells the agent about available skills. For the target
+// skill (matching skillName), the full SKILL.md content is injected. For other
+// discovered skills, only a compact summary is included.
+func buildSkillSystemMessage(skillDirs []string, skillName string) string {
+	var skills []skillDefinition
+
+	for _, dir := range skillDirs {
+		// Check direct SKILL.md in this directory
+		sd := loadSkillDefinition(dir)
+		if sd != nil {
+			skills = append(skills, *sd)
+			continue
+		}
+
+		// Walk one level of subdirectories to find nested skills
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			continue
+		}
+		for _, entry := range entries {
+			if !entry.IsDir() {
+				continue
+			}
+			// Skip hidden dirs, node_modules, vendor
+			name := entry.Name()
+			if strings.HasPrefix(name, ".") || name == "node_modules" || name == "vendor" {
+				continue
+			}
+			if sd := loadSkillDefinition(filepath.Join(dir, name)); sd != nil {
+				skills = append(skills, *sd)
+			}
+		}
+	}
+
+	if len(skills) == 0 {
+		return ""
+	}
+
+	var sb strings.Builder
+
+	// Inject full content for the target skill (first match only)
+	for _, s := range skills {
+		if skillName != "" && strings.EqualFold(s.Name, skillName) {
+			sb.WriteString("\n<skill_context>\n")
+			sb.WriteString(s.Content)
+			sb.WriteString("\n</skill_context>\n")
+			break
+		}
+	}
+
+	// Summary block for all discovered skills
+	sb.WriteString("\n<available_skills>\n")
+	for _, s := range skills {
+		sb.WriteString("<skill>\n")
+		fmt.Fprintf(&sb, "  <name>%s</name>\n", s.Name)
+		if s.Description != "" {
+			fmt.Fprintf(&sb, "  <description>%s</description>\n", s.Description)
+		}
+		sb.WriteString("</skill>\n")
+	}
+	sb.WriteString("</available_skills>\n")
+
+	return sb.String()
+}
+
+// loadSkillDefinition reads a SKILL.md file from dir and extracts the skill
+// name, description and full content. Returns nil if no SKILL.md exists or
+// parsing fails.
+func loadSkillDefinition(dir string) *skillDefinition {
+	skillPath := filepath.Join(dir, "SKILL.md")
+
+	data, err := os.ReadFile(skillPath)
+	if err != nil {
+		return nil
+	}
+
+	content := string(data)
+	name, desc := parseSkillFrontmatter(content)
+	if name == "" {
+		// Fall back to directory name
+		name = filepath.Base(dir)
+	}
+
+	slog.Debug("Loaded skill definition", "name", name, "dir", dir)
+	return &skillDefinition{Name: name, Description: desc, Content: content, Dir: dir}
+}
+
+// parseSkillFrontmatter extracts name and description from SKILL.md YAML
+// frontmatter. Avoids importing the skill package to keep execution decoupled.
+func parseSkillFrontmatter(content string) (name, description string) {
+	if !strings.HasPrefix(content, "---") {
+		return "", ""
+	}
+
+	rest := content[3:]
+	if strings.HasPrefix(rest, "\r\n") {
+		rest = rest[2:]
+	} else if strings.HasPrefix(rest, "\n") {
+		rest = rest[1:]
+	}
+
+	idx := strings.Index(rest, "\n---")
+	if idx < 0 {
+		return "", ""
+	}
+
+	yamlBlock := rest[:idx]
+
+	for _, line := range strings.Split(yamlBlock, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "name:") {
+			name = strings.TrimSpace(strings.TrimPrefix(line, "name:"))
+			name = strings.Trim(name, "\"'")
+		} else if strings.HasPrefix(line, "description:") {
+			description = strings.TrimSpace(strings.TrimPrefix(line, "description:"))
+			description = strings.Trim(description, "\"'")
+		}
+	}
+
+	return name, description
 }

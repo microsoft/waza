@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math/rand"
 	"os"
+	"path/filepath"
 	"strconv"
 	"testing"
 	"time"
@@ -418,4 +419,172 @@ func skipIfCopilotNotEnabled(t *testing.T) {
 	if !enableLiveCopilotTests {
 		t.Skip("ENABLE_COPILOT_TESTS must be set in order to run live copilot tests")
 	}
+}
+
+func TestCopilotCreateSession_InjectsSkillSystemMessage(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	clientMock := newClientMock(ctrl)
+	sessionMock := NewMockCopilotSession(ctrl)
+
+	sourceDir := t.TempDir()
+
+	// Write a SKILL.md in the source dir
+	skillContent := "---\nname: test-skill\ndescription: A test\n---\n# Rules\nAlways greet"
+	require.NoError(t, os.WriteFile(filepath.Join(sourceDir, "SKILL.md"), []byte(skillContent), 0644))
+
+	expectedSystemMsg := buildSkillSystemMessage([]string{sourceDir}, "test-skill")
+	require.NotEmpty(t, expectedSystemMsg)
+
+	expectedConfig := sessionConfigMatcher{
+		t:         t,
+		sourceDir: sourceDir,
+		expected: copilot.SessionConfig{
+			Model:               "gpt-4o-mini",
+			SkillDirectories:    []string{sourceDir},
+			OnPermissionRequest: allowAllTools,
+			SystemMessage: &copilot.SystemMessageConfig{
+				Mode:    "append",
+				Content: expectedSystemMsg,
+			},
+		},
+	}
+
+	clientMock.EXPECT().CreateSession(gomock.Any(), expectedConfig).Return(sessionMock, nil)
+	sessionMock.EXPECT().Disconnect()
+	clientMock.EXPECT().DeleteSession(gomock.Any(), "session-1")
+
+	sessionMock.EXPECT().On(gomock.Any()).Times(3).Return(func() {})
+	sessionMock.EXPECT().SendAndWait(gomock.Any(), gomock.Any()).Return(&copilot.SessionEvent{}, nil)
+	sessionMock.EXPECT().SessionID().Return("session-1")
+
+	engine := NewCopilotEngineBuilder("gpt-4o-mini", &CopilotEngineBuilderOptions{
+		NewCopilotClient: func(clientOptions *copilot.ClientOptions) CopilotClient { return clientMock },
+	}).Build()
+
+	defer func() {
+		require.NoError(t, engine.Shutdown(context.Background()))
+	}()
+
+	require.NoError(t, engine.Initialize(context.Background()))
+
+	resp, err := engine.Execute(context.Background(), &ExecutionRequest{
+		Message:   "hello",
+		SkillName: "test-skill",
+		SourceDir: sourceDir,
+		Timeout:   time.Minute,
+	})
+	require.NoError(t, err)
+	require.True(t, resp.Success)
+}
+
+func TestCopilotCreateSession_PassesMCPServers(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	clientMock := newClientMock(ctrl)
+	sessionMock := NewMockCopilotSession(ctrl)
+
+	sourceDir := t.TempDir()
+
+	mcpServers := map[string]copilot.MCPServerConfig{
+		"test-mcp": {"type": "stdio", "command": "echo", "args": []any{"hello"}},
+	}
+
+	expectedConfig := sessionConfigMatcher{
+		t:         t,
+		sourceDir: sourceDir,
+		expected: copilot.SessionConfig{
+			Model:               "gpt-4o-mini",
+			SkillDirectories:    []string{sourceDir},
+			OnPermissionRequest: allowAllTools,
+			MCPServers:          mcpServers,
+		},
+	}
+
+	clientMock.EXPECT().CreateSession(gomock.Any(), expectedConfig).Return(sessionMock, nil)
+	sessionMock.EXPECT().Disconnect()
+	clientMock.EXPECT().DeleteSession(gomock.Any(), "session-1")
+
+	sessionMock.EXPECT().On(gomock.Any()).Times(3).Return(func() {})
+	sessionMock.EXPECT().SendAndWait(gomock.Any(), gomock.Any()).Return(&copilot.SessionEvent{}, nil)
+	sessionMock.EXPECT().SessionID().Return("session-1")
+
+	engine := NewCopilotEngineBuilder("gpt-4o-mini", &CopilotEngineBuilderOptions{
+		NewCopilotClient: func(clientOptions *copilot.ClientOptions) CopilotClient { return clientMock },
+	}).Build()
+
+	defer func() {
+		require.NoError(t, engine.Shutdown(context.Background()))
+	}()
+
+	require.NoError(t, engine.Initialize(context.Background()))
+
+	resp, err := engine.Execute(context.Background(), &ExecutionRequest{
+		Message:    "hello",
+		SourceDir:  sourceDir,
+		MCPServers: mcpServers,
+		Timeout:    time.Minute,
+	})
+	require.NoError(t, err)
+	require.True(t, resp.Success)
+}
+
+func TestCopilotResumeSession_PassesMCPServersAndSystemMessage(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	clientMock := newClientMock(ctrl)
+	sessionMock := NewMockCopilotSession(ctrl)
+
+	sourceDir := t.TempDir()
+
+	// Write a SKILL.md
+	skillContent := "---\nname: resume-skill\ndescription: Resume test\n---\nResume body"
+	require.NoError(t, os.WriteFile(filepath.Join(sourceDir, "SKILL.md"), []byte(skillContent), 0644))
+
+	expectedSystemMsg := buildSkillSystemMessage([]string{sourceDir}, "resume-skill")
+
+	mcpServers := map[string]copilot.MCPServerConfig{
+		"mcp-srv": {"type": "stdio", "command": "test"},
+	}
+
+	expectedConfig := sessionConfigMatcher{
+		t:         t,
+		sourceDir: sourceDir,
+		expected: copilot.ResumeSessionConfig{
+			Model:               "gpt-4o-mini",
+			SkillDirectories:    []string{sourceDir},
+			OnPermissionRequest: allowAllTools,
+			SystemMessage: &copilot.SystemMessageConfig{
+				Mode:    "append",
+				Content: expectedSystemMsg,
+			},
+			MCPServers: mcpServers,
+		},
+	}
+
+	clientMock.EXPECT().ResumeSessionWithOptions(gomock.Any(), "session-resume", expectedConfig).Return(sessionMock, nil)
+	sessionMock.EXPECT().Disconnect()
+	clientMock.EXPECT().DeleteSession(gomock.Any(), "session-resume")
+
+	sessionMock.EXPECT().On(gomock.Any()).Times(3).Return(func() {})
+	sessionMock.EXPECT().SendAndWait(gomock.Any(), gomock.Any()).Return(&copilot.SessionEvent{}, nil)
+	sessionMock.EXPECT().SessionID().Return("session-resume")
+
+	engine := NewCopilotEngineBuilder("gpt-4o-mini", &CopilotEngineBuilderOptions{
+		NewCopilotClient: func(clientOptions *copilot.ClientOptions) CopilotClient { return clientMock },
+	}).Build()
+
+	defer func() {
+		require.NoError(t, engine.Shutdown(context.Background()))
+	}()
+
+	require.NoError(t, engine.Initialize(context.Background()))
+
+	resp, err := engine.Execute(context.Background(), &ExecutionRequest{
+		Message:    "hello",
+		SessionID:  "session-resume",
+		SkillName:  "resume-skill",
+		SourceDir:  sourceDir,
+		MCPServers: mcpServers,
+		Timeout:    time.Minute,
+	})
+	require.NoError(t, err)
+	require.True(t, resp.Success)
 }

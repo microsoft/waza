@@ -43,6 +43,10 @@ type ExecutionRequest struct {
 
 	Timeout time.Duration
 
+	// MCPServers configures MCP servers for the session. Keys are server names,
+	// values follow the copilot SDK MCPServerConfig format (type/command/args).
+	MCPServers map[string]copilot.MCPServerConfig
+
 	// PermissionHandler called when the copilot SDK wants to determine if a tool can be used.
 	// Default: allows all tools.
 	PermissionHandler copilot.PermissionHandlerFunc
