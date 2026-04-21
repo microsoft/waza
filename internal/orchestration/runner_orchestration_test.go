@@ -504,7 +504,6 @@ func TestRunTest_CacheHitAndTranscriptWrite(t *testing.T) {
 	assert.Equal(t, outcome.Status, cachedOutcome.Status)
 }
 
-
 // --- Follow-up prompt test helpers ---
 
 type trackingCall struct {
@@ -519,7 +518,7 @@ type trackingEngine struct {
 }
 
 func (e *trackingEngine) Initialize(_ context.Context) error { return nil }
-func (e *trackingEngine) Shutdown(_ context.Context) error  { return nil }
+func (e *trackingEngine) Shutdown(_ context.Context) error   { return nil }
 func (e *trackingEngine) SessionUsage(_ string) *models.UsageStats {
 	return nil
 }
@@ -548,7 +547,7 @@ type errorOnCallEngine struct {
 }
 
 func (e *errorOnCallEngine) Initialize(_ context.Context) error { return nil }
-func (e *errorOnCallEngine) Shutdown(_ context.Context) error  { return nil }
+func (e *errorOnCallEngine) Shutdown(_ context.Context) error   { return nil }
 func (e *errorOnCallEngine) SessionUsage(_ string) *models.UsageStats {
 	return nil
 }
