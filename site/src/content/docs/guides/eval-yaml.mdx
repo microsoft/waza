@@ -421,7 +421,24 @@ expected:
   behavior:
     max_tool_calls: 3 # Efficient
     max_tokens: 1000 # Concise
+    max_response_time_ms: 30000 # Must complete within 30 seconds
+    required_tools: # Must use these tools
+      - grep
+      - edit
+    forbidden_tools: # Must NOT use these tools
+      - rm
 ```
+
+| Field                  | Type     | Description                                                  |
+| ---------------------- | -------- | ------------------------------------------------------------ |
+| `max_tool_calls`       | int      | Maximum number of tool invocations allowed                   |
+| `max_iterations`       | int      | Maximum number of conversation rounds (turns)                |
+| `max_tokens`           | int      | Maximum tokens in the response                               |
+| `max_response_time_ms` | int      | Maximum wall-clock execution time in milliseconds            |
+| `required_tools`       | string[] | Tools the agent must use during the task                     |
+| `forbidden_tools`      | string[] | Tools the agent must NOT use during the task                 |
+
+Each constraint that is set (non-zero / non-empty) contributes equally to the behavior efficiency score. If all constraints pass, the score is 1.0; each failure reduces it proportionally.
 
 ## Hooks
 

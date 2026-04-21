@@ -495,13 +495,28 @@ expected:
 
 **Type:** object
 
-Behavioral constraints.
+Behavioral constraints on agent execution. Each constraint that is set contributes to the behavior efficiency score.
+
+| Field                  | Type     | Description                                       |
+| ---------------------- | -------- | ------------------------------------------------- |
+| `max_tool_calls`       | int      | Maximum tool invocations allowed                  |
+| `max_iterations`       | int      | Maximum conversation rounds (turns)               |
+| `max_tokens`           | int      | Maximum tokens in the response                    |
+| `max_response_time_ms` | int      | Maximum wall-clock execution time in milliseconds |
+| `required_tools`       | string[] | Tools the agent must use                          |
+| `forbidden_tools`      | string[] | Tools the agent must NOT use                      |
 
 ```yaml
 expected:
   behavior:
-    max_tool_calls: 5 # Max tools to invoke
-    max_tokens: 4096 # Max tokens in response
+    max_tool_calls: 5
+    max_iterations: 10
+    max_tokens: 4096
+    max_response_time_ms: 30000 # 30 seconds
+    required_tools:
+      - grep
+    forbidden_tools:
+      - rm
 ```
 
 ## .waza.yaml Configuration
