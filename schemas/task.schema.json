@@ -64,6 +64,13 @@
         "type": "string"
       },
       "description": "Sequential follow-up prompts sent after the initial prompt, reusing the same session and workspace."
+    },
+    "skill_directories": {
+      "type": "array",
+      "description": "List of directories containing agent skills for this task (overrides eval-level skill_directories)",
+      "items": {
+        "type": "string"
+      }
     }
   },
   "$defs": {

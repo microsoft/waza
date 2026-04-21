@@ -1134,8 +1134,12 @@ func (r *TestRunner) buildExecutionRequest(tc *models.TestCase) *execution.Execu
 		timeout = *tc.TimeoutSec
 	}
 
-	// Resolve skill paths relative to spec directory
-	resolvedSkillPaths := utils.ResolvePaths(spec.Config.SkillPaths, r.cfg.SpecDir())
+	// Use task-level skill paths if specified, otherwise fall back to eval-level
+	skillPaths := spec.Config.SkillPaths
+	if len(tc.SkillPaths) > 0 {
+		skillPaths = tc.SkillPaths
+	}
+	resolvedSkillPaths := utils.ResolvePaths(skillPaths, r.cfg.SpecDir())
 
 	return &execution.ExecutionRequest{
 		Message:    tc.Stimulus.Message,

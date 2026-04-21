@@ -180,6 +180,50 @@ func TestBuildExecutionRequest_TimeoutOverride(t *testing.T) {
 	assert.Equal(t, float64(300), req.Timeout.Seconds(), "test case timeout should override spec timeout")
 }
 
+func TestBuildExecutionRequest_TaskLevelSkillPaths(t *testing.T) {
+specDir := t.TempDir()
+
+spec := &models.BenchmarkSpec{
+SpecIdentity: models.SpecIdentity{
+Name: "test-benchmark",
+},
+SkillName: "test-skill",
+Config: models.Config{
+EngineType: "mock",
+ModelID:    "gpt-4",
+SkillPaths: []string{"./eval-skills"},
+TimeoutSec: 60,
+},
+}
+
+cfg := config.NewBenchmarkConfig(spec, config.WithSpecDir(specDir))
+runner := NewTestRunner(cfg, nil)
+
+// Task with its own skill_directories should override eval-level
+tc := &models.TestCase{
+TestID:      "test-001",
+DisplayName: "Test Case",
+Stimulus:    models.TestStimulus{Message: "test"},
+SkillPaths:  []string{"./task-skills", "./more-skills"},
+}
+req := runner.buildExecutionRequest(tc)
+require.NotNil(t, req)
+assert.Equal(t, 2, len(req.SkillPaths), "task-level skill paths should override eval-level")
+assert.Equal(t, filepath.Join(specDir, "task-skills"), req.SkillPaths[0])
+assert.Equal(t, filepath.Join(specDir, "more-skills"), req.SkillPaths[1])
+
+// Task without skill_directories should fall back to eval-level
+tc2 := &models.TestCase{
+TestID:      "test-002",
+DisplayName: "Test Case 2",
+Stimulus:    models.TestStimulus{Message: "test"},
+}
+req2 := runner.buildExecutionRequest(tc2)
+require.NotNil(t, req2)
+assert.Equal(t, 1, len(req2.SkillPaths), "should fall back to eval-level skill paths")
+assert.Equal(t, filepath.Join(specDir, "eval-skills"), req2.SkillPaths[0])
+}
+
 func TestComputeTestStats_ErrorRunsAreSeparateFromFailed(t *testing.T) {
 	runs := []models.RunResult{
 		{

@@ -16,6 +16,7 @@ type TestCase struct {
 	ContextRoot string            `yaml:"context_dir,omitempty" json:"context_root,omitempty"`
 	DisplayName string            `yaml:"name" json:"display_name"`
 	Expectation TestExpectation   `yaml:"expected,omitempty" json:"expectation,omitempty"`
+	SkillPaths  []string          `yaml:"skill_directories,omitempty" json:"skill_paths,omitempty"`
 	Stimulus    TestStimulus      `yaml:"inputs" json:"stimulus"`
 	Summary     string            `yaml:"description,omitempty" json:"summary,omitempty"`
 	Tags        []string          `yaml:"tags,omitempty" json:"labels,omitempty"`

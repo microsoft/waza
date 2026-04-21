@@ -379,6 +379,17 @@ waza run eval.yaml --tags "basic"
 waza run eval.yaml --tags "edge-case"
 ```
 
+### skill_directories (optional)
+
+Override the eval-level `skill_directories` for a specific task. Paths are resolved relative to the eval YAML directory.
+
+```yaml
+skill_directories:
+  - ./skills/custom-task-skills
+```
+
+When specified on a task, this **replaces** (not merges with) the eval-level `skill_directories`.
+
 ## inputs Section
 
 Test inputs passed to the agent.
