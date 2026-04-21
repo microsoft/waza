@@ -62,15 +62,20 @@
   "$defs": {
     "inputs": {
       "type": "object",
-      "required": [
-        "prompt"
-      ],
       "additionalProperties": false,
-      "description": "Input stimulus for the task.",
+      "description": "Input stimulus for the task. Must specify either prompt or prompt_file (not both).",
+      "oneOf": [
+        { "required": ["prompt"] },
+        { "required": ["prompt_file"] }
+      ],
       "properties": {
         "prompt": {
           "type": "string",
           "description": "The prompt message sent to the agent."
+        },
+        "prompt_file": {
+          "type": "string",
+          "description": "Path to a file containing the prompt message, relative to the task YAML directory."
         },
         "context": {
           "type": "object",

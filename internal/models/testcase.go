@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"gopkg.in/yaml.v3"
 )
@@ -25,6 +26,7 @@ type TestCase struct {
 // TestStimulus defines the input for a test
 type TestStimulus struct {
 	Message     string            `yaml:"prompt" json:"message"`
+	MessageFile string            `yaml:"prompt_file,omitempty" json:"message_file,omitempty"`
 	Metadata    map[string]any    `yaml:"context,omitempty" json:"metadata,omitempty"`
 	Resources   []ResourceRef     `yaml:"files,omitempty" json:"resources,omitempty"`
 	Environment map[string]string `yaml:"environment,omitempty" json:"environment,omitempty"`
@@ -43,6 +45,7 @@ type TestExpectation struct {
 	BehaviorRules   BehaviorRules  `yaml:"behavior,omitempty" json:"behavior_rules,omitempty"`
 	MustInclude     []string       `yaml:"output_contains,omitempty" json:"must_include,omitempty"`
 	MustExclude     []string       `yaml:"output_not_contains,omitempty" json:"must_exclude,omitempty"`
+	MayInclude      []string       `yaml:"output_contains_any,omitempty" json:"may_include,omitempty"`
 	ExpectedTrigger *bool          `yaml:"should_trigger,omitempty" json:"expected_trigger,omitempty"`
 }
 
@@ -56,6 +59,7 @@ type BehaviorRules struct {
 	MaxToolInvocations int      `yaml:"max_tool_calls,omitempty" json:"max_tool_invocations,omitempty"`
 	MaxRounds          int      `yaml:"max_iterations,omitempty" json:"max_rounds,omitempty"`
 	MaxTokens          int      `yaml:"max_tokens,omitempty" json:"max_tokens,omitempty"`
+	MaxResponseTimeMs  int64    `yaml:"max_response_time_ms,omitempty" json:"max_response_time_ms,omitempty"`
 	MustUseTool        []string `yaml:"required_tools,omitempty" json:"must_use_tool,omitempty"`
 	ForbidTool         []string `yaml:"forbidden_tools,omitempty" json:"forbid_tool,omitempty"`
 }
@@ -229,5 +233,34 @@ func LoadTestCase(path string) (*TestCase, error) {
 	// The runner treats nil as true (enabled by default).
 	// Only explicitly set "enabled: false" will disable a test.
 
+	// Resolve prompt_file into the prompt message
+	if err := tc.Stimulus.resolvePromptFile(filepath.Dir(path)); err != nil {
+		return nil, fmt.Errorf("test case %s: %w", path, err)
+	}
+
 	return &tc, nil
+}
+
+// resolvePromptFile loads prompt content from a file if prompt_file is set.
+// The filePath is resolved relative to baseDir.
+func (s *TestStimulus) resolvePromptFile(baseDir string) error {
+	if s.MessageFile == "" {
+		return nil
+	}
+	if s.Message != "" {
+		return fmt.Errorf("cannot specify both prompt and prompt_file")
+	}
+
+	target := s.MessageFile
+	if !filepath.IsAbs(target) {
+		target = filepath.Join(baseDir, target)
+	}
+
+	data, err := os.ReadFile(target)
+	if err != nil {
+		return fmt.Errorf("reading prompt_file %q: %w", s.MessageFile, err)
+	}
+
+	s.Message = string(data)
+	return nil
 }
