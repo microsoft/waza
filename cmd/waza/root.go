@@ -1,11 +1,13 @@
 package main
 
 import (
+	"context"
 	"log/slog"
 	"os"
 
 	"github.com/microsoft/waza/cmd/waza/dev"
 	"github.com/microsoft/waza/cmd/waza/tokens"
+	versionpkg "github.com/microsoft/waza/internal/version"
 	"github.com/spf13/cobra"
 )
 
@@ -29,9 +31,21 @@ performance against predefined test cases.`,
 	slog.SetDefault(logger)
 
 	debugLogging := cmd.PersistentFlags().Bool("debug", false, "Enable debug logging")
+	noUpdateCheck := cmd.PersistentFlags().Bool("no-update-check", false, "Disable automatic update check")
+
+	var checker *versionpkg.Checker
 	cmd.PersistentPreRun = func(cmd *cobra.Command, args []string) {
 		if *debugLogging {
 			logLevel.Set(slog.LevelDebug)
+		}
+		if !*noUpdateCheck && os.Getenv("WAZA_NO_UPDATE_CHECK") == "" {
+			checker = versionpkg.NewChecker(version)
+			checker.Run(context.Background())
+		}
+	}
+	cmd.PersistentPostRun = func(cmd *cobra.Command, args []string) {
+		if checker != nil {
+			versionpkg.PrintNotice(checker.Result(), "")
 		}
 	}
 

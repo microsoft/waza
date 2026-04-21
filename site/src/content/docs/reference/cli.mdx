@@ -854,6 +854,19 @@ waza models --json
 | `--help` | Show help |
 | `--version` | Show version |
 | `--verbose` | Enable debug output |
+| `--no-update-check` | Disable automatic version update check |
+
+## Automatic Update Check
+
+Waza checks for newer versions in the background when you run any command. If an update is available, a one-line notice is printed **after** the command output:
+
+```
+A newer version of waza is available: v0.24.0 → v0.28.0. Run: curl -fsSL ... | bash
+```
+
+- The check is **non-blocking** — it never slows down your command.
+- Results are cached for 24 hours in `~/.waza/version-check.json`.
+- Disable with `--no-update-check` or set `WAZA_NO_UPDATE_CHECK=1`.
 
 ## Environment Variables
 
@@ -862,6 +875,7 @@ waza models --json
 | `GITHUB_TOKEN` | Token for Copilot SDK execution |
 | `WAZA_HOME` | Config directory (default: `~/.waza`) |
 | `WAZA_CACHE` | Cache directory (default: `.waza-cache`) |
+| `WAZA_NO_UPDATE_CHECK` | Set to `1` to disable automatic version check |
 
 ## Next Steps
 

@@ -58,6 +58,16 @@ azd waza init my-eval --interactive
 azd waza run examples/code-explainer/eval.yaml -v
 ```
 
+## Update Notifications
+
+Waza automatically checks for new versions in the background. If an update is available, a notice appears after command output:
+
+```
+A newer version of waza is available: v0.24.0 → v0.28.0. Run: curl -fsSL ... | bash
+```
+
+The check is non-blocking (never slows commands), cached for 24 hours, and can be disabled with `--no-update-check` or `WAZA_NO_UPDATE_CHECK=1`.
+
 ## Quick Start
 
 ### For New Users: Get Started in 5 Minutes
