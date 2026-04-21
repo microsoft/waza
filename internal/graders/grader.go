@@ -74,6 +74,8 @@ func Create(identifier string, params models.GraderParameters) (Grader, error) {
 		return NewSkillInvocationGrader(identifier, p)
 	case models.ToolConstraintGraderParameters:
 		return NewToolConstraintGrader(identifier, p)
+	case models.ToolCallsGraderParameters:
+		return NewToolCallsGrader(identifier, p)
 	case models.DiffGraderParameters:
 		return NewDiffGrader(identifier, p)
 	case models.PromptGraderParameters:

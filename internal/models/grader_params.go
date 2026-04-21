@@ -150,6 +150,16 @@ type DiffGraderParameters struct {
 
 func (DiffGraderParameters) isGraderParameters() {}
 
+// ToolCallsGraderParameters validates which tools were called during a session.
+type ToolCallsGraderParameters struct {
+	RequiredTools  []string `yaml:"required_tools,omitempty" json:"required_tools,omitempty"`
+	ForbiddenTools []string `yaml:"forbidden_tools,omitempty" json:"forbidden_tools,omitempty"`
+	MinCalls       *int     `yaml:"min_calls,omitempty" json:"min_calls,omitempty"`
+	MaxCalls       *int     `yaml:"max_calls,omitempty" json:"max_calls,omitempty"`
+}
+
+func (ToolCallsGraderParameters) isGraderParameters() {}
+
 type PromptGraderMode string
 
 const (
@@ -210,6 +220,8 @@ func decodeGraderParameters(kind GraderKind, configNode *yaml.Node) (GraderParam
 		return decodeYAMLNode[SkillInvocationGraderParameters](configNode)
 	case GraderKindToolConstraint:
 		return decodeYAMLNode[ToolConstraintGraderParameters](configNode)
+	case GraderKindToolCalls:
+		return decodeYAMLNode[ToolCallsGraderParameters](configNode)
 	case GraderKindDiff:
 		return decodeYAMLNode[DiffGraderParameters](configNode)
 	case GraderKindPrompt:

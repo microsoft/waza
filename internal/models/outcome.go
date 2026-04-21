@@ -38,6 +38,7 @@ const (
 	GraderKindTrigger         GraderKind = "trigger"
 	GraderKindDiff            GraderKind = "diff"
 	GraderKindToolConstraint  GraderKind = "tool_constraint"
+	GraderKindToolCalls       GraderKind = "tool_calls"
 )
 
 func AllGraderKinds() []string {
@@ -54,6 +55,7 @@ func AllGraderKinds() []string {
 		string(GraderKindTrigger),
 		string(GraderKindDiff),
 		string(GraderKindToolConstraint),
+		string(GraderKindToolCalls),
 	}
 
 	sort.Strings(names)
