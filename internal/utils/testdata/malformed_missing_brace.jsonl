@@ -1,0 +1,3 @@
+{"type":"session.start","data":{"sessionId":"abc-123"},"id":"evt-1","timestamp":"2026-01-01T00:00:00Z","parentId":null}
+{"type":"user.message","data":{"content":"hello"},"id":"evt-2","timestamp":"2026-01-01T00:00:01Z","parentId":"evt-1"
+{"type":"assistant.turn_start","data":{},"id":"evt-3","timestamp":"2026-01-01T00:00:02Z","parentId":"evt-2"}

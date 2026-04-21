@@ -1,0 +1,4 @@
+{"type":"session.start","data":{"sessionId":"abc-123"},"id":"evt-1","timestamp":"2026-01-01T00:00:00Z","parentId":null}
+{"type":"totally.made.up","data":{"foo":"bar"},"id":"evt-2","timestamp":"2026-01-01T00:00:01Z","parentId":"evt-1"}
+{"type":"🦄.unicorn","data":{},"id":"evt-3","timestamp":"2026-01-01T00:00:02Z","parentId":"evt-2"}
+{"type":"assistant.turn_end","data":{"turnId":"0"},"id":"evt-4","timestamp":"2026-01-01T00:00:03Z","parentId":"evt-3"}
