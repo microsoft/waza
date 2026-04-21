@@ -266,8 +266,8 @@ func TestSkillCheck_WithBothFiles(t *testing.T) {
 	dir := t.TempDir()
 
 	// Create SKILL.md and eval.yaml.
-	os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("# Skill\n"), 0o644)
-	os.WriteFile(filepath.Join(dir, "eval.yaml"), []byte("name: test\n"), 0o644)
+	_ = os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("# Skill\n"), 0o644)
+	_ = os.WriteFile(filepath.Join(dir, "eval.yaml"), []byte("name: test\n"), 0o644)
 
 	args, _ := json.Marshal(map[string]string{"skill_path": dir})
 	params, _ := json.Marshal(toolsCallParams{Name: "waza_skill_check", Arguments: args})
@@ -303,7 +303,7 @@ func TestSkillCheck_WithEvalYml(t *testing.T) {
 	dir := t.TempDir()
 
 	// Create eval.yml (not .yaml) — should still be detected.
-	os.WriteFile(filepath.Join(dir, "eval.yml"), []byte("name: test\n"), 0o644)
+	_ = os.WriteFile(filepath.Join(dir, "eval.yml"), []byte("name: test\n"), 0o644)
 
 	args, _ := json.Marshal(map[string]string{"skill_path": dir})
 	params, _ := json.Marshal(toolsCallParams{Name: "waza_skill_check", Arguments: args})
@@ -356,9 +356,9 @@ func TestSkillCheck_EmptySkillPath(t *testing.T) {
 func TestQuickLinkCheck_NoBrokenLinks(t *testing.T) {
 	dir := t.TempDir()
 	// Create SKILL.md with links that exist.
-	os.WriteFile(filepath.Join(dir, "readme.txt"), []byte("hi"), 0o644)
+	_ = os.WriteFile(filepath.Join(dir, "readme.txt"), []byte("hi"), 0o644)
 	content := "# Skill\n[readme](readme.txt)\n[external](https://example.com)\n"
-	os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(content), 0o644)
+	_ = os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(content), 0o644)
 
 	broken, issues := quickLinkCheck(dir)
 	if broken != 0 {
@@ -369,7 +369,7 @@ func TestQuickLinkCheck_NoBrokenLinks(t *testing.T) {
 func TestQuickLinkCheck_BrokenLink(t *testing.T) {
 	dir := t.TempDir()
 	content := "# Skill\n[missing](nonexistent.txt)\n"
-	os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(content), 0o644)
+	_ = os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(content), 0o644)
 
 	broken, issues := quickLinkCheck(dir)
 	if broken != 1 {
@@ -389,7 +389,7 @@ func TestQuickLinkCheck_SkipsProtocols(t *testing.T) {
 [mdc](mdc:something)
 [anchor](#section)
 `
-	os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(content), 0o644)
+	_ = os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(content), 0o644)
 
 	broken, _ := quickLinkCheck(dir)
 	if broken != 0 {
@@ -399,9 +399,9 @@ func TestQuickLinkCheck_SkipsProtocols(t *testing.T) {
 
 func TestQuickLinkCheck_LinkWithAnchor(t *testing.T) {
 	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, "guide.md"), []byte("# Guide"), 0o644)
+	_ = os.WriteFile(filepath.Join(dir, "guide.md"), []byte("# Guide"), 0o644)
 	content := "# Skill\n[guide section](guide.md#section)\n"
-	os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(content), 0o644)
+	_ = os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(content), 0o644)
 
 	broken, _ := quickLinkCheck(dir)
 	if broken != 0 {
