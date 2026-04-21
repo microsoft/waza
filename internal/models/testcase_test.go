@@ -135,7 +135,7 @@ expected:
 // field is implemented.
 
 func TestLoadTestCase_SkillDirectories(t *testing.T) {
-yamlContent := `id: skill-test
+	yamlContent := `id: skill-test
 name: Skill directories test
 inputs:
   prompt: "test prompt"
@@ -143,23 +143,23 @@ skill_directories:
   - ./skills/custom
   - /absolute/skills
 `
-dir := t.TempDir()
-p := filepath.Join(dir, "tc.yaml")
-if err := os.WriteFile(p, []byte(yamlContent), 0o644); err != nil {
-t.Fatalf("write file: %v", err)
-}
+	dir := t.TempDir()
+	p := filepath.Join(dir, "tc.yaml")
+	if err := os.WriteFile(p, []byte(yamlContent), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
 
-tc, err := LoadTestCase(p)
-if err != nil {
-t.Fatalf("LoadTestCase: %v", err)
-}
-if len(tc.SkillPaths) != 2 {
-t.Fatalf("Expected 2 skill paths, got %d", len(tc.SkillPaths))
-}
-if tc.SkillPaths[0] != "./skills/custom" {
-t.Errorf("Expected first skill path './skills/custom', got %q", tc.SkillPaths[0])
-}
-if tc.SkillPaths[1] != "/absolute/skills" {
-t.Errorf("Expected second skill path '/absolute/skills', got %q", tc.SkillPaths[1])
-}
+	tc, err := LoadTestCase(p)
+	if err != nil {
+		t.Fatalf("LoadTestCase: %v", err)
+	}
+	if len(tc.SkillPaths) != 2 {
+		t.Fatalf("Expected 2 skill paths, got %d", len(tc.SkillPaths))
+	}
+	if tc.SkillPaths[0] != "./skills/custom" {
+		t.Errorf("Expected first skill path './skills/custom', got %q", tc.SkillPaths[0])
+	}
+	if tc.SkillPaths[1] != "/absolute/skills" {
+		t.Errorf("Expected second skill path '/absolute/skills', got %q", tc.SkillPaths[1])
+	}
 }
