@@ -421,7 +421,24 @@ inputs:
   prompt_file: prompts/review-instructions.md
 ```
 
-Paths must be relative — absolute paths and directory traversal (`../`) are rejected.
+
+
+### follow_up_prompts
+
+**Type:** array of strings  
+**Required:** no
+
+Sequential follow-up prompts sent after the initial prompt. Each follow-up reuses the same session and workspace directory, preserving conversation history and file changes across turns.
+
+```yaml
+inputs:
+  prompt: "Create a helper function"
+  follow_up_prompts:
+    - "Add error handling"
+    - "Write tests"
+```
+
+Graders evaluate only the final state after all prompts complete. If any follow-up fails, remaining prompts are skipped and the run is marked as an error.
 
 ### files
 

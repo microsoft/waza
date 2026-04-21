@@ -43,25 +43,30 @@ func (m *MockEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Execu
 
 	start := time.Now()
 
-	// Clean up any previous workspace before creating a new one
-	if m.workspace != "" {
-		if err := os.RemoveAll(m.workspace); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to remove old mock workspace %s: %v\n", m.workspace, err)
+	// Reuse workspace if provided (follow-up prompts), otherwise create fresh
+	if req.WorkspaceDir != "" {
+		m.workspace = req.WorkspaceDir
+	} else {
+		// Clean up any previous workspace before creating a new one
+		if m.workspace != "" {
+			if err := os.RemoveAll(m.workspace); err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: failed to remove old mock workspace %s: %v\n", m.workspace, err)
+			}
+			m.workspace = ""
 		}
-		m.workspace = ""
-	}
 
-	// Create a temp workspace so graders that inspect files (e.g. FileGrader) have
-	// a directory to work with, mirroring CopilotEngine behavior.
-	tmpDir, err := os.MkdirTemp("", "waza-mock-*")
-	if err != nil {
-		return nil, fmt.Errorf("failed to create mock workspace: %w", err)
-	}
-	m.workspace = tmpDir
+		// Create a temp workspace so graders that inspect files (e.g. FileGrader) have
+		// a directory to work with, mirroring CopilotEngine behavior.
+		tmpDir, err := os.MkdirTemp("", "waza-mock-*")
+		if err != nil {
+			return nil, fmt.Errorf("failed to create mock workspace: %w", err)
+		}
+		m.workspace = tmpDir
 
-	// Write request resources into the workspace
-	if err := setupWorkspaceResources(m.workspace, req.Resources); err != nil {
-		return nil, fmt.Errorf("failed to setup mock workspace resources: %w", err)
+		// Write request resources into the workspace
+		if err := setupWorkspaceResources(m.workspace, req.Resources); err != nil {
+			return nil, fmt.Errorf("failed to setup mock workspace resources: %w", err)
+		}
 	}
 
 	// Simple mock response
@@ -72,6 +77,12 @@ func (m *MockEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Execu
 		output += fmt.Sprintf("\nAnalyzed %d file(s)", len(req.Resources))
 	}
 
+	// Pass through session ID for follow-up continuity
+	sessionID := req.SessionID
+	if sessionID == "" {
+		sessionID = fmt.Sprintf("mock-session-%d", time.Now().UnixNano())
+	}
+
 	resp := &ExecutionResponse{
 		FinalOutput:    output,
 		Events:         []copilot.SessionEvent{},
@@ -79,6 +90,7 @@ func (m *MockEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Execu
 		DurationMs:     time.Since(start).Milliseconds(),
 		ToolCalls:      []models.ToolCall{},
 		Success:        true,
+		SessionID:      sessionID,
 		WorkspaceDir:   m.workspace,
 		WorkspaceFiles: captureWorkspaceFiles(m.workspace),
 	}

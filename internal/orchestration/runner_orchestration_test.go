@@ -2,8 +2,10 @@ package orchestration
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -500,4 +502,221 @@ func TestRunTest_CacheHitAndTranscriptWrite(t *testing.T) {
 	assert.True(t, wasCached)
 	assert.Equal(t, outcome.TestID, cachedOutcome.TestID)
 	assert.Equal(t, outcome.Status, cachedOutcome.Status)
+}
+
+
+// --- Follow-up prompt test helpers ---
+
+type trackingCall struct {
+	Message      string
+	SessionID    string
+	WorkspaceDir string
+}
+
+type trackingEngine struct {
+	mu    sync.Mutex
+	calls []trackingCall
+}
+
+func (e *trackingEngine) Initialize(_ context.Context) error { return nil }
+func (e *trackingEngine) Shutdown(_ context.Context) error  { return nil }
+func (e *trackingEngine) SessionUsage(_ string) *models.UsageStats {
+	return nil
+}
+
+func (e *trackingEngine) Execute(_ context.Context, req *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.calls = append(e.calls, trackingCall{
+		Message:      req.Message,
+		SessionID:    req.SessionID,
+		WorkspaceDir: req.WorkspaceDir,
+	})
+	return &execution.ExecutionResponse{
+		FinalOutput:  fmt.Sprintf("response to: %s", req.Message),
+		SessionID:    "session-abc",
+		WorkspaceDir: "/workspace/abc",
+		DurationMs:   10,
+		Success:      true,
+	}, nil
+}
+
+type errorOnCallEngine struct {
+	mu        sync.Mutex
+	callCount int
+	errOnCall int // 1-based: fail on Nth call
+}
+
+func (e *errorOnCallEngine) Initialize(_ context.Context) error { return nil }
+func (e *errorOnCallEngine) Shutdown(_ context.Context) error  { return nil }
+func (e *errorOnCallEngine) SessionUsage(_ string) *models.UsageStats {
+	return nil
+}
+
+func (e *errorOnCallEngine) Execute(_ context.Context, req *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
+	e.mu.Lock()
+	e.callCount++
+	n := e.callCount
+	e.mu.Unlock()
+
+	if n == e.errOnCall {
+		return nil, fmt.Errorf("engine error on call %d", n)
+	}
+	return &execution.ExecutionResponse{
+		FinalOutput:  fmt.Sprintf("response %d", n),
+		SessionID:    "session-abc",
+		WorkspaceDir: "/workspace/abc",
+		DurationMs:   5,
+		Success:      true,
+	}, nil
+}
+
+// --- Follow-up prompt tests ---
+
+func TestExecuteRun_NoFollowUps(t *testing.T) {
+	eng := &trackingEngine{}
+	spec := &models.BenchmarkSpec{
+		SpecIdentity: models.SpecIdentity{Name: "no-followup-test"},
+		Config:       models.Config{TrialsPerTask: 1, TimeoutSec: 30},
+	}
+	cfg := config.NewBenchmarkConfig(spec)
+	runner := NewTestRunner(cfg, eng, WithSkipGraders())
+
+	tc := &models.TestCase{
+		TestID:      "t1",
+		DisplayName: "no followup",
+		Stimulus:    models.TestStimulus{Message: "initial prompt"},
+	}
+
+	result := runner.executeRun(context.Background(), tc, 1)
+	assert.Equal(t, models.StatusSkipped, result.Status)
+	assert.Equal(t, 1, len(eng.calls))
+	assert.Equal(t, "initial prompt", eng.calls[0].Message)
+}
+
+func TestExecuteRun_SingleFollowUp(t *testing.T) {
+	eng := &trackingEngine{}
+	spec := &models.BenchmarkSpec{
+		SpecIdentity: models.SpecIdentity{Name: "single-followup-test"},
+		Config:       models.Config{TrialsPerTask: 1, TimeoutSec: 30},
+	}
+	cfg := config.NewBenchmarkConfig(spec)
+	runner := NewTestRunner(cfg, eng, WithSkipGraders())
+
+	tc := &models.TestCase{
+		TestID:      "t2",
+		DisplayName: "single followup",
+		Stimulus: models.TestStimulus{
+			Message:   "initial prompt",
+			FollowUps: []string{"follow-up one"},
+		},
+	}
+
+	result := runner.executeRun(context.Background(), tc, 1)
+	assert.Equal(t, models.StatusSkipped, result.Status)
+	require.Equal(t, 2, len(eng.calls))
+	assert.Equal(t, "initial prompt", eng.calls[0].Message)
+	assert.Equal(t, "", eng.calls[0].SessionID)
+	assert.Equal(t, "follow-up one", eng.calls[1].Message)
+	assert.Equal(t, "session-abc", eng.calls[1].SessionID)
+	assert.Equal(t, "/workspace/abc", eng.calls[1].WorkspaceDir)
+	assert.Contains(t, result.FinalOutput, "response to: follow-up one")
+}
+
+func TestExecuteRun_MultipleFollowUps(t *testing.T) {
+	eng := &trackingEngine{}
+	spec := &models.BenchmarkSpec{
+		SpecIdentity: models.SpecIdentity{Name: "multi-followup-test"},
+		Config:       models.Config{TrialsPerTask: 1, TimeoutSec: 30},
+	}
+	cfg := config.NewBenchmarkConfig(spec)
+	runner := NewTestRunner(cfg, eng, WithSkipGraders())
+
+	tc := &models.TestCase{
+		TestID:      "t3",
+		DisplayName: "multi followup",
+		Stimulus: models.TestStimulus{
+			Message:   "initial",
+			FollowUps: []string{"follow-up 1", "follow-up 2", "follow-up 3"},
+		},
+	}
+
+	result := runner.executeRun(context.Background(), tc, 1)
+	assert.Equal(t, models.StatusSkipped, result.Status)
+	require.Equal(t, 4, len(eng.calls))
+	assert.Equal(t, "initial", eng.calls[0].Message)
+	for i, msg := range []string{"follow-up 1", "follow-up 2", "follow-up 3"} {
+		assert.Equal(t, msg, eng.calls[i+1].Message)
+		assert.Equal(t, "session-abc", eng.calls[i+1].SessionID)
+		assert.Equal(t, "/workspace/abc", eng.calls[i+1].WorkspaceDir)
+	}
+	// DurationMs should be sum of all calls (10ms each * 4 = 40ms)
+	assert.Equal(t, int64(40), result.DurationMs)
+}
+
+func TestExecuteRun_FollowUpErrorMidSequence(t *testing.T) {
+	eng := &errorOnCallEngine{errOnCall: 2} // fail on first follow-up
+	spec := &models.BenchmarkSpec{
+		SpecIdentity: models.SpecIdentity{Name: "error-followup-test"},
+		Config:       models.Config{TrialsPerTask: 1, TimeoutSec: 30},
+	}
+	cfg := config.NewBenchmarkConfig(spec)
+	runner := NewTestRunner(cfg, eng, WithSkipGraders())
+
+	tc := &models.TestCase{
+		TestID:      "t4",
+		DisplayName: "error followup",
+		Stimulus: models.TestStimulus{
+			Message:   "initial",
+			FollowUps: []string{"fail-here", "never-reached"},
+		},
+	}
+
+	result := runner.executeRun(context.Background(), tc, 1)
+	assert.Equal(t, models.StatusError, result.Status)
+	assert.Contains(t, result.ErrorMsg, "follow-up 1/2 failed")
+}
+
+func TestRunBenchmark_WithFollowUps(t *testing.T) {
+	eng := &trackingEngine{}
+
+	tmpDir := t.TempDir()
+	tasksDir := filepath.Join(tmpDir, "tasks")
+	require.NoError(t, os.MkdirAll(tasksDir, 0o755))
+
+	taskYAML := `id: bench-followup
+name: Benchmark Follow-up
+inputs:
+  prompt: "initial"
+  follow_up_prompts:
+    - "follow-up 1"
+    - "follow-up 2"
+expected:
+  output_contains:
+    - "response"
+`
+	require.NoError(t, os.WriteFile(filepath.Join(tasksDir, "t1.yaml"), []byte(taskYAML), 0o644))
+
+	spec := &models.BenchmarkSpec{
+		SpecIdentity: models.SpecIdentity{Name: "bench-with-followups"},
+		Config:       models.Config{TrialsPerTask: 1, TimeoutSec: 30},
+		Tasks:        []string{"tasks/*.yaml"},
+	}
+	cfg := config.NewBenchmarkConfig(spec, config.WithSpecDir(tmpDir))
+	runner := NewTestRunner(cfg, eng, WithSkipGraders())
+
+	outcome, err := runner.RunBenchmark(context.Background())
+	require.NoError(t, err)
+	require.Len(t, outcome.TestOutcomes, 1)
+
+	res := outcome.TestOutcomes[0]
+	assert.Equal(t, "bench-followup", res.TestID)
+	require.Len(t, res.Runs, 1)
+	assert.Equal(t, models.StatusSkipped, res.Runs[0].Status)
+
+	// Should have 3 calls: initial + 2 follow-ups
+	require.Equal(t, 3, len(eng.calls))
+	assert.Equal(t, "initial", eng.calls[0].Message)
+	assert.Equal(t, "follow-up 1", eng.calls[1].Message)
+	assert.Equal(t, "follow-up 2", eng.calls[2].Message)
 }

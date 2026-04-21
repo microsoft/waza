@@ -220,6 +220,20 @@ You must specify either `prompt` or `prompt_file`, but not both.
 `prompt_file` paths must be relative. Absolute paths and directory traversal (`../`) are rejected for security.
 :::
 
+### Follow-up Prompts
+
+Use `follow_up_prompts` to send additional messages after the initial prompt. Each follow-up reuses the same session and workspace, so file changes and conversation history persist across turns.
+
+```yaml
+inputs:
+  prompt: "Create a Python function that reads a CSV file"
+  follow_up_prompts:
+    - "Add error handling for missing files"
+    - "Write unit tests for the function"
+```
+
+This is useful for evaluating multi-turn conversations where each step builds on the previous one. Graders run only after all prompts (initial + follow-ups) have completed, so the final output reflects the full conversation.
+
 Prompt supports templating:
 
 ```yaml

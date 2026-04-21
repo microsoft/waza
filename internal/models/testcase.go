@@ -31,6 +31,7 @@ type TestStimulus struct {
 	Metadata    map[string]any    `yaml:"context,omitempty" json:"metadata,omitempty"`
 	Resources   []ResourceRef     `yaml:"files,omitempty" json:"resources,omitempty"`
 	Environment map[string]string `yaml:"environment,omitempty" json:"environment,omitempty"`
+	FollowUps   []string          `yaml:"follow_up_prompts,omitempty" json:"follow_ups,omitempty"`
 }
 
 // ResourceRef points to a file or inline content

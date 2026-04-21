@@ -1041,6 +1041,11 @@ func (r *TestRunner) executeRun(ctx context.Context, tc *models.TestCase, runNum
 		})
 	}
 
+	// Execute follow-up prompts if defined
+	if len(tc.Stimulus.FollowUps) > 0 {
+		r.executeFollowUps(ctx, tc, resp)
+	}
+
 	// Build validation context
 	vCtx := r.buildGraderContext(tc, resp)
 
@@ -1140,6 +1145,51 @@ func (r *TestRunner) buildExecutionRequest(tc *models.TestCase) *execution.Execu
 		SkillPaths: resolvedSkillPaths,
 		Timeout:    time.Duration(timeout) * time.Second,
 		MCPServers: convertMCPServers(spec.Config.ServerConfigs),
+	}
+}
+
+// executeFollowUps sends follow-up prompts using the same workspace and session,
+// aggregating results into the original response.
+func (r *TestRunner) executeFollowUps(ctx context.Context, tc *models.TestCase, resp *execution.ExecutionResponse) {
+	for i, prompt := range tc.Stimulus.FollowUps {
+		followReq := r.buildExecutionRequest(tc)
+		followReq.Message = prompt
+		followReq.SessionID = resp.SessionID
+		followReq.WorkspaceDir = resp.WorkspaceDir
+
+		if r.verbose {
+			r.notifyProgress(ProgressEvent{
+				EventType: EventAgentPrompt,
+				TestName:  tc.DisplayName,
+				Details:   map[string]any{"message": prompt, "follow_up": i + 1, "total": len(tc.Stimulus.FollowUps)},
+			})
+		}
+
+		followResp, err := r.engine.Execute(ctx, followReq)
+		if err != nil {
+			resp.ErrorMsg = fmt.Sprintf("follow-up %d/%d failed: %v", i+1, len(tc.Stimulus.FollowUps), err)
+			break
+		}
+
+		if followResp.ErrorMsg != "" {
+			resp.ErrorMsg = fmt.Sprintf("follow-up %d/%d: %s", i+1, len(tc.Stimulus.FollowUps), followResp.ErrorMsg)
+			break
+		}
+
+		// Aggregate results
+		resp.Events = append(resp.Events, followResp.Events...)
+		resp.ToolCalls = append(resp.ToolCalls, followResp.ToolCalls...)
+		resp.SkillInvocations = append(resp.SkillInvocations, followResp.SkillInvocations...)
+		resp.DurationMs += followResp.DurationMs
+		resp.FinalOutput = followResp.FinalOutput
+		resp.WorkspaceFiles = followResp.WorkspaceFiles
+		if followResp.Usage != nil {
+			if resp.Usage == nil {
+				resp.Usage = followResp.Usage
+			} else {
+				resp.Usage = models.AggregateUsageStats([]*models.UsageStats{resp.Usage, followResp.Usage})
+			}
+		}
 	}
 }
 

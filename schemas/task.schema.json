@@ -57,6 +57,13 @@
         "$ref": "#/$defs/validatorInline"
       },
       "description": "Task-level graders applied to this task's output."
+    },
+    "follow_up_prompts": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Sequential follow-up prompts sent after the initial prompt, reusing the same session and workspace."
     }
   },
   "$defs": {
@@ -65,8 +72,16 @@
       "additionalProperties": false,
       "description": "Input stimulus for the task. Must specify either prompt or prompt_file (not both).",
       "oneOf": [
-        { "required": ["prompt"] },
-        { "required": ["prompt_file"] }
+        {
+          "required": [
+            "prompt"
+          ]
+        },
+        {
+          "required": [
+            "prompt_file"
+          ]
+        }
       ],
       "properties": {
         "prompt": {
@@ -319,7 +334,6 @@
             }
           }
         },
-
         {
           "if": {
             "properties": {
