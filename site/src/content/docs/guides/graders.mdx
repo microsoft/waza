@@ -43,6 +43,7 @@ waza ships with **several built-in grader types**. Pick the right one for the jo
 | [Skill Invocation](#skill-invocation-skill_invocation) | `skill_invocation` | Which skills were invoked and in what order          |
 | [Program](#program)                                    | `program`          | External command (any language) grades via exit code |
 | [Tool Constraint](#tool-constraint)                    | `tool_constraint`  | Validate tool usage constraints (expect/reject lists and argument patterns) |
+| [Tool Calls](#tool-calls-tool_calls)                   | `tool_calls`       | Validate required/forbidden tools and call count bounds                    |
 | [Trigger](#trigger)                                    | `trigger`          | Heuristic grader for validating whether a prompt should activate a skill   |
 
 ---
@@ -515,6 +516,68 @@ At least one constraint must be configured. Each configured rule counts as one c
       - bash
       - edit
       - grep
+```
+
+---
+
+## Tool Calls (`tool_calls`)
+
+Validates which tools an agent called during execution. Supports required tools, forbidden tools, and call-count bounds — all in one grader. Each configured constraint counts as one check; partial credit is awarded.
+
+```yaml
+- type: tool_calls
+  name: tool_usage
+  config:
+    required_tools:
+      - bash
+      - edit
+    forbidden_tools:
+      - rm
+      - sudo
+    min_calls: 2
+    max_calls: 20
+```
+
+| Option            | Type        | Default | Description                                     |
+| ----------------- | ----------- | ------- | ----------------------------------------------- |
+| `required_tools`  | `list[str]` | `[]`    | Tool names that **must** appear in the session  |
+| `forbidden_tools` | `list[str]` | `[]`    | Tool names that **must not** appear             |
+| `min_calls`       | `int`       | `0`     | Minimum total tool calls required (0 = no min)  |
+| `max_calls`       | `int`       | `0`     | Maximum total tool calls allowed (0 = no limit) |
+
+At least one constraint must be configured. When both `min_calls` and `max_calls` are set, `min_calls` must be ≤ `max_calls`.
+
+**Scoring:** `passed_checks / total_checks`
+
+<Aside type="tip" title="tool_calls vs. tool_constraint vs. behavior">
+  Use `tool_calls` for simple required/forbidden tool lists with call-count
+  bounds. Use `tool_constraint` when you also need turn and token budgets.
+  Use `behavior` when you need `max_duration_ms` or a single
+  `max_tool_calls` cap without tool-name validation.
+</Aside>
+
+### Example: enforce safe tool usage
+
+```yaml
+- type: tool_calls
+  name: safety_check
+  config:
+    forbidden_tools:
+      - rm
+      - sudo
+    max_calls: 30
+```
+
+### Example: verify minimum workflow
+
+```yaml
+- type: tool_calls
+  name: workflow_check
+  config:
+    required_tools:
+      - bash
+      - edit
+    min_calls: 3
 ```
 
 ---
