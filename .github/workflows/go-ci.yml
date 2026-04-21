@@ -100,7 +100,17 @@ jobs:
       - name: Integration Test
         if: matrix.os == 'ubuntu-latest'
         run: |
+          # Verify waza can load and execute an eval end-to-end with the
+          # mock executor. Exit code 1 = eval tasks failed (expected with
+          # mock output). Exit code >1 or signal = real crash — fail CI.
+          set +e
           ./waza run ./examples/code-explainer/eval.yaml --verbose
+          EXIT_CODE=$?
+          if [ $EXIT_CODE -gt 1 ]; then
+            echo "::error::waza crashed with exit code $EXIT_CODE"
+            exit $EXIT_CODE
+          fi
+          echo "Integration test completed (exit code: $EXIT_CODE)"
 
   lint:
     name: Lint
