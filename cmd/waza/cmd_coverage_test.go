@@ -50,6 +50,9 @@ graders:
     name: judge
   - type: file
     name: files
+    config:
+      must_exist:
+        - output.txt
 `)
 
 	report, err := buildCoverageReport(root, []string{"custom"})
@@ -87,6 +90,9 @@ graders:
     name: judge
   - type: file
     name: files
+    config:
+      must_exist:
+        - output.txt
 `)
 
 	report, err := buildCoverageReport(root, nil)
@@ -193,6 +199,9 @@ graders:
     name: judge
   - type: diff
     name: snapshot
+    config:
+      expected_files:
+        - path: output.txt
 `)
 
 	report, err := buildCoverageReport(root, nil)
