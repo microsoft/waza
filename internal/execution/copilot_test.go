@@ -625,7 +625,7 @@ func TestCopilotExecute_CancelOnSkillInvocation(t *testing.T) {
 					},
 				})
 			}
-			// Block until context is cancelled (which our callback should do).
+			// Block until context is canceled (which our callback should do).
 			<-ctx.Done()
 			return nil, ctx.Err()
 		},

@@ -53,7 +53,7 @@ type ExecutionRequest struct {
 	PermissionHandler copilot.PermissionHandlerFunc
 
 	// CancelOnSkillInvocation, when true, causes the execution context to be
-	// cancelled as soon as a SkillInvoked event is received. This allows trigger
+	// canceled as soon as a SkillInvoked event is received. This allows trigger
 	// tests to terminate early once the skill invocation they care about has been
 	// detected, avoiding unnecessary wait for the agent to finish its full turn.
 	CancelOnSkillInvocation bool

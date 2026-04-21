@@ -227,12 +227,12 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 	// can abort SendAndWait as soon as a skill invocation event arrives. This
 	// lets trigger tests terminate early once the skill fires, rather than
 	// waiting for the agent to finish its full turn.
-	cancelledForSkill := false
+	canceledForSkill := false
 	if req.CancelOnSkillInvocation {
 		var cancelSkill context.CancelFunc
 		ctx, cancelSkill = context.WithCancel(ctx)
 		eventsCollector.SetOnSkillInvoked(func(_ SkillInvocation) {
-			cancelledForSkill = true
+			canceledForSkill = true
 			cancelSkill()
 		})
 		defer cancelSkill() // no-op if already called, ensures cleanup
@@ -269,10 +269,10 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 	var errMsg string
 
 	if err != nil {
-		// If the context was cancelled because we detected a skill invocation
+		// If the context was canceled because we detected a skill invocation
 		// (CancelOnSkillInvocation), that's not an error — it's expected early
 		// termination. We clear the error so the response reports success.
-		if cancelledForSkill && ctx.Err() == context.Canceled {
+		if canceledForSkill && ctx.Err() == context.Canceled {
 			err = nil
 		} else {
 			// errors that are returned inline, as part of the conversation, also come back

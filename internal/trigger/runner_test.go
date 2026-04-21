@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"github.com/microsoft/waza/internal/config"
@@ -157,14 +158,15 @@ func TestRunnerRunConfig(t *testing.T) {
 	if _, err := r.Run(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	require.NotNil(t, engine.lastReq, "expected a captured request")
-	require.Equal(t, float64(120), engine.lastReq.Timeout.Seconds())
-	if len(engine.lastReq.SkillPaths) != 2 {
-		t.Errorf("SkillPaths = %v, want 2 entries", engine.lastReq.SkillPaths)
+	require.NotNil(t, engine.LastReq(), "expected a captured request")
+	require.Equal(t, float64(120), engine.LastReq().Timeout.Seconds())
+	if len(engine.LastReq().SkillPaths) != 2 {
+		t.Errorf("SkillPaths = %v, want 2 entries", engine.LastReq().SkillPaths)
 	}
 }
 
 type capturingEngine struct {
+	mu      sync.Mutex
 	lastReq *execution.ExecutionRequest
 }
 
@@ -173,8 +175,16 @@ func (e *capturingEngine) Shutdown(context.Context) error         { return nil }
 func (e *capturingEngine) SessionUsage(string) *models.UsageStats { return nil }
 
 func (e *capturingEngine) Execute(_ context.Context, req *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
+	e.mu.Lock()
 	e.lastReq = req
+	e.mu.Unlock()
 	return &execution.ExecutionResponse{FinalOutput: "ok", Success: true}, nil
+}
+
+func (e *capturingEngine) LastReq() *execution.ExecutionRequest {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.lastReq
 }
 
 func TestRunnerNeverTriggers(t *testing.T) {
@@ -326,21 +336,21 @@ func TestRunnerPassesFixturesToExecutionRequest(t *testing.T) {
 
 	_, err := r.Run(t.Context())
 	require.NoError(t, err)
-	require.NotNil(t, engine.lastReq)
+	require.NotNil(t, engine.LastReq())
 
 	// Should have loaded 2 fixture files
-	require.Len(t, engine.lastReq.Resources, 2, "expected 2 fixture files")
+	require.Len(t, engine.LastReq().Resources, 2, "expected 2 fixture files")
 
 	// Check paths are relative
 	paths := make(map[string]bool)
-	for _, res := range engine.lastReq.Resources {
+	for _, res := range engine.LastReq().Resources {
 		paths[res.Path] = true
 	}
 	require.True(t, paths["main.go"], "expected main.go in resources")
 	require.True(t, paths[filepath.Join("sub", "helper.go")], "expected sub/helper.go in resources")
 
 	// Should have SourceDir set
-	require.Equal(t, "/some/spec/dir", engine.lastReq.SourceDir)
+	require.Equal(t, "/some/spec/dir", engine.LastReq().SourceDir)
 }
 
 func TestRunnerSkipsHiddenAndVendorInFixtures(t *testing.T) {
@@ -386,9 +396,9 @@ func TestRunnerPassesMCPServers(t *testing.T) {
 
 	_, err := r.Run(t.Context())
 	require.NoError(t, err)
-	require.NotNil(t, engine.lastReq)
-	require.Len(t, engine.lastReq.MCPServers, 1, "expected 1 MCP server")
-	require.Contains(t, engine.lastReq.MCPServers, "test-mcp")
+	require.NotNil(t, engine.LastReq())
+	require.Len(t, engine.LastReq().MCPServers, 1, "expected 1 MCP server")
+	require.Contains(t, engine.LastReq().MCPServers, "test-mcp")
 }
 
 func TestLoadFixtureDir_EmptyDir(t *testing.T) {
@@ -425,7 +435,7 @@ func TestRunnerSetsCancelOnSkillInvocation(t *testing.T) {
 	_, err := r.Run(t.Context())
 	require.NoError(t, err)
 
-	require.NotNil(t, engine.lastReq, "engine should have received a request")
-	require.True(t, engine.lastReq.CancelOnSkillInvocation,
+	require.NotNil(t, engine.LastReq(), "engine should have received a request")
+	require.True(t, engine.LastReq().CancelOnSkillInvocation,
 		"trigger runner must set CancelOnSkillInvocation=true")
 }
