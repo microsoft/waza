@@ -4,23 +4,23 @@ import "github.com/microsoft/waza/internal/models"
 
 // BehaviorMetrics captures quality metrics for agent behavior during a run.
 type BehaviorMetrics struct {
-	ToolCallCount          int      `json:"tool_call_count"`
-	IterationCount         int      `json:"iteration_count"`
-	MaxToolCallsAllowed    int      `json:"max_tool_calls_allowed,omitempty"`
-	MaxToolCallsPassed     bool     `json:"max_tool_calls_passed"`
-	MaxIterations          int      `json:"max_iterations,omitempty"`
-	MaxIterationsPassed    bool     `json:"max_iterations_passed"`
-	MaxResponseTimeMs      int64    `json:"max_response_time_ms,omitempty"`
-	ActualResponseTimeMs   int64    `json:"actual_response_time_ms"`
-	MaxResponseTimeMsPassed bool    `json:"max_response_time_ms_passed"`
-	RequiredTools          []string `json:"required_tools,omitempty"`
-	RequiredToolsUsed      []string `json:"required_tools_used,omitempty"`
-	RequiredToolsMissed    []string `json:"required_tools_missed,omitempty"`
-	RequiredToolsPassed    bool     `json:"required_tools_passed"`
-	ForbiddenTools         []string `json:"forbidden_tools,omitempty"`
-	ForbiddenToolsUsed     []string `json:"forbidden_tools_used,omitempty"`
-	ForbiddenToolsPassed   bool     `json:"forbidden_tools_passed"`
-	EfficiencyScore        float64  `json:"efficiency_score"`
+	ToolCallCount           int      `json:"tool_call_count"`
+	IterationCount          int      `json:"iteration_count"`
+	MaxToolCallsAllowed     int      `json:"max_tool_calls_allowed,omitempty"`
+	MaxToolCallsPassed      bool     `json:"max_tool_calls_passed"`
+	MaxIterations           int      `json:"max_iterations,omitempty"`
+	MaxIterationsPassed     bool     `json:"max_iterations_passed"`
+	MaxResponseTimeMs       int64    `json:"max_response_time_ms,omitempty"`
+	ActualResponseTimeMs    int64    `json:"actual_response_time_ms"`
+	MaxResponseTimeMsPassed bool     `json:"max_response_time_ms_passed"`
+	RequiredTools           []string `json:"required_tools,omitempty"`
+	RequiredToolsUsed       []string `json:"required_tools_used,omitempty"`
+	RequiredToolsMissed     []string `json:"required_tools_missed,omitempty"`
+	RequiredToolsPassed     bool     `json:"required_tools_passed"`
+	ForbiddenTools          []string `json:"forbidden_tools,omitempty"`
+	ForbiddenToolsUsed      []string `json:"forbidden_tools_used,omitempty"`
+	ForbiddenToolsPassed    bool     `json:"forbidden_tools_passed"`
+	EfficiencyScore         float64  `json:"efficiency_score"`
 }
 
 // ComputeBehaviorMetrics analyzes a RunResult against BehaviorRules and returns
