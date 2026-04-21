@@ -399,7 +399,7 @@ func normalizeGeneratedPath(path, fallback string) (string, error) {
 		clean = fallback
 	}
 	clean = filepath.Clean(clean)
-	if filepath.IsAbs(clean) || strings.HasPrefix(clean, "..") {
+	if filepath.IsAbs(clean) || strings.HasPrefix(clean, "..") || strings.HasPrefix(path, "/") {
 		return "", fmt.Errorf("invalid generated path: %s", path)
 	}
 	return clean, nil
