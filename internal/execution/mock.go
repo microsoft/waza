@@ -14,10 +14,11 @@ import (
 
 // MockEngine is a simple mock implementation for testing
 type MockEngine struct {
-	modelID    string
-	workspace  string
-	mtx        *sync.Mutex
-	initCalled atomic.Bool
+	modelID       string
+	workspace     string
+	keepWorkspace bool
+	mtx           *sync.Mutex
+	initCalled    atomic.Bool
 }
 
 // NewMockEngine creates a new mock engine
@@ -26,6 +27,11 @@ func NewMockEngine(modelID string) *MockEngine {
 		modelID: modelID,
 		mtx:     &sync.Mutex{},
 	}
+}
+
+// SetKeepWorkspace enables or disables workspace preservation on shutdown.
+func (m *MockEngine) SetKeepWorkspace(keep bool) {
+	m.keepWorkspace = keep
 }
 
 func (m *MockEngine) Initialize(ctx context.Context) error {
@@ -100,7 +106,9 @@ func (m *MockEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Execu
 
 func (m *MockEngine) Shutdown(ctx context.Context) error {
 	if m.workspace != "" {
-		if err := os.RemoveAll(m.workspace); err != nil {
+		if m.keepWorkspace {
+			fmt.Fprintf(os.Stderr, "Workspace preserved: %s\n", m.workspace)
+		} else if err := os.RemoveAll(m.workspace); err != nil {
 			return fmt.Errorf("failed to remove mock workspace %s: %w", m.workspace, err)
 		}
 		m.workspace = ""

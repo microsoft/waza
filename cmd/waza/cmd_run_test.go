@@ -53,6 +53,7 @@ func resetRunGlobals() {
 	reporters = nil
 	suggestFlag = false
 	updateSnapshots = false
+	keepWorkspace = false
 	newCopilotClientFn = nil
 }
 

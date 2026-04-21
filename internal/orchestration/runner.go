@@ -964,6 +964,7 @@ func (r *TestRunner) runTestUncached(ctx context.Context, tc *models.TestCase, t
 			TotalRuns:  runsPerTest,
 			Status:     run.Status,
 			DurationMs: run.DurationMs,
+			Details:    map[string]any{"workspace_dir": run.WorkspaceDir},
 		})
 	}
 
@@ -1126,6 +1127,7 @@ func (r *TestRunner) executeRun(ctx context.Context, tc *models.TestCase, runNum
 		FinalOutput:      resp.FinalOutput,
 		ErrorMsg:         resp.ErrorMsg,
 		SkillInvocations: skillInvocations,
+		WorkspaceDir:     resp.WorkspaceDir,
 	}
 }
 

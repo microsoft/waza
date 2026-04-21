@@ -28,6 +28,12 @@ type AgentEngine interface {
 	SessionUsage(sessionID string) *models.UsageStats
 }
 
+// WorkspaceKeeper is an optional interface that engines can implement to support
+// preserving temp workspaces after execution (for debugging).
+type WorkspaceKeeper interface {
+	SetKeepWorkspace(keep bool)
+}
+
 // ExecutionRequest represents a test execution request
 type ExecutionRequest struct {
 	ModelID   string

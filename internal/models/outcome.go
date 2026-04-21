@@ -156,6 +156,7 @@ type RunResult struct {
 	FinalOutput      string                   `json:"final_output"`
 	ErrorMsg         string                   `json:"error_msg,omitempty"`
 	SkillInvocations []SkillInvocation        `json:"skill_invocations,omitempty"`
+	WorkspaceDir     string                   `json:"workspace_dir,omitempty"`
 }
 
 type GraderResults struct {

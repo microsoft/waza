@@ -3,6 +3,7 @@ package execution
 import (
 	"context"
 	"errors"
+	"os"
 	"sync/atomic"
 	"testing"
 
@@ -199,6 +200,95 @@ func TestCopilotEngine_Shutdown_WithCancelledContext(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// KeepWorkspace — workspace preservation tests
+// ---------------------------------------------------------------------------
+
+func TestMockEngine_KeepWorkspace_PreservesDir(t *testing.T) {
+	engine := NewMockEngine("test-model")
+	engine.SetKeepWorkspace(true)
+
+	require.NoError(t, engine.Initialize(context.Background()))
+
+	resp, err := engine.Execute(context.Background(), &ExecutionRequest{
+		Message:   "hello",
+		Resources: []ResourceFile{{Path: "file.txt", Content: []byte("data")}},
+	})
+	require.NoError(t, err)
+	wsDir := resp.WorkspaceDir
+	require.DirExists(t, wsDir)
+
+	require.NoError(t, engine.Shutdown(context.Background()))
+
+	// Workspace must still exist after shutdown
+	assert.DirExists(t, wsDir)
+
+	// Clean up manually since the engine didn't
+	os.RemoveAll(wsDir)
+}
+
+func TestMockEngine_DefaultBehavior_CleansUpDir(t *testing.T) {
+	engine := NewMockEngine("test-model")
+	// keepWorkspace defaults to false
+
+	require.NoError(t, engine.Initialize(context.Background()))
+
+	resp, err := engine.Execute(context.Background(), &ExecutionRequest{Message: "hello"})
+	require.NoError(t, err)
+	wsDir := resp.WorkspaceDir
+	require.DirExists(t, wsDir)
+
+	require.NoError(t, engine.Shutdown(context.Background()))
+
+	// Workspace must be removed after shutdown (default behavior)
+	_, statErr := os.Stat(wsDir)
+	assert.True(t, os.IsNotExist(statErr), "workspace should be removed by default")
+}
+
+func TestCopilotEngine_KeepWorkspace_PreservesDir(t *testing.T) {
+	engine := NewCopilotEngineBuilder("test-model", nil).Build()
+	engine.SetKeepWorkspace(true)
+
+	// Simulate a workspace existing (without running the full SDK)
+	tmpDir := t.TempDir()
+	engine.workspacesMu.Lock()
+	engine.workspaces = append(engine.workspaces, tmpDir)
+	engine.workspacesMu.Unlock()
+
+	err := engine.Shutdown(context.Background())
+	require.NoError(t, err)
+
+	// Workspace must still exist after shutdown
+	assert.DirExists(t, tmpDir)
+}
+
+func TestCopilotEngine_KeepWorkspace_PrintsPath(t *testing.T) {
+	engine := NewCopilotEngineBuilder("test-model", nil).Build()
+	engine.SetKeepWorkspace(true)
+
+	tmpDir := t.TempDir()
+	engine.workspacesMu.Lock()
+	engine.workspaces = append(engine.workspaces, tmpDir)
+	engine.workspacesMu.Unlock()
+
+	// Capture stderr to verify "Workspace preserved:" message
+	oldStderr := os.Stderr
+	r, w, _ := os.Pipe()
+	os.Stderr = w
+
+	err := engine.Shutdown(context.Background())
+	require.NoError(t, err)
+
+	w.Close()
+	var buf [4096]byte
+	n, _ := r.Read(buf[:])
+	os.Stderr = oldStderr
+
+	output := string(buf[:n])
+	assert.Contains(t, output, "Workspace preserved:")
+	assert.Contains(t, output, tmpDir)
+}
+
+// ---------------------------------------------------------------------------
 // AgentEngine interface compliance — static check
 // ---------------------------------------------------------------------------
 
@@ -206,4 +296,10 @@ var (
 	_ AgentEngine = (*MockEngine)(nil)
 	_ AgentEngine = (*CopilotEngine)(nil)
 	_ AgentEngine = (*SpyEngine)(nil)
+)
+
+// WorkspaceKeeper interface compliance — static check
+var (
+	_ WorkspaceKeeper = (*MockEngine)(nil)
+	_ WorkspaceKeeper = (*CopilotEngine)(nil)
 )

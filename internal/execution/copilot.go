@@ -26,8 +26,9 @@ type CopilotEngine struct {
 
 	startOnce sync.Once
 
-	workspacesMu sync.Mutex
-	workspaces   []string // workspaces to clean up at Shutdown
+	workspacesMu   sync.Mutex
+	workspaces     []string // workspaces to clean up at Shutdown
+	keepWorkspace  bool     // when true, skip workspace cleanup on shutdown
 
 	// sessions maps session IDs to copilotSessions
 	sessions   map[string]CopilotSession
@@ -83,6 +84,11 @@ func NewCopilotEngineBuilder(defaultModelID string, options *CopilotEngineBuilde
 
 func (b *CopilotEngineBuilder) Build() *CopilotEngine {
 	return b.engine
+}
+
+// SetKeepWorkspace enables or disables workspace preservation on shutdown.
+func (e *CopilotEngine) SetKeepWorkspace(keep bool) {
+	e.keepWorkspace = keep
 }
 
 // Initialize sets up the Copilot client
@@ -355,7 +361,9 @@ func (e *CopilotEngine) doShutdown(ctx context.Context) error {
 
 	for _, ws := range workspaces {
 		if ws != "" {
-			if err := os.RemoveAll(ws); err != nil {
+			if e.keepWorkspace {
+				fmt.Fprintf(os.Stderr, "Workspace preserved: %s\n", ws)
+			} else if err := os.RemoveAll(ws); err != nil {
 				// errors here probably indicate some issue with our code continuing to lock files
 				// even after tests have completed...
 				slog.Warn("failed to cleanup stale workspace", "path", ws, "error", err)

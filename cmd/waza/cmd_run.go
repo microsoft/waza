@@ -66,6 +66,7 @@ var (
 	updateSnapshots bool
 	skipGradersFlag bool
 	noSkillsFlag    bool
+	keepWorkspace   bool
 
 	// newCopilotClientFn allows you to override the client used by the copilot engine, for this command.
 	newCopilotClientFn func(clientOptions *copilot.ClientOptions) execution.CopilotClient
@@ -126,6 +127,7 @@ You can also specify a skill name to run its eval:
 	cmd.Flags().BoolVar(&updateSnapshots, "update-snapshots", false, "Update or create diff grader snapshot files to match current workspace output")
 	cmd.Flags().BoolVar(&skipGradersFlag, "skip-graders", false, "Skip grading (execution only); use with waza grade to grade later")
 	cmd.Flags().BoolVar(&noSkillsFlag, "no-skills", false, "Disable all skill loading for the evaluation")
+	cmd.Flags().BoolVar(&keepWorkspace, "keep-workspace", false, "Preserve temp workspace directories after execution for debugging")
 
 	return cmd
 }
@@ -642,6 +644,11 @@ func runSingleModel(cmd *cobra.Command, spec *models.BenchmarkSpec, specPath str
 	default:
 		return nil, fmt.Errorf("unknown engine type: %s", spec.Config.EngineType)
 	}
+	if keepWorkspace {
+		if wk, ok := engine.(execution.WorkspaceKeeper); ok {
+			wk.SetKeepWorkspace(true)
+		}
+	}
 	if err := engine.Initialize(context.Background()); err != nil {
 		return nil, fmt.Errorf("failed to initialize agent: %w", err)
 	}
@@ -975,6 +982,11 @@ func verboseProgressListener(event orchestration.ProgressEvent) {
 	case orchestration.EventRunComplete:
 		duration := time.Duration(event.DurationMs) * time.Millisecond
 		fmt.Printf(" %s (%v)\n", event.Status, duration)
+		if keepWorkspace {
+			if wsDir, ok := event.Details["workspace_dir"].(string); ok && wsDir != "" {
+				fmt.Printf("  Workspace: %s\n", wsDir)
+			}
+		}
 	case orchestration.EventTestComplete:
 		fmt.Printf("  Test %s: %s\n\n", event.TestName, event.Status)
 	case orchestration.EventBenchmarkComplete:
