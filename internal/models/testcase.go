@@ -43,6 +43,7 @@ type TestExpectation struct {
 	BehaviorRules   BehaviorRules  `yaml:"behavior,omitempty" json:"behavior_rules,omitempty"`
 	MustInclude     []string       `yaml:"output_contains,omitempty" json:"must_include,omitempty"`
 	MustExclude     []string       `yaml:"output_not_contains,omitempty" json:"must_exclude,omitempty"`
+	MayInclude      []string       `yaml:"output_contains_any,omitempty" json:"may_include,omitempty"`
 	ExpectedTrigger *bool          `yaml:"should_trigger,omitempty" json:"expected_trigger,omitempty"`
 }
 
@@ -56,6 +57,7 @@ type BehaviorRules struct {
 	MaxToolInvocations int      `yaml:"max_tool_calls,omitempty" json:"max_tool_invocations,omitempty"`
 	MaxRounds          int      `yaml:"max_iterations,omitempty" json:"max_rounds,omitempty"`
 	MaxTokens          int      `yaml:"max_tokens,omitempty" json:"max_tokens,omitempty"`
+	MaxResponseTimeMs  int64    `yaml:"max_response_time_ms,omitempty" json:"max_response_time_ms,omitempty"`
 	MustUseTool        []string `yaml:"required_tools,omitempty" json:"must_use_tool,omitempty"`
 	ForbidTool         []string `yaml:"forbidden_tools,omitempty" json:"forbid_tool,omitempty"`
 }

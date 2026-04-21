@@ -4,20 +4,23 @@ import "github.com/microsoft/waza/internal/models"
 
 // BehaviorMetrics captures quality metrics for agent behavior during a run.
 type BehaviorMetrics struct {
-	ToolCallCount        int      `json:"tool_call_count"`
-	IterationCount       int      `json:"iteration_count"`
-	MaxToolCallsAllowed  int      `json:"max_tool_calls_allowed,omitempty"`
-	MaxToolCallsPassed   bool     `json:"max_tool_calls_passed"`
-	MaxIterations        int      `json:"max_iterations,omitempty"`
-	MaxIterationsPassed  bool     `json:"max_iterations_passed"`
-	RequiredTools        []string `json:"required_tools,omitempty"`
-	RequiredToolsUsed    []string `json:"required_tools_used,omitempty"`
-	RequiredToolsMissed  []string `json:"required_tools_missed,omitempty"`
-	RequiredToolsPassed  bool     `json:"required_tools_passed"`
-	ForbiddenTools       []string `json:"forbidden_tools,omitempty"`
-	ForbiddenToolsUsed   []string `json:"forbidden_tools_used,omitempty"`
-	ForbiddenToolsPassed bool     `json:"forbidden_tools_passed"`
-	EfficiencyScore      float64  `json:"efficiency_score"`
+	ToolCallCount          int      `json:"tool_call_count"`
+	IterationCount         int      `json:"iteration_count"`
+	MaxToolCallsAllowed    int      `json:"max_tool_calls_allowed,omitempty"`
+	MaxToolCallsPassed     bool     `json:"max_tool_calls_passed"`
+	MaxIterations          int      `json:"max_iterations,omitempty"`
+	MaxIterationsPassed    bool     `json:"max_iterations_passed"`
+	MaxResponseTimeMs      int64    `json:"max_response_time_ms,omitempty"`
+	ActualResponseTimeMs   int64    `json:"actual_response_time_ms"`
+	MaxResponseTimeMsPassed bool    `json:"max_response_time_ms_passed"`
+	RequiredTools          []string `json:"required_tools,omitempty"`
+	RequiredToolsUsed      []string `json:"required_tools_used,omitempty"`
+	RequiredToolsMissed    []string `json:"required_tools_missed,omitempty"`
+	RequiredToolsPassed    bool     `json:"required_tools_passed"`
+	ForbiddenTools         []string `json:"forbidden_tools,omitempty"`
+	ForbiddenToolsUsed     []string `json:"forbidden_tools_used,omitempty"`
+	ForbiddenToolsPassed   bool     `json:"forbidden_tools_passed"`
+	EfficiencyScore        float64  `json:"efficiency_score"`
 }
 
 // ComputeBehaviorMetrics analyzes a RunResult against BehaviorRules and returns
@@ -65,6 +68,15 @@ func ComputeBehaviorMetrics(run *models.RunResult, rules *models.BehaviorRules) 
 		}
 	}
 
+	// Max response time compliance
+	m.ActualResponseTimeMs = run.DurationMs
+	if rules.MaxResponseTimeMs > 0 {
+		m.MaxResponseTimeMs = rules.MaxResponseTimeMs
+		m.MaxResponseTimeMsPassed = run.DurationMs <= rules.MaxResponseTimeMs
+	} else {
+		m.MaxResponseTimeMsPassed = true
+	}
+
 	// Forbidden tools compliance
 	m.ForbiddenTools = rules.ForbidTool
 	m.ForbiddenToolsPassed = true
@@ -83,25 +95,29 @@ func ComputeBehaviorMetrics(run *models.RunResult, rules *models.BehaviorRules) 
 func (m *BehaviorMetrics) AllConstraintsPassed() bool {
 	return m.MaxToolCallsPassed &&
 		m.MaxIterationsPassed &&
+		m.MaxResponseTimeMsPassed &&
 		m.RequiredToolsPassed &&
 		m.ForbiddenToolsPassed
 }
 
 // computeEfficiency scores 0.0–1.0 based on how many constraint checks passed.
-// Each of the four constraint categories contributes 0.25.
+// Each of the five constraint categories contributes 0.20.
 func computeEfficiency(m *BehaviorMetrics) float64 {
 	score := 0.0
 	if m.MaxToolCallsPassed {
-		score += 0.25
+		score += 0.20
 	}
 	if m.MaxIterationsPassed {
-		score += 0.25
+		score += 0.20
+	}
+	if m.MaxResponseTimeMsPassed {
+		score += 0.20
 	}
 	if m.RequiredToolsPassed {
-		score += 0.25
+		score += 0.20
 	}
 	if m.ForbiddenToolsPassed {
-		score += 0.25
+		score += 0.20
 	}
 	return score
 }

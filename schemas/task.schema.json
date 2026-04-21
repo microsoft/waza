@@ -196,6 +196,11 @@
             "type": "string"
           },
           "description": "Tools that must not be used during execution."
+        },
+        "max_response_time_ms": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Maximum allowed response time in milliseconds."
         }
       }
     },

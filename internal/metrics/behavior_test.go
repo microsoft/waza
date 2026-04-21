@@ -8,43 +8,47 @@ import (
 
 func TestComputeBehaviorMetrics(t *testing.T) {
 	tests := []struct {
-		name                string
-		run                 models.RunResult
-		rules               models.BehaviorRules
-		wantToolCallCount   int
-		wantIterationCount  int
-		wantMaxToolsPassed  bool
-		wantMaxIterPassed   bool
-		wantReqToolsPassed  bool
-		wantForbidPassed    bool
-		wantReqUsedLen      int
-		wantReqMissedLen    int
-		wantForbidUsedLen   int
-		wantAllPassed       bool
-		wantEfficiencyScore float64
+		name                    string
+		run                     models.RunResult
+		rules                   models.BehaviorRules
+		wantToolCallCount       int
+		wantIterationCount      int
+		wantMaxToolsPassed      bool
+		wantMaxIterPassed       bool
+		wantResponseTimePassed  bool
+		wantReqToolsPassed      bool
+		wantForbidPassed        bool
+		wantReqUsedLen          int
+		wantReqMissedLen        int
+		wantForbidUsedLen       int
+		wantAllPassed           bool
+		wantEfficiencyScore     float64
 	}{
 		{
 			name: "no_constraints",
 			run: models.RunResult{
+				DurationMs: 500,
 				SessionDigest: models.SessionDigest{
 					ToolCallCount: 3,
 					Usage:         &models.UsageStats{Turns: 5},
 					ToolsUsed:     []string{"grep", "edit"},
 				},
 			},
-			rules:               models.BehaviorRules{},
-			wantToolCallCount:   3,
-			wantIterationCount:  5,
-			wantMaxToolsPassed:  true,
-			wantMaxIterPassed:   true,
-			wantReqToolsPassed:  true,
-			wantForbidPassed:    true,
-			wantAllPassed:       true,
-			wantEfficiencyScore: 1.0,
+			rules:                   models.BehaviorRules{},
+			wantToolCallCount:       3,
+			wantIterationCount:      5,
+			wantMaxToolsPassed:      true,
+			wantMaxIterPassed:       true,
+			wantResponseTimePassed:  true,
+			wantReqToolsPassed:      true,
+			wantForbidPassed:        true,
+			wantAllPassed:           true,
+			wantEfficiencyScore:     1.0,
 		},
 		{
 			name: "all_constraints_pass",
 			run: models.RunResult{
+				DurationMs: 1000,
 				SessionDigest: models.SessionDigest{
 					ToolCallCount: 3,
 					Usage:         &models.UsageStats{Turns: 2},
@@ -54,24 +58,27 @@ func TestComputeBehaviorMetrics(t *testing.T) {
 			rules: models.BehaviorRules{
 				MaxToolInvocations: 5,
 				MaxRounds:          3,
+				MaxResponseTimeMs:  2000,
 				MustUseTool:        []string{"grep", "edit"},
 				ForbidTool:         []string{"rm"},
 			},
-			wantToolCallCount:   3,
-			wantIterationCount:  2,
-			wantMaxToolsPassed:  true,
-			wantMaxIterPassed:   true,
-			wantReqToolsPassed:  true,
-			wantForbidPassed:    true,
-			wantReqUsedLen:      2,
-			wantReqMissedLen:    0,
-			wantForbidUsedLen:   0,
-			wantAllPassed:       true,
-			wantEfficiencyScore: 1.0,
+			wantToolCallCount:       3,
+			wantIterationCount:      2,
+			wantMaxToolsPassed:      true,
+			wantMaxIterPassed:       true,
+			wantResponseTimePassed:  true,
+			wantReqToolsPassed:      true,
+			wantForbidPassed:        true,
+			wantReqUsedLen:          2,
+			wantReqMissedLen:        0,
+			wantForbidUsedLen:       0,
+			wantAllPassed:           true,
+			wantEfficiencyScore:     1.0,
 		},
 		{
 			name: "exceeds_max_tool_calls",
 			run: models.RunResult{
+				DurationMs: 100,
 				SessionDigest: models.SessionDigest{
 					ToolCallCount: 10,
 					Usage:         &models.UsageStats{Turns: 2},
@@ -81,18 +88,20 @@ func TestComputeBehaviorMetrics(t *testing.T) {
 			rules: models.BehaviorRules{
 				MaxToolInvocations: 5,
 			},
-			wantToolCallCount:   10,
-			wantIterationCount:  2,
-			wantMaxToolsPassed:  false,
-			wantMaxIterPassed:   true,
-			wantReqToolsPassed:  true,
-			wantForbidPassed:    true,
-			wantAllPassed:       false,
-			wantEfficiencyScore: 0.75,
+			wantToolCallCount:       10,
+			wantIterationCount:      2,
+			wantMaxToolsPassed:      false,
+			wantMaxIterPassed:       true,
+			wantResponseTimePassed:  true,
+			wantReqToolsPassed:      true,
+			wantForbidPassed:        true,
+			wantAllPassed:           false,
+			wantEfficiencyScore:     0.80,
 		},
 		{
 			name: "exceeds_max_iterations",
 			run: models.RunResult{
+				DurationMs: 100,
 				SessionDigest: models.SessionDigest{
 					ToolCallCount: 2,
 					Usage:         &models.UsageStats{Turns: 10},
@@ -102,18 +111,20 @@ func TestComputeBehaviorMetrics(t *testing.T) {
 			rules: models.BehaviorRules{
 				MaxRounds: 5,
 			},
-			wantToolCallCount:   2,
-			wantIterationCount:  10,
-			wantMaxToolsPassed:  true,
-			wantMaxIterPassed:   false,
-			wantReqToolsPassed:  true,
-			wantForbidPassed:    true,
-			wantAllPassed:       false,
-			wantEfficiencyScore: 0.75,
+			wantToolCallCount:       2,
+			wantIterationCount:      10,
+			wantMaxToolsPassed:      true,
+			wantMaxIterPassed:       false,
+			wantResponseTimePassed:  true,
+			wantReqToolsPassed:      true,
+			wantForbidPassed:        true,
+			wantAllPassed:           false,
+			wantEfficiencyScore:     0.80,
 		},
 		{
 			name: "missing_required_tool",
 			run: models.RunResult{
+				DurationMs: 100,
 				SessionDigest: models.SessionDigest{
 					ToolCallCount: 3,
 					Usage:         &models.UsageStats{Turns: 2},
@@ -123,20 +134,22 @@ func TestComputeBehaviorMetrics(t *testing.T) {
 			rules: models.BehaviorRules{
 				MustUseTool: []string{"grep", "edit", "bash"},
 			},
-			wantToolCallCount:   3,
-			wantIterationCount:  2,
-			wantMaxToolsPassed:  true,
-			wantMaxIterPassed:   true,
-			wantReqToolsPassed:  false,
-			wantForbidPassed:    true,
-			wantReqUsedLen:      1,
-			wantReqMissedLen:    2,
-			wantAllPassed:       false,
-			wantEfficiencyScore: 0.75,
+			wantToolCallCount:       3,
+			wantIterationCount:      2,
+			wantMaxToolsPassed:      true,
+			wantMaxIterPassed:       true,
+			wantResponseTimePassed:  true,
+			wantReqToolsPassed:      false,
+			wantForbidPassed:        true,
+			wantReqUsedLen:          1,
+			wantReqMissedLen:        2,
+			wantAllPassed:           false,
+			wantEfficiencyScore:     0.80,
 		},
 		{
 			name: "used_forbidden_tool",
 			run: models.RunResult{
+				DurationMs: 100,
 				SessionDigest: models.SessionDigest{
 					ToolCallCount: 3,
 					Usage:         &models.UsageStats{Turns: 2},
@@ -146,19 +159,21 @@ func TestComputeBehaviorMetrics(t *testing.T) {
 			rules: models.BehaviorRules{
 				ForbidTool: []string{"rm", "sudo"},
 			},
-			wantToolCallCount:   3,
-			wantIterationCount:  2,
-			wantMaxToolsPassed:  true,
-			wantMaxIterPassed:   true,
-			wantReqToolsPassed:  true,
-			wantForbidPassed:    false,
-			wantForbidUsedLen:   1,
-			wantAllPassed:       false,
-			wantEfficiencyScore: 0.75,
+			wantToolCallCount:       3,
+			wantIterationCount:      2,
+			wantMaxToolsPassed:      true,
+			wantMaxIterPassed:       true,
+			wantResponseTimePassed:  true,
+			wantReqToolsPassed:      true,
+			wantForbidPassed:        false,
+			wantForbidUsedLen:       1,
+			wantAllPassed:           false,
+			wantEfficiencyScore:     0.80,
 		},
 		{
 			name: "all_constraints_fail",
 			run: models.RunResult{
+				DurationMs: 10000,
 				SessionDigest: models.SessionDigest{
 					ToolCallCount: 20,
 					Usage:         &models.UsageStats{Turns: 15},
@@ -168,24 +183,27 @@ func TestComputeBehaviorMetrics(t *testing.T) {
 			rules: models.BehaviorRules{
 				MaxToolInvocations: 5,
 				MaxRounds:          3,
+				MaxResponseTimeMs:  5000,
 				MustUseTool:        []string{"grep"},
 				ForbidTool:         []string{"rm"},
 			},
-			wantToolCallCount:   20,
-			wantIterationCount:  15,
-			wantMaxToolsPassed:  false,
-			wantMaxIterPassed:   false,
-			wantReqToolsPassed:  false,
-			wantForbidPassed:    false,
-			wantReqUsedLen:      0,
-			wantReqMissedLen:    1,
-			wantForbidUsedLen:   1,
-			wantAllPassed:       false,
-			wantEfficiencyScore: 0.0,
+			wantToolCallCount:       20,
+			wantIterationCount:      15,
+			wantMaxToolsPassed:      false,
+			wantMaxIterPassed:       false,
+			wantResponseTimePassed:  false,
+			wantReqToolsPassed:      false,
+			wantForbidPassed:        false,
+			wantReqUsedLen:          0,
+			wantReqMissedLen:        1,
+			wantForbidUsedLen:       1,
+			wantAllPassed:           false,
+			wantEfficiencyScore:     0.0,
 		},
 		{
 			name: "exact_boundary_tool_calls",
 			run: models.RunResult{
+				DurationMs: 100,
 				SessionDigest: models.SessionDigest{
 					ToolCallCount: 5,
 					Usage:         &models.UsageStats{Turns: 3},
@@ -196,18 +214,20 @@ func TestComputeBehaviorMetrics(t *testing.T) {
 				MaxToolInvocations: 5,
 				MaxRounds:          3,
 			},
-			wantToolCallCount:   5,
-			wantIterationCount:  3,
-			wantMaxToolsPassed:  true,
-			wantMaxIterPassed:   true,
-			wantReqToolsPassed:  true,
-			wantForbidPassed:    true,
-			wantAllPassed:       true,
-			wantEfficiencyScore: 1.0,
+			wantToolCallCount:       5,
+			wantIterationCount:      3,
+			wantMaxToolsPassed:      true,
+			wantMaxIterPassed:       true,
+			wantResponseTimePassed:  true,
+			wantReqToolsPassed:      true,
+			wantForbidPassed:        true,
+			wantAllPassed:           true,
+			wantEfficiencyScore:     1.0,
 		},
 		{
 			name: "zero_tool_calls_and_turns",
 			run: models.RunResult{
+				DurationMs: 0,
 				SessionDigest: models.SessionDigest{
 					ToolCallCount: 0,
 					Usage:         &models.UsageStats{Turns: 0},
@@ -218,14 +238,108 @@ func TestComputeBehaviorMetrics(t *testing.T) {
 				MaxToolInvocations: 5,
 				MaxRounds:          3,
 			},
-			wantToolCallCount:   0,
-			wantIterationCount:  0,
-			wantMaxToolsPassed:  true,
-			wantMaxIterPassed:   true,
-			wantReqToolsPassed:  true,
-			wantForbidPassed:    true,
-			wantAllPassed:       true,
-			wantEfficiencyScore: 1.0,
+			wantToolCallCount:       0,
+			wantIterationCount:      0,
+			wantMaxToolsPassed:      true,
+			wantMaxIterPassed:       true,
+			wantResponseTimePassed:  true,
+			wantReqToolsPassed:      true,
+			wantForbidPassed:        true,
+			wantAllPassed:           true,
+			wantEfficiencyScore:     1.0,
+		},
+		{
+			name: "response_time_under_limit",
+			run: models.RunResult{
+				DurationMs: 3000,
+				SessionDigest: models.SessionDigest{
+					ToolCallCount: 2,
+					Usage:         &models.UsageStats{Turns: 1},
+					ToolsUsed:     []string{"grep"},
+				},
+			},
+			rules: models.BehaviorRules{
+				MaxResponseTimeMs: 5000,
+			},
+			wantToolCallCount:       2,
+			wantIterationCount:      1,
+			wantMaxToolsPassed:      true,
+			wantMaxIterPassed:       true,
+			wantResponseTimePassed:  true,
+			wantReqToolsPassed:      true,
+			wantForbidPassed:        true,
+			wantAllPassed:           true,
+			wantEfficiencyScore:     1.0,
+		},
+		{
+			name: "response_time_exactly_at_limit",
+			run: models.RunResult{
+				DurationMs: 5000,
+				SessionDigest: models.SessionDigest{
+					ToolCallCount: 2,
+					Usage:         &models.UsageStats{Turns: 1},
+					ToolsUsed:     []string{"grep"},
+				},
+			},
+			rules: models.BehaviorRules{
+				MaxResponseTimeMs: 5000,
+			},
+			wantToolCallCount:       2,
+			wantIterationCount:      1,
+			wantMaxToolsPassed:      true,
+			wantMaxIterPassed:       true,
+			wantResponseTimePassed:  true,
+			wantReqToolsPassed:      true,
+			wantForbidPassed:        true,
+			wantAllPassed:           true,
+			wantEfficiencyScore:     1.0,
+		},
+		{
+			name: "response_time_exceeds_limit",
+			run: models.RunResult{
+				DurationMs: 8000,
+				SessionDigest: models.SessionDigest{
+					ToolCallCount: 2,
+					Usage:         &models.UsageStats{Turns: 1},
+					ToolsUsed:     []string{"grep"},
+				},
+			},
+			rules: models.BehaviorRules{
+				MaxResponseTimeMs: 5000,
+			},
+			wantToolCallCount:       2,
+			wantIterationCount:      1,
+			wantMaxToolsPassed:      true,
+			wantMaxIterPassed:       true,
+			wantResponseTimePassed:  false,
+			wantReqToolsPassed:      true,
+			wantForbidPassed:        true,
+			wantAllPassed:           false,
+			wantEfficiencyScore:     0.80,
+		},
+		{
+			name: "response_time_and_tool_calls_both_fail",
+			run: models.RunResult{
+				DurationMs: 10000,
+				SessionDigest: models.SessionDigest{
+					ToolCallCount: 20,
+					Usage:         &models.UsageStats{Turns: 2},
+					ToolsUsed:     []string{"grep"},
+				},
+			},
+			rules: models.BehaviorRules{
+				MaxToolInvocations: 5,
+				MaxResponseTimeMs:  5000,
+			},
+			wantToolCallCount:       20,
+			wantIterationCount:      2,
+			wantMaxToolsPassed:      false,
+			wantMaxIterPassed:       true,
+			wantResponseTimePassed:  false,
+			wantReqToolsPassed:      true,
+			wantForbidPassed:        true,
+			wantAllPassed:           false,
+			wantEfficiencyScore:     0.60,
 		},
 	}
 
@@ -250,6 +364,9 @@ func TestComputeBehaviorMetrics(t *testing.T) {
 			}
 			if m.ForbiddenToolsPassed != tt.wantForbidPassed {
 				t.Errorf("ForbiddenToolsPassed = %v, want %v", m.ForbiddenToolsPassed, tt.wantForbidPassed)
+			}
+			if m.MaxResponseTimeMsPassed != tt.wantResponseTimePassed {
+				t.Errorf("MaxResponseTimeMsPassed = %v, want %v", m.MaxResponseTimeMsPassed, tt.wantResponseTimePassed)
 			}
 			if len(m.RequiredToolsUsed) != tt.wantReqUsedLen {
 				t.Errorf("RequiredToolsUsed len = %d, want %d", len(m.RequiredToolsUsed), tt.wantReqUsedLen)
