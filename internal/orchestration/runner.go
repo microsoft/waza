@@ -1245,6 +1245,7 @@ func (r *TestRunner) buildGraderContext(tc *models.TestCase, resp *execution.Exe
 		DurationMS:       resp.DurationMs,
 		Metadata:         make(map[string]any),
 		WorkspaceDir:     resp.WorkspaceDir,
+		WorkspaceFiles:   resp.WorkspaceFiles,
 		SkillInvocations: resp.SkillInvocations,
 		SessionID:        resp.SessionID,
 		Session:          &sessionDigest,

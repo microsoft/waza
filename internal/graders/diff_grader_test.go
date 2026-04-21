@@ -147,3 +147,124 @@ func TestDiffGrader_UpdateSnapshots_BlocksPathTraversal(t *testing.T) {
 	_, statErr := os.Stat(outsideSnapshot)
 	assert.ErrorIs(t, statErr, os.ErrNotExist)
 }
+
+// TestDiffGrader_WorkspaceFiles_PrefersCapturedOverFilesystem verifies that the diff grader
+// reads from captured WorkspaceFiles (post-execution snapshot) instead of the on-disk
+// workspace. This is the core fix for #165: after session.Disconnect(), the workspace
+// filesystem may revert to pre-execution state, but captured files retain agent changes.
+func TestDiffGrader_WorkspaceFiles_PrefersCapturedOverFilesystem(t *testing.T) {
+	// Workspace dir has the OLD (pre-execution) content, simulating
+	// what happens when session.Disconnect() restores the workspace.
+	workspaceDir := t.TempDir()
+	require.NoError(t, os.WriteFile(
+		filepath.Join(workspaceDir, "api-version.ts"),
+		[]byte("// original file without preview version"),
+		0o644,
+	))
+
+	// Captured files have the POST-execution content — the agent's actual changes.
+	capturedFiles := map[string][]byte{
+		"api-version.ts": []byte("export const previewVersion = \"@previewVersion\";\nconst versions = {\n  v2025-05-04-preview: \"2025-05-04-preview\"\n};\n"),
+	}
+
+	grader, err := NewDiffGrader("diff", models.DiffGraderParameters{
+		ExpectedFiles: []models.DiffExpectedFileParameters{
+			{
+				Path: "api-version.ts",
+				Contains: []string{
+					"+@previewVersion",
+					`+v2025-05-04-preview: "2025-05-04-preview"`,
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	result, err := grader.Grade(context.Background(), &Context{
+		WorkspaceDir:   workspaceDir,
+		WorkspaceFiles: capturedFiles,
+	})
+	require.NoError(t, err)
+	assert.True(t, result.Passed, "grader should use captured files, not reverted filesystem: %s", result.Feedback)
+	assert.Equal(t, 1.0, result.Score)
+}
+
+// TestDiffGrader_WorkspaceFiles_FallsBackToFilesystem verifies that when no captured
+// files are provided (legacy behavior), the grader still reads from the workspace
+// directory on disk.
+func TestDiffGrader_WorkspaceFiles_FallsBackToFilesystem(t *testing.T) {
+	workspaceDir := t.TempDir()
+	require.NoError(t, os.WriteFile(
+		filepath.Join(workspaceDir, "result.txt"),
+		[]byte("hello world"),
+		0o644,
+	))
+
+	grader, err := NewDiffGrader("diff", models.DiffGraderParameters{
+		ExpectedFiles: []models.DiffExpectedFileParameters{
+			{
+				Path:     "result.txt",
+				Contains: []string{"+hello world"},
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	// No WorkspaceFiles → should fall back to filesystem
+	result, err := grader.Grade(context.Background(), &Context{
+		WorkspaceDir: workspaceDir,
+	})
+	require.NoError(t, err)
+	assert.True(t, result.Passed)
+	assert.Equal(t, 1.0, result.Score)
+}
+
+// TestDiffGrader_WorkspaceFiles_MissingFragmentFails verifies that when captured files
+// exist but don't contain the expected fragment, the grader correctly fails.
+func TestDiffGrader_WorkspaceFiles_MissingFragmentFails(t *testing.T) {
+	capturedFiles := map[string][]byte{
+		"config.yaml": []byte("key: old_value\n"),
+	}
+
+	grader, err := NewDiffGrader("diff", models.DiffGraderParameters{
+		ExpectedFiles: []models.DiffExpectedFileParameters{
+			{
+				Path:     "config.yaml",
+				Contains: []string{"+key: new_value"},
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	result, err := grader.Grade(context.Background(), &Context{
+		WorkspaceDir:   "", // no workspace dir
+		WorkspaceFiles: capturedFiles,
+	})
+	require.NoError(t, err)
+	assert.False(t, result.Passed)
+	assert.Contains(t, result.Feedback, "missing expected fragment")
+}
+
+// TestDiffGrader_WorkspaceFiles_FileNotInCapturedOrDisk ensures proper failure
+// when a file exists in neither captured files nor on disk.
+func TestDiffGrader_WorkspaceFiles_FileNotInCapturedOrDisk(t *testing.T) {
+	workspaceDir := t.TempDir()
+
+	grader, err := NewDiffGrader("diff", models.DiffGraderParameters{
+		ExpectedFiles: []models.DiffExpectedFileParameters{
+			{
+				Path:     "missing.txt",
+				Contains: []string{"+something"},
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	result, err := grader.Grade(context.Background(), &Context{
+		WorkspaceDir:   workspaceDir,
+		WorkspaceFiles: map[string][]byte{},
+	})
+	require.NoError(t, err)
+	assert.False(t, result.Passed)
+	assert.Contains(t, result.Feedback, "not found")
+}

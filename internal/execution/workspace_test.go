@@ -52,3 +52,35 @@ func TestSetupWorkspaceResources_EmptyWorkspace(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "escapes workspace")
 }
+
+func TestCaptureWorkspaceFiles_CapturesAllFiles(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "root.txt"), []byte("root content"), 0o644))
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "sub"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "sub", "nested.txt"), []byte("nested content"), 0o644))
+
+	files := captureWorkspaceFiles(dir)
+	require.Len(t, files, 2)
+	assert.Equal(t, "root content", string(files["root.txt"]))
+	assert.Equal(t, "nested content", string(files["sub/nested.txt"]))
+}
+
+func TestCaptureWorkspaceFiles_EmptyDir(t *testing.T) {
+	files := captureWorkspaceFiles(t.TempDir())
+	assert.Empty(t, files)
+}
+
+func TestCaptureWorkspaceFiles_EmptyString(t *testing.T) {
+	files := captureWorkspaceFiles("")
+	assert.Nil(t, files)
+}
+
+func TestCaptureWorkspaceFiles_UsesForwardSlashes(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "a", "b"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "a", "b", "c.txt"), []byte("deep"), 0o644))
+
+	files := captureWorkspaceFiles(dir)
+	_, ok := files["a/b/c.txt"]
+	assert.True(t, ok, "keys should use forward slashes regardless of OS")
+}

@@ -73,13 +73,14 @@ func (m *MockEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Execu
 	}
 
 	resp := &ExecutionResponse{
-		FinalOutput:  output,
-		Events:       []copilot.SessionEvent{},
-		ModelID:      m.modelID,
-		DurationMs:   time.Since(start).Milliseconds(),
-		ToolCalls:    []models.ToolCall{},
-		Success:      true,
-		WorkspaceDir: m.workspace,
+		FinalOutput:    output,
+		Events:         []copilot.SessionEvent{},
+		ModelID:        m.modelID,
+		DurationMs:     time.Since(start).Milliseconds(),
+		ToolCalls:      []models.ToolCall{},
+		Success:        true,
+		WorkspaceDir:   m.workspace,
+		WorkspaceFiles: captureWorkspaceFiles(m.workspace),
 	}
 
 	return resp, nil

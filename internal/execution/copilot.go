@@ -256,6 +256,11 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 
 	duration := time.Since(start)
 
+	// Capture workspace files while they are still in post-execution state.
+	// The deferred session.Disconnect() may modify or restore workspace files,
+	// so we snapshot them now to guarantee graders see the agent's changes.
+	workspaceFiles := captureWorkspaceFiles(workspaceDir)
+
 	// Build response
 	resp := &ExecutionResponse{
 		FinalOutput:      joinStrings(eventsCollector.OutputParts()),
@@ -267,6 +272,7 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 		ErrorMsg:         errMsg,
 		Success:          err == nil,
 		WorkspaceDir:     workspaceDir,
+		WorkspaceFiles:   workspaceFiles,
 		SessionID:        sessionID,
 		Usage:            usageCollector.UsageStats(),
 	}
@@ -407,6 +413,36 @@ func (e *CopilotEngine) setupWorkspace(resources []ResourceFile) (string, error)
 	}
 
 	return workspaceDir, nil
+}
+
+// captureWorkspaceFiles reads all files from the workspace directory into memory,
+// preserving the post-execution state. This is called before session.Disconnect()
+// to ensure graders see the agent's modifications even if the SDK restores the
+// workspace to its pre-execution state during disconnect.
+// Keys are forward-slash-separated paths relative to dir for cross-platform consistency.
+func captureWorkspaceFiles(dir string) map[string][]byte {
+	if dir == "" {
+		return nil
+	}
+
+	files := make(map[string][]byte)
+	_ = filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return nil
+		}
+		rel, relErr := filepath.Rel(dir, path)
+		if relErr != nil {
+			return nil
+		}
+		content, readErr := os.ReadFile(path)
+		if readErr != nil {
+			return nil
+		}
+		// Normalize to forward slashes so map keys match eval YAML paths on all platforms.
+		files[filepath.ToSlash(rel)] = content
+		return nil
+	})
+	return files
 }
 
 func joinStrings(parts []string) string {

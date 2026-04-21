@@ -75,8 +75,9 @@ type ExecutionResponse struct {
 	ToolCalls        []models.ToolCall
 	ErrorMsg         string
 	Success          bool
-	WorkspaceDir     string // Path to workspace directory (for file grading)
-	SessionID        string // Copilot session ID
+	WorkspaceDir     string            // Path to workspace directory (for file grading)
+	WorkspaceFiles   map[string][]byte // Post-execution workspace file contents captured before session disconnect
+	SessionID        string            // Copilot session ID
 	Usage            *models.UsageStats
 }
 

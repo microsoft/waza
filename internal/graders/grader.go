@@ -36,6 +36,11 @@ type Context struct {
 	// where you want to verify artifacts or outputs.
 	WorkspaceDir string
 
+	// WorkspaceFiles holds post-execution workspace file contents captured before the
+	// session disconnects. Graders should prefer these over reading from WorkspaceDir
+	// because the filesystem may be modified after session disconnect.
+	WorkspaceFiles map[string][]byte
+
 	// Session holds the session digest with tool call counts, token usage, and tools used.
 	// Used by the behavior grader to validate agent behavior constraints.
 	Session *models.SessionDigest
