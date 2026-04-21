@@ -75,6 +75,7 @@
         },
         "prompt_file": {
           "type": "string",
+          "minLength": 1,
           "description": "Path to a file containing the prompt message, relative to the task YAML directory."
         },
         "context": {

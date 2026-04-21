@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -242,7 +243,8 @@ func LoadTestCase(path string) (*TestCase, error) {
 }
 
 // resolvePromptFile loads prompt content from a file if prompt_file is set.
-// The filePath is resolved relative to baseDir.
+// The path is resolved relative to baseDir. Absolute and traversal paths are
+// rejected, consistent with resource path validation in the runner.
 func (s *TestStimulus) resolvePromptFile(baseDir string) error {
 	if s.MessageFile == "" {
 		return nil
@@ -252,15 +254,22 @@ func (s *TestStimulus) resolvePromptFile(baseDir string) error {
 	}
 
 	target := s.MessageFile
-	if !filepath.IsAbs(target) {
-		target = filepath.Join(baseDir, target)
+	if filepath.IsAbs(target) {
+		return fmt.Errorf("prompt_file must be a relative path, got %q", target)
+	}
+	clean := filepath.Clean(target)
+	if strings.Contains(clean, "..") {
+		return fmt.Errorf("prompt_file must not contain path traversal, got %q", target)
 	}
 
-	data, err := os.ReadFile(target)
+	resolved := filepath.Join(baseDir, clean)
+
+	data, err := os.ReadFile(resolved)
 	if err != nil {
 		return fmt.Errorf("reading prompt_file %q: %w", s.MessageFile, err)
 	}
 
 	s.Message = string(data)
+	s.MessageFile = "" // clear to avoid leaking file paths in serialized output
 	return nil
 }

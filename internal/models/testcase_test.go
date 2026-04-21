@@ -333,4 +333,75 @@ inputs:
 			t.Errorf("Message = %q, want %q", tc.Stimulus.Message, promptContent)
 		}
 	})
+
+	t.Run("rejects absolute path", func(t *testing.T) {
+		dir := t.TempDir()
+
+		yamlContent := `id: tc-abs
+name: Absolute Path
+inputs:
+  prompt_file: /etc/passwd
+`
+		tcPath := filepath.Join(dir, "tc.yaml")
+		if err := os.WriteFile(tcPath, []byte(yamlContent), 0o644); err != nil {
+			t.Fatalf("write test case: %v", err)
+		}
+
+		_, err := LoadTestCase(tcPath)
+		if err == nil {
+			t.Fatal("expected error for absolute path")
+		}
+		if !strings.Contains(err.Error(), "relative path") {
+			t.Errorf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("rejects path traversal", func(t *testing.T) {
+		dir := t.TempDir()
+
+		yamlContent := `id: tc-traversal
+name: Path Traversal
+inputs:
+  prompt_file: ../../../etc/passwd
+`
+		tcPath := filepath.Join(dir, "tc.yaml")
+		if err := os.WriteFile(tcPath, []byte(yamlContent), 0o644); err != nil {
+			t.Fatalf("write test case: %v", err)
+		}
+
+		_, err := LoadTestCase(tcPath)
+		if err == nil {
+			t.Fatal("expected error for path traversal")
+		}
+		if !strings.Contains(err.Error(), "path traversal") {
+			t.Errorf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("clears MessageFile after resolve", func(t *testing.T) {
+		dir := t.TempDir()
+
+		if err := os.WriteFile(filepath.Join(dir, "prompt.md"), []byte("content"), 0o644); err != nil {
+			t.Fatalf("write prompt file: %v", err)
+		}
+
+		yamlContent := `id: tc-clear
+name: Clear MessageFile
+inputs:
+  prompt_file: prompt.md
+`
+		tcPath := filepath.Join(dir, "tc.yaml")
+		if err := os.WriteFile(tcPath, []byte(yamlContent), 0o644); err != nil {
+			t.Fatalf("write test case: %v", err)
+		}
+
+		tc, err := LoadTestCase(tcPath)
+		if err != nil {
+			t.Fatalf("LoadTestCase: %v", err)
+		}
+
+		if tc.Stimulus.MessageFile != "" {
+			t.Errorf("MessageFile should be cleared after resolve, got %q", tc.Stimulus.MessageFile)
+		}
+	})
 }
