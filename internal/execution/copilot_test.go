@@ -588,3 +588,99 @@ func TestCopilotResumeSession_PassesMCPServersAndSystemMessage(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, resp.Success)
 }
+
+func TestCopilotExecute_CancelOnSkillInvocation(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	clientMock := newClientMock(ctrl)
+	sessionMock := NewMockCopilotSession(ctrl)
+
+	sourceDir := t.TempDir()
+
+	clientMock.EXPECT().CreateSession(gomock.Any(), gomock.Any()).Return(sessionMock, nil)
+	clientMock.EXPECT().DeleteSession(gomock.Any(), "session-skill-cancel")
+
+	sessionMock.EXPECT().SessionID().Return("session-skill-cancel")
+	sessionMock.EXPECT().Disconnect()
+
+	// Capture the event handlers registered via session.On so we can
+	// fire a SkillInvoked event from inside SendAndWait.
+	var eventHandlers []func(copilot.SessionEvent)
+	sessionMock.EXPECT().On(gomock.Any()).Times(3).DoAndReturn(func(handler func(copilot.SessionEvent)) func() {
+		eventHandlers = append(eventHandlers, handler)
+		return func() {}
+	})
+
+	skillName := "my-skill"
+	skillPath := "/skills/my-skill/SKILL.md"
+
+	sessionMock.EXPECT().SendAndWait(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(ctx context.Context, _ copilot.MessageOptions) (*copilot.SessionEvent, error) {
+			// Simulate a SkillInvoked event arriving mid-stream.
+			for _, handler := range eventHandlers {
+				handler(copilot.SessionEvent{
+					Type: copilot.SkillInvoked,
+					Data: copilot.Data{
+						Name: &skillName,
+						Path: &skillPath,
+					},
+				})
+			}
+			// Block until context is cancelled (which our callback should do).
+			<-ctx.Done()
+			return nil, ctx.Err()
+		},
+	)
+
+	engine := NewCopilotEngineBuilder("gpt-4o-mini", &CopilotEngineBuilderOptions{
+		NewCopilotClient: func(_ *copilot.ClientOptions) CopilotClient { return clientMock },
+	}).Build()
+	defer func() { require.NoError(t, engine.Shutdown(context.Background())) }()
+
+	require.NoError(t, engine.Initialize(context.Background()))
+
+	resp, err := engine.Execute(context.Background(), &ExecutionRequest{
+		Message:                 "invoke a skill please",
+		SourceDir:               sourceDir,
+		Timeout:                 30 * time.Second,
+		CancelOnSkillInvocation: true,
+	})
+	require.NoError(t, err)
+	require.True(t, resp.Success, "cancellation from skill invocation should be treated as success")
+	require.Empty(t, resp.ErrorMsg)
+	require.Len(t, resp.SkillInvocations, 1)
+	require.Equal(t, "my-skill", resp.SkillInvocations[0].Name)
+}
+
+func TestCopilotExecute_CancelOnSkillInvocation_NoSkillFired(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	clientMock := newClientMock(ctrl)
+	sessionMock := NewMockCopilotSession(ctrl)
+
+	sourceDir := t.TempDir()
+
+	clientMock.EXPECT().CreateSession(gomock.Any(), gomock.Any()).Return(sessionMock, nil)
+	clientMock.EXPECT().DeleteSession(gomock.Any(), "session-no-skill")
+
+	sessionMock.EXPECT().SessionID().Return("session-no-skill")
+	sessionMock.EXPECT().Disconnect()
+
+	sessionMock.EXPECT().On(gomock.Any()).Times(3).Return(func() {})
+	sessionMock.EXPECT().SendAndWait(gomock.Any(), gomock.Any()).Return(&copilot.SessionEvent{}, nil)
+
+	engine := NewCopilotEngineBuilder("gpt-4o-mini", &CopilotEngineBuilderOptions{
+		NewCopilotClient: func(_ *copilot.ClientOptions) CopilotClient { return clientMock },
+	}).Build()
+	defer func() { require.NoError(t, engine.Shutdown(context.Background())) }()
+
+	require.NoError(t, engine.Initialize(context.Background()))
+
+	resp, err := engine.Execute(context.Background(), &ExecutionRequest{
+		Message:                 "do something normal",
+		SourceDir:               sourceDir,
+		Timeout:                 30 * time.Second,
+		CancelOnSkillInvocation: true,
+	})
+	require.NoError(t, err)
+	require.True(t, resp.Success, "flag should be safe even when no skill fires")
+	require.Empty(t, resp.ErrorMsg)
+}

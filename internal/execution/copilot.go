@@ -138,10 +138,16 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 
 	start := time.Now()
 
-	workspaceDir, err := e.setupWorkspace(req.Resources)
-
-	if err != nil {
-		return nil, err
+	// Reuse an existing workspace when WorkspaceDir is provided (follow-up prompts),
+	// otherwise create a fresh one from the request resources.
+	var workspaceDir string
+	if req.WorkspaceDir != "" {
+		workspaceDir = req.WorkspaceDir
+	} else {
+		workspaceDir, err = e.setupWorkspace(req.Resources)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	// Build skill directories list: start with CWD, then add any from request
@@ -217,6 +223,21 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 	eventsCollector := NewSessionEventsCollector()
 	usageCollector := NewSessionUsageCollector()
 
+	// When CancelOnSkillInvocation is set, derive a cancellable context so we
+	// can abort SendAndWait as soon as a skill invocation event arrives. This
+	// lets trigger tests terminate early once the skill fires, rather than
+	// waiting for the agent to finish its full turn.
+	cancelledForSkill := false
+	if req.CancelOnSkillInvocation {
+		var cancelSkill context.CancelFunc
+		ctx, cancelSkill = context.WithCancel(ctx)
+		eventsCollector.SetOnSkillInvoked(func(_ SkillInvocation) {
+			cancelledForSkill = true
+			cancelSkill()
+		})
+		defer cancelSkill() // no-op if already called, ensures cleanup
+	}
+
 	// Event handler — NOT deferred for unsubscribe because we need to receive
 	// session.shutdown events later during client.Stop(). The usage handler is
 	// stored in e.collectors so we can read final usage after shutdown.
@@ -248,10 +269,17 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 	var errMsg string
 
 	if err != nil {
-		// errors that are returned inline, as part of the conversation, also come back
-		// in the returned error. Rather than having one of those fun functions that returns
-		// both an error and a result, I'll just put the error message in the ExecutionResponse.
-		errMsg = err.Error()
+		// If the context was cancelled because we detected a skill invocation
+		// (CancelOnSkillInvocation), that's not an error — it's expected early
+		// termination. We clear the error so the response reports success.
+		if cancelledForSkill && ctx.Err() == context.Canceled {
+			err = nil
+		} else {
+			// errors that are returned inline, as part of the conversation, also come back
+			// in the returned error. Rather than having one of those fun functions that returns
+			// both an error and a result, I'll just put the error message in the ExecutionResponse.
+			errMsg = err.Error()
+		}
 	}
 
 	duration := time.Since(start)

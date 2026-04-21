@@ -171,13 +171,14 @@ func (r *Runner) testTrigger(ctx context.Context, prompt string) (*execution.Exe
 		timeout = 60
 	}
 	return r.engine.Execute(ctx, &execution.ExecutionRequest{
-		Message:    prompt,
-		SkillName:  r.spec.Skill,
-		SkillPaths: utils.ResolvePaths(spec.Config.SkillPaths, r.cfg.SpecDir()),
-		SourceDir:  r.cfg.SpecDir(),
-		Resources:  r.fixtures,
-		MCPServers: r.mcpConfig,
-		Timeout:    time.Duration(timeout) * time.Second,
+		Message:                 prompt,
+		SkillName:               r.spec.Skill,
+		SkillPaths:              utils.ResolvePaths(spec.Config.SkillPaths, r.cfg.SpecDir()),
+		SourceDir:               r.cfg.SpecDir(),
+		Resources:               r.fixtures,
+		MCPServers:              r.mcpConfig,
+		Timeout:                 time.Duration(timeout) * time.Second,
+		CancelOnSkillInvocation: true,
 	})
 }
 

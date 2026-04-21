@@ -14,11 +14,12 @@ type SessionEventsCollector struct {
 	// SkillInvocations is a chronological list of skills invoked during the session
 	SkillInvocations []SkillInvocation
 
-	sessionEvents []copilot.SessionEvent
-	outputParts   []string
-	errorMsg      string
-	done          chan struct{}
-	intentToolIDs map[string]bool
+	sessionEvents  []copilot.SessionEvent
+	outputParts    []string
+	errorMsg       string
+	done           chan struct{}
+	intentToolIDs  map[string]bool
+	onSkillInvoked func(SkillInvocation) // optional callback fired on each SkillInvoked event
 }
 
 // NewSessionEventsCollector creates a new SessionEvents.
@@ -49,6 +50,13 @@ func (coll *SessionEventsCollector) Done() <-chan struct{} {
 	return coll.done
 }
 
+// SetOnSkillInvoked registers a callback that fires every time a SkillInvoked
+// event is received. The callback runs synchronously inside On(), so it can
+// safely cancel a context to abort an in-flight SendAndWait.
+func (coll *SessionEventsCollector) SetOnSkillInvoked(fn func(SkillInvocation)) {
+	coll.onSkillInvoked = fn
+}
+
 // On is a callback, intended to be passed to [copilot.Session.On] to receive
 // events in real-time.
 func (coll *SessionEventsCollector) On(event copilot.SessionEvent) {
@@ -69,6 +77,9 @@ func (coll *SessionEventsCollector) On(event copilot.SessionEvent) {
 		}
 		if si.Name != "" || si.Path != "" {
 			coll.SkillInvocations = append(coll.SkillInvocations, si)
+			if coll.onSkillInvoked != nil {
+				coll.onSkillInvoked(si)
+			}
 		} else {
 			// this shouldn't happen but if it does we at least want to know about it
 			if _, err := fmt.Fprintf(os.Stderr, "warning: received SkillInvoked event with no Name or Path: %+v\n", event); err != nil {

@@ -3,6 +3,7 @@ package execution
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"testing"
@@ -92,4 +93,63 @@ func TestNewSessionEventsCollector_Error(t *testing.T) {
 
 		require.Equal(t, tc.Expected, coll.ErrorMessage())
 	}
+}
+
+func TestSessionEventsCollector_OnSkillInvokedCallback(t *testing.T) {
+	skillName := "test-skill"
+	skillPath := "/skills/test-skill/SKILL.md"
+
+	t.Run("fires callback when skill invoked", func(t *testing.T) {
+		coll := NewSessionEventsCollector()
+		var captured SkillInvocation
+		coll.SetOnSkillInvoked(func(si SkillInvocation) {
+			captured = si
+		})
+
+		coll.On(copilot.SessionEvent{
+			Type: copilot.SkillInvoked,
+			Data: copilot.Data{
+				Name: &skillName,
+				Path: &skillPath,
+			},
+		})
+
+		require.Equal(t, skillName, captured.Name)
+		require.Equal(t, skillPath, captured.Path)
+	})
+
+	t.Run("no callback set does not panic", func(t *testing.T) {
+		coll := NewSessionEventsCollector()
+
+		require.NotPanics(t, func() {
+			coll.On(copilot.SessionEvent{
+				Type: copilot.SkillInvoked,
+				Data: copilot.Data{
+					Name: &skillName,
+					Path: &skillPath,
+				},
+			})
+		})
+
+		require.Len(t, coll.SkillInvocations, 1)
+	})
+
+	t.Run("callback fires for each invocation", func(t *testing.T) {
+		coll := NewSessionEventsCollector()
+		count := 0
+		coll.SetOnSkillInvoked(func(_ SkillInvocation) {
+			count++
+		})
+
+		for i := 0; i < 3; i++ {
+			name := fmt.Sprintf("skill-%d", i)
+			coll.On(copilot.SessionEvent{
+				Type: copilot.SkillInvoked,
+				Data: copilot.Data{Name: &name},
+			})
+		}
+
+		require.Equal(t, 3, count)
+		require.Len(t, coll.SkillInvocations, 3)
+	})
 }

@@ -407,3 +407,25 @@ func TestConvertMCPServers_SkipsNonMapEntries(t *testing.T) {
 	require.Contains(t, result, "good")
 	require.Contains(t, result, "good2")
 }
+
+func TestRunnerSetsCancelOnSkillInvocation(t *testing.T) {
+	spec := &TestSpec{
+		Skill:                   "my-skill",
+		ShouldTriggerPrompts:    []TestPrompt{{Prompt: "trigger me"}},
+		ShouldNotTriggerPrompts: []TestPrompt{{Prompt: "don't trigger"}},
+	}
+
+	engine := &capturingEngine{}
+	cfg := config.NewBenchmarkConfig(&models.BenchmarkSpec{
+		SkillName: "my-skill",
+		Config:    models.Config{TimeoutSec: 10},
+	})
+
+	r := NewRunner(spec, engine, cfg, nil)
+	_, err := r.Run(t.Context())
+	require.NoError(t, err)
+
+	require.NotNil(t, engine.lastReq, "engine should have received a request")
+	require.True(t, engine.lastReq.CancelOnSkillInvocation,
+		"trigger runner must set CancelOnSkillInvocation=true")
+}

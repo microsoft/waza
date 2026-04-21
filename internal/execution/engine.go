@@ -35,8 +35,9 @@ type ExecutionRequest struct {
 	Context   map[string]any
 	Resources []ResourceFile
 
-	SessionID string
-	SkillName string
+	SessionID    string
+	WorkspaceDir string // Reuse an existing workspace directory (for follow-up prompts)
+	SkillName    string
 
 	SourceDir  string   // used when looking for workspace items via relative path, like skills.
 	SkillPaths []string // Directories to search for skills
@@ -50,6 +51,12 @@ type ExecutionRequest struct {
 	// PermissionHandler called when the copilot SDK wants to determine if a tool can be used.
 	// Default: allows all tools.
 	PermissionHandler copilot.PermissionHandlerFunc
+
+	// CancelOnSkillInvocation, when true, causes the execution context to be
+	// cancelled as soon as a SkillInvoked event is received. This allows trigger
+	// tests to terminate early once the skill invocation they care about has been
+	// detected, avoiding unnecessary wait for the agent to finish its full turn.
+	CancelOnSkillInvocation bool
 }
 
 // ResourceFile represents a file resource
