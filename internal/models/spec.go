@@ -195,7 +195,7 @@ func (g *GraderConfig) Validate() error {
 			return fmt.Errorf("file grader %q: must specify at least one of config.must_exist, config.must_not_exist, or config.content_patterns", g.Identifier)
 		}
 
-	// GraderKindText, GraderKindBehavior, GraderKindPrompt allow empty configs
+		// GraderKindText, GraderKindBehavior, GraderKindPrompt allow empty configs
 	}
 
 	return nil
