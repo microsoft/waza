@@ -68,7 +68,7 @@ func newModelsCommandWithOptions(options *modelsCommandOptions) *cobra.Command {
 				if err != nil {
 					return fmt.Errorf("failed to marshal models: %w", err)
 				}
-				fmt.Fprintln(cmd.OutOrStdout(), string(data))
+				fmt.Fprintln(cmd.OutOrStdout(), string(data)) //nolint:errcheck
 				return nil
 			}
 
@@ -85,7 +85,7 @@ func renderModelsTable(cmd *cobra.Command, models []copilot.ModelInfo) error {
 	w := cmd.OutOrStdout()
 
 	if len(models) == 0 {
-		fmt.Fprintln(w, "No models available.")
+		fmt.Fprintln(w, "No models available.") //nolint:errcheck
 		return nil
 	}
 
@@ -102,8 +102,8 @@ func renderModelsTable(cmd *cobra.Command, models []copilot.ModelInfo) error {
 	}
 
 	header := fmt.Sprintf("%-*s  %-*s  %-8s  %s", idWidth, "MODEL ID", nameWidth, "NAME", "VISION", "CONTEXT WINDOW")
-	fmt.Fprintln(w, header)
-	fmt.Fprintln(w, strings.Repeat("─", len(header)+4))
+	fmt.Fprintln(w, header)                             //nolint:errcheck
+	fmt.Fprintln(w, strings.Repeat("─", len(header)+4)) //nolint:errcheck
 
 	for _, m := range models {
 		vision := "no"
@@ -116,10 +116,10 @@ func renderModelsTable(cmd *cobra.Command, models []copilot.ModelInfo) error {
 			contextWindow = formatTokenCount(m.Capabilities.Limits.MaxContextWindowTokens)
 		}
 
-		fmt.Fprintf(w, "%-*s  %-*s  %-8s  %s\n", idWidth, m.ID, nameWidth, m.Name, vision, contextWindow)
+		fmt.Fprintf(w, "%-*s  %-*s  %-8s  %s\n", idWidth, m.ID, nameWidth, m.Name, vision, contextWindow) //nolint:errcheck
 	}
 
-	fmt.Fprintf(w, "\n%d models available\n", len(models))
+	fmt.Fprintf(w, "\n%d models available\n", len(models)) //nolint:errcheck
 	return nil
 }
 
