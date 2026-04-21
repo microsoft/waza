@@ -170,10 +170,26 @@ func TestIndexHTMLReferencesExistingAssets(t *testing.T) {
 	distFS, err := fs.Sub(web.Assets, "dist")
 	require.NoError(t, err)
 
-	if _, err := fs.ReadDir(distFS, "assets"); errors.Is(err, fs.ErrNotExist) {
+	entries, err := fs.ReadDir(distFS, "assets")
+	if errors.Is(err, fs.ErrNotExist) {
 		t.Skip("skipping: web/dist/assets not built (run 'cd web && npm run build' or 'make build-web')")
-	} else if err != nil {
-		require.NoError(t, err, "unexpected error reading dist/assets")
+	}
+	require.NoError(t, err, "unexpected error reading dist/assets")
+
+	// Verify assets/ actually contains JS or CSS bundles.  The directory
+	// may exist but be empty (e.g., partial build or cache artefact).
+	var hasBundles bool
+	for _, e := range entries {
+		if !e.IsDir() {
+			ext := filepath.Ext(e.Name())
+			if ext == ".js" || ext == ".css" {
+				hasBundles = true
+				break
+			}
+		}
+	}
+	if !hasBundles {
+		t.Skip("skipping: web/dist/assets contains no JS/CSS bundles (run 'cd web && npm run build' or 'make build-web')")
 	}
 
 	indexBytes, err := fs.ReadFile(distFS, "index.html")
