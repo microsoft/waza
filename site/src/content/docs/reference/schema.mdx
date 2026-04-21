@@ -445,6 +445,7 @@ Validation rules and constraints.
 expected:
   output_contains: ["function", "parameter"]
   output_not_contains: ["error"]
+  output_contains_any: ["recursion", "iteration", "loop"]
   outcomes:
     - type: task_completed
   behavior:
@@ -477,6 +478,20 @@ expected:
   output_not_contains:
     - "error"
     - "failed"
+```
+
+### output_contains_any
+
+**Type:** array of strings
+
+At least one of these strings must appear in the output (OR logic). Useful when an agent may express a concept in different ways. All checks are case-insensitive.
+
+```yaml
+expected:
+  output_contains_any:
+    - "recursion"
+    - "iteration"
+    - "loop"
 ```
 
 ### matches

@@ -243,6 +243,12 @@ expected:
     - "error"
     - "failed"
 
+  # At least one of these must appear (flexible matching)
+  output_contains_any:
+    - "recursion"
+    - "iteration"
+    - "loop"
+
   # Task outcomes
   outcomes:
     - type: task_completed
@@ -254,6 +260,13 @@ expected:
     max_tool_calls: 5
     max_tokens: 4096
 ```
+
+#### output_contains vs output_contains_any
+
+- **`output_contains`** — ALL listed strings must appear (AND logic). Use for required content.
+- **`output_contains_any`** — At least ONE listed string must appear (OR logic). Use when the agent may express concepts in different ways.
+
+All checks are **case-insensitive**.
 
 ## Fixture Isolation
 
