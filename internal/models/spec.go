@@ -41,6 +41,7 @@ type Config struct {
 	EngineType     string         `yaml:"executor" json:"engine_type"`
 	ModelID        string         `yaml:"model" json:"model_id"`
 	SkillPaths     []string       `yaml:"skill_directories,omitempty" json:"skill_paths,omitempty"`
+	DisabledSkills []string       `yaml:"disabled_skills,omitempty" json:"disabled_skills,omitempty"`
 	RequiredSkills []string       `yaml:"required_skills,omitempty" json:"required_skills,omitempty"`
 	ServerConfigs  map[string]any `yaml:"mcp_servers,omitempty" json:"server_configs,omitempty"`
 	MaxAttempts    int            `yaml:"max_attempts,omitempty" json:"max_attempts,omitempty"`
@@ -199,6 +200,42 @@ func (g *GraderConfig) Validate() error {
 	}
 
 	return nil
+}
+
+// AllSkillsDisabled returns true when skills should be completely disabled.
+func (c *Config) AllSkillsDisabled() bool {
+	for _, s := range c.DisabledSkills {
+		if s == "*" {
+			return true
+		}
+	}
+	for _, s := range c.SkillPaths {
+		if s == "none" {
+			return true
+		}
+	}
+	return false
+}
+
+// FilteredSkillPaths returns SkillPaths with any disabled skill directories removed.
+func (c *Config) FilteredSkillPaths() []string {
+	if c.AllSkillsDisabled() {
+		return nil
+	}
+	if len(c.DisabledSkills) == 0 {
+		return c.SkillPaths
+	}
+	disabled := make(map[string]bool, len(c.DisabledSkills))
+	for _, s := range c.DisabledSkills {
+		disabled[s] = true
+	}
+	var filtered []string
+	for _, p := range c.SkillPaths {
+		if !disabled[p] && !disabled[filepath.Base(p)] {
+			filtered = append(filtered, p)
+		}
+	}
+	return filtered
 }
 
 // MeasurementDef defines a metric

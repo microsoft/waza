@@ -645,6 +645,11 @@ func (r *TestRunner) loadTestCasesFromFiles() ([]*models.TestCase, error) {
 func (r *TestRunner) validateRequiredSkills() error {
 	spec := r.cfg.Spec()
 
+	// If all skills are disabled, skip validation
+	if spec.Config.AllSkillsDisabled() {
+		return nil
+	}
+
 	// If no required skills specified, skip validation
 	if len(spec.Config.RequiredSkills) == 0 {
 		return nil
@@ -1135,11 +1140,12 @@ func (r *TestRunner) buildExecutionRequest(tc *models.TestCase) *execution.Execu
 	}
 
 	// Use task-level skill paths if specified, otherwise fall back to eval-level
-	skillPaths := spec.Config.SkillPaths
+	skillPaths := spec.Config.FilteredSkillPaths()
 	if len(tc.SkillPaths) > 0 {
 		skillPaths = tc.SkillPaths
 	}
 	resolvedSkillPaths := utils.ResolvePaths(skillPaths, r.cfg.SpecDir())
+	noSkills := spec.Config.AllSkillsDisabled()
 
 	return &execution.ExecutionRequest{
 		Message:    tc.Stimulus.Message,
@@ -1147,6 +1153,7 @@ func (r *TestRunner) buildExecutionRequest(tc *models.TestCase) *execution.Execu
 		Resources:  resources,
 		SkillName:  spec.SkillName,
 		SkillPaths: resolvedSkillPaths,
+		NoSkills:   noSkills,
 		Timeout:    time.Duration(timeout) * time.Second,
 		MCPServers: convertMCPServers(spec.Config.ServerConfigs),
 	}

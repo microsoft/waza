@@ -41,6 +41,7 @@ type ExecutionRequest struct {
 
 	SourceDir  string   // used when looking for workspace items via relative path, like skills.
 	SkillPaths []string // Directories to search for skills
+	NoSkills   bool     // When true, skip all skill loading
 
 	Timeout time.Duration
 

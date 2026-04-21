@@ -65,6 +65,7 @@ var (
 	strictFlag      bool
 	updateSnapshots bool
 	skipGradersFlag bool
+	noSkillsFlag    bool
 
 	// newCopilotClientFn allows you to override the client used by the copilot engine, for this command.
 	newCopilotClientFn func(clientOptions *copilot.ClientOptions) execution.CopilotClient
@@ -124,6 +125,7 @@ You can also specify a skill name to run its eval:
 	cmd.Flags().BoolVar(&strictFlag, "strict", false, "With --discover, fail if any SKILL.md lacks an eval.yaml")
 	cmd.Flags().BoolVar(&updateSnapshots, "update-snapshots", false, "Update or create diff grader snapshot files to match current workspace output")
 	cmd.Flags().BoolVar(&skipGradersFlag, "skip-graders", false, "Skip grading (execution only); use with waza grade to grade later")
+	cmd.Flags().BoolVar(&noSkillsFlag, "no-skills", false, "Disable all skill loading for the evaluation")
 
 	return cmd
 }
@@ -467,6 +469,9 @@ func runCommandForSpec(cmd *cobra.Command, sp skillSpecPath, defaultSkills []str
 	if baselineFlag {
 		spec.Baseline = true
 	}
+	if noSkillsFlag {
+		spec.Config.DisabledSkills = []string{"*"}
+	}
 	if judgeModel != "" {
 		spec.Config.JudgeModel = judgeModel
 	}
@@ -735,9 +740,11 @@ func runSingleModel(cmd *cobra.Command, spec *models.BenchmarkSpec, specPath str
 		fmt.Printf("Parallel: %d workers\n", w)
 	}
 
-	if verbose && len(spec.Config.SkillPaths) > 0 {
+	if verbose && spec.Config.AllSkillsDisabled() {
+		fmt.Printf("Skills: disabled (all skills disabled)\n")
+	} else if verbose && len(spec.Config.SkillPaths) > 0 {
 		fmt.Printf("Skill Directories:\n")
-		resolvedPaths := utils.ResolvePaths(spec.Config.SkillPaths, specDir)
+		resolvedPaths := utils.ResolvePaths(spec.Config.FilteredSkillPaths(), specDir)
 		for _, path := range resolvedPaths {
 			fmt.Printf("  - %s\n", path)
 		}

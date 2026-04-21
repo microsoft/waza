@@ -292,6 +292,7 @@ Run an evaluation benchmark from a spec file.
 | `--no-summary` | | Skip writing combined summary.json for multi-skill runs |
 | `--update-snapshots` | | Update or create diff grader snapshot files to match current output |
 | `--skip-graders` | | Skip grading (execution only); grade later with `waza grade` |
+| `--keep-workspace` | | Preserve temp workspaces after execution for debugging |
 
 **Result Caching**
 

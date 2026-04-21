@@ -155,15 +155,16 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 		}
 	}
 
-	// Build skill directories list: start with CWD, then add any from request
-	skillDirs := e.getSkillDirs(sourceDir, req)
-
-	// Load skill definitions from directories and build system message
+	// Build skill directories list and system message, unless skills are disabled
+	var skillDirs []string
 	var systemMessage *copilot.SystemMessageConfig
-	if msg := buildSkillSystemMessage(skillDirs, req.SkillName); msg != "" {
-		systemMessage = &copilot.SystemMessageConfig{
-			Mode:    "append",
-			Content: msg,
+	if !req.NoSkills {
+		skillDirs = e.getSkillDirs(sourceDir, req)
+		if msg := buildSkillSystemMessage(skillDirs, req.SkillName); msg != "" {
+			systemMessage = &copilot.SystemMessageConfig{
+				Mode:    "append",
+				Content: msg,
+			}
 		}
 	}
 

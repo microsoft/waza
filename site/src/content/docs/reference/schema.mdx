@@ -232,6 +232,25 @@ config:
     - test-runner
 ```
 
+### disabled_skills
+
+**Type:** list[string]  
+**Default:** `[]`
+
+Skills to disable for the evaluation. Use `["*"]` to disable all skill loading entirely, or list specific skill directory names to exclude.
+
+```yaml
+# Disable all skills
+config:
+  disabled_skills: ["*"]
+
+# Disable specific skills
+config:
+  disabled_skills:
+    - noisy-skill
+    - experimental-skill
+```
+
 ### mcp_servers
 
 **Type:** object  

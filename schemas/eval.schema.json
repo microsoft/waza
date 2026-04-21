@@ -164,6 +164,13 @@
           },
           "description": "Additional directories to search for skill definitions."
         },
+        "disabled_skills": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Skills to disable. Use [\"*\"] to disable all skills, or list specific skill directory names to exclude."
+        },
         "required_skills": {
           "type": "array",
           "items": {

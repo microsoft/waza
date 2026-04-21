@@ -86,6 +86,7 @@ config:
 | `group_by`          | string    | —                 | Group results by a field (e.g., `tags`, `task_id`)          |
 | `fail_fast`         | bool      | false             | Stop the entire run on first task failure                   |
 | `skill_directories` | list[str] | `[]`              | Additional directories to search for skills                 |
+| `disabled_skills`   | list[str] | `[]`              | Skills to disable. Use `["*"]` to disable all skills        |
 | `required_skills`   | list[str] | `[]`              | Skills that must be available before running                |
 | `mcp_servers`       | object    | —                 | MCP server configurations for the evaluation                |
 

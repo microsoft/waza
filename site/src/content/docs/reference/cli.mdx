@@ -58,8 +58,10 @@ waza run [eval.yaml | skill-name]
 | `--session-dir` | | string | `.` | Directory for session log files |
 | `--no-summary` | | bool | false | Skip combined summary.json for multi-skill runs |
 | `--skip-graders` | | bool | false | Skip grading (execution only); grade later with `waza grade` |
+| `--no-skills` | | bool | false | Disable all skill loading for the evaluation |
 | `--transcript-dir` | | string | | Save per-task transcript JSON files |
 | `--no-cache` | | bool | false | Explicitly disable result caching |
+| `--keep-workspace` | | bool | false | Preserve temp workspaces after execution for debugging |
 
 ### Examples
 
@@ -116,6 +118,9 @@ waza run eval.yaml --session-log --session-dir ./logs
 
 # Multi-model comparison with recommendation
 waza run eval.yaml --model gpt-4o --model claude-sonnet-4.6 --recommend
+
+# Keep temp workspaces for debugging fixture issues
+waza run eval.yaml --keep-workspace -v
 ```
 
 ## waza init

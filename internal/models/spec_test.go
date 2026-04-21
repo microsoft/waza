@@ -363,3 +363,117 @@ config:
 		}
 	})
 }
+
+func TestConfig_AllSkillsDisabled(t *testing.T) {
+	tests := []struct {
+		name     string
+		config   Config
+		expected bool
+	}{
+		{name: "empty config", config: Config{}, expected: false},
+		{name: "wildcard disabled", config: Config{DisabledSkills: []string{"*"}}, expected: true},
+		{name: "specific skill disabled", config: Config{DisabledSkills: []string{"my-skill"}}, expected: false},
+		{name: "skill_directories none", config: Config{SkillPaths: []string{"none"}}, expected: true},
+		{name: "skill_directories with paths", config: Config{SkillPaths: []string{"./skills"}}, expected: false},
+		{name: "wildcard among specific", config: Config{DisabledSkills: []string{"a", "*", "b"}}, expected: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.config.AllSkillsDisabled(); got != tt.expected {
+				t.Errorf("AllSkillsDisabled() = %v, want %v", got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestConfig_FilteredSkillPaths(t *testing.T) {
+	tests := []struct {
+		name     string
+		config   Config
+		expected []string
+	}{
+		{name: "no disabled skills", config: Config{SkillPaths: []string{"./a", "./b"}}, expected: []string{"./a", "./b"}},
+		{name: "all disabled", config: Config{SkillPaths: []string{"./a"}, DisabledSkills: []string{"*"}}, expected: nil},
+		{name: "filter basename", config: Config{SkillPaths: []string{"./skills/a", "./skills/b", "./skills/c"}, DisabledSkills: []string{"b"}}, expected: []string{"./skills/a", "./skills/c"}},
+		{name: "filter full path", config: Config{SkillPaths: []string{"./skills/a", "./skills/b"}, DisabledSkills: []string{"./skills/a"}}, expected: []string{"./skills/b"}},
+		{name: "no skill paths", config: Config{DisabledSkills: []string{"a"}}, expected: nil},
+		{name: "empty disabled", config: Config{SkillPaths: []string{"./a"}, DisabledSkills: []string{}}, expected: []string{"./a"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tt.config.FilteredSkillPaths()
+			if len(got) != len(tt.expected) {
+				t.Fatalf("FilteredSkillPaths() = %v, want %v", got, tt.expected)
+			}
+			for i := range got {
+				if got[i] != tt.expected[i] {
+					t.Errorf("[%d] = %q, want %q", i, got[i], tt.expected[i])
+				}
+			}
+		})
+	}
+}
+
+func TestBenchmarkSpec_DisabledSkillsDeserialization(t *testing.T) {
+	t.Run("wildcard", func(t *testing.T) {
+		tempDir := t.TempDir()
+		yamlStr := `name: test-disabled
+description: test
+skill: test-skill
+config:
+  trials_per_task: 1
+  timeout_seconds: 60
+  executor: mock
+  model: gpt-4o
+  disabled_skills: ["*"]
+graders:
+  - type: text
+    name: basic
+    rubric: check
+tasks:
+  - "*.yaml"
+`
+		p := filepath.Join(tempDir, "eval.yaml")
+		os.WriteFile(p, []byte(yamlStr), 0644)
+		spec, err := LoadBenchmarkSpec(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !spec.Config.AllSkillsDisabled() {
+			t.Error("expected AllSkillsDisabled true")
+		}
+	})
+
+	t.Run("specific", func(t *testing.T) {
+		tempDir := t.TempDir()
+		yamlStr := `name: test-specific
+description: test
+skill: test-skill
+config:
+  trials_per_task: 1
+  timeout_seconds: 60
+  executor: mock
+  model: gpt-4o
+  disabled_skills: [my-skill]
+  skill_directories: [./skills/a, ./skills/my-skill, ./skills/b]
+graders:
+  - type: text
+    name: basic
+    rubric: check
+tasks:
+  - "*.yaml"
+`
+		p := filepath.Join(tempDir, "eval.yaml")
+		os.WriteFile(p, []byte(yamlStr), 0644)
+		spec, err := LoadBenchmarkSpec(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if spec.Config.AllSkillsDisabled() {
+			t.Error("expected AllSkillsDisabled false")
+		}
+		if filtered := spec.Config.FilteredSkillPaths(); len(filtered) != 2 {
+			t.Errorf("expected 2 filtered paths, got %d: %v", len(filtered), filtered)
+		}
+	})
+}

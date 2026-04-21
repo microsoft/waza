@@ -173,7 +173,8 @@ func (r *Runner) testTrigger(ctx context.Context, prompt string) (*execution.Exe
 	return r.engine.Execute(ctx, &execution.ExecutionRequest{
 		Message:                 prompt,
 		SkillName:               r.spec.Skill,
-		SkillPaths:              utils.ResolvePaths(spec.Config.SkillPaths, r.cfg.SpecDir()),
+		SkillPaths:              utils.ResolvePaths(spec.Config.FilteredSkillPaths(), r.cfg.SpecDir()),
+		NoSkills:                spec.Config.AllSkillsDisabled(),
 		SourceDir:               r.cfg.SpecDir(),
 		Resources:               r.fixtures,
 		MCPServers:              r.mcpConfig,
