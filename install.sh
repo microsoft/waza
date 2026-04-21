@@ -85,12 +85,15 @@ main() {
     "https://github.com/${REPO}/releases/download/${tag}/checksums.txt"
 
   echo "Verifying checksum..."
-  if command -v sha256sum >/dev/null 2>&1; then
-    (cd "$tmpdir" && grep "${asset_name}" checksums.txt | sha256sum -c --status)
-  elif command -v shasum >/dev/null 2>&1; then
+  # Try shasum first (native on macOS and supports -c flag)
+  # Fall back to sha256sum (Linux, but only if it supports -c flag)
+  if command -v shasum >/dev/null 2>&1; then
     (cd "$tmpdir" && grep "${asset_name}" checksums.txt | shasum -a 256 -c --status)
+  elif command -v sha256sum >/dev/null 2>&1 && sha256sum --help 2>&1 | grep -q -- '-c'; then
+    (cd "$tmpdir" && grep "${asset_name}" checksums.txt | sha256sum -c --status)
   else
-    echo "Warning: no sha256sum or shasum found, skipping checksum verification"
+    echo "Error: No compatible checksum utility found (sha256sum or shasum)" >&2
+    exit 1
   fi
   echo "Checksum verified ✓"
 
