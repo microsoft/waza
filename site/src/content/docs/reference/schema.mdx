@@ -168,6 +168,89 @@ config:
   executor: copilot-sdk
 ```
 
+### max_attempts
+
+**Type:** integer  
+**Default:** 0
+
+Maximum retry attempts per task on failure. Set to 0 for no retries.
+
+```yaml
+config:
+  max_attempts: 3
+```
+
+### group_by
+
+**Type:** string  
+**Default:** (none)
+
+Group results by a field in the output (e.g., `tags`, `task_id`). Useful for organizing results when running many tasks.
+
+```yaml
+config:
+  group_by: tags
+```
+
+### fail_fast
+
+**Type:** boolean  
+**Default:** false
+
+Stop the entire evaluation run on the first task failure instead of continuing.
+
+```yaml
+config:
+  fail_fast: true
+```
+
+### skill_directories
+
+**Type:** list[string]  
+**Default:** `[]`
+
+Additional directories to search for skills beyond the default `skills/` directory.
+
+```yaml
+config:
+  skill_directories:
+    - ./custom-skills
+    - /opt/shared-skills
+```
+
+### required_skills
+
+**Type:** list[string]  
+**Default:** `[]`
+
+Skills that must be available before the evaluation runs. The run will fail if any required skill is not found.
+
+```yaml
+config:
+  required_skills:
+    - code-analyzer
+    - test-runner
+```
+
+### mcp_servers
+
+**Type:** object  
+**Default:** (none)
+
+MCP (Model Context Protocol) server configurations for this evaluation. Each key is a server name, and the value is its configuration.
+
+```yaml
+config:
+  mcp_servers:
+    filesystem:
+      command: /path/to/server
+      args: [--root, /data]
+    github:
+      url: http://localhost:3000
+```
+
+---
+
 ## graders Section
 
 List of validation rules. Used across tasks.

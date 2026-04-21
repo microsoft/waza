@@ -573,6 +573,45 @@ waza results compare run-id-1 run-id-2 --format json
 |------|-------------|
 | `--format` | Output format: `table` or `json` (default: `table`) |
 
+## waza cache
+
+Manage evaluation result cache.
+
+```bash
+waza cache clear [--cache-dir=.waza-cache]
+```
+
+### Subcommands
+
+#### waza cache clear
+
+Clear all cached evaluation results.
+
+The cache stores test outcomes to speed up repeated evaluations with the same inputs. Cached results are keyed by spec configuration, task definition, model, and fixture file contents.
+
+```bash
+waza cache clear
+waza cache clear --cache-dir /path/to/cache
+```
+
+##### Flags
+
+| Flag | Description |
+|------|-------------|
+| `--cache-dir` | Cache directory to clear (default: `.waza-cache`) |
+
+### Examples
+
+```bash
+# Clear default cache
+waza cache clear
+
+# Clear custom cache directory
+waza cache clear --cache-dir .my-cache
+```
+
+---
+
 ## waza dev
 
 Improve skill compliance iteratively.

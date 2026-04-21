@@ -325,6 +325,7 @@ Uses a second LLM to evaluate the agent's work. The judge LLM calls `set_waza_gr
 | `prompt`           | `string` | _(required)_ | Instructions for the judge LLM                       |
 | `model`            | `string` | _(required)_ | Model to use for judging                             |
 | `continue_session` | `bool`   | `false`      | Resume the agent's session (judge sees full context) |
+| `mode`             | `string` | `independent` | Judging mode: `independent` (standard) or `pairwise` (compare two, requires `--baseline`) |
 
 ### How it works
 
