@@ -98,7 +98,7 @@ graders:
     name: check-output
     config:
       assertions:
-        - "hello"
+        - "len(output) > 0"
 tasks:
   - "tasks/*.yaml"
 `
