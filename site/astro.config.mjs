@@ -30,6 +30,10 @@ export default defineConfig({
 			customCss: ['./src/styles/custom.css'],
 			sidebar: [
 				{
+					label: 'Quick Start',
+					slug: 'quick-start',
+				},
+				{
 					label: 'Getting Started',
 					slug: 'getting-started',
 				},

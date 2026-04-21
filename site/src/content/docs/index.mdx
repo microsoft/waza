@@ -37,22 +37,10 @@ Perfect for skill authors, platform teams, and developers building AI-powered ap
 
 ## Quick Start
 
-Install waza in seconds:
+Get from zero to your first evaluation benchmark in **5 minutes**:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/microsoft/waza/main/install.sh | bash
-```
-
-Or via azd extension:
-
-```bash
-azd ext source add -n waza -t url -l https://raw.githubusercontent.com/microsoft/waza/main/registry.json
-azd ext install microsoft.azd.waza
-```
-
-Then initialize your first eval suite:
-
-```bash
 waza init my-eval-suite
 cd my-eval-suite
 waza new skill my-skill
@@ -60,7 +48,8 @@ waza run my-skill -v
 waza serve  # View results in the dashboard
 ```
 
-<LinkCard title="Get Started" href="/waza/getting-started/" icon="rocket" />
+<LinkCard title="Quick Start Guide" href="/waza/quick-start/" icon="rocket" />
+<LinkCard title="Full Getting Started" href="/waza/getting-started/" icon="book" />
 
 ## Key Features
 
