@@ -397,7 +397,7 @@ inputs:
 ### prompt
 
 **Type:** string  
-**Required:** yes
+**Required:** yes (unless `prompt_file` is used)
 
 Instruction text sent to the agent. Supports templating:
 
@@ -407,6 +407,21 @@ inputs:
     Explain this Python code:
     {{fixture:sample.py}}
 ```
+
+### prompt_file
+
+**Type:** string  
+**Required:** no (alternative to `prompt`)
+
+Path to a file containing the prompt text, resolved relative to the task YAML file's directory.
+Use this when prompts are long or shared across tasks. You must specify either `prompt` or `prompt_file`, but not both.
+
+```yaml
+inputs:
+  prompt_file: prompts/review-instructions.md
+```
+
+Paths must be relative — absolute paths and directory traversal (`../`) are rejected.
 
 ### files
 

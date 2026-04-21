@@ -200,6 +200,26 @@ inputs:
             print("Hello")
 ```
 
+#### Loading prompts from a file
+
+Use `prompt_file` instead of `prompt` to load the prompt text from an external file.
+The path is resolved relative to the task YAML file's directory.
+
+```yaml
+# tasks/complex-review.yaml
+inputs:
+  prompt_file: prompts/review-instructions.md
+  files:
+    - path: sample.py
+```
+
+This is useful when prompts are long, shared across tasks, or maintained separately.
+You must specify either `prompt` or `prompt_file`, but not both.
+
+:::caution
+`prompt_file` paths must be relative. Absolute paths and directory traversal (`../`) are rejected for security.
+:::
+
 Prompt supports templating:
 
 ```yaml
