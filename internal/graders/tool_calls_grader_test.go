@@ -279,7 +279,8 @@ func TestToolCallsGrader_Details(t *testing.T) {
 	require.Equal(t, 3, res.Details["total_calls"])
 	require.Equal(t, 1, res.Details["passed_checks"])
 	require.Equal(t, 1, res.Details["total_checks"])
-	unique := res.Details["unique_tools"].([]string)
+	unique, ok := res.Details["unique_tools"].([]string)
+	require.True(t, ok)
 	require.ElementsMatch(t, []string{"bash", "view"}, unique)
 }
 
