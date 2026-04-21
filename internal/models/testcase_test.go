@@ -3,6 +3,7 @@ package models
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -78,6 +79,30 @@ inputs:
 	}
 }
 
+func TestLoadTestCase_UnknownFieldRejected(t *testing.T) {
+	yamlData := `id: tc-bogus
+name: has bogus field
+bogus_field: true
+inputs:
+  prompt: do something
+expected:
+  output_contains:
+    - "hello"
+`
+	dir := t.TempDir()
+	p := filepath.Join(dir, "tc.yaml")
+	if err := os.WriteFile(p, []byte(yamlData), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+	_, err := LoadTestCase(p)
+	if err == nil {
+		t.Fatal("expected error for unknown field 'bogus_field', got nil")
+	}
+	if !strings.Contains(err.Error(), "bogus_field") {
+		t.Errorf("error should mention bogus_field, got: %v", err)
+	}
+}
+
 func TestLoadTestCase_OutputContainsAny(t *testing.T) {
 	yamlData := `id: tc-may
 name: test may-include
@@ -104,3 +129,7 @@ expected:
 		t.Errorf("expected first entry 'option_a', got %q", tc.Expectation.MayInclude[0])
 	}
 }
+
+// TestLoadTestCase_FollowUpPrompts was removed: it referenced
+// TestStimulus.FollowUps which does not exist. Re-add when that
+// field is implemented.
