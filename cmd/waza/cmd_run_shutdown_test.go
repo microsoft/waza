@@ -216,3 +216,71 @@ func TestRunSingleModel_ShutdownWithVerbose(t *testing.T) {
 	err := cmd.Execute()
 	assert.NoError(t, err, "verbose run should shutdown cleanly")
 }
+
+// ---------------------------------------------------------------------------
+// --keep-workspace flag integration tests (#123)
+// ---------------------------------------------------------------------------
+
+func TestRunSingleModel_KeepWorkspaceFlag(t *testing.T) {
+	resetRunGlobals()
+
+	specPath := createTestSpec(t, "mock")
+
+	// Capture stderr to check for "Workspace preserved:" message
+	oldStderr := os.Stderr
+	r, w, _ := os.Pipe()
+	os.Stderr = w
+
+	cmd := newRunCommand()
+	cmd.SetArgs([]string{specPath, "--keep-workspace"})
+	cmd.SetOut(io.Discard)
+
+	err := cmd.Execute()
+
+	w.Close()
+	var buf [8192]byte
+	n, _ := r.Read(buf[:])
+	os.Stderr = oldStderr
+
+	assert.NoError(t, err, "run with --keep-workspace should succeed")
+	assert.Contains(t, string(buf[:n]), "Workspace preserved:",
+		"stderr should contain workspace path when --keep-workspace is set")
+}
+
+func TestRunSingleModel_KeepWorkspaceVerbose(t *testing.T) {
+	resetRunGlobals()
+
+	specPath := createTestSpec(t, "mock")
+
+	cmd := newRunCommand()
+	cmd.SetArgs([]string{specPath, "--keep-workspace", "--verbose"})
+
+	err := cmd.Execute()
+	assert.NoError(t, err, "verbose run with --keep-workspace should succeed")
+}
+
+func TestRunSingleModel_DefaultCleansWorkspace(t *testing.T) {
+	resetRunGlobals()
+
+	specPath := createTestSpec(t, "mock")
+
+	// Capture stderr — should NOT contain "Workspace preserved:"
+	oldStderr := os.Stderr
+	r, w, _ := os.Pipe()
+	os.Stderr = w
+
+	cmd := newRunCommand()
+	cmd.SetArgs([]string{specPath})
+	cmd.SetOut(io.Discard)
+
+	err := cmd.Execute()
+
+	w.Close()
+	var buf [8192]byte
+	n, _ := r.Read(buf[:])
+	os.Stderr = oldStderr
+
+	assert.NoError(t, err, "default run should succeed")
+	assert.NotContains(t, string(buf[:n]), "Workspace preserved:",
+		"stderr should NOT mention workspace preservation by default")
+}
