@@ -41,6 +41,9 @@ type CopilotClient interface {
 
 	// DeleteSession maps to [copilot.Client.DeleteSession]
 	DeleteSession(ctx context.Context, sessionID string) error
+
+	// ListModels maps to [copilot.Client.ListModels]
+	ListModels(ctx context.Context) ([]copilot.ModelInfo, error)
 }
 
 func newCopilotClient(clientOptions *copilot.ClientOptions) CopilotClient {
@@ -87,6 +90,10 @@ func (w *copilotClientWrapper) GetAuthStatus(ctx context.Context) (*copilot.GetA
 
 func (w *copilotClientWrapper) DeleteSession(ctx context.Context, sessionID string) error {
 	return w.inner.DeleteSession(ctx, sessionID)
+}
+
+func (w *copilotClientWrapper) ListModels(ctx context.Context) ([]copilot.ModelInfo, error) {
+	return w.inner.ListModels(ctx)
 }
 
 // copilotSessionWrapper is a light wrapper that forwards all calls to [copilot.Session]

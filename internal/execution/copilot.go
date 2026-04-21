@@ -124,6 +124,11 @@ func (e *CopilotEngine) Initialize(ctx context.Context) error {
 	return nil
 }
 
+// ListModels returns the available models from the Copilot backend.
+func (e *CopilotEngine) ListModels(ctx context.Context) ([]copilot.ModelInfo, error) {
+	return e.client.ListModels(ctx)
+}
+
 // Execute runs a test with Copilot SDK
 func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*ExecutionResponse, error) {
 	if req == nil {

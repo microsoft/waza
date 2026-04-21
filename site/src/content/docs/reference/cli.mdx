@@ -794,6 +794,51 @@ waza run eval.yaml --baseline -o results.json
 # Output includes pairwise judge scores comparing baseline vs treatment approaches
 ```
 
+## waza models
+
+List models available for evaluation via the Copilot SDK.
+
+```bash
+waza models [flags]
+```
+
+### Flags
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--json` | bool | false | Output as JSON |
+
+### Output
+
+Displays a table with model ID, name, vision support, and context window size.
+
+```
+MODEL ID          NAME              VISION    CONTEXT WINDOW
+──────────────────────────────────────────────────────────────
+claude-sonnet-4   Claude Sonnet 4   no        200k
+gpt-4o            GPT-4o            yes       128k
+
+2 models available
+```
+
+### Authentication
+
+Requires Copilot authentication. If not authenticated, you will see:
+
+```
+Error: not authenticated — run "copilot login" first
+```
+
+### Examples
+
+```bash
+# List all models in table format
+waza models
+
+# List models as JSON (for scripting)
+waza models --json
+```
+
 ## Exit Codes
 
 | Code | Meaning |
