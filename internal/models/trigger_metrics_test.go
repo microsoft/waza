@@ -144,11 +144,38 @@ func TestComputeTriggerMetrics(t *testing.T) {
 				{ShouldTrigger: true, DidTrigger: true, Confidence: "medium"},  // TP 0.5
 				{ShouldTrigger: true, DidTrigger: false, Confidence: "medium"}, // FN 0.5
 			},
-			// tp=0.5, fn=0.5; precision=1.0, recall=0.5, f1=0.6667, accuracy=0.5
-			// TP rounds to 1, FN rounds to 1 (int display)
+			// tp_w=0.5, fn_w=0.5; precision=1.0, recall=0.5, f1=0.6667, accuracy=0.5
+			// Integer counts: TP=1, FN=1 (actual result counts, not weighted)
 			want: &TriggerMetrics{
 				TP: 1, FP: 0, TN: 0, FN: 1,
 				Precision: 1.0, Recall: 0.5, F1: 0.6667, Accuracy: 0.5,
+			},
+		},
+		{
+			name: "medium confidence does not reduce integer counts (issue #184)",
+			results: func() []TriggerResult {
+				// 8 should-trigger (6 high + 2 medium), 8 should-not-trigger (6 high + 2 medium)
+				// None triggered → all should-trigger are FN, all should-not-trigger are TN.
+				var r []TriggerResult
+				for i := 0; i < 6; i++ {
+					r = append(r, TriggerResult{ShouldTrigger: true, DidTrigger: false, Confidence: "high"})
+				}
+				for i := 0; i < 2; i++ {
+					r = append(r, TriggerResult{ShouldTrigger: true, DidTrigger: false, Confidence: "medium"})
+				}
+				for i := 0; i < 6; i++ {
+					r = append(r, TriggerResult{ShouldTrigger: false, DidTrigger: false, Confidence: "high"})
+				}
+				for i := 0; i < 2; i++ {
+					r = append(r, TriggerResult{ShouldTrigger: false, DidTrigger: false, Confidence: "medium"})
+				}
+				return r
+			}(),
+			// FN count = 8 (not 7), TN count = 8 (not 7)
+			// Weighted: fn_w=7.0, tn_w=7.0 → accuracy = 7.0/14.0 = 0.5
+			want: &TriggerMetrics{
+				TP: 0, FP: 0, TN: 8, FN: 8,
+				Precision: 0.0, Recall: 0.0, F1: 0.0, Accuracy: 0.5,
 			},
 		},
 	}

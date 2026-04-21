@@ -37,38 +37,44 @@ func ComputeTriggerMetrics(results []TriggerResult) *TriggerMetrics {
 		return nil
 	}
 
-	var tp, fp, tn, fn float64
+	// Track actual counts for display and weighted values for scoring.
+	var tpCount, fpCount, tnCount, fnCount int
+	var tpW, fpW, tnW, fnW float64
 	for _, r := range results {
 		w := triggerConfidenceWeight(r.Confidence)
 		switch {
 		case r.ShouldTrigger && r.DidTrigger:
-			tp += w
+			tpCount++
+			tpW += w
 		case !r.ShouldTrigger && r.DidTrigger:
-			fp += w
+			fpCount++
+			fpW += w
 		case !r.ShouldTrigger && !r.DidTrigger:
-			tn += w
+			tnCount++
+			tnW += w
 		case r.ShouldTrigger && !r.DidTrigger:
-			fn += w
+			fnCount++
+			fnW += w
 		}
 	}
 
-	total := tp + fp + tn + fn
+	total := tpW + fpW + tnW + fnW
 
-	precision := triggerSafeDivide(tp, tp+fp)
-	recall := triggerSafeDivide(tp, tp+fn)
+	precision := triggerSafeDivide(tpW, tpW+fpW)
+	recall := triggerSafeDivide(tpW, tpW+fnW)
 
 	var f1 float64
 	if precision+recall > 0 {
 		f1 = 2 * precision * recall / (precision + recall)
 	}
 
-	accuracy := triggerSafeDivide(tp+tn, total)
+	accuracy := triggerSafeDivide(tpW+tnW, total)
 
 	return &TriggerMetrics{
-		TP:        int(math.Round(tp)),
-		FP:        int(math.Round(fp)),
-		TN:        int(math.Round(tn)),
-		FN:        int(math.Round(fn)),
+		TP:        tpCount,
+		FP:        fpCount,
+		TN:        tnCount,
+		FN:        fnCount,
 		Precision: triggerRoundTo4(precision),
 		Recall:    triggerRoundTo4(recall),
 		F1:        triggerRoundTo4(f1),
