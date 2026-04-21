@@ -237,7 +237,7 @@ func TestRunSingleModel_KeepWorkspaceFlag(t *testing.T) {
 
 	err := cmd.Execute()
 
-	w.Close()
+	_ = w.Close()
 	var buf [8192]byte
 	n, _ := r.Read(buf[:])
 	os.Stderr = oldStderr
@@ -275,7 +275,7 @@ func TestRunSingleModel_DefaultCleansWorkspace(t *testing.T) {
 
 	err := cmd.Execute()
 
-	w.Close()
+	_ = w.Close()
 	var buf [8192]byte
 	n, _ := r.Read(buf[:])
 	os.Stderr = oldStderr

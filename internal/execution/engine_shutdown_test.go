@@ -223,7 +223,7 @@ func TestMockEngine_KeepWorkspace_PreservesDir(t *testing.T) {
 	assert.DirExists(t, wsDir)
 
 	// Clean up manually since the engine didn't
-	os.RemoveAll(wsDir)
+	_ = os.RemoveAll(wsDir)
 }
 
 func TestMockEngine_DefaultBehavior_CleansUpDir(t *testing.T) {
@@ -278,7 +278,7 @@ func TestCopilotEngine_KeepWorkspace_PrintsPath(t *testing.T) {
 	err := engine.Shutdown(context.Background())
 	require.NoError(t, err)
 
-	w.Close()
+	_ = w.Close()
 	var buf [4096]byte
 	n, _ := r.Read(buf[:])
 	os.Stderr = oldStderr

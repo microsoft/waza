@@ -434,7 +434,9 @@ tasks:
   - "*.yaml"
 `
 		p := filepath.Join(tempDir, "eval.yaml")
-		os.WriteFile(p, []byte(yamlStr), 0644)
+		if err := os.WriteFile(p, []byte(yamlStr), 0644); err != nil {
+			t.Fatal(err)
+		}
 		spec, err := LoadBenchmarkSpec(p)
 		if err != nil {
 			t.Fatal(err)
@@ -464,7 +466,9 @@ tasks:
   - "*.yaml"
 `
 		p := filepath.Join(tempDir, "eval.yaml")
-		os.WriteFile(p, []byte(yamlStr), 0644)
+		if err := os.WriteFile(p, []byte(yamlStr), 0644); err != nil {
+			t.Fatal(err)
+		}
 		spec, err := LoadBenchmarkSpec(p)
 		if err != nil {
 			t.Fatal(err)

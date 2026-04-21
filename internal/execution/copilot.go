@@ -26,9 +26,9 @@ type CopilotEngine struct {
 
 	startOnce sync.Once
 
-	workspacesMu   sync.Mutex
-	workspaces     []string // workspaces to clean up at Shutdown
-	keepWorkspace  bool     // when true, skip workspace cleanup on shutdown
+	workspacesMu  sync.Mutex
+	workspaces    []string // workspaces to clean up at Shutdown
+	keepWorkspace bool     // when true, skip workspace cleanup on shutdown
 
 	// sessions maps session IDs to copilotSessions
 	sessions   map[string]CopilotSession
