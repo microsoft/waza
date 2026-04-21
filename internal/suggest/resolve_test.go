@@ -3,6 +3,7 @@ package suggest
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -182,10 +183,14 @@ func TestWriteToDir_EmptyFixturePath(t *testing.T) {
 }
 
 func TestWriteToDir_AbsolutePathRejected(t *testing.T) {
+	absPath := "/etc/evil.yaml"
+	if runtime.GOOS == "windows" {
+		absPath = `C:\evil.yaml`
+	}
 	s := &Suggestion{
 		EvalYAML: validEvalYAML(),
 		Tasks: []GeneratedFile{
-			{Path: "/etc/evil.yaml", Content: "id: x\nname: X\ninputs:\n  prompt: hi"},
+			{Path: absPath, Content: "id: x\nname: X\ninputs:\n  prompt: hi"},
 		},
 	}
 

@@ -177,7 +177,7 @@ func TestIndexHTMLReferencesExistingAssets(t *testing.T) {
 	require.NoError(t, err, "unexpected error reading dist/assets")
 
 	// Verify assets/ actually contains JS or CSS bundles.  The directory
-	// may exist but be empty (e.g., partial build or cache artefact).
+	// may exist but be empty (e.g., partial build or cache artifact).
 	var hasBundles bool
 	for _, e := range entries {
 		if !e.IsDir() {
