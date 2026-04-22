@@ -25,14 +25,14 @@ func FormatTable(resp *JudgeResponse) string {
 
 	for _, d := range resp.Dimensions {
 		bar := scoreBar(d.Score)
-		b.WriteString(fmt.Sprintf("%-*s  %s  %s\n", nameWidth, d.Name, bar, d.Feedback))
+		fmt.Fprintf(&b, "%-*s  %s  %s\n", nameWidth, d.Name, bar, d.Feedback)
 	}
 
 	b.WriteString(strings.Repeat("─", len(header)+10))
 	b.WriteString("\n")
-	b.WriteString(fmt.Sprintf("Overall: %.1f/5.0\n", resp.OverallScore))
+	fmt.Fprintf(&b, "Overall: %.1f/5.0\n", resp.OverallScore)
 	if resp.Summary != "" {
-		b.WriteString(fmt.Sprintf("\n%s\n", resp.Summary))
+		fmt.Fprintf(&b, "\n%s\n", resp.Summary)
 	}
 
 	return b.String()

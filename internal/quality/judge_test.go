@@ -26,7 +26,7 @@ func (m *mockJudgeEngine) Execute(_ context.Context, _ *execution.ExecutionReque
 	return &execution.ExecutionResponse{FinalOutput: m.output, Success: true}, nil
 }
 
-func (m *mockJudgeEngine) Shutdown(context.Context) error               { return nil }
+func (m *mockJudgeEngine) Shutdown(context.Context) error         { return nil }
 func (m *mockJudgeEngine) SessionUsage(string) *models.UsageStats { return nil }
 
 const validJudgeJSON = `{

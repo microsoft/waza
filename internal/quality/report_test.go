@@ -62,8 +62,8 @@ func TestScoreBar(t *testing.T) {
 		{3, "███░░"},
 		{4, "████░"},
 		{5, "█████"},
-		{0, "█░░░░"},  // clamped to 1
-		{6, "█████"},  // clamped to 5
+		{0, "█░░░░"}, // clamped to 1
+		{6, "█████"}, // clamped to 5
 	}
 
 	for _, tt := range tests {

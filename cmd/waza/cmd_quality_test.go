@@ -35,7 +35,7 @@ func (e *qualityTestEngine) Execute(_ context.Context, _ *execution.ExecutionReq
 	return &execution.ExecutionResponse{FinalOutput: e.output, Success: true}, nil
 }
 
-func (e *qualityTestEngine) Shutdown(context.Context) error          { return nil }
+func (e *qualityTestEngine) Shutdown(context.Context) error         { return nil }
 func (e *qualityTestEngine) SessionUsage(string) *models.UsageStats { return nil }
 
 func writeQualitySkill(t *testing.T) string {
