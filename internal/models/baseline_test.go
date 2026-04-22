@@ -10,7 +10,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-func TestBenchmarkSpec_BaselineYAMLSerialization(t *testing.T) {
+func TestEvalSpec_BaselineYAMLSerialization(t *testing.T) {
 	tests := []struct {
 		name           string
 		yamlContent    string
@@ -67,7 +67,7 @@ tasks: []
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			var spec BenchmarkSpec
+			var spec EvalSpec
 			decoder := yaml.NewDecoder(bytes.NewReader([]byte(tt.yamlContent)))
 			decoder.KnownFields(true)
 			err := decoder.Decode(&spec)

@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-func TestLoadBenchmarkSpec_PolymorphicGraderParameters(t *testing.T) {
+func TestLoadEvalSpec_PolymorphicGraderParameters(t *testing.T) {
 	tempDir := t.TempDir()
 	yamlContent := `name: typed-graders
 skill: test-skill
@@ -38,9 +38,9 @@ tasks: []
 		t.Fatalf("write spec file: %v", err)
 	}
 
-	spec, err := LoadBenchmarkSpec(specPath)
+	spec, err := LoadEvalSpec(specPath)
 	if err != nil {
-		t.Fatalf("LoadBenchmarkSpec: %v", err)
+		t.Fatalf("LoadEvalSpec: %v", err)
 	}
 
 	textParams, ok := spec.Graders[0].Parameters.(TextGraderParameters)

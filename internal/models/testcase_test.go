@@ -131,7 +131,7 @@ expected:
 }
 
 // TestLoadTestCase_FollowUpPrompts was removed: it referenced
-// TestStimulus.FollowUps which does not exist. Re-add when that
+// TaskStimulus.FollowUps which does not exist. Re-add when that
 // field is implemented.
 
 func TestLoadTestCase_SkillDirectories(t *testing.T) {

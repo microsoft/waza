@@ -20,7 +20,7 @@ func TestResolveSuggestionSkillPaths_DedupesAndSorts(t *testing.T) {
 	require.NoError(t, os.MkdirAll(a, 0o755))
 	require.NoError(t, os.MkdirAll(b, 0o755))
 
-	spec := &models.BenchmarkSpec{
+	spec := &models.EvalSpec{
 		Config: models.Config{
 			SkillPaths: []string{b, a, b},
 		},
@@ -39,7 +39,7 @@ func TestResolveSuggestionSkillPaths_IncludesEvaluatedSkillDirectory(t *testing.
 	require.NoError(t, os.MkdirAll(evaluatedSkillDir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(evaluatedSkillDir, "SKILL.md"), []byte("# My Skill"), 0o644))
 
-	spec := &models.BenchmarkSpec{
+	spec := &models.EvalSpec{
 		SkillName: "my-skill",
 		Config: models.Config{
 			SkillPaths: []string{skillRoot},
@@ -55,7 +55,7 @@ func TestMaybeGenerateSuggestionReport_SkipsWhenNoFailures(t *testing.T) {
 	suggestFlag = true
 	t.Cleanup(func() { suggestFlag = oldSuggest })
 
-	spec := &models.BenchmarkSpec{
+	spec := &models.EvalSpec{
 		SkillName: "test-skill",
 		Config: models.Config{
 			EngineType: "mock",
@@ -147,7 +147,7 @@ func TestBuildRunSuggestionPrompt_IncludesOnlyFailureEvidence(t *testing.T) {
 	secretContent := "UNIQUE_SKILL_CONTENT_SHOULD_NOT_APPEAR_IN_PROMPT"
 	require.NoError(t, os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(secretContent), 0o644))
 
-	spec := &models.BenchmarkSpec{
+	spec := &models.EvalSpec{
 		SkillName: "test-skill",
 		Config: models.Config{
 			EngineType: "copilot-sdk",
@@ -254,7 +254,7 @@ func TestBuildRunSuggestionPrompt_IncludesOnlyFailureEvidence(t *testing.T) {
 }
 
 func TestBuildRunSuggestionPrompt_OmitsBenchmarkSectionWhenNoBenchmarkFailures(t *testing.T) {
-	spec := &models.BenchmarkSpec{
+	spec := &models.EvalSpec{
 		SkillName: "test-skill",
 		Config: models.Config{
 			EngineType: "copilot-sdk",
@@ -278,7 +278,7 @@ func TestBuildRunSuggestionPrompt_OmitsBenchmarkSectionWhenNoBenchmarkFailures(t
 }
 
 func TestBuildRunSuggestionPrompt_OmitsTriggerSectionWhenNoTriggerFailures(t *testing.T) {
-	spec := &models.BenchmarkSpec{
+	spec := &models.EvalSpec{
 		SkillName: "test-skill",
 		Config: models.Config{
 			EngineType: "copilot-sdk",
@@ -305,7 +305,7 @@ func TestBuildRunSuggestionPrompt_OmitsTriggerSectionWhenNoTriggerFailures(t *te
 }
 
 func TestBuildRunSuggestionPrompt_IncludesGraderDocs(t *testing.T) {
-	spec := &models.BenchmarkSpec{
+	spec := &models.EvalSpec{
 		SkillName: "test-skill",
 		Config: models.Config{
 			EngineType: "copilot-sdk",
@@ -350,13 +350,13 @@ func TestBuildRunSuggestionPrompt_IncludesGraderDocs(t *testing.T) {
 }
 
 func TestBuildGraderDocsSection_EmptyWhenNoGraders(t *testing.T) {
-	spec := &models.BenchmarkSpec{}
+	spec := &models.EvalSpec{}
 	result := buildGraderDocsSection(spec, nil)
 	assert.Empty(t, result)
 }
 
 func TestCollectFailedGraderKinds(t *testing.T) {
-	spec := &models.BenchmarkSpec{
+	spec := &models.EvalSpec{
 		Graders: []models.GraderConfig{
 			{Kind: models.GraderKindInlineScript, Identifier: "assertions"},
 		},

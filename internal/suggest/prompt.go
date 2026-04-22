@@ -109,7 +109,7 @@ func renderImplementationPrompt(data promptData, graderDocs string) string {
 	b.WriteString("    content: |\n")
 	b.WriteString("      <fixture content>\n\n")
 	b.WriteString("Requirements:\n")
-	b.WriteString("- Ensure eval_yaml is valid waza BenchmarkSpec YAML.\n")
+	b.WriteString("- Ensure eval_yaml is valid waza EvalSpec YAML.\n")
 	b.WriteString("- Each grader entry MUST be an object with at least 'type' and 'name' fields. NEVER use bare strings like '- grader_name'. Always use '- name: grader_name' with a 'type' field.\n")
 	b.WriteString("- Include required config fields for each grader type (see grader documentation below).\n")
 	b.WriteString("- For skill_invocation graders, use config fields required_skills (list) and mode (exact_match, in_order, any_order).\n")

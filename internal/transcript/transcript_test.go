@@ -161,7 +161,7 @@ func TestBuildTaskTranscript(t *testing.T) {
 	tc := &models.TestCase{
 		TestID:      "tc-1",
 		DisplayName: "Code Explain",
-		Stimulus: models.TestStimulus{
+		Stimulus: models.TaskStimulus{
 			Message: "Explain this code",
 		},
 	}

@@ -275,7 +275,7 @@ func TestNewTaskFromPromptCommand_EndToEndCreatesTaskFile(t *testing.T) {
 		DisplayName: "auto-generated",
 		TestID:      "auto-generated",
 		Tags:        []string{"auto-generated"},
-		Stimulus: models.TestStimulus{
+		Stimulus: models.TaskStimulus{
 			Message: "use the example horn",
 		},
 		Validators: []models.ValidatorInline{

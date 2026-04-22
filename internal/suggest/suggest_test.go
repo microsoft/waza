@@ -173,7 +173,7 @@ func TestParseResponseRejectsBareStringGraders(t *testing.T) {
 }
 
 // TestEvalYAMLRoundTrip verifies that valid eval YAML can be marshaled and
-// then unmarshaled back into a BenchmarkSpec without loss.
+// then unmarshaled back into a EvalSpec without loss.
 func TestEvalYAMLRoundTrip(t *testing.T) {
 	evalYAML := `name: roundtrip-eval
 description: test round-trip
@@ -322,7 +322,7 @@ config:
 	require.Contains(t, err.Error(), "unknown_field")
 }
 
-func TestValidateInvalidBenchmarkSpecFields(t *testing.T) {
+func TestValidateInvalidEvalSpecFields(t *testing.T) {
 	invalidEvalYAML := `name: bad-eval
 description: has unknown field
 skill: test-skill

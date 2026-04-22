@@ -332,7 +332,7 @@ func extractYAML(raw string) string {
 }
 
 func validateEvalYAML(raw string) error {
-	var spec models.BenchmarkSpec
+	var spec models.EvalSpec
 	decoder := yaml.NewDecoder(strings.NewReader(raw))
 	decoder.KnownFields(true) // Strict parsing to catch unknown fields
 	if err := decoder.Decode(&spec); err != nil {

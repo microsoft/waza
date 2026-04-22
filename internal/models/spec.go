@@ -10,8 +10,10 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// BenchmarkSpec represents a complete evaluation specification
-type BenchmarkSpec struct {
+// EvalSpec represents a complete evaluation specification.
+//
+// Deprecated alias: BenchmarkSpec is provided for backward compatibility.
+type EvalSpec struct {
 	SpecIdentity `yaml:",inline"`
 	SkillName    string            `yaml:"skill"`
 	Version      string            `yaml:"version"`
@@ -247,23 +249,23 @@ type MeasurementDef struct {
 	Desc       string  `yaml:"description,omitempty" json:"desc,omitempty"`
 }
 
-// LoadBenchmarkSpec loads a spec from a YAML file with strict validation.
+// LoadEvalSpec loads a spec from a YAML file with strict validation.
 //
 // Normally the schema validation will catch errors in the eval.yaml, but this also does
 // strict YAML parsing to catch errors like unknown fields or type errors that the schema
 // validation might miss.
-func LoadBenchmarkSpec(path string) (*BenchmarkSpec, error) {
+func LoadEvalSpec(path string) (*EvalSpec, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
 
-	var spec BenchmarkSpec
+	var spec EvalSpec
 
 	decoder := yaml.NewDecoder(bytes.NewReader(data))
 	decoder.KnownFields(true)
 	if err := decoder.Decode(&spec); err != nil {
-		return nil, fmt.Errorf("parsing benchmark spec YAML (%s): %w", path, err)
+		return nil, fmt.Errorf("parsing eval spec YAML (%s): %w", path, err)
 	}
 
 	// Validate spec
@@ -275,7 +277,7 @@ func LoadBenchmarkSpec(path string) (*BenchmarkSpec, error) {
 }
 
 // Validate checks that the spec is valid
-func (s *BenchmarkSpec) Validate() error {
+func (s *EvalSpec) Validate() error {
 	if s.Config.TrialsPerTask < 1 {
 		return fmt.Errorf("trials_per_task must be at least 1, got %d", s.Config.TrialsPerTask)
 	}
@@ -286,7 +288,7 @@ func (s *BenchmarkSpec) Validate() error {
 }
 
 // ResolveTestFiles expands glob patterns to actual test files
-func (s *BenchmarkSpec) ResolveTestFiles(basePath string) ([]string, error) {
+func (s *EvalSpec) ResolveTestFiles(basePath string) ([]string, error) {
 	var files []string
 	for _, pattern := range s.Tasks {
 		fullPattern := filepath.Join(basePath, pattern)
@@ -297,4 +299,12 @@ func (s *BenchmarkSpec) ResolveTestFiles(basePath string) ([]string, error) {
 		files = append(files, matches...)
 	}
 	return files, nil
+}
+
+// Deprecated: Use EvalSpec instead.
+type BenchmarkSpec = EvalSpec
+
+// Deprecated: Use LoadEvalSpec instead.
+func LoadBenchmarkSpec(path string) (*EvalSpec, error) {
+	return LoadEvalSpec(path)
 }

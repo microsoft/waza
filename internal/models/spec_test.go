@@ -10,7 +10,7 @@ import (
 	"testing"
 )
 
-func TestLoadBenchmarkSpec_StrictYAML(t *testing.T) {
+func TestLoadEvalSpec_StrictYAML(t *testing.T) {
 	tests := []struct {
 		name        string
 		specYAML    string
@@ -60,15 +60,15 @@ config:
 			if err := os.WriteFile(specPath, []byte(tt.specYAML), 0644); err != nil {
 				t.Fatalf("Failed to write spec file: %v", err)
 			}
-			_, err := LoadBenchmarkSpec(specPath)
+			_, err := LoadEvalSpec(specPath)
 			if (err != nil) != tt.expectError {
-				t.Errorf("LoadBenchmarkSpec() error = %v, expectError %v", err, tt.expectError)
+				t.Errorf("LoadEvalSpec() error = %v, expectError %v", err, tt.expectError)
 			}
 		})
 	}
 }
 
-func TestBenchmarkSpec_LoadFromYAML(t *testing.T) {
+func TestEvalSpec_LoadFromYAML(t *testing.T) {
 	// Create temp YAML file
 	tempDir := t.TempDir()
 	yamlContent := `name: test-benchmark
@@ -87,7 +87,7 @@ config:
 	}
 
 	// Load spec
-	spec, err := LoadBenchmarkSpec(specPath)
+	spec, err := LoadEvalSpec(specPath)
 	if err != nil {
 		t.Fatalf("Failed to load spec: %v", err)
 	}
@@ -141,7 +141,7 @@ enabled: true
 	}
 }
 
-func TestBenchmarkSpec_InputsDeserialization(t *testing.T) {
+func TestEvalSpec_InputsDeserialization(t *testing.T) {
 	tempDir := t.TempDir()
 	yamlContent := `name: inputs-test
 skill: test-skill
@@ -159,7 +159,7 @@ inputs:
 		t.Fatalf("Failed to write spec file: %v", err)
 	}
 
-	spec, err := LoadBenchmarkSpec(specPath)
+	spec, err := LoadEvalSpec(specPath)
 	if err != nil {
 		t.Fatalf("Failed to load spec: %v", err)
 	}
@@ -180,7 +180,7 @@ inputs:
 	}
 }
 
-func TestBenchmarkSpec_InputsOmittedWhenEmpty(t *testing.T) {
+func TestEvalSpec_InputsOmittedWhenEmpty(t *testing.T) {
 	tempDir := t.TempDir()
 	yamlContent := `name: no-inputs
 skill: test-skill
@@ -194,7 +194,7 @@ config:
 		t.Fatalf("Failed to write spec file: %v", err)
 	}
 
-	spec, err := LoadBenchmarkSpec(specPath)
+	spec, err := LoadEvalSpec(specPath)
 	if err != nil {
 		t.Fatalf("Failed to load spec: %v", err)
 	}
@@ -204,7 +204,7 @@ config:
 	}
 }
 
-func TestBenchmarkSpec_DefaultValues(t *testing.T) {
+func TestEvalSpec_DefaultValues(t *testing.T) {
 	tempDir := t.TempDir()
 	// Minimal YAML - defaults need to be set by loader
 	yamlContent := `name: minimal
@@ -219,7 +219,7 @@ config:
 		t.Fatalf("Failed to write spec file: %v", err)
 	}
 
-	spec, err := LoadBenchmarkSpec(specPath)
+	spec, err := LoadEvalSpec(specPath)
 	if err != nil {
 		t.Fatalf("Failed to load spec: %v", err)
 	}
@@ -259,7 +259,7 @@ func TestGraderConfig_EffectiveWeight(t *testing.T) {
 	}
 }
 
-func TestBenchmarkSpec_GraderWeight(t *testing.T) {
+func TestEvalSpec_GraderWeight(t *testing.T) {
 	tempDir := t.TempDir()
 	yamlContent := `name: weighted-graders
 skill: test
@@ -283,7 +283,7 @@ graders:
 		t.Fatalf("Failed to write spec file: %v", err)
 	}
 
-	spec, err := LoadBenchmarkSpec(specPath)
+	spec, err := LoadEvalSpec(specPath)
 	if err != nil {
 		t.Fatalf("Failed to load spec: %v", err)
 	}
@@ -308,7 +308,7 @@ graders:
 	}
 }
 
-func TestBenchmarkSpec_JudgeModel(t *testing.T) {
+func TestEvalSpec_JudgeModel(t *testing.T) {
 	tempDir := t.TempDir()
 
 	t.Run("parses judge_model from YAML", func(t *testing.T) {
@@ -326,7 +326,7 @@ config:
 			t.Fatalf("Failed to write spec file: %v", err)
 		}
 
-		spec, err := LoadBenchmarkSpec(specPath)
+		spec, err := LoadEvalSpec(specPath)
 		if err != nil {
 			t.Fatalf("Failed to load spec: %v", err)
 		}
@@ -353,7 +353,7 @@ config:
 			t.Fatalf("Failed to write spec file: %v", err)
 		}
 
-		spec, err := LoadBenchmarkSpec(specPath)
+		spec, err := LoadEvalSpec(specPath)
 		if err != nil {
 			t.Fatalf("Failed to load spec: %v", err)
 		}
@@ -414,7 +414,7 @@ func TestConfig_FilteredSkillPaths(t *testing.T) {
 	}
 }
 
-func TestBenchmarkSpec_DisabledSkillsDeserialization(t *testing.T) {
+func TestEvalSpec_DisabledSkillsDeserialization(t *testing.T) {
 	t.Run("wildcard", func(t *testing.T) {
 		tempDir := t.TempDir()
 		yamlStr := `name: test-disabled
@@ -437,7 +437,7 @@ tasks:
 		if err := os.WriteFile(p, []byte(yamlStr), 0644); err != nil {
 			t.Fatal(err)
 		}
-		spec, err := LoadBenchmarkSpec(p)
+		spec, err := LoadEvalSpec(p)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -469,7 +469,7 @@ tasks:
 		if err := os.WriteFile(p, []byte(yamlStr), 0644); err != nil {
 			t.Fatal(err)
 		}
-		spec, err := LoadBenchmarkSpec(p)
+		spec, err := LoadEvalSpec(p)
 		if err != nil {
 			t.Fatal(err)
 		}

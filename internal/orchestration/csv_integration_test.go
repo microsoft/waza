@@ -22,12 +22,12 @@ func TestLoadTestCasesFromCSV_BasicLoading(t *testing.T) {
 	tmpDir := t.TempDir()
 	writeCSV(t, tmpDir, "data.csv", "id,prompt\nA,hello\nB,world\nC,foo\n")
 
-	spec := &models.BenchmarkSpec{
+	spec := &models.EvalSpec{
 		TasksFrom: "data.csv",
 		Config:    models.Config{ModelID: "test-model"},
 	}
-	cfg := config.NewBenchmarkConfig(spec, config.WithSpecDir(tmpDir))
-	runner := NewTestRunner(cfg, nil)
+	cfg := config.NewEvalConfig(spec, config.WithSpecDir(tmpDir))
+	runner := NewEvalRunner(cfg, nil)
 
 	cases, err := runner.loadTestCasesFromCSV()
 	require.NoError(t, err)
@@ -42,12 +42,12 @@ func TestLoadTestCasesFromCSV_TemplateResolution(t *testing.T) {
 	tmpDir := t.TempDir()
 	writeCSV(t, tmpDir, "data.csv", "id,lang,prompt\n1,Go,Explain {{.Vars.lang}}\n2,Rust,Explain {{.Vars.lang}}\n")
 
-	spec := &models.BenchmarkSpec{
+	spec := &models.EvalSpec{
 		TasksFrom: "data.csv",
 		Config:    models.Config{ModelID: "test-model"},
 	}
-	cfg := config.NewBenchmarkConfig(spec, config.WithSpecDir(tmpDir))
-	runner := NewTestRunner(cfg, nil)
+	cfg := config.NewEvalConfig(spec, config.WithSpecDir(tmpDir))
+	runner := NewEvalRunner(cfg, nil)
 
 	cases, err := runner.loadTestCasesFromCSV()
 	require.NoError(t, err)
@@ -60,13 +60,13 @@ func TestLoadTestCasesFromCSV_RangeFiltering(t *testing.T) {
 	tmpDir := t.TempDir()
 	writeCSV(t, tmpDir, "data.csv", "id,prompt\nA,one\nB,two\nC,three\nD,four\nE,five\n")
 
-	spec := &models.BenchmarkSpec{
+	spec := &models.EvalSpec{
 		TasksFrom: "data.csv",
 		Range:     [2]int{2, 4},
 		Config:    models.Config{ModelID: "test-model"},
 	}
-	cfg := config.NewBenchmarkConfig(spec, config.WithSpecDir(tmpDir))
-	runner := NewTestRunner(cfg, nil)
+	cfg := config.NewEvalConfig(spec, config.WithSpecDir(tmpDir))
+	runner := NewEvalRunner(cfg, nil)
 
 	cases, err := runner.loadTestCasesFromCSV()
 	require.NoError(t, err)
@@ -91,13 +91,13 @@ func TestLoadTestCasesFromCSV_InvalidRange(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			spec := &models.BenchmarkSpec{
+			spec := &models.EvalSpec{
 				TasksFrom: "data.csv",
 				Range:     tt.rng,
 				Config:    models.Config{ModelID: "test-model"},
 			}
-			cfg := config.NewBenchmarkConfig(spec, config.WithSpecDir(tmpDir))
-			runner := NewTestRunner(cfg, nil)
+			cfg := config.NewEvalConfig(spec, config.WithSpecDir(tmpDir))
+			runner := NewEvalRunner(cfg, nil)
 
 			_, err := runner.loadTestCasesFromCSV()
 			require.Error(t, err)
@@ -112,12 +112,12 @@ func TestLoadTestCasesFromCSV_PathTraversal(t *testing.T) {
 	parentDir := filepath.Dir(tmpDir)
 	writeCSV(t, parentDir, "escape.csv", "id,prompt\nA,bad\n")
 
-	spec := &models.BenchmarkSpec{
+	spec := &models.EvalSpec{
 		TasksFrom: "../escape.csv",
 		Config:    models.Config{ModelID: "test-model"},
 	}
-	cfg := config.NewBenchmarkConfig(spec, config.WithSpecDir(tmpDir))
-	runner := NewTestRunner(cfg, nil)
+	cfg := config.NewEvalConfig(spec, config.WithSpecDir(tmpDir))
+	runner := NewEvalRunner(cfg, nil)
 
 	_, err := runner.loadTestCasesFromCSV()
 	require.Error(t, err)

@@ -53,7 +53,7 @@ func TestTriggerHeuristicGrader_PositiveAndNegativeModes(t *testing.T) {
 
 		result, err := g.Grade(context.Background(), &Context{
 			TestCase: &models.TestCase{
-				Stimulus: models.TestStimulus{
+				Stimulus: models.TaskStimulus{
 					Message: "Please deploy this API to Azure and publish it.",
 				},
 			},
@@ -72,7 +72,7 @@ func TestTriggerHeuristicGrader_PositiveAndNegativeModes(t *testing.T) {
 
 		result, err := g.Grade(context.Background(), &Context{
 			TestCase: &models.TestCase{
-				Stimulus: models.TestStimulus{
+				Stimulus: models.TaskStimulus{
 					Message: "Write unit tests for my Go package.",
 				},
 			},
@@ -91,7 +91,7 @@ func TestTriggerHeuristicGrader_PositiveAndNegativeModes(t *testing.T) {
 
 		result, err := g.Grade(context.Background(), &Context{
 			TestCase: &models.TestCase{
-				Stimulus: models.TestStimulus{
+				Stimulus: models.TaskStimulus{
 					Message: "Write unit tests for my Go package.",
 				},
 			},
@@ -109,7 +109,7 @@ func TestTriggerHeuristicGrader_PositiveAndNegativeModes(t *testing.T) {
 
 		result, err := g.Grade(context.Background(), &Context{
 			TestCase: &models.TestCase{
-				Stimulus: models.TestStimulus{
+				Stimulus: models.TaskStimulus{
 					Message: "Can you deploy this app to Azure?",
 				},
 			},
@@ -132,7 +132,7 @@ func TestTriggerHeuristicGrader_ThresholdBoundary(t *testing.T) {
 
 	result, err := g.Grade(context.Background(), &Context{
 		TestCase: &models.TestCase{
-			Stimulus: models.TestStimulus{
+			Stimulus: models.TaskStimulus{
 				Message: "deploy azure",
 			},
 		},
@@ -205,7 +205,7 @@ func TestTriggerHeuristicGrader_DuplicateTokensDoNotDiluteScore(t *testing.T) {
 	// With unique-token normalization: 1 match / 1 unique token = 1.0
 	// Without normalization: 1 match / 3 tokens = 0.33 (artificially low)
 	result, err := g.Grade(context.Background(), &Context{
-		TestCase: &models.TestCase{Stimulus: models.TestStimulus{Message: "deploy deploy deploy"}},
+		TestCase: &models.TestCase{Stimulus: models.TaskStimulus{Message: "deploy deploy deploy"}},
 	})
 	require.NoError(t, err)
 	assert.True(t, result.Passed, "repeated keyword prompt should pass")
@@ -224,7 +224,7 @@ func TestTriggerHeuristicGrader_SkillPathDirectory(t *testing.T) {
 	require.NoError(t, err)
 
 	result, err := g.Grade(context.Background(), &Context{
-		TestCase: &models.TestCase{Stimulus: models.TestStimulus{Message: "deploy to azure"}},
+		TestCase: &models.TestCase{Stimulus: models.TaskStimulus{Message: "deploy to azure"}},
 	})
 	require.NoError(t, err)
 	assert.True(t, result.Passed)

@@ -285,9 +285,9 @@ graders:
 				t.Fatalf("Failed to write spec file: %v", err)
 			}
 
-			_, err := LoadBenchmarkSpec(specPath)
+			_, err := LoadEvalSpec(specPath)
 			if (err != nil) != tt.expectError {
-				t.Errorf("LoadBenchmarkSpec() error = %v, expectError %v", err, tt.expectError)
+				t.Errorf("LoadEvalSpec() error = %v, expectError %v", err, tt.expectError)
 			}
 
 			if tt.expectError && err != nil && tt.errorMsg != "" {

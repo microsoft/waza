@@ -31,7 +31,7 @@ func New(dir string) *Cache {
 // - task content (test case definition)
 // - model ID
 // - fixture file hashes
-func CacheKey(spec *models.BenchmarkSpec, task *models.TestCase, fixtureDir string) (string, error) {
+func CacheKey(spec *models.EvalSpec, task *models.TestCase, fixtureDir string) (string, error) {
 	h := sha256.New()
 
 	// Include spec identity
@@ -202,7 +202,7 @@ func (c *Cache) cachePath(key string) string {
 
 // HasNonDeterministicGraders checks if any graders are non-deterministic
 // Non-deterministic graders include: behavior and prompt
-func HasNonDeterministicGraders(spec *models.BenchmarkSpec) bool {
+func HasNonDeterministicGraders(spec *models.EvalSpec) bool {
 	for _, g := range spec.Graders {
 		if g.Kind == models.GraderKindBehavior || g.Kind == models.GraderKindPrompt {
 			return true

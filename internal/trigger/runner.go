@@ -24,7 +24,7 @@ import (
 type Runner struct {
 	spec      *TestSpec
 	engine    execution.AgentEngine
-	cfg       *config.BenchmarkConfig
+	cfg       *config.EvalConfig
 	out       io.Writer
 	fixtures  []execution.ResourceFile // cached fixture files, loaded once
 	mcpConfig map[string]copilot.MCPServerConfig
@@ -45,7 +45,7 @@ type taskResult struct {
 	err        error
 }
 
-func NewRunner(spec *TestSpec, engine execution.AgentEngine, cfg *config.BenchmarkConfig, out io.Writer) *Runner {
+func NewRunner(spec *TestSpec, engine execution.AgentEngine, cfg *config.EvalConfig, out io.Writer) *Runner {
 	r := &Runner{spec: spec, engine: engine, cfg: cfg, out: out}
 	r.fixtures = loadFixtureDir(cfg.FixtureDir())
 	r.mcpConfig = convertMCPServers(cfg.Spec().Config.ServerConfigs)

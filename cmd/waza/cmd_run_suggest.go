@@ -41,7 +41,7 @@ var (
 func generateEvalAnalysis(
 	ctx context.Context,
 	engine execution.AgentEngine,
-	spec *models.BenchmarkSpec,
+	spec *models.EvalSpec,
 	specPath string,
 	outcome *models.EvaluationOutcome,
 	triggerResults []models.TriggerResult,
@@ -122,7 +122,7 @@ func summarizeSessionEventTypes(events []copilot.SessionEvent) []string {
 	return lines
 }
 
-func generateFakeSuggestionReport(spec *models.BenchmarkSpec, failedTests, failedTriggers int) string {
+func generateFakeSuggestionReport(spec *models.EvalSpec, failedTests, failedTriggers int) string {
 	totalFailures := failedTests + failedTriggers
 	var b strings.Builder
 
@@ -138,7 +138,7 @@ func generateFakeSuggestionReport(spec *models.BenchmarkSpec, failedTests, faile
 	return b.String()
 }
 
-func resolveSuggestionSkillPaths(spec *models.BenchmarkSpec, specPath string) []string {
+func resolveSuggestionSkillPaths(spec *models.EvalSpec, specPath string) []string {
 	specDir := filepath.Dir(specPath)
 	paths := utils.ResolvePaths(spec.Config.SkillPaths, specDir)
 	paths = append(paths, specDir)
@@ -157,7 +157,7 @@ func resolveSuggestionSkillPaths(spec *models.BenchmarkSpec, specPath string) []
 	return unique
 }
 
-func resolveEvaluatedSkillDirs(spec *models.BenchmarkSpec, specDir string, resolvedPaths []string) []string {
+func resolveEvaluatedSkillDirs(spec *models.EvalSpec, specDir string, resolvedPaths []string) []string {
 	if spec == nil || strings.TrimSpace(spec.SkillName) == "" {
 		return nil
 	}
@@ -277,7 +277,7 @@ func isTextFile(name string) bool {
 }
 
 func buildRunAnalysisPrompt(
-	spec *models.BenchmarkSpec,
+	spec *models.EvalSpec,
 	failingTests []models.TestOutcome,
 	failedTriggers []models.TriggerResult,
 	testDefinitions map[string]string,
@@ -294,7 +294,7 @@ func buildRunAnalysisPrompt(
 // buildGraderDocsSection collects grader types from the spec and from failed
 // test outcomes, then returns the embedded documentation for each type so the
 // suggestion model understands how graders work and how to fix failures.
-func buildGraderDocsSection(spec *models.BenchmarkSpec, failingTests []models.TestOutcome) string {
+func buildGraderDocsSection(spec *models.EvalSpec, failingTests []models.TestOutcome) string {
 	kinds := collectFailedGraderKinds(spec, failingTests)
 	if len(kinds) == 0 {
 		return ""
@@ -325,7 +325,7 @@ func buildGraderDocsSection(spec *models.BenchmarkSpec, failingTests []models.Te
 
 // collectFailedGraderKinds returns the set of grader kind strings from the
 // spec's global graders and from any failed grader results in test outcomes.
-func collectFailedGraderKinds(spec *models.BenchmarkSpec, failingTests []models.TestOutcome) map[string]bool {
+func collectFailedGraderKinds(spec *models.EvalSpec, failingTests []models.TestOutcome) map[string]bool {
 	kinds := make(map[string]bool)
 
 	// Include global graders from the spec.
@@ -350,7 +350,7 @@ func collectFailedGraderKinds(spec *models.BenchmarkSpec, failingTests []models.
 }
 
 func buildFailingTestEvidence(
-	spec *models.BenchmarkSpec,
+	spec *models.EvalSpec,
 	failingTests []models.TestOutcome,
 	testDefinitions map[string]string,
 ) string {
@@ -464,7 +464,7 @@ func selectFailedTriggerResults(results []models.TriggerResult) []models.Trigger
 	return failed
 }
 
-func loadTestDefinitionYAML(spec *models.BenchmarkSpec, specPath string) (map[string]string, error) {
+func loadTestDefinitionYAML(spec *models.EvalSpec, specPath string) (map[string]string, error) {
 	testCases, err := loadTestCases(spec, specPath)
 	if err != nil {
 		return nil, err
@@ -487,14 +487,14 @@ func loadTestDefinitionYAML(spec *models.BenchmarkSpec, specPath string) (map[st
 	return defs, nil
 }
 
-func loadTestCases(spec *models.BenchmarkSpec, specPath string) ([]*models.TestCase, error) {
+func loadTestCases(spec *models.EvalSpec, specPath string) ([]*models.TestCase, error) {
 	if spec.TasksFrom != "" {
 		return loadTestCasesFromCSV(spec, specPath)
 	}
 	return loadTestCasesFromFiles(spec, specPath)
 }
 
-func loadTestCasesFromFiles(spec *models.BenchmarkSpec, specPath string) ([]*models.TestCase, error) {
+func loadTestCasesFromFiles(spec *models.EvalSpec, specPath string) ([]*models.TestCase, error) {
 	specDir := filepath.Dir(specPath)
 	testFiles := make([]string, 0)
 	for _, pattern := range spec.Tasks {
@@ -523,7 +523,7 @@ func loadTestCasesFromFiles(spec *models.BenchmarkSpec, specPath string) ([]*mod
 	return testCases, nil
 }
 
-func loadTestCasesFromCSV(spec *models.BenchmarkSpec, specPath string) ([]*models.TestCase, error) {
+func loadTestCasesFromCSV(spec *models.EvalSpec, specPath string) ([]*models.TestCase, error) {
 	specDir := filepath.Dir(specPath)
 	csvPath := spec.TasksFrom
 	if !filepath.IsAbs(csvPath) {
@@ -609,7 +609,7 @@ func loadTestCasesFromCSV(spec *models.BenchmarkSpec, specPath string) ([]*model
 		testCases = append(testCases, &models.TestCase{
 			TestID:      testID,
 			DisplayName: displayName,
-			Stimulus: models.TestStimulus{
+			Stimulus: models.TaskStimulus{
 				Message: prompt,
 			},
 		})

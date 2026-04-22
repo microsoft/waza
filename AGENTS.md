@@ -27,11 +27,11 @@ waza-go/
 │   │   ├── mock.go        # Mock engine for testing
 │   │   └── copilot.go     # Copilot SDK integration
 │   ├── models/            # Data structures
-│   │   ├── spec.go        # BenchmarkSpec (eval configuration)
+│   │   ├── spec.go        # EvalSpec (eval configuration)
 │   │   ├── testcase.go    # TestCase (task definition)
 │   │   └── outcome.go     # EvaluationOutcome (results)
-│   ├── orchestration/     # TestRunner for coordinating execution
-│   │   └── runner.go      # Benchmark orchestration
+│   ├── orchestration/     # EvalRunner for coordinating execution
+│   │   └── runner.go      # Eval orchestration
 │   └── scoring/           # Validator interface and implementations
 │       ├── validator.go   # Validator registry pattern
 │       └── code_validators.go  # Code and text validators
@@ -47,7 +47,7 @@ The Go implementation uses idiomatic Go naming:
 
 | Concept | Go Name | Python Equivalent |
 |---------|---------|-------------------|
-| Eval configuration | `BenchmarkSpec` | `EvalSpec` |
+| Eval configuration | `EvalSpec` | `EvalSpec` |
 | Executor | `AgentEngine` | `BaseExecutor` |
 | Grader | `Validator` | `Grader` |
 | Task | `TestCase` | `Task` |

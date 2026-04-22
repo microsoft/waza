@@ -242,7 +242,7 @@ func TestComputeSkillImpact(t *testing.T) {
 func TestRunBenchmark_BaselineNoSkills(t *testing.T) {
 	t.Skip("Requires baseline implementation and task loading setup")
 
-	spec := &models.BenchmarkSpec{
+	spec := &models.EvalSpec{
 		SpecIdentity: models.SpecIdentity{
 			Name: "test-eval",
 		},
@@ -257,9 +257,9 @@ func TestRunBenchmark_BaselineNoSkills(t *testing.T) {
 		Tasks: []string{"task-001.yaml"},
 	}
 
-	cfg := config.NewBenchmarkConfig(spec)
+	cfg := config.NewEvalConfig(spec)
 	engine := execution.NewMockEngine("gpt-4")
-	runner := NewTestRunner(cfg, engine)
+	runner := NewEvalRunner(cfg, engine)
 
 	ctx := context.Background()
 	outcome, err := runner.RunBenchmark(ctx)
@@ -280,7 +280,7 @@ func TestRunBenchmark_BaselineWithSkills(t *testing.T) {
 
 	tmpSkillDir := t.TempDir()
 
-	spec := &models.BenchmarkSpec{
+	spec := &models.EvalSpec{
 		SpecIdentity: models.SpecIdentity{
 			Name: "test-eval",
 		},
@@ -296,9 +296,9 @@ func TestRunBenchmark_BaselineWithSkills(t *testing.T) {
 		Tasks: []string{"task-001.yaml"},
 	}
 
-	cfg := config.NewBenchmarkConfig(spec)
+	cfg := config.NewEvalConfig(spec)
 	engine := execution.NewMockEngine("gpt-4")
-	runner := NewTestRunner(cfg, engine)
+	runner := NewEvalRunner(cfg, engine)
 
 	ctx := context.Background()
 	outcome, err := runner.RunBenchmark(ctx)
@@ -324,7 +324,7 @@ func TestRunBenchmark_BaselineEmptyTasks(t *testing.T) {
 
 	tmpSkillDir := t.TempDir()
 
-	spec := &models.BenchmarkSpec{
+	spec := &models.EvalSpec{
 		SpecIdentity: models.SpecIdentity{
 			Name: "test-eval",
 		},
@@ -340,9 +340,9 @@ func TestRunBenchmark_BaselineEmptyTasks(t *testing.T) {
 		Tasks: []string{},
 	}
 
-	cfg := config.NewBenchmarkConfig(spec)
+	cfg := config.NewEvalConfig(spec)
 	engine := execution.NewMockEngine("gpt-4")
-	runner := NewTestRunner(cfg, engine)
+	runner := NewEvalRunner(cfg, engine)
 
 	ctx := context.Background()
 	outcome, err := runner.RunBenchmark(ctx)
@@ -356,7 +356,7 @@ func TestRunBenchmark_BaselineEmptyTasks(t *testing.T) {
 
 // TestMergeBaselineOutcomes_TaskMismatch tests error handling when task sets don't align
 func TestMergeBaselineOutcomes_TaskMismatch(t *testing.T) {
-	spec := &models.BenchmarkSpec{
+	spec := &models.EvalSpec{
 		SpecIdentity: models.SpecIdentity{
 			Name: "test-eval",
 		},
@@ -369,8 +369,8 @@ func TestMergeBaselineOutcomes_TaskMismatch(t *testing.T) {
 		},
 	}
 
-	cfg := config.NewBenchmarkConfig(spec)
-	runner := NewTestRunner(cfg, nil)
+	cfg := config.NewEvalConfig(spec)
+	runner := NewEvalRunner(cfg, nil)
 
 	withSkills := &models.EvaluationOutcome{
 		TestOutcomes: []models.TestOutcome{
@@ -394,7 +394,7 @@ func TestMergeBaselineOutcomes_TaskMismatch(t *testing.T) {
 
 // TestMergeBaselineOutcomes_ExtraTaskInBaseline tests error when baseline has tasks not in skills-enabled
 func TestMergeBaselineOutcomes_ExtraTaskInBaseline(t *testing.T) {
-	spec := &models.BenchmarkSpec{
+	spec := &models.EvalSpec{
 		SpecIdentity: models.SpecIdentity{
 			Name: "test-eval",
 		},
@@ -407,8 +407,8 @@ func TestMergeBaselineOutcomes_ExtraTaskInBaseline(t *testing.T) {
 		},
 	}
 
-	cfg := config.NewBenchmarkConfig(spec)
-	runner := NewTestRunner(cfg, nil)
+	cfg := config.NewEvalConfig(spec)
+	runner := NewEvalRunner(cfg, nil)
 
 	withSkills := &models.EvaluationOutcome{
 		TestOutcomes: []models.TestOutcome{
@@ -432,7 +432,7 @@ func TestMergeBaselineOutcomes_ExtraTaskInBaseline(t *testing.T) {
 
 // TestMergeBaselineOutcomes_Success tests successful outcome merging
 func TestMergeBaselineOutcomes_Success(t *testing.T) {
-	spec := &models.BenchmarkSpec{
+	spec := &models.EvalSpec{
 		SpecIdentity: models.SpecIdentity{
 			Name: "test-eval",
 		},
@@ -445,8 +445,8 @@ func TestMergeBaselineOutcomes_Success(t *testing.T) {
 		},
 	}
 
-	cfg := config.NewBenchmarkConfig(spec)
-	runner := NewTestRunner(cfg, nil)
+	cfg := config.NewEvalConfig(spec)
+	runner := NewEvalRunner(cfg, nil)
 
 	withSkills := &models.EvaluationOutcome{
 		RunID:       "eval-001",

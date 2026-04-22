@@ -58,7 +58,7 @@ func TestBuildExecutionRequest_SkillPaths(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Create a minimal spec
-			spec := &models.BenchmarkSpec{
+			spec := &models.EvalSpec{
 				SpecIdentity: models.SpecIdentity{
 					Name: "test-benchmark",
 				},
@@ -72,7 +72,7 @@ func TestBuildExecutionRequest_SkillPaths(t *testing.T) {
 			}
 
 			// Create config
-			cfg := config.NewBenchmarkConfig(
+			cfg := config.NewEvalConfig(
 				spec,
 				config.WithSpecDir(tt.specDir),
 			)
@@ -81,13 +81,13 @@ func TestBuildExecutionRequest_SkillPaths(t *testing.T) {
 			tc := &models.TestCase{
 				TestID:      "test-001",
 				DisplayName: "Test Case",
-				Stimulus: models.TestStimulus{
+				Stimulus: models.TaskStimulus{
 					Message: "Test message",
 				},
 			}
 
 			// Create runner (engine can be nil for this test)
-			runner := NewTestRunner(cfg, nil)
+			runner := NewEvalRunner(cfg, nil)
 
 			// Build execution request
 			req := runner.buildExecutionRequest(tc)
@@ -110,7 +110,7 @@ func TestBuildExecutionRequest_SkillPaths(t *testing.T) {
 
 func TestBuildExecutionRequest_BasicFields(t *testing.T) {
 	// Create a spec
-	spec := &models.BenchmarkSpec{
+	spec := &models.EvalSpec{
 		SpecIdentity: models.SpecIdentity{
 			Name: "test-benchmark",
 		},
@@ -122,13 +122,13 @@ func TestBuildExecutionRequest_BasicFields(t *testing.T) {
 		},
 	}
 
-	cfg := config.NewBenchmarkConfig(spec)
+	cfg := config.NewEvalConfig(spec)
 
 	// Create a test case
 	tc := &models.TestCase{
 		TestID:      "test-001",
 		DisplayName: "Test Case",
-		Stimulus: models.TestStimulus{
+		Stimulus: models.TaskStimulus{
 			Message: "Hello world",
 			Metadata: map[string]any{
 				"key": "value",
@@ -136,7 +136,7 @@ func TestBuildExecutionRequest_BasicFields(t *testing.T) {
 		},
 	}
 
-	runner := NewTestRunner(cfg, nil)
+	runner := NewEvalRunner(cfg, nil)
 	req := runner.buildExecutionRequest(tc)
 
 	// Verify basic fields
@@ -148,7 +148,7 @@ func TestBuildExecutionRequest_BasicFields(t *testing.T) {
 
 func TestBuildExecutionRequest_TimeoutOverride(t *testing.T) {
 	// Create a spec with default timeout
-	spec := &models.BenchmarkSpec{
+	spec := &models.EvalSpec{
 		SpecIdentity: models.SpecIdentity{
 			Name: "test-benchmark",
 		},
@@ -160,20 +160,20 @@ func TestBuildExecutionRequest_TimeoutOverride(t *testing.T) {
 		},
 	}
 
-	cfg := config.NewBenchmarkConfig(spec)
+	cfg := config.NewEvalConfig(spec)
 
 	// Create a test case with custom timeout
 	customTimeout := 300
 	tc := &models.TestCase{
 		TestID:      "test-001",
 		DisplayName: "Test Case",
-		Stimulus: models.TestStimulus{
+		Stimulus: models.TaskStimulus{
 			Message: "Hello world",
 		},
 		TimeoutSec: &customTimeout,
 	}
 
-	runner := NewTestRunner(cfg, nil)
+	runner := NewEvalRunner(cfg, nil)
 	req := runner.buildExecutionRequest(tc)
 
 	// Verify timeout is overridden
@@ -183,7 +183,7 @@ func TestBuildExecutionRequest_TimeoutOverride(t *testing.T) {
 func TestBuildExecutionRequest_TaskLevelSkillPaths(t *testing.T) {
 	specDir := t.TempDir()
 
-	spec := &models.BenchmarkSpec{
+	spec := &models.EvalSpec{
 		SpecIdentity: models.SpecIdentity{
 			Name: "test-benchmark",
 		},
@@ -196,14 +196,14 @@ func TestBuildExecutionRequest_TaskLevelSkillPaths(t *testing.T) {
 		},
 	}
 
-	cfg := config.NewBenchmarkConfig(spec, config.WithSpecDir(specDir))
-	runner := NewTestRunner(cfg, nil)
+	cfg := config.NewEvalConfig(spec, config.WithSpecDir(specDir))
+	runner := NewEvalRunner(cfg, nil)
 
 	// Task with its own skill_directories should override eval-level
 	tc := &models.TestCase{
 		TestID:      "test-001",
 		DisplayName: "Test Case",
-		Stimulus:    models.TestStimulus{Message: "test"},
+		Stimulus:    models.TaskStimulus{Message: "test"},
 		SkillPaths:  []string{"./task-skills", "./more-skills"},
 	}
 	req := runner.buildExecutionRequest(tc)
@@ -216,7 +216,7 @@ func TestBuildExecutionRequest_TaskLevelSkillPaths(t *testing.T) {
 	tc2 := &models.TestCase{
 		TestID:      "test-002",
 		DisplayName: "Test Case 2",
-		Stimulus:    models.TestStimulus{Message: "test"},
+		Stimulus:    models.TaskStimulus{Message: "test"},
 	}
 	req2 := runner.buildExecutionRequest(tc2)
 	require.NotNil(t, req2)
@@ -279,7 +279,7 @@ description: Validate Azure config
 	require.NoError(t, os.WriteFile(filepath.Join(skill3Dir, "SKILL.md"), []byte(skill3Content), 0644))
 
 	t.Run("all required skills found", func(t *testing.T) {
-		spec := &models.BenchmarkSpec{
+		spec := &models.EvalSpec{
 			SpecIdentity: models.SpecIdentity{
 				Name: "test-benchmark",
 			},
@@ -294,15 +294,15 @@ description: Validate Azure config
 			},
 		}
 
-		cfg := config.NewBenchmarkConfig(spec, config.WithSpecDir(tmpDir))
-		runner := NewTestRunner(cfg, nil)
+		cfg := config.NewEvalConfig(spec, config.WithSpecDir(tmpDir))
+		runner := NewEvalRunner(cfg, nil)
 
 		err := runner.validateRequiredSkills()
 		assert.NoError(t, err)
 	})
 
 	t.Run("some required skills missing", func(t *testing.T) {
-		spec := &models.BenchmarkSpec{
+		spec := &models.EvalSpec{
 			SpecIdentity: models.SpecIdentity{
 				Name: "test-benchmark",
 			},
@@ -317,8 +317,8 @@ description: Validate Azure config
 			},
 		}
 
-		cfg := config.NewBenchmarkConfig(spec, config.WithSpecDir(tmpDir))
-		runner := NewTestRunner(cfg, nil)
+		cfg := config.NewEvalConfig(spec, config.WithSpecDir(tmpDir))
+		runner := NewEvalRunner(cfg, nil)
 
 		err := runner.validateRequiredSkills()
 		require.Error(t, err)
@@ -329,7 +329,7 @@ description: Validate Azure config
 	})
 
 	t.Run("empty required_skills list skips validation", func(t *testing.T) {
-		spec := &models.BenchmarkSpec{
+		spec := &models.EvalSpec{
 			SpecIdentity: models.SpecIdentity{
 				Name: "test-benchmark",
 			},
@@ -344,15 +344,15 @@ description: Validate Azure config
 			},
 		}
 
-		cfg := config.NewBenchmarkConfig(spec, config.WithSpecDir(tmpDir))
-		runner := NewTestRunner(cfg, nil)
+		cfg := config.NewEvalConfig(spec, config.WithSpecDir(tmpDir))
+		runner := NewEvalRunner(cfg, nil)
 
 		err := runner.validateRequiredSkills()
 		assert.NoError(t, err)
 	})
 
 	t.Run("nil required_skills skips validation", func(t *testing.T) {
-		spec := &models.BenchmarkSpec{
+		spec := &models.EvalSpec{
 			SpecIdentity: models.SpecIdentity{
 				Name: "test-benchmark",
 			},
@@ -367,15 +367,15 @@ description: Validate Azure config
 			},
 		}
 
-		cfg := config.NewBenchmarkConfig(spec, config.WithSpecDir(tmpDir))
-		runner := NewTestRunner(cfg, nil)
+		cfg := config.NewEvalConfig(spec, config.WithSpecDir(tmpDir))
+		runner := NewEvalRunner(cfg, nil)
 
 		err := runner.validateRequiredSkills()
 		assert.NoError(t, err)
 	})
 
 	t.Run("empty skill_directories with required_skills returns error", func(t *testing.T) {
-		spec := &models.BenchmarkSpec{
+		spec := &models.EvalSpec{
 			SpecIdentity: models.SpecIdentity{
 				Name: "test-benchmark",
 			},
@@ -390,8 +390,8 @@ description: Validate Azure config
 			},
 		}
 
-		cfg := config.NewBenchmarkConfig(spec, config.WithSpecDir(tmpDir))
-		runner := NewTestRunner(cfg, nil)
+		cfg := config.NewEvalConfig(spec, config.WithSpecDir(tmpDir))
+		runner := NewEvalRunner(cfg, nil)
 
 		err := runner.validateRequiredSkills()
 		require.Error(t, err)
@@ -399,7 +399,7 @@ description: Validate Azure config
 	})
 
 	t.Run("relative skill paths are resolved correctly", func(t *testing.T) {
-		spec := &models.BenchmarkSpec{
+		spec := &models.EvalSpec{
 			SpecIdentity: models.SpecIdentity{
 				Name: "test-benchmark",
 			},
@@ -414,8 +414,8 @@ description: Validate Azure config
 			},
 		}
 
-		cfg := config.NewBenchmarkConfig(spec, config.WithSpecDir(tmpDir))
-		runner := NewTestRunner(cfg, nil)
+		cfg := config.NewEvalConfig(spec, config.WithSpecDir(tmpDir))
+		runner := NewEvalRunner(cfg, nil)
 
 		err := runner.validateRequiredSkills()
 		assert.NoError(t, err)
@@ -474,40 +474,40 @@ func TestComputeGroupStats_NoGroupSet(t *testing.T) {
 }
 
 func TestResolveGroup_Model(t *testing.T) {
-	spec := &models.BenchmarkSpec{
+	spec := &models.EvalSpec{
 		Config: models.Config{
 			ModelID: "gpt-4o",
 			GroupBy: "model",
 		},
 	}
-	cfg := config.NewBenchmarkConfig(spec)
-	runner := NewTestRunner(cfg, nil)
+	cfg := config.NewEvalConfig(spec)
+	runner := NewEvalRunner(cfg, nil)
 
 	assert.Equal(t, "gpt-4o", runner.resolveGroup())
 }
 
 func TestResolveGroup_Empty(t *testing.T) {
-	spec := &models.BenchmarkSpec{
+	spec := &models.EvalSpec{
 		Config: models.Config{
 			ModelID: "gpt-4o",
 			GroupBy: "",
 		},
 	}
-	cfg := config.NewBenchmarkConfig(spec)
-	runner := NewTestRunner(cfg, nil)
+	cfg := config.NewEvalConfig(spec)
+	runner := NewEvalRunner(cfg, nil)
 
 	assert.Equal(t, "", runner.resolveGroup())
 }
 
 func TestResolveGroup_Unknown(t *testing.T) {
-	spec := &models.BenchmarkSpec{
+	spec := &models.EvalSpec{
 		Config: models.Config{
 			ModelID: "gpt-4o",
 			GroupBy: "region",
 		},
 	}
-	cfg := config.NewBenchmarkConfig(spec)
-	runner := NewTestRunner(cfg, nil)
+	cfg := config.NewEvalConfig(spec)
+	runner := NewEvalRunner(cfg, nil)
 
 	assert.Equal(t, "", runner.resolveGroup())
 }

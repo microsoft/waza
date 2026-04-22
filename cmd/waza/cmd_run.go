@@ -447,7 +447,7 @@ func runCommandForSpec(cmd *cobra.Command, sp skillSpecPath, defaultSkills []str
 	specPath := sp.evalSpecPath
 
 	// Load spec
-	spec, err := models.LoadBenchmarkSpec(specPath)
+	spec, err := models.LoadEvalSpec(specPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load spec: %w", err)
 	}
@@ -574,7 +574,7 @@ func runCommandForSpec(cmd *cobra.Command, sp skillSpecPath, defaultSkills []str
 
 // runSingleModel executes a benchmark for one model and returns the outcome.
 // It prints the per-model summary and saves output for single-model runs.
-func runSingleModel(cmd *cobra.Command, spec *models.BenchmarkSpec, specPath string, defaultSkills []string) (*models.EvaluationOutcome, error) {
+func runSingleModel(cmd *cobra.Command, spec *models.EvalSpec, specPath string, defaultSkills []string) (*models.EvaluationOutcome, error) {
 	// Get spec directory for resolving relative paths
 	specDir := filepath.Dir(specPath)
 	if !filepath.IsAbs(specDir) {
@@ -601,7 +601,7 @@ func runSingleModel(cmd *cobra.Command, spec *models.BenchmarkSpec, specPath str
 	}
 
 	// Create config with both directories
-	cfg := config.NewBenchmarkConfig(spec,
+	cfg := config.NewEvalConfig(spec,
 		config.WithSpecDir(specDir),
 		config.WithFixtureDir(fixtureDir),
 		config.WithVerbose(verbose),
@@ -672,7 +672,7 @@ func runSingleModel(cmd *cobra.Command, spec *models.BenchmarkSpec, specPath str
 	if skipGradersFlag {
 		runnerOpts = append(runnerOpts, orchestration.WithSkipGraders())
 	}
-	runner := orchestration.NewTestRunner(cfg, engine, runnerOpts...)
+	runner := orchestration.NewEvalRunner(cfg, engine, runnerOpts...)
 
 	// Setup session logger if enabled
 	var sessLogger session.Logger = session.NopLogger{}

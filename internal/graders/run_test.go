@@ -65,7 +65,7 @@ func TestApplyDefaults_OtherGrader(t *testing.T) {
 func TestEvaluateExpectations_MayInclude(t *testing.T) {
 	t.Run("passes when any match found", func(t *testing.T) {
 		tc := &models.TestCase{
-			Expectation: models.TestExpectation{
+			Expectation: models.TaskExpectation{
 				MayInclude: []string{"alpha", "beta", "gamma"},
 			},
 		}
@@ -80,7 +80,7 @@ func TestEvaluateExpectations_MayInclude(t *testing.T) {
 
 	t.Run("fails when none match", func(t *testing.T) {
 		tc := &models.TestCase{
-			Expectation: models.TestExpectation{
+			Expectation: models.TaskExpectation{
 				MayInclude: []string{"alpha", "beta"},
 			},
 		}
@@ -104,7 +104,7 @@ func TestEvaluateExpectations_MayInclude(t *testing.T) {
 func TestEvaluateExpectations_MustInclude(t *testing.T) {
 	t.Run("all present", func(t *testing.T) {
 		tc := &models.TestCase{
-			Expectation: models.TestExpectation{
+			Expectation: models.TaskExpectation{
 				MustInclude: []string{"hello", "world"},
 			},
 		}
@@ -117,7 +117,7 @@ func TestEvaluateExpectations_MustInclude(t *testing.T) {
 
 	t.Run("partial match", func(t *testing.T) {
 		tc := &models.TestCase{
-			Expectation: models.TestExpectation{
+			Expectation: models.TaskExpectation{
 				MustInclude: []string{"hello", "world"},
 			},
 		}
@@ -132,7 +132,7 @@ func TestEvaluateExpectations_MustInclude(t *testing.T) {
 func TestEvaluateExpectations_MustExclude(t *testing.T) {
 	t.Run("none present passes", func(t *testing.T) {
 		tc := &models.TestCase{
-			Expectation: models.TestExpectation{
+			Expectation: models.TaskExpectation{
 				MustExclude: []string{"error", "fail"},
 			},
 		}
@@ -145,7 +145,7 @@ func TestEvaluateExpectations_MustExclude(t *testing.T) {
 
 	t.Run("some present fails", func(t *testing.T) {
 		tc := &models.TestCase{
-			Expectation: models.TestExpectation{
+			Expectation: models.TaskExpectation{
 				MustExclude: []string{"error", "fail"},
 			},
 		}
@@ -159,7 +159,7 @@ func TestEvaluateExpectations_MustExclude(t *testing.T) {
 
 func TestEvaluateExpectations_Combined(t *testing.T) {
 	tc := &models.TestCase{
-		Expectation: models.TestExpectation{
+		Expectation: models.TaskExpectation{
 			MustInclude: []string{"result"},
 			MustExclude: []string{"error"},
 			MayInclude:  []string{"option_a", "option_b"},

@@ -86,7 +86,7 @@ func TestDiscoverExampleFixture(t *testing.T) {
 	_ = spec // ensure it parses without error
 }
 
-func TestRunnerWithMockEngine(t *testing.T) {
+func TestEvalRunnerWithMockEngine(t *testing.T) {
 	spec := &TestSpec{
 		Skill: "mock-skill",
 		ShouldTriggerPrompts: []TestPrompt{
@@ -98,7 +98,7 @@ func TestRunnerWithMockEngine(t *testing.T) {
 	}
 
 	engine := &stubEngine{skill: "mock-skill"}
-	cfg := config.NewBenchmarkConfig(&models.BenchmarkSpec{SkillName: "mock-skill"})
+	cfg := config.NewEvalConfig(&models.EvalSpec{SkillName: "mock-skill"})
 	r := NewRunner(spec, engine, cfg, nil)
 	m, err := r.Run(t.Context())
 	if err != nil {
@@ -135,7 +135,7 @@ func (e *stubEngine) Execute(_ context.Context, req *execution.ExecutionRequest)
 	}, nil
 }
 
-func TestRunnerRunConfig(t *testing.T) {
+func TestEvalRunnerRunConfig(t *testing.T) {
 	spec := &TestSpec{
 		Skill: "my-skill",
 		ShouldTriggerPrompts: []TestPrompt{
@@ -144,8 +144,8 @@ func TestRunnerRunConfig(t *testing.T) {
 	}
 
 	engine := &capturingEngine{}
-	cfg := config.NewBenchmarkConfig(
-		&models.BenchmarkSpec{
+	cfg := config.NewEvalConfig(
+		&models.EvalSpec{
 			SkillName: "my-skill",
 			Config: models.Config{
 				TimeoutSec: 120,
@@ -187,7 +187,7 @@ func (e *capturingEngine) LastReq() *execution.ExecutionRequest {
 	return e.lastReq
 }
 
-func TestRunnerNeverTriggers(t *testing.T) {
+func TestEvalRunnerNeverTriggers(t *testing.T) {
 	spec := &TestSpec{
 		Skill: "my-skill",
 		ShouldTriggerPrompts: []TestPrompt{
@@ -199,7 +199,7 @@ func TestRunnerNeverTriggers(t *testing.T) {
 	}
 
 	engine := &noTriggerEngine{}
-	cfg := config.NewBenchmarkConfig(&models.BenchmarkSpec{SkillName: "my-skill"})
+	cfg := config.NewEvalConfig(&models.EvalSpec{SkillName: "my-skill"})
 	r := NewRunner(spec, engine, cfg, nil)
 	m, err := r.Run(t.Context())
 	if err != nil {
@@ -221,7 +221,7 @@ func TestRunnerNeverTriggers(t *testing.T) {
 	}
 }
 
-func TestRunnerPartialErrors(t *testing.T) {
+func TestEvalRunnerPartialErrors(t *testing.T) {
 	spec := &TestSpec{
 		Skill: "my-skill",
 		ShouldTriggerPrompts: []TestPrompt{
@@ -231,7 +231,7 @@ func TestRunnerPartialErrors(t *testing.T) {
 	}
 
 	engine := &errorOnPromptEngine{errorPrompt: "bad", skill: "my-skill"}
-	cfg := config.NewBenchmarkConfig(&models.BenchmarkSpec{SkillName: "my-skill"})
+	cfg := config.NewEvalConfig(&models.EvalSpec{SkillName: "my-skill"})
 	r := NewRunner(spec, engine, cfg, nil)
 	m, err := r.Run(t.Context())
 	if err != nil {
@@ -253,7 +253,7 @@ func TestRunnerPartialErrors(t *testing.T) {
 	}
 }
 
-func TestRunnerAllErrors(t *testing.T) {
+func TestEvalRunnerAllErrors(t *testing.T) {
 	spec := &TestSpec{
 		Skill: "my-skill",
 		ShouldTriggerPrompts: []TestPrompt{
@@ -262,7 +262,7 @@ func TestRunnerAllErrors(t *testing.T) {
 	}
 
 	engine := &errorOnPromptEngine{errorPrompt: "bad", skill: "my-skill"}
-	cfg := config.NewBenchmarkConfig(&models.BenchmarkSpec{SkillName: "my-skill"})
+	cfg := config.NewEvalConfig(&models.EvalSpec{SkillName: "my-skill"})
 	r := NewRunner(spec, engine, cfg, nil)
 	m, err := r.Run(t.Context())
 	if err != nil {
@@ -312,7 +312,7 @@ func (e *errorOnPromptEngine) Execute(_ context.Context, req *execution.Executio
 	}, nil
 }
 
-func TestRunnerPassesFixturesToExecutionRequest(t *testing.T) {
+func TestEvalRunnerPassesFixturesToExecutionRequest(t *testing.T) {
 	// Create a fixture directory with files
 	fixtureDir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(fixtureDir, "main.go"), []byte("package main"), 0644))
@@ -327,8 +327,8 @@ func TestRunnerPassesFixturesToExecutionRequest(t *testing.T) {
 	}
 
 	engine := &capturingEngine{}
-	cfg := config.NewBenchmarkConfig(
-		&models.BenchmarkSpec{SkillName: "my-skill"},
+	cfg := config.NewEvalConfig(
+		&models.EvalSpec{SkillName: "my-skill"},
 		config.WithFixtureDir(fixtureDir),
 		config.WithSpecDir("/some/spec/dir"),
 	)
@@ -353,7 +353,7 @@ func TestRunnerPassesFixturesToExecutionRequest(t *testing.T) {
 	require.Equal(t, "/some/spec/dir", engine.LastReq().SourceDir)
 }
 
-func TestRunnerSkipsHiddenAndVendorInFixtures(t *testing.T) {
+func TestEvalRunnerSkipsHiddenAndVendorInFixtures(t *testing.T) {
 	fixtureDir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(fixtureDir, "visible.txt"), []byte("ok"), 0644))
 
@@ -372,15 +372,15 @@ func TestRunnerSkipsHiddenAndVendorInFixtures(t *testing.T) {
 	require.Equal(t, "visible.txt", resources[0].Path)
 }
 
-func TestRunnerPassesMCPServers(t *testing.T) {
+func TestEvalRunnerPassesMCPServers(t *testing.T) {
 	spec := &TestSpec{
 		Skill:                "my-skill",
 		ShouldTriggerPrompts: []TestPrompt{{Prompt: "hello"}},
 	}
 
 	engine := &capturingEngine{}
-	cfg := config.NewBenchmarkConfig(
-		&models.BenchmarkSpec{
+	cfg := config.NewEvalConfig(
+		&models.EvalSpec{
 			SkillName: "my-skill",
 			Config: models.Config{
 				ServerConfigs: map[string]any{
@@ -418,7 +418,7 @@ func TestConvertMCPServers_SkipsNonMapEntries(t *testing.T) {
 	require.Contains(t, result, "good2")
 }
 
-func TestRunnerSetsCancelOnSkillInvocation(t *testing.T) {
+func TestEvalRunnerSetsCancelOnSkillInvocation(t *testing.T) {
 	spec := &TestSpec{
 		Skill:                   "my-skill",
 		ShouldTriggerPrompts:    []TestPrompt{{Prompt: "trigger me"}},
@@ -426,7 +426,7 @@ func TestRunnerSetsCancelOnSkillInvocation(t *testing.T) {
 	}
 
 	engine := &capturingEngine{}
-	cfg := config.NewBenchmarkConfig(&models.BenchmarkSpec{
+	cfg := config.NewEvalConfig(&models.EvalSpec{
 		SkillName: "my-skill",
 		Config:    models.Config{TimeoutSec: 10},
 	})

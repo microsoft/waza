@@ -57,9 +57,9 @@ func mustCompileSchema(raw string, name string) *jsonschema.Schema {
 //
 // This assumes that the schema files are up-to-date with the implementation.
 // Other YAML decoding errors may be reported if fields are removed from the implementation. Those
-// will be caught by the strict YAML parsing in LoadTestCase and LoadBenchmarkSpec, but the schema
+// will be caught by the strict YAML parsing in LoadTestCase and LoadEvalSpec, but the schema
 // validation has a much higher fidelity (better error location) than the validation in LoadTestCase
-// and LoadBenchmarkSpec.
+// and LoadEvalSpec.
 func ValidateEvalFile(evalPath string) (evalErrs []string, taskErrs map[string][]string, err error) {
 	data, err := os.ReadFile(evalPath)
 	if err != nil {

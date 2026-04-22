@@ -23,7 +23,7 @@ func TestCreateTestCaseFromCopilotLog_UsingSkillFixture(t *testing.T) {
 		DisplayName: "fixture-case",
 		TestID:      "fixture-id",
 		Tags:        []string{"from-fixture"},
-		Stimulus: models.TestStimulus{
+		Stimulus: models.TaskStimulus{
 			Message: "use the example horn",
 		},
 		Validators: []models.ValidatorInline{

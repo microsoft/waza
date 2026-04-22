@@ -63,7 +63,7 @@ graders:
         - "Mock response"
 `)
 
-	spec := &models.BenchmarkSpec{
+	spec := &models.EvalSpec{
 		SpecIdentity: models.SpecIdentity{Name: "orchestration-sequential"},
 		SkillName:    "test-skill",
 		Config: models.Config{
@@ -84,8 +84,8 @@ graders:
 		Tasks: []string{"tasks/*.yaml"},
 	}
 
-	cfg := config.NewBenchmarkConfig(spec, config.WithSpecDir(tmpDir), config.WithFixtureDir(fixtureDir))
-	runner := NewTestRunner(cfg, execution.NewMockEngine("mock-model"))
+	cfg := config.NewEvalConfig(spec, config.WithSpecDir(tmpDir), config.WithFixtureDir(fixtureDir))
+	runner := NewEvalRunner(cfg, execution.NewMockEngine("mock-model"))
 
 	var events []ProgressEvent
 	runner.OnProgress(func(event ProgressEvent) {
@@ -159,7 +159,7 @@ inputs:
   prompt: "second"
 `)
 
-	spec := &models.BenchmarkSpec{
+	spec := &models.EvalSpec{
 		SpecIdentity: models.SpecIdentity{Name: "orchestration-concurrent"},
 		SkillName:    "test-skill",
 		Config: models.Config{
@@ -180,8 +180,8 @@ inputs:
 		Tasks: []string{"tasks/*.yaml"},
 	}
 
-	cfg := config.NewBenchmarkConfig(spec, config.WithSpecDir(tmpDir))
-	runner := NewTestRunner(cfg, execution.NewMockEngine("mock-model"))
+	cfg := config.NewEvalConfig(spec, config.WithSpecDir(tmpDir))
+	runner := NewEvalRunner(cfg, execution.NewMockEngine("mock-model"))
 
 	outcome, err := runner.RunBenchmark(context.Background())
 	require.NoError(t, err)
@@ -201,7 +201,7 @@ inputs:
   prompt: "run without grading"
 `)
 
-	spec := &models.BenchmarkSpec{
+	spec := &models.EvalSpec{
 		SpecIdentity: models.SpecIdentity{Name: "skip-graders"},
 		SkillName:    "test-skill",
 		Config: models.Config{
@@ -213,8 +213,8 @@ inputs:
 		Tasks: []string{"tasks/*.yaml"},
 	}
 
-	cfg := config.NewBenchmarkConfig(spec, config.WithSpecDir(tmpDir))
-	runner := NewTestRunner(cfg, execution.NewMockEngine("mock-model"), WithSkipGraders())
+	cfg := config.NewEvalConfig(spec, config.WithSpecDir(tmpDir))
+	runner := NewEvalRunner(cfg, execution.NewMockEngine("mock-model"), WithSkipGraders())
 
 	outcome, err := runner.RunBenchmark(context.Background())
 	require.NoError(t, err)
@@ -263,7 +263,7 @@ func TestOverallStatus(t *testing.T) {
 }
 
 func TestRunGraders_WeightsAndErrors(t *testing.T) {
-	spec := &models.BenchmarkSpec{
+	spec := &models.EvalSpec{
 		Config: models.Config{ModelID: "mock-model"},
 		Graders: []models.GraderConfig{
 			{
@@ -274,7 +274,7 @@ func TestRunGraders_WeightsAndErrors(t *testing.T) {
 			},
 		},
 	}
-	runner := NewTestRunner(config.NewBenchmarkConfig(spec), nil)
+	runner := NewEvalRunner(config.NewEvalConfig(spec), nil)
 	graderCtx := &graders.Context{Output: "Mock response"}
 
 	testCase := &models.TestCase{
@@ -312,7 +312,7 @@ func TestRunGraders_DiffSnapshotUpdateOption(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(workspaceDir, "output.txt"), []byte("new snapshot"), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(contextDir, "expected.txt"), []byte("old snapshot"), 0o644))
 
-	spec := &models.BenchmarkSpec{
+	spec := &models.EvalSpec{
 		Config: models.Config{ModelID: "mock-model"},
 		Graders: []models.GraderConfig{
 			{
@@ -331,7 +331,7 @@ func TestRunGraders_DiffSnapshotUpdateOption(t *testing.T) {
 		},
 	}
 
-	runner := NewTestRunner(config.NewBenchmarkConfig(spec), nil, WithUpdateSnapshots(true))
+	runner := NewEvalRunner(config.NewEvalConfig(spec), nil, WithUpdateSnapshots(true))
 	graderCtx := &graders.Context{WorkspaceDir: workspaceDir}
 
 	results, err := runner.runGraders(context.Background(), &models.TestCase{}, graderCtx)
@@ -347,12 +347,12 @@ func TestLoadResources_PathValidation(t *testing.T) {
 	fixtureDir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(fixtureDir, "ok.txt"), []byte("ok"), 0o644))
 
-	spec := &models.BenchmarkSpec{}
-	cfg := config.NewBenchmarkConfig(spec, config.WithFixtureDir(fixtureDir))
-	runner := NewTestRunner(cfg, nil)
+	spec := &models.EvalSpec{}
+	cfg := config.NewEvalConfig(spec, config.WithFixtureDir(fixtureDir))
+	runner := NewEvalRunner(cfg, nil)
 
 	testCase := &models.TestCase{
-		Stimulus: models.TestStimulus{
+		Stimulus: models.TaskStimulus{
 			Resources: []models.ResourceRef{
 				{Location: "inline.txt", Body: "inline"},
 				{Location: "ok.txt"},
@@ -372,8 +372,8 @@ func TestLoadResources_PathValidation(t *testing.T) {
 }
 
 func TestBuildGraderContextAndScoreHelpers(t *testing.T) {
-	spec := &models.BenchmarkSpec{Config: models.Config{TrialsPerTask: 2}}
-	runner := NewTestRunner(config.NewBenchmarkConfig(spec), nil)
+	spec := &models.EvalSpec{Config: models.Config{TrialsPerTask: 2}}
+	runner := NewEvalRunner(config.NewEvalConfig(spec), nil)
 
 	content := "hi"
 	resp := &execution.ExecutionResponse{
@@ -454,7 +454,7 @@ func TestComputeTestStats_FlakinessPercent(t *testing.T) {
 }
 
 func TestRunTest_CacheHitAndTranscriptWrite(t *testing.T) {
-	spec := &models.BenchmarkSpec{
+	spec := &models.EvalSpec{
 		SkillName: "cache-skill",
 		Config: models.Config{
 			TrialsPerTask: 1,
@@ -473,16 +473,16 @@ func TestRunTest_CacheHitAndTranscriptWrite(t *testing.T) {
 
 	transcriptDir := t.TempDir()
 	cacheDir := t.TempDir()
-	cfg := config.NewBenchmarkConfig(
+	cfg := config.NewEvalConfig(
 		spec,
 		config.WithTranscriptDir(transcriptDir),
 	)
-	runner := NewTestRunner(cfg, execution.NewMockEngine("mock-model"), WithCache(cache.New(cacheDir)))
+	runner := NewEvalRunner(cfg, execution.NewMockEngine("mock-model"), WithCache(cache.New(cacheDir)))
 
 	testCase := &models.TestCase{
 		TestID:      "cache-task",
 		DisplayName: "Cache Task",
-		Stimulus: models.TestStimulus{
+		Stimulus: models.TaskStimulus{
 			Message: "cache me",
 		},
 	}
@@ -574,17 +574,17 @@ func (e *errorOnCallEngine) Execute(_ context.Context, req *execution.ExecutionR
 
 func TestExecuteRun_NoFollowUps(t *testing.T) {
 	eng := &trackingEngine{}
-	spec := &models.BenchmarkSpec{
+	spec := &models.EvalSpec{
 		SpecIdentity: models.SpecIdentity{Name: "no-followup-test"},
 		Config:       models.Config{TrialsPerTask: 1, TimeoutSec: 30},
 	}
-	cfg := config.NewBenchmarkConfig(spec)
-	runner := NewTestRunner(cfg, eng, WithSkipGraders())
+	cfg := config.NewEvalConfig(spec)
+	runner := NewEvalRunner(cfg, eng, WithSkipGraders())
 
 	tc := &models.TestCase{
 		TestID:      "t1",
 		DisplayName: "no followup",
-		Stimulus:    models.TestStimulus{Message: "initial prompt"},
+		Stimulus:    models.TaskStimulus{Message: "initial prompt"},
 	}
 
 	result := runner.executeRun(context.Background(), tc, 1)
@@ -595,17 +595,17 @@ func TestExecuteRun_NoFollowUps(t *testing.T) {
 
 func TestExecuteRun_SingleFollowUp(t *testing.T) {
 	eng := &trackingEngine{}
-	spec := &models.BenchmarkSpec{
+	spec := &models.EvalSpec{
 		SpecIdentity: models.SpecIdentity{Name: "single-followup-test"},
 		Config:       models.Config{TrialsPerTask: 1, TimeoutSec: 30},
 	}
-	cfg := config.NewBenchmarkConfig(spec)
-	runner := NewTestRunner(cfg, eng, WithSkipGraders())
+	cfg := config.NewEvalConfig(spec)
+	runner := NewEvalRunner(cfg, eng, WithSkipGraders())
 
 	tc := &models.TestCase{
 		TestID:      "t2",
 		DisplayName: "single followup",
-		Stimulus: models.TestStimulus{
+		Stimulus: models.TaskStimulus{
 			Message:   "initial prompt",
 			FollowUps: []string{"follow-up one"},
 		},
@@ -624,17 +624,17 @@ func TestExecuteRun_SingleFollowUp(t *testing.T) {
 
 func TestExecuteRun_MultipleFollowUps(t *testing.T) {
 	eng := &trackingEngine{}
-	spec := &models.BenchmarkSpec{
+	spec := &models.EvalSpec{
 		SpecIdentity: models.SpecIdentity{Name: "multi-followup-test"},
 		Config:       models.Config{TrialsPerTask: 1, TimeoutSec: 30},
 	}
-	cfg := config.NewBenchmarkConfig(spec)
-	runner := NewTestRunner(cfg, eng, WithSkipGraders())
+	cfg := config.NewEvalConfig(spec)
+	runner := NewEvalRunner(cfg, eng, WithSkipGraders())
 
 	tc := &models.TestCase{
 		TestID:      "t3",
 		DisplayName: "multi followup",
-		Stimulus: models.TestStimulus{
+		Stimulus: models.TaskStimulus{
 			Message:   "initial",
 			FollowUps: []string{"follow-up 1", "follow-up 2", "follow-up 3"},
 		},
@@ -655,17 +655,17 @@ func TestExecuteRun_MultipleFollowUps(t *testing.T) {
 
 func TestExecuteRun_FollowUpErrorMidSequence(t *testing.T) {
 	eng := &errorOnCallEngine{errOnCall: 2} // fail on first follow-up
-	spec := &models.BenchmarkSpec{
+	spec := &models.EvalSpec{
 		SpecIdentity: models.SpecIdentity{Name: "error-followup-test"},
 		Config:       models.Config{TrialsPerTask: 1, TimeoutSec: 30},
 	}
-	cfg := config.NewBenchmarkConfig(spec)
-	runner := NewTestRunner(cfg, eng, WithSkipGraders())
+	cfg := config.NewEvalConfig(spec)
+	runner := NewEvalRunner(cfg, eng, WithSkipGraders())
 
 	tc := &models.TestCase{
 		TestID:      "t4",
 		DisplayName: "error followup",
-		Stimulus: models.TestStimulus{
+		Stimulus: models.TaskStimulus{
 			Message:   "initial",
 			FollowUps: []string{"fail-here", "never-reached"},
 		},
@@ -696,13 +696,13 @@ expected:
 `
 	require.NoError(t, os.WriteFile(filepath.Join(tasksDir, "t1.yaml"), []byte(taskYAML), 0o644))
 
-	spec := &models.BenchmarkSpec{
+	spec := &models.EvalSpec{
 		SpecIdentity: models.SpecIdentity{Name: "bench-with-followups"},
 		Config:       models.Config{TrialsPerTask: 1, TimeoutSec: 30},
 		Tasks:        []string{"tasks/*.yaml"},
 	}
-	cfg := config.NewBenchmarkConfig(spec, config.WithSpecDir(tmpDir))
-	runner := NewTestRunner(cfg, eng, WithSkipGraders())
+	cfg := config.NewEvalConfig(spec, config.WithSpecDir(tmpDir))
+	runner := NewEvalRunner(cfg, eng, WithSkipGraders())
 
 	outcome, err := runner.RunBenchmark(context.Background())
 	require.NoError(t, err)

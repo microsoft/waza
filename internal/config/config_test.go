@@ -6,10 +6,10 @@ import (
 	"github.com/microsoft/waza/internal/models"
 )
 
-func TestNewBenchmarkConfig_DefaultValues(t *testing.T) {
-	spec := &models.BenchmarkSpec{SpecIdentity: models.SpecIdentity{Name: "test-spec"}}
+func TestNewEvalConfig_DefaultValues(t *testing.T) {
+	spec := &models.EvalSpec{SpecIdentity: models.SpecIdentity{Name: "test-spec"}}
 
-	cfg := NewBenchmarkConfig(spec)
+	cfg := NewEvalConfig(spec)
 
 	if cfg.Spec() != spec {
 		t.Fatalf("Spec() = %p, want %p", cfg.Spec(), spec)
@@ -37,10 +37,10 @@ func TestNewBenchmarkConfig_DefaultValues(t *testing.T) {
 	}
 }
 
-func TestNewBenchmarkConfig_AppliesFunctionalOptions(t *testing.T) {
-	spec := &models.BenchmarkSpec{}
+func TestNewEvalConfig_AppliesFunctionalOptions(t *testing.T) {
+	spec := &models.EvalSpec{}
 
-	cfg := NewBenchmarkConfig(
+	cfg := NewEvalConfig(
 		spec,
 		WithSpecDir("/tmp/specs"),
 		WithFixtureDir("/tmp/fixtures"),
@@ -74,7 +74,7 @@ func TestNewBenchmarkConfig_AppliesFunctionalOptions(t *testing.T) {
 }
 
 func TestWithContextRoot_Alias(t *testing.T) {
-	cfg := NewBenchmarkConfig(&models.BenchmarkSpec{}, WithContextRoot("fixtures"))
+	cfg := NewEvalConfig(&models.EvalSpec{}, WithContextRoot("fixtures"))
 
 	if cfg.FixtureDir() != "fixtures" {
 		t.Fatalf("FixtureDir() = %q, want %q", cfg.FixtureDir(), "fixtures")
@@ -85,8 +85,8 @@ func TestWithContextRoot_Alias(t *testing.T) {
 }
 
 func TestOptionOrder_LastOptionWins(t *testing.T) {
-	cfg := NewBenchmarkConfig(
-		&models.BenchmarkSpec{},
+	cfg := NewEvalConfig(
+		&models.EvalSpec{},
 		WithVerbose(true),
 		WithVerbose(false),
 		WithFixtureDir("first"),
@@ -104,8 +104,8 @@ func TestOptionOrder_LastOptionWins(t *testing.T) {
 	}
 }
 
-func TestNewBenchmarkConfig_NilSpecAllowed(t *testing.T) {
-	cfg := NewBenchmarkConfig(nil, WithOutputPath(""), WithLogPath(""), WithTranscriptDir(""))
+func TestNewEvalConfig_NilSpecAllowed(t *testing.T) {
+	cfg := NewEvalConfig(nil, WithOutputPath(""), WithLogPath(""), WithTranscriptDir(""))
 
 	if cfg.Spec() != nil {
 		t.Fatalf("Spec() = %v, want nil", cfg.Spec())
@@ -121,12 +121,12 @@ func TestNewBenchmarkConfig_NilSpecAllowed(t *testing.T) {
 	}
 }
 
-func TestNewBenchmarkConfig_NilOptionPanics(t *testing.T) {
+func TestNewEvalConfig_NilOptionPanics(t *testing.T) {
 	defer func() {
 		if r := recover(); r == nil {
 			t.Fatal("expected panic for nil option, got none")
 		}
 	}()
 
-	_ = NewBenchmarkConfig(&models.BenchmarkSpec{}, nil)
+	_ = NewEvalConfig(&models.EvalSpec{}, nil)
 }

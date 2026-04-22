@@ -15,9 +15,9 @@ type TestCase struct {
 	Active      *bool             `yaml:"enabled,omitempty" json:"active,omitempty"`
 	ContextRoot string            `yaml:"context_dir,omitempty" json:"context_root,omitempty"`
 	DisplayName string            `yaml:"name" json:"display_name"`
-	Expectation TestExpectation   `yaml:"expected,omitempty" json:"expectation,omitempty"`
+	Expectation TaskExpectation   `yaml:"expected,omitempty" json:"expectation,omitempty"`
 	SkillPaths  []string          `yaml:"skill_directories,omitempty" json:"skill_paths,omitempty"`
-	Stimulus    TestStimulus      `yaml:"inputs" json:"stimulus"`
+	Stimulus    TaskStimulus      `yaml:"inputs" json:"stimulus"`
 	Summary     string            `yaml:"description,omitempty" json:"summary,omitempty"`
 	Tags        []string          `yaml:"tags,omitempty" json:"labels,omitempty"`
 	TestID      string            `yaml:"id" json:"test_id"`
@@ -25,8 +25,10 @@ type TestCase struct {
 	Validators  []ValidatorInline `yaml:"graders,omitempty" json:"validators,omitempty"`
 }
 
-// TestStimulus defines the input for a test
-type TestStimulus struct {
+// TaskStimulus defines the input for a task.
+//
+// Deprecated alias: TestStimulus is provided for backward compatibility.
+type TaskStimulus struct {
 	Message     string            `yaml:"prompt" json:"message"`
 	MessageFile string            `yaml:"prompt_file,omitempty" json:"message_file,omitempty"`
 	Metadata    map[string]any    `yaml:"context,omitempty" json:"metadata,omitempty"`
@@ -41,8 +43,10 @@ type ResourceRef struct {
 	Body     string `yaml:"content,omitempty" json:"body,omitempty"`
 }
 
-// TestExpectation defines expected outcomes
-type TestExpectation struct {
+// TaskExpectation defines expected outcomes.
+//
+// Deprecated alias: TestExpectation is provided for backward compatibility.
+type TaskExpectation struct {
 	OutcomeSpecs    []OutcomeSpec  `yaml:"outcomes,omitempty" json:"outcome_specs,omitempty"`
 	ToolPatterns    map[string]any `yaml:"tool_calls,omitempty" json:"tool_patterns,omitempty"`
 	BehaviorRules   BehaviorRules  `yaml:"behavior,omitempty" json:"behavior_rules,omitempty"`
@@ -247,7 +251,7 @@ func LoadTestCase(path string) (*TestCase, error) {
 // resolvePromptFile loads prompt content from a file if prompt_file is set.
 // The path is resolved relative to baseDir. Absolute and traversal paths are
 // rejected, consistent with resource path validation in the runner.
-func (s *TestStimulus) resolvePromptFile(baseDir string) error {
+func (s *TaskStimulus) resolvePromptFile(baseDir string) error {
 	if s.MessageFile == "" {
 		return nil
 	}
@@ -275,3 +279,9 @@ func (s *TestStimulus) resolvePromptFile(baseDir string) error {
 	s.MessageFile = "" // clear to avoid leaking file paths in serialized output
 	return nil
 }
+
+// Deprecated: Use TaskStimulus instead.
+type TestStimulus = TaskStimulus
+
+// Deprecated: Use TaskExpectation instead.
+type TestExpectation = TaskExpectation
