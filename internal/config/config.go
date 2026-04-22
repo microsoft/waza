@@ -83,13 +83,13 @@ func WithTranscriptDir(path string) Option {
 
 // Getters
 func (c *EvalConfig) Spec() *models.EvalSpec { return c.spec }
-func (c *EvalConfig) SpecDir() string             { return c.specDir }
-func (c *EvalConfig) FixtureDir() string          { return c.fixtureDir }
-func (c *EvalConfig) ContextRoot() string         { return c.fixtureDir } // Alias for compatibility
-func (c *EvalConfig) Verbose() bool               { return c.verbose }
-func (c *EvalConfig) OutputPath() string          { return c.outputPath }
-func (c *EvalConfig) LogPath() string             { return c.logPath }
-func (c *EvalConfig) TranscriptDir() string       { return c.transcriptDir }
+func (c *EvalConfig) SpecDir() string        { return c.specDir }
+func (c *EvalConfig) FixtureDir() string     { return c.fixtureDir }
+func (c *EvalConfig) ContextRoot() string    { return c.fixtureDir } // Alias for compatibility
+func (c *EvalConfig) Verbose() bool          { return c.verbose }
+func (c *EvalConfig) OutputPath() string     { return c.outputPath }
+func (c *EvalConfig) LogPath() string        { return c.logPath }
+func (c *EvalConfig) TranscriptDir() string  { return c.transcriptDir }
 
 // Deprecated: Use EvalConfig instead.
 type BenchmarkConfig = EvalConfig
