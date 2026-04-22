@@ -26,13 +26,13 @@ func (c *ScopeReductionChecker) Name() string { return "scope-reduction" }
 
 // ScopeReductionData holds the structured output.
 type ScopeReductionData struct {
-	Status            CheckStatus
-	UseForCount       int
-	HeadingCount      int
-	StepSequences     int
+	Status           CheckStatus
+	UseForCount      int
+	HeadingCount     int
+	StepSequences    int
 	TotalCapabilities int
-	Threshold         int
-	Details           []string
+	Threshold        int
+	Details          []string
 }
 
 // GetStatus implements StatusHolder.
@@ -44,6 +44,7 @@ var useForPattern = regexp.MustCompile(`(?im)(?:^|\n)\s*USE\s+FOR\s*:\s*(.+)`)
 
 // doNotUseForPattern matches "DO NOT USE FOR:" or "NOT USE FOR:" lines to exclude.
 var doNotUseForPattern = regexp.MustCompile(`(?i)(?:DO\s+)?NOT\s+USE\s+FOR\s*:`)
+
 
 // headingL2Pattern matches level-2 headings (## Title).
 var headingL2Pattern = regexp.MustCompile(`(?m)^##\s+\S`)

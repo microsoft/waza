@@ -49,5 +49,6 @@ func AdvisoryCheckers() []ComplianceChecker {
 		&CrossModelDensityChecker{},
 		&BodyStructureChecker{},
 		&ProgressiveDisclosureChecker{},
+		&ScopeReductionChecker{},
 	}
 }

@@ -125,6 +125,7 @@ Anti-triggers: 0
   🌟 cross-model-density: Description density is optimal for cross-model use
   ⚠️ body-structure: Advisory 17: body structure quality — body lacks actionable instructions (no code blocks, numbered steps, or commands); no examples section found; no error handling or troubleshooting section found
   ✅ progressive-disclosure: Content structure supports progressive disclosure
+  ✅ scope-reduction: Capability scope: 3 signal(s) detected (3 USE FOR item(s))
 `
 	requireOutputMatch(t, expected, buf.String(), skill.Tokens)
 }
@@ -236,6 +237,7 @@ MCP Integration: 1/4
   ✅ cross-model-density: Advisory 16: first sentence doesn't lead with action verb (reduces clarity)
   ⚠️ body-structure: Advisory 17: body structure quality — body lacks actionable instructions (no code blocks, numbered steps, or commands); no examples section found; no error handling or troubleshooting section found
   ✅ progressive-disclosure: Content structure supports progressive disclosure
+  ✅ scope-reduction: Capability scope: 3 signal(s) detected (3 USE FOR item(s))
 
 ✅ Target adherence level High reached!
 `
@@ -308,6 +310,7 @@ Issues:
   ✅ cross-model-density: Advisory 16: first sentence doesn't lead with action verb (reduces clarity)
   ⚠️ body-structure: Advisory 17: body structure quality — body lacks actionable instructions (no code blocks, numbered steps, or commands); no examples section found; no error handling or troubleshooting section found
   ✅ progressive-disclosure: Content structure supports progressive disclosure
+  ⚠️ scope-reduction: Low capability scope: 0 signal(s) detected (minimum 2 recommended) — possible token-limit compression loss
 
 📝 Suggested improvement (description-length):
 ────────────────────────────────────────
@@ -422,6 +425,7 @@ Issues:
   ✅ cross-model-density: Advisory 16: first sentence doesn't lead with action verb (reduces clarity)
   ⚠️ body-structure: Advisory 17: body structure quality — body lacks actionable instructions (no code blocks, numbered steps, or commands); no examples section found; no error handling or troubleshooting section found
   ✅ progressive-disclosure: Content structure supports progressive disclosure
+  ✅ scope-reduction: Capability scope: 3 signal(s) detected (3 level-2 heading(s))
 
 📝 Suggested improvement (description-length):
 ────────────────────────────────────────
@@ -461,6 +465,7 @@ Anti-triggers: 0
   ✅ cross-model-density: Advisory 16: first sentence doesn't lead with action verb (reduces clarity)
   ⚠️ body-structure: Advisory 17: body structure quality — body lacks actionable instructions (no code blocks, numbered steps, or commands); no examples section found; no error handling or troubleshooting section found
   ✅ progressive-disclosure: Content structure supports progressive disclosure
+  ✅ scope-reduction: Capability scope: 3 signal(s) detected (3 level-2 heading(s))
 
 📝 Suggested improvement (triggers):
 ────────────────────────────────────────
@@ -500,6 +505,7 @@ Anti-triggers: 0
   ✅ cross-model-density: Advisory 16: first sentence doesn't lead with action verb (reduces clarity)
   ⚠️ body-structure: Advisory 17: body structure quality — body lacks actionable instructions (no code blocks, numbered steps, or commands); no examples section found; no error handling or troubleshooting section found
   ✅ progressive-disclosure: Content structure supports progressive disclosure
+  ✅ scope-reduction: Capability scope: 3 signal(s) detected (3 level-2 heading(s))
 
 📝 Suggested improvement (anti-triggers):
 ────────────────────────────────────────
@@ -539,6 +545,7 @@ Anti-triggers: 2
   ✅ cross-model-density: Advisory 16: first sentence doesn't lead with action verb (reduces clarity)
   ⚠️ body-structure: Advisory 17: body structure quality — body lacks actionable instructions (no code blocks, numbered steps, or commands); no examples section found; no error handling or troubleshooting section found
   ✅ progressive-disclosure: Content structure supports progressive disclosure
+  ✅ scope-reduction: Capability scope: 3 signal(s) detected (3 level-2 heading(s))
 
 📝 Suggested improvement (routing-clarity):
 ────────────────────────────────────────
@@ -640,6 +647,7 @@ Issues:
   ✅ cross-model-density: Advisory 16: first sentence doesn't lead with action verb (reduces clarity)
   ⚠️ body-structure: Advisory 17: body structure quality — body lacks actionable instructions (no code blocks, numbered steps, or commands); no examples section found; no error handling or troubleshooting section found
   ✅ progressive-disclosure: Content structure supports progressive disclosure
+  ⚠️ scope-reduction: Low capability scope: 0 signal(s) detected (minimum 2 recommended) — possible token-limit compression loss
 
 📝 Suggested improvement (description-length):
 ────────────────────────────────────────

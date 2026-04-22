@@ -46,8 +46,7 @@ description: |
 	assert.True(t, result.Passed)
 	assert.Equal(t, "scope-reduction", result.Name)
 
-	data, ok := result.Data.(*ScopeReductionData)
-	require.True(t, ok)
+	data := result.Data.(*ScopeReductionData)
 	assert.Equal(t, StatusOK, data.Status)
 	assert.Equal(t, 4, data.UseForCount)
 	assert.Equal(t, 3, data.HeadingCount)
@@ -72,8 +71,7 @@ Some instructions here without headings or steps.
 	assert.Contains(t, result.Summary, "Low capability scope")
 	assert.Contains(t, result.Summary, "token-limit compression loss")
 
-	data, ok := result.Data.(*ScopeReductionData)
-	require.True(t, ok)
+	data := result.Data.(*ScopeReductionData)
 	assert.Equal(t, StatusWarning, data.Status)
 	assert.Equal(t, 0, data.TotalCapabilities)
 }
@@ -95,8 +93,7 @@ Do something here.
 
 	assert.False(t, result.Passed, "1 heading < default threshold of 2")
 
-	data, ok := result.Data.(*ScopeReductionData)
-	require.True(t, ok)
+	data := result.Data.(*ScopeReductionData)
 	assert.Equal(t, StatusWarning, data.Status)
 	assert.Equal(t, 1, data.HeadingCount)
 	assert.Equal(t, 1, data.TotalCapabilities)
@@ -117,8 +114,7 @@ This skill does many things but has no headings or steps.
 	require.NoError(t, err)
 
 	assert.True(t, result.Passed)
-	data, ok := result.Data.(*ScopeReductionData)
-	require.True(t, ok)
+	data := result.Data.(*ScopeReductionData)
 	assert.Equal(t, 3, data.UseForCount)
 	assert.Equal(t, 3, data.TotalCapabilities)
 }
@@ -145,8 +141,7 @@ Second procedure:
 	require.NoError(t, err)
 
 	assert.True(t, result.Passed)
-	data, ok := result.Data.(*ScopeReductionData)
-	require.True(t, ok)
+	data := result.Data.(*ScopeReductionData)
 	assert.Equal(t, 2, data.StepSequences)
 	assert.Equal(t, 2, data.TotalCapabilities)
 }
@@ -173,8 +168,7 @@ More steps.
 	require.NoError(t, err)
 
 	assert.False(t, result.Passed)
-	data, ok := result.Data.(*ScopeReductionData)
-	require.True(t, ok)
+	data := result.Data.(*ScopeReductionData)
 	assert.Equal(t, 2, data.TotalCapabilities)
 	assert.Equal(t, 3, data.Threshold)
 }
@@ -191,8 +185,7 @@ description: Just a description.
 	require.NoError(t, err)
 
 	assert.False(t, result.Passed)
-	data, ok := result.Data.(*ScopeReductionData)
-	require.True(t, ok)
+	data := result.Data.(*ScopeReductionData)
 	assert.Equal(t, StatusWarning, data.Status)
 	assert.Equal(t, 0, data.TotalCapabilities)
 }
@@ -215,8 +208,7 @@ Some content.
 	require.NoError(t, err)
 
 	assert.True(t, result.Passed)
-	data, ok := result.Data.(*ScopeReductionData)
-	require.True(t, ok)
+	data := result.Data.(*ScopeReductionData)
 	assert.Equal(t, 2, data.HeadingCount)
 }
 
@@ -235,8 +227,7 @@ DO NOT USE FOR: "task D"
 	require.NoError(t, err)
 
 	assert.True(t, result.Passed)
-	data, ok := result.Data.(*ScopeReductionData)
-	require.True(t, ok)
+	data := result.Data.(*ScopeReductionData)
 	assert.Equal(t, 3, data.UseForCount, "USE FOR items counted, DO NOT USE FOR excluded")
 }
 
@@ -266,8 +257,7 @@ Content.
 	require.NoError(t, err)
 
 	assert.True(t, result.Passed)
-	data, ok := result.Data.(*ScopeReductionData)
-	require.True(t, ok)
+	data := result.Data.(*ScopeReductionData)
 	assert.Equal(t, 1, data.UseForCount)
 	assert.Equal(t, 3, data.HeadingCount)
 	assert.Equal(t, 3, data.TotalCapabilities, "max of signals wins")
@@ -275,9 +265,9 @@ Content.
 
 func TestCountUseForItems(t *testing.T) {
 	tests := []struct {
-		name  string
-		input string
-		want  int
+		name    string
+		input   string
+		want    int
 	}{
 		{
 			name:  "single line",
