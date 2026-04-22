@@ -476,6 +476,29 @@ waza dev skills/my-skill       # Improve compliance if needed
 waza check skills/my-skill     # Verify improvements
 ```
 
+### `waza quality <skill-path>`
+
+Use an LLM-as-Judge to evaluate skill content quality across five dimensions:
+clarity, completeness, trigger precision, scope coverage, and anti-patterns.
+
+| Flag | Description |
+|------|-------------|
+| `--model <model>` | Model to use as judge (default: project default model) |
+| `--format table\|json` | Output format (default: `table`) |
+| `--rubric <path>` | Path to custom rubric file (reserved for future use) |
+
+**Examples:**
+```bash
+# Evaluate skill quality (table output)
+waza quality skills/code-explainer
+
+# JSON output for CI integration
+waza quality skills/code-explainer --format json
+
+# Use a specific model as judge
+waza quality skills/code-explainer --model gpt-4o
+```
+
 ### `waza suggest <skill-path>`
 
 Use an LLM to analyze `SKILL.md` and generate suggested evaluation artifacts.

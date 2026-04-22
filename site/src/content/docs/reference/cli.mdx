@@ -321,8 +321,23 @@ Skill: code-explainer
 🧪 Evaluation Suite: Found
    ✅ eval.yaml detected.
 
+💡 Advisory Checks
+   ✅ scope-reduction: Capability scope: 3 signal(s) detected
+
 ✅ Your skill is ready for submission!
 ```
+
+### Advisory: Scope Reduction Warning
+
+The `scope-reduction` advisory check detects when a SKILL.md may have lost workflow coverage due to token-limit compression. It parses three concrete signals:
+
+| Signal | What it counts |
+|--------|---------------|
+| **USE FOR items** | Comma-separated phrases after `USE FOR:` |
+| **Level-2 headings** | `## ` headings in the body (distinct capability sections) |
+| **Numbered procedures** | Sequences starting with `1.` (distinct workflows) |
+
+The check takes the **maximum** of these three indicators. If the count is below the minimum threshold (default: 2), a warning is emitted suggesting possible scope loss. This is advisory only — it does not block readiness.
 
 ### Examples
 
@@ -797,6 +812,61 @@ graders:
 ```bash
 waza run eval.yaml --baseline -o results.json
 # Output includes pairwise judge scores comparing baseline vs treatment approaches
+```
+
+## waza quality
+
+Evaluate skill content quality using an LLM-as-Judge. Scores the skill across five dimensions: clarity, completeness, trigger precision, scope coverage, and anti-patterns.
+
+```bash
+waza quality <skill-path>
+```
+
+### Flags
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--model` | string | project default | Model to use as judge |
+| `--format` | string | `table` | Output format: `table` or `json` |
+| `--rubric` | string | | Path to custom rubric file (reserved for future use) |
+
+### Output
+
+Displays a table with dimension scores (1-5), visual bars, and feedback:
+
+```
+DIMENSION          SCORE  FEEDBACK
+──────────────────────────────────────────────────────────────────────
+clarity            ████░  Instructions are clear and well-structured.
+completeness       ███░░  Missing some edge case documentation.
+trigger_precision  █████  USE FOR and DO NOT USE FOR are precise.
+scope_coverage     ████░  Scope is well-defined with clear boundaries.
+anti_patterns      ███░░  Some steps could be more specific.
+──────────────────────────────────────────────────────────────────────
+Overall: 3.8/5.0
+
+A solid skill with good clarity and triggers.
+```
+
+### Authentication
+
+Requires Copilot authentication. If not authenticated, you will see:
+
+```
+Error: not authenticated — run "copilot login" first
+```
+
+### Examples
+
+```bash
+# Table output (default)
+waza quality skills/code-explainer
+
+# JSON output for CI pipelines
+waza quality skills/code-explainer --format json
+
+# Use a specific judge model
+waza quality skills/code-explainer --model gpt-4o
 ```
 
 ## waza models
