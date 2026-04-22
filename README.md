@@ -373,6 +373,26 @@ Generate a skill-to-eval coverage grid showing which skills are fully covered, p
 | `--format <fmt>` | `-f` | Output format: `text`, `markdown`, or `json` (default: `text`) |
 | `--path <dir>` | | Additional directory to scan for skills/evals (repeatable) |
 
+### `waza models`
+
+List models available for evaluation via the Copilot SDK. Shows model IDs and metadata that can be used with `--model` flags in `waza run`, `waza quality`, and other commands.
+
+Requires authentication via `copilot login`.
+
+| Flag | Description |
+|------|-------------|
+| `--json` | Output as JSON |
+
+**Examples:**
+
+```bash
+# List available models in table format
+waza models
+
+# Output available models as JSON
+waza models --json
+```
+
 ### `waza cache clear`
 
 Clear all cached evaluation results to force re-execution on the next run.
