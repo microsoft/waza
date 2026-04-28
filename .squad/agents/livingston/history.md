@@ -127,3 +127,22 @@ All code roles now use `claude-opus-4.6`. Docs/Scribe/diversity use `gemini-3-pr
 
 **Branch:** squad/225-custom-agent-eval → PR #226 to microsoft/waza main
 
+## 📌 Release v0.31.0 Preparation (2026-04-28): CHANGELOG Backfill + Release PR
+
+**Completed:** Backfilled CHANGELOG.md for v0.25.0–v0.30.1 (7 missed releases), added v0.31.0 entry, bumped version files, opened release PR.
+
+**What I learned about changelog backfilling:**
+- v0.24.0 had no git tag (manually-added entry); real prior tag was v0.23.0. Used `v0.23.0..v0.25.0` for the first backfill range.
+- Commits already documented in v0.24.0's changelog entry (e.g., #132, #146, #155, #149) must be excluded from v0.25.0 to avoid duplication.
+- Some versions (v0.30.1) only had a docs commit — that's fine, document what shipped.
+- `.squad/` infrastructure commits, version-bump commits, and pure test-only commits (no user-facing change) were omitted.
+- Comparison links at the bottom shifted from `azd-ext-microsoft-azd-waza_*` tag format (old) to `v*` tag format (current).
+
+**Key decisions:**
+- Grouped Dependabot bumps by package name across /site and /web where both got the same bump
+- Used bold-title + description format matching v0.24.0 style for consistency
+- Included test-infrastructure fixes (e.g., webserver test skip, CI mock executor) since they help users running evals in CI
+
+**Files changed:** CHANGELOG.md, version.txt, extension.yaml
+**Branch:** release/v0.31.0 → PR #231 to microsoft/waza main
+
