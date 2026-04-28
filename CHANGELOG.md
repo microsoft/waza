@@ -7,6 +7,128 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.31.0] - 2026-04-28
+
+### Added
+
+- **Custom agent (`.agent.md`) eval support** — Discover `.agent.md` files alongside `SKILL.md`, parse agent-specific frontmatter (`tools`, `model`, `handoffs`, `mcp-servers`, `agents`), auto-inject `tool_constraint` grader from agent `tools:` field, complete worked example under `examples/custom-agent/`, and new "Evaluating Custom Agents" docs guide (#226, closes #225)
+
+### Fixed
+
+- **Mock engine echoes file content** — `_output_contains` expectations against file contents now work in CI without a real model. Mock response includes task metadata, file paths, and a 1KB content preview per resource (#228, closes #227)
+- **`waza serve` no longer crashes when stdin isn't a terminal** — MCP stdio server only starts when `term.IsTerminal()` is true; piped input or background mode no longer kills the HTTP dashboard (#224)
+
+### Changed
+
+- **Vocabulary renames** — Internal types renamed: `BenchmarkSpec` → `EvalSpec`, `TestRunner` → `EvalRunner`. Not a breaking change for external consumers (types live in `internal/`) (#222)
+
+### Documentation
+
+- Cross-reference audit for recent renames + custom agent feature: added `.agent.md` coverage to quickstart, getting-started, GUIDE, TUTORIAL, examples README; updated mock engine descriptions in INTEGRATION-TESTING and eval-yaml guide (#230)
+
+### Dependencies
+
+- Bump postcss from 8.5.6 to 8.5.12 in /site (#229)
+
+## [0.30.1] - 2026-04-22
+
+### Documentation
+
+- **Updated README with missing CLI commands** — Added documentation for recently-added CLI commands that were missing from the README (#220)
+
+## [0.30.0] - 2026-04-22
+
+### Added
+
+- **`waza quality` command** — LLM-as-Judge skill quality scoring that evaluates skill output quality using a configurable judge model (#218)
+- **Scope-reduction advisory check** — `waza check` now includes an advisory that flags skills with overly broad scope, helping authors tighten skill definitions (#219)
+
+## [0.29.0] - 2026-04-22
+
+### Added
+
+- **`--keep-workspace` flag** — Preserve the temporary workspace after task execution for debugging agent output (#123, #217)
+- **`--no-skills` flag and `disabled_skills` config** — Disable specific skills during evaluation to isolate behavior (#126, #216)
+- **Non-blocking version update check** — CLI now checks for newer waza versions in the background without slowing startup (#104, #214)
+- **Per-task `skill_directories`** — Specify different skill directories for individual tasks in eval YAML (#156, #215)
+
+### Dependencies
+
+- Bump astro and @astrojs/starlight in /site (#212)
+
+## [0.28.0] - 2026-04-21
+
+### Added
+
+- **Follow-up prompts in eval YAML** — Tasks can now include pre-written follow-up prompts for multi-turn evaluation conversations (#189, #209)
+- **`waza models` command** — List all available models supported by the configured engine (#208)
+- **Early termination for trigger tests** — Trigger tests can now stop early once the target skill is invoked, reducing evaluation time (#207)
+
+### Fixed
+
+- **Stricter YAML validation** — Audited all YAML parsers; unknown fields in `TestCase` definitions are now properly rejected (#132, #206)
+- **Test fixture assertion syntax** — Fixed invalid Python expression in a test fixture assertion (#197)
+- **CI integration test stability** — CI integration tests now correctly handle expected eval failures when using the mock executor (#210)
+
+### Documentation
+
+- Added Quick Start guide to the documentation site (#205)
+
+## [0.27.0] - 2026-04-21
+
+### Added
+
+- **`output_contains_any` expectation** — New expectation field that passes when the agent response contains any one of the specified strings (#203)
+- **`max_response_time_ms` behavior rule** — Enforce maximum response time constraints on agent execution (#201)
+- **Task prompt from file** — Task `prompt` field can now reference an external file path instead of inline text (#157, #200)
+- **`tool_calls` grader** — New grader type that validates the specific tool calls an agent makes during execution (#187, #202)
+
+### Fixed
+
+- **Webserver test resilience** — Webserver tests now skip gracefully when frontend assets are not built (#204)
+
+## [0.26.0] - 2026-04-21
+
+### Changed
+
+- **Timestamped output directories** — `run --output-dir` now groups result files by timestamp for cleaner organization (#153)
+- **Improved debug logging** — Debug output is now more structured and useful for troubleshooting (#152)
+
+### Fixed
+
+- **`--discover` finds eval.yaml in nested layout** — Skill discovery now correctly locates `eval.yaml` files in `evals/{name}/` directories at the project root (#44)
+- **Diff grader reads post-execution workspace** — The diff grader now reads files from the workspace after agent execution completes, not before (#165, #196)
+- **Grader config validation** — Required grader configuration fields are now validated before evaluation starts (#195)
+- **macOS install and trigger test count** — Fixed macOS binary installation and an off-by-one error in trigger test counting (#164, #184, #193)
+
+### Documentation
+
+- Added cache command reference, prompt mode documentation, and complete YAML schema reference (#198)
+- Updated demo guide and added CI/CD integration guide (#112, #89, #194)
+
+### Dependencies
+
+- Bump defu from 6.1.4 to 6.1.6 in /site (#181)
+- Bump vite from 6.4.1 to 6.4.2 in /site and /web (#182, #192)
+- Bump go.opentelemetry.io/otel/sdk from 1.42.0 to 1.43.0 (#185)
+- Bump astro from 5.17.3 to 5.18.1 in /site (#163)
+- Bump picomatch from 4.0.3 to 4.0.4 in /site and /web (#159, #160)
+- Bump smol-toml from 1.6.0 to 1.6.1 in /site (#158)
+
+## [0.25.0] - 2026-04-21
+
+### Added
+
+- **Eval coverage grid generator** — New coverage output that visualizes which skills have eval coverage across grader types (#92)
+
+### Fixed
+
+- **SKILL.md injection and trigger fixture loading** — `waza run` now correctly injects SKILL.md content into the evaluation context, loads trigger test fixtures, and passes MCP server configuration to the engine (#191)
+
+### Dependencies
+
+- Bump h3 from 1.15.5 to 1.15.8 in /site (#144)
+
 ## [0.24.0] - 2026-03-25
 
 ### Changed
@@ -305,7 +427,15 @@ pip install waza
 - YAML escaping for regex patterns with backslashes
 - Progress bar now shows 100% on completion
 
-[Unreleased]: https://github.com/microsoft/waza/compare/azd-ext-microsoft-azd-waza_0.24.0...HEAD
+[Unreleased]: https://github.com/microsoft/waza/compare/v0.31.0...HEAD
+[0.31.0]: https://github.com/microsoft/waza/compare/v0.30.1...v0.31.0
+[0.30.1]: https://github.com/microsoft/waza/compare/v0.30.0...v0.30.1
+[0.30.0]: https://github.com/microsoft/waza/compare/v0.29.0...v0.30.0
+[0.29.0]: https://github.com/microsoft/waza/compare/v0.28.0...v0.29.0
+[0.28.0]: https://github.com/microsoft/waza/compare/v0.27.0...v0.28.0
+[0.27.0]: https://github.com/microsoft/waza/compare/v0.26.0...v0.27.0
+[0.26.0]: https://github.com/microsoft/waza/compare/v0.25.0...v0.26.0
+[0.25.0]: https://github.com/microsoft/waza/compare/v0.23.0...v0.25.0
 [0.24.0]: https://github.com/microsoft/waza/compare/azd-ext-microsoft-azd-waza_0.23.0...azd-ext-microsoft-azd-waza_0.24.0
 [0.21.0]: https://github.com/microsoft/waza/compare/azd-ext-microsoft-azd-waza_0.20.0...azd-ext-microsoft-azd-waza_0.21.0
 [0.9.0]: https://github.com/microsoft/waza/compare/v0.8.0...azd-ext-microsoft-azd-waza_0.20.0
