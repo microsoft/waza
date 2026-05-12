@@ -65,6 +65,7 @@ func TestSchemaDefaultsMatchGoDefaults(t *testing.T) {
 	// --- defaults ---
 	assertStringDefault(t, getDefault("defaults", "engine"), cfg.Defaults.Engine, "defaults.engine")
 	assertStringDefault(t, getDefault("defaults", "model"), cfg.Defaults.Model, "defaults.model")
+	assertStringDefault(t, getDefault("defaults", "model_reasoning_effort"), cfg.Defaults.ModelReasoningEffort, "defaults.model_reasoning_effort")
 	assertIntDefault(t, getDefault("defaults", "timeout"), cfg.Defaults.Timeout, "defaults.timeout")
 	assertBoolDefault(t, getDefault("defaults", "parallel"), *cfg.Defaults.Parallel, "defaults.parallel")
 	assertIntDefault(t, getDefault("defaults", "workers"), cfg.Defaults.Workers, "defaults.workers")

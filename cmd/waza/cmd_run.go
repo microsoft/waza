@@ -451,6 +451,9 @@ func runCommandForSpec(cmd *cobra.Command, sp skillSpecPath, defaultSkills []str
 	if err != nil {
 		return nil, fmt.Errorf("failed to load spec: %w", err)
 	}
+	if cfg, cfgErr := projectconfig.Load(filepath.Dir(specPath)); cfgErr == nil {
+		applyProjectDefaultsToEvalSpec(spec, cfg)
+	}
 
 	// CLI flags override spec config
 	if parallel {
@@ -572,9 +575,51 @@ func runCommandForSpec(cmd *cobra.Command, sp skillSpecPath, defaultSkills []str
 	return allResults, nil
 }
 
+func applyProjectDefaultsToEvalSpec(spec *models.EvalSpec, cfg *projectconfig.ProjectConfig) {
+	if spec == nil || cfg == nil {
+		return
+	}
+
+	defaultEngine := cfg.Defaults.Engine
+	if defaultEngine == "" {
+		defaultEngine = projectconfig.DefaultEngine
+	}
+
+	engineWasDefault := spec.Config.EngineType == "" ||
+		(spec.Config.EngineType == projectconfig.DefaultEngine && defaultEngine != projectconfig.DefaultEngine)
+	if engineWasDefault {
+		spec.Config.EngineType = defaultEngine
+	}
+
+	defaultModel := cfg.Defaults.Model
+	modelWasDefault := spec.Config.ModelID == "" ||
+		(spec.Config.ModelID == projectconfig.DefaultModel &&
+			(defaultModel != projectconfig.DefaultModel || engineWasDefault))
+	if modelWasDefault {
+		spec.Config.ModelID = defaultModel
+	}
+	if spec.Config.ModelReasoningEffort == "" {
+		spec.Config.ModelReasoningEffort = cfg.Defaults.ModelReasoningEffort
+	}
+}
+
+func displayModel(cfg models.Config) string {
+	if cfg.ModelID != "" {
+		return cfg.ModelID
+	}
+	if cfg.EngineType == "codex" {
+		return "default (Codex config)"
+	}
+	return ""
+}
+
 // runSingleModel executes a benchmark for one model and returns the outcome.
 // It prints the per-model summary and saves output for single-model runs.
 func runSingleModel(cmd *cobra.Command, spec *models.EvalSpec, specPath string, defaultSkills []string) (*models.EvaluationOutcome, error) {
+	if err := validateEngineFeatureSupport(spec); err != nil {
+		return nil, err
+	}
+
 	// Get spec directory for resolving relative paths
 	specDir := filepath.Dir(specPath)
 	if !filepath.IsAbs(specDir) {
@@ -641,6 +686,8 @@ func runSingleModel(cmd *cobra.Command, spec *models.EvalSpec, specPath string, 
 		engine = execution.NewCopilotEngineBuilder(spec.Config.ModelID, &execution.CopilotEngineBuilderOptions{
 			NewCopilotClient: newCopilotClientFn, // if nil, uses the real function, otherwise overridable for tests.
 		}).Build()
+	case "codex":
+		engine = execution.NewCodexEngine(spec.Config.ModelID)
 	default:
 		return nil, fmt.Errorf("unknown engine type: %s", spec.Config.EngineType)
 	}
@@ -735,7 +782,7 @@ func runSingleModel(cmd *cobra.Command, spec *models.EvalSpec, specPath string, 
 	fmt.Printf("Running benchmark: %s\n", spec.Name)
 	fmt.Printf("Skill: %s\n", spec.SkillName)
 	fmt.Printf("Engine: %s\n", spec.Config.EngineType)
-	fmt.Printf("Model: %s\n", spec.Config.ModelID)
+	fmt.Printf("Model: %s\n", displayModel(spec.Config))
 	if spec.Config.JudgeModel != "" {
 		fmt.Printf("Judge Model: %s\n", spec.Config.JudgeModel)
 	}
@@ -904,6 +951,18 @@ func runSingleModel(cmd *cobra.Command, spec *models.EvalSpec, specPath string, 
 	}
 
 	return outcome, nil
+}
+
+func validateEngineFeatureSupport(spec *models.EvalSpec) error {
+	if spec == nil || spec.Config.EngineType != "codex" {
+		return nil
+	}
+	for _, grader := range spec.Graders {
+		if grader.Kind == models.GraderKindSkillInvocation {
+			return fmt.Errorf("grader %q uses skill_invocation, which is not supported by the codex executor because Codex CLI does not emit skill invocation telemetry", grader.Identifier)
+		}
+	}
+	return nil
 }
 
 // printModelComparison renders a comparison table for multi-model runs.

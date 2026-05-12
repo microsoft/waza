@@ -81,6 +81,13 @@ func TestEvalYAML_CustomEngine(t *testing.T) {
 	assert.Contains(t, content, "model: gpt-4o")
 }
 
+func TestEvalYAML_OmitsEmptyModel(t *testing.T) {
+	content := EvalYAML("my-skill", "codex", "")
+
+	assert.Contains(t, content, "executor: codex")
+	assert.NotContains(t, content, "model:")
+}
+
 func TestTaskFiles(t *testing.T) {
 	tasks := TaskFiles("my-skill")
 

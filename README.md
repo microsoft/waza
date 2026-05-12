@@ -833,7 +833,7 @@ cmd/waza/              CLI entrypoint and command definitions
   tokens/              Token counting subcommand
 internal/
   config/              Configuration with functional options
-  execution/           AgentEngine interface (mock, copilot)
+  execution/           AgentEngine interface (mock, copilot, codex)
   graders/             Validator registry and built-in graders
   metrics/             Scoring metrics
   models/              Data structures (EvalSpec, TestCase, EvaluationOutcome)
@@ -857,8 +857,9 @@ config:
   max_attempts: 3          # Retry failed graders up to 3 times (default: 1, no retries)
   timeout_seconds: 300
   parallel: false
-  executor: mock          # or copilot-sdk
+  executor: mock          # or copilot-sdk, codex
   model: claude-sonnet-4-20250514
+  model_reasoning_effort: high  # codex only; none, minimal, low, medium, high, xhigh
   group_by: model          # Group results by model (or other dimension)
 
 # Custom input variables available as {{.Vars.key}} in tasks and hooks
@@ -1149,6 +1150,8 @@ jobs:
 | **Go Version** | 1.26 or higher |
 | **Executor** | Use `mock` executor for CI (no API keys needed) |
 | **GitHub Token** | Only required for `copilot-sdk` executor: set `GITHUB_TOKEN` env var |
+| **Codex Auth** | Only required for `codex` executor: uses the local Codex CLI config/auth from `~/.codex` |
+| **Codex Reasoning** | Optional `model_reasoning_effort` uses Codex's config key; common values are `none`, `minimal`, `low`, `medium`, `high`, `xhigh` |
 | **Exit Codes** | 0=success, 1=test failure, 2=config error |
 
 #### Expected Skill Structure

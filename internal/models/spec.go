@@ -35,20 +35,21 @@ type SpecIdentity struct {
 
 // Config controls execution behavior
 type Config struct {
-	TrialsPerTask  int            `yaml:"trials_per_task" json:"runs_per_test"`
-	TimeoutSec     int            `yaml:"timeout_seconds" json:"timeout_sec"`
-	Concurrent     bool           `yaml:"parallel" json:"concurrent"`
-	Workers        int            `yaml:"workers,omitempty" json:"workers,omitempty"`
-	StopOnError    bool           `yaml:"fail_fast,omitempty" json:"stop_on_error,omitempty"`
-	EngineType     string         `yaml:"executor" json:"engine_type"`
-	ModelID        string         `yaml:"model" json:"model_id"`
-	SkillPaths     []string       `yaml:"skill_directories,omitempty" json:"skill_paths,omitempty"`
-	DisabledSkills []string       `yaml:"disabled_skills,omitempty" json:"disabled_skills,omitempty"`
-	RequiredSkills []string       `yaml:"required_skills,omitempty" json:"required_skills,omitempty"`
-	ServerConfigs  map[string]any `yaml:"mcp_servers,omitempty" json:"server_configs,omitempty"`
-	MaxAttempts    int            `yaml:"max_attempts,omitempty" json:"max_attempts,omitempty"`
-	GroupBy        string         `yaml:"group_by,omitempty" json:"group_by,omitempty"`
-	JudgeModel     string         `yaml:"judge_model,omitempty" json:"judge_model,omitempty"`
+	TrialsPerTask        int            `yaml:"trials_per_task" json:"runs_per_test"`
+	TimeoutSec           int            `yaml:"timeout_seconds" json:"timeout_sec"`
+	Concurrent           bool           `yaml:"parallel" json:"concurrent"`
+	Workers              int            `yaml:"workers,omitempty" json:"workers,omitempty"`
+	StopOnError          bool           `yaml:"fail_fast,omitempty" json:"stop_on_error,omitempty"`
+	EngineType           string         `yaml:"executor" json:"engine_type"`
+	ModelID              string         `yaml:"model" json:"model_id"`
+	ModelReasoningEffort string         `yaml:"model_reasoning_effort,omitempty" json:"model_reasoning_effort,omitempty"`
+	SkillPaths           []string       `yaml:"skill_directories,omitempty" json:"skill_paths,omitempty"`
+	DisabledSkills       []string       `yaml:"disabled_skills,omitempty" json:"disabled_skills,omitempty"`
+	RequiredSkills       []string       `yaml:"required_skills,omitempty" json:"required_skills,omitempty"`
+	ServerConfigs        map[string]any `yaml:"mcp_servers,omitempty" json:"server_configs,omitempty"`
+	MaxAttempts          int            `yaml:"max_attempts,omitempty" json:"max_attempts,omitempty"`
+	GroupBy              string         `yaml:"group_by,omitempty" json:"group_by,omitempty"`
+	JudgeModel           string         `yaml:"judge_model,omitempty" json:"judge_model,omitempty"`
 }
 
 // GraderConfig defines a validator/grader

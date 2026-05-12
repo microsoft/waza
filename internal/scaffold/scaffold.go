@@ -44,7 +44,8 @@ func TitleCase(s string) string {
 }
 
 // ReadProjectDefaults reads engine and model from .waza.yaml if it exists.
-// Falls back to copilot-sdk and claude-sonnet-4.6.
+// Falls back to copilot-sdk and claude-sonnet-4.6. Codex projects may return
+// an empty model so the Codex CLI can use ~/.codex/config.toml.
 func ReadProjectDefaults() (engine, model string) {
 	dir, err := os.Getwd()
 	if err != nil {
@@ -59,6 +60,11 @@ func ReadProjectDefaults() (engine, model string) {
 
 // EvalYAML returns a default eval.yaml template for the given skill name.
 func EvalYAML(name, engine, model string) string {
+	modelLine := ""
+	if model != "" {
+		modelLine = fmt.Sprintf("  model: %s\n", model)
+	}
+
 	return fmt.Sprintf(`name: %s-eval
 description: Evaluation suite for %s.
 skill: %s
@@ -68,7 +74,7 @@ config:
   timeout_seconds: 300
   parallel: false
   executor: %s
-  model: %s
+%s
 metrics:
   - name: task_completion
     weight: 1.0
@@ -87,7 +93,7 @@ graders:
         - "(?i)(explain|describe|analyze|implement)"
 tasks:
   - "tasks/*.yaml"
-`, name, name, name, engine, model)
+`, name, name, name, engine, modelLine)
 }
 
 // TaskFiles returns a map of task filename to content.

@@ -36,10 +36,11 @@ type WorkspaceKeeper interface {
 
 // ExecutionRequest represents a test execution request
 type ExecutionRequest struct {
-	ModelID   string
-	Message   string
-	Context   map[string]any
-	Resources []ResourceFile
+	ModelID              string
+	ModelReasoningEffort string
+	Message              string
+	Context              map[string]any
+	Resources            []ResourceFile
 
 	SessionID    string
 	WorkspaceDir string // Reuse an existing workspace directory (for follow-up prompts)

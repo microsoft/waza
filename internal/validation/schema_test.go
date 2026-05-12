@@ -56,6 +56,26 @@ func TestValidateEvalBytes_Valid(t *testing.T) {
 	require.Empty(t, errs, "valid eval should have no errors")
 }
 
+func TestValidateEvalBytes_CodexModelOptional(t *testing.T) {
+	yaml := `name: test-eval
+description: Test evaluation
+skill: test-skill
+version: "1.0"
+config:
+  trials_per_task: 1
+  timeout_seconds: 60
+  executor: codex
+metrics:
+  - name: accuracy
+    weight: 1.0
+    threshold: 0.8
+tasks:
+  - "tasks/*.yaml"
+`
+	errs := ValidateEvalBytes([]byte(yaml))
+	require.Empty(t, errs, "codex eval should allow model to come from ~/.codex/config.toml")
+}
+
 func TestValidateEvalBytes_Invalid(t *testing.T) {
 	errs := ValidateEvalBytes([]byte(invalidEvalYAML))
 	require.NotEmpty(t, errs, "invalid eval should have errors")

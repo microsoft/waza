@@ -11,6 +11,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"sort"
 	"strings"
@@ -288,6 +289,309 @@ func TestRunCommand_MockEngineRun(t *testing.T) {
 
 	err := cmd.Execute()
 	assert.NoError(t, err)
+}
+
+func TestRunCommand_CodexEngineRun(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake codex shell script is POSIX-only")
+	}
+	resetRunGlobals()
+	defer resetRunGlobals()
+
+	fakeDir := t.TempDir()
+	fakeCodex := filepath.Join(fakeDir, "codex")
+	fakeScript := `#!/bin/sh
+work=""
+out=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --cd)
+      work="$2"
+      shift 2
+      ;;
+    --output-last-message)
+      out="$2"
+      shift 2
+      ;;
+    *)
+      shift
+      ;;
+  esac
+done
+if [ -n "$work" ]; then
+  cd "$work"
+fi
+cat > prompt.txt
+printf "codex command output" > generated.txt
+printf "codex final output" > "$out"
+`
+	require.NoError(t, os.WriteFile(fakeCodex, []byte(fakeScript), 0o755))
+	t.Setenv("PATH", fakeDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	specPath := createTestSpec(t, "codex")
+	outFile := filepath.Join(t.TempDir(), "results.json")
+
+	cmd := newRunCommand()
+	cmd.SetArgs([]string{specPath, "--output", outFile})
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+
+	err := cmd.Execute()
+	require.NoError(t, err)
+
+	data, err := os.ReadFile(outFile)
+	require.NoError(t, err)
+	var result models.EvaluationOutcome
+	require.NoError(t, json.Unmarshal(data, &result))
+	assert.Equal(t, "codex", result.Setup.EngineType)
+	assert.Equal(t, "test-model", result.Setup.ModelID)
+	require.Len(t, result.TestOutcomes, 1)
+	require.Len(t, result.TestOutcomes[0].Runs, 1)
+	assert.Equal(t, "codex final output", result.TestOutcomes[0].Runs[0].FinalOutput)
+}
+
+func TestRunCommand_WazaYamlCodexOverridesScaffoldedCopilotDefault(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake codex shell script is POSIX-only")
+	}
+	resetRunGlobals()
+	defer resetRunGlobals()
+
+	fakeDir := t.TempDir()
+	fakeCodex := filepath.Join(fakeDir, "codex")
+	fakeScript := `#!/bin/sh
+work=""
+out=""
+args=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --cd)
+      work="$2"
+      args="$args $1 $2"
+      shift 2
+      ;;
+    --output-last-message)
+      out="$2"
+      args="$args $1 $2"
+      shift 2
+      ;;
+    *)
+      args="$args $1"
+      shift
+      ;;
+  esac
+done
+if [ -n "$work" ]; then
+  cd "$work"
+fi
+cat > prompt.txt
+printf "%s" "$args" > args.txt
+if [ -n "${WAZA_FAKE_CODEX_ARGS:-}" ]; then
+  printf "%s" "$args" > "$WAZA_FAKE_CODEX_ARGS"
+fi
+printf "codex final output" > "$out"
+`
+	require.NoError(t, os.WriteFile(fakeCodex, []byte(fakeScript), 0o755))
+	t.Setenv("PATH", fakeDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	argsPath := filepath.Join(t.TempDir(), "args.txt")
+	t.Setenv("WAZA_FAKE_CODEX_ARGS", argsPath)
+
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".waza.yaml"), []byte("defaults:\n  engine: codex\n"), 0o644))
+
+	taskDir := filepath.Join(dir, "tasks")
+	require.NoError(t, os.MkdirAll(taskDir, 0o755))
+	task := `id: default-engine-task
+name: Default Engine Task
+inputs:
+  prompt: "Hello"
+`
+	require.NoError(t, os.WriteFile(filepath.Join(taskDir, "task.yaml"), []byte(task), 0o644))
+
+	spec := `name: default-engine-test
+skill: cfg-skill
+version: "1.0"
+config:
+  trials_per_task: 1
+  timeout_seconds: 10
+  executor: copilot-sdk
+  model: claude-sonnet-4.6
+tasks:
+  - "tasks/*.yaml"
+`
+	specPath := filepath.Join(dir, "eval.yaml")
+	require.NoError(t, os.WriteFile(specPath, []byte(spec), 0o644))
+
+	outFile := filepath.Join(t.TempDir(), "results.json")
+	cmd := newRunCommand()
+	cmd.SetArgs([]string{specPath, "--output", outFile})
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+
+	err := cmd.Execute()
+	require.NoError(t, err)
+
+	data, err := os.ReadFile(outFile)
+	require.NoError(t, err)
+	var result models.EvaluationOutcome
+	require.NoError(t, json.Unmarshal(data, &result))
+	assert.Equal(t, "codex", result.Setup.EngineType)
+	assert.Equal(t, "", result.Setup.ModelID, "codex should use ~/.codex/config.toml when default model is omitted")
+	assert.Equal(t, "codex final output", result.TestOutcomes[0].Runs[0].FinalOutput)
+
+	argsData, err := os.ReadFile(argsPath)
+	require.NoError(t, err)
+	assert.NotContains(t, string(argsData), "--model")
+}
+
+func TestRunCommand_WazaYamlCodexConfigModelAndReasoningEffort(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake codex shell script is POSIX-only")
+	}
+	resetRunGlobals()
+	defer resetRunGlobals()
+
+	fakeDir := t.TempDir()
+	fakeCodex := filepath.Join(fakeDir, "codex")
+	fakeScript := `#!/bin/sh
+work=""
+out=""
+args=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --cd)
+      work="$2"
+      args="$args $1 $2"
+      shift 2
+      ;;
+    --output-last-message)
+      out="$2"
+      args="$args $1 $2"
+      shift 2
+      ;;
+    *)
+      args="$args $1"
+      shift
+      ;;
+  esac
+done
+if [ -n "$work" ]; then
+  cd "$work"
+fi
+cat > prompt.txt
+printf "%s" "$args" > args.txt
+if [ -n "${WAZA_FAKE_CODEX_ARGS:-}" ]; then
+  printf "%s" "$args" > "$WAZA_FAKE_CODEX_ARGS"
+fi
+printf "codex final output" > "$out"
+`
+	require.NoError(t, os.WriteFile(fakeCodex, []byte(fakeScript), 0o755))
+	t.Setenv("PATH", fakeDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	argsPath := filepath.Join(t.TempDir(), "args.txt")
+	t.Setenv("WAZA_FAKE_CODEX_ARGS", argsPath)
+
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".waza.yaml"), []byte(`defaults:
+  engine: codex
+  model: gpt-4o
+  model_reasoning_effort: high
+`), 0o644))
+
+	taskDir := filepath.Join(dir, "tasks")
+	require.NoError(t, os.MkdirAll(taskDir, 0o755))
+	task := `id: config-model-task
+name: Config Model Task
+inputs:
+  prompt: "Hello"
+`
+	require.NoError(t, os.WriteFile(filepath.Join(taskDir, "task.yaml"), []byte(task), 0o644))
+
+	spec := `name: config-model-test
+skill: cfg-skill
+version: "1.0"
+config:
+  trials_per_task: 1
+  timeout_seconds: 10
+  executor: copilot-sdk
+  model: claude-sonnet-4.6
+tasks:
+  - "tasks/*.yaml"
+`
+	specPath := filepath.Join(dir, "eval.yaml")
+	require.NoError(t, os.WriteFile(specPath, []byte(spec), 0o644))
+
+	outFile := filepath.Join(t.TempDir(), "results.json")
+	cmd := newRunCommand()
+	cmd.SetArgs([]string{specPath, "--output", outFile})
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+
+	err := cmd.Execute()
+	require.NoError(t, err)
+
+	data, err := os.ReadFile(outFile)
+	require.NoError(t, err)
+	var result models.EvaluationOutcome
+	require.NoError(t, json.Unmarshal(data, &result))
+	assert.Equal(t, "codex", result.Setup.EngineType)
+	assert.Equal(t, "gpt-4o", result.Setup.ModelID)
+
+	argsData, err := os.ReadFile(argsPath)
+	require.NoError(t, err)
+	args := string(argsData)
+	assert.Contains(t, args, "--model gpt-4o")
+	assert.Contains(t, args, `model_reasoning_effort="high"`)
+}
+
+func TestDisplayModelShowsCodexConfigDefault(t *testing.T) {
+	assert.Equal(t, "default (Codex config)", displayModel(models.Config{EngineType: "codex"}))
+	assert.Equal(t, "gpt-4o", displayModel(models.Config{
+		EngineType: "codex",
+		ModelID:    "gpt-4o",
+	}))
+}
+
+func TestRunCommand_CodexRejectsSkillInvocationGrader(t *testing.T) {
+	resetRunGlobals()
+	defer resetRunGlobals()
+
+	dir := t.TempDir()
+	taskDir := filepath.Join(dir, "tasks")
+	require.NoError(t, os.MkdirAll(taskDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(taskDir, "task.yaml"), []byte(`id: skill-telemetry-task
+name: Skill Telemetry Task
+inputs:
+  prompt: "Hello"
+`), 0o644))
+
+	spec := `name: skill-telemetry-test
+skill: cfg-skill
+version: "1.0"
+config:
+  trials_per_task: 1
+  timeout_seconds: 10
+  executor: codex
+graders:
+  - type: skill_invocation
+    name: required_skill
+    config:
+      required_skills:
+        - cfg-skill
+tasks:
+  - "tasks/*.yaml"
+`
+	specPath := filepath.Join(dir, "eval.yaml")
+	require.NoError(t, os.WriteFile(specPath, []byte(spec), 0o644))
+
+	cmd := newRunCommand()
+	cmd.SetArgs([]string{specPath})
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+
+	err := cmd.Execute()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "skill_invocation")
+	assert.Contains(t, err.Error(), "not supported by the codex executor")
 }
 
 func TestRunCommand_MockEngineVerbose(t *testing.T) {

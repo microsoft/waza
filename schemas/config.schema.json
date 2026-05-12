@@ -33,15 +33,21 @@
       "properties": {
         "engine": {
           "type": "string",
-          "description": "Execution engine for evaluations.",
-          "enum": ["copilot-sdk", "mock"],
+          "description": "Execution engine for evaluations. Use 'codex' to run through the local Codex CLI and its ~/.codex config/auth.",
+          "enum": ["copilot-sdk", "codex", "mock"],
           "default": "copilot-sdk"
         },
         "model": {
           "type": "string",
-          "description": "Default model identifier for evaluations.",
+          "description": "Default model identifier for evaluations. Optional for the 'codex' engine when ~/.codex/config.toml provides the model.",
           "examples": ["claude-sonnet-4.6", "gpt-4o", "claude-sonnet-4"],
           "default": "claude-sonnet-4.6"
+        },
+        "model_reasoning_effort": {
+          "type": "string",
+          "description": "Codex model reasoning effort passed as a Codex config override. Valid values depend on the Codex CLI/model; commonly: none, minimal, low, medium, high, xhigh.",
+          "enum": ["none", "minimal", "low", "medium", "high", "xhigh"],
+          "default": ""
         },
         "judgeModel": {
           "type": "string",

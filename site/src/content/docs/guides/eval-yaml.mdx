@@ -97,8 +97,9 @@ config:
   parallel: false # Run tasks sequentially (true = concurrent)
   workers: 4 # Parallel workers if parallel: true
   model: claude-sonnet-4.6 # Default model (override with --model)
+  model_reasoning_effort: high # Codex-only reasoning effort override
   judge_model: gpt-4o # Model for LLM-as-judge graders (optional)
-  executor: mock # mock (local) or copilot-sdk (real API)
+  executor: mock # mock (local), copilot-sdk (GitHub Copilot), or codex (local Codex CLI)
 ```
 
 | Field               | Type      | Default           | Description                                                 |
@@ -107,9 +108,10 @@ config:
 | `timeout_seconds`   | int       | 300               | Task timeout in seconds                                     |
 | `parallel`          | bool      | false             | Run tasks concurrently                                      |
 | `workers`           | int       | 4                 | Number of parallel workers                                  |
-| `model`             | string    | _required_        | Default model for tasks (override with `--model` flag)      |
+| `model`             | string    | _required_        | Default model for tasks (override with `--model` flag). Optional for `codex` when `~/.codex/config.toml` provides the model. |
+| `model_reasoning_effort` | string | —                 | Codex reasoning effort passed via `-c model_reasoning_effort=...`; commonly `none`, `minimal`, `low`, `medium`, `high`, or `xhigh` |
 | `judge_model`       | string    | (same as `model`) | Model for `prompt`-type graders (LLM-as-judge)              |
-| `executor`          | string    | `copilot-sdk`     | Executor: `mock` (local, echoes task metadata and file content) or `copilot-sdk` (real API)  |
+| `executor`          | string    | `copilot-sdk`     | Executor: `mock` (local, echoes task metadata and file content), `copilot-sdk` (GitHub Copilot SDK), or `codex` (local Codex CLI using `~/.codex` config/auth). |
 | `max_attempts`      | int       | 0                 | Maximum retry attempts per task on failure (0 = no retries) |
 | `group_by`          | string    | —                 | Group results by a field (e.g., `tags`, `task_id`)          |
 | `fail_fast`         | bool      | false             | Stop the entire run on first task failure                   |

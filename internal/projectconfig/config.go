@@ -56,14 +56,15 @@ type PathsConfig struct {
 
 // DefaultsConfig holds default execution parameters.
 type DefaultsConfig struct {
-	Engine     string `yaml:"engine,omitempty"`
-	Model      string `yaml:"model,omitempty"`
-	JudgeModel string `yaml:"judgeModel,omitempty"`
-	Timeout    int    `yaml:"timeout,omitempty"`
-	Parallel   *bool  `yaml:"parallel,omitempty"`
-	Workers    int    `yaml:"workers,omitempty"`
-	Verbose    *bool  `yaml:"verbose,omitempty"`
-	SessionLog *bool  `yaml:"sessionLog,omitempty"`
+	Engine               string `yaml:"engine,omitempty"`
+	Model                string `yaml:"model,omitempty"`
+	ModelReasoningEffort string `yaml:"model_reasoning_effort,omitempty"`
+	JudgeModel           string `yaml:"judgeModel,omitempty"`
+	Timeout              int    `yaml:"timeout,omitempty"`
+	Parallel             *bool  `yaml:"parallel,omitempty"`
+	Workers              int    `yaml:"workers,omitempty"`
+	Verbose              *bool  `yaml:"verbose,omitempty"`
+	SessionLog           *bool  `yaml:"sessionLog,omitempty"`
 }
 
 // CacheConfig holds cache settings.
@@ -146,14 +147,15 @@ func New() *ProjectConfig {
 			Results: DefaultResultsDir,
 		},
 		Defaults: DefaultsConfig{
-			Engine:     DefaultEngine,
-			Model:      DefaultModel,
-			JudgeModel: "",
-			Timeout:    DefaultTimeout,
-			Parallel:   boolPtr(false),
-			Workers:    DefaultWorkers,
-			Verbose:    boolPtr(false),
-			SessionLog: boolPtr(false),
+			Engine:               DefaultEngine,
+			Model:                DefaultModel,
+			ModelReasoningEffort: "",
+			JudgeModel:           "",
+			Timeout:              DefaultTimeout,
+			Parallel:             boolPtr(false),
+			Workers:              DefaultWorkers,
+			Verbose:              boolPtr(false),
+			SessionLog:           boolPtr(false),
 		},
 		Cache: CacheConfig{
 			Enabled: boolPtr(false),
@@ -206,9 +208,17 @@ func Load(startDir string) (*ProjectConfig, error) {
 	if err := decoder.Decode(&fileCfg); err != nil {
 		return nil, fmt.Errorf("parsing .waza.yaml: %w", err)
 	}
+	defaultsModelSet := hasDefaultsField(data, "model")
 
 	// Merge file values onto defaults.
 	mergeConfig(cfg, &fileCfg)
+	if defaultsModelSet {
+		// An explicit empty model is meaningful for engines such as codex, where
+		// the underlying tool can read its default model from its own config.
+		cfg.Defaults.Model = fileCfg.Defaults.Model
+	} else if fileCfg.Defaults.Engine == "codex" {
+		cfg.Defaults.Model = ""
+	}
 
 	return cfg, nil
 }
@@ -261,6 +271,9 @@ func mergeConfig(dst, src *ProjectConfig) {
 	}
 	if src.Defaults.Model != "" {
 		dst.Defaults.Model = src.Defaults.Model
+	}
+	if src.Defaults.ModelReasoningEffort != "" {
+		dst.Defaults.ModelReasoningEffort = src.Defaults.ModelReasoningEffort
 	}
 	if src.Defaults.JudgeModel != "" {
 		dst.Defaults.JudgeModel = src.Defaults.JudgeModel
@@ -339,4 +352,27 @@ func mergeConfig(dst, src *ProjectConfig) {
 
 func boolPtr(b bool) *bool {
 	return &b
+}
+
+func hasDefaultsField(data []byte, field string) bool {
+	var root yaml.Node
+	if err := yaml.Unmarshal(data, &root); err != nil {
+		return false
+	}
+	if len(root.Content) == 0 || root.Content[0].Kind != yaml.MappingNode {
+		return false
+	}
+	top := root.Content[0]
+	for i := 0; i+1 < len(top.Content); i += 2 {
+		if top.Content[i].Value != "defaults" || top.Content[i+1].Kind != yaml.MappingNode {
+			continue
+		}
+		defaults := top.Content[i+1]
+		for j := 0; j+1 < len(defaults.Content); j += 2 {
+			if defaults.Content[j].Value == field {
+				return true
+			}
+		}
+	}
+	return false
 }

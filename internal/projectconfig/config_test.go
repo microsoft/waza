@@ -17,6 +17,7 @@ func TestNew_ReturnsAllDefaults(t *testing.T) {
 	// Defaults
 	assertEqual(t, "Defaults.Engine", "copilot-sdk", cfg.Defaults.Engine)
 	assertEqual(t, "Defaults.Model", "claude-sonnet-4.6", cfg.Defaults.Model)
+	assertEqual(t, "Defaults.ModelReasoningEffort", "", cfg.Defaults.ModelReasoningEffort)
 	assertEqual(t, "Defaults.JudgeModel", "", cfg.Defaults.JudgeModel)
 	assertEqualInt(t, "Defaults.Timeout", 300, cfg.Defaults.Timeout)
 	assertBoolPtr(t, "Defaults.Parallel", false, cfg.Defaults.Parallel)
@@ -58,6 +59,7 @@ paths:
 defaults:
   engine: mock
   model: gpt-4o
+  model_reasoning_effort: high
   judgeModel: claude-sonnet-4.6
   timeout: 600
   parallel: true
@@ -96,6 +98,7 @@ graders:
 	assertEqual(t, "Paths.Results", "custom-results/", cfg.Paths.Results)
 	assertEqual(t, "Defaults.Engine", "mock", cfg.Defaults.Engine)
 	assertEqual(t, "Defaults.Model", "gpt-4o", cfg.Defaults.Model)
+	assertEqual(t, "Defaults.ModelReasoningEffort", "high", cfg.Defaults.ModelReasoningEffort)
 	assertEqual(t, "Defaults.JudgeModel", "claude-sonnet-4.6", cfg.Defaults.JudgeModel)
 	assertEqualInt(t, "Defaults.Timeout", 600, cfg.Defaults.Timeout)
 	assertBoolPtr(t, "Defaults.Parallel", true, cfg.Defaults.Parallel)
@@ -146,6 +149,39 @@ defaults:
 	assertBoolPtr(t, "Defaults.Parallel", false, cfg.Defaults.Parallel)
 	assertEqualInt(t, "Server.Port", 3000, cfg.Server.Port)
 	assertEqualInt(t, "Graders.ProgramTimeout", 30, cfg.Graders.ProgramTimeout)
+}
+
+func TestLoad_CodexDefaultsAllowConfigModel(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, ".waza.yaml", `
+defaults:
+  engine: codex
+`)
+
+	cfg, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+
+	assertEqual(t, "Defaults.Engine", "codex", cfg.Defaults.Engine)
+	assertEqual(t, "Defaults.Model", "", cfg.Defaults.Model)
+}
+
+func TestLoad_ExplicitEmptyModelOverridesDefault(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, ".waza.yaml", `
+defaults:
+  engine: codex
+  model: ""
+`)
+
+	cfg, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+
+	assertEqual(t, "Defaults.Engine", "codex", cfg.Defaults.Engine)
+	assertEqual(t, "Defaults.Model", "", cfg.Defaults.Model)
 }
 
 func TestLoad_MissingFile_ReturnsDefaults(t *testing.T) {

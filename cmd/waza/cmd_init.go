@@ -322,6 +322,7 @@ func initCommandE(cmd *cobra.Command, args []string, noSkill bool, flagSkillsDir
 						Description("Choose how evals are executed").
 						Options(
 							huh.NewOption("Copilot SDK — real model execution", "copilot-sdk"),
+							huh.NewOption("Codex — use ~/.codex config/auth", "codex"),
 							huh.NewOption("Mock — fast iteration, no API calls", "mock"),
 						).
 						Value(&engine),
@@ -366,6 +367,10 @@ func initCommandE(cmd *cobra.Command, args []string, noSkill bool, flagSkillsDir
 				if err := modelForm.Run(); err != nil {
 					model = projectconfig.DefaultModel
 				}
+			} else if engine == "codex" {
+				// Let Codex read the default model from ~/.codex/config.toml unless
+				// the eval later sets config.model or the user passes --model.
+				model = ""
 			}
 
 			pathsForm := huh.NewForm(

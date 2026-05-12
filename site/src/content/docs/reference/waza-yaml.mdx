@@ -15,7 +15,9 @@ paths:
   results: results/
 
 defaults:
-  model: claude-sonnet-4.6
+  engine: codex
+  model: gpt-4o
+  model_reasoning_effort: high
   timeout: 300
   workers: 4
 ```
@@ -38,8 +40,9 @@ Default execution parameters applied to all commands unless overridden by CLI fl
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `engine` | string | `copilot-sdk` | Execution engine |
-| `model` | string | `claude-sonnet-4.6` | Default model for execution |
+| `engine` | string | `copilot-sdk` | Execution engine: `copilot-sdk`, `codex`, or `mock` |
+| `model` | string | `claude-sonnet-4.6` | Default model for execution. Optional for `codex` when `~/.codex/config.toml` provides it |
+| `model_reasoning_effort` | string | | Codex reasoning effort passed via `-c model_reasoning_effort=...`; commonly `none`, `minimal`, `low`, `medium`, `high`, or `xhigh` |
 | `judgeModel` | string | | Model for LLM-as-judge graders |
 | `timeout` | int | `300` | Task timeout in seconds |
 | `parallel` | bool | `false` | Enable parallel execution |

@@ -145,18 +145,31 @@ config:
 **Type:** string  
 **Default:** (empty)
 
-Default LLM model. Override with `--model` flag.
+Default LLM model. Override with `--model` flag. Optional for `codex` when `~/.codex/config.toml` provides the model.
 
 ```yaml
 config:
   model: claude-sonnet-4.6
 ```
 
+### model_reasoning_effort
+
+**Type:** string  
+**Default:** (empty)
+
+Codex reasoning effort passed through as `-c model_reasoning_effort=...`. Common values are `none`, `minimal`, `low`, `medium`, `high`, and `xhigh`.
+
+```yaml
+config:
+  executor: codex
+  model_reasoning_effort: high
+```
+
 ### executor
 
 **Type:** string  
 **Default:** mock  
-**Options:** `mock`, `copilot-sdk`
+**Options:** `mock`, `copilot-sdk`, `codex`
 
 Execution engine:
 
@@ -609,6 +622,8 @@ paths:
 
 # Model defaults
 defaults:
+  engine: codex
+  model_reasoning_effort: high
   model: claude-sonnet-4.6
   timeout: 300
   workers: 4

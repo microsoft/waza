@@ -364,6 +364,32 @@ config:
 	})
 }
 
+func TestEvalSpec_ModelReasoningEffort(t *testing.T) {
+	tempDir := t.TempDir()
+	yamlContent := `name: reasoning-test
+skill: test
+config:
+  trials_per_task: 1
+  timeout_seconds: 60
+  executor: codex
+  model: gpt-4o
+  model_reasoning_effort: high
+`
+	specPath := filepath.Join(tempDir, "reasoning.yaml")
+	if err := os.WriteFile(specPath, []byte(yamlContent), 0644); err != nil {
+		t.Fatalf("Failed to write spec file: %v", err)
+	}
+
+	spec, err := LoadEvalSpec(specPath)
+	if err != nil {
+		t.Fatalf("Failed to load spec: %v", err)
+	}
+
+	if spec.Config.ModelReasoningEffort != "high" {
+		t.Errorf("Expected model_reasoning_effort='high', got '%s'", spec.Config.ModelReasoningEffort)
+	}
+}
+
 func TestConfig_AllSkillsDisabled(t *testing.T) {
 	tests := []struct {
 		name     string
