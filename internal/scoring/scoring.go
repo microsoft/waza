@@ -134,6 +134,8 @@ func (h HeuristicScorer) Score(sk *skill.Skill) *ScoreResult {
 	desc := sk.Frontmatter.Description
 	name := sk.Frontmatter.Name
 	trimmedDesc := strings.TrimSpace(desc)
+	trimmedBody := strings.TrimSpace(sk.Body)
+	searchText := strings.TrimSpace(trimmedDesc + "\n" + trimmedBody)
 	result.DescriptionLen = utf8.RuneCountInString(trimmedDesc)
 
 	// Short-circuit: description >1024 chars is Invalid
@@ -147,12 +149,15 @@ func (h HeuristicScorer) Score(sk *skill.Skill) *ScoreResult {
 		return result
 	}
 
-	result.HasTriggers = containsAny(trimmedDesc, triggerPatterns)
+	result.HasTriggers = containsAny(searchText, triggerPatterns)
 	result.TriggerCount = countPhrasesAfterPattern(trimmedDesc, "USE FOR:") +
-		countPhrasesAfterPattern(trimmedDesc, "WHEN:")
+		countPhrasesAfterPattern(trimmedDesc, "WHEN:") +
+		countPhrasesAfterPattern(trimmedBody, "USE FOR:") +
+		countPhrasesAfterPattern(trimmedBody, "WHEN:")
 
-	result.HasAntiTriggers = containsAny(trimmedDesc, antiTriggerPatterns)
-	result.AntiTriggerCount = countPhrasesAfterPattern(trimmedDesc, "DO NOT USE FOR:")
+	result.HasAntiTriggers = containsAny(searchText, antiTriggerPatterns)
+	result.AntiTriggerCount = countPhrasesAfterPattern(trimmedDesc, "DO NOT USE FOR:") +
+		countPhrasesAfterPattern(trimmedBody, "DO NOT USE FOR:")
 
 	// Context-dependent anti-trigger risk (Issue #78)
 	// Severity scales with catalog size: High (≥15) → error, Moderate (6-14) → warning.
@@ -178,7 +183,7 @@ func (h HeuristicScorer) Score(sk *skill.Skill) *ScoreResult {
 		}
 	}
 
-	result.HasRoutingClarity = containsAny(trimmedDesc, routingClarityPatterns)
+	result.HasRoutingClarity = containsAny(searchText, routingClarityPatterns)
 
 	validateName(name, result)
 	validateDescriptionLength(result.DescriptionLen, result)

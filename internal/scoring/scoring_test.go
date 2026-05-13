@@ -526,6 +526,29 @@ DO NOT USE FOR: deployments.`
 	require.Equal(t, 4, result.TriggerCount)
 }
 
+func TestHeuristicScorer_DetectsSectionsInBody(t *testing.T) {
+	desc := strings.Repeat("This skill documents compliance behavior for authoring checks. ", 4)
+	sk := mkSkill("test-skill", desc)
+	sk.Body = `
+**UTILITY SKILL** - Test skill for compliance scoring.
+
+USE FOR: testing waza compliance scoring, reproducing trigger detection bugs.
+
+DO NOT USE FOR: production use, unrelated tasks.
+
+INVOKES: internal validators.
+`
+
+	result := (&HeuristicScorer{}).Score(sk)
+
+	require.Equal(t, AdherenceHigh, result.Level)
+	require.True(t, result.HasTriggers)
+	require.True(t, result.HasAntiTriggers)
+	require.True(t, result.HasRoutingClarity)
+	require.Equal(t, 2, result.TriggerCount)
+	require.Equal(t, 2, result.AntiTriggerCount)
+}
+
 // Test #74: Invalid adherence level for >1024 char descriptions
 func TestInvalidAdherenceLevel(t *testing.T) {
 	// Test that Invalid level exists and ranks below Low
