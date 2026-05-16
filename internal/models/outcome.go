@@ -179,7 +179,21 @@ type SessionDigest struct {
 	SessionID     string      `json:"session_id,omitempty"`
 }
 
+const (
+	// UsageProviderCustom indicates request counters came from a BYOK/custom provider.
+	UsageProviderCustom = "custom"
+
+	// UsageProviderMixed indicates aggregate usage spans different provider routes.
+	UsageProviderMixed = "mixed"
+)
+
 // UsageStats holds token and premium request usage data from a Copilot SDK session.
+//
+// Provider is empty for the default Copilot MaaS path. When it is "custom",
+// PremiumRequests should be read as custom-provider request count rather than
+// GitHub Copilot premium billing. ProviderHost may contain a sanitized host
+// from the custom provider base URL; it intentionally omits scheme, path, query,
+// and credentials.
 type UsageStats struct {
 	Turns            int                   `json:"turns"`
 	InputTokens      int                   `json:"input_tokens"`
@@ -187,6 +201,8 @@ type UsageStats struct {
 	CacheReadTokens  int                   `json:"cache_read_tokens"`
 	CacheWriteTokens int                   `json:"cache_write_tokens"`
 	PremiumRequests  float64               `json:"premium_requests"`
+	Provider         string                `json:"provider,omitempty"`
+	ProviderHost     string                `json:"provider_host,omitempty"`
 	ModelMetrics     map[string]ModelUsage `json:"model_metrics,omitempty"`
 }
 
@@ -208,13 +224,27 @@ type ModelUsage struct {
 }
 
 // AggregateUsageStats sums usage across multiple UsageStats (e.g. across runs).
+// Provider metadata is preserved when all aggregated stats share the same route.
+// If usage spans multiple provider routes, Provider is set to "mixed" so
+// consumers avoid labeling the aggregate as purely Copilot premium or BYOK.
 func AggregateUsageStats(stats []*UsageStats) *UsageStats {
 	agg := &UsageStats{
 		ModelMetrics: make(map[string]ModelUsage),
 	}
+	var provider string
+	var providerHost string
+	providerSet := false
+	providerConsistent := true
 	for _, s := range stats {
 		if s == nil {
 			continue
+		}
+		if !providerSet {
+			provider = s.Provider
+			providerHost = s.ProviderHost
+			providerSet = true
+		} else if provider != s.Provider || providerHost != s.ProviderHost {
+			providerConsistent = false
 		}
 		agg.Turns += s.Turns
 		agg.InputTokens += s.InputTokens
@@ -235,6 +265,12 @@ func AggregateUsageStats(stats []*UsageStats) *UsageStats {
 	}
 	if agg.IsZero() && len(agg.ModelMetrics) == 0 {
 		return nil
+	}
+	if providerConsistent {
+		agg.Provider = provider
+		agg.ProviderHost = providerHost
+	} else {
+		agg.Provider = UsageProviderMixed
 	}
 	return agg
 }

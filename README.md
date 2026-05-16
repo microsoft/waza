@@ -387,7 +387,7 @@ Generate a skill-to-eval coverage grid showing which skills are fully covered, p
 
 List models available for evaluation via the Copilot SDK. Shows model IDs and metadata that can be used with `--model` flags in `waza run`, `waza quality`, and other commands.
 
-Requires authentication via `copilot login`.
+Requires authentication via `copilot login`. Custom provider configuration only applies when creating or resuming Copilot SDK sessions.
 
 | Flag | Description |
 |------|-------------|
@@ -1175,7 +1175,7 @@ jobs:
 |-------------|---------|
 | **Go Version** | 1.26 or higher |
 | **Executor** | Use `mock` executor for CI (no API keys needed) |
-| **GitHub Token** | Only required for `copilot-sdk` executor: set `GITHUB_TOKEN` env var |
+| **Copilot Auth** | Required for the default `copilot-sdk` route. Custom providers can be configured with `COPILOT_BASE_URL` or `COPILOT_PROVIDER_BASE_URL` instead. |
 | **Exit Codes** | 0=success, 1=test failure, 2=config error |
 
 #### Expected Skill Structure
@@ -1193,6 +1193,29 @@ your-skill/
         │       └── project.instructions.md
         └── *.txt
 ```
+
+#### Custom Copilot SDK Providers
+
+By default, the `copilot-sdk` executor uses GitHub Copilot and requires Copilot authentication. To route sessions through a custom provider supported by the Copilot SDK, set a provider base URL before running Waza:
+
+```bash
+COPILOT_BASE_URL=https://waza-test-resource.openai.azure.com \
+COPILOT_PROVIDER=azure \
+COPILOT_WIRE_API=responses \
+waza run eval/eval.yaml --executor copilot-sdk --model my-model
+```
+
+Supported environment variables:
+
+| Variable | Description |
+|----------|-------------|
+| `COPILOT_BASE_URL` or `COPILOT_PROVIDER_BASE_URL` | Custom provider endpoint. When set, Waza skips the Copilot auth check and passes provider config to the SDK. |
+| `COPILOT_PROVIDER` or `COPILOT_PROVIDER_TYPE` | Provider type passed through to the SDK. |
+| `COPILOT_WIRE_API` or `COPILOT_PROVIDER_WIRE_API` | Wire format passed through to the SDK, for example `responses` or `completions`, depending on provider. |
+| `COPILOT_API_KEY` or `COPILOT_PROVIDER_API_KEY` | API key for the custom provider, if required. |
+| `COPILOT_BEARER_TOKEN` or `COPILOT_PROVIDER_BEARER_TOKEN` | Bearer token for the custom provider, if required. |
+
+When a custom provider is active, the CLI usage summary labels the SDK request counter as `Provider Requests` instead of `Premium Requests`. Result JSON records `usage.provider: "custom"` and a sanitized `usage.provider_host`; it does not store the full provider URL.
 
 ### For Waza Repository
 

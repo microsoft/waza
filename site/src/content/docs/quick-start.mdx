@@ -13,8 +13,8 @@ Waza evaluates both `SKILL.md`-based skills and `.agent.md` custom agents. This 
 
 ## Prerequisites
 
-- **GitHub Copilot access** (for `copilot login`)
-- **Go 1.26 or later** and **Git LFS** only if installing from source
+- **GitHub Copilot access** for the default provider, or custom Copilot SDK provider environment variables.
+- **Go 1.26 or later** and **Git LFS** only if installing from source.
 
 ## 1. Install
 
@@ -60,13 +60,17 @@ All commands below use `waza` — with azd extension, replace with `azd waza`.
 
 ## 2. Authenticate
 
-Waza needs GitHub Copilot access for running evaluations:
+By default, Waza uses the `copilot-sdk` executor and needs GitHub Copilot access for running evaluations:
 
 ```bash
 copilot login
 ```
 
 This opens your browser to authenticate. After login, you're ready to go.
+
+<Aside type="note" title="Custom Provider">
+If your Copilot SDK setup uses a custom provider, set `COPILOT_BASE_URL` or `COPILOT_PROVIDER_BASE_URL` instead. Waza will pass the provider configuration to the SDK and skip the default Copilot auth check.
+</Aside>
 
 ## 3. Create Your First Skill
 

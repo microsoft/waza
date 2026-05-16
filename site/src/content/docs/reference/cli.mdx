@@ -858,7 +858,7 @@ A solid skill with good clarity and triggers.
 
 ### Authentication
 
-Requires Copilot authentication. If not authenticated, you will see:
+Requires Copilot authentication when using the default provider. If not authenticated, you will see:
 
 ```
 Error: not authenticated — run "copilot login" first
@@ -906,7 +906,7 @@ gpt-4o            GPT-4o            yes       128k
 
 ### Authentication
 
-Requires Copilot authentication. If not authenticated, you will see:
+Requires Copilot authentication when using the default provider. If not authenticated, you will see:
 
 ```
 Error: not authenticated — run "copilot login" first
@@ -956,9 +956,16 @@ A newer version of waza is available: v0.24.0 → v0.28.0. Run: curl -fsSL ... |
 | Variable | Description |
 |----------|-------------|
 | `GITHUB_TOKEN` | Token for Copilot SDK execution |
+| `COPILOT_BASE_URL` / `COPILOT_PROVIDER_BASE_URL` | Custom Copilot SDK provider endpoint. When set, Waza skips the default Copilot auth check and passes provider config to the SDK. |
+| `COPILOT_PROVIDER` / `COPILOT_PROVIDER_TYPE` | Provider type passed through to the Copilot SDK. |
+| `COPILOT_WIRE_API` / `COPILOT_PROVIDER_WIRE_API` | Wire format passed through to the Copilot SDK, for example `responses` or `completions`, depending on provider. |
+| `COPILOT_API_KEY` / `COPILOT_PROVIDER_API_KEY` | API key for the custom provider, if required. |
+| `COPILOT_BEARER_TOKEN` / `COPILOT_PROVIDER_BEARER_TOKEN` | Bearer token for the custom provider, if required. |
 | `WAZA_HOME` | Config directory (default: `~/.waza`) |
 | `WAZA_CACHE` | Cache directory (default: `.waza-cache`) |
 | `WAZA_NO_UPDATE_CHECK` | Set to `1` to disable automatic version check |
+
+When a custom provider is active, usage output labels the SDK request counter as `Provider Requests` instead of `Premium Requests`. Result JSON records `usage.provider: "custom"` and a sanitized `usage.provider_host`; the full provider URL is not stored.
 
 ## Next Steps
 

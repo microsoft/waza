@@ -13,6 +13,7 @@ import (
 	"time"
 
 	copilot "github.com/github/copilot-sdk/go"
+	"github.com/microsoft/waza/internal/models"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 	"golang.org/x/sync/errgroup"
@@ -130,6 +131,183 @@ func TestCopilotResumeSessionID(t *testing.T) {
 	require.Equal(t, "session-1", resp.SessionID)
 	require.Empty(t, resp.ErrorMsg)
 	require.True(t, resp.Success)
+}
+
+func TestCopilotInitialize_CustomProviderSkipsAuth(t *testing.T) {
+	t.Setenv("COPILOT_BASE_URL", "https://waza-test-resource.openai.azure.com/openai/v1")
+	t.Setenv("COPILOT_PROVIDER_BASE_URL", "")
+
+	ctrl := gomock.NewController(t)
+	clientMock := NewMockCopilotClient(ctrl)
+
+	clientMock.EXPECT().Start(gomock.Any()).Times(1)
+	clientMock.EXPECT().Stop().Times(1)
+
+	engine := NewCopilotEngineBuilder("gpt-4o-mini", &CopilotEngineBuilderOptions{
+		NewCopilotClient: func(clientOptions *copilot.ClientOptions) CopilotClient { return clientMock },
+	}).Build()
+	defer func() {
+		require.NoError(t, engine.Shutdown(context.Background()))
+	}()
+
+	require.NoError(t, engine.Initialize(context.Background()))
+}
+
+func TestCopilotCreateSession_PassesCustomProvider(t *testing.T) {
+	t.Setenv("COPILOT_BASE_URL", "https://waza-test-resource.openai.azure.com/openai/v1")
+	t.Setenv("COPILOT_PROVIDER_BASE_URL", "")
+	t.Setenv("COPILOT_PROVIDER", "openai")
+	t.Setenv("COPILOT_PROVIDER_TYPE", "")
+	t.Setenv("COPILOT_WIRE_API", "chat_completions")
+	t.Setenv("COPILOT_PROVIDER_WIRE_API", "")
+	t.Setenv("COPILOT_API_KEY", "test-key")
+	t.Setenv("COPILOT_PROVIDER_API_KEY", "")
+	t.Setenv("COPILOT_BEARER_TOKEN", "token")
+	t.Setenv("COPILOT_PROVIDER_BEARER_TOKEN", "")
+
+	ctrl := gomock.NewController(t)
+	clientMock := NewMockCopilotClient(ctrl)
+	sessionMock := NewMockCopilotSession(ctrl)
+
+	clientMock.EXPECT().Start(gomock.Any()).Times(1)
+	clientMock.EXPECT().Stop().Times(1)
+
+	sourceDir := t.TempDir()
+	expectedConfig := sessionConfigMatcher{
+		t:         t,
+		sourceDir: sourceDir,
+		expected: copilot.SessionConfig{
+			Model:               "gpt-4o-mini",
+			SkillDirectories:    []string{sourceDir},
+			OnPermissionRequest: allowAllTools,
+			Provider: &copilot.ProviderConfig{
+				Type:        "openai",
+				BaseURL:     "https://waza-test-resource.openai.azure.com/openai/v1",
+				WireApi:     "chat_completions",
+				APIKey:      "test-key",
+				BearerToken: "token",
+			},
+		},
+	}
+
+	clientMock.EXPECT().CreateSession(gomock.Any(), expectedConfig).Return(sessionMock, nil)
+	sessionMock.EXPECT().Disconnect()
+	clientMock.EXPECT().DeleteSession(gomock.Any(), "session-1")
+
+	var eventHandlers []func(copilot.SessionEvent)
+	sessionMock.EXPECT().On(gomock.Any()).Times(3).DoAndReturn(func(handler func(copilot.SessionEvent)) func() {
+		eventHandlers = append(eventHandlers, handler)
+		return func() {}
+	})
+	sessionMock.EXPECT().SendAndWait(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, _ copilot.MessageOptions) (*copilot.SessionEvent, error) {
+			in, out, cost := float64(10), float64(2), float64(1)
+			for _, handler := range eventHandlers {
+				handler(copilot.SessionEvent{
+					Type: copilot.SessionEventTypeAssistantUsage,
+					Data: &copilot.AssistantUsageData{
+						InputTokens:  &in,
+						OutputTokens: &out,
+						Cost:         &cost,
+						Model:        "gpt-4o-mini",
+					},
+				})
+			}
+			return &copilot.SessionEvent{}, nil
+		},
+	)
+	sessionMock.EXPECT().SessionID().Return("session-1")
+
+	engine := NewCopilotEngineBuilder("gpt-4o-mini", &CopilotEngineBuilderOptions{
+		NewCopilotClient: func(clientOptions *copilot.ClientOptions) CopilotClient { return clientMock },
+	}).Build()
+	t.Setenv("COPILOT_BASE_URL", "http://changed.invalid/v1")
+	defer func() {
+		require.NoError(t, engine.Shutdown(context.Background()))
+	}()
+
+	require.NoError(t, engine.Initialize(context.Background()))
+
+	resp, err := engine.Execute(context.Background(), &ExecutionRequest{
+		Message:   "hello?",
+		Timeout:   time.Minute,
+		SourceDir: sourceDir,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, resp.Usage)
+	require.Equal(t, models.UsageProviderCustom, resp.Usage.Provider)
+	require.Equal(t, "waza-test-resource.openai.azure.com", resp.Usage.ProviderHost)
+}
+
+func TestCopilotResumeSession_PassesCustomProvider(t *testing.T) {
+	t.Setenv("COPILOT_PROVIDER_BASE_URL", "https://waza-test-resource.openai.azure.com/openai/v1")
+	t.Setenv("COPILOT_BASE_URL", "")
+	t.Setenv("COPILOT_PROVIDER", "")
+	t.Setenv("COPILOT_PROVIDER_TYPE", "openai")
+	t.Setenv("COPILOT_WIRE_API", "")
+	t.Setenv("COPILOT_PROVIDER_WIRE_API", "responses")
+	t.Setenv("COPILOT_API_KEY", "")
+	t.Setenv("COPILOT_PROVIDER_API_KEY", "")
+	t.Setenv("COPILOT_BEARER_TOKEN", "")
+	t.Setenv("COPILOT_PROVIDER_BEARER_TOKEN", "")
+
+	ctrl := gomock.NewController(t)
+	clientMock := NewMockCopilotClient(ctrl)
+	sessionMock := NewMockCopilotSession(ctrl)
+
+	clientMock.EXPECT().Start(gomock.Any()).Times(1)
+	clientMock.EXPECT().Stop().Times(1)
+
+	sourceDir, err := os.Getwd()
+	require.NoError(t, err)
+
+	expectedConfig := sessionConfigMatcher{
+		t:         t,
+		sourceDir: sourceDir,
+		expected: copilot.ResumeSessionConfig{
+			Model:               "gpt-4o-mini",
+			SkillDirectories:    []string{sourceDir},
+			OnPermissionRequest: allowAllTools,
+			Provider: &copilot.ProviderConfig{
+				Type:    "openai",
+				BaseURL: "https://waza-test-resource.openai.azure.com/openai/v1",
+				WireApi: "responses",
+			},
+		},
+	}
+
+	clientMock.EXPECT().ResumeSessionWithOptions(gomock.Any(), "session-1", expectedConfig).Return(sessionMock, nil)
+	sessionMock.EXPECT().Disconnect()
+	clientMock.EXPECT().DeleteSession(gomock.Any(), "session-1")
+
+	sessionMock.EXPECT().On(gomock.Any()).Times(3).Return(func() {})
+	sessionMock.EXPECT().SendAndWait(gomock.Any(), gomock.Any()).Return(&copilot.SessionEvent{}, nil)
+	sessionMock.EXPECT().SessionID().Return("session-1")
+
+	engine := NewCopilotEngineBuilder("gpt-4o-mini", &CopilotEngineBuilderOptions{
+		NewCopilotClient: func(clientOptions *copilot.ClientOptions) CopilotClient { return clientMock },
+	}).Build()
+	defer func() {
+		require.NoError(t, engine.Shutdown(context.Background()))
+	}()
+
+	require.NoError(t, engine.Initialize(context.Background()))
+
+	resp, err := engine.Execute(context.Background(), &ExecutionRequest{
+		Message:   "hello?",
+		SessionID: "session-1",
+		Timeout:   time.Minute,
+	})
+	require.NoError(t, err)
+	require.True(t, resp.Success)
+}
+
+func TestProviderFromEnv_SanitizesHost(t *testing.T) {
+	t.Setenv("COPILOT_BASE_URL", "https://user:secret@example.test:8443/v1?token=abc")
+
+	provider := providerFromEnv()
+	require.True(t, provider.enabled())
+	require.Equal(t, "example.test:8443", provider.host)
 }
 
 func TestCopilotResumeSessionID_Live(t *testing.T) {

@@ -249,7 +249,7 @@ config:
   model: claude-sonnet-4-20250514  # or gpt-4o, etc.
 ```
 
-And set the `GITHUB_TOKEN` environment variable in your workflow:
+For the default Copilot route, set the `GITHUB_TOKEN` environment variable in your workflow. If your Copilot SDK setup uses a custom provider, configure the provider environment variables instead.
 
 ```yaml
 - name: Run Evaluation with Copilot

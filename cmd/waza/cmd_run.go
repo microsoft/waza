@@ -1261,8 +1261,26 @@ func printUsageSummary(usage *models.UsageStats) {
 	fmt.Println(" USAGE SUMMARY")
 	fmt.Println("-" + strings.Repeat("-", 50))
 
+	switch usage.Provider {
+	case models.UsageProviderCustom:
+		if usage.ProviderHost != "" {
+			fmt.Printf("  Provider:                 custom (%s)\n", usage.ProviderHost)
+		} else {
+			fmt.Println("  Provider:                 custom")
+		}
+	case models.UsageProviderMixed:
+		fmt.Println("  Provider:                 mixed")
+	}
+
 	if usage.PremiumRequests > 0 {
-		fmt.Printf("  Premium Requests:         %.0f\n", usage.PremiumRequests)
+		label := "Premium Requests"
+		switch usage.Provider {
+		case models.UsageProviderCustom:
+			label = "Provider Requests"
+		case models.UsageProviderMixed:
+			label = "Requests"
+		}
+		fmt.Printf("  %-25s %.0f\n", label+":", usage.PremiumRequests)
 	}
 	if usage.Turns > 0 {
 		fmt.Printf("  Turns:                    %s\n", printer.Sprint(usage.Turns))

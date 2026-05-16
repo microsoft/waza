@@ -38,6 +38,7 @@ func initTestRepo(t *testing.T) string {
 	runGit(t, dir, "init")
 	runGit(t, dir, "config", "user.email", "test@example.com")
 	runGit(t, dir, "config", "user.name", "Test User")
+	runGit(t, dir, "config", "commit.gpgsign", "false")
 	return dir
 }
 

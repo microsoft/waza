@@ -521,7 +521,7 @@ And that you have `.yaml` files in `tasks/` directory.
 
 ### "Mock executor always passes"
 
-The `mock` executor is meant for local iteration without API calls. For real evaluation, use `executor: copilot-sdk` and set `GITHUB_TOKEN`.
+The `mock` executor is meant for local iteration without API calls. For real evaluation, use `executor: copilot-sdk` with the default Copilot route or configure a custom Copilot SDK provider with `COPILOT_BASE_URL` / `COPILOT_PROVIDER_BASE_URL`.
 
 ---
 

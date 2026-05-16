@@ -177,6 +177,48 @@ func TestAggregateUsageStats(t *testing.T) {
 	require.Equal(t, 1400, agg.ModelMetrics["gpt-4o"].InputTokens)
 }
 
+func TestAggregateUsageStats_PreservesCustomProviderWhenConsistent(t *testing.T) {
+	stats := []*UsageStats{
+		{
+			InputTokens:     100,
+			PremiumRequests: 1,
+			Provider:        UsageProviderCustom,
+			ProviderHost:    "waza-test-resource.openai.azure.com",
+		},
+		{
+			OutputTokens:    50,
+			PremiumRequests: 1,
+			Provider:        UsageProviderCustom,
+			ProviderHost:    "waza-test-resource.openai.azure.com",
+		},
+	}
+
+	agg := AggregateUsageStats(stats)
+	require.NotNil(t, agg)
+	require.Equal(t, UsageProviderCustom, agg.Provider)
+	require.Equal(t, "waza-test-resource.openai.azure.com", agg.ProviderHost)
+}
+
+func TestAggregateUsageStats_MarksProviderMixedWhenInconsistent(t *testing.T) {
+	stats := []*UsageStats{
+		{
+			InputTokens:     100,
+			PremiumRequests: 1,
+		},
+		{
+			OutputTokens:    50,
+			PremiumRequests: 1,
+			Provider:        UsageProviderCustom,
+			ProviderHost:    "waza-test-resource.openai.azure.com",
+		},
+	}
+
+	agg := AggregateUsageStats(stats)
+	require.NotNil(t, agg)
+	require.Equal(t, UsageProviderMixed, agg.Provider)
+	require.Empty(t, agg.ProviderHost)
+}
+
 func TestAggregateUsageStats_AllNil(t *testing.T) {
 	require.Nil(t, AggregateUsageStats([]*UsageStats{nil, nil}))
 }

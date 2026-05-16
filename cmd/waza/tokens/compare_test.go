@@ -34,6 +34,7 @@ func initRepo(t *testing.T) string {
 		{"git", "config", "user.email", "test@test.com"},
 		{"git", "config", "user.name", "Test"},
 		{"git", "config", "core.safecrlf", "false"},
+		{"git", "config", "commit.gpgsign", "false"},
 	}
 	for _, args := range cmds {
 		cmd := exec.Command(args[0], args[1:]...)
