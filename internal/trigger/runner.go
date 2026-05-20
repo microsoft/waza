@@ -257,7 +257,11 @@ func convertMCPServers(serverConfigs map[string]any) map[string]copilot.MCPServe
 			fmt.Fprintf(os.Stderr, "Warning: mcp_server %q config is not a map, skipping\n", name)
 			continue
 		}
-		result[name] = copilot.MCPServerConfig(cfgMap)
+		if converted, ok := utils.ConvertMCPServerConfig(cfgMap); ok {
+			result[name] = converted
+			continue
+		}
+		fmt.Fprintf(os.Stderr, "Warning: mcp_server %q config is invalid, skipping\n", name)
 	}
 	return result
 }

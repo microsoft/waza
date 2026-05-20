@@ -1399,18 +1399,18 @@ func convertMCPServers(serverConfigs map[string]any) map[string]copilot.MCPServe
 			fmt.Fprintf(os.Stderr, "Warning: mcp_server %q config is not a map, skipping\n", name)
 			continue
 		}
-		result[name] = copilot.MCPServerConfig(cfgMap)
+		if converted, ok := utils.ConvertMCPServerConfig(cfgMap); ok {
+			result[name] = converted
+			continue
+		}
+		fmt.Fprintf(os.Stderr, "Warning: mcp_server %q config is invalid, skipping\n", name)
 	}
 	return result
 }
 
 func (r *EvalRunner) buildGraderContext(tc *models.TestCase, resp *execution.ExecutionResponse) *graders.Context {
 	// Convert events to transcript entries
-	var transcript []models.TranscriptEvent
-	for _, evt := range resp.Events {
-		entry := models.TranscriptEvent{SessionEvent: evt}
-		transcript = append(transcript, entry)
-	}
+	transcript := transcript.BuildFromSessionEvents(resp.Events)
 
 	sessionDigest := r.buildSessionDigest(resp)
 

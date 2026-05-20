@@ -62,22 +62,9 @@ func CreateTestCaseFromCopilotLog(copilotLog string, options *CreateTestCaseFrom
 	tools := map[string]*tool{}
 	var skills []skill
 
-	var displayName string
-
-	if options.DisplayName != "" {
-		displayName = options.DisplayName
-	}
-
-	var testID string
-
-	if options.TestID != "" {
-		testID = options.TestID
-	}
-
-	// let's compose a single task
 	task := &models.TestCase{
-		DisplayName: displayName,
-		TestID:      testID,
+		DisplayName: options.DisplayName,
+		TestID:      options.TestID,
 		Tags:        options.Tags,
 	}
 
@@ -88,83 +75,51 @@ func CreateTestCaseFromCopilotLog(copilotLog string, options *CreateTestCaseFrom
 			return nil, err
 		}
 
-		switch e.Type {
-		case copilot.UserMessage:
-			if e.Data.Content != nil {
-				task.Stimulus.Message = *e.Data.Content
-			}
-		case copilot.ToolExecutionStart:
-			if e.Data.ToolCallID == nil {
-				continue
-			}
+		switch d := e.Data.(type) {
+		case *copilot.UserMessageData:
+			task.Stimulus.Message = d.Content
+		case *copilot.ToolExecutionStartData:
+			toolsInOrder = append(toolsInOrder, d.ToolCallID)
 
-			toolsInOrder = append(toolsInOrder, *e.Data.ToolCallID)
-
-			var ta *toolArgs
-
-			if e.Data.Arguments != nil {
-				if err := mapstructure.Decode(e.Data.Arguments, &ta); err != nil {
+			ta := &toolArgs{}
+			if d.Arguments != nil {
+				if err := mapstructure.Decode(d.Arguments, ta); err != nil {
 					return nil, err
 				}
-			} else {
-				ta = &toolArgs{}
 			}
 
-			toolName := "<unknown>"
-
-			if e.Data.ToolName != nil { // have yet to see the tool name NOT be filled in, but being defensive.
-				toolName = *e.Data.ToolName
+			toolName := d.ToolName
+			if toolName == "" {
+				toolName = "<unknown>"
 			}
 
-			tools[*e.Data.ToolCallID] = &tool{
+			tools[d.ToolCallID] = &tool{
 				Start:     e.Timestamp,
 				Name:      toolName,
 				Arguments: *ta,
 			}
-		case copilot.ToolExecutionComplete:
-			if e.Data.ToolCallID != nil {
-				t, exists := tools[*e.Data.ToolCallID]
-
-				if !exists { // _shouldn't_ happen, but we'll be defensive
-					continue
-				}
-
-				t.End = e.Timestamp
-
-				if e.Data.Success != nil {
-					t.Success = *e.Data.Success
-				}
-			}
-		case copilot.AssistantMessage:
-			if e.Data.Content != nil {
-				responses.WriteString(*e.Data.Content)
-			}
-		case copilot.AssistantMessageDelta:
-			if e.Data.DeltaContent != nil {
-				responses.WriteString(*e.Data.DeltaContent)
-			}
-		case copilot.SkillInvoked:
-			name := e.Data.Name
-
-			if name == nil {
-				name = new("<no skill name>")
+		case *copilot.ToolExecutionCompleteData:
+			t, exists := tools[d.ToolCallID]
+			if !exists { // _shouldn't_ happen, but we'll be defensive
+				continue
 			}
 
-			path := e.Data.Path
-			if path == nil {
-				path = new("<no path>")
-			}
-
+			t.End = e.Timestamp
+			t.Success = d.Success
+		case *copilot.AssistantMessageData:
+			responses.WriteString(d.Content)
+		case *copilot.AssistantMessageDeltaData:
+			responses.WriteString(d.DeltaContent)
+		case *copilot.SkillInvokedData:
 			skills = append(skills, skill{
-				Name: *name,
-				Path: *path,
+				Name: d.Name,
+				Path: d.Path,
 			})
 		}
 	}
 
 	if len(skills) > 0 {
 		var skillNames []string
-
 		for _, sk := range skills {
 			skillNames = append(skillNames, sk.Name)
 		}
@@ -181,7 +136,6 @@ func CreateTestCaseFromCopilotLog(copilotLog string, options *CreateTestCaseFrom
 
 	if len(tools) > 0 {
 		var toolNames []models.ToolSpecParameters
-
 		for _, id := range toolsInOrder {
 			if tools[id].Name == "report_intent" {
 				continue
@@ -208,9 +162,7 @@ func CreateTestCaseFromCopilotLog(copilotLog string, options *CreateTestCaseFrom
 		Identifier: "check-response",
 		Kind:       models.GraderKindText,
 		Parameters: models.TextGraderParameters{
-			ContainsCS: []string{
-				responses.String(),
-			},
+			ContainsCS: []string{responses.String()},
 		},
 	})
 

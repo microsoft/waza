@@ -60,61 +60,56 @@ func (coll *SessionEventsCollector) SetOnSkillInvoked(fn func(SkillInvocation)) 
 // On is a callback, intended to be passed to [copilot.Session.On] to receive
 // events in real-time.
 func (coll *SessionEventsCollector) On(event copilot.SessionEvent) {
-	switch event.Type {
-	case copilot.AssistantMessage, copilot.AssistantMessageDelta:
-		if event.Data.Content != nil {
-			coll.outputParts = append(coll.outputParts, *event.Data.Content)
+	switch event.Type() {
+	case copilot.SessionEventTypeAssistantMessage:
+		if d, ok := event.Data.(*copilot.AssistantMessageData); ok {
+			coll.outputParts = append(coll.outputParts, d.Content)
 		}
-
-	case copilot.SkillInvoked:
-		si := SkillInvocation{}
-		// these and Content (the text of the relevant SKILL.md) are the only consistently populated fields
-		if event.Data.Name != nil {
-			si.Name = *event.Data.Name
+	case copilot.SessionEventTypeAssistantMessageDelta:
+		if d, ok := event.Data.(*copilot.AssistantMessageDeltaData); ok {
+			coll.outputParts = append(coll.outputParts, d.DeltaContent)
 		}
-		if event.Data.Path != nil {
-			si.Path = *event.Data.Path
-		}
-		if si.Name != "" || si.Path != "" {
-			coll.SkillInvocations = append(coll.SkillInvocations, si)
-			if coll.onSkillInvoked != nil {
-				coll.onSkillInvoked(si)
-			}
-		} else {
-			// this shouldn't happen but if it does we at least want to know about it
-			if _, err := fmt.Fprintf(os.Stderr, "warning: received SkillInvoked event with no Name or Path: %+v\n", event); err != nil {
-				// this also shouldn't happen but if it does something's very wrong
-				panic("failed to write to stderr: " + err.Error())
+	case copilot.SessionEventTypeSkillInvoked:
+		if d, ok := event.Data.(*copilot.SkillInvokedData); ok {
+			si := SkillInvocation{Name: d.Name, Path: d.Path}
+			if si.Name != "" || si.Path != "" {
+				coll.SkillInvocations = append(coll.SkillInvocations, si)
+				if coll.onSkillInvoked != nil {
+					coll.onSkillInvoked(si)
+				}
+			} else {
+				// this shouldn't happen but if it does we at least want to know about it
+				if _, err := fmt.Fprintf(os.Stderr, "warning: received SkillInvoked event with no Name or Path: %+v\n", event); err != nil {
+					// this also shouldn't happen but if it does something's very wrong
+					panic("failed to write to stderr: " + err.Error())
+				}
 			}
 		}
-
-	case copilot.ToolExecutionStart:
-		if event.Data.ToolName != nil && *event.Data.ToolName == "report_intent" {
+	case copilot.SessionEventTypeToolExecutionStart:
+		if d, ok := event.Data.(*copilot.ToolExecutionStartData); ok && d.ToolName == "report_intent" {
 			// report_intent always seems to be followed by the actual tool invocation,
 			// so I'm just going to skip these to save a little space.
-			if event.Data.ToolCallID != nil {
-				coll.intentToolIDs[*event.Data.ToolCallID] = true
-			}
+			coll.intentToolIDs[d.ToolCallID] = true
 			return
 		}
-	case copilot.ToolExecutionProgress,
-		copilot.ToolUserRequested:
-		if event.Data.ToolCallID != nil && coll.intentToolIDs[*event.Data.ToolCallID] {
+	case copilot.SessionEventTypeToolExecutionProgress,
+		copilot.SessionEventTypeToolUserRequested:
+		if toolCallID, ok := toolCallIDFromEventData(event.Data); ok && coll.intentToolIDs[toolCallID] {
 			return
 		}
-
-	case copilot.ToolExecutionComplete, copilot.ToolExecutionPartialResult:
-		if event.Data.ToolCallID != nil && coll.intentToolIDs[*event.Data.ToolCallID] {
-			delete(coll.intentToolIDs, *event.Data.ToolCallID)
+	case copilot.SessionEventTypeToolExecutionComplete,
+		copilot.SessionEventTypeToolExecutionPartialResult:
+		if toolCallID, ok := toolCallIDFromEventData(event.Data); ok && coll.intentToolIDs[toolCallID] {
+			delete(coll.intentToolIDs, toolCallID)
 			return
 		}
 	// these are both termination events
-	case copilot.SessionIdle, copilot.SessionError:
-		if event.Type == copilot.SessionError {
-			if event.Data.Message == nil || *event.Data.Message == "" {
+	case copilot.SessionEventTypeSessionIdle, copilot.SessionEventTypeSessionError:
+		if d, ok := event.Data.(*copilot.SessionErrorData); ok {
+			if d.Message == "" {
 				coll.errorMsg = sessionFailedUnknown
 			} else {
-				coll.errorMsg = *event.Data.Message
+				coll.errorMsg = d.Message
 			}
 		}
 
@@ -126,6 +121,23 @@ func (coll *SessionEventsCollector) On(event copilot.SessionEvent) {
 	}
 
 	coll.sessionEvents = append(coll.sessionEvents, event)
+}
+
+func toolCallIDFromEventData(data copilot.SessionEventData) (string, bool) {
+	switch d := data.(type) {
+	case *copilot.ToolExecutionStartData:
+		return d.ToolCallID, true
+	case *copilot.ToolExecutionProgressData:
+		return d.ToolCallID, true
+	case *copilot.ToolUserRequestedData:
+		return d.ToolCallID, true
+	case *copilot.ToolExecutionCompleteData:
+		return d.ToolCallID, true
+	case *copilot.ToolExecutionPartialResultData:
+		return d.ToolCallID, true
+	default:
+		return "", false
+	}
 }
 
 // ToolCalls goes through the list of session events and correlates tool starts

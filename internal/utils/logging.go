@@ -18,20 +18,21 @@ func NewSessionToSlog() copilot.SessionEventHandler {
 	intentCalls := sync.Map{}
 
 	return func(event copilot.SessionEvent) {
-		switch event.Type {
-		case copilot.PendingMessagesModified, copilot.HookEnd, copilot.HookStart:
+		switch event.Type() {
+		case copilot.SessionEventTypePendingMessagesModified,
+			copilot.SessionEventTypeHookEnd,
+			copilot.SessionEventTypeHookStart:
 			// we just drop these from logging, they're mostly noise, or have other events (like tool calls)
 			// that are more informative.
 			return
-		case copilot.ToolExecutionStart:
-			if event.Data.ToolName != nil && *event.Data.ToolName == "report_intent" && event.Data.ToolCallID != nil {
+		case copilot.SessionEventTypeToolExecutionStart:
+			if d, ok := event.Data.(*copilot.ToolExecutionStartData); ok && d.ToolName == "report_intent" {
 				// store this off, we'll ignore the complete event when it comes in as well.
-				intentCalls.Store(*event.Data.ToolCallID, true)
+				intentCalls.Store(d.ToolCallID, true)
 				return
 			}
-		case copilot.ToolExecutionComplete:
-			if event.Data.ToolCallID != nil &&
-				intentCalls.CompareAndDelete(*event.Data.ToolCallID, true) {
+		case copilot.SessionEventTypeToolExecutionComplete:
+			if d, ok := event.Data.(*copilot.ToolExecutionCompleteData); ok && intentCalls.CompareAndDelete(d.ToolCallID, true) {
 				return
 			}
 		}
@@ -48,57 +49,39 @@ func sessionToSlog(event copilot.SessionEvent) {
 		return
 	}
 
-	attrs := []any{
-		"type", event.Type,
-	}
+	attrs := []any{"type", event.Type()}
 
-	attrs = appendIf(attrs, "reasoningText", event.Data.ReasoningText)
-
-	// session starts
-	attrs = appendIf(attrs, "selectedModel", event.Data.SelectedModel)
-	attrs = appendIf(attrs, "producer", event.Data.Producer)
-	attrs = appendIf(attrs, "sessionID", event.Data.SessionID)
-
-	if event.Data.Context != nil {
-		cc := event.Data.Context.ContextClass
-		if cc != nil {
-			var ccAttrs []any
-
-			ccAttrs = appendIf(ccAttrs, "branch", cc.Branch)
-			ccAttrs = append(ccAttrs, "cwd", cc.Cwd)
-			ccAttrs = append(ccAttrs, "gitRoot", cc.GitRoot)
-			ccAttrs = append(ccAttrs, "repository", cc.Repository)
-
-			attrs = append(attrs, slog.Group("context", ccAttrs...))
+	switch d := event.Data.(type) {
+	case *copilot.AssistantMessageData:
+		attrs = append(attrs, "content", d.Content)
+		attrs = appendIf(attrs, "reasoningText", d.ReasoningText)
+	case *copilot.AssistantMessageDeltaData:
+		attrs = append(attrs, "deltaContent", d.DeltaContent)
+	case *copilot.UserMessageData:
+		attrs = append(attrs, "content", d.Content)
+	case *copilot.SkillInvokedData:
+		attrs = append(attrs, "name", d.Name, "path", d.Path)
+	case *copilot.SessionErrorData:
+		attrs = append(attrs, "message", d.Message)
+	case *copilot.ToolExecutionStartData:
+		attrs = append(attrs, "toolName", d.ToolName, "toolCallID", d.ToolCallID)
+		attrs = appendMapOfStringAnyIf(attrs, d.Arguments, "arguments")
+	case *copilot.ToolUserRequestedData:
+		attrs = append(attrs, "toolName", d.ToolName, "toolCallID", d.ToolCallID)
+		attrs = appendMapOfStringAnyIf(attrs, d.Arguments, "arguments")
+	case *copilot.ToolExecutionProgressData:
+		attrs = append(attrs, "toolCallID", d.ToolCallID, "message", d.ProgressMessage)
+	case *copilot.ToolExecutionCompleteData:
+		attrs = append(attrs, "toolCallID", d.ToolCallID, "success", d.Success)
+		if d.Error != nil {
+			attrs = append(attrs, "message", d.Error.Message)
 		}
+		if d.Result != nil {
+			attrs = append(attrs, slog.Any("toolResult", d.Result))
+		}
+	case *copilot.ToolExecutionPartialResultData:
+		attrs = append(attrs, "toolCallID", d.ToolCallID, "message", d.PartialOutput)
 	}
-
-	// assistant.turn_start
-	attrs = appendIf(attrs, "turnID", event.Data.TurnID)
-
-	// tool calls
-	attrs = appendIf(attrs, "content", event.Data.Content)
-	attrs = appendIf(attrs, "deltaContent", event.Data.DeltaContent)
-	attrs = appendIf(attrs, "toolName", event.Data.ToolName)
-	attrs = appendIf(attrs, "toolCallID", event.Data.ToolCallID)
-
-	if event.Data.Result != nil {
-		tr := event.Data.Result
-
-		var toolResultArgs []any
-
-		toolResultArgs = appendIf(toolResultArgs, "content", tr.Content)
-		toolResultArgs = appendIf(toolResultArgs, "detailedContent", tr.DetailedContent)
-
-		attrs = append(attrs, slog.Group("toolResult", toolResultArgs...))
-	}
-
-	// tool call arguments
-	attrs = appendMapOfStringAnyIf(attrs, event.Data.Arguments, "arguments")
-
-	// hooks
-	attrs = appendIf(attrs, "hookType", event.Data.HookType)
-	attrs = appendMapOfStringAnyIf(attrs, event.Data.Input, "input")
 
 	slog.Debug("Event received", attrs...)
 }
@@ -123,7 +106,6 @@ func appendMapOfStringAnyIf(attrs []any, mapOfStringAny any, fieldName string) [
 		}
 
 		var args []any
-
 		for k, v := range asMap {
 			args = append(args, k, v)
 		}

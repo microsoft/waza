@@ -57,7 +57,7 @@ func Write(dir string, t *models.TaskTranscript) (string, error) {
 func BuildFromSessionEvents(events []copilot.SessionEvent) []models.TranscriptEvent {
 	entries := make([]models.TranscriptEvent, 0, len(events))
 	for _, evt := range events {
-		entries = append(entries, models.TranscriptEvent{SessionEvent: evt})
+		entries = append(entries, models.NewTranscriptEvent(evt))
 	}
 	return entries
 }

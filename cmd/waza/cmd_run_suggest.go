@@ -117,7 +117,7 @@ func summarizeSessionEventTypes(events []copilot.SessionEvent) []string {
 	}
 	lines := make([]string, 0, len(events))
 	for i, evt := range events {
-		lines = append(lines, fmt.Sprintf("event[%d]: %s", i+1, evt.Type))
+		lines = append(lines, fmt.Sprintf("event[%d]: %s", i+1, evt.Type()))
 	}
 	return lines
 }
@@ -625,7 +625,7 @@ func extractCopilotTrace(transcript []models.TranscriptEvent) []string {
 	lines := make([]string, 0, len(transcript))
 	for _, evt := range transcript {
 		switch evt.Type {
-		case copilot.AssistantMessage:
+		case copilot.SessionEventTypeAssistantMessage:
 			if evt.Data.Content == nil {
 				continue
 			}
@@ -634,14 +634,14 @@ func extractCopilotTrace(transcript []models.TranscriptEvent) []string {
 				continue
 			}
 			lines = append(lines, "agent: "+truncateForPrompt(msg, maxSuggestionTraceEntryLen))
-		case copilot.SkillInvoked:
+		case copilot.SessionEventTypeSkillInvoked:
 			if evt.Data.Message != nil {
 				msg := compactWhitespace(*evt.Data.Message)
 				if msg != "" {
 					lines = append(lines, "skill invoked: "+truncateForPrompt(msg, maxSuggestionTraceEntryLen))
 				}
 			}
-		case copilot.ToolExecutionStart:
+		case copilot.SessionEventTypeToolExecutionStart:
 			name := derefOr(evt.Data.ToolName, "<unknown>")
 			args := marshalForPrompt(evt.Data.Arguments, maxSuggestionToolSummaryLen)
 			if args == "" {
@@ -649,7 +649,7 @@ func extractCopilotTrace(transcript []models.TranscriptEvent) []string {
 				continue
 			}
 			lines = append(lines, fmt.Sprintf("tool start: %s args=%s", name, args))
-		case copilot.ToolExecutionComplete, copilot.ToolExecutionPartialResult:
+		case copilot.SessionEventTypeToolExecutionComplete, copilot.SessionEventTypeToolExecutionPartialResult:
 			parts := []string{"tool result:"}
 			if evt.Data.ToolName != nil {
 				parts = append(parts, "tool="+*evt.Data.ToolName)
@@ -667,7 +667,7 @@ func extractCopilotTrace(transcript []models.TranscriptEvent) []string {
 				parts = append(parts, "result="+result)
 			}
 			lines = append(lines, strings.Join(parts, " "))
-		case copilot.ToolUserRequested:
+		case copilot.SessionEventTypeToolUserRequested:
 			if evt.Data.Message == nil {
 				continue
 			}

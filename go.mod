@@ -15,9 +15,10 @@ require (
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.21.0
 	github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.13.1
 	github.com/Azure/azure-sdk-for-go/sdk/storage/azblob v1.6.4
+	github.com/Masterminds/semver/v3 v3.4.0
 	github.com/azure/azure-dev/cli/azd v0.0.0-20260310201311-bf9ff08dc845
 	github.com/charmbracelet/huh v1.0.0
-	github.com/github/copilot-sdk/go v0.1.32
+	github.com/github/copilot-sdk/go v1.0.0-beta.4
 	github.com/go-viper/mapstructure/v2 v2.5.0
 	github.com/klauspost/compress v1.18.3
 	github.com/mattn/go-runewidth v0.0.21
@@ -37,7 +38,6 @@ require (
 	github.com/AlecAivazis/survey/v2 v2.3.7 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/internal v1.11.2 // indirect
 	github.com/AzureAD/microsoft-authentication-library-for-go v1.7.0 // indirect
-	github.com/Masterminds/semver/v3 v3.4.0 // indirect
 	github.com/alecthomas/chroma/v2 v2.23.1 // indirect
 	github.com/atotto/clipboard v0.1.4 // indirect
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect

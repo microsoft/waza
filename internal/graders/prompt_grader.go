@@ -137,8 +137,10 @@ func (p *promptGrader) gradeIndependent(ctx context.Context, gradingContext *Con
 
 		// resp may be nil when we recovered from a post-grade error above.
 		var respContent *string
-		if resp != nil && resp.Data.Content != nil {
-			respContent = resp.Data.Content
+		if resp != nil {
+			if data, ok := resp.Data.(*copilot.AssistantMessageData); ok {
+				respContent = &data.Content
+			}
 		}
 		if respContent == nil {
 			respContent = utils.Ptr("<no response content>")

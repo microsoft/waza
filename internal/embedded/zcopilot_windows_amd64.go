@@ -4,26 +4,27 @@ package embedded
 
 import (
 	"bytes"
-	_ "embed"
-	"encoding/base64"
 	"io"
+	"encoding/base64"
+	_ "embed"
 
 	"github.com/github/copilot-sdk/go/embeddedcli"
 	"github.com/klauspost/compress/zstd"
 )
 
-//go:embed zcopilot_1.0.2_windows_amd64.exe.zst
+//go:embed zcopilot_1.0.46_windows_amd64.exe.zst
 var localEmbeddedCopilotCLI []byte
 
-//go:embed zcopilot_1.0.2_windows_amd64.exe.license
+//go:embed zcopilot_1.0.46_windows_amd64.exe.license
 var localEmbeddedCopilotCLILicense []byte
+
 
 func init() {
 	embeddedcli.Setup(embeddedcli.Config{
-		Cli:     cliReader(),
+		Cli: cliReader(),
 		License: localEmbeddedCopilotCLILicense,
-		Version: "1.0.2",
-		CliHash: mustDecodeBase64("yjpBdMAvhtowOLMvs0o9mQJ5grYtURJq4AyBeQj1+uw="),
+		Version: "1.0.46",
+		CliHash: mustDecodeBase64("gM8r/U5Mo+pHF7AxP3XI5i1HWuFcYhgJmheoxlhY2Xo="),
 	})
 }
 
