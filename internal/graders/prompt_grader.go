@@ -111,8 +111,19 @@ func (p *promptGrader) gradeIndependent(ctx context.Context, gradingContext *Con
 			Mode:   "enqueue",
 		})
 
+		// The SDK unconditionally sends tool results back to the model after
+		// the grade tool calls fire, which starts a follow-up assistant turn.
+		// That follow-up turn can fail ("Failed to get response from the AI
+		// model") even though the grades were already collected. If we have
+		// grade data, use it — the error is from an unnecessary follow-up
+		// turn, not from the grading itself.
 		if err != nil {
-			return nil, fmt.Errorf("failed to send prompt: %w", err)
+			total := len(wazaTools.Failures) + len(wazaTools.Passes)
+			if total == 0 {
+				return nil, fmt.Errorf("failed to send prompt: %w", err)
+			}
+			slog.WarnContext(ctx, "prompt grader: ignoring post-grade session error (grades already collected)",
+				"err", err, "passes", len(wazaTools.Passes), "failures", len(wazaTools.Failures))
 		}
 
 		var score = 0.0
@@ -124,8 +135,11 @@ func (p *promptGrader) gradeIndependent(ctx context.Context, gradingContext *Con
 			score = float64(len(wazaTools.Passes)) / float64(total)
 		}
 
-		respContent := resp.Data.Content
-
+		// resp may be nil when we recovered from a post-grade error above.
+		var respContent *string
+		if resp != nil && resp.Data.Content != nil {
+			respContent = resp.Data.Content
+		}
 		if respContent == nil {
 			respContent = utils.Ptr("<no response content>")
 		}
