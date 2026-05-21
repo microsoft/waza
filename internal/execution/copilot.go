@@ -167,14 +167,17 @@ type CopilotEngineBuilderOptions struct {
 func NewCopilotEngineBuilder(defaultModelID string, options *CopilotEngineBuilderOptions) *CopilotEngineBuilder {
 	var client CopilotClient
 	ownsClient := false
+	cliArgs := modelCLIArgs(defaultModelID)
 
 	if options == nil || options.NewCopilotClient == nil {
 		// Production: share one SDK process across all engines + graders.
-		client = SharedClient(SharedClientOptions{})
+		client = SharedClient(SharedClientOptions{CLIArgs: cliArgs})
 	} else {
 		copilotOptions := &copilot.ClientOptions{
 			// workspace is set at the session level, instead of at the client.
 			LogLevel: "error",
+
+			CLIArgs: cliArgs,
 
 			AutoStart:   utils.Ptr(false), // we handle start in Initialize()
 			AutoRestart: utils.Ptr(true),  // this is a default, but just in case the defaults change...
@@ -193,6 +196,13 @@ func NewCopilotEngineBuilder(defaultModelID string, options *CopilotEngineBuilde
 
 	builder.engine.client = client
 	return builder
+}
+
+func modelCLIArgs(defaultModelID string) []string {
+	if defaultModelID == "" {
+		return []string{}
+	}
+	return []string{"--model", defaultModelID}
 }
 
 func (b *CopilotEngineBuilder) Build() *CopilotEngine {
@@ -323,7 +333,6 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 	var session CopilotSession
 
 	permRequestCallback := allowAllTools
-
 	if req.PermissionHandler != nil {
 		permRequestCallback = req.PermissionHandler
 	}

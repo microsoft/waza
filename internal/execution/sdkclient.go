@@ -19,6 +19,9 @@ type SharedClientOptions struct {
 	// LogLevel passed through to the underlying copilot.Client. Defaults to
 	// "error" when blank.
 	LogLevel string
+	// CLIArgs passed through to the underlying copilot.Client. Only the first
+	// SharedClient call wins because the client is process-wide.
+	CLIArgs []string
 }
 
 var (
@@ -52,7 +55,7 @@ func SharedClient(opts SharedClientOptions) CopilotClient {
 		if logLevel == "" {
 			logLevel = "error"
 		}
-		clientOptions, err := sharedClientOptions(logLevel)
+		clientOptions, err := sharedClientOptions(logLevel, opts.CLIArgs)
 		if err != nil {
 			slog.Warn("Copilot CLI path resolution failed; refusing PATH fallback", "error", err)
 			sharedClient = &startupErrorClient{err: err}
@@ -63,9 +66,10 @@ func SharedClient(opts SharedClientOptions) CopilotClient {
 	return sharedClient
 }
 
-func sharedClientOptions(logLevel string) (*copilot.ClientOptions, error) {
+func sharedClientOptions(logLevel string, cliArgs []string) (*copilot.ClientOptions, error) {
 	opts := &copilot.ClientOptions{
 		LogLevel:    logLevel,
+		CLIArgs:     append([]string{}, cliArgs...),
 		AutoStart:   utils.Ptr(false),
 		AutoRestart: utils.Ptr(true),
 	}
