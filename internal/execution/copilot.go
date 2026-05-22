@@ -520,7 +520,9 @@ func joinStrings(parts []string) string {
 	return builder.String()
 }
 
-var allowAllTools = copilot.PermissionHandler.ApproveAll
+func allowAllTools(request copilot.PermissionRequest, invocation copilot.PermissionInvocation) (copilot.PermissionRequestResult, error) {
+	return copilot.PermissionRequestResult{Kind: copilot.PermissionRequestResultKindApproved}, nil
+}
 
 // skillDefinition holds the content extracted from a SKILL.md file.
 type skillDefinition struct {
