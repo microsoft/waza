@@ -20,6 +20,12 @@ import (
 
 var enableLiveCopilotTests = os.Getenv("ENABLE_COPILOT_TESTS") == "true"
 
+func TestAllowAllTools_UsesSDKApprovedKind(t *testing.T) {
+	result, err := allowAllTools(copilot.PermissionRequest{}, copilot.PermissionInvocation{})
+	require.NoError(t, err)
+	require.Equal(t, copilot.PermissionRequestResultKindApproved, result.Kind)
+}
+
 func TestCopilotNoSessionID(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	clientMock := newClientMock(ctrl)
