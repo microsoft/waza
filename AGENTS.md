@@ -2,7 +2,7 @@
 
 ## Overview
 
-This repository contains `waza`, a CLI tool for evaluating Agent Skills. **The primary implementation is Go** (`waza-go/`). The Python implementation (`waza/`) is legacy and no longer actively developed.
+This repository contains `waza`, a CLI tool for evaluating Agent Skills. **The primary implementation is Go** in the repository root. The Python implementation (`waza/`) is legacy and no longer actively developed.
 
 When making changes, follow these guidelines to maintain consistency and quality.
 
@@ -17,28 +17,27 @@ When making changes, follow these guidelines to maintain consistency and quality
 ## Code Structure (Go - Primary)
 
 ```
-waza-go/
-├── cmd/waza/              # CLI entrypoint
-│   └── main.go            # Command parsing and execution
-├── internal/
-│   ├── config/            # Configuration with functional options
-│   ├── execution/         # AgentEngine interface and implementations
-│   │   ├── engine.go      # Core engine interface
-│   │   ├── mock.go        # Mock engine for testing
-│   │   └── copilot.go     # Copilot SDK integration
-│   ├── models/            # Data structures
-│   │   ├── spec.go        # EvalSpec (eval configuration)
-│   │   ├── testcase.go    # TestCase (task definition)
-│   │   └── outcome.go     # EvaluationOutcome (results)
-│   ├── orchestration/     # EvalRunner for coordinating execution
-│   │   └── runner.go      # Eval orchestration
-│   └── scoring/           # Validator interface and implementations
-│       ├── validator.go   # Validator registry pattern
-│       └── code_validators.go  # Code and text validators
-├── go.mod
-├── go.sum
-├── Makefile               # Build and test commands
-└── .golangci.yml          # Linter configuration
+cmd/waza/                  # CLI entrypoint
+└── main.go                # Command parsing and execution
+internal/
+├── config/                # Configuration with functional options
+├── execution/             # AgentEngine interface and implementations
+│   ├── engine.go          # Core engine interface
+│   ├── mock.go            # Mock engine for testing
+│   └── copilot.go         # Copilot SDK integration
+├── models/                # Data structures
+│   ├── spec.go            # EvalSpec (eval configuration)
+│   ├── testcase.go        # TestCase (task definition)
+│   └── outcome.go         # EvaluationOutcome (results)
+├── orchestration/         # EvalRunner for coordinating execution
+│   └── runner.go          # Eval orchestration
+└── scoring/               # Validator interface and implementations
+    ├── validator.go       # Validator registry pattern
+    └── code_validators.go # Code and text validators
+go.mod
+go.sum
+Makefile                   # Build and test commands
+.golangci.yml
 ```
 
 ## Go Naming Conventions
@@ -84,8 +83,6 @@ registry.Register("text", &scoring.TextValidator{})
 > **Requires Go 1.26 or later.** The module targets `go 1.26` (`go.mod`), which means Go 1.26 language features and standard library APIs are safe to use. If you want to rely on features or stdlib additions introduced after Go 1.26, first bump the `go` version in `go.mod` to that minimum version.
 
 ```bash
-cd waza-go
-
 # Build
 make build
 # or: go build -o waza ./cmd/waza
@@ -99,7 +96,7 @@ make lint
 # or: golangci-lint run
 
 # Run evaluation
-./waza run ../examples/code-explainer/eval.yaml --context-dir ../examples/code-explainer/fixtures -v
+./waza run examples/code-explainer/eval.yaml --context-dir examples/code-explainer/fixtures -v
 ```
 
 ### Testing Requirements
@@ -142,7 +139,6 @@ Each task execution gets a **fresh temp workspace** with fixtures copied in:
 | File | Purpose | Update When |
 |------|---------|-------------|
 | `README.md` | Main project overview | Any CLI change, new feature |
-| `waza-go/README.md` | Go implementation details | Go code changes |
 | `docs/PRD.md` | Product requirements | Feature scope changes |
 | `AGENTS.md` | Agent coding guidelines | Process/pattern changes |
 | `site/` (GitHub Pages) | Public docs site (microsoft.github.io/waza) | Any feature add/change |
@@ -154,7 +150,7 @@ When adding or updating any feature:
 - [ ] Check if `site/src/content/docs/` pages need updating (graders, CLI reference, guides, eval YAML)
 - [ ] Check if the dashboard (`web/`) needs updates or new views to surface the feature
 - [ ] Update `README.md` if user-facing
-- [ ] Update `waza-go/README.md` usage section if CLI changes
+- [ ] Update the root `README.md` usage section if CLI changes
 - [ ] Build the docs site to verify: `cd site && npm run build`
 - [ ] Add example in appropriate docs
 - [ ] Update tracking issue #66 if related to roadmap
@@ -200,7 +196,7 @@ Screenshots are saved to `docs/images/` and referenced throughout documentation.
 1. Add command handling in `cmd/waza/main.go`
 2. Implement logic in appropriate `internal/` package
 3. Add tests in `*_test.go` files
-4. Update `waza-go/README.md`
+4. Update the root `README.md`
 
 ### Adding a Validator (Grader)
 
@@ -252,14 +248,12 @@ These are generated/temporary and should not be committed:
 
 ### Build and run
 ```bash
-cd waza-go
 make build
-./waza run ../examples/code-explainer/eval.yaml -v
+./waza run examples/code-explainer/eval.yaml -v
 ```
 
 ### Run tests
 ```bash
-cd waza-go
 make test
 ```
 
