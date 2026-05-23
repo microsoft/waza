@@ -305,7 +305,7 @@ Run an evaluation benchmark from a spec file.
 | `--transcript-dir <dir>` | | Save per-task transcript JSON files |
 | `--task <glob>` | | Filter tasks by name/ID pattern (repeatable) |
 | `--parallel` | | Run tasks concurrently |
-| `--workers <n>` | | Concurrent workers (default: 4, requires `--parallel`) |
+| `--workers <n>` | | Concurrent workers (default: auto, requires `--parallel`) |
 | `--trials <n>` | | Run each task `n` times to detect flakiness (omit to use `config.trials_per_task`; if provided, `n` must be >= 1) |
 | `--interpret` | | Print plain-language result interpretation |
 | `--format <fmt>` | | Output format: `default` or `github-comment` (default: `default`) |

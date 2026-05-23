@@ -117,7 +117,7 @@ You can also specify a skill name to run its eval:
 	cmd.Flags().StringArrayVar(&taskFilters, "task", nil, "Filter tasks by name/ID glob pattern (can be repeated).")
 	cmd.Flags().StringArrayVar(&tagFilters, "tags", nil, "Filter tasks by tags, using glob patterns (can be repeated)")
 	cmd.Flags().BoolVar(&parallel, "parallel", false, "Run tasks concurrently")
-	cmd.Flags().IntVar(&workers, "workers", 0, "Number of concurrent workers (default: 4, requires --parallel)")
+	cmd.Flags().IntVar(&workers, "workers", 0, "Number of concurrent workers (default: auto, requires --parallel)")
 	cmd.Flags().IntVar(&trials, "trials", 0, "Number of trials per task (overrides config.trials_per_task only when explicitly provided)")
 	cmd.Flags().BoolVar(&interpret, "interpret", false, "Print a plain-language interpretation of the results")
 	cmd.Flags().StringVar(&format, "format", "default", "Output format: default, github-comment")

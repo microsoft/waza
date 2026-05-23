@@ -32,7 +32,7 @@ const (
 	DefaultEngine  = "copilot-sdk"
 	DefaultModel   = "claude-sonnet-4.6"
 	DefaultTimeout = 300
-	DefaultWorkers = 4
+	DefaultWorkers = 0
 
 	DefaultCacheDir = ".waza-cache"
 

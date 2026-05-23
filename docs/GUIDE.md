@@ -334,7 +334,7 @@ Run an evaluation benchmark.
 - `--output, -o` — Save results JSON
 - `--verbose, -v` — Detailed progress output
 - `--parallel` — Run tasks concurrently
-- `--workers <n>` — Number of concurrent workers (default: 4)
+- `--workers <n>` — Number of concurrent workers (default: auto)
 - `--task <pattern>` — Filter tasks by name (glob pattern, can repeat)
 - `--tags <pattern>` — Filter tasks by tags (glob pattern, can repeat)
 - `--model <model>` — Override model (can repeat for multi-model runs)
@@ -528,7 +528,7 @@ tags: ["basic", "core"]
 Run tasks concurrently to speed up evaluation:
 
 ```bash
-# Use default 4 workers
+# Use auto-sized workers
 waza run evals/code-explainer/eval.yaml --parallel
 
 # Use custom worker count
