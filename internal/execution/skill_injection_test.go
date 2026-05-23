@@ -10,7 +10,7 @@ import (
 )
 
 func TestBuildSkillSystemMessage_NoSkills(t *testing.T) {
-	msg := buildSkillSystemMessage([]string{t.TempDir()}, "")
+	msg := buildSkillSystemMessage([]string{t.TempDir()}, "", true)
 	assert.Empty(t, msg)
 }
 
@@ -19,7 +19,7 @@ func TestBuildSkillSystemMessage_DirectSkillMD(t *testing.T) {
 	skillContent := "---\nname: test-skill\ndescription: A test skill\n---\n# Rules\nAlways say hello"
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(skillContent), 0644))
 
-	msg := buildSkillSystemMessage([]string{dir}, "test-skill")
+	msg := buildSkillSystemMessage([]string{dir}, "test-skill", true)
 
 	// Should include full skill content for target skill
 	assert.Contains(t, msg, "<skill_context>")
@@ -33,6 +33,20 @@ func TestBuildSkillSystemMessage_DirectSkillMD(t *testing.T) {
 	assert.Contains(t, msg, "</available_skills>")
 }
 
+func TestBuildSkillSystemMessage_SuppressTargetSkillBody(t *testing.T) {
+	dir := t.TempDir()
+	skillContent := "---\nname: test-skill\ndescription: A test skill\n---\n# Rules\nAlways say hello"
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(skillContent), 0644))
+
+	msg := buildSkillSystemMessage([]string{dir}, "test-skill", false)
+
+	assert.NotContains(t, msg, "<skill_context>")
+	assert.NotContains(t, msg, "Always say hello")
+	assert.Contains(t, msg, "<available_skills>")
+	assert.Contains(t, msg, "<name>test-skill</name>")
+	assert.Contains(t, msg, "<description>A test skill</description>")
+}
+
 func TestBuildSkillSystemMessage_NestedSkillMD(t *testing.T) {
 	root := t.TempDir()
 	skillDir := filepath.Join(root, "my-skill")
@@ -41,7 +55,7 @@ func TestBuildSkillSystemMessage_NestedSkillMD(t *testing.T) {
 	skillContent := "---\nname: nested-skill\ndescription: Nested\n---\nBody content"
 	require.NoError(t, os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(skillContent), 0644))
 
-	msg := buildSkillSystemMessage([]string{root}, "nested-skill")
+	msg := buildSkillSystemMessage([]string{root}, "nested-skill", true)
 
 	assert.Contains(t, msg, "<skill_context>")
 	assert.Contains(t, msg, "Body content")
@@ -54,7 +68,7 @@ func TestBuildSkillSystemMessage_NonTargetSkillSummaryOnly(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(skillContent), 0644))
 
 	// Target is different skill
-	msg := buildSkillSystemMessage([]string{dir}, "my-target-skill")
+	msg := buildSkillSystemMessage([]string{dir}, "my-target-skill", true)
 
 	// Should have summary but NOT full body
 	assert.Contains(t, msg, "<name>other-skill</name>")
@@ -66,7 +80,7 @@ func TestBuildSkillSystemMessage_NoFrontmatter_UsesDirectoryName(t *testing.T) {
 	skillContent := "# No frontmatter skill\nJust body."
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(skillContent), 0644))
 
-	msg := buildSkillSystemMessage([]string{dir}, "")
+	msg := buildSkillSystemMessage([]string{dir}, "", true)
 
 	assert.Contains(t, msg, "<available_skills>")
 	// Should use directory name as the skill name
@@ -86,7 +100,7 @@ func TestBuildSkillSystemMessage_SkipsHiddenAndVendor(t *testing.T) {
 	require.NoError(t, os.MkdirAll(vendor, 0755))
 	require.NoError(t, os.WriteFile(filepath.Join(vendor, "SKILL.md"), []byte("---\nname: vendored\n---\n"), 0644))
 
-	msg := buildSkillSystemMessage([]string{root}, "")
+	msg := buildSkillSystemMessage([]string{root}, "", true)
 	assert.Empty(t, msg)
 }
 

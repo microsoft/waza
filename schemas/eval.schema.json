@@ -171,6 +171,11 @@
           },
           "description": "Instruction files to apply to every task, resolved relative to the active context/fixtures directory."
         },
+        "inject_skill_body": {
+          "type": "boolean",
+          "default": true,
+          "description": "When false, do not inject the target SKILL.md or .agent.md body into the system prompt. Skill discovery and compact available_skills summaries remain enabled."
+        },
         "disabled_skills": {
           "type": "array",
           "items": {
@@ -891,12 +896,49 @@
     },
     "skillInvocationGraderConfig": {
       "type": "object",
-      "required": [
-        "mode",
-        "required_skills"
-      ],
       "additionalProperties": false,
       "description": "Config for the skill invocation grader. Validates that specific skills were invoked during execution.",
+      "anyOf": [
+        {
+          "required": [
+            "required_skills"
+          ],
+          "properties": {
+            "required_skills": {
+              "minItems": 1
+            }
+          }
+        },
+        {
+          "required": [
+            "forbidden_skills"
+          ],
+          "properties": {
+            "forbidden_skills": {
+              "minItems": 1
+            }
+          }
+        }
+      ],
+      "allOf": [
+        {
+          "if": {
+            "required": [
+              "required_skills"
+            ],
+            "properties": {
+              "required_skills": {
+                "minItems": 1
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "mode"
+            ]
+          }
+        }
+      ],
       "properties": {
         "mode": {
           "type": "string",
@@ -905,20 +947,26 @@
             "in_order",
             "any_order"
           ],
-          "description": "How to compare actual skill invocations against expected."
+          "description": "How to compare actual skill invocations against expected required skills. Required when required_skills is set; ignored for forbidden-only configs."
         },
         "required_skills": {
           "type": "array",
-          "minItems": 1,
           "items": {
             "type": "string"
           },
           "description": "Skill names that must be invoked."
         },
+        "forbidden_skills": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Skill names that must not be invoked."
+        },
         "allow_extra": {
           "type": "boolean",
           "default": true,
-          "description": "When true, extra skill invocations beyond the required list are allowed."
+          "description": "When true, extra skill invocations beyond the required list are allowed. Ignored for forbidden-only configs."
         }
       }
     },

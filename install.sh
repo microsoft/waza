@@ -62,8 +62,8 @@ main() {
     echo "For native Windows, download waza-windows-${arch}.exe from https://github.com/${REPO}/releases/latest."
   fi
 
-  # Get latest binary release tag (filter for v* tags; skip azd extension releases)
-  tag="$(curl -fsSL "https://api.github.com/repos/${REPO}/releases" \
+  # Get latest stable binary release tag.
+  tag="$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" \
     | grep '"tag_name": "v' | head -1 | cut -d'"' -f4)"
 
   if [ -z "$tag" ]; then

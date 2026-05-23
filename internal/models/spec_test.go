@@ -270,6 +270,63 @@ config:
 	if spec.Config.EngineType != "mock" {
 		t.Errorf("Expected engine='mock', got '%s'", spec.Config.EngineType)
 	}
+	if !spec.Config.ShouldInjectSkillBody() {
+		t.Error("Expected omitted inject_skill_body to default to true")
+	}
+}
+
+func TestEvalSpec_InjectSkillBodyDeserialization(t *testing.T) {
+	tests := []struct {
+		name string
+		yaml string
+		want bool
+	}{
+		{
+			name: "explicit true",
+			yaml: `name: inject-true
+skill: test
+config:
+  trials_per_task: 1
+  timeout_seconds: 300
+  executor: mock
+  inject_skill_body: true
+`,
+			want: true,
+		},
+		{
+			name: "explicit false",
+			yaml: `name: inject-false
+skill: test
+config:
+  trials_per_task: 1
+  timeout_seconds: 300
+  executor: mock
+  inject_skill_body: false
+`,
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tempDir := t.TempDir()
+			specPath := filepath.Join(tempDir, "spec.yaml")
+			if err := os.WriteFile(specPath, []byte(tt.yaml), 0644); err != nil {
+				t.Fatalf("Failed to write spec file: %v", err)
+			}
+
+			spec, err := LoadEvalSpec(specPath)
+			if err != nil {
+				t.Fatalf("Failed to load spec: %v", err)
+			}
+			if spec.Config.InjectSkillBody == nil {
+				t.Fatal("Expected inject_skill_body pointer to be set")
+			}
+			if got := spec.Config.ShouldInjectSkillBody(); got != tt.want {
+				t.Errorf("ShouldInjectSkillBody() = %v, want %v", got, tt.want)
+			}
+		})
+	}
 }
 
 func TestGraderConfig_EffectiveWeight(t *testing.T) {

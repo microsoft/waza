@@ -27,6 +27,17 @@ const (
 	httpTimeout  = 5 * time.Second
 )
 
+const (
+	// BashInstallScriptURL is the official Bash installer for macOS, Linux, and Windows Bash environments.
+	BashInstallScriptURL = "https://raw.githubusercontent.com/microsoft/waza/main/install.sh"
+	// PowerShellInstallScriptURL is the official PowerShell installer for native Windows environments.
+	PowerShellInstallScriptURL = "https://raw.githubusercontent.com/microsoft/waza/main/install.ps1"
+	// InstallScriptURL is the default Unix-like installer URL retained for existing callers.
+	InstallScriptURL = BashInstallScriptURL
+	// DefaultUpdateCommand is the recommended command for upgrading waza.
+	DefaultUpdateCommand = "waza update"
+)
+
 type releaseInfo struct {
 	TagName string `json:"tag_name"`
 }
@@ -254,7 +265,7 @@ func PrintNotice(result *CheckResult, installCmd string) bool {
 		return false
 	}
 	if installCmd == "" {
-		installCmd = "curl -fsSL https://raw.githubusercontent.com/microsoft/waza/main/install.sh | bash"
+		installCmd = DefaultUpdateCommand
 	}
 	fmt.Fprintf(os.Stderr, "\nA newer version of waza is available: v%s \u2192 v%s. Run: %s\n",
 		result.CurrentVersion, result.LatestVersion, installCmd)

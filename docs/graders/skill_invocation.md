@@ -1,6 +1,6 @@
 ### `skill_invocation` - Skill Invocation Sequence Validation
 
-Validates that dependent skills were invoked in the correct sequence during orchestration skill execution. Useful for verifying that orchestration workflows call the right skills in the right order.
+Validates that dependent skills were invoked in the correct sequence during orchestration skill execution. Useful for verifying that orchestration workflows call the right skills in the right order, or that a specific skill was not invoked.
 
 ```yaml
 - type: skill_invocation
@@ -16,9 +16,12 @@ Validates that dependent skills were invoked in the correct sequence during orch
 **Options:**
 | Option | Type | Description |
 |--------|------|-------------|
-| `mode` | string | How to match sequences (see modes below) |
-| `required_skills` | list[str] | List of required skill names in sequence |
-| `allow_extra` | bool | Whether to allow extra skill invocations (default: true) |
+| `mode` | string | How to match required skill sequences (required when `required_skills` is set; ignored for forbidden-only configs) |
+| `required_skills` | list[str] | Skill names that must be invoked in sequence |
+| `forbidden_skills` | list[str] | Skill names that must not be invoked |
+| `allow_extra` | bool | Whether to allow extra skill invocations beyond `required_skills` (default: true; ignored for forbidden-only configs) |
+
+At least one of `required_skills` or `forbidden_skills` must be non-empty.
 
 **Matching Modes:**
 
@@ -48,6 +51,8 @@ The grader calculates three metrics:
 
 When `allow_extra: false`, the score is penalized for extra skill invocations beyond the required set.
 
+For forbidden-only configs, the score is `1.0` when no forbidden skill appears and `0.0` when any forbidden skill appears. Unrelated skill invocations are allowed. For mixed required and forbidden configs, the grader uses the required-skill score unless a forbidden skill appears, which fails the grader with a score of `0.0`.
+
 The `passed` field is based on the matching mode constraint, while the `score` field uses F1 (with optional penalty).
 
 **Example Use Cases:**
@@ -75,6 +80,22 @@ The `passed` field is based on the matching mode constraint, while the `score` f
   config:
     mode: any_order
     required_skills: ["azure-prepare", "azure-deploy", "azure-validate"]
+    allow_extra: true
+
+# Ensure a skill was not invoked; unrelated skills are fine
+- type: skill_invocation
+  name: no_prod_deploy
+  config:
+    forbidden_skills: ["azure-prod-deploy"]
+    allow_extra: true
+
+# Require one skill while forbidding another
+- type: skill_invocation
+  name: safe_validation
+  config:
+    mode: any_order
+    required_skills: ["azure-validate"]
+    forbidden_skills: ["azure-prod-deploy"]
     allow_extra: true
 ```
 

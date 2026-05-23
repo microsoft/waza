@@ -26,6 +26,16 @@ func newTestServer(t *testing.T, releases []releaseInfo) *httptest.Server {
 	}))
 }
 
+func waitCheckResult(t *testing.T, ch *Checker) *CheckResult {
+	t.Helper()
+	select {
+	case <-ch.done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for version check")
+	}
+	return ch.Result()
+}
+
 func TestCheck_NewerVersionAvailable(t *testing.T) {
 	srv := newTestServer(t, []releaseInfo{{TagName: "v1.2.0"}, {TagName: "v1.1.0"}})
 	defer srv.Close()
@@ -78,7 +88,7 @@ func TestCheck_CacheHit(t *testing.T) {
 	defer srv.Close()
 	ch := NewChecker("v1.0.0", WithAPIBaseURL(srv.URL), WithCacheDir(cacheDir))
 	ch.Run(context.Background())
-	result := ch.Result()
+	result := waitCheckResult(t, ch)
 	require.NotNil(t, result)
 	assert.True(t, result.UpdateAvail)
 	assert.Equal(t, "2.0.0", result.LatestVersion)
@@ -94,7 +104,7 @@ func TestCheck_CacheExpired(t *testing.T) {
 	defer srv.Close()
 	ch := NewChecker("v1.0.0", WithAPIBaseURL(srv.URL), WithCacheDir(cacheDir))
 	ch.Run(context.Background())
-	result := ch.Result()
+	result := waitCheckResult(t, ch)
 	require.NotNil(t, result)
 	assert.True(t, result.UpdateAvail)
 	assert.Equal(t, "2.0.0", result.LatestVersion)
@@ -182,7 +192,7 @@ func TestPrintNotice_UpdateAvailable(t *testing.T) {
 	output := string(out[:n])
 	assert.Contains(t, output, "v1.0.0")
 	assert.Contains(t, output, "v2.0.0")
-	assert.Contains(t, output, "install.sh")
+	assert.Contains(t, output, "waza update")
 }
 
 func TestPrintNotice_CustomInstallCmd(t *testing.T) {

@@ -97,9 +97,10 @@ const (
 )
 
 type SkillInvocationGraderParameters struct {
-	RequiredSkills []string                    `yaml:"required_skills,omitempty" json:"required_skills,omitempty"`
-	Mode           SkillInvocationMatchingMode `yaml:"mode,omitempty" json:"mode,omitempty"`
-	AllowExtra     *bool                       `yaml:"allow_extra,omitempty" json:"allow_extra,omitempty"`
+	RequiredSkills  []string                    `yaml:"required_skills,omitempty" json:"required_skills,omitempty"`
+	ForbiddenSkills []string                    `yaml:"forbidden_skills,omitempty" json:"forbidden_skills,omitempty"`
+	Mode            SkillInvocationMatchingMode `yaml:"mode,omitempty" json:"mode,omitempty"`
+	AllowExtra      *bool                       `yaml:"allow_extra,omitempty" json:"allow_extra,omitempty"`
 }
 
 // SkillInvocationMatchingMode controls how actual skill invocations are compared to expected skills.

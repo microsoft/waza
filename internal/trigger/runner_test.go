@@ -136,6 +136,7 @@ func (e *stubEngine) Execute(_ context.Context, req *execution.ExecutionRequest)
 }
 
 func TestEvalRunnerRunConfig(t *testing.T) {
+	injectSkillBody := false
 	spec := &TestSpec{
 		Skill: "my-skill",
 		ShouldTriggerPrompts: []TestPrompt{
@@ -148,8 +149,9 @@ func TestEvalRunnerRunConfig(t *testing.T) {
 		&models.EvalSpec{
 			SkillName: "my-skill",
 			Config: models.Config{
-				TimeoutSec: 120,
-				SkillPaths: []string{"skills/a", "skills/b"},
+				TimeoutSec:      120,
+				SkillPaths:      []string{"skills/a", "skills/b"},
+				InjectSkillBody: &injectSkillBody,
 			},
 		},
 		config.WithSpecDir("/base"),
@@ -163,6 +165,7 @@ func TestEvalRunnerRunConfig(t *testing.T) {
 	if len(engine.LastReq().SkillPaths) != 2 {
 		t.Errorf("SkillPaths = %v, want 2 entries", engine.LastReq().SkillPaths)
 	}
+	require.True(t, engine.LastReq().SuppressSkillBody)
 }
 
 type capturingEngine struct {

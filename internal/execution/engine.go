@@ -78,6 +78,9 @@ type ExecutionRequest struct {
 	SourceDir  string   // used when looking for workspace items via relative path, like skills.
 	SkillPaths []string // Directories to search for skills
 	NoSkills   bool     // When true, skip all skill loading
+	// SuppressSkillBody prevents full target skill content from being appended
+	// while still allowing skill discovery and compact summaries.
+	SuppressSkillBody bool
 
 	Timeout time.Duration
 

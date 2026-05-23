@@ -59,7 +59,11 @@ On Windows, use this command only from Git Bash, MSYS2, or Cygwin. If PowerShell
 </TabItem>
 <TabItem label="Windows (PowerShell)">
 
-Download `waza-windows-amd64.exe` or `waza-windows-arm64.exe` from the [standalone waza release](https://github.com/microsoft/waza/releases/tag/v0.33.0), rename it to `waza.exe`, and place it in a directory on your `PATH`.
+```powershell
+irm https://raw.githubusercontent.com/microsoft/waza/main/install.ps1 | iex
+```
+
+The PowerShell installer downloads `waza-windows-amd64.exe` or `waza-windows-arm64.exe`, verifies the checksum, and installs `waza.exe`. You can also download the Windows binary from the [standalone waza release](https://github.com/microsoft/waza/releases/tag/v0.33.0), rename it to `waza.exe`, and place it in a directory on your `PATH`.
 
 </TabItem>
 </Tabs>

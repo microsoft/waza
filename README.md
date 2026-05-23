@@ -14,7 +14,15 @@ Download and install the latest pre-built binary with the Bash install script on
 curl -fsSL https://raw.githubusercontent.com/microsoft/waza/main/install.sh | bash
 ```
 
-The script auto-detects the OS and architecture of the environment where Bash is running (linux/darwin/windows, amd64/arm64), downloads the binary, verifies the checksum, and installs to `/usr/local/bin` (or `~/bin` if not writable). On Windows, piping this command to `bash` from PowerShell may invoke WSL and install the Linux binary inside WSL. For native Windows, download `waza-windows-amd64.exe` or `waza-windows-arm64.exe` from the standalone waza release assets on GitHub Releases, rename it to `waza.exe`, and place it in a directory on your `PATH`.
+The Bash script auto-detects the OS and architecture of the environment where Bash is running (linux/darwin/windows, amd64/arm64), downloads the binary, verifies the checksum, and installs to `/usr/local/bin` (or `~/bin` if not writable).
+
+For native Windows PowerShell:
+
+```powershell
+irm https://raw.githubusercontent.com/microsoft/waza/main/install.ps1 | iex
+```
+
+The PowerShell script downloads the native Windows binary, verifies the checksum, and installs to an existing `waza.exe` location or `%LOCALAPPDATA%\Microsoft\Waza`. On Windows, piping the Bash command from PowerShell may invoke WSL and install the Linux binary inside WSL.
 
 Or browse the [GitHub Releases](https://github.com/microsoft/waza/releases) page and choose the standalone waza binary assets for the version you want.
 
@@ -63,10 +71,10 @@ azd waza run examples/code-explainer/eval.yaml -v
 Waza automatically checks for new versions in the background. If an update is available, a notice appears after command output:
 
 ```
-A newer version of waza is available: v0.24.0 → v0.28.0. Run: curl -fsSL ... | bash
+A newer version of waza is available: v0.24.0 → v0.28.0. Run: waza update
 ```
 
-The check is non-blocking (never slows commands), cached for 24 hours, and can be disabled with `--no-update-check` or `WAZA_NO_UPDATE_CHECK=1`.
+Run `waza update` to download and execute the official OS-specific installer after an explicit confirmation prompt. It uses the Bash installer on macOS/Linux and the PowerShell installer on native Windows. Use `waza update --yes` to skip the prompt in scripted environments. The check is non-blocking (never slows commands), cached for 24 hours, and can be disabled with `--no-update-check` or `WAZA_NO_UPDATE_CHECK=1`.
 
 ## Quick Start
 
@@ -100,6 +108,9 @@ make build
 
 # Initialize a project workspace
 waza init [directory]
+
+# Update waza to the latest release
+waza update
 
 # Create a new skill
 waza new skill skill-name
@@ -143,6 +154,20 @@ waza tokens suggest skills/
 ```
 
 ## Commands
+
+### `waza update`
+
+Update waza to the latest release by running the official OS-specific installer after confirmation.
+
+| Flag | Description |
+|------|-------------|
+| `--yes`, `-y` | Skip the confirmation prompt |
+
+**Example:**
+```bash
+waza update
+waza update --yes
+```
 
 ### `waza init [directory]`
 
@@ -964,6 +989,18 @@ config:
 ```
 
 Instruction files are resolved from the active fixtures/context directory, copied into each task's temp workspace, and appended to the agent system message as path-labeled instructions. Task YAML files can also set top-level `instruction_files`; task-level entries are added to the eval-level list.
+
+### Skill Body Injection
+
+By default, an eval with `skill: <name>` injects the target `SKILL.md` or `.agent.md` body into the agent system prompt. For trigger-precision evals, disable that body injection while preserving the skill association and compact skill summary:
+
+```yaml
+skill: xyz
+config:
+  inject_skill_body: false
+```
+
+The skill remains discoverable through the `skill` tool and appears in `<available_skills>` as name and description only. `disabled_skills: ["*"]` still disables all skill loading.
 
 ### CSV Dataset Support
 

@@ -306,7 +306,7 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 	var systemMessageParts []string
 	if !req.NoSkills {
 		skillDirs = e.getSkillDirs(sourceDir, req)
-		if msg := buildSkillSystemMessage(skillDirs, req.SkillName); msg != "" {
+		if msg := buildSkillSystemMessage(skillDirs, req.SkillName, !req.SuppressSkillBody); msg != "" {
 			systemMessageParts = append(systemMessageParts, msg)
 		}
 	}
@@ -686,10 +686,11 @@ type skillDefinition struct {
 }
 
 // buildSkillSystemMessage scans skill directories for SKILL.md files and returns
-// a system message that tells the agent about available skills. For the target
-// skill (matching skillName), the full SKILL.md content is injected. For other
-// discovered skills, only a compact summary is included.
-func buildSkillSystemMessage(skillDirs []string, skillName string) string {
+// a system message that tells the agent about available skills. When
+// injectSkillBody is true, the target skill (matching skillName) also gets its
+// full definition injected. Other discovered skills always use compact summary
+// entries only.
+func buildSkillSystemMessage(skillDirs []string, skillName string, injectSkillBody bool) string {
 	var skills []skillDefinition
 
 	for _, dir := range skillDirs {
@@ -726,13 +727,15 @@ func buildSkillSystemMessage(skillDirs []string, skillName string) string {
 
 	var sb strings.Builder
 
-	// Inject full content for the target skill (first match only)
-	for _, s := range skills {
-		if skillName != "" && strings.EqualFold(s.Name, skillName) {
-			sb.WriteString("\n<skill_context>\n")
-			sb.WriteString(s.Content)
-			sb.WriteString("\n</skill_context>\n")
-			break
+	if injectSkillBody {
+		// Inject full content for the target skill (first match only)
+		for _, s := range skills {
+			if skillName != "" && strings.EqualFold(s.Name, skillName) {
+				sb.WriteString("\n<skill_context>\n")
+				sb.WriteString(s.Content)
+				sb.WriteString("\n</skill_context>\n")
+				break
+			}
 		}
 	}
 

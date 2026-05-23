@@ -146,6 +146,33 @@ func TestBuildExecutionRequest_BasicFields(t *testing.T) {
 	assert.Equal(t, "my-skill", req.SkillName)
 	assert.Equal(t, float64(120), req.Timeout.Seconds())
 	assert.Equal(t, "value", req.Context["key"])
+	assert.False(t, req.SuppressSkillBody)
+}
+
+func TestBuildExecutionRequest_SuppressSkillBody(t *testing.T) {
+	injectSkillBody := false
+	spec := &models.EvalSpec{
+		SpecIdentity: models.SpecIdentity{Name: "test-benchmark"},
+		SkillName:    "my-skill",
+		Config: models.Config{
+			EngineType:      "mock",
+			ModelID:         "gpt-4",
+			TimeoutSec:      120,
+			InjectSkillBody: &injectSkillBody,
+		},
+	}
+
+	cfg := config.NewEvalConfig(spec)
+	runner := NewEvalRunner(cfg, nil)
+	req, err := runner.buildExecutionRequest(&models.TestCase{
+		TestID:      "test-001",
+		DisplayName: "Test Case",
+		Stimulus:    models.TaskStimulus{Message: "Hello world"},
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, "my-skill", req.SkillName)
+	assert.True(t, req.SuppressSkillBody)
 }
 
 func TestBuildExecutionRequest_RejectsRelativePathPromptWithEmptySandbox(t *testing.T) {

@@ -38,7 +38,7 @@ performance against predefined test cases.`,
 		if *debugLogging {
 			logLevel.Set(slog.LevelDebug)
 		}
-		if !*noUpdateCheck && os.Getenv("WAZA_NO_UPDATE_CHECK") == "" {
+		if shouldRunUpdateCheck(cmd, *noUpdateCheck) {
 			checker = versionpkg.NewChecker(version)
 			checker.Run(context.Background())
 		}
@@ -67,6 +67,7 @@ performance against predefined test cases.`,
 	cmd.AddCommand(newResultsCommand())
 	cmd.AddCommand(newModelsCommand())
 	cmd.AddCommand(newQualityCommand())
+	cmd.AddCommand(newUpdateCommand())
 
 	return cmd
 }
@@ -74,4 +75,16 @@ performance against predefined test cases.`,
 func execute() error {
 	rootCmd := newRootCommand()
 	return rootCmd.Execute()
+}
+
+func shouldRunUpdateCheck(cmd *cobra.Command, noUpdateCheck bool) bool {
+	if noUpdateCheck || os.Getenv("WAZA_NO_UPDATE_CHECK") != "" {
+		return false
+	}
+	for c := cmd; c != nil; c = c.Parent() {
+		if c.Name() == "update" {
+			return false
+		}
+	}
+	return true
 }

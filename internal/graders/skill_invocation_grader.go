@@ -13,19 +13,23 @@ import (
 // an expected set of skills. It supports three matching modes and calculates
 // precision, recall, and F1 scores.
 type skillInvocationGrader struct {
-	name           string
-	matchingMode   models.SkillInvocationMatchingMode
-	requiredSkills []string
-	allowExtra     bool
+	name            string
+	matchingMode    models.SkillInvocationMatchingMode
+	requiredSkills  []string
+	forbiddenSkills []string
+	allowExtra      bool
 }
 
 // NewSkillInvocationGrader creates a skillInvocationGrader from decoded parameters.
 func NewSkillInvocationGrader(name string, params models.SkillInvocationGraderParameters) (*skillInvocationGrader, error) {
-	if len(params.RequiredSkills) == 0 {
-		return nil, fmt.Errorf("skill_invocation grader '%s' must have at least one required_skills entry", name)
+	if len(params.RequiredSkills) == 0 && len(params.ForbiddenSkills) == 0 {
+		return nil, fmt.Errorf("skill_invocation grader '%s' must have at least one required_skills or forbidden_skills entry", name)
 	}
 
 	mode := params.Mode
+	if len(params.RequiredSkills) == 0 && mode == "" {
+		mode = models.SkillMatchingModeAnyOrder
+	}
 	switch mode {
 	case models.SkillMatchingModeExact, models.SkillMatchingModeInOrder, models.SkillMatchingModeAnyOrder:
 		// valid
@@ -42,11 +46,21 @@ func NewSkillInvocationGrader(name string, params models.SkillInvocationGraderPa
 		allowExtra = *params.AllowExtra
 	}
 
+	requiredSkills := params.RequiredSkills
+	if requiredSkills == nil {
+		requiredSkills = []string{}
+	}
+	forbiddenSkills := params.ForbiddenSkills
+	if forbiddenSkills == nil {
+		forbiddenSkills = []string{}
+	}
+
 	return &skillInvocationGrader{
-		name:           name,
-		matchingMode:   mode,
-		requiredSkills: params.RequiredSkills,
-		allowExtra:     allowExtra,
+		name:            name,
+		matchingMode:    mode,
+		requiredSkills:  requiredSkills,
+		forbiddenSkills: forbiddenSkills,
+		allowExtra:      allowExtra,
 	}, nil
 }
 
@@ -66,23 +80,38 @@ func (g *skillInvocationGrader) Grade(ctx context.Context, gradingContext *Conte
 			actual[i] = si.Name
 		}
 
-		precision, recall := g.computePrecisionRecall(actual)
-		f1 := computeF1(precision, recall)
+		precision, recall, f1 := 1.0, 1.0, 1.0
+		requiredPassed := true
+		if len(g.requiredSkills) > 0 {
+			precision, recall = g.computePrecisionRecall(actual)
+			f1 = computeF1(precision, recall)
+			requiredPassed = g.checkMatch(actual)
+		}
+		forbiddenViolations := g.findForbiddenViolations(actual)
+		if forbiddenViolations == nil {
+			forbiddenViolations = []string{}
+		}
+		forbiddenPassed := len(forbiddenViolations) == 0
 
 		// Adjust score based on allow_extra flag
 		score := f1
-		if !g.allowExtra && len(actual) > len(g.requiredSkills) {
+		if !g.allowExtra && len(g.requiredSkills) > 0 && len(actual) > len(g.requiredSkills) {
 			// Penalize extra invocations when not allowed
 			extraCount := len(actual) - len(g.requiredSkills)
 			penalty := float64(extraCount) / float64(len(actual))
 			score = f1 * (1.0 - penalty*0.6) // Reduce score by up to 60% for extras
 		}
+		if !forbiddenPassed {
+			score = 0.0
+		}
 
-		passed := g.checkMatch(actual)
+		passed := requiredPassed && forbiddenPassed
 
 		feedback := "Skill invocation sequence matched"
 		if !passed {
-			feedback = g.buildFailureFeedback(actual)
+			feedback = g.buildFailureFeedback(actual, requiredPassed, forbiddenViolations)
+		} else if len(g.requiredSkills) == 0 {
+			feedback = "Forbidden skills were not invoked"
 		} else if !g.allowExtra && len(actual) > len(g.requiredSkills) {
 			// Passed the match but has extra invocations when not allowed
 			feedback = fmt.Sprintf("Skill invocation sequence matched but had extra invocations (got %d, expected %d)", len(actual), len(g.requiredSkills))
@@ -95,13 +124,15 @@ func (g *skillInvocationGrader) Grade(ctx context.Context, gradingContext *Conte
 			Passed:   passed,
 			Feedback: feedback,
 			Details: map[string]any{
-				"mode":            string(g.matchingMode),
-				"required_skills": g.requiredSkills,
-				"actual_skills":   actual,
-				"allow_extra":     g.allowExtra,
-				"precision":       precision,
-				"recall":          recall,
-				"f1":              f1,
+				"mode":                 string(g.matchingMode),
+				"required_skills":      g.requiredSkills,
+				"forbidden_skills":     g.forbiddenSkills,
+				"forbidden_violations": forbiddenViolations,
+				"actual_skills":        actual,
+				"allow_extra":          g.allowExtra,
+				"precision":            precision,
+				"recall":               recall,
+				"f1":                   f1,
 			},
 		}, nil
 	})
@@ -109,6 +140,10 @@ func (g *skillInvocationGrader) Grade(ctx context.Context, gradingContext *Conte
 
 // checkMatch returns true if the actual sequence satisfies the matching mode constraint.
 func (g *skillInvocationGrader) checkMatch(actual []string) bool {
+	if len(g.requiredSkills) == 0 {
+		return true
+	}
+
 	switch g.matchingMode {
 	case models.SkillMatchingModeExact:
 		return g.exactMatch(actual)
@@ -207,40 +242,71 @@ func (g *skillInvocationGrader) computePrecisionRecall(actual []string) (precisi
 	return precision, recall
 }
 
-// buildFailureFeedback generates a human-readable explanation of why the match failed.
-func (g *skillInvocationGrader) buildFailureFeedback(actual []string) string {
-	var parts []string
-
-	switch g.matchingMode {
-	case models.SkillMatchingModeExact:
-		parts = append(parts, fmt.Sprintf("Exact match failed: expected %d skills %v, got %d skills %v",
-			len(g.requiredSkills), g.requiredSkills, len(actual), actual))
-	case models.SkillMatchingModeInOrder:
-		parts = append(parts, fmt.Sprintf("In-order match failed: not all required skills %v appeared in order within actual %v",
-			g.requiredSkills, actual))
-	case models.SkillMatchingModeAnyOrder:
-		// Identify which required skills are missing or insufficient
-		requiredCounts := make(map[string]int, len(g.requiredSkills))
-		for _, e := range g.requiredSkills {
-			requiredCounts[e]++
-		}
-		actualCounts := make(map[string]int, len(actual))
-		for _, a := range actual {
-			actualCounts[a]++
-		}
-		var missing []string
-		for skill, needed := range requiredCounts {
-			got := actualCounts[skill]
-			if got < needed {
-				missing = append(missing, fmt.Sprintf("%s (need %d, got %d)", skill, needed, got))
-			}
-		}
-		parts = append(parts, fmt.Sprintf("Any-order match failed: missing or insufficient skills: %s",
-			strings.Join(missing, ", ")))
+func (g *skillInvocationGrader) findForbiddenViolations(actual []string) []string {
+	if len(g.forbiddenSkills) == 0 || len(actual) == 0 {
+		return nil
 	}
 
-	if !g.allowExtra && len(actual) > len(g.requiredSkills) {
+	actualCounts := make(map[string]int, len(actual))
+	for _, a := range actual {
+		actualCounts[a]++
+	}
+
+	violations := make([]string, 0, len(g.forbiddenSkills))
+	seen := make(map[string]bool, len(g.forbiddenSkills))
+	for _, skill := range g.forbiddenSkills {
+		if actualCounts[skill] > 0 && !seen[skill] {
+			violations = append(violations, skill)
+			seen[skill] = true
+		}
+	}
+	return violations
+}
+
+// buildFailureFeedback generates a human-readable explanation of why the match failed.
+func (g *skillInvocationGrader) buildFailureFeedback(actual []string, requiredPassed bool, forbiddenViolations []string) string {
+	var parts []string
+
+	if len(g.requiredSkills) > 0 && !requiredPassed {
+		switch g.matchingMode {
+		case models.SkillMatchingModeExact:
+			parts = append(parts, fmt.Sprintf("Exact match failed: expected %d skills %v, got %d skills %v",
+				len(g.requiredSkills), g.requiredSkills, len(actual), actual))
+		case models.SkillMatchingModeInOrder:
+			parts = append(parts, fmt.Sprintf("In-order match failed: not all required skills %v appeared in order within actual %v",
+				g.requiredSkills, actual))
+		case models.SkillMatchingModeAnyOrder:
+			// Identify which required skills are missing or insufficient
+			requiredCounts := make(map[string]int, len(g.requiredSkills))
+			for _, e := range g.requiredSkills {
+				requiredCounts[e]++
+			}
+			actualCounts := make(map[string]int, len(actual))
+			for _, a := range actual {
+				actualCounts[a]++
+			}
+			var missing []string
+			for skill, needed := range requiredCounts {
+				got := actualCounts[skill]
+				if got < needed {
+					missing = append(missing, fmt.Sprintf("%s (need %d, got %d)", skill, needed, got))
+				}
+			}
+			parts = append(parts, fmt.Sprintf("Any-order match failed: missing or insufficient skills: %s",
+				strings.Join(missing, ", ")))
+		}
+	}
+
+	if len(g.requiredSkills) > 0 && !g.allowExtra && len(actual) > len(g.requiredSkills) {
 		parts = append(parts, fmt.Sprintf("Extra invocations not allowed (got %d, expected %d)", len(actual), len(g.requiredSkills)))
+	}
+
+	if len(forbiddenViolations) > 0 {
+		parts = append(parts, fmt.Sprintf("Forbidden skills invoked: %s", strings.Join(forbiddenViolations, ", ")))
+	}
+
+	if len(parts) == 0 {
+		return "Skill invocation constraints failed"
 	}
 
 	return strings.Join(parts, "; ")

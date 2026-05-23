@@ -634,7 +634,7 @@ func TestCopilotCreateSession_InjectsSkillSystemMessage(t *testing.T) {
 	skillContent := "---\nname: test-skill\ndescription: A test\n---\n# Rules\nAlways greet"
 	require.NoError(t, os.WriteFile(filepath.Join(sourceDir, "SKILL.md"), []byte(skillContent), 0644))
 
-	expectedSystemMsg := buildSkillSystemMessage([]string{sourceDir}, "test-skill")
+	expectedSystemMsg := buildSkillSystemMessage([]string{sourceDir}, "test-skill", true)
 	require.NotEmpty(t, expectedSystemMsg)
 
 	expectedConfig := sessionConfigMatcher{
@@ -693,7 +693,7 @@ func TestCopilotCreateSession_InjectsInstructionSystemMessage(t *testing.T) {
 		Content: []byte("Prefer small functions."),
 	}}
 	expectedSystemMsg := strings.Join([]string{
-		buildSkillSystemMessage([]string{sourceDir}, "test-skill"),
+		buildSkillSystemMessage([]string{sourceDir}, "test-skill", true),
 		buildInstructionSystemMessage(instructions),
 	}, "\n")
 	require.NotEmpty(t, expectedSystemMsg)
@@ -802,7 +802,7 @@ func TestCopilotResumeSession_PassesMCPServersAndSystemMessage(t *testing.T) {
 	skillContent := "---\nname: resume-skill\ndescription: Resume test\n---\nResume body"
 	require.NoError(t, os.WriteFile(filepath.Join(sourceDir, "SKILL.md"), []byte(skillContent), 0644))
 
-	expectedSystemMsg := buildSkillSystemMessage([]string{sourceDir}, "resume-skill")
+	expectedSystemMsg := buildSkillSystemMessage([]string{sourceDir}, "resume-skill", true)
 
 	mcpServers := map[string]copilot.MCPServerConfig{
 		"mcp-srv": copilot.MCPStdioServerConfig{Command: "test"},

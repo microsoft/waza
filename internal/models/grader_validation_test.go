@@ -177,7 +177,7 @@ graders:
 			errorMsg:    "must have at least one action",
 		},
 		{
-			name: "skill_invocation grader with no required_skills",
+			name: "skill_invocation grader with no skill constraints",
 			specYAML: `name: test
 skill: test-skill
 config:
@@ -191,7 +191,25 @@ graders:
     config: {}
 `,
 			expectError: true,
-			errorMsg:    "must have at least one skill",
+			errorMsg:    "must have at least one skill in config.required_skills or config.forbidden_skills",
+		},
+		{
+			name: "skill_invocation grader with only forbidden_skills",
+			specYAML: `name: test
+skill: test-skill
+config:
+  trials_per_task: 1
+  timeout_seconds: 60
+  executor: mock
+  model: test-model
+graders:
+  - name: "my grader"
+    type: "skill_invocation"
+    config:
+      forbidden_skills:
+        - forbidden-skill
+`,
+			expectError: false,
 		},
 		{
 			name: "tool_constraint grader with no expect_tools or reject_tools",
@@ -348,6 +366,35 @@ graders:
 `,
 			expectError: true,
 			errorMsg:    "must have at least one file",
+		},
+		{
+			name: "skill_invocation validator with no skill constraints",
+			taskYAML: `id: test-001
+name: Test Case
+inputs:
+  prompt: Test prompt
+graders:
+  - name: "my validator"
+    type: "skill_invocation"
+    config: {}
+`,
+			expectError: true,
+			errorMsg:    "must have at least one skill in config.required_skills or config.forbidden_skills",
+		},
+		{
+			name: "skill_invocation validator with only forbidden_skills",
+			taskYAML: `id: test-001
+name: Test Case
+inputs:
+  prompt: Test prompt
+graders:
+  - name: "my validator"
+    type: "skill_invocation"
+    config:
+      forbidden_skills:
+        - forbidden-skill
+`,
+			expectError: false,
 		},
 	}
 

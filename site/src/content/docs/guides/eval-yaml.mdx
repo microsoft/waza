@@ -98,6 +98,7 @@ config:
   model: claude-sonnet-4.6 # Default model (override with --model)
   judge_model: gpt-4o # Model for LLM-as-judge graders (optional)
   executor: mock # mock (local) or copilot-sdk (real API)
+  inject_skill_body: true # Inject target SKILL.md/.agent.md body into the prompt
   instruction_files:
     - .github/instructions/project.instructions.md
 ```
@@ -116,9 +117,39 @@ config:
 | `fail_fast`         | bool      | false             | Stop the entire run on first task failure                   |
 | `skill_directories` | list[str] | `[]`              | Additional directories to search for skills                 |
 | `instruction_files` | list[str] | `[]`              | Instruction files to apply to every task                    |
+| `inject_skill_body` | bool      | true              | Inject the target `SKILL.md` or `.agent.md` body into the system prompt |
 | `disabled_skills`   | list[str] | `[]`              | Skills to disable. Use `["*"]` to disable all skills        |
 | `required_skills`   | list[str] | `[]`              | Skills that must be available before running                |
 | `mcp_servers`       | object    | —                 | MCP server configurations for the evaluation                |
+
+### Trigger-precision evals
+
+Set `inject_skill_body: false` when the eval is measuring whether the agent invokes a skill rather than whether it can complete the work after already seeing the skill body:
+
+```yaml
+name: xyz-trigger
+description: Trigger-precision tasks for the xyz skill
+skill: xyz
+version: "1.0"
+
+config:
+  trials_per_task: 1
+  timeout_seconds: 300
+  parallel: false
+  executor: copilot-sdk
+  model: claude-sonnet-4.6
+  inject_skill_body: false
+
+metrics:
+  - name: trigger_precision
+    weight: 1.0
+    threshold: 0.8
+
+tasks:
+  - "tasks/trigger/*.yaml"
+```
+
+With this setting, Waza still discovers skills, passes them to the Copilot SDK, and includes the compact `<available_skills>` summary with skill names and descriptions. It only suppresses the full target `<skill_context>` body, so `behavior` graders with `required_tools` or `forbidden_tools` and `skill_invocation` graders can observe whether the `skill` tool was used. If you also set `disabled_skills: ["*"]`, all skill loading is disabled and this setting has no effect.
 
 **Common Timeouts:**
 

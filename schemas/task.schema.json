@@ -810,11 +810,48 @@
     },
     "skillInvocationGraderConfig": {
       "type": "object",
-      "required": [
-        "mode",
-        "required_skills"
-      ],
       "additionalProperties": false,
+      "anyOf": [
+        {
+          "required": [
+            "required_skills"
+          ],
+          "properties": {
+            "required_skills": {
+              "minItems": 1
+            }
+          }
+        },
+        {
+          "required": [
+            "forbidden_skills"
+          ],
+          "properties": {
+            "forbidden_skills": {
+              "minItems": 1
+            }
+          }
+        }
+      ],
+      "allOf": [
+        {
+          "if": {
+            "required": [
+              "required_skills"
+            ],
+            "properties": {
+              "required_skills": {
+                "minItems": 1
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "mode"
+            ]
+          }
+        }
+      ],
       "properties": {
         "mode": {
           "type": "string",
@@ -826,7 +863,12 @@
         },
         "required_skills": {
           "type": "array",
-          "minItems": 1,
+          "items": {
+            "type": "string"
+          }
+        },
+        "forbidden_skills": {
+          "type": "array",
           "items": {
             "type": "string"
           }

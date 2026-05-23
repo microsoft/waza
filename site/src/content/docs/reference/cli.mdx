@@ -13,7 +13,28 @@ curl -fsSL https://raw.githubusercontent.com/microsoft/waza/main/install.sh | ba
 waza --version
 ```
 
-For native Windows PowerShell, download the Windows binary from the [latest release](https://github.com/microsoft/waza/releases/latest), rename it to `waza.exe`, and place it in a directory on your `PATH`.
+For native Windows PowerShell:
+
+```powershell
+irm https://raw.githubusercontent.com/microsoft/waza/main/install.ps1 | iex
+waza --version
+```
+
+## waza update
+
+Update waza to the latest release.
+
+```bash
+waza update
+```
+
+The command prompts for confirmation, then downloads and runs the official installer for the current OS. It uses the Bash installer on macOS/Linux and the PowerShell installer on native Windows. Use `--yes` to skip the prompt in scripted environments:
+
+```bash
+waza update --yes
+```
+
+The native Windows update path schedules the final binary replacement after the running `waza.exe` exits, avoiding Windows executable file locks. In WSL, `waza update` uses the Linux Bash installer and updates the WSL installation.
 
 ## waza run
 
