@@ -15,7 +15,7 @@ func TestResolveWorkers_AutoSizes(t *testing.T) {
 		wantFunc func(int) bool
 	}{
 		{"zero jobs returns zero", 0, 0, func(got int) bool { return got == 0 }},
-		{"auto-default capped by jobs", 0, 2, func(got int) bool { return got == 2 }},
+		{"auto-default capped by jobs and CPUs", 0, 2, func(got int) bool { return got >= 1 && got <= 2 }},
 		{"auto-default capped by DefaultWorkerCap", 0, 1000, func(got int) bool { return got == DefaultWorkerCap || got == runtime.NumCPU() }},
 		{"explicit clamped to jobs", 16, 3, func(got int) bool { return got == 3 }},
 		{"explicit honored when within budget", 2, 5, func(got int) bool { return got == 2 }},

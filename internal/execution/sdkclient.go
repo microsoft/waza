@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	copilot "github.com/github/copilot-sdk/go"
+	"github.com/microsoft/waza/internal/utils"
 )
 
 // SharedClientOptions configures the lazily-constructed process-wide Copilot
@@ -48,8 +49,8 @@ func SharedClient(opts SharedClientOptions) CopilotClient {
 		}
 		sharedClient = sharedConstruct(&copilot.ClientOptions{
 			LogLevel:    logLevel,
-			AutoStart:   new(false),
-			AutoRestart: new(true),
+			AutoStart:   utils.Ptr(false),
+			AutoRestart: utils.Ptr(true),
 		})
 	})
 	return sharedClient
