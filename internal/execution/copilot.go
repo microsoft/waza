@@ -179,8 +179,8 @@ func NewCopilotEngineBuilder(defaultModelID string, options *CopilotEngineBuilde
 			// workspace is set at the session level, instead of at the client.
 			LogLevel: "error",
 
-			AutoStart:   new(false), // we handle start in Initialize()
-			AutoRestart: new(true),  // this is a default, but just in case the defaults change...
+			AutoStart:   utils.Ptr(false), // we handle start in Initialize()
+			AutoRestart: utils.Ptr(true),  // this is a default, but just in case the defaults change...
 		}
 		client = options.NewCopilotClient(copilotOptions)
 		ownsClient = true

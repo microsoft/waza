@@ -773,7 +773,7 @@ func runSingleModel(cmd *cobra.Command, spec *models.EvalSpec, specPath string, 
 		if w <= 0 {
 			fmt.Printf("Parallel: workers=auto\n")
 		} else {
-			fmt.Printf("Parallel: %d workers\n", w)
+			fmt.Printf("Parallel: %d workers requested\n", w)
 		}
 	}
 
