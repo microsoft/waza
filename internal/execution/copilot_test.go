@@ -306,8 +306,25 @@ func TestProviderFromEnv_SanitizesHost(t *testing.T) {
 	t.Setenv("COPILOT_BASE_URL", "https://user:secret@example.test:8443/v1?token=abc")
 
 	provider := providerFromEnv()
+	require.NoError(t, provider.err)
 	require.True(t, provider.enabled())
 	require.Equal(t, "example.test:8443", provider.host)
+}
+
+func TestCopilotInitialize_CustomProviderRejectsInvalidBaseURL(t *testing.T) {
+	t.Setenv("COPILOT_BASE_URL", "waza-test-resource.openai.azure.com/openai/v1")
+	t.Setenv("COPILOT_PROVIDER_BASE_URL", "")
+
+	ctrl := gomock.NewController(t)
+	clientMock := NewMockCopilotClient(ctrl)
+
+	engine := NewCopilotEngineBuilder("gpt-4o-mini", &CopilotEngineBuilderOptions{
+		NewCopilotClient: func(clientOptions *copilot.ClientOptions) CopilotClient { return clientMock },
+	}).Build()
+
+	err := engine.Initialize(context.Background())
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "invalid custom Copilot provider base URL")
 }
 
 func TestCopilotResumeSessionID_Live(t *testing.T) {

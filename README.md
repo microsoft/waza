@@ -1175,7 +1175,7 @@ jobs:
 |-------------|---------|
 | **Go Version** | 1.26 or higher |
 | **Executor** | Use `mock` executor for CI (no API keys needed) |
-| **Copilot Auth** | Required for the default `copilot-sdk` route. Custom providers can be configured with `COPILOT_BASE_URL` or `COPILOT_PROVIDER_BASE_URL` instead. |
+| **Copilot Auth** | Required for the default `copilot-sdk` route; set `GITHUB_TOKEN` in CI. Custom providers can be configured with `COPILOT_BASE_URL` or `COPILOT_PROVIDER_BASE_URL` instead. |
 | **Exit Codes** | 0=success, 1=test failure, 2=config error |
 
 #### Expected Skill Structure

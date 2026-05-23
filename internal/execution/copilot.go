@@ -50,10 +50,11 @@ type CopilotEngine struct {
 type customProviderConfig struct {
 	config *copilot.ProviderConfig
 	host   string
+	err    error
 }
 
 func (p customProviderConfig) enabled() bool {
-	return p.config != nil
+	return p.config != nil && p.err == nil
 }
 
 func (p customProviderConfig) sessionConfig() *copilot.ProviderConfig {
@@ -92,6 +93,10 @@ func providerFromEnv() customProviderConfig {
 	if base == "" {
 		return customProviderConfig{}
 	}
+	host, err := providerHost(base)
+	if err != nil {
+		return customProviderConfig{err: err}
+	}
 	p := &copilot.ProviderConfig{BaseURL: base}
 	if v := envFirst("COPILOT_PROVIDER", "COPILOT_PROVIDER_TYPE"); v != "" {
 		p.Type = v
@@ -107,28 +112,19 @@ func providerFromEnv() customProviderConfig {
 	}
 	return customProviderConfig{
 		config: p,
-		host:   providerHost(base),
+		host:   host,
 	}
 }
 
-func providerHost(base string) string {
-	host := parsedProviderHost(base)
-	if host != "" {
-		return host
-	}
-	host = parsedProviderHost("http://" + base)
-	if host != "" {
-		return host
-	}
-	return ""
-}
-
-func parsedProviderHost(raw string) string {
-	u, err := url.Parse(raw)
+func providerHost(base string) (string, error) {
+	u, err := url.Parse(base)
 	if err != nil {
-		return ""
+		return "", fmt.Errorf("invalid custom Copilot provider base URL: could not parse URL")
 	}
-	return u.Host
+	if u.Scheme == "" || u.Host == "" {
+		return "", fmt.Errorf("invalid custom Copilot provider base URL: must include scheme and host")
+	}
+	return u.Host, nil
 }
 
 // envFirst returns the value of the first non-empty environment variable
@@ -196,6 +192,11 @@ func (e *CopilotEngine) Initialize(ctx context.Context) error {
 	var startErr error
 
 	e.startOnce.Do(func() {
+		if e.provider.err != nil {
+			startErr = e.provider.err
+			return
+		}
+
 		// NOTE: we _have_ to use context.Background() - the copilot SDK is using exec.CommandContext() to run
 		// the background process which means we _cannot_ cancel the context passed to this function or else
 		// it'll kill the copilot process.
