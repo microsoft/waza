@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"fmt"
@@ -72,13 +73,51 @@ tasks:
 		runSignalSpecEnv+"="+specPath,
 	)
 	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+	stdoutPipe, err := cmd.StdoutPipe()
+	require.NoError(t, err)
+	stderrPipe, err := cmd.StderrPipe()
+	require.NoError(t, err)
+
+	ready := make(chan struct{})
+	stdoutDone := make(chan struct{})
+	stderrDone := make(chan struct{})
+	go func() {
+		defer close(stdoutDone)
+		scanner := bufio.NewScanner(stdoutPipe)
+		signaledReady := false
+		for scanner.Scan() {
+			line := scanner.Text()
+			stdout.WriteString(line)
+			stdout.WriteByte('\n')
+			if !signaledReady && strings.Contains(line, "Running benchmark:") {
+				close(ready)
+				signaledReady = true
+			}
+		}
+		if err := scanner.Err(); err != nil {
+			fmt.Fprintf(&stdout, "stdout read error: %v\n", err)
+		}
+	}()
+	go func() {
+		defer close(stderrDone)
+		_, _ = io.Copy(&stderr, stderrPipe)
+	}()
 
 	require.NoError(t, cmd.Start())
-	time.Sleep(200 * time.Millisecond)
+	select {
+	case <-ready:
+	case <-time.After(5 * time.Second):
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+		<-stdoutDone
+		<-stderrDone
+		require.FailNow(t, "helper did not reach signal-aware benchmark run", "stdout=%s stderr=%s", stdout.String(), stderr.String())
+	}
 	require.NoError(t, cmd.Process.Signal(syscall.SIGTERM))
-	require.NoError(t, cmd.Wait(), "run should exit cleanly after SIGTERM; stdout=%s stderr=%s", stdout.String(), stderr.String())
+	waitErr := cmd.Wait()
+	<-stdoutDone
+	<-stderrDone
+	require.NoError(t, waitErr, "run should exit cleanly after SIGTERM; stdout=%s stderr=%s", stdout.String(), stderr.String())
 }
 
 func TestRunCommand_SignalCancelsBenchmarkHelperProcess(t *testing.T) {
