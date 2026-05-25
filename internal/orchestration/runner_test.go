@@ -206,7 +206,64 @@ func TestBuildExecutionRequest_TimeoutOverride(t *testing.T) {
 	}
 
 	runner := NewEvalRunner(cfg, nil)
-	assert.Equal(t, 300*time.Second, runner.executionTimeout(tc), "test case timeout should override spec timeout")
+	timeout, err := runner.executionTimeout(tc)
+	require.NoError(t, err)
+	assert.Equal(t, 300*time.Second, timeout, "test case timeout should override spec timeout")
+}
+
+func TestExecutionTimeout_InvalidTaskOverride(t *testing.T) {
+	spec := &models.EvalSpec{
+		SpecIdentity: models.SpecIdentity{Name: "test-benchmark"},
+		SkillName:    "my-skill",
+		Config: models.Config{
+			EngineType: "mock",
+			ModelID:    "gpt-4",
+			TimeoutSec: 120,
+		},
+	}
+	cfg := config.NewEvalConfig(spec)
+
+	invalidTimeout := 0
+	tc := &models.TestCase{
+		TestID:      "test-001",
+		DisplayName: "Test Case",
+		Stimulus:    models.TaskStimulus{Message: "Hello world"},
+		TimeoutSec:  &invalidTimeout,
+	}
+
+	runner := NewEvalRunner(cfg, nil)
+	timeout, err := runner.executionTimeout(tc)
+	require.Error(t, err)
+	assert.Zero(t, timeout)
+	assert.Contains(t, err.Error(), `test case "test-001" timeout_seconds must be at least 1, got 0`)
+}
+
+func TestExecuteRun_InvalidTaskTimeoutReturnsConfigError(t *testing.T) {
+	spec := &models.EvalSpec{
+		SpecIdentity: models.SpecIdentity{Name: "test-benchmark"},
+		SkillName:    "my-skill",
+		Config: models.Config{
+			EngineType: "mock",
+			ModelID:    "gpt-4",
+			TimeoutSec: 120,
+		},
+	}
+	cfg := config.NewEvalConfig(spec)
+	engine := &deadlineCaptureEngine{}
+	runner := NewEvalRunner(cfg, engine, WithSkipGraders())
+
+	invalidTimeout := -1
+	tc := &models.TestCase{
+		TestID:      "test-001",
+		DisplayName: "Test Case",
+		Stimulus:    models.TaskStimulus{Message: "Hello world"},
+		TimeoutSec:  &invalidTimeout,
+	}
+
+	run := runner.executeRun(context.Background(), tc, 1)
+	assert.Equal(t, models.StatusError, run.Status)
+	assert.Contains(t, run.ErrorMsg, `test case "test-001" timeout_seconds must be at least 1, got -1`)
+	assert.False(t, engine.hasDeadline, "engine should not execute with an invalid timeout")
 }
 
 func TestExecuteRun_AppliesTimeoutContext(t *testing.T) {
@@ -231,11 +288,12 @@ func TestExecuteRun_AppliesTimeoutContext(t *testing.T) {
 		TimeoutSec:  &customTimeout,
 	}
 
+	start := time.Now()
 	run := runner.executeRun(context.Background(), tc, 1)
 	require.Empty(t, run.ErrorMsg)
 	deadline, ok := engine.deadline, engine.hasDeadline
 	require.True(t, ok, "expected eval timeout to be applied to Execute context")
-	require.WithinDuration(t, time.Now().Add(300*time.Second), deadline, time.Second)
+	require.WithinDuration(t, start.Add(300*time.Second), deadline, time.Second)
 }
 
 type deadlineCaptureEngine struct {

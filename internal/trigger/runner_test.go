@@ -156,13 +156,14 @@ func TestEvalRunnerRunConfig(t *testing.T) {
 		config.WithSpecDir("/base"),
 	)
 	r := NewRunner(spec, engine, cfg, nil)
+	start := time.Now()
 	if _, err := r.Run(t.Context()); err != nil {
 		t.Fatal(err)
 	}
 	require.NotNil(t, engine.LastReq(), "expected a captured request")
 	deadline, ok := engine.LastDeadline()
 	require.True(t, ok, "expected trigger timeout as context deadline")
-	require.WithinDuration(t, time.Now().Add(120*time.Second), deadline, time.Second)
+	require.WithinDuration(t, start.Add(120*time.Second), deadline, time.Second)
 	if len(engine.LastReq().SkillPaths) != 2 {
 		t.Errorf("SkillPaths = %v, want 2 entries", engine.LastReq().SkillPaths)
 	}

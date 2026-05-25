@@ -1040,7 +1040,16 @@ func (r *EvalRunner) executeRun(ctx context.Context, tc *models.TestCase, runNum
 	}
 
 	// Execute with the eval/task timeout represented as a context deadline.
-	execCtx, cancelExec := context.WithTimeout(ctx, r.executionTimeout(tc))
+	timeout, err := r.executionTimeout(tc)
+	if err != nil {
+		return models.RunResult{
+			RunNumber:  runNum,
+			Status:     models.StatusError,
+			DurationMs: time.Since(startTime).Milliseconds(),
+			ErrorMsg:   err.Error(),
+		}
+	}
+	execCtx, cancelExec := context.WithTimeout(ctx, timeout)
 	resp, err := r.engine.Execute(execCtx, req)
 	cancelExec()
 	if err != nil {
@@ -1185,12 +1194,15 @@ func (r *EvalRunner) buildExecutionRequest(tc *models.TestCase) (*execution.Exec
 	}, nil
 }
 
-func (r *EvalRunner) executionTimeout(tc *models.TestCase) time.Duration {
+func (r *EvalRunner) executionTimeout(tc *models.TestCase) (time.Duration, error) {
 	timeout := r.cfg.Spec().Config.TimeoutSec
 	if tc.TimeoutSec != nil {
+		if err := tc.Validate(); err != nil {
+			return 0, err
+		}
 		timeout = *tc.TimeoutSec
 	}
-	return time.Duration(timeout) * time.Second
+	return time.Duration(timeout) * time.Second, nil
 }
 
 func rejectRelativePathPromptWithEmptySandbox(tc *models.TestCase, resources []execution.ResourceFile) error {
@@ -1227,7 +1239,12 @@ func (r *EvalRunner) executeFollowUps(ctx context.Context, tc *models.TestCase, 
 			})
 		}
 
-		followCtx, cancelFollow := context.WithTimeout(ctx, r.executionTimeout(tc))
+		timeout, err := r.executionTimeout(tc)
+		if err != nil {
+			resp.ErrorMsg = fmt.Sprintf("follow-up %d/%d setup failed: %v", i+1, len(tc.Stimulus.FollowUps), err)
+			break
+		}
+		followCtx, cancelFollow := context.WithTimeout(ctx, timeout)
 		followResp, err := r.engine.Execute(followCtx, followReq)
 		cancelFollow()
 		if err != nil {

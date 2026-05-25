@@ -103,6 +103,28 @@ expected:
 	}
 }
 
+func TestLoadTestCase_InvalidTimeoutRejected(t *testing.T) {
+	yamlData := `id: tc-invalid-timeout
+name: invalid timeout
+timeout_seconds: 0
+inputs:
+  prompt: do something
+`
+	dir := t.TempDir()
+	p := filepath.Join(dir, "tc.yaml")
+	if err := os.WriteFile(p, []byte(yamlData), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	_, err := LoadTestCase(p)
+	if err == nil {
+		t.Fatal("expected error for timeout_seconds: 0, got nil")
+	}
+	if !strings.Contains(err.Error(), `test case "tc-invalid-timeout" timeout_seconds must be at least 1, got 0`) {
+		t.Errorf("error should describe invalid timeout_seconds, got: %v", err)
+	}
+}
+
 func TestLoadTestCase_OutputContainsAny(t *testing.T) {
 	yamlData := `id: tc-may
 name: test may-include

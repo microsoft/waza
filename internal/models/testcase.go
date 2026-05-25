@@ -223,6 +223,21 @@ func (v *ValidatorInline) Validate() error {
 	return nil
 }
 
+// Validate checks that the test case configuration is valid.
+func (tc *TestCase) Validate() error {
+	if tc.TimeoutSec != nil && *tc.TimeoutSec < 1 {
+		name := tc.TestID
+		if name == "" {
+			name = tc.DisplayName
+		}
+		if name != "" {
+			return fmt.Errorf("test case %q timeout_seconds must be at least 1, got %d", name, *tc.TimeoutSec)
+		}
+		return fmt.Errorf("timeout_seconds must be at least 1, got %d", *tc.TimeoutSec)
+	}
+	return nil
+}
+
 // LoadTestCase loads a test case from YAML
 func LoadTestCase(path string) (*TestCase, error) {
 	data, err := os.ReadFile(path)
@@ -240,6 +255,10 @@ func LoadTestCase(path string) (*TestCase, error) {
 	// Note: Active field defaults to nil when not specified in YAML.
 	// The runner treats nil as true (enabled by default).
 	// Only explicitly set "enabled: false" will disable a test.
+
+	if err := tc.Validate(); err != nil {
+		return nil, err
+	}
 
 	// Resolve prompt_file into the prompt message
 	if err := tc.Stimulus.resolvePromptFile(filepath.Dir(path)); err != nil {
