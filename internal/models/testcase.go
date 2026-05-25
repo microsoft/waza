@@ -223,7 +223,7 @@ func (v *ValidatorInline) Validate() error {
 	return nil
 }
 
-// Validate checks that the test case configuration is valid.
+// Validate checks task-level timeout constraints.
 func (tc *TestCase) Validate() error {
 	if tc.TimeoutSec != nil && *tc.TimeoutSec < 1 {
 		name := tc.TestID
