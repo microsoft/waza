@@ -977,6 +977,7 @@ A newer version of waza is available: v0.24.0 → v0.28.0. Run: curl -fsSL ... |
 | Variable | Description |
 |----------|-------------|
 | `GITHUB_TOKEN` | Token for Copilot SDK execution |
+| `COPILOT_CLI_PATH` | Explicit path to a GitHub Copilot CLI binary. When unset, Waza uses its bundled CLI and does not fall back to an unrelated `copilot` on `PATH`. |
 | `COPILOT_BASE_URL` / `COPILOT_PROVIDER_BASE_URL` | Custom Copilot SDK provider endpoint. When set, Waza skips the default Copilot auth check and passes provider config to the SDK. |
 | `COPILOT_PROVIDER` / `COPILOT_PROVIDER_TYPE` | Provider type passed through to the Copilot SDK. |
 | `COPILOT_WIRE_API` / `COPILOT_PROVIDER_WIRE_API` | Wire format passed through to the Copilot SDK, for example `responses` or `completions`, depending on provider. |

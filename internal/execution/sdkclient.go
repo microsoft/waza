@@ -2,9 +2,13 @@ package execution
 
 import (
 	"context"
+	"fmt"
+	"log/slog"
+	"os"
 	"sync"
 
 	copilot "github.com/github/copilot-sdk/go"
+	"github.com/microsoft/waza/internal/embedded"
 	"github.com/microsoft/waza/internal/utils"
 )
 
@@ -23,6 +27,7 @@ var (
 	sharedShutdown  sync.Once
 	sharedErr       error
 	sharedConstruct = newCopilotClient // overridable for tests
+	embeddedCLIPath = embedded.Path    // overridable for tests
 )
 
 // SharedClient returns a lazily-constructed, process-wide [CopilotClient].
@@ -47,13 +52,76 @@ func SharedClient(opts SharedClientOptions) CopilotClient {
 		if logLevel == "" {
 			logLevel = "error"
 		}
-		sharedClient = sharedConstruct(&copilot.ClientOptions{
-			LogLevel:    logLevel,
-			AutoStart:   utils.Ptr(false),
-			AutoRestart: utils.Ptr(true),
-		})
+		clientOptions, err := sharedClientOptions(logLevel)
+		if err != nil {
+			slog.Warn("embedded Copilot CLI unavailable; refusing PATH fallback", "error", err)
+			sharedClient = &startupErrorClient{err: err}
+			return
+		}
+		sharedClient = sharedConstruct(clientOptions)
 	})
 	return sharedClient
+}
+
+func sharedClientOptions(logLevel string) (*copilot.ClientOptions, error) {
+	opts := &copilot.ClientOptions{
+		LogLevel:    logLevel,
+		AutoStart:   utils.Ptr(false),
+		AutoRestart: utils.Ptr(true),
+	}
+
+	if cliPath := os.Getenv("COPILOT_CLI_PATH"); cliPath != "" {
+		info, err := os.Stat(cliPath)
+		if err != nil {
+			return nil, fmt.Errorf("COPILOT_CLI_PATH %q is not usable: %w", cliPath, err)
+		}
+		if info.IsDir() {
+			return nil, fmt.Errorf("COPILOT_CLI_PATH %q is not usable: path is a directory", cliPath)
+		}
+		opts.CLIPath = cliPath
+		slog.Info("using Copilot CLI", "source", "COPILOT_CLI_PATH", "path", cliPath)
+		return opts, nil
+	}
+
+	cliPath, err := embeddedCLIPath()
+	if err != nil {
+		return nil, fmt.Errorf("embedded Copilot CLI is unavailable and COPILOT_CLI_PATH is not set; refusing to fall back to PATH: %w", err)
+	}
+	opts.CLIPath = cliPath
+	slog.Info("using Copilot CLI", "source", "embedded", "path", cliPath)
+	return opts, nil
+}
+
+type startupErrorClient struct {
+	err error
+}
+
+func (c *startupErrorClient) CreateSession(context.Context, *copilot.SessionConfig) (CopilotSession, error) {
+	return nil, c.err
+}
+
+func (c *startupErrorClient) GetAuthStatus(context.Context) (*copilot.GetAuthStatusResponse, error) {
+	return nil, c.err
+}
+
+func (c *startupErrorClient) Start(context.Context) error {
+	return c.err
+}
+
+func (c *startupErrorClient) Stop() error {
+	return nil
+}
+
+func (c *startupErrorClient) ResumeSessionWithOptions(context.Context, string, *copilot.ResumeSessionConfig) (CopilotSession, error) {
+	return nil, c.err
+}
+
+func (c *startupErrorClient) DeleteSession(context.Context, string) error {
+	return c.err
+}
+
+func (c *startupErrorClient) ListModels(context.Context) ([]copilot.ModelInfo, error) {
+	return nil, c.err
 }
 
 // ShutdownSharedClient stops the underlying Copilot SDK process if a shared

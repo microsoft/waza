@@ -15,9 +15,6 @@ import (
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/skill"
 	"github.com/microsoft/waza/internal/utils"
-
-	// auto-loads the embedded copilot CLI, over using the copilot CLI on the machine.
-	_ "github.com/microsoft/waza/internal/embedded"
 )
 
 // CopilotEngine integrates with GitHub Copilot SDK

@@ -15,6 +15,8 @@ This guide explains how to run real integration tests using the GitHub Copilot S
    # Follow prompts to authenticate
    ```
 
+   Waza bundles the GitHub Copilot CLI used by the `copilot-sdk` executor and extracts it to the local user cache on first use. Set `COPILOT_CLI_PATH` only when you need to force a specific Copilot CLI binary.
+
 ## Configuration
 
 ### Eval Spec Configuration
