@@ -62,9 +62,12 @@ main() {
     echo "For native Windows, download waza-windows-${arch}.exe from https://github.com/${REPO}/releases/latest."
   fi
 
-  # Get latest stable binary release tag.
-  tag="$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" \
-    | grep '"tag_name": "v' | head -1 | cut -d'"' -f4)"
+  # Get latest stable CLI release tag. The repository also publishes azd
+  # extension releases, so scan releases and pick the first semver "vX.Y.Z" tag.
+  tag="$(curl -fsSL "https://api.github.com/repos/${REPO}/releases?per_page=100" \
+    | grep -Eo '"tag_name"[[:space:]]*:[[:space:]]*"v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?"' \
+    | head -1 \
+    | sed -E 's/.*"tag_name"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/')"
 
   if [ -z "$tag" ]; then
     echo "Error: could not determine latest release." >&2
