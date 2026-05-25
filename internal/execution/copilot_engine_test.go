@@ -327,3 +327,50 @@ func TestCopilotEngine_Shutdown_StopsClientAndCleansWorkspaces(t *testing.T) {
 	_, err = os.Stat(workspaceDir)
 	assert.True(t, os.IsNotExist(err))
 }
+
+// TestCopilotEngineBuilder_CLIArgsCarriesModel is a regression test for #262 /
+// PR #263: when defaultModelID is set, the engine must pass
+// "--model <defaultModelID>" through copilot.ClientOptions.CLIArgs so the
+// embedded CLI honors the eval-configured model instead of the user's local
+// settings.json or experiment-flight default. Without this startup override,
+// SessionConfig.Model is silently ignored by the embedded CLI and evals run
+// against the wrong model.
+func TestCopilotEngineBuilder_CLIArgsCarriesModel(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	clientMock := NewMockCopilotClient(ctrl)
+
+	const defaultModelID = "claude-sonnet-4.5"
+
+	var captured *copilot.ClientOptions
+	_ = NewCopilotEngineBuilder(defaultModelID, &CopilotEngineBuilderOptions{
+		NewCopilotClient: func(clientOptions *copilot.ClientOptions) CopilotClient {
+			captured = clientOptions
+			return clientMock
+		},
+	}).Build()
+
+	require.NotNil(t, captured, "NewCopilotClient must receive non-nil ClientOptions")
+	require.Equal(t, []string{"--model", defaultModelID}, captured.CLIArgs,
+		"CLIArgs must carry --model <defaultModelID> so it overrides the user's local Copilot settings.json and experiment-flight defaults")
+}
+
+// TestCopilotEngineBuilder_CLIArgsEmptyWhenNoDefaultModel is a regression test
+// asserting that no --model CLI startup arg is injected when no default model
+// is configured. This preserves the embedded CLI's own fallback model selection
+// (settings.json / experiment flights) for callers that explicitly opt out.
+func TestCopilotEngineBuilder_CLIArgsEmptyWhenNoDefaultModel(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	clientMock := NewMockCopilotClient(ctrl)
+
+	var captured *copilot.ClientOptions
+	_ = NewCopilotEngineBuilder("", &CopilotEngineBuilderOptions{
+		NewCopilotClient: func(clientOptions *copilot.ClientOptions) CopilotClient {
+			captured = clientOptions
+			return clientMock
+		},
+	}).Build()
+
+	require.NotNil(t, captured, "NewCopilotClient must receive non-nil ClientOptions")
+	require.Empty(t, captured.CLIArgs,
+		"CLIArgs must be empty when no defaultModelID is provided so the embedded CLI can pick its own fallback")
+}

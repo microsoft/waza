@@ -202,6 +202,12 @@ func modelCLIArgs(defaultModelID string) []string {
 	if defaultModelID == "" {
 		return []string{}
 	}
+	// --model forces the configured model at CLI startup, overriding any
+	// user preference in the local Copilot settings.json (located under
+	// the user's home directory on Unix and %USERPROFILE% on Windows) or
+	// experiment flights that would otherwise cause the embedded CLI to
+	// use unintended models. SessionConfig.Model still takes precedence
+	// for per-session overrides via Execute.
 	return []string{"--model", defaultModelID}
 }
 
