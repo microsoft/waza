@@ -92,7 +92,7 @@ func writeEmbeddedCLI(finalPath string, expectedHash []byte) error {
 	h := sha256.New()
 	reader := cliReader()
 	if closer, ok := reader.(io.Closer); ok {
-		defer closer.Close()
+		defer func() { _ = closer.Close() }()
 	}
 	if _, err := io.Copy(tmp, io.TeeReader(reader, h)); err != nil {
 		_ = tmp.Close()
@@ -150,7 +150,7 @@ func writeEmbeddedCLILicense(cliPath string) error {
 func hashEmbeddedCLI() ([]byte, error) {
 	reader := cliReader()
 	if closer, ok := reader.(io.Closer); ok {
-		defer closer.Close()
+		defer func() { _ = closer.Close() }()
 	}
 	h := sha256.New()
 	if _, err := io.Copy(h, reader); err != nil {
@@ -164,7 +164,7 @@ func hashFile(path string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	h := sha256.New()
 	if _, err := io.Copy(h, f); err != nil {
 		return nil, err
