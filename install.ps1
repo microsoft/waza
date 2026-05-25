@@ -34,12 +34,18 @@ function Get-InstallDirectory {
 }
 
 function Get-LatestReleaseTag {
-    $releases = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repo/releases?per_page=100" -Headers @{ 'User-Agent' = 'waza-installer' }
-    $release = $releases | Where-Object { $_.tag_name -match '^v\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$' } | Select-Object -First 1
-    if (-not $release) {
-        throw 'Could not determine latest release.'
+    $page = 1
+    while ($true) {
+        $releases = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repo/releases?per_page=100&page=$page" -Headers @{ 'User-Agent' = 'waza-installer' }
+        $release = $releases | Where-Object { $_.tag_name -match '^v\d+\.\d+\.\d+$' } | Select-Object -First 1
+        if ($release) {
+            return $release.tag_name
+        }
+        if (-not $releases -or $releases.Count -eq 0) {
+            throw 'Could not determine latest release.'
+        }
+        $page++
     }
-    return $release.tag_name
 }
 
 function ConvertTo-SingleQuotedPowerShellLiteral([string] $Value) {

@@ -21,9 +21,9 @@ The fastest way to get started on macOS, Linux, or Windows Bash environments suc
 curl -fsSL https://raw.githubusercontent.com/microsoft/waza/main/install.sh | bash
 ```
 
-The script auto-detects the environment where Bash is running. If you run this from PowerShell and `bash` resolves to WSL, it installs the Linux binary inside WSL. For native Windows, download `waza-windows-amd64.exe` or `waza-windows-arm64.exe` from the [latest release](https://github.com/microsoft/waza/releases/latest), rename it to `waza.exe`, and place it in a directory on your `PATH`.
+The script auto-detects the environment where Bash is running. If you run this from PowerShell and `bash` resolves to WSL, it installs the Linux binary inside WSL. For native Windows, download `waza-windows-amd64.exe` or `waza-windows-arm64.exe` from the newest stable `vX.Y.Z` CLI release on the [Releases page](https://github.com/microsoft/waza/releases), rename it to `waza.exe`, and place it in a directory on your `PATH`.
 
-This downloads the latest release, verifies the checksum, and installs the `waza` binary to:
+This downloads the latest standalone `waza` CLI release, verifies the checksum, and installs the `waza` binary to:
 
 - `/usr/local/bin/waza` (if writable), or
 - `~/bin/waza` (if `/usr/local/bin` is not writable)
@@ -281,7 +281,7 @@ Opens http://localhost:3000. View runs, detailed results, comparisons, and trend
 
 ### Install script fails or binary not found
 
-If the install script exits with a download error or 404, check the [Releases page](https://github.com/microsoft/waza/releases/latest) to confirm a binary for your platform is available. You can also install manually:
+If the install script exits with a download error or 404, check the [Releases page](https://github.com/microsoft/waza/releases) to confirm a binary for your platform is available in the newest stable `vX.Y.Z` CLI release. You can also install manually:
 
 ```bash
 # Example: macOS ARM64 (Apple Silicon) — replace <version> with the latest tag (e.g. v0.34.0)

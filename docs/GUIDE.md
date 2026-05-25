@@ -29,7 +29,7 @@ The fastest way to get started on macOS, Linux, or Windows Bash environments suc
 curl -fsSL https://raw.githubusercontent.com/microsoft/waza/main/install.sh | bash
 ```
 
-The script auto-detects the environment where Bash is running. If you run this from PowerShell and `bash` resolves to WSL, it installs the Linux binary inside WSL. For native Windows, download `waza-windows-amd64.exe` or `waza-windows-arm64.exe` from the [latest release](https://github.com/microsoft/waza/releases/latest), rename it to `waza.exe`, and place it in a directory on your `PATH`.
+The script auto-detects the environment where Bash is running. If you run this from PowerShell and `bash` resolves to WSL, it installs the Linux binary inside WSL. For native Windows, download `waza-windows-amd64.exe` or `waza-windows-arm64.exe` from the newest stable `vX.Y.Z` CLI release on the [Releases page](https://github.com/microsoft/waza/releases), rename it to `waza.exe`, and place it in a directory on your `PATH`.
 
 This downloads the latest standalone `waza` CLI release, verifies the checksum, and installs the `waza` binary to:
 - `/usr/local/bin/waza` (if writable), or

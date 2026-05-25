@@ -49,8 +49,11 @@ while [ "$#" -gt 0 ]; do
 done
 echo "$last" >> "$CURL_LOG"
 case "$last" in
-  */releases?per_page=100)
-    printf '[{"tag_name":"azd-ext-microsoft-azd-waza_0.33.0"},{"tag_name":"v0.34.0"},{"tag_name":"v0.33.0"}]'
+  *'/releases?per_page=100&page=1')
+    printf '[{"tag_name":"azd-ext-microsoft-azd-waza_0.33.0"},{"tag_name":"v0.35.0-rc.1"}]'
+    ;;
+  *'/releases?per_page=100&page=2')
+    printf '[{"tag_name":"v0.34.0"},{"tag_name":"v0.33.0"}]'
     ;;
   */releases/download/v0.34.0/waza-darwin-arm64)
     printf 'binary' > "$out"
@@ -121,14 +124,19 @@ func TestInstallPs1SelectsFirstSemverReleaseTag(t *testing.T) {
 $Repo = 'microsoft/waza'
 function Invoke-RestMethod {
     param([string] $Uri, [hashtable] $Headers)
-    if ($Uri -ne 'https://api.github.com/repos/microsoft/waza/releases?per_page=100') {
-        throw "Unexpected releases URI: $Uri"
+    if ($Uri -eq 'https://api.github.com/repos/microsoft/waza/releases?per_page=100&page=1') {
+        return @(
+            [pscustomobject]@{ tag_name = 'azd-ext-microsoft-azd-waza_0.33.0' },
+            [pscustomobject]@{ tag_name = 'v0.35.0-rc.1' }
+        )
     }
-    return @(
-        [pscustomobject]@{ tag_name = 'azd-ext-microsoft-azd-waza_0.33.0' },
-        [pscustomobject]@{ tag_name = 'v0.34.0' },
-        [pscustomobject]@{ tag_name = 'v0.33.0' }
-    )
+    if ($Uri -eq 'https://api.github.com/repos/microsoft/waza/releases?per_page=100&page=2') {
+        return @(
+            [pscustomobject]@{ tag_name = 'v0.34.0' },
+            [pscustomobject]@{ tag_name = 'v0.33.0' }
+        )
+    }
+    throw "Unexpected releases URI: $Uri"
 }
 ` + functionBlock + `
 $tag = Get-LatestReleaseTag
