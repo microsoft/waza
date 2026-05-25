@@ -346,7 +346,6 @@ func TestCopilotResumeSessionID_Live(t *testing.T) {
 	})
 
 	randIntAsStr := strconv.FormatInt(rand.Int63(), 10)
-	const timeout = time.Minute
 
 	resp, err := engine.Execute(context.Background(), &ExecutionRequest{
 		Message: fmt.Sprintf("Memorize this integer and echo it back to me: %s", randIntAsStr),
