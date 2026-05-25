@@ -64,7 +64,7 @@ waza run [eval.yaml | skill-name | agent-name]
 | `--output-dir` | `-d` | string | | Directory for structured output; each run creates a UTC-timestamped subdirectory of the specified directory. Mutually exclusive with `--output`. |
 | `--verbose` | `-v` | bool | false | Detailed progress output |
 | `--parallel` | | bool | false | Run tasks concurrently |
-| `--workers` | `-w` | int | 4 | Number of concurrent workers |
+| `--workers` | `-w` | int | auto | Number of concurrent workers |
 | `--trials` | | int | `config.trials_per_task` | Run each task N times for flakiness detection (omit to use `config.trials_per_task`; when provided, value must be >= 1) |
 | `--task` | `-t` | string | | Filter tasks by name (repeatable) |
 | `--tags` | | string | | Filter tasks by tags (repeatable) |
@@ -977,6 +977,7 @@ A newer version of waza is available: v0.24.0 → v0.28.0. Run: curl -fsSL ... |
 | Variable | Description |
 |----------|-------------|
 | `GITHUB_TOKEN` | Token for Copilot SDK execution |
+| `COPILOT_CLI_PATH` | Explicit path to a GitHub Copilot CLI binary. When unset, Waza uses its bundled CLI and does not fall back to an unrelated `copilot` on `PATH`. |
 | `COPILOT_BASE_URL` / `COPILOT_PROVIDER_BASE_URL` | Custom Copilot SDK provider endpoint. When set, Waza skips the default Copilot auth check and passes provider config to the SDK. |
 | `COPILOT_PROVIDER` / `COPILOT_PROVIDER_TYPE` | Provider type passed through to the Copilot SDK. |
 | `COPILOT_WIRE_API` / `COPILOT_PROVIDER_WIRE_API` | Wire format passed through to the Copilot SDK, for example `responses` or `completions`, depending on provider. |

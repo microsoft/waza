@@ -117,7 +117,7 @@ You can also specify a skill name to run its eval:
 	cmd.Flags().StringArrayVar(&taskFilters, "task", nil, "Filter tasks by name/ID glob pattern (can be repeated).")
 	cmd.Flags().StringArrayVar(&tagFilters, "tags", nil, "Filter tasks by tags, using glob patterns (can be repeated)")
 	cmd.Flags().BoolVar(&parallel, "parallel", false, "Run tasks concurrently")
-	cmd.Flags().IntVar(&workers, "workers", 0, "Number of concurrent workers (default: 4, requires --parallel)")
+	cmd.Flags().IntVar(&workers, "workers", 0, "Number of concurrent workers (default: auto, requires --parallel)")
 	cmd.Flags().IntVar(&trials, "trials", 0, "Number of trials per task (overrides config.trials_per_task only when explicitly provided)")
 	cmd.Flags().BoolVar(&interpret, "interpret", false, "Print a plain-language interpretation of the results")
 	cmd.Flags().StringVar(&format, "format", "default", "Output format: default, github-comment")
@@ -144,6 +144,17 @@ You can also specify a skill name to run its eval:
 }
 
 func runCommandE(cmd *cobra.Command, args []string) error {
+	// Stop the process-wide Copilot SDK client at the end of the run, after
+	// every per-model engine has been Shutdown. Engines built on the shared
+	// client (production path) leave it running so subsequent models and
+	// graders can reuse one SDK process. See
+	// docs/design/135-improve-concurrency.md (R2).
+	defer func() {
+		if err := execution.ShutdownSharedClient(context.Background()); err != nil {
+			slog.Warn("shared copilot client shutdown failed", "error", err)
+		}
+	}()
+
 	// Load .waza.yaml project config and apply defaults for unset flags
 	cfg, err := projectconfig.Load(".")
 	if err != nil || cfg == nil {
@@ -760,9 +771,10 @@ func runSingleModel(cmd *cobra.Command, spec *models.EvalSpec, specPath string, 
 	if spec.Config.Concurrent {
 		w := spec.Config.Workers
 		if w <= 0 {
-			w = 4
+			fmt.Printf("Parallel: workers=auto\n")
+		} else {
+			fmt.Printf("Parallel: %d workers requested\n", w)
 		}
-		fmt.Printf("Parallel: %d workers\n", w)
 	}
 
 	if verbose && spec.Config.AllSkillsDisabled() {

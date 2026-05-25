@@ -22,7 +22,7 @@ config:
   trials_per_task: 3      # Number of times to run each task
   timeout_seconds: 300    # Max time per trial
   parallel: false         # Run tasks concurrently
-  workers: 4          # Max parallel workers
+  workers: 0              # Auto-size parallel workers
   fail_fast: false        # Stop on first failure
   verbose: false          # Verbose output
 ```
@@ -90,7 +90,7 @@ config:
   trials_per_task: 3
   timeout_seconds: 300
   parallel: true
-  workers: 4
+  workers: 0
 
 metrics:
   - name: task_completion

@@ -70,6 +70,9 @@ func runDevCopilot(cfg *devConfig) error {
 		if shutdownErr := engine.Shutdown(shutdownCtx); shutdownErr != nil && errOut != nil {
 			fprintf(errOut, "\n- ⚠️ Copilot engine shutdown error: %v\n", shutdownErr)
 		}
+		if shutdownErr := execution.ShutdownSharedClient(shutdownCtx); shutdownErr != nil && errOut != nil {
+			fprintf(errOut, "\n- ⚠️ Shared Copilot client shutdown error: %v\n", shutdownErr)
+		}
 	}()
 
 	stopSpinner := startDevSpinner(errOut, "Generating report with Copilot...")

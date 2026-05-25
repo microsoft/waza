@@ -1,6 +1,6 @@
 # Skill Development Best Practices
 
-This document provides guidance for creating high-quality SKILL.md files that integrate well with waza evaluations and follow industry best practices from the [Skills, Tools & MCP Development Guide](https://github.com/spboyer/azure-mcp-v-skills/blob/main/skills-mcp-development-guide.md).
+This document provides guidance for creating high-quality SKILL.md files that integrate well with waza evaluations and follow industry best practices from the [Agent Skills documentation](https://microsoft.github.io/skills/).
 
 ## Skill Classification
 
@@ -168,6 +168,6 @@ waza run ./eval/eval.yaml --executor copilot-sdk --model claude-sonnet-4
 
 ## References
 
-- [Skills, Tools & MCP Development Guide](https://github.com/spboyer/azure-mcp-v-skills/blob/main/skills-mcp-development-guide.md) - Comprehensive guide for building agent capabilities
+- [Agent Skills documentation](https://microsoft.github.io/skills/) - Public guide for building agent capabilities
 - [MCP Protocol Specification](https://modelcontextprotocol.io/specification/latest) - Model Context Protocol details
 - [waza Tutorial](./TUTORIAL.md) - Complete guide to using waza for skill evaluation

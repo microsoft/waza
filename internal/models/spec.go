@@ -44,12 +44,19 @@ type Config struct {
 	ModelID          string         `yaml:"model" json:"model_id"`
 	SkillPaths       []string       `yaml:"skill_directories,omitempty" json:"skill_paths,omitempty"`
 	InstructionFiles []string       `yaml:"instruction_files,omitempty" json:"instruction_files,omitempty"`
+	InjectSkillBody  *bool          `yaml:"inject_skill_body,omitempty" json:"inject_skill_body,omitempty"`
 	DisabledSkills   []string       `yaml:"disabled_skills,omitempty" json:"disabled_skills,omitempty"`
 	RequiredSkills   []string       `yaml:"required_skills,omitempty" json:"required_skills,omitempty"`
 	ServerConfigs    map[string]any `yaml:"mcp_servers,omitempty" json:"server_configs,omitempty"`
 	MaxAttempts      int            `yaml:"max_attempts,omitempty" json:"max_attempts,omitempty"`
 	GroupBy          string         `yaml:"group_by,omitempty" json:"group_by,omitempty"`
 	JudgeModel       string         `yaml:"judge_model,omitempty" json:"judge_model,omitempty"`
+}
+
+// ShouldInjectSkillBody returns true unless the eval explicitly opts out of
+// injecting the target skill body into the system prompt.
+func (c *Config) ShouldInjectSkillBody() bool {
+	return c.InjectSkillBody == nil || *c.InjectSkillBody
 }
 
 // GraderConfig defines a validator/grader
@@ -177,8 +184,8 @@ func (g *GraderConfig) Validate() error {
 		if !ok {
 			return fmt.Errorf("skill_invocation grader %q: expected SkillInvocationGraderParameters, got %T", g.Identifier, g.Parameters)
 		}
-		if len(params.RequiredSkills) == 0 {
-			return fmt.Errorf("skill_invocation grader %q: must have at least one skill in config.required_skills", g.Identifier)
+		if len(params.RequiredSkills) == 0 && len(params.ForbiddenSkills) == 0 {
+			return fmt.Errorf("skill_invocation grader %q: must have at least one skill in config.required_skills or config.forbidden_skills", g.Identifier)
 		}
 
 	case GraderKindToolConstraint:

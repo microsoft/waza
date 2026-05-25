@@ -17,6 +17,7 @@ import (
 	"github.com/microsoft/waza/internal/copilotconfig"
 	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/models"
+	"github.com/microsoft/waza/internal/orchestration"
 	"github.com/microsoft/waza/internal/transcript"
 	"github.com/microsoft/waza/internal/utils"
 )
@@ -68,9 +69,9 @@ func (r *Runner) RunDetailed(ctx context.Context) ([]models.TriggerResult, *mode
 	}
 
 	workers := r.cfg.Spec().Config.Workers
-	if workers <= 0 {
-		workers = 4
-	}
+	// Auto-size workers (#135 R3): default to min(NumCPU, jobs, cap=8) when
+	// unset, clamp to job count when over-requested, and log if capped.
+	workers = orchestration.ResolveWorkers(workers, len(tasks), "trigger tests", r.out)
 	outcomes := make([]taskResult, len(tasks))
 	sem := make(chan struct{}, workers)
 	var wg sync.WaitGroup
@@ -178,6 +179,7 @@ func (r *Runner) testTrigger(ctx context.Context, prompt string) (*execution.Exe
 		SkillName:               r.spec.Skill,
 		SkillPaths:              utils.ResolvePaths(spec.Config.FilteredSkillPaths(), r.cfg.SpecDir()),
 		NoSkills:                spec.Config.AllSkillsDisabled(),
+		SuppressSkillBody:       !spec.Config.ShouldInjectSkillBody(),
 		SourceDir:               r.cfg.SpecDir(),
 		Resources:               r.fixtures,
 		MCPServers:              r.mcpConfig,

@@ -26,7 +26,7 @@ func TestNew_ReturnsAllDefaults(t *testing.T) {
 	assertEqual(t, "Defaults.JudgeModel", "", cfg.Defaults.JudgeModel)
 	assertEqualInt(t, "Defaults.Timeout", 300, cfg.Defaults.Timeout)
 	assertBoolPtr(t, "Defaults.Parallel", false, cfg.Defaults.Parallel)
-	assertEqualInt(t, "Defaults.Workers", 4, cfg.Defaults.Workers)
+	assertEqualInt(t, "Defaults.Workers", 0, cfg.Defaults.Workers)
 	assertBoolPtr(t, "Defaults.Verbose", false, cfg.Defaults.Verbose)
 	assertBoolPtr(t, "Defaults.SessionLog", false, cfg.Defaults.SessionLog)
 

@@ -9,7 +9,7 @@ defaults:
   model: claude-sonnet-4.6
   timeout: 300
   parallel: false
-  workers: 4
+  workers: 0
   verbose: false
   sessionLog: false
 cache:

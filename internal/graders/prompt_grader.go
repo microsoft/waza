@@ -66,10 +66,12 @@ func (p *promptGrader) gradeIndependent(ctx context.Context, gradingContext *Con
 		if gradingContext == nil {
 			return nil, errors.New("prompt grader requires grading context")
 		}
+		resumeID := ""
 		if p.args.ContinueSession {
 			if gradingContext.SessionID == "" {
 				return nil, errors.New("no session id set, can't continue session in prompt grading")
 			}
+			resumeID = gradingContext.SessionID
 		}
 		resp, err := executePromptGrader(ctx, gradingContext, &execution.ExecutionRequest{
 			ModelID:              p.args.Model,
@@ -77,7 +79,7 @@ func (p *promptGrader) gradeIndependent(ctx context.Context, gradingContext *Con
 			Tools:                wazaTools.Tools,
 			MessageMode:          execution.MessageModeEnqueue,
 			Streaming:            true,
-			SessionID:            gradingContext.SessionID,
+			SessionID:            resumeID,
 			WorkspaceDir:         gradingContext.WorkspaceDir,
 			NoSkills:             true,
 			EphemeralSession:     true,

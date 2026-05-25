@@ -72,6 +72,7 @@ func runQualityCommand(cmd *cobra.Command, skillPath string, flags *qualityFlags
 	defer cancel()
 	defer func() {
 		_ = engine.Shutdown(shutdownCtx)
+		_ = execution.ShutdownSharedClient(shutdownCtx)
 	}()
 
 	resp, err := quality.Judge(cmd.Context(), engine, quality.JudgeOptions{

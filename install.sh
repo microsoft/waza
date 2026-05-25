@@ -50,6 +50,29 @@ install_dir() {
   fi
 }
 
+latest_release_tag() {
+  local page response tag
+  page=1
+
+  while true; do
+    response="$(curl -fsSL "https://api.github.com/repos/${REPO}/releases?per_page=100&page=${page}")"
+    tag="$(printf '%s\n' "$response" \
+      | grep -Eo '"tag_name"[[:space:]]*:[[:space:]]*"v[0-9]+\.[0-9]+\.[0-9]+"' \
+      | head -1 \
+      | cut -d'"' -f4 || true)"
+
+    if [ -n "$tag" ]; then
+      echo "$tag"
+      return 0
+    fi
+    if ! printf '%s\n' "$response" | grep -q '"tag_name"'; then
+      return 1
+    fi
+
+    page=$((page + 1))
+  done
+}
+
 main() {
   local os arch version tag asset_name install_path
 
@@ -59,12 +82,12 @@ main() {
   echo "Detected platform: ${os}/${arch}"
   if [ "$os" = "linux" ] && is_wsl; then
     echo "Note: Detected WSL; installing the Linux binary inside WSL."
-    echo "For native Windows, download waza-windows-${arch}.exe from https://github.com/${REPO}/releases/latest."
+    echo "For native Windows, download waza-windows-${arch}.exe from the newest vX.Y.Z CLI release at https://github.com/${REPO}/releases."
   fi
 
-  # Get latest stable binary release tag.
-  tag="$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" \
-    | grep '"tag_name": "v' | head -1 | cut -d'"' -f4)"
+  # Get latest stable CLI release tag. The repository also publishes azd
+  # extension releases, so scan releases and pick the first stable vX.Y.Z tag.
+  tag="$(latest_release_tag || true)"
 
   if [ -z "$tag" ]; then
     echo "Error: could not determine latest release." >&2

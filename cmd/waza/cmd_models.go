@@ -52,6 +52,9 @@ func newModelsCommandWithOptions(options *modelsCommandOptions) *cobra.Command {
 				if shutdownErr := engine.Shutdown(ctx); shutdownErr != nil {
 					finalErr = errors.Join(finalErr, shutdownErr)
 				}
+				if shutdownErr := execution.ShutdownSharedClient(ctx); shutdownErr != nil {
+					finalErr = errors.Join(finalErr, shutdownErr)
+				}
 			}()
 
 			models, err := engine.ListModels(cmd.Context())

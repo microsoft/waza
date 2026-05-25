@@ -4,7 +4,8 @@
 # Build configuration
 BINARY_NAME=waza
 BUILD_DIR=.
-GO_FILES=$(shell find . -name '*.go' -not -path './vendor/*')
+GO_FILES=$(shell find . -name '*.go' -not -path './vendor/*' -not -path './*/node_modules/*')
+GO_PACKAGES=$(shell go list ./... | grep -v '/node_modules')
 VERSION?=0.1.0
 LDFLAGS=-ldflags "-X main.version=$(VERSION)"
 
@@ -24,14 +25,14 @@ build: build-web
 # Run tests (requires web assets for embedded FS tests)
 test: build-web
 	@echo "Running tests..."
-	@go test -v -race -coverprofile=coverage.out ./...
+	@go test -v -race -coverprofile=coverage.out $(GO_PACKAGES)
 	@go tool cover -func=coverage.out | tail -1
 
 # Run linter
 lint:
 	@echo "Running linter..."
 	@if command -v golangci-lint >/dev/null 2>&1; then \
-		golangci-lint run ./...; \
+		golangci-lint run $(GO_PACKAGES); \
 	else \
 		echo "golangci-lint not installed, skipping..."; \
 		echo "Install: curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b \$$(go env GOPATH)/bin v1.64.8"; \

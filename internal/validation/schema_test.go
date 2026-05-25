@@ -78,6 +78,27 @@ tasks:
 	require.Empty(t, errs, "eval with instruction_files should have no errors")
 }
 
+func TestValidateEvalBytes_InjectSkillBody(t *testing.T) {
+	yaml := `name: test-eval
+skill: test-skill
+version: "1.0"
+config:
+  trials_per_task: 1
+  timeout_seconds: 60
+  executor: mock
+  model: gpt-4o
+  inject_skill_body: false
+metrics:
+  - name: accuracy
+    weight: 1.0
+    threshold: 0.8
+tasks:
+  - "tasks/*.yaml"
+`
+	errs := ValidateEvalBytes([]byte(yaml))
+	require.Empty(t, errs, "eval with inject_skill_body should have no errors")
+}
+
 func TestValidateEvalBytes_Invalid(t *testing.T) {
 	errs := ValidateEvalBytes([]byte(invalidEvalYAML))
 	require.NotEmpty(t, errs, "invalid eval should have errors")

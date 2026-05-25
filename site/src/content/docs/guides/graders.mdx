@@ -432,7 +432,7 @@ Validates the sequence of tool calls the agent made against an expected action p
 
 ## Skill Invocation (`skill_invocation`)
 
-Validates which Copilot skills the agent invoked during a session. Useful for multi-skill orchestration testing — verifying the agent delegates to the right skills.
+Validates which Copilot skills the agent invoked during a session. Useful for multi-skill orchestration testing — verifying the agent delegates to the right skills, or that a specific skill was not invoked.
 
 ```yaml
 - type: skill_invocation
@@ -445,15 +445,29 @@ Validates which Copilot skills the agent invoked during a session. Useful for mu
     allow_extra: true
 ```
 
-| Option            | Type        | Default      | Description                                              |
-| ----------------- | ----------- | ------------ | -------------------------------------------------------- |
-| `required_skills` | `list[str]` | _(required)_ | Skills that must be invoked                              |
-| `mode`            | `string`    | _(required)_ | Matching mode: `exact_match`, `in_order`, or `any_order` |
-| `allow_extra`     | `bool`      | `true`       | Whether extra skill invocations are penalized            |
+| Option             | Type        | Default | Description                                                                     |
+| ------------------ | ----------- | ------- | ------------------------------------------------------------------------------- |
+| `required_skills`  | `list[str]` | `[]`    | Skills that must be invoked                                                     |
+| `forbidden_skills` | `list[str]` | `[]`    | Skills that must not be invoked                                                 |
+| `mode`             | `string`    | —       | Matching mode for `required_skills`: `exact_match`, `in_order`, or `any_order`  |
+| `allow_extra`      | `bool`      | `true`  | Whether extra skill invocations beyond `required_skills` are penalized          |
+
+At least one of `required_skills` or `forbidden_skills` must be non-empty. `mode` is required when `required_skills` is set and ignored for forbidden-only configs.
 
 When `allow_extra: false`, extra invocations beyond the required list reduce the score by up to 60%.
 
-**Scoring:** F1 score (precision × recall), with optional penalty for extra invocations.
+For forbidden-only configs, unrelated skill invocations are allowed and the grader scores `1.0` unless a forbidden skill appears. For mixed required and forbidden configs, forbidden skill use fails the grader with a score of `0.0`.
+
+```yaml
+- type: skill_invocation
+  name: no_prod_deploy
+  config:
+    forbidden_skills:
+      - azure-prod-deploy
+    allow_extra: true
+```
+
+**Scoring:** F1 score (precision × recall) for required skills, with optional penalty for extra invocations. Forbidden-only configs score `1.0` when all forbidden skills are absent and `0.0` when any are present.
 
 ---
 

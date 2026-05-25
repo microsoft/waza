@@ -86,9 +86,9 @@
         },
         "workers": {
           "type": "integer",
-          "description": "Number of parallel workers when parallel mode is enabled.",
-          "default": 4,
-          "minimum": 1
+          "description": "Number of parallel workers when parallel mode is enabled. Use 0 or omit to auto-size workers.",
+          "default": 0,
+          "minimum": 0
         },
         "verbose": {
           "type": "boolean",

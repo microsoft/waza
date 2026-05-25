@@ -164,6 +164,9 @@ func runSuggest(cmd *cobra.Command, args []string) error {
 			if shutdownErr := engine.Shutdown(cmd.Context()); shutdownErr != nil {
 				fmt.Fprintf(errOut, "⚠️  error shutting down Copilot engine: %v\n", shutdownErr) //nolint:errcheck
 			}
+			if shutdownErr := execution.ShutdownSharedClient(cmd.Context()); shutdownErr != nil {
+				fmt.Fprintf(errOut, "⚠️  error shutting down shared Copilot client: %v\n", shutdownErr) //nolint:errcheck
+			}
 		}()
 	}
 

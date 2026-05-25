@@ -49,7 +49,7 @@ config:
   trials_per_task: 1
   timeout_seconds: 300
   parallel: false
-  workers: 4
+  workers: 0
   model: claude-sonnet-4.6
   judge_model: gpt-4o
   executor: mock

@@ -87,6 +87,7 @@ func runSuggestCommand(cmd *cobra.Command, skillPath string, flags *suggestFlags
 	defer cancel()
 	defer func() {
 		_ = engine.Shutdown(shutdownCtx)
+		_ = execution.ShutdownSharedClient(shutdownCtx)
 	}()
 
 	suggestion, err := suggestpkg.Generate(cmd.Context(), engine, suggestpkg.Options{

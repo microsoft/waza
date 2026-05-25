@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.34.0] - 2026-05-23
+
+### Added
+
+- **BYOK provider wiring** — Added bring-your-own-key provider support for configured model providers (#240)
+- **`waza update` command** — Added an update command for upgrading local Waza installations (#288)
+- **Skill injection opt-out** — Added an option to run evals without injecting the target skill body (#285, #292)
+- **Forbidden skills grading** — `skill_invocation` graders can now assert that specific skills must not be invoked (#286, #291)
+- **Per-trial usage reporting** — Results JSON now includes per-trial usage details for deeper run analysis (#277)
+- **Agent-friendly GitHub templates** — Added issue and pull request templates tuned for agent-authored work (#293)
+
+### Fixed
+
+- **Tool approval handling** — Tool permission handling now uses the SDK approval kind (#240)
+- **Signal cancellation** — `waza run` now respects cancellation signals more reliably (#279)
+- **Sandbox prompt handling** — Empty sandbox prompts are guarded before execution (#273, #278)
+- **Custom agent example schema** — Fixed the custom-agent eval example to match the supported schema (#282)
+- **Binary release links** — Fixed binary release documentation links (#276, #284)
+- **Agent path guidance** — Corrected AGENTS root path guidance (#267, #269)
+
+### Changed
+
+- **Run concurrency** — `waza run` now reuses a shared Copilot client and auto-sizes parallel workers when `--workers` is unset (#135, #221)
+- **Documentation** — Updated integration testing, custom-agent eval, and OpenAI Evals model-graded YAML documentation (#281, #283, #14, #280)
+- **Release workflow** — GitHub Pages deployment now runs after the release workflow (#265)
+
 ## [0.33.0] - 2026-05-21
 
 Note: This release includes the changes previously prepared under 0.32.0, which was not published.
@@ -452,7 +478,8 @@ pip install waza
 - YAML escaping for regex patterns with backslashes
 - Progress bar now shows 100% on completion
 
-[Unreleased]: https://github.com/microsoft/waza/compare/v0.33.0...HEAD
+[Unreleased]: https://github.com/microsoft/waza/compare/v0.34.0...HEAD
+[0.34.0]: https://github.com/microsoft/waza/compare/v0.33.0...v0.34.0
 [0.33.0]: https://github.com/microsoft/waza/compare/v0.31.0...v0.33.0
 [0.31.0]: https://github.com/microsoft/waza/compare/v0.30.1...v0.31.0
 [0.30.1]: https://github.com/microsoft/waza/compare/v0.30.0...v0.30.1

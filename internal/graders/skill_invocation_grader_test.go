@@ -66,6 +66,25 @@ func TestSkillInvocationGraderParams_ConfigRoundTrip(t *testing.T) {
 		require.Equal(t, original, decoded)
 	})
 
+	t.Run("roundtrip_forbidden_skills", func(t *testing.T) {
+		original := models.SkillInvocationGraderParameters{
+			ForbiddenSkills: []string{"azure-deploy"},
+		}
+
+		raw, err := yaml.Marshal(original)
+		require.NoError(t, err)
+
+		config := map[string]any{}
+		require.NoError(t, yaml.Unmarshal(raw, &config))
+		require.Contains(t, config, "forbidden_skills")
+		require.NotContains(t, config, "required_skills")
+		require.NotContains(t, config, "mode")
+
+		var decoded models.SkillInvocationGraderParameters
+		require.NoError(t, yaml.Unmarshal(raw, &decoded))
+		require.Equal(t, original, decoded)
+	})
+
 	t.Run("roundtrip_empty_fields_omitted", func(t *testing.T) {
 		original := models.SkillInvocationGraderParameters{}
 
@@ -75,6 +94,7 @@ func TestSkillInvocationGraderParams_ConfigRoundTrip(t *testing.T) {
 		config := map[string]any{}
 		require.NoError(t, yaml.Unmarshal(raw, &config))
 		require.NotContains(t, config, "required_skills")
+		require.NotContains(t, config, "forbidden_skills")
 		require.NotContains(t, config, "mode")
 		require.NotContains(t, config, "allow_extra")
 
@@ -85,7 +105,7 @@ func TestSkillInvocationGraderParams_ConfigRoundTrip(t *testing.T) {
 }
 
 func TestSkillInvocationGrader_Constructor(t *testing.T) {
-	t.Run("no required_skills returns error", func(t *testing.T) {
+	t.Run("no skill constraints returns error", func(t *testing.T) {
 		_, err := NewSkillInvocationGrader("test", models.SkillInvocationGraderParameters{
 			Mode:           "exact_match",
 			RequiredSkills: nil,
@@ -93,7 +113,7 @@ func TestSkillInvocationGrader_Constructor(t *testing.T) {
 		require.Error(t, err)
 	})
 
-	t.Run("empty required_skills returns error", func(t *testing.T) {
+	t.Run("empty skill constraints returns error", func(t *testing.T) {
 		_, err := NewSkillInvocationGrader("test", models.SkillInvocationGraderParameters{
 			Mode:           "exact_match",
 			RequiredSkills: []string{},
@@ -146,6 +166,23 @@ func TestSkillInvocationGrader_Constructor(t *testing.T) {
 		})
 		require.NoError(t, err)
 		require.False(t, g.allowExtra)
+	})
+
+	t.Run("forbidden_skills only succeeds without mode", func(t *testing.T) {
+		g, err := NewSkillInvocationGrader("test", models.SkillInvocationGraderParameters{
+			ForbiddenSkills: []string{"skill1"},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, g)
+		require.Equal(t, models.SkillMatchingModeAnyOrder, g.matchingMode)
+	})
+
+	t.Run("forbidden_skills only validates explicit mode", func(t *testing.T) {
+		_, err := NewSkillInvocationGrader("test", models.SkillInvocationGraderParameters{
+			Mode:            "invalid_mode",
+			ForbiddenSkills: []string{"skill1"},
+		})
+		require.Error(t, err)
 	})
 }
 
@@ -435,6 +472,105 @@ func TestSkillInvocationGrader_AllowExtra(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// forbidden_skills
+// ---------------------------------------------------------------------------
+
+func TestSkillInvocationGrader_ForbiddenSkills(t *testing.T) {
+	t.Run("forbidden-only passes with no invocations", func(t *testing.T) {
+		g, err := NewSkillInvocationGrader("test", models.SkillInvocationGraderParameters{
+			ForbiddenSkills: []string{"skill1"},
+		})
+		require.NoError(t, err)
+
+		result, err := g.Grade(context.Background(), &Context{
+			SkillInvocations: []execution.SkillInvocation{},
+		})
+		require.NoError(t, err)
+		require.True(t, result.Passed)
+		require.Equal(t, 1.0, result.Score)
+		require.Equal(t, []string{}, result.Details["forbidden_violations"])
+	})
+
+	t.Run("forbidden-only allows unrelated skills", func(t *testing.T) {
+		allowExtra := false
+		g, err := NewSkillInvocationGrader("test", models.SkillInvocationGraderParameters{
+			ForbiddenSkills: []string{"skill1"},
+			AllowExtra:      &allowExtra,
+		})
+		require.NoError(t, err)
+
+		result, err := g.Grade(context.Background(), &Context{
+			SkillInvocations: []execution.SkillInvocation{
+				{Name: "skill2"},
+			},
+		})
+		require.NoError(t, err)
+		require.True(t, result.Passed)
+		require.Equal(t, 1.0, result.Score)
+	})
+
+	t.Run("forbidden-only fails when forbidden skill appears", func(t *testing.T) {
+		g, err := NewSkillInvocationGrader("test", models.SkillInvocationGraderParameters{
+			ForbiddenSkills: []string{"skill1"},
+		})
+		require.NoError(t, err)
+
+		result, err := g.Grade(context.Background(), &Context{
+			SkillInvocations: []execution.SkillInvocation{
+				{Name: "skill1"},
+			},
+		})
+		require.NoError(t, err)
+		require.False(t, result.Passed)
+		require.Equal(t, 0.0, result.Score)
+		require.Equal(t, []string{"skill1"}, result.Details["forbidden_violations"])
+		require.Contains(t, result.Feedback, "Forbidden skills invoked: skill1")
+	})
+
+	t.Run("mixed required and forbidden passes when required appears and forbidden is absent", func(t *testing.T) {
+		g, err := NewSkillInvocationGrader("test", models.SkillInvocationGraderParameters{
+			Mode:            "any_order",
+			RequiredSkills:  []string{"skill1"},
+			ForbiddenSkills: []string{"skill3"},
+		})
+		require.NoError(t, err)
+
+		result, err := g.Grade(context.Background(), &Context{
+			SkillInvocations: []execution.SkillInvocation{
+				{Name: "skill1"},
+				{Name: "skill2"},
+			},
+		})
+		require.NoError(t, err)
+		require.True(t, result.Passed)
+		require.Greater(t, result.Score, 0.0)
+		require.Equal(t, []string{}, result.Details["forbidden_violations"])
+	})
+
+	t.Run("mixed required and forbidden fails when forbidden appears", func(t *testing.T) {
+		g, err := NewSkillInvocationGrader("test", models.SkillInvocationGraderParameters{
+			Mode:            "any_order",
+			RequiredSkills:  []string{"skill1"},
+			ForbiddenSkills: []string{"skill3"},
+		})
+		require.NoError(t, err)
+
+		result, err := g.Grade(context.Background(), &Context{
+			SkillInvocations: []execution.SkillInvocation{
+				{Name: "skill1"},
+				{Name: "skill3"},
+			},
+		})
+		require.NoError(t, err)
+		require.False(t, result.Passed)
+		require.Equal(t, 0.0, result.Score)
+		require.Equal(t, []string{"skill3"}, result.Details["forbidden_violations"])
+		require.Contains(t, result.Feedback, "Forbidden skills invoked: skill3")
+		require.NotContains(t, result.Feedback, "Any-order match failed")
+	})
+}
+
+// ---------------------------------------------------------------------------
 // Edge cases
 // ---------------------------------------------------------------------------
 
@@ -493,6 +629,8 @@ func TestSkillInvocationGrader_EdgeCases(t *testing.T) {
 
 		require.Contains(t, result.Details, "mode")
 		require.Contains(t, result.Details, "required_skills")
+		require.Contains(t, result.Details, "forbidden_skills")
+		require.Contains(t, result.Details, "forbidden_violations")
 		require.Contains(t, result.Details, "actual_skills")
 		require.Contains(t, result.Details, "allow_extra")
 		require.Contains(t, result.Details, "precision")

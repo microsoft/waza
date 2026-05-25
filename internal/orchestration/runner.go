@@ -785,10 +785,7 @@ func (r *EvalRunner) runSequential(ctx context.Context, testCases []*models.Test
 func (r *EvalRunner) runConcurrent(ctx context.Context, testCases []*models.TestCase) []models.TestOutcome {
 	// Simple concurrent implementation
 	spec := r.cfg.Spec()
-	workers := spec.Config.Workers
-	if workers <= 0 {
-		workers = 4
-	}
+	workers := ResolveWorkersStderr(spec.Config.Workers, len(testCases), "tasks")
 
 	type result struct {
 		index   int
@@ -1181,16 +1178,17 @@ func (r *EvalRunner) buildExecutionRequest(tc *models.TestCase) (*execution.Exec
 	noSkills := spec.Config.AllSkillsDisabled()
 
 	return &execution.ExecutionRequest{
-		Message:         tc.Stimulus.Message,
-		Context:         tc.Stimulus.Metadata,
-		Resources:       resources,
-		Instructions:    instructions,
-		SkillName:       spec.SkillName,
-		TaskName:        tc.DisplayName,
-		TaskDescription: tc.Summary,
-		SkillPaths:      resolvedSkillPaths,
-		NoSkills:        noSkills,
-		MCPServers:      convertMCPServers(spec.Config.ServerConfigs),
+		Message:           tc.Stimulus.Message,
+		Context:           tc.Stimulus.Metadata,
+		Resources:         resources,
+		Instructions:      instructions,
+		SkillName:         spec.SkillName,
+		TaskName:          tc.DisplayName,
+		TaskDescription:   tc.Summary,
+		SkillPaths:        resolvedSkillPaths,
+		NoSkills:          noSkills,
+		SuppressSkillBody: !spec.Config.ShouldInjectSkillBody(),
+		MCPServers:        convertMCPServers(spec.Config.ServerConfigs),
 	}, nil
 }
 

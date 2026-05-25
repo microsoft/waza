@@ -116,8 +116,10 @@ func newTaskFromPromptCmd(options *newTaskFromPromptCmdOptions) *cobra.Command {
 				if engine != nil {
 					if engineErr := engine.Shutdown(ctx); engineErr != nil {
 						finalErr = errors.Join(finalErr, engineErr)
-						return
 					}
+				}
+				if shutdownErr := execution.ShutdownSharedClient(ctx); shutdownErr != nil {
+					finalErr = errors.Join(finalErr, shutdownErr)
 				}
 			}()
 
