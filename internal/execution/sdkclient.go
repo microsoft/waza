@@ -54,7 +54,7 @@ func SharedClient(opts SharedClientOptions) CopilotClient {
 		}
 		clientOptions, err := sharedClientOptions(logLevel)
 		if err != nil {
-			slog.Warn("embedded Copilot CLI unavailable; refusing PATH fallback", "error", err)
+			slog.Warn("Copilot CLI path resolution failed; refusing PATH fallback", "error", err)
 			sharedClient = &startupErrorClient{err: err}
 			return
 		}
