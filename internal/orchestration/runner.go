@@ -1190,7 +1190,6 @@ func (r *EvalRunner) buildExecutionRequest(tc *models.TestCase) (*execution.Exec
 		SkillPaths:        resolvedSkillPaths,
 		NoSkills:          noSkills,
 		SuppressSkillBody: !spec.Config.ShouldInjectSkillBody(),
-		Timeout:           time.Duration(timeout) * time.Second,
 		MCPServers:        convertMCPServers(spec.Config.ServerConfigs),
 	}, nil
 }
