@@ -133,6 +133,32 @@ func TestSharedClient_UsesEmbeddedCLIPath(t *testing.T) {
 	}
 }
 
+func TestSharedClient_PassesCLIArgs(t *testing.T) {
+	resetSharedClientForTest()
+	t.Cleanup(resetSharedClientForTest)
+	t.Setenv("COPILOT_CLI_PATH", "")
+
+	embeddedCLIPath = func() (string, error) { return "/cache/copilot-sdk/copilot_1.0.49", nil }
+	t.Cleanup(func() { embeddedCLIPath = embedded.Path })
+
+	stub := &stubClient{}
+	var gotOptions *copilot.ClientOptions
+	sharedConstruct = func(opts *copilot.ClientOptions) CopilotClient {
+		gotOptions = opts
+		return stub
+	}
+	t.Cleanup(func() { sharedConstruct = newCopilotClient })
+
+	cliArgs := []string{"--model", "claude-sonnet-4.5"}
+	_ = SharedClient(SharedClientOptions{CLIArgs: cliArgs})
+	if gotOptions == nil {
+		t.Fatalf("expected shared client to be constructed")
+	}
+	if strings.Join(gotOptions.CLIArgs, " ") != strings.Join(cliArgs, " ") {
+		t.Fatalf("expected CLIArgs %v, got %v", cliArgs, gotOptions.CLIArgs)
+	}
+}
+
 func TestSharedClient_UsesCOPILOTCLIPathOverride(t *testing.T) {
 	resetSharedClientForTest()
 	t.Cleanup(resetSharedClientForTest)
