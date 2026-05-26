@@ -543,7 +543,7 @@ inputs:
 | `type`   | yes | Materialization strategy. Currently only `worktree` (uses `git worktree add --detach` against a local source). |
 | `source` | yes | Local filesystem path to a git repository. |
 | `commit` | no  | Commit SHA, branch, or tag. Defaults to source HEAD. Branch/tag names use `--detach` so they don't conflict with the source checkout. |
-| `dest`   | no  | Relative subdirectory under the workspace. Omit to use the workspace root. Must not contain path traversal. |
+| `dest`   | yes | Relative subdirectory under the workspace where the repo is materialized. Required because `git worktree add` refuses targets that already exist. Must not contain `..` segments. |
 
 Worktrees are removed via `git worktree remove --force` when the engine shuts down, before the workspace directory is deleted.
 

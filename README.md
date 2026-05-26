@@ -1185,7 +1185,7 @@ inputs:
 | `type`   | yes | Materialization strategy. Currently only `worktree`. |
 | `source` | yes | Local filesystem path to a git repository to source the checkout from. |
 | `commit` | no  | Commit SHA, branch, or tag. Defaults to the source repo's HEAD. Branch/tag names use `--detach` so they don't conflict with the source checkout. |
-| `dest`   | no  | Relative subdirectory under the workspace. Omit to materialize at the workspace root. Must not contain path traversal. |
+| `dest`   | yes | Relative subdirectory under the workspace where the repo is materialized. Required because `git worktree add` refuses targets that already exist, and the workspace root is created up-front. Must not contain `..` segments. |
 
 `workdir` (also under `inputs`) is an optional relative path inside the workspace to use as the agent's working directory — typically set to the same value as `dest` so the agent starts inside the checked-out repo.
 

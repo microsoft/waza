@@ -50,10 +50,10 @@ func CloneGitResources(ctx context.Context, resources []models.GitResource, work
 		return nil, nil
 	}
 
-	cleanWorkspace := filepath.Clean(workspaceDir)
-	if cleanWorkspace == "" {
+	if workspaceDir == "" {
 		return nil, fmt.Errorf("workspace is not set")
 	}
+	cleanWorkspace := filepath.Clean(workspaceDir)
 
 	created := make([]GitResource, 0, len(resources))
 	for i := range resources {
@@ -87,15 +87,21 @@ func CloneGitResources(ctx context.Context, resources []models.GitResource, work
 }
 
 // resolveDest joins dest under workspaceDir and verifies it stays inside
-// the workspace. An empty dest resolves to the workspace root.
+// the workspace. dest must be non-empty for the worktree strategy because
+// `git worktree add` requires the target path to NOT already exist, and
+// the workspace directory has already been created by the engine before
+// CloneGitResources is called.
 func resolveDest(workspaceDir, dest string) (string, error) {
 	if dest == "" {
-		return workspaceDir, nil
+		return "", fmt.Errorf("dest is required (worktree target must not exist; the workspace root has already been created)")
 	}
 	// filepath.IsAbs returns false for paths like "/foo" on Windows (rooted but
 	// not fully qualified). Reject any path that starts with a separator too.
 	if filepath.IsAbs(dest) || strings.HasPrefix(dest, "/") || strings.HasPrefix(dest, `\`) {
 		return "", fmt.Errorf("dest %q must be a relative path", dest)
+	}
+	if containsTraversalSegment(dest) {
+		return "", fmt.Errorf("dest %q must not contain '..' segments", dest)
 	}
 	resolved := filepath.Clean(filepath.Join(workspaceDir, dest))
 	rel, err := filepath.Rel(workspaceDir, resolved)
@@ -103,6 +109,23 @@ func resolveDest(workspaceDir, dest string) (string, error) {
 		return "", fmt.Errorf("dest %q escapes the workspace", dest)
 	}
 	return resolved, nil
+}
+
+// containsTraversalSegment reports whether the slash- or os-separator-
+// delimited path contains any `..` component (e.g. "foo/../bar", "../x",
+// "x/.."). filepath.Clean would normalize these away before
+// filepath.Rel-based checks could see them, so we look at the raw input.
+func containsTraversalSegment(p string) bool {
+	// Normalize separators so we catch both styles on every OS.
+	parts := strings.FieldsFunc(p, func(r rune) bool {
+		return r == '/' || r == filepath.Separator
+	})
+	for _, seg := range parts {
+		if seg == ".." {
+			return true
+		}
+	}
+	return false
 }
 
 // gitWorktree wraps a `git worktree add` materialization so it can be
@@ -142,12 +165,15 @@ func (g *gitWorktree) Cleanup(ctx context.Context) error {
 	if g == nil || g.cleaned {
 		return nil
 	}
-	g.cleaned = true
 	// --force handles the case where the worktree has uncommitted changes
 	// or git considers the target locked for any reason.
 	if _, err := runGit(ctx, g.sourceDir, "worktree", "remove", "--force", g.target); err != nil {
+		// Leave cleaned=false so callers (and re-entrant cleanup paths)
+		// can retry on transient git failures instead of leaking the
+		// worktree silently.
 		return fmt.Errorf("git worktree remove failed: %w", err)
 	}
+	g.cleaned = true
 	return nil
 }
 

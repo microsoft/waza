@@ -76,12 +76,18 @@ type GitResource struct {
 }
 
 // Validate verifies that the git resource has the required fields and that
-// its destination path is safe (relative, no traversal).
+// its destination path is safe (relative, no traversal segments).
 func (g *GitResource) Validate() error {
 	switch g.Type {
 	case GitResourceTypeWorktree:
 		if g.Source == "" {
 			return fmt.Errorf("git resource (type=worktree): source is required")
+		}
+		// Worktree requires a non-empty dest because `git worktree add`
+		// refuses targets that already exist, and the engine creates the
+		// workspace directory before materializing resources into it.
+		if g.Dest == "" {
+			return fmt.Errorf("git resource (type=worktree): dest is required (must point at a subdirectory under the workspace)")
 		}
 	case "":
 		return fmt.Errorf("git resource: type is required (only %q is currently supported)", GitResourceTypeWorktree)
@@ -95,13 +101,31 @@ func (g *GitResource) Validate() error {
 		if filepath.IsAbs(g.Dest) || strings.HasPrefix(g.Dest, "/") || strings.HasPrefix(g.Dest, `\`) {
 			return fmt.Errorf("git resource: dest %q must be a relative path", g.Dest)
 		}
-		clean := filepath.Clean(g.Dest)
-		if clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) || strings.Contains(clean, string(filepath.Separator)+".."+string(filepath.Separator)) {
-			return fmt.Errorf("git resource: dest %q must not contain path traversal", g.Dest)
+		// Check the RAW input for `..` segments so inputs like
+		// "foo/../bar" are rejected even though filepath.Clean would
+		// silently normalize them away before any later check sees them.
+		if containsTraversalSegmentInPath(g.Dest) {
+			return fmt.Errorf("git resource: dest %q must not contain '..' segments", g.Dest)
 		}
 	}
 
 	return nil
+}
+
+// containsTraversalSegmentInPath reports whether the path contains any `..`
+// component. It looks at the raw input (split on both `/` and the OS
+// separator) so it catches traversal that filepath.Clean would otherwise
+// normalize away.
+func containsTraversalSegmentInPath(p string) bool {
+	parts := strings.FieldsFunc(p, func(r rune) bool {
+		return r == '/' || r == filepath.Separator
+	})
+	for _, seg := range parts {
+		if seg == ".." {
+			return true
+		}
+	}
+	return false
 }
 
 // TaskExpectation defines expected outcomes.
@@ -333,14 +357,14 @@ func LoadTestCase(path string) (*TestCase, error) {
 	}
 
 	// Validate workdir does not contain path traversal — full bounded check
-	// happens at execution time against the actual workspace.
+	// happens at execution time against the actual workspace. Check the raw
+	// input so `foo/../bar` style values are rejected too.
 	if wd := tc.Stimulus.WorkDir; wd != "" {
 		if filepath.IsAbs(wd) {
 			return nil, fmt.Errorf("test case %s: workdir %q must be a relative path", path, wd)
 		}
-		clean := filepath.Clean(wd)
-		if clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
-			return nil, fmt.Errorf("test case %s: workdir %q must not contain path traversal", path, wd)
+		if containsTraversalSegmentInPath(wd) {
+			return nil, fmt.Errorf("test case %s: workdir %q must not contain '..' segments", path, wd)
 		}
 	}
 

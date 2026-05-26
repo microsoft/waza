@@ -163,7 +163,9 @@ func contains(haystack, needle string) bool {
 // ResolveWorkDir returns the effective working directory for the agent
 // session. When workDir is empty, the workspace root is returned. Otherwise
 // workDir is joined under workspaceDir and verified not to escape it via
-// path traversal.
+// path traversal. `..` segments are rejected outright (even if they would
+// resolve to a path still inside the workspace) so callers cannot rely on
+// filesystem normalization to hide intent.
 func ResolveWorkDir(workspaceDir, workDir string) (string, error) {
 	if workDir == "" {
 		return workspaceDir, nil
@@ -172,6 +174,17 @@ func ResolveWorkDir(workspaceDir, workDir string) (string, error) {
 	// not fully qualified). Reject any path that starts with a separator too.
 	if filepath.IsAbs(workDir) || strings.HasPrefix(workDir, "/") || strings.HasPrefix(workDir, `\`) {
 		return "", fmt.Errorf("workdir %q must be a relative path", workDir)
+	}
+	// Reject `..` segments in the raw input so values like "foo/../bar"
+	// — which filepath.Clean would normalize away — never reach the
+	// session. The docs/schema document workdir as traversal-free.
+	parts := strings.FieldsFunc(workDir, func(r rune) bool {
+		return r == '/' || r == filepath.Separator
+	})
+	for _, seg := range parts {
+		if seg == ".." {
+			return "", fmt.Errorf("workdir %q must not contain '..' segments", workDir)
+		}
 	}
 	cleanWorkspace := filepath.Clean(workspaceDir)
 	resolved := filepath.Clean(filepath.Join(cleanWorkspace, workDir))

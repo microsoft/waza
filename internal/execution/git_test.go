@@ -116,7 +116,7 @@ func TestCloneGitResources_RejectsTraversalDest(t *testing.T) {
 		Dest:   "../outside",
 	}}, workspace)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "traversal")
+	assert.Contains(t, err.Error(), "..")
 }
 
 func TestCloneGitResources_RejectsUnsupportedType(t *testing.T) {
@@ -129,24 +129,41 @@ func TestCloneGitResources_RejectsUnsupportedType(t *testing.T) {
 	assert.Contains(t, err.Error(), "unsupported")
 }
 
-func TestCloneGitResources_NoDest_MaterializesAtRoot(t *testing.T) {
+func TestCloneGitResources_RequiresDest(t *testing.T) {
 	source := initSourceRepo(t)
-	// `git worktree add` requires the target directory to NOT exist, so
-	// use a child path for the workspace.
-	parent := t.TempDir()
-	workspace := filepath.Join(parent, "ws")
+	workspace := t.TempDir()
 
-	ctx := context.Background()
-	resources, err := CloneGitResources(ctx, []models.GitResource{{
+	// The engine creates the workspace directory before calling
+	// CloneGitResources, so `git worktree add` cannot use the workspace
+	// root as its target. Dest is therefore required for the worktree
+	// strategy.
+	_, err := CloneGitResources(context.Background(), []models.GitResource{{
 		Type:   models.GitResourceTypeWorktree,
 		Source: source,
 	}}, workspace)
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = resources[0].Cleanup(ctx) })
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "dest is required")
+}
 
-	got, err := os.ReadFile(filepath.Join(workspace, "README.md"))
-	require.NoError(t, err)
-	assert.Equal(t, "hello\n", string(got))
+func TestCloneGitResources_RejectsTraversalSegmentInDest(t *testing.T) {
+	source := initSourceRepo(t)
+	workspace := t.TempDir()
+	// "foo/../bar" normalizes to "bar" and would slip past a post-Clean
+	// check, but validation should reject the raw '..' segment outright.
+	_, err := CloneGitResources(context.Background(), []models.GitResource{{
+		Type:   models.GitResourceTypeWorktree,
+		Source: source,
+		Dest:   "foo/../bar",
+	}}, workspace)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "..")
+}
+
+func TestResolveWorkDir_RejectsTraversalSegment(t *testing.T) {
+	ws := t.TempDir()
+	_, err := ResolveWorkDir(ws, "foo/../bar")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "..")
 }
 
 func TestResolveWorkDir(t *testing.T) {

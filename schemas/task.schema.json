@@ -157,7 +157,7 @@
       "type": "object",
       "additionalProperties": false,
       "description": "A local git repository to materialize into the workspace.",
-      "required": ["type", "source"],
+      "required": ["type", "source", "dest"],
       "properties": {
         "type": {
           "type": "string",
@@ -175,7 +175,8 @@
         },
         "dest": {
           "type": "string",
-          "description": "Optional relative subdirectory under the workspace to materialize the repo into. Omit to use the workspace root. Must not contain path traversal."
+          "minLength": 1,
+          "description": "Required relative subdirectory under the workspace where the repo is materialized. `git worktree add` refuses targets that already exist, and the workspace root is created up-front, so `dest` must point at a non-existent subdirectory. Must not contain `..` segments."
         }
       }
     },

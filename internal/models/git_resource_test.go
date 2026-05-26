@@ -80,7 +80,7 @@ inputs:
 	require.NoError(t, os.WriteFile(path, []byte(body), 0o644))
 	_, err := LoadTestCase(path)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "traversal")
+	assert.Contains(t, err.Error(), "..")
 }
 
 func TestGitResource_ValidateAcceptsWorktreeAndCleanDest(t *testing.T) {
@@ -91,4 +91,35 @@ func TestGitResource_ValidateAcceptsWorktreeAndCleanDest(t *testing.T) {
 func TestGitResource_ValidateRejectsAbsoluteDest(t *testing.T) {
 	g := &GitResource{Type: GitResourceTypeWorktree, Source: "/tmp/r", Dest: "/abs"}
 	assert.Error(t, g.Validate())
+}
+
+func TestGitResource_ValidateRejectsTraversalSegmentInDest(t *testing.T) {
+	// "foo/../bar" cleans to "bar" but the raw input contains a '..'
+	// segment, which we reject for clarity.
+	g := &GitResource{Type: GitResourceTypeWorktree, Source: "/tmp/r", Dest: "foo/../bar"}
+	err := g.Validate()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "..")
+}
+
+func TestGitResource_ValidateRequiresDestForWorktree(t *testing.T) {
+	g := &GitResource{Type: GitResourceTypeWorktree, Source: "/tmp/r"}
+	err := g.Validate()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "dest")
+}
+
+func TestLoadTestCase_Workdir_RejectsTraversalSegment(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "task.yaml")
+	body := `id: tc
+name: bad
+inputs:
+  prompt: "x"
+  workdir: "foo/../bar"
+`
+	require.NoError(t, os.WriteFile(path, []byte(body), 0o644))
+	_, err := LoadTestCase(path)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "..")
 }
