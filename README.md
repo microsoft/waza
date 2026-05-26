@@ -1158,6 +1158,41 @@ hooks:
 
 When using CSV-generated tasks, each row's column values are also available as `{{.Vars.column_name}}`.
 
+## Git Repository Resources
+
+Tasks can materialize a clean copy of a local git repository into the per-task workspace before the agent runs. This is most useful when you are developing skills inside the same repository the skills are intended to operate on (for example, the `eng/` tooling in `azure-sdk-for-rust`): rather than hand-staging fixtures, point at the local clone and each test run gets an isolated checkout.
+
+Today only the `worktree` strategy is supported. It uses `git worktree add --detach` against a local clone — cheap (shares the same `.git` object store), no network required, and branch/tag names won't conflict with the source repo's current checkout.
+
+```yaml
+# task.yaml
+id: my-task
+name: Repo-aware task
+inputs:
+  prompt: "Explain the layout of this repository"
+  workdir: my-repo          # optional: where the agent starts (relative to workspace)
+  repos:
+    - type: worktree        # required; only "worktree" is currently supported
+      source: /path/to/local/clone   # required; local git repo to source from
+      commit: main          # optional; commit SHA, branch, or tag (defaults to HEAD)
+      dest: my-repo         # optional; subdir under workspace (omit to use workspace root)
+```
+
+**Fields:**
+
+| Field    | Required | Description |
+|---|---|---|
+| `type`   | yes | Materialization strategy. Currently only `worktree`. |
+| `source` | yes | Local filesystem path to a git repository to source the checkout from. |
+| `commit` | no  | Commit SHA, branch, or tag. Defaults to the source repo's HEAD. Branch/tag names use `--detach` so they don't conflict with the source checkout. |
+| `dest`   | no  | Relative subdirectory under the workspace. Omit to materialize at the workspace root. Must not contain path traversal. |
+
+`workdir` (also under `inputs`) is an optional relative path inside the workspace to use as the agent's working directory — typically set to the same value as `dest` so the agent starts inside the checked-out repo.
+
+Waza automatically removes each worktree on engine shutdown (`git worktree remove --force`) before deleting the workspace directory, so the source repo's `.git/worktrees/` bookkeeping stays clean.
+
+**Out of scope today** (tracked separately): HTTPS / SSH clone strategies, submodules, Git LFS, and auto-detecting "the repo this test is running in" without an explicit `source`.
+
 ## CI/CD Integration
 
 Waza is designed to work seamlessly with CI/CD pipelines.

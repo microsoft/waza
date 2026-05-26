@@ -1,0 +1,11 @@
+name: repo-resources-example
+skill: repo-resources
+version: "1.0"
+
+config:
+  executor: mock
+  model: mock
+  timeout_seconds: 60
+
+tasks:
+  - tasks/explain-repo.yaml

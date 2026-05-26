@@ -98,6 +98,19 @@ See [rubrics/README.md](./rubrics/README.md) for available rubrics and usage.
 
 ---
 
+### 7. [repo-resources](./repo-resources/)
+**Purpose**: Materialize a clean copy of a local git repository into each task's workspace via `git worktree`
+
+**Demonstrates**:
+- `inputs.repos` with the `worktree` strategy
+- `inputs.workdir` to start the agent inside the checked-out repo
+- Per-run isolated checkouts that never touch your real clone
+
+**Quick Start**:
+See [repo-resources/README.md](./repo-resources/README.md) for setup (you need to point `source:` at a local clone).
+
+---
+
 ## Usage Patterns
 
 ### Running Examples

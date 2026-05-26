@@ -34,8 +34,9 @@ type CopilotEngine struct {
 	startOnce sync.Once
 
 	workspacesMu  sync.Mutex
-	workspaces    []string // workspaces to clean up at Shutdown
-	keepWorkspace bool     // when true, skip workspace cleanup on shutdown
+	workspaces    []string      // workspaces to clean up at Shutdown
+	gitResources  []GitResource // git resources to clean up before workspace removal
+	keepWorkspace bool          // when true, skip workspace cleanup on shutdown
 
 	// sessions maps session IDs to copilotSessions
 	sessions   map[string]CopilotSession
@@ -310,10 +311,15 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 	if req.WorkspaceDir != "" {
 		workspaceDir = req.WorkspaceDir
 	} else {
-		workspaceDir, err = e.setupWorkspace(req.Resources)
+		workspaceDir, err = e.setupWorkspace(ctx, req.Resources, req.GitResources)
 		if err != nil {
 			return nil, err
 		}
+	}
+
+	workingDir, err := ResolveWorkDir(workspaceDir, req.WorkDir)
+	if err != nil {
+		return nil, err
 	}
 
 	// Build skill directories list and system message, unless skills are disabled
@@ -352,7 +358,7 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 			OnPermissionRequest: permRequestCallback,
 
 			SkillDirectories: skillDirs,
-			WorkingDirectory: workspaceDir,
+			WorkingDirectory: workingDir,
 			SystemMessage:    systemMessage,
 			Streaming:        req.Streaming,
 			MCPServers:       req.MCPServers,
@@ -371,7 +377,7 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 
 			// these are the directory for the skill itself.
 			SkillDirectories: skillDirs,
-			WorkingDirectory: workspaceDir,
+			WorkingDirectory: workingDir,
 			SystemMessage:    systemMessage,
 			Streaming:        req.Streaming,
 			MCPServers:       req.MCPServers,
@@ -534,13 +540,24 @@ func (e *CopilotEngine) doShutdown(ctx context.Context) error {
 
 	// remove the workspace folders - should be safe now that all the copilot sessions are shut down
 	// and the tests are complete.
-	workspaces := func() []string {
+	workspaces, gitResources := func() ([]string, []GitResource) {
 		e.workspacesMu.Lock()
 		defer e.workspacesMu.Unlock()
 		workspaces := e.workspaces
+		gitRes := e.gitResources
 		e.workspaces = nil
-		return workspaces
+		e.gitResources = nil
+		return workspaces, gitRes
 	}()
+
+	// Clean up git resources first — `git worktree remove` needs the
+	// workspace directory to still exist so it can record the removal in
+	// the source repo's .git/worktrees/ bookkeeping.
+	for _, gr := range gitResources {
+		if err := gr.Cleanup(ctx); err != nil {
+			slog.Warn("failed to cleanup git resource", "error", err)
+		}
+	}
 
 	for _, ws := range workspaces {
 		if ws != "" {
@@ -621,7 +638,7 @@ func (*CopilotEngine) getSkillDirs(cwd string, req *ExecutionRequest) []string {
 	return skillDirs
 }
 
-func (e *CopilotEngine) setupWorkspace(resources []ResourceFile) (string, error) {
+func (e *CopilotEngine) setupWorkspace(ctx context.Context, resources []ResourceFile, gitResources []models.GitResource) (string, error) {
 	workspaceDir, err := os.MkdirTemp("", "waza-*")
 
 	if err != nil {
@@ -635,6 +652,20 @@ func (e *CopilotEngine) setupWorkspace(resources []ResourceFile) (string, error)
 	// Write resource files to workspace
 	if err := setupWorkspaceResources(workspaceDir, resources); err != nil {
 		return "", fmt.Errorf("failed to setup resources at workspace %s: %w", workspaceDir, err)
+	}
+
+	// Materialize git resources (e.g. worktrees) into the workspace.
+	// These must be cleaned up BEFORE the workspace directory is removed
+	// at shutdown so `git worktree remove` can update bookkeeping in the
+	// source repository's .git/worktrees/.
+	gitRes, err := CloneGitResources(ctx, gitResources, workspaceDir)
+	if err != nil {
+		return "", fmt.Errorf("failed to materialize git resources at workspace %s: %w", workspaceDir, err)
+	}
+	if len(gitRes) > 0 {
+		e.workspacesMu.Lock()
+		e.gitResources = append(e.gitResources, gitRes...)
+		e.workspacesMu.Unlock()
 	}
 
 	return workspaceDir, nil

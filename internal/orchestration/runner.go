@@ -1181,6 +1181,8 @@ func (r *EvalRunner) buildExecutionRequest(tc *models.TestCase) (*execution.Exec
 		Message:           tc.Stimulus.Message,
 		Context:           tc.Stimulus.Metadata,
 		Resources:         resources,
+		GitResources:      tc.Stimulus.Repos,
+		WorkDir:           tc.Stimulus.WorkDir,
 		Instructions:      instructions,
 		SkillName:         spec.SkillName,
 		TaskName:          tc.DisplayName,
@@ -1188,6 +1190,7 @@ func (r *EvalRunner) buildExecutionRequest(tc *models.TestCase) (*execution.Exec
 		SkillPaths:        resolvedSkillPaths,
 		NoSkills:          noSkills,
 		SuppressSkillBody: !spec.Config.ShouldInjectSkillBody(),
+		Timeout:           time.Duration(timeout) * time.Second,
 		MCPServers:        convertMCPServers(spec.Config.ServerConfigs),
 	}, nil
 }

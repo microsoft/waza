@@ -1,0 +1,18 @@
+id: explain-repo
+name: Explain a local repo checkout
+description: |
+  Demonstrates the `inputs.repos` field. Replace SOURCE_REPO_PATH with the
+  absolute path to a local git clone you want the agent to reason about
+  (for example, the repository you're developing this skill in). Each run
+  gets a fresh `git worktree` checkout under workspace/my-repo so the
+  agent's edits never touch your real clone.
+inputs:
+  prompt: "Look around the my-repo checkout and summarize its top-level layout."
+  workdir: my-repo
+  repos:
+    - type: worktree
+      source: SOURCE_REPO_PATH
+      commit: main
+      dest: my-repo
+expected:
+  output_contains: ["my-repo"]

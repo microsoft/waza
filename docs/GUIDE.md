@@ -500,6 +500,30 @@ waza run evals/code-explainer/eval.yaml --cache --cache-dir ./my-cache
 
 ---
 
+### Testing Against a Local Git Repo
+
+When you are developing skills inside the same repository the skills are meant to operate on (for example, `eng/` tooling in `azure-sdk-for-rust`), you can have each task start with a clean checkout of that repo materialized into its workspace:
+
+```yaml
+# tasks/repo-aware.yaml
+id: repo-aware
+name: Repo-aware task
+inputs:
+  prompt: "Explain how the eng/ tooling builds release packages"
+  workdir: my-repo
+  repos:
+    - type: worktree
+      source: /Users/me/code/azure-sdk-for-rust
+      commit: main
+      dest: my-repo
+expected:
+  output_contains: ["eng/"]
+```
+
+The `worktree` strategy uses `git worktree add --detach` against the local source clone — it shares the source repo's `.git` object store (so it's cheap, no network) and uses `--detach` so branch/tag names won't conflict with the source repo's current checkout. Worktrees are removed via `git worktree remove --force` when the engine shuts down. See `## Git Repository Resources` in the README for the full field reference.
+
+---
+
 ### Filtering and Selective Runs
 
 Run only specific tasks:

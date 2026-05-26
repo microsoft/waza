@@ -2,6 +2,8 @@ package execution
 
 import (
 	"context"
+	"fmt"
+	"path/filepath"
 	"strings"
 
 	copilot "github.com/github/copilot-sdk/go"
@@ -49,6 +51,8 @@ type ExecutionRequest struct {
 	Message      string
 	Context      map[string]any
 	Resources    []ResourceFile
+	GitResources []models.GitResource
+	WorkDir      string
 	Instructions []InstructionFile
 	Tools        []copilot.Tool
 
@@ -154,4 +158,24 @@ func (r *ExecutionResponse) ContainsText(text string) bool {
 func contains(haystack, needle string) bool {
 	// Case-insensitive substring search
 	return strings.Contains(strings.ToLower(haystack), strings.ToLower(needle))
+}
+
+// ResolveWorkDir returns the effective working directory for the agent
+// session. When workDir is empty, the workspace root is returned. Otherwise
+// workDir is joined under workspaceDir and verified not to escape it via
+// path traversal.
+func ResolveWorkDir(workspaceDir, workDir string) (string, error) {
+	if workDir == "" {
+		return workspaceDir, nil
+	}
+	if filepath.IsAbs(workDir) {
+		return "", fmt.Errorf("workdir %q must be a relative path", workDir)
+	}
+	cleanWorkspace := filepath.Clean(workspaceDir)
+	resolved := filepath.Clean(filepath.Join(cleanWorkspace, workDir))
+	rel, err := filepath.Rel(cleanWorkspace, resolved)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("workdir %q escapes the workspace", workDir)
+	}
+	return resolved, nil
 }

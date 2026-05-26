@@ -118,6 +118,17 @@
           },
           "description": "File references or inline content provided to the agent."
         },
+        "repos": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/gitResource"
+          },
+          "description": "Local git repositories materialized into the workspace before the task runs (e.g. via 'git worktree add')."
+        },
+        "workdir": {
+          "type": "string",
+          "description": "Optional relative path inside the workspace to use as the agent's working directory. Must not contain path traversal."
+        },
         "environment": {
           "type": "object",
           "additionalProperties": {
@@ -139,6 +150,32 @@
         "content": {
           "type": "string",
           "description": "Inline file content."
+        }
+      }
+    },
+    "gitResource": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "A local git repository to materialize into the workspace.",
+      "required": ["type", "source"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["worktree"],
+          "description": "Materialization strategy. Currently only 'worktree' (uses `git worktree add` against a local source repo) is supported."
+        },
+        "source": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Local filesystem path to a git repository to source the checkout from."
+        },
+        "commit": {
+          "type": "string",
+          "description": "Optional commit SHA, branch, or tag to check out. Defaults to the source repo's HEAD. Branch/tag names use `--detach` so they don't conflict with the source checkout."
+        },
+        "dest": {
+          "type": "string",
+          "description": "Optional relative subdirectory under the workspace to materialize the repo into. Omit to use the workspace root. Must not contain path traversal."
         }
       }
     },

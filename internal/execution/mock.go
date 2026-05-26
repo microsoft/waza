@@ -3,6 +3,7 @@ package execution
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"sync"
 	"sync/atomic"
@@ -16,6 +17,7 @@ import (
 type MockEngine struct {
 	modelID       string
 	workspace     string
+	gitResources  []GitResource
 	keepWorkspace bool
 	mtx           *sync.Mutex
 	initCalled    atomic.Bool
@@ -58,6 +60,12 @@ func (m *MockEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Execu
 	} else {
 		// Clean up any previous workspace before creating a new one
 		if m.workspace != "" {
+			for _, gr := range m.gitResources {
+				if err := gr.Cleanup(ctx); err != nil {
+					slog.Warn("failed to cleanup previous git resource", "error", err)
+				}
+			}
+			m.gitResources = nil
 			if err := os.RemoveAll(m.workspace); err != nil {
 				fmt.Fprintf(os.Stderr, "Warning: failed to remove old mock workspace %s: %v\n", m.workspace, err)
 			}
@@ -76,6 +84,18 @@ func (m *MockEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Execu
 		if err := setupWorkspaceResources(m.workspace, req.Resources); err != nil {
 			return nil, fmt.Errorf("failed to setup mock workspace resources: %w", err)
 		}
+
+		// Materialize git resources just like CopilotEngine does, so tests that
+		// use the mock engine still exercise the worktree pipeline end-to-end.
+		gitRes, err := CloneGitResources(ctx, req.GitResources, m.workspace)
+		if err != nil {
+			return nil, fmt.Errorf("failed to materialize mock git resources: %w", err)
+		}
+		m.gitResources = append(m.gitResources, gitRes...)
+	}
+
+	if _, err := ResolveWorkDir(m.workspace, req.WorkDir); err != nil {
+		return nil, err
 	}
 
 	// Simple mock response
@@ -139,6 +159,12 @@ func (m *MockEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Execu
 }
 
 func (m *MockEngine) Shutdown(ctx context.Context) error {
+	for _, gr := range m.gitResources {
+		if err := gr.Cleanup(ctx); err != nil {
+			slog.Warn("failed to cleanup mock git resource", "error", err)
+		}
+	}
+	m.gitResources = nil
 	if m.workspace != "" {
 		if m.keepWorkspace {
 			fmt.Fprintf(os.Stderr, "Workspace preserved: %s\n", m.workspace)
