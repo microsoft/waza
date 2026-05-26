@@ -76,6 +76,38 @@ func TestShutdownSharedClient_Idempotent(t *testing.T) {
 	}
 }
 
+func TestShutdownSharedClient_StopsAllCLIArgClients(t *testing.T) {
+	resetSharedClientForTest()
+	t.Cleanup(resetSharedClientForTest)
+	t.Setenv("COPILOT_CLI_PATH", "")
+
+	embeddedCLIPath = func() (string, error) { return "/tmp/embedded-copilot", nil }
+	t.Cleanup(func() { embeddedCLIPath = embedded.Path })
+
+	var clients []*stubClient
+	sharedConstruct = func(*copilot.ClientOptions) CopilotClient {
+		stub := &stubClient{}
+		clients = append(clients, stub)
+		return stub
+	}
+	t.Cleanup(func() { sharedConstruct = newCopilotClient })
+
+	_ = SharedClient(SharedClientOptions{CLIArgs: []string{"--model", "claude-sonnet-4.5"}})
+	_ = SharedClient(SharedClientOptions{CLIArgs: []string{"--model", "gpt-5.4"}})
+
+	if err := ShutdownSharedClient(context.Background()); err != nil {
+		t.Fatalf("shutdown: %v", err)
+	}
+	if len(clients) != 2 {
+		t.Fatalf("expected two shared clients, got %d", len(clients))
+	}
+	for i, client := range clients {
+		if client.stops != 1 {
+			t.Fatalf("expected client %d Stop to be called once, got %d", i, client.stops)
+		}
+	}
+}
+
 func TestShutdownSharedClient_NoClientNeverConstructed(t *testing.T) {
 	resetSharedClientForTest()
 	t.Cleanup(resetSharedClientForTest)
@@ -156,6 +188,44 @@ func TestSharedClient_PassesCLIArgs(t *testing.T) {
 	}
 	if strings.Join(gotOptions.CLIArgs, " ") != strings.Join(cliArgs, " ") {
 		t.Fatalf("expected CLIArgs %v, got %v", cliArgs, gotOptions.CLIArgs)
+	}
+}
+
+func TestSharedClient_SeparatesDifferentCLIArgs(t *testing.T) {
+	resetSharedClientForTest()
+	t.Cleanup(resetSharedClientForTest)
+	t.Setenv("COPILOT_CLI_PATH", "")
+
+	embeddedCLIPath = func() (string, error) { return "/cache/copilot-sdk/copilot_1.0.49", nil }
+	t.Cleanup(func() { embeddedCLIPath = embedded.Path })
+
+	var gotArgs [][]string
+	sharedConstruct = func(opts *copilot.ClientOptions) CopilotClient {
+		gotArgs = append(gotArgs, append([]string{}, opts.CLIArgs...))
+		return &stubClient{}
+	}
+	t.Cleanup(func() { sharedConstruct = newCopilotClient })
+
+	sonnetArgs := []string{"--model", "claude-sonnet-4.5"}
+	gptArgs := []string{"--model", "gpt-5.4"}
+	sonnetA := SharedClient(SharedClientOptions{CLIArgs: sonnetArgs})
+	gpt := SharedClient(SharedClientOptions{CLIArgs: gptArgs})
+	sonnetB := SharedClient(SharedClientOptions{CLIArgs: sonnetArgs, LogLevel: "debug"})
+
+	if sonnetA == gpt {
+		t.Fatalf("different CLIArgs must get distinct shared clients")
+	}
+	if sonnetA != sonnetB {
+		t.Fatalf("same CLIArgs must reuse the shared client")
+	}
+	if len(gotArgs) != 2 {
+		t.Fatalf("expected two client constructions, got %d", len(gotArgs))
+	}
+	if strings.Join(gotArgs[0], " ") != strings.Join(sonnetArgs, " ") {
+		t.Fatalf("expected first CLIArgs %v, got %v", sonnetArgs, gotArgs[0])
+	}
+	if strings.Join(gotArgs[1], " ") != strings.Join(gptArgs, " ") {
+		t.Fatalf("expected second CLIArgs %v, got %v", gptArgs, gotArgs[1])
 	}
 }
 
