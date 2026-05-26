@@ -31,11 +31,14 @@ type SharedClientOptions struct {
 var (
 	sharedMu        sync.Mutex
 	sharedClients   map[string]CopilotClient
+	sharedClosed    bool
 	sharedShutdown  sync.Once
 	sharedErr       error
 	sharedConstruct = newCopilotClient // overridable for tests
 	embeddedCLIPath = embedded.Path    // overridable for tests
 )
+
+var errSharedClientClosed = errors.New("shared Copilot client has been shut down")
 
 // SharedClient returns a lazily-constructed, process-wide [CopilotClient].
 //
@@ -62,6 +65,9 @@ func SharedClient(opts SharedClientOptions) CopilotClient {
 
 	if sharedClients == nil {
 		sharedClients = make(map[string]CopilotClient)
+	}
+	if sharedClosed {
+		return &startupErrorClient{err: errSharedClientClosed}
 	}
 	if client := sharedClients[key]; client != nil {
 		return client
@@ -157,6 +163,9 @@ func ShutdownSharedClient(_ context.Context) error {
 	for _, client := range sharedClients {
 		clients = append(clients, client)
 	}
+	if len(clients) > 0 {
+		sharedClosed = true
+	}
 	sharedMu.Unlock()
 
 	if len(clients) == 0 {
@@ -181,5 +190,6 @@ func resetSharedClientForTest() {
 	defer sharedMu.Unlock()
 	sharedShutdown = sync.Once{}
 	sharedClients = nil
+	sharedClosed = false
 	sharedErr = nil
 }

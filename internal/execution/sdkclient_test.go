@@ -108,6 +108,36 @@ func TestShutdownSharedClient_StopsAllCLIArgClients(t *testing.T) {
 	}
 }
 
+func TestShutdownSharedClient_PreventsNewClientsAfterShutdown(t *testing.T) {
+	resetSharedClientForTest()
+	t.Cleanup(resetSharedClientForTest)
+	t.Setenv("COPILOT_CLI_PATH", "")
+
+	embeddedCLIPath = func() (string, error) { return "/tmp/embedded-copilot", nil }
+	t.Cleanup(func() { embeddedCLIPath = embedded.Path })
+
+	stub := &stubClient{}
+	constructs := 0
+	sharedConstruct = func(*copilot.ClientOptions) CopilotClient {
+		constructs++
+		return stub
+	}
+	t.Cleanup(func() { sharedConstruct = newCopilotClient })
+
+	_ = SharedClient(SharedClientOptions{CLIArgs: []string{"--model", "claude-sonnet-4.5"}})
+	if err := ShutdownSharedClient(context.Background()); err != nil {
+		t.Fatalf("shutdown: %v", err)
+	}
+
+	client := SharedClient(SharedClientOptions{CLIArgs: []string{"--model", "gpt-5.4"}})
+	if err := client.Start(context.Background()); !errors.Is(err, errSharedClientClosed) {
+		t.Fatalf("expected shared client closed error, got %v", err)
+	}
+	if constructs != 1 {
+		t.Fatalf("expected no new client construction after shutdown, got %d", constructs)
+	}
+}
+
 func TestShutdownSharedClient_NoClientNeverConstructed(t *testing.T) {
 	resetSharedClientForTest()
 	t.Cleanup(resetSharedClientForTest)
