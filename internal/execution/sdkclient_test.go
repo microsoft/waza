@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -216,7 +217,7 @@ func TestSharedClient_PassesCLIArgs(t *testing.T) {
 	if gotOptions == nil {
 		t.Fatalf("expected shared client to be constructed")
 	}
-	if strings.Join(gotOptions.CLIArgs, " ") != strings.Join(cliArgs, " ") {
+	if !reflect.DeepEqual(gotOptions.CLIArgs, cliArgs) {
 		t.Fatalf("expected CLIArgs %v, got %v", cliArgs, gotOptions.CLIArgs)
 	}
 }
@@ -251,10 +252,10 @@ func TestSharedClient_SeparatesDifferentCLIArgs(t *testing.T) {
 	if len(gotArgs) != 2 {
 		t.Fatalf("expected two client constructions, got %d", len(gotArgs))
 	}
-	if strings.Join(gotArgs[0], " ") != strings.Join(sonnetArgs, " ") {
+	if !reflect.DeepEqual(gotArgs[0], sonnetArgs) {
 		t.Fatalf("expected first CLIArgs %v, got %v", sonnetArgs, gotArgs[0])
 	}
-	if strings.Join(gotArgs[1], " ") != strings.Join(gptArgs, " ") {
+	if !reflect.DeepEqual(gotArgs[1], gptArgs) {
 		t.Fatalf("expected second CLIArgs %v, got %v", gptArgs, gotArgs[1])
 	}
 }
