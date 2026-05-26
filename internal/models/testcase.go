@@ -90,7 +90,9 @@ func (g *GitResource) Validate() error {
 	}
 
 	if g.Dest != "" {
-		if filepath.IsAbs(g.Dest) {
+		// filepath.IsAbs returns false for paths like "/foo" on Windows (rooted but
+		// not fully qualified). Reject any path that starts with a separator too.
+		if filepath.IsAbs(g.Dest) || strings.HasPrefix(g.Dest, "/") || strings.HasPrefix(g.Dest, `\`) {
 			return fmt.Errorf("git resource: dest %q must be a relative path", g.Dest)
 		}
 		clean := filepath.Clean(g.Dest)

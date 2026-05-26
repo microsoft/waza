@@ -168,7 +168,9 @@ func ResolveWorkDir(workspaceDir, workDir string) (string, error) {
 	if workDir == "" {
 		return workspaceDir, nil
 	}
-	if filepath.IsAbs(workDir) {
+	// filepath.IsAbs returns false for paths like "/foo" on Windows (rooted but
+	// not fully qualified). Reject any path that starts with a separator too.
+	if filepath.IsAbs(workDir) || strings.HasPrefix(workDir, "/") || strings.HasPrefix(workDir, `\`) {
 		return "", fmt.Errorf("workdir %q must be a relative path", workDir)
 	}
 	cleanWorkspace := filepath.Clean(workspaceDir)

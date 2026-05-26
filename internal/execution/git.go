@@ -92,7 +92,9 @@ func resolveDest(workspaceDir, dest string) (string, error) {
 	if dest == "" {
 		return workspaceDir, nil
 	}
-	if filepath.IsAbs(dest) {
+	// filepath.IsAbs returns false for paths like "/foo" on Windows (rooted but
+	// not fully qualified). Reject any path that starts with a separator too.
+	if filepath.IsAbs(dest) || strings.HasPrefix(dest, "/") || strings.HasPrefix(dest, `\`) {
 		return "", fmt.Errorf("dest %q must be a relative path", dest)
 	}
 	resolved := filepath.Clean(filepath.Join(workspaceDir, dest))

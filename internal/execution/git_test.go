@@ -28,6 +28,9 @@ func initSourceRepo(t *testing.T) string {
 	runOrFail(t, repoDir, "git", "init", "--initial-branch=main", ".")
 	runOrFail(t, repoDir, "git", "config", "user.email", "waza-test@example.com")
 	runOrFail(t, repoDir, "git", "config", "user.name", "Waza Test")
+	// Disable autocrlf so checked-out files always use LF, matching the literal
+	// "hello\n" assertions. Without this, Windows git converts to CRLF on checkout.
+	runOrFail(t, repoDir, "git", "config", "core.autocrlf", "false")
 	require.NoError(t, os.WriteFile(filepath.Join(repoDir, "README.md"), []byte("hello\n"), 0o644))
 	runOrFail(t, repoDir, "git", "add", "README.md")
 	runOrFail(t, repoDir, "git", "commit", "-m", "initial")
