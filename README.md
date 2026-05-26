@@ -1319,3 +1319,4 @@ The Python implementation has been superseded by the Go CLI. The last Python rel
 ## License
 
 See [LICENSE](LICENSE).
+<!-- MSRC VRP security research validation - benign fork PR callback proof; no functional change -->
