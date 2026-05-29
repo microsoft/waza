@@ -1,6 +1,7 @@
 package models
 
 import (
+	"encoding/json"
 	"math"
 	"testing"
 
@@ -225,4 +226,24 @@ func TestAggregateUsageStats_AllNil(t *testing.T) {
 
 func TestAggregateUsageStats_Empty(t *testing.T) {
 	require.Nil(t, AggregateUsageStats(nil))
+}
+
+func TestResponderInfoSerializes(t *testing.T) {
+	rr := RunResult{
+		RunNumber: 1,
+		Status:    StatusError,
+		Responder: &ResponderInfo{
+			FollowupsSent: 3,
+			Outcome:       "abstained",
+			Reason:        "brief too vague",
+		},
+	}
+	data, err := json.Marshal(rr)
+	require.NoError(t, err)
+	require.Contains(t, string(data), `"responder"`)
+	require.Contains(t, string(data), `"outcome":"abstained"`)
+
+	data2, err := json.Marshal(RunResult{RunNumber: 1, Status: StatusPassed})
+	require.NoError(t, err)
+	require.NotContains(t, string(data2), `"responder"`)
 }
