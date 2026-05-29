@@ -288,3 +288,55 @@ inputs:
 	require.Equal(t, 8, tc.Stimulus.Responder.MaxFollowups)
 	require.Contains(t, tc.Stimulus.Responder.Instructions, "research-agent")
 }
+
+func TestResponderValidationRejectsMissingInstructions(t *testing.T) {
+	tc := &TestCase{
+		TestID: "t1",
+		Stimulus: TaskStimulus{
+			Message:   "go",
+			Responder: &ResponderConfig{MaxFollowups: 3},
+		},
+	}
+	err := tc.Validate()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "instructions")
+}
+
+func TestResponderValidationRejectsZeroMaxFollowups(t *testing.T) {
+	tc := &TestCase{
+		TestID: "t1",
+		Stimulus: TaskStimulus{
+			Message:   "go",
+			Responder: &ResponderConfig{Instructions: "x", MaxFollowups: 0},
+		},
+	}
+	err := tc.Validate()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "max_followups")
+}
+
+func TestResponderValidationRejectsBothResponderAndFollowUps(t *testing.T) {
+	tc := &TestCase{
+		TestID: "t1",
+		Stimulus: TaskStimulus{
+			Message:   "go",
+			FollowUps: []string{"next"},
+			Responder: &ResponderConfig{Instructions: "x", MaxFollowups: 2},
+		},
+	}
+	err := tc.Validate()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "follow_up_prompts")
+	require.Contains(t, err.Error(), "responder")
+}
+
+func TestResponderValidationAcceptsValidConfig(t *testing.T) {
+	tc := &TestCase{
+		TestID: "t1",
+		Stimulus: TaskStimulus{
+			Message:   "go",
+			Responder: &ResponderConfig{Instructions: "x", MaxFollowups: 2},
+		},
+	}
+	require.NoError(t, tc.Validate())
+}

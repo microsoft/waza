@@ -348,6 +348,27 @@ func (tc *TestCase) Validate() error {
 		}
 		return fmt.Errorf("first_event_timeout_seconds must not be negative, got %d", *tc.FirstEventTimeoutSec)
 	}
+
+	if r := tc.Stimulus.Responder; r != nil {
+		name := tc.TestID
+		if name == "" {
+			name = tc.DisplayName
+		}
+		prefix := "test case"
+		if name != "" {
+			prefix = fmt.Sprintf("test case %q", name)
+		}
+		if strings.TrimSpace(r.Instructions) == "" {
+			return fmt.Errorf("%s: responder.instructions is required", prefix)
+		}
+		if r.MaxFollowups < 1 {
+			return fmt.Errorf("%s: responder.max_followups must be at least 1, got %d", prefix, r.MaxFollowups)
+		}
+		if len(tc.Stimulus.FollowUps) > 0 {
+			return fmt.Errorf("%s: inputs.responder and inputs.follow_up_prompts are mutually exclusive; use one or the other", prefix)
+		}
+	}
+
 	return nil
 }
 
