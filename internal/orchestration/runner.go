@@ -20,12 +20,19 @@ import (
 	"github.com/microsoft/waza/internal/graders"
 	"github.com/microsoft/waza/internal/hooks"
 	"github.com/microsoft/waza/internal/models"
+	"github.com/microsoft/waza/internal/responder"
 	"github.com/microsoft/waza/internal/template"
 	"github.com/microsoft/waza/internal/transcript"
 	"github.com/microsoft/waza/internal/utils"
 
 	copilot "github.com/github/copilot-sdk/go"
 )
+
+// responderClassifier classifies an agent message into a responder decision.
+// Implemented by *responder.Classifier; faked in tests.
+type responderClassifier interface {
+	Classify(ctx context.Context, agentMessage string) (responder.Decision, error)
+}
 
 // EvalRunner orchestrates the execution of tests.
 //
@@ -34,6 +41,10 @@ type EvalRunner struct {
 	cfg     *config.EvalConfig
 	engine  execution.AgentEngine
 	verbose bool
+
+	// newClassifier builds a responder classifier for a task. Overridable in
+	// tests; defaults to a responder backed by the runner's engine.
+	newClassifier func(cfg models.ResponderConfig, defaultModel string) responderClassifier
 
 	// Task filtering
 	taskFilters []string
@@ -139,6 +150,9 @@ func NewEvalRunner(cfg *config.EvalConfig, engine execution.AgentEngine, opts ..
 		verbose:        cfg.Verbose(),
 		listeners:      []ProgressListener{},
 		failureHandler: failures.NewHandler(),
+	}
+	r.newClassifier = func(cfg models.ResponderConfig, defaultModel string) responderClassifier {
+		return responder.New(r.engine, cfg, defaultModel)
 	}
 	for _, o := range opts {
 		o(r)
