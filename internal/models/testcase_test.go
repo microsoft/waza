@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestLoadTestCase_ShouldTriggerField(t *testing.T) {
@@ -260,4 +262,29 @@ instruction_files:
 	if tc.InstructionFiles[1] != "docs/task.instructions.md" {
 		t.Errorf("Expected second instruction file 'docs/task.instructions.md', got %q", tc.InstructionFiles[1])
 	}
+}
+
+func TestResponderConfigParsesUnderInputs(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "task.yaml")
+	yaml := `
+id: configure-agent
+name: Configure a research agent
+inputs:
+  prompt: "Add a new agent to my application"
+  responder:
+    model: gpt-4o
+    instructions: |
+      The agent you want is research-agent with tools web_search.
+      If you can't infer an answer, abstain.
+    max_followups: 8
+`
+	require.NoError(t, os.WriteFile(path, []byte(yaml), 0o600))
+
+	tc, err := LoadTestCase(path)
+	require.NoError(t, err)
+	require.NotNil(t, tc.Stimulus.Responder)
+	require.Equal(t, "gpt-4o", tc.Stimulus.Responder.Model)
+	require.Equal(t, 8, tc.Stimulus.Responder.MaxFollowups)
+	require.Contains(t, tc.Stimulus.Responder.Instructions, "research-agent")
 }

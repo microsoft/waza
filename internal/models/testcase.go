@@ -41,6 +41,22 @@ type TaskStimulus struct {
 	WorkDir     string            `yaml:"workdir,omitempty" json:"workdir,omitempty"`
 	Environment map[string]string `yaml:"environment,omitempty" json:"environment,omitempty"`
 	FollowUps   []string          `yaml:"follow_up_prompts,omitempty" json:"follow_ups,omitempty"`
+	Responder   *ResponderConfig  `yaml:"responder,omitempty" json:"responder,omitempty"`
+}
+
+// ResponderConfig configures an LLM-backed surrogate user that answers a
+// skill's follow-up questions during a multi-turn run. It is mutually
+// exclusive with TaskStimulus.FollowUps.
+type ResponderConfig struct {
+	// Model is the model used for the responder LLM. Optional; when empty the
+	// eval-level config.model is used.
+	Model string `yaml:"model,omitempty" json:"model,omitempty"`
+	// Instructions describe the target configuration the responder represents
+	// and the rule for abstaining. Required.
+	Instructions string `yaml:"instructions" json:"instructions"`
+	// MaxFollowups caps how many times the responder may reply before the loop
+	// stops. Required; must be >= 1.
+	MaxFollowups int `yaml:"max_followups" json:"max_followups"`
 }
 
 // ResourceRef points to a file or inline content
