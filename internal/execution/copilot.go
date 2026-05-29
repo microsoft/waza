@@ -654,6 +654,11 @@ func (e *CopilotEngine) DeleteSession(ctx context.Context, sessionID string) err
 	e.sessionsMu.Lock()
 	delete(e.sessions, sessionID)
 	e.sessionsMu.Unlock()
+
+	e.usageCollectorsMu.Lock()
+	delete(e.usageCollectors, sessionID)
+	e.usageCollectorsMu.Unlock()
+
 	return e.client.DeleteSession(ctx, sessionID)
 }
 
