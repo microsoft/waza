@@ -4,6 +4,8 @@ package responder
 
 import (
 	"context"
+	"errors"
+	"fmt"
 
 	copilot "github.com/github/copilot-sdk/go"
 	"github.com/go-viper/mapstructure/v2"
@@ -113,6 +115,72 @@ func (d *decisionRecorder) tools() []copilot.Tool {
 	}
 }
 
-// Classifier is added in the next task; declared here so the package compiles
-// with its dependencies referenced.
-var _ = models.ResponderConfig{}
+// Classifier maintains a persistent surrogate-user session and classifies each
+// agent message into a Decision.
+type Classifier struct {
+	exec         Executor
+	model        string
+	instructions string
+	sessionID    string // empty until the first Classify creates the session
+}
+
+// New constructs a Classifier. defaultModel is used when cfg.Model is empty.
+func New(exec Executor, cfg models.ResponderConfig, defaultModel string) *Classifier {
+	model := cfg.Model
+	if model == "" {
+		model = defaultModel
+	}
+	return &Classifier{
+		exec:         exec,
+		model:        model,
+		instructions: cfg.Instructions,
+	}
+}
+
+// Classify sends the agent's latest message to the responder LLM and returns
+// its decision. The first call seeds the session with the responder
+// instructions; subsequent calls resume the same session.
+func (c *Classifier) Classify(ctx context.Context, agentMessage string) (Decision, error) {
+	rec := &decisionRecorder{}
+
+	req := &execution.ExecutionRequest{
+		ModelID:              c.model,
+		Message:              c.buildMessage(agentMessage),
+		Tools:                rec.tools(),
+		MessageMode:          execution.MessageModeEnqueue,
+		Streaming:            true,
+		SessionID:            c.sessionID,
+		NoSkills:             true,
+		EphemeralSession:     true,
+		SkipWorkspaceCapture: true,
+	}
+
+	resp, err := c.exec.Execute(ctx, req)
+	if err != nil {
+		if rec.set {
+			return rec.decision, nil
+		}
+		return Decision{}, fmt.Errorf("responder execution failed: %w", err)
+	}
+	if resp != nil && resp.SessionID != "" {
+		c.sessionID = resp.SessionID
+	}
+	if !rec.set {
+		return Decision{}, errors.New("responder did not call a decision tool")
+	}
+	return rec.decision, nil
+}
+
+func (c *Classifier) buildMessage(agentMessage string) string {
+	if c.sessionID == "" {
+		return fmt.Sprintf(
+			"%s\n\nYou are role-playing as the user. The agent just said:\n\n%s\n\n"+
+				"Respond by calling exactly one tool: %s to answer, %s if the agent is finished and needs nothing, or %s if you genuinely cannot answer from your configuration.",
+			c.instructions, agentMessage, toolRespond, toolStop, toolAbstain,
+		)
+	}
+	return fmt.Sprintf(
+		"The agent just said:\n\n%s\n\nRespond by calling exactly one tool (%s, %s, or %s).",
+		agentMessage, toolRespond, toolStop, toolAbstain,
+	)
+}

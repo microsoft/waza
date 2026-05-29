@@ -1,9 +1,12 @@
 package responder
 
 import (
+	"context"
 	"testing"
 
 	copilot "github.com/github/copilot-sdk/go"
+	"github.com/microsoft/waza/internal/execution"
+	"github.com/microsoft/waza/internal/models"
 	"github.com/stretchr/testify/require"
 )
 
@@ -41,6 +44,97 @@ func TestDecisionToolsRecordAbstain(t *testing.T) {
 	require.True(t, d.set)
 	require.Equal(t, DecisionAbstain, d.decision.Kind)
 	require.Equal(t, "brief too vague", d.decision.Reason)
+}
+
+type fakeExecutor struct {
+	calls   []*execution.ExecutionRequest
+	respond func(req *execution.ExecutionRequest) (*execution.ExecutionResponse, error)
+}
+
+func (f *fakeExecutor) Execute(_ context.Context, req *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
+	f.calls = append(f.calls, req)
+	return f.respond(req)
+}
+
+func TestClassifyReply(t *testing.T) {
+	exec := &fakeExecutor{
+		respond: func(req *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
+			_, err := findTool(t, req.Tools, toolRespond).Handler(copilot.ToolInvocation{
+				Arguments: map[string]any{"answer": "research-agent"},
+			})
+			require.NoError(t, err)
+			return &execution.ExecutionResponse{SessionID: "resp-1"}, nil
+		},
+	}
+	c := New(exec, models.ResponderConfig{Instructions: "be research-agent", MaxFollowups: 5}, "gpt-4o")
+	d, err := c.Classify(context.Background(), "What is the agent name?")
+	require.NoError(t, err)
+	require.Equal(t, DecisionReply, d.Kind)
+	require.Equal(t, "research-agent", d.Answer)
+}
+
+func TestClassifyAbstain(t *testing.T) {
+	exec := &fakeExecutor{
+		respond: func(req *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
+			_, _ = findTool(t, req.Tools, toolAbstain).Handler(copilot.ToolInvocation{
+				Arguments: map[string]any{"reason": "no info"},
+			})
+			return &execution.ExecutionResponse{SessionID: "resp-1"}, nil
+		},
+	}
+	c := New(exec, models.ResponderConfig{Instructions: "x", MaxFollowups: 5}, "gpt-4o")
+	d, err := c.Classify(context.Background(), "Q?")
+	require.NoError(t, err)
+	require.Equal(t, DecisionAbstain, d.Kind)
+	require.Equal(t, "no info", d.Reason)
+}
+
+func TestClassifyNoDecisionToolIsError(t *testing.T) {
+	exec := &fakeExecutor{
+		respond: func(req *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
+			return &execution.ExecutionResponse{SessionID: "resp-1"}, nil
+		},
+	}
+	c := New(exec, models.ResponderConfig{Instructions: "x", MaxFollowups: 5}, "gpt-4o")
+	_, err := c.Classify(context.Background(), "Q?")
+	require.Error(t, err)
+}
+
+func TestClassifyUsesDefaultModelWhenUnset(t *testing.T) {
+	exec := &fakeExecutor{
+		respond: func(req *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
+			require.Equal(t, "default-model", req.ModelID)
+			_, _ = findTool(t, req.Tools, toolStop).Handler(copilot.ToolInvocation{Arguments: map[string]any{}})
+			return &execution.ExecutionResponse{SessionID: "resp-1"}, nil
+		},
+	}
+	c := New(exec, models.ResponderConfig{Instructions: "x", MaxFollowups: 5}, "default-model")
+	_, err := c.Classify(context.Background(), "Q?")
+	require.NoError(t, err)
+}
+
+func TestClassifyPersistsSession(t *testing.T) {
+	exec := &fakeExecutor{
+		respond: func(req *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
+			_, _ = findTool(t, req.Tools, toolRespond).Handler(copilot.ToolInvocation{
+				Arguments: map[string]any{"answer": "a"},
+			})
+			return &execution.ExecutionResponse{SessionID: "resp-1"}, nil
+		},
+	}
+	c := New(exec, models.ResponderConfig{Instructions: "INSTR", MaxFollowups: 5}, "gpt-4o")
+	_, err := c.Classify(context.Background(), "Q1?")
+	require.NoError(t, err)
+	_, err = c.Classify(context.Background(), "Q2?")
+	require.NoError(t, err)
+
+	require.Len(t, exec.calls, 2)
+	require.Empty(t, exec.calls[0].SessionID)
+	require.Contains(t, exec.calls[0].Message, "INSTR")
+	require.Contains(t, exec.calls[0].Message, "Q1?")
+	require.Equal(t, "resp-1", exec.calls[1].SessionID)
+	require.NotContains(t, exec.calls[1].Message, "INSTR")
+	require.Contains(t, exec.calls[1].Message, "Q2?")
 }
 
 func findTool(t *testing.T, tools []copilot.Tool, name string) copilot.Tool {
