@@ -215,6 +215,13 @@ func outcomeToDetail(o *models.EvaluationOutcome) *RunDetail {
 			}
 			tr.Transcript = mapTranscriptEvents(run.Transcript)
 			tr.SessionDigest = mapSessionDigest(&run.SessionDigest)
+			if run.Responder != nil {
+				tr.Responder = &ResponderInfoResponse{
+					FollowupsSent: run.Responder.FollowupsSent,
+					Outcome:       run.Responder.Outcome,
+					Reason:        run.Responder.Reason,
+				}
+			}
 		}
 		if tr.GraderResults == nil {
 			tr.GraderResults = []GraderResult{}

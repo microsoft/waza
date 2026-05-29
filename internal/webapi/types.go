@@ -39,6 +39,7 @@ type TaskResult struct {
 	GraderResults []GraderResult              `json:"graderResults"`
 	Transcript    []TranscriptEventResponse   `json:"transcript,omitempty"`
 	SessionDigest *SessionDigestResponse      `json:"sessionDigest,omitempty"`
+	Responder     *ResponderInfoResponse      `json:"responder,omitempty"`
 	BootstrapCI   *ConfidenceIntervalResponse `json:"bootstrapCI,omitempty"`
 	IsSignificant *bool                       `json:"isSignificant,omitempty"`
 }
@@ -72,6 +73,13 @@ type SessionDigestResponse struct {
 	TokensTotal   int      `json:"tokensTotal"`
 	ToolsUsed     []string `json:"toolsUsed"`
 	Errors        []string `json:"errors"`
+}
+
+// ResponderInfoResponse is the API representation of a responder-driven run summary.
+type ResponderInfoResponse struct {
+	FollowupsSent int    `json:"followupsSent"`
+	Outcome       string `json:"outcome"`
+	Reason        string `json:"reason,omitempty"`
 }
 
 // GraderResult is a single grader/validator result.

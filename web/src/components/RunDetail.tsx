@@ -9,7 +9,7 @@ import {
   Download,
 } from "lucide-react";
 import { useRunDetail } from "../hooks/useApi";
-import type { TaskResult, GraderResult } from "../api/client";
+import type { TaskResult, GraderResult, ResponderInfo } from "../api/client";
 import {
   formatDuration,
   formatCost,
@@ -102,6 +102,30 @@ function SignificanceBadge({ isSignificant }: { isSignificant?: boolean }) {
   );
 }
 
+function ResponderBadge({ responder }: { responder?: ResponderInfo }) {
+  if (!responder) return null;
+
+  let className =
+    "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium";
+  if (responder.outcome === "abstained" || responder.outcome === "error") {
+    className += " bg-red-500/10 text-red-400";
+  } else if (responder.outcome === "cap_exhausted") {
+    className += " bg-yellow-500/10 text-yellow-400";
+  } else {
+    className += " bg-zinc-700 text-zinc-300";
+  }
+
+  const replyLabel = responder.followupsSent === 1 ? "reply" : "replies";
+  const reason = responder.reason ? ` — ${responder.reason}` : "";
+
+  return (
+    <span className={className} data-testid="responder-badge">
+      Responder: {responder.outcome} ({responder.followupsSent} {replyLabel})
+      {reason}
+    </span>
+  );
+}
+
 function CIRange({ lower, upper }: { lower: number; upper: number }) {
   return (
     <span
@@ -157,6 +181,7 @@ function TaskRow({ task }: { task: TaskResult }) {
               <ChevronRight className="h-4 w-4 text-zinc-500" />
             )}
             <span className="font-medium text-zinc-100">{task.name}</span>
+            <ResponderBadge responder={task.responder} />
           </span>
         </td>
         <td className="px-4 py-3">

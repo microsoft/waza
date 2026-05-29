@@ -65,6 +65,12 @@ export interface SessionDigest {
   errors: string[];
 }
 
+export interface ResponderInfo {
+  followupsSent: number;
+  outcome: string;
+  reason?: string;
+}
+
 export interface TaskResult {
   name: string;
   outcome: string;
@@ -74,6 +80,7 @@ export interface TaskResult {
   graderResults: GraderResult[];
   transcript?: TranscriptEvent[];
   sessionDigest?: SessionDigest;
+  responder?: ResponderInfo;
   bootstrapCI?: BootstrapCI;
   isSignificant?: boolean;
 }
