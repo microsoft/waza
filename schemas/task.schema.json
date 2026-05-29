@@ -141,6 +141,28 @@
             "type": "string"
           },
           "description": "Environment variables set during task execution."
+        },
+        "responder": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["instructions", "max_followups"],
+          "description": "LLM-backed surrogate user that answers the skill's follow-up questions. Mutually exclusive with follow_up_prompts.",
+          "properties": {
+            "model": {
+              "type": "string",
+              "description": "Model used for the responder LLM. Defaults to the eval-level config.model."
+            },
+            "instructions": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Describes the target configuration the responder represents and the rule for abstaining."
+            },
+            "max_followups": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Maximum number of responder replies before the loop stops."
+            }
+          }
         }
       }
     },

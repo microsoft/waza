@@ -125,6 +125,19 @@ inputs:
 	require.Empty(t, errs, "task with instruction_files should have no errors")
 }
 
+func TestValidateTaskBytes_Responder(t *testing.T) {
+	yaml := `id: task-1
+name: Configure agent
+inputs:
+  prompt: "add agent"
+  responder:
+    instructions: "be research-agent; abstain if unknown"
+    max_followups: 8
+`
+	errs := ValidateTaskBytes([]byte(yaml))
+	require.Empty(t, errs, "task with inputs.responder should have no errors")
+}
+
 func TestValidateTaskBytes_Invalid(t *testing.T) {
 	errs := ValidateTaskBytes([]byte(invalidTaskYAML))
 	require.NotEmpty(t, errs, "invalid task should have errors")
