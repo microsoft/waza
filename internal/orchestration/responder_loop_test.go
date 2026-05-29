@@ -27,6 +27,8 @@ func (s *scriptedClassifier) Classify(_ context.Context, _ string) (responder.De
 	return d, nil
 }
 
+func (s *scriptedClassifier) Close(_ context.Context) error { return nil }
+
 func newResponderTestRunner(t *testing.T) *EvalRunner {
 	t.Helper()
 	spec := &models.EvalSpec{

@@ -45,6 +45,13 @@ type Executor interface {
 	Execute(ctx context.Context, req *execution.ExecutionRequest) (*execution.ExecutionResponse, error)
 }
 
+// sessionDeleter is an optional capability for explicitly tearing down a
+// persistent session. *execution.CopilotEngine implements it; engines that do
+// not (e.g. the mock) leave Close as a no-op.
+type sessionDeleter interface {
+	DeleteSession(ctx context.Context, sessionID string) error
+}
+
 // decisionRecorder captures the single decision tool the responder LLM calls.
 type decisionRecorder struct {
 	decision Decision
@@ -144,31 +151,50 @@ func (c *Classifier) Classify(ctx context.Context, agentMessage string) (Decisio
 	rec := &decisionRecorder{}
 
 	req := &execution.ExecutionRequest{
-		ModelID:              c.model,
-		Message:              c.buildMessage(agentMessage),
-		Tools:                rec.tools(),
-		MessageMode:          execution.MessageModeEnqueue,
-		Streaming:            true,
-		SessionID:            c.sessionID,
-		NoSkills:             true,
-		EphemeralSession:     true,
+		ModelID:     c.model,
+		Message:     c.buildMessage(agentMessage),
+		Tools:       rec.tools(),
+		MessageMode: execution.MessageModeEnqueue,
+		Streaming:   true,
+		SessionID:   c.sessionID,
+		NoSkills:    true,
+		// The responder session must persist across turns so it can be resumed
+		// (and so its instructions need only be sent once). It is torn down
+		// explicitly via Close. EphemeralSession would delete it after the
+		// first turn, breaking resume.
+		EphemeralSession:     false,
 		SkipWorkspaceCapture: true,
 	}
 
 	resp, err := c.exec.Execute(ctx, req)
+	if resp != nil && resp.SessionID != "" {
+		c.sessionID = resp.SessionID
+	}
 	if err != nil {
 		if rec.set {
 			return rec.decision, nil
 		}
 		return Decision{}, fmt.Errorf("responder execution failed: %w", err)
 	}
-	if resp != nil && resp.SessionID != "" {
-		c.sessionID = resp.SessionID
-	}
 	if !rec.set {
 		return Decision{}, errors.New("responder did not call a decision tool")
 	}
 	return rec.decision, nil
+}
+
+// Close tears down the persistent responder session if one was created. It is
+// safe to call multiple times and is a no-op when the underlying executor does
+// not support explicit session deletion.
+func (c *Classifier) Close(ctx context.Context) error {
+	if c.sessionID == "" {
+		return nil
+	}
+	sessionID := c.sessionID
+	c.sessionID = ""
+	if d, ok := c.exec.(sessionDeleter); ok {
+		return d.DeleteSession(ctx, sessionID)
+	}
+	return nil
 }
 
 func (c *Classifier) buildMessage(agentMessage string) string {

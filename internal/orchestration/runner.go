@@ -29,10 +29,12 @@ import (
 	copilot "github.com/github/copilot-sdk/go"
 )
 
-// responderClassifier classifies an agent message into a responder decision.
-// Implemented by *responder.Classifier; faked in tests.
+// responderClassifier classifies an agent message into a responder decision
+// and tears down its session when the run finishes. Implemented by
+// *responder.Classifier; faked in tests.
 type responderClassifier interface {
 	Classify(ctx context.Context, agentMessage string) (responder.Decision, error)
+	Close(ctx context.Context) error
 }
 
 // EvalRunner orchestrates the execution of tests.
@@ -1340,6 +1342,16 @@ func (r *EvalRunner) executeFollowUps(ctx context.Context, tc *models.TestCase, 
 func (r *EvalRunner) executeResponderLoop(ctx context.Context, tc *models.TestCase, resp *execution.ExecutionResponse) *models.ResponderInfo {
 	cfg := *tc.Stimulus.Responder
 	classifier := r.newClassifier(cfg, r.cfg.Spec().Config.ModelID)
+	defer func() {
+		// Tear down the persistent responder session with a detached context so
+		// cleanup still runs even if ctx was cancelled during the run.
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := classifier.Close(cleanupCtx); err != nil {
+			slog.WarnContext(ctx, "failed to clean up responder session",
+				"test", tc.DisplayName, "error", err)
+		}
+	}()
 
 	info := &models.ResponderInfo{Outcome: models.ResponderOutcomeCompleted}
 	left := cfg.MaxFollowups

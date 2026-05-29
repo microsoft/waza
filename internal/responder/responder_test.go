@@ -137,6 +137,71 @@ func TestClassifyPersistsSession(t *testing.T) {
 	require.Contains(t, exec.calls[1].Message, "Q2?")
 }
 
+func TestClassifyUsesPersistentSession(t *testing.T) {
+	exec := &fakeExecutor{
+		respond: func(req *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
+			_, _ = findTool(t, req.Tools, toolStop).Handler(copilot.ToolInvocation{Arguments: map[string]any{}})
+			return &execution.ExecutionResponse{SessionID: "resp-1"}, nil
+		},
+	}
+	c := New(exec, models.ResponderConfig{Instructions: "x", MaxFollowups: 5}, "gpt-4o")
+	_, err := c.Classify(context.Background(), "Q?")
+	require.NoError(t, err)
+
+	require.Len(t, exec.calls, 1)
+	require.False(t, exec.calls[0].EphemeralSession,
+		"responder must use a persistent (non-ephemeral) session so it can be resumed across turns")
+}
+
+// deletingExecutor records the sessions it is asked to delete.
+type deletingExecutor struct {
+	fakeExecutor
+	deleted []string
+}
+
+func (d *deletingExecutor) DeleteSession(_ context.Context, sessionID string) error {
+	d.deleted = append(d.deleted, sessionID)
+	return nil
+}
+
+func TestCloseDeletesSession(t *testing.T) {
+	exec := &deletingExecutor{}
+	exec.respond = func(req *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
+		_, _ = findTool(t, req.Tools, toolStop).Handler(copilot.ToolInvocation{Arguments: map[string]any{}})
+		return &execution.ExecutionResponse{SessionID: "resp-1"}, nil
+	}
+	c := New(exec, models.ResponderConfig{Instructions: "x", MaxFollowups: 5}, "gpt-4o")
+	_, err := c.Classify(context.Background(), "Q?")
+	require.NoError(t, err)
+
+	require.NoError(t, c.Close(context.Background()))
+	require.Equal(t, []string{"resp-1"}, exec.deleted)
+
+	// Close is idempotent: the session id is cleared after the first call.
+	require.NoError(t, c.Close(context.Background()))
+	require.Equal(t, []string{"resp-1"}, exec.deleted)
+}
+
+func TestCloseWithoutSessionIsNoop(t *testing.T) {
+	exec := &deletingExecutor{}
+	c := New(exec, models.ResponderConfig{Instructions: "x", MaxFollowups: 5}, "gpt-4o")
+	require.NoError(t, c.Close(context.Background()))
+	require.Empty(t, exec.deleted)
+}
+
+func TestCloseWithoutDeleterIsNoop(t *testing.T) {
+	exec := &fakeExecutor{
+		respond: func(req *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
+			_, _ = findTool(t, req.Tools, toolStop).Handler(copilot.ToolInvocation{Arguments: map[string]any{}})
+			return &execution.ExecutionResponse{SessionID: "resp-1"}, nil
+		},
+	}
+	c := New(exec, models.ResponderConfig{Instructions: "x", MaxFollowups: 5}, "gpt-4o")
+	_, err := c.Classify(context.Background(), "Q?")
+	require.NoError(t, err)
+	require.NoError(t, c.Close(context.Background()))
+}
+
 func findTool(t *testing.T, tools []copilot.Tool, name string) copilot.Tool {
 	t.Helper()
 	for _, tl := range tools {
