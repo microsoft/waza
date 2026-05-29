@@ -526,6 +526,29 @@ inputs:
 
 Graders evaluate only the final state after all prompts complete. If any follow-up fails, remaining prompts are skipped and the run is marked as an error.
 
+### responder
+
+**Type:** object  
+**Required:** no
+
+An LLM-backed surrogate user that answers the skill's follow-up questions during a multi-turn run. Mutually exclusive with `follow_up_prompts`.
+
+| Field          | Type    | Required | Description                                            |
+|----------------|---------|----------|--------------------------------------------------------|
+| `model`        | string  | no       | Responder model. Defaults to the eval-level `config.model`. |
+| `instructions` | string  | yes      | Target configuration the responder represents + abstain rule. |
+| `max_followups`| integer | yes      | Max responder replies before the loop stops (`>= 1`).  |
+
+```yaml
+inputs:
+  prompt: "Add a new agent to my application"
+  responder:
+    instructions: "Be research-agent with tools web_search; abstain if unknown."
+    max_followups: 8
+```
+
+The responder classifies each agent message as **reply**, **stop**, or **abstain**. An abstain marks the run as an error with outcome `abstained`, distinct from model timeouts or network errors. If `max_followups` is reached while the agent is still asking questions, the loop stops with outcome `cap_exhausted` and graders evaluate the final state.
+
 ### files
 
 **Type:** array  

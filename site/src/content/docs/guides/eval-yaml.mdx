@@ -391,6 +391,25 @@ inputs:
 
 This is useful for evaluating multi-turn conversations where each step builds on the previous one. Graders run only after all prompts (initial + follow-ups) have completed, so the final output reflects the full conversation.
 
+### Responder (Interactive Skills)
+
+For skills that ask follow-up questions, configure a `responder` — an LLM that plays the user and answers the skill's questions. It is mutually exclusive with `follow_up_prompts`.
+
+```yaml
+inputs:
+  prompt: "Add a new agent to my application"
+  responder:
+    model: gpt-4o          # optional; defaults to config.model
+    instructions: |
+      The agent you want is "research-agent" with system instructions
+      "Search the web and summarise findings", tools web_search + url_fetch,
+      and no handoffs. Answer the skill's questions consistently with this.
+      If you genuinely can't infer an answer, abstain.
+    max_followups: 8
+```
+
+After each agent turn the responder either **replies** (the answer is sent back, continuing the conversation), **stops** (the agent is done), or **abstains** — which fails the run with a distinct `abstained` outcome, signalling the brief is too vague. If `max_followups` is reached while the agent is still asking questions, the loop stops with outcome `cap_exhausted` and graders evaluate the final state. Each task carries its own responder, so the same skill can be tested against several target configurations.
+
 Prompt supports templating:
 
 ```yaml

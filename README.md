@@ -1194,6 +1194,34 @@ Waza automatically removes each worktree on engine shutdown (`git worktree remov
 
 **Out of scope today** (tracked separately): HTTPS / SSH clone strategies, submodules, Git LFS, and auto-detecting "the repo this test is running in" without an explicit `source`.
 
+## Responder (interactive skills)
+
+For skills that ask follow-up questions, configure a `responder` — an LLM that plays the user and answers the skill's questions. It is mutually exclusive with `follow_up_prompts`.
+
+```yaml
+# task.yaml
+inputs:
+  prompt: "Add a new agent to my application"
+  responder:
+    model: gpt-4o          # optional; defaults to config.model
+    instructions: |
+      The agent you want is "research-agent" with system instructions
+      "Search the web and summarise findings", tools web_search + url_fetch,
+      and no handoffs. Answer the skill's questions consistently with this.
+      If you genuinely can't infer an answer, abstain.
+    max_followups: 8
+```
+
+After each agent turn the responder either **replies** (the answer is sent back, continuing the conversation), **stops** (the agent is done), or **abstains** — which fails the run with a distinct `abstained` outcome, signalling the brief is too vague. If `max_followups` is reached while the agent is still asking questions, the loop stops with outcome `cap_exhausted` and graders evaluate the final state. Each task carries its own responder, so the same skill can be tested against several target configurations.
+
+**Fields** (under `inputs.responder`):
+
+| Field           | Required | Description |
+|---|---|---|
+| `instructions`  | yes | The target configuration the responder represents and the rule for abstaining. |
+| `max_followups` | yes | Maximum number of responder replies before the loop stops (`>= 1`). |
+| `model`         | no  | Model used for the responder LLM. Defaults to the eval-level `config.model`. |
+
 ## CI/CD Integration
 
 Waza is designed to work seamlessly with CI/CD pipelines.
