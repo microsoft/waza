@@ -1344,7 +1344,7 @@ func (r *EvalRunner) executeResponderLoop(ctx context.Context, tc *models.TestCa
 	classifier := r.newClassifier(cfg, r.cfg.Spec().Config.ModelID)
 	defer func() {
 		// Tear down the persistent responder session with a detached context so
-		// cleanup still runs even if ctx was cancelled during the run.
+		// cleanup still runs even if ctx was canceled during the run.
 		cleanupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		if err := classifier.Close(cleanupCtx); err != nil {
