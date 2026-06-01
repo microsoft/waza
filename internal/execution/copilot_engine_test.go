@@ -430,12 +430,12 @@ func clearCustomProviderEnv(t *testing.T) {
 	} {
 		name := name // capture loop variable
 		prev, existed := os.LookupEnv(name)
-		os.Unsetenv(name)
+		_ = os.Unsetenv(name)
 		t.Cleanup(func() {
 			if existed {
-				os.Setenv(name, prev)
+				_ = os.Setenv(name, prev)
 			} else {
-				os.Unsetenv(name)
+				_ = os.Unsetenv(name)
 			}
 		})
 	}
