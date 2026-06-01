@@ -22,7 +22,6 @@ const (
 
 // Responder outcome values recorded on RunResult.Responder.Outcome.
 const (
-	ResponderOutcomeCompleted    = "completed"
 	ResponderOutcomeStopped      = "stopped"
 	ResponderOutcomeAbstained    = "abstained"
 	ResponderOutcomeCapExhausted = "cap_exhausted"

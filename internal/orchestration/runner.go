@@ -1353,9 +1353,8 @@ func (r *EvalRunner) executeResponderLoop(ctx context.Context, tc *models.TestCa
 		}
 	}()
 
-	info := &models.ResponderInfo{Outcome: models.ResponderOutcomeCompleted}
+	info := &models.ResponderInfo{}
 	left := cfg.MaxFollowups
-	lastWasReply := false
 
 	for left > 0 {
 		decision, err := classifier.Classify(ctx, resp.FinalOutput)
@@ -1385,15 +1384,16 @@ func (r *EvalRunner) executeResponderLoop(ctx context.Context, tc *models.TestCa
 			}
 			info.FollowupsSent++
 			left--
-			lastWasReply = true
 		}
 	}
 
-	if lastWasReply {
-		info.Outcome = models.ResponderOutcomeCapExhausted
-		slog.WarnContext(ctx, "responder budget exhausted while agent still asking questions",
-			"test", tc.DisplayName, "max_followups", cfg.MaxFollowups)
-	}
+	// Reaching this point means the loop only exited via successful replies
+	// (Stop, Abstain, and error paths all return early), and validation
+	// guarantees MaxFollowups >= 1, so a reply must have run on the final
+	// iteration. The agent is still asking, but we've spent our budget.
+	info.Outcome = models.ResponderOutcomeCapExhausted
+	slog.WarnContext(ctx, "responder budget exhausted while agent still asking questions",
+		"test", tc.DisplayName, "max_followups", cfg.MaxFollowups)
 	return info
 }
 

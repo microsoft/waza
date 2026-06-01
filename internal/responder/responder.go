@@ -53,9 +53,12 @@ type sessionDeleter interface {
 }
 
 // decisionRecorder captures the single decision tool the responder LLM calls.
+// err is set if a handler-level failure (malformed arguments or a duplicate
+// decision call) must be surfaced rather than silently swallowed.
 type decisionRecorder struct {
 	decision Decision
 	set      bool
+	err      error
 }
 
 func (d *decisionRecorder) tools() []copilot.Tool {
@@ -74,10 +77,16 @@ func (d *decisionRecorder) tools() []copilot.Tool {
 				"required": []string{"answer"},
 			},
 			Handler: func(inv copilot.ToolInvocation) (copilot.ToolResult, error) {
+				if err := d.guardDuplicate(toolRespond); err != nil {
+					return copilot.ToolResult{}, err
+				}
 				var args struct {
 					Answer string `mapstructure:"answer"`
 				}
-				_ = mapstructure.Decode(inv.Arguments, &args)
+				if err := mapstructure.Decode(inv.Arguments, &args); err != nil {
+					d.recordErr(fmt.Errorf("decode %s arguments: %w", toolRespond, err))
+					return copilot.ToolResult{}, err
+				}
 				d.decision = Decision{Kind: DecisionReply, Answer: args.Answer}
 				d.set = true
 				return copilot.ToolResult{}, nil
@@ -91,6 +100,9 @@ func (d *decisionRecorder) tools() []copilot.Tool {
 				"properties": map[string]any{},
 			},
 			Handler: func(copilot.ToolInvocation) (copilot.ToolResult, error) {
+				if err := d.guardDuplicate(toolStop); err != nil {
+					return copilot.ToolResult{}, err
+				}
 				d.decision = Decision{Kind: DecisionStop}
 				d.set = true
 				return copilot.ToolResult{}, nil
@@ -110,15 +122,41 @@ func (d *decisionRecorder) tools() []copilot.Tool {
 				"required": []string{"reason"},
 			},
 			Handler: func(inv copilot.ToolInvocation) (copilot.ToolResult, error) {
+				if err := d.guardDuplicate(toolAbstain); err != nil {
+					return copilot.ToolResult{}, err
+				}
 				var args struct {
 					Reason string `mapstructure:"reason"`
 				}
-				_ = mapstructure.Decode(inv.Arguments, &args)
+				if err := mapstructure.Decode(inv.Arguments, &args); err != nil {
+					d.recordErr(fmt.Errorf("decode %s arguments: %w", toolAbstain, err))
+					return copilot.ToolResult{}, err
+				}
 				d.decision = Decision{Kind: DecisionAbstain, Reason: args.Reason}
 				d.set = true
 				return copilot.ToolResult{}, nil
 			},
 		},
+	}
+}
+
+// guardDuplicate enforces the "call exactly one decision tool, exactly once"
+// contract advertised in each tool description. If the model calls a second
+// decision tool in the same turn, the handler refuses rather than letting
+// invocation order silently pick the winner.
+func (d *decisionRecorder) guardDuplicate(name string) error {
+	if !d.set {
+		return nil
+	}
+	err := fmt.Errorf("responder called %s after a decision was already recorded", name)
+	d.recordErr(err)
+	return err
+}
+
+// recordErr captures the first handler-level failure so Classify can surface it.
+func (d *decisionRecorder) recordErr(err error) {
+	if d.err == nil {
+		d.err = err
 	}
 }
 
@@ -169,6 +207,12 @@ func (c *Classifier) Classify(ctx context.Context, agentMessage string) (Decisio
 	resp, err := c.exec.Execute(ctx, req)
 	if resp != nil && resp.SessionID != "" {
 		c.sessionID = resp.SessionID
+	}
+	// A handler-level failure (malformed tool arguments, or the model calling
+	// more than one decision tool) takes precedence: surfacing it as an error
+	// is more useful than silently returning a possibly-bogus decision.
+	if rec.err != nil {
+		return Decision{}, fmt.Errorf("responder tool call invalid: %w", rec.err)
 	}
 	if err != nil {
 		if rec.set {

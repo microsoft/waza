@@ -202,6 +202,73 @@ func TestCloseWithoutDeleterIsNoop(t *testing.T) {
 	require.NoError(t, c.Close(context.Background()))
 }
 
+func TestDecisionToolsRejectDuplicateCall(t *testing.T) {
+	d := &decisionRecorder{}
+	tools := d.tools()
+	respond := findTool(t, tools, toolRespond)
+	stop := findTool(t, tools, toolStop)
+
+	_, err := respond.Handler(copilot.ToolInvocation{
+		Arguments: map[string]any{"answer": "first"},
+	})
+	require.NoError(t, err)
+
+	// A second decision call must be rejected rather than silently
+	// overwriting the first decision.
+	_, err = stop.Handler(copilot.ToolInvocation{Arguments: map[string]any{}})
+	require.Error(t, err)
+	require.Error(t, d.err)
+	// The first decision is preserved so callers can see what was recorded.
+	require.Equal(t, DecisionReply, d.decision.Kind)
+	require.Equal(t, "first", d.decision.Answer)
+}
+
+func TestDecisionToolsRejectMalformedArgs(t *testing.T) {
+	d := &decisionRecorder{}
+	respond := findTool(t, d.tools(), toolRespond)
+
+	// answer must be a string; passing a non-string triggers a decode error
+	// that the handler surfaces instead of recording an empty reply.
+	_, err := respond.Handler(copilot.ToolInvocation{
+		Arguments: map[string]any{"answer": map[string]any{"nested": true}},
+	})
+	require.Error(t, err)
+	require.Error(t, d.err)
+	require.False(t, d.set)
+}
+
+func TestClassifyDuplicateDecisionIsError(t *testing.T) {
+	exec := &fakeExecutor{
+		respond: func(req *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
+			// The model calls reply first, then stop in the same turn.
+			_, _ = findTool(t, req.Tools, toolRespond).Handler(copilot.ToolInvocation{
+				Arguments: map[string]any{"answer": "a"},
+			})
+			_, _ = findTool(t, req.Tools, toolStop).Handler(copilot.ToolInvocation{Arguments: map[string]any{}})
+			return &execution.ExecutionResponse{SessionID: "resp-1"}, nil
+		},
+	}
+	c := New(exec, models.ResponderConfig{Instructions: "x", MaxFollowups: 5}, "gpt-4o")
+	_, err := c.Classify(context.Background(), "Q?")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "responder tool call invalid")
+}
+
+func TestClassifyMalformedArgsIsError(t *testing.T) {
+	exec := &fakeExecutor{
+		respond: func(req *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
+			_, _ = findTool(t, req.Tools, toolRespond).Handler(copilot.ToolInvocation{
+				Arguments: map[string]any{"answer": 42},
+			})
+			return &execution.ExecutionResponse{SessionID: "resp-1"}, nil
+		},
+	}
+	c := New(exec, models.ResponderConfig{Instructions: "x", MaxFollowups: 5}, "gpt-4o")
+	_, err := c.Classify(context.Background(), "Q?")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "responder tool call invalid")
+}
+
 func findTool(t *testing.T, tools []copilot.Tool, name string) copilot.Tool {
 	t.Helper()
 	for _, tl := range tools {
