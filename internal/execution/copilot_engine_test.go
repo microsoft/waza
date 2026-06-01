@@ -428,6 +428,15 @@ func clearCustomProviderEnv(t *testing.T) {
 		"COPILOT_API_KEY", "COPILOT_PROVIDER_API_KEY",
 		"COPILOT_BEARER_TOKEN", "COPILOT_PROVIDER_BEARER_TOKEN",
 	} {
-		t.Setenv(name, "")
+		name := name // capture loop variable
+		prev, existed := os.LookupEnv(name)
+		os.Unsetenv(name)
+		t.Cleanup(func() {
+			if existed {
+				os.Setenv(name, prev)
+			} else {
+				os.Unsetenv(name)
+			}
+		})
 	}
 }
