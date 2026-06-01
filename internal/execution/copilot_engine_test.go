@@ -336,6 +336,7 @@ func TestCopilotEngine_Shutdown_StopsClientAndCleansWorkspaces(t *testing.T) {
 // SessionConfig.Model is silently ignored by the embedded CLI and evals run
 // against the wrong model.
 func TestCopilotEngineBuilder_CLIArgsCarriesModel(t *testing.T) {
+	clearCustomProviderEnv(t)
 	ctrl := gomock.NewController(t)
 	clientMock := NewMockCopilotClient(ctrl)
 
@@ -359,6 +360,7 @@ func TestCopilotEngineBuilder_CLIArgsCarriesModel(t *testing.T) {
 // is configured. This preserves the embedded CLI's own fallback model selection
 // (settings.json / experiment flights) for callers that explicitly opt out.
 func TestCopilotEngineBuilder_CLIArgsEmptyWhenNoDefaultModel(t *testing.T) {
+	clearCustomProviderEnv(t)
 	ctrl := gomock.NewController(t)
 	clientMock := NewMockCopilotClient(ctrl)
 
@@ -373,4 +375,59 @@ func TestCopilotEngineBuilder_CLIArgsEmptyWhenNoDefaultModel(t *testing.T) {
 	require.NotNil(t, captured, "NewCopilotClient must receive non-nil ClientOptions")
 	require.Empty(t, captured.CLIArgs,
 		"CLIArgs must be empty when no defaultModelID is provided so the embedded CLI can pick its own fallback")
+}
+
+// TestCopilotEngineBuilder_CLIArgsEmptyWhenCustomProvider is a regression test
+// for #305: when a BYOK / custom provider is configured via environment
+// variables, the embedded Copilot CLI must NOT receive --model at startup.
+// The Copilot CLI validates the startup --model against the GitHub Copilot
+// catalog before the per-session ProviderConfig is applied, so passing a
+// provider-only model ID (e.g. "minimax-m2.7") causes startup to fail with
+// `Model "..." is not available`. SessionConfig.Model + SessionConfig.Provider
+// passed in Execute still select the right model against the custom provider.
+func TestCopilotEngineBuilder_CLIArgsEmptyWhenCustomProvider(t *testing.T) {
+	clearCustomProviderEnv(t)
+	t.Setenv("COPILOT_BASE_URL", "https://api.example.com/v1")
+	t.Setenv("COPILOT_PROVIDER", "openai")
+	t.Setenv("COPILOT_API_KEY", "test-key")
+
+	ctrl := gomock.NewController(t)
+	clientMock := NewMockCopilotClient(ctrl)
+
+	const defaultModelID = "minimax-m2.7"
+
+	var captured *copilot.ClientOptions
+	engine := NewCopilotEngineBuilder(defaultModelID, &CopilotEngineBuilderOptions{
+		NewCopilotClient: func(clientOptions *copilot.ClientOptions) CopilotClient {
+			captured = clientOptions
+			return clientMock
+		},
+	}).Build()
+
+	require.NotNil(t, captured, "NewCopilotClient must receive non-nil ClientOptions")
+	require.Empty(t, captured.CLIArgs,
+		"CLIArgs must be empty when a custom BYOK provider is configured so the embedded CLI does not pre-validate a provider-only model ID against the GitHub Copilot catalog (#305)")
+
+	// The engine should still know the defaultModelID and provider for
+	// per-session SessionConfig assembly.
+	require.Equal(t, defaultModelID, engine.defaultModelID,
+		"defaultModelID must still be retained on the engine so Execute can apply it via SessionConfig.Model")
+	require.True(t, engine.provider.enabled(),
+		"custom provider must be detected from env and retained for per-session ProviderConfig")
+}
+
+// clearCustomProviderEnv unsets every COPILOT_* variable that
+// providerFromEnv() reads so the surrounding shell cannot influence
+// CLIArgs assertions.
+func clearCustomProviderEnv(t *testing.T) {
+	t.Helper()
+	for _, name := range []string{
+		"COPILOT_BASE_URL", "COPILOT_PROVIDER_BASE_URL",
+		"COPILOT_PROVIDER", "COPILOT_PROVIDER_TYPE",
+		"COPILOT_WIRE_API", "COPILOT_PROVIDER_WIRE_API",
+		"COPILOT_API_KEY", "COPILOT_PROVIDER_API_KEY",
+		"COPILOT_BEARER_TOKEN", "COPILOT_PROVIDER_BEARER_TOKEN",
+	} {
+		t.Setenv(name, "")
+	}
 }

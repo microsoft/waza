@@ -168,7 +168,8 @@ type CopilotEngineBuilderOptions struct {
 func NewCopilotEngineBuilder(defaultModelID string, options *CopilotEngineBuilderOptions) *CopilotEngineBuilder {
 	var client CopilotClient
 	ownsClient := false
-	cliArgs := modelCLIArgs(defaultModelID)
+	provider := providerFromEnv()
+	cliArgs := modelCLIArgs(defaultModelID, provider.enabled())
 
 	if options == nil || options.NewCopilotClient == nil {
 		// Production: share one SDK process across all engines + graders.
@@ -191,7 +192,7 @@ func NewCopilotEngineBuilder(defaultModelID string, options *CopilotEngineBuilde
 		engine: &CopilotEngine{
 			defaultModelID: defaultModelID,
 			ownsClient:     ownsClient,
-			provider:       providerFromEnv(),
+			provider:       provider,
 		},
 	}
 
@@ -199,8 +200,20 @@ func NewCopilotEngineBuilder(defaultModelID string, options *CopilotEngineBuilde
 	return builder
 }
 
-func modelCLIArgs(defaultModelID string) []string {
-	if defaultModelID == "" {
+// modelCLIArgs returns the startup CLI args needed to pin the embedded
+// Copilot CLI to defaultModelID, or an empty slice when no pinning should
+// occur.
+//
+// When customProvider is true (a BYOK provider is configured via
+// COPILOT_BASE_URL / COPILOT_PROVIDER_BASE_URL), we deliberately omit
+// --model: the Copilot CLI validates the startup --model against the
+// GitHub Copilot catalog before per-session ProviderConfig is applied, so
+// provider-only model IDs (e.g. minimax-m2.7) would fail startup with
+// `Model "..." is not available`. The per-session SessionConfig.Model +
+// SessionConfig.Provider passed in Execute still selects the right model
+// against the custom provider. See #305.
+func modelCLIArgs(defaultModelID string, customProvider bool) []string {
+	if defaultModelID == "" || customProvider {
 		return []string{}
 	}
 	// --model forces the configured model at CLI startup, overriding any
