@@ -14,6 +14,20 @@ export function formatCost(dollars: number): string {
   return `$${dollars.toFixed(2)}`;
 }
 
+export function costSourceTooltip(source?: string): string {
+  switch (source) {
+    case "sdk":
+      return "Reported by Copilot SDK";
+    case "table":
+      return "Calculated from model rate table (as of 2025-01-01)";
+    case "mixed":
+      return "Mixed sources across runs — hover individual rows for details";
+    case "estimate":
+    default:
+      return "Rough flat-rate estimate ($0.00025/token) — model pricing unavailable";
+  }
+}
+
 export function formatNumber(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;

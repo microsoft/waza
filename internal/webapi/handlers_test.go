@@ -9,6 +9,9 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/microsoft/waza/internal/models"
+	"github.com/microsoft/waza/internal/pricing"
 )
 
 // mockStore implements RunStore for testing.
@@ -60,6 +63,7 @@ func (m *mockStore) Summary() (*SummaryResponse, error) {
 	totalDuration := 0.0
 	totalPassed := 0
 	totalTasks := 0
+	costSources := make([]string, 0, len(m.runs))
 
 	for _, d := range m.runs {
 		resp.TotalRuns++
@@ -68,6 +72,7 @@ func (m *mockStore) Summary() (*SummaryResponse, error) {
 		totalTokens += d.Tokens
 		totalCost += d.Cost
 		totalDuration += d.Duration
+		costSources = append(costSources, d.CostSource)
 	}
 
 	resp.TotalTasks = totalTasks
@@ -79,6 +84,7 @@ func (m *mockStore) Summary() (*SummaryResponse, error) {
 		resp.AvgCost = totalCost / float64(resp.TotalRuns)
 		resp.AvgDuration = totalDuration / float64(resp.TotalRuns)
 	}
+	resp.CostSource = pricing.CombineSources(costSources)
 
 	return resp, nil
 }
@@ -88,18 +94,22 @@ func sampleRun(id, spec, model string, passed, total int, tokens int, ts time.Ti
 	if passed < total {
 		outcome = "failed"
 	}
+	cost, src := pricing.Compute(&models.UsageStats{
+		InputTokens: tokens,
+	})
 	return &RunDetail{
 		RunSummary: RunSummary{
-			ID:        id,
-			Spec:      spec,
-			Model:     model,
-			Outcome:   outcome,
-			PassCount: passed,
-			TaskCount: total,
-			Tokens:    tokens,
-			Cost:      float64(tokens) * 0.00025,
-			Duration:  192.5,
-			Timestamp: ts,
+			ID:         id,
+			Spec:       spec,
+			Model:      model,
+			Outcome:    outcome,
+			PassCount:  passed,
+			TaskCount:  total,
+			Tokens:     tokens,
+			Cost:       cost,
+			CostSource: src,
+			Duration:   192.5,
+			Timestamp:  ts,
 		},
 		Tasks: []TaskResult{
 			{
@@ -196,6 +206,82 @@ func TestHandleSummaryWithRuns(t *testing.T) {
 	}
 	if resp.PassRate != 90.0 {
 		t.Errorf("expected 90%% pass rate, got %.1f", resp.PassRate)
+	}
+}
+
+func TestHandleSummaryCostSource(t *testing.T) {
+	// Build two runs with explicit, distinguishable cost sources.
+	ts := time.Date(2026, 2, 18, 15, 30, 0, 0, time.UTC)
+
+	// Run with SDK-reported cost.
+	sdkRun := sampleRun("sdk-run", "code-explainer", "claude-opus-4.6", 5, 5, 1000, ts)
+	sdkRun.Cost, sdkRun.CostSource = 1.23, pricing.SourceSDK
+
+	// Run priced from rate table.
+	tableRun := sampleRun("table-run", "code-explainer", "gpt-4o", 5, 5, 1000, ts.Add(time.Hour))
+	tableRun.Cost, tableRun.CostSource = 0.05, pricing.SourceTable
+
+	tests := []struct {
+		name     string
+		runs     []*RunDetail
+		expected string
+	}{
+		{"all sdk", []*RunDetail{sdkRun}, pricing.SourceSDK},
+		{"all table", []*RunDetail{tableRun}, pricing.SourceTable},
+		{"mixed sdk and table", []*RunDetail{sdkRun, tableRun}, pricing.SourceMixed},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := newMockStore()
+			for _, r := range tt.runs {
+				store.addRun(r)
+			}
+			h := NewHandlers(store)
+
+			req := httptest.NewRequest(http.MethodGet, "/api/summary", nil)
+			rec := httptest.NewRecorder()
+			h.HandleSummary(rec, req)
+
+			if rec.Code != http.StatusOK {
+				t.Fatalf("expected 200, got %d", rec.Code)
+			}
+			var resp SummaryResponse
+			if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+				t.Fatal(err)
+			}
+			if resp.CostSource != tt.expected {
+				t.Errorf("expected costSource=%q, got %q", tt.expected, resp.CostSource)
+			}
+		})
+	}
+}
+
+func TestHandleRunsCostSourceInJSON(t *testing.T) {
+	store := newMockStore()
+	ts := time.Date(2026, 2, 18, 15, 30, 0, 0, time.UTC)
+	run := sampleRun("r1", "code-explainer", "gpt-4o", 5, 5, 1000, ts)
+	run.CostSource = pricing.SourceTable
+	store.addRun(run)
+	h := NewHandlers(store)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/runs", nil)
+	rec := httptest.NewRecorder()
+	h.HandleRuns(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	// Decode as raw to ensure the field appears in the JSON.
+	var raw []map[string]any
+	if err := json.NewDecoder(rec.Body).Decode(&raw); err != nil {
+		t.Fatal(err)
+	}
+	if len(raw) != 1 {
+		t.Fatalf("expected 1 run, got %d", len(raw))
+	}
+	if got, _ := raw[0]["costSource"].(string); got != pricing.SourceTable {
+		t.Errorf("expected costSource=%q in JSON, got %v", pricing.SourceTable, raw[0]["costSource"])
 	}
 }
 

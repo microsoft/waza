@@ -16,7 +16,9 @@ import {
   formatNumber,
   formatPercent,
   formatRelativeTime,
+  costSourceTooltip,
 } from "../lib/format";
+import { InfoTooltip } from "./InfoTooltip";
 
 /** Format a confidence interval as a percentage range string. */
 function formatCIRange(lower: number, upper: number): string {
@@ -260,7 +262,11 @@ export default function RunDetail({ id }: { id: string }) {
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
         <StatCard label="Pass Rate" value={formatPercent(passRate)} />
         <StatCard label="Tokens" value={formatNumber(data.tokens)} />
-        <StatCard label="Cost" value={formatCost(data.cost)} />
+        <StatCard
+          label="Cost"
+          value={formatCost(data.cost)}
+          labelExtra={<InfoTooltip text={costSourceTooltip(data.costSource)} />}
+        />
         <StatCard label="Duration" value={formatDuration(data.duration)} />
       </div>
 
@@ -358,10 +364,21 @@ export default function RunDetail({ id }: { id: string }) {
   );
 }
 
-function StatCard({ label, value }: { label: string; value: string }) {
+function StatCard({
+  label,
+  value,
+  labelExtra,
+}: {
+  label: string;
+  value: string;
+  labelExtra?: React.ReactNode;
+}) {
   return (
     <div className="rounded-lg border border-zinc-700 bg-zinc-800 p-3">
-      <p className="text-xs text-zinc-400">{label}</p>
+      <p className="inline-flex items-center gap-1 text-xs text-zinc-400">
+        {label}
+        {labelExtra}
+      </p>
       <p className="mt-1 text-lg font-semibold text-zinc-100">{value}</p>
     </div>
   );

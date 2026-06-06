@@ -13,6 +13,10 @@ type RunSummary struct {
 	TaskCount  int       `json:"taskCount"`
 	Tokens     int       `json:"tokens"`
 	Cost       float64   `json:"cost"`
+	// CostSource records how Cost was computed: "sdk" (reported by the Copilot
+	// SDK), "table" (priced from the embedded model rate table), or "estimate"
+	// (flat-rate fallback). Empty when no cost data is available.
+	CostSource string    `json:"costSource,omitempty"`
 	Duration   float64   `json:"duration"`
 	Timestamp  time.Time `json:"timestamp"`
 	Source     string    `json:"source,omitempty"` // "local" or "azure-blob"
@@ -85,6 +89,10 @@ type SummaryResponse struct {
 	PassRate    float64 `json:"passRate"`
 	AvgTokens   float64 `json:"avgTokens"`
 	AvgCost     float64 `json:"avgCost"`
+	// CostSource records the source of AvgCost across runs: "sdk", "table",
+	// "estimate", or "mixed" when different runs were priced from different
+	// sources. Empty when there are no runs.
+	CostSource  string  `json:"costSource,omitempty"`
 	AvgDuration float64 `json:"avgDuration"`
 }
 

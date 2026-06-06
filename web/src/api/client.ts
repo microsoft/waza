@@ -1,3 +1,5 @@
+export type CostSource = 'sdk' | 'table' | 'estimate' | 'mixed';
+
 export interface SummaryResponse {
   totalRuns: number;
   totalTasks: number;
@@ -5,6 +7,7 @@ export interface SummaryResponse {
   avgTokens: number;
   avgCost: number;
   avgDuration: number;
+  costSource?: CostSource;
 }
 
 export interface RunSummary {
@@ -17,6 +20,7 @@ export interface RunSummary {
   taskCount: number;
   tokens: number;
   cost: number;
+  costSource?: CostSource;
   duration: number;
   timestamp: string;
   weightedScore?: number;

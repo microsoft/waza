@@ -15,7 +15,9 @@ import {
   formatNumber,
   formatRelativeTime,
   formatPercent,
+  costSourceTooltip,
 } from "../lib/format";
+import { InfoTooltip } from "./InfoTooltip";
 
 function OutcomeBadge({ outcome }: { outcome: string }) {
   if (outcome.startsWith("pass"))
@@ -109,9 +111,19 @@ export default function RunsTable({ data }: { data: RunSummary[] }) {
         ),
       }),
       col.accessor("cost", {
-        header: "Cost",
+        header: () => (
+          <span className="inline-flex items-center gap-1">
+            Cost
+            <InfoTooltip text="Cost source varies per run. Hover individual values for the source (SDK, rate table, or estimate)." />
+          </span>
+        ),
         cell: (info) => (
-          <span className="text-zinc-300">{formatCost(info.getValue())}</span>
+          <span
+            className="text-zinc-300"
+            title={costSourceTooltip(info.row.original.costSource)}
+          >
+            {formatCost(info.getValue())}
+          </span>
         ),
       }),
       col.accessor("duration", {

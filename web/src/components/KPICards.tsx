@@ -11,7 +11,9 @@ import {
   formatNumber,
   formatCost,
   formatDuration,
+  costSourceTooltip,
 } from "../lib/format";
+import { InfoTooltip } from "./InfoTooltip";
 
 function passRateColor(rate: number): string {
   if (rate >= 80) return "text-green-500";
@@ -24,13 +26,17 @@ interface CardProps {
   value: string;
   icon: React.ReactNode;
   valueClass?: string;
+  labelExtra?: React.ReactNode;
 }
 
-function Card({ label, value, icon, valueClass }: CardProps) {
+function Card({ label, value, icon, valueClass, labelExtra }: CardProps) {
   return (
     <div className="rounded-lg border border-zinc-700 bg-zinc-800 p-4">
       <div className="flex items-center justify-between">
-        <span className="text-sm text-zinc-400">{label}</span>
+        <span className="inline-flex items-center gap-1 text-sm text-zinc-400">
+          {label}
+          {labelExtra}
+        </span>
         <span className="text-zinc-500">{icon}</span>
       </div>
       <p className={`mt-2 text-2xl font-semibold ${valueClass ?? "text-zinc-100"}`}>
@@ -91,6 +97,7 @@ export default function KPICards({ data }: { data: SummaryResponse }) {
         label="Avg Cost"
         value={formatCost(data.avgCost)}
         icon={<DollarSign className={iconSize} />}
+        labelExtra={<InfoTooltip text={costSourceTooltip(data.costSource)} />}
       />
       <Card
         label="Avg Duration"
