@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useRuns, useRunDetail } from "../hooks/useApi";
 import type { RunDetail, TaskResult } from "../api/client";
 import TaskTrajectoryCompare from "./TaskTrajectoryCompare";
+import { InfoTooltip } from "./InfoTooltip";
 import {
   formatDuration,
   formatCost,
@@ -352,7 +353,7 @@ export default function CompareView() {
               />
               <MetricCard
                 label="Credits"
-                title={CREDITS_TOOLTIP}
+                labelExtra={<InfoTooltip text={CREDITS_TOOLTIP} />}
                 valueA={formatCredits(runA.premiumRequests ?? 0)}
                 valueB={formatCredits(runB.premiumRequests ?? 0)}
                 delta={
@@ -457,20 +458,19 @@ function MetricCard({
   valueA,
   valueB,
   delta,
-  title,
+  labelExtra,
 }: {
   label: string;
   valueA: string;
   valueB: string;
   delta: React.ReactNode;
-  title?: string;
+  labelExtra?: React.ReactNode;
 }) {
   return (
-    <div className="space-y-2" title={title}>
-      <p
-        className={`text-xs font-medium uppercase text-zinc-400${title ? " cursor-help" : ""}`}
-      >
+    <div className="space-y-2">
+      <p className="inline-flex items-center gap-1 text-xs font-medium uppercase text-zinc-400">
         {label}
+        {labelExtra}
       </p>
       <div className="flex items-baseline gap-3">
         <span className="text-lg font-semibold text-zinc-100">{valueA}</span>

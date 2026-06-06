@@ -534,6 +534,12 @@ func (m sessionConfigMatcher) Matches(x any) bool {
 		expected.OnPermissionRequest = nil
 		c.OnPermissionRequest = nil
 
+		// streamingPtr always returns a non-nil *bool now; when an expected
+		// fixture omits Streaming, treat actual *bool(false) as equivalent.
+		if expected.Streaming == nil && c.Streaming != nil && !*c.Streaming {
+			c.Streaming = nil
+		}
+
 		require.Equal(m.t, expected, c)
 	case *copilot.ResumeSessionConfig:
 		c := *tempC
@@ -554,6 +560,10 @@ func (m sessionConfigMatcher) Matches(x any) bool {
 		// Equal can't compare function ptrs..
 		expected.OnPermissionRequest = nil
 		c.OnPermissionRequest = nil
+
+		if expected.Streaming == nil && c.Streaming != nil && !*c.Streaming {
+			c.Streaming = nil
+		}
 
 		require.Equal(m.t, expected, c)
 	default:

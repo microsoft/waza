@@ -269,7 +269,7 @@ export default function RunDetail({ id }: { id: string }) {
         <StatCard
           label="Credits"
           value={formatCredits(data.premiumRequests ?? 0)}
-          title={CREDITS_TOOLTIP}
+          labelExtra={<InfoTooltip text={CREDITS_TOOLTIP} />}
         />
         <StatCard
           label="Cost"
@@ -376,24 +376,15 @@ export default function RunDetail({ id }: { id: string }) {
 function StatCard({
   label,
   value,
-  title,
   labelExtra,
 }: {
   label: string;
   value: string;
-  title?: string;
   labelExtra?: React.ReactNode;
 }) {
   return (
-    <div
-      className="rounded-lg border border-zinc-700 bg-zinc-800 p-3"
-      title={title}
-    >
-      <p
-        className={`inline-flex items-center gap-1 text-xs text-zinc-400${
-          title ? " cursor-help" : ""
-        }`}
-      >
+    <div className="rounded-lg border border-zinc-700 bg-zinc-800 p-3">
+      <p className="inline-flex items-center gap-1 text-xs text-zinc-400">
         {label}
         {labelExtra}
       </p>

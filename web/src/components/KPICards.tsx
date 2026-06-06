@@ -31,22 +31,14 @@ interface CardProps {
   value: string;
   icon: React.ReactNode;
   valueClass?: string;
-  title?: string;
   labelExtra?: React.ReactNode;
 }
 
-function Card({ label, value, icon, valueClass, title, labelExtra }: CardProps) {
+function Card({ label, value, icon, valueClass, labelExtra }: CardProps) {
   return (
-    <div
-      className="rounded-lg border border-zinc-700 bg-zinc-800 p-4"
-      title={title}
-    >
+    <div className="rounded-lg border border-zinc-700 bg-zinc-800 p-4">
       <div className="flex items-center justify-between">
-        <span
-          className={`inline-flex items-center gap-1 text-sm text-zinc-400${
-            title ? " cursor-help" : ""
-          }`}
-        >
+        <span className="inline-flex items-center gap-1 text-sm text-zinc-400">
           {label}
           {labelExtra}
         </span>
@@ -110,7 +102,7 @@ export default function KPICards({ data }: { data: SummaryResponse }) {
         label="Avg Credits"
         value={formatCredits(data.avgPremiumRequests ?? 0)}
         icon={<CreditCard className={iconSize} />}
-        title={CREDITS_TOOLTIP}
+        labelExtra={<InfoTooltip text={CREDITS_TOOLTIP} />}
       />
       <Card
         label="Avg Cost"

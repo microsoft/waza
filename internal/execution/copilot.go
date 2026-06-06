@@ -727,15 +727,13 @@ func allowAllTools(request copilot.PermissionRequest, invocation copilot.Permiss
 	return &rpc.PermissionDecisionApproveOnce{}, nil
 }
 
-// streamingPtr preserves the pre-v1.0.0 SDK semantics: only set Streaming
-// when the caller explicitly requested it. A nil pointer means "use the SDK
-// default"; copilot.Bool(false) would explicitly disable streaming and shows
-// up as a non-nil pointer in matchers.
+// streamingPtr converts the caller's bool Streaming field into the *bool the
+// SDK expects. We always pass an explicit value (never nil) so behavior is
+// stable regardless of any future change to the SDK's default. If we ever
+// need tri-state ("use SDK default") semantics, the caller field should
+// become a *bool itself.
 func streamingPtr(streaming bool) *bool {
-	if !streaming {
-		return nil
-	}
-	return copilot.Bool(true)
+	return copilot.Bool(streaming)
 }
 
 // skillDefinition holds the content extracted from a SKILL.md file.
