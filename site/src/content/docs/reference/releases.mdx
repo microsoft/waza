@@ -19,7 +19,7 @@ import { Tabs, TabItem } from '@astrojs/starlight/components';
 
 #### Fixed
 
-- **BYOK + `--model` startup arg** — The `--model` CLI startup argument is skipped when a BYOK provider is configured so the configured provider isn't overridden.
+- **BYOK + `--model` startup arg** — The Copilot CLI validates startup `--model` against the Copilot catalog before BYOK provider config is applied, so provider-only model IDs would fail. The `--model` startup arg is now skipped when a BYOK provider is configured.
 - **Model override propagation** — `--model` is passed via `CLIArgs` so it correctly overrides user settings and experiment flights.
 - **Copilot CLI PATH fallback** — Prevented silent fallback to a Copilot CLI on `PATH` when the bundled binary is unavailable.
 - **Installer latest-release selection** — Installer correctly selects the latest standalone waza release.

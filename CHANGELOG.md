@@ -17,7 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **BYOK + `--model` startup arg** — Skip the `--model` CLI startup argument when a BYOK provider is configured so the configured provider isn't overridden (#305, #306)
+- **BYOK + `--model` startup arg** — The Copilot CLI validates the startup `--model` flag against the Copilot catalog before BYOK provider config is applied, so provider-only model IDs would fail. The `--model` startup arg is now skipped when a BYOK provider is configured (#305, #306)
 - **Model override propagation** — `--model` is now passed via `CLIArgs` so it correctly overrides user settings and experiment flights (#263)
 - **Copilot CLI PATH fallback** — Prevent silent fallback to a Copilot CLI on `PATH` when the bundled binary is unavailable (#300)
 - **Installer latest-release selection** — Installer now correctly selects the latest standalone waza release (#299)
@@ -25,7 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **AgentEngine cancellation** — Simplified `AgentEngine` cancellation handling around caller contexts to make shutdown semantics more predictable
+- **AgentEngine cancellation** — Simplified `AgentEngine` cancellation handling around caller contexts to make shutdown semantics more predictable (#290)
 
 ## [0.34.0] - 2026-05-23
 
