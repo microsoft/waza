@@ -56,6 +56,7 @@ func (m *mockStore) Summary() (*SummaryResponse, error) {
 	}
 	resp := &SummaryResponse{}
 	totalTokens := 0
+	totalPremium := 0.0
 	totalCost := 0.0
 	totalDuration := 0.0
 	totalPassed := 0
@@ -66,6 +67,7 @@ func (m *mockStore) Summary() (*SummaryResponse, error) {
 		totalTasks += d.TaskCount
 		totalPassed += d.PassCount
 		totalTokens += d.Tokens
+		totalPremium += d.PremiumRequests
 		totalCost += d.Cost
 		totalDuration += d.Duration
 	}
@@ -76,6 +78,7 @@ func (m *mockStore) Summary() (*SummaryResponse, error) {
 	}
 	if resp.TotalRuns > 0 {
 		resp.AvgTokens = float64(totalTokens) / float64(resp.TotalRuns)
+		resp.AvgPremiumRequests = totalPremium / float64(resp.TotalRuns)
 		resp.AvgCost = totalCost / float64(resp.TotalRuns)
 		resp.AvgDuration = totalDuration / float64(resp.TotalRuns)
 	}
@@ -90,16 +93,17 @@ func sampleRun(id, spec, model string, passed, total int, tokens int, ts time.Ti
 	}
 	return &RunDetail{
 		RunSummary: RunSummary{
-			ID:        id,
-			Spec:      spec,
-			Model:     model,
-			Outcome:   outcome,
-			PassCount: passed,
-			TaskCount: total,
-			Tokens:    tokens,
-			Cost:      float64(tokens) * 0.00025,
-			Duration:  192.5,
-			Timestamp: ts,
+			ID:              id,
+			Spec:            spec,
+			Model:           model,
+			Outcome:         outcome,
+			PassCount:       passed,
+			TaskCount:       total,
+			Tokens:          tokens,
+			PremiumRequests: float64(passed),
+			Cost:            float64(tokens) * 0.00025,
+			Duration:        192.5,
+			Timestamp:       ts,
 		},
 		Tasks: []TaskResult{
 			{
@@ -196,6 +200,11 @@ func TestHandleSummaryWithRuns(t *testing.T) {
 	}
 	if resp.PassRate != 90.0 {
 		t.Errorf("expected 90%% pass rate, got %.1f", resp.PassRate)
+	}
+	// sampleRun assigns PremiumRequests = float64(passed) so the two
+	// fixtures (r1=4, r2=5) average to 4.5.
+	if resp.AvgPremiumRequests != 4.5 {
+		t.Errorf("expected AvgPremiumRequests=4.5, got %f", resp.AvgPremiumRequests)
 	}
 }
 

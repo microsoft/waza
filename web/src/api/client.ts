@@ -3,6 +3,7 @@ export interface SummaryResponse {
   totalTasks: number;
   passRate: number;
   avgTokens: number;
+  avgPremiumRequests: number;
   avgCost: number;
   avgDuration: number;
 }
@@ -16,6 +17,7 @@ export interface RunSummary {
   passCount: number;
   taskCount: number;
   tokens: number;
+  premiumRequests: number;
   cost: number;
   duration: number;
   timestamp: string;

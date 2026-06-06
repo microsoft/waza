@@ -14,6 +14,14 @@ export function formatCost(dollars: number): string {
   return `$${dollars.toFixed(2)}`;
 }
 
+// formatCredits renders a premium-request count as an integer with thousands
+// separators. Premium requests are not dollars — the dashboard surfaces this
+// as "Credits" to match the GitHub Copilot billing UI nomenclature.
+export function formatCredits(n: number): string {
+  const rounded = Math.round(n);
+  return rounded.toLocaleString("en-US");
+}
+
 export function formatNumber(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;

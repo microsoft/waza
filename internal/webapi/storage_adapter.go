@@ -76,6 +76,7 @@ func (sa *StorageAdapter) Summary() (*SummaryResponse, error) {
 	}
 
 	totalTokens := 0
+	totalPremium := 0.0
 	totalCost := 0.0
 	totalDuration := 0.0
 	totalPassed := 0
@@ -101,6 +102,7 @@ func (sa *StorageAdapter) Summary() (*SummaryResponse, error) {
 
 		s := outcomeToSummary(outcome)
 		totalTokens += s.Tokens
+		totalPremium += s.PremiumRequests
 		totalCost += s.Cost
 		totalDuration += s.Duration
 	}
@@ -111,6 +113,7 @@ func (sa *StorageAdapter) Summary() (*SummaryResponse, error) {
 	}
 	if resp.TotalRuns > 0 {
 		resp.AvgTokens = float64(totalTokens) / float64(resp.TotalRuns)
+		resp.AvgPremiumRequests = totalPremium / float64(resp.TotalRuns)
 		resp.AvgCost = totalCost / float64(resp.TotalRuns)
 		resp.AvgDuration = totalDuration / float64(resp.TotalRuns)
 	}

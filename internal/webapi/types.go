@@ -11,8 +11,9 @@ type RunSummary struct {
 	Outcome    string    `json:"outcome"`
 	PassCount  int       `json:"passCount"`
 	TaskCount  int       `json:"taskCount"`
-	Tokens     int       `json:"tokens"`
-	Cost       float64   `json:"cost"`
+	Tokens          int       `json:"tokens"`
+	PremiumRequests float64   `json:"premiumRequests"`
+	Cost            float64   `json:"cost"`
 	Duration   float64   `json:"duration"`
 	Timestamp  time.Time `json:"timestamp"`
 	Source     string    `json:"source,omitempty"` // "local" or "azure-blob"
@@ -80,12 +81,13 @@ type GraderResult struct {
 
 // SummaryResponse is the aggregate KPI response.
 type SummaryResponse struct {
-	TotalRuns   int     `json:"totalRuns"`
-	TotalTasks  int     `json:"totalTasks"`
-	PassRate    float64 `json:"passRate"`
-	AvgTokens   float64 `json:"avgTokens"`
-	AvgCost     float64 `json:"avgCost"`
-	AvgDuration float64 `json:"avgDuration"`
+	TotalRuns          int     `json:"totalRuns"`
+	TotalTasks         int     `json:"totalTasks"`
+	PassRate           float64 `json:"passRate"`
+	AvgTokens          float64 `json:"avgTokens"`
+	AvgPremiumRequests float64 `json:"avgPremiumRequests"`
+	AvgCost            float64 `json:"avgCost"`
+	AvgDuration        float64 `json:"avgDuration"`
 }
 
 // HealthResponse is the health check response.

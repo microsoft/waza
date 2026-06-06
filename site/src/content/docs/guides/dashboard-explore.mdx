@@ -13,12 +13,13 @@ waza serve --results-dir ./results
 
 ## Eval Runs Overview
 
-The landing page shows all evaluation runs at a glance. Six KPI cards summarize your total runs, tasks, pass rate, token usage, cost, and duration. Below the cards, a sortable table lists every run with its spec, model, pass rate, weighted score, task count, tokens, cost, duration, and relative timestamp.
+The landing page shows all evaluation runs at a glance. Seven KPI cards summarize your total runs, tasks, pass rate, token usage, premium-request credits, cost, and duration. Below the cards, a sortable table lists every run with its spec, model, pass rate, weighted score, task count, tokens, credits, cost, duration, and relative timestamp.
 
 <ZoomImage src="../../images/explore/runs-overview.png" alt="Eval Runs overview showing KPI cards and sortable runs table" />
 
-- **KPI cards** — Total Runs, Total Tasks, Pass Rate, Avg Tokens, Avg Cost, and Avg Duration update in real time as results load
-- **Sortable columns** — click any column header (Spec, Model, Tasks, Tokens, Cost, Duration, When) to sort ascending or descending
+- **KPI cards** — Total Runs, Total Tasks, Pass Rate, Avg Tokens, Avg Credits, Avg Cost, and Avg Duration update in real time as results load
+- **Sortable columns** — click any column header (Spec, Model, Tasks, Tokens, Credits, Cost, Duration, When) to sort ascending or descending
+- **Credits** — premium-request count reported by the Copilot SDK (not dollars). Hover the column header or KPI label for a reminder
 - **Judge model indicator** — a ⚖ icon next to the model name indicates a separate judge model was used for grading
 - **Export CSV** — download the full runs table as a CSV file for offline analysis
 - **Click any row** to drill into that run's detail view
@@ -99,20 +100,21 @@ The Compare view lets you select any two runs and see their differences side by 
 <ZoomImage src="../../images/explore/compare-runs.png" alt="Compare view showing side-by-side metrics and per-task comparison" />
 
 - **Run cards** — each selected run shows its spec, model, and timestamp
-- **Metrics comparison** — Pass Rate, Tokens, Cost, and Duration are compared with delta indicators (↑ increase in red, ↓ decrease in green)
+- **Metrics comparison** — Pass Rate, Tokens, Credits, Cost, and Duration are compared with delta indicators (↑ increase in red, ↓ decrease in green)
 - **Pass rate bars** — horizontal bar chart visually compares pass rates
 - **Per-task comparison** — a table shows each task's outcome, score, and duration for both runs, with Δ Score and Δ Duration columns highlighting differences
 - **Click any row** to view a trajectory diff between the two runs
 
 ## Trends
 
-The Trends page charts your evaluation metrics over time. Four line charts show Pass Rate, Tokens per Run, Cost per Run, and Duration per Run across all runs, ordered chronologically.
+The Trends page charts your evaluation metrics over time. Five line charts show Pass Rate, Tokens per Run, Cost per Run, Credits per Run, and Duration per Run across all runs, ordered chronologically.
 
-<ZoomImage src="../../images/explore/trends.png" alt="Trends page with pass rate, tokens, cost, and duration charts" />
+<ZoomImage src="../../images/explore/trends.png" alt="Trends page with pass rate, tokens, cost, credits, and duration charts" />
 
 - **Pass Rate** — track whether your agent skills are improving or regressing
 - **Tokens per Run** — monitor token consumption trends to catch runaway prompts
 - **Cost per Run** — visualize spending patterns across evaluation runs
+- **Credits per Run** — track premium-request usage reported by the Copilot SDK
 - **Duration per Run** — spot performance regressions in execution time
 - **Model filter** — use the "Model" dropdown (top-right) to filter charts to a specific model (e.g., only gpt-4o runs)
 

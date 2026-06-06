@@ -140,27 +140,30 @@ func outcomeToSummary(o *models.EvaluationOutcome) RunSummary {
 	}
 
 	tokens := 0
+	premiumRequests := 0.0
 	for _, t := range o.TestOutcomes {
 		for _, r := range t.Runs {
 			if r.SessionDigest.Usage != nil {
 				tokens += r.SessionDigest.Usage.InputTokens + r.SessionDigest.Usage.OutputTokens
+				premiumRequests += r.SessionDigest.Usage.PremiumRequests
 			}
 		}
 	}
 
 	return RunSummary{
-		ID:         o.RunID,
-		Spec:       o.BenchName,
-		Model:      o.Setup.ModelID,
-		JudgeModel: o.Setup.JudgeModel,
-		Outcome:    outcome,
-		PassCount:  o.Digest.Succeeded,
-		TaskCount:  o.Digest.TotalTests,
-		Tokens:     tokens,
-		Cost:       estimateCost(tokens),
-		Duration:   float64(o.Digest.DurationMs) / 1000.0,
-		Timestamp:  o.Timestamp,
-		Source:     "local",
+		ID:              o.RunID,
+		Spec:            o.BenchName,
+		Model:           o.Setup.ModelID,
+		JudgeModel:      o.Setup.JudgeModel,
+		Outcome:         outcome,
+		PassCount:       o.Digest.Succeeded,
+		TaskCount:       o.Digest.TotalTests,
+		Tokens:          tokens,
+		PremiumRequests: premiumRequests,
+		Cost:            estimateCost(tokens),
+		Duration:        float64(o.Digest.DurationMs) / 1000.0,
+		Timestamp:       o.Timestamp,
+		Source:          "local",
 	}
 }
 

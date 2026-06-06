@@ -5,10 +5,14 @@ import TaskTrajectoryCompare from "./TaskTrajectoryCompare";
 import {
   formatDuration,
   formatCost,
+  formatCredits,
   formatNumber,
   formatPercent,
   formatRelativeTime,
 } from "../lib/format";
+
+const CREDITS_TOOLTIP =
+  "Premium request count reported by the Copilot SDK — not dollars.";
 
 function Delta({
   a,
@@ -303,7 +307,7 @@ export default function CompareView() {
             <h3 className="mb-4 text-sm font-medium text-zinc-300">
               Metrics Comparison
             </h3>
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
               <MetricCard
                 label="Pass Rate"
                 valueA={formatPercent(
@@ -342,6 +346,20 @@ export default function CompareView() {
                     a={runA.tokens}
                     b={runB.tokens}
                     format={formatNumber}
+                    higherIsBetter={false}
+                  />
+                }
+              />
+              <MetricCard
+                label="Credits"
+                title={CREDITS_TOOLTIP}
+                valueA={formatCredits(runA.premiumRequests ?? 0)}
+                valueB={formatCredits(runB.premiumRequests ?? 0)}
+                delta={
+                  <Delta
+                    a={runA.premiumRequests ?? 0}
+                    b={runB.premiumRequests ?? 0}
+                    format={formatCredits}
                     higherIsBetter={false}
                   />
                 }
@@ -439,15 +457,21 @@ function MetricCard({
   valueA,
   valueB,
   delta,
+  title,
 }: {
   label: string;
   valueA: string;
   valueB: string;
   delta: React.ReactNode;
+  title?: string;
 }) {
   return (
-    <div className="space-y-2">
-      <p className="text-xs font-medium uppercase text-zinc-400">{label}</p>
+    <div className="space-y-2" title={title}>
+      <p
+        className={`text-xs font-medium uppercase text-zinc-400${title ? " cursor-help" : ""}`}
+      >
+        {label}
+      </p>
       <div className="flex items-baseline gap-3">
         <span className="text-lg font-semibold text-zinc-100">{valueA}</span>
         <span className="text-zinc-500">→</span>

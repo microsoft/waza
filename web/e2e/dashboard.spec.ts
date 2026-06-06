@@ -11,7 +11,7 @@ test.describe("Dashboard", () => {
     await expect(header.getByText("eval dashboard")).toBeVisible();
   });
 
-  test("6 KPI cards render with data", async ({ page }) => {
+  test("7 KPI cards render with data", async ({ page }) => {
     await mockAllAPIs(page);
     await page.goto("/");
 
@@ -22,6 +22,7 @@ test.describe("Dashboard", () => {
     await expect(cards.getByText("Total Tasks")).toBeVisible();
     await expect(cards.getByText("Pass Rate")).toBeVisible();
     await expect(cards.getByText("Avg Tokens")).toBeVisible();
+    await expect(cards.getByText("Avg Credits")).toBeVisible();
     await expect(cards.getByText("Avg Cost")).toBeVisible();
     await expect(cards.getByText("Avg Duration")).toBeVisible();
   });
@@ -41,6 +42,8 @@ test.describe("Dashboard", () => {
     await expect(cards.getByText("85%")).toBeVisible();
     // avgTokens: 15230 → "15.2K"
     await expect(cards.getByText("15.2K")).toBeVisible();
+    // avgPremiumRequests: 8 → "8"
+    await expect(cards.getByText("Avg Credits")).toBeVisible();
     // avgCost: 1.47 → "$1.47"
     await expect(cards.getByText("$1.47")).toBeVisible();
     // avgDuration: 42s → "42s"
@@ -71,6 +74,14 @@ test.describe("Runs Table", () => {
     await expect(page.getByText("code-explainer")).toBeVisible();
     await expect(page.getByText("skill-checker")).toBeVisible();
     await expect(page.getByText("doc-writer")).toBeVisible();
+  });
+
+  test("Credits column renders with values", async ({ page }) => {
+    await mockAllAPIs(page);
+    await page.goto("/");
+
+    await expect(page.getByText("code-explainer")).toBeVisible();
+    await expect(page.getByRole("button", { name: /Credits/ })).toBeVisible();
   });
 
   test("column sorting works", async ({ page }) => {
