@@ -266,7 +266,6 @@ func TestUsingPreviousSessionID(t *testing.T) {
 		// we're going to create a session and "store" a number in it, and then see if we can recall it in our
 		// prompt evaluation below.
 		client := copilot.NewClient(&copilot.ClientOptions{
-			AutoStart:       utils.Ptr(true),
 			UseLoggedInUser: utils.Ptr(true),
 		})
 

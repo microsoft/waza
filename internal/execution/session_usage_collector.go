@@ -40,7 +40,7 @@ func (s *SessionUsageCollector) On(event copilot.SessionEvent) {
 	s.mut.Lock()
 	defer s.mut.Unlock()
 
-	switch event.Type {
+	switch event.Type() {
 	case copilot.SessionEventTypeAssistantTurnStart:
 		s.turns++
 	case copilot.SessionEventTypeAssistantUsage:
@@ -92,7 +92,9 @@ func (s *SessionUsageCollector) extractSessionUsage(event copilot.SessionEvent) 
 		s.sessionUsage = &models.UsageStats{}
 	}
 
-	s.sessionUsage.PremiumRequests = shutdown.TotalPremiumRequests
+	if shutdown.TotalPremiumRequests != nil {
+		s.sessionUsage.PremiumRequests = *shutdown.TotalPremiumRequests
+	}
 
 	if len(shutdown.ModelMetrics) > 0 {
 		s.sessionUsage.ModelMetrics = make(map[string]models.ModelUsage, len(shutdown.ModelMetrics))
@@ -104,8 +106,12 @@ func (s *SessionUsageCollector) extractSessionUsage(event copilot.SessionEvent) 
 				OutputTokens:     int(mm.Usage.OutputTokens),
 				CacheReadTokens:  int(mm.Usage.CacheReadTokens),
 				CacheWriteTokens: int(mm.Usage.CacheWriteTokens),
-				RequestCount:     mm.Requests.Count,
-				RequestCost:      mm.Requests.Cost,
+			}
+			if mm.Requests.Count != nil {
+				mu.RequestCount = float64(*mm.Requests.Count)
+			}
+			if mm.Requests.Cost != nil {
+				mu.RequestCost = *mm.Requests.Cost
 			}
 			s.sessionUsage.ModelMetrics[name] = mu
 			totalIn += mu.InputTokens

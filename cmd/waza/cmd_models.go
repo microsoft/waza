@@ -115,8 +115,8 @@ func renderModelsTable(cmd *cobra.Command, models []copilot.ModelInfo) error {
 		}
 
 		contextWindow := "-"
-		if m.Capabilities.Limits.MaxContextWindowTokens > 0 {
-			contextWindow = formatTokenCount(m.Capabilities.Limits.MaxContextWindowTokens)
+		if m.Capabilities.Limits.MaxContextWindowTokens != nil && *m.Capabilities.Limits.MaxContextWindowTokens > 0 {
+			contextWindow = formatTokenCount(*m.Capabilities.Limits.MaxContextWindowTokens)
 		}
 
 		fmt.Fprintf(w, "%-*s  %-*s  %-8s  %s\n", idWidth, m.ID, nameWidth, m.Name, vision, contextWindow) //nolint:errcheck

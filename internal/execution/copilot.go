@@ -12,6 +12,7 @@ import (
 	"time"
 
 	copilot "github.com/github/copilot-sdk/go"
+	"github.com/github/copilot-sdk/go/rpc"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/skill"
 	"github.com/microsoft/waza/internal/utils"
@@ -108,7 +109,7 @@ func providerFromEnv() customProviderConfig {
 		p.Type = v
 	}
 	if v := envFirst("COPILOT_WIRE_API", "COPILOT_PROVIDER_WIRE_API"); v != "" {
-		p.WireApi = v
+		p.WireAPI = v
 	}
 	if v := envFirst("COPILOT_API_KEY", "COPILOT_PROVIDER_API_KEY"); v != "" {
 		p.APIKey = v
@@ -179,10 +180,10 @@ func NewCopilotEngineBuilder(defaultModelID string, options *CopilotEngineBuilde
 			// workspace is set at the session level, instead of at the client.
 			LogLevel: "error",
 
-			CLIArgs: cliArgs,
-
-			AutoStart:   utils.Ptr(false), // we handle start in Initialize()
-			AutoRestart: utils.Ptr(true),  // this is a default, but just in case the defaults change...
+			// SDK v1.0.0 moved CLIArgs onto the Connection. AutoStart/AutoRestart
+			// are no longer configurable — the SDK starts on demand and restarts
+			// internally. We still call client.Start() explicitly in Initialize().
+			Connection: copilot.StdioConnection{Args: cliArgs},
 		}
 		client = options.NewCopilotClient(copilotOptions)
 		ownsClient = true
@@ -373,7 +374,7 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 			SkillDirectories: skillDirs,
 			WorkingDirectory: workingDir,
 			SystemMessage:    systemMessage,
-			Streaming:        req.Streaming,
+			Streaming:        streamingPtr(req.Streaming),
 			MCPServers:       req.MCPServers,
 			Provider:         e.provider.sessionConfig(),
 		})
@@ -392,7 +393,7 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 			SkillDirectories: skillDirs,
 			WorkingDirectory: workingDir,
 			SystemMessage:    systemMessage,
-			Streaming:        req.Streaming,
+			Streaming:        streamingPtr(req.Streaming),
 			MCPServers:       req.MCPServers,
 			Provider:         e.provider.sessionConfig(),
 		})
@@ -722,8 +723,19 @@ func joinStrings(parts []string) string {
 	return builder.String()
 }
 
-func allowAllTools(request copilot.PermissionRequest, invocation copilot.PermissionInvocation) (copilot.PermissionRequestResult, error) {
-	return copilot.PermissionRequestResult{Kind: copilot.PermissionRequestResultKindApproved}, nil
+func allowAllTools(request copilot.PermissionRequest, invocation copilot.PermissionInvocation) (rpc.PermissionDecision, error) {
+	return &rpc.PermissionDecisionApproveOnce{}, nil
+}
+
+// streamingPtr preserves the pre-v1.0.0 SDK semantics: only set Streaming
+// when the caller explicitly requested it. A nil pointer means "use the SDK
+// default"; copilot.Bool(false) would explicitly disable streaming and shows
+// up as a non-nil pointer in matchers.
+func streamingPtr(streaming bool) *bool {
+	if !streaming {
+		return nil
+	}
+	return copilot.Bool(true)
 }
 
 // skillDefinition holds the content extracted from a SKILL.md file.

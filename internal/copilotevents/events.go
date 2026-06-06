@@ -120,10 +120,10 @@ func AssistantUsage(event copilot.SessionEvent) (*copilot.AssistantUsageData, bo
 	return data, ok
 }
 
-func RawData(data any) copilot.SessionEventData {
+func RawData(eventType copilot.SessionEventType, data any) copilot.SessionEventData {
 	raw, err := json.Marshal(data)
 	if err != nil {
 		raw = []byte("{}")
 	}
-	return &copilot.RawSessionEventData{Raw: raw}
+	return &copilot.RawSessionEventData{EventType: eventType, Raw: raw}
 }

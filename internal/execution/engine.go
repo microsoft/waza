@@ -136,12 +136,12 @@ type ExecutionResponse struct {
 	Usage            *models.UsageStats
 }
 
-// ExtractMessages gets all assistant messages from events
+// ExtractMessages gets all non-empty assistant messages from events.
 func (r *ExecutionResponse) ExtractMessages() []string {
 	var messages []string
 	for _, evt := range r.Events {
-		if evt.Type == copilot.SessionEventTypeAssistantMessage {
-			if content, ok := copilotevents.Content(evt); ok {
+		if evt.Type() == copilot.SessionEventTypeAssistantMessage {
+			if content, ok := copilotevents.Content(evt); ok && content != "" {
 				messages = append(messages, content)
 			}
 		}

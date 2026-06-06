@@ -310,7 +310,7 @@ func mapTranscriptEvents(events []models.TranscriptEvent) []TranscriptEventRespo
 	resp := make([]TranscriptEventResponse, 0, len(events))
 	for _, e := range events {
 		r := TranscriptEventResponse{
-			Type: string(e.Type),
+			Type: string(e.Type()),
 		}
 		if content, ok := copilotevents.Content(e.SessionEvent); ok {
 			r.Content = content

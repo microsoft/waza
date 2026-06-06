@@ -191,8 +191,12 @@ func TestSharedClient_UsesEmbeddedCLIPath(t *testing.T) {
 	if gotOptions == nil {
 		t.Fatalf("expected shared client to be constructed")
 	}
-	if gotOptions.CLIPath != "/cache/copilot-sdk/copilot_1.0.49" {
-		t.Fatalf("expected embedded CLI path, got %q", gotOptions.CLIPath)
+	conn, ok := gotOptions.Connection.(copilot.StdioConnection)
+	if !ok {
+		t.Fatalf("expected Connection to be a copilot.StdioConnection, got %T", gotOptions.Connection)
+	}
+	if conn.Path != "/cache/copilot-sdk/copilot_1.0.49" {
+		t.Fatalf("expected embedded CLI path, got %q", conn.Path)
 	}
 }
 
@@ -217,8 +221,12 @@ func TestSharedClient_PassesCLIArgs(t *testing.T) {
 	if gotOptions == nil {
 		t.Fatalf("expected shared client to be constructed")
 	}
-	if !reflect.DeepEqual(gotOptions.CLIArgs, cliArgs) {
-		t.Fatalf("expected CLIArgs %v, got %v", cliArgs, gotOptions.CLIArgs)
+	conn, ok := gotOptions.Connection.(copilot.StdioConnection)
+	if !ok {
+		t.Fatalf("expected Connection to be a copilot.StdioConnection, got %T", gotOptions.Connection)
+	}
+	if !reflect.DeepEqual(conn.Args, cliArgs) {
+		t.Fatalf("expected CLIArgs %v, got %v", cliArgs, conn.Args)
 	}
 }
 
@@ -232,7 +240,12 @@ func TestSharedClient_SeparatesDifferentCLIArgs(t *testing.T) {
 
 	var gotArgs [][]string
 	sharedConstruct = func(opts *copilot.ClientOptions) CopilotClient {
-		gotArgs = append(gotArgs, append([]string{}, opts.CLIArgs...))
+		conn, ok := opts.Connection.(copilot.StdioConnection)
+		if !ok {
+			gotArgs = append(gotArgs, nil)
+		} else {
+			gotArgs = append(gotArgs, append([]string{}, conn.Args...))
+		}
 		return &stubClient{}
 	}
 	t.Cleanup(func() { sharedConstruct = newCopilotClient })
@@ -288,8 +301,12 @@ func TestSharedClient_UsesCOPILOTCLIPathOverride(t *testing.T) {
 	if gotOptions == nil {
 		t.Fatalf("expected shared client to be constructed")
 	}
-	if gotOptions.CLIPath != cliPath {
-		t.Fatalf("expected COPILOT_CLI_PATH override, got %q", gotOptions.CLIPath)
+	conn, ok := gotOptions.Connection.(copilot.StdioConnection)
+	if !ok {
+		t.Fatalf("expected Connection to be a copilot.StdioConnection, got %T", gotOptions.Connection)
+	}
+	if conn.Path != cliPath {
+		t.Fatalf("expected COPILOT_CLI_PATH override, got %q", conn.Path)
 	}
 }
 

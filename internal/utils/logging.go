@@ -19,7 +19,7 @@ func NewSessionToSlog() copilot.SessionEventHandler {
 	intentCalls := sync.Map{}
 
 	return func(event copilot.SessionEvent) {
-		switch event.Type {
+		switch event.Type() {
 		case copilot.SessionEventTypePendingMessagesModified, copilot.SessionEventTypeHookEnd, copilot.SessionEventTypeHookStart:
 			// we just drop these from logging, they're mostly noise, or have other events (like tool calls)
 			// that are more informative.
@@ -50,7 +50,7 @@ func sessionToSlog(event copilot.SessionEvent) {
 	}
 
 	attrs := []any{
-		"type", event.Type,
+		"type", event.Type(),
 	}
 
 	attrs = appendIf(attrs, "reasoningText", copilotevents.ReasoningText(event))

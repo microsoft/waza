@@ -94,11 +94,9 @@ func TestBuildNoSuggestionsError_IncludesSessionTranscript(t *testing.T) {
 	err := buildNoSuggestionsError(&execution.ExecutionResponse{
 		Events: []copilot.SessionEvent{
 			{
-				Type: copilot.SessionEventTypeAssistantMessage,
 				Data: &copilot.AssistantMessageData{Content: msg},
 			},
 			{
-				Type: copilot.SessionEventTypeToolExecutionStart,
 				Data: &copilot.ToolExecutionStartData{
 					ToolName:   toolName,
 					ToolCallID: toolCallID,
@@ -106,7 +104,6 @@ func TestBuildNoSuggestionsError_IncludesSessionTranscript(t *testing.T) {
 				},
 			},
 			{
-				Type: copilot.SessionEventTypeToolExecutionComplete,
 				Data: &copilot.ToolExecutionCompleteData{
 					ToolCallID: toolCallID,
 					Success:    succeeded,
@@ -128,7 +125,7 @@ func TestBuildNoSuggestionsError_IncludesSessionTranscript(t *testing.T) {
 func TestBuildNoSuggestionsError_FallsBackToEventTypes(t *testing.T) {
 	err := buildNoSuggestionsError(&execution.ExecutionResponse{
 		Events: []copilot.SessionEvent{
-			{Type: copilot.SessionEventTypeSessionIdle},
+			{Data: &copilot.SessionIdleData{}},
 		},
 	})
 
@@ -189,13 +186,11 @@ func TestBuildRunSuggestionPrompt_IncludesOnlyFailureEvidence(t *testing.T) {
 					Transcript: []models.TranscriptEvent{
 						{
 							SessionEvent: copilot.SessionEvent{
-								Type: copilot.SessionEventTypeAssistantMessage,
 								Data: &copilot.AssistantMessageData{Content: msg},
 							},
 						},
 						{
 							SessionEvent: copilot.SessionEvent{
-								Type: copilot.SessionEventTypeToolExecutionStart,
 								Data: &copilot.ToolExecutionStartData{
 									ToolName:   toolName,
 									ToolCallID: toolCallID,
@@ -205,7 +200,6 @@ func TestBuildRunSuggestionPrompt_IncludesOnlyFailureEvidence(t *testing.T) {
 						},
 						{
 							SessionEvent: copilot.SessionEvent{
-								Type: copilot.SessionEventTypeToolExecutionComplete,
 								Data: &copilot.ToolExecutionCompleteData{
 									ToolCallID: toolCallID,
 									Success:    succeeded,
@@ -396,7 +390,6 @@ func TestWriteSuggestionTranscript_WritesFile(t *testing.T) {
 		DurationMs:  1500,
 		Events: []copilot.SessionEvent{
 			{
-				Type: copilot.SessionEventTypeAssistantMessage,
 				Data: &copilot.AssistantMessageData{Content: msg},
 			},
 		},

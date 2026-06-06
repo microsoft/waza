@@ -241,7 +241,6 @@ func TestWithError(t *testing.T) {
 	collector.On(copilot.SessionEvent{
 		Data: &copilot.AssistantMessageData{Content: "oh no there was a fake error"},
 		ID:   "2450ebe2-8dea-4cf8-9c3b-191027e4002e",
-		Type: copilot.SessionEventTypeAssistantMessage,
 	})
 
 	transcript := convertToTranscriptEvents(collector.SessionEvents())

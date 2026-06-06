@@ -85,7 +85,6 @@ func TestNewSessionEventsCollector_Error(t *testing.T) {
 		// we should set the 'ErrorMsg' field.
 
 		coll.On(copilot.SessionEvent{
-			Type: copilot.SessionEventTypeSessionError,
 			Data: &copilot.SessionErrorData{Message: derefTestString(tc.Message)},
 		})
 
@@ -105,7 +104,6 @@ func TestSessionEventsCollector_OnSkillInvokedCallback(t *testing.T) {
 		})
 
 		coll.On(copilot.SessionEvent{
-			Type: copilot.SessionEventTypeSkillInvoked,
 			Data: &copilot.SkillInvokedData{
 				Name: skillName,
 				Path: skillPath,
@@ -121,7 +119,6 @@ func TestSessionEventsCollector_OnSkillInvokedCallback(t *testing.T) {
 
 		require.NotPanics(t, func() {
 			coll.On(copilot.SessionEvent{
-				Type: copilot.SessionEventTypeSkillInvoked,
 				Data: &copilot.SkillInvokedData{
 					Name: skillName,
 					Path: skillPath,
@@ -142,7 +139,6 @@ func TestSessionEventsCollector_OnSkillInvokedCallback(t *testing.T) {
 		for i := 0; i < 3; i++ {
 			name := fmt.Sprintf("skill-%d", i)
 			coll.On(copilot.SessionEvent{
-				Type: copilot.SessionEventTypeSkillInvoked,
 				Data: &copilot.SkillInvokedData{Name: name},
 			})
 		}

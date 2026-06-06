@@ -13,6 +13,7 @@ import (
 	"time"
 
 	copilot "github.com/github/copilot-sdk/go"
+	"github.com/github/copilot-sdk/go/rpc"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
@@ -22,9 +23,10 @@ import (
 var enableLiveCopilotTests = os.Getenv("ENABLE_COPILOT_TESTS") == "true"
 
 func TestAllowAllTools_UsesSDKApprovedKind(t *testing.T) {
-	result, err := allowAllTools(copilot.PermissionRequest{}, copilot.PermissionInvocation{})
+	result, err := allowAllTools(&copilot.RawPermissionRequest{}, copilot.PermissionInvocation{})
 	require.NoError(t, err)
-	require.Equal(t, copilot.PermissionRequestResultKindApproved, result.Kind)
+	_, ok := result.(*rpc.PermissionDecisionApproveOnce)
+	require.True(t, ok, "expected an ApproveOnce decision, got %T", result)
 }
 
 func TestCopilotNoSessionID(t *testing.T) {
@@ -187,7 +189,7 @@ func TestCopilotCreateSession_PassesCustomProvider(t *testing.T) {
 			Provider: &copilot.ProviderConfig{
 				Type:        "openai",
 				BaseURL:     "https://waza-test-resource.openai.azure.com/openai/v1",
-				WireApi:     "chat_completions",
+				WireAPI:     "chat_completions",
 				APIKey:      "test-key",
 				BearerToken: "token",
 			},
@@ -205,10 +207,10 @@ func TestCopilotCreateSession_PassesCustomProvider(t *testing.T) {
 	})
 	sessionMock.EXPECT().SendAndWait(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, _ copilot.MessageOptions) (*copilot.SessionEvent, error) {
-			in, out, cost := float64(10), float64(2), float64(1)
+			in, out := int64(10), int64(2)
+			cost := float64(1)
 			for _, handler := range eventHandlers {
 				handler(copilot.SessionEvent{
-					Type: copilot.SessionEventTypeAssistantUsage,
 					Data: &copilot.AssistantUsageData{
 						InputTokens:  &in,
 						OutputTokens: &out,
@@ -274,7 +276,7 @@ func TestCopilotResumeSession_PassesCustomProvider(t *testing.T) {
 			Provider: &copilot.ProviderConfig{
 				Type:    "openai",
 				BaseURL: "https://waza-test-resource.openai.azure.com/openai/v1",
-				WireApi: "responses",
+				WireAPI: "responses",
 			},
 		},
 	}
@@ -839,7 +841,6 @@ func TestCopilotExecute_CancelOnSkillInvocation(t *testing.T) {
 			// Simulate a SkillInvoked event arriving mid-stream.
 			for _, handler := range eventHandlers {
 				handler(copilot.SessionEvent{
-					Type: copilot.SessionEventTypeSkillInvoked,
 					Data: &copilot.SkillInvokedData{
 						Name: skillName,
 						Path: skillPath,

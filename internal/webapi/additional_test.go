@@ -207,7 +207,6 @@ func TestOutcomeToDetailMapsStatsTranscriptAndDigest(t *testing.T) {
 						Transcript: []models.TranscriptEvent{
 							{
 								SessionEvent: copilot.SessionEvent{
-									Type: copilot.SessionEventTypeToolExecutionComplete,
 									Data: &copilot.ToolExecutionCompleteData{
 										ToolCallID: toolCallID,
 										Result: &copilot.ToolExecutionCompleteResult{

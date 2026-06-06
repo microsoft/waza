@@ -61,7 +61,7 @@ func (coll *SessionEventsCollector) SetOnSkillInvoked(fn func(SkillInvocation)) 
 // On is a callback, intended to be passed to [copilot.Session.On] to receive
 // events in real-time.
 func (coll *SessionEventsCollector) On(event copilot.SessionEvent) {
-	switch event.Type {
+	switch event.Type() {
 	case copilot.SessionEventTypeAssistantMessage:
 		if content, ok := copilotevents.Content(event); ok {
 			coll.outputParts = append(coll.outputParts, content)
@@ -109,7 +109,7 @@ func (coll *SessionEventsCollector) On(event copilot.SessionEvent) {
 		}
 	// these are both termination events
 	case copilot.SessionEventTypeSessionIdle, copilot.SessionEventTypeSessionError:
-		if event.Type == copilot.SessionEventTypeSessionError {
+		if event.Type() == copilot.SessionEventTypeSessionError {
 			if message, ok := copilotevents.Message(event); !ok || message == "" {
 				coll.errorMsg = sessionFailedUnknown
 			} else {

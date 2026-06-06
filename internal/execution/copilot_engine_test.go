@@ -227,7 +227,8 @@ func TestCopilotEngine_Execute_PassesGraderRequestOptionsAndDeletesEphemeralSess
 	clientMock.EXPECT().CreateSession(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, cfg *copilot.SessionConfig) (CopilotSession, error) {
 			require.Equal(t, "judge-model", cfg.Model)
-			require.True(t, cfg.Streaming)
+			require.NotNil(t, cfg.Streaming)
+			require.True(t, *cfg.Streaming)
 			require.Empty(t, cfg.SkillDirectories)
 			require.Equal(t, "set_waza_grade_pass", cfg.Tools[0].Name)
 			require.NotEmpty(t, cfg.WorkingDirectory)
@@ -276,7 +277,8 @@ func TestCopilotEngine_Execute_ResumedEphemeralSessionIsNotDeletedOrTracked(t *t
 
 	clientMock.EXPECT().ResumeSessionWithOptions(gomock.Any(), "existing-session", gomock.Any()).DoAndReturn(
 		func(_ context.Context, _ string, cfg *copilot.ResumeSessionConfig) (CopilotSession, error) {
-			require.True(t, cfg.Streaming)
+			require.NotNil(t, cfg.Streaming)
+			require.True(t, *cfg.Streaming)
 			require.Empty(t, cfg.SkillDirectories)
 			require.Equal(t, "judge-tool", cfg.Tools[0].Name)
 			return sessionMock, nil
@@ -351,8 +353,10 @@ func TestCopilotEngineBuilder_CLIArgsCarriesModel(t *testing.T) {
 	}).Build()
 
 	require.NotNil(t, captured, "NewCopilotClient must receive non-nil ClientOptions")
-	require.Equal(t, []string{"--model", defaultModelID}, captured.CLIArgs,
-		"CLIArgs must carry --model <defaultModelID> so it overrides the user's local Copilot settings.json and experiment-flight defaults")
+	conn, ok := captured.Connection.(copilot.StdioConnection)
+	require.True(t, ok, "Connection must be a copilot.StdioConnection")
+	require.Equal(t, []string{"--model", defaultModelID}, conn.Args,
+		"Connection.Args must carry --model <defaultModelID> so it overrides the user's local Copilot settings.json and experiment-flight defaults")
 }
 
 // TestCopilotEngineBuilder_CLIArgsEmptyWhenNoDefaultModel is a regression test
@@ -373,8 +377,10 @@ func TestCopilotEngineBuilder_CLIArgsEmptyWhenNoDefaultModel(t *testing.T) {
 	}).Build()
 
 	require.NotNil(t, captured, "NewCopilotClient must receive non-nil ClientOptions")
-	require.Empty(t, captured.CLIArgs,
-		"CLIArgs must be empty when no defaultModelID is provided so the embedded CLI can pick its own fallback")
+	conn, ok := captured.Connection.(copilot.StdioConnection)
+	require.True(t, ok, "Connection must be a copilot.StdioConnection")
+	require.Empty(t, conn.Args,
+		"Connection.Args must be empty when no defaultModelID is provided so the embedded CLI can pick its own fallback")
 }
 
 // TestCopilotEngineBuilder_CLIArgsEmptyWhenCustomProvider is a regression test
@@ -405,8 +411,10 @@ func TestCopilotEngineBuilder_CLIArgsEmptyWhenCustomProvider(t *testing.T) {
 	}).Build()
 
 	require.NotNil(t, captured, "NewCopilotClient must receive non-nil ClientOptions")
-	require.Empty(t, captured.CLIArgs,
-		"CLIArgs must be empty when a custom BYOK provider is configured so the embedded CLI does not pre-validate a provider-only model ID against the GitHub Copilot catalog (#305)")
+	conn, ok := captured.Connection.(copilot.StdioConnection)
+	require.True(t, ok, "Connection must be a copilot.StdioConnection")
+	require.Empty(t, conn.Args,
+		"Connection.Args must be empty when a custom BYOK provider is configured so the embedded CLI does not pre-validate a provider-only model ID against the GitHub Copilot catalog (#305)")
 
 	// The engine should still know the defaultModelID and provider for
 	// per-session SessionConfig assembly.

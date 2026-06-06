@@ -26,7 +26,7 @@ func TestSessionToSlogDebugDisabled(t *testing.T) {
 	logger := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	slog.SetDefault(logger)
 
-	NewSessionToSlog()(copilot.SessionEvent{Type: copilot.SessionEventType("message")})
+	NewSessionToSlog()(copilot.SessionEvent{Data: &copilot.RawSessionEventData{EventType: copilot.SessionEventType("message")}})
 	assert.Equal(t, 0, buf.Len())
 }
 
@@ -44,7 +44,6 @@ func TestSessionToSlogDebugEnabled(t *testing.T) {
 	reasoningText := "reasoning"
 
 	NewSessionToSlog()(copilot.SessionEvent{
-		Type: copilot.SessionEventTypeAssistantMessage,
 		Data: &copilot.AssistantMessageData{
 			Content:       content,
 			ReasoningText: &reasoningText,

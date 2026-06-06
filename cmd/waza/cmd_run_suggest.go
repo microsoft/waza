@@ -119,7 +119,7 @@ func summarizeSessionEventTypes(events []copilot.SessionEvent) []string {
 	}
 	lines := make([]string, 0, len(events))
 	for i, evt := range events {
-		lines = append(lines, fmt.Sprintf("event[%d]: %s", i+1, evt.Type))
+		lines = append(lines, fmt.Sprintf("event[%d]: %s", i+1, evt.Type()))
 	}
 	return lines
 }
@@ -627,7 +627,7 @@ func extractCopilotTrace(transcript []models.TranscriptEvent) []string {
 	lines := make([]string, 0, len(transcript))
 	toolNames := map[string]string{}
 	for _, evt := range transcript {
-		switch evt.Type {
+		switch evt.Type() {
 		case copilot.SessionEventTypeAssistantMessage:
 			content, ok := copilotevents.Content(evt.SessionEvent)
 			if !ok {
