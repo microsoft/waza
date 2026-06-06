@@ -4,18 +4,19 @@ import "time"
 
 // RunSummary is the API response for a single run in the list.
 type RunSummary struct {
-	ID         string    `json:"id"`
-	Spec       string    `json:"spec"`
-	Model      string    `json:"model"`
-	JudgeModel string    `json:"judgeModel,omitempty"`
-	Outcome    string    `json:"outcome"`
-	PassCount  int       `json:"passCount"`
-	TaskCount  int       `json:"taskCount"`
-	Tokens     int       `json:"tokens"`
-	Cost       float64   `json:"cost"`
+	ID         string  `json:"id"`
+	Spec       string  `json:"spec"`
+	Model      string  `json:"model"`
+	JudgeModel string  `json:"judgeModel,omitempty"`
+	Outcome    string  `json:"outcome"`
+	PassCount  int     `json:"passCount"`
+	TaskCount  int     `json:"taskCount"`
+	Tokens     int     `json:"tokens"`
+	Cost       float64 `json:"cost"`
 	// CostSource records how Cost was computed: "sdk" (reported by the Copilot
 	// SDK), "table" (priced from the embedded model rate table), or "estimate"
-	// (flat-rate fallback). Empty when no cost data is available.
+	// (flat-rate fallback). Empty for legacy summaries that carry no token/cost
+	// data (e.g. summaries surfaced by storage_adapter.resultSummaryToRunSummary).
 	CostSource string    `json:"costSource,omitempty"`
 	Duration   float64   `json:"duration"`
 	Timestamp  time.Time `json:"timestamp"`
@@ -84,14 +85,15 @@ type GraderResult struct {
 
 // SummaryResponse is the aggregate KPI response.
 type SummaryResponse struct {
-	TotalRuns   int     `json:"totalRuns"`
-	TotalTasks  int     `json:"totalTasks"`
-	PassRate    float64 `json:"passRate"`
-	AvgTokens   float64 `json:"avgTokens"`
-	AvgCost     float64 `json:"avgCost"`
+	TotalRuns  int     `json:"totalRuns"`
+	TotalTasks int     `json:"totalTasks"`
+	PassRate   float64 `json:"passRate"`
+	AvgTokens  float64 `json:"avgTokens"`
+	AvgCost    float64 `json:"avgCost"`
 	// CostSource records the source of AvgCost across runs: "sdk", "table",
 	// "estimate", or "mixed" when different runs were priced from different
-	// sources. Empty when there are no runs.
+	// sources. Empty when there are no runs, or when every aggregated run lacks
+	// cost data (e.g. legacy ResultSummary rows that don't carry token usage).
 	CostSource  string  `json:"costSource,omitempty"`
 	AvgDuration float64 `json:"avgDuration"`
 }

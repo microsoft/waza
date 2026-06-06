@@ -20,11 +20,14 @@ export function costSourceTooltip(source?: string): string {
       return "Reported by Copilot SDK";
     case "table":
       return "Calculated from model rate table (as of 2025-01-01)";
+    case "estimate":
+      return "Rough flat-rate estimate ($0.00025/token) — model pricing unavailable";
     case "mixed":
       return "Mixed sources across runs — hover individual rows for details";
-    case "estimate":
     default:
-      return "Rough flat-rate estimate ($0.00025/token) — model pricing unavailable";
+      // An omitted/empty costSource means the backend had no usage data to
+      // price (e.g. legacy ResultSummary rows). Don't claim it was estimated.
+      return "Cost data unavailable for this run";
   }
 }
 
