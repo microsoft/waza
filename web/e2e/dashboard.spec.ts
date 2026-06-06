@@ -42,8 +42,12 @@ test.describe("Dashboard", () => {
     await expect(cards.getByText("85%")).toBeVisible();
     // avgTokens: 15230 → "15.2K"
     await expect(cards.getByText("15.2K")).toBeVisible();
-    // avgPremiumRequests: 8 → "8"
-    await expect(cards.getByText("Avg Credits")).toBeVisible();
+    // avgPremiumRequests: 8 → "8" (scoped to the Avg Credits card so we don't match the "8" in run-002's tokens, etc.)
+    const avgCreditsCard = cards
+      .locator("div")
+      .filter({ hasText: /^Avg Credits$/ })
+      .locator("..");
+    await expect(avgCreditsCard).toContainText("8");
     // avgCost: 1.47 → "$1.47"
     await expect(cards.getByText("$1.47")).toBeVisible();
     // avgDuration: 42s → "42s"
@@ -82,6 +86,14 @@ test.describe("Runs Table", () => {
 
     await expect(page.getByText("code-explainer")).toBeVisible();
     await expect(page.getByRole("button", { name: /Credits/ })).toBeVisible();
+
+    // Assert the fixture values render in the Credits column.
+    // RUNS fixture: premiumRequests = 6, 10, 4 → formatted with thousands separators (integers here).
+    // Scope to the table body so the "10" in other columns can't satisfy this.
+    const tbody = page.locator("tbody");
+    await expect(tbody.getByText("6", { exact: true }).first()).toBeVisible();
+    await expect(tbody.getByText("10", { exact: true }).first()).toBeVisible();
+    await expect(tbody.getByText("4", { exact: true }).first()).toBeVisible();
   });
 
   test("column sorting works", async ({ page }) => {

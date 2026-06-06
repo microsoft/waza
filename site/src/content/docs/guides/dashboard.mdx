@@ -113,6 +113,21 @@ Export data in multiple formats:
 - **CSV** — Task results for spreadsheet analysis
 - **PDF** — Formatted report for sharing
 
+### Cost accuracy
+
+The dashboard shows a per-run **Cost** value and an **Avg Cost** KPI. The number comes from one of three sources, in priority order:
+
+| Source | Tooltip label | When it applies |
+|---|---|---|
+| `sdk` | "Reported by Copilot SDK" | The Copilot SDK reported a per-request cost during execution (most accurate). |
+| `table` | "Calculated from model rate table (as of 2025-01-01)" | Cost was computed from input/output/cache token counts × per-model rates for known Claude 3.5/4.x, GPT‑5 family, GPT‑4o/4.1, and Gemini 2.5 model IDs. |
+| `estimate` | "Rough flat-rate estimate ($0.00025/token) — model pricing unavailable" | Fallback when the model isn't in the rate table. |
+| `mixed` | "Mixed sources across runs — hover individual rows for details" | The aggregate covers runs that were priced differently. |
+
+Hover the info icon next to any **Cost** label in the dashboard to see the source for that value. Per-row tooltips in the Runs table reveal the source for each individual run.
+
+The rate table is a best-effort snapshot of published list pricing as of the effective date shown above and will drift over time. For authoritative invoicing, consult your provider billing.
+
 ## Configuration
 
 ### Dashboard Port

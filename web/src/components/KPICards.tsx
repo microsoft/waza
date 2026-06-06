@@ -13,7 +13,9 @@ import {
   formatCost,
   formatCredits,
   formatDuration,
+  costSourceTooltip,
 } from "../lib/format";
+import { InfoTooltip } from "./InfoTooltip";
 
 const CREDITS_TOOLTIP =
   "Premium request count reported by the Copilot SDK — not dollars.";
@@ -30,17 +32,23 @@ interface CardProps {
   icon: React.ReactNode;
   valueClass?: string;
   title?: string;
+  labelExtra?: React.ReactNode;
 }
 
-function Card({ label, value, icon, valueClass, title }: CardProps) {
+function Card({ label, value, icon, valueClass, title, labelExtra }: CardProps) {
   return (
     <div
       className="rounded-lg border border-zinc-700 bg-zinc-800 p-4"
       title={title}
     >
       <div className="flex items-center justify-between">
-        <span className={`text-sm text-zinc-400${title ? " cursor-help" : ""}`}>
+        <span
+          className={`inline-flex items-center gap-1 text-sm text-zinc-400${
+            title ? " cursor-help" : ""
+          }`}
+        >
           {label}
+          {labelExtra}
         </span>
         <span className="text-zinc-500">{icon}</span>
       </div>
@@ -108,6 +116,7 @@ export default function KPICards({ data }: { data: SummaryResponse }) {
         label="Avg Cost"
         value={formatCost(data.avgCost)}
         icon={<DollarSign className={iconSize} />}
+        labelExtra={<InfoTooltip text={costSourceTooltip(data.costSource)} />}
       />
       <Card
         label="Avg Duration"

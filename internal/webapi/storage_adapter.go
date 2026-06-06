@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/microsoft/waza/internal/pricing"
 	"github.com/microsoft/waza/internal/storage"
 )
 
@@ -81,6 +82,7 @@ func (sa *StorageAdapter) Summary() (*SummaryResponse, error) {
 	totalDuration := 0.0
 	totalPassed := 0
 	totalTasks := 0
+	costSources := make([]string, 0, len(results))
 
 	// We need to download outcomes to get accurate metrics.
 	// For performance, we'll just use what we have in ResultSummary for now.
@@ -105,6 +107,7 @@ func (sa *StorageAdapter) Summary() (*SummaryResponse, error) {
 		totalPremium += s.PremiumRequests
 		totalCost += s.Cost
 		totalDuration += s.Duration
+		costSources = append(costSources, s.CostSource)
 	}
 
 	resp.TotalTasks = totalTasks
@@ -117,6 +120,7 @@ func (sa *StorageAdapter) Summary() (*SummaryResponse, error) {
 		resp.AvgCost = totalCost / float64(resp.TotalRuns)
 		resp.AvgDuration = totalDuration / float64(resp.TotalRuns)
 	}
+	resp.CostSource = pricing.CombineSources(costSources)
 
 	return resp, nil
 }

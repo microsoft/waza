@@ -22,6 +22,23 @@ export function formatCredits(n: number): string {
   return rounded.toLocaleString("en-US");
 }
 
+export function costSourceTooltip(source?: string): string {
+  switch (source) {
+    case "sdk":
+      return "Reported by Copilot SDK";
+    case "table":
+      return "Calculated from model rate table (as of 2025-01-01)";
+    case "estimate":
+      return "Rough flat-rate estimate ($0.00025/token) — model pricing unavailable";
+    case "mixed":
+      return "Mixed sources across runs — hover individual rows for details";
+    default:
+      // An omitted/empty costSource means the backend had no usage data to
+      // price (e.g. legacy ResultSummary rows). Don't claim it was estimated.
+      return "Cost data unavailable for this run";
+  }
+}
+
 export function formatNumber(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;

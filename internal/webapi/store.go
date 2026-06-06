@@ -11,6 +11,7 @@ import (
 
 	"github.com/microsoft/waza/internal/copilotevents"
 	"github.com/microsoft/waza/internal/models"
+	"github.com/microsoft/waza/internal/pricing"
 )
 
 // ErrRunNotFound is returned when a run ID does not match any stored run.
@@ -141,14 +142,19 @@ func outcomeToSummary(o *models.EvaluationOutcome) RunSummary {
 
 	tokens := 0
 	premiumRequests := 0.0
+	var perRunUsage []*models.UsageStats
 	for _, t := range o.TestOutcomes {
 		for _, r := range t.Runs {
 			if r.SessionDigest.Usage != nil {
 				tokens += r.SessionDigest.Usage.InputTokens + r.SessionDigest.Usage.OutputTokens
 				premiumRequests += r.SessionDigest.Usage.PremiumRequests
+				perRunUsage = append(perRunUsage, r.SessionDigest.Usage)
 			}
 		}
 	}
+
+	aggUsage := models.AggregateUsageStats(perRunUsage)
+	cost, costSource := pricing.Compute(aggUsage)
 
 	return RunSummary{
 		ID:              o.RunID,
@@ -160,17 +166,12 @@ func outcomeToSummary(o *models.EvaluationOutcome) RunSummary {
 		TaskCount:       o.Digest.TotalTests,
 		Tokens:          tokens,
 		PremiumRequests: premiumRequests,
-		Cost:            estimateCost(tokens),
+		Cost:            cost,
+		CostSource:      costSource,
 		Duration:        float64(o.Digest.DurationMs) / 1000.0,
 		Timestamp:       o.Timestamp,
 		Source:          "local",
 	}
-}
-
-// estimateCost provides a rough cost estimate based on token count.
-func estimateCost(tokens int) float64 {
-	// ~$0.00025 per token as a rough estimate
-	return float64(tokens) * 0.00025
 }
 
 func outcomeToDetail(o *models.EvaluationOutcome) *RunDetail {
@@ -277,10 +278,12 @@ func (fs *FileStore) Summary() (*SummaryResponse, error) {
 	}
 
 	totalTokens := 0
+	totalPremium := 0.0
 	totalCost := 0.0
 	totalDuration := 0.0
 	totalPassed := 0
 	totalTasks := 0
+	costSources := make([]string, 0, len(fs.runs))
 
 	for _, o := range fs.runs {
 		resp.TotalRuns++
@@ -289,8 +292,10 @@ func (fs *FileStore) Summary() (*SummaryResponse, error) {
 
 		s := outcomeToSummary(o)
 		totalTokens += s.Tokens
+		totalPremium += s.PremiumRequests
 		totalCost += s.Cost
 		totalDuration += s.Duration
+		costSources = append(costSources, s.CostSource)
 	}
 
 	resp.TotalTasks = totalTasks
@@ -299,9 +304,11 @@ func (fs *FileStore) Summary() (*SummaryResponse, error) {
 	}
 	if resp.TotalRuns > 0 {
 		resp.AvgTokens = float64(totalTokens) / float64(resp.TotalRuns)
+		resp.AvgPremiumRequests = totalPremium / float64(resp.TotalRuns)
 		resp.AvgCost = totalCost / float64(resp.TotalRuns)
 		resp.AvgDuration = totalDuration / float64(resp.TotalRuns)
 	}
+	resp.CostSource = pricing.CombineSources(costSources)
 
 	return resp, nil
 }

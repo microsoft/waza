@@ -17,7 +17,9 @@ import {
   formatNumber,
   formatPercent,
   formatRelativeTime,
+  costSourceTooltip,
 } from "../lib/format";
+import { InfoTooltip } from "./InfoTooltip";
 
 const CREDITS_TOOLTIP =
   "Premium request count reported by the Copilot SDK — not dollars.";
@@ -269,7 +271,11 @@ export default function RunDetail({ id }: { id: string }) {
           value={formatCredits(data.premiumRequests ?? 0)}
           title={CREDITS_TOOLTIP}
         />
-        <StatCard label="Cost" value={formatCost(data.cost)} />
+        <StatCard
+          label="Cost"
+          value={formatCost(data.cost)}
+          labelExtra={<InfoTooltip text={costSourceTooltip(data.costSource)} />}
+        />
         <StatCard label="Duration" value={formatDuration(data.duration)} />
       </div>
 
@@ -367,10 +373,30 @@ export default function RunDetail({ id }: { id: string }) {
   );
 }
 
-function StatCard({ label, value, title }: { label: string; value: string; title?: string }) {
+function StatCard({
+  label,
+  value,
+  title,
+  labelExtra,
+}: {
+  label: string;
+  value: string;
+  title?: string;
+  labelExtra?: React.ReactNode;
+}) {
   return (
-    <div className="rounded-lg border border-zinc-700 bg-zinc-800 p-3" title={title}>
-      <p className={`text-xs text-zinc-400${title ? " cursor-help" : ""}`}>{label}</p>
+    <div
+      className="rounded-lg border border-zinc-700 bg-zinc-800 p-3"
+      title={title}
+    >
+      <p
+        className={`inline-flex items-center gap-1 text-xs text-zinc-400${
+          title ? " cursor-help" : ""
+        }`}
+      >
+        {label}
+        {labelExtra}
+      </p>
       <p className="mt-1 text-lg font-semibold text-zinc-100">{value}</p>
     </div>
   );
