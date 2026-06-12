@@ -9,6 +9,8 @@ import (
 	"io"
 	"io/fs"
 	"maps"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"slices"
@@ -714,6 +716,113 @@ tasks:
 	var testFailureErr *TestFailureError
 	assert.False(t, errors.As(err, &testFailureErr), "expected regular error, not TestFailureError")
 	assert.Contains(t, err.Error(), "unknown engine type")
+}
+
+func TestRunCommand_OpenAICompatibleEngine(t *testing.T) {
+	resetRunGlobals()
+
+	var hitPath string
+	var gotAuth string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hitPath = r.URL.Path
+		gotAuth = r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"openai compatible response"}}]}`))
+	}))
+	defer server.Close()
+
+	dir := t.TempDir()
+	taskDir := filepath.Join(dir, "tasks")
+	require.NoError(t, os.MkdirAll(taskDir, 0o755))
+	task := `id: t1
+name: OpenAI Compatible Task
+inputs:
+  prompt: "Say hello"
+expected:
+  output_contains:
+    - "openai compatible response"
+`
+	require.NoError(t, os.WriteFile(filepath.Join(taskDir, "task.yaml"), []byte(task), 0o644))
+	spec := `name: openai-compatible-test
+skill: test-skill
+config:
+  trials_per_task: 1
+  timeout_seconds: 30
+  executor: openai-compatible
+  endpoint: ` + server.URL + `
+  api_key: lm-studio
+tasks:
+  - "tasks/*.yaml"
+`
+	specPath := filepath.Join(dir, "eval.yaml")
+	require.NoError(t, os.WriteFile(specPath, []byte(spec), 0o644))
+
+	cmd := newRunCommand()
+	cmd.SetArgs([]string{specPath})
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+
+	err := cmd.Execute()
+	require.NoError(t, err)
+	require.Equal(t, "/v1/chat/completions", hitPath)
+	require.Equal(t, "Bearer lm-studio", gotAuth)
+}
+
+func TestRunCommand_OpenAICompatibleDefaultsFromWazaYaml(t *testing.T) {
+	resetRunGlobals()
+
+	var hitPath string
+	var gotBody struct {
+		Model string `json:"model"`
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hitPath = r.URL.Path
+		require.Empty(t, r.Header.Get("Authorization"))
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&gotBody))
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"defaulted response"}}]}`))
+	}))
+	defer server.Close()
+
+	dir := t.TempDir()
+	wazaYAML := `defaults:
+  engine: openai-compatible
+  endpoint: ` + server.URL + `
+`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".waza.yaml"), []byte(wazaYAML), 0o644))
+
+	taskDir := filepath.Join(dir, "tasks")
+	require.NoError(t, os.MkdirAll(taskDir, 0o755))
+	task := `id: t1
+name: OpenAI Compatible Defaults Task
+inputs:
+  prompt: "Say hello"
+expected:
+  output_contains:
+    - "defaulted response"
+`
+	require.NoError(t, os.WriteFile(filepath.Join(taskDir, "task.yaml"), []byte(task), 0o644))
+	spec := `name: openai-compatible-defaults-test
+skill: test-skill
+config:
+  trials_per_task: 1
+  timeout_seconds: 30
+tasks:
+  - "tasks/*.yaml"
+`
+	specPath := filepath.Join(dir, "eval.yaml")
+	require.NoError(t, os.WriteFile(specPath, []byte(spec), 0o644))
+	t.Setenv("OPENAI_API_KEY", "")
+
+	cmd := newRunCommand()
+	cmd.SetArgs([]string{specPath})
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+
+	err := cmd.Execute()
+	require.NoError(t, err)
+	require.Equal(t, "/v1/chat/completions", hitPath)
+	require.Equal(t, "local-model", gotBody.Model)
 }
 
 // ---------------------------------------------------------------------------

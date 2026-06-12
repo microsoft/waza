@@ -70,6 +70,7 @@ type FilesConfig struct {
 type DefaultsConfig struct {
 	Engine     string `yaml:"engine,omitempty"`
 	Model      string `yaml:"model,omitempty"`
+	Endpoint   string `yaml:"endpoint,omitempty"`
 	JudgeModel string `yaml:"judgeModel,omitempty"`
 	Timeout    int    `yaml:"timeout,omitempty"`
 	Parallel   *bool  `yaml:"parallel,omitempty"`
@@ -293,6 +294,9 @@ func mergeConfig(dst, src *ProjectConfig) {
 	}
 	if src.Defaults.Model != "" {
 		dst.Defaults.Model = src.Defaults.Model
+	}
+	if src.Defaults.Endpoint != "" {
+		dst.Defaults.Endpoint = src.Defaults.Endpoint
 	}
 	if src.Defaults.JudgeModel != "" {
 		dst.Defaults.JudgeModel = src.Defaults.JudgeModel

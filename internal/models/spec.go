@@ -42,6 +42,8 @@ type Config struct {
 	StopOnError      bool           `yaml:"fail_fast,omitempty" json:"stop_on_error,omitempty"`
 	EngineType       string         `yaml:"executor" json:"engine_type"`
 	ModelID          string         `yaml:"model" json:"model_id"`
+	Endpoint         string         `yaml:"endpoint,omitempty" json:"endpoint,omitempty"`
+	APIKey           string         `yaml:"api_key,omitempty" json:"api_key,omitempty"`
 	SkillPaths       []string       `yaml:"skill_directories,omitempty" json:"skill_paths,omitempty"`
 	InstructionFiles []string       `yaml:"instruction_files,omitempty" json:"instruction_files,omitempty"`
 	InjectSkillBody  *bool          `yaml:"inject_skill_body,omitempty" json:"inject_skill_body,omitempty"`

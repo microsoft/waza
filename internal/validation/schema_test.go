@@ -108,6 +108,57 @@ func TestValidateEvalBytes_Invalid(t *testing.T) {
 	require.Contains(t, joined, "threshold")
 }
 
+func TestValidateEvalBytes_OpenAICompatibleConfig(t *testing.T) {
+	valid := `name: test-eval
+skill: test-skill
+version: "1.0"
+config:
+  trials_per_task: 1
+  timeout_seconds: 60
+  executor: openai-compatible
+  endpoint: http://127.0.0.1:1234
+  api_key: lm-studio
+metrics:
+  - name: accuracy
+    weight: 1.0
+    threshold: 0.8
+tasks:
+  - "tasks/*.yaml"
+`
+	require.Empty(t, ValidateEvalBytes([]byte(valid)), "openai-compatible should allow omitted model when endpoint is set")
+
+	defaultedEndpoint := `name: test-eval
+skill: test-skill
+version: "1.0"
+config:
+  trials_per_task: 1
+  timeout_seconds: 60
+  executor: openai-compatible
+metrics:
+  - name: accuracy
+    weight: 1.0
+    threshold: 0.8
+tasks:
+  - "tasks/*.yaml"
+`
+	require.Empty(t, ValidateEvalBytes([]byte(defaultedEndpoint)), "openai-compatible should allow endpoint from .waza.yaml defaults")
+
+	defaultedExecutor := `name: test-eval
+skill: test-skill
+version: "1.0"
+config:
+  trials_per_task: 1
+  timeout_seconds: 60
+metrics:
+  - name: accuracy
+    weight: 1.0
+    threshold: 0.8
+tasks:
+  - "tasks/*.yaml"
+`
+	require.Empty(t, ValidateEvalBytes([]byte(defaultedExecutor)), "eval should allow executor from .waza.yaml defaults")
+}
+
 func TestValidateTaskBytes_Valid(t *testing.T) {
 	errs := ValidateTaskBytes([]byte(validTaskYAML))
 	require.Empty(t, errs, "valid task should have no errors")

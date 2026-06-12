@@ -473,6 +473,9 @@ func runCommandForSpec(cmd *cobra.Command, sp skillSpecPath, defaultSkills []str
 	if err != nil {
 		return nil, fmt.Errorf("failed to load spec: %w", err)
 	}
+	if cfg, err := projectconfig.Load(filepath.Dir(specPath)); err == nil && cfg != nil {
+		applyProjectDefaultsToSpec(spec, cfg)
+	}
 
 	// CLI flags override spec config
 	if parallel {
@@ -594,6 +597,21 @@ func runCommandForSpec(cmd *cobra.Command, sp skillSpecPath, defaultSkills []str
 	return allResults, nil
 }
 
+func applyProjectDefaultsToSpec(spec *models.EvalSpec, cfg *projectconfig.ProjectConfig) {
+	if spec == nil || cfg == nil {
+		return
+	}
+	if spec.Config.EngineType == "" {
+		spec.Config.EngineType = cfg.Defaults.Engine
+	}
+	if spec.Config.ModelID == "" && (spec.Config.EngineType != "openai-compatible" || cfg.Defaults.Model != projectconfig.DefaultModel) {
+		spec.Config.ModelID = cfg.Defaults.Model
+	}
+	if spec.Config.Endpoint == "" {
+		spec.Config.Endpoint = cfg.Defaults.Endpoint
+	}
+}
+
 // runSingleModel executes a benchmark for one model and returns the outcome.
 // It prints the per-model summary and saves output for single-model runs.
 func runSingleModel(cmd *cobra.Command, spec *models.EvalSpec, specPath string, defaultSkills []string) (*models.EvaluationOutcome, error) {
@@ -655,6 +673,7 @@ func runSingleModel(cmd *cobra.Command, spec *models.EvalSpec, specPath string, 
 
 	// Create engine based on spec
 	var engine execution.AgentEngine
+	var err error
 
 	switch spec.Config.EngineType {
 	case "mock":
@@ -663,6 +682,11 @@ func runSingleModel(cmd *cobra.Command, spec *models.EvalSpec, specPath string, 
 		engine = execution.NewCopilotEngineBuilder(spec.Config.ModelID, &execution.CopilotEngineBuilderOptions{
 			NewCopilotClient: newCopilotClientFn, // if nil, uses the real function, otherwise overridable for tests.
 		}).Build()
+	case "openai-compatible":
+		engine, err = execution.NewOpenAICompatibleEngine(spec.Config.Endpoint, spec.Config.ModelID, spec.Config.APIKey)
+		if err != nil {
+			return nil, err
+		}
 	default:
 		return nil, fmt.Errorf("unknown engine type: %s", spec.Config.EngineType)
 	}

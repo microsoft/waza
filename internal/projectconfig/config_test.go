@@ -68,6 +68,7 @@ files:
 defaults:
   engine: mock
   model: gpt-4o
+  endpoint: http://127.0.0.1:1234
   judgeModel: claude-sonnet-4.6
   timeout: 600
   parallel: true
@@ -109,6 +110,7 @@ graders:
 	assertEqual(t, "Files.TaskFileSuffix", ".waza-task.yaml", cfg.Files.TaskFileSuffix)
 	assertEqual(t, "Defaults.Engine", "mock", cfg.Defaults.Engine)
 	assertEqual(t, "Defaults.Model", "gpt-4o", cfg.Defaults.Model)
+	assertEqual(t, "Defaults.Endpoint", "http://127.0.0.1:1234", cfg.Defaults.Endpoint)
 	assertEqual(t, "Defaults.JudgeModel", "claude-sonnet-4.6", cfg.Defaults.JudgeModel)
 	assertEqualInt(t, "Defaults.Timeout", 600, cfg.Defaults.Timeout)
 	assertBoolPtr(t, "Defaults.Parallel", true, cfg.Defaults.Parallel)

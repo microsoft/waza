@@ -145,7 +145,7 @@ config:
 **Type:** string  
 **Default:** (empty)
 
-Default LLM model. Override with `--model` flag.
+Default LLM model. Required for `copilot-sdk`; optional for `openai-compatible`, where it defaults to `local-model`. Override with `--model` flag.
 
 ```yaml
 config:
@@ -156,16 +156,44 @@ config:
 
 **Type:** string  
 **Default:** mock  
-**Options:** `mock`, `copilot-sdk`
+**Options:** `mock`, `copilot-sdk`, `openai-compatible`
 
 Execution engine:
 
 - `mock` — Local testing (no API calls)
 - `copilot-sdk` — Real LLM execution
+- `openai-compatible` — OpenAI-compatible Chat Completions API, such as local LM Studio
 
 ```yaml
 config:
   executor: copilot-sdk
+```
+
+### endpoint
+
+**Type:** string
+**Required:** when `executor` is `openai-compatible`, unless supplied by `.waza.yaml` `defaults.endpoint`
+
+OpenAI-compatible endpoint base URL or Chat Completions URL. A base URL such as `http://127.0.0.1:1234` is normalized to `/v1/chat/completions`.
+
+```yaml
+config:
+  executor: openai-compatible
+  endpoint: http://127.0.0.1:1234
+```
+
+### api_key
+
+**Type:** string
+**Required:** no
+
+Optional per-eval bearer token override for `openai-compatible`. Prefer `OPENAI_API_KEY` when authentication is required. Local LM Studio can omit this or leave it empty.
+
+```yaml
+config:
+  executor: openai-compatible
+  endpoint: http://127.0.0.1:1234
+  api_key: ""
 ```
 
 ### max_attempts

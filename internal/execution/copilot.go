@@ -628,6 +628,10 @@ func (e *CopilotEngine) extractReqParams(req *ExecutionRequest) (modelID string,
 }
 
 func (*CopilotEngine) getSkillDirs(cwd string, req *ExecutionRequest) []string {
+	return skillDirsForRequest(cwd, req)
+}
+
+func skillDirsForRequest(cwd string, req *ExecutionRequest) []string {
 	skillDirs := []string{cwd}
 
 	seen := map[string]bool{

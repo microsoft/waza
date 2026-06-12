@@ -20,7 +20,9 @@ files:
   taskFileSuffix: .yaml
 
 defaults:
+  engine: copilot-sdk
   model: claude-sonnet-4.6
+  endpoint: http://127.0.0.1:1234
   timeout: 300
   workers: 0
 ```
@@ -62,6 +64,7 @@ Default execution parameters applied to all commands unless overridden by CLI fl
 |-------|------|---------|-------------|
 | `engine` | string | `copilot-sdk` | Execution engine |
 | `model` | string | `claude-sonnet-4.6` | Default model for execution |
+| `endpoint` | string | | Default OpenAI-compatible endpoint. API keys should come from `OPENAI_API_KEY`. |
 | `judgeModel` | string | | Model for LLM-as-judge graders |
 | `timeout` | int | `300` | Task timeout in seconds |
 | `parallel` | bool | `false` | Enable parallel execution |
@@ -173,6 +176,7 @@ files:
 defaults:
   engine: copilot-sdk
   model: claude-sonnet-4.6
+  endpoint: http://127.0.0.1:1234
   timeout: 300
   parallel: false
   workers: 0

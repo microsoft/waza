@@ -94,9 +94,26 @@
       "type": "object",
       "required": [
         "trials_per_task",
-        "timeout_seconds",
-        "executor",
-        "model"
+        "timeout_seconds"
+      ],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "executor": {
+                "const": "copilot-sdk"
+              }
+            },
+            "required": [
+              "executor"
+            ]
+          },
+          "then": {
+            "required": [
+              "model"
+            ]
+          }
+        }
       ],
       "additionalProperties": false,
       "description": "Execution configuration for the evaluation.",
@@ -130,9 +147,10 @@
           "type": "string",
           "enum": [
             "copilot-sdk",
-            "mock"
+            "mock",
+            "openai-compatible"
           ],
-          "description": "Execution engine to use. 'copilot-sdk' for real evaluations, 'mock' for testing."
+          "description": "Execution engine to use. 'copilot-sdk' for Copilot-backed evaluations, 'openai-compatible' for OpenAI-compatible chat completions endpoints, 'mock' for testing."
         },
         "model": {
           "type": "string",
@@ -142,6 +160,24 @@
             "gpt-4o",
             "claude-sonnet-4-20250514",
             "gpt-4o-mini"
+          ]
+        },
+        "endpoint": {
+          "type": "string",
+          "minLength": 1,
+          "description": "OpenAI-compatible endpoint base URL or chat completions URL. Required for executor: openai-compatible unless supplied by .waza.yaml defaults.endpoint.",
+          "examples": [
+            "http://127.0.0.1:1234",
+            "http://127.0.0.1:1234/v1",
+            "http://127.0.0.1:1234/v1/chat/completions"
+          ]
+        },
+        "api_key": {
+          "type": "string",
+          "description": "Optional bearer token for executor: openai-compatible. If omitted or empty, OPENAI_API_KEY is used when set.",
+          "examples": [
+            "lm-studio",
+            "sk-..."
           ]
         },
         "max_attempts": {

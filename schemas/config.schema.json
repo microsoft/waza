@@ -59,7 +59,7 @@
         "engine": {
           "type": "string",
           "description": "Execution engine for evaluations.",
-          "enum": ["copilot-sdk", "mock"],
+          "enum": ["copilot-sdk", "mock", "openai-compatible"],
           "default": "copilot-sdk"
         },
         "model": {
@@ -67,6 +67,11 @@
           "description": "Default model identifier for evaluations.",
           "examples": ["claude-sonnet-4.6", "gpt-4o", "claude-sonnet-4"],
           "default": "claude-sonnet-4.6"
+        },
+        "endpoint": {
+          "type": "string",
+          "description": "Default endpoint for OpenAI-compatible evaluations.",
+          "examples": ["http://127.0.0.1:1234", "http://127.0.0.1:1234/v1/chat/completions"]
         },
         "judgeModel": {
           "type": "string",

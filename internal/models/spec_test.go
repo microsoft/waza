@@ -104,6 +104,60 @@ config:
 	}
 }
 
+func TestLoadEvalSpec_OpenAICompatibleEndpoint(t *testing.T) {
+	tempDir := t.TempDir()
+	yamlContent := `name: openai-compatible
+skill: test-skill
+config:
+  trials_per_task: 1
+  timeout_seconds: 60
+  executor: openai-compatible
+  endpoint: http://127.0.0.1:1234
+  api_key: lm-studio
+`
+	specPath := filepath.Join(tempDir, "spec.yaml")
+	if err := os.WriteFile(specPath, []byte(yamlContent), 0644); err != nil {
+		t.Fatalf("Failed to write spec file: %v", err)
+	}
+
+	spec, err := LoadEvalSpec(specPath)
+	if err != nil {
+		t.Fatalf("Failed to load spec: %v", err)
+	}
+	if spec.Config.Endpoint != "http://127.0.0.1:1234" {
+		t.Errorf("Expected endpoint, got %q", spec.Config.Endpoint)
+	}
+	if spec.Config.APIKey != "lm-studio" {
+		t.Errorf("Expected api_key, got %q", spec.Config.APIKey)
+	}
+	if spec.Config.ModelID != "" {
+		t.Errorf("Expected omitted model to remain empty, got %q", spec.Config.ModelID)
+	}
+}
+
+func TestLoadEvalSpec_OpenAICompatibleAllowsEndpointDefault(t *testing.T) {
+	tempDir := t.TempDir()
+	yamlContent := `name: openai-compatible
+skill: test-skill
+config:
+  trials_per_task: 1
+  timeout_seconds: 60
+  executor: openai-compatible
+`
+	specPath := filepath.Join(tempDir, "spec.yaml")
+	if err := os.WriteFile(specPath, []byte(yamlContent), 0644); err != nil {
+		t.Fatalf("Failed to write spec file: %v", err)
+	}
+
+	spec, err := LoadEvalSpec(specPath)
+	if err != nil {
+		t.Fatalf("Failed to load spec: %v", err)
+	}
+	if spec.Config.Endpoint != "" {
+		t.Errorf("Expected omitted endpoint to remain empty, got %q", spec.Config.Endpoint)
+	}
+}
+
 func TestTestCase_LoadFromYAML(t *testing.T) {
 	tempDir := t.TempDir()
 	yamlContent := `id: test-001

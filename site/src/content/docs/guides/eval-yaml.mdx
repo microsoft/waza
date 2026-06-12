@@ -96,8 +96,10 @@ config:
   parallel: false # Run tasks sequentially (true = concurrent)
   workers: 0 # Auto-size parallel workers if parallel: true
   model: claude-sonnet-4.6 # Default model (override with --model)
+  endpoint: http://127.0.0.1:1234 # Required for openai-compatible unless set in .waza.yaml
+  api_key: "" # Optional per-eval override; prefer OPENAI_API_KEY when auth is required
   judge_model: gpt-4o # Model for LLM-as-judge graders (optional)
-  executor: mock # mock (local) or copilot-sdk (real API)
+  executor: mock # mock, copilot-sdk, or openai-compatible
   inject_skill_body: true # Inject target SKILL.md/.agent.md body into the prompt
   instruction_files:
     - .github/instructions/project.instructions.md
@@ -109,9 +111,11 @@ config:
 | `timeout_seconds`   | int       | 300               | Task timeout in seconds                                     |
 | `parallel`          | bool      | false             | Run tasks concurrently                                      |
 | `workers`           | int       | 0                 | Number of parallel workers; 0 auto-sizes                    |
-| `model`             | string    | _required_        | Default model for tasks (override with `--model` flag)      |
+| `model`             | string    | required for `copilot-sdk` | Default model for tasks (override with `--model` flag). Optional for `openai-compatible` |
+| `endpoint`          | string    | required for `openai-compatible` unless set in `.waza.yaml` | OpenAI-compatible base URL or `/v1/chat/completions` URL |
+| `api_key`           | string    | —                 | Optional per-eval bearer token override; prefer `OPENAI_API_KEY` when auth is required |
 | `judge_model`       | string    | (same as `model`) | Model for `prompt`-type graders (LLM-as-judge)              |
-| `executor`          | string    | `copilot-sdk`     | Executor: `mock` (local, echoes task metadata and file content) or `copilot-sdk` (real API)  |
+| `executor`          | string    | `copilot-sdk`     | Executor: `mock`, `copilot-sdk`, or `openai-compatible`     |
 | `max_attempts`      | int       | 0                 | Maximum retry attempts per task on failure (0 = no retries) |
 | `group_by`          | string    | —                 | Group results by a field (e.g., `tags`, `task_id`)          |
 | `fail_fast`         | bool      | false             | Stop the entire run on first task failure                   |

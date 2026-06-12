@@ -893,8 +893,10 @@ config:
   max_attempts: 3          # Retry failed graders up to 3 times (default: 1, no retries)
   timeout_seconds: 300
   parallel: false
-  executor: mock          # or copilot-sdk
+  executor: mock          # or copilot-sdk, openai-compatible
   model: claude-sonnet-4-20250514
+  endpoint: http://127.0.0.1:1234 # Required for openai-compatible unless set in .waza.yaml
+  api_key: ""             # Optional per-eval override; prefer OPENAI_API_KEY when auth is required
   group_by: model          # Group results by model (or other dimension)
   instruction_files:
     - .github/instructions/project.instructions.md
@@ -1250,6 +1252,7 @@ jobs:
 | **Go Version** | 1.26 or higher |
 | **Executor** | Use `mock` executor for CI (no API keys needed) |
 | **Copilot Auth** | Required for the default `copilot-sdk` route; set `GITHUB_TOKEN` in CI. Custom providers can be configured with `COPILOT_BASE_URL` or `COPILOT_PROVIDER_BASE_URL` instead. |
+| **OpenAI-compatible endpoint** | Required for `openai-compatible` unless set as `.waza.yaml` `defaults.endpoint`; for local LM Studio use `http://127.0.0.1:1234`. |
 | **Exit Codes** | 0=success, 1=test failure, 2=config error |
 
 #### Expected Skill Structure
@@ -1288,8 +1291,33 @@ Supported environment variables:
 | `COPILOT_WIRE_API` or `COPILOT_PROVIDER_WIRE_API` | Wire format passed through to the SDK, for example `responses` or `completions`, depending on provider. |
 | `COPILOT_API_KEY` or `COPILOT_PROVIDER_API_KEY` | API key for the custom provider, if required. |
 | `COPILOT_BEARER_TOKEN` or `COPILOT_PROVIDER_BEARER_TOKEN` | Bearer token for the custom provider, if required. |
+| `OPENAI_API_KEY` | Bearer token sent by the `openai-compatible` executor when the endpoint requires authentication. |
 
 When a custom provider is active, the CLI usage summary labels the SDK request counter as `Provider Requests` instead of `Premium Requests`. Result JSON records `usage.provider: "custom"` and a sanitized `usage.provider_host`; it does not store the full provider URL.
+
+#### OpenAI-Compatible Executor
+
+Use `executor: openai-compatible` to run directly against a local or hosted OpenAI-compatible Chat Completions API without the Copilot SDK. The `endpoint` may be a base URL, `/v1` URL, or full `/v1/chat/completions` URL. `model` is optional and defaults to `local-model`.
+
+```yaml
+config:
+  trials_per_task: 1
+  timeout_seconds: 300
+  executor: openai-compatible
+  endpoint: http://127.0.0.1:1234
+  model: local-model
+  api_key: "" # Optional per-eval override; prefer OPENAI_API_KEY when auth is required
+```
+
+You can also put the executor and endpoint in `.waza.yaml`:
+
+```yaml
+defaults:
+  engine: openai-compatible
+  endpoint: http://127.0.0.1:1234
+```
+
+When the endpoint requires bearer-token authentication, set `OPENAI_API_KEY`. `config.api_key` remains available as a per-eval override, but project-level config does not store API keys.
 
 ### For Waza Repository
 
