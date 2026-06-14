@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -17,7 +19,43 @@ import (
 const AllPromptsPassed = "All prompts passed"
 const wazaPassToolName = "set_waza_grade_pass"
 const wazaFailToolName = "set_waza_grade_fail"
-const promptGraderTimeout = 120 * time.Second
+
+// defaultPromptGraderTimeout bounds how long a single prompt-grader send waits
+// for the judge session to reach session.idle (see Session.SendAndWait). Heavy
+// multi-turn judge sessions — e.g. a long lifecycle transcript graded by a cheap
+// model — can need longer than this to settle, so the value is overridable via
+// promptGraderTimeoutEnv.
+const defaultPromptGraderTimeout = 120 * time.Second
+
+// promptGraderTimeoutEnv overrides defaultPromptGraderTimeout. Accepts a Go
+// duration string ("5m", "300s") or a bare integer number of seconds ("300").
+const promptGraderTimeoutEnv = "WAZA_PROMPT_GRADER_TIMEOUT"
+
+// resolvePromptGraderTimeout returns the prompt-grader send timeout, honoring the
+// promptGraderTimeoutEnv override when it parses to a positive duration. Empty,
+// invalid, zero, or negative values fall back to defaultPromptGraderTimeout so a
+// misconfiguration can never disable the timeout entirely.
+func resolvePromptGraderTimeout() time.Duration {
+	raw := strings.TrimSpace(os.Getenv(promptGraderTimeoutEnv))
+	if raw == "" {
+		return defaultPromptGraderTimeout
+	}
+	if d, err := time.ParseDuration(raw); err == nil && d > 0 {
+		return d
+	}
+	if secs, err := strconv.Atoi(raw); err == nil && secs > 0 {
+		// Guard against int64 overflow: secs * time.Second wraps negative for
+		// absurdly large values, which would make context.WithTimeout produce an
+		// already-expired context — the very "context deadline exceeded" failure
+		// this timeout exists to avoid. Reject and fall back to the default.
+		if d := time.Duration(secs) * time.Second; d > 0 {
+			return d
+		}
+	}
+	slog.Warn("ignoring invalid "+promptGraderTimeoutEnv+", using default",
+		"value", raw, "default", defaultPromptGraderTimeout)
+	return defaultPromptGraderTimeout
+}
 
 type promptGrader struct {
 	args models.PromptGraderParameters
@@ -147,7 +185,7 @@ func executePromptGrader(ctx context.Context, gradingContext *Context, req *exec
 	if gradingContext.Executor == nil {
 		return nil, errors.New("prompt grader requires an execution engine")
 	}
-	execCtx, cancel := context.WithTimeout(ctx, promptGraderTimeout)
+	execCtx, cancel := context.WithTimeout(ctx, resolvePromptGraderTimeout())
 	defer cancel()
 	return gradingContext.Executor.Execute(execCtx, req)
 }

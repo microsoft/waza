@@ -9,6 +9,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	copilot "github.com/github/copilot-sdk/go"
 	"github.com/microsoft/waza/internal/copilotevents"
@@ -499,4 +500,29 @@ type fakePromptExecutor struct {
 func (f *fakePromptExecutor) Execute(ctx context.Context, req *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
 	f.calls++
 	return f.execute(req)
+}
+
+func TestResolvePromptGraderTimeout(t *testing.T) {
+	cases := []struct {
+		name string
+		env  string
+		want time.Duration
+	}{
+		{"unset uses default", "", defaultPromptGraderTimeout},
+		{"go duration minutes", "5m", 5 * time.Minute},
+		{"go duration seconds", "300s", 300 * time.Second},
+		{"bare integer seconds", "300", 300 * time.Second},
+		{"whitespace is trimmed", "  90s  ", 90 * time.Second},
+		{"invalid falls back to default", "not-a-duration", defaultPromptGraderTimeout},
+		{"zero falls back to default", "0", defaultPromptGraderTimeout},
+		{"negative falls back to default", "-30s", defaultPromptGraderTimeout},
+		{"negative bare integer falls back to default", "-30", defaultPromptGraderTimeout},
+		{"overflowing bare integer falls back to default", "10000000000", defaultPromptGraderTimeout},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv(promptGraderTimeoutEnv, tc.env)
+			require.Equal(t, tc.want, resolvePromptGraderTimeout())
+		})
+	}
 }

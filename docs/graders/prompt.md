@@ -22,6 +22,14 @@ Uses a language model to evaluate skill execution quality via an explicit grader
 | `model` | string | Model to use for the judge session |
 | `continue_session` | bool | Reuse the task session context by session ID (default: `false`) |
 
+**Timeout:**
+
+Each judge send waits up to **120s** for the session to finish (reach `session.idle`). Long multi-turn judge sessions can need more, so the budget is overridable with the `WAZA_PROMPT_GRADER_TIMEOUT` environment variable. It accepts a Go duration (`5m`, `300s`) or a bare number of seconds (`300`); empty, invalid, zero, or negative values keep the 120s default.
+
+```bash
+WAZA_PROMPT_GRADER_TIMEOUT=5m waza run eval.yaml --context-dir fixtures
+```
+
 **Result semantics:**
 
 - The judge should call `set_waza_grade_pass` and/or `set_waza_grade_fail`.
