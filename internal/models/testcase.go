@@ -12,18 +12,21 @@ import (
 
 // TestCase represents a single evaluation test
 type TestCase struct {
-	Active           *bool             `yaml:"enabled,omitempty" json:"active,omitempty"`
-	ContextRoot      string            `yaml:"context_dir,omitempty" json:"context_root,omitempty"`
-	DisplayName      string            `yaml:"name" json:"display_name"`
-	Expectation      TaskExpectation   `yaml:"expected,omitempty" json:"expectation,omitempty"`
-	InstructionFiles []string          `yaml:"instruction_files,omitempty" json:"instruction_files,omitempty"`
-	SkillPaths       []string          `yaml:"skill_directories,omitempty" json:"skill_paths,omitempty"`
-	Stimulus         TaskStimulus      `yaml:"inputs" json:"stimulus"`
-	Summary          string            `yaml:"description,omitempty" json:"summary,omitempty"`
-	Tags             []string          `yaml:"tags,omitempty" json:"labels,omitempty"`
-	TestID           string            `yaml:"id" json:"test_id"`
-	TimeoutSec       *int              `yaml:"timeout_seconds,omitempty" json:"timeout_sec,omitempty"`
-	Validators       []ValidatorInline `yaml:"graders,omitempty" json:"validators,omitempty"`
+	Active           *bool           `yaml:"enabled,omitempty" json:"active,omitempty"`
+	ContextRoot      string          `yaml:"context_dir,omitempty" json:"context_root,omitempty"`
+	DisplayName      string          `yaml:"name" json:"display_name"`
+	Expectation      TaskExpectation `yaml:"expected,omitempty" json:"expectation,omitempty"`
+	InstructionFiles []string        `yaml:"instruction_files,omitempty" json:"instruction_files,omitempty"`
+	SkillPaths       []string        `yaml:"skill_directories,omitempty" json:"skill_paths,omitempty"`
+	Stimulus         TaskStimulus    `yaml:"inputs" json:"stimulus"`
+	Summary          string          `yaml:"description,omitempty" json:"summary,omitempty"`
+	Tags             []string        `yaml:"tags,omitempty" json:"labels,omitempty"`
+	TestID           string          `yaml:"id" json:"test_id"`
+	TimeoutSec       *int            `yaml:"timeout_seconds,omitempty" json:"timeout_sec,omitempty"`
+	// FirstEventTimeoutSec overrides Config.FirstEventTimeoutSec for this task.
+	// nil inherits the eval-level value; 0 disables the check for this task.
+	FirstEventTimeoutSec *int              `yaml:"first_event_timeout_seconds,omitempty" json:"first_event_timeout_sec,omitempty"`
+	Validators           []ValidatorInline `yaml:"graders,omitempty" json:"validators,omitempty"`
 }
 
 // TaskStimulus defines the input for a task.
@@ -318,6 +321,16 @@ func (tc *TestCase) Validate() error {
 			return fmt.Errorf("test case %q timeout_seconds must be at least 1, got %d", name, *tc.TimeoutSec)
 		}
 		return fmt.Errorf("timeout_seconds must be at least 1, got %d", *tc.TimeoutSec)
+	}
+	if tc.FirstEventTimeoutSec != nil && *tc.FirstEventTimeoutSec < 0 {
+		name := tc.TestID
+		if name == "" {
+			name = tc.DisplayName
+		}
+		if name != "" {
+			return fmt.Errorf("test case %q first_event_timeout_seconds must not be negative, got %d", name, *tc.FirstEventTimeoutSec)
+		}
+		return fmt.Errorf("first_event_timeout_seconds must not be negative, got %d", *tc.FirstEventTimeoutSec)
 	}
 	return nil
 }

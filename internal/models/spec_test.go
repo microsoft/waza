@@ -7,8 +7,36 @@ package models
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
+
+func TestEvalSpec_Validate_FirstEventTimeout(t *testing.T) {
+	mk := func(sec int) *EvalSpec {
+		return &EvalSpec{
+			SpecIdentity: SpecIdentity{Name: "b"},
+			Config: Config{
+				TrialsPerTask:        1,
+				TimeoutSec:           60,
+				FirstEventTimeoutSec: sec,
+			},
+		}
+	}
+
+	if err := mk(-1).Validate(); err == nil {
+		t.Fatal("expected error for negative first_event_timeout_seconds")
+	} else if !strings.Contains(err.Error(), "first_event_timeout_seconds must not be negative, got -1") {
+		t.Errorf("unexpected error: %v", err)
+	}
+
+	// 0 disables the watchdog; a positive value enables it — both valid.
+	if err := mk(0).Validate(); err != nil {
+		t.Errorf("expected first_event_timeout_seconds: 0 to be valid, got: %v", err)
+	}
+	if err := mk(120).Validate(); err != nil {
+		t.Errorf("expected first_event_timeout_seconds: 120 to be valid, got: %v", err)
+	}
+}
 
 func TestLoadEvalSpec_StrictYAML(t *testing.T) {
 	tests := []struct {

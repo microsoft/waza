@@ -265,6 +265,44 @@ func TestExecutionTimeout_InvalidTaskOverride(t *testing.T) {
 	assert.Contains(t, err.Error(), `test case "test-001" timeout_seconds must be at least 1, got 0`)
 }
 
+func TestFirstEventTimeout_Resolution(t *testing.T) {
+	mkRunner := func(specSec int) *EvalRunner {
+		spec := &models.EvalSpec{
+			SpecIdentity: models.SpecIdentity{Name: "test-benchmark"},
+			SkillName:    "my-skill",
+			Config: models.Config{
+				EngineType:           "mock",
+				ModelID:              "gpt-4",
+				TimeoutSec:           120,
+				FirstEventTimeoutSec: specSec,
+			},
+		}
+		return NewEvalRunner(config.NewEvalConfig(spec), nil)
+	}
+	mkTask := func(override *int) *models.TestCase {
+		return &models.TestCase{
+			TestID:               "test-001",
+			DisplayName:          "Test Case",
+			Stimulus:             models.TaskStimulus{Message: "Hello world"},
+			FirstEventTimeoutSec: override,
+		}
+	}
+
+	// Spec-level default applies when the task carries no override.
+	assert.Equal(t, 90*time.Second, mkRunner(90).firstEventTimeout(mkTask(nil)))
+
+	// Disabled by default: spec 0 + no override → zero duration (watchdog off).
+	assert.Equal(t, time.Duration(0), mkRunner(0).firstEventTimeout(mkTask(nil)))
+
+	// Task override wins over the spec default.
+	override := 30
+	assert.Equal(t, 30*time.Second, mkRunner(90).firstEventTimeout(mkTask(&override)))
+
+	// A task can explicitly disable the watchdog even when the spec enables it.
+	disabled := 0
+	assert.Equal(t, time.Duration(0), mkRunner(90).firstEventTimeout(mkTask(&disabled)))
+}
+
 func TestExecuteRun_InvalidTaskTimeoutReturnsConfigError(t *testing.T) {
 	spec := &models.EvalSpec{
 		SpecIdentity: models.SpecIdentity{Name: "test-benchmark"},
