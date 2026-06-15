@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"strings"
@@ -503,25 +504,41 @@ func (f *fakePromptExecutor) Execute(ctx context.Context, req *execution.Executi
 }
 
 func TestResolvePromptGraderTimeout(t *testing.T) {
+	// Invalid / zero / negative inputs intentionally trigger slog.Warn inside
+	// resolvePromptGraderTimeout. Route slog to io.Discard for the duration of
+	// the test so the suite stays quiet while still exercising the warn paths.
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(io.Discard, nil)))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
 	cases := []struct {
-		name string
-		env  string
-		want time.Duration
+		name     string
+		env      string
+		unsetEnv bool
+		want     time.Duration
 	}{
-		{"unset uses default", "", defaultPromptGraderTimeout},
-		{"go duration minutes", "5m", 5 * time.Minute},
-		{"go duration seconds", "300s", 300 * time.Second},
-		{"bare integer seconds", "300", 300 * time.Second},
-		{"whitespace is trimmed", "  90s  ", 90 * time.Second},
-		{"invalid falls back to default", "not-a-duration", defaultPromptGraderTimeout},
-		{"zero falls back to default", "0", defaultPromptGraderTimeout},
-		{"negative falls back to default", "-30s", defaultPromptGraderTimeout},
-		{"negative bare integer falls back to default", "-30", defaultPromptGraderTimeout},
-		{"overflowing bare integer falls back to default", "10000000000", defaultPromptGraderTimeout},
+		{name: "unset uses default", unsetEnv: true, want: defaultPromptGraderTimeout},
+		{name: "empty uses default", env: "", want: defaultPromptGraderTimeout},
+		{name: "go duration minutes", env: "5m", want: 5 * time.Minute},
+		{name: "go duration seconds", env: "300s", want: 300 * time.Second},
+		{name: "bare integer seconds", env: "300", want: 300 * time.Second},
+		{name: "whitespace is trimmed", env: "  90s  ", want: 90 * time.Second},
+		{name: "invalid falls back to default", env: "not-a-duration", want: defaultPromptGraderTimeout},
+		{name: "zero falls back to default", env: "0", want: defaultPromptGraderTimeout},
+		{name: "negative falls back to default", env: "-30s", want: defaultPromptGraderTimeout},
+		{name: "negative bare integer falls back to default", env: "-30", want: defaultPromptGraderTimeout},
+		{name: "overflowing bare integer falls back to default", env: "10000000000", want: defaultPromptGraderTimeout},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			t.Setenv(promptGraderTimeoutEnv, tc.env)
+			if tc.unsetEnv {
+				// t.Setenv only sets values; force a truly-unset state and let
+				// the framework restore it after the test.
+				t.Setenv(promptGraderTimeoutEnv, "")
+				require.NoError(t, os.Unsetenv(promptGraderTimeoutEnv))
+			} else {
+				t.Setenv(promptGraderTimeoutEnv, tc.env)
+			}
 			require.Equal(t, tc.want, resolvePromptGraderTimeout())
 		})
 	}
