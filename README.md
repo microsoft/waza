@@ -330,6 +330,7 @@ Run an evaluation benchmark from a spec file.
 | `--update-snapshots` | | Update or create diff grader snapshot files to match current output |
 | `--skip-graders` | | Skip grading (execution only); grade later with `waza grade` |
 | `--keep-workspace` | | Preserve temp workspaces after execution for debugging |
+| `--auto-file-issue` | | Auto-file or update a GitHub issue for failing runs (requires `gh` and `GITHUB_REPOSITORY`) |
 
 **Result Caching**
 
@@ -1308,6 +1309,10 @@ This repository includes reusable workflows:
 2. **[`examples/ci/eval-on-pr.yml`](examples/ci/eval-on-pr.yml)** - Matrix testing across models
 
 3. **[`examples/ci/basic-example.yml`](examples/ci/basic-example.yml)** - Minimal workflow example
+
+4. **[`.github/workflows/weekly-regression-loop.yml`](.github/workflows/weekly-regression-loop.yml)** - Scheduled regression detection that archives dated artifacts and upserts follow-up issues on regressions
+
+5. **[`.github/workflows/auto-merge.yml`](.github/workflows/auto-merge.yml)** - Safe auto-merge gate for trusted, labeled PRs (`agent-merge` label on PRs targeting `main`)
 
 See [`examples/ci/README.md`](examples/ci/README.md) for detailed documentation and more examples.
 

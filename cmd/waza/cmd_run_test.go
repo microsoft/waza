@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"maps"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -24,6 +25,7 @@ import (
 	"github.com/microsoft/waza/internal/graders"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/orchestration"
+	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
@@ -56,6 +58,16 @@ func resetRunGlobals() {
 	suggestFlag = false
 	updateSnapshots = false
 	keepWorkspace = false
+	autoFileIssue = false
+	autoIssueLookPathFn = exec.LookPath
+	autoIssueRunCommandFn = func(ctx context.Context, name string, args []string, stdout, stderr io.Writer) error {
+		cmd := exec.CommandContext(ctx, name, args...)
+		cmd.Stdout = stdout
+		cmd.Stderr = stderr
+		return cmd.Run()
+	}
+	autoIssueNowFn = time.Now
+	autoIssueGetenvFn = os.Getenv
 	newCopilotClientFn = nil
 	newBenchmarkRunner = func(cfg *config.EvalConfig, engine execution.AgentEngine, opts ...orchestration.RunnerOption) benchmarkRunner {
 		return orchestration.NewEvalRunner(cfg, engine, opts...)
@@ -1429,6 +1441,211 @@ func TestBuildOutputPath(t *testing.T) {
 			assert.Equal(t, tt.expected, result)
 		})
 	}
+}
+
+func TestTriageSummaryHeadline_PrefersBulletAndTruncates(t *testing.T) {
+	assert.Equal(t, "permission denied", triageSummaryHeadline("**Error Patterns:**\n- permission denied\n- timeout"))
+
+	longSummary := strings.Repeat("x", 170)
+	headline := triageSummaryHeadline(longSummary)
+	assert.Len(t, headline, 160)
+	assert.True(t, strings.HasSuffix(headline, "..."))
+}
+
+func TestTriageHighlights_CollectsFailureArtifactSummaries(t *testing.T) {
+	outcome := &models.EvaluationOutcome{
+		TestOutcomes: []models.TestOutcome{
+			{
+				DisplayName: "task-a",
+				Runs: []models.RunResult{
+					{
+						RunNumber: 1,
+						FailureArtifacts: &models.FailureArtifacts{
+							TriageSummary: "**Error Patterns:**\n- timeout",
+						},
+					},
+				},
+			},
+			{
+				DisplayName: "task-b",
+				Runs: []models.RunResult{
+					{
+						RunNumber: 2,
+					},
+				},
+			},
+		},
+	}
+
+	highlights := triageHighlights(outcome)
+	require.Equal(t, []string{"task-a (run 1): timeout"}, highlights)
+}
+
+func TestBuildAutoIssueReport(t *testing.T) {
+	now := time.Date(2026, 1, 10, 8, 30, 0, 0, time.UTC)
+	skillResults := []skillRunResult{
+		{
+			skillName: "code-explainer",
+			outcomes: []modelResult{
+				{
+					modelID: "gpt-4o",
+					outcome: &models.EvaluationOutcome{
+						BenchName: "weekly-regression",
+						Setup:     models.OutcomeSetup{ModelID: "gpt-4o"},
+						Digest:    models.OutcomeDigest{Failed: 1, Errors: 0},
+						TestOutcomes: []models.TestOutcome{
+							{
+								DisplayName: "missing-fixtures",
+								Status:      models.StatusFailed,
+								Runs: []models.RunResult{
+									{
+										RunNumber: 1,
+										FailureArtifacts: &models.FailureArtifacts{
+											TriageSummary: "**Recommendations:**\n- Ensure all required files/fixtures are in the context directory\n",
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	report, ok := buildAutoIssueReport(skillResults, now)
+	require.True(t, ok)
+	assert.Contains(t, report.Marker, "waza-auto-triage:")
+	assert.Equal(t, "Waza auto-triage: failures in weekly-regression", report.Title)
+	assert.Contains(t, report.Body, "**Failed tests:** 1")
+	assert.Contains(t, report.Body, "**Failing runs with artifacts:** 1")
+	assert.Contains(t, report.Body, "- missing-fixtures")
+	assert.Contains(t, report.Body, "- Ensure all required files/fixtures are in the context directory")
+	assert.Contains(t, report.Comment, "### New Waza regression signal")
+
+	report, ok = buildAutoIssueReport([]skillRunResult{
+		{
+			outcomes: []modelResult{
+				{
+					outcome: &models.EvaluationOutcome{Digest: models.OutcomeDigest{Failed: 0, Errors: 0}},
+				},
+			},
+		},
+	}, now)
+	assert.False(t, ok)
+	assert.Equal(t, autoIssueReport{}, report)
+}
+
+func TestMaybeAutoFileIssue_CreatesAndUpdatesIssues(t *testing.T) {
+	makeResults := func() []skillRunResult {
+		return []skillRunResult{
+			{
+				skillName: "code-explainer",
+				outcomes: []modelResult{
+					{
+						outcome: &models.EvaluationOutcome{
+							BenchName: "weekly-regression",
+							Setup:     models.OutcomeSetup{ModelID: "gpt-4o"},
+							Digest:    models.OutcomeDigest{Failed: 1, Errors: 0},
+							TestOutcomes: []models.TestOutcome{
+								{
+									DisplayName: "task-a",
+									Status:      models.StatusFailed,
+									Runs: []models.RunResult{
+										{
+											RunNumber: 1,
+											FailureArtifacts: &models.FailureArtifacts{
+												TriageSummary: "**Recommendations:**\n- Review execution logs for detailed failure analysis\n",
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+	}
+
+	origLookPath := autoIssueLookPathFn
+	origRunCommand := autoIssueRunCommandFn
+	origNow := autoIssueNowFn
+	origGetenv := autoIssueGetenvFn
+	origAutoFileIssue := autoFileIssue
+	defer func() {
+		autoIssueLookPathFn = origLookPath
+		autoIssueRunCommandFn = origRunCommand
+		autoIssueNowFn = origNow
+		autoIssueGetenvFn = origGetenv
+		autoFileIssue = origAutoFileIssue
+	}()
+
+	autoFileIssue = true
+	autoIssueNowFn = func() time.Time { return time.Date(2026, 1, 10, 8, 30, 0, 0, time.UTC) }
+	autoIssueGetenvFn = func(key string) string {
+		if key == "GITHUB_REPOSITORY" {
+			return "microsoft/waza"
+		}
+		return ""
+	}
+	autoIssueLookPathFn = func(file string) (string, error) { return "/usr/bin/gh", nil }
+
+	t.Run("creates issue when none exists", func(t *testing.T) {
+		var listCalls, createCalls int
+		autoIssueRunCommandFn = func(_ context.Context, _ string, args []string, stdout, _ io.Writer) error {
+			switch {
+			case len(args) >= 2 && args[0] == "issue" && args[1] == "list":
+				listCalls++
+				_, _ = io.WriteString(stdout, "[]")
+				return nil
+			case len(args) >= 2 && args[0] == "issue" && args[1] == "create":
+				createCalls++
+				return nil
+			default:
+				return fmt.Errorf("unexpected gh args: %v", args)
+			}
+		}
+
+		cmd := &cobra.Command{}
+		cmd.SetContext(context.Background())
+		var out bytes.Buffer
+		cmd.SetOut(&out)
+		cmd.SetErr(io.Discard)
+		maybeAutoFileIssue(cmd, makeResults())
+
+		assert.Equal(t, 1, listCalls)
+		assert.Equal(t, 1, createCalls)
+		assert.Contains(t, out.String(), "Auto-file issue: created follow-up issue")
+	})
+
+	t.Run("updates issue when marker exists", func(t *testing.T) {
+		var listCalls, commentCalls int
+		autoIssueRunCommandFn = func(_ context.Context, _ string, args []string, stdout, _ io.Writer) error {
+			switch {
+			case len(args) >= 2 && args[0] == "issue" && args[1] == "list":
+				listCalls++
+				_, _ = io.WriteString(stdout, `[{"number":42}]`)
+				return nil
+			case len(args) >= 2 && args[0] == "issue" && args[1] == "comment":
+				commentCalls++
+				return nil
+			default:
+				return fmt.Errorf("unexpected gh args: %v", args)
+			}
+		}
+
+		cmd := &cobra.Command{}
+		cmd.SetContext(context.Background())
+		var out bytes.Buffer
+		cmd.SetOut(&out)
+		cmd.SetErr(io.Discard)
+		maybeAutoFileIssue(cmd, makeResults())
+
+		assert.Equal(t, 1, listCalls)
+		assert.Equal(t, 1, commentCalls)
+		assert.Contains(t, out.String(), "Auto-file issue: updated #42")
+	})
 }
 
 // ---------------------------------------------------------------------------

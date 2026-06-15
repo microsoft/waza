@@ -1,0 +1,320 @@
+name: Weekly Regression Loop
+
+on:
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+  issues: write
+
+concurrency:
+  group: weekly-regression-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  EVAL_PATH: examples/code-explainer/eval.yaml
+  CONTEXT_DIR: examples/code-explainer/fixtures
+
+jobs:
+  evaluate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+          cache-dependency-path: go.sum
+
+      - name: Build waza
+        run: go build -o waza ./cmd/waza
+
+      - name: Run weekly evaluation
+        id: run_eval
+        run: |
+          mkdir -p results/latest regression
+          set +e
+          ./waza run "$EVAL_PATH" \
+            --context-dir "$CONTEXT_DIR" \
+            --output "results/latest/results.json" \
+            --session-log \
+            --session-dir "results/latest/session" \
+            --verbose
+          run_exit=$?
+          set -e
+          echo "run_exit=$run_exit" >> "$GITHUB_OUTPUT"
+
+      - name: Find previous successful baseline run
+        id: baseline
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const workflowId = 'weekly-regression-loop.yml';
+            const currentRunId = Number(process.env.GITHUB_RUN_ID);
+
+            const runs = await github.paginate(github.rest.actions.listWorkflowRuns, {
+              owner,
+              repo,
+              workflow_id: workflowId,
+              branch: 'main',
+              status: 'completed',
+              per_page: 100,
+            });
+
+            const baselineRun = runs.find((run) => run.id !== currentRunId && run.conclusion === 'success');
+            if (!baselineRun) {
+              core.info('No previous successful baseline run found.');
+              core.setOutput('found', 'false');
+              return;
+            }
+
+            const artifacts = await github.paginate(github.rest.actions.listWorkflowRunArtifacts, {
+              owner,
+              repo,
+              run_id: baselineRun.id,
+              per_page: 100,
+            });
+
+            const artifact = artifacts.find((item) => item.name === 'weekly-regression-results');
+            if (!artifact) {
+              core.info(`No baseline artifact on run ${baselineRun.id}.`);
+              core.setOutput('found', 'false');
+              return;
+            }
+
+            core.setOutput('found', 'true');
+            core.setOutput('run_id', String(baselineRun.id));
+            core.setOutput('artifact_name', artifact.name);
+            core.info(`Using baseline run ${baselineRun.id}`);
+
+      - name: Download baseline artifact
+        if: steps.baseline.outputs.found == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ steps.baseline.outputs.artifact_name }}
+          path: baseline
+          run-id: ${{ steps.baseline.outputs.run_id }}
+          repository: ${{ github.repository }}
+          github-token: ${{ github.token }}
+
+      - name: Write comparison report
+        if: steps.baseline.outputs.found == 'true'
+        run: |
+          if [ -f "baseline/results/latest/results.json" ] && [ -f "results/latest/results.json" ]; then
+            ./waza compare baseline/results/latest/results.json results/latest/results.json --format json > regression/comparison.json
+          else
+            echo '{"warning":"baseline or current results file missing"}' > regression/comparison.json
+          fi
+
+      - name: Evaluate regression status
+        id: regression
+        uses: actions/github-script@v7
+        env:
+          RUN_EXIT: ${{ steps.run_eval.outputs.run_exit }}
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+
+            const currentPath = 'results/latest/results.json';
+            const baselinePath = 'baseline/results/latest/results.json';
+            const runExit = Number(process.env.RUN_EXIT || '0');
+
+            function readJSON(filePath) {
+              return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+            }
+
+            function taskStatusMap(outcome) {
+              const map = new Map();
+              for (const task of outcome.tasks || []) {
+                map.set(task.test_id, task.status);
+              }
+              return map;
+            }
+
+            const report = {
+              generated_at: new Date().toISOString(),
+              eval_path: process.env.EVAL_PATH,
+              baseline_found: false,
+              comparable: false,
+              regression: false,
+              reasons: [],
+              rules_triggered: [],
+            };
+
+            if (runExit !== 0) {
+              report.regression = true;
+              report.rules_triggered.push('evaluation_command_failed');
+              report.reasons.push(`waza run exited with code ${runExit}`);
+            }
+
+            if (!fs.existsSync(currentPath)) {
+              report.regression = true;
+              report.rules_triggered.push('missing_current_results');
+              report.reasons.push('results/latest/results.json was not produced');
+              fs.mkdirSync(path.dirname('regression/report.json'), { recursive: true });
+              fs.writeFileSync('regression/report.json', JSON.stringify(report, null, 2));
+              core.setOutput('regression', String(report.regression));
+              core.setOutput('summary', report.reasons.join('; '));
+              return;
+            }
+
+            const current = readJSON(currentPath);
+            if (!fs.existsSync(baselinePath)) {
+              report.reasons.push('No comparable baseline artifact available yet; seeded with current run');
+              fs.mkdirSync(path.dirname('regression/report.json'), { recursive: true });
+              fs.writeFileSync('regression/report.json', JSON.stringify(report, null, 2));
+              core.setOutput('regression', String(report.regression));
+              core.setOutput('summary', report.reasons.join('; '));
+              return;
+            }
+
+            report.baseline_found = true;
+            const baseline = readJSON(baselinePath);
+
+            const comparable =
+              baseline.eval_name === current.eval_name &&
+              baseline.config?.model_id === current.config?.model_id &&
+              baseline.config?.runs_per_test === current.config?.runs_per_test;
+
+            report.comparable = comparable;
+            if (!comparable) {
+              report.reasons.push('Baseline and current runs are not comparable (eval/model/trials mismatch)');
+              fs.mkdirSync(path.dirname('regression/report.json'), { recursive: true });
+              fs.writeFileSync('regression/report.json', JSON.stringify(report, null, 2));
+              core.setOutput('regression', String(report.regression));
+              core.setOutput('summary', report.reasons.join('; '));
+              return;
+            }
+
+            const baselineSummary = baseline.summary || {};
+            const currentSummary = current.summary || {};
+
+            if ((currentSummary.errors || 0) > (baselineSummary.errors || 0)) {
+              report.regression = true;
+              report.rules_triggered.push('errors_increased');
+            }
+            if ((currentSummary.failed || 0) > (baselineSummary.failed || 0)) {
+              report.regression = true;
+              report.rules_triggered.push('failures_increased');
+            }
+
+            const baselineTasks = taskStatusMap(baseline);
+            const flippedTasks = [];
+            for (const task of current.tasks || []) {
+              if (baselineTasks.get(task.test_id) === 'passed' && (task.status === 'failed' || task.status === 'error')) {
+                flippedTasks.push(task.test_id);
+              }
+            }
+            if (flippedTasks.length > 0) {
+              report.regression = true;
+              report.rules_triggered.push('task_status_flip');
+              report.flipped_tasks = flippedTasks;
+            }
+
+            const totalTests = Math.max(1, Number(currentSummary.total_tests || baselineSummary.total_tests || 1));
+            const successDropThreshold = Math.max(0.02, 1 / totalTests);
+            const successDrop = Number(baselineSummary.success_rate || 0) - Number(currentSummary.success_rate || 0);
+            if (successDrop > successDropThreshold) {
+              report.regression = true;
+              report.rules_triggered.push('success_rate_drop');
+              report.success_rate_drop = successDrop;
+              report.success_rate_drop_threshold = successDropThreshold;
+            }
+
+            const scoreDropThreshold = 0.03;
+            const scoreDrop = Number(baselineSummary.aggregate_score || 0) - Number(currentSummary.aggregate_score || 0);
+            if (scoreDrop > scoreDropThreshold) {
+              report.regression = true;
+              report.rules_triggered.push('aggregate_score_drop');
+              report.aggregate_score_drop = scoreDrop;
+              report.aggregate_score_drop_threshold = scoreDropThreshold;
+            }
+
+            if (report.regression && report.reasons.length === 0) {
+              report.reasons.push(`Regression rules triggered: ${report.rules_triggered.join(', ')}`);
+            } else if (!report.regression && report.reasons.length === 0) {
+              report.reasons.push('No regression detected');
+            }
+
+            fs.mkdirSync(path.dirname('regression/report.json'), { recursive: true });
+            fs.writeFileSync('regression/report.json', JSON.stringify(report, null, 2));
+            core.setOutput('regression', String(report.regression));
+            core.setOutput('summary', report.reasons.join('; '));
+
+      - name: Upsert regression issue
+        if: steps.regression.outputs.regression == 'true'
+        uses: actions/github-script@v7
+        env:
+          SUMMARY: ${{ steps.regression.outputs.summary }}
+        with:
+          script: |
+            const fs = require('fs');
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const marker = '<!-- waza-weekly-regression:code-explainer -->';
+            const title = 'Waza weekly regression detected';
+            const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
+            const report = fs.existsSync('regression/report.json')
+              ? JSON.parse(fs.readFileSync('regression/report.json', 'utf8'))
+              : null;
+
+            const body = [
+              marker,
+              '## Weekly regression signal',
+              '',
+              `- **Workflow run:** ${runUrl}`,
+              `- **Summary:** ${process.env.SUMMARY || 'Regression detected'}`,
+              report ? `- **Rules triggered:** ${(report.rules_triggered || []).join(', ') || 'n/a'}` : '',
+              '',
+              'Please review recent changes and update benchmarks or tests as needed.',
+            ].filter(Boolean).join('\n');
+
+            const query = `repo:${owner}/${repo} is:issue is:open in:body "${marker}"`;
+            const search = await github.rest.search.issuesAndPullRequests({ q: query });
+            const existing = (search.data.items || [])[0];
+
+            if (existing) {
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number: existing.number,
+                body,
+              });
+              core.info(`Updated issue #${existing.number}`);
+              return;
+            }
+
+            const created = await github.rest.issues.create({
+              owner,
+              repo,
+              title,
+              body,
+            });
+            core.info(`Created issue #${created.data.number}`);
+
+      - name: Upload weekly regression artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: weekly-regression-results
+          path: |
+            results/latest/results.json
+            results/latest/session/
+            regression/comparison.json
+            regression/report.json
+          if-no-files-found: warn
+          retention-days: 90
+
+      - name: Fail workflow when regressions are detected
+        if: steps.run_eval.outputs.run_exit != '0' || steps.regression.outputs.regression == 'true'
+        run: |
+          echo "::error::Weekly evaluation detected failures or regressions."
+          exit 1

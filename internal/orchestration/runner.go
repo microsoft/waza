@@ -16,6 +16,7 @@ import (
 	"github.com/microsoft/waza/internal/copilotconfig"
 	"github.com/microsoft/waza/internal/dataset"
 	"github.com/microsoft/waza/internal/execution"
+	"github.com/microsoft/waza/internal/failures"
 	"github.com/microsoft/waza/internal/graders"
 	"github.com/microsoft/waza/internal/hooks"
 	"github.com/microsoft/waza/internal/models"
@@ -55,6 +56,8 @@ type EvalRunner struct {
 	// Progress tracking
 	progressMu sync.Mutex
 	listeners  []ProgressListener
+
+	failureHandler *failures.Handler
 }
 
 // ProgressListener receives progress updates
@@ -131,10 +134,11 @@ func WithSkipGraders() RunnerOption {
 // NewEvalRunner creates a new test runner. The caller owns the engine and is responsible for initializing and shutting it down as needed.
 func NewEvalRunner(cfg *config.EvalConfig, engine execution.AgentEngine, opts ...RunnerOption) *EvalRunner {
 	r := &EvalRunner{
-		cfg:       cfg,
-		engine:    engine,
-		verbose:   cfg.Verbose(),
-		listeners: []ProgressListener{},
+		cfg:            cfg,
+		engine:         engine,
+		verbose:        cfg.Verbose(),
+		listeners:      []ProgressListener{},
+		failureHandler: failures.NewHandler(),
 	}
 	for _, o := range opts {
 		o(r)
@@ -1015,16 +1019,20 @@ func overallStatus(runs []models.RunResult) models.Status {
 
 func (r *EvalRunner) executeRun(ctx context.Context, tc *models.TestCase, runNum int) models.RunResult {
 	startTime := time.Now()
+	returnWithArtifacts := func(run models.RunResult) models.RunResult {
+		r.captureFailureArtifacts(&run)
+		return run
+	}
 
 	// Prepare execution request
 	req, err := r.buildExecutionRequest(tc)
 	if err != nil {
-		return models.RunResult{
+		return returnWithArtifacts(models.RunResult{
 			RunNumber:  runNum,
 			Status:     models.StatusError,
 			DurationMs: time.Since(startTime).Milliseconds(),
 			ErrorMsg:   err.Error(),
-		}
+		})
 	}
 
 	// Emit agent prompt event before execution
@@ -1039,23 +1047,23 @@ func (r *EvalRunner) executeRun(ctx context.Context, tc *models.TestCase, runNum
 	// Execute with the eval/task timeout represented as a context deadline.
 	timeout, err := r.executionTimeout(tc)
 	if err != nil {
-		return models.RunResult{
+		return returnWithArtifacts(models.RunResult{
 			RunNumber:  runNum,
 			Status:     models.StatusError,
 			DurationMs: time.Since(startTime).Milliseconds(),
 			ErrorMsg:   err.Error(),
-		}
+		})
 	}
 	execCtx, cancelExec := context.WithTimeout(ctx, timeout)
 	resp, err := r.engine.Execute(execCtx, req)
 	cancelExec()
 	if err != nil {
-		return models.RunResult{
+		return returnWithArtifacts(models.RunResult{
 			RunNumber:  runNum,
 			Status:     models.StatusError,
 			DurationMs: time.Since(startTime).Milliseconds(),
 			ErrorMsg:   err.Error(),
-		}
+		})
 	}
 
 	// Emit agent response event after execution
@@ -1088,12 +1096,12 @@ func (r *EvalRunner) executeRun(ctx context.Context, tc *models.TestCase, runNum
 		gradersResults, err = r.runGraders(ctx, tc, vCtx)
 
 		if err != nil {
-			return models.RunResult{
+			return returnWithArtifacts(models.RunResult{
 				RunNumber:  runNum,
 				Status:     models.StatusError,
 				DurationMs: time.Since(startTime).Milliseconds(),
 				ErrorMsg:   "running graders: " + err.Error(),
-			}
+			})
 		}
 	}
 
@@ -1142,7 +1150,7 @@ func (r *EvalRunner) executeRun(ctx context.Context, tc *models.TestCase, runNum
 		skillInvocations[i] = models.SkillInvocation{Name: si.Name, Path: si.Path}
 	}
 
-	return models.RunResult{
+	return returnWithArtifacts(models.RunResult{
 		RunNumber:        runNum,
 		Status:           status,
 		DurationMs:       resp.DurationMs,
@@ -1153,7 +1161,22 @@ func (r *EvalRunner) executeRun(ctx context.Context, tc *models.TestCase, runNum
 		ErrorMsg:         resp.ErrorMsg,
 		SkillInvocations: skillInvocations,
 		WorkspaceDir:     resp.WorkspaceDir,
+	})
+}
+
+func (r *EvalRunner) captureFailureArtifacts(run *models.RunResult) {
+	if run == nil || r.failureHandler == nil {
+		return
 	}
+	if run.Status != models.StatusFailed && run.Status != models.StatusError {
+		return
+	}
+
+	exitCode := 1
+	if run.Status == models.StatusError {
+		exitCode = 2
+	}
+	r.failureHandler.CaptureFailure(run, exitCode, run.ErrorMsg, run.FinalOutput)
 }
 
 func (r *EvalRunner) buildExecutionRequest(tc *models.TestCase) (*execution.ExecutionRequest, error) {

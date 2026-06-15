@@ -89,6 +89,7 @@ waza run [eval.yaml | skill-name | agent-name]
 | `--transcript-dir` | | string | | Save per-task transcript JSON files |
 | `--no-cache` | | bool | false | Explicitly disable result caching |
 | `--keep-workspace` | | bool | false | Preserve temp workspaces after execution for debugging |
+| `--auto-file-issue` | | bool | false | Auto-file or update a GitHub issue for failing runs (requires `gh` and `GITHUB_REPOSITORY`) |
 
 ### Examples
 
@@ -148,6 +149,9 @@ waza run eval.yaml --model gpt-4o --model claude-sonnet-4.6 --recommend
 
 # Keep temp workspaces for debugging fixture issues
 waza run eval.yaml --keep-workspace -v
+
+# Auto-file or update a triage issue on failures
+GITHUB_REPOSITORY=microsoft/waza waza run eval.yaml --auto-file-issue
 ```
 
 ## waza init

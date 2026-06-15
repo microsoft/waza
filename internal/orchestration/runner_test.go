@@ -328,6 +328,9 @@ func TestExecuteRun_InvalidTaskTimeoutReturnsConfigError(t *testing.T) {
 	run := runner.executeRun(context.Background(), tc, 1)
 	assert.Equal(t, models.StatusError, run.Status)
 	assert.Contains(t, run.ErrorMsg, `test case "test-001" timeout_seconds must be at least 1, got -1`)
+	require.NotNil(t, run.FailureArtifacts)
+	assert.Equal(t, 2, run.FailureArtifacts.ExitCode)
+	assert.Contains(t, run.FailureArtifacts.TriageSummary, "**Status:** Error")
 	assert.False(t, engine.hasDeadline, "engine should not execute with an invalid timeout")
 }
 
@@ -356,9 +359,50 @@ func TestExecuteRun_AppliesTimeoutContext(t *testing.T) {
 	start := time.Now()
 	run := runner.executeRun(context.Background(), tc, 1)
 	require.Empty(t, run.ErrorMsg)
+	assert.Nil(t, run.FailureArtifacts)
 	deadline, ok := engine.deadline, engine.hasDeadline
 	require.True(t, ok, "expected eval timeout to be applied to Execute context")
 	require.WithinDuration(t, start.Add(300*time.Second), deadline, time.Second)
+}
+
+func TestCaptureFailureArtifacts_StatusMapping(t *testing.T) {
+	spec := &models.EvalSpec{
+		SpecIdentity: models.SpecIdentity{Name: "test-benchmark"},
+		SkillName:    "my-skill",
+		Config: models.Config{
+			EngineType: "mock",
+			ModelID:    "gpt-4",
+			TimeoutSec: 120,
+		},
+	}
+	runner := NewEvalRunner(config.NewEvalConfig(spec), nil)
+
+	failed := models.RunResult{
+		Status:      models.StatusFailed,
+		ErrorMsg:    "grader mismatch",
+		FinalOutput: "model output",
+		Validations: map[string]models.GraderResults{
+			"correctness": {Passed: false, Name: "correctness"},
+		},
+	}
+	runner.captureFailureArtifacts(&failed)
+	require.NotNil(t, failed.FailureArtifacts)
+	assert.Equal(t, 1, failed.FailureArtifacts.ExitCode)
+	assert.Contains(t, failed.FailureArtifacts.TriageSummary, "**Status:** Failed")
+
+	errored := models.RunResult{
+		Status:      models.StatusError,
+		ErrorMsg:    "timeout exceeded",
+		FinalOutput: "partial output",
+	}
+	runner.captureFailureArtifacts(&errored)
+	require.NotNil(t, errored.FailureArtifacts)
+	assert.Equal(t, 2, errored.FailureArtifacts.ExitCode)
+	assert.Contains(t, errored.FailureArtifacts.TriageSummary, "**Status:** Error")
+
+	passed := models.RunResult{Status: models.StatusPassed}
+	runner.captureFailureArtifacts(&passed)
+	assert.Nil(t, passed.FailureArtifacts)
 }
 
 type deadlineCaptureEngine struct {
