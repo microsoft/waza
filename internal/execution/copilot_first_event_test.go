@@ -54,7 +54,7 @@ func TestCopilotExecute_FirstEventTimeout_AbortsSessionStartHang(t *testing.T) {
 	clientMock.EXPECT().DeleteSession(gomock.Any(), gomock.Any()).AnyTimes()
 	sessionMock.EXPECT().SessionID().Return("session-first-event").AnyTimes()
 	sessionMock.EXPECT().Disconnect().AnyTimes()
-	sessionMock.EXPECT().On(gomock.Any()).Times(3).Return(func() {})
+	sessionMock.EXPECT().On(gomock.Any()).AnyTimes().Return(func() {})
 
 	// SendAndWait emits no event — it just blocks until its context is canceled
 	// (which the first-event watchdog must do) and returns that error.
@@ -109,7 +109,7 @@ func TestCopilotExecute_FirstEventTimeout_DisarmsOnFirstEvent(t *testing.T) {
 	sessionMock.EXPECT().Disconnect().AnyTimes()
 
 	var handlers []func(copilot.SessionEvent)
-	sessionMock.EXPECT().On(gomock.Any()).Times(3).DoAndReturn(func(h func(copilot.SessionEvent)) func() {
+	sessionMock.EXPECT().On(gomock.Any()).AnyTimes().DoAndReturn(func(h func(copilot.SessionEvent)) func() {
 		handlers = append(handlers, h)
 		return func() {}
 	})
@@ -118,6 +118,7 @@ func TestCopilotExecute_FirstEventTimeout_DisarmsOnFirstEvent(t *testing.T) {
 	// successfully — NOT with a context error.
 	sessionMock.EXPECT().SendAndWait(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, _ copilot.MessageOptions) (*copilot.SessionEvent, error) {
+			require.NotEmpty(t, handlers)
 			for _, h := range handlers {
 				h(copilot.SessionEvent{Data: &copilot.SkillInvokedData{Name: "s", Path: "p"}})
 			}

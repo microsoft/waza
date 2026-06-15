@@ -478,21 +478,35 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 	// turns — turning a fast failure into a multi-minute (or multi-hour) stall.
 	// We arm a short timer that cancels sendCtx with a distinct cause if no
 	// event arrives in time, and disarm it the moment the first event lands (the
-	// turn has started; the overall deadline governs the rest).
+	// turn has started; the overall deadline governs the rest) or SendAndWait
+	// returns for any other reason.
 	sendCtx := ctx
+	stopFirstEventWatchdog := func() {}
 	if req.FirstEventTimeout > 0 {
 		var cancelFirst context.CancelCauseFunc
 		sendCtx, cancelFirst = context.WithCancelCause(ctx)
-		defer cancelFirst(nil)
 		timer := time.AfterFunc(req.FirstEventTimeout, func() {
 			cancelFirst(errFirstEventTimeout)
 		})
+
+		watchdogDone := make(chan struct{})
+		var stopWatchdog sync.Once
+		stopFirstEventWatchdog = func() {
+			stopWatchdog.Do(func() {
+				timer.Stop()
+				cancelFirst(nil)
+				close(watchdogDone)
+			})
+		}
+		defer stopFirstEventWatchdog()
+
 		go func() {
 			select {
 			case <-eventsCollector.FirstEvent():
-				timer.Stop()
+				stopFirstEventWatchdog()
 			case <-sendCtx.Done():
-				timer.Stop()
+				stopFirstEventWatchdog()
+			case <-watchdogDone:
 			}
 		}()
 	}
@@ -502,6 +516,7 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 		Prompt: req.Message,
 		Mode:   string(req.MessageMode),
 	})
+	stopFirstEventWatchdog()
 
 	var errMsg string
 
