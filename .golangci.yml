@@ -24,10 +24,11 @@ linters:
         - fieldalignment
     misspell:
       locale: US
-  exclusions:
-    paths:
-      - web/node_modules
-      - web/dist
+
+exclusions:
+  paths:
+    - web/node_modules
+    - web/dist
 
 formatters:
   enable:
