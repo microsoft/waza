@@ -25,11 +25,6 @@ linters:
     misspell:
       locale: US
 
-exclusions:
-  paths:
-    - web/node_modules
-    - web/dist
-
 formatters:
   enable:
     - gofmt
