@@ -1,6 +1,7 @@
 package failures
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/microsoft/waza/internal/models"
@@ -28,7 +29,7 @@ func TestCaptureFailure(t *testing.T) {
 	stderr := "Error: permission denied\nFailed to access file"
 	stdout := "Starting evaluation...\nFailed at step 3"
 
-	handler.CaptureFailure(result, stderr, stdout)
+	handler.CaptureFailure(result, 1, stderr, stdout)
 
 	if result.FailureArtifacts == nil {
 		t.Fatal("FailureArtifacts should not be nil")
@@ -40,6 +41,10 @@ func TestCaptureFailure(t *testing.T) {
 
 	if result.FailureArtifacts.StdOut != stdout {
 		t.Errorf("Expected stdout to be captured, got %q", result.FailureArtifacts.StdOut)
+	}
+
+	if result.FailureArtifacts.ExitCode != 1 {
+		t.Errorf("Expected ExitCode 1, got %d", result.FailureArtifacts.ExitCode)
 	}
 
 	if len(result.FailureArtifacts.FailedGraders) != 1 {
@@ -54,7 +59,7 @@ func TestCaptureFailure(t *testing.T) {
 		t.Error("TriageSummary should not be empty")
 	}
 
-	if !contains(result.FailureArtifacts.TriageSummary, "Failed") {
+	if !strings.Contains(result.FailureArtifacts.TriageSummary, "Failed") {
 		t.Error("TriageSummary should contain 'Failed'")
 	}
 }
@@ -96,6 +101,18 @@ func TestExtractErrorPatterns(t *testing.T) {
 			if len(patterns) == 0 && len(tt.expect) > 0 {
 				t.Errorf("Expected patterns %v, got empty", tt.expect)
 			}
+			for _, expected := range tt.expect {
+				found := false
+				for _, p := range patterns {
+					if strings.Contains(p, expected) {
+						found = true
+						break
+					}
+				}
+				if !found {
+					t.Errorf("Expected pattern %q not found in %v", expected, patterns)
+				}
+			}
 		})
 	}
 }
@@ -124,13 +141,14 @@ func TestGenerateTriageSummary(t *testing.T) {
 
 	checks := []string{"Failed", "test", "error", "Recommendations"}
 	for _, check := range checks {
-		if !contains(summary, check) {
+		if !strings.Contains(summary, check) {
 			t.Errorf("Expected summary to contain %q, got:\n%s", check, summary)
 		}
 	}
 }
 
 func TestTruncate(t *testing.T) {
+	const truncSuffix = "\n... (truncated)"
 	tests := []struct {
 		input   string
 		maxLen  int
@@ -144,18 +162,15 @@ func TestTruncate(t *testing.T) {
 		{
 			input:   "this is a much longer string that should be truncated",
 			maxLen:  10,
-			wantLen: 28, // 10 + "... (truncated)"
+			wantLen: 10 + len(truncSuffix),
 		},
 	}
 
 	for _, tt := range tests {
 		result := truncate(tt.input, tt.maxLen)
-		if len(result) == 0 {
-			t.Errorf("Truncate returned empty string")
+		if len(result) != tt.wantLen {
+			t.Errorf("truncate(%q, %d): got len %d, want %d (result: %q)",
+				tt.input, tt.maxLen, len(result), tt.wantLen, result)
 		}
 	}
-}
-
-func contains(s, substr string) bool {
-	return len(s) > 0 && len(substr) > 0 && (s == substr || len(s) >= len(substr))
 }

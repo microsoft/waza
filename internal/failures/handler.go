@@ -3,6 +3,7 @@ package failures
 import (
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -26,13 +27,14 @@ func NewHandler() *Handler {
 }
 
 // CaptureFailure captures failure artifacts from a failed run
-func (h *Handler) CaptureFailure(result *models.RunResult, stderr, stdout string) {
+func (h *Handler) CaptureFailure(result *models.RunResult, exitCode int, stderr, stdout string) {
 	if result.Status != models.StatusFailed && result.Status != models.StatusError {
 		return
 	}
 
 	artifacts := &models.FailureArtifacts{
 		CapturedAt: time.Now(),
+		ExitCode:   exitCode,
 		Context:    make(map[string]string),
 	}
 
@@ -47,12 +49,13 @@ func (h *Handler) CaptureFailure(result *models.RunResult, stderr, stdout string
 		artifacts.Context["stdout_truncated"] = fmt.Sprintf("%v", len(stdout) > h.maxArtifactSize)
 	}
 
-	// Track failed validators
+	// Track failed validators (sorted for deterministic output)
 	for name, grader := range result.Validations {
 		if !grader.Passed {
 			artifacts.FailedGraders = append(artifacts.FailedGraders, name)
 		}
 	}
+	sort.Strings(artifacts.FailedGraders)
 
 	// Extract error patterns
 	artifacts.ErrorPatterns = extractErrorPatterns(artifacts.StdErr, artifacts.StdOut, result.ErrorMsg)
@@ -101,6 +104,7 @@ func extractErrorPatterns(stderr, stdout, errorMsg string) []string {
 	for pattern := range matches {
 		result = append(result, pattern)
 	}
+	sort.Strings(result)
 	return result
 }
 
