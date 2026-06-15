@@ -1580,7 +1580,7 @@ func autoIssueSortedKeys(m map[string]bool) []string {
 }
 
 func findOpenAutoIssue(ctx context.Context, repo, marker string) (int, error) {
-	query := fmt.Sprintf("%q in:body", marker)
+	query := fmt.Sprintf("\"%s\" in:body", marker)
 	var stdout, stderr bytes.Buffer
 	if err := autoIssueRunCommandFn(ctx, "gh", []string{
 		"issue", "list",
