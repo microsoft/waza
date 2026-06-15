@@ -158,6 +158,19 @@ type RunResult struct {
 	SkillInvocations []SkillInvocation        `json:"skill_invocations,omitempty"`
 	Usage            *UsageStats              `json:"usage,omitempty"`
 	WorkspaceDir     string                   `json:"workspace_dir,omitempty"`
+	FailureArtifacts *FailureArtifacts        `json:"failure_artifacts,omitempty"`
+}
+
+// FailureArtifacts captures diagnostic information when a run fails
+type FailureArtifacts struct {
+	StdErr        string            `json:"stderr,omitempty"`
+	StdOut        string            `json:"stdout,omitempty"`
+	ExitCode      int               `json:"exit_code,omitempty"`
+	FailedGraders []string          `json:"failed_graders,omitempty"`
+	ErrorPatterns []string          `json:"error_patterns,omitempty"`
+	TriageSummary string            `json:"triage_summary,omitempty"`
+	CapturedAt    time.Time         `json:"captured_at"`
+	Context       map[string]string `json:"context,omitempty"`
 }
 
 type GraderResults struct {
