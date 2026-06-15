@@ -33,7 +33,7 @@ func (h *Handler) CaptureFailure(result *models.RunResult, exitCode int, stderr,
 	}
 
 	artifacts := &models.FailureArtifacts{
-		CapturedAt: time.Now(),
+		CapturedAt: time.Now().UTC(),
 		ExitCode:   exitCode,
 		Context:    make(map[string]string),
 	}
@@ -93,7 +93,10 @@ func extractErrorPatterns(stderr, stdout, errorMsg string) []string {
 		found := re.FindAllStringSubmatch(input, -1)
 		for _, match := range found {
 			if len(match) > 1 {
-				matches[strings.TrimSpace(match[1])] = true
+				trimmed := strings.TrimSpace(match[1])
+				if trimmed != "" {
+					matches[trimmed] = true
+				}
 			} else {
 				matches[pattern] = true
 			}
@@ -189,5 +192,7 @@ func truncate(s string, maxLen int) string {
 	if len(s) <= maxLen {
 		return s
 	}
-	return s[:maxLen] + "\n... (truncated)"
+	const suffix = "\n... (truncated)"
+	prefixLen := max(0, maxLen-len(suffix))
+	return s[:prefixLen] + suffix
 }

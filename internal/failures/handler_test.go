@@ -161,8 +161,8 @@ func TestTruncate(t *testing.T) {
 		},
 		{
 			input:   "this is a much longer string that should be truncated",
-			maxLen:  10,
-			wantLen: 10 + len(truncSuffix),
+			maxLen:  30,
+			wantLen: 30,
 		},
 	}
 
