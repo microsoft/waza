@@ -64,6 +64,18 @@ func TestCaptureFailure(t *testing.T) {
 	}
 }
 
+func TestCaptureFailureNilResultDoesNotPanic(t *testing.T) {
+	handler := NewHandler()
+
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("CaptureFailure should not panic on nil result: %v", r)
+		}
+	}()
+
+	handler.CaptureFailure(nil, 1, "stderr", "stdout")
+}
+
 func TestExtractErrorPatterns(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -162,6 +174,16 @@ func TestTruncate(t *testing.T) {
 			input:   "this is a much longer string that should be truncated",
 			maxLen:  30,
 			wantLen: 30,
+		},
+		{
+			input:   "this is a much longer string that should be truncated",
+			maxLen:  10,
+			wantLen: 10,
+		},
+		{
+			input:   "this is a much longer string that should be truncated",
+			maxLen:  0,
+			wantLen: 0,
 		},
 	}
 
