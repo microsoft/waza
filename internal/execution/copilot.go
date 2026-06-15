@@ -2,6 +2,7 @@ package execution
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/url"
@@ -17,6 +18,13 @@ import (
 	"github.com/microsoft/waza/internal/skill"
 	"github.com/microsoft/waza/internal/utils"
 )
+
+// errFirstEventTimeout is the cancellation cause used when a session produces no
+// first event within ExecutionRequest.FirstEventTimeout — i.e. the embedded
+// engine launched but never started the agent's first turn. It is distinct from
+// the overall turn deadline (context.DeadlineExceeded) so callers can tell a
+// session-start hang apart from a genuinely long-running turn that timed out.
+var errFirstEventTimeout = errors.New("no first session event within first-event timeout")
 
 // CopilotEngine integrates with GitHub Copilot SDK
 type CopilotEngine struct {
@@ -463,11 +471,52 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 	unsubscribe := session.On(utils.NewSessionToSlog())
 	defer unsubscribe()
 
+	// First-event watchdog. SendAndWait blocks until the session reaches a
+	// terminal state (session.idle / session.error) or sendCtx is canceled. A
+	// session-start hang emits NO events, so without this it would block until
+	// the overall turn deadline — which must be large to allow legitimate long
+	// turns — turning a fast failure into a multi-minute (or multi-hour) stall.
+	// We arm a short timer that cancels sendCtx with a distinct cause if no
+	// event arrives in time, and disarm it the moment the first event lands (the
+	// turn has started; the overall deadline governs the rest) or SendAndWait
+	// returns for any other reason.
+	sendCtx := ctx
+	stopFirstEventWatchdog := func() {}
+	if req.FirstEventTimeout > 0 {
+		var cancelFirst context.CancelCauseFunc
+		sendCtx, cancelFirst = context.WithCancelCause(ctx)
+		timer := time.AfterFunc(req.FirstEventTimeout, func() {
+			cancelFirst(errFirstEventTimeout)
+		})
+
+		watchdogDone := make(chan struct{})
+		var stopWatchdog sync.Once
+		stopFirstEventWatchdog = func() {
+			stopWatchdog.Do(func() {
+				timer.Stop()
+				cancelFirst(nil)
+				close(watchdogDone)
+			})
+		}
+		defer stopFirstEventWatchdog()
+
+		go func() {
+			select {
+			case <-eventsCollector.FirstEvent():
+				stopFirstEventWatchdog()
+			case <-sendCtx.Done():
+				stopFirstEventWatchdog()
+			case <-watchdogDone:
+			}
+		}()
+	}
+
 	// Send prompt with updated API
-	_, err = session.SendAndWait(ctx, copilot.MessageOptions{
+	_, err = session.SendAndWait(sendCtx, copilot.MessageOptions{
 		Prompt: req.Message,
 		Mode:   string(req.MessageMode),
 	})
+	stopFirstEventWatchdog()
 
 	var errMsg string
 
@@ -477,6 +526,12 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 		// termination. We clear the error so the response reports success.
 		if canceledForSkill && ctx.Err() == context.Canceled {
 			err = nil
+		} else if errors.Is(context.Cause(sendCtx), errFirstEventTimeout) {
+			// Session-start hang: no first event arrived within the budget.
+			// Surface a distinct, actionable error rather than the opaque
+			// context-canceled / deadline message SendAndWait returns.
+			err = fmt.Errorf("session start timeout: no first turn within %s (engine launched but produced no events): %w", req.FirstEventTimeout, errFirstEventTimeout)
+			errMsg = err.Error()
 		} else {
 			// errors that are returned inline, as part of the conversation, also come back
 			// in the returned error. Rather than having one of those fun functions that returns

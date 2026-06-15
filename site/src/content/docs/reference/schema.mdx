@@ -115,6 +115,26 @@ Common values:
 - `300` — Standard code analysis
 - `600` — Complex multi-file tasks
 
+### first_event_timeout_seconds
+
+**Type:** integer  
+**Default:** 0 (disabled)
+
+Maximum seconds to wait for the **first** session event before treating a run as
+a session-start hang and aborting it. The embedded engine can occasionally launch
+but never start the agent's first turn (no events at all); without this guard such
+a run blocks until `timeout_seconds`, which must be sized for the slowest
+legitimate full turn and is therefore a poor catch-all for a fast failure. Keep
+this comfortably above realistic first-turn latency so a slow-but-live first turn
+is never aborted. `0` disables the check. Override per task with the task-level
+field of the same name (`0` disables it for that task).
+
+```yaml
+config:
+  timeout_seconds: 1800 # 30 min — the slowest legitimate full turn
+  first_event_timeout_seconds: 300 # but the first turn must start within 5 min
+```
+
 ### parallel
 
 **Type:** boolean  

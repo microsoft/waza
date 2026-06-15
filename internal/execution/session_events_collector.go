@@ -3,6 +3,7 @@ package execution
 import (
 	"fmt"
 	"os"
+	"sync"
 
 	copilot "github.com/github/copilot-sdk/go"
 	"github.com/microsoft/waza/internal/copilotevents"
@@ -19,6 +20,8 @@ type SessionEventsCollector struct {
 	outputParts    []string
 	errorMsg       string
 	done           chan struct{}
+	firstEvent     chan struct{}
+	firstEventOnce sync.Once
 	intentToolIDs  map[string]bool
 	onSkillInvoked func(SkillInvocation) // optional callback fired on each SkillInvoked event
 }
@@ -27,6 +30,7 @@ type SessionEventsCollector struct {
 func NewSessionEventsCollector() *SessionEventsCollector {
 	return &SessionEventsCollector{
 		done:          make(chan struct{}),
+		firstEvent:    make(chan struct{}),
 		intentToolIDs: map[string]bool{},
 	}
 }
@@ -51,6 +55,17 @@ func (coll *SessionEventsCollector) Done() <-chan struct{} {
 	return coll.done
 }
 
+// FirstEvent returns a channel that is closed when the FIRST session event of
+// any type is received. A healthy session emits events promptly once the agent
+// starts its first turn; a session-start hang (the embedded engine launches but
+// never produces a turn) emits nothing at all. Callers use this to arm a
+// short "time to first event" deadline distinct from the overall turn timeout,
+// so a no-first-turn wedge is caught in seconds instead of running out the full
+// (necessarily large) turn budget.
+func (coll *SessionEventsCollector) FirstEvent() <-chan struct{} {
+	return coll.firstEvent
+}
+
 // SetOnSkillInvoked registers a callback that fires every time a SkillInvoked
 // event is received. The callback runs synchronously inside On(), so it can
 // safely cancel a context to abort an in-flight SendAndWait.
@@ -61,6 +76,13 @@ func (coll *SessionEventsCollector) SetOnSkillInvoked(fn func(SkillInvocation)) 
 // On is a callback, intended to be passed to [copilot.Session.On] to receive
 // events in real-time.
 func (coll *SessionEventsCollector) On(event copilot.SessionEvent) {
+	// Signal first contact before anything else: ANY event proves the engine is
+	// alive and has begun the turn, which disarms the first-event watchdog. We
+	// deliberately fire on the first event of any type (not only assistant/tool
+	// events) and err toward never false-aborting a slow-but-live first turn —
+	// a true session-start hang emits no events at all.
+	coll.firstEventOnce.Do(func() { close(coll.firstEvent) })
+
 	switch event.Type() {
 	case copilot.SessionEventTypeAssistantMessage:
 		if content, ok := copilotevents.Content(event); ok {

@@ -125,6 +125,52 @@ inputs:
 	}
 }
 
+func TestLoadTestCase_NegativeFirstEventTimeoutRejected(t *testing.T) {
+	yamlData := `id: tc-bad-first-event
+name: bad first event
+first_event_timeout_seconds: -1
+inputs:
+  prompt: do something
+`
+	dir := t.TempDir()
+	p := filepath.Join(dir, "tc.yaml")
+	if err := os.WriteFile(p, []byte(yamlData), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	_, err := LoadTestCase(p)
+	if err == nil {
+		t.Fatal("expected error for first_event_timeout_seconds: -1, got nil")
+	}
+	if !strings.Contains(err.Error(), `test case "tc-bad-first-event" first_event_timeout_seconds must not be negative, got -1`) {
+		t.Errorf("error should describe invalid first_event_timeout_seconds, got: %v", err)
+	}
+}
+
+func TestLoadTestCase_ZeroFirstEventTimeoutAllowed(t *testing.T) {
+	// Unlike timeout_seconds, 0 is valid for first_event_timeout_seconds — it
+	// disables the first-event watchdog for the task.
+	yamlData := `id: tc-zero-first-event
+name: zero first event
+first_event_timeout_seconds: 0
+inputs:
+  prompt: do something
+`
+	dir := t.TempDir()
+	p := filepath.Join(dir, "tc.yaml")
+	if err := os.WriteFile(p, []byte(yamlData), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	tc, err := LoadTestCase(p)
+	if err != nil {
+		t.Fatalf("expected first_event_timeout_seconds: 0 to be accepted, got: %v", err)
+	}
+	if tc.FirstEventTimeoutSec == nil || *tc.FirstEventTimeoutSec != 0 {
+		t.Errorf("expected FirstEventTimeoutSec == 0, got %v", tc.FirstEventTimeoutSec)
+	}
+}
+
 func TestLoadTestCase_OutputContainsAny(t *testing.T) {
 	yamlData := `id: tc-may
 name: test may-include

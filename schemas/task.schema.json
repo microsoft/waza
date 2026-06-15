@@ -38,6 +38,12 @@
       "minimum": 1,
       "description": "Per-task timeout in seconds, overriding the eval-level default."
     },
+    "first_event_timeout_seconds": {
+      "type": "integer",
+      "minimum": 0,
+      "default": 0,
+      "description": "Per-task override for the eval-level first_event_timeout_seconds. 0 disables the first-event (session-start hang) watchdog for this task."
+    },
     "tags": {
       "type": "array",
       "items": {

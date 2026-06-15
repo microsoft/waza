@@ -12,23 +12,83 @@ jobs:
   release:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout Repository
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          lfs: true
 
-      - name: Build and test
+      - name: Setup Go Environment
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+          cache-dependency-path: go.sum
+
+      - name: Verify Module Dependencies
+        run: go mod verify
+
+      - name: Download Dependencies
+        run: go mod download
+
+      - name: Setup Node.js (for web UI build)
+        if: hashFiles('web/package.json') != ''
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: web/package-lock.json
+
+      - name: Build Web UI
+        if: hashFiles('web/package.json') != ''
+        working-directory: web
+        run: npm ci && npm run build
+
+      - name: Ensure web/dist exists
         run: |
-          # TODO: Add your go build/test commands here
-          # Go:            go test ./...
-          # Python:        pip install -r requirements.txt && pytest
-          # .NET:          dotnet test
-          # Java (Maven):  mvn test
-          # Java (Gradle): ./gradlew test
-          echo "No build commands configured — update squad-insider-release.yml"
+          if [ ! -f web/dist/index.html ]; then
+            mkdir -p web/dist
+            echo '<!doctype html><html><head><title>waza</title></head><body>placeholder</body></html>' > web/dist/index.html
+            echo '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y="80" font-size="80">w</text></svg>' > web/dist/favicon.svg
+          fi
 
-      - name: Create insider release
+      - name: Run Go Vet
+        run: go vet ./...
+
+      - name: Execute Tests
+        run: go test -v -race -coverprofile=coverage.txt -covermode=atomic ./...
+
+      - name: Build Insider Release Binary
+        run: |
+          go build -v -o waza ./cmd/waza
+          ./waza --version
+
+      - name: Integration Test
+        run: |
+          set +e
+          ./waza run ./examples/code-explainer/eval.yaml --verbose
+          EXIT_CODE=$?
+          if [ $EXIT_CODE -gt 1 ]; then
+            echo "::error::waza crashed with exit code $EXIT_CODE"
+            exit $EXIT_CODE
+          fi
+          echo "Insider release integration test completed (exit code: $EXIT_CODE)"
+
+      - name: Create Insider Pre-Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # TODO: Add your insider/pre-release commands here
-          echo "No release commands configured — update squad-insider-release.yml"
+          if ! BASE_TAG=$(git describe --tags --exact-match 2>/dev/null); then
+            echo "Current commit is not tagged, skipping insider release creation"
+            exit 0
+          fi
+
+          VERSION="${BASE_TAG}-insider"
+          if gh release view "$VERSION" --repo "${{ github.repository }}" > /dev/null 2>&1; then
+            echo "Insider release $VERSION already exists, skipping creation"
+          else
+            gh release create "$VERSION" ./waza \
+              --repo "${{ github.repository }}" \
+              --title "Insider Release $VERSION" \
+              --notes "Pre-release build of waza CLI for insider testing" \
+              --prerelease
+          fi

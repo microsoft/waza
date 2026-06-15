@@ -1191,6 +1191,7 @@ func (r *EvalRunner) buildExecutionRequest(tc *models.TestCase) (*execution.Exec
 		NoSkills:          noSkills,
 		SuppressSkillBody: !spec.Config.ShouldInjectSkillBody(),
 		MCPServers:        convertMCPServers(spec.Config.ServerConfigs),
+		FirstEventTimeout: r.firstEventTimeout(tc),
 	}, nil
 }
 
@@ -1203,6 +1204,21 @@ func (r *EvalRunner) executionTimeout(tc *models.TestCase) (time.Duration, error
 		timeout = *tc.TimeoutSec
 	}
 	return time.Duration(timeout) * time.Second, nil
+}
+
+// firstEventTimeout resolves the per-run "time to first session event" budget:
+// the task-level override when set, otherwise the eval-level default. A value of
+// 0 (the default) disables the first-event watchdog so existing specs that never
+// configure it keep their prior behavior.
+func (r *EvalRunner) firstEventTimeout(tc *models.TestCase) time.Duration {
+	sec := r.cfg.Spec().Config.FirstEventTimeoutSec
+	if tc.FirstEventTimeoutSec != nil {
+		sec = *tc.FirstEventTimeoutSec
+	}
+	if sec <= 0 {
+		return 0
+	}
+	return time.Duration(sec) * time.Second
 }
 
 func rejectRelativePathPromptWithEmptySandbox(tc *models.TestCase, resources []execution.ResourceFile) error {

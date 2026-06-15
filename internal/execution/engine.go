@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"time"
 
 	copilot "github.com/github/copilot-sdk/go"
 	"github.com/microsoft/waza/internal/copilotevents"
@@ -58,6 +59,14 @@ type ExecutionRequest struct {
 
 	MessageMode MessageMode
 	Streaming   bool
+
+	// FirstEventTimeout bounds how long Execute waits for the FIRST session
+	// event before treating the run as a session-start hang and aborting it
+	// with a distinct error. It is intentionally much shorter than the overall
+	// turn deadline (the ctx passed to Execute), which must be sized for the
+	// slowest legitimate full turn and therefore cannot also catch a
+	// no-first-turn wedge quickly. Zero disables the check (the prior behavior).
+	FirstEventTimeout time.Duration
 
 	// EphemeralSession keeps one-off sessions out of engine shutdown tracking.
 	// New ephemeral sessions are deleted at the end of Execute. Resumed
