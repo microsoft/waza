@@ -77,11 +77,17 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          VERSION=$(git describe --tags --always)-insider
-          if gh release view "$VERSION" > /dev/null 2>&1; then
+          if ! BASE_TAG=$(git describe --tags --exact-match 2>/dev/null); then
+            echo "Current commit is not tagged, skipping insider release creation"
+            exit 0
+          fi
+
+          VERSION="${BASE_TAG}-insider"
+          if gh release view "$VERSION" --repo "${{ github.repository }}" > /dev/null 2>&1; then
             echo "Insider release $VERSION already exists, skipping creation"
           else
             gh release create "$VERSION" ./waza \
+              --repo "${{ github.repository }}" \
               --title "Insider Release $VERSION" \
               --notes "Pre-release build of waza CLI for insider testing" \
               --prerelease

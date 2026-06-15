@@ -77,11 +77,16 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          VERSION=$(git describe --tags --always)
-          if gh release view "$VERSION" > /dev/null 2>&1; then
+          if ! VERSION=$(git describe --tags --exact-match 2>/dev/null); then
+            echo "Current commit is not tagged, skipping release creation"
+            exit 0
+          fi
+
+          if gh release view "$VERSION" --repo "${{ github.repository }}" > /dev/null 2>&1; then
             echo "Release $VERSION already exists, skipping creation"
           else
             gh release create "$VERSION" ./waza \
+              --repo "${{ github.repository }}" \
               --title "Release $VERSION" \
               --notes "Go implementation of waza CLI" \
               --latest

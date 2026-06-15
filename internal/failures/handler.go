@@ -28,6 +28,9 @@ func NewHandler() *Handler {
 
 // CaptureFailure captures failure artifacts from a failed run
 func (h *Handler) CaptureFailure(result *models.RunResult, exitCode int, stderr, stdout string) {
+	if result == nil {
+		return
+	}
 	if result.Status != models.StatusFailed && result.Status != models.StatusError {
 		return
 	}
@@ -185,10 +188,16 @@ func generateRecommendations(artifacts *models.FailureArtifacts, result *models.
 }
 
 func truncate(s string, maxLen int) string {
+	if maxLen <= 0 {
+		return ""
+	}
 	if len(s) <= maxLen {
 		return s
 	}
 	const suffix = "\n... (truncated)"
-	prefixLen := max(0, maxLen-len(suffix))
+	if maxLen <= len(suffix) {
+		return suffix[:maxLen]
+	}
+	prefixLen := maxLen - len(suffix)
 	return s[:prefixLen] + suffix
 }

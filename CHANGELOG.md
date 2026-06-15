@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.36.0] - 2026-06-15
+
+### Added
+
+- **Squad framework v0.10.0 upgrade** — Upgraded Squad from 0.8.25 to 0.10.0 (#322, #323)
+- **Squad workflow failure detection** — Added Squad workflow and failure detection infrastructure (#322, #324)
+
+### Fixed
+
+- **Prompt grader timeout configuration** — Prompt grader timeout can now be configured with `WAZA_PROMPT_GRADER_TIMEOUT` (#319)
+- **Session-start hang detection** — Added a first-event watchdog to catch session-start hangs (#321)
+- **Non-Squad coordinator canary handling** — Clarified the Squad coordinator canary guard so non-Squad sessions can continue without using Squad (#325)
+
+### Dependencies
+
+- Bump esbuild, @tailwindcss/vite, @vitejs/plugin-react, and vite (#317)
+
 ## [0.35.0] - 2026-06-06
 
 ### Added
@@ -498,7 +515,8 @@ pip install waza
 - YAML escaping for regex patterns with backslashes
 - Progress bar now shows 100% on completion
 
-[Unreleased]: https://github.com/microsoft/waza/compare/v0.35.0...HEAD
+[Unreleased]: https://github.com/microsoft/waza/compare/v0.36.0...HEAD
+[0.36.0]: https://github.com/microsoft/waza/compare/v0.35.0...v0.36.0
 [0.35.0]: https://github.com/microsoft/waza/compare/v0.34.0...v0.35.0
 [0.34.0]: https://github.com/microsoft/waza/compare/v0.33.0...v0.34.0
 [0.33.0]: https://github.com/microsoft/waza/compare/v0.31.0...v0.33.0
