@@ -77,7 +77,11 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           VERSION=$(git describe --tags --always)-insider
-          gh release create "$VERSION" ./waza \
-            --title "Insider Release $VERSION" \
-            --notes "Pre-release build of waza CLI for insider testing" \
-            --prerelease 2>/dev/null || echo "Insider release already exists or creation failed"
+          if gh release view "$VERSION" > /dev/null 2>&1; then
+            echo "Insider release $VERSION already exists, skipping creation"
+          else
+            gh release create "$VERSION" ./waza \
+              --title "Insider Release $VERSION" \
+              --notes "Pre-release build of waza CLI for insider testing" \
+              --prerelease
+          fi

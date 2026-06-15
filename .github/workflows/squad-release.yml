@@ -77,7 +77,11 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           VERSION=$(git describe --tags --always)
-          gh release create "$VERSION" ./waza \
-            --title "Release $VERSION" \
-            --notes "Go implementation of waza CLI" \
-            --latest 2>/dev/null || echo "Release already exists or creation failed"
+          if gh release view "$VERSION" > /dev/null 2>&1; then
+            echo "Release $VERSION already exists, skipping creation"
+          else
+            gh release create "$VERSION" ./waza \
+              --title "Release $VERSION" \
+              --notes "Go implementation of waza CLI" \
+              --latest
+          fi
