@@ -29,6 +29,8 @@ jobs:
             echo "Skipping auto-merge because mergeStateStatus=$STATE"
             exit 0
           fi
+        env:
+          GH_TOKEN: ${{ github.token }}
       - name: Enable auto-merge (squash)
         run: gh pr merge ${{ github.event.pull_request.number }} --auto --squash --repo ${{ github.repository }}
         env:

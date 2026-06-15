@@ -22,6 +22,7 @@ linters:
       disable:
         - shadow
         - fieldalignment
+        - inline
     misspell:
       locale: US
 
@@ -33,3 +34,5 @@ formatters:
 run:
   tests: true
   modules-download-mode: readonly
+  skip-dirs:
+    - web

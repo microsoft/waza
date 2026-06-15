@@ -1580,8 +1580,8 @@ func autoIssueSortedKeys(m map[string]bool) []string {
 }
 
 func findOpenAutoIssue(ctx context.Context, repo, marker string) (int, error) {
-	query := marker + " in:body"
-	var out bytes.Buffer
+	query := fmt.Sprintf("%q in:body", marker)
+	var stdout, stderr bytes.Buffer
 	if err := autoIssueRunCommandFn(ctx, "gh", []string{
 		"issue", "list",
 		"--repo", repo,
@@ -1589,12 +1589,16 @@ func findOpenAutoIssue(ctx context.Context, repo, marker string) (int, error) {
 		"--search", query,
 		"--json", "number",
 		"--limit", "1",
-	}, &out, &out); err != nil {
-		return 0, fmt.Errorf("%w: %s", err, strings.TrimSpace(out.String()))
+	}, &stdout, &stderr); err != nil {
+		stderrStr := strings.TrimSpace(stderr.String())
+		if stderrStr != "" {
+			stderrStr = ": " + stderrStr
+		}
+		return 0, fmt.Errorf("%w%s", err, stderrStr)
 	}
 
 	var items []autoIssueListItem
-	if err := json.Unmarshal(out.Bytes(), &items); err != nil {
+	if err := json.Unmarshal(stdout.Bytes(), &items); err != nil {
 		return 0, fmt.Errorf("parsing gh issue list output: %w", err)
 	}
 	if len(items) == 0 {
