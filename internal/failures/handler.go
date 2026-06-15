@@ -85,11 +85,7 @@ func extractErrorPatterns(stderr, stdout, errorMsg string) []string {
 	input := strings.ToLower(stderr + "\n" + stdout + "\n" + errorMsg)
 
 	for _, pattern := range patterns {
-		re, err := regexp.Compile("(?i)" + pattern)
-		if err != nil {
-			continue
-		}
-
+		re := regexp.MustCompile("(?i)" + pattern)
 		found := re.FindAllStringSubmatch(input, -1)
 		for _, match := range found {
 			if len(match) > 1 {

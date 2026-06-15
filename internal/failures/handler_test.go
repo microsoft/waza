@@ -148,7 +148,6 @@ func TestGenerateTriageSummary(t *testing.T) {
 }
 
 func TestTruncate(t *testing.T) {
-	const truncSuffix = "\n... (truncated)"
 	tests := []struct {
 		input   string
 		maxLen  int
