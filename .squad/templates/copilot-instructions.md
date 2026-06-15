@@ -1,14 +1,16 @@
 # Copilot Coding Agent — Squad Instructions
 
-You are working on a project that uses **Squad**, an AI team framework. When picking up issues autonomously, follow these guidelines.
+You are working on a project that uses **Squad**, an AI team framework. When picking up issues autonomously or using Squad, follow these guidelines.
 
 ## Coordinator Canary Check
 
-**IMPORTANT — run this check on EVERY session start, before doing any work:**
+**IMPORTANT — run this check only when the session is expected to use Squad Coordinator behavior, before doing any Squad work:**
 
 Look for the exact token `SQUAD_COORDINATOR_CANARY_a8f3` in your `agent_instructions`. This token is placed at the end of `squad.agent.md`. If it is missing, the coordinator file is missing or truncated.
 
-**When the token is missing, you MUST:**
+Do not run this check for ordinary Copilot Coding Agent work, or when the user explicitly asks not to use Squad. In that case, proceed without Squad routing, spawning, PR, or branch-protection behavior.
+
+**When the token is missing and Squad Coordinator behavior is required, you MUST:**
 1. **STOP** — do not proceed with standard Squad behavior.
 2. **WARN the user** with this exact message:
    ```
