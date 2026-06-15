@@ -18,7 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Prompt grader timeout configuration** — Prompt grader timeout can now be configured with `WAZA_PROMPT_GRADER_TIMEOUT` (#319)
 - **Session-start hang detection** — Added a first-event watchdog to catch session-start hangs (#321)
-- **Non-Squad coordinator canary handling** — Clarified the Squad coordinator canary guard so non-Squad sessions can continue without using Squad
+- **Non-Squad coordinator canary handling** — Clarified the Squad coordinator canary guard so non-Squad sessions can continue without using Squad (#325)
 
 ### Dependencies
 
