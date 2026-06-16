@@ -1441,9 +1441,6 @@ func (r *EvalRunner) loadContextFixtureResources(tc *models.TestCase) ([]executi
 			return err
 		}
 		if d.Type()&os.ModeSymlink != 0 {
-			if d.IsDir() {
-				return filepath.SkipDir
-			}
 			return nil
 		}
 		if d.IsDir() {
@@ -1454,7 +1451,7 @@ func (r *EvalRunner) loadContextFixtureResources(tc *models.TestCase) ([]executi
 		if err != nil {
 			return err
 		}
-		if rel == "." || containsPathTraversal(rel) {
+		if rel == "." {
 			return nil
 		}
 		content, err := os.ReadFile(path)

@@ -258,21 +258,25 @@ func TestBuildExecutionRequest_ContextFixtureRejectsTraversal(t *testing.T) {
 	cfg := config.NewEvalConfig(spec, config.WithSpecDir(t.TempDir()))
 	runner := NewEvalRunner(cfg, nil)
 
-	tc := &models.TestCase{
-		TestID:      "test-001",
-		DisplayName: "Test Case",
-		Stimulus: models.TaskStimulus{
-			Message: "Inspect files.",
-			Metadata: map[string]any{
-				"fixture": "../outside",
-			},
-		},
-	}
+	for _, fixture := range []string{"../outside", "fixtures/../demo"} {
+		t.Run(fixture, func(t *testing.T) {
+			tc := &models.TestCase{
+				TestID:      "test-001",
+				DisplayName: "Test Case",
+				Stimulus: models.TaskStimulus{
+					Message: "Inspect files.",
+					Metadata: map[string]any{
+						"fixture": fixture,
+					},
+				},
+			}
 
-	req, err := runner.buildExecutionRequest(tc)
-	require.Error(t, err)
-	assert.Nil(t, req)
-	assert.Contains(t, err.Error(), "must not contain path traversal")
+			req, err := runner.buildExecutionRequest(tc)
+			require.Error(t, err)
+			assert.Nil(t, req)
+			assert.Contains(t, err.Error(), "must not contain path traversal")
+		})
+	}
 }
 
 func TestBuildExecutionRequest_TimeoutOverride(t *testing.T) {
