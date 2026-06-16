@@ -74,7 +74,7 @@ func AllGraderKinds() []string {
 type ResponderInfo struct {
 	// FollowupsSent is the number of responder answers sent to the agent.
 	FollowupsSent int `json:"followups_sent"`
-	// Outcome is one of: completed, stopped, abstained, cap_exhausted, error.
+	// Outcome is one of: stopped, abstained, cap_exhausted, error.
 	Outcome string `json:"outcome"`
 	// Reason holds the responder's reason when Outcome == "abstained" or an
 	// error message when Outcome == "error".
