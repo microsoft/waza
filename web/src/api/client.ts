@@ -65,9 +65,11 @@ export interface SessionDigest {
   errors: string[];
 }
 
+export type ResponderOutcome = "stopped" | "abstained" | "cap_exhausted" | "error";
+
 export interface ResponderInfo {
   followupsSent: number;
-  outcome: string;
+  outcome: ResponderOutcome;
   reason?: string;
 }
 
