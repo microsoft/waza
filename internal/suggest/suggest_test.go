@@ -2,6 +2,7 @@ package suggest
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -22,6 +23,9 @@ type generateTestEngine struct {
 func (e *generateTestEngine) Initialize(context.Context) error { return nil }
 
 func (e *generateTestEngine) Execute(context.Context, *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
+	if len(e.responses) == 0 {
+		return nil, errors.New("no engine responses configured")
+	}
 	idx := e.callIdx
 	e.callIdx++
 	if idx < len(e.responses) {

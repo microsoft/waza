@@ -213,6 +213,7 @@ func AvailableGraderTypes() []string {
 }
 
 // ParseResponse parses model YAML output into a Suggestion.
+// Empty output is reported distinctly from malformed suggestion YAML.
 func ParseResponse(raw string) (*Suggestion, error) {
 	normalized := strings.TrimSpace(extractYAML(raw))
 	if normalized == "" {
