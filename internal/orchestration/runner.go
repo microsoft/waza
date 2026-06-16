@@ -1394,7 +1394,7 @@ func (r *EvalRunner) loadContextFixtureResources(tc *models.TestCase) ([]executi
 	if fixturePath == "" {
 		return nil, fmt.Errorf("inputs.context.fixture must not be empty")
 	}
-	if filepath.IsAbs(fixturePath) {
+	if filepath.IsAbs(fixturePath) || strings.HasPrefix(fixturePath, "/") || strings.HasPrefix(fixturePath, "\\") || filepath.VolumeName(fixturePath) != "" {
 		return nil, fmt.Errorf("inputs.context.fixture path %q must be relative", fixturePath)
 	}
 	if containsPathTraversal(fixturePath) {
@@ -1407,6 +1407,9 @@ func (r *EvalRunner) loadContextFixtureResources(tc *models.TestCase) ([]executi
 	}
 
 	cleanFixturePath := filepath.Clean(fixturePath)
+	if cleanFixturePath == "." {
+		return nil, fmt.Errorf("inputs.context.fixture path %q must not refer to the spec directory itself", fixturePath)
+	}
 	fullPath := filepath.Join(baseDir, cleanFixturePath)
 	absBaseDir, err := filepath.Abs(baseDir)
 	if err != nil {
@@ -1424,6 +1427,20 @@ func (r *EvalRunner) loadContextFixtureResources(tc *models.TestCase) ([]executi
 	if err != nil {
 		return nil, fmt.Errorf("reading inputs.context.fixture %q: %w", fixturePath, err)
 	}
+
+	// Re-check containment using symlink-resolved paths.
+	realFullPath, err := filepath.EvalSymlinks(fullPath)
+	if err != nil {
+		return nil, fmt.Errorf("resolving symlinks for inputs.context.fixture %q: %w", fixturePath, err)
+	}
+	realBaseDir, err := filepath.EvalSymlinks(absBaseDir)
+	if err != nil {
+		return nil, fmt.Errorf("resolving symlinks for spec directory: %w", err)
+	}
+	if realFullPath != realBaseDir && !strings.HasPrefix(realFullPath, realBaseDir+string(filepath.Separator)) {
+		return nil, fmt.Errorf("inputs.context.fixture path %q escapes spec directory", fixturePath)
+	}
+
 	if !info.IsDir() {
 		content, err := os.ReadFile(fullPath)
 		if err != nil {

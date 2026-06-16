@@ -115,7 +115,14 @@
         },
         "context": {
           "type": "object",
-          "description": "Arbitrary key-value metadata passed to the agent. If fixture is set to a relative path, files from that fixture file or directory are copied into the task workspace."
+          "description": "Arbitrary key-value metadata passed to the agent. If fixture is set to a relative path, files from that fixture file or directory are copied into the task workspace.",
+          "properties": {
+            "fixture": {
+              "type": "string",
+              "description": "Relative path to a file or directory whose contents are copied into the task workspace before the agent runs."
+            }
+          },
+          "additionalProperties": true
         },
         "files": {
           "type": "array",
