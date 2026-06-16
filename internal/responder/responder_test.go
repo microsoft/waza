@@ -2,6 +2,7 @@ package responder
 
 import (
 	"context"
+	"sync"
 	"testing"
 
 	copilot "github.com/github/copilot-sdk/go"
@@ -221,6 +222,37 @@ func TestDecisionToolsRejectDuplicateCall(t *testing.T) {
 	// The first decision is preserved so callers can see what was recorded.
 	require.Equal(t, DecisionReply, d.decision.Kind)
 	require.Equal(t, "first", d.decision.Answer)
+}
+
+func TestDecisionToolsConcurrentCallsRecordOne(t *testing.T) {
+	// The Copilot SDK dispatches each tool call on its own goroutine, so a model
+	// emitting parallel decision calls in one turn must not race or end up with
+	// both decisions partially applied. Run under -race to catch regressions.
+	d := &decisionRecorder{}
+	tools := d.tools()
+	respond := findTool(t, tools, toolRespond)
+	stop := findTool(t, tools, toolStop)
+	abstain := findTool(t, tools, toolAbstain)
+
+	var wg sync.WaitGroup
+	for _, call := range []func(){
+		func() { respond.Handler(copilot.ToolInvocation{Arguments: map[string]any{"answer": "a"}}) }, //nolint:errcheck
+		func() { stop.Handler(copilot.ToolInvocation{Arguments: map[string]any{}}) },                 //nolint:errcheck
+		func() {
+			abstain.Handler(copilot.ToolInvocation{Arguments: map[string]any{"reason": "r"}}) //nolint:errcheck
+		},
+	} {
+		wg.Add(1)
+		go func(fn func()) {
+			defer wg.Done()
+			fn()
+		}(call)
+	}
+	wg.Wait()
+
+	// Exactly one decision wins; the losers are surfaced as a conflict error.
+	require.True(t, d.set)
+	require.Error(t, d.err)
 }
 
 func TestDecisionToolsRejectMalformedArgs(t *testing.T) {

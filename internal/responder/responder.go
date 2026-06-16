@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 
 	copilot "github.com/github/copilot-sdk/go"
 	"github.com/go-viper/mapstructure/v2"
@@ -54,8 +55,11 @@ type sessionDeleter interface {
 
 // decisionRecorder captures the single decision tool the responder LLM calls.
 // err is set if a handler-level failure (malformed arguments or a duplicate
-// decision call) must be surfaced rather than silently swallowed.
+// decision call) must be surfaced rather than silently swallowed. mu guards all
+// fields because the Copilot SDK dispatches each tool call on its own goroutine,
+// so parallel tool calls in one turn would otherwise race.
 type decisionRecorder struct {
+	mu       sync.Mutex
 	decision Decision
 	set      bool
 	err      error
@@ -77,19 +81,13 @@ func (d *decisionRecorder) tools() []copilot.Tool {
 				"required": []string{"answer"},
 			},
 			Handler: func(inv copilot.ToolInvocation) (copilot.ToolResult, error) {
-				if err := d.guardDuplicate(toolRespond); err != nil {
-					return copilot.ToolResult{}, err
-				}
 				var args struct {
 					Answer string `mapstructure:"answer"`
 				}
 				if err := mapstructure.Decode(inv.Arguments, &args); err != nil {
-					d.recordErr(fmt.Errorf("decode %s arguments: %w", toolRespond, err))
-					return copilot.ToolResult{}, err
+					return copilot.ToolResult{}, d.fail(fmt.Errorf("decode %s arguments: %w", toolRespond, err))
 				}
-				d.decision = Decision{Kind: DecisionReply, Answer: args.Answer}
-				d.set = true
-				return copilot.ToolResult{}, nil
+				return copilot.ToolResult{}, d.record(toolRespond, Decision{Kind: DecisionReply, Answer: args.Answer})
 			},
 		},
 		{
@@ -100,12 +98,7 @@ func (d *decisionRecorder) tools() []copilot.Tool {
 				"properties": map[string]any{},
 			},
 			Handler: func(copilot.ToolInvocation) (copilot.ToolResult, error) {
-				if err := d.guardDuplicate(toolStop); err != nil {
-					return copilot.ToolResult{}, err
-				}
-				d.decision = Decision{Kind: DecisionStop}
-				d.set = true
-				return copilot.ToolResult{}, nil
+				return copilot.ToolResult{}, d.record(toolStop, Decision{Kind: DecisionStop})
 			},
 		},
 		{
@@ -122,42 +115,47 @@ func (d *decisionRecorder) tools() []copilot.Tool {
 				"required": []string{"reason"},
 			},
 			Handler: func(inv copilot.ToolInvocation) (copilot.ToolResult, error) {
-				if err := d.guardDuplicate(toolAbstain); err != nil {
-					return copilot.ToolResult{}, err
-				}
 				var args struct {
 					Reason string `mapstructure:"reason"`
 				}
 				if err := mapstructure.Decode(inv.Arguments, &args); err != nil {
-					d.recordErr(fmt.Errorf("decode %s arguments: %w", toolAbstain, err))
-					return copilot.ToolResult{}, err
+					return copilot.ToolResult{}, d.fail(fmt.Errorf("decode %s arguments: %w", toolAbstain, err))
 				}
-				d.decision = Decision{Kind: DecisionAbstain, Reason: args.Reason}
-				d.set = true
-				return copilot.ToolResult{}, nil
+				return copilot.ToolResult{}, d.record(toolAbstain, Decision{Kind: DecisionAbstain, Reason: args.Reason})
 			},
 		},
 	}
 }
 
-// guardDuplicate enforces the "call exactly one decision tool, exactly once"
-// contract advertised in each tool description. If the model calls a second
-// decision tool in the same turn, the handler refuses rather than letting
-// invocation order silently pick the winner.
-func (d *decisionRecorder) guardDuplicate(name string) error {
-	if !d.set {
-		return nil
+// record atomically stores the single decision, enforcing the "call exactly one
+// decision tool, exactly once" contract advertised in each tool description. If
+// a decision was already recorded it refuses rather than letting invocation
+// order silently pick the winner. The lock makes the check-and-set safe when the
+// SDK dispatches parallel tool calls on separate goroutines.
+func (d *decisionRecorder) record(name string, dec Decision) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.set {
+		err := fmt.Errorf("responder called %s after a decision was already recorded", name)
+		if d.err == nil {
+			d.err = err
+		}
+		return err
 	}
-	err := fmt.Errorf("responder called %s after a decision was already recorded", name)
-	d.recordErr(err)
-	return err
+	d.decision = dec
+	d.set = true
+	return nil
 }
 
-// recordErr captures the first handler-level failure so Classify can surface it.
-func (d *decisionRecorder) recordErr(err error) {
+// fail captures the first handler-level failure (e.g. malformed arguments) so
+// Classify can surface it instead of fabricating a blank decision.
+func (d *decisionRecorder) fail(err error) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	if d.err == nil {
 		d.err = err
 	}
+	return err
 }
 
 // Classifier maintains a persistent surrogate-user session and classifies each
