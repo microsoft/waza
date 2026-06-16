@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 
 	copilot "github.com/github/copilot-sdk/go"
@@ -87,6 +88,9 @@ func (d *decisionRecorder) tools() []copilot.Tool {
 				if err := mapstructure.Decode(inv.Arguments, &args); err != nil {
 					return copilot.ToolResult{}, d.fail(fmt.Errorf("decode %s arguments: %w", toolRespond, err))
 				}
+				if strings.TrimSpace(args.Answer) == "" {
+					return copilot.ToolResult{}, d.fail(fmt.Errorf("%s called with empty answer", toolRespond))
+				}
 				return copilot.ToolResult{}, d.record(toolRespond, Decision{Kind: DecisionReply, Answer: args.Answer})
 			},
 		},
@@ -120,6 +124,9 @@ func (d *decisionRecorder) tools() []copilot.Tool {
 				}
 				if err := mapstructure.Decode(inv.Arguments, &args); err != nil {
 					return copilot.ToolResult{}, d.fail(fmt.Errorf("decode %s arguments: %w", toolAbstain, err))
+				}
+				if strings.TrimSpace(args.Reason) == "" {
+					return copilot.ToolResult{}, d.fail(fmt.Errorf("%s called with empty reason", toolAbstain))
 				}
 				return copilot.ToolResult{}, d.record(toolAbstain, Decision{Kind: DecisionAbstain, Reason: args.Reason})
 			},

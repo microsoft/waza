@@ -269,6 +269,44 @@ func TestDecisionToolsRejectMalformedArgs(t *testing.T) {
 	require.False(t, d.set)
 }
 
+func TestDecisionToolsRejectEmptyReply(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		args map[string]any
+	}{
+		{"missing", map[string]any{}},
+		{"blank", map[string]any{"answer": "   "}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d := &decisionRecorder{}
+			respond := findTool(t, d.tools(), toolRespond)
+			_, err := respond.Handler(copilot.ToolInvocation{Arguments: tc.args})
+			require.Error(t, err)
+			require.Error(t, d.err)
+			require.False(t, d.set)
+		})
+	}
+}
+
+func TestDecisionToolsRejectEmptyAbstainReason(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		args map[string]any
+	}{
+		{"missing", map[string]any{}},
+		{"blank", map[string]any{"reason": "   "}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d := &decisionRecorder{}
+			abstain := findTool(t, d.tools(), toolAbstain)
+			_, err := abstain.Handler(copilot.ToolInvocation{Arguments: tc.args})
+			require.Error(t, err)
+			require.Error(t, d.err)
+			require.False(t, d.set)
+		})
+	}
+}
+
 func TestClassifyDuplicateDecisionIsError(t *testing.T) {
 	exec := &fakeExecutor{
 		respond: func(req *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
