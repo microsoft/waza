@@ -651,6 +651,13 @@ func (e *CopilotEngine) DeleteSession(ctx context.Context, sessionID string) err
 	if sessionID == "" {
 		return nil
 	}
+	// Delete the remote session first; only drop local tracking on success so a
+	// failed remote delete leaves the session registered for shutdown cleanup
+	// rather than leaking it and losing usage collection.
+	if err := e.client.DeleteSession(ctx, sessionID); err != nil {
+		return err
+	}
+
 	e.sessionsMu.Lock()
 	delete(e.sessions, sessionID)
 	e.sessionsMu.Unlock()
@@ -659,7 +666,7 @@ func (e *CopilotEngine) DeleteSession(ctx context.Context, sessionID string) err
 	delete(e.usageCollectors, sessionID)
 	e.usageCollectorsMu.Unlock()
 
-	return e.client.DeleteSession(ctx, sessionID)
+	return nil
 }
 
 // SessionUsage returns the final usage stats for a session. Call after Shutdown()

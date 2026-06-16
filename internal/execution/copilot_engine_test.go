@@ -217,6 +217,34 @@ func TestCopilotEngine_Execute_SendError(t *testing.T) {
 	require.Equal(t, "send failed", resp.ErrorMsg)
 }
 
+func TestCopilotEngine_DeleteSession_PropagatesRemoteError(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	clientMock := newClientMock(ctrl)
+
+	engine := NewCopilotEngineBuilder("test-model", &CopilotEngineBuilderOptions{
+		NewCopilotClient: func(clientOptions *copilot.ClientOptions) CopilotClient {
+			return clientMock
+		},
+	}).Build()
+	require.NoError(t, engine.Initialize(context.Background()))
+	t.Cleanup(func() {
+		require.NoError(t, engine.Shutdown(context.Background()))
+	})
+
+	// Empty session id is a no-op and must not touch the remote.
+	require.NoError(t, engine.DeleteSession(context.Background(), ""))
+
+	// A failed remote delete must surface as an error rather than being
+	// swallowed, so local tracking is preserved for shutdown cleanup.
+	clientMock.EXPECT().DeleteSession(gomock.Any(), "sess-err").Return(errors.New("remote boom"))
+	err := engine.DeleteSession(context.Background(), "sess-err")
+	require.ErrorContains(t, err, "remote boom")
+
+	// A successful remote delete returns nil.
+	clientMock.EXPECT().DeleteSession(gomock.Any(), "sess-ok").Return(nil)
+	require.NoError(t, engine.DeleteSession(context.Background(), "sess-ok"))
+}
+
 func TestCopilotEngine_Execute_PassesGraderRequestOptionsAndDeletesEphemeralSession(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	clientMock := newClientMock(ctrl)
