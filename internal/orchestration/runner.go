@@ -1390,9 +1390,10 @@ func (r *EvalRunner) executeResponderLoop(ctx context.Context, tc *models.TestCa
 	// Reaching this point means the loop only exited via successful replies
 	// (Stop, Abstain, and error paths all return early), and validation
 	// guarantees MaxFollowups >= 1, so a reply must have run on the final
-	// iteration. The agent is still asking, but we've spent our budget.
+	// iteration. We exhausted the reply budget before the responder signaled
+	// stop or abstain; we can't tell whether the agent would have asked again.
 	info.Outcome = models.ResponderOutcomeCapExhausted
-	slog.WarnContext(ctx, "responder budget exhausted while agent still asking questions",
+	slog.WarnContext(ctx, "responder budget exhausted before stop/abstain signal",
 		"test", tc.DisplayName, "max_followups", cfg.MaxFollowups)
 	return info
 }
