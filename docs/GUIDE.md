@@ -522,6 +522,15 @@ expected:
 
 The `worktree` strategy uses `git worktree add --detach` against the local source clone — it shares the source repo's `.git` object store (so it's cheap, no network) and uses `--detach` so branch/tag names won't conflict with the source repo's current checkout. Worktrees are removed via `git worktree remove --force` when the engine shuts down. See `## Git Repository Resources` in the README for the full field reference.
 
+For non-git fixture workspaces, set `inputs.context.fixture` to a file or directory relative to the eval spec directory. Directory fixture contents are copied into the fresh task workspace before the agent runs:
+
+```yaml
+inputs:
+  context:
+    fixture: fixtures/demo
+  prompt: "Inspect repository files and summarize what you find."
+```
+
 ---
 
 ### Filtering and Selective Runs

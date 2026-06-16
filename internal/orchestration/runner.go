@@ -1181,7 +1181,11 @@ func (r *EvalRunner) captureFailureArtifacts(run *models.RunResult) {
 
 func (r *EvalRunner) buildExecutionRequest(tc *models.TestCase) (*execution.ExecutionRequest, error) {
 	// Load resource files
-	resources := r.loadResources(tc)
+	resources, err := r.loadContextFixtureResources(tc)
+	if err != nil {
+		return nil, err
+	}
+	resources = append(resources, r.loadResources(tc)...)
 	instructions, instructionResources, err := r.loadInstructionFiles(tc)
 	if err != nil {
 		return nil, err
@@ -1376,6 +1380,101 @@ func (r *EvalRunner) loadResources(tc *models.TestCase) []execution.ResourceFile
 	}
 
 	return resources
+}
+
+func (r *EvalRunner) loadContextFixtureResources(tc *models.TestCase) ([]execution.ResourceFile, error) {
+	fixtureValue, ok := tc.Stimulus.Metadata["fixture"]
+	if !ok {
+		return nil, nil
+	}
+	fixturePath, ok := fixtureValue.(string)
+	if !ok {
+		return nil, fmt.Errorf("inputs.context.fixture must be a string")
+	}
+	if fixturePath == "" {
+		return nil, fmt.Errorf("inputs.context.fixture must not be empty")
+	}
+	if filepath.IsAbs(fixturePath) {
+		return nil, fmt.Errorf("inputs.context.fixture path %q must be relative", fixturePath)
+	}
+	if containsPathTraversal(fixturePath) {
+		return nil, fmt.Errorf("inputs.context.fixture path %q must not contain path traversal", fixturePath)
+	}
+
+	baseDir := r.cfg.SpecDir()
+	if baseDir == "" {
+		baseDir = "."
+	}
+
+	cleanFixturePath := filepath.Clean(fixturePath)
+	fullPath := filepath.Join(baseDir, cleanFixturePath)
+	absBaseDir, err := filepath.Abs(baseDir)
+	if err != nil {
+		return nil, fmt.Errorf("resolving spec directory: %w", err)
+	}
+	absFullPath, err := filepath.Abs(fullPath)
+	if err != nil {
+		return nil, fmt.Errorf("resolving inputs.context.fixture path %q: %w", fixturePath, err)
+	}
+	if absFullPath != absBaseDir && !strings.HasPrefix(absFullPath, absBaseDir+string(filepath.Separator)) {
+		return nil, fmt.Errorf("inputs.context.fixture path %q escapes spec directory", fixturePath)
+	}
+
+	info, err := os.Stat(fullPath)
+	if err != nil {
+		return nil, fmt.Errorf("reading inputs.context.fixture %q: %w", fixturePath, err)
+	}
+	if !info.IsDir() {
+		content, err := os.ReadFile(fullPath)
+		if err != nil {
+			return nil, fmt.Errorf("reading inputs.context.fixture file %q: %w", fixturePath, err)
+		}
+		return []execution.ResourceFile{{
+			Path:    filepath.ToSlash(filepath.Base(cleanFixturePath)),
+			Content: content,
+		}}, nil
+	}
+
+	var resources []execution.ResourceFile
+	err = filepath.WalkDir(fullPath, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.Type()&os.ModeSymlink != 0 {
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if d.IsDir() {
+			return nil
+		}
+
+		rel, err := filepath.Rel(fullPath, path)
+		if err != nil {
+			return err
+		}
+		if rel == "." || containsPathTraversal(rel) {
+			return nil
+		}
+		content, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		resources = append(resources, execution.ResourceFile{
+			Path:    filepath.ToSlash(rel),
+			Content: content,
+		})
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("loading inputs.context.fixture %q: %w", fixturePath, err)
+	}
+
+	sort.Slice(resources, func(i, j int) bool {
+		return resources[i].Path < resources[j].Path
+	})
+	return resources, nil
 }
 
 func (r *EvalRunner) loadInstructionFiles(tc *models.TestCase) ([]execution.InstructionFile, []execution.ResourceFile, error) {

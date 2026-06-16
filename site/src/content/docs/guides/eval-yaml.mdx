@@ -350,12 +350,16 @@ expected:
 ```yaml
 inputs:
   prompt: "Your instruction to the agent"
+  context:
+    fixture: fixtures/demo # Optional: copy this fixture file/dir into the workspace
   files:
     - path: sample.py # Fixture file (relative to fixtures dir)
       content: | # Or inline content
         def hello():
             print("Hello")
 ```
+
+`inputs.context.fixture` is resolved relative to the eval spec directory. When it points to a directory, Waza copies that directory's contents into the fresh task workspace before the agent runs.
 
 #### Loading prompts from a file
 

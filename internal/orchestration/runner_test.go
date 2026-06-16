@@ -205,6 +205,76 @@ func TestBuildExecutionRequest_RejectsRelativePathPromptWithEmptySandbox(t *test
 	assert.Contains(t, err.Error(), "no workspace files were loaded")
 }
 
+func TestBuildExecutionRequest_ContextFixtureMaterializesDirectory(t *testing.T) {
+	specDir := t.TempDir()
+	fixtureDir := filepath.Join(specDir, "fixtures", "demo")
+	require.NoError(t, os.MkdirAll(filepath.Join(fixtureDir, "nested"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(fixtureDir, "README.md"), []byte("demo docs"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(fixtureDir, "nested", "app.py"), []byte("print('hi')"), 0o644))
+
+	spec := &models.EvalSpec{
+		SpecIdentity: models.SpecIdentity{Name: "test-benchmark"},
+		SkillName:    "my-skill",
+		Config: models.Config{
+			EngineType: "mock",
+			ModelID:    "gpt-4",
+			TimeoutSec: 60,
+		},
+	}
+	cfg := config.NewEvalConfig(spec, config.WithSpecDir(specDir))
+	runner := NewEvalRunner(cfg, nil)
+
+	tc := &models.TestCase{
+		TestID:      "test-001",
+		DisplayName: "Test Case",
+		Stimulus: models.TaskStimulus{
+			Message: "Inspect ./ files.",
+			Metadata: map[string]any{
+				"fixture": "fixtures/demo",
+			},
+		},
+	}
+
+	req, err := runner.buildExecutionRequest(tc)
+	require.NoError(t, err)
+	require.Len(t, req.Resources, 2)
+	assert.Equal(t, "README.md", req.Resources[0].Path)
+	assert.Equal(t, []byte("demo docs"), req.Resources[0].Content)
+	assert.Equal(t, "nested/app.py", req.Resources[1].Path)
+	assert.Equal(t, []byte("print('hi')"), req.Resources[1].Content)
+	assert.Equal(t, "fixtures/demo", req.Context["fixture"])
+}
+
+func TestBuildExecutionRequest_ContextFixtureRejectsTraversal(t *testing.T) {
+	spec := &models.EvalSpec{
+		SpecIdentity: models.SpecIdentity{Name: "test-benchmark"},
+		SkillName:    "my-skill",
+		Config: models.Config{
+			EngineType: "mock",
+			ModelID:    "gpt-4",
+			TimeoutSec: 60,
+		},
+	}
+	cfg := config.NewEvalConfig(spec, config.WithSpecDir(t.TempDir()))
+	runner := NewEvalRunner(cfg, nil)
+
+	tc := &models.TestCase{
+		TestID:      "test-001",
+		DisplayName: "Test Case",
+		Stimulus: models.TaskStimulus{
+			Message: "Inspect files.",
+			Metadata: map[string]any{
+				"fixture": "../outside",
+			},
+		},
+	}
+
+	req, err := runner.buildExecutionRequest(tc)
+	require.Error(t, err)
+	assert.Nil(t, req)
+	assert.Contains(t, err.Error(), "must not contain path traversal")
+}
+
 func TestBuildExecutionRequest_TimeoutOverride(t *testing.T) {
 	// Create a spec with default timeout
 	spec := &models.EvalSpec{

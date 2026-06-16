@@ -993,6 +993,19 @@ config:
 
 Instruction files are resolved from the active fixtures/context directory, copied into each task's temp workspace, and appended to the agent system message as path-labeled instructions. Task YAML files can also set top-level `instruction_files`; task-level entries are added to the eval-level list.
 
+### Task Fixture Workspace
+
+Task YAML can set `inputs.context.fixture` to copy a fixture file or directory into the fresh task workspace before the agent runs:
+
+```yaml
+inputs:
+  context:
+    fixture: fixtures/demo
+  prompt: "Inspect repository files and summarize what you find."
+```
+
+Relative fixture paths are resolved from the eval spec directory. Directory fixtures are copied by contents into the workspace root.
+
 ### Skill Body Injection
 
 By default, an eval with `skill: <name>` injects the target `SKILL.md` or `.agent.md` body into the agent system prompt. For trigger-precision evals, disable that body injection while preserving the skill association and compact skill summary:
