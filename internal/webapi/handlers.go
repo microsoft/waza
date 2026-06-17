@@ -14,6 +14,7 @@ var Version = "0.4.0-alpha.1"
 type Handlers struct {
 	store         RunStore
 	storageConfig *StorageConfig
+	broker        *Broker
 }
 
 // StorageConfig holds storage configuration for the status endpoint.
@@ -110,21 +111,30 @@ func (h *Handlers) HandleStorageStatus(w http.ResponseWriter, _ *http.Request) {
 // RegisterRoutes registers all web API routes on the given mux.
 func RegisterRoutes(mux *http.ServeMux, store RunStore) {
 	h := NewHandlers(store)
-	mux.HandleFunc("GET /api/health", h.HandleHealth)
-	mux.HandleFunc("GET /api/summary", h.HandleSummary)
-	mux.HandleFunc("GET /api/runs", h.HandleRuns)
-	mux.HandleFunc("GET /api/runs/{id}", h.HandleRunDetail)
-	mux.HandleFunc("GET /api/storage/status", h.HandleStorageStatus)
+	registerHandlerRoutes(mux, h)
 }
 
 // RegisterRoutesWithStorage registers all web API routes with storage config.
 func RegisterRoutesWithStorage(mux *http.ServeMux, store RunStore, cfg *StorageConfig) {
 	h := NewHandlersWithStorage(store, cfg)
+	registerHandlerRoutes(mux, h)
+}
+
+// RegisterRoutesWithHandlers registers all web API routes using a
+// caller-supplied Handlers value. Use this when the caller needs to
+// configure additional state (e.g., an SSE Broker) before exposing the
+// routes.
+func RegisterRoutesWithHandlers(mux *http.ServeMux, h *Handlers) {
+	registerHandlerRoutes(mux, h)
+}
+
+func registerHandlerRoutes(mux *http.ServeMux, h *Handlers) {
 	mux.HandleFunc("GET /api/health", h.HandleHealth)
 	mux.HandleFunc("GET /api/summary", h.HandleSummary)
 	mux.HandleFunc("GET /api/runs", h.HandleRuns)
 	mux.HandleFunc("GET /api/runs/{id}", h.HandleRunDetail)
 	mux.HandleFunc("GET /api/storage/status", h.HandleStorageStatus)
+	mux.HandleFunc("GET /api/events", h.HandleEvents)
 }
 
 // CORSMiddleware wraps a handler with CORS headers.

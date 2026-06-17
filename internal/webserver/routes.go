@@ -12,7 +12,7 @@ import (
 )
 
 // registerRoutes sets up API and SPA routes on the given mux.
-func registerRoutes(mux *http.ServeMux, cfg Config) error {
+func registerRoutes(mux *http.ServeMux, cfg Config, broker *webapi.Broker) error {
 	var runStore webapi.RunStore
 	var storageCfg *webapi.StorageConfig
 
@@ -57,8 +57,12 @@ func registerRoutes(mux *http.ServeMux, cfg Config) error {
 		}
 	}
 
-	// Register API routes with storage configuration.
-	webapi.RegisterRoutesWithStorage(mux, runStore, storageCfg)
+	// Register API routes with storage configuration and SSE broker.
+	h := webapi.NewHandlersWithStorage(runStore, storageCfg)
+	if broker != nil {
+		h.SetBroker(broker)
+	}
+	webapi.RegisterRoutesWithHandlers(mux, h)
 
 	// SPA static files with HTML5 history API fallback
 	handler, err := spaHandler()

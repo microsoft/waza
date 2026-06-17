@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/microsoft/waza/internal/projectconfig"
+	"github.com/microsoft/waza/internal/webapi"
 )
 
 // Config holds the HTTP server configuration.
@@ -28,6 +29,7 @@ type Server struct {
 	cfg    Config
 	srv    *http.Server
 	logger *slog.Logger
+	broker *webapi.Broker
 }
 
 // New creates a new HTTP server with the given configuration.
@@ -43,9 +45,11 @@ func New(cfg Config) (*Server, error) {
 	}
 
 	mux := http.NewServeMux()
+	broker := webapi.NewBroker()
 	s := &Server{
 		cfg:    cfg,
 		logger: cfg.Logger,
+		broker: broker,
 		srv: &http.Server{
 			Addr:              fmt.Sprintf("127.0.0.1:%d", cfg.Port),
 			Handler:           mux,
@@ -53,7 +57,7 @@ func New(cfg Config) (*Server, error) {
 		},
 	}
 
-	if err := registerRoutes(mux, cfg); err != nil {
+	if err := registerRoutes(mux, cfg, broker); err != nil {
 		return nil, err
 	}
 	return s, nil
@@ -64,6 +68,12 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 	url := fmt.Sprintf("http://localhost:%d", s.cfg.Port)
 	s.logger.Info("HTTP server starting", "address", s.srv.Addr, "url", url)
 	fmt.Printf("waza dashboard: %s\n", url)
+
+	// Tail session log files in the configured results directory and
+	// publish events to SSE subscribers. Stops when ctx is canceled.
+	if s.broker != nil && s.cfg.ResultsDir != "" {
+		webapi.StartSessionLogTailer(ctx, s.cfg.ResultsDir, s.broker, s.logger)
+	}
 
 	if !s.cfg.NoBrowser {
 		// Open browser in background after a short delay.
