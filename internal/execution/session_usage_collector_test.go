@@ -5,6 +5,7 @@ import (
 
 	copilot "github.com/github/copilot-sdk/go"
 	"github.com/microsoft/waza/internal/models"
+	"github.com/microsoft/waza/internal/utils"
 	"github.com/stretchr/testify/require"
 )
 
@@ -13,7 +14,7 @@ func TestSessionUsageCollector_UsageFromShutdown(t *testing.T) {
 
 	coll.On(copilot.SessionEvent{
 		Data: &copilot.SessionShutdownData{
-			TotalPremiumRequests: f64p(5),
+			TotalPremiumRequests: copilot.Float64(5),
 			ModelMetrics: map[string]copilot.ShutdownModelMetric{
 				"claude-sonnet-4": {
 					Usage: copilot.ShutdownModelMetricUsage{
@@ -23,8 +24,8 @@ func TestSessionUsageCollector_UsageFromShutdown(t *testing.T) {
 						CacheWriteTokens: 100,
 					},
 					Requests: copilot.ShutdownModelMetricRequests{
-						Count: i64p(3),
-						Cost: f64p(3),
+						Count: utils.Ptr(int64(3)),
+						Cost:  copilot.Float64(3),
 					},
 				},
 				"gpt-4o": {
@@ -33,8 +34,8 @@ func TestSessionUsageCollector_UsageFromShutdown(t *testing.T) {
 						OutputTokens: 300,
 					},
 					Requests: copilot.ShutdownModelMetricRequests{
-						Count: i64p(2),
-						Cost: f64p(2),
+						Count: utils.Ptr(int64(2)),
+						Cost:  copilot.Float64(2),
 					},
 				},
 			},
@@ -117,14 +118,14 @@ func TestSessionUsageCollector_ShutdownOverridesTurnUsage(t *testing.T) {
 	// Shutdown event with authoritative totals should override
 	coll.On(copilot.SessionEvent{
 		Data: &copilot.SessionShutdownData{
-			TotalPremiumRequests: f64p(3),
+			TotalPremiumRequests: copilot.Float64(3),
 			ModelMetrics: map[string]copilot.ShutdownModelMetric{
 				"gpt-4o": {
 					Usage: copilot.ShutdownModelMetricUsage{
 						InputTokens:  1200,
 						OutputTokens: 600,
 					},
-					Requests: copilot.ShutdownModelMetricRequests{Count: i64p(3), Cost: f64p(3)},
+					Requests: copilot.ShutdownModelMetricRequests{Count: utils.Ptr(int64(3)), Cost: copilot.Float64(3)},
 				},
 			},
 		},
@@ -144,14 +145,14 @@ func TestSessionUsageCollector_SessionErrorCapturesUsage(t *testing.T) {
 	coll.On(copilot.SessionEvent{
 		Data: &copilot.SessionShutdownData{
 			ShutdownType:         copilot.ShutdownType("error"),
-			TotalPremiumRequests: f64p(2),
+			TotalPremiumRequests: copilot.Float64(2),
 			ModelMetrics: map[string]copilot.ShutdownModelMetric{
 				"gpt-4o": {
 					Usage: copilot.ShutdownModelMetricUsage{
 						InputTokens:  400,
 						OutputTokens: 100,
 					},
-					Requests: copilot.ShutdownModelMetricRequests{Count: i64p(2), Cost: f64p(2)},
+					Requests: copilot.ShutdownModelMetricRequests{Count: utils.Ptr(int64(2)), Cost: copilot.Float64(2)},
 				},
 			},
 		},
@@ -173,7 +174,7 @@ func TestSessionUsageCollector_TurnsFromAssistantTurnStart(t *testing.T) {
 
 	// Also send a session-level event so UsageStats() returns non-nil
 	coll.On(copilot.SessionEvent{
-		Data: &copilot.SessionShutdownData{TotalPremiumRequests: f64p(1)},
+		Data: &copilot.SessionShutdownData{TotalPremiumRequests: copilot.Float64(1)},
 	})
 
 	usage := coll.UsageStats()
@@ -213,7 +214,7 @@ func TestSessionUsageCollector_PremiumRequestsOnlyFallsBackToTurnTokens(t *testi
 	})
 
 	coll.On(copilot.SessionEvent{
-		Data: &copilot.SessionShutdownData{TotalPremiumRequests: f64p(3)},
+		Data: &copilot.SessionShutdownData{TotalPremiumRequests: copilot.Float64(3)},
 	})
 
 	usage := coll.UsageStats()
@@ -222,7 +223,3 @@ func TestSessionUsageCollector_PremiumRequestsOnlyFallsBackToTurnTokens(t *testi
 	require.Equal(t, 500, usage.InputTokens)
 	require.Equal(t, 200, usage.OutputTokens)
 }
-
-func f64p(v float64) *float64 { return &v }
-
-func i64p(v int64) *int64 { return &v }

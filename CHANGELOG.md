@@ -7,6 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.36.0] - 2026-06-15
+
+### Added
+
+- **Squad framework v0.10.0 upgrade** — Upgraded Squad from 0.8.25 to 0.10.0 (#322, #323)
+- **Squad workflow failure detection** — Added Squad workflow and failure detection infrastructure (#322, #324)
+
+### Fixed
+
+- **Prompt grader timeout configuration** — Prompt grader timeout can now be configured with `WAZA_PROMPT_GRADER_TIMEOUT` (#319)
+- **Session-start hang detection** — Added a first-event watchdog to catch session-start hangs (#321)
+- **Non-Squad coordinator canary handling** — Clarified the Squad coordinator canary guard so non-Squad sessions can continue without using Squad (#325)
+
+### Dependencies
+
+- Bump esbuild, @tailwindcss/vite, @vitejs/plugin-react, and vite (#317)
+
+## [0.35.0] - 2026-06-06
+
+### Added
+
+- **Copilot SDK v1.0.0 upgrade** — Upgraded `github.com/github/copilot-sdk/go` to v1.0.0 and surfaced premium-request credits on the dashboard (#311)
+- **Model-aware dashboard pricing** — Dashboard cost calculation now applies per-model pricing for more accurate run cost reporting (#310)
+- **Git worktree resources in task inputs** — Tasks can now reference git worktree resources as inputs (#121, #302)
+
+### Fixed
+
+- **BYOK + `--model` startup arg** — The Copilot CLI validates the startup `--model` flag against the Copilot catalog before BYOK provider config is applied, so provider-only model IDs would fail. The `--model` startup arg is now skipped when a BYOK provider is configured (#305, #306)
+- **Model override propagation** — `--model` is now passed via `CLIArgs` so it correctly overrides user settings and experiment flights (#263)
+- **Copilot CLI PATH fallback** — Prevent silent fallback to a Copilot CLI on `PATH` when the bundled binary is unavailable (#300)
+- **Installer latest-release selection** — Installer now correctly selects the latest standalone waza release (#299)
+- **Skill best practices doc link** — Fixed the broken skill best practices reference (#295, #298)
+
+### Changed
+
+- **AgentEngine cancellation** — Simplified `AgentEngine` cancellation handling around caller contexts to make shutdown semantics more predictable (#290)
+
 ## [0.34.0] - 2026-05-23
 
 ### Added
@@ -478,7 +515,9 @@ pip install waza
 - YAML escaping for regex patterns with backslashes
 - Progress bar now shows 100% on completion
 
-[Unreleased]: https://github.com/microsoft/waza/compare/v0.34.0...HEAD
+[Unreleased]: https://github.com/microsoft/waza/compare/v0.36.0...HEAD
+[0.36.0]: https://github.com/microsoft/waza/compare/v0.35.0...v0.36.0
+[0.35.0]: https://github.com/microsoft/waza/compare/v0.34.0...v0.35.0
 [0.34.0]: https://github.com/microsoft/waza/compare/v0.33.0...v0.34.0
 [0.33.0]: https://github.com/microsoft/waza/compare/v0.31.0...v0.33.0
 [0.31.0]: https://github.com/microsoft/waza/compare/v0.30.1...v0.31.0

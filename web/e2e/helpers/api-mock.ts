@@ -46,7 +46,7 @@ export async function mockEmptyAPIs(page: Page) {
     route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify({ totalRuns: 0, totalTasks: 0, passRate: 0, avgTokens: 0, avgCost: 0, avgDuration: 0 }),
+      body: JSON.stringify({ totalRuns: 0, totalTasks: 0, passRate: 0, avgTokens: 0, avgPremiumRequests: 0, avgCost: 0, avgDuration: 0 }),
     }),
   );
 

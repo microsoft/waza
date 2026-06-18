@@ -1,14 +1,19 @@
 package main
 
 import (
+	"bytes"
 	"cmp"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"maps"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"slices"
@@ -69,6 +74,7 @@ var (
 	skipGradersFlag bool
 	noSkillsFlag    bool
 	keepWorkspace   bool
+	autoFileIssue   bool
 
 	// newCopilotClientFn allows you to override the client used by the copilot engine, for this command.
 	newCopilotClientFn func(clientOptions *copilot.ClientOptions) execution.CopilotClient
@@ -76,6 +82,16 @@ var (
 	newBenchmarkRunner = func(cfg *config.EvalConfig, engine execution.AgentEngine, opts ...orchestration.RunnerOption) benchmarkRunner {
 		return orchestration.NewEvalRunner(cfg, engine, opts...)
 	}
+
+	autoIssueLookPathFn   = exec.LookPath
+	autoIssueRunCommandFn = func(ctx context.Context, name string, args []string, stdout, stderr io.Writer) error {
+		cmd := exec.CommandContext(ctx, name, args...)
+		cmd.Stdout = stdout
+		cmd.Stderr = stderr
+		return cmd.Run()
+	}
+	autoIssueNowFn    = time.Now
+	autoIssueGetenvFn = os.Getenv
 )
 
 type benchmarkRunner interface {
@@ -139,6 +155,7 @@ You can also specify a skill name to run its eval:
 	cmd.Flags().BoolVar(&skipGradersFlag, "skip-graders", false, "Skip grading (execution only); use with waza grade to grade later")
 	cmd.Flags().BoolVar(&noSkillsFlag, "no-skills", false, "Disable all skill loading for the evaluation")
 	cmd.Flags().BoolVar(&keepWorkspace, "keep-workspace", false, "Preserve temp workspace directories after execution for debugging")
+	cmd.Flags().BoolVar(&autoFileIssue, "auto-file-issue", false, "Auto-file or update a GitHub issue for failing runs (requires gh and GITHUB_REPOSITORY)")
 
 	return cmd
 }
@@ -273,6 +290,9 @@ func runCommandE(cmd *cobra.Command, args []string) error {
 
 		// Auto-upload after all local writes succeed
 		autoUploadOutcomes(cmd, cfg, results)
+		maybeAutoFileIssue(cmd, []skillRunResult{
+			{skillName: specPaths[0].skillName, outcomes: results},
+		})
 		return err
 	}
 
@@ -353,6 +373,7 @@ func runCommandE(cmd *cobra.Command, args []string) error {
 	for _, sr := range allSkillResults {
 		autoUploadOutcomes(cmd, cfg, sr.outcomes)
 	}
+	maybeAutoFileIssue(cmd, allSkillResults)
 
 	return lastErr
 }
@@ -1237,6 +1258,7 @@ func printSummary(outcome *models.EvaluationOutcome) {
 		}
 		fmt.Println()
 	}
+	printTriageHighlights(os.Stdout, outcome)
 
 	// Show flaky tasks
 	var flakyTasks []models.TestOutcome
@@ -1278,6 +1300,338 @@ func printSummary(outcome *models.EvaluationOutcome) {
 
 	// Show usage summary if available
 	printUsageSummary(digest.Usage)
+}
+
+func printTriageHighlights(w io.Writer, outcome *models.EvaluationOutcome) {
+	highlights := triageHighlights(outcome)
+	if len(highlights) == 0 {
+		return
+	}
+
+	_, _ = fmt.Fprintln(w, "-"+strings.Repeat("-", 50))
+	_, _ = fmt.Fprintln(w, " TRIAGE HIGHLIGHTS")
+	_, _ = fmt.Fprintln(w, "-"+strings.Repeat("-", 50))
+	for _, line := range highlights {
+		_, _ = fmt.Fprintf(w, "  - %s\n", line)
+	}
+	_, _ = fmt.Fprintln(w)
+}
+
+func triageHighlights(outcome *models.EvaluationOutcome) []string {
+	if outcome == nil {
+		return nil
+	}
+
+	var lines []string
+	for _, to := range outcome.TestOutcomes {
+		for _, run := range to.Runs {
+			if run.FailureArtifacts == nil {
+				continue
+			}
+			summary := strings.TrimSpace(run.FailureArtifacts.TriageSummary)
+			if summary == "" {
+				continue
+			}
+			lines = append(lines, fmt.Sprintf("%s (run %d): %s", to.DisplayName, run.RunNumber, triageSummaryHeadline(summary)))
+		}
+	}
+	return lines
+}
+
+func triageSummaryHeadline(summary string) string {
+	lines := strings.Split(summary, "\n")
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "- ") {
+			return strings.TrimPrefix(trimmed, "- ")
+		}
+	}
+
+	trimmed := strings.TrimSpace(summary)
+	if len(trimmed) > 160 {
+		return trimmed[:157] + "..."
+	}
+	return trimmed
+}
+
+type autoIssueReport struct {
+	Marker  string
+	Title   string
+	Body    string
+	Comment string
+}
+
+type autoIssueListItem struct {
+	Number int `json:"number"`
+}
+
+func maybeAutoFileIssue(cmd *cobra.Command, skillResults []skillRunResult) {
+	if !autoFileIssue {
+		return
+	}
+
+	report, ok := buildAutoIssueReport(skillResults, autoIssueNowFn().UTC())
+	if !ok {
+		return
+	}
+
+	repo := strings.TrimSpace(autoIssueGetenvFn("GITHUB_REPOSITORY"))
+	if repo == "" {
+		warnAutoIssue(cmd, "GITHUB_REPOSITORY is not set; skipping")
+		return
+	}
+	if _, err := autoIssueLookPathFn("gh"); err != nil {
+		warnAutoIssue(cmd, "gh CLI not found in PATH; skipping")
+		return
+	}
+
+	ctx := cmd.Context()
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	existingIssue, err := findOpenAutoIssue(ctx, repo, report.Marker)
+	if err != nil {
+		warnAutoIssue(cmd, "failed searching for existing issue: %v", err)
+		return
+	}
+
+	if existingIssue > 0 {
+		if err := postAutoIssueComment(ctx, repo, existingIssue, report.Comment); err != nil {
+			warnAutoIssue(cmd, "failed updating issue #%d: %v", existingIssue, err)
+			return
+		}
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Auto-file issue: updated #%d\n", existingIssue)
+		return
+	}
+
+	if err := createAutoIssue(ctx, repo, report.Title, report.Body); err != nil {
+		warnAutoIssue(cmd, "failed creating issue: %v", err)
+		return
+	}
+	_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Auto-file issue: created follow-up issue")
+}
+
+func buildAutoIssueReport(skillResults []skillRunResult, now time.Time) (autoIssueReport, bool) {
+	failedTaskNames := map[string]bool{}
+	recommendations := map[string]bool{}
+	modelNames := map[string]bool{}
+	evalNames := map[string]bool{}
+	skillNames := map[string]bool{}
+
+	totalFailed := 0
+	totalErrors := 0
+	totalRuns := 0
+
+	for _, sr := range skillResults {
+		skillName := strings.TrimSpace(sr.skillName)
+		if skillName != "" {
+			skillNames[skillName] = true
+		}
+
+		for _, mr := range sr.outcomes {
+			if mr.outcome == nil {
+				continue
+			}
+			outcome := mr.outcome
+			totalFailed += outcome.Digest.Failed
+			totalErrors += outcome.Digest.Errors
+
+			modelID := strings.TrimSpace(outcome.Setup.ModelID)
+			if modelID != "" {
+				modelNames[modelID] = true
+			}
+			evalName := strings.TrimSpace(outcome.BenchName)
+			if evalName != "" {
+				evalNames[evalName] = true
+			}
+			if outcome.SkillTested != "" {
+				skillNames[outcome.SkillTested] = true
+			}
+
+			for _, to := range outcome.TestOutcomes {
+				if to.Status == models.StatusPassed {
+					continue
+				}
+				failedTaskNames[to.DisplayName] = true
+				for _, run := range to.Runs {
+					if run.FailureArtifacts == nil {
+						continue
+					}
+					totalRuns++
+					for _, rec := range triageRecommendations(run.FailureArtifacts.TriageSummary) {
+						recommendations[rec] = true
+					}
+				}
+			}
+		}
+	}
+
+	if totalFailed == 0 && totalErrors == 0 {
+		return autoIssueReport{}, false
+	}
+
+	evals := autoIssueSortedKeys(evalNames)
+	models := autoIssueSortedKeys(modelNames)
+	skills := autoIssueSortedKeys(skillNames)
+	tasks := autoIssueSortedKeys(failedTaskNames)
+	recs := autoIssueSortedKeys(recommendations)
+
+	key := strings.Join([]string{
+		strings.Join(evals, ","),
+		strings.Join(models, ","),
+		strings.Join(skills, ","),
+	}, "|")
+	sum := sha256.Sum256([]byte(key))
+	marker := "waza-auto-triage:" + hex.EncodeToString(sum[:6])
+
+	evalLabel := "eval"
+	if len(evals) > 0 {
+		evalLabel = strings.Join(evals, ", ")
+	}
+	title := fmt.Sprintf("Waza auto-triage: failures in %s", evalLabel)
+
+	taskLimit := 15
+	if len(tasks) > taskLimit {
+		tasks = tasks[:taskLimit]
+	}
+	recLimit := 6
+	if len(recs) > recLimit {
+		recs = recs[:recLimit]
+	}
+
+	var body strings.Builder
+	fmt.Fprintf(&body, "<!-- %s -->\n", marker)
+	body.WriteString("## Waza auto-triage report\n\n")
+	fmt.Fprintf(&body, "- **Generated at (UTC):** %s\n", now.Format(time.RFC3339))
+	fmt.Fprintf(&body, "- **Failed tests:** %d\n", totalFailed)
+	fmt.Fprintf(&body, "- **Error runs:** %d\n", totalErrors)
+	if len(skills) > 0 {
+		fmt.Fprintf(&body, "- **Skills:** %s\n", strings.Join(skills, ", "))
+	}
+	if len(evals) > 0 {
+		fmt.Fprintf(&body, "- **Evaluations:** %s\n", strings.Join(evals, ", "))
+	}
+	if len(models) > 0 {
+		fmt.Fprintf(&body, "- **Models:** %s\n", strings.Join(models, ", "))
+	}
+	fmt.Fprintf(&body, "- **Failing runs with artifacts:** %d\n", totalRuns)
+	if len(tasks) > 0 {
+		body.WriteString("\n### Failed tasks\n")
+		for _, task := range tasks {
+			fmt.Fprintf(&body, "- %s\n", task)
+		}
+	}
+	if len(recs) > 0 {
+		body.WriteString("\n### Suggested remediation\n")
+		for _, rec := range recs {
+			fmt.Fprintf(&body, "- %s\n", rec)
+		}
+	}
+	body.WriteString("\n_Generated by `waza run --auto-file-issue`._\n")
+
+	comment := "### New Waza regression signal\n\n" + body.String()
+	return autoIssueReport{
+		Marker:  marker,
+		Title:   title,
+		Body:    body.String(),
+		Comment: comment,
+	}, true
+}
+
+func triageRecommendations(summary string) []string {
+	if summary == "" {
+		return nil
+	}
+	lines := strings.Split(summary, "\n")
+	inRecommendations := false
+	var recs []string
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.EqualFold(trimmed, "**Recommendations:**") {
+			inRecommendations = true
+			continue
+		}
+		if !inRecommendations {
+			continue
+		}
+		if strings.HasPrefix(trimmed, "**") {
+			break
+		}
+		if strings.HasPrefix(trimmed, "- ") {
+			recs = append(recs, strings.TrimPrefix(trimmed, "- "))
+		}
+	}
+	return recs
+}
+
+func autoIssueSortedKeys(m map[string]bool) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		if strings.TrimSpace(k) == "" {
+			continue
+		}
+		keys = append(keys, k)
+	}
+	slices.Sort(keys)
+	return keys
+}
+
+func findOpenAutoIssue(ctx context.Context, repo, marker string) (int, error) {
+	query := marker + " in:body"
+	var out bytes.Buffer
+	if err := autoIssueRunCommandFn(ctx, "gh", []string{
+		"issue", "list",
+		"--repo", repo,
+		"--state", "open",
+		"--search", query,
+		"--json", "number",
+		"--limit", "1",
+	}, &out, &out); err != nil {
+		return 0, fmt.Errorf("%w: %s", err, strings.TrimSpace(out.String()))
+	}
+
+	var items []autoIssueListItem
+	if err := json.Unmarshal(out.Bytes(), &items); err != nil {
+		return 0, fmt.Errorf("parsing gh issue list output: %w", err)
+	}
+	if len(items) == 0 {
+		return 0, nil
+	}
+	return items[0].Number, nil
+}
+
+func postAutoIssueComment(ctx context.Context, repo string, issueNumber int, body string) error {
+	var out bytes.Buffer
+	err := autoIssueRunCommandFn(ctx, "gh", []string{
+		"issue", "comment", fmt.Sprintf("%d", issueNumber),
+		"--repo", repo,
+		"--body", body,
+	}, &out, &out)
+	if err != nil {
+		return fmt.Errorf("%w: %s", err, strings.TrimSpace(out.String()))
+	}
+	return nil
+}
+
+func createAutoIssue(ctx context.Context, repo, title, body string) error {
+	var out bytes.Buffer
+	err := autoIssueRunCommandFn(ctx, "gh", []string{
+		"issue", "create",
+		"--repo", repo,
+		"--title", title,
+		"--body", body,
+	}, &out, &out)
+	if err != nil {
+		return fmt.Errorf("%w: %s", err, strings.TrimSpace(out.String()))
+	}
+	return nil
+}
+
+func warnAutoIssue(cmd *cobra.Command, format string, args ...any) {
+	_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Warning: auto-file-issue: %s\n", fmt.Sprintf(format, args...))
 }
 
 func printUsageSummary(usage *models.UsageStats) {

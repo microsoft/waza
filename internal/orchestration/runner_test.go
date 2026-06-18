@@ -205,6 +205,80 @@ func TestBuildExecutionRequest_RejectsRelativePathPromptWithEmptySandbox(t *test
 	assert.Contains(t, err.Error(), "no workspace files were loaded")
 }
 
+func TestBuildExecutionRequest_ContextFixtureMaterializesDirectory(t *testing.T) {
+	specDir := t.TempDir()
+	fixtureDir := filepath.Join(specDir, "fixtures", "demo")
+	require.NoError(t, os.MkdirAll(filepath.Join(fixtureDir, "nested"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(fixtureDir, "README.md"), []byte("demo docs"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(fixtureDir, "nested", "app.py"), []byte("print('hi')"), 0o644))
+
+	spec := &models.EvalSpec{
+		SpecIdentity: models.SpecIdentity{Name: "test-benchmark"},
+		SkillName:    "my-skill",
+		Config: models.Config{
+			EngineType: "mock",
+			ModelID:    "gpt-4",
+			TimeoutSec: 60,
+		},
+	}
+	cfg := config.NewEvalConfig(spec, config.WithSpecDir(specDir))
+	runner := NewEvalRunner(cfg, nil)
+
+	tc := &models.TestCase{
+		TestID:      "test-001",
+		DisplayName: "Test Case",
+		Stimulus: models.TaskStimulus{
+			Message: "Inspect ./ files.",
+			Metadata: map[string]any{
+				"fixture": "fixtures/demo",
+			},
+		},
+	}
+
+	req, err := runner.buildExecutionRequest(tc)
+	require.NoError(t, err)
+	require.Len(t, req.Resources, 2)
+	assert.Equal(t, "README.md", req.Resources[0].Path)
+	assert.Equal(t, []byte("demo docs"), req.Resources[0].Content)
+	assert.Equal(t, "nested/app.py", req.Resources[1].Path)
+	assert.Equal(t, []byte("print('hi')"), req.Resources[1].Content)
+	assert.Equal(t, "fixtures/demo", req.Context["fixture"])
+}
+
+func TestBuildExecutionRequest_ContextFixtureRejectsTraversal(t *testing.T) {
+	spec := &models.EvalSpec{
+		SpecIdentity: models.SpecIdentity{Name: "test-benchmark"},
+		SkillName:    "my-skill",
+		Config: models.Config{
+			EngineType: "mock",
+			ModelID:    "gpt-4",
+			TimeoutSec: 60,
+		},
+	}
+	cfg := config.NewEvalConfig(spec, config.WithSpecDir(t.TempDir()))
+	runner := NewEvalRunner(cfg, nil)
+
+	for _, fixture := range []string{"../outside", "fixtures/../demo"} {
+		t.Run(fixture, func(t *testing.T) {
+			tc := &models.TestCase{
+				TestID:      "test-001",
+				DisplayName: "Test Case",
+				Stimulus: models.TaskStimulus{
+					Message: "Inspect files.",
+					Metadata: map[string]any{
+						"fixture": fixture,
+					},
+				},
+			}
+
+			req, err := runner.buildExecutionRequest(tc)
+			require.Error(t, err)
+			assert.Nil(t, req)
+			assert.Contains(t, err.Error(), "must not contain path traversal")
+		})
+	}
+}
+
 func TestBuildExecutionRequest_TimeoutOverride(t *testing.T) {
 	// Create a spec with default timeout
 	spec := &models.EvalSpec{
@@ -265,6 +339,44 @@ func TestExecutionTimeout_InvalidTaskOverride(t *testing.T) {
 	assert.Contains(t, err.Error(), `test case "test-001" timeout_seconds must be at least 1, got 0`)
 }
 
+func TestFirstEventTimeout_Resolution(t *testing.T) {
+	mkRunner := func(specSec int) *EvalRunner {
+		spec := &models.EvalSpec{
+			SpecIdentity: models.SpecIdentity{Name: "test-benchmark"},
+			SkillName:    "my-skill",
+			Config: models.Config{
+				EngineType:           "mock",
+				ModelID:              "gpt-4",
+				TimeoutSec:           120,
+				FirstEventTimeoutSec: specSec,
+			},
+		}
+		return NewEvalRunner(config.NewEvalConfig(spec), nil)
+	}
+	mkTask := func(override *int) *models.TestCase {
+		return &models.TestCase{
+			TestID:               "test-001",
+			DisplayName:          "Test Case",
+			Stimulus:             models.TaskStimulus{Message: "Hello world"},
+			FirstEventTimeoutSec: override,
+		}
+	}
+
+	// Spec-level default applies when the task carries no override.
+	assert.Equal(t, 90*time.Second, mkRunner(90).firstEventTimeout(mkTask(nil)))
+
+	// Disabled by default: spec 0 + no override → zero duration (watchdog off).
+	assert.Equal(t, time.Duration(0), mkRunner(0).firstEventTimeout(mkTask(nil)))
+
+	// Task override wins over the spec default.
+	override := 30
+	assert.Equal(t, 30*time.Second, mkRunner(90).firstEventTimeout(mkTask(&override)))
+
+	// A task can explicitly disable the watchdog even when the spec enables it.
+	disabled := 0
+	assert.Equal(t, time.Duration(0), mkRunner(90).firstEventTimeout(mkTask(&disabled)))
+}
+
 func TestExecuteRun_InvalidTaskTimeoutReturnsConfigError(t *testing.T) {
 	spec := &models.EvalSpec{
 		SpecIdentity: models.SpecIdentity{Name: "test-benchmark"},
@@ -290,6 +402,9 @@ func TestExecuteRun_InvalidTaskTimeoutReturnsConfigError(t *testing.T) {
 	run := runner.executeRun(context.Background(), tc, 1)
 	assert.Equal(t, models.StatusError, run.Status)
 	assert.Contains(t, run.ErrorMsg, `test case "test-001" timeout_seconds must be at least 1, got -1`)
+	require.NotNil(t, run.FailureArtifacts)
+	assert.Equal(t, 2, run.FailureArtifacts.ExitCode)
+	assert.Contains(t, run.FailureArtifacts.TriageSummary, "**Status:** Error")
 	assert.False(t, engine.hasDeadline, "engine should not execute with an invalid timeout")
 }
 
@@ -318,9 +433,50 @@ func TestExecuteRun_AppliesTimeoutContext(t *testing.T) {
 	start := time.Now()
 	run := runner.executeRun(context.Background(), tc, 1)
 	require.Empty(t, run.ErrorMsg)
+	assert.Nil(t, run.FailureArtifacts)
 	deadline, ok := engine.deadline, engine.hasDeadline
 	require.True(t, ok, "expected eval timeout to be applied to Execute context")
 	require.WithinDuration(t, start.Add(300*time.Second), deadline, time.Second)
+}
+
+func TestCaptureFailureArtifacts_StatusMapping(t *testing.T) {
+	spec := &models.EvalSpec{
+		SpecIdentity: models.SpecIdentity{Name: "test-benchmark"},
+		SkillName:    "my-skill",
+		Config: models.Config{
+			EngineType: "mock",
+			ModelID:    "gpt-4",
+			TimeoutSec: 120,
+		},
+	}
+	runner := NewEvalRunner(config.NewEvalConfig(spec), nil)
+
+	failed := models.RunResult{
+		Status:      models.StatusFailed,
+		ErrorMsg:    "grader mismatch",
+		FinalOutput: "model output",
+		Validations: map[string]models.GraderResults{
+			"correctness": {Passed: false, Name: "correctness"},
+		},
+	}
+	runner.captureFailureArtifacts(&failed)
+	require.NotNil(t, failed.FailureArtifacts)
+	assert.Equal(t, 1, failed.FailureArtifacts.ExitCode)
+	assert.Contains(t, failed.FailureArtifacts.TriageSummary, "**Status:** Failed")
+
+	errored := models.RunResult{
+		Status:      models.StatusError,
+		ErrorMsg:    "timeout exceeded",
+		FinalOutput: "partial output",
+	}
+	runner.captureFailureArtifacts(&errored)
+	require.NotNil(t, errored.FailureArtifacts)
+	assert.Equal(t, 2, errored.FailureArtifacts.ExitCode)
+	assert.Contains(t, errored.FailureArtifacts.TriageSummary, "**Status:** Error")
+
+	passed := models.RunResult{Status: models.StatusPassed}
+	runner.captureFailureArtifacts(&passed)
+	assert.Nil(t, passed.FailureArtifacts)
 }
 
 type deadlineCaptureEngine struct {

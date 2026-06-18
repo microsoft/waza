@@ -2,6 +2,7 @@ package execution
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/url"
@@ -12,10 +13,18 @@ import (
 	"time"
 
 	copilot "github.com/github/copilot-sdk/go"
+	"github.com/github/copilot-sdk/go/rpc"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/skill"
 	"github.com/microsoft/waza/internal/utils"
 )
+
+// errFirstEventTimeout is the cancellation cause used when a session produces no
+// first event within ExecutionRequest.FirstEventTimeout — i.e. the embedded
+// engine launched but never started the agent's first turn. It is distinct from
+// the overall turn deadline (context.DeadlineExceeded) so callers can tell a
+// session-start hang apart from a genuinely long-running turn that timed out.
+var errFirstEventTimeout = errors.New("no first session event within first-event timeout")
 
 // CopilotEngine integrates with GitHub Copilot SDK
 type CopilotEngine struct {
@@ -179,8 +188,9 @@ func NewCopilotEngineBuilder(defaultModelID string, options *CopilotEngineBuilde
 			// workspace is set at the session level, instead of at the client.
 			LogLevel: "error",
 
-			// CLI args (for example --model) are passed through the connection;
-			// the SDK manages process start/restart, so no AutoStart/AutoRestart.
+			// SDK v1.0.0 moved CLIArgs onto the Connection. AutoStart/AutoRestart
+			// are no longer configurable — the SDK starts on demand and restarts
+			// internally. We still call client.Start() explicitly in Initialize().
 			Connection: copilot.StdioConnection{Args: cliArgs},
 		}
 		client = options.NewCopilotClient(copilotOptions)
@@ -356,7 +366,7 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 
 	var session CopilotSession
 
-	permRequestCallback := copilot.PermissionHandler.ApproveAll
+	permRequestCallback := allowAllTools
 	if req.PermissionHandler != nil {
 		permRequestCallback = req.PermissionHandler
 	}
@@ -372,7 +382,7 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 			SkillDirectories: skillDirs,
 			WorkingDirectory: workingDir,
 			SystemMessage:    systemMessage,
-			Streaming:        copilot.Bool(req.Streaming),
+			Streaming:        streamingPtr(req.Streaming),
 			MCPServers:       req.MCPServers,
 			Provider:         e.provider.sessionConfig(),
 		})
@@ -391,7 +401,7 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 			SkillDirectories: skillDirs,
 			WorkingDirectory: workingDir,
 			SystemMessage:    systemMessage,
-			Streaming:        copilot.Bool(req.Streaming),
+			Streaming:        streamingPtr(req.Streaming),
 			MCPServers:       req.MCPServers,
 			Provider:         e.provider.sessionConfig(),
 		})
@@ -461,11 +471,52 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 	unsubscribe := session.On(utils.NewSessionToSlog())
 	defer unsubscribe()
 
+	// First-event watchdog. SendAndWait blocks until the session reaches a
+	// terminal state (session.idle / session.error) or sendCtx is canceled. A
+	// session-start hang emits NO events, so without this it would block until
+	// the overall turn deadline — which must be large to allow legitimate long
+	// turns — turning a fast failure into a multi-minute (or multi-hour) stall.
+	// We arm a short timer that cancels sendCtx with a distinct cause if no
+	// event arrives in time, and disarm it the moment the first event lands (the
+	// turn has started; the overall deadline governs the rest) or SendAndWait
+	// returns for any other reason.
+	sendCtx := ctx
+	stopFirstEventWatchdog := func() {}
+	if req.FirstEventTimeout > 0 {
+		var cancelFirst context.CancelCauseFunc
+		sendCtx, cancelFirst = context.WithCancelCause(ctx)
+		timer := time.AfterFunc(req.FirstEventTimeout, func() {
+			cancelFirst(errFirstEventTimeout)
+		})
+
+		watchdogDone := make(chan struct{})
+		var stopWatchdog sync.Once
+		stopFirstEventWatchdog = func() {
+			stopWatchdog.Do(func() {
+				timer.Stop()
+				cancelFirst(nil)
+				close(watchdogDone)
+			})
+		}
+		defer stopFirstEventWatchdog()
+
+		go func() {
+			select {
+			case <-eventsCollector.FirstEvent():
+				stopFirstEventWatchdog()
+			case <-sendCtx.Done():
+				stopFirstEventWatchdog()
+			case <-watchdogDone:
+			}
+		}()
+	}
+
 	// Send prompt with updated API
-	_, err = session.SendAndWait(ctx, copilot.MessageOptions{
+	_, err = session.SendAndWait(sendCtx, copilot.MessageOptions{
 		Prompt: req.Message,
 		Mode:   string(req.MessageMode),
 	})
+	stopFirstEventWatchdog()
 
 	var errMsg string
 
@@ -475,6 +526,12 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 		// termination. We clear the error so the response reports success.
 		if canceledForSkill && ctx.Err() == context.Canceled {
 			err = nil
+		} else if errors.Is(context.Cause(sendCtx), errFirstEventTimeout) {
+			// Session-start hang: no first event arrived within the budget.
+			// Surface a distinct, actionable error rather than the opaque
+			// context-canceled / deadline message SendAndWait returns.
+			err = fmt.Errorf("session start timeout: no first turn within %s (engine launched but produced no events): %w", req.FirstEventTimeout, errFirstEventTimeout)
+			errMsg = err.Error()
 		} else {
 			// errors that are returned inline, as part of the conversation, also come back
 			// in the returned error. Rather than having one of those fun functions that returns
@@ -582,6 +639,32 @@ func (e *CopilotEngine) doShutdown(ctx context.Context) error {
 			}
 		}
 	}
+
+	return nil
+}
+
+// DeleteSession removes a persistent session created via Execute (with
+// EphemeralSession=false) and stops tracking it for shutdown cleanup. It is
+// used by callers that own a long-lived session, such as the responder, to
+// tear it down promptly rather than waiting for engine Shutdown.
+func (e *CopilotEngine) DeleteSession(ctx context.Context, sessionID string) error {
+	if sessionID == "" {
+		return nil
+	}
+	// Delete the remote session first; only drop local tracking on success so a
+	// failed remote delete leaves the session registered for shutdown cleanup
+	// rather than leaking it and losing usage collection.
+	if err := e.client.DeleteSession(ctx, sessionID); err != nil {
+		return err
+	}
+
+	e.sessionsMu.Lock()
+	delete(e.sessions, sessionID)
+	e.sessionsMu.Unlock()
+
+	e.usageCollectorsMu.Lock()
+	delete(e.usageCollectors, sessionID)
+	e.usageCollectorsMu.Unlock()
 
 	return nil
 }
@@ -719,6 +802,19 @@ func joinStrings(parts []string) string {
 		builder.WriteString(p)
 	}
 	return builder.String()
+}
+
+func allowAllTools(request copilot.PermissionRequest, invocation copilot.PermissionInvocation) (rpc.PermissionDecision, error) {
+	return &rpc.PermissionDecisionApproveOnce{}, nil
+}
+
+// streamingPtr converts the caller's bool Streaming field into the *bool the
+// SDK expects. We always pass an explicit value (never nil) so behavior is
+// stable regardless of any future change to the SDK's default. If we ever
+// need tri-state ("use SDK default") semantics, the caller field should
+// become a *bool itself.
+func streamingPtr(streaming bool) *bool {
+	return copilot.Bool(streaming)
 }
 
 // skillDefinition holds the content extracted from a SKILL.md file.

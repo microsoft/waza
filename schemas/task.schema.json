@@ -38,6 +38,12 @@
       "minimum": 1,
       "description": "Per-task timeout in seconds, overriding the eval-level default."
     },
+    "first_event_timeout_seconds": {
+      "type": "integer",
+      "minimum": 0,
+      "default": 0,
+      "description": "Per-task override for the eval-level first_event_timeout_seconds. 0 disables the first-event (session-start hang) watchdog for this task."
+    },
     "tags": {
       "type": "array",
       "items": {
@@ -57,13 +63,6 @@
         "$ref": "#/$defs/validatorInline"
       },
       "description": "Task-level graders applied to this task's output."
-    },
-    "follow_up_prompts": {
-      "type": "array",
-      "items": {
-        "type": "string"
-      },
-      "description": "Sequential follow-up prompts sent after the initial prompt, reusing the same session and workspace."
     },
     "skill_directories": {
       "type": "array",
@@ -85,6 +84,12 @@
       "type": "object",
       "additionalProperties": false,
       "description": "Input stimulus for the task. Must specify either prompt or prompt_file (not both).",
+      "not": {
+        "required": [
+          "responder",
+          "follow_up_prompts"
+        ]
+      },
       "oneOf": [
         {
           "required": [
@@ -109,7 +114,14 @@
         },
         "context": {
           "type": "object",
-          "description": "Arbitrary key-value metadata passed to the agent."
+          "description": "Arbitrary key-value metadata passed to the agent. If fixture is set to a relative path, files from that fixture file or directory are copied into the task workspace.",
+          "properties": {
+            "fixture": {
+              "type": "string",
+              "description": "Relative path to a file or directory whose contents are copied into the task workspace before the agent runs."
+            }
+          },
+          "additionalProperties": true
         },
         "files": {
           "type": "array",
@@ -135,6 +147,35 @@
             "type": "string"
           },
           "description": "Environment variables set during task execution."
+        },
+        "follow_up_prompts": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Sequential follow-up prompts sent after the initial prompt, reusing the same session and workspace. Mutually exclusive with responder."
+        },
+        "responder": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["instructions", "max_followups"],
+          "description": "LLM-backed surrogate user that answers the skill's follow-up questions. Mutually exclusive with follow_up_prompts.",
+          "properties": {
+            "model": {
+              "type": "string",
+              "description": "Model used for the responder LLM. Defaults to the eval-level config.model."
+            },
+            "instructions": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Describes the target configuration the responder represents and the rule for abstaining."
+            },
+            "max_followups": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Maximum number of responder replies before the loop stops."
+            }
+          }
         }
       }
     },

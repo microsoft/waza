@@ -7,6 +7,7 @@ import {
   formatPercent,
   formatNumber,
   formatCost,
+  formatCredits,
   formatDuration,
 } from "../lib/format";
 
@@ -55,6 +56,15 @@ export default function TrendsPage() {
       filtered.map((r: RunSummary) => ({
         label: formatShortDate(r.timestamp),
         value: r.cost,
+      })),
+    [filtered],
+  );
+
+  const creditsData: DataPoint[] = useMemo(
+    () =>
+      filtered.map((r: RunSummary) => ({
+        label: formatShortDate(r.timestamp),
+        value: r.premiumRequests ?? 0,
       })),
     [filtered],
   );
@@ -124,6 +134,11 @@ export default function TrendsPage() {
             title="Cost per Run"
             data={costData}
             formatValue={formatCost}
+          />
+          <TrendChart
+            title="Credits per Run"
+            data={creditsData}
+            formatValue={formatCredits}
           />
           <TrendChart
             title="Duration per Run"

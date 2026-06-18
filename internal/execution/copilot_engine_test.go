@@ -217,6 +217,34 @@ func TestCopilotEngine_Execute_SendError(t *testing.T) {
 	require.Equal(t, "send failed", resp.ErrorMsg)
 }
 
+func TestCopilotEngine_DeleteSession_PropagatesRemoteError(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	clientMock := newClientMock(ctrl)
+
+	engine := NewCopilotEngineBuilder("test-model", &CopilotEngineBuilderOptions{
+		NewCopilotClient: func(clientOptions *copilot.ClientOptions) CopilotClient {
+			return clientMock
+		},
+	}).Build()
+	require.NoError(t, engine.Initialize(context.Background()))
+	t.Cleanup(func() {
+		require.NoError(t, engine.Shutdown(context.Background()))
+	})
+
+	// Empty session id is a no-op and must not touch the remote.
+	require.NoError(t, engine.DeleteSession(context.Background(), ""))
+
+	// A failed remote delete must surface as an error rather than being
+	// swallowed, so local tracking is preserved for shutdown cleanup.
+	clientMock.EXPECT().DeleteSession(gomock.Any(), "sess-err").Return(errors.New("remote boom"))
+	err := engine.DeleteSession(context.Background(), "sess-err")
+	require.ErrorContains(t, err, "remote boom")
+
+	// A successful remote delete returns nil.
+	clientMock.EXPECT().DeleteSession(gomock.Any(), "sess-ok").Return(nil)
+	require.NoError(t, engine.DeleteSession(context.Background(), "sess-ok"))
+}
+
 func TestCopilotEngine_Execute_PassesGraderRequestOptionsAndDeletesEphemeralSession(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	clientMock := newClientMock(ctrl)
@@ -353,8 +381,10 @@ func TestCopilotEngineBuilder_CLIArgsCarriesModel(t *testing.T) {
 	}).Build()
 
 	require.NotNil(t, captured, "NewCopilotClient must receive non-nil ClientOptions")
-	require.Equal(t, []string{"--model", defaultModelID}, connArgs(captured),
-		"CLIArgs must carry --model <defaultModelID> so it overrides the user's local Copilot settings.json and experiment-flight defaults")
+	conn, ok := captured.Connection.(copilot.StdioConnection)
+	require.True(t, ok, "Connection must be a copilot.StdioConnection")
+	require.Equal(t, []string{"--model", defaultModelID}, conn.Args,
+		"Connection.Args must carry --model <defaultModelID> so it overrides the user's local Copilot settings.json and experiment-flight defaults")
 }
 
 // TestCopilotEngineBuilder_CLIArgsEmptyWhenNoDefaultModel is a regression test
@@ -375,8 +405,10 @@ func TestCopilotEngineBuilder_CLIArgsEmptyWhenNoDefaultModel(t *testing.T) {
 	}).Build()
 
 	require.NotNil(t, captured, "NewCopilotClient must receive non-nil ClientOptions")
-	require.Empty(t, connArgs(captured),
-		"CLIArgs must be empty when no defaultModelID is provided so the embedded CLI can pick its own fallback")
+	conn, ok := captured.Connection.(copilot.StdioConnection)
+	require.True(t, ok, "Connection must be a copilot.StdioConnection")
+	require.Empty(t, conn.Args,
+		"Connection.Args must be empty when no defaultModelID is provided so the embedded CLI can pick its own fallback")
 }
 
 // TestCopilotEngineBuilder_CLIArgsEmptyWhenCustomProvider is a regression test
@@ -407,8 +439,10 @@ func TestCopilotEngineBuilder_CLIArgsEmptyWhenCustomProvider(t *testing.T) {
 	}).Build()
 
 	require.NotNil(t, captured, "NewCopilotClient must receive non-nil ClientOptions")
-	require.Empty(t, connArgs(captured),
-		"CLIArgs must be empty when a custom BYOK provider is configured so the embedded CLI does not pre-validate a provider-only model ID against the GitHub Copilot catalog (#305)")
+	conn, ok := captured.Connection.(copilot.StdioConnection)
+	require.True(t, ok, "Connection must be a copilot.StdioConnection")
+	require.Empty(t, conn.Args,
+		"Connection.Args must be empty when a custom BYOK provider is configured so the embedded CLI does not pre-validate a provider-only model ID against the GitHub Copilot catalog (#305)")
 
 	// The engine should still know the defaultModelID and provider for
 	// per-session SessionConfig assembly.
@@ -441,18 +475,4 @@ func clearCustomProviderEnv(t *testing.T) {
 			}
 		})
 	}
-}
-
-// connArgs returns the CLI args carried by the client options' stdio
-// connection. In SDK v1.0.x, startup CLI args (for example --model) are passed
-// via ClientOptions.Connection (a StdioConnection) rather than a top-level
-// CLIArgs field.
-func connArgs(opts *copilot.ClientOptions) []string {
-	if opts == nil {
-		return nil
-	}
-	if conn, ok := opts.Connection.(copilot.StdioConnection); ok {
-		return conn.Args
-	}
-	return nil
 }

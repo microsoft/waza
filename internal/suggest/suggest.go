@@ -80,6 +80,9 @@ func Generate(ctx context.Context, engine execution.AgentEngine, opts Options) (
 		if resp == nil {
 			return nil, errors.New("empty engine response during grader selection")
 		}
+		if err := engineResponseError(resp); err != nil {
+			return nil, fmt.Errorf("grader selection: %w", err)
+		}
 
 		selected := parseGraderSelection(resp.FinalOutput)
 		if len(selected) > 0 {
@@ -100,12 +103,25 @@ func Generate(ctx context.Context, engine execution.AgentEngine, opts Options) (
 	if resp == nil {
 		return nil, errors.New("empty engine response")
 	}
+	if err := engineResponseError(resp); err != nil {
+		return nil, fmt.Errorf("getting suggestions: %w", err)
+	}
 
 	suggestion, err := ParseResponse(resp.FinalOutput)
 	if err != nil {
 		return nil, fmt.Errorf("parsing suggest response: %w", err)
 	}
 	return suggestion, nil
+}
+
+func engineResponseError(resp *execution.ExecutionResponse) error {
+	if resp.Success {
+		return nil
+	}
+	if msg := strings.TrimSpace(resp.ErrorMsg); msg != "" {
+		return fmt.Errorf("engine execution failed: %s", msg)
+	}
+	return errors.New("engine execution failed")
 }
 
 // buildPromptData assembles the prompt data from a parsed skill.
@@ -197,8 +213,12 @@ func AvailableGraderTypes() []string {
 }
 
 // ParseResponse parses model YAML output into a Suggestion.
+// Empty output is reported distinctly from malformed suggestion YAML.
 func ParseResponse(raw string) (*Suggestion, error) {
-	normalized := extractYAML(raw)
+	normalized := strings.TrimSpace(extractYAML(raw))
+	if normalized == "" {
+		return nil, errors.New("empty suggest response")
+	}
 
 	var s Suggestion
 	decoder := yaml.NewDecoder(strings.NewReader(normalized))

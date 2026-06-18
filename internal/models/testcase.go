@@ -12,18 +12,21 @@ import (
 
 // TestCase represents a single evaluation test
 type TestCase struct {
-	Active           *bool             `yaml:"enabled,omitempty" json:"active,omitempty"`
-	ContextRoot      string            `yaml:"context_dir,omitempty" json:"context_root,omitempty"`
-	DisplayName      string            `yaml:"name" json:"display_name"`
-	Expectation      TaskExpectation   `yaml:"expected,omitempty" json:"expectation,omitempty"`
-	InstructionFiles []string          `yaml:"instruction_files,omitempty" json:"instruction_files,omitempty"`
-	SkillPaths       []string          `yaml:"skill_directories,omitempty" json:"skill_paths,omitempty"`
-	Stimulus         TaskStimulus      `yaml:"inputs" json:"stimulus"`
-	Summary          string            `yaml:"description,omitempty" json:"summary,omitempty"`
-	Tags             []string          `yaml:"tags,omitempty" json:"labels,omitempty"`
-	TestID           string            `yaml:"id" json:"test_id"`
-	TimeoutSec       *int              `yaml:"timeout_seconds,omitempty" json:"timeout_sec,omitempty"`
-	Validators       []ValidatorInline `yaml:"graders,omitempty" json:"validators,omitempty"`
+	Active           *bool           `yaml:"enabled,omitempty" json:"active,omitempty"`
+	ContextRoot      string          `yaml:"context_dir,omitempty" json:"context_root,omitempty"`
+	DisplayName      string          `yaml:"name" json:"display_name"`
+	Expectation      TaskExpectation `yaml:"expected,omitempty" json:"expectation,omitempty"`
+	InstructionFiles []string        `yaml:"instruction_files,omitempty" json:"instruction_files,omitempty"`
+	SkillPaths       []string        `yaml:"skill_directories,omitempty" json:"skill_paths,omitempty"`
+	Stimulus         TaskStimulus    `yaml:"inputs" json:"stimulus"`
+	Summary          string          `yaml:"description,omitempty" json:"summary,omitempty"`
+	Tags             []string        `yaml:"tags,omitempty" json:"labels,omitempty"`
+	TestID           string          `yaml:"id" json:"test_id"`
+	TimeoutSec       *int            `yaml:"timeout_seconds,omitempty" json:"timeout_sec,omitempty"`
+	// FirstEventTimeoutSec overrides Config.FirstEventTimeoutSec for this task.
+	// nil inherits the eval-level value; 0 disables the check for this task.
+	FirstEventTimeoutSec *int              `yaml:"first_event_timeout_seconds,omitempty" json:"first_event_timeout_sec,omitempty"`
+	Validators           []ValidatorInline `yaml:"graders,omitempty" json:"validators,omitempty"`
 }
 
 // TaskStimulus defines the input for a task.
@@ -38,6 +41,22 @@ type TaskStimulus struct {
 	WorkDir     string            `yaml:"workdir,omitempty" json:"workdir,omitempty"`
 	Environment map[string]string `yaml:"environment,omitempty" json:"environment,omitempty"`
 	FollowUps   []string          `yaml:"follow_up_prompts,omitempty" json:"follow_ups,omitempty"`
+	Responder   *ResponderConfig  `yaml:"responder,omitempty" json:"responder,omitempty"`
+}
+
+// ResponderConfig configures an LLM-backed surrogate user that answers a
+// skill's follow-up questions during a multi-turn run. It is mutually
+// exclusive with TaskStimulus.FollowUps.
+type ResponderConfig struct {
+	// Model is the model used for the responder LLM. Optional; when empty the
+	// eval-level config.model is used.
+	Model string `yaml:"model,omitempty" json:"model,omitempty"`
+	// Instructions describe the target configuration the responder represents
+	// and the rule for abstaining. Required.
+	Instructions string `yaml:"instructions" json:"instructions"`
+	// MaxFollowups caps how many times the responder may reply before the loop
+	// stops. Required; must be >= 1.
+	MaxFollowups int `yaml:"max_followups" json:"max_followups"`
 }
 
 // ResourceRef points to a file or inline content
@@ -319,6 +338,37 @@ func (tc *TestCase) Validate() error {
 		}
 		return fmt.Errorf("timeout_seconds must be at least 1, got %d", *tc.TimeoutSec)
 	}
+	if tc.FirstEventTimeoutSec != nil && *tc.FirstEventTimeoutSec < 0 {
+		name := tc.TestID
+		if name == "" {
+			name = tc.DisplayName
+		}
+		if name != "" {
+			return fmt.Errorf("test case %q first_event_timeout_seconds must not be negative, got %d", name, *tc.FirstEventTimeoutSec)
+		}
+		return fmt.Errorf("first_event_timeout_seconds must not be negative, got %d", *tc.FirstEventTimeoutSec)
+	}
+
+	if r := tc.Stimulus.Responder; r != nil {
+		name := tc.TestID
+		if name == "" {
+			name = tc.DisplayName
+		}
+		prefix := "test case"
+		if name != "" {
+			prefix = fmt.Sprintf("test case %q", name)
+		}
+		if strings.TrimSpace(r.Instructions) == "" {
+			return fmt.Errorf("%s: responder.instructions is required", prefix)
+		}
+		if r.MaxFollowups < 1 {
+			return fmt.Errorf("%s: responder.max_followups must be at least 1, got %d", prefix, r.MaxFollowups)
+		}
+		if len(tc.Stimulus.FollowUps) > 0 {
+			return fmt.Errorf("%s: inputs.responder and inputs.follow_up_prompts are mutually exclusive; use one or the other", prefix)
+		}
+	}
+
 	return nil
 }
 

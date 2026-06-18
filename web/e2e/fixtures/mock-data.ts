@@ -8,6 +8,7 @@ export const SUMMARY = {
   totalTasks: 48,
   passRate: 85,
   avgTokens: 15230,
+  avgPremiumRequests: 8,
   avgCost: 1.47,
   avgDuration: 42,
 };
@@ -21,6 +22,7 @@ export const RUNS = [
     passCount: 4,
     taskCount: 4,
     tokens: 12400,
+    premiumRequests: 6,
     cost: 1.24,
     duration: 38,
     weightedScore: 0.92,
@@ -35,6 +37,7 @@ export const RUNS = [
     passCount: 2,
     taskCount: 5,
     tokens: 18100,
+    premiumRequests: 10,
     cost: 1.81,
     duration: 55,
     weightedScore: 0.45,
@@ -48,6 +51,7 @@ export const RUNS = [
     passCount: 3,
     taskCount: 3,
     tokens: 9800,
+    premiumRequests: 4,
     cost: 0.98,
     duration: 27,
     timestamp: new Date(Date.now() - 86400_000).toISOString(), // 1 day ago

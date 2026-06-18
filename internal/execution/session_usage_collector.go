@@ -92,7 +92,9 @@ func (s *SessionUsageCollector) extractSessionUsage(event copilot.SessionEvent) 
 		s.sessionUsage = &models.UsageStats{}
 	}
 
-	s.sessionUsage.PremiumRequests = derefFloat(shutdown.TotalPremiumRequests)
+	if shutdown.TotalPremiumRequests != nil {
+		s.sessionUsage.PremiumRequests = *shutdown.TotalPremiumRequests
+	}
 
 	if len(shutdown.ModelMetrics) > 0 {
 		s.sessionUsage.ModelMetrics = make(map[string]models.ModelUsage, len(shutdown.ModelMetrics))
@@ -104,8 +106,12 @@ func (s *SessionUsageCollector) extractSessionUsage(event copilot.SessionEvent) 
 				OutputTokens:     int(mm.Usage.OutputTokens),
 				CacheReadTokens:  int(mm.Usage.CacheReadTokens),
 				CacheWriteTokens: int(mm.Usage.CacheWriteTokens),
-				RequestCount:     float64(derefInt64(mm.Requests.Count)),
-				RequestCost:      derefFloat(mm.Requests.Cost),
+			}
+			if mm.Requests.Count != nil {
+				mu.RequestCount = float64(*mm.Requests.Count)
+			}
+			if mm.Requests.Cost != nil {
+				mu.RequestCost = *mm.Requests.Cost
 			}
 			s.sessionUsage.ModelMetrics[name] = mu
 			totalIn += mu.InputTokens
@@ -152,18 +158,4 @@ func (s *SessionUsageCollector) extractTurnUsage(event copilot.SessionEvent) {
 	if usage.Cost != nil {
 		s.turnUsage.PremiumRequests += *usage.Cost
 	}
-}
-
-func derefFloat(v *float64) float64 {
-	if v == nil {
-		return 0
-	}
-	return *v
-}
-
-func derefInt64(v *int64) int64 {
-	if v == nil {
-		return 0
-	}
-	return *v
 }

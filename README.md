@@ -330,6 +330,7 @@ Run an evaluation benchmark from a spec file.
 | `--update-snapshots` | | Update or create diff grader snapshot files to match current output |
 | `--skip-graders` | | Skip grading (execution only); grade later with `waza grade` |
 | `--keep-workspace` | | Preserve temp workspaces after execution for debugging |
+| `--auto-file-issue` | | Auto-file or update a GitHub issue for failing runs (requires `gh` and `GITHUB_REPOSITORY`) |
 
 **Result Caching**
 
@@ -992,6 +993,19 @@ config:
 
 Instruction files are resolved from the active fixtures/context directory, copied into each task's temp workspace, and appended to the agent system message as path-labeled instructions. Task YAML files can also set top-level `instruction_files`; task-level entries are added to the eval-level list.
 
+### Task Fixture Workspace
+
+Task YAML can set `inputs.context.fixture` to copy a fixture file or directory into the fresh task workspace before the agent runs:
+
+```yaml
+inputs:
+  context:
+    fixture: fixtures/demo
+  prompt: "Inspect repository files and summarize what you find."
+```
+
+Relative fixture paths are resolved from the eval spec directory. Directory fixtures are copied by contents into the workspace root.
+
 ### Skill Body Injection
 
 By default, an eval with `skill: <name>` injects the target `SKILL.md` or `.agent.md` body into the agent system prompt. For trigger-precision evals, disable that body injection while preserving the skill association and compact skill summary:
@@ -1193,6 +1207,34 @@ Waza automatically removes each worktree on engine shutdown (`git worktree remov
 
 **Out of scope today** (tracked separately): HTTPS / SSH clone strategies, submodules, Git LFS, and auto-detecting "the repo this test is running in" without an explicit `source`.
 
+## Responder (interactive skills)
+
+For skills that ask follow-up questions, configure a `responder` — an LLM that plays the user and answers the skill's questions. It is mutually exclusive with `follow_up_prompts`.
+
+```yaml
+# task.yaml
+inputs:
+  prompt: "Add a new agent to my application"
+  responder:
+    model: gpt-4o          # optional; defaults to config.model
+    instructions: |
+      The agent you want is "research-agent" with system instructions
+      "Search the web and summarise findings", tools web_search + url_fetch,
+      and no handoffs. Answer the skill's questions consistently with this.
+      If you genuinely can't infer an answer, abstain.
+    max_followups: 8
+```
+
+After each agent turn the responder either **replies** (the answer is sent back, continuing the conversation), **stops** (the agent is done), or **abstains** — which fails the run with a distinct `abstained` outcome, signalling the brief is too vague. If `max_followups` is reached while the agent is still asking questions, the loop stops with outcome `cap_exhausted` and graders evaluate the final state. Each task carries its own responder, so the same skill can be tested against several target configurations.
+
+**Fields** (under `inputs.responder`):
+
+| Field           | Required | Description |
+|---|---|---|
+| `instructions`  | yes | The target configuration the responder represents and the rule for abstaining. |
+| `max_followups` | yes | Maximum number of responder replies before the loop stops (`>= 1`). |
+| `model`         | no  | Model used for the responder LLM. Defaults to the eval-level `config.model`. |
+
 ## CI/CD Integration
 
 Waza is designed to work seamlessly with CI/CD pipelines.
@@ -1308,6 +1350,10 @@ This repository includes reusable workflows:
 2. **[`examples/ci/eval-on-pr.yml`](examples/ci/eval-on-pr.yml)** - Matrix testing across models
 
 3. **[`examples/ci/basic-example.yml`](examples/ci/basic-example.yml)** - Minimal workflow example
+
+4. **[`.github/workflows/weekly-regression-loop.yml`](.github/workflows/weekly-regression-loop.yml)** - Scheduled regression detection that archives dated artifacts and upserts follow-up issues on regressions
+
+5. **[`.github/workflows/auto-merge.yml`](.github/workflows/auto-merge.yml)** - Safe auto-merge gate for trusted, labeled PRs (`agent-merge` label on PRs targeting `main`)
 
 See [`examples/ci/README.md`](examples/ci/README.md) for detailed documentation and more examples.
 

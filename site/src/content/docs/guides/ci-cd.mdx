@@ -122,6 +122,23 @@ jobs:
             });
 ```
 
+### Recurring Regression Loop (Scheduled)
+
+Waza includes a production-ready recurring loop at [`.github/workflows/weekly-regression-loop.yml`](https://github.com/microsoft/waza/blob/main/.github/workflows/weekly-regression-loop.yml). It runs weekly, archives date-stamped results, compares against the latest successful baseline artifact, and upserts a follow-up issue when regressions are detected.
+
+Key properties:
+
+- Runs on `schedule` and `workflow_dispatch`
+- Always uploads artifacts (`results`, session logs, regression report)
+- Uses deterministic comparability checks (`eval_name`, `model_id`, `runs_per_test`)
+- Flags regressions on increased failures/errors, passed→failed flips, and score/success-rate drops beyond thresholds
+
+To run it manually:
+
+```bash
+gh workflow run weekly-regression-loop.yml --repo microsoft/waza
+```
+
 ### Token Budget Checks
 
 Use `waza tokens compare` to track token usage across PRs and fail if budgets are exceeded:
@@ -406,6 +423,17 @@ Never hardcode API keys. Use CI secrets:
     ```
   </TabItem>
 </Tabs>
+
+### 9. **Safe Auto-Merge Boundaries**
+
+If you enable auto-merge for low-risk changes, gate it with explicit safeguards:
+
+- Require a dedicated label (for example, `agent-merge`)
+- Restrict to trusted author associations (owner/member/collaborator)
+- Restrict to your protected default branch (`main`)
+- Keep branch protection and required checks enabled
+
+In this repository, those boundaries are enforced in [`.github/workflows/auto-merge.yml`](https://github.com/microsoft/waza/blob/main/.github/workflows/auto-merge.yml).
 
 ## Troubleshooting
 

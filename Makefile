@@ -32,7 +32,7 @@ test: build-web
 lint:
 	@echo "Running linter..."
 	@if command -v golangci-lint >/dev/null 2>&1; then \
-		golangci-lint run $(GO_PACKAGES); \
+		golangci-lint run $$(go list ./... | grep -v '/node_modules' | sed 's#^github.com/microsoft/waza#.#'); \
 	else \
 		echo "golangci-lint not installed, skipping..."; \
 		echo "Install: curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b \$$(go env GOPATH)/bin v1.64.8"; \

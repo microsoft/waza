@@ -1,15 +1,58 @@
 package suggest
 
 import (
+	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	waza "github.com/microsoft/waza"
+	"github.com/microsoft/waza/internal/execution"
+	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/skill"
 	"github.com/stretchr/testify/require"
 )
+
+type generateTestEngine struct {
+	responses []*execution.ExecutionResponse
+	callIdx   int
+}
+
+func (e *generateTestEngine) Initialize(context.Context) error { return nil }
+
+func (e *generateTestEngine) Execute(context.Context, *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
+	if len(e.responses) == 0 {
+		return nil, errors.New("no engine responses configured")
+	}
+	idx := e.callIdx
+	e.callIdx++
+	if idx < len(e.responses) {
+		return e.responses[idx], nil
+	}
+	return e.responses[len(e.responses)-1], nil
+}
+
+func (e *generateTestEngine) Shutdown(context.Context) error { return nil }
+
+func (e *generateTestEngine) SessionUsage(string) *models.UsageStats { return nil }
+
+func writeGenerateSkill(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	raw := `---
+name: suggest-skill
+description: "Useful skill. USE FOR: summarize. DO NOT USE FOR: deploy."
+---
+
+# Suggest Skill
+
+Summarize things.
+`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(raw), 0o644))
+	return dir
+}
 
 func TestBuildPromptIncludesSkillMetadata(t *testing.T) {
 	raw := `---
@@ -127,6 +170,35 @@ func TestLoadGraderDocsFromEmbeddedFS(t *testing.T) {
 	require.Equal(t, "", docs2)
 }
 
+func TestGenerateSurfacesGraderSelectionEngineError(t *testing.T) {
+	engine := &generateTestEngine{responses: []*execution.ExecutionResponse{
+		{Success: false, ErrorMsg: "upstream rejected grader selection"},
+	}}
+
+	_, err := Generate(context.Background(), engine, Options{
+		SkillPath:  writeGenerateSkill(t),
+		GraderDocs: waza.GraderDocsFS,
+	})
+
+	require.ErrorContains(t, err, "grader selection: engine execution failed: upstream rejected grader selection")
+	require.NotContains(t, err.Error(), "parsing suggest response")
+}
+
+func TestGenerateSurfacesImplementationEngineError(t *testing.T) {
+	engine := &generateTestEngine{responses: []*execution.ExecutionResponse{
+		{Success: true, FinalOutput: "graders:\n  - text\n"},
+		{Success: false, ErrorMsg: "upstream rejected implementation request"},
+	}}
+
+	_, err := Generate(context.Background(), engine, Options{
+		SkillPath:  writeGenerateSkill(t),
+		GraderDocs: waza.GraderDocsFS,
+	})
+
+	require.ErrorContains(t, err, "getting suggestions: engine execution failed: upstream rejected implementation request")
+	require.NotContains(t, err.Error(), "parsing suggest response")
+}
+
 func TestParseResponseStructuredYAML(t *testing.T) {
 	resp := "```yaml\neval_yaml: |\n  name: generated-eval\n  description: generated\n  skill: sample\n  version: \"1.0\"\n  config:\n    trials_per_task: 1\n    timeout_seconds: 120\n    parallel: false\n    executor: mock\n    model: test\n  graders:\n    - type: code\n      name: has_output\n      config:\n        assertions:\n          - \\\"len(output) > 0\\\"\n  metrics:\n    - name: completion\n      weight: 1.0\n      threshold: 0.8\n  tasks:\n    - \"tasks/*.yaml\"\ntasks:\n  - path: tasks/basic.yaml\n    content: |\n      id: basic-001\n      name: Basic\n      inputs:\n        prompt: \"hello\"\nfixtures:\n  - path: fixtures/sample.txt\n    content: |\n      sample\n```"
 
@@ -140,6 +212,11 @@ func TestParseResponseStructuredYAML(t *testing.T) {
 func TestParseResponseInvalid(t *testing.T) {
 	_, err := ParseResponse("not valid yaml")
 	require.Error(t, err)
+}
+
+func TestParseResponseEmpty(t *testing.T) {
+	_, err := ParseResponse("")
+	require.ErrorContains(t, err, "empty suggest response")
 }
 
 // TestParseResponseRejectsBareStringGraders verifies that grader entries

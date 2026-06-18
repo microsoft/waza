@@ -20,6 +20,14 @@ const (
 	StatusNA Status = "n/a"
 )
 
+// Responder outcome values recorded on RunResult.Responder.Outcome.
+const (
+	ResponderOutcomeStopped      = "stopped"
+	ResponderOutcomeAbstained    = "abstained"
+	ResponderOutcomeCapExhausted = "cap_exhausted"
+	ResponderOutcomeError        = "error"
+)
+
 // GraderKind identifies the type of grader (e.g. regex, file, code).
 type GraderKind string
 
@@ -60,6 +68,17 @@ func AllGraderKinds() []string {
 
 	sort.Strings(names)
 	return names
+}
+
+// ResponderInfo records the outcome of a responder-driven multi-turn run.
+type ResponderInfo struct {
+	// FollowupsSent is the number of responder answers sent to the agent.
+	FollowupsSent int `json:"followups_sent"`
+	// Outcome is one of: stopped, abstained, cap_exhausted, error.
+	Outcome string `json:"outcome"`
+	// Reason holds the responder's reason when Outcome == "abstained" or an
+	// error message when Outcome == "error".
+	Reason string `json:"reason,omitempty"`
 }
 
 // EvaluationOutcome represents the complete result of an evaluation run
@@ -158,6 +177,20 @@ type RunResult struct {
 	SkillInvocations []SkillInvocation        `json:"skill_invocations,omitempty"`
 	Usage            *UsageStats              `json:"usage,omitempty"`
 	WorkspaceDir     string                   `json:"workspace_dir,omitempty"`
+	FailureArtifacts *FailureArtifacts        `json:"failure_artifacts,omitempty"`
+	Responder        *ResponderInfo           `json:"responder,omitempty"`
+}
+
+// FailureArtifacts captures diagnostic information when a run fails
+type FailureArtifacts struct {
+	StdErr        string            `json:"stderr,omitempty"`
+	StdOut        string            `json:"stdout,omitempty"`
+	ExitCode      int               `json:"exit_code,omitempty"`
+	FailedGraders []string          `json:"failed_graders,omitempty"`
+	ErrorPatterns []string          `json:"error_patterns,omitempty"`
+	TriageSummary string            `json:"triage_summary,omitempty"`
+	CapturedAt    time.Time         `json:"captured_at"`
+	Context       map[string]string `json:"context,omitempty"`
 }
 
 type GraderResults struct {

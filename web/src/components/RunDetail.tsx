@@ -9,14 +9,20 @@ import {
   Download,
 } from "lucide-react";
 import { useRunDetail } from "../hooks/useApi";
-import type { TaskResult, GraderResult } from "../api/client";
+import type { TaskResult, GraderResult, ResponderInfo } from "../api/client";
 import {
   formatDuration,
   formatCost,
+  formatCredits,
   formatNumber,
   formatPercent,
   formatRelativeTime,
+  costSourceTooltip,
 } from "../lib/format";
+import { InfoTooltip } from "./InfoTooltip";
+
+const CREDITS_TOOLTIP =
+  "Premium request count reported by the Copilot SDK — not dollars.";
 
 /** Format a confidence interval as a percentage range string. */
 function formatCIRange(lower: number, upper: number): string {
@@ -96,6 +102,30 @@ function SignificanceBadge({ isSignificant }: { isSignificant?: boolean }) {
   );
 }
 
+function ResponderBadge({ responder }: { responder?: ResponderInfo }) {
+  if (!responder) return null;
+
+  let className =
+    "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium";
+  if (responder.outcome === "abstained" || responder.outcome === "error") {
+    className += " bg-red-500/10 text-red-400";
+  } else if (responder.outcome === "cap_exhausted") {
+    className += " bg-yellow-500/10 text-yellow-400";
+  } else {
+    className += " bg-zinc-700 text-zinc-300";
+  }
+
+  const replyLabel = responder.followupsSent === 1 ? "reply" : "replies";
+  const reason = responder.reason ? ` — ${responder.reason}` : "";
+
+  return (
+    <span className={className} data-testid="responder-badge">
+      Responder: {responder.outcome} ({responder.followupsSent} {replyLabel})
+      {reason}
+    </span>
+  );
+}
+
 function CIRange({ lower, upper }: { lower: number; upper: number }) {
   return (
     <span
@@ -151,6 +181,7 @@ function TaskRow({ task }: { task: TaskResult }) {
               <ChevronRight className="h-4 w-4 text-zinc-500" />
             )}
             <span className="font-medium text-zinc-100">{task.name}</span>
+            <ResponderBadge responder={task.responder} />
           </span>
         </td>
         <td className="px-4 py-3">
@@ -257,10 +288,19 @@ export default function RunDetail({ id }: { id: string }) {
         </button>
       </div>
 
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-5">
         <StatCard label="Pass Rate" value={formatPercent(passRate)} />
         <StatCard label="Tokens" value={formatNumber(data.tokens)} />
-        <StatCard label="Cost" value={formatCost(data.cost)} />
+        <StatCard
+          label="Credits"
+          value={formatCredits(data.premiumRequests ?? 0)}
+          labelExtra={<InfoTooltip text={CREDITS_TOOLTIP} />}
+        />
+        <StatCard
+          label="Cost"
+          value={formatCost(data.cost)}
+          labelExtra={<InfoTooltip text={costSourceTooltip(data.costSource)} />}
+        />
         <StatCard label="Duration" value={formatDuration(data.duration)} />
       </div>
 
@@ -358,10 +398,21 @@ export default function RunDetail({ id }: { id: string }) {
   );
 }
 
-function StatCard({ label, value }: { label: string; value: string }) {
+function StatCard({
+  label,
+  value,
+  labelExtra,
+}: {
+  label: string;
+  value: string;
+  labelExtra?: React.ReactNode;
+}) {
   return (
     <div className="rounded-lg border border-zinc-700 bg-zinc-800 p-3">
-      <p className="text-xs text-zinc-400">{label}</p>
+      <p className="inline-flex items-center gap-1 text-xs text-zinc-400">
+        {label}
+        {labelExtra}
+      </p>
       <p className="mt-1 text-lg font-semibold text-zinc-100">{value}</p>
     </div>
   );

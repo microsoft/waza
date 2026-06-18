@@ -12,17 +12,140 @@ permissions:
   contents: read
 
 jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
+  build-and-test:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
 
-      - name: Build and test
+    defaults:
+      run:
+        working-directory: ./
+        shell: bash
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Setup Go Environment
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+          cache-dependency-path: go.sum
+
+      - name: Verify Module Dependencies
+        run: go mod verify
+
+      - name: Download Dependencies
+        run: go mod download
+
+      - name: Setup Node.js (for web UI build)
+        if: matrix.os == 'ubuntu-latest' && hashFiles('web/package.json') != ''
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: web/package-lock.json
+
+      - name: Build Web UI
+        if: matrix.os == 'ubuntu-latest' && hashFiles('web/package.json') != ''
+        working-directory: web
+        run: npm ci && npm run build
+
+      - name: Ensure web/dist exists (stub for go:embed)
         run: |
-          # TODO: Add your go build/test commands here
-          # Go:            go test ./...
-          # Python:        pip install -r requirements.txt && pytest
-          # .NET:          dotnet test
-          # Java (Maven):  mvn test
-          # Java (Gradle): ./gradlew test
-          echo "No build commands configured — update squad-ci.yml"
+          if [ ! -f web/dist/index.html ]; then
+            mkdir -p web/dist
+            echo '<!doctype html><html><head><title>waza</title></head><body>placeholder</body></html>' > web/dist/index.html
+            echo '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y="80" font-size="80">w</text></svg>' > web/dist/favicon.svg
+          fi
+
+      - name: Format Check
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          if [ -n "$(gofmt -l .)" ]; then
+            echo "Go files must be formatted with gofmt:"
+            gofmt -l .
+            exit 1
+          fi
+
+      - name: Run Go Vet
+        run: go vet ./...
+
+      - name: Execute Tests
+        run: go test -v -race -coverprofile=coverage.txt -covermode=atomic ./...
+
+      - name: Upload Coverage Report
+        if: matrix.os == 'ubuntu-latest'
+        uses: codecov/codecov-action@v4
+        with:
+          file: ./coverage.txt
+          flags: go-implementation
+          name: waza
+
+      - name: Build Binary
+        run: |
+          BINARY_NAME="waza"
+          if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
+            BINARY_NAME="waza.exe"
+          fi
+
+          go build -v -o $BINARY_NAME ./cmd/waza
+
+          # Verify binary
+          chmod +x ./$BINARY_NAME
+          ./$BINARY_NAME --version
+
+      - name: Integration Test
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          # Verify waza can load and execute an eval end-to-end with the
+          # mock executor. Exit code 1 = eval tasks failed (expected with
+          # mock output). Exit code >1 or signal = real crash — fail CI.
+          set +e
+          ./waza run ./examples/code-explainer/eval.yaml --verbose
+          EXIT_CODE=$?
+          if [ $EXIT_CODE -gt 1 ]; then
+            echo "::error::waza crashed with exit code $EXIT_CODE"
+            exit $EXIT_CODE
+          fi
+          echo "Integration test completed (exit code: $EXIT_CODE)"
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: ./
+        shell: bash
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Setup Go Environment
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+
+      - name: Ensure web/dist exists (stub for go:embed)
+        run: |
+          if [ ! -f web/dist/index.html ]; then
+            mkdir -p web/dist
+            echo '<!doctype html><html><head><title>waza</title></head><body>placeholder</body></html>' > web/dist/index.html
+            echo '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y="80" font-size="80">w</text></svg>' > web/dist/favicon.svg
+          fi
+
+      - name: Run Golangci-Lint
+        uses: golangci/golangci-lint-action@v7
+        with:
+          version: v2.10.1
+          working-directory: ./
+          args: --timeout=5m

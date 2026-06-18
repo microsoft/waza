@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestLoadTestCase_ShouldTriggerField(t *testing.T) {
@@ -125,6 +127,52 @@ inputs:
 	}
 }
 
+func TestLoadTestCase_NegativeFirstEventTimeoutRejected(t *testing.T) {
+	yamlData := `id: tc-bad-first-event
+name: bad first event
+first_event_timeout_seconds: -1
+inputs:
+  prompt: do something
+`
+	dir := t.TempDir()
+	p := filepath.Join(dir, "tc.yaml")
+	if err := os.WriteFile(p, []byte(yamlData), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	_, err := LoadTestCase(p)
+	if err == nil {
+		t.Fatal("expected error for first_event_timeout_seconds: -1, got nil")
+	}
+	if !strings.Contains(err.Error(), `test case "tc-bad-first-event" first_event_timeout_seconds must not be negative, got -1`) {
+		t.Errorf("error should describe invalid first_event_timeout_seconds, got: %v", err)
+	}
+}
+
+func TestLoadTestCase_ZeroFirstEventTimeoutAllowed(t *testing.T) {
+	// Unlike timeout_seconds, 0 is valid for first_event_timeout_seconds — it
+	// disables the first-event watchdog for the task.
+	yamlData := `id: tc-zero-first-event
+name: zero first event
+first_event_timeout_seconds: 0
+inputs:
+  prompt: do something
+`
+	dir := t.TempDir()
+	p := filepath.Join(dir, "tc.yaml")
+	if err := os.WriteFile(p, []byte(yamlData), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	tc, err := LoadTestCase(p)
+	if err != nil {
+		t.Fatalf("expected first_event_timeout_seconds: 0 to be accepted, got: %v", err)
+	}
+	if tc.FirstEventTimeoutSec == nil || *tc.FirstEventTimeoutSec != 0 {
+		t.Errorf("expected FirstEventTimeoutSec == 0, got %v", tc.FirstEventTimeoutSec)
+	}
+}
+
 func TestLoadTestCase_OutputContainsAny(t *testing.T) {
 	yamlData := `id: tc-may
 name: test may-include
@@ -214,4 +262,81 @@ instruction_files:
 	if tc.InstructionFiles[1] != "docs/task.instructions.md" {
 		t.Errorf("Expected second instruction file 'docs/task.instructions.md', got %q", tc.InstructionFiles[1])
 	}
+}
+
+func TestResponderConfigParsesUnderInputs(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "task.yaml")
+	yaml := `
+id: configure-agent
+name: Configure a research agent
+inputs:
+  prompt: "Add a new agent to my application"
+  responder:
+    model: gpt-4o
+    instructions: |
+      The agent you want is research-agent with tools web_search.
+      If you can't infer an answer, abstain.
+    max_followups: 8
+`
+	require.NoError(t, os.WriteFile(path, []byte(yaml), 0o600))
+
+	tc, err := LoadTestCase(path)
+	require.NoError(t, err)
+	require.NotNil(t, tc.Stimulus.Responder)
+	require.Equal(t, "gpt-4o", tc.Stimulus.Responder.Model)
+	require.Equal(t, 8, tc.Stimulus.Responder.MaxFollowups)
+	require.Contains(t, tc.Stimulus.Responder.Instructions, "research-agent")
+}
+
+func TestResponderValidationRejectsMissingInstructions(t *testing.T) {
+	tc := &TestCase{
+		TestID: "t1",
+		Stimulus: TaskStimulus{
+			Message:   "go",
+			Responder: &ResponderConfig{MaxFollowups: 3},
+		},
+	}
+	err := tc.Validate()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "instructions")
+}
+
+func TestResponderValidationRejectsZeroMaxFollowups(t *testing.T) {
+	tc := &TestCase{
+		TestID: "t1",
+		Stimulus: TaskStimulus{
+			Message:   "go",
+			Responder: &ResponderConfig{Instructions: "x", MaxFollowups: 0},
+		},
+	}
+	err := tc.Validate()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "max_followups")
+}
+
+func TestResponderValidationRejectsBothResponderAndFollowUps(t *testing.T) {
+	tc := &TestCase{
+		TestID: "t1",
+		Stimulus: TaskStimulus{
+			Message:   "go",
+			FollowUps: []string{"next"},
+			Responder: &ResponderConfig{Instructions: "x", MaxFollowups: 2},
+		},
+	}
+	err := tc.Validate()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "follow_up_prompts")
+	require.Contains(t, err.Error(), "responder")
+}
+
+func TestResponderValidationAcceptsValidConfig(t *testing.T) {
+	tc := &TestCase{
+		TestID: "t1",
+		Stimulus: TaskStimulus{
+			Message:   "go",
+			Responder: &ResponderConfig{Instructions: "x", MaxFollowups: 2},
+		},
+	}
+	require.NoError(t, tc.Validate())
 }

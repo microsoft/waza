@@ -15,7 +15,7 @@ func TestExecutionResponse_ExtractMessages(t *testing.T) {
 	resp := &ExecutionResponse{
 		Events: []copilot.SessionEvent{
 			{Data: &copilot.AssistantMessageData{Content: hello}},
-			{Data: &copilot.SessionIdleData{}},
+			{Data: &copilot.AssistantMessageData{}},
 			{Data: &copilot.AssistantMessageDeltaData{DeltaContent: ignoredDelta}},
 			{Data: &copilot.AssistantMessageData{Content: world}},
 		},

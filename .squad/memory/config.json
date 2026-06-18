@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "defaultProvider": "local",
+  "promptOnlyFallback": true,
+  "externalProviders": {
+    "hostInjectedCopilotAdapter": {
+      "enabled": false,
+      "requireApproval": true
+    }
+  },
+  "policy": {
+    "rejectForbidden": true,
+    "rejectTransientDurableWrites": true,
+    "auditContent": false
+  }
+}

@@ -111,6 +111,12 @@
           "minimum": 1,
           "description": "Maximum time in seconds for each task execution."
         },
+        "first_event_timeout_seconds": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0,
+          "description": "Maximum time in seconds to wait for the first session event before treating a run as a session-start hang and aborting it. Intended to be much shorter than timeout_seconds, which must cover the slowest legitimate full turn. 0 (the default) disables the check."
+        },
         "parallel": {
           "type": "boolean",
           "default": false,

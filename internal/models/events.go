@@ -90,8 +90,6 @@ func (te *TranscriptEvent) UnmarshalJSON(data []byte) error {
 		return err
 	}
 
-	// SessionEvent.Type() is derived from Data (v1.0.x), so setting Data below is
-	// sufficient — there is no longer a settable Type field.
 	te.Data = transcriptData(v.Type, v.Content, v.Message, v.ToolCallID, v.ToolName, v.Arguments, v.ToolResult, v.Success)
 
 	return nil

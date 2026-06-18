@@ -12,10 +12,16 @@ import type { RunSummary } from "../api/client";
 import {
   formatDuration,
   formatCost,
+  formatCredits,
   formatNumber,
   formatRelativeTime,
   formatPercent,
+  costSourceTooltip,
 } from "../lib/format";
+import { InfoTooltip } from "./InfoTooltip";
+
+const CREDITS_TOOLTIP =
+  "Premium request count reported by the Copilot SDK — not dollars.";
 
 function OutcomeBadge({ outcome }: { outcome: string }) {
   if (outcome.startsWith("pass"))
@@ -108,10 +114,32 @@ export default function RunsTable({ data }: { data: RunSummary[] }) {
           <span className="text-zinc-300">{formatNumber(info.getValue())}</span>
         ),
       }),
-      col.accessor("cost", {
-        header: "Cost",
+      col.accessor("premiumRequests", {
+        header: () => (
+          <span title={CREDITS_TOOLTIP} className="cursor-help">
+            Credits
+          </span>
+        ),
         cell: (info) => (
-          <span className="text-zinc-300">{formatCost(info.getValue())}</span>
+          <span className="text-zinc-300" title={CREDITS_TOOLTIP}>
+            {formatCredits(info.getValue() ?? 0)}
+          </span>
+        ),
+      }),
+      col.accessor("cost", {
+        header: () => (
+          <span className="inline-flex items-center gap-1">
+            Cost
+            <InfoTooltip text="Cost source varies per run. Hover individual values for the source (SDK, rate table, or estimate)." />
+          </span>
+        ),
+        cell: (info) => (
+          <span
+            className="text-zinc-300"
+            title={costSourceTooltip(info.row.original.costSource)}
+          >
+            {formatCost(info.getValue())}
+          </span>
         ),
       }),
       col.accessor("duration", {

@@ -269,6 +269,49 @@ func TestOutcomeToDetailMapsStatsTranscriptAndDigest(t *testing.T) {
 	}
 }
 
+func TestOutcomeToDetailMapsResponder(t *testing.T) {
+	outcome := &models.EvaluationOutcome{
+		RunID:     "responder-run",
+		BenchName: "bench-responder",
+		Setup:     models.OutcomeSetup{ModelID: "gpt-4o"},
+		Digest:    models.OutcomeDigest{TotalTests: 1, Succeeded: 1},
+		TestOutcomes: []models.TestOutcome{
+			{
+				DisplayName: "task-with-responder",
+				Status:      models.StatusPassed,
+				Runs: []models.RunResult{
+					{
+						Responder: &models.ResponderInfo{
+							FollowupsSent: 2,
+							Outcome:       models.ResponderOutcomeAbstained,
+							Reason:        "too vague",
+						},
+					},
+				},
+			},
+		},
+	}
+
+	detail := outcomeToDetail(outcome)
+
+	if len(detail.Tasks) != 1 {
+		t.Fatalf("expected 1 task, got %d", len(detail.Tasks))
+	}
+	responder := detail.Tasks[0].Responder
+	if responder == nil {
+		t.Fatal("expected responder")
+	}
+	if responder.Outcome != "abstained" {
+		t.Errorf("expected outcome abstained, got %q", responder.Outcome)
+	}
+	if responder.FollowupsSent != 2 {
+		t.Errorf("expected 2 followups sent, got %d", responder.FollowupsSent)
+	}
+	if responder.Reason != "too vague" {
+		t.Errorf("expected reason too vague, got %q", responder.Reason)
+	}
+}
+
 func TestOutcomeToDetailNoTasks(t *testing.T) {
 	detail := outcomeToDetail(&models.EvaluationOutcome{
 		RunID:     "empty",

@@ -23,11 +23,10 @@ import (
 var enableLiveCopilotTests = os.Getenv("ENABLE_COPILOT_TESTS") == "true"
 
 func TestAllowAllTools_UsesSDKApprovedKind(t *testing.T) {
-	decision, err := copilot.PermissionHandler.ApproveAll(nil, copilot.PermissionInvocation{})
+	result, err := allowAllTools(&copilot.RawPermissionRequest{}, copilot.PermissionInvocation{})
 	require.NoError(t, err)
-	require.NotNil(t, decision)
-	_, ok := decision.(*rpc.PermissionDecisionApproveOnce)
-	require.True(t, ok, "ApproveAll must return an approve-once decision")
+	_, ok := result.(*rpc.PermissionDecisionApproveOnce)
+	require.True(t, ok, "expected an ApproveOnce decision, got %T", result)
 }
 
 func TestCopilotNoSessionID(t *testing.T) {
@@ -46,7 +45,7 @@ func TestCopilotNoSessionID(t *testing.T) {
 		t:         t,
 		sourceDir: sourceDir,
 		expected: copilot.SessionConfig{
-			OnPermissionRequest: copilot.PermissionHandler.ApproveAll,
+			OnPermissionRequest: allowAllTools,
 			Model:               expectedModel,
 			SkillDirectories:    []string{sourceDir},
 		},
@@ -103,7 +102,7 @@ func TestCopilotResumeSessionID(t *testing.T) {
 		expected: copilot.ResumeSessionConfig{
 			Model:               "gpt-4o-mini",
 			SkillDirectories:    []string{sourceDir},
-			OnPermissionRequest: copilot.PermissionHandler.ApproveAll,
+			OnPermissionRequest: allowAllTools,
 		},
 	}
 
@@ -186,7 +185,7 @@ func TestCopilotCreateSession_PassesCustomProvider(t *testing.T) {
 		expected: copilot.SessionConfig{
 			Model:               "gpt-4o-mini",
 			SkillDirectories:    []string{sourceDir},
-			OnPermissionRequest: copilot.PermissionHandler.ApproveAll,
+			OnPermissionRequest: allowAllTools,
 			Provider: &copilot.ProviderConfig{
 				Type:        "openai",
 				BaseURL:     "https://waza-test-resource.openai.azure.com/openai/v1",
@@ -208,7 +207,8 @@ func TestCopilotCreateSession_PassesCustomProvider(t *testing.T) {
 	})
 	sessionMock.EXPECT().SendAndWait(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, _ copilot.MessageOptions) (*copilot.SessionEvent, error) {
-			in, out, cost := int64(10), int64(2), float64(1)
+			in, out := int64(10), int64(2)
+			cost := float64(1)
 			for _, handler := range eventHandlers {
 				handler(copilot.SessionEvent{
 					Data: &copilot.AssistantUsageData{
@@ -272,7 +272,7 @@ func TestCopilotResumeSession_PassesCustomProvider(t *testing.T) {
 		expected: copilot.ResumeSessionConfig{
 			Model:               "gpt-4o-mini",
 			SkillDirectories:    []string{sourceDir},
-			OnPermissionRequest: copilot.PermissionHandler.ApproveAll,
+			OnPermissionRequest: allowAllTools,
 			Provider: &copilot.ProviderConfig{
 				Type:    "openai",
 				BaseURL: "https://waza-test-resource.openai.azure.com/openai/v1",
@@ -378,7 +378,7 @@ func TestCopilotSendAndWaitReturnsErrorInResult(t *testing.T) {
 		expected: copilot.SessionConfig{
 			Model:               "gpt-4o-mini",
 			SkillDirectories:    []string{sourceDir},
-			OnPermissionRequest: copilot.PermissionHandler.ApproveAll,
+			OnPermissionRequest: allowAllTools,
 		},
 	}
 
@@ -534,9 +534,11 @@ func (m sessionConfigMatcher) Matches(x any) bool {
 		expected.OnPermissionRequest = nil
 		c.OnPermissionRequest = nil
 
-		// Streaming is a *bool set by the engine; not asserted via this matcher.
-		expected.Streaming = nil
-		c.Streaming = nil
+		// streamingPtr always returns a non-nil *bool now; when an expected
+		// fixture omits Streaming, treat actual *bool(false) as equivalent.
+		if expected.Streaming == nil && c.Streaming != nil && !*c.Streaming {
+			c.Streaming = nil
+		}
 
 		require.Equal(m.t, expected, c)
 	case *copilot.ResumeSessionConfig:
@@ -559,9 +561,9 @@ func (m sessionConfigMatcher) Matches(x any) bool {
 		expected.OnPermissionRequest = nil
 		c.OnPermissionRequest = nil
 
-		// Streaming is a *bool set by the engine; not asserted via this matcher.
-		expected.Streaming = nil
-		c.Streaming = nil
+		if expected.Streaming == nil && c.Streaming != nil && !*c.Streaming {
+			c.Streaming = nil
+		}
 
 		require.Equal(m.t, expected, c)
 	default:
@@ -614,7 +616,7 @@ func TestCopilotCreateSession_InjectsSkillSystemMessage(t *testing.T) {
 		expected: copilot.SessionConfig{
 			Model:               "gpt-4o-mini",
 			SkillDirectories:    []string{sourceDir},
-			OnPermissionRequest: copilot.PermissionHandler.ApproveAll,
+			OnPermissionRequest: allowAllTools,
 			SystemMessage: &copilot.SystemMessageConfig{
 				Mode:    "append",
 				Content: expectedSystemMsg,
@@ -674,7 +676,7 @@ func TestCopilotCreateSession_InjectsInstructionSystemMessage(t *testing.T) {
 		expected: copilot.SessionConfig{
 			Model:               "gpt-4o-mini",
 			SkillDirectories:    []string{sourceDir},
-			OnPermissionRequest: copilot.PermissionHandler.ApproveAll,
+			OnPermissionRequest: allowAllTools,
 			SystemMessage: &copilot.SystemMessageConfig{
 				Mode:    "append",
 				Content: expectedSystemMsg,
@@ -727,7 +729,7 @@ func TestCopilotCreateSession_PassesMCPServers(t *testing.T) {
 		expected: copilot.SessionConfig{
 			Model:               "gpt-4o-mini",
 			SkillDirectories:    []string{sourceDir},
-			OnPermissionRequest: copilot.PermissionHandler.ApproveAll,
+			OnPermissionRequest: allowAllTools,
 			MCPServers:          mcpServers,
 		},
 	}
@@ -782,7 +784,7 @@ func TestCopilotResumeSession_PassesMCPServersAndSystemMessage(t *testing.T) {
 		expected: copilot.ResumeSessionConfig{
 			Model:               "gpt-4o-mini",
 			SkillDirectories:    []string{sourceDir},
-			OnPermissionRequest: copilot.PermissionHandler.ApproveAll,
+			OnPermissionRequest: allowAllTools,
 			SystemMessage: &copilot.SystemMessageConfig{
 				Mode:    "append",
 				Content: expectedSystemMsg,
