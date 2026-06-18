@@ -89,7 +89,7 @@ func CreateTestCaseFromCopilotLog(copilotLog string, options *CreateTestCaseFrom
 			return nil, err
 		}
 
-		switch e.Type {
+		switch e.Type() {
 		case copilot.SessionEventTypeUserMessage:
 			if content, ok := copilotevents.Content(e); ok {
 				task.Stimulus.Message = content

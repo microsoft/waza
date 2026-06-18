@@ -140,7 +140,7 @@ type ExecutionResponse struct {
 func (r *ExecutionResponse) ExtractMessages() []string {
 	var messages []string
 	for _, evt := range r.Events {
-		if evt.Type == copilot.SessionEventTypeAssistantMessage {
+		if evt.Type() == copilot.SessionEventTypeAssistantMessage {
 			if content, ok := copilotevents.Content(evt); ok {
 				messages = append(messages, content)
 			}

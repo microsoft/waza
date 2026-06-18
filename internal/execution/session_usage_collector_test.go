@@ -12,9 +12,8 @@ func TestSessionUsageCollector_UsageFromShutdown(t *testing.T) {
 	coll := NewSessionUsageCollector()
 
 	coll.On(copilot.SessionEvent{
-		Type: copilot.SessionEventTypeSessionShutdown,
 		Data: &copilot.SessionShutdownData{
-			TotalPremiumRequests: 5,
+			TotalPremiumRequests: f64p(5),
 			ModelMetrics: map[string]copilot.ShutdownModelMetric{
 				"claude-sonnet-4": {
 					Usage: copilot.ShutdownModelMetricUsage{
@@ -24,8 +23,8 @@ func TestSessionUsageCollector_UsageFromShutdown(t *testing.T) {
 						CacheWriteTokens: 100,
 					},
 					Requests: copilot.ShutdownModelMetricRequests{
-						Count: 3,
-						Cost:  3,
+						Count: i64p(3),
+						Cost: f64p(3),
 					},
 				},
 				"gpt-4o": {
@@ -34,8 +33,8 @@ func TestSessionUsageCollector_UsageFromShutdown(t *testing.T) {
 						OutputTokens: 300,
 					},
 					Requests: copilot.ShutdownModelMetricRequests{
-						Count: 2,
-						Cost:  2,
+						Count: i64p(2),
+						Cost: f64p(2),
 					},
 				},
 			},
@@ -65,9 +64,8 @@ func TestSessionUsageCollector_UsageFromShutdown(t *testing.T) {
 func TestSessionUsageCollector_UsageFromAssistantUsage(t *testing.T) {
 	coll := NewSessionUsageCollector()
 
-	in1, out1, cost1 := float64(500), float64(200), float64(1)
+	in1, out1, cost1 := int64(500), int64(200), float64(1)
 	coll.On(copilot.SessionEvent{
-		Type: copilot.SessionEventTypeAssistantUsage,
 		Data: &copilot.AssistantUsageData{
 			InputTokens:  &in1,
 			OutputTokens: &out1,
@@ -76,9 +74,8 @@ func TestSessionUsageCollector_UsageFromAssistantUsage(t *testing.T) {
 		},
 	})
 
-	in2, out2, cost2 := float64(300), float64(100), float64(1)
+	in2, out2, cost2 := int64(300), int64(100), float64(1)
 	coll.On(copilot.SessionEvent{
-		Type: copilot.SessionEventTypeAssistantUsage,
 		Data: &copilot.AssistantUsageData{
 			InputTokens:  &in2,
 			OutputTokens: &out2,
@@ -98,7 +95,6 @@ func TestSessionUsageCollector_NoUsageReturnsNil(t *testing.T) {
 	coll := NewSessionUsageCollector()
 
 	coll.On(copilot.SessionEvent{
-		Type: copilot.SessionEventTypeSessionIdle,
 		Data: &copilot.SessionIdleData{},
 	})
 
@@ -109,9 +105,8 @@ func TestSessionUsageCollector_ShutdownOverridesTurnUsage(t *testing.T) {
 	coll := NewSessionUsageCollector()
 
 	// Per-turn usage first
-	in1, out1 := float64(500), float64(200)
+	in1, out1 := int64(500), int64(200)
 	coll.On(copilot.SessionEvent{
-		Type: copilot.SessionEventTypeAssistantUsage,
 		Data: &copilot.AssistantUsageData{
 			InputTokens:  &in1,
 			OutputTokens: &out1,
@@ -121,16 +116,15 @@ func TestSessionUsageCollector_ShutdownOverridesTurnUsage(t *testing.T) {
 
 	// Shutdown event with authoritative totals should override
 	coll.On(copilot.SessionEvent{
-		Type: copilot.SessionEventTypeSessionShutdown,
 		Data: &copilot.SessionShutdownData{
-			TotalPremiumRequests: 3,
+			TotalPremiumRequests: f64p(3),
 			ModelMetrics: map[string]copilot.ShutdownModelMetric{
 				"gpt-4o": {
 					Usage: copilot.ShutdownModelMetricUsage{
 						InputTokens:  1200,
 						OutputTokens: 600,
 					},
-					Requests: copilot.ShutdownModelMetricRequests{Count: 3, Cost: 3},
+					Requests: copilot.ShutdownModelMetricRequests{Count: i64p(3), Cost: f64p(3)},
 				},
 			},
 		},
@@ -148,17 +142,16 @@ func TestSessionUsageCollector_SessionErrorCapturesUsage(t *testing.T) {
 	coll := NewSessionUsageCollector()
 
 	coll.On(copilot.SessionEvent{
-		Type: copilot.SessionEventTypeSessionShutdown,
 		Data: &copilot.SessionShutdownData{
 			ShutdownType:         copilot.ShutdownType("error"),
-			TotalPremiumRequests: 2,
+			TotalPremiumRequests: f64p(2),
 			ModelMetrics: map[string]copilot.ShutdownModelMetric{
 				"gpt-4o": {
 					Usage: copilot.ShutdownModelMetricUsage{
 						InputTokens:  400,
 						OutputTokens: 100,
 					},
-					Requests: copilot.ShutdownModelMetricRequests{Count: 2, Cost: 2},
+					Requests: copilot.ShutdownModelMetricRequests{Count: i64p(2), Cost: f64p(2)},
 				},
 			},
 		},
@@ -175,13 +168,12 @@ func TestSessionUsageCollector_TurnsFromAssistantTurnStart(t *testing.T) {
 
 	// Send three AssistantTurnStart events
 	for range 3 {
-		coll.On(copilot.SessionEvent{Type: copilot.SessionEventTypeAssistantTurnStart})
+		coll.On(copilot.SessionEvent{Data: &copilot.AssistantTurnStartData{}})
 	}
 
 	// Also send a session-level event so UsageStats() returns non-nil
 	coll.On(copilot.SessionEvent{
-		Type: copilot.SessionEventTypeSessionShutdown,
-		Data: &copilot.SessionShutdownData{TotalPremiumRequests: 1},
+		Data: &copilot.SessionShutdownData{TotalPremiumRequests: f64p(1)},
 	})
 
 	usage := coll.UsageStats()
@@ -193,13 +185,12 @@ func TestSessionUsageCollector_TurnsWithTurnUsageFallback(t *testing.T) {
 	coll := NewSessionUsageCollector()
 
 	// AssistantTurnStart events increment the counter
-	coll.On(copilot.SessionEvent{Type: copilot.SessionEventTypeAssistantTurnStart})
-	coll.On(copilot.SessionEvent{Type: copilot.SessionEventTypeAssistantTurnStart})
+	coll.On(copilot.SessionEvent{Data: &copilot.AssistantTurnStartData{}})
+	coll.On(copilot.SessionEvent{Data: &copilot.AssistantTurnStartData{}})
 
 	// Per-turn usage (no session-level event) triggers fallback path
-	in := float64(100)
+	in := int64(100)
 	coll.On(copilot.SessionEvent{
-		Type: copilot.SessionEventTypeAssistantUsage,
 		Data: &copilot.AssistantUsageData{InputTokens: &in, Model: "gpt-4o"},
 	})
 
@@ -212,9 +203,8 @@ func TestSessionUsageCollector_TurnsWithTurnUsageFallback(t *testing.T) {
 func TestSessionUsageCollector_PremiumRequestsOnlyFallsBackToTurnTokens(t *testing.T) {
 	coll := NewSessionUsageCollector()
 
-	in1, out1 := float64(500), float64(200)
+	in1, out1 := int64(500), int64(200)
 	coll.On(copilot.SessionEvent{
-		Type: copilot.SessionEventTypeAssistantUsage,
 		Data: &copilot.AssistantUsageData{
 			InputTokens:  &in1,
 			OutputTokens: &out1,
@@ -223,8 +213,7 @@ func TestSessionUsageCollector_PremiumRequestsOnlyFallsBackToTurnTokens(t *testi
 	})
 
 	coll.On(copilot.SessionEvent{
-		Type: copilot.SessionEventTypeSessionShutdown,
-		Data: &copilot.SessionShutdownData{TotalPremiumRequests: 3},
+		Data: &copilot.SessionShutdownData{TotalPremiumRequests: f64p(3)},
 	})
 
 	usage := coll.UsageStats()
@@ -233,3 +222,7 @@ func TestSessionUsageCollector_PremiumRequestsOnlyFallsBackToTurnTokens(t *testi
 	require.Equal(t, 500, usage.InputTokens)
 	require.Equal(t, 200, usage.OutputTokens)
 }
+
+func f64p(v float64) *float64 { return &v }
+
+func i64p(v int64) *int64 { return &v }

@@ -37,16 +37,16 @@ func TestLogIterator_SingleValidLine(t *testing.T) {
 	events, err := collectEvents(t, filepath.Join("testdata", "single_valid.jsonl"))
 	require.NoError(t, err)
 	require.Len(t, events, 1)
-	assert.Equal(t, copilot.SessionEventTypeSessionStart, events[0].Type)
+	assert.Equal(t, copilot.SessionEventTypeSessionStart, events[0].Type())
 }
 
 func TestLogIterator_MultipleValidLines(t *testing.T) {
 	events, err := collectEvents(t, filepath.Join("testdata", "multiple_valid.jsonl"))
 	require.NoError(t, err)
 	require.Len(t, events, 3)
-	assert.Equal(t, copilot.SessionEventTypeSessionStart, events[0].Type)
-	assert.Equal(t, copilot.SessionEventTypeUserMessage, events[1].Type)
-	assert.Equal(t, copilot.SessionEventTypeAssistantTurnStart, events[2].Type)
+	assert.Equal(t, copilot.SessionEventTypeSessionStart, events[0].Type())
+	assert.Equal(t, copilot.SessionEventTypeUserMessage, events[1].Type())
+	assert.Equal(t, copilot.SessionEventTypeAssistantTurnStart, events[2].Type())
 }
 
 func TestLogIterator_FileNotFound(t *testing.T) {
@@ -63,7 +63,7 @@ func TestLogIterator_MalformedJSON_MissingBrace(t *testing.T) {
 	require.Error(t, err)
 	// First line was valid and should have been yielded before the error
 	assert.Len(t, events, 1)
-	assert.Equal(t, copilot.SessionEventTypeSessionStart, events[0].Type)
+	assert.Equal(t, copilot.SessionEventTypeSessionStart, events[0].Type())
 }
 
 func TestLogIterator_MalformedJSON_InvalidSyntax(t *testing.T) {
@@ -95,9 +95,9 @@ func TestLogIterator_UnknownEventTypes(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, events, 4)
 
-	assert.Equal(t, copilot.SessionEventType("totally.made.up"), events[1].Type)
-	assert.Equal(t, copilot.SessionEventType("🦄.unicorn"), events[2].Type)
-	assert.Equal(t, copilot.SessionEventTypeAssistantTurnEnd, events[3].Type)
+	assert.Equal(t, copilot.SessionEventType("totally.made.up"), events[1].Type())
+	assert.Equal(t, copilot.SessionEventType("🦄.unicorn"), events[2].Type())
+	assert.Equal(t, copilot.SessionEventTypeAssistantTurnEnd, events[3].Type())
 }
 
 func TestLogIterator_VeryLargeLogLine(t *testing.T) {
@@ -110,7 +110,7 @@ func TestLogIterator_VeryLargeLogLine(t *testing.T) {
 	events, err := collectEvents(t, tmp)
 	require.NoError(t, err)
 	require.Len(t, events, 1)
-	assert.Equal(t, copilot.SessionEventTypeUserMessage, events[0].Type)
+	assert.Equal(t, copilot.SessionEventTypeUserMessage, events[0].Type())
 	content, ok := copilotevents.Content(events[0])
 	require.True(t, ok)
 	assert.Len(t, content, 1<<20)
@@ -157,7 +157,7 @@ func TestLogIterator_EmptyJSONObjects(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, events, 3)
 	for _, ev := range events {
-		assert.Equal(t, copilot.SessionEventType(""), ev.Type)
+		assert.Equal(t, copilot.SessionEventType(""), ev.Type())
 	}
 }
 
@@ -267,7 +267,7 @@ func TestLogIterator_ExtraFieldsIgnored(t *testing.T) {
 	events, err := collectEvents(t, tmp)
 	require.NoError(t, err)
 	require.Len(t, events, 1)
-	assert.Equal(t, copilot.SessionEventTypeSessionStart, events[0].Type)
+	assert.Equal(t, copilot.SessionEventTypeSessionStart, events[0].Type())
 }
 
 func TestLogIterator_InvalidUTF8InContent(t *testing.T) {
@@ -303,5 +303,5 @@ func TestLogIterator_DeeplyNestedJSON(t *testing.T) {
 	events, err := collectEvents(t, tmp)
 	require.NoError(t, err)
 	require.Len(t, events, 1)
-	assert.Equal(t, copilot.SessionEventTypeToolExecutionStart, events[0].Type)
+	assert.Equal(t, copilot.SessionEventTypeToolExecutionStart, events[0].Type())
 }

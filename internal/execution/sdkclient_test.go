@@ -176,7 +176,7 @@ func TestSharedClient_UsesEmbeddedCLIPath(t *testing.T) {
 	t.Cleanup(resetSharedClientForTest)
 	t.Setenv("COPILOT_CLI_PATH", "")
 
-	embeddedCLIPath = func() (string, error) { return "/cache/copilot-sdk/copilot_1.0.49", nil }
+	embeddedCLIPath = func() (string, error) { return "/cache/copilot-sdk/copilot_1.0.64-0", nil }
 	t.Cleanup(func() { embeddedCLIPath = embedded.Path })
 
 	stub := &stubClient{}
@@ -191,8 +191,8 @@ func TestSharedClient_UsesEmbeddedCLIPath(t *testing.T) {
 	if gotOptions == nil {
 		t.Fatalf("expected shared client to be constructed")
 	}
-	if gotOptions.CLIPath != "/cache/copilot-sdk/copilot_1.0.49" {
-		t.Fatalf("expected embedded CLI path, got %q", gotOptions.CLIPath)
+	if connPath(gotOptions) != "/cache/copilot-sdk/copilot_1.0.64-0" {
+		t.Fatalf("expected embedded CLI path, got %q", connPath(gotOptions))
 	}
 }
 
@@ -201,7 +201,7 @@ func TestSharedClient_PassesCLIArgs(t *testing.T) {
 	t.Cleanup(resetSharedClientForTest)
 	t.Setenv("COPILOT_CLI_PATH", "")
 
-	embeddedCLIPath = func() (string, error) { return "/cache/copilot-sdk/copilot_1.0.49", nil }
+	embeddedCLIPath = func() (string, error) { return "/cache/copilot-sdk/copilot_1.0.64-0", nil }
 	t.Cleanup(func() { embeddedCLIPath = embedded.Path })
 
 	stub := &stubClient{}
@@ -217,8 +217,8 @@ func TestSharedClient_PassesCLIArgs(t *testing.T) {
 	if gotOptions == nil {
 		t.Fatalf("expected shared client to be constructed")
 	}
-	if !reflect.DeepEqual(gotOptions.CLIArgs, cliArgs) {
-		t.Fatalf("expected CLIArgs %v, got %v", cliArgs, gotOptions.CLIArgs)
+	if !reflect.DeepEqual(connArgs(gotOptions), cliArgs) {
+		t.Fatalf("expected CLIArgs %v, got %v", cliArgs, connArgs(gotOptions))
 	}
 }
 
@@ -227,12 +227,12 @@ func TestSharedClient_SeparatesDifferentCLIArgs(t *testing.T) {
 	t.Cleanup(resetSharedClientForTest)
 	t.Setenv("COPILOT_CLI_PATH", "")
 
-	embeddedCLIPath = func() (string, error) { return "/cache/copilot-sdk/copilot_1.0.49", nil }
+	embeddedCLIPath = func() (string, error) { return "/cache/copilot-sdk/copilot_1.0.64-0", nil }
 	t.Cleanup(func() { embeddedCLIPath = embedded.Path })
 
 	var gotArgs [][]string
 	sharedConstruct = func(opts *copilot.ClientOptions) CopilotClient {
-		gotArgs = append(gotArgs, append([]string{}, opts.CLIArgs...))
+		gotArgs = append(gotArgs, append([]string{}, connArgs(opts)...))
 		return &stubClient{}
 	}
 	t.Cleanup(func() { sharedConstruct = newCopilotClient })
@@ -288,8 +288,8 @@ func TestSharedClient_UsesCOPILOTCLIPathOverride(t *testing.T) {
 	if gotOptions == nil {
 		t.Fatalf("expected shared client to be constructed")
 	}
-	if gotOptions.CLIPath != cliPath {
-		t.Fatalf("expected COPILOT_CLI_PATH override, got %q", gotOptions.CLIPath)
+	if connPath(gotOptions) != cliPath {
+		t.Fatalf("expected COPILOT_CLI_PATH override, got %q", connPath(gotOptions))
 	}
 }
 
@@ -345,4 +345,14 @@ func TestSharedClient_EmbeddedInstallFailureReturnsStartupError(t *testing.T) {
 	if err := ShutdownSharedClient(context.Background()); err != nil {
 		t.Fatalf("startup error client shutdown should be a no-op, got %v", err)
 	}
+}
+
+func connPath(opts *copilot.ClientOptions) string {
+	if opts == nil {
+		return ""
+	}
+	if conn, ok := opts.Connection.(copilot.StdioConnection); ok {
+		return conn.Path
+	}
+	return ""
 }

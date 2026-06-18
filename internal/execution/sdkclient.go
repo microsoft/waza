@@ -11,7 +11,6 @@ import (
 
 	copilot "github.com/github/copilot-sdk/go"
 	"github.com/microsoft/waza/internal/embedded"
-	"github.com/microsoft/waza/internal/utils"
 )
 
 // SharedClientOptions configures a lazily-constructed process-wide Copilot SDK
@@ -93,10 +92,7 @@ func sharedClientKey(cliArgs []string) string {
 
 func sharedClientOptions(logLevel string, cliArgs []string) (*copilot.ClientOptions, error) {
 	opts := &copilot.ClientOptions{
-		LogLevel:    logLevel,
-		CLIArgs:     append([]string{}, cliArgs...),
-		AutoStart:   utils.Ptr(false),
-		AutoRestart: utils.Ptr(true),
+		LogLevel: logLevel,
 	}
 
 	if cliPath := os.Getenv("COPILOT_CLI_PATH"); cliPath != "" {
@@ -107,7 +103,7 @@ func sharedClientOptions(logLevel string, cliArgs []string) (*copilot.ClientOpti
 		if info.IsDir() {
 			return nil, fmt.Errorf("COPILOT_CLI_PATH %q is not usable: path is a directory", cliPath)
 		}
-		opts.CLIPath = cliPath
+		opts.Connection = copilot.StdioConnection{Path: cliPath, Args: append([]string{}, cliArgs...)}
 		slog.Info("using Copilot CLI", "source", "COPILOT_CLI_PATH", "path", cliPath)
 		return opts, nil
 	}
@@ -116,7 +112,7 @@ func sharedClientOptions(logLevel string, cliArgs []string) (*copilot.ClientOpti
 	if err != nil {
 		return nil, fmt.Errorf("embedded Copilot CLI is unavailable and COPILOT_CLI_PATH is not set; refusing to fall back to PATH: %w", err)
 	}
-	opts.CLIPath = cliPath
+	opts.Connection = copilot.StdioConnection{Path: cliPath, Args: append([]string{}, cliArgs...)}
 	slog.Info("using Copilot CLI", "source", "embedded", "path", cliPath)
 	return opts, nil
 }

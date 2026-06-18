@@ -27,7 +27,7 @@ func TestModelsCommand_ListsModels(t *testing.T) {
 			Name: "GPT-4o",
 			Capabilities: copilot.ModelCapabilities{
 				Supports: copilot.ModelSupports{Vision: true},
-				Limits:   copilot.ModelLimits{MaxContextWindowTokens: 128_000},
+				Limits:   copilot.ModelLimits{MaxContextWindowTokens: copilot.Int(128_000)},
 			},
 		},
 		{
@@ -35,7 +35,7 @@ func TestModelsCommand_ListsModels(t *testing.T) {
 			Name: "Claude Sonnet 4",
 			Capabilities: copilot.ModelCapabilities{
 				Supports: copilot.ModelSupports{Vision: false},
-				Limits:   copilot.ModelLimits{MaxContextWindowTokens: 200_000},
+				Limits:   copilot.ModelLimits{MaxContextWindowTokens: copilot.Int(200_000)},
 			},
 		},
 	}, nil)

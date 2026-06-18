@@ -387,7 +387,7 @@ func TestBuildGraderContextAndScoreHelpers(t *testing.T) {
 		ToolCalls: []models.ToolCall{{Name: "bash"}, {Name: "view"}},
 		Usage:     &models.UsageStats{Turns: 1},
 		Events: []copilot.SessionEvent{
-			{Type: copilot.SessionEventTypeUserMessage, Data: &copilot.UserMessageData{Content: content}},
+			{Data: &copilot.UserMessageData{Content: content}},
 		},
 	}
 
@@ -408,7 +408,7 @@ func TestBuildGraderContextAndScoreHelpers(t *testing.T) {
 
 	transcript := runner.buildTranscript(resp)
 	require.Len(t, transcript, 1)
-	assert.Equal(t, copilot.SessionEventTypeUserMessage, transcript[0].Type)
+	assert.Equal(t, copilot.SessionEventTypeUserMessage, transcript[0].Type())
 }
 
 func TestComputeTestStats_FlakinessPercent(t *testing.T) {

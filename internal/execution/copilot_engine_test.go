@@ -227,7 +227,8 @@ func TestCopilotEngine_Execute_PassesGraderRequestOptionsAndDeletesEphemeralSess
 	clientMock.EXPECT().CreateSession(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, cfg *copilot.SessionConfig) (CopilotSession, error) {
 			require.Equal(t, "judge-model", cfg.Model)
-			require.True(t, cfg.Streaming)
+			require.NotNil(t, cfg.Streaming)
+			require.True(t, *cfg.Streaming)
 			require.Empty(t, cfg.SkillDirectories)
 			require.Equal(t, "set_waza_grade_pass", cfg.Tools[0].Name)
 			require.NotEmpty(t, cfg.WorkingDirectory)
@@ -276,7 +277,8 @@ func TestCopilotEngine_Execute_ResumedEphemeralSessionIsNotDeletedOrTracked(t *t
 
 	clientMock.EXPECT().ResumeSessionWithOptions(gomock.Any(), "existing-session", gomock.Any()).DoAndReturn(
 		func(_ context.Context, _ string, cfg *copilot.ResumeSessionConfig) (CopilotSession, error) {
-			require.True(t, cfg.Streaming)
+			require.NotNil(t, cfg.Streaming)
+			require.True(t, *cfg.Streaming)
 			require.Empty(t, cfg.SkillDirectories)
 			require.Equal(t, "judge-tool", cfg.Tools[0].Name)
 			return sessionMock, nil
@@ -351,7 +353,7 @@ func TestCopilotEngineBuilder_CLIArgsCarriesModel(t *testing.T) {
 	}).Build()
 
 	require.NotNil(t, captured, "NewCopilotClient must receive non-nil ClientOptions")
-	require.Equal(t, []string{"--model", defaultModelID}, captured.CLIArgs,
+	require.Equal(t, []string{"--model", defaultModelID}, connArgs(captured),
 		"CLIArgs must carry --model <defaultModelID> so it overrides the user's local Copilot settings.json and experiment-flight defaults")
 }
 
@@ -373,7 +375,7 @@ func TestCopilotEngineBuilder_CLIArgsEmptyWhenNoDefaultModel(t *testing.T) {
 	}).Build()
 
 	require.NotNil(t, captured, "NewCopilotClient must receive non-nil ClientOptions")
-	require.Empty(t, captured.CLIArgs,
+	require.Empty(t, connArgs(captured),
 		"CLIArgs must be empty when no defaultModelID is provided so the embedded CLI can pick its own fallback")
 }
 
@@ -405,7 +407,7 @@ func TestCopilotEngineBuilder_CLIArgsEmptyWhenCustomProvider(t *testing.T) {
 	}).Build()
 
 	require.NotNil(t, captured, "NewCopilotClient must receive non-nil ClientOptions")
-	require.Empty(t, captured.CLIArgs,
+	require.Empty(t, connArgs(captured),
 		"CLIArgs must be empty when a custom BYOK provider is configured so the embedded CLI does not pre-validate a provider-only model ID against the GitHub Copilot catalog (#305)")
 
 	// The engine should still know the defaultModelID and provider for
@@ -439,4 +441,18 @@ func clearCustomProviderEnv(t *testing.T) {
 			}
 		})
 	}
+}
+
+// connArgs returns the CLI args carried by the client options' stdio
+// connection. In SDK v1.0.x, startup CLI args (for example --model) are passed
+// via ClientOptions.Connection (a StdioConnection) rather than a top-level
+// CLIArgs field.
+func connArgs(opts *copilot.ClientOptions) []string {
+	if opts == nil {
+		return nil
+	}
+	if conn, ok := opts.Connection.(copilot.StdioConnection); ok {
+		return conn.Args
+	}
+	return nil
 }

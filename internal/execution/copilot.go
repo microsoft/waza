@@ -108,7 +108,7 @@ func providerFromEnv() customProviderConfig {
 		p.Type = v
 	}
 	if v := envFirst("COPILOT_WIRE_API", "COPILOT_PROVIDER_WIRE_API"); v != "" {
-		p.WireApi = v
+		p.WireAPI = v
 	}
 	if v := envFirst("COPILOT_API_KEY", "COPILOT_PROVIDER_API_KEY"); v != "" {
 		p.APIKey = v
@@ -179,10 +179,9 @@ func NewCopilotEngineBuilder(defaultModelID string, options *CopilotEngineBuilde
 			// workspace is set at the session level, instead of at the client.
 			LogLevel: "error",
 
-			CLIArgs: cliArgs,
-
-			AutoStart:   utils.Ptr(false), // we handle start in Initialize()
-			AutoRestart: utils.Ptr(true),  // this is a default, but just in case the defaults change...
+			// CLI args (for example --model) are passed through the connection;
+			// the SDK manages process start/restart, so no AutoStart/AutoRestart.
+			Connection: copilot.StdioConnection{Args: cliArgs},
 		}
 		client = options.NewCopilotClient(copilotOptions)
 		ownsClient = true
@@ -357,7 +356,7 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 
 	var session CopilotSession
 
-	permRequestCallback := allowAllTools
+	permRequestCallback := copilot.PermissionHandler.ApproveAll
 	if req.PermissionHandler != nil {
 		permRequestCallback = req.PermissionHandler
 	}
@@ -373,7 +372,7 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 			SkillDirectories: skillDirs,
 			WorkingDirectory: workingDir,
 			SystemMessage:    systemMessage,
-			Streaming:        req.Streaming,
+			Streaming:        copilot.Bool(req.Streaming),
 			MCPServers:       req.MCPServers,
 			Provider:         e.provider.sessionConfig(),
 		})
@@ -392,7 +391,7 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 			SkillDirectories: skillDirs,
 			WorkingDirectory: workingDir,
 			SystemMessage:    systemMessage,
-			Streaming:        req.Streaming,
+			Streaming:        copilot.Bool(req.Streaming),
 			MCPServers:       req.MCPServers,
 			Provider:         e.provider.sessionConfig(),
 		})
@@ -720,10 +719,6 @@ func joinStrings(parts []string) string {
 		builder.WriteString(p)
 	}
 	return builder.String()
-}
-
-func allowAllTools(request copilot.PermissionRequest, invocation copilot.PermissionInvocation) (copilot.PermissionRequestResult, error) {
-	return copilot.PermissionRequestResult{Kind: copilot.PermissionRequestResultKindApproved}, nil
 }
 
 // skillDefinition holds the content extracted from a SKILL.md file.

@@ -48,7 +48,7 @@ func (te TranscriptEvent) MarshalJSON() ([]byte, error) {
 		ToolName   *string                              `json:"tool_name,omitempty"`
 		ToolResult *copilot.ToolExecutionCompleteResult `json:"tool_result,omitempty"`
 	}{
-		Type: te.Type,
+		Type: te.Type(),
 	}
 
 	if content, ok := copilotevents.Content(te.SessionEvent); ok {
@@ -90,7 +90,8 @@ func (te *TranscriptEvent) UnmarshalJSON(data []byte) error {
 		return err
 	}
 
-	te.Type = v.Type
+	// SessionEvent.Type() is derived from Data (v1.0.x), so setting Data below is
+	// sufficient — there is no longer a settable Type field.
 	te.Data = transcriptData(v.Type, v.Content, v.Message, v.ToolCallID, v.ToolName, v.Arguments, v.ToolResult, v.Success)
 
 	return nil
@@ -160,7 +161,7 @@ func FilterToolCalls(sessionEvents []copilot.SessionEvent) []ToolCall {
 	var toolCallIDs []string // preserve the start order of the events.
 
 	for _, evt := range sessionEvents {
-		switch evt.Type {
+		switch evt.Type() {
 		case copilot.SessionEventTypeToolExecutionStart:
 			start, ok := copilotevents.ToolStart(evt)
 			if !ok || start.ToolName == "" || start.ToolCallID == "" {

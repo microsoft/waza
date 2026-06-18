@@ -17,7 +17,6 @@ func TestTranscriptEventRoundTrip(t *testing.T) {
 
 	original := TranscriptEvent{
 		SessionEvent: copilot.SessionEvent{
-			Type: copilot.SessionEventTypeToolExecutionComplete,
 			Data: &copilot.ToolExecutionCompleteData{
 				ToolCallID: toolCallID,
 				Result: &copilot.ToolExecutionCompleteResult{
@@ -41,8 +40,8 @@ func TestTranscriptEventRoundTrip(t *testing.T) {
 		t.Fatalf("UnmarshalJSON failed: %v", err)
 	}
 
-	if restored.Type != original.Type {
-		t.Errorf("Type: got %v, want %v", restored.Type, original.Type)
+	if restored.Type() != original.Type() {
+		t.Errorf("Type: got %v, want %v", restored.Type(), original.Type())
 	}
 	restoredData, ok := restored.Data.(*copilot.ToolExecutionCompleteData)
 	require.True(t, ok)
@@ -62,8 +61,8 @@ func TestTranscriptEventUnmarshalMinimal(t *testing.T) {
 	if err := json.Unmarshal([]byte(input), &te); err != nil {
 		t.Fatalf("UnmarshalJSON failed: %v", err)
 	}
-	if te.Type != copilot.SessionEventTypeToolExecutionStart {
-		t.Errorf("Type: got %v, want %v", te.Type, copilot.SessionEventTypeToolExecutionStart)
+	if te.Type() != copilot.SessionEventTypeToolExecutionStart {
+		t.Errorf("Type: got %v, want %v", te.Type(), copilot.SessionEventTypeToolExecutionStart)
 	}
 	_, ok := te.Data.(*copilot.ToolExecutionStartData)
 	require.True(t, ok)
