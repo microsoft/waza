@@ -96,9 +96,12 @@ func TestExecute_ContextCancellation(t *testing.T) {
 }
 
 func TestExecute_ContextTimeout(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Millisecond)
+	// Use a deadline already in the past so the context is canceled
+	// synchronously by WithDeadline (dur <= 0), avoiding a race against the
+	// deadline timer goroutine that could otherwise let Execute observe a
+	// not-yet-expired context on a loaded runner (flaky on Windows CI).
+	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Hour))
 	defer cancel()
-	time.Sleep(5 * time.Millisecond) // ensure timeout fires
 
 	r := &Runner{Verbose: false}
 	hooks := []HookConfig{
