@@ -11,7 +11,7 @@
           "capabilities": [
             "custom-commands"
           ],
-          "usage": "azd waza \u003ccommand\u003e [options]",
+          "usage": "azd waza <command> [options]",
           "examples": [
             {
               "name": "init",
@@ -96,7 +96,7 @@
             "custom-commands",
             "metadata"
           ],
-          "usage": "azd waza \u003ccommand\u003e [options]",
+          "usage": "azd waza <command> [options]",
           "examples": [
             {
               "name": "init",
@@ -181,7 +181,7 @@
             "custom-commands",
             "metadata"
           ],
-          "usage": "azd waza \u003ccommand\u003e [options]",
+          "usage": "azd waza <command> [options]",
           "examples": [
             {
               "name": "init",
@@ -266,7 +266,7 @@
             "custom-commands",
             "metadata"
           ],
-          "usage": "azd waza \u003ccommand\u003e [options]",
+          "usage": "azd waza <command> [options]",
           "examples": [
             {
               "name": "init",
@@ -351,7 +351,7 @@
             "custom-commands",
             "metadata"
           ],
-          "usage": "azd waza \u003ccommand\u003e [options]",
+          "usage": "azd waza <command> [options]",
           "examples": [
             {
               "name": "init",
@@ -436,7 +436,7 @@
             "custom-commands",
             "metadata"
           ],
-          "usage": "azd waza \u003ccommand\u003e [options]",
+          "usage": "azd waza <command> [options]",
           "examples": [
             {
               "name": "init",
@@ -521,7 +521,7 @@
             "custom-commands",
             "metadata"
           ],
-          "usage": "azd waza \u003ccommand\u003e [options]",
+          "usage": "azd waza <command> [options]",
           "examples": [
             {
               "name": "init",
@@ -606,7 +606,7 @@
             "custom-commands",
             "metadata"
           ],
-          "usage": "azd waza \u003ccommand\u003e [options]",
+          "usage": "azd waza <command> [options]",
           "examples": [
             {
               "name": "init",
@@ -691,7 +691,7 @@
             "custom-commands",
             "metadata"
           ],
-          "usage": "azd waza \u003ccommand\u003e [options]",
+          "usage": "azd waza <command> [options]",
           "examples": [
             {
               "name": "init",
@@ -776,7 +776,7 @@
             "custom-commands",
             "metadata"
           ],
-          "usage": "azd waza \u003ccommand\u003e [options]",
+          "usage": "azd waza <command> [options]",
           "examples": [
             {
               "name": "init",
@@ -861,7 +861,7 @@
             "custom-commands",
             "metadata"
           ],
-          "usage": "azd waza \u003ccommand\u003e [options]",
+          "usage": "azd waza <command> [options]",
           "examples": [
             {
               "name": "init",
@@ -937,6 +937,91 @@
               },
               "entryPoint": "microsoft-azd-waza-windows-arm64.exe",
               "url": "https://github.com/microsoft/waza/releases/download/azd-ext-microsoft-azd-waza_0.12.0/microsoft-azd-waza-windows-arm64.zip"
+            }
+          }
+        },
+        {
+          "version": "0.37.0",
+          "capabilities": [
+            "custom-commands",
+            "metadata"
+          ],
+          "usage": "azd waza <command> [options]",
+          "examples": [
+            {
+              "name": "init",
+              "description": "Scaffold a new eval suite with eval.yaml, tasks/, and fixtures/ directories.",
+              "usage": "azd waza init my-eval"
+            },
+            {
+              "name": "generate",
+              "description": "Generate evals from a SKILL.md file.",
+              "usage": "azd waza generate skills/my-skill/SKILL.md"
+            },
+            {
+              "name": "run",
+              "description": "Run an evaluation benchmark from a spec file.",
+              "usage": "azd waza run examples/code-explainer/eval.yaml --context-dir examples/code-explainer/fixtures -v"
+            },
+            {
+              "name": "compare",
+              "description": "Compare results across models.",
+              "usage": "azd waza compare results-gpt4.json results-sonnet.json"
+            },
+            {
+              "name": "tokens",
+              "description": "Count tokens in skill files.",
+              "usage": "azd waza tokens count skills/"
+            }
+          ],
+          "artifacts": {
+            "darwin/amd64": {
+              "checksum": {
+                "algorithm": "sha256",
+                "value": "4309786a500ac386094c4d20ce84f5163bfcb9d2ecf4fb81aea0f2f2d174e12f"
+              },
+              "entryPoint": "microsoft-azd-waza-darwin-amd64",
+              "url": "https://github.com/microsoft/waza/releases/download/azd-ext-microsoft-azd-waza_0.37.0/microsoft-azd-waza-darwin-amd64.zip"
+            },
+            "darwin/arm64": {
+              "checksum": {
+                "algorithm": "sha256",
+                "value": "6074a37fcce3a6bacd80932ba32ba4e8e72fc543abb09c11e15d50fcc3000bef"
+              },
+              "entryPoint": "microsoft-azd-waza-darwin-arm64",
+              "url": "https://github.com/microsoft/waza/releases/download/azd-ext-microsoft-azd-waza_0.37.0/microsoft-azd-waza-darwin-arm64.zip"
+            },
+            "linux/amd64": {
+              "checksum": {
+                "algorithm": "sha256",
+                "value": "1760c3d7aaf85f3ca9c76a98b0947dc60076e57528771abcbb9d952ba9db5848"
+              },
+              "entryPoint": "microsoft-azd-waza-linux-amd64",
+              "url": "https://github.com/microsoft/waza/releases/download/azd-ext-microsoft-azd-waza_0.37.0/microsoft-azd-waza-linux-amd64.tar.gz"
+            },
+            "linux/arm64": {
+              "checksum": {
+                "algorithm": "sha256",
+                "value": "368dca120f852fcee1b9c87fdfed942ac453342f98d5135d0bb0ffa03ef9da37"
+              },
+              "entryPoint": "microsoft-azd-waza-linux-arm64",
+              "url": "https://github.com/microsoft/waza/releases/download/azd-ext-microsoft-azd-waza_0.37.0/microsoft-azd-waza-linux-arm64.tar.gz"
+            },
+            "windows/amd64": {
+              "checksum": {
+                "algorithm": "sha256",
+                "value": "e607b170d930300f691dcd2e5357c48974453565247329ded19fc9670467ebb5"
+              },
+              "entryPoint": "microsoft-azd-waza-windows-amd64.exe",
+              "url": "https://github.com/microsoft/waza/releases/download/azd-ext-microsoft-azd-waza_0.37.0/microsoft-azd-waza-windows-amd64.zip"
+            },
+            "windows/arm64": {
+              "checksum": {
+                "algorithm": "sha256",
+                "value": "b4d2f146843a8f166ad6321a3b6df2c0f14fabd30c95ef5823e9ba4505da6547"
+              },
+              "entryPoint": "microsoft-azd-waza-windows-arm64.exe",
+              "url": "https://github.com/microsoft/waza/releases/download/azd-ext-microsoft-azd-waza_0.37.0/microsoft-azd-waza-windows-arm64.zip"
             }
           }
         }
