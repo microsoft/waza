@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.37.0] - 2026-06-18
+
+### Added
+
+- **Interactive skill responder** — Eval runs can now drive interactive skills with an LLM responder for more realistic conversational workflows (#303, #304)
+- **Triage automation and regression loop** — Added triage automation and regression-loop support for Squad workflow validation (#326)
+
+### Fixed
+
+- **Task-level context fixtures** — Task-level context fixtures now materialize in workspaces before execution (#329)
+- **`waza suggest` engine failures** — Engine failures are now surfaced by `waza suggest` instead of being hidden behind success-shaped output (#330)
+- **Session idle hang** — Upgraded the Copilot SDK to v1.0.2 and re-bundled Copilot CLI 1.0.64-0 to fix session idle hangs (#333)
+
+### Dependencies
+
+- Bump astro from 6.3.2 to 6.4.7 in /site (#331)
+- Bump js-yaml from 4.1.1 to 4.2.0 in /site (#327)
+
 ## [0.36.0] - 2026-06-15
 
 ### Added
@@ -515,7 +533,8 @@ pip install waza
 - YAML escaping for regex patterns with backslashes
 - Progress bar now shows 100% on completion
 
-[Unreleased]: https://github.com/microsoft/waza/compare/v0.36.0...HEAD
+[Unreleased]: https://github.com/microsoft/waza/compare/v0.37.0...HEAD
+[0.37.0]: https://github.com/microsoft/waza/compare/v0.36.0...v0.37.0
 [0.36.0]: https://github.com/microsoft/waza/compare/v0.35.0...v0.36.0
 [0.35.0]: https://github.com/microsoft/waza/compare/v0.34.0...v0.35.0
 [0.34.0]: https://github.com/microsoft/waza/compare/v0.33.0...v0.34.0
