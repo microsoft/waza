@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Interactive skill responder** — Eval runs can now drive interactive skills with an LLM responder for more realistic conversational workflows (#303, #304)
+- **Interactive skill responder** — Eval runs can now drive interactive skills with an LLM responder for more realistic conversational workflows (#304, closes #303)
 - **Triage automation and regression loop** — Added triage automation and regression-loop support for Squad workflow validation (#326)
 
 ### Fixed
