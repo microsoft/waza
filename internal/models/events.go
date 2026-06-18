@@ -131,7 +131,7 @@ func transcriptData(
 	case copilot.SessionEventTypeSessionError:
 		return &copilot.SessionErrorData{Message: derefString(message)}
 	default:
-		return copilotevents.RawData(map[string]any{
+		return copilotevents.RawData(eventType, map[string]any{
 			"content":      content,
 			"message":      message,
 			"arguments":    arguments,

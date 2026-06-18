@@ -120,10 +120,15 @@ func AssistantUsage(event copilot.SessionEvent) (*copilot.AssistantUsageData, bo
 	return data, ok
 }
 
-func RawData(data any) copilot.SessionEventData {
+// RawData wraps an arbitrary payload as a RawSessionEventData carrying the
+// given event type. Setting EventType is required so SessionEvent.Type()
+// round-trips for event kinds without a dedicated Data struct (for example
+// session.idle, session.shutdown, assistant.usage); RawSessionEventData.Type()
+// reads exactly this field.
+func RawData(eventType copilot.SessionEventType, data any) copilot.SessionEventData {
 	raw, err := json.Marshal(data)
 	if err != nil {
 		raw = []byte("{}")
 	}
-	return &copilot.RawSessionEventData{Raw: raw}
+	return &copilot.RawSessionEventData{EventType: eventType, Raw: raw}
 }
