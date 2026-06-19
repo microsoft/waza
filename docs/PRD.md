@@ -98,6 +98,7 @@ Cross-model testing and comprehensive metrics.
 | E3-06 | As a developer, I can get LLM-powered improvement suggestions | --suggestions flag |
 | E3-07 | As a developer, I can run tasks in parallel | --parallel flag |
 | E3-08 | As a developer, I can filter to specific tasks | --task flag |
+| E3-09 | As a developer, I can reuse shared evals and graders from a registry | Registry design covers search/add/get UX, versioned refs, lockfile reproducibility, and safe plugin extensibility ([design](research/waza-eval-registry-design.md)) |
 
 ### Epic 4: Token Management (P1)
 
