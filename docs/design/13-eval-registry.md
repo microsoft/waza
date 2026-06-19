@@ -173,8 +173,8 @@ Content addressing avoids stale-tag problems and makes `--offline` a simple "do 
 | Host pattern | Default credential source | Override |
 |--------------|---------------------------|----------|
 | `github.com/*` | `gh auth token` (if installed); else `GITHUB_TOKEN` env | `WAZA_REGISTRY_TOKEN_GITHUB_COM` |
-| `gitlab.*` | `glab auth status` (if installed); else `GITLAB_TOKEN` | `WAZA_REGISTRY_TOKEN_<host upper, dots → underscore>` |
-| Other | `~/.waza/credentials.yaml` | `WAZA_REGISTRY_TOKEN_<host>` |
+| `gitlab.*` | `glab auth status` (if installed); else `GITLAB_TOKEN` | `WAZA_REGISTRY_TOKEN_<HOST_UPPER_DOTS_TO_UNDERSCORE>` |
+| Other | `~/.waza/credentials.yaml` | `WAZA_REGISTRY_TOKEN_<HOST_UPPER_DOTS_TO_UNDERSCORE>` |
 
 `~/.waza/credentials.yaml` is a simple map:
 
