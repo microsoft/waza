@@ -67,7 +67,7 @@ graph LR
     style D fill:#fff3e0
 ```
 
-The cleanest insertion point for the registry is **between `LoadEvalSpec` and `Validate`**: a resolution pass that expands `ref:` entries into fully-materialized `GraderConfig` records (with local cache paths substituted for any artifacts), then validation proceeds as today.
+Because `GraderConfig.UnmarshalYAML` currently calls `Validate()` during YAML decoding, implementing `ref:` resolution will likely require deferring per-grader validation until after a resolver pass (or allowing unresolved `ref:` entries to bypass validation until they are expanded into a concrete grader kind).
 
 ## 4. Decision summary
 
