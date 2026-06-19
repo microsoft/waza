@@ -52,7 +52,7 @@ graders:
       regex_match: ["(?i)severity"]
 ```
 
-`GraderKind` is a closed enum of 13 built-in kinds. `decodeGraderParameters` dispatches on `Kind` to a strongly-typed `GraderParameters` struct, and `Validate()` enforces required fields per kind. There is no notion of a remote reference, no resolver, no cache, and no extension point beyond `program` (which already shells out to an arbitrary binary).
+`GraderKind` is a string type with **13 known built-in kinds** (see `internal/models/outcome.go`). The current YAML loader does not strictly reject unknown kinds during parsing (unknown kinds fall back to generic parameters), so in practice the closed-set enforcement is primarily a schema / grader-construction concern.
 
 ```mermaid
 graph LR
