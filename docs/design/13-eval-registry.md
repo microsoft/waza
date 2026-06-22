@@ -81,7 +81,7 @@ Because `GraderConfig.UnmarshalYAML` currently calls `Validate()` during YAML de
 | D6 | Discovery UX (#17) | **`waza registry search`, `waza registry add`, `waza registry get` against a federated index file; `waza registry sync` refreshes the index cache.** | Browser-only catalog; `waza search` (top-level); GitHub-API-only search. |
 | D7 | Composition & overrides (#17) | **Remote graders are referenced by `ref:` and may carry a local `config:` block whose keys *deep-merge* over the remote defaults, with `weight`, `name`, and `model` always overridable.** | Replace-only; no overrides; full JSON Patch syntax. |
 | D8 | Scaffolding (#17) | **`waza init --grader github.com/waza-evals/fact@v1` emits a minimal `eval.yaml` plus `eval.lock.yaml`; `waza registry add` updates both.** | Manual editing only; interactive TUI only. |
-| D9 | Plugin model (#18) | Two tiers: (a) `program` protocol stays the default for "bring-your-own-binary" custom graders, formalized as **WGP/1** (Waza Grader Protocol); (b) **WASM** is the preferred sandboxed plugin format for portable, registry-distributed custom graders. Go plugins and embedded scripting are rejected for v1. | WASM-only; Go-plugin-only; Lua/Starlark scripting; Python in-process. |
+| D9 | Plugin model (#18) | Two tiers: (a) registry `runtime: program` uses **WGP/1** (Waza Grader Protocol) for "bring-your-own-binary" custom graders; (b) **WASM** is the preferred sandboxed plugin format for portable, registry-distributed custom graders. Existing local `type: program` graders keep their current raw-stdin / exit-code contract. Go plugins and embedded scripting are rejected for v1. | WASM-only; Go-plugin-only; Lua/Starlark scripting; Python in-process. |
 | D10 | Plugin security (#18) | **WASM runs in a sandbox with no filesystem/network by default; the host exposes a narrow `waza_host` ABI (read task input, read agent output, emit score). `program` graders inherit current trust (run as the user) but gain digest verification when sourced from the registry.** | Full network access; unsandboxed; capability-based per-call prompts. |
 
 ## 5. #15 — Go-module-style references
@@ -154,7 +154,7 @@ This matches `cargo`/`pnpm` conventions and gives CI a single-flag guarantee of 
 
 ### 5.3 Cache layout
 
-The cache root uses Go's `os.UserCacheDir()` so it follows each platform's conventions:
+Registry artifacts are large, disposable build inputs, so their cache root uses Go's `os.UserCacheDir()` and follows each platform's conventions:
 
 - Linux: `$XDG_CACHE_HOME/waza/registry/` (falling back to `~/.cache/waza/registry/`)
 - macOS: `~/Library/Caches/waza/registry/`
@@ -175,6 +175,8 @@ The directory structure under that root is:
 ```
 
 Content addressing avoids stale-tag problems and makes `--offline` a simple "do not hit network; fail if not in cache" mode. The cache is per-user; CI containers typically warm it via `waza registry sync` in a pre-step and then run `--offline --frozen`.
+
+This intentionally separates bulky registry artifacts from `~/.waza/`, which remains the home for durable user config and small state files such as the version-check cache. To keep support and cleanup straightforward, `waza registry list` / `waza registry sync` should print the effective cache root in verbose mode, and `~/.waza/config.yaml` may provide an explicit `registry_cache_dir` override for teams that want all Waza state under one managed directory.
 
 ### 5.4 Authentication
 
@@ -318,7 +320,9 @@ Two formats, one protocol, two runtimes, no language lock-in.
 
 ### 7.2 WGP/1 — Waza Grader Protocol
 
-Both WASM and program graders speak the same JSON protocol over stdin/stdout (program) or via a thin host ABI (WASM). This means a Python prototype run via `program` can be promoted to a WASM artifact later with **zero spec change**.
+Registry-distributed graders with `runtime: wasm` or `runtime: program` speak the same JSON protocol over stdin/stdout (program) or via a thin host ABI (WASM). This means a Python prototype packaged as registry `runtime: program` can be promoted to a WASM artifact later with **zero spec change**.
+
+This does **not** change existing local `type: program` graders in `eval.yaml`: they continue to receive raw agent output on stdin, read `WAZA_WORKSPACE_DIR`, and return pass/fail via exit code. WGP/1 is introduced only behind `GraderKindRemote` for registry-distributed graders.
 
 Request (sent by waza):
 
@@ -464,11 +468,11 @@ Each phase is independently shippable and delivers user-visible value. Backend s
 ### Phase 0 — Spec & schema (1–2 weeks)
 
 - Land this design doc; open implementation tracking issue.
-- Extend `GraderConfig` to accept `ref:` (parsed, but rejected at validation time with a clear "registry not yet enabled" error).
+- Extend `GraderConfig` to accept `ref:` and adjust YAML decoding so ref-only entries bypass per-kind validation during `UnmarshalYAML`; `Validate()` rejects unresolved refs with a clear "registry not yet enabled" error until the resolver is wired in.
 - Update `schemas/eval.schema.json` and `site/` reference page.
 - No runtime behavior change.
 
-**Exit:** `eval.yaml` files with `ref:` parse cleanly; CI green; docs published.
+**Exit:** `LoadEvalSpec` succeeds for `eval.yaml` files with `ref:` entries, validation reports the expected "registry not yet enabled" error, CI is green, and docs are published.
 
 ### Phase 1 — Local-only resolver + `program` runtime (3–4 weeks)
 
