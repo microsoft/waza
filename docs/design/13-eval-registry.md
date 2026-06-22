@@ -6,7 +6,7 @@
 **Status:** Draft for review
 **Date:** 2026-06-19
 
-> **Note on location:** Issue #13 originally specified `docs/research/waza-eval-registry-design.md`, but that directory is gitignored (`.gitignore` line 116, "Internal research docs"). This doc lives under `docs/design/` to match the established convention (`docs/design/135-improve-concurrency.md`, `docs/design/194-baseline-skill-impact.md`) and to ensure it ships in the repo. Validation comment on #13 explicitly asked which location is canonical; this PR proposes `docs/design/` as the answer.
+> **Note on location:** Issue #13 originally specified `docs/research/waza-eval-registry-design.md`, but `docs/design/` is the established convention for reviewable architecture decisions (`docs/design/135-improve-concurrency.md`, `docs/design/194-baseline-skill-impact.md`). This PR makes `docs/design/13-eval-registry.md` the canonical design and supersedes any earlier research notes for the eval and grader registry.
 
 ---
 
@@ -75,14 +75,14 @@ Because `GraderConfig.UnmarshalYAML` currently calls `Validate()` during YAML de
 |---|----------|----------------|--------------------------|
 | D1 | Reference syntax (#15) | **Go-module-style `host/path@version` with optional `#subpath`**, plus digest pinning via lockfile. | npm-style `@scope/name@version`; bare URL; UUID. |
 | D2 | Version semantics (#15) | **SemVer required for published graders; `@latest`/`@main` allowed but warned in CI; lockfile pins to digest.** | Exact-only; ranges (`^1.2`); commit SHAs only. |
-| D3 | Cache & offline (#15) | **Content-addressed cache at `$XDG_CACHE_HOME/waza/registry/<sha256>/`; lockfile at `eval.lock.yaml` next to `eval.yaml`; `--offline` flag fails closed.** | TTL-based cache; no lockfile; in-tree vendoring. |
-| D4 | Auth (#15) | **`gh auth token` for `github.com/*` refs by default; `~/.waza/credentials.yaml` for other hosts; `WAZA_REGISTRY_TOKEN_<HOST>` env override.** | OAuth device flow only; netrc; no private support in v1. |
+| D3 | Cache & offline (#15) | **Content-addressed cache under the OS user cache directory (`os.UserCacheDir()`); lockfile at `eval.lock.yaml` next to `eval.yaml`; `--offline` flag fails closed.** | TTL-based cache; no lockfile; in-tree vendoring. |
+| D4 | Auth (#15) | **`gh auth token` for `github.com/*` refs by default; `~/.waza/credentials.yaml` for other hosts; `WAZA_REGISTRY_TOKEN_<HOST_UPPER_DOTS_TO_UNDERSCORE>` env override.** | OAuth device flow only; netrc; no private support in v1. |
 | D5 | Transitive deps (#15) | **Flat resolution — graders may declare `requires:` on other graders, resolved into a flat list with conflict detection; no diamond-dep resolver in v1.** | Full SAT solver; forbid transitive deps; nested vendoring. |
 | D6 | Discovery UX (#17) | **`waza registry search`, `waza registry add`, `waza registry get` against a federated index file; `waza registry sync` refreshes the index cache.** | Browser-only catalog; `waza search` (top-level); GitHub-API-only search. |
 | D7 | Composition & overrides (#17) | **Remote graders are referenced by `ref:` and may carry a local `config:` block whose keys *deep-merge* over the remote defaults, with `weight`, `name`, and `model` always overridable.** | Replace-only; no overrides; full JSON Patch syntax. |
 | D8 | Scaffolding (#17) | **`waza init --grader github.com/waza-evals/fact@v1` emits a minimal `eval.yaml` plus `eval.lock.yaml`; `waza registry add` updates both.** | Manual editing only; interactive TUI only. |
-| D9 | Plugin model (#18) | **Two tiers: (a) `program` protocol stays the default for "bring-your-own-binary" custom graders, formalized as **WGP/1** (Waza Grader Protocol); (b) **WASM** is the preferred sandboxed plugin format for portable, registry-distributed custom graders.** Go plugins and embedded scripting are rejected for v1. | WASM-only; Go-plugin-only; Lua/Starlark scripting; Python in-process. |
-| D10 | Plugin security (#18) | **WASM runs in a wasmtime sandbox with no filesystem/network by default; the host exposes a narrow `waza_host` ABI (read task input, read agent output, emit score). `program` graders inherit current trust (run as the user) but gain digest verification when sourced from the registry.** | Full network access; unsandboxed; capability-based per-call prompts. |
+| D9 | Plugin model (#18) | Two tiers: (a) `program` protocol stays the default for "bring-your-own-binary" custom graders, formalized as **WGP/1** (Waza Grader Protocol); (b) **WASM** is the preferred sandboxed plugin format for portable, registry-distributed custom graders. Go plugins and embedded scripting are rejected for v1. | WASM-only; Go-plugin-only; Lua/Starlark scripting; Python in-process. |
+| D10 | Plugin security (#18) | **WASM runs in a sandbox with no filesystem/network by default; the host exposes a narrow `waza_host` ABI (read task input, read agent output, emit score). `program` graders inherit current trust (run as the user) but gain digest verification when sourced from the registry.** | Full network access; unsandboxed; capability-based per-call prompts. |
 
 ## 5. #15 — Go-module-style references
 
@@ -115,11 +115,11 @@ Grammar (EBNF):
 ref     = host "/" path [ "@" version ] [ "#" subpath ]
 host    = DNS-1123 hostname (e.g. github.com, gitlab.example.com)
 path    = 1*( segment "/" ) segment
-version = semver | "latest" | "main" | git-sha-7..40
-subpath = POSIX path relative to repo root
+version = [ "v" ] semver | "latest" | "main" | git-sha-7..40
+subpath = normalized POSIX path relative to repo root
 ```
 
-The shape mirrors Go modules deliberately: developers already understand it, and the host-prefixed form lets us federate without a central naming authority. Unlike Go, **`@version` is required** for any ref that ends up in `eval.lock.yaml`; floating refs are a developer-loop convenience only.
+The shape mirrors Go modules deliberately: developers already understand it, and the host-prefixed form lets us federate without a central naming authority. Unlike Go, **`@version` is required** for any ref that ends up in `eval.lock.yaml`; floating refs are a developer-loop convenience only. Implementations must normalize `#subpath`, reject absolute paths and `..` segments, and verify the final path remains inside the resolved artifact root after symlink evaluation.
 
 ### 5.2 Versioning & lockfile
 
@@ -154,8 +154,16 @@ This matches `cargo`/`pnpm` conventions and gives CI a single-flag guarantee of 
 
 ### 5.3 Cache layout
 
+The cache root uses Go's `os.UserCacheDir()` so it follows each platform's conventions:
+
+- Linux: `$XDG_CACHE_HOME/waza/registry/` (falling back to `~/.cache/waza/registry/`)
+- macOS: `~/Library/Caches/waza/registry/`
+- Windows: `%LocalAppData%\waza\registry\`
+
+The directory structure under that root is:
+
 ```
-$XDG_CACHE_HOME/waza/registry/
+<user-cache-dir>/waza/registry/
   index/
     <host>/<path>.json          # parsed manifest cache, TTL 24h
   blobs/
@@ -173,7 +181,7 @@ Content addressing avoids stale-tag problems and makes `--offline` a simple "do 
 | Host pattern | Default credential source | Override |
 |--------------|---------------------------|----------|
 | `github.com/*` | `gh auth token` (if installed); else `GITHUB_TOKEN` env | `WAZA_REGISTRY_TOKEN_GITHUB_COM` |
-| `gitlab.*` | `glab auth status` (if installed); else `GITLAB_TOKEN` | `WAZA_REGISTRY_TOKEN_<HOST_UPPER_DOTS_TO_UNDERSCORE>` |
+| `gitlab.*` | `glab auth token` (if installed); else `GITLAB_TOKEN` | `WAZA_REGISTRY_TOKEN_<HOST_UPPER_DOTS_TO_UNDERSCORE>` |
 | Other | `~/.waza/credentials.yaml` | `WAZA_REGISTRY_TOKEN_<HOST_UPPER_DOTS_TO_UNDERSCORE>` |
 
 `~/.waza/credentials.yaml` is a simple map:
@@ -300,13 +308,13 @@ This generates `my-eval/eval.yaml` with both grader refs plus a populated `my-ev
 
 | Option | Portability | Sandbox | Perf | Distribution | Verdict |
 |--------|-------------|---------|------|--------------|---------|
-| **WASM (wasmtime)** | ✅ One binary per grader, OS-independent | ✅ Capability-based; no fs/net by default | Fast cold start; near-native compute | Easy via registry (single artifact) | ✅ **Preferred for sandboxed plugins** |
+| **WASM** | ✅ One binary per grader, OS-independent | ✅ Capability-based; no fs/net by default | Fast cold start; near-native compute | Easy via registry (single artifact) | ✅ **Preferred for sandboxed plugins** |
 | **External program (WGP/1)** | ⚠️ Per-OS binaries needed | ❌ Runs as current user | Native | Easy but multi-arch | ✅ **Preferred for bring-your-own-binary** |
 | Go plugins (`plugin.Open`) | ❌ Platform-locked, exact-Go-version | ❌ Same trust as host | Native, in-proc | Hard (per-OS, per-Go-version) | ❌ Rejected (operability disaster) |
 | Embedded scripting (Lua/Starlark/JS) | ✅ | ⚠️ Sandbox quality varies | Slower than native | Easy (text artifact) | ❌ Rejected (yet-another-language; WASM gives us all of these via guest toolchains) |
 | In-proc Python | ✅ Where python exists | ❌ | Slow startup | Hard (env hell) | ❌ Rejected (replicates OpenAI Evals' main pain point) |
 
-Two formats, one protocol, one runtime, no language lock-in.
+Two formats, one protocol, two runtimes, no language lock-in.
 
 ### 7.2 WGP/1 — Waza Grader Protocol
 
@@ -345,7 +353,7 @@ The schema is versioned (`wgp/1`); future versions are additive or behind a new 
 
 ### 7.3 WASM runtime details
 
-- Runtime: `wasmtime-go` (mature, sandboxed, cross-platform, single static dependency).
+- Runtime: choose between `wasmtime-go` (mature sandbox, but CGO-backed and heavier to cross-compile) and `wazero` (pure Go, easier static builds, smaller operational footprint). Phase 3 should benchmark both before locking the runtime dependency.
 - Guest ABI exported by waza: `waza_host_log(ptr,len)`, `waza_host_read_input(ptr,len) -> n`, `waza_host_write_result(ptr,len)`. Nothing else by default.
 - Resource limits: 256 MiB memory, 30 s CPU, no `wasi:filesystem`, no `wasi:sockets`. Per-grader overrides via manifest (`limits:`) require the user to acknowledge in `eval.yaml` with `accept_grader_capabilities: true` per grader.
 - Cold start budget: <50 ms typical (acceptable inside an eval that already takes seconds per task).
@@ -434,16 +442,16 @@ sequenceDiagram
 |------|------------|
 | Remote grader exfiltrates secrets via `program` | WASM-only for sandboxed graders; `program` graders inherit current trust posture (no regression) but gain digest pinning so a tag move can't silently swap the binary. |
 | Supply-chain swap on a floating tag | Lockfile pins digest; `--frozen` rejects floating refs; index entries can ship sigstore signatures (post-v1). |
-| Malicious WASM exhausts host | Per-grader memory/CPU limits enforced by `wasmtime`; default deny on fs/net; opt-in capability acknowledgement in `eval.yaml`. |
+| Malicious WASM exhausts host | Per-grader memory/CPU limits enforced by the selected WASM runtime; default deny on fs/net; opt-in capability acknowledgement in `eval.yaml`. |
 | Private repo token leakage | Tokens read from env or `gh auth`; never written to lockfile or results.json; redacted in `--verbose` logs. |
 | Cache poisoning | Content-addressed cache (sha256); on read, digest is re-verified before use. |
 | Typosquatting in federated index | Hosts are explicit (`github.com/waza-evals/...`); no short names; `waza registry add` shows the full ref and (post-v1) signature info before writing the lockfile. |
-| Compromised index URL | Each entry's `digest`/`source` is verified at fetch time, so a hostile index can only deny service or surface known-good artifacts — it cannot substitute content. |
+| Compromised index URL | Lockfiles protect subsequent runs by pinning already-trusted digests. First-use substitution still requires trusted metadata, signatures, or explicit user trust; otherwise a hostile index can publish a malicious artifact with its own matching digest. |
 
 ## 10. Compatibility considerations
 
 - **Backward compatible.** Existing `eval.yaml` files keep working: the `ref:` field is new and additive. `GraderConfig.UnmarshalYAML` already uses `KnownFields(true)`, so we'll need to add `ref` to the raw struct; no other change is required for existing graders.
-- **JSON schema.** `schemas/eval.schema.json` (referenced by `site/src/content/docs/reference/schema.mdx`) needs a new union: either the existing typed grader or `{ ref: string, name?, weight?, model?, config? }`. We can express this as `oneOf` keyed on the presence of `ref`.
+- **JSON schema.** The eval/config schema and site docs that describe `eval.yaml` need a new union: either the existing typed grader or `{ ref: string, name?, weight?, model?, config? }`. We can express this as `oneOf` keyed on the presence of `ref`.
 - **Results JSON.** Per-grader records gain a `source` field (`{ kind: "local" | "remote", ref?, digest? }`) so the dashboard (`web/`) can distinguish registry graders.
 - **Determinism.** Same lockfile + same agent output = same grader output, modulo non-determinism inside the grader itself (e.g., LLM-judge graders). Remote graders do not introduce new non-determinism.
 - **Telemetry.** `docs/TELEMETRY.md` gains a section: when telemetry is enabled, we emit grader `ref` + `digest` + duration, never config values.
@@ -474,7 +482,7 @@ Each phase is independently shippable and delivers user-visible value. Backend s
 
 ### Phase 2 — Git backend + auth + cache (4–6 weeks)
 
-- Add `git` backend resolving `github.com/owner/repo@version` via `git archive` (no full clone) for tags, fallback to `git ls-remote` + sparse fetch for branches/SHAs.
+- Add `git` backend resolving `github.com/owner/repo@version` via GitHub archive/tarball downloads for tags, fallback to `git ls-remote` + shallow sparse fetch for branches/SHAs and non-GitHub hosts.
 - Implement content-addressed cache and digest verification.
 - Wire `gh auth token` / env-var auth.
 - Federated index file (`https://waza.dev/registry/index.json`) and `waza registry search/add/get`.
@@ -483,7 +491,7 @@ Each phase is independently shippable and delivers user-visible value. Backend s
 
 ### Phase 3 — WASM runtime + sandbox (4–6 weeks)
 
-- Integrate `wasmtime-go` behind a build tag (`waza_wasm`) so the default binary stays small for users who don't need it. Decision on default inclusion deferred to end of Phase 3 based on binary-size impact.
+- Integrate the selected WASM runtime behind a build tag (`waza_wasm`) so the default binary stays small for users who don't need it. Decision on runtime choice and default inclusion deferred to end of Phase 3 based on binary-size and cross-compilation impact.
 - Implement `waza_host` ABI and resource limits.
 - Publish a Go SDK (`github.com/microsoft/waza/sdk/grader-go`) and a TinyGo template for grader authors.
 - Document the path for authoring graders in Rust, AssemblyScript, etc.
@@ -500,7 +508,7 @@ Each phase is independently shippable and delivers user-visible value. Backend s
 
 ## 12. Open questions
 
-1. **Backend choice (#16).** Git-archive is simple but slow for large repos; OCI is fast and cacheable but adds a registry dependency. Recommend deciding at the start of Phase 2 based on a benchmark of typical grader artifact sizes.
+1. **Backend choice (#16).** GitHub archive downloads and shallow Git fetches are simple but can be slow for large repos; OCI is fast and cacheable but adds a registry dependency. Recommend deciding at the start of Phase 2 based on a benchmark of typical grader artifact sizes.
 2. **Index hosting.** Who runs `waza.dev/registry`? Probably Microsoft for the default index, with a clearly documented federation model so any org can publish its own.
 3. **License policy for the default index.** Should `waza.dev` only list OSI-approved licenses? Recommend yes for the default index; private indexes have their own policies.
 4. **Grader authoring DX.** Do we want a `waza grader new` scaffold (Go/TinyGo template, manifest, test harness) in Phase 3, or punt to a separate repo? Recommend shipping it inside `waza` for discoverability.
