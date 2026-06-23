@@ -144,7 +144,7 @@ jobs:
           fi
 
       - name: Run Golangci-Lint
-        uses: golangci/golangci-lint-action@v7
+        uses: golangci/golangci-lint-action@v9
         with:
           version: v2.10.1
           working-directory: ./
