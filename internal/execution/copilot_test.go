@@ -914,3 +914,95 @@ func TestCopilotExecute_CancelOnSkillInvocation_NoSkillFired(t *testing.T) {
 	require.True(t, resp.Success, "flag should be safe even when no skill fires")
 	require.Empty(t, resp.ErrorMsg)
 }
+
+// ========================================
+// PROVIDER TESTS
+// ========================================
+
+func TestProviderFromInput_BasicFields(t *testing.T) {
+	t.Run("BaseURL set means enabled", func(t *testing.T) {
+		p := providerFromInput(&ProviderInput{
+			BaseURL: "https://api.example.com/v1",
+		})
+		require.True(t, p.enabled(), "provider with BaseURL should be enabled")
+	})
+
+	t.Run("nil input means disabled", func(t *testing.T) {
+		p := providerFromInput(nil)
+		require.False(t, p.enabled(), "nil input should yield disabled provider")
+	})
+
+	t.Run("empty BaseURL means disabled", func(t *testing.T) {
+		p := providerFromInput(&ProviderInput{
+			BaseURL: "",
+			APIKey:  "sk-key",
+		})
+		require.False(t, p.enabled(), "empty BaseURL should yield disabled provider")
+	})
+
+	t.Run("all fields copied to ProviderConfig", func(t *testing.T) {
+		input := &ProviderInput{
+			BaseURL:     "https://api.example.com/v1",
+			Type:        "openai",
+			WireAPI:     "openai",
+			APIKey:      "sk-test",
+			BearerToken: "bt-token",
+		}
+		p := providerFromInput(input)
+		require.True(t, p.enabled())
+		require.NotNil(t, p.config)
+		require.Equal(t, "https://api.example.com/v1", p.config.BaseURL)
+		require.Equal(t, "openai", p.config.Type)
+		require.Equal(t, "openai", p.config.WireAPI)
+		require.Equal(t, "sk-test", p.config.APIKey)
+		require.Equal(t, "bt-token", p.config.BearerToken)
+	})
+}
+
+func TestNewCopilotEngineBuilder_ProviderInputUsedWhenEnvNotSet(t *testing.T) {
+	// Ensure no env-based provider is configured.
+	t.Setenv("COPILOT_BASE_URL", "")
+	t.Setenv("COPILOT_PROVIDER_BASE_URL", "")
+
+	ctrl := gomock.NewController(t)
+	// Use a bare mock with no expectations — Build() does not call any client methods.
+	clientMock := NewMockCopilotClient(ctrl)
+
+	input := &ProviderInput{
+		BaseURL: "https://input.example.com/v1",
+	}
+
+	engine := NewCopilotEngineBuilder("test-model", &CopilotEngineBuilderOptions{
+		NewCopilotClient: func(opts *copilot.ClientOptions) CopilotClient {
+			return clientMock
+		},
+		Provider: input,
+	}).Build()
+
+	require.True(t, engine.provider.enabled(), "engine.provider should be enabled when Provider input has a BaseURL and no env var is set")
+}
+
+func TestNewCopilotEngineBuilder_EnvWinsOverInput(t *testing.T) {
+	t.Setenv("COPILOT_BASE_URL", "https://env.example.com/v1")
+	// Clear the secondary aliases so they don't interfere.
+	t.Setenv("COPILOT_PROVIDER_BASE_URL", "")
+
+	ctrl := gomock.NewController(t)
+	clientMock := NewMockCopilotClient(ctrl)
+
+	input := &ProviderInput{
+		BaseURL: "https://input.example.com/v1",
+	}
+
+	engine := NewCopilotEngineBuilder("test-model", &CopilotEngineBuilderOptions{
+		NewCopilotClient: func(opts *copilot.ClientOptions) CopilotClient {
+			return clientMock
+		},
+		Provider: input,
+	}).Build()
+
+	require.True(t, engine.provider.enabled())
+	// The env value wins: host should be from env URL, not from the input URL.
+	require.Equal(t, "env.example.com", engine.provider.host,
+		"env COPILOT_BASE_URL should take precedence over Options.Provider")
+}

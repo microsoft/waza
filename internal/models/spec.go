@@ -57,6 +57,7 @@ type Config struct {
 	MaxAttempts          int            `yaml:"max_attempts,omitempty" json:"max_attempts,omitempty"`
 	GroupBy              string         `yaml:"group_by,omitempty" json:"group_by,omitempty"`
 	JudgeModel           string         `yaml:"judge_model,omitempty" json:"judge_model,omitempty"`
+	Provider             *ProviderConfig `yaml:"provider,omitempty" json:"provider,omitempty"`
 }
 
 // ShouldInjectSkillBody returns true unless the eval explicitly opts out of

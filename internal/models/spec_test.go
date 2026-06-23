@@ -485,6 +485,52 @@ config:
 	})
 }
 
+func TestEvalSpec_WithProvider(t *testing.T) {
+	tempDir := t.TempDir()
+	yamlContent := `name: provider-test
+skill: test-skill
+config:
+  trials_per_task: 1
+  timeout_seconds: 60
+  executor: mock
+  model: gpt-4o
+  provider:
+    base_url: "https://custom.example.com/v1"
+    api_key: "sk-custom-key"
+    type: "openai"
+    wire_api: "openai"
+    bearer_token: "bt-token"
+`
+	specPath := filepath.Join(tempDir, "eval.yaml")
+	if err := os.WriteFile(specPath, []byte(yamlContent), 0644); err != nil {
+		t.Fatalf("Failed to write spec file: %v", err)
+	}
+
+	spec, err := LoadEvalSpec(specPath)
+	if err != nil {
+		t.Fatalf("LoadEvalSpec() error: %v", err)
+	}
+
+	if spec.Config.Provider == nil {
+		t.Fatal("Config.Provider should not be nil when provider is set in YAML")
+	}
+	if spec.Config.Provider.BaseURL != "https://custom.example.com/v1" {
+		t.Errorf("BaseURL = %q, want %q", spec.Config.Provider.BaseURL, "https://custom.example.com/v1")
+	}
+	if spec.Config.Provider.APIKey != "sk-custom-key" {
+		t.Errorf("APIKey = %q, want %q", spec.Config.Provider.APIKey, "sk-custom-key")
+	}
+	if spec.Config.Provider.Type != "openai" {
+		t.Errorf("Type = %q, want %q", spec.Config.Provider.Type, "openai")
+	}
+	if spec.Config.Provider.WireAPI != "openai" {
+		t.Errorf("WireAPI = %q, want %q", spec.Config.Provider.WireAPI, "openai")
+	}
+	if spec.Config.Provider.BearerToken != "bt-token" {
+		t.Errorf("BearerToken = %q, want %q", spec.Config.Provider.BearerToken, "bt-token")
+	}
+}
+
 func TestConfig_AllSkillsDisabled(t *testing.T) {
 	tests := []struct {
 		name     string

@@ -466,6 +466,70 @@ storage:
 	assertEqual(t, "Storage.ContainerName", "waza-results", cfg.Storage.ContainerName)
 }
 
+// ========================================
+// PROVIDER CONFIG TESTS
+// ========================================
+
+func TestLoad_ProviderConfig(t *testing.T) {
+	t.Run("all provider fields parsed", func(t *testing.T) {
+		dir := t.TempDir()
+		writeFile(t, dir, ".waza.yaml", `
+defaults:
+  provider:
+    baseUrl: "https://api.example.com/v1"
+    type: "openai"
+    wireApi: "openai"
+    apiKey: "sk-test-key"
+    bearerToken: "bearer-test-token"
+`)
+		cfg, err := Load(dir)
+		if err != nil {
+			t.Fatalf("Load() error: %v", err)
+		}
+		if cfg.Defaults.Provider == nil {
+			t.Fatal("Defaults.Provider should not be nil")
+		}
+		assertEqual(t, "Defaults.Provider.BaseURL", "https://api.example.com/v1", cfg.Defaults.Provider.BaseURL)
+		assertEqual(t, "Defaults.Provider.Type", "openai", cfg.Defaults.Provider.Type)
+		assertEqual(t, "Defaults.Provider.WireAPI", "openai", cfg.Defaults.Provider.WireAPI)
+		assertEqual(t, "Defaults.Provider.APIKey", "sk-test-key", cfg.Defaults.Provider.APIKey)
+		assertEqual(t, "Defaults.Provider.BearerToken", "bearer-test-token", cfg.Defaults.Provider.BearerToken)
+	})
+
+	t.Run("provider omitted means nil", func(t *testing.T) {
+		dir := t.TempDir()
+		writeFile(t, dir, ".waza.yaml", `
+defaults:
+  engine: mock
+  model: gpt-4o
+`)
+		cfg, err := Load(dir)
+		if err != nil {
+			t.Fatalf("Load() error: %v", err)
+		}
+		if cfg.Defaults.Provider != nil {
+			t.Errorf("Defaults.Provider should be nil when omitted, got %+v", cfg.Defaults.Provider)
+		}
+	})
+
+	t.Run("mergeConfig keeps nil provider when file omits it", func(t *testing.T) {
+		// New() sets Defaults.Provider == nil by default.
+		// A file without a provider section should not change that.
+		dir := t.TempDir()
+		writeFile(t, dir, ".waza.yaml", `
+defaults:
+  model: claude-sonnet-4.6
+`)
+		cfg, err := Load(dir)
+		if err != nil {
+			t.Fatalf("Load() error: %v", err)
+		}
+		if cfg.Defaults.Provider != nil {
+			t.Errorf("Defaults.Provider should remain nil after merge, got %+v", cfg.Defaults.Provider)
+		}
+	})
+}
+
 // --- test helpers ---
 
 func writeFile(t *testing.T, dir, name, content string) {

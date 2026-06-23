@@ -76,6 +76,13 @@ var (
 	keepWorkspace   bool
 	autoFileIssue   bool
 
+	// provider flag group: BYOK settings for copilot-sdk engine (env vars win over these).
+	providerBaseURL     string
+	providerType        string
+	providerWireAPI     string
+	providerAPIKey      string
+	providerBearerToken string
+
 	// newCopilotClientFn allows you to override the client used by the copilot engine, for this command.
 	newCopilotClientFn func(clientOptions *copilot.ClientOptions) execution.CopilotClient
 
@@ -156,6 +163,13 @@ You can also specify a skill name to run its eval:
 	cmd.Flags().BoolVar(&noSkillsFlag, "no-skills", false, "Disable all skill loading for the evaluation")
 	cmd.Flags().BoolVar(&keepWorkspace, "keep-workspace", false, "Preserve temp workspace directories after execution for debugging")
 	cmd.Flags().BoolVar(&autoFileIssue, "auto-file-issue", false, "Auto-file or update a GitHub issue for failing runs (requires gh and GITHUB_REPOSITORY)")
+
+	// BYOK / custom provider flags (copilot-sdk engine only; env vars always win).
+	cmd.Flags().StringVar(&providerBaseURL, "provider-base-url", "", "Custom LLM provider base URL; overridden by COPILOT_BASE_URL env var (copilot-sdk only)")
+	cmd.Flags().StringVar(&providerType, "provider-type", "", "Custom LLM provider type (e.g. azure-openai); overridden by COPILOT_PROVIDER env var")
+	cmd.Flags().StringVar(&providerWireAPI, "provider-wire-api", "", "Custom LLM provider wire API format (e.g. openai); overridden by COPILOT_WIRE_API env var")
+	cmd.Flags().StringVar(&providerAPIKey, "provider-api-key", "", "Custom LLM provider API key; overridden by COPILOT_API_KEY env var")
+	cmd.Flags().StringVar(&providerBearerToken, "provider-bearer-token", "", "Custom LLM provider bearer token; overridden by COPILOT_BEARER_TOKEN env var")
 
 	return cmd
 }
@@ -615,6 +629,32 @@ func runCommandForSpec(cmd *cobra.Command, sp skillSpecPath, defaultSkills []str
 	return allResults, nil
 }
 
+// resolveProviderInput assembles a ProviderInput from CLI flags and/or the
+// eval spec's provider config. CLI flags override the spec; environment
+// variables (COPILOT_BASE_URL etc.) always override both, applied inside
+// NewCopilotEngineBuilder. Returns nil when no base URL is configured.
+func resolveProviderInput(spec *models.EvalSpec) *execution.ProviderInput {
+	if providerBaseURL != "" {
+		return &execution.ProviderInput{
+			BaseURL:     providerBaseURL,
+			Type:        providerType,
+			WireAPI:     providerWireAPI,
+			APIKey:      providerAPIKey,
+			BearerToken: providerBearerToken,
+		}
+	}
+	if spec.Config.Provider != nil && spec.Config.Provider.BaseURL != "" {
+		return &execution.ProviderInput{
+			BaseURL:     spec.Config.Provider.BaseURL,
+			Type:        spec.Config.Provider.Type,
+			WireAPI:     spec.Config.Provider.WireAPI,
+			APIKey:      spec.Config.Provider.APIKey,
+			BearerToken: spec.Config.Provider.BearerToken,
+		}
+	}
+	return nil
+}
+
 // runSingleModel executes a benchmark for one model and returns the outcome.
 // It prints the per-model summary and saves output for single-model runs.
 func runSingleModel(cmd *cobra.Command, spec *models.EvalSpec, specPath string, defaultSkills []string) (*models.EvaluationOutcome, error) {
@@ -683,7 +723,14 @@ func runSingleModel(cmd *cobra.Command, spec *models.EvalSpec, specPath string, 
 	case "copilot-sdk":
 		engine = execution.NewCopilotEngineBuilder(spec.Config.ModelID, &execution.CopilotEngineBuilderOptions{
 			NewCopilotClient: newCopilotClientFn, // if nil, uses the real function, otherwise overridable for tests.
+			Provider:         resolveProviderInput(spec),
 		}).Build()
+	case "claude-cli":
+		cliEngine, cliErr := execution.NewClaudeCliEngine(spec.Config.ModelID)
+		if cliErr != nil {
+			return nil, fmt.Errorf("initializing claude-cli engine: %w", cliErr)
+		}
+		engine = cliEngine
 	default:
 		return nil, fmt.Errorf("unknown engine type: %s", spec.Config.EngineType)
 	}

@@ -131,6 +131,45 @@ func providerFromEnv() customProviderConfig {
 	}
 }
 
+// ProviderInput carries BYOK provider settings sourced from .waza.yaml or CLI
+// flags. It mirrors [models.ProviderConfig] but lives in the execution package
+// to avoid a circular dependency between execution and models.
+type ProviderInput struct {
+	BaseURL     string
+	Type        string
+	WireAPI     string
+	APIKey      string
+	BearerToken string
+}
+
+// providerFromInput assembles a BYOK ProviderConfig from caller-supplied input.
+// It mirrors providerFromEnv but reads from a ProviderInput struct instead of
+// environment variables. Returns an empty config when input is nil or BaseURL
+// is empty.
+func providerFromInput(input *ProviderInput) customProviderConfig {
+	if input == nil || input.BaseURL == "" {
+		return customProviderConfig{}
+	}
+	host, err := providerHost(input.BaseURL)
+	if err != nil {
+		return customProviderConfig{err: err}
+	}
+	p := &copilot.ProviderConfig{BaseURL: input.BaseURL}
+	if input.Type != "" {
+		p.Type = input.Type
+	}
+	if input.WireAPI != "" {
+		p.WireAPI = input.WireAPI
+	}
+	if input.APIKey != "" {
+		p.APIKey = input.APIKey
+	}
+	if input.BearerToken != "" {
+		p.BearerToken = input.BearerToken
+	}
+	return customProviderConfig{config: p, host: host}
+}
+
 func providerHost(base string) (string, error) {
 	u, err := url.Parse(base)
 	if err != nil {
@@ -160,6 +199,10 @@ type CopilotEngineBuilder struct {
 
 type CopilotEngineBuilderOptions struct {
 	NewCopilotClient func(clientOptions *copilot.ClientOptions) CopilotClient
+	// Provider supplies BYOK settings from YAML config or CLI flags. It is
+	// only used when no COPILOT_BASE_URL environment variable is set; the
+	// environment always wins.
+	Provider *ProviderInput
 }
 
 // NewCopilotEngineBuilder creates a builder for CopilotEngine
@@ -178,6 +221,11 @@ func NewCopilotEngineBuilder(defaultModelID string, options *CopilotEngineBuilde
 	var client CopilotClient
 	ownsClient := false
 	provider := providerFromEnv()
+	// Input-based provider is only consulted when no env-var provider is configured;
+	// environment variables always take precedence.
+	if !provider.enabled() && options != nil && options.Provider != nil {
+		provider = providerFromInput(options.Provider)
+	}
 	cliArgs := modelCLIArgs(defaultModelID, provider.enabled())
 
 	if options == nil || options.NewCopilotClient == nil {

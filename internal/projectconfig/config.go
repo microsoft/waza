@@ -66,16 +66,28 @@ type FilesConfig struct {
 	TaskFileSuffix string `yaml:"taskFileSuffix,omitempty"`
 }
 
+// ProviderConfig holds BYOK (Bring Your Own Key) custom LLM provider settings
+// for .waza.yaml. Field names use camelCase YAML tags, consistent with the
+// surrounding DefaultsConfig fields.
+type ProviderConfig struct {
+	BaseURL     string `yaml:"baseUrl,omitempty"`
+	Type        string `yaml:"type,omitempty"`
+	WireAPI     string `yaml:"wireApi,omitempty"`
+	APIKey      string `yaml:"apiKey,omitempty"`
+	BearerToken string `yaml:"bearerToken,omitempty"`
+}
+
 // DefaultsConfig holds default execution parameters.
 type DefaultsConfig struct {
-	Engine     string `yaml:"engine,omitempty"`
-	Model      string `yaml:"model,omitempty"`
-	JudgeModel string `yaml:"judgeModel,omitempty"`
-	Timeout    int    `yaml:"timeout,omitempty"`
-	Parallel   *bool  `yaml:"parallel,omitempty"`
-	Workers    int    `yaml:"workers,omitempty"`
-	Verbose    *bool  `yaml:"verbose,omitempty"`
-	SessionLog *bool  `yaml:"sessionLog,omitempty"`
+	Engine     string          `yaml:"engine,omitempty"`
+	Model      string          `yaml:"model,omitempty"`
+	JudgeModel string          `yaml:"judgeModel,omitempty"`
+	Timeout    int             `yaml:"timeout,omitempty"`
+	Parallel   *bool           `yaml:"parallel,omitempty"`
+	Workers    int             `yaml:"workers,omitempty"`
+	Verbose    *bool           `yaml:"verbose,omitempty"`
+	SessionLog *bool           `yaml:"sessionLog,omitempty"`
+	Provider   *ProviderConfig `yaml:"provider,omitempty"`
 }
 
 // CacheConfig holds cache settings.
@@ -311,6 +323,9 @@ func mergeConfig(dst, src *ProjectConfig) {
 	}
 	if src.Defaults.SessionLog != nil {
 		dst.Defaults.SessionLog = src.Defaults.SessionLog
+	}
+	if src.Defaults.Provider != nil {
+		dst.Defaults.Provider = src.Defaults.Provider
 	}
 
 	// Cache

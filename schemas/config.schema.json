@@ -59,19 +59,30 @@
         "engine": {
           "type": "string",
           "description": "Execution engine for evaluations.",
-          "enum": ["copilot-sdk", "mock"],
+          "enum": [
+            "copilot-sdk",
+            "claude-cli",
+            "mock"
+          ],
           "default": "copilot-sdk"
         },
         "model": {
           "type": "string",
           "description": "Default model identifier for evaluations.",
-          "examples": ["claude-sonnet-4.6", "gpt-4o", "claude-sonnet-4"],
+          "examples": [
+            "claude-sonnet-4.6",
+            "gpt-4o",
+            "claude-sonnet-4"
+          ],
           "default": "claude-sonnet-4.6"
         },
         "judgeModel": {
           "type": "string",
           "description": "Model used for LLM-as-judge grading. If omitted, uses the same model as the evaluation.",
-          "examples": ["claude-sonnet-4.6", "gpt-4o"]
+          "examples": [
+            "claude-sonnet-4.6",
+            "gpt-4o"
+          ]
         },
         "timeout": {
           "type": "integer",
@@ -99,6 +110,33 @@
           "type": "boolean",
           "description": "Write per-task session logs alongside results.",
           "default": false
+        },
+        "provider": {
+          "type": "object",
+          "description": "BYOK (Bring Your Own Key) custom LLM provider settings. Environment variables (COPILOT_BASE_URL, COPILOT_PROVIDER, COPILOT_WIRE_API, COPILOT_API_KEY, COPILOT_BEARER_TOKEN) always take precedence over these values.",
+          "properties": {
+            "baseUrl": {
+              "type": "string",
+              "description": "Base URL of the custom provider endpoint (e.g. https://my-azure.openai.azure.com)."
+            },
+            "type": {
+              "type": "string",
+              "description": "Provider type identifier (e.g. azure-openai)."
+            },
+            "wireApi": {
+              "type": "string",
+              "description": "Wire API format used by the provider (e.g. openai)."
+            },
+            "apiKey": {
+              "type": "string",
+              "description": "API key for the custom provider."
+            },
+            "bearerToken": {
+              "type": "string",
+              "description": "Bearer token for the custom provider."
+            }
+          },
+          "additionalProperties": false
         }
       },
       "additionalProperties": false
@@ -145,7 +183,10 @@
         "model": {
           "type": "string",
           "description": "Model used for skill refinement suggestions in dev mode.",
-          "examples": ["claude-sonnet-4-20250514", "gpt-4o"],
+          "examples": [
+            "claude-sonnet-4-20250514",
+            "gpt-4o"
+          ],
           "default": "claude-sonnet-4-20250514"
         },
         "target": {
