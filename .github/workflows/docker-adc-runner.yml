@@ -1,0 +1,175 @@
+name: ADC Runner Image
+
+# Builds and publishes the ADC sandbox disk image for the Waza Platform.
+#
+# Image: ghcr.io/microsoft/waza/adc-runner
+#
+# Triggers:
+#   • push to main (touching the runner inputs)   → :main, :sha-<sha>
+#   • tag push v*.*.*                             → :latest, :<version>, :v<major>, :v<major>.<minor>
+#   • pull_request to main (build-only, no push)  → smoke test
+#   • workflow_dispatch                           → manual rebuild
+#
+# Multi-arch: linux/amd64, linux/arm64.
+
+on:
+  push:
+    branches: [main]
+    paths: &adc-paths
+      - 'Dockerfile.adc-runner'
+      - '.dockerignore'
+      - 'go.mod'
+      - 'go.sum'
+      - 'cmd/**'
+      - 'internal/**'
+      - 'web/**'
+      - 'schemas/**'
+      - 'docs.go'
+      - 'docs/graders/**'
+      - '.github/workflows/docker-adc-runner.yml'
+    tags:
+      - 'v*.*.*'
+  pull_request:
+    branches: [main]
+    paths: *adc-paths
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Additional tag to publish (in addition to sha-based tag)'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}/adc-runner
+
+jobs:
+  build-and-publish:
+    name: Build and Publish ADC Runner
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Set up QEMU (multi-arch)
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        # Only log in when we're going to push. PRs from forks can't access
+        # GHCR credentials anyway, so this also keeps fork CI green.
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Resolve version
+        id: version
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            VERSION="0.0.0-$(echo "${GITHUB_SHA}" | cut -c1-7)"
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Resolved WAZA_VERSION=${VERSION}"
+
+      - name: Compute image tags
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=ref,event=branch
+            type=ref,event=pr
+            type=sha,prefix=sha-,format=short
+            type=raw,value=${{ github.event.inputs.tag }},enable=${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag != '' }}
+
+      # PR builds: single-arch, build-only, for fast verification.
+      - name: Build (PR — verify only, single arch)
+        if: github.event_name == 'pull_request'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.adc-runner
+          platforms: linux/amd64
+          push: false
+          load: true
+          tags: waza-adc-runner:pr-${{ github.event.pull_request.number }}
+          build-args: |
+            WAZA_VERSION=${{ steps.version.outputs.version }}
+            VCS_REF=${{ github.sha }}
+            BUILD_DATE=${{ github.event.repository.updated_at }}
+          cache-from: type=gha,scope=adc-runner
+          cache-to: type=gha,mode=max,scope=adc-runner
+
+      - name: Smoke test (PR build)
+        if: github.event_name == 'pull_request'
+        run: |
+          docker run --rm waza-adc-runner:pr-${{ github.event.pull_request.number }} \
+            /usr/local/bin/waza --version
+          docker run --rm --entrypoint /bin/bash \
+            waza-adc-runner:pr-${{ github.event.pull_request.number }} \
+            -c 'test -d "$XDG_CACHE_HOME/copilot-sdk" && ls "$XDG_CACHE_HOME/copilot-sdk"'
+
+      # Publish builds: multi-arch, pushed to GHCR.
+      - name: Build and Push (multi-arch)
+        if: github.event_name != 'pull_request'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.adc-runner
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            WAZA_VERSION=${{ steps.version.outputs.version }}
+            VCS_REF=${{ github.sha }}
+            BUILD_DATE=${{ github.event.repository.updated_at }}
+          cache-from: type=gha,scope=adc-runner
+          cache-to: type=gha,mode=max,scope=adc-runner
+          provenance: true
+          sbom: true
+
+      - name: Smoke test pushed image (amd64)
+        if: github.event_name != 'pull_request'
+        run: |
+          IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.meta.outputs.digest || '' }}"
+          # Fall back to first tag if digest isn't exposed by this action version.
+          if [[ -z "${{ steps.meta.outputs.digest }}" ]]; then
+            IMAGE=$(echo "${{ steps.meta.outputs.tags }}" | head -n1)
+          fi
+          docker run --rm --platform linux/amd64 "$IMAGE" \
+            /usr/local/bin/waza --version
+          docker run --rm --platform linux/amd64 --entrypoint /bin/bash "$IMAGE" \
+            -c 'test -d "$XDG_CACHE_HOME/copilot-sdk" && echo "Copilot CLI cache OK:" && ls "$XDG_CACHE_HOME/copilot-sdk"'
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "## ADC Runner Image"
+            echo ""
+            echo "**Version:** \`${{ steps.version.outputs.version }}\`"
+            echo ""
+            echo "**Tags:**"
+            echo '```'
+            echo "${{ steps.meta.outputs.tags }}"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **ADC runner disk image** — New `Dockerfile.adc-runner` plus `.github/workflows/docker-adc-runner.yml` publish the pre-baked ADC sandbox image to `ghcr.io/microsoft/waza/adc-runner` (linux/amd64 + linux/arm64). Image bundles the `waza` CLI and pre-extracts the embedded Copilot CLI cache so first-boot sandbox start-up skips the ~50 MB extraction. See [`docs/ADC-RUNNER.md`](docs/ADC-RUNNER.md) (#177)
+
 ## [0.37.0] - 2026-06-18
 
 ### Added

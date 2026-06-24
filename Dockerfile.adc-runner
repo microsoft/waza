@@ -1,0 +1,165 @@
+# syntax=docker/dockerfile:1.7
+# ────────────────────────────────────────────────────────────────────────────
+# Dockerfile.adc-runner — ADC sandbox disk image for the Waza Platform
+#
+# Pre-bakes:
+#   • The waza CLI binary (built from this repo)
+#   • The embedded GitHub Copilot CLI extracted into the image cache
+#   • Skill-runtime essentials (bash, git, curl, ca-certs, jq, node, npm)
+#
+# Target consumer: the hosted Waza Platform (epic #168). The platform calls
+# `DiskImages.Create` against the ADC SDK with `BaseImage = ghcr.io/microsoft/waza/adc-runner:<tag>`
+# and starts sandboxes with `Entrypoint=["/bin/sleep"], Cmd=["infinity"]`,
+# then runs evals via `ExecuteShellCommand`.
+#
+# Image contract (consumed by internal/platform/execution):
+#   - waza is on PATH at /usr/local/bin/waza
+#   - HOME=/opt/waza and XDG_CACHE_HOME=/opt/waza/cache are pre-populated so
+#     the first `waza` invocation skips Copilot CLI extraction
+#   - /workspace is the default working directory for sandboxed evals
+#   - GITHUB_TOKEN is expected at runtime (Copilot SDK auth)
+#
+# Published as:
+#   ghcr.io/microsoft/waza/adc-runner:<tag>
+#   (see .github/workflows/docker-adc-runner.yml)
+# ────────────────────────────────────────────────────────────────────────────
+
+# ── Stage 1: Build the web dashboard ────────────────────────────────────────
+FROM node:22-alpine AS web-builder
+
+WORKDIR /build/web
+
+COPY web/package.json web/package-lock.json ./
+RUN npm ci --silent
+
+COPY web/ ./
+RUN npm run build
+
+
+# ── Stage 2: Build the waza binary + pre-extract the embedded Copilot CLI ──
+FROM golang:1.26-bookworm AS go-builder
+
+WORKDIR /build
+
+# Cache module downloads first.
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Bring in the source and the prebuilt web assets.
+COPY . .
+COPY --from=web-builder /build/web/dist/ web/dist/
+
+ARG WAZA_VERSION=dev
+ARG TARGETOS=linux
+ARG TARGETARCH=amd64
+
+ENV CGO_ENABLED=0 \
+    GOOS=${TARGETOS} \
+    GOARCH=${TARGETARCH}
+
+RUN go build \
+        -trimpath \
+        -ldflags "-s -w -X main.version=${WAZA_VERSION}" \
+        -o /out/waza \
+        ./cmd/waza \
+ && /out/waza --version
+
+# Pre-extract the embedded Copilot CLI by invoking the same code path waza uses
+# at runtime. This warms the cache so the first sandbox call doesn't have to
+# write ~50MB to disk. We keep the cache under /opt/waza/cache and copy it into
+# the runtime stage as-is.
+RUN <<'BASH'
+#!/usr/bin/env bash
+set -euo pipefail
+mkdir -p /opt/waza/cache /build/internal/cmd/extractcli
+cat > /build/internal/cmd/extractcli/main.go <<'EOF'
+// Build-time helper: extract the embedded Copilot CLI into the cache so the
+// ADC runner image ships with a pre-warmed CLI. Lives under internal/ so the
+// import rule allows it to reach internal/embedded.
+package main
+
+import (
+	"fmt"
+
+	"github.com/microsoft/waza/internal/embedded"
+)
+
+func main() {
+	p, err := embedded.Path()
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println(p)
+}
+EOF
+HOME=/opt/waza XDG_CACHE_HOME=/opt/waza/cache \
+    go run ./internal/cmd/extractcli
+ls -la /opt/waza/cache/copilot-sdk/
+BASH
+
+
+# ── Stage 3: Runtime image (Ubuntu — matches typical ADC sandbox base) ─────
+FROM ubuntu:24.04 AS runtime
+
+ARG WAZA_VERSION=dev
+
+# Skill-runtime essentials. Kept intentionally small; add packages only when
+# concretely required by a published skill. Node + npm are included because
+# many community skills (and the embedded Copilot SDK MCP plumbing) shell out
+# to `node`/`npx`.
+RUN apt-get update \
+ && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        bash \
+        ca-certificates \
+        curl \
+        git \
+        jq \
+        nodejs \
+        npm \
+        openssh-client \
+        tini \
+        tzdata \
+        unzip \
+        xz-utils \
+ && rm -rf /var/lib/apt/lists/* \
+ && update-ca-certificates
+
+# Stable, predictable home for the sandboxed agent. HOME and XDG_CACHE_HOME
+# match what was used during pre-extraction so the cached Copilot CLI is
+# discovered without a rewrite on first boot.
+ENV HOME=/opt/waza \
+    XDG_CACHE_HOME=/opt/waza/cache \
+    WAZA_ADC_RUNNER=1 \
+    PATH=/usr/local/bin:/usr/bin:/bin
+
+RUN mkdir -p /opt/waza /opt/waza/cache /workspace \
+ && chmod -R 0777 /opt/waza /workspace
+
+COPY --from=go-builder /out/waza /usr/local/bin/waza
+COPY --from=go-builder /opt/waza/cache/ /opt/waza/cache/
+
+# Verify the binary launches and the pre-extracted CLI is reachable.
+RUN waza --version \
+ && ls -la /opt/waza/cache/copilot-sdk/ 1>/dev/null
+
+WORKDIR /workspace
+
+# ADC sandboxes are long-lived: ExecuteShellCommand is the primary surface,
+# so we keep PID 1 alive with sleep infinity under tini for proper signal
+# handling. Override with `--entrypoint` for one-shot invocations.
+ENTRYPOINT ["/usr/bin/tini", "--"]
+CMD ["/bin/sleep", "infinity"]
+
+# OCI labels — populated by the publish workflow.
+ARG VCS_REF=unknown
+ARG BUILD_DATE=unknown
+LABEL org.opencontainers.image.title="waza ADC runner" \
+      org.opencontainers.image.description="Pre-baked ADC sandbox image for the Waza Platform (waza CLI + embedded Copilot CLI)" \
+      org.opencontainers.image.source="https://github.com/microsoft/waza" \
+      org.opencontainers.image.url="https://github.com/microsoft/waza" \
+      org.opencontainers.image.documentation="https://github.com/microsoft/waza/blob/main/docs/ADC-RUNNER.md" \
+      org.opencontainers.image.licenses="MIT" \
+      org.opencontainers.image.version="${WAZA_VERSION}" \
+      org.opencontainers.image.revision="${VCS_REF}" \
+      org.opencontainers.image.created="${BUILD_DATE}" \
+      org.opencontainers.image.vendor="Microsoft"
