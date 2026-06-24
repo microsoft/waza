@@ -45,6 +45,25 @@ cd waza
 go build -o waza ./cmd/waza
 ```
 
+### Via Container
+
+Use the standard Docker image for containerized CI jobs:
+
+```bash
+docker build -t waza:local .
+docker run --rm -v "$PWD:/workspace" waza:local run eval.yaml
+```
+
+ADC sandbox runners should use `Dockerfile.adc-runner` instead. It pre-bakes the `waza` binary and extracts the bundled GitHub Copilot CLI to `/usr/local/bin/copilot`, with `COPILOT_CLI_PATH` already set:
+
+```bash
+docker build -f Dockerfile.adc-runner -t waza-adc-runner:local .
+docker run --rm waza-adc-runner:local waza --version
+docker run --rm waza-adc-runner:local copilot-cli --version
+```
+
+CI publishes the ADC runner OCI image to `ghcr.io/microsoft/waza/adc-runner` on `main`, `vX.Y.Z` tags, and manual dispatch. Promoting that OCI image into an ADC disk image still requires environment-specific ADC space, label, and release-policy details.
+
 ## GitHub Actions
 
 ### Quick Start ΓÇö Scaffold with waza init

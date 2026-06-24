@@ -1,10 +1,14 @@
 name: Docker Build and Verify
 
 on:
+  workflow_dispatch:
   push:
     branches: [main]
+    tags:
+      - 'v*.*.*'
     paths: &docker-paths
       - 'Dockerfile'
+      - 'Dockerfile.adc-runner'
       - '.dockerignore'
       - 'go.mod'
       - 'go.sum'
@@ -19,10 +23,28 @@ on:
     branches: [main]
     paths: *docker-paths
 
+permissions:
+  contents: read
+  packages: write
+
 jobs:
   docker-build:
-    name: Build and Verify Docker Image
+    name: Build and Verify ${{ matrix.name }}
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: waza
+            file: Dockerfile
+            local-tag: waza
+            verify-command: --version
+            publish: false
+          - name: adc-runner
+            file: Dockerfile.adc-runner
+            local-tag: waza-adc-runner
+            verify-command: waza --version
+            publish: true
 
     steps:
       - name: Checkout Repository
@@ -33,15 +55,56 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build Docker image
+      - name: Build Docker image locally
         uses: docker/build-push-action@v6
         with:
           context: .
+          file: ${{ matrix.file }}
           push: false
           load: true
-          tags: waza:ci-${{ github.sha }}
+          tags: ${{ matrix.local-tag }}:ci-${{ github.sha }}
+          build-args: |
+            WAZA_VERSION=ci-${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=min
 
       - name: Verify
-        run: docker run --rm waza:ci-${{ github.sha }} --version
+        run: docker run --rm ${{ matrix.local-tag }}:ci-${{ github.sha }} ${{ matrix.verify-command }}
+
+      - name: Verify ADC runner Copilot CLI
+        if: matrix.publish
+        run: docker run --rm ${{ matrix.local-tag }}:ci-${{ github.sha }} copilot-cli --version
+
+      - name: Log in to GitHub Container Registry
+        if: matrix.publish && github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Generate ADC runner image metadata
+        if: matrix.publish && github.event_name != 'pull_request'
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}/adc-runner
+          tags: |
+            type=ref,event=branch
+            type=ref,event=tag
+            type=sha,prefix=sha-
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Publish ADC runner image
+        if: matrix.publish && github.event_name != 'pull_request'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.file }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            WAZA_VERSION=${{ github.ref_type == 'tag' && github.ref_name || format('sha-{0}', github.sha) }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=min

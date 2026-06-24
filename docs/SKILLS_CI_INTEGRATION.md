@@ -48,6 +48,16 @@ docker build -t waza:local .
 docker run -v $(pwd):/workspace waza:local run eval.yaml
 ```
 
+For ADC sandboxes, build the dedicated runner image instead:
+
+```bash
+docker build -f Dockerfile.adc-runner -t waza-adc-runner:local .
+docker run --rm waza-adc-runner:local waza --version
+docker run --rm waza-adc-runner:local copilot-cli --version
+```
+
+`Dockerfile.adc-runner` pre-bakes the `waza` binary and extracts the bundled GitHub Copilot CLI to `/usr/local/bin/copilot`, with `COPILOT_CLI_PATH` set for the `copilot-sdk` executor. The published OCI image is `ghcr.io/microsoft/waza/adc-runner`; ADC disk-image promotion requires environment-specific ADC space and labeling details.
+
 Benefits:
 - Isolated environment
 - Reproducible builds

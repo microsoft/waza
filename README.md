@@ -26,6 +26,25 @@ The PowerShell script downloads the latest standalone native Windows `waza` bina
 
 Or browse the [GitHub Releases](https://github.com/microsoft/waza/releases) page and choose the standalone waza binary assets for the version you want.
 
+### Container Images
+
+The standard Docker image packages the `waza` CLI for containerized CI jobs:
+
+```bash
+docker build -t waza:local .
+docker run --rm -v "$PWD:/workspace" waza:local run eval.yaml
+```
+
+Waza also ships an ADC runner image definition at `Dockerfile.adc-runner`. It pre-bakes the `waza` binary plus the bundled GitHub Copilot CLI at `/usr/local/bin/copilot` and sets `COPILOT_CLI_PATH` so ADC sandboxes avoid first-run Copilot CLI extraction. The image defaults to `sleep infinity` for sandbox lifecycle compatibility, while commands can still be executed directly:
+
+```bash
+docker build -f Dockerfile.adc-runner -t waza-adc-runner:local .
+docker run --rm waza-adc-runner:local waza --version
+docker run --rm waza-adc-runner:local copilot-cli --version
+```
+
+The CI workflow publishes the ADC runner image to `ghcr.io/microsoft/waza/adc-runner` on `main`, version tags, and manual dispatch. Promotion from that OCI image into an ADC disk image still depends on the target ADC space, labels, and release policy.
+
 ### Install from Source
 
 Requires Go 1.26+:
