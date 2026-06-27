@@ -25,8 +25,11 @@ type suggestFlags struct {
 	model     string
 	dryRun    bool
 	apply     bool
+	force     bool
 	outputDir string
 	format    string
+	count     int
+	focus     string
 }
 
 func newSuggestCommand() *cobra.Command {
@@ -44,7 +47,12 @@ func newSuggestCommand() *cobra.Command {
 
 This command is experimental. Because an LLM generates suggestions, they should be
 reviewed by a human before applying. By default, suggestions are printed to stdout
-(--dry-run). Use --apply to write suggested eval.yaml, tasks, and fixtures to disk.`,
+(--dry-run). Use --apply to write suggested eval.yaml, tasks, and fixtures to disk.
+
+Use --count to control how many cases are proposed, --focus to steer generation
+toward a category (` + strings.Join(suggestpkg.AvailableFocusCategories(), ", ") + `),
+and --force to overwrite existing files (default is merge-safe: existing eval.yaml
+and task ids are preserved).`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runSuggestCommand(cmd, args[0], flags)
@@ -55,8 +63,11 @@ reviewed by a human before applying. By default, suggestions are printed to stdo
 	cmd.Flags().StringVar(&flags.model, "model", flags.model, "Model to use for suggestions")
 	cmd.Flags().BoolVar(&flags.dryRun, "dry-run", true, "Print suggestions to stdout without writing files")
 	cmd.Flags().BoolVar(&flags.apply, "apply", false, "Write suggested files to disk")
+	cmd.Flags().BoolVar(&flags.force, "force", false, "Overwrite existing files and duplicate task ids (use with --apply)")
 	cmd.Flags().StringVar(&flags.outputDir, "output-dir", "", "Directory for output (default: <skill-path>/evals)")
 	cmd.Flags().StringVar(&flags.format, "format", "yaml", "Output format: yaml|json")
+	cmd.Flags().IntVar(&flags.count, "count", 0, "Number of test cases to propose (0 = model default)")
+	cmd.Flags().StringVar(&flags.focus, "focus", "", "Steer generation toward a category: "+strings.Join(suggestpkg.AvailableFocusCategories(), "|"))
 
 	return cmd
 }
@@ -65,11 +76,20 @@ func runSuggestCommand(cmd *cobra.Command, skillPath string, flags *suggestFlags
 	if flags.format != "yaml" && flags.format != "json" {
 		return fmt.Errorf("invalid format %q: must be yaml or json", flags.format)
 	}
+	if err := suggestpkg.ValidateFocus(flags.focus); err != nil {
+		return err
+	}
+	if flags.count < 0 {
+		return fmt.Errorf("invalid --count %d: must be >= 0", flags.count)
+	}
 	if flags.apply {
 		flags.dryRun = false
 	}
 	if !flags.apply && !flags.dryRun {
 		return errors.New("either --dry-run or --apply must be enabled")
+	}
+	if flags.force && !flags.apply {
+		return errors.New("--force requires --apply")
 	}
 
 	outputDir := flags.outputDir
@@ -93,6 +113,8 @@ func runSuggestCommand(cmd *cobra.Command, skillPath string, flags *suggestFlags
 	suggestion, err := suggestpkg.Generate(cmd.Context(), engine, suggestpkg.Options{
 		SkillPath:  skillPath,
 		GraderDocs: waza.GraderDocsFS,
+		Count:      flags.count,
+		Focus:      flags.focus,
 	})
 	if err != nil {
 		return err
@@ -110,7 +132,7 @@ func runSuggestCommand(cmd *cobra.Command, skillPath string, flags *suggestFlags
 		return nil
 	}
 
-	written, err := suggestion.WriteToDir(outputDir)
+	written, err := suggestion.WriteToDir(outputDir, suggestpkg.WriteOptions{Force: flags.force})
 	if err != nil {
 		return err
 	}

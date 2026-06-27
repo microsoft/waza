@@ -461,8 +461,19 @@ waza suggest <skill-path>
 | `--model` | Model to use for suggestions (default: project default model) |
 | `--dry-run` | Print suggestions to stdout (default) |
 | `--apply` | Write suggested files to disk |
+| `--force` | Allow `--apply` to overwrite existing eval/task/fixture files (requires `--apply`) |
+| `--count` | Generate exactly N tasks (default: at least 3 diverse + 1 negative) |
+| `--focus` | Steer generation toward one of `triggers`, `negative-triggers`, `edge-fixtures`, `do-not-use-for`, `parameters` |
 | `--output-dir` | Output directory (default: `<skill-path>/evals`) |
 | `--format` | Output format: `yaml` (default), `json` |
+
+Each suggested task entry carries a `confidence` value in `[0, 1]` and a `rationale` string citing the SKILL.md span it was derived from. Both appear in dry-run / JSON output, but are not written into the task YAML (the task schema rejects unknown fields).
+
+`--apply` is merge-safe by default:
+
+- An existing `eval.yaml` is preserved — new task files are picked up by its existing `tasks:` glob pattern.
+- New task files refuse to overwrite existing task files (by path or by `id`) and new fixtures refuse to overwrite existing fixtures.
+- Pass `--force` to overwrite existing eval / task / fixture files.
 
 ### Examples
 
@@ -470,8 +481,14 @@ waza suggest <skill-path>
 # Preview suggestions
 waza suggest skills/code-explainer --dry-run
 
+# Generate exactly 5 negative-trigger tasks and merge them into the existing suite
+waza suggest skills/code-explainer --focus negative-triggers --count 5 --apply
+
 # Write eval/task/fixture files
 waza suggest skills/code-explainer --apply
+
+# Overwrite a previously generated suite
+waza suggest skills/code-explainer --apply --force
 
 # JSON output
 waza suggest skills/code-explainer --format json
