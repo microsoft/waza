@@ -68,6 +68,41 @@ type promptData struct {
 	ContentSummary string
 	GraderTypes    string
 	SkillContent   string
+	// Count is the desired number of test cases (<= 0 means use default).
+	Count int
+	// Focus is an optional focus category that steers the kinds of cases
+	// the LLM should emit (e.g. "negative-triggers"). Empty means balanced.
+	Focus string
+}
+
+// focusDirective returns prompt text that steers generation toward a focus
+// category. Returns "" when focus is empty.
+func focusDirective(focus string) string {
+	switch FocusCategory(focus) {
+	case "":
+		return ""
+	case FocusTriggers:
+		return "FOCUS: Generate tasks that exercise the skill's positive trigger phrases " +
+			"(the 'USE FOR' list). Each task should match a distinct trigger so we can verify " +
+			"the skill activates when it should."
+	case FocusNegativeTriggers:
+		return "FOCUS: Generate tasks that look superficially like triggers but should NOT " +
+			"invoke this skill. Use skill_invocation graders with forbidden_skills to assert " +
+			"the skill stays out of these cases."
+	case FocusEdgeFixtures:
+		return "FOCUS: Generate tasks that stress edge cases in the input fixtures — empty " +
+			"files, very large files, malformed inputs, unicode, ambiguous content. Each task " +
+			"should carry a realistic edge-case fixture under fixtures/."
+	case FocusDoNotUseFor:
+		return "FOCUS: Generate tasks drawn from the skill's 'DO NOT USE FOR' anti-trigger " +
+			"list. Each task must assert the skill refuses or routes elsewhere (use " +
+			"skill_invocation forbidden_skills, or text graders that check for refusal language)."
+	case FocusParameters:
+		return "FOCUS: Generate tasks that vary the parameters and tool arguments the skill " +
+			"would supply — required vs optional, valid vs invalid values, boundary numerics. " +
+			"Use tool_constraint or action_sequence graders where appropriate."
+	}
+	return ""
 }
 
 // renderSelectionPrompt builds the pass-1 prompt that asks the LLM
@@ -102,6 +137,8 @@ func renderImplementationPrompt(data promptData, graderDocs string) string {
 	b.WriteString("  <full eval.yaml content>\n")
 	b.WriteString("tasks:\n")
 	b.WriteString("  - path: tasks/<task-file>.yaml\n")
+	b.WriteString("    confidence: 0.0-1.0\n")
+	b.WriteString("    rationale: <one sentence pointing to the SKILL.md span this case came from>\n")
 	b.WriteString("    content: |\n")
 	b.WriteString("      <task yaml>\n")
 	b.WriteString("fixtures:\n")
@@ -113,11 +150,21 @@ func renderImplementationPrompt(data promptData, graderDocs string) string {
 	b.WriteString("- Each grader entry MUST be an object with at least 'type' and 'name' fields. NEVER use bare strings like '- grader_name'. Always use '- name: grader_name' with a 'type' field.\n")
 	b.WriteString("- Include required config fields for each grader type (see grader documentation below).\n")
 	b.WriteString("- For skill_invocation graders, use required_skills + mode (exact_match, in_order, any_order) for positive checks, forbidden_skills for negative checks, or both together.\n")
-	b.WriteString("- Include at least 3 diverse tasks and at least 1 negative/anti-trigger task.\n")
+	if data.Count > 0 {
+		fmt.Fprintf(&b, "- Generate EXACTLY %d tasks. Do not generate more or fewer.\n", data.Count)
+	} else {
+		b.WriteString("- Include at least 3 diverse tasks and at least 1 negative/anti-trigger task.\n")
+	}
 	b.WriteString("- Use grader types from the allowed list only.\n")
 	b.WriteString("- Keep task IDs deterministic and kebab-case.\n")
 	b.WriteString("- Task YAML must use inputs: { prompt: ... } (do not use a top-level prompt field).\n")
-	b.WriteString("- Make fixtures minimal and realistic for the tasks.\n\n")
+	b.WriteString("- Task YAML must NOT include 'confidence' or 'rationale' inside the task content; those belong on the outer suggestion entry and will be stripped before writing.\n")
+	b.WriteString("- Each task entry MUST carry a 'confidence' float in [0,1] and a 'rationale' string citing the SKILL.md span (e.g. \"matches USE FOR: summarize bullet 2\").\n")
+	b.WriteString("- Make fixtures minimal and realistic for the tasks.\n")
+	if directive := focusDirective(data.Focus); directive != "" {
+		b.WriteString("- " + directive + "\n")
+	}
+	b.WriteString("\n")
 	b.WriteString("Skill metadata:\n")
 	fmt.Fprintf(&b, "- Name: %s\n", data.SkillName)
 	fmt.Fprintf(&b, "- Description: %s\n", data.Description)

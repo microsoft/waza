@@ -14,22 +14,73 @@ import (
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/scaffold"
 	"github.com/microsoft/waza/internal/skill"
+	"github.com/microsoft/waza/internal/validation"
 	"gopkg.in/yaml.v3"
 )
 
 const defaultTimeoutSec = 120
+
+// FocusCategory steers the kinds of test cases the LLM should generate.
+type FocusCategory string
+
+const (
+	FocusTriggers         FocusCategory = "triggers"
+	FocusNegativeTriggers FocusCategory = "negative-triggers"
+	FocusEdgeFixtures     FocusCategory = "edge-fixtures"
+	FocusDoNotUseFor      FocusCategory = "do-not-use-for"
+	FocusParameters       FocusCategory = "parameters"
+)
+
+// AvailableFocusCategories returns all supported --focus values.
+func AvailableFocusCategories() []string {
+	return []string{
+		string(FocusTriggers),
+		string(FocusNegativeTriggers),
+		string(FocusEdgeFixtures),
+		string(FocusDoNotUseFor),
+		string(FocusParameters),
+	}
+}
+
+// ValidateFocus returns nil if focus is empty or a known category.
+func ValidateFocus(focus string) error {
+	if strings.TrimSpace(focus) == "" {
+		return nil
+	}
+	for _, c := range AvailableFocusCategories() {
+		if focus == c {
+			return nil
+		}
+	}
+	return fmt.Errorf("invalid --focus %q: must be one of %s", focus, strings.Join(AvailableFocusCategories(), ", "))
+}
 
 // Options configures suggestion generation.
 type Options struct {
 	SkillPath  string
 	TimeoutSec int
 	GraderDocs fs.FS // embedded grader documentation (optional)
+	// Count is how many test cases to propose. <= 0 means "use model default".
+	Count int
+	// Focus narrows generation toward a category. Empty means "balanced".
+	Focus string
 }
 
-// GeneratedFile is a single generated artifact.
+// WriteOptions controls how a Suggestion is applied to disk.
+type WriteOptions struct {
+	// Force overwrites existing files and duplicate task ids when true.
+	Force bool
+}
+
+// GeneratedFile is a single generated artifact. For tasks, Confidence and
+// Rationale carry per-case metadata that is shown in dry-run output but is
+// *not* written into the task YAML file (which must satisfy the strict task
+// schema).
 type GeneratedFile struct {
-	Path    string `yaml:"path" json:"path"`
-	Content string `yaml:"content" json:"content"`
+	Path       string  `yaml:"path" json:"path"`
+	Content    string  `yaml:"content" json:"content"`
+	Confidence float64 `yaml:"confidence,omitempty" json:"confidence,omitempty"`
+	Rationale  string  `yaml:"rationale,omitempty" json:"rationale,omitempty"`
 }
 
 // Suggestion is the structured output returned by the LLM.
@@ -47,6 +98,9 @@ type Suggestion struct {
 //
 // When opts.GraderDocs is nil, falls back to a single-pass prompt.
 func Generate(ctx context.Context, engine execution.AgentEngine, opts Options) (*Suggestion, error) {
+	if err := ValidateFocus(opts.Focus); err != nil {
+		return nil, err
+	}
 	skillFile, err := resolveSkillFile(opts.SkillPath)
 	if err != nil {
 		return nil, err
@@ -63,6 +117,8 @@ func Generate(ctx context.Context, engine execution.AgentEngine, opts Options) (
 	}
 
 	data := buildPromptData(sk, skillContent)
+	data.Count = opts.Count
+	data.Focus = opts.Focus
 
 	// Determine grader docs for the implementation prompt.
 	var graderDocs string
@@ -238,9 +294,60 @@ func ParseResponse(raw string) (*Suggestion, error) {
 }
 
 // WriteToDir writes suggested files to outputDir and returns written paths.
-func (s *Suggestion) WriteToDir(outputDir string) ([]string, error) {
+// Existing files are preserved unless opts.Force is true. Generated task
+// YAML files are validated against the task schema before being written.
+func (s *Suggestion) WriteToDir(outputDir string, opts WriteOptions) ([]string, error) {
 	if err := validateEvalYAML(s.EvalYAML); err != nil {
 		return nil, err
+	}
+
+	// Pre-flight: validate each task against the schema *and* check for
+	// id collisions with existing tasks in outputDir.
+	existingIDs, err := collectExistingTaskIDs(outputDir)
+	if err != nil {
+		return nil, err
+	}
+
+	type plannedTask struct {
+		target string
+		id     string
+		body   []byte
+	}
+	planned := make([]plannedTask, 0, len(s.Tasks))
+	seenIDs := make(map[string]string, len(s.Tasks))
+
+	for i, task := range s.Tasks {
+		path, err := normalizeGeneratedPath(task.Path, fmt.Sprintf("tasks/task-%02d.yaml", i+1))
+		if err != nil {
+			return nil, err
+		}
+		body := []byte(strings.TrimSpace(task.Content) + "\n")
+		if errs := validation.ValidateTaskBytes(body); len(errs) > 0 {
+			return nil, fmt.Errorf("generated task %s failed schema validation: %s", path, strings.Join(errs, "; "))
+		}
+		id := extractTaskID(body)
+		if id == "" {
+			return nil, fmt.Errorf("generated task %s is missing required 'id' field", path)
+		}
+		if dup, ok := seenIDs[id]; ok {
+			return nil, fmt.Errorf("generated tasks contain duplicate id %q (%s and %s)", id, dup, path)
+		}
+		seenIDs[id] = path
+
+		target := filepath.Join(outputDir, path)
+		if !opts.Force {
+			if _, err := os.Stat(target); err == nil {
+				return nil, fmt.Errorf("refusing to overwrite existing task file %s (use --force to override)", target)
+			}
+			if existingPath, ok := existingIDs[id]; ok {
+				rel, _ := filepath.Rel(outputDir, existingPath)
+				if rel == "" {
+					rel = existingPath
+				}
+				return nil, fmt.Errorf("refusing to overwrite task with existing id %q (already defined in %s; use --force to override)", id, rel)
+			}
+		}
+		planned = append(planned, plannedTask{target: target, id: id, body: body})
 	}
 
 	if err := os.MkdirAll(outputDir, 0o755); err != nil {
@@ -249,21 +356,24 @@ func (s *Suggestion) WriteToDir(outputDir string) ([]string, error) {
 
 	var written []string
 	evalPath := filepath.Join(outputDir, "eval.yaml")
-	if err := os.WriteFile(evalPath, []byte(strings.TrimSpace(s.EvalYAML)+"\n"), 0o644); err != nil {
-		return nil, fmt.Errorf("writing eval.yaml: %w", err)
+	if _, err := os.Stat(evalPath); err == nil && !opts.Force {
+		// Merge-safe: don't overwrite a curated eval.yaml.
+		// New task files will be picked up by its existing tasks: glob pattern.
+	} else {
+		if err := os.WriteFile(evalPath, []byte(strings.TrimSpace(s.EvalYAML)+"\n"), 0o644); err != nil {
+			return nil, fmt.Errorf("writing eval.yaml: %w", err)
+		}
+		written = append(written, evalPath)
 	}
-	written = append(written, evalPath)
 
-	for i, task := range s.Tasks {
-		path, err := normalizeGeneratedPath(task.Path, fmt.Sprintf("tasks/task-%02d.yaml", i+1))
-		if err != nil {
-			return nil, err
+	for _, pt := range planned {
+		if err := os.MkdirAll(filepath.Dir(pt.target), 0o755); err != nil {
+			return nil, fmt.Errorf("creating directory for %s: %w", pt.target, err)
 		}
-		target := filepath.Join(outputDir, path)
-		if err := writeGeneratedFile(target, task.Content); err != nil {
-			return nil, err
+		if err := os.WriteFile(pt.target, pt.body, 0o644); err != nil {
+			return nil, fmt.Errorf("writing %s: %w", pt.target, err)
 		}
-		written = append(written, target)
+		written = append(written, pt.target)
 	}
 
 	for i, fixture := range s.Fixtures {
@@ -272,6 +382,9 @@ func (s *Suggestion) WriteToDir(outputDir string) ([]string, error) {
 			return nil, err
 		}
 		target := filepath.Join(outputDir, path)
+		if _, err := os.Stat(target); err == nil && !opts.Force {
+			return nil, fmt.Errorf("refusing to overwrite existing fixture file %s (use --force to override)", target)
+		}
 		if err := writeGeneratedFile(target, fixture.Content); err != nil {
 			return nil, err
 		}
@@ -279,6 +392,51 @@ func (s *Suggestion) WriteToDir(outputDir string) ([]string, error) {
 	}
 
 	return written, nil
+}
+
+// collectExistingTaskIDs scans outputDir/tasks/*.yaml and returns a map of
+// task id -> file path for collision detection. Missing directories are
+// treated as empty.
+func collectExistingTaskIDs(outputDir string) (map[string]string, error) {
+	ids := make(map[string]string)
+	tasksDir := filepath.Join(outputDir, "tasks")
+	entries, err := os.ReadDir(tasksDir)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return ids, nil
+		}
+		return nil, fmt.Errorf("scanning tasks dir: %w", err)
+	}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if !strings.HasSuffix(name, ".yaml") && !strings.HasSuffix(name, ".yml") {
+			continue
+		}
+		full := filepath.Join(tasksDir, name)
+		data, err := os.ReadFile(full)
+		if err != nil {
+			continue
+		}
+		id := extractTaskID(data)
+		if id != "" {
+			ids[id] = full
+		}
+	}
+	return ids, nil
+}
+
+// extractTaskID pulls the top-level `id:` field from task YAML.
+func extractTaskID(data []byte) string {
+	var tc struct {
+		ID string `yaml:"id"`
+	}
+	if err := yaml.Unmarshal(data, &tc); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(tc.ID)
 }
 
 func loadSkill(skillFile string) (string, *skill.Skill, error) {

@@ -369,7 +369,7 @@ tasks:
 	}
 
 	outDir := t.TempDir()
-	written, err := s.WriteToDir(outDir)
+	written, err := s.WriteToDir(outDir, WriteOptions{})
 	require.NoError(t, err)
 	require.Len(t, written, 3)
 

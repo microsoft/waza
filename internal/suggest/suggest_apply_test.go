@@ -1,0 +1,204 @@
+package suggest
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+// --- Focus category tests ---
+
+func TestValidateFocusAcceptsKnown(t *testing.T) {
+	for _, f := range AvailableFocusCategories() {
+		require.NoError(t, ValidateFocus(f), "expected %s to be accepted", f)
+	}
+	require.NoError(t, ValidateFocus(""), "empty focus should be allowed")
+}
+
+func TestValidateFocusRejectsUnknown(t *testing.T) {
+	err := ValidateFocus("not-a-real-category")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "not-a-real-category")
+}
+
+func TestRenderImplementationPromptIncludesFocusDirective(t *testing.T) {
+	cases := map[FocusCategory]string{
+		FocusTriggers:         "positive trigger phrases",
+		FocusNegativeTriggers: "should NOT",
+		FocusEdgeFixtures:     "edge cases",
+		FocusDoNotUseFor:      "DO NOT USE FOR",
+		FocusParameters:       "vary the parameters",
+	}
+	for focus, marker := range cases {
+		t.Run(string(focus), func(t *testing.T) {
+			prompt := renderImplementationPrompt(promptData{
+				SkillName: "sample-skill",
+				Focus:     string(focus),
+			}, "")
+			require.Contains(t, prompt, marker, "directive marker missing for %s", focus)
+		})
+	}
+}
+
+func TestRenderImplementationPromptHonorsCount(t *testing.T) {
+	prompt := renderImplementationPrompt(promptData{
+		SkillName: "sample-skill",
+		Count:     5,
+	}, "")
+	require.Contains(t, prompt, "EXACTLY 5 tasks")
+}
+
+func TestRenderImplementationPromptDefaultGuidance(t *testing.T) {
+	prompt := renderImplementationPrompt(promptData{SkillName: "sample-skill"}, "")
+	require.Contains(t, prompt, "at least 3 diverse tasks")
+}
+
+func TestRenderImplementationPromptRequiresConfidenceAndRationale(t *testing.T) {
+	prompt := renderImplementationPrompt(promptData{SkillName: "sample-skill"}, "")
+	require.Contains(t, prompt, "confidence")
+	require.Contains(t, prompt, "rationale")
+}
+
+// --- Overwrite-safety tests ---
+
+func minimalSuggestion() *Suggestion {
+	return &Suggestion{
+		EvalYAML: validEvalYAML(),
+		Tasks: []GeneratedFile{
+			{
+				Path:    "tasks/task-01.yaml",
+				Content: "id: task-01\nname: Task One\ninputs:\n  prompt: hi\n",
+			},
+		},
+		Fixtures: []GeneratedFile{
+			{Path: "fixtures/sample.txt", Content: "data"},
+		},
+	}
+}
+
+func TestWriteToDirSkipsExistingEvalYAML(t *testing.T) {
+	dir := t.TempDir()
+	existing := "name: curated\n"
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "eval.yaml"), []byte(existing), 0o644))
+
+	s := minimalSuggestion()
+	written, err := s.WriteToDir(dir, WriteOptions{})
+	require.NoError(t, err)
+
+	// eval.yaml should not be in written (skipped because it exists),
+	// but the new task + fixture should be written.
+	for _, p := range written {
+		assert.NotEqual(t, "eval.yaml", filepath.Base(p), "should not have rewritten eval.yaml")
+	}
+	require.Len(t, written, 2)
+
+	// eval.yaml content untouched
+	raw, err := os.ReadFile(filepath.Join(dir, "eval.yaml"))
+	require.NoError(t, err)
+	require.Equal(t, existing, string(raw))
+}
+
+func TestWriteToDirRefusesOverwriteWithoutForce(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "tasks"), 0o755))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(dir, "tasks", "task-01.yaml"),
+		[]byte("id: other\nname: Other\ninputs:\n  prompt: x\n"),
+		0o644,
+	))
+
+	s := minimalSuggestion()
+	_, err := s.WriteToDir(dir, WriteOptions{})
+	require.Error(t, err)
+	require.Contains(t, strings.ToLower(err.Error()), "refusing to overwrite")
+}
+
+func TestWriteToDirAllowsOverwriteWithForce(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "tasks"), 0o755))
+	existingTask := filepath.Join(dir, "tasks", "task-01.yaml")
+	require.NoError(t, os.WriteFile(existingTask, []byte("id: stale\nname: Stale\ninputs:\n  prompt: x\n"), 0o644))
+
+	s := minimalSuggestion()
+	written, err := s.WriteToDir(dir, WriteOptions{Force: true})
+	require.NoError(t, err)
+	require.NotEmpty(t, written)
+
+	raw, err := os.ReadFile(existingTask)
+	require.NoError(t, err)
+	require.Contains(t, string(raw), "id: task-01")
+}
+
+func TestWriteToDirDetectsDuplicateTaskIDAgainstExisting(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "tasks"), 0o755))
+	// Existing task with id "task-01" at a *different* file path —
+	// path doesn't collide, but the id does.
+	require.NoError(t, os.WriteFile(
+		filepath.Join(dir, "tasks", "previous.yaml"),
+		[]byte("id: task-01\nname: Previous\ninputs:\n  prompt: x\n"),
+		0o644,
+	))
+
+	s := minimalSuggestion()
+	_, err := s.WriteToDir(dir, WriteOptions{})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "task-01")
+	require.Contains(t, strings.ToLower(err.Error()), "id")
+}
+
+func TestWriteToDirRejectsDuplicateIDsWithinBatch(t *testing.T) {
+	s := &Suggestion{
+		EvalYAML: validEvalYAML(),
+		Tasks: []GeneratedFile{
+			{Path: "tasks/a.yaml", Content: "id: dup\nname: A\ninputs:\n  prompt: hi\n"},
+			{Path: "tasks/b.yaml", Content: "id: dup\nname: B\ninputs:\n  prompt: hi\n"},
+		},
+	}
+	_, err := s.WriteToDir(t.TempDir(), WriteOptions{})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "duplicate id")
+}
+
+// --- Schema validation tests ---
+
+func TestWriteToDirRejectsTaskMissingID(t *testing.T) {
+	s := &Suggestion{
+		EvalYAML: validEvalYAML(),
+		Tasks: []GeneratedFile{
+			// no id field
+			{Path: "tasks/bad.yaml", Content: "name: Bad\ninputs:\n  prompt: hi\n"},
+		},
+	}
+	_, err := s.WriteToDir(t.TempDir(), WriteOptions{})
+	require.Error(t, err)
+	require.Contains(t, strings.ToLower(err.Error()), "schema")
+}
+
+func TestWriteToDirRejectsTaskMissingInputs(t *testing.T) {
+	s := &Suggestion{
+		EvalYAML: validEvalYAML(),
+		Tasks: []GeneratedFile{
+			{Path: "tasks/bad.yaml", Content: "id: missing-inputs\nname: Bad\n"},
+		},
+	}
+	_, err := s.WriteToDir(t.TempDir(), WriteOptions{})
+	require.Error(t, err)
+	require.Contains(t, strings.ToLower(err.Error()), "schema")
+}
+
+func TestWriteToDirRejectsTaskWithUnknownField(t *testing.T) {
+	// task.schema.json has additionalProperties: false
+	s := &Suggestion{
+		EvalYAML: validEvalYAML(),
+		Tasks: []GeneratedFile{
+			{Path: "tasks/bad.yaml", Content: "id: x\nname: X\ninputs:\n  prompt: hi\nconfidence: 0.9\n"},
+		},
+	}
+	_, err := s.WriteToDir(t.TempDir(), WriteOptions{})
+	require.Error(t, err)
+}
