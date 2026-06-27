@@ -408,6 +408,50 @@ waza compare gpt4.json sonnet.json opus.json
 waza compare results-*.json --format json
 ```
 
+## waza gate
+
+Gate current evaluation results against a baseline in CI.
+
+```bash
+waza gate --baseline baseline.json --current results.json
+```
+
+### Flags
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--baseline` | string | | Baseline `waza run --output` JSON file |
+| `--current` | string | | Current `waza run --output` JSON file |
+| `--max-regression-pct` | number | `0` | Maximum allowed aggregate pass-rate drop in percentage points |
+| `--golden-must-pass` | bool | `false` | Fail with exit code `2` if any current task marked `golden: true` fails |
+| `--on-new-tasks` | enum | `allow` | Behavior for current-only tasks: `allow`, `warn`, or `fail` |
+| `--on-removed-tasks` | enum | `warn` | Behavior for baseline-only tasks: `allow`, `warn`, or `fail` |
+| `--format` | enum | `human` | Output format: `human`, `json`, `markdown`, or `github-actions` |
+
+### Exit codes
+
+| Code | Meaning |
+|------|---------|
+| `0` | Gate passed |
+| `1` | Regression or task-set policy failure |
+| `2` | Golden task failure |
+| `3` | Gate configuration error |
+
+### Examples
+
+```bash
+waza gate \
+  --baseline baseline.json \
+  --current results.json \
+  --max-regression-pct 5 \
+  --golden-must-pass \
+  --on-new-tasks allow \
+  --on-removed-tasks warn
+
+waza gate --baseline baseline.json --current results.json --format json
+waza gate --baseline baseline.json --current results.json --format github-actions
+```
+
 ## waza coverage
 
 Generate an eval coverage grid for discovered skills and custom agents.

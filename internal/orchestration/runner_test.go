@@ -112,6 +112,37 @@ func TestBuildExecutionRequest_SkillPaths(t *testing.T) {
 	}
 }
 
+func TestRunTestUncached_PreservesGoldenFlag(t *testing.T) {
+	spec := &models.EvalSpec{
+		SpecIdentity: models.SpecIdentity{Name: "test-benchmark"},
+		SkillName:    "test-skill",
+		Config: models.Config{
+			TrialsPerTask: 1,
+			TimeoutSec:    60,
+			EngineType:    "mock",
+			ModelID:       "gpt-4o",
+		},
+	}
+	cfg := config.NewEvalConfig(spec)
+	engine := execution.NewMockEngine("gpt-4o")
+	require.NoError(t, engine.Initialize(context.Background()))
+	t.Cleanup(func() {
+		require.NoError(t, engine.Shutdown(context.Background()))
+	})
+
+	runner := NewEvalRunner(cfg, engine)
+	outcome := runner.runTestUncached(context.Background(), &models.TestCase{
+		TestID:      "golden-task",
+		DisplayName: "Golden Task",
+		Golden:      true,
+		Stimulus: models.TaskStimulus{
+			Message: "test prompt",
+		},
+	}, 1, 1)
+
+	require.True(t, outcome.Golden)
+}
+
 func TestBuildExecutionRequest_BasicFields(t *testing.T) {
 	// Create a spec
 	spec := &models.EvalSpec{

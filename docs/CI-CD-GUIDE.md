@@ -172,6 +172,33 @@ jobs:
         run: waza compare results-baseline.json results-current.json
 ```
 
+### Regression Gate
+
+Use `waza gate` when CI should fail on a pass-rate regression, a must-pass golden task failure, or unexpected task-set changes. The command uses stable exit codes: `0` pass, `1` regression or task-set gate failure, `2` golden task failure, and `3` gate configuration error.
+
+```yaml
+      - name: Gate results
+        run: |
+          waza gate \
+            --baseline results-baseline.json \
+            --current results-current.json \
+            --max-regression-pct 5 \
+            --golden-must-pass \
+            --on-new-tasks allow \
+            --on-removed-tasks warn \
+            --format github-actions
+```
+
+Mark critical task files with `golden: true` so any current failure exits `2` when `--golden-must-pass` is enabled:
+
+```yaml
+id: smoke-install
+name: Smoke install path
+golden: true
+inputs:
+  prompt: Verify the install path still works.
+```
+
 ## Azure DevOps Pipelines
 
 ### Basic Evaluation Pipeline
@@ -213,6 +240,17 @@ steps:
         exit 1
       fi
     displayName: Check results
+
+  - script: |
+      waza gate \
+        --baseline results-baseline.json \
+        --current results.json \
+        --max-regression-pct 5 \
+        --golden-must-pass \
+        --on-new-tasks allow \
+        --on-removed-tasks warn \
+        --format markdown
+    displayName: Gate eval results
 
   - task: PublishTestResults@2
     inputs:

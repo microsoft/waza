@@ -139,6 +139,36 @@ To run it manually:
 gh workflow run weekly-regression-loop.yml --repo microsoft/waza
 ```
 
+### CI Regression Gate
+
+Use `waza gate` after producing a current results file and downloading or generating a baseline results file. The `github-actions` format emits workflow annotations and appends a Markdown summary to `$GITHUB_STEP_SUMMARY`.
+
+```yaml
+- name: Run evaluation
+  run: waza run evals/my-skill/eval.yaml --output results.json
+
+- name: Gate eval results
+  run: |
+    waza gate \
+      --baseline baseline.json \
+      --current results.json \
+      --max-regression-pct 5 \
+      --golden-must-pass \
+      --on-new-tasks allow \
+      --on-removed-tasks warn \
+      --format github-actions
+```
+
+Mark critical task files with `golden: true` to make any failure a hard gate failure:
+
+```yaml
+id: install-smoke
+name: Install smoke test
+golden: true
+inputs:
+  prompt: Verify the install path still works.
+```
+
 ### Token Budget Checks
 
 Use `waza tokens compare` to track token usage across PRs and fail if budgets are exceeded:
@@ -267,6 +297,23 @@ jobs:
       --format table \
       --strict
   displayName: 'Check token budget'
+```
+
+### Regression Gate in Azure DevOps
+
+Use `--format markdown` for a readable log summary, or `--format json` if later steps parse the gate report.
+
+```yaml
+- script: |
+    waza gate \
+      --baseline results-baseline.json \
+      --current results-current.json \
+      --max-regression-pct 5 \
+      --golden-must-pass \
+      --on-new-tasks allow \
+      --on-removed-tasks warn \
+      --format markdown
+  displayName: 'Gate eval results'
 ```
 
 ## GitLab CI

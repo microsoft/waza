@@ -105,6 +105,22 @@ expected:
 	}
 }
 
+func TestLoadTestCase_GoldenField(t *testing.T) {
+	yamlData := `id: tc-golden
+name: golden task
+golden: true
+inputs:
+  prompt: do something important
+`
+	dir := t.TempDir()
+	p := filepath.Join(dir, "tc.yaml")
+	require.NoError(t, os.WriteFile(p, []byte(yamlData), 0o644))
+
+	tc, err := LoadTestCase(p)
+	require.NoError(t, err)
+	require.True(t, tc.Golden)
+}
+
 func TestLoadTestCase_InvalidTimeoutRejected(t *testing.T) {
 	yamlData := `id: tc-invalid-timeout
 name: invalid timeout

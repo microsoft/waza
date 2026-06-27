@@ -13,6 +13,10 @@ const (
 	ExitError      = 2 // Configuration or runtime error
 )
 
+type exitCoder interface {
+	ExitCode() int
+}
+
 // TestFailureError indicates that the benchmark ran successfully,
 // but one or more test cases failed validation.
 type TestFailureError struct {
@@ -28,6 +32,11 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 
 		// Check error type to determine exit code
+		var exitCodeErr exitCoder
+		if errors.As(err, &exitCodeErr) {
+			os.Exit(exitCodeErr.ExitCode())
+		}
+
 		var testFailureErr *TestFailureError
 		if errors.As(err, &testFailureErr) {
 			os.Exit(ExitTestFailed)

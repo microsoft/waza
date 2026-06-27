@@ -29,6 +29,11 @@
       "type": "boolean",
       "description": "Whether this task is active. Defaults to true when omitted."
     },
+    "golden": {
+      "type": "boolean",
+      "default": false,
+      "description": "Whether this task is a golden task that must pass when waza gate --golden-must-pass is used."
+    },
     "context_dir": {
       "type": "string",
       "description": "Override the context/fixtures directory for this task."

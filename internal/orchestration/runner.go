@@ -745,6 +745,7 @@ func (r *EvalRunner) runSequential(ctx context.Context, testCases []*models.Test
 				outcomes = append(outcomes, models.TestOutcome{
 					TestID:      tc.TestID,
 					DisplayName: tc.DisplayName,
+					Golden:      tc.Golden,
 					Status:      models.StatusFailed,
 					Runs:        []models.RunResult{},
 				})
@@ -832,6 +833,7 @@ func (r *EvalRunner) runConcurrent(ctx context.Context, testCases []*models.Test
 					resultChan <- result{index: idx, outcome: models.TestOutcome{
 						TestID:      test.TestID,
 						DisplayName: test.DisplayName,
+						Golden:      test.Golden,
 						Status:      models.StatusFailed,
 						Runs:        []models.RunResult{},
 					}}
@@ -910,7 +912,9 @@ func (r *EvalRunner) runTest(ctx context.Context, tc *models.TestCase, testNum, 
 		if err == nil {
 			if cachedOutcome, found := r.cache.Get(cacheKey); found {
 				// Return cached outcome with cached flag
-				return *cachedOutcome, true
+				outcome := *cachedOutcome
+				outcome.Golden = tc.Golden
+				return outcome, true
 			}
 			// Run the test and cache the result
 			outcome := r.runTestUncached(ctx, tc, testNum, totalTests)
@@ -1004,6 +1008,7 @@ func (r *EvalRunner) runTestUncached(ctx context.Context, tc *models.TestCase, t
 	return models.TestOutcome{
 		TestID:      tc.TestID,
 		DisplayName: tc.DisplayName,
+		Golden:      tc.Golden,
 		Group:       r.resolveGroup(),
 		Status:      status,
 		Runs:        runs,

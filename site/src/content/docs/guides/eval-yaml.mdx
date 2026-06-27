@@ -311,6 +311,7 @@ Individual task files (e.g., `tasks/basic-usage.yaml`):
 id: basic-usage-001
 name: Basic Usage - Python Function
 description: Test that the skill explains a simple Python function correctly.
+golden: true
 
 tags:
   - basic
@@ -339,6 +340,7 @@ expected:
 | `id`          | string | Unique task identifier                              |
 | `name`        | string | Human-readable task name                            |
 | `description` | string | What the task tests                                 |
+| `golden`      | bool   | Mark as a must-pass task for `waza gate --golden-must-pass` |
 | `tags`        | array  | Tags for filtering (e.g., `["basic", "edge-case"]`) |
 | `inputs`      | object | Test inputs (prompt, files)                         |
 | `expected`    | object | Validation rules and expected behavior              |

@@ -139,6 +139,7 @@ type MeasureResult struct {
 type TestOutcome struct {
 	TestID      string             `json:"test_id"`
 	DisplayName string             `json:"display_name"`
+	Golden      bool               `json:"golden,omitempty"`
 	Group       string             `json:"group,omitempty"`
 	Status      Status             `json:"status"`
 	Runs        []RunResult        `json:"runs"`

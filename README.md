@@ -142,6 +142,9 @@ waza grade eval.yaml --results results.json
 # Compare results across models
 waza compare results-gpt4.json results-sonnet.json
 
+# Gate current results against a baseline in CI
+waza gate --baseline baseline.json --current results.json --max-regression-pct 5 --golden-must-pass
+
 # Generate eval coverage grid
 waza coverage --format markdown
 
@@ -399,6 +402,33 @@ Compare results from multiple evaluation runs side by side — per-task score de
 | Flag | Short | Description |
 |------|-------|-------------|
 | `--format <fmt>` | `-f` | Output format: `table` or `json` (default: `table`) |
+
+### `waza gate --baseline <file> --current <file>`
+
+Gate current evaluation results against a baseline for CI. The command fails when aggregate pass rate regresses beyond the allowed threshold, when golden tasks fail, or when added/removed task policies are violated.
+
+| Flag | Description |
+|------|-------------|
+| `--baseline <file>` | Baseline `waza run --output` JSON |
+| `--current <file>` | Current `waza run --output` JSON |
+| `--max-regression-pct <n>` | Maximum allowed aggregate pass-rate drop in percentage points (default: `0`) |
+| `--golden-must-pass` | Fail with exit code `2` when any current task marked `golden: true` fails |
+| `--on-new-tasks <policy>` | Behavior for current-only tasks: `allow`, `warn`, or `fail` (default: `allow`) |
+| `--on-removed-tasks <policy>` | Behavior for baseline-only tasks: `allow`, `warn`, or `fail` (default: `warn`) |
+| `--format <fmt>` | Output format: `human`, `json`, `markdown`, or `github-actions` (default: `human`) |
+
+Stable exit codes: `0` pass, `1` gate failure/regression, `2` golden task failure, `3` gate configuration error.
+
+```bash
+waza gate \
+  --baseline baseline.json \
+  --current results.json \
+  --max-regression-pct 5 \
+  --golden-must-pass \
+  --on-new-tasks allow \
+  --on-removed-tasks warn \
+  --format github-actions
+```
 
 ### `waza coverage [root]`
 
