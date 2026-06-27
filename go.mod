@@ -9,14 +9,14 @@
 
 module github.com/microsoft/waza
 
-go 1.26.1
+go 1.26.4
 
 require (
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.22.0
 	github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.14.0
 	github.com/Azure/azure-sdk-for-go/sdk/storage/azblob v1.8.0
 	github.com/Masterminds/semver/v3 v3.5.0
-	github.com/azure/azure-dev/cli/azd v1.25.6
+	github.com/azure/azure-dev/cli/azd v1.26.0
 	github.com/charmbracelet/huh v1.0.0
 	github.com/github/copilot-sdk/go v1.0.2
 	github.com/go-viper/mapstructure/v2 v2.5.0
