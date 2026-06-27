@@ -96,7 +96,7 @@ jobs:
 
       - name: Download baseline artifact
         if: steps.baseline.outputs.found == 'true'
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: ${{ steps.baseline.outputs.artifact_name }}
           path: baseline
