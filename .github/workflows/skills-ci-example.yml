@@ -110,7 +110,7 @@ jobs:
       
       - name: Upload Results Artifact
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: waza-evaluation-results
           path: |
@@ -166,7 +166,7 @@ jobs:
   #     
   #     - name: Upload Copilot Results
   #       if: always()
-  #       uses: actions/upload-artifact@v4
+  #       uses: actions/upload-artifact@v7
   #       with:
   #         name: waza-copilot-results
   #         path: results-copilot.json
