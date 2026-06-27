@@ -3,8 +3,10 @@ package suggest
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -92,7 +94,7 @@ description: "A test skill."
 	require.NoError(t, sk.UnmarshalText([]byte(raw)))
 	sk.Path = filepath.Join(t.TempDir(), "SKILL.md")
 
-	data := buildPromptData(&sk, raw)
+	data := buildPromptData(&sk, raw, DefaultCaseCount, "")
 	prompt := renderSelectionPrompt(data)
 	require.Contains(t, prompt, "selecting grader types")
 	require.Contains(t, prompt, "Name: test-skill")
@@ -112,7 +114,7 @@ description: "A test skill."
 	require.NoError(t, sk.UnmarshalText([]byte(raw)))
 	sk.Path = filepath.Join(t.TempDir(), "SKILL.md")
 
-	data := buildPromptData(&sk, raw)
+	data := buildPromptData(&sk, raw, DefaultCaseCount, "")
 	graderDocs := "### `code` - Assertion-Based Grader\nSome docs here."
 	prompt := renderImplementationPrompt(data, graderDocs)
 	require.Contains(t, prompt, "Grader documentation for the types you should use")
@@ -200,7 +202,7 @@ func TestGenerateSurfacesImplementationEngineError(t *testing.T) {
 }
 
 func TestParseResponseStructuredYAML(t *testing.T) {
-	resp := "```yaml\neval_yaml: |\n  name: generated-eval\n  description: generated\n  skill: sample\n  version: \"1.0\"\n  config:\n    trials_per_task: 1\n    timeout_seconds: 120\n    parallel: false\n    executor: mock\n    model: test\n  graders:\n    - type: code\n      name: has_output\n      config:\n        assertions:\n          - \\\"len(output) > 0\\\"\n  metrics:\n    - name: completion\n      weight: 1.0\n      threshold: 0.8\n  tasks:\n    - \"tasks/*.yaml\"\ntasks:\n  - path: tasks/basic.yaml\n    content: |\n      id: basic-001\n      name: Basic\n      inputs:\n        prompt: \"hello\"\nfixtures:\n  - path: fixtures/sample.txt\n    content: |\n      sample\n```"
+	resp := "```yaml\neval_yaml: |\n  name: generated-eval\n  description: generated\n  skill: sample\n  version: \"1.0\"\n  config:\n    trials_per_task: 1\n    timeout_seconds: 120\n    parallel: false\n    executor: mock\n    model: test\n  graders:\n    - type: code\n      name: has_output\n      config:\n        assertions:\n          - \\\"len(output) > 0\\\"\n  metrics:\n    - name: completion\n      weight: 1.0\n      threshold: 0.8\n  tasks:\n    - \"tasks/*.yaml\"\ntasks:\n  - path: tasks/basic.yaml\n    confidence: 0.9\n    rationale: \"SKILL.md overview\"\n    content: |\n      id: basic-001\n      name: Basic\n      inputs:\n        prompt: \"hello\"\nfixtures:\n  - path: fixtures/sample.txt\n    content: |\n      sample\n```"
 
 	s, err := ParseResponse(resp)
 	require.NoError(t, err)
@@ -209,9 +211,89 @@ func TestParseResponseStructuredYAML(t *testing.T) {
 	require.Equal(t, 1, len(s.Fixtures))
 }
 
+func TestParseResponseIncludesCaseMetadata(t *testing.T) {
+	resp := `eval_yaml: |
+  name: generated-eval
+  description: generated
+  skill: sample
+  version: "1.0"
+  config:
+    trials_per_task: 1
+    timeout_seconds: 120
+    parallel: false
+    executor: mock
+    model: test
+  graders:
+    - type: text
+      name: has_keywords
+      config:
+        contains:
+          - hello
+  metrics:
+    - name: completion
+      weight: 1.0
+      threshold: 0.8
+  tasks:
+    - "tasks/*.yaml"
+tasks:
+  - path: tasks/basic.yaml
+    confidence: 0.82
+    rationale: "SKILL.md description USE FOR: summarize"
+    content: |
+      id: basic-001
+      name: Basic
+      inputs:
+        prompt: "hello"
+`
+
+	s, err := ParseResponse(resp)
+	require.NoError(t, err)
+	require.Len(t, s.Tasks, 1)
+	require.NotNil(t, s.Tasks[0].Confidence)
+	require.Equal(t, 0.82, *s.Tasks[0].Confidence)
+	require.Equal(t, "SKILL.md description USE FOR: summarize", s.Tasks[0].Rationale)
+}
+
 func TestParseResponseInvalid(t *testing.T) {
 	_, err := ParseResponse("not valid yaml")
 	require.Error(t, err)
+}
+
+func TestParseResponseRequiresCaseMetadata(t *testing.T) {
+	resp := `eval_yaml: |
+  name: generated-eval
+  description: generated
+  skill: sample
+  version: "1.0"
+  config:
+    trials_per_task: 1
+    timeout_seconds: 120
+    parallel: false
+    executor: mock
+    model: test
+  graders:
+    - type: text
+      name: has_keywords
+      config:
+        contains:
+          - hello
+  metrics:
+    - name: completion
+      weight: 1.0
+      threshold: 0.8
+  tasks:
+    - "tasks/*.yaml"
+tasks:
+  - path: tasks/basic.yaml
+    content: |
+      id: basic-001
+      name: Basic
+      inputs:
+        prompt: "hello"
+`
+
+	_, err := ParseResponse(resp)
+	require.ErrorContains(t, err, "confidence is required")
 }
 
 func TestParseResponseEmpty(t *testing.T) {
@@ -309,7 +391,7 @@ tasks:
 `
 	err := validateEvalYAML(evalYAML)
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "missing required 'name'")
+	require.Contains(t, err.Error(), "missing property 'name'")
 }
 
 func TestValidateEvalYAMLRejectsGraderMissingType(t *testing.T) {
@@ -333,7 +415,7 @@ tasks:
 `
 	err := validateEvalYAML(evalYAML)
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "missing required 'type'")
+	require.Contains(t, err.Error(), "missing property 'type'")
 }
 
 func TestWriteToDirWritesFiles(t *testing.T) {
@@ -361,7 +443,7 @@ metrics:
 tasks:
   - "tasks/*.yaml"`,
 		Tasks: []GeneratedFile{
-			{Path: "tasks/basic.yaml", Content: "id: basic-001\nname: Basic\ninputs:\n  prompt: \"hello\""},
+			{Path: "tasks/basic.yaml", Confidence: testConfidence(0.9), Rationale: "SKILL.md overview", Content: "id: basic-001\nname: Basic\ninputs:\n  prompt: \"hello\""},
 		},
 		Fixtures: []GeneratedFile{
 			{Path: "fixtures/sample.txt", Content: "sample"},
@@ -380,6 +462,220 @@ tasks:
 	taskData, err := os.ReadFile(filepath.Join(outDir, "tasks", "basic.yaml"))
 	require.NoError(t, err)
 	require.True(t, strings.Contains(string(taskData), "id: basic-001"))
+}
+
+func TestWriteToDirMergesExistingEvalYAML(t *testing.T) {
+	s := validSuggestionForWrite()
+	outDir := t.TempDir()
+	existingEval := `name: curated-eval
+description: curated
+skill: sample
+version: "1.0"
+config:
+  trials_per_task: 1
+  timeout_seconds: 120
+  parallel: false
+  executor: mock
+  model: test
+graders:
+  - type: text
+    name: has_text
+    config:
+      contains:
+        - hello
+metrics:
+  - name: completion
+    weight: 1.0
+    threshold: 0.8
+tasks:
+  - "custom/*.yaml"
+`
+	require.NoError(t, os.WriteFile(filepath.Join(outDir, "eval.yaml"), []byte(existingEval), 0o644))
+
+	written, err := s.WriteToDirWithOptions(outDir, WriteOptions{})
+	require.NoError(t, err)
+	require.Contains(t, written, filepath.Join(outDir, "eval.yaml"))
+
+	evalData, err := os.ReadFile(filepath.Join(outDir, "eval.yaml"))
+	require.NoError(t, err)
+	require.Contains(t, string(evalData), "name: curated-eval")
+	require.Contains(t, string(evalData), "custom/*.yaml")
+	require.Contains(t, string(evalData), "tasks/*.yaml")
+	require.NotContains(t, string(evalData), "generated-eval")
+}
+
+func TestFocusCategoriesAreAcceptedInPrompt(t *testing.T) {
+	raw := `---
+name: focus-skill
+description: "Useful skill. USE FOR: summarize. DO NOT USE FOR: deploy."
+---
+# Focus Skill
+`
+	var sk skill.Skill
+	require.NoError(t, sk.UnmarshalText([]byte(raw)))
+	sk.Path = filepath.Join(t.TempDir(), "SKILL.md")
+
+	for _, category := range AllFocusCategories() {
+		parsed, err := ParseFocusCategory(string(category))
+		require.NoError(t, err)
+
+		data := buildPromptData(&sk, raw, 2, parsed)
+		prompt := renderImplementationPrompt(data, "")
+
+		require.Contains(t, prompt, fmt.Sprintf("Generate exactly %d task case(s).", 2))
+		require.Contains(t, prompt, string(category))
+	}
+}
+
+func TestParseFocusCategoryRejectsInvalid(t *testing.T) {
+	_, err := ParseFocusCategory("not-a-focus")
+	require.ErrorContains(t, err, "invalid focus")
+}
+
+func TestWriteToDirRefusesExistingTaskIDWithoutForce(t *testing.T) {
+	s := validSuggestionForWrite()
+	outDir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(outDir, "tasks"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(outDir, "tasks", "existing.yaml"), []byte(`id: basic-001
+name: Existing
+inputs:
+  prompt: "existing"
+`), 0o644))
+
+	_, err := s.WriteToDirWithOptions(outDir, WriteOptions{})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), `existing task id "basic-001"`)
+	require.Contains(t, err.Error(), "--force")
+}
+
+func TestWriteToDirForceOverwritesExistingTaskID(t *testing.T) {
+	s := validSuggestionForWrite()
+	outDir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(outDir, "tasks"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(outDir, "tasks", "basic.yaml"), []byte(`id: basic-001
+name: Existing
+inputs:
+  prompt: "existing"
+`), 0o644))
+
+	written, err := s.WriteToDirWithOptions(outDir, WriteOptions{Force: true})
+	require.NoError(t, err)
+	require.Len(t, written, 3)
+
+	taskData, err := os.ReadFile(filepath.Join(outDir, "tasks", "basic.yaml"))
+	require.NoError(t, err)
+	require.Contains(t, string(taskData), `prompt: "hello"`)
+}
+
+func TestWriteToDirForceRemovesExistingTaskIDAtDifferentPath(t *testing.T) {
+	s := validSuggestionForWrite()
+	outDir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(outDir, "tasks"), 0o755))
+	existingPath := filepath.Join(outDir, "tasks", "existing.yaml")
+	require.NoError(t, os.WriteFile(existingPath, []byte(`id: basic-001
+name: Existing
+inputs:
+  prompt: "existing"
+`), 0o644))
+
+	_, err := s.WriteToDirWithOptions(outDir, WriteOptions{Force: true})
+	require.NoError(t, err)
+	require.NoFileExists(t, existingPath)
+	require.FileExists(t, filepath.Join(outDir, "tasks", "basic.yaml"))
+}
+
+func TestWriteToDirValidatesGeneratedTaskSchemaBeforeWrite(t *testing.T) {
+	s := validSuggestionForWrite()
+	s.Tasks[0].Content = `id: basic-001
+name: Basic
+prompt: "unknown top-level field"
+`
+
+	outDir := t.TempDir()
+	_, err := s.WriteToDirWithOptions(outDir, WriteOptions{})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "task schema validation failed")
+	require.Contains(t, err.Error(), "prompt")
+	require.NoFileExists(t, filepath.Join(outDir, "eval.yaml"))
+}
+
+func TestWriteToDirRejectsSymlinkEvalYAML(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink creation requires elevated privileges on some Windows environments")
+	}
+	s := validSuggestionForWrite()
+	outDir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(outDir, "tasks"), 0o755))
+	existingTask := filepath.Join(outDir, "tasks", "existing.yaml")
+	require.NoError(t, os.WriteFile(existingTask, []byte(`id: basic-001
+name: Existing
+inputs:
+  prompt: "existing"
+`), 0o644))
+	target := filepath.Join(t.TempDir(), "outside-eval.yaml")
+	require.NoError(t, os.WriteFile(target, []byte(validEvalYAML()), 0o644))
+	require.NoError(t, os.Symlink(target, filepath.Join(outDir, "eval.yaml")))
+
+	_, err := s.WriteToDirWithOptions(outDir, WriteOptions{Force: true})
+	require.ErrorContains(t, err, "eval.yaml is a symlink")
+	require.FileExists(t, existingTask)
+}
+
+func TestWriteToDirRejectsSymlinkFixtureTarget(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink creation requires elevated privileges on some Windows environments")
+	}
+	s := validSuggestionForWrite()
+	outDir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(outDir, "fixtures"), 0o755))
+	target := filepath.Join(t.TempDir(), "outside-fixture.txt")
+	require.NoError(t, os.WriteFile(target, []byte("outside"), 0o644))
+	require.NoError(t, os.Symlink(target, filepath.Join(outDir, "fixtures", "sample.txt")))
+
+	_, err := s.WriteToDirWithOptions(outDir, WriteOptions{Force: true})
+	require.ErrorContains(t, err, "symlink")
+}
+
+func TestWriteToDirRejectsTaskPathOutsideTasks(t *testing.T) {
+	s := validSuggestionForWrite()
+	s.Tasks[0].Path = "eval.yaml"
+
+	_, err := s.WriteToDirWithOptions(t.TempDir(), WriteOptions{Force: true})
+	require.ErrorContains(t, err, "must be under tasks/")
+}
+
+func TestWriteToDirRejectsUnsafeGeneratedEvalTaskRef(t *testing.T) {
+	s := validSuggestionForWrite()
+	s.EvalYAML = strings.Replace(s.EvalYAML, `tasks/*.yaml`, `../outside/*.yaml`, 1)
+
+	_, err := s.WriteToDirWithOptions(t.TempDir(), WriteOptions{Force: true})
+	require.ErrorContains(t, err, "must not contain '..' segments")
+}
+
+func TestWriteToDirRejectsDuplicateGeneratedPath(t *testing.T) {
+	s := validSuggestionForWrite()
+	s.Tasks = append(s.Tasks, GeneratedFile{
+		Path:       "tasks/basic.yaml",
+		Confidence: testConfidence(0.8),
+		Rationale:  "SKILL.md second span",
+		Content:    "id: basic-002\nname: Basic Two\ninputs:\n  prompt: \"hello again\"",
+	})
+
+	_, err := s.WriteToDirWithOptions(t.TempDir(), WriteOptions{Force: true})
+	require.ErrorContains(t, err, "duplicate generated path: tasks/basic.yaml")
+}
+
+func TestWriteToDirRejectsDuplicateGeneratedTaskIDWithForce(t *testing.T) {
+	s := validSuggestionForWrite()
+	s.Tasks = append(s.Tasks, GeneratedFile{
+		Path:       "tasks/other.yaml",
+		Confidence: testConfidence(0.8),
+		Rationale:  "SKILL.md second span",
+		Content:    "id: basic-001\nname: Other\ninputs:\n  prompt: \"hello again\"",
+	})
+
+	_, err := s.WriteToDirWithOptions(t.TempDir(), WriteOptions{Force: true})
+	require.ErrorContains(t, err, `duplicate generated task id "basic-001"`)
 }
 
 func TestValidateInvalidConfigFields(t *testing.T) {
@@ -414,4 +710,46 @@ config:
 	err := validateEvalYAML(invalidEvalYAML)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "unknown_field")
+}
+
+func validSuggestionForWrite() *Suggestion {
+	return &Suggestion{
+		EvalYAML: `name: generated-eval
+description: generated
+skill: sample
+version: "1.0"
+config:
+  trials_per_task: 1
+  timeout_seconds: 120
+  parallel: false
+  executor: mock
+  model: test
+graders:
+  - type: code
+    name: has_output
+    config:
+      assertions:
+        - "len(output) > 0"
+metrics:
+  - name: completion
+    weight: 1.0
+    threshold: 0.8
+tasks:
+  - "tasks/*.yaml"`,
+		Tasks: []GeneratedFile{
+			{
+				Path:       "tasks/basic.yaml",
+				Confidence: testConfidence(0.9),
+				Rationale:  "SKILL.md overview",
+				Content:    "id: basic-001\nname: Basic\ninputs:\n  prompt: \"hello\"",
+			},
+		},
+		Fixtures: []GeneratedFile{
+			{Path: "fixtures/sample.txt", Content: "sample"},
+		},
+	}
+}
+
+func testConfidence(value float64) *float64 {
+	return &value
 }

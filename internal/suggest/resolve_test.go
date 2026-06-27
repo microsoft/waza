@@ -112,7 +112,7 @@ func TestBuildPromptData_ExtractsFields(t *testing.T) {
 	rawContent, sk, err := loadSkill(skillPath)
 	require.NoError(t, err)
 
-	data := buildPromptData(sk, rawContent)
+	data := buildPromptData(sk, rawContent, DefaultCaseCount, "")
 	assert.Equal(t, "build-prompt-skill", data.SkillName)
 	assert.NotEmpty(t, data.Description)
 	assert.Contains(t, data.Triggers, "summarize")
@@ -133,7 +133,7 @@ func TestBuildPromptData_FallbackSkillName(t *testing.T) {
 	rawContent, sk, err := loadSkill(skillPath)
 	require.NoError(t, err)
 
-	data := buildPromptData(sk, rawContent)
+	data := buildPromptData(sk, rawContent, DefaultCaseCount, "")
 	// Name not set in frontmatter, should fall back to parent dir name
 	assert.Equal(t, "my-cool-skill", data.SkillName)
 }
@@ -147,7 +147,7 @@ func TestBuildPromptData_NoTriggers(t *testing.T) {
 	rawContent, sk, err := loadSkill(skillPath)
 	require.NoError(t, err)
 
-	data := buildPromptData(sk, rawContent)
+	data := buildPromptData(sk, rawContent, DefaultCaseCount, "")
 	assert.Equal(t, "none", data.Triggers)
 	assert.Equal(t, "none", data.AntiTriggers)
 }
@@ -158,7 +158,7 @@ func TestWriteToDir_EmptyTaskPath(t *testing.T) {
 	s := &Suggestion{
 		EvalYAML: validEvalYAML(),
 		Tasks: []GeneratedFile{
-			{Path: "", Content: "id: auto\nname: Auto\ninputs:\n  prompt: hi"},
+			{Path: "", Confidence: testConfidence(0.8), Rationale: "SKILL.md overview", Content: "id: auto\nname: Auto\ninputs:\n  prompt: hi"},
 		},
 	}
 
@@ -190,7 +190,7 @@ func TestWriteToDir_AbsolutePathRejected(t *testing.T) {
 	s := &Suggestion{
 		EvalYAML: validEvalYAML(),
 		Tasks: []GeneratedFile{
-			{Path: absPath, Content: "id: x\nname: X\ninputs:\n  prompt: hi"},
+			{Path: absPath, Confidence: testConfidence(0.8), Rationale: "SKILL.md overview", Content: "id: x\nname: X\ninputs:\n  prompt: hi"},
 		},
 	}
 

@@ -25,8 +25,11 @@ type suggestFlags struct {
 	model     string
 	dryRun    bool
 	apply     bool
+	force     bool
 	outputDir string
 	format    string
+	count     int
+	focus     string
 }
 
 func newSuggestCommand() *cobra.Command {
@@ -35,6 +38,7 @@ func newSuggestCommand() *cobra.Command {
 		model:  defaultModel,
 		dryRun: true,
 		format: "yaml",
+		count:  suggestpkg.DefaultCaseCount,
 	}
 
 	cmd := &cobra.Command{
@@ -55,8 +59,11 @@ reviewed by a human before applying. By default, suggestions are printed to stdo
 	cmd.Flags().StringVar(&flags.model, "model", flags.model, "Model to use for suggestions")
 	cmd.Flags().BoolVar(&flags.dryRun, "dry-run", true, "Print suggestions to stdout without writing files")
 	cmd.Flags().BoolVar(&flags.apply, "apply", false, "Write suggested files to disk")
+	cmd.Flags().BoolVar(&flags.force, "force", false, "Overwrite conflicting generated files and task ids when applying")
 	cmd.Flags().StringVar(&flags.outputDir, "output-dir", "", "Directory for output (default: <skill-path>/evals)")
 	cmd.Flags().StringVar(&flags.format, "format", "yaml", "Output format: yaml|json")
+	cmd.Flags().IntVar(&flags.count, "count", suggestpkg.DefaultCaseCount, "Number of task cases to propose")
+	cmd.Flags().StringVar(&flags.focus, "focus", "", fmt.Sprintf("Focus category: %s", strings.Join(suggestFocusValues(), "|")))
 
 	return cmd
 }
@@ -64,6 +71,13 @@ reviewed by a human before applying. By default, suggestions are printed to stdo
 func runSuggestCommand(cmd *cobra.Command, skillPath string, flags *suggestFlags) error {
 	if flags.format != "yaml" && flags.format != "json" {
 		return fmt.Errorf("invalid format %q: must be yaml or json", flags.format)
+	}
+	if flags.count < 1 {
+		return fmt.Errorf("invalid count %d: must be at least 1", flags.count)
+	}
+	focus, err := suggestpkg.ParseFocusCategory(flags.focus)
+	if err != nil {
+		return err
 	}
 	if flags.apply {
 		flags.dryRun = false
@@ -93,6 +107,8 @@ func runSuggestCommand(cmd *cobra.Command, skillPath string, flags *suggestFlags
 	suggestion, err := suggestpkg.Generate(cmd.Context(), engine, suggestpkg.Options{
 		SkillPath:  skillPath,
 		GraderDocs: waza.GraderDocsFS,
+		Count:      flags.count,
+		Focus:      focus,
 	})
 	if err != nil {
 		return err
@@ -110,7 +126,7 @@ func runSuggestCommand(cmd *cobra.Command, skillPath string, flags *suggestFlags
 		return nil
 	}
 
-	written, err := suggestion.WriteToDir(outputDir)
+	written, err := suggestion.WriteToDirWithOptions(outputDir, suggestpkg.WriteOptions{Force: flags.force})
 	if err != nil {
 		return err
 	}
@@ -132,6 +148,15 @@ func runSuggestCommand(cmd *cobra.Command, skillPath string, flags *suggestFlags
 		_, _ = cmd.OutOrStdout().Write([]byte("\n"))
 	}
 	return nil
+}
+
+func suggestFocusValues() []string {
+	categories := suggestpkg.AllFocusCategories()
+	values := make([]string, 0, len(categories))
+	for _, category := range categories {
+		values = append(values, string(category))
+	}
+	return values
 }
 
 func defaultSuggestOutputDir(skillPath string) string {

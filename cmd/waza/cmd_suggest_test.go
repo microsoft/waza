@@ -18,6 +18,7 @@ type suggestTestEngine struct {
 	err        error
 	callIdx    int
 	initCalled bool
+	requests   []string
 }
 
 func (e *suggestTestEngine) Initialize(context.Context) error {
@@ -25,13 +26,16 @@ func (e *suggestTestEngine) Initialize(context.Context) error {
 	return nil
 }
 
-func (e *suggestTestEngine) Execute(_ context.Context, _ *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
+func (e *suggestTestEngine) Execute(_ context.Context, req *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
 	if !e.initCalled {
 		return nil, fmt.Errorf("initialize was not called before Execute!")
 	}
 
 	if e.err != nil {
 		return nil, e.err
+	}
+	if req != nil {
+		e.requests = append(e.requests, req.Message)
 	}
 	idx := e.callIdx
 	e.callIdx++
@@ -90,6 +94,8 @@ func TestSuggestCommand_DryRunYAML(t *testing.T) {
     - "tasks/*.yaml"
 tasks:
   - path: tasks/basic.yaml
+    confidence: 0.9
+    rationale: "SKILL.md overview"
     content: |
       id: basic-001
       name: Basic
@@ -115,6 +121,65 @@ tasks:
 	require.Contains(t, out.String(), "eval_yaml:")
 	require.Contains(t, out.String(), "tasks:")
 	require.NoFileExists(t, filepath.Join(skillDir, "evals", "eval.yaml"))
+}
+
+func TestSuggestCommand_CountFocusAndCaseMetadata(t *testing.T) {
+	skillDir := writeSuggestSkill(t)
+	engineOutput := `eval_yaml: |
+  name: generated-eval
+  description: generated
+  skill: suggest-skill
+  version: "1.0"
+  config:
+    trials_per_task: 1
+    timeout_seconds: 120
+    parallel: false
+    executor: mock
+    model: test
+  graders:
+    - type: text
+      name: has_text
+      config:
+        contains:
+          - hello
+  metrics:
+    - name: completion
+      weight: 1.0
+      threshold: 0.8
+  tasks:
+    - "tasks/*.yaml"
+tasks:
+  - path: tasks/params.yaml
+    confidence: 0.77
+    rationale: "SKILL.md parameters section"
+    content: |
+      id: params-001
+      name: Parameters
+      inputs:
+        prompt: "hello"
+`
+
+	selectionOutput := "graders:\n  - text\n"
+	engine := &suggestTestEngine{outputs: []string{selectionOutput, engineOutput}}
+
+	orig := newSuggestEngine
+	newSuggestEngine = func(string) execution.AgentEngine {
+		return engine
+	}
+	t.Cleanup(func() { newSuggestEngine = orig })
+
+	cmd := newSuggestCommand()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{skillDir, "--count", "1", "--focus", "parameters"})
+
+	require.NoError(t, cmd.Execute())
+	require.Contains(t, out.String(), "confidence: 0.77")
+	require.Contains(t, out.String(), "rationale: SKILL.md parameters section")
+	require.Len(t, engine.requests, 2)
+	require.Contains(t, engine.requests[1], "Generate exactly 1 task case(s).")
+	require.Contains(t, engine.requests[1], "parameter extraction")
 }
 
 func TestSuggestCommand_ApplyWritesFiles(t *testing.T) {
@@ -144,6 +209,8 @@ func TestSuggestCommand_ApplyWritesFiles(t *testing.T) {
     - "tasks/*.yaml"
 tasks:
   - path: tasks/basic.yaml
+    confidence: 0.9
+    rationale: "SKILL.md overview"
     content: |
       id: basic-001
       name: Basic

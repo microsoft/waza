@@ -127,7 +127,7 @@ waza new task from-prompt "Explain this code and suggest fixes" evals/code-expla
 waza check skills/my-skill
 
 # Suggest an eval suite from SKILL.md
-waza suggest skills/my-skill --dry-run
+waza suggest skills/my-skill --count 5 --focus edge-fixtures --dry-run
 waza suggest skills/my-skill --apply
 
 # Note: 'generate' is available as an alias for 'new' (see below for new command)
@@ -564,22 +564,30 @@ Use an LLM to analyze `SKILL.md` and generate suggested evaluation artifacts.
 | Flag | Description |
 |------|-------------|
 | `--model <model>` | Model to use for suggestions (default: project default model) |
+| `--count <n>` | Number of task cases to propose (default: `3`) |
+| `--focus <category>` | Focus category: `triggers`, `negative-triggers`, `edge-fixtures`, `do-not-use-for`, or `parameters` |
 | `--dry-run` | Print suggested output to stdout (default) |
 | `--apply` | Write files to disk |
+| `--force` | Overwrite conflicting generated files or task IDs when applying |
 | `--output-dir <dir>` | Output directory (default: `<skill-path>/evals`) |
 | `--format yaml\|json` | Output format (default: `yaml`) |
 
 **Examples:**
 ```bash
 # Preview generated eval/task/fixture files as YAML
-waza suggest skills/code-explainer --dry-run
+waza suggest skills/code-explainer --count 5 --focus negative-triggers --dry-run
 
 # Write generated files to disk
 waza suggest skills/code-explainer --apply
 
+# Replace conflicting generated task files after review
+waza suggest skills/code-explainer --apply --force
+
 # Print JSON-formatted suggestion payload
 waza suggest skills/code-explainer --format json
 ```
+
+Dry-run output includes per-task `confidence` and `rationale` fields so authors can review why each case was proposed. Apply mode validates generated eval and task YAML against the built-in schemas before writing, merges task references into an existing `eval.yaml`, and refuses to overwrite an existing fixture, task file, or task `id` unless `--force` is set.
 
 ### `waza tokens count [paths...]`
 

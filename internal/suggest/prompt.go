@@ -68,12 +68,16 @@ type promptData struct {
 	ContentSummary string
 	GraderTypes    string
 	SkillContent   string
+	Count          int
+	Focus          string
 }
 
 // renderSelectionPrompt builds the pass-1 prompt that asks the LLM
 // to choose appropriate grader types for the skill.
 func renderSelectionPrompt(data promptData) string {
 	var b strings.Builder
+	count := effectivePromptCount(data.Count)
+	focus := effectivePromptFocus(data.Focus)
 	b.WriteString("You are selecting grader types for a waza evaluation suite.\n")
 	b.WriteString("Given the skill description below, choose which grader types are most appropriate.\n\n")
 	b.WriteString("Return ONLY a YAML list of grader type names, one per line, like:\n")
@@ -86,6 +90,8 @@ func renderSelectionPrompt(data promptData) string {
 	fmt.Fprintf(&b, "- Triggers (USE FOR): %s\n", data.Triggers)
 	fmt.Fprintf(&b, "- Anti-triggers (DO NOT USE FOR): %s\n", data.AntiTriggers)
 	fmt.Fprintf(&b, "- Content summary: %s\n\n", data.ContentSummary)
+	fmt.Fprintf(&b, "Requested case count: %d\n", count)
+	fmt.Fprintf(&b, "Requested focus: %s\n\n", focus)
 	b.WriteString("Available grader types:\n")
 	b.WriteString(GraderSummaries())
 	b.WriteString("\n")
@@ -96,12 +102,16 @@ func renderSelectionPrompt(data promptData) string {
 // the full eval YAML, with detailed docs for the selected grader types.
 func renderImplementationPrompt(data promptData, graderDocs string) string {
 	var b strings.Builder
+	count := effectivePromptCount(data.Count)
+	focus := effectivePromptFocus(data.Focus)
 	b.WriteString("You are generating a waza evaluation suite for a skill.\n")
 	b.WriteString("Return ONLY YAML in this exact schema:\n\n")
 	b.WriteString("eval_yaml: |\n")
 	b.WriteString("  <full eval.yaml content>\n")
 	b.WriteString("tasks:\n")
 	b.WriteString("  - path: tasks/<task-file>.yaml\n")
+	b.WriteString("    confidence: <0.0-1.0>\n")
+	b.WriteString("    rationale: <SKILL.md span or phrase that supports this case>\n")
 	b.WriteString("    content: |\n")
 	b.WriteString("      <task yaml>\n")
 	b.WriteString("fixtures:\n")
@@ -113,7 +123,10 @@ func renderImplementationPrompt(data promptData, graderDocs string) string {
 	b.WriteString("- Each grader entry MUST be an object with at least 'type' and 'name' fields. NEVER use bare strings like '- grader_name'. Always use '- name: grader_name' with a 'type' field.\n")
 	b.WriteString("- Include required config fields for each grader type (see grader documentation below).\n")
 	b.WriteString("- For skill_invocation graders, use required_skills + mode (exact_match, in_order, any_order) for positive checks, forbidden_skills for negative checks, or both together.\n")
-	b.WriteString("- Include at least 3 diverse tasks and at least 1 negative/anti-trigger task.\n")
+	b.WriteString("- Make the task set diverse when count allows; include negative/anti-trigger coverage when it fits the requested focus.\n")
+	fmt.Fprintf(&b, "- Generate exactly %d task case(s).\n", count)
+	fmt.Fprintf(&b, "- Focus guidance: %s\n", focus)
+	b.WriteString("- For every task case, include confidence as a number from 0.0 to 1.0 and rationale referencing the SKILL.md heading, phrase, or span that supports the case.\n")
 	b.WriteString("- Use grader types from the allowed list only.\n")
 	b.WriteString("- Keep task IDs deterministic and kebab-case.\n")
 	b.WriteString("- Task YAML must use inputs: { prompt: ... } (do not use a top-level prompt field).\n")
@@ -135,10 +148,25 @@ func renderImplementationPrompt(data promptData, graderDocs string) string {
 		b.WriteString(graderDocs)
 		b.WriteString("\n\n")
 	}
+
 	b.WriteString("Skill content (SKILL.md):\n")
 	b.WriteString(data.SkillContent)
 	b.WriteString("\n")
 	return b.String()
+}
+
+func effectivePromptCount(count int) int {
+	if count <= 0 {
+		return DefaultCaseCount
+	}
+	return count
+}
+
+func effectivePromptFocus(focus string) string {
+	if strings.TrimSpace(focus) == "" {
+		return focusInstruction("")
+	}
+	return focus
 }
 
 // renderPrompt builds a single-pass prompt (used when no grader docs FS is available).

@@ -459,23 +459,45 @@ waza suggest <skill-path>
 | Flag | Description |
 |------|-------------|
 | `--model` | Model to use for suggestions (default: project default model) |
+| `--count` | Number of task cases to propose (default: `3`) |
+| `--focus` | Focus category: `triggers`, `negative-triggers`, `edge-fixtures`, `do-not-use-for`, or `parameters` |
 | `--dry-run` | Print suggestions to stdout (default) |
 | `--apply` | Write suggested files to disk |
+| `--force` | Overwrite conflicting generated files or task IDs when applying |
 | `--output-dir` | Output directory (default: `<skill-path>/evals`) |
 | `--format` | Output format: `yaml` (default), `json` |
 
 ### Examples
 
 ```bash
-# Preview suggestions
-waza suggest skills/code-explainer --dry-run
+# Preview five edge-fixture cases with triage metadata
+waza suggest skills/code-explainer --count 5 --focus edge-fixtures --dry-run
 
 # Write eval/task/fixture files
 waza suggest skills/code-explainer --apply
 
+# Replace conflicting generated output after review
+waza suggest skills/code-explainer --apply --force
+
 # JSON output
 waza suggest skills/code-explainer --format json
 ```
+
+Dry-run output includes `confidence` and `rationale` for each proposed task case. The rationale should point back to the `SKILL.md` heading, phrase, or span that supports the case:
+
+```yaml
+tasks:
+  - path: tasks/negative-trigger-deploy.yaml
+    confidence: 0.84
+    rationale: "SKILL.md description: DO NOT USE FOR deployment"
+    content: |
+      id: negative-trigger-deploy
+      name: Refuses deployment work
+      inputs:
+        prompt: "Deploy this service to production."
+```
+
+When applying, waza validates generated eval and task YAML against the built-in schemas before writing. If `eval.yaml` already exists, waza preserves it and merges any new generated task references into its `tasks` list. It refuses to overwrite an existing task file, fixture file, or task `id` unless `--force` is provided, and prints the conflicting existing and generated paths so you can review the change first.
 
 ## waza tokens
 

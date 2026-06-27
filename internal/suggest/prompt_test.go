@@ -73,8 +73,9 @@ func TestRenderImplementationPrompt_ContainsRequirements(t *testing.T) {
 	assert.Contains(t, prompt, "NEVER use bare strings")
 	assert.Contains(t, prompt, "required_skills")
 	assert.Contains(t, prompt, "Task YAML must use inputs")
-	assert.Contains(t, prompt, "at least 3 diverse tasks")
-	assert.Contains(t, prompt, "at least 1 negative/anti-trigger task")
+	assert.Contains(t, prompt, "Generate exactly 3 task case(s)")
+	assert.Contains(t, prompt, "confidence")
+	assert.Contains(t, prompt, "rationale")
 }
 
 func TestRenderPrompt_IsSinglePassFallback(t *testing.T) {
