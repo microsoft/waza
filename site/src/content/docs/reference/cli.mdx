@@ -408,6 +408,76 @@ waza compare gpt4.json sonnet.json opus.json
 waza compare results-*.json --format json
 ```
 
+## waza gate
+
+Compare a current eval results file against a baseline and fail CI when quality
+regresses, golden tasks fail, or the task set diverges in unexpected ways.
+
+```bash
+waza gate \
+  --baseline results-baseline.json \
+  --current results-current.json \
+  --max-regression-pct 2 \
+  --golden-must-pass \
+  --format github-actions
+```
+
+**Flags**
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `--baseline <path>` | Baseline results JSON to compare against. | _required_ |
+| `--current <path>` | Current results JSON produced by `waza run -o`. | _required_ |
+| `--max-regression-pct <N>` | Fail if aggregate pass rate drops by more than _N_ percentage points. | `0` |
+| `--golden-must-pass` | When set, any failing task with `golden: true` exits **2** regardless of aggregate pass rate. | `true` |
+| `--on-new-tasks <policy>` | Behavior when `current` has tasks missing from `baseline`. One of `allow`, `warn`, `fail`. | `allow` |
+| `--on-removed-tasks <policy>` | Behavior when `baseline` has tasks missing from `current`. One of `allow`, `warn`, `fail`. | `warn` |
+| `--format <format>` | Output format. One of `human`, `json`, `markdown`, `github-actions`. | `human` |
+| `--summary-file <path>` | Write the markdown report to this path. When `--format github-actions` is set, this defaults to `$GITHUB_STEP_SUMMARY`. | _none_ |
+
+**Exit codes**
+
+`waza gate` defines its own stable exit codes so CI systems can branch on the
+exact failure class:
+
+| Code | Meaning |
+|------|---------|
+| `0` | Pass — no regression, no golden failures, task-set policies satisfied. |
+| `1` | Regression — aggregate pass rate dropped past `--max-regression-pct`, or a task-set policy fired with `fail`. |
+| `2` | Golden failure — a task marked `golden: true` failed. Takes priority over `1`. |
+| `3` | Configuration error — bad flags, missing/unreadable files, etc. |
+
+**Marking a task as golden**
+
+```yaml
+# my-eval.yaml
+tasks:
+  - id: must-always-work
+    name: Smoke test
+    golden: true       # <- waza gate will exit 2 if this task fails
+    inputs:
+      prompt: "..."
+```
+
+**Examples**
+
+```bash
+# Strict gate: any drop in aggregate pass rate fails the build.
+waza gate --baseline base.json --current results.json --max-regression-pct 0
+
+# Allow up to a 2pp drop, but never tolerate a golden failure.
+waza gate --baseline base.json --current results.json \
+  --max-regression-pct 2 --golden-must-pass
+
+# GitHub Actions: emit ::error:: annotations + job summary.
+waza gate --baseline base.json --current results.json \
+  --format github-actions
+
+# Treat removed tasks as a hard failure (covers accidental deletions).
+waza gate --baseline base.json --current results.json \
+  --on-removed-tasks fail
+```
+
 ## waza coverage
 
 Generate an eval coverage grid for discovered skills and custom agents.
@@ -949,11 +1019,16 @@ waza models --json
 
 ## Exit Codes
 
+Most commands use the following exit codes:
+
 | Code | Meaning |
 |------|---------|
 | `0` | Success |
 | `1` | One or more tasks failed |
 | `2` | Configuration or runtime error |
+
+`waza gate` defines its own scheme (see the [waza gate](#waza-gate) section):
+`0` pass, `1` regression, `2` golden failure, `3` configuration error.
 
 ## Global Flags
 

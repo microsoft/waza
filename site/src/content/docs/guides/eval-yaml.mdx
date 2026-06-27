@@ -340,6 +340,7 @@ expected:
 | `name`        | string | Human-readable task name                            |
 | `description` | string | What the task tests                                 |
 | `tags`        | array  | Tags for filtering (e.g., `["basic", "edge-case"]`) |
+| `golden`      | bool   | Mark as a golden / smoke task. When the task fails, [`waza gate`](/reference/cli/#waza-gate) exits with code `2`, taking priority over the aggregate regression check. |
 | `inputs`      | object | Test inputs (prompt, files)                         |
 | `expected`    | object | Validation rules and expected behavior              |
 | `skill_directories` | string[] | Skill directories for this task (overrides eval-level) |

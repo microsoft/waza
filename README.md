@@ -400,6 +400,43 @@ Compare results from multiple evaluation runs side by side — per-task score de
 |------|-------|-------------|
 | `--format <fmt>` | `-f` | Output format: `table` or `json` (default: `table`) |
 
+### `waza gate`
+
+CI-grade regression gate: compare a baseline results JSON against the current run and fail with stable exit codes when quality drops, golden tasks fail, or the task set diverges.
+
+| Flag | Description |
+|------|-------------|
+| `--baseline <path>` | Baseline results JSON (required) |
+| `--current <path>` | Current results JSON (required) |
+| `--max-regression-pct <N>` | Fail if aggregate pass rate drops by more than _N_ percentage points (default `0`) |
+| `--golden-must-pass` | Hard-fail (exit 2) if any task with `golden: true` fails (default `true`) |
+| `--on-new-tasks <p>` | `allow` / `warn` / `fail` for tasks present in current but missing from baseline (default `allow`) |
+| `--on-removed-tasks <p>` | `allow` / `warn` / `fail` for tasks missing from current (default `warn`) |
+| `--format <fmt>` | `human` / `json` / `markdown` / `github-actions` (default `human`) |
+| `--summary-file <path>` | Write the markdown report to this path (auto-set to `$GITHUB_STEP_SUMMARY` with `github-actions`) |
+
+**Exit codes:** `0` pass · `1` regression · `2` golden failure · `3` configuration error.
+
+**Example:**
+```bash
+waza gate \
+  --baseline results-baseline.json \
+  --current results.json \
+  --max-regression-pct 2 \
+  --golden-must-pass \
+  --format github-actions
+```
+
+Mark tasks as golden in your eval YAML:
+```yaml
+tasks:
+  - id: smoke-test
+    name: Must always work
+    golden: true
+    inputs:
+      prompt: "..."
+```
+
 ### `waza coverage [root]`
 
 Generate a skill-to-eval coverage grid showing which skills are fully covered, partially covered, or missing evals.

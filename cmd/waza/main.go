@@ -6,7 +6,12 @@ import (
 	"os"
 )
 
-// Exit codes for different failure modes
+// Exit codes for different failure modes.
+//
+// Existing commands (waza run) historically use 0/1/2 for success /
+// test failure / config error. The `waza gate` command defines its own
+// stable scheme documented in cmd_gate.go: 0=pass, 1=regression,
+// 2=golden failure, 3=config error.
 const (
 	ExitSuccess    = 0 // All tests passed
 	ExitTestFailed = 1 // One or more tests failed
@@ -26,6 +31,13 @@ func (e *TestFailureError) Error() string {
 func main() {
 	if err := execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
+
+		// Gate-specific exit codes (0=pass, 1=regression, 2=golden, 3=config).
+		// See cmd_gate.go for the full contract.
+		var gateErr *gateExitError
+		if errors.As(err, &gateErr) {
+			os.Exit(gateErr.code)
+		}
 
 		// Check error type to determine exit code
 		var testFailureErr *TestFailureError

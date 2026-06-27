@@ -139,6 +139,110 @@ To run it manually:
 gh workflow run weekly-regression-loop.yml --repo microsoft/waza
 ```
 
+### Regression Gates with `waza gate`
+
+For per-PR gating, use the dedicated [`waza gate`](/reference/cli/#waza-gate)
+command. It compares a baseline results JSON against the current run and
+exits with stable codes so CI systems can branch on the failure class:
+
+| Code | Meaning |
+|------|---------|
+| `0` | Pass |
+| `1` | Aggregate regression past `--max-regression-pct` |
+| `2` | A `golden: true` task failed |
+| `3` | Configuration error |
+
+#### GitHub Actions
+
+```yaml
+name: Eval Gate
+
+on:
+  pull_request:
+    paths:
+      - "skills/**"
+      - "evals/**"
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install waza
+        run: curl -fsSL https://aka.ms/install-waza | bash
+
+      # Download the latest successful run's baseline.
+      - name: Download baseline
+        uses: dawidd6/action-download-artifact@v6
+        with:
+          workflow: eval-baseline.yml
+          name: waza-baseline
+          path: baseline
+
+      - name: Run evals
+        run: waza run evals/my-skill.yaml -o results.json
+
+      - name: Gate
+        run: |
+          waza gate \
+            --baseline baseline/results.json \
+            --current results.json \
+            --max-regression-pct 2 \
+            --golden-must-pass \
+            --on-removed-tasks fail \
+            --format github-actions
+
+      - name: Upload current results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: waza-current
+          path: results.json
+```
+
+Because the `github-actions` format writes `::error::` / `::warning::` workflow
+commands and appends a markdown report to `$GITHUB_STEP_SUMMARY`, gate failures
+appear directly in the PR Files Changed view and the workflow summary.
+
+#### Azure DevOps Pipelines
+
+```yaml
+- script: |
+    waza gate \
+      --baseline $(Pipeline.Workspace)/baseline/results.json \
+      --current results.json \
+      --max-regression-pct 2 \
+      --golden-must-pass \
+      --format markdown \
+      --summary-file gate-report.md
+  displayName: "Waza Gate"
+
+- task: PublishBuildArtifacts@1
+  condition: always()
+  inputs:
+    pathToPublish: gate-report.md
+    artifactName: gate-report
+```
+
+#### GitLab CI
+
+```yaml
+gate:
+  stage: test
+  script:
+    - waza gate
+        --baseline baseline/results.json
+        --current results.json
+        --max-regression-pct 2
+        --golden-must-pass
+        --format json
+        > gate.json
+  artifacts:
+    when: always
+    paths: [gate.json]
+```
+
 ### Token Budget Checks
 
 Use `waza tokens compare` to track token usage across PRs and fail if budgets are exceeded:

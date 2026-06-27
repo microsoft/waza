@@ -745,6 +745,7 @@ func (r *EvalRunner) runSequential(ctx context.Context, testCases []*models.Test
 				outcomes = append(outcomes, models.TestOutcome{
 					TestID:      tc.TestID,
 					DisplayName: tc.DisplayName,
+					Golden:      tc.Golden,
 					Status:      models.StatusFailed,
 					Runs:        []models.RunResult{},
 				})
@@ -832,6 +833,7 @@ func (r *EvalRunner) runConcurrent(ctx context.Context, testCases []*models.Test
 					resultChan <- result{index: idx, outcome: models.TestOutcome{
 						TestID:      test.TestID,
 						DisplayName: test.DisplayName,
+						Golden:      test.Golden,
 						Status:      models.StatusFailed,
 						Runs:        []models.RunResult{},
 					}}
@@ -1005,6 +1007,7 @@ func (r *EvalRunner) runTestUncached(ctx context.Context, tc *models.TestCase, t
 		TestID:      tc.TestID,
 		DisplayName: tc.DisplayName,
 		Group:       r.resolveGroup(),
+		Golden:      tc.Golden,
 		Status:      status,
 		Runs:        runs,
 		Stats:       stats,
