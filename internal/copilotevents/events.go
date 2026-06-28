@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 
 	copilot "github.com/github/copilot-sdk/go"
+	"github.com/microsoft/waza/internal/models"
 )
 
 func Content(event copilot.SessionEvent) (string, bool) {
@@ -126,4 +127,62 @@ func RawData(eventType copilot.SessionEventType, data any) copilot.SessionEventD
 		raw = []byte("{}")
 	}
 	return &copilot.RawSessionEventData{EventType: eventType, Raw: raw}
+}
+
+func ToSessionEvent(event copilot.SessionEvent) models.SessionEvent {
+	neutral := models.SessionEvent{
+		EventType: models.SessionEventType(event.Type()),
+	}
+
+	if content, ok := Content(event); ok {
+		neutral.Content = &content
+	}
+	if content, ok := DeltaContent(event); ok {
+		neutral.DeltaContent = &content
+	}
+	if message, ok := Message(event); ok {
+		neutral.Message = &message
+	}
+	if start, ok := ToolStart(event); ok {
+		neutral.ToolCallID = stringPtr(start.ToolCallID)
+		neutral.ToolName = stringPtr(start.ToolName)
+		neutral.Arguments = start.Arguments
+	}
+	if complete, ok := ToolComplete(event); ok {
+		neutral.ToolCallID = stringPtr(complete.ToolCallID)
+		success := complete.Success
+		neutral.Success = &success
+		neutral.ToolResult = ToToolExecutionResult(complete.Result)
+	}
+	if partial, ok := ToolPartial(event); ok {
+		neutral.ToolCallID = stringPtr(partial.ToolCallID)
+		neutral.PartialOutput = stringPtr(partial.PartialOutput)
+	}
+	if progress, ok := ToolProgress(event); ok {
+		neutral.ToolCallID = stringPtr(progress.ToolCallID)
+	}
+	if request, ok := ToolUserRequested(event); ok {
+		neutral.ToolCallID = stringPtr(request.ToolCallID)
+		neutral.ToolName = stringPtr(request.ToolName)
+	}
+	if skill, ok := SkillInvoked(event); ok {
+		neutral.SkillName = stringPtr(skill.Name)
+		neutral.SkillPath = stringPtr(skill.Path)
+	}
+
+	return neutral
+}
+
+func ToToolExecutionResult(result *copilot.ToolExecutionCompleteResult) *models.ToolExecutionResult {
+	if result == nil {
+		return nil
+	}
+	return &models.ToolExecutionResult{
+		Content:         result.Content,
+		DetailedContent: result.DetailedContent,
+	}
+}
+
+func stringPtr(value string) *string {
+	return &value
 }

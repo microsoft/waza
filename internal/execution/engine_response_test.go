@@ -3,7 +3,7 @@ package execution
 import (
 	"testing"
 
-	copilot "github.com/github/copilot-sdk/go"
+	"github.com/microsoft/waza/internal/models"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -13,15 +13,19 @@ func TestExecutionResponse_ExtractMessages(t *testing.T) {
 	ignoredDelta := "delta"
 
 	resp := &ExecutionResponse{
-		Events: []copilot.SessionEvent{
-			{Data: &copilot.AssistantMessageData{Content: hello}},
-			{Data: &copilot.AssistantMessageData{}},
-			{Data: &copilot.AssistantMessageDeltaData{DeltaContent: ignoredDelta}},
-			{Data: &copilot.AssistantMessageData{Content: world}},
+		Events: []models.SessionEvent{
+			{EventType: models.SessionEventTypeAssistantMessage, Content: &hello},
+			{EventType: models.SessionEventTypeAssistantMessage, Content: ptrString("")},
+			{EventType: models.SessionEventTypeAssistantMessageDelta, DeltaContent: &ignoredDelta},
+			{EventType: models.SessionEventTypeAssistantMessage, Content: &world},
 		},
 	}
 
 	assert.Equal(t, []string{"hello", "world"}, resp.ExtractMessages())
+}
+
+func ptrString(value string) *string {
+	return &value
 }
 
 func TestExecutionResponse_ContainsText(t *testing.T) {

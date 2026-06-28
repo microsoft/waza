@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	copilot "github.com/github/copilot-sdk/go"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/stretchr/testify/require"
 )
@@ -60,14 +59,10 @@ func TestWrite(t *testing.T) {
 		FinalOutput: "This function does X",
 		Transcript: []models.TranscriptEvent{
 			{
-				SessionEvent: copilot.SessionEvent{
-					Data: &copilot.UserMessageData{Content: "Explain this function"},
-				},
+				SessionEvent: models.SessionEvent{EventType: models.SessionEventTypeUserMessage, Content: testStringPtr("Explain this function")},
 			},
 			{
-				SessionEvent: copilot.SessionEvent{
-					Data: &copilot.AssistantMessageData{Content: "This function does X"},
-				},
+				SessionEvent: models.SessionEvent{EventType: models.SessionEventTypeAssistantMessage, Content: testStringPtr("This function does X")},
 			},
 		},
 		Validations: map[string]models.GraderResults{
@@ -175,8 +170,8 @@ func TestBuildTaskTranscript(t *testing.T) {
 				Status:     models.StatusPassed,
 				DurationMs: 500,
 				Transcript: []models.TranscriptEvent{
-					{SessionEvent: copilot.SessionEvent{Data: &copilot.UserMessageData{Content: "Explain this code"}}},
-					{SessionEvent: copilot.SessionEvent{Data: &copilot.AssistantMessageData{Content: "Sure, this code..."}}},
+					{SessionEvent: models.SessionEvent{EventType: models.SessionEventTypeUserMessage, Content: testStringPtr("Explain this code")}},
+					{SessionEvent: models.SessionEvent{EventType: models.SessionEventTypeAssistantMessage, Content: testStringPtr("Sure, this code...")}},
 				},
 				Validations: map[string]models.GraderResults{
 					"check": {Name: "check", Score: 1.0, Passed: true},
@@ -211,4 +206,8 @@ func TestBuildTaskTranscript(t *testing.T) {
 	if result.FinalOutput != "Sure, this code..." {
 		t.Errorf("FinalOutput = %q, want %q", result.FinalOutput, "Sure, this code...")
 	}
+}
+
+func testStringPtr(value string) *string {
+	return &value
 }

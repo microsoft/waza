@@ -16,7 +16,7 @@ type SessionEventsCollector struct {
 	// SkillInvocations is a chronological list of skills invoked during the session
 	SkillInvocations []SkillInvocation
 
-	sessionEvents  []copilot.SessionEvent
+	sessionEvents  []models.SessionEvent
 	outputParts    []string
 	errorMsg       string
 	done           chan struct{}
@@ -36,7 +36,7 @@ func NewSessionEventsCollector() *SessionEventsCollector {
 }
 
 // SessionEvents returns the collected session events.
-func (coll *SessionEventsCollector) SessionEvents() []copilot.SessionEvent {
+func (coll *SessionEventsCollector) SessionEvents() []models.SessionEvent {
 	return coll.sessionEvents
 }
 
@@ -146,7 +146,7 @@ func (coll *SessionEventsCollector) On(event copilot.SessionEvent) {
 		}
 	}
 
-	coll.sessionEvents = append(coll.sessionEvents, event)
+	coll.sessionEvents = append(coll.sessionEvents, copilotevents.ToSessionEvent(event))
 }
 
 // ToolCalls goes through the list of session events and correlates tool starts

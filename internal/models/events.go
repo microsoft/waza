@@ -4,21 +4,55 @@ import (
 	"encoding/json"
 	"log/slog"
 
-	copilot "github.com/github/copilot-sdk/go"
 	"github.com/go-viper/mapstructure/v2"
-	"github.com/microsoft/waza/internal/copilotevents"
 )
 
-// ToolCall represents a tool invocation
+// SessionEventType identifies an engine event in a provider-neutral form.
+type SessionEventType string
+
+const (
+	SessionEventTypeUserMessage                SessionEventType = "user.message"
+	SessionEventTypeSystemMessage              SessionEventType = "system.message"
+	SessionEventTypeAssistantMessage           SessionEventType = "assistant.message"
+	SessionEventTypeAssistantMessageDelta      SessionEventType = "assistant.message_delta"
+	SessionEventTypeAssistantReasoning         SessionEventType = "assistant.reasoning"
+	SessionEventTypeAssistantTurnStart         SessionEventType = "assistant.turn_start"
+	SessionEventTypeAssistantTurnEnd           SessionEventType = "assistant.turn_end"
+	SessionEventTypeAssistantUsage             SessionEventType = "assistant.usage"
+	SessionEventTypeToolExecutionStart         SessionEventType = "tool.execution_start"
+	SessionEventTypeToolExecutionComplete      SessionEventType = "tool.execution_complete"
+	SessionEventTypeToolExecutionPartialResult SessionEventType = "tool.execution_partial_result"
+	SessionEventTypeToolExecutionProgress      SessionEventType = "tool.execution_progress"
+	SessionEventTypeToolUserRequested          SessionEventType = "tool.user_requested"
+	SessionEventTypeSkillInvoked               SessionEventType = "skill.invoked"
+	SessionEventTypeSessionStart               SessionEventType = "session.start"
+	SessionEventTypeSessionIdle                SessionEventType = "session.idle"
+	SessionEventTypeSessionError               SessionEventType = "session.error"
+	SessionEventTypeSessionInfo                SessionEventType = "session.info"
+	SessionEventTypeSessionUsageInfo           SessionEventType = "session.usage_info"
+	SessionEventTypeSessionWarning             SessionEventType = "session.warning"
+	SessionEventTypeSessionShutdown            SessionEventType = "session.shutdown"
+	SessionEventTypePendingMessagesModified    SessionEventType = "pending_messages.modified"
+	SessionEventTypeHookStart                  SessionEventType = "hook.start"
+	SessionEventTypeHookEnd                    SessionEventType = "hook.end"
+)
+
+// ToolExecutionResult is the provider-neutral representation of a tool result.
+type ToolExecutionResult struct {
+	Content         string  `json:"content,omitempty"`
+	DetailedContent *string `json:"detailedContent,omitempty"`
+}
+
+// ToolCall represents a tool invocation.
 type ToolCall struct {
 	// ID is the engine-assigned identifier for this call (e.g. the
 	// Copilot SDK's ToolCallID). Used to correlate tool invocations in
 	// observability backends.
-	ID        string                               `json:"id,omitempty"`
-	Name      string                               `json:"name"`
-	Arguments ToolCallArgs                         `json:"arguments,omitempty"`
-	Result    *copilot.ToolExecutionCompleteResult `json:"result,omitempty"`
-	Success   bool                                 `json:"success"`
+	ID        string               `json:"id,omitempty"`
+	Name      string               `json:"name"`
+	Arguments ToolCallArgs         `json:"arguments,omitempty"`
+	Result    *ToolExecutionResult `json:"result,omitempty"`
+	Success   bool                 `json:"success"`
 }
 
 type ToolCallArgs struct {
@@ -34,165 +68,122 @@ type ToolCallArgs struct {
 	Skill string `json:"skill" mapstructure:"skill"`
 }
 
+// SessionEvent is the provider-neutral event model exposed by execution engines.
+type SessionEvent struct {
+	EventType SessionEventType `json:"type"`
+
+	Content      *string `json:"content,omitempty"`
+	DeltaContent *string `json:"-"`
+	Message      *string `json:"message,omitempty"`
+
+	// tool call fields
+	Arguments     any                  `json:"arguments,omitempty"`
+	Success       *bool                `json:"success,omitempty"`
+	ToolCallID    *string              `json:"tool_call_id,omitempty"`
+	ToolName      *string              `json:"tool_name,omitempty"`
+	ToolResult    *ToolExecutionResult `json:"tool_result,omitempty"`
+	PartialOutput *string              `json:"-"`
+
+	// skill invocation fields are kept in-memory for behavior, but are omitted
+	// from transcript JSON to preserve the existing output contract.
+	SkillName *string `json:"-"`
+	SkillPath *string `json:"-"`
+}
+
+// Type returns the event kind while preserving the old call pattern used by
+// transcript and test code.
+func (e SessionEvent) Type() SessionEventType {
+	return e.EventType
+}
+
 type TranscriptEvent struct {
-	copilot.SessionEvent `json:"-"`
+	SessionEvent `json:"-"`
 }
 
 func (te TranscriptEvent) MarshalJSON() ([]byte, error) {
-	v := struct {
-		Content *string                  `json:"content,omitempty"`
-		Type    copilot.SessionEventType `json:"type"`
-
-		Message *string `json:"message,omitempty"`
-
-		// tool call fields
-		Arguments  any                                  `json:"arguments,omitempty"`
-		Success    *bool                                `json:"success,omitempty"`
-		ToolCallID *string                              `json:"tool_call_id,omitempty"`
-		ToolName   *string                              `json:"tool_name,omitempty"`
-		ToolResult *copilot.ToolExecutionCompleteResult `json:"tool_result,omitempty"`
-	}{
-		Type: te.Type(),
-	}
-
-	if content, ok := copilotevents.Content(te.SessionEvent); ok {
-		v.Content = &content
-	}
-	if message, ok := copilotevents.Message(te.SessionEvent); ok {
-		v.Message = &message
-	}
-	if start, ok := copilotevents.ToolStart(te.SessionEvent); ok {
-		v.ToolCallID = &start.ToolCallID
-		v.ToolName = &start.ToolName
-		v.Arguments = start.Arguments
-	}
-	if complete, ok := copilotevents.ToolComplete(te.SessionEvent); ok {
-		v.ToolCallID = &complete.ToolCallID
-		v.ToolResult = complete.Result
-		v.Success = &complete.Success
-	}
-	if partial, ok := copilotevents.ToolPartial(te.SessionEvent); ok {
-		v.ToolCallID = &partial.ToolCallID
-	}
-
-	return json.Marshal(v)
+	return json.Marshal(transcriptEventJSON{
+		Content:    te.Content,
+		Type:       te.Type(),
+		Message:    te.Message,
+		Arguments:  te.Arguments,
+		Success:    te.Success,
+		ToolCallID: te.ToolCallID,
+		ToolName:   te.ToolName,
+		ToolResult: te.ToolResult,
+	})
 }
 
 func (te *TranscriptEvent) UnmarshalJSON(data []byte) error {
-	var v struct {
-		Content    *string                              `json:"content,omitempty"`
-		Type       copilot.SessionEventType             `json:"type"`
-		Message    *string                              `json:"message,omitempty"`
-		Arguments  any                                  `json:"arguments,omitempty"`
-		Success    *bool                                `json:"success,omitempty"`
-		ToolCallID *string                              `json:"tool_call_id,omitempty"`
-		ToolName   *string                              `json:"tool_name,omitempty"`
-		ToolResult *copilot.ToolExecutionCompleteResult `json:"tool_result,omitempty"`
-	}
-
+	var v transcriptEventJSON
 	if err := json.Unmarshal(data, &v); err != nil {
 		return err
 	}
 
-	te.Data = transcriptData(v.Type, v.Content, v.Message, v.ToolCallID, v.ToolName, v.Arguments, v.ToolResult, v.Success)
+	te.SessionEvent = SessionEvent{
+		EventType:  v.Type,
+		Content:    v.Content,
+		Message:    v.Message,
+		Arguments:  v.Arguments,
+		Success:    v.Success,
+		ToolCallID: v.ToolCallID,
+		ToolName:   v.ToolName,
+		ToolResult: v.ToolResult,
+	}
 
 	return nil
 }
 
-func transcriptData(
-	eventType copilot.SessionEventType,
-	content *string,
-	message *string,
-	toolCallID *string,
-	toolName *string,
-	arguments any,
-	toolResult *copilot.ToolExecutionCompleteResult,
-	success *bool,
-) copilot.SessionEventData {
-	switch eventType {
-	case copilot.SessionEventTypeUserMessage:
-		return &copilot.UserMessageData{Content: derefString(content)}
-	case copilot.SessionEventTypeAssistantMessage:
-		return &copilot.AssistantMessageData{Content: derefString(content)}
-	case copilot.SessionEventTypeAssistantMessageDelta:
-		return &copilot.AssistantMessageDeltaData{DeltaContent: derefString(content)}
-	case copilot.SessionEventTypeToolExecutionStart:
-		return &copilot.ToolExecutionStartData{
-			Arguments:  arguments,
-			ToolCallID: derefString(toolCallID),
-			ToolName:   derefString(toolName),
-		}
-	case copilot.SessionEventTypeToolExecutionComplete:
-		return &copilot.ToolExecutionCompleteData{
-			Result:     toolResult,
-			Success:    derefBool(success),
-			ToolCallID: derefString(toolCallID),
-		}
-	case copilot.SessionEventTypeToolExecutionPartialResult:
-		return &copilot.ToolExecutionPartialResultData{ToolCallID: derefString(toolCallID)}
-	case copilot.SessionEventTypeSessionError:
-		return &copilot.SessionErrorData{Message: derefString(message)}
-	default:
-		return copilotevents.RawData(eventType, map[string]any{
-			"content":      content,
-			"message":      message,
-			"arguments":    arguments,
-			"success":      success,
-			"tool_call_id": toolCallID,
-			"tool_name":    toolName,
-			"tool_result":  toolResult,
-		})
-	}
-}
+type transcriptEventJSON struct {
+	Content *string          `json:"content,omitempty"`
+	Type    SessionEventType `json:"type"`
 
-func derefString(value *string) string {
-	if value == nil {
-		return ""
-	}
-	return *value
-}
+	Message *string `json:"message,omitempty"`
 
-func derefBool(value *bool) bool {
-	return value != nil && *value
+	// tool call fields
+	Arguments  any                  `json:"arguments,omitempty"`
+	Success    *bool                `json:"success,omitempty"`
+	ToolCallID *string              `json:"tool_call_id,omitempty"`
+	ToolName   *string              `json:"tool_name,omitempty"`
+	ToolResult *ToolExecutionResult `json:"tool_result,omitempty"`
 }
 
 // FilterToolCalls goes through the list of session events and correlates tool starts
 // with Success.
-func FilterToolCalls(sessionEvents []copilot.SessionEvent) []ToolCall {
+func FilterToolCalls(sessionEvents []SessionEvent) []ToolCall {
 	toolCallsMap := map[string]*ToolCall{}
 	var toolCallIDs []string // preserve the start order of the events.
 
 	for _, evt := range sessionEvents {
 		switch evt.Type() {
-		case copilot.SessionEventTypeToolExecutionStart:
-			start, ok := copilotevents.ToolStart(evt)
-			if !ok || start.ToolName == "" || start.ToolCallID == "" {
+		case SessionEventTypeToolExecutionStart:
+			if evt.ToolName == nil || *evt.ToolName == "" || evt.ToolCallID == nil || *evt.ToolCallID == "" {
 				continue
 			}
 
 			tc := &ToolCall{
-				ID:   start.ToolCallID,
-				Name: start.ToolName,
+				ID:   *evt.ToolCallID,
+				Name: *evt.ToolName,
 			}
 
-			if err := mapstructure.Decode(start.Arguments, &tc.Arguments); err != nil {
-				slog.Warn("tool argument format wasn't recognized", "error", err, "name", start.ToolName, "args", start.Arguments)
+			if err := mapstructure.Decode(evt.Arguments, &tc.Arguments); err != nil {
+				slog.Warn("tool argument format wasn't recognized", "error", err, "name", *evt.ToolName, "args", evt.Arguments)
 			}
 
-			toolCallsMap[start.ToolCallID] = tc
-			toolCallIDs = append(toolCallIDs, start.ToolCallID)
-		case copilot.SessionEventTypeToolExecutionComplete:
-			complete, ok := copilotevents.ToolComplete(evt)
-			if !ok || complete.ToolCallID == "" {
+			toolCallsMap[*evt.ToolCallID] = tc
+			toolCallIDs = append(toolCallIDs, *evt.ToolCallID)
+		case SessionEventTypeToolExecutionComplete:
+			if evt.ToolCallID == nil || *evt.ToolCallID == "" {
 				continue
 			}
-			tc := toolCallsMap[complete.ToolCallID]
+			tc := toolCallsMap[*evt.ToolCallID]
 			if tc == nil {
 				continue
 			}
 
-			tc.Success = complete.Success
-			tc.Result = complete.Result
+			if evt.Success != nil {
+				tc.Success = *evt.Success
+			}
+			tc.Result = evt.ToolResult
 		}
 	}
 

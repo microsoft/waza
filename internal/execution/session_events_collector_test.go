@@ -55,7 +55,7 @@ func TestNewSessionEventsCollector(t *testing.T) {
 				Skill: "example",
 			},
 			Success: true,
-			Result: &copilot.ToolExecutionCompleteResult{
+			Result: &models.ToolExecutionResult{
 				Content:         "Skill \"example\" loaded successfully. Follow the instructions in the skill context.",
 				DetailedContent: utils.Ptr("Skill loaded successfully ✅\n\n---\nname: example\ndescription: \"Checks to see if skills are enabled - if you use this skill it prints out yes\"\n---\n"),
 			},

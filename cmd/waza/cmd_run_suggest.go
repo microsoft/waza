@@ -13,9 +13,7 @@ import (
 	"strings"
 	"time"
 
-	copilot "github.com/github/copilot-sdk/go"
 	waza "github.com/microsoft/waza"
-	"github.com/microsoft/waza/internal/copilotevents"
 	"github.com/microsoft/waza/internal/dataset"
 	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/models"
@@ -113,7 +111,7 @@ func buildNoSuggestionsError(res *execution.ExecutionResponse) error {
 	return fmt.Errorf("no suggestions from Copilot. Session transcript:\n- %s", strings.Join(trace, "\n- "))
 }
 
-func summarizeSessionEventTypes(events []copilot.SessionEvent) []string {
+func summarizeSessionEventTypes(events []models.SessionEvent) []string {
 	if len(events) == 0 {
 		return nil
 	}
@@ -628,74 +626,73 @@ func extractCopilotTrace(transcript []models.TranscriptEvent) []string {
 	toolNames := map[string]string{}
 	for _, evt := range transcript {
 		switch evt.Type() {
-		case copilot.SessionEventTypeAssistantMessage:
-			content, ok := copilotevents.Content(evt.SessionEvent)
-			if !ok {
+		case models.SessionEventTypeAssistantMessage:
+			if evt.Content == nil {
 				continue
 			}
-			msg := compactWhitespace(content)
+			msg := compactWhitespace(*evt.Content)
 			if msg == "" {
 				continue
 			}
 			lines = append(lines, "agent: "+truncateForPrompt(msg, maxSuggestionTraceEntryLen))
-		case copilot.SessionEventTypeSkillInvoked:
-			if skill, ok := copilotevents.SkillInvoked(evt.SessionEvent); ok {
-				msg := compactWhitespace(skill.Name)
-				if msg == "" {
-					msg = compactWhitespace(skill.Path)
-				}
-				if msg != "" {
-					lines = append(lines, "skill invoked: "+truncateForPrompt(msg, maxSuggestionTraceEntryLen))
-				}
+		case models.SessionEventTypeSkillInvoked:
+			msg := ""
+			if evt.SkillName != nil {
+				msg = compactWhitespace(*evt.SkillName)
 			}
-		case copilot.SessionEventTypeToolExecutionStart:
-			start, ok := copilotevents.ToolStart(evt.SessionEvent)
-			if !ok {
-				continue
+			if msg == "" && evt.SkillPath != nil {
+				msg = compactWhitespace(*evt.SkillPath)
 			}
-			name := start.ToolName
+			if msg != "" {
+				lines = append(lines, "skill invoked: "+truncateForPrompt(msg, maxSuggestionTraceEntryLen))
+			}
+		case models.SessionEventTypeToolExecutionStart:
+			name := ""
+			if evt.ToolName != nil {
+				name = *evt.ToolName
+			}
 			if name == "" {
 				name = "<unknown>"
 			}
-			if start.ToolCallID != "" {
-				toolNames[start.ToolCallID] = name
+			if evt.ToolCallID != nil && *evt.ToolCallID != "" {
+				toolNames[*evt.ToolCallID] = name
 			}
-			args := marshalForPrompt(start.Arguments, maxSuggestionToolSummaryLen)
+			args := marshalForPrompt(evt.Arguments, maxSuggestionToolSummaryLen)
 			if args == "" {
 				lines = append(lines, fmt.Sprintf("tool start: %s", name))
 				continue
 			}
 			lines = append(lines, fmt.Sprintf("tool start: %s args=%s", name, args))
-		case copilot.SessionEventTypeToolExecutionComplete:
-			complete, ok := copilotevents.ToolComplete(evt.SessionEvent)
-			if !ok {
-				continue
-			}
+		case models.SessionEventTypeToolExecutionComplete:
 			parts := []string{"tool result:"}
-			if name := toolNames[complete.ToolCallID]; name != "" {
-				parts = append(parts, "tool="+name)
+			if evt.ToolCallID != nil {
+				if name := toolNames[*evt.ToolCallID]; name != "" {
+					parts = append(parts, "tool="+name)
+				}
 			}
-			parts = append(parts, fmt.Sprintf("success=%t", complete.Success))
-			if result := marshalForPrompt(complete.Result, maxSuggestionToolSummaryLen); result != "" {
+			success := false
+			if evt.Success != nil {
+				success = *evt.Success
+			}
+			parts = append(parts, fmt.Sprintf("success=%t", success))
+			if result := marshalForPrompt(evt.ToolResult, maxSuggestionToolSummaryLen); result != "" {
 				parts = append(parts, "result="+result)
 			}
 			lines = append(lines, strings.Join(parts, " "))
-		case copilot.SessionEventTypeToolExecutionPartialResult:
-			partial, ok := copilotevents.ToolPartial(evt.SessionEvent)
-			if !ok {
+		case models.SessionEventTypeToolExecutionPartialResult:
+			if evt.PartialOutput == nil {
 				continue
 			}
-			output := compactWhitespace(partial.PartialOutput)
+			output := compactWhitespace(*evt.PartialOutput)
 			if output == "" {
 				continue
 			}
 			lines = append(lines, "tool partial result: "+truncateForPrompt(output, maxSuggestionTraceEntryLen))
-		case copilot.SessionEventTypeToolUserRequested:
-			request, ok := copilotevents.ToolUserRequested(evt.SessionEvent)
-			if !ok {
-				continue
+		case models.SessionEventTypeToolUserRequested:
+			msg := ""
+			if evt.ToolName != nil {
+				msg = compactWhitespace(*evt.ToolName)
 			}
-			msg := compactWhitespace(request.ToolName)
 			if msg != "" {
 				lines = append(lines, "tool user request: "+truncateForPrompt(msg, maxSuggestionTraceEntryLen))
 			}

@@ -298,7 +298,7 @@ func TestUnsupportedLanguage(t *testing.T) {
 	require.Contains(t, err.Error(), "language 'ruby' is not yet supported")
 }
 
-func loadSampleEvents(t *testing.T) []copilot.SessionEvent {
+func loadSampleEvents(t *testing.T) []models.SessionEvent {
 	reader, err := os.Open(filepath.Join("..", "testdata", "copilot_events_using_skill.json"))
 	require.NoError(t, err)
 
@@ -325,7 +325,7 @@ func loadSampleEvents(t *testing.T) []copilot.SessionEvent {
 	return sessionEventCollector.SessionEvents()
 }
 
-func convertToTranscriptEvents(sessionEvents []copilot.SessionEvent) []models.TranscriptEvent {
+func convertToTranscriptEvents(sessionEvents []models.SessionEvent) []models.TranscriptEvent {
 	var transcript []models.TranscriptEvent
 
 	for _, evt := range sessionEvents {

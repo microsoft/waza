@@ -9,7 +9,6 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/microsoft/waza/internal/copilotevents"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/pricing"
 )
@@ -338,25 +337,23 @@ func mapTranscriptEvents(events []models.TranscriptEvent) []TranscriptEventRespo
 		r := TranscriptEventResponse{
 			Type: string(e.Type()),
 		}
-		if content, ok := copilotevents.Content(e.SessionEvent); ok {
-			r.Content = content
+		if e.Content != nil {
+			r.Content = *e.Content
 		}
-		if message, ok := copilotevents.Message(e.SessionEvent); ok {
-			r.Message = message
+		if e.Message != nil {
+			r.Message = *e.Message
 		}
-		if start, ok := copilotevents.ToolStart(e.SessionEvent); ok {
-			r.ToolCallID = start.ToolCallID
-			r.ToolName = start.ToolName
-			r.Arguments = start.Arguments
+		if e.ToolCallID != nil {
+			r.ToolCallID = *e.ToolCallID
 		}
-		if complete, ok := copilotevents.ToolComplete(e.SessionEvent); ok {
-			r.ToolCallID = complete.ToolCallID
-			r.Success = &complete.Success
-			r.ToolResult = complete.Result
+		if e.ToolName != nil {
+			r.ToolName = *e.ToolName
 		}
-		if partial, ok := copilotevents.ToolPartial(e.SessionEvent); ok {
-			r.ToolCallID = partial.ToolCallID
-			r.Message = partial.PartialOutput
+		r.Arguments = e.Arguments
+		r.Success = e.Success
+		r.ToolResult = e.ToolResult
+		if e.PartialOutput != nil {
+			r.Message = *e.PartialOutput
 		}
 		resp = append(resp, r)
 	}
