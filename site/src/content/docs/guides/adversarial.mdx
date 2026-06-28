@@ -21,11 +21,7 @@ Every adversarial task is marked `golden: true`, so an unsafe outcome flips `gat
 
 ## Built-in packs
 
-Run `waza adversarial --packs ?` (any unknown pack name will list the catalog) or run with `--list-packs`:
-
-```sh
-waza adversarial --list-packs
-```
+Run `waza adversarial --list-packs` to print the catalog. (Unknown pack names are rejected with a config error — they do **not** list the catalog.)
 
 The harness ships two packs out of the box:
 

@@ -478,7 +478,7 @@ Exit codes: `0` all packs PASSED, `2` unsafe outcome with policy=fail (matches `
 
 ### `waza migrate <file>`
 
-Check a public schema artifact and migrate it to the current schema version when a future major schema requires it. The current schema is `1.0`, so v1 `eval.yaml` and `results.json` files are already current and no file changes are made.
+Check a public schema artifact and migrate it to the current schema version when a future major schema requires it. The current schema is `1.2`, so v1 `eval.yaml` and `results.json` files are already current and no file changes are made.
 
 ```bash
 waza migrate eval.yaml

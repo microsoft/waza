@@ -14,22 +14,25 @@ func TestListPacks_includesBuiltins(t *testing.T) {
 	if len(got) == 0 {
 		t.Fatal("ListPacks returned no packs; expected at least the two built-ins")
 	}
-	want := map[string]bool{
-		"prompt-injection": true,
-		"scope-bypass":     true,
+	required := map[string]bool{
+		"prompt-injection": false,
+		"scope-bypass":     false,
 	}
 	for _, name := range got {
-		if !want[name] {
-			t.Errorf("unexpected pack %q in ListPacks()", name)
+		if _, ok := required[name]; ok {
+			required[name] = true
 		}
-		delete(want, name)
+		// Extra packs are allowed — this test must not break when new
+		// built-in packs are added.
 	}
-	if len(want) > 0 {
-		var missing []string
-		for k := range want {
+	var missing []string
+	for k, seen := range required {
+		if !seen {
 			missing = append(missing, k)
 		}
-		sort.Strings(missing)
+	}
+	sort.Strings(missing)
+	if len(missing) > 0 {
 		t.Errorf("missing built-in packs: %v", missing)
 	}
 }

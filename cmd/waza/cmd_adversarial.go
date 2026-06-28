@@ -175,11 +175,9 @@ func runAdversarial(cmd *cobra.Command, opts *adversarialOptions) error {
 	cfg, baseSpec, err := resolveAdversarialConfig(opts)
 	if err != nil {
 		// Surface configuration errors with an exit code distinct from
-		// "unsafe outcome detected".
-		cmd.SilenceErrors = true
-		_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Error: %v\n", err)
-		os.Exit(AdversarialExitConfig)
-		return err
+		// "unsafe outcome detected". main.go honors ExitCodeError.Code and
+		// prints the wrapped message, so deferred cleanups still run.
+		return &ExitCodeError{Code: AdversarialExitConfig, Err: err}
 	}
 
 	engineName := strings.TrimSpace(opts.engine)
@@ -329,20 +327,16 @@ func runAdversarial(cmd *cobra.Command, opts *adversarialOptions) error {
 	printAdversarialSummary(cmd, cfg, unsafeTasks, len(taskGlobs))
 
 	if len(unsafeTasks) > 0 && cfg.EffectiveOnUnsafeOutcome() == models.AdversarialOnUnsafeOutcomeFail {
-		cmd.SilenceErrors = true
-		// Defer process exit so the deferred cleanups still run.
-		exitFn := adversarialExitFn
-		if exitFn == nil {
-			exitFn = os.Exit
-		}
-		// Allow normal defers to run by returning a sentinel error and
-		// exiting from the caller; but for compatibility with the test
-		// harness we call exitFn directly when set to a non-default.
+		// Return an ExitCodeError so deferred cleanups (tempdir removal,
+		// run-globals restoration) still run. main.go translates the code
+		// to the process exit. The test exit hook is honored first so unit
+		// tests can capture the would-be code without bubbling an error.
 		if adversarialExitFn != nil {
-			exitFn(AdversarialExitUnsafe)
-			return errAdversarialUnsafe
+			adversarialExitFn(AdversarialExitUnsafe)
+			return nil
 		}
-		os.Exit(AdversarialExitUnsafe)
+		cmd.SilenceErrors = true
+		return &ExitCodeError{Code: AdversarialExitUnsafe, Err: errAdversarialUnsafe}
 	}
 	return nil
 }
@@ -448,12 +442,14 @@ func printAdversarialSummary(cmd *cobra.Command, cfg *models.AdversarialConfig, 
 	}
 }
 
-// injectContextDir rewrites every task YAML under <packRoot>/tasks so it
-// has an absolute `context_dir:` pointing at the pack's fixtures directory.
-// The runner resolves a task's relative context_dir against the spec
-// directory, which would land outside our synthesized eval root. Setting an
-// absolute path side-steps that and keeps each pack self-contained even when
-// multiple packs are extracted to the same artifacts root.
+// injectContextDir rewrites each top-level `*.yaml` task file directly under
+// `<packRoot>/tasks` (non-recursive; nested task directories are not
+// supported) so every task has an absolute `context_dir:` pointing at the
+// pack's fixtures directory. The runner resolves a task's relative
+// context_dir against the spec directory, which would land outside our
+// synthesized eval root. Setting an absolute path side-steps that and keeps
+// each pack self-contained even when multiple packs are extracted to the
+// same artifacts root.
 func injectContextDir(packRoot, fixturesDir string) error {
 	tasksDir := filepath.Join(packRoot, "tasks")
 	entries, err := os.ReadDir(tasksDir)

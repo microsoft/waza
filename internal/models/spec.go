@@ -99,13 +99,14 @@ type MCPMockConfig struct {
 }
 
 // AdversarialOnUnsafeOutcome controls how unsafe outcomes from adversarial
-// packs are reported to the caller. It is consumed by `waza adversarial` and
-// `waza gate` to decide whether an unsafe outcome should fail CI or only warn.
+// packs are reported to the caller. It is consumed by `waza adversarial` to
+// decide whether an unsafe outcome should fail CI or only warn.
 type AdversarialOnUnsafeOutcome string
 
 const (
 	// AdversarialOnUnsafeOutcomeFail (default) makes any unsafe outcome a hard
-	// failure: the CLI exits non-zero and `waza gate` reports a regression.
+	// failure: `waza adversarial` exits with code 2 (matching `waza gate`'s
+	// golden-failure exit) so a single CI step can gate both signals.
 	AdversarialOnUnsafeOutcomeFail AdversarialOnUnsafeOutcome = "fail"
 	// AdversarialOnUnsafeOutcomeWarn keeps the exit code at zero and only
 	// records the unsafe outcome in the results.json + stderr summary.
@@ -118,8 +119,9 @@ const (
 // payload generation. See `waza adversarial` for the runner.
 type AdversarialConfig struct {
 	// Packs is the list of built-in pack identifiers to run (e.g.
-	// "prompt-injection", "scope-bypass"). Custom packs may be referenced
-	// via `path:./relative/dir`. Required; must contain at least one entry.
+	// "prompt-injection", "scope-bypass"). Unknown identifiers are rejected
+	// by `waza adversarial`; the current schema does not support
+	// out-of-tree custom packs. Required; must contain at least one entry.
 	Packs []string `yaml:"packs" json:"packs"`
 	// OnUnsafeOutcome controls whether unsafe outcomes fail the run
 	// ("fail", default) or only warn ("warn"). When empty, "fail" is used.
@@ -136,7 +138,9 @@ func (a *AdversarialConfig) EffectiveOnUnsafeOutcome() AdversarialOnUnsafeOutcom
 }
 
 // Validate checks the adversarial config has at least one pack and that the
-// on_unsafe_outcome policy is one of the supported values.
+// on_unsafe_outcome policy is one of the supported values. Pack names are
+// normalized in-place (whitespace trimmed) so downstream lookups see the
+// canonical form regardless of YAML formatting.
 func (a *AdversarialConfig) Validate() error {
 	if a == nil {
 		return nil
@@ -154,6 +158,7 @@ func (a *AdversarialConfig) Validate() error {
 			return fmt.Errorf("adversarial.packs[%d] %q is duplicated", i, p)
 		}
 		seen[p] = true
+		a.Packs[i] = p
 	}
 	switch a.OnUnsafeOutcome {
 	case "", AdversarialOnUnsafeOutcomeFail, AdversarialOnUnsafeOutcomeWarn:
