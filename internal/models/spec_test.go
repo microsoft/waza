@@ -123,7 +123,8 @@ config:
 func TestLoadEvalSpec_MCPMocksRequireSchemaVersion11(t *testing.T) {
 	tempDir := t.TempDir()
 	specPath := filepath.Join(tempDir, "spec.yaml")
-	specYAML := `name: mcp-mocks
+	specYAML := `schemaVersion: "1.0"
+name: mcp-mocks
 skill: test-skill
 config:
   trials_per_task: 1
@@ -152,7 +153,7 @@ metrics:
 		t.Fatalf("expected schemaVersion 1.1 error, got %v", err)
 	}
 
-	specYAML = "schemaVersion: \"1.1\"\n" + specYAML
+	specYAML = strings.Replace(specYAML, `schemaVersion: "1.0"`, `schemaVersion: "1.1"`, 1)
 	if err := os.WriteFile(specPath, []byte(specYAML), 0644); err != nil {
 		t.Fatalf("Failed to write spec file: %v", err)
 	}
