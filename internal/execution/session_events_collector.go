@@ -6,7 +6,7 @@ import (
 	"sync"
 
 	copilot "github.com/github/copilot-sdk/go"
-	"github.com/microsoft/waza/internal/copilotevents"
+	"github.com/microsoft/waza/internal/agentevents"
 	"github.com/microsoft/waza/internal/models"
 )
 
@@ -16,7 +16,7 @@ type SessionEventsCollector struct {
 	// SkillInvocations is a chronological list of skills invoked during the session
 	SkillInvocations []SkillInvocation
 
-	sessionEvents  []copilot.SessionEvent
+	sessionEvents  []agentevents.Event
 	outputParts    []string
 	errorMsg       string
 	done           chan struct{}
@@ -35,8 +35,10 @@ func NewSessionEventsCollector() *SessionEventsCollector {
 	}
 }
 
-// SessionEvents returns the collected session events.
-func (coll *SessionEventsCollector) SessionEvents() []copilot.SessionEvent {
+// SessionEvents returns the collected session events in their neutral form.
+// SDK events received via On() are converted to agentevents.Event at the
+// boundary, so consumers never see provider-specific event types.
+func (coll *SessionEventsCollector) SessionEvents() []agentevents.Event {
 	return coll.sessionEvents
 }
 
@@ -74,7 +76,9 @@ func (coll *SessionEventsCollector) SetOnSkillInvoked(fn func(SkillInvocation)) 
 }
 
 // On is a callback, intended to be passed to [copilot.Session.On] to receive
-// events in real-time.
+// events in real-time. The SDK signature requires copilot.SessionEvent on this
+// boundary; internally we immediately convert to the neutral agentevents.Event
+// representation used throughout the rest of waza.
 func (coll *SessionEventsCollector) On(event copilot.SessionEvent) {
 	// Signal first contact before anything else: ANY event proves the engine is
 	// alive and has begun the turn, which disarms the first-event watchdog. We
@@ -83,16 +87,17 @@ func (coll *SessionEventsCollector) On(event copilot.SessionEvent) {
 	// a true session-start hang emits no events at all.
 	coll.firstEventOnce.Do(func() { close(coll.firstEvent) })
 
-	switch event.Type() {
-	case copilot.SessionEventTypeAssistantMessage:
-		if content, ok := copilotevents.Content(event); ok {
+	neutral := FromCopilotEvent(event)
+
+	switch neutral.Type() {
+	case agentevents.EventTypeAssistantMessage:
+		if content, ok := agentevents.Content(neutral); ok {
 			coll.outputParts = append(coll.outputParts, content)
 		}
 
-	case copilot.SessionEventTypeSkillInvoked:
+	case agentevents.EventTypeSkillInvoked:
 		si := SkillInvocation{}
-		// these and Content (the text of the relevant SKILL.md) are the only consistently populated fields
-		if data, ok := copilotevents.SkillInvoked(event); ok {
+		if data, ok := agentevents.SkillInvoked(neutral); ok {
 			si.Name = data.Name
 			si.Path = data.Path
 		}
@@ -109,8 +114,8 @@ func (coll *SessionEventsCollector) On(event copilot.SessionEvent) {
 			}
 		}
 
-	case copilot.SessionEventTypeToolExecutionStart:
-		if data, ok := copilotevents.ToolStart(event); ok && data.ToolName == "report_intent" {
+	case agentevents.EventTypeToolExecutionStart:
+		if data, ok := agentevents.ToolStart(neutral); ok && data.ToolName == "report_intent" {
 			// report_intent always seems to be followed by the actual tool invocation,
 			// so I'm just going to skip these to save a little space.
 			if data.ToolCallID != "" {
@@ -118,21 +123,21 @@ func (coll *SessionEventsCollector) On(event copilot.SessionEvent) {
 			}
 			return
 		}
-	case copilot.SessionEventTypeToolExecutionProgress,
-		copilot.SessionEventTypeToolUserRequested:
-		if toolCallID, ok := copilotevents.ToolCallID(event); ok && coll.intentToolIDs[toolCallID] {
+	case agentevents.EventTypeToolExecutionProgress,
+		agentevents.EventTypeToolUserRequested:
+		if toolCallID, ok := agentevents.ToolCallID(neutral); ok && coll.intentToolIDs[toolCallID] {
 			return
 		}
 
-	case copilot.SessionEventTypeToolExecutionComplete, copilot.SessionEventTypeToolExecutionPartialResult:
-		if toolCallID, ok := copilotevents.ToolCallID(event); ok && coll.intentToolIDs[toolCallID] {
+	case agentevents.EventTypeToolExecutionComplete, agentevents.EventTypeToolExecutionPartialResult:
+		if toolCallID, ok := agentevents.ToolCallID(neutral); ok && coll.intentToolIDs[toolCallID] {
 			delete(coll.intentToolIDs, toolCallID)
 			return
 		}
 	// these are both termination events
-	case copilot.SessionEventTypeSessionIdle, copilot.SessionEventTypeSessionError:
-		if event.Type() == copilot.SessionEventTypeSessionError {
-			if message, ok := copilotevents.Message(event); !ok || message == "" {
+	case agentevents.EventTypeSessionIdle, agentevents.EventTypeSessionError:
+		if neutral.Type() == agentevents.EventTypeSessionError {
+			if message, ok := agentevents.Message(neutral); !ok || message == "" {
 				coll.errorMsg = sessionFailedUnknown
 			} else {
 				coll.errorMsg = message
@@ -146,7 +151,7 @@ func (coll *SessionEventsCollector) On(event copilot.SessionEvent) {
 		}
 	}
 
-	coll.sessionEvents = append(coll.sessionEvents, event)
+	coll.sessionEvents = append(coll.sessionEvents, neutral)
 }
 
 // ToolCalls goes through the list of session events and correlates tool starts

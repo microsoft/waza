@@ -6,10 +6,14 @@ import (
 
 	copilot "github.com/github/copilot-sdk/go"
 	"github.com/go-viper/mapstructure/v2"
-	"github.com/microsoft/waza/internal/copilotevents"
+	"github.com/microsoft/waza/internal/agentevents"
 )
 
-// ToolCall represents a tool invocation
+// ToolCall represents a tool invocation.
+//
+// Phase 1 residual SDK coupling (issue #10): Result intentionally keeps the
+// SDK type so transcript and dashboard JSON output remains unchanged. A
+// neutral result type is tracked as Phase 2 work.
 type ToolCall struct {
 	// ID is the engine-assigned identifier for this call (e.g. the
 	// Copilot SDK's ToolCallID). Used to correlate tool invocations in
@@ -34,14 +38,20 @@ type ToolCallArgs struct {
 	Skill string `json:"skill" mapstructure:"skill"`
 }
 
+// TranscriptEvent wraps a neutral agent event with custom JSON marshaling that
+// preserves the transcript wire format used by dashboards and CI consumers.
+//
+// The embedded field is named `Event` so call sites construct events with
+// `TranscriptEvent{Event: ev}` and reach the underlying type via `te.Type()`
+// and `te.Data` via field promotion.
 type TranscriptEvent struct {
-	copilot.SessionEvent `json:"-"`
+	agentevents.Event `json:"-"`
 }
 
 func (te TranscriptEvent) MarshalJSON() ([]byte, error) {
 	v := struct {
-		Content *string                  `json:"content,omitempty"`
-		Type    copilot.SessionEventType `json:"type"`
+		Content *string               `json:"content,omitempty"`
+		Type    agentevents.EventType `json:"type"`
 
 		Message *string `json:"message,omitempty"`
 
@@ -55,23 +65,23 @@ func (te TranscriptEvent) MarshalJSON() ([]byte, error) {
 		Type: te.Type(),
 	}
 
-	if content, ok := copilotevents.Content(te.SessionEvent); ok {
+	if content, ok := agentevents.Content(te.Event); ok {
 		v.Content = &content
 	}
-	if message, ok := copilotevents.Message(te.SessionEvent); ok {
+	if message, ok := agentevents.Message(te.Event); ok {
 		v.Message = &message
 	}
-	if start, ok := copilotevents.ToolStart(te.SessionEvent); ok {
+	if start, ok := agentevents.ToolStart(te.Event); ok {
 		v.ToolCallID = &start.ToolCallID
 		v.ToolName = &start.ToolName
 		v.Arguments = start.Arguments
 	}
-	if complete, ok := copilotevents.ToolComplete(te.SessionEvent); ok {
+	if complete, ok := agentevents.ToolComplete(te.Event); ok {
 		v.ToolCallID = &complete.ToolCallID
 		v.ToolResult = complete.Result
 		v.Success = &complete.Success
 	}
-	if partial, ok := copilotevents.ToolPartial(te.SessionEvent); ok {
+	if partial, ok := agentevents.ToolPartial(te.Event); ok {
 		v.ToolCallID = &partial.ToolCallID
 	}
 
@@ -81,7 +91,7 @@ func (te TranscriptEvent) MarshalJSON() ([]byte, error) {
 func (te *TranscriptEvent) UnmarshalJSON(data []byte) error {
 	var v struct {
 		Content    *string                              `json:"content,omitempty"`
-		Type       copilot.SessionEventType             `json:"type"`
+		Type       agentevents.EventType                `json:"type"`
 		Message    *string                              `json:"message,omitempty"`
 		Arguments  any                                  `json:"arguments,omitempty"`
 		Success    *bool                                `json:"success,omitempty"`
@@ -94,13 +104,15 @@ func (te *TranscriptEvent) UnmarshalJSON(data []byte) error {
 		return err
 	}
 
-	te.Data = transcriptData(v.Type, v.Content, v.Message, v.ToolCallID, v.ToolName, v.Arguments, v.ToolResult, v.Success)
+	te.Event = agentevents.Event{
+		Data: transcriptData(v.Type, v.Content, v.Message, v.ToolCallID, v.ToolName, v.Arguments, v.ToolResult, v.Success),
+	}
 
 	return nil
 }
 
 func transcriptData(
-	eventType copilot.SessionEventType,
+	eventType agentevents.EventType,
 	content *string,
 	message *string,
 	toolCallID *string,
@@ -108,32 +120,32 @@ func transcriptData(
 	arguments any,
 	toolResult *copilot.ToolExecutionCompleteResult,
 	success *bool,
-) copilot.SessionEventData {
+) agentevents.EventData {
 	switch eventType {
-	case copilot.SessionEventTypeUserMessage:
-		return &copilot.UserMessageData{Content: derefString(content)}
-	case copilot.SessionEventTypeAssistantMessage:
-		return &copilot.AssistantMessageData{Content: derefString(content)}
-	case copilot.SessionEventTypeAssistantMessageDelta:
-		return &copilot.AssistantMessageDeltaData{DeltaContent: derefString(content)}
-	case copilot.SessionEventTypeToolExecutionStart:
-		return &copilot.ToolExecutionStartData{
+	case agentevents.EventTypeUserMessage:
+		return &agentevents.UserMessageData{Content: derefString(content)}
+	case agentevents.EventTypeAssistantMessage:
+		return &agentevents.AssistantMessageData{Content: derefString(content)}
+	case agentevents.EventTypeAssistantMessageDelta:
+		return &agentevents.AssistantMessageDeltaData{DeltaContent: derefString(content)}
+	case agentevents.EventTypeToolExecutionStart:
+		return &agentevents.ToolExecutionStartData{
 			Arguments:  arguments,
 			ToolCallID: derefString(toolCallID),
 			ToolName:   derefString(toolName),
 		}
-	case copilot.SessionEventTypeToolExecutionComplete:
-		return &copilot.ToolExecutionCompleteData{
+	case agentevents.EventTypeToolExecutionComplete:
+		return &agentevents.ToolExecutionCompleteData{
 			Result:     toolResult,
 			Success:    derefBool(success),
 			ToolCallID: derefString(toolCallID),
 		}
-	case copilot.SessionEventTypeToolExecutionPartialResult:
-		return &copilot.ToolExecutionPartialResultData{ToolCallID: derefString(toolCallID)}
-	case copilot.SessionEventTypeSessionError:
-		return &copilot.SessionErrorData{Message: derefString(message)}
+	case agentevents.EventTypeToolExecutionPartialResult:
+		return &agentevents.ToolExecutionPartialResultData{ToolCallID: derefString(toolCallID)}
+	case agentevents.EventTypeSessionError:
+		return &agentevents.SessionErrorData{Message: derefString(message)}
 	default:
-		return copilotevents.RawData(eventType, map[string]any{
+		return agentevents.NewRawData(eventType, map[string]any{
 			"content":      content,
 			"message":      message,
 			"arguments":    arguments,
@@ -156,16 +168,16 @@ func derefBool(value *bool) bool {
 	return value != nil && *value
 }
 
-// FilterToolCalls goes through the list of session events and correlates tool starts
-// with Success.
-func FilterToolCalls(sessionEvents []copilot.SessionEvent) []ToolCall {
+// FilterToolCalls goes through the list of session events and correlates tool
+// starts with their completion Success/Result.
+func FilterToolCalls(sessionEvents []agentevents.Event) []ToolCall {
 	toolCallsMap := map[string]*ToolCall{}
 	var toolCallIDs []string // preserve the start order of the events.
 
 	for _, evt := range sessionEvents {
 		switch evt.Type() {
-		case copilot.SessionEventTypeToolExecutionStart:
-			start, ok := copilotevents.ToolStart(evt)
+		case agentevents.EventTypeToolExecutionStart:
+			start, ok := agentevents.ToolStart(evt)
 			if !ok || start.ToolName == "" || start.ToolCallID == "" {
 				continue
 			}
@@ -181,8 +193,8 @@ func FilterToolCalls(sessionEvents []copilot.SessionEvent) []ToolCall {
 
 			toolCallsMap[start.ToolCallID] = tc
 			toolCallIDs = append(toolCallIDs, start.ToolCallID)
-		case copilot.SessionEventTypeToolExecutionComplete:
-			complete, ok := copilotevents.ToolComplete(evt)
+		case agentevents.EventTypeToolExecutionComplete:
+			complete, ok := agentevents.ToolComplete(evt)
 			if !ok || complete.ToolCallID == "" {
 				continue
 			}

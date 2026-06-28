@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	copilot "github.com/github/copilot-sdk/go"
+	"github.com/microsoft/waza/internal/agentevents"
 	"github.com/microsoft/waza/internal/models"
 )
 
@@ -52,12 +52,12 @@ func Write(dir string, t *models.TaskTranscript) (string, error) {
 	return path, nil
 }
 
-// BuildFromSessionEvents converts a slice of Copilot session events
+// BuildFromSessionEvents converts a slice of neutral agent events
 // into TranscriptEvents.
-func BuildFromSessionEvents(events []copilot.SessionEvent) []models.TranscriptEvent {
+func BuildFromSessionEvents(events []agentevents.Event) []models.TranscriptEvent {
 	entries := make([]models.TranscriptEvent, 0, len(events))
 	for _, evt := range events {
-		entries = append(entries, models.TranscriptEvent{SessionEvent: evt})
+		entries = append(entries, models.TranscriptEvent{Event: evt})
 	}
 	return entries
 }

@@ -3,7 +3,7 @@ package execution
 import (
 	"testing"
 
-	copilot "github.com/github/copilot-sdk/go"
+	"github.com/microsoft/waza/internal/agentevents"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -13,11 +13,11 @@ func TestExecutionResponse_ExtractMessages(t *testing.T) {
 	ignoredDelta := "delta"
 
 	resp := &ExecutionResponse{
-		Events: []copilot.SessionEvent{
-			{Data: &copilot.AssistantMessageData{Content: hello}},
-			{Data: &copilot.AssistantMessageData{}},
-			{Data: &copilot.AssistantMessageDeltaData{DeltaContent: ignoredDelta}},
-			{Data: &copilot.AssistantMessageData{Content: world}},
+		Events: []agentevents.Event{
+			{Data: &agentevents.AssistantMessageData{Content: hello}},
+			{Data: &agentevents.AssistantMessageData{}},
+			{Data: &agentevents.AssistantMessageDeltaData{DeltaContent: ignoredDelta}},
+			{Data: &agentevents.AssistantMessageData{Content: world}},
 		},
 	}
 

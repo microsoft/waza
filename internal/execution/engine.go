@@ -8,7 +8,7 @@ import (
 	"time"
 
 	copilot "github.com/github/copilot-sdk/go"
-	"github.com/microsoft/waza/internal/copilotevents"
+	"github.com/microsoft/waza/internal/agentevents"
 	"github.com/microsoft/waza/internal/models"
 )
 
@@ -132,7 +132,7 @@ type SkillInvocation struct {
 // ExecutionResponse represents the result of an execution
 type ExecutionResponse struct {
 	FinalOutput      string
-	Events           []copilot.SessionEvent
+	Events           []agentevents.Event
 	ModelID          string
 	SkillInvocations []SkillInvocation
 	DurationMs       int64
@@ -149,8 +149,8 @@ type ExecutionResponse struct {
 func (r *ExecutionResponse) ExtractMessages() []string {
 	var messages []string
 	for _, evt := range r.Events {
-		if evt.Type() == copilot.SessionEventTypeAssistantMessage {
-			if content, ok := copilotevents.Content(evt); ok && content != "" {
+		if evt.Type() == agentevents.EventTypeAssistantMessage {
+			if content, ok := agentevents.Content(evt); ok && content != "" {
 				messages = append(messages, content)
 			}
 		}

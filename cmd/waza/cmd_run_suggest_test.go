@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	copilot "github.com/github/copilot-sdk/go"
+	"github.com/microsoft/waza/internal/agentevents"
 	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/stretchr/testify/assert"
@@ -92,19 +93,19 @@ func TestBuildNoSuggestionsError_IncludesSessionTranscript(t *testing.T) {
 	toolResultText := "matched 1 file"
 
 	err := buildNoSuggestionsError(&execution.ExecutionResponse{
-		Events: []copilot.SessionEvent{
+		Events: []agentevents.Event{
 			{
-				Data: &copilot.AssistantMessageData{Content: msg},
+				Data: &agentevents.AssistantMessageData{Content: msg},
 			},
 			{
-				Data: &copilot.ToolExecutionStartData{
+				Data: &agentevents.ToolExecutionStartData{
 					ToolName:   toolName,
 					ToolCallID: toolCallID,
 					Arguments:  map[string]any{"pattern": "foo"},
 				},
 			},
 			{
-				Data: &copilot.ToolExecutionCompleteData{
+				Data: &agentevents.ToolExecutionCompleteData{
 					ToolCallID: toolCallID,
 					Success:    succeeded,
 					Result: &copilot.ToolExecutionCompleteResult{
@@ -124,13 +125,13 @@ func TestBuildNoSuggestionsError_IncludesSessionTranscript(t *testing.T) {
 
 func TestBuildNoSuggestionsError_FallsBackToEventTypes(t *testing.T) {
 	err := buildNoSuggestionsError(&execution.ExecutionResponse{
-		Events: []copilot.SessionEvent{
-			{Data: &copilot.SessionIdleData{}},
+		Events: []agentevents.Event{
+			{Data: &agentevents.SessionIdleData{}},
 		},
 	})
 
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "event[1]: "+string(copilot.SessionEventTypeSessionIdle))
+	assert.Contains(t, err.Error(), "event[1]: "+string(agentevents.EventTypeSessionIdle))
 }
 
 func TestBuildNoSuggestionsError_WithNoEvents(t *testing.T) {
@@ -185,13 +186,13 @@ func TestBuildRunSuggestionPrompt_IncludesOnlyFailureEvidence(t *testing.T) {
 					},
 					Transcript: []models.TranscriptEvent{
 						{
-							SessionEvent: copilot.SessionEvent{
-								Data: &copilot.AssistantMessageData{Content: msg},
+							Event: agentevents.Event{
+								Data: &agentevents.AssistantMessageData{Content: msg},
 							},
 						},
 						{
-							SessionEvent: copilot.SessionEvent{
-								Data: &copilot.ToolExecutionStartData{
+							Event: agentevents.Event{
+								Data: &agentevents.ToolExecutionStartData{
 									ToolName:   toolName,
 									ToolCallID: toolCallID,
 									Arguments:  map[string]any{"pattern": "foo"},
@@ -199,8 +200,8 @@ func TestBuildRunSuggestionPrompt_IncludesOnlyFailureEvidence(t *testing.T) {
 							},
 						},
 						{
-							SessionEvent: copilot.SessionEvent{
-								Data: &copilot.ToolExecutionCompleteData{
+							Event: agentevents.Event{
+								Data: &agentevents.ToolExecutionCompleteData{
 									ToolCallID: toolCallID,
 									Success:    succeeded,
 									Result: &copilot.ToolExecutionCompleteResult{
@@ -388,9 +389,9 @@ func TestWriteSuggestionTranscript_WritesFile(t *testing.T) {
 		FinalOutput: "Suggestion report text",
 		Success:     true,
 		DurationMs:  1500,
-		Events: []copilot.SessionEvent{
+		Events: []agentevents.Event{
 			{
-				Data: &copilot.AssistantMessageData{Content: msg},
+				Data: &agentevents.AssistantMessageData{Content: msg},
 			},
 		},
 	}

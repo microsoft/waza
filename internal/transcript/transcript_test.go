@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	copilot "github.com/github/copilot-sdk/go"
+	"github.com/microsoft/waza/internal/agentevents"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/stretchr/testify/require"
 )
@@ -60,13 +60,13 @@ func TestWrite(t *testing.T) {
 		FinalOutput: "This function does X",
 		Transcript: []models.TranscriptEvent{
 			{
-				SessionEvent: copilot.SessionEvent{
-					Data: &copilot.UserMessageData{Content: "Explain this function"},
+				Event: agentevents.Event{
+					Data: &agentevents.UserMessageData{Content: "Explain this function"},
 				},
 			},
 			{
-				SessionEvent: copilot.SessionEvent{
-					Data: &copilot.AssistantMessageData{Content: "This function does X"},
+				Event: agentevents.Event{
+					Data: &agentevents.AssistantMessageData{Content: "This function does X"},
 				},
 			},
 		},
@@ -175,8 +175,8 @@ func TestBuildTaskTranscript(t *testing.T) {
 				Status:     models.StatusPassed,
 				DurationMs: 500,
 				Transcript: []models.TranscriptEvent{
-					{SessionEvent: copilot.SessionEvent{Data: &copilot.UserMessageData{Content: "Explain this code"}}},
-					{SessionEvent: copilot.SessionEvent{Data: &copilot.AssistantMessageData{Content: "Sure, this code..."}}},
+					{Event: agentevents.Event{Data: &agentevents.UserMessageData{Content: "Explain this code"}}},
+					{Event: agentevents.Event{Data: &agentevents.AssistantMessageData{Content: "Sure, this code..."}}},
 				},
 				Validations: map[string]models.GraderResults{
 					"check": {Name: "check", Score: 1.0, Passed: true},

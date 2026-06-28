@@ -12,6 +12,7 @@ import (
 	"time"
 
 	copilot "github.com/github/copilot-sdk/go"
+	"github.com/microsoft/waza/internal/agentevents"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/statistics"
 )
@@ -237,8 +238,8 @@ func TestOutcomeToDetailMapsStatsTranscriptAndDigest(t *testing.T) {
 						},
 						Transcript: []models.TranscriptEvent{
 							{
-								SessionEvent: copilot.SessionEvent{
-									Data: &copilot.ToolExecutionCompleteData{
+								Event: agentevents.Event{
+									Data: &agentevents.ToolExecutionCompleteData{
 										ToolCallID: toolCallID,
 										Result: &copilot.ToolExecutionCompleteResult{
 											Content: "hi",

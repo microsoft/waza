@@ -1868,7 +1868,7 @@ func (r *EvalRunner) buildGraderContext(tc *models.TestCase, resp *execution.Exe
 	// Convert events to transcript entries
 	var transcript []models.TranscriptEvent
 	for _, evt := range resp.Events {
-		entry := models.TranscriptEvent{SessionEvent: evt}
+		entry := models.TranscriptEvent{Event: evt}
 		transcript = append(transcript, entry)
 	}
 

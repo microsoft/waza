@@ -13,9 +13,8 @@ import (
 	"strings"
 	"time"
 
-	copilot "github.com/github/copilot-sdk/go"
 	waza "github.com/microsoft/waza"
-	"github.com/microsoft/waza/internal/copilotevents"
+	"github.com/microsoft/waza/internal/agentevents"
 	"github.com/microsoft/waza/internal/dataset"
 	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/models"
@@ -113,7 +112,7 @@ func buildNoSuggestionsError(res *execution.ExecutionResponse) error {
 	return fmt.Errorf("no suggestions from Copilot. Session transcript:\n- %s", strings.Join(trace, "\n- "))
 }
 
-func summarizeSessionEventTypes(events []copilot.SessionEvent) []string {
+func summarizeSessionEventTypes(events []agentevents.Event) []string {
 	if len(events) == 0 {
 		return nil
 	}
@@ -628,8 +627,8 @@ func extractCopilotTrace(transcript []models.TranscriptEvent) []string {
 	toolNames := map[string]string{}
 	for _, evt := range transcript {
 		switch evt.Type() {
-		case copilot.SessionEventTypeAssistantMessage:
-			content, ok := copilotevents.Content(evt.SessionEvent)
+		case agentevents.EventTypeAssistantMessage:
+			content, ok := agentevents.Content(evt.Event)
 			if !ok {
 				continue
 			}
@@ -638,8 +637,8 @@ func extractCopilotTrace(transcript []models.TranscriptEvent) []string {
 				continue
 			}
 			lines = append(lines, "agent: "+truncateForPrompt(msg, maxSuggestionTraceEntryLen))
-		case copilot.SessionEventTypeSkillInvoked:
-			if skill, ok := copilotevents.SkillInvoked(evt.SessionEvent); ok {
+		case agentevents.EventTypeSkillInvoked:
+			if skill, ok := agentevents.SkillInvoked(evt.Event); ok {
 				msg := compactWhitespace(skill.Name)
 				if msg == "" {
 					msg = compactWhitespace(skill.Path)
@@ -648,8 +647,8 @@ func extractCopilotTrace(transcript []models.TranscriptEvent) []string {
 					lines = append(lines, "skill invoked: "+truncateForPrompt(msg, maxSuggestionTraceEntryLen))
 				}
 			}
-		case copilot.SessionEventTypeToolExecutionStart:
-			start, ok := copilotevents.ToolStart(evt.SessionEvent)
+		case agentevents.EventTypeToolExecutionStart:
+			start, ok := agentevents.ToolStart(evt.Event)
 			if !ok {
 				continue
 			}
@@ -666,8 +665,8 @@ func extractCopilotTrace(transcript []models.TranscriptEvent) []string {
 				continue
 			}
 			lines = append(lines, fmt.Sprintf("tool start: %s args=%s", name, args))
-		case copilot.SessionEventTypeToolExecutionComplete:
-			complete, ok := copilotevents.ToolComplete(evt.SessionEvent)
+		case agentevents.EventTypeToolExecutionComplete:
+			complete, ok := agentevents.ToolComplete(evt.Event)
 			if !ok {
 				continue
 			}
@@ -680,8 +679,8 @@ func extractCopilotTrace(transcript []models.TranscriptEvent) []string {
 				parts = append(parts, "result="+result)
 			}
 			lines = append(lines, strings.Join(parts, " "))
-		case copilot.SessionEventTypeToolExecutionPartialResult:
-			partial, ok := copilotevents.ToolPartial(evt.SessionEvent)
+		case agentevents.EventTypeToolExecutionPartialResult:
+			partial, ok := agentevents.ToolPartial(evt.Event)
 			if !ok {
 				continue
 			}
@@ -690,8 +689,8 @@ func extractCopilotTrace(transcript []models.TranscriptEvent) []string {
 				continue
 			}
 			lines = append(lines, "tool partial result: "+truncateForPrompt(output, maxSuggestionTraceEntryLen))
-		case copilot.SessionEventTypeToolUserRequested:
-			request, ok := copilotevents.ToolUserRequested(evt.SessionEvent)
+		case agentevents.EventTypeToolUserRequested:
+			request, ok := agentevents.ToolUserRequested(evt.Event)
 			if !ok {
 				continue
 			}

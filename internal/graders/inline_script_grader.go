@@ -13,7 +13,7 @@ import (
 
 	_ "embed"
 
-	copilot "github.com/github/copilot-sdk/go"
+	"github.com/microsoft/waza/internal/agentevents"
 	"github.com/microsoft/waza/internal/models"
 )
 
@@ -191,10 +191,10 @@ func (isg *InlineScriptGrader) runScript(ctx context.Context, gradingContext *Co
 }
 
 func getStdinTextForScript(gradingContext *Context, assertions []string) ([]byte, error) {
-	var sessionEvents []copilot.SessionEvent
+	var events []agentevents.Event
 
 	for _, te := range gradingContext.Transcript {
-		sessionEvents = append(sessionEvents, te.SessionEvent)
+		events = append(events, te.Event)
 	}
 
 	outcome := gradingContext.Outcome
@@ -209,7 +209,7 @@ func getStdinTextForScript(gradingContext *Context, assertions []string) ([]byte
 		transcriptEvents = []models.TranscriptEvent{}
 	}
 
-	toolCalls := models.FilterToolCalls(sessionEvents)
+	toolCalls := models.FilterToolCalls(events)
 
 	if toolCalls == nil {
 		toolCalls = []models.ToolCall{}

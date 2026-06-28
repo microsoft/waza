@@ -9,7 +9,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/microsoft/waza/internal/copilotevents"
+	"github.com/microsoft/waza/internal/agentevents"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/pricing"
 )
@@ -338,23 +338,23 @@ func mapTranscriptEvents(events []models.TranscriptEvent) []TranscriptEventRespo
 		r := TranscriptEventResponse{
 			Type: string(e.Type()),
 		}
-		if content, ok := copilotevents.Content(e.SessionEvent); ok {
+		if content, ok := agentevents.Content(e.Event); ok {
 			r.Content = content
 		}
-		if message, ok := copilotevents.Message(e.SessionEvent); ok {
+		if message, ok := agentevents.Message(e.Event); ok {
 			r.Message = message
 		}
-		if start, ok := copilotevents.ToolStart(e.SessionEvent); ok {
+		if start, ok := agentevents.ToolStart(e.Event); ok {
 			r.ToolCallID = start.ToolCallID
 			r.ToolName = start.ToolName
 			r.Arguments = start.Arguments
 		}
-		if complete, ok := copilotevents.ToolComplete(e.SessionEvent); ok {
+		if complete, ok := agentevents.ToolComplete(e.Event); ok {
 			r.ToolCallID = complete.ToolCallID
 			r.Success = &complete.Success
 			r.ToolResult = complete.Result
 		}
-		if partial, ok := copilotevents.ToolPartial(e.SessionEvent); ok {
+		if partial, ok := agentevents.ToolPartial(e.Event); ok {
 			r.ToolCallID = partial.ToolCallID
 			r.Message = partial.PartialOutput
 		}

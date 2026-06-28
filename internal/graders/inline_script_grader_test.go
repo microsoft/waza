@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	copilot "github.com/github/copilot-sdk/go"
+	"github.com/microsoft/waza/internal/agentevents"
 	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/stretchr/testify/require"
@@ -298,7 +299,7 @@ func TestUnsupportedLanguage(t *testing.T) {
 	require.Contains(t, err.Error(), "language 'ruby' is not yet supported")
 }
 
-func loadSampleEvents(t *testing.T) []copilot.SessionEvent {
+func loadSampleEvents(t *testing.T) []agentevents.Event {
 	reader, err := os.Open(filepath.Join("..", "testdata", "copilot_events_using_skill.json"))
 	require.NoError(t, err)
 
@@ -325,11 +326,11 @@ func loadSampleEvents(t *testing.T) []copilot.SessionEvent {
 	return sessionEventCollector.SessionEvents()
 }
 
-func convertToTranscriptEvents(sessionEvents []copilot.SessionEvent) []models.TranscriptEvent {
+func convertToTranscriptEvents(sessionEvents []agentevents.Event) []models.TranscriptEvent {
 	var transcript []models.TranscriptEvent
 
 	for _, evt := range sessionEvents {
-		transcript = append(transcript, models.TranscriptEvent{SessionEvent: evt})
+		transcript = append(transcript, models.TranscriptEvent{Event: evt})
 	}
 
 	return transcript
