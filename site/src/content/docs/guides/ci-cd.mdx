@@ -222,6 +222,19 @@ Use `waza tokens compare` to track token usage across PRs and fail if budgets ar
 
 This compares token counts between your main branch and current branch. Exit code is non-zero if any limit is exceeded with `--strict`.
 
+### Spec Coverage Checks
+
+Use `waza spec verify` to ensure eval tasks cover the `SKILL.md` description, `USE FOR` triggers, `DO NOT USE FOR` triggers, and parameter blocks. `--format github-actions` emits annotations on uncovered requirements, and `--fail` exits non-zero when uncovered requirements meet the threshold.
+
+```yaml
+- name: Verify SKILL.md eval coverage
+  run: |
+    waza spec verify skills/my-skill evals/my-skill/eval.yaml \
+      --fail \
+      --threshold 1 \
+      --format github-actions
+```
+
 ### Smart Path Filtering
 
 Run evaluations only when relevant files change:

@@ -130,6 +130,10 @@ waza check skills/my-skill
 waza suggest skills/my-skill --dry-run
 waza suggest skills/my-skill --apply
 
+# Verify eval coverage against SKILL.md requirements
+waza spec verify skills/my-skill evals/my-skill/eval.yaml
+waza spec verify skills/my-skill evals/my-skill/eval.yaml --fail --format github-actions
+
 # Note: 'generate' is available as an alias for 'new' (see below for new command)
 # Note: Custom agents (.agent.md) are supported — see https://microsoft.github.io/waza/guides/custom-agents/
 
@@ -415,6 +419,28 @@ Generate a skill-to-eval coverage grid showing which skills are fully covered, p
 |------|-------|-------------|
 | `--format <fmt>` | `-f` | Output format: `text`, `markdown`, or `json` (default: `text`) |
 | `--path <dir>` | | Additional directory to scan for skills/evals (repeatable) |
+
+### `waza spec verify [skill-path] [eval.yaml]`
+
+Verify that an eval suite exercises the promises made in `SKILL.md`. The command deterministically parses the description, `USE FOR` triggers, `DO NOT USE FOR` triggers, and parameter blocks into requirement IDs such as `req-use-001` and `req-dont-001`, then maps each requirement to matching task IDs.
+
+| Flag | Description |
+|------|-------------|
+| `--skill <path>` | Path to `SKILL.md` or a skill directory |
+| `--eval <path>` | Path to `eval.yaml` |
+| `--format <fmt>` | Output format: `human`, `json`, or `github-actions` |
+| `--warn` | Report uncovered requirements and exit 0 (default) |
+| `--fail` | Exit 1 when uncovered requirements are greater than or equal to `--threshold` |
+| `--threshold <n>` | Uncovered requirement threshold for `--fail` (default: 1) |
+| `--semantic` | Opt in to LLM-assisted semantic matching after deterministic matching |
+| `--judge-model <model>` | Judge model for `--semantic` (defaults to `config.judge_model`, then `config.model`) |
+
+**Example:**
+
+```bash
+waza spec verify skills/pr-summarizer evals/pr-summarizer/eval.yaml
+waza spec verify --skill skills/pr-summarizer --eval evals/pr-summarizer/eval.yaml --format json
+```
 
 ### `waza models`
 

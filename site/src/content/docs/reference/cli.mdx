@@ -479,6 +479,51 @@ waza gate --baseline baseline.json --current results.json \
 
 See the [CI/CD guide](/guides/ci-cd/#regression-gates-with-waza-gate) for full GitHub Actions and Azure DevOps snippets.
 
+## waza spec verify
+
+Verify that `eval.yaml` covers the executable contract in `SKILL.md`.
+
+```bash
+waza spec verify [skill-path] [eval.yaml]
+```
+
+The command parses the skill description, `USE FOR` triggers, `DO NOT USE FOR` triggers, and parameter blocks into deterministic requirement IDs with source spans. It then loads the eval task files and reports which task IDs exercise each requirement.
+
+### Arguments
+
+| Argument | Description |
+|----------|-------------|
+| `[skill-path]` | Path to `SKILL.md` or a skill directory |
+| `[eval.yaml]` | Path to the eval spec |
+
+### Flags
+
+| Flag | Description |
+|------|-------------|
+| `--skill` | Path to `SKILL.md` or a skill directory |
+| `--eval` | Path to `eval.yaml` |
+| `--format` | Output format: `human` (default), `json`, `github-actions` |
+| `--warn` | Report uncovered requirements and exit 0 (default) |
+| `--fail` | Exit 1 when uncovered requirements are greater than or equal to `--threshold` |
+| `--threshold` | Uncovered requirement count threshold for `--fail` (default: `1`) |
+| `--semantic` | Opt in to LLM-assisted semantic matching after deterministic matching |
+| `--judge-model` | Judge model for `--semantic` (defaults to `config.judge_model`, then `config.model`) |
+
+### Examples
+
+```bash
+# Human-readable report
+waza spec verify skills/pr-summarizer evals/pr-summarizer/eval.yaml
+
+# Machine-readable report
+waza spec verify --skill skills/pr-summarizer --eval evals/pr-summarizer/eval.yaml --format json
+
+# GitHub Actions annotations and non-zero exit on any uncovered requirement
+waza spec verify skills/pr-summarizer evals/pr-summarizer/eval.yaml \
+  --fail \
+  --format github-actions
+```
+
 ## waza coverage
 
 Generate an eval coverage grid for discovered skills and custom agents.

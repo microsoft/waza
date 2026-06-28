@@ -1,0 +1,113 @@
+---
+title: Spec Verification
+description: Verify that eval tasks cover SKILL.md trigger and parameter requirements.
+---
+
+`waza spec verify` checks whether your eval suite exercises the promises made in `SKILL.md`. It is designed for agentic skills where routing quality depends on clear `USE FOR` and `DO NOT USE FOR` boundaries.
+
+## What gets verified
+
+The command parses `SKILL.md` deterministically and emits requirement IDs with source spans:
+
+| Requirement kind | Example ID | Source |
+|------------------|------------|--------|
+| Description | `req-description-001` | `description:` frontmatter |
+| Positive trigger | `req-use-001` | `USE FOR:` phrase |
+| Negative trigger | `req-dont-001` | `DO NOT USE FOR:` phrase |
+| Parameter | `req-param-001` | `parameters`, `inputs`, or `arguments` block |
+
+Deterministic matching runs first. Semantic matching is opt-in with `--semantic` and uses the configured judge model (`--judge-model`, `config.judge_model`, then `config.model`).
+
+## Worked example
+
+Given this skill description:
+
+```markdown
+---
+name: pr-summarizer
+description: |
+  Summarize PR diffs.
+  USE FOR: summarize a PR diff, summarize PR discussion.
+  DO NOT USE FOR: code review security PRs.
+---
+
+## Parameters
+- repository: GitHub repository URL
+- pr_number: Pull request number
+```
+
+And an eval with one positive and one negative task:
+
+```yaml
+tasks:
+  - tasks/*.yaml
+```
+
+```yaml
+# tasks/pr-summary-basic.yaml
+id: pr-summary-basic
+name: PR summary basic
+inputs:
+  prompt: Please summarize this PR diff for repository microsoft/waza.
+expected:
+  should_trigger: true
+```
+
+```yaml
+# tasks/security-review-negative.yaml
+id: security-review-negative
+name: Security review negative trigger
+inputs:
+  prompt: Please do code review security PRs.
+expected:
+  should_trigger: false
+```
+
+Run:
+
+```bash
+waza spec verify skills/pr-summarizer evals/pr-summarizer/eval.yaml
+```
+
+Example output:
+
+```text
+Spec Verification
+Coverage: 4/5 requirements covered (1 uncovered)
+
+✓ req-use-001  "summarize a PR diff"  → covered by tasks: [pr-summary-basic]
+✓ req-dont-001  "code review security PRs"  → covered by tasks: [security-review-negative]
+✗ req-use-002  "summarize PR discussion"  → no task exercises this
+```
+
+Add a task for `req-use-002`, or use `--semantic` if the task covers the requirement without sharing obvious keywords.
+
+## CI snippet
+
+Use `--format github-actions` to emit annotations on uncovered requirements. Add `--fail` to make uncovered requirements gate the workflow.
+
+```yaml
+name: Verify Skill Spec Coverage
+
+on:
+  pull_request:
+    paths:
+      - 'skills/**'
+      - 'evals/**'
+
+jobs:
+  spec-verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install waza
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/microsoft/waza/main/install.sh | bash
+          echo "$HOME/bin" >> "$GITHUB_PATH"
+      - name: Verify SKILL.md coverage
+        run: |
+          waza spec verify skills/pr-summarizer evals/pr-summarizer/eval.yaml \
+            --fail \
+            --threshold 1 \
+            --format github-actions
+```

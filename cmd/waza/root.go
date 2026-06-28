@@ -69,6 +69,7 @@ performance against predefined test cases.`,
 	cmd.AddCommand(newModelsCommand())
 	cmd.AddCommand(newQualityCommand())
 	cmd.AddCommand(newUpdateCommand())
+	cmd.AddCommand(newSpecCommand())
 
 	return cmd
 }
