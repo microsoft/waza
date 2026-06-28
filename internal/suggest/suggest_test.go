@@ -361,7 +361,7 @@ metrics:
 tasks:
   - "tasks/*.yaml"`,
 		Tasks: []GeneratedFile{
-			{Path: "tasks/basic.yaml", Content: "id: basic-001\nname: Basic\ninputs:\n  prompt: \"hello\""},
+			{Path: "tasks/basic.yaml", Content: "id: basic-001\nname: Basic\ninputs:\n  prompt: \"hello\"", Confidence: 0.8, Rationale: "matches USE FOR"},
 		},
 		Fixtures: []GeneratedFile{
 			{Path: "fixtures/sample.txt", Content: "sample"},

@@ -462,8 +462,8 @@ waza suggest <skill-path>
 | `--dry-run` | Print suggestions to stdout (default) |
 | `--apply` | Write suggested files to disk |
 | `--force` | Allow `--apply` to overwrite existing eval/task/fixture files (requires `--apply`) |
-| `--count` | Generate exactly N tasks (default: at least 3 diverse + 1 negative) |
-| `--focus` | Steer generation toward one of `triggers`, `negative-triggers`, `edge-fixtures`, `do-not-use-for`, `parameters` |
+| `--count <n>` | Generate exactly N tasks (default: at least 3 diverse + 1 negative) |
+| `--focus <category>` | Steer generation toward one of `triggers`, `negative-triggers`, `edge-fixtures`, `do-not-use-for`, `parameters` |
 | `--output-dir` | Output directory (default: `<skill-path>/evals`) |
 | `--format` | Output format: `yaml` (default), `json` |
 

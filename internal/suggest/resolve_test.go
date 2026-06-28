@@ -158,7 +158,7 @@ func TestWriteToDir_EmptyTaskPath(t *testing.T) {
 	s := &Suggestion{
 		EvalYAML: validEvalYAML(),
 		Tasks: []GeneratedFile{
-			{Path: "", Content: "id: auto\nname: Auto\ninputs:\n  prompt: hi"},
+			{Path: "", Content: "id: auto\nname: Auto\ninputs:\n  prompt: hi", Confidence: 0.8, Rationale: "matches USE FOR"},
 		},
 	}
 
@@ -190,7 +190,7 @@ func TestWriteToDir_AbsolutePathRejected(t *testing.T) {
 	s := &Suggestion{
 		EvalYAML: validEvalYAML(),
 		Tasks: []GeneratedFile{
-			{Path: absPath, Content: "id: x\nname: X\ninputs:\n  prompt: hi"},
+			{Path: absPath, Content: "id: x\nname: X\ninputs:\n  prompt: hi", Confidence: 0.8, Rationale: "matches USE FOR"},
 		},
 	}
 

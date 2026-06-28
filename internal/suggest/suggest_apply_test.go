@@ -17,6 +17,7 @@ func TestValidateFocusAcceptsKnown(t *testing.T) {
 		require.NoError(t, ValidateFocus(f), "expected %s to be accepted", f)
 	}
 	require.NoError(t, ValidateFocus(""), "empty focus should be allowed")
+	require.NoError(t, ValidateFocus(" negative-triggers "), "focus should be normalized before validation")
 }
 
 func TestValidateFocusRejectsUnknown(t *testing.T) {
@@ -70,8 +71,10 @@ func minimalSuggestion() *Suggestion {
 		EvalYAML: validEvalYAML(),
 		Tasks: []GeneratedFile{
 			{
-				Path:    "tasks/task-01.yaml",
-				Content: "id: task-01\nname: Task One\ninputs:\n  prompt: hi\n",
+				Path:       "tasks/task-01.yaml",
+				Content:    "id: task-01\nname: Task One\ninputs:\n  prompt: hi\n",
+				Confidence: 0.8,
+				Rationale:  "matches USE FOR: summarize",
 			},
 		},
 		Fixtures: []GeneratedFile{
@@ -143,7 +146,7 @@ func TestWriteToDirUsesConfiguredEvalAndTaskNames(t *testing.T) {
 	s := &Suggestion{
 		EvalYAML: validEvalYAML(),
 		Tasks: []GeneratedFile{
-			{Content: "id: custom-001\nname: Custom\ninputs:\n  prompt: hi\n"},
+			{Content: "id: custom-001\nname: Custom\ninputs:\n  prompt: hi\n", Confidence: 0.7, Rationale: "matches USE FOR"},
 		},
 	}
 
@@ -218,8 +221,8 @@ func TestWriteToDirRejectsDuplicateIDsWithinBatch(t *testing.T) {
 	s := &Suggestion{
 		EvalYAML: validEvalYAML(),
 		Tasks: []GeneratedFile{
-			{Path: "tasks/a.yaml", Content: "id: dup\nname: A\ninputs:\n  prompt: hi\n"},
-			{Path: "tasks/b.yaml", Content: "id: dup\nname: B\ninputs:\n  prompt: hi\n"},
+			{Path: "tasks/a.yaml", Content: "id: dup\nname: A\ninputs:\n  prompt: hi\n", Confidence: 0.6, Rationale: "matches USE FOR"},
+			{Path: "tasks/b.yaml", Content: "id: dup\nname: B\ninputs:\n  prompt: hi\n", Confidence: 0.6, Rationale: "matches USE FOR"},
 		},
 	}
 	_, err := s.WriteToDir(t.TempDir(), WriteOptions{})
@@ -234,7 +237,7 @@ func TestWriteToDirRejectsTaskMissingID(t *testing.T) {
 		EvalYAML: validEvalYAML(),
 		Tasks: []GeneratedFile{
 			// no id field
-			{Path: "tasks/bad.yaml", Content: "name: Bad\ninputs:\n  prompt: hi\n"},
+			{Path: "tasks/bad.yaml", Content: "name: Bad\ninputs:\n  prompt: hi\n", Confidence: 0.6, Rationale: "matches USE FOR"},
 		},
 	}
 	_, err := s.WriteToDir(t.TempDir(), WriteOptions{})
@@ -246,7 +249,7 @@ func TestWriteToDirRejectsTaskMissingInputs(t *testing.T) {
 	s := &Suggestion{
 		EvalYAML: validEvalYAML(),
 		Tasks: []GeneratedFile{
-			{Path: "tasks/bad.yaml", Content: "id: missing-inputs\nname: Bad\n"},
+			{Path: "tasks/bad.yaml", Content: "id: missing-inputs\nname: Bad\n", Confidence: 0.6, Rationale: "matches USE FOR"},
 		},
 	}
 	_, err := s.WriteToDir(t.TempDir(), WriteOptions{})
@@ -259,9 +262,33 @@ func TestWriteToDirRejectsTaskWithUnknownField(t *testing.T) {
 	s := &Suggestion{
 		EvalYAML: validEvalYAML(),
 		Tasks: []GeneratedFile{
-			{Path: "tasks/bad.yaml", Content: "id: x\nname: X\ninputs:\n  prompt: hi\nconfidence: 0.9\n"},
+			{Path: "tasks/bad.yaml", Content: "id: x\nname: X\ninputs:\n  prompt: hi\nconfidence: 0.9\n", Confidence: 0.6, Rationale: "matches USE FOR"},
 		},
 	}
 	_, err := s.WriteToDir(t.TempDir(), WriteOptions{})
 	require.Error(t, err)
+}
+
+func TestWriteToDirRejectsTaskWithInvalidConfidence(t *testing.T) {
+	s := &Suggestion{
+		EvalYAML: validEvalYAML(),
+		Tasks: []GeneratedFile{
+			{Path: "tasks/bad.yaml", Content: "id: x\nname: X\ninputs:\n  prompt: hi\n", Confidence: 1.2, Rationale: "matches USE FOR"},
+		},
+	}
+	_, err := s.WriteToDir(t.TempDir(), WriteOptions{})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "invalid confidence")
+}
+
+func TestWriteToDirRejectsTaskMissingRationale(t *testing.T) {
+	s := &Suggestion{
+		EvalYAML: validEvalYAML(),
+		Tasks: []GeneratedFile{
+			{Path: "tasks/bad.yaml", Content: "id: x\nname: X\ninputs:\n  prompt: hi\n", Confidence: 0.5},
+		},
+	}
+	_, err := s.WriteToDir(t.TempDir(), WriteOptions{})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "rationale")
 }

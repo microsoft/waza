@@ -92,6 +92,8 @@ func TestSuggestCommand_DryRunYAML(t *testing.T) {
     - "tasks/*.yaml"
 tasks:
   - path: tasks/basic.yaml
+    confidence: 0.8
+    rationale: "matches USE FOR: summarize"
     content: |
       id: basic-001
       name: Basic
@@ -146,6 +148,8 @@ func TestSuggestCommand_PassesCountAndFocusToPrompt(t *testing.T) {
     - "tasks/*.yaml"
 tasks:
   - path: tasks/basic.yaml
+    confidence: 0.8
+    rationale: "matches USE FOR: summarize"
     content: |
       id: basic-001
       name: Basic
@@ -164,7 +168,7 @@ tasks:
 	t.Cleanup(func() { newSuggestEngine = orig })
 
 	cmd := newSuggestCommand()
-	cmd.SetArgs([]string{skillDir, "--count", "5", "--focus", "parameters"})
+	cmd.SetArgs([]string{skillDir, "--count", "5", "--focus", " parameters "})
 
 	require.NoError(t, cmd.Execute())
 	require.Len(t, engine.requests, 2)
@@ -229,6 +233,8 @@ func TestSuggestCommand_ApplyWritesFiles(t *testing.T) {
     - "tasks/*.yaml"
 tasks:
   - path: tasks/basic.yaml
+    confidence: 0.8
+    rationale: "matches USE FOR: summarize"
     content: |
       id: basic-001
       name: Basic
@@ -293,7 +299,9 @@ func TestSuggestCommand_ApplyUsesProjectConfigFileNames(t *testing.T) {
   tasks:
     - "cases/*.waza-task.yaml"
 tasks:
-  - content: |
+  - confidence: 0.8
+    rationale: "matches USE FOR: summarize"
+    content: |
       id: configured-001
       name: Configured
       inputs:

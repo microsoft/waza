@@ -46,7 +46,8 @@ func AvailableFocusCategories() []string {
 
 // ValidateFocus returns nil if focus is empty or a known category.
 func ValidateFocus(focus string) error {
-	if strings.TrimSpace(focus) == "" {
+	focus = strings.TrimSpace(focus)
+	if focus == "" {
 		return nil
 	}
 	for _, c := range AvailableFocusCategories() {
@@ -87,8 +88,8 @@ type WriteOptions struct {
 type GeneratedFile struct {
 	Path       string  `yaml:"path" json:"path"`
 	Content    string  `yaml:"content" json:"content"`
-	Confidence float64 `yaml:"confidence,omitempty" json:"confidence,omitempty"`
-	Rationale  string  `yaml:"rationale,omitempty" json:"rationale,omitempty"`
+	Confidence float64 `yaml:"confidence" json:"confidence"`
+	Rationale  string  `yaml:"rationale" json:"rationale"`
 }
 
 // Suggestion is the structured output returned by the LLM.
@@ -109,6 +110,7 @@ func Generate(ctx context.Context, engine execution.AgentEngine, opts Options) (
 	if err := ValidateFocus(opts.Focus); err != nil {
 		return nil, err
 	}
+	opts.Focus = strings.TrimSpace(opts.Focus)
 	skillFile, err := resolveSkillFile(opts.SkillPath)
 	if err != nil {
 		return nil, err
@@ -333,6 +335,9 @@ func (s *Suggestion) WriteToDir(outputDir string, opts WriteOptions) ([]string, 
 		if err != nil {
 			return nil, err
 		}
+		if err := validateTaskMetadata(path, task); err != nil {
+			return nil, err
+		}
 		body := []byte(strings.TrimSpace(task.Content) + "\n")
 		if errs := validation.ValidateTaskBytes(body); len(errs) > 0 {
 			return nil, fmt.Errorf("generated task %s failed schema validation: %s", path, strings.Join(errs, "; "))
@@ -414,6 +419,16 @@ func (s *Suggestion) WriteToDir(outputDir string, opts WriteOptions) ([]string, 
 	}
 
 	return written, nil
+}
+
+func validateTaskMetadata(path string, task GeneratedFile) error {
+	if task.Confidence < 0 || task.Confidence > 1 {
+		return fmt.Errorf("generated task %s has invalid confidence %.3f: must be between 0 and 1", path, task.Confidence)
+	}
+	if strings.TrimSpace(task.Rationale) == "" {
+		return fmt.Errorf("generated task %s is missing required rationale metadata", path)
+	}
+	return nil
 }
 
 func (opts WriteOptions) withDefaults() WriteOptions {
