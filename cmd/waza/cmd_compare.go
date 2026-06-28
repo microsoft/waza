@@ -249,7 +249,7 @@ func printComparisonTable(r *comparisonReport) {
 		fmt.Printf("  %+.1f%%\n", (r.ToolMetrics[n-1].SelectionAccuracy-r.ToolMetrics[0].SelectionAccuracy)*100)
 
 		for _, bucket := range []string{"0", "1", "2", "3+"} {
-			fmt.Printf("  %-20s", "Runs w/ "+bucket+" calls")
+			fmt.Printf("  %-20s", "Tasks w/ "+bucket+" calls")
 			for _, tm := range r.ToolMetrics {
 				fmt.Printf("  %-9d", tm.CallCountHistogram[bucket])
 			}
@@ -337,18 +337,21 @@ func computeToolMetrics(o *models.EvaluationOutcome) toolMetrics {
 					successThisTask++
 				}
 			}
-			// Per-run histogram bucket: one entry per individual run so retried
-			// trials are counted independently and no truncation is required.
-			switch runCalls {
-			case 0:
-				hist["0"]++
-			case 1:
-				hist["1"]++
-			case 2:
-				hist["2"]++
-			default:
-				hist["3+"]++
-			}
+		}
+		// Per-task histogram bucket: one entry per task (not per run), summing
+		// tool calls across every trial of that task. This keeps the
+		// distribution stable regardless of trials_per_task — a task that
+		// invoked two tools across three retries lands in "2" once, not in
+		// "0"/"1"/"2"/"3+" multiple times.
+		switch callsThisTask {
+		case 0:
+			hist["0"]++
+		case 1:
+			hist["1"]++
+		case 2:
+			hist["2"]++
+		default:
+			hist["3+"]++
 		}
 		if callsThisTask > 0 {
 			tm.TasksWithTools++

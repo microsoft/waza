@@ -32,6 +32,19 @@ type ToolCallArgs struct {
 
 	// filled out for skill invocations
 	Skill string `json:"skill" mapstructure:"skill"`
+
+	// Extra captures any tool-specific argument keys that aren't part of
+	// the fixed fields above (e.g. `query`/`limit` for search tools,
+	// MCP-specific payloads). Populated automatically by mapstructure's
+	// ",remain" support so argument matchers in tool_calls /
+	// tool_constraint graders can see the full argument bag.
+	//
+	// Excluded from JSON marshaling: callers consuming arguments as a
+	// generic map should use graders.normalizeToolCallArgs, which merges
+	// Extra into the known fields. Persisting the raw bag in results.json
+	// happens through RunResult.ToolEvents instead, which preserves the
+	// engine's original argument value verbatim.
+	Extra map[string]any `json:"-" mapstructure:",remain"`
 }
 
 type TranscriptEvent struct {

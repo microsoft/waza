@@ -501,3 +501,110 @@ func TestToolConstraintGrader_InvalidArgMatcher_ConstructError(t *testing.T) {
 	})
 	require.Error(t, err)
 }
+
+// ---------------------------------------------------------------------------
+// Regression tests for review feedback on issue #366.
+// ---------------------------------------------------------------------------
+
+// TestValidateToolSpecs_PersistsCompiledMatcher verifies that validateToolSpecs
+// writes the Compile()-mutated matcher back into spec.Args. Because the map
+// stores Matcher by value (not by pointer), Compile() mutates a local copy of
+// each matcher during iteration; if the caller does not reassign the compiled
+// copy into the map, every subsequent Match() call has to recompile the regex
+// or JSON schema. The fix is `spec.Args[argName] = m` after Compile.
+func TestValidateToolSpecs_PersistsCompiledMatcher(t *testing.T) {
+	regexMatcher := argmatcher.Matcher{Kind: argmatcher.KindRegex, Regex: `^auth`}
+	schemaMatcher := argmatcher.Matcher{
+		Kind:       argmatcher.KindJSONSchema,
+		JSONSchema: map[string]any{"type": "string"},
+	}
+	specs := []models.ToolSpecParameters{{
+		Tool: "search",
+		Args: map[string]argmatcher.Matcher{
+			"query":  regexMatcher,
+			"filter": schemaMatcher,
+		},
+	}}
+
+	normalized, err := validateToolSpecs(specs, "expect_tools")
+	require.NoError(t, err)
+	require.Len(t, normalized, 1)
+
+	for name, m := range normalized[0].Args {
+		require.Truef(t, m.IsCompiled(),
+			"matcher %q: Compile() side-effects were not persisted back into the map", name)
+	}
+
+	// Caller-side invariants should not have been mutated.
+	require.False(t, regexMatcher.IsCompiled(), "input matcher should be unchanged")
+	require.False(t, schemaMatcher.IsCompiled(), "input matcher should be unchanged")
+}
+
+// TestToolConstraintGrader_ExpectTools_MatchesExtraArgs verifies that
+// argument matchers see engine-specific argument keys (e.g. MCP-style
+// `query`/`limit`) that are not part of the fixed ToolCallArgs struct.
+// `ToolCallArgs.Extra` (mapstructure ",remain") captures these so
+// normalizeToolCallArgs can surface them.
+func TestToolConstraintGrader_ExpectTools_MatchesExtraArgs(t *testing.T) {
+	g, err := NewToolConstraintGrader("test", models.ToolConstraintGraderParameters{
+		ExpectTools: []models.ToolSpecParameters{{
+			Tool: "search",
+			Args: map[string]argmatcher.Matcher{
+				"query": {Kind: argmatcher.KindContains, Contains: "auth"},
+				"limit": {
+					Kind:  argmatcher.KindRange,
+					Range: &argmatcher.RangeSpec{GTE: float64Ptr(1), LTE: float64Ptr(10)},
+				},
+			},
+		}},
+	})
+	require.NoError(t, err)
+
+	res, err := g.Grade(context.Background(), &Context{
+		Session: &models.SessionDigest{
+			ToolsUsed: []string{"search"},
+			ToolCalls: []models.ToolCall{
+				{
+					Name: "search",
+					Arguments: models.ToolCallArgs{
+						Extra: map[string]any{
+							"query": "find auth bypass",
+							"limit": 5,
+						},
+					},
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.True(t, res.Passed, "feedback: %s", res.Feedback)
+}
+
+// TestToolConstraintGrader_ExpectTools_MissingExtraArg verifies the inverse:
+// when the call lacks an MCP-style extra arg the matcher expects, the spec
+// does not match (so the grader reports the expected tool as unused).
+func TestToolConstraintGrader_ExpectTools_MissingExtraArg(t *testing.T) {
+	g, err := NewToolConstraintGrader("test", models.ToolConstraintGraderParameters{
+		ExpectTools: []models.ToolSpecParameters{{
+			Tool: "search",
+			Args: map[string]argmatcher.Matcher{
+				"query": {Kind: argmatcher.KindContains, Contains: "auth"},
+			},
+		}},
+	})
+	require.NoError(t, err)
+
+	res, err := g.Grade(context.Background(), &Context{
+		Session: &models.SessionDigest{
+			ToolsUsed: []string{"search"},
+			ToolCalls: []models.ToolCall{
+				// Note: no Extra map → `query` arg absent → spec does not match.
+				{Name: "search", Arguments: models.ToolCallArgs{}},
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.False(t, res.Passed)
+}
+
+func float64Ptr(v float64) *float64 { return &v }

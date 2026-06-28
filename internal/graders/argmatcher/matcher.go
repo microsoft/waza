@@ -227,6 +227,22 @@ func (m Matcher) MarshalJSON() ([]byte, error) {
 	}
 }
 
+// IsCompiled reports whether Compile() has cached state for the matcher's
+// kind. Only KindRegex and KindJSONSchema have compiled state; other kinds
+// return true because they need no precompilation. Primarily useful as a
+// test/diagnostic hook to verify Compile() side-effects persisted across map
+// reads (issue #366 review feedback).
+func (m *Matcher) IsCompiled() bool {
+	switch m.Kind {
+	case KindRegex:
+		return m.compiledRegex != nil
+	case KindJSONSchema:
+		return m.compiledSchema != nil
+	default:
+		return true
+	}
+}
+
 // Compile validates the matcher invariants and pre-compiles any embedded
 // regex/schema. It is safe to call multiple times.
 func (m *Matcher) Compile() error {

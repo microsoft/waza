@@ -49,10 +49,17 @@ func validateToolSpecs(specs []models.ToolSpecParameters, fieldName string) ([]m
 			}
 		}
 
+		// Persist Compile() side-effects back into the map. Map values are not
+		// addressable, so iterating gives us a value-copy of each Matcher;
+		// calling Compile() on that copy mutates only the local, and Match()
+		// would have to recompile on every call. Reassigning the (now-compiled)
+		// copy into the map preserves compiledRegex/compiledSchema for hot
+		// paths and keeps subsequent Match() calls allocation-free.
 		for argName, m := range spec.Args {
 			if err := m.Compile(); err != nil {
 				return nil, fmt.Errorf("config.%s[%d].args[%s]: %w", fieldName, i, argName, err)
 			}
+			spec.Args[argName] = m
 		}
 
 		normalized[i] = spec

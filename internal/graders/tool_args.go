@@ -10,10 +10,13 @@ import (
 )
 
 // normalizeToolCallArgs returns the tool call's arguments as a generic
-// map[string]any suitable for argument matchers. Only the well-known fields
-// recognized by ToolCallArgs (path, file_text, command, description, skill)
-// are present; engine-specific extensions would require widening the SDK
-// shape. Empty-valued fields are omitted.
+// map[string]any suitable for argument matchers. Known fields recognized by
+// ToolCallArgs (path, file_text, command, description, skill) are merged with
+// any engine-specific extras captured under ToolCallArgs.Extra (populated by
+// mapstructure's ",remain" support), so MCP tools and other arbitrary
+// argument keys (e.g. `query`, `limit`) are visible to matchers. Empty-valued
+// known fields are omitted to avoid spurious matches on the zero value;
+// keys in Extra are passed through as-is.
 func normalizeToolCallArgs(call models.ToolCall) (map[string]any, error) {
 	data, err := json.Marshal(call.Arguments)
 	if err != nil {
@@ -23,9 +26,20 @@ func normalizeToolCallArgs(call models.ToolCall) (map[string]any, error) {
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return nil, fmt.Errorf("unmarshaling tool args: %w", err)
 	}
-	out := make(map[string]any, len(raw))
+	out := make(map[string]any, len(raw)+len(call.Arguments.Extra))
 	for k, v := range raw {
 		if s, ok := v.(string); ok && s == "" {
+			continue
+		}
+		out[k] = v
+	}
+	// Merge engine-specific extras last so they win over zero-valued known
+	// fields. Known-field collisions (e.g. an MCP tool that happens to
+	// declare a `path` arg with extra metadata) keep the typed value from
+	// ToolCallArgs since it has already been written above and Extra by
+	// construction holds only keys mapstructure could not place.
+	for k, v := range call.Arguments.Extra {
+		if _, present := out[k]; present {
 			continue
 		}
 		out[k] = v

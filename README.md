@@ -1037,7 +1037,7 @@ tasks:
 
 `schemaVersion` uses `MAJOR.MINOR` format. Missing values are interpreted as the current schema version (currently `1.1`). Readers allow same-major minor additions with warnings for unknown fields, but reject different majors with a hint to run `waza migrate <file>`.
 
-`results.json` is currently emitted at `schemaVersion` `1.1`, which adds per-turn checkpoints (`runs[].checkpoints[]`, see #358) and the normalized `runs[].tool_events[]` array (turn, sequence, tool name, args, result, success, duration; see #366). See [docs/PRD](docs/PRD.md) and [schema-changes](site/src/content/docs/reference/schema-changes.md) for details.
+`results.json` is currently emitted at `schemaVersion` `1.1`, which adds per-turn checkpoints (`runs[].checkpoints[]`, see #358) and the normalized `runs[].tool_events[]` array (`turn`, `sequence`, `tool_call_id`, `tool_name`, `args`, `result`, `success`, `error`, `duration_ms`; see #366). See [docs/PRD](docs/PRD.md) and [schema-changes](site/src/content/docs/reference/schema-changes.md) for details.
 
 ### MCP Mock Servers
 
