@@ -44,6 +44,13 @@
     "hooks": {
       "$ref": "#/$defs/hooksConfig"
     },
+    "mcp_mocks": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/mcpMock"
+      },
+      "description": "Deterministic MCP mock servers launched for hermetic evals. Requires schemaVersion 1.1 when present."
+    },
     "inputs": {
       "type": "object",
       "additionalProperties": {
@@ -206,6 +213,110 @@
           "type": "object",
           "additionalProperties": true,
           "description": "MCP server configurations keyed by server name."
+        }
+      }
+    },
+    "mcpMock": {
+      "type": "object",
+      "required": [
+        "name"
+      ],
+      "additionalProperties": false,
+      "description": "A deterministic MCP mock server backed by inline tools and/or JSON fixture files.",
+      "anyOf": [
+        {
+          "required": [
+            "fixtures"
+          ]
+        },
+        {
+          "required": [
+            "tools"
+          ]
+        }
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "MCP server name exposed to the agent."
+        },
+        "fixtures": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Directory containing JSON fixture files, resolved relative to eval.yaml. Each file can define one tool or a {\"tools\": {...}} bundle."
+        },
+        "tools": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/mcpMockTool"
+          },
+          "description": "Inline mocked tools keyed by MCP tool name."
+        }
+      }
+    },
+    "mcpMockTool": {
+      "type": "object",
+      "required": [
+        "responses"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "type": "string",
+          "description": "Tool description returned from tools/list."
+        },
+        "input_schema": {
+          "type": "object",
+          "description": "JSON Schema input schema returned from tools/list."
+        },
+        "responses": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/mcpMockResponse"
+          },
+          "description": "Ordered fixture responses. The first matching response is returned."
+        }
+      }
+    },
+    "mcpMockResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "anyOf": [
+        {
+          "required": [
+            "return"
+          ]
+        },
+        {
+          "required": [
+            "error"
+          ]
+        }
+      ],
+      "properties": {
+        "match": {
+          "type": "object",
+          "description": "Exact full-arguments match for this response."
+        },
+        "match_schema": {
+          "type": "object",
+          "description": "JSON Schema that call arguments must satisfy."
+        },
+        "match_regex": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Per-field regular expressions matched against stringified argument values."
+        },
+        "return": {
+          "description": "JSON value returned by the mocked tool."
+        },
+        "error": {
+          "type": "string",
+          "description": "Fixture error returned by the mocked tool."
         }
       }
     },

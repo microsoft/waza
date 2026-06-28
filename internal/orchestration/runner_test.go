@@ -151,6 +151,38 @@ func TestBuildExecutionRequest_BasicFields(t *testing.T) {
 	assert.False(t, req.SuppressSkillBody)
 }
 
+func TestBuildExecutionRequest_MCPMocks(t *testing.T) {
+	specDir := t.TempDir()
+	spec := &models.EvalSpec{
+		SchemaVersion: "1.1",
+		SpecIdentity:  models.SpecIdentity{Name: "test-benchmark"},
+		SkillName:     "my-skill",
+		Config: models.Config{
+			EngineType:    "mock",
+			ModelID:       "gpt-4",
+			TimeoutSec:    120,
+			TrialsPerTask: 1,
+		},
+		MCPMocks: []models.MCPMockConfig{{
+			Name: "github",
+			Tools: map[string]models.MCPMockTool{
+				"list_issues": {
+					Responses: []models.MCPMockResponse{{Match: map[string]any{"owner": "octocat"}, Return: map[string]any{"issues": []any{}}}},
+				},
+			},
+		}},
+	}
+	cfg := config.NewEvalConfig(spec, config.WithSpecDir(specDir))
+	runner := NewEvalRunner(cfg, nil)
+	req, err := runner.buildExecutionRequest(&models.TestCase{
+		TestID:      "test-001",
+		DisplayName: "Test Case",
+		Stimulus:    models.TaskStimulus{Message: "Hello world"},
+	})
+	require.NoError(t, err)
+	require.Contains(t, req.MCPServers, "github")
+}
+
 func TestBuildExecutionRequest_SuppressSkillBody(t *testing.T) {
 	injectSkillBody := false
 	spec := &models.EvalSpec{

@@ -71,6 +71,7 @@ performance against predefined test cases.`,
 	cmd.AddCommand(newUpdateCommand())
 	cmd.AddCommand(newSpecCommand())
 	cmd.AddCommand(newMigrateCommand())
+	cmd.AddCommand(newMCPMockCommand())
 
 	return cmd
 }

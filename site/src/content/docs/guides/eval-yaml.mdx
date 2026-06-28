@@ -58,6 +58,7 @@ tasks:
 | `inputs`      | object | ✗        | Key-value map of global template variables (see [Template Variables](#template-variables)) |
 | `tasks_from`  | string | ✗        | Path to an external YAML file containing the task list                                     |
 | `hooks`       | object | ✗        | Lifecycle hooks that run shell commands at specific points (see [Hooks](#hooks))           |
+| `mcp_mocks`   | array  | ✗        | Hermetic MCP server mocks for deterministic tool-call evals; requires `schemaVersion: "1.1"` |
 | `baseline`    | bool   | ✗        | Mark this spec as a baseline for A/B comparison                                            |
 
 `skill` is required.
@@ -163,6 +164,64 @@ With this setting, Waza still discovers skills, passes them to the Copilot SDK, 
 - `60` — Quick tasks (single-file review, validation)
 - `300` — Standard tasks (code explanation, analysis)
 - `600` — Complex tasks (multi-file refactoring, design)
+
+## MCP Mock Servers
+
+Use top-level `mcp_mocks` to replace live MCP dependencies with deterministic local stdio servers. This keeps Copilot SDK evals hermetic in CI: no network listener, no port allocation, and no external service credentials. Because this is an additive eval schema field, set `schemaVersion: "1.1"` or newer.
+
+```yaml
+name: issue-triage-eval
+skill: issue-triage
+schemaVersion: "1.1"
+version: "1.0"
+
+config:
+  executor: copilot-sdk
+  model: claude-sonnet-4.6
+
+mcp_mocks:
+  - name: github
+    tools:
+      list_issues:
+        description: Return matching issues for a repository
+        input_schema:
+          type: object
+          properties:
+            owner: { type: string }
+            repo: { type: string }
+          required: [owner, repo]
+        responses:
+          - match:
+              owner: microsoft
+              repo: waza
+            return:
+              issues:
+                - number: 363
+                  title: MCP server mocks for hermetic eval
+          - match_regex:
+              repo: "^waza-.*"
+            return:
+              issues: []
+          - match_schema:
+              type: object
+              required: [owner, repo]
+            error: "No fixture for this repository"
+
+tasks:
+  - tasks/*.yaml
+```
+
+Response matching is evaluated in order. `match` requires exact full-argument equality, `match_schema` validates the call arguments against an inline JSON Schema, and `match_regex` applies regular expressions to individual argument fields. Unknown tools or calls that do not match any response fail loudly with an MCP tool error that points to the missing mock fixture.
+
+You can keep larger fixtures in JSON files instead of inline YAML:
+
+```yaml
+mcp_mocks:
+  - name: github
+    fixtures: fixtures/mcp/github
+```
+
+Each `.json` fixture can either contain a single tool definition (tool name from the filename) or a `{ "tools": { ... } }` object with multiple tools.
 
 ## Graders Section
 

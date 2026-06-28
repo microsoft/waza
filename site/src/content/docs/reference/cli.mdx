@@ -120,6 +120,9 @@ waza run eval.yaml --model gpt-4o --model claude-sonnet-4.6
 # Use a different judge model for LLM-as-judge graders
 waza run eval.yaml --model gpt-4o --judge-model claude-opus-4.6
 
+# Run a Copilot SDK eval with top-level mcp_mocks fixtures and no live MCP service
+waza run eval.yaml --session-log
+
 # Parallel execution with 8 workers
 waza run eval.yaml --parallel --workers 8
 

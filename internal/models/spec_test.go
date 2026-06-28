@@ -120,6 +120,92 @@ config:
 	}
 }
 
+func TestLoadEvalSpec_MCPMocksRequireSchemaVersion11(t *testing.T) {
+	tempDir := t.TempDir()
+	specPath := filepath.Join(tempDir, "spec.yaml")
+	specYAML := `name: mcp-mocks
+skill: test-skill
+config:
+  trials_per_task: 1
+  timeout_seconds: 60
+  executor: mock
+  model: test-model
+mcp_mocks:
+  - name: github
+    tools:
+      list_issues:
+        responses:
+          - match: {owner: octocat}
+            return: {issues: []}
+tasks:
+  - tasks/*.yaml
+metrics:
+  - name: pass
+    weight: 1
+    threshold: 1
+`
+	if err := os.WriteFile(specPath, []byte(specYAML), 0644); err != nil {
+		t.Fatalf("Failed to write spec file: %v", err)
+	}
+	_, err := LoadEvalSpec(specPath)
+	if err == nil || !strings.Contains(err.Error(), "mcp_mocks requires schemaVersion 1.1") {
+		t.Fatalf("expected schemaVersion 1.1 error, got %v", err)
+	}
+
+	specYAML = "schemaVersion: \"1.1\"\n" + specYAML
+	if err := os.WriteFile(specPath, []byte(specYAML), 0644); err != nil {
+		t.Fatalf("Failed to write spec file: %v", err)
+	}
+	spec, err := LoadEvalSpec(specPath)
+	if err != nil {
+		t.Fatalf("LoadEvalSpec() error = %v", err)
+	}
+	if spec.SchemaVersion != "1.1" {
+		t.Fatalf("schemaVersion = %q, want 1.1", spec.SchemaVersion)
+	}
+	if len(spec.MCPMocks) != 1 || spec.MCPMocks[0].Name != "github" {
+		t.Fatalf("unexpected mcp_mocks: %+v", spec.MCPMocks)
+	}
+}
+
+func TestLoadEvalSpec_RejectsDuplicateMCPMockNames(t *testing.T) {
+	tempDir := t.TempDir()
+	specPath := filepath.Join(tempDir, "spec.yaml")
+	specYAML := `name: mcp-mocks
+skill: test-skill
+schemaVersion: "1.1"
+config:
+  trials_per_task: 1
+  timeout_seconds: 60
+  executor: mock
+  model: test-model
+mcp_mocks:
+  - name: github
+    tools:
+      list_issues:
+        responses:
+          - return: {issues: []}
+  - name: github
+    tools:
+      list_pull_requests:
+        responses:
+          - return: {pull_requests: []}
+tasks:
+  - tasks/*.yaml
+metrics:
+  - name: pass
+    weight: 1
+    threshold: 1
+`
+	if err := os.WriteFile(specPath, []byte(specYAML), 0644); err != nil {
+		t.Fatalf("Failed to write spec file: %v", err)
+	}
+	_, err := LoadEvalSpec(specPath)
+	if err == nil || !strings.Contains(err.Error(), `mcp_mocks[1].name "github" is duplicated`) {
+		t.Fatalf("expected duplicate mcp_mocks error, got %v", err)
+	}
+}
+
 func TestLoadEvalSpec_RejectsDifferentMajorSchemaVersion(t *testing.T) {
 	tempDir := t.TempDir()
 	specPath := filepath.Join(tempDir, "spec.yaml")

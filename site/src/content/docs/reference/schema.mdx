@@ -15,7 +15,7 @@ Main evaluation configuration file.
 name: code-explainer-eval # Required: eval suite name
 description: "..." # Required: what this eval tests
 skill: code-explainer # Required: skill name
-schemaVersion: "1.0" # Optional: schema version; defaults to 1.0
+schemaVersion: "1.1" # Optional: schema version; defaults to 1.0
 version: "1.0" # Optional: version number
 
 config:
@@ -35,6 +35,15 @@ graders: # Validation rules
 
 tasks: # Test cases
   - "tasks/*.yaml" # From files
+
+mcp_mocks: # Optional: deterministic local MCP server mocks
+  - name: github
+    tools:
+      list_issues:
+        responses:
+          - match: { owner: microsoft, repo: waza }
+            return:
+              issues: []
 ```
 
 ## Top-Level Fields
@@ -97,6 +106,69 @@ schemaVersion: "1.0"
 ```
 
 See [Schema Changes](/reference/schema-changes/) for the versioning policy and changelog.
+
+### mcp_mocks
+
+**Type:** array
+**Required:** no
+**Requires:** `schemaVersion: "1.1"` or newer
+
+Defines deterministic MCP server mocks for Copilot SDK evals. Waza exposes each mock as a local stdio MCP server, so tests do not need live network services, credentials, or fixed ports.
+
+```yaml
+schemaVersion: "1.1"
+mcp_mocks:
+  - name: github
+    fixtures: fixtures/mcp/github
+```
+
+You can define tools inline:
+
+```yaml
+mcp_mocks:
+  - name: github
+    tools:
+      list_issues:
+        description: Return issues from a fixture
+        input_schema:
+          type: object
+          properties:
+            owner: { type: string }
+            repo: { type: string }
+          required: [owner, repo]
+        responses:
+          - match:
+              owner: microsoft
+              repo: waza
+            return:
+              issues:
+                - number: 363
+                  title: MCP server mocks for hermetic eval
+          - match_regex:
+              repo: "^waza-.*"
+            return:
+              issues: []
+          - match_schema:
+              type: object
+              required: [owner, repo]
+            error: "No fixture for this repository"
+```
+
+| Field | Type | Description |
+| ----- | ---- | ----------- |
+| `name` | string | MCP server name made available to the agent |
+| `fixtures` | string | Directory of JSON tool fixtures, resolved relative to `eval.yaml` |
+| `tools` | object | Inline tool definitions keyed by tool name |
+| `description` | string | Tool description returned from `tools/list` |
+| `input_schema` | object | JSON Schema returned from `tools/list` |
+| `responses` | array | Ordered responses for `tools/call` |
+| `match` | object | Exact full-argument match |
+| `match_schema` | object | JSON Schema that the call arguments must satisfy |
+| `match_regex` | object | Per-field regular expression match |
+| `return` | any | JSON value returned as the mocked tool result |
+| `error` | string | Tool error text returned with `isError: true` |
+
+Response entries are checked in order. Unknown tools and unmatched calls fail loudly with a tool error that names the missing mock fixture.
 
 ## config Section
 
@@ -329,6 +401,8 @@ config:
     github:
       url: http://localhost:3000
 ```
+
+Use top-level [`mcp_mocks`](#mcp_mocks) for hermetic evals that should not call live MCP services.
 
 ---
 

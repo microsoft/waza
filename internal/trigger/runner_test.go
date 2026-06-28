@@ -428,7 +428,7 @@ func TestConvertMCPServers_SkipsNonMapEntries(t *testing.T) {
 		"good":  map[string]any{"type": "stdio"},
 		"bad":   "not-a-map",
 		"good2": map[string]any{"type": "sse"},
-	})
+	}, nil, "")
 	require.Len(t, result, 2)
 	require.Contains(t, result, "good")
 	require.Contains(t, result, "good2")

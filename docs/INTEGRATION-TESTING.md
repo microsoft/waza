@@ -47,6 +47,51 @@ config:
       args: ["-y", "@azure/mcp", "server", "start"]
 ```
 
+### Hermetic MCP Mock Servers
+
+For CI-safe Copilot SDK evals, prefer top-level `mcp_mocks` over live `config.mcp_servers`. Mock servers run as local stdio MCP servers managed by waza, so they do not bind ports, make network calls, or require service credentials. Because `mcp_mocks` is an additive eval schema field, set `schemaVersion: "1.1"`.
+
+```yaml
+name: github-triage
+skill: issue-triage
+schemaVersion: "1.1"
+version: "1.0"
+
+config:
+  trials_per_task: 1
+  executor: copilot-sdk
+  model: claude-sonnet-4.6
+  timeout_seconds: 300
+
+mcp_mocks:
+  - name: github
+    tools:
+      list_issues:
+        input_schema:
+          type: object
+          properties:
+            owner: { type: string }
+            repo: { type: string }
+          required: [owner, repo]
+        responses:
+          - match:
+              owner: microsoft
+              repo: waza
+            return:
+              issues:
+                - number: 363
+                  title: MCP server mocks for hermetic eval
+          - match_schema:
+              type: object
+              required: [owner, repo]
+            error: "No matching issue fixture"
+
+tasks:
+  - tasks/*.yaml
+```
+
+Responses are matched in order. Use `match` for exact full-argument fixtures, `match_schema` for JSON Schema matching, and `match_regex` for per-field regular expressions. Unknown tools or unmatched calls fail with a clear MCP tool error so missing fixtures do not pass silently.
+
 ### CLI Override
 
 You can override the model and runtime options at launch:

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/microsoft/waza/internal/hooks"
 	"gopkg.in/yaml.v3"
@@ -20,6 +21,7 @@ type EvalSpec struct {
 	Version       string            `yaml:"version"`
 	Config        Config            `yaml:"config"`
 	Hooks         hooks.HooksConfig `yaml:"hooks,omitempty"`
+	MCPMocks      []MCPMockConfig   `yaml:"mcp_mocks,omitempty" json:"mcp_mocks,omitempty"`
 	Inputs        map[string]string `yaml:"inputs,omitempty" json:"inputs,omitempty"`
 	TasksFrom     string            `yaml:"tasks_from,omitempty" json:"tasks_from,omitempty"`
 	Range         [2]int            `yaml:"range,omitempty" json:"range,omitempty"`
@@ -41,6 +43,7 @@ type strictEvalSpec struct {
 	Version       string            `yaml:"version"`
 	Config        Config            `yaml:"config"`
 	Hooks         hooks.HooksConfig `yaml:"hooks,omitempty"`
+	MCPMocks      []MCPMockConfig   `yaml:"mcp_mocks,omitempty"`
 	Inputs        map[string]string `yaml:"inputs,omitempty"`
 	TasksFrom     string            `yaml:"tasks_from,omitempty"`
 	Range         [2]int            `yaml:"range,omitempty"`
@@ -84,6 +87,29 @@ type Config struct {
 	MaxAttempts          int            `yaml:"max_attempts,omitempty" json:"max_attempts,omitempty"`
 	GroupBy              string         `yaml:"group_by,omitempty" json:"group_by,omitempty"`
 	JudgeModel           string         `yaml:"judge_model,omitempty" json:"judge_model,omitempty"`
+}
+
+// MCPMockConfig defines a deterministic MCP server mock launched for an eval.
+type MCPMockConfig struct {
+	Name     string                 `yaml:"name" json:"name"`
+	Fixtures string                 `yaml:"fixtures,omitempty" json:"fixtures,omitempty"`
+	Tools    map[string]MCPMockTool `yaml:"tools,omitempty" json:"tools,omitempty"`
+}
+
+// MCPMockTool defines a mocked MCP tool and its response fixtures.
+type MCPMockTool struct {
+	Description string            `yaml:"description,omitempty" json:"description,omitempty"`
+	InputSchema map[string]any    `yaml:"input_schema,omitempty" json:"input_schema,omitempty"`
+	Responses   []MCPMockResponse `yaml:"responses,omitempty" json:"responses,omitempty"`
+}
+
+// MCPMockResponse defines one deterministic response for a mocked tool call.
+type MCPMockResponse struct {
+	Match       map[string]any    `yaml:"match,omitempty" json:"match,omitempty"`
+	MatchSchema map[string]any    `yaml:"match_schema,omitempty" json:"match_schema,omitempty"`
+	MatchRegex  map[string]string `yaml:"match_regex,omitempty" json:"match_regex,omitempty"`
+	Return      any               `yaml:"return,omitempty" json:"return,omitempty"`
+	Error       string            `yaml:"error,omitempty" json:"error,omitempty"`
 }
 
 // ShouldInjectSkillBody returns true unless the eval explicitly opts out of
@@ -336,6 +362,25 @@ func LoadEvalSpec(path string) (*EvalSpec, error) {
 
 // Validate checks that the spec is valid
 func (s *EvalSpec) Validate() error {
+	if len(s.MCPMocks) > 0 {
+		_, minor, err := parseSchemaVersion(s.SchemaVersion)
+		if err != nil {
+			return err
+		}
+		if minor < 1 {
+			return fmt.Errorf("mcp_mocks requires schemaVersion 1.1 or newer")
+		}
+		seen := make(map[string]bool, len(s.MCPMocks))
+		for i, mock := range s.MCPMocks {
+			if strings.TrimSpace(mock.Name) == "" {
+				return fmt.Errorf("mcp_mocks[%d].name is required", i)
+			}
+			if seen[mock.Name] {
+				return fmt.Errorf("mcp_mocks[%d].name %q is duplicated", i, mock.Name)
+			}
+			seen[mock.Name] = true
+		}
+	}
 	if s.Config.TrialsPerTask < 1 {
 		return fmt.Errorf("trials_per_task must be at least 1, got %d", s.Config.TrialsPerTask)
 	}

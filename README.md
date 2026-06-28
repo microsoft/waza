@@ -943,7 +943,7 @@ skills/                Example skills
 ```yaml
 name: my-eval
 skill: my-skill
-schemaVersion: "1.0"
+schemaVersion: "1.1"
 version: "1.0"
 
 config:
@@ -988,6 +988,26 @@ hooks:
       exit_codes: [0]
       error_on_fail: false
 
+mcp_mocks:
+  - name: github
+    tools:
+      list_issues:
+        input_schema:
+          type: object
+          required: [owner, repo]
+        responses:
+          - match:
+              owner: microsoft
+              repo: waza
+            return:
+              issues:
+                - number: 363
+                  title: MCP server mocks for hermetic eval
+          - match_regex:
+              repo: "^waza-.*"
+            return:
+              issues: []
+
 graders:
   - type: text
     name: pattern_check
@@ -1016,6 +1036,19 @@ tasks:
 ```
 
 `schemaVersion` uses `MAJOR.MINOR` format and defaults to `1.0` when omitted for backward compatibility. Readers allow same-major minor additions with warnings for unknown fields, but reject different majors with a hint to run `waza migrate <file>`.
+
+### MCP Mock Servers
+
+Use top-level `mcp_mocks` with `schemaVersion: "1.1"` for deterministic Copilot SDK evals that need MCP tools without live services. Waza launches each mock as a local stdio MCP server, so CI runs do not need network ports, external credentials, or real service state.
+
+```yaml
+schemaVersion: "1.1"
+mcp_mocks:
+  - name: github
+    fixtures: fixtures/mcp/github
+```
+
+Inline responses support exact full-argument matching (`match`), JSON Schema matching (`match_schema`), and per-field regex matching (`match_regex`). Unknown tools and unmatched calls fail loudly with an MCP tool error that names the missing fixture.
 
 ### Custom Input Variables
 
