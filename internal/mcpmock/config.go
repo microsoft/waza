@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/microsoft/waza/internal/models"
+	"github.com/santhosh-tekuri/jsonschema/v6"
 )
 
 // Config is the fully resolved configuration for one deterministic MCP mock server.
@@ -64,6 +66,11 @@ func FromEvalConfig(mock models.MCPMockConfig, baseDir string) (*Config, error) 
 	for toolName, tool := range cfg.Tools {
 		if len(tool.Responses) == 0 {
 			return nil, fmt.Errorf("mcp mock %q tool %q must define at least one response", name, toolName)
+		}
+		for i, response := range tool.Responses {
+			if err := validateResponse(response); err != nil {
+				return nil, fmt.Errorf("mcp mock %q tool %q response %d: %w", name, toolName, i, err)
+			}
 		}
 	}
 
@@ -132,4 +139,22 @@ func convertResponses(in []models.MCPMockResponse) []Response {
 		})
 	}
 	return out
+}
+
+func validateResponse(response Response) error {
+	for field, pattern := range response.MatchRegex {
+		if _, err := regexp.Compile(pattern); err != nil {
+			return fmt.Errorf("match_regex field %q has invalid regex %q: %w", field, pattern, err)
+		}
+	}
+	if len(response.MatchSchema) > 0 {
+		compiler := jsonschema.NewCompiler()
+		if err := compiler.AddResource("memory://mcp-mock-schema.json", response.MatchSchema); err != nil {
+			return fmt.Errorf("match_schema is invalid: %w", err)
+		}
+		if _, err := compiler.Compile("memory://mcp-mock-schema.json"); err != nil {
+			return fmt.Errorf("match_schema is invalid: %w", err)
+		}
+	}
+	return nil
 }

@@ -180,7 +180,7 @@ config:
   executor: mock
   model: test-model
 mcp_mocks:
-  - name: github
+  - name: " github "
     tools:
       list_issues:
         responses:

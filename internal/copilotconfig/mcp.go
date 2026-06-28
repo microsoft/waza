@@ -1,10 +1,10 @@
 package copilotconfig
 
 import (
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	copilot "github.com/github/copilot-sdk/go"
@@ -62,13 +62,14 @@ func ConvertMCPServersWithMocks(serverConfigs map[string]any, mocks []models.MCP
 	}
 
 	for _, mock := range mocks {
+		mockName := strings.TrimSpace(mock.Name)
+		if mockName != "" {
+			delete(result, mockName)
+		}
 		cfg, err := mcpmock.FromEvalConfig(mock, baseDir)
 		if err != nil {
 			warnf("Warning: mcp_mock %q config is invalid: %v, skipping\n", mock.Name, err)
 			continue
-		}
-		if _, exists := result[cfg.Name]; exists {
-			warnf("Warning: mcp_mock %q overrides an mcp_servers entry with the same name\n", cfg.Name)
 		}
 		stdio, err := mockServerConfig(*cfg)
 		if err != nil {
@@ -89,18 +90,61 @@ func mockServerConfig(cfg mcpmock.Config) (copilot.MCPStdioServerConfig, error) 
 	if err != nil {
 		return copilot.MCPStdioServerConfig{}, fmt.Errorf("marshal mock config: %w", err)
 	}
+	configFile, err := writeMockConfigFile(cfg.Name, data)
+	if err != nil {
+		return copilot.MCPStdioServerConfig{}, err
+	}
 	exe, err := os.Executable()
 	if err != nil {
 		return copilot.MCPStdioServerConfig{}, fmt.Errorf("resolve waza executable: %w", err)
 	}
-	encoded := base64.StdEncoding.EncodeToString(data)
 	return copilot.MCPStdioServerConfig{
 		Command: exe,
-		Args:    []string{"__mcp-mock", "--config-base64", encoded},
+		Args:    []string{"__mcp-mock", "--config-file", configFile},
 		Env: map[string]string{
 			"WAZA_NO_UPDATE_CHECK": "1",
 		},
 	}, nil
+}
+
+func writeMockConfigFile(name string, data []byte) (string, error) {
+	safeName := strings.Map(func(r rune) rune {
+		switch {
+		case r >= 'a' && r <= 'z':
+			return r
+		case r >= 'A' && r <= 'Z':
+			return r
+		case r >= '0' && r <= '9':
+			return r
+		case r == '-' || r == '_':
+			return r
+		default:
+			return '-'
+		}
+	}, name)
+	if safeName == "" {
+		safeName = "mock"
+	}
+	path := filepath.Join(os.TempDir(), fmt.Sprintf("waza-mcp-mock-%s-*.json", safeName))
+	file, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path))
+	if err != nil {
+		return "", fmt.Errorf("create mock config file: %w", err)
+	}
+	if err := file.Chmod(0600); err != nil {
+		_ = file.Close()
+		_ = os.Remove(file.Name())
+		return "", fmt.Errorf("secure mock config file: %w", err)
+	}
+	if _, err := file.Write(data); err != nil {
+		_ = file.Close()
+		_ = os.Remove(file.Name())
+		return "", fmt.Errorf("write mock config file: %w", err)
+	}
+	if err := file.Close(); err != nil {
+		_ = os.Remove(file.Name())
+		return "", fmt.Errorf("close mock config file: %w", err)
+	}
+	return file.Name(), nil
 }
 
 func decode(input map[string]any, output any) error {

@@ -1,9 +1,9 @@
 package copilotconfig
 
 import (
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 
@@ -34,10 +34,11 @@ func TestConvertMCPServersWithMocks_AddsHermeticStdioServer(t *testing.T) {
 	require.Equal(t, "1", stdio.Env["WAZA_NO_UPDATE_CHECK"])
 	require.Len(t, stdio.Args, 3)
 	require.Equal(t, "__mcp-mock", stdio.Args[0])
-	require.Equal(t, "--config-base64", stdio.Args[1])
+	require.Equal(t, "--config-file", stdio.Args[1])
 
-	data, err := base64.StdEncoding.DecodeString(stdio.Args[2])
+	data, err := os.ReadFile(stdio.Args[2])
 	require.NoError(t, err)
+	t.Cleanup(func() { _ = os.Remove(stdio.Args[2]) })
 	var cfg mcpmock.Config
 	require.NoError(t, json.Unmarshal(data, &cfg))
 	require.Equal(t, "github", cfg.Name)
@@ -52,6 +53,21 @@ func TestConvertMCPServersWithMocks_PreservesRegularServers(t *testing.T) {
 	require.Contains(t, servers, "regular")
 	_, ok := servers["regular"].(copilot.MCPStdioServerConfig)
 	require.True(t, ok)
+}
+
+func TestConvertMCPServersWithMocks_InvalidMockDisablesLiveServerFallback(t *testing.T) {
+	var warnings []string
+	servers := ConvertMCPServersWithMocks(map[string]any{
+		"github": map[string]any{"type": "stdio", "command": "echo"},
+	}, []models.MCPMockConfig{{
+		Name:     " github ",
+		Fixtures: "missing",
+	}}, t.TempDir(), func(format string, args ...any) {
+		warnings = append(warnings, fmtString(format, args...))
+	})
+
+	require.NotEmpty(t, warnings)
+	require.NotContains(t, servers, "github")
 }
 
 func fmtString(format string, args ...any) string {

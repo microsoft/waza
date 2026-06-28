@@ -28,6 +28,28 @@ func TestFromEvalConfig_LoadsFixtureDirectory(t *testing.T) {
 	require.Equal(t, "List issues", cfg.Tools["list_issues"].Description)
 }
 
+func TestFromEvalConfig_RejectsInvalidMatchers(t *testing.T) {
+	_, err := FromEvalConfig(models.MCPMockConfig{
+		Name: "github",
+		Tools: map[string]models.MCPMockTool{
+			"list_issues": {
+				Responses: []models.MCPMockResponse{{MatchRegex: map[string]string{"owner": "["}, Return: map[string]any{"issues": []any{}}}},
+			},
+		},
+	}, "")
+	require.ErrorContains(t, err, "invalid regex")
+
+	_, err = FromEvalConfig(models.MCPMockConfig{
+		Name: "github",
+		Tools: map[string]models.MCPMockTool{
+			"list_issues": {
+				Responses: []models.MCPMockResponse{{MatchSchema: map[string]any{"type": 42}, Return: map[string]any{"issues": []any{}}}},
+			},
+		},
+	}, "")
+	require.ErrorContains(t, err, "match_schema is invalid")
+}
+
 func TestServerToolsCallMatchesExactSchemaAndRegex(t *testing.T) {
 	srv := NewServer(&Config{
 		Name: "github",

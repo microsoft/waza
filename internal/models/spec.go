@@ -372,13 +372,14 @@ func (s *EvalSpec) Validate() error {
 		}
 		seen := make(map[string]bool, len(s.MCPMocks))
 		for i, mock := range s.MCPMocks {
-			if strings.TrimSpace(mock.Name) == "" {
+			name := strings.TrimSpace(mock.Name)
+			if name == "" {
 				return fmt.Errorf("mcp_mocks[%d].name is required", i)
 			}
-			if seen[mock.Name] {
-				return fmt.Errorf("mcp_mocks[%d].name %q is duplicated", i, mock.Name)
+			if seen[name] {
+				return fmt.Errorf("mcp_mocks[%d].name %q is duplicated", i, name)
 			}
-			seen[mock.Name] = true
+			seen[name] = true
 		}
 	}
 	if s.Config.TrialsPerTask < 1 {
