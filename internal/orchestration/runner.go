@@ -89,6 +89,10 @@ type EvalRunner struct {
 	snapshotEnvAllow []string
 	redactionPolicy  *snapshot.Policy
 	wazaVersion      string
+	// evalRunID echoes EvaluationOutcome.RunID so per-run snapshots can be
+	// correlated back to their parent results.json. Set at the start of a
+	// benchmark run; empty for code paths that bypass the orchestrator.
+	evalRunID string
 }
 
 // ProgressListener receives progress updates
@@ -269,6 +273,12 @@ func (r *EvalRunner) RunBenchmark(ctx context.Context) (*models.EvaluationOutcom
 
 	spec := r.cfg.Spec()
 
+	// Compute the run ID once so the same value flows into both the
+	// telemetry root span and per-run snapshots (via r.evalRunID), and so
+	// runNormalBenchmark reuses it when building the EvaluationOutcome.
+	runID := fmt.Sprintf("run-%d", time.Now().Unix())
+	r.evalRunID = runID
+
 	// Open the root telemetry span for the whole eval. The span is a no-op
 	// when telemetry is disabled, so this call is always safe.
 	evalCtx, evalSpan := telemetry.StartEvalSpan(ctx, r.telemetry, telemetry.EvalInfo{
@@ -276,7 +286,7 @@ func (r *EvalRunner) RunBenchmark(ctx context.Context) (*models.EvaluationOutcom
 		Skill:  spec.SkillName,
 		Engine: spec.Config.EngineType,
 		Model:  spec.Config.ModelID,
-		RunID:  fmt.Sprintf("run-%d", time.Now().Unix()),
+		RunID:  runID,
 	})
 	defer evalSpan.End()
 
@@ -363,8 +373,16 @@ func (r *EvalRunner) runNormalBenchmark(ctx context.Context) (*models.Evaluation
 
 	// Compute statistics
 	digest := BuildDigest(testOutcomes, time.Since(startTime).Milliseconds(), spec.Config.TrialsPerTask)
+	// Reuse RunBenchmark's evalRunID when set so snapshots written during
+	// per-run execution correlate with this outcome's RunID; fall back to
+	// a fresh timestamp otherwise (e.g., when runNormalBenchmark is called
+	// from test code or alternative code paths that bypass RunBenchmark).
+	outcomeRunID := r.evalRunID
+	if outcomeRunID == "" {
+		outcomeRunID = fmt.Sprintf("run-%d", time.Now().Unix())
+	}
 	outcome := &models.EvaluationOutcome{
-		RunID:       fmt.Sprintf("run-%d", time.Now().Unix()),
+		RunID:       outcomeRunID,
 		SkillTested: spec.SkillName,
 		BenchName:   spec.Name,
 		Timestamp:   startTime,
@@ -1332,14 +1350,12 @@ func (r *EvalRunner) captureSnapshot(tc *models.TestCase, req *execution.Executi
 		return
 	}
 	spec := r.cfg.Spec()
-	evalID := ""
+	evalID := r.evalRunID
 	evalName := ""
 	skillName := ""
 	if spec != nil {
 		evalName = spec.Name
-		if len(spec.Config.SkillPaths) > 0 {
-			skillName = spec.Config.SkillPaths[0]
-		}
+		skillName = spec.SkillName
 	}
 	in := snapshot.CaptureInput{
 		EvalID:       evalID,
@@ -1352,6 +1368,7 @@ func (r *EvalRunner) captureSnapshot(tc *models.TestCase, req *execution.Executi
 		EnvAllowList: r.snapshotEnvAllow,
 		Policy:       r.redactionPolicy,
 		FixturesRoot: r.fixturesRoot(tc),
+		SkipDirs:     r.snapshotSkipDirs(tc),
 	}
 	snap, err := snapshot.Capture(in)
 	if err != nil {
@@ -1390,6 +1407,37 @@ func (r *EvalRunner) fixturesRoot(tc *models.TestCase) string {
 		return resolve(tc.ContextRoot)
 	}
 	return r.cfg.SpecDir()
+}
+
+// snapshotSkipDirs returns the absolute paths under fixturesRoot whose
+// contents should be excluded from fixture digesting. The snapshot output
+// directory must be skipped: otherwise re-running an eval to compare
+// snapshots would change the fixture hash whenever the user writes
+// snapshots inside the fixtures tree.
+func (r *EvalRunner) snapshotSkipDirs(tc *models.TestCase) []string {
+	if r == nil || r.snapshotWriter == nil {
+		return nil
+	}
+	root := r.snapshotWriter.Root()
+	if root == "" {
+		return nil
+	}
+	abs, err := filepath.Abs(root)
+	if err != nil {
+		abs = root
+	}
+	fixRoot := r.fixturesRoot(tc)
+	if fixRoot != "" {
+		if absFix, err := filepath.Abs(fixRoot); err == nil {
+			fixRoot = absFix
+		}
+	}
+	// Only need to skip when the snapshot directory is inside the
+	// fixtures root; otherwise WalkDir never visits it.
+	if fixRoot != "" && !strings.HasPrefix(abs+string(os.PathSeparator), fixRoot+string(os.PathSeparator)) && abs != fixRoot {
+		return nil
+	}
+	return []string{abs}
 }
 
 func (r *EvalRunner) captureFailureArtifacts(run *models.RunResult) {

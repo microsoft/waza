@@ -27,6 +27,12 @@ type CaptureInput struct {
 
 	Engine       SnapshotEngine
 	FixturesRoot string
+	// SkipDirs is an optional list of absolute directories under
+	// FixturesRoot whose contents will be omitted from the captured
+	// fixture digests. The runner uses this to exclude the configured
+	// snapshot output directory, which prevents previously-emitted
+	// snapshots from perturbing the fixture hash on re-runs.
+	SkipDirs     []string
 	EnvAllowList []string
 	Policy       *Policy
 }
@@ -107,7 +113,7 @@ func Capture(in CaptureInput) (*Snapshot, error) {
 
 	// Fixtures
 	if in.FixturesRoot != "" {
-		digests, err := HashFixtures(in.FixturesRoot)
+		digests, err := HashFixturesExcluding(in.FixturesRoot, in.SkipDirs)
 		if err != nil {
 			return nil, fmt.Errorf("snapshot: hash fixtures: %w", err)
 		}

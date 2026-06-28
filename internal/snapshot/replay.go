@@ -202,8 +202,13 @@ func Compare(baseline, replayed *Snapshot, strictResult bool) CompareResult {
 //
 // Bisect prefers tool_events.Turn when populated (engines that track turn
 // boundaries); when Turn is 0 it falls back to the event sequence index.
+//
+// Bisect runs Compare in non-strict mode: it ignores tool result payloads
+// and compares only the ordered (name, args) sequence so the reported
+// "first divergent turn" reflects where the agent took a different action,
+// not where downstream side effects differed.
 func Bisect(baseline, failing *Snapshot) (turn int, result CompareResult) {
-	result = Compare(baseline, failing, true)
+	result = Compare(baseline, failing, false)
 	if result.Match || len(result.Divergences) == 0 {
 		return 0, result
 	}

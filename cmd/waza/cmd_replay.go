@@ -17,7 +17,6 @@ func newReplayCommand() *cobra.Command {
 		bisectArg string
 		jsonOut   bool
 		strict    bool
-		redact    string
 	)
 	cmd := &cobra.Command{
 		Use:   "replay <snapshot.json>",
@@ -49,13 +48,6 @@ Exit codes:
 			if err != nil {
 				return exitErr(2, err)
 			}
-			if redact != "" {
-				// Reserved for future modes that re-redact captured output.
-				_, err := snapshot.LoadPolicy(redact)
-				if err != nil {
-					return exitErr(2, fmt.Errorf("load redaction policy: %w", err))
-				}
-			}
 
 			if bisectArg != "" {
 				other, err := snapshot.LoadSnapshotFile(bisectArg)
@@ -82,7 +74,6 @@ Exit codes:
 	cmd.Flags().StringVar(&bisectArg, "bisect", "", "Path to a second snapshot to bisect against the primary")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON to stdout instead of a human summary")
 	cmd.Flags().BoolVar(&strict, "strict", true, "In model-replay mode, also re-check final status and grader outcomes")
-	cmd.Flags().StringVar(&redact, "redact", "", "Optional path to a custom redaction policy YAML")
 	return cmd
 }
 

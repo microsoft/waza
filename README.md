@@ -440,7 +440,6 @@ waza replay ./snapshots/a.json --bisect ./snapshots/b.json --json
 | `--bisect <file>` | Path to second snapshot to bisect against the primary |
 | `--json` | Emit machine-readable JSON instead of human summary |
 | `--strict` | Re-check final status and grader outcome consistency (default true) |
-| `--redact <path>` | Custom YAML redaction policy |
 
 Exit codes: `0` match, `1` divergence, `2` load/parse error.
 

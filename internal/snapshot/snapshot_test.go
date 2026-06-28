@@ -99,8 +99,10 @@ func TestCaptureEnvDefaultDeny(t *testing.T) {
 	if len(env.Captured) != 0 {
 		t.Fatalf("default-deny should capture nothing, got %v", env.Captured)
 	}
-	if len(env.DeniedKeys) != 2 {
-		t.Fatalf("expected 2 denied keys, got %v", env.DeniedKeys)
+	// With an empty allow-list we should NOT leak the full host env name
+	// list into the snapshot's DeniedKeys field.
+	if len(env.DeniedKeys) != 0 {
+		t.Fatalf("default-deny should not record DeniedKeys, got %v", env.DeniedKeys)
 	}
 }
 
@@ -147,6 +149,27 @@ func TestHashFixtures(t *testing.T) {
 		if d.SHA256 == "" {
 			t.Errorf("digest missing for %s", d.Path)
 		}
+	}
+}
+
+func TestHashFixturesExcludingSkipsCallerPaths(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "a.txt"), []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	skip := filepath.Join(root, "snapshots")
+	if err := os.MkdirAll(skip, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skip, "snap.json"), []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	digests, err := HashFixturesExcluding(root, []string{skip})
+	if err != nil {
+		t.Fatalf("HashFixturesExcluding: %v", err)
+	}
+	if len(digests) != 1 || digests[0].Path != "a.txt" {
+		t.Fatalf("expected only a.txt, got %#v", digests)
 	}
 }
 

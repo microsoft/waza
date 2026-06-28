@@ -19,6 +19,15 @@ import (
 //
 // The returned slice is sorted by Path for deterministic snapshots.
 func HashFixtures(root string) ([]FixtureDigest, error) {
+	return HashFixturesExcluding(root, nil)
+}
+
+// HashFixturesExcluding is HashFixtures but also skips any directories
+// (and their contents) whose absolute path matches an entry in skipDirs.
+// This is used by the orchestrator to exclude the configured snapshot
+// output directory so freshly-written snapshots do not perturb the fixture
+// hash on subsequent runs.
+func HashFixturesExcluding(root string, skipDirs []string) ([]FixtureDigest, error) {
 	if root == "" {
 		return nil, nil
 	}
@@ -33,6 +42,8 @@ func HashFixtures(root string) ([]FixtureDigest, error) {
 		return nil, fmt.Errorf("fixtures root %s: not a directory", root)
 	}
 
+	skip := normaliseSkipDirs(skipDirs)
+
 	var digests []FixtureDigest
 	walkErr := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -42,6 +53,13 @@ func HashFixtures(root string) ([]FixtureDigest, error) {
 			name := d.Name()
 			if path != root && strings.HasPrefix(name, ".") {
 				return filepath.SkipDir
+			}
+			if absPath, absErr := filepath.Abs(path); absErr == nil {
+				for _, s := range skip {
+					if absPath == s {
+						return filepath.SkipDir
+					}
+				}
 			}
 			return nil
 		}
@@ -59,11 +77,6 @@ func HashFixtures(root string) ([]FixtureDigest, error) {
 		rel, err := filepath.Rel(root, path)
 		if err != nil {
 			return err
-		}
-		// Skip emitted snapshot artifacts; otherwise running the eval twice
-		// to compare snapshots would change the fixture hash.
-		if strings.HasPrefix(rel, "snapshots"+string(os.PathSeparator)) {
-			return nil
 		}
 		sum, size, err := hashFile(path)
 		if err != nil {
@@ -83,6 +96,24 @@ func HashFixtures(root string) ([]FixtureDigest, error) {
 		return digests[i].Path < digests[j].Path
 	})
 	return digests, nil
+}
+
+func normaliseSkipDirs(in []string) []string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(in))
+	for _, s := range in {
+		if s == "" {
+			continue
+		}
+		abs, err := filepath.Abs(s)
+		if err != nil {
+			abs = s
+		}
+		out = append(out, abs)
+	}
+	return out
 }
 
 // hashFile streams the file at path and returns its sha256 hex digest and

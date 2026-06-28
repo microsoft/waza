@@ -155,7 +155,7 @@ func TestReplayBisectMatch(t *testing.T) {
 func TestReplayRejectsIncompatibleMajor(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "snap.json")
-	require.NoError(t, os.WriteFile(path, []byte(`{"schemaVersion":"2.0","kind":"waza.snapshot.task"}`), 0o644))
+	require.NoError(t, os.WriteFile(path, []byte(`{"schemaVersion":"2.0","kind":"task-snapshot"}`), 0o644))
 
 	cmd := newReplayCommand()
 	var out bytes.Buffer

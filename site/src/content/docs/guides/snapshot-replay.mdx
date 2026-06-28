@@ -35,7 +35,7 @@ Each `snapshot.json` (schema `1.0`) contains:
 Snapshots **do not** contain:
 
 - Raw environment variables outside the allow-list (default-deny)
-- Secrets that match the built-in or custom redaction rules (replaced with `«redacted»` placeholders)
+- Secrets that match the built-in or custom redaction rules (replaced with `[REDACTED]` placeholders)
 - Live engine outputs not present in the tool-event tape
 
 ## Capturing snapshots
@@ -57,11 +57,11 @@ waza run eval.yaml \
   --snapshot-env-allow "MODEL"
 ```
 
-Even allow-listed values are still passed through the redaction policy, so a `GITHUB_TOKEN=ghp_…` ends up as `GITHUB_TOKEN=«redacted»` if it matches a rule.
+Even allow-listed values are still passed through the redaction policy, so a `GITHUB_TOKEN=ghp_…` ends up as `GITHUB_TOKEN=[REDACTED]` if it matches a rule.
 
 ### Customising redaction
 
-Provide a YAML file via `--redact <path>`:
+Provide a YAML file via `--redact <path>` on `waza run`:
 
 ```yaml
 # my-redaction.yaml

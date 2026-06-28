@@ -203,8 +203,13 @@ type RunResult struct {
 	// backward compatibility; new consumers should prefer ToolEvents.
 	ToolEvents []ToolEvent `json:"tool_events,omitempty"`
 
-	// SnapshotPath is the path (relative to results.json's directory) of
-	// the self-contained snapshot.json artifact for this run. Empty when
+	// SnapshotPath is the on-disk path of the self-contained snapshot.json
+	// artifact for this run, as returned by snapshot.Writer.Write. It is
+	// rooted at the --snapshot directory the user passed to `waza run` (so
+	// it may be absolute, or relative to the working directory at run time,
+	// depending on what the user supplied). Consumers that need a
+	// results.json-relative path should compute it themselves with
+	// filepath.Rel against the results.json directory. Empty when
 	// `waza run --snapshot` was not used. Added in schema version 1.2 as
 	// an additive field (see issue #367).
 	SnapshotPath string `json:"snapshot_path,omitempty"`
