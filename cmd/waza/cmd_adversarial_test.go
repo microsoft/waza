@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -192,6 +193,6 @@ func TestInjectContextDir_RewritesEveryTask(t *testing.T) {
 		}
 		b, err := os.ReadFile(filepath.Join(root, "tasks", e.Name()))
 		require.NoError(t, err)
-		assert.Contains(t, string(b), "context_dir: \""+fixtures+"\"")
+		assert.Contains(t, string(b), fmt.Sprintf("context_dir: %q", fixtures))
 	}
 }
