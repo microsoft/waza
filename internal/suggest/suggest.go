@@ -553,6 +553,7 @@ func buildOverwriteDiff(outputDir string, existingPath string, proposed []byte) 
 	if err != nil || rel == "" {
 		rel = existingPath
 	}
+	rel = filepath.ToSlash(rel)
 	return simpleUnifiedDiff(rel, existing, proposed), nil
 }
 
