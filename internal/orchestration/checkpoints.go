@@ -34,8 +34,9 @@ type checkpointRunner struct {
 }
 
 // newCheckpointRunner builds a checkpointRunner from a TestCase. Returns nil
-// when the task has no checkpoints — callers should always check for nil
-// before invoking methods.
+// when the task has no checkpoints, but all methods on *checkpointRunner are
+// nil-safe — callers can invoke runForTurn/results on the returned value
+// directly without a nil guard.
 func newCheckpointRunner(runner *EvalRunner, tc *models.TestCase) *checkpointRunner {
 	if tc == nil || len(tc.Checkpoints) == 0 {
 		return nil
@@ -112,6 +113,7 @@ func (cr *checkpointRunner) runForTurn(ctx context.Context, turn int, resp *exec
 		}
 		outcome.Validations["_checkpoint_error"] = models.GraderResults{
 			Name:     "_checkpoint_error",
+			Type:     models.GraderKind("checkpoint_error"),
 			Score:    0,
 			Passed:   false,
 			Feedback: err.Error(),

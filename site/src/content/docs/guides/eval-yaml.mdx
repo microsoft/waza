@@ -443,7 +443,7 @@ Each checkpoint accepts:
 | Field        | Type     | Description                                                                       |
 | ------------ | -------- | --------------------------------------------------------------------------------- |
 | `after_turn` | int      | 1-based turn number this checkpoint runs after (initial prompt is turn 1).        |
-| `graders`    | array    | Inline graders, same schema as task `validators:` / eval-level `graders:`.        |
+| `graders`    | array    | Inline graders, same schema as the task-level `graders:` / eval-level `graders:` field. |
 | `on_failure` | string   | `continue` (default) or `stop` — abort remaining turns when this checkpoint fails.|
 
 Outcomes are recorded per-checkpoint on `results.json` under `checkpoints[]`, alongside the final `validations`. `waza gate` still uses final-pass status. Available with `schemaVersion: "1.1"` and above (additive — older 1.0 files load unchanged).

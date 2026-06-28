@@ -574,7 +574,7 @@ Per-turn graders that run at specific turn boundaries during multi-turn conversa
 | Field        | Type    | Required | Description                                                                                  |
 |--------------|---------|----------|----------------------------------------------------------------------------------------------|
 | `after_turn` | integer | yes      | 1-based turn number to grade after. Turn 1 is the initial prompt; follow-ups are 2, 3, ...   |
-| `graders`    | array   | yes      | Inline graders (same schema as task `validators:`).                                          |
+| `graders`    | array   | yes      | Inline graders (same schema as the task-level `graders:` field).                             |
 | `on_failure` | string  | no       | `continue` (default) or `stop`. `stop` aborts remaining turns when this checkpoint fails.    |
 
 ```yaml

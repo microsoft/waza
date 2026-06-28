@@ -1231,13 +1231,20 @@ func (r *EvalRunner) executeRun(ctx context.Context, tc *models.TestCase, runNum
 
 	// Surface checkpoint failures in the run status even when graders are
 	// skipped or when the final-pass graders all passed. A failed checkpoint
-	// without on_failure: stop should still mark the run as failed.
+	// without on_failure: stop should still mark the run as failed; a
+	// checkpoint that recorded StatusError (grader-execution error) should
+	// promote the run to StatusError so consumers can distinguish
+	// infrastructure problems from assertion failures.
 	checkpointOutcomes := cps.results()
 	if status != models.StatusError {
 		for _, co := range checkpointOutcomes {
-			if co.Status != models.StatusPassed {
-				status = models.StatusFailed
-				break
+			switch co.Status {
+			case models.StatusError:
+				status = models.StatusError
+			case models.StatusFailed:
+				if status != models.StatusError {
+					status = models.StatusFailed
+				}
 			}
 		}
 	}
