@@ -42,6 +42,33 @@ func ValidateSchemaVersion(artifact, source, version string) (string, error) {
 	return version, nil
 }
 
+// ProbeEvaluationOutcomeSchemaVersion cheaply detects whether data has the
+// top-level shape of a results.json artifact and returns its declared version.
+func ProbeEvaluationOutcomeSchemaVersion(data []byte) (version string, ok bool, err error) {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return "", false, err
+	}
+	if !hasEvaluationOutcomeShape(fields) {
+		return "", false, nil
+	}
+	if raw, exists := fields["schemaVersion"]; exists && string(raw) != "null" {
+		if err := json.Unmarshal(raw, &version); err != nil {
+			return "", false, fmt.Errorf("schemaVersion must be a string: %w", err)
+		}
+	}
+	return version, true, nil
+}
+
+func hasEvaluationOutcomeShape(fields map[string]json.RawMessage) bool {
+	for _, key := range []string{"eval_id", "runId", "eval_name", "summary", "tasks"} {
+		if _, ok := fields[key]; ok {
+			return true
+		}
+	}
+	return false
+}
+
 func parseSchemaVersion(version string) (major int, minor int, err error) {
 	parts := strings.Split(version, ".")
 	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {

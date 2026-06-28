@@ -167,11 +167,11 @@ func (ls *LocalStore) load() error {
 			return nil
 		}
 
-		var probe models.EvaluationOutcome
-		if err := json.Unmarshal(data, &probe); err != nil {
+		_, ok, err := models.ProbeEvaluationOutcomeSchemaVersion(data)
+		if err != nil {
 			return nil
 		}
-		if probe.BenchName == "" && probe.Digest.TotalTests == 0 {
+		if !ok {
 			return nil
 		}
 

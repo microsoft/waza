@@ -1,7 +1,6 @@
 package webapi
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -87,11 +86,11 @@ func (fs *FileStore) load() error {
 			return nil
 		}
 
-		var probe models.EvaluationOutcome
-		if err := json.Unmarshal(data, &probe); err != nil {
+		ok, err := isOutcomeJSON(data)
+		if err != nil {
 			return nil
 		}
-		if probe.BenchName == "" && probe.Digest.TotalTests == 0 {
+		if !ok {
 			return nil
 		}
 
@@ -120,6 +119,11 @@ func (fs *FileStore) load() error {
 	fs.loaded = true
 	fs.loadErr = nil
 	return nil
+}
+
+func isOutcomeJSON(data []byte) (bool, error) {
+	_, ok, err := models.ProbeEvaluationOutcomeSchemaVersion(data)
+	return ok, err
 }
 
 // ensureLoaded loads data if not already loaded.

@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -67,14 +66,14 @@ func readArtifactSchemaVersion(path string, data []byte) (artifact string, versi
 		return artifact, header.SchemaVersion, nil
 	default:
 		if filepath.Ext(path) == ".json" {
-			artifact = "results.json"
-			var header struct {
-				SchemaVersion string `json:"schemaVersion"`
-			}
-			if err := json.Unmarshal(data, &header); err != nil {
+			version, ok, err := models.ProbeEvaluationOutcomeSchemaVersion(data)
+			if err != nil {
 				return "", "", fmt.Errorf("parsing %s: %w", path, err)
 			}
-			return artifact, header.SchemaVersion, nil
+			if !ok {
+				return "", "", fmt.Errorf("unsupported JSON schema artifact %s: expected a results.json object with top-level eval_id, eval_name, summary, or tasks", path)
+			}
+			return "results.json", version, nil
 		}
 	}
 	return "", "", fmt.Errorf("unsupported schema artifact %s: expected eval.yaml, eval.yml, or a JSON results artifact", path)
