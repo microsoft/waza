@@ -9,10 +9,10 @@ Waza public artifacts use an explicit `schemaVersion` field so checked-in eval s
 
 | Artifact | Field | Current version |
 |---|---|---|
-| `eval.yaml` | `schemaVersion` | `1.0` |
-| `results.json` | `schemaVersion` | `1.0` |
+| `eval.yaml` | `schemaVersion` | `1.1` |
+| `results.json` | `schemaVersion` | `1.1` |
 | `snapshot.json` | `schemaVersion` | Not yet emitted |
-| Dashboard/SSE event envelope | `schemaVersion` | `1.0` |
+| Dashboard/SSE event envelope | `schemaVersion` | `1.1` |
 
 ## Policy
 
@@ -35,6 +35,11 @@ waza migrate results.json
 For schema `1.0`, the command is a no-op because there is no prior major version to migrate from.
 
 ## Changelog
+
+### 1.1
+
+- Added optional `checkpoints[]` to task YAML for per-turn graders (`after_turn`, `graders`, `on_failure`). Backward-compatible: 1.0 task files load unchanged.
+- Added optional `checkpoints[]` to `results.json` task results, recording per-turn grader outcomes.
 
 ### 1.0
 

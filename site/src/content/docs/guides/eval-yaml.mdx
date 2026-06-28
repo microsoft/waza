@@ -421,6 +421,33 @@ inputs:
 
 After each agent turn the responder either **replies** (the answer is sent back, continuing the conversation), **stops** (the agent is done), or **abstains** — which fails the run with a distinct `abstained` outcome, signalling the brief is too vague. If `max_followups` is reached while the agent is still asking questions, the loop stops with outcome `cap_exhausted` and graders evaluate the final state. Each task carries its own responder, so the same skill can be tested against several target configurations.
 
+### Per-Turn Checkpoints
+
+By default graders only run once, against the final state of a multi-turn conversation. For long conversations you can run graders at specific turn boundaries using a top-level `checkpoints:` list:
+
+```yaml
+checkpoints:
+  - after_turn: 1
+    graders:
+      - type: text
+        contains: ["analyzing", "files"]
+  - after_turn: 2
+    on_failure: stop # abort the run if this checkpoint fails
+    graders:
+      - type: tool_calls
+        required: ["read_file"]
+```
+
+Each checkpoint accepts:
+
+| Field        | Type     | Description                                                                       |
+| ------------ | -------- | --------------------------------------------------------------------------------- |
+| `after_turn` | int      | 1-based turn number this checkpoint runs after (initial prompt is turn 1).        |
+| `graders`    | array    | Inline graders, same schema as task `validators:` / eval-level `graders:`.        |
+| `on_failure` | string   | `continue` (default) or `stop` — abort remaining turns when this checkpoint fails.|
+
+Outcomes are recorded per-checkpoint on `results.json` under `checkpoints[]`, alongside the final `validations`. `waza gate` still uses final-pass status. Available with `schemaVersion: "1.1"` and above (additive — older 1.0 files load unchanged).
+
 Prompt supports templating:
 
 ```yaml

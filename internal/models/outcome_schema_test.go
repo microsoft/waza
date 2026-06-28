@@ -84,7 +84,7 @@ func TestEvaluationOutcomeMarshalDefaultsSchemaVersion(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Marshal() error = %v", err)
 	}
-	if !strings.Contains(string(data), `"schemaVersion":"1.0"`) {
+	if !strings.Contains(string(data), `"schemaVersion":"1.1"`) {
 		t.Fatalf("marshaled outcome missing default schemaVersion: %s", data)
 	}
 }

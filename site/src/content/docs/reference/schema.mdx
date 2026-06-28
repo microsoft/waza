@@ -88,7 +88,7 @@ version: "1.0"
 
 **Type:** string  
 **Required:** no  
-**Default:** `1.0`
+**Default:** `1.1`
 
 Schema version for the public artifact shape. It uses `MAJOR.MINOR` format with no patch component. Same-major minor additions are backward-compatible; readers ignore unknown fields and warn. Different major versions are rejected with a migration hint.
 
@@ -563,6 +563,34 @@ inputs:
 ```
 
 The responder classifies each agent message as **reply**, **stop**, or **abstain**. An abstain marks the run as an error with outcome `abstained`, distinct from model timeouts or network errors. If `max_followups` is reached while the agent is still asking questions, the loop stops with outcome `cap_exhausted` and graders evaluate the final state.
+
+### checkpoints
+
+**Type:** array of objects  
+**Required:** no
+
+Per-turn graders that run at specific turn boundaries during multi-turn conversations. Useful for asserting intermediate state instead of only the final output. Added in `schemaVersion: "1.1"`.
+
+| Field        | Type    | Required | Description                                                                                  |
+|--------------|---------|----------|----------------------------------------------------------------------------------------------|
+| `after_turn` | integer | yes      | 1-based turn number to grade after. Turn 1 is the initial prompt; follow-ups are 2, 3, ...   |
+| `graders`    | array   | yes      | Inline graders (same schema as task `validators:`).                                          |
+| `on_failure` | string  | no       | `continue` (default) or `stop`. `stop` aborts remaining turns when this checkpoint fails.    |
+
+```yaml
+checkpoints:
+  - after_turn: 1
+    graders:
+      - type: text
+        contains: ["analyzing", "files"]
+  - after_turn: 2
+    on_failure: stop
+    graders:
+      - type: tool_calls
+        required: ["read_file"]
+```
+
+Each checkpoint's outcomes appear on `results.json` under `checkpoints[]`. The final-pass `validations` still run independently. `waza gate` continues to use the final-pass status; checkpoint failures flip the task status to `failed` (or `error` when `on_failure: stop` fired).
 
 ### files
 

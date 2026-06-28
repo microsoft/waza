@@ -18,7 +18,7 @@ func TestMigrateCommandNoOpForCurrentMajor(t *testing.T) {
 	err := runMigrate(&out, path)
 
 	require.NoError(t, err)
-	require.Contains(t, out.String(), "already compatible with schemaVersion 1.0")
+	require.Contains(t, out.String(), "compatible with waza schemaVersion 1.1")
 }
 
 func TestMigrateCommandRejectsIncompatibleMajor(t *testing.T) {
@@ -43,7 +43,7 @@ func TestMigrateCommandDefaultsMissingSchemaVersion(t *testing.T) {
 	err := runMigrate(&out, path)
 
 	require.NoError(t, err)
-	require.Contains(t, out.String(), "already compatible with schemaVersion 1.0")
+	require.Contains(t, out.String(), "already compatible with schemaVersion 1.1")
 }
 
 func TestMigrateCommandRejectsUnknownJSONShape(t *testing.T) {
@@ -69,7 +69,7 @@ func TestMigrateCommandDetectsResultsJSONByShape(t *testing.T) {
 	err := runMigrate(&out, path)
 
 	require.NoError(t, err)
-	require.Contains(t, out.String(), "results.json is already compatible")
+	require.Contains(t, out.String(), "results.json uses schemaVersion 1.0")
 }
 
 func TestMigrateCommandMissingFile(t *testing.T) {

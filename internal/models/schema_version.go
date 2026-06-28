@@ -15,7 +15,10 @@ import (
 
 const (
 	// CurrentSchemaVersion is the current MAJOR.MINOR schema version for public artifacts.
-	CurrentSchemaVersion = "1.0"
+	//
+	// 1.1 adds per-turn checkpoints (TestCase.Checkpoints / RunResult.Checkpoints) — purely
+	// additive over 1.0, so 1.0 artifacts continue to load without migration.
+	CurrentSchemaVersion = "1.1"
 )
 
 func defaultSchemaVersion(version string) string {

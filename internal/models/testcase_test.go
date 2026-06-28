@@ -340,3 +340,114 @@ func TestResponderValidationAcceptsValidConfig(t *testing.T) {
 	}
 	require.NoError(t, tc.Validate())
 }
+
+// -- Checkpoint validation tests --
+
+func TestLoadTestCase_CheckpointsParsed(t *testing.T) {
+	yamlData := `id: tc-cp
+name: Checkpoint loader
+inputs:
+  prompt: do work
+  follow_up_prompts:
+    - keep going
+checkpoints:
+  - after_turn: 1
+    graders:
+      - name: mid-check
+        type: text
+        config:
+          contains:
+            - hello
+  - after_turn: 2
+    on_failure: stop
+    graders:
+      - name: end-check
+        type: text
+        config:
+          contains:
+            - bye
+`
+	dir := t.TempDir()
+	p := filepath.Join(dir, "tc.yaml")
+	require.NoError(t, os.WriteFile(p, []byte(yamlData), 0o644))
+
+	tc, err := LoadTestCase(p)
+	require.NoError(t, err)
+	require.Len(t, tc.Checkpoints, 2)
+	require.Equal(t, 1, tc.Checkpoints[0].AfterTurn)
+	require.Equal(t, CheckpointContinue, tc.Checkpoints[0].EffectiveOnFailure())
+	require.Equal(t, CheckpointStop, tc.Checkpoints[1].EffectiveOnFailure())
+	require.Len(t, tc.Checkpoints[0].Graders, 1)
+	require.Equal(t, "mid-check", tc.Checkpoints[0].Graders[0].Identifier)
+}
+
+func TestCheckpointValidation(t *testing.T) {
+	makeTC := func(cps []Checkpoint) *TestCase {
+		return &TestCase{
+			TestID:      "t",
+			DisplayName: "t",
+			Stimulus: TaskStimulus{
+				Message:   "go",
+				FollowUps: []string{"again", "more"},
+			},
+			Checkpoints: cps,
+		}
+	}
+	validGrader := ValidatorInline{
+		Identifier: "g",
+		Kind:       GraderKindText,
+		Parameters: TextGraderParameters{Contains: []string{"hi"}},
+	}
+
+	t.Run("after_turn < 1 rejected", func(t *testing.T) {
+		tc := makeTC([]Checkpoint{{AfterTurn: 0, Graders: []ValidatorInline{validGrader}}})
+		require.ErrorContains(t, tc.Validate(), "after_turn")
+	})
+
+	t.Run("missing graders rejected", func(t *testing.T) {
+		tc := makeTC([]Checkpoint{{AfterTurn: 1}})
+		require.ErrorContains(t, tc.Validate(), "graders")
+	})
+
+	t.Run("duplicate after_turn rejected", func(t *testing.T) {
+		tc := makeTC([]Checkpoint{
+			{AfterTurn: 1, Graders: []ValidatorInline{validGrader}},
+			{AfterTurn: 1, Graders: []ValidatorInline{validGrader}},
+		})
+		require.ErrorContains(t, tc.Validate(), "duplicate")
+	})
+
+	t.Run("after_turn exceeds turns rejected", func(t *testing.T) {
+		// 1 initial + 2 follow-ups = 3 turns; 4 is out of range.
+		tc := makeTC([]Checkpoint{{AfterTurn: 4, Graders: []ValidatorInline{validGrader}}})
+		require.ErrorContains(t, tc.Validate(), "exceeds")
+	})
+
+	t.Run("invalid on_failure rejected", func(t *testing.T) {
+		tc := makeTC([]Checkpoint{{AfterTurn: 1, OnFailure: "maybe", Graders: []ValidatorInline{validGrader}}})
+		require.ErrorContains(t, tc.Validate(), "on_failure")
+	})
+
+	t.Run("valid case accepted", func(t *testing.T) {
+		tc := makeTC([]Checkpoint{
+			{AfterTurn: 1, Graders: []ValidatorInline{validGrader}},
+			{AfterTurn: 3, OnFailure: CheckpointStop, Graders: []ValidatorInline{validGrader}},
+		})
+		require.NoError(t, tc.Validate())
+	})
+
+	t.Run("upper bound skipped for responder", func(t *testing.T) {
+		// With responder, total turn count is unknown at validation time;
+		// only a structural sanity check applies.
+		tc := &TestCase{
+			TestID:      "t",
+			DisplayName: "t",
+			Stimulus: TaskStimulus{
+				Message:   "go",
+				Responder: &ResponderConfig{Instructions: "x", MaxFollowups: 4},
+			},
+			Checkpoints: []Checkpoint{{AfterTurn: 5, Graders: []ValidatorInline{validGrader}}},
+		}
+		require.NoError(t, tc.Validate())
+	})
+}

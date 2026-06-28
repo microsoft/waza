@@ -192,6 +192,28 @@ type RunResult struct {
 	WorkspaceDir     string                   `json:"workspace_dir,omitempty"`
 	FailureArtifacts *FailureArtifacts        `json:"failure_artifacts,omitempty"`
 	Responder        *ResponderInfo           `json:"responder,omitempty"`
+	// Checkpoints captures per-turn checkpoint grader results, one entry per
+	// configured TestCase.Checkpoint that actually ran (i.e., turn index was
+	// reached). Empty / omitted when the task defines no checkpoints.
+	Checkpoints []CheckpointOutcome `json:"checkpoints,omitempty"`
+}
+
+// CheckpointOutcome captures the results of a single TestCase.Checkpoint that
+// ran during a multi-turn run. It mirrors the shape of the final-grader
+// validations map so dashboards can present per-turn pass/fail uniformly.
+type CheckpointOutcome struct {
+	// AfterTurn echoes Checkpoint.AfterTurn so consumers can sort/group.
+	AfterTurn int `json:"after_turn"`
+	// Status is StatusPassed when every grader in this checkpoint passed,
+	// StatusFailed when at least one grader failed.
+	Status Status `json:"status"`
+	// Validations maps grader identifier to result, identical to
+	// RunResult.Validations.
+	Validations map[string]GraderResults `json:"validations"`
+	// Stopped is true when this checkpoint had `on_failure: stop` and at
+	// least one grader failed, terminating the multi-turn loop after this
+	// turn.
+	Stopped bool `json:"stopped,omitempty"`
 }
 
 // FailureArtifacts captures diagnostic information when a run fails

@@ -31,6 +31,74 @@ type TestCase struct {
 	// nil inherits the eval-level value; 0 disables the check for this task.
 	FirstEventTimeoutSec *int              `yaml:"first_event_timeout_seconds,omitempty" json:"first_event_timeout_sec,omitempty"`
 	Validators           []ValidatorInline `yaml:"graders,omitempty" json:"validators,omitempty"`
+	// Checkpoints attach graders to intermediate turn boundaries in a
+	// multi-turn run. Each checkpoint specifies `after_turn: N` (1-based,
+	// where turn 1 is the initial prompt) and a list of graders that run
+	// against the cumulative conversation state at the end of that turn.
+	// Checkpoints are additive — task-level `graders:` still run against
+	// the final state after all turns complete.
+	Checkpoints []Checkpoint `yaml:"checkpoints,omitempty" json:"checkpoints,omitempty"`
+}
+
+// CheckpointOnFailure controls multi-turn behavior when a checkpoint fails.
+type CheckpointOnFailure string
+
+const (
+	// CheckpointContinue (default) records the failure and continues with the
+	// remaining turns and the final grader pass.
+	CheckpointContinue CheckpointOnFailure = "continue"
+	// CheckpointStop records the failure, sets the run's error message, and
+	// short-circuits the multi-turn loop so no further turns execute.
+	CheckpointStop CheckpointOnFailure = "stop"
+)
+
+// Checkpoint runs a slice of graders against the conversation state at the
+// end of a specific turn. See TestCase.Checkpoints for details.
+type Checkpoint struct {
+	// AfterTurn is the 1-based turn index at whose boundary the graders run.
+	// Turn 1 is the initial prompt; turns 2..N are follow-ups or responder
+	// replies. Must be >= 1.
+	AfterTurn int `yaml:"after_turn" json:"after_turn"`
+	// Graders is the slice of grader configurations to run at this turn
+	// boundary. Required. Reuses the same ValidatorInline shape as task-level
+	// `graders:` so any existing grader type is supported.
+	Graders []ValidatorInline `yaml:"graders" json:"graders"`
+	// OnFailure controls multi-turn behavior when any grader in this
+	// checkpoint fails. "continue" (default) records the failure and keeps
+	// going. "stop" short-circuits the multi-turn loop after the failure.
+	OnFailure CheckpointOnFailure `yaml:"on_failure,omitempty" json:"on_failure,omitempty"`
+}
+
+// EffectiveOnFailure returns the OnFailure value to use, defaulting to
+// CheckpointContinue when unset.
+func (c *Checkpoint) EffectiveOnFailure() CheckpointOnFailure {
+	if c.OnFailure == "" {
+		return CheckpointContinue
+	}
+	return c.OnFailure
+}
+
+// Validate checks the checkpoint has the required fields. Reuses
+// ValidatorInline.Validate for inner grader validation.
+func (c *Checkpoint) Validate() error {
+	if c.AfterTurn < 1 {
+		return fmt.Errorf("after_turn must be at least 1, got %d", c.AfterTurn)
+	}
+	if len(c.Graders) == 0 {
+		return fmt.Errorf("after_turn %d: graders is required and must contain at least one grader", c.AfterTurn)
+	}
+	switch c.OnFailure {
+	case "", CheckpointContinue, CheckpointStop:
+	default:
+		return fmt.Errorf("after_turn %d: on_failure must be %q or %q, got %q",
+			c.AfterTurn, CheckpointContinue, CheckpointStop, c.OnFailure)
+	}
+	for i := range c.Graders {
+		if err := c.Graders[i].Validate(); err != nil {
+			return fmt.Errorf("after_turn %d: grader[%d]: %w", c.AfterTurn, i, err)
+		}
+	}
+	return nil
 }
 
 // TaskStimulus defines the input for a task.
@@ -372,6 +440,43 @@ func (tc *TestCase) Validate() error {
 		}
 		if len(tc.Stimulus.FollowUps) > 0 {
 			return fmt.Errorf("%s: inputs.responder and inputs.follow_up_prompts are mutually exclusive; use one or the other", prefix)
+		}
+	}
+
+	// Validate checkpoints. When follow-up prompts (not a responder) drive
+	// the multi-turn run, the turn count is known statically so we can also
+	// reject checkpoints that exceed it.
+	if len(tc.Checkpoints) > 0 {
+		name := tc.TestID
+		if name == "" {
+			name = tc.DisplayName
+		}
+		prefix := "test case"
+		if name != "" {
+			prefix = fmt.Sprintf("test case %q", name)
+		}
+
+		// Static turn count: 1 initial + len(FollowUps) follow-ups when no
+		// responder is configured. Responder is dynamic — skip the upper bound.
+		maxTurns := 0
+		if tc.Stimulus.Responder == nil {
+			maxTurns = 1 + len(tc.Stimulus.FollowUps)
+		}
+
+		seen := make(map[int]bool, len(tc.Checkpoints))
+		for i := range tc.Checkpoints {
+			if err := tc.Checkpoints[i].Validate(); err != nil {
+				return fmt.Errorf("%s: checkpoints[%d]: %w", prefix, i, err)
+			}
+			at := tc.Checkpoints[i].AfterTurn
+			if seen[at] {
+				return fmt.Errorf("%s: checkpoints[%d]: duplicate after_turn %d (each turn may have at most one checkpoint)", prefix, i, at)
+			}
+			seen[at] = true
+			if maxTurns > 0 && at > maxTurns {
+				return fmt.Errorf("%s: checkpoints[%d].after_turn %d exceeds total turns (1 initial + %d follow_up_prompts = %d turns)",
+					prefix, i, at, len(tc.Stimulus.FollowUps), maxTurns)
+			}
 		}
 	}
 

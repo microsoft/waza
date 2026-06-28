@@ -1153,13 +1153,23 @@ func (r *EvalRunner) executeRun(ctx context.Context, tc *models.TestCase, runNum
 		})
 	}
 
+	// Build the per-turn checkpoint runner. Nil when the task has no
+	// checkpoints; safe to invoke methods on a nil receiver below.
+	cps := newCheckpointRunner(r, tc)
+
+	// Run any checkpoint scheduled after turn 1 before the multi-turn loop.
+	// If it requests stop, skip follow-ups/responder entirely.
+	stop := cps.runForTurn(ctx, 1, resp)
+
 	// Drive multi-turn: responder loop takes precedence; otherwise static
 	// follow-ups. Validation guarantees these are mutually exclusive.
 	var responderInfo *models.ResponderInfo
-	if tc.Stimulus.Responder != nil {
-		responderInfo = r.executeResponderLoop(ctx, tc, resp)
-	} else if len(tc.Stimulus.FollowUps) > 0 {
-		r.executeFollowUps(ctx, tc, resp)
+	if !stop && resp.ErrorMsg == "" {
+		if tc.Stimulus.Responder != nil {
+			responderInfo = r.executeResponderLoop(ctx, tc, resp, cps)
+		} else if len(tc.Stimulus.FollowUps) > 0 {
+			r.executeFollowUps(ctx, tc, resp, cps)
+		}
 	}
 
 	// Build validation context
@@ -1219,6 +1229,19 @@ func (r *EvalRunner) executeRun(ctx context.Context, tc *models.TestCase, runNum
 		}
 	}
 
+	// Surface checkpoint failures in the run status even when graders are
+	// skipped or when the final-pass graders all passed. A failed checkpoint
+	// without on_failure: stop should still mark the run as failed.
+	checkpointOutcomes := cps.results()
+	if status != models.StatusError {
+		for _, co := range checkpointOutcomes {
+			if co.Status != models.StatusPassed {
+				status = models.StatusFailed
+				break
+			}
+		}
+	}
+
 	// Build transcript
 	transcript := r.buildTranscript(resp)
 
@@ -1239,6 +1262,7 @@ func (r *EvalRunner) executeRun(ctx context.Context, tc *models.TestCase, runNum
 		SkillInvocations: skillInvocations,
 		WorkspaceDir:     resp.WorkspaceDir,
 		Responder:        responderInfo,
+		Checkpoints:      checkpointOutcomes,
 	})
 }
 
@@ -1340,8 +1364,10 @@ func rejectRelativePathPromptWithEmptySandbox(tc *models.TestCase, resources []e
 }
 
 // executeFollowUps sends follow-up prompts using the same workspace and session,
-// aggregating results into the original response.
-func (r *EvalRunner) executeFollowUps(ctx context.Context, tc *models.TestCase, resp *execution.ExecutionResponse) {
+// aggregating results into the original response. When cps is non-nil, after
+// each follow-up turn it runs the matching checkpoint (if any) and stops the
+// loop early when a checkpoint with on_failure: stop fails.
+func (r *EvalRunner) executeFollowUps(ctx context.Context, tc *models.TestCase, resp *execution.ExecutionResponse, cps *checkpointRunner) {
 	for i, prompt := range tc.Stimulus.FollowUps {
 		followReq, err := r.buildExecutionRequest(tc)
 		if err != nil {
@@ -1410,6 +1436,14 @@ func (r *EvalRunner) executeFollowUps(ctx context.Context, tc *models.TestCase, 
 				resp.Usage = models.AggregateUsageStats([]*models.UsageStats{resp.Usage, followResp.Usage})
 			}
 		}
+
+		// Run any checkpoint scheduled after this turn. Turn number is
+		// i+2 because the initial Execute was turn 1 and follow-ups are
+		// 0-indexed in tc.Stimulus.FollowUps. Stop the loop early when
+		// the checkpoint requested on_failure: stop.
+		if stop := cps.runForTurn(ctx, i+2, resp); stop {
+			break
+		}
 	}
 }
 
@@ -1417,7 +1451,10 @@ func (r *EvalRunner) executeFollowUps(ctx context.Context, tc *models.TestCase, 
 // user. After each agent turn it classifies the agent's latest message and
 // either replies (sending a new agent prompt), stops, or aborts on abstain.
 // It mutates resp in place (mirroring executeFollowUps) and returns a summary.
-func (r *EvalRunner) executeResponderLoop(ctx context.Context, tc *models.TestCase, resp *execution.ExecutionResponse) *models.ResponderInfo {
+// When cps is non-nil, checkpoints scheduled at each turn boundary run after
+// every successful reply, and the loop stops early when a checkpoint with
+// on_failure: stop fails.
+func (r *EvalRunner) executeResponderLoop(ctx context.Context, tc *models.TestCase, resp *execution.ExecutionResponse, cps *checkpointRunner) *models.ResponderInfo {
 	cfg := *tc.Stimulus.Responder
 	classifier := r.newClassifier(cfg, r.cfg.Spec().Config.ModelID)
 	defer func() {
@@ -1462,6 +1499,14 @@ func (r *EvalRunner) executeResponderLoop(ctx context.Context, tc *models.TestCa
 			}
 			info.FollowupsSent++
 			left--
+
+			// Run any checkpoint scheduled after this turn. The reply we
+			// just sent produced agent turn `info.FollowupsSent + 1`
+			// (initial Execute was turn 1, replies are turns 2..N).
+			if stop := cps.runForTurn(ctx, info.FollowupsSent+1, resp); stop {
+				info.Outcome = models.ResponderOutcomeStopped
+				return info
+			}
 		}
 	}
 

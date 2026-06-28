@@ -719,3 +719,186 @@ expected:
 	assert.Equal(t, "follow-up 1", eng.calls[1].Message)
 	assert.Equal(t, "follow-up 2", eng.calls[2].Message)
 }
+
+// --- Per-turn checkpoint tests (#358) ---
+
+func TestExecuteRun_Checkpoints_PassAfterEachTurn(t *testing.T) {
+	eng := &trackingEngine{}
+	spec := &models.EvalSpec{
+		SpecIdentity: models.SpecIdentity{Name: "cp-pass"},
+		Config:       models.Config{TrialsPerTask: 1, TimeoutSec: 30},
+	}
+	cfg := config.NewEvalConfig(spec)
+	runner := NewEvalRunner(cfg, eng)
+
+	tc := &models.TestCase{
+		TestID:      "cp-pass",
+		DisplayName: "checkpoint pass",
+		Stimulus: models.TaskStimulus{
+			Message:   "alpha",
+			FollowUps: []string{"beta"},
+		},
+		Checkpoints: []models.Checkpoint{
+			{
+				AfterTurn: 1,
+				Graders: []models.ValidatorInline{{
+					Identifier: "after-1",
+					Kind:       models.GraderKindText,
+					Parameters: models.TextGraderParameters{Contains: []string{"alpha"}},
+				}},
+			},
+			{
+				AfterTurn: 2,
+				Graders: []models.ValidatorInline{{
+					Identifier: "after-2",
+					Kind:       models.GraderKindText,
+					Parameters: models.TextGraderParameters{Contains: []string{"beta"}},
+				}},
+			},
+		},
+	}
+
+	result := runner.executeRun(context.Background(), tc, 1)
+	assert.Equal(t, models.StatusPassed, result.Status)
+	require.Len(t, result.Checkpoints, 2)
+	assert.Equal(t, 1, result.Checkpoints[0].AfterTurn)
+	assert.Equal(t, models.StatusPassed, result.Checkpoints[0].Status)
+	assert.False(t, result.Checkpoints[0].Stopped)
+	assert.Equal(t, 2, result.Checkpoints[1].AfterTurn)
+	assert.Equal(t, models.StatusPassed, result.Checkpoints[1].Status)
+	// Both turns ran.
+	assert.Equal(t, 2, len(eng.calls))
+}
+
+func TestExecuteRun_Checkpoints_FailContinue(t *testing.T) {
+	eng := &trackingEngine{}
+	spec := &models.EvalSpec{
+		SpecIdentity: models.SpecIdentity{Name: "cp-cont"},
+		Config:       models.Config{TrialsPerTask: 1, TimeoutSec: 30},
+	}
+	cfg := config.NewEvalConfig(spec)
+	runner := NewEvalRunner(cfg, eng)
+
+	tc := &models.TestCase{
+		TestID:      "cp-cont",
+		DisplayName: "checkpoint failed but continue",
+		Stimulus: models.TaskStimulus{
+			Message:   "alpha",
+			FollowUps: []string{"beta", "gamma"},
+		},
+		Checkpoints: []models.Checkpoint{
+			{
+				AfterTurn: 2,
+				// trackingEngine returns "response to: beta" after turn 2;
+				// asking for an impossible substring forces a fail.
+				Graders: []models.ValidatorInline{{
+					Identifier: "must-fail",
+					Kind:       models.GraderKindText,
+					Parameters: models.TextGraderParameters{Contains: []string{"NEVER_PRESENT"}},
+				}},
+			},
+		},
+	}
+
+	result := runner.executeRun(context.Background(), tc, 1)
+	// All 3 turns should still have run.
+	assert.Equal(t, 3, len(eng.calls), "loop must continue past failed checkpoint")
+	// Run status is failed because a checkpoint failed.
+	assert.Equal(t, models.StatusFailed, result.Status)
+	require.Len(t, result.Checkpoints, 1)
+	assert.Equal(t, models.StatusFailed, result.Checkpoints[0].Status)
+	assert.False(t, result.Checkpoints[0].Stopped)
+	assert.Empty(t, result.ErrorMsg)
+}
+
+func TestExecuteRun_Checkpoints_FailStop(t *testing.T) {
+	eng := &trackingEngine{}
+	spec := &models.EvalSpec{
+		SpecIdentity: models.SpecIdentity{Name: "cp-stop"},
+		Config:       models.Config{TrialsPerTask: 1, TimeoutSec: 30},
+	}
+	cfg := config.NewEvalConfig(spec)
+	runner := NewEvalRunner(cfg, eng)
+
+	tc := &models.TestCase{
+		TestID:      "cp-stop",
+		DisplayName: "checkpoint stop short-circuits",
+		Stimulus: models.TaskStimulus{
+			Message:   "alpha",
+			FollowUps: []string{"beta", "gamma"},
+		},
+		Checkpoints: []models.Checkpoint{
+			{
+				AfterTurn: 2,
+				OnFailure: models.CheckpointStop,
+				Graders: []models.ValidatorInline{{
+					Identifier: "must-fail",
+					Kind:       models.GraderKindText,
+					Parameters: models.TextGraderParameters{Contains: []string{"NEVER_PRESENT"}},
+				}},
+			},
+		},
+	}
+
+	result := runner.executeRun(context.Background(), tc, 1)
+	// Only 2 turns ran (initial + first follow-up); the loop must stop.
+	assert.Equal(t, 2, len(eng.calls), "loop must stop after failed on_failure=stop checkpoint")
+	assert.Equal(t, models.StatusError, result.Status)
+	require.Len(t, result.Checkpoints, 1)
+	assert.True(t, result.Checkpoints[0].Stopped)
+	assert.Contains(t, result.ErrorMsg, "checkpoint after_turn=2")
+}
+
+func TestExecuteRun_Checkpoints_BackwardCompat(t *testing.T) {
+	eng := &trackingEngine{}
+	spec := &models.EvalSpec{
+		SpecIdentity: models.SpecIdentity{Name: "cp-none"},
+		Config:       models.Config{TrialsPerTask: 1, TimeoutSec: 30},
+	}
+	cfg := config.NewEvalConfig(spec)
+	runner := NewEvalRunner(cfg, eng, WithSkipGraders())
+
+	tc := &models.TestCase{
+		TestID:      "cp-none",
+		DisplayName: "no checkpoints",
+		Stimulus:    models.TaskStimulus{Message: "alpha", FollowUps: []string{"beta"}},
+	}
+
+	result := runner.executeRun(context.Background(), tc, 1)
+	assert.Equal(t, models.StatusSkipped, result.Status)
+	assert.Nil(t, result.Checkpoints, "no checkpoints means nil slice")
+	assert.Equal(t, 2, len(eng.calls))
+}
+
+func TestExecuteRun_Checkpoints_SkipGradersHonored(t *testing.T) {
+	eng := &trackingEngine{}
+	spec := &models.EvalSpec{
+		SpecIdentity: models.SpecIdentity{Name: "cp-skip"},
+		Config:       models.Config{TrialsPerTask: 1, TimeoutSec: 30},
+	}
+	cfg := config.NewEvalConfig(spec)
+	runner := NewEvalRunner(cfg, eng, WithSkipGraders())
+
+	tc := &models.TestCase{
+		TestID:      "cp-skip",
+		DisplayName: "skip graders also skips checkpoints",
+		Stimulus:    models.TaskStimulus{Message: "alpha", FollowUps: []string{"beta"}},
+		Checkpoints: []models.Checkpoint{
+			{
+				AfterTurn: 1,
+				OnFailure: models.CheckpointStop,
+				Graders: []models.ValidatorInline{{
+					Identifier: "would-fail",
+					Kind:       models.GraderKindText,
+					Parameters: models.TextGraderParameters{Contains: []string{"NEVER_PRESENT"}},
+				}},
+			},
+		},
+	}
+
+	result := runner.executeRun(context.Background(), tc, 1)
+	// All turns ran because checkpoints are skipped along with graders.
+	assert.Equal(t, 2, len(eng.calls))
+	assert.Equal(t, models.StatusSkipped, result.Status)
+	assert.Empty(t, result.Checkpoints)
+}
