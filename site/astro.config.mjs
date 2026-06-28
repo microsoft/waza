@@ -54,6 +54,7 @@ export default defineConfig({
 					items: [
 						{ label: 'CLI Commands', slug: 'reference/cli' },
 						{ label: 'YAML Schema', slug: 'reference/schema' },
+						{ label: 'Rubric Library', slug: 'reference/rubrics' },
 						{ label: 'Releases', slug: 'reference/releases' },
 					],
 				},

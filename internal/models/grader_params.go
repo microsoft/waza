@@ -173,6 +173,11 @@ type PromptGraderParameters struct {
 	Model           string           `yaml:"model,omitempty" json:"model,omitempty"`
 	ContinueSession bool             `yaml:"continue_session,omitempty" json:"continue_session,omitempty"`
 	Mode            PromptGraderMode `yaml:"mode,omitempty" json:"mode,omitempty"`
+	// Rubric is an optional reference to a reusable rubric. It can be either
+	// the name of a built-in rubric ("groundedness") or a path to a local
+	// rubric markdown file ("./rubrics/my-custom.md"). When set, the rubric's
+	// body becomes the judge prompt unless an inline Prompt is also supplied.
+	Rubric string `yaml:"rubric,omitempty" json:"rubric,omitempty"`
 }
 
 func (PromptGraderParameters) isGraderParameters() {}

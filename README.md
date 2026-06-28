@@ -1370,7 +1370,7 @@ Waza supports multiple grader types for comprehensive evaluation:
 | `behavior` | Agent behavior constraints (tool calls, tokens, duration) | [docs/GRADERS.md](docs/GRADERS.md#behavior---agent-behavior-validation) |
 | `action_sequence` | Tool call sequence validation with F1 scoring | [docs/GRADERS.md](docs/GRADERS.md#action_sequence---tool-call-sequence-validation) |
 | `skill_invocation` | Skill orchestration sequence validation | [docs/GRADERS.md](docs/GRADERS.md#skill_invocation---skill-invocation-sequence-validation) |
-| `prompt` | LLM-as-judge evaluation with rubrics | [docs/GRADERS.md](docs/GRADERS.md#prompt---llm-based-evaluation) |
+| `prompt` | LLM-as-judge evaluation with rubrics (built-in: `groundedness`, `helpfulness`, `instruction-following`, `refusal-correctness`, `tool-use-appropriateness`) | [docs/GRADERS.md](docs/GRADERS.md#prompt---llm-based-evaluation) |
 | `trigger_tests` | Prompt trigger accuracy detection | [docs/GRADERS.md](docs/GRADERS.md#trigger-tests) |
 
 See the complete [Grader Reference](docs/GRADERS.md) for detailed configuration options and examples.

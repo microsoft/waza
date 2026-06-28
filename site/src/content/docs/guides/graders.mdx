@@ -325,10 +325,31 @@ This is the closest Waza match for OpenAI Evals `modelgraded` specs. See the eva
 
 | Option             | Type     | Default      | Description                                          |
 | ------------------ | -------- | ------------ | ---------------------------------------------------- |
-| `prompt`           | `string` | _(required)_ | Instructions for the judge LLM                       |
+| `prompt`           | `string` | _(required¹)_ | Instructions for the judge LLM                       |
+| `rubric`           | `string` | _(optional)_ | Reusable rubric by name (e.g. `groundedness`) or path to a local `.md` file. See [Rubric library](/reference/rubrics/). |
 | `model`            | `string` | _(required)_ | Model to use for judging                             |
 | `continue_session` | `bool`   | `false`      | Resume the agent's session (judge sees full context) |
 | `mode`             | `string` | `independent` | Judging mode: `independent` (standard) or `pairwise` (compare two, requires `--baseline`) |
+
+¹ Either `prompt` or `rubric` is required. When only `rubric` is set, the rubric's body becomes the judge prompt. When both are set, the inline `prompt` wins (useful for ad-hoc overrides while keeping the rubric metadata attached for reporting).
+
+### Using a reusable rubric
+
+```yaml
+- type: prompt
+  name: is_grounded
+  config:
+    rubric: groundedness   # built-in rubric by name
+    model: "gpt-4o-mini"
+
+- type: prompt
+  name: house_style
+  config:
+    rubric: ./rubrics/my-house-style.md   # local file
+    model: "gpt-4o-mini"
+```
+
+The rubric markdown ships with a YAML frontmatter (`name`, `version`, `scale`, `description`, optional `goldens`) so each rubric is versioned, self-documenting, and testable. See [Rubric library](/reference/rubrics/) for the full schema and the list of built-in rubrics.
 
 ### How it works
 
