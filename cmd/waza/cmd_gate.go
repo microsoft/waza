@@ -67,6 +67,7 @@ type GateReport struct {
 	RegressionExceeds bool           `json:"regression_exceeds_threshold"`
 	GoldenFailures    []GoldenStatus `json:"golden_failures,omitempty"`
 	GoldenTotal       int            `json:"golden_total"`
+	GoldenMustPass    bool           `json:"golden_must_pass"`
 	NewTasks          []string       `json:"new_tasks,omitempty"`
 	RemovedTasks      []string       `json:"removed_tasks,omitempty"`
 	OnNewTasks        string         `json:"on_new_tasks"`
@@ -87,7 +88,7 @@ type GoldenStatus struct {
 
 func newGateCommand() *cobra.Command {
 	opts := &gateOptions{
-		maxRegressionPct: 5.0,
+		maxRegressionPct: 0,
 		goldenMustPass:   true,
 		onNewTasks:       gatePolicyAllow,
 		onRemovedTasks:   gatePolicyWarn,
@@ -113,8 +114,12 @@ Exit codes (stable):
 Golden failures take precedence over plain regressions. Tasks are marked
 golden by adding 'golden: true' to the task YAML; the flag is persisted to
 results.json so the gate can read it without re-loading YAML.`,
-		Example: `  # Fail the build if pass rate drops more than 5%, or any golden task fails.
+		Example: `  # Fail the build on ANY drop in pass rate (default --max-regression-pct=0),
+  # or if any golden task fails.
   waza gate --baseline baseline.json --current results.json
+
+  # Tolerate up to 5pp drop in pass rate.
+  waza gate --baseline baseline.json --current results.json --max-regression-pct 5
 
   # GitHub Actions: emit ::error:: / ::warning:: annotations and a step summary.
   waza gate --baseline baseline.json --current results.json --format github-actions
@@ -122,6 +127,8 @@ results.json so the gate can read it without re-loading YAML.`,
   # Forbid new tasks (e.g. a frozen suite), tolerate removed ones silently.
   waza gate --baseline baseline.json --current results.json \
     --on-new-tasks fail --on-removed-tasks allow`,
+		SilenceUsage:  true,
+		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runGate(cmd.OutOrStdout(), opts)
 		},
@@ -169,9 +176,16 @@ func runGate(out io.Writer, opts *gateOptions) error {
 	if report.ExitCode == GateExitPass {
 		return nil
 	}
-	// Wrap a nil error so main.go honors the code without re-printing a message
-	// (renderGateReport already wrote the human/markdown/etc. summary).
-	return &ExitCodeError{Code: report.ExitCode}
+	// Render already wrote the full human/markdown/etc. summary. We set
+	// SilenceErrors on the cobra command, so Cobra won't echo this string;
+	// main.go uses ExitCodeError.Code for the process exit and skips printing
+	// when the wrapped error matches the rendered outcome. We still include a
+	// short message so callers using runGate directly (tests, library use)
+	// receive context.
+	return &ExitCodeError{
+		Code: report.ExitCode,
+		Err:  fmt.Errorf("waza gate: %s (exit %d)", report.Outcome, report.ExitCode),
+	}
 }
 
 func validateGateOptions(opts *gateOptions) error {
@@ -215,6 +229,7 @@ func buildGateReport(opts *gateOptions, baseline, current *models.EvaluationOutc
 		BaselinePassRate: baseline.Digest.SuccessRate,
 		CurrentPassRate:  current.Digest.SuccessRate,
 		MaxRegressionPct: opts.maxRegressionPct,
+		GoldenMustPass:   opts.goldenMustPass,
 		OnNewTasks:       opts.onNewTasks,
 		OnRemovedTasks:   opts.onRemovedTasks,
 	}
@@ -509,9 +524,17 @@ func renderGateGitHubActions(out io.Writer, r *GateReport) {
 		fprintf(out, "::notice title=Waza regression gate::Pass rate %.1f%% -> %.1f%% (delta %+.2fpp)\n",
 			r.BaselinePassRate*100, r.CurrentPassRate*100, r.PassRateDelta*100)
 	}
+	// Golden task annotations: ::error:: when the policy enforces them,
+	// ::warning:: when --golden-must-pass=false relaxes enforcement.
+	goldenLevel := "error"
+	goldenTitle := "Golden task failed"
+	if !r.GoldenMustPass {
+		goldenLevel = "warning"
+		goldenTitle = "Golden task failed (non-blocking)"
+	}
 	for _, g := range r.GoldenFailures {
-		fprintf(out, "::error title=Golden task failed::%s (%s) — current status %s\n",
-			g.TestID, g.DisplayName, g.CurrentStatus)
+		fprintf(out, "::%s title=%s::%s (%s) — current status %s\n",
+			goldenLevel, goldenTitle, g.TestID, g.DisplayName, g.CurrentStatus)
 	}
 	for _, w := range r.Warnings {
 		fprintf(out, "::warning title=Waza gate::%s\n", sanitizeGHA(w))

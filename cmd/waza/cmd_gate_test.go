@@ -48,7 +48,7 @@ func defaultOpts(baseline, current string) *gateOptions {
 	return &gateOptions{
 		baselinePath:     baseline,
 		currentPath:      current,
-		maxRegressionPct: 5.0,
+		maxRegressionPct: 0,
 		goldenMustPass:   true,
 		onNewTasks:       gatePolicyAllow,
 		onRemovedTasks:   gatePolicyWarn,
@@ -112,9 +112,33 @@ func TestGate_RegressionWithinThresholdPasses(t *testing.T) {
 	bp := writeOutcomeFile(t, dir, "b.json", base)
 	cp := writeOutcomeFile(t, dir, "c.json", curr)
 
+	// Default --max-regression-pct is 0, so we must explicitly allow the 3pp drop.
+	opts := defaultOpts(bp, cp)
+	opts.maxRegressionPct = 5.0
+
 	var buf bytes.Buffer
-	if err := runGate(&buf, defaultOpts(bp, cp)); err != nil {
+	if err := runGate(&buf, opts); err != nil {
 		t.Fatalf("expected pass, got %v", err)
+	}
+}
+
+func TestGate_DefaultZeroThresholdFailsAnyRegression(t *testing.T) {
+	// With the default --max-regression-pct=0, even a 3pp drop in pass rate
+	// must trigger a regression exit (code 1).
+	dir := t.TempDir()
+	base := makeOutcome(0.95, []models.TestOutcome{{TestID: "t1", Status: models.StatusPassed}})
+	curr := makeOutcome(0.92, []models.TestOutcome{{TestID: "t1", Status: models.StatusPassed}})
+	bp := writeOutcomeFile(t, dir, "b.json", base)
+	cp := writeOutcomeFile(t, dir, "c.json", curr)
+
+	var buf bytes.Buffer
+	err := runGate(&buf, defaultOpts(bp, cp))
+	var ec *ExitCodeError
+	if !errors.As(err, &ec) {
+		t.Fatalf("expected ExitCodeError for regression, got %v", err)
+	}
+	if ec.Code != GateExitRegression {
+		t.Errorf("expected exit %d, got %d", GateExitRegression, ec.Code)
 	}
 }
 
@@ -389,6 +413,37 @@ func TestGate_ReportFieldsForJSON(t *testing.T) {
 	}
 	if r.RegressionPct <= 0 {
 		t.Errorf("expected positive regression pct, got %v", r.RegressionPct)
+	}
+}
+
+func TestGate_FormatGitHubActionsDemotesGoldenWhenPolicyRelaxed(t *testing.T) {
+	// With --golden-must-pass=false, a golden task failure is non-blocking,
+	// so the GitHub Actions formatter must emit ::warning:: rather than
+	// ::error:: for it — otherwise CI would surface a misleading error.
+	dir := t.TempDir()
+	base := makeOutcome(0.90, []models.TestOutcome{
+		{TestID: "g1", Golden: true, Status: models.StatusPassed},
+	})
+	curr := makeOutcome(0.90, []models.TestOutcome{
+		{TestID: "g1", Golden: true, Status: models.StatusFailed},
+	})
+	bp := writeOutcomeFile(t, dir, "b.json", base)
+	cp := writeOutcomeFile(t, dir, "c.json", curr)
+
+	opts := defaultOpts(bp, cp)
+	opts.format = gateFormatGitHubActions
+	opts.goldenMustPass = false
+
+	var buf bytes.Buffer
+	if err := runGate(&buf, opts); err != nil {
+		t.Fatalf("expected pass when golden policy relaxed, got %v", err)
+	}
+	got := buf.String()
+	if !strings.Contains(got, "::warning title=Golden task failed (non-blocking)") {
+		t.Errorf("expected warning-level golden annotation, got:\n%s", got)
+	}
+	if strings.Contains(got, "::error title=Golden task failed::") {
+		t.Errorf("did not expect error-level golden annotation when policy relaxed, got:\n%s", got)
 	}
 }
 
