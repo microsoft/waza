@@ -18,6 +18,7 @@ type suggestTestEngine struct {
 	err        error
 	callIdx    int
 	initCalled bool
+	requests   []string
 }
 
 func (e *suggestTestEngine) Initialize(context.Context) error {
@@ -25,10 +26,11 @@ func (e *suggestTestEngine) Initialize(context.Context) error {
 	return nil
 }
 
-func (e *suggestTestEngine) Execute(_ context.Context, _ *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
+func (e *suggestTestEngine) Execute(_ context.Context, req *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
 	if !e.initCalled {
 		return nil, fmt.Errorf("initialize was not called before Execute!")
 	}
+	e.requests = append(e.requests, req.Message)
 
 	if e.err != nil {
 		return nil, e.err
@@ -117,6 +119,89 @@ tasks:
 	require.NoFileExists(t, filepath.Join(skillDir, "evals", "eval.yaml"))
 }
 
+func TestSuggestCommand_PassesCountAndFocusToPrompt(t *testing.T) {
+	skillDir := writeSuggestSkill(t)
+	engineOutput := `eval_yaml: |
+  name: generated-eval
+  description: generated
+  skill: suggest-skill
+  version: "1.0"
+  config:
+    trials_per_task: 1
+    timeout_seconds: 120
+    parallel: false
+    executor: mock
+    model: test
+  graders:
+    - type: code
+      name: has_output
+      config:
+        assertions:
+          - "len(output) > 0"
+  metrics:
+    - name: completion
+      weight: 1.0
+      threshold: 0.8
+  tasks:
+    - "tasks/*.yaml"
+tasks:
+  - path: tasks/basic.yaml
+    content: |
+      id: basic-001
+      name: Basic
+      inputs:
+        prompt: "hello"
+`
+
+	selectionOutput := "graders:\n  - code\n"
+
+	var engine *suggestTestEngine
+	orig := newSuggestEngine
+	newSuggestEngine = func(string) execution.AgentEngine {
+		engine = &suggestTestEngine{outputs: []string{selectionOutput, engineOutput}}
+		return engine
+	}
+	t.Cleanup(func() { newSuggestEngine = orig })
+
+	cmd := newSuggestCommand()
+	cmd.SetArgs([]string{skillDir, "--count", "5", "--focus", "parameters"})
+
+	require.NoError(t, cmd.Execute())
+	require.Len(t, engine.requests, 2)
+	require.Contains(t, engine.requests[1], "Generate EXACTLY 5 tasks")
+	require.Contains(t, engine.requests[1], "vary the parameters")
+}
+
+func TestSuggestCommand_RejectsInvalidFocus(t *testing.T) {
+	skillDir := writeSuggestSkill(t)
+	cmd := newSuggestCommand()
+	cmd.SetArgs([]string{skillDir, "--focus", "unknown"})
+
+	err := cmd.Execute()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "invalid --focus")
+}
+
+func TestSuggestCommand_RejectsNegativeCount(t *testing.T) {
+	skillDir := writeSuggestSkill(t)
+	cmd := newSuggestCommand()
+	cmd.SetArgs([]string{skillDir, "--count", "-1"})
+
+	err := cmd.Execute()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "invalid --count")
+}
+
+func TestSuggestCommand_RejectsForceWithoutApply(t *testing.T) {
+	skillDir := writeSuggestSkill(t)
+	cmd := newSuggestCommand()
+	cmd.SetArgs([]string{skillDir, "--force"})
+
+	err := cmd.Execute()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "--force requires --apply")
+}
+
 func TestSuggestCommand_ApplyWritesFiles(t *testing.T) {
 	skillDir := writeSuggestSkill(t)
 	engineOutput := `eval_yaml: |
@@ -174,6 +259,62 @@ fixtures:
 	require.FileExists(t, filepath.Join(skillDir, "evals", "tasks", "basic.yaml"))
 	require.FileExists(t, filepath.Join(skillDir, "evals", "fixtures", "sample.txt"))
 	require.Contains(t, out.String(), "output_dir")
+}
+
+func TestSuggestCommand_ApplyUsesProjectConfigFileNames(t *testing.T) {
+	skillDir := writeSuggestSkill(t)
+	require.NoError(t, os.WriteFile(filepath.Join(skillDir, ".waza.yaml"), []byte(`files:
+  evalFile: waza-eval.yaml
+  taskGlob: cases/*.waza-task.yaml
+  taskFileSuffix: .waza-task.yaml
+`), 0o644))
+
+	engineOutput := `eval_yaml: |
+  name: generated-eval
+  description: generated
+  skill: suggest-skill
+  version: "1.0"
+  config:
+    trials_per_task: 1
+    timeout_seconds: 120
+    parallel: false
+    executor: mock
+    model: test
+  graders:
+    - type: code
+      name: has_output
+      config:
+        assertions:
+          - "len(output) > 0"
+  metrics:
+    - name: completion
+      weight: 1.0
+      threshold: 0.8
+  tasks:
+    - "cases/*.waza-task.yaml"
+tasks:
+  - content: |
+      id: configured-001
+      name: Configured
+      inputs:
+        prompt: "hello"
+`
+
+	selectionOutput := "graders:\n  - code\n"
+
+	orig := newSuggestEngine
+	newSuggestEngine = func(string) execution.AgentEngine {
+		return &suggestTestEngine{outputs: []string{selectionOutput, engineOutput}}
+	}
+	t.Cleanup(func() { newSuggestEngine = orig })
+
+	cmd := newSuggestCommand()
+	cmd.SetArgs([]string{skillDir, "--apply"})
+
+	require.NoError(t, cmd.Execute())
+	require.FileExists(t, filepath.Join(skillDir, "evals", "waza-eval.yaml"))
+	require.FileExists(t, filepath.Join(skillDir, "evals", "cases", "task-01.waza-task.yaml"))
+	require.NoFileExists(t, filepath.Join(skillDir, "evals", "eval.yaml"))
 }
 
 func TestSuggestCommand_InvalidResponseFromMockEngine(t *testing.T) {

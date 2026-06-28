@@ -11,6 +11,7 @@ import (
 
 	waza "github.com/microsoft/waza"
 	"github.com/microsoft/waza/internal/execution"
+	"github.com/microsoft/waza/internal/projectconfig"
 	"github.com/microsoft/waza/internal/scaffold"
 	suggestpkg "github.com/microsoft/waza/internal/suggest"
 	"github.com/spf13/cobra"
@@ -132,7 +133,16 @@ func runSuggestCommand(cmd *cobra.Command, skillPath string, flags *suggestFlags
 		return nil
 	}
 
-	written, err := suggestion.WriteToDir(outputDir, suggestpkg.WriteOptions{Force: flags.force})
+	cfg, err := projectconfig.Load(outputDir)
+	if err != nil {
+		return err
+	}
+	written, err := suggestion.WriteToDir(outputDir, suggestpkg.WriteOptions{
+		Force:          flags.force,
+		EvalFile:       cfg.Files.EvalFile,
+		TaskGlob:       cfg.Files.TaskGlob,
+		TaskFileSuffix: cfg.Files.TaskFileSuffix,
+	})
 	if err != nil {
 		return err
 	}

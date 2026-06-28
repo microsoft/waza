@@ -138,6 +138,27 @@ func TestWriteToDirAllowsOverwriteWithForce(t *testing.T) {
 	require.Contains(t, string(raw), "id: task-01")
 }
 
+func TestWriteToDirUsesConfiguredEvalAndTaskNames(t *testing.T) {
+	dir := t.TempDir()
+	s := &Suggestion{
+		EvalYAML: validEvalYAML(),
+		Tasks: []GeneratedFile{
+			{Content: "id: custom-001\nname: Custom\ninputs:\n  prompt: hi\n"},
+		},
+	}
+
+	written, err := s.WriteToDir(dir, WriteOptions{
+		EvalFile:       "waza-eval.yaml",
+		TaskGlob:       "cases/*.waza-task.yaml",
+		TaskFileSuffix: ".waza-task.yaml",
+	})
+	require.NoError(t, err)
+	require.Len(t, written, 2)
+	require.FileExists(t, filepath.Join(dir, "waza-eval.yaml"))
+	require.FileExists(t, filepath.Join(dir, "cases", "task-01.waza-task.yaml"))
+	require.NoFileExists(t, filepath.Join(dir, "eval.yaml"))
+}
+
 func TestWriteToDirDetectsDuplicateTaskIDAgainstExisting(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, "tasks"), 0o755))
@@ -157,6 +178,40 @@ func TestWriteToDirDetectsDuplicateTaskIDAgainstExisting(t *testing.T) {
 	require.Contains(t, err.Error(), "diff:")
 	require.Contains(t, err.Error(), "--- tasks/previous.yaml (existing)")
 	require.Contains(t, err.Error(), "+name: Task One")
+}
+
+func TestWriteToDirErrorsOnUnreadableExistingTask(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "tasks", "broken.yaml"), 0o755))
+
+	s := minimalSuggestion()
+	_, err := s.WriteToDir(dir, WriteOptions{})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "reading existing task")
+	require.Contains(t, err.Error(), "collision check")
+}
+
+func TestWriteToDirReportsDuplicateExistingTaskIDs(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "tasks"), 0o755))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(dir, "tasks", "a.yaml"),
+		[]byte("id: duplicated\nname: A\ninputs:\n  prompt: a\n"),
+		0o644,
+	))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(dir, "tasks", "b.yaml"),
+		[]byte("id: duplicated\nname: B\ninputs:\n  prompt: b\n"),
+		0o644,
+	))
+
+	s := minimalSuggestion()
+	_, err := s.WriteToDir(dir, WriteOptions{})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "existing tasks contain duplicate id(s)")
+	require.Contains(t, err.Error(), "duplicated")
+	require.Contains(t, err.Error(), "tasks/a.yaml")
+	require.Contains(t, err.Error(), "tasks/b.yaml")
 }
 
 func TestWriteToDirRejectsDuplicateIDsWithinBatch(t *testing.T) {

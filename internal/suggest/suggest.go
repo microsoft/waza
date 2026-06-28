@@ -7,11 +7,13 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/models"
+	"github.com/microsoft/waza/internal/projectconfig"
 	"github.com/microsoft/waza/internal/scaffold"
 	"github.com/microsoft/waza/internal/skill"
 	"github.com/microsoft/waza/internal/validation"
@@ -70,6 +72,12 @@ type Options struct {
 type WriteOptions struct {
 	// Force overwrites existing files and duplicate task ids when true.
 	Force bool
+	// EvalFile is the eval filename to write/preserve in outputDir.
+	EvalFile string
+	// TaskGlob is the configured task glob, relative to outputDir.
+	TaskGlob string
+	// TaskFileSuffix is the configured suffix for generated task files.
+	TaskFileSuffix string
 }
 
 // GeneratedFile is a single generated artifact. For tasks, Confidence and
@@ -300,11 +308,15 @@ func (s *Suggestion) WriteToDir(outputDir string, opts WriteOptions) ([]string, 
 	if err := validateEvalYAML(s.EvalYAML); err != nil {
 		return nil, err
 	}
+	opts = opts.withDefaults()
 
 	// Pre-flight: validate each task against the schema *and* check for
 	// id collisions with existing tasks in outputDir.
-	existingIDs, err := collectExistingTaskIDs(outputDir)
+	existingIDs, err := collectExistingTaskIDs(outputDir, opts.TaskGlob)
 	if err != nil {
+		return nil, err
+	}
+	if err := rejectDuplicateExistingTaskIDs(outputDir, existingIDs); err != nil {
 		return nil, err
 	}
 
@@ -317,7 +329,7 @@ func (s *Suggestion) WriteToDir(outputDir string, opts WriteOptions) ([]string, 
 	seenIDs := make(map[string]string, len(s.Tasks))
 
 	for i, task := range s.Tasks {
-		path, err := normalizeGeneratedPath(task.Path, fmt.Sprintf("tasks/task-%02d.yaml", i+1))
+		path, err := normalizeGeneratedPath(task.Path, fallbackTaskPath(opts.TaskGlob, opts.TaskFileSuffix, i))
 		if err != nil {
 			return nil, err
 		}
@@ -343,11 +355,13 @@ func (s *Suggestion) WriteToDir(outputDir string, opts WriteOptions) ([]string, 
 				}
 				return nil, fmt.Errorf("refusing to overwrite existing task file %s (use --force to override)\n%s", target, diff)
 			}
-			if existingPath, ok := existingIDs[id]; ok {
+			if existingPaths := existingIDs[id]; len(existingPaths) > 0 {
+				existingPath := existingPaths[0]
 				rel, _ := filepath.Rel(outputDir, existingPath)
 				if rel == "" {
 					rel = existingPath
 				}
+				rel = filepath.ToSlash(rel)
 				diff, diffErr := buildOverwriteDiff(outputDir, existingPath, body)
 				if diffErr != nil {
 					return nil, diffErr
@@ -363,13 +377,13 @@ func (s *Suggestion) WriteToDir(outputDir string, opts WriteOptions) ([]string, 
 	}
 
 	var written []string
-	evalPath := filepath.Join(outputDir, "eval.yaml")
+	evalPath := filepath.Join(outputDir, opts.EvalFile)
 	if _, err := os.Stat(evalPath); err == nil && !opts.Force {
-		// Merge-safe: don't overwrite a curated eval.yaml.
+		// Merge-safe: don't overwrite a curated eval file.
 		// New task files will be picked up by its existing tasks: glob pattern.
 	} else {
 		if err := os.WriteFile(evalPath, []byte(strings.TrimSpace(s.EvalYAML)+"\n"), 0o644); err != nil {
-			return nil, fmt.Errorf("writing eval.yaml: %w", err)
+			return nil, fmt.Errorf("writing %s: %w", opts.EvalFile, err)
 		}
 		written = append(written, evalPath)
 	}
@@ -402,38 +416,83 @@ func (s *Suggestion) WriteToDir(outputDir string, opts WriteOptions) ([]string, 
 	return written, nil
 }
 
-// collectExistingTaskIDs scans outputDir/tasks/*.yaml and returns a map of
-// task id -> file path for collision detection. Missing directories are
-// treated as empty.
-func collectExistingTaskIDs(outputDir string) (map[string]string, error) {
-	ids := make(map[string]string)
-	tasksDir := filepath.Join(outputDir, "tasks")
-	entries, err := os.ReadDir(tasksDir)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return ids, nil
-		}
-		return nil, fmt.Errorf("scanning tasks dir: %w", err)
+func (opts WriteOptions) withDefaults() WriteOptions {
+	if strings.TrimSpace(opts.EvalFile) == "" {
+		opts.EvalFile = projectconfig.DefaultEvalFile
 	}
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-		name := entry.Name()
-		if !strings.HasSuffix(name, ".yaml") && !strings.HasSuffix(name, ".yml") {
-			continue
-		}
-		full := filepath.Join(tasksDir, name)
+	if strings.TrimSpace(opts.TaskGlob) == "" {
+		opts.TaskGlob = projectconfig.DefaultTaskGlob
+	}
+	if strings.TrimSpace(opts.TaskFileSuffix) == "" {
+		opts.TaskFileSuffix = projectconfig.DefaultTaskFileSuffix
+	}
+	return opts
+}
+
+func fallbackTaskPath(taskGlob, taskFileSuffix string, index int) string {
+	dir := filepath.Dir(taskGlob)
+	if dir == "." || dir == "" {
+		dir = "tasks"
+	}
+	suffix := strings.TrimSpace(taskFileSuffix)
+	if suffix == "" {
+		suffix = projectconfig.DefaultTaskFileSuffix
+	}
+	return filepath.Join(dir, fmt.Sprintf("task-%02d%s", index+1, suffix))
+}
+
+// collectExistingTaskIDs scans the configured task glob and returns task id ->
+// file paths for collision detection. Missing directories are treated as empty.
+func collectExistingTaskIDs(outputDir string, taskGlob string) (map[string][]string, error) {
+	ids := make(map[string][]string)
+	matches, err := filepath.Glob(filepath.Join(outputDir, taskGlob))
+	if err != nil {
+		return nil, fmt.Errorf("scanning tasks with glob %q: %w", taskGlob, err)
+	}
+	sort.Strings(matches)
+	for _, full := range matches {
 		data, err := os.ReadFile(full)
 		if err != nil {
-			continue
+			return nil, fmt.Errorf("reading existing task %s for collision check: %w", full, err)
 		}
 		id := extractTaskID(data)
 		if id != "" {
-			ids[id] = full
+			ids[id] = append(ids[id], full)
 		}
 	}
 	return ids, nil
+}
+
+func rejectDuplicateExistingTaskIDs(outputDir string, ids map[string][]string) error {
+	var duplicateIDs []string
+	for id, paths := range ids {
+		if len(paths) > 1 {
+			sort.Strings(paths)
+			duplicateIDs = append(duplicateIDs, id)
+		}
+	}
+	if len(duplicateIDs) == 0 {
+		return nil
+	}
+	sort.Strings(duplicateIDs)
+	var parts []string
+	for _, id := range duplicateIDs {
+		parts = append(parts, fmt.Sprintf("%q in %s", id, strings.Join(relPaths(outputDir, ids[id]), ", ")))
+	}
+	return fmt.Errorf("existing tasks contain duplicate id(s): %s", strings.Join(parts, "; "))
+}
+
+func relPaths(baseDir string, paths []string) []string {
+	out := make([]string, 0, len(paths))
+	for _, path := range paths {
+		rel, err := filepath.Rel(baseDir, path)
+		if err != nil || rel == "" {
+			rel = path
+		}
+		out = append(out, filepath.ToSlash(rel))
+	}
+	sort.Strings(out)
+	return out
 }
 
 // extractTaskID pulls the top-level `id:` field from task YAML.
