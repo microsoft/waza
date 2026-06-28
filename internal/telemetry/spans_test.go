@@ -137,11 +137,33 @@ func TestPayloadRedactionDefault(t *testing.T) {
 		require.False(t, hasResult, "tool result must be redacted by default in span %q", s.Name())
 	}
 
-	// Hash + length surrogates are present on the turn span instead.
+	// Hash + length surrogates are present on the turn span under the
+	// prompt-namespaced keys (so other redacted payloads do not collide).
 	turnSpan := findSpan(t, spans, "waza.turn")
 	turnAttrs := attrMap(turnSpan)
-	require.NotEmpty(t, turnAttrs[AttrWazaPayloadHash].AsString())
-	require.Greater(t, turnAttrs[AttrWazaPayloadLength].AsInt64(), int64(0))
+	require.NotEmpty(t, turnAttrs[AttrWazaPromptHash].AsString())
+	require.Greater(t, turnAttrs[AttrWazaPromptLength].AsInt64(), int64(0))
+
+	// Completion surrogate keys must not collide with prompt keys when
+	// both end up on the same span.
+	require.NotEmpty(t, turnAttrs[AttrWazaCompletionHash].AsString())
+	require.Greater(t, turnAttrs[AttrWazaCompletionLength].AsInt64(), int64(0))
+	require.NotEqual(t,
+		turnAttrs[AttrWazaPromptHash].AsString(),
+		turnAttrs[AttrWazaCompletionHash].AsString(),
+		"prompt and completion hashes must be distinct attributes")
+
+	// Tool args + result on the tool span are also distinct.
+	toolSpan := findSpan(t, spans, "waza.tool_call")
+	toolAttrs := attrMap(toolSpan)
+	require.NotEmpty(t, toolAttrs[AttrWazaToolArgsHash].AsString())
+	require.Greater(t, toolAttrs[AttrWazaToolArgsLength].AsInt64(), int64(0))
+	require.NotEmpty(t, toolAttrs[AttrWazaToolResultHash].AsString())
+	require.Greater(t, toolAttrs[AttrWazaToolResultLength].AsInt64(), int64(0))
+	require.NotEqual(t,
+		toolAttrs[AttrWazaToolArgsHash].AsString(),
+		toolAttrs[AttrWazaToolResultHash].AsString(),
+		"tool args and result hashes must be distinct attributes")
 }
 
 func TestPayloadIncludeOptIn(t *testing.T) {

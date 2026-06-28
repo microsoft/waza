@@ -33,20 +33,33 @@ const (
 	AttrGenAIToolResult           = attribute.Key("gen_ai.tool.result")
 
 	// Waza-specific keys for shape that GenAI semconv does not yet cover.
-	AttrWazaEvalName      = attribute.Key("waza.eval.name")
-	AttrWazaEvalSkill     = attribute.Key("waza.eval.skill")
-	AttrWazaEvalEngine    = attribute.Key("waza.eval.engine")
-	AttrWazaEvalRunID     = attribute.Key("waza.eval.run_id")
-	AttrWazaTaskID        = attribute.Key("waza.task.id")
-	AttrWazaTaskName      = attribute.Key("waza.task.name")
-	AttrWazaTurnNumber    = attribute.Key("waza.turn.number")
-	AttrWazaTurnKind      = attribute.Key("waza.turn.kind")
-	AttrWazaSessionID     = attribute.Key("waza.session.id")
-	AttrWazaWorkspaceDir  = attribute.Key("waza.workspace.dir")
-	AttrWazaToolSuccess   = attribute.Key("waza.tool.success")
-	AttrWazaPremiumReqs   = attribute.Key("waza.usage.premium_requests")
-	AttrWazaPayloadHash   = attribute.Key("waza.payload.sha256")
-	AttrWazaPayloadLength = attribute.Key("waza.payload.length")
+	AttrWazaEvalName     = attribute.Key("waza.eval.name")
+	AttrWazaEvalSkill    = attribute.Key("waza.eval.skill")
+	AttrWazaEvalEngine   = attribute.Key("waza.eval.engine")
+	AttrWazaEvalRunID    = attribute.Key("waza.eval.run_id")
+	AttrWazaTaskID       = attribute.Key("waza.task.id")
+	AttrWazaTaskName     = attribute.Key("waza.task.name")
+	AttrWazaTurnNumber   = attribute.Key("waza.turn.number")
+	AttrWazaTurnTrial    = attribute.Key("waza.turn.trial")
+	AttrWazaTurnKind     = attribute.Key("waza.turn.kind")
+	AttrWazaSessionID    = attribute.Key("waza.session.id")
+	AttrWazaWorkspaceDir = attribute.Key("waza.workspace.dir")
+	AttrWazaToolSuccess  = attribute.Key("waza.tool.success")
+	AttrWazaPremiumReqs  = attribute.Key("waza.usage.premium_requests")
+
+	// Payload-redaction surrogate keys. When --otel-include-payloads is
+	// off, payloadAttr emits a sha256 + length pair instead of the raw
+	// payload. Keys are namespaced per payload slot so multiple redacted
+	// payloads on the same span (prompt + completion, or tool args +
+	// result) do not collide.
+	AttrWazaPromptHash       = attribute.Key("waza.prompt.sha256")
+	AttrWazaPromptLength     = attribute.Key("waza.prompt.length")
+	AttrWazaCompletionHash   = attribute.Key("waza.completion.sha256")
+	AttrWazaCompletionLength = attribute.Key("waza.completion.length")
+	AttrWazaToolArgsHash     = attribute.Key("waza.tool.arguments.sha256")
+	AttrWazaToolArgsLength   = attribute.Key("waza.tool.arguments.length")
+	AttrWazaToolResultHash   = attribute.Key("waza.tool.result.sha256")
+	AttrWazaToolResultLength = attribute.Key("waza.tool.result.length")
 )
 
 // GenAI system value identifying waza-driven runs through the GitHub Copilot

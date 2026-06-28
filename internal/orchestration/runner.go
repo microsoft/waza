@@ -1092,7 +1092,8 @@ func (r *EvalRunner) executeRun(ctx context.Context, tc *models.TestCase, runNum
 	// span, not this turn — they open their own turn spans below — to keep
 	// the hierarchy flat: task → turn(initial) + turn(follow-up) + ...
 	turnCtx, turnSpan := telemetry.StartTurnSpan(ctx, r.telemetry, telemetry.TurnInfo{
-		Number: runNum,
+		Number: 1,
+		Trial:  runNum,
 		Kind:   "initial",
 		Model:  r.cfg.Spec().Config.ModelID,
 		Prompt: req.Message,
@@ -1361,18 +1362,36 @@ func (r *EvalRunner) executeFollowUps(ctx context.Context, tc *models.TestCase, 
 			resp.ErrorMsg = fmt.Sprintf("follow-up %d/%d setup failed: %v", i+1, len(tc.Stimulus.FollowUps), err)
 			break
 		}
-		followCtx, cancelFollow := context.WithTimeout(ctx, timeout)
+		// Wrap each follow-up Execute call in its own turn span so
+		// multi-turn telemetry (tool_call/model_call children) nests
+		// under the right turn. Turn numbers start at 2 because the
+		// initial Execute is turn 1.
+		turnCtx, turnSpan := telemetry.StartTurnSpan(ctx, r.telemetry, telemetry.TurnInfo{
+			Number:       i + 2,
+			Kind:         "follow_up",
+			Model:        r.cfg.Spec().Config.ModelID,
+			SessionID:    resp.SessionID,
+			WorkspaceDir: resp.WorkspaceDir,
+			Prompt:       prompt,
+		})
+		followCtx, cancelFollow := context.WithTimeout(turnCtx, timeout)
 		followResp, err := r.engine.Execute(followCtx, followReq)
 		cancelFollow()
 		if err != nil {
+			turnSpan.End()
 			resp.ErrorMsg = fmt.Sprintf("follow-up %d/%d failed: %v", i+1, len(tc.Stimulus.FollowUps), err)
 			break
 		}
 
 		if followResp.ErrorMsg != "" {
+			emitChildSpans(turnCtx, r.telemetry, turnSpan, followResp, r.cfg.Spec().Config.ModelID)
+			turnSpan.End()
 			resp.ErrorMsg = fmt.Sprintf("follow-up %d/%d: %s", i+1, len(tc.Stimulus.FollowUps), followResp.ErrorMsg)
 			break
 		}
+
+		emitChildSpans(turnCtx, r.telemetry, turnSpan, followResp, r.cfg.Spec().Config.ModelID)
+		turnSpan.End()
 
 		// Aggregate results
 		resp.Events = append(resp.Events, followResp.Events...)
@@ -1480,7 +1499,19 @@ func (r *EvalRunner) sendResponderReply(ctx context.Context, tc *models.TestCase
 		resp.ErrorMsg = fmt.Sprintf("responder reply %d setup failed: %v", turn, err)
 		return false
 	}
-	followCtx, cancelFollow := context.WithTimeout(ctx, timeout)
+	// Wrap the responder reply in its own turn span so its tool_call
+	// and model_call children nest correctly. The initial Execute was
+	// turn 1; each reply is turn 1 + reply_index.
+	turnCtx, turnSpan := telemetry.StartTurnSpan(ctx, r.telemetry, telemetry.TurnInfo{
+		Number:       turn + 1,
+		Kind:         "responder_reply",
+		Model:        r.cfg.Spec().Config.ModelID,
+		SessionID:    resp.SessionID,
+		WorkspaceDir: resp.WorkspaceDir,
+		Prompt:       answer,
+	})
+	defer turnSpan.End()
+	followCtx, cancelFollow := context.WithTimeout(turnCtx, timeout)
 	followResp, err := r.engine.Execute(followCtx, followReq)
 	cancelFollow()
 	if err != nil {
@@ -1488,10 +1519,12 @@ func (r *EvalRunner) sendResponderReply(ctx context.Context, tc *models.TestCase
 		return false
 	}
 	if followResp.ErrorMsg != "" {
+		emitChildSpans(turnCtx, r.telemetry, turnSpan, followResp, r.cfg.Spec().Config.ModelID)
 		resp.ErrorMsg = fmt.Sprintf("responder reply %d: %s", turn, followResp.ErrorMsg)
 		return false
 	}
 
+	emitChildSpans(turnCtx, r.telemetry, turnSpan, followResp, r.cfg.Spec().Config.ModelID)
 	resp.Events = append(resp.Events, followResp.Events...)
 	resp.ToolCalls = append(resp.ToolCalls, followResp.ToolCalls...)
 	resp.SkillInvocations = append(resp.SkillInvocations, followResp.SkillInvocations...)

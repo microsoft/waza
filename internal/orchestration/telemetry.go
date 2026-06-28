@@ -30,6 +30,7 @@ func emitChildSpans(turnCtx context.Context, p *telemetry.Provider, turnSpan tra
 		result := marshalResult(tc.Result)
 		telemetry.RecordToolCall(turnCtx, p, telemetry.ToolCallInfo{
 			Name:      tc.Name,
+			CallID:    tc.ID,
 			Arguments: args,
 			Result:    result,
 			Success:   tc.Success,

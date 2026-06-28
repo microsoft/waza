@@ -134,7 +134,10 @@ func newExporter(ctx context.Context, cfg Config) (sdktrace.SpanExporter, error)
 		}
 		return otlptracehttp.New(ctx, opts...)
 	case ExporterStdout:
-		return stdouttrace.New(stdouttrace.WithPrettyPrint())
+		// Newline-delimited JSON (one span per line) so the output can be
+		// piped to tools like `jq -c` without the multi-line indentation
+		// added by stdouttrace.WithPrettyPrint().
+		return stdouttrace.New()
 	case ExporterFile:
 		f, err := os.OpenFile(cfg.FilePath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
 		if err != nil {
@@ -142,7 +145,8 @@ func newExporter(ctx context.Context, cfg Config) (sdktrace.SpanExporter, error)
 		}
 		// stdouttrace closes its writer on Shutdown via WithWriter; we wrap
 		// the file so the descriptor is released when the provider stops.
-		return stdouttrace.New(stdouttrace.WithWriter(f), stdouttrace.WithPrettyPrint())
+		// No WithPrettyPrint so the file is newline-delimited JSON.
+		return stdouttrace.New(stdouttrace.WithWriter(f))
 	default:
 		return nil, fmt.Errorf("unsupported exporter %q", string(cfg.Exporter))
 	}

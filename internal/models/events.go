@@ -11,6 +11,10 @@ import (
 
 // ToolCall represents a tool invocation
 type ToolCall struct {
+	// ID is the engine-assigned identifier for this call (e.g. the
+	// Copilot SDK's ToolCallID). Used to correlate tool invocations in
+	// observability backends.
+	ID        string                               `json:"id,omitempty"`
 	Name      string                               `json:"name"`
 	Arguments ToolCallArgs                         `json:"arguments,omitempty"`
 	Result    *copilot.ToolExecutionCompleteResult `json:"result,omitempty"`
@@ -167,6 +171,7 @@ func FilterToolCalls(sessionEvents []copilot.SessionEvent) []ToolCall {
 			}
 
 			tc := &ToolCall{
+				ID:   start.ToolCallID,
 				Name: start.ToolName,
 			}
 

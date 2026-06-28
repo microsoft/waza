@@ -101,8 +101,18 @@ waza run eval.yaml --otel-exporter file --otel-file traces.json
 ## Payload redaction
 
 By default waza strips prompt, tool-argument, tool-result, and completion
-content from spans — only the SHA-256 digest and byte length are recorded. This
-keeps user prompts and tool outputs out of your trace backend.
+content from spans — only the SHA-256 digest and byte length are recorded under
+per-slot keys so multiple redacted payloads on the same span (e.g. prompt +
+completion, or tool arguments + result) do not collide:
+
+| Slot | Hash key | Length key |
+| --- | --- | --- |
+| Prompt | `waza.prompt.sha256` | `waza.prompt.length` |
+| Completion | `waza.completion.sha256` | `waza.completion.length` |
+| Tool arguments | `waza.tool.arguments.sha256` | `waza.tool.arguments.length` |
+| Tool result | `waza.tool.result.sha256` | `waza.tool.result.length` |
+
+This keeps user prompts and tool outputs out of your trace backend.
 
 To capture full payloads (e.g. for debugging in a private collector), pass:
 
@@ -110,7 +120,8 @@ To capture full payloads (e.g. for debugging in a private collector), pass:
 waza run eval.yaml --otel-exporter otlp --otel-include-payloads
 ```
 
-When enabled, the following attributes carry full content:
+When enabled, the following attributes carry full content instead of the
+hash/length surrogates:
 - `gen_ai.prompt` — user/system prompt sent to the model
 - `gen_ai.completion` — model completion text
 - `gen_ai.tool.arguments` — JSON arguments passed to a tool

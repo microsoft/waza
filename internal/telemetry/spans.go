@@ -28,7 +28,8 @@ type TaskInfo struct {
 // TurnInfo carries identifiers for one Execute call (initial prompt,
 // follow-up, or responder reply).
 type TurnInfo struct {
-	Number       int
+	Number       int    // 1-indexed turn within the conversation (initial=1)
+	Trial        int    // optional trial number when the same task is re-run
 	Kind         string // "initial" | "follow_up" | "responder_reply"
 	Model        string
 	SessionID    string
@@ -95,6 +96,9 @@ func StartTurnSpan(ctx context.Context, p *Provider, info TurnInfo) (context.Con
 		AttrGenAIOperationName.String(GenAIOperationChat),
 		AttrWazaTurnNumber.Int(info.Number),
 	}
+	if info.Trial > 0 {
+		attrs = append(attrs, AttrWazaTurnTrial.Int(info.Trial))
+	}
 	if info.Kind != "" {
 		attrs = append(attrs, AttrWazaTurnKind.String(info.Kind))
 	}
@@ -108,7 +112,7 @@ func StartTurnSpan(ctx context.Context, p *Provider, info TurnInfo) (context.Con
 		attrs = append(attrs, AttrWazaWorkspaceDir.String(info.WorkspaceDir))
 	}
 	if info.Prompt != "" {
-		attrs = append(attrs, payloadAttr(AttrGenAIPromptText, info.Prompt, p.Config().IncludePayloads)...)
+		attrs = append(attrs, payloadAttr(AttrGenAIPromptText, AttrWazaPromptHash, AttrWazaPromptLength, info.Prompt, p.Config().IncludePayloads)...)
 	}
 	return tr.Start(ctx, "waza.turn", trace.WithAttributes(attrs...))
 }
@@ -159,10 +163,10 @@ func RecordToolCall(ctx context.Context, p *Provider, info ToolCallInfo) {
 	}
 	include := p.Config().IncludePayloads
 	if info.Arguments != "" {
-		attrs = append(attrs, payloadAttr(AttrGenAIToolArguments, info.Arguments, include)...)
+		attrs = append(attrs, payloadAttr(AttrGenAIToolArguments, AttrWazaToolArgsHash, AttrWazaToolArgsLength, info.Arguments, include)...)
 	}
 	if info.Result != "" {
-		attrs = append(attrs, payloadAttr(AttrGenAIToolResult, info.Result, include)...)
+		attrs = append(attrs, payloadAttr(AttrGenAIToolResult, AttrWazaToolResultHash, AttrWazaToolResultLength, info.Result, include)...)
 	}
 	_, span := tr.Start(ctx, "waza.tool_call", trace.WithAttributes(attrs...))
 	if !info.Success {
@@ -177,23 +181,25 @@ func RecordCompletion(span trace.Span, p *Provider, output string) {
 	if span == nil || output == "" {
 		return
 	}
-	for _, kv := range payloadAttr(AttrGenAICompletionText, output, p.Config().IncludePayloads) {
+	for _, kv := range payloadAttr(AttrGenAICompletionText, AttrWazaCompletionHash, AttrWazaCompletionLength, output, p.Config().IncludePayloads) {
 		span.SetAttributes(kv)
 	}
 }
 
 // payloadAttr returns the attribute(s) that represent a payload string,
 // honoring the redaction policy. When include is true the raw value is
-// emitted under key. When include is false the value is dropped and a
-// SHA-256 hash + length are emitted instead so backends can still group
-// identical payloads.
-func payloadAttr(key attribute.Key, value string, include bool) []attribute.KeyValue {
+// emitted under rawKey. When include is false the raw value is dropped and
+// a SHA-256 hash + length are emitted under hashKey / lengthKey so backends
+// can still group identical payloads. Hash/length keys are per-payload-slot
+// so multiple redacted payloads on the same span (e.g. tool args + result)
+// do not collide.
+func payloadAttr(rawKey, hashKey, lengthKey attribute.Key, value string, include bool) []attribute.KeyValue {
 	if include {
-		return []attribute.KeyValue{key.String(value)}
+		return []attribute.KeyValue{rawKey.String(value)}
 	}
 	sum := sha256.Sum256([]byte(value))
 	return []attribute.KeyValue{
-		AttrWazaPayloadHash.String(hex.EncodeToString(sum[:])),
-		AttrWazaPayloadLength.Int(len(value)),
+		hashKey.String(hex.EncodeToString(sum[:])),
+		lengthKey.Int(len(value)),
 	}
 }

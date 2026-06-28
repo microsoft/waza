@@ -49,6 +49,7 @@ func TestNewSessionEventsCollector(t *testing.T) {
 	toolCalls := coll.ToolCalls()
 	require.Equal(t, []models.ToolCall{
 		{
+			ID:   "toolu_012vQAiz1EzkYvHcYVELY94P",
 			Name: "skill",
 			Arguments: models.ToolCallArgs{
 				Skill: "example",
