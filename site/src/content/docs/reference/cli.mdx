@@ -90,6 +90,11 @@ waza run [eval.yaml | skill-name | agent-name]
 | `--no-cache` | | bool | false | Explicitly disable result caching |
 | `--keep-workspace` | | bool | false | Preserve temp workspaces after execution for debugging |
 | `--auto-file-issue` | | bool | false | Auto-file or update a GitHub issue for failing runs (requires `gh` and `GITHUB_REPOSITORY`) |
+| `--otel-exporter` | | string | | Export OpenTelemetry traces using `otlp`, `stdout`, or `file`. Off by default. See [OpenTelemetry Tracing](/guides/otel/). |
+| `--otel-endpoint` | | string | | OTLP endpoint (host:port or URL); only used with `--otel-exporter=otlp` |
+| `--otel-headers` | | string | | Comma-separated `key=value` OTLP headers (e.g. for auth) |
+| `--otel-file` | | string | | File path for span JSON when `--otel-exporter=file` |
+| `--otel-include-payloads` | | bool | false | Include prompt/tool-arg/tool-result/completion content in spans (default: redacted to `sha256`+length) |
 
 ### Examples
 

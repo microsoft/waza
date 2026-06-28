@@ -331,6 +331,11 @@ Run an evaluation benchmark from a spec file.
 | `--skip-graders` | | Skip grading (execution only); grade later with `waza grade` |
 | `--keep-workspace` | | Preserve temp workspaces after execution for debugging |
 | `--auto-file-issue` | | Auto-file or update a GitHub issue for failing runs (requires `gh` and `GITHUB_REPOSITORY`) |
+| `--otel-exporter` | | Export OpenTelemetry traces using `otlp`, `stdout`, or `file`. Off by default. See [OpenTelemetry Tracing](https://microsoft.github.io/waza/guides/otel/). |
+| `--otel-endpoint` | | OTLP endpoint (host:port or URL); only used with `--otel-exporter=otlp` |
+| `--otel-headers` | | Comma-separated `key=value` OTLP headers (e.g. for auth) |
+| `--otel-file` | | File path for span JSON when `--otel-exporter=file` |
+| `--otel-include-payloads` | | Include prompt/tool-arg/tool-result/completion content in spans (default: redacted to `sha256`+length) |
 
 **Result Caching**
 

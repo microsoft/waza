@@ -37,6 +37,7 @@ import (
 	"github.com/microsoft/waza/internal/reporting"
 	"github.com/microsoft/waza/internal/session"
 	"github.com/microsoft/waza/internal/storage"
+	"github.com/microsoft/waza/internal/telemetry"
 	"github.com/microsoft/waza/internal/trigger"
 	"github.com/microsoft/waza/internal/utils"
 	"github.com/microsoft/waza/internal/workspace"
@@ -75,6 +76,18 @@ var (
 	noSkillsFlag    bool
 	keepWorkspace   bool
 	autoFileIssue   bool
+
+	otelExporter        string
+	otelEndpoint        string
+	otelHeaders         string
+	otelFile            string
+	otelIncludePayloads bool
+
+	// runTelemetry holds the configured OpenTelemetry provider for the
+	// current `waza run` invocation. It is initialized in runCommandE and
+	// passed to every constructed runner via WithTelemetry. nil when
+	// telemetry is disabled.
+	runTelemetry *telemetry.Provider
 
 	// newCopilotClientFn allows you to override the client used by the copilot engine, for this command.
 	newCopilotClientFn func(clientOptions *copilot.ClientOptions) execution.CopilotClient
@@ -157,6 +170,13 @@ You can also specify a skill name to run its eval:
 	cmd.Flags().BoolVar(&keepWorkspace, "keep-workspace", false, "Preserve temp workspace directories after execution for debugging")
 	cmd.Flags().BoolVar(&autoFileIssue, "auto-file-issue", false, "Auto-file or update a GitHub issue for failing runs (requires gh and GITHUB_REPOSITORY)")
 
+	// OpenTelemetry trace export (off by default).
+	cmd.Flags().StringVar(&otelExporter, "otel-exporter", "", "Export OpenTelemetry traces using exporter: otlp|stdout|file (default: disabled)")
+	cmd.Flags().StringVar(&otelEndpoint, "otel-endpoint", "", "OTLP endpoint (host:port or URL); only used with --otel-exporter=otlp")
+	cmd.Flags().StringVar(&otelHeaders, "otel-headers", "", "Comma-separated key=value OTLP headers (e.g. for auth)")
+	cmd.Flags().StringVar(&otelFile, "otel-file", "", "File path for span JSON when --otel-exporter=file")
+	cmd.Flags().BoolVar(&otelIncludePayloads, "otel-include-payloads", false, "Include prompt/tool-arg/tool-result/completion content in spans (default: redacted, only sha256+length emitted)")
+
 	return cmd
 }
 
@@ -206,6 +226,42 @@ func runCommandE(cmd *cobra.Command, args []string) error {
 	if cmd.Flags().Changed("trials") && trials < 1 {
 		return fmt.Errorf("--trials must be at least 1")
 	}
+
+	// Initialize OpenTelemetry trace export if requested. The provider
+	// outlives every per-model engine and runner so spans share one root
+	// flush at process exit.
+	otelHeadersMap, err := telemetry.ParseHeaders(otelHeaders)
+	if err != nil {
+		return fmt.Errorf("--otel-headers: %w", err)
+	}
+	telemetryCfg := telemetry.Config{
+		Exporter:        telemetry.ExporterKind(otelExporter),
+		Endpoint:        otelEndpoint,
+		Headers:         otelHeadersMap,
+		FilePath:        otelFile,
+		IncludePayloads: otelIncludePayloads,
+		ServiceName:     "waza",
+		ServiceVersion:  version,
+	}
+	tp, err := telemetry.New(cmd.Context(), telemetryCfg)
+	if err != nil {
+		return fmt.Errorf("init opentelemetry: %w", err)
+	}
+	runTelemetry = tp
+	if tp.Enabled() {
+		// Register globally so libraries that read from the global tracer
+		// provider (e.g. instrumented HTTP clients) can attach to the same
+		// trace. Best-effort — engines without OTel support are unaffected.
+		tp.SetGlobal()
+	}
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := tp.Shutdown(shutdownCtx); err != nil {
+			slog.Warn("opentelemetry shutdown failed", "error", err)
+		}
+		runTelemetry = nil
+	}()
 
 	// Apply config defaults for output-dir when not explicitly set
 	if outputDir == "" && !cmd.Flags().Changed("output-dir") && outputPath == "" {
@@ -714,6 +770,9 @@ func runSingleModel(cmd *cobra.Command, spec *models.EvalSpec, specPath string, 
 	}
 	if skipGradersFlag {
 		runnerOpts = append(runnerOpts, orchestration.WithSkipGraders())
+	}
+	if runTelemetry != nil && runTelemetry.Enabled() {
+		runnerOpts = append(runnerOpts, orchestration.WithTelemetry(runTelemetry))
 	}
 	runner := newBenchmarkRunner(cfg, engine, runnerOpts...)
 

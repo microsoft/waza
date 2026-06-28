@@ -47,6 +47,7 @@ export default defineConfig({
 						{ label: 'Web Dashboard', slug: 'guides/dashboard' },
 						{ label: 'Explore the Dashboard', slug: 'guides/dashboard-explore' },
 						{ label: 'CI/CD Integration', slug: 'guides/ci-cd' },
+						{ label: 'OpenTelemetry Tracing', slug: 'guides/otel' },
 					],
 				},
 				{
