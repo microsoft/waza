@@ -21,9 +21,10 @@ const (
 	//       and RunResult.tool_events[] for per-task tool metrics (#366). Purely additive
 	//       over 1.0, so 1.0 artifacts continue to load without migration.
 	// 1.2 — additive: RunResult.snapshot_path pointer to a self-contained
-	//       snapshot.json artifact (#367). Optional and omitted when
-	//       snapshot capture is not enabled, so 1.0 and 1.1 artifacts
-	//       continue to load without migration.
+	//       snapshot.json artifact (#367), and EvalSpec.adversarial block
+	//       declaring fault-injection packs to run (#365). Both fields are
+	//       optional, so 1.0 and 1.1 artifacts continue to load without
+	//       migration.
 	CurrentSchemaVersion = "1.2"
 )
 

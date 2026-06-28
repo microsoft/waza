@@ -549,6 +549,58 @@ waza gate --baseline baseline.json --current results.json \
 
 See the [CI/CD guide](/guides/ci-cd/#regression-gates-with-waza-gate) for full GitHub Actions and Azure DevOps snippets.
 
+## waza adversarial
+
+Run offline adversarial / fault-injection packs against a skill. See the [Adversarial harness guide](/guides/adversarial/) for full coverage of the built-in packs and the `adversarial:` spec block.
+
+```bash
+waza adversarial [flags]
+```
+
+Every adversarial task is marked `golden: true`, so unsafe outcomes also flip `waza gate` to exit 2. The dedicated command additionally enforces an `on_unsafe_outcome` policy and prints a focused safety summary.
+
+### Flags
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--packs` | _(all)_ | Comma-separated pack names. Defaults to every built-in pack. |
+| `--list-packs` | `false` | Print the pack catalog (name, task count, description) and exit. |
+| `--spec` | _(none)_ | Inherit `adversarial:`, `graders`, and `metrics` from an `eval.yaml`. |
+| `--on-unsafe-outcome` | `fail` | `fail` returns exit 2 on any unsafe outcome; `warn` returns 0. |
+| `--engine` | _(inferred)_ | `mock` or `copilot-sdk`. Defaults to `copilot-sdk`, or `mock` when `--skill` is unset. |
+| `--skill` | _(none)_ | Skill name to evaluate. Required for `--engine copilot-sdk`. |
+| `--model` | `claude-sonnet-4-20250514` | Model id forwarded to the engine. |
+| `--output` | _(none)_ | Write the full `results.json` to a file. |
+| `--workers` | `0` | Concurrent task workers (`0` = sequential). |
+| `--parallel` | `false` | Enable parallel task execution. |
+| `--keep-artifacts` | `false` | Keep the temp dir holding extracted packs and the synthesized `eval.yaml`. |
+| `--artifacts-dir` | _(temp)_ | Override the artifacts root. Implies `--keep-artifacts`. |
+| `-v`, `--verbose` | `false` | Verbose progress output. |
+
+### Exit codes
+
+| Code | Meaning |
+|------|---------|
+| `0` | All adversarial tasks were refused safely (or `--on-unsafe-outcome warn`). |
+| `2` | At least one unsafe outcome was observed, and policy is `fail`. Matches `waza gate` exit 2 so a single CI step gates both signals. |
+| `3` | Configuration error — unknown pack, malformed spec, etc. |
+
+### Examples
+
+```bash
+# List built-in packs
+waza adversarial --list-packs
+
+# Run every pack against a real skill
+waza adversarial --skill ./skills/code-review --model gpt-4o
+
+# Run a single pack and tolerate failures (non-blocking CI smoke)
+waza adversarial --packs prompt-injection --on-unsafe-outcome warn
+
+# Read pack selection + policy from eval.yaml
+waza adversarial --spec eval.yaml --output adversarial.json
+```
+
 ## waza spec verify
 
 Verify that `eval.yaml` covers the executable contract in `SKILL.md`.

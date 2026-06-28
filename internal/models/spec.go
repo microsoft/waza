@@ -17,18 +17,19 @@ import (
 type EvalSpec struct {
 	SchemaVersion string `yaml:"schemaVersion,omitempty" json:"schemaVersion,omitempty"`
 	SpecIdentity  `yaml:",inline"`
-	SkillName     string            `yaml:"skill"`
-	Version       string            `yaml:"version"`
-	Config        Config            `yaml:"config"`
-	Hooks         hooks.HooksConfig `yaml:"hooks,omitempty"`
-	MCPMocks      []MCPMockConfig   `yaml:"mcp_mocks,omitempty" json:"mcp_mocks,omitempty"`
-	Inputs        map[string]string `yaml:"inputs,omitempty" json:"inputs,omitempty"`
-	TasksFrom     string            `yaml:"tasks_from,omitempty" json:"tasks_from,omitempty"`
-	Range         [2]int            `yaml:"range,omitempty" json:"range,omitempty"`
-	Graders       []GraderConfig    `yaml:"graders"`
-	Metrics       []MeasurementDef  `yaml:"metrics"`
-	Tasks         []string          `yaml:"tasks"`
-	Baseline      bool              `yaml:"baseline,omitempty" json:"baseline,omitempty"`
+	SkillName     string             `yaml:"skill"`
+	Version       string             `yaml:"version"`
+	Config        Config             `yaml:"config"`
+	Hooks         hooks.HooksConfig  `yaml:"hooks,omitempty"`
+	MCPMocks      []MCPMockConfig    `yaml:"mcp_mocks,omitempty" json:"mcp_mocks,omitempty"`
+	Adversarial   *AdversarialConfig `yaml:"adversarial,omitempty" json:"adversarial,omitempty"`
+	Inputs        map[string]string  `yaml:"inputs,omitempty" json:"inputs,omitempty"`
+	TasksFrom     string             `yaml:"tasks_from,omitempty" json:"tasks_from,omitempty"`
+	Range         [2]int             `yaml:"range,omitempty" json:"range,omitempty"`
+	Graders       []GraderConfig     `yaml:"graders"`
+	Metrics       []MeasurementDef   `yaml:"metrics"`
+	Tasks         []string           `yaml:"tasks"`
+	Baseline      bool               `yaml:"baseline,omitempty" json:"baseline,omitempty"`
 }
 
 type SpecIdentity struct {
@@ -39,18 +40,19 @@ type SpecIdentity struct {
 type strictEvalSpec struct {
 	SchemaVersion string `yaml:"schemaVersion,omitempty"`
 	SpecIdentity  `yaml:",inline"`
-	SkillName     string            `yaml:"skill"`
-	Version       string            `yaml:"version"`
-	Config        Config            `yaml:"config"`
-	Hooks         hooks.HooksConfig `yaml:"hooks,omitempty"`
-	MCPMocks      []MCPMockConfig   `yaml:"mcp_mocks,omitempty"`
-	Inputs        map[string]string `yaml:"inputs,omitempty"`
-	TasksFrom     string            `yaml:"tasks_from,omitempty"`
-	Range         [2]int            `yaml:"range,omitempty"`
-	Graders       []strictGrader    `yaml:"graders"`
-	Metrics       []MeasurementDef  `yaml:"metrics"`
-	Tasks         []string          `yaml:"tasks"`
-	Baseline      bool              `yaml:"baseline,omitempty"`
+	SkillName     string             `yaml:"skill"`
+	Version       string             `yaml:"version"`
+	Config        Config             `yaml:"config"`
+	Hooks         hooks.HooksConfig  `yaml:"hooks,omitempty"`
+	MCPMocks      []MCPMockConfig    `yaml:"mcp_mocks,omitempty"`
+	Adversarial   *AdversarialConfig `yaml:"adversarial,omitempty"`
+	Inputs        map[string]string  `yaml:"inputs,omitempty"`
+	TasksFrom     string             `yaml:"tasks_from,omitempty"`
+	Range         [2]int             `yaml:"range,omitempty"`
+	Graders       []strictGrader     `yaml:"graders"`
+	Metrics       []MeasurementDef   `yaml:"metrics"`
+	Tasks         []string           `yaml:"tasks"`
+	Baseline      bool               `yaml:"baseline,omitempty"`
 }
 
 type strictGrader struct {
@@ -94,6 +96,72 @@ type MCPMockConfig struct {
 	Name     string                 `yaml:"name" json:"name"`
 	Fixtures string                 `yaml:"fixtures,omitempty" json:"fixtures,omitempty"`
 	Tools    map[string]MCPMockTool `yaml:"tools,omitempty" json:"tools,omitempty"`
+}
+
+// AdversarialOnUnsafeOutcome controls how unsafe outcomes from adversarial
+// packs are reported to the caller. It is consumed by `waza adversarial` and
+// `waza gate` to decide whether an unsafe outcome should fail CI or only warn.
+type AdversarialOnUnsafeOutcome string
+
+const (
+	// AdversarialOnUnsafeOutcomeFail (default) makes any unsafe outcome a hard
+	// failure: the CLI exits non-zero and `waza gate` reports a regression.
+	AdversarialOnUnsafeOutcomeFail AdversarialOnUnsafeOutcome = "fail"
+	// AdversarialOnUnsafeOutcomeWarn keeps the exit code at zero and only
+	// records the unsafe outcome in the results.json + stderr summary.
+	AdversarialOnUnsafeOutcomeWarn AdversarialOnUnsafeOutcome = "warn"
+)
+
+// AdversarialConfig declares offline adversarial / fault-injection packs to
+// run against the skill under test. Packs ship as deterministic, embedded
+// YAML + fixture bundles so they execute identically in CI without any live
+// payload generation. See `waza adversarial` for the runner.
+type AdversarialConfig struct {
+	// Packs is the list of built-in pack identifiers to run (e.g.
+	// "prompt-injection", "scope-bypass"). Custom packs may be referenced
+	// via `path:./relative/dir`. Required; must contain at least one entry.
+	Packs []string `yaml:"packs" json:"packs"`
+	// OnUnsafeOutcome controls whether unsafe outcomes fail the run
+	// ("fail", default) or only warn ("warn"). When empty, "fail" is used.
+	OnUnsafeOutcome AdversarialOnUnsafeOutcome `yaml:"on_unsafe_outcome,omitempty" json:"on_unsafe_outcome,omitempty"`
+}
+
+// EffectiveOnUnsafeOutcome returns the configured policy, defaulting to
+// AdversarialOnUnsafeOutcomeFail when unset.
+func (a *AdversarialConfig) EffectiveOnUnsafeOutcome() AdversarialOnUnsafeOutcome {
+	if a == nil || a.OnUnsafeOutcome == "" {
+		return AdversarialOnUnsafeOutcomeFail
+	}
+	return a.OnUnsafeOutcome
+}
+
+// Validate checks the adversarial config has at least one pack and that the
+// on_unsafe_outcome policy is one of the supported values.
+func (a *AdversarialConfig) Validate() error {
+	if a == nil {
+		return nil
+	}
+	if len(a.Packs) == 0 {
+		return fmt.Errorf("adversarial.packs must list at least one pack")
+	}
+	seen := make(map[string]bool, len(a.Packs))
+	for i, p := range a.Packs {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			return fmt.Errorf("adversarial.packs[%d] is empty", i)
+		}
+		if seen[p] {
+			return fmt.Errorf("adversarial.packs[%d] %q is duplicated", i, p)
+		}
+		seen[p] = true
+	}
+	switch a.OnUnsafeOutcome {
+	case "", AdversarialOnUnsafeOutcomeFail, AdversarialOnUnsafeOutcomeWarn:
+	default:
+		return fmt.Errorf("adversarial.on_unsafe_outcome must be %q or %q, got %q",
+			AdversarialOnUnsafeOutcomeFail, AdversarialOnUnsafeOutcomeWarn, a.OnUnsafeOutcome)
+	}
+	return nil
 }
 
 // MCPMockTool defines a mocked MCP tool and its response fixtures.
@@ -380,6 +448,18 @@ func (s *EvalSpec) Validate() error {
 				return fmt.Errorf("mcp_mocks[%d].name %q is duplicated", i, name)
 			}
 			seen[name] = true
+		}
+	}
+	if s.Adversarial != nil {
+		_, minor, err := parseSchemaVersion(s.SchemaVersion)
+		if err != nil {
+			return err
+		}
+		if minor < 2 {
+			return fmt.Errorf("adversarial requires schemaVersion 1.2 or newer")
+		}
+		if err := s.Adversarial.Validate(); err != nil {
+			return err
 		}
 	}
 	if s.Config.TrialsPerTask < 1 {

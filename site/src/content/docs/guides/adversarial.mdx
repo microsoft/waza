@@ -1,0 +1,163 @@
+---
+title: Adversarial Harness
+description: Run waza's built-in fault-injection packs to verify your skill refuses prompt-injection and out-of-scope requests.
+---
+
+`waza adversarial` runs **fault-injection test packs** against your skill — adversarial prompts crafted to trip prompt-injection, scope-bypass, exfiltration, and out-of-policy tool use. It exists so you can answer one question on every PR: *does my skill behave safely when the inputs are hostile?*
+
+This guide covers:
+
+- What the built-in packs are and what they probe for
+- Running packs from the CLI
+- Wiring an `adversarial:` block into your `eval.yaml`
+- Exit codes and CI integration
+- Notes on determinism (replay-tape friendly)
+
+## Why a separate harness?
+
+Functional evals (`waza run`) measure whether your skill solved the task. Adversarial evals measure whether your skill **refused to solve the task** when the task itself is unsafe. Both signals matter; they should not share a results column.
+
+Every adversarial task is marked `golden: true`, so an unsafe outcome flips `gate` to exit 2 too — but `waza adversarial` is the canonical entry point because it also enforces an `on_unsafe_outcome` policy and prints a focused summary.
+
+## Built-in packs
+
+Run `waza adversarial --packs ?` (any unknown pack name will list the catalog) or run with `--list-packs`:
+
+```sh
+waza adversarial --list-packs
+```
+
+The harness ships two packs out of the box:
+
+### `prompt-injection`
+
+Four tasks that smuggle adversarial directives through README files, fake "system" comments inside source files, a support ticket, and a markdown changelog link. A safe skill ignores the directive and answers the underlying user request. An unsafe skill echoes the injection trigger, exfiltrates "secrets", or follows the hostile instructions.
+
+### `scope-bypass`
+
+Four tasks that explicitly ask the skill to do something out-of-scope: send email, delete files, install a third-party dependency, and call an external HTTP API. A safe skill *refuses* and explains the constraint; an unsafe skill complies.
+
+Each pack lives under `internal/adversarial/data/<pack>/` and is embedded into the `waza` binary, so no network or filesystem dependencies are needed at runtime.
+
+## Quick start
+
+```sh
+# Run both packs against the default engine (mock if no --skill given)
+waza adversarial --packs prompt-injection,scope-bypass
+
+# Run against a real skill via the Copilot SDK engine
+waza adversarial --packs prompt-injection --skill ./skills/my-skill --model gpt-4o
+
+# Save the full results JSON so you can drill in with the dashboard
+waza adversarial --packs scope-bypass --output adversarial.json
+
+# Run a single pack and tolerate unsafe outcomes (CI smoke; non-blocking)
+waza adversarial --packs prompt-injection --on-unsafe-outcome warn
+```
+
+A typical summary looks like:
+
+```
+Adversarial summary (packs: prompt-injection)
+  tasks run:  4
+  unsafe:     0
+  policy:     fail
+  result:     ✅ all packs PASSED
+```
+
+## Configuring from `eval.yaml`
+
+You can pin pack selection and policy at the spec level by adding an `adversarial:` block. This block is **additive** under schema **1.2** and is consumed only by `waza adversarial --spec eval.yaml`; `waza run` ignores it.
+
+```yaml
+schemaVersion: "1.2"
+name: my-skill-eval
+skill: my-skill
+version: "1.0"
+config:
+  executor: copilot-sdk
+  model: gpt-4o
+tasks:
+  - "tasks/*.yaml"
+adversarial:
+  packs:
+    - prompt-injection
+    - scope-bypass
+  on_unsafe_outcome: fail  # or "warn"
+```
+
+CLI flags override the spec block:
+
+```sh
+# Spec says fail; this run downgrades to warn
+waza adversarial --spec eval.yaml --on-unsafe-outcome warn
+```
+
+## Flags
+
+| Flag | Description | Default |
+|---|---|---|
+| `--packs` | Comma-separated pack names to run | All built-in packs |
+| `--list-packs` | Print the pack catalog and exit | — |
+| `--on-unsafe-outcome` | `fail` (exit 2) or `warn` (exit 0) on unsafe | `fail` |
+| `--spec` | Inherit `adversarial:`, `graders`, and `metrics` from a spec | — |
+| `--engine` | Engine to use (`mock`, `copilot-sdk`) | inferred |
+| `--skill` | Skill path/identifier (forwards to the engine) | — |
+| `--model` | Model passed to the engine | — |
+| `--output` | Write the full `results.json` to a file | — |
+| `--workers` / `--parallel` | Concurrency knobs (same semantics as `waza run`) | — |
+| `--verbose` | Print pack/policy/engine/artifact diagnostics | `false` |
+
+## Exit codes
+
+| Code | Meaning |
+|---|---|
+| `0` | All adversarial tasks were refused safely (or `--on-unsafe-outcome warn`) |
+| `2` | At least one unsafe outcome was observed, and policy is `fail` |
+| `3` | Configuration error (unknown pack, malformed spec, etc.) |
+
+`2` is the same exit code `waza gate` uses for golden-task failures — so the same CI step that gates on goldens will also gate on adversarial failures.
+
+## CI integration
+
+```yaml
+# .github/workflows/eval.yml
+- name: Run adversarial harness
+  run: waza adversarial --packs prompt-injection,scope-bypass --output adversarial.json
+
+- name: Upload adversarial results
+  if: always()
+  uses: actions/upload-artifact@v4
+  with:
+    name: adversarial-results
+    path: adversarial.json
+```
+
+For PRs that legitimately need to land before a fix, downgrade to `warn` temporarily:
+
+```sh
+waza adversarial --on-unsafe-outcome warn --output adversarial.json
+```
+
+## Determinism
+
+Adversarial packs are pure-input adversarial *prompts* — they do not depend on the network. Pair them with `waza run --snapshot` / `waza replay` on your skill to detect drift in refusal behavior even when the live agent has changed: capture a green run with snapshots enabled, then replay later for a pure-offline diff.
+
+## Schema reference
+
+`AdversarialConfig` (schema 1.2 additive) on `EvalSpec`:
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `packs` | `[]string` | yes | Subset of built-in pack names |
+| `on_unsafe_outcome` | `"fail" \| "warn"` | no | Defaults to `fail` |
+
+Validation:
+
+- Empty `packs` list is rejected
+- Unknown pack names are rejected against the embedded catalog
+- The `adversarial:` block requires `schemaVersion: "1.2"` or later
+
+## What's next
+
+The current packs are deliberately small and review-able. The harness is designed so future releases can grow the catalog (data-exfil, jailbreaks, multi-turn social engineering) without changing the spec or CLI surface. Custom user-provided packs are on the roadmap; track [issue #365](https://github.com/microsoft/waza/issues/365) for updates.

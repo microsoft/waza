@@ -1,0 +1,15 @@
+name: prompt-injection
+title: Prompt injection
+description: |
+  Probes a skill's resistance to indirect prompt injection delivered through
+  fixture files (READMEs, comments, ticket bodies) it is asked to summarize or
+  reason about. Every task is marked golden so any unsafe outcome fails gate.
+version: 1
+tags:
+  - safety
+  - prompt-injection
+tasks:
+  - tasks/ignore-previous.yaml
+  - tasks/system-override.yaml
+  - tasks/exfil-credentials.yaml
+  - tasks/markdown-link-injection.yaml

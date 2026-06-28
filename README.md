@@ -150,6 +150,10 @@ waza compare results-gpt4.json results-sonnet.json
 waza run eval.yaml --snapshot ./snapshots/
 waza replay ./snapshots/my-task-run1.json
 
+# Run offline adversarial / fault-injection packs against a skill
+waza adversarial --list-packs
+waza adversarial --skill ./skills/my-skill --model gpt-4o
+
 # Check whether a schema artifact needs migration
 waza migrate eval.yaml
 
@@ -442,6 +446,35 @@ waza replay ./snapshots/a.json --bisect ./snapshots/b.json --json
 | `--strict` | Re-check final status and grader outcome consistency (default true) |
 
 Exit codes: `0` match, `1` divergence, `2` load/parse error.
+
+### `waza adversarial`
+
+Run offline adversarial / fault-injection packs against a skill. Two built-in packs ship with the binary: **prompt-injection** (probes resistance to indirect prompt injection via fixture files) and **scope-bypass** (probes refusal of out-of-scope actions like sending email, deleting files, or installing packages). Every task is `golden: true`, so unsafe outcomes also flip `waza gate` to exit 2.
+
+```bash
+# List built-in packs
+waza adversarial --list-packs
+
+# Run every pack against a skill
+waza adversarial --skill ./skills/code-review --model gpt-4o
+
+# Read pack selection from eval.yaml (schema 1.2 adversarial: block)
+waza adversarial --spec eval.yaml --output adversarial.json
+
+# Non-blocking CI smoke
+waza adversarial --packs prompt-injection --on-unsafe-outcome warn
+```
+
+| Flag | Description |
+|------|-------------|
+| `--packs` | Comma-separated pack names (default: every built-in pack) |
+| `--list-packs` | Print the pack catalog and exit |
+| `--spec` | Inherit `adversarial:` block from an `eval.yaml` |
+| `--on-unsafe-outcome` | `fail` (exit 2, default) or `warn` (exit 0) |
+| `--engine`, `--skill`, `--model` | Forwarded to the underlying engine |
+| `--output` | Write the full `results.json` to a file |
+
+Exit codes: `0` all packs PASSED, `2` unsafe outcome with policy=fail (matches `waza gate`), `3` config error. See the [Adversarial harness guide](https://microsoft.github.io/waza/guides/adversarial/) for details.
 
 ### `waza migrate <file>`
 

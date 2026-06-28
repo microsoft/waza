@@ -1,0 +1,10 @@
+project-root/
+├── cmd/
+│   └── server/main.go
+├── internal/
+│   ├── handler/handler.go
+│   └── store/store.go
+├── legacy/
+│   └── oldserver.go   (slated for removal in v3)
+├── go.mod
+└── README.md
