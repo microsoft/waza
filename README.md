@@ -429,7 +429,7 @@ Verify that an eval suite exercises the promises made in `SKILL.md`. The command
 | `--skill <path>` | Path to `SKILL.md` or a skill directory |
 | `--eval <path>` | Path to `eval.yaml` |
 | `--format <fmt>` | Output format: `human`, `json`, or `github-actions` |
-| `--warn` | Report uncovered requirements and exit 0 (default) |
+| `--warn` | Report uncovered requirements and exit 0 (default); set false to suppress GitHub Actions warning annotations |
 | `--fail` | Exit 1 when uncovered requirements are greater than or equal to `--threshold` |
 | `--threshold <n>` | Uncovered requirement threshold for `--fail` (default: 1) |
 | `--semantic` | Opt in to LLM-assisted semantic matching after deterministic matching |

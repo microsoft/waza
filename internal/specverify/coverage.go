@@ -199,7 +199,13 @@ func taskRefFromTestCase(path string, tc *models.TestCase) TaskRef {
 	}
 	values = append(values, tc.Expectation.BehaviorRules.MustUseTool...)
 	values = append(values, tc.Expectation.BehaviorRules.ForbidTool...)
-	for key, value := range tc.Stimulus.Metadata {
+	metadataKeys := make([]string, 0, len(tc.Stimulus.Metadata))
+	for key := range tc.Stimulus.Metadata {
+		metadataKeys = append(metadataKeys, key)
+	}
+	sort.Strings(metadataKeys)
+	for _, key := range metadataKeys {
+		value := tc.Stimulus.Metadata[key]
 		values = append(values, key, fmt.Sprint(value))
 	}
 	for _, resource := range tc.Stimulus.Resources {

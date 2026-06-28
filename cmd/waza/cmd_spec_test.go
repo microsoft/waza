@@ -59,6 +59,20 @@ func TestSpecVerifyCommandFailMode(t *testing.T) {
 	assert.Contains(t, err.Error(), "spec verify failed")
 }
 
+func TestSpecVerifyCommandGitHubActionsHonorsWarnFalse(t *testing.T) {
+	root := t.TempDir()
+	skillPath, evalPath := writeSpecVerifyFixture(t, root, false)
+
+	cmd := newSpecVerifyCommand()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(new(bytes.Buffer))
+	cmd.SetArgs([]string{skillPath, evalPath, "--format", "github-actions", "--warn=false"})
+
+	require.NoError(t, cmd.Execute())
+	assert.Empty(t, out.String())
+}
+
 func writeSpecVerifyFixture(t *testing.T, root string, includeNegative bool) (string, string) {
 	t.Helper()
 	skillPath := filepath.Join(root, "SKILL.md")

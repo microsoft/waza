@@ -4,8 +4,10 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/microsoft/waza/internal/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -95,6 +97,24 @@ func TestParseSemanticResponse(t *testing.T) {
 	covered, reason = ParseSemanticResponse("No")
 	assert.False(t, covered)
 	assert.Empty(t, reason)
+}
+
+func TestTaskRefFromTestCaseSortsMetadataKeys(t *testing.T) {
+	ref := taskRefFromTestCase("task.yaml", &models.TestCase{
+		TestID: "metadata-order",
+		Stimulus: models.TaskStimulus{
+			Metadata: map[string]any{
+				"zeta":  "last",
+				"alpha": "first",
+			},
+		},
+	})
+
+	alphaIndex := strings.Index(ref.Text, "alpha\nfirst")
+	zetaIndex := strings.Index(ref.Text, "zeta\nlast")
+	require.NotEqual(t, -1, alphaIndex)
+	require.NotEqual(t, -1, zetaIndex)
+	assert.Less(t, alphaIndex, zetaIndex)
 }
 
 func TestVerifyLoadsCSVTasksFromDataset(t *testing.T) {

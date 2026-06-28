@@ -153,7 +153,7 @@ func runSpecVerifyCommand(cmd *cobra.Command, args []string, flags *specVerifyFl
 			return err
 		}
 	case "github-actions":
-		renderSpecVerifyGitHubActions(cmd.OutOrStdout(), report, flags.fail)
+		renderSpecVerifyGitHubActions(cmd.OutOrStdout(), report, flags.warn, flags.fail)
 	}
 
 	if flags.fail && report.Summary.UncoveredRequirements >= flags.failThreshold {
@@ -302,7 +302,10 @@ func renderSpecVerifyJSON(w io.Writer, report *specverify.Report) error {
 	return enc.Encode(report)
 }
 
-func renderSpecVerifyGitHubActions(w io.Writer, report *specverify.Report, fail bool) {
+func renderSpecVerifyGitHubActions(w io.Writer, report *specverify.Report, warn, fail bool) {
+	if !warn && !fail {
+		return
+	}
 	level := "warning"
 	if fail {
 		level = "error"
