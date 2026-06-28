@@ -218,8 +218,16 @@ func (p *promptGrader) detailsWith(prompt, response string, passes, failures []s
 // the rubric template is expanded with the candidate output so the judge has
 // something to evaluate. Otherwise the configured prompt is returned as-is to
 // preserve the existing inline-prompt behavior.
+//
+// With continue_session: true, the judge resumes the agent's live session and
+// reads the conversation directly — injecting Output here would be redundant
+// (and misleading if Output is some stale or summarized snapshot), so we leave
+// the rubric body untouched in that mode.
 func (p *promptGrader) renderJudgePrompt(gradingContext *Context) string {
 	if p.rubric == nil || gradingContext == nil {
+		return p.args.Prompt
+	}
+	if p.args.ContinueSession {
 		return p.args.Prompt
 	}
 	if strings.TrimSpace(gradingContext.Output) == "" {
@@ -380,6 +388,22 @@ func (p *promptGrader) gradePairwise(ctx context.Context, gradingContext *Contex
 			PositionConsistent: positionConsistent,
 		}
 
+		details := map[string]any{
+			"pairwise": pairwise,
+			"pass1":    resultAB,
+			"pass2":    resultBA,
+			"prompt":   p.args.Prompt,
+			"mode":     "pairwise",
+		}
+		if p.rubric != nil {
+			details["rubric"] = map[string]any{
+				"name":    p.rubric.Name,
+				"version": p.rubric.Version,
+				"scale":   string(p.rubric.Scale),
+				"source":  p.rubric.Source,
+			}
+		}
+
 		return &models.GraderResults{
 			Name:   p.name,
 			Type:   p.Kind(),
@@ -387,13 +411,7 @@ func (p *promptGrader) gradePairwise(ctx context.Context, gradingContext *Contex
 			Score:  score,
 			Feedback: fmt.Sprintf("pairwise: winner=%s, magnitude=%s, consistent=%v",
 				finalWinner, finalMagnitude, positionConsistent),
-			Details: map[string]any{
-				"pairwise": pairwise,
-				"pass1":    resultAB,
-				"pass2":    resultBA,
-				"prompt":   p.args.Prompt,
-				"mode":     "pairwise",
-			},
+			Details: details,
 		}, nil
 	})
 }

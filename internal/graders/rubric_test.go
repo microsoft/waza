@@ -94,6 +94,38 @@ func TestResolveRubric_RejectsEmpty(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestLoadRubricFile_ExpandsTildeHome(t *testing.T) {
+	home, err := os.UserHomeDir()
+	require.NoError(t, err)
+
+	// Place a rubric inside a temp dir nested under the home directory so we
+	// can reference it via "~/<subpath>" and verify expansion.
+	relDir, err := os.MkdirTemp(home, "waza-rubric-tilde-")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = os.RemoveAll(relDir) })
+
+	rubricPath := filepath.Join(relDir, "tilde-rubric.md")
+	body := strings.Join([]string{
+		"---",
+		"name: tilde-rubric",
+		"version: 0.1.0",
+		"scale: pass-fail",
+		"description: Verifies ~/ expansion preserves the separator.",
+		"---",
+		"",
+		"Judge it. Call set_waza_grade_pass or set_waza_grade_fail.",
+	}, "\n")
+	require.NoError(t, os.WriteFile(rubricPath, []byte(body), 0o600))
+
+	rel, err := filepath.Rel(home, rubricPath)
+	require.NoError(t, err)
+	tildePath := "~/" + filepath.ToSlash(rel)
+
+	r, err := LoadRubricFile(tildePath)
+	require.NoError(t, err, "tilde path %q should expand to %q", tildePath, rubricPath)
+	require.Equal(t, "tilde-rubric", r.Name)
+}
+
 func TestParseRubric_RequiresFrontmatter(t *testing.T) {
 	_, err := ParseRubric([]byte("no frontmatter here"))
 	require.ErrorContains(t, err, "frontmatter")
@@ -137,6 +169,32 @@ func TestRubricRenderPrompt_NoInjectionsWhenAllEmpty(t *testing.T) {
 	r := &Rubric{Body: "RUBRIC_BODY"}
 	got := r.RenderPrompt("", "", "")
 	require.Equal(t, "RUBRIC_BODY", got)
+}
+
+func TestRenderJudgePrompt_SkipsOutputInjectionWhenContinueSession(t *testing.T) {
+	// With continue_session: true the judge resumes the agent session and
+	// reads context directly, so the rubric body must be sent untouched.
+	g, err := NewPromptGrader("grounded-continue", models.PromptGraderParameters{
+		Rubric:          "groundedness",
+		ContinueSession: true,
+	})
+	require.NoError(t, err)
+
+	got := g.renderJudgePrompt(&Context{Output: "this should NOT be injected"})
+	require.NotContains(t, got, "this should NOT be injected")
+	require.NotContains(t, got, "## Candidate output")
+	require.Equal(t, g.args.Prompt, got, "continue_session must leave the rubric body untouched")
+}
+
+func TestRenderJudgePrompt_InjectsOutputWhenNotContinueSession(t *testing.T) {
+	g, err := NewPromptGrader("grounded-fresh", models.PromptGraderParameters{
+		Rubric: "groundedness",
+	})
+	require.NoError(t, err)
+
+	got := g.renderJudgePrompt(&Context{Output: "candidate-marker-xyz"})
+	require.Contains(t, got, "candidate-marker-xyz")
+	require.Contains(t, got, "## Candidate output")
 }
 
 func TestNewPromptGrader_AcceptsBuiltinRubric(t *testing.T) {
@@ -183,6 +241,49 @@ func TestNewPromptGrader_MissingPromptAndRubricFails(t *testing.T) {
 	require.ErrorContains(t, err, "rubric")
 }
 
+func TestPairwiseMode_IncludesRubricMetadata(t *testing.T) {
+	// Pairwise grading must also surface rubric metadata in Details so the
+	// dashboard can attribute the verdict to the right rubric, just like
+	// independent grading does.
+	executor := &fakePromptExecutor{}
+	executor.execute = func(req *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
+		winner := "B"
+		if executor.calls == 2 {
+			winner = "A"
+		}
+		require.Len(t, req.Tools, 1)
+		_, err := req.Tools[0].Handler(copilot.ToolInvocation{
+			Arguments: map[string]any{
+				"winner":    winner,
+				"magnitude": "much-better",
+				"reasoning": "more complete",
+			},
+		})
+		require.NoError(t, err)
+		return &execution.ExecutionResponse{Success: true}, nil
+	}
+
+	grader, err := NewPromptGrader("pairwise-rubric-grader", models.PromptGraderParameters{
+		Rubric: "helpfulness",
+		Mode:   models.PromptGraderModePairwise,
+	})
+	require.NoError(t, err)
+
+	results, err := grader.Grade(context.Background(), &Context{
+		Output:         "better output",
+		BaselineOutput: "worse output",
+		Executor:       executor,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, results)
+
+	meta, ok := results.Details["rubric"].(map[string]any)
+	require.True(t, ok, "pairwise Details must include rubric metadata map")
+	require.Equal(t, "helpfulness", meta["name"])
+	require.NotEmpty(t, meta["version"])
+	require.Equal(t, "builtin:helpfulness", meta["source"])
+}
+
 // TestRubricGoldens_OracleJudge runs each shipped rubric against its bundled
 // goldens with a *mocked* judge ("oracle") that always returns the golden's
 // expected outcome. This is the contract test for the rubric library: it
@@ -204,6 +305,7 @@ func TestRubricGoldens_OracleJudge(t *testing.T) {
 					})
 					require.NoError(t, err)
 
+					var toolInvoked bool
 					executor := &fakePromptExecutor{
 						execute: func(req *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
 							// Sanity-check that the rubric was actually rendered:
@@ -230,9 +332,11 @@ func TestRubricGoldens_OracleJudge(t *testing.T) {
 										},
 									})
 									require.NoError(t, err)
+									toolInvoked = true
 									break
 								}
 							}
+							require.True(t, toolInvoked, "oracle judge could not find expected tool %q in request tools", toolName)
 							return &execution.ExecutionResponse{Success: true, FinalOutput: "ok"}, nil
 						},
 					}
@@ -243,6 +347,7 @@ func TestRubricGoldens_OracleJudge(t *testing.T) {
 					})
 					require.NoError(t, err)
 					require.NotNil(t, results)
+					require.True(t, toolInvoked, "judge handler must have been called and matched the expected tool")
 
 					switch golden.Expected {
 					case RubricExpectedPass:

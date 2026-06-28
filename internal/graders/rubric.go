@@ -200,12 +200,20 @@ func LoadBuiltinRubric(name string) (*Rubric, error) {
 	return r, nil
 }
 
-// LoadRubricFile loads a rubric from a markdown file on disk.
+// LoadRubricFile loads a rubric from a markdown file on disk. Leading "~/"
+// (or a bare "~") is expanded to the current user's home directory. A bare
+// "~name" prefix is intentionally NOT expanded (shells treat that as another
+// user's home, which Go has no portable resolver for); such a path is read
+// literally and will surface a normal file-not-found error if that's wrong.
 func LoadRubricFile(path string) (*Rubric, error) {
 	resolved := path
-	if strings.HasPrefix(path, "~") {
+	if path == "~" || strings.HasPrefix(path, "~/") {
 		if home, err := os.UserHomeDir(); err == nil {
-			resolved = filepath.Join(home, strings.TrimPrefix(path, "~"))
+			if path == "~" {
+				resolved = home
+			} else {
+				resolved = filepath.Join(home, strings.TrimPrefix(path, "~/"))
+			}
 		}
 	}
 	data, err := os.ReadFile(resolved)
