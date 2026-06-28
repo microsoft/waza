@@ -408,6 +408,72 @@ waza compare gpt4.json sonnet.json opus.json
 waza compare results-*.json --format json
 ```
 
+## waza gate
+
+Compare a current results file against a baseline and enforce regression policy. Designed for CI: emits stable exit codes and supports GitHub Actions annotations.
+
+```bash
+waza gate --baseline baseline.json --current results.json [flags]
+```
+
+### Flags
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--baseline` | _(required)_ | Baseline results JSON (the "known good" run). |
+| `--current` | _(required)_ | Current results JSON to evaluate. |
+| `--max-regression-pct` | `0` | Maximum allowed drop in success rate (percentage points). `0` means no regression tolerated. |
+| `--golden-must-pass` | `true` | If `true`, any failing task marked `golden: true` causes a golden failure (exit 2). |
+| `--on-new-tasks` | `allow` | Policy when current has tasks not in baseline: `allow`, `warn`, `fail`. |
+| `--on-removed-tasks` | `warn` | Policy when baseline has tasks not in current: `allow`, `warn`, `fail`. |
+| `--format` | `human` | Output format: `human`, `json`, `markdown`, `github-actions`. |
+
+### Exit codes
+
+| Code | Meaning |
+|------|---------|
+| `0` | Pass — within thresholds and policies. |
+| `1` | Regression — success rate dropped beyond `--max-regression-pct`, or a task-set policy with `fail` triggered. |
+| `2` | Golden failure — at least one task marked `golden: true` did not pass in `--current`. Takes precedence over regression. |
+| `3` | Config error — invalid flags, missing files, or unparseable JSON. |
+
+### Golden tasks
+
+Mark a task in your eval YAML as a golden task to enforce that it must always pass:
+
+```yaml
+tasks:
+  - id: critical-flow
+    golden: true
+    prompt: "..."
+    grader:
+      type: exact_match
+      expected: "OK"
+```
+
+`golden` is propagated into `results.json` so `waza gate` can read it without re-reading the YAML. Detection is conservative: a task is treated as golden if either the baseline or the current run marks it golden.
+
+### Examples
+
+```bash
+# Basic CI gate: no regression allowed, golden must pass
+waza gate --baseline baseline.json --current results.json
+
+# Allow up to 5 percentage-point drop, fail on new tasks
+waza gate --baseline baseline.json --current results.json \
+  --max-regression-pct 5 --on-new-tasks fail
+
+# Emit GitHub Actions annotations + step summary
+waza gate --baseline baseline.json --current results.json \
+  --format github-actions
+
+# Markdown report (e.g. for posting as a PR comment)
+waza gate --baseline baseline.json --current results.json \
+  --format markdown > gate-report.md
+```
+
+See the [CI/CD guide](/guides/ci-cd/#regression-gates-with-waza-gate) for full GitHub Actions and Azure DevOps snippets.
+
 ## waza coverage
 
 Generate an eval coverage grid for discovered skills and custom agents.

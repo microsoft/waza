@@ -139,6 +139,75 @@ To run it manually:
 gh workflow run weekly-regression-loop.yml --repo microsoft/waza
 ```
 
+### Regression gates with `waza gate`
+
+For a focused PR gate, use [`waza gate`](/reference/cli/#waza-gate). It compares a baseline against the current run and exits with stable codes (`0` pass, `1` regression, `2` golden failure, `3` config error), making it easy to wire into any CI system.
+
+Mark business-critical tasks in your eval YAML with `golden: true` and they must always pass:
+
+```yaml
+tasks:
+  - id: critical-flow
+    golden: true
+    prompt: "..."
+    grader:
+      type: exact_match
+      expected: "OK"
+```
+
+**GitHub Actions** — annotations + step summary, with the baseline pulled from the default branch:
+
+```yaml
+- name: Download baseline from main
+  uses: dawidd6/action-download-artifact@v6
+  with:
+    workflow: eval.yml
+    branch: main
+    name: results
+    path: baseline/
+
+- name: Run current evaluation
+  run: waza run evals/main.yaml --output results.json
+
+- name: Regression gate
+  run: |
+    waza gate \
+      --baseline baseline/results.json \
+      --current results.json \
+      --max-regression-pct 5 \
+      --on-new-tasks allow \
+      --on-removed-tasks warn \
+      --format github-actions
+```
+
+The `github-actions` format emits `::error::` / `::warning::` / `::notice::` annotations and appends a markdown summary to `$GITHUB_STEP_SUMMARY`. Non-zero exit fails the step automatically.
+
+**Azure DevOps** — exit codes drive task status; `task.logissue` surfaces inline warnings/errors:
+
+```yaml
+- script: |
+    waza gate \
+      --baseline $(Pipeline.Workspace)/baseline/results.json \
+      --current $(Build.ArtifactStagingDirectory)/results.json \
+      --max-regression-pct 5 \
+      --format markdown > $(Build.ArtifactStagingDirectory)/gate-report.md
+    code=$?
+    cat $(Build.ArtifactStagingDirectory)/gate-report.md
+    if [ $code -eq 2 ]; then
+      echo "##vso[task.logissue type=error]Golden task failure"
+    elif [ $code -eq 1 ]; then
+      echo "##vso[task.logissue type=error]Regression exceeded threshold"
+    elif [ $code -eq 3 ]; then
+      echo "##vso[task.logissue type=error]waza gate configuration error"
+    fi
+    exit $code
+  displayName: 'Regression gate'
+
+- publish: $(Build.ArtifactStagingDirectory)/gate-report.md
+  artifact: gate-report
+  condition: always()
+```
+
 ### Token Budget Checks
 
 Use `waza tokens compare` to track token usage across PRs and fail if budgets are exceeded:

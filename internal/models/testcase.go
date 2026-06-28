@@ -22,7 +22,11 @@ type TestCase struct {
 	Summary          string          `yaml:"description,omitempty" json:"summary,omitempty"`
 	Tags             []string        `yaml:"tags,omitempty" json:"labels,omitempty"`
 	TestID           string          `yaml:"id" json:"test_id"`
-	TimeoutSec       *int            `yaml:"timeout_seconds,omitempty" json:"timeout_sec,omitempty"`
+	// Golden marks a task as a "must always pass" regression gate. When set
+	// to true, `waza gate` treats any non-pass status as a hard failure
+	// (exit code 2) regardless of the aggregate pass-rate threshold.
+	Golden     bool `yaml:"golden,omitempty" json:"golden,omitempty"`
+	TimeoutSec *int `yaml:"timeout_seconds,omitempty" json:"timeout_sec,omitempty"`
 	// FirstEventTimeoutSec overrides Config.FirstEventTimeoutSec for this task.
 	// nil inherits the eval-level value; 0 disables the check for this task.
 	FirstEventTimeoutSec *int              `yaml:"first_event_timeout_seconds,omitempty" json:"first_event_timeout_sec,omitempty"`

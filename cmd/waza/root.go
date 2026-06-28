@@ -54,6 +54,7 @@ performance against predefined test cases.`,
 	cmd.AddCommand(newInitCommand())
 	cmd.AddCommand(tokens.NewCommand())
 	cmd.AddCommand(newCompareCommand())
+	cmd.AddCommand(newGateCommand())
 	cmd.AddCommand(newCoverageCommand())
 	cmd.AddCommand(dev.NewCommand())
 	cmd.AddCommand(newGradeCommand())

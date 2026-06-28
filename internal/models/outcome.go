@@ -137,9 +137,12 @@ type MeasureResult struct {
 
 // TestOutcome represents the result of one test case
 type TestOutcome struct {
-	TestID      string             `json:"test_id"`
-	DisplayName string             `json:"display_name"`
-	Group       string             `json:"group,omitempty"`
+	TestID      string `json:"test_id"`
+	DisplayName string `json:"display_name"`
+	Group       string `json:"group,omitempty"`
+	// Golden mirrors TestCase.Golden so `waza gate` can identify
+	// must-pass tasks directly from results.json without re-reading YAML.
+	Golden      bool               `json:"golden,omitempty"`
 	Status      Status             `json:"status"`
 	Runs        []RunResult        `json:"runs"`
 	Stats       *TestStats         `json:"stats,omitempty"`

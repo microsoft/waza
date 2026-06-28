@@ -344,6 +344,7 @@ expected:
 | `expected`    | object | Validation rules and expected behavior              |
 | `skill_directories` | string[] | Skill directories for this task (overrides eval-level) |
 | `instruction_files` | string[] | Instruction files for this task (adds to eval-level files) |
+| `golden`      | bool   | Mark as a critical "golden" task — enforced by [`waza gate`](/reference/cli/#waza-gate) (must always pass) |
 
 ### Inputs Section
 
