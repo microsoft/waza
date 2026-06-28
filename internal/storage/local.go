@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
@@ -177,7 +178,8 @@ func (ls *LocalStore) load() error {
 
 		outcome, err := models.ParseEvaluationOutcome(data, path)
 		if err != nil {
-			return fmt.Errorf("loading outcome %s: %w", path, err)
+			slog.Warn("skipping unreadable results artifact", "path", path, "error", err)
+			return nil
 		}
 
 		if outcome.RunID == "" {

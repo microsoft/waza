@@ -462,6 +462,34 @@ func TestLocalStore_NonResultJSON(t *testing.T) {
 	}
 }
 
+func TestLocalStore_LoadSkipsIncompatibleResultJSON(t *testing.T) {
+	dir := t.TempDir()
+
+	badResult := `{"schemaVersion":"2.0","eval_name":"future","tasks":[]}`
+	if err := os.WriteFile(filepath.Join(dir, "future.json"), []byte(badResult), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	outcome := makeOutcome("valid-run", "skill-x", "model-y", 5, 10)
+	data, _ := json.MarshalIndent(outcome, "", "  ")
+	if err := os.WriteFile(filepath.Join(dir, "valid.json"), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	store := NewLocalStore(dir)
+	results, err := store.List(context.Background(), ListOptions{})
+	if err != nil {
+		t.Fatalf("List() error: %v", err)
+	}
+
+	if len(results) != 1 {
+		t.Fatalf("List() returned %d, want 1 (incompatible result JSON should be skipped)", len(results))
+	}
+	if results[0].RunID != "valid-run" {
+		t.Errorf("RunID = %q, want valid-run", results[0].RunID)
+	}
+}
+
 func TestLocalStore_Compare_NonexistentRun(t *testing.T) {
 	dir := t.TempDir()
 	store := NewLocalStore(dir)

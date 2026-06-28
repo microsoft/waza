@@ -37,7 +37,7 @@ func ValidateSchemaVersion(artifact, source, version string) (string, error) {
 		return "", err
 	}
 	if major != currentMajor {
-		return "", fmt.Errorf("%s %s uses schemaVersion %q, but this waza supports schemaVersion %s; run \"waza migrate <file>\" to migrate the artifact file", artifact, source, version, CurrentSchemaVersion)
+		return "", fmt.Errorf("%s %s uses schemaVersion %q (major %d), but this waza supports schema major %d (current schemaVersion %s); run \"waza migrate <file>\" to migrate the artifact file", artifact, source, version, major, currentMajor, CurrentSchemaVersion)
 	}
 	return version, nil
 }

@@ -173,6 +173,37 @@ func TestFileStoreGetRunSummaryAndReload(t *testing.T) {
 	}
 }
 
+func TestFileStoreSkipsIncompatibleResultJSON(t *testing.T) {
+	dir := t.TempDir()
+	ts := time.Date(2026, 2, 18, 10, 0, 0, 0, time.UTC)
+
+	outcome := models.EvaluationOutcome{
+		RunID:     "valid-run",
+		BenchName: "bench-a",
+		Timestamp: ts,
+		Setup:     models.OutcomeSetup{ModelID: "gpt-4o"},
+		Digest:    models.OutcomeDigest{TotalTests: 1, Succeeded: 1},
+	}
+	writeOutcomeFile(t, filepath.Join(dir, "valid-run.json"), outcome)
+
+	badResult := `{"schemaVersion":"2.0","eval_name":"future","tasks":[]}`
+	if err := os.WriteFile(filepath.Join(dir, "future.json"), []byte(badResult), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	store := NewFileStore(dir)
+	runs, err := store.ListRuns("", "")
+	if err != nil {
+		t.Fatalf("ListRuns() error: %v", err)
+	}
+	if len(runs) != 1 {
+		t.Fatalf("ListRuns() returned %d, want 1", len(runs))
+	}
+	if runs[0].ID != "valid-run" {
+		t.Errorf("ID = %q, want valid-run", runs[0].ID)
+	}
+}
+
 func TestOutcomeToDetailMapsStatsTranscriptAndDigest(t *testing.T) {
 	significant := true
 	success := true
