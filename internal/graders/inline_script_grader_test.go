@@ -164,6 +164,9 @@ func TestEmptyAssertions(t *testing.T) {
 	results, err := grader.Grade(context.Background(), &Context{})
 	require.NoError(t, err)
 
+	require.GreaterOrEqual(t, results.DurationMs, int64(0))
+	results.DurationMs = 0
+
 	require.Equal(t, &models.GraderResults{
 		Name:     "test",
 		Type:     models.GraderKindInlineScript,
