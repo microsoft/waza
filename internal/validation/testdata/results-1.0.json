@@ -1,0 +1,36 @@
+{
+  "schemaVersion": "1.0",
+  "eval_id": "run-compat-1",
+  "skill": "schema-compat",
+  "eval_name": "schema-compat-eval",
+  "timestamp": "2026-01-01T00:00:00Z",
+  "config": {
+    "runs_per_test": 1,
+    "model_id": "gpt-4o",
+    "engine_type": "mock",
+    "timeout_sec": 60
+  },
+  "summary": {
+    "total_tests": 1,
+    "succeeded": 1,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 0,
+    "success_rate": 1,
+    "aggregate_score": 1,
+    "weighted_score": 1,
+    "min_score": 1,
+    "max_score": 1,
+    "std_dev": 0,
+    "duration_ms": 100
+  },
+  "metrics": {},
+  "tasks": [
+    {
+      "test_id": "task-1",
+      "display_name": "Task 1",
+      "status": "passed",
+      "runs": []
+    }
+  ]
+}

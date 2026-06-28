@@ -1,0 +1,16 @@
+schemaVersion: "1.0"
+name: schema-compat-eval
+description: Compatibility fixture for the current eval.yaml schema.
+skill: schema-compat
+version: "1.0"
+config:
+  trials_per_task: 1
+  timeout_seconds: 60
+  executor: mock
+  model: gpt-4o
+metrics:
+  - name: accuracy
+    weight: 1.0
+    threshold: 0.8
+tasks:
+  - "tasks/*.yaml"

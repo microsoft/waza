@@ -197,7 +197,7 @@ func (v *ValidatorInline) EffectiveWeight() float64 {
 }
 
 func (v *ValidatorInline) UnmarshalYAML(node *yaml.Node) error {
-	// We need to unmarshal into a separate struct to apply KnownFields strict parsing, since ValidatorInline has flexible fields based on the Kind.
+	// Decode through a raw struct because ValidatorInline has flexible fields based on the Kind.
 	type rawValidatorInline struct {
 		Identifier string     `yaml:"name"`
 		Kind       GraderKind `yaml:"type,omitempty"`
@@ -215,8 +215,10 @@ func (v *ValidatorInline) UnmarshalYAML(node *yaml.Node) error {
 		return fmt.Errorf("failed to marshal validator config: %w", err)
 	}
 	decoder := yaml.NewDecoder(bytes.NewReader(bytesData))
-	decoder.KnownFields(true)
 	if err := decoder.Decode(&raw); err != nil {
+		return err
+	}
+	if err := warnUnknownYAMLFields(bytesData, "task validator", fmt.Sprintf("validator %q", raw.Identifier), &rawValidatorInline{}); err != nil {
 		return err
 	}
 
@@ -385,8 +387,11 @@ func LoadTestCase(path string) (*TestCase, error) {
 
 	var tc TestCase
 	decoder := yaml.NewDecoder(bytes.NewReader(data))
-	decoder.KnownFields(true) // Strict parsing to catch unknown fields
 	if err := decoder.Decode(&tc); err != nil {
+		return nil, fmt.Errorf("parsing test case YAML: %w", err)
+	}
+
+	if err := warnUnknownYAMLFields(data, "task YAML", path, &TestCase{}); err != nil {
 		return nil, fmt.Errorf("parsing test case YAML: %w", err)
 	}
 

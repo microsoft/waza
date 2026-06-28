@@ -70,6 +70,7 @@ performance against predefined test cases.`,
 	cmd.AddCommand(newQualityCommand())
 	cmd.AddCommand(newUpdateCommand())
 	cmd.AddCommand(newSpecCommand())
+	cmd.AddCommand(newMigrateCommand())
 
 	return cmd
 }

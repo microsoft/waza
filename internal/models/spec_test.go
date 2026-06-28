@@ -57,7 +57,7 @@ config:
 			expectError: false,
 		},
 		{
-			name: "unknown field",
+			name: "unknown field warns but remains compatible",
 			specYAML: `name: valid
 skill: test-skill
 unknownElement: should cause error
@@ -67,7 +67,7 @@ config:
   executor: mock
   model: test-model
 `,
-			expectError: true,
+			expectError: false,
 		},
 		{
 			name: "invalid spec with zero trials",
@@ -93,6 +93,55 @@ config:
 				t.Errorf("LoadEvalSpec() error = %v, expectError %v", err, tt.expectError)
 			}
 		})
+	}
+}
+
+func TestLoadEvalSpec_DefaultsSchemaVersion(t *testing.T) {
+	tempDir := t.TempDir()
+	specPath := filepath.Join(tempDir, "spec.yaml")
+	err := os.WriteFile(specPath, []byte(`name: compatible
+skill: test-skill
+config:
+  trials_per_task: 1
+  timeout_seconds: 60
+  executor: mock
+  model: test-model
+`), 0644)
+	if err != nil {
+		t.Fatalf("Failed to write spec file: %v", err)
+	}
+
+	spec, err := LoadEvalSpec(specPath)
+	if err != nil {
+		t.Fatalf("LoadEvalSpec() error = %v", err)
+	}
+	if spec.SchemaVersion != CurrentSchemaVersion {
+		t.Fatalf("schemaVersion = %q, want %q", spec.SchemaVersion, CurrentSchemaVersion)
+	}
+}
+
+func TestLoadEvalSpec_RejectsDifferentMajorSchemaVersion(t *testing.T) {
+	tempDir := t.TempDir()
+	specPath := filepath.Join(tempDir, "spec.yaml")
+	err := os.WriteFile(specPath, []byte(`name: incompatible
+skill: test-skill
+schemaVersion: "2.0"
+config:
+  trials_per_task: 1
+  timeout_seconds: 60
+  executor: mock
+  model: test-model
+`), 0644)
+	if err != nil {
+		t.Fatalf("Failed to write spec file: %v", err)
+	}
+
+	_, err = LoadEvalSpec(specPath)
+	if err == nil {
+		t.Fatal("expected LoadEvalSpec to reject a different major schemaVersion")
+	}
+	if !strings.Contains(err.Error(), "waza migrate") {
+		t.Fatalf("error %q did not include migration hint", err)
 	}
 }
 

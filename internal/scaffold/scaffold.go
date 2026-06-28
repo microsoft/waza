@@ -81,6 +81,7 @@ func EvalYAMLWithTaskGlob(name, engine, model, taskGlob string) string {
 	return fmt.Sprintf(`name: %s-eval
 description: Evaluation suite for %s.
 skill: %s
+schemaVersion: "1.0"
 version: "1.0"
 config:
   trials_per_task: 1

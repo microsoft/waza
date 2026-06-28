@@ -82,8 +82,8 @@ func runGrade(ctx context.Context, w, errW io.Writer, specPath, taskID, resultsF
 	if readErr != nil {
 		return fmt.Errorf("failed to read results file: %w", readErr)
 	}
-	var outcome models.EvaluationOutcome
-	if jsonErr := json.Unmarshal(data, &outcome); jsonErr != nil {
+	outcome, jsonErr := models.ParseEvaluationOutcome(data, resultsFile)
+	if jsonErr != nil {
 		return fmt.Errorf("failed to parse results JSON: %w", jsonErr)
 	}
 
@@ -181,7 +181,7 @@ func runGrade(ctx context.Context, w, errW io.Writer, specPath, taskID, resultsF
 			}
 		}
 
-		graded := orchestration.RegradeOutcome(&outcome, finalOutcomes, effectiveJudgeModel)
+		graded := orchestration.RegradeOutcome(outcome, finalOutcomes, effectiveJudgeModel)
 		if err := saveOutcome(graded, outputFile); err != nil {
 			return fmt.Errorf("failed to save graded outcome: %w", err)
 		}

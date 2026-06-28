@@ -239,12 +239,12 @@ func (abs *AzureBlobStore) Download(ctx context.Context, runID string) (*models.
 		return nil, fmt.Errorf("azure blob download: reading blob: %w", err)
 	}
 
-	var outcome models.EvaluationOutcome
-	if err := json.Unmarshal(data, &outcome); err != nil {
+	outcome, err := models.ParseEvaluationOutcome(data, runID)
+	if err != nil {
 		return nil, fmt.Errorf("azure blob download: unmarshaling outcome: %w", err)
 	}
 
-	return &outcome, nil
+	return outcome, nil
 }
 
 // findBlobBySuffix lists blobs and returns the first whose name ends with suffix.

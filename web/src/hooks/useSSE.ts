@@ -16,6 +16,7 @@ export interface SSEEventData {
 }
 
 export interface SSEEvent {
+  schemaVersion?: string;
   type: "task_start" | "task_complete" | "grader_result" | "run_complete";
   data: SSEEventData;
   timestamp: string;

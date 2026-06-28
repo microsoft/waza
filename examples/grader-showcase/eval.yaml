@@ -16,6 +16,7 @@ description: |
   of configuration options and use cases.
 
 skill: general-coding-assistant
+schemaVersion: "1.0"
 version: "1.0"
 
 config:

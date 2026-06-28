@@ -14,23 +14,50 @@ import (
 //
 // Deprecated alias: BenchmarkSpec is provided for backward compatibility.
 type EvalSpec struct {
-	SpecIdentity `yaml:",inline"`
-	SkillName    string            `yaml:"skill"`
-	Version      string            `yaml:"version"`
-	Config       Config            `yaml:"config"`
-	Hooks        hooks.HooksConfig `yaml:"hooks,omitempty"`
-	Inputs       map[string]string `yaml:"inputs,omitempty" json:"inputs,omitempty"`
-	TasksFrom    string            `yaml:"tasks_from,omitempty" json:"tasks_from,omitempty"`
-	Range        [2]int            `yaml:"range,omitempty" json:"range,omitempty"`
-	Graders      []GraderConfig    `yaml:"graders"`
-	Metrics      []MeasurementDef  `yaml:"metrics"`
-	Tasks        []string          `yaml:"tasks"`
-	Baseline     bool              `yaml:"baseline,omitempty" json:"baseline,omitempty"`
+	SchemaVersion string `yaml:"schemaVersion,omitempty" json:"schemaVersion,omitempty"`
+	SpecIdentity  `yaml:",inline"`
+	SkillName     string            `yaml:"skill"`
+	Version       string            `yaml:"version"`
+	Config        Config            `yaml:"config"`
+	Hooks         hooks.HooksConfig `yaml:"hooks,omitempty"`
+	Inputs        map[string]string `yaml:"inputs,omitempty" json:"inputs,omitempty"`
+	TasksFrom     string            `yaml:"tasks_from,omitempty" json:"tasks_from,omitempty"`
+	Range         [2]int            `yaml:"range,omitempty" json:"range,omitempty"`
+	Graders       []GraderConfig    `yaml:"graders"`
+	Metrics       []MeasurementDef  `yaml:"metrics"`
+	Tasks         []string          `yaml:"tasks"`
+	Baseline      bool              `yaml:"baseline,omitempty" json:"baseline,omitempty"`
 }
 
 type SpecIdentity struct {
 	Name        string `yaml:"name" json:"name"`
 	Description string `yaml:"description,omitempty" json:"description,omitempty"`
+}
+
+type strictEvalSpec struct {
+	SchemaVersion string `yaml:"schemaVersion,omitempty"`
+	SpecIdentity  `yaml:",inline"`
+	SkillName     string            `yaml:"skill"`
+	Version       string            `yaml:"version"`
+	Config        Config            `yaml:"config"`
+	Hooks         hooks.HooksConfig `yaml:"hooks,omitempty"`
+	Inputs        map[string]string `yaml:"inputs,omitempty"`
+	TasksFrom     string            `yaml:"tasks_from,omitempty"`
+	Range         [2]int            `yaml:"range,omitempty"`
+	Graders       []strictGrader    `yaml:"graders"`
+	Metrics       []MeasurementDef  `yaml:"metrics"`
+	Tasks         []string          `yaml:"tasks"`
+	Baseline      bool              `yaml:"baseline,omitempty"`
+}
+
+type strictGrader struct {
+	Kind       GraderKind `yaml:"type"`
+	Identifier string     `yaml:"name"`
+	ScriptPath string     `yaml:"script,omitempty"`
+	Rubric     string     `yaml:"rubric,omitempty"`
+	ModelID    string     `yaml:"model,omitempty"`
+	Weight     float64    `yaml:"weight,omitempty"`
+	Parameters yaml.Node  `yaml:"config,omitempty"`
 }
 
 // Config controls execution behavior
@@ -94,8 +121,10 @@ func (g *GraderConfig) UnmarshalYAML(node *yaml.Node) error {
 	}
 
 	decoder := yaml.NewDecoder(bytes.NewReader(bytesData))
-	decoder.KnownFields(true)
 	if err := decoder.Decode(&raw); err != nil {
+		return err
+	}
+	if err := warnUnknownYAMLFields(bytesData, "grader", fmt.Sprintf("grader %q", raw.Identifier), &rawGraderConfig{}); err != nil {
 		return err
 	}
 
@@ -274,11 +303,26 @@ func LoadEvalSpec(path string) (*EvalSpec, error) {
 		return nil, err
 	}
 
+	var header struct {
+		SchemaVersion string `yaml:"schemaVersion"`
+	}
+	if err := yaml.Unmarshal(data, &header); err != nil {
+		return nil, fmt.Errorf("parsing eval spec YAML (%s): %w", path, err)
+	}
+	version, err := validateSchemaVersion("eval.yaml", path, header.SchemaVersion)
+	if err != nil {
+		return nil, err
+	}
+
 	var spec EvalSpec
 
 	decoder := yaml.NewDecoder(bytes.NewReader(data))
-	decoder.KnownFields(true)
 	if err := decoder.Decode(&spec); err != nil {
+		return nil, fmt.Errorf("parsing eval spec YAML (%s): %w", path, err)
+	}
+	spec.SchemaVersion = version
+
+	if err := warnUnknownYAMLFields(data, "eval.yaml", path, &strictEvalSpec{}); err != nil {
 		return nil, fmt.Errorf("parsing eval spec YAML (%s): %w", path, err)
 	}
 

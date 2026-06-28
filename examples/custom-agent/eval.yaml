@@ -1,6 +1,7 @@
 name: security-reviewer-eval
 description: Evaluates the security-reviewer custom agent
 skill: security-reviewer
+schemaVersion: "1.0"
 version: "1.0"
 
 config:

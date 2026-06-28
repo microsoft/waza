@@ -15,6 +15,7 @@ The evaluation spec defines the benchmark configuration, graders, and task files
 name: code-explainer-eval
 description: Evaluation suite for code-explainer skill
 skill: code-explainer
+schemaVersion: "1.0"
 version: "1.0"
 
 config:
@@ -52,6 +53,7 @@ tasks:
 | `name`        | string | ✓        | Eval suite name                                                                            |
 | `description` | string | ✗        | What the eval tests                                                                        |
 | `skill`       | string | ✓        | Associated skill or custom agent name (`SKILL.md` or `.agent.md`)                       |
+| `schemaVersion` | string | ✗     | Public schema version for this artifact; defaults to `1.0`                              |
 | `version`     | string | ✗        | Version number (e.g., "1.0")                                                               |
 | `inputs`      | object | ✗        | Key-value map of global template variables (see [Template Variables](#template-variables)) |
 | `tasks_from`  | string | ✗        | Path to an external YAML file containing the task list                                     |
@@ -59,6 +61,8 @@ tasks:
 | `baseline`    | bool   | ✗        | Mark this spec as a baseline for A/B comparison                                            |
 
 `skill` is required.
+
+`schemaVersion` uses `MAJOR.MINOR` format. Omit it for legacy files that should default to `1.0`; add it to new evals so future schema migrations are explicit. See [Schema Changes](/reference/schema-changes/) for the compatibility policy.
 
 ## Targeting Custom Agents
 
@@ -70,6 +74,7 @@ Waza supports evaluating VS Code custom agents (`.agent.md` files) alongside tra
 name: security-agent-eval
 description: Evaluate the security-reviewer custom agent
 skill: security-reviewer  # Points to security-reviewer.agent.md
+schemaVersion: "1.0"
 version: "1.0"
 
 config:
@@ -131,6 +136,7 @@ Set `inject_skill_body: false` when the eval is measuring whether the agent invo
 name: xyz-trigger
 description: Trigger-precision tasks for the xyz skill
 skill: xyz
+schemaVersion: "1.0"
 version: "1.0"
 
 config:

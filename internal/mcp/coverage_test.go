@@ -61,6 +61,7 @@ func TestHandleToolsCall_InvalidParams(t *testing.T) {
 	resp := srv.HandleRequest(context.Background(), req)
 	if resp == nil {
 		t.Fatal("expected response")
+		return
 	}
 	if resp.Error == nil {
 		t.Fatal("expected error for invalid params")
@@ -86,6 +87,7 @@ func TestHandleToolsCall_TaskList(t *testing.T) {
 	resp := srv.HandleRequest(context.Background(), req)
 	if resp == nil {
 		t.Fatal("expected response")
+		return
 	}
 	// Should get an error result (eval file doesn't exist) but not a protocol error.
 	data, _ := json.Marshal(resp.Result)
@@ -114,6 +116,7 @@ func TestHandleToolsCall_TaskList_InvalidArgs(t *testing.T) {
 	resp := srv.HandleRequest(context.Background(), req)
 	if resp == nil {
 		t.Fatal("expected response")
+		return
 	}
 	data, _ := json.Marshal(resp.Result)
 	var result toolsCallResult
@@ -140,6 +143,7 @@ func TestHandleToolsCall_NilArguments(t *testing.T) {
 	resp := srv.HandleRequest(context.Background(), req)
 	if resp == nil {
 		t.Fatal("expected response")
+		return
 	}
 	if resp.Error != nil {
 		t.Fatalf("unexpected protocol error: %v", resp.Error)
@@ -177,6 +181,7 @@ func TestDispatchTool_UnknownTool(t *testing.T) {
 	_, rpcErr := srv.dispatchTool(context.Background(), "nonexistent_tool", json.RawMessage(`{}`))
 	if rpcErr == nil {
 		t.Fatal("expected error for unknown tool")
+		return
 	}
 	if rpcErr.Code != jsonrpc.CodeMethodNotFound {
 		t.Errorf("error code = %d, want %d", rpcErr.Code, jsonrpc.CodeMethodNotFound)

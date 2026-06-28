@@ -3,6 +3,7 @@ package webapi
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -86,14 +87,17 @@ func (fs *FileStore) load() error {
 			return nil
 		}
 
-		var outcome models.EvaluationOutcome
-		if err := json.Unmarshal(data, &outcome); err != nil {
+		var probe models.EvaluationOutcome
+		if err := json.Unmarshal(data, &probe); err != nil {
+			return nil
+		}
+		if probe.BenchName == "" && probe.Digest.TotalTests == 0 {
 			return nil
 		}
 
-		// Validate that this is a real EvaluationOutcome, not summary.json or other JSON
-		if outcome.BenchName == "" && outcome.Digest.TotalTests == 0 {
-			return nil
+		outcome, err := models.ParseEvaluationOutcome(data, path)
+		if err != nil {
+			return fmt.Errorf("loading outcome %s: %w", path, err)
 		}
 
 		if outcome.RunID == "" {
@@ -104,7 +108,7 @@ func (fs *FileStore) load() error {
 			}
 			outcome.RunID = strings.TrimSuffix(filepath.ToSlash(relPath), ".json")
 		}
-		fs.runs[outcome.RunID] = &outcome
+		fs.runs[outcome.RunID] = outcome
 		return nil
 	})
 

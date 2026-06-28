@@ -34,7 +34,7 @@ graders:
       - "hello"
 `,
 			expectError: true,
-			errorMsg:    "field assertions not found",
+			errorMsg:    "must have at least one assertion",
 		},
 		{
 			name: "code grader with no assertions at all",

@@ -1,6 +1,7 @@
 package models
 
 import (
+	"encoding/json"
 	"math"
 	"sort"
 	"time"
@@ -83,6 +84,7 @@ type ResponderInfo struct {
 
 // EvaluationOutcome represents the complete result of an evaluation run
 type EvaluationOutcome struct {
+	SchemaVersion   string                   `json:"schemaVersion"`
 	RunID           string                   `json:"eval_id"`
 	SkillTested     string                   `json:"skill"`
 	BenchName       string                   `json:"eval_name"`
@@ -96,6 +98,14 @@ type EvaluationOutcome struct {
 	Metadata        map[string]any           `json:"metadata,omitempty"`
 	IsBaseline      bool                     `json:"is_baseline,omitempty"`
 	BaselineOutcome *EvaluationOutcome       `json:"baseline_outcome,omitempty"`
+}
+
+func (o EvaluationOutcome) MarshalJSON() ([]byte, error) {
+	type alias EvaluationOutcome
+	if o.SchemaVersion == "" {
+		o.SchemaVersion = CurrentSchemaVersion
+	}
+	return json.Marshal(alias(o))
 }
 
 type OutcomeSetup struct {

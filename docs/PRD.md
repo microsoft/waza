@@ -69,6 +69,7 @@ Port existing Python waza functionality to Go for single-binary distribution.
 | E1-06 | As a developer, I can execute against Copilot SDK | Full integration with streaming responses |
 | E1-07 | As a developer, I can use verbose mode for debugging | Real-time conversation display |
 | E1-08 | As a developer, I can save transcripts for analysis | JSON log output with full conversation |
+| E1-09 | As a developer, public artifacts are schema-versioned | `eval.yaml` and `results.json` include `schemaVersion`; readers warn on same-major drift and reject cross-major versions with a migration hint |
 
 ### Epic 2: Sensei Engine (P0)
 

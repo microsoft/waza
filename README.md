@@ -146,6 +146,9 @@ waza grade eval.yaml --results results.json
 # Compare results across models
 waza compare results-gpt4.json results-sonnet.json
 
+# Check whether a schema artifact needs migration
+waza migrate eval.yaml
+
 # Generate eval coverage grid
 waza coverage --format markdown
 
@@ -408,6 +411,15 @@ Compare results from multiple evaluation runs side by side — per-task score de
 | Flag | Short | Description |
 |------|-------|-------------|
 | `--format <fmt>` | `-f` | Output format: `table` or `json` (default: `table`) |
+
+### `waza migrate <file>`
+
+Check a public schema artifact and migrate it to the current schema version when a future major schema requires it. The current schema is `1.0`, so v1 `eval.yaml` and `results.json` files are already current and no file changes are made.
+
+```bash
+waza migrate eval.yaml
+waza migrate results.json
+```
 
 ### `waza coverage [root]`
 
@@ -931,6 +943,7 @@ skills/                Example skills
 ```yaml
 name: my-eval
 skill: my-skill
+schemaVersion: "1.0"
 version: "1.0"
 
 config:
@@ -1001,6 +1014,8 @@ tasks:
 # tasks_from: ./test-cases.csv
 # range: [1, 10]  # Only include rows 1-10 (0-indexed, skips header)
 ```
+
+`schemaVersion` uses `MAJOR.MINOR` format and defaults to `1.0` when omitted for backward compatibility. Readers allow same-major minor additions with warnings for unknown fields, but reject different majors with a hint to run `waza migrate <file>`.
 
 ### Custom Input Variables
 

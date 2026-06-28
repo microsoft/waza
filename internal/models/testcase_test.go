@@ -81,7 +81,7 @@ inputs:
 	}
 }
 
-func TestLoadTestCase_UnknownFieldRejected(t *testing.T) {
+func TestLoadTestCase_UnknownFieldIgnoredForCompatibility(t *testing.T) {
 	yamlData := `id: tc-bogus
 name: has bogus field
 bogus_field: true
@@ -96,12 +96,12 @@ expected:
 	if err := os.WriteFile(p, []byte(yamlData), 0o644); err != nil {
 		t.Fatalf("write file: %v", err)
 	}
-	_, err := LoadTestCase(p)
-	if err == nil {
-		t.Fatal("expected error for unknown field 'bogus_field', got nil")
+	tc, err := LoadTestCase(p)
+	if err != nil {
+		t.Fatalf("LoadTestCase returned error for same-major unknown field: %v", err)
 	}
-	if !strings.Contains(err.Error(), "bogus_field") {
-		t.Errorf("error should mention bogus_field, got: %v", err)
+	if tc.TestID != "tc-bogus" {
+		t.Errorf("TestID = %q, want tc-bogus", tc.TestID)
 	}
 }
 

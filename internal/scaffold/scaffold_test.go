@@ -67,6 +67,7 @@ func TestEvalYAML(t *testing.T) {
 
 	assert.Contains(t, content, "name: code-analyzer-eval")
 	assert.Contains(t, content, "skill: code-analyzer")
+	assert.Contains(t, content, `schemaVersion: "1.0"`)
 	assert.Contains(t, content, "executor: copilot-sdk")
 	assert.Contains(t, content, "model: claude-sonnet-4.6")
 	assert.Contains(t, content, "type: code")

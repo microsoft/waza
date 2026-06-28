@@ -300,6 +300,7 @@ func TestOutcomeToDetailMapsResponder(t *testing.T) {
 	responder := detail.Tasks[0].Responder
 	if responder == nil {
 		t.Fatal("expected responder")
+		return
 	}
 	if responder.Outcome != "abstained" {
 		t.Errorf("expected outcome abstained, got %q", responder.Outcome)

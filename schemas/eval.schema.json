@@ -27,6 +27,12 @@
       "minLength": 1,
       "description": "Name of the skill being evaluated."
     },
+    "schemaVersion": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+$",
+      "default": "1.0",
+      "description": "Schema version for this evaluation artifact. Uses MAJOR.MINOR; omitted files default to 1.0."
+    },
     "version": {
       "type": "string",
       "minLength": 1,

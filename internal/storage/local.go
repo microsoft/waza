@@ -167,14 +167,17 @@ func (ls *LocalStore) load() error {
 			return nil
 		}
 
-		var outcome models.EvaluationOutcome
-		if err := json.Unmarshal(data, &outcome); err != nil {
+		var probe models.EvaluationOutcome
+		if err := json.Unmarshal(data, &probe); err != nil {
+			return nil
+		}
+		if probe.BenchName == "" && probe.Digest.TotalTests == 0 {
 			return nil
 		}
 
-		// Skip non-EvaluationOutcome JSON files.
-		if outcome.BenchName == "" && outcome.Digest.TotalTests == 0 {
-			return nil
+		outcome, err := models.ParseEvaluationOutcome(data, path)
+		if err != nil {
+			return fmt.Errorf("loading outcome %s: %w", path, err)
 		}
 
 		if outcome.RunID == "" {
@@ -185,7 +188,7 @@ func (ls *LocalStore) load() error {
 			outcome.RunID = strings.TrimSuffix(filepath.ToSlash(relPath), ".json")
 		}
 
-		ls.cache[outcome.RunID] = &outcome
+		ls.cache[outcome.RunID] = outcome
 		return nil
 	})
 

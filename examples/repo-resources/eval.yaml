@@ -1,5 +1,6 @@
 name: repo-resources-example
 skill: repo-resources
+schemaVersion: "1.0"
 version: "1.0"
 
 config:

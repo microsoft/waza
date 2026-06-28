@@ -524,6 +524,29 @@ waza spec verify skills/pr-summarizer evals/pr-summarizer/eval.yaml \
   --format github-actions
 ```
 
+## waza migrate
+
+Check or migrate a public schema artifact.
+
+```bash
+waza migrate <file>
+```
+
+The current schema version is `1.0`, so v1 `eval.yaml` and `results.json` files are already current and this command makes no file changes. When Waza introduces a future breaking schema, this command is where explicit major-version migrations will run.
+
+### Arguments
+
+| Argument | Description |
+|----------|-------------|
+| `<file>` | Path to a schema artifact such as `eval.yaml` or `results.json` |
+
+### Examples
+
+```bash
+waza migrate eval.yaml
+waza migrate results.json
+```
+
 ## waza coverage
 
 Generate an eval coverage grid for discovered skills and custom agents.

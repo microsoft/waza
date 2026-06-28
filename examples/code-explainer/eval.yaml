@@ -9,6 +9,7 @@ description: |
   - Code patterns (recursion, async/await, comprehensions, joins)
 
 skill: code-explainer
+schemaVersion: "1.0"
 version: "1.0"
 
 config:

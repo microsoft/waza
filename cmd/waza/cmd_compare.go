@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
-	"os"
 	"strings"
 
 	"github.com/microsoft/waza/internal/models"
@@ -79,15 +78,7 @@ func compareCommandE(_ *cobra.Command, args []string) error {
 }
 
 func loadOutcomeFile(path string) (*models.EvaluationOutcome, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-	var outcome models.EvaluationOutcome
-	if err := json.Unmarshal(data, &outcome); err != nil {
-		return nil, err
-	}
-	return &outcome, nil
+	return models.LoadEvaluationOutcome(path)
 }
 
 func buildComparisonReport(files []string, outcomes []*models.EvaluationOutcome) *comparisonReport {
