@@ -117,6 +117,68 @@ func TestTaskRefFromTestCaseSortsMetadataKeys(t *testing.T) {
 	assert.Less(t, alphaIndex, zetaIndex)
 }
 
+func TestSemanticDontRequirementOnlyConsidersNegativeTasks(t *testing.T) {
+	root := t.TempDir()
+	skillPath := filepath.Join(root, "SKILL.md")
+	evalPath := filepath.Join(root, "eval.yaml")
+	tasksDir := filepath.Join(root, "tasks")
+	require.NoError(t, os.MkdirAll(tasksDir, 0o755))
+
+	writeFile(t, skillPath, `---
+name: pr-summarizer
+description: |
+  Summarize PR diffs.
+  DO NOT USE FOR: code review security PRs.
+---
+`)
+	writeFile(t, evalPath, `name: pr-summarizer-eval
+skill: pr-summarizer
+version: "1.0"
+config:
+  trials_per_task: 1
+  timeout_seconds: 60
+  parallel: false
+  executor: mock
+  model: mock
+graders:
+  - type: text
+    name: basic
+metrics:
+  - name: coverage
+    weight: 1
+    threshold: 1
+tasks:
+  - tasks/*.yaml
+`)
+	writeFile(t, filepath.Join(tasksDir, "positive.yaml"), `id: positive-task
+name: Positive task
+description: Code review security PRs.
+inputs:
+  prompt: Please do code review security PRs.
+expected:
+  should_trigger: true
+`)
+
+	report, err := Verify(context.Background(), Options{
+		SkillPath:     skillPath,
+		EvalPath:      evalPath,
+		Semantic:      true,
+		FailThreshold: 1,
+		Matcher:       alwaysMatchSemanticMatcher{},
+	})
+	require.NoError(t, err)
+
+	var dont RequirementCoverage
+	for _, row := range report.Coverage {
+		if row.Requirement.ID == "req-dont-001" {
+			dont = row
+			break
+		}
+	}
+	require.Equal(t, "req-dont-001", dont.Requirement.ID)
+	assert.Empty(t, dont.CoveredBy)
+}
+
 func TestVerifyLoadsCSVTasksFromDataset(t *testing.T) {
 	root := t.TempDir()
 	skillPath := filepath.Join(root, "SKILL.md")
@@ -169,4 +231,10 @@ func writeFile(t *testing.T, path string, content string) {
 	t.Helper()
 	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
 	require.NoError(t, os.WriteFile(path, []byte(content), 0o644))
+}
+
+type alwaysMatchSemanticMatcher struct{}
+
+func (alwaysMatchSemanticMatcher) Matches(context.Context, Requirement, TaskRef) (bool, string, error) {
+	return true, "matched", nil
 }

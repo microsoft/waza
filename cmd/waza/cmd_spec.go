@@ -314,7 +314,15 @@ func renderSpecVerifyGitHubActions(w io.Writer, report *specverify.Report, warn,
 		if len(row.CoveredBy) > 0 {
 			continue
 		}
-		fmt.Fprintf(w, "::%s file=%s,line=%d,title=Uncovered spec requirement::%s %s\n", level, row.Requirement.Source.File, row.Requirement.Source.StartLine, row.Requirement.ID, escapeGitHubActions(row.Requirement.Text)) //nolint:errcheck
+		_, _ = fmt.Fprintf(
+			w,
+			"::%s file=%s,line=%d,title=Uncovered spec requirement::%s %s\n",
+			level,
+			escapeGitHubActionsProperty(githubActionsAnnotationPath(row.Requirement.Source.File)),
+			row.Requirement.Source.StartLine,
+			row.Requirement.ID,
+			escapeGitHubActionsMessage(row.Requirement.Text),
+		)
 	}
 }
 
@@ -326,10 +334,31 @@ func coveredTaskList(items []specverify.CoveredBy) string {
 	return strings.Join(ids, ", ")
 }
 
-func escapeGitHubActions(s string) string {
+func githubActionsAnnotationPath(path string) string {
+	if !filepath.IsAbs(path) {
+		return filepath.ToSlash(path)
+	}
+	wd, err := os.Getwd()
+	if err != nil {
+		return filepath.ToSlash(path)
+	}
+	rel, err := filepath.Rel(wd, path)
+	if err != nil || rel == "." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || rel == ".." {
+		return filepath.ToSlash(path)
+	}
+	return filepath.ToSlash(rel)
+}
+
+func escapeGitHubActionsMessage(s string) string {
 	s = strings.ReplaceAll(s, "%", "%25")
 	s = strings.ReplaceAll(s, "\r", "%0D")
 	s = strings.ReplaceAll(s, "\n", "%0A")
+	return s
+}
+
+func escapeGitHubActionsProperty(s string) string {
+	s = escapeGitHubActionsMessage(s)
 	s = strings.ReplaceAll(s, ":", "%3A")
+	s = strings.ReplaceAll(s, ",", "%2C")
 	return s
 }

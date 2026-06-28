@@ -70,6 +70,9 @@ func Verify(ctx context.Context, opts Options) (*Report, error) {
 		}
 		if len(rc.CoveredBy) == 0 && opts.Semantic && opts.Matcher != nil {
 			for _, task := range tasks {
+				if req.Kind == RequirementDont && !isNegativeTask(task) {
+					continue
+				}
 				ok, reason, err := opts.Matcher.Matches(ctx, req, task)
 				if err != nil {
 					return nil, err

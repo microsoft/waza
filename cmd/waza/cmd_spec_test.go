@@ -6,8 +6,10 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/microsoft/waza/internal/specverify"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -71,6 +73,63 @@ func TestSpecVerifyCommandGitHubActionsHonorsWarnFalse(t *testing.T) {
 
 	require.NoError(t, cmd.Execute())
 	assert.Empty(t, out.String())
+}
+
+func TestSpecVerifyCommandGitHubActionsUsesRelativePathAndMessageEscaping(t *testing.T) {
+	root := t.TempDir()
+	t.Chdir(root)
+	skillPath := filepath.Join(root, "skills", "example", "SKILL.md")
+
+	report := &specverify.Report{
+		Coverage: []specverify.RequirementCoverage{{
+			Requirement: specverify.Requirement{
+				ID:   "req-use-001",
+				Kind: specverify.RequirementUse,
+				Text: "needs: coverage",
+				Source: specverify.SourceSpan{
+					File:      skillPath,
+					StartLine: 7,
+				},
+			},
+			CoveredBy: []specverify.CoveredBy{},
+		}},
+	}
+
+	var out bytes.Buffer
+	renderSpecVerifyGitHubActions(&out, report, true, false)
+
+	text := out.String()
+	assert.Contains(t, text, "file=skills/example/SKILL.md")
+	assert.Contains(t, text, "::req-use-001 needs: coverage")
+	assert.NotContains(t, text, "needs%3A coverage")
+}
+
+func TestSpecVerifyCommandHumanOutputMatchesDocs(t *testing.T) {
+	report := &specverify.Report{
+		Summary: specverify.Summary{
+			TotalRequirements:     1,
+			UncoveredRequirements: 1,
+		},
+		Coverage: []specverify.RequirementCoverage{{
+			Requirement: specverify.Requirement{
+				ID:   "req-use-001",
+				Kind: specverify.RequirementUse,
+				Text: "summarize PR discussion",
+				Source: specverify.SourceSpan{
+					File:      "SKILL.md",
+					StartLine: 4,
+				},
+			},
+			CoveredBy: []specverify.CoveredBy{},
+		}},
+	}
+
+	var out bytes.Buffer
+	renderSpecVerifyHuman(&out, report)
+
+	text := out.String()
+	assert.Contains(t, text, `MISS req-use-001  "summarize PR discussion"  -> no task exercises this`)
+	assert.False(t, strings.ContainsAny(text, "✓✗→"))
 }
 
 func writeSpecVerifyFixture(t *testing.T, root string, includeNegative bool) (string, string) {

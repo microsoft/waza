@@ -75,9 +75,9 @@ Example output:
 Spec Verification
 Coverage: 4/5 requirements covered (1 uncovered)
 
-✓ req-use-001  "summarize a PR diff"  → covered by tasks: [pr-summary-basic]
-✓ req-dont-001  "code review security PRs"  → covered by tasks: [security-review-negative]
-✗ req-use-002  "summarize PR discussion"  → no task exercises this
+OK req-use-001  "summarize a PR diff"  -> covered by tasks: [pr-summary-basic]
+OK req-dont-001  "code review security PRs"  -> covered by tasks: [security-review-negative]
+MISS req-use-002  "summarize PR discussion"  -> no task exercises this
 ```
 
 Add a task for `req-use-002`, or use `--semantic` if the task covers the requirement without sharing obvious keywords.
