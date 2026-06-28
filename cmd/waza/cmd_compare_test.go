@@ -290,8 +290,11 @@ func TestComputeToolMetrics_NoToolData(t *testing.T) {
 	require.Equal(t, 0.0, tm.AvgCallsPerTask)
 	require.Equal(t, 0.0, tm.SuccessRate)
 	require.Equal(t, 0.0, tm.SelectionAccuracy)
-	// histogram exists but everything in the "0" bucket
-	require.GreaterOrEqual(t, tm.CallCountHistogram["0"], 1)
+	// histogram map is present; with no runs, no buckets are incremented
+	require.NotNil(t, tm.CallCountHistogram)
+	require.Equal(t, 0, tm.CallCountHistogram["1"])
+	require.Equal(t, 0, tm.CallCountHistogram["2"])
+	require.Equal(t, 0, tm.CallCountHistogram["3+"])
 }
 
 func TestComputeToolMetrics_TotalsAndSuccessRate(t *testing.T) {

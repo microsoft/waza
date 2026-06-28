@@ -623,7 +623,7 @@ At least one constraint must be configured. When both `min_calls` and `max_calls
 
 ### Argument matchers (schema 1.1+)
 
-When you need to assert *what* a tool was called with — not just which tools ran — use the `expect:` field with structured argument matchers. Each entry names a tool and a map of `args:` constraints; the grader checks every entry against the recorded `tool_events[]` for the run.
+When you need to assert *what* a tool was called with — not just which tools ran — use the `expect:` field with structured argument matchers. Each entry names a tool and a map of `args:` constraints; the grader checks every entry against the recorded tool calls for the run (the same data that is also serialized into `tool_events[]` in `results.json`).
 
 ```yaml
 - type: tool_calls
@@ -632,22 +632,29 @@ When you need to assert *what* a tool was called with — not just which tools r
     expect:
       - tool: edit
         args:
-          path: { kind: equals, equals: "src/auth.go" }
-          file_text: { kind: contains, contains: "func Login" }
+          path: { equals: "src/auth.go" }
+          file_text: { contains: "func Login" }
       - tool: bash
         args:
-          command: { kind: regex, regex: "^go test " }
+          command: { regex: "^go test " }
 ```
 
-Supported matcher kinds:
+Each matcher is a single-key mapping naming exactly one of the kinds below:
 
-| Kind          | Field         | Matches when …                                            |
-| ------------- | ------------- | --------------------------------------------------------- |
-| `equals`      | `equals`      | the argument is deeply equal to the supplied value         |
-| `regex`       | `regex`       | the stringified argument matches the supplied RE2 pattern  |
-| `contains`    | `contains`    | the stringified argument contains the supplied substring   |
-| `range`       | `range`       | the numeric argument is within `[min, max]` (inclusive)    |
-| `json_schema` | `json_schema` | the argument validates against the supplied JSON Schema    |
+| Key           | Matches when …                                                         |
+| ------------- | ---------------------------------------------------------------------- |
+| `equals`      | the argument is deeply equal to the supplied value                      |
+| `regex`       | the stringified argument matches the supplied RE2 pattern               |
+| `contains`    | the stringified argument contains the supplied substring                |
+| `range`       | the numeric argument satisfies the bounds (`gte` / `lte` / `gt` / `lt`) |
+| `json_schema` | the argument validates against the supplied JSON Schema (draft-07+)     |
+
+The `range` matcher accepts any combination of inclusive (`gte`, `lte`) and exclusive (`gt`, `lt`) bounds; at least one must be set:
+
+```yaml
+limit: { range: { gte: 1, lte: 5 } }
+score: { range: { gt: 0.0 } }
+```
 
 `tool_constraint` accepts the same `args:` block on each `expect_tools` entry, so you can require both *which* tool ran and *how* it was called in a single grader:
 
@@ -658,7 +665,7 @@ Supported matcher kinds:
     expect_tools:
       - tool: edit
         args:
-          path: { kind: regex, regex: "^src/" }
+          path: { regex: "^src/" }
       - tool: bash
     reject_tools:
       - tool: bash

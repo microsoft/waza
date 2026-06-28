@@ -116,8 +116,9 @@ func normalizeResultValue(r *copilot.ToolExecutionCompleteResult) any {
 	return normalizeArgsValue(r)
 }
 
-// stringifyResult returns the first string-valued payload it can find in the
-// result, falling back to the JSON encoding. Used for error messages.
+// stringifyResult returns a JSON encoding of the tool result, or "" when r is
+// nil or marshaling fails. Used to populate ToolEvent.Error on failed calls so
+// downstream consumers have a stable, replay-friendly string representation.
 func stringifyResult(r *copilot.ToolExecutionCompleteResult) string {
 	if r == nil {
 		return ""

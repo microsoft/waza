@@ -97,12 +97,12 @@ version: "1.0"
 
 **Type:** string  
 **Required:** no  
-**Default:** `1.1`
+**Default:** current schema version (currently `1.1`)
 
 Schema version for the public artifact shape. It uses `MAJOR.MINOR` format with no patch component. Same-major minor additions are backward-compatible; readers ignore unknown fields and warn. Different major versions are rejected with a migration hint.
 
 ```yaml
-schemaVersion: "1.0"
+schemaVersion: "1.1"
 ```
 
 See [Schema Changes](/reference/schema-changes/) for the versioning policy and changelog.

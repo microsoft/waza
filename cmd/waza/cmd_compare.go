@@ -224,6 +224,12 @@ func printComparisonTable(r *comparisonReport) {
 		}
 		fmt.Printf("  %+d\n", r.ToolMetrics[n-1].TotalCalls-r.ToolMetrics[0].TotalCalls)
 
+		fmt.Printf("  %-20s", "Tasks w/ tools")
+		for _, tm := range r.ToolMetrics {
+			fmt.Printf("  %-9d", tm.TasksWithTools)
+		}
+		fmt.Printf("  %+d\n", r.ToolMetrics[n-1].TasksWithTools-r.ToolMetrics[0].TasksWithTools)
+
 		fmt.Printf("  %-20s", "Avg calls/task")
 		for _, tm := range r.ToolMetrics {
 			fmt.Printf("  %-9.2f", tm.AvgCallsPerTask)
@@ -243,7 +249,7 @@ func printComparisonTable(r *comparisonReport) {
 		fmt.Printf("  %+.1f%%\n", (r.ToolMetrics[n-1].SelectionAccuracy-r.ToolMetrics[0].SelectionAccuracy)*100)
 
 		for _, bucket := range []string{"0", "1", "2", "3+"} {
-			fmt.Printf("  %-20s", "Tasks w/ "+bucket+" calls")
+			fmt.Printf("  %-20s", "Runs w/ "+bucket+" calls")
 			for _, tm := range r.ToolMetrics {
 				fmt.Printf("  %-9d", tm.CallCountHistogram[bucket])
 			}
@@ -324,28 +330,25 @@ func computeToolMetrics(o *models.EvaluationOutcome) toolMetrics {
 		callsThisTask := 0
 		successThisTask := 0
 		for _, run := range t.Runs {
-			callsThisTask += len(run.ToolEvents)
+			runCalls := len(run.ToolEvents)
+			callsThisTask += runCalls
 			for _, ev := range run.ToolEvents {
 				if ev.Success {
 					successThisTask++
 				}
 			}
-		}
-		// Average per task uses the per-task call count rather than per-run so
-		// that retried runs don't double-count for the histogram.
-		perTaskAvg := 0
-		if len(t.Runs) > 0 {
-			perTaskAvg = callsThisTask / len(t.Runs)
-		}
-		switch perTaskAvg {
-		case 0:
-			hist["0"]++
-		case 1:
-			hist["1"]++
-		case 2:
-			hist["2"]++
-		default:
-			hist["3+"]++
+			// Per-run histogram bucket: one entry per individual run so retried
+			// trials are counted independently and no truncation is required.
+			switch runCalls {
+			case 0:
+				hist["0"]++
+			case 1:
+				hist["1"]++
+			case 2:
+				hist["2"]++
+			default:
+				hist["3+"]++
+			}
 		}
 		if callsThisTask > 0 {
 			tm.TasksWithTools++
