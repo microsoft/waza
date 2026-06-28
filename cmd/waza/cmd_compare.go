@@ -52,6 +52,21 @@ type comparisonReport struct {
 	TotalTests     []int            `json:"total_tests"`
 	DurationsMs    []int64          `json:"durations_ms"`
 	DurationDeltaM int64            `json:"duration_delta_ms"`
+
+	// ToolMetrics summarizes per-file tool-use statistics. Added with
+	// schemaVersion 1.1 (issue #366). Files that don't include tool_events
+	// produce zero values, which is safe for delta math.
+	ToolMetrics []toolMetrics `json:"tool_metrics"`
+}
+
+// toolMetrics aggregates tool-use stats across all tasks in one outcome file.
+type toolMetrics struct {
+	TotalCalls         int            `json:"total_calls"`
+	TasksWithTools     int            `json:"tasks_with_tools"`
+	AvgCallsPerTask    float64        `json:"avg_calls_per_task"`
+	SuccessRate        float64        `json:"success_rate"`
+	SelectionAccuracy  float64        `json:"selection_accuracy"`
+	CallCountHistogram map[string]int `json:"call_count_histogram"`
 }
 
 func compareCommandE(_ *cobra.Command, args []string) error {
@@ -92,6 +107,7 @@ func buildComparisonReport(files []string, outcomes []*models.EvaluationOutcome)
 		report.SuccessRates = append(report.SuccessRates, o.Digest.SuccessRate)
 		report.TotalTests = append(report.TotalTests, o.Digest.TotalTests)
 		report.DurationsMs = append(report.DurationsMs, o.Digest.DurationMs)
+		report.ToolMetrics = append(report.ToolMetrics, computeToolMetrics(o))
 	}
 
 	n := len(outcomes)
@@ -196,6 +212,47 @@ func printComparisonTable(r *comparisonReport) {
 	fmt.Printf("  %+d\n", r.DurationDeltaM)
 	fmt.Println()
 
+	// Tool metrics (additive in schemaVersion 1.1)
+	if len(r.ToolMetrics) == n && hasAnyToolData(r.ToolMetrics) {
+		fmt.Println(strings.Repeat("-", 70))
+		fmt.Println(" TOOL USE")
+		fmt.Println(strings.Repeat("-", 70))
+
+		fmt.Printf("  %-20s", "Total calls")
+		for _, tm := range r.ToolMetrics {
+			fmt.Printf("  %-9d", tm.TotalCalls)
+		}
+		fmt.Printf("  %+d\n", r.ToolMetrics[n-1].TotalCalls-r.ToolMetrics[0].TotalCalls)
+
+		fmt.Printf("  %-20s", "Avg calls/task")
+		for _, tm := range r.ToolMetrics {
+			fmt.Printf("  %-9.2f", tm.AvgCallsPerTask)
+		}
+		fmt.Printf("  %+.2f\n", r.ToolMetrics[n-1].AvgCallsPerTask-r.ToolMetrics[0].AvgCallsPerTask)
+
+		fmt.Printf("  %-20s", "Success rate")
+		for _, tm := range r.ToolMetrics {
+			fmt.Printf("  %-9.1f%%", tm.SuccessRate*100)
+		}
+		fmt.Printf("  %+.1f%%\n", (r.ToolMetrics[n-1].SuccessRate-r.ToolMetrics[0].SuccessRate)*100)
+
+		fmt.Printf("  %-20s", "Selection accuracy")
+		for _, tm := range r.ToolMetrics {
+			fmt.Printf("  %-9.1f%%", tm.SelectionAccuracy*100)
+		}
+		fmt.Printf("  %+.1f%%\n", (r.ToolMetrics[n-1].SelectionAccuracy-r.ToolMetrics[0].SelectionAccuracy)*100)
+
+		for _, bucket := range []string{"0", "1", "2", "3+"} {
+			fmt.Printf("  %-20s", "Tasks w/ "+bucket+" calls")
+			for _, tm := range r.ToolMetrics {
+				fmt.Printf("  %-9d", tm.CallCountHistogram[bucket])
+			}
+			fmt.Printf("  %+d\n",
+				r.ToolMetrics[n-1].CallCountHistogram[bucket]-r.ToolMetrics[0].CallCountHistogram[bucket])
+		}
+		fmt.Println()
+	}
+
 	// Per-task table
 	fmt.Println(strings.Repeat("-", 70))
 	fmt.Println(" PER-TASK DELTAS")
@@ -232,6 +289,17 @@ func printComparisonTable(r *comparisonReport) {
 	fmt.Println()
 }
 
+// hasAnyToolData reports whether any file has at least one recorded tool call.
+// Suppresses the "TOOL USE" table for purely tool-free outcomes.
+func hasAnyToolData(metrics []toolMetrics) bool {
+	for _, m := range metrics {
+		if m.TotalCalls > 0 {
+			return true
+		}
+	}
+	return false
+}
+
 func printComparisonJSON(r *comparisonReport) error {
 	data, err := json.MarshalIndent(r, "", "  ")
 	if err != nil {
@@ -239,4 +307,83 @@ func printComparisonJSON(r *comparisonReport) error {
 	}
 	fmt.Println(string(data))
 	return nil
+}
+
+// computeToolMetrics aggregates per-task ToolEvents and tool_calls grader
+// outcomes into a single summary record. Tasks without ToolEvents contribute
+// zero counts; tasks without a tool_calls grader are excluded from the
+// SelectionAccuracy denominator.
+func computeToolMetrics(o *models.EvaluationOutcome) toolMetrics {
+	hist := map[string]int{"0": 0, "1": 0, "2": 0, "3+": 0}
+	tm := toolMetrics{CallCountHistogram: hist}
+
+	var totalCalls, successfulCalls int
+	var graderTasks, graderPasses int
+
+	for _, t := range o.TestOutcomes {
+		callsThisTask := 0
+		successThisTask := 0
+		for _, run := range t.Runs {
+			callsThisTask += len(run.ToolEvents)
+			for _, ev := range run.ToolEvents {
+				if ev.Success {
+					successThisTask++
+				}
+			}
+		}
+		// Average per task uses the per-task call count rather than per-run so
+		// that retried runs don't double-count for the histogram.
+		perTaskAvg := 0
+		if len(t.Runs) > 0 {
+			perTaskAvg = callsThisTask / len(t.Runs)
+		}
+		switch perTaskAvg {
+		case 0:
+			hist["0"]++
+		case 1:
+			hist["1"]++
+		case 2:
+			hist["2"]++
+		default:
+			hist["3+"]++
+		}
+		if callsThisTask > 0 {
+			tm.TasksWithTools++
+		}
+		totalCalls += callsThisTask
+		successfulCalls += successThisTask
+
+		// Selection accuracy: did the tool_calls grader pass for this task?
+		hasToolCallsGrader := false
+		allPassed := true
+		for _, run := range t.Runs {
+			for _, v := range run.Validations {
+				if v.Type != models.GraderKindToolCalls {
+					continue
+				}
+				hasToolCallsGrader = true
+				if !v.Passed {
+					allPassed = false
+				}
+			}
+		}
+		if hasToolCallsGrader {
+			graderTasks++
+			if allPassed {
+				graderPasses++
+			}
+		}
+	}
+
+	tm.TotalCalls = totalCalls
+	if len(o.TestOutcomes) > 0 {
+		tm.AvgCallsPerTask = float64(totalCalls) / float64(len(o.TestOutcomes))
+	}
+	if totalCalls > 0 {
+		tm.SuccessRate = float64(successfulCalls) / float64(totalCalls)
+	}
+	if graderTasks > 0 {
+		tm.SelectionAccuracy = float64(graderPasses) / float64(graderTasks)
+	}
+	return tm
 }

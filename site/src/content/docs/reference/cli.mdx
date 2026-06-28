@@ -416,6 +416,21 @@ waza compare gpt4.json sonnet.json opus.json
 waza compare results-*.json --format json
 ```
 
+### Tool-use metrics (schema 1.1+)
+
+When the input files include the `tool_events[]` array (`results.json` schema 1.1 or later), `waza compare` prints an additional `TOOL USE` section with aggregate per-file metrics:
+
+| Metric | Meaning |
+|---|---|
+| `total_calls` | Total number of tool calls across every task and run |
+| `tasks_with_tools` | Tasks where at least one tool call was recorded |
+| `avg_calls_per_task` | Mean calls per task |
+| `success_rate` | Fraction of tool calls that returned `success: true` |
+| `selection_accuracy` | Fraction of tasks where the `tool_calls` grader passed (excludes tasks without a `tool_calls` grader) |
+| `call_count_histogram` | Distribution of per-task call counts in buckets `0`, `1`, `2`, `3+` |
+
+The section is suppressed when none of the compared files contain tool data, so legacy 1.0 results remain unchanged.
+
 ## waza gate
 
 Compare a current results file against a baseline and enforce regression policy. Designed for CI: emits stable exit codes and supports GitHub Actions annotations.

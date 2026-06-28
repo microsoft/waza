@@ -20,7 +20,7 @@ Schema versions use `MAJOR.MINOR` format with no patch component.
 
 - **MINOR** changes are backward-compatible additions, usually optional fields. Readers accept same-major artifacts and warn when they see unknown fields.
 - **MAJOR** changes are breaking. Readers refuse artifacts from a different major version and point to `waza migrate <file>`.
-- Missing `schemaVersion` defaults to `1.0` for backward compatibility with eval suites authored before the field was introduced. Same-major readers continue to accept `1.0`-defaulted files unchanged.
+- Missing `schemaVersion` is interpreted as the current schema version (currently `1.1`). Same-major minor differences are accepted and any unknown fields are warned about; cross-major mismatches are rejected.
 - New artifacts should emit the current `schemaVersion` (currently `1.1`). The version is automatically populated by the writer; you only need to set it manually when authoring fixtures or schema-pinned test data.
 
 ## Migration command
@@ -40,6 +40,8 @@ For schema `1.0`, the command is a no-op because there is no prior major version
 
 - Added optional `checkpoints[]` to task YAML for per-turn graders (`after_turn`, `graders`, `on_failure`). Backward-compatible: 1.0 task files load unchanged.
 - Added optional `checkpoints[]` to `results.json` task results, recording per-turn grader outcomes.
+- Added optional `runs[].tool_events[]` array to `results.json` (issue #366). Each entry captures one tool call with `turn`, `sequence`, `tool_call_id`, `tool_name`, `args`, `result`, `success`, `error`, and `duration_ms`. The legacy `session_digest.tool_calls` field is preserved.
+- Bumped `results.json` `schemaVersion` default to `1.1`. Readers accept `1.0` and `1.1` interchangeably (same major).
 
 ### 1.0
 

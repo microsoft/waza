@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 
+	"github.com/microsoft/waza/internal/graders/argmatcher"
 	"gopkg.in/yaml.v3"
 )
 
@@ -119,6 +120,13 @@ type ToolSpecParameters struct {
 	CommandPattern string `yaml:"command_pattern,omitempty" json:"command_pattern,omitempty"`
 	SkillPattern   string `yaml:"skill_pattern,omitempty" json:"skill_pattern,omitempty"`
 	PathPattern    string `yaml:"path_pattern,omitempty" json:"path_pattern,omitempty"`
+
+	// Args constrains specific argument fields on the tool call using
+	// structured matchers (equals / regex / contains / range / json_schema).
+	// Keys are argument names as they appear on ToolCall.Arguments after JSON
+	// normalisation; values are matcher specs. All matchers must pass for the
+	// call to satisfy the spec.
+	Args map[string]argmatcher.Matcher `yaml:"args,omitempty" json:"args,omitempty"`
 }
 
 type ToolConstraintGraderParameters struct {
@@ -157,6 +165,28 @@ type ToolCallsGraderParameters struct {
 	ForbiddenTools []string `yaml:"forbidden_tools,omitempty" json:"forbidden_tools,omitempty"`
 	MinCalls       *int     `yaml:"min_calls,omitempty" json:"min_calls,omitempty"`
 	MaxCalls       *int     `yaml:"max_calls,omitempty" json:"max_calls,omitempty"`
+
+	// Expect is an ordered list of tool-call expectations. Each entry names
+	// the expected tool and (optionally) structured matchers for argument
+	// fields. An expectation passes when there is at least one actual tool
+	// call whose name matches and whose arguments satisfy every matcher.
+	//
+	// Unlike RequiredTools (which only checks names), Expect lets a grader
+	// assert input correctness — e.g. "list_dir was called with
+	// path matching ^src/".
+	Expect []ToolExpectation `yaml:"expect,omitempty" json:"expect,omitempty"`
+}
+
+// ToolExpectation defines one entry in [ToolCallsGraderParameters].Expect.
+type ToolExpectation struct {
+	// Tool is the expected tool name (matched as a Go regexp against the
+	// recorded tool name). A plain string is a substring match anchored by
+	// the regexp engine, so use `^foo$` for exact match.
+	Tool string `yaml:"tool" json:"tool"`
+
+	// Args holds matcher specs for tool-call argument fields. All matchers
+	// must pass for the expectation to be considered satisfied.
+	Args map[string]argmatcher.Matcher `yaml:"args,omitempty" json:"args,omitempty"`
 }
 
 func (ToolCallsGraderParameters) isGraderParameters() {}

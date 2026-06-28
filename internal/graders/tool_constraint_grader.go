@@ -49,6 +49,12 @@ func validateToolSpecs(specs []models.ToolSpecParameters, fieldName string) ([]m
 			}
 		}
 
+		for argName, m := range spec.Args {
+			if err := m.Compile(); err != nil {
+				return nil, fmt.Errorf("config.%s[%d].args[%s]: %w", fieldName, i, argName, err)
+			}
+		}
+
 		normalized[i] = spec
 	}
 
@@ -163,6 +169,16 @@ func matchesToolCall(spec models.ToolSpecParameters, call models.ToolCall) bool 
 		return false
 	}
 
+	if len(spec.Args) > 0 {
+		args, err := normalizeToolCallArgs(call)
+		if err != nil {
+			return false
+		}
+		if failures := evaluateArgMatchers(spec.Args, args); len(failures) > 0 {
+			return false
+		}
+	}
+
 	return true
 }
 
@@ -178,6 +194,14 @@ func describeToolSpec(spec models.ToolSpecParameters) string {
 	}
 	if spec.PathPattern != "" {
 		qualifiers = append(qualifiers, fmt.Sprintf("path_pattern: %s", spec.PathPattern))
+	}
+	if len(spec.Args) > 0 {
+		keys := make([]string, 0, len(spec.Args))
+		for k := range spec.Args {
+			keys = append(keys, k)
+		}
+		sortStrings(keys)
+		qualifiers = append(qualifiers, fmt.Sprintf("args: [%s]", strings.Join(keys, ", ")))
 	}
 
 	if len(qualifiers) == 0 {

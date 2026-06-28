@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/microsoft/waza/internal/graders/argmatcher"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/stretchr/testify/require"
 )
@@ -352,4 +353,179 @@ func TestToolCallsGrader_Factory(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "check-tools", g.Name())
 	require.Equal(t, models.GraderKindToolCalls, g.Kind())
+}
+
+// ---------------------------------------------------------------------------
+// Expect: structured tool expectations with argument matchers (issue #366).
+// ---------------------------------------------------------------------------
+
+func TestToolCallsGrader_Expect_NoArgs_Passes(t *testing.T) {
+	g, err := NewToolCallsGrader("tc", models.ToolCallsGraderParameters{
+		Expect: []models.ToolExpectation{{Tool: "bash"}},
+	})
+	require.NoError(t, err)
+	res, err := g.Grade(context.Background(), &Context{
+		Session: &models.SessionDigest{
+			ToolCalls: []models.ToolCall{{Name: "bash", Arguments: models.ToolCallArgs{Command: "ls"}}},
+		},
+	})
+	require.NoError(t, err)
+	require.True(t, res.Passed, "feedback: %s", res.Feedback)
+}
+
+func TestToolCallsGrader_Expect_MissingTool_Fails(t *testing.T) {
+	g, err := NewToolCallsGrader("tc", models.ToolCallsGraderParameters{
+		Expect: []models.ToolExpectation{{Tool: "bash"}, {Tool: "view"}},
+	})
+	require.NoError(t, err)
+	res, err := g.Grade(context.Background(), &Context{
+		Session: &models.SessionDigest{
+			ToolCalls: []models.ToolCall{{Name: "bash"}},
+		},
+	})
+	require.NoError(t, err)
+	require.False(t, res.Passed)
+	require.InDelta(t, 0.5, res.Score, 0.01)
+	require.Contains(t, res.Feedback, "view")
+}
+
+func TestToolCallsGrader_Expect_RegexArgMatch_Passes(t *testing.T) {
+	g, err := NewToolCallsGrader("tc", models.ToolCallsGraderParameters{
+		Expect: []models.ToolExpectation{{
+			Tool: "bash",
+			Args: map[string]argmatcher.Matcher{
+				"command": {Kind: argmatcher.KindRegex, Regex: `^ls .*`},
+			},
+		}},
+	})
+	require.NoError(t, err)
+	res, err := g.Grade(context.Background(), &Context{
+		Session: &models.SessionDigest{
+			ToolCalls: []models.ToolCall{
+				{Name: "bash", Arguments: models.ToolCallArgs{Command: "ls -la"}},
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.True(t, res.Passed, "feedback: %s", res.Feedback)
+}
+
+func TestToolCallsGrader_Expect_RegexArgMismatch_Fails(t *testing.T) {
+	g, err := NewToolCallsGrader("tc", models.ToolCallsGraderParameters{
+		Expect: []models.ToolExpectation{{
+			Tool: "bash",
+			Args: map[string]argmatcher.Matcher{
+				"command": {Kind: argmatcher.KindRegex, Regex: `^npm test`},
+			},
+		}},
+	})
+	require.NoError(t, err)
+	res, err := g.Grade(context.Background(), &Context{
+		Session: &models.SessionDigest{
+			ToolCalls: []models.ToolCall{
+				{Name: "bash", Arguments: models.ToolCallArgs{Command: "ls -la"}},
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.False(t, res.Passed)
+	require.Contains(t, res.Feedback, "command")
+}
+
+func TestToolCallsGrader_Expect_EqualsArgMatch_Passes(t *testing.T) {
+	g, err := NewToolCallsGrader("tc", models.ToolCallsGraderParameters{
+		Expect: []models.ToolExpectation{{
+			Tool: "view",
+			Args: map[string]argmatcher.Matcher{
+				"path": {Kind: argmatcher.KindEquals, Equals: "/etc/hosts"},
+			},
+		}},
+	})
+	require.NoError(t, err)
+	res, err := g.Grade(context.Background(), &Context{
+		Session: &models.SessionDigest{
+			ToolCalls: []models.ToolCall{
+				{Name: "view", Arguments: models.ToolCallArgs{Path: "/etc/hosts"}},
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.True(t, res.Passed, "feedback: %s", res.Feedback)
+}
+
+func TestToolCallsGrader_Expect_ContainsArgMatch_Passes(t *testing.T) {
+	g, err := NewToolCallsGrader("tc", models.ToolCallsGraderParameters{
+		Expect: []models.ToolExpectation{{
+			Tool: "bash",
+			Args: map[string]argmatcher.Matcher{
+				"command": {Kind: argmatcher.KindContains, Contains: "test"},
+			},
+		}},
+	})
+	require.NoError(t, err)
+	res, err := g.Grade(context.Background(), &Context{
+		Session: &models.SessionDigest{
+			ToolCalls: []models.ToolCall{
+				{Name: "bash", Arguments: models.ToolCallArgs{Command: "go test ./..."}},
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.True(t, res.Passed, "feedback: %s", res.Feedback)
+}
+
+func TestToolCallsGrader_Expect_ArgKeyMissing_Fails(t *testing.T) {
+	g, err := NewToolCallsGrader("tc", models.ToolCallsGraderParameters{
+		Expect: []models.ToolExpectation{{
+			Tool: "bash",
+			Args: map[string]argmatcher.Matcher{
+				"command": {Kind: argmatcher.KindRegex, Regex: ".+"},
+			},
+		}},
+	})
+	require.NoError(t, err)
+	// ToolCall with no Command set — arg key absent.
+	res, err := g.Grade(context.Background(), &Context{
+		Session: &models.SessionDigest{
+			ToolCalls: []models.ToolCall{{Name: "bash"}},
+		},
+	})
+	require.NoError(t, err)
+	require.False(t, res.Passed)
+}
+
+func TestToolCallsGrader_Expect_PicksLatestSameNameCall(t *testing.T) {
+	// When a tool is called multiple times, any matching invocation should
+	// satisfy the expectation.
+	g, err := NewToolCallsGrader("tc", models.ToolCallsGraderParameters{
+		Expect: []models.ToolExpectation{{
+			Tool: "bash",
+			Args: map[string]argmatcher.Matcher{
+				"command": {Kind: argmatcher.KindEquals, Equals: "ls"},
+			},
+		}},
+	})
+	require.NoError(t, err)
+	res, err := g.Grade(context.Background(), &Context{
+		Session: &models.SessionDigest{
+			ToolCalls: []models.ToolCall{
+				{Name: "bash", Arguments: models.ToolCallArgs{Command: "pwd"}},
+				{Name: "bash", Arguments: models.ToolCallArgs{Command: "ls"}},
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.True(t, res.Passed, "feedback: %s", res.Feedback)
+}
+
+func TestToolCallsGrader_Expect_InvalidMatcher_ConstructError(t *testing.T) {
+	_, err := NewToolCallsGrader("tc", models.ToolCallsGraderParameters{
+		Expect: []models.ToolExpectation{{
+			Tool: "bash",
+			Args: map[string]argmatcher.Matcher{
+				"command": {Kind: argmatcher.KindRegex, Regex: "["},
+			},
+		}},
+	})
+	require.Error(t, err)
 }

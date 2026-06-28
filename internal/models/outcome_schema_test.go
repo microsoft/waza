@@ -84,7 +84,60 @@ func TestEvaluationOutcomeMarshalDefaultsSchemaVersion(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Marshal() error = %v", err)
 	}
-	if !strings.Contains(string(data), `"schemaVersion":"1.1"`) {
+	if !strings.Contains(string(data), `"schemaVersion":"`+CurrentSchemaVersion+`"`) {
 		t.Fatalf("marshaled outcome missing default schemaVersion: %s", data)
+	}
+}
+
+// TestEvaluationOutcome_ToolEventsRoundTrip verifies the schema 1.1 additive
+// tool_events[] field round-trips through JSON without loss (issue #366).
+func TestEvaluationOutcome_ToolEventsRoundTrip(t *testing.T) {
+	original := &EvaluationOutcome{
+		SkillTested:   "test-skill",
+		BenchName:     "test-eval",
+		SchemaVersion: CurrentSchemaVersion,
+		Timestamp:     time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+		TestOutcomes: []TestOutcome{{
+			TestID: "t1",
+			Runs: []RunResult{{
+				RunNumber: 1,
+				ToolEvents: []ToolEvent{
+					{
+						Turn: 1, Sequence: 1,
+						ToolCallID: "call-a", ToolName: "bash",
+						Args:    map[string]any{"command": "go test"},
+						Success: true, DurationMs: 42,
+					},
+					{
+						Turn: 1, Sequence: 2,
+						ToolCallID: "call-b", ToolName: "view",
+						Args:    map[string]any{"path": "/tmp/x"},
+						Success: false, Error: "not found",
+					},
+				},
+			}},
+		}},
+	}
+
+	data, err := json.Marshal(original)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+
+	// The wire field name must be `tool_events` per the documented schema.
+	if !strings.Contains(string(data), `"tool_events"`) {
+		t.Fatalf("expected tool_events field in marshaled JSON: %s", data)
+	}
+
+	var restored EvaluationOutcome
+	if err := json.Unmarshal(data, &restored); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if got := len(restored.TestOutcomes[0].Runs[0].ToolEvents); got != 2 {
+		t.Fatalf("ToolEvents length = %d, want 2", got)
+	}
+	te := restored.TestOutcomes[0].Runs[0].ToolEvents[0]
+	if te.ToolCallID != "call-a" || te.ToolName != "bash" || !te.Success || te.DurationMs != 42 {
+		t.Fatalf("first tool event lost fidelity: %+v", te)
 	}
 }

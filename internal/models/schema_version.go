@@ -16,8 +16,10 @@ import (
 const (
 	// CurrentSchemaVersion is the current MAJOR.MINOR schema version for public artifacts.
 	//
-	// 1.1 adds per-turn checkpoints (TestCase.Checkpoints / RunResult.Checkpoints) — purely
-	// additive over 1.0, so 1.0 artifacts continue to load without migration.
+	// 1.0 — initial public schema (PR #382 / issue #368).
+	// 1.1 — additive: per-turn checkpoints (TestCase.Checkpoints / RunResult.Checkpoints, #358)
+	//       and RunResult.tool_events[] for per-task tool metrics (#366). Purely additive
+	//       over 1.0, so 1.0 artifacts continue to load without migration.
 	CurrentSchemaVersion = "1.1"
 )
 

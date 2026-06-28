@@ -1270,6 +1270,7 @@ func (r *EvalRunner) executeRun(ctx context.Context, tc *models.TestCase, runNum
 		WorkspaceDir:     resp.WorkspaceDir,
 		Responder:        responderInfo,
 		Checkpoints:      checkpointOutcomes,
+		ToolEvents:       buildToolEvents(resp.Events),
 	})
 }
 

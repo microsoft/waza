@@ -621,6 +621,52 @@ At least one constraint must be configured. When both `min_calls` and `max_calls
     min_calls: 3
 ```
 
+### Argument matchers (schema 1.1+)
+
+When you need to assert *what* a tool was called with — not just which tools ran — use the `expect:` field with structured argument matchers. Each entry names a tool and a map of `args:` constraints; the grader checks every entry against the recorded `tool_events[]` for the run.
+
+```yaml
+- type: tool_calls
+  name: edit_correctness
+  config:
+    expect:
+      - tool: edit
+        args:
+          path: { kind: equals, equals: "src/auth.go" }
+          file_text: { kind: contains, contains: "func Login" }
+      - tool: bash
+        args:
+          command: { kind: regex, regex: "^go test " }
+```
+
+Supported matcher kinds:
+
+| Kind          | Field         | Matches when …                                            |
+| ------------- | ------------- | --------------------------------------------------------- |
+| `equals`      | `equals`      | the argument is deeply equal to the supplied value         |
+| `regex`       | `regex`       | the stringified argument matches the supplied RE2 pattern  |
+| `contains`    | `contains`    | the stringified argument contains the supplied substring   |
+| `range`       | `range`       | the numeric argument is within `[min, max]` (inclusive)    |
+| `json_schema` | `json_schema` | the argument validates against the supplied JSON Schema    |
+
+`tool_constraint` accepts the same `args:` block on each `expect_tools` entry, so you can require both *which* tool ran and *how* it was called in a single grader:
+
+```yaml
+- type: tool_constraint
+  name: guardrails
+  config:
+    expect_tools:
+      - tool: edit
+        args:
+          path: { kind: regex, regex: "^src/" }
+      - tool: bash
+    reject_tools:
+      - tool: bash
+        command_pattern: "^rm -rf"
+```
+
+Argument matchers apply on top of the existing required/forbidden checks — a tool must still be present (or absent) and *also* satisfy its matchers to count as a pass.
+
 ---
 
 ## Program

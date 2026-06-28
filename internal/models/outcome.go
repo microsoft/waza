@@ -196,6 +196,12 @@ type RunResult struct {
 	// configured TestCase.Checkpoint that actually ran (i.e., turn index was
 	// reached). Empty / omitted when the task defines no checkpoints.
 	Checkpoints []CheckpointOutcome `json:"checkpoints,omitempty"`
+
+	// ToolEvents is a normalized, replay-friendly record of every tool call
+	// made during the run. Added in schema version 1.1 as an additive field
+	// (see issue #366). The legacy SessionDigest.ToolCalls is preserved for
+	// backward compatibility; new consumers should prefer ToolEvents.
+	ToolEvents []ToolEvent `json:"tool_events,omitempty"`
 }
 
 // CheckpointOutcome captures the results of a single TestCase.Checkpoint that

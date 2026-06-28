@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/microsoft/waza/internal/graders/argmatcher"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/stretchr/testify/require"
 )
@@ -414,4 +415,89 @@ func TestToolConstraintGrader_InvalidArgsPatternRegex(t *testing.T) {
 	if !strings.Contains(err.Error(), "config.reject_tools[0].command_pattern: invalid regex") {
 		t.Fatalf("unexpected error message: %v", err)
 	}
+}
+
+// ---------------------------------------------------------------------------
+// Args: structured argument matchers on tool specs (issue #366).
+// ---------------------------------------------------------------------------
+
+func TestToolConstraintGrader_ExpectTools_ArgEquals_Pass(t *testing.T) {
+	g, err := NewToolConstraintGrader("test", models.ToolConstraintGraderParameters{
+		ExpectTools: []models.ToolSpecParameters{{
+			Tool: "view",
+			Args: map[string]argmatcher.Matcher{
+				"path": {Kind: argmatcher.KindEquals, Equals: "/etc/hosts"},
+			},
+		}},
+	})
+	require.NoError(t, err)
+
+	res, err := g.Grade(context.Background(), &Context{
+		Session: &models.SessionDigest{
+			ToolsUsed: []string{"view"},
+			ToolCalls: []models.ToolCall{
+				{Name: "view", Arguments: models.ToolCallArgs{Path: "/etc/hosts"}},
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.True(t, res.Passed, "feedback: %s", res.Feedback)
+}
+
+func TestToolConstraintGrader_ExpectTools_ArgRegex_Fail(t *testing.T) {
+	g, err := NewToolConstraintGrader("test", models.ToolConstraintGraderParameters{
+		ExpectTools: []models.ToolSpecParameters{{
+			Tool: "bash",
+			Args: map[string]argmatcher.Matcher{
+				"command": {Kind: argmatcher.KindRegex, Regex: `^npm test`},
+			},
+		}},
+	})
+	require.NoError(t, err)
+
+	res, err := g.Grade(context.Background(), &Context{
+		Session: &models.SessionDigest{
+			ToolsUsed: []string{"bash"},
+			ToolCalls: []models.ToolCall{
+				{Name: "bash", Arguments: models.ToolCallArgs{Command: "ls"}},
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.False(t, res.Passed)
+}
+
+func TestToolConstraintGrader_ExpectTools_ArgContains_Pass(t *testing.T) {
+	g, err := NewToolConstraintGrader("test", models.ToolConstraintGraderParameters{
+		ExpectTools: []models.ToolSpecParameters{{
+			Tool: "bash",
+			Args: map[string]argmatcher.Matcher{
+				"command": {Kind: argmatcher.KindContains, Contains: "go test"},
+			},
+		}},
+	})
+	require.NoError(t, err)
+
+	res, err := g.Grade(context.Background(), &Context{
+		Session: &models.SessionDigest{
+			ToolsUsed: []string{"bash"},
+			ToolCalls: []models.ToolCall{
+				{Name: "bash", Arguments: models.ToolCallArgs{Command: "go test ./..."}},
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.True(t, res.Passed, "feedback: %s", res.Feedback)
+}
+
+func TestToolConstraintGrader_InvalidArgMatcher_ConstructError(t *testing.T) {
+	_, err := NewToolConstraintGrader("test", models.ToolConstraintGraderParameters{
+		ExpectTools: []models.ToolSpecParameters{{
+			Tool: "bash",
+			Args: map[string]argmatcher.Matcher{
+				"command": {Kind: argmatcher.KindRegex, Regex: "["},
+			},
+		}},
+	})
+	require.Error(t, err)
 }
