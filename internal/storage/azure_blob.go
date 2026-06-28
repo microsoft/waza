@@ -239,7 +239,7 @@ func (abs *AzureBlobStore) Download(ctx context.Context, runID string) (*models.
 		return nil, fmt.Errorf("azure blob download: reading blob: %w", err)
 	}
 
-	outcome, err := models.ParseEvaluationOutcome(data, runID)
+	outcome, err := models.ParseEvaluationOutcome(data, blobPath)
 	if err != nil {
 		return nil, fmt.Errorf("azure blob download: unmarshaling outcome: %w", err)
 	}

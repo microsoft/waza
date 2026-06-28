@@ -25,7 +25,7 @@ func defaultSchemaVersion(version string) string {
 	return version
 }
 
-func validateSchemaVersion(artifact, source, version string) (string, error) {
+func ValidateSchemaVersion(artifact, source, version string) (string, error) {
 	version = defaultSchemaVersion(version)
 
 	major, _, err := parseSchemaVersion(version)
@@ -37,7 +37,7 @@ func validateSchemaVersion(artifact, source, version string) (string, error) {
 		return "", err
 	}
 	if major != currentMajor {
-		return "", fmt.Errorf("%s %s uses schemaVersion %q, but this waza supports schemaVersion %s; run \"waza migrate %s\" to migrate the file", artifact, source, version, CurrentSchemaVersion, source)
+		return "", fmt.Errorf("%s %s uses schemaVersion %q, but this waza supports schemaVersion %s; run \"waza migrate <file>\" to migrate the artifact file", artifact, source, version, CurrentSchemaVersion)
 	}
 	return version, nil
 }
@@ -121,7 +121,7 @@ func ParseEvaluationOutcome(data []byte, source string) (*EvaluationOutcome, err
 	if err := json.Unmarshal(data, &header); err != nil {
 		return nil, err
 	}
-	version, err := validateSchemaVersion("results.json", source, header.SchemaVersion)
+	version, err := ValidateSchemaVersion("results.json", source, header.SchemaVersion)
 	if err != nil {
 		return nil, err
 	}

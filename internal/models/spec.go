@@ -309,7 +309,7 @@ func LoadEvalSpec(path string) (*EvalSpec, error) {
 	if err := yaml.Unmarshal(data, &header); err != nil {
 		return nil, fmt.Errorf("parsing eval spec YAML (%s): %w", path, err)
 	}
-	version, err := validateSchemaVersion("eval.yaml", path, header.SchemaVersion)
+	version, err := ValidateSchemaVersion("eval.yaml", path, header.SchemaVersion)
 	if err != nil {
 		return nil, err
 	}

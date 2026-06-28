@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -8,6 +9,7 @@ import (
 
 	"github.com/microsoft/waza/internal/models"
 	"github.com/spf13/cobra"
+	"gopkg.in/yaml.v3"
 )
 
 func newMigrateCommand() *cobra.Command {
@@ -28,20 +30,52 @@ migration steps here.`,
 }
 
 func runMigrate(out io.Writer, path string) error {
-	if _, err := os.Stat(path); err != nil {
+	data, err := os.ReadFile(path)
+	if err != nil {
 		return fmt.Errorf("reading %s: %w", path, err)
 	}
 
-	artifact := "artifact"
+	artifact, version, err := readArtifactSchemaVersion(path, data)
+	if err != nil {
+		return err
+	}
+
+	version, err = models.ValidateSchemaVersion(artifact, path, version)
+	if err != nil {
+		return err
+	}
+
+	if version != models.CurrentSchemaVersion {
+		_, err = fmt.Fprintf(out, "%s uses schemaVersion %s, which is compatible with waza schemaVersion %s; no migration needed.\n", artifact, version, models.CurrentSchemaVersion)
+		return err
+	}
+
+	_, err = fmt.Fprintf(out, "%s is already compatible with schemaVersion %s; no migration needed.\n", artifact, models.CurrentSchemaVersion)
+	return err
+}
+
+func readArtifactSchemaVersion(path string, data []byte) (artifact string, version string, err error) {
 	switch filepath.Base(path) {
 	case "eval.yaml", "eval.yml":
 		artifact = "eval.yaml"
+		var header struct {
+			SchemaVersion string `yaml:"schemaVersion"`
+		}
+		if err := yaml.Unmarshal(data, &header); err != nil {
+			return "", "", fmt.Errorf("parsing %s: %w", path, err)
+		}
+		return artifact, header.SchemaVersion, nil
 	default:
 		if filepath.Ext(path) == ".json" {
 			artifact = "results.json"
+			var header struct {
+				SchemaVersion string `json:"schemaVersion"`
+			}
+			if err := json.Unmarshal(data, &header); err != nil {
+				return "", "", fmt.Errorf("parsing %s: %w", path, err)
+			}
+			return artifact, header.SchemaVersion, nil
 		}
 	}
-
-	_, err := fmt.Fprintf(out, "%s is already compatible with schemaVersion %s; no migration needed.\n", artifact, models.CurrentSchemaVersion)
-	return err
+	return "", "", fmt.Errorf("unsupported schema artifact %s: expected eval.yaml, eval.yml, or a JSON results artifact", path)
 }
