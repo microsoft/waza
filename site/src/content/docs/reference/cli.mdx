@@ -472,7 +472,8 @@ Each suggested task entry carries a `confidence` value in `[0, 1]` and a `ration
 `--apply` is merge-safe by default:
 
 - An existing `eval.yaml` is preserved — new task files are picked up by its existing `tasks:` glob pattern.
-- New task files refuse to overwrite existing task files (by path or by `id`) and new fixtures refuse to overwrite existing fixtures.
+- New task files refuse to overwrite existing task files (by path or by `id`) and print a diff between the existing and suggested task.
+- New fixtures refuse to overwrite existing fixtures.
 - Pass `--force` to overwrite existing eval / task / fixture files.
 
 ### Examples
@@ -493,6 +494,38 @@ waza suggest skills/code-explainer --apply --force
 # JSON output
 waza suggest skills/code-explainer --format json
 ```
+
+### Worked example: focused negative-trigger coverage
+
+Use `--focus negative-triggers` when a skill's `DO NOT USE FOR` section is underspecified by existing evals:
+
+```bash
+waza suggest skills/code-explainer --focus negative-triggers --count 2 --dry-run
+```
+
+The dry-run output keeps generation metadata outside the task YAML so the proposed case still validates against the task schema:
+
+```yaml
+tasks:
+  - path: tasks/negative-trigger-deploy.yaml
+    confidence: 0.88
+    rationale: "matches SKILL.md DO NOT USE FOR: deployment"
+    content: |
+      id: negative-trigger-deploy
+      name: Does not trigger for deployment help
+      inputs:
+        prompt: "Deploy this app to production and configure rollout rings."
+      expected:
+        should_trigger: false
+```
+
+After review, merge the proposals:
+
+```bash
+waza suggest skills/code-explainer --focus negative-triggers --count 2 --apply
+```
+
+If a generated task would replace an existing task path or `id`, `--apply` stops and prints a diff. Re-run with `--force` only after confirming the suggested task should replace the curated one.
 
 ## waza tokens
 

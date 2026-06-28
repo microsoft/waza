@@ -115,6 +115,11 @@ func TestWriteToDirRefusesOverwriteWithoutForce(t *testing.T) {
 	_, err := s.WriteToDir(dir, WriteOptions{})
 	require.Error(t, err)
 	require.Contains(t, strings.ToLower(err.Error()), "refusing to overwrite")
+	require.Contains(t, err.Error(), "diff:")
+	require.Contains(t, err.Error(), "--- tasks/task-01.yaml (existing)")
+	require.Contains(t, err.Error(), "+++ tasks/task-01.yaml (suggested)")
+	require.Contains(t, err.Error(), "-id: other")
+	require.Contains(t, err.Error(), "+id: task-01")
 }
 
 func TestWriteToDirAllowsOverwriteWithForce(t *testing.T) {
@@ -149,6 +154,9 @@ func TestWriteToDirDetectsDuplicateTaskIDAgainstExisting(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "task-01")
 	require.Contains(t, strings.ToLower(err.Error()), "id")
+	require.Contains(t, err.Error(), "diff:")
+	require.Contains(t, err.Error(), "--- tasks/previous.yaml (existing)")
+	require.Contains(t, err.Error(), "+name: Task One")
 }
 
 func TestWriteToDirRejectsDuplicateIDsWithinBatch(t *testing.T) {

@@ -337,14 +337,22 @@ func (s *Suggestion) WriteToDir(outputDir string, opts WriteOptions) ([]string, 
 		target := filepath.Join(outputDir, path)
 		if !opts.Force {
 			if _, err := os.Stat(target); err == nil {
-				return nil, fmt.Errorf("refusing to overwrite existing task file %s (use --force to override)", target)
+				diff, diffErr := buildOverwriteDiff(outputDir, target, body)
+				if diffErr != nil {
+					return nil, diffErr
+				}
+				return nil, fmt.Errorf("refusing to overwrite existing task file %s (use --force to override)\n%s", target, diff)
 			}
 			if existingPath, ok := existingIDs[id]; ok {
 				rel, _ := filepath.Rel(outputDir, existingPath)
 				if rel == "" {
 					rel = existingPath
 				}
-				return nil, fmt.Errorf("refusing to overwrite task with existing id %q (already defined in %s; use --force to override)", id, rel)
+				diff, diffErr := buildOverwriteDiff(outputDir, existingPath, body)
+				if diffErr != nil {
+					return nil, diffErr
+				}
+				return nil, fmt.Errorf("refusing to overwrite task with existing id %q (already defined in %s; use --force to override)\n%s", id, rel, diff)
 			}
 		}
 		planned = append(planned, plannedTask{target: target, id: id, body: body})
@@ -529,7 +537,61 @@ func validateEvalYAML(raw string) error {
 			return fmt.Errorf("invalid eval_yaml: grader[%d] (%s) is missing required 'type' field", i, g.Identifier)
 		}
 	}
+	evalBody := []byte(strings.TrimSpace(raw) + "\n")
+	if errs := validation.ValidateEvalBytes(evalBody); len(errs) > 0 {
+		return fmt.Errorf("invalid eval_yaml schema: %s", strings.Join(errs, "; "))
+	}
 	return nil
+}
+
+func buildOverwriteDiff(outputDir string, existingPath string, proposed []byte) (string, error) {
+	existing, err := os.ReadFile(existingPath)
+	if err != nil {
+		return "", fmt.Errorf("reading existing task for overwrite diff: %w", err)
+	}
+	rel, err := filepath.Rel(outputDir, existingPath)
+	if err != nil || rel == "" {
+		rel = existingPath
+	}
+	return simpleUnifiedDiff(rel, existing, proposed), nil
+}
+
+func simpleUnifiedDiff(path string, before []byte, after []byte) string {
+	beforeLines := splitLinesForDiff(strings.TrimRight(string(before), "\n"))
+	afterLines := splitLinesForDiff(strings.TrimRight(string(after), "\n"))
+	var b strings.Builder
+	fmt.Fprintf(&b, "diff:\n--- %s (existing)\n+++ %s (suggested)\n", path, path)
+	max := len(beforeLines)
+	if len(afterLines) > max {
+		max = len(afterLines)
+	}
+	for i := 0; i < max; i++ {
+		var oldLine, newLine string
+		if i < len(beforeLines) {
+			oldLine = beforeLines[i]
+		}
+		if i < len(afterLines) {
+			newLine = afterLines[i]
+		}
+		switch {
+		case i >= len(beforeLines):
+			fmt.Fprintf(&b, "+%s\n", newLine)
+		case i >= len(afterLines):
+			fmt.Fprintf(&b, "-%s\n", oldLine)
+		case oldLine == newLine:
+			fmt.Fprintf(&b, " %s\n", oldLine)
+		default:
+			fmt.Fprintf(&b, "-%s\n+%s\n", oldLine, newLine)
+		}
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
+func splitLinesForDiff(s string) []string {
+	if s == "" {
+		return nil
+	}
+	return strings.Split(s, "\n")
 }
 
 func phrasesToText(phrases []scaffold.TriggerPhrase) string {

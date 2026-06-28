@@ -574,7 +574,7 @@ Use an LLM to analyze `SKILL.md` and generate suggested evaluation artifacts.
 
 Each generated task entry carries a `confidence` score in `[0, 1]` and a `rationale` string pointing to the SKILL.md span it was derived from. Both appear in dry-run output but are kept outside the written task YAML (the task schema rejects unknown fields).
 
-`--apply` is merge-safe: an existing `eval.yaml` is never overwritten (new task files are picked up by its existing `tasks:` glob), and existing task / fixture files (by path or by task `id`) cause `--apply` to fail unless `--force` is also passed.
+`--apply` is merge-safe: an existing `eval.yaml` is never overwritten (new task files are picked up by its existing `tasks:` glob), and existing task files (by path or by task `id`) cause `--apply` to fail with a diff unless `--force` is also passed. Existing fixture files are also preserved unless `--force` is set.
 
 **Examples:**
 ```bash
