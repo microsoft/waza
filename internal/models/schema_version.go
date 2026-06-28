@@ -20,7 +20,11 @@ const (
 	// 1.1 — additive: per-turn checkpoints (TestCase.Checkpoints / RunResult.Checkpoints, #358)
 	//       and RunResult.tool_events[] for per-task tool metrics (#366). Purely additive
 	//       over 1.0, so 1.0 artifacts continue to load without migration.
-	CurrentSchemaVersion = "1.1"
+	// 1.2 — additive: RunResult.snapshot_path pointer to a self-contained
+	//       snapshot.json artifact (#367). Optional and omitted when
+	//       snapshot capture is not enabled, so 1.0 and 1.1 artifacts
+	//       continue to load without migration.
+	CurrentSchemaVersion = "1.2"
 )
 
 func defaultSchemaVersion(version string) string {

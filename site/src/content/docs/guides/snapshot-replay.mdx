@@ -1,0 +1,149 @@
+---
+title: Snapshot & Replay
+description: Capture self-contained task snapshots during `waza run` and replay them later for deterministic, offline eval reproduction.
+---
+
+`waza` can capture a **self-contained snapshot** of every task it executes, then replay those snapshots later to detect non-determinism, regressions, or environment drift — all without contacting the agent engine.
+
+This guide covers:
+
+- What a snapshot contains and what it deliberately leaves out
+- Capturing snapshots with `waza run --snapshot`
+- Replaying snapshots with `waza replay` (model-replay, bisect)
+- Redaction and environment defaults that keep snapshots safe to commit
+- Schema and forward-compatibility
+
+## Why snapshots?
+
+Agentic evals depend on far more than just `prompt → completion`. Tool calls, fixture file contents, environment variables, and grader configurations all shape the outcome. To reproduce a run faithfully — especially when investigating a flaky failure or an outcome that "won't repro on my machine" — you need to bundle all of those inputs together with the resulting tool-event tape.
+
+A waza snapshot is exactly that bundle, serialized as a single JSON file per task run.
+
+## What's in a snapshot
+
+Each `snapshot.json` (schema `1.0`) contains:
+
+- **Identity** — `waza_version`, `eval_id`, `eval_name`, `skill`, `task` (TestID, DisplayName, Golden flag, RunNumber)
+- **Prompt** — initial user message and follow-ups, plus content-addressed (`sha256`) digests of every instruction file
+- **Fixtures** — recursive content-addressed digests of every file under the task's `context_dir`
+- **Tool events** — the ordered tape from the run, preserving `tool_call_id`, `name`, `args`, `result`, `duration_ms`, `success`, and `error` for each call
+- **Engine** — the captured engine identity (model, vendor, etc.)
+- **Env** — the explicit allow-list and the redacted KEY/VALUE pairs that were captured
+- **Redaction** — the policy label, matched rule names, and a count of redactions applied
+- **Result** — final status, redacted `final_output`/`error_msg`, total duration, and the grader-level `validations` map
+
+Snapshots **do not** contain:
+
+- Raw environment variables outside the allow-list (default-deny)
+- Secrets that match the built-in or custom redaction rules (replaced with `«redacted»` placeholders)
+- Live engine outputs not present in the tool-event tape
+
+## Capturing snapshots
+
+```bash
+waza run eval.yaml --snapshot ./snapshots/
+```
+
+Each task run produces a file named `<test-id>-run<N>.json` in the directory. The path is also recorded inline in `results.json` under each `RunResult.SnapshotPath`.
+
+### Allow-listing environment variables
+
+By default, **no environment variables** are captured. Pass `--snapshot-env-allow` (repeatable) with explicit names or `*`-suffixed prefixes:
+
+```bash
+waza run eval.yaml \
+  --snapshot ./snapshots/ \
+  --snapshot-env-allow "WAZA_*" \
+  --snapshot-env-allow "MODEL"
+```
+
+Even allow-listed values are still passed through the redaction policy, so a `GITHUB_TOKEN=ghp_…` ends up as `GITHUB_TOKEN=«redacted»` if it matches a rule.
+
+### Customising redaction
+
+Provide a YAML file via `--redact <path>`:
+
+```yaml
+# my-redaction.yaml
+rules:
+  - name: internal-id
+    pattern: 'INT-[0-9]{6}'
+```
+
+The custom rules are **merged** with the built-in defaults (which already cover GitHub tokens, AWS keys, JWTs, emails, etc.). The snapshot's `redaction.policy` field records which set was used (`default`, `custom`, or `default+custom`).
+
+## Replaying snapshots
+
+### Model-replay (offline, fast)
+
+The default mode re-checks **internal consistency** without re-running the engine:
+
+- Tool-event `sequence` is strictly `1..N`
+- When `--strict` (default), a grader that reports `passed=true` with `score=0` and non-zero `weight` is surfaced as an inconsistency
+
+```bash
+waza replay ./snapshots/my-task-run1.json
+```
+
+Exit codes: `0` consistent, `1` divergent, `2` load/parse error.
+
+Use `--json` for machine-readable output suitable for CI:
+
+```bash
+waza replay ./snapshots/my-task-run1.json --json
+```
+
+```json
+{
+  "source": "./snapshots/my-task-run1.json",
+  "mode": "model-replay",
+  "pass": true,
+  "status": "passed",
+  "tool_events": 7,
+  "graders": 2
+}
+```
+
+### Bisect two snapshots
+
+Comparing two runs of the same task and locating the first divergent turn:
+
+```bash
+waza replay ./snapshots/a.json --bisect ./snapshots/b.json --json
+```
+
+The diff focuses on the **ordered tool-name/args fingerprint**, ignoring per-call durations and raw output text. This is what catches environment drift (different model versions, prompt-tweaks, fixture mutations) cleanly.
+
+### Live mode (planned, Wave 4)
+
+`--mode live` is reserved for the upcoming adversarial harness: it will re-run the task against the real engine and diff the produced tool events against the snapshot tape, surfacing non-determinism in the engine itself. Today the flag returns exit code `2` with an explanatory message.
+
+## Schema and forward compatibility
+
+The snapshot wire format starts at its own independent `1.0`, separate from `results.json` (`1.2`) and `eval.yaml` (`1.0`).
+
+- MAJOR mismatch is **rejected** at load (`exit 2`).
+- Additive MINOR fields are forward-compatible: a `1.1` snapshot can be replayed by `1.0`-aware tooling, with the extra fields preserved verbatim under the standard json round-tripping rules.
+
+When you author new graders, mocks, or harnesses that touch snapshots, prefer adding fields under the existing branches rather than introducing parallel top-level keys.
+
+## CI patterns
+
+```yaml
+# Capture every task in your nightly run
+- run: waza run eval.yaml --snapshot ./out/snapshots
+
+# In a follow-up job, replay each one and fail on divergence
+- run: |
+    for s in out/snapshots/*.json; do
+      waza replay "$s" --json >> replay-report.ndjson
+    done
+```
+
+For per-PR regression gates, capture a baseline snapshot during the release branch build and bisect each PR's snapshot against it. The bisect output's `first_divergent_turn` field tells reviewers exactly where to look.
+
+## See also
+
+- [`waza replay` CLI reference](/reference/cli/#waza-replay)
+- [`waza run` snapshot flags](/reference/cli/#flags)
+- [Schema versioning policy](/reference/schema-changes/)

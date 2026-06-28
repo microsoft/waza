@@ -146,6 +146,10 @@ waza grade eval.yaml --results results.json
 # Compare results across models
 waza compare results-gpt4.json results-sonnet.json
 
+# Capture snapshots during a run and replay them later for determinism checks
+waza run eval.yaml --snapshot ./snapshots/
+waza replay ./snapshots/my-task-run1.json
+
 # Check whether a schema artifact needs migration
 waza migrate eval.yaml
 
@@ -343,6 +347,9 @@ Run an evaluation benchmark from a spec file.
 | `--otel-headers` | | Comma-separated `key=value` OTLP headers (e.g. for auth) |
 | `--otel-file` | | File path for span JSON when `--otel-exporter=file` |
 | `--otel-include-payloads` | | Include prompt/tool-arg/tool-result/completion content in spans (default: redacted to `sha256`+length) |
+| `--snapshot <dir>` | | Capture self-contained `snapshot.json` per task for later [`waza replay`](#waza-replay-snapshotjson). |
+| `--snapshot-env-allow <patterns>` | | Allow-list of env var name patterns embedded in snapshots (default-deny; supports `WAZA_*` wildcards). |
+| `--redact <path>` | | YAML redaction policy applied to snapshot output (merged with built-in defaults). |
 
 **Result Caching**
 
@@ -411,6 +418,31 @@ Compare results from multiple evaluation runs side by side — per-task score de
 | Flag | Short | Description |
 |------|-------|-------------|
 | `--format <fmt>` | `-f` | Output format: `table` or `json` (default: `table`) |
+
+### `waza replay <snapshot.json>`
+
+Replay a task snapshot to verify deterministic reproduction. Snapshots are produced by `waza run --snapshot <dir>` and capture the prompt, fixture digests, ordered tool events, environment allow-list, and redacted grader outcomes.
+
+```bash
+# Capture during a run
+waza run eval.yaml --snapshot ./snapshots/
+
+# Re-check internal consistency (offline, fast)
+waza replay ./snapshots/my-task-run1.json
+
+# Bisect two snapshots and find first divergent turn
+waza replay ./snapshots/a.json --bisect ./snapshots/b.json --json
+```
+
+| Flag | Description |
+|------|-------------|
+| `--mode <mode>` | Replay mode: `model-replay` (default, offline consistency check) or `live` (planned) |
+| `--bisect <file>` | Path to second snapshot to bisect against the primary |
+| `--json` | Emit machine-readable JSON instead of human summary |
+| `--strict` | Re-check final status and grader outcome consistency (default true) |
+| `--redact <path>` | Custom YAML redaction policy |
+
+Exit codes: `0` match, `1` divergence, `2` load/parse error.
 
 ### `waza migrate <file>`
 

@@ -202,6 +202,12 @@ type RunResult struct {
 	// (see issue #366). The legacy SessionDigest.ToolCalls is preserved for
 	// backward compatibility; new consumers should prefer ToolEvents.
 	ToolEvents []ToolEvent `json:"tool_events,omitempty"`
+
+	// SnapshotPath is the path (relative to results.json's directory) of
+	// the self-contained snapshot.json artifact for this run. Empty when
+	// `waza run --snapshot` was not used. Added in schema version 1.2 as
+	// an additive field (see issue #367).
+	SnapshotPath string `json:"snapshot_path,omitempty"`
 }
 
 // CheckpointOutcome captures the results of a single TestCase.Checkpoint that

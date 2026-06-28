@@ -22,6 +22,7 @@ import (
 	"github.com/microsoft/waza/internal/hooks"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/responder"
+	"github.com/microsoft/waza/internal/snapshot"
 	"github.com/microsoft/waza/internal/telemetry"
 	"github.com/microsoft/waza/internal/template"
 	"github.com/microsoft/waza/internal/transcript"
@@ -78,6 +79,16 @@ type EvalRunner struct {
 	// spans. Nil means tracing is off; the helpers in internal/telemetry
 	// degrade to no-op tracers in that case.
 	telemetry *telemetry.Provider
+
+	// Snapshot capture (issue #367). When snapshotWriter is non-nil, every
+	// completed run is serialized to disk as a self-contained snapshot.json
+	// after grading completes; the resulting path is recorded on
+	// RunResult.SnapshotPath. Capture is best-effort: write failures log a
+	// warning but do not fail the run.
+	snapshotWriter   *snapshot.Writer
+	snapshotEnvAllow []string
+	redactionPolicy  *snapshot.Policy
+	wazaVersion      string
 }
 
 // ProgressListener receives progress updates
@@ -158,6 +169,42 @@ func WithSkipGraders() RunnerOption {
 func WithTelemetry(p *telemetry.Provider) RunnerOption {
 	return func(r *EvalRunner) {
 		r.telemetry = p
+	}
+}
+
+// WithSnapshotWriter enables snapshot capture for every completed run. The
+// resulting snapshot.json file path is recorded on RunResult.SnapshotPath
+// so consumers of results.json can correlate runs to their snapshots.
+//
+// Snapshot capture is best-effort: write failures are logged but never
+// fail the run.
+func WithSnapshotWriter(w *snapshot.Writer) RunnerOption {
+	return func(r *EvalRunner) {
+		r.snapshotWriter = w
+	}
+}
+
+// WithSnapshotEnvAllow sets the env-var allow-list captured in each
+// snapshot's env block. Default is empty (default-deny).
+func WithSnapshotEnvAllow(keys []string) RunnerOption {
+	return func(r *EvalRunner) {
+		r.snapshotEnvAllow = append([]string(nil), keys...)
+	}
+}
+
+// WithRedactionPolicy overrides the default snapshot redaction policy.
+// Pass nil to use snapshot.DefaultPolicy().
+func WithRedactionPolicy(p *snapshot.Policy) RunnerOption {
+	return func(r *EvalRunner) {
+		r.redactionPolicy = p
+	}
+}
+
+// WithWazaVersion records the waza binary version on each snapshot for
+// diagnostics. Defaults to empty (no version stamping).
+func WithWazaVersion(v string) RunnerOption {
+	return func(r *EvalRunner) {
+		r.wazaVersion = v
 	}
 }
 
@@ -1257,7 +1304,7 @@ func (r *EvalRunner) executeRun(ctx context.Context, tc *models.TestCase, runNum
 		skillInvocations[i] = models.SkillInvocation{Name: si.Name, Path: si.Path}
 	}
 
-	return returnWithArtifacts(models.RunResult{
+	run := models.RunResult{
 		RunNumber:        runNum,
 		Status:           status,
 		DurationMs:       resp.DurationMs,
@@ -1271,7 +1318,78 @@ func (r *EvalRunner) executeRun(ctx context.Context, tc *models.TestCase, runNum
 		Responder:        responderInfo,
 		Checkpoints:      checkpointOutcomes,
 		ToolEvents:       buildToolEvents(resp.Events),
-	})
+	}
+	r.captureSnapshot(tc, req, resp, &run)
+	return returnWithArtifacts(run)
+}
+
+// captureSnapshot writes a self-contained snapshot.json for the given run
+// when a writer has been configured. Failures are logged but do not fail
+// the run; missing fields default to their zero values so partial captures
+// (e.g. after an early-exit error) remain valid.
+func (r *EvalRunner) captureSnapshot(tc *models.TestCase, req *execution.ExecutionRequest, _ *execution.ExecutionResponse, run *models.RunResult) {
+	if r == nil || r.snapshotWriter == nil || run == nil {
+		return
+	}
+	spec := r.cfg.Spec()
+	evalID := ""
+	evalName := ""
+	skillName := ""
+	if spec != nil {
+		evalName = spec.Name
+		if len(spec.Config.SkillPaths) > 0 {
+			skillName = spec.Config.SkillPaths[0]
+		}
+	}
+	in := snapshot.CaptureInput{
+		EvalID:       evalID,
+		EvalName:     evalName,
+		Skill:        skillName,
+		WazaVersion:  r.wazaVersion,
+		Task:         tc,
+		Request:      req,
+		Run:          run,
+		EnvAllowList: r.snapshotEnvAllow,
+		Policy:       r.redactionPolicy,
+		FixturesRoot: r.fixturesRoot(tc),
+	}
+	snap, err := snapshot.Capture(in)
+	if err != nil {
+		slog.Warn("snapshot capture failed", "test", tc.TestID, "run", run.RunNumber, "err", err)
+		return
+	}
+	path, err := r.snapshotWriter.Write(snap)
+	if err != nil {
+		slog.Warn("snapshot write failed", "test", tc.TestID, "run", run.RunNumber, "err", err)
+		return
+	}
+	run.SnapshotPath = path
+}
+
+// fixturesRoot returns the absolute directory that fixture digests should be
+// hashed from. Falls back to the spec directory when the task does not pin
+// an explicit context directory.
+func (r *EvalRunner) fixturesRoot(tc *models.TestCase) string {
+	if r == nil || r.cfg == nil {
+		return ""
+	}
+	resolve := func(p string) string {
+		if filepath.IsAbs(p) {
+			return p
+		}
+		base := r.cfg.SpecDir()
+		if base == "" {
+			return p
+		}
+		return filepath.Join(base, p)
+	}
+	if tc != nil && tc.Stimulus.WorkDir != "" {
+		return resolve(tc.Stimulus.WorkDir)
+	}
+	if tc != nil && tc.ContextRoot != "" {
+		return resolve(tc.ContextRoot)
+	}
+	return r.cfg.SpecDir()
 }
 
 func (r *EvalRunner) captureFailureArtifacts(run *models.RunResult) {

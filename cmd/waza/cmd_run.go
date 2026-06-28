@@ -36,6 +36,7 @@ import (
 	"github.com/microsoft/waza/internal/recommend"
 	"github.com/microsoft/waza/internal/reporting"
 	"github.com/microsoft/waza/internal/session"
+	"github.com/microsoft/waza/internal/snapshot"
 	"github.com/microsoft/waza/internal/storage"
 	"github.com/microsoft/waza/internal/telemetry"
 	"github.com/microsoft/waza/internal/trigger"
@@ -82,6 +83,10 @@ var (
 	otelHeaders         string
 	otelFile            string
 	otelIncludePayloads bool
+
+	snapshotDir        string
+	snapshotEnvAllow   []string
+	snapshotRedactPath string
 
 	// runTelemetry holds the configured OpenTelemetry provider for the
 	// current `waza run` invocation. It is initialized in runCommandE and
@@ -176,6 +181,10 @@ You can also specify a skill name to run its eval:
 	cmd.Flags().StringVar(&otelHeaders, "otel-headers", "", "Comma-separated key=value OTLP headers (e.g. for auth)")
 	cmd.Flags().StringVar(&otelFile, "otel-file", "", "File path for span JSON when --otel-exporter=file")
 	cmd.Flags().BoolVar(&otelIncludePayloads, "otel-include-payloads", false, "Include prompt/tool-arg/tool-result/completion content in spans (default: redacted, only sha256+length emitted)")
+
+	cmd.Flags().StringVar(&snapshotDir, "snapshot", "", "Write per-task snapshot.json files to this directory for deterministic replay (see `waza replay`)")
+	cmd.Flags().StringArrayVar(&snapshotEnvAllow, "snapshot-env-allow", nil, "Environment variables to capture in snapshots (supports trailing-* wildcards). Default-deny.")
+	cmd.Flags().StringVar(&snapshotRedactPath, "redact", "", "Optional path to a custom redaction policy YAML applied during snapshot capture")
 
 	return cmd
 }
@@ -773,6 +782,21 @@ func runSingleModel(cmd *cobra.Command, spec *models.EvalSpec, specPath string, 
 	}
 	if runTelemetry != nil && runTelemetry.Enabled() {
 		runnerOpts = append(runnerOpts, orchestration.WithTelemetry(runTelemetry))
+	}
+	if snapshotDir != "" {
+		writer := snapshot.NewWriter(snapshotDir)
+		runnerOpts = append(runnerOpts, orchestration.WithSnapshotWriter(writer))
+		runnerOpts = append(runnerOpts, orchestration.WithWazaVersion(version))
+		if len(snapshotEnvAllow) > 0 {
+			runnerOpts = append(runnerOpts, orchestration.WithSnapshotEnvAllow(snapshotEnvAllow))
+		}
+		if snapshotRedactPath != "" {
+			policy, perr := snapshot.LoadPolicy(snapshotRedactPath)
+			if perr != nil {
+				return nil, fmt.Errorf("load redaction policy: %w", perr)
+			}
+			runnerOpts = append(runnerOpts, orchestration.WithRedactionPolicy(policy))
+		}
 	}
 	runner := newBenchmarkRunner(cfg, engine, runnerOpts...)
 

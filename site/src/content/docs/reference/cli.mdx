@@ -95,6 +95,9 @@ waza run [eval.yaml | skill-name | agent-name]
 | `--otel-headers` | | string | | Comma-separated `key=value` OTLP headers (e.g. for auth) |
 | `--otel-file` | | string | | File path for span JSON when `--otel-exporter=file` |
 | `--otel-include-payloads` | | bool | false | Include prompt/tool-arg/tool-result/completion content in spans (default: redacted to `sha256`+length) |
+| `--snapshot` | | string | | Capture a self-contained `snapshot.json` per task to the given directory for later replay. See [`waza replay`](#waza-replay). |
+| `--snapshot-env-allow` | | string[] | | Allow-list of environment variable name patterns to embed in snapshots (default-deny; supports `WAZA_*` wildcards). |
+| `--redact` | | string | | Path to a custom YAML redaction policy applied to snapshot output (merged with the built-in default rules). |
 
 ### Examples
 
@@ -430,6 +433,56 @@ When the input files include the `tool_events[]` array (`results.json` schema 1.
 | `call_count_histogram` | Distribution of per-task call counts in buckets `0`, `1`, `2`, `3+` |
 
 The section is suppressed when none of the compared files contain tool data, so legacy 1.0 results remain unchanged.
+
+## waza replay
+
+Replay a self-contained task snapshot to verify deterministic reproduction. Snapshots are produced by `waza run --snapshot <dir>` and contain the prompt, fixture digests, ordered tool events, environment allow-list, and redacted grader outcomes — everything required to re-derive the run without contacting the engine.
+
+```bash
+waza replay <snapshot.json> [flags]
+```
+
+### Arguments
+
+| Argument | Description |
+|----------|-------------|
+| `<snapshot.json>` | Path to a snapshot produced by `waza run --snapshot <dir>` |
+
+### Flags
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--mode` | string | `model-replay` | Replay mode. `model-replay` re-checks internal consistency without contacting the engine. `live` (planned) re-runs against the real engine. |
+| `--bisect` | string | | Path to a second snapshot to compare against the primary. Reports the first divergent turn. |
+| `--json` | bool | false | Emit machine-readable JSON to stdout instead of a human summary. |
+| `--strict` | bool | true | In `model-replay` mode, also re-check final status and grader outcome consistency. |
+| `--redact` | string | | Optional custom YAML redaction policy for re-rendering captured output. |
+
+### Modes
+
+- **`model-replay`** — Re-checks the snapshot's grader outcomes and tool-event tape for internal consistency (monotonic sequence, validation/score agreement). Fast, fully offline, ideal for CI.
+- **`live`** — _Planned for Wave 4._ Re-runs the task against the real engine and diffs the resulting tool events against the snapshot's, ignoring durations and raw text.
+
+### Exit codes
+
+| Code | Meaning |
+|------|---------|
+| `0` | Snapshots match / replay succeeded |
+| `1` | Divergence detected (kind/value rendered to stderr or `--json` output) |
+| `2` | Load, parse, schema-version, or I/O error |
+
+### Examples
+
+```bash
+# Capture snapshots during a run
+waza run eval.yaml --snapshot ./snapshots/
+
+# Re-verify a single task's snapshot is internally consistent
+waza replay ./snapshots/my-task-run1.json
+
+# Diff two snapshots and find the first divergent turn (CI-friendly JSON)
+waza replay ./snapshots/run-a.json --bisect ./snapshots/run-b.json --json
+```
 
 ## waza gate
 
