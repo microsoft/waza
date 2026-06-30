@@ -15,6 +15,7 @@ import (
 	copilot "github.com/github/copilot-sdk/go"
 	"github.com/microsoft/waza/internal/config"
 	"github.com/microsoft/waza/internal/copilotconfig"
+	"github.com/microsoft/waza/internal/copilotevents"
 	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/orchestration"
@@ -92,7 +93,7 @@ func (r *Runner) RunDetailed(ctx context.Context) ([]models.TriggerResult, *mode
 			outcomes[i] = taskResult{
 				triggered:  triggered,
 				response:   resp.FinalOutput,
-				transcript: transcript.BuildFromSessionEvents(resp.Events),
+				transcript: transcript.BuildFromSessionEvents(copilotevents.ToSDK(resp.Events)),
 				toolCalls:  resp.ToolCalls,
 				sessionID:  resp.SessionID,
 			}

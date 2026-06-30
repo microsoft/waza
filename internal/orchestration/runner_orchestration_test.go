@@ -12,6 +12,7 @@ import (
 	copilot "github.com/github/copilot-sdk/go"
 	"github.com/microsoft/waza/internal/cache"
 	"github.com/microsoft/waza/internal/config"
+	"github.com/microsoft/waza/internal/copilotevents"
 	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/graders"
 	"github.com/microsoft/waza/internal/models"
@@ -386,9 +387,9 @@ func TestBuildGraderContextAndScoreHelpers(t *testing.T) {
 		},
 		ToolCalls: []models.ToolCall{{Name: "bash"}, {Name: "view"}},
 		Usage:     &models.UsageStats{Turns: 1},
-		Events: []copilot.SessionEvent{
+		Events: copilotevents.FromSDK([]copilot.SessionEvent{
 			{Data: &copilot.UserMessageData{Content: content}},
-		},
+		}),
 	}
 
 	graderCtx := runner.buildGraderContext(&models.TestCase{TestID: "tc"}, resp)

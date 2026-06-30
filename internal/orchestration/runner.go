@@ -15,6 +15,7 @@ import (
 	"github.com/microsoft/waza/internal/cache"
 	"github.com/microsoft/waza/internal/config"
 	"github.com/microsoft/waza/internal/copilotconfig"
+	"github.com/microsoft/waza/internal/copilotevents"
 	"github.com/microsoft/waza/internal/dataset"
 	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/failures"
@@ -1335,7 +1336,7 @@ func (r *EvalRunner) executeRun(ctx context.Context, tc *models.TestCase, runNum
 		WorkspaceDir:     resp.WorkspaceDir,
 		Responder:        responderInfo,
 		Checkpoints:      checkpointOutcomes,
-		ToolEvents:       buildToolEvents(resp.Events),
+		ToolEvents:       buildToolEvents(copilotevents.ToSDK(resp.Events)),
 	}
 	r.captureSnapshot(tc, req, resp, &run)
 	return returnWithArtifacts(run)
@@ -2034,7 +2035,7 @@ func convertMCPServers(serverConfigs map[string]any, mocks []models.MCPMockConfi
 func (r *EvalRunner) buildGraderContext(tc *models.TestCase, resp *execution.ExecutionResponse) *graders.Context {
 	// Convert events to transcript entries
 	var transcript []models.TranscriptEvent
-	for _, evt := range resp.Events {
+	for _, evt := range copilotevents.ToSDK(resp.Events) {
 		entry := models.TranscriptEvent{SessionEvent: evt}
 		transcript = append(transcript, entry)
 	}
@@ -2081,7 +2082,7 @@ func (r *EvalRunner) buildSessionDigest(resp *execution.ExecutionResponse) model
 }
 
 func (r *EvalRunner) buildTranscript(resp *execution.ExecutionResponse) []models.TranscriptEvent {
-	return transcript.BuildFromSessionEvents(resp.Events)
+	return transcript.BuildFromSessionEvents(copilotevents.ToSDK(resp.Events))
 }
 
 // resolveGroup returns the group value for the current benchmark configuration.

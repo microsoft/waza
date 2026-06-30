@@ -14,6 +14,8 @@ import (
 
 	copilot "github.com/github/copilot-sdk/go"
 	"github.com/github/copilot-sdk/go/rpc"
+
+	"github.com/microsoft/waza/internal/copilotevents"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/skill"
 	"github.com/microsoft/waza/internal/utils"
@@ -555,7 +557,7 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 	e.provider.applyToUsage(usage)
 	resp := &ExecutionResponse{
 		FinalOutput:      joinStrings(eventsCollector.OutputParts()),
-		Events:           eventsCollector.SessionEvents(),
+		Events:           copilotevents.FromSDK(eventsCollector.SessionEvents()),
 		ModelID:          modelID,
 		SkillInvocations: eventsCollector.SkillInvocations,
 		DurationMs:       duration.Milliseconds(),

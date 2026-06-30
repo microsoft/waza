@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	copilot "github.com/github/copilot-sdk/go"
+	"github.com/microsoft/waza/internal/copilotevents"
 	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/stretchr/testify/assert"
@@ -92,7 +93,7 @@ func TestBuildNoSuggestionsError_IncludesSessionTranscript(t *testing.T) {
 	toolResultText := "matched 1 file"
 
 	err := buildNoSuggestionsError(&execution.ExecutionResponse{
-		Events: []copilot.SessionEvent{
+		Events: copilotevents.FromSDK([]copilot.SessionEvent{
 			{
 				Data: &copilot.AssistantMessageData{Content: msg},
 			},
@@ -112,7 +113,7 @@ func TestBuildNoSuggestionsError_IncludesSessionTranscript(t *testing.T) {
 					},
 				},
 			},
-		},
+		}),
 	})
 
 	require.Error(t, err)
@@ -124,9 +125,9 @@ func TestBuildNoSuggestionsError_IncludesSessionTranscript(t *testing.T) {
 
 func TestBuildNoSuggestionsError_FallsBackToEventTypes(t *testing.T) {
 	err := buildNoSuggestionsError(&execution.ExecutionResponse{
-		Events: []copilot.SessionEvent{
+		Events: copilotevents.FromSDK([]copilot.SessionEvent{
 			{Data: &copilot.SessionIdleData{}},
-		},
+		}),
 	})
 
 	require.Error(t, err)
@@ -388,11 +389,11 @@ func TestWriteSuggestionTranscript_WritesFile(t *testing.T) {
 		FinalOutput: "Suggestion report text",
 		Success:     true,
 		DurationMs:  1500,
-		Events: []copilot.SessionEvent{
+		Events: copilotevents.FromSDK([]copilot.SessionEvent{
 			{
 				Data: &copilot.AssistantMessageData{Content: msg},
 			},
-		},
+		}),
 	}
 
 	writeSuggestionTranscript("test prompt", res)

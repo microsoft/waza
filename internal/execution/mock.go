@@ -9,7 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	copilot "github.com/github/copilot-sdk/go"
+	"github.com/microsoft/waza/internal/agentevent"
 	"github.com/microsoft/waza/internal/models"
 )
 
@@ -142,7 +142,7 @@ func (m *MockEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Execu
 
 	resp := &ExecutionResponse{
 		FinalOutput:    output,
-		Events:         []copilot.SessionEvent{},
+		Events:         []agentevent.Event{},
 		ModelID:        m.modelID,
 		DurationMs:     time.Since(start).Milliseconds(),
 		ToolCalls:      []models.ToolCall{},
