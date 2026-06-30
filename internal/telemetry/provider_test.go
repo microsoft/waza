@@ -41,7 +41,14 @@ func TestNewValidationError(t *testing.T) {
 }
 
 func TestNewFileExporter(t *testing.T) {
-	dir := t.TempDir()
+	// Use os.MkdirTemp + best-effort cleanup so that any Windows file-handle
+	// retention by the stdouttrace exporter doesn't fail the test during
+	// teardown (t.TempDir surfaces RemoveAll errors).
+	dir, err := os.MkdirTemp("", "waza-telemetry-")
+	if err != nil {
+		t.Fatalf("MkdirTemp: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 	path := filepath.Join(dir, "traces.jsonl")
 	cfg := Config{Exporter: ExporterFile, FilePath: path, ServiceName: "svc", ServiceVersion: "v1"}
 	p, err := New(context.Background(), cfg)
