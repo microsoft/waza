@@ -392,7 +392,7 @@ func TestBuildGraderContextAndScoreHelpers(t *testing.T) {
 		}),
 	}
 
-	graderCtx := runner.buildGraderContext(&models.TestCase{TestID: "tc"}, resp)
+	graderCtx := runner.buildGraderContext(&models.TestCase{TestID: "tc"}, resp, copilotevents.ToSDK(resp.Events))
 	require.Len(t, graderCtx.Transcript, 1)
 	assert.Equal(t, "final output", graderCtx.Output)
 	assert.Equal(t, int64(42), graderCtx.DurationMS)

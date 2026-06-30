@@ -156,17 +156,27 @@ type ExecutionResponse struct {
 }
 
 // ExtractMessages gets all non-empty assistant messages from events.
+//
+// Copilot SDK events are unwrapped through [copilotevents.AsSDKEvent] so the
+// existing Content helper can extract structured fields. Events produced by
+// other engines fall back to [agentevent.Event.Text], which delegates to the
+// engine payload's optional [agentevent.TextProvider] implementation. This
+// keeps ExtractMessages truly engine-neutral: a non-Copilot engine that
+// emits KindAssistantMessage with a TextProvider payload will surface here
+// instead of being silently dropped.
 func (r *ExecutionResponse) ExtractMessages() []string {
 	var messages []string
 	for _, evt := range r.Events {
 		if evt.Kind() != agentevent.KindAssistantMessage {
 			continue
 		}
-		sdkEvt, ok := copilotevents.AsSDKEvent(evt)
-		if !ok {
+		if sdkEvt, ok := copilotevents.AsSDKEvent(evt); ok {
+			if content, ok := copilotevents.Content(sdkEvt); ok && content != "" {
+				messages = append(messages, content)
+			}
 			continue
 		}
-		if content, ok := copilotevents.Content(sdkEvt); ok && content != "" {
+		if content, ok := evt.Text(); ok && content != "" {
 			messages = append(messages, content)
 		}
 	}

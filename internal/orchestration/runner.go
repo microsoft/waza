@@ -1238,8 +1238,16 @@ func (r *EvalRunner) executeRun(ctx context.Context, tc *models.TestCase, runNum
 		}
 	}
 
+	// Convert engine-neutral events to SDK form once for the remaining
+	// transcript/tool-event/grader-context work. resp.Events is no longer
+	// mutated after the responder/follow-up loop above, so a single
+	// conversion is safe and avoids re-walking the (potentially large)
+	// event slice in buildGraderContext, buildTranscript, and
+	// buildToolEvents.
+	sdkEvents := copilotevents.ToSDK(resp.Events)
+
 	// Build validation context
-	vCtx := r.buildGraderContext(tc, resp)
+	vCtx := r.buildGraderContext(tc, resp, sdkEvents)
 
 	var gradersResults map[string]models.GraderResults
 	if r.skipGraders {
@@ -1315,8 +1323,8 @@ func (r *EvalRunner) executeRun(ctx context.Context, tc *models.TestCase, runNum
 		}
 	}
 
-	// Build transcript
-	transcript := r.buildTranscript(resp)
+	// Build transcript (reuses the SDK conversion computed above)
+	transcript := transcript.BuildFromSessionEvents(sdkEvents)
 
 	skillInvocations := make([]models.SkillInvocation, len(resp.SkillInvocations))
 	for i, si := range resp.SkillInvocations {
@@ -1336,7 +1344,7 @@ func (r *EvalRunner) executeRun(ctx context.Context, tc *models.TestCase, runNum
 		WorkspaceDir:     resp.WorkspaceDir,
 		Responder:        responderInfo,
 		Checkpoints:      checkpointOutcomes,
-		ToolEvents:       buildToolEvents(copilotevents.ToSDK(resp.Events)),
+		ToolEvents:       buildToolEvents(sdkEvents),
 	}
 	r.captureSnapshot(tc, req, resp, &run)
 	return returnWithArtifacts(run)
@@ -2032,19 +2040,17 @@ func convertMCPServers(serverConfigs map[string]any, mocks []models.MCPMockConfi
 	})
 }
 
-func (r *EvalRunner) buildGraderContext(tc *models.TestCase, resp *execution.ExecutionResponse) *graders.Context {
-	// Convert events to transcript entries
-	var transcript []models.TranscriptEvent
-	for _, evt := range copilotevents.ToSDK(resp.Events) {
-		entry := models.TranscriptEvent{SessionEvent: evt}
-		transcript = append(transcript, entry)
-	}
+func (r *EvalRunner) buildGraderContext(tc *models.TestCase, resp *execution.ExecutionResponse, sdkEvents []copilot.SessionEvent) *graders.Context {
+	// Reuse the shared transcript builder so the conversion is preallocated
+	// (entries := make([]TranscriptEvent, 0, len(events))) and produced in a
+	// single place.
+	transcriptEntries := transcript.BuildFromSessionEvents(sdkEvents)
 
 	sessionDigest := r.buildSessionDigest(resp)
 
 	return &graders.Context{
 		TestCase:         tc,
-		Transcript:       transcript,
+		Transcript:       transcriptEntries,
 		Output:           resp.FinalOutput,
 		Outcome:          make(map[string]any),
 		DurationMS:       resp.DurationMs,

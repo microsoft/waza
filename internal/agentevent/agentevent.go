@@ -81,3 +81,34 @@ func (e Event) Kind() Kind { return e.kind }
 // an engine-specific helper (e.g. internal/copilotevents.AsSDKEvent) rather
 // than depending on a particular concrete type here.
 func (e Event) Raw() any { return e.raw }
+
+// TextProvider is an optional interface that engine-specific event payloads
+// (returned from [Event.Raw]) may implement to expose the human-readable text
+// content of an event without forcing consumers to type-assert against a
+// concrete SDK type.
+//
+// Engine adapters are encouraged to implement this on payloads that carry
+// natural-language content (assistant messages, user messages, reasoning,
+// system messages). Consumers such as ExecutionResponse.ExtractMessages use
+// it as an engine-neutral fallback when an event was not produced by the
+// Copilot SDK.
+type TextProvider interface {
+	// Text returns the text content of the event and true. Implementations
+	// that have no text for a given event should return ("", false) rather
+	// than an empty string, so callers can distinguish "no content" from
+	// "empty content".
+	Text() (string, bool)
+}
+
+// Text returns the human-readable text content of the event, if its
+// engine-specific payload implements [TextProvider]. Returns ("", false) when
+// the payload is nil or does not implement the interface.
+func (e Event) Text() (string, bool) {
+	if e.raw == nil {
+		return "", false
+	}
+	if tp, ok := e.raw.(TextProvider); ok {
+		return tp.Text()
+	}
+	return "", false
+}
