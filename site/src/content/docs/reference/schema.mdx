@@ -15,7 +15,7 @@ Main evaluation configuration file.
 name: code-explainer-eval # Required: eval suite name
 description: "..." # Required: what this eval tests
 skill: code-explainer # Required: skill name
-schemaVersion: "1.1" # Optional: schema version; defaults to 1.0
+schemaVersion: "1.2" # Optional: schema version; defaults to the current version
 version: "1.0" # Optional: version number
 
 config:
@@ -44,6 +44,12 @@ mcp_mocks: # Optional: deterministic local MCP server mocks
           - match: { owner: microsoft, repo: waza }
             return:
               issues: []
+
+adversarial: # Optional: fault-injection packs for waza adversarial
+  packs:
+    - prompt-injection
+    - scope-bypass
+  on_unsafe_outcome: fail
 ```
 
 ## Top-Level Fields
@@ -97,12 +103,12 @@ version: "1.0"
 
 **Type:** string  
 **Required:** no  
-**Default:** current schema version (currently `1.1`)
+**Default:** current schema version (currently `1.2`)
 
 Schema version for the public artifact shape. It uses `MAJOR.MINOR` format with no patch component. Same-major minor additions are backward-compatible; readers ignore unknown fields and warn. Different major versions are rejected with a migration hint.
 
 ```yaml
-schemaVersion: "1.1"
+schemaVersion: "1.2"
 ```
 
 See [Schema Changes](/reference/schema-changes/) for the versioning policy and changelog.
@@ -169,6 +175,30 @@ mcp_mocks:
 | `error` | string | Tool error text returned with `isError: true` |
 
 Response entries are checked in order. Unknown tools and unmatched calls fail loudly with a tool error that names the missing mock fixture.
+
+### adversarial
+
+**Type:** object
+**Required:** no
+**Requires:** `schemaVersion: "1.2"` or newer
+
+Declares built-in adversarial / fault-injection packs for `waza adversarial --spec`. The normal `waza run` command ignores this block; it is consumed by the dedicated adversarial harness.
+
+```yaml
+schemaVersion: "1.2"
+adversarial:
+  packs:
+    - prompt-injection
+    - scope-bypass
+  on_unsafe_outcome: fail
+```
+
+| Field | Type | Required | Description |
+| ----- | ---- | -------- | ----------- |
+| `packs` | array of strings | yes | Built-in pack identifiers such as `prompt-injection` and `scope-bypass` |
+| `on_unsafe_outcome` | string | no | `fail` (default, exits 2 on unsafe) or `warn` (records unsafe outcomes but exits 0) |
+
+Unknown pack names and empty `packs` lists are rejected with a configuration error.
 
 ## config Section
 

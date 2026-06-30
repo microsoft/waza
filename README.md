@@ -1007,7 +1007,7 @@ skills/                Example skills
 ```yaml
 name: my-eval
 skill: my-skill
-schemaVersion: "1.1"
+schemaVersion: "1.2"
 version: "1.0"
 
 config:
@@ -1099,9 +1099,9 @@ tasks:
 # range: [1, 10]  # Only include rows 1-10 (0-indexed, skips header)
 ```
 
-`schemaVersion` uses `MAJOR.MINOR` format. Missing values are interpreted as the current schema version (currently `1.1`). Readers allow same-major minor additions with warnings for unknown fields, but reject different majors with a hint to run `waza migrate <file>`.
+`schemaVersion` uses `MAJOR.MINOR` format. Missing values are interpreted as the current schema version (currently `1.2`). Readers allow same-major minor additions with warnings for unknown fields, but reject different majors with a hint to run `waza migrate <file>`.
 
-`results.json` is currently emitted at `schemaVersion` `1.1`, which adds per-turn checkpoints (`runs[].checkpoints[]`, see #358) and the normalized `runs[].tool_events[]` array (`turn`, `sequence`, `tool_call_id`, `tool_name`, `args`, `result`, `success`, `error`, `duration_ms`; see #366). See [docs/PRD](docs/PRD.md) and [schema-changes](site/src/content/docs/reference/schema-changes.md) for details.
+`results.json` is currently emitted at `schemaVersion` `1.2`. Version `1.1` added per-turn checkpoints (`runs[].checkpoints[]`, see #358) and the normalized `runs[].tool_events[]` array (`turn`, `sequence`, `tool_call_id`, `tool_name`, `args`, `result`, `success`, `error`, `duration_ms`; see #366). Version `1.2` adds `runs[].snapshot_path` for `waza run --snapshot` artifacts (#367) and the eval-level `adversarial:` block consumed by `waza adversarial --spec` (#365). See [docs/PRD](docs/PRD.md) and [schema-changes](site/src/content/docs/reference/schema-changes.md) for details.
 
 ### MCP Mock Servers
 
@@ -1115,6 +1115,21 @@ mcp_mocks:
 ```
 
 Inline responses support exact full-argument matching (`match`), JSON Schema matching (`match_schema`), and per-field regex matching (`match_regex`). Unknown tools and unmatched calls fail loudly with an MCP tool error that names the missing fixture.
+
+### Adversarial Packs
+
+Use top-level `adversarial` with `schemaVersion: "1.2"` to pin built-in fault-injection packs for `waza adversarial --spec`:
+
+```yaml
+schemaVersion: "1.2"
+adversarial:
+  packs:
+    - prompt-injection
+    - scope-bypass
+  on_unsafe_outcome: fail
+```
+
+`on_unsafe_outcome: warn` records unsafe outcomes without failing the command.
 
 ### Custom Input Variables
 

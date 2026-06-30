@@ -40,6 +40,10 @@ The existing inline `prompt:` form keeps working. You can also combine the two: 
 
 Each shipped rubric lives at `internal/graders/data/rubrics/<name>.md` in the waza repo. Open one to see exactly what the judge will be told.
 
+<Aside type="note" title="No rubric subcommand in v0.38.0">
+The v0.38.0 release ships the reusable preset library, not a separate `waza rubric` command. Use presets from `prompt` graders with `config.rubric`; the `waza quality --rubric` flag remains reserved for future custom quality-rubric support.
+</Aside>
+
 ## Rubric file schema
 
 A rubric is a markdown file: YAML frontmatter, then the prompt body.

@@ -1302,6 +1302,8 @@ A newer version of waza is available: v0.24.0 → v0.28.0. Run: curl -fsSL ... |
 | `WAZA_CACHE` | Cache directory (default: `.waza-cache`) |
 | `WAZA_NO_UPDATE_CHECK` | Set to `1` to disable automatic version check |
 
+OpenTelemetry export is configured with the `waza run --otel-*` flags. v0.38.0 does not read `WAZA_OTEL_*` environment variables.
+
 When a custom provider is active, usage output labels the SDK request counter as `Provider Requests` instead of `Premium Requests`. Result JSON records `usage.provider: "custom"` and a sanitized `usage.provider_host`; the full provider URL is not stored.
 
 ## Next Steps

@@ -9,10 +9,10 @@ Waza public artifacts use an explicit `schemaVersion` field so checked-in eval s
 
 | Artifact | Field | Current version |
 |---|---|---|
-| `eval.yaml` | `schemaVersion` | `1.1` |
-| `results.json` | `schemaVersion` | `1.1` |
-| `snapshot.json` | `schemaVersion` | Not yet emitted |
-| Dashboard/SSE event envelope | `schemaVersion` | `1.1` |
+| `eval.yaml` | `schemaVersion` | `1.2` |
+| `results.json` | `schemaVersion` | `1.2` |
+| `snapshot.json` | `schemaVersion` | `1.0` |
+| Dashboard/SSE event envelope | `schemaVersion` | `1.0` |
 
 ## Policy
 
@@ -20,8 +20,8 @@ Schema versions use `MAJOR.MINOR` format with no patch component.
 
 - **MINOR** changes are backward-compatible additions, usually optional fields. Readers accept same-major artifacts and warn when they see unknown fields.
 - **MAJOR** changes are breaking. Readers refuse artifacts from a different major version and point to `waza migrate <file>`.
-- Missing `schemaVersion` is interpreted as the current schema version (currently `1.1`). Same-major minor differences are accepted and any unknown fields are warned about; cross-major mismatches are rejected.
-- New artifacts should emit the current `schemaVersion` (currently `1.1`). The version is automatically populated by the writer; you only need to set it manually when authoring fixtures or schema-pinned test data.
+- Missing `schemaVersion` is interpreted as the current schema version (currently `1.2` for eval/result artifacts). Same-major minor differences are accepted and any unknown fields are warned about; cross-major mismatches are rejected.
+- New eval/result artifacts should emit the current `schemaVersion` (currently `1.2`). The version is automatically populated by the writer; you only need to set it manually when authoring fixtures or schema-pinned test data.
 
 ## Migration command
 
@@ -35,6 +35,12 @@ waza migrate results.json
 For schema `1.0`, the command is a no-op because there is no prior major version to migrate from.
 
 ## Changelog
+
+### 1.2
+
+- Added optional `EvalSpec.adversarial` to declare built-in fault-injection packs and the `on_unsafe_outcome` policy consumed by `waza adversarial --spec` (issue #365).
+- Added optional `runs[].snapshot_path` to `results.json`, pointing to the per-task `snapshot.json` artifact produced by `waza run --snapshot` (issue #367).
+- Introduced `snapshot.json` as a separate `task-snapshot` artifact with its own independent `schemaVersion: "1.0"`, prompt/fixture digests, environment allow-list capture, redaction metadata, and ordered tool-event replay tape (issue #367).
 
 ### 1.1
 

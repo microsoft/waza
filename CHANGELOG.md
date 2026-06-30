@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.38.0] - 2026-06-30
+
+### Added
+
+- **Focused eval suggestions** — `waza suggest` now supports targeted generation with `--count`, `--focus`, `--dry-run`, `--apply`, and `--force` (#357, #380)
+- **Per-turn checkpoint graders** — Task YAML can run inline graders after specific conversation turns with `checkpoints[]` and `on_failure` policies (#358, #386)
+- **Rubric preset library** — Prompt graders can reuse built-in rubric presets for common judge dimensions; no separate `waza rubric` subcommand ships in this release (#360, #381)
+- **Spec verification** — Added `waza spec verify` to report eval coverage against `SKILL.md` requirements (#361, #385)
+- **OpenTelemetry trace export** — Added `waza run --otel-exporter`, `--otel-endpoint`, `--otel-headers`, `--otel-file`, and `--otel-include-payloads` (#362, #383)
+- **MCP server mocks** — Added eval-level `mcp_mocks:` for hermetic Copilot SDK tool-call evals (#363, #387)
+- **Regression gates** — Added `waza gate` with stable exit codes for pass, regression, golden failure, and config errors (#364, #384)
+- **Adversarial harness** — Added `waza adversarial` and eval-level `adversarial:` pack configuration for prompt-injection and scope-bypass checks (#365, #392)
+- **Tool metrics and structured argument matchers** — Results now include normalized `tool_events[]`; tool graders can assert structured argument matchers through `expect_tools[].args` and `tool_calls.expect[].args` (#366, #388)
+- **Snapshot and replay** — Added `waza run --snapshot` and `waza replay` with a self-contained snapshot artifact format (#367, #391)
+- **Schema version policy** — Documented and enforced MAJOR.MINOR `schemaVersion` compatibility for public artifacts (#368, #382)
+- **Dashboard SSE resume** — Added `Last-Event-ID` / `lastEventId` resume support for dashboard event streams, including legacy `/api/events` (#178, #397)
+
+### Changed
+
+- **Phase 1 internal refactor** — Internal cleanup with no user-facing CLI, schema, or site behavior changes (#10)
+
 ## [0.37.0] - 2026-06-18
 
 ### Added
@@ -533,7 +554,8 @@ pip install waza
 - YAML escaping for regex patterns with backslashes
 - Progress bar now shows 100% on completion
 
-[Unreleased]: https://github.com/microsoft/waza/compare/v0.37.0...HEAD
+[Unreleased]: https://github.com/microsoft/waza/compare/v0.38.0...HEAD
+[0.38.0]: https://github.com/microsoft/waza/compare/v0.37.0...v0.38.0
 [0.37.0]: https://github.com/microsoft/waza/compare/v0.36.0...v0.37.0
 [0.36.0]: https://github.com/microsoft/waza/compare/v0.35.0...v0.36.0
 [0.35.0]: https://github.com/microsoft/waza/compare/v0.34.0...v0.35.0

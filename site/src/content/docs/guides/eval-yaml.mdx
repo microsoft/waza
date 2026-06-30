@@ -59,6 +59,7 @@ tasks:
 | `tasks_from`  | string | ✗        | Path to an external YAML file containing the task list                                     |
 | `hooks`       | object | ✗        | Lifecycle hooks that run shell commands at specific points (see [Hooks](#hooks))           |
 | `mcp_mocks`   | array  | ✗        | Hermetic MCP server mocks for deterministic tool-call evals; requires `schemaVersion: "1.1"` |
+| `adversarial` | object | ✗        | Built-in fault-injection packs consumed by `waza adversarial --spec`; requires `schemaVersion: "1.2"` |
 | `baseline`    | bool   | ✗        | Mark this spec as a baseline for A/B comparison                                            |
 
 `skill` is required.
@@ -222,6 +223,21 @@ mcp_mocks:
 ```
 
 Each `.json` fixture can either contain a single tool definition (tool name from the filename) or a `{ "tools": { ... } }` object with multiple tools.
+
+## Adversarial Packs
+
+Use top-level `adversarial` to pin the built-in fault-injection packs and unsafe-outcome policy for `waza adversarial --spec`. This is additive in `schemaVersion: "1.2"` and is ignored by normal `waza run` executions.
+
+```yaml
+schemaVersion: "1.2"
+adversarial:
+  packs:
+    - prompt-injection
+    - scope-bypass
+  on_unsafe_outcome: fail  # or "warn"
+```
+
+`packs` must name one or more built-in packs. In v0.38.0 those are `prompt-injection` and `scope-bypass`. `on_unsafe_outcome: fail` exits 2 when an unsafe outcome is observed; `warn` records the unsafe result but exits 0. See the [Adversarial Harness guide](/guides/adversarial/) for pack behavior and CI examples.
 
 ## Graders Section
 

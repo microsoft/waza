@@ -5,7 +5,34 @@ description: Download waza binaries and the azd extension. Changelog highlights 
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
-## Current Release: v0.35.0
+## Current Release: v0.38.0
+
+**Released:** 2026-06-30
+
+### What's New
+
+#### Added
+
+- **Focused eval suggestions** — `waza suggest` can target specific coverage gaps with `--count`, `--focus`, `--dry-run`, `--apply`, and `--force` (#357, #380).
+- **Per-turn checkpoint graders** — Task YAML can assert intermediate multi-turn state with `checkpoints[]` (#358, #386).
+- **Rubric preset library** — Prompt graders can reuse built-in rubrics for groundedness, helpfulness, instruction following, refusal correctness, and tool-use appropriateness (#360, #381).
+- **Spec verification** — `waza spec verify` checks that eval tasks cover the executable contract in `SKILL.md` (#361, #385).
+- **OpenTelemetry export** — `waza run --otel-*` flags export eval, task, turn, model-call, and tool-call spans (#362, #383).
+- **MCP server mocks** — `eval.yaml` can define `mcp_mocks:` for hermetic Copilot SDK evals (#363, #387).
+- **Regression gates** — `waza gate` compares current results with a baseline and exits 0/1/2/3 for pass, regression, golden failure, or config error (#364, #384).
+- **Adversarial harness** — `waza adversarial` runs prompt-injection and scope-bypass packs, optionally configured by `adversarial:` in eval YAML (#365, #392).
+- **Tool metrics and argument matchers** — Results include normalized `tool_events[]`; graders can use structured `expect_tools[].args` and `tool_calls.expect[].args` matchers (#366, #388).
+- **Snapshot and replay** — `waza run --snapshot` captures task snapshots and `waza replay` checks them offline or bisects divergent runs (#367, #391).
+- **Schema semver policy** — `schemaVersion` uses MAJOR.MINOR compatibility rules, documented in the schema changelog (#368, #382).
+- **Dashboard SSE resume** — `/api/v1/runs/{runId}/events` and legacy `/api/events` support `Last-Event-ID` and `lastEventId` resume (#178, #397).
+
+#### Changed
+
+- **Internal refactor** — Phase 1 internal cleanup landed without user-facing CLI or schema changes (#10).
+
+---
+
+## Previous highlighted release: v0.35.0
 
 **Released:** 2026-06-06
 
@@ -17,18 +44,6 @@ import { Tabs, TabItem } from '@astrojs/starlight/components';
 - **Model-aware dashboard pricing** — Dashboard cost calculation applies per-model pricing for more accurate run costs.
 - **Git worktree resources in task inputs** — Tasks can reference git worktree resources as inputs.
 
-#### Fixed
-
-- **BYOK + `--model` startup arg** — The Copilot CLI validates startup `--model` against the Copilot catalog before BYOK provider config is applied, so provider-only model IDs would fail. The `--model` startup arg is now skipped when a BYOK provider is configured.
-- **Model override propagation** — `--model` is passed via `CLIArgs` so it correctly overrides user settings and experiment flights.
-- **Copilot CLI PATH fallback** — Prevented silent fallback to a Copilot CLI on `PATH` when the bundled binary is unavailable.
-- **Installer latest-release selection** — Installer correctly selects the latest standalone waza release.
-- **Skill best practices doc link** — Fixed the broken skill best practices reference.
-
-#### Changed
-
-- **AgentEngine cancellation** — Simplified `AgentEngine` cancellation handling around caller contexts for more predictable shutdown semantics.
-
 ---
 
 ## Download Binaries
@@ -37,12 +52,12 @@ Pre-built binaries for all major platforms:
 
 | Platform | Architecture | Download |
 |----------|-------------|----------|
-| macOS | Apple Silicon (ARM64) | [waza-darwin-arm64](https://github.com/microsoft/waza/releases/download/v0.35.0/waza-darwin-arm64) |
-| macOS | Intel (AMD64) | [waza-darwin-amd64](https://github.com/microsoft/waza/releases/download/v0.35.0/waza-darwin-amd64) |
-| Linux | x64 (AMD64) | [waza-linux-amd64](https://github.com/microsoft/waza/releases/download/v0.35.0/waza-linux-amd64) |
-| Linux | ARM64 | [waza-linux-arm64](https://github.com/microsoft/waza/releases/download/v0.35.0/waza-linux-arm64) |
-| Windows | x64 (AMD64) | [waza-windows-amd64.exe](https://github.com/microsoft/waza/releases/download/v0.35.0/waza-windows-amd64.exe) |
-| Windows | ARM64 | [waza-windows-arm64.exe](https://github.com/microsoft/waza/releases/download/v0.35.0/waza-windows-arm64.exe) |
+| macOS | Apple Silicon (ARM64) | [waza-darwin-arm64](https://github.com/microsoft/waza/releases/download/v0.38.0/waza-darwin-arm64) |
+| macOS | Intel (AMD64) | [waza-darwin-amd64](https://github.com/microsoft/waza/releases/download/v0.38.0/waza-darwin-amd64) |
+| Linux | x64 (AMD64) | [waza-linux-amd64](https://github.com/microsoft/waza/releases/download/v0.38.0/waza-linux-amd64) |
+| Linux | ARM64 | [waza-linux-arm64](https://github.com/microsoft/waza/releases/download/v0.38.0/waza-linux-arm64) |
+| Windows | x64 (AMD64) | [waza-windows-amd64.exe](https://github.com/microsoft/waza/releases/download/v0.38.0/waza-windows-amd64.exe) |
+| Windows | ARM64 | [waza-windows-arm64.exe](https://github.com/microsoft/waza/releases/download/v0.38.0/waza-windows-arm64.exe) |
 
 ---
 
@@ -64,7 +79,7 @@ On Windows, use this command only from Git Bash, MSYS2, or Cygwin. If PowerShell
 irm https://raw.githubusercontent.com/microsoft/waza/main/install.ps1 | iex
 ```
 
-The installers choose the latest standalone `waza` CLI release, download the matching binary, verify the checksum, and install it. You can also download the Windows binary from the [standalone waza release](https://github.com/microsoft/waza/releases/tag/v0.35.0), rename it to `waza.exe`, and place it in a directory on your `PATH`.
+The installers choose the latest standalone `waza` CLI release, download the matching binary, verify the checksum, and install it. You can also download the Windows binary from the [standalone waza release](https://github.com/microsoft/waza/releases/tag/v0.38.0), rename it to `waza.exe`, and place it in a directory on your `PATH`.
 
 </TabItem>
 </Tabs>
@@ -81,11 +96,11 @@ waza --version
 
 Install waza as an [Azure Developer CLI](https://learn.microsoft.com/azure/developer/azure-developer-cli/) extension.
 
-**Current version:** v0.35.0
+**Current version:** v0.38.0
 
 ```bash
 azd extension install azd-waza \
-  --source https://github.com/microsoft/waza/releases/download/azd-ext-microsoft-azd-waza_0.35.0/azd-ext-microsoft-azd-waza_0.35.0.tar.gz
+  --source https://github.com/microsoft/waza/releases/download/azd-ext-microsoft-azd-waza_0.38.0/azd-ext-microsoft-azd-waza_0.38.0.tar.gz
 ```
 
 Once installed, run evaluations through `azd`:
