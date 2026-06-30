@@ -3,6 +3,7 @@ package webapi
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 )
@@ -94,6 +95,74 @@ func (h *Handlers) HandleRunDetail(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, detail)
 }
 
+// HandleRunEvents streams replayable Server-Sent Events for a run.
+func (h *Handlers) HandleRunEvents(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		id = runIDFromEventsPath(r.URL.Path)
+	}
+	if id == "" {
+		writeError(w, http.StatusBadRequest, "run id is required")
+		return
+	}
+
+	lastID, err := lastEventID(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	detail, err := h.store.GetRun(id)
+	if err != nil {
+		if errors.Is(err, ErrRunNotFound) {
+			writeError(w, http.StatusNotFound, "run not found")
+		} else {
+			writeError(w, http.StatusInternalServerError, err.Error())
+		}
+		return
+	}
+
+	events := filterEventsAfter(runEventsFromDetail(detail), lastID)
+	writeSSEHeaders(w)
+	if _, err := fmt.Fprint(w, "retry: 1000\n\n"); err != nil {
+		return
+	}
+	flusher, _ := w.(http.Flusher)
+	if flusher != nil {
+		flusher.Flush()
+	}
+
+	for _, event := range events {
+		select {
+		case <-r.Context().Done():
+			return
+		default:
+		}
+		if err := writeRunSSEEvent(w, event); err != nil {
+			return
+		}
+		if flusher != nil {
+			flusher.Flush()
+		}
+	}
+}
+
+// HandleLatestRunEvents preserves the legacy /api/events stream by replaying
+// the newest run in the same SSE format as the v1 per-run endpoint.
+func (h *Handlers) HandleLatestRunEvents(w http.ResponseWriter, r *http.Request) {
+	runs, err := h.store.ListRuns("timestamp", "desc")
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if len(runs) == 0 {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	r.SetPathValue("id", runs[0].ID)
+	h.HandleRunEvents(w, r)
+}
+
 // HandleStorageStatus returns the current storage configuration status.
 func (h *Handlers) HandleStorageStatus(w http.ResponseWriter, _ *http.Request) {
 	resp := &StorageStatusResponse{
@@ -112,8 +181,10 @@ func RegisterRoutes(mux *http.ServeMux, store RunStore) {
 	h := NewHandlers(store)
 	mux.HandleFunc("GET /api/health", h.HandleHealth)
 	mux.HandleFunc("GET /api/summary", h.HandleSummary)
+	mux.HandleFunc("GET /api/events", h.HandleLatestRunEvents)
 	mux.HandleFunc("GET /api/runs", h.HandleRuns)
 	mux.HandleFunc("GET /api/runs/{id}", h.HandleRunDetail)
+	mux.HandleFunc("GET /api/v1/runs/{id}/events", h.HandleRunEvents)
 	mux.HandleFunc("GET /api/storage/status", h.HandleStorageStatus)
 }
 
@@ -122,8 +193,10 @@ func RegisterRoutesWithStorage(mux *http.ServeMux, store RunStore, cfg *StorageC
 	h := NewHandlersWithStorage(store, cfg)
 	mux.HandleFunc("GET /api/health", h.HandleHealth)
 	mux.HandleFunc("GET /api/summary", h.HandleSummary)
+	mux.HandleFunc("GET /api/events", h.HandleLatestRunEvents)
 	mux.HandleFunc("GET /api/runs", h.HandleRuns)
 	mux.HandleFunc("GET /api/runs/{id}", h.HandleRunDetail)
+	mux.HandleFunc("GET /api/v1/runs/{id}/events", h.HandleRunEvents)
 	mux.HandleFunc("GET /api/storage/status", h.HandleStorageStatus)
 }
 
@@ -141,7 +214,7 @@ func CORSMiddleware(next http.Handler, allowedOrigins ...string) http.Handler {
 		if len(allowedOrigins) > 0 && origin != "" && allowed[origin] {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Last-Event-ID")
 		}
 
 		if r.Method == http.MethodOptions {
@@ -161,4 +234,11 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 
 func writeError(w http.ResponseWriter, code int, msg string) {
 	writeJSON(w, code, ErrorResponse{Error: msg, Code: code})
+}
+
+func runIDFromEventsPath(path string) string {
+	path = strings.TrimPrefix(path, "/api/v1/runs/")
+	path = strings.TrimSuffix(path, "/events")
+	path = strings.Trim(path, "/")
+	return path
 }

@@ -53,6 +53,12 @@ function ProgressBar({ completed, total }: { completed: number; total: number })
 
 function EventBadge({ type }: { type: SSEEvent["type"] }) {
   const styles: Record<string, string> = {
+    run_started: "bg-blue-500/10 text-blue-400",
+    task_started: "bg-blue-500/10 text-blue-400",
+    step_executed: "bg-purple-500/10 text-purple-400",
+    task_completed: "bg-green-500/10 text-green-400",
+    run_completed: "bg-yellow-500/10 text-yellow-400",
+    run_failed: "bg-red-500/10 text-red-400",
     task_start: "bg-blue-500/10 text-blue-400",
     task_complete: "bg-green-500/10 text-green-400",
     grader_result: "bg-purple-500/10 text-purple-400",
@@ -73,15 +79,25 @@ function EventCard({ event }: { event: SSEEvent }) {
   const d = event.data;
 
   switch (event.type) {
+    case "run_started":
+      description = `Run started — ${d.totalTasks ?? 0} task${d.totalTasks === 1 ? "" : "s"}`;
+      break;
+    case "task_started":
     case "task_start":
       description = `Started task: ${d.taskName ?? "unknown"}`;
       break;
+    case "task_completed":
     case "task_complete":
       description = `${d.taskName ?? "task"} → ${d.outcome ?? "done"}${d.score != null ? ` (${Math.round(d.score * 100)}%)` : ""}`;
       break;
+    case "step_executed":
     case "grader_result":
       description = `${d.graderName ?? "grader"} [${d.graderType ?? ""}]: ${d.passed ? "✓" : "✗"} ${d.message ?? ""}`;
       break;
+    case "run_failed":
+      description = `Run failed — ${d.passCount ?? 0}/${d.totalTasks ?? 0} passed`;
+      break;
+    case "run_completed":
     case "run_complete":
       description = `Run complete — ${d.passCount ?? 0}/${d.totalTasks ?? 0} passed`;
       break;

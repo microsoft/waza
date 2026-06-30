@@ -76,7 +76,18 @@ Historical metrics over time:
 
 ### Live Updates
 
-Dashboard auto-refreshes when new results are saved:
+The **Live** view uses Server-Sent Events (SSE) to stream run progress from the dashboard API. The per-run endpoint is:
+
+```text
+GET /api/v1/runs/{runId}/events
+Accept: text/event-stream
+```
+
+Each message has an SSE `id` matching the JSON `sequence` field so browsers can reconnect with `Last-Event-ID` and resume after the last event they processed. Event payloads include `schemaVersion`, `runId`, `type`, `timestamp`, and a `data` object. Current event types are `run_started`, `task_started`, `step_executed`, `task_completed`, `run_completed`, and `run_failed`.
+
+The legacy `/api/events` endpoint remains available and replays events for the newest run.
+
+To view progress while iterating locally:
 
 ```bash
 # Terminal 1: Serve dashboard
