@@ -83,7 +83,13 @@ GET /api/v1/runs/{runId}/events
 Accept: text/event-stream
 ```
 
-Each message has an SSE `id` matching the JSON `sequence` field so browsers can reconnect with `Last-Event-ID` and resume after the last event they processed. Event payloads include `schemaVersion`, `runId`, `type`, `timestamp`, and a `data` object. Current event types are `run_started`, `task_started`, `step_executed`, `task_completed`, `run_completed`, and `run_failed`.
+Each message has an SSE `id` matching the JSON `sequence` field. Clients can reconnect with the `Last-Event-ID` header, or with the equivalent `lastEventId` query parameter, to resume after the last event they processed:
+
+```text
+GET /api/v1/runs/{runId}/events?lastEventId=42
+```
+
+The stream replays existing events, remains open while the run is still progressing, and closes after `run_completed` or `run_failed`. Event payloads include `schemaVersion`, `runId`, `type`, `timestamp`, and a `data` object. Current event types are `run_started`, `task_started`, `step_executed`, `task_completed`, `run_completed`, and `run_failed`.
 
 The legacy `/api/events` endpoint remains available and replays events for the newest run.
 

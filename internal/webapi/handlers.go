@@ -6,10 +6,13 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 )
 
 // Version is set at build time or defaults to dev.
 var Version = "0.4.0-alpha.1"
+
+var runEventsPollInterval = 250 * time.Millisecond
 
 // Handlers holds the HTTP handler methods for the web API.
 type Handlers struct {
@@ -122,7 +125,6 @@ func (h *Handlers) HandleRunEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	events := filterEventsAfter(runEventsFromDetail(detail), lastID)
 	writeSSEHeaders(w)
 	if _, err := fmt.Fprint(w, "retry: 1000\n\n"); err != nil {
 		return
@@ -132,18 +134,42 @@ func (h *Handlers) HandleRunEvents(w http.ResponseWriter, r *http.Request) {
 		flusher.Flush()
 	}
 
-	for _, event := range events {
+	nextPoll := time.NewTimer(0)
+	defer nextPoll.Stop()
+
+	for {
 		select {
 		case <-r.Context().Done():
 			return
-		default:
+		case <-nextPoll.C:
 		}
-		if err := writeRunSSEEvent(w, event); err != nil {
+
+		events := filterEventsAfter(runEventsFromDetail(detail), lastID)
+		for _, event := range events {
+			if err := writeRunSSEEvent(w, event); err != nil {
+				return
+			}
+			lastID = event.Sequence
+			if flusher != nil {
+				flusher.Flush()
+			}
+			if event.Type == RunEventCompleted || event.Type == RunEventFailed {
+				return
+			}
+		}
+
+		nextPoll.Reset(runEventsPollInterval)
+		select {
+		case <-r.Context().Done():
+			return
+		case <-nextPoll.C:
+		}
+
+		detail, err = h.getRunForEvents(id)
+		if err != nil {
 			return
 		}
-		if flusher != nil {
-			flusher.Flush()
-		}
+		nextPoll.Reset(0)
 	}
 }
 
@@ -237,8 +263,28 @@ func writeError(w http.ResponseWriter, code int, msg string) {
 }
 
 func runIDFromEventsPath(path string) string {
-	path = strings.TrimPrefix(path, "/api/v1/runs/")
-	path = strings.TrimSuffix(path, "/events")
-	path = strings.Trim(path, "/")
-	return path
+	const prefix = "/api/v1/runs/"
+	const suffix = "/events"
+	if !strings.HasPrefix(path, prefix) || !strings.HasSuffix(path, suffix) {
+		return ""
+	}
+	id := strings.TrimSuffix(strings.TrimPrefix(path, prefix), suffix)
+	id = strings.Trim(id, "/")
+	if id == "" || strings.Contains(id, "/") {
+		return ""
+	}
+	return id
+}
+
+type reloadableRunStore interface {
+	Reload() error
+}
+
+func (h *Handlers) getRunForEvents(id string) (*RunDetail, error) {
+	if store, ok := h.store.(reloadableRunStore); ok {
+		if err := store.Reload(); err != nil {
+			return nil, err
+		}
+	}
+	return h.store.GetRun(id)
 }

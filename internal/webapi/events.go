@@ -121,8 +121,12 @@ func runEventsFromDetail(detail *RunDetail) []RunEvent {
 		})
 	}
 
+	if !isTerminalRunDetail(detail) {
+		return events
+	}
+
 	eventType := RunEventCompleted
-	if strings.HasPrefix(detail.Outcome, "fail") || strings.HasPrefix(detail.Outcome, "error") {
+	if isFailureOutcome(detail.Outcome) {
 		eventType = RunEventFailed
 	}
 	appendEvent(eventType, RunEventData{
@@ -136,6 +140,25 @@ func runEventsFromDetail(detail *RunDetail) []RunEvent {
 	})
 
 	return events
+}
+
+func isTerminalRunDetail(detail *RunDetail) bool {
+	if detail == nil {
+		return false
+	}
+	if isFailureOutcome(detail.Outcome) {
+		return true
+	}
+	outcome := strings.ToLower(detail.Outcome)
+	if !strings.HasPrefix(outcome, "pass") {
+		return false
+	}
+	return detail.TaskCount == 0 || len(detail.Tasks) >= detail.TaskCount
+}
+
+func isFailureOutcome(outcome string) bool {
+	outcome = strings.ToLower(outcome)
+	return strings.HasPrefix(outcome, "fail") || strings.HasPrefix(outcome, "error")
 }
 
 func filterEventsAfter(events []RunEvent, lastID int64) []RunEvent {

@@ -64,6 +64,12 @@ const liveEvents = [
   },
 ];
 
+declare global {
+  interface Window {
+    __eventSourceUrls: string[];
+  }
+}
+
 test.describe("Live View", () => {
   test("renders progress from run SSE events", async ({ page }) => {
     await page.route(/\/api\/runs(\?|$)/, (route) =>
@@ -75,6 +81,8 @@ test.describe("Live View", () => {
     );
 
     await page.addInitScript((events) => {
+      window.__eventSourceUrls = [];
+
       class MockEventSource {
         static readonly CONNECTING = 0;
         static readonly OPEN = 1;
@@ -88,6 +96,7 @@ test.describe("Live View", () => {
 
         constructor(url: string) {
           this.url = url;
+          window.__eventSourceUrls.push(url);
           setTimeout(() => {
             this.readyState = MockEventSource.OPEN;
             this.onopen?.(new Event("open"));
@@ -118,6 +127,9 @@ test.describe("Live View", () => {
 
     await page.goto("/#/live");
 
+    await expect
+      .poll(() => page.evaluate(() => window.__eventSourceUrls[0] ?? ""))
+      .toBe("/api/v1/runs/run-001/events");
     await expect(page.getByRole("heading", { name: "Live" })).toBeVisible();
     await expect(page.getByText("run_completed")).toBeVisible();
     await expect(page.getByText("Run complete — 1/1 passed")).toBeVisible();

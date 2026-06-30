@@ -72,6 +72,7 @@ export function useSSE(): UseSSEReturn {
   const retryCount = useRef(0);
   const esRef = useRef<EventSource | null>(null);
   const currentRunRef = useRef<LiveRun | null>(null);
+  const lastEventIdRef = useRef<string | null>(null);
 
   const updateCurrentRun = useCallback(
     (updater: (prev: LiveRun | null) => LiveRun | null) => {
@@ -199,6 +200,7 @@ export function useSSE(): UseSSEReturn {
   useEffect(() => {
     if (!runId) return;
     const currentRunId = runId;
+    lastEventIdRef.current = null;
 
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
@@ -206,9 +208,11 @@ export function useSSE(): UseSSEReturn {
     function connect() {
       if (cancelled) return;
 
-      const es = new EventSource(
-        `/api/v1/runs/${encodeURIComponent(currentRunId)}/events`,
-      );
+      const baseURL = `/api/v1/runs/${encodeURIComponent(currentRunId)}/events`;
+      const url = lastEventIdRef.current
+        ? `${baseURL}?lastEventId=${encodeURIComponent(lastEventIdRef.current)}`
+        : baseURL;
+      const es = new EventSource(url);
       esRef.current = es;
 
       es.onopen = () => {
@@ -222,6 +226,8 @@ export function useSSE(): UseSSEReturn {
         try {
           const parsed = JSON.parse(msg.data) as SSEEvent;
           processEvent(parsed);
+          lastEventIdRef.current =
+            msg.lastEventId || parsed.sequence?.toString() || lastEventIdRef.current;
           if (
             parsed.type === "run_completed" ||
             parsed.type === "run_failed" ||
