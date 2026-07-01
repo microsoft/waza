@@ -243,6 +243,14 @@ project/
 └── README.md
 ```
 
+*APM-installed mode* (skills managed by [Agent Package Manager](https://aka.ms/apm)):
+```
+skills/{skill-name}/
+├── apm.yml                                    # APM source definition
+└── .apm/skills/{skill-name}/SKILL.md          # compiled output — detected automatically
+```
+Waza detects APM-compiled skills without extra configuration. If both a top-level `SKILL.md` and an APM-compiled one exist, the top-level file wins.
+
 **Example:**
 ```bash
 # In project mode (explained Modes section, above): creates skills/code-explainer/SKILL.md + evals/code-explainer/

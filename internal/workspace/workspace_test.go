@@ -663,3 +663,134 @@ func TestMergeSkillsByName(t *testing.T) {
 		t.Fatalf("expected github-only to be appended, got %q", merged[2].Name)
 	}
 }
+
+// --- APM-compiled layout (.apm/skills/<name>/SKILL.md) ---
+// See https://github.com/microsoft/waza/issues/400
+
+func TestDetectContext_APMSingleSkillFromSkillDir(t *testing.T) {
+	// APM layout: skills/my-skill/.apm/skills/my-skill/SKILL.md, with no
+	// top-level SKILL.md in the user-facing skill folder. Running detection
+	// from the skill folder itself must find the compiled skill.
+	root := t.TempDir()
+	skillDir := filepath.Join(root, "skills", "my-skill")
+	writeFile(t, filepath.Join(skillDir, ".apm", "skills", "my-skill", "SKILL.md"), skillMD("my-skill"))
+
+	ctx, err := DetectContext(skillDir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if ctx.Type != ContextSingleSkill {
+		t.Fatalf("expected ContextSingleSkill, got %d", ctx.Type)
+	}
+	if len(ctx.Skills) != 1 {
+		t.Fatalf("expected 1 skill, got %d", len(ctx.Skills))
+	}
+	if ctx.Skills[0].Name != "my-skill" {
+		t.Errorf("expected name 'my-skill', got %q", ctx.Skills[0].Name)
+	}
+	// Dir should stay the user-facing skill folder, not the .apm output,
+	// so evals/fixtures continue to resolve correctly.
+	if ctx.Skills[0].Dir != skillDir {
+		t.Errorf("expected dir %q, got %q", skillDir, ctx.Skills[0].Dir)
+	}
+	expectedSkillPath := filepath.Join(skillDir, ".apm", "skills", "my-skill", "SKILL.md")
+	if ctx.Skills[0].SkillPath != expectedSkillPath {
+		t.Errorf("expected SkillPath %q, got %q", expectedSkillPath, ctx.Skills[0].SkillPath)
+	}
+}
+
+func TestDetectContext_APMMultiSkillFromWorkspaceRoot(t *testing.T) {
+	// Detection from the workspace root should discover APM-compiled skills
+	// underneath skills/*/ even though .apm is a dotfolder we normally skip.
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "skills", "alpha", ".apm", "skills", "alpha", "SKILL.md"), skillMD("alpha"))
+	writeFile(t, filepath.Join(root, "skills", "beta", ".apm", "skills", "beta", "SKILL.md"), skillMD("beta"))
+
+	ctx, err := DetectContext(root)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if ctx.Type != ContextMultiSkill {
+		t.Fatalf("expected ContextMultiSkill, got %d", ctx.Type)
+	}
+	if len(ctx.Skills) != 2 {
+		t.Fatalf("expected 2 skills, got %d", len(ctx.Skills))
+	}
+	names := map[string]bool{}
+	for _, s := range ctx.Skills {
+		names[s.Name] = true
+	}
+	if !names["alpha"] || !names["beta"] {
+		t.Errorf("expected alpha and beta, got %v", names)
+	}
+}
+
+func TestDetectContext_APMTopLevelSkillTakesPrecedence(t *testing.T) {
+	// When both a top-level SKILL.md and a .apm/skills/<name>/SKILL.md exist,
+	// the top-level one wins (it's the source of truth being edited).
+	skillDir := t.TempDir()
+	writeFile(t, filepath.Join(skillDir, "SKILL.md"), skillMD("top-level"))
+	writeFile(t, filepath.Join(skillDir, ".apm", "skills", filepath.Base(skillDir), "SKILL.md"), skillMD("apm-compiled"))
+
+	ctx, err := DetectContext(skillDir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if ctx.Type != ContextSingleSkill {
+		t.Fatalf("expected ContextSingleSkill, got %d", ctx.Type)
+	}
+	if ctx.Skills[0].Name != "top-level" {
+		t.Errorf("expected top-level SKILL.md to win, got name %q", ctx.Skills[0].Name)
+	}
+	expected := filepath.Join(skillDir, "SKILL.md")
+	if ctx.Skills[0].SkillPath != expected {
+		t.Errorf("expected SkillPath %q, got %q", expected, ctx.Skills[0].SkillPath)
+	}
+}
+
+func TestDetectContext_APMPrefersMatchingBasename(t *testing.T) {
+	// If a skill folder's .apm/skills/ contains multiple compiled entries
+	// (e.g., transitive deps compiled alongside), prefer the one whose name
+	// matches the parent folder's basename.
+	root := t.TempDir()
+	skillDir := filepath.Join(root, "primary")
+	writeFile(t, filepath.Join(skillDir, ".apm", "skills", "primary", "SKILL.md"), skillMD("primary"))
+	writeFile(t, filepath.Join(skillDir, ".apm", "skills", "helper", "SKILL.md"), skillMD("helper"))
+
+	ctx, err := DetectContext(skillDir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if ctx.Type != ContextSingleSkill {
+		t.Fatalf("expected ContextSingleSkill, got %d", ctx.Type)
+	}
+	if ctx.Skills[0].Name != "primary" {
+		t.Errorf("expected 'primary' to be chosen, got %q", ctx.Skills[0].Name)
+	}
+}
+
+func TestDetectContext_APMMixedWithClassicLayout(t *testing.T) {
+	// A workspace where one skill is classic and another is APM-installed
+	// should surface both.
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "skills", "classic", "SKILL.md"), skillMD("classic"))
+	writeFile(t, filepath.Join(root, "skills", "apm-installed", ".apm", "skills", "apm-installed", "SKILL.md"), skillMD("apm-installed"))
+
+	ctx, err := DetectContext(root)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if ctx.Type != ContextMultiSkill {
+		t.Fatalf("expected ContextMultiSkill, got %d", ctx.Type)
+	}
+	if len(ctx.Skills) != 2 {
+		t.Fatalf("expected 2 skills, got %d", len(ctx.Skills))
+	}
+	names := map[string]bool{}
+	for _, s := range ctx.Skills {
+		names[s.Name] = true
+	}
+	if !names["classic"] || !names["apm-installed"] {
+		t.Errorf("expected both classic and apm-installed, got %v", names)
+	}
+}

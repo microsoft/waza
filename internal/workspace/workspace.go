@@ -273,8 +273,9 @@ func evalFilenames(configured string) []string {
 	return []string{configured, projectconfig.DefaultEvalFile}
 }
 
-// tryParseSkill checks if dir contains SKILL.md or .agent.md and parses it.
-// SKILL.md takes priority over .agent.md.
+// tryParseSkill checks if dir contains SKILL.md, .agent.md, or an
+// APM-compiled SKILL.md at .apm/skills/<name>/SKILL.md, and parses it.
+// Precedence: top-level SKILL.md > top-level .agent.md > APM-compiled SKILL.md.
 func tryParseSkill(dir string) (SkillInfo, bool) {
 	// Check SKILL.md first
 	skillPath := filepath.Join(dir, "SKILL.md")
@@ -292,25 +293,89 @@ func tryParseSkill(dir string) (SkillInfo, bool) {
 
 	// Fall back to .agent.md files
 	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return SkillInfo{}, false
-	}
-	for _, entry := range entries {
-		if !entry.IsDir() && skill.IsAgentFile(entry.Name()) {
-			agentPath := filepath.Join(dir, entry.Name())
-			name := parseAgentNameFromFile(agentPath)
-			if name == "" {
-				name = filepath.Base(dir)
+	if err == nil {
+		for _, entry := range entries {
+			if !entry.IsDir() && skill.IsAgentFile(entry.Name()) {
+				agentPath := filepath.Join(dir, entry.Name())
+				name := parseAgentNameFromFile(agentPath)
+				if name == "" {
+					name = filepath.Base(dir)
+				}
+				return SkillInfo{
+					Name:      name,
+					Dir:       dir,
+					SkillPath: agentPath,
+				}, true
 			}
-			return SkillInfo{
-				Name:      name,
-				Dir:       dir,
-				SkillPath: agentPath,
-			}, true
 		}
 	}
 
+	// Fall back to APM-compiled layout: <dir>/.apm/skills/<name>/SKILL.md
+	// APM (Agent Package Manager) writes the resolved SKILL.md that agent
+	// clients consume to this well-known path. See:
+	//   https://aka.ms/apm
+	if info, ok := tryParseAPMSkill(dir); ok {
+		return info, true
+	}
+
 	return SkillInfo{}, false
+}
+
+// tryParseAPMSkill looks for an APM-compiled SKILL.md under
+// <dir>/.apm/skills/<name>/SKILL.md. When multiple compiled skills are present,
+// it prefers the one whose subdirectory matches the parent dir's basename;
+// otherwise it returns the first one in lexical order for stability.
+//
+// The reported Dir remains the parent (dir) so that co-located evals
+// (evals/eval.yaml, eval.yaml, fixtures/, etc.) continue to resolve
+// relative to the user-facing skill folder, not the .apm output.
+func tryParseAPMSkill(dir string) (SkillInfo, bool) {
+	apmSkillsDir := filepath.Join(dir, ".apm", "skills")
+	if !isDir(apmSkillsDir) {
+		return SkillInfo{}, false
+	}
+
+	entries, err := os.ReadDir(apmSkillsDir)
+	if err != nil {
+		return SkillInfo{}, false
+	}
+
+	base := filepath.Base(dir)
+	var preferred, fallback string
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		candidate := filepath.Join(apmSkillsDir, entry.Name(), "SKILL.md")
+		if !isFile(candidate) {
+			continue
+		}
+		if entry.Name() == base {
+			preferred = candidate
+			break
+		}
+		if fallback == "" {
+			fallback = candidate
+		}
+	}
+
+	skillPath := preferred
+	if skillPath == "" {
+		skillPath = fallback
+	}
+	if skillPath == "" {
+		return SkillInfo{}, false
+	}
+
+	name, err := parseSkillName(skillPath)
+	if err != nil || name == "" {
+		name = base
+	}
+	return SkillInfo{
+		Name:      name,
+		Dir:       dir,
+		SkillPath: skillPath,
+	}, true
 }
 
 // parseAgentNameFromFile reads an .agent.md file and extracts the agent name.

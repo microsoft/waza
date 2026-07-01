@@ -55,6 +55,8 @@ waza run [eval.yaml | skill-name | agent-name]
 
 **Custom agents:** Waza discovers both `SKILL.md` and `.agent.md` files. You can target a custom agent by name just like a skill. See [Evaluating Custom Agents](/guides/custom-agents) for details.
 
+**APM-installed skills:** Waza also detects skills installed with [Agent Package Manager (APM)](https://aka.ms/apm), which writes the compiled `SKILL.md` to `<skill-dir>/.apm/skills/<skill-name>/SKILL.md`. No configuration is required — `waza run`, `waza check`, and workspace detection all find APM-compiled skills automatically. When both a top-level `SKILL.md` and an APM-compiled one exist in the same folder, the top-level file wins.
+
 ### Flags
 
 | Flag | Short | Type | Default | Description |
