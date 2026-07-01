@@ -440,34 +440,26 @@ func scanDirectAPMSkills(dir string) ([]SkillInfo, error) {
 	return skills, nil
 }
 
+// scanForAPMSkillsUnder looks for APM-compiled skills one level down from
+// parentDir. For each immediate child skill directory it checks for
+// <child>/.apm/skills and, when present, scans it without recursing further
+// into the skill's own contents (tasks/, fixtures, etc.). Anything deeper
+// than a skill root is intentionally ignored.
 func scanForAPMSkillsUnder(parentDir string) ([]SkillInfo, error) {
-	var skills []SkillInfo
-	err := filepath.WalkDir(parentDir, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return fmt.Errorf("error walking %s: %w", path, err)
-		}
-		if !d.IsDir() {
-			return nil
-		}
-		if path == parentDir {
-			return nil
-		}
-		name := d.Name()
-		if name == ".apm" {
-			apmSkills, scanErr := scanDirectAPMSkills(filepath.Dir(path))
-			if scanErr != nil {
-				return scanErr
-			}
-			skills = append(skills, apmSkills...)
-			return fs.SkipDir
-		}
-		if shouldSkipSkillScanDir(name) {
-			return fs.SkipDir
-		}
-		return nil
-	})
+	entries, err := os.ReadDir(parentDir)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("reading %s: %w", parentDir, err)
+	}
+	var skills []SkillInfo
+	for _, entry := range entries {
+		if !entry.IsDir() || shouldSkipSkillScanDir(entry.Name()) {
+			continue
+		}
+		apmSkills, err := scanDirectAPMSkills(filepath.Join(parentDir, entry.Name()))
+		if err != nil {
+			return nil, err
+		}
+		skills = append(skills, apmSkills...)
 	}
 	return skills, nil
 }
