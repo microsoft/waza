@@ -230,6 +230,18 @@ project/
     └── fixtures/
 ```
 
+*APM-managed skills* are detected from their compiled output without symlinks:
+```
+project/
+├── skills/{skill-name}/apm.yml
+├── skills/{skill-name}/.apm/skills/{skill-name}/SKILL.md
+└── skills/{skill-name}/eval.yaml
+```
+
+When both `skills/{skill-name}/SKILL.md` and the APM compiled
+`.apm/skills/{skill-name}/SKILL.md` exist for the same skill, the top-level
+`SKILL.md` takes precedence.
+
 *Standalone mode* (no `skills/` detected):
 ```
 {skill-name}/
@@ -729,8 +741,9 @@ With two refs, compares the first ref to the second.
 | `--threshold <n>` | Fail when any existing file increases by more than n percent (0 = disabled) |
 
 Use `--skills` to restrict comparison to SKILL.md files under configured skill
-roots (`skills/`, `.github/skills/`, and `paths.skills` from `.waza.yaml`). In
-skills mode the default base ref is `origin/main` (falling back to `main`).
+roots (`skills/`, `.github/skills/`, APM `.apm/skills/` outputs, and
+`paths.skills` from `.waza.yaml`). In skills mode the default base ref is
+`origin/main` (falling back to `main`).
 
 Use `--threshold` for CI gating — newly added files are exempt from threshold
 checks (no baseline) but still subject to absolute limit checks with `--strict`.

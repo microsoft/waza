@@ -86,6 +86,46 @@ tasks:
 	assert.NoError(t, err, "should find eval.yaml for the named skill")
 }
 
+func TestRunCommand_WorkspaceDetection_APMInstalledSkill(t *testing.T) {
+	resetRunGlobals()
+
+	dir := t.TempDir()
+	sourceDir := filepath.Join(dir, "skills", "my-skill")
+	compiledDir := filepath.Join(sourceDir, ".apm", "skills", "my-skill")
+	require.NoError(t, os.MkdirAll(compiledDir, 0o755))
+
+	skillContent := "---\nname: my-skill\ndescription: \"test\"\n---\n# Body\n"
+	require.NoError(t, os.WriteFile(filepath.Join(compiledDir, "SKILL.md"), []byte(skillContent), 0o644))
+
+	taskDir := filepath.Join(sourceDir, "tasks")
+	require.NoError(t, os.MkdirAll(taskDir, 0o755))
+	task := "id: t1\nname: Task One\ninputs:\n  prompt: \"test\"\n"
+	require.NoError(t, os.WriteFile(filepath.Join(taskDir, "task.yaml"), []byte(task), 0o644))
+
+	spec := `name: apm-eval
+skill: my-skill
+version: "1.0"
+config:
+  trials_per_task: 1
+  timeout_seconds: 30
+  executor: mock
+  model: test-model
+tasks:
+  - "tasks/*.yaml"
+`
+	require.NoError(t, os.WriteFile(filepath.Join(sourceDir, "eval.yaml"), []byte(spec), 0o644))
+
+	t.Chdir(dir)
+
+	cmd := newRunCommand()
+	cmd.SetArgs(nil) // no args — workspace detection
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+
+	err := cmd.Execute()
+	assert.NoError(t, err, "workspace detection should find APM-installed skill eval.yaml")
+}
+
 func TestRunCommand_ExplicitPath_BackwardCompat(t *testing.T) {
 	resetRunGlobals()
 

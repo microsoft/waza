@@ -77,6 +77,7 @@ type SkillInfo struct {
 	Dir       string // absolute path to the skill directory (containing SKILL.md)
 	SkillPath string // absolute path to SKILL.md
 	EvalPath  string // absolute path to the eval file (empty if not found)
+	SourceDir string // absolute path to the source skill directory when SKILL.md is compiled elsewhere
 }
 
 // WorkspaceContext represents the detected workspace.
@@ -92,8 +93,9 @@ type WorkspaceContext struct {
 // It checks:
 // 1. CWD for SKILL.md → single-skill
 // 2. Walk up parents for SKILL.md → single-skill (nested inside skill dir)
-// 3. Check for skills/ directory with SKILL.md descendants → multi-skill
-// 4. Scan CWD for child dirs containing SKILL.md → multi-skill
+// 3. Check known compiled skill output directories such as .apm/skills/
+// 4. Check for skills/ directory with SKILL.md descendants → multi-skill
+// 5. Scan CWD for child dirs containing SKILL.md → multi-skill
 func DetectContext(dir string, opts ...DetectOption) (*WorkspaceContext, error) {
 	o := defaultDetectOptions()
 	for _, fn := range opts {
@@ -116,7 +118,7 @@ func DetectContext(dir string, opts ...DetectOption) (*WorkspaceContext, error) 
 		}, nil
 	}
 
-	// 2. Walk up parent directories looking for SKILL.md
+	// 2. Walk up parent directories looking for SKILL.md or known compiled outputs
 	current := absDir
 	for i := 0; i < maxParentWalk; i++ {
 		parent := filepath.Dir(current)
@@ -133,6 +135,11 @@ func DetectContext(dir string, opts ...DetectOption) (*WorkspaceContext, error) 
 				EvalsDir: o.evalsDir,
 				EvalFile: o.evalFile,
 			}, nil
+		}
+		if skills, err := scanDirectAPMSkills(current); err != nil {
+			return nil, fmt.Errorf("scanning APM skills directory %s: %w", filepath.Join(current, ".apm", "skills"), err)
+		} else if len(skills) > 0 {
+			return contextFromSkills(current, skills, o), nil
 		}
 	}
 
@@ -164,6 +171,20 @@ func DetectContext(dir string, opts ...DetectOption) (*WorkspaceContext, error) 
 		}
 		skills = mergeSkillsByName(skills, githubSkills)
 	}
+
+	if isDir(skillsDir) {
+		apmSkills, err := scanForAPMSkillsUnder(skillsDir)
+		if err != nil {
+			return nil, fmt.Errorf("scanning APM skills under %s: %w", skillsDir, err)
+		}
+		skills = mergeSkillsByName(skills, apmSkills)
+	}
+
+	rootAPMSkills, err := scanDirectAPMSkills(absDir)
+	if err != nil {
+		return nil, fmt.Errorf("scanning APM skills directory %s: %w", filepath.Join(absDir, ".apm", "skills"), err)
+	}
+	skills = mergeSkillsByName(skills, rootAPMSkills)
 
 	if len(skills) > 0 {
 		return &WorkspaceContext{
@@ -212,8 +233,9 @@ func FindSkill(ctx *WorkspaceContext, name string) (*SkillInfo, error) {
 
 // FindEval finds an eval file for a skill using priority order:
 // 1. {root}/evals/{skill-name}/{eval-file}  (separated convention)
-// 2. {skill-dir}/evals/{eval-file}          (nested subdir)
-// 3. {skill-dir}/{eval-file}                (co-located/legacy)
+// 2. {source-or-skill-dir}/evals/{eval-file} (nested subdir)
+// 3. {source-or-skill-dir}/{eval-file}       (co-located/legacy)
+// 4. {skill-dir}/evals/{eval-file} and {skill-dir}/{eval-file} for compiled skills
 // Returns empty string if none found (not an error).
 func FindEval(wsCtx *WorkspaceContext, skillName string) (string, error) {
 	si, err := FindSkill(wsCtx, skillName)
@@ -246,7 +268,7 @@ func FindEval(wsCtx *WorkspaceContext, skillName string) (string, error) {
 
 	// Priority 2: nested subdir inside skill directory
 	for _, evalFile := range evalFiles {
-		nested := filepath.Join(si.Dir, "evals", evalFile)
+		nested := filepath.Join(evalLookupDir(si), "evals", evalFile)
 		if isFile(nested) {
 			return nested, nil
 		}
@@ -254,13 +276,35 @@ func FindEval(wsCtx *WorkspaceContext, skillName string) (string, error) {
 
 	// Priority 3: co-located / legacy
 	for _, evalFile := range evalFiles {
-		colocated := filepath.Join(si.Dir, evalFile)
+		colocated := filepath.Join(evalLookupDir(si), evalFile)
 		if isFile(colocated) {
 			return colocated, nil
 		}
 	}
 
+	if si.SourceDir != "" && !samePath(si.SourceDir, si.Dir) {
+		for _, evalFile := range evalFiles {
+			nested := filepath.Join(si.Dir, "evals", evalFile)
+			if isFile(nested) {
+				return nested, nil
+			}
+		}
+		for _, evalFile := range evalFiles {
+			colocated := filepath.Join(si.Dir, evalFile)
+			if isFile(colocated) {
+				return colocated, nil
+			}
+		}
+	}
+
 	return "", nil
+}
+
+func evalLookupDir(si *SkillInfo) string {
+	if si.SourceDir != "" {
+		return si.SourceDir
+	}
+	return si.Dir
 }
 
 func evalFilenames(configured string) []string {
@@ -381,6 +425,53 @@ func scanForSkillsRecursive(parentDir string) ([]SkillInfo, error) {
 	return skills, nil
 }
 
+func scanDirectAPMSkills(dir string) ([]SkillInfo, error) {
+	apmSkillsDir := filepath.Join(dir, ".apm", "skills")
+	if !isDir(apmSkillsDir) {
+		return nil, nil
+	}
+	skills, err := scanForSkills(apmSkillsDir, true)
+	if err != nil {
+		return nil, err
+	}
+	for i := range skills {
+		skills[i].SourceDir = dir
+	}
+	return skills, nil
+}
+
+func scanForAPMSkillsUnder(parentDir string) ([]SkillInfo, error) {
+	var skills []SkillInfo
+	err := filepath.WalkDir(parentDir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return fmt.Errorf("error walking %s: %w", path, err)
+		}
+		if !d.IsDir() {
+			return nil
+		}
+		if path == parentDir {
+			return nil
+		}
+		name := d.Name()
+		if name == ".apm" {
+			apmSkills, scanErr := scanDirectAPMSkills(filepath.Dir(path))
+			if scanErr != nil {
+				return scanErr
+			}
+			skills = append(skills, apmSkills...)
+			return fs.SkipDir
+		}
+		if shouldSkipSkillScanDir(name) {
+			return fs.SkipDir
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return skills, nil
+}
+
 func shouldSkipSkillScanDir(name string) bool {
 	return strings.HasPrefix(name, ".") || name == "node_modules" || name == "vendor"
 }
@@ -436,6 +527,20 @@ func mergeSkillsByName(base, additional []SkillInfo) []SkillInfo {
 	return utils.MergeByKey(base, additional, func(s SkillInfo) string {
 		return s.Name
 	})
+}
+
+func contextFromSkills(root string, skills []SkillInfo, o detectOptions) *WorkspaceContext {
+	ctxType := ContextMultiSkill
+	if len(skills) == 1 {
+		ctxType = ContextSingleSkill
+	}
+	return &WorkspaceContext{
+		Type:     ctxType,
+		Root:     root,
+		Skills:   skills,
+		EvalsDir: o.evalsDir,
+		EvalFile: o.evalFile,
+	}
 }
 
 // LooksLikePath returns true if the string appears to be a file path
