@@ -51,7 +51,7 @@ jobs:
 
       - name: Find previous successful baseline run
         id: baseline
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const owner = context.repo.owner;
@@ -115,7 +115,7 @@ jobs:
 
       - name: Evaluate regression status
         id: regression
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         env:
           RUN_EXIT: ${{ steps.run_eval.outputs.run_exit }}
         with:
@@ -251,7 +251,7 @@ jobs:
 
       - name: Upsert regression issue
         if: steps.regression.outputs.regression == 'true'
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         env:
           SUMMARY: ${{ steps.regression.outputs.summary }}
         with:
