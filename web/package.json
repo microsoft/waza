@@ -15,7 +15,7 @@
   "dependencies": {
     "@tanstack/react-query": "^5.101.2",
     "@tanstack/react-table": "^8.21.3",
-    "lucide-react": "^1.22.0",
+    "lucide-react": "^1.23.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7"
   },
