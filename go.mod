@@ -16,7 +16,7 @@ require (
 	github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.14.0
 	github.com/Azure/azure-sdk-for-go/sdk/storage/azblob v1.8.0
 	github.com/Masterminds/semver/v3 v3.5.0
-	github.com/azure/azure-dev/cli/azd v1.27.0
+	github.com/azure/azure-dev/cli/azd v1.27.1
 	github.com/charmbracelet/huh v1.0.0
 	github.com/github/copilot-sdk/go v1.0.5
 	github.com/go-viper/mapstructure/v2 v2.5.0
