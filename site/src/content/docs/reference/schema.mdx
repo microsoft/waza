@@ -604,13 +604,14 @@ inputs:
 **Type:** string  
 **Required:** yes (unless `prompt_file` is used)
 
-Instruction text sent to the agent. Supports templating:
+Instruction text sent to the agent. When a task includes workspace files, name
+the file and tell the agent to read it:
 
 ```yaml
 inputs:
-  prompt: |
-    Explain this Python code:
-    {{fixture:sample.py}}
+  prompt: "Read sample.py and explain this Python code."
+  files:
+    - path: sample.py
 ```
 
 ### prompt_file
@@ -701,12 +702,15 @@ Each checkpoint's outcomes appear on `results.json` under `checkpoints[]`. The f
 **Type:** array  
 **Required:** no
 
-Files to include in the task context.
+Files copied into the fresh task workspace. A `path` is resolved from the
+active fixtures directory (`evals/<skill>/fixtures/` by default); `content`
+creates a file directly in the workspace. File contents are not inserted into
+the prompt automatically.
 
 ```yaml
 inputs:
   files:
-    - path: sample.py # Reference fixture
+    - path: sample.py # Loaded from the fixtures directory
     - content: "def foo(): ..." # Or inline content
 ```
 

@@ -398,7 +398,7 @@ tags:
   - happy-path
 
 inputs:
-  prompt: "Explain this function"
+  prompt: "Read sample.py and explain the function it contains."
   files:
     - path: sample.py
 
@@ -440,6 +440,11 @@ inputs:
         def hello():
             print("Hello")
 ```
+
+`inputs.files` loads each `path` from the active fixtures directory
+(`evals/<skill>/fixtures/` by default) and copies it into the fresh task
+workspace. It does not add file contents to `prompt`; tell the agent which
+workspace file to read. Use `content` to define a file inline instead.
 
 `inputs.context.fixture` is resolved relative to the eval spec directory. When it points to a directory, Waza copies that directory's contents into the fresh task workspace before the agent runs.
 
@@ -523,13 +528,14 @@ Each checkpoint accepts:
 
 Outcomes are recorded per-checkpoint on `results.json` under `checkpoints[]`, alongside the final `validations`. `waza gate` still uses final-pass status. Available with `schemaVersion: "1.1"` and above (additive — older 1.0 files load unchanged).
 
-Prompt supports templating:
+When a task includes workspace files, name the file in the prompt so the agent
+knows to read it:
 
 ```yaml
 inputs:
-  prompt: |
-    Explain this code:
-    {{fixture:sample.py}}
+  prompt: "Read sample.py and explain this code."
+  files:
+    - path: sample.py
 ```
 
 ### Expected Section
@@ -596,7 +602,7 @@ Reference in tasks:
 
 ```yaml
 inputs:
-  prompt: "Analyze {{fixture:sample.py}}"
+  prompt: "Read sample.py and analyze it."
   files:
     - path: sample.py
 ```
@@ -848,16 +854,14 @@ tasks:
   - "tasks/scaffold/*.yaml"
 ```
 
-Prompt templating also supports fixture file injection:
+Fixture files are copied into the task workspace, not inlined in the prompt:
 
 ```yaml
 inputs:
-  prompt: |
-    Explain this code:
-    {{fixture:sample.py}}
+  prompt: "Read sample.py and explain this code."
+  files:
+    - path: sample.py
 ```
-
-The `{{fixture:filename}}` syntax inlines the content of a file from the fixtures directory into the prompt.
 
 ---
 

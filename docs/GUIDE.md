@@ -171,7 +171,7 @@ Add test case YAML files in `tasks/`:
 # tasks/basic-usage.yaml
 id: basic-usage
 description: "Explain a simple Python function"
-prompt: "Explain what this function does:\n{{fixture:sample.py}}"
+prompt: "Read sample.py and explain what this function does."
 expectedOutput:
   - type: contains
     value: "function"

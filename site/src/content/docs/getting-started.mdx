@@ -161,7 +161,7 @@ tags:
   - basic
   - happy-path
 inputs:
-  prompt: "Explain this function"
+  prompt: "Read sample.py and explain the function it contains."
   files:
     - path: sample.py
 expected:
@@ -184,6 +184,11 @@ def fibonacci(n):
         return n
     return fibonacci(n - 1) + fibonacci(n - 2)
 ```
+
+`inputs.files` copies each listed file from the suite's `fixtures/` directory
+into the fresh workspace for that task. File contents are **not** automatically
+added to the prompt, so name the file and ask the agent to read it, as in the
+task above.
 
 ### Step 6: Configure Your Evaluation
 
