@@ -126,6 +126,21 @@ func TestJSONSchemaGrader_Grade(t *testing.T) {
 		require.Contains(t, results.Feedback, "multiple JSON documents")
 	})
 
+	t.Run("extract_json rejects a fenced document plus another JSON document", func(t *testing.T) {
+		g, err := NewJSONSchemaGrader("test", models.JSONSchemaGraderParameters{
+			Schema:      map[string]any{"type": "object"},
+			ExtractJSON: true,
+		})
+		require.NoError(t, err)
+
+		results, err := g.Grade(context.Background(), &Context{
+			Output: "```json\n{\"name\":\"Alice\"}\n```\nMetadata: {\"source\":\"agent\"}",
+		})
+		require.NoError(t, err)
+		require.False(t, results.Passed)
+		require.Contains(t, results.Feedback, "multiple JSON documents")
+	})
+
 	t.Run("valid JSON not matching schema fails", func(t *testing.T) {
 		g, err := NewJSONSchemaGrader("test", models.JSONSchemaGraderParameters{
 			Schema: map[string]any{

@@ -98,52 +98,7 @@ func parseJSONOutput(output string, extractJSON bool) (any, error) {
 		return nil, err
 	}
 
-	if values := parseJSONValues(jsonFencedBlocks(output)); len(values) > 0 {
-		return exactlyOneJSONValue(values)
-	}
-
 	return exactlyOneJSONValue(embeddedJSONValues(output))
-}
-
-func jsonFencedBlocks(output string) []string {
-	var blocks []string
-	for offset := 0; offset < len(output); {
-		fenceStart := strings.Index(output[offset:], "```")
-		if fenceStart < 0 {
-			break
-		}
-		fenceStart += offset
-
-		headerEnd := strings.IndexByte(output[fenceStart:], '\n')
-		if headerEnd < 0 {
-			break
-		}
-		headerEnd += fenceStart
-		language := strings.TrimSpace(output[fenceStart+3 : headerEnd])
-		contentStart := headerEnd + 1
-		fenceEnd := strings.Index(output[contentStart:], "```")
-		if fenceEnd < 0 {
-			break
-		}
-		fenceEnd += contentStart
-
-		if language == "" || strings.EqualFold(language, "json") {
-			blocks = append(blocks, output[contentStart:fenceEnd])
-		}
-		offset = fenceEnd + 3
-	}
-	return blocks
-}
-
-func parseJSONValues(documents []string) []any {
-	values := make([]any, 0, len(documents))
-	for _, document := range documents {
-		var value any
-		if err := json.Unmarshal([]byte(document), &value); err == nil {
-			values = append(values, value)
-		}
-	}
-	return values
 }
 
 func embeddedJSONValues(output string) []any {
