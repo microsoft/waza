@@ -69,6 +69,63 @@ func TestJSONSchemaGrader_Grade(t *testing.T) {
 		require.Contains(t, results.Feedback, "Output is not valid JSON")
 	})
 
+	t.Run("embedded JSON requires extract_json", func(t *testing.T) {
+		schema := map[string]any{
+			"type":     "object",
+			"required": []any{"name"},
+		}
+
+		strictGrader, err := NewJSONSchemaGrader("strict", models.JSONSchemaGraderParameters{
+			Schema: schema,
+		})
+		require.NoError(t, err)
+		strictResults, err := strictGrader.Grade(context.Background(), &Context{
+			Output: "Here is the result:\n```json\n{\"name\":\"Alice\"}\n```",
+		})
+		require.NoError(t, err)
+		require.False(t, strictResults.Passed)
+
+		extractingGrader, err := NewJSONSchemaGrader("extracting", models.JSONSchemaGraderParameters{
+			Schema:      schema,
+			ExtractJSON: true,
+		})
+		require.NoError(t, err)
+		extractingResults, err := extractingGrader.Grade(context.Background(), &Context{
+			Output: "Here is the result:\n```json\n{\"name\":\"Alice\"}\n```",
+		})
+		require.NoError(t, err)
+		require.True(t, extractingResults.Passed)
+	})
+
+	t.Run("extract_json handles prose surrounding one JSON document", func(t *testing.T) {
+		g, err := NewJSONSchemaGrader("test", models.JSONSchemaGraderParameters{
+			Schema:      map[string]any{"type": "object", "required": []any{"name"}},
+			ExtractJSON: true,
+		})
+		require.NoError(t, err)
+
+		results, err := g.Grade(context.Background(), &Context{
+			Output: "The requested object is {\"name\":\"Alice\"}.",
+		})
+		require.NoError(t, err)
+		require.True(t, results.Passed)
+	})
+
+	t.Run("extract_json rejects ambiguous output", func(t *testing.T) {
+		g, err := NewJSONSchemaGrader("test", models.JSONSchemaGraderParameters{
+			Schema:      map[string]any{"type": "object"},
+			ExtractJSON: true,
+		})
+		require.NoError(t, err)
+
+		results, err := g.Grade(context.Background(), &Context{
+			Output: `Examples: {"first":true} and {"second":true}`,
+		})
+		require.NoError(t, err)
+		require.False(t, results.Passed)
+		require.Contains(t, results.Feedback, "multiple JSON documents")
+	})
+
 	t.Run("valid JSON not matching schema fails", func(t *testing.T) {
 		g, err := NewJSONSchemaGrader("test", models.JSONSchemaGraderParameters{
 			Schema: map[string]any{

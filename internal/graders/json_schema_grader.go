@@ -13,9 +13,10 @@ import (
 
 // jsonSchemaGrader validates that the agent output is valid JSON matching a given schema.
 type jsonSchemaGrader struct {
-	name       string
-	schema     map[string]any
-	schemaFile string
+	name        string
+	schema      map[string]any
+	schemaFile  string
+	extractJSON bool
 }
 
 // NewJSONSchemaGrader creates a [jsonSchemaGrader] that validates agent output against
@@ -26,9 +27,10 @@ func NewJSONSchemaGrader(name string, args models.JSONSchemaGraderParameters) (*
 	}
 
 	return &jsonSchemaGrader{
-		name:       name,
-		schema:     args.Schema,
-		schemaFile: args.SchemaFile,
+		name:        name,
+		schema:      args.Schema,
+		schemaFile:  args.SchemaFile,
+		extractJSON: args.ExtractJSON,
 	}, nil
 }
 
@@ -37,9 +39,10 @@ func (jsg *jsonSchemaGrader) Kind() models.GraderKind { return models.GraderKind
 
 func (jsg *jsonSchemaGrader) Grade(ctx context.Context, gradingContext *Context) (*models.GraderResults, error) {
 	return measureTime(func() (*models.GraderResults, error) {
-		// Step 1: check if the output is valid JSON
-		var outputValue any
-		if err := json.Unmarshal([]byte(gradingContext.Output), &outputValue); err != nil {
+		// Step 1: parse the output. Extraction is opt-in so strict JSON output
+		// remains the default contract for this grader.
+		outputValue, err := parseJSONOutput(gradingContext.Output, jsg.extractJSON)
+		if err != nil {
 			return &models.GraderResults{
 				Name:     jsg.name,
 				Type:     models.GraderKindJSONSchema,
@@ -85,6 +88,93 @@ func (jsg *jsonSchemaGrader) Grade(ctx context.Context, gradingContext *Context)
 			Feedback: "Output matches JSON schema",
 		}, nil
 	})
+}
+
+func parseJSONOutput(output string, extractJSON bool) (any, error) {
+	var outputValue any
+	if err := json.Unmarshal([]byte(output), &outputValue); err == nil {
+		return outputValue, nil
+	} else if !extractJSON {
+		return nil, err
+	}
+
+	if values := parseJSONValues(jsonFencedBlocks(output)); len(values) > 0 {
+		return exactlyOneJSONValue(values)
+	}
+
+	return exactlyOneJSONValue(embeddedJSONValues(output))
+}
+
+func jsonFencedBlocks(output string) []string {
+	var blocks []string
+	for offset := 0; offset < len(output); {
+		fenceStart := strings.Index(output[offset:], "```")
+		if fenceStart < 0 {
+			break
+		}
+		fenceStart += offset
+
+		headerEnd := strings.IndexByte(output[fenceStart:], '\n')
+		if headerEnd < 0 {
+			break
+		}
+		headerEnd += fenceStart
+		language := strings.TrimSpace(output[fenceStart+3 : headerEnd])
+		contentStart := headerEnd + 1
+		fenceEnd := strings.Index(output[contentStart:], "```")
+		if fenceEnd < 0 {
+			break
+		}
+		fenceEnd += contentStart
+
+		if language == "" || strings.EqualFold(language, "json") {
+			blocks = append(blocks, output[contentStart:fenceEnd])
+		}
+		offset = fenceEnd + 3
+	}
+	return blocks
+}
+
+func parseJSONValues(documents []string) []any {
+	values := make([]any, 0, len(documents))
+	for _, document := range documents {
+		var value any
+		if err := json.Unmarshal([]byte(document), &value); err == nil {
+			values = append(values, value)
+		}
+	}
+	return values
+}
+
+func embeddedJSONValues(output string) []any {
+	var values []any
+	for offset := 0; offset < len(output); {
+		if output[offset] != '{' && output[offset] != '[' {
+			offset++
+			continue
+		}
+
+		decoder := json.NewDecoder(strings.NewReader(output[offset:]))
+		var value any
+		if err := decoder.Decode(&value); err != nil {
+			offset++
+			continue
+		}
+		values = append(values, value)
+		offset += int(decoder.InputOffset())
+	}
+	return values
+}
+
+func exactlyOneJSONValue(values []any) (any, error) {
+	switch len(values) {
+	case 0:
+		return nil, fmt.Errorf("output does not contain a JSON document")
+	case 1:
+		return values[0], nil
+	default:
+		return nil, fmt.Errorf("output contains multiple JSON documents")
+	}
 }
 
 // resolveSchema returns the schema map, loading from file if necessary.

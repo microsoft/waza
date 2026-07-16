@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.38.1] - 2026-07-16
+
+### Fixed
+
+- **JSON schema output extraction** — The `json_schema` grader can now extract exactly one JSON document from prose or a Markdown JSON code block with `extract_json: true`, while retaining strict pure-JSON validation by default.
+- **APM-installed skill detection** — Skill discovery recognizes skills installed by Azure API Management (#402).
+
+### Changed
+
+- **Dependencies and tooling** — Updated the Copilot SDK, OpenTelemetry, azd, documentation tooling, dashboard dependencies, and GitHub Actions.
+- **Documentation** — Added the executor to the getting-started manifest example (#435).
+
 ## [0.38.0] - 2026-06-30
 
 ### Added
@@ -554,7 +566,8 @@ pip install waza
 - YAML escaping for regex patterns with backslashes
 - Progress bar now shows 100% on completion
 
-[Unreleased]: https://github.com/microsoft/waza/compare/v0.38.0...HEAD
+[Unreleased]: https://github.com/microsoft/waza/compare/v0.38.1...HEAD
+[0.38.1]: https://github.com/microsoft/waza/compare/v0.38.0...v0.38.1
 [0.38.0]: https://github.com/microsoft/waza/compare/v0.37.0...v0.38.0
 [0.37.0]: https://github.com/microsoft/waza/compare/v0.36.0...v0.37.0
 [0.36.0]: https://github.com/microsoft/waza/compare/v0.35.0...v0.36.0

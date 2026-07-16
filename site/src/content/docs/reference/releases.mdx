@@ -5,7 +5,26 @@ description: Download waza binaries and the azd extension. Changelog highlights 
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
-## Current Release: v0.38.0
+## Current Release: v0.38.1
+
+**Released:** 2026-07-16
+
+### What's New
+
+#### Added
+
+#### Fixed
+
+- **JSON schema output extraction** — `json_schema` supports `extract_json: true` to validate a single JSON document wrapped in prose or a Markdown JSON code block while preserving strict validation by default.
+- **APM-installed skill detection** — Skill discovery recognizes skills installed by Azure API Management (#402).
+
+#### Changed
+
+- **Dependencies and tooling** — Updated the Copilot SDK, OpenTelemetry, azd, documentation tooling, dashboard dependencies, and GitHub Actions.
+
+---
+
+## Previous highlighted release: v0.38.0
 
 **Released:** 2026-06-30
 
@@ -52,12 +71,12 @@ Pre-built binaries for all major platforms:
 
 | Platform | Architecture | Download |
 |----------|-------------|----------|
-| macOS | Apple Silicon (ARM64) | [waza-darwin-arm64](https://github.com/microsoft/waza/releases/download/v0.38.0/waza-darwin-arm64) |
-| macOS | Intel (AMD64) | [waza-darwin-amd64](https://github.com/microsoft/waza/releases/download/v0.38.0/waza-darwin-amd64) |
-| Linux | x64 (AMD64) | [waza-linux-amd64](https://github.com/microsoft/waza/releases/download/v0.38.0/waza-linux-amd64) |
-| Linux | ARM64 | [waza-linux-arm64](https://github.com/microsoft/waza/releases/download/v0.38.0/waza-linux-arm64) |
-| Windows | x64 (AMD64) | [waza-windows-amd64.exe](https://github.com/microsoft/waza/releases/download/v0.38.0/waza-windows-amd64.exe) |
-| Windows | ARM64 | [waza-windows-arm64.exe](https://github.com/microsoft/waza/releases/download/v0.38.0/waza-windows-arm64.exe) |
+| macOS | Apple Silicon (ARM64) | [waza-darwin-arm64](https://github.com/microsoft/waza/releases/download/v0.38.1/waza-darwin-arm64) |
+| macOS | Intel (AMD64) | [waza-darwin-amd64](https://github.com/microsoft/waza/releases/download/v0.38.1/waza-darwin-amd64) |
+| Linux | x64 (AMD64) | [waza-linux-amd64](https://github.com/microsoft/waza/releases/download/v0.38.1/waza-linux-amd64) |
+| Linux | ARM64 | [waza-linux-arm64](https://github.com/microsoft/waza/releases/download/v0.38.1/waza-linux-arm64) |
+| Windows | x64 (AMD64) | [waza-windows-amd64.exe](https://github.com/microsoft/waza/releases/download/v0.38.1/waza-windows-amd64.exe) |
+| Windows | ARM64 | [waza-windows-arm64.exe](https://github.com/microsoft/waza/releases/download/v0.38.1/waza-windows-arm64.exe) |
 
 ---
 
@@ -79,7 +98,7 @@ On Windows, use this command only from Git Bash, MSYS2, or Cygwin. If PowerShell
 irm https://raw.githubusercontent.com/microsoft/waza/main/install.ps1 | iex
 ```
 
-The installers choose the latest standalone `waza` CLI release, download the matching binary, verify the checksum, and install it. You can also download the Windows binary from the [standalone waza release](https://github.com/microsoft/waza/releases/tag/v0.38.0), rename it to `waza.exe`, and place it in a directory on your `PATH`.
+The installers choose the latest standalone `waza` CLI release, download the matching binary, verify the checksum, and install it. You can also download the Windows binary from the [standalone waza release](https://github.com/microsoft/waza/releases/tag/v0.38.1), rename it to `waza.exe`, and place it in a directory on your `PATH`.
 
 </TabItem>
 </Tabs>
@@ -96,11 +115,11 @@ waza --version
 
 Install waza as an [Azure Developer CLI](https://learn.microsoft.com/azure/developer/azure-developer-cli/) extension.
 
-**Current version:** v0.38.0
+**Current version:** v0.38.1
 
 ```bash
 azd extension install azd-waza \
-  --source https://github.com/microsoft/waza/releases/download/azd-ext-microsoft-azd-waza_0.38.0/azd-ext-microsoft-azd-waza_0.38.0.tar.gz
+  --source https://github.com/microsoft/waza/releases/download/azd-ext-microsoft-azd-waza_0.38.1/azd-ext-microsoft-azd-waza_0.38.1.tar.gz
 ```
 
 Once installed, run evaluations through `azd`:

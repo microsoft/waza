@@ -219,6 +219,10 @@ type JSONSchemaGraderParameters struct {
 
 	// SchemaFile is a path to a JSON schema file. Used when Schema is not provided.
 	SchemaFile string `yaml:"schema_file,omitempty" json:"schema_file,omitempty"`
+
+	// ExtractJSON allows the grader to validate a single JSON document embedded
+	// in prose or a Markdown JSON code block. The default requires pure JSON.
+	ExtractJSON bool `yaml:"extract_json,omitempty" json:"extract_json,omitempty"`
 }
 
 func (JSONSchemaGraderParameters) isGraderParameters() {}

@@ -87,6 +87,7 @@ graders:
     config:
       schema:
         type: object
+      extract_json: true
 `
 
 	testPath := filepath.Join(tempDir, "test.yaml")
@@ -114,5 +115,8 @@ graders:
 	typeVal, ok := schemaParams.Schema["type"].(string)
 	if !ok || typeVal != "object" {
 		t.Fatalf("unexpected schema params: %#v", schemaParams)
+	}
+	if !schemaParams.ExtractJSON {
+		t.Fatalf("expected extract_json to be true")
 	}
 }
