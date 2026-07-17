@@ -32,6 +32,7 @@ func TestConvertMCPServersWithMocks_AddsHermeticStdioServer(t *testing.T) {
 	require.True(t, ok)
 	require.NotEmpty(t, stdio.Command)
 	require.Equal(t, "1", stdio.Env["WAZA_NO_UPDATE_CHECK"])
+	require.Equal(t, []string{"*"}, stdio.Tools)
 	require.Len(t, stdio.Args, 3)
 	require.Equal(t, "__mcp-mock", stdio.Args[0])
 	require.Equal(t, "--config-file", stdio.Args[1])

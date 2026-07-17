@@ -168,7 +168,7 @@ With this setting, Waza still discovers skills, passes them to the Copilot SDK, 
 
 ## MCP Mock Servers
 
-Use top-level `mcp_mocks` to replace live MCP dependencies with deterministic local stdio servers. This keeps Copilot SDK evals hermetic in CI: no network listener, no port allocation, and no external service credentials. Because this is an additive eval schema field, set `schemaVersion: "1.1"` or newer.
+Use top-level `mcp_mocks` to replace live MCP dependencies with deterministic local stdio servers. This keeps Copilot SDK evals hermetic in CI: no network listener, no port allocation, and no external service credentials. Waza automatically exposes every tool declared by a mock to the Copilot CLI, so no separate `tools` allowlist is needed. Because this is an additive eval schema field, set `schemaVersion: "1.1"` or newer.
 
 ```yaml
 name: issue-triage-eval

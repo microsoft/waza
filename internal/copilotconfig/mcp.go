@@ -101,6 +101,8 @@ func mockServerConfig(cfg mcpmock.Config) (copilot.MCPStdioServerConfig, error) 
 	return copilot.MCPStdioServerConfig{
 		Command: exe,
 		Args:    []string{"__mcp-mock", "--config-file", configFile},
+		// The bundled CLI rejects mock servers when the allowlist is omitted.
+		Tools: []string{"*"},
 		Env: map[string]string{
 			"WAZA_NO_UPDATE_CHECK": "1",
 		},

@@ -1118,7 +1118,7 @@ tasks:
 
 ### MCP Mock Servers
 
-Use top-level `mcp_mocks` with `schemaVersion: "1.1"` for deterministic Copilot SDK evals that need MCP tools without live services. Waza launches each mock as a local stdio MCP server, so CI runs do not need network ports, external credentials, or real service state.
+Use top-level `mcp_mocks` with `schemaVersion: "1.1"` for deterministic Copilot SDK evals that need MCP tools without live services. Waza launches each mock as a local stdio MCP server, so CI runs do not need network ports, external credentials, or real service state. Waza exposes every tool declared by each mock to the Copilot CLI automatically; do not add a separate `tools` allowlist.
 
 ```yaml
 schemaVersion: "1.1"
