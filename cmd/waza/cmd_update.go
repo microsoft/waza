@@ -17,6 +17,7 @@ import (
 )
 
 const latestReleaseURL = "https://github.com/microsoft/waza/releases/latest"
+const powerShellInstallerCommand = `& { param([string] $InstallerUrl) if ([string]::IsNullOrWhiteSpace($InstallerUrl)) { throw 'Installer URL argument was not provided.' }; $ErrorActionPreference = 'Stop'; Invoke-Expression (Invoke-RestMethod -Uri $InstallerUrl) }`
 
 type updateCommandOptions struct {
 	BashInstallerURL       string
@@ -175,7 +176,6 @@ func installerForOS(goos string, opts updateCommandOptions) (updateInstaller, er
 			Args:       []string{"-c", `set -euo pipefail; curl -fsSL "$1" | bash`, "waza-installer", opts.BashInstallerURL},
 		}, nil
 	case "windows":
-		script := `$ErrorActionPreference = 'Stop'; Invoke-Expression (Invoke-RestMethod -Uri $args[0])`
 		env := []string{fmt.Sprintf("WAZA_UPDATE_PARENT_PID=%d", os.Getpid())}
 		if opts.ExecutablePath != "" {
 			env = append(env, fmt.Sprintf("WAZA_INSTALL_DIR=%s", filepath.Dir(opts.ExecutablePath)))
@@ -184,7 +184,7 @@ func installerForOS(goos string, opts updateCommandOptions) (updateInstaller, er
 			Name:       "PowerShell",
 			ScriptURL:  opts.PowerShellInstallerURL,
 			Candidates: []string{"pwsh", "powershell"},
-			Args:       []string{"-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script, opts.PowerShellInstallerURL},
+			Args:       []string{"-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", powerShellInstallerCommand, "-InstallerUrl", opts.PowerShellInstallerURL},
 			Env:        env,
 			Async:      true,
 		}, nil
