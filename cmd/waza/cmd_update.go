@@ -175,7 +175,12 @@ func installerForOS(goos string, opts updateCommandOptions) (updateInstaller, er
 			Args:       []string{"-c", `set -euo pipefail; curl -fsSL "$1" | bash`, "waza-installer", opts.BashInstallerURL},
 		}, nil
 	case "windows":
-		script := `$ErrorActionPreference = 'Stop'; Invoke-Expression (Invoke-RestMethod -Uri $args[0])`
+		// PowerShell's -Command does not reliably bind trailing positional arguments to
+		// $args inside the script block (unlike -File), so we embed the installer URL
+		// directly into the script as a single-quoted PowerShell string literal. See
+		// https://github.com/microsoft/waza/issues/448.
+		quotedURL := quotePowerShellSingleQuoted(opts.PowerShellInstallerURL)
+		script := fmt.Sprintf(`$ErrorActionPreference = 'Stop'; Invoke-Expression (Invoke-RestMethod -Uri %s)`, quotedURL)
 		env := []string{fmt.Sprintf("WAZA_UPDATE_PARENT_PID=%d", os.Getpid())}
 		if opts.ExecutablePath != "" {
 			env = append(env, fmt.Sprintf("WAZA_INSTALL_DIR=%s", filepath.Dir(opts.ExecutablePath)))
@@ -184,13 +189,21 @@ func installerForOS(goos string, opts updateCommandOptions) (updateInstaller, er
 			Name:       "PowerShell",
 			ScriptURL:  opts.PowerShellInstallerURL,
 			Candidates: []string{"pwsh", "powershell"},
-			Args:       []string{"-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script, opts.PowerShellInstallerURL},
+			Args:       []string{"-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script},
 			Env:        env,
 			Async:      true,
 		}, nil
 	default:
 		return updateInstaller{}, fmt.Errorf("unsupported OS for waza update: %s", goos)
 	}
+}
+
+// quotePowerShellSingleQuoted wraps a string in PowerShell single quotes,
+// escaping any embedded single quotes by doubling them. In PowerShell,
+// single-quoted strings are literal (no variable interpolation), so this is
+// the safest way to embed an arbitrary URL as a constant in a -Command script.
+func quotePowerShellSingleQuoted(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
 }
 
 func lookPathAny(lookPath func(string) (string, error), names []string) (string, error) {
