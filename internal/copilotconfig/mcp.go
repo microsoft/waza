@@ -48,6 +48,7 @@ func ConvertMCPServersWithMocks(serverConfigs map[string]any, mocks []models.MCP
 				warnf("Warning: mcp_server %q stdio config is invalid: %v, skipping\n", name, err)
 				continue
 			}
+			defaultToolsToAll(cfgMap, &stdio.Tools)
 			result[name] = stdio
 		case "http", "sse":
 			var http copilot.MCPHTTPServerConfig
@@ -55,6 +56,7 @@ func ConvertMCPServersWithMocks(serverConfigs map[string]any, mocks []models.MCP
 				warnf("Warning: mcp_server %q http config is invalid: %v, skipping\n", name, err)
 				continue
 			}
+			defaultToolsToAll(cfgMap, &http.Tools)
 			result[name] = http
 		default:
 			warnf("Warning: mcp_server %q has unsupported type %q, skipping\n", name, serverType)
@@ -83,6 +85,13 @@ func ConvertMCPServersWithMocks(serverConfigs map[string]any, mocks []models.MCP
 		return nil
 	}
 	return result
+}
+
+func defaultToolsToAll(cfgMap map[string]any, tools *[]string) {
+	if _, ok := cfgMap["tools"]; ok && cfgMap["tools"] != nil {
+		return
+	}
+	*tools = []string{"*"}
 }
 
 func mockServerConfig(cfg mcpmock.Config) (copilot.MCPStdioServerConfig, error) {

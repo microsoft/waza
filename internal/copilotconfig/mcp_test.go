@@ -52,8 +52,20 @@ func TestConvertMCPServersWithMocks_PreservesRegularServers(t *testing.T) {
 	}, nil, "", nil)
 
 	require.Contains(t, servers, "regular")
-	_, ok := servers["regular"].(copilot.MCPStdioServerConfig)
+	stdio, ok := servers["regular"].(copilot.MCPStdioServerConfig)
 	require.True(t, ok)
+	require.Equal(t, []string{"*"}, stdio.Tools)
+}
+
+func TestConvertMCPServersWithMocks_PreservesExplicitEmptyTools(t *testing.T) {
+	servers := ConvertMCPServersWithMocks(map[string]any{
+		"regular": map[string]any{"type": "stdio", "command": "echo", "tools": []any{}},
+	}, nil, "", nil)
+
+	require.Contains(t, servers, "regular")
+	stdio, ok := servers["regular"].(copilot.MCPStdioServerConfig)
+	require.True(t, ok)
+	require.Empty(t, stdio.Tools)
 }
 
 func TestConvertMCPServersWithMocks_InvalidMockDisablesLiveServerFallback(t *testing.T) {
