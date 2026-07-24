@@ -52,8 +52,66 @@ func TestConvertMCPServersWithMocks_PreservesRegularServers(t *testing.T) {
 	}, nil, "", nil)
 
 	require.Contains(t, servers, "regular")
-	_, ok := servers["regular"].(copilot.MCPStdioServerConfig)
+	stdio, ok := servers["regular"].(copilot.MCPStdioServerConfig)
 	require.True(t, ok)
+	// Regression for issue #449: the bundled Copilot CLI silently drops MCP
+	// servers whose tools allowlist is omitted, so we must default to "*".
+	require.Equal(t, []string{"*"}, stdio.Tools)
+}
+
+func TestConvertMCPServersWithMocks_StdioDefaultsToolsAllowlistWhenTypeOmitted(t *testing.T) {
+	// Users often omit the "type" field for stdio servers; the default branch
+	// must still install the "*" allowlist workaround for issue #449.
+	servers := ConvertMCPServersWithMocks(map[string]any{
+		"probe": map[string]any{"command": "bash", "args": []any{"-c", "echo hi"}},
+	}, nil, "", nil)
+
+	stdio, ok := servers["probe"].(copilot.MCPStdioServerConfig)
+	require.True(t, ok)
+	require.Equal(t, []string{"*"}, stdio.Tools)
+}
+
+func TestConvertMCPServersWithMocks_HTTPDefaultsToolsAllowlist(t *testing.T) {
+	servers := ConvertMCPServersWithMocks(map[string]any{
+		"remote": map[string]any{"type": "http", "url": "https://example.com/mcp"},
+	}, nil, "", nil)
+
+	http, ok := servers["remote"].(copilot.MCPHTTPServerConfig)
+	require.True(t, ok)
+	require.Equal(t, []string{"*"}, http.Tools)
+}
+
+func TestConvertMCPServersWithMocks_PreservesExplicitToolsAllowlist(t *testing.T) {
+	// A user-supplied named allowlist must be respected verbatim; do not clobber
+	// with "*".
+	servers := ConvertMCPServersWithMocks(map[string]any{
+		"scoped": map[string]any{
+			"type":    "stdio",
+			"command": "echo",
+			"tools":   []any{"list_issues", "get_pr"},
+		},
+	}, nil, "", nil)
+
+	stdio, ok := servers["scoped"].(copilot.MCPStdioServerConfig)
+	require.True(t, ok)
+	require.Equal(t, []string{"list_issues", "get_pr"}, stdio.Tools)
+}
+
+func TestConvertMCPServersWithMocks_PreservesExplicitEmptyToolsAllowlist(t *testing.T) {
+	// An explicit empty allowlist is the SDK's "expose no tools" opt-out; the
+	// #449 default must not overwrite it.
+	servers := ConvertMCPServersWithMocks(map[string]any{
+		"muted": map[string]any{
+			"type":    "stdio",
+			"command": "echo",
+			"tools":   []any{},
+		},
+	}, nil, "", nil)
+
+	stdio, ok := servers["muted"].(copilot.MCPStdioServerConfig)
+	require.True(t, ok)
+	require.NotNil(t, stdio.Tools)
+	require.Empty(t, stdio.Tools)
 }
 
 func TestConvertMCPServersWithMocks_InvalidMockDisablesLiveServerFallback(t *testing.T) {

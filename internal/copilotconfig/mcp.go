@@ -48,12 +48,22 @@ func ConvertMCPServersWithMocks(serverConfigs map[string]any, mocks []models.MCP
 				warnf("Warning: mcp_server %q stdio config is invalid: %v, skipping\n", name, err)
 				continue
 			}
+			// The bundled CLI silently drops MCP servers whose tool allowlist is
+			// omitted, so default to "*" (all tools) when the user did not set
+			// tools explicitly. See issue #449.
+			if stdio.Tools == nil {
+				stdio.Tools = []string{"*"}
+			}
 			result[name] = stdio
 		case "http", "sse":
 			var http copilot.MCPHTTPServerConfig
 			if err := decode(cfgMap, &http); err != nil {
 				warnf("Warning: mcp_server %q http config is invalid: %v, skipping\n", name, err)
 				continue
+			}
+			// Same allowlist workaround as stdio, applied to remote transports.
+			if http.Tools == nil {
+				http.Tools = []string{"*"}
 			}
 			result[name] = http
 		default:

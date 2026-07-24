@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **BYO MCP servers with copilot-sdk executor** — User-supplied `mcp_servers` (stdio, http, and sse) now default the `tools` allowlist to `["*"]` when omitted, matching the workaround previously applied to `mcp_mocks` in v0.38.3. The bundled Copilot CLI silently drops MCP servers whose `tools` field is absent, so configured servers were emitting `session.mcp_servers_loaded` events but never actually connecting or exposing tools. Users who explicitly set `tools: []` (opt-out) or a named allowlist keep their configuration verbatim (#449).
+
 ## [0.38.3] - 2026-07-17
 
 ### Fixed
