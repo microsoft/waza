@@ -48,12 +48,31 @@ func ConvertMCPServersWithMocks(serverConfigs map[string]any, mocks []models.MCP
 				warnf("Warning: mcp_server %q stdio config is invalid: %v, skipping\n", name, err)
 				continue
 			}
+			if strings.TrimSpace(stdio.Command) == "" {
+				warnf("Warning: mcp_server %q stdio config is missing required 'command' field, skipping\n", name)
+				continue
+			}
+			// The bundled Copilot CLI does not spawn MCP servers when the tool
+			// allowlist is omitted. Default to "all tools" so user-supplied
+			// servers behave the same way as the SDK's documented default and
+			// as the hermetic mock servers. Callers that need a narrower
+			// allowlist can still pass an explicit `tools:` list in YAML.
+			if stdio.Tools == nil {
+				stdio.Tools = []string{"*"}
+			}
 			result[name] = stdio
 		case "http", "sse":
 			var http copilot.MCPHTTPServerConfig
 			if err := decode(cfgMap, &http); err != nil {
 				warnf("Warning: mcp_server %q http config is invalid: %v, skipping\n", name, err)
 				continue
+			}
+			if strings.TrimSpace(http.URL) == "" {
+				warnf("Warning: mcp_server %q http config is missing required 'url' field, skipping\n", name)
+				continue
+			}
+			if http.Tools == nil {
+				http.Tools = []string{"*"}
 			}
 			result[name] = http
 		default:

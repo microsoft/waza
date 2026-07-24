@@ -425,9 +425,9 @@ func TestLoadFixtureDir_EmptyDir(t *testing.T) {
 
 func TestConvertMCPServers_SkipsNonMapEntries(t *testing.T) {
 	result := convertMCPServers(map[string]any{
-		"good":  map[string]any{"type": "stdio"},
+		"good":  map[string]any{"type": "stdio", "command": "echo"},
 		"bad":   "not-a-map",
-		"good2": map[string]any{"type": "sse"},
+		"good2": map[string]any{"type": "sse", "url": "https://example.com/mcp"},
 	}, nil, "")
 	require.Len(t, result, 2)
 	require.Contains(t, result, "good")
