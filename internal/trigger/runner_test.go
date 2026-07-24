@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	copilot "github.com/github/copilot-sdk/go"
 	"github.com/microsoft/waza/internal/config"
 	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/models"
@@ -415,6 +416,9 @@ func TestEvalRunnerPassesMCPServers(t *testing.T) {
 	require.NotNil(t, engine.LastReq())
 	require.Len(t, engine.LastReq().MCPServers, 1, "expected 1 MCP server")
 	require.Contains(t, engine.LastReq().MCPServers, "test-mcp")
+	stdio, ok := engine.LastReq().MCPServers["test-mcp"].(copilot.MCPStdioServerConfig)
+	require.True(t, ok)
+	require.Equal(t, []string{"*"}, stdio.Tools)
 }
 
 func TestLoadFixtureDir_EmptyDir(t *testing.T) {
