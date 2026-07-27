@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **Windows update command** — `waza update` now passes the PowerShell installer URL reliably, preventing `Invoke-RestMethod` from failing with a null or empty `Uri` (#448).
-- **JSON schema grader configuration** — `json_schema` graders now accept the documented `extract_json` option in eval and task YAML (#457).
+- **JSON schema grader configuration** — `json_schema` graders now accept the documented `extract_json` option in eval and task YAML, extracting exactly one JSON object or array candidate before schema validation (#457).
 
 ## [0.38.3] - 2026-07-17
 

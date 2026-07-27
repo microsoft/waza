@@ -128,6 +128,20 @@ func TestJSONSchemaGrader_Grade(t *testing.T) {
 		require.True(t, results.Passed)
 	})
 
+	t.Run("extract_json handles pure JSON output", func(t *testing.T) {
+		g, err := NewJSONSchemaGrader("test", models.JSONSchemaGraderParameters{
+			Schema:      map[string]any{"type": "object", "required": []any{"name"}},
+			ExtractJSON: true,
+		})
+		require.NoError(t, err)
+
+		results, err := g.Grade(context.Background(), &Context{
+			Output: `{"name":"Alice"}`,
+		})
+		require.NoError(t, err)
+		require.True(t, results.Passed)
+	})
+
 	t.Run("extract_json rejects output with zero JSON documents", func(t *testing.T) {
 		g, err := NewJSONSchemaGrader("test", models.JSONSchemaGraderParameters{
 			Schema:      map[string]any{"type": "object"},
