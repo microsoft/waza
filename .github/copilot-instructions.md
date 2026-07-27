@@ -71,7 +71,13 @@ The Go binary embeds the dashboard via `//go:embed all:dist` (`web/embed.go`). I
 worktree the built assets don't exist, so any Go command fails until you scaffold them:
 
 ```bash
-mkdir -p web/dist && [ -f web/dist/index.html ] || echo '<html></html>' > web/dist/index.html
+mkdir -p web/dist
+if [ ! -f web/dist/index.html ]; then
+  printf '<html><body>stub</body></html>\n' > web/dist/index.html
+fi
+if [ ! -f web/dist/favicon.svg ]; then
+  printf '<svg xmlns="http://www.w3.org/2000/svg"></svg>\n' > web/dist/favicon.svg
+fi
 ```
 
 Run this **once** at the start of any session before `go build`, `go test`, or `golangci-lint run`.
