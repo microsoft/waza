@@ -88,7 +88,7 @@ func ConvertMCPServersWithMocks(serverConfigs map[string]any, mocks []models.MCP
 }
 
 func defaultMCPTools(cfgMap map[string]any, tools *[]string) {
-	if _, ok := cfgMap["tools"]; !ok {
+	if value, ok := cfgMap["tools"]; !ok || value == nil {
 		*tools = []string{"*"}
 	}
 }

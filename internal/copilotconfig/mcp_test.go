@@ -95,11 +95,20 @@ func TestConvertMCPServersWithMocks_DefaultsHTTPToolsToAll(t *testing.T) {
 			"type": "http",
 			"url":  "https://example.test/mcp",
 		},
+		"stdio-null": map[string]any{
+			"type":    "stdio",
+			"command": "echo",
+			"tools":   nil,
+		},
 	}, nil, "", nil)
 
 	http, ok := servers["remote"].(copilot.MCPHTTPServerConfig)
 	require.True(t, ok)
 	require.Equal(t, []string{"*"}, http.Tools)
+
+	stdio, ok := servers["stdio-null"].(copilot.MCPStdioServerConfig)
+	require.True(t, ok)
+	require.Equal(t, []string{"*"}, stdio.Tools)
 }
 
 func TestConvertMCPServersWithMocks_InvalidMockDisablesLiveServerFallback(t *testing.T) {
