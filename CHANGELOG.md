@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Windows update command** — `waza update` now passes the PowerShell installer URL reliably, preventing `Invoke-RestMethod` from failing with a null or empty `Uri` (#448).
+
 ## [0.38.3] - 2026-07-17
 
 ### Fixed
