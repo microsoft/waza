@@ -149,11 +149,17 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG="${{ needs.setup-version.outputs.tag }}"
-          gh release create "$TAG" \
-            --repo "${{ github.repository }}" \
-            --title "Waza $TAG" \
-            --generate-notes \
-            artifacts/*
+          if gh release view "$TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            gh release upload "$TAG" artifacts/* \
+              --repo "${{ github.repository }}" \
+              --clobber
+          else
+            gh release create "$TAG" \
+              --repo "${{ github.repository }}" \
+              --title "Waza $TAG" \
+              --generate-notes \
+              artifacts/*
+          fi
 
   # ════════════════════════════════════════════════
   # FLOW 2: azd Extension Release
