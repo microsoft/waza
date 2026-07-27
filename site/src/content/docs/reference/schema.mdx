@@ -702,16 +702,19 @@ Each checkpoint's outcomes appear on `results.json` under `checkpoints[]`. The f
 **Type:** array  
 **Required:** no
 
-Files copied into the fresh task workspace. A `path` is resolved from the
-active fixtures directory (`./fixtures` relative to the eval spec file by
-default); `content` creates a file directly in the workspace. File contents are
-not inserted into the prompt automatically.
+Files copied into the fresh task workspace. A `path` is required for both
+fixture-backed and inline files. When `content` is omitted, `path` is resolved
+from the active fixtures directory (`./fixtures` relative to the eval spec file
+by default). When `content` is provided, Waza writes that content to `path`
+directly in the workspace. File contents are not inserted into the prompt
+automatically.
 
 ```yaml
 inputs:
   files:
     - path: sample.py # Loaded from the fixtures directory
-    - content: "def foo(): ..." # Or inline content
+    - path: inline.py
+      content: "def foo(): ..." # Or inline content
 ```
 
 ### repos

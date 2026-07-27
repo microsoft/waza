@@ -170,8 +170,12 @@ Add test case YAML files in `tasks/`:
 ```yaml
 # tasks/basic-usage.yaml
 id: basic-usage
+name: Basic usage
 description: "Explain a simple Python function"
-prompt: "Read sample.py and explain what this function does."
+inputs:
+  prompt: "Read sample.py and explain what this function does."
+  files:
+    - path: sample.py
 expectedOutput:
   - type: contains
     value: "function"
