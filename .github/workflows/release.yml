@@ -144,7 +144,7 @@ jobs:
           echo "Generated checksums:"
           cat checksums.txt
 
-      - name: Create GitHub Release
+      - name: Create or Update GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
