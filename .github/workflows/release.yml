@@ -157,11 +157,10 @@ jobs:
 
           if gh release view "$TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
             upload_release_assets
-          elif ! gh release create "$TAG" \
+          elif ! gh release create "$TAG" artifacts/* \
               --repo "${{ github.repository }}" \
               --title "Waza $TAG" \
-              --generate-notes \
-              artifacts/*; then
+              --generate-notes; then
             if gh release view "$TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
               upload_release_assets
             else
