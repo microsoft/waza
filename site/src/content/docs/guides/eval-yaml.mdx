@@ -441,8 +441,8 @@ inputs:
             print("Hello")
 ```
 
-`inputs.files` loads each `path` from the active fixtures directory
-(`evals/<skill>/fixtures/` by default) and copies it into the fresh task
+`inputs.files` loads each `path` from the active fixtures directory (`./fixtures`
+relative to the eval spec file by default) and copies it into the fresh task
 workspace. It does not add file contents to `prompt`; tell the agent which
 workspace file to read. Use `content` to define a file inline instead.
 

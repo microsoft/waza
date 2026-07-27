@@ -703,9 +703,9 @@ Each checkpoint's outcomes appear on `results.json` under `checkpoints[]`. The f
 **Required:** no
 
 Files copied into the fresh task workspace. A `path` is resolved from the
-active fixtures directory (`evals/<skill>/fixtures/` by default); `content`
-creates a file directly in the workspace. File contents are not inserted into
-the prompt automatically.
+active fixtures directory (`./fixtures` relative to the eval spec file by
+default); `content` creates a file directly in the workspace. File contents are
+not inserted into the prompt automatically.
 
 ```yaml
 inputs:
