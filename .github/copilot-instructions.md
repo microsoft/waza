@@ -95,7 +95,7 @@ Only commit `web/dist/index.html` changes when you intentionally shipped new das
 retry loop:
 
 ```bash
-gofmt -w ./... && go test ./... && golangci-lint run
+go fmt ./... && go test ./... && golangci-lint run
 ```
 
 For the docs site and dashboard, add:
