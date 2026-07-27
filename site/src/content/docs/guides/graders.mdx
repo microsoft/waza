@@ -288,13 +288,14 @@ Validates that the agent output is valid JSON conforming to a given schema. Supp
 | ------------- | -------- | ----------------------------- |
 | `schema`      | `object` | Inline JSON Schema definition |
 | `schema_file` | `string` | Path to a `.json` schema file |
-| `extract_json` | `boolean` | Extract one JSON document from prose or a Markdown JSON code block before validation (default: `false`) |
+| `extract_json` | `boolean` | Extract exactly one JSON object or array from prose or a Markdown JSON code block before validation (default: `false`) |
 
 One of `schema` or `schema_file` is required.
 
 By default, the output must be pure JSON. Set `extract_json: true` when the
 agent may add prose or wrap a response in a JSON code block. Extraction
-requires exactly one JSON document, so ambiguous responses still fail.
+requires exactly one JSON object or array; responses with zero or multiple
+candidate JSON documents fail.
 
 ### Example: schema file
 

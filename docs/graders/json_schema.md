@@ -24,14 +24,15 @@ Validates that the agent output is valid JSON conforming to a given JSON schema.
 |--------|------|-------------|
 | `schema` | object | Inline JSON schema for validation |
 | `schema_file` | string | Path to a JSON schema file (used when `schema` is not provided) |
-| `extract_json` | boolean | Extract one JSON document from prose or a Markdown JSON code block before validation (default: `false`) |
+| `extract_json` | boolean | Extract exactly one JSON object or array from prose or a Markdown JSON code block before validation (default: `false`) |
 
 One of `schema` or `schema_file` must be specified.
 
 By default, the output must be pure JSON. Set `extract_json: true` when the
 agent may add prose or wrap its response in a JSON code block. Extraction
-requires exactly one JSON document; responses with multiple JSON documents
-still fail to avoid validating an ambiguous fragment.
+requires exactly one JSON object or array; responses with zero or multiple
+candidate JSON documents fail to avoid validating an absent or ambiguous
+fragment.
 
 **Scoring:** Binary — `1.0` if the output is valid JSON matching the schema, `0.0` otherwise.
 

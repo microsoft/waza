@@ -111,6 +111,54 @@ func TestJSONSchemaGrader_Grade(t *testing.T) {
 		require.True(t, results.Passed)
 	})
 
+	t.Run("extract_json handles one JSON array document", func(t *testing.T) {
+		g, err := NewJSONSchemaGrader("test", models.JSONSchemaGraderParameters{
+			Schema: map[string]any{
+				"type":  "array",
+				"items": map[string]any{"type": "integer"},
+			},
+			ExtractJSON: true,
+		})
+		require.NoError(t, err)
+
+		results, err := g.Grade(context.Background(), &Context{
+			Output: "The values are:\n```json\n[1, 2, 3]\n```",
+		})
+		require.NoError(t, err)
+		require.True(t, results.Passed)
+	})
+
+	t.Run("extract_json rejects output with zero JSON documents", func(t *testing.T) {
+		g, err := NewJSONSchemaGrader("test", models.JSONSchemaGraderParameters{
+			Schema:      map[string]any{"type": "object"},
+			ExtractJSON: true,
+		})
+		require.NoError(t, err)
+
+		results, err := g.Grade(context.Background(), &Context{
+			Output: "No structured output was produced.",
+		})
+		require.NoError(t, err)
+		require.False(t, results.Passed)
+		require.Contains(t, results.Feedback, "exactly one JSON object or array")
+		require.Contains(t, results.Feedback, "zero")
+	})
+
+	t.Run("extract_json rejects a JSON scalar", func(t *testing.T) {
+		g, err := NewJSONSchemaGrader("test", models.JSONSchemaGraderParameters{
+			Schema:      map[string]any{"type": "string"},
+			ExtractJSON: true,
+		})
+		require.NoError(t, err)
+
+		results, err := g.Grade(context.Background(), &Context{
+			Output: `"not an object or array"`,
+		})
+		require.NoError(t, err)
+		require.False(t, results.Passed)
+		require.Contains(t, results.Feedback, "zero")
+	})
+
 	t.Run("extract_json rejects ambiguous output", func(t *testing.T) {
 		g, err := NewJSONSchemaGrader("test", models.JSONSchemaGraderParameters{
 			Schema:      map[string]any{"type": "object"},
@@ -123,7 +171,7 @@ func TestJSONSchemaGrader_Grade(t *testing.T) {
 		})
 		require.NoError(t, err)
 		require.False(t, results.Passed)
-		require.Contains(t, results.Feedback, "multiple JSON documents")
+		require.Contains(t, results.Feedback, "multiple JSON object or array documents")
 	})
 
 	t.Run("extract_json rejects a fenced document plus another JSON document", func(t *testing.T) {
@@ -138,7 +186,7 @@ func TestJSONSchemaGrader_Grade(t *testing.T) {
 		})
 		require.NoError(t, err)
 		require.False(t, results.Passed)
-		require.Contains(t, results.Feedback, "multiple JSON documents")
+		require.Contains(t, results.Feedback, "multiple JSON object or array documents")
 	})
 
 	t.Run("valid JSON not matching schema fails", func(t *testing.T) {

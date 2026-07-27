@@ -25,6 +25,12 @@ graders:
     config:
       prompt: "judge this output"
       continue_session: true
+  - name: schema-check
+    type: json_schema
+    config:
+      schema:
+        type: object
+      extract_json: true
   - name: future-check
     type: custom_future
     config:
@@ -59,9 +65,21 @@ tasks: []
 		t.Fatalf("unexpected prompt params: %#v", promptParams)
 	}
 
-	genericParams, ok := spec.Graders[2].Parameters.(GenericGraderParameters)
+	schemaParams, ok := spec.Graders[2].Parameters.(JSONSchemaGraderParameters)
 	if !ok {
-		t.Fatalf("expected GenericGraderParameters, got %T", spec.Graders[2].Parameters)
+		t.Fatalf("expected JSONSchemaGraderParameters, got %T", spec.Graders[2].Parameters)
+	}
+	typeVal, ok := schemaParams.Schema["type"].(string)
+	if !ok || typeVal != "object" {
+		t.Fatalf("unexpected schema params: %#v", schemaParams)
+	}
+	if !schemaParams.ExtractJSON {
+		t.Fatalf("expected extract_json to be true")
+	}
+
+	genericParams, ok := spec.Graders[3].Parameters.(GenericGraderParameters)
+	if !ok {
+		t.Fatalf("expected GenericGraderParameters, got %T", spec.Graders[3].Parameters)
 	}
 	flag, ok := genericParams["some_flag"].(bool)
 	if !ok || !flag {

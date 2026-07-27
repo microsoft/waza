@@ -43,12 +43,16 @@ func (jsg *jsonSchemaGrader) Grade(ctx context.Context, gradingContext *Context)
 		// remains the default contract for this grader.
 		outputValue, err := parseJSONOutput(gradingContext.Output, jsg.extractJSON)
 		if err != nil {
+			feedback := fmt.Sprintf("Output is not valid JSON: %v", err)
+			if jsg.extractJSON {
+				feedback = fmt.Sprintf("Output must contain exactly one JSON object or array: %v", err)
+			}
 			return &models.GraderResults{
 				Name:     jsg.name,
 				Type:     models.GraderKindJSONSchema,
 				Score:    0.0,
 				Passed:   false,
-				Feedback: fmt.Sprintf("Output is not valid JSON: %v", err),
+				Feedback: feedback,
 				Details: map[string]any{
 					"error": err.Error(),
 				},
@@ -91,14 +95,16 @@ func (jsg *jsonSchemaGrader) Grade(ctx context.Context, gradingContext *Context)
 }
 
 func parseJSONOutput(output string, extractJSON bool) (any, error) {
+	if extractJSON {
+		return exactlyOneJSONValue(embeddedJSONValues(output))
+	}
+
 	var outputValue any
-	if err := json.Unmarshal([]byte(output), &outputValue); err == nil {
-		return outputValue, nil
-	} else if !extractJSON {
+	if err := json.Unmarshal([]byte(output), &outputValue); err != nil {
 		return nil, err
 	}
 
-	return exactlyOneJSONValue(embeddedJSONValues(output))
+	return outputValue, nil
 }
 
 func embeddedJSONValues(output string) []any {
@@ -124,11 +130,11 @@ func embeddedJSONValues(output string) []any {
 func exactlyOneJSONValue(values []any) (any, error) {
 	switch len(values) {
 	case 0:
-		return nil, fmt.Errorf("output does not contain a JSON document")
+		return nil, fmt.Errorf("found zero JSON object or array documents")
 	case 1:
 		return values[0], nil
 	default:
-		return nil, fmt.Errorf("output contains multiple JSON documents")
+		return nil, fmt.Errorf("found multiple JSON object or array documents")
 	}
 }
 
