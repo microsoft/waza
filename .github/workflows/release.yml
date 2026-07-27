@@ -149,16 +149,24 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG="${{ needs.setup-version.outputs.tag }}"
-          if gh release view "$TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+          upload_release_assets() {
             gh release upload "$TAG" artifacts/* \
               --repo "${{ github.repository }}" \
               --clobber
-          else
-            gh release create "$TAG" \
+          }
+
+          if gh release view "$TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            upload_release_assets
+          elif ! gh release create "$TAG" \
               --repo "${{ github.repository }}" \
               --title "Waza $TAG" \
               --generate-notes \
-              artifacts/*
+              artifacts/*; then
+            if gh release view "$TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+              upload_release_assets
+            else
+              exit 1
+            fi
           fi
 
   # ════════════════════════════════════════════════
