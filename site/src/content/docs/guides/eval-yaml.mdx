@@ -128,7 +128,7 @@ config:
 | `inject_skill_body` | bool      | true              | Inject the target `SKILL.md` or `.agent.md` body into the system prompt |
 | `disabled_skills`   | list[str] | `[]`              | Skills to disable. Use `["*"]` to disable all skills        |
 | `required_skills`   | list[str] | `[]`              | Skills that must be available before running                |
-| `mcp_servers`       | object    | —                 | MCP server configurations for the evaluation. When `tools` is omitted for a server, Waza exposes all server tools by sending `["*"]` to the Copilot SDK. |
+| `mcp_servers`       | object    | —                 | MCP server configurations for the evaluation. When `tools` is omitted or null for a server, Waza exposes all server tools by sending `["*"]` to the Copilot SDK. Set `tools` to an explicit list, including `[]`, to restrict or disable exposed tools. |
 
 ### Trigger-precision evals
 
