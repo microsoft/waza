@@ -68,7 +68,8 @@ These come up repeatedly across sessions. Handle them proactively.
 ### 1. First `go build/test/lint` in a fresh worktree needs a `web/dist` stub
 
 The Go binary embeds the dashboard via `//go:embed all:dist` (`web/embed.go`). In a fresh
-worktree the built assets don't exist, so any Go command fails until you scaffold them:
+worktree the built assets don't exist, so commands that compile packages including the
+embedded dashboard assets fail until you scaffold them:
 
 ```bash
 mkdir -p web/dist
@@ -97,7 +98,7 @@ Only commit `web/dist/index.html` changes when you intentionally shipped new das
 
 ### 3. Standard verify chain: format → test → lint
 
-`golangci-lint` fails on unformatted code, so always run `gofmt` first to avoid a
+`golangci-lint` fails on unformatted code, so always run `go fmt` first to avoid a
 retry loop:
 
 ```bash
