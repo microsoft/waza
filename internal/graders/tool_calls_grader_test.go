@@ -2,6 +2,7 @@ package graders
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	"github.com/microsoft/waza/internal/graders/argmatcher"
@@ -528,4 +529,140 @@ func TestToolCallsGrader_Expect_InvalidMatcher_ConstructError(t *testing.T) {
 		}},
 	})
 	require.Error(t, err)
+}
+
+// -----------------------------------------------------------------------------
+// Regression tests for issue #474.
+//
+// When a run is graded offline (waza grade run.json), SessionDigest.ToolCalls
+// loses MCP/custom arguments because ToolCallArgs.Extra is json:"-". The grader
+// must instead consume gCtx.ToolEvents (schema 1.1+) whose Args survives the
+// JSON round-trip. These tests assert:
+//   - args expectations match against ToolEvents even when SessionDigest.ToolCalls
+//     is empty or has a stripped Extra map (offline / round-trip case).
+//   - tool-name-only expectations still match via ToolEvents.
+//   - The legacy fallback still works when only SessionDigest is available.
+//   - A JSON round-trip of RunResult.ToolEvents preserves matching.
+// -----------------------------------------------------------------------------
+
+func TestToolCallsGrader_Expect_ArgsFromToolEvents_SurvivesRoundTrip(t *testing.T) {
+	// Simulates an offline grade of results.json where SessionDigest has been
+	// stripped of Extra but tool_events still carries the canonical `query`
+	// argument for an MCP tool call.
+	g, err := NewToolCallsGrader("tc", models.ToolCallsGraderParameters{
+		Expect: []models.ToolExpectation{{
+			Tool: "search",
+			Args: map[string]argmatcher.Matcher{
+				"query": {Kind: argmatcher.KindEquals, Equals: "Bissell"},
+			},
+		}},
+	})
+	require.NoError(t, err)
+
+	res, err := g.Grade(context.Background(), &Context{
+		// Digest present but with no arg detail — mirrors what remains after a
+		// results.json round-trip strips ToolCallArgs.Extra.
+		Session: &models.SessionDigest{
+			ToolCalls: []models.ToolCall{{Name: "search"}},
+		},
+		ToolEvents: []models.ToolEvent{{
+			ToolName:   "search",
+			ToolCallID: "call_1",
+			Args:       map[string]any{"query": "Bissell"},
+		}},
+	})
+	require.NoError(t, err)
+	require.True(t, res.Passed, "feedback: %s", res.Feedback)
+}
+
+func TestToolCallsGrader_Expect_ToolNameOnly_FromToolEvents(t *testing.T) {
+	// Tool-name-only expectations must still work when we're driven off
+	// tool_events with no SessionDigest at all.
+	g, err := NewToolCallsGrader("tc", models.ToolCallsGraderParameters{
+		Expect: []models.ToolExpectation{{Tool: "search"}},
+	})
+	require.NoError(t, err)
+
+	res, err := g.Grade(context.Background(), &Context{
+		ToolEvents: []models.ToolEvent{{
+			ToolName:   "search",
+			ToolCallID: "call_1",
+			Args:       map[string]any{"query": "anything"},
+		}},
+	})
+	require.NoError(t, err)
+	require.True(t, res.Passed, "feedback: %s", res.Feedback)
+}
+
+func TestToolCallsGrader_RequiredTools_FromToolEvents(t *testing.T) {
+	// required_tools should be satisfied by tool_events without a session digest.
+	g, err := NewToolCallsGrader("tc", models.ToolCallsGraderParameters{
+		RequiredTools: []string{"search"},
+	})
+	require.NoError(t, err)
+
+	res, err := g.Grade(context.Background(), &Context{
+		ToolEvents: []models.ToolEvent{{ToolName: "search", ToolCallID: "call_1"}},
+	})
+	require.NoError(t, err)
+	require.True(t, res.Passed, "feedback: %s", res.Feedback)
+}
+
+func TestToolCallsGrader_Expect_LegacyFallback_UsesSessionDigest(t *testing.T) {
+	// When ToolEvents is absent (pre-1.1 record, or engine that doesn't emit
+	// tool_events), the grader must still fall back to SessionDigest.ToolCalls
+	// so existing evals keep working.
+	g, err := NewToolCallsGrader("tc", models.ToolCallsGraderParameters{
+		Expect: []models.ToolExpectation{{
+			Tool: "view",
+			Args: map[string]argmatcher.Matcher{
+				"path": {Kind: argmatcher.KindEquals, Equals: "/etc/hosts"},
+			},
+		}},
+	})
+	require.NoError(t, err)
+
+	res, err := g.Grade(context.Background(), &Context{
+		Session: &models.SessionDigest{
+			ToolCalls: []models.ToolCall{
+				{Name: "view", Arguments: models.ToolCallArgs{Path: "/etc/hosts"}},
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.True(t, res.Passed, "feedback: %s", res.Feedback)
+}
+
+func TestToolCallsGrader_Expect_ArgsFromToolEvents_JSONRoundTrip(t *testing.T) {
+	// End-to-end: build a RunResult.ToolEvents slice, JSON-encode and decode
+	// it (as `waza grade` would when loading results.json), then verify the
+	// arg matcher still fires. This is the exact scenario in issue #474.
+	src := []models.ToolEvent{{
+		Sequence:   1,
+		Turn:       1,
+		ToolCallID: "call_abc",
+		ToolName:   "search",
+		Args:       map[string]any{"query": "Bissell"},
+		Success:    true,
+	}}
+
+	raw, err := json.Marshal(src)
+	require.NoError(t, err)
+
+	var round []models.ToolEvent
+	require.NoError(t, json.Unmarshal(raw, &round))
+
+	g, err := NewToolCallsGrader("tc", models.ToolCallsGraderParameters{
+		Expect: []models.ToolExpectation{{
+			Tool: "search",
+			Args: map[string]argmatcher.Matcher{
+				"query": {Kind: argmatcher.KindEquals, Equals: "Bissell"},
+			},
+		}},
+	})
+	require.NoError(t, err)
+
+	res, err := g.Grade(context.Background(), &Context{ToolEvents: round})
+	require.NoError(t, err)
+	require.True(t, res.Passed, "feedback: %s", res.Feedback)
 }

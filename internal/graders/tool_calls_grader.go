@@ -75,7 +75,7 @@ func (g *ToolCallsGrader) Kind() models.GraderKind { return models.GraderKindToo
 
 func (g *ToolCallsGrader) Grade(_ context.Context, gCtx *Context) (*models.GraderResults, error) {
 	return measureTime(func() (*models.GraderResults, error) {
-		if gCtx.Session == nil {
+		if gCtx.Session == nil && len(gCtx.ToolEvents) == 0 {
 			return &models.GraderResults{
 				Name:     g.name,
 				Passed:   false,
@@ -84,11 +84,18 @@ func (g *ToolCallsGrader) Grade(_ context.Context, gCtx *Context) (*models.Grade
 			}, nil
 		}
 
-		calledSet := make(map[string]bool, len(gCtx.Session.ToolCalls))
-		for _, tc := range gCtx.Session.ToolCalls {
-			calledSet[tc.Name] = true
+		// Prefer the canonical tool_events record (schema 1.1+) whose
+		// Args survives results.json round-trips. Fall back to the
+		// SessionDigest.ToolCalls path for pre-1.1 records or engines
+		// that don't emit tool_events. See graders.Context.ToolEvents
+		// for background (issue #474).
+		calls := buildNormalizedCalls(gCtx)
+
+		calledSet := make(map[string]bool, len(calls))
+		for _, nc := range calls {
+			calledSet[nc.Name] = true
 		}
-		totalCalls := len(gCtx.Session.ToolCalls)
+		totalCalls := len(calls)
 
 		var totalChecks, passedChecks int
 		var failures []string
@@ -135,7 +142,7 @@ func (g *ToolCallsGrader) Grade(_ context.Context, gCtx *Context) (*models.Grade
 		expectResults := make([]map[string]any, 0, len(g.compiledExpect))
 		for _, exp := range g.compiledExpect {
 			totalChecks++
-			matched, detail := evaluateExpectation(exp, gCtx.Session.ToolCalls)
+			matched, detail := evaluateExpectation(exp, calls)
 			expectResults = append(expectResults, detail)
 			if matched {
 				passedChecks++
@@ -180,7 +187,7 @@ func (g *ToolCallsGrader) Grade(_ context.Context, gCtx *Context) (*models.Grade
 // evaluateExpectation returns whether any of the calls satisfies the
 // expectation, and a structured detail record describing the best-effort
 // reason on failure (or the index of the satisfying call on success).
-func evaluateExpectation(exp compiledExpectation, calls []models.ToolCall) (bool, map[string]any) {
+func evaluateExpectation(exp compiledExpectation, calls []normalizedCall) (bool, map[string]any) {
 	detail := map[string]any{"tool": exp.raw.Tool}
 	if len(exp.matcher) > 0 {
 		detail["args"] = exp.raw.Args
@@ -198,12 +205,11 @@ func evaluateExpectation(exp compiledExpectation, calls []models.ToolCall) (bool
 			detail["matched_call_id"] = call.ID
 			return true, detail
 		}
-		args, err := normalizeToolCallArgs(call)
-		if err != nil {
-			lastReason = err.Error()
+		if call.ArgsErr != nil {
+			lastReason = call.ArgsErr.Error()
 			continue
 		}
-		failures := evaluateArgMatchers(exp.matcher, args)
+		failures := evaluateArgMatchers(exp.matcher, call.Args)
 		if len(failures) == 0 {
 			detail["matched_call_index"] = i
 			detail["matched_call_id"] = call.ID

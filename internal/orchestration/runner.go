@@ -2047,6 +2047,12 @@ func (r *EvalRunner) buildGraderContext(tc *models.TestCase, resp *execution.Exe
 	transcriptEntries := transcript.BuildFromSessionEvents(sdkEvents)
 
 	sessionDigest := r.buildSessionDigest(resp)
+	// Canonical tool call record. Grader consumers (notably tool_calls)
+	// prefer this over sessionDigest.ToolCalls because ToolEvent.Args
+	// preserves the raw MCP/custom argument payload across
+	// results.json round-trips. See internal/graders/grader.go for
+	// details.
+	toolEvents := buildToolEvents(sdkEvents)
 
 	return &graders.Context{
 		TestCase:         tc,
@@ -2060,6 +2066,7 @@ func (r *EvalRunner) buildGraderContext(tc *models.TestCase, resp *execution.Exe
 		SkillInvocations: resp.SkillInvocations,
 		SessionID:        resp.SessionID,
 		Session:          &sessionDigest,
+		ToolEvents:       toolEvents,
 		Executor:         r.engine,
 	}
 }

@@ -9,7 +9,94 @@ import (
 	"github.com/microsoft/waza/internal/models"
 )
 
-// normalizeToolCallArgs returns the tool call's arguments as a generic
+// normalizedCall is a per-call view used by the tool_calls grader that
+// unifies the two possible sources of arguments (canonical ToolEvents vs.
+// legacy SessionDigest.ToolCalls). Args is the fully normalized argument
+// bag suitable for argmatchers; ArgsErr is set only when normalization
+// of the source data failed and no args map could be produced.
+type normalizedCall struct {
+	Name    string
+	ID      string
+	Args    map[string]any
+	ArgsErr error
+}
+
+// buildNormalizedCalls returns the list of tool calls the grader should
+// consider, preferring the canonical tool_events record when present.
+//
+// tool_events (schema 1.1+) is the source of truth: its Args is a raw
+// JSON value that preserves MCP/custom tool arguments across
+// results.json round-trips. SessionDigest.ToolCalls does not — its
+// ToolCallArgs.Extra field is json:"-" and drops after unmarshal —
+// so we only fall back to it when tool_events is empty (pre-1.1
+// records, or engines that don't emit tool events).
+func buildNormalizedCalls(gCtx *Context) []normalizedCall {
+	if gCtx == nil {
+		return nil
+	}
+
+	if len(gCtx.ToolEvents) > 0 {
+		out := make([]normalizedCall, 0, len(gCtx.ToolEvents))
+		for _, ev := range gCtx.ToolEvents {
+			args, err := coerceEventArgs(ev.Args)
+			out = append(out, normalizedCall{
+				Name:    ev.ToolName,
+				ID:      ev.ToolCallID,
+				Args:    args,
+				ArgsErr: err,
+			})
+		}
+		return out
+	}
+
+	if gCtx.Session == nil {
+		return nil
+	}
+	out := make([]normalizedCall, 0, len(gCtx.Session.ToolCalls))
+	for _, call := range gCtx.Session.ToolCalls {
+		args, err := normalizeToolCallArgs(call)
+		out = append(out, normalizedCall{
+			Name:    call.Name,
+			ID:      call.ID,
+			Args:    args,
+			ArgsErr: err,
+		})
+	}
+	return out
+}
+
+// coerceEventArgs converts the raw ToolEvent.Args value into a
+// map[string]any suitable for argmatchers. It accepts either a
+// map[string]any directly, or a JSON-marshalable value that
+// unmarshals into an object; scalar / array payloads return nil map
+// with no error (matchers on named keys will simply report "not
+// present"). A nil input yields an empty map.
+func coerceEventArgs(v any) (map[string]any, error) {
+	if v == nil {
+		return map[string]any{}, nil
+	}
+	if m, ok := v.(map[string]any); ok {
+		return m, nil
+	}
+	// Round-trip through JSON so any concrete type (struct, map with
+	// non-string keys, etc.) that marshals to a JSON object is still
+	// usable by matchers. Non-object payloads (arrays, scalars, null)
+	// intentionally return an empty map so key-based matchers cleanly
+	// report "not present" instead of erroring out.
+	b, err := json.Marshal(v)
+	if err != nil {
+		return nil, fmt.Errorf("marshaling tool_event args: %w", err)
+	}
+	var out map[string]any
+	if err := json.Unmarshal(b, &out); err != nil {
+		return map[string]any{}, nil
+	}
+	if out == nil {
+		return map[string]any{}, nil
+	}
+	return out, nil
+}
+
 // map[string]any suitable for argument matchers. Known fields recognized by
 // ToolCallArgs (path, file_text, command, description, skill) are merged with
 // any engine-specific extras captured under ToolCallArgs.Extra (populated by
