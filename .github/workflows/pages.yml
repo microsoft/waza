@@ -5,6 +5,10 @@ on:
     branches: [main]
     paths:
       - 'site/**'
+      - '.github/workflows/pages.yml'
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
   workflow_run:
     workflows: ['Release']
     types: [completed]
@@ -13,6 +17,7 @@ on:
 permissions:
   contents: read
   pages: write
+  pull-requests: read
   id-token: write
 
 concurrency:
@@ -20,8 +25,30 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    name: Site change filter
+    outputs:
+      site: ${{ steps.filter.outputs.site || steps.default.outputs.site }}
+    steps:
+      - name: Check changed paths
+        id: filter
+        if: github.event_name == 'pull_request'
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            site:
+              - 'site/**'
+              - '.github/workflows/pages.yml'
+
+      - name: Mark non-PR events for build
+        id: default
+        if: github.event_name != 'pull_request'
+        run: echo "site=true" >> "$GITHUB_OUTPUT"
+
   build:
-    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    needs: changes
+    if: needs.changes.outputs.site == 'true' && (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success')
     runs-on: ubuntu-latest
     name: Build
     steps:
@@ -42,12 +69,14 @@ jobs:
         run: cd site && npm run build
 
       - name: Upload artifact
+        if: github.event_name != 'pull_request'
         uses: actions/upload-pages-artifact@v5
         with:
           path: site/dist
 
   deploy:
     needs: build
+    if: github.event_name != 'pull_request' && needs.build.result == 'success'
     runs-on: ubuntu-latest
     name: Deploy
     environment:
