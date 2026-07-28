@@ -996,6 +996,63 @@ waza cache clear --cache-dir .my-cache
 
 ---
 
+## waza registry
+
+Discover shared registry artifacts and add remote grader presets to an eval.
+
+Registry discovery uses configured index sources. The default public source is `https://github.com/waza-evals`; project `.waza.yaml` files can override sources with:
+
+```yaml
+registries:
+  - name: public
+    url: https://github.com/waza-evals
+  - name: company
+    url: https://github.com/myorg/waza-registry
+    priority: 10
+```
+
+### waza registry search
+
+Search configured registry indexes.
+
+```bash
+waza registry search factual
+waza registry search factual --kind grader
+waza registry search factual --registry company
+waza registry search factual --format json
+```
+
+#### Flags
+
+| Flag | Description |
+|------|-------------|
+| `--kind` | Filter by artifact kind: `grader`, `eval`, or `dataset` |
+| `--registry` | Search only the named registry source |
+| `--format` | Output format: `table` or `json` (default: `table`) |
+
+### waza registry add
+
+Append a remote grader preset reference to `eval.yaml` and update `waza.lock`.
+
+```bash
+waza registry add github.com/waza-evals/fact#factuality@v1.0.0
+waza registry add github.com/waza-evals/fact#factuality@v1.0.0 --eval eval.yaml
+waza registry add github.com/waza-evals/fact#factuality@v1.0.0 --name factuality_strict --set config.threshold=0.9
+```
+
+Full end-to-end module resolution depends on the shared resolver from issue #15. Phase 1 writes minimal `ref:` grader entries and scaffolds lock metadata until that resolver is wired in.
+
+#### Flags
+
+| Flag | Description |
+|------|-------------|
+| `--eval` | Eval file to update (default: `eval.yaml`) |
+| `--name` | Local alias for the grader |
+| `--set` | Add a local override as `key=value`; repeatable |
+| `--allow-exec` | Allow remote program graders without interactive confirmation |
+
+---
+
 ## waza dev
 
 Improve skill compliance iteratively.

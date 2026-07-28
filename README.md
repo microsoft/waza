@@ -130,6 +130,10 @@ waza check skills/my-skill
 waza suggest skills/my-skill --dry-run
 waza suggest skills/my-skill --apply
 
+# Discover shared registry graders and add one to an eval
+waza registry search factual --kind grader
+waza registry add github.com/waza-evals/fact#factuality@v1.0.0 --eval eval.yaml --name factuality
+
 # Verify eval coverage against SKILL.md requirements
 waza spec verify skills/my-skill evals/my-skill/eval.yaml
 waza spec verify skills/my-skill evals/my-skill/eval.yaml --fail --format github-actions
@@ -569,6 +573,27 @@ Clear all cached evaluation results to force re-execution on the next run.
 | Flag | Description |
 |------|-------------|
 | `--cache-dir <dir>` | Cache directory to clear (default: `.waza-cache`) |
+
+### `waza registry search <query>`
+
+Search configured registry indexes for reusable graders, eval bundles, and datasets. The default public registry source is `https://github.com/waza-evals`; project-level `.waza.yaml` can override sources with a top-level `registries:` list.
+
+| Flag | Description |
+|------|-------------|
+| `--kind <kind>` | Filter by `grader`, `eval`, or `dataset` |
+| `--registry <name>` | Search only the named registry source |
+| `--format <format>` | Output `table` or `json` (default: `table`) |
+
+### `waza registry add <ref>`
+
+Append a remote grader preset reference to `eval.yaml` and update `waza.lock`. Full resolver-backed expansion depends on the shared resolver from issue #15; the Phase 1 command writes minimal `ref:` entries.
+
+| Flag | Description |
+|------|-------------|
+| `--eval <path>` | Eval file to update (default: `eval.yaml`) |
+| `--name <alias>` | Local alias for the grader |
+| `--set key=value` | Add a local override, repeatable (for example, `--set config.threshold=0.9`) |
+| `--allow-exec` | Allow remote program graders without interactive confirmation |
 
 ### `waza dev [skill-path]`
 
