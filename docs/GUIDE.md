@@ -10,6 +10,7 @@ Waza helps you:
 - **Evaluate custom agents** (`.agent.md` files) with automatic tool constraint validation
 - **Create test suites** with realistic test cases and validation rules  
 - **Run evaluations** against different AI models to measure skill effectiveness
+- **Reuse remote grader presets** with Go-module-style `ref` entries pinned by `waza.lock`
 - **Compare results** across models and versions to track improvement
 - **View metrics** in an interactive dashboard with live results, trends, and detailed analysis
 
@@ -200,6 +201,15 @@ Execute the benchmark:
 ```bash
 waza run evals/code-explainer/eval.yaml --context-dir evals/code-explainer/fixtures -v
 ```
+
+If your eval uses remote grader presets, resolve them first:
+
+```bash
+waza get evals/code-explainer/eval.yaml
+waza run evals/code-explainer/eval.yaml --context-dir evals/code-explainer/fixtures -v
+```
+
+Remote refs use `<host>/<owner>/<repo>[/path][#export]@<version>` in `graders[].ref`. `waza get` downloads the module into `~/.waza/cache/{host}/{org}/{repo}/{sha}/` and writes `waza.lock`; `waza run` uses the lock and refuses missing or digest-mismatched cache entries.
 
 **Output:**
 - `✓ Passed` — Task passed all validators

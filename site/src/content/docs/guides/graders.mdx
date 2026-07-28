@@ -24,6 +24,18 @@ Graders are the scoring engine behind every waza evaluation. After an agent exec
 
 You can attach graders **globally** (applied to every task) or **per-task** in your eval YAML. Each grader also accepts an optional **`weight`** field that controls its influence on the composite score (see [Weighted Scoring](#weighted-scoring) below).
 
+Global graders can also reference remote config-only presets:
+
+```yaml
+graders:
+  - ref: github.com/waza-evals/fact#factuality@v1.0.0
+    name: factuality_strict
+    config:
+      threshold: 0.9
+```
+
+Run `waza get eval.yaml` after adding a `ref`; it writes `waza.lock` with the commit SHA and content digest. `waza run` expands locked refs from the local module cache and fails if the lock or digest is missing.
+
 ---
 
 ## At a glance

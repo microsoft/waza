@@ -56,6 +56,7 @@ type strictEvalSpec struct {
 }
 
 type strictGrader struct {
+	Ref        string     `yaml:"ref,omitempty"`
 	Kind       GraderKind `yaml:"type"`
 	Identifier string     `yaml:"name"`
 	ScriptPath string     `yaml:"script,omitempty"`
@@ -193,6 +194,7 @@ func (c *Config) ShouldInjectSkillBody() bool {
 
 // GraderConfig defines a validator/grader
 type GraderConfig struct {
+	Ref        string           `yaml:"ref,omitempty" json:"ref,omitempty"`
 	Kind       GraderKind       `yaml:"type" json:"kind"`
 	Identifier string           `yaml:"name" json:"identifier"`
 	ScriptPath string           `yaml:"script,omitempty" json:"script_path,omitempty"`
@@ -204,6 +206,7 @@ type GraderConfig struct {
 
 func (g *GraderConfig) UnmarshalYAML(node *yaml.Node) error {
 	type rawGraderConfig struct {
+		Ref        string     `yaml:"ref,omitempty"`
 		Kind       GraderKind `yaml:"type"`
 		Identifier string     `yaml:"name"`
 		ScriptPath string     `yaml:"script,omitempty"`
@@ -227,11 +230,16 @@ func (g *GraderConfig) UnmarshalYAML(node *yaml.Node) error {
 		return err
 	}
 
-	params, err := decodeGraderParameters(raw.Kind, &raw.Parameters)
+	paramsKind := raw.Kind
+	if raw.Ref != "" && raw.Kind == "" {
+		paramsKind = ""
+	}
+	params, err := decodeGraderParameters(paramsKind, &raw.Parameters)
 	if err != nil {
 		return fmt.Errorf("invalid grader config for %q (type %q): %w", raw.Identifier, raw.Kind, err)
 	}
 
+	g.Ref = raw.Ref
 	g.Kind = raw.Kind
 	g.Identifier = raw.Identifier
 	g.ScriptPath = raw.ScriptPath
@@ -258,6 +266,9 @@ func (g *GraderConfig) EffectiveWeight() float64 {
 
 // Validate checks that the grader config has required fields for its type.
 func (g *GraderConfig) Validate() error {
+	if g.Ref != "" && g.Kind == "" {
+		return nil
+	}
 	switch g.Kind {
 	case GraderKindInlineScript:
 		params, ok := g.Parameters.(InlineScriptGraderParameters)

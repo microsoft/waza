@@ -205,6 +205,23 @@ waza init my-project
 waza init my-project --no-skill
 ```
 
+## waza get
+
+Resolve remote grader refs and update `waza.lock`.
+
+```bash
+waza get [eval.yaml | ref]
+```
+
+When given an eval file, `waza get` resolves each `graders[].ref`, downloads the module into `~/.waza/cache/{host}/{org}/{repo}/{sha}/`, and writes a lockfile next to the eval. The lock pins the original ref to a commit SHA, source URL, and `sha256:` content digest.
+
+```bash
+waza get eval.yaml
+waza get github.com/waza-evals/fact#factuality@v1.0.0
+```
+
+`waza run` is strict: evals with remote grader refs require a valid `waza.lock` and local cache entry. If the lock is missing, cache is unavailable, or the digest mismatches, the run fails instead of resolving mutable refs implicitly.
+
 ## waza new skill
 
 Create a new skill. In interactive mode, the wizard collects spec-aligned metadata: name, description, trigger phrases, and anti-trigger phrases.
