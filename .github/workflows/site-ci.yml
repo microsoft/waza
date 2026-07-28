@@ -1,0 +1,51 @@
+name: Site Build
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+# Ensure the check name (`Build`) always reports, even for PRs that don't
+# touch the docs site. This lets branch protection require this check
+# without deadlocking non-site PRs. When no site files changed the job
+# short-circuits after the paths-filter step and reports success.
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Detect site changes
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            site:
+              - 'site/**'
+              - '.github/workflows/site-ci.yml'
+              - '.github/workflows/pages.yml'
+
+      - name: Skip (no site changes)
+        if: steps.filter.outputs.site != 'true' && github.event_name == 'pull_request'
+        run: echo "No site/** changes detected — skipping site build."
+
+      - name: Setup Node
+        if: steps.filter.outputs.site == 'true' || github.event_name != 'pull_request'
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22.12.0'
+          cache: npm
+          cache-dependency-path: site/package-lock.json
+
+      - name: Install dependencies
+        if: steps.filter.outputs.site == 'true' || github.event_name != 'pull_request'
+        working-directory: site
+        run: npm ci
+
+      - name: Build site
+        if: steps.filter.outputs.site == 'true' || github.event_name != 'pull_request'
+        working-directory: site
+        run: npm run build
