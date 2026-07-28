@@ -135,7 +135,7 @@ func (g *ToolCallsGrader) Grade(_ context.Context, gCtx *Context) (*models.Grade
 		expectResults := make([]map[string]any, 0, len(g.compiledExpect))
 		for _, exp := range g.compiledExpect {
 			totalChecks++
-			matched, detail := evaluateExpectation(exp, gCtx.Session.ToolCalls)
+			matched, detail := evaluateExpectation(exp, gCtx.Session.ToolCalls, gCtx.ToolEvents)
 			expectResults = append(expectResults, detail)
 			if matched {
 				passedChecks++
@@ -180,7 +180,7 @@ func (g *ToolCallsGrader) Grade(_ context.Context, gCtx *Context) (*models.Grade
 // evaluateExpectation returns whether any of the calls satisfies the
 // expectation, and a structured detail record describing the best-effort
 // reason on failure (or the index of the satisfying call on success).
-func evaluateExpectation(exp compiledExpectation, calls []models.ToolCall) (bool, map[string]any) {
+func evaluateExpectation(exp compiledExpectation, calls []models.ToolCall, events []models.ToolEvent) (bool, map[string]any) {
 	detail := map[string]any{"tool": exp.raw.Tool}
 	if len(exp.matcher) > 0 {
 		detail["args"] = exp.raw.Args
@@ -198,7 +198,7 @@ func evaluateExpectation(exp compiledExpectation, calls []models.ToolCall) (bool
 			detail["matched_call_id"] = call.ID
 			return true, detail
 		}
-		args, err := normalizeToolCallArgs(call)
+		args, err := resolveToolCallArgs(call, events)
 		if err != nil {
 			lastReason = err.Error()
 			continue

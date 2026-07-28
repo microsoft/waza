@@ -108,8 +108,8 @@ func (tc *toolConstraintGrader) Grade(ctx context.Context, gradingContext *Conte
 
 		var failures []string
 
-		failures = append(failures, tc.checkExpectTools(session)...)
-		failures = append(failures, tc.checkRejectTools(session)...)
+		failures = append(failures, tc.checkExpectTools(session, gradingContext.ToolEvents)...)
+		failures = append(failures, tc.checkRejectTools(session, gradingContext.ToolEvents)...)
 
 		totalChecks := tc.countTotalChecks()
 		passedChecks := totalChecks - len(failures)
@@ -147,7 +147,7 @@ func (tc *toolConstraintGrader) Grade(ctx context.Context, gradingContext *Conte
 
 // matchesToolCall returns true if spec matches the given tool call constraints.
 // NOTE: this function assumes that the regexes have already been validated.
-func matchesToolCall(spec models.ToolSpecParameters, call models.ToolCall) bool {
+func matchesToolCall(spec models.ToolSpecParameters, call models.ToolCall, events []models.ToolEvent) bool {
 	checkPattern := func(pattern, text string) bool {
 		// empty pattern automatically passes - we validate that they have passed at least one check in
 		// validateToolSpecs().
@@ -177,7 +177,7 @@ func matchesToolCall(spec models.ToolSpecParameters, call models.ToolCall) bool 
 	}
 
 	if len(spec.Args) > 0 {
-		args, err := normalizeToolCallArgs(call)
+		args, err := resolveToolCallArgs(call, events)
 		if err != nil {
 			return false
 		}
@@ -227,7 +227,7 @@ func describeToolSpecs(specs []models.ToolSpecParameters) []string {
 	return out
 }
 
-func (tc *toolConstraintGrader) checkExpectTools(session *models.SessionDigest) []string {
+func (tc *toolConstraintGrader) checkExpectTools(session *models.SessionDigest, events []models.ToolEvent) []string {
 	if len(tc.expectTools) == 0 {
 		return nil
 	}
@@ -237,7 +237,7 @@ func (tc *toolConstraintGrader) checkExpectTools(session *models.SessionDigest) 
 		found := false
 
 		for _, call := range session.ToolCalls {
-			if matchesToolCall(spec, call) {
+			if matchesToolCall(spec, call, events) {
 				found = true
 				break
 			}
@@ -250,7 +250,7 @@ func (tc *toolConstraintGrader) checkExpectTools(session *models.SessionDigest) 
 	return failures
 }
 
-func (tc *toolConstraintGrader) checkRejectTools(session *models.SessionDigest) []string {
+func (tc *toolConstraintGrader) checkRejectTools(session *models.SessionDigest, events []models.ToolEvent) []string {
 	if len(tc.rejectTools) == 0 {
 		return nil
 	}
@@ -260,7 +260,7 @@ func (tc *toolConstraintGrader) checkRejectTools(session *models.SessionDigest) 
 		found := false
 
 		for _, call := range session.ToolCalls {
-			if matchesToolCall(spec, call) {
+			if matchesToolCall(spec, call, events) {
 				found = true
 				break
 			}

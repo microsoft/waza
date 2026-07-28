@@ -9,6 +9,45 @@ import (
 	"github.com/microsoft/waza/internal/models"
 )
 
+// resolveToolCallArgs returns the map of arguments to use for a tool call
+// when evaluating argument matchers. It prefers the canonical
+// ToolEvent.Args payload (looked up by ToolCallID) which is preserved
+// verbatim through the results.json round-trip (see #474), and falls
+// back to normalizeToolCallArgs on the ToolCall itself when no matching
+// event is available or the event's Args is not a JSON object.
+//
+// events may be nil (e.g. tests or engines that do not surface tool
+// events); in that case the fallback path is always used.
+func resolveToolCallArgs(call models.ToolCall, events []models.ToolEvent) (map[string]any, error) {
+	if len(events) > 0 && call.ID != "" {
+		for i := range events {
+			if events[i].ToolCallID != call.ID {
+				continue
+			}
+			if m, ok := toolEventArgsMap(events[i].Args); ok {
+				return m, nil
+			}
+			break
+		}
+	}
+	return normalizeToolCallArgs(call)
+}
+
+// toolEventArgsMap coerces a ToolEvent.Args value into a map[string]any
+// when possible. Args is stored as an untyped any so it may hold any
+// JSON-compatible value; only object-shaped payloads carry addressable
+// argument keys for matcher evaluation. Returns (nil, false) for nil,
+// scalars, and arrays so the caller can fall back to the legacy path.
+func toolEventArgsMap(v any) (map[string]any, bool) {
+	switch t := v.(type) {
+	case nil:
+		return nil, false
+	case map[string]any:
+		return t, true
+	}
+	return nil, false
+}
+
 // normalizeToolCallArgs returns the tool call's arguments as a generic
 // map[string]any suitable for argument matchers. Known fields recognized by
 // ToolCallArgs (path, file_text, command, description, skill) are merged with
@@ -17,6 +56,11 @@ import (
 // argument keys (e.g. `query`, `limit`) are visible to matchers. Empty-valued
 // known fields are omitted to avoid spurious matches on the zero value;
 // keys in Extra are passed through as-is.
+//
+// Note: ToolCallArgs.Extra has json:"-" so it does NOT survive a
+// results.json round-trip. For offline grading, resolveToolCallArgs
+// prefers ToolEvent.Args (which is JSON-persisted verbatim) and only
+// falls back to this function when no matching event is available.
 func normalizeToolCallArgs(call models.ToolCall) (map[string]any, error) {
 	data, err := json.Marshal(call.Arguments)
 	if err != nil {

@@ -608,3 +608,55 @@ func TestToolConstraintGrader_ExpectTools_MissingExtraArg(t *testing.T) {
 }
 
 func float64Ptr(v float64) *float64 { return &v }
+
+// TestToolConstraintGrader_ExpectTools_UsesToolEventsWhenExtraMissing is
+// a regression test for #474: the parallel bug on the tool_constraint
+// grader. ToolCallArgs.Extra is not persisted (json:"-") so after a
+// results.json round-trip, expect_tools matchers keyed on MCP args (e.g.
+// `query`) miss unless we fall back to the ToolEvent.Args payload.
+func TestToolConstraintGrader_ExpectTools_UsesToolEventsWhenExtraMissing(t *testing.T) {
+	g, err := NewToolConstraintGrader("test", models.ToolConstraintGraderParameters{
+		ExpectTools: []models.ToolSpecParameters{{
+			Tool: "search",
+			Args: map[string]argmatcher.Matcher{
+				"query": {Kind: argmatcher.KindContains, Contains: "Bissell"},
+			},
+		}},
+	})
+	require.NoError(t, err)
+
+	res, err := g.Grade(context.Background(), &Context{
+		Session: &models.SessionDigest{
+			ToolsUsed: []string{"search"},
+			ToolCalls: []models.ToolCall{
+				// Reconstructed from results.json: typed args empty, Extra nil.
+				{ID: "call-1", Name: "search", Arguments: models.ToolCallArgs{}},
+			},
+		},
+		ToolEvents: []models.ToolEvent{{
+			ToolCallID: "call-1",
+			ToolName:   "search",
+			Args:       map[string]any{"query": "Bissell vacuum"},
+		}},
+	})
+	require.NoError(t, err)
+	require.True(t, res.Passed, "feedback: %s", res.Feedback)
+}
+
+// TestToolConstraintGrader_ExpectTools_ToolNameOnly_NoEvents guards that
+// tool-name-only matching still works when no ToolEvents are supplied
+// (backward compat for callers that don't populate the new field).
+func TestToolConstraintGrader_ExpectTools_ToolNameOnly_NoEvents(t *testing.T) {
+	g, err := NewToolConstraintGrader("test", models.ToolConstraintGraderParameters{
+		ExpectTools: []models.ToolSpecParameters{{Tool: "search"}},
+	})
+	require.NoError(t, err)
+	res, err := g.Grade(context.Background(), &Context{
+		Session: &models.SessionDigest{
+			ToolsUsed: []string{"search"},
+			ToolCalls: []models.ToolCall{{Name: "search"}},
+		},
+	})
+	require.NoError(t, err)
+	require.True(t, res.Passed, "feedback: %s", res.Feedback)
+}

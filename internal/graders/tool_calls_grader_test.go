@@ -529,3 +529,95 @@ func TestToolCallsGrader_Expect_InvalidMatcher_ConstructError(t *testing.T) {
 	})
 	require.Error(t, err)
 }
+
+// TestToolCallsGrader_Expect_UsesToolEventsWhenExtraMissing is a regression
+// test for #474. When results.json is round-tripped through disk (or an
+// engine surfaces canonical args only via tool_events), ToolCallArgs.Extra
+// is empty because it carries json:"-". The grader must fall back to the
+// per-call ToolEvent.Args payload, correlating by ToolCall.ID ==
+// ToolEvent.ToolCallID, so that expect[].args matchers keep working for
+// MCP/custom tool arguments (e.g. `query`) that don't map to any typed
+// ToolCallArgs field.
+func TestToolCallsGrader_Expect_UsesToolEventsWhenExtraMissing(t *testing.T) {
+	g, err := NewToolCallsGrader("tc", models.ToolCallsGraderParameters{
+		Expect: []models.ToolExpectation{{
+			Tool: "search",
+			Args: map[string]argmatcher.Matcher{
+				"query": {Kind: argmatcher.KindEquals, Equals: "Bissell"},
+			},
+		}},
+	})
+	require.NoError(t, err)
+
+	// Simulate a call reconstructed from results.json: the typed
+	// arguments struct is empty and Extra (json:"-") is nil, but the
+	// canonical args are preserved in the parallel ToolEvent record.
+	res, err := g.Grade(context.Background(), &Context{
+		Session: &models.SessionDigest{
+			ToolCalls: []models.ToolCall{
+				{ID: "call-1", Name: "search", Arguments: models.ToolCallArgs{}},
+			},
+		},
+		ToolEvents: []models.ToolEvent{{
+			ToolCallID: "call-1",
+			ToolName:   "search",
+			Args:       map[string]any{"query": "Bissell"},
+		}},
+	})
+	require.NoError(t, err)
+	require.True(t, res.Passed, "feedback: %s", res.Feedback)
+}
+
+// TestToolCallsGrader_Expect_ToolNameOnly_StillMatchesWithoutEvents is a
+// regression guard for #474 ensuring the ToolEvents plumbing doesn't
+// break the common case where an expectation has no `args` and no
+// ToolEvents are provided (legacy callers, tests).
+func TestToolCallsGrader_Expect_ToolNameOnly_StillMatchesWithoutEvents(t *testing.T) {
+	g, err := NewToolCallsGrader("tc", models.ToolCallsGraderParameters{
+		Expect: []models.ToolExpectation{{Tool: "search"}},
+	})
+	require.NoError(t, err)
+	res, err := g.Grade(context.Background(), &Context{
+		Session: &models.SessionDigest{
+			ToolCalls: []models.ToolCall{{Name: "search"}},
+		},
+	})
+	require.NoError(t, err)
+	require.True(t, res.Passed, "feedback: %s", res.Feedback)
+}
+
+// TestToolCallsGrader_Expect_ArgsFallBackToNormalizedWhenNoEvent covers
+// the case where ToolEvents is populated but has no matching ToolCallID
+// (or the matching event's Args isn't a map). The grader must fall back
+// to normalizeToolCallArgs so live runs with populated Extra still work.
+func TestToolCallsGrader_Expect_ArgsFallBackToNormalizedWhenNoEvent(t *testing.T) {
+	g, err := NewToolCallsGrader("tc", models.ToolCallsGraderParameters{
+		Expect: []models.ToolExpectation{{
+			Tool: "search",
+			Args: map[string]argmatcher.Matcher{
+				"query": {Kind: argmatcher.KindEquals, Equals: "Bissell"},
+			},
+		}},
+	})
+	require.NoError(t, err)
+	res, err := g.Grade(context.Background(), &Context{
+		Session: &models.SessionDigest{
+			ToolCalls: []models.ToolCall{{
+				ID:   "call-1",
+				Name: "search",
+				Arguments: models.ToolCallArgs{
+					Extra: map[string]any{"query": "Bissell"},
+				},
+			}},
+		},
+		// Event with a non-matching ID — should be ignored, forcing
+		// the fallback to normalizeToolCallArgs on Extra.
+		ToolEvents: []models.ToolEvent{{
+			ToolCallID: "call-other",
+			ToolName:   "search",
+			Args:       map[string]any{"query": "wrong"},
+		}},
+	})
+	require.NoError(t, err)
+	require.True(t, res.Passed, "feedback: %s", res.Feedback)
+}
