@@ -1,0 +1,65 @@
+name: Site Build
+
+# PR-time validation for the Starlight docs site (site/).
+#
+# This workflow always runs on pull requests targeting main so it can be
+# used as a required status check without deadlocking non-site PRs. A
+# path-filter step detects whether site files actually changed; if not,
+# the expensive build is skipped and the job reports success. The Pages
+# deploy workflow (.github/workflows/pages.yml) still handles the actual
+# deploy on push to main.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'site/**'
+      - '.github/workflows/site-ci.yml'
+      - '.github/workflows/pages.yml'
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: site-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build site
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Detect site changes
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            site:
+              - 'site/**'
+              - '.github/workflows/site-ci.yml'
+              - '.github/workflows/pages.yml'
+
+      - name: Setup Node
+        if: steps.filter.outputs.site == 'true' || github.event_name == 'push'
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22.12.0'
+          cache: npm
+          cache-dependency-path: site/package-lock.json
+
+      - name: Install dependencies
+        if: steps.filter.outputs.site == 'true' || github.event_name == 'push'
+        run: cd site && npm ci
+
+      - name: Build site
+        if: steps.filter.outputs.site == 'true' || github.event_name == 'push'
+        run: cd site && npm run build
+
+      - name: Skip (no site changes)
+        if: steps.filter.outputs.site != 'true' && github.event_name == 'pull_request'
+        run: echo "No site/** changes detected — skipping site build."
