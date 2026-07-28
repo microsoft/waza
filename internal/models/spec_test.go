@@ -738,3 +738,52 @@ tasks:
 		}
 	})
 }
+
+func TestEvalSpec_GraderRef(t *testing.T) {
+	tempDir := t.TempDir()
+	yamlContent := `name: ref-grader
+skill: test
+config:
+  trials_per_task: 1
+  timeout_seconds: 60
+  executor: mock
+graders:
+  - ref: github.com/waza-evals/fact#factuality@v1.0.0
+    name: my-fact-check
+    weight: 2.0
+    config:
+      threshold: 0.9
+`
+	specPath := filepath.Join(tempDir, "ref.yaml")
+	if err := os.WriteFile(specPath, []byte(yamlContent), 0o644); err != nil {
+		t.Fatalf("Failed to write spec file: %v", err)
+	}
+	spec, err := LoadEvalSpec(specPath)
+	if err != nil {
+		t.Fatalf("LoadEvalSpec (ref grader) failed: %v", err)
+	}
+	if len(spec.Graders) != 1 {
+		t.Fatalf("Expected 1 grader, got %d", len(spec.Graders))
+	}
+	g := spec.Graders[0]
+	if g.Ref != "github.com/waza-evals/fact#factuality@v1.0.0" {
+		t.Errorf("Ref = %q, want github.com/waza-evals/fact#factuality@v1.0.0", g.Ref)
+	}
+	// Type/config validation should be deferred — no error even without type.
+	if g.Kind != "" {
+		t.Errorf("Kind = %q, want empty until resolution", g.Kind)
+	}
+	if g.Identifier != "my-fact-check" {
+		t.Errorf("Identifier = %q, want my-fact-check", g.Identifier)
+	}
+	if g.Weight != 2.0 {
+		t.Errorf("Weight = %v, want 2.0", g.Weight)
+	}
+	overrides, ok := g.Parameters.(GenericGraderParameters)
+	if !ok {
+		t.Fatalf("Parameters = %T, want GenericGraderParameters", g.Parameters)
+	}
+	if got := overrides["threshold"]; got != 0.9 {
+		t.Errorf("threshold override = %v, want 0.9", got)
+	}
+}

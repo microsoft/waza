@@ -56,6 +56,7 @@ type strictEvalSpec struct {
 }
 
 type strictGrader struct {
+	Ref        string     `yaml:"ref,omitempty"`
 	Kind       GraderKind `yaml:"type"`
 	Identifier string     `yaml:"name"`
 	ScriptPath string     `yaml:"script,omitempty"`
@@ -193,6 +194,13 @@ func (c *Config) ShouldInjectSkillBody() bool {
 
 // GraderConfig defines a validator/grader
 type GraderConfig struct {
+	// Ref is an optional remote grader reference in Go-module style,
+	// e.g. "github.com/waza-evals/fact#factuality@v1.0.0". When set, the
+	// grader definition (type, config, model, ...) is loaded from the
+	// remote module manifest; local fields on this GraderConfig override
+	// remote defaults after resolution. Requires a waza.lock entry pinning
+	// the commit SHA + content digest of the remote preset.
+	Ref        string           `yaml:"ref,omitempty" json:"ref,omitempty"`
 	Kind       GraderKind       `yaml:"type" json:"kind"`
 	Identifier string           `yaml:"name" json:"identifier"`
 	ScriptPath string           `yaml:"script,omitempty" json:"script_path,omitempty"`
@@ -204,6 +212,7 @@ type GraderConfig struct {
 
 func (g *GraderConfig) UnmarshalYAML(node *yaml.Node) error {
 	type rawGraderConfig struct {
+		Ref        string     `yaml:"ref,omitempty"`
 		Kind       GraderKind `yaml:"type"`
 		Identifier string     `yaml:"name"`
 		ScriptPath string     `yaml:"script,omitempty"`
@@ -227,17 +236,35 @@ func (g *GraderConfig) UnmarshalYAML(node *yaml.Node) error {
 		return err
 	}
 
+	g.Ref = raw.Ref
+	g.Identifier = raw.Identifier
+	g.ScriptPath = raw.ScriptPath
+	g.Rubric = raw.Rubric
+	g.ModelID = raw.ModelID
+	g.Weight = raw.Weight
+
+	// When a remote ref is set, the grader kind and config come from the
+	// remote preset. Preserve the raw override config as a generic map so
+	// the resolver can deep-merge it later. Validation of type/params is
+	// deferred to after ref expansion.
+	if raw.Ref != "" {
+		if raw.Parameters.Kind != 0 {
+			overrides, err := decodeYAMLNode[GenericGraderParameters](&raw.Parameters)
+			if err != nil {
+				return fmt.Errorf("invalid override config for ref %q: %w", raw.Ref, err)
+			}
+			g.Parameters = overrides
+		}
+		g.Kind = raw.Kind // may be empty; resolver fills it in
+		return nil
+	}
+
 	params, err := decodeGraderParameters(raw.Kind, &raw.Parameters)
 	if err != nil {
 		return fmt.Errorf("invalid grader config for %q (type %q): %w", raw.Identifier, raw.Kind, err)
 	}
 
 	g.Kind = raw.Kind
-	g.Identifier = raw.Identifier
-	g.ScriptPath = raw.ScriptPath
-	g.Rubric = raw.Rubric
-	g.ModelID = raw.ModelID
-	g.Weight = raw.Weight
 	g.Parameters = params
 
 	// Validate grader-type-specific required fields

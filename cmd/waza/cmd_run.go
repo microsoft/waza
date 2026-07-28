@@ -34,6 +34,7 @@ import (
 	"github.com/microsoft/waza/internal/orchestration"
 	"github.com/microsoft/waza/internal/projectconfig"
 	"github.com/microsoft/waza/internal/recommend"
+	"github.com/microsoft/waza/internal/registry"
 	"github.com/microsoft/waza/internal/reporting"
 	"github.com/microsoft/waza/internal/session"
 	"github.com/microsoft/waza/internal/snapshot"
@@ -566,6 +567,13 @@ func runCommandForSpec(cmd *cobra.Command, sp skillSpecPath, defaultSkills []str
 	spec, err := models.LoadEvalSpec(specPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load spec: %w", err)
+	}
+
+	// Resolve remote grader refs (Phase 1: exact-pinned github.com refs).
+	// If waza.lock exists we verify strictly; otherwise auto-resolve and
+	// write the lock (permissive first-run policy).
+	if err := resolveGraderRefs(cmd, spec, specPath); err != nil {
+		return nil, err
 	}
 
 	// CLI flags override spec config
@@ -2140,4 +2148,56 @@ func runDiscoverMode(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Results: %d skills evaluated, %d passed, %d failed\n", len(allSkillResults), passed, failed)
 
 	return lastErr
+}
+
+// resolveGraderRefs expands remote grader refs referenced in spec against
+// waza.lock beside specPath.
+//
+// Policy (Phase 1):
+//   - No refs → no-op.
+//   - waza.lock exists → verify strictly. Missing entries or digest
+//     mismatches fail the run.
+//   - waza.lock missing → auto-resolve iff every ref is exact-pinned
+//     (tag or 40-char commit SHA), then write the lock and log a warning
+//     that the lock was created. If any ref uses a floating selector
+//     (currently rejected up front by ParseRef), fail.
+func resolveGraderRefs(cmd *cobra.Command, spec *models.EvalSpec, specPath string) error {
+	refCount := 0
+	for _, g := range spec.Graders {
+		if g.Ref != "" {
+			refCount++
+		}
+	}
+	if refCount == 0 {
+		return nil
+	}
+
+	ctx := context.Background()
+	if cmd != nil {
+		ctx = cmd.Context()
+	}
+
+	lockPath := registry.LockfilePath(specPath)
+	lockExists := false
+	if _, err := os.Stat(lockPath); err == nil {
+		lockExists = true
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("stat %s: %w", lockPath, err)
+	}
+
+	updateLock := !lockExists
+	resolved, changed, err := registry.ResolveSpec(ctx, spec, specPath, updateLock)
+	if err != nil {
+		if errors.Is(err, registry.ErrRefNotInLock) {
+			return fmt.Errorf(
+				"%w — run `waza get %s` to resolve remote grader refs and write %s",
+				err, specPath, filepath.Base(lockPath),
+			)
+		}
+		return err
+	}
+	if updateLock && changed {
+		fmt.Fprintf(os.Stderr, "waza: resolved %d remote grader ref(s); wrote %s\n", resolved, lockPath)
+	}
+	return nil
 }
