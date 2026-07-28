@@ -79,7 +79,8 @@ func (cr *checkpointRunner) runForTurn(ctx context.Context, turn int, resp *exec
 		return false
 	}
 
-	gCtx := cr.runner.buildGraderContext(cr.tc, resp, copilotevents.ToSDK(resp.Events))
+	sdkEvents := copilotevents.ToSDK(resp.Events)
+	gCtx := cr.runner.buildGraderContext(cr.tc, resp, sdkEvents, buildToolEvents(sdkEvents))
 
 	// Run only the checkpoint's graders. Reuse graders.RunAll by passing a
 	// synthetic TestCase whose Validators field carries the checkpoint

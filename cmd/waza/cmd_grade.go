@@ -262,11 +262,12 @@ func gradeRun(ctx context.Context, spec *models.EvalSpec, tc *models.TestCase, r
 		skillInvocations[i] = execution.SkillInvocation{Name: si.Name, Path: si.Path}
 	}
 
+	sessionDigest := models.SessionDigestWithToolEvents(run.SessionDigest, run.ToolEvents)
 	gradingCtx := &graders.Context{
 		TestCase:         tc,
 		Output:           run.FinalOutput,
 		Transcript:       run.Transcript,
-		Session:          &run.SessionDigest,
+		Session:          &sessionDigest,
 		DurationMS:       run.DurationMs,
 		SessionID:        run.SessionDigest.SessionID,
 		WorkspaceDir:     workspace,

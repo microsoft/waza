@@ -1,5 +1,7 @@
 package models
 
+import "encoding/json"
+
 // ToolEvent is the normalized, engine-agnostic record of a single tool call
 // emitted during an agent session. It is the canonical per-task tool record
 // surfaced in `results.json` under `runs[].tool_events` (schema version 1.1+).
@@ -55,4 +57,108 @@ type ToolEvent struct {
 	// DurationMs is the wall-clock time between the tool-start and
 	// tool-complete events when available. 0 when timing is unavailable.
 	DurationMs int64 `json:"duration_ms,omitempty"`
+}
+
+// SessionDigestWithToolEvents returns a copy of digest whose ToolCalls are
+// hydrated from canonical ToolEvents when they are available. The legacy
+// SessionDigest.ToolCalls field intentionally stays in results.json for
+// backward compatibility, but ToolCallArgs.Extra is not serialized there; this
+// adapter lets graders use the replay-friendly tool_events[].args payload
+// without changing the public schema.
+func SessionDigestWithToolEvents(digest SessionDigest, events []ToolEvent) SessionDigest {
+	if len(events) == 0 {
+		return digest
+	}
+
+	calls := toolCallsFromToolEvents(digest.ToolCalls, events)
+	digest.ToolCalls = calls
+	digest.ToolCallCount = len(calls)
+	digest.ToolsUsed = make([]string, 0, len(calls))
+	for _, call := range calls {
+		if call.Name == "" {
+			continue
+		}
+		digest.ToolsUsed = append(digest.ToolsUsed, call.Name)
+	}
+	return digest
+}
+
+func toolCallsFromToolEvents(fallback []ToolCall, events []ToolEvent) []ToolCall {
+	byID := make(map[string]ToolCall, len(fallback))
+	for _, call := range fallback {
+		if call.ID != "" {
+			byID[call.ID] = call
+		}
+	}
+
+	calls := make([]ToolCall, 0, len(events))
+	for i, event := range events {
+		call := ToolCall{}
+		if event.ToolCallID != "" {
+			call = byID[event.ToolCallID]
+		}
+		if call.Name == "" && i < len(fallback) {
+			call = fallback[i]
+		}
+
+		if event.ToolCallID != "" {
+			call.ID = event.ToolCallID
+		}
+		if event.ToolName != "" {
+			call.Name = event.ToolName
+		}
+		if event.Args != nil {
+			call.Arguments = toolCallArgsFromEventArgs(event.Args)
+		}
+		call.Success = event.Success
+
+		if call.Name == "" {
+			continue
+		}
+		calls = append(calls, call)
+	}
+	return calls
+}
+
+func toolCallArgsFromEventArgs(args any) ToolCallArgs {
+	raw, ok := jsonObject(args)
+	if !ok {
+		return ToolCallArgs{}
+	}
+
+	out := ToolCallArgs{
+		Path:        stringArg(raw, "path"),
+		FileText:    stringArg(raw, "file_text"),
+		Command:     stringArg(raw, "command"),
+		Description: stringArg(raw, "description"),
+		Skill:       stringArg(raw, "skill"),
+		Extra:       make(map[string]any, len(raw)),
+	}
+	for key, value := range raw {
+		out.Extra[key] = value
+	}
+	if len(out.Extra) == 0 {
+		out.Extra = nil
+	}
+	return out
+}
+
+func jsonObject(value any) (map[string]any, bool) {
+	data, err := json.Marshal(value)
+	if err != nil {
+		return nil, false
+	}
+	var raw map[string]any
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return nil, false
+	}
+	return raw, true
+}
+
+func stringArg(args map[string]any, key string) string {
+	value, ok := args[key].(string)
+	if !ok {
+		return ""
+	}
+	return value
 }

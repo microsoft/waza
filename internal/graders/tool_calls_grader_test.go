@@ -373,6 +373,54 @@ func TestToolCallsGrader_Expect_NoArgs_Passes(t *testing.T) {
 	require.True(t, res.Passed, "feedback: %s", res.Feedback)
 }
 
+func TestToolCallsGrader_Expect_NoArgsMatchesToolEvents(t *testing.T) {
+	g, err := NewToolCallsGrader("tc", models.ToolCallsGraderParameters{
+		Expect: []models.ToolExpectation{{Tool: "mcp_search"}},
+	})
+	require.NoError(t, err)
+
+	session := models.SessionDigestWithToolEvents(models.SessionDigest{}, []models.ToolEvent{{
+		ToolCallID: "call-1",
+		ToolName:   "mcp_search",
+		Args:       map[string]any{"query": "find auth docs"},
+		Success:    true,
+	}})
+	res, err := g.Grade(context.Background(), &Context{Session: &session})
+	require.NoError(t, err)
+	require.True(t, res.Passed, "feedback: %s", res.Feedback)
+}
+
+func TestToolCallsGrader_Expect_ArgsFromToolEvents(t *testing.T) {
+	g, err := NewToolCallsGrader("tc", models.ToolCallsGraderParameters{
+		Expect: []models.ToolExpectation{{
+			Tool: "mcp_search",
+			Args: map[string]argmatcher.Matcher{
+				"query": {Kind: argmatcher.KindContains, Contains: "auth"},
+			},
+		}},
+	})
+	require.NoError(t, err)
+
+	staleDigest := models.SessionDigest{
+		ToolCallCount: 1,
+		ToolsUsed:     []string{"mcp_search"},
+		ToolCalls: []models.ToolCall{{
+			ID:      "call-1",
+			Name:    "mcp_search",
+			Success: true,
+		}},
+	}
+	session := models.SessionDigestWithToolEvents(staleDigest, []models.ToolEvent{{
+		ToolCallID: "call-1",
+		ToolName:   "mcp_search",
+		Args:       map[string]any{"query": "find auth bypass guidance"},
+		Success:    true,
+	}})
+	res, err := g.Grade(context.Background(), &Context{Session: &session})
+	require.NoError(t, err)
+	require.True(t, res.Passed, "feedback: %s", res.Feedback)
+}
+
 func TestToolCallsGrader_Expect_MissingTool_Fails(t *testing.T) {
 	g, err := NewToolCallsGrader("tc", models.ToolCallsGraderParameters{
 		Expect: []models.ToolExpectation{{Tool: "bash"}, {Tool: "view"}},
