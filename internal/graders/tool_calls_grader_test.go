@@ -2,6 +2,7 @@ package graders
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	"github.com/microsoft/waza/internal/graders/argmatcher"
@@ -528,4 +529,127 @@ func TestToolCallsGrader_Expect_InvalidMatcher_ConstructError(t *testing.T) {
 		}},
 	})
 	require.Error(t, err)
+}
+
+// --- Regression tests for #474 -------------------------------------------------
+//
+// ToolCallArgs.Extra uses `json:"-"`, so MCP/custom tool args (e.g. `query`)
+// are dropped when a RunResult is round-tripped through results.json. The
+// tool_calls grader must therefore fall back to the canonical args carried
+// by RunResult.ToolEvents when offline-grading a persisted results file.
+//
+// These tests exercise the paths described in issue #474:
+//   1. Round-tripped results.json — Extra is gone, ToolEvents rescues match.
+//   2. Live in-memory results — behavior unchanged when ToolEvents is empty.
+//   3. Tool-name-only expectations — still pass without any args plumbing.
+
+func TestToolCallsGrader_Expect_ArgsFromToolEventsAfterRoundTrip(t *testing.T) {
+	// Simulate a live RunResult where the MCP `search` tool was called with
+	// {query: "foo"} — captured in both the digest's ToolCallArgs.Extra and
+	// the canonical ToolEvents slice.
+	live := models.RunResult{
+		SessionDigest: models.SessionDigest{
+			ToolCalls: []models.ToolCall{{
+				ID:   "c1",
+				Name: "search",
+				Arguments: models.ToolCallArgs{
+					Extra: map[string]any{"query": "foo"},
+				},
+			}},
+		},
+		ToolEvents: []models.ToolEvent{{
+			ToolCallID: "c1",
+			ToolName:   "search",
+			Args:       map[string]any{"query": "foo"},
+		}},
+	}
+
+	// Round-trip through JSON — this is what `waza grade` does when loading
+	// a results.json off disk. Extra has `json:"-"` and is dropped.
+	data, err := json.Marshal(&live)
+	require.NoError(t, err)
+	var decoded models.RunResult
+	require.NoError(t, json.Unmarshal(data, &decoded))
+	require.Empty(t, decoded.SessionDigest.ToolCalls[0].Arguments.Extra,
+		"sanity check: Extra should be dropped across json round-trip")
+	require.NotEmpty(t, decoded.ToolEvents[0].Args,
+		"sanity check: ToolEvents.Args should survive the round-trip")
+
+	g, err := NewToolCallsGrader("tc", models.ToolCallsGraderParameters{
+		Expect: []models.ToolExpectation{{
+			Tool: "search",
+			Args: map[string]argmatcher.Matcher{
+				"query": {Kind: argmatcher.KindEquals, Equals: "foo"},
+			},
+		}},
+	})
+	require.NoError(t, err)
+
+	res, err := g.Grade(context.Background(), &Context{
+		Session:    &decoded.SessionDigest,
+		ToolEvents: decoded.ToolEvents,
+	})
+	require.NoError(t, err)
+	require.True(t, res.Passed,
+		"expectation on `query` should match via ToolEvents fallback; feedback: %s", res.Feedback)
+}
+
+func TestToolCallsGrader_Expect_LivePath_UnchangedWhenNoToolEvents(t *testing.T) {
+	// Live run path: Extra is populated in memory, ToolEvents intentionally
+	// left empty. This is the pre-#474 behavior and must keep passing so
+	// engines that don't emit ToolEvents (or older callers of Context) are
+	// unaffected.
+	g, err := NewToolCallsGrader("tc", models.ToolCallsGraderParameters{
+		Expect: []models.ToolExpectation{{
+			Tool: "search",
+			Args: map[string]argmatcher.Matcher{
+				"query": {Kind: argmatcher.KindEquals, Equals: "foo"},
+			},
+		}},
+	})
+	require.NoError(t, err)
+
+	res, err := g.Grade(context.Background(), &Context{
+		Session: &models.SessionDigest{
+			ToolCalls: []models.ToolCall{{
+				Name: "search",
+				Arguments: models.ToolCallArgs{
+					Extra: map[string]any{"query": "foo"},
+				},
+			}},
+		},
+	})
+	require.NoError(t, err)
+	require.True(t, res.Passed, "feedback: %s", res.Feedback)
+}
+
+func TestToolCallsGrader_Expect_ToolNameOnly_MatchesAfterRoundTrip(t *testing.T) {
+	// Tool-name-only expectations must remain trivially satisfied — the
+	// ToolEvents overlay code path should never be consulted for them.
+	g, err := NewToolCallsGrader("tc", models.ToolCallsGraderParameters{
+		Expect: []models.ToolExpectation{{Tool: "search"}},
+	})
+	require.NoError(t, err)
+
+	live := models.RunResult{
+		SessionDigest: models.SessionDigest{
+			ToolCalls: []models.ToolCall{{ID: "c1", Name: "search"}},
+		},
+		ToolEvents: []models.ToolEvent{{
+			ToolCallID: "c1",
+			ToolName:   "search",
+			Args:       map[string]any{"query": "foo"},
+		}},
+	}
+	data, err := json.Marshal(&live)
+	require.NoError(t, err)
+	var decoded models.RunResult
+	require.NoError(t, json.Unmarshal(data, &decoded))
+
+	res, err := g.Grade(context.Background(), &Context{
+		Session:    &decoded.SessionDigest,
+		ToolEvents: decoded.ToolEvents,
+	})
+	require.NoError(t, err)
+	require.True(t, res.Passed, "feedback: %s", res.Feedback)
 }

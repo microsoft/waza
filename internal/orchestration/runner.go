@@ -2047,6 +2047,7 @@ func (r *EvalRunner) buildGraderContext(tc *models.TestCase, resp *execution.Exe
 	transcriptEntries := transcript.BuildFromSessionEvents(sdkEvents)
 
 	sessionDigest := r.buildSessionDigest(resp)
+	toolEvents := buildToolEvents(sdkEvents)
 
 	return &graders.Context{
 		TestCase:         tc,
@@ -2060,6 +2061,7 @@ func (r *EvalRunner) buildGraderContext(tc *models.TestCase, resp *execution.Exe
 		SkillInvocations: resp.SkillInvocations,
 		SessionID:        resp.SessionID,
 		Session:          &sessionDigest,
+		ToolEvents:       toolEvents,
 		Executor:         r.engine,
 	}
 }

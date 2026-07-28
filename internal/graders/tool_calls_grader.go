@@ -132,10 +132,15 @@ func (g *ToolCallsGrader) Grade(_ context.Context, gCtx *Context) (*models.Grade
 		// Per-expectation checks: each expectation contributes one check;
 		// it passes when at least one recorded tool call matches the tool
 		// name regex AND all configured arg matchers pass on that call.
+		//
+		// Prefer per-call args from ToolEvents (canonical, JSON-stable)
+		// over Session.ToolCalls[].Arguments.Extra, which is dropped on
+		// results.json round-trip (issue #474).
+		eventArgs := toolEventArgsByCallID(gCtx.ToolEvents)
 		expectResults := make([]map[string]any, 0, len(g.compiledExpect))
 		for _, exp := range g.compiledExpect {
 			totalChecks++
-			matched, detail := evaluateExpectation(exp, gCtx.Session.ToolCalls)
+			matched, detail := evaluateExpectation(exp, gCtx.Session.ToolCalls, eventArgs)
 			expectResults = append(expectResults, detail)
 			if matched {
 				passedChecks++
@@ -180,7 +185,14 @@ func (g *ToolCallsGrader) Grade(_ context.Context, gCtx *Context) (*models.Grade
 // evaluateExpectation returns whether any of the calls satisfies the
 // expectation, and a structured detail record describing the best-effort
 // reason on failure (or the index of the satisfying call on success).
-func evaluateExpectation(exp compiledExpectation, calls []models.ToolCall) (bool, map[string]any) {
+//
+// eventArgs is an optional lookup keyed by ToolCall.ID that provides
+// canonical, JSON-stable arguments captured from ToolEvents. When present,
+// its entries are preferred over Session.ToolCalls[].Arguments.Extra so
+// arg matching works after a results.json round-trip (issue #474). Pass
+// nil (or an empty map) to fall back to the original ToolCallArgs-only
+// behavior, which is what live in-memory grading has always done.
+func evaluateExpectation(exp compiledExpectation, calls []models.ToolCall, eventArgs map[string]map[string]any) (bool, map[string]any) {
 	detail := map[string]any{"tool": exp.raw.Tool}
 	if len(exp.matcher) > 0 {
 		detail["args"] = exp.raw.Args
@@ -198,7 +210,7 @@ func evaluateExpectation(exp compiledExpectation, calls []models.ToolCall) (bool
 			detail["matched_call_id"] = call.ID
 			return true, detail
 		}
-		args, err := normalizeToolCallArgs(call)
+		args, err := normalizeToolCallArgsWithEvents(call, eventArgs)
 		if err != nil {
 			lastReason = err.Error()
 			continue

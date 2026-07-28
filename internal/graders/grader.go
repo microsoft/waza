@@ -50,6 +50,16 @@ type Context struct {
 	// Used by the behavior grader to validate agent behavior constraints.
 	Session *models.SessionDigest
 
+	// ToolEvents is the canonical, JSON-stable record of tool invocations for
+	// this run. Unlike Session.ToolCalls (whose ToolCallArgs.Extra is tagged
+	// json:"-" and is therefore lost across a results.json round-trip),
+	// ToolEvent.Args is preserved verbatim, so it is the authoritative source
+	// for MCP and other engine-specific tool arguments (e.g. `query`,
+	// `limit`). Graders that match on tool arguments should prefer this over
+	// Session.ToolCalls[].Arguments when both are available. Populated in
+	// both the live execution path and the offline `waza grade` path.
+	ToolEvents []models.ToolEvent
+
 	// SkillInvocations is a chronological list of skills invoked during the session.
 	// Used by the skill_invocation grader to verify orchestration workflows.
 	SkillInvocations []execution.SkillInvocation

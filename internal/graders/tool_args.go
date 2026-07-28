@@ -47,6 +47,95 @@ func normalizeToolCallArgs(call models.ToolCall) (map[string]any, error) {
 	return out, nil
 }
 
+// toolEventArgsByCallID indexes ToolEvent.Args by ToolCallID for O(1) lookup
+// from a graders.Context. Only entries whose Args deserialise to a JSON
+// object are included; scalar or nil args are skipped because argument
+// matchers key on named fields. Duplicate IDs are resolved by keeping the
+// first entry (start events precede complete events; both carry the same
+// arg payload after buildToolEvents normalisation).
+func toolEventArgsByCallID(events []models.ToolEvent) map[string]map[string]any {
+	if len(events) == 0 {
+		return nil
+	}
+	out := make(map[string]map[string]any, len(events))
+	for _, ev := range events {
+		if ev.ToolCallID == "" {
+			continue
+		}
+		if _, exists := out[ev.ToolCallID]; exists {
+			continue
+		}
+		m, ok := coerceArgsToMap(ev.Args)
+		if !ok {
+			continue
+		}
+		out[ev.ToolCallID] = m
+	}
+	return out
+}
+
+// coerceArgsToMap best-effort converts a ToolEvent.Args value (which is
+// `any` and may arrive as map[string]any from a JSON round-trip, or as a
+// typed struct from a live in-memory build) into a map[string]any. Returns
+// false when the payload isn't object-shaped.
+func coerceArgsToMap(args any) (map[string]any, bool) {
+	if args == nil {
+		return nil, false
+	}
+	if m, ok := args.(map[string]any); ok {
+		return m, true
+	}
+	// Fall back to a JSON round-trip so typed structs (or map[string]string
+	// etc.) also normalise to a plain map. This mirrors how buildToolEvents
+	// canonicalises args, but is defensive for future callers.
+	data, err := json.Marshal(args)
+	if err != nil {
+		return nil, false
+	}
+	var out map[string]any
+	if err := json.Unmarshal(data, &out); err != nil {
+		return nil, false
+	}
+	return out, true
+}
+
+// normalizeToolCallArgsWithEvents returns the tool call's arguments as a
+// map[string]any, preferring keys from a matching ToolEvent (looked up by
+// call.ID in eventArgs) over the typed ToolCallArgs. This is the offline-
+// safe path: ToolCallArgs.Extra is `json:"-"` and is dropped when a
+// results.json is written and reloaded for `waza grade`, whereas
+// ToolEvent.Args is JSON-preserving. When no matching event exists, this
+// falls back to normalizeToolCallArgs (the live-run behavior).
+//
+// Behavior on collision: the typed ToolCallArgs values win over
+// ToolEvent.Args, matching normalizeToolCallArgs's original semantics
+// (typed known fields > Extra). ToolEvent keys only fill entries missing
+// from the typed base — restoring MCP args like `query` that would
+// otherwise be absent after a round-trip.
+func normalizeToolCallArgsWithEvents(call models.ToolCall, eventArgs map[string]map[string]any) (map[string]any, error) {
+	base, err := normalizeToolCallArgs(call)
+	if err != nil {
+		return nil, err
+	}
+	if len(eventArgs) == 0 || call.ID == "" {
+		return base, nil
+	}
+	evArgs, ok := eventArgs[call.ID]
+	if !ok || len(evArgs) == 0 {
+		return base, nil
+	}
+	for k, v := range evArgs {
+		if _, present := base[k]; present {
+			continue
+		}
+		if s, ok := v.(string); ok && s == "" {
+			continue
+		}
+		base[k] = v
+	}
+	return base, nil
+}
+
 // evaluateArgMatchers returns a slice of human-readable failures describing
 // any matcher in `matchers` whose key was absent from `args` or whose value
 // failed to match. An empty slice means every matcher passed.

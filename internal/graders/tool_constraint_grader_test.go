@@ -2,6 +2,7 @@ package graders
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -608,3 +609,51 @@ func TestToolConstraintGrader_ExpectTools_MissingExtraArg(t *testing.T) {
 }
 
 func float64Ptr(v float64) *float64 { return &v }
+
+// TestToolConstraintGrader_ExpectTools_ArgsFromToolEventsAfterRoundTrip is
+// the tool_constraint mirror of the tool_calls #474 regression test.
+// tool_constraint's expect_tools[].args matcher walks the same
+// SessionDigest.ToolCalls slice and therefore loses MCP arg keys (Extra is
+// json:"-") when a results.json is loaded off disk. It must consult
+// RunResult.ToolEvents via the graders.Context so offline grading behaves
+// like the live in-memory path.
+func TestToolConstraintGrader_ExpectTools_ArgsFromToolEventsAfterRoundTrip(t *testing.T) {
+	live := models.RunResult{
+		SessionDigest: models.SessionDigest{
+			ToolCalls: []models.ToolCall{{
+				ID:   "c1",
+				Name: "search",
+				Arguments: models.ToolCallArgs{
+					Extra: map[string]any{"query": "foo"},
+				},
+			}},
+		},
+		ToolEvents: []models.ToolEvent{{
+			ToolCallID: "c1",
+			ToolName:   "search",
+			Args:       map[string]any{"query": "foo"},
+		}},
+	}
+	data, err := json.Marshal(&live)
+	require.NoError(t, err)
+	var decoded models.RunResult
+	require.NoError(t, json.Unmarshal(data, &decoded))
+	require.Empty(t, decoded.SessionDigest.ToolCalls[0].Arguments.Extra)
+
+	g, err := NewToolConstraintGrader("tc", models.ToolConstraintGraderParameters{
+		ExpectTools: []models.ToolSpecParameters{{
+			Tool: "search",
+			Args: map[string]argmatcher.Matcher{
+				"query": {Kind: argmatcher.KindEquals, Equals: "foo"},
+			},
+		}},
+	})
+	require.NoError(t, err)
+
+	res, err := g.Grade(context.Background(), &Context{
+		Session:    &decoded.SessionDigest,
+		ToolEvents: decoded.ToolEvents,
+	})
+	require.NoError(t, err)
+	require.True(t, res.Passed, "feedback: %s", res.Feedback)
+}
