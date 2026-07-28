@@ -608,3 +608,108 @@ func TestToolConstraintGrader_ExpectTools_MissingExtraArg(t *testing.T) {
 }
 
 func float64Ptr(v float64) *float64 { return &v }
+
+// Regression tests for issue #474: tool_constraint grader must be able to
+// match custom/MCP tool args after a results.json round-trip via
+// tool_events[].args fallback.
+
+func TestToolConstraintGrader_ExpectTools_ArgFromToolEvent_RoundTripPasses(t *testing.T) {
+	g, err := NewToolConstraintGrader("test", models.ToolConstraintGraderParameters{
+		ExpectTools: []models.ToolSpecParameters{{
+			Tool: "mcp_search",
+			Args: map[string]argmatcher.Matcher{
+				"query": {Kind: argmatcher.KindEquals, Equals: "hello world"},
+			},
+		}},
+	})
+	require.NoError(t, err)
+
+	res, err := g.Grade(context.Background(), &Context{
+		Session: &models.SessionDigest{
+			ToolsUsed: []string{"mcp_search"},
+			ToolCalls: []models.ToolCall{
+				{ID: "call-1", Name: "mcp_search", Arguments: models.ToolCallArgs{}},
+			},
+		},
+		ToolEvents: []models.ToolEvent{
+			{ToolCallID: "call-1", ToolName: "mcp_search", Args: map[string]any{"query": "hello world"}},
+		},
+	})
+	require.NoError(t, err)
+	require.True(t, res.Passed, "feedback: %s", res.Feedback)
+}
+
+func TestToolConstraintGrader_ExpectTools_ArgFromExtra_LiveStillPasses(t *testing.T) {
+	g, err := NewToolConstraintGrader("test", models.ToolConstraintGraderParameters{
+		ExpectTools: []models.ToolSpecParameters{{
+			Tool: "mcp_search",
+			Args: map[string]argmatcher.Matcher{
+				"query": {Kind: argmatcher.KindEquals, Equals: "hello world"},
+			},
+		}},
+	})
+	require.NoError(t, err)
+
+	res, err := g.Grade(context.Background(), &Context{
+		Session: &models.SessionDigest{
+			ToolsUsed: []string{"mcp_search"},
+			ToolCalls: []models.ToolCall{
+				{Name: "mcp_search", Arguments: models.ToolCallArgs{Extra: map[string]any{"query": "hello world"}}},
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.True(t, res.Passed, "feedback: %s", res.Feedback)
+}
+
+func TestToolConstraintGrader_ExpectTools_ArgMismatch_ToolEvent_Fails(t *testing.T) {
+	g, err := NewToolConstraintGrader("test", models.ToolConstraintGraderParameters{
+		ExpectTools: []models.ToolSpecParameters{{
+			Tool: "mcp_search",
+			Args: map[string]argmatcher.Matcher{
+				"query": {Kind: argmatcher.KindEquals, Equals: "hello world"},
+			},
+		}},
+	})
+	require.NoError(t, err)
+
+	res, err := g.Grade(context.Background(), &Context{
+		Session: &models.SessionDigest{
+			ToolsUsed: []string{"mcp_search"},
+			ToolCalls: []models.ToolCall{
+				{ID: "call-1", Name: "mcp_search", Arguments: models.ToolCallArgs{}},
+			},
+		},
+		ToolEvents: []models.ToolEvent{
+			{ToolCallID: "call-1", ToolName: "mcp_search", Args: map[string]any{"query": "goodbye"}},
+		},
+	})
+	require.NoError(t, err)
+	require.False(t, res.Passed)
+}
+
+func TestToolConstraintGrader_RejectTools_ArgFromToolEvent_MatchesReject(t *testing.T) {
+	g, err := NewToolConstraintGrader("test", models.ToolConstraintGraderParameters{
+		RejectTools: []models.ToolSpecParameters{{
+			Tool: "mcp_search",
+			Args: map[string]argmatcher.Matcher{
+				"query": {Kind: argmatcher.KindEquals, Equals: "forbidden"},
+			},
+		}},
+	})
+	require.NoError(t, err)
+
+	res, err := g.Grade(context.Background(), &Context{
+		Session: &models.SessionDigest{
+			ToolsUsed: []string{"mcp_search"},
+			ToolCalls: []models.ToolCall{
+				{ID: "call-1", Name: "mcp_search", Arguments: models.ToolCallArgs{}},
+			},
+		},
+		ToolEvents: []models.ToolEvent{
+			{ToolCallID: "call-1", ToolName: "mcp_search", Args: map[string]any{"query": "forbidden"}},
+		},
+	})
+	require.NoError(t, err)
+	require.False(t, res.Passed, "reject_tools should have matched via tool_events fallback")
+}

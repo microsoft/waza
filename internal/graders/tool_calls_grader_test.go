@@ -529,3 +529,131 @@ func TestToolCallsGrader_Expect_InvalidMatcher_ConstructError(t *testing.T) {
 	})
 	require.Error(t, err)
 }
+
+// Regression tests for issue #474: tool_calls grader must be able to match
+// custom/MCP tool args after a results.json round-trip, where
+// ToolCallArgs.Extra (json:"-") is dropped, by falling back to canonical
+// tool_events[].args.
+
+func TestToolCallsGrader_Expect_ArgFromToolEvent_RoundTripPasses(t *testing.T) {
+	g, err := NewToolCallsGrader("tc", models.ToolCallsGraderParameters{
+		Expect: []models.ToolExpectation{{
+			Tool: "mcp_search",
+			Args: map[string]argmatcher.Matcher{
+				"query": {Kind: argmatcher.KindEquals, Equals: "hello world"},
+			},
+		}},
+	})
+	require.NoError(t, err)
+
+	// Simulate an offline grade from results.json: ToolCallArgs.Extra is
+	// empty (dropped by JSON round-trip), but tool_events[].args has the
+	// canonical arguments.
+	res, err := g.Grade(context.Background(), &Context{
+		Session: &models.SessionDigest{
+			ToolCalls: []models.ToolCall{
+				{ID: "call-1", Name: "mcp_search", Arguments: models.ToolCallArgs{}},
+			},
+		},
+		ToolEvents: []models.ToolEvent{
+			{ToolCallID: "call-1", ToolName: "mcp_search", Args: map[string]any{"query": "hello world"}},
+		},
+	})
+	require.NoError(t, err)
+	require.True(t, res.Passed, "feedback: %s", res.Feedback)
+}
+
+func TestToolCallsGrader_Expect_ArgFromExtra_LiveStillPasses(t *testing.T) {
+	g, err := NewToolCallsGrader("tc", models.ToolCallsGraderParameters{
+		Expect: []models.ToolExpectation{{
+			Tool: "mcp_search",
+			Args: map[string]argmatcher.Matcher{
+				"query": {Kind: argmatcher.KindEquals, Equals: "hello world"},
+			},
+		}},
+	})
+	require.NoError(t, err)
+
+	// Live run parity: Extra is populated in-memory; no ToolEvents needed.
+	res, err := g.Grade(context.Background(), &Context{
+		Session: &models.SessionDigest{
+			ToolCalls: []models.ToolCall{
+				{Name: "mcp_search", Arguments: models.ToolCallArgs{Extra: map[string]any{"query": "hello world"}}},
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.True(t, res.Passed, "feedback: %s", res.Feedback)
+}
+
+func TestToolCallsGrader_Expect_ToolNameOnly_NoToolEventsNeeded(t *testing.T) {
+	g, err := NewToolCallsGrader("tc", models.ToolCallsGraderParameters{
+		Expect: []models.ToolExpectation{{Tool: "mcp_search"}},
+	})
+	require.NoError(t, err)
+
+	res, err := g.Grade(context.Background(), &Context{
+		Session: &models.SessionDigest{
+			ToolCalls: []models.ToolCall{
+				{Name: "mcp_search", Arguments: models.ToolCallArgs{}},
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.True(t, res.Passed, "feedback: %s", res.Feedback)
+}
+
+func TestToolCallsGrader_Expect_ArgMismatch_StillFails(t *testing.T) {
+	g, err := NewToolCallsGrader("tc", models.ToolCallsGraderParameters{
+		Expect: []models.ToolExpectation{{
+			Tool: "mcp_search",
+			Args: map[string]argmatcher.Matcher{
+				"query": {Kind: argmatcher.KindEquals, Equals: "hello world"},
+			},
+		}},
+	})
+	require.NoError(t, err)
+
+	res, err := g.Grade(context.Background(), &Context{
+		Session: &models.SessionDigest{
+			ToolCalls: []models.ToolCall{
+				{ID: "call-1", Name: "mcp_search", Arguments: models.ToolCallArgs{}},
+			},
+		},
+		ToolEvents: []models.ToolEvent{
+			{ToolCallID: "call-1", ToolName: "mcp_search", Args: map[string]any{"query": "goodbye"}},
+		},
+	})
+	require.NoError(t, err)
+	require.False(t, res.Passed)
+	require.Contains(t, res.Feedback, "query")
+}
+
+func TestToolCallsGrader_Expect_ArgFromToolEvent_PositionalCorrelation(t *testing.T) {
+	// Both ToolCallID fields are empty on ToolCalls and events; correlation
+	// must fall back to positional-by-name.
+	g, err := NewToolCallsGrader("tc", models.ToolCallsGraderParameters{
+		Expect: []models.ToolExpectation{{
+			Tool: "mcp_search",
+			Args: map[string]argmatcher.Matcher{
+				"query": {Kind: argmatcher.KindEquals, Equals: "second"},
+			},
+		}},
+	})
+	require.NoError(t, err)
+
+	res, err := g.Grade(context.Background(), &Context{
+		Session: &models.SessionDigest{
+			ToolCalls: []models.ToolCall{
+				{Name: "mcp_search", Arguments: models.ToolCallArgs{}},
+				{Name: "mcp_search", Arguments: models.ToolCallArgs{}},
+			},
+		},
+		ToolEvents: []models.ToolEvent{
+			{ToolName: "mcp_search", Args: map[string]any{"query": "first"}},
+			{ToolName: "mcp_search", Args: map[string]any{"query": "second"}},
+		},
+	})
+	require.NoError(t, err)
+	require.True(t, res.Passed, "feedback: %s", res.Feedback)
+}
