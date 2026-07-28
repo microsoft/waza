@@ -111,6 +111,21 @@ graders:
       contains:
         - "hello"
 `
+
+	taskWithToolCallsQueryGrader = `id: task-001
+name: Tool Calls Query
+inputs:
+  prompt: "Search for auth docs"
+graders:
+  - name: search_args
+    type: tool_calls
+    config:
+      expect:
+        - tool: search
+          args:
+            query:
+              contains: auth
+`
 )
 
 func TestGradeCommand_NoArgs(t *testing.T) {
@@ -207,6 +222,46 @@ func TestGradeCommand_SingleTask_Passing(t *testing.T) {
 	require.Equal(t, true, parsed["passed"])
 	tasks := parseMap(t, parsed, "tasks")
 	require.Contains(t, tasks, "task-001")
+}
+
+func TestGradeCommand_ToolCallsExpectArgsUsesToolEventsFromResults(t *testing.T) {
+	dir := t.TempDir()
+	specPath := gradeSpec(t, dir, minimalSpec)
+	writeTaskFile(t, dir, "task.yaml", taskWithToolCallsQueryGrader)
+
+	results := gradeResultsFile(t, dir, outcomeWithTasks(models.TestOutcome{
+		TestID: "task-001",
+		Runs: []models.RunResult{{
+			RunNumber:   1,
+			FinalOutput: "searched",
+			DurationMs:  1000,
+			SessionDigest: models.SessionDigest{
+				SessionID: "s-task-001",
+				ToolCalls: []models.ToolCall{{
+					ID:   "call-1",
+					Name: "search",
+				}},
+			},
+			ToolEvents: []models.ToolEvent{{
+				Sequence:   1,
+				ToolCallID: "call-1",
+				ToolName:   "search",
+				Args:       map[string]any{"query": "auth configuration"},
+				Success:    true,
+			}},
+		}},
+	}))
+
+	output, err := executeGrade(t, specPath, "--task", "task-001", "--results", results)
+	require.NoError(t, err)
+
+	var parsed map[string]any
+	require.NoError(t, json.Unmarshal([]byte(output), &parsed))
+	require.Equal(t, true, parsed["passed"])
+
+	tasks := parseMap(t, parsed, "tasks")
+	task := parseMap(t, tasks, "task-001")
+	require.Equal(t, true, task["passed"])
 }
 
 func TestGradeCommand_SingleTask_Failing(t *testing.T) {

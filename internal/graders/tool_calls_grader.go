@@ -133,9 +133,10 @@ func (g *ToolCallsGrader) Grade(_ context.Context, gCtx *Context) (*models.Grade
 		// it passes when at least one recorded tool call matches the tool
 		// name regex AND all configured arg matchers pass on that call.
 		expectResults := make([]map[string]any, 0, len(g.compiledExpect))
+		expectCalls := toolCallRecordsForMatching(gCtx)
 		for _, exp := range g.compiledExpect {
 			totalChecks++
-			matched, detail := evaluateExpectation(exp, gCtx.Session.ToolCalls)
+			matched, detail := evaluateExpectation(exp, expectCalls)
 			expectResults = append(expectResults, detail)
 			if matched {
 				passedChecks++
@@ -180,7 +181,7 @@ func (g *ToolCallsGrader) Grade(_ context.Context, gCtx *Context) (*models.Grade
 // evaluateExpectation returns whether any of the calls satisfies the
 // expectation, and a structured detail record describing the best-effort
 // reason on failure (or the index of the satisfying call on success).
-func evaluateExpectation(exp compiledExpectation, calls []models.ToolCall) (bool, map[string]any) {
+func evaluateExpectation(exp compiledExpectation, calls []toolCallRecord) (bool, map[string]any) {
 	detail := map[string]any{"tool": exp.raw.Tool}
 	if len(exp.matcher) > 0 {
 		detail["args"] = exp.raw.Args
@@ -189,24 +190,23 @@ func evaluateExpectation(exp compiledExpectation, calls []models.ToolCall) (bool
 	nameMatches := 0
 	var lastReason string
 	for i, call := range calls {
-		if exp.toolRe != nil && !exp.toolRe.MatchString(call.Name) {
+		if exp.toolRe != nil && !exp.toolRe.MatchString(call.name) {
 			continue
 		}
 		nameMatches++
 		if len(exp.matcher) == 0 {
 			detail["matched_call_index"] = i
-			detail["matched_call_id"] = call.ID
+			detail["matched_call_id"] = call.id
 			return true, detail
 		}
-		args, err := normalizeToolCallArgs(call)
-		if err != nil {
-			lastReason = err.Error()
+		if call.argsErr != nil {
+			lastReason = call.argsErr.Error()
 			continue
 		}
-		failures := evaluateArgMatchers(exp.matcher, args)
+		failures := evaluateArgMatchers(exp.matcher, call.args)
 		if len(failures) == 0 {
 			detail["matched_call_index"] = i
-			detail["matched_call_id"] = call.ID
+			detail["matched_call_id"] = call.id
 			return true, detail
 		}
 		lastReason = strings.Join(failures, "; ")

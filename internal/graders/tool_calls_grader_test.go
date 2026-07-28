@@ -2,6 +2,7 @@ package graders
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	"github.com/microsoft/waza/internal/graders/argmatcher"
@@ -373,6 +374,24 @@ func TestToolCallsGrader_Expect_NoArgs_Passes(t *testing.T) {
 	require.True(t, res.Passed, "feedback: %s", res.Feedback)
 }
 
+func TestToolCallsGrader_Expect_NoArgsUsesToolEvents_Passes(t *testing.T) {
+	g, err := NewToolCallsGrader("tc", models.ToolCallsGraderParameters{
+		Expect: []models.ToolExpectation{{Tool: "search"}},
+	})
+	require.NoError(t, err)
+
+	res, err := g.Grade(context.Background(), &Context{
+		Session: &models.SessionDigest{
+			ToolCalls: []models.ToolCall{{ID: "call-1", Name: "search"}},
+		},
+		ToolEvents: []models.ToolEvent{{
+			Sequence: 1, ToolCallID: "call-1", ToolName: "search",
+		}},
+	})
+	require.NoError(t, err)
+	require.True(t, res.Passed, "feedback: %s", res.Feedback)
+}
+
 func TestToolCallsGrader_Expect_MissingTool_Fails(t *testing.T) {
 	g, err := NewToolCallsGrader("tc", models.ToolCallsGraderParameters{
 		Expect: []models.ToolExpectation{{Tool: "bash"}, {Tool: "view"}},
@@ -405,6 +424,50 @@ func TestToolCallsGrader_Expect_RegexArgMatch_Passes(t *testing.T) {
 				{Name: "bash", Arguments: models.ToolCallArgs{Command: "ls -la"}},
 			},
 		},
+	})
+	require.NoError(t, err)
+	require.True(t, res.Passed, "feedback: %s", res.Feedback)
+}
+
+func TestToolCallsGrader_Expect_UsesToolEventArgsAfterResultsRoundTrip(t *testing.T) {
+	g, err := NewToolCallsGrader("tc", models.ToolCallsGraderParameters{
+		Expect: []models.ToolExpectation{{
+			Tool: "search",
+			Args: map[string]argmatcher.Matcher{
+				"query": {Kind: argmatcher.KindContains, Contains: "auth"},
+			},
+		}},
+	})
+	require.NoError(t, err)
+
+	original := models.RunResult{
+		SessionDigest: models.SessionDigest{
+			ToolCalls: []models.ToolCall{{
+				ID:   "call-1",
+				Name: "search",
+				Arguments: models.ToolCallArgs{
+					Extra: map[string]any{"query": "find auth configuration"},
+				},
+			}},
+		},
+		ToolEvents: []models.ToolEvent{{
+			Sequence:   1,
+			ToolCallID: "call-1",
+			ToolName:   "search",
+			Args:       map[string]any{"query": "find auth configuration"},
+			Success:    true,
+		}},
+	}
+
+	data, err := json.Marshal(original)
+	require.NoError(t, err)
+	var restored models.RunResult
+	require.NoError(t, json.Unmarshal(data, &restored))
+	require.Empty(t, restored.SessionDigest.ToolCalls[0].Arguments.Extra, "ToolCallArgs.Extra is intentionally not serialized")
+
+	res, err := g.Grade(context.Background(), &Context{
+		Session:    &restored.SessionDigest,
+		ToolEvents: restored.ToolEvents,
 	})
 	require.NoError(t, err)
 	require.True(t, res.Passed, "feedback: %s", res.Feedback)

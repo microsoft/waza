@@ -47,6 +47,75 @@ func normalizeToolCallArgs(call models.ToolCall) (map[string]any, error) {
 	return out, nil
 }
 
+func normalizeToolEventArgs(event models.ToolEvent) (map[string]any, error) {
+	if event.Args == nil {
+		return map[string]any{}, nil
+	}
+	data, err := json.Marshal(event.Args)
+	if err != nil {
+		return nil, fmt.Errorf("marshaling tool event args: %w", err)
+	}
+	var raw map[string]any
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return nil, fmt.Errorf("unmarshaling tool event args: %w", err)
+	}
+	return raw, nil
+}
+
+type toolCallRecord struct {
+	id      string
+	name    string
+	args    map[string]any
+	argsErr error
+}
+
+func toolCallRecordsForMatching(gCtx *Context) []toolCallRecord {
+	if gCtx == nil {
+		return nil
+	}
+	var records []toolCallRecord
+	seenIDs := make(map[string]struct{}, len(gCtx.ToolEvents))
+	if len(gCtx.ToolEvents) > 0 {
+		records = make([]toolCallRecord, 0, len(gCtx.ToolEvents))
+		for _, event := range gCtx.ToolEvents {
+			if event.ToolName == "" {
+				continue
+			}
+			if event.ToolCallID != "" {
+				seenIDs[event.ToolCallID] = struct{}{}
+			}
+			args, err := normalizeToolEventArgs(event)
+			records = append(records, toolCallRecord{
+				id:      event.ToolCallID,
+				name:    event.ToolName,
+				args:    args,
+				argsErr: err,
+			})
+		}
+	}
+	if gCtx.Session == nil {
+		return records
+	}
+	if records == nil {
+		records = make([]toolCallRecord, 0, len(gCtx.Session.ToolCalls))
+	}
+	for _, call := range gCtx.Session.ToolCalls {
+		if call.ID != "" {
+			if _, ok := seenIDs[call.ID]; ok {
+				continue
+			}
+		}
+		args, err := normalizeToolCallArgs(call)
+		records = append(records, toolCallRecord{
+			id:      call.ID,
+			name:    call.Name,
+			args:    args,
+			argsErr: err,
+		})
+	}
+	return records
+}
+
 // evaluateArgMatchers returns a slice of human-readable failures describing
 // any matcher in `matchers` whose key was absent from `args` or whose value
 // failed to match. An empty slice means every matcher passed.
