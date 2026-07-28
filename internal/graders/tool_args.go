@@ -34,17 +34,110 @@ func normalizeToolCallArgs(call models.ToolCall) (map[string]any, error) {
 		out[k] = v
 	}
 	// Merge engine-specific extras last so they win over zero-valued known
-	// fields. Known-field collisions (e.g. an MCP tool that happens to
-	// declare a `path` arg with extra metadata) keep the typed value from
-	// ToolCallArgs since it has already been written above and Extra by
-	// construction holds only keys mapstructure could not place.
+	// fields.
 	for k, v := range call.Arguments.Extra {
+		if s, ok := v.(string); ok && s == "" {
+			continue
+		}
 		if _, present := out[k]; present {
 			continue
 		}
 		out[k] = v
 	}
 	return out, nil
+}
+
+func toolCallsForGrading(session *models.SessionDigest, toolEvents []models.ToolEvent) []models.ToolCall {
+	if len(toolEvents) == 0 {
+		if session == nil {
+			return nil
+		}
+		return session.ToolCalls
+	}
+
+	fallbacksByID := make(map[string]models.ToolCall)
+	fallbacksByName := make(map[string][]models.ToolCall)
+	if session != nil {
+		for _, call := range session.ToolCalls {
+			if call.ID != "" {
+				fallbacksByID[call.ID] = call
+			}
+			fallbacksByName[call.Name] = append(fallbacksByName[call.Name], call)
+		}
+	}
+
+	calls := make([]models.ToolCall, 0, len(toolEvents))
+	nameOffsets := make(map[string]int)
+	for _, event := range toolEvents {
+		if event.ToolName == "" {
+			continue
+		}
+
+		call := models.ToolCall{
+			ID:      event.ToolCallID,
+			Name:    event.ToolName,
+			Success: event.Success,
+		}
+		if event.ToolCallID != "" {
+			if fallback, ok := fallbacksByID[event.ToolCallID]; ok {
+				call.Result = fallback.Result
+				call.Arguments = fallback.Arguments
+			}
+		} else if byName := fallbacksByName[event.ToolName]; len(byName) > nameOffsets[event.ToolName] {
+			fallback := byName[nameOffsets[event.ToolName]]
+			nameOffsets[event.ToolName]++
+			call.Result = fallback.Result
+			call.Arguments = fallback.Arguments
+		}
+
+		if event.Args != nil {
+			call.Arguments = toolCallArgsFromEvent(event.Args)
+		}
+		calls = append(calls, call)
+	}
+	if len(calls) == 0 && session != nil {
+		return session.ToolCalls
+	}
+	return calls
+}
+
+func toolCallArgsFromEvent(args any) models.ToolCallArgs {
+	raw, ok := normalizeToolEventArgs(args)
+	if !ok {
+		return models.ToolCallArgs{}
+	}
+
+	out := models.ToolCallArgs{}
+	if s, ok := raw["path"].(string); ok {
+		out.Path = s
+	}
+	if s, ok := raw["file_text"].(string); ok {
+		out.FileText = s
+	}
+	if s, ok := raw["command"].(string); ok {
+		out.Command = s
+	}
+	if s, ok := raw["description"].(string); ok {
+		out.Description = s
+	}
+	if s, ok := raw["skill"].(string); ok {
+		out.Skill = s
+	}
+
+	out.Extra = raw
+	return out
+}
+
+func normalizeToolEventArgs(args any) (map[string]any, bool) {
+	data, err := json.Marshal(args)
+	if err != nil {
+		return nil, false
+	}
+	var raw map[string]any
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return nil, false
+	}
+	return raw, true
 }
 
 // evaluateArgMatchers returns a slice of human-readable failures describing

@@ -108,8 +108,10 @@ func (tc *toolConstraintGrader) Grade(ctx context.Context, gradingContext *Conte
 
 		var failures []string
 
-		failures = append(failures, tc.checkExpectTools(session)...)
-		failures = append(failures, tc.checkRejectTools(session)...)
+		toolCalls := toolCallsForGrading(session, gradingContext.ToolEvents)
+
+		failures = append(failures, tc.checkExpectTools(toolCalls)...)
+		failures = append(failures, tc.checkRejectTools(toolCalls)...)
 
 		totalChecks := tc.countTotalChecks()
 		passedChecks := totalChecks - len(failures)
@@ -227,7 +229,7 @@ func describeToolSpecs(specs []models.ToolSpecParameters) []string {
 	return out
 }
 
-func (tc *toolConstraintGrader) checkExpectTools(session *models.SessionDigest) []string {
+func (tc *toolConstraintGrader) checkExpectTools(toolCalls []models.ToolCall) []string {
 	if len(tc.expectTools) == 0 {
 		return nil
 	}
@@ -236,7 +238,7 @@ func (tc *toolConstraintGrader) checkExpectTools(session *models.SessionDigest) 
 	for _, spec := range tc.expectTools {
 		found := false
 
-		for _, call := range session.ToolCalls {
+		for _, call := range toolCalls {
 			if matchesToolCall(spec, call) {
 				found = true
 				break
@@ -250,7 +252,7 @@ func (tc *toolConstraintGrader) checkExpectTools(session *models.SessionDigest) 
 	return failures
 }
 
-func (tc *toolConstraintGrader) checkRejectTools(session *models.SessionDigest) []string {
+func (tc *toolConstraintGrader) checkRejectTools(toolCalls []models.ToolCall) []string {
 	if len(tc.rejectTools) == 0 {
 		return nil
 	}
@@ -259,7 +261,7 @@ func (tc *toolConstraintGrader) checkRejectTools(session *models.SessionDigest) 
 	for _, spec := range tc.rejectTools {
 		found := false
 
-		for _, call := range session.ToolCalls {
+		for _, call := range toolCalls {
 			if matchesToolCall(spec, call) {
 				found = true
 				break

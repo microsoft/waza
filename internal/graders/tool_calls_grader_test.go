@@ -2,6 +2,7 @@ package graders
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	"github.com/microsoft/waza/internal/graders/argmatcher"
@@ -368,6 +369,65 @@ func TestToolCallsGrader_Expect_NoArgs_Passes(t *testing.T) {
 		Session: &models.SessionDigest{
 			ToolCalls: []models.ToolCall{{Name: "bash", Arguments: models.ToolCallArgs{Command: "ls"}}},
 		},
+	})
+	require.NoError(t, err)
+	require.True(t, res.Passed, "feedback: %s", res.Feedback)
+}
+
+func TestToolCallsGrader_Expect_NoArgs_PassesWithToolEvents(t *testing.T) {
+	g, err := NewToolCallsGrader("tc", models.ToolCallsGraderParameters{
+		Expect: []models.ToolExpectation{{Tool: "search"}},
+	})
+	require.NoError(t, err)
+
+	res, err := g.Grade(context.Background(), &Context{
+		Session: &models.SessionDigest{},
+		ToolEvents: []models.ToolEvent{{
+			ToolCallID: "call-1",
+			ToolName:   "search",
+			Args:       map[string]any{"query": "auth docs"},
+			Success:    true,
+		}},
+	})
+	require.NoError(t, err)
+	require.True(t, res.Passed, "feedback: %s", res.Feedback)
+}
+
+func TestToolCallsGrader_Expect_UsesToolEventArgsAfterResultsRoundTrip(t *testing.T) {
+	g, err := NewToolCallsGrader("tc", models.ToolCallsGraderParameters{
+		Expect: []models.ToolExpectation{{
+			Tool: "search",
+			Args: map[string]argmatcher.Matcher{
+				"query": {Kind: argmatcher.KindEquals, Equals: "auth docs"},
+			},
+		}},
+	})
+	require.NoError(t, err)
+
+	run := models.RunResult{
+		SessionDigest: models.SessionDigest{
+			ToolCalls: []models.ToolCall{{
+				ID:   "call-1",
+				Name: "search",
+			}},
+		},
+		ToolEvents: []models.ToolEvent{{
+			ToolCallID: "call-1",
+			ToolName:   "search",
+			Args:       map[string]any{"query": "auth docs"},
+			Success:    true,
+		}},
+	}
+	data, err := json.Marshal(run)
+	require.NoError(t, err)
+
+	var restored models.RunResult
+	require.NoError(t, json.Unmarshal(data, &restored))
+	require.Empty(t, restored.SessionDigest.ToolCalls[0].Arguments.Extra)
+
+	res, err := g.Grade(context.Background(), &Context{
+		Session:    &restored.SessionDigest,
+		ToolEvents: restored.ToolEvents,
 	})
 	require.NoError(t, err)
 	require.True(t, res.Passed, "feedback: %s", res.Feedback)

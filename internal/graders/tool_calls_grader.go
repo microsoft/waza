@@ -84,11 +84,12 @@ func (g *ToolCallsGrader) Grade(_ context.Context, gCtx *Context) (*models.Grade
 			}, nil
 		}
 
-		calledSet := make(map[string]bool, len(gCtx.Session.ToolCalls))
-		for _, tc := range gCtx.Session.ToolCalls {
+		toolCalls := toolCallsForGrading(gCtx.Session, gCtx.ToolEvents)
+		calledSet := make(map[string]bool, len(toolCalls))
+		for _, tc := range toolCalls {
 			calledSet[tc.Name] = true
 		}
-		totalCalls := len(gCtx.Session.ToolCalls)
+		totalCalls := len(toolCalls)
 
 		var totalChecks, passedChecks int
 		var failures []string
@@ -135,7 +136,7 @@ func (g *ToolCallsGrader) Grade(_ context.Context, gCtx *Context) (*models.Grade
 		expectResults := make([]map[string]any, 0, len(g.compiledExpect))
 		for _, exp := range g.compiledExpect {
 			totalChecks++
-			matched, detail := evaluateExpectation(exp, gCtx.Session.ToolCalls)
+			matched, detail := evaluateExpectation(exp, toolCalls)
 			expectResults = append(expectResults, detail)
 			if matched {
 				passedChecks++

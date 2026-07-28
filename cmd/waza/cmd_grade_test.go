@@ -431,6 +431,56 @@ inputs:
 	require.Equal(t, false, parsed["passed"])
 }
 
+func TestGradeCommand_ToolCallsArgsUseToolEventsAfterResultsRoundTrip(t *testing.T) {
+	const taskWithToolCallsGrader = `id: task-tool-query
+name: Tool Query
+inputs:
+  prompt: "Search for docs"
+graders:
+  - name: search_query
+    type: tool_calls
+    config:
+      expect:
+        - tool: search
+          args:
+            query:
+              equals: "auth docs"
+`
+
+	dir := t.TempDir()
+	specPath := gradeSpec(t, dir, minimalSpec)
+	writeTaskFile(t, dir, "task.yaml", taskWithToolCallsGrader)
+
+	resultsPath := gradeResultsFile(t, dir, outcomeWithTasks(models.TestOutcome{
+		TestID: "task-tool-query",
+		Runs: []models.RunResult{{
+			FinalOutput: "output",
+			DurationMs:  1000,
+			SessionDigest: models.SessionDigest{
+				SessionID: "s-1",
+				ToolCalls: []models.ToolCall{{
+					ID:   "call-1",
+					Name: "search",
+				}},
+			},
+			ToolEvents: []models.ToolEvent{{
+				ToolCallID: "call-1",
+				ToolName:   "search",
+				Args:       map[string]any{"query": "auth docs"},
+				Success:    true,
+			}},
+		}},
+	}))
+
+	output, err := executeGrade(t, specPath, "--task", "task-tool-query", "--results", resultsPath)
+	require.NoError(t, err)
+
+	var parsed map[string]any
+	require.NoError(t, json.Unmarshal([]byte(output), &parsed))
+	require.Equal(t, true, parsed["passed"])
+	require.Equal(t, 1.0, parsed["overall_score"])
+}
+
 func TestGradeCommand_CodeExplainerIntegration(t *testing.T) {
 	evalPath := filepath.Join("../..", "examples", "code-explainer", "eval.yaml")
 	if _, err := os.Stat(evalPath); err != nil {

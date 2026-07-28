@@ -1246,8 +1246,10 @@ func (r *EvalRunner) executeRun(ctx context.Context, tc *models.TestCase, runNum
 	// buildToolEvents.
 	sdkEvents := copilotevents.ToSDK(resp.Events)
 
+	toolEvents := buildToolEvents(sdkEvents)
+
 	// Build validation context
-	vCtx := r.buildGraderContext(tc, resp, sdkEvents)
+	vCtx := r.buildGraderContext(tc, resp, sdkEvents, toolEvents)
 
 	var gradersResults map[string]models.GraderResults
 	if r.skipGraders {
@@ -1344,7 +1346,7 @@ func (r *EvalRunner) executeRun(ctx context.Context, tc *models.TestCase, runNum
 		WorkspaceDir:     resp.WorkspaceDir,
 		Responder:        responderInfo,
 		Checkpoints:      checkpointOutcomes,
-		ToolEvents:       buildToolEvents(sdkEvents),
+		ToolEvents:       toolEvents,
 	}
 	r.captureSnapshot(tc, req, resp, &run)
 	return returnWithArtifacts(run)
@@ -2040,7 +2042,7 @@ func convertMCPServers(serverConfigs map[string]any, mocks []models.MCPMockConfi
 	})
 }
 
-func (r *EvalRunner) buildGraderContext(tc *models.TestCase, resp *execution.ExecutionResponse, sdkEvents []copilot.SessionEvent) *graders.Context {
+func (r *EvalRunner) buildGraderContext(tc *models.TestCase, resp *execution.ExecutionResponse, sdkEvents []copilot.SessionEvent, toolEvents []models.ToolEvent) *graders.Context {
 	// Reuse the shared transcript builder so the conversion is preallocated
 	// (entries := make([]TranscriptEvent, 0, len(events))) and produced in a
 	// single place.
@@ -2060,6 +2062,7 @@ func (r *EvalRunner) buildGraderContext(tc *models.TestCase, resp *execution.Exe
 		SkillInvocations: resp.SkillInvocations,
 		SessionID:        resp.SessionID,
 		Session:          &sessionDigest,
+		ToolEvents:       toolEvents,
 		Executor:         r.engine,
 	}
 }
