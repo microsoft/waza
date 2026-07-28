@@ -2,6 +2,7 @@ package models
 
 import (
 	"encoding/json"
+	"fmt"
 	"log/slog"
 
 	copilot "github.com/github/copilot-sdk/go"
@@ -39,12 +40,115 @@ type ToolCallArgs struct {
 	// ",remain" support so argument matchers in tool_calls /
 	// tool_constraint graders can see the full argument bag.
 	//
-	// Excluded from JSON marshaling: callers consuming arguments as a
-	// generic map should use graders.normalizeToolCallArgs, which merges
-	// Extra into the known fields. Persisting the raw bag in results.json
-	// happens through RunResult.ToolEvents instead, which preserves the
-	// engine's original argument value verbatim.
+	// Serialized inline alongside the fixed fields via [ToolCallArgs.MarshalJSON]
+	// / [ToolCallArgs.UnmarshalJSON] so that MCP-style keys (e.g. `query`)
+	// survive a round-trip through `results.json` and are visible to graders
+	// during offline `waza grade` runs. Known-field keys always win — a
+	// collision (unusual, since mapstructure only populates Extra with keys
+	// it could not place) is silently dropped from Extra during unmarshal.
 	Extra map[string]any `json:"-" mapstructure:",remain"`
+}
+
+// toolCallArgsKnownFields lists the JSON keys owned by ToolCallArgs's fixed
+// struct fields. Kept as a package-level var so MarshalJSON and UnmarshalJSON
+// share a single source of truth and can quickly discriminate Extra keys.
+var toolCallArgsKnownFields = map[string]struct{}{
+	"path":        {},
+	"file_text":   {},
+	"command":     {},
+	"description": {},
+	"skill":       {},
+}
+
+// MarshalJSON emits the fixed fields (preserving the historical shape —
+// every known key is always present, even when the value is the zero
+// string) and inlines any [ToolCallArgs.Extra] entries at the same level.
+//
+// Inlining Extra fixes issue #474: previously `Extra` had `json:"-"`, so
+// MCP tool arguments such as `query` and `limit` were dropped when
+// `session_digest.tool_calls[].arguments` was written to `results.json`,
+// which made the `tool_calls` grader's `expect[].args` matcher fail during
+// offline grading (`waza grade`) even though the live run had matched.
+//
+// This change is additive to the wire format: existing consumers still see
+// the same known keys with the same values; new keys are simply also
+// present when the engine supplied them.
+func (a ToolCallArgs) MarshalJSON() ([]byte, error) {
+	// Alias suppresses the receiver's custom MarshalJSON to reuse the
+	// default reflection-based marshaller for the fixed fields.
+	type alias ToolCallArgs
+	base, err := json.Marshal(alias(a))
+	if err != nil {
+		return nil, err
+	}
+	if len(a.Extra) == 0 {
+		return base, nil
+	}
+
+	// Decode the known-field object, splice Extra in, re-encode. This is
+	// simpler than string manipulation and keeps encoding/json responsible
+	// for escaping and ordering.
+	merged := make(map[string]json.RawMessage, len(toolCallArgsKnownFields)+len(a.Extra))
+	if err := json.Unmarshal(base, &merged); err != nil {
+		return nil, err
+	}
+	for k, v := range a.Extra {
+		if _, isKnown := toolCallArgsKnownFields[k]; isKnown {
+			// Should not happen under normal mapstructure usage, but if
+			// it does, defer to the known field's value.
+			continue
+		}
+		raw, err := json.Marshal(v)
+		if err != nil {
+			return nil, fmt.Errorf("marshaling ToolCallArgs.Extra[%q]: %w", k, err)
+		}
+		merged[k] = raw
+	}
+	return json.Marshal(merged)
+}
+
+// UnmarshalJSON reads the fixed fields and captures every other top-level
+// key into [ToolCallArgs.Extra]. This is the read side of the inlining
+// contract documented on MarshalJSON: it lets `waza grade` reconstitute
+// full MCP argument bags from a serialized `session_digest.tool_calls[]`.
+func (a *ToolCallArgs) UnmarshalJSON(data []byte) error {
+	// Empty-object / null are common in older captures; treat them as a
+	// zero value rather than an error.
+	if len(data) == 0 || string(data) == "null" {
+		*a = ToolCallArgs{}
+		return nil
+	}
+
+	// Reuse the reflection-based unmarshaller for the known fields.
+	type alias ToolCallArgs
+	var fixed alias
+	if err := json.Unmarshal(data, &fixed); err != nil {
+		return err
+	}
+
+	// Second pass: collect anything that isn't a known field into Extra.
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	var extra map[string]any
+	for k, v := range raw {
+		if _, isKnown := toolCallArgsKnownFields[k]; isKnown {
+			continue
+		}
+		var decoded any
+		if err := json.Unmarshal(v, &decoded); err != nil {
+			return fmt.Errorf("unmarshaling ToolCallArgs.Extra[%q]: %w", k, err)
+		}
+		if extra == nil {
+			extra = make(map[string]any, len(raw))
+		}
+		extra[k] = decoded
+	}
+
+	*a = ToolCallArgs(fixed)
+	a.Extra = extra
+	return nil
 }
 
 type TranscriptEvent struct {

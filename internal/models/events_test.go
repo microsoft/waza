@@ -97,3 +97,63 @@ func TestTranscriptEventRoundTripPreservesUncoveredType(t *testing.T) {
 		})
 	}
 }
+
+// TestToolCallArgs_ExtraRoundTripsThroughJSON reproduces the round-trip issue
+// from #474: MCP tool arguments captured into ToolCallArgs.Extra (e.g. `query`)
+// must survive marshaling into results.json and unmarshaling back, so that the
+// tool_calls grader's expect[].args matcher works during offline grading.
+//
+// The default `json:"-"` behavior used to drop Extra silently.
+func TestToolCallArgs_ExtraRoundTripsThroughJSON(t *testing.T) {
+	original := ToolCallArgs{
+		Extra: map[string]any{
+			"query": "hello world",
+			"limit": float64(5),
+		},
+	}
+
+	data, err := json.Marshal(original)
+	require.NoError(t, err)
+
+	// Extra keys must appear at the top level, not nested under a wrapper.
+	var raw map[string]any
+	require.NoError(t, json.Unmarshal(data, &raw))
+	require.Equal(t, "hello world", raw["query"])
+	require.EqualValues(t, 5, raw["limit"])
+	// Known fields are still emitted (backward compat with wire format).
+	_, hasPath := raw["path"]
+	require.True(t, hasPath, "known fields must remain in the wire format")
+
+	var restored ToolCallArgs
+	require.NoError(t, json.Unmarshal(data, &restored))
+	require.Equal(t, "hello world", restored.Extra["query"])
+	require.EqualValues(t, 5, restored.Extra["limit"])
+}
+
+// TestToolCallArgs_UnmarshalPreservesKnownFields ensures the custom
+// UnmarshalJSON does not regress mapping of the fixed fields onto the struct.
+func TestToolCallArgs_UnmarshalPreservesKnownFields(t *testing.T) {
+	input := `{"path":"/tmp/f","file_text":"hi","command":"ls","description":"list","skill":"web","query":"needle"}`
+	var got ToolCallArgs
+	require.NoError(t, json.Unmarshal([]byte(input), &got))
+	require.Equal(t, "/tmp/f", got.Path)
+	require.Equal(t, "hi", got.FileText)
+	require.Equal(t, "ls", got.Command)
+	require.Equal(t, "list", got.Description)
+	require.Equal(t, "web", got.Skill)
+	require.Equal(t, "needle", got.Extra["query"])
+}
+
+// TestToolCallArgs_UnmarshalHandlesNullAndEmpty exercises the null/empty
+// short-circuit so legacy captures that omitted the arguments object don't
+// error out.
+func TestToolCallArgs_UnmarshalHandlesNullAndEmpty(t *testing.T) {
+	var got ToolCallArgs
+	require.NoError(t, json.Unmarshal([]byte("null"), &got))
+	require.Empty(t, got.Extra)
+
+	got = ToolCallArgs{Path: "leftover", Extra: map[string]any{"stale": true}}
+	require.NoError(t, json.Unmarshal([]byte("null"), &got))
+	require.Empty(t, got.Path, "null should reset to zero value")
+	require.Empty(t, got.Extra)
+}

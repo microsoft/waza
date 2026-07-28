@@ -257,6 +257,13 @@ func gradeRun(ctx context.Context, spec *models.EvalSpec, tc *models.TestCase, r
 		return &gradedRun, nil
 	}
 
+	// Backfill MCP-style arguments (e.g. `query`) onto SessionDigest.ToolCalls
+	// from the canonical tool_events entries for `results.json` files written
+	// before ToolCallArgs.MarshalJSON inlined Extra keys (#474). The helper is
+	// a no-op when SessionDigest already carries the args or when ToolEvents
+	// is absent (legacy schema versions < 1.1).
+	gradedRun.HydrateToolCallArgsFromEvents()
+
 	skillInvocations := make([]execution.SkillInvocation, len(run.SkillInvocations))
 	for i, si := range run.SkillInvocations {
 		skillInvocations[i] = execution.SkillInvocation{Name: si.Name, Path: si.Path}
@@ -266,7 +273,7 @@ func gradeRun(ctx context.Context, spec *models.EvalSpec, tc *models.TestCase, r
 		TestCase:         tc,
 		Output:           run.FinalOutput,
 		Transcript:       run.Transcript,
-		Session:          &run.SessionDigest,
+		Session:          &gradedRun.SessionDigest,
 		DurationMS:       run.DurationMs,
 		SessionID:        run.SessionDigest.SessionID,
 		WorkspaceDir:     workspace,

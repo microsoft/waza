@@ -2,6 +2,7 @@ package graders
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -608,3 +609,80 @@ func TestToolConstraintGrader_ExpectTools_MissingExtraArg(t *testing.T) {
 }
 
 func float64Ptr(v float64) *float64 { return &v }
+
+// TestToolConstraintGrader_ExpectTools_ArgsRoundTripThroughJSON reproduces
+// issue #474: after a live run, `session_digest.tool_calls[]` is written
+// to results.json and later reloaded by `waza grade`. MCP-style argument
+// keys (e.g. `query`) live on ToolCallArgs.Extra, which used to be tagged
+// `json:"-"` and was therefore dropped across the round-trip, causing
+// argument matchers to fail during offline grading even when the live run
+// matched. This test bakes in the fix by marshaling / unmarshaling the
+// call before running the grader.
+func TestToolConstraintGrader_ExpectTools_ArgsRoundTripThroughJSON(t *testing.T) {
+	original := models.ToolCall{
+		ID:   "call-1",
+		Name: "search",
+		Arguments: models.ToolCallArgs{
+			Extra: map[string]any{
+				"query": "find auth bypass",
+				"limit": 5,
+			},
+		},
+	}
+
+	// Emulate the results.json round-trip.
+	buf, err := json.Marshal(original)
+	require.NoError(t, err)
+	var restored models.ToolCall
+	require.NoError(t, json.Unmarshal(buf, &restored))
+	require.Equal(t, "find auth bypass", restored.Arguments.Extra["query"],
+		"regression guard: Extra must survive JSON round-trip")
+
+	g, err := NewToolConstraintGrader("test", models.ToolConstraintGraderParameters{
+		ExpectTools: []models.ToolSpecParameters{{
+			Tool: "search",
+			Args: map[string]argmatcher.Matcher{
+				"query": {Kind: argmatcher.KindContains, Contains: "auth"},
+				"limit": {
+					Kind:  argmatcher.KindRange,
+					Range: &argmatcher.RangeSpec{GTE: float64Ptr(1), LTE: float64Ptr(10)},
+				},
+			},
+		}},
+	})
+	require.NoError(t, err)
+
+	res, err := g.Grade(context.Background(), &Context{
+		Session: &models.SessionDigest{
+			ToolsUsed: []string{"search"},
+			ToolCalls: []models.ToolCall{restored},
+		},
+	})
+	require.NoError(t, err)
+	require.True(t, res.Passed, "feedback: %s", res.Feedback)
+}
+
+// TestToolConstraintGrader_ExpectTools_NameOnlyStillMatchesAfterRoundTrip
+// guards the backward-compat contract: a tool spec that names a tool
+// without any args must still pass when the round-tripped call has no
+// Extra entries. Nothing in the fix should shift name-only matching.
+func TestToolConstraintGrader_ExpectTools_NameOnlyStillMatchesAfterRoundTrip(t *testing.T) {
+	buf, err := json.Marshal(models.ToolCall{Name: "bash"})
+	require.NoError(t, err)
+	var restored models.ToolCall
+	require.NoError(t, json.Unmarshal(buf, &restored))
+
+	g, err := NewToolConstraintGrader("test", models.ToolConstraintGraderParameters{
+		ExpectTools: []models.ToolSpecParameters{{Tool: "bash"}},
+	})
+	require.NoError(t, err)
+
+	res, err := g.Grade(context.Background(), &Context{
+		Session: &models.SessionDigest{
+			ToolsUsed: []string{"bash"},
+			ToolCalls: []models.ToolCall{restored},
+		},
+	})
+	require.NoError(t, err)
+	require.True(t, res.Passed, "feedback: %s", res.Feedback)
+}

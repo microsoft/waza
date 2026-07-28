@@ -470,3 +470,66 @@ func ComputeStdDev(values []float64) float64 {
 	}
 	return math.Sqrt(variance / float64(n))
 }
+
+// HydrateToolCallArgsFromEvents fills in missing MCP-style arguments on
+// the run's SessionDigest.ToolCalls by copying them from the canonical
+// ToolEvents (matched on ToolCallID). This is a no-op for tool calls
+// whose Arguments.Extra is already populated and for events whose Args
+// value isn't a JSON object.
+//
+// Motivation (#474): older `results.json` files were written before
+// [ToolCallArgs.MarshalJSON] inlined Extra, so the persisted
+// `session_digest.tool_calls[].arguments` object lost MCP-specific keys
+// such as `query`. The tool_calls grader's `expect[].args` matcher then
+// failed during offline grading (`waza grade`) even though the same run
+// had graded green in the original invocation. ToolEvents was added in
+// schema 1.1 and preserves the argument bag verbatim, so we can
+// reconstruct Extra from there.
+//
+// The hydration is intentionally conservative:
+//   - only tool calls whose Extra is empty are touched (never overwrite
+//     data supplied directly by the engine on a live run),
+//   - matching requires a non-empty ToolCallID on both sides,
+//   - keys that collide with known ToolCallArgs fields are skipped so we
+//     don't shadow the struct-native values.
+func (r *RunResult) HydrateToolCallArgsFromEvents() {
+	if r == nil || len(r.ToolEvents) == 0 || len(r.SessionDigest.ToolCalls) == 0 {
+		return
+	}
+
+	byID := make(map[string]map[string]any, len(r.ToolEvents))
+	for _, ev := range r.ToolEvents {
+		if ev.ToolCallID == "" {
+			continue
+		}
+		args, ok := ev.Args.(map[string]any)
+		if !ok || len(args) == 0 {
+			continue
+		}
+		byID[ev.ToolCallID] = args
+	}
+	if len(byID) == 0 {
+		return
+	}
+
+	for i := range r.SessionDigest.ToolCalls {
+		call := &r.SessionDigest.ToolCalls[i]
+		if len(call.Arguments.Extra) > 0 || call.ID == "" {
+			continue
+		}
+		args, ok := byID[call.ID]
+		if !ok {
+			continue
+		}
+		extra := make(map[string]any, len(args))
+		for k, v := range args {
+			if _, isKnown := toolCallArgsKnownFields[k]; isKnown {
+				continue
+			}
+			extra[k] = v
+		}
+		if len(extra) > 0 {
+			call.Arguments.Extra = extra
+		}
+	}
+}

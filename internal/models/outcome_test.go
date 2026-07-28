@@ -247,3 +247,62 @@ func TestResponderInfoSerializes(t *testing.T) {
 	require.NoError(t, err)
 	require.NotContains(t, string(data2), `"responder"`)
 }
+
+// TestHydrateToolCallArgsFromEvents_BackfillsExtra proves the offline grade
+// path recovers MCP-style args from tool_events when SessionDigest was
+// written by an older waza version that dropped ToolCallArgs.Extra
+// (issue #474).
+func TestHydrateToolCallArgsFromEvents_BackfillsExtra(t *testing.T) {
+	run := &RunResult{
+		SessionDigest: SessionDigest{
+			ToolCalls: []ToolCall{
+				{ID: "call-1", Name: "mcp_search", Arguments: ToolCallArgs{}},
+				{ID: "call-2", Name: "mcp_search", Arguments: ToolCallArgs{Extra: map[string]any{"query": "already-here"}}},
+				{ID: "", Name: "no-id", Arguments: ToolCallArgs{}},
+			},
+		},
+		ToolEvents: []ToolEvent{
+			{ToolCallID: "call-1", ToolName: "mcp_search", Args: map[string]any{
+				"query": "hydrated",
+				"limit": float64(3),
+				// Collides with a known field: must be dropped from Extra.
+				"path": "/should/not/overwrite",
+			}},
+			{ToolCallID: "call-2", ToolName: "mcp_search", Args: map[string]any{
+				"query": "should-not-overwrite",
+			}},
+			// Args as a non-object value (some engines emit scalars) is skipped.
+			{ToolCallID: "call-3", ToolName: "scalar", Args: "raw-string"},
+		},
+	}
+
+	run.HydrateToolCallArgsFromEvents()
+
+	require.Equal(t, "hydrated", run.SessionDigest.ToolCalls[0].Arguments.Extra["query"])
+	require.EqualValues(t, 3, run.SessionDigest.ToolCalls[0].Arguments.Extra["limit"])
+	_, hasPath := run.SessionDigest.ToolCalls[0].Arguments.Extra["path"]
+	require.False(t, hasPath, "collision with known field must be dropped from Extra")
+
+	// Never overwrite when Extra is already populated (live run wins).
+	require.Equal(t, "already-here", run.SessionDigest.ToolCalls[1].Arguments.Extra["query"])
+
+	// Empty ID => no hydration attempted.
+	require.Empty(t, run.SessionDigest.ToolCalls[2].Arguments.Extra)
+}
+
+// TestHydrateToolCallArgsFromEvents_NoOpWhenEmpty guards the fast paths so
+// live runs and pre-1.1 results.json files aren't perturbed.
+func TestHydrateToolCallArgsFromEvents_NoOpWhenEmpty(t *testing.T) {
+	// Nil receiver must not panic.
+	var nilRun *RunResult
+	nilRun.HydrateToolCallArgsFromEvents()
+
+	// No ToolEvents => nothing to hydrate from.
+	run := &RunResult{SessionDigest: SessionDigest{ToolCalls: []ToolCall{{ID: "x"}}}}
+	run.HydrateToolCallArgsFromEvents()
+	require.Empty(t, run.SessionDigest.ToolCalls[0].Arguments.Extra)
+
+	// No ToolCalls => nothing to update.
+	run2 := &RunResult{ToolEvents: []ToolEvent{{ToolCallID: "x", Args: map[string]any{"a": 1}}}}
+	require.NotPanics(t, func() { run2.HydrateToolCallArgsFromEvents() })
+}
