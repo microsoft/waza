@@ -132,10 +132,11 @@ func (g *ToolCallsGrader) Grade(_ context.Context, gCtx *Context) (*models.Grade
 		// Per-expectation checks: each expectation contributes one check;
 		// it passes when at least one recorded tool call matches the tool
 		// name regex AND all configured arg matchers pass on that call.
+		canonicalArgs := toolEventArgsByCall(gCtx.ToolEvents)
 		expectResults := make([]map[string]any, 0, len(g.compiledExpect))
 		for _, exp := range g.compiledExpect {
 			totalChecks++
-			matched, detail := evaluateExpectation(exp, gCtx.Session.ToolCalls)
+			matched, detail := evaluateExpectation(exp, gCtx.Session.ToolCalls, canonicalArgs)
 			expectResults = append(expectResults, detail)
 			if matched {
 				passedChecks++
@@ -180,7 +181,11 @@ func (g *ToolCallsGrader) Grade(_ context.Context, gCtx *Context) (*models.Grade
 // evaluateExpectation returns whether any of the calls satisfies the
 // expectation, and a structured detail record describing the best-effort
 // reason on failure (or the index of the satisfying call on success).
-func evaluateExpectation(exp compiledExpectation, calls []models.ToolCall) (bool, map[string]any) {
+// canonicalArgs looks up the JSON-preserved args payload for each call
+// (from tool_events) so that arg matchers survive a results.json
+// round-trip; pass a no-op (from toolEventArgsByCall(nil)) when no
+// tool_events are available.
+func evaluateExpectation(exp compiledExpectation, calls []models.ToolCall, canonicalArgs func(int, models.ToolCall) any) (bool, map[string]any) {
 	detail := map[string]any{"tool": exp.raw.Tool}
 	if len(exp.matcher) > 0 {
 		detail["args"] = exp.raw.Args
@@ -198,7 +203,7 @@ func evaluateExpectation(exp compiledExpectation, calls []models.ToolCall) (bool
 			detail["matched_call_id"] = call.ID
 			return true, detail
 		}
-		args, err := normalizeToolCallArgs(call)
+		args, err := normalizeToolCallArgs(call, canonicalArgs(i, call))
 		if err != nil {
 			lastReason = err.Error()
 			continue

@@ -2048,6 +2048,12 @@ func (r *EvalRunner) buildGraderContext(tc *models.TestCase, resp *execution.Exe
 
 	sessionDigest := r.buildSessionDigest(resp)
 
+	// Preserve canonical, JSON-safe tool-call args so graders that inspect
+	// arguments (tool_calls, tool_constraint) can survive a results.json
+	// round-trip. ToolCallArgs.Extra is intentionally excluded from JSON
+	// so we mirror the same builder used for RunResult.ToolEvents.
+	toolEvents := buildToolEvents(sdkEvents)
+
 	return &graders.Context{
 		TestCase:         tc,
 		Transcript:       transcriptEntries,
@@ -2060,6 +2066,7 @@ func (r *EvalRunner) buildGraderContext(tc *models.TestCase, resp *execution.Exe
 		SkillInvocations: resp.SkillInvocations,
 		SessionID:        resp.SessionID,
 		Session:          &sessionDigest,
+		ToolEvents:       toolEvents,
 		Executor:         r.engine,
 	}
 }

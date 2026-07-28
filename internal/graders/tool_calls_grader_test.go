@@ -529,3 +529,98 @@ func TestToolCallsGrader_Expect_InvalidMatcher_ConstructError(t *testing.T) {
 	})
 	require.Error(t, err)
 }
+
+// TestToolCallsGrader_Expect_ArgsFromToolEventsAfterRoundTrip reproduces
+// issue #474: an offline `waza grade` reads SessionDigest.ToolCalls from
+// results.json, but ToolCallArgs.Extra is json:"-" so custom/MCP arg
+// keys like `query` are dropped. The canonical arg payload survives on
+// tool_events[].args (schema v1.1+), which we thread onto Context so
+// argument matchers still work.
+func TestToolCallsGrader_Expect_ArgsFromToolEventsAfterRoundTrip(t *testing.T) {
+	g, err := NewToolCallsGrader("tc", models.ToolCallsGraderParameters{
+		Expect: []models.ToolExpectation{{
+			Tool: "search",
+			Args: map[string]argmatcher.Matcher{
+				"query": {Kind: argmatcher.KindContains, Contains: "auth"},
+			},
+		}},
+	})
+	require.NoError(t, err)
+	res, err := g.Grade(context.Background(), &Context{
+		Session: &models.SessionDigest{
+			ToolCalls: []models.ToolCall{
+				{
+					ID:        "call_1",
+					Name:      "search",
+					Arguments: models.ToolCallArgs{}, // Extra dropped across JSON round-trip.
+				},
+			},
+		},
+		ToolEvents: []models.ToolEvent{
+			{
+				ToolCallID: "call_1",
+				ToolName:   "search",
+				Args:       map[string]any{"query": "find auth bypass"},
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.True(t, res.Passed, "feedback: %s", res.Feedback)
+}
+
+// TestToolCallsGrader_Expect_ArgsFromToolEvents_PositionalFallback covers
+// runs where ToolCall.ID is missing on both sides — correlation falls
+// back to positional order, which matches how buildToolEvents and the
+// SessionDigest builder both derive from the same SDK event stream.
+func TestToolCallsGrader_Expect_ArgsFromToolEvents_PositionalFallback(t *testing.T) {
+	g, err := NewToolCallsGrader("tc", models.ToolCallsGraderParameters{
+		Expect: []models.ToolExpectation{{
+			Tool: "search",
+			Args: map[string]argmatcher.Matcher{
+				"query": {Kind: argmatcher.KindContains, Contains: "auth"},
+			},
+		}},
+	})
+	require.NoError(t, err)
+	res, err := g.Grade(context.Background(), &Context{
+		Session: &models.SessionDigest{
+			ToolCalls: []models.ToolCall{
+				{Name: "search", Arguments: models.ToolCallArgs{}},
+			},
+		},
+		ToolEvents: []models.ToolEvent{
+			{ToolName: "search", Args: map[string]any{"query": "find auth bypass"}},
+		},
+	})
+	require.NoError(t, err)
+	require.True(t, res.Passed, "feedback: %s", res.Feedback)
+}
+
+// TestToolCallsGrader_Expect_TypedFieldsPrecedenceOverToolEvents guards
+// backwards compatibility: when the typed ToolCallArgs already carries a
+// value, we don't silently swap it for the canonical payload.
+func TestToolCallsGrader_Expect_TypedFieldsPrecedenceOverToolEvents(t *testing.T) {
+	g, err := NewToolCallsGrader("tc", models.ToolCallsGraderParameters{
+		Expect: []models.ToolExpectation{{
+			Tool: "bash",
+			Args: map[string]argmatcher.Matcher{
+				"command": {Kind: argmatcher.KindRegex, Regex: `^ls .*`},
+			},
+		}},
+	})
+	require.NoError(t, err)
+	res, err := g.Grade(context.Background(), &Context{
+		Session: &models.SessionDigest{
+			ToolCalls: []models.ToolCall{
+				{ID: "call_1", Name: "bash", Arguments: models.ToolCallArgs{Command: "ls -la"}},
+			},
+		},
+		ToolEvents: []models.ToolEvent{
+			// A malicious/replayed events blob shouldn't override the
+			// typed command that came from the live SessionDigest.
+			{ToolCallID: "call_1", ToolName: "bash", Args: map[string]any{"command": "rm -rf /"}},
+		},
+	})
+	require.NoError(t, err)
+	require.True(t, res.Passed, "feedback: %s", res.Feedback)
+}

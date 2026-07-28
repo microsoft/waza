@@ -608,3 +608,74 @@ func TestToolConstraintGrader_ExpectTools_MissingExtraArg(t *testing.T) {
 }
 
 func float64Ptr(v float64) *float64 { return &v }
+
+// TestToolConstraintGrader_ExpectTools_ArgsFromToolEventsAfterRoundTrip
+// reproduces issue #474: after a results.json round-trip the
+// ToolCallArgs.Extra map is dropped (json:"-"), but tool_events[].args
+// preserves the canonical payload. The grader must fall back to
+// ToolEvents on Context so MCP/custom arg keys like `query` remain
+// matchable during offline grading.
+func TestToolConstraintGrader_ExpectTools_ArgsFromToolEventsAfterRoundTrip(t *testing.T) {
+	g, err := NewToolConstraintGrader("test", models.ToolConstraintGraderParameters{
+		ExpectTools: []models.ToolSpecParameters{{
+			Tool: "search",
+			Args: map[string]argmatcher.Matcher{
+				"query": {Kind: argmatcher.KindContains, Contains: "auth"},
+			},
+		}},
+	})
+	require.NoError(t, err)
+
+	res, err := g.Grade(context.Background(), &Context{
+		Session: &models.SessionDigest{
+			ToolsUsed: []string{"search"},
+			ToolCalls: []models.ToolCall{
+				{
+					ID:   "call_1",
+					Name: "search",
+					// Simulates offline grading path: Extra was dropped
+					// on JSON round-trip, so ToolCallArgs is bare.
+					Arguments: models.ToolCallArgs{},
+				},
+			},
+		},
+		ToolEvents: []models.ToolEvent{
+			{
+				ToolCallID: "call_1",
+				ToolName:   "search",
+				Args:       map[string]any{"query": "find auth bypass"},
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.True(t, res.Passed, "feedback: %s", res.Feedback)
+}
+
+// TestToolConstraintGrader_ExpectTools_ToolEventPositionalFallback covers the
+// case where correlation by ID fails (blank IDs on both sides) and the
+// lookup must fall back to positional order.
+func TestToolConstraintGrader_ExpectTools_ToolEventPositionalFallback(t *testing.T) {
+	g, err := NewToolConstraintGrader("test", models.ToolConstraintGraderParameters{
+		ExpectTools: []models.ToolSpecParameters{{
+			Tool: "search",
+			Args: map[string]argmatcher.Matcher{
+				"query": {Kind: argmatcher.KindContains, Contains: "auth"},
+			},
+		}},
+	})
+	require.NoError(t, err)
+
+	res, err := g.Grade(context.Background(), &Context{
+		Session: &models.SessionDigest{
+			ToolsUsed: []string{"search"},
+			ToolCalls: []models.ToolCall{
+				{Name: "search", Arguments: models.ToolCallArgs{}},
+			},
+		},
+		ToolEvents: []models.ToolEvent{
+			{ToolName: "search", Args: map[string]any{"query": "find auth bypass"}},
+		},
+	})
+	require.NoError(t, err)
+	require.True(t, res.Passed, "feedback: %s", res.Feedback)
+}

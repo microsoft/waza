@@ -50,6 +50,15 @@ type Context struct {
 	// Used by the behavior grader to validate agent behavior constraints.
 	Session *models.SessionDigest
 
+	// ToolEvents is the canonical, JSON-preserved record of tool calls
+	// emitted during the run (schema v1.1+). Graders that inspect tool
+	// call arguments (tool_calls, tool_constraint) should prefer this
+	// over Session.ToolCalls because ToolCallArgs.Extra is intentionally
+	// excluded from JSON (`json:"-"`) and therefore lost across
+	// results.json round-trips. Correlated with Session.ToolCalls by
+	// ToolCallID (falling back to positional index when IDs are missing).
+	ToolEvents []models.ToolEvent
+
 	// SkillInvocations is a chronological list of skills invoked during the session.
 	// Used by the skill_invocation grader to verify orchestration workflows.
 	SkillInvocations []execution.SkillInvocation
