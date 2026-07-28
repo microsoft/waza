@@ -111,6 +111,21 @@ graders:
       contains:
         - "hello"
 `
+
+	taskWithToolCallsGrader = `id: task-003
+name: Tool Args Task
+inputs:
+  prompt: "Call the client search tool"
+graders:
+  - name: called_with_expected_args
+    type: tool_calls
+    config:
+      expect:
+        - tool: nessie-candidate-entity_search_clients
+          args:
+            query:
+              equals: Bissell
+`
 )
 
 func TestGradeCommand_NoArgs(t *testing.T) {
@@ -207,6 +222,47 @@ func TestGradeCommand_SingleTask_Passing(t *testing.T) {
 	require.Equal(t, true, parsed["passed"])
 	tasks := parseMap(t, parsed, "tasks")
 	require.Contains(t, tasks, "task-001")
+}
+
+func TestGradeCommand_UsesToolEventsArgsFromResultsJSON(t *testing.T) {
+	const toolName = "nessie-candidate-entity_search_clients"
+	dir := t.TempDir()
+	specPath := gradeSpec(t, dir, minimalSpec)
+	writeTaskFile(t, dir, "task.yaml", taskWithToolCallsGrader)
+
+	results := gradeResultsFile(t, dir, outcomeWithTasks(models.TestOutcome{
+		TestID: "task-003",
+		Runs: []models.RunResult{{
+			RunNumber:   1,
+			FinalOutput: "c-4471",
+			DurationMs:  1000,
+			SessionDigest: models.SessionDigest{
+				SessionID: "s-task-003",
+				ToolCalls: []models.ToolCall{{
+					ID:   "call-1",
+					Name: toolName,
+					Arguments: models.ToolCallArgs{
+						Extra: map[string]any{"query": "Bissell"},
+					},
+					Success: true,
+				}},
+			},
+			ToolEvents: []models.ToolEvent{{
+				Sequence:   1,
+				ToolCallID: "call-1",
+				ToolName:   toolName,
+				Args:       map[string]any{"query": "Bissell"},
+				Success:    true,
+			}},
+		}},
+	}))
+	output, err := executeGrade(t, specPath, "--task", "task-003", "--results", results)
+	require.NoError(t, err)
+
+	var parsed map[string]any
+	require.NoError(t, json.Unmarshal([]byte(output), &parsed))
+	require.Equal(t, true, parsed["passed"])
+	require.Equal(t, 1.0, parsed["overall_score"])
 }
 
 func TestGradeCommand_SingleTask_Failing(t *testing.T) {

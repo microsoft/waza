@@ -2,6 +2,7 @@ package graders
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	"github.com/microsoft/waza/internal/graders/argmatcher"
@@ -492,6 +493,51 @@ func TestToolCallsGrader_Expect_ArgKeyMissing_Fails(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.False(t, res.Passed)
+}
+
+func TestToolCallsGrader_Expect_ArgsUsesToolEventsAfterResultsRoundTrip(t *testing.T) {
+	const toolName = "nessie-candidate-entity_search_clients"
+	original := models.RunResult{
+		SessionDigest: models.SessionDigest{
+			ToolCalls: []models.ToolCall{{
+				ID:   "call-1",
+				Name: toolName,
+				Arguments: models.ToolCallArgs{
+					Extra: map[string]any{"query": "Bissell"},
+				},
+			}},
+		},
+		ToolEvents: []models.ToolEvent{{
+			Sequence:   1,
+			ToolCallID: "call-1",
+			ToolName:   toolName,
+			Args:       map[string]any{"query": "Bissell"},
+			Success:    true,
+		}},
+	}
+	data, err := json.Marshal(original)
+	require.NoError(t, err)
+
+	var restored models.RunResult
+	require.NoError(t, json.Unmarshal(data, &restored))
+	require.Nil(t, restored.SessionDigest.ToolCalls[0].Arguments.Extra)
+
+	g, err := NewToolCallsGrader("tc", models.ToolCallsGraderParameters{
+		Expect: []models.ToolExpectation{{
+			Tool: toolName,
+			Args: map[string]argmatcher.Matcher{
+				"query": {Kind: argmatcher.KindEquals, Equals: "Bissell"},
+			},
+		}},
+	})
+	require.NoError(t, err)
+
+	res, err := g.Grade(context.Background(), &Context{
+		Session:    &restored.SessionDigest,
+		ToolEvents: restored.ToolEvents,
+	})
+	require.NoError(t, err)
+	require.True(t, res.Passed, "feedback: %s", res.Feedback)
 }
 
 func TestToolCallsGrader_Expect_PicksLatestSameNameCall(t *testing.T) {

@@ -47,6 +47,24 @@ func normalizeToolCallArgs(call models.ToolCall) (map[string]any, error) {
 	return out, nil
 }
 
+func normalizeToolEventArgs(event models.ToolEvent) (map[string]any, error) {
+	if event.Args == nil {
+		return map[string]any{}, nil
+	}
+	data, err := json.Marshal(event.Args)
+	if err != nil {
+		return nil, fmt.Errorf("marshaling tool event args: %w", err)
+	}
+	var raw map[string]any
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return nil, fmt.Errorf("unmarshaling tool event args as object: %w", err)
+	}
+	if raw == nil {
+		return map[string]any{}, nil
+	}
+	return raw, nil
+}
+
 // evaluateArgMatchers returns a slice of human-readable failures describing
 // any matcher in `matchers` whose key was absent from `args` or whose value
 // failed to match. An empty slice means every matcher passed.
