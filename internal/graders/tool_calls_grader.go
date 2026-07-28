@@ -24,6 +24,13 @@ type compiledExpectation struct {
 	matcher map[string]argmatcher.Matcher
 }
 
+type evaluatedToolCall struct {
+	ID      string
+	Name    string
+	Args    map[string]any
+	ArgsErr error
+}
+
 // NewToolCallsGrader creates a new ToolCallsGrader, returning an error if the
 // parameters are invalid (e.g. no constraints defined, negative bounds, or
 // min > max).
@@ -75,7 +82,8 @@ func (g *ToolCallsGrader) Kind() models.GraderKind { return models.GraderKindToo
 
 func (g *ToolCallsGrader) Grade(_ context.Context, gCtx *Context) (*models.GraderResults, error) {
 	return measureTime(func() (*models.GraderResults, error) {
-		if gCtx.Session == nil {
+		calls := toolCallsForGrading(gCtx)
+		if len(calls) == 0 && (gCtx == nil || gCtx.Session == nil) {
 			return &models.GraderResults{
 				Name:     g.name,
 				Passed:   false,
@@ -84,11 +92,11 @@ func (g *ToolCallsGrader) Grade(_ context.Context, gCtx *Context) (*models.Grade
 			}, nil
 		}
 
-		calledSet := make(map[string]bool, len(gCtx.Session.ToolCalls))
-		for _, tc := range gCtx.Session.ToolCalls {
+		calledSet := make(map[string]bool, len(calls))
+		for _, tc := range calls {
 			calledSet[tc.Name] = true
 		}
-		totalCalls := len(gCtx.Session.ToolCalls)
+		totalCalls := len(calls)
 
 		var totalChecks, passedChecks int
 		var failures []string
@@ -135,7 +143,7 @@ func (g *ToolCallsGrader) Grade(_ context.Context, gCtx *Context) (*models.Grade
 		expectResults := make([]map[string]any, 0, len(g.compiledExpect))
 		for _, exp := range g.compiledExpect {
 			totalChecks++
-			matched, detail := evaluateExpectation(exp, gCtx.Session.ToolCalls)
+			matched, detail := evaluateExpectation(exp, calls)
 			expectResults = append(expectResults, detail)
 			if matched {
 				passedChecks++
@@ -177,10 +185,46 @@ func (g *ToolCallsGrader) Grade(_ context.Context, gCtx *Context) (*models.Grade
 	})
 }
 
+func toolCallsForGrading(gCtx *Context) []evaluatedToolCall {
+	if gCtx == nil {
+		return nil
+	}
+	if len(gCtx.ToolEvents) > 0 {
+		calls := make([]evaluatedToolCall, 0, len(gCtx.ToolEvents))
+		for _, event := range gCtx.ToolEvents {
+			if event.ToolName == "" {
+				continue
+			}
+			args, err := normalizeToolEventArgs(event)
+			calls = append(calls, evaluatedToolCall{
+				ID:      event.ToolCallID,
+				Name:    event.ToolName,
+				Args:    args,
+				ArgsErr: err,
+			})
+		}
+		return calls
+	}
+	if gCtx.Session == nil {
+		return nil
+	}
+	calls := make([]evaluatedToolCall, 0, len(gCtx.Session.ToolCalls))
+	for _, call := range gCtx.Session.ToolCalls {
+		args, err := normalizeToolCallArgs(call)
+		calls = append(calls, evaluatedToolCall{
+			ID:      call.ID,
+			Name:    call.Name,
+			Args:    args,
+			ArgsErr: err,
+		})
+	}
+	return calls
+}
+
 // evaluateExpectation returns whether any of the calls satisfies the
 // expectation, and a structured detail record describing the best-effort
 // reason on failure (or the index of the satisfying call on success).
-func evaluateExpectation(exp compiledExpectation, calls []models.ToolCall) (bool, map[string]any) {
+func evaluateExpectation(exp compiledExpectation, calls []evaluatedToolCall) (bool, map[string]any) {
 	detail := map[string]any{"tool": exp.raw.Tool}
 	if len(exp.matcher) > 0 {
 		detail["args"] = exp.raw.Args
@@ -198,12 +242,11 @@ func evaluateExpectation(exp compiledExpectation, calls []models.ToolCall) (bool
 			detail["matched_call_id"] = call.ID
 			return true, detail
 		}
-		args, err := normalizeToolCallArgs(call)
-		if err != nil {
-			lastReason = err.Error()
+		if call.ArgsErr != nil {
+			lastReason = call.ArgsErr.Error()
 			continue
 		}
-		failures := evaluateArgMatchers(exp.matcher, args)
+		failures := evaluateArgMatchers(exp.matcher, call.Args)
 		if len(failures) == 0 {
 			detail["matched_call_index"] = i
 			detail["matched_call_id"] = call.ID

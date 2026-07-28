@@ -373,6 +373,52 @@ func TestToolCallsGrader_Expect_NoArgs_Passes(t *testing.T) {
 	require.True(t, res.Passed, "feedback: %s", res.Feedback)
 }
 
+func TestToolCallsGrader_Expect_NoArgs_PassesWithToolEventsOnly(t *testing.T) {
+	g, err := NewToolCallsGrader("tc", models.ToolCallsGraderParameters{
+		Expect: []models.ToolExpectation{{Tool: "search"}},
+	})
+	require.NoError(t, err)
+
+	res, err := g.Grade(context.Background(), &Context{
+		ToolEvents: []models.ToolEvent{{
+			ToolCallID: "call-search",
+			ToolName:   "search",
+			Args:       map[string]any{"query": "waza"},
+			Success:    true,
+		}},
+	})
+	require.NoError(t, err)
+	require.True(t, res.Passed, "feedback: %s", res.Feedback)
+}
+
+func TestToolCallsGrader_Expect_UsesToolEventsArgsWhenDigestArgsStale(t *testing.T) {
+	g, err := NewToolCallsGrader("tc", models.ToolCallsGraderParameters{
+		Expect: []models.ToolExpectation{{
+			Tool: "search",
+			Args: map[string]argmatcher.Matcher{
+				"query": {Kind: argmatcher.KindEquals, Equals: "waza"},
+			},
+		}},
+	})
+	require.NoError(t, err)
+
+	res, err := g.Grade(context.Background(), &Context{
+		Session: &models.SessionDigest{
+			ToolCallCount: 1,
+			ToolsUsed:     []string{"search"},
+			ToolCalls:     []models.ToolCall{{ID: "call-search", Name: "search"}},
+		},
+		ToolEvents: []models.ToolEvent{{
+			ToolCallID: "call-search",
+			ToolName:   "search",
+			Args:       map[string]any{"query": "waza"},
+			Success:    true,
+		}},
+	})
+	require.NoError(t, err)
+	require.True(t, res.Passed, "feedback: %s", res.Feedback)
+}
+
 func TestToolCallsGrader_Expect_MissingTool_Fails(t *testing.T) {
 	g, err := NewToolCallsGrader("tc", models.ToolCallsGraderParameters{
 		Expect: []models.ToolExpectation{{Tool: "bash"}, {Tool: "view"}},

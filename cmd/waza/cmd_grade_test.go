@@ -648,3 +648,55 @@ graders:
 	require.True(t, ok)
 	require.True(t, passed)
 }
+
+func TestGradeCommand_ToolCallsExpectArgsUsesToolEventsAfterResultsRoundTrip(t *testing.T) {
+	const taskWithToolCallsQuery = `id: task-tool-query
+name: Tool Query Task
+inputs:
+  prompt: "Search for waza"
+graders:
+  - name: search_query
+    type: tool_calls
+    config:
+      expect:
+        - tool: "search"
+          args:
+            query: { equals: "waza" }
+`
+	dir := t.TempDir()
+	specPath := gradeSpec(t, dir, minimalSpec)
+	writeTaskFile(t, dir, "task.yaml", taskWithToolCallsQuery)
+
+	outcome := outcomeWithTasks(models.TestOutcome{
+		TestID: "task-tool-query",
+		Runs: []models.RunResult{{
+			RunNumber:   1,
+			FinalOutput: "searched",
+			DurationMs:  1000,
+			SessionDigest: models.SessionDigest{
+				ToolCallCount: 1,
+				ToolsUsed:     []string{"search"},
+				ToolCalls:     []models.ToolCall{{ID: "call-search", Name: "search"}},
+				SessionID:     "s-1",
+			},
+			ToolEvents: []models.ToolEvent{{
+				ToolCallID: "call-search",
+				ToolName:   "search",
+				Args:       map[string]any{"query": "waza"},
+				Success:    true,
+			}},
+		}},
+	})
+	resultsPath := gradeResultsFile(t, dir, outcome)
+
+	out, err := executeGrade(t, specPath, "--results", resultsPath)
+	require.NoError(t, err)
+
+	var result map[string]any
+	require.NoError(t, json.Unmarshal([]byte(out), &result))
+	require.Equal(t, true, result["passed"])
+
+	tasks := parseMap(t, result, "tasks")
+	task := parseMap(t, tasks, "task-tool-query")
+	require.Equal(t, true, task["passed"])
+}
