@@ -1,0 +1,68 @@
+name: Site Build
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  validate-site:
+    name: Validate site
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Detect site changes
+        id: changes
+        uses: actions/github-script@v8
+        with:
+          script: |
+            if (context.eventName !== 'pull_request') {
+              core.setOutput('site', 'true');
+              return;
+            }
+
+            const sitePaths = [
+              '.github/workflows/pages.yml',
+              '.github/workflows/site-ci.yml',
+            ];
+
+            const files = await github.paginate(github.rest.pulls.listFiles, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.payload.pull_request.number,
+              per_page: 100,
+            });
+
+            const siteChanged = files.some(({ filename }) =>
+              filename.startsWith('site/') || sitePaths.includes(filename)
+            );
+
+            core.setOutput('site', siteChanged ? 'true' : 'false');
+            if (!siteChanged) {
+              core.notice('No site changes detected; skipping site build.');
+            }
+
+      - name: Checkout
+        if: steps.changes.outputs.site == 'true'
+        uses: actions/checkout@v7
+
+      - name: Setup Node
+        if: steps.changes.outputs.site == 'true'
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22.12.0'
+          cache: npm
+          cache-dependency-path: site/package-lock.json
+
+      - name: Build site
+        if: steps.changes.outputs.site == 'true'
+        run: cd site && npm ci && npm run build
+
+      - name: Skip site build
+        if: steps.changes.outputs.site != 'true'
+        run: echo "No site changes detected; reporting successful skipped check."
