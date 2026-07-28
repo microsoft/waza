@@ -209,6 +209,61 @@ func TestGradeCommand_SingleTask_Passing(t *testing.T) {
 	require.Contains(t, tasks, "task-001")
 }
 
+func TestGradeCommand_ToolCallsExpectArgsUsesToolEventsFromResults(t *testing.T) {
+	const taskWithToolCallsGrader = `id: task-tool-args
+name: Tool Args
+inputs:
+  prompt: "Call entity_search_clients"
+graders:
+  - name: called_with_expected_args
+    type: tool_calls
+    config:
+      expect:
+        - tool: nessie-candidate-entity_search_clients
+          args:
+            query:
+              equals: Bissell
+`
+	dir := t.TempDir()
+	specPath := gradeSpec(t, dir, minimalSpec)
+	writeTaskFile(t, dir, "task.yaml", taskWithToolCallsGrader)
+
+	results := gradeResultsFile(t, dir, outcomeWithTasks(models.TestOutcome{
+		TestID: "task-tool-args",
+		Runs: []models.RunResult{{
+			RunNumber:   1,
+			FinalOutput: "client_id: c-4471",
+			DurationMs:  1000,
+			SessionDigest: models.SessionDigest{
+				SessionID:     "s-tool-args",
+				ToolCallCount: 1,
+				ToolsUsed:     []string{"nessie-candidate-entity_search_clients"},
+				ToolCalls: []models.ToolCall{{
+					ID:        "call-1",
+					Name:      "nessie-candidate-entity_search_clients",
+					Arguments: models.ToolCallArgs{},
+					Success:   true,
+				}},
+			},
+			ToolEvents: []models.ToolEvent{{
+				Turn:       1,
+				Sequence:   1,
+				ToolCallID: "call-1",
+				ToolName:   "nessie-candidate-entity_search_clients",
+				Args:       map[string]any{"query": "Bissell"},
+				Success:    true,
+			}},
+		}},
+	}))
+	output, err := executeGrade(t, specPath, "--task", "task-tool-args", "--results", results)
+	require.NoError(t, err)
+
+	var parsed map[string]any
+	require.NoError(t, json.Unmarshal([]byte(output), &parsed))
+	require.Equal(t, true, parsed["passed"])
+	require.Equal(t, 1.0, parsed["overall_score"])
+}
+
 func TestGradeCommand_SingleTask_Failing(t *testing.T) {
 	dir := t.TempDir()
 	specPath := gradeSpec(t, dir, minimalSpec)
