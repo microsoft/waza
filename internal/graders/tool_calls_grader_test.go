@@ -373,6 +373,51 @@ func TestToolCallsGrader_Expect_NoArgs_Passes(t *testing.T) {
 	require.True(t, res.Passed, "feedback: %s", res.Feedback)
 }
 
+func TestToolCallsGrader_Expect_NoArgs_PassesWithoutToolEvents(t *testing.T) {
+	g, err := NewToolCallsGrader("tc", models.ToolCallsGraderParameters{
+		Expect: []models.ToolExpectation{{Tool: "nessie-candidate-entity_search_clients"}},
+	})
+	require.NoError(t, err)
+	res, err := g.Grade(context.Background(), &Context{
+		Session: &models.SessionDigest{
+			ToolCalls: []models.ToolCall{{ID: "call-1", Name: "nessie-candidate-entity_search_clients"}},
+		},
+	})
+	require.NoError(t, err)
+	require.True(t, res.Passed, "feedback: %s", res.Feedback)
+}
+
+func TestToolCallsGrader_Expect_UsesToolEventArgsWhenDigestDropsExtra(t *testing.T) {
+	g, err := NewToolCallsGrader("tc", models.ToolCallsGraderParameters{
+		Expect: []models.ToolExpectation{{
+			Tool: "nessie-candidate-entity_search_clients",
+			Args: map[string]argmatcher.Matcher{
+				"query": {Kind: argmatcher.KindEquals, Equals: "Bissell"},
+			},
+		}},
+	})
+	require.NoError(t, err)
+
+	res, err := g.Grade(context.Background(), &Context{
+		Session: &models.SessionDigest{
+			ToolCalls: []models.ToolCall{{
+				ID:        "call-1",
+				Name:      "nessie-candidate-entity_search_clients",
+				Arguments: models.ToolCallArgs{},
+			}},
+		},
+		ToolEvents: []models.ToolEvent{{
+			Sequence:   1,
+			ToolCallID: "call-1",
+			ToolName:   "nessie-candidate-entity_search_clients",
+			Args:       map[string]any{"query": "Bissell"},
+			Success:    true,
+		}},
+	})
+	require.NoError(t, err)
+	require.True(t, res.Passed, "feedback: %s", res.Feedback)
+}
+
 func TestToolCallsGrader_Expect_MissingTool_Fails(t *testing.T) {
 	g, err := NewToolCallsGrader("tc", models.ToolCallsGraderParameters{
 		Expect: []models.ToolExpectation{{Tool: "bash"}, {Tool: "view"}},
