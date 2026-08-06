@@ -22,12 +22,12 @@ jobs:
 
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           lfs: true
 
       - name: Setup Go Environment
-        uses: actions/setup-go@v7
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: '1.26'
           cache-dependency-path: go.sum
@@ -41,7 +41,7 @@ jobs:
       # Only build full Web UI on Linux to save time/resources on Windows
       - name: Setup Node.js (for web UI build)
         if: matrix.os == 'ubuntu-latest' && hashFiles('web/package.json') != ''
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: '22'
           cache: 'npm'
@@ -78,7 +78,7 @@ jobs:
 
       - name: Upload Coverage Report
         if: matrix.os == 'ubuntu-latest'
-        uses: codecov/codecov-action@v7
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
         with:
           file: ./coverage.txt
           flags: go-implementation
@@ -122,12 +122,12 @@ jobs:
 
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           lfs: true
 
       - name: Setup Go Environment
-        uses: actions/setup-go@v7
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: '1.26'
 
@@ -141,7 +141,7 @@ jobs:
           fi
 
       - name: Run golangci-lint
-        uses: golangci/golangci-lint-action@v9
+        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
         with:
           version: v2.10.1
           working-directory: ./
