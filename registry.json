@@ -1024,6 +1024,91 @@
               "url": "https://github.com/microsoft/waza/releases/download/azd-ext-microsoft-azd-waza_0.37.0/microsoft-azd-waza-windows-arm64.zip"
             }
           }
+        },
+        {
+          "version": "0.38.4",
+          "capabilities": [
+            "custom-commands",
+            "metadata"
+          ],
+          "usage": "azd waza <command> [options]",
+          "examples": [
+            {
+              "name": "init",
+              "description": "Scaffold a new eval suite with eval.yaml, tasks/, and fixtures/ directories.",
+              "usage": "azd waza init my-eval"
+            },
+            {
+              "name": "generate",
+              "description": "Generate evals from a SKILL.md file.",
+              "usage": "azd waza generate skills/my-skill/SKILL.md"
+            },
+            {
+              "name": "run",
+              "description": "Run an evaluation benchmark from a spec file.",
+              "usage": "azd waza run examples/code-explainer/eval.yaml --context-dir examples/code-explainer/fixtures -v"
+            },
+            {
+              "name": "compare",
+              "description": "Compare results across models.",
+              "usage": "azd waza compare results-gpt4.json results-sonnet.json"
+            },
+            {
+              "name": "tokens",
+              "description": "Count tokens in skill files.",
+              "usage": "azd waza tokens count skills/"
+            }
+          ],
+          "artifacts": {
+            "darwin/amd64": {
+              "checksum": {
+                "algorithm": "sha256",
+                "value": "8819ff747881798808f4401e550cead4f303477b11ef41db08587ca55f98d922"
+              },
+              "entryPoint": "waza-darwin-amd64",
+              "url": "https://github.com/microsoft/waza/releases/download/v0.38.4/waza-darwin-amd64"
+            },
+            "darwin/arm64": {
+              "checksum": {
+                "algorithm": "sha256",
+                "value": "b35f0596a8ee37a13abcf73dc91f4dee1a1aa0919b3f420d7d27a8687c49c4d7"
+              },
+              "entryPoint": "waza-darwin-arm64",
+              "url": "https://github.com/microsoft/waza/releases/download/v0.38.4/waza-darwin-arm64"
+            },
+            "linux/amd64": {
+              "checksum": {
+                "algorithm": "sha256",
+                "value": "1222c45ce4068e4e9e68cc994f1811ddd71b29ec9f20b4b31c827d3fa5c82c6e"
+              },
+              "entryPoint": "waza-linux-amd64",
+              "url": "https://github.com/microsoft/waza/releases/download/v0.38.4/waza-linux-amd64"
+            },
+            "linux/arm64": {
+              "checksum": {
+                "algorithm": "sha256",
+                "value": "0a3c4fabcbb78676c10bd9aa250cab38c2e8c042b0a40db003f3f091124ed63f"
+              },
+              "entryPoint": "waza-linux-arm64",
+              "url": "https://github.com/microsoft/waza/releases/download/v0.38.4/waza-linux-arm64"
+            },
+            "windows/amd64": {
+              "checksum": {
+                "algorithm": "sha256",
+                "value": "17f12d9bc6c71c895714e119cc0b83bffd82e2eb8062d778f3f644480c60ac3c"
+              },
+              "entryPoint": "waza-windows-amd64.exe",
+              "url": "https://github.com/microsoft/waza/releases/download/v0.38.4/waza-windows-amd64.exe"
+            },
+            "windows/arm64": {
+              "checksum": {
+                "algorithm": "sha256",
+                "value": "38b1163404480f112f04b815c3aac75b383032cf0880bf03d03e413b3508a603"
+              },
+              "entryPoint": "waza-windows-arm64.exe",
+              "url": "https://github.com/microsoft/waza/releases/download/v0.38.4/waza-windows-arm64.exe"
+            }
+          }
         }
       ]
     }
