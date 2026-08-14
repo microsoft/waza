@@ -1,6 +1,8 @@
 package registry
 
 import (
+	"archive/tar"
+	"bytes"
 	"context"
 	"os"
 	"os/exec"
@@ -115,8 +117,47 @@ tasks: []
 }
 
 func TestSafeJoinModulePathRejectsTraversal(t *testing.T) {
-	if _, err := safeJoinModulePath(t.TempDir(), "../outside.yaml"); err == nil {
-		t.Fatalf("expected traversal path to be rejected")
+	for _, unsafe := range []string{"../outside.yaml", `..\outside.yaml`, "graders/../../outside.yaml"} {
+		if _, err := safeJoinModulePath(t.TempDir(), unsafe); err == nil {
+			t.Fatalf("expected traversal path %q to be rejected", unsafe)
+		}
+	}
+}
+
+func TestCacheDirRejectsUnsafeCommit(t *testing.T) {
+	resolver, err := NewResolver(WithCacheRoot(t.TempDir()))
+	if err != nil {
+		t.Fatalf("NewResolver() error = %v", err)
+	}
+	ref, err := ParseRef("example.com/acme/graders#factuality@v1.0.0")
+	if err != nil {
+		t.Fatalf("ParseRef() error = %v", err)
+	}
+	if _, err := resolver.cacheDir(ref, "../outside"); err == nil {
+		t.Fatalf("expected invalid commit to be rejected")
+	}
+}
+
+func TestExtractTarRejectsBackslashTraversal(t *testing.T) {
+	var buf bytes.Buffer
+	tw := tar.NewWriter(&buf)
+	if err := tw.WriteHeader(&tar.Header{
+		Name:     `..\outside.yaml`,
+		Typeflag: tar.TypeReg,
+		Mode:     0o644,
+		Size:     int64(len("bad")),
+	}); err != nil {
+		t.Fatalf("WriteHeader() error = %v", err)
+	}
+	if _, err := tw.Write([]byte("bad")); err != nil {
+		t.Fatalf("Write() error = %v", err)
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+
+	if err := extractTar(bytes.NewReader(buf.Bytes()), t.TempDir()); err == nil {
+		t.Fatalf("expected unsafe tar path to be rejected")
 	}
 }
 

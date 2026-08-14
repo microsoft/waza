@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -79,8 +78,8 @@ func runGet(out io.Writer, ctx context.Context, resolver getResolver, target str
 }
 
 func isEvalYAMLTarget(target string) bool {
-	if info, err := os.Stat(target); err == nil && !info.IsDir() {
-		return true
+	if _, err := registry.ParseRef(target); err == nil {
+		return false
 	}
 	ext := strings.ToLower(filepath.Ext(target))
 	return ext == ".yaml" || ext == ".yml"

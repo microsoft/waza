@@ -22,6 +22,9 @@ func ParseRef(raw string) (Ref, error) {
 	if raw == "" {
 		return Ref{}, fmt.Errorf("ref is empty")
 	}
+	if strings.Contains(raw, `\`) {
+		return Ref{}, fmt.Errorf("ref %q must use forward-slash paths", raw)
+	}
 	base, version, ok := strings.Cut(raw, "@")
 	if !ok || strings.TrimSpace(version) == "" {
 		return Ref{}, fmt.Errorf("ref %q must include @<version>", raw)
@@ -32,12 +35,16 @@ func ParseRef(raw string) (Ref, error) {
 		return Ref{}, fmt.Errorf("ref %q must use <host>/<owner>/<repo>[/path]@<version>", raw)
 	}
 	for i, part := range parts[:3] {
-		if part == "" {
-			return Ref{}, fmt.Errorf("ref %q has empty path segment %d", raw, i)
+		if err := validateModulePathSegment(part); err != nil {
+			return Ref{}, fmt.Errorf("ref %q has invalid module segment %d: %w", raw, i, err)
 		}
 	}
 	refPath := ""
 	if len(parts) > 3 {
+		rawPath := strings.Join(parts[3:], "/")
+		if hasParentPathSegment(rawPath) {
+			return Ref{}, fmt.Errorf("ref %q has invalid module path %q", raw, rawPath)
+		}
 		refPath = path.Clean(strings.Join(parts[3:], "/"))
 		if refPath == "." {
 			refPath = ""
@@ -59,4 +66,29 @@ func ParseRef(raw string) (Ref, error) {
 
 func (r Ref) ModulePath() string {
 	return r.Host + "/" + r.Owner + "/" + r.Repo
+}
+
+func validateModulePathSegment(segment string) error {
+	if segment == "" {
+		return fmt.Errorf("empty segment")
+	}
+	if strings.TrimSpace(segment) != segment {
+		return fmt.Errorf("contains surrounding whitespace")
+	}
+	if segment == "." || segment == ".." {
+		return fmt.Errorf("must not be %q", segment)
+	}
+	if strings.ContainsAny(segment, `/\:`) {
+		return fmt.Errorf("contains a path separator or drive separator")
+	}
+	return nil
+}
+
+func hasParentPathSegment(slashPath string) bool {
+	for _, segment := range strings.Split(slashPath, "/") {
+		if segment == ".." {
+			return true
+		}
+	}
+	return false
 }

@@ -4,12 +4,18 @@ import (
 	"bytes"
 	"fmt"
 	"os"
+	"regexp"
 	"sort"
 
 	"gopkg.in/yaml.v3"
 )
 
 const LockfileName = "waza.lock"
+
+var (
+	lockCommitPattern = regexp.MustCompile(`^[0-9a-fA-F]{40}$`)
+	lockDigestPattern = regexp.MustCompile(`^sha256:[0-9a-fA-F]{64}$`)
+)
 
 // Lockfile pins remote grader refs to immutable source and content digests.
 type Lockfile struct {
@@ -83,8 +89,14 @@ func (l *Lockfile) Validate() error {
 		if g.Commit == "" {
 			return fmt.Errorf("graders[%d].commit is required", i)
 		}
+		if err := ValidateLockCommit(g.Commit); err != nil {
+			return fmt.Errorf("graders[%d].commit: %w", i, err)
+		}
 		if g.Digest == "" {
 			return fmt.Errorf("graders[%d].digest is required", i)
+		}
+		if err := ValidateLockDigest(g.Digest); err != nil {
+			return fmt.Errorf("graders[%d].digest: %w", i, err)
 		}
 		if g.URL == "" {
 			return fmt.Errorf("graders[%d].url is required", i)
@@ -95,6 +107,22 @@ func (l *Lockfile) Validate() error {
 		seen[g.Ref] = true
 	}
 	l.rebuildIndex()
+	return nil
+}
+
+// ValidateLockCommit verifies a lockfile commit pin is an immutable full Git SHA.
+func ValidateLockCommit(commit string) error {
+	if !lockCommitPattern.MatchString(commit) {
+		return fmt.Errorf("must be a 40-character Git SHA")
+	}
+	return nil
+}
+
+// ValidateLockDigest verifies a lockfile digest uses the canonical sha256 format.
+func ValidateLockDigest(digest string) error {
+	if !lockDigestPattern.MatchString(digest) {
+		return fmt.Errorf("must be a sha256:<64-hex> digest")
+	}
 	return nil
 }
 

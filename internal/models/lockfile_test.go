@@ -6,14 +6,21 @@ import (
 	"testing"
 )
 
+const (
+	testLockCommitA = "0123456789abcdef0123456789abcdef01234567"
+	testLockCommitB = "abcdef0123456789abcdef0123456789abcdef01"
+	testLockDigestA = "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+	testLockDigestB = "sha256:abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+)
+
 func TestLockfileReadWriteRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, LockfileName)
 	lock := NewLockfile()
 	lock.UpsertGrader(LockfileGrader{
 		Ref:    "github.com/waza-evals/fact#factuality@v1.0.0",
-		Commit: "0123456789abcdef0123456789abcdef01234567",
-		Digest: "sha256:abc123",
+		Commit: testLockCommitA,
+		Digest: testLockDigestA,
 		URL:    "https://github.com/waza-evals/fact.git",
 	})
 
@@ -29,10 +36,10 @@ func TestLockfileReadWriteRoundTrip(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected lock entry")
 	}
-	if entry.Commit != "0123456789abcdef0123456789abcdef01234567" {
+	if entry.Commit != testLockCommitA {
 		t.Fatalf("Commit = %q", entry.Commit)
 	}
-	if entry.Digest != "sha256:abc123" {
+	if entry.Digest != testLockDigestA {
 		t.Fatalf("Digest = %q", entry.Digest)
 	}
 	if entry.URL != "https://github.com/waza-evals/fact.git" {
@@ -46,12 +53,12 @@ func TestLoadLockfileRejectsDuplicateRefs(t *testing.T) {
 	data := []byte(`schema_version: 1
 graders:
   - ref: github.com/waza-evals/fact#factuality@v1.0.0
-    commit: abc
-    digest: sha256:one
+    commit: 0123456789abcdef0123456789abcdef01234567
+    digest: sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
     url: https://github.com/waza-evals/fact.git
   - ref: github.com/waza-evals/fact#factuality@v1.0.0
-    commit: def
-    digest: sha256:two
+    commit: abcdef0123456789abcdef0123456789abcdef01
+    digest: sha256:abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789
     url: https://github.com/waza-evals/fact.git
 `)
 	if err := os.WriteFile(path, data, 0o644); err != nil {
@@ -68,14 +75,14 @@ func TestWriteLockfileKeepsLookupIndexInSortedOrder(t *testing.T) {
 	lock := NewLockfile()
 	lock.UpsertGrader(LockfileGrader{
 		Ref:    "github.com/waza-evals/z#grader@v1.0.0",
-		Commit: "z",
-		Digest: "sha256:z",
+		Commit: testLockCommitB,
+		Digest: testLockDigestB,
 		URL:    "https://github.com/waza-evals/z.git",
 	})
 	lock.UpsertGrader(LockfileGrader{
 		Ref:    "github.com/waza-evals/a#grader@v1.0.0",
-		Commit: "a",
-		Digest: "sha256:a",
+		Commit: testLockCommitA,
+		Digest: testLockDigestA,
 		URL:    "https://github.com/waza-evals/a.git",
 	})
 
@@ -86,7 +93,25 @@ func TestWriteLockfileKeepsLookupIndexInSortedOrder(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected sorted lock entry lookup")
 	}
-	if entry.Commit != "a" {
-		t.Fatalf("Commit = %q, want a", entry.Commit)
+	if entry.Commit != testLockCommitA {
+		t.Fatalf("Commit = %q, want %s", entry.Commit, testLockCommitA)
+	}
+}
+
+func TestLoadLockfileRejectsInvalidCommitAndDigest(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, LockfileName)
+	data := []byte(`schema_version: 1
+graders:
+  - ref: github.com/waza-evals/fact#factuality@v1.0.0
+    commit: ../outside
+    digest: sha256:abc
+    url: https://github.com/waza-evals/fact.git
+`)
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatalf("write lockfile: %v", err)
+	}
+	if _, err := LoadLockfile(path); err == nil {
+		t.Fatalf("expected invalid commit error")
 	}
 }

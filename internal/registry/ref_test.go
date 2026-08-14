@@ -26,3 +26,15 @@ func TestParseRefRequiresVersion(t *testing.T) {
 		t.Fatalf("expected missing version error")
 	}
 }
+
+func TestParseRefRejectsBackslashAndTraversal(t *testing.T) {
+	for _, raw := range []string{
+		`github.com/waza-evals/fact\..\evil#factuality@v1.0.0`,
+		"github.com/waza-evals/fact/../evil#factuality@v1.0.0",
+		"github.com/../fact#factuality@v1.0.0",
+	} {
+		if _, err := ParseRef(raw); err == nil {
+			t.Fatalf("ParseRef(%q) expected error", raw)
+		}
+	}
+}

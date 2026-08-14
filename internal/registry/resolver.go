@@ -58,6 +58,11 @@ func NewResolver(opts ...ResolverOption) (*Resolver, error) {
 	if r.cacheRoot == "" {
 		return nil, fmt.Errorf("module cache root is empty")
 	}
+	cacheRoot, err = filepath.Abs(r.cacheRoot)
+	if err != nil {
+		return nil, fmt.Errorf("resolving module cache root: %w", err)
+	}
+	r.cacheRoot = cacheRoot
 	return r, nil
 }
 
@@ -183,12 +188,14 @@ func (r *Resolver) ExpandLockedGraders(ctx context.Context, spec *models.EvalSpe
 
 func (r *Resolver) LoadLockedGrader(ctx context.Context, ref Ref, entry models.LockfileGrader) (models.GraderConfig, error) {
 	_ = ctx
-	cacheDir := r.cacheDir(ref, entry.Commit)
-	if _, err := os.Stat(cacheDir); err != nil {
-		if os.IsNotExist(err) {
-			return models.GraderConfig{}, fmt.Errorf("module not available offline for ref %q at %s; run `waza get` while online", entry.Ref, cacheDir)
-		}
+	cacheDir, err := r.cacheDir(ref, entry.Commit)
+	if err != nil {
 		return models.GraderConfig{}, err
+	}
+	if ok, err := cacheDirectoryExists(cacheDir); err != nil {
+		return models.GraderConfig{}, err
+	} else if !ok {
+		return models.GraderConfig{}, fmt.Errorf("module not available offline for ref %q at %s; run `waza get` while online", entry.Ref, cacheDir)
 	}
 	digest, err := DigestDirectory(cacheDir)
 	if err != nil {
@@ -201,7 +208,10 @@ func (r *Resolver) LoadLockedGrader(ctx context.Context, ref Ref, entry models.L
 }
 
 func (r *Resolver) ensureCached(ctx context.Context, ref Ref, url string) (string, string, error) {
-	tmp, err := os.MkdirTemp("", "waza-module-*")
+	if err := os.MkdirAll(r.cacheRoot, 0o755); err != nil {
+		return "", "", err
+	}
+	tmp, err := os.MkdirTemp(r.cacheRoot, ".mirror-*")
 	if err != nil {
 		return "", "", err
 	}
@@ -220,11 +230,14 @@ func (r *Resolver) ensureCached(ctx context.Context, ref Ref, url string) (strin
 		return "", "", fmt.Errorf("resolving version %q: %w", ref.Version, err)
 	}
 	commit := strings.TrimSpace(string(commitBytes))
-	cacheDir := r.cacheDir(ref, commit)
-	if _, err := os.Stat(cacheDir); err == nil {
-		return commit, cacheDir, nil
-	} else if !os.IsNotExist(err) {
+	cacheDir, err := r.cacheDir(ref, commit)
+	if err != nil {
 		return "", "", err
+	}
+	if ok, err := cacheDirectoryExists(cacheDir); err != nil {
+		return "", "", err
+	} else if ok {
+		return commit, cacheDir, nil
 	}
 	parent := filepath.Dir(cacheDir)
 	if err := os.MkdirAll(parent, 0o755); err != nil {
@@ -240,21 +253,71 @@ func (r *Resolver) ensureCached(ctx context.Context, ref Ref, url string) (strin
 		}
 	}()
 
-	archive, err := gitOutput(ctx, "", "--git-dir", mirror, "archive", "--format=tar", commit)
-	if err != nil {
+	if err := extractGitArchive(ctx, mirror, commit, extractDir); err != nil {
 		return "", "", fmt.Errorf("archiving commit %s: %w", commit, err)
 	}
-	if err := extractTar(bytes.NewReader(archive), extractDir); err != nil {
-		return "", "", err
-	}
 	if err := os.Rename(extractDir, cacheDir); err != nil {
+		if ok, statErr := cacheDirectoryExists(cacheDir); statErr != nil {
+			return "", "", statErr
+		} else if ok {
+			return commit, cacheDir, nil
+		}
 		return "", "", err
 	}
 	return commit, cacheDir, nil
 }
 
-func (r *Resolver) cacheDir(ref Ref, commit string) string {
-	return filepath.Join(r.cacheRoot, ref.Host, ref.Owner, ref.Repo, commit)
+func (r *Resolver) cacheDir(ref Ref, commit string) (string, error) {
+	if err := models.ValidateLockCommit(commit); err != nil {
+		return "", err
+	}
+	segments := []struct {
+		name  string
+		value string
+	}{
+		{name: "host", value: ref.Host},
+		{name: "owner", value: ref.Owner},
+		{name: "repo", value: ref.Repo},
+	}
+	for _, segment := range segments {
+		if err := validateModulePathSegment(segment.value); err != nil {
+			return "", fmt.Errorf("invalid ref %s %q: %w", segment.name, segment.value, err)
+		}
+	}
+	return pathWithin(r.cacheRoot, filepath.Join(r.cacheRoot, ref.Host, ref.Owner, ref.Repo, commit))
+}
+
+func cacheDirectoryExists(cacheDir string) (bool, error) {
+	info, err := os.Stat(cacheDir)
+	if err == nil {
+		if !info.IsDir() {
+			return false, fmt.Errorf("cache path %s exists and is not a directory", cacheDir)
+		}
+		return true, nil
+	}
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	return false, err
+}
+
+func pathWithin(base string, target string) (string, error) {
+	absBase, err := filepath.Abs(base)
+	if err != nil {
+		return "", err
+	}
+	absTarget, err := filepath.Abs(target)
+	if err != nil {
+		return "", err
+	}
+	rel, err := filepath.Rel(absBase, absTarget)
+	if err != nil {
+		return "", err
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+		return "", fmt.Errorf("path %s escapes %s", absTarget, absBase)
+	}
+	return absTarget, nil
 }
 
 type manifest struct {
@@ -273,7 +336,11 @@ func (r *Resolver) loadGraderPreset(ref Ref, moduleDir string) (models.GraderCon
 	if ref.Export != "" {
 		manifestDir := moduleDir
 		if ref.Path != "" {
-			manifestDir = filepath.Join(moduleDir, filepath.FromSlash(ref.Path))
+			var err error
+			manifestDir, err = safeJoinModulePath(moduleDir, ref.Path)
+			if err != nil {
+				return models.GraderConfig{}, err
+			}
 		}
 		m, err := loadManifest(manifestDir)
 		if err != nil {
@@ -290,7 +357,11 @@ func (r *Resolver) loadGraderPreset(ref Ref, moduleDir string) (models.GraderCon
 		return loadGraderFile(graderPath, ref.Export)
 	}
 	if ref.Path != "" {
-		return loadGraderFile(filepath.Join(moduleDir, filepath.FromSlash(ref.Path)), filepath.Base(ref.Path))
+		graderPath, err := safeJoinModulePath(moduleDir, ref.Path)
+		if err != nil {
+			return models.GraderConfig{}, err
+		}
+		return loadGraderFile(graderPath, filepath.Base(ref.Path))
 	}
 	m, err := loadManifest(moduleDir)
 	if err != nil {
@@ -310,11 +381,28 @@ func (r *Resolver) loadGraderPreset(ref Ref, moduleDir string) (models.GraderCon
 }
 
 func safeJoinModulePath(base string, slashPath string) (string, error) {
-	clean := path.Clean(slashPath)
-	if clean == "." || clean == "" || strings.HasPrefix(clean, "../") || clean == ".." || strings.HasPrefix(clean, "/") {
+	clean, err := cleanRelativeSlashPath(slashPath)
+	if err != nil || clean == "." {
 		return "", fmt.Errorf("invalid module path %q", slashPath)
 	}
-	return filepath.Join(base, filepath.FromSlash(clean)), nil
+	return pathWithin(base, filepath.Join(base, filepath.FromSlash(clean)))
+}
+
+func cleanRelativeSlashPath(slashPath string) (string, error) {
+	if strings.TrimSpace(slashPath) == "" {
+		return "", fmt.Errorf("path is empty")
+	}
+	if strings.Contains(slashPath, `\`) {
+		return "", fmt.Errorf("path must use forward slashes")
+	}
+	if path.IsAbs(slashPath) || hasParentPathSegment(slashPath) {
+		return "", fmt.Errorf("path escapes module root")
+	}
+	clean := path.Clean(slashPath)
+	if clean == ".." || strings.HasPrefix(clean, "../") || path.IsAbs(clean) {
+		return "", fmt.Errorf("path escapes module root")
+	}
+	return clean, nil
 }
 
 func loadManifest(dir string) (*manifest, error) {
@@ -332,8 +420,8 @@ func loadManifest(dir string) (*manifest, error) {
 	return &m, nil
 }
 
-func loadGraderFile(path string, fallbackName string) (models.GraderConfig, error) {
-	resolved, err := resolveYAMLPath(path)
+func loadGraderFile(graderPath string, fallbackName string) (models.GraderConfig, error) {
+	resolved, err := resolveYAMLPath(graderPath)
 	if err != nil {
 		return models.GraderConfig{}, err
 	}
@@ -357,10 +445,10 @@ func loadGraderFile(path string, fallbackName string) (models.GraderConfig, erro
 	return grader, nil
 }
 
-func resolveYAMLPath(path string) (string, error) {
-	candidates := []string{path}
-	if filepath.Ext(path) == "" {
-		candidates = append(candidates, path+".yaml", path+".yml")
+func resolveYAMLPath(graderPath string) (string, error) {
+	candidates := []string{graderPath}
+	if filepath.Ext(graderPath) == "" {
+		candidates = append(candidates, graderPath+".yaml", graderPath+".yml")
 	}
 	for _, candidate := range candidates {
 		info, err := os.Stat(candidate)
@@ -371,7 +459,7 @@ func resolveYAMLPath(path string) (string, error) {
 			return "", err
 		}
 	}
-	return "", fmt.Errorf("grader file not found: %s", path)
+	return "", fmt.Errorf("grader file not found: %s", graderPath)
 }
 
 func MergeGraderConfig(preset models.GraderConfig, override models.GraderConfig) (models.GraderConfig, error) {
@@ -513,14 +601,17 @@ func extractTar(r io.Reader, dest string) error {
 		if err != nil {
 			return err
 		}
-		cleanName := filepath.Clean(header.Name)
+		cleanName, err := cleanRelativeSlashPath(header.Name)
+		if err != nil {
+			return fmt.Errorf("archive contains unsafe path %q", header.Name)
+		}
 		if cleanName == "." {
 			continue
 		}
-		if filepath.IsAbs(cleanName) || cleanName == ".." || strings.HasPrefix(cleanName, ".."+string(filepath.Separator)) {
+		target, err := pathWithin(dest, filepath.Join(dest, filepath.FromSlash(cleanName)))
+		if err != nil {
 			return fmt.Errorf("archive contains unsafe path %q", header.Name)
 		}
-		target := filepath.Join(dest, cleanName)
 		switch header.Typeflag {
 		case tar.TypeXGlobalHeader, tar.TypeXHeader:
 			continue
@@ -548,6 +639,31 @@ func extractTar(r io.Reader, dest string) error {
 			return fmt.Errorf("archive contains unsupported entry %q", header.Name)
 		}
 	}
+}
+
+func extractGitArchive(ctx context.Context, mirror string, commit string, dest string) error {
+	cmd := exec.CommandContext(ctx, "git", "--git-dir", mirror, "archive", "--format=tar", commit)
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return err
+	}
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	extractErr := extractTar(stdout, dest)
+	if extractErr != nil && cmd.Process != nil {
+		_ = cmd.Process.Kill()
+	}
+	waitErr := cmd.Wait()
+	if extractErr != nil {
+		return extractErr
+	}
+	if waitErr != nil {
+		return fmt.Errorf("git archive failed: %w: %s", waitErr, strings.TrimSpace(stderr.String()))
+	}
+	return nil
 }
 
 func runGit(ctx context.Context, dir string, args ...string) error {
