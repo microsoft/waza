@@ -11,7 +11,7 @@
     "test:e2e": "playwright test"
   },
   "dependencies": {
-    "@astrojs/starlight": "^0.41.5",
+    "@astrojs/starlight": "^0.41.6",
     "astro": "^7.1.6",
     "sharp": "^0.35.3"
   },
