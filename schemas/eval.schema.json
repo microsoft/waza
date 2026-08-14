@@ -425,13 +425,27 @@
     },
     "graderConfig": {
       "type": "object",
-      "required": [
-        "type",
-        "name"
-      ],
       "additionalProperties": false,
       "description": "Configuration for a grader that scores agent output.",
+      "anyOf": [
+        {
+          "required": [
+            "ref"
+          ]
+        },
+        {
+          "required": [
+            "type",
+            "name"
+          ]
+        }
+      ],
       "properties": {
+        "ref": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Go-module-style remote grader reference resolved by waza get."
+        },
         "type": {
           "type": "string",
           "enum": [

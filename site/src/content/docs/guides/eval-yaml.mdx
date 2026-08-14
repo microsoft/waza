@@ -245,6 +245,12 @@ Graders validate task outputs. Define once, reuse across tasks:
 
 ```yaml
 graders:
+  - ref: github.com/waza-evals/fact#factuality@v1.0.0
+    name: factuality_strict
+    weight: 2.0
+    config:
+      threshold: 0.9
+
   - type: text
     name: checks_logic
     weight: 2.0
@@ -268,6 +274,15 @@ graders:
 ```
 
 Each grader accepts an optional `weight` (default `1.0`) that controls its influence on the composite score. See **[Validators & Graders](../graders/#weighted-scoring)** for details.
+
+Remote grader presets can be referenced with `ref` instead of `type`. Refs use `<host>/<owner>/<repo>[/path][#export]@<version>` and resolve through `waza get`, which writes `waza.lock` with the pinned commit SHA and content digest. Local `name`, `weight`, top-level grader fields, and `config` values override the remote preset; nested `config` maps are deep-merged, while lists are replaced.
+
+```bash
+waza get eval.yaml
+waza run eval.yaml
+```
+
+`waza run` requires the lockfile and cached module contents to be present for remote refs. It fails closed on missing locks, missing cache entries, or digest mismatches.
 
 All graders return:
 

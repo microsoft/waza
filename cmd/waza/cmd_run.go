@@ -34,6 +34,7 @@ import (
 	"github.com/microsoft/waza/internal/orchestration"
 	"github.com/microsoft/waza/internal/projectconfig"
 	"github.com/microsoft/waza/internal/recommend"
+	"github.com/microsoft/waza/internal/registry"
 	"github.com/microsoft/waza/internal/reporting"
 	"github.com/microsoft/waza/internal/session"
 	"github.com/microsoft/waza/internal/snapshot"
@@ -566,6 +567,17 @@ func runCommandForSpec(cmd *cobra.Command, sp skillSpecPath, defaultSkills []str
 	spec, err := models.LoadEvalSpec(specPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load spec: %w", err)
+	}
+	resolver, err := registry.NewResolver()
+	if err != nil {
+		return nil, err
+	}
+	resolveCtx := context.Background()
+	if cmd != nil {
+		resolveCtx = cmd.Context()
+	}
+	if err := resolver.ExpandLockedGraders(resolveCtx, spec, specPath); err != nil {
+		return nil, err
 	}
 
 	// CLI flags override spec config

@@ -134,6 +134,9 @@ waza suggest skills/my-skill --apply
 waza spec verify skills/my-skill evals/my-skill/eval.yaml
 waza spec verify skills/my-skill evals/my-skill/eval.yaml --fail --format github-actions
 
+# Resolve remote grader refs and write waza.lock
+waza get evals/my-skill/eval.yaml
+
 # Note: 'generate' is available as an alias for 'new' (see below for new command)
 # Note: Custom agents (.agent.md) are supported — see https://microsoft.github.io/waza/guides/custom-agents/
 
@@ -388,6 +391,15 @@ Cached results are automatically invalidated when:
 - Fixture files change
 
 **Note:** Caching is automatically disabled for evaluations using non-deterministic graders (`behavior`, `prompt`).
+
+### `waza get [eval.yaml | ref]`
+
+Resolve remote grader refs and write `waza.lock`. When passed an eval file, `waza get` resolves every `graders[].ref`, downloads module contents into `~/.waza/cache/{host}/{org}/{repo}/{sha}/`, and pins each ref to a commit SHA and `sha256:` content digest. `waza run` requires a valid lock and cache entry for remote refs; it does not silently resolve unlocked refs during a run.
+
+```bash
+waza get eval.yaml
+waza get github.com/waza-evals/fact#factuality@v1.0.0
+```
 
 **Exit Codes**
 
@@ -1086,6 +1098,12 @@ mcp_mocks:
               issues: []
 
 graders:
+  - ref: github.com/waza-evals/fact#factuality@v1.0.0
+    name: factuality_strict
+    weight: 2.0
+    config:
+      threshold: 0.9
+
   - type: text
     name: pattern_check
     config:
@@ -1113,6 +1131,8 @@ tasks:
 ```
 
 `schemaVersion` uses `MAJOR.MINOR` format. Missing values are interpreted as the current schema version (currently `1.2`). Readers allow same-major minor additions with warnings for unknown fields, but reject different majors with a hint to run `waza migrate <file>`.
+
+Remote grader refs use Go-module-style paths: `<host>/<owner>/<repo>[/path][#export]@<version>`. The remote module must provide a `waza.registry.yaml` manifest and export a config-only grader preset that expands to a built-in grader type. Run `waza get eval.yaml` after adding or changing refs so `waza.lock` records the resolved commit and digest.
 
 `results.json` is currently emitted at `schemaVersion` `1.2`. Version `1.1` added per-turn checkpoints (`runs[].checkpoints[]`, see #358) and the normalized `runs[].tool_events[]` array (`turn`, `sequence`, `tool_call_id`, `tool_name`, `args`, `result`, `success`, `error`, `duration_ms`; see #366). Version `1.2` adds `runs[].snapshot_path` for `waza run --snapshot` artifacts (#367) and the eval-level `adversarial:` block consumed by `waza adversarial --spec` (#365). See [docs/PRD](docs/PRD.md) and [schema-changes](site/src/content/docs/reference/schema-changes.md) for details.
 

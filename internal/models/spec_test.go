@@ -621,6 +621,57 @@ config:
 	})
 }
 
+func TestLoadEvalSpec_AllowsRemoteGraderRefWithoutType(t *testing.T) {
+	tempDir := t.TempDir()
+	specPath := filepath.Join(tempDir, "remote.yaml")
+	yamlContent := `name: remote-graders
+skill: test
+config:
+  trials_per_task: 1
+  timeout_seconds: 60
+  executor: mock
+graders:
+  - ref: github.com/waza-evals/fact#factuality@v1.0.0
+    name: factuality_strict
+    weight: 2
+    config:
+      threshold: 0.9
+metrics: []
+tasks: []
+`
+	if err := os.WriteFile(specPath, []byte(yamlContent), 0o644); err != nil {
+		t.Fatalf("Failed to write spec file: %v", err)
+	}
+
+	spec, err := LoadEvalSpec(specPath)
+	if err != nil {
+		t.Fatalf("LoadEvalSpec() error = %v", err)
+	}
+	if len(spec.Graders) != 1 {
+		t.Fatalf("Expected 1 grader, got %d", len(spec.Graders))
+	}
+	grader := spec.Graders[0]
+	if grader.Ref != "github.com/waza-evals/fact#factuality@v1.0.0" {
+		t.Fatalf("Ref = %q", grader.Ref)
+	}
+	if grader.Kind != "" {
+		t.Fatalf("Kind = %q, want empty before resolver expansion", grader.Kind)
+	}
+	if grader.Identifier != "factuality_strict" {
+		t.Fatalf("Identifier = %q", grader.Identifier)
+	}
+	if grader.Weight != 2 {
+		t.Fatalf("Weight = %v", grader.Weight)
+	}
+	params, ok := grader.Parameters.(GenericGraderParameters)
+	if !ok {
+		t.Fatalf("Parameters = %T, want GenericGraderParameters", grader.Parameters)
+	}
+	if got := params["threshold"]; got != 0.9 {
+		t.Fatalf("threshold = %#v", got)
+	}
+}
+
 func TestConfig_AllSkillsDisabled(t *testing.T) {
 	tests := []struct {
 		name     string
