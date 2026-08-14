@@ -1063,50 +1063,50 @@
             "darwin/amd64": {
               "checksum": {
                 "algorithm": "sha256",
-                "value": "8819ff747881798808f4401e550cead4f303477b11ef41db08587ca55f98d922"
+                "value": "1d6c3bfdb77995eaf60bedbde089ba8f00d49819118c085bd45bd28979cca078"
               },
-              "entryPoint": "waza-darwin-amd64",
-              "url": "https://github.com/microsoft/waza/releases/download/v0.38.4/waza-darwin-amd64"
+              "entryPoint": "microsoft-azd-waza-darwin-amd64",
+              "url": "https://github.com/microsoft/waza/releases/download/azd-ext-microsoft-azd-waza_0.38.4/microsoft-azd-waza-darwin-amd64.zip"
             },
             "darwin/arm64": {
               "checksum": {
                 "algorithm": "sha256",
-                "value": "b35f0596a8ee37a13abcf73dc91f4dee1a1aa0919b3f420d7d27a8687c49c4d7"
+                "value": "c0b00d1728404dfc14fd4dfc08a0fa69bbf3394a18336143758de6c822f24273"
               },
-              "entryPoint": "waza-darwin-arm64",
-              "url": "https://github.com/microsoft/waza/releases/download/v0.38.4/waza-darwin-arm64"
+              "entryPoint": "microsoft-azd-waza-darwin-arm64",
+              "url": "https://github.com/microsoft/waza/releases/download/azd-ext-microsoft-azd-waza_0.38.4/microsoft-azd-waza-darwin-arm64.zip"
             },
             "linux/amd64": {
               "checksum": {
                 "algorithm": "sha256",
-                "value": "1222c45ce4068e4e9e68cc994f1811ddd71b29ec9f20b4b31c827d3fa5c82c6e"
+                "value": "7a24669309386aa60d2f35754c6d209d1a1cbd4182353959b72cff1e6bc540eb"
               },
-              "entryPoint": "waza-linux-amd64",
-              "url": "https://github.com/microsoft/waza/releases/download/v0.38.4/waza-linux-amd64"
+              "entryPoint": "microsoft-azd-waza-linux-amd64",
+              "url": "https://github.com/microsoft/waza/releases/download/azd-ext-microsoft-azd-waza_0.38.4/microsoft-azd-waza-linux-amd64.tar.gz"
             },
             "linux/arm64": {
               "checksum": {
                 "algorithm": "sha256",
-                "value": "0a3c4fabcbb78676c10bd9aa250cab38c2e8c042b0a40db003f3f091124ed63f"
+                "value": "479fc3ea6237cd96ec0e6121eb475ae1446f008e7f2259f8874f80c34f22231f"
               },
-              "entryPoint": "waza-linux-arm64",
-              "url": "https://github.com/microsoft/waza/releases/download/v0.38.4/waza-linux-arm64"
+              "entryPoint": "microsoft-azd-waza-linux-arm64",
+              "url": "https://github.com/microsoft/waza/releases/download/azd-ext-microsoft-azd-waza_0.38.4/microsoft-azd-waza-linux-arm64.tar.gz"
             },
             "windows/amd64": {
               "checksum": {
                 "algorithm": "sha256",
-                "value": "17f12d9bc6c71c895714e119cc0b83bffd82e2eb8062d778f3f644480c60ac3c"
+                "value": "a442bc12306648afa3d825247413de86db0f59c3d568e466ce85471e11b73ab6"
               },
-              "entryPoint": "waza-windows-amd64.exe",
-              "url": "https://github.com/microsoft/waza/releases/download/v0.38.4/waza-windows-amd64.exe"
+              "entryPoint": "microsoft-azd-waza-windows-amd64.exe",
+              "url": "https://github.com/microsoft/waza/releases/download/azd-ext-microsoft-azd-waza_0.38.4/microsoft-azd-waza-windows-amd64.zip"
             },
             "windows/arm64": {
               "checksum": {
                 "algorithm": "sha256",
-                "value": "38b1163404480f112f04b815c3aac75b383032cf0880bf03d03e413b3508a603"
+                "value": "757804d0d207ac837ef71b2b9230ac8eb185a00fd778e15cf36f3de1682a5830"
               },
-              "entryPoint": "waza-windows-arm64.exe",
-              "url": "https://github.com/microsoft/waza/releases/download/v0.38.4/waza-windows-arm64.exe"
+              "entryPoint": "microsoft-azd-waza-windows-arm64.exe",
+              "url": "https://github.com/microsoft/waza/releases/download/azd-ext-microsoft-azd-waza_0.38.4/microsoft-azd-waza-windows-arm64.zip"
             }
           }
         }
