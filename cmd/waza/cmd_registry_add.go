@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -10,8 +11,9 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"time"
 
+	"github.com/microsoft/waza/internal/models"
+	"github.com/microsoft/waza/internal/registry"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 )
@@ -23,14 +25,12 @@ type registryAddOptions struct {
 	allowExec bool
 }
 
-type resolvedRegistryRef struct {
-	Ref          string
-	Module       string
-	Version      string
-	Kind         string
-	Commit       string
-	Digest       string
-	Dependencies []string
+type registryAddResolver interface {
+	ResolveRefWithOptions(context.Context, string, registry.ResolveOptions) (models.LockfileGrader, error)
+}
+
+var newRegistryAddResolver = func() (registryAddResolver, error) {
+	return registry.NewResolver()
 }
 
 func newRegistryAddCommand() *cobra.Command {
@@ -59,23 +59,13 @@ func runRegistryAdd(cmd *cobra.Command, ref string, opts registryAddOptions) err
 		return errors.New("ref must not be empty")
 	}
 
-	resolved, err := resolveRegistryRef(cmd, ref)
+	resolver, err := newRegistryAddResolver()
 	if err != nil {
 		return err
 	}
-
-	trusted := opts.allowExec
-	if resolved.Kind == "program-grader" {
-		if !opts.allowExec {
-			confirmed, err := confirmRemoteProgramGrader(cmd.InOrStdin(), cmd.OutOrStdout(), ref)
-			if err != nil {
-				return err
-			}
-			if !confirmed {
-				return errors.New("remote program grader was not added")
-			}
-			trusted = true
-		}
+	resolved, err := resolveRegistryRef(cmd, resolver, ref, opts.allowExec)
+	if err != nil {
+		return err
 	}
 
 	entry, err := buildRegistryGraderEntry(ref, opts.name, opts.setValues)
@@ -94,7 +84,7 @@ func runRegistryAdd(cmd *cobra.Command, ref string, opts registryAddOptions) err
 	if err := appendRegistryGrader(opts.evalPath, entry); err != nil {
 		return err
 	}
-	if err := updateRegistryLock(opts.evalPath, resolved, trusted); err != nil {
+	if err := updateRegistryLock(opts.evalPath, resolved); err != nil {
 		// The eval and lock file form one logical update. Restore the original
 		// eval when the lock cannot be written so the repository is not left
 		// with a grader entry that has no corresponding resolution metadata.
@@ -108,36 +98,28 @@ func runRegistryAdd(cmd *cobra.Command, ref string, opts registryAddOptions) err
 	return nil
 }
 
-func resolveRegistryRef(_ *cobra.Command, ref string) (resolvedRegistryRef, error) {
-	// TODO: call the shared resolver from issue #15 and use its resolved module metadata.
-	module, version := splitRegistryRef(ref)
-	kind := "grader-preset"
-	if strings.Contains(strings.ToLower(ref), "program") || strings.Contains(strings.ToLower(ref), "exec") {
-		kind = "program-grader"
+func resolveRegistryRef(
+	cmd *cobra.Command,
+	resolver registryAddResolver,
+	ref string,
+	allowExec bool,
+) (models.LockfileGrader, error) {
+	opts := registry.ResolveOptions{AllowProgram: allowExec}
+	resolved, err := resolver.ResolveRefWithOptions(cmd.Context(), ref, opts)
+	if err == nil {
+		return resolved, nil
 	}
-	return resolvedRegistryRef{
-		Ref:     ref,
-		Module:  module,
-		Version: version,
-		Kind:    kind,
-		Commit:  "resolver-pending",
-		Digest:  "resolver-pending",
-	}, nil
-}
-
-func splitRegistryRef(ref string) (string, string) {
-	module := ref
-	if hash := strings.Index(module, "#"); hash >= 0 {
-		module = module[:hash]
+	if allowExec || !registry.IsProgramGraderTrustError(err) {
+		return models.LockfileGrader{}, err
 	}
-	version := ""
-	if at := strings.LastIndex(ref, "@"); at >= 0 && at < len(ref)-1 {
-		version = ref[at+1:]
+	confirmed, confirmErr := confirmRemoteProgramGrader(cmd.InOrStdin(), cmd.OutOrStdout(), ref)
+	if confirmErr != nil {
+		return models.LockfileGrader{}, confirmErr
 	}
-	if at := strings.LastIndex(module, "@"); at >= 0 {
-		module = module[:at]
+	if !confirmed {
+		return models.LockfileGrader{}, errors.New("remote program grader was not added")
 	}
-	return module, version
+	return resolver.ResolveRefWithOptions(cmd.Context(), ref, registry.ResolveOptions{AllowProgram: true})
 }
 
 func confirmRemoteProgramGrader(in io.Reader, out io.Writer, ref string) (bool, error) {
@@ -213,80 +195,31 @@ func appendRegistryGrader(evalPath string, entry *yaml.Node) error {
 	if err := enc.Close(); err != nil {
 		return fmt.Errorf("encoding %s: %w", evalPath, err)
 	}
-	return os.WriteFile(evalPath, buf.Bytes(), 0o644)
+	mode := os.FileMode(0o644)
+	if info, err := os.Stat(evalPath); err == nil {
+		mode = info.Mode().Perm()
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("reading metadata for %s: %w", evalPath, err)
+	}
+	return os.WriteFile(evalPath, buf.Bytes(), mode)
 }
 
-func updateRegistryLock(evalPath string, resolved resolvedRegistryRef, trusted bool) error {
+func updateRegistryLock(evalPath string, resolved models.LockfileGrader) error {
 	lockPath := filepath.Join(filepath.Dir(evalPath), "waza.lock")
-	var root *yaml.Node
-	if data, err := os.ReadFile(lockPath); err == nil {
-		var doc yaml.Node
-		if err := yaml.Unmarshal(data, &doc); err != nil {
-			return fmt.Errorf("parsing %s: %w", lockPath, err)
-		}
-		root = documentMapping(&doc)
-		if root == nil {
-			return fmt.Errorf("%s must contain a YAML mapping", lockPath)
-		}
+	var lock *models.Lockfile
+	if existing, err := models.LoadLockfile(lockPath); err == nil {
+		lock = existing
 	} else if errors.Is(err, os.ErrNotExist) {
-		root = &yaml.Node{Kind: yaml.MappingNode}
-		setMappingScalar(root, "schema_version", "1")
+		lock = models.NewLockfile()
 	} else {
-		return fmt.Errorf("reading %s: %w", lockPath, err)
+		return err
 	}
 
-	modules := mappingValue(root, "modules")
-	if modules == nil {
-		modules = &yaml.Node{Kind: yaml.SequenceNode}
-		appendMappingPair(root, "modules", modules)
+	lock.UpsertGrader(resolved)
+	if err := models.WriteLockfile(lockPath, lock); err != nil {
+		return fmt.Errorf("writing %s: %w", lockPath, err)
 	}
-	if modules.Kind != yaml.SequenceNode {
-		return fmt.Errorf("%s field modules must be a list", lockPath)
-	}
-
-	lockEntry := registryLockEntry(resolved, trusted)
-	replaced := false
-	for i, module := range modules.Content {
-		if module.Kind != yaml.MappingNode {
-			continue
-		}
-		moduleRef := mappingValue(module, "ref")
-		if moduleRef != nil && moduleRef.Value == resolved.Ref {
-			modules.Content[i] = lockEntry
-			replaced = true
-			break
-		}
-	}
-	if !replaced {
-		modules.Content = append(modules.Content, lockEntry)
-	}
-
-	var buf bytes.Buffer
-	enc := yaml.NewEncoder(&buf)
-	enc.SetIndent(2)
-	if err := enc.Encode(root); err != nil {
-		return fmt.Errorf("encoding %s: %w", lockPath, err)
-	}
-	if err := enc.Close(); err != nil {
-		return fmt.Errorf("encoding %s: %w", lockPath, err)
-	}
-	return os.WriteFile(lockPath, buf.Bytes(), 0o644)
-}
-
-func registryLockEntry(resolved resolvedRegistryRef, trusted bool) *yaml.Node {
-	entry := &yaml.Node{Kind: yaml.MappingNode}
-	setMappingScalar(entry, "ref", resolved.Ref)
-	setMappingScalar(entry, "module", resolved.Module)
-	if resolved.Version != "" {
-		setMappingScalar(entry, "version", resolved.Version)
-	}
-	setMappingScalar(entry, "commit", resolved.Commit)
-	setMappingScalar(entry, "digest", resolved.Digest)
-	setMappingScalar(entry, "resolved_at", time.Now().UTC().Format(time.RFC3339))
-	if trusted && resolved.Kind == "program-grader" {
-		appendMappingPair(entry, "trusted", &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!bool", Value: "true"})
-	}
-	return entry
+	return nil
 }
 
 func documentMapping(doc *yaml.Node) *yaml.Node {

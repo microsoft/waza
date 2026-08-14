@@ -524,9 +524,9 @@ waza registry add github.com/waza-evals/fact#factuality@v1.0.0 \
   --set config.threshold=0.9
 ```
 
-`waza registry search` queries configured index sources. By default, Waza searches the public `https://github.com/waza-evals` source. Project `.waza.yaml` files can define a top-level `registries:` list with named sources, and `--registry <name>` limits search to one of them.
+`waza registry search` queries configured index sources. By default, Waza searches the public `https://github.com/waza-evals` source. Project `.waza.yaml` files can define a top-level `registries:` list with named sources, and `--registry <name>` limits search to one of them. The current implementation returns bundled sample metadata while live registry index integration is pending.
 
-`waza registry add` appends a minimal `ref:` grader entry to `eval.yaml` and updates `waza.lock`. Remote executable program graders require `--allow-exec` or interactive confirmation because they can run local commands.
+`waza registry add` appends a `ref:` grader entry to `eval.yaml`, resolves the ref with the shared remote grader resolver, and updates `waza.lock` with the pinned commit SHA and content digest. Remote executable program graders require `--allow-exec` or interactive confirmation because they can run local commands.
 
 ---
 

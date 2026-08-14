@@ -25,10 +25,11 @@ type Lockfile struct {
 }
 
 type LockfileGrader struct {
-	Ref    string `yaml:"ref"`
-	Commit string `yaml:"commit"`
-	Digest string `yaml:"digest"`
-	URL    string `yaml:"url"`
+	Ref     string `yaml:"ref"`
+	Commit  string `yaml:"commit"`
+	Digest  string `yaml:"digest"`
+	URL     string `yaml:"url"`
+	Trusted bool   `yaml:"trusted,omitempty"`
 }
 
 func NewLockfile() *Lockfile {
@@ -71,7 +72,13 @@ func WriteLockfile(path string, lock *Lockfile) error {
 	if err != nil {
 		return fmt.Errorf("encoding lockfile: %w", err)
 	}
-	return os.WriteFile(path, data, 0o644)
+	mode := os.FileMode(0o644)
+	if info, statErr := os.Stat(path); statErr == nil {
+		mode = info.Mode().Perm()
+	} else if !os.IsNotExist(statErr) {
+		return statErr
+	}
+	return os.WriteFile(path, data, mode)
 }
 
 func (l *Lockfile) Validate() error {

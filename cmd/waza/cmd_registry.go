@@ -10,8 +10,8 @@ func newRegistryCommand() *cobra.Command {
 presets to eval.yaml.
 
 Registry search uses configured index sources for discovery. Registry add writes
-minimal ref entries and a lock file scaffold; full module resolution is wired in
-when the shared resolver from issue #15 lands.`,
+ref entries and resolves them into waza.lock using the shared remote grader
+resolver.`,
 	}
 
 	cmd.AddCommand(newRegistrySearchCommand())

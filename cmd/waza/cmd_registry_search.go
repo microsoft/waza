@@ -32,7 +32,11 @@ func newRegistrySearchCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "search <query>",
 		Short: "Search configured registry indexes",
-		Args:  cobra.ExactArgs(1),
+		Long: `Search configured registry indexes.
+
+This command currently returns bundled sample registry metadata while live
+registry index integration is pending.`,
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runRegistrySearch(cmd, args[0], opts)
 		},
@@ -69,6 +73,7 @@ func runRegistrySearch(cmd *cobra.Command, query string, opts registrySearchOpti
 		return enc.Encode(results)
 	}
 
+	fmt.Fprintln(cmd.ErrOrStderr(), "Note: registry search is using bundled sample results; live index integration is pending.") //nolint:errcheck
 	renderRegistrySearchTable(cmd, results)
 	return nil
 }

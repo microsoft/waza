@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -28,6 +29,24 @@ type Resolver struct {
 }
 
 type ResolverOption func(*Resolver)
+
+// ResolveOptions controls trust-sensitive remote grader resolution.
+type ResolveOptions struct {
+	AllowProgram bool
+}
+
+type ProgramGraderTrustError struct {
+	Path string
+}
+
+func (e *ProgramGraderTrustError) Error() string {
+	return fmt.Sprintf("remote program grader %s is not supported without explicit trust", e.Path)
+}
+
+func IsProgramGraderTrustError(err error) bool {
+	var trustErr *ProgramGraderTrustError
+	return errors.As(err, &trustErr)
+}
 
 func WithCacheRoot(path string) ResolverOption {
 	return func(r *Resolver) {
@@ -103,6 +122,10 @@ func (r *Resolver) ResolveRefs(ctx context.Context, refs []string) ([]models.Loc
 }
 
 func (r *Resolver) ResolveRef(ctx context.Context, raw string) (models.LockfileGrader, error) {
+	return r.ResolveRefWithOptions(ctx, raw, ResolveOptions{})
+}
+
+func (r *Resolver) ResolveRefWithOptions(ctx context.Context, raw string, opts ResolveOptions) (models.LockfileGrader, error) {
 	ref, err := ParseRef(raw)
 	if err != nil {
 		return models.LockfileGrader{}, err
@@ -116,14 +139,16 @@ func (r *Resolver) ResolveRef(ctx context.Context, raw string) (models.LockfileG
 	if err != nil {
 		return models.LockfileGrader{}, fmt.Errorf("digesting %s: %w", cacheDir, err)
 	}
-	entry := models.LockfileGrader{
-		Ref:    raw,
-		Commit: commit,
-		Digest: digest,
-		URL:    url,
-	}
-	if _, err := r.loadGraderPreset(ref, cacheDir); err != nil {
+	preset, err := r.loadGraderPreset(ref, cacheDir, opts.AllowProgram)
+	if err != nil {
 		return models.LockfileGrader{}, fmt.Errorf("loading %s: %w", raw, err)
+	}
+	entry := models.LockfileGrader{
+		Ref:     raw,
+		Commit:  commit,
+		Digest:  digest,
+		URL:     url,
+		Trusted: opts.AllowProgram && preset.Kind == models.GraderKindProgram,
 	}
 	return entry, nil
 }
@@ -204,7 +229,7 @@ func (r *Resolver) LoadLockedGrader(ctx context.Context, ref Ref, entry models.L
 	if digest != entry.Digest {
 		return models.GraderConfig{}, fmt.Errorf("digest mismatch for ref %q: lock has %s, cache has %s", entry.Ref, entry.Digest, digest)
 	}
-	return r.loadGraderPreset(ref, cacheDir)
+	return r.loadGraderPreset(ref, cacheDir, entry.Trusted)
 }
 
 func (r *Resolver) ensureCached(ctx context.Context, ref Ref, url string) (string, string, error) {
@@ -332,7 +357,7 @@ type manifestExport struct {
 	Description string `yaml:"description,omitempty"`
 }
 
-func (r *Resolver) loadGraderPreset(ref Ref, moduleDir string) (models.GraderConfig, error) {
+func (r *Resolver) loadGraderPreset(ref Ref, moduleDir string, allowProgram bool) (models.GraderConfig, error) {
 	if ref.Export != "" {
 		manifestDir := moduleDir
 		if ref.Path != "" {
@@ -354,14 +379,14 @@ func (r *Resolver) loadGraderPreset(ref Ref, moduleDir string) (models.GraderCon
 		if err != nil {
 			return models.GraderConfig{}, err
 		}
-		return loadGraderFile(graderPath, ref.Export)
+		return loadGraderFile(graderPath, ref.Export, allowProgram)
 	}
 	if ref.Path != "" {
 		graderPath, err := safeJoinModulePath(moduleDir, ref.Path)
 		if err != nil {
 			return models.GraderConfig{}, err
 		}
-		return loadGraderFile(graderPath, filepath.Base(ref.Path))
+		return loadGraderFile(graderPath, filepath.Base(ref.Path), allowProgram)
 	}
 	m, err := loadManifest(moduleDir)
 	if err != nil {
@@ -375,7 +400,7 @@ func (r *Resolver) loadGraderPreset(ref Ref, moduleDir string) (models.GraderCon
 		if err != nil {
 			return models.GraderConfig{}, err
 		}
-		return loadGraderFile(graderPath, name)
+		return loadGraderFile(graderPath, name, allowProgram)
 	}
 	return models.GraderConfig{}, fmt.Errorf("manifest has no grader exports")
 }
@@ -420,7 +445,7 @@ func loadManifest(dir string) (*manifest, error) {
 	return &m, nil
 }
 
-func loadGraderFile(graderPath string, fallbackName string) (models.GraderConfig, error) {
+func loadGraderFile(graderPath string, fallbackName string, allowProgram bool) (models.GraderConfig, error) {
 	resolved, err := resolveYAMLPath(graderPath)
 	if err != nil {
 		return models.GraderConfig{}, err
@@ -436,8 +461,8 @@ func loadGraderFile(graderPath string, fallbackName string) (models.GraderConfig
 	if grader.Kind == "" {
 		return models.GraderConfig{}, fmt.Errorf("remote grader %s must declare type", resolved)
 	}
-	if grader.Kind == models.GraderKindProgram {
-		return models.GraderConfig{}, fmt.Errorf("remote program graders are not supported without explicit trust")
+	if grader.Kind == models.GraderKindProgram && !allowProgram {
+		return models.GraderConfig{}, &ProgramGraderTrustError{Path: resolved}
 	}
 	if grader.Identifier == "" {
 		grader.Identifier = strings.TrimSuffix(fallbackName, filepath.Ext(fallbackName))

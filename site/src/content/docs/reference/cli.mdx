@@ -1013,7 +1013,7 @@ registries:
 
 ### waza registry search
 
-Search configured registry indexes.
+Search configured registry indexes. The current implementation returns bundled sample metadata while live registry index integration is pending.
 
 ```bash
 waza registry search factual
@@ -1032,7 +1032,7 @@ waza registry search factual --format json
 
 ### waza registry add
 
-Append a remote grader preset reference to `eval.yaml` and update `waza.lock`.
+Append a remote grader preset reference to `eval.yaml`, resolve it with the shared remote grader resolver, and update `waza.lock` with the pinned commit SHA and `sha256:` content digest.
 
 ```bash
 waza registry add github.com/waza-evals/fact#factuality@v1.0.0
@@ -1040,7 +1040,7 @@ waza registry add github.com/waza-evals/fact#factuality@v1.0.0 --eval eval.yaml
 waza registry add github.com/waza-evals/fact#factuality@v1.0.0 --name factuality_strict --set config.threshold=0.9
 ```
 
-Full end-to-end module resolution depends on the shared resolver from issue #15. Phase 1 writes minimal `ref:` grader entries and scaffolds lock metadata until that resolver is wired in.
+Remote program graders require `--allow-exec` or interactive confirmation before `waza.lock` marks the ref as trusted.
 
 #### Flags
 
