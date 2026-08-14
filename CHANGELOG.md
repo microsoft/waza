@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.38.5] - 2026-08-06
+
+### Fixed
+
+- **Tool-call argument grading** — `tool_calls` graders now use canonical `tool_events[].args` data, preserving MCP and custom tool arguments across `results.json` round trips (#474, #477).
+- **Dev command output race** — Trigger-discovery warnings are emitted before the Copilot spinner starts, preventing concurrent writes detected by the Go race suite (#506).
+
+### Changed
+
+- **Documentation site validation** — Pull requests now validate the Starlight documentation site before merge (#473, #476).
+- **GitHub Actions hardening** — Third-party actions are pinned to full commit SHAs and Dependabot applies a seven-day GitHub Actions cooldown (#504).
+- **Dependencies** — Updated Playwright, ESLint, TypeScript ESLint, React Query, Starlight, Goldmark, and `go-runewidth` (#495, #497, #498, #499, #500, #502, #503).
+
+## [0.38.4] - 2026-07-27
+
 ### Fixed
 
 - **Release workflow idempotency** — CLI artifact publishing now uploads assets to an existing release when the tag's release was created earlier in the workflow, instead of failing on `gh release create`.
@@ -585,7 +600,9 @@ pip install waza
 - YAML escaping for regex patterns with backslashes
 - Progress bar now shows 100% on completion
 
-[Unreleased]: https://github.com/microsoft/waza/compare/v0.38.3...HEAD
+[Unreleased]: https://github.com/microsoft/waza/compare/azd-ext-microsoft-azd-waza_0.38.5...HEAD
+[0.38.5]: https://github.com/microsoft/waza/compare/azd-ext-microsoft-azd-waza_0.38.4...azd-ext-microsoft-azd-waza_0.38.5
+[0.38.4]: https://github.com/microsoft/waza/compare/azd-ext-microsoft-azd-waza_0.38.3...azd-ext-microsoft-azd-waza_0.38.4
 [0.38.3]: https://github.com/microsoft/waza/compare/v0.38.2...v0.38.3
 [0.38.2]: https://github.com/microsoft/waza/compare/v0.38.1...v0.38.2
 [0.38.1]: https://github.com/microsoft/waza/compare/v0.38.0...v0.38.1
