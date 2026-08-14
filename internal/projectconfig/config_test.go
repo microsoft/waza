@@ -212,6 +212,25 @@ defaults:
 	}
 }
 
+func TestLoad_DuplicateRegistryNames_ReturnsError(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, ".waza.yaml", `
+registries:
+  - name: public
+    url: https://github.com/waza-evals
+  - name: public
+    url: https://github.com/example/waza-evals
+`)
+
+	_, err := Load(dir)
+	if err == nil {
+		t.Fatal("Load() should reject duplicate registry names")
+	}
+	if !strings.Contains(err.Error(), "duplicates") {
+		t.Fatalf("error %q does not report the duplicate registry name", err)
+	}
+}
+
 func TestLoad_UnknownFields_ReturnsError(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, dir, ".waza.yaml", `

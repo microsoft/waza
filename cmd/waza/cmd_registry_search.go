@@ -146,9 +146,9 @@ func renderRegistrySearchTable(cmd *cobra.Command, results []registrySearchResul
 	}
 
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "REF\tKIND\tDESCRIPTION\tSTARS") //nolint:errcheck
+	fmt.Fprintln(tw, "REF\tKIND\tREGISTRY\tDESCRIPTION\tSTARS") //nolint:errcheck
 	for _, result := range results {
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%d\n", result.Ref, result.Kind, result.Description, result.Stars) //nolint:errcheck
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%d\n", result.Ref, result.Kind, result.Registry, result.Description, result.Stars) //nolint:errcheck
 	}
 	tw.Flush() //nolint:errcheck
 }

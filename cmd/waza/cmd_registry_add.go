@@ -82,10 +82,25 @@ func runRegistryAdd(cmd *cobra.Command, ref string, opts registryAddOptions) err
 	if err != nil {
 		return err
 	}
+
+	originalEval, err := os.ReadFile(opts.evalPath)
+	if err != nil {
+		return fmt.Errorf("reading %s: %w", opts.evalPath, err)
+	}
+	evalInfo, err := os.Stat(opts.evalPath)
+	if err != nil {
+		return fmt.Errorf("reading metadata for %s: %w", opts.evalPath, err)
+	}
 	if err := appendRegistryGrader(opts.evalPath, entry); err != nil {
 		return err
 	}
 	if err := updateRegistryLock(opts.evalPath, resolved, trusted); err != nil {
+		// The eval and lock file form one logical update. Restore the original
+		// eval when the lock cannot be written so the repository is not left
+		// with a grader entry that has no corresponding resolution metadata.
+		if rollbackErr := os.WriteFile(opts.evalPath, originalEval, evalInfo.Mode().Perm()); rollbackErr != nil {
+			return fmt.Errorf("updating registry lock: %w; restoring %s: %v", err, opts.evalPath, rollbackErr)
+		}
 		return err
 	}
 
@@ -152,7 +167,15 @@ func buildRegistryGraderEntry(ref, name string, setValues []string) (*yaml.Node,
 		if !ok || strings.TrimSpace(key) == "" {
 			return nil, fmt.Errorf("invalid --set %q: expected key=value", raw)
 		}
-		setNestedValue(entry, strings.Split(strings.TrimSpace(key), "."), scalarNode(strings.TrimSpace(value)))
+		path := strings.Split(strings.TrimSpace(key), ".")
+		for i := range path {
+			segment := strings.TrimSpace(path[i])
+			if segment == "" || segment != path[i] {
+				return nil, fmt.Errorf("invalid --set %q: path segments must not be empty", raw)
+			}
+			path[i] = segment
+		}
+		setNestedValue(entry, path, scalarNode(strings.TrimSpace(value)))
 	}
 	return entry, nil
 }
@@ -221,7 +244,22 @@ func updateRegistryLock(evalPath string, resolved resolvedRegistryRef, trusted b
 		return fmt.Errorf("%s field modules must be a list", lockPath)
 	}
 
-	modules.Content = append(modules.Content, registryLockEntry(resolved, trusted))
+	lockEntry := registryLockEntry(resolved, trusted)
+	replaced := false
+	for i, module := range modules.Content {
+		if module.Kind != yaml.MappingNode {
+			continue
+		}
+		moduleRef := mappingValue(module, "ref")
+		if moduleRef != nil && moduleRef.Value == resolved.Ref {
+			modules.Content[i] = lockEntry
+			replaced = true
+			break
+		}
+	}
+	if !replaced {
+		modules.Content = append(modules.Content, lockEntry)
+	}
 
 	var buf bytes.Buffer
 	enc := yaml.NewEncoder(&buf)

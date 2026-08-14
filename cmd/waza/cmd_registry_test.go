@@ -43,10 +43,12 @@ func TestRegistrySearchTableOutput(t *testing.T) {
 	output := out.String()
 	require.Contains(t, output, "REF")
 	require.Contains(t, output, "KIND")
+	require.Contains(t, output, "REGISTRY")
 	require.Contains(t, output, "DESCRIPTION")
 	require.Contains(t, output, "STARS")
 	require.Contains(t, output, "github.com/waza-evals/fact#factuality@v1.0.0")
 	require.Contains(t, output, "grader")
+	require.Contains(t, output, "public")
 	require.Contains(t, output, "Prompt grader for factual grounding.")
 	require.Contains(t, output, "128")
 }
@@ -118,6 +120,67 @@ graders:
 	require.Contains(t, lockText, "ref: github.com/waza-evals/fact#factuality@v1.0.0")
 	require.Contains(t, lockText, "commit: resolver-pending")
 	require.Contains(t, lockText, "digest: resolver-pending")
+}
+
+func TestRegistryAddRejectsEmptySetPathSegments(t *testing.T) {
+	for _, setValue := range []string{"config..threshold=0.9", "config. threshold=0.9"} {
+		t.Run(setValue, func(t *testing.T) {
+			_, err := buildRegistryGraderEntry(
+				"github.com/waza-evals/fact#factuality@v1.0.0",
+				"",
+				[]string{setValue},
+			)
+
+			require.Error(t, err)
+			require.Contains(t, err.Error(), "path segments must not be empty")
+		})
+	}
+}
+
+func TestRegistryAddReplacesExistingLockEntry(t *testing.T) {
+	dir := t.TempDir()
+	evalPath := filepath.Join(dir, "eval.yaml")
+	require.NoError(t, os.WriteFile(evalPath, []byte("name: registry-test\n"), 0o644))
+
+	for range 2 {
+		cmd := newRegistryAddCommand()
+		cmd.SetOut(io.Discard)
+		cmd.SetErr(io.Discard)
+		cmd.SetArgs([]string{
+			"github.com/waza-evals/fact#factuality@v1.0.0",
+			"--eval", evalPath,
+		})
+		require.NoError(t, cmd.Execute())
+	}
+
+	lockData, err := os.ReadFile(filepath.Join(dir, "waza.lock"))
+	require.NoError(t, err)
+	var lockDoc map[string]any
+	require.NoError(t, yaml.Unmarshal(lockData, &lockDoc))
+	modules, ok := lockDoc["modules"].([]any)
+	require.True(t, ok)
+	require.Len(t, modules, 1)
+}
+
+func TestRegistryAddRestoresEvalWhenLockWriteFails(t *testing.T) {
+	dir := t.TempDir()
+	evalPath := filepath.Join(dir, "eval.yaml")
+	original := []byte("name: registry-test\n")
+	require.NoError(t, os.WriteFile(evalPath, original, 0o644))
+	require.NoError(t, os.Mkdir(filepath.Join(dir, "waza.lock"), 0o755))
+
+	cmd := newRegistryAddCommand()
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+	cmd.SetArgs([]string{
+		"github.com/waza-evals/fact#factuality@v1.0.0",
+		"--eval", evalPath,
+	})
+
+	require.Error(t, cmd.Execute())
+	actual, err := os.ReadFile(evalPath)
+	require.NoError(t, err)
+	require.Equal(t, original, actual)
 }
 
 func TestRegistryAddPromptsForProgramGrader(t *testing.T) {

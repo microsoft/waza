@@ -387,13 +387,19 @@ func validateConfig(cfg *ProjectConfig) error {
 	if err := validateFileSuffix("files.taskFileSuffix", cfg.Files.TaskFileSuffix); err != nil {
 		return err
 	}
+	registryNames := make(map[string]int, len(cfg.Registries))
 	for i, registry := range cfg.Registries {
-		if strings.TrimSpace(registry.Name) == "" {
+		name := strings.TrimSpace(registry.Name)
+		if name == "" {
 			return fmt.Errorf("registries[%d].name must not be empty", i)
 		}
 		if strings.TrimSpace(registry.URL) == "" {
 			return fmt.Errorf("registries[%d].url must not be empty", i)
 		}
+		if previous, exists := registryNames[name]; exists {
+			return fmt.Errorf("registries[%d].name %q duplicates registries[%d].name", i, name, previous)
+		}
+		registryNames[name] = i
 	}
 	return nil
 }
