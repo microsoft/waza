@@ -653,6 +653,9 @@ func extractGitArchive(ctx context.Context, mirror string, commit string, dest s
 		return err
 	}
 	extractErr := extractTar(stdout, dest)
+	if extractErr == nil {
+		_, extractErr = io.Copy(io.Discard, stdout)
+	}
 	if extractErr != nil && cmd.Process != nil {
 		_ = cmd.Process.Kill()
 	}
