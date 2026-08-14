@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.38.6] - 2026-08-14
+
+### Added
+
+- **Remote grader references** — `graders[].ref` can resolve Go-module-style GitHub references through `waza get`, with pinned lockfiles, digest verification, offline cache support, and runtime expansion (#15, #494).
+- **Registry CLI** — Added `waza registry search` and `waza registry add` for discovering shared graders and adding compatible references to eval files (#17, #493).
+
+### Changed
+
+- **Dependencies** — Updated OpenTelemetry, Azure Developer CLI, JSON Schema, Vite, React tooling, Playwright, Astro, Starlight, TypeScript ESLint, Lucide, and related lockfiles (#507-#521, #525).
+- **CI path filtering** — Updated `dorny/paths-filter` to v4 for current runner support and merge-queue handling (#519).
+
 ## [0.38.5] - 2026-08-06
 
 ### Fixed
@@ -600,7 +612,8 @@ pip install waza
 - YAML escaping for regex patterns with backslashes
 - Progress bar now shows 100% on completion
 
-[Unreleased]: https://github.com/microsoft/waza/compare/azd-ext-microsoft-azd-waza_0.38.5...HEAD
+[Unreleased]: https://github.com/microsoft/waza/compare/azd-ext-microsoft-azd-waza_0.38.6...HEAD
+[0.38.6]: https://github.com/microsoft/waza/compare/azd-ext-microsoft-azd-waza_0.38.5...azd-ext-microsoft-azd-waza_0.38.6
 [0.38.5]: https://github.com/microsoft/waza/compare/azd-ext-microsoft-azd-waza_0.38.4...azd-ext-microsoft-azd-waza_0.38.5
 [0.38.4]: https://github.com/microsoft/waza/compare/azd-ext-microsoft-azd-waza_0.38.3...azd-ext-microsoft-azd-waza_0.38.4
 [0.38.3]: https://github.com/microsoft/waza/compare/v0.38.2...v0.38.3
