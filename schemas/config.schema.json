@@ -243,6 +243,38 @@
         }
       },
       "additionalProperties": false
+    },
+    "registries": {
+      "type": "array",
+      "description": "Registry index sources used by 'waza registry search'.",
+      "default": [
+        {
+          "name": "public",
+          "url": "https://github.com/waza-evals"
+        }
+      ],
+      "items": {
+        "type": "object",
+        "required": ["name", "url"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Registry source name used by --registry.",
+            "minLength": 1
+          },
+          "url": {
+            "type": "string",
+            "description": "Registry index URL.",
+            "minLength": 1
+          },
+          "priority": {
+            "type": "integer",
+            "description": "Higher-priority registries are searched first.",
+            "default": 0
+          }
+        },
+        "additionalProperties": false
+      }
     }
   },
   "additionalProperties": false

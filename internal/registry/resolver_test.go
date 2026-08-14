@@ -116,6 +116,62 @@ tasks: []
 	}
 }
 
+func TestResolverRequiresTrustForProgramGraders(t *testing.T) {
+	repo := createProgramModuleRepo(t)
+	cacheRoot := filepath.Join(t.TempDir(), "cache")
+	resolver, err := NewResolver(
+		WithCacheRoot(cacheRoot),
+		WithGitURLFunc(func(Ref) string { return repo }),
+	)
+	if err != nil {
+		t.Fatalf("NewResolver() error = %v", err)
+	}
+
+	ref := "example.com/acme/program-graders#exec@v1.0.0"
+	if _, err := resolver.ResolveRef(context.Background(), ref); !IsProgramGraderTrustError(err) {
+		t.Fatalf("ResolveRef() error = %v, want ProgramGraderTrustError", err)
+	}
+	entry, err := resolver.ResolveRefWithOptions(context.Background(), ref, ResolveOptions{AllowProgram: true})
+	if err != nil {
+		t.Fatalf("ResolveRefWithOptions() error = %v", err)
+	}
+	if !entry.Trusted {
+		t.Fatalf("Trusted = false, want true")
+	}
+
+	evalDir := t.TempDir()
+	evalPath := filepath.Join(evalDir, "eval.yaml")
+	specYAML := `name: remote-program-eval
+skill: test
+config:
+  trials_per_task: 1
+  timeout_seconds: 60
+  executor: mock
+graders:
+  - ref: example.com/acme/program-graders#exec@v1.0.0
+metrics: []
+tasks: []
+`
+	if err := os.WriteFile(evalPath, []byte(specYAML), 0o644); err != nil {
+		t.Fatalf("write eval: %v", err)
+	}
+	lock := models.NewLockfile()
+	lock.UpsertGrader(entry)
+	if err := models.WriteLockfile(filepath.Join(evalDir, models.LockfileName), lock); err != nil {
+		t.Fatalf("WriteLockfile() error = %v", err)
+	}
+	spec, err := models.LoadEvalSpec(evalPath)
+	if err != nil {
+		t.Fatalf("LoadEvalSpec() error = %v", err)
+	}
+	if err := resolver.ExpandLockedGraders(context.Background(), spec, evalPath); err != nil {
+		t.Fatalf("ExpandLockedGraders() error = %v", err)
+	}
+	if spec.Graders[0].Kind != models.GraderKindProgram {
+		t.Fatalf("Kind = %q", spec.Graders[0].Kind)
+	}
+}
+
 func TestSafeJoinModulePathRejectsTraversal(t *testing.T) {
 	for _, unsafe := range []string{"../outside.yaml", `..\outside.yaml`, "graders/../../outside.yaml"} {
 		if _, err := safeJoinModulePath(t.TempDir(), unsafe); err == nil {
@@ -189,6 +245,42 @@ config:
 		t.Fatalf("write manifest: %v", err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "graders", "factuality.yaml"), []byte(grader), 0o644); err != nil {
+		t.Fatalf("write grader: %v", err)
+	}
+	run(t, dir, "git", "add", ".")
+	run(t, dir, "git", "commit", "--quiet", "-m", "initial")
+	run(t, dir, "git", "tag", "v1.0.0")
+	return dir
+}
+
+func createProgramModuleRepo(t *testing.T) string {
+	t.Helper()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+	dir := t.TempDir()
+	run(t, dir, "git", "init", "--quiet")
+	run(t, dir, "git", "config", "user.email", "waza@example.com")
+	run(t, dir, "git", "config", "user.name", "Waza Test")
+	if err := os.MkdirAll(filepath.Join(dir, "graders"), 0o755); err != nil {
+		t.Fatalf("mkdir graders: %v", err)
+	}
+	manifest := `schema_version: 1
+module: example.com/acme/program-graders
+exports:
+  graders:
+    exec:
+      path: graders/exec.yaml
+`
+	grader := `type: program
+name: exec
+config:
+  command: "true"
+`
+	if err := os.WriteFile(filepath.Join(dir, "waza.registry.yaml"), []byte(manifest), 0o644); err != nil {
+		t.Fatalf("write manifest: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "graders", "exec.yaml"), []byte(grader), 0o644); err != nil {
 		t.Fatalf("write grader: %v", err)
 	}
 	run(t, dir, "git", "add", ".")

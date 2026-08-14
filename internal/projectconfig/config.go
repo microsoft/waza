@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	wazaconfig "github.com/microsoft/waza/internal/config"
 	"gopkg.in/yaml.v3"
 )
 
@@ -148,6 +149,8 @@ type ProjectConfig struct {
 	Tokens   TokensConfig   `yaml:"tokens,omitempty"`
 	Graders  GradersConfig  `yaml:"graders,omitempty"`
 	Storage  StorageConfig  `yaml:"storage,omitempty"`
+
+	Registries []wazaconfig.RegistrySource `yaml:"registries,omitempty"`
 }
 
 // New returns a ProjectConfig with all hard-coded defaults populated.
@@ -196,6 +199,7 @@ func New() *ProjectConfig {
 		Storage: StorageConfig{
 			ContainerName: DefaultStorageContainerName,
 		},
+		Registries: wazaconfig.DefaultRegistrySources(),
 	}
 }
 
@@ -367,6 +371,10 @@ func mergeConfig(dst, src *ProjectConfig) {
 		dst.Storage.ContainerName = src.Storage.ContainerName
 	}
 	dst.Storage.Enabled = src.Storage.Enabled
+
+	if len(src.Registries) > 0 {
+		dst.Registries = src.Registries
+	}
 }
 
 func validateConfig(cfg *ProjectConfig) error {
@@ -378,6 +386,20 @@ func validateConfig(cfg *ProjectConfig) error {
 	}
 	if err := validateFileSuffix("files.taskFileSuffix", cfg.Files.TaskFileSuffix); err != nil {
 		return err
+	}
+	registryNames := make(map[string]int, len(cfg.Registries))
+	for i, registry := range cfg.Registries {
+		name := strings.TrimSpace(registry.Name)
+		if name == "" {
+			return fmt.Errorf("registries[%d].name must not be empty", i)
+		}
+		if strings.TrimSpace(registry.URL) == "" {
+			return fmt.Errorf("registries[%d].url must not be empty", i)
+		}
+		if previous, exists := registryNames[name]; exists {
+			return fmt.Errorf("registries[%d].name %q duplicates registries[%d].name", i, name, previous)
+		}
+		registryNames[name] = i
 	}
 	return nil
 }

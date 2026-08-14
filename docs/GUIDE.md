@@ -512,6 +512,22 @@ Specify cache location:
 waza run evals/code-explainer/eval.yaml --cache --cache-dir ./my-cache
 ```
 
+### Registry Grader Presets
+
+Use registry commands to discover shared grader presets and add them to an eval without copying full grader definitions by hand:
+
+```bash
+waza registry search factual --kind grader
+waza registry add github.com/waza-evals/fact#factuality@v1.0.0 \
+  --eval evals/code-explainer/eval.yaml \
+  --name factuality_strict \
+  --set config.threshold=0.9
+```
+
+`waza registry search` queries configured index sources. By default, Waza searches the public `https://github.com/waza-evals` source. Project `.waza.yaml` files can define a top-level `registries:` list with named sources, and `--registry <name>` limits search to one of them. The current implementation returns bundled sample metadata while live registry index integration is pending.
+
+`waza registry add` appends a `ref:` grader entry to `eval.yaml`, resolves the ref with the shared remote grader resolver, and updates `waza.lock` with the pinned commit SHA and content digest. Remote executable program graders require `--allow-exec` or interactive confirmation because they can run local commands.
+
 ---
 
 ### Testing Against a Local Git Repo

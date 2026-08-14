@@ -101,6 +101,20 @@ func TestSchemaDefaultsMatchGoDefaults(t *testing.T) {
 	assertStringDefault(t, getDefault("storage", "accountName"), cfg.Storage.AccountName, "storage.accountName")
 	assertStringDefault(t, getDefault("storage", "containerName"), cfg.Storage.ContainerName, "storage.containerName")
 	assertBoolDefault(t, getDefault("storage", "enabled"), cfg.Storage.Enabled, "storage.enabled")
+
+	registryDefault, ok := schema.Properties["registries"].Default.([]any)
+	if !ok {
+		t.Fatalf("registries: schema default is %T(%v), expected array", schema.Properties["registries"].Default, schema.Properties["registries"].Default)
+	}
+	if len(registryDefault) != len(cfg.Registries) {
+		t.Fatalf("registries: schema default length %d != Go default length %d", len(registryDefault), len(cfg.Registries))
+	}
+	firstRegistry, ok := registryDefault[0].(map[string]any)
+	if !ok {
+		t.Fatalf("registries[0]: schema default is %T(%v), expected object", registryDefault[0], registryDefault[0])
+	}
+	assertStringDefault(t, firstRegistry["name"], cfg.Registries[0].Name, "registries[0].name")
+	assertStringDefault(t, firstRegistry["url"], cfg.Registries[0].URL, "registries[0].url")
 }
 
 func assertStringDefault(t *testing.T, schemaVal any, goVal, field string) {

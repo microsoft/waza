@@ -130,6 +130,10 @@ waza check skills/my-skill
 waza suggest skills/my-skill --dry-run
 waza suggest skills/my-skill --apply
 
+# Discover shared registry graders and add one to an eval
+waza registry search factual --kind grader
+waza registry add github.com/waza-evals/fact#factuality@v1.0.0 --eval eval.yaml --name factuality
+
 # Verify eval coverage against SKILL.md requirements
 waza spec verify skills/my-skill evals/my-skill/eval.yaml
 waza spec verify skills/my-skill evals/my-skill/eval.yaml --fail --format github-actions
@@ -569,6 +573,29 @@ Clear all cached evaluation results to force re-execution on the next run.
 | Flag | Description |
 |------|-------------|
 | `--cache-dir <dir>` | Cache directory to clear (default: `.waza-cache`) |
+
+### `waza registry search <query>`
+
+Search configured registry indexes for reusable graders, eval bundles, and datasets. The default public registry source is `https://github.com/waza-evals`; project-level `.waza.yaml` can override sources with a top-level `registries:` list.
+
+Registry search currently returns bundled sample metadata while live index integration is pending.
+
+| Flag | Description |
+|------|-------------|
+| `--kind <kind>` | Filter by `grader`, `eval`, or `dataset` |
+| `--registry <name>` | Search only the named registry source |
+| `--format <format>` | Output `table` or `json` (default: `table`) |
+
+### `waza registry add <ref>`
+
+Append a remote grader preset reference to `eval.yaml`, resolve it with the same remote grader resolver as `waza get`, and update `waza.lock` with the pinned commit SHA and `sha256:` content digest.
+
+| Flag | Description |
+|------|-------------|
+| `--eval <path>` | Eval file to update (default: `eval.yaml`) |
+| `--name <alias>` | Local alias for the grader |
+| `--set key=value` | Add a local override, repeatable (for example, `--set config.threshold=0.9`) |
+| `--allow-exec` | Allow remote program graders without interactive confirmation |
 
 ### `waza dev [skill-path]`
 
@@ -1132,7 +1159,7 @@ tasks:
 
 `schemaVersion` uses `MAJOR.MINOR` format. Missing values are interpreted as the current schema version (currently `1.2`). Readers allow same-major minor additions with warnings for unknown fields, but reject different majors with a hint to run `waza migrate <file>`.
 
-Remote grader refs use Go-module-style paths: `<host>/<owner>/<repo>[/path][#export]@<version>`. The remote module must provide a `waza.registry.yaml` manifest and export a config-only grader preset that expands to a built-in grader type. Run `waza get eval.yaml` after adding or changing refs so `waza.lock` records the resolved commit and digest.
+Remote grader refs use Go-module-style paths: `<host>/<owner>/<repo>[/path][#export]@<version>`. The remote module must provide a `waza.registry.yaml` manifest and export a grader preset. Config-only grader presets expand to built-in grader types by default; remote program graders require explicit trust with `waza registry add --allow-exec` or interactive confirmation. Run `waza get eval.yaml` after manually adding or changing refs so `waza.lock` records the resolved commit and digest.
 
 `results.json` is currently emitted at `schemaVersion` `1.2`. Version `1.1` added per-turn checkpoints (`runs[].checkpoints[]`, see #358) and the normalized `runs[].tool_events[]` array (`turn`, `sequence`, `tool_call_id`, `tool_name`, `args`, `result`, `success`, `error`, `duration_ms`; see #366). Version `1.2` adds `runs[].snapshot_path` for `waza run --snapshot` artifacts (#367) and the eval-level `adversarial:` block consumed by `waza adversarial --spec` (#365). See [docs/PRD](docs/PRD.md) and [schema-changes](site/src/content/docs/reference/schema-changes.md) for details.
 
