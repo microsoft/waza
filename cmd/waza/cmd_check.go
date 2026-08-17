@@ -248,14 +248,14 @@ func printCheckSummaryTable(w interface{ Write([]byte) (int, error) }, reports [
 	// Compute dynamic column width (in terminal display cells) from the longest
 	// skill name. Display width, rather than the rune count, is used so the
 	// column stays aligned with padRight for wide characters (CJK, emoji).
-	nameWidth := len("Skill")
+	nameWidth := runewidth.StringWidth("Skill")
 	for _, r := range reports {
 		n := r.skillName
 		if n == "" {
 			n = "unnamed"
 		}
-		if w := runewidth.StringWidth(n); w > nameWidth {
-			nameWidth = w
+		if width := runewidth.StringWidth(n); width > nameWidth {
+			nameWidth = width
 		}
 	}
 	if nameWidth > maxNameWidth {

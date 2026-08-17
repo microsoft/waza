@@ -8,7 +8,6 @@ import (
 	"regexp"
 	"strings"
 	"testing"
-	"unicode/utf8"
 
 	"github.com/mattn/go-runewidth"
 	"github.com/microsoft/waza/cmd/waza/tokens"
@@ -661,7 +660,7 @@ func TestTruncateName(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			got := truncateName(tt.name, tt.maxLen)
 			assert.Equal(t, tt.want, got)
-			assert.LessOrEqual(t, utf8.RuneCountInString(got), tt.maxLen)
+			assert.LessOrEqual(t, runewidth.StringWidth(got), tt.maxLen)
 		})
 	}
 }
@@ -726,13 +725,17 @@ func TestPrintCheckSummaryTable_WideCharAlignment(t *testing.T) {
 	}
 	require.True(t, found, "header row with the Compliance column was not found")
 
+	dataFound := false
 	for _, line := range lines {
 		if !strings.Contains(line, "Medium-High") {
 			continue
 		}
-		col, _ := displayCol(line, "Medium-High")
+		col, ok := displayCol(line, "Medium-High")
+		require.True(t, ok, "data row with the Compliance column was not found")
 		assert.Equal(t, want, col, "second column misaligned for row %q", line)
+		dataFound = true
 	}
+	require.True(t, dataFound, "no data rows were checked")
 }
 
 func TestCheckCommandJSONOutput(t *testing.T) {
