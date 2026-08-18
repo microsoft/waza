@@ -189,8 +189,11 @@ func outcomeToDetail(o *models.EvaluationOutcome) *RunDetail {
 
 	for _, to := range o.TestOutcomes {
 		tr := TaskResult{
-			Name:    to.DisplayName,
-			Outcome: string(to.Status),
+			Name:       to.DisplayName,
+			Outcome:    string(to.Status),
+			Prompt:     to.Prompt,
+			PromptFile: to.PromptFile,
+			FollowUps:  to.FollowUps,
 		}
 		if to.Stats != nil {
 			tr.Score = to.Stats.AvgScore

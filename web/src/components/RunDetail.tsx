@@ -7,6 +7,8 @@ import {
   ChevronRight,
   ChevronDown,
   Download,
+  Copy,
+  Check,
 } from "lucide-react";
 import { useRunDetail } from "../hooks/useApi";
 import type { TaskResult, GraderResult, ResponderInfo } from "../api/client";
@@ -163,6 +165,125 @@ function GraderRow({ grader }: { grader: GraderResult }) {
   );
 }
 
+function PromptPanel({
+  prompt,
+  promptFile,
+  followUps,
+}: {
+  prompt?: string;
+  promptFile?: string;
+  followUps?: string[];
+}) {
+  const [copied, setCopied] = useState(false);
+  const [showFollowUps, setShowFollowUps] = useState(false);
+
+  if (!prompt && !promptFile && (!followUps || followUps.length === 0)) {
+    return (
+      <tr className="border-b border-zinc-700/30 bg-zinc-900/30">
+        <td colSpan={5} className="px-12 py-3 text-xs italic text-zinc-500">
+          Prompt not recorded for this task. Re-run with a newer waza to
+          capture the eval prompt in results.
+        </td>
+      </tr>
+    );
+  }
+
+  const copyable = prompt ?? "";
+  const handleCopy = () => {
+    if (!copyable) return;
+    void navigator.clipboard.writeText(copyable).then(() => {
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    });
+  };
+
+  return (
+    <tr className="border-b border-zinc-700/30 bg-zinc-900/30">
+      <td colSpan={5} className="px-12 py-3">
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <div className="flex items-baseline gap-2">
+            <span className="text-xs font-medium uppercase tracking-wide text-zinc-400">
+              Prompt
+            </span>
+            {promptFile && (
+              <span
+                className="text-xs text-zinc-500"
+                title={`Loaded from ${promptFile}`}
+              >
+                (from {promptFile})
+              </span>
+            )}
+          </div>
+          {prompt && (
+            <button
+              type="button"
+              onClick={handleCopy}
+              className="inline-flex items-center gap-1 rounded border border-zinc-700 bg-zinc-800 px-2 py-1 text-xs text-zinc-300 hover:bg-zinc-700"
+              aria-label="Copy prompt to clipboard"
+              data-testid="copy-prompt-button"
+            >
+              {copied ? (
+                <>
+                  <Check className="h-3 w-3 text-green-500" /> Copied
+                </>
+              ) : (
+                <>
+                  <Copy className="h-3 w-3" /> Copy
+                </>
+              )}
+            </button>
+          )}
+        </div>
+        {prompt ? (
+          <pre
+            className="max-h-96 overflow-auto whitespace-pre-wrap break-words rounded border border-zinc-700 bg-zinc-950/70 p-3 font-mono text-xs text-zinc-200"
+            data-testid="task-prompt"
+          >
+            {prompt}
+          </pre>
+        ) : (
+          <p className="text-xs italic text-zinc-500">
+            Prompt was loaded from an external file at run time; text not
+            captured in this result.
+          </p>
+        )}
+        {followUps && followUps.length > 0 && (
+          <div className="mt-3">
+            <button
+              type="button"
+              onClick={() => setShowFollowUps((v) => !v)}
+              className="inline-flex items-center gap-1 text-xs text-zinc-400 hover:text-zinc-200"
+              aria-expanded={showFollowUps}
+            >
+              {showFollowUps ? (
+                <ChevronDown className="h-3 w-3" />
+              ) : (
+                <ChevronRight className="h-3 w-3" />
+              )}
+              Follow-up prompts ({followUps.length})
+            </button>
+            {showFollowUps && (
+              <ol
+                className="mt-2 space-y-2 pl-4"
+                data-testid="task-follow-ups"
+              >
+                {followUps.map((fu, i) => (
+                  <li key={i} className="text-xs text-zinc-300">
+                    <span className="mr-2 text-zinc-500">{i + 1}.</span>
+                    <pre className="mt-1 inline-block max-h-48 overflow-auto whitespace-pre-wrap break-words rounded border border-zinc-700 bg-zinc-950/70 p-2 font-mono text-xs text-zinc-200">
+                      {fu}
+                    </pre>
+                  </li>
+                ))}
+              </ol>
+            )}
+          </div>
+        )}
+      </td>
+    </tr>
+  );
+}
+
 function TaskRow({ task }: { task: TaskResult }) {
   const [expanded, setExpanded] = useState(false);
   const ws = computeWeightedScore(task);
@@ -203,10 +324,18 @@ function TaskRow({ task }: { task: TaskResult }) {
           {formatDuration(task.duration)}
         </td>
       </tr>
-      {expanded &&
-        task.graderResults.map((g) => (
-          <GraderRow key={g.name} grader={g} />
-        ))}
+      {expanded && (
+        <>
+          <PromptPanel
+            prompt={task.prompt}
+            promptFile={task.promptFile}
+            followUps={task.followUps}
+          />
+          {task.graderResults.map((g) => (
+            <GraderRow key={g.name} grader={g} />
+          ))}
+        </>
+      )}
     </>
   );
 }

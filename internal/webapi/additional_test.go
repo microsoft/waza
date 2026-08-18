@@ -358,3 +358,46 @@ func TestOutcomeToDetailNoTasks(t *testing.T) {
 		t.Fatalf("expected 0 tasks, got %d", len(detail.Tasks))
 	}
 }
+
+func TestOutcomeToDetailMapsPrompt(t *testing.T) {
+	outcome := &models.EvaluationOutcome{
+		RunID:     "prompt-run",
+		BenchName: "bench-prompt",
+		Setup:     models.OutcomeSetup{ModelID: "gpt-4o"},
+		Digest:    models.OutcomeDigest{TotalTests: 2, Succeeded: 2},
+		TestOutcomes: []models.TestOutcome{
+			{
+				DisplayName: "task-with-prompt",
+				Status:      models.StatusPassed,
+				Prompt:      "Refactor the login handler to use bcrypt.",
+				PromptFile:  "prompts/refactor-login.md",
+				FollowUps:   []string{"Now add unit tests.", "Update the README."},
+			},
+			{
+				DisplayName: "task-legacy-no-prompt",
+				Status:      models.StatusPassed,
+			},
+		},
+	}
+
+	detail := outcomeToDetail(outcome)
+
+	if len(detail.Tasks) != 2 {
+		t.Fatalf("expected 2 tasks, got %d", len(detail.Tasks))
+	}
+	got := detail.Tasks[0]
+	if got.Prompt != "Refactor the login handler to use bcrypt." {
+		t.Errorf("expected prompt to round-trip, got %q", got.Prompt)
+	}
+	if got.PromptFile != "prompts/refactor-login.md" {
+		t.Errorf("expected promptFile to round-trip, got %q", got.PromptFile)
+	}
+	if len(got.FollowUps) != 2 || got.FollowUps[0] != "Now add unit tests." {
+		t.Errorf("expected followUps to round-trip, got %+v", got.FollowUps)
+	}
+
+	legacy := detail.Tasks[1]
+	if legacy.Prompt != "" || legacy.PromptFile != "" || len(legacy.FollowUps) != 0 {
+		t.Errorf("expected legacy task to have empty prompt fields, got %+v", legacy)
+	}
+}

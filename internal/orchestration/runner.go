@@ -840,6 +840,9 @@ func (r *EvalRunner) runSequential(ctx context.Context, testCases []*models.Test
 					DisplayName: tc.DisplayName,
 					Golden:      tc.Golden,
 					Status:      models.StatusFailed,
+					Prompt:      tc.Stimulus.Message,
+					PromptFile:  tc.Stimulus.MessageFile,
+					FollowUps:   tc.Stimulus.FollowUps,
 					Runs:        []models.RunResult{},
 				})
 				r.notifyProgress(ProgressEvent{
@@ -928,6 +931,9 @@ func (r *EvalRunner) runConcurrent(ctx context.Context, testCases []*models.Test
 						DisplayName: test.DisplayName,
 						Golden:      test.Golden,
 						Status:      models.StatusFailed,
+						Prompt:      test.Stimulus.Message,
+						PromptFile:  test.Stimulus.MessageFile,
+						FollowUps:   test.Stimulus.FollowUps,
 						Runs:        []models.RunResult{},
 					}}
 					r.notifyProgress(ProgressEvent{
@@ -1110,6 +1116,9 @@ func (r *EvalRunner) runTestUncached(ctx context.Context, tc *models.TestCase, t
 		Group:       r.resolveGroup(),
 		Golden:      tc.Golden,
 		Status:      status,
+		Prompt:      tc.Stimulus.Message,
+		PromptFile:  tc.Stimulus.MessageFile,
+		FollowUps:   tc.Stimulus.FollowUps,
 		Runs:        runs,
 		Stats:       stats,
 	}

@@ -152,8 +152,22 @@ type TestOutcome struct {
 	Group       string `json:"group,omitempty"`
 	// Golden mirrors TestCase.Golden so `waza gate` can identify
 	// must-pass tasks directly from results.json without re-reading YAML.
-	Golden      bool               `json:"golden,omitempty"`
-	Status      Status             `json:"status"`
+	Golden bool   `json:"golden,omitempty"`
+	Status Status `json:"status"`
+	// Prompt is the resolved initial task prompt (TestCase.Stimulus.Message),
+	// captured so the dashboard and other post-run consumers can show the
+	// exact instruction the agent received without re-reading the source YAML.
+	// It is populated at run time (after prompt_file resolution). Empty for
+	// legacy result files.
+	Prompt string `json:"prompt,omitempty"`
+	// PromptFile is the source path of Prompt when the stimulus was loaded
+	// from an external file via prompt_file. Empty when the prompt was
+	// inlined in the eval YAML.
+	PromptFile string `json:"prompt_file,omitempty"`
+	// FollowUps mirrors TestCase.Stimulus.FollowUps so consumers can see
+	// the multi-turn script alongside the initial prompt. Empty for
+	// single-turn tasks.
+	FollowUps   []string           `json:"follow_ups,omitempty"`
 	Runs        []RunResult        `json:"runs"`
 	Stats       *TestStats         `json:"stats,omitempty"`
 	SkillImpact *SkillImpactMetric `json:"skill_impact,omitempty"`

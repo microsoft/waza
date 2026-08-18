@@ -36,6 +36,9 @@ type TaskResult struct {
 	Outcome       string                      `json:"outcome"`
 	Score         float64                     `json:"score"`
 	Duration      float64                     `json:"duration"`
+	Prompt        string                      `json:"prompt,omitempty"`
+	PromptFile    string                      `json:"promptFile,omitempty"`
+	FollowUps     []string                    `json:"followUps,omitempty"`
 	GraderResults []GraderResult              `json:"graderResults"`
 	Transcript    []TranscriptEventResponse   `json:"transcript,omitempty"`
 	SessionDigest *SessionDigestResponse      `json:"sessionDigest,omitempty"`

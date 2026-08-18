@@ -79,6 +79,9 @@ export interface TaskResult {
   score: number;
   weightedScore?: number;
   duration: number;
+  prompt?: string;
+  promptFile?: string;
+  followUps?: string[];
   graderResults: GraderResult[];
   transcript?: TranscriptEvent[];
   sessionDigest?: SessionDigest;
