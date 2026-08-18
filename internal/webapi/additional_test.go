@@ -231,6 +231,7 @@ func TestOutcomeToDetailMapsStatsTranscriptAndDigest(t *testing.T) {
 				},
 				Runs: []models.RunResult{
 					{
+						Prompt:     "Explain the code under test.",
 						DurationMs: 1500,
 						Validations: map[string]models.GraderResults{
 							"code": {Name: "code", Type: models.GraderKindInlineScript, Passed: false, Score: 0.2, Weight: 1, Feedback: "failed"},
@@ -272,6 +273,9 @@ func TestOutcomeToDetailMapsStatsTranscriptAndDigest(t *testing.T) {
 	if taskWithData.BootstrapCI == nil || taskWithData.BootstrapCI.Mean != 0.3 {
 		t.Fatalf("expected bootstrap CI mean 0.3, got %+v", taskWithData.BootstrapCI)
 	}
+	if taskWithData.Prompt != "Explain the code under test." {
+		t.Errorf("expected prompt to be mapped, got %q", taskWithData.Prompt)
+	}
 	if taskWithData.IsSignificant == nil || !*taskWithData.IsSignificant {
 		t.Fatal("expected significant=true")
 	}
@@ -297,6 +301,38 @@ func TestOutcomeToDetailMapsStatsTranscriptAndDigest(t *testing.T) {
 	taskNoRuns := detail.Tasks[1]
 	if len(taskNoRuns.GraderResults) != 0 {
 		t.Errorf("expected empty grader results, got %d entries", len(taskNoRuns.GraderResults))
+	}
+}
+
+func TestOutcomeToDetailFallsBackToTranscriptPrompt(t *testing.T) {
+	outcome := &models.EvaluationOutcome{
+		RunID:     "legacy-run",
+		BenchName: "bench-detail",
+		Setup:     models.OutcomeSetup{ModelID: "gpt-4o"},
+		Digest:    models.OutcomeDigest{TotalTests: 1, Succeeded: 1, DurationMs: 1000},
+		TestOutcomes: []models.TestOutcome{
+			{
+				DisplayName: "legacy-task",
+				Status:      models.StatusPassed,
+				Runs: []models.RunResult{
+					{
+						Transcript: []models.TranscriptEvent{
+							{
+								SessionEvent: copilot.SessionEvent{
+									Data: &copilot.UserMessageData{Content: "Legacy prompt from transcript"},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	detail := outcomeToDetail(outcome)
+
+	if got := detail.Tasks[0].Prompt; got != "Legacy prompt from transcript" {
+		t.Fatalf("expected transcript fallback prompt, got %q", got)
 	}
 }
 

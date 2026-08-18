@@ -63,6 +63,7 @@ export const RUN_DETAIL = {
   tasks: [
     {
       name: "explain-fibonacci",
+      prompt: "Explain how the Fibonacci function in fibonacci.py works. Include whether it uses recursion.",
       outcome: "pass",
       score: 1.0,
       weightedScore: 1.0,
@@ -107,6 +108,10 @@ export const RUN_DETAIL = {
     },
     {
       name: "explain-quicksort",
+      prompt: `{
+  "task": "Explain the quicksort implementation",
+  "requirements": ["identify pivot selection", "describe partitioning"]
+}`,
       outcome: "pass",
       score: 1.0,
       weightedScore: 1.0,
@@ -126,6 +131,7 @@ export const RUN_DETAIL = {
     },
     {
       name: "explain-binary-search",
+      prompt: "Explain the binary search implementation and call out its time complexity.",
       outcome: "fail",
       score: 0.0,
       weightedScore: 0.33,
@@ -153,6 +159,7 @@ export const RUN_DETAIL = {
     },
     {
       name: "explain-merge-sort",
+      prompt: "Explain the merge sort implementation in plain language.",
       outcome: "pass",
       score: 1.0,
       weightedScore: 1.0,

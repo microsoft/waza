@@ -48,6 +48,18 @@ test.describe("Run Detail", () => {
     await expect(page.getByText("text").first()).toBeVisible();
   });
 
+  test("prompts tab shows formatted prompts with copy action", async ({ page }) => {
+    await mockAllAPIs(page);
+    await page.goto("/#/runs/run-001");
+
+    await page.getByRole("button", { name: "Prompts" }).click();
+
+    await expect(page.getByText("Explain how the Fibonacci function")).toBeVisible();
+    await expect(page.getByText("Raw resolved prompt sent to the agent · JSON")).toBeVisible();
+    await expect(page.getByText('"task": "Explain the quicksort implementation"')).toBeVisible();
+    await expect(page.getByRole("button", { name: "Copy" }).first()).toBeVisible();
+  });
+
   test("back navigation returns to dashboard", async ({ page }) => {
     await mockAllAPIs(page);
     await page.goto("/#/runs/run-001");
