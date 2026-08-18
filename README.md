@@ -868,6 +868,7 @@ The dashboard displays evaluation results with:
 - Score distributions across trials
 - Model comparisons
 - Aggregated metrics and trends
+- The eval prompt used for each task (expand a task row to view, with a copy-to-clipboard button and any follow-up prompts)
 
 For detailed documentation on the dashboard and result visualization, see [docs/GUIDE.md](docs/GUIDE.md).
 
