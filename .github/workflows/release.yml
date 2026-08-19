@@ -205,7 +205,7 @@ jobs:
         run: npm ci && npm run build
 
       - name: Install Azure Developer CLI
-        uses: Azure/setup-azd@634ad924cf8baef2257898ba5663be8d19f15aca # v2.3.0
+        uses: Azure/setup-azd@0b7e3a35ab00f2eee7080c845eb39c3f0ebfa553 # v2.4.0
 
       - name: Enable azd Extensions
         run: azd config set alpha.extensions on
