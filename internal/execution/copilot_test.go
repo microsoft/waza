@@ -34,14 +34,21 @@ func TestSandboxPermissionHandler_ApprovesOrdinaryRequests(t *testing.T) {
 
 func TestSandboxPermissionHandler_RejectsBypassRequests(t *testing.T) {
 	bypass := true
-	result, err := sandboxPermissionHandler(allowAllTools)(
-		&copilot.PermissionRequestShell{RequestSandboxBypass: &bypass},
-		copilot.PermissionInvocation{},
-	)
+	requests := map[string]copilot.PermissionRequest{
+		"read":  &copilot.PermissionRequestRead{RequestSandboxBypass: &bypass},
+		"shell": &copilot.PermissionRequestShell{RequestSandboxBypass: &bypass},
+		"url":   &copilot.PermissionRequestURL{RequestSandboxBypass: &bypass},
+		"write": &copilot.PermissionRequestWrite{RequestSandboxBypass: &bypass},
+	}
+	for name, request := range requests {
+		t.Run(name, func(t *testing.T) {
+			result, err := sandboxPermissionHandler(allowAllTools)(request, copilot.PermissionInvocation{})
 
-	require.NoError(t, err)
-	_, ok := result.(*rpc.PermissionDecisionReject)
-	require.True(t, ok, "expected a Reject decision, got %T", result)
+			require.NoError(t, err)
+			_, ok := result.(*rpc.PermissionDecisionReject)
+			require.True(t, ok, "expected a Reject decision, got %T", result)
+		})
+	}
 }
 
 func TestSandboxPermissionHandler_RejectsManagedApprovalRequests(t *testing.T) {
@@ -61,12 +68,15 @@ func TestSessionSandboxConfiguration_RestrictsAccessToWorkspace(t *testing.T) {
 	skillDir := t.TempDir()
 	declaredReadonly := filepath.Join(t.TempDir(), "read-only")
 	declaredReadwrite := filepath.Join(t.TempDir(), "read-write")
+	canonicalTempDir, err := canonicalSandboxPath(os.TempDir())
+	require.NoError(t, err)
 
-	options, permissions := sessionSandboxConfiguration(workspace, []string{skillDir}, models.SandboxConfig{
+	options, permissions, err := sessionSandboxConfiguration(workspace, []string{skillDir}, models.SandboxConfig{
 		Enabled:        true,
 		ReadonlyPaths:  []string{declaredReadonly},
 		ReadwritePaths: []string{declaredReadwrite},
 	})
+	require.NoError(t, err)
 
 	require.True(t, options.SandboxConfig.Enabled)
 	require.False(t, *options.SandboxConfig.AddCurrentWorkingDirectory)
@@ -78,7 +88,7 @@ func TestSessionSandboxConfiguration_RestrictsAccessToWorkspace(t *testing.T) {
 		[]string{workspace, declaredReadwrite},
 		options.SandboxConfig.UserPolicy.Filesystem.ReadwritePaths,
 	)
-	require.Equal(t, []string{os.TempDir()}, options.SandboxConfig.UserPolicy.Filesystem.DeniedPaths)
+	require.Equal(t, []string{canonicalTempDir}, options.SandboxConfig.UserPolicy.Filesystem.DeniedPaths)
 	require.Equal(
 		t,
 		[]string{skillDir, declaredReadonly},
@@ -195,7 +205,7 @@ func newSandboxTestRoot(t *testing.T) string {
 }
 
 func TestSessionSandboxConfiguration_AppliesExplicitCapabilityOptIns(t *testing.T) {
-	options, _ := sessionSandboxConfiguration(t.TempDir(), nil, models.SandboxConfig{
+	options, _, err := sessionSandboxConfiguration(t.TempDir(), nil, models.SandboxConfig{
 		Enabled:              true,
 		AllowDevToolCaches:   true,
 		AllowOutboundNetwork: true,
@@ -203,6 +213,7 @@ func TestSessionSandboxConfiguration_AppliesExplicitCapabilityOptIns(t *testing.
 		GitAuth:              true,
 		GHAuth:               true,
 	})
+	require.NoError(t, err)
 
 	sandbox := options.SandboxConfig
 	require.True(t, *sandbox.AllowDevToolCaches)
@@ -213,8 +224,9 @@ func TestSessionSandboxConfiguration_AppliesExplicitCapabilityOptIns(t *testing.
 }
 
 func TestSessionSandboxConfiguration_DisabledLeavesCopilotPolicyUnchanged(t *testing.T) {
-	options, permissions := sessionSandboxConfiguration(t.TempDir(), []string{t.TempDir()}, models.SandboxConfig{})
+	options, permissions, err := sessionSandboxConfiguration(t.TempDir(), []string{t.TempDir()}, models.SandboxConfig{})
 
+	require.NoError(t, err)
 	require.Nil(t, options)
 	require.Nil(t, permissions)
 }

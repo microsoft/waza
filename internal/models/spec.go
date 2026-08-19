@@ -516,9 +516,16 @@ func (s *EvalSpec) Validate() error {
 		}
 	}
 	if s.Config.Sandbox != nil {
-		_, minor, err := parseSchemaVersion(s.SchemaVersion)
+		major, minor, err := parseSchemaVersion(s.SchemaVersion)
 		if err != nil {
 			return err
+		}
+		currentMajor, _, err := parseSchemaVersion(CurrentSchemaVersion)
+		if err != nil {
+			return err
+		}
+		if major != currentMajor {
+			return fmt.Errorf("sandbox does not support schema major %d (current major %d)", major, currentMajor)
 		}
 		if minor < 3 {
 			return fmt.Errorf("sandbox requires schemaVersion 1.3 or newer")

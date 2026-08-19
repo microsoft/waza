@@ -1,7 +1,7 @@
 name: security-reviewer-eval
 description: Evaluates the security-reviewer custom agent
 skill: security-reviewer
-schemaVersion: "1.3"
+schemaVersion: "1.0"
 version: "1.0"
 
 config:
@@ -10,10 +10,6 @@ config:
   trials_per_task: 1
   timeout_seconds: 120
   parallel: false
-  skill_directories:
-    - .
-  sandbox:
-    enabled: true
 
 metrics:
   - name: review_quality

@@ -114,6 +114,22 @@ func TestEvalSpec_Validate_SandboxRequiresSchemaVersion13(t *testing.T) {
 	require.ErrorContains(t, err, "sandbox requires schemaVersion 1.3 or newer")
 }
 
+func TestEvalSpec_Validate_SandboxRejectsUnsupportedSchemaMajor(t *testing.T) {
+	spec := &EvalSpec{
+		SchemaVersion: "2.0",
+		SpecIdentity:  SpecIdentity{Name: "sandboxed"},
+		Config: Config{
+			TrialsPerTask: 1,
+			TimeoutSec:    60,
+			EngineType:    "copilot-sdk",
+			Sandbox:       &SandboxConfig{Enabled: true},
+		},
+	}
+
+	err := spec.Validate()
+	require.ErrorContains(t, err, "sandbox does not support schema major 2")
+}
+
 func TestEvalSpec_Validate_SandboxRequiresCopilotExecutor(t *testing.T) {
 	spec := &EvalSpec{
 		SchemaVersion: "1.3",

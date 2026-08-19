@@ -113,7 +113,10 @@ func (w *copilotSessionWrapper) ConfigureSandbox(ctx context.Context, workspaceD
 	if !config.Enabled {
 		return nil
 	}
-	options, permissions := sessionSandboxConfiguration(workspaceDir, readonlyDirs, config)
+	options, permissions, err := sessionSandboxConfiguration(workspaceDir, readonlyDirs, config)
+	if err != nil {
+		return err
+	}
 	updated, err := w.inner.RPC.Options.Update(ctx, options)
 	if err != nil {
 		return err

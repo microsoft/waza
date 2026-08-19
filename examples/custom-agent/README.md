@@ -12,11 +12,6 @@ This example demonstrates how to evaluate a **custom agent** (`.agent.md`) using
 | `fixtures/` | Sample source files the agent reviews |
 | `trigger_tests.yaml` | Trigger accuracy tests for the agent |
 
-The eval uses `schemaVersion: "1.3"` and `config.sandbox.enabled: true`, making
-this a runnable example of Copilot-native command isolation. Fixtures are copied
-into a fresh task workspace, the declared agent directory is read-only, and
-network and unrelated host access remain disabled by default.
-
 ## Auto-injected tool_constraint grader
 
 The `security-reviewer.agent.md` declares `tools: [search/codebase, filesystem/read]` in its frontmatter. When waza loads the eval, it **automatically injects** a `tool_constraint` grader that verifies the agent only used those declared tools during execution.
