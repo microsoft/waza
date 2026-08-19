@@ -90,6 +90,43 @@ type Config struct {
 	MaxAttempts          int            `yaml:"max_attempts,omitempty" json:"max_attempts,omitempty"`
 	GroupBy              string         `yaml:"group_by,omitempty" json:"group_by,omitempty"`
 	JudgeModel           string         `yaml:"judge_model,omitempty" json:"judge_model,omitempty"`
+	Sandbox              *SandboxConfig `yaml:"sandbox,omitempty" json:"sandbox,omitempty"`
+}
+
+// SandboxConfig controls Copilot CLI's native sandbox for model-visible tools.
+type SandboxConfig struct {
+	Enabled              bool     `yaml:"enabled" json:"enabled"`
+	AllowDevToolCaches   bool     `yaml:"allow_dev_tool_caches,omitempty" json:"allow_dev_tool_caches,omitempty"`
+	AllowOutboundNetwork bool     `yaml:"allow_outbound_network,omitempty" json:"allow_outbound_network,omitempty"`
+	AllowLocalNetwork    bool     `yaml:"allow_local_network,omitempty" json:"allow_local_network,omitempty"`
+	GitAuth              bool     `yaml:"git_auth,omitempty" json:"git_auth,omitempty"`
+	GHAuth               bool     `yaml:"gh_auth,omitempty" json:"gh_auth,omitempty"`
+	ReadonlyPaths        []string `yaml:"readonly_paths,omitempty" json:"readonly_paths,omitempty"`
+	ReadwritePaths       []string `yaml:"readwrite_paths,omitempty" json:"readwrite_paths,omitempty"`
+}
+
+func (s *SandboxConfig) UnmarshalYAML(node *yaml.Node) error {
+	allowed := map[string]bool{
+		"enabled": true, "allow_dev_tool_caches": true,
+		"allow_outbound_network": true, "allow_local_network": true,
+		"git_auth": true, "gh_auth": true,
+		"readonly_paths": true, "readwrite_paths": true,
+	}
+	if node.Kind == yaml.MappingNode {
+		for i := 0; i < len(node.Content); i += 2 {
+			if field := node.Content[i].Value; !allowed[field] {
+				return fmt.Errorf("unknown sandbox field %q", field)
+			}
+		}
+	}
+
+	type rawSandboxConfig SandboxConfig
+	var decoded rawSandboxConfig
+	if err := node.Decode(&decoded); err != nil {
+		return err
+	}
+	*s = SandboxConfig(decoded)
+	return nil
 }
 
 // MCPMockConfig defines a deterministic MCP server mock launched for an eval.
@@ -476,6 +513,18 @@ func (s *EvalSpec) Validate() error {
 		}
 		if err := s.Adversarial.Validate(); err != nil {
 			return err
+		}
+	}
+	if s.Config.Sandbox != nil {
+		_, minor, err := parseSchemaVersion(s.SchemaVersion)
+		if err != nil {
+			return err
+		}
+		if minor < 3 {
+			return fmt.Errorf("sandbox requires schemaVersion 1.3 or newer")
+		}
+		if s.Config.EngineType != "copilot-sdk" {
+			return fmt.Errorf("sandbox requires executor copilot-sdk")
 		}
 	}
 	if s.Config.TrialsPerTask < 1 {

@@ -2,6 +2,7 @@ package execution
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -41,6 +42,9 @@ type CopilotEngine struct {
 	// SDK process running for other engines / graders. The top-level
 	// command must call [ShutdownSharedClient] to actually stop it.
 	ownsClient bool
+	// sanitizedEnvironment records a client-startup property that cannot be
+	// enabled later for an individual sandboxed session.
+	sanitizedEnvironment bool
 
 	startOnce sync.Once
 
@@ -162,6 +166,9 @@ type CopilotEngineBuilder struct {
 
 type CopilotEngineBuilderOptions struct {
 	NewCopilotClient func(clientOptions *copilot.ClientOptions) CopilotClient
+	// SanitizeEnvironment gives this engine's Copilot CLI process the restricted
+	// environment required by sandboxed evaluation requests.
+	SanitizeEnvironment bool
 }
 
 // NewCopilotEngineBuilder creates a builder for CopilotEngine
@@ -181,29 +188,23 @@ func NewCopilotEngineBuilder(defaultModelID string, options *CopilotEngineBuilde
 	ownsClient := false
 	provider := providerFromEnv()
 	cliArgs := modelCLIArgs(defaultModelID, provider.enabled())
+	sanitizeEnvironment := options != nil && options.SanitizeEnvironment
 
 	if options == nil || options.NewCopilotClient == nil {
 		// Production: share one SDK process across all engines + graders.
-		client = SharedClient(SharedClientOptions{CLIArgs: cliArgs})
+		client = SharedClient(SharedClientOptions{CLIArgs: cliArgs, SanitizeEnvironment: sanitizeEnvironment})
 	} else {
-		copilotOptions := &copilot.ClientOptions{
-			// workspace is set at the session level, instead of at the client.
-			LogLevel: "error",
-
-			// SDK v1.0.0 moved CLIArgs onto the Connection. AutoStart/AutoRestart
-			// are no longer configurable — the SDK starts on demand and restarts
-			// internally. We still call client.Start() explicitly in Initialize().
-			Connection: copilot.StdioConnection{Args: cliArgs},
-		}
+		copilotOptions := copilotClientOptions("error", cliArgs, "", sanitizeEnvironment)
 		client = options.NewCopilotClient(copilotOptions)
 		ownsClient = true
 	}
 
 	builder := &CopilotEngineBuilder{
 		engine: &CopilotEngine{
-			defaultModelID: defaultModelID,
-			ownsClient:     ownsClient,
-			provider:       provider,
+			defaultModelID:       defaultModelID,
+			ownsClient:           ownsClient,
+			sanitizedEnvironment: sanitizeEnvironment,
+			provider:             provider,
 		},
 	}
 
@@ -317,6 +318,17 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 	if req == nil {
 		return nil, fmt.Errorf("nil req was passed to CopilotEngine.Execute")
 	}
+	sandbox := req.Sandbox
+	if sandbox != nil && sandbox.Enabled {
+		if !e.sanitizedEnvironment {
+			return nil, fmt.Errorf("sandboxed execution requires an engine built with CopilotEngineBuilderOptions.SanitizeEnvironment because the Copilot CLI process environment is fixed at startup")
+		}
+		resolved, err := resolveSandboxPaths(*sandbox)
+		if err != nil {
+			return nil, err
+		}
+		sandbox = &resolved
+	}
 
 	modelID, sourceDir, err := e.extractReqParams(req)
 
@@ -334,8 +346,21 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 	var workspaceDir string
 	if req.WorkspaceDir != "" {
 		workspaceDir = req.WorkspaceDir
+		if sandbox != nil && sandbox.Enabled {
+			workspaceDir, err = canonicalSandboxPath(workspaceDir)
+			if err != nil {
+				return nil, fmt.Errorf("resolving existing sandbox workspace %q: %w", req.WorkspaceDir, err)
+			}
+			info, statErr := os.Stat(workspaceDir)
+			if statErr != nil {
+				return nil, fmt.Errorf("reading existing sandbox workspace %q: %w", workspaceDir, statErr)
+			}
+			if !info.IsDir() {
+				return nil, fmt.Errorf("existing sandbox workspace %q is not a directory", workspaceDir)
+			}
+		}
 	} else {
-		workspaceDir, err = e.setupWorkspace(ctx, req.Resources, req.GitResources)
+		workspaceDir, err = e.setupWorkspace(ctx, req.Resources, req.GitResources, sandbox != nil && sandbox.Enabled)
 		if err != nil {
 			return nil, err
 		}
@@ -351,9 +376,26 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 	var systemMessage *copilot.SystemMessageConfig
 	var systemMessageParts []string
 	if !req.NoSkills {
-		skillDirs = e.getSkillDirs(sourceDir, req)
+		if sandbox != nil && sandbox.Enabled {
+			// A sandboxed evaluation exposes only explicitly declared skills. The
+			// process launch directory must not become an implicit host read path.
+			skillDirs = make([]string, len(req.SkillPaths))
+			for i, skillDir := range req.SkillPaths {
+				skillDirs[i], err = canonicalSandboxPath(skillDir)
+				if err != nil {
+					return nil, fmt.Errorf("resolving declared skill directory %q: %w", skillDir, err)
+				}
+			}
+		} else {
+			skillDirs = e.getSkillDirs(sourceDir, req)
+		}
 		if msg := buildSkillSystemMessage(skillDirs, req.SkillName, !req.SuppressSkillBody); msg != "" {
 			systemMessageParts = append(systemMessageParts, msg)
+		}
+	}
+	if sandbox != nil && sandbox.Enabled {
+		if err := validateSandboxPathPolicy(workspaceDir, skillDirs, *sandbox); err != nil {
+			return nil, err
 		}
 	}
 	if msg := buildInstructionSystemMessage(req.Instructions); msg != "" {
@@ -368,9 +410,12 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 
 	var session CopilotSession
 
-	permRequestCallback := allowAllTools
+	permRequestCallback := copilot.PermissionHandlerFunc(allowAllTools)
 	if req.PermissionHandler != nil {
 		permRequestCallback = req.PermissionHandler
+	}
+	if sandbox != nil && sandbox.Enabled {
+		permRequestCallback = sandboxPermissionHandler(permRequestCallback)
 	}
 
 	if req.SessionID == "" {
@@ -429,6 +474,11 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 			}
 		}
 	}()
+	if sandbox != nil && sandbox.Enabled {
+		if err := session.ConfigureSandbox(ctx, workspaceDir, skillDirs, *sandbox); err != nil {
+			return nil, fmt.Errorf("failed to configure Copilot sandbox: %w", err)
+		}
+	}
 
 	eventsCollector := NewSessionEventsCollector()
 	usageCollector := NewSessionUsageCollector()
@@ -603,9 +653,10 @@ func (e *CopilotEngine) doShutdown(ctx context.Context) error {
 	// must leave the client running so other engines / graders can use it;
 	// the top-level command stops it via [ShutdownSharedClient]. See
 	// docs/design/135-improve-concurrency.md (R2).
+	var shutdownErr error
 	if e.ownsClient {
 		if err := e.client.Stop(); err != nil {
-			return fmt.Errorf("failed to stop client: %w", err)
+			shutdownErr = fmt.Errorf("failed to stop client: %w", err)
 		}
 	}
 
@@ -642,7 +693,7 @@ func (e *CopilotEngine) doShutdown(ctx context.Context) error {
 		}
 	}
 
-	return nil
+	return shutdownErr
 }
 
 // DeleteSession removes a persistent session created via Execute (with
@@ -735,11 +786,31 @@ func (*CopilotEngine) getSkillDirs(cwd string, req *ExecutionRequest) []string {
 	return skillDirs
 }
 
-func (e *CopilotEngine) setupWorkspace(ctx context.Context, resources []ResourceFile, gitResources []models.GitResource) (string, error) {
-	workspaceDir, err := os.MkdirTemp("", "waza-*")
+func (e *CopilotEngine) setupWorkspace(ctx context.Context, resources []ResourceFile, gitResources []models.GitResource, sandboxed bool) (string, error) {
+	workspaceRoot := ""
+	if sandboxed {
+		cacheDir, err := os.UserCacheDir()
+		if err != nil {
+			return "", fmt.Errorf("failed to locate user cache for sandbox workspace: %w", err)
+		}
+		workspaceRoot = filepath.Join(cacheDir, "waza", "workspaces")
+		if err := os.MkdirAll(workspaceRoot, 0o700); err != nil {
+			return "", fmt.Errorf("failed to create sandbox workspace root: %w", err)
+		}
+	}
+
+	workspaceDir, err := os.MkdirTemp(workspaceRoot, "waza-*")
 
 	if err != nil {
 		return "", fmt.Errorf("failed to create temp workspace: %w", err)
+	}
+	if sandboxed {
+		canonicalWorkspaceDir, resolveErr := canonicalSandboxPath(workspaceDir)
+		if resolveErr != nil {
+			_ = os.RemoveAll(workspaceDir)
+			return "", fmt.Errorf("failed to resolve sandbox workspace: %w", resolveErr)
+		}
+		workspaceDir = canonicalWorkspaceDir
 	}
 
 	e.workspacesMu.Lock()
@@ -779,11 +850,35 @@ func captureWorkspaceFiles(dir string) map[string][]byte {
 	}
 
 	files := make(map[string][]byte)
-	_ = filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
+	root, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		return files
+	}
+	root, err = filepath.Abs(root)
+	if err != nil {
+		return files
+	}
+	_ = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
 			return nil
 		}
-		rel, relErr := filepath.Rel(dir, path)
+		info, statErr := os.Lstat(path)
+		if statErr != nil || !info.Mode().IsRegular() {
+			return nil
+		}
+		resolved, resolveErr := filepath.EvalSymlinks(path)
+		if resolveErr != nil {
+			return nil
+		}
+		resolved, resolveErr = filepath.Abs(resolved)
+		if resolveErr != nil {
+			return nil
+		}
+		resolvedRel, relErr := filepath.Rel(root, resolved)
+		if relErr != nil || resolvedRel == ".." || strings.HasPrefix(resolvedRel, ".."+string(os.PathSeparator)) {
+			return nil
+		}
+		rel, relErr := filepath.Rel(root, path)
 		if relErr != nil {
 			return nil
 		}
@@ -810,6 +905,184 @@ func allowAllTools(request copilot.PermissionRequest, invocation copilot.Permiss
 	return &rpc.PermissionDecisionApproveOnce{}, nil
 }
 
+func sandboxPermissionHandler(next copilot.PermissionHandlerFunc) copilot.PermissionHandlerFunc {
+	return func(request copilot.PermissionRequest, invocation copilot.PermissionInvocation) (rpc.PermissionDecision, error) {
+		if request.RequiresManagedApproval() {
+			feedback := "managed policy requires interactive approval, which is unavailable during evaluations"
+			return &rpc.PermissionDecisionReject{Feedback: &feedback}, nil
+		}
+		encoded, err := json.Marshal(request)
+		if err != nil {
+			return nil, fmt.Errorf("cannot inspect permission request: %w", err)
+		}
+		var fields struct {
+			RequestSandboxBypass bool `json:"requestSandboxBypass"`
+		}
+		if err := json.Unmarshal(encoded, &fields); err != nil {
+			return nil, fmt.Errorf("cannot inspect permission request: %w", err)
+		}
+		if fields.RequestSandboxBypass {
+			feedback := "sandbox bypass is disabled during evaluations"
+			return &rpc.PermissionDecisionReject{Feedback: &feedback}, nil
+		}
+		return next(request, invocation)
+	}
+}
+
+func resolveSandboxPaths(config models.SandboxConfig) (models.SandboxConfig, error) {
+	resolve := func(values []string) ([]string, error) {
+		if values == nil {
+			return nil, nil
+		}
+		resolved := make([]string, 0, len(values))
+		for _, value := range values {
+			missingVariable := ""
+			path := os.Expand(value, func(name string) string {
+				expanded, ok := os.LookupEnv(name)
+				if (!ok || expanded == "") && missingVariable == "" {
+					missingVariable = name
+				}
+				return expanded
+			})
+			if missingVariable != "" {
+				return nil, fmt.Errorf("sandbox path %q references unset or empty environment variable %s", value, missingVariable)
+			}
+			if path == "~" || strings.HasPrefix(path, "~/") {
+				home, err := os.UserHomeDir()
+				if err != nil {
+					return nil, fmt.Errorf("resolving sandbox path %q: %w", value, err)
+				}
+				path = filepath.Join(home, strings.TrimPrefix(path, "~/"))
+			}
+			if path == "" || !filepath.IsAbs(path) {
+				return nil, fmt.Errorf("sandbox path %q must resolve to an absolute path", value)
+			}
+			canonical, err := canonicalSandboxPath(path)
+			if err != nil {
+				return nil, fmt.Errorf("sandbox path %q must resolve to an existing path: %w", value, err)
+			}
+			resolved = append(resolved, canonical)
+		}
+		return resolved, nil
+	}
+	var err error
+	config.ReadonlyPaths, err = resolve(config.ReadonlyPaths)
+	if err != nil {
+		return config, err
+	}
+	config.ReadwritePaths, err = resolve(config.ReadwritePaths)
+	if err != nil {
+		return config, err
+	}
+	if err := validateSandboxPathPolicy("", nil, config); err != nil {
+		return config, err
+	}
+	return config, nil
+}
+
+func canonicalSandboxPath(path string) (string, error) {
+	resolved, err := filepath.EvalSymlinks(filepath.Clean(path))
+	if err != nil {
+		return "", err
+	}
+	return filepath.Abs(resolved)
+}
+
+func validateSandboxPathPolicy(workspaceDir string, skillDirs []string, config models.SandboxConfig) error {
+	tempDir, err := canonicalSandboxPath(os.TempDir())
+	if err != nil {
+		return fmt.Errorf("resolving denied temporary directory: %w", err)
+	}
+	for _, path := range append(append([]string{}, config.ReadonlyPaths...), config.ReadwritePaths...) {
+		if pathsOverlap(path, tempDir) {
+			return fmt.Errorf("sandbox path %q overlaps denied temporary directory %q", path, tempDir)
+		}
+	}
+	if workspaceDir != "" {
+		if pathsOverlap(workspaceDir, tempDir) {
+			return fmt.Errorf("sandbox workspace %q overlaps denied temporary directory %q", workspaceDir, tempDir)
+		}
+		for _, readonlyPath := range config.ReadonlyPaths {
+			if pathsOverlap(workspaceDir, readonlyPath) {
+				return fmt.Errorf("sandbox workspace %q overlaps read-only path %q", workspaceDir, readonlyPath)
+			}
+		}
+	}
+	for _, readwritePath := range config.ReadwritePaths {
+		for _, readonlyPath := range config.ReadonlyPaths {
+			if pathsOverlap(readwritePath, readonlyPath) {
+				return fmt.Errorf("read-write sandbox path %q overlaps read-only path %q", readwritePath, readonlyPath)
+			}
+		}
+		for _, skillDir := range skillDirs {
+			canonicalSkillDir, err := canonicalSandboxPath(skillDir)
+			if err != nil {
+				return fmt.Errorf("resolving declared skill directory %q: %w", skillDir, err)
+			}
+			if pathsOverlap(readwritePath, canonicalSkillDir) {
+				return fmt.Errorf("read-write sandbox path %q overlaps declared skill directory %q", readwritePath, canonicalSkillDir)
+			}
+		}
+	}
+	for _, skillDir := range skillDirs {
+		canonicalSkillDir, err := canonicalSandboxPath(skillDir)
+		if err != nil {
+			return fmt.Errorf("resolving declared skill directory %q: %w", skillDir, err)
+		}
+		if pathsOverlap(canonicalSkillDir, tempDir) {
+			return fmt.Errorf("declared skill directory %q overlaps denied temporary directory %q", canonicalSkillDir, tempDir)
+		}
+	}
+	return nil
+}
+
+func pathsOverlap(first, second string) bool {
+	contains := func(base, target string) bool {
+		rel, err := filepath.Rel(base, target)
+		return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator))
+	}
+	return contains(first, second) || contains(second, first)
+}
+
+func sessionSandboxConfiguration(workspaceDir string, readonlyDirs []string, config models.SandboxConfig) (*rpc.SessionUpdateOptionsParams, *rpc.PermissionsConfigureParams) {
+	if !config.Enabled {
+		return nil, nil
+	}
+	readonlyPaths := append(append([]string{}, readonlyDirs...), config.ReadonlyPaths...)
+	readwritePaths := append([]string{workspaceDir}, config.ReadwritePaths...)
+	additionalDirectories := append(append([]string{}, readonlyPaths...), config.ReadwritePaths...)
+
+	return &rpc.SessionUpdateOptionsParams{
+			SandboxConfig: &rpc.SandboxConfig{
+				Enabled:                    true,
+				AddCurrentWorkingDirectory: copilot.Bool(false),
+				AllowDevToolCaches:         copilot.Bool(config.AllowDevToolCaches),
+				GhAuth:                     copilot.Bool(config.GHAuth),
+				GitAuth:                    copilot.Bool(config.GitAuth),
+				UserPolicy: &rpc.SandboxConfigUserPolicy{
+					Filesystem: &rpc.SandboxConfigUserPolicyFilesystem{
+						ClearPolicyOnExit: copilot.Bool(true),
+						DeniedPaths:       []string{os.TempDir()},
+						ReadonlyPaths:     readonlyPaths,
+						ReadwritePaths:    readwritePaths,
+					},
+					Network: &rpc.SandboxConfigUserPolicyNetwork{
+						AllowLocalNetwork: copilot.Bool(config.AllowLocalNetwork),
+						AllowOutbound:     copilot.Bool(config.AllowOutboundNetwork),
+					},
+					Seatbelt: &rpc.SandboxConfigUserPolicySeatbelt{KeychainAccess: copilot.Bool(false)},
+				},
+			},
+		}, &rpc.PermissionsConfigureParams{
+			Paths: &rpc.PermissionPathsConfig{
+				AdditionalDirectories: additionalDirectories,
+				WorkspacePath:         &workspaceDir,
+				IncludeTempDirectory:  copilot.Bool(false),
+				Unrestricted:          copilot.Bool(false),
+			},
+		}
+}
+
 // streamingPtr converts the caller's bool Streaming field into the *bool the
 // SDK expects. We always pass an explicit value (never nil) so behavior is
 // stable regardless of any future change to the SDK's default. If we ever
@@ -827,14 +1100,8 @@ type skillDefinition struct {
 	Dir         string
 }
 
-// buildSkillSystemMessage scans skill directories for SKILL.md files and returns
-// a system message that tells the agent about available skills. When
-// injectSkillBody is true, the target skill (matching skillName) also gets its
-// full definition injected. Other discovered skills always use compact summary
-// entries only.
-func buildSkillSystemMessage(skillDirs []string, skillName string, injectSkillBody bool) string {
+func discoverSkillDefinitions(skillDirs []string) []skillDefinition {
 	var skills []skillDefinition
-
 	for _, dir := range skillDirs {
 		// Check direct SKILL.md in this directory
 		sd := loadSkillDefinition(dir)
@@ -862,6 +1129,16 @@ func buildSkillSystemMessage(skillDirs []string, skillName string, injectSkillBo
 			}
 		}
 	}
+	return skills
+}
+
+// buildSkillSystemMessage scans skill directories for SKILL.md files and returns
+// a system message that tells the agent about available skills. When
+// injectSkillBody is true, the target skill (matching skillName) also gets its
+// full definition injected. Other discovered skills always use compact summary
+// entries only.
+func buildSkillSystemMessage(skillDirs []string, skillName string, injectSkillBody bool) string {
+	skills := discoverSkillDefinitions(skillDirs)
 
 	if len(skills) == 0 {
 		return ""

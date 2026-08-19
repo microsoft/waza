@@ -58,6 +58,7 @@ type ExecutionRequest struct {
 	WorkDir      string
 	Instructions []InstructionFile
 	Tools        []copilot.Tool
+	Sandbox      *models.SandboxConfig
 
 	MessageMode MessageMode
 	Streaming   bool

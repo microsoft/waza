@@ -134,6 +134,29 @@ func TestValidateEvalBytes_Invalid(t *testing.T) {
 	require.Contains(t, joined, "threshold")
 }
 
+func TestValidateEvalBytes_SandboxRequiresCopilotSDK(t *testing.T) {
+	yaml := `name: test-eval
+skill: test-skill
+schemaVersion: "1.3"
+config:
+  trials_per_task: 1
+  timeout_seconds: 60
+  executor: mock
+  model: gpt-4o
+  sandbox:
+    enabled: true
+metrics:
+  - name: accuracy
+    weight: 1.0
+    threshold: 0.8
+tasks:
+  - "tasks/*.yaml"
+`
+	errs := ValidateEvalBytes([]byte(yaml))
+	require.NotEmpty(t, errs)
+	require.Contains(t, joinErrs(errs), "copilot-sdk")
+}
+
 func TestValidateTaskBytes_Valid(t *testing.T) {
 	errs := ValidateTaskBytes([]byte(validTaskYAML))
 	require.Empty(t, errs, "valid task should have no errors")

@@ -46,6 +46,10 @@ type Context struct {
 	// because the filesystem may be modified after session disconnect.
 	WorkspaceFiles map[string][]byte
 
+	// Sandbox is propagated to model-backed grader turns so they retain the
+	// evaluated task's native Copilot sandbox boundary.
+	Sandbox *models.SandboxConfig
+
 	// Session holds the session digest with tool call counts, token usage, and tools used.
 	// Used by the behavior grader to validate agent behavior constraints.
 	Session *models.SessionDigest

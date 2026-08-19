@@ -2,7 +2,7 @@
 
 **Status:** Active  
 **Version:** 1.0  
-**Last Updated:** 2026-02-06  
+**Last Updated:** 2026-08-19
 **Owner:** @spboyer  
 **Source:** [Squad Proposal](https://github.com/spboyer/azure-mcp-v-skills/blob/main/squad-proposal.md)
 
@@ -101,6 +101,7 @@ Cross-model testing and comprehensive metrics.
 | E3-08 | As a developer, I can filter to specific tasks | --task flag |
 | E3-09 | As a developer, I can reuse shared evals and graders from a registry | Registry design covers search/add/get UX, versioned refs, lockfile reproducibility, and safe plugin extensibility ([design](research/waza-eval-registry-design.md)) |
 | E3-10 | As a developer, I can verify eval coverage against SKILL.md requirements | `waza spec verify` maps description, trigger, anti-trigger, and parameter requirements to task coverage with CI-gateable output |
+| E3-11 | As a developer, I can isolate model-visible commands during an evaluation | The Copilot SDK executor can opt into Copilot's native sandbox; Waza grants task-workspace read/write and declared-skill read-only access through Copilot's native skill directories, rejects bypass requests, and defaults risky capabilities off ([design](design/195-copilot-native-eval-sandbox.md)) |
 
 ### Epic 4: Token Management (P1)
 

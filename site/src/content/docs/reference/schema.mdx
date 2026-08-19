@@ -15,7 +15,7 @@ Main evaluation configuration file.
 name: code-explainer-eval # Required: eval suite name
 description: "..." # Required: what this eval tests
 skill: code-explainer # Required: skill name
-schemaVersion: "1.2" # Optional: schema version; defaults to the current version
+schemaVersion: "1.3" # Optional: schema version; defaults to the current version
 version: "1.0" # Optional: version number
 
 config:
@@ -25,6 +25,8 @@ config:
   workers: 0 # Auto-size parallel workers
   model: claude-sonnet-4.6 # Default model
   executor: mock # mock or copilot-sdk
+  sandbox: # Optional; schemaVersion 1.3+
+    enabled: true
 
 graders: # Validation rules
   - type: text
@@ -103,12 +105,12 @@ version: "1.0"
 
 **Type:** string  
 **Required:** no  
-**Default:** current schema version (currently `1.2`)
+**Default:** current schema version (currently `1.3`)
 
 Schema version for the public artifact shape. It uses `MAJOR.MINOR` format with no patch component. Same-major minor additions are backward-compatible; readers ignore unknown fields and warn. Different major versions are rejected with a migration hint.
 
 ```yaml
-schemaVersion: "1.2"
+schemaVersion: "1.3"
 ```
 
 See [Schema Changes](/reference/schema-changes/) for the versioning policy and changelog.
@@ -304,6 +306,47 @@ Execution engine:
 config:
   executor: copilot-sdk
 ```
+
+### sandbox
+
+**Type:** object
+**Default:** omitted
+**Requires:** `schemaVersion: "1.3"` or newer
+
+Enables Copilot CLI's native OS sandbox for model-visible tools. Waza derives
+filesystem access from the fresh task workspace and resolved
+`skill_directories`. Declared skills remain read-only and are loaded through
+Copilot's native skill mechanism. Optional path lists are reserved for narrow
+host prerequisites that cannot be materialised in the workspace.
+
+```yaml
+config:
+  sandbox:
+    enabled: true
+    allow_dev_tool_caches: false
+    allow_outbound_network: false
+    allow_local_network: false
+    git_auth: false
+    gh_auth: false
+    readonly_paths: []
+    readwrite_paths: []
+```
+
+All optional capabilities default to `false`. Sandbox bypass requests are
+always rejected because Waza evaluations are non-interactive. Omitting the
+block or setting `enabled: false` sends no sandbox policy RPC. `readonly_paths`
+and `readwrite_paths` default to empty and accept absolute paths, `~`, and set
+environment-variable expansion for explicit host prerequisites. Paths must exist,
+are canonicalised, cannot overlap the system temp root, and cannot receive
+conflicting access grants. Sandboxed Copilot CLI processes receive an explicit
+allowlisted environment, with credential-bearing proxy URLs omitted; GitHub
+authentication is passed explicitly through the SDK or loaded from persisted
+Copilot login. Omitting or disabling the sandbox retains the existing process
+environment. Copilot applies the OS sandbox to model-visible shell commands and
+local MCP/LSP subprocesses; its built-in file tools enforce the policy in-process
+on a best-effort basis. Model-backed prompt graders retain the task sandbox.
+Remote MCP servers and trusted program graders remain separate trust boundaries;
+program-grader commands run with host permissions.
 
 ### max_attempts
 

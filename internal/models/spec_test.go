@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestEvalSpec_Validate_FirstEventTimeout(t *testing.T) {
@@ -36,6 +38,96 @@ func TestEvalSpec_Validate_FirstEventTimeout(t *testing.T) {
 	if err := mk(120).Validate(); err != nil {
 		t.Errorf("expected first_event_timeout_seconds: 120 to be valid, got: %v", err)
 	}
+}
+
+func TestLoadEvalSpec_Sandbox(t *testing.T) {
+	tempDir := t.TempDir()
+	specPath := filepath.Join(tempDir, "spec.yaml")
+	err := os.WriteFile(specPath, []byte(`schemaVersion: "1.3"
+name: sandboxed
+skill: test-skill
+config:
+  trials_per_task: 1
+  timeout_seconds: 60
+  executor: copilot-sdk
+  model: test-model
+  sandbox:
+    enabled: true
+    allow_dev_tool_caches: true
+    allow_outbound_network: true
+    allow_local_network: true
+    git_auth: true
+    gh_auth: true
+    readonly_paths:
+      - /opt/read-only
+    readwrite_paths:
+      - /opt/read-write
+`), 0o644)
+	require.NoError(t, err)
+
+	spec, err := LoadEvalSpec(specPath)
+	require.NoError(t, err)
+	require.NotNil(t, spec.Config.Sandbox)
+	require.Equal(t, SandboxConfig{
+		Enabled:              true,
+		AllowDevToolCaches:   true,
+		AllowOutboundNetwork: true,
+		AllowLocalNetwork:    true,
+		GitAuth:              true,
+		GHAuth:               true,
+		ReadonlyPaths:        []string{"/opt/read-only"},
+		ReadwritePaths:       []string{"/opt/read-write"},
+	}, *spec.Config.Sandbox)
+}
+
+func TestLoadEvalSpec_RejectsUnknownSandboxFields(t *testing.T) {
+	specPath := filepath.Join(t.TempDir(), "spec.yaml")
+	err := os.WriteFile(specPath, []byte(`schemaVersion: "1.3"
+name: sandboxed
+skill: test-skill
+config:
+  trials_per_task: 1
+  timeout_seconds: 60
+  executor: copilot-sdk
+  model: test-model
+  sandbox:
+    enabeld: true
+`), 0o644)
+	require.NoError(t, err)
+
+	_, err = LoadEvalSpec(specPath)
+	require.ErrorContains(t, err, `unknown sandbox field "enabeld"`)
+}
+
+func TestEvalSpec_Validate_SandboxRequiresSchemaVersion13(t *testing.T) {
+	spec := &EvalSpec{
+		SchemaVersion: "1.2",
+		SpecIdentity:  SpecIdentity{Name: "sandboxed"},
+		Config: Config{
+			TrialsPerTask: 1,
+			TimeoutSec:    60,
+			Sandbox:       &SandboxConfig{Enabled: true},
+		},
+	}
+
+	err := spec.Validate()
+	require.ErrorContains(t, err, "sandbox requires schemaVersion 1.3 or newer")
+}
+
+func TestEvalSpec_Validate_SandboxRequiresCopilotExecutor(t *testing.T) {
+	spec := &EvalSpec{
+		SchemaVersion: "1.3",
+		SpecIdentity:  SpecIdentity{Name: "sandboxed"},
+		Config: Config{
+			TrialsPerTask: 1,
+			TimeoutSec:    60,
+			EngineType:    "mock",
+			Sandbox:       &SandboxConfig{Enabled: true},
+		},
+	}
+
+	err := spec.Validate()
+	require.ErrorContains(t, err, "sandbox requires executor copilot-sdk")
 }
 
 func TestLoadEvalSpec_StrictYAML(t *testing.T) {
