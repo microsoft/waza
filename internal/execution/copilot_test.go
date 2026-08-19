@@ -180,6 +180,30 @@ func TestValidateSandboxPathPolicy_RejectsReadWriteOverlap(t *testing.T) {
 	require.ErrorContains(t, err, "declared skill")
 }
 
+func TestPathsOverlap_UsesFilesystemIdentity(t *testing.T) {
+	root := newSandboxTestRoot(t)
+	first := filepath.Join(root, "first")
+	alias := filepath.Join(root, "alias")
+	require.NoError(t, os.WriteFile(first, []byte("same file"), 0o644))
+	if err := os.Link(first, alias); err != nil {
+		t.Skipf("hard links are unavailable: %v", err)
+	}
+
+	require.True(t, pathsOverlap(first, alias))
+}
+
+func TestPathsOverlap_IsCaseInsensitiveWhenFilesystemIs(t *testing.T) {
+	root := newSandboxTestRoot(t)
+	mixedCase := filepath.Join(root, "MixedCase")
+	require.NoError(t, os.Mkdir(mixedCase, 0o755))
+	lowerCase := filepath.Join(root, "mixedcase")
+	if _, err := os.Stat(lowerCase); err != nil {
+		t.Skip("filesystem is case-sensitive")
+	}
+
+	require.True(t, pathsOverlap(mixedCase, lowerCase))
+}
+
 func TestValidateSandboxPathPolicy_RejectsTemporaryAndReadonlyWorkspaces(t *testing.T) {
 	temporaryWorkspace, err := canonicalSandboxPath(t.TempDir())
 	require.NoError(t, err)

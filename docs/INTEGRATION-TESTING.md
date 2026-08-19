@@ -49,8 +49,7 @@ config:
 
 ### Native command sandbox
 
-Set `schemaVersion: "1.3"` and opt into Copilot CLI's native sandbox when an
-evaluation allows model-visible shell or file tools:
+Set `schemaVersion: "1.3"` and opt into Copilot CLI's native sandbox when an evaluation allows model-visible shell or file tools:
 
 ```yaml
 schemaVersion: "1.3"
@@ -61,27 +60,9 @@ config:
     enabled: true
 ```
 
-The safe defaults allow read/write access only to the fresh task workspace and
-read-only execution from declared `skill_directories`. Outbound and local
-network access, developer-tool caches, git/gh credential injection, system temp
-access, and command bypass are denied. The corresponding `sandbox` flags can
-opt into network, developer-tool cache, or credential access when a specific
-eval requires it. Waza derives filesystem paths from existing fixture,
-Git-resource, and skill declarations; optional path lists exist only for narrow
-host prerequisites that cannot be materialised. Sandboxed Copilot CLI processes
-also receive an allowlisted operational environment instead of arbitrary host
-variables. Credential-bearing proxy URLs are omitted. Declared host paths must
-exist and cannot overlap the system temp root or receive conflicting
-read-only/read-write grants. Omitting or disabling the sandbox retains the
-existing Copilot process environment.
+The safe defaults allow read/write access only to the fresh task workspace and read-only execution from declared `skill_directories`. Outbound and local network access, developer-tool caches, git/gh credential injection, system temp access, and command bypass are denied. The corresponding `sandbox` flags can opt into network, developer-tool cache, or credential access when a specific eval requires it. Waza derives filesystem paths from existing fixture, Git-resource, and skill declarations; optional path lists exist only for narrow host prerequisites that cannot be materialised. Sandboxed Copilot CLI processes also receive an allowlisted operational environment instead of arbitrary host variables. Credential-bearing proxy URLs are omitted. Declared host paths must exist and cannot overlap the system temp root or receive conflicting read-only/read-write grants. Omitting or disabling the sandbox retains the existing Copilot process environment.
 
-Copilot applies the sandbox to model-visible shell commands and local MCP/LSP
-subprocesses; its in-process built-in file tools enforce the same policy on a
-best-effort basis. Model-backed prompt graders retain the task sandbox. Remote
-MCP servers and trusted post-execution program graders remain separate trust
-boundaries; program-grader commands run with host permissions. Copilot local
-sandboxing is in public preview; Windows currently requires a Windows Insiders
-build.
+Copilot applies the sandbox to model-visible shell commands and local MCP/LSP subprocesses; its in-process built-in file tools enforce the same policy on a best-effort basis. Model-backed prompt graders retain the task sandbox. Remote MCP servers and trusted post-execution program graders remain separate trust boundaries; program-grader commands run with host permissions. Copilot local sandboxing is in public preview; Windows currently requires a Windows Insiders build.
 
 To run the disposable file-isolation canary from a source checkout:
 

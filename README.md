@@ -1253,8 +1253,7 @@ The skill remains discoverable through the `skill` tool and appears in `<availab
 
 ### Copilot-native sandbox
 
-`copilot-sdk` evaluations can opt into Copilot CLI's native OS sandbox with
-`schemaVersion: "1.3"`:
+`copilot-sdk` evaluations can opt into Copilot CLI's native OS sandbox with `schemaVersion: "1.3"`:
 
 ```yaml
 config:
@@ -1270,31 +1269,9 @@ config:
     readwrite_paths: []
 ```
 
-Waza grants read/write access to each fresh task workspace and read-only access
-to the resolved `skill_directories`, which Copilot loads through its native skill
-mechanism. Bundled skill scripts remain executable without copying or making the
-source writable. Fixtures and Git resources are materialised inside the workspace.
-Other host paths, the system temp
-directory, and sandbox bypass requests are denied. The optional capability flags
-default to `false`. Optional `readonly_paths` and `readwrite_paths` accept
-absolute paths, `~`, and environment-variable expansion for declared host
-prerequisites such as package caches or CA bundles; both default to empty. Paths
-must exist, are canonicalised before use, cannot overlap the system temp root,
-and cannot receive conflicting read-only and read/write grants. Enable only
-access required by the evaluation. Omitting `sandbox` preserves the existing
-session policy and process environment; `enabled: false` likewise sends no
-policy-changing RPC. Sandboxed Copilot CLI processes receive an explicit
-operational environment allowlist rather than arbitrary host variables. Proxy
-URLs that contain credentials are omitted. GitHub tokens are passed through the
-SDK authentication channel, with persisted login as the fallback.
+Waza grants read/write access to each fresh task workspace and read-only access to the resolved `skill_directories`, which Copilot loads through its native skill mechanism. Bundled skill scripts remain executable without copying or making the source writable. Fixtures and Git resources are materialised inside the workspace. Other host paths, the system temp directory, and sandbox bypass requests are denied. The optional capability flags default to `false`. Optional `readonly_paths` and `readwrite_paths` accept absolute paths, `~`, and environment-variable expansion for declared host prerequisites such as package caches or CA bundles; both default to empty. Paths must exist, are canonicalised before use, cannot overlap the system temp root, and cannot receive conflicting read-only and read/write grants. Enable only access required by the evaluation. Omitting `sandbox` preserves the existing session policy and process environment; `enabled: false` likewise sends no policy-changing RPC. Sandboxed Copilot CLI processes receive an explicit operational environment allowlist rather than arbitrary host variables. Proxy URLs that contain credentials are omitted. GitHub tokens are passed through the SDK authentication channel, with persisted login as the fallback.
 
-Copilot applies the OS sandbox to model-visible shell commands and local MCP/LSP
-subprocesses; its in-process built-in file tools enforce the same policy on a
-best-effort basis. Model-backed prompt graders retain the task sandbox. Remote
-MCP servers and trusted post-execution program graders remain separate trust
-boundaries; program-grader commands run with host permissions. Copilot local
-sandboxing is a public-preview feature; on Windows it currently requires a
-Windows Insiders build.
+Copilot applies the OS sandbox to model-visible shell commands and local MCP/LSP subprocesses; its in-process built-in file tools enforce the same policy on a best-effort basis. Model-backed prompt graders retain the task sandbox. Remote MCP servers and trusted post-execution program graders remain separate trust boundaries; program-grader commands run with host permissions. Copilot local sandboxing is a public-preview feature; on Windows it currently requires a Windows Insiders build.
 
 ### CSV Dataset Support
 

@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -208,8 +209,10 @@ func TestSanitizedCLIEnv_AllowsRuntimeConfigurationAndRejectsHostSecrets(t *test
 		"LC_ALL=en_AU.UTF-8",
 		"XDG_CONFIG_HOME=/home/tester/.config",
 		"HTTP_PROXY=https://proxy.example",
+		"http_proxy=https://lowercase-proxy.example",
 		"SSL_CERT_FILE=/etc/ssl/cert.pem",
 		"SystemRoot=C:\\Windows",
+		"Path=/host/secret",
 		"HTTPS_PROXY=https://user:password@proxy.example",
 		"XDG_API_TOKEN=secret",
 		"LC_API_TOKEN=secret",
@@ -218,15 +221,19 @@ func TestSanitizedCLIEnv_AllowsRuntimeConfigurationAndRejectsHostSecrets(t *test
 		"COPILOT_API_KEY=secret",
 	}
 
-	require.Equal(t, []string{
+	want := []string{
 		"PATH=/usr/bin",
 		"HOME=/home/tester",
 		"LC_ALL=en_AU.UTF-8",
 		"XDG_CONFIG_HOME=/home/tester/.config",
 		"HTTP_PROXY=https://proxy.example",
+		"http_proxy=https://lowercase-proxy.example",
 		"SSL_CERT_FILE=/etc/ssl/cert.pem",
-		"SystemRoot=C:\\Windows",
-	}, sanitizedCLIEnv(environ))
+	}
+	if runtime.GOOS == "windows" {
+		want = append(want, "SystemRoot=C:\\Windows", "Path=/host/secret")
+	}
+	require.Equal(t, want, sanitizedCLIEnv(environ))
 	require.NotNil(t, sanitizedCLIEnv(nil))
 }
 

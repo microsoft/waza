@@ -2,12 +2,10 @@ package main
 
 import (
 	"bytes"
-	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
 
-	"github.com/microsoft/waza/internal/models"
 	"github.com/stretchr/testify/require"
 )
 
@@ -20,7 +18,7 @@ func TestMigrateCommandNoOpForCurrentMajor(t *testing.T) {
 	err := runMigrate(&out, path)
 
 	require.NoError(t, err)
-	require.Contains(t, out.String(), fmt.Sprintf("compatible with waza schemaVersion %s", models.CurrentSchemaVersion))
+	require.Contains(t, out.String(), "compatible with waza schemaVersion 1.3")
 }
 
 func TestMigrateCommandRejectsIncompatibleMajor(t *testing.T) {
@@ -45,7 +43,7 @@ func TestMigrateCommandDefaultsMissingSchemaVersion(t *testing.T) {
 	err := runMigrate(&out, path)
 
 	require.NoError(t, err)
-	require.Contains(t, out.String(), fmt.Sprintf("already compatible with schemaVersion %s", models.CurrentSchemaVersion))
+	require.Contains(t, out.String(), "already compatible with schemaVersion 1.3")
 }
 
 func TestMigrateCommandRejectsUnknownJSONShape(t *testing.T) {

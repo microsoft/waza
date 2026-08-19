@@ -1040,8 +1040,19 @@ func validateSandboxPathPolicy(workspaceDir string, skillDirs []string, config m
 
 func pathsOverlap(first, second string) bool {
 	contains := func(base, target string) bool {
-		rel, err := filepath.Rel(base, target)
-		return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator))
+		baseInfo, err := os.Stat(base)
+		if err != nil {
+			return false
+		}
+		for current := target; ; current = filepath.Dir(current) {
+			if currentInfo, err := os.Stat(current); err == nil && os.SameFile(baseInfo, currentInfo) {
+				return true
+			}
+			parent := filepath.Dir(current)
+			if parent == current {
+				return false
+			}
+		}
 	}
 	return contains(first, second) || contains(second, first)
 }

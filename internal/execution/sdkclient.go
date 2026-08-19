@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/url"
 	"os"
+	"runtime"
 	"strings"
 	"sync"
 
@@ -157,6 +158,7 @@ func sanitizedCLIEnv(environ []string) []string {
 		"APPDATA": true, "LOCALAPPDATA": true,
 	}
 	proxyVariables := map[string]bool{"HTTP_PROXY": true, "HTTPS_PROXY": true, "ALL_PROXY": true}
+	lowercaseProxyVariables := map[string]bool{"http_proxy": true, "https_proxy": true, "all_proxy": true, "no_proxy": true}
 
 	result := make([]string, 0, len(environ))
 	for _, entry := range environ {
@@ -165,7 +167,11 @@ func sanitizedCLIEnv(environ []string) []string {
 			continue
 		}
 		upper := strings.ToUpper(name)
-		if allowed[upper] && (!proxyVariables[upper] || safeProxyURL(value)) {
+		allowedName := allowed[name] || lowercaseProxyVariables[name]
+		if runtime.GOOS == "windows" {
+			allowedName = allowed[upper]
+		}
+		if allowedName && (!proxyVariables[upper] || safeProxyURL(value)) {
 			result = append(result, entry)
 		}
 	}

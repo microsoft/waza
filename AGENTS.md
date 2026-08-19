@@ -122,13 +122,10 @@ The workflow is defined in `.github/workflows/go-ci.yml`.
 Each task execution gets a **fresh isolated workspace** with fixtures copied in:
 
 1. Runner reads files from original `--context-dir` (fixtures folder)
-2. Executor creates a new workspace under the system temp directory; sandboxed
-   Copilot evaluations use Waza's user-cache workspace root because system temp
-   is denied by the native sandbox
+2. Executor creates a new workspace under the system temp directory; sandboxed Copilot evaluations use Waza's user-cache workspace root because system temp is denied by the native sandbox
 3. Files copied into the workspace
 4. Agent works in the workspace (edits happen here)
-5. Workspace destroyed during executor shutdown (or retained only with the
-   explicit debugging option)
+5. Workspace destroyed during executor shutdown (or retained only with the explicit debugging option)
 6. Next task starts fresh with original fixtures
 
 **The original fixtures directory is never modified.** This ensures task isolation.
