@@ -865,6 +865,7 @@ waza serve --tcp :9000
 
 The dashboard displays evaluation results with:
 - Task-level pass/fail status
+- Raw resolved task prompts with JSON formatting and copy-to-clipboard
 - Score distributions across trials
 - Model comparisons
 - Aggregated metrics and trends

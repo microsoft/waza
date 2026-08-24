@@ -35,6 +35,17 @@ Clicking a run opens its detail page. The Tasks tab shows every task in the eval
 - **Statistical confidence** — tasks with weighted scores display significance badges (✓ significant / ⚠ not significant) and confidence interval ranges
 - **Export CSV** — export task-level results for the current run
 
+## Run Detail — Prompts
+
+Switch to the **Prompts** tab to verify the exact resolved instruction captured for each task. JSON prompts are formatted for readability, and the copy action makes it easy to reuse the prompt while debugging an eval.
+
+<ZoomImage src="../../images/explore/prompts-tab.png" alt="Run detail Prompts tab showing plain-text and formatted JSON task prompts with copy actions" />
+
+- **Resolved content** — shows the raw prompt sent to the agent after file loading and template resolution
+- **Format detection** — JSON objects and arrays are pretty-printed; other prompts remain plain text
+- **Copy action** — copies the captured prompt and reports when browser clipboard access is unavailable
+- **Legacy results** — artifacts created before prompt capture show an explicit unavailable state
+
 ## Run Detail — Trajectory
 
 Switch to the **Trajectory** tab to see the agent's execution path. The task selector lists every task with its pass/fail badge.

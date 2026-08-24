@@ -43,6 +43,25 @@ test.describe("Screenshots", () => {
     });
   });
 
+  test("prompts-tab", async ({ page }) => {
+    await page.goto("/#/runs/run-001");
+
+    await page.getByRole("button", { name: "Prompts" }).click();
+    await expect(page.getByText("Raw resolved prompt sent to the agent · JSON")).toBeVisible();
+    await expect(page.getByText('"task": "Explain the quicksort implementation"')).toBeVisible();
+
+    await page.screenshot({
+      path: "../docs/images/explore/prompts-tab.png",
+      animations: "disabled",
+      fullPage: false,
+    });
+    await page.screenshot({
+      path: "../site/public/images/explore/prompts-tab.png",
+      animations: "disabled",
+      fullPage: false,
+    });
+  });
+
   test("compare", async ({ page }) => {
     await page.goto("/#/compare");
 

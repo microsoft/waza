@@ -177,6 +177,9 @@ type SkillInvocation struct {
 type RunResult struct {
 	RunNumber int `json:"run_number"`
 	Attempts  int `json:"attempts"`
+	// Prompt is the resolved initial task prompt for this run. It may be
+	// recorded before execution starts when request setup fails.
+	Prompt string `json:"prompt,omitempty"`
 	// Status contains the overall status of the run.
 	// NOTE: if Status == [StatusError], then [ErrorMsg] will be set to the
 	// message from the error.

@@ -48,6 +48,38 @@ test.describe("Run Detail", () => {
     await expect(page.getByText("text").first()).toBeVisible();
   });
 
+  test("prompts tab shows formatted prompts with copy action", async ({ page }) => {
+    await mockAllAPIs(page);
+    await page.goto("/#/runs/run-001");
+
+    await page.getByRole("button", { name: "Prompts" }).click();
+
+    await expect(page.getByText("Explain how the Fibonacci function")).toBeVisible();
+    await expect(page.getByText("Raw resolved prompt sent to the agent · JSON")).toBeVisible();
+    await expect(page.getByText('"task": "Explain the quicksort implementation"')).toBeVisible();
+    await expect(page.getByRole("button", { name: "Copy" }).first()).toBeVisible();
+    await expect(page.getByText("No resolved prompt is available for this task")).toBeVisible();
+    await expect(page.getByText("No prompt was recorded for this task.")).toBeVisible();
+  });
+
+  test("prompts tab explains when clipboard access is unavailable", async ({ page }) => {
+    await page.addInitScript(() => {
+      Object.defineProperty(navigator, "clipboard", {
+        configurable: true,
+        value: undefined,
+      });
+    });
+    await mockAllAPIs(page);
+    await page.goto("/#/runs/run-001");
+
+    await page.getByRole("button", { name: "Prompts" }).click();
+    await page.getByRole("button", { name: "Copy" }).first().click();
+
+    await expect(
+      page.getByText("Copy failed: Clipboard access is unavailable. Copy the prompt manually."),
+    ).toBeVisible();
+  });
+
   test("back navigation returns to dashboard", async ({ page }) => {
     await mockAllAPIs(page);
     await page.goto("/#/runs/run-001");

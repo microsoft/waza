@@ -1150,6 +1150,7 @@ func (r *EvalRunner) executeRun(ctx context.Context, tc *models.TestCase, runNum
 	if err != nil {
 		return returnWithArtifacts(models.RunResult{
 			RunNumber:  runNum,
+			Prompt:     tc.Stimulus.Message,
 			Status:     models.StatusError,
 			DurationMs: time.Since(startTime).Milliseconds(),
 			ErrorMsg:   err.Error(),
@@ -1183,6 +1184,7 @@ func (r *EvalRunner) executeRun(ctx context.Context, tc *models.TestCase, runNum
 	if err != nil {
 		return returnWithArtifacts(models.RunResult{
 			RunNumber:  runNum,
+			Prompt:     req.Message,
 			Status:     models.StatusError,
 			DurationMs: time.Since(startTime).Milliseconds(),
 			ErrorMsg:   err.Error(),
@@ -1194,6 +1196,7 @@ func (r *EvalRunner) executeRun(ctx context.Context, tc *models.TestCase, runNum
 	if err != nil {
 		return returnWithArtifacts(models.RunResult{
 			RunNumber:  runNum,
+			Prompt:     req.Message,
 			Status:     models.StatusError,
 			DurationMs: time.Since(startTime).Milliseconds(),
 			ErrorMsg:   err.Error(),
@@ -1259,6 +1262,7 @@ func (r *EvalRunner) executeRun(ctx context.Context, tc *models.TestCase, runNum
 		if err != nil {
 			return returnWithArtifacts(models.RunResult{
 				RunNumber:  runNum,
+				Prompt:     req.Message,
 				Status:     models.StatusError,
 				DurationMs: time.Since(startTime).Milliseconds(),
 				ErrorMsg:   "running graders: " + err.Error(),
@@ -1333,6 +1337,7 @@ func (r *EvalRunner) executeRun(ctx context.Context, tc *models.TestCase, runNum
 
 	run := models.RunResult{
 		RunNumber:        runNum,
+		Prompt:           req.Message,
 		Status:           status,
 		DurationMs:       resp.DurationMs,
 		Validations:      gradersResults,

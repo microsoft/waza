@@ -715,7 +715,7 @@ The dashboard opens automatically at `http://localhost:3000`.
 ### Navigation
 
 - **Overview** — Evaluation summary, pass rates, recent runs
-- **Run Details** — Click a run to see task-by-task results
+- **Run Details** — Click a run to inspect task results, resolved prompts, and execution trajectories
 - **Compare** — Select multiple runs to compare models
 - **Trends** — Historical pass rates and performance over time
 - **Live View** — Real-time results during active evaluations
@@ -723,6 +723,7 @@ The dashboard opens automatically at `http://localhost:3000`.
 ### Dashboard Features
 
 - **Live updates** — See results as tasks complete
+- **Prompt inspection** — Review the raw resolved prompt sent to each task, format JSON prompts, and copy prompt text
 - **Search** — Find runs, tasks, and models
 - **Filtering** — Filter by status (passed/failed), tags, date range
 - **Export** — Download results as CSV or JSON

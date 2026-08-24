@@ -75,6 +75,7 @@ export interface ResponderInfo {
 
 export interface TaskResult {
   name: string;
+  prompt?: string;
   outcome: string;
   score: number;
   weightedScore?: number;
