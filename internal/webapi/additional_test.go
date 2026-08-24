@@ -319,6 +319,21 @@ func TestOutcomeToDetailFallsBackToTranscriptPrompt(t *testing.T) {
 						Transcript: []models.TranscriptEvent{
 							{
 								SessionEvent: copilot.SessionEvent{
+									Data: &copilot.SystemMessageData{Content: "System instructions"},
+								},
+							},
+							{
+								SessionEvent: copilot.SessionEvent{
+									Data: &copilot.AssistantMessageData{Content: "Assistant response"},
+								},
+							},
+							{
+								SessionEvent: copilot.SessionEvent{
+									Data: &copilot.UserMessageData{},
+								},
+							},
+							{
+								SessionEvent: copilot.SessionEvent{
 									Data: &copilot.UserMessageData{Content: "Legacy prompt from transcript"},
 								},
 							},

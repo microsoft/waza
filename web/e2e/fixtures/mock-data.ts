@@ -159,7 +159,6 @@ export const RUN_DETAIL = {
     },
     {
       name: "explain-merge-sort",
-      prompt: "Explain the merge sort implementation in plain language.",
       outcome: "pass",
       score: 1.0,
       weightedScore: 1.0,

@@ -185,12 +185,16 @@ function PromptCard({ task }: { task: TaskResult }) {
 
   async function copyPrompt() {
     setCopyError(null);
+    if (!navigator.clipboard?.writeText) {
+      setCopyError("Clipboard access is unavailable. Copy the prompt manually.");
+      return;
+    }
     try {
       await navigator.clipboard.writeText(prompt);
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1500);
-    } catch (err) {
-      setCopyError(err instanceof Error ? err.message : "Copy failed");
+    } catch {
+      setCopyError("Clipboard access was denied. Copy the prompt manually.");
     }
   }
 
@@ -200,7 +204,9 @@ function PromptCard({ task }: { task: TaskResult }) {
         <div>
           <h2 className="font-medium text-zinc-100">{task.name}</h2>
           <p className="mt-0.5 text-xs text-zinc-500">
-            Raw resolved prompt sent to the agent · {formatted.format}
+            {prompt
+              ? `Raw resolved prompt sent to the agent · ${formatted.format}`
+              : "No resolved prompt is available for this task"}
           </p>
         </div>
         {prompt && (

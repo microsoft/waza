@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 
+	copilot "github.com/github/copilot-sdk/go"
 	"github.com/microsoft/waza/internal/copilotevents"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/pricing"
@@ -250,8 +251,8 @@ func promptFromRun(run models.RunResult) string {
 		return run.Prompt
 	}
 	for _, e := range run.Transcript {
-		if content, ok := copilotevents.Content(e.SessionEvent); ok {
-			return content
+		if data, ok := e.Data.(*copilot.UserMessageData); ok && data.Content != "" {
+			return data.Content
 		}
 	}
 	return ""
