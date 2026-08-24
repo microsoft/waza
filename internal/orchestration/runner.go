@@ -1504,6 +1504,7 @@ func (r *EvalRunner) buildExecutionRequest(tc *models.TestCase) (*execution.Exec
 		SuppressSkillBody: !spec.Config.ShouldInjectSkillBody(),
 		MCPServers:        convertMCPServers(spec.Config.ServerConfigs, spec.MCPMocks, r.cfg.SpecDir()),
 		FirstEventTimeout: r.firstEventTimeout(tc),
+		Sandbox:           spec.Config.Sandbox,
 	}, nil
 }
 
@@ -2057,6 +2058,7 @@ func (r *EvalRunner) buildGraderContext(tc *models.TestCase, resp *execution.Exe
 		Metadata:         make(map[string]any),
 		WorkspaceDir:     resp.WorkspaceDir,
 		WorkspaceFiles:   resp.WorkspaceFiles,
+		Sandbox:          r.cfg.Spec().Config.Sandbox,
 		SkillInvocations: resp.SkillInvocations,
 		SessionID:        resp.SessionID,
 		Session:          &sessionDigest,

@@ -767,7 +767,8 @@ func runSingleModel(cmd *cobra.Command, spec *models.EvalSpec, specPath string, 
 		engine = execution.NewMockEngine(spec.Config.ModelID)
 	case "copilot-sdk":
 		engine = execution.NewCopilotEngineBuilder(spec.Config.ModelID, &execution.CopilotEngineBuilderOptions{
-			NewCopilotClient: newCopilotClientFn, // if nil, uses the real function, otherwise overridable for tests.
+			NewCopilotClient:    newCopilotClientFn, // if nil, uses the real function, otherwise overridable for tests.
+			SanitizeEnvironment: spec.Config.Sandbox != nil && spec.Config.Sandbox.Enabled,
 		}).Build()
 	default:
 		return nil, fmt.Errorf("unknown engine type: %s", spec.Config.EngineType)

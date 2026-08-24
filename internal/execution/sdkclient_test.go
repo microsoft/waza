@@ -6,11 +6,13 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 
 	copilot "github.com/github/copilot-sdk/go"
 	"github.com/microsoft/waza/internal/embedded"
+	"github.com/stretchr/testify/require"
 )
 
 // stubClient is a no-op CopilotClient used only to verify SharedClient
@@ -200,6 +202,106 @@ func TestSharedClient_UsesEmbeddedCLIPath(t *testing.T) {
 	}
 }
 
+func TestSanitizedCLIEnv_AllowsRuntimeConfigurationAndRejectsHostSecrets(t *testing.T) {
+	environ := []string{
+		"PATH=/usr/bin",
+		"HOME=/home/tester",
+		"LC_ALL=en_AU.UTF-8",
+		"XDG_CONFIG_HOME=/home/tester/.config",
+		"HTTP_PROXY=https://proxy.example",
+		"http_proxy=https://lowercase-proxy.example",
+		"SSL_CERT_FILE=/etc/ssl/cert.pem",
+		"SystemRoot=C:\\Windows",
+		"Path=/host/secret",
+		"HTTPS_PROXY=https://user:password@proxy.example",
+		"XDG_API_TOKEN=secret",
+		"LC_API_TOKEN=secret",
+		"AWS_SECRET_ACCESS_KEY=secret",
+		"MY_EVAL_TOKEN=secret",
+		"COPILOT_API_KEY=secret",
+	}
+
+	want := []string{
+		"PATH=/usr/bin",
+		"HOME=/home/tester",
+		"LC_ALL=en_AU.UTF-8",
+		"XDG_CONFIG_HOME=/home/tester/.config",
+		"HTTP_PROXY=https://proxy.example",
+		"http_proxy=https://lowercase-proxy.example",
+		"SSL_CERT_FILE=/etc/ssl/cert.pem",
+	}
+	if runtime.GOOS == "windows" {
+		want = append(want, "SystemRoot=C:\\Windows", "Path=/host/secret")
+	}
+	require.Equal(t, want, sanitizedCLIEnv(environ))
+	require.NotNil(t, sanitizedCLIEnv(nil))
+}
+
+func TestSharedClientOptions_SanitizesEnvironmentAndPassesAuthenticationExplicitly(t *testing.T) {
+	cliPath := filepath.Join(t.TempDir(), "copilot")
+	require.NoError(t, os.WriteFile(cliPath, []byte("test executable"), 0o755))
+	t.Setenv("COPILOT_CLI_PATH", cliPath)
+	t.Setenv("WAZA_EVAL_SECRET", "must-not-be-inherited")
+	t.Setenv("COPILOT_GITHUB_TOKEN", "copilot-token")
+	t.Setenv("GH_TOKEN", "gh-token")
+	t.Setenv("GITHUB_TOKEN", "github-token")
+
+	opts, err := sharedClientOptions("error", nil, true)
+	require.NoError(t, err)
+	require.Equal(t, "copilot-token", opts.GitHubToken)
+	require.Nil(t, opts.Env)
+	conn, ok := opts.Connection.(copilot.StdioConnection)
+	require.True(t, ok)
+	require.NotNil(t, conn.Env)
+	for _, entry := range conn.Env {
+		require.NotEqual(t, "WAZA_EVAL_SECRET=must-not-be-inherited", entry)
+		require.NotEqual(t, "COPILOT_GITHUB_TOKEN=copilot-token", entry)
+	}
+}
+
+func TestSharedClientOptions_PreservesEnvironmentWhenSandboxIsDisabled(t *testing.T) {
+	cliPath := filepath.Join(t.TempDir(), "copilot")
+	require.NoError(t, os.WriteFile(cliPath, []byte("test executable"), 0o755))
+	t.Setenv("COPILOT_CLI_PATH", cliPath)
+	t.Setenv("COPILOT_GITHUB_TOKEN", "copilot-token")
+
+	opts, err := sharedClientOptions("error", nil, false)
+	require.NoError(t, err)
+	require.Empty(t, opts.GitHubToken)
+	conn, ok := opts.Connection.(copilot.StdioConnection)
+	require.True(t, ok)
+	require.Nil(t, conn.Env)
+}
+
+func TestSharedClientOptions_GitHubTokenPrecedence(t *testing.T) {
+	cliPath := filepath.Join(t.TempDir(), "copilot")
+	require.NoError(t, os.WriteFile(cliPath, []byte("test executable"), 0o755))
+	t.Setenv("COPILOT_CLI_PATH", cliPath)
+
+	for _, tc := range []struct {
+		name         string
+		copilotToken string
+		ghToken      string
+		githubToken  string
+		want         string
+	}{
+		{name: "Copilot token wins", copilotToken: "copilot", ghToken: "gh", githubToken: "github", want: "copilot"},
+		{name: "GH token is second", ghToken: "gh", githubToken: "github", want: "gh"},
+		{name: "GitHub token is fallback", githubToken: "github", want: "github"},
+		{name: "persisted login remains available", want: ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("COPILOT_GITHUB_TOKEN", tc.copilotToken)
+			t.Setenv("GH_TOKEN", tc.ghToken)
+			t.Setenv("GITHUB_TOKEN", tc.githubToken)
+
+			opts, err := sharedClientOptions("error", nil, true)
+			require.NoError(t, err)
+			require.Equal(t, tc.want, opts.GitHubToken)
+		})
+	}
+}
+
 func TestSharedClient_PassesCLIArgs(t *testing.T) {
 	resetSharedClientForTest()
 	t.Cleanup(resetSharedClientForTest)
@@ -271,6 +373,22 @@ func TestSharedClient_SeparatesDifferentCLIArgs(t *testing.T) {
 	if !reflect.DeepEqual(gotArgs[1], gptArgs) {
 		t.Fatalf("expected second CLIArgs %v, got %v", gptArgs, gotArgs[1])
 	}
+}
+
+func TestSharedClient_SeparatesSanitizedEnvironment(t *testing.T) {
+	resetSharedClientForTest()
+	t.Cleanup(resetSharedClientForTest)
+	t.Setenv("COPILOT_CLI_PATH", "")
+
+	embeddedCLIPath = func() (string, error) { return "/cache/copilot-sdk/copilot_1.0.49", nil }
+	t.Cleanup(func() { embeddedCLIPath = embedded.Path })
+	sharedConstruct = func(*copilot.ClientOptions) CopilotClient { return &stubClient{} }
+	t.Cleanup(func() { sharedConstruct = newCopilotClient })
+
+	unsandboxed := SharedClient(SharedClientOptions{})
+	sandboxed := SharedClient(SharedClientOptions{SanitizeEnvironment: true})
+
+	require.NotSame(t, unsandboxed, sandboxed)
 }
 
 func TestSharedClient_UsesCOPILOTCLIPathOverride(t *testing.T) {

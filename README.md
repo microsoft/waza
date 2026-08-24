@@ -506,7 +506,7 @@ Exit codes: `0` all packs PASSED, `2` unsafe outcome with policy=fail (matches `
 
 ### `waza migrate <file>`
 
-Check a public schema artifact and migrate it to the current schema version when a future major schema requires it. The current schema is `1.2`, so v1 `eval.yaml` and `results.json` files are already current and no file changes are made.
+Check a public schema artifact and migrate it to the current schema version when a future major schema requires it. The current schema is `1.3`, so v1 `eval.yaml` and `results.json` files are already current and no file changes are made.
 
 ```bash
 waza migrate eval.yaml
@@ -1059,7 +1059,7 @@ skills/                Example skills
 ```yaml
 name: my-eval
 skill: my-skill
-schemaVersion: "1.2"
+schemaVersion: "1.3"
 version: "1.0"
 
 config:
@@ -1157,11 +1157,11 @@ tasks:
 # range: [1, 10]  # Only include rows 1-10 (0-indexed, skips header)
 ```
 
-`schemaVersion` uses `MAJOR.MINOR` format. Missing values are interpreted as the current schema version (currently `1.2`). Readers allow same-major minor additions with warnings for unknown fields, but reject different majors with a hint to run `waza migrate <file>`.
+`schemaVersion` uses `MAJOR.MINOR` format. Missing values are interpreted as the current schema version (currently `1.3`). Readers allow same-major minor additions with warnings for unknown fields, but reject different majors with a hint to run `waza migrate <file>`.
 
 Remote grader refs use Go-module-style paths: `<host>/<owner>/<repo>[/path][#export]@<version>`. The remote module must provide a `waza.registry.yaml` manifest and export a grader preset. Config-only grader presets expand to built-in grader types by default; remote program graders require explicit trust with `waza registry add --allow-exec` or interactive confirmation. Run `waza get eval.yaml` after manually adding or changing refs so `waza.lock` records the resolved commit and digest.
 
-`results.json` is currently emitted at `schemaVersion` `1.2`. Version `1.1` added per-turn checkpoints (`runs[].checkpoints[]`, see #358) and the normalized `runs[].tool_events[]` array (`turn`, `sequence`, `tool_call_id`, `tool_name`, `args`, `result`, `success`, `error`, `duration_ms`; see #366). Version `1.2` adds `runs[].snapshot_path` for `waza run --snapshot` artifacts (#367) and the eval-level `adversarial:` block consumed by `waza adversarial --spec` (#365). See [docs/PRD](docs/PRD.md) and [schema-changes](site/src/content/docs/reference/schema-changes.md) for details.
+`results.json` is currently emitted at `schemaVersion` `1.3`. Version `1.1` added per-turn checkpoints (`runs[].checkpoints[]`, see #358) and the normalized `runs[].tool_events[]` array (`turn`, `sequence`, `tool_call_id`, `tool_name`, `args`, `result`, `success`, `error`, `duration_ms`; see #366). Version `1.2` adds `runs[].snapshot_path` for `waza run --snapshot` artifacts (#367) and the eval-level `adversarial:` block consumed by `waza adversarial --spec` (#365). Version `1.3` adds the optional eval-level `config.sandbox` block for Copilot-native task isolation. See [docs/PRD](docs/PRD.md) and [schema-changes](site/src/content/docs/reference/schema-changes.md) for details.
 
 ### MCP Mock Servers
 
@@ -1250,6 +1250,28 @@ config:
 ```
 
 The skill remains discoverable through the `skill` tool and appears in `<available_skills>` as name and description only. `disabled_skills: ["*"]` still disables all skill loading.
+
+### Copilot-native sandbox
+
+`copilot-sdk` evaluations can opt into Copilot CLI's native OS sandbox with `schemaVersion: "1.3"`:
+
+```yaml
+config:
+  executor: copilot-sdk
+  sandbox:
+    enabled: true
+    allow_dev_tool_caches: false
+    allow_outbound_network: false
+    allow_local_network: false
+    git_auth: false
+    gh_auth: false
+    readonly_paths: []
+    readwrite_paths: []
+```
+
+Waza grants read/write access to each fresh task workspace and read-only access to the resolved `skill_directories`, which Copilot loads through its native skill mechanism. Bundled skill scripts remain executable without copying or making the source writable. Fixtures and Git resources are materialised inside the workspace. Other host paths, the system temp directory, and sandbox bypass requests are denied. The optional capability flags default to `false`. Optional `readonly_paths` and `readwrite_paths` accept absolute paths, `~`, and environment-variable expansion for declared host prerequisites such as package caches or CA bundles; both default to empty. Paths must exist, are canonicalised before use, cannot overlap the system temp root, and cannot receive conflicting read-only and read/write grants. Enable only access required by the evaluation. Omitting `sandbox` preserves the existing session policy and process environment; `enabled: false` likewise sends no policy-changing RPC. Sandboxed Copilot CLI processes receive an explicit operational environment allowlist rather than arbitrary host variables. Proxy URLs that contain credentials are omitted. GitHub tokens are passed through the SDK authentication channel, with persisted login as the fallback.
+
+Copilot applies the OS sandbox to model-visible shell commands and local MCP/LSP subprocesses; its in-process built-in file tools enforce the same policy on a best-effort basis. Model-backed prompt graders retain the task sandbox. Remote MCP servers and trusted post-execution program graders remain separate trust boundaries; program-grader commands run with host permissions. Copilot local sandboxing is a public-preview feature; on Windows it currently requires a Windows Insiders build.
 
 ### CSV Dataset Support
 

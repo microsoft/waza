@@ -22,11 +22,237 @@ import (
 
 var enableLiveCopilotTests = os.Getenv("ENABLE_COPILOT_TESTS") == "true"
 
-func TestAllowAllTools_UsesSDKApprovedKind(t *testing.T) {
-	result, err := allowAllTools(&copilot.RawPermissionRequest{}, copilot.PermissionInvocation{})
+func TestSandboxPermissionHandler_ApprovesOrdinaryRequests(t *testing.T) {
+	result, err := sandboxPermissionHandler(allowAllTools)(
+		&copilot.PermissionRequestShell{},
+		copilot.PermissionInvocation{},
+	)
 	require.NoError(t, err)
 	_, ok := result.(*rpc.PermissionDecisionApproveOnce)
 	require.True(t, ok, "expected an ApproveOnce decision, got %T", result)
+}
+
+func TestSandboxPermissionHandler_RejectsBypassRequests(t *testing.T) {
+	bypass := true
+	requests := map[string]copilot.PermissionRequest{
+		"read":  &copilot.PermissionRequestRead{RequestSandboxBypass: &bypass},
+		"shell": &copilot.PermissionRequestShell{RequestSandboxBypass: &bypass},
+		"url":   &copilot.PermissionRequestURL{RequestSandboxBypass: &bypass},
+		"write": &copilot.PermissionRequestWrite{RequestSandboxBypass: &bypass},
+	}
+	for name, request := range requests {
+		t.Run(name, func(t *testing.T) {
+			result, err := sandboxPermissionHandler(allowAllTools)(request, copilot.PermissionInvocation{})
+
+			require.NoError(t, err)
+			_, ok := result.(*rpc.PermissionDecisionReject)
+			require.True(t, ok, "expected a Reject decision, got %T", result)
+		})
+	}
+}
+
+func TestSandboxPermissionHandler_RejectsManagedApprovalRequests(t *testing.T) {
+	requiresApproval := true
+	result, err := sandboxPermissionHandler(allowAllTools)(
+		&copilot.PermissionRequestShell{ManagedApprovalRequired: &requiresApproval},
+		copilot.PermissionInvocation{},
+	)
+
+	require.NoError(t, err)
+	_, ok := result.(*rpc.PermissionDecisionReject)
+	require.True(t, ok, "expected a Reject decision, got %T", result)
+}
+
+func TestSessionSandboxConfiguration_RestrictsAccessToWorkspace(t *testing.T) {
+	workspace := t.TempDir()
+	skillDir := t.TempDir()
+	declaredReadonly := filepath.Join(t.TempDir(), "read-only")
+	declaredReadwrite := filepath.Join(t.TempDir(), "read-write")
+	canonicalTempDir, err := canonicalSandboxPath(os.TempDir())
+	require.NoError(t, err)
+
+	options, permissions, err := sessionSandboxConfiguration(workspace, []string{skillDir}, models.SandboxConfig{
+		Enabled:        true,
+		ReadonlyPaths:  []string{declaredReadonly},
+		ReadwritePaths: []string{declaredReadwrite},
+	})
+	require.NoError(t, err)
+
+	require.True(t, options.SandboxConfig.Enabled)
+	require.False(t, *options.SandboxConfig.AddCurrentWorkingDirectory)
+	require.False(t, *options.SandboxConfig.AllowDevToolCaches)
+	require.False(t, *options.SandboxConfig.GhAuth)
+	require.False(t, *options.SandboxConfig.GitAuth)
+	require.Equal(
+		t,
+		[]string{workspace, declaredReadwrite},
+		options.SandboxConfig.UserPolicy.Filesystem.ReadwritePaths,
+	)
+	require.Equal(t, []string{canonicalTempDir}, options.SandboxConfig.UserPolicy.Filesystem.DeniedPaths)
+	require.Equal(
+		t,
+		[]string{skillDir, declaredReadonly},
+		options.SandboxConfig.UserPolicy.Filesystem.ReadonlyPaths,
+	)
+	require.False(t, *options.SandboxConfig.UserPolicy.Network.AllowLocalNetwork)
+	require.False(t, *options.SandboxConfig.UserPolicy.Network.AllowOutbound)
+	require.False(t, *options.SandboxConfig.UserPolicy.Seatbelt.KeychainAccess)
+	require.Equal(t, workspace, *permissions.Paths.WorkspacePath)
+	require.Equal(
+		t,
+		[]string{skillDir, declaredReadonly, declaredReadwrite},
+		permissions.Paths.AdditionalDirectories,
+	)
+	require.False(t, *permissions.Paths.IncludeTempDirectory)
+	require.False(t, *permissions.Paths.Unrestricted)
+}
+
+func TestResolveSandboxPaths_ExpandsHomeAndEnvironment(t *testing.T) {
+	home := newSandboxTestRoot(t)
+	readonlyPath := filepath.Join(home, "cert.pem")
+	readwritePath := filepath.Join(home, ".cache", "uv")
+	require.NoError(t, os.WriteFile(readonlyPath, []byte("certificate"), 0o644))
+	require.NoError(t, os.MkdirAll(readwritePath, 0o755))
+	t.Setenv("HOME", home)
+	t.Setenv("WAZA_SANDBOX_READONLY", readonlyPath)
+
+	config, err := resolveSandboxPaths(models.SandboxConfig{
+		Enabled:        true,
+		ReadonlyPaths:  []string{"${WAZA_SANDBOX_READONLY}"},
+		ReadwritePaths: []string{"~/.cache/uv"},
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, []string{readonlyPath}, config.ReadonlyPaths)
+	require.Equal(t, []string{readwritePath}, config.ReadwritePaths)
+}
+
+func TestResolveSandboxPaths_RejectsRelativeAndUnsetEnvironmentPaths(t *testing.T) {
+	t.Setenv("WAZA_EMPTY_SANDBOX_PATH", "")
+	for _, path := range []string{"relative/path", "${WAZA_UNSET_SANDBOX_PATH}", "${WAZA_UNSET_SANDBOX_PATH}/etc", "${WAZA_EMPTY_SANDBOX_PATH}/etc"} {
+		t.Run(path, func(t *testing.T) {
+			_, err := resolveSandboxPaths(models.SandboxConfig{
+				Enabled:       true,
+				ReadonlyPaths: []string{path},
+			})
+			require.ErrorContains(t, err, "sandbox path")
+		})
+	}
+}
+
+func TestResolveSandboxPaths_CanonicalizesSymlinks(t *testing.T) {
+	root := newSandboxTestRoot(t)
+	realDir := filepath.Join(root, "real")
+	linkDir := filepath.Join(root, "link")
+	require.NoError(t, os.Mkdir(realDir, 0o755))
+	require.NoError(t, os.Symlink(realDir, linkDir))
+
+	config, err := resolveSandboxPaths(models.SandboxConfig{Enabled: true, ReadonlyPaths: []string{linkDir}})
+
+	require.NoError(t, err)
+	require.Equal(t, []string{realDir}, config.ReadonlyPaths)
+}
+
+func TestResolveSandboxPaths_RejectsMissingAndTemporaryPaths(t *testing.T) {
+	for _, path := range []string{filepath.Join(t.TempDir(), "missing"), t.TempDir()} {
+		_, err := resolveSandboxPaths(models.SandboxConfig{Enabled: true, ReadonlyPaths: []string{path}})
+		require.ErrorContains(t, err, "sandbox path")
+	}
+}
+
+func TestValidateSandboxPathPolicy_RejectsReadWriteOverlap(t *testing.T) {
+	root := newSandboxTestRoot(t)
+	readonlyDir := filepath.Join(root, "read-only")
+	nestedReadwriteDir := filepath.Join(readonlyDir, "read-write")
+	require.NoError(t, os.MkdirAll(nestedReadwriteDir, 0o755))
+
+	err := validateSandboxPathPolicy("", nil, models.SandboxConfig{
+		Enabled:        true,
+		ReadonlyPaths:  []string{readonlyDir},
+		ReadwritePaths: []string{nestedReadwriteDir},
+	})
+	require.ErrorContains(t, err, "overlaps read-only path")
+
+	err = validateSandboxPathPolicy("", []string{readonlyDir}, models.SandboxConfig{
+		Enabled:        true,
+		ReadwritePaths: []string{readonlyDir},
+	})
+	require.ErrorContains(t, err, "declared skill")
+}
+
+func TestPathsOverlap_UsesFilesystemIdentity(t *testing.T) {
+	root := newSandboxTestRoot(t)
+	first := filepath.Join(root, "first")
+	alias := filepath.Join(root, "alias")
+	require.NoError(t, os.WriteFile(first, []byte("same file"), 0o644))
+	if err := os.Link(first, alias); err != nil {
+		t.Skipf("hard links are unavailable: %v", err)
+	}
+
+	require.True(t, pathsOverlap(first, alias))
+}
+
+func TestPathsOverlap_IsCaseInsensitiveWhenFilesystemIs(t *testing.T) {
+	root := newSandboxTestRoot(t)
+	mixedCase := filepath.Join(root, "MixedCase")
+	require.NoError(t, os.Mkdir(mixedCase, 0o755))
+	lowerCase := filepath.Join(root, "mixedcase")
+	if _, err := os.Stat(lowerCase); err != nil {
+		t.Skip("filesystem is case-sensitive")
+	}
+
+	require.True(t, pathsOverlap(mixedCase, lowerCase))
+}
+
+func TestValidateSandboxPathPolicy_RejectsTemporaryAndReadonlyWorkspaces(t *testing.T) {
+	temporaryWorkspace, err := canonicalSandboxPath(t.TempDir())
+	require.NoError(t, err)
+	err = validateSandboxPathPolicy(temporaryWorkspace, nil, models.SandboxConfig{Enabled: true})
+	require.ErrorContains(t, err, "overlaps denied temporary directory")
+
+	workspace := newSandboxTestRoot(t)
+	err = validateSandboxPathPolicy(workspace, nil, models.SandboxConfig{
+		Enabled:       true,
+		ReadonlyPaths: []string{workspace},
+	})
+	require.ErrorContains(t, err, "overlaps read-only path")
+}
+
+func newSandboxTestRoot(t *testing.T) string {
+	t.Helper()
+	cacheDir, err := os.UserCacheDir()
+	require.NoError(t, err)
+	root, err := os.MkdirTemp(cacheDir, "waza-sandbox-test-*")
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, os.RemoveAll(root)) })
+	return root
+}
+
+func TestSessionSandboxConfiguration_AppliesExplicitCapabilityOptIns(t *testing.T) {
+	options, _, err := sessionSandboxConfiguration(t.TempDir(), nil, models.SandboxConfig{
+		Enabled:              true,
+		AllowDevToolCaches:   true,
+		AllowOutboundNetwork: true,
+		AllowLocalNetwork:    true,
+		GitAuth:              true,
+		GHAuth:               true,
+	})
+	require.NoError(t, err)
+
+	sandbox := options.SandboxConfig
+	require.True(t, *sandbox.AllowDevToolCaches)
+	require.True(t, *sandbox.UserPolicy.Network.AllowOutbound)
+	require.True(t, *sandbox.UserPolicy.Network.AllowLocalNetwork)
+	require.True(t, *sandbox.GitAuth)
+	require.True(t, *sandbox.GhAuth)
+}
+
+func TestSessionSandboxConfiguration_DisabledLeavesCopilotPolicyUnchanged(t *testing.T) {
+	options, permissions, err := sessionSandboxConfiguration(t.TempDir(), []string{t.TempDir()}, models.SandboxConfig{})
+
+	require.NoError(t, err)
+	require.Nil(t, options)
+	require.Nil(t, permissions)
 }
 
 func TestCopilotNoSessionID(t *testing.T) {
@@ -40,6 +266,8 @@ func TestCopilotNoSessionID(t *testing.T) {
 	unregister := func() { unregisterCount++ }
 
 	sourceDir := t.TempDir()
+	skillDir := newSandboxTestRoot(t)
+	sandbox := models.SandboxConfig{Enabled: true}
 
 	expectedConfig := sessionConfigMatcher{
 		t:         t,
@@ -47,11 +275,12 @@ func TestCopilotNoSessionID(t *testing.T) {
 		expected: copilot.SessionConfig{
 			OnPermissionRequest: allowAllTools,
 			Model:               expectedModel,
-			SkillDirectories:    []string{sourceDir},
+			SkillDirectories:    []string{skillDir},
 		},
 	}
 
 	clientMock.EXPECT().CreateSession(gomock.Any(), expectedConfig).Return(sessionMock, nil)
+	sessionMock.EXPECT().ConfigureSandbox(gomock.Any(), gomock.Any(), []string{skillDir}, sandbox).Return(nil)
 	sessionMock.EXPECT().Disconnect()
 	clientMock.EXPECT().DeleteSession(gomock.Any(), "session-1")
 
@@ -63,7 +292,8 @@ func TestCopilotNoSessionID(t *testing.T) {
 	defer cancel()
 
 	engine := NewCopilotEngineBuilder("gpt-4o-mini", &CopilotEngineBuilderOptions{
-		NewCopilotClient: func(clientOptions *copilot.ClientOptions) CopilotClient { return clientMock },
+		NewCopilotClient:    func(clientOptions *copilot.ClientOptions) CopilotClient { return clientMock },
+		SanitizeEnvironment: true,
 	}).Build()
 
 	defer func() {
@@ -75,10 +305,12 @@ func TestCopilotNoSessionID(t *testing.T) {
 	require.NoError(t, err)
 
 	resp, err := engine.Execute(ctx, &ExecutionRequest{
-		Message:   "hello?",
-		ModelID:   "this-model-wins",
-		SessionID: "", // ie, create a new session each time
-		SourceDir: sourceDir,
+		Message:    "hello?",
+		ModelID:    "this-model-wins",
+		SessionID:  "", // ie, create a new session each time
+		SourceDir:  sourceDir,
+		SkillPaths: []string{skillDir},
+		Sandbox:    &sandbox,
 	})
 	require.NoError(t, err)
 	require.Equal(t, "session-1", resp.SessionID)
@@ -95,18 +327,21 @@ func TestCopilotResumeSessionID(t *testing.T) {
 
 	sourceDir, err := os.Getwd()
 	require.NoError(t, err)
+	skillDir := newSandboxTestRoot(t)
+	sandbox := models.SandboxConfig{Enabled: true}
 
 	expectedConfig := sessionConfigMatcher{
 		t:         t,
 		sourceDir: sourceDir,
 		expected: copilot.ResumeSessionConfig{
 			Model:               "gpt-4o-mini",
-			SkillDirectories:    []string{sourceDir},
+			SkillDirectories:    []string{skillDir},
 			OnPermissionRequest: allowAllTools,
 		},
 	}
 
 	clientMock.EXPECT().ResumeSessionWithOptions(gomock.Any(), "session-1", expectedConfig).Return(sessionMock, nil)
+	sessionMock.EXPECT().ConfigureSandbox(gomock.Any(), gomock.Any(), []string{skillDir}, sandbox).Return(nil)
 	sessionMock.EXPECT().Disconnect()
 	clientMock.EXPECT().DeleteSession(gomock.Any(), "session-1")
 
@@ -118,7 +353,8 @@ func TestCopilotResumeSessionID(t *testing.T) {
 	defer cancel()
 
 	engine := NewCopilotEngineBuilder("gpt-4o-mini", &CopilotEngineBuilderOptions{
-		NewCopilotClient: func(clientOptions *copilot.ClientOptions) CopilotClient { return clientMock },
+		NewCopilotClient:    func(clientOptions *copilot.ClientOptions) CopilotClient { return clientMock },
+		SanitizeEnvironment: true,
 	}).Build()
 
 	defer func() {
@@ -130,8 +366,10 @@ func TestCopilotResumeSessionID(t *testing.T) {
 	require.NoError(t, err)
 
 	resp, err := engine.Execute(ctx, &ExecutionRequest{
-		Message:   "hello?",
-		SessionID: "session-1",
+		Message:    "hello?",
+		SessionID:  "session-1",
+		SkillPaths: []string{skillDir},
+		Sandbox:    &sandbox,
 	})
 	require.NoError(t, err)
 	require.Equal(t, "session-1", resp.SessionID)
@@ -362,6 +600,186 @@ func TestCopilotResumeSessionID_Live(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Contains(t, resp.FinalOutput, randIntAsStr)
+}
+
+func TestCopilotNativeSandbox_Live(t *testing.T) {
+	skipIfCopilotNotEnabled(t)
+	t.Setenv("WAZA_VISIBLE_CANARY", "must-not-reach-copilot")
+
+	cwd, err := os.Getwd()
+	require.NoError(t, err)
+	root, err := os.MkdirTemp(filepath.Dir(cwd), ".waza-sandbox-canary-*")
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, os.RemoveAll(root)) })
+	skillDir := filepath.Join(root, "sandbox-canary")
+	require.NoError(t, os.MkdirAll(filepath.Join(skillDir, "scripts"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(`---
+name: sandbox-canary
+description: Runs the bundled sandbox canary helper.
+---
+
+When requested, run the bundled scripts/helper.sh relative to this SKILL.md file.
+`), 0o644))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(skillDir, "scripts", "helper.sh"),
+		[]byte("#!/bin/sh\nprintf '%s\\n' 'skill-script-ran'\n"),
+		0o755,
+	))
+
+	outsideRead := filepath.Join(root, "outside-read.txt")
+	outsideWrite := filepath.Join(root, "outside-write.txt")
+	skillWrite := filepath.Join(skillDir, "forbidden-write.txt")
+	require.NoError(t, os.WriteFile(outsideRead, []byte("outside-must-not-be-readable\n"), 0o644))
+	declaredReadonlyDir := filepath.Join(root, "declared-read-only")
+	declaredReadwriteDir := filepath.Join(root, "declared-read-write")
+	require.NoError(t, os.MkdirAll(declaredReadonlyDir, 0o755))
+	require.NoError(t, os.MkdirAll(declaredReadwriteDir, 0o755))
+	declaredReadonlyFile := filepath.Join(declaredReadonlyDir, "input.txt")
+	declaredReadonlyWrite := filepath.Join(declaredReadonlyDir, "forbidden-write.txt")
+	declaredReadwriteFile := filepath.Join(declaredReadwriteDir, "input.txt")
+	declaredReadwriteWrite := filepath.Join(declaredReadwriteDir, "allowed-write.txt")
+	require.NoError(t, os.WriteFile(declaredReadonlyFile, []byte("declared-read-only-readable\n"), 0o644))
+	require.NoError(t, os.WriteFile(declaredReadwriteFile, []byte("declared-read-write-readable\n"), 0o644))
+	tempOutsideDir := t.TempDir()
+	tempOutsideRead := filepath.Join(tempOutsideDir, "outside-read.txt")
+	tempOutsideWrite := filepath.Join(tempOutsideDir, "outside-write.txt")
+	require.NoError(t, os.WriteFile(tempOutsideRead, []byte("temp-must-not-be-readable\n"), 0o644))
+	canaryScript := fmt.Sprintf(`#!/bin/sh
+cp inside.txt inside-copy.txt
+%q > skill-output.txt
+cat %q > declared-read-only-output.txt
+touch %q
+cat %q > declared-read-write-output.txt
+touch %q
+cat %q > outside-read-output.txt
+touch %q
+touch %q
+cat %q > temp-read-output.txt
+touch %q
+printenv WAZA_VISIBLE_CANARY > inherited-environment.txt
+exit 0
+`, filepath.Join(skillDir, "scripts", "helper.sh"), declaredReadonlyFile, declaredReadonlyWrite, declaredReadwriteFile, declaredReadwriteWrite, outsideRead, outsideWrite, skillWrite, tempOutsideRead, tempOutsideWrite)
+
+	engine := NewCopilotEngineBuilder("gpt-5.6-luna", &CopilotEngineBuilderOptions{SanitizeEnvironment: true}).Build()
+	require.NoError(t, engine.Initialize(context.Background()))
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		defer cancel()
+		require.NoError(t, engine.Shutdown(ctx))
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	resp, err := engine.Execute(ctx, &ExecutionRequest{
+		Message: "Use Bash now to run exactly `sh canary.sh` without modifying it. You must execute the command rather than describe it. Finish immediately after it runs.",
+		Resources: []ResourceFile{
+			{Path: "inside.txt", Content: []byte("workspace-readable\n")},
+			{Path: "canary.sh", Content: []byte(canaryScript)},
+		},
+		SkillPaths: []string{skillDir},
+		Sandbox: &models.SandboxConfig{
+			Enabled:        true,
+			ReadonlyPaths:  []string{declaredReadonlyDir},
+			ReadwritePaths: []string{declaredReadwriteDir},
+		},
+	})
+	require.NoError(t, err)
+	require.True(t, resp.Success, resp.ErrorMsg)
+	if string(resp.WorkspaceFiles["inside-copy.txt"]) != "workspace-readable\n" {
+		t.Logf("sandbox canary final output: %s", resp.FinalOutput)
+		for _, call := range resp.ToolCalls {
+			t.Logf("sandbox canary tool call: name=%s command=%q", call.Name, call.Arguments.Command)
+		}
+	}
+	require.Equal(t, "workspace-readable\n", string(resp.WorkspaceFiles["inside-copy.txt"]))
+	require.Equal(t, "skill-script-ran\n", string(resp.WorkspaceFiles["skill-output.txt"]))
+	require.Equal(t, "declared-read-only-readable\n", string(resp.WorkspaceFiles["declared-read-only-output.txt"]))
+	require.Equal(t, "declared-read-write-readable\n", string(resp.WorkspaceFiles["declared-read-write-output.txt"]))
+	require.Empty(t, resp.WorkspaceFiles["outside-read-output.txt"])
+	require.Empty(t, resp.WorkspaceFiles["temp-read-output.txt"])
+	require.Empty(t, resp.WorkspaceFiles["inherited-environment.txt"])
+	require.NoFileExists(t, declaredReadonlyWrite)
+	require.FileExists(t, declaredReadwriteWrite)
+	require.NoFileExists(t, outsideWrite)
+	require.NoFileExists(t, skillWrite)
+	require.NoFileExists(t, tempOutsideWrite)
+}
+
+func TestCopilotNativeSandbox_ConcurrentPoliciesDoNotLeak_Live(t *testing.T) {
+	skipIfCopilotNotEnabled(t)
+
+	cwd, err := os.Getwd()
+	require.NoError(t, err)
+	root, err := os.MkdirTemp(filepath.Dir(cwd), ".waza-sandbox-concurrent-*")
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, os.RemoveAll(root)) })
+
+	allowedDirs := []string{filepath.Join(root, "task-a"), filepath.Join(root, "task-b")}
+	for i, dir := range allowedDirs {
+		require.NoError(t, os.Mkdir(dir, 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "input.txt"), []byte(fmt.Sprintf("task-%d\n", i)), 0o644))
+	}
+
+	engine := NewCopilotEngineBuilder("gpt-5.6-luna", &CopilotEngineBuilderOptions{SanitizeEnvironment: true}).Build()
+	require.NoError(t, engine.Initialize(context.Background()))
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		defer cancel()
+		require.NoError(t, engine.Shutdown(ctx))
+	})
+
+	responses := make([]*ExecutionResponse, len(allowedDirs))
+	g, ctx := errgroup.WithContext(context.Background())
+	for i := range allowedDirs {
+		i := i
+		g.Go(func() error {
+			other := allowedDirs[1-i]
+			ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+			defer cancel()
+			resp, err := engine.Execute(ctx, &ExecutionRequest{
+				Message: fmt.Sprintf(`Use a separate Bash tool call for each command and attempt every command exactly once:
+1. cat %q > own-output.txt
+2. touch %q
+3. cat %q > cross-output.txt
+4. touch %q
+Finish after all four attempts.`, filepath.Join(allowedDirs[i], "input.txt"), filepath.Join(allowedDirs[i], "own-write.txt"), filepath.Join(other, "input.txt"), filepath.Join(other, fmt.Sprintf("escaped-from-%d.txt", i))),
+				NoSkills: true,
+				Sandbox: &models.SandboxConfig{
+					Enabled:        true,
+					ReadwritePaths: []string{allowedDirs[i]},
+				},
+			})
+			responses[i] = resp
+			return err
+		})
+	}
+	require.NoError(t, g.Wait())
+
+	for i, resp := range responses {
+		require.NotNil(t, resp)
+		require.True(t, resp.Success, resp.ErrorMsg)
+		require.Equal(t, fmt.Sprintf("task-%d\n", i), string(resp.WorkspaceFiles["own-output.txt"]))
+		require.Empty(t, resp.WorkspaceFiles["cross-output.txt"])
+		require.FileExists(t, filepath.Join(allowedDirs[i], "own-write.txt"))
+		require.NoFileExists(t, filepath.Join(allowedDirs[1-i], fmt.Sprintf("escaped-from-%d.txt", i)))
+
+		blockedPaths := map[string]bool{
+			filepath.Join(allowedDirs[1-i], "input.txt"):                           false,
+			filepath.Join(allowedDirs[1-i], fmt.Sprintf("escaped-from-%d.txt", i)): false,
+		}
+		for _, call := range resp.ToolCalls {
+			for path := range blockedPaths {
+				if call.Name == "bash" && strings.Contains(call.Arguments.Command, path) {
+					require.NotNil(t, call.Result)
+					require.Contains(t, call.Result.Content, "Operation not permitted")
+					blockedPaths[path] = true
+				}
+			}
+		}
+		for path, wasBlocked := range blockedPaths {
+			require.Truef(t, wasBlocked, "expected task %d to be denied access to %s", i, path)
+		}
+	}
 }
 
 func TestCopilotSendAndWaitReturnsErrorInResult(t *testing.T) {

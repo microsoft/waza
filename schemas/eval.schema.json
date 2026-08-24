@@ -102,6 +102,30 @@
       "description": "When true, marks this as a baseline run for comparison."
     }
   },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "config": {
+            "required": [
+              "sandbox"
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "config": {
+            "properties": {
+              "executor": {
+                "const": "copilot-sdk"
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
   "$defs": {
     "config": {
       "type": "object",
@@ -213,6 +237,61 @@
           "type": "object",
           "additionalProperties": true,
           "description": "MCP server configurations keyed by server name."
+        },
+        "sandbox": {
+          "type": "object",
+          "required": [
+            "enabled"
+          ],
+          "additionalProperties": false,
+          "description": "Optional Copilot-native sandbox policy for model-visible tools. Waza derives filesystem access from the task workspace and skill_directories.",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Enable Copilot CLI's native OS sandbox for this evaluation."
+            },
+            "allow_dev_tool_caches": {
+              "type": "boolean",
+              "default": false,
+              "description": "Allow Copilot to expose detected developer toolchains and shared build caches."
+            },
+            "allow_outbound_network": {
+              "type": "boolean",
+              "default": false,
+              "description": "Allow outbound network connections from sandboxed commands."
+            },
+            "allow_local_network": {
+              "type": "boolean",
+              "default": false,
+              "description": "Allow sandboxed commands to connect to local and loopback addresses."
+            },
+            "git_auth": {
+              "type": "boolean",
+              "default": false,
+              "description": "Inject Copilot's Git credential into sandboxed commands."
+            },
+            "gh_auth": {
+              "type": "boolean",
+              "default": false,
+              "description": "Inject Copilot's gh CLI credential into sandboxed commands."
+            },
+            "readonly_paths": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "description": "Additional host prerequisites exposed read-only after home and environment expansion."
+            },
+            "readwrite_paths": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "description": "Additional host prerequisites exposed read-write after home and environment expansion."
+            }
+          }
         }
       }
     },

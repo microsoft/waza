@@ -5,10 +5,12 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	copilot "github.com/github/copilot-sdk/go"
+	"github.com/microsoft/waza/internal/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
@@ -181,6 +183,80 @@ func TestCopilotEngine_Execute_NoDefaultTimeout(t *testing.T) {
 	resp, err := engine.Execute(context.Background(), &ExecutionRequest{Message: "hello"})
 	require.Error(t, err)
 	assert.Nil(t, resp)
+}
+
+func TestCopilotEngine_Execute_RejectsSandboxWithoutSanitizedEnvironment(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	clientMock := NewMockCopilotClient(ctrl)
+	engine := NewCopilotEngineBuilder("test", &CopilotEngineBuilderOptions{
+		NewCopilotClient: func(*copilot.ClientOptions) CopilotClient { return clientMock },
+	}).Build()
+
+	resp, err := engine.Execute(context.Background(), &ExecutionRequest{
+		Message: "hello",
+		Sandbox: &models.SandboxConfig{Enabled: true},
+	})
+
+	require.Nil(t, resp)
+	require.ErrorContains(t, err, "requires an engine built with CopilotEngineBuilderOptions.SanitizeEnvironment")
+}
+
+func TestCopilotEngine_Execute_FailsClosedWhenSandboxConfigurationFails(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	clientMock := newClientMock(ctrl)
+	sessionMock := NewMockCopilotSession(ctrl)
+	sandbox := models.SandboxConfig{Enabled: true}
+
+	clientMock.EXPECT().CreateSession(gomock.Any(), gomock.Any()).Return(sessionMock, nil)
+	sessionMock.EXPECT().SessionID().Return("sandbox-session")
+	sessionMock.EXPECT().ConfigureSandbox(gomock.Any(), gomock.Any(), gomock.Any(), sandbox).
+		Return(errors.New("sandbox unavailable"))
+	sessionMock.EXPECT().Disconnect()
+
+	engine := NewCopilotEngineBuilder("test-model", &CopilotEngineBuilderOptions{
+		NewCopilotClient:    func(*copilot.ClientOptions) CopilotClient { return clientMock },
+		SanitizeEnvironment: true,
+	}).Build()
+	require.NoError(t, engine.Initialize(context.Background()))
+	t.Cleanup(func() { require.NoError(t, engine.Shutdown(context.Background())) })
+
+	resp, err := engine.Execute(context.Background(), &ExecutionRequest{
+		Message: "hello",
+		Sandbox: &sandbox,
+	})
+
+	require.Nil(t, resp)
+	require.ErrorContains(t, err, "failed to configure Copilot sandbox: sandbox unavailable")
+}
+
+func TestCopilotEngine_Execute_DisabledSandboxLeavesInheritedPolicyUnchanged(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	clientMock := newClientMock(ctrl)
+	sessionMock := NewMockCopilotSession(ctrl)
+
+	clientMock.EXPECT().CreateSession(gomock.Any(), gomock.Any()).Return(sessionMock, nil)
+	sessionMock.EXPECT().On(gomock.Any()).Times(3).Return(func() {})
+	sessionMock.EXPECT().SessionID().Return("unsandboxed-session")
+	sessionMock.EXPECT().SendAndWait(gomock.Any(), gomock.Any()).Return(&copilot.SessionEvent{}, nil)
+	sessionMock.EXPECT().Disconnect()
+	clientMock.EXPECT().DeleteSession(gomock.Any(), "unsandboxed-session")
+
+	engine := NewCopilotEngineBuilder("test-model", &CopilotEngineBuilderOptions{
+		NewCopilotClient: func(*copilot.ClientOptions) CopilotClient { return clientMock },
+	}).Build()
+	require.NoError(t, engine.Initialize(context.Background()))
+	t.Cleanup(func() { require.NoError(t, engine.Shutdown(context.Background())) })
+
+	resp, err := engine.Execute(context.Background(), &ExecutionRequest{
+		Message:              "hello",
+		NoSkills:             true,
+		EphemeralSession:     true,
+		SkipWorkspaceCapture: true,
+		Sandbox:              &models.SandboxConfig{Enabled: false},
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, "unsandboxed-session", resp.SessionID)
 }
 
 func TestCopilotEngine_Execute_SendError(t *testing.T) {
@@ -358,6 +434,22 @@ func TestCopilotEngine_Shutdown_StopsClientAndCleansWorkspaces(t *testing.T) {
 	assert.True(t, os.IsNotExist(err))
 }
 
+func TestCopilotEngine_Shutdown_CleansWorkspacesWhenClientStopFails(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	clientMock := NewMockCopilotClient(ctrl)
+	engine := NewCopilotEngineBuilder("test-model", &CopilotEngineBuilderOptions{
+		NewCopilotClient: func(*copilot.ClientOptions) CopilotClient { return clientMock },
+	}).Build()
+	workspaceDir := t.TempDir()
+	engine.workspaces = append(engine.workspaces, workspaceDir)
+
+	clientMock.EXPECT().Stop().Return(errors.New("stop failed"))
+	err := engine.Shutdown(context.Background())
+
+	require.ErrorContains(t, err, "failed to stop client")
+	require.NoDirExists(t, workspaceDir)
+}
+
 // TestCopilotEngineBuilder_CLIArgsCarriesModel is a regression test for #262 /
 // PR #263: when defaultModelID is set, the engine must pass
 // "--model <defaultModelID>" through copilot.ClientOptions.CLIArgs so the
@@ -436,6 +528,7 @@ func TestCopilotEngineBuilder_CLIArgsEmptyWhenCustomProvider(t *testing.T) {
 			captured = clientOptions
 			return clientMock
 		},
+		SanitizeEnvironment: true,
 	}).Build()
 
 	require.NotNil(t, captured, "NewCopilotClient must receive non-nil ClientOptions")
@@ -443,6 +536,10 @@ func TestCopilotEngineBuilder_CLIArgsEmptyWhenCustomProvider(t *testing.T) {
 	require.True(t, ok, "Connection must be a copilot.StdioConnection")
 	require.Empty(t, conn.Args,
 		"Connection.Args must be empty when a custom BYOK provider is configured so the embedded CLI does not pre-validate a provider-only model ID against the GitHub Copilot catalog (#305)")
+	require.NotNil(t, conn.Env, "custom client factories must receive the same sanitised CLI environment as shared clients")
+	for _, entry := range conn.Env {
+		require.False(t, strings.HasPrefix(entry, "COPILOT_API_KEY="), "BYOK credentials must be passed per session, not inherited by model-visible tools")
+	}
 
 	// The engine should still know the defaultModelID and provider for
 	// per-session SessionConfig assembly.

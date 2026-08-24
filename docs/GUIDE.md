@@ -512,6 +512,31 @@ Specify cache location:
 waza run evals/code-explainer/eval.yaml --cache --cache-dir ./my-cache
 ```
 
+### Sandboxing Model-Visible Commands
+
+For `copilot-sdk` evaluations that allow shell or file tools, opt into Copilot CLI's native OS sandbox:
+
+```yaml
+schemaVersion: "1.3"
+
+config:
+  executor: copilot-sdk
+  skill_directories:
+    - ./skills/my-skill
+  sandbox:
+    enabled: true
+```
+
+Each task receives a fresh read/write workspace. Declared skills are exposed read-only through Copilot's native skill directories, and files listed under `inputs.files` are copied into the workspace. Network, shared developer caches, git/gh credential injection, unrelated host paths, system temporary directories, and sandbox bypass are denied by default.
+
+Most evaluations need no additional path configuration. If a tool genuinely requires a host prerequisite that cannot be copied into the workspace, declare the narrowest absolute `readonly_paths` or `readwrite_paths`; `~` and set environment variables may be used. An unset or empty variable, or a relative or missing path, fails the task rather than widening access. Waza canonicalises paths and rejects system-temp grants or overlapping read-only/read-write grants.
+
+Omitting the block or setting `enabled: false` sends no sandbox configuration, so Waza does not override stronger Copilot or organisation policy and retains the existing process environment. Sandboxed Copilot CLI processes receive an explicit allowlisted environment. Credential-bearing proxy URLs are omitted. GitHub tokens are passed through the SDK's authentication channel, and persisted Copilot login remains available.
+
+Copilot applies this policy to model-visible shell commands and local MCP/LSP subprocesses; its in-process built-in file tools enforce it on a best-effort basis. Model-backed prompt graders retain the task sandbox. Remote MCP servers and trusted post-execution program graders remain separate trust boundaries; program-grader commands run with host permissions. Local sandboxing is a Copilot public-preview feature; Windows currently requires a Windows Insiders build.
+
+See the [sandbox design](design/195-copilot-native-eval-sandbox.md) for the full boundary and its limitations.
+
 ### Registry Grader Presets
 
 Use registry commands to discover shared grader presets and add them to an eval without copying full grader definitions by hand:
