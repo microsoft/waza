@@ -694,12 +694,19 @@ echo "🖥️  Start without auto-opening browser:"
 - Click a row to view detailed results
 - Filter by date range or status
 
+**Run Detail**
+- Open the **Prompts** tab to inspect the raw resolved prompt sent to each task
+- JSON prompts are formatted for readability
+- Copy any captured prompt for debugging or reuse
+- Older result artifacts show an explicit unavailable state when no prompt was recorded
+
 ### Talking Points
 
 1. **Instant Visibility:** "The dashboard gives you instant visibility into skill quality across all eval runs."
 2. **Side-by-Side Comparison:** "Compare models side-by-side to pick the best one for your skill."
 3. **Trend Tracking:** "Track quality trends over time as you iterate on your skill."
-4. **Task Breakdown:** "Drill into individual tasks to see which ones consistently fail."
+4. **Prompt Verification:** "Confirm the exact resolved instruction each task sent to the agent, including formatted JSON prompts."
+5. **Task Breakdown:** "Drill into individual tasks to see which ones consistently fail."
 
 ### Expected Output
 
@@ -707,6 +714,7 @@ echo "🖥️  Start without auto-opening browser:"
 - Browser opens automatically to dashboard
 - Shows KPI cards with summary metrics
 - Run table with sortable columns
+- Prompts tab with captured task prompts and copy actions
 - Navigation menu for different views
 
 ### Variations
