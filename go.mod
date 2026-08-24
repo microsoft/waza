@@ -21,7 +21,7 @@ require (
 	github.com/github/copilot-sdk/go v1.0.9
 	github.com/go-viper/mapstructure/v2 v2.5.0
 	github.com/klauspost/compress v1.19.2
-	github.com/mattn/go-runewidth v0.0.27
+	github.com/mattn/go-runewidth v0.0.28
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3
 	github.com/spf13/cobra v1.10.2
 	github.com/stretchr/testify v1.11.1
