@@ -8,8 +8,8 @@ import (
 	"regexp"
 	"strings"
 	"testing"
-	"unicode/utf8"
 
+	"github.com/mattn/go-runewidth"
 	"github.com/microsoft/waza/cmd/waza/tokens"
 	"github.com/microsoft/waza/internal/scaffold"
 	"github.com/microsoft/waza/internal/scoring"
@@ -660,7 +660,7 @@ func TestTruncateName(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			got := truncateName(tt.name, tt.maxLen)
 			assert.Equal(t, tt.want, got)
-			assert.LessOrEqual(t, utf8.RuneCountInString(got), tt.maxLen)
+			assert.LessOrEqual(t, runewidth.StringWidth(got), tt.maxLen)
 		})
 	}
 }
@@ -690,6 +690,52 @@ func TestPrintCheckSummaryTable_DynamicWidth(t *testing.T) {
 			assert.Contains(t, line, "Medium-High")
 		}
 	}
+}
+
+func TestPrintCheckSummaryTable_WideCharAlignment(t *testing.T) {
+	// A skill name with fullwidth (CJK) characters must not break column
+	// alignment. The table pads by terminal display width (see padRight), so the
+	// dynamic name column has to be measured by display width too; otherwise a
+	// wide name overflows its column and shifts every following column right.
+	reports := []*readinessReport{
+		{skillName: "日本語スキル", complianceLevel: "Medium-High", tokenCount: 100, tokenLimit: 500},
+		{skillName: "azure-ai", complianceLevel: "Medium-High", tokenCount: 100, tokenLimit: 500},
+	}
+	var buf bytes.Buffer
+	printCheckSummaryTable(&buf, reports)
+
+	// The display column at which the second column begins must be identical on
+	// the header row ("Compliance") and on every data row ("Medium-High").
+	displayCol := func(line, token string) (int, bool) {
+		idx := strings.Index(line, token)
+		if idx < 0 {
+			return 0, false
+		}
+		return runewidth.StringWidth(line[:idx]), true
+	}
+
+	lines := strings.Split(buf.String(), "\n")
+	var want int
+	found := false
+	for _, line := range lines {
+		if col, ok := displayCol(line, "Compliance"); ok {
+			want, found = col, true
+			break
+		}
+	}
+	require.True(t, found, "header row with the Compliance column was not found")
+
+	dataFound := false
+	for _, line := range lines {
+		if !strings.Contains(line, "Medium-High") {
+			continue
+		}
+		col, ok := displayCol(line, "Medium-High")
+		require.True(t, ok, "data row with the Compliance column was not found")
+		assert.Equal(t, want, col, "second column misaligned for row %q", line)
+		dataFound = true
+	}
+	require.True(t, dataFound, "no data rows were checked")
 }
 
 func TestCheckCommandJSONOutput(t *testing.T) {
