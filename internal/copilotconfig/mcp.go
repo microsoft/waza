@@ -48,6 +48,7 @@ func ConvertMCPServersWithMocks(serverConfigs map[string]any, mocks []models.MCP
 				warnf("Warning: mcp_server %q stdio config is invalid: %v, skipping\n", name, err)
 				continue
 			}
+			defaultMCPTools(cfgMap, &stdio.Tools)
 			result[name] = stdio
 		case "http", "sse":
 			var http copilot.MCPHTTPServerConfig
@@ -55,6 +56,7 @@ func ConvertMCPServersWithMocks(serverConfigs map[string]any, mocks []models.MCP
 				warnf("Warning: mcp_server %q http config is invalid: %v, skipping\n", name, err)
 				continue
 			}
+			defaultMCPTools(cfgMap, &http.Tools)
 			result[name] = http
 		default:
 			warnf("Warning: mcp_server %q has unsupported type %q, skipping\n", name, serverType)
@@ -85,6 +87,12 @@ func ConvertMCPServersWithMocks(serverConfigs map[string]any, mocks []models.MCP
 	return result
 }
 
+func defaultMCPTools(cfgMap map[string]any, tools *[]string) {
+	if value, ok := cfgMap["tools"]; !ok || value == nil {
+		*tools = []string{"*"}
+	}
+}
+
 func mockServerConfig(cfg mcpmock.Config) (copilot.MCPStdioServerConfig, error) {
 	data, err := json.Marshal(cfg)
 	if err != nil {
@@ -101,6 +109,8 @@ func mockServerConfig(cfg mcpmock.Config) (copilot.MCPStdioServerConfig, error) 
 	return copilot.MCPStdioServerConfig{
 		Command: exe,
 		Args:    []string{"__mcp-mock", "--config-file", configFile},
+		// The bundled CLI rejects mock servers when the allowlist is omitted.
+		Tools: []string{"*"},
 		Env: map[string]string{
 			"WAZA_NO_UPDATE_CHECK": "1",
 		},

@@ -45,10 +45,10 @@ jobs:
     
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       
       - name: Setup Go Environment
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           # Waza requires Go 1.26+
           go-version: '1.26'
@@ -110,7 +110,7 @@ jobs:
       
       - name: Upload Results Artifact
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: waza-evaluation-results
           path: |
@@ -144,10 +144,10 @@ jobs:
   #   
   #   steps:
   #     - name: Checkout Repository
-  #       uses: actions/checkout@v4
+  #       uses: actions/checkout@v7
   #     
   #     - name: Setup Go Environment
-  #       uses: actions/setup-go@v6
+  #       uses: actions/setup-go@v7
   #       with:
   #         go-version: '1.26'
   #     
@@ -166,7 +166,7 @@ jobs:
   #     
   #     - name: Upload Copilot Results
   #       if: always()
-  #       uses: actions/upload-artifact@v4
+  #       uses: actions/upload-artifact@v7
   #       with:
   #         name: waza-copilot-results
   #         path: results-copilot.json

@@ -3,12 +3,16 @@ package webapi
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
+	"time"
 )
 
 // Version is set at build time or defaults to dev.
 var Version = "0.4.0-alpha.1"
+
+var runEventsPollInterval = 250 * time.Millisecond
 
 // Handlers holds the HTTP handler methods for the web API.
 type Handlers struct {
@@ -94,6 +98,97 @@ func (h *Handlers) HandleRunDetail(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, detail)
 }
 
+// HandleRunEvents streams replayable Server-Sent Events for a run.
+func (h *Handlers) HandleRunEvents(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		id = runIDFromEventsPath(r.URL.Path)
+	}
+	if id == "" {
+		writeError(w, http.StatusBadRequest, "run id is required")
+		return
+	}
+
+	lastID, err := lastEventID(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	detail, err := h.store.GetRun(id)
+	if err != nil {
+		if errors.Is(err, ErrRunNotFound) {
+			writeError(w, http.StatusNotFound, "run not found")
+		} else {
+			writeError(w, http.StatusInternalServerError, err.Error())
+		}
+		return
+	}
+
+	writeSSEHeaders(w)
+	if _, err := fmt.Fprint(w, "retry: 1000\n\n"); err != nil {
+		return
+	}
+	flusher, _ := w.(http.Flusher)
+	if flusher != nil {
+		flusher.Flush()
+	}
+
+	nextPoll := time.NewTimer(0)
+	defer nextPoll.Stop()
+
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case <-nextPoll.C:
+		}
+
+		events := filterEventsAfter(runEventsFromDetail(detail), lastID)
+		for _, event := range events {
+			if err := writeRunSSEEvent(w, event); err != nil {
+				return
+			}
+			lastID = event.Sequence
+			if flusher != nil {
+				flusher.Flush()
+			}
+			if event.Type == RunEventCompleted || event.Type == RunEventFailed {
+				return
+			}
+		}
+
+		nextPoll.Reset(runEventsPollInterval)
+		select {
+		case <-r.Context().Done():
+			return
+		case <-nextPoll.C:
+		}
+
+		detail, err = h.getRunForEvents(id)
+		if err != nil {
+			return
+		}
+		nextPoll.Reset(0)
+	}
+}
+
+// HandleLatestRunEvents preserves the legacy /api/events stream by replaying
+// the newest run in the same SSE format as the v1 per-run endpoint.
+func (h *Handlers) HandleLatestRunEvents(w http.ResponseWriter, r *http.Request) {
+	runs, err := h.store.ListRuns("timestamp", "desc")
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if len(runs) == 0 {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	r.SetPathValue("id", runs[0].ID)
+	h.HandleRunEvents(w, r)
+}
+
 // HandleStorageStatus returns the current storage configuration status.
 func (h *Handlers) HandleStorageStatus(w http.ResponseWriter, _ *http.Request) {
 	resp := &StorageStatusResponse{
@@ -112,8 +207,10 @@ func RegisterRoutes(mux *http.ServeMux, store RunStore) {
 	h := NewHandlers(store)
 	mux.HandleFunc("GET /api/health", h.HandleHealth)
 	mux.HandleFunc("GET /api/summary", h.HandleSummary)
+	mux.HandleFunc("GET /api/events", h.HandleLatestRunEvents)
 	mux.HandleFunc("GET /api/runs", h.HandleRuns)
 	mux.HandleFunc("GET /api/runs/{id}", h.HandleRunDetail)
+	mux.HandleFunc("GET /api/v1/runs/{id}/events", h.HandleRunEvents)
 	mux.HandleFunc("GET /api/storage/status", h.HandleStorageStatus)
 }
 
@@ -122,8 +219,10 @@ func RegisterRoutesWithStorage(mux *http.ServeMux, store RunStore, cfg *StorageC
 	h := NewHandlersWithStorage(store, cfg)
 	mux.HandleFunc("GET /api/health", h.HandleHealth)
 	mux.HandleFunc("GET /api/summary", h.HandleSummary)
+	mux.HandleFunc("GET /api/events", h.HandleLatestRunEvents)
 	mux.HandleFunc("GET /api/runs", h.HandleRuns)
 	mux.HandleFunc("GET /api/runs/{id}", h.HandleRunDetail)
+	mux.HandleFunc("GET /api/v1/runs/{id}/events", h.HandleRunEvents)
 	mux.HandleFunc("GET /api/storage/status", h.HandleStorageStatus)
 }
 
@@ -141,7 +240,7 @@ func CORSMiddleware(next http.Handler, allowedOrigins ...string) http.Handler {
 		if len(allowedOrigins) > 0 && origin != "" && allowed[origin] {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Last-Event-ID")
 		}
 
 		if r.Method == http.MethodOptions {
@@ -161,4 +260,31 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 
 func writeError(w http.ResponseWriter, code int, msg string) {
 	writeJSON(w, code, ErrorResponse{Error: msg, Code: code})
+}
+
+func runIDFromEventsPath(path string) string {
+	const prefix = "/api/v1/runs/"
+	const suffix = "/events"
+	if !strings.HasPrefix(path, prefix) || !strings.HasSuffix(path, suffix) {
+		return ""
+	}
+	id := strings.TrimSuffix(strings.TrimPrefix(path, prefix), suffix)
+	id = strings.Trim(id, "/")
+	if id == "" || strings.Contains(id, "/") {
+		return ""
+	}
+	return id
+}
+
+type reloadableRunStore interface {
+	Reload() error
+}
+
+func (h *Handlers) getRunForEvents(id string) (*RunDetail, error) {
+	if store, ok := h.store.(reloadableRunStore); ok {
+		if err := store.Reload(); err != nil {
+			return nil, err
+		}
+	}
+	return h.store.GetRun(id)
 }

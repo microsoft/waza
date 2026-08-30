@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 
+	copilot "github.com/github/copilot-sdk/go"
 	"github.com/microsoft/waza/internal/copilotevents"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/pricing"
@@ -209,6 +210,7 @@ func outcomeToDetail(o *models.EvaluationOutcome) *RunDetail {
 		// Collect grader results, transcript, and session digest from the first run.
 		if len(to.Runs) > 0 {
 			run := to.Runs[0]
+			tr.Prompt = promptFromRun(run)
 			if tr.Duration == 0 {
 				tr.Duration = float64(run.DurationMs) / 1000.0
 			}
@@ -242,6 +244,18 @@ func outcomeToDetail(o *models.EvaluationOutcome) *RunDetail {
 	}
 
 	return detail
+}
+
+func promptFromRun(run models.RunResult) string {
+	if run.Prompt != "" {
+		return run.Prompt
+	}
+	for _, e := range run.Transcript {
+		if data, ok := e.Data.(*copilot.UserMessageData); ok && data.Content != "" {
+			return data.Content
+		}
+	}
+	return ""
 }
 
 // ListRuns returns all runs sorted by the given field and order.

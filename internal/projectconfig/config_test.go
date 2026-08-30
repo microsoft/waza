@@ -52,6 +52,12 @@ func TestNew_ReturnsAllDefaults(t *testing.T) {
 
 	// Graders
 	assertEqualInt(t, "Graders.ProgramTimeout", 30, cfg.Graders.ProgramTimeout)
+
+	if len(cfg.Registries) != 1 {
+		t.Fatalf("Registries length = %d, want 1", len(cfg.Registries))
+	}
+	assertEqual(t, "Registries[0].Name", "public", cfg.Registries[0].Name)
+	assertEqual(t, "Registries[0].URL", "https://github.com/waza-evals", cfg.Registries[0].URL)
 }
 
 func TestLoad_FullConfig(t *testing.T) {
@@ -94,6 +100,12 @@ tokens:
       gpt-4o: 8192
 graders:
   programTimeout: 60
+registries:
+  - name: public
+    url: https://github.com/waza-evals
+  - name: company
+    url: https://github.com/myorg/waza-registry
+    priority: 10
 `)
 
 	cfg, err := Load(dir)
@@ -134,6 +146,12 @@ graders:
 		t.Errorf("Tokens.Limits.Overrides[gpt-4o] = %d, want 8192", cfg.Tokens.Limits.Overrides["gpt-4o"])
 	}
 	assertEqualInt(t, "Graders.ProgramTimeout", 60, cfg.Graders.ProgramTimeout)
+	if len(cfg.Registries) != 2 {
+		t.Fatalf("Registries length = %d, want 2", len(cfg.Registries))
+	}
+	assertEqual(t, "Registries[1].Name", "company", cfg.Registries[1].Name)
+	assertEqual(t, "Registries[1].URL", "https://github.com/myorg/waza-registry", cfg.Registries[1].URL)
+	assertEqualInt(t, "Registries[1].Priority", 10, cfg.Registries[1].Priority)
 }
 
 func TestLoad_PartialConfig_LegacyTwoField(t *testing.T) {
@@ -191,6 +209,25 @@ defaults:
 	_, err := Load(dir)
 	if err == nil {
 		t.Fatal("Load() should return error for invalid YAML")
+	}
+}
+
+func TestLoad_DuplicateRegistryNames_ReturnsError(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, ".waza.yaml", `
+registries:
+  - name: public
+    url: https://github.com/waza-evals
+  - name: public
+    url: https://github.com/example/waza-evals
+`)
+
+	_, err := Load(dir)
+	if err == nil {
+		t.Fatal("Load() should reject duplicate registry names")
+	}
+	if !strings.Contains(err.Error(), "duplicates") {
+		t.Fatalf("error %q does not report the duplicate registry name", err)
 	}
 }
 

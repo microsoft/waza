@@ -10,6 +10,7 @@ Waza helps you:
 - **Evaluate custom agents** (`.agent.md` files) with automatic tool constraint validation
 - **Create test suites** with realistic test cases and validation rules  
 - **Run evaluations** against different AI models to measure skill effectiveness
+- **Reuse remote grader presets** with Go-module-style `ref` entries pinned by `waza.lock`
 - **Compare results** across models and versions to track improvement
 - **View metrics** in an interactive dashboard with live results, trends, and detailed analysis
 
@@ -170,8 +171,12 @@ Add test case YAML files in `tasks/`:
 ```yaml
 # tasks/basic-usage.yaml
 id: basic-usage
+name: Basic usage
 description: "Explain a simple Python function"
-prompt: "Explain what this function does:\n{{fixture:sample.py}}"
+inputs:
+  prompt: "Read sample.py and explain what this function does."
+  files:
+    - path: sample.py
 expectedOutput:
   - type: contains
     value: "function"
@@ -196,6 +201,15 @@ Execute the benchmark:
 ```bash
 waza run evals/code-explainer/eval.yaml --context-dir evals/code-explainer/fixtures -v
 ```
+
+If your eval uses remote grader presets, resolve them first:
+
+```bash
+waza get evals/code-explainer/eval.yaml
+waza run evals/code-explainer/eval.yaml --context-dir evals/code-explainer/fixtures -v
+```
+
+Remote refs use `<host>/<owner>/<repo>[/path][#export]@<version>` in `graders[].ref`. `waza get` downloads the module into `~/.waza/cache/{host}/{org}/{repo}/{sha}/` and writes `waza.lock`; `waza run` uses the lock and refuses missing or digest-mismatched cache entries.
 
 **Output:**
 - `✓ Passed` — Task passed all validators
@@ -498,6 +512,22 @@ Specify cache location:
 waza run evals/code-explainer/eval.yaml --cache --cache-dir ./my-cache
 ```
 
+### Registry Grader Presets
+
+Use registry commands to discover shared grader presets and add them to an eval without copying full grader definitions by hand:
+
+```bash
+waza registry search factual --kind grader
+waza registry add github.com/waza-evals/fact#factuality@v1.0.0 \
+  --eval evals/code-explainer/eval.yaml \
+  --name factuality_strict \
+  --set config.threshold=0.9
+```
+
+`waza registry search` queries configured index sources. By default, Waza searches the public `https://github.com/waza-evals` source. Project `.waza.yaml` files can define a top-level `registries:` list with named sources, and `--registry <name>` limits search to one of them. The current implementation returns bundled sample metadata while live registry index integration is pending.
+
+`waza registry add` appends a `ref:` grader entry to `eval.yaml`, resolves the ref with the shared remote grader resolver, and updates `waza.lock` with the pinned commit SHA and content digest. Remote executable program graders require `--allow-exec` or interactive confirmation because they can run local commands.
+
 ---
 
 ### Testing Against a Local Git Repo
@@ -685,7 +715,7 @@ The dashboard opens automatically at `http://localhost:3000`.
 ### Navigation
 
 - **Overview** — Evaluation summary, pass rates, recent runs
-- **Run Details** — Click a run to see task-by-task results
+- **Run Details** — Click a run to inspect task results, resolved prompts, and execution trajectories
 - **Compare** — Select multiple runs to compare models
 - **Trends** — Historical pass rates and performance over time
 - **Live View** — Real-time results during active evaluations
@@ -693,6 +723,7 @@ The dashboard opens automatically at `http://localhost:3000`.
 ### Dashboard Features
 
 - **Live updates** — See results as tasks complete
+- **Prompt inspection** — Review the raw resolved prompt sent to each task, format JSON prompts, and copy prompt text
 - **Search** — Find runs, tasks, and models
 - **Filtering** — Filter by status (passed/failed), tags, date range
 - **Export** — Download results as CSV or JSON

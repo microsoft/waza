@@ -69,6 +69,140 @@ func TestJSONSchemaGrader_Grade(t *testing.T) {
 		require.Contains(t, results.Feedback, "Output is not valid JSON")
 	})
 
+	t.Run("embedded JSON requires extract_json", func(t *testing.T) {
+		schema := map[string]any{
+			"type":     "object",
+			"required": []any{"name"},
+		}
+
+		strictGrader, err := NewJSONSchemaGrader("strict", models.JSONSchemaGraderParameters{
+			Schema: schema,
+		})
+		require.NoError(t, err)
+		strictResults, err := strictGrader.Grade(context.Background(), &Context{
+			Output: "Here is the result:\n```json\n{\"name\":\"Alice\"}\n```",
+		})
+		require.NoError(t, err)
+		require.False(t, strictResults.Passed)
+
+		extractingGrader, err := NewJSONSchemaGrader("extracting", models.JSONSchemaGraderParameters{
+			Schema:      schema,
+			ExtractJSON: true,
+		})
+		require.NoError(t, err)
+		extractingResults, err := extractingGrader.Grade(context.Background(), &Context{
+			Output: "Here is the result:\n```json\n{\"name\":\"Alice\"}\n```",
+		})
+		require.NoError(t, err)
+		require.True(t, extractingResults.Passed)
+	})
+
+	t.Run("extract_json handles prose surrounding one JSON document", func(t *testing.T) {
+		g, err := NewJSONSchemaGrader("test", models.JSONSchemaGraderParameters{
+			Schema:      map[string]any{"type": "object", "required": []any{"name"}},
+			ExtractJSON: true,
+		})
+		require.NoError(t, err)
+
+		results, err := g.Grade(context.Background(), &Context{
+			Output: "The requested object is {\"name\":\"Alice\"}.",
+		})
+		require.NoError(t, err)
+		require.True(t, results.Passed)
+	})
+
+	t.Run("extract_json handles one JSON array document", func(t *testing.T) {
+		g, err := NewJSONSchemaGrader("test", models.JSONSchemaGraderParameters{
+			Schema: map[string]any{
+				"type":  "array",
+				"items": map[string]any{"type": "integer"},
+			},
+			ExtractJSON: true,
+		})
+		require.NoError(t, err)
+
+		results, err := g.Grade(context.Background(), &Context{
+			Output: "The values are:\n```json\n[1, 2, 3]\n```",
+		})
+		require.NoError(t, err)
+		require.True(t, results.Passed)
+	})
+
+	t.Run("extract_json handles pure JSON output", func(t *testing.T) {
+		g, err := NewJSONSchemaGrader("test", models.JSONSchemaGraderParameters{
+			Schema:      map[string]any{"type": "object", "required": []any{"name"}},
+			ExtractJSON: true,
+		})
+		require.NoError(t, err)
+
+		results, err := g.Grade(context.Background(), &Context{
+			Output: `{"name":"Alice"}`,
+		})
+		require.NoError(t, err)
+		require.True(t, results.Passed)
+	})
+
+	t.Run("extract_json rejects output with zero JSON documents", func(t *testing.T) {
+		g, err := NewJSONSchemaGrader("test", models.JSONSchemaGraderParameters{
+			Schema:      map[string]any{"type": "object"},
+			ExtractJSON: true,
+		})
+		require.NoError(t, err)
+
+		results, err := g.Grade(context.Background(), &Context{
+			Output: "No structured output was produced.",
+		})
+		require.NoError(t, err)
+		require.False(t, results.Passed)
+		require.Contains(t, results.Feedback, "exactly one JSON object or array")
+		require.Contains(t, results.Feedback, "zero")
+	})
+
+	t.Run("extract_json rejects a JSON scalar", func(t *testing.T) {
+		g, err := NewJSONSchemaGrader("test", models.JSONSchemaGraderParameters{
+			Schema:      map[string]any{"type": "string"},
+			ExtractJSON: true,
+		})
+		require.NoError(t, err)
+
+		results, err := g.Grade(context.Background(), &Context{
+			Output: `"not an object or array"`,
+		})
+		require.NoError(t, err)
+		require.False(t, results.Passed)
+		require.Contains(t, results.Feedback, "zero")
+	})
+
+	t.Run("extract_json rejects ambiguous output", func(t *testing.T) {
+		g, err := NewJSONSchemaGrader("test", models.JSONSchemaGraderParameters{
+			Schema:      map[string]any{"type": "object"},
+			ExtractJSON: true,
+		})
+		require.NoError(t, err)
+
+		results, err := g.Grade(context.Background(), &Context{
+			Output: `Examples: {"first":true} and {"second":true}`,
+		})
+		require.NoError(t, err)
+		require.False(t, results.Passed)
+		require.Contains(t, results.Feedback, "multiple JSON object or array documents")
+	})
+
+	t.Run("extract_json rejects a fenced document plus another JSON document", func(t *testing.T) {
+		g, err := NewJSONSchemaGrader("test", models.JSONSchemaGraderParameters{
+			Schema:      map[string]any{"type": "object"},
+			ExtractJSON: true,
+		})
+		require.NoError(t, err)
+
+		results, err := g.Grade(context.Background(), &Context{
+			Output: "```json\n{\"name\":\"Alice\"}\n```\nMetadata: {\"source\":\"agent\"}",
+		})
+		require.NoError(t, err)
+		require.False(t, results.Passed)
+		require.Contains(t, results.Feedback, "multiple JSON object or array documents")
+	})
+
 	t.Run("valid JSON not matching schema fails", func(t *testing.T) {
 		g, err := NewJSONSchemaGrader("test", models.JSONSchemaGraderParameters{
 			Schema: map[string]any{

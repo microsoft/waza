@@ -49,6 +49,9 @@ export default defineConfig({
 						{ label: 'Explore the Dashboard', slug: 'guides/dashboard-explore' },
 						{ label: 'CI/CD Integration', slug: 'guides/ci-cd' },
 						{ label: 'OpenTelemetry Tracing', slug: 'guides/otel' },
+						{ label: 'Adversarial Harness', slug: 'guides/adversarial' },
+						{ label: 'Snapshot & Replay', slug: 'guides/snapshot-replay' },
+						{ label: 'Azure Storage', slug: 'guides/azure-storage' },
 					],
 				},
 				{

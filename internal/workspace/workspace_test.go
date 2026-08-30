@@ -94,6 +94,88 @@ func TestDetectContext_MultiSkillWithSkillsDir(t *testing.T) {
 	}
 }
 
+func TestDetectContext_ClassicSkillsLayout(t *testing.T) {
+	root := t.TempDir()
+	skillDir := filepath.Join(root, "skills", "classic-skill")
+	writeFile(t, filepath.Join(skillDir, "SKILL.md"), skillMD("classic-skill"))
+
+	ctx, err := DetectContext(root)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if ctx.Type != ContextMultiSkill {
+		t.Fatalf("expected ContextMultiSkill, got %d", ctx.Type)
+	}
+	if len(ctx.Skills) != 1 {
+		t.Fatalf("expected 1 skill, got %d", len(ctx.Skills))
+	}
+	if ctx.Skills[0].Name != "classic-skill" {
+		t.Errorf("expected 'classic-skill', got %q", ctx.Skills[0].Name)
+	}
+	if ctx.Skills[0].Dir != skillDir {
+		t.Errorf("expected classic dir %q, got %q", skillDir, ctx.Skills[0].Dir)
+	}
+	if ctx.Skills[0].SourceDir != "" {
+		t.Errorf("expected empty SourceDir for classic skill, got %q", ctx.Skills[0].SourceDir)
+	}
+}
+
+func TestDetectContext_APMSkillsLayout(t *testing.T) {
+	root := t.TempDir()
+	sourceDir := filepath.Join(root, "skills", "apm-skill")
+	compiledDir := filepath.Join(sourceDir, ".apm", "skills", "apm-skill")
+	writeFile(t, filepath.Join(sourceDir, "apm.yml"), "name: apm-skill\n")
+	writeFile(t, filepath.Join(compiledDir, "SKILL.md"), skillMD("apm-skill"))
+
+	ctx, err := DetectContext(root)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if ctx.Type != ContextMultiSkill {
+		t.Fatalf("expected ContextMultiSkill, got %d", ctx.Type)
+	}
+	if len(ctx.Skills) != 1 {
+		t.Fatalf("expected 1 skill, got %d", len(ctx.Skills))
+	}
+	if ctx.Skills[0].Name != "apm-skill" {
+		t.Errorf("expected 'apm-skill', got %q", ctx.Skills[0].Name)
+	}
+	if ctx.Skills[0].Dir != compiledDir {
+		t.Errorf("expected compiled dir %q, got %q", compiledDir, ctx.Skills[0].Dir)
+	}
+	if ctx.Skills[0].SourceDir != sourceDir {
+		t.Errorf("expected source dir %q, got %q", sourceDir, ctx.Skills[0].SourceDir)
+	}
+}
+
+func TestDetectContext_ClassicSkillWinsOverAPMSameName(t *testing.T) {
+	root := t.TempDir()
+	classicDir := filepath.Join(root, "skills", "shared-skill")
+	compiledDir := filepath.Join(classicDir, ".apm", "skills", "shared-skill")
+	writeFile(t, filepath.Join(classicDir, "SKILL.md"), skillMD("shared-skill"))
+	writeFile(t, filepath.Join(compiledDir, "SKILL.md"), skillMD("shared-skill"))
+
+	ctx, err := DetectContext(root)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if ctx.Type != ContextMultiSkill {
+		t.Fatalf("expected ContextMultiSkill, got %d", ctx.Type)
+	}
+	if len(ctx.Skills) != 1 {
+		t.Fatalf("expected 1 deduped skill, got %d", len(ctx.Skills))
+	}
+	if ctx.Skills[0].Dir != classicDir {
+		t.Errorf("expected classic dir %q to win, got %q", classicDir, ctx.Skills[0].Dir)
+	}
+	if ctx.Skills[0].SkillPath != filepath.Join(classicDir, "SKILL.md") {
+		t.Errorf("expected classic SKILL.md to win, got %q", ctx.Skills[0].SkillPath)
+	}
+	if ctx.Skills[0].SourceDir != "" {
+		t.Errorf("expected classic skill source dir to be empty, got %q", ctx.Skills[0].SourceDir)
+	}
+}
+
 func TestDetectContext_MultiSkillNestedCategories(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, "skills", "development", "skill-creator", "SKILL.md"), skillMD("skill-creator"))
@@ -225,6 +307,29 @@ func TestFindEval_Colocated(t *testing.T) {
 	expected := filepath.Join(skillDir, "eval.yaml")
 	if evalPath != expected {
 		t.Errorf("expected %q, got %q", expected, evalPath)
+	}
+}
+
+func TestFindEval_APMSourceDirColocated(t *testing.T) {
+	root := t.TempDir()
+	sourceDir := filepath.Join(root, "skills", "my-skill")
+	compiledDir := filepath.Join(sourceDir, ".apm", "skills", "my-skill")
+	writeFile(t, filepath.Join(compiledDir, "SKILL.md"), skillMD("my-skill"))
+	writeFile(t, filepath.Join(sourceDir, "eval.yaml"), "name: test\n")
+
+	ctx, err := DetectContext(root)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	evalPath, err := FindEval(ctx, "my-skill")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	expected := filepath.Join(sourceDir, "eval.yaml")
+	if evalPath != expected {
+		t.Errorf("expected source eval %q, got %q", expected, evalPath)
 	}
 }
 

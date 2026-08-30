@@ -7,6 +7,8 @@ import {
   ChevronRight,
   ChevronDown,
   Download,
+  Copy,
+  Check,
 } from "lucide-react";
 import { useRunDetail } from "../hooks/useApi";
 import type { TaskResult, GraderResult, ResponderInfo } from "../api/client";
@@ -163,6 +165,94 @@ function GraderRow({ grader }: { grader: GraderResult }) {
   );
 }
 
+function formatPrompt(prompt: string): { text: string; format: string } {
+  const trimmed = prompt.trim();
+  if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+    try {
+      return { text: JSON.stringify(JSON.parse(prompt), null, 2), format: "JSON" };
+    } catch {
+      return { text: prompt, format: "Plain text" };
+    }
+  }
+  return { text: prompt, format: "Plain text" };
+}
+
+function PromptCard({ task }: { task: TaskResult }) {
+  const [copied, setCopied] = useState(false);
+  const [copyError, setCopyError] = useState<string | null>(null);
+  const prompt = task.prompt ?? "";
+  const formatted = formatPrompt(prompt);
+
+  async function copyPrompt() {
+    setCopyError(null);
+    if (!navigator.clipboard?.writeText) {
+      setCopyError("Clipboard access is unavailable. Copy the prompt manually.");
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(prompt);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    } catch {
+      setCopyError("Clipboard access was denied. Copy the prompt manually.");
+    }
+  }
+
+  return (
+    <div className="rounded-lg border border-zinc-700 bg-zinc-800">
+      <div className="flex flex-wrap items-center gap-3 border-b border-zinc-700 px-4 py-3">
+        <div>
+          <h2 className="font-medium text-zinc-100">{task.name}</h2>
+          <p className="mt-0.5 text-xs text-zinc-500">
+            {prompt
+              ? `Raw resolved prompt sent to the agent · ${formatted.format}`
+              : "No resolved prompt is available for this task"}
+          </p>
+        </div>
+        {prompt && (
+          <button
+            onClick={() => void copyPrompt()}
+            className="ml-auto inline-flex items-center gap-1.5 rounded bg-zinc-700 px-3 py-1.5 text-sm text-zinc-100 transition-colors hover:bg-zinc-600"
+          >
+            {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+            {copied ? "Copied" : "Copy"}
+          </button>
+        )}
+      </div>
+      {prompt ? (
+        <pre className="max-h-96 overflow-auto whitespace-pre-wrap break-words p-4 text-sm leading-6 text-zinc-200">
+          <code>{formatted.text}</code>
+        </pre>
+      ) : (
+        <div className="p-4 text-sm text-zinc-500">
+          No prompt was recorded for this task. Re-run the eval with a newer waza version to capture it.
+        </div>
+      )}
+      {copyError && (
+        <div className="border-t border-red-500/30 bg-red-500/10 px-4 py-2 text-sm text-red-400">
+          Copy failed: {copyError}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PromptsTab({ tasks }: { tasks: TaskResult[] }) {
+  return (
+    <div className="space-y-4">
+      <p className="text-sm text-zinc-400">
+        Review the raw task prompts captured in the result artifact.
+      </p>
+      {tasks.map((task) => (
+        <PromptCard key={task.name} task={task} />
+      ))}
+      {tasks.length === 0 && (
+        <p className="text-sm text-zinc-500">No tasks available.</p>
+      )}
+    </div>
+  );
+}
+
 function TaskRow({ task }: { task: TaskResult }) {
   const [expanded, setExpanded] = useState(false);
   const ws = computeWeightedScore(task);
@@ -228,7 +318,7 @@ function DetailSkeleton() {
 
 export default function RunDetail({ id }: { id: string }) {
   const { data, isLoading, isError, error, refetch } = useRunDetail(id);
-  const [activeTab, setActiveTab] = useState<"tasks" | "trajectory">("tasks");
+  const [activeTab, setActiveTab] = useState<"tasks" | "prompts" | "trajectory">("tasks");
   const [trajectoryTask, setTrajectoryTask] = useState<TaskResult | null>(null);
 
   if (isLoading) return <DetailSkeleton />;
@@ -316,6 +406,16 @@ export default function RunDetail({ id }: { id: string }) {
           Tasks
         </button>
         <button
+          onClick={() => { setActiveTab("prompts"); setTrajectoryTask(null); }}
+          className={`px-4 py-2 text-sm font-medium transition-colors ${
+            activeTab === "prompts"
+              ? "border-b-2 border-blue-500 text-zinc-100"
+              : "text-zinc-400 hover:text-zinc-200"
+          }`}
+        >
+          Prompts
+        </button>
+        <button
           onClick={() => setActiveTab("trajectory")}
           className={`px-4 py-2 text-sm font-medium transition-colors ${
             activeTab === "trajectory"
@@ -360,6 +460,8 @@ export default function RunDetail({ id }: { id: string }) {
         )}
       </div>
       )}
+
+      {activeTab === "prompts" && <PromptsTab tasks={data.tasks} />}
 
       {activeTab === "trajectory" && (
         <div className="space-y-4">

@@ -141,7 +141,7 @@ tags:
   - basic
   - happy-path
 inputs:
-  prompt: "Help me with this task"
+  prompt: "Read sample.py and explain the function it contains."
   files:
     - path: sample.py
 expected:

@@ -73,19 +73,19 @@ jobs:
             arch: arm64
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           lfs: true
 
       - name: Setup Go Environment
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: '1.26'
           cache-dependency-path: go.sum
 
       - name: Setup Node.js (for web UI build)
         if: hashFiles('web/package.json') != ''
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: '22'
 
@@ -114,7 +114,7 @@ jobs:
           echo "Built ${BINARY_NAME}"
 
       - name: Upload Binary Artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cli-waza-${{ matrix.os }}-${{ matrix.arch }}
           path: waza-${{ matrix.os }}-${{ matrix.arch }}*
@@ -126,12 +126,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
 
       - name: Download CLI Artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           pattern: cli-*
           path: artifacts
@@ -144,16 +144,29 @@ jobs:
           echo "Generated checksums:"
           cat checksums.txt
 
-      - name: Create GitHub Release
+      - name: Create or Update GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG="${{ needs.setup-version.outputs.tag }}"
-          gh release create "$TAG" \
-            --repo "${{ github.repository }}" \
-            --title "Waza $TAG" \
-            --generate-notes \
-            artifacts/*
+          upload_release_assets() {
+            gh release upload "$TAG" artifacts/* \
+              --repo "${{ github.repository }}" \
+              --clobber
+          }
+
+          if gh release view "$TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            upload_release_assets
+          elif ! gh release create "$TAG" artifacts/* \
+              --repo "${{ github.repository }}" \
+              --title "Waza $TAG" \
+              --generate-notes; then
+            if gh release view "$TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+              upload_release_assets
+            else
+              exit 1
+            fi
+          fi
 
   # ════════════════════════════════════════════════
   # FLOW 2: azd Extension Release
@@ -169,20 +182,20 @@ jobs:
       VERSION: ${{ needs.setup-version.outputs.version }}
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           lfs: true
 
       - name: Setup Go Environment
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: '1.26'
           cache-dependency-path: go.sum
 
       - name: Setup Node.js (for web UI build)
         if: hashFiles('web/package.json') != ''
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: '22'
 
@@ -192,7 +205,7 @@ jobs:
         run: npm ci && npm run build
 
       - name: Install Azure Developer CLI
-        uses: Azure/setup-azd@v2
+        uses: Azure/setup-azd@0b7e3a35ab00f2eee7080c845eb39c3f0ebfa553 # v2.4.0
 
       - name: Enable azd Extensions
         run: azd config set alpha.extensions on

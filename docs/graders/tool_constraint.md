@@ -15,6 +15,8 @@ Validates which tools an agent used (or avoided).
         skill_pattern: "my-skill"      # optional regex on the skill argument
       - tool: "edit"                   # match tool name only (any args)
         path_pattern: "\\.go$"         # optional regex on the path argument
+        args:
+          path: { regex: "^src/" }     # structured matcher on arbitrary args
     reject_tools:
       - tool: "bash"
         command_pattern: "rm\\s+-rf"
@@ -34,8 +36,19 @@ Validates which tools an agent used (or avoided).
 | `command_pattern` | str  | no       | Regex matched against the `command` argument (e.g. bash/powershell).  |
 | `skill_pattern`   | str  | no       | Regex matched against the `skill` argument (skill invocations).       |
 | `path_pattern`    | str  | no       | Regex matched against the `path` argument (file-based tools).         |
+| `args`            | map  | no       | Structured argument matchers keyed by argument name.                  |
 
 At least one option must be configured.
+
+`args` supports the same structured matchers used by the `tool_calls` grader:
+
+| Matcher | Meaning |
+|---------|---------|
+| `equals` | Deep equality with the supplied value |
+| `regex` | RE2 match against the stringified argument |
+| `contains` | Substring match against the stringified argument |
+| `range` | Numeric bounds with `gte`, `lte`, `gt`, or `lt` |
+| `json_schema` | JSON Schema validation for the argument value |
 
 **Scoring:** `passed_checks / total_checks`
 

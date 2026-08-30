@@ -1,0 +1,66 @@
+name: Site Build
+
+# PR-time validation for the Starlight docs site (site/).
+#
+# This workflow always runs on pull requests targeting main so it can be
+# used as a required status check without deadlocking non-site PRs. A
+# path-filter step detects whether site files actually changed; if not,
+# the expensive build is skipped and the job reports success. The Pages
+# deploy workflow (.github/workflows/pages.yml) still handles the actual
+# deploy on push to main.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'site/**'
+      - '.github/workflows/site-ci.yml'
+      - '.github/workflows/pages.yml'
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: site-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build site
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Detect site changes
+        id: filter
+        uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        with:
+          filters: |
+            site:
+              - 'site/**'
+              - '.github/workflows/site-ci.yml'
+              - '.github/workflows/pages.yml'
+
+      - name: Setup Node
+        if: steps.filter.outputs.site == 'true' || github.event_name == 'push'
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22.12.0'
+          cache: npm
+          cache-dependency-path: site/package-lock.json
+
+      - name: Install dependencies
+        if: steps.filter.outputs.site == 'true' || github.event_name == 'push'
+        run: cd site && npm ci
+
+      - name: Build site
+        if: steps.filter.outputs.site == 'true' || github.event_name == 'push'
+        run: cd site && npm run build
+
+      - name: Skip (no site changes)
+        if: steps.filter.outputs.site != 'true' && github.event_name == 'pull_request'
+        run: echo "No site/** changes detected — skipping site build."

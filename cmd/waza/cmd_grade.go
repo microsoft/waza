@@ -267,6 +267,7 @@ func gradeRun(ctx context.Context, spec *models.EvalSpec, tc *models.TestCase, r
 		Output:           run.FinalOutput,
 		Transcript:       run.Transcript,
 		Session:          &run.SessionDigest,
+		ToolEvents:       run.ToolEvents,
 		DurationMS:       run.DurationMs,
 		SessionID:        run.SessionDigest.SessionID,
 		WorkspaceDir:     workspace,

@@ -425,13 +425,27 @@
     },
     "graderConfig": {
       "type": "object",
-      "required": [
-        "type",
-        "name"
-      ],
       "additionalProperties": false,
       "description": "Configuration for a grader that scores agent output.",
+      "anyOf": [
+        {
+          "required": [
+            "ref"
+          ]
+        },
+        {
+          "required": [
+            "type",
+            "name"
+          ]
+        }
+      ],
       "properties": {
+        "ref": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Go-module-style remote grader reference resolved by waza get."
+        },
         "type": {
           "type": "string",
           "enum": [
@@ -1260,6 +1274,11 @@
         "schema_file": {
           "type": "string",
           "description": "Path to a JSON Schema file used for validation."
+        },
+        "extract_json": {
+          "type": "boolean",
+          "default": false,
+          "description": "Extract exactly one JSON object or array from prose or a Markdown JSON code block before validation."
         }
       }
     },

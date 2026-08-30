@@ -29,6 +29,7 @@ Summary of all evaluation runs:
 Detailed results for a single evaluation run:
 
 - **Task List** — All tasks with pass/fail status
+- **Prompts** — Raw resolved task prompts captured in the result artifact, with readable JSON formatting and copy actions. Results created by older waza versions show an explicit unavailable state.
 - **Validator Results** — Per-validator scores and messages
 - **Execution Stats** — Duration, token usage, tool calls
 - **Trajectory Viewer** — Two-mode trace inspection (see below)
@@ -76,7 +77,24 @@ Historical metrics over time:
 
 ### Live Updates
 
-Dashboard auto-refreshes when new results are saved:
+The **Live** view uses Server-Sent Events (SSE) to stream run progress from the dashboard API. The per-run endpoint is:
+
+```text
+GET /api/v1/runs/{runId}/events
+Accept: text/event-stream
+```
+
+Each message has an SSE `id` matching the JSON `sequence` field. Clients can reconnect with the `Last-Event-ID` header, or with the equivalent `lastEventId` query parameter, to resume after the last event they processed:
+
+```text
+GET /api/v1/runs/{runId}/events?lastEventId=42
+```
+
+The stream replays existing events, remains open while the run is still progressing, and closes after `run_completed` or `run_failed`. Event payloads include `schemaVersion`, `runId`, `type`, `timestamp`, and a `data` object. Current event types are `run_started`, `task_started`, `step_executed`, `task_completed`, `run_completed`, and `run_failed`.
+
+The legacy `/api/events` endpoint remains available and replays events for the newest run.
+
+To view progress while iterating locally:
 
 ```bash
 # Terminal 1: Serve dashboard

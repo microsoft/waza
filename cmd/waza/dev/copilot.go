@@ -75,9 +75,6 @@ func runDevCopilot(cfg *devConfig) error {
 		}
 	}()
 
-	stopSpinner := startDevSpinner(errOut, "Generating report with Copilot...")
-	defer stopSpinner()
-
 	triggerSpec, triggerErr := discoverTriggerSpec(sk.Frontmatter.Name)
 	if triggerErr != nil {
 		if errOut != nil {
@@ -85,6 +82,9 @@ func runDevCopilot(cfg *devConfig) error {
 		}
 		triggerSpec = nil
 	}
+
+	stopSpinner := startDevSpinner(errOut, "Generating report with Copilot...")
+	defer stopSpinner()
 
 	suggestions, err := getCopilotSuggestions(ctx, engine, skillPath, triggerSpec)
 	if err != nil {

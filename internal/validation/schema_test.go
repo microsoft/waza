@@ -99,6 +99,32 @@ tasks:
 	require.Empty(t, errs, "eval with inject_skill_body should have no errors")
 }
 
+func TestValidateEvalBytes_RemoteGraderRefWithoutType(t *testing.T) {
+	yaml := `name: test-eval
+skill: test-skill
+version: "1.0"
+config:
+  trials_per_task: 1
+  timeout_seconds: 60
+  executor: mock
+  model: gpt-4o
+graders:
+  - ref: github.com/waza-evals/fact#factuality@v1.0.0
+    name: factuality_strict
+    weight: 2
+    config:
+      threshold: 0.9
+metrics:
+  - name: accuracy
+    weight: 1.0
+    threshold: 0.8
+tasks:
+  - "tasks/*.yaml"
+`
+	errs := ValidateEvalBytes([]byte(yaml))
+	require.Empty(t, errs, "eval with remote grader ref should have no schema errors")
+}
+
 func TestValidateEvalBytes_Invalid(t *testing.T) {
 	errs := ValidateEvalBytes([]byte(invalidEvalYAML))
 	require.NotEmpty(t, errs, "invalid eval should have errors")

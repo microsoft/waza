@@ -32,6 +32,7 @@ func TestConvertMCPServersWithMocks_AddsHermeticStdioServer(t *testing.T) {
 	require.True(t, ok)
 	require.NotEmpty(t, stdio.Command)
 	require.Equal(t, "1", stdio.Env["WAZA_NO_UPDATE_CHECK"])
+	require.Equal(t, []string{"*"}, stdio.Tools)
 	require.Len(t, stdio.Args, 3)
 	require.Equal(t, "__mcp-mock", stdio.Args[0])
 	require.Equal(t, "--config-file", stdio.Args[1])
@@ -51,8 +52,63 @@ func TestConvertMCPServersWithMocks_PreservesRegularServers(t *testing.T) {
 	}, nil, "", nil)
 
 	require.Contains(t, servers, "regular")
-	_, ok := servers["regular"].(copilot.MCPStdioServerConfig)
+	stdio, ok := servers["regular"].(copilot.MCPStdioServerConfig)
 	require.True(t, ok)
+	require.Equal(t, []string{"*"}, stdio.Tools)
+}
+
+func TestConvertMCPServersWithMocks_PreservesExplicitToolAllowlist(t *testing.T) {
+	servers := ConvertMCPServersWithMocks(map[string]any{
+		"stdio": map[string]any{
+			"type":    "stdio",
+			"command": "echo",
+			"tools":   []any{"one", "two"},
+		},
+		"http": map[string]any{
+			"type":  "http",
+			"url":   "https://example.test/mcp",
+			"tools": []any{},
+		},
+		"stdio-empty": map[string]any{
+			"type":    "stdio",
+			"command": "cat",
+			"tools":   []any{},
+		},
+	}, nil, "", nil)
+
+	stdio, ok := servers["stdio"].(copilot.MCPStdioServerConfig)
+	require.True(t, ok)
+	require.Equal(t, []string{"one", "two"}, stdio.Tools)
+
+	http, ok := servers["http"].(copilot.MCPHTTPServerConfig)
+	require.True(t, ok)
+	require.Empty(t, http.Tools)
+
+	stdioEmpty, ok := servers["stdio-empty"].(copilot.MCPStdioServerConfig)
+	require.True(t, ok)
+	require.Empty(t, stdioEmpty.Tools)
+}
+
+func TestConvertMCPServersWithMocks_DefaultsHTTPToolsToAll(t *testing.T) {
+	servers := ConvertMCPServersWithMocks(map[string]any{
+		"remote": map[string]any{
+			"type": "http",
+			"url":  "https://example.test/mcp",
+		},
+		"stdio-null": map[string]any{
+			"type":    "stdio",
+			"command": "echo",
+			"tools":   nil,
+		},
+	}, nil, "", nil)
+
+	http, ok := servers["remote"].(copilot.MCPHTTPServerConfig)
+	require.True(t, ok)
+	require.Equal(t, []string{"*"}, http.Tools)
+
+	stdio, ok := servers["stdio-null"].(copilot.MCPStdioServerConfig)
+	require.True(t, ok)
+	require.Equal(t, []string{"*"}, stdio.Tools)
 }
 
 func TestConvertMCPServersWithMocks_InvalidMockDisablesLiveServerFallback(t *testing.T) {

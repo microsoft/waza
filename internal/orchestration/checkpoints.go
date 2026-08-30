@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/microsoft/waza/internal/copilotevents"
 	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/graders"
 	"github.com/microsoft/waza/internal/models"
@@ -78,7 +79,7 @@ func (cr *checkpointRunner) runForTurn(ctx context.Context, turn int, resp *exec
 		return false
 	}
 
-	gCtx := cr.runner.buildGraderContext(cr.tc, resp)
+	gCtx := cr.runner.buildGraderContext(cr.tc, resp, copilotevents.ToSDK(resp.Events))
 
 	// Run only the checkpoint's graders. Reuse graders.RunAll by passing a
 	// synthetic TestCase whose Validators field carries the checkpoint

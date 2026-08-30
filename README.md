@@ -130,9 +130,16 @@ waza check skills/my-skill
 waza suggest skills/my-skill --dry-run
 waza suggest skills/my-skill --apply
 
+# Discover shared registry graders and add one to an eval
+waza registry search factual --kind grader
+waza registry add github.com/waza-evals/fact#factuality@v1.0.0 --eval eval.yaml --name factuality
+
 # Verify eval coverage against SKILL.md requirements
 waza spec verify skills/my-skill evals/my-skill/eval.yaml
 waza spec verify skills/my-skill evals/my-skill/eval.yaml --fail --format github-actions
+
+# Resolve remote grader refs and write waza.lock
+waza get evals/my-skill/eval.yaml
 
 # Note: 'generate' is available as an alias for 'new' (see below for new command)
 # Note: Custom agents (.agent.md) are supported — see https://microsoft.github.io/waza/guides/custom-agents/
@@ -229,6 +236,18 @@ project/
     ├── tasks/*.yaml              # or files.taskGlob / files.taskFileSuffix
     └── fixtures/
 ```
+
+*APM-managed skills* are detected from their compiled output without symlinks:
+```
+project/
+├── skills/{skill-name}/apm.yml
+├── skills/{skill-name}/.apm/skills/{skill-name}/SKILL.md
+└── skills/{skill-name}/eval.yaml
+```
+
+When both `skills/{skill-name}/SKILL.md` and the APM compiled
+`.apm/skills/{skill-name}/SKILL.md` exist for the same skill, the top-level
+`SKILL.md` takes precedence.
 
 *Standalone mode* (no `skills/` detected):
 ```
@@ -376,6 +395,15 @@ Cached results are automatically invalidated when:
 - Fixture files change
 
 **Note:** Caching is automatically disabled for evaluations using non-deterministic graders (`behavior`, `prompt`).
+
+### `waza get [eval.yaml | ref]`
+
+Resolve remote grader refs and write `waza.lock`. When passed an eval file, `waza get` resolves every `graders[].ref`, downloads module contents into `~/.waza/cache/{host}/{org}/{repo}/{sha}/`, and pins each ref to a commit SHA and `sha256:` content digest. `waza run` requires a valid lock and cache entry for remote refs; it does not silently resolve unlocked refs during a run.
+
+```bash
+waza get eval.yaml
+waza get github.com/waza-evals/fact#factuality@v1.0.0
+```
 
 **Exit Codes**
 
@@ -545,6 +573,29 @@ Clear all cached evaluation results to force re-execution on the next run.
 | Flag | Description |
 |------|-------------|
 | `--cache-dir <dir>` | Cache directory to clear (default: `.waza-cache`) |
+
+### `waza registry search <query>`
+
+Search configured registry indexes for reusable graders, eval bundles, and datasets. The default public registry source is `https://github.com/waza-evals`; project-level `.waza.yaml` can override sources with a top-level `registries:` list.
+
+Registry search currently returns bundled sample metadata while live index integration is pending.
+
+| Flag | Description |
+|------|-------------|
+| `--kind <kind>` | Filter by `grader`, `eval`, or `dataset` |
+| `--registry <name>` | Search only the named registry source |
+| `--format <format>` | Output `table` or `json` (default: `table`) |
+
+### `waza registry add <ref>`
+
+Append a remote grader preset reference to `eval.yaml`, resolve it with the same remote grader resolver as `waza get`, and update `waza.lock` with the pinned commit SHA and `sha256:` content digest.
+
+| Flag | Description |
+|------|-------------|
+| `--eval <path>` | Eval file to update (default: `eval.yaml`) |
+| `--name <alias>` | Local alias for the grader |
+| `--set key=value` | Add a local override, repeatable (for example, `--set config.threshold=0.9`) |
+| `--allow-exec` | Allow remote program graders without interactive confirmation |
 
 ### `waza dev [skill-path]`
 
@@ -729,8 +780,9 @@ With two refs, compares the first ref to the second.
 | `--threshold <n>` | Fail when any existing file increases by more than n percent (0 = disabled) |
 
 Use `--skills` to restrict comparison to SKILL.md files under configured skill
-roots (`skills/`, `.github/skills/`, and `paths.skills` from `.waza.yaml`). In
-skills mode the default base ref is `origin/main` (falling back to `main`).
+roots (`skills/`, `.github/skills/`, APM `.apm/skills/` outputs, and
+`paths.skills` from `.waza.yaml`). In skills mode the default base ref is
+`origin/main` (falling back to `main`).
 
 Use `--threshold` for CI gating — newly added files are exempt from threshold
 checks (no baseline) but still subject to absolute limit checks with `--strict`.
@@ -813,6 +865,7 @@ waza serve --tcp :9000
 
 The dashboard displays evaluation results with:
 - Task-level pass/fail status
+- Raw resolved task prompts with JSON formatting and copy-to-clipboard
 - Score distributions across trials
 - Model comparisons
 - Aggregated metrics and trends
@@ -1007,7 +1060,7 @@ skills/                Example skills
 ```yaml
 name: my-eval
 skill: my-skill
-schemaVersion: "1.1"
+schemaVersion: "1.2"
 version: "1.0"
 
 config:
@@ -1073,6 +1126,12 @@ mcp_mocks:
               issues: []
 
 graders:
+  - ref: github.com/waza-evals/fact#factuality@v1.0.0
+    name: factuality_strict
+    weight: 2.0
+    config:
+      threshold: 0.9
+
   - type: text
     name: pattern_check
     config:
@@ -1099,13 +1158,15 @@ tasks:
 # range: [1, 10]  # Only include rows 1-10 (0-indexed, skips header)
 ```
 
-`schemaVersion` uses `MAJOR.MINOR` format. Missing values are interpreted as the current schema version (currently `1.1`). Readers allow same-major minor additions with warnings for unknown fields, but reject different majors with a hint to run `waza migrate <file>`.
+`schemaVersion` uses `MAJOR.MINOR` format. Missing values are interpreted as the current schema version (currently `1.2`). Readers allow same-major minor additions with warnings for unknown fields, but reject different majors with a hint to run `waza migrate <file>`.
 
-`results.json` is currently emitted at `schemaVersion` `1.1`, which adds per-turn checkpoints (`runs[].checkpoints[]`, see #358) and the normalized `runs[].tool_events[]` array (`turn`, `sequence`, `tool_call_id`, `tool_name`, `args`, `result`, `success`, `error`, `duration_ms`; see #366). See [docs/PRD](docs/PRD.md) and [schema-changes](site/src/content/docs/reference/schema-changes.md) for details.
+Remote grader refs use Go-module-style paths: `<host>/<owner>/<repo>[/path][#export]@<version>`. The remote module must provide a `waza.registry.yaml` manifest and export a grader preset. Config-only grader presets expand to built-in grader types by default; remote program graders require explicit trust with `waza registry add --allow-exec` or interactive confirmation. Run `waza get eval.yaml` after manually adding or changing refs so `waza.lock` records the resolved commit and digest.
+
+`results.json` is currently emitted at `schemaVersion` `1.2`. Version `1.1` added per-turn checkpoints (`runs[].checkpoints[]`, see #358) and the normalized `runs[].tool_events[]` array (`turn`, `sequence`, `tool_call_id`, `tool_name`, `args`, `result`, `success`, `error`, `duration_ms`; see #366). Version `1.2` adds `runs[].snapshot_path` for `waza run --snapshot` artifacts (#367) and the eval-level `adversarial:` block consumed by `waza adversarial --spec` (#365). See [docs/PRD](docs/PRD.md) and [schema-changes](site/src/content/docs/reference/schema-changes.md) for details.
 
 ### MCP Mock Servers
 
-Use top-level `mcp_mocks` with `schemaVersion: "1.1"` for deterministic Copilot SDK evals that need MCP tools without live services. Waza launches each mock as a local stdio MCP server, so CI runs do not need network ports, external credentials, or real service state.
+Use top-level `mcp_mocks` with `schemaVersion: "1.1"` for deterministic Copilot SDK evals that need MCP tools without live services. Waza launches each mock as a local stdio MCP server, so CI runs do not need network ports, external credentials, or real service state. Waza exposes every tool declared by each mock to the Copilot CLI automatically; do not add a separate `tools` allowlist.
 
 ```yaml
 schemaVersion: "1.1"
@@ -1115,6 +1176,21 @@ mcp_mocks:
 ```
 
 Inline responses support exact full-argument matching (`match`), JSON Schema matching (`match_schema`), and per-field regex matching (`match_regex`). Unknown tools and unmatched calls fail loudly with an MCP tool error that names the missing fixture.
+
+### Adversarial Packs
+
+Use top-level `adversarial` with `schemaVersion: "1.2"` to pin built-in fault-injection packs for `waza adversarial --spec`:
+
+```yaml
+schemaVersion: "1.2"
+adversarial:
+  packs:
+    - prompt-injection
+    - scope-bypass
+  on_unsafe_outcome: fail
+```
+
+`on_unsafe_outcome: warn` records unsafe outcomes without failing the command.
 
 ### Custom Input Variables
 

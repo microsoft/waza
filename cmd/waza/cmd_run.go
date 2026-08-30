@@ -34,6 +34,7 @@ import (
 	"github.com/microsoft/waza/internal/orchestration"
 	"github.com/microsoft/waza/internal/projectconfig"
 	"github.com/microsoft/waza/internal/recommend"
+	"github.com/microsoft/waza/internal/registry"
 	"github.com/microsoft/waza/internal/reporting"
 	"github.com/microsoft/waza/internal/session"
 	"github.com/microsoft/waza/internal/snapshot"
@@ -446,6 +447,7 @@ func runCommandE(cmd *cobra.Command, args []string) error {
 type skillSpecPath struct {
 	evalSpecPath string
 	skillName    string
+	skillDir     string
 }
 
 type skillRunResult struct {
@@ -474,7 +476,11 @@ func resolveSpecPaths(args []string) ([]skillSpecPath, error) {
 		if err != nil {
 			return nil, err
 		}
-		return []skillSpecPath{{evalSpecPath: evalPath, skillName: wsCtx.Skills[0].Name}}, nil
+		return []skillSpecPath{{
+			evalSpecPath: evalPath,
+			skillName:    wsCtx.Skills[0].Name,
+			skillDir:     wsCtx.Skills[0].Dir,
+		}}, nil
 	}
 
 	// No args — workspace detection
@@ -493,7 +499,7 @@ func resolveSpecPaths(args []string) ([]skillSpecPath, error) {
 			fmt.Printf("⚠️  Skipping %s: %v\n", si.Name, err)
 			continue
 		}
-		paths = append(paths, skillSpecPath{evalSpecPath: evalPath, skillName: si.Name})
+		paths = append(paths, skillSpecPath{evalSpecPath: evalPath, skillName: si.Name, skillDir: si.Dir})
 	}
 
 	if len(paths) == 0 {
@@ -553,11 +559,25 @@ func printSkillRunSummary(results []skillRunResult) {
 // defaultSkills - skills found under the workspace folder, specified by .waza.yaml
 func runCommandForSpec(cmd *cobra.Command, sp skillSpecPath, defaultSkills []string) ([]modelResult, error) {
 	specPath := sp.evalSpecPath
+	if sp.skillDir != "" && !slices.Contains(defaultSkills, sp.skillDir) {
+		defaultSkills = append(defaultSkills, sp.skillDir)
+	}
 
 	// Load spec
 	spec, err := models.LoadEvalSpec(specPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load spec: %w", err)
+	}
+	resolver, err := registry.NewResolver()
+	if err != nil {
+		return nil, err
+	}
+	resolveCtx := context.Background()
+	if cmd != nil {
+		resolveCtx = cmd.Context()
+	}
+	if err := resolver.ExpandLockedGraders(resolveCtx, spec, specPath); err != nil {
+		return nil, err
 	}
 
 	// CLI flags override spec config

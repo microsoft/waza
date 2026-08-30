@@ -7,6 +7,85 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.38.6] - 2026-08-14
+
+### Added
+
+- **Remote grader references** — `graders[].ref` can resolve Go-module-style GitHub references through `waza get`, with pinned lockfiles, digest verification, offline cache support, and runtime expansion (#15, #494).
+- **Registry CLI** — Added `waza registry search` and `waza registry add` for discovering shared graders and adding compatible references to eval files (#17, #493).
+
+### Changed
+
+- **Dependencies** — Updated OpenTelemetry, Azure Developer CLI, JSON Schema, Vite, React tooling, Playwright, Astro, Starlight, TypeScript ESLint, Lucide, and related lockfiles (#507-#521, #525).
+- **CI path filtering** — Updated `dorny/paths-filter` to v4 for current runner support and merge-queue handling (#519).
+
+## [0.38.5] - 2026-08-06
+
+### Fixed
+
+- **Tool-call argument grading** — `tool_calls` graders now use canonical `tool_events[].args` data, preserving MCP and custom tool arguments across `results.json` round trips (#474, #477).
+- **Dev command output race** — Trigger-discovery warnings are emitted before the Copilot spinner starts, preventing concurrent writes detected by the Go race suite (#506).
+
+### Changed
+
+- **Documentation site validation** — Pull requests now validate the Starlight documentation site before merge (#473, #476).
+- **GitHub Actions hardening** — Third-party actions are pinned to full commit SHAs and Dependabot applies a seven-day GitHub Actions cooldown (#504).
+- **Dependencies** — Updated Playwright, ESLint, TypeScript ESLint, React Query, Starlight, Goldmark, and `go-runewidth` (#495, #497, #498, #499, #500, #502, #503).
+
+## [0.38.4] - 2026-07-27
+
+### Fixed
+
+- **Release workflow idempotency** — CLI artifact publishing now uploads assets to an existing release when the tag's release was created earlier in the workflow, instead of failing on `gh release create`.
+- **Windows update command** — `waza update` now passes the PowerShell installer URL reliably, preventing `Invoke-RestMethod` from failing with a null or empty `Uri` (#448).
+- **JSON schema grader configuration** — `json_schema` graders now accept the documented `extract_json` option in eval and task YAML, extracting exactly one JSON object or array candidate before schema validation (#457).
+- **Live MCP server tool availability** — `config.mcp_servers` entries now default omitted `tools` to `["*"]`, matching MCP mock behavior so configured stdio and HTTP servers expose their tools to Copilot SDK evaluations (#449).
+
+## [0.38.3] - 2026-07-17
+
+### Fixed
+
+- **MCP mock tool availability** — `mcp_mocks` now explicitly exposes declared tools to the bundled Copilot CLI, preventing valid mock servers from being skipped during Copilot SDK evaluations (#440).
+
+## [0.38.2] - 2026-07-16
+
+### Fixed
+
+- **JSON schema ambiguity detection** — `extract_json` now rejects output containing a JSON code block plus any additional JSON document.
+
+## [0.38.1] - 2026-07-16
+
+### Fixed
+
+- **JSON schema output extraction** — The `json_schema` grader can now extract exactly one JSON document from prose or a Markdown JSON code block with `extract_json: true`, while retaining strict pure-JSON validation by default.
+- **APM-installed skill detection** — Skill discovery recognizes skills installed by Azure API Management (#402).
+
+### Changed
+
+- **Dependencies and tooling** — Updated the Copilot SDK, OpenTelemetry, azd, documentation tooling, dashboard dependencies, and GitHub Actions.
+- **Documentation** — Added the executor to the getting-started manifest example (#435).
+
+## [0.38.0] - 2026-06-30
+
+### Added
+
+- **Focused eval suggestions** — `waza suggest` now supports targeted generation with `--count`, `--focus`, `--dry-run`, `--apply`, and `--force` (#357, #380)
+- **Per-turn checkpoint graders** — Task YAML can run inline graders after specific conversation turns with `checkpoints[]` and `on_failure` policies (#358, #386)
+- **Rubric preset library** — Prompt graders can reuse built-in rubric presets for common judge dimensions; no separate `waza rubric` subcommand ships in this release (#360, #381)
+- **Spec verification** — Added `waza spec verify` to report eval coverage against `SKILL.md` requirements (#361, #385)
+- **OpenTelemetry trace export** — Added `waza run --otel-exporter`, `--otel-endpoint`, `--otel-headers`, `--otel-file`, and `--otel-include-payloads` (#362, #383)
+- **MCP server mocks** — Added eval-level `mcp_mocks:` for hermetic Copilot SDK tool-call evals (#363, #387)
+- **Regression gates** — Added `waza gate` with stable exit codes for pass, regression, golden failure, and config errors (#364, #384)
+- **Adversarial harness** — Added `waza adversarial` and eval-level `adversarial:` pack configuration for prompt-injection and scope-bypass checks (#365, #392)
+- **Tool metrics and structured argument matchers** — Results now include normalized `tool_events[]`; tool graders can assert structured argument matchers through `expect_tools[].args` and `tool_calls.expect[].args` (#366, #388)
+- **Snapshot and replay** — Added `waza run --snapshot` and `waza replay` with a self-contained snapshot artifact format (#367, #391)
+- **Schema version policy** — Documented and enforced MAJOR.MINOR `schemaVersion` compatibility for public artifacts (#368, #382)
+- **Dashboard SSE resume** — Added `Last-Event-ID` / `lastEventId` resume support for dashboard event streams, including legacy `/api/events` (#178, #397)
+
+### Changed
+
+- **Phase 1 internal refactor** — Internal cleanup with no user-facing CLI, schema, or site behavior changes (#10)
+
 ## [0.37.0] - 2026-06-18
 
 ### Added
@@ -533,7 +612,14 @@ pip install waza
 - YAML escaping for regex patterns with backslashes
 - Progress bar now shows 100% on completion
 
-[Unreleased]: https://github.com/microsoft/waza/compare/v0.37.0...HEAD
+[Unreleased]: https://github.com/microsoft/waza/compare/azd-ext-microsoft-azd-waza_0.38.6...HEAD
+[0.38.6]: https://github.com/microsoft/waza/compare/azd-ext-microsoft-azd-waza_0.38.5...azd-ext-microsoft-azd-waza_0.38.6
+[0.38.5]: https://github.com/microsoft/waza/compare/azd-ext-microsoft-azd-waza_0.38.4...azd-ext-microsoft-azd-waza_0.38.5
+[0.38.4]: https://github.com/microsoft/waza/compare/azd-ext-microsoft-azd-waza_0.38.3...azd-ext-microsoft-azd-waza_0.38.4
+[0.38.3]: https://github.com/microsoft/waza/compare/v0.38.2...v0.38.3
+[0.38.2]: https://github.com/microsoft/waza/compare/v0.38.1...v0.38.2
+[0.38.1]: https://github.com/microsoft/waza/compare/v0.38.0...v0.38.1
+[0.38.0]: https://github.com/microsoft/waza/compare/v0.37.0...v0.38.0
 [0.37.0]: https://github.com/microsoft/waza/compare/v0.36.0...v0.37.0
 [0.36.0]: https://github.com/microsoft/waza/compare/v0.35.0...v0.36.0
 [0.35.0]: https://github.com/microsoft/waza/compare/v0.34.0...v0.35.0

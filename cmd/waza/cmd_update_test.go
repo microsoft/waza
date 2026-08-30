@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -205,13 +206,17 @@ func TestUpdateCommand_WindowsUsesPowerShellInstaller(t *testing.T) {
 		RunCommand: func(ctx context.Context, name string, args []string, env []string, stdin io.Reader, out, errOut io.Writer) error {
 			ran = true
 			assert.Contains(t, name, "powershell.exe")
-			require.Len(t, args, 6)
+			require.Len(t, args, 7)
 			assert.Equal(t, "-NoProfile", args[0])
 			assert.Equal(t, "-ExecutionPolicy", args[1])
 			assert.Equal(t, "Bypass", args[2])
 			assert.Equal(t, "-Command", args[3])
 			assert.Contains(t, args[4], "Invoke-RestMethod")
-			assert.Equal(t, "https://example.com/install.ps1", args[5])
+			assert.Contains(t, args[4], "param(")
+			assert.Contains(t, args[4], "$InstallerUrl")
+			assert.NotContains(t, args[4], "$args[0]")
+			assert.Equal(t, "-InstallerUrl", args[5])
+			assert.Equal(t, "https://example.com/install.ps1", args[6])
 			require.Len(t, env, 2)
 			assert.Contains(t, env[0], "WAZA_UPDATE_PARENT_PID=")
 			assert.Equal(t, "WAZA_INSTALL_DIR="+filepath.Dir("C:/tools/waza.exe"), env[1])
@@ -227,6 +232,34 @@ func TestUpdateCommand_WindowsUsesPowerShellInstaller(t *testing.T) {
 	assert.Equal(t, []string{"pwsh", "powershell"}, lookups)
 	assert.Contains(t, stdout.String(), "PowerShell installer")
 	assert.Contains(t, stdout.String(), "Update started")
+}
+
+func TestUpdateCommand_WindowsPowerShellArgumentsBindInstallerURL(t *testing.T) {
+	pwshPath, err := exec.LookPath("pwsh")
+	if err != nil {
+		t.Skip("pwsh not available")
+	}
+
+	installer, err := installerForOS("windows", updateCommandOptions{
+		PowerShellInstallerURL: "https://example.com/install.ps1",
+	})
+	require.NoError(t, err)
+	require.Len(t, installer.Args, 7)
+
+	script := strings.Replace(
+		installer.Args[4],
+		"$ErrorActionPreference = 'Stop';",
+		`$ErrorActionPreference = 'Stop'; function Invoke-RestMethod { param([string] $Uri) if ([string]::IsNullOrEmpty($Uri)) { throw 'empty Uri' }; return "installer:$Uri" }; function Invoke-Expression { param([string] $Command) Write-Output $Command };`,
+		1,
+	)
+	require.NotEqual(t, installer.Args[4], script)
+
+	args := append([]string(nil), installer.Args...)
+	args[4] = script
+	cmd := exec.Command(pwshPath, args...)
+	output, err := cmd.CombinedOutput()
+	require.NoError(t, err, string(output))
+	assert.Equal(t, "installer:https://example.com/install.ps1", strings.TrimSpace(string(output)))
 }
 
 func TestUpdateCommand_MissingPowerShellReturnsGuidance(t *testing.T) {

@@ -33,6 +33,7 @@ type RunDetail struct {
 // TaskResult is a per-task result within a run.
 type TaskResult struct {
 	Name          string                      `json:"name"`
+	Prompt        string                      `json:"prompt,omitempty"`
 	Outcome       string                      `json:"outcome"`
 	Score         float64                     `json:"score"`
 	Duration      float64                     `json:"duration"`

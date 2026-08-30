@@ -59,6 +59,7 @@ tasks:
 | `tasks_from`  | string | ✗        | Path to an external YAML file containing the task list                                     |
 | `hooks`       | object | ✗        | Lifecycle hooks that run shell commands at specific points (see [Hooks](#hooks))           |
 | `mcp_mocks`   | array  | ✗        | Hermetic MCP server mocks for deterministic tool-call evals; requires `schemaVersion: "1.1"` |
+| `adversarial` | object | ✗        | Built-in fault-injection packs consumed by `waza adversarial --spec`; requires `schemaVersion: "1.2"` |
 | `baseline`    | bool   | ✗        | Mark this spec as a baseline for A/B comparison                                            |
 
 `skill` is required.
@@ -127,7 +128,7 @@ config:
 | `inject_skill_body` | bool      | true              | Inject the target `SKILL.md` or `.agent.md` body into the system prompt |
 | `disabled_skills`   | list[str] | `[]`              | Skills to disable. Use `["*"]` to disable all skills        |
 | `required_skills`   | list[str] | `[]`              | Skills that must be available before running                |
-| `mcp_servers`       | object    | —                 | MCP server configurations for the evaluation                |
+| `mcp_servers`       | object    | —                 | MCP server configurations for the evaluation. When `tools` is omitted or null for a server, Waza exposes all server tools by sending `["*"]` to the Copilot SDK. Set `tools` to an explicit list, including `[]`, to restrict or disable exposed tools. |
 
 ### Trigger-precision evals
 
@@ -167,7 +168,7 @@ With this setting, Waza still discovers skills, passes them to the Copilot SDK, 
 
 ## MCP Mock Servers
 
-Use top-level `mcp_mocks` to replace live MCP dependencies with deterministic local stdio servers. This keeps Copilot SDK evals hermetic in CI: no network listener, no port allocation, and no external service credentials. Because this is an additive eval schema field, set `schemaVersion: "1.1"` or newer.
+Use top-level `mcp_mocks` to replace live MCP dependencies with deterministic local stdio servers. This keeps Copilot SDK evals hermetic in CI: no network listener, no port allocation, and no external service credentials. Waza automatically exposes every tool declared by a mock to the Copilot CLI, so no separate `tools` allowlist is needed. Because this is an additive eval schema field, set `schemaVersion: "1.1"` or newer.
 
 ```yaml
 name: issue-triage-eval
@@ -223,12 +224,33 @@ mcp_mocks:
 
 Each `.json` fixture can either contain a single tool definition (tool name from the filename) or a `{ "tools": { ... } }` object with multiple tools.
 
+## Adversarial Packs
+
+Use top-level `adversarial` to pin the built-in fault-injection packs and unsafe-outcome policy for `waza adversarial --spec`. This is additive in `schemaVersion: "1.2"` and is ignored by normal `waza run` executions.
+
+```yaml
+schemaVersion: "1.2"
+adversarial:
+  packs:
+    - prompt-injection
+    - scope-bypass
+  on_unsafe_outcome: fail  # or "warn"
+```
+
+`packs` must name one or more built-in packs. In v0.38.0 those are `prompt-injection` and `scope-bypass`. `on_unsafe_outcome: fail` exits 2 when an unsafe outcome is observed; `warn` records the unsafe result but exits 0. See the [Adversarial Harness guide](/guides/adversarial/) for pack behavior and CI examples.
+
 ## Graders Section
 
 Graders validate task outputs. Define once, reuse across tasks:
 
 ```yaml
 graders:
+  - ref: github.com/waza-evals/fact#factuality@v1.0.0
+    name: factuality_strict
+    weight: 2.0
+    config:
+      threshold: 0.9
+
   - type: text
     name: checks_logic
     weight: 2.0
@@ -252,6 +274,15 @@ graders:
 ```
 
 Each grader accepts an optional `weight` (default `1.0`) that controls its influence on the composite score. See **[Validators & Graders](../graders/#weighted-scoring)** for details.
+
+Remote grader presets can be referenced with `ref` instead of `type`. Refs use `<host>/<owner>/<repo>[/path][#export]@<version>` and resolve through `waza get`, which writes `waza.lock` with the pinned commit SHA and content digest. Local `name`, `weight`, top-level grader fields, and `config` values override the remote preset; nested `config` maps are deep-merged, while lists are replaced.
+
+```bash
+waza get eval.yaml
+waza run eval.yaml
+```
+
+`waza run` requires the lockfile and cached module contents to be present for remote refs. It fails closed on missing locks, missing cache entries, or digest mismatches.
 
 All graders return:
 
@@ -382,7 +413,7 @@ tags:
   - happy-path
 
 inputs:
-  prompt: "Explain this function"
+  prompt: "Read sample.py and explain the function it contains."
   files:
     - path: sample.py
 
@@ -424,6 +455,11 @@ inputs:
         def hello():
             print("Hello")
 ```
+
+`inputs.files` loads each `path` from the active fixtures directory (`./fixtures`
+relative to the eval spec file by default) and copies it into the fresh task
+workspace. It does not add file contents to `prompt`; tell the agent which
+workspace file to read. Use `content` to define a file inline instead.
 
 `inputs.context.fixture` is resolved relative to the eval spec directory. When it points to a directory, Waza copies that directory's contents into the fresh task workspace before the agent runs.
 
@@ -507,13 +543,14 @@ Each checkpoint accepts:
 
 Outcomes are recorded per-checkpoint on `results.json` under `checkpoints[]`, alongside the final `validations`. `waza gate` still uses final-pass status. Available with `schemaVersion: "1.1"` and above (additive — older 1.0 files load unchanged).
 
-Prompt supports templating:
+When a task includes workspace files, name the file in the prompt so the agent
+knows to read it:
 
 ```yaml
 inputs:
-  prompt: |
-    Explain this code:
-    {{fixture:sample.py}}
+  prompt: "Read sample.py and explain this code."
+  files:
+    - path: sample.py
 ```
 
 ### Expected Section
@@ -580,7 +617,7 @@ Reference in tasks:
 
 ```yaml
 inputs:
-  prompt: "Analyze {{fixture:sample.py}}"
+  prompt: "Read sample.py and analyze it."
   files:
     - path: sample.py
 ```
@@ -832,16 +869,14 @@ tasks:
   - "tasks/scaffold/*.yaml"
 ```
 
-Prompt templating also supports fixture file injection:
+Fixture files are copied into the task workspace, not inlined in the prompt:
 
 ```yaml
 inputs:
-  prompt: |
-    Explain this code:
-    {{fixture:sample.py}}
+  prompt: "Read sample.py and explain this code."
+  files:
+    - path: sample.py
 ```
-
-The `{{fixture:filename}}` syntax inlines the content of a file from the fixtures directory into the prompt.
 
 ---
 

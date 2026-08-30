@@ -11,12 +11,12 @@
     "test:e2e": "playwright test"
   },
   "dependencies": {
-    "@astrojs/starlight": "^0.40.0",
-    "astro": "^6.4.7",
-    "sharp": "^0.35.1"
+    "@astrojs/starlight": "^0.41.7",
+    "astro": "^7.2.1",
+    "sharp": "^0.35.3"
   },
   "devDependencies": {
-    "@playwright/test": "^1.52.0"
+    "@playwright/test": "^1.62.1"
   },
   "overrides": {
     "esbuild": "0.28.1"

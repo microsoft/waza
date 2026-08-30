@@ -97,6 +97,8 @@ func TestTaskFiles(t *testing.T) {
 	assert.Len(t, tasks, 3)
 
 	assert.Contains(t, tasks["basic-usage.yaml"], "id: basic-usage-001")
+	assert.Contains(t, tasks["basic-usage.yaml"], `prompt: "Read sample.py and explain the function it contains."`)
+	assert.Contains(t, tasks["basic-usage.yaml"], "path: sample.py")
 	assert.Contains(t, tasks["edge-case.yaml"], "id: edge-case-001")
 	assert.Contains(t, tasks["should-not-trigger.yaml"], "id: should-not-trigger-001")
 }

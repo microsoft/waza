@@ -55,6 +55,8 @@ waza run [eval.yaml | skill-name | agent-name]
 
 **Custom agents:** Waza discovers both `SKILL.md` and `.agent.md` files. You can target a custom agent by name just like a skill. See [Evaluating Custom Agents](/guides/custom-agents) for details.
 
+**APM-managed skills:** Waza detects compiled APM skills at `skills/<name>/.apm/skills/<name>/SKILL.md`, so `waza run <name>` and no-argument workspace detection work without symlinking `SKILL.md` into the source skill directory. If both `skills/<name>/SKILL.md` and the APM compiled output exist for the same skill, the top-level `SKILL.md` takes precedence.
+
 ### Flags
 
 | Flag | Short | Type | Default | Description |
@@ -202,6 +204,23 @@ project-root/
 waza init my-project
 waza init my-project --no-skill
 ```
+
+## waza get
+
+Resolve remote grader refs and update `waza.lock`.
+
+```bash
+waza get [eval.yaml | ref]
+```
+
+When given an eval file, `waza get` resolves each `graders[].ref`, downloads the module into `~/.waza/cache/{host}/{org}/{repo}/{sha}/`, and writes a lockfile next to the eval. The lock pins the original ref to a commit SHA, source URL, and `sha256:` content digest.
+
+```bash
+waza get eval.yaml
+waza get github.com/waza-evals/fact#factuality@v1.0.0
+```
+
+`waza run` is strict: evals with remote grader refs require a valid `waza.lock` and local cache entry. If the lock is missing, cache is unavailable, or the digest mismatches, the run fails instead of resolving mutable refs implicitly.
 
 ## waza new skill
 
@@ -863,8 +882,9 @@ waza tokens compare main --skills --threshold 10 --strict --format json
 
 Without `--skills`, compares all markdown files. With `--skills`, restricts
 comparison to `SKILL.md` files under configured skill roots (`skills/`,
-`.github/skills/`, and `paths.skills` from `.waza.yaml`). In skills mode the
-default base ref is `origin/main` (falling back to `main`).
+`.github/skills/`, APM `.apm/skills/` outputs, and `paths.skills` from
+`.waza.yaml`). In skills mode the default base ref is `origin/main` (falling
+back to `main`).
 
 `--threshold` sets a percentage-change gate for CI — newly added files are
 exempt from threshold checks (no baseline to compare) but still subject to
@@ -973,6 +993,63 @@ waza cache clear
 # Clear custom cache directory
 waza cache clear --cache-dir .my-cache
 ```
+
+---
+
+## waza registry
+
+Discover shared registry artifacts and add remote grader presets to an eval.
+
+Registry discovery uses configured index sources. The default public source is `https://github.com/waza-evals`; project `.waza.yaml` files can override sources with:
+
+```yaml
+registries:
+  - name: public
+    url: https://github.com/waza-evals
+  - name: company
+    url: https://github.com/myorg/waza-registry
+    priority: 10
+```
+
+### waza registry search
+
+Search configured registry indexes. The current implementation returns bundled sample metadata while live registry index integration is pending.
+
+```bash
+waza registry search factual
+waza registry search factual --kind grader
+waza registry search factual --registry company
+waza registry search factual --format json
+```
+
+#### Flags
+
+| Flag | Description |
+|------|-------------|
+| `--kind` | Filter by artifact kind: `grader`, `eval`, or `dataset` |
+| `--registry` | Search only the named registry source |
+| `--format` | Output format: `table` or `json` (default: `table`) |
+
+### waza registry add
+
+Append a remote grader preset reference to `eval.yaml`, resolve it with the shared remote grader resolver, and update `waza.lock` with the pinned commit SHA and `sha256:` content digest.
+
+```bash
+waza registry add github.com/waza-evals/fact#factuality@v1.0.0
+waza registry add github.com/waza-evals/fact#factuality@v1.0.0 --eval eval.yaml
+waza registry add github.com/waza-evals/fact#factuality@v1.0.0 --name factuality_strict --set config.threshold=0.9
+```
+
+Remote program graders require `--allow-exec` or interactive confirmation before `waza.lock` marks the ref as trusted.
+
+#### Flags
+
+| Flag | Description |
+|------|-------------|
+| `--eval` | Eval file to update (default: `eval.yaml`) |
+| `--name` | Local alias for the grader |
+| `--set` | Add a local override as `key=value`; repeatable |
+| `--allow-exec` | Allow remote program graders without interactive confirmation |
 
 ---
 
@@ -1301,6 +1378,8 @@ A newer version of waza is available: v0.24.0 → v0.28.0. Run: curl -fsSL ... |
 | `WAZA_HOME` | Config directory (default: `~/.waza`) |
 | `WAZA_CACHE` | Cache directory (default: `.waza-cache`) |
 | `WAZA_NO_UPDATE_CHECK` | Set to `1` to disable automatic version check |
+
+OpenTelemetry export is configured with the `waza run --otel-*` flags. v0.38.0 does not read `WAZA_OTEL_*` environment variables.
 
 When a custom provider is active, usage output labels the SDK request counter as `Provider Requests` instead of `Premium Requests`. Result JSON records `usage.provider: "custom"` and a sanitized `usage.provider_host`; the full provider URL is not stored.
 

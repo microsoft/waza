@@ -13,9 +13,10 @@ import (
 
 // jsonSchemaGrader validates that the agent output is valid JSON matching a given schema.
 type jsonSchemaGrader struct {
-	name       string
-	schema     map[string]any
-	schemaFile string
+	name        string
+	schema      map[string]any
+	schemaFile  string
+	extractJSON bool
 }
 
 // NewJSONSchemaGrader creates a [jsonSchemaGrader] that validates agent output against
@@ -26,9 +27,10 @@ func NewJSONSchemaGrader(name string, args models.JSONSchemaGraderParameters) (*
 	}
 
 	return &jsonSchemaGrader{
-		name:       name,
-		schema:     args.Schema,
-		schemaFile: args.SchemaFile,
+		name:        name,
+		schema:      args.Schema,
+		schemaFile:  args.SchemaFile,
+		extractJSON: args.ExtractJSON,
 	}, nil
 }
 
@@ -37,15 +39,20 @@ func (jsg *jsonSchemaGrader) Kind() models.GraderKind { return models.GraderKind
 
 func (jsg *jsonSchemaGrader) Grade(ctx context.Context, gradingContext *Context) (*models.GraderResults, error) {
 	return measureTime(func() (*models.GraderResults, error) {
-		// Step 1: check if the output is valid JSON
-		var outputValue any
-		if err := json.Unmarshal([]byte(gradingContext.Output), &outputValue); err != nil {
+		// Step 1: parse the output. Extraction is opt-in so strict JSON output
+		// remains the default contract for this grader.
+		outputValue, err := parseJSONOutput(gradingContext.Output, jsg.extractJSON)
+		if err != nil {
+			feedback := fmt.Sprintf("Output is not valid JSON: %v", err)
+			if jsg.extractJSON {
+				feedback = fmt.Sprintf("Output must contain exactly one JSON object or array: %v", err)
+			}
 			return &models.GraderResults{
 				Name:     jsg.name,
 				Type:     models.GraderKindJSONSchema,
 				Score:    0.0,
 				Passed:   false,
-				Feedback: fmt.Sprintf("Output is not valid JSON: %v", err),
+				Feedback: feedback,
 				Details: map[string]any{
 					"error": err.Error(),
 				},
@@ -85,6 +92,50 @@ func (jsg *jsonSchemaGrader) Grade(ctx context.Context, gradingContext *Context)
 			Feedback: "Output matches JSON schema",
 		}, nil
 	})
+}
+
+func parseJSONOutput(output string, extractJSON bool) (any, error) {
+	if extractJSON {
+		return exactlyOneJSONValue(embeddedJSONValues(output))
+	}
+
+	var outputValue any
+	if err := json.Unmarshal([]byte(output), &outputValue); err != nil {
+		return nil, err
+	}
+
+	return outputValue, nil
+}
+
+func embeddedJSONValues(output string) []any {
+	var values []any
+	for offset := 0; offset < len(output); {
+		if output[offset] != '{' && output[offset] != '[' {
+			offset++
+			continue
+		}
+
+		decoder := json.NewDecoder(strings.NewReader(output[offset:]))
+		var value any
+		if err := decoder.Decode(&value); err != nil {
+			offset++
+			continue
+		}
+		values = append(values, value)
+		offset += int(decoder.InputOffset())
+	}
+	return values
+}
+
+func exactlyOneJSONValue(values []any) (any, error) {
+	switch len(values) {
+	case 0:
+		return nil, fmt.Errorf("found zero JSON object or array documents")
+	case 1:
+		return values[0], nil
+	default:
+		return nil, fmt.Errorf("found multiple JSON object or array documents")
+	}
 }
 
 // resolveSchema returns the schema map, loading from file if necessary.

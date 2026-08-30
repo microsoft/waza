@@ -50,6 +50,11 @@ type Context struct {
 	// Used by the behavior grader to validate agent behavior constraints.
 	Session *models.SessionDigest
 
+	// ToolEvents holds the canonical per-call tool records for this run. Newer
+	// result files preserve arbitrary MCP/custom tool arguments here even when
+	// legacy SessionDigest.ToolCalls only has typed built-in fields.
+	ToolEvents []models.ToolEvent
+
 	// SkillInvocations is a chronological list of skills invoked during the session.
 	// Used by the skill_invocation grader to verify orchestration workflows.
 	SkillInvocations []execution.SkillInvocation

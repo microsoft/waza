@@ -99,9 +99,10 @@ func generateEvalAnalysis(
 }
 
 func buildNoSuggestionsError(res *execution.ExecutionResponse) error {
-	trace := extractCopilotTrace(transcript.BuildFromSessionEvents(res.Events))
+	sdkEvents := copilotevents.ToSDK(res.Events)
+	trace := extractCopilotTrace(transcript.BuildFromSessionEvents(sdkEvents))
 	if len(trace) == 0 {
-		trace = summarizeSessionEventTypes(res.Events)
+		trace = summarizeSessionEventTypes(sdkEvents)
 	}
 	if len(trace) == 0 {
 		return errors.New("no suggestions from Copilot (no session events captured)")
@@ -778,7 +779,7 @@ func writeSuggestionTranscript(prompt string, res *execution.ExecutionResponse) 
 	}
 
 	now := time.Now()
-	events := transcript.BuildFromSessionEvents(res.Events)
+	events := transcript.BuildFromSessionEvents(copilotevents.ToSDK(res.Events))
 
 	status := models.StatusPassed
 	if res.FinalOutput == "" || !res.Success {

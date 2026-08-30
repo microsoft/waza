@@ -8,6 +8,8 @@ import (
 	"time"
 
 	copilot "github.com/github/copilot-sdk/go"
+
+	"github.com/microsoft/waza/internal/agentevent"
 	"github.com/microsoft/waza/internal/copilotevents"
 	"github.com/microsoft/waza/internal/models"
 )
@@ -129,10 +131,18 @@ type SkillInvocation struct {
 	Path string
 }
 
-// ExecutionResponse represents the result of an execution
+// ExecutionResponse represents the result of an execution.
+//
+// Events carries engine-neutral [agentevent.Event] values rather than a
+// concrete SDK type so additional agent engines (Claude Code, Codex, generic
+// CLI) can plug in without leaking their native event types through this API.
+// The Copilot engine wraps each SDK event into an Event via
+// internal/copilotevents.FromSDK at the engine boundary; consumers that still
+// need SDK-typed access unwrap via [copilotevents.ToSDK] or
+// [copilotevents.AsSDKEvent].
 type ExecutionResponse struct {
 	FinalOutput      string
-	Events           []copilot.SessionEvent
+	Events           []agentevent.Event
 	ModelID          string
 	SkillInvocations []SkillInvocation
 	DurationMs       int64
@@ -146,13 +156,28 @@ type ExecutionResponse struct {
 }
 
 // ExtractMessages gets all non-empty assistant messages from events.
+//
+// Copilot SDK events are unwrapped through [copilotevents.AsSDKEvent] so the
+// existing Content helper can extract structured fields. Events produced by
+// other engines fall back to [agentevent.Event.Text], which delegates to the
+// engine payload's optional [agentevent.TextProvider] implementation. This
+// keeps ExtractMessages truly engine-neutral: a non-Copilot engine that
+// emits KindAssistantMessage with a TextProvider payload will surface here
+// instead of being silently dropped.
 func (r *ExecutionResponse) ExtractMessages() []string {
 	var messages []string
 	for _, evt := range r.Events {
-		if evt.Type() == copilot.SessionEventTypeAssistantMessage {
-			if content, ok := copilotevents.Content(evt); ok && content != "" {
+		if evt.Kind() != agentevent.KindAssistantMessage {
+			continue
+		}
+		if sdkEvt, ok := copilotevents.AsSDKEvent(evt); ok {
+			if content, ok := copilotevents.Content(sdkEvt); ok && content != "" {
 				messages = append(messages, content)
 			}
+			continue
+		}
+		if content, ok := evt.Text(); ok && content != "" {
+			messages = append(messages, content)
 		}
 	}
 	return messages

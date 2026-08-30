@@ -52,6 +52,7 @@ performance against predefined test cases.`,
 	// Add subcommands
 	cmd.AddCommand(newRunCommand())
 	cmd.AddCommand(newInitCommand())
+	cmd.AddCommand(newGetCommand())
 	cmd.AddCommand(tokens.NewCommand())
 	cmd.AddCommand(newCompareCommand())
 	cmd.AddCommand(newGateCommand())
@@ -74,6 +75,7 @@ performance against predefined test cases.`,
 	cmd.AddCommand(newMCPMockCommand())
 	cmd.AddCommand(newReplayCommand())
 	cmd.AddCommand(newAdversarialCommand())
+	cmd.AddCommand(newRegistryCommand())
 
 	return cmd
 }

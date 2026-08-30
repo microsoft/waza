@@ -37,6 +37,13 @@ Directory paths relative to the project root.
 | `evals` | string | `evals/` | Directory containing evaluation specs |
 | `results` | string | `results/` | Directory for evaluation results |
 
+Workspace detection also recognizes APM-managed skills compiled under
+`<paths.skills>/<name>/.apm/skills/<name>/SKILL.md`. Keep eval suites in the
+standard `evals/<name>/` directory or next to the source skill directory (for
+example, `<paths.skills>/<name>/eval.yaml`). If a top-level
+`<paths.skills>/<name>/SKILL.md` exists alongside the APM output, the top-level
+file takes precedence.
+
 ### files
 
 Filename and glob conventions for generated and discovered eval suites. Defaults keep the standard `eval.yaml` and `tasks/*.yaml` layout, but projects can opt into more Waza-specific names for editor tooling.
