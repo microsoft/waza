@@ -2,7 +2,7 @@
 
 ## Overview
 
-This repository contains `waza`, a CLI tool for evaluating Agent Skills. **The primary implementation is Go** in the repository root. The Python implementation (`waza/`) is legacy and no longer actively developed.
+This repository contains `waza`, a CLI tool for evaluating Agent Skills. **The primary implementation is Go** in the repository root.
 
 When making changes, follow these guidelines to maintain consistency and quality.
 
@@ -31,9 +31,9 @@ internal/
 │   └── outcome.go         # EvaluationOutcome (results)
 ├── orchestration/         # EvalRunner for coordinating execution
 │   └── runner.go          # Eval orchestration
-└── scoring/               # Validator interface and implementations
-    ├── validator.go       # Validator registry pattern
-    └── code_validators.go # Code and text validators
+├── graders/               # Grader interface + Create() factory (13 grader kinds)
+└── scoring/               # Skill-adherence heuristic Scorer
+    └── scoring.go         # Heuristic scoring implementation
 go.mod
 go.sum
 Makefile                   # Build and test commands
@@ -48,7 +48,7 @@ The Go implementation uses idiomatic Go naming:
 |---------|---------|-------------------|
 | Eval configuration | `EvalSpec` | `EvalSpec` |
 | Executor | `AgentEngine` | `BaseExecutor` |
-| Grader | `Validator` | `Grader` |
+| Grader | `Grader` | `Grader` |
 | Task | `TestCase` | `Task` |
 | Result | `EvaluationOutcome` | `EvalResult` |
 
@@ -71,11 +71,14 @@ type AgentEngine interface {
 }
 ```
 
-### Validator Registry
+### Grader Factory
 ```go
-registry := scoring.NewValidatorRegistry()
-registry.Register("code", &scoring.CodeValidator{})
-registry.Register("text", &scoring.TextValidator{})
+grader, err := graders.Create(identifier, params)
+if err != nil {
+    return err
+}
+
+result, err := grader.Grade(ctx, gradingContext)
 ```
 
 ## Building and Testing
@@ -200,8 +203,8 @@ Screenshots are saved to `docs/images/` and referenced throughout documentation.
 
 ### Adding a Validator (Grader)
 
-1. Implement `Validator` interface in `internal/scoring/`
-2. Register in `ValidatorRegistry`
+1. Implement the `Grader` interface in `internal/graders/`
+2. Add a `models.<Kind>GraderParameters` case to `Create()` in `internal/graders/grader.go`
 3. Add tests
 4. Document in README
 
