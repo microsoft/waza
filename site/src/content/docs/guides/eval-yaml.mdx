@@ -106,7 +106,7 @@ config:
   reasoning_effort: high # Optional: pin task and responder reasoning effort
   judge_model: gpt-4o # Model for LLM-as-judge graders (optional)
   judge_reasoning_effort: low # Optional: default effort for prompt graders
-  executor: mock # mock (local) or copilot-sdk (real API)
+  executor: copilot-sdk # mock (local) or copilot-sdk (real API)
   inject_skill_body: true # Inject target SKILL.md/.agent.md body into the prompt
   instruction_files:
     - .github/instructions/project.instructions.md

@@ -486,6 +486,7 @@ func (p *promptGrader) runPairwiseOnce(
 	prompt := buildPairwisePrompt(p.args.Prompt, outputA, outputB, labelA, labelB)
 	resp, err := executePromptGrader(ctx, gradingContext, &execution.ExecutionRequest{
 		ModelID:              p.args.Model,
+		ReasoningEffort:      p.args.ReasoningEffort,
 		Message:              prompt,
 		Tools:                tools,
 		MessageMode:          execution.MessageModeEnqueue,

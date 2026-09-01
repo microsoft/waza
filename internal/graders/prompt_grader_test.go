@@ -415,6 +415,7 @@ func TestPairwiseMode_UsesExecutorTool(t *testing.T) {
 			winner = "A"
 		}
 		require.Equal(t, execution.MessageModeEnqueue, req.MessageMode)
+		require.Equal(t, "high", req.ReasoningEffort)
 		require.True(t, req.Streaming)
 		require.True(t, req.EphemeralSession)
 		require.Len(t, req.Tools, 1)
@@ -430,8 +431,9 @@ func TestPairwiseMode_UsesExecutorTool(t *testing.T) {
 	}
 
 	grader, err := NewPromptGrader("pairwise-grader", models.PromptGraderParameters{
-		Prompt: "pick the better output",
-		Mode:   models.PromptGraderModePairwise,
+		Prompt:          "pick the better output",
+		Mode:            models.PromptGraderModePairwise,
+		ReasoningEffort: "high",
 	})
 	require.NoError(t, err)
 
