@@ -283,7 +283,7 @@ func gradeRun(ctx context.Context, spec *models.EvalSpec, tc *models.TestCase, r
 		}
 	}
 
-	graderResults, err := graders.RunAll(ctx, spec.Graders, tc, gradingCtx, judgeModel, false)
+	graderResults, err := graders.RunAll(ctx, spec.Graders, tc, gradingCtx, judgeModel, spec.Config.JudgeReasoningEffort, false)
 	if err != nil {
 		return nil, err
 	}

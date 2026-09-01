@@ -98,6 +98,7 @@ func (cr *checkpointRunner) runForTurn(ctx context.Context, turn int, resp *exec
 		stub,
 		gCtx,
 		cr.runner.cfg.Spec().Config.JudgeModel,
+		cr.runner.cfg.Spec().Config.JudgeReasoningEffort,
 		cr.runner.updateSnapshots,
 	)
 	outcome := models.CheckpointOutcome{

@@ -7,6 +7,7 @@ Uses a language model to evaluate skill execution quality via an explicit grader
   name: quality_judge
   config:
     model: gpt-4o-mini
+    reasoning_effort: medium
     continue_session: false
     prompt: |
       Evaluate whether the agent correctly completed the task.
@@ -20,6 +21,7 @@ Uses a language model to evaluate skill execution quality via an explicit grader
 |--------|------|-------------|
 | `prompt` | string | **Required.** Grader instructions sent to the judge model |
 | `model` | string | Model to use for the judge session |
+| `reasoning_effort` | string | Override the eval's `judge_reasoning_effort` (`low`, `medium`, `high`, `xhigh`, or `max`) |
 | `continue_session` | bool | Reuse the task session context by session ID (default: `false`) |
 
 **Timeout:**
