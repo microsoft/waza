@@ -2,7 +2,7 @@
 
 ## Overview
 
-This repository contains `waza`, a CLI tool for evaluating Agent Skills. **The primary implementation is Go** in the repository root. The Python implementation (`waza/`) is legacy and no longer actively developed.
+This repository contains `waza`, a CLI tool for evaluating Agent Skills. **The implementation is Go** in the repository root. (The legacy Python implementation was removed in February 2026.)
 
 When making changes, follow these guidelines to maintain consistency and quality.
 
@@ -31,9 +31,10 @@ internal/
 │   └── outcome.go         # EvaluationOutcome (results)
 ├── orchestration/         # EvalRunner for coordinating execution
 │   └── runner.go          # Eval orchestration
-└── scoring/               # Validator interface and implementations
-    ├── validator.go       # Validator registry pattern
-    └── code_validators.go # Code and text validators
+├── graders/               # Grader interface + Create() factory (13 grader kinds)
+│   └── grader.go          # Grader interface and Create() factory switch
+└── scoring/               # Skill-adherence heuristic Scorer
+    └── scoring.go         # HeuristicScorer implementation
 go.mod
 go.sum
 Makefile                   # Build and test commands
@@ -48,7 +49,7 @@ The Go implementation uses idiomatic Go naming:
 |---------|---------|-------------------|
 | Eval configuration | `EvalSpec` | `EvalSpec` |
 | Executor | `AgentEngine` | `BaseExecutor` |
-| Grader | `Validator` | `Grader` |
+| Grader | `Grader` | `Grader` |
 | Task | `TestCase` | `Task` |
 | Result | `EvaluationOutcome` | `EvalResult` |
 
@@ -71,11 +72,9 @@ type AgentEngine interface {
 }
 ```
 
-### Validator Registry
+### Grader Factory
 ```go
-registry := scoring.NewValidatorRegistry()
-registry.Register("code", &scoring.CodeValidator{})
-registry.Register("text", &scoring.TextValidator{})
+g, err := graders.Create(identifier, params) // factory switch over models.*GraderParameters
 ```
 
 ## Building and Testing
@@ -177,7 +176,7 @@ Documentation must be updated in real-time as features change. This is enforced 
 | Changed CLI behavior | README.md, `site/` guides, docs/GUIDE.md, affected tutorials |
 | New/changed dashboard view | `site/` dashboard guide, regenerate screenshots, docs/DEMO-GUIDE.md |
 | Changed eval YAML schema | README.md YAML section, `site/` eval-yaml reference, example files |
-| New validator/grader | README.md Validators section, `site/` graders page, docs/GUIDE.md |
+| New grader | README.md Graders section, `site/` graders page, docs/GUIDE.md |
 | New sensei/dev feature | `site/` sensei guide, README.md |
 | New data in results JSON | Check if dashboard (`web/`) needs a new view, column, or chart to surface it |
 
@@ -198,10 +197,10 @@ Screenshots are saved to `docs/images/` and referenced throughout documentation.
 3. Add tests in `*_test.go` files
 4. Update the root `README.md`
 
-### Adding a Validator (Grader)
+### Adding a Grader
 
-1. Implement `Validator` interface in `internal/scoring/`
-2. Register in `ValidatorRegistry`
+1. Implement the `Grader` interface in `internal/graders/`
+2. Add a `models.<Kind>GraderParameters` case to `Create()` in `internal/graders/grader.go`
 3. Add tests
 4. Document in README
 
