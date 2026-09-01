@@ -2,7 +2,7 @@
 
 ## Overview
 
-This repository contains `waza`, a CLI tool for evaluating Agent Skills. **The primary implementation is Go** in the repository root. The Python implementation (`waza/`) is legacy and no longer actively developed.
+This repository contains `waza`, a CLI tool for evaluating Agent Skills. **Go is the only implementation**, and it lives in the repository root. (An early Python implementation was removed in February 2026.)
 
 When making changes, follow these guidelines to maintain consistency and quality.
 
@@ -14,7 +14,7 @@ When making changes, follow these guidelines to maintain consistency and quality
 - When completing work, update the relevant GitHub issue
 - Reference issue numbers in commit messages (e.g., `feat: Add tokens command #47`)
 
-## Code Structure (Go - Primary)
+## Code Structure (Go)
 
 ```
 cmd/waza/                  # CLI entrypoint
@@ -25,15 +25,19 @@ internal/
 │   ├── engine.go          # Core engine interface
 │   ├── mock.go            # Mock engine for testing
 │   └── copilot.go         # Copilot SDK integration
+├── graders/               # Grader interface and Create() factory
+│   ├── grader.go          # Grader interface + Create() switch over grader kinds
+│   ├── text_grader.go     # Text grader (one file per grader kind)
+│   └── file_grader.go     # File grader
 ├── models/                # Data structures
 │   ├── spec.go            # EvalSpec (eval configuration)
 │   ├── testcase.go        # TestCase (task definition)
+│   ├── grader_params.go   # models.*GraderParameters types
 │   └── outcome.go         # EvaluationOutcome (results)
 ├── orchestration/         # EvalRunner for coordinating execution
 │   └── runner.go          # Eval orchestration
-└── scoring/               # Validator interface and implementations
-    ├── validator.go       # Validator registry pattern
-    └── code_validators.go # Code and text validators
+└── scoring/               # Skill-adherence heuristic scoring
+    └── scoring.go         # Scorer / HeuristicScorer
 go.mod
 go.sum
 Makefile                   # Build and test commands
@@ -44,38 +48,44 @@ Makefile                   # Build and test commands
 
 The Go implementation uses idiomatic Go naming:
 
-| Concept | Go Name | Python Equivalent |
-|---------|---------|-------------------|
-| Eval configuration | `EvalSpec` | `EvalSpec` |
-| Executor | `AgentEngine` | `BaseExecutor` |
-| Grader | `Validator` | `Grader` |
-| Task | `TestCase` | `Task` |
-| Result | `EvaluationOutcome` | `EvalResult` |
+| Concept | Go Name | Defined in |
+|---------|---------|------------|
+| Eval configuration | `EvalSpec` | `internal/models/spec.go` |
+| Executor | `AgentEngine` | `internal/execution/engine.go` |
+| Grader | `Grader` | `internal/graders/grader.go` |
+| Task | `TestCase` | `internal/models/testcase.go` |
+| Result | `EvaluationOutcome` | `internal/models/outcome.go` |
 
 ## Key Go Patterns
 
 ### Functional Options for Configuration
 ```go
-engine := execution.NewCopilotEngine(
-    execution.WithModel("gpt-4o"),
-    execution.WithTimeout(300 * time.Second),
-    execution.WithVerbose(true),
+cfg := config.NewEvalConfig(spec,
+    config.WithSpecDir("evals"),
+    config.WithVerbose(true),
 )
+```
+
+### Builder for Engine Construction
+```go
+// options may be nil in production; tests pass a NewCopilotClient factory
+engine := execution.NewCopilotEngineBuilder(modelID, nil).Build()
 ```
 
 ### Interface-based Design
 ```go
 type AgentEngine interface {
-    Execute(ctx context.Context, testCase *models.TestCase) (*models.ExecutionResult, error)
-    Shutdown() error
+    Initialize(ctx context.Context) error
+    Execute(ctx context.Context, req *ExecutionRequest) (*ExecutionResponse, error)
+    Shutdown(ctx context.Context) error
+    SessionUsage(sessionID string) *models.UsageStats
 }
 ```
 
-### Validator Registry
+### Grader Factory
 ```go
-registry := scoring.NewValidatorRegistry()
-registry.Register("code", &scoring.CodeValidator{})
-registry.Register("text", &scoring.TextValidator{})
+// Create() switches over the models.*GraderParameters type to build a Grader
+g, err := graders.Create(identifier, params)
 ```
 
 ## Building and Testing
@@ -177,7 +187,7 @@ Documentation must be updated in real-time as features change. This is enforced 
 | Changed CLI behavior | README.md, `site/` guides, docs/GUIDE.md, affected tutorials |
 | New/changed dashboard view | `site/` dashboard guide, regenerate screenshots, docs/DEMO-GUIDE.md |
 | Changed eval YAML schema | README.md YAML section, `site/` eval-yaml reference, example files |
-| New validator/grader | README.md Validators section, `site/` graders page, docs/GUIDE.md |
+| New grader | README.md "Available Grader Types" section, `site/` graders page, docs/GUIDE.md |
 | New sensei/dev feature | `site/` sensei guide, README.md |
 | New data in results JSON | Check if dashboard (`web/`) needs a new view, column, or chart to surface it |
 
@@ -198,12 +208,13 @@ Screenshots are saved to `docs/images/` and referenced throughout documentation.
 3. Add tests in `*_test.go` files
 4. Update the root `README.md`
 
-### Adding a Validator (Grader)
+### Adding a Grader
 
-1. Implement `Validator` interface in `internal/scoring/`
-2. Register in `ValidatorRegistry`
-3. Add tests
-4. Document in README
+1. Implement the `Grader` interface in `internal/graders/` (one file per grader kind)
+2. Add a `models.<Kind>GraderParameters` type in `internal/models/grader_params.go`
+3. Add the matching `case` to `Create()` in `internal/graders/grader.go`
+4. Add tests
+5. Document in README and `site/`
 
 ### Adding an Engine (Executor)
 
