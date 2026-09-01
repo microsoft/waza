@@ -103,7 +103,9 @@ config:
   parallel: false # Run tasks sequentially (true = concurrent)
   workers: 0 # Auto-size parallel workers if parallel: true
   model: claude-sonnet-4.6 # Default model (override with --model)
+  reasoning_effort: high # Optional: pin task and responder reasoning effort
   judge_model: gpt-4o # Model for LLM-as-judge graders (optional)
+  judge_reasoning_effort: low # Optional: default effort for prompt graders
   executor: mock # mock (local) or copilot-sdk (real API)
   inject_skill_body: true # Inject target SKILL.md/.agent.md body into the prompt
   instruction_files:
@@ -118,7 +120,9 @@ config:
 | `parallel`          | bool      | false             | Run tasks concurrently                                      |
 | `workers`           | int       | 0                 | Number of parallel workers; 0 auto-sizes                    |
 | `model`             | string    | _required_        | Default model for tasks (override with `--model` flag)      |
+| `reasoning_effort`  | string    | model default     | Copilot SDK task/responder effort: `low`, `medium`, `high`, `xhigh`, or `max` |
 | `judge_model`       | string    | (same as `model`) | Model for `prompt`-type graders (LLM-as-judge)              |
+| `judge_reasoning_effort` | string | judge default | Copilot SDK default effort for `prompt` graders; the grader can override it |
 | `executor`          | string    | `copilot-sdk`     | Executor: `mock` (local, echoes task metadata and file content) or `copilot-sdk` (real API)  |
 | `max_attempts`      | int       | 0                 | Maximum retry attempts per task on failure (0 = no retries) |
 | `group_by`          | string    | —                 | Group results by a field (e.g., `tags`, `task_id`)          |

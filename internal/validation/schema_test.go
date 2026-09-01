@@ -3,6 +3,7 @@ package validation
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -54,6 +55,32 @@ description: This task is missing the required id field
 func TestValidateEvalBytes_Valid(t *testing.T) {
 	errs := ValidateEvalBytes([]byte(validEvalYAML))
 	require.Empty(t, errs, "valid eval should have no errors")
+}
+
+func TestValidateEvalBytes_ReasoningEffort(t *testing.T) {
+	valid := `name: reasoning
+skill: test-skill
+config:
+  trials_per_task: 1
+  timeout_seconds: 60
+  executor: copilot-sdk
+  model: gpt-5
+  reasoning_effort: high
+  judge_reasoning_effort: low
+graders:
+  - type: prompt
+    name: judge
+    config:
+      prompt: grade
+      reasoning_effort: medium
+metrics:
+  - name: score
+    weight: 1
+    threshold: 0.8
+tasks: ["tasks/*.yaml"]`
+	require.Empty(t, ValidateEvalBytes([]byte(valid)))
+	require.NotEmpty(t, ValidateEvalBytes([]byte(strings.Replace(valid, "reasoning_effort: high", "reasoning_effort: invalid", 1))))
+	require.NotEmpty(t, ValidateEvalBytes([]byte(strings.Replace(valid, "executor: copilot-sdk", "executor: mock", 1))))
 }
 
 func TestValidateEvalBytes_InstructionFiles(t *testing.T) {

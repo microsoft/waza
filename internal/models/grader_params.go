@@ -201,6 +201,7 @@ const (
 type PromptGraderParameters struct {
 	Prompt          string           `yaml:"prompt,omitempty" json:"prompt,omitempty"`
 	Model           string           `yaml:"model,omitempty" json:"model,omitempty"`
+	ReasoningEffort string           `yaml:"reasoning_effort,omitempty" json:"reasoning_effort,omitempty"`
 	ContinueSession bool             `yaml:"continue_session,omitempty" json:"continue_session,omitempty"`
 	Mode            PromptGraderMode `yaml:"mode,omitempty" json:"mode,omitempty"`
 	// Rubric is an optional reference to a reusable rubric. It can be either

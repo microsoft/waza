@@ -146,6 +146,7 @@ func TestPromptGraderContinueSessionPassesSessionID(t *testing.T) {
 	executor := &fakePromptExecutor{
 		execute: func(req *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
 			require.Equal(t, "session-123", req.SessionID)
+			require.Equal(t, "high", req.ReasoningEffort)
 			_, err := req.Tools[0].Handler(copilot.ToolInvocation{
 				Arguments: map[string]any{"description": "criterion", "reason": "ok"},
 			})
@@ -157,6 +158,7 @@ func TestPromptGraderContinueSessionPassesSessionID(t *testing.T) {
 	promptGrader, err := NewPromptGrader("my-prompt-grader", models.PromptGraderParameters{
 		Prompt:          "grade this",
 		ContinueSession: true,
+		ReasoningEffort: "high",
 	})
 	require.NoError(t, err)
 

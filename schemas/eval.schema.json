@@ -163,6 +163,11 @@
             "gpt-4o-mini"
           ]
         },
+        "reasoning_effort": {
+          "type": "string",
+          "enum": ["low", "medium", "high", "xhigh", "max"],
+          "description": "Reasoning effort for copilot-sdk task and responder sessions."
+        },
         "max_attempts": {
           "type": "integer",
           "minimum": 1,
@@ -175,6 +180,11 @@
         "judge_model": {
           "type": "string",
           "description": "Separate model to use for prompt-based grading (overrides the default model for prompt graders)."
+        },
+        "judge_reasoning_effort": {
+          "type": "string",
+          "enum": ["low", "medium", "high", "xhigh", "max"],
+          "description": "Default reasoning effort for copilot-sdk prompt-grader sessions."
         },
         "skill_directories": {
           "type": "array",
@@ -214,7 +224,22 @@
           "additionalProperties": true,
           "description": "MCP server configurations keyed by server name."
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "anyOf": [
+              { "required": ["reasoning_effort"] },
+              { "required": ["judge_reasoning_effort"] }
+            ]
+          },
+          "then": {
+            "properties": {
+              "executor": { "const": "copilot-sdk" }
+            }
+          }
+        }
+      ]
     },
     "mcpMock": {
       "type": "object",
@@ -1233,6 +1258,11 @@
         "model": {
           "type": "string",
           "description": "Override the judge model for this grader."
+        },
+        "reasoning_effort": {
+          "type": "string",
+          "enum": ["low", "medium", "high", "xhigh", "max"],
+          "description": "Override the default reasoning effort for this judge session."
         },
         "continue_session": {
           "type": "boolean",

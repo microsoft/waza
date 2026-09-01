@@ -50,14 +50,15 @@ const (
 
 // ExecutionRequest represents a test execution request
 type ExecutionRequest struct {
-	ModelID      string
-	Message      string
-	Context      map[string]any
-	Resources    []ResourceFile
-	GitResources []models.GitResource
-	WorkDir      string
-	Instructions []InstructionFile
-	Tools        []copilot.Tool
+	ModelID         string
+	ReasoningEffort string
+	Message         string
+	Context         map[string]any
+	Resources       []ResourceFile
+	GitResources    []models.GitResource
+	WorkDir         string
+	Instructions    []InstructionFile
+	Tools           []copilot.Tool
 
 	MessageMode MessageMode
 	Streaming   bool

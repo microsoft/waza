@@ -81,6 +81,7 @@ type Config struct {
 	StopOnError          bool           `yaml:"fail_fast,omitempty" json:"stop_on_error,omitempty"`
 	EngineType           string         `yaml:"executor" json:"engine_type"`
 	ModelID              string         `yaml:"model" json:"model_id"`
+	ReasoningEffort      string         `yaml:"reasoning_effort,omitempty" json:"reasoning_effort,omitempty"`
 	SkillPaths           []string       `yaml:"skill_directories,omitempty" json:"skill_paths,omitempty"`
 	InstructionFiles     []string       `yaml:"instruction_files,omitempty" json:"instruction_files,omitempty"`
 	InjectSkillBody      *bool          `yaml:"inject_skill_body,omitempty" json:"inject_skill_body,omitempty"`
@@ -90,6 +91,17 @@ type Config struct {
 	MaxAttempts          int            `yaml:"max_attempts,omitempty" json:"max_attempts,omitempty"`
 	GroupBy              string         `yaml:"group_by,omitempty" json:"group_by,omitempty"`
 	JudgeModel           string         `yaml:"judge_model,omitempty" json:"judge_model,omitempty"`
+	JudgeReasoningEffort string         `yaml:"judge_reasoning_effort,omitempty" json:"judge_reasoning_effort,omitempty"`
+}
+
+// ValidReasoningEffort reports whether effort is supported by the Copilot SDK.
+func ValidReasoningEffort(effort string) bool {
+	switch effort {
+	case "", "low", "medium", "high", "xhigh", "max":
+		return true
+	default:
+		return false
+	}
 }
 
 // MCPMockConfig defines a deterministic MCP server mock launched for an eval.
@@ -351,6 +363,15 @@ func (g *GraderConfig) Validate() error {
 			return fmt.Errorf("file grader %q: must specify at least one of config.must_exist, config.must_not_exist, or config.content_patterns", g.Identifier)
 		}
 
+	case GraderKindPrompt:
+		params, ok := g.Parameters.(PromptGraderParameters)
+		if !ok {
+			return fmt.Errorf("prompt grader %q: expected PromptGraderParameters, got %T", g.Identifier, g.Parameters)
+		}
+		if !ValidReasoningEffort(params.ReasoningEffort) {
+			return fmt.Errorf("prompt grader %q: reasoning_effort must be one of low, medium, high, xhigh, or max, got %q", g.Identifier, params.ReasoningEffort)
+		}
+
 		// GraderKindText, GraderKindBehavior, GraderKindPrompt allow empty configs
 	}
 
@@ -446,6 +467,15 @@ func LoadEvalSpec(path string) (*EvalSpec, error) {
 
 // Validate checks that the spec is valid
 func (s *EvalSpec) Validate() error {
+	if !ValidReasoningEffort(s.Config.ReasoningEffort) {
+		return fmt.Errorf("reasoning_effort must be one of low, medium, high, xhigh, or max, got %q", s.Config.ReasoningEffort)
+	}
+	if !ValidReasoningEffort(s.Config.JudgeReasoningEffort) {
+		return fmt.Errorf("judge_reasoning_effort must be one of low, medium, high, xhigh, or max, got %q", s.Config.JudgeReasoningEffort)
+	}
+	if s.Config.EngineType != "copilot-sdk" && (s.Config.ReasoningEffort != "" || s.Config.JudgeReasoningEffort != "") {
+		return fmt.Errorf("reasoning_effort and judge_reasoning_effort require executor copilot-sdk")
+	}
 	if len(s.MCPMocks) > 0 {
 		_, minor, err := parseSchemaVersion(s.SchemaVersion)
 		if err != nil {

@@ -376,8 +376,9 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 	if req.SessionID == "" {
 		// Create session with updated API
 		session, err = e.client.CreateSession(ctx, &copilot.SessionConfig{
-			Model: modelID,
-			Tools: req.Tools,
+			Model:           modelID,
+			ReasoningEffort: req.ReasoningEffort,
+			Tools:           req.Tools,
 
 			OnPermissionRequest: permRequestCallback,
 
@@ -394,8 +395,9 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 		}
 	} else {
 		session, err = e.client.ResumeSessionWithOptions(ctx, req.SessionID, &copilot.ResumeSessionConfig{
-			Model: modelID,
-			Tools: req.Tools,
+			Model:           modelID,
+			ReasoningEffort: req.ReasoningEffort,
+			Tools:           req.Tools,
 
 			OnPermissionRequest: permRequestCallback,
 

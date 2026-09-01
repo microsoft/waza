@@ -46,6 +46,12 @@ func CacheKey(spec *models.EvalSpec, task *models.TestCase, fixtureDir string) (
 	if err := writeString(h, spec.Config.ModelID); err != nil {
 		return "", err
 	}
+	if err := writeString(h, spec.Config.ReasoningEffort); err != nil {
+		return "", err
+	}
+	if err := writeString(h, spec.Config.JudgeReasoningEffort); err != nil {
+		return "", err
+	}
 	if err := writeString(h, spec.Config.EngineType); err != nil {
 		return "", err
 	}
