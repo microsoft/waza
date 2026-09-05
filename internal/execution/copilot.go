@@ -828,11 +828,12 @@ type skillDefinition struct {
 	Dir         string
 }
 
-// buildSkillSystemMessage scans skill directories for SKILL.md files and returns
-// a system message that injects the full definition of the target skill
-// (matching skillName) when injectSkillBody is true. No inventory of the other
-// discovered skills is emitted: the Copilot SDK already advertises every skill
-// passed through SkillDirectories, so a second listing would duplicate it.
+// buildSkillSystemMessage returns a system message containing the full
+// definition of the target skill named by skillName. It returns an empty string
+// when injectSkillBody is false or skillName is empty, in which case the skill
+// directories are not scanned at all. No inventory of the other discovered
+// skills is emitted: the Copilot SDK already advertises every skill passed
+// through SkillDirectories, so a second listing would duplicate it.
 func buildSkillSystemMessage(skillDirs []string, skillName string, injectSkillBody bool) string {
 	if !injectSkillBody || skillName == "" {
 		return ""

@@ -166,7 +166,7 @@ func TestParseSkillFrontmatter(t *testing.T) {
 		},
 		{
 			name:         "invalid yaml",
-			content:      "---\nname: [unclosed\n---\nbody",
+			content:      "---\nname: my-skill\n\tdescription: tab indented\n---\nbody",
 			expectedName: "",
 			expectedDesc: "",
 		},
