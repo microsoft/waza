@@ -26,11 +26,9 @@ func TestBuildSkillSystemMessage_DirectSkillMD(t *testing.T) {
 	assert.Contains(t, msg, "Always say hello")
 	assert.Contains(t, msg, "</skill_context>")
 
-	// Should include summary
-	assert.Contains(t, msg, "<available_skills>")
-	assert.Contains(t, msg, "<name>test-skill</name>")
-	assert.Contains(t, msg, "<description>A test skill</description>")
-	assert.Contains(t, msg, "</available_skills>")
+	// Regression #578: waza no longer emits its own <available_skills>
+	// inventory — the Copilot SDK advertises the skill via SkillDirectories.
+	assert.NotContains(t, msg, "<available_skills>")
 }
 
 func TestBuildSkillSystemMessage_SuppressTargetSkillBody(t *testing.T) {
@@ -40,11 +38,10 @@ func TestBuildSkillSystemMessage_SuppressTargetSkillBody(t *testing.T) {
 
 	msg := buildSkillSystemMessage([]string{dir}, "test-skill", false)
 
-	assert.NotContains(t, msg, "<skill_context>")
-	assert.NotContains(t, msg, "Always say hello")
-	assert.Contains(t, msg, "<available_skills>")
-	assert.Contains(t, msg, "<name>test-skill</name>")
-	assert.Contains(t, msg, "<description>A test skill</description>")
+	// With injectSkillBody=false and the synthetic inventory removed, the
+	// message is empty — the SDK's SkillDirectories is the sole source of
+	// truth for the skill listing.
+	assert.Empty(t, msg)
 }
 
 func TestBuildSkillSystemMessage_NestedSkillMD(t *testing.T) {
@@ -59,7 +56,7 @@ func TestBuildSkillSystemMessage_NestedSkillMD(t *testing.T) {
 
 	assert.Contains(t, msg, "<skill_context>")
 	assert.Contains(t, msg, "Body content")
-	assert.Contains(t, msg, "<name>nested-skill</name>")
+	assert.NotContains(t, msg, "<available_skills>")
 }
 
 func TestBuildSkillSystemMessage_NonTargetSkillSummaryOnly(t *testing.T) {
@@ -67,12 +64,12 @@ func TestBuildSkillSystemMessage_NonTargetSkillSummaryOnly(t *testing.T) {
 	skillContent := "---\nname: other-skill\ndescription: Other\n---\n# Secret body"
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(skillContent), 0644))
 
-	// Target is different skill
+	// Target is different skill — with the synthetic inventory removed, the
+	// message is empty for non-target skills (the SDK still advertises them
+	// through SkillDirectories).
 	msg := buildSkillSystemMessage([]string{dir}, "my-target-skill", true)
 
-	// Should have summary but NOT full body
-	assert.Contains(t, msg, "<name>other-skill</name>")
-	assert.NotContains(t, msg, "<skill_context>")
+	assert.Empty(t, msg)
 }
 
 func TestBuildSkillSystemMessage_NoFrontmatter_UsesDirectoryName(t *testing.T) {
@@ -80,11 +77,13 @@ func TestBuildSkillSystemMessage_NoFrontmatter_UsesDirectoryName(t *testing.T) {
 	skillContent := "# No frontmatter skill\nJust body."
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(skillContent), 0644))
 
-	msg := buildSkillSystemMessage([]string{dir}, "", true)
+	// A skill without frontmatter still gets its body injected when it is
+	// the target and the directory name matches.
+	msg := buildSkillSystemMessage([]string{dir}, filepath.Base(dir), true)
 
-	assert.Contains(t, msg, "<available_skills>")
-	// Should use directory name as the skill name
-	assert.Contains(t, msg, "<name>"+filepath.Base(dir)+"</name>")
+	assert.Contains(t, msg, "<skill_context>")
+	assert.Contains(t, msg, "Just body.")
+	assert.NotContains(t, msg, "<available_skills>")
 }
 
 func TestBuildSkillSystemMessage_SkipsHiddenAndVendor(t *testing.T) {
@@ -100,8 +99,30 @@ func TestBuildSkillSystemMessage_SkipsHiddenAndVendor(t *testing.T) {
 	require.NoError(t, os.MkdirAll(vendor, 0755))
 	require.NoError(t, os.WriteFile(filepath.Join(vendor, "SKILL.md"), []byte("---\nname: vendored\n---\n"), 0644))
 
-	msg := buildSkillSystemMessage([]string{root}, "", true)
+	msg := buildSkillSystemMessage([]string{root}, "hidden", true)
 	assert.Empty(t, msg)
+	msg = buildSkillSystemMessage([]string{root}, "vendored", true)
+	assert.Empty(t, msg)
+}
+
+// Regression for #578: a skill authored with a folded block scalar
+// description (as `waza new skill` scaffolds) must still be matchable as the
+// target skill for skill-context injection, and the message must not carry
+// a duplicate <available_skills> inventory with the ">-" indicator as a
+// stand-in description.
+func TestBuildSkillSystemMessage_BlockScalarSkillIsMatchable(t *testing.T) {
+	dir := t.TempDir()
+	skillContent := "---\nname: folded-skill\ndescription: >-\n  Line one\n  Line two.\n---\nbody"
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(skillContent), 0644))
+
+	msg := buildSkillSystemMessage([]string{dir}, "folded-skill", true)
+
+	assert.Contains(t, msg, "<skill_context>")
+	assert.Contains(t, msg, "body")
+	// The synthetic <available_skills> block is what previously surfaced the
+	// literal ">-" indicator as the description; it must no longer be emitted.
+	assert.NotContains(t, msg, "<available_skills>")
+	assert.NotContains(t, msg, "<description>")
 }
 
 func TestBuildInstructionSystemMessage(t *testing.T) {
@@ -157,6 +178,39 @@ func TestParseSkillFrontmatter(t *testing.T) {
 			name:         "unclosed frontmatter",
 			content:      "---\nname: broken\n",
 			expectedName: "",
+			expectedDesc: "",
+		},
+		// Regression #578: folded block scalar (>-) is the format `waza new
+		// skill` scaffolds and the docs recommend. The parser must fold it,
+		// not return the literal indicator.
+		{
+			name:         "folded block scalar description (>-)",
+			content:      "---\nname: folded\ndescription: >-\n  Line one\n  Line two.\n---\nbody",
+			expectedName: "folded",
+			expectedDesc: "Line one Line two.",
+		},
+		{
+			name:         "folded block scalar description (>)",
+			content:      "---\nname: folded-keep\ndescription: >\n  Line one\n  Line two.\n---\nbody",
+			expectedName: "folded-keep",
+			expectedDesc: "Line one Line two.",
+		},
+		{
+			name:         "literal block scalar description (|)",
+			content:      "---\nname: literal\ndescription: |\n  Line one\n  Line two.\n---\nbody",
+			expectedName: "literal",
+			expectedDesc: "Line one\nLine two.",
+		},
+		{
+			name:         "literal block scalar description (|-)",
+			content:      "---\nname: literal-strip\ndescription: |-\n  Line one\n  Line two.\n---\nbody",
+			expectedName: "literal-strip",
+			expectedDesc: "Line one\nLine two.",
+		},
+		{
+			name:         "block scalar with only a name field",
+			content:      "---\nname: >-\n  block-name\n---\nbody",
+			expectedName: "block-name",
 			expectedDesc: "",
 		},
 	}
