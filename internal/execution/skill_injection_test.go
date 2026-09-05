@@ -26,11 +26,9 @@ func TestBuildSkillSystemMessage_DirectSkillMD(t *testing.T) {
 	assert.Contains(t, msg, "Always say hello")
 	assert.Contains(t, msg, "</skill_context>")
 
-	// Should include summary
-	assert.Contains(t, msg, "<available_skills>")
-	assert.Contains(t, msg, "<name>test-skill</name>")
-	assert.Contains(t, msg, "<description>A test skill</description>")
-	assert.Contains(t, msg, "</available_skills>")
+	// SkillDirectories already lets the Copilot SDK advertise available skills.
+	assert.NotContains(t, msg, "<available_skills>")
+	assert.NotContains(t, msg, "<description>A test skill</description>")
 }
 
 func TestBuildSkillSystemMessage_SuppressTargetSkillBody(t *testing.T) {
@@ -42,9 +40,8 @@ func TestBuildSkillSystemMessage_SuppressTargetSkillBody(t *testing.T) {
 
 	assert.NotContains(t, msg, "<skill_context>")
 	assert.NotContains(t, msg, "Always say hello")
-	assert.Contains(t, msg, "<available_skills>")
-	assert.Contains(t, msg, "<name>test-skill</name>")
-	assert.Contains(t, msg, "<description>A test skill</description>")
+	assert.NotContains(t, msg, "<available_skills>")
+	assert.Empty(t, msg)
 }
 
 func TestBuildSkillSystemMessage_NestedSkillMD(t *testing.T) {
@@ -59,10 +56,10 @@ func TestBuildSkillSystemMessage_NestedSkillMD(t *testing.T) {
 
 	assert.Contains(t, msg, "<skill_context>")
 	assert.Contains(t, msg, "Body content")
-	assert.Contains(t, msg, "<name>nested-skill</name>")
+	assert.NotContains(t, msg, "<available_skills>")
 }
 
-func TestBuildSkillSystemMessage_NonTargetSkillSummaryOnly(t *testing.T) {
+func TestBuildSkillSystemMessage_NonTargetSkillSkipped(t *testing.T) {
 	dir := t.TempDir()
 	skillContent := "---\nname: other-skill\ndescription: Other\n---\n# Secret body"
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(skillContent), 0644))
@@ -70,21 +67,21 @@ func TestBuildSkillSystemMessage_NonTargetSkillSummaryOnly(t *testing.T) {
 	// Target is different skill
 	msg := buildSkillSystemMessage([]string{dir}, "my-target-skill", true)
 
-	// Should have summary but NOT full body
-	assert.Contains(t, msg, "<name>other-skill</name>")
-	assert.NotContains(t, msg, "<skill_context>")
+	// The SDK advertises available skills from SkillDirectories, so Waza does
+	// not append a duplicate summary for non-target skills.
+	assert.Empty(t, msg)
 }
 
-func TestBuildSkillSystemMessage_NoFrontmatter_UsesDirectoryName(t *testing.T) {
+func TestBuildSkillSystemMessage_NoFrontmatter_UsesDirectoryNameForTargetBody(t *testing.T) {
 	dir := t.TempDir()
 	skillContent := "# No frontmatter skill\nJust body."
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(skillContent), 0644))
 
-	msg := buildSkillSystemMessage([]string{dir}, "", true)
+	msg := buildSkillSystemMessage([]string{dir}, filepath.Base(dir), true)
 
-	assert.Contains(t, msg, "<available_skills>")
-	// Should use directory name as the skill name
-	assert.Contains(t, msg, "<name>"+filepath.Base(dir)+"</name>")
+	assert.Contains(t, msg, "<skill_context>")
+	assert.Contains(t, msg, "Just body.")
+	assert.NotContains(t, msg, "<available_skills>")
 }
 
 func TestBuildSkillSystemMessage_SkipsHiddenAndVendor(t *testing.T) {
@@ -152,6 +149,42 @@ func TestParseSkillFrontmatter(t *testing.T) {
 			content:      "---\nname: \"quoted-skill\"\ndescription: 'quoted desc'\n---\n",
 			expectedName: "quoted-skill",
 			expectedDesc: "quoted desc",
+		},
+		{
+			name: "folded strip block scalar description",
+			content: `---
+name: setup-copilot-cloud-environment
+description: >-
+  Sets up a Copilot cloud environment.
+  Use when creating remote workspaces.
+---
+body`,
+			expectedName: "setup-copilot-cloud-environment",
+			expectedDesc: "Sets up a Copilot cloud environment. Use when creating remote workspaces.",
+		},
+		{
+			name: "folded clip block scalar description",
+			content: `---
+name: create-vscode-workspace
+description: >
+  Creates a VS Code workspace.
+  Opens it after setup.
+---
+body`,
+			expectedName: "create-vscode-workspace",
+			expectedDesc: "Creates a VS Code workspace. Opens it after setup.",
+		},
+		{
+			name: "literal block scalar description",
+			content: `---
+name: multi-line-skill
+description: |
+  First line.
+  Second line.
+---
+body`,
+			expectedName: "multi-line-skill",
+			expectedDesc: "First line.\nSecond line.",
 		},
 		{
 			name:         "unclosed frontmatter",
