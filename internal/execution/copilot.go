@@ -834,6 +834,10 @@ type skillDefinition struct {
 // discovered skills is emitted: the Copilot SDK already advertises every skill
 // passed through SkillDirectories, so a second listing would duplicate it.
 func buildSkillSystemMessage(skillDirs []string, skillName string, injectSkillBody bool) string {
+	if !injectSkillBody || skillName == "" {
+		return ""
+	}
+
 	var skills []skillDefinition
 
 	for _, dir := range skillDirs {
@@ -865,10 +869,6 @@ func buildSkillSystemMessage(skillDirs []string, skillName string, injectSkillBo
 	}
 
 	if len(skills) == 0 {
-		return ""
-	}
-
-	if !injectSkillBody || skillName == "" {
 		return ""
 	}
 
