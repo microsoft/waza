@@ -14,6 +14,7 @@ import (
 
 	copilot "github.com/github/copilot-sdk/go"
 	"github.com/github/copilot-sdk/go/rpc"
+	"gopkg.in/yaml.v3"
 
 	"github.com/microsoft/waza/internal/copilotevents"
 	"github.com/microsoft/waza/internal/models"
@@ -881,18 +882,6 @@ func buildSkillSystemMessage(skillDirs []string, skillName string, injectSkillBo
 		}
 	}
 
-	// Summary block for all discovered skills
-	sb.WriteString("\n<available_skills>\n")
-	for _, s := range skills {
-		sb.WriteString("<skill>\n")
-		fmt.Fprintf(&sb, "  <name>%s</name>\n", s.Name)
-		if s.Description != "" {
-			fmt.Fprintf(&sb, "  <description>%s</description>\n", s.Description)
-		}
-		sb.WriteString("</skill>\n")
-	}
-	sb.WriteString("</available_skills>\n")
-
 	return sb.String()
 }
 
@@ -964,8 +953,7 @@ func loadSkillDefinition(dir string) *skillDefinition {
 	return nil
 }
 
-// parseSkillFrontmatter extracts name and description from SKILL.md YAML
-// frontmatter. Avoids importing the skill package to keep execution decoupled.
+// parseSkillFrontmatter extracts name and description from SKILL.md YAML frontmatter.
 func parseSkillFrontmatter(content string) (name, description string) {
 	if !strings.HasPrefix(content, "---") {
 		return "", ""
@@ -984,17 +972,13 @@ func parseSkillFrontmatter(content string) (name, description string) {
 	}
 
 	yamlBlock := rest[:idx]
-
-	for _, line := range strings.Split(yamlBlock, "\n") {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "name:") {
-			name = strings.TrimSpace(strings.TrimPrefix(line, "name:"))
-			name = strings.Trim(name, "\"'")
-		} else if strings.HasPrefix(line, "description:") {
-			description = strings.TrimSpace(strings.TrimPrefix(line, "description:"))
-			description = strings.Trim(description, "\"'")
-		}
+	var frontmatter struct {
+		Name        string `yaml:"name"`
+		Description string `yaml:"description"`
+	}
+	if err := yaml.Unmarshal([]byte(yamlBlock), &frontmatter); err != nil {
+		return "", ""
 	}
 
-	return name, description
+	return frontmatter.Name, frontmatter.Description
 }

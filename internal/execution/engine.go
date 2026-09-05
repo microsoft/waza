@@ -94,7 +94,7 @@ type ExecutionRequest struct {
 	SkillPaths []string // Directories to search for skills
 	NoSkills   bool     // When true, skip all skill loading
 	// SuppressSkillBody prevents full target skill content from being appended
-	// while still allowing skill discovery and compact summaries.
+	// while still allowing SDK-backed skill discovery.
 	SuppressSkillBody bool
 
 	// MCPServers configures MCP servers for the session. Keys are server names,

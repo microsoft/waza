@@ -596,7 +596,7 @@ func skipIfCopilotNotEnabled(t *testing.T) {
 	}
 }
 
-func TestCopilotCreateSession_InjectsSkillSystemMessage(t *testing.T) {
+func TestCopilotCreateSession_InjectsTargetSkillContextOnly(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	clientMock := newClientMock(ctrl)
 	sessionMock := NewMockCopilotSession(ctrl)
@@ -609,6 +609,8 @@ func TestCopilotCreateSession_InjectsSkillSystemMessage(t *testing.T) {
 
 	expectedSystemMsg := buildSkillSystemMessage([]string{sourceDir}, "test-skill", true)
 	require.NotEmpty(t, expectedSystemMsg)
+	require.Contains(t, expectedSystemMsg, "<skill_context>")
+	require.NotContains(t, expectedSystemMsg, "<available_skills>")
 
 	expectedConfig := sessionConfigMatcher{
 		t:         t,
@@ -669,6 +671,7 @@ func TestCopilotCreateSession_InjectsInstructionSystemMessage(t *testing.T) {
 		buildInstructionSystemMessage(instructions),
 	}, "\n")
 	require.NotEmpty(t, expectedSystemMsg)
+	require.NotContains(t, expectedSystemMsg, "<available_skills>")
 
 	expectedConfig := sessionConfigMatcher{
 		t:         t,
@@ -773,6 +776,7 @@ func TestCopilotResumeSession_PassesMCPServersAndSystemMessage(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(sourceDir, "SKILL.md"), []byte(skillContent), 0644))
 
 	expectedSystemMsg := buildSkillSystemMessage([]string{sourceDir}, "resume-skill", true)
+	require.NotContains(t, expectedSystemMsg, "<available_skills>")
 
 	mcpServers := map[string]copilot.MCPServerConfig{
 		"mcp-srv": copilot.MCPStdioServerConfig{Command: "test"},
