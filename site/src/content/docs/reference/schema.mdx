@@ -380,7 +380,7 @@ config:
   inject_skill_body: false
 ```
 
-When `false`, Waza keeps skill discovery enabled and still includes the compact `<available_skills>` summary with names and descriptions, but it does not add the target `<skill_context>` block. This is useful for trigger-precision evals that use `behavior` or `skill_invocation` graders to measure whether the agent actually invokes the `skill` tool. `disabled_skills: ["*"]` takes precedence and disables all skill loading.
+When `false`, Waza keeps skill discovery enabled — the Copilot SDK still advertises each skill's name and description — but it does not add the target `<skill_context>` block. This is useful for trigger-precision evals that use `behavior` or `skill_invocation` graders to measure whether the agent actually invokes the `skill` tool. `disabled_skills: ["*"]` takes precedence and disables all skill loading.
 
 ### required_skills
 

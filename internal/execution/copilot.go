@@ -14,6 +14,7 @@ import (
 
 	copilot "github.com/github/copilot-sdk/go"
 	"github.com/github/copilot-sdk/go/rpc"
+	"gopkg.in/yaml.v3"
 
 	"github.com/microsoft/waza/internal/copilotevents"
 	"github.com/microsoft/waza/internal/models"
@@ -828,10 +829,10 @@ type skillDefinition struct {
 }
 
 // buildSkillSystemMessage scans skill directories for SKILL.md files and returns
-// a system message that tells the agent about available skills. When
-// injectSkillBody is true, the target skill (matching skillName) also gets its
-// full definition injected. Other discovered skills always use compact summary
-// entries only.
+// a system message that injects the full definition of the target skill
+// (matching skillName) when injectSkillBody is true. No inventory of the other
+// discovered skills is emitted: the Copilot SDK already advertises every skill
+// passed through SkillDirectories, so a second listing would duplicate it.
 func buildSkillSystemMessage(skillDirs []string, skillName string, injectSkillBody bool) string {
 	var skills []skillDefinition
 
@@ -867,31 +868,21 @@ func buildSkillSystemMessage(skillDirs []string, skillName string, injectSkillBo
 		return ""
 	}
 
+	if !injectSkillBody || skillName == "" {
+		return ""
+	}
+
 	var sb strings.Builder
 
-	if injectSkillBody {
-		// Inject full content for the target skill (first match only)
-		for _, s := range skills {
-			if skillName != "" && strings.EqualFold(s.Name, skillName) {
-				sb.WriteString("\n<skill_context>\n")
-				sb.WriteString(s.Content)
-				sb.WriteString("\n</skill_context>\n")
-				break
-			}
-		}
-	}
-
-	// Summary block for all discovered skills
-	sb.WriteString("\n<available_skills>\n")
+	// Inject full content for the target skill (first match only)
 	for _, s := range skills {
-		sb.WriteString("<skill>\n")
-		fmt.Fprintf(&sb, "  <name>%s</name>\n", s.Name)
-		if s.Description != "" {
-			fmt.Fprintf(&sb, "  <description>%s</description>\n", s.Description)
+		if strings.EqualFold(s.Name, skillName) {
+			sb.WriteString("\n<skill_context>\n")
+			sb.WriteString(s.Content)
+			sb.WriteString("\n</skill_context>\n")
+			break
 		}
-		sb.WriteString("</skill>\n")
 	}
-	sb.WriteString("</available_skills>\n")
 
 	return sb.String()
 }
@@ -936,7 +927,7 @@ func loadSkillDefinition(dir string) *skillDefinition {
 		if name == "" {
 			name = filepath.Base(dir)
 		}
-		slog.Debug("Loaded skill definition", "name", name, "dir", dir)
+		slog.Debug("Loaded skill definition", "name", name, "description", desc, "dir", dir)
 		return &skillDefinition{Name: name, Description: desc, Content: content, Dir: dir}
 	}
 
@@ -957,7 +948,7 @@ func loadSkillDefinition(dir string) *skillDefinition {
 			if name == "" {
 				name = strings.TrimSuffix(entry.Name(), ".agent.md")
 			}
-			slog.Debug("Loaded agent definition", "name", name, "dir", dir)
+			slog.Debug("Loaded agent definition", "name", name, "description", desc, "dir", dir)
 			return &skillDefinition{Name: name, Description: desc, Content: content, Dir: dir}
 		}
 	}
@@ -965,7 +956,8 @@ func loadSkillDefinition(dir string) *skillDefinition {
 }
 
 // parseSkillFrontmatter extracts name and description from SKILL.md YAML
-// frontmatter. Avoids importing the skill package to keep execution decoupled.
+// frontmatter. It unmarshals the frontmatter block so that YAML block scalars
+// (">-", ">", "|") are folded correctly instead of being read literally.
 func parseSkillFrontmatter(content string) (name, description string) {
 	if !strings.HasPrefix(content, "---") {
 		return "", ""
@@ -983,18 +975,14 @@ func parseSkillFrontmatter(content string) (name, description string) {
 		return "", ""
 	}
 
-	yamlBlock := rest[:idx]
-
-	for _, line := range strings.Split(yamlBlock, "\n") {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "name:") {
-			name = strings.TrimSpace(strings.TrimPrefix(line, "name:"))
-			name = strings.Trim(name, "\"'")
-		} else if strings.HasPrefix(line, "description:") {
-			description = strings.TrimSpace(strings.TrimPrefix(line, "description:"))
-			description = strings.Trim(description, "\"'")
-		}
+	var fm struct {
+		Name        string `yaml:"name"`
+		Description string `yaml:"description"`
+	}
+	if err := yaml.Unmarshal([]byte(rest[:idx]), &fm); err != nil {
+		slog.Debug("Failed to parse skill frontmatter", "error", err)
+		return "", ""
 	}
 
-	return name, description
+	return strings.TrimSpace(fm.Name), strings.TrimSpace(fm.Description)
 }

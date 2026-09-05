@@ -193,7 +193,7 @@
         "inject_skill_body": {
           "type": "boolean",
           "default": true,
-          "description": "When false, do not inject the target SKILL.md or .agent.md body into the system prompt. Skill discovery and compact available_skills summaries remain enabled."
+          "description": "When false, do not inject the target SKILL.md or .agent.md body into the system prompt. Skill discovery remains enabled."
         },
         "disabled_skills": {
           "type": "array",
