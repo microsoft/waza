@@ -1242,7 +1242,7 @@ Relative fixture paths are resolved from the eval spec directory. Directory fixt
 
 ### Skill Body Injection
 
-By default, an eval with `skill: <name>` injects the target `SKILL.md` or `.agent.md` body into the agent system prompt. For trigger-precision evals, disable that body injection while preserving the skill association and compact skill summary:
+By default, an eval with `skill: <name>` injects the target `SKILL.md` or `.agent.md` body into the agent system prompt. For trigger-precision evals, disable that body injection while preserving the skill association:
 
 ```yaml
 skill: xyz
@@ -1250,7 +1250,7 @@ config:
   inject_skill_body: false
 ```
 
-The skill remains discoverable through the `skill` tool and appears in `<available_skills>` as name and description only. `disabled_skills: ["*"]` still disables all skill loading.
+The skill remains discoverable through the `skill` tool, because Waza still passes the skill directories to the Copilot SDK, which advertises each skill's name and description. `disabled_skills: ["*"]` still disables all skill loading.
 
 ### CSV Dataset Support
 
