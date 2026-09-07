@@ -1152,6 +1152,11 @@
           "required": [
             "reject_tools"
           ]
+        },
+        {
+          "required": [
+            "allow_only"
+          ]
         }
       ],
       "properties": {
@@ -1214,6 +1219,36 @@
             }
           },
           "description": "Tool specs that MUST NOT be used during execution."
+        },
+        "allow_only": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "tool"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "tool": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Exact tool name (case-insensitive). NOT a regex — an entry 'bash' does not match 'bashful'."
+              },
+              "command_pattern": {
+                "type": "string",
+                "description": "Optional regex matched against serialized tool arguments (case-insensitive)."
+              },
+              "skill_pattern": {
+                "type": "string",
+                "description": "Optional regex matched against the skill argument (case-insensitive)."
+              },
+              "path_pattern": {
+                "type": "string",
+                "description": "Optional regex matched against the path argument (case-insensitive)."
+              }
+            }
+          },
+          "description": "Allow-list of tool specs (upper bound). Any observed tool call that does not match at least one entry is a policy violation. Declared tools do NOT need to be exercised. An empty array denies all tool use. This is the field that .agent.md 'tools:' frontmatter is desugared into."
         }
       }
     },

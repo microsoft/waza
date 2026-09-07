@@ -9,9 +9,20 @@ import (
 )
 
 // AgentFrontmatter holds parsed agent-specific YAML fields from .agent.md files.
+//
+// Tools is a pointer to a slice so callers can distinguish three cases:
+//
+//   - Absent (`nil`): the frontmatter has no `tools:` key at all. The agent
+//     did not opt in to tool-usage constraints; graders should NOT inject an
+//     implicit allow-list.
+//   - Explicit empty (`&[]string{}`): the frontmatter contains `tools: []`.
+//     The agent has explicitly declared that no tools are permitted. Graders
+//     should inject a deny-all allow-list.
+//   - Populated (`&[]string{...}`): the agent has declared an allow-list of
+//     tool names. Graders should inject those names as an allow-list.
 type AgentFrontmatter struct {
 	Frontmatter `yaml:",inline"`
-	Tools       []string         `yaml:"tools,omitempty"`
+	Tools       *[]string        `yaml:"tools,omitempty"`
 	Model       string           `yaml:"model,omitempty"`
 	Handoffs    []AgentHandoff   `yaml:"handoffs,omitempty"`
 	MCPServers  []AgentMCPServer `yaml:"mcp-servers,omitempty"`

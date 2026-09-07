@@ -192,12 +192,17 @@ graders:
   - type: tool_constraint  # 🔄 Auto-injected
     name: allowed_tools
     config:
-      allow: [codeSearch, fileRead, runCommand]
+      allow_only:
+        - tool: codeSearch
+        - tool: fileRead
+        - tool: runCommand
   - type: text
     name: code_quality
     config:
       regex_match: ["(?i)(refactored|improved)"]
 ```
+
+`allow_only` is an *upper bound*: the agent may use any subset of these tools (or none at all), but any tool call outside the list fails the grader. `tool` matches by exact case-insensitive name — `bash` will not accidentally match `bashful`. Declaring `tools: []` in the frontmatter injects an empty allow-list, denying all tool use.
 
 ### Override auto-injection
 
@@ -208,8 +213,12 @@ graders:
   - type: tool_constraint
     name: my_tool_policy
     config:
-      allow: [codeSearch, fileRead]  # Stricter than agent declares
-      reject: [fileDelete, runCommand]
+      allow_only:                       # Stricter than agent declares
+        - tool: codeSearch
+        - tool: fileRead
+      reject_tools:
+        - tool: fileDelete
+        - tool: runCommand
 
   - type: text
     name: code_quality

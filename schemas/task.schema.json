@@ -998,6 +998,11 @@
           "required": [
             "reject_tools"
           ]
+        },
+        {
+          "required": [
+            "allow_only"
+          ]
         }
       ],
       "properties": {
@@ -1027,6 +1032,31 @@
           }
         },
         "reject_tools": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "tool"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "tool": {
+                "type": "string",
+                "minLength": 1
+              },
+              "command_pattern": {
+                "type": "string"
+              },
+              "skill_pattern": {
+                "type": "string"
+              },
+              "path_pattern": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "allow_only": {
           "type": "array",
           "items": {
             "type": "object",
