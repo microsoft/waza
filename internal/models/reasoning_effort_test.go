@@ -42,3 +42,18 @@ func TestEvalSpecRejectsInvalidReasoningEffort(t *testing.T) {
 	spec.Config.EngineType = "mock"
 	require.ErrorContains(t, spec.Validate(), "require executor copilot-sdk")
 }
+
+func TestEvalSpecRejectsGraderReasoningEffortForNonCopilotExecutor(t *testing.T) {
+	spec := &EvalSpec{
+		Config: Config{TrialsPerTask: 1, TimeoutSec: 60, EngineType: "mock"},
+		Graders: []GraderConfig{{
+			Kind:       GraderKindPrompt,
+			Identifier: "judge",
+			Parameters: PromptGraderParameters{Prompt: "grade", ReasoningEffort: "medium"},
+		}},
+	}
+	require.ErrorContains(t, spec.Validate(), "reasoning_effort requires executor copilot-sdk")
+
+	spec.Config.EngineType = "copilot-sdk"
+	require.NoError(t, spec.Validate())
+}

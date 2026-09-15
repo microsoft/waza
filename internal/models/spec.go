@@ -476,6 +476,14 @@ func (s *EvalSpec) Validate() error {
 	if s.Config.EngineType != "copilot-sdk" && (s.Config.ReasoningEffort != "" || s.Config.JudgeReasoningEffort != "") {
 		return fmt.Errorf("reasoning_effort and judge_reasoning_effort require executor copilot-sdk")
 	}
+	if s.Config.EngineType != "copilot-sdk" {
+		for _, g := range s.Graders {
+			params, ok := g.Parameters.(PromptGraderParameters)
+			if ok && params.ReasoningEffort != "" {
+				return fmt.Errorf("prompt grader %q: reasoning_effort requires executor copilot-sdk", g.Identifier)
+			}
+		}
+	}
 	if len(s.MCPMocks) > 0 {
 		_, minor, err := parseSchemaVersion(s.SchemaVersion)
 		if err != nil {

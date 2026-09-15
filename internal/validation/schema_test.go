@@ -298,3 +298,26 @@ func joinErrs(errs []string) string {
 	}
 	return result
 }
+
+func TestValidateEvalBytes_GraderReasoningEffortRequiresCopilotSDK(t *testing.T) {
+	yaml := `name: reasoning
+skill: test-skill
+config:
+  trials_per_task: 1
+  timeout_seconds: 60
+  executor: mock
+  model: gpt-5
+graders:
+  - type: prompt
+    name: judge
+    config:
+      prompt: grade
+      reasoning_effort: medium
+metrics:
+  - name: score
+    weight: 1
+    threshold: 0.8
+tasks: ["tasks/*.yaml"]`
+	require.NotEmpty(t, ValidateEvalBytes([]byte(yaml)))
+	require.Empty(t, ValidateEvalBytes([]byte(strings.Replace(yaml, "executor: mock", "executor: copilot-sdk", 1))))
+}

@@ -27,3 +27,18 @@ func TestCacheKeyDifferentReasoningEffortChangesKey(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEqual(t, low, judgeHigh)
 }
+
+func TestCacheKeyDifferentJudgeModelChangesKey(t *testing.T) {
+	spec := func(judgeModel string) *models.EvalSpec {
+		return &models.EvalSpec{SpecIdentity: models.SpecIdentity{Name: "test"}, SkillName: "skill", Config: models.Config{
+			ModelID: "gpt-5", EngineType: "copilot-sdk", TimeoutSec: 300, JudgeModel: judgeModel,
+		}}
+	}
+	task := &models.TestCase{TestID: "test-1", Stimulus: models.TaskStimulus{Message: "Test"}}
+
+	mini, err := CacheKey(spec("gpt-5-mini"), task, "")
+	require.NoError(t, err)
+	full, err := CacheKey(spec("gpt-5"), task, "")
+	require.NoError(t, err)
+	assert.NotEqual(t, mini, full)
+}

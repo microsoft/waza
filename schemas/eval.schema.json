@@ -102,6 +102,32 @@
       "description": "When true, marks this as a baseline run for comparison."
     }
   },
+  "allOf": [
+    {
+      "if": {
+        "required": ["config"],
+        "properties": {
+          "config": {
+            "required": ["executor"],
+            "properties": {
+              "executor": { "not": { "const": "copilot-sdk" } }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "graders": {
+            "items": {
+              "properties": {
+                "config": { "not": { "required": ["reasoning_effort"] } }
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
   "$defs": {
     "config": {
       "type": "object",

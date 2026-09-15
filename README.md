@@ -1068,7 +1068,7 @@ config:
   max_attempts: 3          # Retry failed graders up to 3 times (default: 1, no retries)
   timeout_seconds: 300
   parallel: false
-  executor: copilot-sdk   # use mock when not pinning reasoning effort
+  executor: copilot-sdk   # required when using reasoning_effort/judge_reasoning_effort
   model: claude-sonnet-4-20250514
   reasoning_effort: high  # Optional; copilot-sdk task/responder sessions only
   judge_model: gpt-5-mini
@@ -1161,7 +1161,7 @@ tasks:
 # range: [1, 10]  # Only include rows 1-10 (0-indexed, skips header)
 ```
 
-Pin `reasoning_effort` and `judge_reasoning_effort` to `low`, `medium`, `high`, `xhigh`, or `max` when benchmarking model-and-effort combinations. Omit either setting to preserve the Copilot SDK/model default. A `prompt` grader can override the judge default with `config.reasoning_effort`.
+Pin `reasoning_effort` and `judge_reasoning_effort` to `low`, `medium`, `high`, `xhigh`, or `max` when benchmarking model-and-effort combinations. Both settings require `executor: copilot-sdk`. Omit either setting to preserve the Copilot SDK/model default. A `prompt` grader can override the judge default with `config.reasoning_effort`; graders with `continue_session: true` resume the task session and do not inherit `judge_reasoning_effort`.
 
 `schemaVersion` uses `MAJOR.MINOR` format. Missing values are interpreted as the current schema version (currently `1.2`). Readers allow same-major minor additions with warnings for unknown fields, but reject different majors with a hint to run `waza migrate <file>`.
 
