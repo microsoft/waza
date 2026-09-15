@@ -26,11 +26,8 @@ func TestBuildSkillSystemMessage_DirectSkillMD(t *testing.T) {
 	assert.Contains(t, msg, "Always say hello")
 	assert.Contains(t, msg, "</skill_context>")
 
-	// Should include summary
-	assert.Contains(t, msg, "<available_skills>")
-	assert.Contains(t, msg, "<name>test-skill</name>")
-	assert.Contains(t, msg, "<description>A test skill</description>")
-	assert.Contains(t, msg, "</available_skills>")
+	// Should NOT duplicate the skill inventory the SDK already advertises
+	assert.NotContains(t, msg, "<available_skills>")
 }
 
 func TestBuildSkillSystemMessage_SuppressTargetSkillBody(t *testing.T) {
@@ -40,11 +37,7 @@ func TestBuildSkillSystemMessage_SuppressTargetSkillBody(t *testing.T) {
 
 	msg := buildSkillSystemMessage([]string{dir}, "test-skill", false)
 
-	assert.NotContains(t, msg, "<skill_context>")
-	assert.NotContains(t, msg, "Always say hello")
-	assert.Contains(t, msg, "<available_skills>")
-	assert.Contains(t, msg, "<name>test-skill</name>")
-	assert.Contains(t, msg, "<description>A test skill</description>")
+	assert.Empty(t, msg)
 }
 
 func TestBuildSkillSystemMessage_NestedSkillMD(t *testing.T) {
@@ -59,7 +52,7 @@ func TestBuildSkillSystemMessage_NestedSkillMD(t *testing.T) {
 
 	assert.Contains(t, msg, "<skill_context>")
 	assert.Contains(t, msg, "Body content")
-	assert.Contains(t, msg, "<name>nested-skill</name>")
+	assert.NotContains(t, msg, "<available_skills>")
 }
 
 func TestBuildSkillSystemMessage_NonTargetSkillSummaryOnly(t *testing.T) {
@@ -70,9 +63,8 @@ func TestBuildSkillSystemMessage_NonTargetSkillSummaryOnly(t *testing.T) {
 	// Target is different skill
 	msg := buildSkillSystemMessage([]string{dir}, "my-target-skill", true)
 
-	// Should have summary but NOT full body
-	assert.Contains(t, msg, "<name>other-skill</name>")
-	assert.NotContains(t, msg, "<skill_context>")
+	// Non-target skills are advertised by the SDK, not by waza
+	assert.Empty(t, msg)
 }
 
 func TestBuildSkillSystemMessage_NoFrontmatter_UsesDirectoryName(t *testing.T) {
@@ -80,11 +72,12 @@ func TestBuildSkillSystemMessage_NoFrontmatter_UsesDirectoryName(t *testing.T) {
 	skillContent := "# No frontmatter skill\nJust body."
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(skillContent), 0644))
 
-	msg := buildSkillSystemMessage([]string{dir}, "", true)
+	// The directory name is used as the skill name, so it matches as target
+	msg := buildSkillSystemMessage([]string{dir}, filepath.Base(dir), true)
 
-	assert.Contains(t, msg, "<available_skills>")
-	// Should use directory name as the skill name
-	assert.Contains(t, msg, "<name>"+filepath.Base(dir)+"</name>")
+	assert.Contains(t, msg, "<skill_context>")
+	assert.Contains(t, msg, "Just body.")
+	assert.NotContains(t, msg, "<available_skills>")
 }
 
 func TestBuildSkillSystemMessage_SkipsHiddenAndVendor(t *testing.T) {
@@ -152,6 +145,30 @@ func TestParseSkillFrontmatter(t *testing.T) {
 			content:      "---\nname: \"quoted-skill\"\ndescription: 'quoted desc'\n---\n",
 			expectedName: "quoted-skill",
 			expectedDesc: "quoted desc",
+		},
+		{
+			name:         "folded block scalar",
+			content:      "---\nname: my-skill\ndescription: >-\n  First line of the description\n  continues here.\n---\nbody",
+			expectedName: "my-skill",
+			expectedDesc: "First line of the description continues here.",
+		},
+		{
+			name:         "folded block scalar with clip",
+			content:      "---\nname: my-skill\ndescription: >\n  Folded text.\n---\nbody",
+			expectedName: "my-skill",
+			expectedDesc: "Folded text.",
+		},
+		{
+			name:         "literal block scalar",
+			content:      "---\nname: my-skill\ndescription: |\n  Line one.\n  Line two.\n---\nbody",
+			expectedName: "my-skill",
+			expectedDesc: "Line one.\nLine two.",
+		},
+		{
+			name:         "invalid yaml",
+			content:      "---\nname: my-skill\n\tdescription: tab indented\n---\nbody",
+			expectedName: "",
+			expectedDesc: "",
 		},
 		{
 			name:         "unclosed frontmatter",

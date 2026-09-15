@@ -158,7 +158,7 @@ tasks:
   - "tasks/trigger/*.yaml"
 ```
 
-With this setting, Waza still discovers skills, passes them to the Copilot SDK, and includes the compact `<available_skills>` summary with skill names and descriptions. It only suppresses the full target `<skill_context>` body, so `behavior` graders with `required_tools` or `forbidden_tools` and `skill_invocation` graders can observe whether the `skill` tool was used. If you also set `disabled_skills: ["*"]`, all skill loading is disabled and this setting has no effect.
+With this setting, Waza still discovers skills and passes them to the Copilot SDK, which advertises each skill's name and description to the agent. It only suppresses the full target `<skill_context>` body, so `behavior` graders with `required_tools` or `forbidden_tools` and `skill_invocation` graders can observe whether the `skill` tool was used. If you also set `disabled_skills: ["*"]`, all skill loading is disabled and this setting has no effect.
 
 **Common Timeouts:**
 
