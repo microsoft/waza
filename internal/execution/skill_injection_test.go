@@ -175,6 +175,12 @@ func TestParseSkillFrontmatter(t *testing.T) {
 			expectedDesc: "quoted desc",
 		},
 		{
+			name:         "surrounding whitespace",
+			content:      "---\nname: \" target-skill \"\ndescription: \" useful description \"\n---\n",
+			expectedName: "target-skill",
+			expectedDesc: "useful description",
+		},
+		{
 			name:         "unclosed frontmatter",
 			content:      "---\nname: broken\n",
 			expectedName: "",

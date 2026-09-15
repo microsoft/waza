@@ -987,5 +987,5 @@ func parseSkillFrontmatter(content string) (name, description string) {
 		return "", ""
 	}
 
-	return fm.Name, fm.Description
+	return strings.TrimSpace(fm.Name), strings.TrimSpace(fm.Description)
 }
