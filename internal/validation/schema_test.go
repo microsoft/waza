@@ -99,6 +99,75 @@ tasks:
 	require.Empty(t, errs, "eval with inject_skill_body should have no errors")
 }
 
+func TestValidateEvalBytes_ToolConstraintArgs(t *testing.T) {
+	yaml := `name: test-eval
+skill: test-skill
+version: "1.0"
+config:
+  trials_per_task: 1
+  timeout_seconds: 60
+  executor: mock
+  model: gpt-4o
+graders:
+  - name: scoped-tools
+    type: tool_constraint
+    config:
+      expect_tools:
+        - tool: bash
+          args:
+            command:
+              equals: "go test ./..."
+      reject_tools:
+        - tool: bash
+          args:
+            timeout:
+              range:
+                gt: 300
+      allow_only:
+        - tool: bash
+          args:
+            command:
+              regex: "^go test"
+metrics:
+  - name: accuracy
+    weight: 1.0
+    threshold: 0.8
+tasks:
+  - "tasks/*.yaml"
+`
+	errs := ValidateEvalBytes([]byte(yaml))
+	require.Empty(t, errs, "eval tool specs should accept structured args matchers")
+}
+
+func TestValidateEvalBytes_ToolConstraintRejectsEmptyArgMatcher(t *testing.T) {
+	yaml := `name: test-eval
+skill: test-skill
+version: "1.0"
+config:
+  trials_per_task: 1
+  timeout_seconds: 60
+  executor: mock
+  model: gpt-4o
+graders:
+  - name: scoped-tools
+    type: tool_constraint
+    config:
+      allow_only:
+        - tool: bash
+          args:
+            command:
+              regex: ""
+metrics:
+  - name: accuracy
+    weight: 1.0
+    threshold: 0.8
+tasks:
+  - "tasks/*.yaml"
+`
+	errs := ValidateEvalBytes([]byte(yaml))
+	require.NotEmpty(t, errs, "empty argument matchers should fail schema validation")
+}
+
 func TestValidateEvalBytes_RemoteGraderRefWithoutType(t *testing.T) {
 	yaml := `name: test-eval
 skill: test-skill
@@ -149,6 +218,54 @@ inputs:
 `
 	errs := ValidateTaskBytes([]byte(yaml))
 	require.Empty(t, errs, "task with instruction_files should have no errors")
+}
+
+func TestValidateTaskBytes_ToolConstraintArgs(t *testing.T) {
+	yaml := `id: task-1
+name: Scoped tools
+inputs:
+  prompt: "Run tests"
+graders:
+  - name: scoped-tools
+    type: tool_constraint
+    config:
+      expect_tools:
+        - tool: bash
+          args:
+            command:
+              regex: "^go test"
+      reject_tools:
+        - tool: bash
+          args:
+            command:
+              equals: "rm -rf /"
+      allow_only:
+        - tool: bash
+          args:
+            command:
+              contains: "go test"
+`
+	errs := ValidateTaskBytes([]byte(yaml))
+	require.Empty(t, errs, "task tool specs should accept structured args matchers")
+}
+
+func TestValidateTaskBytes_ToolConstraintRejectsEmptyArgMatcher(t *testing.T) {
+	yaml := `id: task-1
+name: Scoped tools
+inputs:
+  prompt: "Run tests"
+graders:
+  - name: scoped-tools
+    type: tool_constraint
+    config:
+      reject_tools:
+        - tool: bash
+          args:
+            command:
+              contains: ""
+`
+	errs := ValidateTaskBytes([]byte(yaml))
+	require.NotEmpty(t, errs, "empty argument matchers should fail schema validation")
 }
 
 func TestValidateTaskBytes_Responder(t *testing.T) {

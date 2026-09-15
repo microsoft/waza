@@ -172,11 +172,12 @@ func (tc *toolConstraintGrader) Grade(ctx context.Context, gradingContext *Conte
 		failures = append(failures, tc.checkExpectTools(session)...)
 		failures = append(failures, tc.checkRejectTools(session)...)
 
-		allowFailures, allowChecks := tc.checkAllowOnly(session)
+		constraintFailures := len(failures)
+		allowFailures, allowChecks, allowFailedChecks := tc.checkAllowOnly(session)
 		failures = append(failures, allowFailures...)
 
 		totalChecks := tc.countTotalChecks() + allowChecks
-		passedChecks := totalChecks - len(failures)
+		passedChecks := totalChecks - constraintFailures - allowFailedChecks
 
 		score := 1.0
 		if totalChecks > 0 {
@@ -391,16 +392,18 @@ func (tc *toolConstraintGrader) checkRejectTools(session *models.SessionDigest) 
 // passing "policy" check so an agent with an empty session isn't rewarded
 // with a divide-by-zero score of 1.0 while other constraints could still be
 // failing. When AllowOnly is nil, no checks are added.
-func (tc *toolConstraintGrader) checkAllowOnly(session *models.SessionDigest) (failures []string, totalChecks int) {
+func (tc *toolConstraintGrader) checkAllowOnly(
+	session *models.SessionDigest,
+) (failures []string, totalChecks, failedChecks int) {
 	if tc.allowOnly == nil {
-		return nil, 0
+		return nil, 0, 0
 	}
 
 	calls := session.ToolCalls
 	if len(calls) == 0 {
 		// Nothing to check — one vacuous pass so the policy is represented
 		// in the check count even for zero-tool sessions.
-		return nil, 1
+		return nil, 1, 0
 	}
 
 	allowed := describeToolSpecs(*tc.allowOnly)
@@ -419,6 +422,7 @@ func (tc *toolConstraintGrader) checkAllowOnly(session *models.SessionDigest) (f
 			violationOrder = append(violationOrder, name)
 		}
 		violationCounts[name]++
+		failedChecks++
 	}
 
 	for _, name := range violationOrder {
@@ -432,7 +436,7 @@ func (tc *toolConstraintGrader) checkAllowOnly(session *models.SessionDigest) (f
 		failures = append(failures, msg)
 	}
 
-	return failures, len(calls)
+	return failures, len(calls), failedChecks
 }
 
 // allowOnlyMatches reports whether at least one allow-list entry matches

@@ -774,6 +774,26 @@ func TestToolConstraintGrader_AllowOnly_CombinedWithExpectAndReject(t *testing.T
 	require.Equal(t, []string{"curl", "delete"}, violations)
 }
 
+func TestToolConstraintGrader_AllowOnly_ScoreCountsEveryViolatingCall(t *testing.T) {
+	g, err := NewToolConstraintGrader("allow",
+		allowOnlyParams(models.ToolSpecParameters{Tool: "bash"}))
+	require.NoError(t, err)
+
+	res, err := g.Grade(context.Background(), &Context{
+		Session: &models.SessionDigest{
+			ToolCalls: []models.ToolCall{
+				{Name: "bash"},
+				{Name: "curl"},
+				{Name: "curl"},
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.False(t, res.Passed)
+	require.InDelta(t, 1.0/3.0, res.Score, 0.0001)
+	require.Contains(t, res.Feedback, "2 calls")
+}
+
 func TestToolConstraintGrader_AllowOnly_CommandPatternQualifier(t *testing.T) {
 	// A hand-written allow_only entry can restrict which invocations of an
 	// allowed tool are actually permitted, via the same qualifier fields

@@ -381,8 +381,8 @@ func (v *ValidatorInline) Validate() error {
 		if !ok {
 			return fmt.Errorf("tool_constraint grader %q: expected ToolConstraintGraderParameters, got %T", v.Identifier, v.Parameters)
 		}
-		if len(params.ExpectTools) == 0 && len(params.RejectTools) == 0 {
-			return fmt.Errorf("tool_constraint grader %q: must have at least one tool in config.expect_tools or config.reject_tools", v.Identifier)
+		if len(params.ExpectTools) == 0 && len(params.RejectTools) == 0 && params.AllowOnly == nil {
+			return fmt.Errorf("tool_constraint grader %q: must configure config.expect_tools, config.reject_tools, or config.allow_only", v.Identifier)
 		}
 
 	case GraderKindFile:

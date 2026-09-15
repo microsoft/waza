@@ -985,6 +985,49 @@
         }
       }
     },
+    "toolArgumentMatchers": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "minProperties": 1,
+        "maxProperties": 1,
+        "additionalProperties": false,
+        "properties": {
+          "equals": {},
+          "regex": {
+            "type": "string",
+            "minLength": 1
+          },
+          "contains": {
+            "type": "string",
+            "minLength": 1
+          },
+          "range": {
+            "type": "object",
+            "minProperties": 1,
+            "additionalProperties": false,
+            "properties": {
+              "gte": {
+                "type": "number"
+              },
+              "lte": {
+                "type": "number"
+              },
+              "gt": {
+                "type": "number"
+              },
+              "lt": {
+                "type": "number"
+              }
+            }
+          },
+          "json_schema": {
+            "type": "object",
+            "minProperties": 1
+          }
+        }
+      }
+    },
     "toolConstraintGraderConfig": {
       "type": "object",
       "additionalProperties": false,
@@ -1027,6 +1070,9 @@
               },
               "path_pattern": {
                 "type": "string"
+              },
+              "args": {
+                "$ref": "#/$defs/toolArgumentMatchers"
               }
             }
           }
@@ -1052,6 +1098,9 @@
               },
               "path_pattern": {
                 "type": "string"
+              },
+              "args": {
+                "$ref": "#/$defs/toolArgumentMatchers"
               }
             }
           }
@@ -1077,6 +1126,9 @@
               },
               "path_pattern": {
                 "type": "string"
+              },
+              "args": {
+                "$ref": "#/$defs/toolArgumentMatchers"
               }
             }
           }
