@@ -23,6 +23,7 @@ import (
 	"github.com/microsoft/waza/internal/hooks"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/responder"
+	"github.com/microsoft/waza/internal/skill"
 	"github.com/microsoft/waza/internal/snapshot"
 	"github.com/microsoft/waza/internal/telemetry"
 	"github.com/microsoft/waza/internal/template"
@@ -340,8 +341,12 @@ func (r *EvalRunner) runNormalBenchmark(ctx context.Context) (*models.Evaluation
 	// ExecutionRequest built afterward (see buildExecutionRequest).
 	resolvedPaths := utils.ResolvePaths(spec.Config.SkillPaths, r.cfg.SpecDir())
 	if agentPath := resolveAgentPath(resolvedPaths); agentPath != "" {
-		spec.Graders = augmentGradersFromAgent(spec.Graders, agentPath)
-		r.toolPolicy = resolveToolPolicy(agentPath)
+		fm, _, err := skill.LoadAgentDefinition(agentPath)
+		if err != nil {
+			fm = nil
+		}
+		spec.Graders = augmentGradersFromAgent(spec.Graders, agentPath, fm)
+		r.toolPolicy = resolveToolPolicy(fm)
 	}
 
 	// Load test cases

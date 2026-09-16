@@ -7,9 +7,21 @@ import (
 
 	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/models"
+	"github.com/microsoft/waza/internal/skill"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// loadFMForTest loads the .agent.md frontmatter at path, returning nil on any
+// error so tests can exercise augmentGradersFromAgent/resolveToolPolicy with
+// the same nil-on-failure semantics the runner applies.
+func loadFMForTest(path string) *skill.AgentFrontmatter {
+	fm, _, err := skill.LoadAgentDefinition(path)
+	if err != nil {
+		return nil
+	}
+	return fm
+}
 
 func writeAgentFile(t *testing.T, dir, name, content string) string {
 	t.Helper()
@@ -35,7 +47,7 @@ You are a security code reviewer.
 		{Kind: models.GraderKindText, Identifier: "check_output"},
 	}
 
-	result := augmentGradersFromAgent(graders, agentPath)
+	result := augmentGradersFromAgent(graders, agentPath, loadFMForTest(agentPath))
 
 	require.Len(t, result, 2, "should have original + injected grader")
 	assert.Equal(t, models.GraderKindToolConstraint, result[1].Kind)
@@ -69,7 +81,7 @@ tools: []
 I use no tools.
 `)
 
-	result := augmentGradersFromAgent(nil, agentPath)
+	result := augmentGradersFromAgent(nil, agentPath, loadFMForTest(agentPath))
 
 	require.Len(t, result, 1, "explicit tools: [] must still inject a grader")
 	params, ok := result[0].Parameters.(models.ToolConstraintGraderParameters)
@@ -94,7 +106,7 @@ Body.
 		{Kind: models.GraderKindText, Identifier: "check_output"},
 	}
 
-	result := augmentGradersFromAgent(graders, agentPath)
+	result := augmentGradersFromAgent(graders, agentPath, loadFMForTest(agentPath))
 
 	assert.Len(t, result, 2, "should not inject when user already has tool_constraint")
 	assert.Equal(t, "user_defined", result[0].Identifier)
@@ -114,7 +126,7 @@ Just instructions, no tools.
 		{Kind: models.GraderKindText, Identifier: "check_output"},
 	}
 
-	result := augmentGradersFromAgent(graders, agentPath)
+	result := augmentGradersFromAgent(graders, agentPath, loadFMForTest(agentPath))
 
 	// Absent `tools:` key must NOT inject an implicit grader; the agent has
 	// simply not opted in to tool constraints. This is different from
@@ -135,7 +147,7 @@ Body.
 		{Kind: models.GraderKindText, Identifier: "check_output"},
 	}
 
-	result := augmentGradersFromAgent(graders, skillPath)
+	result := augmentGradersFromAgent(graders, skillPath, loadFMForTest(skillPath))
 
 	assert.Len(t, result, 1, "should not inject for SKILL.md files")
 }
@@ -145,7 +157,7 @@ func TestAugmentGradersFromAgent_MissingFile(t *testing.T) {
 		{Kind: models.GraderKindText, Identifier: "check_output"},
 	}
 
-	result := augmentGradersFromAgent(graders, "/nonexistent/path/ghost.agent.md")
+	result := augmentGradersFromAgent(graders, "/nonexistent/path/ghost.agent.md", loadFMForTest("/nonexistent/path/ghost.agent.md"))
 
 	assert.Len(t, result, 1, "should not panic or inject for missing files")
 }
@@ -155,7 +167,7 @@ func TestAugmentGradersFromAgent_EmptyPath(t *testing.T) {
 		{Kind: models.GraderKindText, Identifier: "check_output"},
 	}
 
-	result := augmentGradersFromAgent(graders, "")
+	result := augmentGradersFromAgent(graders, "", loadFMForTest(""))
 
 	assert.Len(t, result, 1, "should return unchanged for empty path")
 }
@@ -168,7 +180,7 @@ name: bare-agent
 Body.
 `)
 
-	policy := resolveToolPolicy(agentPath)
+	policy := resolveToolPolicy(loadFMForTest(agentPath))
 	require.Nil(t, policy, "absent tools: key must resolve to no policy (unrestricted)")
 }
 
@@ -181,7 +193,7 @@ tools: []
 Body.
 `)
 
-	policy := resolveToolPolicy(agentPath)
+	policy := resolveToolPolicy(loadFMForTest(agentPath))
 	require.NotNil(t, policy)
 	require.Equal(t, execution.ToolPolicyDenyAll, policy.Mode)
 	require.False(t, policy.IsAllowed("bash"))
@@ -198,7 +210,7 @@ tools:
 Body.
 `)
 
-	policy := resolveToolPolicy(agentPath)
+	policy := resolveToolPolicy(loadFMForTest(agentPath))
 	require.NotNil(t, policy)
 	require.Equal(t, execution.ToolPolicyAllowList, policy.Mode)
 	require.True(t, policy.IsAllowed("read"))
@@ -207,13 +219,13 @@ Body.
 }
 
 func TestResolveToolPolicy_NotAgentFileOrMissing(t *testing.T) {
-	require.Nil(t, resolveToolPolicy(""))
-	require.Nil(t, resolveToolPolicy("/nonexistent/path/ghost.agent.md"))
+	require.Nil(t, resolveToolPolicy(loadFMForTest("")))
+	require.Nil(t, resolveToolPolicy(loadFMForTest("/nonexistent/path/ghost.agent.md")))
 
 	tmpDir := t.TempDir()
 	skillPath := filepath.Join(tmpDir, "SKILL.md")
 	require.NoError(t, os.WriteFile(skillPath, []byte("---\nname: my-skill\n---\nBody.\n"), 0644))
-	require.Nil(t, resolveToolPolicy(skillPath))
+	require.Nil(t, resolveToolPolicy(loadFMForTest(skillPath)))
 }
 
 func TestResolveAgentPath_FindsAgent(t *testing.T) {

@@ -77,7 +77,8 @@ func TestCanonicalPermissionToolName(t *testing.T) {
 		{"custom tool", &copilot.PermissionRequestCustomTool{ToolName: "task"}, "task", true},
 		{"mcp tool", &copilot.PermissionRequestMCP{ToolName: "SomeTool", ServerName: "srv"}, "sometool", true},
 		{"hook", &copilot.PermissionRequestHook{ToolName: "bash"}, "bash", true},
-		{"factory/subagent", &copilot.PermissionRequestFactory{Name: "researcher"}, "task", true},
+		{"factory/subagent", &copilot.PermissionRequestFactory{Name: "researcher"}, "researcher", true},
+		{"factory/subagent unnamed", &copilot.PermissionRequestFactory{}, "task", true},
 		{"read", &copilot.PermissionRequestRead{Path: "/tmp/x"}, "read", true},
 		{"write", &copilot.PermissionRequestWrite{FileName: "/tmp/x"}, "write", true},
 		{"shell", &copilot.PermissionRequestShell{FullCommandText: "ls"}, "bash", true},
@@ -136,7 +137,7 @@ func TestEnforceToolPolicy_AllowListApprovesDeclaredDeniesOthers(t *testing.T) {
 	require.Len(t, denials, 5)
 	require.Equal(t, "bash", denials[0].Tool)
 	require.Equal(t, "fetch", denials[1].Tool)
-	require.Equal(t, "task", denials[2].Tool)
+	require.Equal(t, "sub", denials[2].Tool)
 	require.Equal(t, "other", denials[3].Tool)
 	require.Equal(t, "", denials[4].Tool)
 }

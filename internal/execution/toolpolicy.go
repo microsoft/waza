@@ -187,8 +187,10 @@ func (r *toolPolicyRecorder) snapshot() []ToolPolicyDenial {
 // documented interpretation, not a value surfaced by the SDK itself:
 // PermissionRequestRead -> "read", PermissionRequestWrite -> "write",
 // PermissionRequestShell -> "bash", PermissionRequestURL -> "fetch". Requests
-// that carry an explicit tool name (custom tool, MCP, hook, factory/subagent)
-// use that name directly.
+// that carry an explicit tool name (custom tool, MCP, hook) use that name
+// directly; factory/subagent requests use their declared factory Name (or
+// "task" if no name is present), so an allow-list can target a specific
+// subagent instead of implicitly permitting every subagent.
 func canonicalPermissionToolName(request copilot.PermissionRequest) (string, bool) {
 	switch req := request.(type) {
 	case *copilot.PermissionRequestCustomTool:
@@ -198,8 +200,13 @@ func canonicalPermissionToolName(request copilot.PermissionRequest) (string, boo
 	case *copilot.PermissionRequestHook:
 		return canonicalToolName(req.ToolName), true
 	case *copilot.PermissionRequestFactory:
-		// Subagent (task/factory) invocations. Treated as the "task" tool
-		// for allow-list purposes.
+		// Subagent (task/factory) invocations declare their own factory
+		// Name (e.g. a specific subagent), which lets an allow-list target
+		// that subagent directly. Fall back to the generic "task" tool name
+		// when the SDK doesn't supply one.
+		if req.Name != "" {
+			return canonicalToolName(req.Name), true
+		}
 		return "task", true
 	case *copilot.PermissionRequestRead:
 		return "read", true
