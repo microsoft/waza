@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/skill"
 )
@@ -59,6 +60,22 @@ func augmentGradersFromAgent(graders []models.GraderConfig, agentPath string) []
 	}
 
 	return append(graders, implicit)
+}
+
+// resolveToolPolicy loads the target .agent.md and converts its `tools:`
+// tri-state declaration into a runtime execution.ToolPolicy (see
+// execution.NewToolPolicy for the nil/empty/populated mapping). Returns nil
+// (unrestricted, i.e. no policy applied) when agentPath isn't an agent file,
+// can't be loaded, or has no `tools:` key at all.
+func resolveToolPolicy(agentPath string) *execution.ToolPolicy {
+	if agentPath == "" || !skill.IsAgentFile(agentPath) {
+		return nil
+	}
+	fm, _, err := skill.LoadAgentDefinition(agentPath)
+	if err != nil || fm == nil || fm.Tools == nil {
+		return nil
+	}
+	return execution.NewToolPolicy(fm.Tools)
 }
 
 // resolveAgentPath finds the first .agent.md file in the given skill directories.

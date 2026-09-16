@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -157,6 +158,62 @@ func TestAugmentGradersFromAgent_EmptyPath(t *testing.T) {
 	result := augmentGradersFromAgent(graders, "")
 
 	assert.Len(t, result, 1, "should return unchanged for empty path")
+}
+
+func TestResolveToolPolicy_NoTools(t *testing.T) {
+	tmpDir := t.TempDir()
+	agentPath := writeAgentFile(t, tmpDir, "bare.agent.md", `---
+name: bare-agent
+---
+Body.
+`)
+
+	policy := resolveToolPolicy(agentPath)
+	require.Nil(t, policy, "absent tools: key must resolve to no policy (unrestricted)")
+}
+
+func TestResolveToolPolicy_EmptyTools(t *testing.T) {
+	tmpDir := t.TempDir()
+	agentPath := writeAgentFile(t, tmpDir, "deny-all.agent.md", `---
+name: deny-all
+tools: []
+---
+Body.
+`)
+
+	policy := resolveToolPolicy(agentPath)
+	require.NotNil(t, policy)
+	require.Equal(t, execution.ToolPolicyDenyAll, policy.Mode)
+	require.False(t, policy.IsAllowed("bash"))
+}
+
+func TestResolveToolPolicy_PopulatedTools(t *testing.T) {
+	tmpDir := t.TempDir()
+	agentPath := writeAgentFile(t, tmpDir, "reader.agent.md", `---
+name: reader
+tools:
+  - read
+  - readFile
+---
+Body.
+`)
+
+	policy := resolveToolPolicy(agentPath)
+	require.NotNil(t, policy)
+	require.Equal(t, execution.ToolPolicyAllowList, policy.Mode)
+	require.True(t, policy.IsAllowed("read"))
+	require.True(t, policy.IsAllowed("readFile"))
+	require.False(t, policy.IsAllowed("bash"))
+}
+
+func TestResolveToolPolicy_NotAgentFileOrMissing(t *testing.T) {
+	require.Nil(t, resolveToolPolicy(""))
+	require.Nil(t, resolveToolPolicy("/nonexistent/path/ghost.agent.md"))
+
+	tmpDir := t.TempDir()
+	skillPath := filepath.Join(tmpDir, "SKILL.md")
+	require.NoError(t, os.WriteFile(skillPath, []byte("---\nname: my-skill\n---\nBody.\n"), 0644))
+	require.Nil(t, resolveToolPolicy(skillPath))
 }
 
 func TestResolveAgentPath_FindsAgent(t *testing.T) {

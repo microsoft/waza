@@ -94,6 +94,13 @@ type EvalRunner struct {
 	// correlated back to their parent results.json. Set at the start of a
 	// benchmark run; empty for code paths that bypass the orchestrator.
 	evalRunID string
+
+	// toolPolicy is the resolved runtime tool-capability boundary derived
+	// once from the target .agent.md `tools:` declaration (see
+	// resolveAgentPath/execution.NewToolPolicy). Nil when no .agent.md was
+	// resolved for this run; applied to every ExecutionRequest built for the
+	// run (initial, resumed, follow-up, and responder-driven turns alike).
+	toolPolicy *execution.ToolPolicy
 }
 
 // ProgressListener receives progress updates
@@ -327,10 +334,14 @@ func (r *EvalRunner) runNormalBenchmark(ctx context.Context) (*models.Evaluation
 		return nil, err
 	}
 
-	// Auto-inject tool_constraint grader from .agent.md tools if applicable
+	// Auto-inject tool_constraint grader from .agent.md tools if applicable,
+	// and resolve the runtime tool policy from the same .agent.md tri-state
+	// declaration. Resolved once per benchmark run and applied to every
+	// ExecutionRequest built afterward (see buildExecutionRequest).
 	resolvedPaths := utils.ResolvePaths(spec.Config.SkillPaths, r.cfg.SpecDir())
 	if agentPath := resolveAgentPath(resolvedPaths); agentPath != "" {
 		spec.Graders = augmentGradersFromAgent(spec.Graders, agentPath)
+		r.toolPolicy = resolveToolPolicy(agentPath)
 	}
 
 	// Load test cases
@@ -1509,6 +1520,7 @@ func (r *EvalRunner) buildExecutionRequest(tc *models.TestCase) (*execution.Exec
 		SuppressSkillBody: !spec.Config.ShouldInjectSkillBody(),
 		MCPServers:        convertMCPServers(spec.Config.ServerConfigs, spec.MCPMocks, r.cfg.SpecDir()),
 		FirstEventTimeout: r.firstEventTimeout(tc),
+		ToolPolicy:        r.toolPolicy,
 	}, nil
 }
 
@@ -1603,6 +1615,7 @@ func (r *EvalRunner) executeFollowUps(ctx context.Context, tc *models.TestCase, 
 		if followResp.ErrorMsg != "" {
 			emitChildSpans(turnCtx, r.telemetry, turnSpan, followResp, r.cfg.Spec().Config.ModelID)
 			turnSpan.End()
+			mergeToolPolicyResult(resp, followResp)
 			resp.ErrorMsg = fmt.Sprintf("follow-up %d/%d: %s", i+1, len(tc.Stimulus.FollowUps), followResp.ErrorMsg)
 			break
 		}
@@ -1617,6 +1630,7 @@ func (r *EvalRunner) executeFollowUps(ctx context.Context, tc *models.TestCase, 
 		resp.DurationMs += followResp.DurationMs
 		resp.FinalOutput = followResp.FinalOutput
 		resp.WorkspaceFiles = followResp.WorkspaceFiles
+		mergeToolPolicyResult(resp, followResp)
 		if followResp.Usage != nil {
 			if resp.Usage == nil {
 				resp.Usage = followResp.Usage
@@ -1756,6 +1770,7 @@ func (r *EvalRunner) sendResponderReply(ctx context.Context, tc *models.TestCase
 	}
 	if followResp.ErrorMsg != "" {
 		emitChildSpans(turnCtx, r.telemetry, turnSpan, followResp, r.cfg.Spec().Config.ModelID)
+		mergeToolPolicyResult(resp, followResp)
 		resp.ErrorMsg = fmt.Sprintf("responder reply %d: %s", turn, followResp.ErrorMsg)
 		return false
 	}
@@ -1767,6 +1782,7 @@ func (r *EvalRunner) sendResponderReply(ctx context.Context, tc *models.TestCase
 	resp.DurationMs += followResp.DurationMs
 	resp.FinalOutput = followResp.FinalOutput
 	resp.WorkspaceFiles = followResp.WorkspaceFiles
+	mergeToolPolicyResult(resp, followResp)
 	if followResp.Usage != nil {
 		if resp.Usage == nil {
 			resp.Usage = followResp.Usage
@@ -2075,6 +2091,19 @@ func (r *EvalRunner) runGraders(ctx context.Context, tc *models.TestCase, grader
 	return graders.RunAll(ctx, spec.Graders, tc, gradersContext, spec.Config.JudgeModel, r.updateSnapshots)
 }
 
+// mergeToolPolicyResult folds a follow-up/responder turn's tool-policy
+// outcome into the aggregated response so denials on any turn survive
+// through to SessionDigest/results.json, even when that turn's ErrorMsg
+// short-circuits full result aggregation.
+func mergeToolPolicyResult(resp, turnResp *execution.ExecutionResponse) {
+	if resp.ToolPolicyMode == "" {
+		resp.ToolPolicyMode = turnResp.ToolPolicyMode
+	}
+	if len(turnResp.ToolPolicyDenials) > 0 {
+		resp.ToolPolicyDenials = append(resp.ToolPolicyDenials, turnResp.ToolPolicyDenials...)
+	}
+}
+
 func (r *EvalRunner) buildSessionDigest(resp *execution.ExecutionResponse) models.SessionDigest {
 	toolsUsed := make([]string, 0)
 	for _, call := range resp.ToolCalls {
@@ -2082,12 +2111,20 @@ func (r *EvalRunner) buildSessionDigest(resp *execution.ExecutionResponse) model
 	}
 
 	digest := models.SessionDigest{
-		ToolCallCount: len(resp.ToolCalls),
-		ToolsUsed:     toolsUsed,
-		ToolCalls:     resp.ToolCalls,
-		Errors:        []string{},
-		Usage:         resp.Usage,
-		SessionID:     resp.SessionID,
+		ToolCallCount:  len(resp.ToolCalls),
+		ToolsUsed:      toolsUsed,
+		ToolCalls:      resp.ToolCalls,
+		Errors:         []string{},
+		Usage:          resp.Usage,
+		SessionID:      resp.SessionID,
+		ToolPolicyMode: resp.ToolPolicyMode,
+	}
+	for _, d := range resp.ToolPolicyDenials {
+		digest.ToolPolicyDenials = append(digest.ToolPolicyDenials, models.ToolPolicyDenial{
+			Tool:   d.Tool,
+			Kind:   d.Kind,
+			Reason: d.Reason,
+		})
 	}
 
 	return digest
