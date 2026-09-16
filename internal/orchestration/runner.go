@@ -343,6 +343,8 @@ func (r *EvalRunner) runNormalBenchmark(ctx context.Context) (*models.Evaluation
 	if agentPath := resolveAgentPath(resolvedPaths); agentPath != "" {
 		fm, _, err := skill.LoadAgentDefinition(agentPath)
 		if err != nil {
+			slog.Warn("failed to parse .agent.md; skipping implicit tool_constraint grader and tool policy",
+				"agent_path", agentPath, "error", err)
 			fm = nil
 		}
 		spec.Graders = augmentGradersFromAgent(spec.Graders, agentPath, fm)
