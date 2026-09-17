@@ -93,7 +93,11 @@ func TestBuildSkillSystemMessage_SkipsHiddenAndVendor(t *testing.T) {
 	require.NoError(t, os.MkdirAll(vendor, 0755))
 	require.NoError(t, os.WriteFile(filepath.Join(vendor, "SKILL.md"), []byte("---\nname: vendored\n---\n"), 0644))
 
-	msg := buildSkillSystemMessage([]string{root}, "", true)
+	// Use a non-empty target name so the early no-op guard doesn't short-circuit
+	// before the hidden/vendor directory scan runs. Since neither the hidden nor
+	// vendored skill is named "target-skill", the scan finds nothing and the
+	// helper still returns an empty message.
+	msg := buildSkillSystemMessage([]string{root}, "target-skill", true)
 	assert.Empty(t, msg)
 }
 

@@ -93,8 +93,10 @@ type ExecutionRequest struct {
 	SourceDir  string   // used when looking for workspace items via relative path, like skills.
 	SkillPaths []string // Directories to search for skills
 	NoSkills   bool     // When true, skip all skill loading
-	// SuppressSkillBody prevents full target skill content from being appended
-	// while still allowing skill discovery and compact summaries.
+	// SuppressSkillBody prevents the target skill's full <skill_context> body
+	// from being appended to the system message. Skill discovery is unaffected:
+	// the Copilot SDK still advertises each skill's name and description via
+	// SessionConfig.SkillDirectories regardless of this flag.
 	SuppressSkillBody bool
 
 	// MCPServers configures MCP servers for the session. Keys are server names,
