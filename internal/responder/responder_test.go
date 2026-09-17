@@ -109,7 +109,21 @@ func TestClassifyUsesDefaultModelWhenUnset(t *testing.T) {
 			return &execution.ExecutionResponse{SessionID: "resp-1"}, nil
 		},
 	}
+
 	c := New(exec, models.ResponderConfig{Instructions: "x", MaxFollowups: 5}, "default-model")
+	_, err := c.Classify(context.Background(), "Q?")
+	require.NoError(t, err)
+}
+
+func TestClassifyUsesReasoningEffort(t *testing.T) {
+	exec := &fakeExecutor{
+		respond: func(req *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
+			require.Equal(t, "high", req.ReasoningEffort)
+			_, _ = findTool(t, req.Tools, toolStop).Handler(copilot.ToolInvocation{Arguments: map[string]any{}})
+			return &execution.ExecutionResponse{SessionID: "resp-1"}, nil
+		},
+	}
+	c := NewWithReasoningEffort(exec, models.ResponderConfig{Instructions: "x", MaxFollowups: 5}, "gpt-5", "high")
 	_, err := c.Classify(context.Background(), "Q?")
 	require.NoError(t, err)
 }

@@ -47,6 +47,7 @@ func TestCopilotNoSessionID(t *testing.T) {
 		expected: copilot.SessionConfig{
 			OnPermissionRequest: allowAllTools,
 			Model:               expectedModel,
+			ReasoningEffort:     "high",
 			SkillDirectories:    []string{sourceDir},
 		},
 	}
@@ -75,10 +76,11 @@ func TestCopilotNoSessionID(t *testing.T) {
 	require.NoError(t, err)
 
 	resp, err := engine.Execute(ctx, &ExecutionRequest{
-		Message:   "hello?",
-		ModelID:   "this-model-wins",
-		SessionID: "", // ie, create a new session each time
-		SourceDir: sourceDir,
+		Message:         "hello?",
+		ModelID:         "this-model-wins",
+		ReasoningEffort: "high",
+		SessionID:       "", // ie, create a new session each time
+		SourceDir:       sourceDir,
 	})
 	require.NoError(t, err)
 	require.Equal(t, "session-1", resp.SessionID)
@@ -101,6 +103,7 @@ func TestCopilotResumeSessionID(t *testing.T) {
 		sourceDir: sourceDir,
 		expected: copilot.ResumeSessionConfig{
 			Model:               "gpt-4o-mini",
+			ReasoningEffort:     "high",
 			SkillDirectories:    []string{sourceDir},
 			OnPermissionRequest: allowAllTools,
 		},
@@ -130,8 +133,9 @@ func TestCopilotResumeSessionID(t *testing.T) {
 	require.NoError(t, err)
 
 	resp, err := engine.Execute(ctx, &ExecutionRequest{
-		Message:   "hello?",
-		SessionID: "session-1",
+		Message:         "hello?",
+		SessionID:       "session-1",
+		ReasoningEffort: "high",
 	})
 	require.NoError(t, err)
 	require.Equal(t, "session-1", resp.SessionID)

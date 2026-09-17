@@ -109,11 +109,13 @@ func (o EvaluationOutcome) MarshalJSON() ([]byte, error) {
 }
 
 type OutcomeSetup struct {
-	RunsPerTest int    `json:"runs_per_test"`
-	ModelID     string `json:"model_id"`
-	EngineType  string `json:"engine_type"`
-	TimeoutSec  int    `json:"timeout_sec"`
-	JudgeModel  string `json:"judge_model,omitempty"`
+	RunsPerTest          int    `json:"runs_per_test"`
+	ModelID              string `json:"model_id"`
+	EngineType           string `json:"engine_type"`
+	TimeoutSec           int    `json:"timeout_sec"`
+	JudgeModel           string `json:"judge_model,omitempty"`
+	ReasoningEffort      string `json:"reasoning_effort,omitempty"`
+	JudgeReasoningEffort string `json:"judge_reasoning_effort,omitempty"`
 }
 
 type OutcomeDigest struct {

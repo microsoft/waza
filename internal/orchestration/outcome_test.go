@@ -65,11 +65,12 @@ func TestRegradeOutcome_ComputesStatsAndDigest(t *testing.T) {
 		}},
 	}}
 
-	result := RegradeOutcome(original, gradedOutcomes, "judge-model")
+	result := RegradeOutcome(original, gradedOutcomes, "judge-model", "high")
 
 	require.NotNil(t, result.TestOutcomes[0].Stats)
 	assert.InDelta(t, 1.0, result.TestOutcomes[0].Stats.PassRate, 0.001)
 	assert.Equal(t, 1, result.Digest.Succeeded)
 	assert.InDelta(t, 1.0, result.Digest.SuccessRate, 0.001)
 	assert.Equal(t, "judge-model", result.Setup.JudgeModel)
+	assert.Equal(t, "high", result.Setup.JudgeReasoningEffort)
 }
