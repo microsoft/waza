@@ -38,7 +38,7 @@ func TestNewToolPolicy_TriState(t *testing.T) {
 		require.True(t, p.IsAllowed("readfile"))
 		require.False(t, p.IsAllowed("bash"))
 		require.False(t, p.IsAllowed("web_fetch"))
-		require.ElementsMatch(t, []string{"read", "readfile"}, p.SessionToolFilter())
+		require.ElementsMatch(t, []string{"read", "readFile"}, p.SessionToolFilter())
 		require.True(t, p.Active())
 	})
 }
@@ -140,6 +140,28 @@ func TestEnforceToolPolicy_AllowListApprovesDeclaredDeniesOthers(t *testing.T) {
 	require.Equal(t, "sub", denials[2].Tool)
 	require.Equal(t, "other", denials[3].Tool)
 	require.Equal(t, "", denials[4].Tool)
+}
+
+func TestEnforceToolPolicy_ReadFileAliasAllowsActualReadRequest(t *testing.T) {
+	// Regression test: `.agent.md` `tools: [readFile]` must allow an actual
+	// PermissionRequestRead (which the SDK does not tag with the "readFile"
+	// name the agent declared), not just pass the session AvailableTools
+	// filter while denying every real read at the permission-handler layer.
+	declared := []string{"readFile"}
+	policy := NewToolPolicy(&declared)
+	recorder := newToolPolicyRecorder()
+	handler := enforceToolPolicy(policy, recorder, allowAllTools)
+
+	decision, err := handler(&copilot.PermissionRequestRead{Path: "/tmp/x"}, copilot.PermissionInvocation{})
+	require.NoError(t, err)
+	_, approved := decision.(*rpc.PermissionDecisionApproveOnce)
+	require.True(t, approved)
+	require.Empty(t, recorder.snapshot())
+
+	// Unrelated tool remains denied.
+	_, err = handler(&copilot.PermissionRequestShell{FullCommandText: "ls"}, copilot.PermissionInvocation{})
+	require.NoError(t, err)
+	require.Len(t, recorder.snapshot(), 1)
 }
 
 func TestEnforceToolPolicy_DenyAllDeniesEverything(t *testing.T) {

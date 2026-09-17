@@ -338,14 +338,19 @@ func (r *EvalRunner) runNormalBenchmark(ctx context.Context) (*models.Evaluation
 	// Auto-inject tool_constraint grader from .agent.md tools if applicable,
 	// and resolve the runtime tool policy from the same .agent.md tri-state
 	// declaration. Resolved once per benchmark run and applied to every
-	// ExecutionRequest built afterward (see buildExecutionRequest).
+	// ExecutionRequest built afterward (see buildExecutionRequest). Reset
+	// before resolving so a reused runner (e.g. the baseline-disabled pass in
+	// runBaselineComparison, which clears SkillPaths and finds no agentPath)
+	// never keeps a stale policy from a prior run on the same *EvalRunner.
+	r.toolPolicy = nil
 	resolvedPaths := utils.ResolvePaths(spec.Config.SkillPaths, r.cfg.SpecDir())
 	if agentPath := resolveAgentPath(resolvedPaths); agentPath != "" {
 		fm, _, err := skill.LoadAgentDefinition(agentPath)
 		if err != nil {
-			slog.Warn("failed to parse .agent.md; skipping implicit tool_constraint grader and tool policy",
-				"agent_path", agentPath, "error", err)
-			fm = nil
+			// A malformed/unreadable .agent.md must not silently degrade to
+			// an unrestricted tool policy: fail the run instead of running
+			// with the capability boundary unenforced.
+			return nil, fmt.Errorf("failed to parse .agent.md %q: %w", agentPath, err)
 		}
 		spec.Graders = augmentGradersFromAgent(spec.Graders, agentPath, fm)
 		r.toolPolicy = resolveToolPolicy(fm)

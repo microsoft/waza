@@ -41,13 +41,20 @@ const (
 //     the policy does not explicitly allow -- including requests the policy
 //     resolver cannot recognize.
 //
-// Tool-name matching is exact and case-insensitive (not regex or alias
-// based), matching the semantics used by the tool_constraint grader's
-// allow_only field (see internal/orchestration/agent_graders.go) so runtime
-// enforcement and post-run grading agree on what a declared tool name means.
+// Tool-name matching is exact and case-insensitive (not regex based), plus a
+// small fixed alias table for implicit filesystem permission kinds (see
+// [canonicalToolAliases]), matching the semantics used by the
+// tool_constraint grader's allow_only field (see
+// internal/orchestration/agent_graders.go) so runtime enforcement and
+// post-run grading agree on what a declared tool name means.
 type ToolPolicy struct {
 	Mode    ToolPolicyMode
 	allowed map[string]struct{}
+	// declared preserves the original `tools:` entry strings (unmodified
+	// case/source-qualifier) so the Copilot SDK's AvailableTools filter sees
+	// exactly what the agent wrote, even though matching against permission
+	// requests uses the lowercased/alias-resolved canonical form.
+	declared []string
 }
 
 // NewToolPolicy converts the tri-state `.agent.md` `tools:` declaration into
@@ -64,10 +71,12 @@ func NewToolPolicy(tools *[]string) *ToolPolicy {
 		return &ToolPolicy{Mode: ToolPolicyDenyAll}
 	}
 	allowed := make(map[string]struct{}, len(*tools))
+	declared := make([]string, 0, len(*tools))
 	for _, t := range *tools {
 		allowed[canonicalToolName(t)] = struct{}{}
+		declared = append(declared, t)
 	}
-	return &ToolPolicy{Mode: ToolPolicyAllowList, allowed: allowed}
+	return &ToolPolicy{Mode: ToolPolicyAllowList, allowed: allowed, declared: declared}
 }
 
 // IsAllowed reports whether the given tool name is permitted under the
@@ -89,7 +98,11 @@ func (p *ToolPolicy) IsAllowed(name string) bool {
 //
 //   - nil for [ToolPolicyUnrestricted]: no filter is applied.
 //   - a non-nil empty slice for [ToolPolicyDenyAll]: the SDK exposes no tools.
-//   - the sorted declared names for [ToolPolicyAllowList].
+//   - the original declared names (verbatim case, source-qualifier intact),
+//     sorted, for [ToolPolicyAllowList]. Original strings are preserved here
+//     because the SDK's own tool registry may key on exact names (e.g. a
+//     specific "mcp:server-tool" qualifier); only permission matching uses
+//     the lowercased/alias-resolved canonical form.
 //
 // A nil receiver returns nil (unrestricted), matching [ToolPolicy.IsAllowed].
 func (p *ToolPolicy) SessionToolFilter() []string {
@@ -99,10 +112,8 @@ func (p *ToolPolicy) SessionToolFilter() []string {
 	if p.Mode == ToolPolicyDenyAll {
 		return []string{}
 	}
-	names := make([]string, 0, len(p.allowed))
-	for n := range p.allowed {
-		names = append(names, n)
-	}
+	names := make([]string, len(p.declared))
+	copy(names, p.declared)
 	sort.Strings(names)
 	return names
 }
@@ -113,12 +124,38 @@ func (p *ToolPolicy) Active() bool {
 	return p != nil && p.Mode != ToolPolicyUnrestricted
 }
 
+// canonicalToolAliases maps alternate spellings of a builtin filesystem
+// capability, as documented for `.agent.md` `tools:` declarations (see
+// site/src/content/docs/guides/custom-agents.mdx), to the single canonical
+// name [canonicalPermissionToolName] reports for the corresponding implicit
+// Copilot SDK permission-request kind (PermissionRequestRead /
+// PermissionRequestWrite carry no tool name of their own). Without this,
+// `tools: [readFile]` would pass session-filter checks but every actual read
+// attempt -- normalized to "read" -- would be denied as undeclared.
+//
+// Only these two aliases exist because "read"/"write" are the only implicit
+// (kind-only, name-less) permission-request kinds canonicalPermissionToolName
+// maps to a hardcoded name that a declaration could plausibly spell
+// differently. The other implicit kinds -- PermissionRequestShell ("bash"),
+// PermissionRequestURL ("fetch"), PermissionRequestMemory ("memory") -- are
+// not documented under any alternate spelling in custom-agents.mdx, so no
+// alias is added for them; adding one without a real declared spelling to
+// support would be speculative. Requests that carry their own name (custom
+// tool, MCP, hook, factory/subagent) never need an alias: they're matched on
+// the name the SDK/tool itself reports.
+var canonicalToolAliases = map[string]string{
+	"readfile":  "read",
+	"writefile": "write",
+}
+
 // canonicalToolName normalizes a declared or requested tool name for
-// matching: trims whitespace, lowercases, and strips a recognized
-// source-qualifier prefix ("builtin:", "mcp:", "custom:") if present. This
-// keeps `tools: [bash]` matching a request for "builtin:bash" without
-// treating source-qualification as significant, while still requiring an
-// exact match on the remaining name (never a regex or alias).
+// matching: trims whitespace, lowercases, strips a recognized
+// source-qualifier prefix ("builtin:", "mcp:", "custom:") if present, and
+// resolves known aliases (see [canonicalToolAliases]) to their canonical
+// form. This keeps `tools: [bash]` matching a request for "builtin:bash",
+// and `tools: [readFile]` matching an actual read attempt, without treating
+// source-qualification or alias spelling as significant -- matching is still
+// an exact comparison on the resolved name (never a regex).
 func canonicalToolName(name string) string {
 	name = strings.ToLower(strings.TrimSpace(name))
 	if idx := strings.Index(name, ":"); idx > 0 {
@@ -126,6 +163,9 @@ func canonicalToolName(name string) string {
 		case "builtin", "mcp", "custom":
 			name = name[idx+1:]
 		}
+	}
+	if alias, ok := canonicalToolAliases[name]; ok {
+		name = alias
 	}
 	return name
 }

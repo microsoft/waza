@@ -157,7 +157,7 @@ func TestCopilotCreateSession_AppliesToolPolicyAvailableTools(t *testing.T) {
 			OnPermissionRequest: allowAllTools, // presence-only check; real value is the policy wrapper
 			Model:               "gpt-4o-mini",
 			SkillDirectories:    []string{sourceDir},
-			AvailableTools:      []string{"read", "readfile"},
+			AvailableTools:      []string{"read", "readFile"},
 		},
 	}
 

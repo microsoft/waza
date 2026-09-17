@@ -1,10 +1,12 @@
 package orchestration
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
 
+	"github.com/microsoft/waza/internal/config"
 	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/skill"
@@ -251,4 +253,77 @@ func TestResolveAgentPath_NoAgentFiles(t *testing.T) {
 
 	result := resolveAgentPath([]string{tmpDir})
 	assert.Empty(t, result)
+}
+
+// TestRunNormalBenchmark_ResetsStaleToolPolicyBetweenPasses reproduces the
+// runBaselineComparison scenario: the second (baseline/skills-disabled) pass
+// reuses the same *EvalRunner with SkillPaths cleared, so resolveAgentPath
+// finds no .agent.md and the agentPath-resolution block is skipped entirely.
+// r.toolPolicy from the first pass must not leak into the second.
+func TestRunNormalBenchmark_ResetsStaleToolPolicyBetweenPasses(t *testing.T) {
+	tmpDir := t.TempDir()
+	writeAgentFile(t, tmpDir, "reviewer.agent.md", `---
+name: reviewer
+tools:
+  - read
+---
+Body.
+`)
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "task.yaml"), []byte(
+		"name: test-task\ninputs:\n  prompt: hello\nid: test-task\n"), 0644))
+
+	spec := &models.EvalSpec{
+		SpecIdentity: models.SpecIdentity{Name: "test-eval"},
+		SkillName:    "test-skill",
+		Config: models.Config{
+			EngineType: "mock",
+			ModelID:    "gpt-4",
+			SkillPaths: []string{tmpDir},
+		},
+		Tasks: []string{"task.yaml"},
+	}
+	cfg := config.NewEvalConfig(spec, config.WithSpecDir(tmpDir))
+	engine := execution.NewMockEngine("gpt-4")
+	runner := NewEvalRunner(cfg, engine)
+
+	_, err := runner.runNormalBenchmark(context.Background())
+	require.NoError(t, err)
+	require.NotNil(t, runner.toolPolicy)
+	require.Equal(t, execution.ToolPolicyAllowList, runner.toolPolicy.Mode)
+
+	// Simulate PASS 2 of runBaselineComparison: SkillPaths cleared, so no
+	// agentPath is found this time.
+	spec.Config.SkillPaths = []string{}
+	_, err = runner.runNormalBenchmark(context.Background())
+	require.NoError(t, err)
+	require.Nil(t, runner.toolPolicy, "stale tool policy from the prior pass must not persist")
+}
+
+// TestRunNormalBenchmark_MalformedAgentFilePropagatesError verifies that a
+// malformed/unreadable .agent.md fails the run instead of silently falling
+// back to an unrestricted tool policy.
+func TestRunNormalBenchmark_MalformedAgentFilePropagatesError(t *testing.T) {
+	tmpDir := t.TempDir()
+	// Invalid YAML frontmatter (unterminated) so skill.LoadAgentDefinition errors.
+	writeAgentFile(t, tmpDir, "broken.agent.md", "---\nname: [unterminated\nBody.\n")
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "task.yaml"), []byte(
+		"name: test-task\ninputs:\n  prompt: hello\nid: test-task\n"), 0644))
+
+	spec := &models.EvalSpec{
+		SpecIdentity: models.SpecIdentity{Name: "test-eval"},
+		SkillName:    "test-skill",
+		Config: models.Config{
+			EngineType: "mock",
+			ModelID:    "gpt-4",
+			SkillPaths: []string{tmpDir},
+		},
+		Tasks: []string{"task.yaml"},
+	}
+	cfg := config.NewEvalConfig(spec, config.WithSpecDir(tmpDir))
+	engine := execution.NewMockEngine("gpt-4")
+	runner := NewEvalRunner(cfg, engine)
+
+	_, err := runner.runNormalBenchmark(context.Background())
+	require.Error(t, err)
+	require.Nil(t, runner.toolPolicy)
 }
