@@ -122,7 +122,7 @@ config:
 | `model`             | string    | _required_        | Default model for tasks (override with `--model` flag)      |
 | `reasoning_effort`  | string    | model default     | Copilot SDK task/responder effort: `low`, `medium`, `high`, `xhigh`, or `max` |
 | `judge_model`       | string    | (same as `model`) | Model for `prompt`-type graders (LLM-as-judge)              |
-| `judge_reasoning_effort` | string | judge default | Copilot SDK default effort for `prompt` graders; the grader can override it, and `continue_session` graders do not inherit it |
+| `judge_reasoning_effort` | string | judge default | Copilot SDK default effort for `prompt` graders, including `continue_session` graders; the grader can override it |
 | `executor`          | string    | `copilot-sdk`     | Executor: `mock` (local, echoes task metadata and file content) or `copilot-sdk` (real API)  |
 | `max_attempts`      | int       | 0                 | Maximum retry attempts per task on failure (0 = no retries) |
 | `group_by`          | string    | —                 | Group results by a field (e.g., `tags`, `task_id`)          |

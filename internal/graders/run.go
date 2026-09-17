@@ -155,10 +155,7 @@ func applyDefaults(gp models.GraderParameters, judgeModel, judgeReasoningEffort 
 		if judgeModel != "" && p.Model == "" {
 			p.Model = judgeModel
 		}
-		// continue_session resumes the task session, whose reasoning effort was
-		// fixed at creation time; applying the judge default there would try to
-		// change an existing session's effort.
-		if judgeReasoningEffort != "" && p.ReasoningEffort == "" && !p.ContinueSession {
+		if judgeReasoningEffort != "" && p.ReasoningEffort == "" {
 			p.ReasoningEffort = judgeReasoningEffort
 		}
 		return p

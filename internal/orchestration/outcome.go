@@ -283,7 +283,7 @@ func aggregateUsageFromOutcomes(testOutcomes []models.TestOutcome) *models.Usage
 
 // RegradeOutcome produces a new EvaluationOutcome by replacing test outcomes
 // in the original with the graded ones and recomputing stats and digest.
-func RegradeOutcome(original *models.EvaluationOutcome, gradedOutcomes []models.TestOutcome, judgeModel string) *models.EvaluationOutcome {
+func RegradeOutcome(original *models.EvaluationOutcome, gradedOutcomes []models.TestOutcome, judgeModel, judgeReasoningEffort string) *models.EvaluationOutcome {
 	for i := range gradedOutcomes {
 		gradedOutcomes[i].Stats = ComputeTestStats(gradedOutcomes[i].Runs)
 	}
@@ -291,6 +291,9 @@ func RegradeOutcome(original *models.EvaluationOutcome, gradedOutcomes []models.
 	setup := original.Setup
 	if judgeModel != "" {
 		setup.JudgeModel = judgeModel
+	}
+	if judgeReasoningEffort != "" {
+		setup.JudgeReasoningEffort = judgeReasoningEffort
 	}
 
 	runsPerTest := setup.RunsPerTest

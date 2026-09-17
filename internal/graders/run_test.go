@@ -45,10 +45,10 @@ func TestApplyDefaults_PromptGrader(t *testing.T) {
 		assert.Equal(t, "high", pp.ReasoningEffort)
 	})
 
-	t.Run("skips judge reasoning effort when continuing session", func(t *testing.T) {
+	t.Run("applies judge reasoning effort when continuing session", func(t *testing.T) {
 		result := applyDefaults(models.PromptGraderParameters{Prompt: "check", ContinueSession: true}, "", "low", false)
 		pp := result.(models.PromptGraderParameters)
-		assert.Empty(t, pp.ReasoningEffort)
+		assert.Equal(t, "low", pp.ReasoningEffort)
 	})
 }
 
