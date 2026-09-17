@@ -374,6 +374,20 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 		permRequestCallback = req.PermissionHandler
 	}
 
+	// Apply the .agent.md tool policy, if any, before creating/resuming the
+	// session: (1) restrict the SDK's own AvailableTools filter, and (2)
+	// wrap the permission handler with fail-closed enforcement as defense in
+	// depth. This applies uniformly to initial sessions, resumed sessions,
+	// and (via each subsequent Execute call for follow-ups/responder turns)
+	// every later turn in the same session.
+	var policyRecorder *toolPolicyRecorder
+	var availableTools []string
+	if req.ToolPolicy.Active() {
+		policyRecorder = newToolPolicyRecorder()
+		permRequestCallback = enforceToolPolicy(req.ToolPolicy, policyRecorder, permRequestCallback)
+		availableTools = req.ToolPolicy.SessionToolFilter()
+	}
+
 	if req.SessionID == "" {
 		// Create session with updated API
 		session, err = e.client.CreateSession(ctx, &copilot.SessionConfig{
@@ -381,6 +395,7 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 			Tools: req.Tools,
 
 			OnPermissionRequest: permRequestCallback,
+			AvailableTools:      availableTools,
 
 			SkillDirectories: skillDirs,
 			WorkingDirectory: workingDir,
@@ -399,6 +414,7 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 			Tools: req.Tools,
 
 			OnPermissionRequest: permRequestCallback,
+			AvailableTools:      availableTools,
 
 			// these are the directory for the skill itself.
 			SkillDirectories: skillDirs,
@@ -569,6 +585,21 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 		WorkspaceFiles:   workspaceFiles,
 		SessionID:        sessionID,
 		Usage:            usage,
+	}
+
+	if req.ToolPolicy != nil {
+		resp.ToolPolicyMode = string(req.ToolPolicy.Mode)
+	}
+	if denials := policyRecorder.snapshot(); len(denials) > 0 {
+		resp.ToolPolicyDenials = denials
+		for _, d := range denials {
+			slog.Warn("tool denied by .agent.md tool policy",
+				"session_id", sessionID, "tool", d.Tool, "kind", d.Kind, "reason", d.Reason)
+		}
+		if resp.Success {
+			resp.Success = false
+			resp.ErrorMsg = fmt.Sprintf("tool policy violation: %d tool call(s) denied by .agent.md `tools:` policy", len(denials))
+		}
 	}
 
 	return resp, nil

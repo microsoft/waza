@@ -228,6 +228,24 @@ graders:
 
 When you declare a `tool_constraint` grader, waza skips auto-injection for that agent.
 
+### Runtime tool policy enforcement (copilot-sdk executor)
+
+The `tool_constraint` grader above is a *post-run* check: it grades the transcript after the agent has already finished. When the executor is `copilot-sdk`, waza additionally enforces the same `tools:` declaration *at runtime*, before any tool call executes:
+
+| `tools:` frontmatter | Runtime behavior |
+| --- | --- |
+| Omitted | Unrestricted — tools provided by the Copilot runtime may be used, unchanged from prior behavior. |
+| `tools: []` | Every model-initiated tool attempt (built-in, MCP, subagent) is denied before it executes. |
+| `tools: [name, ...]` | Only the declared tools are permitted; every other tool is denied before it executes. |
+
+This is enforced two ways: the Copilot SDK session is configured to only expose the declared tools where the SDK supports it, and a fail-closed permission handler denies any tool request the policy doesn't explicitly allow — including requests of a kind waza doesn't recognize. A denied attempt fails the run even if the agent goes on to produce an otherwise correct answer. The effective policy and every denial are recorded in `results.json` under each run's `session_digest` (`tool_policy_mode`, `tool_policy_denials`).
+
+Tool-name matching is exact and case-insensitive, matching the `tool_constraint` grader's `allow_only` semantics — declaring one MCP tool does not implicitly allow every other tool on the same MCP server.
+
+<Aside type="caution" title="Not a full sandbox">
+Runtime tool policy enforcement restricts *which tools* the model may invoke. It does not restrict *what those tools can access* once permitted (host files, credentials, network) — that is a separate sandboxing concern.
+</Aside>
+
 ## Writing your eval.yaml for an agent
 
 Target an agent by name or file path:

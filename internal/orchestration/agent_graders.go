@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/skill"
 )
@@ -26,7 +27,7 @@ import (
 //     tool call the agent makes will fail the grader.
 //   - populated: entries are used as an exact-match (case-insensitive)
 //     allow-list. Tool names are NOT treated as regexes.
-func augmentGradersFromAgent(graders []models.GraderConfig, agentPath string) []models.GraderConfig {
+func augmentGradersFromAgent(graders []models.GraderConfig, agentPath string, fm *skill.AgentFrontmatter) []models.GraderConfig {
 	if agentPath == "" || !skill.IsAgentFile(agentPath) {
 		return graders
 	}
@@ -38,8 +39,7 @@ func augmentGradersFromAgent(graders []models.GraderConfig, agentPath string) []
 		}
 	}
 
-	fm, _, err := skill.LoadAgentDefinition(agentPath)
-	if err != nil || fm == nil || fm.Tools == nil {
+	if fm == nil || fm.Tools == nil {
 		return graders
 	}
 
@@ -59,6 +59,17 @@ func augmentGradersFromAgent(graders []models.GraderConfig, agentPath string) []
 	}
 
 	return append(graders, implicit)
+}
+
+// resolveToolPolicy converts an already-loaded .agent.md `tools:` tri-state
+// declaration into a runtime execution.ToolPolicy (see execution.NewToolPolicy
+// for the nil/empty/populated mapping). Returns nil (unrestricted, i.e. no
+// policy applied) when fm is nil or has no `tools:` key at all.
+func resolveToolPolicy(fm *skill.AgentFrontmatter) *execution.ToolPolicy {
+	if fm == nil || fm.Tools == nil {
+		return nil
+	}
+	return execution.NewToolPolicy(fm.Tools)
 }
 
 // resolveAgentPath finds the first .agent.md file in the given skill directories.
