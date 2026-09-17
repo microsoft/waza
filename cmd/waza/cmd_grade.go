@@ -96,7 +96,7 @@ func runGrade(ctx context.Context, w, errW io.Writer, specPath, taskID, resultsF
 	if effectiveJudgeModel == "" {
 		effectiveJudgeModel = spec.Config.JudgeModel
 	}
-	effectiveJudgeReasoningEffort := spec.Config.JudgeReasoningEffort
+	judgeReasoningEffort := spec.Config.JudgeReasoningEffort
 
 	taskResults := make(map[string]models.GradeOutcome)
 	gradedOutcomes := make([]models.TestOutcome, 0, len(allTasks))
@@ -182,7 +182,7 @@ func runGrade(ctx context.Context, w, errW io.Writer, specPath, taskID, resultsF
 			}
 		}
 
-		graded := orchestration.RegradeOutcome(outcome, finalOutcomes, effectiveJudgeModel, effectiveJudgeReasoningEffort)
+		graded := orchestration.RegradeOutcome(outcome, finalOutcomes, effectiveJudgeModel, judgeReasoningEffort)
 		if err := saveOutcome(graded, outputFile); err != nil {
 			return fmt.Errorf("failed to save graded outcome: %w", err)
 		}
