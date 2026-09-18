@@ -120,9 +120,13 @@ func TestBuildExecutionRequest_BasicFields(t *testing.T) {
 		},
 		SkillName: "my-skill",
 		Config: models.Config{
-			EngineType: "mock",
+			EngineType: "copilot-sdk",
 			ModelID:    "gpt-4",
 			TimeoutSec: 120,
+			Sandbox: &models.SandboxConfig{
+				Enabled:              true,
+				AllowOutboundNetwork: true,
+			},
 		},
 	}
 
@@ -149,6 +153,9 @@ func TestBuildExecutionRequest_BasicFields(t *testing.T) {
 	assert.Equal(t, "my-skill", req.SkillName)
 	assert.Equal(t, "value", req.Context["key"])
 	assert.False(t, req.SuppressSkillBody)
+	require.NotNil(t, req.Sandbox)
+	assert.True(t, req.Sandbox.Enabled)
+	assert.True(t, req.Sandbox.AllowOutboundNetwork)
 }
 
 func TestBuildExecutionRequest_MCPMocks(t *testing.T) {

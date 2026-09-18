@@ -219,6 +219,26 @@ func TestDiffGrader_WorkspaceFiles_FallsBackToFilesystem(t *testing.T) {
 	assert.Equal(t, 1.0, result.Score)
 }
 
+func TestDiffGrader_FilesystemFallbackRejectsSymlinkEscape(t *testing.T) {
+	workspaceDir := t.TempDir()
+	outsideDir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(outsideDir, "secret.txt"), []byte("secret"), 0o644))
+	require.NoError(t, os.Symlink(outsideDir, filepath.Join(workspaceDir, "escape")))
+
+	grader, err := NewDiffGrader("diff", models.DiffGraderParameters{
+		ExpectedFiles: []models.DiffExpectedFileParameters{{
+			Path:     "escape/secret.txt",
+			Contains: []string{"+secret"},
+		}},
+	})
+	require.NoError(t, err)
+
+	result, err := grader.Grade(context.Background(), &Context{WorkspaceDir: workspaceDir})
+	require.NoError(t, err)
+	require.False(t, result.Passed)
+	require.Contains(t, result.Feedback, "not found")
+}
+
 // TestDiffGrader_WorkspaceFiles_MissingFragmentFails verifies that when captured files
 // exist but don't contain the expected fragment, the grader correctly fails.
 func TestDiffGrader_WorkspaceFiles_MissingFragmentFails(t *testing.T) {
@@ -245,10 +265,27 @@ func TestDiffGrader_WorkspaceFiles_MissingFragmentFails(t *testing.T) {
 	assert.Contains(t, result.Feedback, "missing expected fragment")
 }
 
-// TestDiffGrader_WorkspaceFiles_FileNotInCapturedOrDisk ensures proper failure
-// when a file exists in neither captured files nor on disk.
-func TestDiffGrader_WorkspaceFiles_FileNotInCapturedOrDisk(t *testing.T) {
+func TestDiffGrader_WorkspaceFiles_CleansConfiguredPath(t *testing.T) {
+	grader, err := NewDiffGrader("diff", models.DiffGraderParameters{
+		ExpectedFiles: []models.DiffExpectedFileParameters{{
+			Path:     "./result.txt",
+			Contains: []string{"+captured"},
+		}},
+	})
+	require.NoError(t, err)
+
+	result, err := grader.Grade(context.Background(), &Context{
+		WorkspaceFiles: map[string][]byte{"result.txt": []byte("captured")},
+	})
+	require.NoError(t, err)
+	require.True(t, result.Passed, result.Feedback)
+}
+
+// TestDiffGrader_WorkspaceFiles_AreAuthoritative ensures a missing captured file
+// cannot fall back to a stale or attacker-controlled file on disk.
+func TestDiffGrader_WorkspaceFiles_AreAuthoritative(t *testing.T) {
 	workspaceDir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(workspaceDir, "missing.txt"), []byte("something"), 0o644))
 
 	grader, err := NewDiffGrader("diff", models.DiffGraderParameters{
 		ExpectedFiles: []models.DiffExpectedFileParameters{

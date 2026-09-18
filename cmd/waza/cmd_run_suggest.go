@@ -80,6 +80,7 @@ func generateEvalAnalysis(
 		Message:    prompt,
 		SkillPaths: resolvedSkillPaths,
 		Resources:  resources,
+		Sandbox:    spec.Config.Sandbox,
 	})
 	cancel()
 	if err != nil {

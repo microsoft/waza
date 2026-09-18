@@ -98,6 +98,50 @@ func TestCacheKey_DifferentModelChangesKey(t *testing.T) {
 	assert.NotEqual(t, key1, key2)
 }
 
+func TestCacheKey_DifferentSandboxConfigurationChangesKey(t *testing.T) {
+	task := &models.TestCase{TestID: "test", Stimulus: models.TaskStimulus{Message: "hello"}}
+	spec1 := &models.EvalSpec{Config: models.Config{
+		EngineType: "copilot-sdk",
+		ModelID:    "gpt-4o",
+		Sandbox:    &models.SandboxConfig{Enabled: true},
+	}}
+	spec2 := &models.EvalSpec{Config: models.Config{
+		EngineType: "copilot-sdk",
+		ModelID:    "gpt-4o",
+		Sandbox: &models.SandboxConfig{
+			Enabled:              true,
+			AllowOutboundNetwork: true,
+		},
+	}}
+
+	key1, err := CacheKey(spec1, task, "")
+	require.NoError(t, err)
+	key2, err := CacheKey(spec2, task, "")
+	require.NoError(t, err)
+	assert.NotEqual(t, key1, key2)
+}
+
+func TestCacheKey_ResolvedSandboxEnvironmentChangesKey(t *testing.T) {
+	first := t.TempDir()
+	second := t.TempDir()
+	task := &models.TestCase{TestID: "test", Stimulus: models.TaskStimulus{Message: "hello"}}
+	spec := &models.EvalSpec{Config: models.Config{
+		EngineType: "copilot-sdk",
+		ModelID:    "gpt-4o",
+		Sandbox: &models.SandboxConfig{
+			Enabled:       true,
+			ReadonlyPaths: []string{"$WAZA_SANDBOX_PREREQUISITE"},
+		},
+	}}
+	t.Setenv("WAZA_SANDBOX_PREREQUISITE", first)
+	key1, err := CacheKey(spec, task, "")
+	require.NoError(t, err)
+	t.Setenv("WAZA_SANDBOX_PREREQUISITE", second)
+	key2, err := CacheKey(spec, task, "")
+	require.NoError(t, err)
+	assert.NotEqual(t, key1, key2)
+}
+
 func TestCacheKey_DifferentSkillPathsChangesKey(t *testing.T) {
 	spec1 := &models.EvalSpec{
 		SpecIdentity: models.SpecIdentity{Name: "test"},

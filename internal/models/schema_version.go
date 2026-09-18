@@ -25,7 +25,10 @@ const (
 	//       declaring fault-injection packs to run (#365). Both fields are
 	//       optional, so 1.0 and 1.1 artifacts continue to load without
 	//       migration.
-	CurrentSchemaVersion = "1.2"
+	// 1.3 — additive: Config.sandbox opts Copilot SDK evaluations into native
+	//       command isolation. The field is optional, so older artifacts retain
+	//       their existing execution behaviour.
+	CurrentSchemaVersion = "1.3"
 )
 
 func defaultSchemaVersion(version string) string {

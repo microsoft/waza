@@ -90,6 +90,100 @@ type Config struct {
 	MaxAttempts          int            `yaml:"max_attempts,omitempty" json:"max_attempts,omitempty"`
 	GroupBy              string         `yaml:"group_by,omitempty" json:"group_by,omitempty"`
 	JudgeModel           string         `yaml:"judge_model,omitempty" json:"judge_model,omitempty"`
+	Sandbox              *SandboxConfig `yaml:"sandbox,omitempty" json:"sandbox,omitempty"`
+}
+
+// SandboxConfig controls Copilot CLI's native sandbox for model-visible tools.
+type SandboxConfig struct {
+	Enabled              bool     `yaml:"enabled" json:"enabled"`
+	AllowDevToolCaches   bool     `yaml:"allow_dev_tool_caches,omitempty" json:"allow_dev_tool_caches,omitempty"`
+	AllowOutboundNetwork bool     `yaml:"allow_outbound_network,omitempty" json:"allow_outbound_network,omitempty"`
+	AllowLocalNetwork    bool     `yaml:"allow_local_network,omitempty" json:"allow_local_network,omitempty"`
+	GitAuth              bool     `yaml:"git_auth,omitempty" json:"git_auth,omitempty"`
+	GHAuth               bool     `yaml:"gh_auth,omitempty" json:"gh_auth,omitempty"`
+	ReadonlyPaths        []string `yaml:"readonly_paths,omitempty" json:"readonly_paths,omitempty"`
+	ReadwritePaths       []string `yaml:"readwrite_paths,omitempty" json:"readwrite_paths,omitempty"`
+}
+
+// ResolvePaths expands and canonicalises configured host paths so every
+// consumer uses the same effective sandbox identity and policy.
+func (s SandboxConfig) ResolvePaths() (SandboxConfig, error) {
+	resolve := func(values []string) ([]string, error) {
+		if values == nil {
+			return nil, nil
+		}
+		resolved := make([]string, 0, len(values))
+		for _, value := range values {
+			missingVariable := ""
+			path := os.Expand(value, func(name string) string {
+				expanded, ok := os.LookupEnv(name)
+				if (!ok || expanded == "") && missingVariable == "" {
+					missingVariable = name
+				}
+				return expanded
+			})
+			if missingVariable != "" {
+				return nil, fmt.Errorf("sandbox path %q references unset or empty environment variable %s", value, missingVariable)
+			}
+			if path == "~" || strings.HasPrefix(path, "~/") {
+				home, err := os.UserHomeDir()
+				if err != nil {
+					return nil, fmt.Errorf("resolving sandbox path %q: %w", value, err)
+				}
+				path = filepath.Join(home, strings.TrimPrefix(path, "~/"))
+			}
+			if path == "" || !filepath.IsAbs(path) {
+				return nil, fmt.Errorf("sandbox path %q must resolve to an absolute path", value)
+			}
+			canonical, err := filepath.EvalSymlinks(filepath.Clean(path))
+			if err != nil {
+				return nil, fmt.Errorf("sandbox path %q must resolve to an existing path: %w", value, err)
+			}
+			canonical, err = filepath.Abs(canonical)
+			if err != nil {
+				return nil, fmt.Errorf("resolving sandbox path %q: %w", value, err)
+			}
+			resolved = append(resolved, canonical)
+		}
+		return resolved, nil
+	}
+	var err error
+	s.ReadonlyPaths, err = resolve(s.ReadonlyPaths)
+	if err != nil {
+		return s, err
+	}
+	s.ReadwritePaths, err = resolve(s.ReadwritePaths)
+	return s, err
+}
+
+func (s *SandboxConfig) UnmarshalYAML(node *yaml.Node) error {
+	allowed := map[string]bool{
+		"enabled": true, "allow_dev_tool_caches": true,
+		"allow_outbound_network": true, "allow_local_network": true,
+		"git_auth": true, "gh_auth": true,
+		"readonly_paths": true, "readwrite_paths": true,
+	}
+	enabledPresent := false
+	if node.Kind == yaml.MappingNode {
+		for i := 0; i < len(node.Content); i += 2 {
+			field := node.Content[i].Value
+			if !allowed[field] {
+				return fmt.Errorf("unknown sandbox field %q", field)
+			}
+			enabledPresent = enabledPresent || field == "enabled"
+		}
+	}
+	if !enabledPresent {
+		return fmt.Errorf("sandbox.enabled is required")
+	}
+
+	type rawSandboxConfig SandboxConfig
+	var decoded rawSandboxConfig
+	if err := node.Decode(&decoded); err != nil {
+		return err
+	}
+	*s = SandboxConfig(decoded)
+	return nil
 }
 
 // MCPMockConfig defines a deterministic MCP server mock launched for an eval.
@@ -476,6 +570,25 @@ func (s *EvalSpec) Validate() error {
 		}
 		if err := s.Adversarial.Validate(); err != nil {
 			return err
+		}
+	}
+	if s.Config.Sandbox != nil {
+		major, minor, err := parseSchemaVersion(s.SchemaVersion)
+		if err != nil {
+			return err
+		}
+		currentMajor, _, err := parseSchemaVersion(CurrentSchemaVersion)
+		if err != nil {
+			return err
+		}
+		if major != currentMajor {
+			return fmt.Errorf("sandbox does not support schema major %d (current major %d)", major, currentMajor)
+		}
+		if minor < 3 {
+			return fmt.Errorf("sandbox requires schemaVersion 1.3 or newer")
+		}
+		if s.Config.EngineType != "copilot-sdk" {
+			return fmt.Errorf("sandbox requires executor copilot-sdk")
 		}
 	}
 	if s.Config.TrialsPerTask < 1 {

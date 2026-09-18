@@ -77,6 +77,15 @@ func (dg *diffGrader) Grade(ctx context.Context, gradingContext *Context) (*mode
 		}
 
 		dg.workspaceFiles = gradingContext.WorkspaceFiles
+		var workspaceRoot *os.Root
+		if dg.workspaceFiles == nil {
+			root, err := os.OpenRoot(workspaceDir)
+			if err != nil {
+				return nil, fmt.Errorf("opening workspace for diff grading: %w", err)
+			}
+			defer root.Close()
+			workspaceRoot = root
+		}
 
 		if workspaceDir != "" {
 			if err := dg.validateAllPaths(workspaceDir); err != nil {
@@ -87,7 +96,7 @@ func (dg *diffGrader) Grade(ctx context.Context, gradingContext *Context) (*mode
 		var failures []string
 		snapshotUpdates := make([]SnapshotUpdate, 0)
 		for _, ef := range dg.expectedFiles {
-			fileFailures, update := dg.checkExpectedFile(workspaceDir, ef)
+			fileFailures, update := dg.checkExpectedFile(workspaceRoot, ef)
 			failures = append(failures, fileFailures...)
 			if update != nil {
 				snapshotUpdates = append(snapshotUpdates, *update)
@@ -99,13 +108,13 @@ func (dg *diffGrader) Grade(ctx context.Context, gradingContext *Context) (*mode
 }
 
 // checkExpectedFile validates a single expected file against the workspace.
-func (dg *diffGrader) checkExpectedFile(workspaceDir string, ef models.DiffExpectedFileParameters) ([]string, *SnapshotUpdate) {
+func (dg *diffGrader) checkExpectedFile(workspaceRoot *os.Root, ef models.DiffExpectedFileParameters) ([]string, *SnapshotUpdate) {
 	var failures []string
 
 	// Prefer captured workspace files (post-execution snapshot) over the filesystem.
 	// The workspace directory may have been modified after the session disconnected,
 	// so captured files represent the true post-execution state.
-	actualContent, found := dg.readWorkspaceFile(workspaceDir, ef.Path)
+	actualContent, found := dg.readWorkspaceFile(workspaceRoot, ef.Path)
 	if !found {
 		failures = append(failures, fmt.Sprintf("Expected file not found in workspace: %s", ef.Path))
 		// Count all sub-checks as failures when file is unreadable
@@ -135,8 +144,8 @@ func (dg *diffGrader) checkExpectedFile(workspaceDir string, ef models.DiffExpec
 // readWorkspaceFile returns the content of a workspace file, preferring captured
 // post-execution files over the filesystem. Returns (content, true) on success or
 // (nil, false) when the file is not found.
-func (dg *diffGrader) readWorkspaceFile(workspaceDir string, filePath string) ([]byte, bool) {
-	normalizedPath := filepath.ToSlash(filePath)
+func (dg *diffGrader) readWorkspaceFile(workspaceRoot *os.Root, filePath string) ([]byte, bool) {
+	normalizedPath := workspaceFileKey(filePath)
 
 	// Prefer captured workspace files — they reflect post-execution state
 	// even if session disconnect modified the on-disk workspace.
@@ -144,12 +153,12 @@ func (dg *diffGrader) readWorkspaceFile(workspaceDir string, filePath string) ([
 		if content, ok := dg.workspaceFiles[normalizedPath]; ok {
 			return content, true
 		}
+		return nil, false
 	}
 
 	// Fall back to reading from the workspace directory on disk.
-	if workspaceDir != "" {
-		fullPath := filepath.Join(workspaceDir, filePath)
-		content, err := os.ReadFile(fullPath)
+	if workspaceRoot != nil {
+		content, err := workspaceRoot.ReadFile(filePath)
 		if err == nil {
 			return content, true
 		}

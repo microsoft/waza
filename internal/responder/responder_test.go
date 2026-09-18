@@ -67,7 +67,7 @@ func TestClassifyReply(t *testing.T) {
 			return &execution.ExecutionResponse{SessionID: "resp-1"}, nil
 		},
 	}
-	c := New(exec, models.ResponderConfig{Instructions: "be research-agent", MaxFollowups: 5}, "gpt-4o")
+	c := New(exec, models.ResponderConfig{Instructions: "be research-agent", MaxFollowups: 5}, "gpt-4o", nil)
 	d, err := c.Classify(context.Background(), "What is the agent name?")
 	require.NoError(t, err)
 	require.Equal(t, DecisionReply, d.Kind)
@@ -83,7 +83,7 @@ func TestClassifyAbstain(t *testing.T) {
 			return &execution.ExecutionResponse{SessionID: "resp-1"}, nil
 		},
 	}
-	c := New(exec, models.ResponderConfig{Instructions: "x", MaxFollowups: 5}, "gpt-4o")
+	c := New(exec, models.ResponderConfig{Instructions: "x", MaxFollowups: 5}, "gpt-4o", nil)
 	d, err := c.Classify(context.Background(), "Q?")
 	require.NoError(t, err)
 	require.Equal(t, DecisionAbstain, d.Kind)
@@ -96,7 +96,7 @@ func TestClassifyNoDecisionToolIsError(t *testing.T) {
 			return &execution.ExecutionResponse{SessionID: "resp-1"}, nil
 		},
 	}
-	c := New(exec, models.ResponderConfig{Instructions: "x", MaxFollowups: 5}, "gpt-4o")
+	c := New(exec, models.ResponderConfig{Instructions: "x", MaxFollowups: 5}, "gpt-4o", nil)
 	_, err := c.Classify(context.Background(), "Q?")
 	require.Error(t, err)
 }
@@ -109,12 +109,13 @@ func TestClassifyUsesDefaultModelWhenUnset(t *testing.T) {
 			return &execution.ExecutionResponse{SessionID: "resp-1"}, nil
 		},
 	}
-	c := New(exec, models.ResponderConfig{Instructions: "x", MaxFollowups: 5}, "default-model")
+	c := New(exec, models.ResponderConfig{Instructions: "x", MaxFollowups: 5}, "default-model", nil)
 	_, err := c.Classify(context.Background(), "Q?")
 	require.NoError(t, err)
 }
 
 func TestClassifyPersistsSession(t *testing.T) {
+	sandbox := &models.SandboxConfig{Enabled: true}
 	exec := &fakeExecutor{
 		respond: func(req *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
 			_, _ = findTool(t, req.Tools, toolRespond).Handler(copilot.ToolInvocation{
@@ -123,7 +124,7 @@ func TestClassifyPersistsSession(t *testing.T) {
 			return &execution.ExecutionResponse{SessionID: "resp-1"}, nil
 		},
 	}
-	c := New(exec, models.ResponderConfig{Instructions: "INSTR", MaxFollowups: 5}, "gpt-4o")
+	c := New(exec, models.ResponderConfig{Instructions: "INSTR", MaxFollowups: 5}, "gpt-4o", sandbox)
 	_, err := c.Classify(context.Background(), "Q1?")
 	require.NoError(t, err)
 	_, err = c.Classify(context.Background(), "Q2?")
@@ -131,9 +132,11 @@ func TestClassifyPersistsSession(t *testing.T) {
 
 	require.Len(t, exec.calls, 2)
 	require.Empty(t, exec.calls[0].SessionID)
+	require.Same(t, sandbox, exec.calls[0].Sandbox)
 	require.Contains(t, exec.calls[0].Message, "INSTR")
 	require.Contains(t, exec.calls[0].Message, "Q1?")
 	require.Equal(t, "resp-1", exec.calls[1].SessionID)
+	require.Same(t, sandbox, exec.calls[1].Sandbox)
 	require.NotContains(t, exec.calls[1].Message, "INSTR")
 	require.Contains(t, exec.calls[1].Message, "Q2?")
 }
@@ -145,7 +148,7 @@ func TestClassifyUsesPersistentSession(t *testing.T) {
 			return &execution.ExecutionResponse{SessionID: "resp-1"}, nil
 		},
 	}
-	c := New(exec, models.ResponderConfig{Instructions: "x", MaxFollowups: 5}, "gpt-4o")
+	c := New(exec, models.ResponderConfig{Instructions: "x", MaxFollowups: 5}, "gpt-4o", nil)
 	_, err := c.Classify(context.Background(), "Q?")
 	require.NoError(t, err)
 
@@ -171,7 +174,7 @@ func TestCloseDeletesSession(t *testing.T) {
 		_, _ = findTool(t, req.Tools, toolStop).Handler(copilot.ToolInvocation{Arguments: map[string]any{}})
 		return &execution.ExecutionResponse{SessionID: "resp-1"}, nil
 	}
-	c := New(exec, models.ResponderConfig{Instructions: "x", MaxFollowups: 5}, "gpt-4o")
+	c := New(exec, models.ResponderConfig{Instructions: "x", MaxFollowups: 5}, "gpt-4o", nil)
 	_, err := c.Classify(context.Background(), "Q?")
 	require.NoError(t, err)
 
@@ -185,7 +188,7 @@ func TestCloseDeletesSession(t *testing.T) {
 
 func TestCloseWithoutSessionIsNoop(t *testing.T) {
 	exec := &deletingExecutor{}
-	c := New(exec, models.ResponderConfig{Instructions: "x", MaxFollowups: 5}, "gpt-4o")
+	c := New(exec, models.ResponderConfig{Instructions: "x", MaxFollowups: 5}, "gpt-4o", nil)
 	require.NoError(t, c.Close(context.Background()))
 	require.Empty(t, exec.deleted)
 }
@@ -197,7 +200,7 @@ func TestCloseWithoutDeleterIsNoop(t *testing.T) {
 			return &execution.ExecutionResponse{SessionID: "resp-1"}, nil
 		},
 	}
-	c := New(exec, models.ResponderConfig{Instructions: "x", MaxFollowups: 5}, "gpt-4o")
+	c := New(exec, models.ResponderConfig{Instructions: "x", MaxFollowups: 5}, "gpt-4o", nil)
 	_, err := c.Classify(context.Background(), "Q?")
 	require.NoError(t, err)
 	require.NoError(t, c.Close(context.Background()))
@@ -318,7 +321,7 @@ func TestClassifyDuplicateDecisionIsError(t *testing.T) {
 			return &execution.ExecutionResponse{SessionID: "resp-1"}, nil
 		},
 	}
-	c := New(exec, models.ResponderConfig{Instructions: "x", MaxFollowups: 5}, "gpt-4o")
+	c := New(exec, models.ResponderConfig{Instructions: "x", MaxFollowups: 5}, "gpt-4o", nil)
 	_, err := c.Classify(context.Background(), "Q?")
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "responder tool call invalid")
@@ -333,7 +336,7 @@ func TestClassifyMalformedArgsIsError(t *testing.T) {
 			return &execution.ExecutionResponse{SessionID: "resp-1"}, nil
 		},
 	}
-	c := New(exec, models.ResponderConfig{Instructions: "x", MaxFollowups: 5}, "gpt-4o")
+	c := New(exec, models.ResponderConfig{Instructions: "x", MaxFollowups: 5}, "gpt-4o", nil)
 	_, err := c.Classify(context.Background(), "Q?")
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "responder tool call invalid")

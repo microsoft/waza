@@ -15,7 +15,7 @@ The evaluation spec defines the benchmark configuration, graders, and task files
 name: code-explainer-eval
 description: Evaluation suite for code-explainer skill
 skill: code-explainer
-schemaVersion: "1.0"
+schemaVersion: "1.3"
 version: "1.0"
 
 config:
@@ -53,7 +53,7 @@ tasks:
 | `name`        | string | ✓        | Eval suite name                                                                            |
 | `description` | string | ✗        | What the eval tests                                                                        |
 | `skill`       | string | ✓        | Associated skill or custom agent name (`SKILL.md` or `.agent.md`)                       |
-| `schemaVersion` | string | ✗     | Public schema version for this artifact; defaults to `1.0`                              |
+| `schemaVersion` | string | ✗     | Public schema version for this artifact; defaults to the current version (`1.3`)        |
 | `version`     | string | ✗        | Version number (e.g., "1.0")                                                               |
 | `inputs`      | object | ✗        | Key-value map of global template variables (see [Template Variables](#template-variables)) |
 | `tasks_from`  | string | ✗        | Path to an external YAML file containing the task list                                     |
@@ -64,7 +64,7 @@ tasks:
 
 `skill` is required.
 
-`schemaVersion` uses `MAJOR.MINOR` format. Omit it for legacy files that should default to `1.0`; add it to new evals so future schema migrations are explicit. See [Schema Changes](/reference/schema-changes/) for the compatibility policy.
+`schemaVersion` uses `MAJOR.MINOR` format. When omitted, Waza interprets it as the current version (`1.3`). Add it to new evals so future schema migrations are explicit. See [Schema Changes](/reference/schema-changes/) for the compatibility policy.
 
 ## Targeting Custom Agents
 
@@ -129,6 +129,31 @@ config:
 | `disabled_skills`   | list[str] | `[]`              | Skills to disable. Use `["*"]` to disable all skills        |
 | `required_skills`   | list[str] | `[]`              | Skills that must be available before running                |
 | `mcp_servers`       | object    | —                 | MCP server configurations for the evaluation. When `tools` is omitted or null for a server, Waza exposes all server tools by sending `["*"]` to the Copilot SDK. Set `tools` to an explicit list, including `[]`, to restrict or disable exposed tools. |
+| `sandbox`           | object    | —                 | Opt into Copilot-native command isolation. Waza grants task-workspace read/write and declared-skill read-only access; risky capabilities default off. Requires `schemaVersion: "1.3"`. |
+
+### Copilot-native sandbox
+
+For `copilot-sdk` evaluations that expose shell or file tools, enable Copilot CLI's native OS sandbox:
+
+```yaml
+schemaVersion: "1.3"
+
+config:
+  executor: copilot-sdk
+  sandbox:
+    enabled: true
+    allow_dev_tool_caches: false
+    allow_outbound_network: false
+    allow_local_network: false
+    git_auth: false
+    gh_auth: false
+    readonly_paths: []
+    readwrite_paths: []
+```
+
+Waza derives filesystem permissions from existing declarations: the fresh task workspace is read/write, while resolved `skill_directories` are read-only and executable through Copilot's native skill mechanism, so bundled scripts remain available without copying the skill. Fixtures and Git resources are copied or materialised into the task workspace. System temp, unrelated host paths, and sandbox-bypass requests are denied. Use optional `readonly_paths` or `readwrite_paths` only for declared host prerequisites that cannot be materialised in the workspace. Paths support `~` and environment-variable expansion and must resolve to existing absolute paths; references to unset or empty variables fail validation. Paths are canonicalised and cannot overlap the system temp root or receive conflicting read-only/read-write grants. Omitting the block or setting `enabled: false` sends no sandbox policy RPC and retains the existing process environment. Sandboxed Copilot CLI processes receive an allowlisted operational environment rather than arbitrary host variables, and credential-bearing proxy URLs are omitted.
+
+Copilot applies the OS sandbox to model-visible shell commands and local MCP/LSP subprocesses; the bundled Copilot CLI 1.0.80 enforces the configured filesystem and network policy for in-process built-in file and URL tools. Waza delegates permission requests for those built-in operations and configured custom or MCP tools, while rejecting unsupported Copilot control-plane capabilities and unknown request types. Model-backed prompt graders retain the task sandbox. Remote MCP servers and trusted post-execution program graders remain separate trust boundaries; program-grader commands run with host permissions. Copilot local sandboxing is in public preview; Windows currently requires a Windows Insiders build.
 
 ### Trigger-precision evals
 

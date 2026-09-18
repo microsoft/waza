@@ -292,6 +292,97 @@ func TestFileGrader_Grade(t *testing.T) {
 		require.Equal(t, 1.0, results.Score)
 	})
 
+	t.Run("symlink cannot escape workspace", func(t *testing.T) {
+		workspace := t.TempDir()
+		outside := t.TempDir()
+		require.NoError(t, os.WriteFile(filepath.Join(outside, "secret.txt"), []byte("secret"), 0o644))
+		require.NoError(t, os.Symlink(outside, filepath.Join(workspace, "escape")))
+
+		g, err := NewFileGrader("test", models.FileGraderParameters{
+			MustExist: []string{"escape/secret.txt"},
+			ContentPatterns: []models.FileContentPatternParameters{
+				{Path: "escape/secret.txt", MustMatch: []string{"secret"}},
+			},
+		})
+		require.NoError(t, err)
+
+		results, err := g.Grade(context.Background(), &Context{WorkspaceDir: workspace})
+		require.NoError(t, err)
+		require.False(t, results.Passed)
+		require.NotContains(t, results.Feedback, "All file checks passed")
+	})
+
+	t.Run("captured workspace files are authoritative", func(t *testing.T) {
+		workspace := t.TempDir()
+		require.NoError(t, os.WriteFile(filepath.Join(workspace, "result.txt"), []byte("stale"), 0o644))
+		g, err := NewFileGrader("test", models.FileGraderParameters{
+			ContentPatterns: []models.FileContentPatternParameters{
+				{Path: "result.txt", MustMatch: []string{"captured"}},
+			},
+		})
+		require.NoError(t, err)
+
+		results, err := g.Grade(context.Background(), &Context{
+			WorkspaceDir:   workspace,
+			WorkspaceFiles: map[string][]byte{"result.txt": []byte("captured")},
+		})
+		require.NoError(t, err)
+		require.True(t, results.Passed, results.Feedback)
+	})
+
+	t.Run("existence checks use rooted metadata when capture omits entries", func(t *testing.T) {
+		workspace := t.TempDir()
+		require.NoError(t, os.Mkdir(filepath.Join(workspace, "required-dir"), 0o755))
+		require.NoError(t, os.Mkdir(filepath.Join(workspace, "forbidden-dir"), 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(workspace, "forbidden-unreadable.txt"), []byte("secret"), 0o000))
+
+		g, err := NewFileGrader("test", models.FileGraderParameters{
+			MustExist:    []string{"required-dir"},
+			MustNotExist: []string{"forbidden-dir", "forbidden-unreadable.txt"},
+		})
+		require.NoError(t, err)
+
+		results, err := g.Grade(context.Background(), &Context{
+			WorkspaceDir:   workspace,
+			WorkspaceFiles: map[string][]byte{},
+		})
+		require.NoError(t, err)
+		require.False(t, results.Passed)
+		require.NotContains(t, results.Feedback, "required-dir")
+		require.Contains(t, results.Feedback, "forbidden-dir")
+		require.Contains(t, results.Feedback, "forbidden-unreadable.txt")
+	})
+
+	t.Run("captured workspace paths are cleaned before lookup", func(t *testing.T) {
+		g, err := NewFileGrader("test", models.FileGraderParameters{
+			MustExist: []string{"./result.txt"},
+			ContentPatterns: []models.FileContentPatternParameters{
+				{Path: "./result.txt", MustMatch: []string{"captured"}},
+			},
+		})
+		require.NoError(t, err)
+
+		results, err := g.Grade(context.Background(), &Context{
+			WorkspaceFiles: map[string][]byte{"result.txt": []byte("captured")},
+		})
+		require.NoError(t, err)
+		require.True(t, results.Passed, results.Feedback)
+	})
+
+	t.Run("captured forbidden path is cleaned before lookup", func(t *testing.T) {
+		g, err := NewFileGrader("test", models.FileGraderParameters{
+			MustNotExist: []string{"./forbidden.txt"},
+		})
+		require.NoError(t, err)
+
+		results, err := g.Grade(context.Background(), &Context{
+			WorkspaceFiles: map[string][]byte{"forbidden.txt": []byte("present")},
+		})
+		require.NoError(t, err)
+		require.False(t, results.Passed)
+		require.Contains(t, results.Feedback, "forbidden.txt")
+	})
+
 	t.Run("result details contains expected fields", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "test.txt"), []byte("hello"), 0644))

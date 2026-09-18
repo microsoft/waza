@@ -58,6 +58,21 @@ func CacheKey(spec *models.EvalSpec, task *models.TestCase, fixtureDir string) (
 	if err := writeInt(h, spec.Config.MaxAttempts); err != nil {
 		return "", err
 	}
+	resolvedSandbox := spec.Config.Sandbox
+	if resolvedSandbox != nil {
+		resolved, err := resolvedSandbox.ResolvePaths()
+		if err != nil {
+			return "", fmt.Errorf("resolving sandbox configuration: %w", err)
+		}
+		resolvedSandbox = &resolved
+	}
+	sandboxJSON, err := json.Marshal(resolvedSandbox)
+	if err != nil {
+		return "", fmt.Errorf("marshaling sandbox configuration: %w", err)
+	}
+	if _, err := h.Write(sandboxJSON); err != nil {
+		return "", err
+	}
 
 	// Include skill paths (critical for baseline A/B: with-skills vs without-skills
 	// must produce different cache keys)

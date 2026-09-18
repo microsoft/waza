@@ -184,6 +184,7 @@ func (r *Runner) testTrigger(ctx context.Context, prompt string) (*execution.Exe
 		SourceDir:               r.cfg.SpecDir(),
 		Resources:               r.fixtures,
 		MCPServers:              r.mcpConfig,
+		Sandbox:                 spec.Config.Sandbox,
 		CancelOnSkillInvocation: true,
 	})
 }

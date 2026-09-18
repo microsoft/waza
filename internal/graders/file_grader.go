@@ -44,7 +44,7 @@ func (fg *fileGrader) Kind() models.GraderKind { return models.GraderKindFile }
 func (fg *fileGrader) Grade(ctx context.Context, gradingContext *Context) (*models.GraderResults, error) {
 	return measureTime(func() (*models.GraderResults, error) {
 		workspaceDir := gradingContext.WorkspaceDir
-		if workspaceDir == "" {
+		if workspaceDir == "" && gradingContext.WorkspaceFiles == nil {
 			return &models.GraderResults{
 				Name:     fg.name,
 				Type:     models.GraderKindFile,
@@ -59,46 +59,79 @@ func (fg *fileGrader) Grade(ctx context.Context, gradingContext *Context) (*mode
 		if err := fg.validateAllPaths(workspaceDir); err != nil {
 			return nil, err
 		}
+		var root *os.Root
+		if workspaceDir != "" {
+			var err error
+			root, err = os.OpenRoot(workspaceDir)
+			if err != nil {
+				return nil, fmt.Errorf("opening workspace for file grading: %w", err)
+			}
+			defer root.Close()
+		}
 
-		failures = append(failures, fg.checkMustExist(workspaceDir)...)
-		failures = append(failures, fg.checkMustNotExist(workspaceDir)...)
-		failures = append(failures, fg.checkContentPatterns(workspaceDir)...)
+		failures = append(failures, fg.checkMustExist(root, gradingContext.WorkspaceFiles)...)
+		failures = append(failures, fg.checkMustNotExist(root, gradingContext.WorkspaceFiles)...)
+		failures = append(failures, fg.checkContentPatterns(root, gradingContext.WorkspaceFiles)...)
 
 		return fg.buildResult(failures, workspaceDir), nil
 	})
 }
 
 // checkMustExist verifies that all required files are present in the workspace.
-func (fg *fileGrader) checkMustExist(workspaceDir string) []string {
+func (fg *fileGrader) checkMustExist(root *os.Root, workspaceFiles map[string][]byte) []string {
 	var failures []string
 	for _, relPath := range fg.mustExist {
-		fullPath := filepath.Join(workspaceDir, relPath)
-		if _, err := os.Stat(fullPath); os.IsNotExist(err) {
-			failures = append(failures, fmt.Sprintf("File must exist but not found: %s", relPath))
+		if root == nil {
+			if _, exists := workspaceFiles[workspaceFileKey(relPath)]; !exists {
+				failures = append(failures, fmt.Sprintf("File must exist but not found: %s", relPath))
+			}
+			continue
+		}
+		if _, err := root.Stat(relPath); err != nil {
+			if os.IsNotExist(err) {
+				failures = append(failures, fmt.Sprintf("File must exist but not found: %s", relPath))
+			} else {
+				failures = append(failures, fmt.Sprintf("Failed to check required file %s: %v", relPath, err))
+			}
 		}
 	}
 	return failures
 }
 
 // checkMustNotExist verifies that forbidden files are absent from the workspace.
-func (fg *fileGrader) checkMustNotExist(workspaceDir string) []string {
+func (fg *fileGrader) checkMustNotExist(root *os.Root, workspaceFiles map[string][]byte) []string {
 	var failures []string
 	for _, relPath := range fg.mustNotExist {
-		fullPath := filepath.Join(workspaceDir, relPath)
-		if _, err := os.Stat(fullPath); err == nil {
+		if root == nil {
+			if _, exists := workspaceFiles[workspaceFileKey(relPath)]; exists {
+				failures = append(failures, fmt.Sprintf("File must not exist but found: %s", relPath))
+			}
+			continue
+		}
+		if _, err := root.Stat(relPath); err == nil {
 			failures = append(failures, fmt.Sprintf("File must not exist but found: %s", relPath))
+		} else if !os.IsNotExist(err) {
+			failures = append(failures, fmt.Sprintf("Failed to check forbidden file %s: %v", relPath, err))
 		}
 	}
 	return failures
 }
 
 // checkContentPatterns validates file contents against must_match and must_not_match regex patterns.
-func (fg *fileGrader) checkContentPatterns(workspaceDir string) []string {
+func (fg *fileGrader) checkContentPatterns(root *os.Root, workspaceFiles map[string][]byte) []string {
 	var failures []string
 	for _, cp := range fg.contentPatterns {
-		fullPath := filepath.Join(workspaceDir, cp.Path)
-
-		content, err := os.ReadFile(fullPath)
+		var content []byte
+		var err error
+		if workspaceFiles != nil {
+			var exists bool
+			content, exists = workspaceFiles[workspaceFileKey(cp.Path)]
+			if !exists {
+				err = os.ErrNotExist
+			}
+		} else {
+			content, err = root.ReadFile(cp.Path)
+		}
 		if err != nil {
 			failures = append(failures, fileReadFailures(cp, err)...)
 			continue
@@ -109,6 +142,10 @@ func (fg *fileGrader) checkContentPatterns(workspaceDir string) []string {
 		failures = append(failures, matchRegexPatterns(contentStr, cp.Path, cp.MustNotMatch, false)...)
 	}
 	return failures
+}
+
+func workspaceFileKey(path string) string {
+	return filepath.ToSlash(filepath.Clean(path))
 }
 
 // fileReadFailures returns failure messages when a file required for content checking cannot be read.

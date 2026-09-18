@@ -171,11 +171,12 @@ type Classifier struct {
 	exec         Executor
 	model        string
 	instructions string
+	sandbox      *models.SandboxConfig
 	sessionID    string // empty until the first Classify creates the session
 }
 
 // New constructs a Classifier. defaultModel is used when cfg.Model is empty.
-func New(exec Executor, cfg models.ResponderConfig, defaultModel string) *Classifier {
+func New(exec Executor, cfg models.ResponderConfig, defaultModel string, sandbox *models.SandboxConfig) *Classifier {
 	model := cfg.Model
 	if model == "" {
 		model = defaultModel
@@ -184,6 +185,7 @@ func New(exec Executor, cfg models.ResponderConfig, defaultModel string) *Classi
 		exec:         exec,
 		model:        model,
 		instructions: cfg.Instructions,
+		sandbox:      sandbox,
 	}
 }
 
@@ -201,6 +203,7 @@ func (c *Classifier) Classify(ctx context.Context, agentMessage string) (Decisio
 		Streaming:   true,
 		SessionID:   c.sessionID,
 		NoSkills:    true,
+		Sandbox:     c.sandbox,
 		// The responder session must persist across turns so it can be resumed
 		// (and so its instructions need only be sent once). It is torn down
 		// explicitly via Close. EphemeralSession would delete it after the

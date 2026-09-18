@@ -120,7 +120,7 @@ The diff focuses on the **ordered tool-name/args fingerprint**, ignoring per-cal
 
 ## Schema and forward compatibility
 
-The snapshot wire format starts at its own independent `1.0`, separate from `results.json` (`1.2`) and `eval.yaml` (`1.0`).
+The snapshot wire format starts at its own independent `1.0`, separate from `results.json` (`1.3`) and `eval.yaml` (`1.3`).
 
 - MAJOR mismatch is **rejected** at load (`exit 2`).
 - Additive MINOR fields are forward-compatible: a `1.1` snapshot can be replayed by `1.0`-aware tooling, with the extra fields preserved verbatim under the standard json round-tripping rules.

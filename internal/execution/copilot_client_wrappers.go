@@ -2,12 +2,18 @@ package execution
 
 import (
 	"context"
+	"fmt"
 
 	copilot "github.com/github/copilot-sdk/go"
+	"github.com/microsoft/waza/internal/models"
 )
 
 // CopilotSession is just an interface over [*copilot.Session]
 type CopilotSession interface {
+	// ConfigureSandbox enables Copilot's native sandbox and limits model-visible tools to the
+	// isolated task workspace plus read-only skill directories.
+	ConfigureSandbox(ctx context.Context, workspaceDir string, readonlyDirs []string, config models.SandboxConfig) error
+
 	// Disconnect maps to [copilot.Session.Disconnect]. It closes the session and releases resources, however it
 	// doesn't delete data and the session is still resumable until deleted via [copilot.Client.DeleteSession].
 	Disconnect() error
@@ -101,6 +107,34 @@ func (w *copilotClientWrapper) ListModels(ctx context.Context) ([]copilot.ModelI
 // it in an interface...
 type copilotSessionWrapper struct {
 	inner *copilot.Session
+}
+
+func (w *copilotSessionWrapper) ConfigureSandbox(ctx context.Context, workspaceDir string, readonlyDirs []string, config models.SandboxConfig) error {
+	if !config.Enabled {
+		return nil
+	}
+	options, permissions, err := sessionSandboxConfiguration(workspaceDir, readonlyDirs, config)
+	if err != nil {
+		return err
+	}
+	updated, err := w.inner.RPC.Options.Update(ctx, options)
+	if err != nil {
+		return err
+	}
+	if !updated.Success {
+		return fmt.Errorf("copilot rejected the sandbox configuration")
+	}
+	if permissions == nil {
+		return nil
+	}
+	configured, err := w.inner.RPC.Permissions.Configure(ctx, permissions)
+	if err != nil {
+		return err
+	}
+	if !configured.Success {
+		return fmt.Errorf("copilot rejected the workspace permission boundary")
+	}
+	return nil
 }
 
 func (w *copilotSessionWrapper) Disconnect() error {
