@@ -55,8 +55,8 @@ github.com/aymanbagabas/go-udiff v0.3.1 h1:LV+qyBQ2pqe0u42ZsUEtPiCaUoqgA9gYRDs3v
 github.com/aymanbagabas/go-udiff v0.3.1/go.mod h1:G0fsKmG+P6ylD0r6N/KgQD/nWzgfnl8ZBcNLgcbrw8E=
 github.com/aymerick/douceur v0.2.0 h1:Mv+mAeH1Q+n9Fr+oyamOlAkUNPWPlA8PPGR0QAaYuPk=
 github.com/aymerick/douceur v0.2.0/go.mod h1:wlT5vV2O3h55X9m7iVYN0TBM0NH/MmbLnd30/FjWUq4=
-github.com/azure/azure-dev/cli/azd v1.31.1 h1:e+QH2MRsjloFjDbmzoOc5iPxevMZQhBqsUp9sX1kTss=
-github.com/azure/azure-dev/cli/azd v1.31.1/go.mod h1:HFBGeWRWhNsOoYaUcyToqaowibqcbSCfkfJfnIfI4nU=
+github.com/azure/azure-dev/cli/azd v1.34.0 h1:5/udV0Iy76KeLNX9DN4U2k4m3NZdbZh1gwkPyE0BbjA=
+github.com/azure/azure-dev/cli/azd v1.34.0/go.mod h1:f0Irys8I1qIKAIjYae1VkUnSVQB8qaSKlrDwOeYQQDA=
 github.com/bahlo/generic-list-go v0.2.0 h1:5sz/EEAK+ls5wF+NeqDpk5+iNdMDXrh3z3nPnH1Wvgk=
 github.com/bahlo/generic-list-go v0.2.0/go.mod h1:2KvAjgMlE5NNynlg/5iLrrCCZ2+5xWbdbCW3pNTGyYg=
 github.com/benbjohnson/clock v1.3.5 h1:VvXlSJBzZpA/zum6Sj74hxwYI2DIxRWuNIoXAzHZz5o=
