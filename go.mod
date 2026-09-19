@@ -12,8 +12,8 @@ module github.com/microsoft/waza
 go 1.26.4
 
 require (
-	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.23.0
-	github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.14.0
+	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.23.1
+	github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.14.1
 	github.com/Azure/azure-sdk-for-go/sdk/storage/azblob v1.8.0
 	github.com/Masterminds/semver/v3 v3.5.0
 	github.com/azure/azure-dev/cli/azd v1.31.1
@@ -46,7 +46,7 @@ require (
 	github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resources/armsubscriptions v1.3.0 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/security/keyvault/azsecrets v1.4.0 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/security/keyvault/internal v1.2.0 // indirect
-	github.com/AzureAD/microsoft-authentication-library-for-go v1.7.2 // indirect
+	github.com/AzureAD/microsoft-authentication-library-for-go v1.8.0 // indirect
 	github.com/adam-lavrik/go-imath v0.0.0-20210910152346-265a42a96f0b // indirect
 	github.com/alecthomas/chroma/v2 v2.23.1 // indirect
 	github.com/atotto/clipboard v0.1.4 // indirect
