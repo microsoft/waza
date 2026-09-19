@@ -13,7 +13,7 @@
     "test:e2e:headed": "playwright test --headed"
   },
   "dependencies": {
-    "@tanstack/react-query": "^5.102.8",
+    "@tanstack/react-query": "^5.103.0",
     "@tanstack/react-table": "^8.21.3",
     "lucide-react": "^1.28.0",
     "react": "^19.2.8",
