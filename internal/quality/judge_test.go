@@ -130,7 +130,17 @@ func TestParseJudgeResponse_BareJSON(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, resp.Dimensions, 5)
 	require.Equal(t, "clarity", resp.Dimensions[0].Name)
-	require.Equal(t, 4, resp.Dimensions[0].Score)
+	require.Equal(t, 4.0, resp.Dimensions[0].Score)
+}
+
+func TestParseJudgeResponse_FractionalScore(t *testing.T) {
+	resp, err := ParseJudgeResponse(`{
+		"dimensions": [{"name": "clarity", "score": 3.5, "feedback": "Mostly clear"}],
+		"overall_score": 3.5,
+		"summary": "Good"
+	}`)
+	require.NoError(t, err)
+	require.Equal(t, 3.5, resp.Dimensions[0].Score)
 }
 
 func TestParseJudgeResponse_FencedJSON(t *testing.T) {
