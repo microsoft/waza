@@ -12,7 +12,7 @@ func TestFormatTable(t *testing.T) {
 		Dimensions: []DimensionResult{
 			{Name: "clarity", Score: 4.5, Feedback: "Clear instructions"},
 			{Name: "completeness", Score: 3, Feedback: "Missing edge cases"},
-			{Name: "trigger_precision", Score: 5, Feedback: "Perfect triggers"},
+			{Name: "trigger_precision", Score: 4, Feedback: "Precise triggers"},
 			{Name: "scope_coverage", Score: 2, Feedback: "Too broad"},
 			{Name: "anti_patterns", Score: 4, Feedback: "Good patterns"},
 		},
@@ -32,7 +32,7 @@ func TestFormatTable(t *testing.T) {
 	// Check score bars
 	require.Contains(t, output, "████░") // score 4
 	require.Contains(t, output, "███░░") // score 3
-	require.Contains(t, output, "█████") // score 5
+	require.Contains(t, output, "█████") // fractional score rounded to 5
 	require.Contains(t, output, "██░░░") // score 2
 }
 
