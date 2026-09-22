@@ -10,7 +10,7 @@ import (
 func TestFormatTable(t *testing.T) {
 	resp := &JudgeResponse{
 		Dimensions: []DimensionResult{
-			{Name: "clarity", Score: 4, Feedback: "Clear instructions"},
+			{Name: "clarity", Score: 4.5, Feedback: "Clear instructions"},
 			{Name: "completeness", Score: 3, Feedback: "Missing edge cases"},
 			{Name: "trigger_precision", Score: 5, Feedback: "Perfect triggers"},
 			{Name: "scope_coverage", Score: 2, Feedback: "Too broad"},
@@ -39,7 +39,7 @@ func TestFormatTable(t *testing.T) {
 func TestFormatJSON(t *testing.T) {
 	resp := &JudgeResponse{
 		Dimensions: []DimensionResult{
-			{Name: "clarity", Score: 4, Feedback: "Clear"},
+			{Name: "clarity", Score: 4.5, Feedback: "Clear"},
 		},
 		OverallScore: 4.0,
 		Summary:      "Good",
@@ -48,6 +48,7 @@ func TestFormatJSON(t *testing.T) {
 	output, err := FormatJSON(resp)
 	require.NoError(t, err)
 	require.Contains(t, output, `"clarity"`)
+	require.Contains(t, output, `"score": 4.5`)
 	require.Contains(t, output, `"overall_score": 4`)
 	require.Contains(t, output, `"summary": "Good"`)
 }
