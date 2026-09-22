@@ -338,7 +338,7 @@ func (s *Suggestion) WriteToDir(outputDir string, opts WriteOptions) ([]string, 
 		if err := validateTaskMetadata(path, task); err != nil {
 			return nil, err
 		}
-		body := []byte(strings.TrimSpace(task.Content) + "\n")
+		body := ensureTaskName([]byte(strings.TrimSpace(task.Content) + "\n"))
 		if errs := validation.ValidateTaskBytes(body); len(errs) > 0 {
 			return nil, fmt.Errorf("generated task %s failed schema validation: %s", path, strings.Join(errs, "; "))
 		}
@@ -519,6 +519,43 @@ func extractTaskID(data []byte) string {
 		return ""
 	}
 	return strings.TrimSpace(tc.ID)
+}
+
+// ensureTaskName derives a display name from the task ID when generated YAML
+// omits the required name field.
+func ensureTaskName(data []byte) []byte {
+	var doc yaml.Node
+	if err := yaml.Unmarshal(data, &doc); err != nil || len(doc.Content) == 0 {
+		return data
+	}
+	root := doc.Content[0]
+	if root.Kind != yaml.MappingNode {
+		return data
+	}
+
+	var id string
+	hasName := false
+	for i := 0; i+1 < len(root.Content); i += 2 {
+		switch root.Content[i].Value {
+		case "id":
+			id = strings.TrimSpace(root.Content[i+1].Value)
+		case "name":
+			hasName = true
+		}
+	}
+	if id == "" || hasName {
+		return data
+	}
+
+	root.Content = append(root.Content,
+		&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "name"},
+		&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: scaffold.TitleCase(id)},
+	)
+	normalized, err := yaml.Marshal(&doc)
+	if err != nil {
+		return data
+	}
+	return normalized
 }
 
 func loadSkill(skillFile string) (string, *skill.Skill, error) {

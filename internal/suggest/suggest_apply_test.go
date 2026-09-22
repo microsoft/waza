@@ -257,6 +257,23 @@ func TestWriteToDirRejectsTaskMissingInputs(t *testing.T) {
 	require.Contains(t, strings.ToLower(err.Error()), "schema")
 }
 
+func TestWriteToDirDerivesTaskNameFromID(t *testing.T) {
+	s := &Suggestion{
+		EvalYAML: validEvalYAML(),
+		Tasks: []GeneratedFile{
+			{Path: "tasks/generated.yaml", Content: "id: generated-task\ninputs:\n  prompt: hi\n", Confidence: 0.6, Rationale: "matches USE FOR"},
+		},
+	}
+	dir := t.TempDir()
+
+	_, err := s.WriteToDir(dir, WriteOptions{})
+	require.NoError(t, err)
+
+	content, err := os.ReadFile(filepath.Join(dir, "tasks", "generated.yaml"))
+	require.NoError(t, err)
+	require.Contains(t, string(content), "name: Generated Task")
+}
+
 func TestWriteToDirRejectsTaskWithUnknownField(t *testing.T) {
 	// task.schema.json has additionalProperties: false
 	s := &Suggestion{

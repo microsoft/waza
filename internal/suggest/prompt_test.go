@@ -50,6 +50,7 @@ func TestRenderImplementationPrompt_WithGraderDocs(t *testing.T) {
 	assert.Contains(t, prompt, "Assertion-Based")
 	assert.Contains(t, prompt, evalYAMLSchemaSummary)
 	assert.Contains(t, prompt, exampleEvalYAML)
+	assert.Contains(t, prompt, exampleTaskYAML)
 	assert.Contains(t, prompt, "Skill content (SKILL.md)")
 	assert.Contains(t, prompt, "Does testing.")
 }
@@ -72,7 +73,7 @@ func TestRenderImplementationPrompt_ContainsRequirements(t *testing.T) {
 	// Key requirements that must be in the prompt
 	assert.Contains(t, prompt, "NEVER use bare strings")
 	assert.Contains(t, prompt, "required_skills")
-	assert.Contains(t, prompt, "Task YAML must use inputs")
+	assert.Contains(t, prompt, "required fields 'id', 'name', and 'inputs.prompt'")
 	assert.Contains(t, prompt, "at least 3 diverse tasks")
 	assert.Contains(t, prompt, "at least 1 negative/anti-trigger task")
 }
