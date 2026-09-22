@@ -262,6 +262,7 @@ func TestWriteToDirDerivesTaskNameFromID(t *testing.T) {
 		EvalYAML: validEvalYAML(),
 		Tasks: []GeneratedFile{
 			{Path: "tasks/generated.yaml", Content: "id: generated-task\ninputs:\n  prompt: hi\n", Confidence: 0.6, Rationale: "matches USE FOR"},
+			{Path: "tasks/blank.yaml", Content: "id: blank-name\nname: \"\"\ninputs:\n  prompt: hi\n", Confidence: 0.6, Rationale: "matches USE FOR"},
 		},
 	}
 	dir := t.TempDir()
@@ -272,6 +273,10 @@ func TestWriteToDirDerivesTaskNameFromID(t *testing.T) {
 	content, err := os.ReadFile(filepath.Join(dir, "tasks", "generated.yaml"))
 	require.NoError(t, err)
 	require.Contains(t, string(content), "name: Generated Task")
+
+	content, err = os.ReadFile(filepath.Join(dir, "tasks", "blank.yaml"))
+	require.NoError(t, err)
+	require.Contains(t, string(content), "name: Blank Name")
 }
 
 func TestWriteToDirRejectsTaskWithUnknownField(t *testing.T) {

@@ -534,23 +534,32 @@ func ensureTaskName(data []byte) []byte {
 	}
 
 	var id string
-	hasName := false
+	var nameNode *yaml.Node
 	for i := 0; i+1 < len(root.Content); i += 2 {
 		switch root.Content[i].Value {
 		case "id":
 			id = strings.TrimSpace(root.Content[i+1].Value)
 		case "name":
-			hasName = true
+			nameNode = root.Content[i+1]
 		}
 	}
-	if id == "" || hasName {
+	if id == "" || (nameNode != nil && strings.TrimSpace(nameNode.Value) != "") {
 		return data
 	}
 
-	root.Content = append(root.Content,
-		&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "name"},
-		&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: scaffold.TitleCase(id)},
-	)
+	derivedName := scaffold.TitleCase(id)
+	if nameNode != nil {
+		nameNode.Kind = yaml.ScalarNode
+		nameNode.Tag = "!!str"
+		nameNode.Value = derivedName
+		nameNode.Style = 0
+	} else {
+		root.Content = append(root.Content,
+			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "name"},
+			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: derivedName},
+		)
+	}
+	// Re-marshal only fallback cases so the injected field is valid YAML.
 	normalized, err := yaml.Marshal(&doc)
 	if err != nil {
 		return data
