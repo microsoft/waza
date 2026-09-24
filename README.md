@@ -955,6 +955,10 @@ waza session view session-2025-06-15.ndjson
 
 Waza can automatically upload evaluation results to Azure Blob Storage for team collaboration and historical tracking.
 
+Waza pins Azure Blob requests to service version `2026-10-06` to avoid the
+[azblob v1.8.1 rollout issue](https://github.com/Azure/azure-sdk-for-go/releases/tag/sdk/storage/azblob/v1.8.1)
+that can cause `400 InvalidHeaderValue` with the SDK's newer default.
+
 ### Configuration
 
 Add a `storage:` section to your `.waza.yaml`:
