@@ -311,7 +311,7 @@ func TestWriteToDirRejectsInvalidTaskNames(t *testing.T) {
 
 			written, err := s.WriteToDir(dir, WriteOptions{})
 			require.ErrorContains(t, err, "failed schema validation")
-			require.Contains(t, err.Error(), "tasks/invalid.yaml")
+			require.Contains(t, err.Error(), filepath.Join("tasks", "invalid.yaml"))
 			require.Empty(t, written)
 			require.NoDirExists(t, dir, "validation must fail before writing any files")
 		})
