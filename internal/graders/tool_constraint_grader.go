@@ -14,6 +14,11 @@ type toolConstraintGrader struct {
 	name        string
 	expectTools []models.ToolSpecParameters
 	rejectTools []models.ToolSpecParameters
+
+	// allowOnly implements the policy allow-list. When non-nil, every
+	// observed tool call must match at least one entry; violations are
+	// reported as failures. A non-nil empty slice denies all tool calls.
+	allowOnly *[]models.ToolSpecParameters
 }
 
 // validateToolSpecs ensures each spec has a valid tool regex and optional args regex.
@@ -68,9 +73,55 @@ func validateToolSpecs(specs []models.ToolSpecParameters, fieldName string) ([]m
 	return normalized, nil
 }
 
+// validateAllowOnlySpecs validates an allow-list of tool specs. Unlike
+// expect/reject specs, the Tool field is matched exactly (case-insensitive) at
+// grade time — it is NOT compiled as a regex — so we only require a non-empty
+// name here. The other pattern fields (CommandPattern, SkillPattern,
+// PathPattern) are still regexes and still compiled/validated.
+func validateAllowOnlySpecs(specs []models.ToolSpecParameters, fieldName string) ([]models.ToolSpecParameters, error) {
+	normalized := make([]models.ToolSpecParameters, len(specs))
+	copy(normalized, specs)
+
+	for i, spec := range normalized {
+		spec.Tool = strings.TrimSpace(spec.Tool)
+		if spec.Tool == "" {
+			return nil, fmt.Errorf("config.%s[%d].tool: required non-empty string", fieldName, i)
+		}
+
+		if spec.CommandPattern != "" {
+			if _, err := regexp.Compile("(?i)" + spec.CommandPattern); err != nil {
+				return nil, fmt.Errorf("config.%s[%d].command_pattern: invalid regex: %w", fieldName, i, err)
+			}
+		}
+
+		if spec.SkillPattern != "" {
+			if _, err := regexp.Compile("(?i)" + spec.SkillPattern); err != nil {
+				return nil, fmt.Errorf("config.%s[%d].skill_pattern: invalid regex: %w", fieldName, i, err)
+			}
+		}
+
+		if spec.PathPattern != "" {
+			if _, err := regexp.Compile("(?i)" + spec.PathPattern); err != nil {
+				return nil, fmt.Errorf("config.%s[%d].path_pattern: invalid regex: %w", fieldName, i, err)
+			}
+		}
+
+		for argName, m := range spec.Args {
+			if err := m.Compile(); err != nil {
+				return nil, fmt.Errorf("config.%s[%d].args[%s]: %w", fieldName, i, argName, err)
+			}
+			spec.Args[argName] = m
+		}
+
+		normalized[i] = spec
+	}
+
+	return normalized, nil
+}
+
 // NewToolConstraintGrader creates a toolConstraintGrader from decoded parameters.
 func NewToolConstraintGrader(name string, params models.ToolConstraintGraderParameters) (*toolConstraintGrader, error) {
-	if len(params.ExpectTools) == 0 && len(params.RejectTools) == 0 {
+	if len(params.ExpectTools) == 0 && len(params.RejectTools) == 0 && params.AllowOnly == nil {
 		return nil, fmt.Errorf("tool_constraint grader '%s' must have at least one constraint configured", name)
 	}
 
@@ -83,10 +134,20 @@ func NewToolConstraintGrader(name string, params models.ToolConstraintGraderPara
 		return nil, fmt.Errorf("tool_constraint grader '%s': %w", name, err)
 	}
 
+	var allowOnly *[]models.ToolSpecParameters
+	if params.AllowOnly != nil {
+		allowSpecs, err := validateAllowOnlySpecs(*params.AllowOnly, "allow_only")
+		if err != nil {
+			return nil, fmt.Errorf("tool_constraint grader '%s': %w", name, err)
+		}
+		allowOnly = &allowSpecs
+	}
+
 	return &toolConstraintGrader{
 		name:        name,
 		expectTools: expectSpecs,
 		rejectTools: rejectSpecs,
+		allowOnly:   allowOnly,
 	}, nil
 }
 
@@ -111,8 +172,12 @@ func (tc *toolConstraintGrader) Grade(ctx context.Context, gradingContext *Conte
 		failures = append(failures, tc.checkExpectTools(session)...)
 		failures = append(failures, tc.checkRejectTools(session)...)
 
-		totalChecks := tc.countTotalChecks()
-		passedChecks := totalChecks - len(failures)
+		constraintFailures := len(failures)
+		allowFailures, allowChecks, allowFailedChecks := tc.checkAllowOnly(session)
+		failures = append(failures, allowFailures...)
+
+		totalChecks := tc.countTotalChecks() + allowChecks
+		passedChecks := totalChecks - constraintFailures - allowFailedChecks
 
 		score := 1.0
 		if totalChecks > 0 {
@@ -129,6 +194,11 @@ func (tc *toolConstraintGrader) Grade(ctx context.Context, gradingContext *Conte
 			"reject_tools": describeToolSpecs(tc.rejectTools),
 			"failures":     failures,
 			"tools_used":   session.ToolsUsed,
+		}
+		if tc.allowOnly != nil {
+			details["allow_only"] = describeToolSpecs(*tc.allowOnly)
+			details["allow_only_declared"] = true
+			details["allow_only_violations"] = allowOnlyViolationNames(*tc.allowOnly, session.ToolCalls)
 		}
 		if session.Usage != nil {
 			details["tokens_total"] = session.Usage.InputTokens + session.Usage.OutputTokens
@@ -172,6 +242,48 @@ func matchesToolCall(spec models.ToolSpecParameters, call models.ToolCall) bool 
 		return false
 	}
 
+	if !checkPattern(spec.SkillPattern, call.Arguments.Skill) {
+		return false
+	}
+
+	if len(spec.Args) > 0 {
+		args, err := normalizeToolCallArgs(call)
+		if err != nil {
+			return false
+		}
+		if failures := evaluateArgMatchers(spec.Args, args); len(failures) > 0 {
+			return false
+		}
+	}
+
+	return true
+}
+
+// matchesAllowSpec is like matchesToolCall but matches the Tool field exactly
+// (case-insensitive) rather than as a regex. This is the semantics used by
+// AllowOnly so that an .agent.md `tools: [bash]` entry cannot inadvertently
+// match `bash-experimental` or `bashful`. The other pattern fields
+// (CommandPattern etc.) still use regex, so callers can restrict which
+// invocations of an allowed tool are permitted.
+func matchesAllowSpec(spec models.ToolSpecParameters, call models.ToolCall) bool {
+	if !strings.EqualFold(spec.Tool, call.Name) {
+		return false
+	}
+
+	checkPattern := func(pattern, text string) bool {
+		if pattern == "" {
+			return true
+		}
+		matched, _ := regexp.MatchString("(?i)"+pattern, text)
+		return matched
+	}
+
+	if !checkPattern(spec.CommandPattern, call.Arguments.Command) {
+		return false
+	}
+	if !checkPattern(spec.PathPattern, call.Arguments.Path) {
+		return false
+	}
 	if !checkPattern(spec.SkillPattern, call.Arguments.Skill) {
 		return false
 	}
@@ -271,6 +383,94 @@ func (tc *toolConstraintGrader) checkRejectTools(session *models.SessionDigest) 
 		}
 	}
 	return failures
+}
+
+// checkAllowOnly enforces the allow-list policy over every observed tool
+// call. Each observed call that fails to match any allow-list entry counts
+// as one failed check; each observed call that matches counts as one passed
+// check. When there are no observed calls, checkAllowOnly still records one
+// passing "policy" check so an agent with an empty session isn't rewarded
+// with a divide-by-zero score of 1.0 while other constraints could still be
+// failing. When AllowOnly is nil, no checks are added.
+func (tc *toolConstraintGrader) checkAllowOnly(
+	session *models.SessionDigest,
+) (failures []string, totalChecks, failedChecks int) {
+	if tc.allowOnly == nil {
+		return nil, 0, 0
+	}
+
+	calls := session.ToolCalls
+	if len(calls) == 0 {
+		// Nothing to check — one vacuous pass so the policy is represented
+		// in the check count even for zero-tool sessions.
+		return nil, 1, 0
+	}
+
+	allowed := describeToolSpecs(*tc.allowOnly)
+
+	violationCounts := map[string]int{}
+	violationOrder := []string{}
+	for _, call := range calls {
+		if allowOnlyMatches(*tc.allowOnly, call) {
+			continue
+		}
+		name := call.Name
+		if name == "" {
+			name = "<unnamed>"
+		}
+		if _, seen := violationCounts[name]; !seen {
+			violationOrder = append(violationOrder, name)
+		}
+		violationCounts[name]++
+		failedChecks++
+	}
+
+	for _, name := range violationOrder {
+		count := violationCounts[name]
+		msg := fmt.Sprintf("Undeclared tool used: %s (not in allow_only: [%s])",
+			name, strings.Join(allowed, ", "))
+		if count > 1 {
+			msg = fmt.Sprintf("Undeclared tool used: %s (%d calls; not in allow_only: [%s])",
+				name, count, strings.Join(allowed, ", "))
+		}
+		failures = append(failures, msg)
+	}
+
+	return failures, len(calls), failedChecks
+}
+
+// allowOnlyMatches reports whether at least one allow-list entry matches
+// the observed call.
+func allowOnlyMatches(specs []models.ToolSpecParameters, call models.ToolCall) bool {
+	for _, spec := range specs {
+		if matchesAllowSpec(spec, call) {
+			return true
+		}
+	}
+	return false
+}
+
+// allowOnlyViolationNames returns the deduplicated list of tool names in the
+// session that failed the allow-only policy. Preserves observation order for
+// deterministic reporting.
+func allowOnlyViolationNames(specs []models.ToolSpecParameters, calls []models.ToolCall) []string {
+	seen := map[string]struct{}{}
+	var out []string
+	for _, call := range calls {
+		if allowOnlyMatches(specs, call) {
+			continue
+		}
+		name := call.Name
+		if name == "" {
+			name = "<unnamed>"
+		}
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		seen[name] = struct{}{}
+		out = append(out, name)
+	}
+	return out
 }
 
 func (tc *toolConstraintGrader) countTotalChecks() int {

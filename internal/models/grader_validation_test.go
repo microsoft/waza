@@ -212,7 +212,7 @@ graders:
 			expectError: false,
 		},
 		{
-			name: "tool_constraint grader with no expect_tools or reject_tools",
+			name: "tool_constraint grader with no constraints",
 			specYAML: `name: test
 skill: test-skill
 config:
@@ -226,7 +226,25 @@ graders:
     config: {}
 `,
 			expectError: true,
-			errorMsg:    "must have at least one tool",
+			errorMsg:    "must configure",
+		},
+		{
+			name: "tool_constraint grader with allow_only",
+			specYAML: `name: test
+skill: test-skill
+config:
+  trials_per_task: 1
+  timeout_seconds: 60
+  executor: mock
+  model: test-model
+graders:
+  - name: "my grader"
+    type: "tool_constraint"
+    config:
+      allow_only:
+        - tool: bash
+`,
+			expectError: false,
 		},
 		{
 			name: "file grader with no criteria",

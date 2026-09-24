@@ -324,10 +324,22 @@ func TestResponderValidationRejectsBothResponderAndFollowUps(t *testing.T) {
 			Responder: &ResponderConfig{Instructions: "x", MaxFollowups: 2},
 		},
 	}
+
 	err := tc.Validate()
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "follow_up_prompts")
 	require.Contains(t, err.Error(), "responder")
+}
+
+func TestValidatorInlineValidateAllowsAllowOnly(t *testing.T) {
+	allowOnly := []ToolSpecParameters{{Tool: "bash"}}
+	grader := &ValidatorInline{
+		Identifier: "allow",
+		Kind:       GraderKindToolConstraint,
+		Parameters: ToolConstraintGraderParameters{AllowOnly: &allowOnly},
+	}
+
+	require.NoError(t, grader.Validate())
 }
 
 func TestResponderValidationAcceptsValidConfig(t *testing.T) {

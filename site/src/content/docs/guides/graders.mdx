@@ -512,43 +512,40 @@ For forbidden-only configs, unrelated skill invocations are allowed and the grad
 
 ## Tool Constraint (`tool_constraint`)
 
-Validates which tools an agent should or shouldn't use, and enforces turn and token limits. Reads from the **session digest** to check tool usage, turn counts, and total token consumption.
+Validates which tools an agent should or shouldn't use. Reads from the **session digest** to check tool usage.
 
 ```yaml
 - type: tool_constraint
   name: guardrails
   config:
     expect_tools:
-      - bash
-      - edit
+      - tool: bash
+      - tool: edit
     reject_tools:
-      - rm
-      - sudo
-    max_turns: 10
-    max_tokens: 50000
+      - tool: bash
+        command_pattern: "rm\\s+-rf"
+    allow_only:
+      - tool: bash
+      - tool: edit
+      - tool: view
 ```
 
-| Option         | Type        | Default | Description                                    |
-| -------------- | ----------- | ------- | ---------------------------------------------- |
-| `expect_tools` | `list[str]` | `[]`    | Tool names that **must** appear in the session |
-| `reject_tools` | `list[str]` | `[]`    | Tool names that **must not** appear            |
-| `max_turns`    | `int`       | `0`     | Maximum conversation turns (0 = no limit)      |
-| `max_tokens`   | `int`       | `0`     | Maximum total token usage (0 = no limit)       |
+| Option         | Type   | Default | Description                                                                                                                                                                                                                                                                                       |
+| -------------- | ------ | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `expect_tools` | `list` | `[]`    | Tool specs that **must** appear in the session (lower bound). `tool` is a regex.                                                                                                                                                                                                                  |
+| `reject_tools` | `list` | `[]`    | Tool specs that **must not** appear (blocklist). `tool` is a regex.                                                                                                                                                                                                                               |
+| `allow_only`   | `list` | `null`  | Allow-list of tool specs (upper bound). Any observed tool call not matching an entry is a violation. Declared entries do **not** need to be exercised — the agent may use a subset. `tool` is an **exact** name (case-insensitive), NOT a regex. An empty list denies all tool use. |
 
-At least one constraint must be configured. Each configured rule counts as one check.
+At least one option must be configured. Each `expect_tools`/`reject_tools` entry counts as one check. For `allow_only`, each observed tool call counts as one check and each undeclared call as one failure (a session with zero tool calls counts as one vacuous pass).
 
 **Scoring:** `passed_checks / total_checks`
 
 <Aside type="caution" title="Auto-injected for custom agents">
-  When you target a custom agent (`.agent.md`) with a `tools:` field in its frontmatter, waza automatically adds an implicit `tool_constraint` grader to validate only those tools are used. You don't need to declare it in eval.yaml unless you want to override the defaults or add additional constraints. See the [Evaluating Custom Agents](/guides/custom-agents) guide for examples.
+  When you target a custom agent (`.agent.md`) with a `tools:` field in its frontmatter, waza automatically adds an implicit `tool_constraint` grader with an `allow_only` list built from those tools. The agent may use any subset of the declared tools but **not** any tool outside the list. You don't need to declare it in eval.yaml unless you want to add additional constraints. See the [Evaluating Custom Agents](/waza/guides/custom-agents/) guide for examples.
 </Aside>
 
-<Aside type="tip" title="tool_constraint vs. behavior">
-  Both `behavior` and `tool_constraint` can check tool usage and token limits.
-  Use `tool_constraint` when you want to validate specific tool names
-  (expect/reject lists) alongside turn and token budgets. Use `behavior` when
-  you need `max_duration_ms` or `max_tool_calls` (total count, not specific
-  names).
+<Aside type="tip" title="`expect_tools` vs `allow_only`">
+  `expect_tools` is a *lower bound* (each listed tool must be used at least once); `allow_only` is an *upper bound* (each observed tool must be in the list). They compose — use both together when the agent must call X and may only call from a set of Y.
 </Aside>
 
 ### Example: safety guardrails
@@ -558,11 +555,8 @@ At least one constraint must be configured. Each configured rule counts as one c
   name: safety_check
   config:
     reject_tools:
-      - rm
-      - sudo
-      - kill
-    max_turns: 15
-    max_tokens: 100000
+      - tool: bash
+        command_pattern: "rm\\s+-rf|sudo|kill"
 ```
 
 ### Example: required workflow tools
@@ -572,9 +566,21 @@ At least one constraint must be configured. Each configured rule counts as one c
   name: workflow_tools
   config:
     expect_tools:
-      - bash
-      - edit
-      - grep
+      - tool: bash
+      - tool: edit
+      - tool: grep
+```
+
+### Example: sandbox allow-list
+
+```yaml
+- type: tool_constraint
+  name: sandbox
+  config:
+    allow_only:
+      - tool: view
+      - tool: grep
+      - tool: glob
 ```
 
 ---

@@ -132,6 +132,33 @@ type ToolSpecParameters struct {
 type ToolConstraintGraderParameters struct {
 	ExpectTools []ToolSpecParameters `yaml:"expect_tools,omitempty" json:"expect_tools,omitempty"`
 	RejectTools []ToolSpecParameters `yaml:"reject_tools,omitempty" json:"reject_tools,omitempty"`
+
+	// AllowOnly declares a policy allow-list of tool specs. When non-nil,
+	// every observed tool call in the session digest must match at least one
+	// entry; any undeclared tool used by the agent counts as a policy
+	// violation. Declared tools do NOT need to be exercised — this is an
+	// upper bound, not a lower bound.
+	//
+	// AllowOnly is distinct from ExpectTools:
+	//
+	//   - ExpectTools requires every listed tool to have been used at least
+	//     once (a lower bound). Extra tools not listed are ignored.
+	//   - AllowOnly forbids any tool that is not listed (an upper bound).
+	//     Missing listed tools are not a violation.
+	//
+	// Semantics of the pointer:
+	//
+	//   - nil: no allow-list check is applied.
+	//   - non-nil empty slice (`&[]ToolSpecParameters{}`): deny-all — any
+	//     observed tool call is a violation.
+	//   - non-nil populated: only observed calls whose tool name matches an
+	//     entry (exact / case-insensitive on the Tool field, with optional
+	//     pattern qualifiers on other fields) are allowed.
+	//
+	// Tool-name matching is exact (case-insensitive) rather than regex, so
+	// entries injected from an .agent.md `tools:` frontmatter list are not
+	// silently reinterpreted as patterns.
+	AllowOnly *[]ToolSpecParameters `yaml:"allow_only,omitempty" json:"allow_only,omitempty"`
 }
 
 func (ToolConstraintGraderParameters) isGraderParameters() {}

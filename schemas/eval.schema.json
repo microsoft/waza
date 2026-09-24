@@ -229,7 +229,7 @@
         "inject_skill_body": {
           "type": "boolean",
           "default": true,
-          "description": "When false, do not inject the target SKILL.md or .agent.md body into the system prompt. Skill discovery and compact available_skills summaries remain enabled."
+          "description": "When false, do not inject the target SKILL.md or .agent.md body into the system prompt. Copilot SDK skill discovery remains enabled, but Waza does not emit a synthetic available_skills summary."
         },
         "disabled_skills": {
           "type": "array",
@@ -1189,6 +1189,50 @@
         }
       }
     },
+    "toolArgumentMatchers": {
+      "type": "object",
+      "description": "Argument-name to matcher mapping. Each matcher must define exactly one of equals, regex, contains, range, or json_schema.",
+      "additionalProperties": {
+        "type": "object",
+        "minProperties": 1,
+        "maxProperties": 1,
+        "additionalProperties": false,
+        "properties": {
+          "equals": {},
+          "regex": {
+            "type": "string",
+            "minLength": 1
+          },
+          "contains": {
+            "type": "string",
+            "minLength": 1
+          },
+          "range": {
+            "type": "object",
+            "minProperties": 1,
+            "additionalProperties": false,
+            "properties": {
+              "gte": {
+                "type": "number"
+              },
+              "lte": {
+                "type": "number"
+              },
+              "gt": {
+                "type": "number"
+              },
+              "lt": {
+                "type": "number"
+              }
+            }
+          },
+          "json_schema": {
+            "type": "object",
+            "minProperties": 1
+          }
+        }
+      }
+    },
     "toolConstraintGraderConfig": {
       "type": "object",
       "additionalProperties": false,
@@ -1202,6 +1246,11 @@
         {
           "required": [
             "reject_tools"
+          ]
+        },
+        {
+          "required": [
+            "allow_only"
           ]
         }
       ],
@@ -1231,6 +1280,9 @@
               "path_pattern": {
                 "type": "string",
                 "description": "Optional regex matched against the path argument (case-insensitive)."
+              },
+              "args": {
+                "$ref": "#/$defs/toolArgumentMatchers"
               }
             }
           },
@@ -1261,10 +1313,46 @@
               "path_pattern": {
                 "type": "string",
                 "description": "Optional regex matched against the path argument (case-insensitive)."
+              },
+              "args": {
+                "$ref": "#/$defs/toolArgumentMatchers"
               }
             }
           },
           "description": "Tool specs that MUST NOT be used during execution."
+        },
+        "allow_only": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "tool"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "tool": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Exact tool name (case-insensitive). NOT a regex — an entry 'bash' does not match 'bashful'."
+              },
+              "command_pattern": {
+                "type": "string",
+                "description": "Optional regex matched against serialized tool arguments (case-insensitive)."
+              },
+              "skill_pattern": {
+                "type": "string",
+                "description": "Optional regex matched against the skill argument (case-insensitive)."
+              },
+              "path_pattern": {
+                "type": "string",
+                "description": "Optional regex matched against the path argument (case-insensitive)."
+              },
+              "args": {
+                "$ref": "#/$defs/toolArgumentMatchers"
+              }
+            }
+          },
+          "description": "Allow-list of tool specs (upper bound). Any observed tool call that does not match at least one entry is a policy violation. Declared tools do NOT need to be exercised. An empty array denies all tool use. This is the field that .agent.md 'tools:' frontmatter is desugared into."
         }
       }
     },

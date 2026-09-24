@@ -42,9 +42,39 @@ You are a security code reviewer.
 
 	params, ok := result[1].Parameters.(models.ToolConstraintGraderParameters)
 	require.True(t, ok, "parameters should be ToolConstraintGraderParameters")
-	require.Len(t, params.ExpectTools, 2)
-	assert.Equal(t, "search/codebase", params.ExpectTools[0].Tool)
-	assert.Equal(t, "filesystem/read", params.ExpectTools[1].Tool)
+
+	// Declared tools must be injected as AllowOnly (allow-list), not
+	// ExpectTools. ExpectTools would force the agent to actually use every
+	// listed tool, which is the bug fixed by issue #586.
+	assert.Nil(t, params.ExpectTools, "must not inject expect_tools for .agent.md declarations")
+	assert.Nil(t, params.RejectTools, "must not inject reject_tools for .agent.md declarations")
+	require.NotNil(t, params.AllowOnly, "must inject allow_only for declared tools")
+	require.Len(t, *params.AllowOnly, 2)
+	assert.Equal(t, "search/codebase", (*params.AllowOnly)[0].Tool)
+	assert.Equal(t, "filesystem/read", (*params.AllowOnly)[1].Tool)
+}
+
+// TestAugmentGradersFromAgent_EmptyToolsList covers `tools: []` — an explicit
+// deny-all declaration. The grader must still be injected with a non-nil
+// (but zero-length) AllowOnly so any tool call the agent makes is a policy
+// violation.
+func TestAugmentGradersFromAgent_EmptyToolsList(t *testing.T) {
+	tmpDir := t.TempDir()
+	agentPath := writeAgentFile(t, tmpDir, "deny-all.agent.md", `---
+name: deny-all
+tools: []
+---
+
+I use no tools.
+`)
+
+	result := augmentGradersFromAgent(nil, agentPath)
+
+	require.Len(t, result, 1, "explicit tools: [] must still inject a grader")
+	params, ok := result[0].Parameters.(models.ToolConstraintGraderParameters)
+	require.True(t, ok)
+	require.NotNil(t, params.AllowOnly, "explicit tools: [] must produce non-nil AllowOnly")
+	assert.Empty(t, *params.AllowOnly, "explicit tools: [] must produce zero-length AllowOnly")
 }
 
 func TestAugmentGradersFromAgent_SkipsWhenUserConfigured(t *testing.T) {
@@ -85,7 +115,10 @@ Just instructions, no tools.
 
 	result := augmentGradersFromAgent(graders, agentPath)
 
-	assert.Len(t, result, 1, "should not inject when agent has no tools")
+	// Absent `tools:` key must NOT inject an implicit grader; the agent has
+	// simply not opted in to tool constraints. This is different from
+	// `tools: []`, which explicitly denies all tool use.
+	assert.Len(t, result, 1, "absent tools: key must not inject a grader")
 }
 
 func TestAugmentGradersFromAgent_NotAgentFile(t *testing.T) {

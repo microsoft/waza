@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/mattn/go-runewidth"
 
@@ -246,15 +245,17 @@ func printCheckSummaryTable(w interface{ Write([]byte) (int, error) }, reports [
 	const maxNameWidth = 25
 	const minNameWidth = 10
 
-	// Compute dynamic column width from the longest skill name.
-	nameWidth := len("Skill")
+	// Compute dynamic column width (in terminal display cells) from the longest
+	// skill name. Display width, rather than the rune count, is used so the
+	// column stays aligned with padRight for wide characters (CJK, emoji).
+	nameWidth := runewidth.StringWidth("Skill")
 	for _, r := range reports {
 		n := r.skillName
 		if n == "" {
 			n = "unnamed"
 		}
-		if runeLen := utf8.RuneCountInString(n); runeLen > nameWidth {
-			nameWidth = runeLen
+		if width := runewidth.StringWidth(n); width > nameWidth {
+			nameWidth = width
 		}
 	}
 	if nameWidth > maxNameWidth {
@@ -337,13 +338,15 @@ func printCheckSummaryTable(w interface{ Write([]byte) (int, error) }, reports [
 	fmt.Fprintf(w, "\n") //nolint:errcheck
 }
 
-// truncateName shortens a name to maxLen runes, replacing the last rune with "…" if needed.
+// truncateName shortens a name so that its terminal display width is at most
+// maxLen cells, appending "…" when truncation happens. Display width is used
+// (rather than the rune count) so that wide characters such as CJK and emoji
+// stay aligned with padRight in the summary table.
 func truncateName(name string, maxLen int) string {
-	runes := []rune(name)
-	if len(runes) <= maxLen {
+	if runewidth.StringWidth(name) <= maxLen {
 		return name
 	}
-	return string(runes[:maxLen-1]) + "…"
+	return runewidth.Truncate(name, maxLen, "…")
 }
 
 // padRight pads s with spaces so its terminal display width reaches width.
