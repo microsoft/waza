@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -42,6 +44,9 @@ type CopilotEngine struct {
 	// SDK process running for other engines / graders. The top-level
 	// command must call [ShutdownSharedClient] to actually stop it.
 	ownsClient bool
+	// sanitizedEnvironment records a client-startup property that cannot be
+	// enabled later for an individual sandboxed session.
+	sanitizedEnvironment bool
 
 	startOnce sync.Once
 
@@ -163,6 +168,9 @@ type CopilotEngineBuilder struct {
 
 type CopilotEngineBuilderOptions struct {
 	NewCopilotClient func(clientOptions *copilot.ClientOptions) CopilotClient
+	// SanitizeEnvironment gives this engine's Copilot CLI process the restricted
+	// environment required by sandboxed evaluation requests.
+	SanitizeEnvironment bool
 }
 
 // NewCopilotEngineBuilder creates a builder for CopilotEngine
@@ -182,29 +190,23 @@ func NewCopilotEngineBuilder(defaultModelID string, options *CopilotEngineBuilde
 	ownsClient := false
 	provider := providerFromEnv()
 	cliArgs := modelCLIArgs(defaultModelID, provider.enabled())
+	sanitizeEnvironment := options != nil && options.SanitizeEnvironment
 
 	if options == nil || options.NewCopilotClient == nil {
 		// Production: share one SDK process across all engines + graders.
-		client = SharedClient(SharedClientOptions{CLIArgs: cliArgs})
+		client = SharedClient(SharedClientOptions{CLIArgs: cliArgs, SanitizeEnvironment: sanitizeEnvironment})
 	} else {
-		copilotOptions := &copilot.ClientOptions{
-			// workspace is set at the session level, instead of at the client.
-			LogLevel: "error",
-
-			// SDK v1.0.0 moved CLIArgs onto the Connection. AutoStart/AutoRestart
-			// are no longer configurable — the SDK starts on demand and restarts
-			// internally. We still call client.Start() explicitly in Initialize().
-			Connection: copilot.StdioConnection{Args: cliArgs},
-		}
+		copilotOptions := copilotClientOptions("error", cliArgs, "", sanitizeEnvironment)
 		client = options.NewCopilotClient(copilotOptions)
 		ownsClient = true
 	}
 
 	builder := &CopilotEngineBuilder{
 		engine: &CopilotEngine{
-			defaultModelID: defaultModelID,
-			ownsClient:     ownsClient,
-			provider:       provider,
+			defaultModelID:       defaultModelID,
+			ownsClient:           ownsClient,
+			sanitizedEnvironment: sanitizeEnvironment,
+			provider:             provider,
 		},
 	}
 
@@ -318,6 +320,17 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 	if req == nil {
 		return nil, fmt.Errorf("nil req was passed to CopilotEngine.Execute")
 	}
+	sandbox := req.Sandbox
+	if sandbox != nil && sandbox.Enabled {
+		if !e.sanitizedEnvironment {
+			return nil, fmt.Errorf("sandboxed execution requires an engine built with CopilotEngineBuilderOptions.SanitizeEnvironment because the Copilot CLI process environment is fixed at startup")
+		}
+		resolved, err := resolveSandboxPaths(*sandbox)
+		if err != nil {
+			return nil, err
+		}
+		sandbox = &resolved
+	}
 
 	modelID, sourceDir, err := e.extractReqParams(req)
 
@@ -335,8 +348,21 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 	var workspaceDir string
 	if req.WorkspaceDir != "" {
 		workspaceDir = req.WorkspaceDir
+		if sandbox != nil && sandbox.Enabled {
+			workspaceDir, err = canonicalSandboxPath(workspaceDir)
+			if err != nil {
+				return nil, fmt.Errorf("resolving existing sandbox workspace %q: %w", req.WorkspaceDir, err)
+			}
+			info, statErr := os.Stat(workspaceDir)
+			if statErr != nil {
+				return nil, fmt.Errorf("reading existing sandbox workspace %q: %w", workspaceDir, statErr)
+			}
+			if !info.IsDir() {
+				return nil, fmt.Errorf("existing sandbox workspace %q is not a directory", workspaceDir)
+			}
+		}
 	} else {
-		workspaceDir, err = e.setupWorkspace(ctx, req.Resources, req.GitResources)
+		workspaceDir, err = e.setupWorkspace(ctx, req.Resources, req.GitResources, sandbox != nil && sandbox.Enabled)
 		if err != nil {
 			return nil, err
 		}
@@ -352,9 +378,26 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 	var systemMessage *copilot.SystemMessageConfig
 	var systemMessageParts []string
 	if !req.NoSkills {
-		skillDirs = e.getSkillDirs(sourceDir, req)
+		if sandbox != nil && sandbox.Enabled {
+			// A sandboxed evaluation exposes only explicitly declared skills. The
+			// process launch directory must not become an implicit host read path.
+			skillDirs = make([]string, len(req.SkillPaths))
+			for i, skillDir := range req.SkillPaths {
+				skillDirs[i], err = canonicalSandboxPath(skillDir)
+				if err != nil {
+					return nil, fmt.Errorf("resolving declared skill directory %q: %w", skillDir, err)
+				}
+			}
+		} else {
+			skillDirs = e.getSkillDirs(sourceDir, req)
+		}
 		if msg := buildSkillSystemMessage(skillDirs, req.SkillName, !req.SuppressSkillBody); msg != "" {
 			systemMessageParts = append(systemMessageParts, msg)
+		}
+	}
+	if sandbox != nil && sandbox.Enabled {
+		if err := validateSandboxPathPolicy(workspaceDir, skillDirs, *sandbox); err != nil {
+			return nil, err
 		}
 	}
 	if msg := buildInstructionSystemMessage(req.Instructions); msg != "" {
@@ -369,9 +412,12 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 
 	var session CopilotSession
 
-	permRequestCallback := allowAllTools
+	permRequestCallback := copilot.PermissionHandlerFunc(allowAllTools)
 	if req.PermissionHandler != nil {
 		permRequestCallback = req.PermissionHandler
+	}
+	if sandbox != nil && sandbox.Enabled {
+		permRequestCallback = sandboxPermissionHandler(permRequestCallback)
 	}
 
 	if req.SessionID == "" {
@@ -415,14 +461,19 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 	}
 
 	sessionID := session.SessionID()
+	deleteSession := req.EphemeralSession && req.SessionID == ""
+	sessionCleaned := false
 	defer func() {
+		if sessionCleaned {
+			return
+		}
 		// Close the session, release its resources, and trigger any session end events. The destroy
 		// operation doesn't remove data and isn't final in that the caller can resume the session by
 		// calling Execute again with [ExecutionRequest.SessionID] set
 		if err := session.Disconnect(); err != nil {
 			slog.Info("failed to destroy session", "sessionID", sessionID, "error", err)
 		}
-		if req.EphemeralSession && req.SessionID == "" {
+		if deleteSession {
 			deleteCtx, cancelDelete := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancelDelete()
 			if err := e.client.DeleteSession(deleteCtx, sessionID); err != nil {
@@ -430,6 +481,19 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 			}
 		}
 	}()
+	if sandbox != nil && sandbox.Enabled {
+		if err := session.ConfigureSandbox(ctx, workspaceDir, skillDirs, *sandbox); err != nil {
+			configureErr := fmt.Errorf("failed to configure Copilot sandbox: %w", err)
+			disconnectErr := session.Disconnect()
+			sessionCleaned = true
+			// A session that failed to acquire its requested sandbox policy
+			// must not remain resumable with a weaker policy.
+			deleteCtx, cancelDelete := context.WithTimeout(context.Background(), 30*time.Second)
+			deleteErr := e.client.DeleteSession(deleteCtx, sessionID)
+			cancelDelete()
+			return nil, errors.Join(configureErr, disconnectErr, deleteErr)
+		}
+	}
 
 	eventsCollector := NewSessionEventsCollector()
 	usageCollector := NewSessionUsageCollector()
@@ -604,9 +668,10 @@ func (e *CopilotEngine) doShutdown(ctx context.Context) error {
 	// must leave the client running so other engines / graders can use it;
 	// the top-level command stops it via [ShutdownSharedClient]. See
 	// docs/design/135-improve-concurrency.md (R2).
+	var shutdownErr error
 	if e.ownsClient {
 		if err := e.client.Stop(); err != nil {
-			return fmt.Errorf("failed to stop client: %w", err)
+			shutdownErr = fmt.Errorf("failed to stop client: %w", err)
 		}
 	}
 
@@ -643,7 +708,7 @@ func (e *CopilotEngine) doShutdown(ctx context.Context) error {
 		}
 	}
 
-	return nil
+	return shutdownErr
 }
 
 // DeleteSession removes a persistent session created via Execute (with
@@ -736,11 +801,31 @@ func (*CopilotEngine) getSkillDirs(cwd string, req *ExecutionRequest) []string {
 	return skillDirs
 }
 
-func (e *CopilotEngine) setupWorkspace(ctx context.Context, resources []ResourceFile, gitResources []models.GitResource) (string, error) {
-	workspaceDir, err := os.MkdirTemp("", "waza-*")
+func (e *CopilotEngine) setupWorkspace(ctx context.Context, resources []ResourceFile, gitResources []models.GitResource, sandboxed bool) (string, error) {
+	workspaceRoot := ""
+	if sandboxed {
+		cacheDir, err := os.UserCacheDir()
+		if err != nil {
+			return "", fmt.Errorf("failed to locate user cache for sandbox workspace: %w", err)
+		}
+		workspaceRoot = filepath.Join(cacheDir, "waza", "workspaces")
+		if err := os.MkdirAll(workspaceRoot, 0o700); err != nil {
+			return "", fmt.Errorf("failed to create sandbox workspace root: %w", err)
+		}
+	}
+
+	workspaceDir, err := os.MkdirTemp(workspaceRoot, "waza-*")
 
 	if err != nil {
 		return "", fmt.Errorf("failed to create temp workspace: %w", err)
+	}
+	if sandboxed {
+		canonicalWorkspaceDir, resolveErr := canonicalSandboxPath(workspaceDir)
+		if resolveErr != nil {
+			_ = os.RemoveAll(workspaceDir)
+			return "", fmt.Errorf("failed to resolve sandbox workspace: %w", resolveErr)
+		}
+		workspaceDir = canonicalWorkspaceDir
 	}
 
 	e.workspacesMu.Lock()
@@ -780,20 +865,29 @@ func captureWorkspaceFiles(dir string) map[string][]byte {
 	}
 
 	files := make(map[string][]byte)
-	_ = filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return files
+	}
+	defer func() {
+		if err := root.Close(); err != nil {
+			slog.Warn("closing captured workspace", "path", dir, "error", err)
+		}
+	}()
+	_ = fs.WalkDir(root.FS(), ".", func(path string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
 			return nil
 		}
-		rel, relErr := filepath.Rel(dir, path)
-		if relErr != nil {
+		info, statErr := root.Lstat(path)
+		if statErr != nil || !info.Mode().IsRegular() {
 			return nil
 		}
-		content, readErr := os.ReadFile(path)
+		content, readErr := root.ReadFile(path)
 		if readErr != nil {
 			return nil
 		}
 		// Normalize to forward slashes so map keys match eval YAML paths on all platforms.
-		files[filepath.ToSlash(rel)] = content
+		files[filepath.ToSlash(path)] = content
 		return nil
 	})
 	return files
@@ -809,6 +903,219 @@ func joinStrings(parts []string) string {
 
 func allowAllTools(request copilot.PermissionRequest, invocation copilot.PermissionInvocation) (rpc.PermissionDecision, error) {
 	return &rpc.PermissionDecisionApproveOnce{}, nil
+}
+
+func sandboxPermissionHandler(next copilot.PermissionHandlerFunc) copilot.PermissionHandlerFunc {
+	return func(request copilot.PermissionRequest, invocation copilot.PermissionInvocation) (rpc.PermissionDecision, error) {
+		if request.RequiresManagedApproval() {
+			feedback := "managed policy requires interactive approval, which is unavailable during evaluations"
+			return &rpc.PermissionDecisionReject{Feedback: &feedback}, nil
+		}
+		if permissionRequestsSandboxBypass(request) {
+			feedback := "sandbox bypass is disabled during evaluations"
+			return &rpc.PermissionDecisionReject{Feedback: &feedback}, nil
+		}
+		switch request.(type) {
+		case *copilot.PermissionRequestCustomTool,
+			*copilot.PermissionRequestMCP,
+			*copilot.PermissionRequestRead,
+			*copilot.PermissionRequestShell,
+			// Copilot CLI 1.0.80+ applies the configured native network policy to
+			// built-in URL operations, including redirects and cross-origin fetches.
+			// Keep approval delegation here so stronger inherited policy can still
+			// reject a request without duplicating network enforcement in Waza.
+			*copilot.PermissionRequestURL,
+			*copilot.PermissionRequestWrite:
+			return next(request, invocation)
+		default:
+			feedback := fmt.Sprintf("permission request %q is unavailable during sandboxed evaluations", request.Kind())
+			return &rpc.PermissionDecisionReject{Feedback: &feedback}, nil
+		}
+	}
+}
+
+func permissionRequestsSandboxBypass(request copilot.PermissionRequest) bool {
+	var requested *bool
+	switch value := request.(type) {
+	case *copilot.PermissionRequestRead:
+		requested = value.RequestSandboxBypass
+	case *copilot.PermissionRequestShell:
+		requested = value.RequestSandboxBypass
+	case *copilot.PermissionRequestURL:
+		requested = value.RequestSandboxBypass
+	case *copilot.PermissionRequestWrite:
+		requested = value.RequestSandboxBypass
+	}
+	return requested != nil && *requested
+}
+
+func resolveSandboxPaths(config models.SandboxConfig) (models.SandboxConfig, error) {
+	resolved, err := config.ResolvePaths()
+	if err != nil {
+		return resolved, err
+	}
+	if err := validateSandboxPathPolicy("", nil, resolved); err != nil {
+		return resolved, err
+	}
+	return resolved, nil
+}
+
+func canonicalSandboxPath(path string) (string, error) {
+	resolved, err := filepath.EvalSymlinks(filepath.Clean(path))
+	if err != nil {
+		return "", err
+	}
+	return filepath.Abs(resolved)
+}
+
+func validateSandboxPathPolicy(workspaceDir string, skillDirs []string, config models.SandboxConfig) error {
+	tempDirs, err := deniedTemporaryRoots()
+	if err != nil {
+		return err
+	}
+	for _, tempDir := range tempDirs {
+		for _, path := range append(append([]string{}, config.ReadonlyPaths...), config.ReadwritePaths...) {
+			if pathsOverlap(path, tempDir) {
+				return fmt.Errorf("sandbox path %q overlaps denied temporary directory %q", path, tempDir)
+			}
+		}
+		if workspaceDir != "" && pathsOverlap(workspaceDir, tempDir) {
+			return fmt.Errorf("sandbox workspace %q overlaps denied temporary directory %q", workspaceDir, tempDir)
+		}
+		for _, skillDir := range skillDirs {
+			if pathsOverlap(skillDir, tempDir) {
+				return fmt.Errorf("declared skill directory %q overlaps denied temporary directory %q", skillDir, tempDir)
+			}
+		}
+	}
+	if workspaceDir != "" {
+		for _, skillDir := range skillDirs {
+			if pathsOverlap(workspaceDir, skillDir) {
+				return fmt.Errorf("sandbox workspace %q overlaps declared skill directory %q", workspaceDir, skillDir)
+			}
+		}
+		for _, readonlyPath := range config.ReadonlyPaths {
+			if pathsOverlap(workspaceDir, readonlyPath) {
+				return fmt.Errorf("sandbox workspace %q overlaps read-only path %q", workspaceDir, readonlyPath)
+			}
+		}
+	}
+	for _, readwritePath := range config.ReadwritePaths {
+		for _, readonlyPath := range config.ReadonlyPaths {
+			if pathsOverlap(readwritePath, readonlyPath) {
+				return fmt.Errorf("read-write sandbox path %q overlaps read-only path %q", readwritePath, readonlyPath)
+			}
+		}
+		for _, skillDir := range skillDirs {
+			if pathsOverlap(readwritePath, skillDir) {
+				return fmt.Errorf("read-write sandbox path %q overlaps declared skill directory %q", readwritePath, skillDir)
+			}
+		}
+	}
+	return nil
+}
+
+func deniedTemporaryRoots() ([]string, error) {
+	candidates := []string{os.TempDir()}
+	for _, name := range []string{"TMPDIR", "TEMP", "TMP"} {
+		candidates = append(candidates, os.Getenv(name))
+	}
+	if runtime.GOOS == "windows" {
+		candidates = append(candidates, filepath.Join(os.Getenv("SystemRoot"), "Temp"))
+	} else {
+		candidates = append(candidates, "/tmp")
+	}
+
+	roots := make([]string, 0, len(candidates))
+	seen := make(map[string]bool)
+	for _, value := range candidates {
+		if !validTemporaryDirectory(value) {
+			continue
+		}
+		canonical, err := canonicalSandboxPath(value)
+		if err != nil {
+			continue
+		}
+		info, err := os.Stat(canonical)
+		if err != nil || !info.IsDir() || seen[canonical] {
+			continue
+		}
+		seen[canonical] = true
+		roots = append(roots, canonical)
+	}
+	if len(roots) == 0 {
+		return nil, fmt.Errorf("could not determine a valid temporary directory to deny")
+	}
+	return roots, nil
+}
+
+func pathsOverlap(first, second string) bool {
+	contains := func(base, target string) bool {
+		baseInfo, err := os.Stat(base)
+		if err != nil {
+			return false
+		}
+		for current := target; ; current = filepath.Dir(current) {
+			if currentInfo, err := os.Stat(current); err == nil && os.SameFile(baseInfo, currentInfo) {
+				return true
+			}
+			parent := filepath.Dir(current)
+			if parent == current {
+				return false
+			}
+		}
+	}
+	return contains(first, second) || contains(second, first)
+}
+
+func sessionSandboxConfiguration(workspaceDir string, readonlyDirs []string, config models.SandboxConfig) (*rpc.SessionUpdateOptionsParams, *rpc.PermissionsConfigureParams, error) {
+	if !config.Enabled {
+		return nil, nil, nil
+	}
+	deniedTempDirs, err := deniedTemporaryRoots()
+	if err != nil {
+		return nil, nil, err
+	}
+	readonlyPaths := append(append([]string{}, readonlyDirs...), config.ReadonlyPaths...)
+	readwritePaths := append([]string{workspaceDir}, config.ReadwritePaths...)
+	additionalDirectories := make([]string, 0, len(readonlyPaths)+len(config.ReadwritePaths))
+	for _, path := range append(append([]string{}, readonlyPaths...), config.ReadwritePaths...) {
+		if info, statErr := os.Stat(path); statErr == nil && info.IsDir() {
+			additionalDirectories = append(additionalDirectories, path)
+		}
+	}
+
+	return &rpc.SessionUpdateOptionsParams{
+			SandboxConfig: &rpc.SandboxConfig{
+				Enabled:                    true,
+				AddCurrentWorkingDirectory: copilot.Bool(false),
+				AllowDevToolAccess:         copilot.Bool(config.AllowDevToolCaches),
+				Auth: &rpc.SandboxConfigAuth{
+					Gh:  copilot.Bool(config.GHAuth),
+					Git: copilot.Bool(config.GitAuth),
+				},
+				UserPolicy: &rpc.SandboxConfigUserPolicy{
+					Filesystem: &rpc.SandboxConfigUserPolicyFilesystem{
+						ClearPolicyOnExit: copilot.Bool(true),
+						DeniedPaths:       deniedTempDirs,
+						ReadonlyPaths:     readonlyPaths,
+						ReadwritePaths:    readwritePaths,
+					},
+					Network: &rpc.SandboxConfigUserPolicyNetwork{
+						AllowLocalNetwork: copilot.Bool(config.AllowLocalNetwork),
+						AllowOutbound:     copilot.Bool(config.AllowOutboundNetwork),
+					},
+					Seatbelt: &rpc.SandboxConfigUserPolicySeatbelt{KeychainAccess: copilot.Bool(false)},
+				},
+			},
+		}, &rpc.PermissionsConfigureParams{
+			Paths: &rpc.PermissionPathsConfig{
+				AdditionalDirectories: additionalDirectories,
+				WorkspacePath:         &workspaceDir,
+				IncludeTempDirectory:  copilot.Bool(false),
+				Unrestricted:          copilot.Bool(false),
+			},
+		}, nil
 }
 
 // streamingPtr converts the caller's bool Streaming field into the *bool the
@@ -828,28 +1135,13 @@ type skillDefinition struct {
 	Dir         string
 }
 
-// buildSkillSystemMessage scans skill directories for SKILL.md files and returns
-// a system message that injects the target skill's full definition when
-// injectSkillBody is true and a skill matching skillName is found.
-//
-// It intentionally does NOT emit a synthetic <available_skills> inventory:
-// the Copilot SDK already advertises the skills passed via SkillDirectories
-// with correctly-parsed metadata, so a second waza-authored inventory would
-// duplicate that content — and, historically, corrupt it because this
-// package's local frontmatter parser only reads the description line and
-// therefore emitted the block-scalar indicator (">-", ">", "|") as the
-// literal description for skills scaffolded by `waza new skill`. See #578.
-func buildSkillSystemMessage(skillDirs []string, skillName string, injectSkillBody bool) string {
-	if !injectSkillBody || skillName == "" {
-		return ""
-	}
+func discoverSkillDefinitions(skillDirs []string) []skillDefinition {
+	var skills []skillDefinition
 
 	for _, dir := range skillDirs {
 		// Check direct SKILL.md in this directory
 		if sd := loadSkillDefinition(dir); sd != nil {
-			if strings.EqualFold(sd.Name, skillName) {
-				return skillContextBlock(sd.Content)
-			}
+			skills = append(skills, *sd)
 			continue
 		}
 
@@ -868,13 +1160,29 @@ func buildSkillSystemMessage(skillDirs []string, skillName string, injectSkillBo
 				continue
 			}
 			if sd := loadSkillDefinition(filepath.Join(dir, name)); sd != nil {
-				if strings.EqualFold(sd.Name, skillName) {
-					return skillContextBlock(sd.Content)
-				}
+				skills = append(skills, *sd)
 			}
 		}
 	}
+	return skills
+}
 
+// buildSkillSystemMessage scans skill directories for SKILL.md files and returns
+// a system message that injects the target skill's full definition when
+// injectSkillBody is true and a skill matching skillName is found.
+//
+// It intentionally does NOT emit a synthetic <available_skills> inventory:
+// the Copilot SDK already advertises the skills passed via SkillDirectories.
+func buildSkillSystemMessage(skillDirs []string, skillName string, injectSkillBody bool) string {
+	if !injectSkillBody || skillName == "" {
+		return ""
+	}
+
+	for _, skill := range discoverSkillDefinitions(skillDirs) {
+		if strings.EqualFold(skill.Name, skillName) {
+			return skillContextBlock(skill.Content)
+		}
+	}
 	return ""
 }
 

@@ -80,6 +80,7 @@ func generateEvalAnalysis(
 		Message:    prompt,
 		SkillPaths: resolvedSkillPaths,
 		Resources:  resources,
+		Sandbox:    spec.Config.Sandbox,
 	})
 	cancel()
 	if err != nil {
@@ -151,6 +152,10 @@ func resolveSuggestionSkillPaths(spec *models.EvalSpec, specPath string) []strin
 	seen := make(map[string]bool, len(paths))
 	unique := make([]string, 0, len(paths))
 	for _, p := range paths {
+		// Discovery roots must not become native sandbox grants or workspace copies.
+		if spec.Config.Sandbox != nil && spec.Config.Sandbox.Enabled && !hasSkillFile(p) {
+			continue
+		}
 		if seen[p] {
 			continue
 		}

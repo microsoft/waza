@@ -2,12 +2,19 @@ package execution
 
 import (
 	"context"
+	"fmt"
 
+	"github.com/Masterminds/semver/v3"
 	copilot "github.com/github/copilot-sdk/go"
+	"github.com/microsoft/waza/internal/models"
 )
 
 // CopilotSession is just an interface over [*copilot.Session]
 type CopilotSession interface {
+	// ConfigureSandbox enables Copilot's native sandbox and limits model-visible tools to the
+	// isolated task workspace plus read-only skill directories.
+	ConfigureSandbox(ctx context.Context, workspaceDir string, readonlyDirs []string, config models.SandboxConfig) error
+
 	// Disconnect maps to [copilot.Session.Disconnect]. It closes the session and releases resources, however it
 	// doesn't delete data and the session is still resumable until deleted via [copilot.Client.DeleteSession].
 	Disconnect() error
@@ -63,7 +70,7 @@ func (w *copilotClientWrapper) CreateSession(ctx context.Context, config *copilo
 		return nil, err
 	}
 
-	return &copilotSessionWrapper{inner: sess}, nil
+	return &copilotSessionWrapper{inner: sess, getStatus: w.inner.GetStatus}, nil
 }
 
 func (w *copilotClientWrapper) ResumeSessionWithOptions(ctx context.Context, sessionID string, config *copilot.ResumeSessionConfig) (CopilotSession, error) {
@@ -73,7 +80,7 @@ func (w *copilotClientWrapper) ResumeSessionWithOptions(ctx context.Context, ses
 		return nil, err
 	}
 
-	return &copilotSessionWrapper{inner: sess}, nil
+	return &copilotSessionWrapper{inner: sess, getStatus: w.inner.GetStatus}, nil
 }
 
 func (w *copilotClientWrapper) Start(ctx context.Context) error {
@@ -100,7 +107,58 @@ func (w *copilotClientWrapper) ListModels(ctx context.Context) ([]copilot.ModelI
 // and only has to exist because [copilot.Session.SessionID] is a field, so we can't represent
 // it in an interface...
 type copilotSessionWrapper struct {
-	inner *copilot.Session
+	inner     *copilot.Session
+	getStatus func(context.Context) (*copilot.GetStatusResponse, error)
+}
+
+func (w *copilotSessionWrapper) checkSandboxRuntime(ctx context.Context) error {
+	status, err := w.getStatus(ctx)
+	if err != nil {
+		return fmt.Errorf("verifying Copilot CLI sandbox support: %w", err)
+	}
+	const minimumVersion = "1.0.80"
+	if status == nil {
+		return fmt.Errorf("sandbox requires Copilot CLI %s or newer; runtime returned no version", minimumVersion)
+	}
+	version, err := semver.StrictNewVersion(status.Version)
+	if err != nil {
+		return fmt.Errorf("sandbox requires Copilot CLI %s or newer; cannot verify runtime version %q: %w", minimumVersion, status.Version, err)
+	}
+	if version.LessThan(semver.MustParse(minimumVersion)) {
+		return fmt.Errorf("sandbox requires Copilot CLI %s or newer for native URL enforcement; got %s; upgrade COPILOT_CLI_PATH or unset it to use the bundled CLI", minimumVersion, status.Version)
+	}
+	return nil
+}
+
+func (w *copilotSessionWrapper) ConfigureSandbox(ctx context.Context, workspaceDir string, readonlyDirs []string, config models.SandboxConfig) error {
+	if !config.Enabled {
+		return nil
+	}
+	if err := w.checkSandboxRuntime(ctx); err != nil {
+		return err
+	}
+	options, permissions, err := sessionSandboxConfiguration(workspaceDir, readonlyDirs, config)
+	if err != nil {
+		return err
+	}
+	updated, err := w.inner.RPC.Options.Update(ctx, options)
+	if err != nil {
+		return err
+	}
+	if !updated.Success {
+		return fmt.Errorf("copilot rejected the sandbox configuration")
+	}
+	if permissions == nil {
+		return nil
+	}
+	configured, err := w.inner.RPC.Permissions.Configure(ctx, permissions)
+	if err != nil {
+		return err
+	}
+	if !configured.Success {
+		return fmt.Errorf("copilot rejected the workspace permission boundary")
+	}
+	return nil
 }
 
 func (w *copilotSessionWrapper) Disconnect() error {

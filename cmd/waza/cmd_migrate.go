@@ -15,11 +15,11 @@ func newMigrateCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "migrate <file>",
 		Short: "Migrate a waza schema artifact to the current schema version",
-		Long: `Migrate a waza schema artifact to the current schema version.
+		Long: fmt.Sprintf(`Migrate a waza schema artifact to the current schema version.
 
-The current schema version is 1.0, so v1 artifacts are already current and the
-command performs no file changes. Future major schema versions will add explicit
-migration steps here.`,
+The current schema version is %s. Same-major artifacts are already compatible and
+the command performs no file changes. Future major schema versions will add explicit
+migration steps here.`, models.CurrentSchemaVersion),
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runMigrate(cmd.OutOrStdout(), args[0])

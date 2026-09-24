@@ -98,6 +98,80 @@ func TestCacheKey_DifferentModelChangesKey(t *testing.T) {
 	assert.NotEqual(t, key1, key2)
 }
 
+func TestCacheKey_DifferentSandboxConfigurationChangesKey(t *testing.T) {
+	task := &models.TestCase{TestID: "test", Stimulus: models.TaskStimulus{Message: "hello"}}
+	spec1 := &models.EvalSpec{Config: models.Config{
+		EngineType: "copilot-sdk",
+		ModelID:    "gpt-4o",
+		Sandbox:    &models.SandboxConfig{Enabled: true},
+	}}
+	spec2 := &models.EvalSpec{Config: models.Config{
+		EngineType: "copilot-sdk",
+		ModelID:    "gpt-4o",
+		Sandbox: &models.SandboxConfig{
+			Enabled:              true,
+			AllowOutboundNetwork: true,
+		},
+	}}
+
+	key1, err := CacheKey(spec1, task, "")
+	require.NoError(t, err)
+	key2, err := CacheKey(spec2, task, "")
+	require.NoError(t, err)
+	assert.NotEqual(t, key1, key2)
+}
+
+func TestCacheKey_ResolvedSandboxEnvironmentChangesKey(t *testing.T) {
+	first := t.TempDir()
+	second := t.TempDir()
+	task := &models.TestCase{TestID: "test", Stimulus: models.TaskStimulus{Message: "hello"}}
+	spec := &models.EvalSpec{Config: models.Config{
+		EngineType: "copilot-sdk",
+		ModelID:    "gpt-4o",
+		Sandbox: &models.SandboxConfig{
+			Enabled:       true,
+			ReadonlyPaths: []string{"$WAZA_SANDBOX_PREREQUISITE"},
+		},
+	}}
+	t.Setenv("WAZA_SANDBOX_PREREQUISITE", first)
+	key1, err := CacheKey(spec, task, "")
+	require.NoError(t, err)
+	t.Setenv("WAZA_SANDBOX_PREREQUISITE", second)
+	key2, err := CacheKey(spec, task, "")
+	require.NoError(t, err)
+	assert.NotEqual(t, key1, key2)
+}
+
+func TestCacheKey_DisabledSandboxMatchesOmittedPolicy(t *testing.T) {
+	t.Setenv("WAZA_DISABLED_SANDBOX_PATH", "")
+	task := &models.TestCase{TestID: "test"}
+	spec := &models.EvalSpec{}
+	want, err := CacheKey(spec, task, "")
+	require.NoError(t, err)
+
+	for name, sandbox := range map[string]*models.SandboxConfig{
+		"empty":                {},
+		"missing path":         {ReadonlyPaths: []string{filepath.Join(t.TempDir(), "missing")}},
+		"empty variable":       {ReadwritePaths: []string{"${WAZA_DISABLED_SANDBOX_PATH}"}},
+		"ignored capabilities": {AllowOutboundNetwork: true, GitAuth: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			spec.Config.Sandbox = sandbox
+			got, err := CacheKey(spec, task, "")
+			require.NoError(t, err)
+			require.Equal(t, want, got)
+		})
+	}
+
+	spec.Config.Sandbox = &models.SandboxConfig{Enabled: true}
+	enabledKey, err := CacheKey(spec, task, "")
+	require.NoError(t, err)
+	require.NotEqual(t, want, enabledKey)
+	spec.Config.Sandbox.ReadonlyPaths = []string{"${WAZA_DISABLED_SANDBOX_PATH}"}
+	_, err = CacheKey(spec, task, "")
+	require.ErrorContains(t, err, "resolving sandbox configuration")
+}
+
 func TestCacheKey_DifferentSkillPathsChangesKey(t *testing.T) {
 	spec1 := &models.EvalSpec{
 		SpecIdentity: models.SpecIdentity{Name: "test"},

@@ -15,7 +15,7 @@ import (
 	"time"
 )
 
-const embeddedCLIVersion = "1.0.64-0"
+const embeddedCLIVersion = "1.0.80"
 
 var pathOnce = sync.OnceValues(installEmbeddedCLI)
 

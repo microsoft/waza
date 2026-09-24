@@ -85,6 +85,93 @@ func TestMaybeGenerateSuggestionReport_SkipsWhenNoFailures(t *testing.T) {
 	assert.Empty(t, report)
 }
 
+func TestGenerateEvalAnalysis_PropagatesSandbox(t *testing.T) {
+	sandbox := &models.SandboxConfig{Enabled: true, AllowOutboundNetwork: true}
+	spec := &models.EvalSpec{
+		SkillName: "test-skill",
+		Config: models.Config{
+			EngineType: "copilot-sdk",
+			ModelID:    "test-model",
+			Sandbox:    sandbox,
+		},
+	}
+	engine := &analysisCapturingEngine{}
+
+	report, err := generateEvalAnalysis(
+		context.Background(),
+		engine,
+		spec,
+		filepath.Join(t.TempDir(), "eval.yaml"),
+		&models.EvaluationOutcome{},
+		[]models.TriggerResult{{Prompt: "trigger", ShouldTrigger: true, DidTrigger: false}},
+	)
+	require.NoError(t, err)
+	require.Equal(t, "analysis", report)
+	require.NotNil(t, engine.request)
+	require.Same(t, sandbox, engine.request.Sandbox)
+	require.Empty(t, engine.request.SkillPaths)
+	require.Empty(t, engine.request.Resources)
+}
+
+func TestGenerateEvalAnalysis_SandboxExcludesDiscoveryRoots(t *testing.T) {
+	root := t.TempDir()
+	specDir := filepath.Join(root, "evals")
+	skillRoot := filepath.Join(root, "skills")
+	skillDir := filepath.Join(skillRoot, "my-skill")
+	require.NoError(t, os.MkdirAll(specDir, 0o755))
+	require.NoError(t, os.MkdirAll(skillDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(specDir, "private.txt"), []byte("eval neighbor"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(skillRoot, "private.txt"), []byte("skill neighbor"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("# My Skill"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(skillDir, "helper.txt"), []byte("skill helper"), 0o644))
+
+	for name, sandbox := range map[string]*models.SandboxConfig{
+		"enabled":  {Enabled: true},
+		"disabled": {},
+		"omitted":  nil,
+	} {
+		t.Run(name, func(t *testing.T) {
+			spec := &models.EvalSpec{
+				SkillName: "my-skill",
+				Config: models.Config{
+					EngineType: "copilot-sdk", SkillPaths: []string{skillRoot}, Sandbox: sandbox,
+				},
+			}
+			engine := &analysisCapturingEngine{}
+			_, err := generateEvalAnalysis(t.Context(), engine, spec, filepath.Join(specDir, "eval.yaml"),
+				&models.EvaluationOutcome{},
+				[]models.TriggerResult{{Prompt: "trigger", ShouldTrigger: true}},
+			)
+			require.NoError(t, err)
+			require.NotNil(t, engine.request)
+			if sandbox != nil && sandbox.Enabled {
+				require.Equal(t, []string{skillDir}, engine.request.SkillPaths)
+				require.ElementsMatch(t, []execution.ResourceFile{
+					{Path: "SKILL.md", Content: []byte("# My Skill")},
+					{Path: "helper.txt", Content: []byte("skill helper")},
+				}, engine.request.Resources)
+			} else {
+				require.Contains(t, engine.request.SkillPaths, specDir)
+				require.Contains(t, engine.request.SkillPaths, skillRoot)
+			}
+		})
+	}
+}
+
+type analysisCapturingEngine struct {
+	request *execution.ExecutionRequest
+}
+
+func (e *analysisCapturingEngine) Initialize(context.Context) error { return nil }
+func (e *analysisCapturingEngine) Shutdown(context.Context) error   { return nil }
+func (e *analysisCapturingEngine) SessionUsage(string) *models.UsageStats {
+	return nil
+}
+func (e *analysisCapturingEngine) Execute(_ context.Context, req *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
+	e.request = req
+	return &execution.ExecutionResponse{FinalOutput: "analysis"}, nil
+}
+
 func TestBuildNoSuggestionsError_IncludesSessionTranscript(t *testing.T) {
 	msg := "Need more details before answering."
 	toolName := "rg"
