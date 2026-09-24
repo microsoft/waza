@@ -1,5 +1,5 @@
 // Generates all the proper copilot CLI SDK bundles, so we can use them in waza.
-// The .zst, .license and generated .go files should all be checked in. When waza is built
+// The .zst, .tgz, .license and generated .go files should all be checked in. When waza is built
 // only the relevant copilot CLI package will be added.
 // Set COPILOT_CLI_VERSION to pin the CLI version instead of auto-detecting from go.mod.
 
@@ -58,10 +58,14 @@ func main() {
 				return fmt.Errorf("bad format for platform %q. Platforms should be <GOOS compatible OS>/<GOARCH compatible arch> (ex: windows/amd64 )", arg)
 			}
 
-			path := filepath.Join(outputDir, fmt.Sprintf("zcopilot_%s_%s.go", platformParts[0], platformParts[1]))
-
-			fmt.Printf("Patching %s's package directive\n", path)
-			return fixCopilotPackageInGoFile(path)
+			for _, prefix := range []string{"zcopilot", "zcopilot_inprocess"} {
+				path := filepath.Join(outputDir, fmt.Sprintf("%s_%s_%s.go", prefix, platformParts[0], platformParts[1]))
+				fmt.Printf("Patching %s's package directive\n", path)
+				if err := fixCopilotPackageInGoFile(path); err != nil {
+					return err
+				}
+			}
+			return nil
 		})
 	}
 
@@ -70,7 +74,7 @@ func main() {
 		os.Exit(1)
 	} else {
 		fmt.Println("Done, no errors")
-		fmt.Println("You must delete any older .zst or .license files, manually")
+		fmt.Println("You must delete any older .zst, .tgz or .license files, manually")
 	}
 }
 

@@ -44,7 +44,7 @@ go build -o waza ./cmd/waza
 ./waza <waza command line>
 ```
 
-Waza bundles the GitHub Copilot CLI used by the `copilot-sdk` executor and extracts it to the local user cache on first use. Set `COPILOT_CLI_PATH` only when you need to force a specific Copilot CLI binary.
+Waza bundles the GitHub Copilot CLI used by the `copilot-sdk` executor and extracts it and its runtime assets to a versioned directory in the local user cache on first use (or under `COPILOT_HOME/cache` when set). Set `COPILOT_CLI_PATH` only when you need to force a specific Copilot CLI binary. Installation failures are reported without falling back to a CLI on `PATH`; set `COPILOT_CLI_INSTALL_VERBOSE=1` for installation diagnostics.
 
 ### Azure Developer CLI (azd) Extension
 
