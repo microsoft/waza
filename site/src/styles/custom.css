@@ -283,7 +283,7 @@ main,
   .sidebar {
     background-color: var(--waza-surface);
   }
-  .mobile-menu-toggle {
+  .sl-menu-button {
     color: var(--waza-text);
   }
 }
