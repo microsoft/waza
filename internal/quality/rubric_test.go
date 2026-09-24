@@ -34,6 +34,7 @@ func TestValidateDimensionResult(t *testing.T) {
 		valid bool
 	}{
 		{"valid clarity", DimensionResult{Name: "clarity", Score: 3}, true},
+		{"fractional score", DimensionResult{Name: "clarity", Score: 3.5}, true},
 		{"min score", DimensionResult{Name: "clarity", Score: 1}, true},
 		{"max score", DimensionResult{Name: "clarity", Score: 5}, true},
 		{"too low", DimensionResult{Name: "clarity", Score: 0}, false},
