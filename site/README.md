@@ -33,6 +33,9 @@ Static assets, like favicons, can be placed in the `public/` directory.
 
 ## 🧞 Commands
 
+Use Node.js 22.19.0 or later. The site's transitive `undici` dependency requires
+this minimum; the site CI and GitHub Pages workflows use Node.js 22.19.0.
+
 All commands are run from the root of the project, from a terminal:
 
 | Command                   | Action                                           |
