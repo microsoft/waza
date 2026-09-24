@@ -3,6 +3,7 @@ package quality
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"strings"
 )
 
@@ -24,7 +25,7 @@ func FormatTable(resp *JudgeResponse) string {
 	b.WriteString("\n")
 
 	for _, d := range resp.Dimensions {
-		bar := scoreBar(d.Score)
+		bar := scoreBar(int(math.Round(d.Score)))
 		fmt.Fprintf(&b, "%-*s  %s  %s\n", nameWidth, d.Name, bar, d.Feedback)
 	}
 

@@ -10,9 +10,9 @@ type Dimension struct {
 
 // DimensionResult holds a judge's score and feedback for one dimension.
 type DimensionResult struct {
-	Name     string `json:"name"`
-	Score    int    `json:"score"`
-	Feedback string `json:"feedback"`
+	Name     string  `json:"name"`
+	Score    float64 `json:"score"`
+	Feedback string  `json:"feedback"`
 }
 
 // JudgeResponse is the structured response expected from the LLM judge.
@@ -62,7 +62,7 @@ func DefaultRubric() []Dimension {
 func ValidateDimensionResult(result DimensionResult, rubric []Dimension) bool {
 	for _, d := range rubric {
 		if d.Name == result.Name {
-			return result.Score >= d.MinScore && result.Score <= d.MaxScore
+			return result.Score >= float64(d.MinScore) && result.Score <= float64(d.MaxScore)
 		}
 	}
 	return false
