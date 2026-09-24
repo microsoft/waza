@@ -3,9 +3,14 @@ package suggest
 import (
 	"testing"
 
+	"github.com/microsoft/waza/internal/validation"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestExampleTaskYAMLMatchesSchema(t *testing.T) {
+	require.Empty(t, validation.ValidateTaskBytes([]byte(exampleTaskYAML)))
+}
 
 func TestRenderSelectionPrompt_Structure(t *testing.T) {
 	data := promptData{

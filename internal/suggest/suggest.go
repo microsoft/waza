@@ -522,7 +522,7 @@ func extractTaskID(data []byte) string {
 }
 
 // ensureTaskName derives a display name from the task ID when generated YAML
-// omits the required name field.
+// omits the required name field or provides a blank string.
 func ensureTaskName(data []byte) []byte {
 	var doc yaml.Node
 	if err := yaml.Unmarshal(data, &doc); err != nil || len(doc.Content) == 0 {
@@ -543,7 +543,7 @@ func ensureTaskName(data []byte) []byte {
 			nameNode = root.Content[i+1]
 		}
 	}
-if id == "" || (nameNode != nil && (nameNode.Kind != yaml.ScalarNode || strings.TrimSpace(nameNode.Value) != "")) {
+	if id == "" || (nameNode != nil && (nameNode.Kind != yaml.ScalarNode || nameNode.Tag != "!!str" || strings.TrimSpace(nameNode.Value) != "")) {
 		return data
 	}
 

@@ -6,8 +6,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/microsoft/waza/internal/validation"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 )
 
 // --- Focus category tests ---
@@ -258,25 +260,75 @@ func TestWriteToDirRejectsTaskMissingInputs(t *testing.T) {
 }
 
 func TestWriteToDirDerivesTaskNameFromID(t *testing.T) {
-	s := &Suggestion{
-		EvalYAML: validEvalYAML(),
-		Tasks: []GeneratedFile{
-			{Path: "tasks/generated.yaml", Content: "id: generated-task\ninputs:\n  prompt: hi\n", Confidence: 0.6, Rationale: "matches USE FOR"},
-			{Path: "tasks/blank.yaml", Content: "id: blank-name\nname: \"\"\ninputs:\n  prompt: hi\n", Confidence: 0.6, Rationale: "matches USE FOR"},
-		},
+	for _, nameField := range []string{"", "name: \"\"\n", "name: \" \\t \"\n", "name: !!str\n"} {
+		t.Run(nameField, func(t *testing.T) {
+			s := &Suggestion{
+				EvalYAML: validEvalYAML(),
+				Tasks: []GeneratedFile{
+					{Path: "tasks/generated.yaml", Content: "id: generated-task\n" + nameField + "inputs:\n  prompt: hi\n", Confidence: 0.6, Rationale: "matches USE FOR"},
+				},
+			}
+			dir := t.TempDir()
+
+			_, err := s.WriteToDir(dir, WriteOptions{})
+			require.NoError(t, err)
+
+			content, err := os.ReadFile(filepath.Join(dir, "tasks", "generated.yaml"))
+			require.NoError(t, err)
+			require.Empty(t, validation.ValidateTaskBytes(content))
+			var task struct {
+				Name string `yaml:"name"`
+			}
+			require.NoError(t, yaml.Unmarshal(content, &task))
+			require.Equal(t, "Generated Task", task.Name)
+		})
 	}
+}
+
+func TestWriteToDirPreservesExplicitTaskName(t *testing.T) {
+	s := minimalSuggestion()
 	dir := t.TempDir()
 
 	_, err := s.WriteToDir(dir, WriteOptions{})
 	require.NoError(t, err)
 
-	content, err := os.ReadFile(filepath.Join(dir, "tasks", "generated.yaml"))
+	content, err := os.ReadFile(filepath.Join(dir, s.Tasks[0].Path))
 	require.NoError(t, err)
-	require.Contains(t, string(content), "name: Generated Task")
+	require.Equal(t, s.Tasks[0].Content, string(content))
+}
 
-	content, err = os.ReadFile(filepath.Join(dir, "tasks", "blank.yaml"))
-	require.NoError(t, err)
-	require.Contains(t, string(content), "name: Blank Name")
+func TestWriteToDirRejectsInvalidTaskNames(t *testing.T) {
+	for _, nameValue := range []string{"[]", "{}", "[one]", "{display: one}", "", "null", "~", "42", "true", "!!int \"\"", "!!binary \"\""} {
+		t.Run(nameValue, func(t *testing.T) {
+			s := &Suggestion{
+				EvalYAML: validEvalYAML(),
+				Tasks: []GeneratedFile{
+					{Path: "tasks/valid.yaml", Content: "id: valid-task\ninputs:\n  prompt: hi\n", Confidence: 0.6, Rationale: "matches USE FOR"},
+					{Path: "tasks/invalid.yaml", Content: "id: invalid-task\nname: " + nameValue + "\ninputs:\n  prompt: hi\n", Confidence: 0.6, Rationale: "matches USE FOR"},
+				},
+			}
+			dir := filepath.Join(t.TempDir(), "output")
+
+			written, err := s.WriteToDir(dir, WriteOptions{})
+			require.ErrorContains(t, err, "failed schema validation")
+			require.Contains(t, err.Error(), "tasks/invalid.yaml")
+			require.Empty(t, written)
+			require.NoDirExists(t, dir, "validation must fail before writing any files")
+		})
+	}
+}
+
+func TestEnsureTaskNamePreservesInvalidYAML(t *testing.T) {
+	for _, content := range []string{
+		"", "[]", "scalar", "id: [",
+		"inputs:\n  prompt: hi\n",
+		"id: \" \"\ninputs:\n  prompt: hi\n",
+		"id: task\nname: &invalid []\ndescription: *invalid\n",
+	} {
+		t.Run(content, func(t *testing.T) {
+			require.Equal(t, []byte(content), ensureTaskName([]byte(content)))
+		})
+	}
 }
 
 func TestWriteToDirRejectsTaskWithUnknownField(t *testing.T) {
