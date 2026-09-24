@@ -374,6 +374,22 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 		permRequestCallback = req.PermissionHandler
 	}
 
+	// Apply the .agent.md tool policy, if any, before creating/resuming the
+	// session: (1) restrict the SDK's own AvailableTools filter, and (2)
+	// wrap the permission handler with fail-closed enforcement as defense in
+	// depth. This applies uniformly to initial sessions, resumed sessions,
+	// and (via each subsequent Execute call for follow-ups/responder turns)
+	// every later turn in the same session.
+	var policyRecorder *toolPolicyRecorder
+	var availableTools []string
+	var policyHooks *copilot.SessionHooks
+	if req.ToolPolicy.Active() {
+		policyRecorder = newToolPolicyRecorder()
+		permRequestCallback = enforceToolPolicy(req.ToolPolicy, policyRecorder, permRequestCallback)
+		availableTools = req.ToolPolicy.SessionToolFilter()
+		policyHooks = &copilot.SessionHooks{OnPreToolUse: enforceToolCall(req.ToolPolicy, policyRecorder)}
+	}
+
 	if req.SessionID == "" {
 		// Create session with updated API
 		session, err = e.client.CreateSession(ctx, &copilot.SessionConfig{
@@ -381,6 +397,8 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 			Tools: req.Tools,
 
 			OnPermissionRequest: permRequestCallback,
+			AvailableTools:      availableTools,
+			Hooks:               policyHooks,
 
 			SkillDirectories: skillDirs,
 			WorkingDirectory: workingDir,
@@ -399,6 +417,8 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 			Tools: req.Tools,
 
 			OnPermissionRequest: permRequestCallback,
+			AvailableTools:      availableTools,
+			Hooks:               policyHooks,
 
 			// these are the directory for the skill itself.
 			SkillDirectories: skillDirs,
@@ -569,6 +589,21 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 		WorkspaceFiles:   workspaceFiles,
 		SessionID:        sessionID,
 		Usage:            usage,
+	}
+
+	if req.ToolPolicy != nil {
+		resp.ToolPolicyMode = string(req.ToolPolicy.Mode)
+	}
+	if denials := policyRecorder.snapshot(); len(denials) > 0 {
+		resp.ToolPolicyDenials = denials
+		for _, d := range denials {
+			slog.Warn("tool denied by .agent.md tool policy",
+				"session_id", sessionID, "tool", d.Tool, "kind", d.Kind, "reason", d.Reason)
+		}
+		if resp.Success {
+			resp.Success = false
+			resp.ErrorMsg = fmt.Sprintf("tool policy violation: %d tool call(s) denied by .agent.md `tools:` policy", len(denials))
+		}
 	}
 
 	return resp, nil
@@ -826,6 +861,7 @@ type skillDefinition struct {
 	Description string
 	Content     string // full raw SKILL.md content
 	Dir         string
+	Path        string
 }
 
 // buildSkillSystemMessage scans skill directories for SKILL.md files and returns
@@ -844,13 +880,48 @@ func buildSkillSystemMessage(skillDirs []string, skillName string, injectSkillBo
 		return ""
 	}
 
+	sd, err := findSkillDefinition(skillDirs, skillName)
+	if err != nil {
+		slog.Warn("failed to resolve skill definition", "error", err)
+		return ""
+	}
+	if sd != nil {
+		return skillContextBlock(sd.Content)
+	}
+	return ""
+}
+
+// ResolveAgentDefinition uses the same selection and SKILL.md precedence as
+// system-message injection, including nested directories and fallback names.
+func ResolveAgentDefinition(skillDirs []string, skillName string) (string, *skill.AgentFrontmatter, error) {
+	sd, err := findSkillDefinition(skillDirs, skillName)
+	if err != nil || sd == nil || !skill.IsAgentFile(sd.Path) {
+		return "", nil, err
+	}
+	fm, _, err := skill.ParseAgentFrontmatter(sd.Content)
+	if err != nil {
+		return "", nil, fmt.Errorf("parsing agent %q: %w", sd.Path, err)
+	}
+	return sd.Path, fm, nil
+}
+
+func findSkillDefinition(skillDirs []string, skillName string) (*skillDefinition, error) {
+	if skillName == "" {
+		return nil, nil
+	}
 	for _, dir := range skillDirs {
 		// Check direct SKILL.md in this directory
-		if sd := loadSkillDefinition(dir); sd != nil {
+		sd, err := loadSkillDefinitionChecked(dir, skillName)
+		if err != nil {
+			return nil, err
+		}
+		if sd != nil {
 			if strings.EqualFold(sd.Name, skillName) {
-				return skillContextBlock(sd.Content)
+				return sd, nil
 			}
-			continue
+			if !skill.IsAgentFile(sd.Path) {
+				continue
+			}
 		}
 
 		// Walk one level of subdirectories to find nested skills
@@ -867,15 +938,19 @@ func buildSkillSystemMessage(skillDirs []string, skillName string, injectSkillBo
 			if strings.HasPrefix(name, ".") || name == "node_modules" || name == "vendor" {
 				continue
 			}
-			if sd := loadSkillDefinition(filepath.Join(dir, name)); sd != nil {
+			sd, err := loadSkillDefinitionChecked(filepath.Join(dir, name), skillName)
+			if err != nil {
+				return nil, err
+			}
+			if sd != nil {
 				if strings.EqualFold(sd.Name, skillName) {
-					return skillContextBlock(sd.Content)
+					return sd, nil
 				}
 			}
 		}
 	}
 
-	return ""
+	return nil, nil
 }
 
 func skillContextBlock(content string) string {
@@ -913,10 +988,7 @@ func buildInstructionSystemMessage(instructions []InstructionFile) string {
 	return sb.String()
 }
 
-// loadSkillDefinition reads a SKILL.md or .agent.md file from dir and extracts
-// the skill/agent name, description and full content. SKILL.md takes priority.
-// Returns nil if no definition file exists or parsing fails.
-func loadSkillDefinition(dir string) *skillDefinition {
+func loadSkillDefinitionChecked(dir string, selectedName ...string) (*skillDefinition, error) {
 	// Try SKILL.md first (existing behavior)
 	skillPath := filepath.Join(dir, "SKILL.md")
 	data, err := os.ReadFile(skillPath)
@@ -927,31 +999,42 @@ func loadSkillDefinition(dir string) *skillDefinition {
 			name = filepath.Base(dir)
 		}
 		slog.Debug("Loaded skill definition", "name", name, "dir", dir)
-		return &skillDefinition{Name: name, Description: desc, Content: content, Dir: dir}
+		return &skillDefinition{Name: name, Description: desc, Content: content, Dir: dir, Path: skillPath}, nil
 	}
 
 	// Try .agent.md files
 	entries, readErr := os.ReadDir(dir)
 	if readErr != nil {
-		return nil
+		return nil, nil
 	}
+	var first *skillDefinition
 	for _, entry := range entries {
 		if !entry.IsDir() && skill.IsAgentFile(entry.Name()) {
 			agentPath := filepath.Join(dir, entry.Name())
 			agentData, readErr := os.ReadFile(agentPath)
 			if readErr != nil {
-				continue
+				return nil, fmt.Errorf("reading agent %q: %w", agentPath, readErr)
 			}
 			content := string(agentData)
-			name, desc := parseSkillFrontmatter(content)
+			fm, _, parseErr := skill.ParseAgentFrontmatter(content)
+			if parseErr != nil {
+				return nil, fmt.Errorf("parsing agent %q: %w", agentPath, parseErr)
+			}
+			name, desc := fm.Name, fm.Description
 			if name == "" {
 				name = strings.TrimSuffix(entry.Name(), ".agent.md")
 			}
 			slog.Debug("Loaded agent definition", "name", name, "dir", dir)
-			return &skillDefinition{Name: name, Description: desc, Content: content, Dir: dir}
+			sd := &skillDefinition{Name: name, Description: desc, Content: content, Dir: dir, Path: agentPath}
+			if len(selectedName) == 0 || strings.EqualFold(name, selectedName[0]) {
+				return sd, nil
+			}
+			if first == nil {
+				first = sd
+			}
 		}
 	}
-	return nil
+	return first, nil
 }
 
 // parseSkillFrontmatter extracts name and description from SKILL.md YAML

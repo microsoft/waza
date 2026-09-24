@@ -15,7 +15,7 @@ Main evaluation configuration file.
 name: code-explainer-eval # Required: eval suite name
 description: "..." # Required: what this eval tests
 skill: code-explainer # Required: skill name
-schemaVersion: "1.2" # Optional: schema version; defaults to the current version
+schemaVersion: "1.3" # Optional: schema version; defaults to the current version
 version: "1.0" # Optional: version number
 
 config:
@@ -103,7 +103,7 @@ version: "1.0"
 
 **Type:** string  
 **Required:** no  
-**Default:** current schema version (currently `1.2`)
+**Default:** current schema version (currently `1.3`)
 
 Schema version for the public artifact shape. It uses `MAJOR.MINOR` format with no patch component. Same-major minor additions are backward-compatible; readers ignore unknown fields and warn. Different major versions are rejected with a migration hint.
 

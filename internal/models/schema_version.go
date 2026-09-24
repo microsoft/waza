@@ -25,7 +25,8 @@ const (
 	//       declaring fault-injection packs to run (#365). Both fields are
 	//       optional, so 1.0 and 1.1 artifacts continue to load without
 	//       migration.
-	CurrentSchemaVersion = "1.2"
+	// 1.3 — additive: session_digest tool_policy_mode and tool_policy_denials (#585).
+	CurrentSchemaVersion = "1.3"
 )
 
 func defaultSchemaVersion(version string) string {

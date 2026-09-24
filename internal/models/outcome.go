@@ -266,6 +266,24 @@ type SessionDigest struct {
 	Errors        []string    `json:"errors"`
 	Usage         *UsageStats `json:"usage,omitempty"`
 	SessionID     string      `json:"session_id,omitempty"`
+
+	// ToolPolicyMode is the effective .agent.md `tools:` runtime policy
+	// applied to this session: "unrestricted", "deny_all", or "allow_list".
+	// Empty when no .agent.md tool policy was resolved for the run.
+	ToolPolicyMode string `json:"tool_policy_mode,omitempty"`
+	// ToolPolicyDenials records every tool-execution attempt denied by an
+	// active tool policy across all turns of this session (initial,
+	// follow-up, and responder-driven alike).
+	ToolPolicyDenials []ToolPolicyDenial `json:"tool_policy_denials,omitempty"`
+}
+
+// ToolPolicyDenial records a single tool-execution attempt denied by an
+// active .agent.md `tools:` runtime policy. Mirrors
+// internal/execution.ToolPolicyDenial for serialization in results.json.
+type ToolPolicyDenial struct {
+	Tool   string `json:"tool"`
+	Kind   string `json:"kind"`
+	Reason string `json:"reason"`
 }
 
 const (

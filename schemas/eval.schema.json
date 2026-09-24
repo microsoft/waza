@@ -30,8 +30,8 @@
     "schemaVersion": {
       "type": "string",
       "pattern": "^[0-9]+\\.[0-9]+$",
-      "default": "1.0",
-      "description": "Schema version for this evaluation artifact. Uses MAJOR.MINOR; omitted files default to 1.0."
+      "default": "1.3",
+      "description": "Schema version for this evaluation artifact. Uses MAJOR.MINOR; omitted files default to the current version (1.3)."
     },
     "version": {
       "type": "string",

@@ -23,6 +23,7 @@ import (
 	"github.com/microsoft/waza/internal/hooks"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/responder"
+	"github.com/microsoft/waza/internal/skill"
 	"github.com/microsoft/waza/internal/snapshot"
 	"github.com/microsoft/waza/internal/telemetry"
 	"github.com/microsoft/waza/internal/template"
@@ -325,12 +326,6 @@ func (r *EvalRunner) runNormalBenchmark(ctx context.Context) (*models.Evaluation
 	// Preflight check: validate required skills
 	if err := r.validateRequiredSkills(); err != nil {
 		return nil, err
-	}
-
-	// Auto-inject tool_constraint grader from .agent.md tools if applicable
-	resolvedPaths := utils.ResolvePaths(spec.Config.SkillPaths, r.cfg.SpecDir())
-	if agentPath := resolveAgentPath(resolvedPaths); agentPath != "" {
-		spec.Graders = augmentGradersFromAgent(spec.Graders, agentPath)
 	}
 
 	// Load test cases
@@ -1094,7 +1089,7 @@ func (r *EvalRunner) runTestUncached(ctx context.Context, tc *models.TestCase, t
 			TotalRuns:  runsPerTest,
 			Status:     run.Status,
 			DurationMs: run.DurationMs,
-			Details:    map[string]any{"workspace_dir": run.WorkspaceDir},
+			Details:    map[string]any{"workspace_dir": run.WorkspaceDir, "session_digest": run.SessionDigest},
 		})
 	}
 
@@ -1202,6 +1197,8 @@ func (r *EvalRunner) executeRun(ctx context.Context, tc *models.TestCase, runNum
 			ErrorMsg:   err.Error(),
 		})
 	}
+
+	markToolPolicyViolation(resp)
 
 	// Emit child tool_call/model_call spans from the engine response. These
 	// are after-the-fact records (waza only learns about them when Execute
@@ -1486,13 +1483,12 @@ func (r *EvalRunner) buildExecutionRequest(tc *models.TestCase) (*execution.Exec
 	}
 
 	spec := r.cfg.Spec()
-	// Use task-level skill paths if specified, otherwise fall back to eval-level
-	skillPaths := spec.Config.FilteredSkillPaths()
-	if len(tc.SkillPaths) > 0 {
-		skillPaths = tc.SkillPaths
-	}
-	resolvedSkillPaths := utils.ResolvePaths(skillPaths, r.cfg.SpecDir())
+	resolvedSkillPaths := r.taskSkillPaths(tc)
 	noSkills := spec.Config.AllSkillsDisabled()
+	_, fm, err := r.resolveTaskAgent(tc)
+	if err != nil {
+		return nil, err
+	}
 
 	return &execution.ExecutionRequest{
 		Message:           tc.Stimulus.Message,
@@ -1509,7 +1505,27 @@ func (r *EvalRunner) buildExecutionRequest(tc *models.TestCase) (*execution.Exec
 		SuppressSkillBody: !spec.Config.ShouldInjectSkillBody(),
 		MCPServers:        convertMCPServers(spec.Config.ServerConfigs, spec.MCPMocks, r.cfg.SpecDir()),
 		FirstEventTimeout: r.firstEventTimeout(tc),
+		ToolPolicy:        resolveToolPolicy(fm),
 	}, nil
+}
+
+func (r *EvalRunner) taskSkillPaths(tc *models.TestCase) []string {
+	skillPaths := r.cfg.Spec().Config.FilteredSkillPaths()
+	if len(tc.SkillPaths) > 0 {
+		skillPaths = tc.SkillPaths
+	}
+	return utils.ResolvePaths(skillPaths, r.cfg.SpecDir())
+}
+
+func (r *EvalRunner) resolveTaskAgent(tc *models.TestCase) (string, *skill.AgentFrontmatter, error) {
+	if r.cfg.Spec().Config.AllSkillsDisabled() {
+		return "", nil, nil
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", nil, fmt.Errorf("resolving agent working directory: %w", err)
+	}
+	return execution.ResolveAgentDefinition(append([]string{cwd}, r.taskSkillPaths(tc)...), r.cfg.Spec().SkillName)
 }
 
 func (r *EvalRunner) executionTimeout(tc *models.TestCase) (time.Duration, error) {
@@ -1600,9 +1616,11 @@ func (r *EvalRunner) executeFollowUps(ctx context.Context, tc *models.TestCase, 
 			break
 		}
 
+		markToolPolicyViolation(followResp)
 		if followResp.ErrorMsg != "" {
 			emitChildSpans(turnCtx, r.telemetry, turnSpan, followResp, r.cfg.Spec().Config.ModelID)
 			turnSpan.End()
+			mergeToolPolicyResult(resp, followResp)
 			resp.ErrorMsg = fmt.Sprintf("follow-up %d/%d: %s", i+1, len(tc.Stimulus.FollowUps), followResp.ErrorMsg)
 			break
 		}
@@ -1617,6 +1635,7 @@ func (r *EvalRunner) executeFollowUps(ctx context.Context, tc *models.TestCase, 
 		resp.DurationMs += followResp.DurationMs
 		resp.FinalOutput = followResp.FinalOutput
 		resp.WorkspaceFiles = followResp.WorkspaceFiles
+		mergeToolPolicyResult(resp, followResp)
 		if followResp.Usage != nil {
 			if resp.Usage == nil {
 				resp.Usage = followResp.Usage
@@ -1754,8 +1773,10 @@ func (r *EvalRunner) sendResponderReply(ctx context.Context, tc *models.TestCase
 		resp.ErrorMsg = fmt.Sprintf("responder reply %d failed: %v", turn, err)
 		return false
 	}
+	markToolPolicyViolation(followResp)
 	if followResp.ErrorMsg != "" {
 		emitChildSpans(turnCtx, r.telemetry, turnSpan, followResp, r.cfg.Spec().Config.ModelID)
+		mergeToolPolicyResult(resp, followResp)
 		resp.ErrorMsg = fmt.Sprintf("responder reply %d: %s", turn, followResp.ErrorMsg)
 		return false
 	}
@@ -1767,6 +1788,7 @@ func (r *EvalRunner) sendResponderReply(ctx context.Context, tc *models.TestCase
 	resp.DurationMs += followResp.DurationMs
 	resp.FinalOutput = followResp.FinalOutput
 	resp.WorkspaceFiles = followResp.WorkspaceFiles
+	mergeToolPolicyResult(resp, followResp)
 	if followResp.Usage != nil {
 		if resp.Usage == nil {
 			resp.Usage = followResp.Usage
@@ -2072,7 +2094,45 @@ func (r *EvalRunner) buildGraderContext(tc *models.TestCase, resp *execution.Exe
 
 func (r *EvalRunner) runGraders(ctx context.Context, tc *models.TestCase, gradersContext *graders.Context) (map[string]models.GraderResults, error) {
 	spec := r.cfg.Spec()
-	return graders.RunAll(ctx, spec.Graders, tc, gradersContext, spec.Config.JudgeModel, r.updateSnapshots)
+	agentPath, fm, err := r.resolveTaskAgent(tc)
+	if err != nil {
+		return nil, err
+	}
+	effective := spec.Graders
+	hasTaskConstraint := false
+	for _, v := range tc.Validators {
+		if v.Kind == models.GraderKindToolConstraint {
+			hasTaskConstraint = true
+		}
+	}
+	if !hasTaskConstraint {
+		effective = augmentGradersFromAgent(append([]models.GraderConfig(nil), effective...), agentPath, fm)
+	}
+	return graders.RunAll(ctx, effective, tc, gradersContext, spec.Config.JudgeModel, r.updateSnapshots)
+}
+
+// mergeToolPolicyResult folds a follow-up/responder turn's tool-policy
+// outcome into the aggregated response so denials on any turn survive
+// through to SessionDigest/results.json, even when that turn's ErrorMsg
+// short-circuits full result aggregation.
+func mergeToolPolicyResult(resp, turnResp *execution.ExecutionResponse) {
+	if resp.ToolPolicyMode == "" {
+		resp.ToolPolicyMode = turnResp.ToolPolicyMode
+	}
+	if len(turnResp.ToolPolicyDenials) > 0 {
+		resp.ToolPolicyDenials = append(resp.ToolPolicyDenials, turnResp.ToolPolicyDenials...)
+		markToolPolicyViolation(resp)
+	}
+}
+
+func markToolPolicyViolation(resp *execution.ExecutionResponse) {
+	if len(resp.ToolPolicyDenials) == 0 {
+		return
+	}
+	resp.Success = false
+	if resp.ErrorMsg == "" {
+		resp.ErrorMsg = fmt.Sprintf("tool policy violation: %d tool call(s) denied by .agent.md `tools:` policy", len(resp.ToolPolicyDenials))
+	}
 }
 
 func (r *EvalRunner) buildSessionDigest(resp *execution.ExecutionResponse) models.SessionDigest {
@@ -2082,12 +2142,20 @@ func (r *EvalRunner) buildSessionDigest(resp *execution.ExecutionResponse) model
 	}
 
 	digest := models.SessionDigest{
-		ToolCallCount: len(resp.ToolCalls),
-		ToolsUsed:     toolsUsed,
-		ToolCalls:     resp.ToolCalls,
-		Errors:        []string{},
-		Usage:         resp.Usage,
-		SessionID:     resp.SessionID,
+		ToolCallCount:  len(resp.ToolCalls),
+		ToolsUsed:      toolsUsed,
+		ToolCalls:      resp.ToolCalls,
+		Errors:         []string{},
+		Usage:          resp.Usage,
+		SessionID:      resp.SessionID,
+		ToolPolicyMode: resp.ToolPolicyMode,
+	}
+	for _, d := range resp.ToolPolicyDenials {
+		digest.ToolPolicyDenials = append(digest.ToolPolicyDenials, models.ToolPolicyDenial{
+			Tool:   d.Tool,
+			Kind:   d.Kind,
+			Reason: d.Reason,
+		})
 	}
 
 	return digest

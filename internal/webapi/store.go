@@ -390,9 +390,11 @@ func mapSessionDigest(d *models.SessionDigest) *SessionDigestResponse {
 		errs = []string{}
 	}
 	res := &SessionDigestResponse{
-		ToolCallCount: d.ToolCallCount,
-		ToolsUsed:     toolsUsed,
-		Errors:        errs,
+		ToolPolicyMode:    d.ToolPolicyMode,
+		ToolPolicyDenials: d.ToolPolicyDenials,
+		ToolCallCount:     d.ToolCallCount,
+		ToolsUsed:         toolsUsed,
+		Errors:            errs,
 	}
 	if d.Usage != nil {
 		res.TokensIn = d.Usage.InputTokens

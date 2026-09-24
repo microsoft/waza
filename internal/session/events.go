@@ -10,6 +10,7 @@ const (
 	EventSessionEnd   EventType = "session_complete"
 	EventTaskStart    EventType = "task_start"
 	EventTaskComplete EventType = "task_complete"
+	EventRunComplete  EventType = "run_complete"
 	EventGraderResult EventType = "grader_result"
 	EventError        EventType = "error"
 )

@@ -228,6 +228,45 @@ graders:
 
 When you declare a `tool_constraint` grader, waza skips auto-injection for that agent.
 
+### Runtime tool policy enforcement (copilot-sdk executor)
+
+The `tool_constraint` grader above is a *post-run* check: it grades the transcript after the agent has already finished. When the executor is `copilot-sdk`, waza additionally enforces the same `tools:` declaration *at runtime*, before any tool call executes:
+
+| `tools:` frontmatter | Runtime behavior |
+| --- | --- |
+| Omitted | Unrestricted — tools provided by the Copilot runtime may be used, unchanged from prior behavior. |
+| `tools: []` | Every model-initiated tool attempt (built-in, MCP, subagent) is denied before it executes. |
+| `tools: [name, ...]` | Only the declared tools are permitted; every other tool is denied before it executes. |
+
+The SDK session receives a native tool filter, a pre-tool-use hook denies undeclared calls (including tools that do not request permission), and a fail-closed permission handler checks permission requests. Unrecognized requests are denied. These checks apply to initial and resumed sessions, including static follow-ups and responder-driven turns. A denied attempt fails the run even if the final answer is otherwise correct.
+
+The effective policy and every denial appear in `results.json` under each run's `session_digest` (`tool_policy_mode`, `tool_policy_denials`), in the `run_complete` event when `--session-log` is enabled, and in the dashboard's trajectory session digest. A selected agent with omitted `tools:` explicitly records `unrestricted`.
+
+Runtime policy and the implicit `allow_only` grader resolve the **selected agent by name**, using the task's effective `skill_paths` (task overrides take precedence), direct or one-level nested discovery, and `SKILL.md` precedence. Fully disabled skills receive neither policy nor implicit grader. Malformed agent definitions fail resolution rather than silently granting unrestricted access. An explicit `tool_constraint` grader replaces the implicit grader, not the runtime policy.
+
+Matching is exact, case-insensitive, and uses the same fixed aliases as `allow_only`; patterns and wildcards do not grant additional tools:
+
+| Equivalent names | Native built-in filter |
+| --- | --- |
+| `read`, `readFile`, `fileRead`, `view` | `builtin:view` |
+| `write`, `writeFile`, `fileWrite`, `edit` | `builtin:edit` |
+| `bash`, `runCommand` | `builtin:bash` |
+| `fetch`, `web_fetch` | `builtin:web_fetch` |
+
+Bare names refer to built-ins. For MCP tools, declare `mcp:<server-key>-<tool-name>` (for example `mcp:github-list_issues`); for caller-provided tools, use `custom:<tool-name>` (for example `custom:CodeSearch`). Permission matching preserves these namespaces: `CodeSearch` does not authorize `custom:CodeSearch`, and `github-list_issues` does not authorize `mcp:github-list_issues`. Declaring one MCP tool never authorizes another server or its other tools. Custom/MCP identifiers retain their original case and source qualifier in the SDK filter and do not use built-in aliases.
+
+Hooks and transcripts may omit source metadata. For those observations, declared custom/MCP names match the literal unqualified name; source isolation then relies on the SDK filter. Explicit source information is never discarded when present. Subagent launches must pass both the tool-name check (typically `task`) and the factory permission check using the factory's name, or `task` if unnamed. Permitting a launcher is not a separate sandbox for the subagent.
+
+The opt-in live SDK regression exercises an allowed file read and a current-information request in both an initial and resumed session:
+
+```bash
+ENABLE_COPILOT_TESTS=true go test ./internal/execution -run '^TestToolPolicyReadOnly_Live$' -count=1 -v
+```
+
+<Aside type="caution" title="Not a full sandbox">
+Runtime tool policy enforcement restricts *which tools* the model may invoke. It does not restrict *what those tools can access* once permitted (host files, credentials, network) — that is a separate sandboxing concern.
+</Aside>
+
 ## Writing your eval.yaml for an agent
 
 Target an agent by name or file path:
@@ -371,7 +410,7 @@ expected_outcome: |
 
 - **`handoffs` field** — Parsed but not yet evaluated. P2 feature to test agent coordination.
 - **`mcp-servers` field** — Parsed but not yet evaluated. P2 feature to validate MCP server integration.
-- **Multiple .agent.md files** — If a directory contains multiple `.agent.md` files, only the first is discovered. Workaround: use subdirectories or rename to avoid collisions.
+- **Multiple .agent.md files** — Runtime selection matches the eval's `skill:` name against agent frontmatter names (falling back to the filename without `.agent.md`). Use unique names.
 - **No handoff testing** — Coming in a future release to validate agent coordination.
 
 See [GitHub issue #225](https://github.com/microsoft/waza/issues/225) for status.

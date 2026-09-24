@@ -110,6 +110,14 @@ type ExecutionRequest struct {
 	// tests to terminate early once the skill invocation they care about has been
 	// detected, avoiding unnecessary wait for the agent to finish its full turn.
 	CancelOnSkillInvocation bool
+
+	// ToolPolicy is the resolved tool-capability boundary derived from the
+	// target .agent.md `tools:` declaration (see [NewToolPolicy]). Nil means
+	// no policy was resolved and preserves the pre-existing unrestricted
+	// behavior. Engines that support it (currently CopilotEngine) apply it to
+	// both the native SDK session tool configuration and a fail-closed
+	// OnPermissionRequest wrapper.
+	ToolPolicy *ToolPolicy
 }
 
 // ResourceFile represents a file resource
@@ -153,6 +161,15 @@ type ExecutionResponse struct {
 	WorkspaceFiles   map[string][]byte // Post-execution workspace file contents captured before session disconnect
 	SessionID        string            // Copilot session ID
 	Usage            *models.UsageStats
+
+	// ToolPolicyMode is the effective ToolPolicy mode applied to this
+	// execution ("unrestricted", "deny_all", or "allow_list"), empty when no
+	// policy was resolved for the request.
+	ToolPolicyMode string
+	// ToolPolicyDenials records every tool-execution attempt the engine
+	// denied under an active ToolPolicy. Empty when the policy was
+	// unrestricted or no tool was ever denied.
+	ToolPolicyDenials []ToolPolicyDenial
 }
 
 // ExtractMessages gets all non-empty assistant messages from events.

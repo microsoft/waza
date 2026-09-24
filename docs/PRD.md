@@ -32,6 +32,8 @@ A single `waza` CLI built in **Go** that automates the skill development workflo
 | **Test** | Run agentic test loops with real LLM execution via Copilot SDK |
 | **Evaluate** | Cross-model comparison with task completion, trigger accuracy, behavior quality metrics |
 
+Custom agent evaluations enforce the selected `.agent.md` tool policy with the Copilot SDK (#585): omitted tools remain unrestricted, empty lists deny all tools, and populated lists allow named tools with shared runtime/grader aliases. Policy selection follows task-level skill paths and `SKILL.md` precedence. Initial and resumed turns use native filtering, pre-tool checks, and fail-closed permission checks. Denials fail the run and are surfaced in results schema 1.3, session logs, and the dashboard. Tool policies are not host filesystem/network sandboxing.
+
 ---
 
 ## User Personas
