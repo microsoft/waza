@@ -543,7 +543,7 @@ func ensureTaskName(data []byte) []byte {
 			nameNode = root.Content[i+1]
 		}
 	}
-	if id == "" || (nameNode != nil && strings.TrimSpace(nameNode.Value) != "") {
+if id == "" || (nameNode != nil && (nameNode.Kind != yaml.ScalarNode || strings.TrimSpace(nameNode.Value) != "")) {
 		return data
 	}
 
