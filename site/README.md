@@ -47,6 +47,14 @@ All commands are run from the root of the project, from a terminal:
 | `npm run astro ...`       | Run CLI commands like `astro add`, `astro check` |
 | `npm run astro -- --help` | Get help using the Astro CLI                     |
 
+Site CI also runs the mobile-menu regression tests in Chromium, with JavaScript
+enabled and disabled. To run them locally after building the site:
+
+```sh
+npx playwright install chromium
+npm run test:e2e -- mobile-menu.spec.ts --project=chromium
+```
+
 ## 👀 Want to learn more?
 
 Check out [Starlight’s docs](https://starlight.astro.build/), read [the Astro documentation](https://docs.astro.build), or jump into the [Astro Discord server](https://astro.build/chat).

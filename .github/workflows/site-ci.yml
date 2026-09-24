@@ -31,6 +31,7 @@ jobs:
   build:
     name: Build site
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -60,6 +61,16 @@ jobs:
       - name: Build site
         if: steps.filter.outputs.site == 'true' || github.event_name == 'push'
         run: cd site && npm run build
+
+      - name: Install Chromium for mobile menu regression tests
+        if: steps.filter.outputs.site == 'true' || github.event_name == 'push'
+        run: cd site && npx --no-install playwright install --with-deps chromium
+
+      - name: Test mobile menu
+        if: steps.filter.outputs.site == 'true' || github.event_name == 'push'
+        run: cd site && npm run test:e2e -- mobile-menu.spec.ts --project=chromium
+        env:
+          CI: 'true'
 
       - name: Skip (no site changes)
         if: steps.filter.outputs.site != 'true' && github.event_name == 'pull_request'
