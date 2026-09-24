@@ -168,22 +168,29 @@ func (d *decisionRecorder) fail(err error) error {
 // Classifier maintains a persistent surrogate-user session and classifies each
 // agent message into a Decision.
 type Classifier struct {
-	exec         Executor
-	model        string
-	instructions string
-	sessionID    string // empty until the first Classify creates the session
+	exec            Executor
+	model           string
+	reasoningEffort string
+	instructions    string
+	sessionID       string // empty until the first Classify creates the session
 }
 
 // New constructs a Classifier. defaultModel is used when cfg.Model is empty.
 func New(exec Executor, cfg models.ResponderConfig, defaultModel string) *Classifier {
+	return NewWithReasoningEffort(exec, cfg, defaultModel, "")
+}
+
+// NewWithReasoningEffort constructs a classifier with an eval-level reasoning effort.
+func NewWithReasoningEffort(exec Executor, cfg models.ResponderConfig, defaultModel, reasoningEffort string) *Classifier {
 	model := cfg.Model
 	if model == "" {
 		model = defaultModel
 	}
 	return &Classifier{
-		exec:         exec,
-		model:        model,
-		instructions: cfg.Instructions,
+		exec:            exec,
+		model:           model,
+		reasoningEffort: reasoningEffort,
+		instructions:    cfg.Instructions,
 	}
 }
 
@@ -194,13 +201,14 @@ func (c *Classifier) Classify(ctx context.Context, agentMessage string) (Decisio
 	rec := &decisionRecorder{}
 
 	req := &execution.ExecutionRequest{
-		ModelID:     c.model,
-		Message:     c.buildMessage(agentMessage),
-		Tools:       rec.tools(),
-		MessageMode: execution.MessageModeEnqueue,
-		Streaming:   true,
-		SessionID:   c.sessionID,
-		NoSkills:    true,
+		ModelID:         c.model,
+		ReasoningEffort: c.reasoningEffort,
+		Message:         c.buildMessage(agentMessage),
+		Tools:           rec.tools(),
+		MessageMode:     execution.MessageModeEnqueue,
+		Streaming:       true,
+		SessionID:       c.sessionID,
+		NoSkills:        true,
 		// The responder session must persist across turns so it can be resumed
 		// (and so its instructions need only be sent once). It is torn down
 		// explicitly via Close. EphemeralSession would delete it after the

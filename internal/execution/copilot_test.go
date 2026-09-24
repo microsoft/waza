@@ -35,6 +35,7 @@ func TestCopilotNoSessionID(t *testing.T) {
 	sessionMock := NewMockCopilotSession(ctrl)
 
 	const expectedModel = "this-model-wins"
+	clientMock.EXPECT().ListModels(gomock.Any()).Return([]copilot.ModelInfo{reasoningModel(expectedModel, "high")}, nil)
 
 	unregisterCount := 0
 	unregister := func() { unregisterCount++ }
@@ -47,6 +48,7 @@ func TestCopilotNoSessionID(t *testing.T) {
 		expected: copilot.SessionConfig{
 			OnPermissionRequest: allowAllTools,
 			Model:               expectedModel,
+			ReasoningEffort:     "high",
 			SkillDirectories:    []string{sourceDir},
 		},
 	}
@@ -75,10 +77,11 @@ func TestCopilotNoSessionID(t *testing.T) {
 	require.NoError(t, err)
 
 	resp, err := engine.Execute(ctx, &ExecutionRequest{
-		Message:   "hello?",
-		ModelID:   "this-model-wins",
-		SessionID: "", // ie, create a new session each time
-		SourceDir: sourceDir,
+		Message:         "hello?",
+		ModelID:         "this-model-wins",
+		ReasoningEffort: "high",
+		SessionID:       "", // ie, create a new session each time
+		SourceDir:       sourceDir,
 	})
 	require.NoError(t, err)
 	require.Equal(t, "session-1", resp.SessionID)
@@ -92,6 +95,7 @@ func TestCopilotResumeSessionID(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	clientMock := newClientMock(ctrl)
 	sessionMock := NewMockCopilotSession(ctrl)
+	clientMock.EXPECT().ListModels(gomock.Any()).Return([]copilot.ModelInfo{reasoningModel("gpt-4o-mini", "high")}, nil)
 
 	sourceDir, err := os.Getwd()
 	require.NoError(t, err)
@@ -101,6 +105,7 @@ func TestCopilotResumeSessionID(t *testing.T) {
 		sourceDir: sourceDir,
 		expected: copilot.ResumeSessionConfig{
 			Model:               "gpt-4o-mini",
+			ReasoningEffort:     "high",
 			SkillDirectories:    []string{sourceDir},
 			OnPermissionRequest: allowAllTools,
 		},
@@ -130,8 +135,9 @@ func TestCopilotResumeSessionID(t *testing.T) {
 	require.NoError(t, err)
 
 	resp, err := engine.Execute(ctx, &ExecutionRequest{
-		Message:   "hello?",
-		SessionID: "session-1",
+		Message:         "hello?",
+		SessionID:       "session-1",
+		ReasoningEffort: "high",
 	})
 	require.NoError(t, err)
 	require.Equal(t, "session-1", resp.SessionID)
@@ -184,6 +190,7 @@ func TestCopilotCreateSession_PassesCustomProvider(t *testing.T) {
 		sourceDir: sourceDir,
 		expected: copilot.SessionConfig{
 			Model:               "gpt-4o-mini",
+			ReasoningEffort:     "max",
 			SkillDirectories:    []string{sourceDir},
 			OnPermissionRequest: allowAllTools,
 			Provider: &copilot.ProviderConfig{
@@ -235,8 +242,9 @@ func TestCopilotCreateSession_PassesCustomProvider(t *testing.T) {
 	require.NoError(t, engine.Initialize(context.Background()))
 
 	resp, err := engine.Execute(context.Background(), &ExecutionRequest{
-		Message:   "hello?",
-		SourceDir: sourceDir,
+		Message:         "hello?",
+		SourceDir:       sourceDir,
+		ReasoningEffort: "max",
 	})
 	require.NoError(t, err)
 	require.NotNil(t, resp.Usage)
@@ -271,6 +279,7 @@ func TestCopilotResumeSession_PassesCustomProvider(t *testing.T) {
 		sourceDir: sourceDir,
 		expected: copilot.ResumeSessionConfig{
 			Model:               "gpt-4o-mini",
+			ReasoningEffort:     "max",
 			SkillDirectories:    []string{sourceDir},
 			OnPermissionRequest: allowAllTools,
 			Provider: &copilot.ProviderConfig{
@@ -299,8 +308,9 @@ func TestCopilotResumeSession_PassesCustomProvider(t *testing.T) {
 	require.NoError(t, engine.Initialize(context.Background()))
 
 	resp, err := engine.Execute(context.Background(), &ExecutionRequest{
-		Message:   "hello?",
-		SessionID: "session-1",
+		Message:         "hello?",
+		SessionID:       "session-1",
+		ReasoningEffort: "max",
 	})
 	require.NoError(t, err)
 	require.True(t, resp.Success)
@@ -408,6 +418,108 @@ func TestCopilotSendAndWaitReturnsErrorInResult(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Equal(t, sessionErrorMsg, resp.ErrorMsg)
+}
+
+func TestCopilotReasoningEffortRejection(t *testing.T) {
+	for _, sessionID := range []string{"", "existing-session"} {
+		t.Run("session="+sessionID, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			client := newClientMock(ctrl)
+			client.EXPECT().ListModels(gomock.Any()).Return([]copilot.ModelInfo{reasoningModel("gpt-5-mini", "max")}, nil)
+			runtimeErr := errors.New("model gpt-5-mini does not support reasoning effort max; choose low, medium, or high")
+			if sessionID == "" {
+				client.EXPECT().CreateSession(gomock.Any(), gomock.Any()).DoAndReturn(
+					func(_ context.Context, cfg *copilot.SessionConfig) (CopilotSession, error) {
+						require.Equal(t, "max", cfg.ReasoningEffort)
+						return nil, runtimeErr
+					})
+			} else {
+				client.EXPECT().ResumeSessionWithOptions(gomock.Any(), sessionID, gomock.Any()).DoAndReturn(
+					func(_ context.Context, _ string, cfg *copilot.ResumeSessionConfig) (CopilotSession, error) {
+						require.Equal(t, "max", cfg.ReasoningEffort)
+						return nil, runtimeErr
+					})
+			}
+			engine := NewCopilotEngineBuilder("gpt-5-mini", &CopilotEngineBuilderOptions{
+				NewCopilotClient: func(*copilot.ClientOptions) CopilotClient { return client },
+			}).Build()
+			require.NoError(t, engine.Initialize(t.Context()))
+			defer func() { require.NoError(t, engine.Shutdown(context.Background())) }()
+			resp, err := engine.Execute(t.Context(), &ExecutionRequest{
+				SessionID: sessionID, Message: "hello", ReasoningEffort: "max", WorkspaceDir: t.TempDir(),
+			})
+			require.Nil(t, resp)
+			require.ErrorIs(t, err, runtimeErr)
+			require.ErrorContains(t, err, "choose low, medium, or high")
+		})
+	}
+}
+
+func TestCopilotUnsupportedReasoningEffort_Live(t *testing.T) {
+	skipIfCopilotNotEnabled(t)
+	engine := NewCopilotEngineBuilder("gpt-5-mini", nil).Build()
+	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
+	defer cancel()
+	require.NoError(t, engine.Initialize(ctx))
+	defer func() { require.NoError(t, engine.Shutdown(context.Background())) }()
+
+	resp, err := engine.Execute(ctx, &ExecutionRequest{
+		Message: "Reply with OK.", ReasoningEffort: "max", WorkspaceDir: t.TempDir(), NoSkills: true,
+	})
+	require.Nil(t, resp)
+	require.ErrorContains(t, err, `model "gpt-5-mini" does not support reasoning effort "max"`)
+	require.ErrorContains(t, err, "choose one of low, medium, high")
+}
+
+func reasoningModel(id string, efforts ...string) copilot.ModelInfo {
+	model := copilot.ModelInfo{ID: id, SupportedReasoningEfforts: efforts}
+	model.Capabilities.Supports.ReasoningEffort = true
+	return model
+}
+
+func TestCopilotReasoningEffortPreflight(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		model   string
+		models  []copilot.ModelInfo
+		listErr error
+		want    string
+	}{
+		{name: "unsupported value", model: "judge", models: []copilot.ModelInfo{reasoningModel("judge", "low")}, want: `does not support reasoning effort "max"; choose one of low`},
+		{name: "unsupported model", model: "judge", models: []copilot.ModelInfo{{ID: "judge"}}, want: "does not support reasoning effort; omit"},
+		{name: "missing metadata", model: "judge", models: []copilot.ModelInfo{reasoningModel("judge")}, want: "has no supported reasoning effort metadata"},
+		{name: "unknown model", model: "judge", want: "unknown model"},
+		{name: "default model", want: "requires an explicit model"},
+		{name: "auto model", model: "auto", want: "requires an explicit model"},
+		{name: "catalog error", model: "judge", listErr: errors.New("catalog unavailable"), want: "checking reasoning effort"},
+		{name: "canceled catalog", model: "judge", listErr: context.Canceled, want: "checking reasoning effort"},
+	} {
+		for _, sessionID := range []string{"", "existing"} {
+			t.Run(tt.name+"/session="+sessionID, func(t *testing.T) {
+				ctrl := gomock.NewController(t)
+				client := newClientMock(ctrl)
+				if tt.model != "" && tt.model != "auto" {
+					client.EXPECT().ListModels(gomock.Any()).Return(tt.models, tt.listErr)
+				}
+				engine := NewCopilotEngineBuilder(tt.model, &CopilotEngineBuilderOptions{
+					NewCopilotClient: func(*copilot.ClientOptions) CopilotClient { return client },
+				}).Build()
+				require.NoError(t, engine.Initialize(t.Context()))
+				defer func() { require.NoError(t, engine.Shutdown(context.Background())) }()
+				resp, err := engine.Execute(t.Context(), &ExecutionRequest{Message: "hello", SessionID: sessionID, ReasoningEffort: "max"})
+				require.Nil(t, resp)
+				require.ErrorContains(t, err, tt.want)
+				if tt.listErr != nil {
+					require.ErrorIs(t, err, tt.listErr)
+				}
+			})
+		}
+	}
+}
+
+func TestCopilotReasoningEffortPreflight_CustomProvider(t *testing.T) {
+	engine := &CopilotEngine{provider: customProviderConfig{config: &copilot.ProviderConfig{BaseURL: "https://provider.example/v1"}, host: "provider.example"}}
+	require.NoError(t, engine.validateReasoningEffort(t.Context(), "custom-model", "max"))
 }
 
 func TestCopilotInitialize_PropagatesStartError(t *testing.T) {

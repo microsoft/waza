@@ -346,10 +346,36 @@ This is the closest Waza match for OpenAI Evals `modelgraded` specs. See the eva
 | `prompt`           | `string` | _(required¹)_ | Instructions for the judge LLM                       |
 | `rubric`           | `string` | _(optional)_ | Reusable rubric by name (e.g. `groundedness`) or path to a local `.md` file. See [Rubric library](/reference/rubrics/). |
 | `model`            | `string` | _(required)_ | Model to use for judging                             |
+| `reasoning_effort` | `string` | eval `judge_reasoning_effort` | Judge effort: `low`, `medium`, `high`, `xhigh`, or `max`. Requires `executor: copilot-sdk`. |
 | `continue_session` | `bool`   | `false`      | Resume the agent's session (judge sees full context) |
 | `mode`             | `string` | `independent` | Judging mode: `independent` (standard) or `pairwise` (compare two, requires `--baseline`) |
 
 ¹ Either `prompt` or `rubric` is required. When only `rubric` is set, the rubric's body becomes the judge prompt. When both are set, the inline `prompt` wins (useful for ad-hoc overrides while keeping the rubric metadata attached for reporting).
+
+Reasoning-effort overrides work on eval, task, and checkpoint prompt graders, including
+`continue_session` and pairwise judging. These are judge settings, not per-task agent
+settings. Pin the agent effort once per eval to compare the same suite consistently:
+
+```yaml
+config:
+  executor: copilot-sdk
+  model: gpt-5
+  reasoning_effort: high
+  judge_model: gpt-5-mini
+  judge_reasoning_effort: low
+graders:
+  - type: prompt
+    name: quality
+    config:
+      reasoning_effort: medium
+      prompt: Evaluate the response and call the grading tool.
+```
+
+Omitting an effort leaves the SDK/model default unchanged for new sessions; on a
+resumed session, the runtime retains its existing setting. With an explicit effort,
+select a concrete model from `waza models`. Waza validates hosted Copilot model support
+against the runtime catalog before execution rather than allowing a silent downgrade.
+For custom providers, effort is forwarded directly and provider errors are surfaced.
 
 ### Using a reusable rubric
 

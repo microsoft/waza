@@ -9,12 +9,12 @@ import (
 )
 
 // RunAll runs spec-level graders and task-level validators, returning the
-// combined results. judgeModel overrides the model for prompt graders.
-func RunAll(ctx context.Context, specGraders []models.GraderConfig, tc *models.TestCase, gCtx *Context, judgeModel string, updateSnapshots bool) (map[string]models.GraderResults, error) {
+// combined results. Judge settings provide defaults for prompt graders.
+func RunAll(ctx context.Context, specGraders []models.GraderConfig, tc *models.TestCase, gCtx *Context, judgeModel, judgeReasoningEffort string, updateSnapshots bool) (map[string]models.GraderResults, error) {
 	results := make(map[string]models.GraderResults)
 
 	for _, vCfg := range specGraders {
-		params := applyDefaults(vCfg.Parameters, judgeModel, updateSnapshots)
+		params := applyDefaults(vCfg.Parameters, judgeModel, judgeReasoningEffort, updateSnapshots)
 		grader, err := Create(vCfg.Identifier, params)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create grader %s: %w", vCfg.Identifier, err)
@@ -34,7 +34,7 @@ func RunAll(ctx context.Context, specGraders []models.GraderConfig, tc *models.T
 			return nil, fmt.Errorf("no kind associated with grader %s", vCfg.Identifier)
 		}
 
-		params := applyDefaults(vCfg.Parameters, judgeModel, updateSnapshots)
+		params := applyDefaults(vCfg.Parameters, judgeModel, judgeReasoningEffort, updateSnapshots)
 		grader, err := Create(vCfg.Identifier, params)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create grader %s: %w", vCfg.Identifier, err)
@@ -149,11 +149,14 @@ func boolToFloat(b bool) float64 {
 	return 0.0
 }
 
-func applyDefaults(gp models.GraderParameters, judgeModel string, updateSnapshots bool) models.GraderParameters {
+func applyDefaults(gp models.GraderParameters, judgeModel, judgeReasoningEffort string, updateSnapshots bool) models.GraderParameters {
 	switch p := gp.(type) {
 	case models.PromptGraderParameters:
 		if judgeModel != "" && p.Model == "" {
 			p.Model = judgeModel
+		}
+		if judgeReasoningEffort != "" && p.ReasoningEffort == "" {
+			p.ReasoningEffort = judgeReasoningEffort
 		}
 		return p
 	case models.DiffGraderParameters:
