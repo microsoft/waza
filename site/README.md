@@ -33,6 +33,9 @@ Static assets, like favicons, can be placed in the `public/` directory.
 
 ## 🧞 Commands
 
+Use Node.js 22.19.0 or later. The site's transitive `undici` dependency requires
+this minimum; the site CI and GitHub Pages workflows use Node.js 22.19.0.
+
 All commands are run from the root of the project, from a terminal:
 
 | Command                   | Action                                           |
@@ -43,6 +46,14 @@ All commands are run from the root of the project, from a terminal:
 | `npm run preview`         | Preview your build locally, before deploying     |
 | `npm run astro ...`       | Run CLI commands like `astro add`, `astro check` |
 | `npm run astro -- --help` | Get help using the Astro CLI                     |
+
+Site CI also runs the mobile-menu regression tests in Chromium, with JavaScript
+enabled and disabled. To run them locally after building the site:
+
+```sh
+npx playwright install chromium
+npm run test:e2e -- mobile-menu.spec.ts --project=chromium
+```
 
 ## 👀 Want to learn more?
 
