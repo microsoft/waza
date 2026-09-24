@@ -506,7 +506,7 @@ Exit codes: `0` all packs PASSED, `2` unsafe outcome with policy=fail (matches `
 
 ### `waza migrate <file>`
 
-Check a public schema artifact and migrate it to the current schema version when a future major schema requires it. The current schema is `1.2`, so v1 `eval.yaml` and `results.json` files are already current and no file changes are made.
+Check a public schema artifact and migrate it to the current schema version when a future major schema requires it. The current schema is `1.3`, so v1 `eval.yaml` and `results.json` files are compatible and no file changes are made.
 
 ```bash
 waza migrate eval.yaml
@@ -1158,11 +1158,13 @@ tasks:
 # range: [1, 10]  # Only include rows 1-10 (0-indexed, skips header)
 ```
 
-`schemaVersion` uses `MAJOR.MINOR` format. Missing values are interpreted as the current schema version (currently `1.2`). Readers allow same-major minor additions with warnings for unknown fields, but reject different majors with a hint to run `waza migrate <file>`.
+`schemaVersion` uses `MAJOR.MINOR` format. Missing values are interpreted as the current schema version (currently `1.3`). Readers allow same-major minor additions with warnings for unknown fields, but reject different majors with a hint to run `waza migrate <file>`.
 
 Remote grader refs use Go-module-style paths: `<host>/<owner>/<repo>[/path][#export]@<version>`. The remote module must provide a `waza.registry.yaml` manifest and export a grader preset. Config-only grader presets expand to built-in grader types by default; remote program graders require explicit trust with `waza registry add --allow-exec` or interactive confirmation. Run `waza get eval.yaml` after manually adding or changing refs so `waza.lock` records the resolved commit and digest.
 
-`results.json` is currently emitted at `schemaVersion` `1.2`. Version `1.1` added per-turn checkpoints (`runs[].checkpoints[]`, see #358) and the normalized `runs[].tool_events[]` array (`turn`, `sequence`, `tool_call_id`, `tool_name`, `args`, `result`, `success`, `error`, `duration_ms`; see #366). Version `1.2` adds `runs[].snapshot_path` for `waza run --snapshot` artifacts (#367) and the eval-level `adversarial:` block consumed by `waza adversarial --spec` (#365). See [docs/PRD](docs/PRD.md) and [schema-changes](site/src/content/docs/reference/schema-changes.md) for details.
+`results.json` is currently emitted at `schemaVersion` `1.3`. Version `1.1` added per-turn checkpoints (`runs[].checkpoints[]`, see #358) and the normalized `runs[].tool_events[]` array (`turn`, `sequence`, `tool_call_id`, `tool_name`, `args`, `result`, `success`, `error`, `duration_ms`; see #366). Version `1.2` added `runs[].snapshot_path` for `waza run --snapshot` artifacts (#367) and the eval-level `adversarial:` block consumed by `waza adversarial --spec` (#365). Version `1.3` adds `session_digest.tool_policy_mode` and `tool_policy_denials` (#585). See [docs/PRD](docs/PRD.md) and [schema-changes](site/src/content/docs/reference/schema-changes.md) for details.
+
+For custom `.agent.md` targets, `copilot-sdk` enforces the selected agent's `tools:` declaration on initial and resumed turns: omitted means unrestricted, `[]` denies all tools, and a populated list allows only named tools. Runtime enforcement and the implicit `tool_constraint` grader share built-in aliases such as `fileRead`/`readFile`/`view`. Denials fail the run and appear in results, `--session-log` run events, and the dashboard trajectory digest. This is a tool boundary, not host filesystem or network sandboxing. See [custom agent policies](site/src/content/docs/guides/custom-agents.mdx) for MCP names, task overrides, and limitations.
 
 ### MCP Mock Servers
 

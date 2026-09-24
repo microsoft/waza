@@ -849,6 +849,12 @@ func runSingleModel(cmd *cobra.Command, spec *models.EvalSpec, specPath string, 
 		case orchestration.EventTestStart:
 			ev = session.NewEvent(session.EventTaskStart,
 				session.TaskStartData(event.TestName, event.TestNum, event.TotalTests))
+		case orchestration.EventRunComplete:
+			ev = session.NewEvent(session.EventRunComplete, map[string]any{
+				"task_name":      event.TestName,
+				"run_number":     event.RunNum,
+				"session_digest": event.Details["session_digest"],
+			})
 		case orchestration.EventTestComplete:
 			score, _ := event.Details["score"].(float64)          //nolint:errcheck
 			durationMs, _ := event.Details["duration_ms"].(int64) //nolint:errcheck

@@ -1,7 +1,6 @@
 package orchestration
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -183,7 +182,8 @@ Body.
 `)
 
 	policy := resolveToolPolicy(loadFMForTest(agentPath))
-	require.Nil(t, policy, "absent tools: key must resolve to no policy (unrestricted)")
+	require.NotNil(t, policy)
+	require.Equal(t, execution.ToolPolicyUnrestricted, policy.Mode)
 }
 
 func TestResolveToolPolicy_EmptyTools(t *testing.T) {
@@ -227,40 +227,10 @@ func TestResolveToolPolicy_NotAgentFileOrMissing(t *testing.T) {
 	tmpDir := t.TempDir()
 	skillPath := filepath.Join(tmpDir, "SKILL.md")
 	require.NoError(t, os.WriteFile(skillPath, []byte("---\nname: my-skill\n---\nBody.\n"), 0644))
-	require.Nil(t, resolveToolPolicy(loadFMForTest(skillPath)))
+	require.Equal(t, execution.ToolPolicyUnrestricted, resolveToolPolicy(loadFMForTest(skillPath)).Mode)
 }
 
-func TestResolveAgentPath_FindsAgent(t *testing.T) {
-	tmpDir := t.TempDir()
-	writeAgentFile(t, tmpDir, "reviewer.agent.md", `---
-name: reviewer
----
-Body.
-`)
-
-	result := resolveAgentPath([]string{tmpDir})
-	assert.Equal(t, filepath.Join(tmpDir, "reviewer.agent.md"), result)
-}
-
-func TestResolveAgentPath_EmptyDirs(t *testing.T) {
-	result := resolveAgentPath(nil)
-	assert.Empty(t, result)
-}
-
-func TestResolveAgentPath_NoAgentFiles(t *testing.T) {
-	tmpDir := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "SKILL.md"), []byte("---\nname: x\n---\n"), 0644))
-
-	result := resolveAgentPath([]string{tmpDir})
-	assert.Empty(t, result)
-}
-
-// TestRunNormalBenchmark_ResetsStaleToolPolicyBetweenPasses reproduces the
-// runBaselineComparison scenario: the second (baseline/skills-disabled) pass
-// reuses the same *EvalRunner with SkillPaths cleared, so resolveAgentPath
-// finds no .agent.md and the agentPath-resolution block is skipped entirely.
-// r.toolPolicy from the first pass must not leak into the second.
-func TestRunNormalBenchmark_ResetsStaleToolPolicyBetweenPasses(t *testing.T) {
+func TestBuildExecutionRequest_ResolvesPolicyAfterPathsChange(t *testing.T) {
 	tmpDir := t.TempDir()
 	writeAgentFile(t, tmpDir, "reviewer.agent.md", `---
 name: reviewer
@@ -274,7 +244,7 @@ Body.
 
 	spec := &models.EvalSpec{
 		SpecIdentity: models.SpecIdentity{Name: "test-eval"},
-		SkillName:    "test-skill",
+		SkillName:    "reviewer",
 		Config: models.Config{
 			EngineType: "mock",
 			ModelID:    "gpt-4",
@@ -286,17 +256,17 @@ Body.
 	engine := execution.NewMockEngine("gpt-4")
 	runner := NewEvalRunner(cfg, engine)
 
-	_, err := runner.runNormalBenchmark(context.Background())
+	req, err := runner.buildExecutionRequest(&models.TestCase{})
 	require.NoError(t, err)
-	require.NotNil(t, runner.toolPolicy)
-	require.Equal(t, execution.ToolPolicyAllowList, runner.toolPolicy.Mode)
+	require.NotNil(t, req.ToolPolicy)
+	require.Equal(t, execution.ToolPolicyAllowList, req.ToolPolicy.Mode)
 
 	// Simulate PASS 2 of runBaselineComparison: SkillPaths cleared, so no
 	// agentPath is found this time.
 	spec.Config.SkillPaths = []string{}
-	_, err = runner.runNormalBenchmark(context.Background())
+	req, err = runner.buildExecutionRequest(&models.TestCase{})
 	require.NoError(t, err)
-	require.Nil(t, runner.toolPolicy, "stale tool policy from the prior pass must not persist")
+	require.Nil(t, req.ToolPolicy, "stale tool policy from the prior pass must not persist")
 }
 
 // TestRunNormalBenchmark_MalformedAgentFilePropagatesError verifies that a
@@ -323,7 +293,54 @@ func TestRunNormalBenchmark_MalformedAgentFilePropagatesError(t *testing.T) {
 	engine := execution.NewMockEngine("gpt-4")
 	runner := NewEvalRunner(cfg, engine)
 
-	_, err := runner.runNormalBenchmark(context.Background())
+	req, err := runner.buildExecutionRequest(&models.TestCase{})
 	require.Error(t, err)
-	require.Nil(t, runner.toolPolicy)
+	require.Nil(t, req)
+}
+
+func TestBuildExecutionRequest_SelectedAgentPolicy(t *testing.T) {
+	for _, scenario := range []string{"selected", "override", "disabled", "skill-priority", "nested", "unrestricted", "same-directory"} {
+		t.Run(scenario, func(t *testing.T) {
+			root := t.TempDir()
+			other := filepath.Join(root, "other")
+			target := filepath.Join(root, "target")
+			require.NoError(t, os.MkdirAll(other, 0755))
+			require.NoError(t, os.MkdirAll(target, 0755))
+			writeAgentFile(t, other, "other.agent.md", "---\nname: other\ntools: []\n---\n")
+			tools := "tools: [fileRead]\n"
+			if scenario == "unrestricted" {
+				tools = ""
+			}
+			writeAgentFile(t, target, "target.agent.md", "---\nname: target\n"+tools+"---\n")
+			spec := &models.EvalSpec{SkillName: "target", Config: models.Config{SkillPaths: []string{other, target}}}
+			tc := &models.TestCase{}
+			switch scenario {
+			case "override":
+				spec.Config.SkillPaths = []string{other}
+				tc.SkillPaths = []string{target}
+			case "disabled":
+				spec.Config.DisabledSkills = []string{"*"}
+			case "skill-priority":
+				require.NoError(t, os.WriteFile(filepath.Join(target, "SKILL.md"), []byte("---\nname: target\n---\n"), 0644))
+			case "nested":
+				spec.Config.SkillPaths = []string{root}
+			case "same-directory":
+				writeAgentFile(t, target, "aaa.agent.md", "---\nname: another\ntools: []\n---\n")
+				spec.Config.SkillPaths = []string{target}
+			}
+			runner := NewEvalRunner(config.NewEvalConfig(spec), execution.NewMockEngine("mock"))
+			req, err := runner.buildExecutionRequest(tc)
+			require.NoError(t, err)
+			switch scenario {
+			case "disabled", "skill-priority":
+				require.Nil(t, req.ToolPolicy)
+			case "unrestricted":
+				require.Equal(t, execution.ToolPolicyUnrestricted, req.ToolPolicy.Mode)
+			default:
+				require.Equal(t, execution.ToolPolicyAllowList, req.ToolPolicy.Mode)
+				require.True(t, req.ToolPolicy.IsAllowed("view"))
+				require.False(t, req.ToolPolicy.IsAllowed("bash"))
+			}
+		})
+	}
 }

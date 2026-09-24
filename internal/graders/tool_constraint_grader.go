@@ -266,7 +266,7 @@ func matchesToolCall(spec models.ToolSpecParameters, call models.ToolCall) bool 
 // (CommandPattern etc.) still use regex, so callers can restrict which
 // invocations of an allowed tool are permitted.
 func matchesAllowSpec(spec models.ToolSpecParameters, call models.ToolCall) bool {
-	if !strings.EqualFold(spec.Tool, call.Name) {
+	if models.CanonicalToolName(spec.Tool) != models.CanonicalToolName(call.Name) {
 		return false
 	}
 

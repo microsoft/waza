@@ -83,6 +83,18 @@ export default function SessionDigestCard({
         </div>
       )}
 
+      {digest.toolPolicyMode && (
+        <div>
+          <p className="text-xs text-zinc-500">Tool Policy</p>
+          <p className="text-sm text-zinc-200">{digest.toolPolicyMode}</p>
+          {digest.toolPolicyDenials?.map((denial, i) => (
+            <p key={i} className="mt-1 rounded bg-red-500/10 px-2 py-1 text-xs text-red-300">
+              {denial.tool || "Unknown tool"} ({denial.kind}): {denial.reason}
+            </p>
+          ))}
+        </div>
+      )}
+
       {digest.errors.length > 0 && (
         <div>
           <p className="mb-1.5 flex items-center gap-1 text-xs text-red-400">

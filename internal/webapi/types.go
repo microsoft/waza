@@ -1,6 +1,10 @@
 package webapi
 
-import "time"
+import (
+	"time"
+
+	"github.com/microsoft/waza/internal/models"
+)
 
 // RunSummary is the API response for a single run in the list.
 type RunSummary struct {
@@ -67,13 +71,15 @@ type TranscriptEventResponse struct {
 
 // SessionDigestResponse is the API representation of a session digest.
 type SessionDigestResponse struct {
-	TotalTurns    int      `json:"totalTurns"`
-	ToolCallCount int      `json:"toolCallCount"`
-	TokensIn      int      `json:"tokensIn"`
-	TokensOut     int      `json:"tokensOut"`
-	TokensTotal   int      `json:"tokensTotal"`
-	ToolsUsed     []string `json:"toolsUsed"`
-	Errors        []string `json:"errors"`
+	ToolPolicyMode    string                    `json:"toolPolicyMode,omitempty"`
+	ToolPolicyDenials []models.ToolPolicyDenial `json:"toolPolicyDenials,omitempty"`
+	TotalTurns        int                       `json:"totalTurns"`
+	ToolCallCount     int                       `json:"toolCallCount"`
+	TokensIn          int                       `json:"tokensIn"`
+	TokensOut         int                       `json:"tokensOut"`
+	TokensTotal       int                       `json:"tokensTotal"`
+	ToolsUsed         []string                  `json:"toolsUsed"`
+	Errors            []string                  `json:"errors"`
 }
 
 // ResponderInfoResponse is the API representation of a responder-driven run summary.

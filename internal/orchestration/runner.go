@@ -95,13 +95,6 @@ type EvalRunner struct {
 	// correlated back to their parent results.json. Set at the start of a
 	// benchmark run; empty for code paths that bypass the orchestrator.
 	evalRunID string
-
-	// toolPolicy is the resolved runtime tool-capability boundary derived
-	// once from the target .agent.md `tools:` declaration (see
-	// resolveAgentPath/execution.NewToolPolicy). Nil when no .agent.md was
-	// resolved for this run; applied to every ExecutionRequest built for the
-	// run (initial, resumed, follow-up, and responder-driven turns alike).
-	toolPolicy *execution.ToolPolicy
 }
 
 // ProgressListener receives progress updates
@@ -333,27 +326,6 @@ func (r *EvalRunner) runNormalBenchmark(ctx context.Context) (*models.Evaluation
 	// Preflight check: validate required skills
 	if err := r.validateRequiredSkills(); err != nil {
 		return nil, err
-	}
-
-	// Auto-inject tool_constraint grader from .agent.md tools if applicable,
-	// and resolve the runtime tool policy from the same .agent.md tri-state
-	// declaration. Resolved once per benchmark run and applied to every
-	// ExecutionRequest built afterward (see buildExecutionRequest). Reset
-	// before resolving so a reused runner (e.g. the baseline-disabled pass in
-	// runBaselineComparison, which clears SkillPaths and finds no agentPath)
-	// never keeps a stale policy from a prior run on the same *EvalRunner.
-	r.toolPolicy = nil
-	resolvedPaths := utils.ResolvePaths(spec.Config.SkillPaths, r.cfg.SpecDir())
-	if agentPath := resolveAgentPath(resolvedPaths); agentPath != "" {
-		fm, _, err := skill.LoadAgentDefinition(agentPath)
-		if err != nil {
-			// A malformed/unreadable .agent.md must not silently degrade to
-			// an unrestricted tool policy: fail the run instead of running
-			// with the capability boundary unenforced.
-			return nil, fmt.Errorf("failed to parse .agent.md %q: %w", agentPath, err)
-		}
-		spec.Graders = augmentGradersFromAgent(spec.Graders, agentPath, fm)
-		r.toolPolicy = resolveToolPolicy(fm)
 	}
 
 	// Load test cases
@@ -1117,7 +1089,7 @@ func (r *EvalRunner) runTestUncached(ctx context.Context, tc *models.TestCase, t
 			TotalRuns:  runsPerTest,
 			Status:     run.Status,
 			DurationMs: run.DurationMs,
-			Details:    map[string]any{"workspace_dir": run.WorkspaceDir},
+			Details:    map[string]any{"workspace_dir": run.WorkspaceDir, "session_digest": run.SessionDigest},
 		})
 	}
 
@@ -1509,13 +1481,12 @@ func (r *EvalRunner) buildExecutionRequest(tc *models.TestCase) (*execution.Exec
 	}
 
 	spec := r.cfg.Spec()
-	// Use task-level skill paths if specified, otherwise fall back to eval-level
-	skillPaths := spec.Config.FilteredSkillPaths()
-	if len(tc.SkillPaths) > 0 {
-		skillPaths = tc.SkillPaths
-	}
-	resolvedSkillPaths := utils.ResolvePaths(skillPaths, r.cfg.SpecDir())
+	resolvedSkillPaths := r.taskSkillPaths(tc)
 	noSkills := spec.Config.AllSkillsDisabled()
+	_, fm, err := r.resolveTaskAgent(tc)
+	if err != nil {
+		return nil, err
+	}
 
 	return &execution.ExecutionRequest{
 		Message:           tc.Stimulus.Message,
@@ -1532,8 +1503,27 @@ func (r *EvalRunner) buildExecutionRequest(tc *models.TestCase) (*execution.Exec
 		SuppressSkillBody: !spec.Config.ShouldInjectSkillBody(),
 		MCPServers:        convertMCPServers(spec.Config.ServerConfigs, spec.MCPMocks, r.cfg.SpecDir()),
 		FirstEventTimeout: r.firstEventTimeout(tc),
-		ToolPolicy:        r.toolPolicy,
+		ToolPolicy:        resolveToolPolicy(fm),
 	}, nil
+}
+
+func (r *EvalRunner) taskSkillPaths(tc *models.TestCase) []string {
+	skillPaths := r.cfg.Spec().Config.FilteredSkillPaths()
+	if len(tc.SkillPaths) > 0 {
+		skillPaths = tc.SkillPaths
+	}
+	return utils.ResolvePaths(skillPaths, r.cfg.SpecDir())
+}
+
+func (r *EvalRunner) resolveTaskAgent(tc *models.TestCase) (string, *skill.AgentFrontmatter, error) {
+	if r.cfg.Spec().Config.AllSkillsDisabled() {
+		return "", nil, nil
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", nil, fmt.Errorf("resolving agent working directory: %w", err)
+	}
+	return execution.ResolveAgentDefinition(append([]string{cwd}, r.taskSkillPaths(tc)...), r.cfg.Spec().SkillName)
 }
 
 func (r *EvalRunner) executionTimeout(tc *models.TestCase) (time.Duration, error) {
@@ -2100,7 +2090,21 @@ func (r *EvalRunner) buildGraderContext(tc *models.TestCase, resp *execution.Exe
 
 func (r *EvalRunner) runGraders(ctx context.Context, tc *models.TestCase, gradersContext *graders.Context) (map[string]models.GraderResults, error) {
 	spec := r.cfg.Spec()
-	return graders.RunAll(ctx, spec.Graders, tc, gradersContext, spec.Config.JudgeModel, r.updateSnapshots)
+	agentPath, fm, err := r.resolveTaskAgent(tc)
+	if err != nil {
+		return nil, err
+	}
+	effective := spec.Graders
+	hasTaskConstraint := false
+	for _, v := range tc.Validators {
+		if v.Kind == models.GraderKindToolConstraint {
+			hasTaskConstraint = true
+		}
+	}
+	if !hasTaskConstraint {
+		effective = augmentGradersFromAgent(append([]models.GraderConfig(nil), effective...), agentPath, fm)
+	}
+	return graders.RunAll(ctx, effective, tc, gradersContext, spec.Config.JudgeModel, r.updateSnapshots)
 }
 
 // mergeToolPolicyResult folds a follow-up/responder turn's tool-policy
@@ -2113,6 +2117,7 @@ func mergeToolPolicyResult(resp, turnResp *execution.ExecutionResponse) {
 	}
 	if len(turnResp.ToolPolicyDenials) > 0 {
 		resp.ToolPolicyDenials = append(resp.ToolPolicyDenials, turnResp.ToolPolicyDenials...)
+		resp.Success = false
 	}
 }
 

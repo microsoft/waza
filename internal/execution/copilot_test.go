@@ -157,7 +157,8 @@ func TestCopilotCreateSession_AppliesToolPolicyAvailableTools(t *testing.T) {
 			OnPermissionRequest: allowAllTools, // presence-only check; real value is the policy wrapper
 			Model:               "gpt-4o-mini",
 			SkillDirectories:    []string{sourceDir},
-			AvailableTools:      []string{"read", "readFile"},
+			AvailableTools:      []string{"builtin:view", "builtin:view"},
+			Hooks:               &copilot.SessionHooks{},
 		},
 	}
 
@@ -710,6 +711,13 @@ func (m sessionConfigMatcher) Matches(x any) bool {
 		// Equal can't compare function ptrs..
 		expected.OnPermissionRequest = nil
 		c.OnPermissionRequest = nil
+
+		if expected.Hooks != nil {
+			require.NotNil(m.t, c.Hooks)
+			require.NotNil(m.t, c.Hooks.OnPreToolUse)
+			expected.Hooks = nil
+			c.Hooks = nil
+		}
 
 		// streamingPtr always returns a non-nil *bool now; when an expected
 		// fixture omits Streaming, treat actual *bool(false) as equivalent.

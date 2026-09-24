@@ -38,7 +38,7 @@ func TestNewToolPolicy_TriState(t *testing.T) {
 		require.True(t, p.IsAllowed("readfile"))
 		require.False(t, p.IsAllowed("bash"))
 		require.False(t, p.IsAllowed("web_fetch"))
-		require.ElementsMatch(t, []string{"read", "readFile"}, p.SessionToolFilter())
+		require.ElementsMatch(t, []string{"builtin:view", "builtin:view"}, p.SessionToolFilter())
 		require.True(t, p.Active())
 	})
 }
@@ -75,7 +75,9 @@ func TestCanonicalPermissionToolName(t *testing.T) {
 		wantOK  bool
 	}{
 		{"custom tool", &copilot.PermissionRequestCustomTool{ToolName: "task"}, "task", true},
-		{"mcp tool", &copilot.PermissionRequestMCP{ToolName: "SomeTool", ServerName: "srv"}, "sometool", true},
+		{"mcp tool", &copilot.PermissionRequestMCP{ToolName: "SomeTool", ServerName: "srv"}, "srv-sometool", true},
+		{"mcp without server", &copilot.PermissionRequestMCP{ToolName: "SomeTool"}, "", false},
+		{"empty custom", &copilot.PermissionRequestCustomTool{}, "", false},
 		{"hook", &copilot.PermissionRequestHook{ToolName: "bash"}, "bash", true},
 		{"factory/subagent", &copilot.PermissionRequestFactory{Name: "researcher"}, "researcher", true},
 		{"factory/subagent unnamed", &copilot.PermissionRequestFactory{}, "task", true},
@@ -138,7 +140,7 @@ func TestEnforceToolPolicy_AllowListApprovesDeclaredDeniesOthers(t *testing.T) {
 	require.Equal(t, "bash", denials[0].Tool)
 	require.Equal(t, "fetch", denials[1].Tool)
 	require.Equal(t, "sub", denials[2].Tool)
-	require.Equal(t, "other", denials[3].Tool)
+	require.Equal(t, "srv-other", denials[3].Tool)
 	require.Equal(t, "", denials[4].Tool)
 }
 
@@ -185,4 +187,50 @@ func TestEnforceToolPolicy_UnrestrictedNeverWrapped(t *testing.T) {
 	policy := NewToolPolicy(nil)
 	require.False(t, policy.Active())
 	require.True(t, policy.IsAllowed("bash"))
+}
+
+func TestToolPolicyAliasesAndMCP(t *testing.T) {
+	for _, tc := range []struct {
+		declared string
+		request  copilot.PermissionRequest
+		native   string
+	}{
+		{"fileRead", &copilot.PermissionRequestRead{}, "builtin:view"},
+		{"fileWrite", &copilot.PermissionRequestWrite{}, "builtin:edit"},
+		{"runCommand", &copilot.PermissionRequestShell{}, "builtin:bash"},
+		{"web_fetch", &copilot.PermissionRequestURL{}, "builtin:web_fetch"},
+		{"mcp:github-list_issues", &copilot.PermissionRequestMCP{ServerName: "github", ToolName: "list_issues"}, "mcp:github-list_issues"},
+		{"custom:CodeSearch", &copilot.PermissionRequestCustomTool{ToolName: "CodeSearch"}, "custom:CodeSearch"},
+		{"custom:view", &copilot.PermissionRequestCustomTool{ToolName: "view"}, "custom:view"},
+	} {
+		t.Run(tc.declared, func(t *testing.T) {
+			tools := []string{tc.declared}
+			p := NewToolPolicy(&tools)
+			require.Equal(t, []string{tc.native}, p.SessionToolFilter())
+			rec := newToolPolicyRecorder()
+			decision, err := enforceToolPolicy(p, rec, allowAllTools)(tc.request, copilot.PermissionInvocation{})
+			require.NoError(t, err)
+			require.IsType(t, &rpc.PermissionDecisionApproveOnce{}, decision)
+			require.Empty(t, rec.snapshot())
+			require.False(t, p.IsAllowed("other-list_issues"))
+		})
+	}
+}
+
+func TestEnforceToolCall(t *testing.T) {
+	for _, tools := range [][]string{{}, {"fileRead"}, {"*"}} {
+		p := NewToolPolicy(&tools)
+		rec := newToolPolicyRecorder()
+		hook := enforceToolCall(p, rec)
+		for _, name := range []string{"view", "bash", "web_fetch", "task", ""} {
+			output, err := hook(copilot.PreToolUseHookInput{ToolName: name}, copilot.HookInvocation{})
+			require.NoError(t, err)
+			if p.IsAllowed(name) && name != "" {
+				require.Nil(t, output)
+			} else {
+				require.Equal(t, "deny", output.PermissionDecision)
+			}
+		}
+		require.NotEmpty(t, rec.snapshot())
+	}
 }

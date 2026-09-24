@@ -1,9 +1,6 @@
 package orchestration
 
 import (
-	"os"
-	"path/filepath"
-
 	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/skill"
@@ -64,27 +61,10 @@ func augmentGradersFromAgent(graders []models.GraderConfig, agentPath string, fm
 // resolveToolPolicy converts an already-loaded .agent.md `tools:` tri-state
 // declaration into a runtime execution.ToolPolicy (see execution.NewToolPolicy
 // for the nil/empty/populated mapping). Returns nil (unrestricted, i.e. no
-// policy applied) when fm is nil or has no `tools:` key at all.
+// policy applied) only when no agent frontmatter was resolved.
 func resolveToolPolicy(fm *skill.AgentFrontmatter) *execution.ToolPolicy {
-	if fm == nil || fm.Tools == nil {
+	if fm == nil {
 		return nil
 	}
 	return execution.NewToolPolicy(fm.Tools)
-}
-
-// resolveAgentPath finds the first .agent.md file in the given skill directories.
-// Returns empty string if no agent file is found.
-func resolveAgentPath(skillPaths []string) string {
-	for _, dir := range skillPaths {
-		entries, err := os.ReadDir(dir)
-		if err != nil {
-			continue
-		}
-		for _, entry := range entries {
-			if !entry.IsDir() && skill.IsAgentFile(entry.Name()) {
-				return filepath.Join(dir, entry.Name())
-			}
-		}
-	}
-	return ""
 }

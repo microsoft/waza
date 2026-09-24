@@ -1,9 +1,27 @@
 import { test, expect } from "@playwright/test";
 import { mockAllAPIs } from "./helpers/api-mock";
+import { RUN_DETAIL } from "./fixtures/mock-data";
 
 test.describe("Trajectory Viewer", () => {
   test.beforeEach(async ({ page }) => {
     await mockAllAPIs(page);
+  });
+
+  test("displays tool policy and denied attempts", async ({ page }) => {
+    const detail = structuredClone(RUN_DETAIL);
+    detail.tasks[0].sessionDigest!.toolPolicyMode = "allow_list";
+    detail.tasks[0].sessionDigest!.toolPolicyDenials = [
+      { tool: "bash", kind: "shell", reason: "Tool is undeclared" },
+    ];
+    await page.route(/\/api\/runs\/run-001$/, (route) =>
+      route.fulfill({ json: detail }),
+    );
+    await page.goto("/#/runs/run-001");
+    await page.getByRole("button", { name: "Trajectory" }).click();
+    await page.getByRole("button", { name: "explain-fibonacci" }).click();
+    await expect(page.getByText("Tool Policy", { exact: true })).toBeVisible();
+    await expect(page.getByText("allow_list", { exact: true })).toBeVisible();
+    await expect(page.getByText("bash (shell): Tool is undeclared")).toBeVisible();
   });
 
   test("trajectory tab exists and switches view", async ({ page }) => {

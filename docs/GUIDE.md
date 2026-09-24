@@ -673,6 +673,8 @@ Capture detailed session logs for debugging:
 waza run evals/code-explainer/eval.yaml --session-log --session-dir ./logs
 ```
 
+For custom agents evaluated with `copilot-sdk`, each `run_complete` log event includes the session digest's effective `tool_policy_mode` and any `tool_policy_denials`. The same fields are saved in results schema 1.3 and displayed in the dashboard trajectory view. Policies follow the selected agent and task-level skill paths, including resumed turns; omitted `tools:` is unrestricted, `tools: []` denies all tools, and populated lists allow only declared names and documented aliases. See the [custom agents guide](../site/src/content/docs/guides/custom-agents.mdx) for details and sandbox limitations.
+
 Logs are stored in NDJSON format (one event per line):
 ```json
 {"event":"task_started","id":"basic-usage","timestamp":"2024-01-15T10:30:00Z"}

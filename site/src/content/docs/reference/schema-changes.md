@@ -9,8 +9,8 @@ Waza public artifacts use an explicit `schemaVersion` field so checked-in eval s
 
 | Artifact | Field | Current version |
 |---|---|---|
-| `eval.yaml` | `schemaVersion` | `1.2` |
-| `results.json` | `schemaVersion` | `1.2` |
+| `eval.yaml` | `schemaVersion` | `1.3` |
+| `results.json` | `schemaVersion` | `1.3` |
 | `snapshot.json` | `schemaVersion` | `1.0` |
 | Dashboard/SSE event envelope | `schemaVersion` | `1.0` |
 
@@ -20,8 +20,8 @@ Schema versions use `MAJOR.MINOR` format with no patch component.
 
 - **MINOR** changes are backward-compatible additions, usually optional fields. Readers accept same-major artifacts and warn when they see unknown fields.
 - **MAJOR** changes are breaking. Readers refuse artifacts from a different major version and point to `waza migrate <file>`.
-- Missing `schemaVersion` is interpreted as the current schema version (currently `1.2` for eval/result artifacts). Same-major minor differences are accepted and any unknown fields are warned about; cross-major mismatches are rejected.
-- New eval/result artifacts should emit the current `schemaVersion` (currently `1.2`). The version is automatically populated by the writer; you only need to set it manually when authoring fixtures or schema-pinned test data.
+- Missing `schemaVersion` is interpreted as the current schema version (currently `1.3` for eval/result artifacts). Same-major minor differences are accepted and any unknown fields are warned about; cross-major mismatches are rejected.
+- New eval/result artifacts should emit the current `schemaVersion` (currently `1.3`). The version is automatically populated by the writer; you only need to set it manually when authoring fixtures or schema-pinned test data.
 
 ## Migration command
 
@@ -35,6 +35,11 @@ waza migrate results.json
 For schema `1.0`, the command is a no-op because there is no prior major version to migrate from.
 
 ## Changelog
+
+### 1.3
+
+- Added optional `runs[].session_digest.tool_policy_mode` and `tool_policy_denials` to record the selected custom agent's effective tool policy and denied attempts (#585).
+- The dashboard API exposes these as `toolPolicyMode` and `toolPolicyDenials`; NDJSON session logs include the digest in `run_complete` events.
 
 ### 1.2
 

@@ -56,6 +56,8 @@ export interface BootstrapCI {
 }
 
 export interface SessionDigest {
+  toolPolicyMode?: "unrestricted" | "deny_all" | "allow_list";
+  toolPolicyDenials?: { tool: string; kind: string; reason: string }[];
   totalTurns: number;
   toolCallCount: number;
   tokensIn: number;
