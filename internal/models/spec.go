@@ -368,11 +368,9 @@ func (g *GraderConfig) Validate() error {
 		if !ok {
 			return fmt.Errorf("prompt grader %q: expected PromptGraderParameters, got %T", g.Identifier, g.Parameters)
 		}
-		if !ValidReasoningEffort(params.ReasoningEffort) {
-			return fmt.Errorf("prompt grader %q: reasoning_effort must be one of low, medium, high, xhigh, or max, got %q", g.Identifier, params.ReasoningEffort)
-		}
+		return validateGraderReasoningEffort(g.Identifier, params, "copilot-sdk")
 
-		// GraderKindText, GraderKindBehavior, GraderKindPrompt allow empty configs
+		// GraderKindText and GraderKindBehavior allow empty configs
 	}
 
 	return nil
@@ -476,12 +474,9 @@ func (s *EvalSpec) Validate() error {
 	if s.Config.EngineType != "copilot-sdk" && (s.Config.ReasoningEffort != "" || s.Config.JudgeReasoningEffort != "") {
 		return fmt.Errorf("reasoning_effort and judge_reasoning_effort require executor copilot-sdk")
 	}
-	if s.Config.EngineType != "copilot-sdk" {
-		for _, g := range s.Graders {
-			params, ok := g.Parameters.(PromptGraderParameters)
-			if ok && params.ReasoningEffort != "" {
-				return fmt.Errorf("prompt grader %q: reasoning_effort requires executor copilot-sdk", g.Identifier)
-			}
+	for _, g := range s.Graders {
+		if err := validateGraderReasoningEffort(g.Identifier, g.Parameters, s.Config.EngineType); err != nil {
+			return err
 		}
 	}
 	if len(s.MCPMocks) > 0 {
@@ -524,6 +519,20 @@ func (s *EvalSpec) Validate() error {
 	}
 	if s.Config.FirstEventTimeoutSec < 0 {
 		return fmt.Errorf("first_event_timeout_seconds must not be negative, got %d", s.Config.FirstEventTimeoutSec)
+	}
+	return nil
+}
+
+func validateGraderReasoningEffort(name string, parameters GraderParameters, executor string) error {
+	params, ok := parameters.(PromptGraderParameters)
+	if !ok {
+		return nil
+	}
+	if !ValidReasoningEffort(params.ReasoningEffort) {
+		return fmt.Errorf("prompt grader %q: reasoning_effort must be one of low, medium, high, xhigh, or max, got %q", name, params.ReasoningEffort)
+	}
+	if executor != "copilot-sdk" && params.ReasoningEffort != "" {
+		return fmt.Errorf("prompt grader %q: reasoning_effort requires executor copilot-sdk", name)
 	}
 	return nil
 }

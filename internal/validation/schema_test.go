@@ -1,6 +1,7 @@
 package validation
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -8,6 +9,41 @@ import (
 
 	"github.com/stretchr/testify/require"
 )
+
+func TestTaskReasoningEffortSchemaAndExecutor(t *testing.T) {
+	for _, checkpoint := range []bool{false, true} {
+		for _, effort := range []string{"low", "medium", "high", "xhigh", "max", "invalid"} {
+			t.Run(fmt.Sprintf("checkpoint=%t/effort=%s", checkpoint, effort), func(t *testing.T) {
+				graders := "graders:\n  - type: prompt\n    name: judge\n    config:\n      prompt: grade\n      reasoning_effort: " + effort + "\n"
+				if checkpoint {
+					graders = "checkpoints:\n  - after_turn: 1\n    " + strings.ReplaceAll(strings.TrimSpace(graders), "\n", "\n    ") + "\n"
+				}
+				task := validTaskYAML + graders
+				errs := ValidateTaskBytes([]byte(task))
+				if effort == "invalid" {
+					require.NotEmpty(t, errs)
+					return
+				}
+				require.Empty(t, errs)
+				dir := t.TempDir()
+				require.NoError(t, os.WriteFile(filepath.Join(dir, "task.yaml"), []byte(task), 0o600))
+				evalPath := filepath.Join(dir, "eval.yaml")
+				eval := strings.Replace(validEvalYAML, "tasks/*.yaml", "task.yaml", 1)
+				for _, executor := range []string{"mock", "copilot-sdk"} {
+					require.NoError(t, os.WriteFile(evalPath, []byte(strings.Replace(eval, "executor: mock", "executor: "+executor, 1)), 0o600))
+					evalErrs, taskErrs, err := ValidateEvalFile(evalPath)
+					require.NoError(t, err)
+					require.Empty(t, evalErrs)
+					if executor == "mock" {
+						require.Contains(t, strings.Join(taskErrs["task.yaml"], "\n"), "reasoning_effort requires executor copilot-sdk")
+					} else {
+						require.Empty(t, taskErrs)
+					}
+				}
+			})
+		}
+	}
+}
 
 const validEvalYAML = `name: test-eval
 description: Test evaluation

@@ -756,6 +756,9 @@ func (r *EvalRunner) loadTestCasesFromFiles() ([]*models.TestCase, error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to load test case %s: %w", path, err)
 		}
+		if err := tc.ValidateForExecutor(spec.Config.EngineType); err != nil {
+			return nil, fmt.Errorf("invalid test case %s: %w", path, err)
+		}
 		// Only include active test cases
 		// LoadTestCase defaults Active to true (nil case), so include nil or explicitly true
 		if tc.Active == nil || *tc.Active {

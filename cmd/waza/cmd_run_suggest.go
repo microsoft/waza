@@ -519,6 +519,9 @@ func loadTestCasesFromFiles(spec *models.EvalSpec, specPath string) ([]*models.T
 		if err != nil {
 			return nil, fmt.Errorf("failed to load test case %s: %w", path, err)
 		}
+		if err := tc.ValidateForExecutor(spec.Config.EngineType); err != nil {
+			return nil, fmt.Errorf("invalid test case %s: %w", path, err)
+		}
 		if tc.Active == nil || *tc.Active {
 			testCases = append(testCases, tc)
 		}

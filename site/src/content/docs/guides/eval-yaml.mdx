@@ -134,6 +134,13 @@ config:
 | `required_skills`   | list[str] | `[]`              | Skills that must be available before running                |
 | `mcp_servers`       | object    | —                 | MCP server configurations for the evaluation. When `tools` is omitted or null for a server, Waza exposes all server tools by sending `["*"]` to the Copilot SDK. Set `tools` to an explicit list, including `[]`, to restrict or disable exposed tools. |
 
+With an explicit reasoning effort, use a concrete model from `waza models`.
+Waza checks the hosted runtime's supported-effort metadata before session creation
+and resumption, rejecting unsupported values rather than silently downgrading them.
+Custom providers receive the effort directly because they are not covered by the
+hosted model catalog. Prompt graders in eval, task, and checkpoint definitions may
+override `judge_reasoning_effort`; agent effort stays eval-level.
+
 ### Trigger-precision evals
 
 Set `inject_skill_body: false` when the eval is measuring whether the agent invokes a skill rather than whether it can complete the work after already seeing the skill body:

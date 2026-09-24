@@ -394,9 +394,30 @@ func (v *ValidatorInline) Validate() error {
 			return fmt.Errorf("file grader %q: must specify at least one of config.must_exist, config.must_not_exist, or config.content_patterns", v.Identifier)
 		}
 
-		// GraderKindText, GraderKindBehavior, GraderKindPrompt allow empty configs
+	case GraderKindPrompt:
+		g := GraderConfig{Identifier: v.Identifier, Kind: v.Kind, Parameters: v.Parameters}
+		return g.Validate()
+
+		// GraderKindText and GraderKindBehavior allow empty configs
 	}
 
+	return nil
+}
+
+// ValidateForExecutor checks judge settings against the enclosing eval's executor.
+func (tc *TestCase) ValidateForExecutor(executor string) error {
+	for _, v := range tc.Validators {
+		if err := validateGraderReasoningEffort(v.Identifier, v.Parameters, executor); err != nil {
+			return fmt.Errorf("test case %q: %w", tc.TestID, err)
+		}
+	}
+	for i, checkpoint := range tc.Checkpoints {
+		for _, v := range checkpoint.Graders {
+			if err := validateGraderReasoningEffort(v.Identifier, v.Parameters, executor); err != nil {
+				return fmt.Errorf("test case %q: checkpoints[%d]: %w", tc.TestID, i, err)
+			}
+		}
+	}
 	return nil
 }
 

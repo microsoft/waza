@@ -292,9 +292,7 @@ func RegradeOutcome(original *models.EvaluationOutcome, gradedOutcomes []models.
 	if judgeModel != "" {
 		setup.JudgeModel = judgeModel
 	}
-	if judgeReasoningEffort != "" {
-		setup.JudgeReasoningEffort = judgeReasoningEffort
-	}
+	setup.JudgeReasoningEffort = judgeReasoningEffort
 
 	runsPerTest := setup.RunsPerTest
 	if runsPerTest <= 0 {

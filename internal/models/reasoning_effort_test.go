@@ -1,12 +1,52 @@
 package models
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
+
+func TestTaskJudgeReasoningEffort(t *testing.T) {
+	for _, checkpoint := range []bool{false, true} {
+		for _, effort := range []string{"", "low", "medium", "high", "xhigh", "max", "invalid"} {
+			t.Run(fmt.Sprintf("checkpoint=%t/effort=%s", checkpoint, effort), func(t *testing.T) {
+				graders := "graders:\n  - type: prompt\n    name: judge\n    config:\n      prompt: grade\n"
+				if effort != "" {
+					graders += "      reasoning_effort: " + effort + "\n"
+				}
+				if checkpoint {
+					graders = "checkpoints:\n  - after_turn: 1\n    " + strings.ReplaceAll(strings.TrimSpace(graders), "\n", "\n    ") + "\n"
+				}
+				path := filepath.Join(t.TempDir(), "task.yaml")
+				require.NoError(t, os.WriteFile(path, []byte("id: task\ninputs:\n  prompt: hello\n"+graders), 0o600))
+				tc, err := LoadTestCase(path)
+				if effort == "invalid" {
+					require.ErrorContains(t, err, "reasoning_effort must be one of")
+					return
+				}
+				require.NoError(t, err)
+				require.NoError(t, tc.ValidateForExecutor("copilot-sdk"))
+				for _, executor := range []string{"mock", ""} {
+					err := tc.ValidateForExecutor(executor)
+					if effort == "" {
+						require.NoError(t, err)
+					} else {
+						require.ErrorContains(t, err, "reasoning_effort requires executor copilot-sdk")
+					}
+				}
+			})
+		}
+	}
+}
+
+func TestValidatorInlineReasoningEffortType(t *testing.T) {
+	v := ValidatorInline{Kind: GraderKindPrompt, Parameters: TextGraderParameters{}}
+	require.ErrorContains(t, v.Validate(), "expected PromptGraderParameters")
+}
 
 func TestEvalSpecReasoningEffort(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "reasoning.yaml")
@@ -31,7 +71,9 @@ graders:
 	require.NoError(t, err)
 	require.Equal(t, "high", spec.Config.ReasoningEffort)
 	require.Equal(t, "low", spec.Config.JudgeReasoningEffort)
-	require.Equal(t, "medium", spec.Graders[0].Parameters.(PromptGraderParameters).ReasoningEffort)
+	params, ok := spec.Graders[0].Parameters.(PromptGraderParameters)
+	require.True(t, ok)
+	require.Equal(t, "medium", params.ReasoningEffort)
 }
 
 func TestEvalSpecRejectsInvalidReasoningEffort(t *testing.T) {

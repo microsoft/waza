@@ -6,7 +6,7 @@ Uses a language model to evaluate skill execution quality via an explicit grader
 - type: prompt
   name: quality_judge
   config:
-    model: gpt-4o-mini
+    model: gpt-5-mini
     reasoning_effort: medium
     continue_session: false
     prompt: |
@@ -23,6 +23,16 @@ Uses a language model to evaluate skill execution quality via an explicit grader
 | `model` | string | Model to use for the judge session |
 | `reasoning_effort` | string | Override the eval's `judge_reasoning_effort` (`low`, `medium`, `high`, `xhigh`, or `max`); requires `executor: copilot-sdk` |
 | `continue_session` | bool | Reuse the task session context by session ID (default: `false`) |
+
+The effort override also applies to task and checkpoint prompt graders, pairwise
+judges, and `continue_session` resumes. If omitted, the eval's
+`judge_reasoning_effort` is used. With neither set, the SDK/model default is left
+unchanged (a resumed session retains its current runtime setting).
+
+For explicit effort, select a concrete model from `waza models`. Waza checks
+hosted Copilot model support against the runtime catalog before creating or
+resuming sessions and reports unsupported values with the supported alternatives.
+Custom-provider efforts bypass the hosted catalog and are forwarded to that provider.
 
 **Timeout:**
 
