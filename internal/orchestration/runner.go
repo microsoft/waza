@@ -1198,6 +1198,8 @@ func (r *EvalRunner) executeRun(ctx context.Context, tc *models.TestCase, runNum
 		})
 	}
 
+	markToolPolicyViolation(resp)
+
 	// Emit child tool_call/model_call spans from the engine response. These
 	// are after-the-fact records (waza only learns about them when Execute
 	// returns) so the spans collapse to a single timestamp under the turn.
@@ -1614,6 +1616,7 @@ func (r *EvalRunner) executeFollowUps(ctx context.Context, tc *models.TestCase, 
 			break
 		}
 
+		markToolPolicyViolation(followResp)
 		if followResp.ErrorMsg != "" {
 			emitChildSpans(turnCtx, r.telemetry, turnSpan, followResp, r.cfg.Spec().Config.ModelID)
 			turnSpan.End()
@@ -1770,6 +1773,7 @@ func (r *EvalRunner) sendResponderReply(ctx context.Context, tc *models.TestCase
 		resp.ErrorMsg = fmt.Sprintf("responder reply %d failed: %v", turn, err)
 		return false
 	}
+	markToolPolicyViolation(followResp)
 	if followResp.ErrorMsg != "" {
 		emitChildSpans(turnCtx, r.telemetry, turnSpan, followResp, r.cfg.Spec().Config.ModelID)
 		mergeToolPolicyResult(resp, followResp)
@@ -2117,7 +2121,17 @@ func mergeToolPolicyResult(resp, turnResp *execution.ExecutionResponse) {
 	}
 	if len(turnResp.ToolPolicyDenials) > 0 {
 		resp.ToolPolicyDenials = append(resp.ToolPolicyDenials, turnResp.ToolPolicyDenials...)
-		resp.Success = false
+		markToolPolicyViolation(resp)
+	}
+}
+
+func markToolPolicyViolation(resp *execution.ExecutionResponse) {
+	if len(resp.ToolPolicyDenials) == 0 {
+		return
+	}
+	resp.Success = false
+	if resp.ErrorMsg == "" {
+		resp.ErrorMsg = fmt.Sprintf("tool policy violation: %d tool call(s) denied by .agent.md `tools:` policy", len(resp.ToolPolicyDenials))
 	}
 }
 

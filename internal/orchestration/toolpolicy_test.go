@@ -38,8 +38,6 @@ func TestToolPolicyLaterTurns(t *testing.T) {
 				}
 				if calls > 1 {
 					require.Equal(t, "session", req.SessionID)
-					resp.Success = false
-					resp.ErrorMsg = "tool policy violation"
 					resp.ToolPolicyDenials = []execution.ToolPolicyDenial{{Tool: "bash", Kind: "shell", Reason: "undeclared"}}
 				}
 				return resp
@@ -57,9 +55,11 @@ func TestToolPolicyLaterTurns(t *testing.T) {
 				digest = runner.buildSessionDigest(resp)
 			} else {
 				run := runner.executeRun(context.Background(), tc, 1)
-				require.NotEqual(t, models.StatusPassed, run.Status)
+				require.Equal(t, models.StatusError, run.Status)
+				require.Contains(t, run.ErrorMsg, "tool policy violation")
 				digest = run.SessionDigest
 			}
+
 			require.Equal(t, 2, calls)
 			require.Equal(t, "allow_list", digest.ToolPolicyMode)
 			require.Len(t, digest.ToolPolicyDenials, 1)
@@ -68,6 +68,26 @@ func TestToolPolicyLaterTurns(t *testing.T) {
 			require.Contains(t, string(data), `"tool_policy_denials":[{"tool":"bash","kind":"shell","reason":"undeclared"}]`)
 		})
 	}
+}
+
+func TestToolPolicyInitialDenialWithoutErrorFailsRun(t *testing.T) {
+	engine := &policyTestEngine{MockEngine: execution.NewMockEngine("mock")}
+	calls := 0
+	engine.execute = func(*execution.ExecutionRequest) *execution.ExecutionResponse {
+		calls++
+		return &execution.ExecutionResponse{
+			Success: true, ToolPolicyMode: "deny_all",
+			ToolPolicyDenials: []execution.ToolPolicyDenial{{Tool: "bash", Kind: "shell", Reason: "undeclared"}},
+		}
+	}
+	runner := NewEvalRunner(config.NewEvalConfig(&models.EvalSpec{Config: models.Config{TimeoutSec: 30}}), engine)
+	run := runner.executeRun(context.Background(), &models.TestCase{
+		Stimulus: models.TaskStimulus{Message: "try bash", FollowUps: []string{"must not run"}},
+	}, 1)
+	require.Equal(t, 1, calls)
+	require.Equal(t, models.StatusError, run.Status)
+	require.Contains(t, run.ErrorMsg, "tool policy violation")
+	require.Len(t, run.SessionDigest.ToolPolicyDenials, 1)
 }
 
 func TestImplicitPolicyGraderUsesTaskAgent(t *testing.T) {
@@ -84,4 +104,24 @@ func TestImplicitPolicyGraderUsesTaskAgent(t *testing.T) {
 		require.Equal(t, name != "bash", results["agent_tools_implicit"].Passed)
 	}
 	require.Empty(t, spec.Graders, "implicit graders must not leak into another task or baseline pass")
+}
+
+func TestImplicitPolicyGraderPreservesSourceNamespaces(t *testing.T) {
+	dir := t.TempDir()
+	writeAgentFile(t, dir, "reader.agent.md", "---\nname: reader\ntools: ['custom:view', 'mcp:github-list_issues']\n---\n")
+	runner := NewEvalRunner(config.NewEvalConfig(&models.EvalSpec{SkillName: "reader"}), execution.NewMockEngine("mock"))
+	for _, tc := range []struct {
+		name    string
+		allowed bool
+	}{
+		{"view", true}, {"custom:view", true}, {"builtin:view", false}, {"read", false},
+		{"github-list_issues", true}, {"mcp:github-list_issues", true},
+		{"custom:github-list_issues", false}, {"other-list_issues", false},
+	} {
+		results, err := runner.runGraders(context.Background(), &models.TestCase{SkillPaths: []string{dir}}, &graders.Context{
+			Session: &models.SessionDigest{ToolCalls: []models.ToolCall{{Name: tc.name}}},
+		})
+		require.NoError(t, err)
+		require.Equal(t, tc.allowed, results["agent_tools_implicit"].Passed, tc.name)
+	}
 }

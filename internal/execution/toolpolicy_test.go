@@ -1,6 +1,7 @@
 package execution
 
 import (
+	"strings"
 	"testing"
 
 	copilot "github.com/github/copilot-sdk/go"
@@ -50,11 +51,13 @@ func TestToolPolicy_ExactNotSubstringMatch(t *testing.T) {
 	require.False(t, p.IsAllowed("bashful"))
 }
 
-func TestToolPolicy_CanonicalPrefixStripping(t *testing.T) {
-	declared := []string{"bash", "some_mcp_tool"}
+func TestToolPolicy_PreservesSourceNamespaces(t *testing.T) {
+	declared := []string{"bash", "mcp:some_mcp_tool"}
 	p := NewToolPolicy(&declared)
 	require.True(t, p.IsAllowed("builtin:bash"))
 	require.True(t, p.IsAllowed("mcp:some_mcp_tool"))
+	require.False(t, p.IsAllowed("custom:bash"))
+	require.False(t, p.IsAllowed("some_mcp_tool"))
 	// Declaring one MCP tool must not implicitly allow every tool from that
 	// server: a different tool name from the same server must still be denied.
 	require.False(t, p.IsAllowed("mcp:other_tool_same_server"))
@@ -74,8 +77,8 @@ func TestCanonicalPermissionToolName(t *testing.T) {
 		want    string
 		wantOK  bool
 	}{
-		{"custom tool", &copilot.PermissionRequestCustomTool{ToolName: "task"}, "task", true},
-		{"mcp tool", &copilot.PermissionRequestMCP{ToolName: "SomeTool", ServerName: "srv"}, "srv-sometool", true},
+		{"custom tool", &copilot.PermissionRequestCustomTool{ToolName: "task"}, "custom:task", true},
+		{"mcp tool", &copilot.PermissionRequestMCP{ToolName: "SomeTool", ServerName: "srv"}, "mcp:srv-sometool", true},
 		{"mcp without server", &copilot.PermissionRequestMCP{ToolName: "SomeTool"}, "", false},
 		{"empty custom", &copilot.PermissionRequestCustomTool{}, "", false},
 		{"hook", &copilot.PermissionRequestHook{ToolName: "bash"}, "bash", true},
@@ -140,8 +143,30 @@ func TestEnforceToolPolicy_AllowListApprovesDeclaredDeniesOthers(t *testing.T) {
 	require.Equal(t, "bash", denials[0].Tool)
 	require.Equal(t, "fetch", denials[1].Tool)
 	require.Equal(t, "sub", denials[2].Tool)
-	require.Equal(t, "srv-other", denials[3].Tool)
+	require.Equal(t, "mcp:srv-other", denials[3].Tool)
 	require.Equal(t, "", denials[4].Tool)
+}
+
+func TestBareNamesCannotAuthorizeSourceQualifiedPermissions(t *testing.T) {
+	for _, tc := range []struct {
+		declared string
+		request  copilot.PermissionRequest
+	}{
+		{"CodeSearch", &copilot.PermissionRequestCustomTool{ToolName: "CodeSearch"}},
+		{"github-list_issues", &copilot.PermissionRequestMCP{ServerName: "github", ToolName: "list_issues"}},
+		{"read", &copilot.PermissionRequestCustomTool{ToolName: "view"}},
+	} {
+		t.Run(tc.declared, func(t *testing.T) {
+			tools := []string{tc.declared}
+			policy := NewToolPolicy(&tools)
+			recorder := newToolPolicyRecorder()
+			decision, err := enforceToolPolicy(policy, recorder, allowAllTools)(tc.request, copilot.PermissionInvocation{})
+			require.NoError(t, err)
+			require.IsType(t, &rpc.PermissionDecisionReject{}, decision)
+			require.Len(t, recorder.snapshot(), 1)
+			require.Contains(t, policy.SessionToolFilter()[0], "builtin:")
+		})
+	}
 }
 
 func TestEnforceToolPolicy_ReadFileAliasAllowsActualReadRequest(t *testing.T) {
@@ -213,6 +238,10 @@ func TestToolPolicyAliasesAndMCP(t *testing.T) {
 			require.IsType(t, &rpc.PermissionDecisionApproveOnce{}, decision)
 			require.Empty(t, rec.snapshot())
 			require.False(t, p.IsAllowed("other-list_issues"))
+			_, observed, _ := strings.Cut(tc.native, ":")
+			out, err := enforceToolCall(p, rec)(copilot.PreToolUseHookInput{ToolName: observed}, copilot.HookInvocation{})
+			require.NoError(t, err)
+			require.Nil(t, out, "source-less hook names must not reject an explicitly allowed tool")
 		})
 	}
 }

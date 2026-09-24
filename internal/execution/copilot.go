@@ -919,7 +919,9 @@ func findSkillDefinition(skillDirs []string, skillName string) (*skillDefinition
 			if strings.EqualFold(sd.Name, skillName) {
 				return sd, nil
 			}
-			continue
+			if !skill.IsAgentFile(sd.Path) {
+				continue
+			}
 		}
 
 		// Walk one level of subdirectories to find nested skills

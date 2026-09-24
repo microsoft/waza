@@ -127,7 +127,11 @@ func (p *ToolPolicy) SessionToolFilter() []string {
 			case "fetch":
 				names = append(names, "builtin:web_fetch")
 			default:
-				names = append(names, name)
+				if strings.HasPrefix(strings.ToLower(name), "builtin:") {
+					names = append(names, name)
+				} else {
+					names = append(names, "builtin:"+name)
+				}
 			}
 		}
 	}
@@ -209,7 +213,10 @@ func (r *toolPolicyRecorder) snapshot() []ToolPolicyDenial {
 func canonicalPermissionToolName(request copilot.PermissionRequest) (string, bool) {
 	switch req := request.(type) {
 	case *copilot.PermissionRequestCustomTool:
-		return canonicalToolName("custom:" + req.ToolName), strings.TrimSpace(req.ToolName) != ""
+		if strings.TrimSpace(req.ToolName) == "" {
+			return "", false
+		}
+		return canonicalToolName("custom:" + req.ToolName), true
 	case *copilot.PermissionRequestMCP:
 		if strings.TrimSpace(req.ServerName) == "" || strings.TrimSpace(req.ToolName) == "" {
 			return "", false
@@ -245,9 +252,13 @@ func canonicalPermissionToolName(request copilot.PermissionRequest) (string, boo
 // enforceToolCall also covers tools that do not trigger a permission request.
 func enforceToolCall(policy *ToolPolicy, recorder *toolPolicyRecorder) copilot.PreToolUseHandler {
 	return func(input copilot.PreToolUseHookInput, _ copilot.HookInvocation) (*copilot.PreToolUseHookOutput, error) {
-		if input.ToolName != "" && policy.IsAllowed(input.ToolName) {
-			// Do not pre-approve: preserve the caller's permission handler.
-			return nil, nil
+		if input.ToolName != "" {
+			for _, declared := range policy.declared {
+				if models.MatchesToolCallName(declared, input.ToolName) {
+					// Do not pre-approve: preserve the caller's permission handler.
+					return nil, nil
+				}
+			}
 		}
 		reason := fmt.Sprintf("tool %q is not declared in the agent's `tools:` allow-list", input.ToolName)
 		recorder.record(canonicalToolName(input.ToolName), "tool", reason)

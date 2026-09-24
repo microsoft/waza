@@ -253,7 +253,9 @@ Matching is exact, case-insensitive, and uses the same fixed aliases as `allow_o
 | `bash`, `runCommand` | `builtin:bash` |
 | `fetch`, `web_fetch` | `builtin:web_fetch` |
 
-For MCP tools, declare the full `<server-key>-<tool-name>` identity, optionally prefixed with `mcp:` (for example `mcp:github-list_issues`). A bare tool name does not authorize a server or another server's tool. Explicit `mcp:` and `custom:` names retain their original case and source qualifier in the SDK filter. Hooks and transcripts expose tool names without source metadata, so source isolation relies on the SDK filter; name normalization alone is not a source boundary. Subagent launches must pass both the tool-name check (typically `task`) and the factory permission check using the factory's name, or `task` if unnamed. Permitting a launcher is not a separate sandbox for the subagent.
+Bare names refer to built-ins. For MCP tools, declare `mcp:<server-key>-<tool-name>` (for example `mcp:github-list_issues`); for caller-provided tools, use `custom:<tool-name>` (for example `custom:CodeSearch`). Permission matching preserves these namespaces: `CodeSearch` does not authorize `custom:CodeSearch`, and `github-list_issues` does not authorize `mcp:github-list_issues`. Declaring one MCP tool never authorizes another server or its other tools. Custom/MCP identifiers retain their original case and source qualifier in the SDK filter and do not use built-in aliases.
+
+Hooks and transcripts may omit source metadata. For those observations, declared custom/MCP names match the literal unqualified name; source isolation then relies on the SDK filter. Explicit source information is never discarded when present. Subagent launches must pass both the tool-name check (typically `task`) and the factory permission check using the factory's name, or `task` if unnamed. Permitting a launcher is not a separate sandbox for the subagent.
 
 The opt-in live SDK regression exercises an allowed file read and a current-information request in both an initial and resumed session:
 

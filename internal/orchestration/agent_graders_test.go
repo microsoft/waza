@@ -299,7 +299,7 @@ func TestRunNormalBenchmark_MalformedAgentFilePropagatesError(t *testing.T) {
 }
 
 func TestBuildExecutionRequest_SelectedAgentPolicy(t *testing.T) {
-	for _, scenario := range []string{"selected", "override", "disabled", "skill-priority", "nested", "unrestricted", "same-directory"} {
+	for _, scenario := range []string{"selected", "override", "disabled", "skill-priority", "nested", "nested-with-root-agent", "unrestricted", "same-directory"} {
 		t.Run(scenario, func(t *testing.T) {
 			root := t.TempDir()
 			other := filepath.Join(root, "other")
@@ -323,6 +323,9 @@ func TestBuildExecutionRequest_SelectedAgentPolicy(t *testing.T) {
 			case "skill-priority":
 				require.NoError(t, os.WriteFile(filepath.Join(target, "SKILL.md"), []byte("---\nname: target\n---\n"), 0644))
 			case "nested":
+				spec.Config.SkillPaths = []string{root}
+			case "nested-with-root-agent":
+				writeAgentFile(t, root, "unrelated.agent.md", "---\nname: unrelated\ntools: []\n---\n")
 				spec.Config.SkillPaths = []string{root}
 			case "same-directory":
 				writeAgentFile(t, target, "aaa.agent.md", "---\nname: another\ntools: []\n---\n")
