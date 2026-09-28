@@ -80,6 +80,41 @@ func (g *skillInvocationGrader) Grade(ctx context.Context, gradingContext *Conte
 			actual[i] = si.Name
 		}
 
+		// Classify surfacing status for each required skill using the routing
+		// catalog snapshot the runtime advertised. This distinguishes
+		// "runtime never surfaced the skill" (not skill-side fixable) from
+		// "runtime surfaced the skill but the model chose not to invoke it"
+		// (skill-side fixable). See issue #540.
+		availableNames := make(map[string]bool, len(gradingContext.AvailableSkills))
+		for _, as := range gradingContext.AvailableSkills {
+			if as.Name != "" {
+				availableNames[as.Name] = true
+			}
+		}
+		// availableSkillsKnown is false when the runtime did not report an
+		// available-skills snapshot (e.g. legacy or non-Copilot executors);
+		// in that case we skip the surfacing classification instead of
+		// misreporting every skill as "never surfaced".
+		availableSkillsKnown := len(gradingContext.AvailableSkills) > 0
+		notSurfaced := []string{}
+		surfacedButNotInvoked := []string{}
+		if availableSkillsKnown && len(g.requiredSkills) > 0 {
+			invoked := make(map[string]bool, len(actual))
+			for _, a := range actual {
+				invoked[a] = true
+			}
+			for _, req := range g.requiredSkills {
+				if invoked[req] {
+					continue
+				}
+				if availableNames[req] {
+					surfacedButNotInvoked = append(surfacedButNotInvoked, req)
+				} else {
+					notSurfaced = append(notSurfaced, req)
+				}
+			}
+		}
+
 		precision, recall, f1 := 1.0, 1.0, 1.0
 		requiredPassed := true
 		if len(g.requiredSkills) > 0 {
@@ -110,11 +145,54 @@ func (g *skillInvocationGrader) Grade(ctx context.Context, gradingContext *Conte
 		feedback := "Skill invocation sequence matched"
 		if !passed {
 			feedback = g.buildFailureFeedback(actual, requiredPassed, forbiddenViolations)
+			// Append a routing-surface note so trigger-precision suites can
+			// tell "description lost the routing contest" apart from
+			// "runtime never surfaced the skill" without inferring from
+			// token counts (see issue #540).
+			if availableSkillsKnown && len(g.requiredSkills) > 0 {
+				var suffix string
+				switch {
+				case len(notSurfaced) > 0 && len(surfacedButNotInvoked) > 0:
+					suffix = fmt.Sprintf(
+						"; runtime never surfaced: %s; surfaced but not invoked: %s",
+						strings.Join(notSurfaced, ", "),
+						strings.Join(surfacedButNotInvoked, ", "),
+					)
+				case len(notSurfaced) > 0:
+					suffix = fmt.Sprintf("; runtime never surfaced: %s", strings.Join(notSurfaced, ", "))
+				case len(surfacedButNotInvoked) > 0:
+					suffix = fmt.Sprintf("; surfaced but not invoked: %s", strings.Join(surfacedButNotInvoked, ", "))
+				}
+				feedback += suffix
+			}
 		} else if len(g.requiredSkills) == 0 {
 			feedback = "Forbidden skills were not invoked"
 		} else if !g.allowExtra && len(actual) > len(g.requiredSkills) {
 			// Passed the match but has extra invocations when not allowed
 			feedback = fmt.Sprintf("Skill invocation sequence matched but had extra invocations (got %d, expected %d)", len(actual), len(g.requiredSkills))
+		}
+
+		details := map[string]any{
+			"mode":                 string(g.matchingMode),
+			"required_skills":      g.requiredSkills,
+			"forbidden_skills":     g.forbiddenSkills,
+			"forbidden_violations": forbiddenViolations,
+			"actual_skills":        actual,
+			"allow_extra":          g.allowExtra,
+			"precision":            precision,
+			"recall":               recall,
+			"f1":                   f1,
+		}
+		if availableSkillsKnown {
+			availableNamesList := make([]string, 0, len(gradingContext.AvailableSkills))
+			for _, as := range gradingContext.AvailableSkills {
+				if as.Name != "" {
+					availableNamesList = append(availableNamesList, as.Name)
+				}
+			}
+			details["available_skills"] = availableNamesList
+			details["not_surfaced_required_skills"] = notSurfaced
+			details["surfaced_but_not_invoked_required_skills"] = surfacedButNotInvoked
 		}
 
 		return &models.GraderResults{
@@ -123,17 +201,7 @@ func (g *skillInvocationGrader) Grade(ctx context.Context, gradingContext *Conte
 			Score:    score,
 			Passed:   passed,
 			Feedback: feedback,
-			Details: map[string]any{
-				"mode":                 string(g.matchingMode),
-				"required_skills":      g.requiredSkills,
-				"forbidden_skills":     g.forbiddenSkills,
-				"forbidden_violations": forbiddenViolations,
-				"actual_skills":        actual,
-				"allow_extra":          g.allowExtra,
-				"precision":            precision,
-				"recall":               recall,
-				"f1":                   f1,
-			},
+			Details:  details,
 		}, nil
 	})
 }

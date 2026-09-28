@@ -561,6 +561,7 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 		Events:           copilotevents.FromSDK(eventsCollector.SessionEvents()),
 		ModelID:          modelID,
 		SkillInvocations: eventsCollector.SkillInvocations,
+		AvailableSkills:  enumerateAvailableSkills(skillDirs),
 		DurationMs:       duration.Milliseconds(),
 		ToolCalls:        eventsCollector.ToolCalls(),
 		ErrorMsg:         errMsg,
@@ -826,6 +827,65 @@ type skillDefinition struct {
 	Description string
 	Content     string // full raw SKILL.md content
 	Dir         string
+	File        string // full path of the SKILL.md / *.agent.md file the definition was loaded from
+}
+
+// enumerateAvailableSkills walks the surfaced skill directories the same way
+// buildSkillSystemMessage does — a direct SKILL.md / *.agent.md in each dir,
+// then one level of subdirectories — and returns one AvailableSkill entry
+// per discovered definition, deduplicated by resolved path. The result
+// captures the routing surface the underlying SDK could advertise for the
+// session, so consumers can tell "the runtime never surfaced the skill" apart
+// from "the runtime surfaced it but the model chose not to invoke it" even
+// when SkillInvocations is empty (see issue #540).
+func enumerateAvailableSkills(skillDirs []string) []AvailableSkill {
+	seen := map[string]bool{}
+	var out []AvailableSkill
+	add := func(sd *skillDefinition) {
+		if sd == nil {
+			return
+		}
+		key := sd.File
+		if key == "" {
+			key = sd.Dir
+		}
+		if abs, err := filepath.Abs(key); err == nil {
+			key = abs
+		}
+		if seen[key] {
+			return
+		}
+		seen[key] = true
+		path := sd.File
+		if path == "" {
+			path = sd.Dir
+		}
+		out = append(out, AvailableSkill{Name: sd.Name, Path: path})
+	}
+
+	for _, dir := range skillDirs {
+		if sd := loadSkillDefinition(dir); sd != nil {
+			add(sd)
+			continue
+		}
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			continue
+		}
+		for _, entry := range entries {
+			if !entry.IsDir() {
+				continue
+			}
+			name := entry.Name()
+			if strings.HasPrefix(name, ".") || name == "node_modules" || name == "vendor" {
+				continue
+			}
+			if sd := loadSkillDefinition(filepath.Join(dir, name)); sd != nil {
+				add(sd)
+			}
+		}
+	}
+	return out
 }
 
 // buildSkillSystemMessage scans skill directories for SKILL.md files and returns
@@ -927,7 +987,7 @@ func loadSkillDefinition(dir string) *skillDefinition {
 			name = filepath.Base(dir)
 		}
 		slog.Debug("Loaded skill definition", "name", name, "dir", dir)
-		return &skillDefinition{Name: name, Description: desc, Content: content, Dir: dir}
+		return &skillDefinition{Name: name, Description: desc, Content: content, Dir: dir, File: skillPath}
 	}
 
 	// Try .agent.md files
@@ -948,7 +1008,7 @@ func loadSkillDefinition(dir string) *skillDefinition {
 				name = strings.TrimSuffix(entry.Name(), ".agent.md")
 			}
 			slog.Debug("Loaded agent definition", "name", name, "dir", dir)
-			return &skillDefinition{Name: name, Description: desc, Content: content, Dir: dir}
+			return &skillDefinition{Name: name, Description: desc, Content: content, Dir: dir, File: agentPath}
 		}
 	}
 	return nil

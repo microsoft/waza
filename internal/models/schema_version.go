@@ -25,7 +25,18 @@ const (
 	//       declaring fault-injection packs to run (#365). Both fields are
 	//       optional, so 1.0 and 1.1 artifacts continue to load without
 	//       migration.
-	CurrentSchemaVersion = "1.2"
+	// 1.3 — additive: RunResult.available_skills captures the routing catalog
+	//       the runtime surfaced to the agent for the run (one entry per
+	//       SKILL.md / *.agent.md file reachable through SkillDirectories),
+	//       and the skill_invocation grader now emits
+	//       details.available_skills /
+	//       details.not_surfaced_required_skills /
+	//       details.surfaced_but_not_invoked_required_skills so trigger-
+	//       precision suites can tell "runtime never surfaced the skill"
+	//       apart from "surfaced but the model chose not to invoke it"
+	//       (#540). All fields are optional and omitted when unavailable
+	//       so 1.0/1.1/1.2 artifacts continue to load without migration.
+	CurrentSchemaVersion = "1.3"
 )
 
 func defaultSchemaVersion(version string) string {

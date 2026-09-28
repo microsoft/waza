@@ -131,6 +131,24 @@ type SkillInvocation struct {
 	Path string
 }
 
+// AvailableSkill records a skill that was surfaced to the runtime's routing
+// catalog for a session. It is populated by enumerating the SKILL.md /
+// *.agent.md files reachable through the SkillDirectories passed to the
+// underlying agent SDK, so it reflects the routing surface the model saw
+// even when no skill invocation ultimately occurred.
+//
+// Together with SkillInvocations it lets trigger-precision evals and graders
+// distinguish "the runtime never surfaced the skill" from "the runtime
+// surfaced the skill but the model chose not to invoke it" — a distinction
+// that is otherwise not recoverable from result artifacts (see issue #540).
+type AvailableSkill struct {
+	// Name of the surfaced skill, as declared in its frontmatter (or the
+	// directory name when the frontmatter omits `name:`).
+	Name string
+	// Path of the SKILL.md / *.agent.md file that defined the skill.
+	Path string
+}
+
 // ExecutionResponse represents the result of an execution.
 //
 // Events carries engine-neutral [agentevent.Event] values rather than a
@@ -145,14 +163,22 @@ type ExecutionResponse struct {
 	Events           []agentevent.Event
 	ModelID          string
 	SkillInvocations []SkillInvocation
-	DurationMs       int64
-	ToolCalls        []models.ToolCall
-	ErrorMsg         string
-	Success          bool
-	WorkspaceDir     string            // Path to workspace directory (for file grading)
-	WorkspaceFiles   map[string][]byte // Post-execution workspace file contents captured before session disconnect
-	SessionID        string            // Copilot session ID
-	Usage            *models.UsageStats
+	// AvailableSkills is a snapshot of the skill catalog surfaced to the
+	// runtime for this execution — one entry per SKILL.md / *.agent.md the
+	// underlying SDK could route to via SkillDirectories. It is populated
+	// even when SkillInvocations is empty (see issue #540); consumers can
+	// diff the two to tell "surfaced but not chosen" apart from
+	// "never surfaced". Empty when skills were disabled (NoSkills) or when
+	// no SKILL.md / *.agent.md files were found under SkillDirectories.
+	AvailableSkills []AvailableSkill
+	DurationMs      int64
+	ToolCalls       []models.ToolCall
+	ErrorMsg        string
+	Success         bool
+	WorkspaceDir    string            // Path to workspace directory (for file grading)
+	WorkspaceFiles  map[string][]byte // Post-execution workspace file contents captured before session disconnect
+	SessionID       string            // Copilot session ID
+	Usage           *models.UsageStats
 }
 
 // ExtractMessages gets all non-empty assistant messages from events.

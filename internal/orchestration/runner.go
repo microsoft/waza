@@ -1335,6 +1335,11 @@ func (r *EvalRunner) executeRun(ctx context.Context, tc *models.TestCase, runNum
 		skillInvocations[i] = models.SkillInvocation{Name: si.Name, Path: si.Path}
 	}
 
+	availableSkills := make([]models.SkillInvocation, len(resp.AvailableSkills))
+	for i, as := range resp.AvailableSkills {
+		availableSkills[i] = models.SkillInvocation{Name: as.Name, Path: as.Path}
+	}
+
 	run := models.RunResult{
 		RunNumber:        runNum,
 		Prompt:           req.Message,
@@ -1346,6 +1351,7 @@ func (r *EvalRunner) executeRun(ctx context.Context, tc *models.TestCase, runNum
 		FinalOutput:      resp.FinalOutput,
 		ErrorMsg:         resp.ErrorMsg,
 		SkillInvocations: skillInvocations,
+		AvailableSkills:  availableSkills,
 		WorkspaceDir:     resp.WorkspaceDir,
 		Responder:        responderInfo,
 		Checkpoints:      checkpointOutcomes,
@@ -2063,6 +2069,7 @@ func (r *EvalRunner) buildGraderContext(tc *models.TestCase, resp *execution.Exe
 		WorkspaceDir:     resp.WorkspaceDir,
 		WorkspaceFiles:   resp.WorkspaceFiles,
 		SkillInvocations: resp.SkillInvocations,
+		AvailableSkills:  resp.AvailableSkills,
 		SessionID:        resp.SessionID,
 		Session:          &sessionDigest,
 		ToolEvents:       buildToolEvents(sdkEvents),

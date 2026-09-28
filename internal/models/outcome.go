@@ -191,10 +191,18 @@ type RunResult struct {
 	FinalOutput      string                   `json:"final_output"`
 	ErrorMsg         string                   `json:"error_msg,omitempty"`
 	SkillInvocations []SkillInvocation        `json:"skill_invocations,omitempty"`
-	Usage            *UsageStats              `json:"usage,omitempty"`
-	WorkspaceDir     string                   `json:"workspace_dir,omitempty"`
-	FailureArtifacts *FailureArtifacts        `json:"failure_artifacts,omitempty"`
-	Responder        *ResponderInfo           `json:"responder,omitempty"`
+	// AvailableSkills is a snapshot of the skill catalog the runtime surfaced
+	// to the agent for this run — one entry per SKILL.md / *.agent.md file
+	// reachable through the session's SkillDirectories. It is emitted even
+	// when SkillInvocations is empty so consumers (dashboards and the
+	// skill_invocation grader in particular) can distinguish "the runtime
+	// never surfaced the skill" from "the runtime surfaced the skill but
+	// the model chose not to invoke it". See issue #540.
+	AvailableSkills  []SkillInvocation `json:"available_skills,omitempty"`
+	Usage            *UsageStats       `json:"usage,omitempty"`
+	WorkspaceDir     string            `json:"workspace_dir,omitempty"`
+	FailureArtifacts *FailureArtifacts `json:"failure_artifacts,omitempty"`
+	Responder        *ResponderInfo    `json:"responder,omitempty"`
 	// Checkpoints captures per-turn checkpoint grader results, one entry per
 	// configured TestCase.Checkpoint that actually ran (i.e., turn index was
 	// reached). Empty / omitted when the task defines no checkpoints.

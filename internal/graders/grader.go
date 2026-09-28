@@ -59,6 +59,14 @@ type Context struct {
 	// Used by the skill_invocation grader to verify orchestration workflows.
 	SkillInvocations []execution.SkillInvocation
 
+	// AvailableSkills is the routing catalog surfaced to the runtime for this
+	// session — one entry per SKILL.md / *.agent.md file the SDK could route
+	// to. Graders can diff this against SkillInvocations to distinguish
+	// "the runtime never surfaced the skill" from "the runtime surfaced it
+	// but the model chose not to invoke it" (see issue #540). Empty when
+	// skills were disabled for the run.
+	AvailableSkills []execution.AvailableSkill
+
 	// SessionID from this evaluation run.
 	SessionID string
 

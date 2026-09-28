@@ -697,3 +697,92 @@ func TestSkillInvocationGrader_PrecisionRecall(t *testing.T) {
 		require.Equal(t, 1.0, result.Details["recall"]) // All required found
 	})
 }
+
+// ---------------------------------------------------------------------------
+// Routing-surface telemetry (issue #540)
+// ---------------------------------------------------------------------------
+
+func TestSkillInvocationGrader_SurfacingClassification(t *testing.T) {
+	g, err := NewSkillInvocationGrader("must_invoke", models.SkillInvocationGraderParameters{
+		Mode:           models.SkillMatchingModeAnyOrder,
+		RequiredSkills: []string{"prioritize-features"},
+	})
+	require.NoError(t, err)
+
+	t.Run("surfaced but not invoked distinguishes description-loss from missing-catalog", func(t *testing.T) {
+		ctx := &Context{
+			SkillInvocations: []execution.SkillInvocation{},
+			AvailableSkills: []execution.AvailableSkill{
+				{Name: "prioritize-features", Path: "/skills/prioritize-features/SKILL.md"},
+				{Name: "pre-mortem", Path: "/skills/pre-mortem/SKILL.md"},
+			},
+		}
+		result, err := g.Grade(context.Background(), ctx)
+		require.NoError(t, err)
+		require.False(t, result.Passed)
+		require.Contains(t, result.Feedback, "surfaced but not invoked: prioritize-features")
+		require.NotContains(t, result.Feedback, "runtime never surfaced")
+
+		surfacedButNot, ok := result.Details["surfaced_but_not_invoked_required_skills"].([]string)
+		require.True(t, ok)
+		require.Equal(t, []string{"prioritize-features"}, surfacedButNot)
+		notSurfaced, ok := result.Details["not_surfaced_required_skills"].([]string)
+		require.True(t, ok)
+		require.Empty(t, notSurfaced)
+		available, ok := result.Details["available_skills"].([]string)
+		require.True(t, ok)
+		require.ElementsMatch(t, []string{"prioritize-features", "pre-mortem"}, available)
+	})
+
+	t.Run("not surfaced identifies runtime-side regressions", func(t *testing.T) {
+		ctx := &Context{
+			SkillInvocations: []execution.SkillInvocation{},
+			AvailableSkills: []execution.AvailableSkill{
+				{Name: "pre-mortem", Path: "/skills/pre-mortem/SKILL.md"},
+			},
+		}
+		result, err := g.Grade(context.Background(), ctx)
+		require.NoError(t, err)
+		require.False(t, result.Passed)
+		require.Contains(t, result.Feedback, "runtime never surfaced: prioritize-features")
+		require.NotContains(t, result.Feedback, "surfaced but not invoked")
+
+		notSurfaced, ok := result.Details["not_surfaced_required_skills"].([]string)
+		require.True(t, ok)
+		require.Equal(t, []string{"prioritize-features"}, notSurfaced)
+		surfacedButNot, ok := result.Details["surfaced_but_not_invoked_required_skills"].([]string)
+		require.True(t, ok)
+		require.Empty(t, surfacedButNot)
+	})
+
+	t.Run("legacy responses without available skills preserve prior feedback", func(t *testing.T) {
+		ctx := &Context{
+			SkillInvocations: []execution.SkillInvocation{},
+			// AvailableSkills intentionally nil to simulate legacy / non-Copilot
+			// executors that do not populate the routing catalog snapshot.
+		}
+		result, err := g.Grade(context.Background(), ctx)
+		require.NoError(t, err)
+		require.False(t, result.Passed)
+		require.NotContains(t, result.Feedback, "runtime never surfaced")
+		require.NotContains(t, result.Feedback, "surfaced but not invoked")
+		_, hasKey := result.Details["available_skills"]
+		require.False(t, hasKey, "available_skills details must be omitted when AvailableSkills is nil")
+	})
+
+	t.Run("passing runs are unaffected by surfacing telemetry", func(t *testing.T) {
+		ctx := &Context{
+			SkillInvocations: []execution.SkillInvocation{
+				{Name: "prioritize-features"},
+			},
+			AvailableSkills: []execution.AvailableSkill{
+				{Name: "prioritize-features", Path: "/skills/prioritize-features/SKILL.md"},
+			},
+		}
+		result, err := g.Grade(context.Background(), ctx)
+		require.NoError(t, err)
+		require.True(t, result.Passed)
+		require.Equal(t, 1.0, result.Score)
+		require.Equal(t, "Skill invocation sequence matched", result.Feedback)
+	})
+}
