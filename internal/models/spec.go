@@ -84,6 +84,7 @@ type Config struct {
 	SkillPaths           []string       `yaml:"skill_directories,omitempty" json:"skill_paths,omitempty"`
 	InstructionFiles     []string       `yaml:"instruction_files,omitempty" json:"instruction_files,omitempty"`
 	InjectSkillBody      *bool          `yaml:"inject_skill_body,omitempty" json:"inject_skill_body,omitempty"`
+	TriggerSkillRouting  bool           `yaml:"trigger_skill_routing,omitempty" json:"trigger_skill_routing,omitempty"`
 	DisabledSkills       []string       `yaml:"disabled_skills,omitempty" json:"disabled_skills,omitempty"`
 	RequiredSkills       []string       `yaml:"required_skills,omitempty" json:"required_skills,omitempty"`
 	ServerConfigs        map[string]any `yaml:"mcp_servers,omitempty" json:"server_configs,omitempty"`
@@ -190,6 +191,14 @@ type MCPMockResponse struct {
 // injecting the target skill body into the system prompt.
 func (c *Config) ShouldInjectSkillBody() bool {
 	return c.InjectSkillBody == nil || *c.InjectSkillBody
+}
+
+// ShouldTriggerSkillRouting returns true when the eval explicitly opts into
+// the trigger-precision routing control. It is only active when the target
+// skill body is not injected; ordinary skill-body evals keep their prior
+// behavior even if the flag is set.
+func (c *Config) ShouldTriggerSkillRouting() bool {
+	return c.TriggerSkillRouting && !c.ShouldInjectSkillBody()
 }
 
 // GraderConfig defines a validator/grader

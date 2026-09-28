@@ -181,6 +181,7 @@ func (r *Runner) testTrigger(ctx context.Context, prompt string) (*execution.Exe
 		SkillPaths:              utils.ResolvePaths(spec.Config.FilteredSkillPaths(), r.cfg.SpecDir()),
 		NoSkills:                spec.Config.AllSkillsDisabled(),
 		SuppressSkillBody:       !spec.Config.ShouldInjectSkillBody(),
+		TriggerSkillRouting:     spec.Config.ShouldTriggerSkillRouting() && r.spec.Skill != "" && !spec.Config.AllSkillsDisabled(),
 		SourceDir:               r.cfg.SpecDir(),
 		Resources:               r.fixtures,
 		MCPServers:              r.mcpConfig,

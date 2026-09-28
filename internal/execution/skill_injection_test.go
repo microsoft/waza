@@ -44,6 +44,21 @@ func TestBuildSkillSystemMessage_SuppressTargetSkillBody(t *testing.T) {
 	assert.Empty(t, msg)
 }
 
+func TestBuildTriggerSkillRoutingSystemMessage(t *testing.T) {
+	msg := buildTriggerSkillRoutingSystemMessage("test-skill", true)
+
+	assert.Contains(t, msg, "<skill_routing_control>")
+	assert.Contains(t, msg, `"test-skill"`)
+	assert.Contains(t, msg, "invoke that skill with the skill tool")
+	assert.NotContains(t, msg, "<skill_context>")
+	assert.NotContains(t, msg, "<available_skills>")
+}
+
+func TestBuildTriggerSkillRoutingSystemMessage_Disabled(t *testing.T) {
+	assert.Empty(t, buildTriggerSkillRoutingSystemMessage("test-skill", false))
+	assert.Empty(t, buildTriggerSkillRoutingSystemMessage("", true))
+}
+
 func TestBuildSkillSystemMessage_NestedSkillMD(t *testing.T) {
 	root := t.TempDir()
 	skillDir := filepath.Join(root, "my-skill")

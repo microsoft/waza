@@ -1252,6 +1252,17 @@ config:
 
 The skill remains available to the Copilot SDK through its configured skill directories, but Waza does not add either the target `<skill_context>` block or a synthetic `<available_skills>` summary. `disabled_skills: ["*"]` still disables all skill loading.
 
+For trigger-precision evals where fluent model answers can mask skipped skill routing, opt into the scoped routing control:
+
+```yaml
+skill: xyz
+config:
+  inject_skill_body: false
+  trigger_skill_routing: true
+```
+
+`trigger_skill_routing` only has an effect when `inject_skill_body: false`; it adds an eval-only instruction to invoke the target skill when the task is in scope, without injecting the skill body or changing ordinary evaluation behavior.
+
 ### CSV Dataset Support
 
 Generate tasks dynamically from a CSV file using `tasks_from`:

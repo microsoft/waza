@@ -88,6 +88,7 @@ config:
   executor: mock
   model: gpt-4o
   inject_skill_body: false
+  trigger_skill_routing: true
 metrics:
   - name: accuracy
     weight: 1.0
