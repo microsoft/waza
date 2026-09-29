@@ -46,6 +46,15 @@ func CacheKey(spec *models.EvalSpec, task *models.TestCase, fixtureDir string) (
 	if err := writeString(h, spec.Config.ModelID); err != nil {
 		return "", err
 	}
+	if err := writeString(h, spec.Config.ReasoningEffort); err != nil {
+		return "", err
+	}
+	if err := writeString(h, spec.Config.JudgeModel); err != nil {
+		return "", err
+	}
+	if err := writeString(h, spec.Config.JudgeReasoningEffort); err != nil {
+		return "", err
+	}
 	if err := writeString(h, spec.Config.EngineType); err != nil {
 		return "", err
 	}
@@ -56,6 +65,9 @@ func CacheKey(spec *models.EvalSpec, task *models.TestCase, fixtureDir string) (
 		return "", err
 	}
 	if err := writeInt(h, spec.Config.MaxAttempts); err != nil {
+		return "", err
+	}
+	if err := writeBool(h, spec.Config.TriggerSkillRouting); err != nil {
 		return "", err
 	}
 
@@ -222,6 +234,11 @@ func writeString(w io.Writer, s string) error {
 func writeInt(w io.Writer, i int) error {
 	// Write int with null byte delimiter to prevent hash collisions
 	_, err := fmt.Fprintf(w, "%d\x00", i)
+	return err
+}
+
+func writeBool(w io.Writer, value bool) error {
+	_, err := fmt.Fprintf(w, "%t\x00", value)
 	return err
 }
 

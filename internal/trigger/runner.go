@@ -175,12 +175,17 @@ func (r *Runner) testTrigger(ctx context.Context, prompt string) (*execution.Exe
 	}
 	execCtx, cancel := context.WithTimeout(ctx, time.Duration(timeout)*time.Second)
 	defer cancel()
+	skillPaths := utils.ResolvePaths(spec.Config.FilteredSkillPaths(), r.cfg.SpecDir())
+	effectiveSkillDirs := append([]string{r.cfg.SpecDir()}, skillPaths...)
 	return r.engine.Execute(execCtx, &execution.ExecutionRequest{
-		Message:                 prompt,
-		SkillName:               r.spec.Skill,
-		SkillPaths:              utils.ResolvePaths(spec.Config.FilteredSkillPaths(), r.cfg.SpecDir()),
-		NoSkills:                spec.Config.AllSkillsDisabled(),
-		SuppressSkillBody:       !spec.Config.ShouldInjectSkillBody(),
+		Message:           prompt,
+		SkillName:         r.spec.Skill,
+		SkillPaths:        skillPaths,
+		NoSkills:          spec.Config.AllSkillsDisabled(),
+		SuppressSkillBody: !spec.Config.ShouldInjectSkillBody(),
+		TriggerSkillRouting: spec.Config.ShouldTriggerSkillRouting() &&
+			!spec.Config.AllSkillsDisabled() &&
+			execution.IsSkillAvailable(effectiveSkillDirs, r.spec.Skill),
 		SourceDir:               r.cfg.SpecDir(),
 		Resources:               r.fixtures,
 		MCPServers:              r.mcpConfig,

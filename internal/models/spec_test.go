@@ -493,6 +493,39 @@ config:
 	}
 }
 
+func TestConfig_ShouldTriggerSkillRouting(t *testing.T) {
+	injectSkillBody := false
+	tests := []struct {
+		name string
+		cfg  Config
+		want bool
+	}{
+		{
+			name: "disabled by default",
+			cfg:  Config{InjectSkillBody: &injectSkillBody},
+			want: false,
+		},
+		{
+			name: "enabled when body suppressed",
+			cfg:  Config{InjectSkillBody: &injectSkillBody, TriggerSkillRouting: true},
+			want: true,
+		},
+		{
+			name: "ignored when body injected by default",
+			cfg:  Config{TriggerSkillRouting: true},
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.cfg.ShouldTriggerSkillRouting(); got != tt.want {
+				t.Errorf("ShouldTriggerSkillRouting() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestGraderConfig_EffectiveWeight(t *testing.T) {
 	tests := []struct {
 		name   string

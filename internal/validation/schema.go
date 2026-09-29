@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/schemas"
 	"github.com/santhosh-tekuri/jsonschema/v6"
 	"golang.org/x/text/language"
@@ -78,7 +79,10 @@ func ValidateEvalFile(evalPath string) (evalErrs []string, taskErrs map[string][
 	// any schema validation errors in addition to the YAML parsing error for
 	// the "tasks" field, but we won't attempt to validate any tasks.
 	var spec struct {
-		Tasks []string `yaml:"tasks"`
+		Tasks  []string `yaml:"tasks"`
+		Config struct {
+			Executor string `yaml:"executor"`
+		} `yaml:"config"`
 	}
 	if yamlErr := yaml.Unmarshal(data, &spec); yamlErr != nil {
 		evalErrs = append(evalErrs, fmt.Sprintf("yaml 'tasks' parse: %v", yamlErr))
@@ -101,6 +105,14 @@ func ValidateEvalFile(evalPath string) (evalErrs []string, taskErrs map[string][
 				continue
 			}
 			errs := ValidateTaskBytes(taskData)
+			if len(errs) == 0 {
+				var task models.TestCase
+				if decodeErr := yaml.Unmarshal(taskData, &task); decodeErr != nil {
+					errs = append(errs, fmt.Sprintf("parsing task: %v", decodeErr))
+				} else if executorErr := task.ValidateForExecutor(spec.Config.Executor); executorErr != nil {
+					errs = append(errs, executorErr.Error())
+				}
+			}
 			if len(errs) > 0 {
 				relPath, relErr := filepath.Rel(baseDir, taskFile)
 				if relErr != nil {

@@ -5,6 +5,12 @@ description: Store and share evaluation results in Azure Blob Storage for team c
 
 Store evaluation results in Azure Blob Storage to enable team collaboration, centralized result browsing, and easy run comparison.
 
+Waza pins Azure Blob requests, including retries, to service version `2026-10-06`.
+This follows the [azblob v1.8.1 release guidance](https://github.com/Azure/azure-sdk-for-go/releases/tag/sdk/storage/azblob/v1.8.1)
+to avoid `400 InvalidHeaderValue` errors while the SDK's default `2026-12-06` version
+rolls out. No user configuration is required; the pin should only be removed after
+rollout completion is verified.
+
 ## Why Azure Storage?
 
 Without centralized storage:

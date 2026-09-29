@@ -14,6 +14,28 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestLoadTasks_ValidatesJudgeReasoningEffortExecutor(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "task.yaml"), []byte(`id: task
+inputs:
+  prompt: hello
+graders:
+  - type: prompt
+    name: judge
+    config:
+      prompt: grade
+      reasoning_effort: high
+`), 0o600))
+	spec := &models.EvalSpec{Tasks: []string{"task.yaml"}, Config: models.Config{EngineType: "mock"}}
+	runner := NewEvalRunner(config.NewEvalConfig(spec, config.WithSpecDir(dir)), nil)
+	_, err := runner.loadTestCases()
+	require.ErrorContains(t, err, "reasoning_effort requires executor copilot-sdk")
+	spec.Config.EngineType = "copilot-sdk"
+	tasks, err := runner.loadTestCases()
+	require.NoError(t, err)
+	require.Len(t, tasks, 1)
+}
+
 func TestBuildExecutionRequest_SkillPaths(t *testing.T) {
 	root := t.TempDir()
 	specDir := filepath.Join(root, "home", "user", "evals")
@@ -207,6 +229,64 @@ func TestBuildExecutionRequest_SuppressSkillBody(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "my-skill", req.SkillName)
 	assert.True(t, req.SuppressSkillBody)
+}
+
+func TestBuildExecutionRequest_TriggerSkillRoutingRequiresSuppressedBody(t *testing.T) {
+	injectSkillBody := false
+	skillDir := filepath.Join(t.TempDir(), "custom-directory-name")
+	require.NoError(t, os.MkdirAll(skillDir, 0755))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(skillDir, "SKILL.md"),
+		[]byte("---\nname: my-skill\ndescription: test\n---\n"),
+		0644,
+	))
+	spec := &models.EvalSpec{
+		SpecIdentity: models.SpecIdentity{Name: "test-benchmark"},
+		SkillName:    "my-skill",
+		Config: models.Config{
+			EngineType:          "mock",
+			ModelID:             "gpt-4",
+			TimeoutSec:          120,
+			SkillPaths:          []string{skillDir},
+			InjectSkillBody:     &injectSkillBody,
+			TriggerSkillRouting: true,
+		},
+	}
+
+	cfg := config.NewEvalConfig(spec)
+	runner := NewEvalRunner(cfg, nil)
+	req, err := runner.buildExecutionRequest(&models.TestCase{
+		TestID:      "test-001",
+		DisplayName: "Test Case",
+		Stimulus:    models.TaskStimulus{Message: "Hello world"},
+	})
+
+	require.NoError(t, err)
+	assert.True(t, req.SuppressSkillBody)
+	assert.True(t, req.TriggerSkillRouting)
+
+	injectSkillBody = true
+	req, err = runner.buildExecutionRequest(&models.TestCase{
+		TestID:      "test-002",
+		DisplayName: "Test Case 2",
+		Stimulus:    models.TaskStimulus{Message: "Hello again"},
+	})
+
+	require.NoError(t, err)
+	assert.False(t, req.SuppressSkillBody)
+	assert.False(t, req.TriggerSkillRouting)
+
+	injectSkillBody = false
+	spec.Config.DisabledSkills = []string{skillDir}
+	req, err = runner.buildExecutionRequest(&models.TestCase{
+		TestID:      "test-003",
+		DisplayName: "Test Case 3",
+		Stimulus:    models.TaskStimulus{Message: "Hello disabled skill"},
+	})
+
+	require.NoError(t, err)
+	assert.True(t, req.SuppressSkillBody)
+	assert.False(t, req.TriggerSkillRouting)
 }
 
 func TestBuildExecutionRequest_RejectsRelativePathPromptWithEmptySandbox(t *testing.T) {
