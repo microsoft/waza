@@ -14,6 +14,28 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestLoadTasks_ValidatesJudgeReasoningEffortExecutor(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "task.yaml"), []byte(`id: task
+inputs:
+  prompt: hello
+graders:
+  - type: prompt
+    name: judge
+    config:
+      prompt: grade
+      reasoning_effort: high
+`), 0o600))
+	spec := &models.EvalSpec{Tasks: []string{"task.yaml"}, Config: models.Config{EngineType: "mock"}}
+	runner := NewEvalRunner(config.NewEvalConfig(spec, config.WithSpecDir(dir)), nil)
+	_, err := runner.loadTestCases()
+	require.ErrorContains(t, err, "reasoning_effort requires executor copilot-sdk")
+	spec.Config.EngineType = "copilot-sdk"
+	tasks, err := runner.loadTestCases()
+	require.NoError(t, err)
+	require.Len(t, tasks, 1)
+}
+
 func TestBuildExecutionRequest_SkillPaths(t *testing.T) {
 	root := t.TempDir()
 	specDir := filepath.Join(root, "home", "user", "evals")
