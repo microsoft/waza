@@ -67,6 +67,9 @@ func CacheKey(spec *models.EvalSpec, task *models.TestCase, fixtureDir string) (
 	if err := writeInt(h, spec.Config.MaxAttempts); err != nil {
 		return "", err
 	}
+	if err := writeBool(h, spec.Config.TriggerSkillRouting); err != nil {
+		return "", err
+	}
 
 	// Include skill paths (critical for baseline A/B: with-skills vs without-skills
 	// must produce different cache keys)
@@ -231,6 +234,11 @@ func writeString(w io.Writer, s string) error {
 func writeInt(w io.Writer, i int) error {
 	// Write int with null byte delimiter to prevent hash collisions
 	_, err := fmt.Fprintf(w, "%d\x00", i)
+	return err
+}
+
+func writeBool(w io.Writer, value bool) error {
+	_, err := fmt.Fprintf(w, "%t\x00", value)
 	return err
 }
 

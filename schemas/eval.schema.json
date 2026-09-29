@@ -231,6 +231,11 @@
           "default": true,
           "description": "When false, do not inject the target SKILL.md or .agent.md body into the system prompt. Copilot SDK skill discovery remains enabled, but Waza does not emit a synthetic available_skills summary."
         },
+        "trigger_skill_routing": {
+          "type": "boolean",
+          "default": false,
+          "description": "When true with inject_skill_body=false, append an eval-only routing instruction that asks the agent to invoke the target skill when the task is in scope. This preserves ordinary eval behavior unless explicitly enabled."
+        },
         "disabled_skills": {
           "type": "array",
           "items": {

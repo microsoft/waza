@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -388,6 +389,9 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 	if !req.NoSkills {
 		skillDirs = e.getSkillDirs(sourceDir, req)
 		if msg := buildSkillSystemMessage(skillDirs, req.SkillName, !req.SuppressSkillBody); msg != "" {
+			systemMessageParts = append(systemMessageParts, msg)
+		}
+		if msg := buildTriggerSkillRoutingSystemMessage(req.SkillName, req.TriggerSkillRouting && req.SuppressSkillBody); msg != "" {
 			systemMessageParts = append(systemMessageParts, msg)
 		}
 	}
@@ -941,6 +945,13 @@ func ResolveAgentDefinition(skillDirs []string, skillName string) (string, *skil
 	return sd.Path, fm, nil
 }
 
+// IsSkillAvailable reports whether the target skill can be discovered from the
+// effective skill directories passed to the engine.
+func IsSkillAvailable(skillDirs []string, skillName string) bool {
+	sd, err := findSkillDefinition(skillDirs, skillName)
+	return err == nil && sd != nil
+}
+
 func findSkillDefinition(skillDirs []string, skillName string) (*skillDefinition, error) {
 	if skillName == "" {
 		return nil, nil
@@ -994,6 +1005,22 @@ func skillContextBlock(content string) string {
 	sb.WriteString("\n<skill_context>\n")
 	sb.WriteString(content)
 	sb.WriteString("\n</skill_context>\n")
+	return sb.String()
+}
+
+func buildTriggerSkillRoutingSystemMessage(skillName string, enabled bool) string {
+	if !enabled || skillName == "" {
+		return ""
+	}
+
+	var sb strings.Builder
+	sb.WriteString("\n<skill_routing_control>\n")
+	sb.WriteString("This evaluation measures trigger precision for the target skill ")
+	sb.WriteString(strconv.Quote(skillName))
+	sb.WriteString(". Before answering, decide whether the user's task falls within that target skill's scope based on the skills made available by the runtime. ")
+	sb.WriteString("If it does, invoke that skill with the skill tool and then follow the skill. ")
+	sb.WriteString("If it does not, do not invoke the target skill; answer normally or ask a clarifying question as appropriate.\n")
+	sb.WriteString("</skill_routing_control>\n")
 	return sb.String()
 }
 

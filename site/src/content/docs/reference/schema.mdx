@@ -415,6 +415,19 @@ config:
 
 When `false`, Waza keeps Copilot SDK skill discovery enabled but does not add the target `<skill_context>` block or a synthetic `<available_skills>` summary. This is useful for trigger-precision evals that use `behavior` or `skill_invocation` graders to measure whether the agent actually invokes the `skill` tool. `disabled_skills: ["*"]` takes precedence and disables all skill loading.
 
+### trigger_skill_routing
+
+**Type:** boolean
+**Default:** false
+
+When `true` with `inject_skill_body: false`, Waza appends a scoped trigger-precision routing instruction: invoke the target skill when the task is in scope, otherwise do not invoke it. The flag does not inject the skill body, does not emit a synthetic `<available_skills>` summary, and has no effect when normal skill-body injection is enabled.
+
+```yaml
+config:
+  inject_skill_body: false
+  trigger_skill_routing: true
+```
+
 ### required_skills
 
 **Type:** list[string]  

@@ -130,6 +130,7 @@ config:
 | `skill_directories` | list[str] | `[]`              | Additional directories to search for skills                 |
 | `instruction_files` | list[str] | `[]`              | Instruction files to apply to every task                    |
 | `inject_skill_body` | bool      | true              | Inject the target `SKILL.md` or `.agent.md` body into the system prompt |
+| `trigger_skill_routing` | bool  | false             | With `inject_skill_body: false`, add an eval-only routing instruction for trigger-precision runs |
 | `disabled_skills`   | list[str] | `[]`              | Skills to disable. Use `["*"]` to disable all skills        |
 | `required_skills`   | list[str] | `[]`              | Skills that must be available before running                |
 | `mcp_servers`       | object    | —                 | MCP server configurations for the evaluation. When `tools` is omitted or null for a server, Waza exposes all server tools by sending `["*"]` to the Copilot SDK. Set `tools` to an explicit list, including `[]`, to restrict or disable exposed tools. |
@@ -159,6 +160,7 @@ config:
   executor: copilot-sdk
   model: claude-sonnet-4.6
   inject_skill_body: false
+  trigger_skill_routing: true
 
 metrics:
   - name: trigger_precision
@@ -168,6 +170,8 @@ metrics:
 tasks:
   - "tasks/trigger/*.yaml"
 ```
+
+`trigger_skill_routing` is optional and scoped to trigger-precision runs. It helps distinguish skill routing from general model fluency by telling the agent to invoke the target skill when the task is in scope, while still withholding the skill body. It has no effect unless `inject_skill_body` is `false`.
 
 With this setting, Waza still discovers skills and passes their directories to the Copilot SDK, but it does not add the full target `<skill_context>` body or a synthetic `<available_skills>` summary. This lets `behavior` graders with `required_tools` or `forbidden_tools` and `skill_invocation` graders observe whether the `skill` tool was used. If you also set `disabled_skills: ["*"]`, all skill loading is disabled and this setting has no effect.
 

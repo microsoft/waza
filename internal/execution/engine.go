@@ -98,6 +98,12 @@ type ExecutionRequest struct {
 	// while still allowing skill discovery and compact summaries.
 	SuppressSkillBody bool
 
+	// TriggerSkillRouting appends an eval-only routing instruction that asks
+	// the agent to invoke the target skill tool when the task falls within that
+	// skill's scope. It is intended for trigger-precision evals where the skill
+	// body is suppressed.
+	TriggerSkillRouting bool
+
 	// MCPServers configures MCP servers for the session. Keys are server names,
 	// values follow the copilot SDK MCPServerConfig format (type/command/args).
 	MCPServers map[string]copilot.MCPServerConfig

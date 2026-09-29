@@ -1508,6 +1508,8 @@ func (r *EvalRunner) buildExecutionRequest(tc *models.TestCase) (*execution.Exec
 		SkillPaths:        resolvedSkillPaths,
 		NoSkills:          noSkills,
 		SuppressSkillBody: !spec.Config.ShouldInjectSkillBody(),
+		TriggerSkillRouting: spec.Config.ShouldTriggerSkillRouting() &&
+			execution.IsSkillAvailable(resolvedSkillPaths, spec.SkillName),
 		MCPServers:        convertMCPServers(spec.Config.ServerConfigs, spec.MCPMocks, r.cfg.SpecDir()),
 		FirstEventTimeout: r.firstEventTimeout(tc),
 		ToolPolicy:        resolveToolPolicy(fm),

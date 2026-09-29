@@ -231,6 +231,64 @@ func TestBuildExecutionRequest_SuppressSkillBody(t *testing.T) {
 	assert.True(t, req.SuppressSkillBody)
 }
 
+func TestBuildExecutionRequest_TriggerSkillRoutingRequiresSuppressedBody(t *testing.T) {
+	injectSkillBody := false
+	skillDir := filepath.Join(t.TempDir(), "custom-directory-name")
+	require.NoError(t, os.MkdirAll(skillDir, 0755))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(skillDir, "SKILL.md"),
+		[]byte("---\nname: my-skill\ndescription: test\n---\n"),
+		0644,
+	))
+	spec := &models.EvalSpec{
+		SpecIdentity: models.SpecIdentity{Name: "test-benchmark"},
+		SkillName:    "my-skill",
+		Config: models.Config{
+			EngineType:          "mock",
+			ModelID:             "gpt-4",
+			TimeoutSec:          120,
+			SkillPaths:          []string{skillDir},
+			InjectSkillBody:     &injectSkillBody,
+			TriggerSkillRouting: true,
+		},
+	}
+
+	cfg := config.NewEvalConfig(spec)
+	runner := NewEvalRunner(cfg, nil)
+	req, err := runner.buildExecutionRequest(&models.TestCase{
+		TestID:      "test-001",
+		DisplayName: "Test Case",
+		Stimulus:    models.TaskStimulus{Message: "Hello world"},
+	})
+
+	require.NoError(t, err)
+	assert.True(t, req.SuppressSkillBody)
+	assert.True(t, req.TriggerSkillRouting)
+
+	injectSkillBody = true
+	req, err = runner.buildExecutionRequest(&models.TestCase{
+		TestID:      "test-002",
+		DisplayName: "Test Case 2",
+		Stimulus:    models.TaskStimulus{Message: "Hello again"},
+	})
+
+	require.NoError(t, err)
+	assert.False(t, req.SuppressSkillBody)
+	assert.False(t, req.TriggerSkillRouting)
+
+	injectSkillBody = false
+	spec.Config.DisabledSkills = []string{skillDir}
+	req, err = runner.buildExecutionRequest(&models.TestCase{
+		TestID:      "test-003",
+		DisplayName: "Test Case 3",
+		Stimulus:    models.TaskStimulus{Message: "Hello disabled skill"},
+	})
+
+	require.NoError(t, err)
+	assert.True(t, req.SuppressSkillBody)
+	assert.False(t, req.TriggerSkillRouting)
+}
+
 func TestBuildExecutionRequest_RejectsRelativePathPromptWithEmptySandbox(t *testing.T) {
 	spec := &models.EvalSpec{
 		SpecIdentity: models.SpecIdentity{Name: "test-benchmark"},

@@ -948,6 +948,58 @@ func TestCopilotCreateSession_InjectsSkillSystemMessage(t *testing.T) {
 	require.True(t, resp.Success)
 }
 
+func TestCopilotCreateSession_InjectsTriggerSkillRoutingSystemMessage(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	clientMock := newClientMock(ctrl)
+	sessionMock := NewMockCopilotSession(ctrl)
+
+	sourceDir := t.TempDir()
+	expectedSystemMsg := buildTriggerSkillRoutingSystemMessage("test-skill", true)
+	require.NotEmpty(t, expectedSystemMsg)
+
+	expectedConfig := sessionConfigMatcher{
+		t:         t,
+		sourceDir: sourceDir,
+		expected: copilot.SessionConfig{
+			Model:               "gpt-4o-mini",
+			SkillDirectories:    []string{sourceDir},
+			OnPermissionRequest: allowAllTools,
+			SystemMessage: &copilot.SystemMessageConfig{
+				Mode:    "append",
+				Content: expectedSystemMsg,
+			},
+		},
+	}
+
+	clientMock.EXPECT().CreateSession(gomock.Any(), expectedConfig).Return(sessionMock, nil)
+	sessionMock.EXPECT().Disconnect()
+	clientMock.EXPECT().DeleteSession(gomock.Any(), "session-1")
+
+	sessionMock.EXPECT().On(gomock.Any()).Times(3).Return(func() {})
+	sessionMock.EXPECT().SendAndWait(gomock.Any(), gomock.Any()).Return(&copilot.SessionEvent{}, nil)
+	sessionMock.EXPECT().SessionID().Return("session-1")
+
+	engine := NewCopilotEngineBuilder("gpt-4o-mini", &CopilotEngineBuilderOptions{
+		NewCopilotClient: func(clientOptions *copilot.ClientOptions) CopilotClient { return clientMock },
+	}).Build()
+
+	defer func() {
+		require.NoError(t, engine.Shutdown(context.Background()))
+	}()
+
+	require.NoError(t, engine.Initialize(context.Background()))
+
+	resp, err := engine.Execute(context.Background(), &ExecutionRequest{
+		Message:             "hello",
+		SkillName:           "test-skill",
+		SourceDir:           sourceDir,
+		SuppressSkillBody:   true,
+		TriggerSkillRouting: true,
+	})
+	require.NoError(t, err)
+	require.True(t, resp.Success)
+}
+
 func TestCopilotCreateSession_InjectsInstructionSystemMessage(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	clientMock := newClientMock(ctrl)
