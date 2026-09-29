@@ -223,7 +223,7 @@ func NewEvalRunner(cfg *config.EvalConfig, engine execution.AgentEngine, opts ..
 		failureHandler: failures.NewHandler(),
 	}
 	r.newClassifier = func(cfg models.ResponderConfig, defaultModel string) responderClassifier {
-		return responder.New(r.engine, cfg, defaultModel)
+		return responder.NewWithReasoningEffort(r.engine, cfg, defaultModel, r.cfg.Spec().Config.ReasoningEffort)
 	}
 	for _, o := range opts {
 		o(r)
@@ -388,11 +388,13 @@ func (r *EvalRunner) runNormalBenchmark(ctx context.Context) (*models.Evaluation
 		BenchName:   spec.Name,
 		Timestamp:   startTime,
 		Setup: models.OutcomeSetup{
-			RunsPerTest: spec.Config.TrialsPerTask,
-			ModelID:     spec.Config.ModelID,
-			EngineType:  spec.Config.EngineType,
-			TimeoutSec:  spec.Config.TimeoutSec,
-			JudgeModel:  spec.Config.JudgeModel,
+			RunsPerTest:          spec.Config.TrialsPerTask,
+			ModelID:              spec.Config.ModelID,
+			EngineType:           spec.Config.EngineType,
+			TimeoutSec:           spec.Config.TimeoutSec,
+			JudgeModel:           spec.Config.JudgeModel,
+			ReasoningEffort:      spec.Config.ReasoningEffort,
+			JudgeReasoningEffort: spec.Config.JudgeReasoningEffort,
 		},
 		Digest:       digest,
 		Measures:     make(map[string]models.MeasureResult),
@@ -753,6 +755,9 @@ func (r *EvalRunner) loadTestCasesFromFiles() ([]*models.TestCase, error) {
 		tc, err := models.LoadTestCase(path)
 		if err != nil {
 			return nil, fmt.Errorf("failed to load test case %s: %w", path, err)
+		}
+		if err := tc.ValidateForExecutor(spec.Config.EngineType); err != nil {
+			return nil, fmt.Errorf("invalid test case %s: %w", path, err)
 		}
 		// Only include active test cases
 		// LoadTestCase defaults Active to true (nil case), so include nil or explicitly true
@@ -1509,6 +1514,8 @@ func (r *EvalRunner) buildExecutionRequest(tc *models.TestCase) (*execution.Exec
 		SuppressSkillBody: !spec.Config.ShouldInjectSkillBody(),
 		MCPServers:        convertMCPServers(spec.Config.ServerConfigs, spec.MCPMocks, r.cfg.SpecDir()),
 		FirstEventTimeout: r.firstEventTimeout(tc),
+		ModelID:           spec.Config.ModelID,
+		ReasoningEffort:   spec.Config.ReasoningEffort,
 	}, nil
 }
 
@@ -2072,7 +2079,7 @@ func (r *EvalRunner) buildGraderContext(tc *models.TestCase, resp *execution.Exe
 
 func (r *EvalRunner) runGraders(ctx context.Context, tc *models.TestCase, gradersContext *graders.Context) (map[string]models.GraderResults, error) {
 	spec := r.cfg.Spec()
-	return graders.RunAll(ctx, spec.Graders, tc, gradersContext, spec.Config.JudgeModel, r.updateSnapshots)
+	return graders.RunAll(ctx, spec.Graders, tc, gradersContext, spec.Config.JudgeModel, spec.Config.JudgeReasoningEffort, r.updateSnapshots)
 }
 
 func (r *EvalRunner) buildSessionDigest(resp *execution.ExecutionResponse) models.SessionDigest {

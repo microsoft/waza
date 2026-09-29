@@ -1,12 +1,27 @@
 package orchestration
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/microsoft/waza/internal/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestRegradeOutcome_ClearsOmittedJudgeEffort(t *testing.T) {
+	original := &models.EvaluationOutcome{
+		Setup: models.OutcomeSetup{RunsPerTest: 1, ReasoningEffort: "high", JudgeReasoningEffort: "max"},
+	}
+	result := RegradeOutcome(original, nil, "", "")
+	assert.Empty(t, result.Setup.JudgeReasoningEffort)
+	assert.Equal(t, "high", result.Setup.ReasoningEffort)
+	assert.Equal(t, "max", original.Setup.JudgeReasoningEffort)
+	data, err := json.Marshal(result.Setup)
+	require.NoError(t, err)
+	assert.NotContains(t, string(data), "judge_reasoning_effort")
+	assert.Contains(t, string(data), `"reasoning_effort":"high"`)
+}
 
 func TestComputeTestStats_Nil(t *testing.T) {
 	assert.Nil(t, ComputeTestStats(nil))
@@ -65,11 +80,12 @@ func TestRegradeOutcome_ComputesStatsAndDigest(t *testing.T) {
 		}},
 	}}
 
-	result := RegradeOutcome(original, gradedOutcomes, "judge-model")
+	result := RegradeOutcome(original, gradedOutcomes, "judge-model", "high")
 
 	require.NotNil(t, result.TestOutcomes[0].Stats)
 	assert.InDelta(t, 1.0, result.TestOutcomes[0].Stats.PassRate, 0.001)
 	assert.Equal(t, 1, result.Digest.Succeeded)
 	assert.InDelta(t, 1.0, result.Digest.SuccessRate, 0.001)
 	assert.Equal(t, "judge-model", result.Setup.JudgeModel)
+	assert.Equal(t, "high", result.Setup.JudgeReasoningEffort)
 }

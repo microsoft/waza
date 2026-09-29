@@ -1,13 +1,126 @@
 package storage
 
 import (
+	"context"
+	"errors"
+	"io"
+	"net/http"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
+	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/container"
 	"github.com/microsoft/waza/internal/models"
 )
+
+type azureBlobTestTransport func(*http.Request) (*http.Response, error)
+
+func (f azureBlobTestTransport) Do(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
+
+func TestAzureBlobServiceVersion(t *testing.T) {
+	tests := []struct {
+		name       string
+		statusCode int
+		body       string
+		run        func(context.Context, *azblob.Client) error
+	}{
+		{
+			name:       "upload",
+			statusCode: http.StatusCreated,
+			run: func(ctx context.Context, client *azblob.Client) error {
+				_, err := client.UploadBuffer(ctx, "results", "run.json", []byte("{}"), nil)
+				return err
+			},
+		},
+		{
+			name:       "list",
+			statusCode: http.StatusOK,
+			body:       `<EnumerationResults><Blobs/><NextMarker/></EnumerationResults>`,
+			run: func(ctx context.Context, client *azblob.Client) error {
+				_, err := client.NewListBlobsFlatPager("results", nil).NextPage(ctx)
+				return err
+			},
+		},
+		{
+			name:       "download",
+			statusCode: http.StatusOK,
+			body:       "{}",
+			run: func(ctx context.Context, client *azblob.Client) error {
+				resp, err := client.DownloadStream(ctx, "results", "run.json", nil)
+				if err != nil {
+					return err
+				}
+				_, readErr := io.ReadAll(resp.Body)
+				return errors.Join(readErr, resp.Body.Close())
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			for _, fail := range []bool{false, true} {
+				name := "retry succeeds"
+				if fail {
+					name = "retry exhausted"
+				}
+				t.Run(name, func(t *testing.T) {
+					attempts := 0
+					opts := azureBlobClientOptions()
+					opts.Retry.MaxRetries = 1
+					opts.Retry.RetryDelay = time.Nanosecond
+					opts.Retry.MaxRetryDelay = time.Nanosecond
+					opts.Transport = azureBlobTestTransport(func(req *http.Request) (*http.Response, error) {
+						attempts++
+						var versions []string
+						for key, values := range req.Header {
+							if strings.EqualFold(key, "x-ms-version") {
+								versions = append(versions, values...)
+							}
+						}
+						if len(versions) != 1 || versions[0] != "2026-10-06" {
+							t.Errorf("attempt %d: x-ms-version values = %q, want exactly [2026-10-06]", attempts, versions)
+						}
+						status, body := tt.statusCode, tt.body
+						header := make(http.Header)
+						if attempts == 1 || fail {
+							status = http.StatusServiceUnavailable
+							body = `<Error><Code>ServerBusy</Code><Message>Retry later</Message></Error>`
+							header.Set("x-ms-error-code", "ServerBusy")
+						}
+						// Ensure the policy reapplies the pin on every retry.
+						req.Header.Set("x-ms-version", "2026-12-06")
+						return &http.Response{
+							StatusCode: status,
+							Header:     header,
+							Body:       io.NopCloser(strings.NewReader(body)),
+							Request:    req,
+						}, nil
+					})
+					client, err := azblob.NewClientWithNoCredential("https://example.blob.core.windows.net/", opts)
+					if err != nil {
+						t.Fatal(err)
+					}
+					err = tt.run(t.Context(), client)
+					if fail {
+						responseErr, ok := errors.AsType[*azcore.ResponseError](err)
+						if !ok || responseErr.StatusCode != http.StatusServiceUnavailable {
+							t.Fatalf("expected propagated 503 response error, got %v", err)
+						}
+					} else if err != nil {
+						t.Fatal(err)
+					}
+					if attempts != 2 {
+						t.Errorf("attempts = %d, want 2", attempts)
+					}
+				})
+			}
+		})
+	}
+}
 
 // stubAzureBlobStore creates a stub store for testing methods that don't call Azure.
 func stubAzureBlobStore() *AzureBlobStore {

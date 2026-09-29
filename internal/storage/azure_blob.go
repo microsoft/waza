@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"sort"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/container"
@@ -45,7 +47,7 @@ func NewAzureBlobStore(ctx context.Context, accountName, containerName string) (
 		return nil, fmt.Errorf("azure blob authentication: %w", err)
 	}
 
-	client, err := azblob.NewClient(serviceURL, cred, nil)
+	client, err := azblob.NewClient(serviceURL, cred, azureBlobClientOptions())
 	if err != nil {
 		return nil, fmt.Errorf("creating azure blob client: %w", err)
 	}
@@ -54,6 +56,27 @@ func NewAzureBlobStore(ctx context.Context, accountName, containerName string) (
 		client:        client,
 		containerName: containerName,
 	}, nil
+}
+
+func azureBlobClientOptions() *azblob.ClientOptions {
+	return &azblob.ClientOptions{
+		ClientOptions: policy.ClientOptions{
+			PerRetryPolicies: []policy.Policy{azureBlobServiceVersionPolicy{}},
+		},
+	}
+}
+
+type azureBlobServiceVersionPolicy struct{}
+
+func (azureBlobServiceVersionPolicy) Do(req *policy.Request) (*http.Response, error) {
+	// azblob v1.8.1 defaults to 2026-12-06 before its rollout is complete.
+	// Keep the upstream-recommended version until that rollout is verified:
+	// https://github.com/Azure/azure-sdk-for-go/releases/tag/sdk/storage/azblob/v1.8.1
+	// Generated requests use a lowercase map key; Header.Set alone would add
+	// a second, canonicalized header instead of replacing the SDK's value.
+	delete(req.Raw().Header, "x-ms-version")
+	req.Raw().Header.Set("x-ms-version", "2026-10-06")
+	return req.Next()
 }
 
 // ciEnvVars lists environment variables that indicate a CI/CD environment.
