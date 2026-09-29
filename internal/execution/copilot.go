@@ -349,10 +349,16 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 
 	// Build skill directories list and system message, unless skills are disabled
 	var skillDirs []string
+	var availableSkills []AvailableSkill
+	availableSkillsKnown := !req.NoSkills
 	var systemMessage *copilot.SystemMessageConfig
 	var systemMessageParts []string
 	if !req.NoSkills {
 		skillDirs = e.getSkillDirs(sourceDir, req)
+		// Capture the catalog before the turn starts. The agent can modify or
+		// remove skill files during execution, but telemetry must describe the
+		// routing surface advertised when the session was created or resumed.
+		availableSkills = enumerateAvailableSkills(skillDirs)
 		if msg := buildSkillSystemMessage(skillDirs, req.SkillName, !req.SuppressSkillBody); msg != "" {
 			systemMessageParts = append(systemMessageParts, msg)
 		}
@@ -557,19 +563,20 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 	usage := usageCollector.UsageStats()
 	e.provider.applyToUsage(usage)
 	resp := &ExecutionResponse{
-		FinalOutput:      joinStrings(eventsCollector.OutputParts()),
-		Events:           copilotevents.FromSDK(eventsCollector.SessionEvents()),
-		ModelID:          modelID,
-		SkillInvocations: eventsCollector.SkillInvocations,
-		AvailableSkills:  enumerateAvailableSkills(skillDirs),
-		DurationMs:       duration.Milliseconds(),
-		ToolCalls:        eventsCollector.ToolCalls(),
-		ErrorMsg:         errMsg,
-		Success:          err == nil,
-		WorkspaceDir:     workspaceDir,
-		WorkspaceFiles:   workspaceFiles,
-		SessionID:        sessionID,
-		Usage:            usage,
+		FinalOutput:          joinStrings(eventsCollector.OutputParts()),
+		Events:               copilotevents.FromSDK(eventsCollector.SessionEvents()),
+		ModelID:              modelID,
+		SkillInvocations:     eventsCollector.SkillInvocations,
+		AvailableSkills:      availableSkills,
+		AvailableSkillsKnown: availableSkillsKnown,
+		DurationMs:           duration.Milliseconds(),
+		ToolCalls:            eventsCollector.ToolCalls(),
+		ErrorMsg:             errMsg,
+		Success:              err == nil,
+		WorkspaceDir:         workspaceDir,
+		WorkspaceFiles:       workspaceFiles,
+		SessionID:            sessionID,
+		Usage:                usage,
 	}
 
 	return resp, nil

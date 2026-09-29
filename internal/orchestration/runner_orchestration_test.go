@@ -385,8 +385,12 @@ func TestBuildGraderContextAndScoreHelpers(t *testing.T) {
 		SkillInvocations: []execution.SkillInvocation{
 			{Name: "azure-prepare", Path: "/skills/azure-prepare/SKILL.md"},
 		},
-		ToolCalls: []models.ToolCall{{Name: "bash"}, {Name: "view"}},
-		Usage:     &models.UsageStats{Turns: 1},
+		AvailableSkills: []execution.AvailableSkill{
+			{Name: "azure-prepare", Path: "/skills/azure-prepare/SKILL.md"},
+		},
+		AvailableSkillsKnown: true,
+		ToolCalls:            []models.ToolCall{{Name: "bash"}, {Name: "view"}},
+		Usage:                &models.UsageStats{Turns: 1},
 		Events: copilotevents.FromSDK([]copilot.SessionEvent{
 			{Data: &copilot.UserMessageData{Content: content}},
 		}),
@@ -400,6 +404,9 @@ func TestBuildGraderContextAndScoreHelpers(t *testing.T) {
 	assert.Equal(t, "session-1", graderCtx.SessionID)
 	require.Len(t, graderCtx.SkillInvocations, 1)
 	assert.Equal(t, "azure-prepare", graderCtx.SkillInvocations[0].Name)
+	require.Len(t, graderCtx.AvailableSkills, 1)
+	assert.Equal(t, "azure-prepare", graderCtx.AvailableSkills[0].Name)
+	assert.True(t, graderCtx.AvailableSkillsKnown)
 
 	digest := runner.buildSessionDigest(resp)
 	require.NotNil(t, digest.Usage)
@@ -533,11 +540,15 @@ func (e *trackingEngine) Execute(_ context.Context, req *execution.ExecutionRequ
 		WorkspaceDir: req.WorkspaceDir,
 	})
 	return &execution.ExecutionResponse{
-		FinalOutput:  fmt.Sprintf("response to: %s", req.Message),
-		SessionID:    "session-abc",
-		WorkspaceDir: "/workspace/abc",
-		DurationMs:   10,
-		Success:      true,
+		FinalOutput: fmt.Sprintf("response to: %s", req.Message),
+		AvailableSkills: []execution.AvailableSkill{
+			{Name: "test-skill", Path: "/skills/test-skill/SKILL.md"},
+		},
+		AvailableSkillsKnown: true,
+		SessionID:            "session-abc",
+		WorkspaceDir:         "/workspace/abc",
+		DurationMs:           10,
+		Success:              true,
 	}, nil
 }
 
@@ -590,6 +601,10 @@ func TestExecuteRun_NoFollowUps(t *testing.T) {
 
 	result := runner.executeRun(context.Background(), tc, 1)
 	assert.Equal(t, models.StatusSkipped, result.Status)
+	assert.True(t, result.AvailableSkillsKnown)
+	require.Equal(t, []models.SkillInvocation{
+		{Name: "test-skill", Path: "/skills/test-skill/SKILL.md"},
+	}, result.AvailableSkills)
 	assert.Equal(t, 1, len(eng.calls))
 	assert.Equal(t, "initial prompt", eng.calls[0].Message)
 }

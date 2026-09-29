@@ -91,11 +91,10 @@ func (g *skillInvocationGrader) Grade(ctx context.Context, gradingContext *Conte
 				availableNames[as.Name] = true
 			}
 		}
-		// availableSkillsKnown is false when the runtime did not report an
-		// available-skills snapshot (e.g. legacy or non-Copilot executors);
-		// in that case we skip the surfacing classification instead of
-		// misreporting every skill as "never surfaced".
-		availableSkillsKnown := len(gradingContext.AvailableSkills) > 0
+		// Skip surfacing classification only when the runtime did not report a
+		// snapshot (for example, legacy or non-Copilot executors). A known-empty
+		// catalog means the runtime surfaced none of the required skills.
+		availableSkillsKnown := gradingContext.AvailableSkillsKnown || len(gradingContext.AvailableSkills) > 0
 		notSurfaced := []string{}
 		surfacedButNotInvoked := []string{}
 		if availableSkillsKnown && len(g.requiredSkills) > 0 {

@@ -605,7 +605,8 @@ func TestCopilotCreateSession_InjectsSkillSystemMessage(t *testing.T) {
 
 	// Write a SKILL.md in the source dir
 	skillContent := "---\nname: test-skill\ndescription: A test\n---\n# Rules\nAlways greet"
-	require.NoError(t, os.WriteFile(filepath.Join(sourceDir, "SKILL.md"), []byte(skillContent), 0644))
+	skillPath := filepath.Join(sourceDir, "SKILL.md")
+	require.NoError(t, os.WriteFile(skillPath, []byte(skillContent), 0644))
 
 	expectedSystemMsg := buildSkillSystemMessage([]string{sourceDir}, "test-skill", true)
 	require.NotEmpty(t, expectedSystemMsg)
@@ -629,7 +630,12 @@ func TestCopilotCreateSession_InjectsSkillSystemMessage(t *testing.T) {
 	clientMock.EXPECT().DeleteSession(gomock.Any(), "session-1")
 
 	sessionMock.EXPECT().On(gomock.Any()).Times(3).Return(func() {})
-	sessionMock.EXPECT().SendAndWait(gomock.Any(), gomock.Any()).Return(&copilot.SessionEvent{}, nil)
+	sessionMock.EXPECT().SendAndWait(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(context.Context, copilot.MessageOptions) (*copilot.SessionEvent, error) {
+			require.NoError(t, os.Remove(skillPath))
+			return &copilot.SessionEvent{}, nil
+		},
+	)
 	sessionMock.EXPECT().SessionID().Return("session-1")
 
 	engine := NewCopilotEngineBuilder("gpt-4o-mini", &CopilotEngineBuilderOptions{
@@ -649,6 +655,8 @@ func TestCopilotCreateSession_InjectsSkillSystemMessage(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.True(t, resp.Success)
+	require.True(t, resp.AvailableSkillsKnown)
+	require.Equal(t, []AvailableSkill{{Name: "test-skill", Path: skillPath}}, resp.AvailableSkills)
 }
 
 func TestCopilotCreateSession_InjectsInstructionSystemMessage(t *testing.T) {
@@ -770,7 +778,8 @@ func TestCopilotResumeSession_PassesMCPServersAndSystemMessage(t *testing.T) {
 
 	// Write a SKILL.md
 	skillContent := "---\nname: resume-skill\ndescription: Resume test\n---\nResume body"
-	require.NoError(t, os.WriteFile(filepath.Join(sourceDir, "SKILL.md"), []byte(skillContent), 0644))
+	skillPath := filepath.Join(sourceDir, "SKILL.md")
+	require.NoError(t, os.WriteFile(skillPath, []byte(skillContent), 0644))
 
 	expectedSystemMsg := buildSkillSystemMessage([]string{sourceDir}, "resume-skill", true)
 
@@ -798,7 +807,12 @@ func TestCopilotResumeSession_PassesMCPServersAndSystemMessage(t *testing.T) {
 	clientMock.EXPECT().DeleteSession(gomock.Any(), "session-resume")
 
 	sessionMock.EXPECT().On(gomock.Any()).Times(3).Return(func() {})
-	sessionMock.EXPECT().SendAndWait(gomock.Any(), gomock.Any()).Return(&copilot.SessionEvent{}, nil)
+	sessionMock.EXPECT().SendAndWait(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(context.Context, copilot.MessageOptions) (*copilot.SessionEvent, error) {
+			require.NoError(t, os.Remove(skillPath))
+			return &copilot.SessionEvent{}, nil
+		},
+	)
 	sessionMock.EXPECT().SessionID().Return("session-resume")
 
 	engine := NewCopilotEngineBuilder("gpt-4o-mini", &CopilotEngineBuilderOptions{
@@ -820,6 +834,8 @@ func TestCopilotResumeSession_PassesMCPServersAndSystemMessage(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.True(t, resp.Success)
+	require.True(t, resp.AvailableSkillsKnown)
+	require.Equal(t, []AvailableSkill{{Name: "resume-skill", Path: skillPath}}, resp.AvailableSkills)
 }
 
 func TestCopilotExecute_CancelOnSkillInvocation(t *testing.T) {
@@ -913,4 +929,6 @@ func TestCopilotExecute_CancelOnSkillInvocation_NoSkillFired(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, resp.Success, "flag should be safe even when no skill fires")
 	require.Empty(t, resp.ErrorMsg)
+	require.True(t, resp.AvailableSkillsKnown)
+	require.Empty(t, resp.AvailableSkills)
 }

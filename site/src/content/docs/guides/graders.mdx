@@ -510,7 +510,7 @@ For forbidden-only configs, unrelated skill invocations are allowed and the grad
 
 ### Routing-surface telemetry (trigger-precision runs)
 
-For trigger-precision suites, a failing `skill_invocation` grader used to leave one question open: was the required skill absent from the runtime's routing catalog, or was it surfaced but ignored by the model? The grader now reads the routing catalog waza recorded for the run (`runs[].available_skills[]` in `results.json`, added in `schemaVersion: "1.3"`) and reports the distinction so you can tell "runtime never surfaced the skill" (not skill-side fixable) apart from "surfaced but not invoked" (usually a description or trigger-phrase issue).
+For trigger-precision suites, a failing `skill_invocation` grader used to leave one question open: was the required skill absent from the runtime's routing catalog, or was it surfaced but ignored by the model? The grader now reads the routing catalog waza recorded for the run (`runs[].available_skills[]` plus `runs[].available_skills_known` in `results.json`, added in `schemaVersion: "1.3"`) and reports the distinction so you can tell "runtime never surfaced the skill" (not skill-side fixable) apart from "surfaced but not invoked" (usually a description or trigger-phrase issue). The known flag preserves this classification even when the runtime reported an empty catalog.
 
 When the routing catalog is known, failing runs append one of these clauses to the grader `feedback`:
 
@@ -525,7 +525,7 @@ The same information is exposed on `details` for dashboards and post-processing:
 | `not_surfaced_required_skills`                 | Required skills that were absent from `available_skills` (runtime never surfaced them).        |
 | `surfaced_but_not_invoked_required_skills`     | Required skills present in `available_skills` but never invoked (routing contest lost).        |
 
-These fields are omitted from `feedback` and `details` on runs whose executor did not populate `available_skills`, so legacy `results.json` files and non-Copilot executors keep their prior behavior.
+These fields are omitted from `feedback` and `details` when `available_skills_known` is false or absent, so legacy `results.json` files and non-Copilot executors keep their prior behavior.
 
 ---
 

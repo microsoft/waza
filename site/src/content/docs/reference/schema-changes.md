@@ -38,7 +38,7 @@ For schema `1.0`, the command is a no-op because there is no prior major version
 
 ### 1.3
 
-- Added optional `runs[].available_skills[]` to `results.json`, a snapshot of the skill catalog surfaced to the runtime for the run (one entry per SKILL.md / *.agent.md file reachable through `skill_directories`). The `skill_invocation` grader now emits `details.available_skills`, `details.not_surfaced_required_skills`, and `details.surfaced_but_not_invoked_required_skills`, so trigger-precision evals can tell "the runtime never surfaced the skill" apart from "the runtime surfaced the skill but the model chose not to invoke it" without inferring from token counts (issue #540). All fields are optional and omitted when unavailable, so 1.0/1.1/1.2 artifacts continue to load without migration.
+- Added optional `runs[].available_skills[]` and `runs[].available_skills_known` to `results.json`. Together they preserve the skill catalog surfaced to the runtime for the run, including a known-empty catalog, while distinguishing legacy or non-Copilot artifacts that have no catalog snapshot. The `skill_invocation` grader now emits `details.available_skills`, `details.not_surfaced_required_skills`, and `details.surfaced_but_not_invoked_required_skills`, so trigger-precision evals can tell "the runtime never surfaced the skill" apart from "the runtime surfaced the skill but the model chose not to invoke it" without inferring from token counts (issue #540). All fields are optional and omitted when unavailable, so 1.0/1.1/1.2 artifacts continue to load without migration.
 
 ### 1.2
 

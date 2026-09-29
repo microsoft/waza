@@ -168,17 +168,20 @@ type ExecutionResponse struct {
 	// underlying SDK could route to via SkillDirectories. It is populated
 	// even when SkillInvocations is empty (see issue #540); consumers can
 	// diff the two to tell "surfaced but not chosen" apart from
-	// "never surfaced". Empty when skills were disabled (NoSkills) or when
-	// no SKILL.md / *.agent.md files were found under SkillDirectories.
+	// "never surfaced".
 	AvailableSkills []AvailableSkill
-	DurationMs      int64
-	ToolCalls       []models.ToolCall
-	ErrorMsg        string
-	Success         bool
-	WorkspaceDir    string            // Path to workspace directory (for file grading)
-	WorkspaceFiles  map[string][]byte // Post-execution workspace file contents captured before session disconnect
-	SessionID       string            // Copilot session ID
-	Usage           *models.UsageStats
+	// AvailableSkillsKnown distinguishes a known-empty Copilot routing
+	// catalog from executors that do not report catalog telemetry. It is false
+	// when skills were disabled (NoSkills) and for non-Copilot responses.
+	AvailableSkillsKnown bool
+	DurationMs           int64
+	ToolCalls            []models.ToolCall
+	ErrorMsg             string
+	Success              bool
+	WorkspaceDir         string            // Path to workspace directory (for file grading)
+	WorkspaceFiles       map[string][]byte // Post-execution workspace file contents captured before session disconnect
+	SessionID            string            // Copilot session ID
+	Usage                *models.UsageStats
 }
 
 // ExtractMessages gets all non-empty assistant messages from events.

@@ -296,6 +296,7 @@ func TestCopilotEngine_Execute_PassesGraderRequestOptionsAndDeletesEphemeralSess
 	require.NoError(t, err)
 	require.Equal(t, "grader-session", resp.SessionID)
 	require.Nil(t, resp.WorkspaceFiles)
+	require.False(t, resp.AvailableSkillsKnown)
 }
 
 func TestCopilotEngine_Execute_ResumedEphemeralSessionIsNotDeletedOrTracked(t *testing.T) {

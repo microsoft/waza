@@ -198,11 +198,14 @@ type RunResult struct {
 	// skill_invocation grader in particular) can distinguish "the runtime
 	// never surfaced the skill" from "the runtime surfaced the skill but
 	// the model chose not to invoke it". See issue #540.
-	AvailableSkills  []SkillInvocation `json:"available_skills,omitempty"`
-	Usage            *UsageStats       `json:"usage,omitempty"`
-	WorkspaceDir     string            `json:"workspace_dir,omitempty"`
-	FailureArtifacts *FailureArtifacts `json:"failure_artifacts,omitempty"`
-	Responder        *ResponderInfo    `json:"responder,omitempty"`
+	AvailableSkills []SkillInvocation `json:"available_skills,omitempty"`
+	// AvailableSkillsKnown distinguishes a known-empty routing catalog from
+	// legacy or non-Copilot results that do not contain catalog telemetry.
+	AvailableSkillsKnown bool              `json:"available_skills_known,omitempty"`
+	Usage                *UsageStats       `json:"usage,omitempty"`
+	WorkspaceDir         string            `json:"workspace_dir,omitempty"`
+	FailureArtifacts     *FailureArtifacts `json:"failure_artifacts,omitempty"`
+	Responder            *ResponderInfo    `json:"responder,omitempty"`
 	// Checkpoints captures per-turn checkpoint grader results, one entry per
 	// configured TestCase.Checkpoint that actually ran (i.e., turn index was
 	// reached). Empty / omitted when the task defines no checkpoints.

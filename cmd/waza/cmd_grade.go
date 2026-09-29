@@ -261,19 +261,25 @@ func gradeRun(ctx context.Context, spec *models.EvalSpec, tc *models.TestCase, r
 	for i, si := range run.SkillInvocations {
 		skillInvocations[i] = execution.SkillInvocation{Name: si.Name, Path: si.Path}
 	}
+	availableSkills := make([]execution.AvailableSkill, len(run.AvailableSkills))
+	for i, as := range run.AvailableSkills {
+		availableSkills[i] = execution.AvailableSkill{Name: as.Name, Path: as.Path}
+	}
 
 	gradingCtx := &graders.Context{
-		TestCase:         tc,
-		Output:           run.FinalOutput,
-		Transcript:       run.Transcript,
-		Session:          &run.SessionDigest,
-		ToolEvents:       run.ToolEvents,
-		DurationMS:       run.DurationMs,
-		SessionID:        run.SessionDigest.SessionID,
-		WorkspaceDir:     workspace,
-		SkillInvocations: skillInvocations,
-		Outcome:          make(map[string]any),
-		Metadata:         make(map[string]any),
+		TestCase:             tc,
+		Output:               run.FinalOutput,
+		Transcript:           run.Transcript,
+		Session:              &run.SessionDigest,
+		ToolEvents:           run.ToolEvents,
+		DurationMS:           run.DurationMs,
+		SessionID:            run.SessionDigest.SessionID,
+		WorkspaceDir:         workspace,
+		SkillInvocations:     skillInvocations,
+		AvailableSkills:      availableSkills,
+		AvailableSkillsKnown: run.AvailableSkillsKnown,
+		Outcome:              make(map[string]any),
+		Metadata:             make(map[string]any),
 	}
 
 	if verbose {

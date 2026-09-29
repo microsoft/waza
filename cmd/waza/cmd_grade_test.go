@@ -703,3 +703,83 @@ graders:
 	require.True(t, ok)
 	require.True(t, passed)
 }
+
+func TestGradeCommand_SkillInvocationGraderRestoresAvailableSkills(t *testing.T) {
+	const taskWithSkillInvocation = `id: task-skill
+name: Skill Task
+inputs:
+  prompt: "Do something"
+graders:
+  - name: skill_check
+    type: skill_invocation
+    config:
+      required_skills:
+        - my-skill
+      mode: any_order
+`
+	tests := []struct {
+		name            string
+		availableSkills []models.SkillInvocation
+		known           bool
+		wantFeedback    string
+	}{
+		{
+			name: "surfaced but not invoked",
+			availableSkills: []models.SkillInvocation{
+				{Name: "my-skill", Path: "/skills/my-skill/SKILL.md"},
+			},
+			known:        true,
+			wantFeedback: "surfaced but not invoked: my-skill",
+		},
+		{
+			name:            "known-empty catalog",
+			availableSkills: []models.SkillInvocation{},
+			known:           true,
+			wantFeedback:    "runtime never surfaced: my-skill",
+		},
+		{
+			name: "pre-flag non-empty catalog",
+			availableSkills: []models.SkillInvocation{
+				{Name: "my-skill", Path: "/skills/my-skill/SKILL.md"},
+			},
+			wantFeedback: "surfaced but not invoked: my-skill",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			specPath := gradeSpec(t, dir, minimalSpec)
+			writeTaskFile(t, dir, "task.yaml", taskWithSkillInvocation)
+
+			outcome := outcomeWithTasks(models.TestOutcome{
+				TestID: "task-skill",
+				Runs: []models.RunResult{{
+					FinalOutput:          "output",
+					DurationMs:           1000,
+					SessionDigest:        models.SessionDigest{SessionID: "s-1"},
+					AvailableSkills:      tt.availableSkills,
+					AvailableSkillsKnown: tt.known,
+				}},
+			})
+			resultsPath := gradeResultsFile(t, dir, outcome)
+			gradedPath := filepath.Join(dir, "graded.json")
+
+			out, err := executeGrade(t, specPath, "--results", resultsPath, "--output", gradedPath)
+			require.NoError(t, err)
+
+			var result models.GradeOutcome
+			require.NoError(t, json.Unmarshal([]byte(out), &result))
+			require.False(t, result.Passed)
+			require.Contains(t, result.Tasks["task-skill"].GraderAverages, "skill_check")
+
+			gradedData, readErr := os.ReadFile(gradedPath)
+			require.NoError(t, readErr)
+			gradedOutcome, parseErr := models.ParseEvaluationOutcome(gradedData, gradedPath)
+			require.NoError(t, parseErr)
+			require.Len(t, gradedOutcome.TestOutcomes, 1)
+			require.Len(t, gradedOutcome.TestOutcomes[0].Runs, 1)
+			require.Contains(t, gradedOutcome.TestOutcomes[0].Runs[0].Validations["skill_check"].Feedback, tt.wantFeedback)
+		})
+	}
+}

@@ -1341,21 +1341,22 @@ func (r *EvalRunner) executeRun(ctx context.Context, tc *models.TestCase, runNum
 	}
 
 	run := models.RunResult{
-		RunNumber:        runNum,
-		Prompt:           req.Message,
-		Status:           status,
-		DurationMs:       resp.DurationMs,
-		Validations:      gradersResults,
-		SessionDigest:    r.buildSessionDigest(resp),
-		Transcript:       transcript,
-		FinalOutput:      resp.FinalOutput,
-		ErrorMsg:         resp.ErrorMsg,
-		SkillInvocations: skillInvocations,
-		AvailableSkills:  availableSkills,
-		WorkspaceDir:     resp.WorkspaceDir,
-		Responder:        responderInfo,
-		Checkpoints:      checkpointOutcomes,
-		ToolEvents:       buildToolEvents(sdkEvents),
+		RunNumber:            runNum,
+		Prompt:               req.Message,
+		Status:               status,
+		DurationMs:           resp.DurationMs,
+		Validations:          gradersResults,
+		SessionDigest:        r.buildSessionDigest(resp),
+		Transcript:           transcript,
+		FinalOutput:          resp.FinalOutput,
+		ErrorMsg:             resp.ErrorMsg,
+		SkillInvocations:     skillInvocations,
+		AvailableSkills:      availableSkills,
+		AvailableSkillsKnown: resp.AvailableSkillsKnown,
+		WorkspaceDir:         resp.WorkspaceDir,
+		Responder:            responderInfo,
+		Checkpoints:          checkpointOutcomes,
+		ToolEvents:           buildToolEvents(sdkEvents),
 	}
 	r.captureSnapshot(tc, req, resp, &run)
 	return returnWithArtifacts(run)
@@ -2060,20 +2061,21 @@ func (r *EvalRunner) buildGraderContext(tc *models.TestCase, resp *execution.Exe
 	sessionDigest := r.buildSessionDigest(resp)
 
 	return &graders.Context{
-		TestCase:         tc,
-		Transcript:       transcriptEntries,
-		Output:           resp.FinalOutput,
-		Outcome:          make(map[string]any),
-		DurationMS:       resp.DurationMs,
-		Metadata:         make(map[string]any),
-		WorkspaceDir:     resp.WorkspaceDir,
-		WorkspaceFiles:   resp.WorkspaceFiles,
-		SkillInvocations: resp.SkillInvocations,
-		AvailableSkills:  resp.AvailableSkills,
-		SessionID:        resp.SessionID,
-		Session:          &sessionDigest,
-		ToolEvents:       buildToolEvents(sdkEvents),
-		Executor:         r.engine,
+		TestCase:             tc,
+		Transcript:           transcriptEntries,
+		Output:               resp.FinalOutput,
+		Outcome:              make(map[string]any),
+		DurationMS:           resp.DurationMs,
+		Metadata:             make(map[string]any),
+		WorkspaceDir:         resp.WorkspaceDir,
+		WorkspaceFiles:       resp.WorkspaceFiles,
+		SkillInvocations:     resp.SkillInvocations,
+		AvailableSkills:      resp.AvailableSkills,
+		AvailableSkillsKnown: resp.AvailableSkillsKnown,
+		SessionID:            resp.SessionID,
+		Session:              &sessionDigest,
+		ToolEvents:           buildToolEvents(sdkEvents),
+		Executor:             r.engine,
 	}
 }
 

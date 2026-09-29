@@ -63,9 +63,11 @@ type Context struct {
 	// session — one entry per SKILL.md / *.agent.md file the SDK could route
 	// to. Graders can diff this against SkillInvocations to distinguish
 	// "the runtime never surfaced the skill" from "the runtime surfaced it
-	// but the model chose not to invoke it" (see issue #540). Empty when
-	// skills were disabled for the run.
+	// but the model chose not to invoke it" (see issue #540).
 	AvailableSkills []execution.AvailableSkill
+	// AvailableSkillsKnown distinguishes a known-empty catalog from legacy or
+	// non-Copilot responses that do not provide routing telemetry.
+	AvailableSkillsKnown bool
 
 	// SessionID from this evaluation run.
 	SessionID string
