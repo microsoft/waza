@@ -2,6 +2,7 @@ package execution
 
 import (
 	"fmt"
+	"reflect"
 	"sort"
 	"strings"
 	"sync"
@@ -211,6 +212,10 @@ func (r *toolPolicyRecorder) snapshot() []ToolPolicyDenial {
 // "task" if no name is present), so an allow-list can target a specific
 // subagent instead of implicitly permitting every subagent.
 func canonicalPermissionToolName(request copilot.PermissionRequest) (string, bool) {
+	if isNilPermissionRequest(request) {
+		return "", false
+	}
+
 	switch req := request.(type) {
 	case *copilot.PermissionRequestCustomTool:
 		if strings.TrimSpace(req.ToolName) == "" {
@@ -249,6 +254,14 @@ func canonicalPermissionToolName(request copilot.PermissionRequest) (string, boo
 	}
 }
 
+func isNilPermissionRequest(request copilot.PermissionRequest) bool {
+	if request == nil {
+		return true
+	}
+	value := reflect.ValueOf(request)
+	return value.Kind() == reflect.Pointer && value.IsNil()
+}
+
 // enforceToolCall also covers tools that do not trigger a permission request.
 func enforceToolCall(policy *ToolPolicy, recorder *toolPolicyRecorder) copilot.PreToolUseHandler {
 	return func(input copilot.PreToolUseHookInput, _ copilot.HookInvocation) (*copilot.PreToolUseHookOutput, error) {
@@ -282,6 +295,15 @@ func enforceToolCall(policy *ToolPolicy, recorder *toolPolicyRecorder) copilot.P
 // even against SDK versions/tool sources that don't honor that filter.
 func enforceToolPolicy(policy *ToolPolicy, recorder *toolPolicyRecorder, next copilot.PermissionHandlerFunc) copilot.PermissionHandlerFunc {
 	return func(request copilot.PermissionRequest, invocation copilot.PermissionInvocation) (rpc.PermissionDecision, error) {
+		if isNilPermissionRequest(request) {
+			reason := "nil permission request; denied fail-closed"
+			if recorder != nil {
+				recorder.record("", "", reason)
+			}
+			feedback := "denied by .agent.md tool policy: " + reason
+			return &rpc.PermissionDecisionReject{Feedback: &feedback}, nil
+		}
+
 		name, ok := canonicalPermissionToolName(request)
 		if ok && policy.IsAllowed(name) {
 			if next != nil {

@@ -12,7 +12,9 @@ import (
 )
 
 func TestCopilotResumeToolPolicy(t *testing.T) {
-	for _, tools := range []*[]string{nil, new([]string{}), new([]string{"fileRead"})} {
+	emptyTools := []string{}
+	allowListTools := []string{"fileRead"}
+	for _, tools := range []*[]string{nil, &emptyTools, &allowListTools} {
 		policy := NewToolPolicy(tools)
 		t.Run(string(policy.Mode), func(t *testing.T) {
 			ctrl := gomock.NewController(t)

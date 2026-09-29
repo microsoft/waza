@@ -147,6 +147,34 @@ func TestEnforceToolPolicy_AllowListApprovesDeclaredDeniesOthers(t *testing.T) {
 	require.Equal(t, "", denials[4].Tool)
 }
 
+func TestEnforceToolPolicy_NilRequestsFailClosed(t *testing.T) {
+	var typedNil *copilot.PermissionRequestRead
+	for _, tc := range []struct {
+		name    string
+		request copilot.PermissionRequest
+	}{
+		{name: "nil", request: nil},
+		{name: "typed nil", request: typedNil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			declared := []string{"read"}
+			recorder := newToolPolicyRecorder()
+			handler := enforceToolPolicy(NewToolPolicy(&declared), recorder, allowAllTools)
+
+			decision, err := handler(tc.request, copilot.PermissionInvocation{})
+
+			require.NoError(t, err)
+			rejection, ok := decision.(*rpc.PermissionDecisionReject)
+			require.True(t, ok)
+			require.NotNil(t, rejection.Feedback)
+			require.Contains(t, *rejection.Feedback, "nil permission request")
+			require.Equal(t, []ToolPolicyDenial{{
+				Reason: "nil permission request; denied fail-closed",
+			}}, recorder.snapshot())
+		})
+	}
+}
+
 func TestBareNamesCannotAuthorizeSourceQualifiedPermissions(t *testing.T) {
 	for _, tc := range []struct {
 		declared string
