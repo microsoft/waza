@@ -85,6 +85,7 @@ func TestPromptGraderRequiresExecutor(t *testing.T) {
 }
 
 func TestPromptGraderUsesExecutorTools(t *testing.T) {
+	sandbox := &models.SandboxConfig{Enabled: true}
 	executor := &fakePromptExecutor{
 		execute: func(req *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
 			require.Equal(t, "judge-model", req.ModelID)
@@ -94,6 +95,7 @@ func TestPromptGraderUsesExecutorTools(t *testing.T) {
 			require.True(t, req.EphemeralSession)
 			require.True(t, req.SkipWorkspaceCapture)
 			require.True(t, req.NoSkills)
+			require.Same(t, sandbox, req.Sandbox)
 			require.Len(t, req.Tools, 2)
 			_, err := req.Tools[0].Handler(copilot.ToolInvocation{
 				Arguments: map[string]any{"description": "criterion", "reason": "ok"},
@@ -111,6 +113,7 @@ func TestPromptGraderUsesExecutorTools(t *testing.T) {
 
 	results, err := promptGrader.Grade(context.Background(), &Context{
 		WorkspaceDir: "/tmp/workspace",
+		Sandbox:      sandbox,
 		Executor:     executor,
 	})
 	require.NoError(t, err)

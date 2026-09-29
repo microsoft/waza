@@ -23,6 +23,7 @@ import (
 	"github.com/microsoft/waza/internal/hooks"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/responder"
+	"github.com/microsoft/waza/internal/safeio"
 	"github.com/microsoft/waza/internal/skill"
 	"github.com/microsoft/waza/internal/snapshot"
 	"github.com/microsoft/waza/internal/telemetry"
@@ -224,7 +225,13 @@ func NewEvalRunner(cfg *config.EvalConfig, engine execution.AgentEngine, opts ..
 		failureHandler: failures.NewHandler(),
 	}
 	r.newClassifier = func(cfg models.ResponderConfig, defaultModel string) responderClassifier {
-		return responder.NewWithReasoningEffort(r.engine, cfg, defaultModel, r.cfg.Spec().Config.ReasoningEffort)
+		return responder.NewWithOptions(
+			r.engine,
+			cfg,
+			defaultModel,
+			r.cfg.Spec().Config.ReasoningEffort,
+			r.cfg.Spec().Config.Sandbox,
+		)
 	}
 	for _, o := range opts {
 		o(r)
@@ -792,14 +799,9 @@ func (r *EvalRunner) validateRequiredSkills() error {
 		return fmt.Errorf("required_skills specified but no skill_directories configured")
 	}
 
-	// Discover skills in the specified directories
-	discoveredSkills, err := discoverSkills(resolvedPaths)
+	// Resolve required skills with the same discovery semantics used by execution.
+	_, err := execution.ResolveSkillDirectories(resolvedPaths, spec.Config.RequiredSkills)
 	if err != nil {
-		return fmt.Errorf("discovering skills: %w", err)
-	}
-
-	// Validate that all required skills were found
-	if err := validateRequiredSkills(spec.Config.RequiredSkills, discoveredSkills, resolvedPaths); err != nil {
 		return fmt.Errorf("skill validation failed:\n%w", err)
 	}
 
@@ -1477,7 +1479,11 @@ func (r *EvalRunner) buildExecutionRequest(tc *models.TestCase) (*execution.Exec
 	if err != nil {
 		return nil, err
 	}
-	resources = append(resources, r.loadResources(tc)...)
+	taskResources, err := r.loadResources(tc)
+	if err != nil {
+		return nil, err
+	}
+	resources = append(resources, taskResources...)
 	instructions, instructionResources, err := r.loadInstructionFiles(tc)
 	if err != nil {
 		return nil, err
@@ -1503,6 +1509,7 @@ func (r *EvalRunner) buildExecutionRequest(tc *models.TestCase) (*execution.Exec
 		WorkDir:           tc.Stimulus.WorkDir,
 		Instructions:      instructions,
 		SkillName:         spec.SkillName,
+		RequiredSkills:    append([]string(nil), spec.Config.RequiredSkills...),
 		TaskName:          tc.DisplayName,
 		TaskDescription:   tc.Summary,
 		SkillPaths:        resolvedSkillPaths,
@@ -1512,6 +1519,7 @@ func (r *EvalRunner) buildExecutionRequest(tc *models.TestCase) (*execution.Exec
 			execution.IsSkillAvailable(resolvedSkillPaths, spec.SkillName),
 		MCPServers:        convertMCPServers(spec.Config.ServerConfigs, spec.MCPMocks, r.cfg.SpecDir()),
 		FirstEventTimeout: r.firstEventTimeout(tc),
+		Sandbox:           spec.Config.Sandbox,
 		ToolPolicy:        resolveToolPolicy(fm),
 		ModelID:           spec.Config.ModelID,
 		ReasoningEffort:   spec.Config.ReasoningEffort,
@@ -1527,14 +1535,19 @@ func (r *EvalRunner) taskSkillPaths(tc *models.TestCase) []string {
 }
 
 func (r *EvalRunner) resolveTaskAgent(tc *models.TestCase) (string, *skill.AgentFrontmatter, error) {
-	if r.cfg.Spec().Config.AllSkillsDisabled() {
+	spec := r.cfg.Spec()
+	if spec.Config.AllSkillsDisabled() {
 		return "", nil, nil
+	}
+	skillPaths := r.taskSkillPaths(tc)
+	if spec.Config.Sandbox != nil && spec.Config.Sandbox.Enabled {
+		return execution.ResolveAgentDefinition(skillPaths, spec.SkillName)
 	}
 	cwd, err := os.Getwd()
 	if err != nil {
 		return "", nil, fmt.Errorf("resolving agent working directory: %w", err)
 	}
-	return execution.ResolveAgentDefinition(append([]string{cwd}, r.taskSkillPaths(tc)...), r.cfg.Spec().SkillName)
+	return execution.ResolveAgentDefinition(append([]string{cwd}, skillPaths...), spec.SkillName)
 }
 
 func (r *EvalRunner) executionTimeout(tc *models.TestCase) (time.Duration, error) {
@@ -1808,7 +1821,7 @@ func (r *EvalRunner) sendResponderReply(ctx context.Context, tc *models.TestCase
 	return true
 }
 
-func (r *EvalRunner) loadResources(tc *models.TestCase) []execution.ResourceFile {
+func (r *EvalRunner) loadResources(tc *models.TestCase) ([]execution.ResourceFile, error) {
 	var resources []execution.ResourceFile
 
 	// Determine fixture directory (for loading resource files)
@@ -1816,6 +1829,16 @@ func (r *EvalRunner) loadResources(tc *models.TestCase) []execution.ResourceFile
 	if tc.ContextRoot != "" {
 		fixtureDir = tc.ContextRoot
 	}
+
+	var root *safeio.Root
+	var err error
+	defer func() {
+		if root != nil {
+			if err := root.Close(); err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: failed to close fixture directory %s: %v\n", fixtureDir, err)
+			}
+		}
+	}()
 
 	for _, ref := range tc.Stimulus.Resources {
 		if ref.Body != "" {
@@ -1837,30 +1860,16 @@ func (r *EvalRunner) loadResources(tc *models.TestCase) []execution.ResourceFile
 				continue
 			}
 
-			fullPath := filepath.Join(fixtureDir, cleanPath)
-
-			// Ensure the resolved path is still within fixtureDir
-			absFixtureDir, err := filepath.Abs(fixtureDir)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Warning: failed to get absolute path for fixture dir: %v\n", err)
-				continue
+			if root == nil {
+				root, err = safeio.OpenRoot(fixtureDir)
+				if err != nil {
+					return nil, fmt.Errorf("opening fixture directory for resources: %w", err)
+				}
 			}
-
-			absFullPath, err := filepath.Abs(fullPath)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Warning: failed to get absolute path for resource: %v\n", err)
-				continue
-			}
-
-			if !strings.HasPrefix(absFullPath, absFixtureDir+string(filepath.Separator)) {
-				fmt.Fprintf(os.Stderr, "Warning: resource path %q escapes fixture directory\n", ref.Location)
-				continue
-			}
-
-			content, err := os.ReadFile(fullPath)
+			content, _, err := root.ReadRegularFile(cleanPath, 0)
 			if err != nil {
 				// Log error but continue - let the test fail if resource is critical
-				fmt.Fprintf(os.Stderr, "Warning: failed to load resource file %s: %v\n", fullPath, err)
+				fmt.Fprintf(os.Stderr, "Warning: failed to load resource file %s: %v\n", ref.Location, err)
 				continue
 			}
 			resources = append(resources, execution.ResourceFile{
@@ -1870,7 +1879,7 @@ func (r *EvalRunner) loadResources(tc *models.TestCase) []execution.ResourceFile
 		}
 	}
 
-	return resources
+	return resources, nil
 }
 
 func (r *EvalRunner) loadContextFixtureResources(tc *models.TestCase) ([]execution.ResourceFile, error) {
@@ -1998,15 +2007,25 @@ func (r *EvalRunner) loadInstructionFiles(tc *models.TestCase) ([]execution.Inst
 		return nil, nil, fmt.Errorf("instruction_files require a context/fixtures directory")
 	}
 
+	root, err := safeio.OpenRoot(fixtureDir)
+	if err != nil {
+		return nil, nil, fmt.Errorf("opening context directory for instruction_files: %w", err)
+	}
+	defer func() {
+		if err := root.Close(); err != nil {
+			slog.Warn("closing instruction file context directory", "path", fixtureDir, "error", err)
+		}
+	}()
+
 	instructions := make([]execution.InstructionFile, 0, len(paths))
 	resources := make([]execution.ResourceFile, 0, len(paths))
 	for _, path := range paths {
-		cleanPath, fullPath, err := resolveContextFile(fixtureDir, path, "instruction_files")
+		cleanPath, err := resolveContextFile(path, "instruction_files")
 		if err != nil {
 			return nil, nil, err
 		}
 
-		content, err := os.ReadFile(fullPath)
+		content, _, err := root.ReadRegularFile(cleanPath, 0)
 		if err != nil {
 			return nil, nil, fmt.Errorf("reading instruction file %q: %w", path, err)
 		}
@@ -2024,37 +2043,23 @@ func (r *EvalRunner) loadInstructionFiles(tc *models.TestCase) ([]execution.Inst
 	return instructions, resources, nil
 }
 
-func resolveContextFile(baseDir, relPath, field string) (string, string, error) {
+func resolveContextFile(relPath, field string) (string, error) {
 	if relPath == "" {
-		return "", "", fmt.Errorf("%s path must not be empty", field)
+		return "", fmt.Errorf("%s path must not be empty", field)
 	}
 	if filepath.IsAbs(relPath) {
-		return "", "", fmt.Errorf("%s path %q must be relative", field, relPath)
+		return "", fmt.Errorf("%s path %q must be relative", field, relPath)
 	}
 	if containsPathTraversal(relPath) {
-		return "", "", fmt.Errorf("%s path %q must not contain path traversal", field, relPath)
+		return "", fmt.Errorf("%s path %q must not contain path traversal", field, relPath)
 	}
 
 	cleanPath := filepath.Clean(relPath)
 	if cleanPath == "." {
-		return "", "", fmt.Errorf("%s path must not be empty", field)
+		return "", fmt.Errorf("%s path must not be empty", field)
 	}
 
-	fullPath := filepath.Join(baseDir, cleanPath)
-	absBaseDir, err := filepath.Abs(baseDir)
-	if err != nil {
-		return "", "", fmt.Errorf("resolving context directory: %w", err)
-	}
-	absFullPath, err := filepath.Abs(fullPath)
-	if err != nil {
-		return "", "", fmt.Errorf("resolving %s path %q: %w", field, relPath, err)
-	}
-
-	if absFullPath != absBaseDir && !strings.HasPrefix(absFullPath, absBaseDir+string(filepath.Separator)) {
-		return "", "", fmt.Errorf("%s path %q escapes context directory", field, relPath)
-	}
-
-	return cleanPath, fullPath, nil
+	return cleanPath, nil
 }
 
 func containsPathTraversal(path string) bool {
@@ -2093,6 +2098,7 @@ func (r *EvalRunner) buildGraderContext(tc *models.TestCase, resp *execution.Exe
 		Metadata:         make(map[string]any),
 		WorkspaceDir:     resp.WorkspaceDir,
 		WorkspaceFiles:   resp.WorkspaceFiles,
+		Sandbox:          r.cfg.Spec().Config.Sandbox,
 		SkillInvocations: resp.SkillInvocations,
 		SessionID:        resp.SessionID,
 		Session:          &sessionDigest,

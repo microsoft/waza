@@ -109,7 +109,6 @@ func TestClassifyUsesDefaultModelWhenUnset(t *testing.T) {
 			return &execution.ExecutionResponse{SessionID: "resp-1"}, nil
 		},
 	}
-
 	c := New(exec, models.ResponderConfig{Instructions: "x", MaxFollowups: 5}, "default-model")
 	_, err := c.Classify(context.Background(), "Q?")
 	require.NoError(t, err)
@@ -129,6 +128,7 @@ func TestClassifyUsesReasoningEffort(t *testing.T) {
 }
 
 func TestClassifyPersistsSession(t *testing.T) {
+	sandbox := &models.SandboxConfig{Enabled: true}
 	exec := &fakeExecutor{
 		respond: func(req *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
 			_, _ = findTool(t, req.Tools, toolRespond).Handler(copilot.ToolInvocation{
@@ -137,7 +137,7 @@ func TestClassifyPersistsSession(t *testing.T) {
 			return &execution.ExecutionResponse{SessionID: "resp-1"}, nil
 		},
 	}
-	c := New(exec, models.ResponderConfig{Instructions: "INSTR", MaxFollowups: 5}, "gpt-4o")
+	c := NewWithOptions(exec, models.ResponderConfig{Instructions: "INSTR", MaxFollowups: 5}, "gpt-4o", "", sandbox)
 	_, err := c.Classify(context.Background(), "Q1?")
 	require.NoError(t, err)
 	_, err = c.Classify(context.Background(), "Q2?")
@@ -145,9 +145,11 @@ func TestClassifyPersistsSession(t *testing.T) {
 
 	require.Len(t, exec.calls, 2)
 	require.Empty(t, exec.calls[0].SessionID)
+	require.Same(t, sandbox, exec.calls[0].Sandbox)
 	require.Contains(t, exec.calls[0].Message, "INSTR")
 	require.Contains(t, exec.calls[0].Message, "Q1?")
 	require.Equal(t, "resp-1", exec.calls[1].SessionID)
+	require.Same(t, sandbox, exec.calls[1].Sandbox)
 	require.NotContains(t, exec.calls[1].Message, "INSTR")
 	require.Contains(t, exec.calls[1].Message, "Q2?")
 }

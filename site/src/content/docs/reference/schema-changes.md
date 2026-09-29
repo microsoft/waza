@@ -38,6 +38,7 @@ For schema `1.0`, the command is a no-op because there is no prior major version
 
 ### 1.3
 
+- Added optional `config.sandbox` to enable Copilot CLI's native OS sandbox for model-visible evaluation tools. Waza derives workspace and skill-directory access from existing eval declarations, supports narrowly declared host prerequisites, and defaults network, developer-tool cache, and credential access off.
 - Added optional `runs[].session_digest.tool_policy_mode` and `tool_policy_denials` to record the selected custom agent's effective tool policy and denied attempts (#585).
 - The dashboard API exposes these as `toolPolicyMode` and `toolPolicyDenials`; NDJSON session logs include the digest in `run_complete` events.
 

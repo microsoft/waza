@@ -139,6 +139,7 @@ func (e *stubEngine) Execute(_ context.Context, req *execution.ExecutionRequest)
 
 func TestEvalRunnerRunConfig(t *testing.T) {
 	injectSkillBody := false
+	sandbox := &models.SandboxConfig{Enabled: true, AllowOutboundNetwork: true}
 	specDir := t.TempDir()
 	require.NoError(t, os.WriteFile(
 		filepath.Join(specDir, "SKILL.md"),
@@ -161,6 +162,7 @@ func TestEvalRunnerRunConfig(t *testing.T) {
 				SkillPaths:          []string{"skills/a", "skills/b"},
 				InjectSkillBody:     &injectSkillBody,
 				TriggerSkillRouting: true,
+				Sandbox:             sandbox,
 			},
 		},
 		config.WithSpecDir(specDir),
@@ -174,10 +176,9 @@ func TestEvalRunnerRunConfig(t *testing.T) {
 	deadline, ok := engine.LastDeadline()
 	require.True(t, ok, "expected trigger timeout as context deadline")
 	require.WithinDuration(t, start.Add(120*time.Second), deadline, time.Second)
-	if len(engine.LastReq().SkillPaths) != 2 {
-		t.Errorf("SkillPaths = %v, want 2 entries", engine.LastReq().SkillPaths)
-	}
+	require.Equal(t, []string{specDir, filepath.Join(specDir, "skills/a"), filepath.Join(specDir, "skills/b")}, engine.LastReq().SkillPaths)
 	require.True(t, engine.LastReq().SuppressSkillBody)
+	require.Same(t, sandbox, engine.LastReq().Sandbox)
 	require.True(t, engine.LastReq().TriggerSkillRouting)
 }
 
@@ -221,6 +222,68 @@ func TestEvalRunnerRunConfig_DisabledTargetDoesNotRoute(t *testing.T) {
 	require.False(t, engine.LastReq().TriggerSkillRouting)
 	require.Len(t, engine.LastReq().SkillPaths, 1)
 	require.Equal(t, otherDir, engine.LastReq().SkillPaths[0])
+}
+
+func TestEvalRunnerRunConfig_SandboxSpecDirFiltering(t *testing.T) {
+	for _, tc := range []struct {
+		name             string
+		configureSpecDir bool
+		disableSpecDir   bool
+		wantSkillPaths   bool
+		wantRouting      bool
+	}{
+		{
+			name:             "explicit disabled spec dir is blocked",
+			configureSpecDir: true,
+			disableSpecDir:   true,
+		},
+		{
+			name:           "implicit spec dir remains available",
+			wantSkillPaths: true,
+			wantRouting:    true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			injectSkillBody := false
+			specDir := t.TempDir()
+			require.NoError(t, os.WriteFile(
+				filepath.Join(specDir, "SKILL.md"),
+				[]byte("---\nname: my-skill\ndescription: test\n---\n"),
+				0o644,
+			))
+			configModel := models.Config{
+				InjectSkillBody:     &injectSkillBody,
+				TriggerSkillRouting: true,
+				Sandbox:             &models.SandboxConfig{Enabled: true},
+			}
+			if tc.configureSpecDir {
+				configModel.SkillPaths = []string{specDir}
+			}
+			if tc.disableSpecDir {
+				configModel.DisabledSkills = []string{filepath.Base(specDir)}
+			}
+			spec := &TestSpec{
+				Skill:                "my-skill",
+				ShouldTriggerPrompts: []TestPrompt{{Prompt: "hello"}},
+			}
+			engine := &capturingEngine{}
+			cfg := config.NewEvalConfig(
+				&models.EvalSpec{SkillName: "my-skill", Config: configModel},
+				config.WithSpecDir(specDir),
+			)
+
+			_, err := NewRunner(spec, engine, cfg, nil).Run(t.Context())
+
+			require.NoError(t, err)
+			require.NotNil(t, engine.LastReq())
+			if tc.wantSkillPaths {
+				require.Equal(t, []string{specDir}, engine.LastReq().SkillPaths)
+			} else {
+				require.Empty(t, engine.LastReq().SkillPaths)
+			}
+			require.Equal(t, tc.wantRouting, engine.LastReq().TriggerSkillRouting)
+		})
+	}
 }
 
 type capturingEngine struct {
@@ -434,9 +497,25 @@ func TestEvalRunnerSkipsHiddenAndVendorInFixtures(t *testing.T) {
 	require.NoError(t, os.MkdirAll(vendor, 0755))
 	require.NoError(t, os.WriteFile(filepath.Join(vendor, "dep.go"), []byte("skip"), 0644))
 
-	resources := loadFixtureDir(fixtureDir)
+	resources, err := loadFixtureDir(fixtureDir)
+	require.NoError(t, err)
 	require.Len(t, resources, 1)
 	require.Equal(t, "visible.txt", resources[0].Path)
+}
+
+func TestLoadFixtureDir_RejectsSymlinkEscapes(t *testing.T) {
+	fixtureDir := t.TempDir()
+	outsideDir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(fixtureDir, "visible.txt"), []byte("safe"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(outsideDir, "secret.txt"), []byte("secret"), 0o644))
+	require.NoError(t, os.Mkdir(filepath.Join(outsideDir, "nested"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(outsideDir, "nested", "secret.txt"), []byte("nested secret"), 0o644))
+	require.NoError(t, os.Symlink(filepath.Join(outsideDir, "secret.txt"), filepath.Join(fixtureDir, "secret.txt")))
+	require.NoError(t, os.Symlink(filepath.Join(outsideDir, "nested"), filepath.Join(fixtureDir, "linked-dir")))
+
+	resources, err := loadFixtureDir(fixtureDir)
+	require.NoError(t, err)
+	require.Equal(t, []execution.ResourceFile{{Path: "visible.txt", Content: []byte("safe")}}, resources)
 }
 
 func TestEvalRunnerPassesMCPServers(t *testing.T) {
@@ -472,9 +551,17 @@ func TestEvalRunnerPassesMCPServers(t *testing.T) {
 }
 
 func TestLoadFixtureDir_EmptyDir(t *testing.T) {
-	require.Nil(t, loadFixtureDir(""))
-	require.Nil(t, loadFixtureDir("/nonexistent/path"))
-	require.Nil(t, loadFixtureDir(t.TempDir())) // empty dir
+	resources, err := loadFixtureDir("")
+	require.NoError(t, err)
+	require.Nil(t, resources)
+
+	resources, err = loadFixtureDir("/nonexistent/path")
+	require.NoError(t, err)
+	require.Nil(t, resources)
+
+	resources, err = loadFixtureDir(t.TempDir())
+	require.NoError(t, err)
+	require.Nil(t, resources)
 }
 
 func TestConvertMCPServers_SkipsNonMapEntries(t *testing.T) {

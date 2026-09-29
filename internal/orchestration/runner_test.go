@@ -142,9 +142,13 @@ func TestBuildExecutionRequest_BasicFields(t *testing.T) {
 		},
 		SkillName: "my-skill",
 		Config: models.Config{
-			EngineType: "mock",
+			EngineType: "copilot-sdk",
 			ModelID:    "gpt-4",
 			TimeoutSec: 120,
+			Sandbox: &models.SandboxConfig{
+				Enabled:              true,
+				AllowOutboundNetwork: true,
+			},
 		},
 	}
 
@@ -171,6 +175,9 @@ func TestBuildExecutionRequest_BasicFields(t *testing.T) {
 	assert.Equal(t, "my-skill", req.SkillName)
 	assert.Equal(t, "value", req.Context["key"])
 	assert.False(t, req.SuppressSkillBody)
+	require.NotNil(t, req.Sandbox)
+	assert.True(t, req.Sandbox.Enabled)
+	assert.True(t, req.Sandbox.AllowOutboundNetwork)
 }
 
 func TestBuildExecutionRequest_MCPMocks(t *testing.T) {
@@ -729,6 +736,9 @@ func TestBuildExecutionRequest_InstructionFilesUseTaskContextRoot(t *testing.T) 
 
 func TestBuildExecutionRequest_InstructionFileErrors(t *testing.T) {
 	fixtureDir := t.TempDir()
+	outsideDir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(outsideDir, "secret.instructions.md"), []byte("secret"), 0o644))
+	require.NoError(t, os.Symlink(filepath.Join(outsideDir, "secret.instructions.md"), filepath.Join(fixtureDir, "linked.instructions.md")))
 	spec := &models.EvalSpec{
 		SkillName: "test-skill",
 		Config: models.Config{
@@ -748,6 +758,7 @@ func TestBuildExecutionRequest_InstructionFileErrors(t *testing.T) {
 		{name: "missing", path: "missing.instructions.md", want: "reading instruction file"},
 		{name: "absolute", path: filepath.Join(fixtureDir, "absolute.instructions.md"), want: "must be relative"},
 		{name: "traversal", path: "../escape.instructions.md", want: "must not contain path traversal"},
+		{name: "symlink", path: "linked.instructions.md", want: "contains symlink"},
 	}
 
 	for _, tt := range tests {
@@ -840,6 +851,27 @@ description: Validate Azure config
 
 		err := runner.validateRequiredSkills()
 		assert.NoError(t, err)
+	})
+
+	t.Run("discovery root and case-insensitive dependency", func(t *testing.T) {
+		root := t.TempDir()
+		targetDir := filepath.Join(root, "target")
+		dependencyDir := filepath.Join(root, "dependency")
+		require.NoError(t, os.Mkdir(targetDir, 0o755))
+		require.NoError(t, os.Mkdir(dependencyDir, 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(targetDir, "SKILL.md"), []byte("---\nname: target\ndescription: target\n---\n"), 0o644))
+		require.NoError(t, os.WriteFile(filepath.Join(dependencyDir, "SKILL.md"), []byte("---\nname: Dependency\ndescription: dependency\n---\n"), 0o644))
+
+		spec := &models.EvalSpec{
+			SkillName: "target",
+			Config: models.Config{
+				SkillPaths:     []string{root},
+				RequiredSkills: []string{"dependency"},
+			},
+		}
+		runner := NewEvalRunner(config.NewEvalConfig(spec, config.WithSpecDir(root)), nil)
+
+		require.NoError(t, runner.validateRequiredSkills())
 	})
 
 	t.Run("some required skills missing", func(t *testing.T) {

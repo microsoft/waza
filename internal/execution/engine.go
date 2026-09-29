@@ -59,6 +59,7 @@ type ExecutionRequest struct {
 	WorkDir         string
 	Instructions    []InstructionFile
 	Tools           []copilot.Tool
+	Sandbox         *models.SandboxConfig
 
 	MessageMode MessageMode
 	Streaming   bool
@@ -84,6 +85,9 @@ type ExecutionRequest struct {
 	SessionID    string
 	WorkspaceDir string // Reuse an existing workspace directory (for follow-up prompts)
 	SkillName    string
+	// RequiredSkills names explicitly intended skill dependencies that must
+	// remain available alongside SkillName in sandboxed sessions.
+	RequiredSkills []string
 
 	// TaskName and TaskDescription carry test-case metadata so mock engines can
 	// echo them, enabling output_contains expectations that reference task-level
@@ -92,7 +96,7 @@ type ExecutionRequest struct {
 	TaskDescription string
 
 	SourceDir  string   // used when looking for workspace items via relative path, like skills.
-	SkillPaths []string // Directories to search for skills
+	SkillPaths []string // Discovery roots to search for skills
 	NoSkills   bool     // When true, skip all skill loading
 	// SuppressSkillBody prevents full target skill content from being appended
 	// while still allowing skill discovery and compact summaries.

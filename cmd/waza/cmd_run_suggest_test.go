@@ -27,7 +27,8 @@ func TestResolveSuggestionSkillPaths_DedupesAndSorts(t *testing.T) {
 		},
 	}
 
-	got := resolveSuggestionSkillPaths(spec, filepath.Join(parent, "eval.yaml"))
+	got, err := resolveSuggestionSkillPaths(spec, filepath.Join(parent, "eval.yaml"))
+	require.NoError(t, err)
 	require.Equal(t, []string{parent, a, b}, got)
 }
 
@@ -47,8 +48,124 @@ func TestResolveSuggestionSkillPaths_IncludesEvaluatedSkillDirectory(t *testing.
 		},
 	}
 
-	got := resolveSuggestionSkillPaths(spec, filepath.Join(specDir, "eval.yaml"))
-	assert.Contains(t, got, evaluatedSkillDir)
+	got, err := resolveSuggestionSkillPaths(spec, filepath.Join(specDir, "eval.yaml"))
+	require.NoError(t, err)
+	canonicalSkillDir, err := filepath.EvalSymlinks(evaluatedSkillDir)
+	require.NoError(t, err)
+	assert.Contains(t, got, canonicalSkillDir)
+}
+
+func TestResolveSuggestionSkillPaths_IncludesEvaluatedAgentDirectory(t *testing.T) {
+	agentDir := t.TempDir()
+	require.NoError(t, os.WriteFile(
+		filepath.Join(agentDir, "reviewer.agent.md"),
+		[]byte("---\nname: reviewer\ndescription: Reviews code\n---\n"),
+		0o644,
+	))
+
+	spec := &models.EvalSpec{
+		SkillName: "reviewer",
+		Config: models.Config{
+			Sandbox: &models.SandboxConfig{Enabled: true},
+		},
+	}
+
+	got, err := resolveSuggestionSkillPaths(spec, filepath.Join(agentDir, "eval.yaml"))
+
+	require.NoError(t, err)
+	canonicalAgentDir, err := filepath.EvalSymlinks(agentDir)
+	require.NoError(t, err)
+	require.Equal(t, []string{canonicalAgentDir}, got)
+}
+
+func TestResolveSuggestionSkillPaths_ExcludesDisabledSkillRoots(t *testing.T) {
+	root := t.TempDir()
+	specDir := filepath.Join(root, "evals")
+	disabledRoot := filepath.Join(root, "disabled")
+	enabledRoot := filepath.Join(root, "enabled")
+	disabledTarget := filepath.Join(disabledRoot, "target")
+	enabledTarget := filepath.Join(enabledRoot, "target")
+	require.NoError(t, os.MkdirAll(specDir, 0o755))
+	require.NoError(t, os.MkdirAll(disabledTarget, 0o755))
+	require.NoError(t, os.MkdirAll(enabledTarget, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(disabledTarget, "SKILL.md"), []byte("---\nname: target\n---\ndisabled"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(enabledTarget, "SKILL.md"), []byte("---\nname: target\n---\nenabled"), 0o644))
+
+	spec := &models.EvalSpec{
+		SkillName: "target",
+		Config: models.Config{
+			SkillPaths:     []string{disabledRoot, enabledRoot},
+			DisabledSkills: []string{filepath.Base(disabledRoot)},
+			Sandbox:        &models.SandboxConfig{Enabled: true},
+		},
+	}
+
+	got, err := resolveSuggestionSkillPaths(spec, filepath.Join(specDir, "eval.yaml"))
+
+	require.NoError(t, err)
+	canonicalEnabledTarget, err := filepath.EvalSymlinks(enabledTarget)
+	require.NoError(t, err)
+	require.Equal(t, []string{canonicalEnabledTarget}, got)
+}
+
+func TestResolveSuggestionSkillPaths_AllSkillsDisabledExcludesImplicitRoots(t *testing.T) {
+	specDir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(specDir, "target.agent.md"), []byte("---\nname: target\n---\n"), 0o644))
+	spec := &models.EvalSpec{
+		SkillName: "target",
+		Config: models.Config{
+			DisabledSkills: []string{"*"},
+			Sandbox:        &models.SandboxConfig{Enabled: true},
+		},
+	}
+
+	got, err := resolveSuggestionSkillPaths(spec, filepath.Join(specDir, "eval.yaml"))
+
+	require.NoError(t, err)
+	require.Empty(t, got)
+}
+
+func TestResolveSuggestionSkillPaths_DoesNotReintroduceDisabledImplicitRoots(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		configureRoot func(root, specDir string) string
+		disabledName  func(root, specDir string) string
+		definitionDir func(root, specDir string) string
+	}{
+		{
+			name:          "conventional skills directory",
+			configureRoot: func(_, _ string) string { return "../skills" },
+			disabledName:  func(_, _ string) string { return "skills" },
+			definitionDir: func(root, _ string) string { return filepath.Join(root, "skills", "target") },
+		},
+		{
+			name:          "eval directory",
+			configureRoot: func(_, specDir string) string { return specDir },
+			disabledName:  func(_, specDir string) string { return filepath.Base(specDir) },
+			definitionDir: func(_, specDir string) string { return specDir },
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			specDir := filepath.Join(root, "evals")
+			definitionDir := tc.definitionDir(root, specDir)
+			require.NoError(t, os.MkdirAll(definitionDir, 0o755))
+			require.NoError(t, os.WriteFile(filepath.Join(definitionDir, "SKILL.md"), []byte("---\nname: target\n---\n"), 0o644))
+			spec := &models.EvalSpec{
+				SkillName: "target",
+				Config: models.Config{
+					SkillPaths:     []string{tc.configureRoot(root, specDir)},
+					DisabledSkills: []string{tc.disabledName(root, specDir)},
+					Sandbox:        &models.SandboxConfig{Enabled: true},
+				},
+			}
+
+			got, err := resolveSuggestionSkillPaths(spec, filepath.Join(specDir, "eval.yaml"))
+
+			require.NoError(t, err)
+			require.Empty(t, got)
+		})
+	}
 }
 
 func TestMaybeGenerateSuggestionReport_SkipsWhenNoFailures(t *testing.T) {
@@ -83,6 +200,134 @@ func TestMaybeGenerateSuggestionReport_SkipsWhenNoFailures(t *testing.T) {
 	report, err := generateEvalAnalysis(context.Background(), engine, spec, filepath.Join(t.TempDir(), "eval.yaml"), outcome, nil)
 	require.NoError(t, err)
 	assert.Empty(t, report)
+}
+
+func TestGenerateEvalAnalysis_PropagatesSandbox(t *testing.T) {
+	sandbox := &models.SandboxConfig{Enabled: true, AllowOutboundNetwork: true}
+	spec := &models.EvalSpec{
+		SkillName: "test-skill",
+		Config: models.Config{
+			EngineType: "copilot-sdk",
+			ModelID:    "test-model",
+			Sandbox:    sandbox,
+		},
+	}
+	engine := &analysisCapturingEngine{}
+
+	report, err := generateEvalAnalysis(
+		context.Background(),
+		engine,
+		spec,
+		filepath.Join(t.TempDir(), "eval.yaml"),
+		&models.EvaluationOutcome{},
+		[]models.TriggerResult{{Prompt: "trigger", ShouldTrigger: true, DidTrigger: false}},
+	)
+	require.NoError(t, err)
+	require.Equal(t, "analysis", report)
+	require.NotNil(t, engine.request)
+	require.Same(t, sandbox, engine.request.Sandbox)
+	require.Empty(t, engine.request.SkillPaths)
+	require.Empty(t, engine.request.Resources)
+}
+
+func TestGenerateEvalAnalysis_SandboxExcludesDiscoveryRoots(t *testing.T) {
+	root := t.TempDir()
+	specDir := filepath.Join(root, "evals")
+	skillRoot := filepath.Join(root, "skills")
+	skillDir := filepath.Join(skillRoot, "my-skill")
+	require.NoError(t, os.MkdirAll(specDir, 0o755))
+	require.NoError(t, os.MkdirAll(skillDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(specDir, "private.txt"), []byte("eval neighbor"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(skillRoot, "private.txt"), []byte("skill neighbor"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("# My Skill"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(skillDir, "helper.txt"), []byte("skill helper"), 0o644))
+
+	for name, sandbox := range map[string]*models.SandboxConfig{
+		"enabled":  {Enabled: true},
+		"disabled": {},
+		"omitted":  nil,
+	} {
+		t.Run(name, func(t *testing.T) {
+			spec := &models.EvalSpec{
+				SkillName: "my-skill",
+				Config: models.Config{
+					EngineType: "copilot-sdk", SkillPaths: []string{skillRoot}, Sandbox: sandbox,
+				},
+			}
+			engine := &analysisCapturingEngine{}
+			_, err := generateEvalAnalysis(t.Context(), engine, spec, filepath.Join(specDir, "eval.yaml"),
+				&models.EvaluationOutcome{},
+				[]models.TriggerResult{{Prompt: "trigger", ShouldTrigger: true}},
+			)
+			require.NoError(t, err)
+			require.NotNil(t, engine.request)
+			require.Equal(t, spec.SkillName, engine.request.SkillName)
+			require.True(t, engine.request.SuppressSkillBody)
+			if sandbox != nil && sandbox.Enabled {
+				canonicalSkillDir, canonicalErr := filepath.EvalSymlinks(skillDir)
+				require.NoError(t, canonicalErr)
+				require.Equal(t, []string{canonicalSkillDir}, engine.request.SkillPaths)
+				require.ElementsMatch(t, []execution.ResourceFile{
+					{Path: "SKILL.md", Content: []byte("# My Skill")},
+					{Path: "helper.txt", Content: []byte("skill helper")},
+				}, engine.request.Resources)
+			} else {
+				require.Contains(t, engine.request.SkillPaths, specDir)
+				require.Contains(t, engine.request.SkillPaths, skillRoot)
+			}
+		})
+	}
+}
+
+func TestGenerateEvalAnalysis_SandboxIncludesAgentTarget(t *testing.T) {
+	agentDir := t.TempDir()
+	agentContent := "---\nname: reviewer\ndescription: Reviews code\n---\nReview carefully.\n"
+	require.NoError(t, os.WriteFile(filepath.Join(agentDir, "reviewer.agent.md"), []byte(agentContent), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(agentDir, "guide.txt"), []byte("agent guide"), 0o644))
+
+	spec := &models.EvalSpec{
+		SkillName: "reviewer",
+		Config: models.Config{
+			EngineType: "copilot-sdk",
+			Sandbox:    &models.SandboxConfig{Enabled: true},
+		},
+	}
+	engine := &analysisCapturingEngine{}
+
+	_, err := generateEvalAnalysis(
+		t.Context(),
+		engine,
+		spec,
+		filepath.Join(agentDir, "eval.yaml"),
+		&models.EvaluationOutcome{},
+		[]models.TriggerResult{{Prompt: "trigger", ShouldTrigger: true}},
+	)
+
+	require.NoError(t, err)
+	require.NotNil(t, engine.request)
+	require.Equal(t, "reviewer", engine.request.SkillName)
+	require.True(t, engine.request.SuppressSkillBody)
+	canonicalAgentDir, err := filepath.EvalSymlinks(agentDir)
+	require.NoError(t, err)
+	require.Equal(t, []string{canonicalAgentDir}, engine.request.SkillPaths)
+	require.ElementsMatch(t, []execution.ResourceFile{
+		{Path: "reviewer.agent.md", Content: []byte(agentContent)},
+		{Path: "guide.txt", Content: []byte("agent guide")},
+	}, engine.request.Resources)
+}
+
+type analysisCapturingEngine struct {
+	request *execution.ExecutionRequest
+}
+
+func (e *analysisCapturingEngine) Initialize(context.Context) error { return nil }
+func (e *analysisCapturingEngine) Shutdown(context.Context) error   { return nil }
+func (e *analysisCapturingEngine) SessionUsage(string) *models.UsageStats {
+	return nil
+}
+func (e *analysisCapturingEngine) Execute(_ context.Context, req *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
+	e.request = req
+	return &execution.ExecutionResponse{FinalOutput: "analysis"}, nil
 }
 
 func TestBuildNoSuggestionsError_IncludesSessionTranscript(t *testing.T) {
@@ -430,7 +675,8 @@ func TestLoadSkillResources_LoadsTextFiles(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "graders", "check.py"), []byte("print('ok')"), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "eval.yaml"), []byte("name: test"), 0o644))
 
-	resources := loadSkillResources([]string{dir})
+	resources, err := loadSkillResources([]string{dir})
+	require.NoError(t, err)
 
 	paths := make(map[string]string)
 	for _, r := range resources {
@@ -449,7 +695,8 @@ func TestLoadSkillResources_SkipsBinaryAndHiddenDirs(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, ".git"), 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, ".git", "config"), []byte("git"), 0o644))
 
-	resources := loadSkillResources([]string{dir})
+	resources, err := loadSkillResources([]string{dir})
+	require.NoError(t, err)
 
 	paths := make(map[string]bool)
 	for _, r := range resources {
@@ -467,7 +714,8 @@ func TestLoadSkillResources_DeduplicatesAcrossPaths(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(dir1, "SKILL.md"), []byte("first"), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(dir2, "SKILL.md"), []byte("second"), 0o644))
 
-	resources := loadSkillResources([]string{dir1, dir2})
+	resources, err := loadSkillResources([]string{dir1, dir2})
+	require.NoError(t, err)
 
 	count := 0
 	for _, r := range resources {
@@ -480,13 +728,30 @@ func TestLoadSkillResources_DeduplicatesAcrossPaths(t *testing.T) {
 }
 
 func TestLoadSkillResources_SkipsNonexistentPaths(t *testing.T) {
-	resources := loadSkillResources([]string{"/nonexistent/path"})
+	resources, err := loadSkillResources([]string{"/nonexistent/path"})
+	require.NoError(t, err)
 	assert.Empty(t, resources)
 }
 
 func TestLoadSkillResources_EmptyPaths(t *testing.T) {
-	resources := loadSkillResources(nil)
+	resources, err := loadSkillResources(nil)
+	require.NoError(t, err)
 	assert.Empty(t, resources)
+}
+
+func TestLoadSkillResources_RejectsSymlinkEscapes(t *testing.T) {
+	dir := t.TempDir()
+	outside := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("safe"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(outside, "secret.txt"), []byte("secret"), 0o644))
+	require.NoError(t, os.Mkdir(filepath.Join(outside, "nested"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(outside, "nested", "secret.md"), []byte("nested secret"), 0o644))
+	require.NoError(t, os.Symlink(filepath.Join(outside, "secret.txt"), filepath.Join(dir, "secret.txt")))
+	require.NoError(t, os.Symlink(filepath.Join(outside, "nested"), filepath.Join(dir, "linked-dir")))
+
+	resources, err := loadSkillResources([]string{dir})
+	require.NoError(t, err)
+	require.Equal(t, []execution.ResourceFile{{Path: "SKILL.md", Content: []byte("safe")}}, resources)
 }
 
 func TestIsTextFile(t *testing.T) {

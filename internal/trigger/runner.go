@@ -2,6 +2,7 @@ package trigger
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -19,18 +20,20 @@ import (
 	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/orchestration"
+	"github.com/microsoft/waza/internal/safeio"
 	"github.com/microsoft/waza/internal/transcript"
 	"github.com/microsoft/waza/internal/utils"
 )
 
 // Runner executes trigger tests and returns classification metrics.
 type Runner struct {
-	spec      *TestSpec
-	engine    execution.AgentEngine
-	cfg       *config.EvalConfig
-	out       io.Writer
-	fixtures  []execution.ResourceFile // cached fixture files, loaded once
-	mcpConfig map[string]copilot.MCPServerConfig
+	spec       *TestSpec
+	engine     execution.AgentEngine
+	cfg        *config.EvalConfig
+	out        io.Writer
+	fixtures   []execution.ResourceFile // cached fixture files, loaded once
+	fixtureErr error
+	mcpConfig  map[string]copilot.MCPServerConfig
 }
 
 type task struct {
@@ -50,7 +53,7 @@ type taskResult struct {
 
 func NewRunner(spec *TestSpec, engine execution.AgentEngine, cfg *config.EvalConfig, out io.Writer) *Runner {
 	r := &Runner{spec: spec, engine: engine, cfg: cfg, out: out}
-	r.fixtures = loadFixtureDir(cfg.FixtureDir())
+	r.fixtures, r.fixtureErr = loadFixtureDir(cfg.FixtureDir())
 	r.mcpConfig = convertMCPServers(cfg.Spec().Config.ServerConfigs, cfg.Spec().MCPMocks, cfg.SpecDir())
 	return r
 }
@@ -61,6 +64,10 @@ func (r *Runner) Run(ctx context.Context) (*models.TriggerMetrics, error) {
 }
 
 func (r *Runner) RunDetailed(ctx context.Context) ([]models.TriggerResult, *models.TriggerMetrics, error) {
+	if r.fixtureErr != nil {
+		return nil, nil, fmt.Errorf("loading trigger fixtures: %w", r.fixtureErr)
+	}
+
 	var tasks []task
 	for _, p := range r.spec.ShouldTriggerPrompts {
 		tasks = append(tasks, task{prompt: p.Prompt, confidence: p.Confidence, shouldTrigger: true})
@@ -175,12 +182,23 @@ func (r *Runner) testTrigger(ctx context.Context, prompt string) (*execution.Exe
 	}
 	execCtx, cancel := context.WithTimeout(ctx, time.Duration(timeout)*time.Second)
 	defer cancel()
-	skillPaths := utils.ResolvePaths(spec.Config.FilteredSkillPaths(), r.cfg.SpecDir())
-	effectiveSkillDirs := append([]string{r.cfg.SpecDir()}, skillPaths...)
+	specDir := r.cfg.SpecDir()
+	filteredSkillPaths := spec.Config.FilteredSkillPaths()
+	skillPaths := utils.ResolvePaths(filteredSkillPaths, specDir)
+	specDirBlocked := utils.IsFilteredPath(specDir, spec.Config.SkillPaths, filteredSkillPaths, specDir)
+	effectiveSkillDirs := append([]string(nil), skillPaths...)
+	if specDir != "" && !specDirBlocked {
+		effectiveSkillDirs = append([]string{specDir}, effectiveSkillDirs...)
+	}
+	requestSkillPaths := skillPaths
+	if spec.Config.Sandbox != nil && spec.Config.Sandbox.Enabled && specDir != "" && !specDirBlocked {
+		requestSkillPaths = append([]string{specDir}, skillPaths...)
+	}
 	return r.engine.Execute(execCtx, &execution.ExecutionRequest{
 		Message:           prompt,
 		SkillName:         r.spec.Skill,
-		SkillPaths:        skillPaths,
+		RequiredSkills:    append([]string(nil), spec.Config.RequiredSkills...),
+		SkillPaths:        requestSkillPaths,
 		NoSkills:          spec.Config.AllSkillsDisabled(),
 		SuppressSkillBody: !spec.Config.ShouldInjectSkillBody(),
 		TriggerSkillRouting: spec.Config.ShouldTriggerSkillRouting() &&
@@ -189,6 +207,7 @@ func (r *Runner) testTrigger(ctx context.Context, prompt string) (*execution.Exe
 		SourceDir:               r.cfg.SpecDir(),
 		Resources:               r.fixtures,
 		MCPServers:              r.mcpConfig,
+		Sandbox:                 spec.Config.Sandbox,
 		CancelOnSkillInvocation: true,
 	})
 }
@@ -196,61 +215,70 @@ func (r *Runner) testTrigger(ctx context.Context, prompt string) (*execution.Exe
 // loadFixtureDir recursively walks a fixture directory and returns all files
 // as ResourceFiles. Skips hidden dirs, node_modules, vendor, and binary files.
 // Returns nil if dir is empty or doesn't exist.
-func loadFixtureDir(dir string) []execution.ResourceFile {
+func loadFixtureDir(dir string) ([]execution.ResourceFile, error) {
 	if dir == "" {
-		return nil
+		return nil, nil
 	}
 
 	info, err := os.Stat(dir)
-	if err != nil || !info.IsDir() {
-		return nil
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("checking fixture directory: %w", err)
+	}
+	if !info.IsDir() {
+		return nil, nil
 	}
 
 	var resources []execution.ResourceFile
-	absDir, err := filepath.Abs(dir)
+	root, err := safeio.OpenRoot(dir)
 	if err != nil {
-		return nil
+		return nil, fmt.Errorf("opening fixture directory: %w", err)
 	}
 
-	_ = filepath.WalkDir(absDir, func(path string, d fs.DirEntry, err error) error {
+	walkErr := fs.WalkDir(root.FS(), ".", func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
-			return nil // skip inaccessible entries
+			return err
 		}
 
 		name := d.Name()
+		if d.Type()&os.ModeSymlink != 0 {
+			return nil
+		}
 
 		// Skip hidden directories, node_modules, vendor
 		if d.IsDir() {
-			if strings.HasPrefix(name, ".") || name == "node_modules" || name == "vendor" {
+			if path != "." && (strings.HasPrefix(name, ".") || name == "node_modules" || name == "vendor") {
 				return filepath.SkipDir
 			}
 			return nil
 		}
 
 		// Skip large files (>1MB) to prevent bloating workspace
-		info, err := d.Info()
-		if err != nil || info.Size() > 1<<20 {
+		content, _, err := root.ReadRegularFile(path, 1<<20)
+		if errors.Is(err, safeio.ErrFileTooLarge) {
 			return nil
 		}
-
-		content, err := os.ReadFile(path)
 		if err != nil {
-			return nil
-		}
-
-		relPath, err := filepath.Rel(absDir, path)
-		if err != nil {
-			return nil
+			return err
 		}
 
 		resources = append(resources, execution.ResourceFile{
-			Path:    relPath,
+			Path:    filepath.FromSlash(path),
 			Content: content,
 		})
 		return nil
 	})
+	closeErr := root.Close()
+	if walkErr != nil {
+		return nil, fmt.Errorf("walking fixture directory: %w", walkErr)
+	}
+	if closeErr != nil {
+		return nil, fmt.Errorf("closing fixture directory: %w", closeErr)
+	}
 
-	return resources
+	return resources, nil
 }
 
 // convertMCPServers converts the eval YAML mcp_servers config (map[string]any)

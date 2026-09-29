@@ -3,6 +3,8 @@ package orchestration
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/microsoft/waza/internal/config"
@@ -124,4 +126,31 @@ func TestImplicitPolicyGraderPreservesSourceNamespaces(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, tc.allowed, results["agent_tools_implicit"].Passed, tc.name)
 	}
+}
+
+func TestSandboxToolPolicyUsesGrantedAgentDirectory(t *testing.T) {
+	cwd := t.TempDir()
+	taskRoot := t.TempDir()
+	taskAgentDir := filepath.Join(taskRoot, "reviewer")
+	require.NoError(t, os.Mkdir(taskAgentDir, 0o755))
+	writeAgentFile(t, cwd, "reviewer.agent.md", "---\nname: reviewer\n---\n")
+	writeAgentFile(t, taskAgentDir, "reviewer.agent.md", "---\nname: reviewer\ntools: []\n---\n")
+	t.Chdir(cwd)
+
+	spec := &models.EvalSpec{
+		SkillName: "reviewer",
+		Config: models.Config{
+			SkillPaths: []string{taskRoot},
+			Sandbox:    &models.SandboxConfig{Enabled: true},
+		},
+	}
+	runner := NewEvalRunner(config.NewEvalConfig(spec), execution.NewMockEngine("mock"))
+
+	req, err := runner.buildExecutionRequest(&models.TestCase{})
+
+	require.NoError(t, err)
+	require.Equal(t, []string{taskRoot}, req.SkillPaths)
+	require.NotNil(t, req.ToolPolicy)
+	require.Equal(t, execution.ToolPolicyDenyAll, req.ToolPolicy.Mode)
+	require.False(t, req.ToolPolicy.IsAllowed("view"))
 }

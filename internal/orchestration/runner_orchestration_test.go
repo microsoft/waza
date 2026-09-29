@@ -347,6 +347,9 @@ func TestRunGraders_DiffSnapshotUpdateOption(t *testing.T) {
 func TestLoadResources_PathValidation(t *testing.T) {
 	fixtureDir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(fixtureDir, "ok.txt"), []byte("ok"), 0o644))
+	outsideDir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(outsideDir, "secret.txt"), []byte("secret"), 0o644))
+	require.NoError(t, os.Symlink(filepath.Join(outsideDir, "secret.txt"), filepath.Join(fixtureDir, "escape.txt")))
 
 	spec := &models.EvalSpec{}
 	cfg := config.NewEvalConfig(spec, config.WithFixtureDir(fixtureDir))
@@ -359,12 +362,14 @@ func TestLoadResources_PathValidation(t *testing.T) {
 				{Location: "ok.txt"},
 				{Location: filepath.Join(fixtureDir, "absolute.txt")},
 				{Location: "../escape.txt"},
+				{Location: "escape.txt"},
 				{Location: "missing.txt"},
 			},
 		},
 	}
 
-	resources := runner.loadResources(testCase)
+	resources, err := runner.loadResources(testCase)
+	require.NoError(t, err)
 	require.Len(t, resources, 2)
 	assert.Equal(t, "inline.txt", resources[0].Path)
 	assert.Equal(t, []byte("inline"), resources[0].Content)

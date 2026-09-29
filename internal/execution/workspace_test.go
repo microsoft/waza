@@ -84,3 +84,21 @@ func TestCaptureWorkspaceFiles_UsesForwardSlashes(t *testing.T) {
 	_, ok := files["a/b/c.txt"]
 	assert.True(t, ok, "keys should use forward slashes regardless of OS")
 }
+
+func TestCaptureWorkspaceFiles_RejectsSymlinks(t *testing.T) {
+	workspace := t.TempDir()
+	outside := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(workspace, "regular.txt"), []byte("safe"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(outside, "secret.txt"), []byte("secret"), 0o644))
+	require.NoError(t, os.Mkdir(filepath.Join(outside, "directory"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(outside, "directory", "secret.txt"), []byte("directory secret"), 0o644))
+
+	require.NoError(t, os.Symlink(filepath.Join(outside, "secret.txt"), filepath.Join(workspace, "file-link")))
+	require.NoError(t, os.Symlink(filepath.Join(outside, "directory"), filepath.Join(workspace, "directory-link")))
+	require.NoError(t, os.Symlink(filepath.Join(workspace, "file-link"), filepath.Join(workspace, "chained-link")))
+	require.NoError(t, os.Symlink(filepath.Join(outside, "missing.txt"), filepath.Join(workspace, "dangling-link")))
+
+	files := captureWorkspaceFiles(workspace)
+
+	require.Equal(t, map[string][]byte{"regular.txt": []byte("safe")}, files)
+}
