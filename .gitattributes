@@ -6,3 +6,4 @@
 # Set the default behavior, in case people don't have core.autocrlf set.
 * text=auto
 *.zst filter=lfs diff=lfs merge=lfs -text
+internal/embedded/zcopilotruntimeassets_*.tgz filter=lfs diff=lfs merge=lfs -text

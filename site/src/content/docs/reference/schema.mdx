@@ -289,6 +289,39 @@ config:
   model: claude-sonnet-4.6
 ```
 
+### reasoning_effort and judge_reasoning_effort
+
+**Type:** string (optional)
+
+**Options:** `low`, `medium`, `high`, `xhigh`, `max`
+
+**Requires:** `executor: copilot-sdk`
+
+`reasoning_effort` pins the agent and responder effort across an evaluation,
+including follow-up session resumes. `judge_reasoning_effort` supplies the default
+for prompt graders, including checkpoint, pairwise, and `continue_session` judges.
+A prompt grader can override it with `graders[].config.reasoning_effort`, including
+task and checkpoint grader definitions. There is no per-task agent effort setting.
+
+```yaml
+config:
+  executor: copilot-sdk
+  model: gpt-5
+  reasoning_effort: high
+  judge_model: gpt-5-mini
+  judge_reasoning_effort: low
+```
+
+Omit these fields to leave the SDK/model defaults unchanged. With an explicit effort,
+select a concrete model from `waza models`: Waza checks the runtime's supported-effort
+metadata before creating or resuming hosted Copilot sessions. Unknown models,
+unavailable metadata, and unsupported values fail with actionable errors instead of
+silently falling back. Custom providers are not described by the hosted catalog, so
+their effort is forwarded without this preflight check and provider errors are surfaced.
+Both selected settings are included in result setup metadata and cache keys.
+Regrading replaces the recorded judge effort with the current eval's setting,
+clearing an old value when the setting is omitted.
+
 ### executor
 
 **Type:** string  

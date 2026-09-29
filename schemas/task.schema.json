@@ -64,6 +64,33 @@
       },
       "description": "Task-level graders applied to this task's output."
     },
+    "checkpoints": {
+      "type": "array",
+      "description": "Graders run after an intermediate turn, using the same configuration as task graders.",
+      "items": {
+        "type": "object",
+        "required": ["after_turn", "graders"],
+        "additionalProperties": false,
+        "properties": {
+          "after_turn": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "graders": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "$ref": "#/$defs/validatorInline"
+            }
+          },
+          "on_failure": {
+            "type": "string",
+            "enum": ["continue", "stop"],
+            "default": "continue"
+          }
+        }
+      }
+    },
     "skill_directories": {
       "type": "array",
       "description": "List of directories containing agent skills for this task (overrides eval-level skill_directories)",
@@ -1148,6 +1175,11 @@
         },
         "model": {
           "type": "string"
+        },
+        "reasoning_effort": {
+          "type": "string",
+          "enum": ["low", "medium", "high", "xhigh", "max"],
+          "description": "Override the eval judge_reasoning_effort; requires executor copilot-sdk."
         },
         "continue_session": {
           "type": "boolean",

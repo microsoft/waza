@@ -15,7 +15,9 @@ This guide explains how to run real integration tests using the GitHub Copilot S
    # Follow prompts to authenticate
    ```
 
-   Waza bundles the GitHub Copilot CLI used by the `copilot-sdk` executor and extracts it to the local user cache on first use. Set `COPILOT_CLI_PATH` only when you need to force a specific Copilot CLI binary.
+   Waza bundles the GitHub Copilot CLI used by the `copilot-sdk` executor and extracts it and its runtime assets to a versioned directory in the local user cache on first use (or under `COPILOT_HOME/cache` when set). Set `COPILOT_CLI_PATH` only when you need to force a specific Copilot CLI binary. Set `COPILOT_CLI_INSTALL_VERBOSE=1` to diagnose installation failures.
+
+   When updating the Copilot SDK, run `go generate ./internal/embedded/generate` to regenerate all platform bundles. Commit the generated Go files, licenses, and LFS-tracked `.zst` and runtime-assets `.tgz` files, and remove obsolete versioned artifacts. Verify each target with `go tool bundler -check-only -output internal/embedded -platform <os>/<arch>` and run `go test ./internal/embedded/...` to check installation, failure handling, and SDK startup without model calls.
 
 ## Configuration
 

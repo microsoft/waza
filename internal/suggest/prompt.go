@@ -60,6 +60,11 @@ metrics:
 tasks:
   - "tasks/*.yaml"`
 
+const exampleTaskYAML = `id: summarize-document
+name: Summarize Document
+inputs:
+  prompt: Summarize fixtures/document.txt`
+
 type promptData struct {
 	SkillName      string
 	Description    string
@@ -157,7 +162,7 @@ func renderImplementationPrompt(data promptData, graderDocs string) string {
 	}
 	b.WriteString("- Use grader types from the allowed list only.\n")
 	b.WriteString("- Keep task IDs deterministic and kebab-case.\n")
-	b.WriteString("- Task YAML must use inputs: { prompt: ... } (do not use a top-level prompt field).\n")
+	b.WriteString("- Task YAML must use inputs.prompt (not a top-level prompt field) and MUST include the required fields 'id', 'name', and 'inputs.prompt'.\n")
 	b.WriteString("- Task YAML must NOT include 'confidence' or 'rationale' inside the task content; those belong on the outer suggestion entry and will be stripped before writing.\n")
 	b.WriteString("- Each task entry MUST carry a 'confidence' float in [0,1] and a 'rationale' string citing the SKILL.md span (e.g. \"matches USE FOR: summarize bullet 2\").\n")
 	b.WriteString("- Make fixtures minimal and realistic for the tasks.\n")
@@ -176,6 +181,9 @@ func renderImplementationPrompt(data promptData, graderDocs string) string {
 	b.WriteString("\n\n")
 	b.WriteString("Example eval.yaml:\n")
 	b.WriteString(exampleEvalYAML)
+	b.WriteString("\n\n")
+	b.WriteString("Example task YAML:\n")
+	b.WriteString(exampleTaskYAML)
 	b.WriteString("\n\n")
 	if graderDocs != "" {
 		b.WriteString("Grader documentation for the types you should use:\n")

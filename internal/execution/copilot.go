@@ -313,6 +313,37 @@ func (e *CopilotEngine) ListModels(ctx context.Context) ([]copilot.ModelInfo, er
 	return e.client.ListModels(ctx)
 }
 
+func (e *CopilotEngine) validateReasoningEffort(ctx context.Context, modelID, effort string) error {
+	if effort == "" || e.provider.enabled() {
+		return nil
+	}
+	if modelID == "" || modelID == "auto" {
+		return fmt.Errorf("reasoning effort %q requires an explicit model; select one with waza models", effort)
+	}
+	models, err := e.client.ListModels(ctx)
+	if err != nil {
+		return fmt.Errorf("checking reasoning effort %q for model %q: %w", effort, modelID, err)
+	}
+	for _, model := range models {
+		if model.ID != modelID {
+			continue
+		}
+		if !model.Capabilities.Supports.ReasoningEffort {
+			return fmt.Errorf("model %q does not support reasoning effort; omit reasoning_effort or select a supporting model with waza models", modelID)
+		}
+		if len(model.SupportedReasoningEfforts) == 0 {
+			return fmt.Errorf("model %q has no supported reasoning effort metadata; omit reasoning_effort or update the Copilot runtime", modelID)
+		}
+		for _, supported := range model.SupportedReasoningEfforts {
+			if supported == effort {
+				return nil
+			}
+		}
+		return fmt.Errorf("model %q does not support reasoning effort %q; choose one of %s", modelID, effort, strings.Join(model.SupportedReasoningEfforts, ", "))
+	}
+	return fmt.Errorf("cannot verify reasoning effort for unknown model %q; select a model with waza models or omit reasoning_effort", modelID)
+}
+
 // Execute runs a test with Copilot SDK
 func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*ExecutionResponse, error) {
 	if req == nil {
@@ -325,6 +356,9 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 		return nil, err
 	}
 	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if err := e.validateReasoningEffort(ctx, modelID, req.ReasoningEffort); err != nil {
 		return nil, err
 	}
 
@@ -377,8 +411,9 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 	if req.SessionID == "" {
 		// Create session with updated API
 		session, err = e.client.CreateSession(ctx, &copilot.SessionConfig{
-			Model: modelID,
-			Tools: req.Tools,
+			Model:           modelID,
+			ReasoningEffort: req.ReasoningEffort,
+			Tools:           req.Tools,
 
 			OnPermissionRequest: permRequestCallback,
 
@@ -395,8 +430,9 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 		}
 	} else {
 		session, err = e.client.ResumeSessionWithOptions(ctx, req.SessionID, &copilot.ResumeSessionConfig{
-			Model: modelID,
-			Tools: req.Tools,
+			Model:           modelID,
+			ReasoningEffort: req.ReasoningEffort,
+			Tools:           req.Tools,
 
 			OnPermissionRequest: permRequestCallback,
 

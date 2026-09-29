@@ -146,6 +146,7 @@ func TestPromptGraderContinueSessionPassesSessionID(t *testing.T) {
 	executor := &fakePromptExecutor{
 		execute: func(req *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
 			require.Equal(t, "session-123", req.SessionID)
+			require.Equal(t, "high", req.ReasoningEffort)
 			_, err := req.Tools[0].Handler(copilot.ToolInvocation{
 				Arguments: map[string]any{"description": "criterion", "reason": "ok"},
 			})
@@ -157,6 +158,7 @@ func TestPromptGraderContinueSessionPassesSessionID(t *testing.T) {
 	promptGrader, err := NewPromptGrader("my-prompt-grader", models.PromptGraderParameters{
 		Prompt:          "grade this",
 		ContinueSession: true,
+		ReasoningEffort: "high",
 	})
 	require.NoError(t, err)
 
@@ -413,6 +415,7 @@ func TestPairwiseMode_UsesExecutorTool(t *testing.T) {
 			winner = "A"
 		}
 		require.Equal(t, execution.MessageModeEnqueue, req.MessageMode)
+		require.Equal(t, "high", req.ReasoningEffort)
 		require.True(t, req.Streaming)
 		require.True(t, req.EphemeralSession)
 		require.Len(t, req.Tools, 1)
@@ -428,8 +431,9 @@ func TestPairwiseMode_UsesExecutorTool(t *testing.T) {
 	}
 
 	grader, err := NewPromptGrader("pairwise-grader", models.PromptGraderParameters{
-		Prompt: "pick the better output",
-		Mode:   models.PromptGraderModePairwise,
+		Prompt:          "pick the better output",
+		Mode:            models.PromptGraderModePairwise,
+		ReasoningEffort: "high",
 	})
 	require.NoError(t, err)
 

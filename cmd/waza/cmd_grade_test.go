@@ -17,6 +17,29 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestLoadGradeTasks_ValidatesJudgeReasoningEffortExecutor(t *testing.T) {
+	dir := t.TempDir()
+	writeTaskFile(t, dir, "task.yaml", `id: task
+inputs:
+  prompt: hello
+checkpoints:
+  - after_turn: 1
+    graders:
+      - type: prompt
+        name: judge
+        config:
+          prompt: grade
+          reasoning_effort: high
+`)
+	spec := &models.EvalSpec{Tasks: []string{"tasks/*.yaml"}, Config: models.Config{EngineType: "mock"}}
+	_, err := loadGradeTasks(spec, filepath.Join(dir, "eval.yaml"), "")
+	require.ErrorContains(t, err, "reasoning_effort requires executor copilot-sdk")
+	spec.Config.EngineType = "copilot-sdk"
+	tasks, err := loadGradeTasks(spec, filepath.Join(dir, "eval.yaml"), "")
+	require.NoError(t, err)
+	require.Len(t, tasks, 1)
+}
+
 func gradeSpec(t *testing.T, dir string, specYAML string) string {
 	t.Helper()
 	p := filepath.Join(dir, "eval.yaml")
