@@ -848,11 +848,27 @@ func buildSkillSystemMessage(skillDirs []string, skillName string, injectSkillBo
 		return ""
 	}
 
+	if sd := findSkillDefinition(skillDirs, skillName); sd != nil {
+		return skillContextBlock(sd.Content)
+	}
+	return ""
+}
+
+// IsSkillAvailable reports whether the target skill can be discovered from the
+// effective skill directories passed to the engine.
+func IsSkillAvailable(skillDirs []string, skillName string) bool {
+	return findSkillDefinition(skillDirs, skillName) != nil
+}
+
+func findSkillDefinition(skillDirs []string, skillName string) *skillDefinition {
+	if skillName == "" {
+		return nil
+	}
 	for _, dir := range skillDirs {
 		// Check direct SKILL.md in this directory
 		if sd := loadSkillDefinition(dir); sd != nil {
 			if strings.EqualFold(sd.Name, skillName) {
-				return skillContextBlock(sd.Content)
+				return sd
 			}
 			continue
 		}
@@ -873,13 +889,13 @@ func buildSkillSystemMessage(skillDirs []string, skillName string, injectSkillBo
 			}
 			if sd := loadSkillDefinition(filepath.Join(dir, name)); sd != nil {
 				if strings.EqualFold(sd.Name, skillName) {
-					return skillContextBlock(sd.Content)
+					return sd
 				}
 			}
 		}
 	}
 
-	return ""
+	return nil
 }
 
 func skillContextBlock(content string) string {

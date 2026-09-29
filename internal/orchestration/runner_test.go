@@ -211,6 +211,13 @@ func TestBuildExecutionRequest_SuppressSkillBody(t *testing.T) {
 
 func TestBuildExecutionRequest_TriggerSkillRoutingRequiresSuppressedBody(t *testing.T) {
 	injectSkillBody := false
+	skillDir := filepath.Join(t.TempDir(), "custom-directory-name")
+	require.NoError(t, os.MkdirAll(skillDir, 0755))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(skillDir, "SKILL.md"),
+		[]byte("---\nname: my-skill\ndescription: test\n---\n"),
+		0644,
+	))
 	spec := &models.EvalSpec{
 		SpecIdentity: models.SpecIdentity{Name: "test-benchmark"},
 		SkillName:    "my-skill",
@@ -218,6 +225,7 @@ func TestBuildExecutionRequest_TriggerSkillRoutingRequiresSuppressedBody(t *test
 			EngineType:          "mock",
 			ModelID:             "gpt-4",
 			TimeoutSec:          120,
+			SkillPaths:          []string{skillDir},
 			InjectSkillBody:     &injectSkillBody,
 			TriggerSkillRouting: true,
 		},
@@ -244,6 +252,18 @@ func TestBuildExecutionRequest_TriggerSkillRoutingRequiresSuppressedBody(t *test
 
 	require.NoError(t, err)
 	assert.False(t, req.SuppressSkillBody)
+	assert.False(t, req.TriggerSkillRouting)
+
+	injectSkillBody = false
+	spec.Config.DisabledSkills = []string{skillDir}
+	req, err = runner.buildExecutionRequest(&models.TestCase{
+		TestID:      "test-003",
+		DisplayName: "Test Case 3",
+		Stimulus:    models.TaskStimulus{Message: "Hello disabled skill"},
+	})
+
+	require.NoError(t, err)
+	assert.True(t, req.SuppressSkillBody)
 	assert.False(t, req.TriggerSkillRouting)
 }
 

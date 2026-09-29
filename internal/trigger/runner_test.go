@@ -139,6 +139,12 @@ func (e *stubEngine) Execute(_ context.Context, req *execution.ExecutionRequest)
 
 func TestEvalRunnerRunConfig(t *testing.T) {
 	injectSkillBody := false
+	specDir := t.TempDir()
+	require.NoError(t, os.WriteFile(
+		filepath.Join(specDir, "SKILL.md"),
+		[]byte("---\nname: my-skill\ndescription: test\n---\n"),
+		0644,
+	))
 	spec := &TestSpec{
 		Skill: "my-skill",
 		ShouldTriggerPrompts: []TestPrompt{
@@ -151,12 +157,13 @@ func TestEvalRunnerRunConfig(t *testing.T) {
 		&models.EvalSpec{
 			SkillName: "my-skill",
 			Config: models.Config{
-				TimeoutSec:      120,
-				SkillPaths:      []string{"skills/a", "skills/b"},
-				InjectSkillBody: &injectSkillBody,
+				TimeoutSec:          120,
+				SkillPaths:          []string{"skills/a", "skills/b"},
+				InjectSkillBody:     &injectSkillBody,
+				TriggerSkillRouting: true,
 			},
 		},
-		config.WithSpecDir("/base"),
+		config.WithSpecDir(specDir),
 	)
 	r := NewRunner(spec, engine, cfg, nil)
 	start := time.Now()
@@ -171,6 +178,49 @@ func TestEvalRunnerRunConfig(t *testing.T) {
 		t.Errorf("SkillPaths = %v, want 2 entries", engine.LastReq().SkillPaths)
 	}
 	require.True(t, engine.LastReq().SuppressSkillBody)
+	require.True(t, engine.LastReq().TriggerSkillRouting)
+}
+
+func TestEvalRunnerRunConfig_DisabledTargetDoesNotRoute(t *testing.T) {
+	injectSkillBody := false
+	specDir := t.TempDir()
+	skillDir := filepath.Join(t.TempDir(), "custom-directory-name")
+	otherDir := filepath.Join(t.TempDir(), "other")
+	require.NoError(t, os.MkdirAll(skillDir, 0755))
+	require.NoError(t, os.MkdirAll(otherDir, 0755))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(skillDir, "SKILL.md"),
+		[]byte("---\nname: my-skill\ndescription: test\n---\n"),
+		0644,
+	))
+	spec := &TestSpec{
+		Skill: "my-skill",
+		ShouldTriggerPrompts: []TestPrompt{
+			{Prompt: "hello"},
+		},
+	}
+
+	engine := &capturingEngine{}
+	cfg := config.NewEvalConfig(&models.EvalSpec{
+		SkillName: "my-skill",
+		Config: models.Config{
+			TimeoutSec:          120,
+			SkillPaths:          []string{skillDir, otherDir},
+			InjectSkillBody:     &injectSkillBody,
+			TriggerSkillRouting: true,
+			DisabledSkills:      []string{skillDir},
+		},
+	}, config.WithSpecDir(specDir))
+	r := NewRunner(spec, engine, cfg, nil)
+
+	if _, err := r.Run(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+
+	require.NotNil(t, engine.LastReq(), "expected a captured request")
+	require.False(t, engine.LastReq().TriggerSkillRouting)
+	require.Len(t, engine.LastReq().SkillPaths, 1)
+	require.Equal(t, otherDir, engine.LastReq().SkillPaths[0])
 }
 
 type capturingEngine struct {

@@ -138,6 +138,32 @@ func TestCacheKey_DifferentSkillPathsChangesKey(t *testing.T) {
 	assert.NotEqual(t, key1, key2, "with-skills and without-skills runs must have different cache keys")
 }
 
+func TestCacheKey_TriggerSkillRoutingChangesKey(t *testing.T) {
+	spec := &models.EvalSpec{
+		SpecIdentity: models.SpecIdentity{Name: "test"},
+		SkillName:    "skill",
+		Config: models.Config{
+			ModelID:    "gpt-4",
+			EngineType: "copilot-sdk",
+			TimeoutSec: 300,
+		},
+	}
+	task := &models.TestCase{
+		TestID:      "test-1",
+		DisplayName: "Test",
+		Stimulus:    models.TaskStimulus{Message: "Test"},
+	}
+
+	withoutRouting, err := CacheKey(spec, task, "")
+	require.NoError(t, err)
+
+	spec.Config.TriggerSkillRouting = true
+	withRouting, err := CacheKey(spec, task, "")
+	require.NoError(t, err)
+
+	assert.NotEqual(t, withoutRouting, withRouting)
+}
+
 func TestCacheKey_DifferentFixturesChangesKey(t *testing.T) {
 	spec := &models.EvalSpec{
 		SpecIdentity: models.SpecIdentity{Name: "test"},
