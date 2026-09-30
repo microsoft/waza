@@ -1794,7 +1794,7 @@ func printUsageSummary(usage *models.UsageStats) {
 	if len(usage.ModelMetrics) > 1 {
 		fmt.Println()
 		fmt.Printf("  %-25s %-12s %-12s %-10s %s\n", "Model", "In", "Out", "Requests", "AI Credits")
-		fmt.Println("  " + strings.Repeat("─", 70))
+		fmt.Println("  " + strings.Repeat("─", 73))
 		for _, model := range slices.Sorted(maps.Keys(usage.ModelMetrics)) {
 			mu := usage.ModelMetrics[model]
 			credits := "n/a"

@@ -1,5 +1,4 @@
 import type { RunSummary, RunDetail } from "../api/client";
-import { AI_CREDITS_UNAVAILABLE } from "./format";
 
 function escapeCSV(value: string): string {
   // Neutralize spreadsheet formula injection (including leading whitespace bypass)
@@ -56,7 +55,8 @@ export function exportRunsToCSV(runs: RunSummary[]) {
       ? `${Math.round((r.passCount / r.taskCount) * 100)}%`
       : "0%",
     String(r.tokens),
-    r.aiCredits != null ? r.aiCredits.toFixed(4) : AI_CREDITS_UNAVAILABLE,
+    // Empty cell (not a placeholder glyph) so spreadsheets keep the column numeric.
+    r.aiCredits != null ? r.aiCredits.toFixed(4) : "",
     `$${r.cost.toFixed(2)}`,
     String(Math.round(r.duration)),
     r.timestamp,
