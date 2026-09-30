@@ -182,7 +182,7 @@ func NewCopilotEngineBuilder(defaultModelID string, options *CopilotEngineBuilde
 	var client CopilotClient
 	ownsClient := false
 	provider := providerFromEnv()
-	cliArgs := modelCLIArgs(defaultModelID, provider.enabled())
+	cliArgs := modelCLIArgs()
 
 	if options == nil || options.NewCopilotClient == nil {
 		// Production: share one SDK process across all engines + graders.
@@ -213,29 +213,27 @@ func NewCopilotEngineBuilder(defaultModelID string, options *CopilotEngineBuilde
 	return builder
 }
 
-// modelCLIArgs returns the startup CLI args needed to pin the embedded
-// Copilot CLI to defaultModelID, or an empty slice when no pinning should
-// occur.
+// modelCLIArgs returns the extra CLI startup arguments prepended to the
+// SDK-managed runtime args when spawning the embedded Copilot CLI.
 //
-// When customProvider is true (a BYOK provider is configured via
-// COPILOT_BASE_URL / COPILOT_PROVIDER_BASE_URL), we deliberately omit
-// --model: the Copilot CLI validates the startup --model against the
-// GitHub Copilot catalog before per-session ProviderConfig is applied, so
-// provider-only model IDs (e.g. minimax-m2.7) would fail startup with
-// `Model "..." is not available`. The per-session SessionConfig.Model +
-// SessionConfig.Provider passed in Execute still selects the right model
-// against the custom provider. See #305.
-func modelCLIArgs(defaultModelID string, customProvider bool) []string {
-	if defaultModelID == "" || customProvider {
-		return []string{}
-	}
-	// --model forces the configured model at CLI startup, overriding any
-	// user preference in the local Copilot settings.json (located under
-	// the user's home directory on Unix and %USERPROFILE% on Windows) or
-	// experiment flights that would otherwise cause the embedded CLI to
-	// use unintended models. SessionConfig.Model still takes precedence
-	// for per-session overrides via Execute.
-	return []string{"--model", defaultModelID}
+// Historically (see #262 / PR #263) we injected "--model <defaultModelID>"
+// here to override the user's local Copilot settings.json / experiment
+// flights at CLI startup. Starting with the runtime bundled by
+// copilot-sdk/go v1.0.14 (copilot-runtime 1.0.85+), the runtime rejects
+// --model with:
+//
+//	copilot-runtime: unsupported argument '--model'
+//
+// causing every waza run to fail at startup with `failed to initialize
+// agent: copilot failed to start` (see #630). SessionConfig.Model is still
+// passed on every CreateSession / ResumeSession call in Execute (see the
+// e.client.CreateSession call below), so the eval-configured model
+// continues to win over any local user default at the session layer.
+//
+// Returning an empty slice keeps this seam in place for future SDK / runtime
+// flags without re-introducing --model.
+func modelCLIArgs() []string {
+	return nil
 }
 
 func (b *CopilotEngineBuilder) Build() *CopilotEngine {

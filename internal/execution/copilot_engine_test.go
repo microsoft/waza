@@ -358,14 +358,18 @@ func TestCopilotEngine_Shutdown_StopsClientAndCleansWorkspaces(t *testing.T) {
 	assert.True(t, os.IsNotExist(err))
 }
 
-// TestCopilotEngineBuilder_CLIArgsCarriesModel is a regression test for #262 /
-// PR #263: when defaultModelID is set, the engine must pass
-// "--model <defaultModelID>" through copilot.ClientOptions.CLIArgs so the
-// embedded CLI honors the eval-configured model instead of the user's local
-// settings.json or experiment-flight default. Without this startup override,
-// SessionConfig.Model is silently ignored by the embedded CLI and evals run
-// against the wrong model.
-func TestCopilotEngineBuilder_CLIArgsCarriesModel(t *testing.T) {
+// TestCopilotEngineBuilder_CLIArgsOmitsModel is a regression test for #630:
+// starting with copilot-sdk/go v1.0.14 (which bundles copilot-runtime 1.0.85+),
+// the embedded runtime rejects `--model` at startup with
+// `copilot-runtime: unsupported argument '--model'`, so waza must NOT inject
+// it via copilot.ClientOptions.Connection.Args. Model selection still happens
+// per-session via SessionConfig.Model in Execute, which overrides the user's
+// local Copilot settings.json / experiment-flight defaults.
+//
+// This test replaces the older #262 / PR #263 assertion that the same slot
+// carried "--model <defaultModelID>"; that behavior is intentionally reverted
+// to restore compatibility with the current runtime.
+func TestCopilotEngineBuilder_CLIArgsOmitsModel(t *testing.T) {
 	clearCustomProviderEnv(t)
 	ctrl := gomock.NewController(t)
 	clientMock := NewMockCopilotClient(ctrl)
@@ -373,7 +377,7 @@ func TestCopilotEngineBuilder_CLIArgsCarriesModel(t *testing.T) {
 	const defaultModelID = "claude-sonnet-4.5"
 
 	var captured *copilot.ClientOptions
-	_ = NewCopilotEngineBuilder(defaultModelID, &CopilotEngineBuilderOptions{
+	engine := NewCopilotEngineBuilder(defaultModelID, &CopilotEngineBuilderOptions{
 		NewCopilotClient: func(clientOptions *copilot.ClientOptions) CopilotClient {
 			captured = clientOptions
 			return clientMock
@@ -383,8 +387,18 @@ func TestCopilotEngineBuilder_CLIArgsCarriesModel(t *testing.T) {
 	require.NotNil(t, captured, "NewCopilotClient must receive non-nil ClientOptions")
 	conn, ok := captured.Connection.(copilot.StdioConnection)
 	require.True(t, ok, "Connection must be a copilot.StdioConnection")
-	require.Equal(t, []string{"--model", defaultModelID}, conn.Args,
-		"Connection.Args must carry --model <defaultModelID> so it overrides the user's local Copilot settings.json and experiment-flight defaults")
+	require.Empty(t, conn.Args,
+		"Connection.Args must NOT carry --model: copilot-runtime 1.0.85+ rejects the flag at startup (#630)")
+	for _, a := range conn.Args {
+		require.NotEqual(t, "--model", a,
+			"Connection.Args must never contain --model (#630)")
+	}
+
+	// The engine must still retain defaultModelID so Execute can apply it
+	// via SessionConfig.Model (the per-session mechanism that replaces the
+	// removed startup --model override).
+	require.Equal(t, defaultModelID, engine.defaultModelID,
+		"defaultModelID must still be retained on the engine so Execute applies it via SessionConfig.Model")
 }
 
 // TestCopilotEngineBuilder_CLIArgsEmptyWhenNoDefaultModel is a regression test
