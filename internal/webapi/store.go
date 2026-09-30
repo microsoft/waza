@@ -166,6 +166,15 @@ func outcomeToSummary(o *models.EvaluationOutcome) RunSummary {
 	aggUsage := models.AggregateUsageStats(perRunUsage)
 	cost, costSource := pricing.Compute(aggUsage)
 
+	// Digest.Usage is the run-level aggregate written after engine shutdown. It
+	// covers every session the run started, including trigger sessions that the
+	// per-test runs don't carry, so it is the authoritative billing aggregate.
+	// Artifacts written without it fall back to the per-run aggregate.
+	billingUsage := o.Digest.Usage
+	if billingUsage == nil {
+		billingUsage = aggUsage
+	}
+
 	return RunSummary{
 		ID:              o.RunID,
 		Spec:            o.BenchName,
@@ -176,8 +185,8 @@ func outcomeToSummary(o *models.EvaluationOutcome) RunSummary {
 		TaskCount:       o.Digest.TotalTests,
 		Tokens:          tokens,
 		PremiumRequests: premiumRequests,
-		AICredits:       aiCreditsOf(aggUsage),
-		ModelUsage:      modelUsageResponses(aggUsage),
+		AICredits:       aiCreditsOf(billingUsage),
+		ModelUsage:      modelUsageResponses(billingUsage),
 		Cost:            cost,
 		CostSource:      costSource,
 		Duration:        float64(o.Digest.DurationMs) / 1000.0,

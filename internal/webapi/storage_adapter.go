@@ -146,8 +146,11 @@ func resultSummaryToRunSummary(r storage.ResultSummary, source string) RunSummar
 		Tokens:     0, // Not available in ResultSummary
 		Cost:       0, // Not available in ResultSummary
 		Duration:   0, // Not available in ResultSummary
-		Timestamp:  r.Timestamp,
-		Source:     source,
+		// AICredits and ModelUsage stay nil: listing metadata carries no usage
+		// data, so the dashboard renders the unavailable state rather than a
+		// fabricated credit total. Run details download the full outcome.
+		Timestamp: r.Timestamp,
+		Source:    source,
 	}
 }
 

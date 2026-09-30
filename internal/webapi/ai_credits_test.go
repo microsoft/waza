@@ -116,3 +116,31 @@ func TestFileStoreSummaryOmitsAICreditsWhenNoRunReportsThem(t *testing.T) {
 		t.Fatalf("expected unavailable avg AI credits, got %v", *summary.AvgAICredits)
 	}
 }
+
+func TestOutcomeToSummaryPrefersDigestUsageForCredits(t *testing.T) {
+	// Digest.Usage is the post-shutdown aggregate and includes trigger-session
+	// usage that per-test runs don't carry.
+	o := creditsOutcome("run-trigger", &models.UsageStats{
+		InputTokens: 100,
+		AICredits:   utils.Ptr(1.0),
+		ModelMetrics: map[string]models.ModelUsage{
+			"gpt-4o": {InputTokens: 100, AICredits: utils.Ptr(1.0)},
+		},
+	})
+	o.Digest.Usage = &models.UsageStats{
+		InputTokens: 150,
+		AICredits:   utils.Ptr(1.5),
+		ModelMetrics: map[string]models.ModelUsage{
+			"gpt-4o": {InputTokens: 150, AICredits: utils.Ptr(1.5)},
+		},
+	}
+
+	s := outcomeToSummary(&o)
+
+	if s.AICredits == nil || *s.AICredits != 1.5 {
+		t.Fatalf("expected digest-level credits 1.5, got %v", s.AICredits)
+	}
+	if len(s.ModelUsage) != 1 || s.ModelUsage[0].AICredits == nil || *s.ModelUsage[0].AICredits != 1.5 {
+		t.Fatalf("expected per-model credits from digest usage, got %+v", s.ModelUsage)
+	}
+}
