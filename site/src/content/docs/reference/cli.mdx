@@ -1169,6 +1169,18 @@ waza serve --port 8080        # http://localhost:8080
 waza serve --tcp :9000        # JSON-RPC TCP server
 ```
 
+### AI Credit usage
+
+Copilot-backed runs record the final GitHub Copilot AI Credit total reported by the Copilot SDK at session shutdown (`totalNanoAiu` ÷ 1e9). Waza does not compute this figure from its token rate table.
+
+| Field | Description |
+|-------|-------------|
+| `usage.ai_credits` | Final AI Credits for the run |
+| `usage.model_metrics.<model>.ai_credits` | Final AI Credits attributed to a model |
+| `usage.model_metrics.<model>.{input,output,cache_read,cache_write}_tokens` | Token-category diagnostics |
+
+The CLI usage summary prints `AI Credits` (and a per-model column) when the SDK reports them, and the dashboard shows **AI Credits** plus a **Usage by model** table. These figures cover only the Copilot usage waza initiated, not account-wide Copilot usage. Reporting requires a Copilot SDK/bundled runtime that emits final AI-credit metrics (`github.com/github/copilot-sdk/go` v1.0.14 or later); older result artifacts show an unavailable state (`—`) rather than an estimate.
+
 ## Graders
 
 Waza supports multiple grader types for comprehensive evaluation. See the complete [Grader Reference](../../guides/graders/) for detailed documentation.

@@ -872,6 +872,18 @@ The dashboard displays evaluation results with:
 - Model comparisons
 - Aggregated metrics and trends
 
+**AI Credit usage:**
+
+Copilot-backed runs record the final GitHub Copilot AI Credit total the Copilot SDK reports at session shutdown (`totalNanoAiu` ÷ 1e9) — waza never derives this figure from its embedded token rate table. Result JSON stores:
+
+| Field | Description |
+|-------|-------------|
+| `usage.ai_credits` | Final AI Credits for the run |
+| `usage.model_metrics.<model>.ai_credits` | Final AI Credits attributed to a model |
+| `usage.model_metrics.<model>.{input,output,cache_read,cache_write}_tokens` | Token-category diagnostics retained alongside credits |
+
+The dashboard surfaces these as **AI Credits** (run rows, the Avg AI Credits KPI, run detail, compare, trends, and CSV export) plus a **Usage by model** table on run details. The values cover only the Copilot usage waza initiated — they are not account-wide Copilot usage. Reporting requires a Copilot SDK/bundled runtime that emits final AI-credit metrics (`github.com/github/copilot-sdk/go` v1.0.14 or later); older artifacts and runtimes omit the fields and the dashboard shows an unavailable state (`—`) instead of an estimate. The separate **Est. Cost** column remains a secondary USD estimate and is not an AI Credit amount.
+
 For detailed documentation on the dashboard and result visualization, see [docs/GUIDE.md](docs/GUIDE.md).
 
 ### `waza results`
