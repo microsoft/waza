@@ -11,20 +11,24 @@ import {
   Check,
 } from "lucide-react";
 import { useRunDetail } from "../hooks/useApi";
-import type { TaskResult, GraderResult, ResponderInfo } from "../api/client";
+import type {
+  TaskResult,
+  GraderResult,
+  ResponderInfo,
+  ModelUsage,
+} from "../api/client";
 import {
   formatDuration,
   formatCost,
-  formatCredits,
+  formatAICredits,
   formatNumber,
   formatPercent,
   formatRelativeTime,
   costSourceTooltip,
+  AI_CREDITS_TOOLTIP,
+  AI_CREDITS_UNAVAILABLE_TOOLTIP,
 } from "../lib/format";
 import { InfoTooltip } from "./InfoTooltip";
-
-const CREDITS_TOOLTIP =
-  "Premium request count reported by the Copilot SDK — not dollars.";
 
 /** Format a confidence interval as a percentage range string. */
 function formatCIRange(lower: number, upper: number): string {
@@ -382,17 +386,27 @@ export default function RunDetail({ id }: { id: string }) {
         <StatCard label="Pass Rate" value={formatPercent(passRate)} />
         <StatCard label="Tokens" value={formatNumber(data.tokens)} />
         <StatCard
-          label="Credits"
-          value={formatCredits(data.premiumRequests ?? 0)}
-          labelExtra={<InfoTooltip text={CREDITS_TOOLTIP} />}
+          label="AI Credits"
+          value={formatAICredits(data.aiCredits)}
+          labelExtra={
+            <InfoTooltip
+              text={
+                data.aiCredits == null
+                  ? AI_CREDITS_UNAVAILABLE_TOOLTIP
+                  : AI_CREDITS_TOOLTIP
+              }
+            />
+          }
         />
         <StatCard
-          label="Cost"
+          label="Est. Cost"
           value={formatCost(data.cost)}
           labelExtra={<InfoTooltip text={costSourceTooltip(data.costSource)} />}
         />
         <StatCard label="Duration" value={formatDuration(data.duration)} />
       </div>
+
+      <UsageByModel models={data.modelUsage} />
 
       <div className="flex gap-1 border-b border-zinc-700">
         <button
@@ -495,6 +509,68 @@ export default function RunDetail({ id }: { id: string }) {
             </div>
           )}
         </div>
+      )}
+    </div>
+  );
+}
+
+/** UsageByModel renders the per-model AI-credit and token breakdown for a run. */
+function UsageByModel({ models }: { models?: ModelUsage[] }) {
+  return (
+    <div
+      data-testid="usage-by-model"
+      className="rounded-lg border border-zinc-700 bg-zinc-800 p-4"
+    >
+      <h2 className="inline-flex items-center gap-1 text-sm font-semibold text-zinc-100">
+        Usage by model
+        <InfoTooltip text={AI_CREDITS_TOOLTIP} />
+      </h2>
+      {!models || models.length === 0 ? (
+        <p className="mt-2 text-sm text-zinc-500">
+          Per-model usage unavailable for this run.
+        </p>
+      ) : (
+        <table className="mt-3 w-full text-left text-sm">
+          <thead>
+            <tr className="text-xs uppercase text-zinc-400">
+              <th className="py-1 pr-4 font-medium">Model</th>
+              <th className="py-1 pr-4 font-medium">AI Credits</th>
+              <th className="py-1 pr-4 font-medium">Input</th>
+              <th className="py-1 pr-4 font-medium">Cached Input</th>
+              <th className="py-1 pr-4 font-medium">Cache Write</th>
+              <th className="py-1 font-medium">Output</th>
+            </tr>
+          </thead>
+          <tbody>
+            {models.map((m) => (
+              <tr key={m.model} className="border-t border-zinc-700">
+                <td className="py-1.5 pr-4 text-zinc-100">{m.model}</td>
+                <td
+                  className="py-1.5 pr-4 text-zinc-300"
+                  title={
+                    m.aiCredits == null
+                      ? AI_CREDITS_UNAVAILABLE_TOOLTIP
+                      : AI_CREDITS_TOOLTIP
+                  }
+                >
+                  {formatAICredits(m.aiCredits)}
+                </td>
+                <td className="py-1.5 pr-4 text-zinc-300">
+                  {formatNumber(m.inputTokens)}
+                </td>
+                <td className="py-1.5 pr-4 text-zinc-300">
+                  {formatNumber(m.cacheReadTokens)}
+                </td>
+                <td className="py-1.5 pr-4 text-zinc-300">
+                  {formatNumber(m.cacheWriteTokens)}
+                </td>
+                <td className="py-1.5 text-zinc-300">
+                  {formatNumber(m.outputTokens)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       )}
     </div>
   );

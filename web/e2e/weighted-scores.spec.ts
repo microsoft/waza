@@ -18,9 +18,10 @@ test.describe("Weighted Scores", () => {
     await mockAllAPIs(page);
     await page.goto("/");
 
-    // run-003 has no weightedScore → "—"
+    // run-003 has no weightedScore → "—". The row also renders "—" for its
+    // unavailable AI Credits, so scope to the first dash (W. Score column).
     const rows = page.locator("tbody tr");
-    await expect(rows.nth(2).getByText("—")).toBeVisible();
+    await expect(rows.nth(2).getByText("—").first()).toBeVisible();
   });
 
   test("run detail task table shows W. Score column", async ({ page }) => {

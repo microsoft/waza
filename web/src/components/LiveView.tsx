@@ -224,7 +224,7 @@ export default function LiveView() {
           />
           <StatMini
             icon={Coins}
-            label="Cost"
+            label="Est. Cost"
             value={formatCost(currentRun.cost)}
           />
           <StatMini

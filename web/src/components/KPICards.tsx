@@ -11,14 +11,13 @@ import type { SummaryResponse } from "../api/client";
 import {
   formatNumber,
   formatCost,
-  formatCredits,
+  formatAICredits,
   formatDuration,
   costSourceTooltip,
+  AI_CREDITS_TOOLTIP,
+  AI_CREDITS_UNAVAILABLE_TOOLTIP,
 } from "../lib/format";
 import { InfoTooltip } from "./InfoTooltip";
-
-const CREDITS_TOOLTIP =
-  "Premium request count reported by the Copilot SDK — not dollars.";
 
 function passRateColor(rate: number): string {
   if (rate >= 80) return "text-green-500";
@@ -99,13 +98,21 @@ export default function KPICards({ data }: { data: SummaryResponse }) {
         icon={<Coins className={iconSize} />}
       />
       <Card
-        label="Avg Credits"
-        value={formatCredits(data.avgPremiumRequests ?? 0)}
+        label="Avg AI Credits"
+        value={formatAICredits(data.avgAICredits)}
         icon={<CreditCard className={iconSize} />}
-        labelExtra={<InfoTooltip text={CREDITS_TOOLTIP} />}
+        labelExtra={
+          <InfoTooltip
+            text={
+              data.avgAICredits == null
+                ? AI_CREDITS_UNAVAILABLE_TOOLTIP
+                : AI_CREDITS_TOOLTIP
+            }
+          />
+        }
       />
       <Card
-        label="Avg Cost"
+        label="Avg Est. Cost"
         value={formatCost(data.avgCost)}
         icon={<DollarSign className={iconSize} />}
         labelExtra={<InfoTooltip text={costSourceTooltip(data.costSource)} />}

@@ -30,6 +30,39 @@ test.describe("Run Detail", () => {
     await expect(page.getByText("explain-merge-sort")).toBeVisible();
   });
 
+  test("run detail shows AI Credits stat and usage-by-model table", async ({
+    page,
+  }) => {
+    await mockAllAPIs(page);
+    await page.goto("/#/runs/run-001");
+
+    await expect(
+      page.getByRole("heading", { name: "code-explainer" }),
+    ).toBeVisible();
+
+    // RUN_DETAIL fixture: aiCredits = 2.5
+    await expect(
+      page.getByText("AI Credits", { exact: true }).first(),
+    ).toBeVisible();
+    await expect(page.getByText("2.50", { exact: true }).first()).toBeVisible();
+
+    const usage = page.getByTestId("usage-by-model");
+    await expect(usage).toBeVisible();
+    await expect(usage.getByText("gpt-4o")).toBeVisible();
+    await expect(usage.getByText("claude-sonnet-4")).toBeVisible();
+
+    // gpt-4o row: 2.50 credits, 8.0K input, 2.5K cached input, 1.1K cache write, 4.4K output
+    const gptRow = usage.locator("tr", { hasText: "gpt-4o" });
+    await expect(gptRow).toContainText("8.0K");
+    await expect(gptRow).toContainText("2.5K");
+    await expect(gptRow).toContainText("1.1K");
+    await expect(gptRow).toContainText("4.4K");
+
+    // claude-sonnet-4 has no SDK-reported credits — must render as unavailable.
+    const claudeRow = usage.locator("tr", { hasText: "claude-sonnet-4" });
+    await expect(claudeRow).toContainText("—");
+  });
+
   test("task expansion shows grader results", async ({ page }) => {
     await mockAllAPIs(page);
     await page.goto("/#/runs/run-001");

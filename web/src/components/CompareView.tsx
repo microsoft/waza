@@ -6,14 +6,13 @@ import { InfoTooltip } from "./InfoTooltip";
 import {
   formatDuration,
   formatCost,
-  formatCredits,
+  formatAICredits,
   formatNumber,
   formatPercent,
   formatRelativeTime,
+  AI_CREDITS_TOOLTIP,
+  AI_CREDITS_UNAVAILABLE_TOOLTIP,
 } from "../lib/format";
-
-const CREDITS_TOOLTIP =
-  "Premium request count reported by the Copilot SDK — not dollars.";
 
 function Delta({
   a,
@@ -352,21 +351,33 @@ export default function CompareView() {
                 }
               />
               <MetricCard
-                label="Credits"
-                labelExtra={<InfoTooltip text={CREDITS_TOOLTIP} />}
-                valueA={formatCredits(runA.premiumRequests ?? 0)}
-                valueB={formatCredits(runB.premiumRequests ?? 0)}
-                delta={
-                  <Delta
-                    a={runA.premiumRequests ?? 0}
-                    b={runB.premiumRequests ?? 0}
-                    format={formatCredits}
-                    higherIsBetter={false}
+                label="AI Credits"
+                labelExtra={
+                  <InfoTooltip
+                    text={
+                      runA.aiCredits == null || runB.aiCredits == null
+                        ? AI_CREDITS_UNAVAILABLE_TOOLTIP
+                        : AI_CREDITS_TOOLTIP
+                    }
                   />
+                }
+                valueA={formatAICredits(runA.aiCredits)}
+                valueB={formatAICredits(runB.aiCredits)}
+                delta={
+                  runA.aiCredits == null || runB.aiCredits == null ? (
+                    <span className="text-zinc-400">—</span>
+                  ) : (
+                    <Delta
+                      a={runA.aiCredits}
+                      b={runB.aiCredits}
+                      format={formatAICredits}
+                      higherIsBetter={false}
+                    />
+                  )
                 }
               />
               <MetricCard
-                label="Cost"
+                label="Est. Cost"
                 valueA={formatCost(runA.cost)}
                 valueB={formatCost(runB.cost)}
                 delta={
