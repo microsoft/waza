@@ -223,3 +223,51 @@ func TestSessionUsageCollector_PremiumRequestsOnlyFallsBackToTurnTokens(t *testi
 	require.Equal(t, 500, usage.InputTokens)
 	require.Equal(t, 200, usage.OutputTokens)
 }
+
+func TestSessionUsageCollector_AICreditsFromShutdown(t *testing.T) {
+	coll := NewSessionUsageCollector()
+
+	coll.On(copilot.SessionEvent{
+		Data: &copilot.SessionShutdownData{
+			TotalNanoAiu: copilot.Float64(1_500_000_000),
+			ModelMetrics: map[string]copilot.ShutdownModelMetric{
+				"claude-sonnet-4": {
+					Usage:        copilot.ShutdownModelMetricUsage{InputTokens: 1000, OutputTokens: 500},
+					TotalNanoAiu: copilot.Float64(1_000_000_000),
+				},
+				"gpt-4o": {
+					Usage: copilot.ShutdownModelMetricUsage{InputTokens: 800, OutputTokens: 300},
+					// No TotalNanoAiu: older runtimes omit per-model credits.
+				},
+			},
+		},
+	})
+
+	usage := coll.UsageStats()
+	require.NotNil(t, usage)
+	require.NotNil(t, usage.AICredits)
+	require.InDelta(t, 1.5, *usage.AICredits, 1e-9)
+
+	sonnet := usage.ModelMetrics["claude-sonnet-4"]
+	require.NotNil(t, sonnet.AICredits)
+	require.InDelta(t, 1.0, *sonnet.AICredits, 1e-9)
+
+	require.Nil(t, usage.ModelMetrics["gpt-4o"].AICredits)
+}
+
+func TestSessionUsageCollector_AICreditsUnavailable(t *testing.T) {
+	coll := NewSessionUsageCollector()
+
+	coll.On(copilot.SessionEvent{
+		Data: &copilot.SessionShutdownData{
+			TotalPremiumRequests: copilot.Float64(2),
+			ModelMetrics: map[string]copilot.ShutdownModelMetric{
+				"gpt-4o": {Usage: copilot.ShutdownModelMetricUsage{InputTokens: 100, OutputTokens: 50}},
+			},
+		},
+	})
+
+	usage := coll.UsageStats()
+	require.NotNil(t, usage)
+	require.Nil(t, usage.AICredits, "legacy runtimes without nano-AIU totals must not fabricate credits")
+}

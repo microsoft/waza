@@ -17,7 +17,14 @@ type RunSummary struct {
 	TaskCount       int     `json:"taskCount"`
 	Tokens          int     `json:"tokens"`
 	PremiumRequests float64 `json:"premiumRequests"`
-	Cost            float64 `json:"cost"`
+	// AICredits is the final AI-credit total reported by the Copilot SDK for the
+	// Copilot usage this run initiated. It is omitted for legacy artifacts and
+	// runtimes that do not report final AI-credit metrics; clients must render
+	// that as an unavailable state rather than substituting an estimate.
+	AICredits *float64 `json:"aiCredits,omitempty"`
+	// ModelUsage is the per-model usage breakdown for the run, sorted by model ID.
+	ModelUsage []ModelUsageResponse `json:"modelUsage,omitempty"`
+	Cost       float64              `json:"cost"`
 	// CostSource records how Cost was computed: "sdk" (reported by the Copilot
 	// SDK), "table" (priced from the embedded model rate table), or "estimate"
 	// (flat-rate fallback). Empty for legacy summaries that carry no token/cost
@@ -32,6 +39,18 @@ type RunSummary struct {
 type RunDetail struct {
 	RunSummary
 	Tasks []TaskResult `json:"tasks"`
+}
+
+// ModelUsageResponse is the per-model usage breakdown for a run. AICredits is
+// omitted when the Copilot SDK did not report a final AI-credit total for the
+// model.
+type ModelUsageResponse struct {
+	Model            string   `json:"model"`
+	AICredits        *float64 `json:"aiCredits,omitempty"`
+	InputTokens      int      `json:"inputTokens"`
+	CacheReadTokens  int      `json:"cacheReadTokens"`
+	CacheWriteTokens int      `json:"cacheWriteTokens"`
+	OutputTokens     int      `json:"outputTokens"`
 }
 
 // TaskResult is a per-task result within a run.
@@ -106,7 +125,10 @@ type SummaryResponse struct {
 	PassRate           float64 `json:"passRate"`
 	AvgTokens          float64 `json:"avgTokens"`
 	AvgPremiumRequests float64 `json:"avgPremiumRequests"`
-	AvgCost            float64 `json:"avgCost"`
+	// AvgAICredits is the mean final AI-credit total across the runs that
+	// reported one. It is omitted when no run carries AI-credit metrics.
+	AvgAICredits *float64 `json:"avgAICredits,omitempty"`
+	AvgCost      float64  `json:"avgCost"`
 	// CostSource records the source of AvgCost across runs: "sdk", "table",
 	// "estimate", or "mixed" when different runs were priced from different
 	// sources. Empty when there are no runs, or when every aggregated run lacks
