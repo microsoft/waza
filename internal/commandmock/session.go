@@ -346,8 +346,7 @@ func readStoredConfig(path string) (storedConfig, error) {
 func findStoredMock(mocks []storedMock, name string) *storedMock {
 	for i := range mocks {
 		if sameCommand(mocks[i].Name, name) {
-			mock := mocks[i]
-			return &mock
+			return &mocks[i]
 		}
 	}
 	return nil

@@ -290,3 +290,10 @@ func commandMockTestRoot(t *testing.T) string {
 func intPointer(value int) *int {
 	return &value
 }
+
+func TestNilSessionInvocations(t *testing.T) {
+	var session *Session
+	if got := session.Invocations(); got != nil {
+		t.Fatalf("nil session invocations = %#v, want nil", got)
+	}
+}

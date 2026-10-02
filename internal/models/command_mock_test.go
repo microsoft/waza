@@ -172,9 +172,16 @@ func TestValidateCommandMocksSchemaVersion(t *testing.T) {
 		wantFail bool
 	}{
 		{version: "1.2", wantFail: true},
+		{version: "1.002", wantFail: true},
+		{version: "01.02", wantFail: true},
+		{version: "0.99", wantFail: true},
 		{version: "1.3"},
+		{version: "1.03"},
+		{version: "01.003"},
 		{version: "1.10"},
 		{version: "2.0"},
+		{version: "02.00"},
+		{version: "10.0"},
 	} {
 		t.Run(test.version, func(t *testing.T) {
 			err := ValidateCommandMocksSchemaVersion(test.version)
