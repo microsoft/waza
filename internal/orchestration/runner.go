@@ -1251,6 +1251,7 @@ func (r *EvalRunner) executeRun(ctx context.Context, tc *models.TestCase, runNum
 	if finalizer, ok := r.engine.(execution.CommandMockFinalizer); ok {
 		commandInvocations, err = finalizer.FinalizeCommandMocks(resp.WorkspaceDir)
 		if err != nil {
+			resp.Success = false
 			resp.ErrorMsg = err.Error()
 		}
 		resp.CommandInvocations = commandInvocations

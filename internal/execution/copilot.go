@@ -744,9 +744,6 @@ func (e *CopilotEngine) doShutdown(ctx context.Context) error {
 }
 
 func (e *CopilotEngine) commandMockSession(workspace string, req *ExecutionRequest) (*commandmock.Session, error) {
-	if len(req.CommandMocks) == 0 {
-		return nil, nil
-	}
 	workspace, err := filepath.Abs(workspace)
 	if err != nil {
 		return nil, fmt.Errorf("resolving command-mock workspace: %w", err)
@@ -755,6 +752,9 @@ func (e *CopilotEngine) commandMockSession(workspace string, req *ExecutionReque
 	defer e.commandMocksMu.Unlock()
 	if session := e.commandMockSessions[workspace]; session != nil {
 		return session, nil
+	}
+	if len(req.CommandMocks) == 0 {
+		return nil, nil
 	}
 	session, err := commandmock.NewSession(workspace, req.CommandMocks, req.CommandMocksBaseDir)
 	if err != nil {
