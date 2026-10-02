@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -15,6 +16,75 @@ func TestSanitizeArgsRedactsSensitiveFlagAndValue(t *testing.T) {
 	want := []string{redactedArg, redactedArg, "group", "show"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("sanitizeArgs() = %#v, want %#v", got, want)
+	}
+}
+
+func TestSanitizeArgsSensitiveNames(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		env  []string
+		want []string
+	}{
+		{
+			name: "nonsecret flags do not hide following arguments",
+			args: []string{"--monkey", "banana", "--turkey", "bird", "--keyboard-layout", "us", "--authentication-type", "managed"},
+			want: []string{"--monkey", "banana", "--turkey", "bird", "--keyboard-layout", "us", "--authentication-type", "managed"},
+		},
+		{
+			name: "nonsecret environment names",
+			args: []string{"us", "alice", "tenant", "cache-count"},
+			env:  []string{"KEYBOARD_LAYOUT=us", "AUTHOR=alice", "AUTHORITY=tenant", "TOKEN_COUNT=cache-count"},
+			want: []string{"us", "alice", "tenant", "cache-count"},
+		},
+		{
+			name: "positional words are not flags",
+			args: []string{"auth", "token", "key", "ordinary"},
+			want: []string{"auth", "token", "key", "ordinary"},
+		},
+		{
+			name: "sensitive flags with separators and case variants",
+			args: []string{"--PASSWORD", "password-value", "--access-token=token-value", "--api_key", "key-value", "show"},
+			want: []string{redactedArg, redactedArg, "--access-token=" + redactedArg, redactedArg, redactedArg, "show"},
+		},
+		{
+			name: "known camel case flags",
+			args: []string{"--clientSecret", "secret-value", "--accessToken=token-value", "--connectionString=connection-value"},
+			want: []string{redactedArg, redactedArg, "--accessToken=" + redactedArg, "--connectionString=" + redactedArg},
+		},
+		{
+			name: "sensitive environment suffixes",
+			args: []string{"prefix-secret-value-suffix", "token-value", "password-value", "api-value", "access-value", "account-value"},
+			env: []string{
+				"AZURE_CLIENT_SECRET=secret-value", "GITHUB_TOKEN=token-value", "DB_PASSWORD=password-value",
+				"OPENAI_API_KEY=api-value", "AWS_SECRET_ACCESS_KEY=access-value", "AZURE_STORAGE_ACCOUNT_KEY=account-value",
+			},
+			want: []string{"prefix-" + redactedArg + "-suffix", redactedArg, redactedArg, redactedArg, redactedArg, redactedArg},
+		},
+		{
+			name: "short secrets are still protected",
+			args: []string{"x"},
+			env:  []string{"CLIENT_SECRET=x"},
+			want: []string{redactedArg},
+		},
+		{
+			name: "token-shaped positional value",
+			args: []string{"ghp_" + strings.Repeat("a", 25)},
+			want: []string{redactedArg},
+		},
+		{
+			name: "empty and malformed environment values",
+			args: []string{"ordinary"},
+			env:  []string{"TOKEN=", "SECRET"},
+			want: []string{"ordinary"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := sanitizeArgs(tt.args, tt.env); !reflect.DeepEqual(got, tt.want) {
+				t.Fatalf("sanitizeArgs() = %#v, want %#v", got, tt.want)
+			}
+		})
 	}
 }
 

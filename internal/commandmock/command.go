@@ -15,6 +15,21 @@ var sensitiveArgPattern = regexp.MustCompile(`(?i)(gh[pousr]_[A-Za-z0-9_]{20,}|s
 
 const redactedArg = "[REDACTED]"
 
+func sensitiveName(name string) bool {
+	name = strings.ToLower(strings.ReplaceAll(name, "_", "-"))
+	for _, suffix := range []string{
+		"secret", "token", "password", "passwd", "credential", "credentials",
+		"key", "auth", "authorization", "sig", "signature", "connection",
+		"connection-string", "connectionstring", "apikey", "accesskey",
+		"privatekey", "clientsecret", "clientpassword", "accesstoken", "refreshtoken",
+	} {
+		if name == suffix || strings.HasSuffix(name, "-"+suffix) {
+			return true
+		}
+	}
+	return false
+}
+
 func sanitizeArgs(args []string, env []string) []string {
 	secretValues := make([]string, 0)
 	for _, item := range env {
@@ -22,12 +37,7 @@ func sanitizeArgs(args []string, env []string) []string {
 		if !ok || value == "" {
 			continue
 		}
-		upper := strings.ToUpper(key)
-		if strings.Contains(upper, "SECRET") || strings.Contains(upper, "TOKEN") ||
-			strings.Contains(upper, "PASSWORD") || strings.Contains(upper, "PASSWD") ||
-			strings.Contains(upper, "CREDENTIAL") || strings.Contains(upper, "API_KEY") ||
-			strings.Contains(upper, "KEY") || strings.Contains(upper, "CONNECTION") ||
-			strings.Contains(upper, "AUTH") {
+		if sensitiveName(key) {
 			secretValues = append(secretValues, value)
 		}
 	}
@@ -41,13 +51,7 @@ func sanitizeArgs(args []string, env []string) []string {
 			continue
 		}
 		key, _, hasValue := strings.Cut(arg, "=")
-		lowerKey := strings.ToLower(strings.TrimLeft(key, "-"))
-		sensitiveKey := strings.Contains(lowerKey, "secret") || strings.Contains(lowerKey, "token") ||
-			strings.Contains(lowerKey, "password") || strings.Contains(lowerKey, "passwd") ||
-			strings.Contains(lowerKey, "credential") || strings.Contains(lowerKey, "api-key") ||
-			strings.Contains(lowerKey, "api_key") || strings.Contains(lowerKey, "key") ||
-			strings.Contains(lowerKey, "sig") || strings.Contains(lowerKey, "connection") ||
-			strings.Contains(lowerKey, "auth")
+		sensitiveKey := strings.HasPrefix(key, "-") && sensitiveName(strings.TrimLeft(key, "-"))
 		if sensitiveKey && !hasValue {
 			out[i] = redactedArg
 			hideNext = true

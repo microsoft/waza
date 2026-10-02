@@ -191,6 +191,56 @@ func TestInvokeUsesSessionIdentityOutsideWorkspace(t *testing.T) {
 	}
 }
 
+func TestUnmatchedInvocationDiagnosticIncludesSanitizedContext(t *testing.T) {
+	root := commandMockTestRoot(t)
+	workspace := t.TempDir()
+	secret := "diagnostic-secret-value"
+	t.Setenv("AZURE_CLIENT_SECRET", secret)
+	cwd := filepath.Join(workspace, secret)
+	session, err := NewSession(workspace, []models.CommandMockConfig{{
+		Name: "az",
+		Responses: []models.CommandMockResponse{{
+			Args:    []string{"group", "show"},
+			WorkDir: ".",
+		}},
+	}}, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if _, err := session.Close(); err != nil {
+			t.Errorf("Close() error = %v", err)
+		}
+	})
+
+	for _, tt := range []struct {
+		args []string
+		want []string
+	}{
+		{args: []string{"group", "show"}, want: []string{"group", "show"}},
+		{args: []string{"login", "--client-secret", secret}, want: []string{"login", redactedArg, redactedArg}},
+		{},
+	} {
+		t.Run(fmt.Sprintf("%q", tt.want), func(t *testing.T) {
+			result, err := Invoke(root, session.ID(), "az", tt.args, cwd)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.ExitCode != 127 || result.ResponseIndex != -1 {
+				t.Fatalf("unmatched invocation should fail closed: %+v", result)
+			}
+			wantArgs := fmt.Sprintf("arguments %q", tt.want)
+			wantCWD := fmt.Sprintf("working directory %q", strings.ReplaceAll(cwd, secret, redactedArg))
+			if !strings.Contains(result.Stderr, wantArgs) || !strings.Contains(result.Stderr, wantCWD) {
+				t.Fatalf("missing diagnostic context: %s", result.Stderr)
+			}
+			if strings.Contains(result.Stderr, secret) {
+				t.Fatalf("diagnostic leaked a secret: %s", result.Stderr)
+			}
+		})
+	}
+}
+
 func TestInvokeDoesNotCrossTaskStateInParallel(t *testing.T) {
 	root := commandMockTestRoot(t)
 	const calls = 20

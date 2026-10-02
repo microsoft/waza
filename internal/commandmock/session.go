@@ -280,7 +280,9 @@ func Invoke(root, sessionID, name string, args []string, cwd string) (invocation
 		}
 		return result, nil
 	}
-	message := fmt.Sprintf("waza command mock: no matching response for executable %q; add a command_mocks.responses fixture for this CLI invocation", name)
+	env := os.Environ()
+	message := fmt.Sprintf("waza command mock: no matching response for executable %q with arguments %q in working directory %q; add a command_mocks.responses fixture for this CLI invocation",
+		name, sanitizeArgs(args, env), sanitizeArgs([]string{cwd}, env)[0])
 	if err := recordInvocation(config.LogDir, name, args, 127, -1); err != nil {
 		return invocationResult{}, err
 	}

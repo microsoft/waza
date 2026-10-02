@@ -215,7 +215,7 @@ command_mocks:
 | `exit_code` | integer | Process exit code from 0 through 255; defaults to 0. |
 | `fixture` | string | Relative path to raw stdout fixture bytes, resolved from `eval.yaml`. |
 
-Task-level `command_mocks` replace the eval-level list; an empty list disables the inherited mocks. Configured commands with unmatched calls fail closed and name the executable that needs a response fixture. Sanitized calls appear in `runs[].command_invocations` and the grader context. Real credentials should not be placed in mock responses.
+Task-level `command_mocks` replace the eval-level list; an empty list disables the inherited mocks. Configured commands with unmatched calls fail closed and report the executable, sanitized argument vector, and working directory that need a response fixture. Sanitized calls appear in `runs[].command_invocations` and the grader context. Real credentials should not be placed in mock responses.
 
 ### adversarial
 
