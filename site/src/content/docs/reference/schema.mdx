@@ -182,7 +182,7 @@ Response entries are checked in order. Unknown tools and unmatched calls fail lo
 **Required:** no
 **Requires:** `schemaVersion: "1.3"` or newer and `config.executor: copilot-sdk`
 
-Declares temporary executable shims for commands invoked by the agent's shell. The shims are task-isolated, appear before the host `PATH`, and leave the rest of the host `PATH` available. Only declared executable names are intercepted; command mocks do not sandbox arbitrary shell commands.
+Declares temporary executable shims for commands invoked by the agent's shell. The shims are task-isolated, appear before the host `PATH`, and leave the rest of the host `PATH` available. Only declared executable names are intercepted; command mocks do not sandbox arbitrary shell commands. Host commands reached through shim pass-through do not inherit the internal `WAZA_COMMAND_MOCK_*` variables.
 
 ```yaml
 schemaVersion: "1.3"

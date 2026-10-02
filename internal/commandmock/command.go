@@ -108,7 +108,7 @@ func runHostCommand(root, name string, args []string) int {
 		return 127
 	}
 	cmd := exec.Command(program, args...)
-	cmd.Env = replaceEnv(os.Environ(), "PATH", path)
+	cmd.Env = hostCommandEnvironment(os.Environ(), path)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -158,8 +158,14 @@ func samePath(left, right string) bool {
 	return filepath.Clean(left) == filepath.Clean(right)
 }
 
-func replaceEnv(env []string, key, value string) []string {
-	out := append([]string(nil), env...)
-	setEnv(&out, key, value)
+func hostCommandEnvironment(env []string, path string) []string {
+	out := make([]string, 0, len(env)+1)
+	for _, item := range env {
+		key, _, _ := strings.Cut(item, "=")
+		if !strings.HasPrefix(strings.ToUpper(key), "WAZA_COMMAND_MOCK_") {
+			out = append(out, item)
+		}
+	}
+	setEnv(&out, "PATH", path)
 	return out
 }

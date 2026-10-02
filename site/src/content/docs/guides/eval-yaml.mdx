@@ -214,7 +214,7 @@ tasks:
 | `tasks_from`  | string | ✗        | Path to an external YAML file containing the task list                                     |
 | `hooks`       | object | ✗        | Lifecycle hooks that run shell commands at specific points (see [Hooks](#hooks))           |
 | `mcp_mocks`   | array  | ✗        | Hermetic MCP server mocks for deterministic tool-call evals; requires `schemaVersion: "1.1"` |
-| `command_mocks` | array | ✗       | Hermetic executable shims for CLI-dependent evals; requires `schemaVersion: "1.3"` and `executor: copilot-sdk` |
+| `command_mocks` | array | ✗       | Hermetic executable shims for CLI-dependent evals; requires `schemaVersion: "1.3"` or newer and `executor: copilot-sdk` |
 | `adversarial` | object | ✗        | Built-in fault-injection packs consumed by `waza adversarial --spec`; requires `schemaVersion: "1.2"` |
 | `baseline`    | bool   | ✗        | Mark this spec as a baseline for A/B comparison                                            |
 
