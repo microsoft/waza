@@ -136,10 +136,7 @@
     },
     {
       "if": {
-        "required": ["command_mocks"],
-        "properties": {
-          "command_mocks": { "minItems": 1 }
-        }
+        "required": ["command_mocks"]
       },
       "then": {
         "properties": {

@@ -1,6 +1,7 @@
 package models
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -57,27 +58,28 @@ config:
   timeout_seconds: 60
   executor: %s
   model: test-model
-command_mocks:
-  - name: az
-    responses:
-      - args: []
+%s
 tasks: [tasks/*.yaml]
 metrics:
   - name: pass
     weight: 1
     threshold: 1
 `
+	populatedCommandMocks := `command_mocks:
+  - name: az
+    responses:
+      - args: []`
 	for _, test := range []struct {
-		name, version, executor, wantError string
+		name, version, executor, commandMocks, wantError string
 	}{
-		{"old schema", "1.2", "copilot-sdk", "command_mocks requires schemaVersion 1.3"},
-		{"mock executor", "1.3", "mock", "command_mocks requires executor copilot-sdk"},
+		{"old schema", "1.2", "copilot-sdk", populatedCommandMocks, "command_mocks requires schemaVersion 1.3"},
+		{"mock executor", "1.3", "mock", populatedCommandMocks, "command_mocks requires executor copilot-sdk"},
+		{"empty old schema", "1.2", "copilot-sdk", "command_mocks: []", "command_mocks requires schemaVersion 1.3"},
+		{"empty mock executor", "1.3", "mock", "command_mocks: []", "command_mocks requires executor copilot-sdk"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "eval.yaml")
-			data := strings.ReplaceAll(base, "%s", test.version)
-			// The first replacement is the schema version; fill the executor separately.
-			data = strings.Replace(data, "executor: "+test.version, "executor: "+test.executor, 1)
+			data := fmt.Sprintf(base, test.version, test.executor, test.commandMocks)
 			if err := os.WriteFile(path, []byte(data), 0600); err != nil {
 				t.Fatal(err)
 			}
@@ -106,6 +108,9 @@ command_mocks: []
 	}
 	if task.CommandMocks == nil || len(*task.CommandMocks) != 0 {
 		t.Fatalf("empty task override was not preserved: %#v", task.CommandMocks)
+	}
+	if err := task.ValidateForExecutor("mock"); err == nil || !strings.Contains(err.Error(), "command_mocks requires executor copilot-sdk") {
+		t.Fatalf("ValidateForExecutor() error = %v", err)
 	}
 
 	data = strings.Replace(data, "command_mocks: []", `command_mocks:

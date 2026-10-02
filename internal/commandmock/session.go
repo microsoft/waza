@@ -31,6 +31,7 @@ type storedResponse struct {
 	ArgsRegex   []string          `json:"args_regex,omitempty"`
 	Environment map[string]string `json:"environment,omitempty"`
 	WorkDir     string            `json:"workdir,omitempty"`
+	HasWorkDir  bool              `json:"has_workdir,omitempty"`
 	Stdout      []byte            `json:"stdout,omitempty"`
 	Stderr      string            `json:"stderr,omitempty"`
 	ExitCode    int               `json:"exit_code"`
@@ -43,6 +44,7 @@ type invocationRecord struct {
 
 // Session owns the temporary configuration and invocation history for a task.
 type Session struct {
+	id        string
 	dir       string
 	logDir    string
 	workspace string
@@ -83,11 +85,16 @@ func NewSession(workspace string, mocks []models.CommandMockConfig, baseDir stri
 			if err != nil {
 				return nil, fmt.Errorf("command mock %q response fixture: %w", mock.Name, err)
 			}
+			workDir := ""
+			if response.WorkDir != "" {
+				workDir = filepath.ToSlash(filepath.Clean(response.WorkDir))
+			}
 			item.Responses = append(item.Responses, storedResponse{
 				Args:        response.Args,
 				ArgsRegex:   response.ArgsRegex,
 				Environment: response.Environment,
-				WorkDir:     filepath.ToSlash(filepath.Clean(response.WorkDir)),
+				WorkDir:     workDir,
+				HasWorkDir:  response.WorkDir != "",
 				Stdout:      output,
 				Stderr:      response.Stderr,
 				ExitCode:    response.ExitCode,
@@ -123,7 +130,9 @@ func NewSession(workspace string, mocks []models.CommandMockConfig, baseDir stri
 		return nil, fmt.Errorf("writing command-mock config: %w", err)
 	}
 	configPath := configFile.Name()
-	defer os.Remove(configPath)
+	defer func() {
+		_ = os.Remove(configPath)
+	}()
 	if _, err := configFile.Write(data); err != nil {
 		_ = configFile.Close()
 		_ = os.RemoveAll(dir)
@@ -137,7 +146,15 @@ func NewSession(workspace string, mocks []models.CommandMockConfig, baseDir stri
 		_ = os.RemoveAll(dir)
 		return nil, fmt.Errorf("writing command-mock config: %w", err)
 	}
-	return &Session{dir: dir, logDir: logDir, workspace: workspace, mocks: mocks}, nil
+	return &Session{id: filepath.Base(dir), dir: dir, logDir: logDir, workspace: workspace, mocks: mocks}, nil
+}
+
+// ID returns the opaque task identifier passed to command-mock shims.
+func (s *Session) ID() string {
+	if s == nil {
+		return ""
+	}
+	return s.id
 }
 
 func responseOutput(response models.CommandMockResponse, baseDir string) ([]byte, error) {
@@ -234,10 +251,10 @@ type invocationResult struct {
 	PassThrough   bool
 }
 
-// Invoke chooses the first matching response for the command in the workspace
-// containing cwd. PassThrough is true when this task does not mock the command.
-func Invoke(root, name string, args []string, cwd string) (invocationResult, error) {
-	config, mock, err := findMock(root, name, cwd)
+// Invoke chooses the first matching response for the task session. The cwd
+// fallback supports callers without an explicit session ID.
+func Invoke(root, sessionID, name string, args []string, cwd string) (invocationResult, error) {
+	config, mock, err := findMock(root, sessionID, name, cwd)
 	if err != nil {
 		return invocationResult{}, err
 	}
@@ -270,7 +287,18 @@ func Invoke(root, name string, args []string, cwd string) (invocationResult, err
 	return invocationResult{Stderr: message + "\n", ExitCode: 127, ResponseIndex: -1}, nil
 }
 
-func findMock(root, name, cwd string) (storedConfig, *storedMock, error) {
+func findMock(root, sessionID, name, cwd string) (storedConfig, *storedMock, error) {
+	if sessionID != "" {
+		if !strings.HasPrefix(sessionID, "task-") || filepath.Base(sessionID) != sessionID {
+			return storedConfig{}, nil, fmt.Errorf("invalid command-mock session")
+		}
+		config, err := readStoredConfig(filepath.Join(root, "sessions", sessionID, "config.json"))
+		if err != nil {
+			return storedConfig{}, nil, err
+		}
+		return config, findStoredMock(config.Mocks, name), nil
+	}
+
 	sessions, err := os.ReadDir(filepath.Join(root, "sessions"))
 	if err != nil {
 		return storedConfig{}, nil, err
@@ -286,30 +314,43 @@ func findMock(root, name, cwd string) (storedConfig, *storedMock, error) {
 			continue
 		}
 		path := filepath.Join(root, "sessions", session.Name(), "config.json")
-		data, err := os.ReadFile(path)
+		config, err := readStoredConfig(path)
 		if err != nil {
 			continue
-		}
-		var config storedConfig
-		if err := json.Unmarshal(data, &config); err != nil {
-			return storedConfig{}, nil, fmt.Errorf("reading command-mock config: %w", err)
 		}
 		rel, err := filepath.Rel(config.Workspace, absCWD)
 		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 			continue
 		}
-		for i := range config.Mocks {
-			if sameCommand(config.Mocks[i].Name, name) {
-				if selectedMock == nil || config.CreatedAt.After(selected.CreatedAt) {
-					selected = config
-					mock := config.Mocks[i]
-					selectedMock = &mock
-				}
-				break
-			}
+		mock := findStoredMock(config.Mocks, name)
+		if mock != nil && (selectedMock == nil || config.CreatedAt.After(selected.CreatedAt)) {
+			selected = config
+			selectedMock = mock
 		}
 	}
 	return selected, selectedMock, nil
+}
+
+func readStoredConfig(path string) (storedConfig, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return storedConfig{}, fmt.Errorf("reading command-mock config: %w", err)
+	}
+	var config storedConfig
+	if err := json.Unmarshal(data, &config); err != nil {
+		return storedConfig{}, fmt.Errorf("reading command-mock config: %w", err)
+	}
+	return config, nil
+}
+
+func findStoredMock(mocks []storedMock, name string) *storedMock {
+	for i := range mocks {
+		if sameCommand(mocks[i].Name, name) {
+			mock := mocks[i]
+			return &mock
+		}
+	}
+	return nil
 }
 
 func sameCommand(left, right string) bool {
@@ -348,7 +389,7 @@ func responseMatches(response storedResponse, args []string, cwd, workspace stri
 			return false, nil
 		}
 	}
-	if response.WorkDir != "" && response.WorkDir != "." {
+	if response.HasWorkDir {
 		rel, err := filepath.Rel(workspace, cwd)
 		if err != nil || filepath.ToSlash(filepath.Clean(rel)) != response.WorkDir {
 			return false, nil
@@ -373,8 +414,12 @@ func recordInvocation(logDir, name string, args []string, exitCode, responseInde
 	if err != nil {
 		return fmt.Errorf("recording command-mock invocation: %w", err)
 	}
-	defer file.Close()
 	if _, err := file.Write(data); err != nil {
+		_ = file.Close()
+		_ = os.Remove(file.Name())
+		return fmt.Errorf("recording command-mock invocation: %w", err)
+	}
+	if err := file.Close(); err != nil {
 		_ = os.Remove(file.Name())
 		return fmt.Errorf("recording command-mock invocation: %w", err)
 	}

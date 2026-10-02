@@ -754,7 +754,7 @@ func (r *EvalRunner) loadTestCasesFromFiles() ([]*models.TestCase, error) {
 		if err := tc.ValidateForExecutor(spec.Config.EngineType); err != nil {
 			return nil, fmt.Errorf("invalid test case %s: %w", path, err)
 		}
-		if tc.CommandMocks != nil && len(*tc.CommandMocks) > 0 {
+		if tc.CommandMocks != nil {
 			if err := models.ValidateCommandMocksSchemaVersion(spec.SchemaVersion); err != nil {
 				return nil, fmt.Errorf("invalid test case %s: %w", path, err)
 			}

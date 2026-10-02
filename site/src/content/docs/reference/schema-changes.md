@@ -38,11 +38,11 @@ For schema `1.0`, the command is a no-op because there is no prior major version
 
 ### 1.4
 
-- Added optional `command_mocks` to eval and task YAML, with executable argument matchers, deterministic stdout/stderr/exit codes, fixture files, environment/working-directory matching, and exact invocation-count expectations (#634).
 - Added optional `runs[].command_invocations` to `results.json`. Invocation arguments are sanitized; command response output is not copied into this field.
 
 ### 1.3
 
+- Added optional `command_mocks` to eval and task YAML, with executable argument matchers, deterministic stdout/stderr/exit codes, fixture files, environment/working-directory matching, and exact invocation-count expectations (#634).
 - Added optional `runs[].session_digest.tool_policy_mode` and `tool_policy_denials` to record the selected custom agent's effective tool policy and denied attempts (#585).
 - The dashboard API exposes these as `toolPolicyMode` and `toolPolicyDenials`; NDJSON session logs include the digest in `run_complete` events.
 

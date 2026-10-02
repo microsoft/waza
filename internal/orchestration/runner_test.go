@@ -37,30 +37,34 @@ graders:
 }
 
 func TestLoadTasks_RequiresCommandMockSchemaVersion(t *testing.T) {
-	dir := t.TempDir()
-	task := `id: cli-task
+	for _, commandMocks := range []string{
+		`command_mocks:
+  - name: az
+    responses:
+      - args: []`,
+		"command_mocks: []",
+	} {
+		dir := t.TempDir()
+		task := `id: cli-task
 name: CLI task
 inputs:
   prompt: Use az.
-command_mocks:
-  - name: az
-    responses:
-      - args: []
-`
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "task.yaml"), []byte(task), 0600))
-	spec := &models.EvalSpec{
-		SchemaVersion: "1.2",
-		Tasks:         []string{"task.yaml"},
-		Config:        models.Config{EngineType: "copilot-sdk"},
-	}
-	runner := NewEvalRunner(config.NewEvalConfig(spec, config.WithSpecDir(dir)), nil)
-	_, err := runner.loadTestCases()
-	require.ErrorContains(t, err, "command_mocks requires schemaVersion 1.3 or newer")
+` + commandMocks + "\n"
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "task.yaml"), []byte(task), 0600))
+		spec := &models.EvalSpec{
+			SchemaVersion: "1.2",
+			Tasks:         []string{"task.yaml"},
+			Config:        models.Config{EngineType: "copilot-sdk"},
+		}
+		runner := NewEvalRunner(config.NewEvalConfig(spec, config.WithSpecDir(dir)), nil)
+		_, err := runner.loadTestCases()
+		require.ErrorContains(t, err, "command_mocks requires schemaVersion 1.3 or newer")
 
-	spec.SchemaVersion = "1.3"
-	tasks, err := runner.loadTestCases()
-	require.NoError(t, err)
-	require.Len(t, tasks, 1)
+		spec.SchemaVersion = "1.3"
+		tasks, err := runner.loadTestCases()
+		require.NoError(t, err)
+		require.Len(t, tasks, 1)
+	}
 }
 
 func TestBuildExecutionRequest_SkillPaths(t *testing.T) {

@@ -32,7 +32,7 @@ func TestInvokeExactAndNonZeroResponse(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	result, err := Invoke(root, "az", []string{"account", "show"}, workspace)
+	result, err := Invoke(root, session.ID(), "az", []string{"account", "show"}, workspace)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -43,7 +43,7 @@ func TestInvokeExactAndNonZeroResponse(t *testing.T) {
 		t.Fatalf("exit code = %d, want 0", result.ExitCode)
 	}
 
-	result, err = Invoke(root, "az", []string{"--client-secret", secret}, workspace)
+	result, err = Invoke(root, session.ID(), "az", []string{"--client-secret", secret}, workspace)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,7 +51,7 @@ func TestInvokeExactAndNonZeroResponse(t *testing.T) {
 		t.Fatalf("unexpected non-zero response: %+v", result)
 	}
 
-	if _, err := Invoke(root, "az", []string{"--account-key", accountKey}, workspace); err != nil {
+	if _, err := Invoke(root, session.ID(), "az", []string{"--account-key", accountKey}, workspace); err != nil {
 		t.Fatal(err)
 	}
 
@@ -97,14 +97,25 @@ func TestInvokeRegexEnvironmentWorkDirAndFixture(t *testing.T) {
 			Environment: map[string]string{"WAZA_FIXTURE_ENV": "enabled"},
 			WorkDir:     "deploy",
 			Fixture:     "fixtures/group.json",
+		}, {
+			Args:    []string{"root"},
+			WorkDir: ".",
+			Stdout:  "workspace root",
+		}, {
+			Args:   []string{"anywhere"},
+			Stdout: "unconstrained",
 		}},
 	}}, baseDir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer session.Close()
+	t.Cleanup(func() {
+		if _, err := session.Close(); err != nil {
+			t.Errorf("Close() error = %v", err)
+		}
+	})
 
-	result, err := Invoke(root, "az", []string{"group", "show", "rg-test"}, workdir)
+	result, err := Invoke(root, session.ID(), "az", []string{"group", "show", "rg-test"}, workdir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -112,12 +123,71 @@ func TestInvokeRegexEnvironmentWorkDirAndFixture(t *testing.T) {
 		t.Fatalf("fixture output = %q, want %q", result.Stdout, fixture)
 	}
 
-	result, err = Invoke(root, "az", []string{"group", "show", "rg-test"}, workspace)
+	result, err = Invoke(root, session.ID(), "az", []string{"group", "show", "rg-test"}, workspace)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if result.ExitCode != 127 || !strings.Contains(result.Stderr, "command_mocks.responses fixture") {
 		t.Fatalf("unmatched working directory should fail closed, got %+v", result)
+	}
+
+	result, err = Invoke(root, session.ID(), "az", []string{"root"}, workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := string(result.Stdout); got != "workspace root" {
+		t.Fatalf("root response = %q, want %q", got, "workspace root")
+	}
+	result, err = Invoke(root, session.ID(), "az", []string{"root"}, workdir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.ExitCode != 127 {
+		t.Fatalf("explicit root workdir matched a subdirectory: %+v", result)
+	}
+
+	result, err = Invoke(root, session.ID(), "az", []string{"anywhere"}, workdir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := string(result.Stdout); got != "unconstrained" {
+		t.Fatalf("omitted workdir response = %q, want %q", got, "unconstrained")
+	}
+}
+
+func TestInvokeUsesSessionIdentityOutsideWorkspace(t *testing.T) {
+	root := commandMockTestRoot(t)
+	workspace := t.TempDir()
+	session, err := NewSession(workspace, []models.CommandMockConfig{{
+		Name: "az",
+		Responses: []models.CommandMockResponse{{
+			Args:   []string{"account", "show"},
+			Stdout: "mocked",
+		}},
+	}}, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if _, err := session.Close(); err != nil {
+			t.Errorf("Close() error = %v", err)
+		}
+	})
+
+	result, err := Invoke(root, session.ID(), "az", []string{"account", "show"}, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := string(result.Stdout); got != "mocked" {
+		t.Fatalf("stdout = %q, want %q", got, "mocked")
+	}
+
+	result, err = Invoke(root, session.ID(), "gh", []string{"repo", "view"}, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.PassThrough {
+		t.Fatalf("unmocked command should pass through: %+v", result)
 	}
 }
 
@@ -155,7 +225,7 @@ func TestInvokeDoesNotCrossTaskStateInParallel(t *testing.T) {
 			wg.Add(1)
 			go func(task taskState) {
 				defer wg.Done()
-				result, err := Invoke(root, "gh", []string{"repo", "view"}, task.workspace)
+				result, err := Invoke(root, task.session.ID(), "gh", []string{"repo", "view"}, task.workspace)
 				if err != nil {
 					errs <- err
 				} else if got := string(result.Stdout); got != task.want {

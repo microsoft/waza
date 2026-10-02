@@ -407,7 +407,7 @@ func (v *ValidatorInline) Validate() error {
 
 // ValidateForExecutor checks judge settings against the enclosing eval's executor.
 func (tc *TestCase) ValidateForExecutor(executor string) error {
-	if tc.CommandMocks != nil && len(*tc.CommandMocks) > 0 && executor != "copilot-sdk" {
+	if tc.CommandMocks != nil && executor != "copilot-sdk" {
 		return fmt.Errorf("test case %q: command_mocks requires executor copilot-sdk", tc.TestID)
 	}
 	for _, v := range tc.Validators {

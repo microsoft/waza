@@ -35,6 +35,11 @@ func sanitizeArgs(args []string, env []string) []string {
 	out := make([]string, len(args))
 	hideNext := false
 	for i, arg := range args {
+		if hideNext {
+			out[i] = redactedArg
+			hideNext = false
+			continue
+		}
 		key, _, hasValue := strings.Cut(arg, "=")
 		lowerKey := strings.ToLower(strings.TrimLeft(key, "-"))
 		sensitiveKey := strings.Contains(lowerKey, "secret") || strings.Contains(lowerKey, "token") ||
@@ -43,12 +48,11 @@ func sanitizeArgs(args []string, env []string) []string {
 			strings.Contains(lowerKey, "api_key") || strings.Contains(lowerKey, "key") ||
 			strings.Contains(lowerKey, "sig") || strings.Contains(lowerKey, "connection") ||
 			strings.Contains(lowerKey, "auth")
-		if hideNext || sensitiveKey && !hasValue {
+		if sensitiveKey && !hasValue {
 			out[i] = redactedArg
-			hideNext = !hasValue
+			hideNext = true
 			continue
 		}
-		hideNext = false
 		value := arg
 		if sensitiveKey && hasValue {
 			value = key + "=" + redactedArg
@@ -70,7 +74,7 @@ func RunCommand(root, name string, args []string) int {
 		fmt.Fprintln(os.Stderr, "waza command mock: cannot determine working directory")
 		return 127
 	}
-	result, err := Invoke(root, name, args, cwd)
+	result, err := Invoke(root, os.Getenv(SessionEnvironmentVariable), name, args, cwd)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "waza command mock: failed to load task configuration")
 		return 127

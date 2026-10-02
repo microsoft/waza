@@ -427,12 +427,17 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 	// every later turn in the same session.
 	var policyRecorder *toolPolicyRecorder
 	var availableTools []string
-	var policyHooks *copilot.SessionHooks
+	var preToolUseHook copilot.PreToolUseHandler
 	if req.ToolPolicy.Active() {
 		policyRecorder = newToolPolicyRecorder()
 		permRequestCallback = enforceToolPolicy(req.ToolPolicy, policyRecorder, permRequestCallback)
 		availableTools = req.ToolPolicy.SessionToolFilter()
-		policyHooks = &copilot.SessionHooks{OnPreToolUse: enforceToolCall(req.ToolPolicy, policyRecorder)}
+		preToolUseHook = enforceToolCall(req.ToolPolicy, policyRecorder)
+	}
+	preToolUseHook = combinePreToolUseHandlers(preToolUseHook, commandMockToolHook(commandMockSession))
+	var sessionHooks *copilot.SessionHooks
+	if preToolUseHook != nil {
+		sessionHooks = &copilot.SessionHooks{OnPreToolUse: preToolUseHook}
 	}
 
 	if req.SessionID == "" {
@@ -444,7 +449,7 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 
 			OnPermissionRequest: permRequestCallback,
 			AvailableTools:      availableTools,
-			Hooks:               policyHooks,
+			Hooks:               sessionHooks,
 
 			SkillDirectories: skillDirs,
 			WorkingDirectory: workingDir,
@@ -465,7 +470,7 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 
 			OnPermissionRequest: permRequestCallback,
 			AvailableTools:      availableTools,
-			Hooks:               policyHooks,
+			Hooks:               sessionHooks,
 
 			// these are the directory for the skill itself.
 			SkillDirectories: skillDirs,

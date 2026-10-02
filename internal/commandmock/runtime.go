@@ -10,8 +10,9 @@ import (
 )
 
 const (
-	rootEnv       = "WAZA_COMMAND_MOCK_ROOT"
-	executableEnv = "WAZA_COMMAND_MOCK_EXECUTABLE"
+	rootEnv                    = "WAZA_COMMAND_MOCK_ROOT"
+	executableEnv              = "WAZA_COMMAND_MOCK_EXECUTABLE"
+	SessionEnvironmentVariable = "WAZA_COMMAND_MOCK_SESSION"
 )
 
 var runtimeState struct {
@@ -139,7 +140,9 @@ func ensureShim(name, dir string) error {
 		return fmt.Errorf("creating command mock shim for %q: %w", name, err)
 	}
 	tmpPath := file.Name()
-	defer os.Remove(tmpPath)
+	defer func() {
+		_ = os.Remove(tmpPath)
+	}()
 	if err := file.Chmod(mode); err != nil {
 		_ = file.Close()
 		return fmt.Errorf("setting command mock shim permissions for %q: %w", name, err)

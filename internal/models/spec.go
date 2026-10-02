@@ -510,7 +510,7 @@ func (s *EvalSpec) Validate() error {
 			seen[name] = true
 		}
 	}
-	if len(s.CommandMocks) > 0 {
+	if s.CommandMocks != nil {
 		if err := ValidateCommandMocksSchemaVersion(s.SchemaVersion); err != nil {
 			return err
 		}
