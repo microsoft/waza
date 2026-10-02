@@ -511,12 +511,8 @@ func (s *EvalSpec) Validate() error {
 		}
 	}
 	if len(s.CommandMocks) > 0 {
-		_, minor, err := parseSchemaVersion(s.SchemaVersion)
-		if err != nil {
+		if err := ValidateCommandMocksSchemaVersion(s.SchemaVersion); err != nil {
 			return err
-		}
-		if minor < 3 {
-			return fmt.Errorf("command_mocks requires schemaVersion 1.3 or newer")
 		}
 		if s.Config.EngineType != "copilot-sdk" {
 			return fmt.Errorf("command_mocks requires executor copilot-sdk")

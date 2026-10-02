@@ -8,6 +8,7 @@ import (
 )
 
 var commandMockNamePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
+var commandMockWindowsPathPattern = regexp.MustCompile(`^[A-Za-z]:`)
 
 // CommandMockConfig defines deterministic responses for one executable.
 type CommandMockConfig struct {
@@ -41,7 +42,7 @@ func ValidateCommandMocks(mocks []CommandMockConfig) error {
 	seen := make(map[string]bool, len(mocks))
 	for i, mock := range mocks {
 		name := strings.TrimSpace(mock.Name)
-		if name == "" || !commandMockNamePattern.MatchString(name) {
+		if name == "" || name != mock.Name || !commandMockNamePattern.MatchString(name) {
 			return fmt.Errorf("command_mocks[%d].name must be an executable name containing only letters, numbers, '.', '_' or '-'", i)
 		}
 		key := strings.ToLower(name)
@@ -71,10 +72,10 @@ func ValidateCommandMocks(mocks []CommandMockConfig) error {
 			if response.Fixture != "" && response.Stdout != nil {
 				return fmt.Errorf("%s cannot specify both fixture and stdout", prefix)
 			}
-			if response.Fixture != "" && (filepath.IsAbs(response.Fixture) || containsTraversalSegmentInPath(response.Fixture)) {
+			if response.Fixture != "" && (isCommandMockAbsolutePath(response.Fixture) || containsTraversalSegmentInPath(response.Fixture)) {
 				return fmt.Errorf("%s fixture must be a relative path without '..' segments", prefix)
 			}
-			if response.WorkDir != "" && (filepath.IsAbs(response.WorkDir) || strings.HasPrefix(response.WorkDir, `\`) || containsTraversalSegmentInPath(response.WorkDir)) {
+			if response.WorkDir != "" && (isCommandMockAbsolutePath(response.WorkDir) || containsTraversalSegmentInPath(response.WorkDir)) {
 				return fmt.Errorf("%s workdir must be a relative path without '..' segments", prefix)
 			}
 			for key := range response.Environment {
@@ -85,4 +86,21 @@ func ValidateCommandMocks(mocks []CommandMockConfig) error {
 		}
 	}
 	return nil
+}
+
+// ValidateCommandMocksSchemaVersion checks that the enclosing eval schema
+// supports command mocks.
+func ValidateCommandMocksSchemaVersion(version string) error {
+	major, minor, err := parseSchemaVersion(version)
+	if err != nil {
+		return err
+	}
+	if major < 1 || major == 1 && minor < 3 {
+		return fmt.Errorf("command_mocks requires schemaVersion 1.3 or newer")
+	}
+	return nil
+}
+
+func isCommandMockAbsolutePath(path string) bool {
+	return filepath.IsAbs(path) || strings.HasPrefix(path, `\`) || commandMockWindowsPathPattern.MatchString(path)
 }

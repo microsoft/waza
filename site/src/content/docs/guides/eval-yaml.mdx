@@ -214,6 +214,7 @@ tasks:
 | `tasks_from`  | string | ✗        | Path to an external YAML file containing the task list                                     |
 | `hooks`       | object | ✗        | Lifecycle hooks that run shell commands at specific points (see [Hooks](#hooks))           |
 | `mcp_mocks`   | array  | ✗        | Hermetic MCP server mocks for deterministic tool-call evals; requires `schemaVersion: "1.1"` |
+| `command_mocks` | array | ✗       | Hermetic executable shims for CLI-dependent evals; requires `schemaVersion: "1.3"` and `executor: copilot-sdk` |
 | `adversarial` | object | ✗        | Built-in fault-injection packs consumed by `waza adversarial --spec`; requires `schemaVersion: "1.2"` |
 | `baseline`    | bool   | ✗        | Mark this spec as a baseline for A/B comparison                                            |
 
@@ -393,6 +394,47 @@ mcp_mocks:
 ```
 
 Each `.json` fixture can either contain a single tool definition (tool name from the filename) or a `{ "tools": { ... } }` object with multiple tools.
+
+## Command Mocks
+
+Use `command_mocks` when a skill shells out to a CLI such as Azure CLI (`az`), GitHub CLI (`gh`), or `kubectl`. Waza materializes temporary executable shims per task and prepends their directory to the Copilot runtime's existing `PATH`, preserving the host path. Command mocks require `executor: copilot-sdk` and `schemaVersion: "1.3"` or newer.
+
+```yaml
+schemaVersion: "1.3"
+config:
+  executor: copilot-sdk
+  model: claude-sonnet-4.6
+
+command_mocks:
+  - name: az
+    expect_calls: 3
+    responses:
+      - args: ["account", "show", "--output", "json"]
+        stdout:
+          subscriptionId: "00000000-0000-0000-0000-000000000000"
+          name: Test Subscription
+      - args_regex: ["group", "show", "--name", ".+"]
+        fixture: fixtures/commands/az-group-show.json
+      - args: ["deployment", "group", "create"]
+        stderr: "deployment failed"
+        exit_code: 1
+
+tasks:
+  - "tasks/*.yaml"
+```
+
+`args` matches the entire argument vector, excluding the executable. `args_regex` applies a full-string regular expression to each argument at the same position. Responses are evaluated in order and the first matching response wins. `stdout` strings are emitted verbatim; structured values are JSON-encoded. `fixture` reads raw response bytes from a path relative to `eval.yaml`. Optional `environment` values must match exactly, and `workdir` matches a workspace-relative path. `expect_calls` requires an exact number of invocations for that executable; a mismatch is reported as a task error.
+
+Task-level `command_mocks` replace the eval-level list. Set `command_mocks: []` on a task to disable inherited mocks. A command that is configured but called with unmatched arguments fails closed with a diagnostic asking for a matching response fixture. Invocation records contain sanitized arguments, exit codes, and response indexes in `runs[].command_invocations`; graders can also read them from their context. Verbose runs print those sanitized details. Only declared executable names are intercepted, so `command_mocks` is not a command sandbox. Do not put real credentials in mock output.
+
+### Choosing a test boundary
+
+| Mechanism | Use it for |
+| --- | --- |
+| `command_mocks` | Commands the agent invokes through its shell, with deterministic process output and exit status. |
+| `mcp_mocks` | Structured MCP tool calls and server responses. |
+| Hooks | Setup, teardown, or validation around tasks/evals; hooks do not intercept agent commands. |
+| Live integration tests | Verifying real CLI/service behavior, authentication, or infrastructure. Keep these separate from hermetic evals. |
 
 ## Adversarial Packs
 

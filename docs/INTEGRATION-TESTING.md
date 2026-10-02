@@ -94,6 +94,24 @@ tasks:
 
 Responses are matched in order. Use `match` for exact full-argument fixtures, `match_schema` for JSON Schema matching, and `match_regex` for per-field regular expressions. Unknown tools or unmatched calls fail with a clear MCP tool error so missing fixtures do not pass silently.
 
+### Hermetic CLI Command Mocks
+
+Use `command_mocks` when the skill invokes an executable through its shell instead of calling an MCP server. Waza creates temporary per-task shims and places them before the Copilot runtime's existing `PATH`. This requires `schemaVersion: "1.3"` or newer and `executor: copilot-sdk`.
+
+```yaml
+command_mocks:
+  - name: gh
+    expect_calls: 1
+    responses:
+      - args: ["repo", "view", "microsoft/waza", "--json", "name"]
+        stdout:
+          name: waza
+```
+
+Use `args` for exact argument vectors and `args_regex` for positional full-string patterns. Responses may set `stdout`, `stderr`, and `exit_code`, or load raw stdout from a `fixture` path relative to `eval.yaml`. Optional `environment` and `workdir` matchers narrow a response. Task-level lists replace eval-level mocks; an empty task list disables inherited mocks. Mocks record sanitized command arguments and exit codes in results and grader context. An unmatched call to a declared executable fails with a missing-fixture message.
+
+Choose `command_mocks` for shell CLIs, `mcp_mocks` for structured MCP tools, and hooks only for lifecycle setup/teardown/validation (hooks do not intercept commands invoked by the agent). Use a live integration test when the real service, CLI, authentication, or infrastructure behavior is what you need to verify. Command mocks are not a sandbox: only declared executable names are intercepted, and other commands still resolve through the host `PATH`. Do not include real credentials in fixtures.
+
 ### CLI Override
 
 You can override the model and runtime options at launch:

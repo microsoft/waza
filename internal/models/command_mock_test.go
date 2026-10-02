@@ -160,3 +160,25 @@ func TestValidateCommandMocksRejectsInvalidConfiguration(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateCommandMocksSchemaVersion(t *testing.T) {
+	for _, test := range []struct {
+		version  string
+		wantFail bool
+	}{
+		{version: "1.2", wantFail: true},
+		{version: "1.3"},
+		{version: "1.10"},
+		{version: "2.0"},
+	} {
+		t.Run(test.version, func(t *testing.T) {
+			err := ValidateCommandMocksSchemaVersion(test.version)
+			if test.wantFail && err == nil {
+				t.Fatal("expected version rejection")
+			}
+			if !test.wantFail && err != nil {
+				t.Fatalf("unexpected version rejection: %v", err)
+			}
+		})
+	}
+}

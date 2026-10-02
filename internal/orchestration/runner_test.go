@@ -36,6 +36,33 @@ graders:
 	require.Len(t, tasks, 1)
 }
 
+func TestLoadTasks_RequiresCommandMockSchemaVersion(t *testing.T) {
+	dir := t.TempDir()
+	task := `id: cli-task
+name: CLI task
+inputs:
+  prompt: Use az.
+command_mocks:
+  - name: az
+    responses:
+      - args: []
+`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "task.yaml"), []byte(task), 0600))
+	spec := &models.EvalSpec{
+		SchemaVersion: "1.2",
+		Tasks:         []string{"task.yaml"},
+		Config:        models.Config{EngineType: "copilot-sdk"},
+	}
+	runner := NewEvalRunner(config.NewEvalConfig(spec, config.WithSpecDir(dir)), nil)
+	_, err := runner.loadTestCases()
+	require.ErrorContains(t, err, "command_mocks requires schemaVersion 1.3 or newer")
+
+	spec.SchemaVersion = "1.3"
+	tasks, err := runner.loadTestCases()
+	require.NoError(t, err)
+	require.Len(t, tasks, 1)
+}
+
 func TestBuildExecutionRequest_SkillPaths(t *testing.T) {
 	root := t.TempDir()
 	specDir := filepath.Join(root, "home", "user", "evals")
@@ -203,6 +230,58 @@ func TestBuildExecutionRequest_MCPMocks(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Contains(t, req.MCPServers, "github")
+}
+
+func TestBuildExecutionRequest_CommandMocksTaskOverrides(t *testing.T) {
+	specDir := t.TempDir()
+	evalMocks := []models.CommandMockConfig{{
+		Name:      "az",
+		Responses: []models.CommandMockResponse{{Args: []string{"account", "show"}}},
+	}}
+	taskMocks := []models.CommandMockConfig{{
+		Name:      "gh",
+		Responses: []models.CommandMockResponse{{ArgsRegex: []string{"repo", ".+"}}},
+	}}
+	spec := &models.EvalSpec{
+		SchemaVersion: "1.3",
+		SpecIdentity:  models.SpecIdentity{Name: "command mocks"},
+		SkillName:     "cli-skill",
+		Config: models.Config{
+			EngineType:    "copilot-sdk",
+			ModelID:       "test-model",
+			TimeoutSec:    60,
+			TrialsPerTask: 1,
+		},
+		CommandMocks: evalMocks,
+	}
+	runner := NewEvalRunner(config.NewEvalConfig(spec, config.WithSpecDir(specDir)), nil)
+
+	tests := []struct {
+		name string
+		task *[]models.CommandMockConfig
+		want []string
+	}{
+		{name: "inherits eval mocks", want: []string{"az"}},
+		{name: "task replaces eval mocks", task: &taskMocks, want: []string{"gh"}},
+		{name: "empty task list disables eval mocks", task: &[]models.CommandMockConfig{}, want: nil},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			req, err := runner.buildExecutionRequest(&models.TestCase{
+				TestID:       "command-task",
+				DisplayName:  "Command task",
+				CommandMocks: test.task,
+				Stimulus:     models.TaskStimulus{Message: "Use the CLI"},
+			})
+			require.NoError(t, err)
+			require.Equal(t, specDir, req.CommandMocksBaseDir)
+			var got []string
+			for _, mock := range req.CommandMocks {
+				got = append(got, mock.Name)
+			}
+			assert.Equal(t, test.want, got)
+		})
+	}
 }
 
 func TestBuildExecutionRequest_SuppressSkillBody(t *testing.T) {

@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	copilot "github.com/github/copilot-sdk/go"
+	"github.com/microsoft/waza/internal/commandmock"
 	"github.com/microsoft/waza/internal/embedded"
 )
 
@@ -91,12 +92,17 @@ func sharedClientKey(cliArgs []string) string {
 }
 
 func sharedClientOptions(logLevel string, cliArgs []string) (*copilot.ClientOptions, error) {
+	env, err := commandmock.RuntimeEnvironment()
+	if err != nil {
+		return nil, err
+	}
 	// SDK v1.0.0: CLIArgs/CLIPath/AutoStart/AutoRestart moved onto the
 	// Connection (StdioConnection) or were removed. AutoStart/AutoRestart
 	// are managed internally by the SDK now. StdioConnection is consumed
 	// by value, so we set Path before assigning it to opts.Connection.
 	conn := copilot.StdioConnection{
 		Args: append([]string{}, cliArgs...),
+		Env:  env,
 	}
 
 	if cliPath := os.Getenv("COPILOT_CLI_PATH"); cliPath != "" {
@@ -183,6 +189,9 @@ func ShutdownSharedClient(_ context.Context) error {
 			if err := client.Stop(); err != nil {
 				errs = append(errs, err)
 			}
+		}
+		if err := commandmock.CloseRuntime(); err != nil {
+			errs = append(errs, err)
 		}
 		sharedErr = errors.Join(errs...)
 	})

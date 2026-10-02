@@ -174,9 +174,10 @@
         { "required": ["args"] },
         { "required": ["args_regex"] }
       ],
-      "not": {
-        "required": ["args", "args_regex"]
-      }
+      "allOf": [
+        { "not": { "required": ["args", "args_regex"] } },
+        { "not": { "required": ["stdout", "fixture"] } }
+      ]
     },
     "inputs": {
       "type": "object",
