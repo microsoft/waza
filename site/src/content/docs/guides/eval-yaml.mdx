@@ -37,8 +37,8 @@ waza new eval <skill-name>
 # Generate candidate coverage without writing files.
 waza suggest <path-to-SKILL.md> --dry-run
 
-# Optionally add the generated tasks and fixtures without replacing existing files.
-waza suggest <path-to-SKILL.md> --apply
+# Add generated tasks and fixtures to the scaffolded suite.
+waza suggest <path-to-SKILL.md> --apply --output-dir evals/<skill-name>
 ```
 
 `waza new eval`, `waza suggest`, and `waza spec verify` currently accept
