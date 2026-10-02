@@ -331,6 +331,23 @@ waza new task from-prompt "Explain this diff and risks" evals/code-explainer/tas
   --overwrite
 ```
 
+### Agent-assisted eval authoring
+
+The [Writing Eval Specs guide](https://microsoft.github.io/waza/guides/eval-yaml/)
+can be used as direct instructions for a coding agent. It provides:
+
+- Required files to inspect before editing
+- Schema and task invariants
+- Separate create and update workflows
+- A test-first loop for implementation changes
+- Guidance for fixtures, MCP mocks, and grader selection
+- A targeted-to-full validation ladder
+- A reusable prompt for delegating eval implementation
+
+When reviewing agent-authored evals, require stable task IDs, focused changes,
+coverage for changed behavior, and the exact verification commands with their
+results.
+
 ---
 
 ### `waza run [eval.yaml | skill-name]`

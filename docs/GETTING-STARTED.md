@@ -482,10 +482,26 @@ git push
 # 11. CI runs automatically, results posted to PR
 ```
 
+### Delegate eval work to an agent
+
+The public [Writing Eval Specs guide](https://microsoft.github.io/waza/guides/eval-yaml/)
+includes an agent-ready workflow and copyable delegation prompt. Give the agent:
+
+- The target `SKILL.md` or `.agent.md`
+- The issue, implementation diff, or behavior being added
+- The existing eval directory, when updating an established suite
+- The Writing Eval Specs guide
+
+The agent is expected to treat the JSON schemas as authoritative, preserve
+stable task IDs and unrelated coverage, use fixtures or `mcp_mocks` instead of
+live state where possible, and report the exact verification commands and
+results.
+
 ---
 
 ## Next Steps
 
+- **[Agent-ready Eval Authoring](https://microsoft.github.io/waza/guides/eval-yaml/#agent-ready-workflow)** — Delegate creation and maintenance safely
 - **[Grader Reference](GRADERS.md)** — Understand all grader types
 - **[Eval Spec Format](../README.md#eval-spec-format)** — Full YAML schema
 - **[CI/CD Integration](SKILLS_CI_INTEGRATION.md)** — GitHub Actions setup
