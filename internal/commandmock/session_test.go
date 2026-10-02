@@ -1,12 +1,14 @@
 package commandmock
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/microsoft/waza/internal/models"
 )
@@ -345,5 +347,35 @@ func TestNilSessionInvocations(t *testing.T) {
 	var session *Session
 	if got := session.Invocations(); got != nil {
 		t.Fatalf("nil session invocations = %#v, want nil", got)
+	}
+}
+
+func TestInvocationsStableOrderForEqualTimestamps(t *testing.T) {
+	session := &Session{logDir: t.TempDir()}
+	for _, item := range []struct {
+		filename string
+		command  string
+		second   int64
+	}{
+		{filename: "z.json", command: "third", second: 2},
+		{filename: "a.json", command: "second", second: 2},
+		{filename: "m.json", command: "first", second: 1},
+	} {
+		data, err := json.Marshal(invocationRecord{
+			RecordedAt: time.Unix(item.second, 0),
+			Invocation: models.CommandInvocation{Command: item.command},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(session.logDir, item.filename), data, 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for range 3 {
+		got := session.Invocations()
+		if len(got) != 3 || got[0].Command != "first" || got[1].Command != "second" || got[2].Command != "third" {
+			t.Fatalf("unexpected invocation order: %#v", got)
+		}
 	}
 }

@@ -202,6 +202,7 @@ func (s *Session) Invocations() []models.CommandInvocation {
 			records = append(records, record)
 		}
 	}
+	// ReadDir orders filenames, so stable sorting also makes timestamp ties deterministic.
 	sort.SliceStable(records, func(i, j int) bool {
 		return records[i].RecordedAt.Before(records[j].RecordedAt)
 	})

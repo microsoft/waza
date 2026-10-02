@@ -3,6 +3,7 @@ package execution
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"runtime"
 	"strings"
 
@@ -33,13 +34,17 @@ func commandMockToolHook(session *commandmock.Session) copilot.PreToolUseHandler
 }
 
 func toolArgsMap(value any) (map[string]any, error) {
-	data, err := json.Marshal(value)
-	if err != nil {
-		return nil, err
-	}
-	var args map[string]any
-	if err := json.Unmarshal(data, &args); err != nil {
-		return nil, err
+	args, ok := value.(map[string]any)
+	if ok {
+		args = maps.Clone(args)
+	} else {
+		data, err := json.Marshal(value)
+		if err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal(data, &args); err != nil {
+			return nil, err
+		}
 	}
 	if args == nil {
 		return nil, fmt.Errorf("tool arguments are empty")

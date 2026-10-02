@@ -92,6 +92,8 @@ func sharedClientKey(cliArgs []string) string {
 }
 
 func sharedClientOptions(logLevel string, cliArgs []string) (*copilot.ClientOptions, error) {
+	// Client environments are startup-only; later task sessions may create
+	// command mocks even when the first eval or grader does not use them.
 	env, err := commandmock.RuntimeEnvironment()
 	if err != nil {
 		return nil, err

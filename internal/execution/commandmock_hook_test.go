@@ -43,7 +43,8 @@ func TestCombinePreToolUseHandlersPreservesPolicyDenial(t *testing.T) {
 }
 
 func TestToolArgsMapCopiesCommand(t *testing.T) {
-	args, err := toolArgsMap(map[string]any{"command": "cd /tmp && az account show", "description": "test"})
+	input := map[string]any{"command": "cd /tmp && az account show", "description": "test", "timeout": 7}
+	args, err := toolArgsMap(input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,6 +62,42 @@ func TestToolArgsMapCopiesCommand(t *testing.T) {
 	}
 	if args["description"] != "test" {
 		t.Fatalf("description was not preserved: %#v", args)
+	}
+	if args["timeout"] != 7 {
+		t.Fatalf("integer argument was changed: %#v", args["timeout"])
+	}
+	if input["command"] != command {
+		t.Fatalf("original command was mutated: %#v", input)
+	}
+}
+
+func TestToolArgsMapFallbackAndErrors(t *testing.T) {
+	tests := []struct {
+		name    string
+		value   any
+		wantErr bool
+	}{
+		{
+			name: "struct input",
+			value: struct {
+				Command string `json:"command"`
+			}{Command: "az account show"},
+		},
+		{name: "nil input", wantErr: true},
+		{name: "nil map", value: map[string]any(nil), wantErr: true},
+		{name: "non-object input", value: []string{"az"}, wantErr: true},
+		{name: "unsupported input", value: make(chan string), wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			args, err := toolArgsMap(tt.value)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("toolArgsMap() error = %v, want error %v", err, tt.wantErr)
+			}
+			if !tt.wantErr && args["command"] != "az account show" {
+				t.Fatalf("command was not preserved: %#v", args)
+			}
+		})
 	}
 }
 
