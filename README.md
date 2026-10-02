@@ -187,8 +187,9 @@ validation ladder, and a reusable delegation prompt.
 
 Agents should treat `schemas/eval.schema.json` and
 `schemas/task.schema.json` as authoritative, preserve stable task IDs and
-unrelated scenarios, and validate changes with `waza spec verify` plus targeted
-and full `waza run` executions.
+unrelated scenarios, and run targeted and full `waza run` executions. For
+`SKILL.md` targets, also run `waza spec verify`. That command does not accept
+`.agent.md`; validate custom-agent YAML against the schemas instead.
 
 ## Commands
 

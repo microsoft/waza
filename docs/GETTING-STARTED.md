@@ -497,6 +497,11 @@ stable task IDs and unrelated coverage, use fixtures or `mcp_mocks` instead of
 live state where possible, and report the exact verification commands and
 results.
 
+For `SKILL.md` targets, verification includes `waza spec verify`. That command
+does not accept `.agent.md`; for custom agents, validate `eval.yaml` and task
+files against `schemas/eval.schema.json` and `schemas/task.schema.json`, then
+run the changed task and the full relevant suite with `waza run`.
+
 ---
 
 ## Next Steps
