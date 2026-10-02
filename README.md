@@ -179,17 +179,9 @@ waza tokens suggest skills/
 
 ### Agent-assisted eval authoring
 
-The [Writing Eval Specs guide](https://microsoft.github.io/waza/guides/eval-yaml/)
-is intentionally usable by both developers and coding agents. Point an agent at
-that guide when asking it to create or update evals. It defines the required
-context, schema invariants, test-first implementation loop, safe update rules,
-validation ladder, and a reusable delegation prompt.
-
-Agents should treat `schemas/eval.schema.json` and
-`schemas/task.schema.json` as authoritative, preserve stable task IDs and
-unrelated scenarios, and run targeted and full `waza run` executions. For
-`SKILL.md` targets, also run `waza spec verify`. That command does not accept
-`.agent.md`; validate custom-agent YAML against the schemas instead.
+Point your coding agent at the [Writing Eval Specs guide](https://microsoft.github.io/waza/guides/eval-yaml/)
+to create or update evals and guide eval-driven implementation. It provides the
+canonical workflow, target-specific validation steps, and a reusable delegation prompt.
 
 ## Commands
 
