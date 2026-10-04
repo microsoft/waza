@@ -166,6 +166,15 @@ func outcomeToSummary(o *models.EvaluationOutcome) RunSummary {
 	aggUsage := models.AggregateUsageStats(perRunUsage)
 	cost, costSource := pricing.Compute(aggUsage)
 
+	// Digest.Usage is the run-level aggregate written after engine shutdown. It
+	// covers every session the run started, including trigger sessions that the
+	// per-test runs don't carry, so it is the authoritative billing aggregate.
+	// Artifacts written without it fall back to the per-run aggregate.
+	billingUsage := o.Digest.Usage
+	if billingUsage == nil {
+		billingUsage = aggUsage
+	}
+
 	return RunSummary{
 		ID:              o.RunID,
 		Spec:            o.BenchName,
@@ -176,12 +185,74 @@ func outcomeToSummary(o *models.EvaluationOutcome) RunSummary {
 		TaskCount:       o.Digest.TotalTests,
 		Tokens:          tokens,
 		PremiumRequests: premiumRequests,
+		AICredits:       aiCreditsOf(billingUsage),
+		ModelUsage:      modelUsageResponses(billingUsage),
 		Cost:            cost,
 		CostSource:      costSource,
 		Duration:        float64(o.Digest.DurationMs) / 1000.0,
 		Timestamp:       o.Timestamp,
 		Source:          "local",
 	}
+}
+
+// aiCreditAccumulator averages authoritative AI-credit totals across the runs
+// that report one. Runs without AI-credit metrics (legacy artifacts, older
+// runtimes) are excluded so they don't drag the average toward zero; when no
+// run reports credits the average is unavailable rather than 0.
+type aiCreditAccumulator struct {
+	total float64
+	runs  int
+}
+
+func (a *aiCreditAccumulator) add(credits *float64) {
+	if credits == nil {
+		return
+	}
+	a.total += *credits
+	a.runs++
+}
+
+func (a *aiCreditAccumulator) average() *float64 {
+	if a.runs == 0 {
+		return nil
+	}
+	avg := a.total / float64(a.runs)
+	return &avg
+}
+
+// aiCreditsOf returns a copy of the authoritative AI-credit total carried by
+// usage, or nil when usage has none.
+func aiCreditsOf(usage *models.UsageStats) *float64 {
+	if usage == nil || usage.AICredits == nil {
+		return nil
+	}
+	credits := *usage.AICredits
+	return &credits
+}
+
+// modelUsageResponses converts per-model usage into API responses sorted by
+// model ID. Returns nil when no per-model metrics are available.
+func modelUsageResponses(usage *models.UsageStats) []ModelUsageResponse {
+	if usage == nil || len(usage.ModelMetrics) == 0 {
+		return nil
+	}
+	out := make([]ModelUsageResponse, 0, len(usage.ModelMetrics))
+	for model, mu := range usage.ModelMetrics {
+		resp := ModelUsageResponse{
+			Model:            model,
+			InputTokens:      mu.InputTokens,
+			CacheReadTokens:  mu.CacheReadTokens,
+			CacheWriteTokens: mu.CacheWriteTokens,
+			OutputTokens:     mu.OutputTokens,
+		}
+		if mu.AICredits != nil {
+			credits := *mu.AICredits
+			resp.AICredits = &credits
+		}
+		out = append(out, resp)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Model < out[j].Model })
+	return out
 }
 
 func outcomeToDetail(o *models.EvaluationOutcome) *RunDetail {
@@ -309,6 +380,7 @@ func (fs *FileStore) Summary() (*SummaryResponse, error) {
 
 	totalTokens := 0
 	totalPremium := 0.0
+	credits := aiCreditAccumulator{}
 	totalCost := 0.0
 	totalDuration := 0.0
 	totalPassed := 0
@@ -323,6 +395,7 @@ func (fs *FileStore) Summary() (*SummaryResponse, error) {
 		s := outcomeToSummary(o)
 		totalTokens += s.Tokens
 		totalPremium += s.PremiumRequests
+		credits.add(s.AICredits)
 		totalCost += s.Cost
 		totalDuration += s.Duration
 		costSources = append(costSources, s.CostSource)
@@ -335,6 +408,7 @@ func (fs *FileStore) Summary() (*SummaryResponse, error) {
 	if resp.TotalRuns > 0 {
 		resp.AvgTokens = float64(totalTokens) / float64(resp.TotalRuns)
 		resp.AvgPremiumRequests = totalPremium / float64(resp.TotalRuns)
+		resp.AvgAICredits = credits.average()
 		resp.AvgCost = totalCost / float64(resp.TotalRuns)
 		resp.AvgDuration = totalDuration / float64(resp.TotalRuns)
 	}

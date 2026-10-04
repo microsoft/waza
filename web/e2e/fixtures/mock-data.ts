@@ -9,6 +9,7 @@ export const SUMMARY = {
   passRate: 85,
   avgTokens: 15230,
   avgPremiumRequests: 8,
+  avgAICredits: 3.25,
   avgCost: 1.47,
   avgDuration: 42,
 };
@@ -23,6 +24,24 @@ export const RUNS = [
     taskCount: 4,
     tokens: 12400,
     premiumRequests: 6,
+    aiCredits: 2.5,
+    modelUsage: [
+      {
+        model: "claude-sonnet-4",
+        inputTokens: 3000,
+        cacheReadTokens: 900,
+        cacheWriteTokens: 400,
+        outputTokens: 1200,
+      },
+      {
+        model: "gpt-4o",
+        aiCredits: 2.5,
+        inputTokens: 8000,
+        cacheReadTokens: 2500,
+        cacheWriteTokens: 1100,
+        outputTokens: 4400,
+      },
+    ],
     cost: 1.24,
     duration: 38,
     weightedScore: 0.92,
@@ -38,6 +57,7 @@ export const RUNS = [
     taskCount: 5,
     tokens: 18100,
     premiumRequests: 10,
+    aiCredits: 4.75,
     cost: 1.81,
     duration: 55,
     weightedScore: 0.45,
@@ -52,6 +72,7 @@ export const RUNS = [
     taskCount: 3,
     tokens: 9800,
     premiumRequests: 4,
+    // No aiCredits: legacy artifact that predates AI-credit reporting.
     cost: 0.98,
     duration: 27,
     timestamp: new Date(Date.now() - 86400_000).toISOString(), // 1 day ago

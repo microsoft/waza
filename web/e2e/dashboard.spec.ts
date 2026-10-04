@@ -22,8 +22,8 @@ test.describe("Dashboard", () => {
     await expect(cards.getByText("Total Tasks")).toBeVisible();
     await expect(cards.getByText("Pass Rate")).toBeVisible();
     await expect(cards.getByText("Avg Tokens")).toBeVisible();
-    await expect(cards.getByText("Avg Credits")).toBeVisible();
-    await expect(cards.getByText("Avg Cost")).toBeVisible();
+    await expect(cards.getByText("Avg AI Credits")).toBeVisible();
+    await expect(cards.getByText("Avg Est. Cost")).toBeVisible();
     await expect(cards.getByText("Avg Duration")).toBeVisible();
   });
 
@@ -42,12 +42,12 @@ test.describe("Dashboard", () => {
     await expect(cards.getByText("85%")).toBeVisible();
     // avgTokens: 15230 → "15.2K"
     await expect(cards.getByText("15.2K")).toBeVisible();
-    // avgPremiumRequests: 8 → "8" (scoped to the Avg Credits card so we don't match the "8" in run-002's tokens, etc.)
+    // avgAICredits: 3.25 → "3.25" (scoped to the Avg AI Credits card).
     const avgCreditsCard = cards
       .locator("div")
-      .filter({ hasText: /^Avg Credits$/ })
+      .filter({ hasText: /^Avg AI Credits$/ })
       .locator("..");
-    await expect(avgCreditsCard).toContainText("8");
+    await expect(avgCreditsCard).toContainText("3.25");
     // avgCost: 1.47 → "$1.47"
     await expect(cards.getByText("$1.47")).toBeVisible();
     // avgDuration: 42s → "42s"
@@ -80,20 +80,22 @@ test.describe("Runs Table", () => {
     await expect(page.getByText("doc-writer")).toBeVisible();
   });
 
-  test("Credits column renders with values", async ({ page }) => {
+  test("AI Credits column renders values and an unavailable state", async ({
+    page,
+  }) => {
     await mockAllAPIs(page);
     await page.goto("/");
 
     await expect(page.getByText("code-explainer")).toBeVisible();
-    await expect(page.getByRole("button", { name: /Credits/ })).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "AI Credits", exact: true }),
+    ).toBeVisible();
 
-    // Assert the fixture values render in the Credits column.
-    // RUNS fixture: premiumRequests = 6, 10, 4 → formatted with thousands separators (integers here).
-    // Scope to the table body so the "10" in other columns can't satisfy this.
+    // RUNS fixture: aiCredits = 2.5, 4.75, and run-003 has none (legacy artifact).
     const tbody = page.locator("tbody");
-    await expect(tbody.getByText("6", { exact: true }).first()).toBeVisible();
-    await expect(tbody.getByText("10", { exact: true }).first()).toBeVisible();
-    await expect(tbody.getByText("4", { exact: true }).first()).toBeVisible();
+    await expect(tbody.getByText("2.50", { exact: true })).toBeVisible();
+    await expect(tbody.getByText("4.75", { exact: true })).toBeVisible();
+    await expect(tbody.getByText("—", { exact: true }).first()).toBeVisible();
   });
 
   test("column sorting works", async ({ page }) => {

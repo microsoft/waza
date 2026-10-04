@@ -8,14 +8,17 @@ import (
 	"github.com/microsoft/waza/internal/models"
 )
 
-// SessionUsageCollector tracks token and premium request usage from Copilot SDK
-// session events. Its On method implements [copilot.SessionEventHandler] and should
-// be registered via session.On(collector.On).
+// SessionUsageCollector tracks token, AI-credit, and request usage from Copilot
+// SDK session events. Its On method implements [copilot.SessionEventHandler] and
+// should be registered via session.On(collector.On).
 //
 // Usage data arrives through two channels:
 //   - Per-turn events (AssistantUsage) — accumulated as a fallback.
 //   - Session termination events (SessionIdle, SessionShutdown) — authoritative
-//     totals that override per-turn data when available.
+//     totals that override per-turn data when available. Shutdown metrics carry
+//     the final nano-AI-unit totals GitHub billed for the session, both overall
+//     and per model; those are recorded as AI credits and are never
+//     reconstructed from a local token-rate table.
 type SessionUsageCollector struct {
 	// Per-turn accumulated usage (fallback when session-level data is absent)
 	turnUsage *models.UsageStats
@@ -96,6 +99,14 @@ func (s *SessionUsageCollector) extractSessionUsage(event copilot.SessionEvent) 
 		s.sessionUsage.PremiumRequests = *shutdown.TotalPremiumRequests
 	}
 
+	// The session-level nano-AI-unit total is the authoritative final AI-credit
+	// amount GitHub billed for this session. It is preferred over any
+	// locally-computed estimate.
+	if shutdown.TotalNanoAiu != nil {
+		credits := models.AICreditsFromNanoAIU(*shutdown.TotalNanoAiu)
+		s.sessionUsage.AICredits = &credits
+	}
+
 	if len(shutdown.ModelMetrics) > 0 {
 		s.sessionUsage.ModelMetrics = make(map[string]models.ModelUsage, len(shutdown.ModelMetrics))
 
@@ -112,6 +123,10 @@ func (s *SessionUsageCollector) extractSessionUsage(event copilot.SessionEvent) 
 			}
 			if mm.Requests.Cost != nil {
 				mu.RequestCost = *mm.Requests.Cost
+			}
+			if mm.TotalNanoAiu != nil {
+				credits := models.AICreditsFromNanoAIU(*mm.TotalNanoAiu)
+				mu.AICredits = &credits
 			}
 			s.sessionUsage.ModelMetrics[name] = mu
 			totalIn += mu.InputTokens

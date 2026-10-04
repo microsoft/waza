@@ -7,7 +7,7 @@ import {
   formatPercent,
   formatNumber,
   formatCost,
-  formatCredits,
+  formatAICredits,
   formatDuration,
 } from "../lib/format";
 
@@ -60,12 +60,16 @@ export default function TrendsPage() {
     [filtered],
   );
 
+  // Only runs with an authoritative AI-credit total are charted; legacy runs
+  // are skipped rather than plotted as zero.
   const creditsData: DataPoint[] = useMemo(
     () =>
-      filtered.map((r: RunSummary) => ({
-        label: formatShortDate(r.timestamp),
-        value: r.premiumRequests ?? 0,
-      })),
+      filtered
+        .filter((r: RunSummary) => r.aiCredits != null)
+        .map((r: RunSummary) => ({
+          label: formatShortDate(r.timestamp),
+          value: r.aiCredits as number,
+        })),
     [filtered],
   );
 
@@ -131,15 +135,24 @@ export default function TrendsPage() {
             formatValue={formatNumber}
           />
           <TrendChart
-            title="Cost per Run"
+            title="Est. Cost per Run"
             data={costData}
             formatValue={formatCost}
           />
-          <TrendChart
-            title="Credits per Run"
-            data={creditsData}
-            formatValue={formatCredits}
-          />
+          {creditsData.length > 0 ? (
+            <TrendChart
+              title="AI Credits per Run"
+              data={creditsData}
+              formatValue={formatAICredits}
+            />
+          ) : (
+            <div className="rounded-lg border border-zinc-700 bg-zinc-800 p-6 text-sm text-zinc-500">
+              <div className="mb-2 font-medium text-zinc-300">
+                AI Credits per Run
+              </div>
+              AI Credit usage unavailable for these runs.
+            </div>
+          )}
           <TrendChart
             title="Duration per Run"
             data={durationData}

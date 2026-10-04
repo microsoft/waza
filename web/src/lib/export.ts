@@ -39,8 +39,8 @@ export function exportRunsToCSV(runs: RunSummary[]) {
     "Task Count",
     "Pass Rate",
     "Tokens",
-    "Credits",
-    "Cost",
+    "AI Credits",
+    "Est. Cost",
     "Duration (s)",
     "Timestamp",
   ];
@@ -55,7 +55,8 @@ export function exportRunsToCSV(runs: RunSummary[]) {
       ? `${Math.round((r.passCount / r.taskCount) * 100)}%`
       : "0%",
     String(r.tokens),
-    String(Math.round(r.premiumRequests ?? 0)),
+    // Empty cell (not a placeholder glyph) so spreadsheets keep the column numeric.
+    r.aiCredits != null ? r.aiCredits.toFixed(4) : "",
     `$${r.cost.toFixed(2)}`,
     String(Math.round(r.duration)),
     r.timestamp,
