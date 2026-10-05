@@ -19,7 +19,6 @@ on:
 permissions:
   contents: write
   pull-requests: write
-  statuses: write
 
 jobs:
   # ──────────────────────────────────────────────
@@ -28,6 +27,7 @@ jobs:
   setup-version:
     name: Setup Version
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     outputs:
       version: ${{ steps.version.outputs.version }}
       tag: ${{ steps.version.outputs.tag }}
@@ -56,6 +56,7 @@ jobs:
     name: CLI ${{ matrix.os }}/${{ matrix.arch }}
     needs: setup-version
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     strategy:
       matrix:
         include:
@@ -124,6 +125,7 @@ jobs:
     name: Release CLI
     needs: [setup-version, build-cli]
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Checkout Repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -177,6 +179,7 @@ jobs:
     name: Release Extension
     needs: setup-version
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       VERSION: ${{ needs.setup-version.outputs.version }}
@@ -248,8 +251,8 @@ jobs:
 
       # ── Commit version + registry changes back via PR ──
       # Enterprise policy blocks GITHUB_TOKEN from creating PRs.
-      # Push the branch and create the PR. Auto-merge if permitted,
-      # otherwise leave the PR open for a maintainer to merge.
+      # Push the branch and create the PR. Leave it open for normal
+      # review and real CI checks before a maintainer merges it.
       - name: Create Release PR
         run: |
           BRANCH="release/v${VERSION}"
@@ -283,18 +286,7 @@ jobs:
 
           if echo "$PR_URL" | grep -q "github.com"; then
             echo "✅ Created PR: $PR_URL"
-
-            # Try to report statuses and auto-merge (best-effort)
-            PR_SHA=$(git rev-parse HEAD)
-            for CONTEXT in "ubuntu-latest" "Lint"; do
-              gh api "repos/${{ github.repository }}/statuses/${PR_SHA}" \
-                -f state=success \
-                -f context="$CONTEXT" \
-                -f description="Skipped — automated release PR (run ${{ github.run_id }})" 2>/dev/null || true
-            done
-
-            gh pr merge "$PR_URL" --squash --delete-branch 2>/dev/null && echo "✅ Auto-merged" || \
-              echo "⚠️ Auto-merge not available — PR is open for manual merge"
+            echo "Release PR requires normal review and passing CI before merge."
           else
             echo "⚠️ Could not create PR (enterprise restriction). Branch pushed: release/v${VERSION}"
             echo "   Create PR manually: https://github.com/${{ github.repository }}/compare/main...release/v${VERSION}"
