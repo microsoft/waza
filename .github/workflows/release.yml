@@ -287,6 +287,7 @@ jobs:
           if echo "$PR_URL" | grep -q "github.com"; then
             echo "✅ Created PR: $PR_URL"
             echo "Release PR requires normal review and passing CI before merge."
+            echo "A maintainer must select 'Approve workflows to run' on the PR to start its CI."
           else
             echo "⚠️ Could not create PR (enterprise restriction). Branch pushed: release/v${VERSION}"
             echo "   Create PR manually: https://github.com/${{ github.repository }}/compare/main...release/v${VERSION}"

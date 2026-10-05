@@ -25,7 +25,11 @@ The version-sync PR remains open until its normal review requirements and real
 CI checks pass. The release workflow does not synthesize successful checks or
 merge this PR itself. If enterprise policy prevents the workflow token from
 creating the PR, a maintainer must open it from the pushed `release/vX.Y.Z` branch
-so the pull-request workflows run.
+so the pull-request workflows run. When the workflow token creates or updates
+the PR successfully, the resulting CI runs require approval: a maintainer with
+write access must select **Approve workflows to run** in the PR's merge box.
+Approving workflow execution does not replace the required code review or
+passing checks.
 
 ## Version File Locations
 
