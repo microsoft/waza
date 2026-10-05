@@ -1,6 +1,7 @@
 package execution
 
 import (
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"sort"
@@ -159,7 +160,7 @@ type ToolPolicyDenial struct {
 	// request kind/shape could not be resolved to a tool name at all).
 	Tool string
 	// Kind is the underlying Copilot SDK permission request kind (e.g.
-	// "shell", "url", "mcp", "custom-tool", "factory").
+	// "shell", "url", "mcp", "custom-tool", "workflow").
 	Kind string
 	// Reason explains why the request was denied.
 	Reason string
@@ -208,9 +209,9 @@ func (r *toolPolicyRecorder) snapshot() []ToolPolicyDenial {
 // PermissionRequestRead -> "read", PermissionRequestWrite -> "write",
 // PermissionRequestShell -> "bash", PermissionRequestURL -> "fetch". Requests
 // that carry an explicit tool name (custom tool, MCP, hook) use that name
-// directly; factory/subagent requests use their declared factory Name (or
+// directly; workflow and legacy factory requests use their declared Name (or
 // "task" if no name is present), so an allow-list can target a specific
-// subagent instead of implicitly permitting every subagent.
+// workflow instead of implicitly permitting every workflow.
 func canonicalPermissionToolName(request copilot.PermissionRequest) (string, bool) {
 	if isNilPermissionRequest(request) {
 		return "", false
@@ -229,16 +230,22 @@ func canonicalPermissionToolName(request copilot.PermissionRequest) (string, boo
 		return canonicalToolName("mcp:" + req.ServerName + "-" + req.ToolName), true
 	case *copilot.PermissionRequestHook:
 		return canonicalToolName(req.ToolName), strings.TrimSpace(req.ToolName) != ""
-	case *copilot.PermissionRequestFactory:
-		// Subagent (task/factory) invocations declare their own factory
-		// Name (e.g. a specific subagent), which lets an allow-list target
-		// that subagent directly. Fall back to the generic "task" tool name
-		// when the SDK doesn't supply one.
-		if req.Name != "" {
-			return canonicalToolName(req.Name), true
+	case *copilot.PermissionRequestWorkflow:
+		return canonicalWorkflowToolName(req.Name), true
+	case *copilot.RawPermissionRequest:
+		// The bundled CLI 1.0.85 still emits "factory", which SDK 1.0.15
+		// preserves as raw JSON. Its fields match the renamed workflow type.
+		if req.Kind() != "factory" {
+			return "", false
 		}
-
-		return "task", true
+		var legacy struct {
+			Kind copilot.PermissionRequestKind `json:"kind"`
+			copilot.PermissionRequestWorkflow
+		}
+		if err := json.Unmarshal(req.Raw, &legacy); err != nil || legacy.Kind != req.Kind() {
+			return "", false
+		}
+		return canonicalWorkflowToolName(legacy.Name), true
 	case *copilot.PermissionRequestRead:
 		return "read", true
 	case *copilot.PermissionRequestWrite:
@@ -252,6 +259,13 @@ func canonicalPermissionToolName(request copilot.PermissionRequest) (string, boo
 	default:
 		return "", false
 	}
+}
+
+func canonicalWorkflowToolName(name string) string {
+	if name == "" {
+		return "task"
+	}
+	return canonicalToolName(name)
 }
 
 func isNilPermissionRequest(request copilot.PermissionRequest) bool {

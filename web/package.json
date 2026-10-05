@@ -13,9 +13,9 @@
     "test:e2e:headed": "playwright test --headed"
   },
   "dependencies": {
-    "@tanstack/react-query": "^5.103.2",
+    "@tanstack/react-query": "^5.104.0",
     "@tanstack/react-table": "^8.21.3",
-    "lucide-react": "^1.28.0",
+    "lucide-react": "^1.49.0",
     "react": "^19.2.8",
     "react-dom": "^19.3.0"
   },
@@ -32,7 +32,7 @@
     "globals": "^17.12.0",
     "tailwindcss": "^4.3.2",
     "typescript": "~6.0.3",
-    "typescript-eslint": "^8.70.1",
-    "vite": "^8.3.0"
+    "typescript-eslint": "^8.71.0",
+    "vite": "^8.3.1"
   }
 }
