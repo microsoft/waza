@@ -94,7 +94,7 @@ func TestCaptureUsageFallbacks(t *testing.T) {
 	}
 }
 
-func TestEphemeralUsageCapturedBeforeDeletionAndRetained(t *testing.T) {
+func TestEphemeralUsageCapturedBeforeDisconnectAndDeletion(t *testing.T) {
 	for _, rpcAvailable := range []bool{true, false} {
 		t.Run(map[bool]string{true: "RPC", false: "shutdown"}[rpcAvailable], func(t *testing.T) {
 			ctrl := gomock.NewController(t)
@@ -104,17 +104,18 @@ func TestEphemeralUsageCapturedBeforeDeletionAndRetained(t *testing.T) {
 			session.EXPECT().SessionID().Return("grader")
 			session.EXPECT().On(gomock.Any()).AnyTimes().Return(func() {})
 			session.EXPECT().SendAndWait(gomock.Any(), gomock.Any()).Return(nil, errors.New("post-grade model error"))
+			var finalUsage *gomock.Call
 			if rpcAvailable {
-				session.EXPECT().UsageMetrics(gomock.Any()).Return(&rpc.UsageGetMetricsResult{TotalNanoAiu: utils.Ptr(2e9)}, nil)
+				finalUsage = session.EXPECT().UsageMetrics(gomock.Any()).Return(&rpc.UsageGetMetricsResult{TotalNanoAiu: utils.Ptr(2e9)}, nil)
 			} else {
-				session.EXPECT().UsageMetrics(gomock.Any()).Return(nil, errors.New("old runtime"))
-				session.EXPECT().ShutdownUsage(gomock.Any()).Return(&copilot.SessionShutdownData{TotalNanoAiu: utils.Ptr(2e9)}, nil)
+				metrics := session.EXPECT().UsageMetrics(gomock.Any()).Return(nil, errors.New("old runtime"))
+				finalUsage = session.EXPECT().ShutdownUsage(gomock.Any()).After(metrics).Return(&copilot.SessionShutdownData{TotalNanoAiu: utils.Ptr(2e9)}, nil)
 			}
-			session.EXPECT().Disconnect()
+			disconnect := session.EXPECT().Disconnect().After(finalUsage).Return(nil)
 			engine := NewCopilotEngineBuilder("judge", &CopilotEngineBuilderOptions{
 				NewCopilotClient: func(*copilot.ClientOptions) CopilotClient { return client },
 			}).Build()
-			client.EXPECT().DeleteSession(gomock.Any(), "grader").DoAndReturn(func(context.Context, string) error {
+			client.EXPECT().DeleteSession(gomock.Any(), "grader").After(disconnect).DoAndReturn(func(context.Context, string) error {
 				require.Equal(t, 2.0, *engine.SessionUsage("grader").AICredits)
 				return errors.New("delete failed")
 			})

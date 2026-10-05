@@ -494,6 +494,13 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 		if err := session.Disconnect(); err != nil {
 			slog.Info("failed to destroy session", "sessionID", sessionID, "error", err)
 		}
+		if req.EphemeralSession && req.SessionID == "" {
+			deleteCtx, cancelDelete := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancelDelete()
+			if err := e.client.DeleteSession(deleteCtx, sessionID); err != nil {
+				slog.Warn("failed to delete ephemeral session", "sessionID", sessionID, "error", err)
+			}
+		}
 	}()
 
 	eventsCollector := NewSessionEventsCollector()
@@ -624,13 +631,6 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 
 	// Build response
 	e.captureUsage(sessionID, session, usageCollector, req.EphemeralSession && req.SessionID == "")
-	if req.EphemeralSession && req.SessionID == "" {
-		deleteCtx, cancelDelete := context.WithTimeout(context.Background(), 30*time.Second)
-		if err := e.client.DeleteSession(deleteCtx, sessionID); err != nil {
-			slog.Warn("failed to delete ephemeral session", "sessionID", sessionID, "error", err)
-		}
-		cancelDelete()
-	}
 	usage := usageCollector.UsageStats()
 	e.provider.applyToUsage(usage)
 	resp := &ExecutionResponse{
