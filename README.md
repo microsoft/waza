@@ -884,9 +884,9 @@ Copilot-backed runs query `session.usage.getMetrics` after completion for the au
 
 | Field | Description |
 |-------|-------------|
-| `usage.ai_credits` | Final AI Credits for the run |
-| `usage.model_metrics.<model>.ai_credits` | Final AI Credits attributed to a model |
-| `usage.model_metrics.<model>.{input,output,cache_read,cache_write}_tokens` | Token-category diagnostics retained alongside credits |
+| `summary.usage.ai_credits` | Final AI Credits for the run |
+| `summary.usage.model_metrics.<model>.ai_credits` | Final AI Credits attributed to a model |
+| `summary.usage.model_metrics.<model>.{input,output,cache_read,cache_write}_tokens` | Token-category diagnostics retained alongside credits |
 
 The dashboard surfaces these as **AI Credits** (run rows, the Avg AI Credits KPI, run detail, compare, trends, and CSV export) plus a **Usage by model** table on run details. An evaluation-scoped execution ledger includes every task attempt, prompt grader, responder/classifier, trigger, and evaluation-analysis session, even when a failed attempt is replaced in the final task results. Cumulative snapshots count once per session; per-turn engines retain additive semantics. Multi-turn token-limit grading uses the latest cumulative snapshot before shutdown. These totals are not account-wide Copilot usage.
 

@@ -1175,9 +1175,9 @@ Copilot-backed runs query the SDK's typed `session.usage.getMetrics` after compl
 
 | Field | Description |
 |-------|-------------|
-| `usage.ai_credits` | Final AI Credits for the run |
-| `usage.model_metrics.<model>.ai_credits` | Final AI Credits attributed to a model |
-| `usage.model_metrics.<model>.{input,output,cache_read,cache_write}_tokens` | Token-category diagnostics |
+| `summary.usage.ai_credits` | Final AI Credits for the run |
+| `summary.usage.model_metrics.<model>.ai_credits` | Final AI Credits attributed to a model |
+| `summary.usage.model_metrics.<model>.{input,output,cache_read,cache_write}_tokens` | Token-category diagnostics |
 
 The CLI usage summary prints `AI Credits` (and a per-model column) at nano-unit precision, and the dashboard shows **AI Credits** plus a **Usage by model** table. Totals include task, trigger, and prompt-grader sessions initiated by waza, not account-wide Copilot usage. A run or model aggregate with missing contributing metrics is unavailable, never a partial subtotal. The pinned SDK (`github.com/github/copilot-sdk/go` v1.0.14) exposes this typed API; older result artifacts show `—` in the dashboard (`n/a` in the CLI) rather than an estimate.
 
