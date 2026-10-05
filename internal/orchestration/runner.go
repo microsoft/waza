@@ -1283,11 +1283,13 @@ func (r *EvalRunner) executeRun(ctx context.Context, tc *models.TestCase, runNum
 
 		if err != nil {
 			return returnWithArtifacts(models.RunResult{
-				RunNumber:  runNum,
-				Prompt:     req.Message,
-				Status:     models.StatusError,
-				DurationMs: time.Since(startTime).Milliseconds(),
-				ErrorMsg:   "running graders: " + err.Error(),
+				RunNumber:      runNum,
+				Prompt:         req.Message,
+				Status:         models.StatusError,
+				DurationMs:     time.Since(startTime).Milliseconds(),
+				ErrorMsg:       "running graders: " + err.Error(),
+				SessionDigest:  r.buildSessionDigest(resp),
+				GraderSessions: resp.GraderSessions,
 			})
 		}
 	}
@@ -1364,6 +1366,7 @@ func (r *EvalRunner) executeRun(ctx context.Context, tc *models.TestCase, runNum
 		DurationMs:         resp.DurationMs,
 		Validations:        gradersResults,
 		SessionDigest:      r.buildSessionDigest(resp),
+		GraderSessions:     resp.GraderSessions,
 		Transcript:         transcript,
 		FinalOutput:        resp.FinalOutput,
 		ErrorMsg:           resp.ErrorMsg,
@@ -2131,6 +2134,9 @@ func (r *EvalRunner) buildGraderContext(tc *models.TestCase, resp *execution.Exe
 		ToolEvents:         buildToolEvents(sdkEvents),
 		CommandInvocations: resp.CommandInvocations,
 		Executor:           r.engine,
+		RecordUsage: func(digest models.SessionDigest) {
+			resp.GraderSessions = append(resp.GraderSessions, digest)
+		},
 	}
 }
 

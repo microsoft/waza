@@ -46,7 +46,7 @@ func TestSessionEventsCollector_FirstEvent_ClosesOnFirstEvent(t *testing.T) {
 func TestCopilotExecute_FirstEventTimeout_AbortsSessionStartHang(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	clientMock := newClientMock(ctrl)
-	sessionMock := NewMockCopilotSession(ctrl)
+	sessionMock := newSessionMock(ctrl)
 
 	sourceDir := t.TempDir()
 
@@ -99,7 +99,7 @@ func TestCopilotExecute_FirstEventTimeout_AbortsSessionStartHang(t *testing.T) {
 func TestCopilotExecute_FirstEventTimeout_DisarmsOnFirstEvent(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	clientMock := newClientMock(ctrl)
-	sessionMock := NewMockCopilotSession(ctrl)
+	sessionMock := newSessionMock(ctrl)
 
 	sourceDir := t.TempDir()
 

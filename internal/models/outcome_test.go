@@ -260,7 +260,7 @@ func TestAggregateUsageStats_AICredits(t *testing.T) {
 			},
 		},
 		{
-			// Legacy stats without AI-credit metrics must not reset the total.
+			// Legacy stats make the aggregate incomplete.
 			InputTokens: 50,
 			ModelMetrics: map[string]ModelUsage{
 				"gpt-4o": {InputTokens: 50},
@@ -276,10 +276,9 @@ func TestAggregateUsageStats_AICredits(t *testing.T) {
 	})
 
 	require.NotNil(t, agg)
-	require.NotNil(t, agg.AICredits)
-	require.InDelta(t, 2.0, *agg.AICredits, 1e-9)
-	require.NotNil(t, agg.ModelMetrics["gpt-4o"].AICredits)
-	require.InDelta(t, 2.0, *agg.ModelMetrics["gpt-4o"].AICredits, 1e-9)
+	require.Nil(t, agg.AICredits)
+	require.Nil(t, agg.ModelMetrics["gpt-4o"].AICredits)
+	require.Equal(t, 175, agg.InputTokens)
 }
 
 func TestAggregateUsageStats_AICreditsUnavailable(t *testing.T) {

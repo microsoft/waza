@@ -880,7 +880,7 @@ The dashboard displays evaluation results with:
 
 **AI Credit usage:**
 
-Copilot-backed runs record the final GitHub Copilot AI Credit total the Copilot SDK reports at session shutdown (`totalNanoAiu` ÷ 1e9) — waza never derives this figure from its embedded token rate table. Result JSON stores:
+Copilot-backed runs query `session.usage.getMetrics` after completion for the authoritative final GitHub Copilot AI Credit total (`totalNanoAiu` ÷ 1e9). Shutdown metrics are a fallback if the RPC is unavailable; waza never derives credits from its token rate table. Result JSON stores:
 
 | Field | Description |
 |-------|-------------|
@@ -888,7 +888,9 @@ Copilot-backed runs record the final GitHub Copilot AI Credit total the Copilot 
 | `usage.model_metrics.<model>.ai_credits` | Final AI Credits attributed to a model |
 | `usage.model_metrics.<model>.{input,output,cache_read,cache_write}_tokens` | Token-category diagnostics retained alongside credits |
 
-The dashboard surfaces these as **AI Credits** (run rows, the Avg AI Credits KPI, run detail, compare, trends, and CSV export) plus a **Usage by model** table on run details. The values cover only the Copilot usage waza initiated — they are not account-wide Copilot usage. Reporting requires a Copilot SDK/bundled runtime that emits final AI-credit metrics (`github.com/github/copilot-sdk/go` v1.0.14 or later); older artifacts and runtimes omit the fields and the dashboard shows an unavailable state (`—`) instead of an estimate. The separate **Est. Cost** column remains a secondary USD estimate and is not an AI Credit amount.
+The dashboard surfaces these as **AI Credits** (run rows, the Avg AI Credits KPI, run detail, compare, trends, and CSV export) plus a **Usage by model** table on run details. Totals include task, trigger, and prompt-grader sessions initiated by waza, counting resumed sessions once; they are not account-wide Copilot usage. A run total is unavailable if any contributing session lacks final credits, and each model total is unavailable if any contributing metric for that model lacks credits. Reporting uses the typed API in `github.com/github/copilot-sdk/go` v1.0.14; legacy artifacts and runtimes without metrics show `—` instead of an estimate. The KPI averages only complete reporting runs; trends visibly count unavailable runs. Display preserves up to nine fractional digits, and CSV preserves the numeric API value (empty when unavailable). Estimated USD is not shown on primary dashboard billing surfaces; legacy cost fields remain in the API for compatibility.
+
+Storage-backed dashboard listings preserve outcome usage rather than relying on metadata-only summaries. Azure Blob listings use known blob paths and bounded concurrent downloads, avoiding a repeated container scan for each run; storage errors surface explicitly instead of yielding partial billing summaries.
 
 For detailed documentation on the dashboard and result visualization, see [docs/GUIDE.md](docs/GUIDE.md).
 

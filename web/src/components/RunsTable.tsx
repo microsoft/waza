@@ -11,16 +11,13 @@ import { ArrowUpDown, CheckCircle2, XCircle, AlertCircle } from "lucide-react";
 import type { RunSummary } from "../api/client";
 import {
   formatDuration,
-  formatCost,
   formatAICredits,
   formatNumber,
   formatRelativeTime,
   formatPercent,
-  costSourceTooltip,
   AI_CREDITS_TOOLTIP,
   AI_CREDITS_UNAVAILABLE_TOOLTIP,
 } from "../lib/format";
-import { InfoTooltip } from "./InfoTooltip";
 
 function OutcomeBadge({ outcome }: { outcome: string }) {
   if (outcome.startsWith("pass"))
@@ -134,22 +131,6 @@ export default function RunsTable({ data }: { data: RunSummary[] }) {
             </span>
           );
         },
-      }),
-      col.accessor("cost", {
-        header: () => (
-          <span className="inline-flex items-center gap-1">
-            Est. Cost
-            <InfoTooltip text="Estimated USD cost from token pricing — not a GitHub Copilot credit amount. Cost source varies per run; hover individual values for the source (SDK, rate table, or estimate)." />
-          </span>
-        ),
-        cell: (info) => (
-          <span
-            className="text-zinc-300"
-            title={costSourceTooltip(info.row.original.costSource)}
-          >
-            {formatCost(info.getValue())}
-          </span>
-        ),
       }),
       col.accessor("duration", {
         header: "Duration",

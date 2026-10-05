@@ -1776,7 +1776,7 @@ func printUsageSummary(usage *models.UsageStats) {
 		fmt.Printf("  %-25s %.0f\n", label+":", usage.PremiumRequests)
 	}
 	if usage.AICredits != nil {
-		fmt.Printf("  %-25s %.4f\n", "AI Credits:", *usage.AICredits)
+		fmt.Printf("  %-25s %.9f\n", "AI Credits:", *usage.AICredits)
 	}
 	if usage.Turns > 0 {
 		fmt.Printf("  Turns:                    %s\n", printer.Sprint(usage.Turns))
@@ -1799,7 +1799,7 @@ func printUsageSummary(usage *models.UsageStats) {
 			mu := usage.ModelMetrics[model]
 			credits := "n/a"
 			if mu.AICredits != nil {
-				credits = fmt.Sprintf("%.4f", *mu.AICredits)
+				credits = fmt.Sprintf("%.9f", *mu.AICredits)
 			}
 			fmt.Printf("  %-25s %-12s %-12s %-10.0f %s\n",
 				truncate(model, 25),

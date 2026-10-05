@@ -53,6 +53,7 @@ test.describe("Run Detail", () => {
 
     // gpt-4o row: 2.50 credits, 8.0K input, 2.5K cached input, 1.1K cache write, 4.4K output
     const gptRow = usage.locator("tr", { hasText: "gpt-4o" });
+    await expect(gptRow).toContainText("2.50");
     await expect(gptRow).toContainText("8.0K");
     await expect(gptRow).toContainText("2.5K");
     await expect(gptRow).toContainText("1.1K");

@@ -171,6 +171,7 @@ type ExecutionResponse struct {
 	WorkspaceFiles   map[string][]byte // Post-execution workspace file contents captured before session disconnect
 	SessionID        string            // Copilot session ID
 	Usage            *models.UsageStats
+	GraderSessions   []models.SessionDigest
 
 	// ToolPolicyMode is the effective ToolPolicy mode applied to this
 	// execution ("unrestricted", "deny_all", or "allow_list"), empty when no

@@ -687,14 +687,17 @@ echo "🖥️  Start without auto-opening browser:"
 **KPI Cards (Top Section)**
 - Total runs executed
 - Overall pass rate (percentage)
-- Average score across all runs
+- Average tokens, AI Credits (complete reporting runs only), and duration
 
 **Run Table (Main Section)**
-- Sortable columns: Run ID, Date, Model, Overall Score, Pass Rate
+- Sortable spec, model, task count, tokens, AI Credits, duration, and timestamp
 - Click a row to view detailed results
 - Filter by date range or status
 
 **Run Detail**
+- AI Credits includes task, trigger, and prompt-grader sessions; missing contributing metrics show unavailable, never an estimated or partial total
+- Usage by model shows credits and input, cached-input, cache-write, and output tokens
+- Trends visibly count unavailable credit runs; primary billing views do not show estimated USD
 - Open the **Prompts** tab to inspect the raw resolved prompt sent to each task
 - JSON prompts are formatted for readability
 - Copy any captured prompt for debugging or reuse

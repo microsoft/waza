@@ -40,7 +40,6 @@ export function exportRunsToCSV(runs: RunSummary[]) {
     "Pass Rate",
     "Tokens",
     "AI Credits",
-    "Est. Cost",
     "Duration (s)",
     "Timestamp",
   ];
@@ -56,8 +55,7 @@ export function exportRunsToCSV(runs: RunSummary[]) {
       : "0%",
     String(r.tokens),
     // Empty cell (not a placeholder glyph) so spreadsheets keep the column numeric.
-    r.aiCredits != null ? r.aiCredits.toFixed(4) : "",
-    `$${r.cost.toFixed(2)}`,
+    r.aiCredits != null ? String(r.aiCredits) : "",
     String(Math.round(r.duration)),
     r.timestamp,
   ]);

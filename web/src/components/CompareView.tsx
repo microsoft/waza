@@ -5,7 +5,6 @@ import TaskTrajectoryCompare from "./TaskTrajectoryCompare";
 import { InfoTooltip } from "./InfoTooltip";
 import {
   formatDuration,
-  formatCost,
   formatAICredits,
   formatNumber,
   formatPercent,
@@ -19,14 +18,16 @@ function Delta({
   b,
   format,
   higherIsBetter = true,
+  precision = 0.001,
 }: {
   a: number;
   b: number;
   format: (v: number) => string;
   higherIsBetter?: boolean;
+  precision?: number;
 }) {
   const diff = b - a;
-  if (Math.abs(diff) < 0.001)
+  if (Math.abs(diff) < precision)
     return <span className="text-zinc-400">—</span>;
 
   const improved = higherIsBetter ? diff > 0 : diff < 0;
@@ -307,7 +308,7 @@ export default function CompareView() {
             <h3 className="mb-4 text-sm font-medium text-zinc-300">
               Metrics Comparison
             </h3>
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
               <MetricCard
                 label="Pass Rate"
                 valueA={formatPercent(
@@ -372,21 +373,9 @@ export default function CompareView() {
                       b={runB.aiCredits}
                       format={formatAICredits}
                       higherIsBetter={false}
+                      precision={0.0000000005}
                     />
                   )
-                }
-              />
-              <MetricCard
-                label="Est. Cost"
-                valueA={formatCost(runA.cost)}
-                valueB={formatCost(runB.cost)}
-                delta={
-                  <Delta
-                    a={runA.cost}
-                    b={runB.cost}
-                    format={formatCost}
-                    higherIsBetter={false}
-                  />
                 }
               />
               <MetricCard

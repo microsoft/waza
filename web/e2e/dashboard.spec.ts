@@ -11,7 +11,7 @@ test.describe("Dashboard", () => {
     await expect(header.getByText("eval dashboard")).toBeVisible();
   });
 
-  test("7 KPI cards render with data", async ({ page }) => {
+  test("6 KPI cards render with data", async ({ page }) => {
     await mockAllAPIs(page);
     await page.goto("/");
 
@@ -23,7 +23,7 @@ test.describe("Dashboard", () => {
     await expect(cards.getByText("Pass Rate")).toBeVisible();
     await expect(cards.getByText("Avg Tokens")).toBeVisible();
     await expect(cards.getByText("Avg AI Credits")).toBeVisible();
-    await expect(cards.getByText("Avg Est. Cost")).toBeVisible();
+    await expect(cards.getByText(/Cost/)).toHaveCount(0);
     await expect(cards.getByText("Avg Duration")).toBeVisible();
   });
 
@@ -48,8 +48,6 @@ test.describe("Dashboard", () => {
       .filter({ hasText: /^Avg AI Credits$/ })
       .locator("..");
     await expect(avgCreditsCard).toContainText("3.25");
-    // avgCost: 1.47 → "$1.47"
-    await expect(cards.getByText("$1.47")).toBeVisible();
     // avgDuration: 42s → "42s"
     await expect(cards.getByText("42s")).toBeVisible();
   });

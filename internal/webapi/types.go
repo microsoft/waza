@@ -28,7 +28,7 @@ type RunSummary struct {
 	// CostSource records how Cost was computed: "sdk" (reported by the Copilot
 	// SDK), "table" (priced from the embedded model rate table), or "estimate"
 	// (flat-rate fallback). Empty for legacy summaries that carry no token/cost
-	// data (e.g. summaries surfaced by storage_adapter.resultSummaryToRunSummary).
+	// data.
 	CostSource string    `json:"costSource,omitempty"`
 	Duration   float64   `json:"duration"`
 	Timestamp  time.Time `json:"timestamp"`

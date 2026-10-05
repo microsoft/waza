@@ -494,17 +494,21 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 		if err := session.Disconnect(); err != nil {
 			slog.Info("failed to destroy session", "sessionID", sessionID, "error", err)
 		}
-		if req.EphemeralSession && req.SessionID == "" {
-			deleteCtx, cancelDelete := context.WithTimeout(context.Background(), 30*time.Second)
-			defer cancelDelete()
-			if err := e.client.DeleteSession(deleteCtx, sessionID); err != nil {
-				slog.Debug("failed to delete ephemeral session", "sessionID", sessionID, "error", err)
-			}
-		}
 	}()
 
 	eventsCollector := NewSessionEventsCollector()
-	usageCollector := NewSessionUsageCollector()
+	e.usageCollectorsMu.Lock()
+	if e.usageCollectors == nil {
+		e.usageCollectors = make(map[string]*SessionUsageCollector)
+	}
+	usageCollector := e.usageCollectors[sessionID]
+	if usageCollector == nil {
+		usageCollector = NewSessionUsageCollector()
+		e.usageCollectors[sessionID] = usageCollector
+	} else {
+		usageCollector.beginTurn()
+	}
+	e.usageCollectorsMu.Unlock()
 
 	// When CancelOnSkillInvocation is set, derive a cancellable context so we
 	// can abort SendAndWait as soon as a skill invocation event arrives. This
@@ -534,13 +538,6 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 		}
 		e.sessions[sessionID] = session
 		e.sessionsMu.Unlock()
-
-		e.usageCollectorsMu.Lock()
-		if e.usageCollectors == nil {
-			e.usageCollectors = make(map[string]*SessionUsageCollector)
-		}
-		e.usageCollectors[sessionID] = usageCollector
-		e.usageCollectorsMu.Unlock()
 	}
 
 	unsubscribe := session.On(utils.NewSessionToSlog())
@@ -626,6 +623,14 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 	}
 
 	// Build response
+	e.captureUsage(sessionID, session, usageCollector, req.EphemeralSession && req.SessionID == "")
+	if req.EphemeralSession && req.SessionID == "" {
+		deleteCtx, cancelDelete := context.WithTimeout(context.Background(), 30*time.Second)
+		if err := e.client.DeleteSession(deleteCtx, sessionID); err != nil {
+			slog.Warn("failed to delete ephemeral session", "sessionID", sessionID, "error", err)
+		}
+		cancelDelete()
+	}
 	usage := usageCollector.UsageStats()
 	e.provider.applyToUsage(usage)
 	resp := &ExecutionResponse{
@@ -681,7 +686,13 @@ func (e *CopilotEngine) doShutdown(ctx context.Context) error {
 		return s
 	}()
 
-	for id := range sessions {
+	for id, session := range sessions {
+		e.usageCollectorsMu.RLock()
+		collector := e.usageCollectors[id]
+		e.usageCollectorsMu.RUnlock()
+		if !collector.hasMetrics() {
+			e.captureShutdownUsage(ctx, id, session, collector)
+		}
 		if err := e.client.DeleteSession(ctx, id); err != nil {
 			slog.Debug("failed to delete session", "sessionID", id, "error", err)
 		}
@@ -741,6 +752,39 @@ func (e *CopilotEngine) doShutdown(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+func (e *CopilotEngine) captureUsage(sessionID string, session CopilotSession, collector *SessionUsageCollector, final bool) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	metrics, err := session.UsageMetrics(ctx)
+	if err == nil && metrics != nil {
+		collector.SetMetrics(metrics)
+		return
+	}
+	if err == nil {
+		err = errors.New("empty usage metrics response")
+	}
+	slog.Warn("final usage metrics unavailable; using session events", "sessionID", sessionID, "error", err)
+	if !final {
+		return
+	}
+	e.captureShutdownUsage(ctx, sessionID, session, collector)
+}
+
+func (e *CopilotEngine) captureShutdownUsage(ctx context.Context, sessionID string, session CopilotSession, collector *SessionUsageCollector) {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	shutdown, err := session.ShutdownUsage(ctx)
+	if err != nil {
+		slog.Warn("shutdown usage unavailable", "sessionID", sessionID, "error", err)
+		return
+	}
+	if shutdown == nil {
+		slog.Warn("no final shutdown usage reported", "sessionID", sessionID)
+		return
+	}
+	collector.On(copilot.SessionEvent{Data: shutdown})
 }
 
 func (e *CopilotEngine) commandMockSession(workspace string, req *ExecutionRequest) (*commandmock.Session, error) {

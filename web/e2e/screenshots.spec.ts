@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { mockAllAPIs } from "./helpers/api-mock";
+import { RUNS } from "./fixtures/mock-data";
 
 /**
  * Screenshot capture for dashboard documentation.
@@ -10,7 +11,19 @@ test.describe("Screenshots", () => {
   test.use({ viewport: { width: 1280, height: 720 } });
 
   test.beforeEach(async ({ page }) => {
+    const now = new Date("2026-09-14T12:00:00Z");
+    await page.clock.install({ time: now });
     await mockAllAPIs(page);
+    await page.route(/\/api\/runs(\?|$)/, (route) => {
+      const runs = RUNS.map((run, i) => ({
+        ...run,
+        timestamp: new Date(now.getTime() - [3600_000, 7200_000, 86400_000][i]).toISOString(),
+      }));
+      if (new URL(route.request().url()).searchParams.get("order") === "asc") {
+        runs.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+      }
+      return route.fulfill({ json: runs });
+    });
   });
 
   test("dashboard-overview", async ({ page }) => {
@@ -22,8 +35,12 @@ test.describe("Screenshots", () => {
 
     await page.screenshot({
       path: "../docs/images/dashboard-overview.png",
+      animations: "disabled",
       fullPage: false,
     });
+    for (const path of ["../docs/images/explore/runs-overview.png", "../site/public/images/explore/runs-overview.png"]) {
+      await page.screenshot({ path, animations: "disabled", fullPage: false });
+    }
   });
 
   test("run-detail", async ({ page }) => {
@@ -39,8 +56,12 @@ test.describe("Screenshots", () => {
 
     await page.screenshot({
       path: "../docs/images/run-detail.png",
+      animations: "disabled",
       fullPage: false,
     });
+    for (const path of ["../docs/images/explore/run-detail-tasks.png", "../site/public/images/explore/run-detail-tasks.png"]) {
+      await page.screenshot({ path, animations: "disabled", fullPage: false });
+    }
   });
 
   test("prompts-tab", async ({ page }) => {
@@ -80,6 +101,12 @@ test.describe("Screenshots", () => {
 
     await page.screenshot({
       path: "../docs/images/explore/compare-runs.png",
+      animations: "disabled",
+      fullPage: false,
+    });
+    await page.screenshot({
+      path: "../site/public/images/explore/compare-runs.png",
+      animations: "disabled",
       fullPage: false,
     });
   });
@@ -91,10 +118,16 @@ test.describe("Screenshots", () => {
     await expect(page.getByRole("heading", { name: "Trends" })).toBeVisible();
     await expect(page.getByText("Pass Rate")).toBeVisible();
     await expect(page.getByText("Tokens per Run")).toBeVisible();
+    await expect(page.getByText("AI Credits per Run")).toBeVisible();
+    await expect(page.getByRole("status")).toContainText("1 of 3 runs have unavailable");
 
     await page.screenshot({
       path: "../docs/images/trends.png",
+      animations: "disabled",
       fullPage: false,
     });
+    for (const path of ["../docs/images/explore/trends.png", "../site/public/images/explore/trends.png"]) {
+      await page.screenshot({ path, animations: "disabled", fullPage: false });
+    }
   });
 });

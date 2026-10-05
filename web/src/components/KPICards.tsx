@@ -4,18 +4,15 @@ import {
   CheckCircle2,
   Coins,
   CreditCard,
-  DollarSign,
   Clock,
 } from "lucide-react";
 import type { SummaryResponse } from "../api/client";
 import {
   formatNumber,
-  formatCost,
   formatAICredits,
   formatDuration,
-  costSourceTooltip,
-  AI_CREDITS_TOOLTIP,
-  AI_CREDITS_UNAVAILABLE_TOOLTIP,
+  AVG_AI_CREDITS_TOOLTIP,
+  AVG_AI_CREDITS_UNAVAILABLE_TOOLTIP,
 } from "../lib/format";
 import { InfoTooltip } from "./InfoTooltip";
 
@@ -64,8 +61,8 @@ function SkeletonCard() {
 
 export function KPICardsSkeleton() {
   return (
-    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-7">
-      {Array.from({ length: 7 }).map((_, i) => (
+    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+      {Array.from({ length: 6 }).map((_, i) => (
         <SkeletonCard key={i} />
       ))}
     </div>
@@ -75,7 +72,7 @@ export function KPICardsSkeleton() {
 export default function KPICards({ data }: { data: SummaryResponse }) {
   const iconSize = "h-5 w-5";
   return (
-    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-7">
+    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
       <Card
         label="Total Runs"
         value={data.totalRuns.toString()}
@@ -105,17 +102,11 @@ export default function KPICards({ data }: { data: SummaryResponse }) {
           <InfoTooltip
             text={
               data.avgAICredits == null
-                ? AI_CREDITS_UNAVAILABLE_TOOLTIP
-                : AI_CREDITS_TOOLTIP
+                ? AVG_AI_CREDITS_UNAVAILABLE_TOOLTIP
+                : AVG_AI_CREDITS_TOOLTIP
             }
           />
         }
-      />
-      <Card
-        label="Avg Est. Cost"
-        value={formatCost(data.avgCost)}
-        icon={<DollarSign className={iconSize} />}
-        labelExtra={<InfoTooltip text={costSourceTooltip(data.costSource)} />}
       />
       <Card
         label="Avg Duration"

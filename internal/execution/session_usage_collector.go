@@ -4,6 +4,7 @@ import (
 	"sync"
 
 	copilot "github.com/github/copilot-sdk/go"
+	"github.com/github/copilot-sdk/go/rpc"
 	"github.com/microsoft/waza/internal/copilotevents"
 	"github.com/microsoft/waza/internal/models"
 )
@@ -12,10 +13,11 @@ import (
 // SDK session events. Its On method implements [copilot.SessionEventHandler] and
 // should be registered via session.On(collector.On).
 //
-// Usage data arrives through two channels:
+// Usage data arrives through three channels:
+//   - The accumulated session.usage.getMetrics RPC — authoritative.
 //   - Per-turn events (AssistantUsage) — accumulated as a fallback.
-//   - Session termination events (SessionIdle, SessionShutdown) — authoritative
-//     totals that override per-turn data when available. Shutdown metrics carry
+//   - SessionShutdown events — totals that override per-turn data when
+//     the RPC is unavailable. Shutdown metrics carry
 //     the final nano-AI-unit totals GitHub billed for the session, both overall
 //     and per model; those are recorded as AI credits and are never
 //     reconstructed from a local token-rate table.
@@ -27,6 +29,7 @@ type SessionUsageCollector struct {
 
 	// Session-level usage from termination events (authoritative)
 	sessionUsage *models.UsageStats
+	rpcUsage     *models.UsageStats
 
 	mut *sync.RWMutex
 }
@@ -54,13 +57,18 @@ func (s *SessionUsageCollector) On(event copilot.SessionEvent) {
 }
 
 // UsageStats returns the collected usage statistics. Returns nil if no usage
-// data was collected. Session-level data (from SessionIdle/SessionShutdown) is
-// preferred as the authoritative source; per-turn accumulated data (from
-// AssistantUsage) is used as fallback.
+// data was collected. The accumulated RPC snapshot is authoritative, with
+// SessionShutdown data then per-turn accumulated data (from
+// AssistantUsage) as fallback.
 func (s *SessionUsageCollector) UsageStats() *models.UsageStats {
 	s.mut.RLock()
 	defer s.mut.RUnlock()
 
+	if s.rpcUsage != nil {
+		result := *s.rpcUsage
+		result.Turns = s.turns
+		return &result
+	}
 	if s.sessionUsage != nil {
 		result := *s.sessionUsage
 		result.Turns = s.turns
@@ -70,6 +78,7 @@ func (s *SessionUsageCollector) UsageStats() *models.UsageStats {
 			result.CacheReadTokens = s.turnUsage.CacheReadTokens
 			result.CacheWriteTokens = s.turnUsage.CacheWriteTokens
 		}
+
 		return &result
 	}
 	if s.turnUsage != nil {
@@ -78,6 +87,53 @@ func (s *SessionUsageCollector) UsageStats() *models.UsageStats {
 		return &result
 	}
 	return nil
+}
+
+func (s *SessionUsageCollector) beginTurn() {
+	s.mut.Lock()
+	defer s.mut.Unlock()
+	s.rpcUsage = nil
+	s.sessionUsage = nil
+}
+
+func (s *SessionUsageCollector) hasMetrics() bool {
+	s.mut.RLock()
+	defer s.mut.RUnlock()
+	return s.rpcUsage != nil
+}
+
+// SetMetrics records the accumulated RPC snapshot, authoritative over events.
+func (s *SessionUsageCollector) SetMetrics(metrics *rpc.UsageGetMetricsResult) {
+	s.mut.Lock()
+	defer s.mut.Unlock()
+	usage := &models.UsageStats{
+		PremiumRequests: metrics.TotalPremiumRequestCost,
+		ModelMetrics:    make(map[string]models.ModelUsage, len(metrics.ModelMetrics)),
+	}
+	if metrics.TotalNanoAiu != nil {
+		credits := models.AICreditsFromNanoAIU(*metrics.TotalNanoAiu)
+		usage.AICredits = &credits
+	}
+	for name, mm := range metrics.ModelMetrics {
+		mu := models.ModelUsage{
+			InputTokens:      int(mm.Usage.InputTokens),
+			OutputTokens:     int(mm.Usage.OutputTokens),
+			CacheReadTokens:  int(mm.Usage.CacheReadTokens),
+			CacheWriteTokens: int(mm.Usage.CacheWriteTokens),
+			RequestCount:     float64(mm.Requests.Count),
+			RequestCost:      mm.Requests.Cost,
+		}
+		if mm.TotalNanoAiu != nil {
+			credits := models.AICreditsFromNanoAIU(*mm.TotalNanoAiu)
+			mu.AICredits = &credits
+		}
+		usage.ModelMetrics[name] = mu
+		usage.InputTokens += mu.InputTokens
+		usage.OutputTokens += mu.OutputTokens
+		usage.CacheReadTokens += mu.CacheReadTokens
+		usage.CacheWriteTokens += mu.CacheWriteTokens
+	}
+	s.rpcUsage = usage
 }
 
 // extractSessionUsage captures cumulative usage from session termination events.

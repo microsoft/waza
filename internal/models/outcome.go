@@ -189,6 +189,7 @@ type RunResult struct {
 	DurationMs       int64                    `json:"duration_ms"`
 	Validations      map[string]GraderResults `json:"validations"`
 	SessionDigest    SessionDigest            `json:"session_digest"`
+	GraderSessions   []SessionDigest          `json:"grader_sessions,omitempty"`
 	Transcript       []TranscriptEvent        `json:"transcript,omitempty"`
 	FinalOutput      string                   `json:"final_output"`
 	ErrorMsg         string                   `json:"error_msg,omitempty"`
@@ -367,8 +368,11 @@ func AggregateUsageStats(stats []*UsageStats) *UsageStats {
 	var providerHost string
 	providerSet := false
 	providerConsistent := true
+	creditsComplete := len(stats) > 0
+	modelCreditsMissing := make(map[string]bool)
 	for _, s := range stats {
 		if s == nil {
+			creditsComplete = false
 			continue
 		}
 		if !providerSet {
@@ -390,6 +394,8 @@ func AggregateUsageStats(stats []*UsageStats) *UsageStats {
 				total += *agg.AICredits
 			}
 			agg.AICredits = &total
+		} else {
+			creditsComplete = false
 		}
 		for model, mu := range s.ModelMetrics {
 			existing := agg.ModelMetrics[model]
@@ -405,9 +411,19 @@ func AggregateUsageStats(stats []*UsageStats) *UsageStats {
 					total += *existing.AICredits
 				}
 				existing.AICredits = &total
+			} else {
+				modelCreditsMissing[model] = true
 			}
 			agg.ModelMetrics[model] = existing
 		}
+	}
+	if !creditsComplete {
+		agg.AICredits = nil
+	}
+	for model := range modelCreditsMissing {
+		mu := agg.ModelMetrics[model]
+		mu.AICredits = nil
+		agg.ModelMetrics[model] = mu
 	}
 	if agg.IsZero() && len(agg.ModelMetrics) == 0 {
 		return nil

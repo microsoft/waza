@@ -6,11 +6,10 @@ import {
   Loader2,
   Zap,
   Clock,
-  Coins,
   Hash,
 } from "lucide-react";
 import { useSSE, type SSEEvent } from "../hooks/useSSE";
-import { formatDuration, formatCost, formatNumber } from "../lib/format";
+import { formatDuration, formatNumber } from "../lib/format";
 
 function ConnectionBadge({ connected }: { connected: boolean }) {
   return (
@@ -211,7 +210,7 @@ export default function LiveView() {
       )}
 
       {currentRun?.done && (
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
           <StatMini
             icon={Zap}
             label="Tasks"
@@ -221,11 +220,6 @@ export default function LiveView() {
             icon={Hash}
             label="Tokens"
             value={formatNumber(currentRun.tokens)}
-          />
-          <StatMini
-            icon={Coins}
-            label="Est. Cost"
-            value={formatCost(currentRun.cost)}
           />
           <StatMini
             icon={CheckCircle2}

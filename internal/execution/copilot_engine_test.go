@@ -186,7 +186,7 @@ func TestCopilotEngine_Execute_NoDefaultTimeout(t *testing.T) {
 func TestCopilotEngine_Execute_SendError(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	clientMock := newClientMock(ctrl)
-	sessionMock := NewMockCopilotSession(ctrl)
+	sessionMock := newSessionMock(ctrl)
 
 	clientMock.EXPECT().CreateSession(gomock.Any(), gomock.Any()).Return(sessionMock, nil)
 	clientMock.EXPECT().DeleteSession(gomock.Any(), "session-1")
@@ -248,7 +248,7 @@ func TestCopilotEngine_DeleteSession_PropagatesRemoteError(t *testing.T) {
 func TestCopilotEngine_Execute_PassesGraderRequestOptionsAndDeletesEphemeralSession(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	clientMock := newClientMock(ctrl)
-	sessionMock := NewMockCopilotSession(ctrl)
+	sessionMock := newSessionMock(ctrl)
 
 	tool := copilot.Tool{Name: "set_waza_grade_pass"}
 
@@ -301,7 +301,7 @@ func TestCopilotEngine_Execute_PassesGraderRequestOptionsAndDeletesEphemeralSess
 func TestCopilotEngine_Execute_ResumedEphemeralSessionIsNotDeletedOrTracked(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	clientMock := newClientMock(ctrl)
-	sessionMock := NewMockCopilotSession(ctrl)
+	sessionMock := newSessionMock(ctrl)
 
 	clientMock.EXPECT().ResumeSessionWithOptions(gomock.Any(), "existing-session", gomock.Any()).DoAndReturn(
 		func(_ context.Context, _ string, cfg *copilot.ResumeSessionConfig) (CopilotSession, error) {

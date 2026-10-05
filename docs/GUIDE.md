@@ -723,6 +723,8 @@ waza run evals/code-explainer/eval.yaml -o results.json
 
 The `waza serve` command launches an interactive web dashboard for viewing and analyzing evaluation results.
 
+AI Credits uses the Copilot SDK's final `session.usage.getMetrics` totals, with shutdown metrics as fallback, covering task, trigger, and prompt-grader sessions initiated by waza. A run or model aggregate is unavailable if any contributing metric is missing. The average KPI excludes unavailable runs, and Trends explicitly counts them instead of plotting zero. Primary billing views and CSV omit estimated USD; credits display up to nine fractional digits, while CSV preserves the numeric API value with an empty cell for unavailable usage.
+
 ### Starting the Dashboard
 
 ```bash

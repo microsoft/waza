@@ -273,8 +273,12 @@ func aggregateUsageFromOutcomes(testOutcomes []models.TestOutcome) *models.Usage
 	var allUsage []*models.UsageStats
 	for _, to := range testOutcomes {
 		for _, run := range to.Runs {
-			if run.SessionDigest.Usage != nil {
-				allUsage = append(allUsage, run.SessionDigest.Usage)
+			allUsage = append(allUsage, run.SessionDigest.Usage)
+			for _, digest := range run.GraderSessions {
+				if digest.SessionID != "" && digest.SessionID == run.SessionDigest.SessionID {
+					continue
+				}
+				allUsage = append(allUsage, digest.Usage)
 			}
 		}
 	}

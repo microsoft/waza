@@ -19,12 +19,10 @@ import type {
 } from "../api/client";
 import {
   formatDuration,
-  formatCost,
   formatAICredits,
   formatNumber,
   formatPercent,
   formatRelativeTime,
-  costSourceTooltip,
   AI_CREDITS_TOOLTIP,
   AI_CREDITS_UNAVAILABLE_TOOLTIP,
 } from "../lib/format";
@@ -382,7 +380,7 @@ export default function RunDetail({ id }: { id: string }) {
         </button>
       </div>
 
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-5">
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
         <StatCard label="Pass Rate" value={formatPercent(passRate)} />
         <StatCard label="Tokens" value={formatNumber(data.tokens)} />
         <StatCard
@@ -397,11 +395,6 @@ export default function RunDetail({ id }: { id: string }) {
               }
             />
           }
-        />
-        <StatCard
-          label="Est. Cost"
-          value={formatCost(data.cost)}
-          labelExtra={<InfoTooltip text={costSourceTooltip(data.costSource)} />}
         />
         <StatCard label="Duration" value={formatDuration(data.duration)} />
       </div>

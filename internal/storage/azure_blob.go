@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -178,7 +179,8 @@ func (abs *AzureBlobStore) List(ctx context.Context, opts ListOptions) ([]Result
 	}
 
 	pager := abs.client.NewListBlobsFlatPager(abs.containerName, &azblob.ListBlobsFlatOptions{
-		Prefix: &prefix,
+		Prefix:  &prefix,
+		Include: azblob.ListBlobsInclude{Metadata: true},
 	})
 
 	for pager.More() {
@@ -224,11 +226,8 @@ func (abs *AzureBlobStore) List(ctx context.Context, opts ListOptions) ([]Result
 }
 
 // Download retrieves a single evaluation outcome by run ID.
-// Optimization: we first attempt a prefix-scoped list using the runID suffix
-// pattern (*/{runID}.json) to avoid scanning all blobs. If no match is found,
-// we fall back to a full blob scan matching on metadata. The prefix approach is
-// O(1) when the blob naming convention is followed; the fallback is O(N) but
-// handles legacy or misnamed blobs.
+// Without a known path, this requires a container lookup. Callers with a
+// ResultSummary should use DownloadListedResult instead.
 func (abs *AzureBlobStore) Download(ctx context.Context, runID string) (*models.EvaluationOutcome, error) {
 	// Fast path: try a direct download using the known blob naming pattern.
 	// Blobs are stored as {skill}/{runID}.json, so we can list with suffix match.
@@ -250,19 +249,34 @@ func (abs *AzureBlobStore) Download(ctx context.Context, runID string) (*models.
 		return nil, ErrNotFound
 	}
 
-	// Download the blob.
+	return abs.downloadBlob(ctx, blobPath)
+}
+
+// DownloadListedResult avoids enumerating the container again for each run.
+func (abs *AzureBlobStore) DownloadListedResult(ctx context.Context, result ResultSummary) (*models.EvaluationOutcome, error) {
+	if result.BlobPath == "" {
+		return abs.Download(ctx, result.RunID)
+	}
+	return abs.downloadBlob(ctx, result.BlobPath)
+}
+
+func (abs *AzureBlobStore) downloadBlob(ctx context.Context, blobPath string) (outcome *models.EvaluationOutcome, err error) {
 	resp, err := abs.client.DownloadStream(ctx, abs.containerName, blobPath, nil)
 	if err != nil {
 		return nil, fmt.Errorf("azure blob download: %w", err)
 	}
-	defer func() { _ = resp.Body.Close() }()
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			err = errors.Join(err, fmt.Errorf("azure blob download: closing blob: %w", closeErr))
+		}
+	}()
 
 	data, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("azure blob download: reading blob: %w", err)
 	}
 
-	outcome, err := models.ParseEvaluationOutcome(data, blobPath)
+	outcome, err = models.ParseEvaluationOutcome(data, blobPath)
 	if err != nil {
 		return nil, fmt.Errorf("azure blob download: unmarshaling outcome: %w", err)
 	}

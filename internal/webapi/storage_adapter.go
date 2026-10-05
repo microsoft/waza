@@ -2,6 +2,8 @@ package webapi
 
 import (
 	"context"
+	"fmt"
+	"sync"
 	"time"
 
 	"github.com/microsoft/waza/internal/pricing"
@@ -34,10 +36,9 @@ func (sa *StorageAdapter) ListRuns(sortField, order string) ([]RunSummary, error
 		return nil, err
 	}
 
-	// Convert storage.ResultSummary to webapi.RunSummary.
-	runs := make([]RunSummary, 0, len(results))
-	for _, r := range results {
-		runs = append(runs, resultSummaryToRunSummary(r, sa.source))
+	runs, err := sa.loadSummaries(ctx, results)
+	if err != nil {
+		return nil, err
 	}
 
 	// Sort according to parameters.
@@ -76,6 +77,11 @@ func (sa *StorageAdapter) Summary() (*SummaryResponse, error) {
 		return resp, nil
 	}
 
+	summaries, err := sa.loadSummaries(ctx, results)
+	if err != nil {
+		return nil, err
+	}
+
 	totalTokens := 0
 	totalPremium := 0.0
 	credits := aiCreditAccumulator{}
@@ -85,25 +91,12 @@ func (sa *StorageAdapter) Summary() (*SummaryResponse, error) {
 	totalTasks := 0
 	costSources := make([]string, 0, len(results))
 
-	// We need to download outcomes to get accurate metrics.
-	// For performance, we'll just use what we have in ResultSummary for now.
-	for range results {
-		resp.TotalRuns++
-		// Approximate token count (not available in ResultSummary).
-		// For accurate metrics, we'd need to download each outcome.
-	}
+	resp.TotalRuns = len(results)
 
-	// Fallback: download all outcomes for accurate metrics.
-	for _, r := range results {
-		outcome, err := sa.store.Download(ctx, r.RunID)
-		if err != nil {
-			continue
-		}
-
-		totalTasks += outcome.Digest.TotalTests
-		totalPassed += outcome.Digest.Succeeded
-
-		s := outcomeToSummary(outcome)
+	// Listing metadata has no usage; download outcomes for complete metrics.
+	for _, s := range summaries {
+		totalTasks += s.TaskCount
+		totalPassed += s.PassCount
 		totalTokens += s.Tokens
 		totalPremium += s.PremiumRequests
 		credits.add(s.AICredits)
@@ -128,30 +121,40 @@ func (sa *StorageAdapter) Summary() (*SummaryResponse, error) {
 	return resp, nil
 }
 
-// resultSummaryToRunSummary converts storage.ResultSummary to webapi.RunSummary.
-func resultSummaryToRunSummary(r storage.ResultSummary, source string) RunSummary {
-	outcome := "passed"
-	if r.PassRate < 100.0 {
-		outcome = "failed"
+func (sa *StorageAdapter) loadSummaries(ctx context.Context, results []storage.ResultSummary) ([]RunSummary, error) {
+	ctx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
+	summaries := make([]RunSummary, len(results))
+	jobs := make(chan int)
+	var workers sync.WaitGroup
+	for range min(8, len(results)) {
+		workers.Go(func() {
+			for i := range jobs {
+				outcome, err := storage.DownloadListedResult(ctx, sa.store, results[i])
+				if err != nil {
+					cancel(fmt.Errorf("loading run %q: %w", results[i].RunID, err))
+					return
+				}
+				summary := outcomeToSummary(outcome)
+				summary.Source = sa.source
+				summaries[i] = summary
+			}
+		})
 	}
-
-	return RunSummary{
-		ID:         r.RunID,
-		Spec:       r.Skill,
-		Model:      r.Model,
-		JudgeModel: "",
-		Outcome:    outcome,
-		PassCount:  0, // Not available in ResultSummary
-		TaskCount:  0, // Not available in ResultSummary
-		Tokens:     0, // Not available in ResultSummary
-		Cost:       0, // Not available in ResultSummary
-		Duration:   0, // Not available in ResultSummary
-		// AICredits and ModelUsage stay nil: listing metadata carries no usage
-		// data, so the dashboard renders the unavailable state rather than a
-		// fabricated credit total. Run details download the full outcome.
-		Timestamp: r.Timestamp,
-		Source:    source,
+dispatch:
+	for i := range results {
+		select {
+		case jobs <- i:
+		case <-ctx.Done():
+			break dispatch
+		}
 	}
+	close(jobs)
+	workers.Wait()
+	if err := context.Cause(ctx); err != nil {
+		return nil, err
+	}
+	return summaries, nil
 }
 
 // Ensure StorageAdapter satisfies RunStore.

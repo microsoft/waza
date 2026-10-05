@@ -25,7 +25,13 @@ export const AI_CREDITS_TOOLTIP =
 // AI-credit total (legacy result artifacts, or Copilot runtimes that don't
 // report final credit metrics). waza never substitutes an estimate here.
 export const AI_CREDITS_UNAVAILABLE_TOOLTIP =
-  "AI Credit usage unavailable — this run was produced before waza recorded Copilot's final AI Credit metrics.";
+  "AI Credit usage unavailable — at least one session did not report final metrics (legacy runtime, custom provider, or missing usage). No estimate is substituted.";
+
+export const AVG_AI_CREDITS_TOOLTIP =
+  "Average final AI Credit usage across only runs with complete reported totals. Runs with unavailable totals are excluded from the denominator; this is not account-wide Copilot usage.";
+
+export const AVG_AI_CREDITS_UNAVAILABLE_TOOLTIP =
+  "Average AI Credit usage unavailable — none of the runs report a complete final total. No estimate is substituted.";
 
 // AI_CREDITS_UNAVAILABLE is the placeholder rendered for runs and models with
 // no authoritative AI-credit total.
@@ -37,10 +43,9 @@ export function formatAICredits(credits?: number | null): string {
   if (credits == null || !Number.isFinite(credits)) {
     return AI_CREDITS_UNAVAILABLE;
   }
-  if (credits > 0 && credits < 0.01) return "<0.01";
   return credits.toLocaleString("en-US", {
     minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
+    maximumFractionDigits: 9,
   });
 }
 

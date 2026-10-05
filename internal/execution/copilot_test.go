@@ -32,7 +32,7 @@ func TestAllowAllTools_UsesSDKApprovedKind(t *testing.T) {
 func TestCopilotNoSessionID(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	clientMock := newClientMock(ctrl)
-	sessionMock := NewMockCopilotSession(ctrl)
+	sessionMock := newSessionMock(ctrl)
 
 	const expectedModel = "this-model-wins"
 	clientMock.EXPECT().ListModels(gomock.Any()).Return([]copilot.ModelInfo{reasoningModel(expectedModel, "high")}, nil)
@@ -94,7 +94,7 @@ func TestCopilotNoSessionID(t *testing.T) {
 func TestCopilotResumeSessionID(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	clientMock := newClientMock(ctrl)
-	sessionMock := NewMockCopilotSession(ctrl)
+	sessionMock := newSessionMock(ctrl)
 	clientMock.EXPECT().ListModels(gomock.Any()).Return([]copilot.ModelInfo{reasoningModel("gpt-4o-mini", "high")}, nil)
 
 	sourceDir, err := os.Getwd()
@@ -148,7 +148,7 @@ func TestCopilotResumeSessionID(t *testing.T) {
 func TestCopilotCreateSession_AppliesToolPolicyAvailableTools(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	clientMock := newClientMock(ctrl)
-	sessionMock := NewMockCopilotSession(ctrl)
+	sessionMock := newSessionMock(ctrl)
 
 	sourceDir := t.TempDir()
 
@@ -221,7 +221,7 @@ func TestCopilotCreateSession_AppliesToolPolicyAvailableTools(t *testing.T) {
 func TestCopilotCreateSession_UnrestrictedToolPolicyLeavesAvailableToolsUnset(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	clientMock := newClientMock(ctrl)
-	sessionMock := NewMockCopilotSession(ctrl)
+	sessionMock := newSessionMock(ctrl)
 
 	sourceDir := t.TempDir()
 
@@ -268,7 +268,7 @@ func TestCopilotCreateSession_UnrestrictedToolPolicyLeavesAvailableToolsUnset(t 
 func TestCopilotExecute_ToolPolicyDenialFailsRun(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	clientMock := newClientMock(ctrl)
-	sessionMock := NewMockCopilotSession(ctrl)
+	sessionMock := newSessionMock(ctrl)
 
 	sourceDir := t.TempDir()
 
@@ -357,7 +357,7 @@ func TestCopilotCreateSession_PassesCustomProvider(t *testing.T) {
 
 	ctrl := gomock.NewController(t)
 	clientMock := NewMockCopilotClient(ctrl)
-	sessionMock := NewMockCopilotSession(ctrl)
+	sessionMock := newSessionMock(ctrl)
 
 	clientMock.EXPECT().Start(gomock.Any()).Times(1)
 	clientMock.EXPECT().Stop().Times(1)
@@ -444,7 +444,7 @@ func TestCopilotResumeSession_PassesCustomProvider(t *testing.T) {
 
 	ctrl := gomock.NewController(t)
 	clientMock := NewMockCopilotClient(ctrl)
-	sessionMock := NewMockCopilotSession(ctrl)
+	sessionMock := newSessionMock(ctrl)
 
 	clientMock.EXPECT().Start(gomock.Any()).Times(1)
 	clientMock.EXPECT().Stop().Times(1)
@@ -555,7 +555,7 @@ func TestCopilotResumeSessionID_Live(t *testing.T) {
 func TestCopilotSendAndWaitReturnsErrorInResult(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	clientMock := newClientMock(ctrl)
-	sessionMock := NewMockCopilotSession(ctrl)
+	sessionMock := newSessionMock(ctrl)
 
 	sourceDir := t.TempDir()
 	const sessionErrorMsg = "session error occurred"
@@ -896,7 +896,7 @@ func skipIfCopilotNotEnabled(t *testing.T) {
 func TestCopilotCreateSession_InjectsSkillSystemMessage(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	clientMock := newClientMock(ctrl)
-	sessionMock := NewMockCopilotSession(ctrl)
+	sessionMock := newSessionMock(ctrl)
 
 	sourceDir := t.TempDir()
 
@@ -951,7 +951,7 @@ func TestCopilotCreateSession_InjectsSkillSystemMessage(t *testing.T) {
 func TestCopilotCreateSession_InjectsTriggerSkillRoutingSystemMessage(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	clientMock := newClientMock(ctrl)
-	sessionMock := NewMockCopilotSession(ctrl)
+	sessionMock := newSessionMock(ctrl)
 
 	sourceDir := t.TempDir()
 	expectedSystemMsg := buildTriggerSkillRoutingSystemMessage("test-skill", true)
@@ -1003,7 +1003,7 @@ func TestCopilotCreateSession_InjectsTriggerSkillRoutingSystemMessage(t *testing
 func TestCopilotCreateSession_InjectsInstructionSystemMessage(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	clientMock := newClientMock(ctrl)
-	sessionMock := NewMockCopilotSession(ctrl)
+	sessionMock := newSessionMock(ctrl)
 
 	sourceDir := t.TempDir()
 	skillContent := "---\nname: test-skill\ndescription: A test\n---\n# Rules\nAlways greet"
@@ -1064,7 +1064,7 @@ func TestCopilotCreateSession_InjectsInstructionSystemMessage(t *testing.T) {
 func TestCopilotCreateSession_PassesMCPServers(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	clientMock := newClientMock(ctrl)
-	sessionMock := NewMockCopilotSession(ctrl)
+	sessionMock := newSessionMock(ctrl)
 
 	sourceDir := t.TempDir()
 
@@ -1113,7 +1113,7 @@ func TestCopilotCreateSession_PassesMCPServers(t *testing.T) {
 func TestCopilotResumeSession_PassesMCPServersAndSystemMessage(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	clientMock := newClientMock(ctrl)
-	sessionMock := NewMockCopilotSession(ctrl)
+	sessionMock := newSessionMock(ctrl)
 
 	sourceDir := t.TempDir()
 
@@ -1174,7 +1174,7 @@ func TestCopilotResumeSession_PassesMCPServersAndSystemMessage(t *testing.T) {
 func TestCopilotExecute_CancelOnSkillInvocation(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	clientMock := newClientMock(ctrl)
-	sessionMock := NewMockCopilotSession(ctrl)
+	sessionMock := newSessionMock(ctrl)
 
 	sourceDir := t.TempDir()
 
@@ -1234,7 +1234,7 @@ func TestCopilotExecute_CancelOnSkillInvocation(t *testing.T) {
 func TestCopilotExecute_CancelOnSkillInvocation_NoSkillFired(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	clientMock := newClientMock(ctrl)
-	sessionMock := NewMockCopilotSession(ctrl)
+	sessionMock := newSessionMock(ctrl)
 
 	sourceDir := t.TempDir()
 

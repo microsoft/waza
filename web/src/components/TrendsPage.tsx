@@ -6,7 +6,6 @@ import type { RunSummary } from "../api/client";
 import {
   formatPercent,
   formatNumber,
-  formatCost,
   formatAICredits,
   formatDuration,
 } from "../lib/format";
@@ -51,25 +50,18 @@ export default function TrendsPage() {
     [filtered],
   );
 
-  const costData: DataPoint[] = useMemo(
-    () =>
-      filtered.map((r: RunSummary) => ({
-        label: formatShortDate(r.timestamp),
-        value: r.cost,
-      })),
-    [filtered],
-  );
-
   // Only runs with an authoritative AI-credit total are charted; legacy runs
   // are skipped rather than plotted as zero.
   const creditsData: DataPoint[] = useMemo(
     () =>
-      filtered
-        .filter((r: RunSummary) => r.aiCredits != null)
-        .map((r: RunSummary) => ({
-          label: formatShortDate(r.timestamp),
-          value: r.aiCredits as number,
-        })),
+      filtered.flatMap((r: RunSummary) =>
+        r.aiCredits == null
+          ? []
+          : [{
+              label: formatShortDate(r.timestamp),
+              value: r.aiCredits,
+            }],
+      ),
     [filtered],
   );
 
@@ -134,25 +126,26 @@ export default function TrendsPage() {
             data={tokensData}
             formatValue={formatNumber}
           />
-          <TrendChart
-            title="Est. Cost per Run"
-            data={costData}
-            formatValue={formatCost}
-          />
-          {creditsData.length > 0 ? (
-            <TrendChart
-              title="AI Credits per Run"
-              data={creditsData}
-              formatValue={formatAICredits}
-            />
-          ) : (
-            <div className="rounded-lg border border-zinc-700 bg-zinc-800 p-6 text-sm text-zinc-500">
-              <div className="mb-2 font-medium text-zinc-300">
-                AI Credits per Run
+          <div data-testid="ai-credits-trend">
+            {creditsData.length > 0 ? (
+              <TrendChart
+                title="AI Credits per Run"
+                data={creditsData}
+                formatValue={formatAICredits}
+              />
+            ) : (
+              <div className="rounded-lg border border-zinc-700 bg-zinc-800 p-6 text-sm text-zinc-500">
+                <div className="mb-2 font-medium text-zinc-300">
+                  AI Credits per Run
+                </div>
+                AI Credit usage unavailable for these runs.
               </div>
-              AI Credit usage unavailable for these runs.
-            </div>
-          )}
+            )}
+            <p className="mt-2 text-sm text-zinc-400" role="status">
+              {filtered.length - creditsData.length} of {filtered.length} runs
+              have unavailable AI Credit usage and are not charted.
+            </p>
+          </div>
           <TrendChart
             title="Duration per Run"
             data={durationData}

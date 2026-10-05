@@ -13,17 +13,19 @@ waza serve --results-dir ./results
 
 ## Eval Runs Overview
 
-The landing page shows all evaluation runs at a glance. Seven KPI cards summarize your total runs, tasks, pass rate, token usage, AI Credits, estimated cost, and duration. Below the cards, a sortable table lists every run with its spec, model, pass rate, weighted score, task count, tokens, AI Credits, estimated cost, duration, and relative timestamp.
+The landing page shows all evaluation runs at a glance. Six KPI cards summarize your total runs, tasks, pass rate, token usage, AI Credits, and duration. Below the cards, a sortable table lists every run with its spec, model, pass rate, weighted score, task count, tokens, AI Credits, duration, and relative timestamp.
 
 <ZoomImage src="../../images/explore/runs-overview.png" alt="Eval Runs overview showing KPI cards and sortable runs table" />
 
-- **KPI cards** — Total Runs, Total Tasks, Pass Rate, Avg Tokens, Avg AI Credits, Avg Est. Cost, and Avg Duration update in real time as results load
-- **Sortable columns** — click any column header (Spec, Model, Tasks, Tokens, AI Credits, Est. Cost, Duration, When) to sort ascending or descending
-- **AI Credits** — the final GitHub Copilot AI Credit usage the Copilot SDK reports for the sessions this waza run started. It is the SDK's authoritative billing figure (nano-AI units ÷ 1e9), never reconstructed from waza's token rate table, and it does not include Copilot usage from outside waza. Runs produced before waza recorded this metric (or by Copilot runtimes that don't report it) show `—` rather than an estimate
-- **Est. Cost** — a secondary USD estimate derived from token pricing. It is not a GitHub AI Credit amount; hover a value for its source (SDK, rate table, or flat-rate estimate)
+- **KPI cards** — Total Runs, Total Tasks, Pass Rate, Avg Tokens, Avg AI Credits, and Avg Duration update in real time as results load. Avg AI Credits averages only runs with complete reported totals, excluding unavailable runs from its denominator
+- **Sortable columns** — click any column header (Spec, Model, Tasks, Tokens, AI Credits, Duration, When) to sort ascending or descending
+- **AI Credits** — authoritative final usage from the SDK's `session.usage.getMetrics` (nano-AI units ÷ 1e9), with shutdown metrics as fallback. Totals include task, trigger, and prompt-grader sessions this waza run started, counting resumed sessions once; they do not include account usage outside waza. If any contributing session lacks credits, the total shows `—`, not a partial subtotal or estimate. Display preserves up to nine fractional digits
+- Estimated USD is not shown in the primary billing UI; legacy cost fields remain available in the API for compatibility
 - **Judge model indicator** — a ⚖ icon next to the model name indicates a separate judge model was used for grading
-- **Export CSV** — download the full runs table as a CSV file for offline analysis
+- **Export CSV** — download the full runs table for offline analysis. AI Credits preserves the numeric API value without rounding; unavailable credits produce an empty cell
 - **Click any row** to drill into that run's detail view
+
+Storage-backed listings load the stored outcomes to retain complete credit and model usage fields. Azure Blob listings download known blob paths directly, with at most eight concurrent downloads, rather than enumerating the container again for each run. Storage failures are reported instead of presenting partial billing summaries.
 
 ## Run Detail — Tasks
 
@@ -120,21 +122,20 @@ The Compare view lets you select any two runs and see their differences side by 
 <ZoomImage src="../../images/explore/compare-runs.png" alt="Compare view showing side-by-side metrics and per-task comparison" />
 
 - **Run cards** — each selected run shows its spec, model, and timestamp
-- **Metrics comparison** — Pass Rate, Tokens, AI Credits, Est. Cost, and Duration are compared with delta indicators (↑ increase in red, ↓ decrease in green). The AI Credits delta is shown only when both runs report AI Credits
+- **Metrics comparison** — Pass Rate, Tokens, AI Credits, and Duration are compared with delta indicators (↑ increase in red, ↓ decrease in green). The AI Credits delta is shown only when both runs report AI Credits
 - **Pass rate bars** — horizontal bar chart visually compares pass rates
 - **Per-task comparison** — a table shows each task's outcome, score, and duration for both runs, with Δ Score and Δ Duration columns highlighting differences
 - **Click any row** to view a trajectory diff between the two runs
 
 ## Trends
 
-The Trends page charts your evaluation metrics over time. Five line charts show Pass Rate, Tokens per Run, Est. Cost per Run, AI Credits per Run, and Duration per Run across all runs, ordered chronologically.
+The Trends page charts your evaluation metrics over time. Four line charts show Pass Rate, Tokens per Run, AI Credits per Run, and Duration per Run across all runs, ordered chronologically.
 
-<ZoomImage src="../../images/explore/trends.png" alt="Trends page with pass rate, tokens, estimated cost, AI credits, and duration charts" />
+<ZoomImage src="../../images/explore/trends.png" alt="Trends page with pass rate, tokens, AI credits, and duration charts" />
 
 - **Pass Rate** — track whether your agent skills are improving or regressing
 - **Tokens per Run** — monitor token consumption trends to catch runaway prompts
-- **Est. Cost per Run** — visualize estimated spending patterns across evaluation runs
-- **AI Credits per Run** — track the final AI Credit usage the Copilot SDK reports for waza runs; runs without that metric are omitted from the chart
+- **AI Credits per Run** — track the final AI Credit usage the SDK reports; unavailable runs are not plotted as zero. A visible count identifies excluded runs in the selected model range. If none report credits, the chart displays an explicit unavailable message
 - **Duration per Run** — spot performance regressions in execution time
 - **Model filter** — use the "Model" dropdown (top-right) to filter charts to a specific model (e.g., only gpt-4o runs)
 

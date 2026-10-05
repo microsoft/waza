@@ -232,7 +232,7 @@ func TestNewTaskFromPromptCommand_DiscoveredSkillsPassedToCopilotSession(t *test
 func TestNewTaskFromPromptCommand_EndToEndCreatesTaskFile(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	client := newClientMock(ctrl)
-	session := NewMockCopilotSession(ctrl)
+	session := newSessionMock(ctrl)
 
 	sessionID := "session-end-to-end"
 	home := t.TempDir()

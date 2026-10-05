@@ -158,7 +158,13 @@ func outcomeToSummary(o *models.EvaluationOutcome) RunSummary {
 			if r.SessionDigest.Usage != nil {
 				tokens += r.SessionDigest.Usage.InputTokens + r.SessionDigest.Usage.OutputTokens
 				premiumRequests += r.SessionDigest.Usage.PremiumRequests
-				perRunUsage = append(perRunUsage, r.SessionDigest.Usage)
+			}
+			perRunUsage = append(perRunUsage, r.SessionDigest.Usage)
+			for _, digest := range r.GraderSessions {
+				if digest.SessionID != "" && digest.SessionID == r.SessionDigest.SessionID {
+					continue
+				}
+				perRunUsage = append(perRunUsage, digest.Usage)
 			}
 		}
 	}
