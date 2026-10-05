@@ -2136,6 +2136,9 @@ func (r *EvalRunner) buildGraderContext(tc *models.TestCase, resp *execution.Exe
 		Executor:           r.engine,
 		RecordUsage: func(digest models.SessionDigest) {
 			resp.GraderSessions = append(resp.GraderSessions, digest)
+			if digest.SessionID != "" && digest.SessionID == resp.SessionID {
+				resp.Usage = digest.Usage
+			}
 		},
 	}
 }
