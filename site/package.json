@@ -13,7 +13,7 @@
   "dependencies": {
     "@astrojs/starlight": "^0.42.2",
     "astro": "^7.3.5",
-    "sharp": "^0.35.4"
+    "sharp": "^0.35.5"
   },
   "devDependencies": {
     "@playwright/test": "^1.63.0"
