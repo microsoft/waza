@@ -167,7 +167,15 @@ func TestEnforceToolPolicy_WorkflowWireRequests(t *testing.T) {
 		{"task does not allow named workflows", `{"kind":"workflow","name":"researcher","operation":"run"}`, []string{"task"}, "researcher", "workflow", false},
 		{"name does not allow unnamed workflows", `{"kind":"workflow","name":"","operation":"run"}`, []string{"researcher"}, "task", "workflow", false},
 		{"deny all", `{"kind":"workflow","name":"researcher","operation":"run"}`, []string{}, "researcher", "workflow", false},
-		{"legacy factory fails closed", `{"kind":"factory","name":"researcher","operation":"run"}`, []string{"researcher", "task"}, "", "factory", false},
+		{"legacy named factory", `{"kind":"factory","name":"researcher","operation":"run"}`, []string{"researcher"}, "researcher", "factory", true},
+		{"legacy factory author", `{"kind":"factory","name":"researcher","operation":"author"}`, []string{"researcher"}, "researcher", "factory", true},
+		{"legacy unnamed factory", `{"kind":"factory","name":"","operation":"run"}`, []string{"task"}, "task", "factory", true},
+		{"legacy missing name", `{"kind":"factory","operation":"run"}`, []string{"task"}, "task", "factory", true},
+		{"legacy undeclared factory", `{"kind":"factory","name":"other","operation":"run"}`, []string{"researcher"}, "other", "factory", false},
+		{"legacy exact match", `{"kind":"factory","name":"researcher-extra","operation":"run"}`, []string{"researcher"}, "researcher-extra", "factory", false},
+		{"legacy task does not allow named factory", `{"kind":"factory","name":"researcher","operation":"run"}`, []string{"task"}, "researcher", "factory", false},
+		{"legacy deny all", `{"kind":"factory","name":"researcher","operation":"run"}`, []string{}, "researcher", "factory", false},
+		{"unknown kind fails closed", `{"kind":"future","name":"researcher"}`, []string{"researcher", "task"}, "", "future", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var event copilot.PermissionRequestedData
@@ -204,6 +212,36 @@ func TestEnforceToolPolicy_WorkflowWireRequests(t *testing.T) {
 	}
 }
 
+func TestEnforceToolPolicy_MalformedLegacyFactoryFailsClosed(t *testing.T) {
+	for _, payload := range []string{
+		``,
+		`{`,
+		`null`,
+		`[]`,
+		`{"name":"researcher"}`,
+		`{"kind":"workflow","name":"researcher"}`,
+		`{"kind":"factory","name":123}`,
+		`{"kind":"factory","name":{"value":"researcher"}}`,
+		`{"kind":"factory","name":"researcher","operation":123}`,
+		`{"kind":"factory","name":"researcher","phases":"invalid"}`,
+		`{"kind":"factory","name":"researcher","managedApprovalRequired":"invalid"}`,
+	} {
+		t.Run(payload, func(t *testing.T) {
+			tools := []string{"researcher", "task"}
+			request := &copilot.RawPermissionRequest{Discriminator: "factory", Raw: json.RawMessage(payload)}
+			recorder := newToolPolicyRecorder()
+			decision, err := enforceToolPolicy(NewToolPolicy(&tools), recorder, allowAllTools)(request, copilot.PermissionInvocation{})
+			require.NoError(t, err)
+			require.IsType(t, &rpc.PermissionDecisionReject{}, decision)
+			denials := recorder.snapshot()
+			require.Len(t, denials, 1)
+			require.Empty(t, denials[0].Tool)
+			require.Equal(t, "factory", denials[0].Kind)
+			require.Contains(t, denials[0].Reason, "unrecognized permission request")
+		})
+	}
+}
+
 func TestEnforceToolPolicy_WorkflowPreservesDownstreamHandler(t *testing.T) {
 	handlerErr := errors.New("permission handler failed")
 	for _, tc := range []struct {
@@ -215,29 +253,33 @@ func TestEnforceToolPolicy_WorkflowPreservesDownstreamHandler(t *testing.T) {
 		{"managed approval", &rpc.PermissionDecisionNoResult{}, nil},
 		{"error", nil, handlerErr},
 	} {
-		t.Run(tc.name, func(t *testing.T) {
-			tools := []string{"researcher"}
-			request := &copilot.PermissionRequestWorkflow{Name: "researcher", ManagedApprovalRequired: copilot.Bool(true)}
-			invocation := copilot.PermissionInvocation{SessionID: "session-1"}
-			recorder := newToolPolicyRecorder()
-			called := false
-			next := func(got copilot.PermissionRequest, gotInvocation copilot.PermissionInvocation) (rpc.PermissionDecision, error) {
-				called = true
-				require.Same(t, request, got)
-				require.True(t, got.RequiresManagedApproval())
-				require.Equal(t, invocation, gotInvocation)
-				return tc.decision, tc.err
-			}
-			decision, err := enforceToolPolicy(NewToolPolicy(&tools), recorder, next)(request, invocation)
-			require.True(t, called)
-			require.Equal(t, tc.decision, decision)
-			if tc.err != nil {
-				require.ErrorIs(t, err, tc.err)
-			} else {
-				require.NoError(t, err)
-			}
-			require.Empty(t, recorder.snapshot())
-		})
+		for _, kind := range []string{"workflow", "factory"} {
+			t.Run(tc.name+"/"+kind, func(t *testing.T) {
+				tools := []string{"researcher"}
+				var event copilot.PermissionRequestedData
+				require.NoError(t, json.Unmarshal([]byte(`{"requestId":"request-1","permissionRequest":{"kind":"`+kind+`","name":"researcher","managedApprovalRequired":true}}`), &event))
+				request := event.PermissionRequest
+				invocation := copilot.PermissionInvocation{SessionID: "session-1"}
+				recorder := newToolPolicyRecorder()
+				called := false
+				next := func(got copilot.PermissionRequest, gotInvocation copilot.PermissionInvocation) (rpc.PermissionDecision, error) {
+					called = true
+					require.Same(t, request, got)
+					require.True(t, got.RequiresManagedApproval())
+					require.Equal(t, invocation, gotInvocation)
+					return tc.decision, tc.err
+				}
+				decision, err := enforceToolPolicy(NewToolPolicy(&tools), recorder, next)(request, invocation)
+				require.True(t, called)
+				require.Equal(t, tc.decision, decision)
+				if tc.err != nil {
+					require.ErrorIs(t, err, tc.err)
+				} else {
+					require.NoError(t, err)
+				}
+				require.Empty(t, recorder.snapshot())
+			})
+		}
 	}
 }
 

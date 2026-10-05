@@ -4,9 +4,13 @@ package embedded
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -44,6 +48,40 @@ func TestPath(t *testing.T) {
 		status, err := client.GetStatus(ctx)
 		require.NoError(t, err)
 		require.Equal(t, "1.0.85", status.Version)
+		schemaBytes, err := os.ReadFile(filepath.Join(filepath.Dir(path), "schemas", "session-events.schema.json"))
+		require.NoError(t, err)
+		var schema struct {
+			Definitions map[string]struct {
+				Properties map[string]struct {
+					Const json.RawMessage `json:"const"`
+				} `json:"properties"`
+			} `json:"definitions"`
+		}
+		require.NoError(t, json.Unmarshal(schemaBytes, &schema))
+		require.JSONEq(t, `"factory"`, string(schema.Definitions["PermissionRequestFactory"].Properties["kind"].Const))
+
+		var providerRequests atomic.Int32
+		provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			providerRequests.Add(1)
+			w.WriteHeader(http.StatusServiceUnavailable)
+		}))
+		defer provider.Close()
+		session, err := client.CreateSession(ctx, &copilot.SessionConfig{
+			Model:                 "offline-smoke-test",
+			Provider:              &copilot.ProviderConfig{Type: "openai", BaseURL: provider.URL},
+			WorkingDirectory:      t.TempDir(),
+			EnableConfigDiscovery: copilot.Bool(false),
+			AvailableTools:        []string{},
+			OnPermissionRequest:   copilot.PermissionHandler.ApproveAll,
+		})
+		require.NoError(t, err)
+		require.NotEmpty(t, session.SessionID)
+		_, err = session.GetEvents(ctx)
+		require.NoError(t, err)
+		require.NoError(t, session.Disconnect())
+		require.NoError(t, client.DeleteSession(ctx, session.SessionID))
+		require.Zero(t, providerRequests.Load(), "no provider requests are permitted in this smoke test")
+		t.Logf("bundled CLI %s: native ping/status/session.create/session.getMessages/session.detach/session.delete passed; schema kind=factory; provider requests=0", status.Version)
 		return
 	}
 
@@ -64,8 +102,9 @@ func TestPath(t *testing.T) {
 			require.NoError(t, err)
 			ctx, cancel := context.WithTimeout(t.Context(), 90*time.Second)
 			defer cancel()
-			output, err := exec.CommandContext(ctx, executable, "-test.run=^TestPath$").CombinedOutput()
+			output, err := exec.CommandContext(ctx, executable, "-test.run=^TestPath$", "-test.v").CombinedOutput()
 			require.NoError(t, err, "%s", output)
+			t.Logf("%s", output)
 		})
 	}
 }

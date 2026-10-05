@@ -1,6 +1,7 @@
 package execution
 
 import (
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"sort"
@@ -208,7 +209,7 @@ func (r *toolPolicyRecorder) snapshot() []ToolPolicyDenial {
 // PermissionRequestRead -> "read", PermissionRequestWrite -> "write",
 // PermissionRequestShell -> "bash", PermissionRequestURL -> "fetch". Requests
 // that carry an explicit tool name (custom tool, MCP, hook) use that name
-// directly; workflow requests use their declared workflow Name (or
+// directly; workflow and legacy factory requests use their declared Name (or
 // "task" if no name is present), so an allow-list can target a specific
 // workflow instead of implicitly permitting every workflow.
 func canonicalPermissionToolName(request copilot.PermissionRequest) (string, bool) {
@@ -230,13 +231,21 @@ func canonicalPermissionToolName(request copilot.PermissionRequest) (string, boo
 	case *copilot.PermissionRequestHook:
 		return canonicalToolName(req.ToolName), strings.TrimSpace(req.ToolName) != ""
 	case *copilot.PermissionRequestWorkflow:
-		// Preserve the named permission boundary and the legacy "task"
-		// fallback for unnamed workflows.
-		if req.Name != "" {
-			return canonicalToolName(req.Name), true
+		return canonicalWorkflowToolName(req.Name), true
+	case *copilot.RawPermissionRequest:
+		// The bundled CLI 1.0.85 still emits "factory", which SDK 1.0.15
+		// preserves as raw JSON. Its fields match the renamed workflow type.
+		if req.Kind() != "factory" {
+			return "", false
 		}
-
-		return "task", true
+		var legacy struct {
+			Kind copilot.PermissionRequestKind `json:"kind"`
+			copilot.PermissionRequestWorkflow
+		}
+		if err := json.Unmarshal(req.Raw, &legacy); err != nil || legacy.Kind != req.Kind() {
+			return "", false
+		}
+		return canonicalWorkflowToolName(legacy.Name), true
 	case *copilot.PermissionRequestRead:
 		return "read", true
 	case *copilot.PermissionRequestWrite:
@@ -250,6 +259,13 @@ func canonicalPermissionToolName(request copilot.PermissionRequest) (string, boo
 	default:
 		return "", false
 	}
+}
+
+func canonicalWorkflowToolName(name string) string {
+	if name == "" {
+		return "task"
+	}
+	return canonicalToolName(name)
 }
 
 func isNilPermissionRequest(request copilot.PermissionRequest) bool {
