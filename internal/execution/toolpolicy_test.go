@@ -1,6 +1,8 @@
 package execution
 
 import (
+	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
@@ -82,8 +84,8 @@ func TestCanonicalPermissionToolName(t *testing.T) {
 		{"mcp without server", &copilot.PermissionRequestMCP{ToolName: "SomeTool"}, "", false},
 		{"empty custom", &copilot.PermissionRequestCustomTool{}, "", false},
 		{"hook", &copilot.PermissionRequestHook{ToolName: "bash"}, "bash", true},
-		{"factory/subagent", &copilot.PermissionRequestFactory{Name: "researcher"}, "researcher", true},
-		{"factory/subagent unnamed", &copilot.PermissionRequestFactory{}, "task", true},
+		{"workflow", &copilot.PermissionRequestWorkflow{Name: "researcher"}, "researcher", true},
+		{"workflow unnamed", &copilot.PermissionRequestWorkflow{}, "task", true},
 		{"read", &copilot.PermissionRequestRead{Path: "/tmp/x"}, "read", true},
 		{"write", &copilot.PermissionRequestWrite{FileName: "/tmp/x"}, "write", true},
 		{"shell", &copilot.PermissionRequestShell{FullCommandText: "ls"}, "bash", true},
@@ -125,8 +127,8 @@ func TestEnforceToolPolicy_AllowListApprovesDeclaredDeniesOthers(t *testing.T) {
 	_, err = handler(&copilot.PermissionRequestURL{URL: "https://example.com"}, copilot.PermissionInvocation{})
 	require.NoError(t, err)
 
-	// Subagent/task tool: denied before execution.
-	_, err = handler(&copilot.PermissionRequestFactory{Name: "sub"}, copilot.PermissionInvocation{})
+	// Workflow tool: denied before execution.
+	_, err = handler(&copilot.PermissionRequestWorkflow{Name: "sub"}, copilot.PermissionInvocation{})
 	require.NoError(t, err)
 
 	// MCP tool with an undeclared name: denied even though a different tool
@@ -147,14 +149,108 @@ func TestEnforceToolPolicy_AllowListApprovesDeclaredDeniesOthers(t *testing.T) {
 	require.Equal(t, "", denials[4].Tool)
 }
 
+func TestEnforceToolPolicy_WorkflowWireRequests(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		payload  string
+		tools    []string
+		wantTool string
+		wantKind string
+		allowed  bool
+	}{
+		{"named run", `{"kind":"workflow","name":"researcher","operation":"run"}`, []string{"researcher"}, "researcher", "workflow", true},
+		{"named author", `{"kind":"workflow","name":"researcher","operation":"author"}`, []string{"researcher"}, "researcher", "workflow", true},
+		{"case insensitive", `{"kind":"workflow","name":"Researcher","operation":"run"}`, []string{"researcher"}, "researcher", "workflow", true},
+		{"unnamed fallback", `{"kind":"workflow","name":"","operation":"run"}`, []string{"task"}, "task", "workflow", true},
+		{"undeclared name", `{"kind":"workflow","name":"other","operation":"run"}`, []string{"researcher"}, "other", "workflow", false},
+		{"not a prefix match", `{"kind":"workflow","name":"researcher-extra","operation":"run"}`, []string{"researcher"}, "researcher-extra", "workflow", false},
+		{"task does not allow named workflows", `{"kind":"workflow","name":"researcher","operation":"run"}`, []string{"task"}, "researcher", "workflow", false},
+		{"name does not allow unnamed workflows", `{"kind":"workflow","name":"","operation":"run"}`, []string{"researcher"}, "task", "workflow", false},
+		{"deny all", `{"kind":"workflow","name":"researcher","operation":"run"}`, []string{}, "researcher", "workflow", false},
+		{"legacy factory fails closed", `{"kind":"factory","name":"researcher","operation":"run"}`, []string{"researcher", "task"}, "", "factory", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var event copilot.PermissionRequestedData
+			require.NoError(t, json.Unmarshal([]byte(`{"requestId":"request-1","permissionRequest":`+tc.payload+`}`), &event))
+			require.NotNil(t, event.PermissionRequest)
+			require.Equal(t, tc.wantKind, string(event.PermissionRequest.Kind()))
+			if tc.wantKind == "workflow" {
+				require.IsType(t, &copilot.PermissionRequestWorkflow{}, event.PermissionRequest)
+			} else {
+				require.IsType(t, &copilot.RawPermissionRequest{}, event.PermissionRequest)
+			}
+			recorder := newToolPolicyRecorder()
+			called := false
+			next := func(request copilot.PermissionRequest, _ copilot.PermissionInvocation) (rpc.PermissionDecision, error) {
+				called = true
+				require.Same(t, event.PermissionRequest, request)
+				return &rpc.PermissionDecisionApproveOnce{}, nil
+			}
+			decision, err := enforceToolPolicy(NewToolPolicy(&tc.tools), recorder, next)(event.PermissionRequest, copilot.PermissionInvocation{})
+			require.NoError(t, err)
+			require.Equal(t, tc.allowed, called)
+			if tc.allowed {
+				require.IsType(t, &rpc.PermissionDecisionApproveOnce{}, decision)
+				require.Empty(t, recorder.snapshot())
+			} else {
+				require.IsType(t, &rpc.PermissionDecisionReject{}, decision)
+				denials := recorder.snapshot()
+				require.Len(t, denials, 1)
+				require.Equal(t, tc.wantTool, denials[0].Tool)
+				require.Equal(t, tc.wantKind, denials[0].Kind)
+				require.NotEmpty(t, denials[0].Reason)
+			}
+		})
+	}
+}
+
+func TestEnforceToolPolicy_WorkflowPreservesDownstreamHandler(t *testing.T) {
+	handlerErr := errors.New("permission handler failed")
+	for _, tc := range []struct {
+		name     string
+		decision rpc.PermissionDecision
+		err      error
+	}{
+		{"reject", &rpc.PermissionDecisionReject{}, nil},
+		{"managed approval", &rpc.PermissionDecisionNoResult{}, nil},
+		{"error", nil, handlerErr},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tools := []string{"researcher"}
+			request := &copilot.PermissionRequestWorkflow{Name: "researcher", ManagedApprovalRequired: copilot.Bool(true)}
+			invocation := copilot.PermissionInvocation{SessionID: "session-1"}
+			recorder := newToolPolicyRecorder()
+			called := false
+			next := func(got copilot.PermissionRequest, gotInvocation copilot.PermissionInvocation) (rpc.PermissionDecision, error) {
+				called = true
+				require.Same(t, request, got)
+				require.True(t, got.RequiresManagedApproval())
+				require.Equal(t, invocation, gotInvocation)
+				return tc.decision, tc.err
+			}
+			decision, err := enforceToolPolicy(NewToolPolicy(&tools), recorder, next)(request, invocation)
+			require.True(t, called)
+			require.Equal(t, tc.decision, decision)
+			if tc.err != nil {
+				require.ErrorIs(t, err, tc.err)
+			} else {
+				require.NoError(t, err)
+			}
+			require.Empty(t, recorder.snapshot())
+		})
+	}
+}
+
 func TestEnforceToolPolicy_NilRequestsFailClosed(t *testing.T) {
 	var typedNil *copilot.PermissionRequestRead
+	var workflowNil *copilot.PermissionRequestWorkflow
 	for _, tc := range []struct {
 		name    string
 		request copilot.PermissionRequest
 	}{
 		{name: "nil", request: nil},
 		{name: "typed nil", request: typedNil},
+		{name: "typed nil workflow", request: workflowNil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			declared := []string{"read"}
