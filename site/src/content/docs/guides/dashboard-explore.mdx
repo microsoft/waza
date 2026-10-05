@@ -42,7 +42,7 @@ Clicking a run opens its detail page. The Tasks tab shows every task in the eval
 
 Above the tabs, the **Usage by model** table breaks the run's Copilot usage down per model: AI Credits, input tokens, cached-input (cache read) tokens, cache-write tokens, and output tokens.
 
-- **AI Credits** — the SDK-reported final credit total attributed to that model. Models the SDK reported no credit total for show `—`
+- **AI Credits** — the SDK-reported final credit total attributed to that model. Models the SDK reported no credit total for show `—`. If a contributing session lacks model attribution, model-credit aggregates are unavailable rather than reported as partial totals
 - **Token categories** — retained as diagnostics; waza never prices them to produce the AI Credit figure
 - **Scope** — like the run-level total, these values cover only the Copilot usage waza initiated
 

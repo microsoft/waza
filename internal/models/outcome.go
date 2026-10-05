@@ -369,11 +369,16 @@ func AggregateUsageStats(stats []*UsageStats) *UsageStats {
 	providerSet := false
 	providerConsistent := true
 	creditsComplete := len(stats) > 0
+	modelAttributionComplete := true
 	modelCreditsMissing := make(map[string]bool)
 	for _, s := range stats {
 		if s == nil {
 			creditsComplete = false
+			modelAttributionComplete = false
 			continue
+		}
+		if len(s.ModelMetrics) == 0 {
+			modelAttributionComplete = false
 		}
 		if !providerSet {
 			provider = s.Provider
@@ -420,10 +425,11 @@ func AggregateUsageStats(stats []*UsageStats) *UsageStats {
 	if !creditsComplete {
 		agg.AICredits = nil
 	}
-	for model := range modelCreditsMissing {
-		mu := agg.ModelMetrics[model]
-		mu.AICredits = nil
-		agg.ModelMetrics[model] = mu
+	for model, mu := range agg.ModelMetrics {
+		if modelCreditsMissing[model] || !modelAttributionComplete {
+			mu.AICredits = nil
+			agg.ModelMetrics[model] = mu
+		}
 	}
 	if agg.IsZero() && len(agg.ModelMetrics) == 0 {
 		return nil
