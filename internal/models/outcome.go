@@ -208,6 +208,10 @@ type RunResult struct {
 	// backward compatibility; new consumers should prefer ToolEvents.
 	ToolEvents []ToolEvent `json:"tool_events,omitempty"`
 
+	// CommandInvocations records sanitized calls handled by declarative
+	// command_mocks. Response output is intentionally excluded.
+	CommandInvocations []CommandInvocation `json:"command_invocations,omitempty"`
+
 	// SnapshotPath is the on-disk path of the self-contained snapshot.json
 	// artifact for this run, as returned by snapshot.Writer.Write. It is
 	// rooted at the --snapshot directory the user passed to `waza run` (so

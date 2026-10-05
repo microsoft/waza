@@ -93,6 +93,38 @@ func TestValidateEvalBytes_Valid(t *testing.T) {
 	require.Empty(t, errs, "valid eval should have no errors")
 }
 
+func TestValidateEvalBytes_EmptyCommandMocksRequireSupportedConfiguration(t *testing.T) {
+	valid := `schemaVersion: "1.3"
+name: command-mocks
+skill: test-skill
+config:
+  trials_per_task: 1
+  timeout_seconds: 60
+  executor: copilot-sdk
+  model: test-model
+command_mocks: []
+tasks: ["tasks/*.yaml"]
+metrics:
+  - name: pass
+    weight: 1
+    threshold: 1`
+	require.Empty(t, ValidateEvalBytes([]byte(valid)))
+	for _, version := range []string{"1.03", "01.003", "1.10", "02.00", "10.0"} {
+		t.Run(version, func(t *testing.T) {
+			data := strings.Replace(valid, `schemaVersion: "1.3"`, `schemaVersion: "`+version+`"`, 1)
+			require.Empty(t, ValidateEvalBytes([]byte(data)))
+		})
+	}
+	for _, version := range []string{"1.002", "01.02", "0.99"} {
+		t.Run(version, func(t *testing.T) {
+			data := strings.Replace(valid, `schemaVersion: "1.3"`, `schemaVersion: "`+version+`"`, 1)
+			require.NotEmpty(t, ValidateEvalBytes([]byte(data)))
+		})
+	}
+	require.NotEmpty(t, ValidateEvalBytes([]byte(strings.Replace(valid, `schemaVersion: "1.3"`, `schemaVersion: "1.2"`, 1))))
+	require.NotEmpty(t, ValidateEvalBytes([]byte(strings.Replace(valid, "executor: copilot-sdk", "executor: mock", 1))))
+}
+
 func TestValidateEvalBytes_ReasoningEffort(t *testing.T) {
 	valid := `name: reasoning
 skill: test-skill

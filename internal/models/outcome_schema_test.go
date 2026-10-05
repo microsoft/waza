@@ -141,3 +141,33 @@ func TestEvaluationOutcome_ToolEventsRoundTrip(t *testing.T) {
 		t.Fatalf("first tool event lost fidelity: %+v", te)
 	}
 }
+
+func TestEvaluationOutcome_CommandInvocationsRoundTrip(t *testing.T) {
+	original := &EvaluationOutcome{
+		SchemaVersion: CurrentSchemaVersion,
+		TestOutcomes: []TestOutcome{{
+			TestID: "cli-task",
+			Runs: []RunResult{{
+				CommandInvocations: []CommandInvocation{{
+					Command: "az", Args: []string{"account", "show"},
+					ExitCode: 0, ResponseIndex: 1,
+				}},
+			}},
+		}},
+	}
+	data, err := json.Marshal(original)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"command_invocations"`) {
+		t.Fatalf("expected command_invocations in results: %s", data)
+	}
+	var restored EvaluationOutcome
+	if err := json.Unmarshal(data, &restored); err != nil {
+		t.Fatal(err)
+	}
+	got := restored.TestOutcomes[0].Runs[0].CommandInvocations
+	if len(got) != 1 || got[0].Command != "az" || got[0].ResponseIndex != 1 {
+		t.Fatalf("command invocations lost fidelity: %+v", got)
+	}
+}

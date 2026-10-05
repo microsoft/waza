@@ -17,19 +17,20 @@ import (
 type EvalSpec struct {
 	SchemaVersion string `yaml:"schemaVersion,omitempty" json:"schemaVersion,omitempty"`
 	SpecIdentity  `yaml:",inline"`
-	SkillName     string             `yaml:"skill"`
-	Version       string             `yaml:"version"`
-	Config        Config             `yaml:"config"`
-	Hooks         hooks.HooksConfig  `yaml:"hooks,omitempty"`
-	MCPMocks      []MCPMockConfig    `yaml:"mcp_mocks,omitempty" json:"mcp_mocks,omitempty"`
-	Adversarial   *AdversarialConfig `yaml:"adversarial,omitempty" json:"adversarial,omitempty"`
-	Inputs        map[string]string  `yaml:"inputs,omitempty" json:"inputs,omitempty"`
-	TasksFrom     string             `yaml:"tasks_from,omitempty" json:"tasks_from,omitempty"`
-	Range         [2]int             `yaml:"range,omitempty" json:"range,omitempty"`
-	Graders       []GraderConfig     `yaml:"graders"`
-	Metrics       []MeasurementDef   `yaml:"metrics"`
-	Tasks         []string           `yaml:"tasks"`
-	Baseline      bool               `yaml:"baseline,omitempty" json:"baseline,omitempty"`
+	SkillName     string              `yaml:"skill"`
+	Version       string              `yaml:"version"`
+	Config        Config              `yaml:"config"`
+	Hooks         hooks.HooksConfig   `yaml:"hooks,omitempty"`
+	MCPMocks      []MCPMockConfig     `yaml:"mcp_mocks,omitempty" json:"mcp_mocks,omitempty"`
+	CommandMocks  []CommandMockConfig `yaml:"command_mocks,omitempty" json:"command_mocks,omitempty"`
+	Adversarial   *AdversarialConfig  `yaml:"adversarial,omitempty" json:"adversarial,omitempty"`
+	Inputs        map[string]string   `yaml:"inputs,omitempty" json:"inputs,omitempty"`
+	TasksFrom     string              `yaml:"tasks_from,omitempty" json:"tasks_from,omitempty"`
+	Range         [2]int              `yaml:"range,omitempty" json:"range,omitempty"`
+	Graders       []GraderConfig      `yaml:"graders"`
+	Metrics       []MeasurementDef    `yaml:"metrics"`
+	Tasks         []string            `yaml:"tasks"`
+	Baseline      bool                `yaml:"baseline,omitempty" json:"baseline,omitempty"`
 }
 
 type SpecIdentity struct {
@@ -40,19 +41,20 @@ type SpecIdentity struct {
 type strictEvalSpec struct {
 	SchemaVersion string `yaml:"schemaVersion,omitempty"`
 	SpecIdentity  `yaml:",inline"`
-	SkillName     string             `yaml:"skill"`
-	Version       string             `yaml:"version"`
-	Config        Config             `yaml:"config"`
-	Hooks         hooks.HooksConfig  `yaml:"hooks,omitempty"`
-	MCPMocks      []MCPMockConfig    `yaml:"mcp_mocks,omitempty"`
-	Adversarial   *AdversarialConfig `yaml:"adversarial,omitempty"`
-	Inputs        map[string]string  `yaml:"inputs,omitempty"`
-	TasksFrom     string             `yaml:"tasks_from,omitempty"`
-	Range         [2]int             `yaml:"range,omitempty"`
-	Graders       []strictGrader     `yaml:"graders"`
-	Metrics       []MeasurementDef   `yaml:"metrics"`
-	Tasks         []string           `yaml:"tasks"`
-	Baseline      bool               `yaml:"baseline,omitempty"`
+	SkillName     string              `yaml:"skill"`
+	Version       string              `yaml:"version"`
+	Config        Config              `yaml:"config"`
+	Hooks         hooks.HooksConfig   `yaml:"hooks,omitempty"`
+	MCPMocks      []MCPMockConfig     `yaml:"mcp_mocks,omitempty"`
+	CommandMocks  []CommandMockConfig `yaml:"command_mocks,omitempty"`
+	Adversarial   *AdversarialConfig  `yaml:"adversarial,omitempty"`
+	Inputs        map[string]string   `yaml:"inputs,omitempty"`
+	TasksFrom     string              `yaml:"tasks_from,omitempty"`
+	Range         [2]int              `yaml:"range,omitempty"`
+	Graders       []strictGrader      `yaml:"graders"`
+	Metrics       []MeasurementDef    `yaml:"metrics"`
+	Tasks         []string            `yaml:"tasks"`
+	Baseline      bool                `yaml:"baseline,omitempty"`
 }
 
 type strictGrader struct {
@@ -506,6 +508,17 @@ func (s *EvalSpec) Validate() error {
 				return fmt.Errorf("mcp_mocks[%d].name %q is duplicated", i, name)
 			}
 			seen[name] = true
+		}
+	}
+	if s.CommandMocks != nil {
+		if err := ValidateCommandMocksSchemaVersion(s.SchemaVersion); err != nil {
+			return err
+		}
+		if s.Config.EngineType != "copilot-sdk" {
+			return fmt.Errorf("command_mocks requires executor copilot-sdk")
+		}
+		if err := ValidateCommandMocks(s.CommandMocks); err != nil {
+			return err
 		}
 	}
 	if s.Adversarial != nil {

@@ -15,7 +15,7 @@ Main evaluation configuration file.
 name: code-explainer-eval # Required: eval suite name
 description: "..." # Required: what this eval tests
 skill: code-explainer # Required: skill name
-schemaVersion: "1.3" # Optional: schema version; defaults to the current version
+schemaVersion: "1.4" # Optional: schema version; defaults to the current version
 version: "1.0" # Optional: version number
 
 config:
@@ -103,7 +103,7 @@ version: "1.0"
 
 **Type:** string  
 **Required:** no  
-**Default:** current schema version (currently `1.3`)
+**Default:** current schema version (currently `1.4`)
 
 Schema version for the public artifact shape. It uses `MAJOR.MINOR` format with no patch component. Same-major minor additions are backward-compatible; readers ignore unknown fields and warn. Different major versions are rejected with a migration hint.
 
@@ -175,6 +175,47 @@ mcp_mocks:
 | `error` | string | Tool error text returned with `isError: true` |
 
 Response entries are checked in order. Unknown tools and unmatched calls fail loudly with a tool error that names the missing mock fixture.
+
+### command_mocks
+
+**Type:** array
+**Required:** no
+**Requires:** `schemaVersion: "1.3"` or newer and `config.executor: copilot-sdk`
+
+Declares temporary executable shims for commands invoked by the agent's shell. The shims are task-isolated, appear before the host `PATH`, and leave the rest of the host `PATH` available. Only declared executable names are intercepted; command mocks do not sandbox arbitrary shell commands. Host commands reached through shim pass-through do not inherit the internal `WAZA_COMMAND_MOCK_*` variables.
+
+```yaml
+schemaVersion: "1.3"
+config:
+  executor: copilot-sdk
+  model: claude-sonnet-4.6
+
+command_mocks:
+  - name: az
+    expect_calls: 2
+    responses:
+      - args: ["account", "show", "--output", "json"]
+        stdout:
+          subscriptionId: "00000000-0000-0000-0000-000000000000"
+      - args_regex: ["group", "show", "--name", ".+"]
+        fixture: fixtures/commands/az-group-show.json
+```
+
+| Field | Type | Description |
+| ----- | ---- | ----------- |
+| `name` | string | Executable name to intercept, such as `az` or `gh`. |
+| `expect_calls` | integer | Optional exact invocation count; a mismatch fails the task. |
+| `responses` | array | Ordered responses; the first matching response is used. |
+| `args` | array of strings | Exact arguments, excluding the executable name. |
+| `args_regex` | array of strings | Positional, full-string regular expressions for the argument vector. |
+| `environment` | object | Optional environment-variable values that must match exactly. |
+| `workdir` | string | Optional exact working directory relative to the task workspace. |
+| `stdout` | any | Output written to stdout; structured values are encoded as JSON. |
+| `stderr` | string | Output written to stderr. |
+| `exit_code` | integer | Process exit code from 0 through 255; defaults to 0. |
+| `fixture` | string | Relative path to raw stdout fixture bytes, resolved from `eval.yaml`. |
+
+Task-level `command_mocks` replace the eval-level list; an empty list disables the inherited mocks. Configured commands with unmatched calls fail closed and report the executable, sanitized argument vector, and working directory that need a response fixture. Sanitized calls appear in `runs[].command_invocations` and the grader context. Real credentials should not be placed in mock responses.
 
 ### adversarial
 
@@ -631,6 +672,14 @@ Apply additional instruction files for a specific task. Paths are resolved relat
 ```yaml
 instruction_files:
   - .github/instructions/review.instructions.md
+```
+
+### command_mocks (optional)
+
+Replace the eval-level command mock list for this task. The enclosing eval must use `schemaVersion: "1.3"` or newer and `executor: copilot-sdk`. Use an empty list to disable inherited mocks.
+
+```yaml
+command_mocks: []
 ```
 
 ## inputs Section

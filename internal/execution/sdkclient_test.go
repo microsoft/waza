@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	copilot "github.com/github/copilot-sdk/go"
+	"github.com/microsoft/waza/internal/commandmock"
 	"github.com/microsoft/waza/internal/embedded"
 )
 
@@ -227,6 +228,44 @@ func TestSharedClient_PassesCLIArgs(t *testing.T) {
 	}
 	if !reflect.DeepEqual(conn.Args, cliArgs) {
 		t.Fatalf("expected CLIArgs %v, got %v", cliArgs, conn.Args)
+	}
+}
+
+func TestSharedClientPrependsCommandMocksWithoutDroppingPATH(t *testing.T) {
+	resetSharedClientForTest()
+	_ = commandmock.CloseRuntime()
+	t.Cleanup(func() {
+		_ = commandmock.CloseRuntime()
+		resetSharedClientForTest()
+	})
+	t.Setenv("COPILOT_CLI_PATH", "")
+	t.Setenv("PATH", "host-bin")
+	embeddedCLIPath = func() (string, error) { return "/cache/copilot-sdk/copilot", nil }
+	t.Cleanup(func() { embeddedCLIPath = embedded.Path })
+	sharedConstruct = func(*copilot.ClientOptions) CopilotClient { return &stubClient{} }
+	t.Cleanup(func() { sharedConstruct = newCopilotClient })
+
+	opts, err := sharedClientOptions("error", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	conn, ok := opts.Connection.(copilot.StdioConnection)
+	if !ok {
+		t.Fatalf("Connection type = %T, want StdioConnection", opts.Connection)
+	}
+	var pathValue, mockRoot string
+	for _, value := range conn.Env {
+		key, value, found := strings.Cut(value, "=")
+		if found && strings.EqualFold(key, "PATH") {
+			pathValue = value
+		}
+		if key == "WAZA_COMMAND_MOCK_ROOT" {
+			mockRoot = value
+		}
+	}
+	paths := filepath.SplitList(pathValue)
+	if len(paths) < 2 || paths[0] != filepath.Join(mockRoot, "bin") || paths[1] != "host-bin" {
+		t.Fatalf("runtime PATH = %q, want shim dir followed by host PATH", pathValue)
 	}
 }
 

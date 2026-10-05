@@ -55,6 +55,9 @@ type Context struct {
 	// legacy SessionDigest.ToolCalls only has typed built-in fields.
 	ToolEvents []models.ToolEvent
 
+	// CommandInvocations holds sanitized arguments for mocked CLI calls.
+	CommandInvocations []models.CommandInvocation
+
 	// SkillInvocations is a chronological list of skills invoked during the session.
 	// Used by the skill_invocation grader to verify orchestration workflows.
 	SkillInvocations []execution.SkillInvocation

@@ -17,6 +17,7 @@ import (
 	"github.com/github/copilot-sdk/go/rpc"
 	"gopkg.in/yaml.v3"
 
+	"github.com/microsoft/waza/internal/commandmock"
 	"github.com/microsoft/waza/internal/copilotevents"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/skill"
@@ -59,6 +60,9 @@ type CopilotEngine struct {
 	// shutdown-event usage after client.Stop() fires session.shutdown events.
 	usageCollectors   map[string]*SessionUsageCollector
 	usageCollectorsMu sync.RWMutex
+
+	commandMocksMu      sync.Mutex
+	commandMockSessions map[string]*commandmock.Session
 
 	shutdownOnce sync.Once
 	shutdownErr  error
@@ -203,9 +207,10 @@ func NewCopilotEngineBuilder(defaultModelID string, options *CopilotEngineBuilde
 
 	builder := &CopilotEngineBuilder{
 		engine: &CopilotEngine{
-			defaultModelID: defaultModelID,
-			ownsClient:     ownsClient,
-			provider:       provider,
+			defaultModelID:      defaultModelID,
+			ownsClient:          ownsClient,
+			provider:            provider,
+			commandMockSessions: make(map[string]*commandmock.Session),
 		},
 	}
 
@@ -379,6 +384,10 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 	if err != nil {
 		return nil, err
 	}
+	commandMockSession, err := e.commandMockSession(workspaceDir, req)
+	if err != nil {
+		return nil, err
+	}
 
 	// Build skill directories list and system message, unless skills are disabled
 	var skillDirs []string
@@ -418,12 +427,17 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 	// every later turn in the same session.
 	var policyRecorder *toolPolicyRecorder
 	var availableTools []string
-	var policyHooks *copilot.SessionHooks
+	var preToolUseHook copilot.PreToolUseHandler
 	if req.ToolPolicy.Active() {
 		policyRecorder = newToolPolicyRecorder()
 		permRequestCallback = enforceToolPolicy(req.ToolPolicy, policyRecorder, permRequestCallback)
 		availableTools = req.ToolPolicy.SessionToolFilter()
-		policyHooks = &copilot.SessionHooks{OnPreToolUse: enforceToolCall(req.ToolPolicy, policyRecorder)}
+		preToolUseHook = enforceToolCall(req.ToolPolicy, policyRecorder)
+	}
+	preToolUseHook = combinePreToolUseHandlers(preToolUseHook, commandMockToolHook(commandMockSession))
+	var sessionHooks *copilot.SessionHooks
+	if preToolUseHook != nil {
+		sessionHooks = &copilot.SessionHooks{OnPreToolUse: preToolUseHook}
 	}
 
 	if req.SessionID == "" {
@@ -435,7 +449,7 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 
 			OnPermissionRequest: permRequestCallback,
 			AvailableTools:      availableTools,
-			Hooks:               policyHooks,
+			Hooks:               sessionHooks,
 
 			SkillDirectories: skillDirs,
 			WorkingDirectory: workingDir,
@@ -456,7 +470,7 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 
 			OnPermissionRequest: permRequestCallback,
 			AvailableTools:      availableTools,
-			Hooks:               policyHooks,
+			Hooks:               sessionHooks,
 
 			// these are the directory for the skill itself.
 			SkillDirectories: skillDirs,
@@ -615,18 +629,19 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 	usage := usageCollector.UsageStats()
 	e.provider.applyToUsage(usage)
 	resp := &ExecutionResponse{
-		FinalOutput:      joinStrings(eventsCollector.OutputParts()),
-		Events:           copilotevents.FromSDK(eventsCollector.SessionEvents()),
-		ModelID:          modelID,
-		SkillInvocations: eventsCollector.SkillInvocations,
-		DurationMs:       duration.Milliseconds(),
-		ToolCalls:        eventsCollector.ToolCalls(),
-		ErrorMsg:         errMsg,
-		Success:          err == nil,
-		WorkspaceDir:     workspaceDir,
-		WorkspaceFiles:   workspaceFiles,
-		SessionID:        sessionID,
-		Usage:            usage,
+		FinalOutput:        joinStrings(eventsCollector.OutputParts()),
+		Events:             copilotevents.FromSDK(eventsCollector.SessionEvents()),
+		ModelID:            modelID,
+		SkillInvocations:   eventsCollector.SkillInvocations,
+		DurationMs:         duration.Milliseconds(),
+		ToolCalls:          eventsCollector.ToolCalls(),
+		ErrorMsg:           errMsg,
+		Success:            err == nil,
+		WorkspaceDir:       workspaceDir,
+		WorkspaceFiles:     workspaceFiles,
+		CommandInvocations: commandMockSession.Invocations(), // Checkpoint graders run before task finalization.
+		SessionID:          sessionID,
+		Usage:              usage,
 	}
 
 	if req.ToolPolicy != nil {
@@ -682,6 +697,15 @@ func (e *CopilotEngine) doShutdown(ctx context.Context) error {
 			return fmt.Errorf("failed to stop client: %w", err)
 		}
 	}
+	e.commandMocksMu.Lock()
+	commandMockSessions := e.commandMockSessions
+	e.commandMockSessions = make(map[string]*commandmock.Session)
+	e.commandMocksMu.Unlock()
+	for _, commandSession := range commandMockSessions {
+		if _, err := commandSession.Close(); err != nil {
+			slog.Warn("failed to close command-mock task session", "error", err)
+		}
+	}
 
 	// remove the workspace folders - should be safe now that all the copilot sessions are shut down
 	// and the tests are complete.
@@ -717,6 +741,43 @@ func (e *CopilotEngine) doShutdown(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+func (e *CopilotEngine) commandMockSession(workspace string, req *ExecutionRequest) (*commandmock.Session, error) {
+	workspace, err := filepath.Abs(workspace)
+	if err != nil {
+		return nil, fmt.Errorf("resolving command-mock workspace: %w", err)
+	}
+	e.commandMocksMu.Lock()
+	defer e.commandMocksMu.Unlock()
+	if session := e.commandMockSessions[workspace]; session != nil {
+		return session, nil
+	}
+	if len(req.CommandMocks) == 0 {
+		return nil, nil
+	}
+	session, err := commandmock.NewSession(workspace, req.CommandMocks, req.CommandMocksBaseDir)
+	if err != nil {
+		return nil, fmt.Errorf("setting up command mocks: %w", err)
+	}
+	e.commandMockSessions[workspace] = session
+	return session, nil
+}
+
+// FinalizeCommandMocks closes the task's command-mock state after all turns.
+func (e *CopilotEngine) FinalizeCommandMocks(workspace string) ([]models.CommandInvocation, error) {
+	workspace, err := filepath.Abs(workspace)
+	if err != nil {
+		return nil, fmt.Errorf("resolving command-mock workspace: %w", err)
+	}
+	e.commandMocksMu.Lock()
+	session := e.commandMockSessions[workspace]
+	delete(e.commandMockSessions, workspace)
+	e.commandMocksMu.Unlock()
+	if session == nil {
+		return nil, nil
+	}
+	return session.Close()
 }
 
 // DeleteSession removes a persistent session created via Execute (with
