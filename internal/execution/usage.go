@@ -9,6 +9,13 @@ func UpdateOutcomeUsage(outcome *models.EvaluationOutcome, engine AgentEngine) {
 	if outcome == nil {
 		return
 	}
+	if outcome.EvaluationUsage != nil {
+		updateScopedOutcomeUsage(outcome, engine)
+		if outcome.BaselineOutcome != nil && outcome.BaselineOutcome != outcome {
+			UpdateOutcomeUsage(outcome.BaselineOutcome, engine)
+		}
+		return
+	}
 
 	for i := range outcome.TestOutcomes {
 		for j := range outcome.TestOutcomes[i].Runs {
@@ -65,4 +72,45 @@ func UpdateOutcomeUsage(outcome *models.EvaluationOutcome, engine AgentEngine) {
 		}
 	}
 	outcome.Digest.Usage = models.AggregateUsageStats(allUsage)
+}
+
+func updateScopedOutcomeUsage(outcome *models.EvaluationOutcome, engine AgentEngine) {
+	current := make(map[string]*models.UsageStats)
+	var stats []*models.UsageStats
+	for i := range outcome.EvaluationUsage.Sessions {
+		entry := &outcome.EvaluationUsage.Sessions[i]
+		refresh := entry.Cumulative && entry.SessionID != ""
+		if source, ok := engine.(interface{ SessionUsageRevision(string) uint64 }); ok && entry.UsageRevision != 0 {
+			refresh = refresh && source.SessionUsageRevision(entry.SessionID) == entry.UsageRevision
+		}
+		if refresh {
+			if usage := engine.SessionUsage(entry.SessionID); usage != nil {
+				entry.Usage = cloneUsage(usage)
+			}
+		}
+		usage := EvaluationSessionStats(*entry)
+		stats = append(stats, usage)
+		if entry.SessionID != "" {
+			current[entry.SessionID] = usage
+		}
+	}
+	for i := range outcome.TestOutcomes {
+		task := &outcome.TestOutcomes[i]
+		if task.Cached {
+			continue
+		}
+		for j := range task.Runs {
+			run := &task.Runs[j]
+			if usage, exists := current[run.SessionDigest.SessionID]; exists {
+				run.SessionDigest.Usage = usage
+				run.Usage = usage
+			}
+			for k := range run.GraderSessions {
+				if usage, exists := current[run.GraderSessions[k].SessionID]; exists {
+					run.GraderSessions[k].Usage = usage
+				}
+			}
+		}
+	}
+	outcome.Digest.Usage = models.AggregateUsageStats(stats)
 }

@@ -171,7 +171,12 @@ type ExecutionResponse struct {
 	WorkspaceFiles   map[string][]byte // Post-execution workspace file contents captured before session disconnect
 	SessionID        string            // Copilot session ID
 	Usage            *models.UsageStats
-	GraderSessions   []models.SessionDigest
+	// UsageIsCumulative distinguishes a session snapshot from per-execution
+	// usage. Engines that report per-turn usage leave this false.
+	UsageIsCumulative bool
+	UsageRevision     uint64
+	usageAccumulator  *UsageAccumulator
+	GraderSessions    []models.SessionDigest
 
 	// ToolPolicyMode is the effective ToolPolicy mode applied to this
 	// execution ("unrestricted", "deny_all", or "allow_list"), empty when no

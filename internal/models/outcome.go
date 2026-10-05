@@ -98,6 +98,22 @@ type EvaluationOutcome struct {
 	Metadata        map[string]any           `json:"metadata,omitempty"`
 	IsBaseline      bool                     `json:"is_baseline,omitempty"`
 	BaselineOutcome *EvaluationOutcome       `json:"baseline_outcome,omitempty"`
+	// EvaluationUsage is present for current evaluations, including cache-only
+	// runs. Its sessions, not cached task diagnostics, define billing scope.
+	EvaluationUsage *EvaluationUsage `json:"evaluation_usage,omitempty"`
+}
+
+type EvaluationUsage struct {
+	Sessions []EvaluationSessionUsage `json:"sessions"`
+}
+
+type EvaluationSessionUsage struct {
+	SessionID       string      `json:"session_id,omitempty"`
+	Usage           *UsageStats `json:"usage,omitempty"`
+	InitialUsage    *UsageStats `json:"initial_usage,omitempty"`
+	UnknownBaseline bool        `json:"unknown_baseline,omitempty"`
+	Cumulative      bool        `json:"cumulative,omitempty"`
+	UsageRevision   uint64      `json:"usage_revision,omitempty"`
 }
 
 func (o EvaluationOutcome) MarshalJSON() ([]byte, error) {
@@ -149,6 +165,7 @@ type MeasureResult struct {
 
 // TestOutcome represents the result of one test case
 type TestOutcome struct {
+	Cached      bool   `json:"cached,omitempty"`
 	TestID      string `json:"test_id"`
 	DisplayName string `json:"display_name"`
 	Group       string `json:"group,omitempty"`

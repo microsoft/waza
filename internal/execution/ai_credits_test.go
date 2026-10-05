@@ -3,7 +3,9 @@ package execution
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
+	"time"
 
 	copilot "github.com/github/copilot-sdk/go"
 	"github.com/github/copilot-sdk/go/rpc"
@@ -54,6 +56,92 @@ func TestUsageMetricsAuthoritativeOverShutdown(t *testing.T) {
 	require.Nil(t, collector.UsageStats().AICredits, "a successful RPC without credits must remain unavailable")
 }
 
+func TestTimedOutMetricsGetsFreshFallbackBeforeEphemeralCleanup(t *testing.T) {
+	for _, canceled := range []bool{false, true} {
+		t.Run(fmt.Sprintf("task_canceled=%t", canceled), func(t *testing.T) {
+			type contextKey struct{}
+			parent, cancel := context.WithCancel(context.WithValue(t.Context(), contextKey{}, "evaluation"))
+			defer cancel()
+			ctrl := gomock.NewController(t)
+			client := newClientMock(ctrl)
+			session := NewMockCopilotSession(ctrl)
+			client.EXPECT().CreateSession(gomock.Any(), gomock.Any()).Return(session, nil)
+			session.EXPECT().SessionID().Return("grader")
+			session.EXPECT().On(gomock.Any()).AnyTimes().Return(func() {})
+			session.EXPECT().SendAndWait(gomock.Any(), gomock.Any()).DoAndReturn(func(context.Context, copilot.MessageOptions) (*copilot.SessionEvent, error) {
+				if canceled {
+					cancel()
+					return nil, context.Canceled
+				}
+				return nil, nil
+			})
+			metrics := session.EXPECT().UsageMetrics(gomock.Any()).DoAndReturn(func(ctx context.Context) (*rpc.UsageGetMetricsResult, error) {
+				require.Equal(t, "evaluation", ctx.Value(contextKey{}))
+				<-ctx.Done()
+				return nil, ctx.Err()
+			})
+			fallback := session.EXPECT().ShutdownUsage(gomock.Any()).After(metrics).DoAndReturn(func(ctx context.Context) (*copilot.SessionShutdownData, error) {
+				require.NoError(t, ctx.Err(), "RPC deadline must not poison fallback")
+				require.Equal(t, "evaluation", ctx.Value(contextKey{}))
+				deadline, bounded := ctx.Deadline()
+				require.True(t, bounded)
+				require.Greater(t, time.Until(deadline), 20*time.Second)
+				return &copilot.SessionShutdownData{TotalNanoAiu: utils.Ptr(2e9)}, nil
+			})
+			disconnect := session.EXPECT().Disconnect().After(fallback).Return(nil)
+			client.EXPECT().DeleteSession(gomock.Any(), "grader").After(disconnect).Return(nil)
+			engine := NewCopilotEngineBuilder("judge", &CopilotEngineBuilderOptions{
+				NewCopilotClient: func(*copilot.ClientOptions) CopilotClient { return client },
+			}).Build()
+			engine.usageMetricsTimeout = time.Millisecond
+			require.NoError(t, engine.Initialize(parent))
+			response, err := engine.Execute(parent, &ExecutionRequest{Message: "grade", NoSkills: true, EphemeralSession: true, SkipWorkspaceCapture: true})
+			require.NoError(t, err)
+			require.Equal(t, !canceled, response.Success)
+			require.Equal(t, 2.0, *response.Usage.AICredits)
+			require.Equal(t, 2.0, *engine.SessionUsage("grader").AICredits)
+			require.NoError(t, engine.Shutdown(t.Context()))
+			if canceled {
+				require.ErrorIs(t, parent.Err(), context.Canceled)
+			}
+		})
+	}
+}
+
+func TestDeleteSessionCapturesAndRetainsFinalUsage(t *testing.T) {
+	for _, reported := range []bool{false, true} {
+		for _, deleteFails := range []bool{false, true} {
+			t.Run(fmt.Sprintf("rpc=%t/delete_error=%t", reported, deleteFails), func(t *testing.T) {
+				ctrl := gomock.NewController(t)
+				client := NewMockCopilotClient(ctrl)
+				session := NewMockCopilotSession(ctrl)
+				collector := NewSessionUsageCollector()
+				engine := &CopilotEngine{
+					client: client, sessions: map[string]CopilotSession{"responder": session},
+					usageCollectors: map[string]*SessionUsageCollector{"responder": collector},
+				}
+				metrics := session.EXPECT().UsageMetrics(gomock.Any())
+				var final *gomock.Call
+				if reported {
+					metrics.Return(&rpc.UsageGetMetricsResult{TotalNanoAiu: utils.Ptr(4e9)}, nil)
+					final = metrics
+				} else {
+					metrics.Return(nil, errors.New("RPC unavailable"))
+					final = session.EXPECT().ShutdownUsage(gomock.Any()).After(metrics).Return(&copilot.SessionShutdownData{TotalNanoAiu: utils.Ptr(4e9)}, nil)
+				}
+				var deleteErr error
+				if deleteFails {
+					deleteErr = errors.New("delete failed")
+				}
+				client.EXPECT().DeleteSession(gomock.Any(), "responder").After(final).Return(deleteErr)
+				require.ErrorIs(t, engine.DeleteSession(t.Context(), "responder"), deleteErr)
+				require.Equal(t, 4.0, *engine.SessionUsage("responder").AICredits)
+				require.Equal(t, deleteFails, engine.sessions["responder"] != nil)
+			})
+		}
+	}
+}
+
 func TestCaptureUsageFallbacks(t *testing.T) {
 	for _, tc := range []struct {
 		name        string
@@ -85,7 +173,7 @@ func TestCaptureUsageFallbacks(t *testing.T) {
 			}
 			collector := NewSessionUsageCollector()
 			collector.On(copilot.SessionEvent{Data: &copilot.AssistantUsageData{InputTokens: utils.Ptr(int64(8))}})
-			(&CopilotEngine{}).captureUsage("s", session, collector, tc.final)
+			(&CopilotEngine{}).captureUsage(t.Context(), "s", session, collector, tc.final)
 			require.Equal(t, tc.want, collector.UsageStats().AICredits)
 			if tc.metrics == nil {
 				require.Equal(t, 8, collector.UsageStats().InputTokens)

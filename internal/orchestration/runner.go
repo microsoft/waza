@@ -301,6 +301,7 @@ func (r *EvalRunner) RunBenchmark(ctx context.Context) (*models.EvaluationOutcom
 
 // runNormalBenchmark executes a normal single-pass evaluation
 func (r *EvalRunner) runNormalBenchmark(ctx context.Context) (*models.EvaluationOutcome, error) {
+	ctx, usageScope := execution.NewUsageScope(ctx)
 	startTime := time.Now()
 
 	// Set up hooks runner
@@ -391,11 +392,13 @@ func (r *EvalRunner) runNormalBenchmark(ctx context.Context) (*models.Evaluation
 			ReasoningEffort:      spec.Config.ReasoningEffort,
 			JudgeReasoningEffort: spec.Config.JudgeReasoningEffort,
 		},
-		Digest:       digest,
-		Measures:     make(map[string]models.MeasureResult),
-		TestOutcomes: testOutcomes,
-		Metadata:     make(map[string]any),
+		Digest:          digest,
+		Measures:        make(map[string]models.MeasureResult),
+		TestOutcomes:    testOutcomes,
+		Metadata:        make(map[string]any),
+		EvaluationUsage: usageScope.Snapshot(),
 	}
+	execution.UpdateOutcomeUsage(outcome, r.engine)
 
 	r.notifyProgress(ProgressEvent{
 		EventType:  EventBenchmarkComplete,
@@ -1018,6 +1021,7 @@ func (r *EvalRunner) runTest(ctx context.Context, tc *models.TestCase, testNum, 
 		if err == nil {
 			if cachedOutcome, found := r.cache.Get(cacheKey); found {
 				// Return cached outcome with cached flag
+				cachedOutcome.Cached = true
 				return *cachedOutcome, true
 			}
 			// Run the test and cache the result
@@ -1196,7 +1200,7 @@ func (r *EvalRunner) executeRun(ctx context.Context, tc *models.TestCase, runNum
 		})
 	}
 	execCtx, cancelExec := context.WithTimeout(turnCtx, timeout)
-	resp, err := r.engine.Execute(execCtx, req)
+	resp, err := execution.ExecuteRecorded(execCtx, r.engine, req)
 	cancelExec()
 	if err != nil {
 		return returnWithArtifacts(models.RunResult{
@@ -1650,7 +1654,7 @@ func (r *EvalRunner) executeFollowUps(ctx context.Context, tc *models.TestCase, 
 			Prompt:       prompt,
 		})
 		followCtx, cancelFollow := context.WithTimeout(turnCtx, timeout)
-		followResp, err := r.engine.Execute(followCtx, followReq)
+		followResp, err := execution.ExecuteRecorded(followCtx, r.engine, followReq)
 		cancelFollow()
 		if err != nil {
 			turnSpan.End()
@@ -1679,13 +1683,7 @@ func (r *EvalRunner) executeFollowUps(ctx context.Context, tc *models.TestCase, 
 		resp.FinalOutput = followResp.FinalOutput
 		resp.WorkspaceFiles = followResp.WorkspaceFiles
 		mergeToolPolicyResult(resp, followResp)
-		if followResp.Usage != nil {
-			if resp.Usage == nil {
-				resp.Usage = followResp.Usage
-			} else {
-				resp.Usage = models.AggregateUsageStats([]*models.UsageStats{resp.Usage, followResp.Usage})
-			}
-		}
+		execution.MergeResponseUsage(resp, followResp)
 
 		// Run any checkpoint scheduled after this turn. Turn number is
 		// i+2 because the initial Execute was turn 1 and follow-ups are
@@ -1810,7 +1808,7 @@ func (r *EvalRunner) sendResponderReply(ctx context.Context, tc *models.TestCase
 	})
 	defer turnSpan.End()
 	followCtx, cancelFollow := context.WithTimeout(turnCtx, timeout)
-	followResp, err := r.engine.Execute(followCtx, followReq)
+	followResp, err := execution.ExecuteRecorded(followCtx, r.engine, followReq)
 	cancelFollow()
 	if err != nil {
 		resp.ErrorMsg = fmt.Sprintf("responder reply %d failed: %v", turn, err)
@@ -1833,13 +1831,7 @@ func (r *EvalRunner) sendResponderReply(ctx context.Context, tc *models.TestCase
 	resp.FinalOutput = followResp.FinalOutput
 	resp.WorkspaceFiles = followResp.WorkspaceFiles
 	mergeToolPolicyResult(resp, followResp)
-	if followResp.Usage != nil {
-		if resp.Usage == nil {
-			resp.Usage = followResp.Usage
-		} else {
-			resp.Usage = models.AggregateUsageStats([]*models.UsageStats{resp.Usage, followResp.Usage})
-		}
-	}
+	execution.MergeResponseUsage(resp, followResp)
 	return true
 }
 
@@ -2138,6 +2130,12 @@ func (r *EvalRunner) buildGraderContext(tc *models.TestCase, resp *execution.Exe
 			resp.GraderSessions = append(resp.GraderSessions, digest)
 			if digest.SessionID != "" && digest.SessionID == resp.SessionID {
 				resp.Usage = digest.Usage
+			}
+		},
+		RecordResponseUsage: func(graderResp *execution.ExecutionResponse) {
+			resp.GraderSessions = append(resp.GraderSessions, models.SessionDigest{SessionID: graderResp.SessionID, Usage: graderResp.Usage})
+			if graderResp.SessionID != "" && graderResp.SessionID == resp.SessionID {
+				execution.MergeResponseUsage(resp, graderResp)
 			}
 		},
 	}

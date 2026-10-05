@@ -25,7 +25,8 @@ type SessionUsageCollector struct {
 	// Per-turn accumulated usage (fallback when session-level data is absent)
 	turnUsage *models.UsageStats
 
-	turns int
+	turns         int
+	usageRevision uint64
 
 	// Session-level usage from termination events (authoritative)
 	sessionUsage *models.UsageStats
@@ -36,7 +37,8 @@ type SessionUsageCollector struct {
 
 func NewSessionUsageCollector() *SessionUsageCollector {
 	return &SessionUsageCollector{
-		mut: &sync.RWMutex{},
+		mut:           &sync.RWMutex{},
+		usageRevision: 1,
 	}
 }
 
@@ -94,6 +96,13 @@ func (s *SessionUsageCollector) beginTurn() {
 	defer s.mut.Unlock()
 	s.rpcUsage = nil
 	s.sessionUsage = nil
+	s.usageRevision++
+}
+
+func (s *SessionUsageCollector) revision() uint64 {
+	s.mut.RLock()
+	defer s.mut.RUnlock()
+	return s.usageRevision
 }
 
 func (s *SessionUsageCollector) hasMetrics() bool {

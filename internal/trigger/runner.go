@@ -177,7 +177,7 @@ func (r *Runner) testTrigger(ctx context.Context, prompt string) (*execution.Exe
 	defer cancel()
 	skillPaths := utils.ResolvePaths(spec.Config.FilteredSkillPaths(), r.cfg.SpecDir())
 	effectiveSkillDirs := append([]string{r.cfg.SpecDir()}, skillPaths...)
-	return r.engine.Execute(execCtx, &execution.ExecutionRequest{
+	return execution.ExecuteRecorded(execCtx, r.engine, &execution.ExecutionRequest{
 		Message:           prompt,
 		SkillName:         r.spec.Skill,
 		SkillPaths:        skillPaths,

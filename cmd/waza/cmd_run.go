@@ -933,6 +933,7 @@ func runSingleModel(cmd *cobra.Command, spec *models.EvalSpec, specPath string, 
 	}
 
 	var triggerResults []models.TriggerResult
+	ctx, supplementalUsage := execution.NewUsageScope(ctx)
 
 	// Discover and run trigger tests if present alongside the eval spec
 	if triggerSpec, err := trigger.Discover(specDir); err != nil {
@@ -988,7 +989,7 @@ func runSingleModel(cmd *cobra.Command, spec *models.EvalSpec, specPath string, 
 	}
 
 	if suggestFlag {
-		report, err := generateEvalAnalysis(cmd.Context(), engine, spec, specPath, outcome, triggerResults)
+		report, err := generateEvalAnalysis(ctx, engine, spec, specPath, outcome, triggerResults)
 		if err != nil {
 			fmt.Fprintf(cmd.ErrOrStderr(), "error generating suggestions: %v\n", err) //nolint:errcheck
 		} else if report != "" {
@@ -1002,6 +1003,9 @@ func runSingleModel(cmd *cobra.Command, spec *models.EvalSpec, specPath string, 
 	// shut down the engine and update outcome with final usage data
 	if err := engine.Shutdown(context.Background()); err != nil {
 		slog.Warn("engine shutdown failed", "error", err)
+	}
+	if outcome.EvaluationUsage != nil {
+		outcome.EvaluationUsage.Sessions = append(outcome.EvaluationUsage.Sessions, supplementalUsage.Snapshot().Sessions...)
 	}
 	execution.UpdateOutcomeUsage(outcome, engine)
 

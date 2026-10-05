@@ -58,8 +58,9 @@ type CopilotEngine struct {
 
 	// collectors tracks usage collectors by session ID so we can read
 	// shutdown-event usage after client.Stop() fires session.shutdown events.
-	usageCollectors   map[string]*SessionUsageCollector
-	usageCollectorsMu sync.RWMutex
+	usageCollectors     map[string]*SessionUsageCollector
+	usageCollectorsMu   sync.RWMutex
+	usageMetricsTimeout time.Duration
 
 	commandMocksMu      sync.Mutex
 	commandMockSessions map[string]*commandmock.Session
@@ -516,6 +517,7 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 		usageCollector.beginTurn()
 	}
 	e.usageCollectorsMu.Unlock()
+	usageRevision := usageCollector.revision()
 
 	// When CancelOnSkillInvocation is set, derive a cancellable context so we
 	// can abort SendAndWait as soon as a skill invocation event arrives. This
@@ -630,7 +632,7 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 	}
 
 	// Build response
-	e.captureUsage(sessionID, session, usageCollector, req.EphemeralSession && req.SessionID == "")
+	e.captureUsage(ctx, sessionID, session, usageCollector, req.EphemeralSession && req.SessionID == "")
 	usage := usageCollector.UsageStats()
 	e.provider.applyToUsage(usage)
 	resp := &ExecutionResponse{
@@ -647,6 +649,8 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 		CommandInvocations: commandMockSession.Invocations(), // Checkpoint graders run before task finalization.
 		SessionID:          sessionID,
 		Usage:              usage,
+		UsageIsCumulative:  true,
+		UsageRevision:      usageRevision,
 	}
 
 	if req.ToolPolicy != nil {
@@ -754,8 +758,12 @@ func (e *CopilotEngine) doShutdown(ctx context.Context) error {
 	return nil
 }
 
-func (e *CopilotEngine) captureUsage(sessionID string, session CopilotSession, collector *SessionUsageCollector, final bool) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+func (e *CopilotEngine) captureUsage(parent context.Context, sessionID string, session CopilotSession, collector *SessionUsageCollector, final bool) {
+	timeout := e.usageMetricsTimeout
+	if timeout <= 0 {
+		timeout = 30 * time.Second
+	}
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(parent), timeout)
 	defer cancel()
 	metrics, err := session.UsageMetrics(ctx)
 	if err == nil && metrics != nil {
@@ -769,7 +777,7 @@ func (e *CopilotEngine) captureUsage(sessionID string, session CopilotSession, c
 	if !final {
 		return
 	}
-	e.captureShutdownUsage(ctx, sessionID, session, collector)
+	e.captureShutdownUsage(context.WithoutCancel(parent), sessionID, session, collector)
 }
 
 func (e *CopilotEngine) captureShutdownUsage(ctx context.Context, sessionID string, session CopilotSession, collector *SessionUsageCollector) {
@@ -832,6 +840,15 @@ func (e *CopilotEngine) DeleteSession(ctx context.Context, sessionID string) err
 	if sessionID == "" {
 		return nil
 	}
+	e.sessionsMu.Lock()
+	session := e.sessions[sessionID]
+	e.sessionsMu.Unlock()
+	e.usageCollectorsMu.RLock()
+	collector := e.usageCollectors[sessionID]
+	e.usageCollectorsMu.RUnlock()
+	if session != nil && collector != nil {
+		e.captureUsage(ctx, sessionID, session, collector, true)
+	}
 	// Delete the remote session first; only drop local tracking on success so a
 	// failed remote delete leaves the session registered for shutdown cleanup
 	// rather than leaking it and losing usage collection.
@@ -843,11 +860,19 @@ func (e *CopilotEngine) DeleteSession(ctx context.Context, sessionID string) err
 	delete(e.sessions, sessionID)
 	e.sessionsMu.Unlock()
 
-	e.usageCollectorsMu.Lock()
-	delete(e.usageCollectors, sessionID)
-	e.usageCollectorsMu.Unlock()
-
 	return nil
+}
+
+// SessionUsageRevision identifies the last execution contributing to a
+// snapshot, preventing an older evaluation from absorbing a later resumed turn.
+func (e *CopilotEngine) SessionUsageRevision(sessionID string) uint64 {
+	e.usageCollectorsMu.RLock()
+	collector := e.usageCollectors[sessionID]
+	e.usageCollectorsMu.RUnlock()
+	if collector == nil {
+		return 0
+	}
+	return collector.revision()
 }
 
 // SessionUsage returns the final usage stats for a session. Call after Shutdown()

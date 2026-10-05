@@ -217,7 +217,7 @@ func (c *Classifier) Classify(ctx context.Context, agentMessage string) (Decisio
 		SkipWorkspaceCapture: true,
 	}
 
-	resp, err := c.exec.Execute(ctx, req)
+	resp, err := execution.ExecuteRecorded(ctx, c.exec, req)
 	if resp != nil && resp.SessionID != "" {
 		c.sessionID = resp.SessionID
 	}

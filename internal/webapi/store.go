@@ -170,16 +170,27 @@ func outcomeToSummary(o *models.EvaluationOutcome) RunSummary {
 	}
 
 	aggUsage := models.AggregateUsageStats(perRunUsage)
-	cost, costSource := pricing.Compute(aggUsage)
 
 	// Digest.Usage is the run-level aggregate written after engine shutdown. It
 	// covers every session the run started, including trigger sessions that the
 	// per-test runs don't carry, so it is the authoritative billing aggregate.
-	// Artifacts written without it fall back to the per-run aggregate.
+	// Only legacy artifacts without an execution scope fall back to per-run
+	// diagnostics; a current empty scope must never rebill cached usage.
 	billingUsage := o.Digest.Usage
-	if billingUsage == nil {
+	if billingUsage == nil && o.EvaluationUsage == nil {
 		billingUsage = aggUsage
 	}
+	costUsage := aggUsage
+	if o.EvaluationUsage != nil {
+		costUsage = billingUsage
+		tokens = 0
+		premiumRequests = 0
+		if billingUsage != nil {
+			tokens = billingUsage.InputTokens + billingUsage.OutputTokens
+			premiumRequests = billingUsage.PremiumRequests
+		}
+	}
+	cost, costSource := pricing.Compute(costUsage)
 
 	return RunSummary{
 		ID:              o.RunID,

@@ -1,12 +1,14 @@
 package webapi
 
 import (
+	"fmt"
 	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/utils"
+	"github.com/stretchr/testify/require"
 )
 
 func creditsOutcome(runID string, usage *models.UsageStats) models.EvaluationOutcome {
@@ -26,6 +28,48 @@ func creditsOutcome(runID string, usage *models.UsageStats) models.EvaluationOut
 			},
 		},
 	}
+}
+
+func TestOutcomeSummaryNeverRebillsCachedTaskDiagnostics(t *testing.T) {
+	for _, scoped := range []bool{false, true} {
+		t.Run(fmt.Sprint(scoped), func(t *testing.T) {
+			o := creditsOutcome("cached", &models.UsageStats{
+				InputTokens: 100, AICredits: utils.Ptr(5.0),
+				ModelMetrics: map[string]models.ModelUsage{"model": {AICredits: utils.Ptr(5.0)}},
+			})
+			if scoped {
+				o.EvaluationUsage = &models.EvaluationUsage{Sessions: []models.EvaluationSessionUsage{}}
+			}
+			summary := outcomeToSummary(&o)
+			require.Equal(t, 100, o.TestOutcomes[0].Runs[0].SessionDigest.Usage.InputTokens, "historical task diagnostics remain visible")
+			if scoped {
+				require.Zero(t, summary.Tokens, "evaluation totals exclude cached historical consumption")
+				require.Zero(t, summary.Cost)
+				require.Zero(t, summary.PremiumRequests)
+				require.Nil(t, summary.AICredits)
+				require.Empty(t, summary.ModelUsage)
+			} else {
+				require.Equal(t, 100, summary.Tokens)
+				require.Equal(t, 5.0, *summary.AICredits, "legacy artifact fallback remains supported")
+			}
+		})
+	}
+}
+
+func TestOutcomeSummaryAllTotalsUseEvaluationLedger(t *testing.T) {
+	o := creditsOutcome("attempts-and-responder", &models.UsageStats{InputTokens: 100, PremiumRequests: 1, AICredits: utils.Ptr(1.0)})
+	o.EvaluationUsage = &models.EvaluationUsage{}
+	o.Digest.Usage = &models.UsageStats{
+		InputTokens: 350, OutputTokens: 150, PremiumRequests: 4, AICredits: utils.Ptr(4.0),
+		ModelMetrics: map[string]models.ModelUsage{"model": {RequestCost: 7, AICredits: utils.Ptr(4.0)}},
+	}
+	summary := outcomeToSummary(&o)
+	require.Equal(t, 500, summary.Tokens)
+	require.Equal(t, 4.0, summary.PremiumRequests)
+	require.Equal(t, 7.0, summary.Cost)
+	require.Equal(t, "sdk", summary.CostSource)
+	require.Equal(t, 4.0, *summary.AICredits)
+	require.Equal(t, 4.0, *summary.ModelUsage[0].AICredits)
 }
 
 func TestOutcomeToSummaryReportsAICreditsAndModelUsage(t *testing.T) {

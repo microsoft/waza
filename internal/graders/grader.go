@@ -74,6 +74,9 @@ type Context struct {
 	Executor Executor
 
 	RecordUsage func(models.SessionDigest)
+	// RecordResponseUsage preserves the engine's cumulative/per-turn semantics.
+	// When set it supersedes RecordUsage.
+	RecordResponseUsage func(*execution.ExecutionResponse)
 }
 
 // Create creates a validator from the global registry

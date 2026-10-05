@@ -21,6 +21,7 @@ func TestGraderUsageKeepsLatestContinuedSessionSnapshot(t *testing.T) {
 				if missing {
 					latest = nil
 				}
+
 				runner := NewEvalRunner(config.NewEvalConfig(&models.EvalSpec{}), &gradingUsageEngine{})
 				ctx := runner.buildGraderContext(&models.TestCase{}, resp, nil)
 				ctx.RecordUsage(models.SessionDigest{SessionID: id, Usage: latest})
@@ -47,5 +48,28 @@ func TestGraderUsageKeepsLatestContinuedSessionSnapshot(t *testing.T) {
 				require.Equal(t, wantCredits, *usage.AICredits)
 			})
 		}
+	}
+}
+
+func TestContinuedGraderPreservesEngineUsageSemanticsAcrossFollowUps(t *testing.T) {
+	for _, cumulative := range []bool{false, true} {
+		t.Run(fmt.Sprint(cumulative), func(t *testing.T) {
+			resp := &execution.ExecutionResponse{SessionID: "task", Usage: &models.UsageStats{InputTokens: 100}, UsageIsCumulative: cumulative}
+			runner := NewEvalRunner(config.NewEvalConfig(&models.EvalSpec{}), &gradingUsageEngine{})
+			ctx := runner.buildGraderContext(&models.TestCase{}, resp, nil)
+			ctx.RecordResponseUsage(&execution.ExecutionResponse{SessionID: "task", Usage: &models.UsageStats{InputTokens: 250}, UsageIsCumulative: cumulative})
+			require.Len(t, resp.GraderSessions, 1)
+			want := 350
+			if cumulative {
+				want = 250
+			}
+			require.Equal(t, want, resp.Usage.InputTokens)
+			execution.MergeResponseUsage(resp, &execution.ExecutionResponse{SessionID: "task", Usage: &models.UsageStats{InputTokens: 500}, UsageIsCumulative: cumulative})
+			want = 850
+			if cumulative {
+				want = 500
+			}
+			require.Equal(t, want, resp.Usage.InputTokens)
+		})
 	}
 }
