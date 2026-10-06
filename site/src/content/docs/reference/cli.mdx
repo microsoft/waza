@@ -1158,6 +1158,9 @@ waza serve
 | Flag | Description |
 |------|-------------|
 | `--port` | Port (default: 3000) |
+| `--lab` | Open the experimental real-results dashboard at `/#/lab`; classic dashboard remains at `/#/` |
+| `--results-dir` | Directory to scan for saved result artifacts (default: `.`) |
+| `--no-browser` | Print the dashboard URL without opening a browser |
 | `--tcp` | TCP address for JSON-RPC (e.g., `:9000`) |
 | `--stdio` | Use stdin/stdout for piping |
 
@@ -1166,8 +1169,15 @@ waza serve
 ```bash
 waza serve                    # http://localhost:3000
 waza serve --port 8080        # http://localhost:8080
+waza serve --lab --results-dir ./results  # http://localhost:3000/#/lab
 waza serve --tcp :9000        # JSON-RPC TCP server
 ```
+
+`--lab` and `--tcp` are mutually exclusive. The [experimental lab](../../guides/dashboard-lab/)
+refreshes saved results, exposes actual task evidence, and exports reports.
+Its activity stream replays artifact-derived events, not live worker state.
+Unsupported readiness/coverage checks and revision metadata remain unavailable.
+The synthetic demo is separate at `/#/lab/demo`, never an API-error fallback.
 
 ### AI Credit usage
 

@@ -22,6 +22,7 @@ func newServeCommand() *cobra.Command {
 	var httpMode bool
 	var httpPort int
 	var noBrowser bool
+	var lab bool
 	var resultsDir string
 
 	cmd := &cobra.Command{
@@ -31,6 +32,8 @@ func newServeCommand() *cobra.Command {
 
 By default, an HTTP server is started that serves the waza dashboard and API.
 The browser is opened automatically (disable with --no-browser).
+Use --lab to open the experimental dashboard with real evaluation results.
+The current dashboard remains available at the root URL.
 
 Use --tcp to start a JSON-RPC 2.0 server instead (for IDE integration).
 TCP defaults to loopback (127.0.0.1) for security. Use --tcp-allow-remote to bind
@@ -90,6 +93,7 @@ JSON-RPC methods (when using --tcp or stdin/stdout):
 					Port:          httpPort,
 					ResultsDir:    resultsDir,
 					NoBrowser:     noBrowser,
+					Lab:           lab,
 					Logger:        logger,
 					StorageConfig: storageCfg,
 				})
@@ -110,7 +114,9 @@ JSON-RPC methods (when using --tcp or stdin/stdout):
 	cmd.Flags().BoolVar(&httpMode, "http", false, "Start HTTP dashboard server (default when --tcp is not set)")
 	cmd.Flags().IntVar(&httpPort, "port", 3000, "HTTP server port")
 	cmd.Flags().BoolVar(&noBrowser, "no-browser", false, "Don't auto-open the browser")
+	cmd.Flags().BoolVar(&lab, "lab", false, "Open the experimental dashboard with real evaluation results")
 	cmd.Flags().StringVar(&resultsDir, "results-dir", ".", "Directory to read results from")
+	cmd.MarkFlagsMutuallyExclusive("lab", "tcp")
 
 	return cmd
 }

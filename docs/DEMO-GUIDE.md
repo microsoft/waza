@@ -642,6 +642,14 @@ EOF
 
 **What it shows:** The interactive web dashboard for exploring eval results, comparing runs, and tracking trends over time.
 
+For the experimental evaluation workspace, use `./waza-bin serve --lab
+--results-dir ./results`. It opens `/#/lab` with real saved results and keeps the
+classic dashboard at `/#/`. Show linked charts, history, task evidence,
+stable-task comparisons, and JSON/CSV/print reports. Explain that Current runs
+replays artifact-derived events, not live worker telemetry; readiness, coverage,
+and git revisions are unavailable. The separate `/#/lab/demo` route is synthetic
+and is never used as an API-error fallback.
+
 ### Setup
 
 - **Prerequisite:** Run an evaluation first to generate results
