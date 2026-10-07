@@ -103,7 +103,6 @@ export interface TaskResult {
   sessionDigest?: SessionDigest;
   responder?: ResponderInfo;
   bootstrapCI?: BootstrapCI;
-  isSignificant?: boolean;
 }
 
 export interface RunDetail extends RunSummary {

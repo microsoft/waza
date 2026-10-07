@@ -171,3 +171,56 @@ func TestEvaluationOutcome_CommandInvocationsRoundTrip(t *testing.T) {
 		t.Fatalf("command invocations lost fidelity: %+v", got)
 	}
 }
+
+func withSummaryStatistics(schemaVersion, statistics string) string {
+	return strings.Replace(minimalOutcomeJSON(schemaVersion), `"duration_ms": 100`, `"duration_ms": 100, "statistics": `+statistics, 1)
+}
+
+func TestParseEvaluationOutcome_LegacyStatisticsRoundTripWithoutInventedFields(t *testing.T) {
+	// 1.4 artifacts predate success_rate_ci and pass_hat_k; re-saving one must
+	// not invent them, and must keep the deprecated is_significant as written.
+	for _, significant := range []string{"true", "false"} {
+		t.Run("is_significant="+significant, func(t *testing.T) {
+			legacy := withSummaryStatistics("1.4", `{"bootstrap_ci": {"lower": 0.2, "upper": 0.9, "mean": 0.6, "confidence_level": 0.95, "num_bootstraps": 10000}, "is_significant": `+significant+`}`)
+			outcome, err := ParseEvaluationOutcome([]byte(legacy), "results.json")
+			if err != nil {
+				t.Fatalf("ParseEvaluationOutcome() error = %v", err)
+			}
+			data, err := json.Marshal(outcome)
+			if err != nil {
+				t.Fatalf("Marshal() error = %v", err)
+			}
+			for _, field := range []string{"success_rate_ci", "pass_hat_k"} {
+				if strings.Contains(string(data), field) {
+					t.Errorf("re-saved 1.4 artifact gained %q: %s", field, data)
+				}
+			}
+			for _, want := range []string{`"schemaVersion":"1.4"`, `"is_significant":` + significant} {
+				if !strings.Contains(string(data), want) {
+					t.Errorf("re-saved artifact lost %s: %s", want, data)
+				}
+			}
+		})
+	}
+}
+
+func TestParseEvaluationOutcome_CurrentStatisticsRoundTrip(t *testing.T) {
+	current := withSummaryStatistics(CurrentSchemaVersion, `{"bootstrap_ci": {"lower": 0.2, "upper": 0.9, "mean": 0.6, "confidence_level": 0.95, "num_bootstraps": 10000}, "success_rate_ci": {"lower": 0.0945, "upper": 0.9055, "mean": 0.5, "confidence_level": 0.95}, "pass_hat_k": [0.6667, 0.5]}`)
+	outcome, err := ParseEvaluationOutcome([]byte(current), "results.json")
+	if err != nil {
+		t.Fatalf("ParseEvaluationOutcome() error = %v", err)
+	}
+	s := outcome.Digest.Statistics
+	if s == nil || s.SuccessRateCI == nil || s.SuccessRateCI.Upper != 0.9055 || len(s.PassHatK) != 2 {
+		t.Fatalf("statistics not decoded: %+v", s)
+	}
+	data, err := json.Marshal(outcome)
+	if err != nil {
+		t.Fatalf("Marshal() error = %v", err)
+	}
+	for _, want := range []string{`"schemaVersion":"` + CurrentSchemaVersion + `"`, `"success_rate_ci":{`, `"pass_hat_k":[0.6667,0.5]`} {
+		if !strings.Contains(string(data), want) {
+			t.Errorf("round-tripped artifact missing %s: %s", want, data)
+		}
+	}
+}

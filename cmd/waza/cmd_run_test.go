@@ -25,6 +25,7 @@ import (
 	"github.com/microsoft/waza/internal/graders"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/orchestration"
+	"github.com/microsoft/waza/internal/statistics"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -2705,4 +2706,47 @@ func testWazaRun(t *testing.T, cwd string, args []string) (evalNames []string, s
 	sort.Strings(skillsLoaded)
 
 	return slices.Sorted(maps.Keys(evalNamesMap)), slices.Compact(skillsLoaded)
+}
+
+func TestFormatPassHatK(t *testing.T) {
+	assert.Equal(t, "pass^1=83%  pass^2=71%  pass^3=62%", formatPassHatK([]float64{0.8333, 0.7083, 0.625}))
+	assert.Empty(t, formatPassHatK(nil))
+}
+
+func TestPrintSummary_ReportsPassRateIntervalsAndReliability(t *testing.T) {
+	outcome := &models.EvaluationOutcome{
+		Digest: models.OutcomeDigest{
+			TotalTests: 2, Succeeded: 1, Failed: 1, SuccessRate: 0.5,
+			Statistics: &models.StatisticalSummary{
+				SuccessRateCI: &statistics.ConfidenceInterval{Lower: 0.0945, Upper: 0.9055, Mean: 0.5, ConfidenceLevel: 0.95},
+				PassHatK:      []float64{0.6667, 0.5, 0.5},
+			},
+		},
+		TestOutcomes: []models.TestOutcome{{
+			DisplayName: "flaky-task",
+			Status:      models.StatusFailed,
+			Stats: &models.TestStats{
+				PassRate:   2.0 / 3.0,
+				PassRateCI: &statistics.ConfidenceInterval{Lower: 0.2077, Upper: 0.9385, Mean: 2.0 / 3.0, ConfidenceLevel: 0.95},
+			},
+		}},
+	}
+
+	out := captureStdout(t, func() { printSummary(outcome) })
+
+	assert.Contains(t, out, "Success CI95:   [9.4%, 90.5%]")
+	assert.Contains(t, out, "Reliability:    pass^1=67%  pass^2=50%  pass^3=50%")
+	assert.Contains(t, out, "pass_rate=66.7% [CI95 21-94%]")
+}
+
+func TestPrintSummary_OmitsIntervalMissingFromOlderResults(t *testing.T) {
+	// Results written before schema 1.5 have summary statistics but no success_rate_ci.
+	outcome := &models.EvaluationOutcome{
+		Digest: models.OutcomeDigest{TotalTests: 2, Statistics: &models.StatisticalSummary{}},
+	}
+
+	out := captureStdout(t, func() { printSummary(outcome) })
+
+	assert.NotContains(t, out, "Success CI95")
+	assert.NotContains(t, out, "Reliability")
 }

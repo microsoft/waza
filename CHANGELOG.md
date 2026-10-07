@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Pass-rate confidence intervals and pass^k reliability** — Multi-trial runs now report a Wilson 95% interval on each task's pass rate (`stats.pass_rate_ci`) and on the suite success rate (`summary.statistics.success_rate_ci`), plus the τ-bench pass^k curve (`summary.statistics.pass_hat_k`). `waza run` prints them in its summary.
+
+### Fixed
+
+- **Misleading significance flag** — `is_significant` and the dashboard's "✓ significant" badge tested whether a CI on a task's own 0–1 score excluded zero. That compares an absolute, non-negative score with zero instead of testing a difference between runs, so it was not a significance test. The field is no longer populated (older results files still load) and the badge is removed.
+
 ## [0.38.6] - 2026-08-14
 
 ### Added

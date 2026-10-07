@@ -91,8 +91,8 @@ func ComputeTestStats(runs []models.RunResult) *models.TestStats {
 		stats.CI95Lo = ci.Lower
 		stats.CI95Hi = ci.Upper
 
-		sig := statistics.IsSignificant(ci)
-		stats.IsSignificant = &sig
+		passCI := statistics.WilsonCI(passed, len(runs), 0.95)
+		stats.PassRateCI = &passCI
 	}
 
 	return stats
@@ -156,16 +156,43 @@ func BuildDigest(testOutcomes []models.TestOutcome, durationMs int64, runsPerTes
 			}
 		}
 		if len(perTestScores) >= 2 {
-			ci := statistics.BootstrapCI(perTestScores, 0.95)
-			sig := statistics.IsSignificant(ci)
+			successCI := statistics.WilsonCI(succeeded, totalTests, 0.95)
 			digest.Statistics = &models.StatisticalSummary{
-				BootstrapCI:   ci,
-				IsSignificant: sig,
+				BootstrapCI:   statistics.BootstrapCI(perTestScores, 0.95),
+				SuccessRateCI: &successCI,
+				PassHatK:      computePassHatK(testOutcomes),
 			}
 		}
 	}
 
 	return digest
+}
+
+// computePassHatK returns pass^k for k = 1..(fewest trials of any task),
+// averaging each task's unbiased estimate. Element k-1 holds pass^k.
+func computePassHatK(testOutcomes []models.TestOutcome) []float64 {
+	maxK := 0
+	var counted []*models.TestStats
+	for _, to := range testOutcomes {
+		if to.Stats == nil || to.Stats.TotalRuns == 0 {
+			continue
+		}
+		if maxK == 0 || to.Stats.TotalRuns < maxK {
+			maxK = to.Stats.TotalRuns
+		}
+		counted = append(counted, to.Stats)
+	}
+	if maxK == 0 {
+		return nil
+	}
+	curve := make([]float64, maxK)
+	for k := 1; k <= maxK; k++ {
+		for _, s := range counted {
+			curve[k-1] += statistics.PassHatK(s.PassedRuns, s.TotalRuns, k)
+		}
+		curve[k-1] /= float64(len(counted))
+	}
+	return curve
 }
 
 func computeAggregateScore(testOutcomes []models.TestOutcome) float64 {

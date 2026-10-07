@@ -82,30 +82,6 @@ function TypeBadge({ type }: { type: string }) {
   );
 }
 
-function SignificanceBadge({ isSignificant }: { isSignificant?: boolean }) {
-  if (isSignificant == null) return null;
-  if (isSignificant) {
-    return (
-      <span
-        className="inline-flex items-center gap-0.5 rounded-full bg-green-500/10 px-1.5 py-0.5 text-xs font-medium text-green-400"
-        data-testid="significance-badge"
-        title="Statistically significant"
-      >
-        ✓ significant
-      </span>
-    );
-  }
-  return (
-    <span
-      className="inline-flex items-center gap-0.5 rounded-full bg-yellow-500/10 px-1.5 py-0.5 text-xs font-medium text-yellow-400"
-      data-testid="significance-badge"
-      title="Not statistically significant"
-    >
-      ⚠ not significant
-    </span>
-  );
-}
-
 function ResponderBadge({ responder }: { responder?: ResponderInfo }) {
   if (!responder) return null;
 
@@ -285,7 +261,6 @@ function TaskRow({ task }: { task: TaskResult }) {
         <td className="px-4 py-3 text-zinc-300">
           <span className="flex items-center gap-1.5">
             {ws != null ? formatPercent(ws) : "—"}
-            <SignificanceBadge isSignificant={task.isSignificant} />
           </span>
           {task.bootstrapCI && (
             <CIRange lower={task.bootstrapCI.lower} upper={task.bootstrapCI.upper} />

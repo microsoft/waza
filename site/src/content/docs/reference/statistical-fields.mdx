@@ -1,126 +1,91 @@
 ---
 title: Statistical Fields
-description: Understanding confidence intervals, significance testing, and normalized gain in evaluation results.
+description: Understanding pass-rate confidence intervals, pass^k reliability, and score intervals in evaluation results.
 ---
 
-import { Aside, Tabs, TabItem } from '@astrojs/starlight/components';
+import { Aside } from '@astrojs/starlight/components';
 
-When you run evaluations with multiple trials (`trials_per_task > 1`), waza performs statistical analysis to quantify the reliability of your results. This guide explains the new fields in your results JSON.
+When you run evaluations with multiple trials (`trials_per_task > 1`), waza quantifies how far the results can be trusted. This page explains the statistical fields in your results JSON.
 
 ---
 
 ## When Statistical Fields Appear
 
-Statistical fields are computed when:
-
-- `trials_per_task > 1` in your eval YAML
-- Multiple results are aggregated
-- Comparison analysis is performed
+- Per-task fields (`tasks[].stats.pass_rate_ci`, `tasks[].stats.bootstrap_ci`) appear when a task ran more than one trial.
+- Suite fields (`summary.statistics`) appear when `trials_per_task > 1` and at least two tasks ran.
 
 Single-trial runs skip statistical analysis.
 
 ---
 
-## Confidence Intervals (`bootstrap_ci`)
+## Pass-Rate Confidence Interval (`pass_rate_ci`)
 
-A **confidence interval** is a range of scores that likely contains the true score, computed using [bootstrap resampling](https://en.wikipedia.org/wiki/Bootstrapping_(statistics)).
-
-### Structure
+`tasks[].stats.pass_rate_ci` is a 95% [Wilson score interval](https://en.wikipedia.org/wiki/Binomial_proportion_confidence_interval#Wilson_score_interval) on the task's pass rate across its trials. Wilson stays inside [0, 1] and keeps its coverage at the 3–10 trials typical of agent evals, where normal-approximation and bootstrap intervals come out too narrow ([Bowyer et al., 2025](https://arxiv.org/abs/2503.01747)).
 
 ```json
-{
-  "task_id": "deploy-azure-app",
-  "score": 0.85,
-  "bootstrap_ci": {
-    "lower_bound": 0.72,
-    "upper_bound": 0.95,
-    "confidence_level": 0.95,
-    "method": "percentile"
-  }
+"stats": {
+  "pass_rate": 0.8,
+  "passed_runs": 4,
+  "total_runs": 5,
+  "pass_rate_ci": { "lower": 0.3755, "upper": 0.9638, "mean": 0.8, "confidence_level": 0.95 }
 }
 ```
 
-### Fields
+Interpretation: 4 of 5 trials passed, but the task's true pass rate could plausibly be anywhere from about 38% to 96%. A wide interval means you need more trials before trusting the pass rate.
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `lower_bound` | float | Lower 95% confidence bound on the score |
-| `upper_bound` | float | Upper 95% confidence bound on the score |
-| `confidence_level` | float | Confidence level (typically 0.95 = 95%) |
-| `method` | string | Computation method (`percentile` or `bca`) |
+`summary.statistics.success_rate_ci` is the same interval for the suite's `success_rate`, counting each task as one sample.
 
-### Interpretation
+`waza run` prints both:
 
-- **Narrow interval** → Consistent, reliable score
-- **Wide interval** → Highly variable results (consider more trials)
-- **Interval includes 0.5** → Uncertain whether task passes or fails
-
-### Example
-
-```json
-{
-  "task": "code-review",
-  "trials": 10,
-  "mean_score": 0.82,
-  "bootstrap_ci": {
-    "lower_bound": 0.75,
-    "upper_bound": 0.88,
-    "confidence_level": 0.95
-  }
-}
+```text
+Success CI95:   [6.1%, 79.2%]
+...
+      pass_rate=80.0% [CI95 38-96%]  avg=0.85  ...
 ```
-
-Interpretation: The true score is **95% likely between 0.75 and 0.88**. The interval doesn't cross critical boundaries, so the score is reliable.
 
 ---
 
-## Significance Testing (`is_significant`)
+## Reliability (`pass_hat_k`)
 
-The `is_significant` field indicates whether observed score differences are **statistically meaningful** or just due to randomness.
+`summary.statistics.pass_hat_k` is the pass^k curve from τ-bench ([Yao et al., 2024](https://arxiv.org/abs/2406.12045)). Element *k−1* is the probability that *k* fresh trials of a task **all** pass, averaged over tasks. For a task with *c* passes in *n* trials, the unbiased estimate is C(c, k) / C(n, k). The curve runs up to the fewest trials any task ran.
 
-### Structure
+pass^1 is the average per-trial pass rate. The drop from pass^1 to pass^n shows how much of that rate comes from tasks that pass only some of the time, which is what users of a skill experience as unreliability.
 
 ```json
-{
-  "comparison": {
-    "baseline_model": "gpt-4o",
-    "test_model": "claude-sonnet-4.6",
-    "baseline_score": 0.78,
-    "test_score": 0.85,
-    "is_significant": true,
-    "p_value": 0.032
-  }
+"statistics": {
+  "pass_hat_k": [0.7333, 0.5667, 0.4667, 0.4, 0.3333]
 }
 ```
 
-### Fields
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `is_significant` | bool | Whether difference passes significance threshold (p < 0.05) |
-| `p_value` | float | Probability that difference is due to chance (lower = more significant) |
-
-### Interpretation
-
-| is_significant | p_value | Meaning |
-|---|---|---|
-| `true` | < 0.05 | Difference is **statistically significant** — likely real improvement |
-| `false` | ≥ 0.05 | Difference is **not significant** — could be randomness |
-
-### Example
-
-```json
-{
-  "task": "deploy-app",
-  "model_a": { "score": 0.80, "trials": 5 },
-  "model_b": { "score": 0.82, "trials": 5 },
-  "difference": 0.02,
-  "is_significant": false,
-  "p_value": 0.18
-}
+```text
+Reliability:    pass^1=73%  pass^2=57%  pass^3=47%  pass^4=40%  pass^5=33%
 ```
 
-Interpretation: Model B's 0.02 improvement is **not statistically significant**. With only 5 trials each, the difference could be due to randomness. Run more trials (e.g., 10–20) to reduce uncertainty.
+Interpretation: a single trial passes 73% of the time, but five trials of the same task all pass only 33% of the time.
+
+<Aside type="note">
+With `max_attempts > 1`, a trial that passes on a retry counts as passed, so these intervals and pass^k describe reliability *with* retries.
+</Aside>
+
+---
+
+## Score Confidence Interval (`bootstrap_ci`)
+
+`tasks[].stats.bootstrap_ci` is a percentile [bootstrap](https://en.wikipedia.org/wiki/Bootstrapping_(statistics)) interval (10,000 resamples) over the task's weighted trial scores, and `summary.statistics.bootstrap_ci` is the same over per-task average scores. The dashboard shows the per-task interval next to each task's weighted score.
+
+```json
+"bootstrap_ci": { "lower": 0.72, "upper": 0.95, "mean": 0.85, "confidence_level": 0.95, "num_bootstraps": 10000 }
+```
+
+With only a few trials a bootstrap interval is too narrow, so prefer `pass_rate_ci` when judging pass/fail reliability.
+
+---
+
+## Significance (`is_significant`, no longer populated)
+
+Earlier versions set `is_significant` to `true` when a task's `bootstrap_ci` excluded zero. That interval is on the task's own score, which can't be negative, so the check only asked whether the score was above zero. It compared nothing, so neither the flag nor the dashboard's "significant" badge indicated statistical significance. It is no longer populated, and older results files that contain it still load.
+
+Significance applies to a **difference**, such as with-skill minus baseline. The intervals on this page describe each run on its own, so comparing two runs' intervals cannot establish whether a change is real: overlapping intervals can still hide a significant difference, and runs over the same tasks need a paired comparison of per-task results.
 
 ---
 
@@ -164,75 +129,38 @@ In the second example, a 0.10 improvement from 0.80 is more impressive (50% of r
 
 ## Using These Fields for CI/CD Gating
 
-Confidence intervals and significance testing enable data-driven quality gates in CI/CD.
-
-### Example: GitHub Actions Gate
-
 ```yaml
 - name: Run evaluations with 10 trials
-  run: waza run --config.trials_per_task 10 -o results.json
+  run: waza run eval.yaml --trials 10 -o results.json || true  # the next step decides
 
-- name: Check statistical significance
+- name: Gate on the success-rate interval
   run: |
     python3 << 'EOF'
-    import json
+    import json, sys
     with open('results.json') as f:
-      results = json.load(f)
-    
-    # Reject if confidence interval is too wide
+        results = json.load(f)
+
+    ci = (results['summary'].get('statistics') or {}).get('success_rate_ci')
+    # Fail only when even the optimistic end of the interval misses the target.
+    if ci and ci['upper'] < 0.8:
+        sys.exit(f"❌ success rate CI95 [{ci['lower']:.0%}, {ci['upper']:.0%}] is below the 80% target")
+
+    # Flag tasks whose pass rate is still too uncertain to trust.
     for task in results['tasks']:
-      ci = task.get('bootstrap_ci', {})
-      width = ci.get('upper_bound', 0) - ci.get('lower_bound', 0)
-      if width > 0.20:  # Tolerance: ±0.10
-        print(f"❌ {task['id']}: Interval too wide ({width:.2f})")
-        exit(1)
-      
-      # Reject if not significant vs baseline
-      if not task.get('is_significant', False):
-        print(f"⚠️  {task['id']}: Improvement not significant")
-    
-    print("✅ All tasks meet statistical quality gates")
+        task_ci = (task.get('stats') or {}).get('pass_rate_ci')
+        if task_ci and task_ci['upper'] - task_ci['lower'] > 0.5:
+            print(f"⚠️  {task['display_name']}: pass-rate CI95 wider than 50 points; add trials")
     EOF
 ```
 
 ### Gate Strategies
 
-| Strategy | When | Threshold |
-|----------|------|-----------|
-| **Confidence width** | High variability concerns | CI width < 0.15 (±0.075) |
-| **Significance** | Avoid false improvements | p_value < 0.05 |
+| Strategy | When | Check |
+|----------|------|-------|
+| **Interval vs target** | Avoid failing on noise | `success_rate_ci.upper` below target fails |
+| **Interval width** | Too few trials to judge | `pass_rate_ci` width above your tolerance |
+| **Reliability** | Users need consistent behavior | `pass_hat_k[k-1]` below target for your *k* |
 | **Normalized gain** | Cross-task comparison | Gain > 0.25 (25% of room) |
-
-### Example: Multi-Model CI Gate
-
-```yaml
-- name: Compare models with statistical rigor
-  run: |
-    waza run \
-      --model gpt-4o \
-      --model claude-sonnet-4.6 \
-      --config.trials_per_task 15 \
-      -o results.json
-
-- name: Check for significant improvement
-  run: |
-    python3 << 'EOF'
-    import json, sys
-    with open('results.json') as f:
-      results = json.load(f)
-    
-    baseline_pass_rate = results['metrics']['baseline_pass_rate']
-    improved_pass_rate = results['metrics']['improved_pass_rate']
-    is_sig = results['metrics'].get('is_significant', False)
-    
-    if improved_pass_rate > baseline_pass_rate and is_sig:
-      print(f"✅ Significant improvement: {baseline_pass_rate:.1%} → {improved_pass_rate:.1%}")
-      sys.exit(0)
-    else:
-      print(f"❌ No significant improvement (p={results['metrics'].get('p_value', 1):.3f})")
-      sys.exit(1)
-    EOF
-```
 
 ---
 
@@ -247,107 +175,48 @@ Confidence intervals and significance testing enable data-driven quality gates i
 
 ---
 
+---
+
 ## Example Results JSON
 
-### Single task with 5 trials
+Three tasks with 5 trials each; the tasks passed 5, 4, and 2 of their trials (fields abridged):
 
 ```json
 {
-  "metadata": {
-    "version": "1.0",
-    "timestamp": "2025-01-15T14:32:00Z"
-  },
-  "digest": {
-    "total_tasks": 1,
-    "passed": 1,
-    "failed": 0,
-    "pass_rate": 1.0,
-    "statistical_summary": {
-      "bootstrap_ci": {
-        "lower_bound": 0.95,
-        "upper_bound": 1.0,
-        "confidence_level": 0.95,
-        "method": "percentile"
-      },
-      "is_significant": true
+  "summary": {
+    "total_tests": 3,
+    "succeeded": 1,
+    "failed": 2,
+    "success_rate": 0.3333,
+    "statistics": {
+      "bootstrap_ci": { "lower": 0.52, "upper": 0.93, "mean": 0.74, "confidence_level": 0.95, "num_bootstraps": 10000 },
+      "success_rate_ci": { "lower": 0.0615, "upper": 0.7923, "mean": 0.3333, "confidence_level": 0.95 },
+      "pass_hat_k": [0.7333, 0.5667, 0.4667, 0.4, 0.3333]
     }
   },
   "tasks": [
     {
-      "id": "deploy-to-azure",
-      "model": "gpt-4o",
-      "trials": 5,
-      "scores": [0.95, 1.0, 0.95, 1.0, 0.95],
-      "score": 0.97,
-      "passed": true,
-      "bootstrap_ci": {
-        "lower_bound": 0.95,
-        "upper_bound": 1.0,
-        "confidence_level": 0.95,
-        "method": "percentile"
-      },
-      "grader_results": [
-        {
-          "name": "deploy-check",
-          "score": 0.97,
-          "passed": true
-        }
-      ]
-    }
-  ]
-}
-```
-
-In the full results JSON, each `tasks[].runs[]` entry includes a flat `usage` block, and the aggregate usage summary still reflects all run usage across the benchmark.
-
-### Multi-task comparison
-
-```json
-{
-  "digest": {
-    "total_tasks": 3,
-    "models": ["gpt-4o", "claude-sonnet-4.6"],
-    "comparison": {
-      "baseline_pass_rate": 0.75,
-      "improved_pass_rate": 0.88,
-      "normalized_gain": 0.52,
-      "is_significant": true,
-      "p_value": 0.018
-    }
-  },
-  "tasks": [
-    {
-      "id": "task-1",
-      "baseline_score": 0.80,
-      "improved_score": 0.95,
-      "normalized_gain": 0.75,
-      "is_significant": true,
-      "bootstrap_ci": {
-        "lower_bound": 0.85,
-        "upper_bound": 0.98,
-        "confidence_level": 0.95
-      }
-    },
-    {
-      "id": "task-2",
-      "baseline_score": 0.70,
-      "improved_score": 0.80,
-      "normalized_gain": 0.33,
-      "is_significant": false,
-      "bootstrap_ci": {
-        "lower_bound": 0.65,
-        "upper_bound": 0.90,
-        "confidence_level": 0.95
+      "display_name": "deploy-to-azure",
+      "status": "failed",
+      "stats": {
+        "pass_rate": 0.8,
+        "passed_runs": 4,
+        "total_runs": 5,
+        "flaky": true,
+        "pass_rate_ci": { "lower": 0.3755, "upper": 0.9638, "mean": 0.8, "confidence_level": 0.95 },
+        "bootstrap_ci": { "lower": 0.71, "upper": 0.97, "mean": 0.86, "confidence_level": 0.95, "num_bootstraps": 10000 }
       }
     }
   ]
 }
 ```
+
+A task's `status` is `passed` only when every non-skipped trial passed. So when every task ran *n* trials and none were skipped, `success_rate` equals pass^n, the last element of `pass_hat_k`.
 
 ---
 
 ## Next steps
 
-- **[CI/CD Integration](../ci-cd/)** — Gate deployments on statistical significance
+- **[CI/CD Integration](../ci-cd/)** — Gate deployments on these fields
 - **[Graders Guide](../graders/)** — Understanding grader weighting
 - **[CLI Reference](../cli/)** — All command-line flags

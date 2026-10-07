@@ -479,15 +479,30 @@ type TestStats struct {
 	AvgDurationMs    int64   `json:"avg_duration_ms"`
 
 	// Bootstrap confidence interval over weighted scores (populated when trials > 1)
-	BootstrapCI   *statistics.ConfidenceInterval `json:"bootstrap_ci,omitempty"`
-	IsSignificant *bool                          `json:"is_significant,omitempty"`
+	BootstrapCI *statistics.ConfidenceInterval `json:"bootstrap_ci,omitempty"`
+	// Wilson 95% interval on PassRate over this task's trials (populated when trials > 1)
+	PassRateCI *statistics.ConfidenceInterval `json:"pass_rate_ci,omitempty"`
+
+	// Deprecated: no longer populated. It tested whether a CI on the task's own
+	// 0–1 score excluded zero, which compares an absolute score with zero instead
+	// of testing a difference, so it was not a significance test. Kept so older
+	// results files load without unknown-field warnings.
+	IsSignificant *bool `json:"is_significant,omitempty"`
 }
 
 // StatisticalSummary holds aggregate statistical data for the digest when trials > 1.
 type StatisticalSummary struct {
-	BootstrapCI    statistics.ConfidenceInterval `json:"bootstrap_ci"`
-	IsSignificant  bool                          `json:"is_significant"`
-	NormalizedGain *float64                      `json:"normalized_gain,omitempty"`
+	BootstrapCI statistics.ConfidenceInterval `json:"bootstrap_ci"`
+	// Wilson 95% interval on SuccessRate, counting each task as one sample.
+	SuccessRateCI *statistics.ConfidenceInterval `json:"success_rate_ci,omitempty"`
+	// PassHatK[k-1] is the τ-bench pass^k: the chance that k fresh trials of a
+	// task all pass, averaged over tasks. k runs up to the fewest trials of any task.
+	PassHatK       []float64 `json:"pass_hat_k,omitempty"`
+	NormalizedGain *float64  `json:"normalized_gain,omitempty"`
+
+	// Deprecated: no longer populated (see TestStats.IsSignificant). A pointer
+	// so older artifacts round-trip a stored false.
+	IsSignificant *bool `json:"is_significant,omitempty"`
 }
 
 // SkillImpactMetric represents A/B comparison for a single task

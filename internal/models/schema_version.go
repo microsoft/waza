@@ -27,7 +27,9 @@ const (
 	//       migration.
 	// 1.3 — additive: session_digest tool_policy_mode and tool_policy_denials (#585).
 	// 1.4 — additive: run command_invocations records for declarative CLI mocks (#634).
-	CurrentSchemaVersion = "1.4"
+	// 1.5 — additive: task stats.pass_rate_ci and summary statistics success_rate_ci
+	//       and pass_hat_k. is_significant is no longer written but still accepted.
+	CurrentSchemaVersion = "1.5"
 )
 
 func defaultSchemaVersion(version string) string {

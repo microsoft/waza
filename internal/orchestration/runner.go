@@ -1020,8 +1020,10 @@ func (r *EvalRunner) runTest(ctx context.Context, tc *models.TestCase, testNum, 
 		cacheKey, err := cache.CacheKey(spec, tc, r.cfg.FixtureDir())
 		if err == nil {
 			if cachedOutcome, found := r.cache.Get(cacheKey); found {
-				// Return cached outcome with cached flag
+				// Return cached outcome with cached flag. Stats derive from the
+				// cached runs, so recompute them in case an older waza wrote them.
 				cachedOutcome.Cached = true
+				cachedOutcome.Stats = ComputeTestStats(cachedOutcome.Runs)
 				return *cachedOutcome, true
 			}
 			// Run the test and cache the result

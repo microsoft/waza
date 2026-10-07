@@ -292,7 +292,6 @@ func outcomeToDetail(o *models.EvaluationOutcome) *RunDetail {
 					ConfidenceLevel: to.Stats.BootstrapCI.ConfidenceLevel,
 				}
 			}
-			tr.IsSignificant = to.Stats.IsSignificant
 		}
 
 		// Collect grader results, transcript, and session digest from the first run.

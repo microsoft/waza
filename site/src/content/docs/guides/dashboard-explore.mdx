@@ -35,7 +35,7 @@ Clicking a run opens its detail page. The Tasks tab shows every task in the eval
 
 - **Outcome badges** — green `pass` and red `fail` badges make it easy to spot problems
 - **Score vs. W. Score** — the raw grader score and the weighted aggregate score are shown side by side
-- **Statistical confidence** — tasks with weighted scores display significance badges (✓ significant / ⚠ not significant) and confidence interval ranges
+- **Statistical confidence** — tasks run with multiple trials show a 95% confidence interval range under the weighted score
 - **Export CSV** — export task-level results for the current run
 
 ## Run Detail — Usage by model
@@ -167,11 +167,10 @@ The W. Score column in the Tasks table shows the weighted aggregate score for ea
 
 ## Statistical Confidence
 
-Tasks with weighted scores display statistical significance indicators. These help you determine whether score differences between models or runs are meaningful or just noise.
+Tasks run with more than one trial show a 95% bootstrap confidence interval under the weighted score. It shows how precisely the trials pin down the task's average score: its width depends on how much trial scores varied and on how many trials ran.
 
-<ZoomImage src="../../images/explore/statistical-confidence.png" alt="Task rows showing significance badges and confidence interval ranges" />
+<ZoomImage src="../../images/explore/statistical-confidence.png" alt="Task rows showing confidence interval ranges under the weighted scores" />
 
-- **✓ significant** (green) — the score is statistically significant with tight confidence intervals (e.g., [82.0%, 85.0%])
-- **⚠ not significant** (yellow) — the score has wide confidence intervals (e.g., [45.0%, 90.0%]), meaning more data is needed
-- **Confidence intervals** — shown as [lower%, upper%] ranges below the weighted score
-- **Actionable insight** — significant scores validate your skill's behavior; non-significant scores suggest you need more test cases or the grader criteria need refinement
+- **Narrow range** (e.g., [82.0%, 98.0%]) — the average score is well determined by the trials run
+- **Wide range** — the average score is still uncertain; add trials before trusting it
+- **Pass/fail reliability** — for the pass-rate interval and the pass^k reliability curve, see [Statistical Fields](../../reference/statistical-fields/)

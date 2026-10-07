@@ -64,6 +64,17 @@ test.describe("Screenshots", () => {
     }
   });
 
+  test("statistical-confidence", async ({ page }) => {
+    await page.goto("/#/runs/run-001");
+
+    const tasks = page.locator("table", { has: page.getByText("explain-merge-sort") });
+    await expect(tasks.locator('[data-testid="ci-range"]').first()).toBeVisible();
+
+    for (const path of ["../docs/images/explore/statistical-confidence.png", "../site/public/images/explore/statistical-confidence.png"]) {
+      await tasks.screenshot({ path, animations: "disabled" });
+    }
+  });
+
   test("prompts-tab", async ({ page }) => {
     await page.goto("/#/runs/run-001");
 

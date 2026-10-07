@@ -1293,6 +1293,15 @@ func parseSnapshotUpdates(raw any) ([]graders.SnapshotUpdate, error) {
 	}
 }
 
+// formatPassHatK renders a pass^k curve, e.g. "pass^1=83%  pass^2=71%  pass^3=62%".
+func formatPassHatK(curve []float64) string {
+	parts := make([]string, len(curve))
+	for i, v := range curve {
+		parts[i] = fmt.Sprintf("pass^%d=%.0f%%", i+1, v*100)
+	}
+	return strings.Join(parts, "  ")
+}
+
 func printSummary(outcome *models.EvaluationOutcome) {
 	fmt.Println("=" + strings.Repeat("=", 50))
 	fmt.Println(" BENCHMARK RESULTS")
@@ -1310,6 +1319,14 @@ func printSummary(outcome *models.EvaluationOutcome) {
 	fmt.Printf("Min Score:      %.2f\n", digest.MinScore)
 	fmt.Printf("Max Score:      %.2f\n", digest.MaxScore)
 	fmt.Printf("Std Dev:        %.4f\n", digest.StdDev)
+	if s := digest.Statistics; s != nil {
+		if ci := s.SuccessRateCI; ci != nil {
+			fmt.Printf("Success CI95:   [%.1f%%, %.1f%%]\n", ci.Lower*100, ci.Upper*100)
+		}
+		if len(s.PassHatK) > 1 {
+			fmt.Printf("Reliability:    %s\n", formatPassHatK(s.PassHatK))
+		}
+	}
 
 	duration := time.Duration(digest.DurationMs) * time.Millisecond
 	fmt.Printf("Duration:       %v\n", duration)
@@ -1342,8 +1359,12 @@ func printSummary(outcome *models.EvaluationOutcome) {
 		}
 		fmt.Printf("  %s %s [%s]\n", icon, to.DisplayName, to.Status)
 		if to.Stats != nil {
-			fmt.Printf("      pass_rate=%.1f%%  avg=%.2f  min=%.2f  max=%.2f  stddev=%.4f  avg_dur=%dms\n",
-				to.Stats.PassRate*100, to.Stats.AvgScore,
+			passRate := fmt.Sprintf("%.1f%%", to.Stats.PassRate*100)
+			if ci := to.Stats.PassRateCI; ci != nil {
+				passRate += fmt.Sprintf(" [CI95 %.0f-%.0f%%]", ci.Lower*100, ci.Upper*100)
+			}
+			fmt.Printf("      pass_rate=%s  avg=%.2f  min=%.2f  max=%.2f  stddev=%.4f  avg_dur=%dms\n",
+				passRate, to.Stats.AvgScore,
 				to.Stats.MinScore, to.Stats.MaxScore,
 				to.Stats.StdDevScore, to.Stats.AvgDurationMs)
 		}

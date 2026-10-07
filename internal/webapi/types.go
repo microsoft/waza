@@ -65,7 +65,6 @@ type TaskResult struct {
 	SessionDigest *SessionDigestResponse      `json:"sessionDigest,omitempty"`
 	Responder     *ResponderInfoResponse      `json:"responder,omitempty"`
 	BootstrapCI   *ConfidenceIntervalResponse `json:"bootstrapCI,omitempty"`
-	IsSignificant *bool                       `json:"isSignificant,omitempty"`
 }
 
 // ConfidenceIntervalResponse is the API representation of a bootstrap CI.
