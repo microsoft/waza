@@ -14,7 +14,7 @@ Main evaluation configuration file.
 ```yaml
 name: code-explainer-eval # Required: eval suite name
 description: "..." # Required: what this eval tests
-skill: code-explainer # Required: skill name
+skill: code-explainer # Required for legacy suites; optional scenario context
 schemaVersion: "1.4" # Optional: schema version; defaults to the current version
 version: "1.0" # Optional: version number
 
@@ -79,12 +79,29 @@ description: "Evaluates agent's ability to explain Python code"
 ### skill
 
 **Type:** string  
-**Required:** yes
+**Required:** yes unless `scenario` is present
 
-The skill being evaluated.
+The skill or custom agent being evaluated; optional context for a scenario.
 
 ```yaml
 skill: code-explainer
+```
+
+### scenario
+
+**Type:** nonempty string
+**Requires:** explicit eval `schemaVersion: "2.0"` (only this exact version)
+
+Workflow identity without a required skill. A scenario may retain optional
+`skill` context using existing discovery precedence. No target or explicit
+skill directories means no ambient skill loading. An empty task
+`skill_directories: []` disables discovery; `--no-skills` overrides contexts.
+Legacy suites retain existing behavior. Tasks and results remain `1.x`.
+
+```yaml
+name: inventory-eval
+scenario: inventory
+schemaVersion: "2.0"
 ```
 
 ### version
@@ -106,6 +123,10 @@ version: "1.0"
 **Default:** current schema version (currently `1.4`)
 
 Schema version for the public artifact shape. It uses `MAJOR.MINOR` format with no patch component. Same-major minor additions are backward-compatible; readers ignore unknown fields and warn. Different major versions are rejected with a migration hint.
+
+Scenario-bearing evals explicitly opt into exact `2.0`, ensuring older
+executables reject their new discovery semantics. Eval `2.0` requires a
+nonempty `scenario`; legacy eval/task/result defaults remain unchanged.
 
 ```yaml
 schemaVersion: "1.2"

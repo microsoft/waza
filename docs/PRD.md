@@ -38,6 +38,12 @@ Custom agent evaluations enforce the selected `.agent.md` tool policy with the C
 
 ## User Personas
 
+### Workflow Author
+- **Role:** Developer evaluating MCP, CLI or repository workflows
+- **Goals:** Author scenario suites without an unrelated `SKILL.md`, retaining optional skill/custom-agent context
+- **Scope:** `waza new eval <name> --scenario --template repository|cli|mcp` uses existing graders and real agent execution; mocked dependencies are explicitly harness-only evidence
+- **Compatibility:** Scenario evals opt into exact schema `2.0` so old executables reject changed discovery semantics before execution; legacy evals and task/result artifacts retain their prior formats
+
 ### Primary: Skill Author
 - **Role:** Developer contributing skills to microsoft/skills
 - **Goals:** Create high-quality skills that pass CI, work across models
@@ -56,6 +62,17 @@ Custom agent evaluations enforce the selected `.agent.md` tool policy with the C
 ---
 
 ## Feature Requirements
+
+### Existing-workflow preservation contract
+
+The additive evaluation work tracked in #657 must preserve current command,
+exit, grader, skill/custom-agent, multi-turn, mock, billing/cache, snapshot and
+historical dashboard behavior. The fixed offline corpus and package-owned
+coverage inventory are specified in [COMPATIBILITY.md](COMPATIBILITY.md) (#658).
+The required integration gate is `NO_COLOR=1 make test-compat`, with historical
+browser checks when dashboard surfaces change. Known bugs are tracked
+separately rather than accepted as new semantics; recorded/mock outcomes are
+not real-agent quality or full assurance claims.
 
 ### Epic 1: Go CLI Foundation (P0)
 

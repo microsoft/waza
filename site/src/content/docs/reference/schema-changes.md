@@ -5,6 +5,15 @@ description: Versioning policy and changelog for waza public schema artifacts.
 
 Waza public artifacts use an explicit `schemaVersion` field so checked-in eval suites, baselines, and dashboard data remain stable across CLI upgrades.
 
+Scenario-bearing evals opt into **exact `2.0`** with a nonempty string
+`scenario`. This is eval-only: tasks/results and their readers stay `1.x`.
+Older executables reject eval major `2` before execution rather than ignoring
+the new no-ambient-discovery semantics. Optional `skill` retains existing
+skill/custom-agent precedence; no target or explicit skill directories
+disables ambient skills. Empty task `skill_directories: []` disables discovery;
+`--no-skills` overrides every context. Missing or `1.x` versions cannot select
+scenario semantics; `2.1` and future majors are not supported scenario versions.
+
 ## Versioned artifacts
 
 | Artifact | Field | Current version |

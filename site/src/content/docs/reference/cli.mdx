@@ -269,6 +269,10 @@ EOF
 
 Scaffold an eval suite for an existing skill.
 
+For target-free workflows, use `waza new eval <name> --scenario`.
+Scenario scaffolds do not read or create `SKILL.md` and explicitly select
+`copilot-sdk`, even if project defaults use a mock engine.
+
 ### waza new eval
 
 Generate an eval scaffold from an existing `SKILL.md`.
@@ -288,6 +292,8 @@ Creates:
 | Flag | Description |
 |------|-------------|
 | `--output` | Custom path for the generated eval file; task YAMLs are created in a sibling `tasks/` directory next to this file. |
+| `--scenario` | Scaffold a workflow without a target skill/custom agent; eval schema `2.0`. |
+| `--template` | Scenario template: `repository` (default), `cli`, or `mcp`; requires `--scenario`. |
 
 The generated eval filename, task glob, and task filename suffix come from `.waza.yaml` `files` settings when configured.
 
@@ -299,6 +305,13 @@ waza new eval my-skill
 
 # Write eval.yaml to a custom location
 waza new eval my-skill --output evals/custom/my-skill-eval.yaml
+
+# Real repository workflow; no skill required
+waza new eval inventory --scenario --template repository
+waza run evals/inventory/eval.yaml
+
+# For offline harness checks, set config.executor: mock in a copy.
+# Mock output is not agent-quality evidence.
 ```
 
 ## waza new task
