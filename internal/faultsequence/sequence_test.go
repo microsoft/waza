@@ -130,7 +130,33 @@ func TestReservationProcess(t *testing.T) {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+	if os.Getenv("WAZA_FAULT_SEQUENCE_TEST_INTERRUPT") == "1" {
+		if err := Delay(context.Background(), MaxDelayMilliseconds); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+		}
+		os.Exit(1)
+	}
 	os.Exit(0)
+}
+
+func registerReservationProcessCleanup(t *testing.T, command *exec.Cmd, gate io.Closer) {
+	t.Helper()
+	t.Cleanup(func() {
+		if command.ProcessState == nil {
+			if err := gate.Close(); err != nil && !errors.Is(err, os.ErrClosed) {
+				t.Errorf("closing reservation subprocess gate: %v", err)
+			}
+			if err := command.Process.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
+				t.Errorf("stopping reservation subprocess: %v", err)
+			}
+			if err := command.Wait(); err != nil {
+				var exitErr *exec.ExitError
+				if !errors.As(err, &exitErr) {
+					t.Errorf("waiting for reservation subprocess: %v", err)
+				}
+			}
+		}
+	})
 }
 
 func TestReserveAcrossProcesses(t *testing.T) {
@@ -149,7 +175,7 @@ func TestReserveAcrossProcesses(t *testing.T) {
 	var children []child
 	for range 8 {
 		command := exec.CommandContext(ctx, executable, "-test.run=^TestReservationProcess$")
-		command.Env = append(os.Environ(), "WAZA_FAULT_SEQUENCE_TEST_DIR="+dir)
+		command.Env = append(os.Environ(), "WAZA_FAULT_SEQUENCE_TEST_DIR="+dir, "WAZA_FAULT_SEQUENCE_TEST_INTERRUPT=")
 		output := new(bytes.Buffer)
 		command.Stdout = output
 		command.Stderr = output
@@ -161,22 +187,7 @@ func TestReserveAcrossProcesses(t *testing.T) {
 			t.Fatal(err)
 		}
 		children = append(children, child{command, gate, output})
-		t.Cleanup(func() {
-			if command.ProcessState == nil {
-				if err := gate.Close(); err != nil && !errors.Is(err, os.ErrClosed) {
-					t.Errorf("closing reservation subprocess gate: %v", err)
-				}
-				if err := command.Process.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
-					t.Errorf("stopping reservation subprocess: %v", err)
-				}
-				if err := command.Wait(); err != nil {
-					var exitErr *exec.ExitError
-					if !errors.As(err, &exitErr) {
-						t.Errorf("waiting for reservation subprocess: %v", err)
-					}
-				}
-			}
-		})
+		registerReservationProcessCleanup(t, command, gate)
 	}
 	for _, child := range children {
 		if _, err := child.gate.Write([]byte{1}); err != nil {
@@ -201,6 +212,63 @@ func TestReserveAcrossProcesses(t *testing.T) {
 	assertAllocatedSteps(t, indices, len(children))
 	if _, err := Reserve(context.Background(), dir, len(children)); !errors.Is(err, ErrExhausted) {
 		t.Fatalf("subprocess exit must not release reservations: %v", err)
+	}
+}
+
+func TestKilledReservationProcessDoesNotRollBackOrResetOtherAttempts(t *testing.T) {
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	dir := t.TempDir()
+	command := exec.CommandContext(ctx, executable, "-test.run=^TestReservationProcess$")
+	command.Env = append(os.Environ(), "WAZA_FAULT_SEQUENCE_TEST_DIR="+dir, "WAZA_FAULT_SEQUENCE_TEST_INTERRUPT=1")
+	gate, err := command.StdinPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	output, err := command.StdoutPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := command.Start(); err != nil {
+		t.Fatal(err)
+	}
+	registerReservationProcessCleanup(t, command, gate)
+	if _, err := gate.Write([]byte{1}); err != nil {
+		t.Fatal(err)
+	}
+	if err := gate.Close(); err != nil {
+		t.Fatal(err)
+	}
+	var ready [1]byte
+	if _, err := io.ReadFull(output, ready[:]); err != nil {
+		t.Fatalf("reading confirmed reservation: %v", err)
+	}
+	if ready[0] != '0' {
+		t.Fatalf("child reserved unexpected step %q", ready)
+	}
+	// Readiness confirms reservation, not entry into the child's long delay.
+	if index, err := Reserve(ctx, dir, 8); err != nil || index != 1 {
+		t.Fatalf("reservation beside pending child = (%d, %v), want (1, nil)", index, err)
+	}
+	if err := command.Process.Kill(); err != nil {
+		t.Fatalf("killing owned reservation child: %v", err)
+	}
+	var exitErr *exec.ExitError
+	if err := command.Wait(); !errors.As(err, &exitErr) {
+		t.Fatalf("killed child must exit unsuccessfully: %v", err)
+	}
+	if err := ctx.Err(); err != nil {
+		t.Fatalf("watchdog expiry cannot stand in for explicit interruption: %v", err)
+	}
+	if index, err := Reserve(ctx, dir, 8); err != nil || index != 2 {
+		t.Fatalf("post-kill reservation = (%d, %v), want (2, nil)", index, err)
+	}
+	if index, err := Reserve(ctx, t.TempDir(), 8); err != nil || index != 0 {
+		t.Fatalf("isolated attempt reservation = (%d, %v), want (0, nil)", index, err)
 	}
 }
 
