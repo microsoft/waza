@@ -1,0 +1,122 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/microsoft/waza/main/schemas/evidence-manifest-1.0.schema.json",
+  "title": "Waza evidence manifest 1.0",
+  "description": "Descriptive content identity and availability, not authenticated provenance or requirement enforcement. SHA256 covers normalized JSON with the sha256 member omitted.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "sha256", "origin", "runtime", "redaction", "artifacts"],
+  "properties": {
+    "version": { "const": "1.0" },
+    "sha256": { "$ref": "#/$defs/sha256" },
+    "source_manifest_sha256": { "$ref": "#/$defs/sha256" },
+    "origin": { "$ref": "#/$defs/origin" },
+    "runtime": { "$ref": "#/$defs/runtime" },
+    "redaction": { "$ref": "#/$defs/redaction" },
+    "artifacts": { "type": "array", "items": { "$ref": "#/$defs/artifact" } },
+    "diagnostics": {
+      "type": "array",
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["category", "code", "message"],
+        "properties": { "category": { "type": "string" }, "code": { "type": "string" }, "message": { "type": "string" } }
+      }
+    }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "pointer": { "type": "string", "pattern": "^/(?:[^~]|~[01])*$" },
+    "digest": {
+      "type": "object", "additionalProperties": false,
+      "required": ["sha256", "encoding"],
+      "properties": {
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "encoding": { "enum": ["json-v1", "utf8", "source-bytes"] }
+      }
+    },
+    "origin": {
+      "type": "object", "additionalProperties": false,
+      "required": ["eval_id", "task_id", "run_number", "attempt_count", "prior_attempts"],
+      "description": "Zero/empty attribution is descriptive only and cannot resolve references. Consumers require matching nonempty eval/task and positive run/attempt values.",
+      "properties": {
+        "eval_id": { "type": "string" }, "task_id": { "type": "string" },
+        "run_number": { "type": "integer", "minimum": 0 },
+        "attempt_count": { "type": "integer", "minimum": 0 },
+        "prior_attempts": { "type": "string" }
+      }
+    },
+    "runtime": {
+      "type": "object", "additionalProperties": false,
+      "required": ["waza_version", "requested_engine", "requested_model", "execution_mode", "dependency_mode", "requested_policy", "verified_enforcement", "go_version", "platform", "sdk_version", "effective_model_version", "no_skills", "native_skill_control"],
+      "properties": {
+        "waza_version": { "type": "string" },
+        "requested_engine": { "type": "string" },
+        "requested_model": { "type": "string" },
+        "execution_mode": { "enum": ["live", "mock", "unknown"] },
+        "dependency_mode": { "type": "string" },
+        "requested_policy": { "type": "string" },
+        "verified_enforcement": { "type": "string" },
+        "go_version": { "type": "string" },
+        "platform": { "type": "string" },
+        "sdk_version": { "type": ["string", "null"] },
+        "effective_model_version": { "type": ["string", "null"] },
+        "no_skills": { "type": ["boolean", "null"] },
+        "native_skill_control": { "enum": ["unknown", "sdk_default", "requested_sdk_disable", "mock_not_applicable"] }
+      }
+    },
+    "redaction": {
+      "type": "object", "additionalProperties": false,
+      "required": ["policy", "match_count", "limitations"],
+      "properties": {
+        "policy": { "type": "string" },
+        "match_count": { "type": "integer", "minimum": 0 },
+        "applied_rules": { "type": "array", "items": { "type": "string" } },
+        "limitations": { "type": ["array", "null"], "items": { "type": "string" } }
+      }
+    },
+    "artifact": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "kind", "availability", "completeness"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "kind": { "type": "string" },
+        "availability": { "enum": ["captured", "digest_only", "unavailable", "not_requested"] },
+        "completeness": { "enum": ["complete", "partial", "unknown"] },
+        "document": { "const": "snapshot" },
+        "pointer": { "$ref": "#/$defs/pointer" },
+        "content_digest": { "$ref": "#/$defs/digest" },
+        "source_digest": { "$ref": "#/$defs/digest" },
+        "reason": { "type": "string", "minLength": 1 },
+        "redacted": { "type": "boolean" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "availability": { "const": "captured" } } },
+          "then": {
+            "required": ["document", "pointer", "content_digest"],
+            "properties": { "content_digest": { "properties": { "encoding": { "enum": ["json-v1", "utf8"] } } } }
+          }
+        },
+        {
+          "if": { "properties": { "availability": { "const": "captured" }, "completeness": { "enum": ["partial", "unknown"] } } },
+          "then": { "required": ["reason"] }
+        },
+        {
+          "if": { "properties": { "availability": { "const": "digest_only" } } },
+          "then": {
+            "required": ["source_digest", "reason"],
+            "not": { "anyOf": [{ "required": ["document"] }, { "required": ["pointer"] }, { "required": ["content_digest"] }] }
+          }
+        },
+        {
+          "if": { "properties": { "availability": { "enum": ["unavailable", "not_requested"] } } },
+          "then": {
+            "required": ["reason"],
+            "properties": { "completeness": { "enum": ["partial", "unknown"] } },
+            "not": { "anyOf": [{ "required": ["document"] }, { "required": ["pointer"] }, { "required": ["content_digest"] }, { "required": ["source_digest"] }] }
+          }
+        }
+      ]
+    }
+  }
+}
