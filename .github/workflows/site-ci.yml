@@ -66,9 +66,9 @@ jobs:
         if: steps.filter.outputs.site == 'true' || github.event_name == 'push'
         run: cd site && npx --no-install playwright install --with-deps chromium
 
-      - name: Test mobile menu and grader challenge documentation
+      - name: Test site regressions
         if: steps.filter.outputs.site == 'true' || github.event_name == 'push'
-        run: cd site && npm run test:e2e -- mobile-menu.spec.ts grader-challenges.spec.ts --project=chromium
+        run: cd site && npm run test:e2e -- mobile-menu.spec.ts grader-challenges.spec.ts compatibility.spec.ts --project=chromium
         env:
           CI: 'true'
 
