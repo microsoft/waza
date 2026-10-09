@@ -239,7 +239,9 @@ type RunResult struct {
 	// filepath.Rel against the results.json directory. Empty when
 	// `waza run --snapshot` was not used. Added in schema version 1.2 as
 	// an additive field (see issue #367).
-	SnapshotPath string `json:"snapshot_path,omitempty"`
+	SnapshotPath            string                   `json:"snapshot_path,omitempty"`
+	Evidence                *EvidenceManifest        `json:"evidence,omitempty"`
+	RequirementExplanations []RequirementExplanation `json:"requirement_explanations,omitempty"`
 }
 
 // CheckpointOutcome captures the results of a single TestCase.Checkpoint that
