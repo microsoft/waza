@@ -62,13 +62,13 @@ jobs:
         if: steps.filter.outputs.site == 'true' || github.event_name == 'push'
         run: cd site && npm run build
 
-      - name: Install Chromium for mobile menu regression tests
+      - name: Install Chromium for site regression tests
         if: steps.filter.outputs.site == 'true' || github.event_name == 'push'
         run: cd site && npx --no-install playwright install --with-deps chromium
 
-      - name: Test mobile menu
+      - name: Test mobile menu and grader challenge documentation
         if: steps.filter.outputs.site == 'true' || github.event_name == 'push'
-        run: cd site && npm run test:e2e -- mobile-menu.spec.ts --project=chromium
+        run: cd site && npm run test:e2e -- mobile-menu.spec.ts grader-challenges.spec.ts --project=chromium
         env:
           CI: 'true'
 

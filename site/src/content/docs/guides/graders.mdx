@@ -36,6 +36,35 @@ graders:
 
 Run `waza get eval.yaml` after adding a `ref`; it writes `waza.lock` with the commit SHA and content digest. `waza run` expands locked refs from the local module cache and fails if the lock or digest is missing.
 
+## Challenge the checks, not just the answer
+
+Before relying on a grader, compare its actual verdict against independently
+reviewed evidence. A correct outcome and a different valid tool path should
+pass. Plausible success prose with wrong resulting state, and a correct outcome
+with a forbidden side effect, should fail the relevant check. Keep the grader
+configuration fixed across all cases.
+
+The contributor baseline corpus demonstrates those checks on 12 synthetic
+scenarios across MCP, CLI and repository state, with four candidates each:
+
+```bash
+NO_COLOR=1 go test ./internal/graders -run '^TestBaselineChallenge' -count=1
+```
+
+It uses existing file and tool-call graders, runs offline without an agent or
+model, and does not change current commands, defaults or golden-task semantics.
+The [challenge inventory](https://github.com/microsoft/waza/blob/main/docs/GRADER-CHALLENGES.md)
+describes its state predicates and limitations.
+
+<Aside type="caution" title="Candidate coverage is not reviewed assurance">
+These labels are not independently human-reviewed. MCP/CLI state is synthetic,
+not proof of a live external operation, and recorded calls do not establish
+authoritative resulting state. Missing required evidence is insufficient
+evidence, not a successful bad-case rejection proving assurance. A passing
+finite corpus does not establish universal grader correctness or model-backed
+calibration.
+</Aside>
+
 ---
 
 ## At a glance

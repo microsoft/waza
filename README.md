@@ -1710,6 +1710,7 @@ See the complete [Grader Reference](docs/GRADERS.md) for detailed configuration 
 - **[Getting Started](docs/GETTING-STARTED.md)** - Complete walkthrough: init → new → run → check
 - **[Demo Guide](docs/DEMO-GUIDE.md)** - 7 live demo scenarios for presentations
 - **[Grader Reference](docs/GRADERS.md)** - Complete grader types and configuration
+- **[Baseline Grader Challenges](docs/GRADER-CHALLENGES.md)** - Offline synthetic candidate cases and evidence limitations; not reviewed assurance
 - **[Tutorial](docs/TUTORIAL.md)** - Getting started with writing skill evals
 - **[CI Integration](docs/SKILLS_CI_INTEGRATION.md)** - GitHub Actions workflows for skill evaluation
 - **[Token Management](docs/TOKEN-LIMITS.md)** - Tracking and optimizing skill context size
