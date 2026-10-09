@@ -9,6 +9,7 @@ import (
 
 	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/models"
+	"github.com/microsoft/waza/internal/schemaloader"
 	"github.com/santhosh-tekuri/jsonschema/v6"
 )
 
@@ -144,7 +145,7 @@ func ValidateConfig(identifier string, params models.GraderParameters) error {
 	case models.JSONSchemaGraderParameters:
 		if p.Schema != nil {
 			compiler := jsonschema.NewCompiler()
-			// No URLLoader is installed: unresolved references cannot perform I/O.
+			compiler.UseLoader(schemaloader.Offline{})
 			const location = "memory://waza-grader-schema.json"
 			if err := compiler.AddResource(location, p.Schema); err != nil {
 				return fmt.Errorf("adding grader schema: %w", err)
