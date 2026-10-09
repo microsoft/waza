@@ -95,6 +95,27 @@ azd waza serve
 
 Get a complete evaluation suite running in 5 minutes.
 
+For a repository or CLI workflow without a skill, start directly with:
+
+```bash
+waza new eval inventory --scenario --template repository
+waza run evals/inventory/eval.yaml
+```
+
+This selects the real Copilot SDK executor and requires the normal Copilot
+runtime/authentication. `--template cli` uses installed Git; `--template mcp`
+uses a harness-only mocked MCP dependency, not production-service evidence.
+`config.executor: mock` is an offline harness check, never an agent-quality score. See
+[sanitized scenario examples](../examples/scenarios/README.md).
+Scenario evals require explicit `schemaVersion: "2.0"` and a nonempty string
+`scenario`. Tasks/results retain `1.x`. Old executables reject eval `2.0`
+before execution. Optional `skill` uses existing skill/custom-agent precedence;
+without it or explicit directories, ambient discovery is disabled. An empty
+task `skill_directories: []` disables discovery; `--no-skills` overrides all
+contexts. Fixtures default to the eval's `fixtures/` directory, instruction
+and input files resolve from their existing context root, and generated outputs
+remain relative to each fresh task workspace.
+
 ### Step 1: Initialize a Project
 
 Create a new directory and initialize a waza project:
@@ -201,6 +222,60 @@ Execute the benchmark:
 ```bash
 waza run evals/code-explainer/eval.yaml --context-dir evals/code-explainer/fixtures -v
 ```
+
+Inspect setup without starting any agent, interpreter, hook, mock server, or live
+service first:
+
+```bash
+waza preflight evals/code-explainer/eval.yaml --context-dir evals/code-explainer/fixtures
+waza preflight evals/code-explainer/eval.yaml --format json > preflight.json
+```
+
+Preflight verifies only local schemas/configuration, task discovery/IDs, paths,
+locked cached graders, mock matching, references, and static capability support.
+Model availability, credentials, conditional checkpoint execution, interpreter
+syntax, service readiness, and external state are unresolved. Missing/invalid
+configuration exits 1; unresolved/unsupported warns and exits 0, or 1 with the
+new opt-in `--strict` policy. Existing commands keep their prior exits.
+Preflight guards eager argument schemas before eval/task/checkpoint decoding and
+before cached-preset or merged-override materialization. External prerequisites
+remain unresolved with an incomplete report; literals and returned mock payloads
+are not schemas. Runtime schema-loading defaults remain unchanged.
+
+Task requirements are optional **descriptions**, not assertions:
+
+```yaml
+requirements:
+  - id: artifact-present
+    category: outcome
+    description: The expected artifact exists in the captured workspace.
+    checks:
+      - scope: task
+        grader: artifact-files
+  - id: recovery-visible
+    category: recovery
+    description: Recovery state is observable after the second turn.
+    checks:
+      - scope: checkpoint
+        after_turn: 2
+        grader: recovery-state
+```
+
+Each reference selects an existing explicit grader by name in its `eval`, `task`,
+or `checkpoint` scope. Only checkpoint references accept `after_turn`. IDs are
+unique within a task; several requirements may share a check. Empty/absent checks
+are uncovered/unresolved. Unknown or ambiguous references are preflight errors,
+without changing runtime grader execution. Equivalent valid tool paths remain
+allowed unless the chosen existing grader explicitly constrains a sequence.
+Text success alone does not establish external resulting state.
+
+Use a build containing #660 for `preflight`; descriptive metadata remains
+v1-compatible and old readers may ignore it. This is not a minimum-version
+enforcement mechanism. Preflight reports use `kind: waza.preflight` and their own
+`schemaVersion: "1.0"`; they are not `results.json`, and inventory `complete`
+does not mean requirements are satisfied. See the
+[preflight guide](https://microsoft.github.io/waza/guides/preflight/) for diagnostics
+and path-resolution rules.
 
 If your eval uses remote grader presets, resolve them first:
 
@@ -508,6 +583,16 @@ waza serve --tcp :9000
 ---
 
 ## Advanced Usage
+
+### Existing-workflow compatibility examples
+
+The [recorded compatibility examples](../examples/compatibility/README.md) cover
+MCP lookup, read-only CLI inspection, and repository artifact preservation, each
+with known-good, deliberately-bad, and alternative-valid outcomes. They grade
+fixed evidence offline rather than executing an agent or claiming assurance.
+Contributor integration gates, fixture paths, feature ownership, historical
+artifact policies and known-bug boundaries are in
+[COMPATIBILITY.md](COMPATIBILITY.md).
 
 ### Caching and Reproducibility
 

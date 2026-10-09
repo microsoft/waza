@@ -7,3 +7,6 @@ var EvalSchemaJSON string
 
 //go:embed task.schema.json
 var TaskSchemaJSON string
+
+//go:embed preflight.schema.json
+var PreflightSchemaJSON string

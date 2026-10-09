@@ -80,6 +80,12 @@ Run `waza update` to download and execute the official OS-specific installer aft
 
 ## Quick Start
 
+For contributor regression gates and sanitized MCP, CLI, and repository
+recorded-outcome examples, see the [compatibility corpus](docs/COMPATIBILITY.md)
+and [example guide](examples/compatibility/README.md). Run `NO_COLOR=1 make test-compat`
+to preserve existing workflows; recorded/mock outcomes are not evidence of live
+agent quality.
+
 ### For New Users: Get Started in 5 Minutes
 
 See **[Getting Started Guide](docs/GETTING-STARTED.md)** for a complete walkthrough:
@@ -120,6 +126,9 @@ waza new skill skill-name
 # Create a new eval scaffold from an existing SKILL.md
 waza new eval skill-name
 
+# Create a workflow scenario without SKILL.md (real agent execution)
+waza new eval inventory --scenario --template repository
+
 # Generate a task YAML by recording a prompt run
 waza new task from-prompt "Explain this code and suggest fixes" evals/code-explainer/tasks/recorded-task.yaml
 
@@ -145,6 +154,7 @@ waza get evals/my-skill/eval.yaml
 # Note: Custom agents (.agent.md) are supported — see https://microsoft.github.io/waza/guides/custom-agents/
 
 # Run evaluations (works with both skills and custom agents)
+waza preflight examples/code-explainer/eval.yaml --context-dir examples/code-explainer/fixtures
 waza run examples/code-explainer/eval.yaml --context-dir examples/code-explainer/fixtures -v
 
 # Grade output from a previous `waza run --output results.json ...`
@@ -184,6 +194,39 @@ to create or update evals and guide eval-driven implementation. It provides the
 canonical workflow, target-specific validation steps, and a reusable delegation prompt.
 
 ## Commands
+
+### `waza preflight <eval.yaml>`
+
+Inspect eval setup **offline and agent-free** before execution:
+
+```bash
+waza preflight eval.yaml
+waza preflight eval.yaml --format json > preflight.json
+waza preflight eval.yaml --strict
+```
+
+Checks schemas, discovered task IDs, local resources/instructions, grader
+configuration and locks/cache, mock matchers, descriptive requirement references,
+and static executor capabilities. It does not initialize an engine, execute
+graders/hooks, launch subprocesses or mock/live servers, fetch dependencies, or
+contact services (including update checks). Credentials and external resulting
+state remain unresolved.
+Eager schema matchers are guarded before decoding; external schema prerequisites
+remain unresolved and leave the affected inventory incomplete.
+
+`verified` means a static check, **not a satisfied requirement or proven
+enforcement**. Invalid configuration exits 1; unresolved/unsupported prerequisites
+warn and exit 0 unless `--strict` selects exit 1. Existing `run`, `grade`, `check`,
+and `gate` behavior is unchanged. The independently versioned `waza.preflight`
+report is not evaluation results and is excluded from results/dashboard discovery.
+
+Optional task `requirements` link stable task-local IDs and
+`outcome|boundary|recovery|quality` categories to existing eval/task/checkpoint
+graders; empty checks mean uncovered. Metadata is descriptive in v1 and never
+creates assertions or forces a tool sequence. This command requires a build
+containing #660; earlier v1 readers can ignore metadata, so minimum-version notes
+are not hard enforcement. See the [offline preflight guide](https://microsoft.github.io/waza/guides/preflight/)
+for reference shapes, path bases, and offline limitations.
 
 ### `waza update`
 
@@ -281,6 +324,12 @@ waza new skill code-explainer
 
 Scaffold an eval suite from an existing `SKILL.md` (reads frontmatter trigger hints from `USE FOR` and `DO NOT USE FOR`).
 
+For a workflow with no target skill, use `waza new eval <name> --scenario`.
+`--template repository|cli|mcp` selects sanitized repository, installed Git CLI,
+or harness-only mocked MCP examples. These templates explicitly use the real
+`copilot-sdk` executor; setting `config.executor: mock` checks the harness only,
+not agent quality. See [scenario examples](examples/scenarios/README.md).
+
 Creates:
 - `evals/<skill-name>/<files.evalFile>`
 - `evals/<skill-name>/tasks/positive-trigger-1<files.taskFileSuffix>`
@@ -290,6 +339,8 @@ Creates:
 | Flag | Description |
 |------|-------------|
 | `--output <path>` | Custom path for the eval file (tasks are generated under sibling `tasks/`) |
+| `--scenario` | Create a workflow suite without reading or creating `SKILL.md` |
+| `--template <kind>` | `repository` (default), `cli`, or `mcp`; requires `--scenario` |
 
 Generated eval and task filenames are configurable in `.waza.yaml`:
 
@@ -1204,6 +1255,17 @@ Pin `reasoning_effort` and `judge_reasoning_effort` to `low`, `medium`, `high`, 
 With explicit effort, choose a concrete model from `waza models`. Waza checks the runtime's supported-effort metadata before creating or resuming hosted Copilot sessions; unknown models, unavailable metadata, and unsupported efforts produce actionable errors instead of silently using a different effort. Custom-provider efforts are forwarded directly because the hosted catalog does not describe those models. Result setup metadata and cache keys include both eval-level effort settings; regrading replaces the judge effort, including clearing a previously pinned value when omitted.
 
 `schemaVersion` uses `MAJOR.MINOR` format. Missing values are interpreted as the current schema version (currently `1.4`). Readers allow same-major minor additions with warnings for unknown fields, but reject different majors with a hint to run `waza migrate <file>`.
+
+Scenario-bearing **evals only** explicitly select `schemaVersion: "2.0"` and
+`scenario: <workflow-name>`. Only this exact scenario version is supported;
+older executables reject it before running. Results and tasks remain `1.x`,
+so existing result readers and the dashboard keep working. Optional `skill:`
+retains existing skill/custom-agent context and discovery precedence. Without
+a target or explicit skill directories, scenarios disable ambient skill loading.
+An explicit empty task `skill_directories: []` disables discovery for that task;
+`--no-skills` overrides every task. Legacy suites keep their existing defaults.
+Scenario `2.0` bypasses result caching with an explicit notice because external
+workflow dependencies are not fully fingerprinted; legacy caching is unchanged.
 
 Remote grader refs use Go-module-style paths: `<host>/<owner>/<repo>[/path][#export]@<version>`. The remote module must provide a `waza.registry.yaml` manifest and export a grader preset. Config-only grader presets expand to built-in grader types by default; remote program graders require explicit trust with `waza registry add --allow-exec` or interactive confirmation. Run `waza get eval.yaml` after manually adding or changing refs so `waza.lock` records the resolved commit and digest.
 

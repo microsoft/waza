@@ -38,7 +38,8 @@ type TestCase struct {
 	// against the cumulative conversation state at the end of that turn.
 	// Checkpoints are additive — task-level `graders:` still run against
 	// the final state after all turns complete.
-	Checkpoints []Checkpoint `yaml:"checkpoints,omitempty" json:"checkpoints,omitempty"`
+	Checkpoints  []Checkpoint  `yaml:"checkpoints,omitempty" json:"checkpoints,omitempty"`
+	Requirements []Requirement `yaml:"requirements,omitempty" json:"requirements,omitempty"`
 }
 
 // CheckpointOnFailure controls multi-turn behavior when a checkpoint fails.
@@ -515,9 +516,24 @@ func (tc *TestCase) Validate() error {
 
 // LoadTestCase loads a test case from YAML
 func LoadTestCase(path string) (*TestCase, error) {
+	return loadTestCase(path, false)
+}
+
+// LoadTestCaseOffline guards eager schema dependencies before native decoding.
+func LoadTestCaseOffline(path string) (*TestCase, error) {
+	return loadTestCase(path, true)
+}
+
+func loadTestCase(path string, offline bool) (*TestCase, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
+	}
+
+	if offline {
+		if err := guardOfflineModelSchemas(data, true); err != nil {
+			return nil, fmt.Errorf("task schema dependencies: %w", err)
+		}
 	}
 
 	var tc TestCase
