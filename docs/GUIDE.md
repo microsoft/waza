@@ -223,6 +223,56 @@ Execute the benchmark:
 waza run evals/code-explainer/eval.yaml --context-dir evals/code-explainer/fixtures -v
 ```
 
+Inspect setup without starting any agent, interpreter, hook, mock server, or live
+service first:
+
+```bash
+waza preflight evals/code-explainer/eval.yaml --context-dir evals/code-explainer/fixtures
+waza preflight evals/code-explainer/eval.yaml --format json > preflight.json
+```
+
+Preflight verifies only local schemas/configuration, task discovery/IDs, paths,
+locked cached graders, mock matching, references, and static capability support.
+Model availability, credentials, conditional checkpoint execution, interpreter
+syntax, service readiness, and external state are unresolved. Missing/invalid
+configuration exits 1; unresolved/unsupported warns and exits 0, or 1 with the
+new opt-in `--strict` policy. Existing commands keep their prior exits.
+
+Task requirements are optional **descriptions**, not assertions:
+
+```yaml
+requirements:
+  - id: artifact-present
+    category: outcome
+    description: The expected artifact exists in the captured workspace.
+    checks:
+      - scope: task
+        grader: artifact-files
+  - id: recovery-visible
+    category: recovery
+    description: Recovery state is observable after the second turn.
+    checks:
+      - scope: checkpoint
+        after_turn: 2
+        grader: recovery-state
+```
+
+Each reference selects an existing explicit grader by name in its `eval`, `task`,
+or `checkpoint` scope. Only checkpoint references accept `after_turn`. IDs are
+unique within a task; several requirements may share a check. Empty/absent checks
+are uncovered/unresolved. Unknown or ambiguous references are preflight errors,
+without changing runtime grader execution. Equivalent valid tool paths remain
+allowed unless the chosen existing grader explicitly constrains a sequence.
+Text success alone does not establish external resulting state.
+
+Use a build containing #660 for `preflight`; descriptive metadata remains
+v1-compatible and old readers may ignore it. This is not a minimum-version
+enforcement mechanism. Preflight reports use `kind: waza.preflight` and their own
+`schemaVersion: "1.0"`; they are not `results.json`, and inventory `complete`
+does not mean requirements are satisfied. See the
+[preflight guide](https://microsoft.github.io/waza/guides/preflight/) for diagnostics
+and path-resolution rules.
+
 If your eval uses remote grader presets, resolve them first:
 
 ```bash

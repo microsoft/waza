@@ -7,8 +7,7 @@
   "required": [
     "name",
     "config",
-    "metrics",
-    "tasks"
+    "metrics"
   ],
   "additionalProperties": false,
   "properties": {
@@ -71,7 +70,7 @@
     },
     "tasks_from": {
       "type": "string",
-      "description": "External file path to load additional task definitions from."
+      "description": "CSV dataset path relative to the eval directory. When nonempty, takes precedence over tasks."
     },
     "range": {
       "type": "array",
@@ -100,7 +99,6 @@
     },
     "tasks": {
       "type": "array",
-      "minItems": 1,
       "items": {
         "type": "string",
         "minLength": 1
@@ -135,6 +133,18 @@
         "properties": { "schemaVersion": { "const": "2.0" } }
       },
       "then": { "required": ["scenario"] }
+    },
+    {
+      "anyOf": [
+        {
+          "required": ["tasks_from"],
+          "properties": {"tasks_from": {"minLength": 1}}
+        },
+        {
+          "required": ["tasks"],
+          "properties": {"tasks": {"minItems": 1}}
+        }
+      ]
     },
     {
       "if": {
@@ -1487,8 +1497,9 @@
     },
     "promptGraderConfig": {
       "type": "object",
-      "required": [
-        "prompt"
+      "anyOf": [
+        {"required": ["prompt"]},
+        {"required": ["rubric"]}
       ],
       "additionalProperties": false,
       "description": "Config for the prompt grader. Uses an LLM to evaluate agent output against a rubric or prompt.",
@@ -1497,6 +1508,11 @@
           "type": "string",
           "minLength": 1,
           "description": "Grading prompt/instructions sent to the judge LLM."
+        },
+        "rubric": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Existing built-in rubric name or local markdown rubric path."
         },
         "model": {
           "type": "string",

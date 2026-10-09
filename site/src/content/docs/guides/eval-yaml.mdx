@@ -7,6 +7,22 @@ description: Complete guide to YAML structure for evaluation benchmarks.
 
 A complete reference for writing `eval.yaml` specifications and task definitions.
 
+## Offline planning and descriptive requirements
+
+Run `waza preflight eval.yaml --format json` before starting an evaluation.
+It inspects local task discovery/IDs, paths, configuration, locks/cache, mocks,
+capabilities and requirement references without starting any agent or service.
+Unresolved credentials and external state are not reported verified.
+
+Task `requirements` optionally describe `outcome`, `boundary`, `recovery` and
+`quality` intent with stable task-local IDs. Each check names an explicit existing
+grader using `scope: eval|task|checkpoint` and `grader`; checkpoint scope alone
+requires `after_turn`. Empty checks are uncovered/unresolved. Metadata does not
+create assertions, enforce runtime policy, require one implementation path, or
+change existing v1 grading/exits. Reference resolution is not satisfaction.
+Use [Offline Eval Preflight](../preflight/) for complete valid examples and the
+static-versus-runtime evidence distinction.
+
 ## Agent-ready workflow
 
 This guide is designed to be given directly to a coding agent. The agent should

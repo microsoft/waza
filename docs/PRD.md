@@ -88,6 +88,32 @@ not real-agent quality or full assurance claims.
 
 ### Epic 1: Go CLI Foundation (P0)
 
+#### Agent-free execution planning (#660)
+
+Before an eval starts, `waza preflight` inspects offline schemas, tasks and IDs,
+resource/instruction paths, grader configuration and locked cached modules,
+effective mocks, scoped requirement references, and static executor support.
+Inspection must count zero engine/model/live-service/subprocess calls and never
+launch mock services or update checks. Unavailable credentials, external state,
+model/interpreter availability and conditional checkpoint execution remain
+unresolved rather than verified.
+
+Optional task-local requirements categorize outcome, boundary, recovery and
+quality intent using stable IDs and explicit references to current graders.
+They compose current checks, not a new assertion language. Valid alternatives
+are unconstrained unless a selected existing grader intentionally specifies
+sequence semantics. Reference resolution is not requirement satisfaction,
+runtime enforcement, or assurance of external side effects.
+
+All existing v1 inputs and runtime/default/exit semantics remain supported.
+New preflight invalid diagnostics exit 1; unresolved/unsupported warnings exit 0
+unless explicit `--strict` opts into exit 1. Empty check lists mean uncovered.
+Descriptive v1 metadata cannot enforce hard requirements in old readers; future
+hard semantics must select a new artifact boundary those readers reject.
+Preflight reports have their own typed artifact/version and never enter the
+historical results/dashboard pipeline. No new evaluation result fields are
+introduced. The #658 corpus remains the offline preservation gate.
+
 Port existing Python waza functionality to Go for single-binary distribution.
 
 | ID | User Story | Acceptance Criteria |

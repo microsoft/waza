@@ -1267,14 +1267,20 @@
     },
     "promptGraderConfig": {
       "type": "object",
-      "required": [
-        "prompt"
+      "anyOf": [
+        {"required": ["prompt"]},
+        {"required": ["rubric"]}
       ],
       "additionalProperties": false,
       "properties": {
         "prompt": {
           "type": "string",
           "minLength": 1
+        },
+        "rubric": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Existing built-in rubric name or local markdown rubric path; descriptive task metadata does not change judge execution."
         },
         "model": {
           "type": "string"

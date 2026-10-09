@@ -39,6 +39,17 @@ type ProgramGraderTrustError struct {
 	Path string
 }
 
+// OfflineCacheUnavailableError identifies a missing immutable module without
+// attempting to populate it. Its message preserves the existing run diagnostic.
+type OfflineCacheUnavailableError struct {
+	Ref  string
+	Path string
+}
+
+func (e *OfflineCacheUnavailableError) Error() string {
+	return fmt.Sprintf("module not available offline for ref %q at %s; run `waza get` while online", e.Ref, e.Path)
+}
+
 func (e *ProgramGraderTrustError) Error() string {
 	return fmt.Sprintf("remote program grader %s is not supported without explicit trust", e.Path)
 }
@@ -220,7 +231,7 @@ func (r *Resolver) LoadLockedGrader(ctx context.Context, ref Ref, entry models.L
 	if ok, err := cacheDirectoryExists(cacheDir); err != nil {
 		return models.GraderConfig{}, err
 	} else if !ok {
-		return models.GraderConfig{}, fmt.Errorf("module not available offline for ref %q at %s; run `waza get` while online", entry.Ref, cacheDir)
+		return models.GraderConfig{}, &OfflineCacheUnavailableError{Ref: entry.Ref, Path: cacheDir}
 	}
 	digest, err := DigestDirectory(cacheDir)
 	if err != nil {
