@@ -13,6 +13,8 @@ import (
 	"github.com/microsoft/waza/internal/graders"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/preflight"
+	"github.com/microsoft/waza/internal/schemaloader"
+	"github.com/santhosh-tekuri/jsonschema/v6"
 )
 
 type ObservationState string
@@ -93,6 +95,9 @@ func ObserveMechanical(ctx context.Context, input ReferenceInput) (observation O
 		}
 	}
 	if err := graders.ValidateConfig(input.Check.Grader, input.Parameters); err != nil {
+		if loadErr, ok := errors.AsType[*jsonschema.LoadURLError](err); ok && errors.Is(loadErr.Err, schemaloader.ErrExternalReference) {
+			return fail(NotAssessed, fmt.Errorf("validating reference grader: %w", errors.Join(schemaloader.ErrExternalReference, err)))
+		}
 		return fail(Invalid, fmt.Errorf("validating reference grader: %w", err))
 	}
 	if input.Context == nil {
