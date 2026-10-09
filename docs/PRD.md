@@ -38,6 +38,8 @@ The baseline for controlled dependency-fault testing (#662) preserves existing M
 
 The private `internal/faultsequence` groundwork provides finite cross-process step reservation and cancellable, overflow-checked delays. State uses an existing absolute task-private directory, consumes steps at exclusive creation, and never rolls back after cancellation or process exit. Concurrent allocation is unique, not a guarantee of execution order or machine-crash durability. These primitives are not yet wired to public fixture loading or results.
 
+The private `internal/faultfixture` source validators check JSON/YAML response fragments before normalization erases field presence. Finite sequences require the explicit enclosing scenario version; mixed zero/empty/null fields, nested matchers, duplicate finite JSON keys and invalid delays fail explicitly. YAML step floats are not converted into integer delay/exit fields, and response-level delay configuration cannot silently disappear as an unknown legacy field. This validation groundwork does not register sequence fields in the public eval/runtime; execution and invocation-bound evidence integration remain pending.
+
 ---
 
 ## User Personas

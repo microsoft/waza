@@ -219,6 +219,12 @@ func assertAllocatedSteps(t *testing.T, indices <-chan int, count int) {
 }
 
 func TestDelayValidationAndCancellation(t *testing.T) {
+	requireValidDelay := []int64{0, 1, MaxDelayMilliseconds}
+	for _, milliseconds := range requireValidDelay {
+		if err := ValidateDelayMilliseconds(milliseconds); err != nil {
+			t.Fatalf("valid source bound %d: %v", milliseconds, err)
+		}
+	}
 	for _, milliseconds := range []int64{-1, MaxDelayMilliseconds + 1} {
 		if err := Delay(context.Background(), milliseconds); err == nil {
 			t.Fatalf("invalid delay %d accepted", milliseconds)

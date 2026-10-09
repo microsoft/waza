@@ -56,8 +56,8 @@ func Reserve(ctx context.Context, dir string, steps int) (int, error) {
 // Delay waits without retaining a reservation lock. Cancellation never resets
 // a step previously allocated by Reserve.
 func Delay(ctx context.Context, milliseconds int64) error {
-	if milliseconds < 0 || milliseconds > MaxDelayMilliseconds {
-		return fmt.Errorf("fault sequence delay_ms must be between 0 and %d", MaxDelayMilliseconds)
+	if err := ValidateDelayMilliseconds(milliseconds); err != nil {
+		return err
 	}
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("waiting for fault sequence delay: %w", err)
@@ -76,4 +76,12 @@ func Delay(ctx context.Context, milliseconds int64) error {
 	case <-ctx.Done():
 		return fmt.Errorf("waiting for fault sequence delay: %w", ctx.Err())
 	}
+}
+
+// ValidateDelayMilliseconds checks the source bound without creating a timer.
+func ValidateDelayMilliseconds(milliseconds int64) error {
+	if milliseconds < 0 || milliseconds > MaxDelayMilliseconds {
+		return fmt.Errorf("fault sequence delay_ms must be between 0 and %d", MaxDelayMilliseconds)
+	}
+	return nil
 }
