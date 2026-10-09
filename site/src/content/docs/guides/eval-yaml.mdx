@@ -7,6 +7,22 @@ description: Complete guide to YAML structure for evaluation benchmarks.
 
 A complete reference for writing `eval.yaml` specifications and task definitions.
 
+## Offline planning and descriptive requirements
+
+Run `waza preflight eval.yaml --format json` before starting an evaluation.
+It inspects local task discovery/IDs, paths, configuration, locks/cache, mocks,
+capabilities and requirement references without starting any agent or service.
+Unresolved credentials and external state are not reported verified.
+
+Task `requirements` optionally describe `outcome`, `boundary`, `recovery` and
+`quality` intent with stable task-local IDs. Each check names an explicit existing
+grader using `scope: eval|task|checkpoint` and `grader`; checkpoint scope alone
+requires `after_turn`. Empty checks are uncovered/unresolved. Metadata does not
+create assertions, enforce runtime policy, require one implementation path, or
+change existing v1 grading/exits. Reference resolution is not satisfaction.
+Use [Offline Eval Preflight](../preflight/) for complete valid examples and the
+static-versus-runtime evidence distinction.
+
 ## Agent-ready workflow
 
 This guide is designed to be given directly to a coding agent. The agent should
@@ -17,7 +33,7 @@ can use the same checklist during review.
 
 Before editing, inspect:
 
-1. The target `SKILL.md` or `.agent.md`.
+1. The workflow's expected outcomes and boundaries; the target `SKILL.md` or `.agent.md` when evaluating one.
 2. The existing `eval.yaml`, task files, and fixtures, if present.
 3. [`schemas/eval.schema.json`](https://github.com/microsoft/waza/blob/main/schemas/eval.schema.json)
    and [`schemas/task.schema.json`](https://github.com/microsoft/waza/blob/main/schemas/task.schema.json).
@@ -27,6 +43,35 @@ Treat the schemas as the source of truth for allowed fields. Do not invent YAML
 properties from examples or model memory.
 
 ### Create an eval suite
+
+For a workflow without a target:
+
+```bash
+waza new eval inventory --scenario --template repository
+waza run evals/inventory/eval.yaml
+```
+
+Templates are `repository` (sanitized fixtures), `cli` (installed Git), and
+`mcp` (harness-only mocked dependency). All use a real `copilot-sdk` agent;
+MCP mocks do not establish production MCP reliability. `config.executor: mock` checks harness
+plumbing only, not agent quality. See the
+[scenario examples](https://github.com/microsoft/waza/tree/main/examples/scenarios).
+
+Scenario evals require a nonempty `scenario` string and **exact**
+`schemaVersion: "2.0"`. Older executables reject that major before executing;
+`1.x`, omitted versions, `2.1` and future majors are not scenario contracts.
+Tasks and results retain `1.x`; the dashboard still displays the suite's
+`eval_name` and generic results have an empty `skill`.
+Optional `skill` selects existing skill/custom-agent context with unchanged
+precedence. Without a target or explicit eval/task skill directories, ambient
+skills are disabled. An explicit empty task `skill_directories: []` disables
+discovery for that task; `--no-skills` wins over every opt-in.
+Scenario `2.0` bypasses result caching with an explicit notice, even with
+`--cache`, until external workflow dependencies can be fully fingerprinted.
+Legacy `1.x` caching and billing attribution are unchanged.
+Task globs resolve relative to the eval directory, fixtures default to its
+`fixtures/` directory, input/instruction paths retain their context-root
+resolution, and file grader outputs are task-workspace-relative.
 
 For a `SKILL.md` target:
 
@@ -41,7 +86,7 @@ waza suggest <path-to-SKILL.md> --dry-run
 waza suggest <path-to-SKILL.md> --apply --output-dir evals/<skill-name>
 ```
 
-`waza new eval`, `waza suggest`, and `waza spec verify` currently accept
+The default `waza new eval` flow, `waza suggest`, and `waza spec verify` accept
 `SKILL.md` targets only. For a `.agent.md` target, create `eval.yaml`, tasks,
 and fixtures directly by following the [custom agent guide](../custom-agents/)
 and the schemas linked above.
@@ -384,6 +429,8 @@ tasks:
 ```
 
 Response matching is evaluated in order. `match` requires exact full-argument equality, `match_schema` validates the call arguments against an inline JSON Schema, and `match_regex` applies regular expressions to individual argument fields. Unknown tools or calls that do not match any response fail loudly with an MCP tool error that points to the missing mock fixture.
+
+Unmatched MCP errors intentionally omit argument values, rather than echoing private or nested payloads. The in-process mock handler also rejects tool calls whose context is already canceled or expired before fixture dispatch. This is an admission check only: it does not add per-request stdio cancellation or simulated delays/timeouts. Existing responses remain first-match, repeatable fixtures; an `error` response can model a permanent dependency failure or denial, but it does not verify a live service. The returned JSON value is encoded inside a valid MCP text result, so an unexpected application value is not a malformed MCP/JSON-RPC envelope.
 
 You can keep larger fixtures in JSON files instead of inline YAML:
 

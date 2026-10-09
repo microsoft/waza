@@ -38,7 +38,14 @@ type TestCase struct {
 	// against the cumulative conversation state at the end of that turn.
 	// Checkpoints are additive — task-level `graders:` still run against
 	// the final state after all turns complete.
-	Checkpoints []Checkpoint `yaml:"checkpoints,omitempty" json:"checkpoints,omitempty"`
+	Checkpoints    []Checkpoint  `yaml:"checkpoints,omitempty" json:"checkpoints,omitempty"`
+	Requirements   []Requirement `yaml:"requirements,omitempty" json:"requirements,omitempty"`
+	sourceDocument []byte
+}
+
+// SourceBytes returns the original input, before prompt-file resolution.
+func (tc *TestCase) SourceBytes() []byte {
+	return bytes.Clone(tc.sourceDocument)
 }
 
 // CheckpointOnFailure controls multi-turn behavior when a checkpoint fails.
@@ -515,9 +522,55 @@ func (tc *TestCase) Validate() error {
 
 // LoadTestCase loads a test case from YAML
 func LoadTestCase(path string) (*TestCase, error) {
+	return loadTestCase(path, false)
+}
+
+// LoadTestCaseOffline guards eager schema dependencies before native decoding.
+func LoadTestCaseOffline(path string) (*TestCase, error) {
+	return loadTestCase(path, true)
+}
+
+func loadTestCase(path string, offline bool) (*TestCase, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
+	}
+	return parseTestCase(data, path, offline)
+}
+
+// ParseTestCase preserves native task loading and path-relative prompt resolution.
+func ParseTestCase(data []byte, path string) (*TestCase, error) {
+	return parseTestCase(data, path, false)
+}
+
+// ParseTestCaseOffline guards eager dependencies on the same input snapshot.
+func ParseTestCaseOffline(data []byte, path string) (*TestCase, error) {
+	return parseTestCase(data, path, true)
+}
+
+func parseTestCase(data []byte, path string, offline bool) (*TestCase, error) {
+	data = bytes.Clone(data)
+	if err := validateDeclaredFaults(data, "", true); err != nil {
+		return nil, fmt.Errorf("task fault sources: %w", err)
+	}
+	var source yaml.Node
+	if err := yaml.Unmarshal(data, &source); err != nil {
+		return nil, fmt.Errorf("parsing test case YAML: %w", err)
+	}
+	if len(source.Content) == 1 {
+		finite, err := faultPathPresent(source.Content[0], []string{"command_mocks", "[]", "responses", "[]", "sequence"}, nil)
+		if err != nil {
+			return nil, fmt.Errorf("task fault sources: %w", err)
+		}
+		if finite {
+			return nil, fmt.Errorf("finite task responses are not registered for public scenario execution")
+		}
+	}
+
+	if offline {
+		if err := guardOfflineModelSchemas(data, true); err != nil {
+			return nil, fmt.Errorf("task schema dependencies: %w", err)
+		}
 	}
 
 	var tc TestCase
@@ -562,6 +615,7 @@ func LoadTestCase(path string) (*TestCase, error) {
 		}
 	}
 
+	tc.sourceDocument = data
 	return &tc, nil
 }
 

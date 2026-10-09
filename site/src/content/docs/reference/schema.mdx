@@ -7,6 +7,20 @@ description: Complete reference for eval.yaml and task file formats.
 
 Complete reference for YAML schema used in waza evaluations.
 
+## Optional descriptive task requirements
+
+`requirements` is an optional task array. Each entry has `id` (task-local stable
+string), `category` (`outcome|boundary|recovery|quality`), `description`, and
+optional `checks`. A check has `scope: eval|task|checkpoint`, `grader` (explicit
+existing grader name), and `after_turn` only for checkpoint scope.
+Absent/empty checks are uncovered/unresolved. Metadata is descriptive and keeps
+v1 runtime behavior unchanged; minimum-version notes are not enforcement.
+See [Offline Eval Preflight](/guides/preflight/) for schema-valid examples,
+reference diagnostics and the independent `waza.preflight` JSON artifact.
+
+Nonempty `tasks_from` selects CSV tasks instead of YAML `tasks`; either a
+nonempty task list or a nonempty CSV source is required by the eval schema.
+
 ## eval.yaml
 
 Main evaluation configuration file.
@@ -14,7 +28,7 @@ Main evaluation configuration file.
 ```yaml
 name: code-explainer-eval # Required: eval suite name
 description: "..." # Required: what this eval tests
-skill: code-explainer # Required: skill name
+skill: code-explainer # Required for legacy suites; optional scenario context
 schemaVersion: "1.4" # Optional: schema version; defaults to the current version
 version: "1.0" # Optional: version number
 
@@ -79,12 +93,29 @@ description: "Evaluates agent's ability to explain Python code"
 ### skill
 
 **Type:** string  
-**Required:** yes
+**Required:** yes unless `scenario` is present
 
-The skill being evaluated.
+The skill or custom agent being evaluated; optional context for a scenario.
 
 ```yaml
 skill: code-explainer
+```
+
+### scenario
+
+**Type:** nonempty string
+**Requires:** explicit eval `schemaVersion: "2.0"` (only this exact version)
+
+Workflow identity without a required skill. A scenario may retain optional
+`skill` context using existing discovery precedence. No target or explicit
+skill directories means no ambient skill loading. An empty task
+`skill_directories: []` disables discovery; `--no-skills` overrides contexts.
+Legacy suites retain existing behavior. Tasks and results remain `1.x`.
+
+```yaml
+name: inventory-eval
+scenario: inventory
+schemaVersion: "2.0"
 ```
 
 ### version
@@ -106,6 +137,10 @@ version: "1.0"
 **Default:** current schema version (currently `1.4`)
 
 Schema version for the public artifact shape. It uses `MAJOR.MINOR` format with no patch component. Same-major minor additions are backward-compatible; readers ignore unknown fields and warn. Different major versions are rejected with a migration hint.
+
+Scenario-bearing evals explicitly opt into exact `2.0`, ensuring older
+executables reject their new discovery semantics. Eval `2.0` requires a
+nonempty `scenario`; legacy eval/task/result defaults remain unchanged.
 
 ```yaml
 schemaVersion: "1.2"
@@ -175,6 +210,8 @@ mcp_mocks:
 | `error` | string | Tool error text returned with `isError: true` |
 
 Response entries are checked in order. Unknown tools and unmatched calls fail loudly with a tool error that names the missing mock fixture.
+
+Unmatched-call diagnostics omit argument values, including nested payloads. A canceled or expired context at the in-process handler's tool-call admission boundary produces an MCP `isError` result before matching or returning a fixture; non-tool methods retain their existing behavior. This does not implement per-request stdio cancellation or a timeout fixture, and adds no YAML or result fields.
 
 ### command_mocks
 

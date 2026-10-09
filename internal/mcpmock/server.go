@@ -11,7 +11,6 @@ import (
 	"sort"
 
 	"github.com/microsoft/waza/internal/jsonrpc"
-	"github.com/santhosh-tekuri/jsonschema/v6"
 )
 
 const protocolVersion = "2024-11-05"
@@ -28,7 +27,7 @@ func NewServer(cfg *Config, logger *slog.Logger) *Server {
 	return &Server{cfg: cfg, logger: logger}
 }
 
-func (s *Server) HandleRequest(_ context.Context, req *jsonrpc.Request) *jsonrpc.Response {
+func (s *Server) HandleRequest(ctx context.Context, req *jsonrpc.Request) *jsonrpc.Response {
 	switch req.Method {
 	case "initialize":
 		return &jsonrpc.Response{
@@ -50,6 +49,9 @@ func (s *Server) HandleRequest(_ context.Context, req *jsonrpc.Request) *jsonrpc
 	case "tools/list":
 		return &jsonrpc.Response{JSONRPC: "2.0", Result: map[string]any{"tools": s.toolsList()}, ID: req.ID}
 	case "tools/call":
+		if err := ctx.Err(); err != nil {
+			return toolCallResponse(req, "", fmt.Errorf("mcp mock %q: tool call canceled before fixture dispatch: %w", s.cfg.Name, err))
+		}
 		return s.handleToolsCall(req)
 	default:
 		return &jsonrpc.Response{JSONRPC: "2.0", Error: jsonrpc.ErrMethodNotFound(req.Method), ID: req.ID}
@@ -98,6 +100,10 @@ func (s *Server) handleToolsCall(req *jsonrpc.Request) *jsonrpc.Response {
 	}
 
 	result, err := s.call(params.Name, args)
+	return toolCallResponse(req, result, err)
+}
+
+func toolCallResponse(req *jsonrpc.Request, result string, err error) *jsonrpc.Response {
 	callResult := map[string]any{
 		"content": []map[string]string{{"type": "text", "text": result}},
 	}
@@ -126,8 +132,7 @@ func (s *Server) call(toolName string, args map[string]any) (string, error) {
 		}
 	}
 
-	data, _ := json.Marshal(args)
-	return "", fmt.Errorf("mcp mock %q: unmatched tool call %q with arguments %s; add a matching fixture response", s.cfg.Name, toolName, string(data))
+	return "", fmt.Errorf("mcp mock %q: unmatched tool call %q (arguments omitted); add a matching fixture response", s.cfg.Name, toolName)
 }
 
 func (r Response) matches(args map[string]any) bool {
@@ -176,15 +181,8 @@ func regexMatch(patterns map[string]string, args map[string]any) bool {
 }
 
 func schemaMatch(schemaDoc map[string]any, args map[string]any) bool {
-	compiler := jsonschema.NewCompiler()
-	if err := compiler.AddResource("memory://mcp-mock-schema.json", schemaDoc); err != nil {
-		return false
-	}
-	schema, err := compiler.Compile("memory://mcp-mock-schema.json")
-	if err != nil {
-		return false
-	}
-	return schema.Validate(args) == nil
+	matched, err := schemaMatchWithLoader(schemaDoc, args, nil)
+	return err == nil && matched
 }
 
 func ServeStdio(ctx context.Context, cfg *Config, r io.Reader, w io.Writer, logger *slog.Logger) {

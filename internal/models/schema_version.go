@@ -28,6 +28,11 @@ const (
 	// 1.3 — additive: session_digest tool_policy_mode and tool_policy_denials (#585).
 	// 1.4 — additive: run command_invocations records for declarative CLI mocks (#634).
 	CurrentSchemaVersion = "1.4"
+
+	// ScenarioSchemaVersion is eval-only. A major boundary makes older
+	// executables reject no-ambient-discovery semantics instead of ignoring them.
+	// Task and result artifacts retain their existing 1.x format.
+	ScenarioSchemaVersion = "2.0"
 )
 
 func defaultSchemaVersion(version string) string {
@@ -73,6 +78,12 @@ func ProbeEvaluationOutcomeSchemaVersion(data []byte) (version string, ok bool, 
 }
 
 func hasEvaluationOutcomeShape(fields map[string]json.RawMessage) bool {
+	var kind string
+	if raw, exists := fields["kind"]; exists {
+		if err := json.Unmarshal(raw, &kind); err == nil && kind == "waza.preflight" {
+			return false
+		}
+	}
 	for _, key := range []string{"eval_id", "runId", "eval_name", "summary", "tasks"} {
 		if _, ok := fields[key]; ok {
 			return true
@@ -156,9 +167,13 @@ func LoadEvaluationOutcome(path string) (*EvaluationOutcome, error) {
 func ParseEvaluationOutcome(data []byte, source string) (*EvaluationOutcome, error) {
 	var header struct {
 		SchemaVersion string `json:"schemaVersion"`
+		Kind          string `json:"kind"`
 	}
 	if err := json.Unmarshal(data, &header); err != nil {
 		return nil, err
+	}
+	if header.Kind == "waza.preflight" {
+		return nil, fmt.Errorf("%s is an offline preflight report, not evaluation results", source)
 	}
 	version, err := ValidateSchemaVersion("results.json", source, header.SchemaVersion)
 	if err != nil {

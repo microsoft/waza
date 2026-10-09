@@ -2,14 +2,12 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://raw.githubusercontent.com/microsoft/waza/main/schemas/eval.schema.json",
   "title": "Waza Eval Specification",
-  "description": "Schema for waza eval.yaml files that define skill evaluation suites. Validates the complete evaluation specification including config, metrics, graders, hooks, and task references.",
+  "description": "Schema for scenario, skill and custom-agent evaluation suites.",
   "type": "object",
   "required": [
     "name",
-    "skill",
     "config",
-    "metrics",
-    "tasks"
+    "metrics"
   ],
   "additionalProperties": false,
   "properties": {
@@ -22,16 +20,21 @@
       "type": "string",
       "description": "Detailed description of what this evaluation tests."
     },
+    "scenario": {
+      "type": "string",
+      "pattern": "\\S",
+      "description": "Workflow identity, independent of optional skill or custom-agent context. Requires explicit eval schemaVersion 2.0 so older executables reject new discovery semantics."
+    },
     "skill": {
       "type": "string",
       "minLength": 1,
-      "description": "Name of the skill being evaluated."
+      "description": "Optional skill or custom-agent context for a scenario; required for legacy skill suites. Existing discovery precedence is preserved."
     },
     "schemaVersion": {
       "type": "string",
       "pattern": "^[0-9]+\\.[0-9]+$",
       "default": "1.4",
-      "description": "Schema version for this evaluation artifact. Uses MAJOR.MINOR; omitted files default to the current version (1.4)."
+      "description": "Legacy evals default to 1.4. Scenario evals require explicit 2.0; tasks and results remain 1.x."
     },
     "version": {
       "type": "string",
@@ -67,7 +70,7 @@
     },
     "tasks_from": {
       "type": "string",
-      "description": "External file path to load additional task definitions from."
+      "description": "CSV dataset path relative to the eval directory. When nonempty, takes precedence over tasks."
     },
     "range": {
       "type": "array",
@@ -96,7 +99,6 @@
     },
     "tasks": {
       "type": "array",
-      "minItems": 1,
       "items": {
         "type": "string",
         "minLength": 1
@@ -110,6 +112,40 @@
     }
   },
   "allOf": [
+    {
+      "anyOf": [
+        { "required": ["skill"] },
+        { "required": ["scenario"] }
+      ]
+    },
+    {
+      "if": { "required": ["scenario"] },
+      "then": {
+        "required": ["schemaVersion"],
+        "properties": {
+          "schemaVersion": { "const": "2.0" }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": ["schemaVersion"],
+        "properties": { "schemaVersion": { "const": "2.0" } }
+      },
+      "then": { "required": ["scenario"] }
+    },
+    {
+      "anyOf": [
+        {
+          "required": ["tasks_from"],
+          "properties": {"tasks_from": {"minLength": 1}}
+        },
+        {
+          "required": ["tasks"],
+          "properties": {"tasks": {"minItems": 1}}
+        }
+      ]
+    },
     {
       "if": {
         "required": ["config"],
@@ -614,7 +650,8 @@
             "skill_invocation",
             "trigger",
             "diff",
-            "tool_constraint"
+            "tool_constraint",
+            "tool_calls"
           ],
           "description": "The grader type."
         },
@@ -647,6 +684,15 @@
         }
       },
       "allOf": [
+        {
+          "if": {
+            "properties": {"type": {"const": "tool_calls"}},
+            "required": ["type"]
+          },
+          "then": {
+            "properties": {"config": {"$ref": "#/$defs/toolCallsGraderConfig"}}
+          }
+        },
         {
           "if": {
             "properties": {
@@ -1336,6 +1382,35 @@
         }
       }
     },
+    "toolCallsGraderConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "anyOf": [
+        {"required": ["required_tools"]},
+        {"required": ["forbidden_tools"]},
+        {"required": ["min_calls"]},
+        {"required": ["max_calls"]},
+        {"required": ["expect"]}
+      ],
+      "properties": {
+        "required_tools": {"type": "array", "items": {"type": "string"}},
+        "forbidden_tools": {"type": "array", "items": {"type": "string"}},
+        "min_calls": {"type": "integer", "minimum": 0},
+        "max_calls": {"type": "integer", "minimum": 0},
+        "expect": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["tool"],
+            "additionalProperties": false,
+            "properties": {
+              "tool": {"type": "string", "minLength": 1},
+              "args": {"$ref": "#/$defs/toolArgumentMatchers"}
+            }
+          }
+        }
+      }
+    },
     "toolConstraintGraderConfig": {
       "type": "object",
       "additionalProperties": false,
@@ -1461,8 +1536,9 @@
     },
     "promptGraderConfig": {
       "type": "object",
-      "required": [
-        "prompt"
+      "anyOf": [
+        {"required": ["prompt"]},
+        {"required": ["rubric"]}
       ],
       "additionalProperties": false,
       "description": "Config for the prompt grader. Uses an LLM to evaluate agent output against a rubric or prompt.",
@@ -1471,6 +1547,11 @@
           "type": "string",
           "minLength": 1,
           "description": "Grading prompt/instructions sent to the judge LLM."
+        },
+        "rubric": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Existing built-in rubric name or local markdown rubric path."
         },
         "model": {
           "type": "string",

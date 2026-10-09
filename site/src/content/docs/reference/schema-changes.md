@@ -5,6 +5,15 @@ description: Versioning policy and changelog for waza public schema artifacts.
 
 Waza public artifacts use an explicit `schemaVersion` field so checked-in eval suites, baselines, and dashboard data remain stable across CLI upgrades.
 
+Scenario-bearing evals opt into **exact `2.0`** with a nonempty string
+`scenario`. This is eval-only: tasks/results and their readers stay `1.x`.
+Older executables reject eval major `2` before execution rather than ignoring
+the new no-ambient-discovery semantics. Optional `skill` retains existing
+skill/custom-agent precedence; no target or explicit skill directories
+disables ambient skills. Empty task `skill_directories: []` disables discovery;
+`--no-skills` overrides every context. Missing or `1.x` versions cannot select
+scenario semantics; `2.1` and future majors are not supported scenario versions.
+
 ## Versioned artifacts
 
 | Artifact | Field | Current version |
@@ -13,6 +22,14 @@ Waza public artifacts use an explicit `schemaVersion` field so checked-in eval s
 | `results.json` | `schemaVersion` | `1.4` |
 | `snapshot.json` | `schemaVersion` | `1.0` |
 | Dashboard/SSE event envelope | `schemaVersion` | `1.0` |
+| `waza.preflight` report | `schemaVersion` | `1.0` (independent artifact) |
+
+Optional task `requirements` introduced by #660 are descriptive v1-compatible
+metadata, without a global schema bump or new runtime/exit semantics. Old readers
+can ignore them; a minimum-version note does not enforce requirements.
+`waza preflight` requires a CLI build containing #660. Its report is identified
+by `kind: "waza.preflight"` and is never parsed/discovered as evaluation results.
+See [Offline Eval Preflight](/guides/preflight/) for its states and strict policy.
 
 ## Policy
 

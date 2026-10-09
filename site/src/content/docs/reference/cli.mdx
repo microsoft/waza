@@ -36,6 +36,30 @@ waza update --yes
 
 The native Windows update path schedules the final binary replacement after the running `waza.exe` exits, avoiding Windows executable file locks. In WSL, `waza update` uses the Linux Bash installer and updates the WSL installation.
 
+## waza preflight
+
+Inspect an explicit eval file offline, without an agent/model, grader execution,
+subprocesses, mock servers, live services, dependency downloads, or update checks:
+
+```bash
+waza preflight eval.yaml
+waza preflight eval.yaml --format json > preflight.json
+waza preflight eval.yaml --context-dir ./fixtures --strict
+```
+
+| Flag | Default | Meaning |
+|------|---------|---------|
+| `--format` | `human` | `human` or `json` inventory/diagnostics |
+| `--context-dir` | eval directory/fixtures | Context directory; relative values resolve from cwd |
+| `--strict` | `false` | Exit 1 for unresolved/unsupported prerequisites, not only invalid configuration |
+
+Invalid configuration exits 1; unresolved/unsupported warn and exit 0 unless
+`--strict` opts into 1. Usage/output errors use exit 2. Existing command exits
+are unchanged. `verified` means static inspection, not a satisfied requirement
+or runtime enforcement. The separately typed report is not `results.json`.
+See [Offline Eval Preflight](/guides/preflight/) for descriptive requirement
+references, capability/dependency plans, and offline limitations.
+
 ## waza run
 
 Run an evaluation benchmark.
@@ -269,6 +293,10 @@ EOF
 
 Scaffold an eval suite for an existing skill.
 
+For target-free workflows, use `waza new eval <name> --scenario`.
+Scenario scaffolds do not read or create `SKILL.md` and explicitly select
+`copilot-sdk`, even if project defaults use a mock engine.
+
 ### waza new eval
 
 Generate an eval scaffold from an existing `SKILL.md`.
@@ -288,6 +316,8 @@ Creates:
 | Flag | Description |
 |------|-------------|
 | `--output` | Custom path for the generated eval file; task YAMLs are created in a sibling `tasks/` directory next to this file. |
+| `--scenario` | Scaffold a workflow without a target skill/custom agent; eval schema `2.0`. |
+| `--template` | Scenario template: `repository` (default), `cli`, or `mcp`; requires `--scenario`. |
 
 The generated eval filename, task glob, and task filename suffix come from `.waza.yaml` `files` settings when configured.
 
@@ -299,6 +329,13 @@ waza new eval my-skill
 
 # Write eval.yaml to a custom location
 waza new eval my-skill --output evals/custom/my-skill-eval.yaml
+
+# Real repository workflow; no skill required
+waza new eval inventory --scenario --template repository
+waza run evals/inventory/eval.yaml
+
+# For offline harness checks, set config.executor: mock in a copy.
+# Mock output is not agent-quality evidence.
 ```
 
 ## waza new task

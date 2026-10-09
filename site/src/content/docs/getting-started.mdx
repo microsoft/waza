@@ -76,6 +76,19 @@ Waza checks for new versions in the background. If an update is available, you'l
 
 ## Quick Start
 
+For a workflow without a skill, scaffold a scenario directly:
+
+```bash
+waza new eval inventory --scenario --template repository
+waza run evals/inventory/eval.yaml
+```
+
+This runs a real Copilot SDK agent against sanitized fixtures. CLI and MCP
+templates are also available: CLI uses installed Git; MCP uses a harness-only
+mocked dependency, not a production service. `config.executor: mock` validates the harness
+only. Scenario evals require explicit schema `2.0`; tasks/results remain `1.x`.
+See [Writing Eval Specs](../guides/eval-yaml/) for optional skill/agent context.
+
 Get a complete evaluation suite running in 5 minutes.
 
 ### Step 1: Initialize a Project

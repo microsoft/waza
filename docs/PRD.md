@@ -34,9 +34,33 @@ A single `waza` CLI built in **Go** that automates the skill development workflo
 
 Custom agent evaluations enforce the selected `.agent.md` tool policy with the Copilot SDK (#585): omitted tools remain unrestricted, empty lists deny all tools, and populated lists allow named tools with shared runtime/grader aliases. Policy selection follows task-level skill paths and `SKILL.md` precedence. Initial and resumed turns use native filtering, pre-tool checks, and fail-closed permission checks. Denials fail the run and are surfaced in results schema 1.3, session logs, and the dashboard. Tool policies are not host filesystem/network sandboxing.
 
+The baseline for controlled dependency-fault testing (#662) preserves existing MCP and CLI response formats and fail-closed matching. Unmatched MCP diagnostics omit argument values, and the in-process MCP handler rejects an already-canceled or expired tool call before fixture dispatch. This narrow admission check does not provide per-request stdio cancellation, simulated timeout fixtures, or finite recovery sequences. Mocked interactions do not prove live dependency behavior; command shims are not filesystem/network enforcement. Requirement-linked recovery and new attempt metadata remain separate integration work.
+
+The private `internal/faultsequence` groundwork provides finite cross-process step reservation and cancellable, overflow-checked delays. State uses an existing absolute task-private directory, consumes steps at exclusive creation, and never rolls back after cancellation or process exit. Concurrent allocation is unique, not a guarantee of execution order or machine-crash durability. These primitives are not yet wired to public fixture loading or results.
+
+The canonical `internal/models` source validators, also used by private `internal/faultfixture` delegates, check JSON/YAML response fragments before normalization erases field presence. Finite sequences require the explicit enclosing scenario version; mixed zero/empty/null fields, nested matchers, duplicate finite JSON keys and invalid delays fail explicitly. YAML step floats are not converted into integer delay/exit fields, and response-level delay configuration cannot silently disappear as an unknown legacy field. This validation groundwork does not register sequence fields in the public eval/runtime; execution and invocation-bound evidence integration remain pending.
+
+Canonical eval/task byte loaders retain an immutable, nonserialized copy of their input, before prompt-file resolution or eager grader decoding. Selected mock response sources detach YAML aliases and merges while preserving scalar tags and duplicate finite fields; payload properties are not treated as configuration. Invalid finite sources fail before matcher/grader resource loading. Standalone task admission proves structure only, not enclosing scenario eligibility, and rejects otherwise-valid finite task declarations until public execution is registered. Preflight reuses its captured eval bytes rather than rereading a mutable eval file.
+
+Shared MCP matcher validation preserves an explicitly supplied schema resource loader. Its legacy wrapper retains compiler defaults, including local file references; offline callers must select a denying loader rather than assuming compiler defaults prohibit resource access.
+
+Unregistered private MCP/CLI adapters now exercise these source validators and reservation primitives against native request/output shapes. Their subprocess envelopes retain raw source presence, exact scenario eligibility, cached CLI fixture bytes and immutable workspace configuration. A changed configuration cannot reset an active attempt; MCP counters are scoped by server, tool and matcher. Configured fixture errors are delivered payloads, while cancellation, exhaustion and callback failures remain operational errors without fabricated success receipts. Native callbacks are synchronous and their caller owns I/O cancellation. Captured invocation references use the shared evidence API and actual array ordinals, never inferred SDK/MCP joins. These internal adapters do not yet enable public sequence fields, prove external integration or provide sandbox enforcement.
+
+Optional, unregistered native serving hooks now place private dispatch around actual stdout/stderr and JSON-RPC writes. Both streams must emit completely before a private command receipt is published; attempted calls are counted separately from delivered receipts, and missing/failed capture returns an error rather than inventing an exit code. Native receipt corruption cannot turn a missing/null exit status into success. JSON-RPC responses and notifications reject short writes. Serial hooks preserve legacy defaults and leave synchronous I/O cancellation with their caller.
+
+A separate unregistered MCP owned-serving path performs serial irreversible preparation, once-only delivery and bounded concurrent response work. Actual native cancellation notifications fail closed, close owned interruptible endpoints and join execution without synthetic result payloads. Context is checked under the output lock at write commitment; cancellation cannot retract completed emission. Endpoints must be distinct and explicitly guarantee that concurrent close promptly interrupts I/O; this is not a guarantee for arbitrary closers or validated process/platform stdio. EOF drains accepted calls while cancellation supervision remains active. Native request IDs are not SDK IDs. Public registration, process-signal wiring and resumed attempt lifecycle remain pending.
+
+Source-fragment MCP validation selects `schemaloader.Offline` before processing, refusing unregistered file and HTTP schema references without fetching them. The explicit offline MCP constructor shares existing fixture normalization, while the legacy runtime constructor retains its resource behavior. This schema-loading policy is not a filesystem/network sandbox.
+
 ---
 
 ## User Personas
+
+### Workflow Author
+- **Role:** Developer evaluating MCP, CLI or repository workflows
+- **Goals:** Author scenario suites without an unrelated `SKILL.md`, retaining optional skill/custom-agent context
+- **Scope:** `waza new eval <name> --scenario --template repository|cli|mcp` uses existing graders and real agent execution; mocked dependencies are explicitly harness-only evidence
+- **Compatibility:** Scenario evals opt into exact schema `2.0` so old executables reject changed discovery semantics before execution; legacy evals and task/result artifacts retain their prior formats
 
 ### Primary: Skill Author
 - **Role:** Developer contributing skills to microsoft/skills
@@ -57,7 +81,47 @@ Custom agent evaluations enforce the selected `.agent.md` tool policy with the C
 
 ## Feature Requirements
 
+### Existing-workflow preservation contract
+
+The additive evaluation work tracked in #657 must preserve current command,
+exit, grader, skill/custom-agent, multi-turn, mock, billing/cache, snapshot and
+historical dashboard behavior. The fixed offline corpus and package-owned
+coverage inventory are specified in [COMPATIBILITY.md](COMPATIBILITY.md) (#658).
+The required integration gate is `NO_COLOR=1 make test-compat`, with historical
+browser checks when dashboard surfaces change. Known bugs are tracked
+separately rather than accepted as new semantics; recorded/mock outcomes are
+not real-agent quality or full assurance claims.
+
 ### Epic 1: Go CLI Foundation (P0)
+
+#### Agent-free execution planning (#660)
+
+Before an eval starts, `waza preflight` inspects offline schemas, tasks and IDs,
+resource/instruction paths, grader configuration and locked cached modules,
+effective mocks, scoped requirement references, and static executor support.
+Inspection must count zero engine/model/live-service/subprocess calls and never
+launch mock services or update checks. Unavailable credentials, external state,
+model/interpreter availability and conditional checkpoint execution remain
+unresolved rather than verified.
+Eager schema decoding must be guarded across eval/task/checkpoint sources,
+cached presets, and merged overrides. External prerequisites remain unresolved
+and prevent complete inventory claims without changing native runtime loaders.
+
+Optional task-local requirements categorize outcome, boundary, recovery and
+quality intent using stable IDs and explicit references to current graders.
+They compose current checks, not a new assertion language. Valid alternatives
+are unconstrained unless a selected existing grader intentionally specifies
+sequence semantics. Reference resolution is not requirement satisfaction,
+runtime enforcement, or assurance of external side effects.
+
+All existing v1 inputs and runtime/default/exit semantics remain supported.
+New preflight invalid diagnostics exit 1; unresolved/unsupported warnings exit 0
+unless explicit `--strict` opts into exit 1. Empty check lists mean uncovered.
+Descriptive v1 metadata cannot enforce hard requirements in old readers; future
+hard semantics must select a new artifact boundary those readers reject.
+Preflight reports have their own typed artifact/version and never enter the
+historical results/dashboard pipeline. No new evaluation result fields are
+introduced. The #658 corpus remains the offline preservation gate.
 
 Port existing Python waza functionality to Go for single-binary distribution.
 
