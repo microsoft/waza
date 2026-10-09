@@ -16,7 +16,7 @@ func VerifyWorkspace(snap *Snapshot, origin models.EvidenceOrigin, manifestSHA s
 	if snap == nil || snap.Evidence == nil {
 		return errors.New("snapshot: preserved workspace evidence is unavailable; hashes alone cannot reconstruct files")
 	}
-	if err := evidence.Validate(snap.Evidence); err != nil {
+	if err := evidence.ValidateNative(snap.Evidence); err != nil {
 		return err
 	}
 	if manifestSHA == "" || manifestSHA != snap.Evidence.SHA256 || origin != snap.Evidence.Origin {

@@ -1130,6 +1130,33 @@ Iteratively:
 5. Re-scores
 6. Repeats until target reached
 
+## waza assure
+
+Challenge scoped native file/output checks against evaluator-only references
+without running a task agent.
+
+```bash
+waza assure eval.yaml --references labels.json
+waza assure eval.yaml --references labels.json \
+  --review current-review.json --accept-review-source selected-source \
+  --output assurance.json
+```
+
+| Flag | Meaning |
+|------|---------|
+| `--references` | Required strict versioned label JSON; relative snapshots are rooted at this document's directory |
+| `--review` | Separate current-source supplied review declaration |
+| `--accept-review-source` | Explicit evaluator acceptance of that source; not human authentication |
+| `-o, --output` | Write standalone `waza.grader-assurance` report |
+| `--calibrate` | Currently unavailable: report not assessed with zero paid calls and null usage/credits |
+
+Exit 1 unless the strict finite-corpus assessment passes. Missing evidence,
+unknown completeness, unreviewed labels, operational failures and critical
+false acceptance cannot pass. Preserved subsets cannot prove missing-path absence.
+Executable-byte provenance is specific to the exact platform/build. No assurance
+cache is reused. Existing `grade`, `run` and golden-task semantics are unchanged.
+See [grader challenges](/guides/graders/#challenge-the-checks-not-just-the-answer).
+
 ## waza grade
 
 Re-grade previous evaluation results without re-executing the agent.

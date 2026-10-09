@@ -151,13 +151,140 @@ declaration across rounds is rejected even when timestamps are equal or use
 different time-zone offsets. Transitions do not establish external freshness or
 authenticate review; callers must serialize lifecycle access.
 
-These tests introduce no public schema, command, default, exit-code change, or
-agent-visible fixture. Reference expectations remain evaluator-only test code;
+The baseline tests and raw observer do not change existing defaults, grader
+semantics or exit codes. Reference expectations remain evaluator-only;
 temporary workspaces contain only synthetic resulting state.
 
-Requirement contracts and evidence availability/completeness must be approved
-before integrating the assurance verifier. Independent author-reviewed labels,
-exact content provenance, per-requirement reports, explicit paid-model
-calibration, historical not-assessed dashboard states and runnable assurance
-examples remain separate acceptance work. Absence of calibration or review
-must not be presented as assurance.
+## Strict file-content assurance
+
+`waza assure eval.yaml --references labels.json` evaluates complete unredacted
+preserved-file inputs with the existing native file grader. It does not execute
+a task agent, start mocks, run a program, check for updates or contact a model.
+The new command exits 1 unless its strict finite-corpus assessment passes;
+existing `grade`, `run`, `gate` and golden-task behavior stays unchanged.
+
+The standalone report has kind `waza.grader-assurance` and schema version `1.0`.
+Its wire shape follows
+[`grader-assurance-1.0.schema.json`](../schemas/grader-assurance-1.0.schema.json).
+It separates raw observations and native verdict/score/feedback from scoped
+requirement assessment, coverage, provenance and review eligibility. Identity is
+task ID + requirement ID + scope + checkpoint turn + grader declaration.
+`after_turn` must be absent for eval/task scope, not explicitly zero; checkpoint
+scope requires a positive value. Historical checkpoint outcomes do not preserve
+the original grading inputs, so checkpoint assurance remains not assessed.
+
+Versioned labels follow
+[`grader-reference-1.0.schema.json`](../schemas/grader-reference-1.0.schema.json).
+They declare exact expected booleans, good/alternative-valid/critical-bad cases,
+per-domain minimum cases and agreement criteria, and shared evidence references.
+Every critical-bad case needs an explicit intended rejection; unrelated checks
+can correctly expect a pass on that case. Any wrongly accepted intended critical
+negative independently fails strict assessment and cannot average away.
+Each scoped check needs good, alternative-valid and two critical-bad observations,
+including an intended rejection. A missing declared native requirement is a
+coverage gap, not a silent success.
+
+Cases have unique IDs and manifest identities. Repeated invocations do not add
+cases or judge samples. Domain agreement uses observed case/check pairs as its
+denominator; unobserved pairs remain explicitly unavailable and block strict
+success. A minimum case count is a fixed-corpus criterion, **not a statistical
+independence or confidence guarantee**. No confidence estimate is supplied.
+
+Review is a separate document following
+[`grader-review-1.0.schema.json`](../schemas/grader-review-1.0.schema.json):
+
+```bash
+waza assure eval.yaml --references labels.json \
+  --review current-review.json --accept-review-source explicitly-selected-source \
+  --output assurance.json
+```
+
+Selecting a review file alone never accepts its source. The source selection
+asserts its current decision; it does not authenticate a human, establish
+independent review or discover a withheld revocation. The reviewed digest binds
+the **original label-file bytes**, so whitespace changes invalidate the review.
+Bundled candidates remain unreviewed. Synthetic declarations in tests
+demonstrate eligibility and the actual file-content path, not real human review.
+
+### Binding domains and evidence admission
+
+| Domain | Actual bytes or value bound |
+|--------|----------------------------|
+| `eval_source_bytes` | Exact supplied eval file bytes |
+| `eval_resolved_config_json_v1` | Selected native resolved eval object using the shared JSON digest |
+| `native_task_declaration_json_v1` | Whole selected native task, including requirement references |
+| `native_grader_declaration_json_v1` | Whole native scoped declaration, not merely its name or type |
+| `implementation_executable_bytes` | Actual running executable bytes, not an author-supplied version string |
+| `rubric_content_bytes` | Applicable actual rubric content; native file graders are rubric-free |
+
+Executable identity is conservative and platform/build specific; even a rebuild
+can require a new label binding and review. Missing applicable provenance is not
+assessed. No assurance cache is reused.
+
+Label/review JSON rejects unknown versions/fields, duplicate keys, trailing data,
+invalid identities, repeated cases/references and invalid thresholds. Inputs are
+bounded; snapshot paths are canonical relative paths rooted at the label
+directory. Shared manifest attribution binds full eval/task/run/attempt identity.
+Every selected full artifact is content-verified before a relative pointer is
+used; required files also retain their exact native array ordinals and raw
+content identity. Only verified required files enter private temporary workspaces.
+Evaluator labels, rubric sources and configuration are not copied there.
+
+An unpreserved path cannot prove `must_not_exist`; materializing a subset must
+not manufacture absence. Even a reviewed negative with a missing required file
+is insufficient evidence, not a successful rejection. Ordinary snapshot result,
+tool-event and checkpoint captures have unknown/partial completeness and are
+not upgraded by matching hashes, successful status or stored grader verdicts.
+The approved complete-file producer does support an actual positive
+content-only test path; it does not certify external MCP/CLI state.
+
+### Current capability boundary
+
+Paid model calibration is not implemented by the file-content verifier.
+`--calibrate` explicitly reports not assessed, prints that no paid calls will be
+made, and records zero executions with **null** usage/credits. A supplied plan's
+protocol/model/execution budget does not itself perform calibration. Program, script,
+trigger and unsupported candidate-input paths remain not assessed.
+
+Isolated paid calibration, historical
+not-assessed dashboard states and full runnable assurance examples are remaining
+acceptance work. Absence of calibration or human review must never be presented
+as assurance.
+
+### Finite authored-output checks
+
+Native text and inline JSON-schema checks can consume an explicitly supplied
+finite output instead of a historical snapshot. Each case selects exactly one
+`snapshot` path or `authored_input: {"path": "...", "document_sha256": "..."}`.
+The latter SHA-256 binds the **original entire envelope bytes** externally; the
+shared manifest separately binds its nested payload projection. No circular
+self-digest is embedded.
+
+The exact four-member envelope requires outer `schemaVersion: "2.0"` and
+`kind: "waza.grader-reference-input"` alongside `payload` and `evidence`.
+These outer markers are a native historical-import compatibility fence, not a
+claim that this document is a native snapshot/result or upgrades historical
+schemas. The inner payload remains independently versioned `1.0`.
+The immutable output producer uses an independent evidence `1.1` profile:
+`payload.kind=waza.grader-reference-input`, `source_scope=authored_finite_output`,
+and an explicit `output` string or null. Manifest locators use
+`supplied-finite-input` at `/payload`; evidence references use artifact-relative
+`/output`. An empty or whitespace string is complete supplied input; null remains
+unavailable and cannot count as a correct bad rejection.
+
+The report preserves `source_scope=authored_finite_output` separately from
+`preserved_file_subset`. This is authored input, never historical agent execution,
+complete session/tool evidence, observed external state or runtime billing.
+Native result/snapshot readers, bind/regrade and workspace materialization reject
+this profile, including case-insensitive property aliases that could otherwise
+hide a reference manifest. Older native evidence readers also reject it.
+All selected tasks must have covered requirements, including tasks absent from
+the label corpus. Snapshot/authored-input and CLI document readers accept only
+root-confined regular files, bound input bytes, and honor cancellation; FIFOs
+cannot wait for a writer. Unavailable or digest-only artifacts remain insufficient
+evidence before any content-locator dereference. Invalid and operational-error
+states cannot be downgraded by later label disagreements.
+
+Actual text-grader verdict/score/feedback tests exercise good, alternative-valid
+and two bad outputs. Synthetic supplied-review declarations in tests are not
+actual human label review.

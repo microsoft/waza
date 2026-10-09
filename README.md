@@ -150,6 +150,9 @@ waza spec verify skills/my-skill evals/my-skill/eval.yaml --fail --format github
 # Resolve remote grader refs and write waza.lock
 waza get evals/my-skill/eval.yaml
 
+# Challenge native file/output checks with evaluator-only references (offline)
+waza assure eval.yaml --references labels.json
+
 # Note: 'generate' is available as an alias for 'new' (see below for new command)
 # Note: Custom agents (.agent.md) are supported — see https://microsoft.github.io/waza/guides/custom-agents/
 
@@ -1772,7 +1775,7 @@ See the complete [Grader Reference](docs/GRADERS.md) for detailed configuration 
 - **[Getting Started](docs/GETTING-STARTED.md)** - Complete walkthrough: init → new → run → check
 - **[Demo Guide](docs/DEMO-GUIDE.md)** - 7 live demo scenarios for presentations
 - **[Grader Reference](docs/GRADERS.md)** - Complete grader types and configuration
-- **[Baseline Grader Challenges](docs/GRADER-CHALLENGES.md)** - Offline synthetic candidate cases and evidence limitations; not reviewed assurance
+- **[Grader Challenges and Assurance](docs/GRADER-CHALLENGES.md)** - Offline native file/output verification; bundled labels remain unreviewed, paid calibration unavailable
 - **[Tutorial](docs/TUTORIAL.md)** - Getting started with writing skill evals
 - **[CI Integration](docs/SKILLS_CI_INTEGRATION.md)** - GitHub Actions workflows for skill evaluation
 - **[Token Management](docs/TOKEN-LIMITS.md)** - Tracking and optimizing skill context size

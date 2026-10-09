@@ -3,7 +3,7 @@ package evidence
 import "github.com/microsoft/waza/internal/models"
 
 func Regrade(original *models.EvidenceManifest) (*models.EvidenceManifest, error) {
-	if err := Validate(original); err != nil {
+	if err := ValidateNative(original); err != nil {
 		return nil, err
 	}
 	copy := *original

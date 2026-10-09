@@ -61,6 +61,20 @@ See [Offline Eval Preflight](/guides/preflight/) for diagnostics and limitations
 
 ## GitHub Actions
 
+### Offline challenge assessment
+
+Use `waza assure eval.yaml --references labels.json` as a separate strict
+file-content challenge gate. It does not change `grade`, `gate`, golden-task or
+evaluation exits. Its standalone report preserves actual observations, scoped
+requirements, evidence bindings, review eligibility and finite-case coverage.
+Missing/unknown evidence, unreviewed labels and critical false acceptance fail
+the gate. Supply a current review source explicitly; do not promote bundled
+candidate labels to reviewed truth in automation.
+
+Calibration is not currently available: requesting it makes no paid calls and
+returns not assessed, with unknown usage/credits remaining null. This offline
+gate does not certify external state, runtime history or statistical confidence.
+
 ### Quick Start ΓÇö Scaffold with waza init
 
 The `waza init` command generates a ready-to-use workflow:

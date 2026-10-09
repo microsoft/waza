@@ -165,6 +165,11 @@ func LoadEvaluationOutcome(path string) (*EvaluationOutcome, error) {
 
 // ParseEvaluationOutcome decodes an EvaluationOutcome and defaults missing schemaVersion to the current version.
 func ParseEvaluationOutcome(data []byte, source string) (*EvaluationOutcome, error) {
+	// Outer tasks/runs aliases or duplicates must not hide an authored
+	// manifest from the nested native-profile admission guards.
+	if err := ValidateNativeJSONKeys(data, EvaluationOutcome{}); err != nil {
+		return nil, err
+	}
 	var header struct {
 		SchemaVersion string `json:"schemaVersion"`
 		Kind          string `json:"kind"`
