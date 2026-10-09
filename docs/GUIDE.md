@@ -237,6 +237,10 @@ Model availability, credentials, conditional checkpoint execution, interpreter
 syntax, service readiness, and external state are unresolved. Missing/invalid
 configuration exits 1; unresolved/unsupported warns and exits 0, or 1 with the
 new opt-in `--strict` policy. Existing commands keep their prior exits.
+Preflight guards eager argument schemas before eval/task/checkpoint decoding and
+before cached-preset or merged-override materialization. External prerequisites
+remain unresolved with an incomplete report; literals and returned mock payloads
+are not schemas. Runtime schema-loading defaults remain unchanged.
 
 Task requirements are optional **descriptions**, not assertions:
 

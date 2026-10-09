@@ -440,6 +440,16 @@ type MeasurementDef struct {
 // strict YAML parsing to catch errors like unknown fields or type errors that the schema
 // validation might miss.
 func LoadEvalSpec(path string) (*EvalSpec, error) {
+	return loadEvalSpec(path, false)
+}
+
+// LoadEvalSpecOffline guards eager schema dependencies before native decoding.
+// An unavailable dependency returns an error rather than a partial EvalSpec.
+func LoadEvalSpecOffline(path string) (*EvalSpec, error) {
+	return loadEvalSpec(path, true)
+}
+
+func loadEvalSpec(path string, offline bool) (*EvalSpec, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
@@ -463,6 +473,12 @@ func LoadEvalSpec(path string) (*EvalSpec, error) {
 	}
 	if err != nil {
 		return nil, err
+	}
+
+	if offline {
+		if err := guardOfflineModelSchemas(data, false); err != nil {
+			return nil, fmt.Errorf("eval schema dependencies: %w", err)
+		}
 	}
 
 	var spec EvalSpec

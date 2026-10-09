@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 
 	"github.com/microsoft/waza/internal/models"
@@ -153,22 +152,8 @@ func convertResponses(in []models.MCPMockResponse) []Response {
 }
 
 func validateResponse(response Response, loader jsonschema.URLLoader) error {
-	for field, pattern := range response.MatchRegex {
-		if _, err := regexp.Compile(pattern); err != nil {
-			return fmt.Errorf("match_regex field %q has invalid regex %q: %w", field, pattern, err)
-		}
-	}
-	if len(response.MatchSchema) > 0 {
-		compiler := jsonschema.NewCompiler()
-		if loader != nil {
-			compiler.UseLoader(loader)
-		}
-		if err := compiler.AddResource("memory://mcp-mock-schema.json", response.MatchSchema); err != nil {
-			return fmt.Errorf("match_schema is invalid: %w", err)
-		}
-		if _, err := compiler.Compile("memory://mcp-mock-schema.json"); err != nil {
-			return fmt.Errorf("match_schema is invalid: %w", err)
-		}
-	}
-	return nil
+	return models.ValidateMCPMockResponseWithLoader(models.MCPMockResponse{
+		MatchRegex:  response.MatchRegex,
+		MatchSchema: response.MatchSchema,
+	}, loader)
 }

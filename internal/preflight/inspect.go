@@ -42,9 +42,9 @@ func Inspect(evalPath string, opts Options) *Report {
 	for range validation.ValidateEvalBytes(data) {
 		r.add("eval.schema", Invalid, evalPath, "", "", "Eval configuration does not match the embedded schema.", "Check required fields, types, and configuration against schemas/eval.schema.json.")
 	}
-	spec, err := models.LoadEvalSpec(evalPath)
+	spec, err := models.LoadEvalSpecOffline(evalPath)
 	if err != nil {
-		r.add("eval.configuration", Invalid, evalPath, "", "", "Eval could not be decoded or validated.", "Check schemaVersion, YAML types, grader configuration, trials, timeout, and executor-specific settings.")
+		r.add("eval.configuration", schemaState(err), evalPath, "", "", "Eval could not be decoded or validated offline.", "Check schemaVersion, YAML types, self-contained grader schemas, trials, timeout, and executor-specific settings.")
 		r.Complete = false
 		return r
 	}
@@ -97,7 +97,7 @@ func Inspect(evalPath string, opts Options) *Report {
 		r.Tasks = append(r.Tasks, plan)
 		inspectTask(r, task, spec, source, base, fixtures)
 	}
-	if len(tasks) == 0 {
+	if len(tasks) == 0 && r.Complete {
 		r.add("tasks.empty", Invalid, evalPath, "", "", "No tasks were discovered.", "Supply matching task files or a nonempty selected CSV range.")
 	}
 	sort.SliceStable(r.Diagnostics, func(i, j int) bool {
@@ -141,9 +141,9 @@ func discoverTasks(r *Report, spec *models.EvalSpec, base string) ([]*models.Tes
 			for range validation.ValidateTaskBytes(data) {
 				r.add("task.schema", Invalid, path, "", "", "Task does not match the embedded schema.", "Check id, name, inputs, grader configuration, and requirement metadata against schemas/task.schema.json.")
 			}
-			task, err := models.LoadTestCase(path)
+			task, err := models.LoadTestCaseOffline(path)
 			if err != nil {
-				r.add("task.configuration", Invalid, path, "", "", "Task could not be decoded or validated.", "Check prompt/prompt_file, paths, graders, checkpoints, responder settings, and mocks.")
+				r.add("task.configuration", schemaState(err), path, "", "", "Task could not be decoded or validated offline.", "Check prompt/prompt_file, paths, self-contained grader schemas, checkpoints, responder settings, and mocks.")
 				r.Complete = false
 				continue
 			}
@@ -288,9 +288,9 @@ func inspectLockedGraders(r *Report, spec *models.EvalSpec, path string) {
 				state = Invalid
 				r.add("grader.ref", Invalid, path, "", "", "Remote grader reference is malformed.", "Use a supported immutable module/export reference.")
 			} else {
-				preset, loadErr := resolver.LoadLockedGrader(context.Background(), ref, entry)
+				preset, loadErr := resolver.LoadLockedGraderOffline(context.Background(), ref, entry)
 				if loadErr != nil {
-					state = Invalid
+					state = schemaState(loadErr)
 					code := "grader.cache_integrity"
 					var unavailable *registry.OfflineCacheUnavailableError
 					if errors.As(loadErr, &unavailable) {
@@ -299,10 +299,11 @@ func inspectLockedGraders(r *Report, spec *models.EvalSpec, path string) {
 					r.add(code, state, path, "", "", "Locked grader is unavailable, untrusted, or inconsistent with its local cache.", "Populate the pinned cache explicitly while online; verify the lock digest and trust remote program graders explicitly.")
 					r.Complete = false
 				} else {
-					merged, mergeErr := registry.MergeGraderConfig(preset, grader)
+					merged, mergeErr := registry.MergeGraderConfigOffline(preset, grader)
 					if mergeErr != nil {
-						state = Invalid
-						r.add("grader.merge", Invalid, path, "", "", "Remote preset and local grader configuration conflict.", "Use compatible type/configuration overrides for the locked preset.")
+						r.Complete = false
+						state = schemaState(mergeErr)
+						r.add("grader.merge", state, path, "", "", "Remote preset and local grader configuration conflict or need unavailable schemas.", "Use compatible type/configuration overrides and self-contained schemas for the locked preset.")
 					} else {
 						spec.Graders[i] = merged
 					}

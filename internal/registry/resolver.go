@@ -223,6 +223,16 @@ func (r *Resolver) ExpandLockedGraders(ctx context.Context, spec *models.EvalSpe
 }
 
 func (r *Resolver) LoadLockedGrader(ctx context.Context, ref Ref, entry models.LockfileGrader) (models.GraderConfig, error) {
+	return r.loadLockedGrader(ctx, ref, entry, false)
+}
+
+// LoadLockedGraderOffline retains cache integrity/trust checks but refuses
+// external schema dependencies during native argument matcher decoding.
+func (r *Resolver) LoadLockedGraderOffline(ctx context.Context, ref Ref, entry models.LockfileGrader) (models.GraderConfig, error) {
+	return r.loadLockedGrader(ctx, ref, entry, true)
+}
+
+func (r *Resolver) loadLockedGrader(ctx context.Context, ref Ref, entry models.LockfileGrader, offline bool) (models.GraderConfig, error) {
 	_ = ctx
 	cacheDir, err := r.cacheDir(ref, entry.Commit)
 	if err != nil {
@@ -240,7 +250,7 @@ func (r *Resolver) LoadLockedGrader(ctx context.Context, ref Ref, entry models.L
 	if digest != entry.Digest {
 		return models.GraderConfig{}, fmt.Errorf("digest mismatch for ref %q: lock has %s, cache has %s", entry.Ref, entry.Digest, digest)
 	}
-	return r.loadGraderPreset(ref, cacheDir, entry.Trusted)
+	return r.loadGraderPresetWithPolicy(ref, cacheDir, entry.Trusted, offline)
 }
 
 func (r *Resolver) ensureCached(ctx context.Context, ref Ref, url string) (string, string, error) {
@@ -369,6 +379,10 @@ type manifestExport struct {
 }
 
 func (r *Resolver) loadGraderPreset(ref Ref, moduleDir string, allowProgram bool) (models.GraderConfig, error) {
+	return r.loadGraderPresetWithPolicy(ref, moduleDir, allowProgram, false)
+}
+
+func (r *Resolver) loadGraderPresetWithPolicy(ref Ref, moduleDir string, allowProgram, offline bool) (models.GraderConfig, error) {
 	if ref.Export != "" {
 		manifestDir := moduleDir
 		if ref.Path != "" {
@@ -390,14 +404,14 @@ func (r *Resolver) loadGraderPreset(ref Ref, moduleDir string, allowProgram bool
 		if err != nil {
 			return models.GraderConfig{}, err
 		}
-		return loadGraderFile(graderPath, ref.Export, allowProgram)
+		return loadGraderFileWithPolicy(graderPath, ref.Export, allowProgram, offline)
 	}
 	if ref.Path != "" {
 		graderPath, err := safeJoinModulePath(moduleDir, ref.Path)
 		if err != nil {
 			return models.GraderConfig{}, err
 		}
-		return loadGraderFile(graderPath, filepath.Base(ref.Path), allowProgram)
+		return loadGraderFileWithPolicy(graderPath, filepath.Base(ref.Path), allowProgram, offline)
 	}
 	m, err := loadManifest(moduleDir)
 	if err != nil {
@@ -411,7 +425,7 @@ func (r *Resolver) loadGraderPreset(ref Ref, moduleDir string, allowProgram bool
 		if err != nil {
 			return models.GraderConfig{}, err
 		}
-		return loadGraderFile(graderPath, name, allowProgram)
+		return loadGraderFileWithPolicy(graderPath, name, allowProgram, offline)
 	}
 	return models.GraderConfig{}, fmt.Errorf("manifest has no grader exports")
 }
@@ -456,7 +470,7 @@ func loadManifest(dir string) (*manifest, error) {
 	return &m, nil
 }
 
-func loadGraderFile(graderPath string, fallbackName string, allowProgram bool) (models.GraderConfig, error) {
+func loadGraderFileWithPolicy(graderPath string, fallbackName string, allowProgram, offline bool) (models.GraderConfig, error) {
 	resolved, err := resolveYAMLPath(graderPath)
 	if err != nil {
 		return models.GraderConfig{}, err
@@ -466,7 +480,12 @@ func loadGraderFile(graderPath string, fallbackName string, allowProgram bool) (
 		return models.GraderConfig{}, err
 	}
 	var grader models.GraderConfig
-	if err := yaml.Unmarshal(data, &grader); err != nil {
+	if offline {
+		grader, err = models.DecodeGraderConfigOffline(data)
+	} else {
+		err = yaml.Unmarshal(data, &grader)
+	}
+	if err != nil {
 		return models.GraderConfig{}, err
 	}
 	if grader.Kind == "" {
@@ -499,6 +518,15 @@ func resolveYAMLPath(graderPath string) (string, error) {
 }
 
 func MergeGraderConfig(preset models.GraderConfig, override models.GraderConfig) (models.GraderConfig, error) {
+	return mergeGraderConfig(preset, override, false)
+}
+
+// MergeGraderConfigOffline guards the merged schema, not just its two inputs.
+func MergeGraderConfigOffline(preset models.GraderConfig, override models.GraderConfig) (models.GraderConfig, error) {
+	return mergeGraderConfig(preset, override, true)
+}
+
+func mergeGraderConfig(preset models.GraderConfig, override models.GraderConfig, offline bool) (models.GraderConfig, error) {
 	if override.Kind != "" && override.Kind != preset.Kind {
 		return models.GraderConfig{}, fmt.Errorf("local type %q does not match remote type %q", override.Kind, preset.Kind)
 	}
@@ -550,7 +578,12 @@ func MergeGraderConfig(preset models.GraderConfig, override models.GraderConfig)
 		return models.GraderConfig{}, err
 	}
 	var merged models.GraderConfig
-	if err := yaml.Unmarshal(data, &merged); err != nil {
+	if offline {
+		merged, err = models.DecodeGraderConfigOffline(data)
+	} else {
+		err = yaml.Unmarshal(data, &merged)
+	}
+	if err != nil {
 		return models.GraderConfig{}, err
 	}
 	merged.Ref = override.Ref
