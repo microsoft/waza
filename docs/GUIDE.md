@@ -515,6 +515,16 @@ MCP mock `error` responses and command mock `stderr`/`exit_code` responses can m
 
 Use existing graders and checkpoints to check honest failure reporting and prohibited effects. A mocked interaction or responder message is not proof that an external operation occurred. Undeclared commands remain available through the host `PATH`, and command shim interception does not isolate the filesystem or network. See the [eval guide](../site/src/content/docs/guides/eval-yaml.mdx#choosing-a-test-boundary) for choosing mocked versus live dependencies.
 
+### Existing-workflow compatibility examples
+
+The [recorded compatibility examples](../examples/compatibility/README.md) cover
+MCP lookup, read-only CLI inspection, and repository artifact preservation, each
+with known-good, deliberately-bad, and alternative-valid outcomes. They grade
+fixed evidence offline rather than executing an agent or claiming assurance.
+Contributor integration gates, fixture paths, feature ownership, historical
+artifact policies and known-bug boundaries are in
+[COMPATIBILITY.md](COMPATIBILITY.md).
+
 ### Caching and Reproducibility
 
 Cache evaluation results to avoid redundant runs:
