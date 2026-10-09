@@ -357,8 +357,15 @@ waza check [skill-name | skill-path]
 | Argument | Description |
 |----------|-------------|
 | `[skill-name]` | Skill name (e.g., `code-explainer`) |
-| `[skill-path]` | Path to skill directory |
+| `[skill-path]` | Relative or absolute path to a skill directory or `SKILL.md` file |
 | *(none)* | Check all skills in workspace |
+
+Explicit paths discover evals relative to the target skill, not the current
+directory. Discovery honors that workspace's `.waza.yaml` `paths.evals` and
+`files.evalFile` settings (with `eval.yaml` as the legacy filename fallback).
+Without a config file, it searches up to 10 directory levels for
+`evals/<skill-name>/eval.yaml`. Separated evals take priority over
+`<skill-dir>/evals/eval.yaml`, then `<skill-dir>/eval.yaml`.
 
 ### Flags
 

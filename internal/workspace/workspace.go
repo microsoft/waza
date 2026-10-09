@@ -4,6 +4,7 @@
 package workspace
 
 import (
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -250,20 +251,8 @@ func FindEval(wsCtx *WorkspaceContext, skillName string) (string, error) {
 	evalFiles := evalFilenames(wsCtx.EvalFile)
 
 	// Priority 1: separated convention
-	for _, evalFile := range evalFiles {
-		var separated string
-
-		// in some situations we have an absolute path to the evalsDir (for instance, from .waza.yaml)
-		// and it'd be incorrect to use a relative path.
-		if !filepath.IsAbs(evalsDir) {
-			separated = filepath.Join(wsCtx.Root, evalsDir, skillName, evalFile)
-		} else {
-			separated = filepath.Join(evalsDir, skillName, evalFile)
-		}
-
-		if isFile(separated) {
-			return separated, nil
-		}
+	if separated, err := findSeparatedEval(wsCtx.Root, evalsDir, skillName, evalFiles); err != nil || separated != "" {
+		return separated, err
 	}
 
 	// Priority 2: nested subdir inside skill directory
@@ -297,6 +286,87 @@ func FindEval(wsCtx *WorkspaceContext, skillName string) (string, error) {
 		}
 	}
 
+	return "", nil
+}
+
+// FindEvalForSkill resolves evals from the target skill rather than the process
+// working directory. Without project config, ancestor lookup is bounded.
+func FindEvalForSkill(si SkillInfo) (string, error) {
+	dir, err := filepath.Abs(si.Dir)
+	if err != nil {
+		return "", fmt.Errorf("resolving skill directory: %w", err)
+	}
+	si.Dir = dir
+	if si.SourceDir == "" {
+		current := dir
+		for i := 0; i < maxParentWalk; i++ {
+			parent := filepath.Dir(current)
+			if filepath.Base(current) == "skills" && filepath.Base(parent) == ".apm" {
+				si.SourceDir = filepath.Dir(parent)
+				break
+			}
+			if parent == current {
+				break
+			}
+			current = parent
+		}
+	}
+	skillDir, err := filepath.Abs(evalLookupDir(&si))
+	if err != nil {
+		return "", fmt.Errorf("resolving skill directory: %w", err)
+	}
+	if si.SourceDir != "" {
+		si.SourceDir = skillDir
+	}
+	cfg, err := projectconfig.Load(skillDir)
+	if err != nil {
+		return "", fmt.Errorf("loading skill workspace configuration: %w", err)
+	}
+	ctx := &WorkspaceContext{
+		Root:     skillDir,
+		Skills:   []SkillInfo{si},
+		EvalsDir: cfg.Paths.Evals,
+		EvalFile: cfg.Files.EvalFile,
+	}
+	if cfg.Dir != "" {
+		ctx.Root = cfg.Dir
+		return FindEval(ctx, si.Name)
+	}
+
+	if si.Name != "" {
+		current := skillDir
+		for i := 0; i < maxParentWalk; i++ {
+			path, err := findSeparatedEval(current, ctx.EvalsDir, si.Name, evalFilenames(ctx.EvalFile))
+			if err != nil || path != "" {
+				return path, err
+			}
+			parent := filepath.Dir(current)
+			if parent == current {
+				break
+			}
+			current = parent
+		}
+	}
+	return FindEval(ctx, si.Name)
+}
+
+func findSeparatedEval(root, evalsDir, skillName string, evalFiles []string) (string, error) {
+	if !filepath.IsAbs(evalsDir) {
+		evalsDir = filepath.Join(root, evalsDir)
+	}
+	for _, evalFile := range evalFiles {
+		path := filepath.Join(evalsDir, skillName, evalFile)
+		info, err := os.Stat(path)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return "", fmt.Errorf("checking eval file %q: %w", path, err)
+		}
+		if info.Mode().IsRegular() {
+			return path, nil
+		}
+	}
 	return "", nil
 }
 
