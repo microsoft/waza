@@ -2,13 +2,13 @@ package mcpmock
 
 import (
 	"encoding/json"
-	"net/url"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/schemaloader"
+	"github.com/microsoft/waza/internal/testutil"
 	"github.com/santhosh-tekuri/jsonschema/v6"
 	"github.com/stretchr/testify/require"
 )
@@ -17,7 +17,7 @@ func TestOfflineMCPMatcherBlocksDefaultFileLoaderWithoutChangingRuntime(t *testi
 	dir := t.TempDir()
 	schemaPath := filepath.Join(dir, "valid-schema.json")
 	require.NoError(t, os.WriteFile(schemaPath, []byte(`{"type":"object"}`), 0600))
-	fileURI := (&url.URL{Scheme: "file", Path: filepath.ToSlash(schemaPath)}).String()
+	fileURI := testutil.FileURL(schemaPath)
 	response := models.MCPMockResponse{MatchSchema: map[string]any{"$ref": fileURI}, Return: map[string]any{"state": "ready"}}
 	mock := models.MCPMockConfig{Name: "offline", Tools: map[string]models.MCPMockTool{"read": {Responses: []models.MCPMockResponse{response}}}}
 	for _, useFixture := range []bool{false, true} {
