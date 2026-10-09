@@ -40,6 +40,8 @@ The private `internal/faultsequence` groundwork provides finite cross-process st
 
 The private `internal/faultfixture` source validators check JSON/YAML response fragments before normalization erases field presence. Finite sequences require the explicit enclosing scenario version; mixed zero/empty/null fields, nested matchers, duplicate finite JSON keys and invalid delays fail explicitly. YAML step floats are not converted into integer delay/exit fields, and response-level delay configuration cannot silently disappear as an unknown legacy field. This validation groundwork does not register sequence fields in the public eval/runtime; execution and invocation-bound evidence integration remain pending.
 
+Shared MCP matcher validation preserves an explicitly supplied schema resource loader. Its legacy wrapper retains compiler defaults, including local file references; offline callers must select a denying loader rather than assuming compiler defaults prohibit resource access.
+
 ---
 
 ## User Personas
