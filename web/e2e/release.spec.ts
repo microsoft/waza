@@ -32,7 +32,7 @@ test("release API errors are visible", async ({ page }) => {
 });
 
 for (const malformed of ["numeric_usage", "missing_dimension", "missing_accounting", "unavailable_zero", "partial_pass",
-  "missing_usage_arm", "missing_usage_axis", "invalid_numeric_string"]) {
+  "missing_usage_arm", "missing_usage_axis", "invalid_numeric_string", "missing_reasons"]) {
   test(`malformed release view rejects ${malformed}`, async ({ page }) => {
     const collection = malformed.startsWith("missing_usage") ? acceptedReleaseCollection() : structuredClone(RELEASE_COLLECTIONS[0]);
     const decision: Record<string, unknown> = { ...collection.decision };
@@ -48,6 +48,8 @@ for (const malformed of ["numeric_usage", "missing_dimension", "missing_accounti
       decision.usage = { ...collection.decision.usage, candidate: collection.decision.usage.candidate?.filter((axis) => axis.axis !== "ai_credits") };
     } else if (malformed === "invalid_numeric_string") {
       decision.usage = { baseline: [{ axis: "input_tokens", availability: "available", observation: "partial", value: "NaN" }] };
+    } else if (malformed === "missing_reasons") {
+      decision.compatibility = { state: "compatible" };
     } else {
       delete decision[malformed === "missing_dimension" ? "assurance" : "accounting"];
     }

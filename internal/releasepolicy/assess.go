@@ -118,9 +118,10 @@ func Assess(p *Policy, receipts map[Arm]Receipt) (Decision, error) {
 		if !ok || r.State != "final" || r.PolicyDigest != p.Digest || r.PlanDigest != p.Arms[arm].Digest ||
 			r.Arm != arm || r.Binding == nil || r.JournalDigest == nil ||
 			len(r.Trials) != len(PlannedSamples(p)) {
-			d.Compatibility.State = "invalid"
-			d.Completeness.State = "missing"
-			d.Compatibility.Reasons = append(d.Compatibility.Reasons, string(arm)+" missing or mismatched final collection")
+			reason := string(arm) + " missing or mismatched final collection"
+			escalate(&d.Compatibility, "invalid", reason)
+			escalate(&d.Completeness, "missing", reason)
+			escalate(&d.Operations, "incomplete", reason)
 			continue
 		}
 		for _, identity := range p.Arms[arm].Plan.Identities {
@@ -129,30 +130,27 @@ func Assess(p *Policy, receipts map[Arm]Receipt) (Decision, error) {
 				required = required || domain == identity.Domain
 			}
 			if required && identity.Availability == "unavailable" {
-				d.Compatibility.State = "inconclusive"
-				d.Compatibility.Reasons = append(d.Compatibility.Reasons,
+				escalate(&d.Compatibility, "inconclusive",
 					fmt.Sprintf("%s required %s/%s is unavailable", arm, identity.Domain, identity.TaskID))
 			}
 		}
 		for _, trial := range r.Trials {
 			if trial.State != "complete" || trial.FirstPass == nil || trial.RetryPass == nil {
-				d.Completeness.State, d.Operations.State = "partial", "incomplete"
-				d.Operations.Reasons = append(d.Operations.Reasons,
-					fmt.Sprintf("%s/%s trial %d has incomplete/operational/unknown evidence", arm, trial.Key.TaskID, trial.Key.Trial))
+				reason := fmt.Sprintf("%s/%s trial %d has incomplete/operational/unknown evidence", arm, trial.Key.TaskID, trial.Key.Trial)
+				escalate(&d.Completeness, "partial", reason)
+				escalate(&d.Operations, "incomplete", reason)
 			}
 		}
 		for _, actual := range r.Runtime {
 			if p.Requirements.Runtime && actual.Availability != "available" {
-				d.Compatibility.State = "inconclusive"
-				d.Compatibility.Reasons = append(d.Compatibility.Reasons, string(arm)+" required observed runtime is unavailable")
+				escalate(&d.Compatibility, "inconclusive", string(arm)+" required observed runtime is unavailable")
 			}
 		}
 	}
 	// Unknown runtime is never assumed identical. Known observations must also
 	// agree across trials and arms except the exact predeclared changed axis.
-	if err := compareActualRuntime(p, receipts); err != nil {
-		d.Compatibility.State = "mismatched"
-		d.Compatibility.Reasons = append(d.Compatibility.Reasons, err.Error())
+	for _, reason := range compareActualRuntime(p, receipts) {
+		escalate(&d.Compatibility, "mismatched", reason)
 	}
 	if !p.Requirements.Assurance {
 		d.Assurance.State = "not_required"
@@ -323,13 +321,9 @@ func assessGolden(p *Policy, receipts map[Arm]Receipt) Dimension {
 				}
 				found++
 				if trial.FirstPass == nil {
-					if d.State != "failed" {
-						d.State = "missing_required_evidence"
-					}
-					d.Reasons = append(d.Reasons, fmt.Sprintf("%s/%s trial %d lacks golden first-attempt evidence", arm, id, trial.Key.Trial))
+					escalate(&d, "missing_required_evidence", fmt.Sprintf("%s/%s trial %d lacks golden first-attempt evidence", arm, id, trial.Key.Trial))
 				} else if !*trial.FirstPass {
-					d.State = "failed"
-					d.Reasons = append(d.Reasons, fmt.Sprintf("%s/%s trial %d golden first attempt failed (recovery cannot erase it)", arm, id, trial.Key.Trial))
+					escalate(&d, "failed", fmt.Sprintf("%s/%s trial %d golden first attempt failed (recovery cannot erase it)", arm, id, trial.Key.Trial))
 				}
 			}
 			expected := 0
@@ -339,10 +333,7 @@ func assessGolden(p *Policy, receipts map[Arm]Receipt) Dimension {
 				}
 			}
 			if found != expected {
-				if d.State != "failed" {
-					d.State = "missing_required_evidence"
-				}
-				d.Reasons = append(d.Reasons, fmt.Sprintf("%s/%s required golden trials are missing", arm, id))
+				escalate(&d, "missing_required_evidence", fmt.Sprintf("%s/%s required golden trials are missing", arm, id))
 			}
 		}
 	}
@@ -358,7 +349,8 @@ func assessBilling(p *Policy, receipts map[Arm]Receipt) Dimension {
 	for _, requirement := range p.Requirements.Billing {
 		maximum, ok := new(big.Rat).SetString(requirement.Maximum.String())
 		if !ok {
-			return Dimension{State: "invalid", Reasons: []string{"invalid billing maximum"}}
+			escalate(&d, "invalid", "invalid billing maximum for "+requirement.Axis)
+			continue
 		}
 		for _, arm := range []Arm{Baseline, Candidate} {
 			found := false
@@ -369,42 +361,39 @@ func assessBilling(p *Policy, receipts map[Arm]Receipt) Dimension {
 				found = true
 				if usage.Availability != "available" || usage.Value == nil ||
 					usage.Observation != "final_complete_attributable" {
-					if d.State != "exceeded" {
-						d.State = "unavailable"
-					}
-					d.Reasons = append(d.Reasons, fmt.Sprintf("%s/%s final complete attributable billing is unavailable", arm, usage.Axis))
+					escalate(&d, "unavailable", fmt.Sprintf("%s/%s final complete attributable billing is unavailable", arm, usage.Axis))
 					continue
 				}
 				actual, ok := new(big.Rat).SetString(usage.Value.String())
 				if !ok {
-					return Dimension{State: "invalid", Reasons: []string{"invalid observed billing value"}}
+					escalate(&d, "invalid", fmt.Sprintf("%s/%s has invalid observed billing value", arm, usage.Axis))
+					continue
 				}
 				if actual.Cmp(maximum) > 0 {
-					d.State = "exceeded"
-					d.Reasons = append(d.Reasons, fmt.Sprintf("%s/%s exceeds its final observed budget; asynchronous overshoot is not prevented", arm, usage.Axis))
+					escalate(&d, "exceeded", fmt.Sprintf("%s/%s exceeds its final observed budget; asynchronous overshoot is not prevented", arm, usage.Axis))
 				}
 			}
 			if !found {
-				if d.State != "exceeded" {
-					d.State = "unavailable"
-				}
-				d.Reasons = append(d.Reasons, fmt.Sprintf("%s/%s required billing axis is unavailable", arm, requirement.Axis))
+				escalate(&d, "unavailable", fmt.Sprintf("%s/%s required billing axis is unavailable", arm, requirement.Axis))
 			}
 		}
 	}
 	return d
 }
 
-func compareActualRuntime(p *Policy, receipts map[Arm]Receipt) error {
+func compareActualRuntime(p *Policy, receipts map[Arm]Receipt) []string {
+	var reasons []string
 	observed := map[Arm]map[string]RuntimeObservation{}
 	for _, arm := range []Arm{Baseline, Candidate} {
 		observed[arm] = map[string]RuntimeObservation{}
 		for _, r := range receipts[arm].Runtime {
 			if err := validateRuntime(p, arm, r, r.TaskID); err != nil {
-				return err
+				reasons = append(reasons, fmt.Sprintf("%s/%s: %v", arm, r.TaskID, err))
+				continue
 			}
 			if previous, ok := observed[arm][r.TaskID]; ok && previous != r {
-				return fmt.Errorf("actual runtime changed within %s task %s", arm, r.TaskID)
+				reasons = append(reasons, fmt.Sprintf("actual runtime changed within %s task %s", arm, r.TaskID))
+				continue
 			}
 			observed[arm][r.TaskID] = r
 		}
@@ -414,7 +403,7 @@ func compareActualRuntime(p *Policy, receipts map[Arm]Receipt) error {
 		a, aok := observed[Candidate][task.ID]
 		if !bok || !aok {
 			if p.Requirements.Runtime {
-				return fmt.Errorf("required actual runtime is missing: %s", task.ID)
+				reasons = append(reasons, fmt.Sprintf("required actual runtime is missing: %s", task.ID))
 			}
 			continue
 		}
@@ -423,11 +412,11 @@ func compareActualRuntime(p *Policy, receipts map[Arm]Receipt) error {
 		}
 		before, after := settingsFor(p, Baseline, task.ID), settingsFor(p, Candidate, task.ID)
 		if before.Engine == after.Engine && b.EngineImplementation != a.EngineImplementation {
-			return fmt.Errorf("unrelated engine implementation drift: %s", task.ID)
+			reasons = append(reasons, fmt.Sprintf("unrelated engine implementation drift: %s", task.ID))
 		}
 		if before.Model == after.Model && b.ModelVersion != a.ModelVersion {
-			return fmt.Errorf("unrelated actual model version drift: %s", task.ID)
+			reasons = append(reasons, fmt.Sprintf("unrelated actual model version drift: %s", task.ID))
 		}
 	}
-	return nil
+	return reasons
 }

@@ -231,6 +231,17 @@ planned trials**, regardless of selected endpoint. Retry recovery cannot erase
 a golden failure, including when a later retry becomes operationally invalid.
 Golden completeness and operational errors stay outside statistical averaging.
 
+Arm aggregation preserves the strongest dimension state and every diagnostic:
+invalid/mismatched comparison cannot become inconclusive, missing publication
+cannot become merely partial, known golden failure cannot become missing, and
+observed budget exceedance cannot become unavailable. Malformed billing remains
+invalid while retaining other arms' unavailable/exceeded reasons.
+
+`Assess` is a verified-receipt calculation, not a raw-admission entry point.
+Public callers must use `ReadDecision`/`ReadSelectedDecision` or perform equivalent
+raw admission plus durable stream, BEGIN, receipt/binding and actual-row checks
+before calling it. A sidecar or transport pass boolean is never adopted.
+
 Operational rejection cannot be inferred from score or prose. Program graders
 can return nil-error process launch/timeout rejection; such paths are not
 certified behavioral evidence. Affirmative attempt observability currently

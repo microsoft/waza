@@ -1,6 +1,6 @@
 export interface ReleaseDimension {
   state: string;
-  reasons?: string[] | null;
+  reasons: string[] | null;
 }
 
 export interface ReleaseReliability {
@@ -77,7 +77,7 @@ function validCollection(value: unknown): value is ReleaseCollection {
   for (const [name, acceptedStates] of Object.entries(passStates)) {
     const dimension = d[name];
     if (!record(dimension) || typeof dimension.state !== "string" ||
-        (dimension.reasons != null && !strings(dimension.reasons))) return false;
+        (dimension.reasons !== null && !strings(dimension.reasons))) return false;
     if (d.accepted && !acceptedStates.includes(dimension.state)) return false;
   }
   for (const name of ["estimate", "lower", "upper", "half_width"]) {

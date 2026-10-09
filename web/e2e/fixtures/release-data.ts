@@ -36,9 +36,9 @@ export function acceptedReleaseCollection(): ReleaseCollection {
   const collection = structuredClone(RELEASE_COLLECTIONS[0]);
   Object.assign(collection.decision, {
     accepted: true, planned_clusters: 8, estimate: 0, lower: -0.97, upper: 0.97, half_width: 0.97,
-    completeness: { state: "complete" }, assurance: { state: "not_required" },
-    golden: { state: "not_required" }, billing: { state: "not_required" },
-    statistics: { state: "noninferiority" }, operations: { state: "observed" },
+    completeness: { state: "complete", reasons: [] }, assurance: { state: "not_required", reasons: [] },
+    golden: { state: "not_required", reasons: [] }, billing: { state: "not_required", reasons: [] },
+    statistics: { state: "noninferiority", reasons: [] }, operations: { state: "observed", reasons: [] },
   });
   const counts = {
     planned_trials: 8, started_trials: 8, complete_trials: 8, started_attempts: 8, complete_attempts: 8,
