@@ -454,23 +454,47 @@ func loadEvalSpec(path string, offline bool) (*EvalSpec, error) {
 	if err != nil {
 		return nil, err
 	}
+	return parseEvalSpec(data, path, offline)
+}
 
+// ClassifyEvalSpec checks the canonical eval version and scenario header without
+// decoding grader parameters or loading their resources.
+func ClassifyEvalSpec(data []byte, path string) (string, string, error) {
 	var header struct {
 		SchemaVersion string  `yaml:"schemaVersion"`
 		Scenario      *string `yaml:"scenario"`
 	}
 	if err := yaml.Unmarshal(data, &header); err != nil {
-		return nil, fmt.Errorf("parsing eval spec YAML (%s): %w", path, err)
+		return "", "", fmt.Errorf("parsing eval spec YAML (%s): %w", path, err)
 	}
 	if header.Scenario != nil && strings.TrimSpace(*header.Scenario) == "" {
-		return nil, fmt.Errorf("scenario must be a non-empty workflow identity")
+		return "", "", fmt.Errorf("scenario must be a non-empty workflow identity")
 	}
 	version := header.SchemaVersion
+	var err error
 	if header.Scenario == nil {
 		version, err = ValidateSchemaVersion("eval.yaml", path, header.SchemaVersion)
 	} else if version != ScenarioSchemaVersion {
 		err = fmt.Errorf("scenario requires explicit schemaVersion %s; older executables must reject scenario semantics", ScenarioSchemaVersion)
 	}
+	if err != nil {
+		return "", "", err
+	}
+	scenario := ""
+	if header.Scenario != nil {
+		scenario = *header.Scenario
+	}
+	return version, scenario, nil
+}
+
+// ParseEvalSpec retains the runtime loader behavior of LoadEvalSpec.
+// Offline consumers must guard resource-bearing parameters before typed decode.
+func ParseEvalSpec(data []byte, path string) (*EvalSpec, error) {
+	return parseEvalSpec(data, path, false)
+}
+
+func parseEvalSpec(data []byte, path string, offline bool) (*EvalSpec, error) {
+	version, scenario, err := ClassifyEvalSpec(data, path)
 	if err != nil {
 		return nil, err
 	}
@@ -484,7 +508,7 @@ func loadEvalSpec(path string, offline bool) (*EvalSpec, error) {
 	var spec EvalSpec
 
 	decoder := yaml.NewDecoder(bytes.NewReader(data))
-	if header.Scenario != nil {
+	if scenario != "" {
 		decoder.KnownFields(true)
 	}
 	if err := decoder.Decode(&spec); err != nil {
