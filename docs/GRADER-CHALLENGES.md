@@ -102,7 +102,14 @@ schemas, are explicitly not assessed by this mechanical helper. It does not
 start an agent, subprocess or model, or infer model-backed calibration. Existing
 commands still support their existing grader families unchanged.
 
-Run its deterministic scoped, state-isolation and error tests:
+The observer tests also assert actual JSON-schema, behavior, action-sequence and
+skill-invocation verdicts, scores and feedback for good, alternative-valid and
+bad candidates under fixed grader configuration. Reordered actions and skills
+are accepted when the declared matching mode allows them; tool and token limits
+include exact-boundary cases. These are raw mechanical observations, not
+additional human-reviewed domain assurance.
+
+Run its deterministic scoped, state-isolation, verdict and error tests:
 
 ```bash
 NO_COLOR=1 go test ./internal/assurance -count=1
