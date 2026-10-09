@@ -26,7 +26,6 @@ import (
 	"github.com/microsoft/waza/internal/skill"
 	"github.com/microsoft/waza/internal/snapshot"
 	"github.com/microsoft/waza/internal/telemetry"
-	"github.com/microsoft/waza/internal/template"
 	"github.com/microsoft/waza/internal/transcript"
 	"github.com/microsoft/waza/internal/utils"
 
@@ -612,115 +611,7 @@ func (r *EvalRunner) loadTestCases() ([]*models.TestCase, error) {
 
 // loadTestCasesFromCSV generates in-memory TestCases from CSV rows.
 func (r *EvalRunner) loadTestCasesFromCSV() ([]*models.TestCase, error) {
-	spec := r.cfg.Spec()
-
-	// Resolve CSV path relative to spec directory
-	csvPath := spec.TasksFrom
-	baseDir := r.cfg.SpecDir()
-	if baseDir == "" {
-		baseDir = "."
-	}
-	if !filepath.IsAbs(csvPath) {
-		csvPath = filepath.Join(baseDir, csvPath)
-	}
-
-	// Path containment: CSV must resolve within spec directory
-	absBaseDir, err := filepath.Abs(baseDir)
-	if err != nil {
-		return nil, fmt.Errorf("resolving spec directory: %w", err)
-	}
-	absCSVPath, err := filepath.Abs(csvPath)
-	if err != nil {
-		return nil, fmt.Errorf("resolving CSV path: %w", err)
-	}
-	if !strings.HasPrefix(absCSVPath, absBaseDir+string(filepath.Separator)) {
-		return nil, fmt.Errorf("tasks_from path %q escapes spec directory", spec.TasksFrom)
-	}
-
-	// Validate and load CSV with optional range filtering
-	var rows []dataset.Row
-	if spec.Range != [2]int{} {
-		if spec.Range[0] <= 0 || spec.Range[1] <= 0 {
-			return nil, fmt.Errorf("invalid range: both values must be > 0, got [%d, %d]", spec.Range[0], spec.Range[1])
-		}
-		if spec.Range[0] > spec.Range[1] {
-			return nil, fmt.Errorf("invalid range: start (%d) must be <= end (%d)", spec.Range[0], spec.Range[1])
-		}
-		rows, err = dataset.LoadCSVRange(csvPath, spec.Range[0], spec.Range[1])
-	} else {
-		rows, err = dataset.LoadCSV(csvPath)
-	}
-	if err != nil {
-		return nil, fmt.Errorf("loading CSV dataset: %w", err)
-	}
-
-	// Build template context for resolving templates
-	now := time.Now()
-	baseCtx := &template.Context{
-		JobID:     fmt.Sprintf("run-%d", now.Unix()),
-		Timestamp: now.Format(time.RFC3339),
-		Vars:      make(map[string]string),
-	}
-
-	// Merge spec.Inputs as base variables
-	for k, v := range spec.Inputs {
-		baseCtx.Vars[k] = v
-	}
-
-	testCases := make([]*models.TestCase, 0, len(rows))
-	for i, row := range rows {
-		rowNum := i + 1
-
-		// Determine TestID: prefer "id" column, then "name", then "row-N"
-		testID := fmt.Sprintf("row-%d", rowNum)
-		if v, ok := row["id"]; ok && v != "" {
-			testID = v
-		} else if v, ok := row["name"]; ok && v != "" {
-			testID = v
-		}
-
-		// Determine DisplayName: prefer "name" column, then "row-N"
-		displayName := fmt.Sprintf("row-%d", rowNum)
-		if v, ok := row["name"]; ok && v != "" {
-			displayName = v
-		}
-
-		// Build per-row template context: inputs + CSV row (CSV overrides inputs on conflict)
-		rowCtx := &template.Context{
-			JobID:     baseCtx.JobID,
-			TaskName:  displayName,
-			Iteration: 0,
-			Attempt:   0,
-			Timestamp: baseCtx.Timestamp,
-			Vars:      make(map[string]string),
-		}
-		for k, v := range spec.Inputs {
-			rowCtx.Vars[k] = v
-		}
-		for k, v := range row {
-			rowCtx.Vars[k] = v
-		}
-
-		// Resolve prompt: use "prompt" column if present, otherwise empty
-		prompt := row["prompt"]
-		if strings.Contains(prompt, "{{") {
-			prompt, err = template.Render(prompt, rowCtx)
-			if err != nil {
-				return nil, fmt.Errorf("resolving prompt template for row %d: %w", rowNum, err)
-			}
-		}
-
-		tc := &models.TestCase{
-			TestID:      testID,
-			DisplayName: displayName,
-			Stimulus: models.TaskStimulus{
-				Message: prompt,
-			},
-		}
-		testCases = append(testCases, tc)
-	}
-
-	return testCases, nil
+	return dataset.LoadTasks(r.cfg.Spec(), r.cfg.SpecDir(), time.Now())
 }
 
 // loadTestCasesFromFiles loads test cases from YAML files via glob patterns.
@@ -786,29 +677,8 @@ func (r *EvalRunner) validateRequiredSkills() error {
 		return nil
 	}
 
-	// Get base directory for path resolution
-	baseDir := r.cfg.SpecDir()
-	if baseDir == "" {
-		baseDir = "."
-	}
-
-	// Resolve skill paths
-	resolvedPaths := utils.ResolvePaths(spec.Config.SkillPaths, baseDir)
-
-	// If required skills specified but no skill directories, that's an error
-	if len(resolvedPaths) == 0 {
-		return fmt.Errorf("required_skills specified but no skill_directories configured")
-	}
-
-	// Discover skills in the specified directories
-	discoveredSkills, err := discoverSkills(resolvedPaths)
-	if err != nil {
-		return fmt.Errorf("discovering skills: %w", err)
-	}
-
-	// Validate that all required skills were found
-	if err := validateRequiredSkills(spec.Config.RequiredSkills, discoveredSkills, resolvedPaths); err != nil {
-		return fmt.Errorf("skill validation failed:\n%w", err)
+	if err := validateRequiredSkillConfiguration(spec, r.cfg.SpecDir(), discoverSkills); err != nil {
+		return err
 	}
 
 	if r.verbose {
@@ -1904,6 +1774,12 @@ func (r *EvalRunner) loadResources(tc *models.TestCase) []execution.ResourceFile
 }
 
 func (r *EvalRunner) loadContextFixtureResources(tc *models.TestCase) ([]execution.ResourceFile, error) {
+	return LoadContextFixtureResources(tc, r.cfg.SpecDir())
+}
+
+// LoadContextFixtureResources reads local fixtures with runtime containment and
+// symlink rules. It does not create a workspace or initialize an engine.
+func LoadContextFixtureResources(tc *models.TestCase, baseDir string) ([]execution.ResourceFile, error) {
 	fixtureValue, ok := tc.Stimulus.Metadata["fixture"]
 	if !ok {
 		return nil, nil
@@ -1922,7 +1798,6 @@ func (r *EvalRunner) loadContextFixtureResources(tc *models.TestCase) ([]executi
 		return nil, fmt.Errorf("inputs.context.fixture path %q must not contain path traversal", fixturePath)
 	}
 
-	baseDir := r.cfg.SpecDir()
 	if baseDir == "" {
 		baseDir = "."
 	}

@@ -36,6 +36,30 @@ waza update --yes
 
 The native Windows update path schedules the final binary replacement after the running `waza.exe` exits, avoiding Windows executable file locks. In WSL, `waza update` uses the Linux Bash installer and updates the WSL installation.
 
+## waza preflight
+
+Inspect an explicit eval file offline, without an agent/model, grader execution,
+subprocesses, mock servers, live services, dependency downloads, or update checks:
+
+```bash
+waza preflight eval.yaml
+waza preflight eval.yaml --format json > preflight.json
+waza preflight eval.yaml --context-dir ./fixtures --strict
+```
+
+| Flag | Default | Meaning |
+|------|---------|---------|
+| `--format` | `human` | `human` or `json` inventory/diagnostics |
+| `--context-dir` | eval directory/fixtures | Context directory; relative values resolve from cwd |
+| `--strict` | `false` | Exit 1 for unresolved/unsupported prerequisites, not only invalid configuration |
+
+Invalid configuration exits 1; unresolved/unsupported warn and exit 0 unless
+`--strict` opts into 1. Usage/output errors use exit 2. Existing command exits
+are unchanged. `verified` means static inspection, not a satisfied requirement
+or runtime enforcement. The separately typed report is not `results.json`.
+See [Offline Eval Preflight](/guides/preflight/) for descriptive requirement
+references, capability/dependency plans, and offline limitations.
+
 ## waza run
 
 Run an evaluation benchmark.

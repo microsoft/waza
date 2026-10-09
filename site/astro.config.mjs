@@ -41,6 +41,7 @@ export default defineConfig({
 					label: 'Guides',
 					items: [
 						{ label: 'Writing Eval Specs', slug: 'guides/eval-yaml' },
+						{ label: 'Offline Eval Preflight', slug: 'guides/preflight' },
 						{ label: 'Evaluating Custom Agents', slug: 'guides/custom-agents' },
 						{ label: 'Validators & Graders', slug: 'guides/graders' },
 						{ label: 'Spec Verification', slug: 'guides/spec-verify' },
