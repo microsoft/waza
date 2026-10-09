@@ -36,6 +36,8 @@ Custom agent evaluations enforce the selected `.agent.md` tool policy with the C
 
 The baseline for controlled dependency-fault testing (#662) preserves existing MCP and CLI response formats and fail-closed matching. Unmatched MCP diagnostics omit argument values, and the in-process MCP handler rejects an already-canceled or expired tool call before fixture dispatch. This narrow admission check does not provide per-request stdio cancellation, simulated timeout fixtures, or finite recovery sequences. Mocked interactions do not prove live dependency behavior; command shims are not filesystem/network enforcement. Requirement-linked recovery and new attempt metadata remain separate integration work.
 
+The private `internal/faultsequence` groundwork provides finite cross-process step reservation and cancellable, overflow-checked delays. State uses an existing absolute task-private directory, consumes steps at exclusive creation, and never rolls back after cancellation or process exit. Concurrent allocation is unique, not a guarantee of execution order or machine-crash durability. These primitives are not yet wired to public fixture loading or results.
+
 ---
 
 ## User Personas
