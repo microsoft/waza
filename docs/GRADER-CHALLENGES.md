@@ -117,6 +117,19 @@ NO_COLOR=1 go test ./internal/assurance -count=1
 
 ## Integration boundary
 
+The in-memory author-review gate requires a supplied current declaration from a
+source explicitly accepted by the evaluator. It binds the label subject ID,
+version and SHA-256 digest of exact label bytes; changing whitespace or newlines
+also invalidates the old approval. Unreviewed, submitted, rejected and revoked
+states are ineligible. Reviewed declarations require reviewer identity and a
+nonzero review timestamp no later than the explicitly supplied current time.
+
+This gate only checks review eligibility. It does not authenticate human identity
+or source freshness, discover withheld revocations, establish independent review,
+or substitute for actual grader agreement and complete evidence. The caller owns
+current-source selection. Test declarations are explicitly synthetic; no actual
+human label review has occurred and bundled candidates remain unreviewed.
+
 These tests introduce no public schema, command, default, exit-code change, or
 agent-visible fixture. Reference expectations remain evaluator-only test code;
 temporary workspaces contain only synthetic resulting state.
