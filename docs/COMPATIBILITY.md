@@ -50,6 +50,8 @@ does not set their enabling environment variables or use paid agent calls.
 configuration, results, snapshot, lock shape and dashboard API fixture.
 Treat these as fixed inputs. Change an expectation only with an explicit
 reviewed behavioral decision, not to make a failing test green.
+Remote-lock setup exercises both LF and CRLF eval inputs and asserts that
+the inline grader was replaced before testing lock expansion and tampering.
 
 The version matrix derives versionless, 1.0, 1.1, 1.4, forward same-major 1.99,
 cross-major 2.0 and malformed headers from the fixed files. Unknown additive
