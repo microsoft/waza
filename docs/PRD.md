@@ -57,6 +57,17 @@ Custom agent evaluations enforce the selected `.agent.md` tool policy with the C
 
 ## Feature Requirements
 
+### Existing-workflow preservation contract
+
+The additive evaluation work tracked in #657 must preserve current command,
+exit, grader, skill/custom-agent, multi-turn, mock, billing/cache, snapshot and
+historical dashboard behavior. The fixed offline corpus and package-owned
+coverage inventory are specified in [COMPATIBILITY.md](COMPATIBILITY.md) (#658).
+The required integration gate is `NO_COLOR=1 make test-compat`, with historical
+browser checks when dashboard surfaces change. Known bugs are tracked
+separately rather than accepted as new semantics; recorded/mock outcomes are
+not real-agent quality or full assurance claims.
+
 ### Epic 1: Go CLI Foundation (P0)
 
 Port existing Python waza functionality to Go for single-binary distribution.
