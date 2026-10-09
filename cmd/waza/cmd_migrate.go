@@ -17,9 +17,9 @@ func newMigrateCommand() *cobra.Command {
 		Short: "Migrate a waza schema artifact to the current schema version",
 		Long: `Migrate a waza schema artifact to the current schema version.
 
-The current schema version is 1.0, so v1 artifacts are already current and the
-command performs no file changes. Future major schema versions will add explicit
-migration steps here.`,
+Legacy eval/task/result artifacts retain schema 1.x. Scenario evals explicitly
+select schema 2.0; supported files need no migration and are never rewritten.
+Future migrations will require explicit migration steps here.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runMigrate(cmd.OutOrStdout(), args[0])
@@ -36,6 +36,14 @@ func runMigrate(out io.Writer, path string) error {
 
 	artifact, version, err := readArtifactSchemaVersion(path, data)
 	if err != nil {
+		return err
+	}
+
+	if artifact == "eval.yaml" && version == models.ScenarioSchemaVersion {
+		if _, err := models.LoadEvalSpec(path); err != nil {
+			return err
+		}
+		_, err = fmt.Fprintf(out, "%s is a supported scenario eval with schemaVersion %s; no migration needed.\n", path, version)
 		return err
 	}
 

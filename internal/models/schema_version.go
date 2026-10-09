@@ -28,6 +28,11 @@ const (
 	// 1.3 — additive: session_digest tool_policy_mode and tool_policy_denials (#585).
 	// 1.4 — additive: run command_invocations records for declarative CLI mocks (#634).
 	CurrentSchemaVersion = "1.4"
+
+	// ScenarioSchemaVersion is eval-only. A major boundary makes older
+	// executables reject no-ambient-discovery semantics instead of ignoring them.
+	// Task and result artifacts retain their existing 1.x format.
+	ScenarioSchemaVersion = "2.0"
 )
 
 func defaultSchemaVersion(version string) string {

@@ -392,6 +392,10 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 
 	// Build skill directories list and system message, unless skills are disabled
 	var skillDirs []string
+	var enableSkills *bool
+	if req.NoSkills {
+		enableSkills = copilot.Bool(false)
+	}
 	var systemMessage *copilot.SystemMessageConfig
 	var systemMessageParts []string
 	if !req.NoSkills {
@@ -453,6 +457,7 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 			Hooks:               sessionHooks,
 
 			SkillDirectories: skillDirs,
+			EnableSkills:     enableSkills,
 			WorkingDirectory: workingDir,
 			SystemMessage:    systemMessage,
 			Streaming:        streamingPtr(req.Streaming),
@@ -475,6 +480,7 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 
 			// these are the directory for the skill itself.
 			SkillDirectories: skillDirs,
+			EnableSkills:     enableSkills,
 			WorkingDirectory: workingDir,
 			SystemMessage:    systemMessage,
 			Streaming:        streamingPtr(req.Streaming),
