@@ -8,6 +8,8 @@ import (
 	"strings"
 
 	"github.com/microsoft/waza/internal/models"
+	"github.com/microsoft/waza/internal/schemaloader"
+	"github.com/santhosh-tekuri/jsonschema/v6"
 )
 
 // Config is the fully resolved configuration for one deterministic MCP mock server.
@@ -34,6 +36,16 @@ type Response struct {
 
 // FromEvalConfig resolves an eval.yaml mcp_mocks entry into a mock server config.
 func FromEvalConfig(mock models.MCPMockConfig, baseDir string) (*Config, error) {
+	return fromEvalConfig(mock, baseDir, nil)
+}
+
+// FromEvalConfigOffline reads declared local fixtures while refusing external
+// schema resources, including the compiler's default filesystem loader.
+func FromEvalConfigOffline(mock models.MCPMockConfig, baseDir string) (*Config, error) {
+	return fromEvalConfig(mock, baseDir, schemaloader.Offline{})
+}
+
+func fromEvalConfig(mock models.MCPMockConfig, baseDir string, loader jsonschema.URLLoader) (*Config, error) {
 	name := strings.TrimSpace(mock.Name)
 	if name == "" {
 		return nil, fmt.Errorf("mcp_mocks entry missing name")
@@ -66,7 +78,7 @@ func FromEvalConfig(mock models.MCPMockConfig, baseDir string) (*Config, error) 
 			return nil, fmt.Errorf("mcp mock %q tool %q must define at least one response", name, toolName)
 		}
 		for i, response := range tool.Responses {
-			if err := validateResponse(response); err != nil {
+			if err := validateResponse(response, loader); err != nil {
 				return nil, fmt.Errorf("mcp mock %q tool %q response %d: %w", name, toolName, i, err)
 			}
 		}
@@ -139,12 +151,12 @@ func convertResponses(in []models.MCPMockResponse) []Response {
 	return out
 }
 
-func validateResponse(response Response) error {
-	return models.ValidateMCPMockResponse(models.MCPMockResponse{
+func validateResponse(response Response, loader jsonschema.URLLoader) error {
+	return models.ValidateMCPMockResponseWithLoader(models.MCPMockResponse{
 		Match:       response.Match,
 		MatchSchema: response.MatchSchema,
 		MatchRegex:  response.MatchRegex,
 		Return:      response.Return,
 		Error:       response.Error,
-	})
+	}, loader)
 }

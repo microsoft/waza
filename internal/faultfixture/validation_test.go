@@ -5,10 +5,18 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"os"
+	"path/filepath"
+	"sync/atomic"
 	"testing"
 
 	"github.com/microsoft/waza/internal/faultsequence"
 	"github.com/microsoft/waza/internal/models"
+	"github.com/microsoft/waza/internal/schemaloader"
+	"github.com/santhosh-tekuri/jsonschema/v6"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
 )
@@ -205,6 +213,43 @@ func TestMalformedAndMultipleDocuments(t *testing.T) {
 		require.Error(t, ValidateCommandResponse([]byte(data), YAML, models.ScenarioSchemaVersion), data)
 	}
 	require.ErrorContains(t, ValidateCommandResponse([]byte(`{"args":[]}`), "toml", models.ScenarioSchemaVersion), "unsupported")
+}
+
+func TestMCPSourceValidationCannotLoadExternalSchemas(t *testing.T) {
+	var requests atomic.Int64
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests.Add(1)
+		if _, err := w.Write([]byte(`{"type":"object"}`)); err != nil {
+			t.Errorf("writing schema sentinel: %v", err)
+		}
+	}))
+	defer server.Close()
+	path := filepath.Join(t.TempDir(), "valid-schema.json")
+	require.NoError(t, os.WriteFile(path, []byte(`{"type":"object"}`), 0600))
+	fileURI := (&url.URL{Scheme: "file", Path: filepath.ToSlash(path)}).String()
+	for _, location := range []string{fileURI, server.URL + "/schema"} {
+		for _, format := range []Format{JSON, YAML} {
+			for _, mode := range []string{`"return":null`, `"sequence":[{"return":null}]`} {
+				data := fmt.Sprintf(`{"match_schema":{"$ref":%q},%s}`, location, mode)
+				err := ValidateMCPResponse(sourceForFormat(t, data, format), format, models.ScenarioSchemaVersion)
+				var loadErr *jsonschema.LoadURLError
+				require.ErrorAs(t, err, &loadErr)
+				require.ErrorIs(t, loadErr.Err, schemaloader.ErrExternalReference)
+				require.Zero(t, requests.Load())
+			}
+			payload := fmt.Sprintf(`{"sequence":[{"return":{"$ref":%q}}]}`, location)
+			require.NoError(t, ValidateMCPResponse(sourceForFormat(t, payload, format), format, models.ScenarioSchemaVersion))
+		}
+	}
+	require.NoError(t, os.Remove(path))
+	data := fmt.Sprintf(`{"match_schema":{"$ref":%q},"return":null}`, fileURI)
+	var loadErr *jsonschema.LoadURLError
+	require.ErrorAs(t, ValidateMCPResponse([]byte(data), JSON, models.ScenarioSchemaVersion), &loadErr)
+	require.ErrorIs(t, loadErr.Err, schemaloader.ErrExternalReference, "file existence must not affect source validation")
+	local := `{"match_schema":{"$defs":{"value":{"type":"object"}},"$ref":"#/$defs/value"},"sequence":[{"return":null}]}`
+	for _, format := range []Format{JSON, YAML} {
+		require.NoError(t, ValidateMCPResponse(sourceForFormat(t, local, format), format, models.ScenarioSchemaVersion))
+	}
 }
 
 func sourceForFormat(t *testing.T, data string, format Format) []byte {

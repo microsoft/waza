@@ -13,6 +13,8 @@ import (
 
 	"github.com/microsoft/waza/internal/faultsequence"
 	"github.com/microsoft/waza/internal/models"
+	"github.com/microsoft/waza/internal/schemaloader"
+	"github.com/santhosh-tekuri/jsonschema/v6"
 	"gopkg.in/yaml.v3"
 )
 
@@ -37,7 +39,10 @@ func ValidateCommandResponse(data []byte, format Format, enclosingVersion string
 // ValidateMCPResponse checks an MCP matcher and any finite source sequence.
 // Callers must run this before serialization can erase zero/null field presence.
 func ValidateMCPResponse(data []byte, format Format, enclosingVersion string) error {
-	return validateResponse(data, format, enclosingVersion, mcpFields, mcpOutputs, validateMCP)
+	loader := schemaloader.Offline{}
+	return validateResponse(data, format, enclosingVersion, mcpFields, mcpOutputs, func(source object, step bool) error {
+		return validateMCP(source, step, loader)
+	})
 }
 
 type object map[string]json.RawMessage
@@ -153,7 +158,7 @@ func validateCommand(source object, step bool) error {
 	return models.ValidateCommandMocks([]models.CommandMockConfig{{Name: "fixture", Responses: []models.CommandMockResponse{response}}})
 }
 
-func validateMCP(source object, step bool) error {
+func validateMCP(source object, step bool, loader jsonschema.URLLoader) error {
 	if step {
 		_, returns := source["return"]
 		_, fails := source["error"]
@@ -174,7 +179,7 @@ func validateMCP(source object, step bool) error {
 	if err := decodeTyped(source, &response); err != nil {
 		return fmt.Errorf("decoding MCP mock response: %w", err)
 	}
-	return models.ValidateMCPMockResponse(response)
+	return models.ValidateMCPMockResponseWithLoader(response, loader)
 }
 
 func decodeTyped(fields object, target any) error {
