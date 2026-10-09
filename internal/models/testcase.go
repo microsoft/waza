@@ -38,7 +38,8 @@ type TestCase struct {
 	// against the cumulative conversation state at the end of that turn.
 	// Checkpoints are additive — task-level `graders:` still run against
 	// the final state after all turns complete.
-	Checkpoints []Checkpoint `yaml:"checkpoints,omitempty" json:"checkpoints,omitempty"`
+	Checkpoints  []Checkpoint  `yaml:"checkpoints,omitempty" json:"checkpoints,omitempty"`
+	Requirements []Requirement `yaml:"requirements,omitempty" json:"requirements,omitempty"`
 }
 
 // CheckpointOnFailure controls multi-turn behavior when a checkpoint fails.
