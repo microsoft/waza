@@ -650,7 +650,8 @@
             "skill_invocation",
             "trigger",
             "diff",
-            "tool_constraint"
+            "tool_constraint",
+            "tool_calls"
           ],
           "description": "The grader type."
         },
@@ -683,6 +684,15 @@
         }
       },
       "allOf": [
+        {
+          "if": {
+            "properties": {"type": {"const": "tool_calls"}},
+            "required": ["type"]
+          },
+          "then": {
+            "properties": {"config": {"$ref": "#/$defs/toolCallsGraderConfig"}}
+          }
+        },
         {
           "if": {
             "properties": {
@@ -1368,6 +1378,35 @@
           "json_schema": {
             "type": "object",
             "minProperties": 1
+          }
+        }
+      }
+    },
+    "toolCallsGraderConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "anyOf": [
+        {"required": ["required_tools"]},
+        {"required": ["forbidden_tools"]},
+        {"required": ["min_calls"]},
+        {"required": ["max_calls"]},
+        {"required": ["expect"]}
+      ],
+      "properties": {
+        "required_tools": {"type": "array", "items": {"type": "string"}},
+        "forbidden_tools": {"type": "array", "items": {"type": "string"}},
+        "min_calls": {"type": "integer", "minimum": 0},
+        "max_calls": {"type": "integer", "minimum": 0},
+        "expect": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["tool"],
+            "additionalProperties": false,
+            "properties": {
+              "tool": {"type": "string", "minLength": 1},
+              "args": {"$ref": "#/$defs/toolArgumentMatchers"}
+            }
           }
         }
       }

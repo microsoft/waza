@@ -16,6 +16,7 @@ import (
 	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/preflight"
+	"github.com/microsoft/waza/internal/testutil"
 	"github.com/stretchr/testify/require"
 )
 
@@ -136,6 +137,16 @@ graders:
 	scenarioPath := filepath.Join(dir, "scenario.yaml")
 	scenario := strings.ReplaceAll(strings.ReplaceAll(eval, `schemaVersion: "1.4"`, `schemaVersion: "2.0"`), "skill: example", "scenario: local-workflow")
 	require.NoError(t, os.WriteFile(scenarioPath, []byte(scenario), 0600))
+	externalPath := filepath.Join(dir, "readable-schema.json")
+	require.NoError(t, os.WriteFile(externalPath, []byte(`{"type":"object"}`), 0600))
+	fileRef := testutil.FileURL(externalPath)
+	argumentGrader := "  - name: argument\n    type: tool_constraint\n    config:\n      allow_only:\n        - tool: read\n          args:\n            value:\n              json_schema:\n                $ref: '" + fileRef + "'\n"
+	eagerEvalPath := filepath.Join(dir, "eager-eval.yaml")
+	require.NoError(t, os.WriteFile(eagerEvalPath, []byte(eval+"\ngraders:\n"+argumentGrader), 0600))
+	eagerTaskPath := filepath.Join(dir, "eager-task.yaml")
+	require.NoError(t, os.WriteFile(eagerTaskPath, []byte(strings.Split(task, "graders:")[0]+"graders:\n"+argumentGrader), 0600))
+	eagerTaskEvalPath := filepath.Join(dir, "eager-task-eval.yaml")
+	require.NoError(t, os.WriteFile(eagerTaskEvalPath, []byte(strings.ReplaceAll(eval, "task.yaml", "eager-task.yaml")), 0600))
 	for _, tc := range []struct {
 		name, input string
 		strict      bool
@@ -144,6 +155,9 @@ graders:
 		{"configured live mocks hooks scripts and judges", path, false, false},
 		{"scenario no ambient discovery", scenarioPath, false, false},
 		{"strict unresolved", path, true, true},
+		{"eager eval argument schema", eagerEvalPath, false, false},
+		{"eager task argument schema", eagerTaskEvalPath, false, false},
+		{"eager schema strict", eagerTaskEvalPath, true, true},
 		{"missing eval", filepath.Join(dir, "absent.yaml"), false, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
