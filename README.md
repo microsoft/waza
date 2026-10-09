@@ -154,6 +154,7 @@ waza get evals/my-skill/eval.yaml
 # Note: Custom agents (.agent.md) are supported — see https://microsoft.github.io/waza/guides/custom-agents/
 
 # Run evaluations (works with both skills and custom agents)
+waza preflight examples/code-explainer/eval.yaml --context-dir examples/code-explainer/fixtures
 waza run examples/code-explainer/eval.yaml --context-dir examples/code-explainer/fixtures -v
 
 # Grade output from a previous `waza run --output results.json ...`
@@ -193,6 +194,37 @@ to create or update evals and guide eval-driven implementation. It provides the
 canonical workflow, target-specific validation steps, and a reusable delegation prompt.
 
 ## Commands
+
+### `waza preflight <eval.yaml>`
+
+Inspect eval setup **offline and agent-free** before execution:
+
+```bash
+waza preflight eval.yaml
+waza preflight eval.yaml --format json > preflight.json
+waza preflight eval.yaml --strict
+```
+
+Checks schemas, discovered task IDs, local resources/instructions, grader
+configuration and locks/cache, mock matchers, descriptive requirement references,
+and static executor capabilities. It does not initialize an engine, execute
+graders/hooks, launch subprocesses or mock/live servers, fetch dependencies, or
+contact services (including update checks). Credentials and external resulting
+state remain unresolved.
+
+`verified` means a static check, **not a satisfied requirement or proven
+enforcement**. Invalid configuration exits 1; unresolved/unsupported prerequisites
+warn and exit 0 unless `--strict` selects exit 1. Existing `run`, `grade`, `check`,
+and `gate` behavior is unchanged. The independently versioned `waza.preflight`
+report is not evaluation results and is excluded from results/dashboard discovery.
+
+Optional task `requirements` link stable task-local IDs and
+`outcome|boundary|recovery|quality` categories to existing eval/task/checkpoint
+graders; empty checks mean uncovered. Metadata is descriptive in v1 and never
+creates assertions or forces a tool sequence. This command requires a build
+containing #660; earlier v1 readers can ignore metadata, so minimum-version notes
+are not hard enforcement. See the [offline preflight guide](https://microsoft.github.io/waza/guides/preflight/)
+for reference shapes, path bases, and offline limitations.
 
 ### `waza update`
 
