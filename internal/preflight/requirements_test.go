@@ -59,6 +59,17 @@ func TestRequirementReferenceContract(t *testing.T) {
 		require.Len(t, plans, 2)
 		require.False(t, r.Failed(true))
 	})
+	t.Run("same name in distinct scopes resolves declarations", func(t *testing.T) {
+		task := newTask([]models.RequirementCheck{
+			{Scope: "eval", Grader: "state"},
+			{Scope: "task", Grader: "state"},
+		})
+		task.Validators = []models.ValidatorInline{{Identifier: "state"}}
+		r := &Report{}
+		plans := resolveRequirements(r, task, eval, "task.yaml")
+		require.Equal(t, Verified, plans[0].State)
+		require.False(t, r.Failed(false))
+	})
 	for _, mutation := range []struct {
 		name string
 		edit func(*models.TestCase)
@@ -92,11 +103,13 @@ func TestReportPolicyAndJSON(t *testing.T) {
 			require.Equal(t, state != Verified, r.Failed(true))
 			require.True(t, r.Complete)
 			wantSeverity := "warning"
-			if state == Verified {
+			switch state {
+			case Verified:
 				wantSeverity = "info"
-			} else if state == Invalid {
+			case Invalid:
 				wantSeverity = "error"
 			}
+
 			require.Equal(t, wantSeverity, r.Diagnostics[0].Severity)
 		})
 	}
@@ -108,4 +121,55 @@ func TestReportPolicyAndJSON(t *testing.T) {
 	data, err = json.Marshal(check)
 	require.NoError(t, err)
 	require.JSONEq(t, `{"scope":"checkpoint","grader":"state","after_turn":2}`, string(data))
+}
+
+func TestResolveGraderPreservesDeclarations(t *testing.T) {
+	params := models.TextGraderParameters{Contains: []string{"observed"}}
+	cfg := models.GraderConfig{Identifier: "check", Kind: models.GraderKindText,
+		Parameters: params, Weight: 2, Rubric: "rubric", Ref: "locked-ref", ScriptPath: "script", ModelID: "judge"}
+	inline := models.ValidatorInline{Identifier: "check", Kind: models.GraderKindText,
+		Parameters: params, Weight: 3, Rubric: "inline-rubric", Checks: []string{"legacy assertion"}}
+	spec := &models.EvalSpec{Graders: []models.GraderConfig{cfg}}
+	task := &models.TestCase{
+		Validators:  []models.ValidatorInline{inline},
+		Checkpoints: []models.Checkpoint{{AfterTurn: 2, Graders: []models.ValidatorInline{inline}}},
+	}
+	for _, check := range []models.RequirementCheck{
+		{Scope: "eval", Grader: "check"},
+		{Scope: "task", Grader: "check"},
+		{Scope: "checkpoint", Grader: "check", AfterTurn: 2},
+	} {
+		t.Run(check.Scope, func(t *testing.T) {
+			declaration, err := ResolveGrader(check, task, spec)
+			require.NoError(t, err)
+			if check.Scope == "eval" {
+				require.Equal(t, cfg, *declaration.Config)
+				require.Nil(t, declaration.Inline)
+			} else {
+				require.Equal(t, inline, *declaration.Inline)
+				require.Nil(t, declaration.Config)
+			}
+		})
+	}
+	for _, check := range []models.RequirementCheck{
+		{Scope: "eval", Grader: "absent"},
+		{Scope: "eval", Grader: ""},
+		{Scope: "task", Grader: "check", AfterTurn: 1},
+		{Scope: "checkpoint", Grader: "check"},
+		{Scope: "unknown", Grader: "check"},
+	} {
+		_, err := ResolveGrader(check, task, spec)
+		require.Error(t, err)
+	}
+	for _, check := range []models.RequirementCheck{
+		{Scope: "eval", Grader: "check"},
+		{Scope: "task", Grader: "check"},
+		{Scope: "checkpoint", Grader: "check", AfterTurn: 1},
+	} {
+		_, err := ResolveGrader(check, nil, nil)
+		require.Error(t, err)
+	}
+	spec.Graders = append(spec.Graders, cfg)
+	_, err := ResolveGrader(models.RequirementCheck{Scope: "eval", Grader: "check"}, task, spec)
+	require.ErrorContains(t, err, "resolves to 2 declarations")
 }
