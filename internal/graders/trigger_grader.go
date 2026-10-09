@@ -32,25 +32,10 @@ type triggerHeuristicGrader struct {
 }
 
 func NewTriggerHeuristicGrader(name string, params models.TriggerHeuristicGraderParameters) (*triggerHeuristicGrader, error) {
-	if strings.TrimSpace(params.SkillPath) == "" {
-		return nil, fmt.Errorf("trigger grader '%s' requires skill_path", name)
+	mode, threshold, err := validateTriggerParameters(name, params)
+	if err != nil {
+		return nil, err
 	}
-
-	mode := triggerHeuristicMode(strings.ToLower(strings.TrimSpace(params.Mode)))
-	switch mode {
-	case triggerModePositive, triggerModeNegative:
-	default:
-		return nil, fmt.Errorf("trigger grader '%s' has invalid mode %q (must be positive or negative)", name, params.Mode)
-	}
-
-	threshold := defaultTriggerThreshold
-	if params.Threshold != nil {
-		threshold = *params.Threshold
-	}
-	if threshold < 0 || threshold > 1 {
-		return nil, fmt.Errorf("trigger grader '%s' threshold must be between 0 and 1", name)
-	}
-
 	skillPath := resolveSkillPath(params.SkillPath)
 	keywords, phrases, err := loadTriggerHeuristicData(skillPath)
 	if err != nil {
@@ -58,13 +43,31 @@ func NewTriggerHeuristicGrader(name string, params models.TriggerHeuristicGrader
 	}
 
 	return &triggerHeuristicGrader{
-		name:           name,
-		mode:           mode,
-		threshold:      threshold,
-		configuredPath: params.SkillPath,
-		keywords:       keywords,
-		triggerPhrases: phrases,
+		name: name, mode: mode, threshold: threshold, configuredPath: params.SkillPath,
+		keywords: keywords, triggerPhrases: phrases,
 	}, nil
+}
+
+func validateTriggerParameters(name string, params models.TriggerHeuristicGraderParameters) (triggerHeuristicMode, float64, error) {
+	if strings.TrimSpace(params.SkillPath) == "" {
+		return "", 0, fmt.Errorf("trigger grader '%s' requires skill_path", name)
+	}
+
+	mode := triggerHeuristicMode(strings.ToLower(strings.TrimSpace(params.Mode)))
+	switch mode {
+	case triggerModePositive, triggerModeNegative:
+	default:
+		return "", 0, fmt.Errorf("trigger grader '%s' has invalid mode %q (must be positive or negative)", name, params.Mode)
+	}
+
+	threshold := defaultTriggerThreshold
+	if params.Threshold != nil {
+		threshold = *params.Threshold
+	}
+	if threshold < 0 || threshold > 1 {
+		return "", 0, fmt.Errorf("trigger grader '%s' threshold must be between 0 and 1", name)
+	}
+	return mode, threshold, nil
 }
 
 func (g *triggerHeuristicGrader) Name() string            { return g.name }
