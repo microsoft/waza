@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"github.com/microsoft/waza/internal/models"
-	"github.com/microsoft/waza/internal/preflight"
+	"github.com/microsoft/waza/internal/requirements"
 )
 
 func PointerSegment(value string) string {
@@ -86,7 +86,7 @@ func ExplainRequirements(spec *models.EvalSpec, task *models.TestCase, run *mode
 
 func resolveResult(spec *models.EvalSpec, task *models.TestCase, run *models.RunResult, check models.RequirementCheck) (models.GraderResults, models.GraderKind, string, bool) {
 	var kind models.GraderKind
-	declaration, err := preflight.ResolveGrader(check, task, spec)
+	declaration, err := requirements.ResolveGrader(check, task, spec)
 	if err != nil {
 		return models.GraderResults{}, kind, "", false
 	}
