@@ -1,0 +1,16 @@
+{
+  "required_identity_domains": [
+    "task_definition",
+    "resolved_prompt",
+    "fixture_inventory",
+    "instruction_inventory",
+    "grader_configuration",
+    "dependency_mode",
+    "grader_implementation",
+    "rubric_inventory",
+    "lock_inventory"
+  ],
+  "assurance": false,
+  "runtime": false,
+  "billing": []
+}

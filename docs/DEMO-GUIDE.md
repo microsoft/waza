@@ -8,6 +8,13 @@ This guide provides step-by-step instructions for 9 practical demonstrations cov
 
 ## Quick Setup
 
+For an offline controlled-comparison demo, follow
+[the source-bound planning and collection example](CONTROLLED-COMPARISONS.md).
+Its one-cluster mock design intentionally remains inconclusive (selected gate
+exit `1`), not a release claim. Serve its collection parent and open the
+**Release policies** tab to inspect separate assurance/golden/billing/statistical
+states and complete or interrupted attempt accounting.
+
 Before any demo, ensure waza is installed:
 
 ```bash

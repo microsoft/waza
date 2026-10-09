@@ -1021,14 +1021,25 @@ func overallStatus(runs []models.RunResult) models.Status {
 }
 
 func (r *EvalRunner) executeRun(ctx context.Context, tc *models.TestCase, runNum int) models.RunResult {
+	return r.executeRunWithAttempt(ctx, tc, runNum, 0, nil)
+}
+
+func (r *EvalRunner) executeRunWithAttempt(ctx context.Context, tc *models.TestCase, runNum, attempt int, prepared *execution.ExecutionRequest) models.RunResult {
 	startTime := time.Now()
 	returnWithArtifacts := func(run models.RunResult) models.RunResult {
+		if attempt > 0 {
+			run.Attempts = attempt
+		}
 		r.captureFailureArtifacts(&run)
 		return run
 	}
 
 	// Prepare execution request
-	req, err := r.buildExecutionRequest(tc)
+	req := prepared
+	var err error
+	if req == nil {
+		req, err = r.buildExecutionRequest(tc)
+	}
 	if err != nil {
 		return returnWithArtifacts(models.RunResult{
 			RunNumber:  runNum,
@@ -1074,6 +1085,9 @@ func (r *EvalRunner) executeRun(ctx context.Context, tc *models.TestCase, runNum
 	}
 	execCtx, cancelExec := context.WithTimeout(turnCtx, timeout)
 	resp, err := execution.ExecuteRecorded(execCtx, r.engine, req)
+	if attempt > 0 && err == nil && execCtx.Err() != nil {
+		err = fmt.Errorf("controlled execution completed after its deadline or cancellation: %w", execCtx.Err())
+	}
 	cancelExec()
 	if err != nil {
 		return returnWithArtifacts(models.RunResult{
@@ -1253,6 +1267,9 @@ func (r *EvalRunner) executeRun(ctx context.Context, tc *models.TestCase, runNum
 		Checkpoints:        checkpointOutcomes,
 		ToolEvents:         buildToolEvents(sdkEvents),
 		CommandInvocations: commandInvocations,
+	}
+	if attempt > 0 {
+		run.Attempts = attempt
 	}
 	r.captureSnapshot(tc, req, resp, &run)
 	return returnWithArtifacts(run)

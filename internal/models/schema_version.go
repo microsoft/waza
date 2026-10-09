@@ -80,7 +80,8 @@ func ProbeEvaluationOutcomeSchemaVersion(data []byte) (version string, ok bool, 
 func hasEvaluationOutcomeShape(fields map[string]json.RawMessage) bool {
 	var kind string
 	if raw, exists := fields["kind"]; exists {
-		if err := json.Unmarshal(raw, &kind); err == nil && kind == "waza.preflight" {
+		if err := json.Unmarshal(raw, &kind); err == nil &&
+			(kind == "waza.preflight" || strings.HasPrefix(kind, "waza.release-")) {
 			return false
 		}
 	}

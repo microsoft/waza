@@ -12,7 +12,13 @@ Waza helps you:
 - **Run evaluations** against different AI models to measure skill effectiveness
 - **Reuse remote grader presets** with Go-module-style `ref` entries pinned by `waza.lock`
 - **Compare results** across models and versions to track improvement
-- **View metrics** in an interactive dashboard with live results, trends, and detailed analysis
+- **Select fixed-design release assessment explicitly** with `compare` or `gate`
+  using `--release-policy` and `--collection-dir`; historical results do not
+  become fresh paired evidence. Use `compare-plan` with explicit design/
+  requirements and `compare-collect` for supported offline mock/native-text
+  collection. See [the end-to-end example and limits](CONTROLLED-COMPARISONS.md).
+- **View metrics** in an interactive dashboard with live results, trends, detailed analysis
+  and a separate **Release policies** view of strict collection decisions
 
 Perfect for skill authors, platform teams, and developers building AI-powered applications.
 

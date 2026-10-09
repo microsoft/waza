@@ -7,6 +7,28 @@ import { Tabs, TabItem } from '@astrojs/starlight/components';
 
 Automate waza evaluations in your CI/CD pipeline to catch regressions early and validate agent behavior across models.
 
+## Explicit fixed-design release assessment
+
+Ordinary `gate` defaults and exits stay unchanged. Explicitly select a new
+protocol collection with:
+
+```bash
+waza gate --release-policy policy.json --collection-dir new-collection --format github-actions
+```
+
+Selected invalid, rejected, incomplete or inconclusive evidence exits `1`.
+Do not combine this mode with legacy gate policy flags or manufacture receipts
+from historical result files. Use `compare-plan` and `compare-collect` before
+assessment for the supported offline mock/native-text path. The example above
+assesses a completed collection; a mock run is not agent-quality evidence.
+
+Design sampling clusters, retry policy, weights, independent-execution
+justification, endpoint, family bound and precision **before collection**.
+Retries/tasks inside a cluster are not extra independent samples. Required
+golden tasks must pass their first attempt in both arms, even when retry
+recovery is the selected endpoint. Required unavailable billing or assurance
+cannot strict-pass. See [controlled comparisons](/waza/guides/controlled-comparisons/).
+
 ## Installation in CI
 
 ### Via azd Extension (Recommended)

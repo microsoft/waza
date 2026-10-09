@@ -13,3 +13,6 @@ var EvidenceManifestSchemaJSON string
 
 //go:embed preflight.schema.json
 var PreflightSchemaJSON string
+
+//go:embed release-artifacts-1.0.schema.json
+var ReleaseArtifactsSchemaJSON string

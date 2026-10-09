@@ -113,6 +113,7 @@ Port existing Python waza functionality to Go for single-binary distribution.
 | E1-02 | As a developer, I can initialize new eval suites with `waza init` | Creates compliant directory structure |
 | E1-03 | As a developer, I can create new skills with `waza new` | Scaffolds skill structure, supports --output-dir flag |
 | E1-04 | As a developer, I can compare results across models with `waza compare` | Loads multiple result files, generates comparison report |
+| E1-04a | As a release owner, I can explicitly select a precommitted fixed-design paired comparison without changing legacy gates | Source-bound offline mock/native-text planning and collection; independently versioned schemas and strict journal/raw-result admission; full/partial trial/attempt accounting; first-attempt versus retry recovery; golden veto; distinct missing assurance/golden/billing and invalid/inconclusive decisions; separate API/dashboard. Live operational observability and assurance verdict integration remain unsupported (#665). |
 | E1-05 | As a developer, I can use all 8 grader types | code, model, regex, file, keyword, json, script, composite |
 | E1-06 | As a developer, I can execute against Copilot SDK | Full integration with streaming responses |
 | E1-07 | As a developer, I can use verbose mode for debugging | Real-time conversation display |

@@ -13,18 +13,42 @@ import (
 var compareOutputFormat string
 
 func newCompareCommand() *cobra.Command {
+	var releasePolicy, collectionDir string
 	cmd := &cobra.Command{
 		Use:   "compare <result1.json> <result2.json> [result3.json ...]",
 		Short: "Compare multiple evaluation result files",
 		Long: `Compare results from multiple evaluation runs side by side.
 
 Loads two or more result JSON files and generates a comparison report showing
-per-task score deltas, pass rate differences, and aggregate statistics.`,
-		Args: cobra.MinimumNArgs(2),
-		RunE: compareCommandE,
+per-task score deltas, pass rate differences, and aggregate statistics.
+
+Explicit --release-policy and --collection-dir instead assess a new paired
+collection. Missing, partial, invalid or inconclusive selected evidence exits 1.
+This mode does not adopt historical result files or change default comparison.`,
+		Args: func(cmd *cobra.Command, args []string) error {
+			if cmd.Flags().Changed("release-policy") || cmd.Flags().Changed("collection-dir") {
+				if len(args) != 0 {
+					return &ExitCodeError{Code: 1, Err: fmt.Errorf("selected release policy uses its paired collection, not historical positional result files")}
+				}
+				return nil
+			}
+			return cobra.MinimumNArgs(2)(cmd, args)
+		},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if cmd.Flags().Changed("release-policy") || cmd.Flags().Changed("collection-dir") {
+				format := compareOutputFormat
+				if format == "table" {
+					format = "human"
+				}
+				return runControlledAssessment(cmd.OutOrStdout(), releasePolicy, collectionDir, format)
+			}
+			return compareCommandE(cmd, args)
+		},
 	}
 
 	cmd.Flags().StringVarP(&compareOutputFormat, "format", "f", "table", "Output format: table or json")
+	cmd.Flags().StringVar(&releasePolicy, "release-policy", "", "Explicit independently versioned release policy; selected rejection/inconclusive/invalid exits 1")
+	cmd.Flags().StringVar(&collectionDir, "collection-dir", "", "New paired collection directory required with --release-policy")
 
 	return cmd
 }

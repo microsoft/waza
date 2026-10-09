@@ -1,0 +1,22 @@
+{
+  "estimand": "fixed_suite_repeated_execution",
+  "endpoint": "first_attempt_pass",
+  "alpha": 0.05,
+  "comparison_family_size": 1,
+  "maximum_half_width": 1,
+  "noninferiority_margin": 0.1,
+  "accept": "noninferiority",
+  "independence": {
+    "assessment": "unjustified",
+    "justification": "The entire fixed suite is one cluster. This offline example does not establish independent agent-quality evidence.",
+    "limitations": ["Mock observations validate the collection harness, not agent quality or live state."]
+  },
+  "clusters": [
+    {
+      "cluster_id": "suite",
+      "weight": 1,
+      "tasks": [{"task_id": "hello", "weight": 1, "trial_ordinals": [1, 2]}]
+    }
+  ],
+  "allocation": {"mechanism": "", "seed": "", "assignments": []}
+}

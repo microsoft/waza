@@ -19,6 +19,22 @@ Opens http://localhost:3000 automatically.
 
 ## Views
 
+### Release policies
+
+The separate **Release policies** tab reassesses local controlled collections
+under the configured `--results-dir` through `/api/release-collections`.
+Compatibility, completeness, assurance, golden, billing, statistics and
+operations are shown independently. Invalid or interrupted evidence never
+appears as a pass; partial started/completed attempt counts are descriptive,
+with endpoint rates unavailable until final raw-result verification.
+
+Tokens, AI credits and provider currency remain distinct. Exact usage tokens
+are transported as strings so JavaScript does not round large integers.
+Unavailable is not zero. Policy sidecars never become ordinary result rows.
+Mock observations are harness evidence, not agent quality; source binding is
+local consistency, not authenticated provenance. See
+[controlled comparisons](/waza/guides/controlled-comparisons/).
+
 ### Dashboard Overview
 
 Summary of all evaluation runs:

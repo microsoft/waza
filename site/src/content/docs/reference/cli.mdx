@@ -473,6 +473,14 @@ waza compare [results-1.json] [results-2.json] ...
 | Flag | Description |
 |------|-------------|
 | `--format` | Output format: `table` (default), `json` |
+| `--release-policy` | Explicit independent fixed-design release policy; requires `--collection-dir` instead of historical positional results. |
+| `--collection-dir` | New paired collection sidecars. Invalid, incomplete, rejected or inconclusive selected policy exits `1`. |
+
+Selected policy assessment does not change default descriptive comparisons.
+Policy metadata in ordinary results is not enforcement, and older executables
+reject the new flags. Use `compare-plan` and `compare-collect` for the explicit
+offline mock/native-text producer; do not adopt historical outcomes.
+See [controlled comparisons](/waza/guides/controlled-comparisons/).
 
 ### Examples
 
@@ -496,6 +504,44 @@ When the input files include the `tool_events[]` array (`results.json` schema 1.
 | `call_count_histogram` | Distribution of per-task call counts in buckets `0`, `1`, `2`, `3+` |
 
 The section is suppressed when none of the compared files contain tool data, so legacy 1.0 results remain unchanged.
+
+## waza compare-plan
+
+Bind a mandatory fixed design and explicit requirements to inspected sources
+before collecting outcomes. Supported collection capability is offline
+mock/no-skills/native-text only; static metadata is not assurance.
+
+| Flag | Description |
+|---|---|
+| `--baseline-eval`, `--candidate-eval` | Required source eval YAML files. |
+| `--baseline-context-dir`, `--candidate-context-dir` | Cwd-relative context override; default is each eval directory's `fixtures`. |
+| `--design` | Required policy-1.0 design member JSON, with empty allocation; seed generated once. |
+| `--requirements` | Required explicit identity/runtime/assurance/billing member JSON. |
+| `--allow-change` | Comma-separated `engine,model,reasoning_effort`; exact actual per-task differences only. |
+| `-o`, `--output` | Required new private policy file; no overwrite. |
+
+Invalid or unsupported planning exits `1`; nothing is collected. Planned trial
+ordinals must match effective `config.trials_per_task`. The policy's metadata
+alone never enforces a gate.
+
+## waza compare-collect
+
+Collect fresh paired attempts under an explicit frozen policy. Sources are
+rechecked before BEGIN and every attempt; private frozen requests avoid mutable
+fixture rereads. Linux/macOS only for the new durable protocol.
+
+| Flag | Description |
+|---|---|
+| `--baseline-eval`, `--candidate-eval` | Required exact source eval YAML files. |
+| `--baseline-context-dir`, `--candidate-context-dir` | Same context semantics used during planning. |
+| `--release-policy` | Required precollection policy. |
+| `--collection-dir` | Required new private directory; no overwrite, adoption or resume. |
+
+Source drift, unsupported capability, cancellation or persistence errors exit
+`1`. Successful collection persists evidence, **not a release pass**. Assess
+it separately with `compare` or `gate --release-policy --collection-dir`.
+The [offline example](/waza/guides/controlled-comparisons/) intentionally remains
+inconclusive; no default live/paid execution or adaptive stopping is enabled.
 
 ## waza replay
 
@@ -565,6 +611,15 @@ waza gate --baseline baseline.json --current results.json [flags]
 | `--on-new-tasks` | `allow` | Policy when current has tasks not in baseline: `allow`, `warn`, `fail`. |
 | `--on-removed-tasks` | `warn` | Policy when baseline has tasks not in current: `allow`, `warn`, `fail`. |
 | `--format` | `human` | Output format: `human`, `json`, `markdown`, `github-actions`. |
+| `--release-policy` | _(off)_ | Explicit independently versioned fixed-design policy assessment; selected nonpass exits `1`. |
+| `--collection-dir` | _(unset)_ | New paired collection, required with `--release-policy`; no historical adoption or resume. |
+
+The default exit matrix below is unchanged. Explicit policy mode cannot be
+combined with legacy baseline/current/threshold/golden/task-set flags. It emits
+separate compatibility, completeness, assurance, golden, billing, statistical
+and operational states. Missing required golden evidence, unavailable final
+billing, missing assurance and an inconclusive comparison are not the same
+reason. Static preflight declarations never count as observed assurance.
 
 ### Exit codes
 

@@ -507,6 +507,19 @@ Compare results from multiple evaluation runs side by side — per-task score de
 | Flag | Short | Description |
 |------|-------|-------------|
 | `--format <fmt>` | `-f` | Output format: `table` or `json` (default: `table`) |
+| `--release-policy <file>` | | Explicit fixed-design policy assessment; requires `--collection-dir` instead of historical result arguments |
+| `--collection-dir <dir>` | | New paired collection sidecars; missing/invalid/inconclusive selected evidence exits `1` |
+
+`gate` accepts the same explicit policy selection. Its ordinary regression,
+golden, task-set defaults and `0/1/2/3` exits remain unchanged. Policy metadata in
+an ordinary results file is **not** enforcement; older executables reject the
+new flags. Use `waza compare-plan` to bind an explicit design to inspected sources
+and `waza compare-collect` for fresh paired offline mock/native-text attempts.
+Do not convert historical results into policy receipts. The
+[offline example](examples/controlled-comparison/) intentionally remains
+statistically inconclusive; mock observations are not agent-quality evidence.
+See [controlled comparison contracts](docs/CONTROLLED-COMPARISONS.md) for the
+fixed-design assumptions, missing-evidence states and current limitations.
 
 ### `waza replay <snapshot.json>`
 
