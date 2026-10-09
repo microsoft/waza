@@ -849,6 +849,7 @@ Optionally, run a JSON-RPC 2.0 server (for IDE integration) instead of the HTTP 
 |------|---------|-------------|
 | `--port <port>` | `3000` | HTTP server port |
 | `--no-browser` | `false` | Don't auto-open the browser |
+| `--lab` | `false` | Open the experimental real-results dashboard; keep the classic dashboard at `/#/` |
 | `--results-dir <dir>` | `.` | Directory to scan for result files |
 | `--tcp <addr>` | (off) | TCP address for JSON-RPC (e.g., `:9000`); defaults to loopback for security |
 | `--tcp-allow-remote` | `false` | Allow TCP binding to non-loopback addresses (⚠️ no authentication) |
@@ -883,6 +884,20 @@ The dashboard displays evaluation results with:
 - Score distributions across trials
 - Model comparisons
 - Aggregated metrics and trends
+
+**Dashboard lab (experimental):**
+```bash
+waza serve --lab --results-dir ./results
+# Opens http://localhost:3000/#/lab; classic dashboard stays at http://localhost:3000/#/
+```
+The lab uses saved Waza results for linked charts, searchable history, stable-task
+comparisons, recorded evidence, and JSON/CSV/print reports. Local results refresh
+every 15 seconds or on demand. Current runs shows **saved-result event replay**,
+not live worker discovery or execution controls. Readiness, coverage, and revision
+metadata absent from the API remain explicitly unavailable. `--lab` cannot be
+combined with `--tcp`. An isolated synthetic UX demo remains at `/#/lab/demo`;
+API failures never substitute mock results. Cloud authentication, hosting, and
+execution are not implemented. See the [dashboard lab guide](site/src/content/docs/guides/dashboard-lab.mdx).
 
 **AI Credit usage:**
 

@@ -2,6 +2,26 @@ import { test, expect } from "@playwright/test";
 import { mockAllAPIs } from "./helpers/api-mock";
 import { RUNS } from "./fixtures/mock-data";
 
+test.describe("Dashboard lab screenshots", () => {
+  test.use({ viewport: { width: 1440, height: 1000 } });
+
+  test("dashboard-lab-overview", async ({ page }) => {
+    await page.goto("/#/lab/demo");
+    await expect(page.getByRole("heading", { name: "Know where your skills stand." })).toBeVisible();
+    for (const path of ["../docs/images/dashboard-lab-overview.png", "../site/public/images/dashboard-lab-overview.png"]) {
+      await page.screenshot({ path, animations: "disabled", fullPage: true });
+    }
+  });
+
+  test("dashboard-lab-compare", async ({ page }) => {
+    await page.goto("/#/lab/demo/compare");
+    await expect(page.getByRole("heading", { name: "Task-level score matrix" })).toBeVisible();
+    for (const path of ["../docs/images/dashboard-lab-compare.png", "../site/public/images/dashboard-lab-compare.png"]) {
+      await page.screenshot({ path, animations: "disabled", fullPage: true });
+    }
+  });
+});
+
 /**
  * Screenshot capture for dashboard documentation.
  * Generates deterministic PNGs at 1280×720 using mock data.

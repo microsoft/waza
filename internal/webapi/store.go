@@ -192,6 +192,21 @@ func outcomeToSummary(o *models.EvaluationOutcome) RunSummary {
 	}
 	cost, costSource := pricing.Compute(costUsage)
 
+	var weightedScore *float64
+	if len(o.TestOutcomes) > 0 && len(o.TestOutcomes) == o.Digest.TotalTests {
+		complete := true
+		for _, task := range o.TestOutcomes {
+			if task.Stats == nil {
+				complete = false
+				break
+			}
+		}
+		if complete {
+			score := o.Digest.WeightedScore
+			weightedScore = &score
+		}
+	}
+
 	return RunSummary{
 		ID:              o.RunID,
 		Spec:            o.BenchName,
@@ -209,6 +224,9 @@ func outcomeToSummary(o *models.EvaluationOutcome) RunSummary {
 		Duration:        float64(o.Digest.DurationMs) / 1000.0,
 		Timestamp:       o.Timestamp,
 		Source:          "local",
+		Skill:           o.SkillTested,
+		Repetitions:     o.Setup.RunsPerTest,
+		WeightedScore:   weightedScore,
 	}
 }
 
@@ -278,11 +296,14 @@ func outcomeToDetail(o *models.EvaluationOutcome) *RunDetail {
 
 	for _, to := range o.TestOutcomes {
 		tr := TaskResult{
+			ID:      to.TestID,
 			Name:    to.DisplayName,
 			Outcome: string(to.Status),
 		}
 		if to.Stats != nil {
 			tr.Score = to.Stats.AvgScore
+			score := to.Stats.AvgWeightedScore
+			tr.WeightedScore = &score
 			tr.Duration = float64(to.Stats.AvgDurationMs) / 1000.0
 			if to.Stats.BootstrapCI != nil {
 				tr.BootstrapCI = &ConfidenceIntervalResponse{

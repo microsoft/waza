@@ -466,6 +466,7 @@ Launch the web dashboard to view evaluation results.
 **Flags:**
 - `--port <n>` — HTTP server port (default: `3000`)
 - `--no-browser` — Don't auto-open the browser
+- `--lab` — Open the experimental real-results dashboard at `/#/lab` (cannot combine with `--tcp`)
 - `--results-dir <path>` — Directory to read results from (default: `.`)
 - `--tcp <address>` — JSON-RPC TCP server (e.g., `:9000`)
 - `--tcp-allow-remote` — Bind to all interfaces (default: loopback only)
@@ -494,6 +495,17 @@ Load results from a specific directory:
 ```bash
 waza serve --results-dir ./archived-runs
 ```
+
+Try the experimental dashboard without replacing the classic dashboard:
+```bash
+waza serve --lab --results-dir ./archived-runs
+```
+The classic dashboard remains at `/#/`. The lab connects filters, history,
+weighted-score comparisons, recorded task evidence, and JSON/CSV/print reports.
+It refreshes local results every 15 seconds; activity is saved-result event replay,
+not live worker monitoring or execution control. Missing readiness, coverage,
+and git revisions are unavailable. `/#/lab/demo` is an explicitly synthetic
+demo, never a fallback for failed API requests.
 
 Don't auto-open browser:
 ```bash

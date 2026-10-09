@@ -34,6 +34,20 @@ A single `waza` CLI built in **Go** that automates the skill development workflo
 
 Custom agent evaluations enforce the selected `.agent.md` tool policy with the Copilot SDK (#585): omitted tools remain unrestricted, empty lists deny all tools, and populated lists allow named tools with shared runtime/grader aliases. Policy selection follows task-level skill paths and `SKILL.md` precedence. Initial and resumed turns use native filtering, pre-tool checks, and fail-closed permission checks. Denials fail the run and are surfaced in results schema 1.3, session logs, and the dashboard. Tool policies are not host filesystem/network sandboxing.
 
+### Dashboard workspace exploration (2026-10-06)
+
+`waza serve --lab` opens the opt-in `/#/lab` evaluation workspace without replacing
+the current dashboard. It connects saved-result overview metrics, artifact-derived
+activity replay, searchable history, stable-task baseline comparisons, recorded
+evidence inspection, reports, and an observed skill/eval catalog. Local artifact
+refresh and explicit missing-data states are core requirements. An isolated
+synthetic UX demo remains at `/#/lab/demo`; API errors never substitute fixtures.
+
+This is not a production execution or hosting feature. Authentication, run
+control, durable history, API identity/version compatibility, repetition-level
+statistics, and cloud workers remain future design work. The [dashboard lab guide](../site/src/content/docs/guides/dashboard-lab.mdx)
+records the research, prototype boundaries, and proposed architecture.
+
 ---
 
 ## User Personas

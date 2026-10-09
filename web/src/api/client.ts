@@ -32,6 +32,9 @@ export interface RunSummary {
   duration: number;
   timestamp: string;
   weightedScore?: number;
+  skill?: string;
+  repetitions?: number;
+  source?: string;
 }
 
 export interface ModelUsage {
@@ -92,6 +95,7 @@ export interface ResponderInfo {
 }
 
 export interface TaskResult {
+  id?: string;
   name: string;
   prompt?: string;
   outcome: string;
@@ -110,8 +114,8 @@ export interface RunDetail extends RunSummary {
   tasks: TaskResult[];
 }
 
-async function fetchJSON<T>(url: string): Promise<T> {
-  const res = await fetch(url);
+async function fetchJSON<T>(url: string, signal?: AbortSignal): Promise<T> {
+  const res = await fetch(url, { signal });
   if (!res.ok) {
     throw new Error(`API error: ${res.status} ${res.statusText}`);
   }
@@ -131,6 +135,10 @@ export function fetchRuns(
   );
 }
 
-export function fetchRunDetail(id: string): Promise<RunDetail> {
-  return fetchJSON<RunDetail>(`/api/runs/${encodeURIComponent(id)}`);
+export function fetchRunDetail(id: string, signal?: AbortSignal): Promise<RunDetail> {
+  return fetchJSON<RunDetail>(`/api/runs/${encodeURIComponent(id)}`, signal);
+}
+
+export function fetchLabRuns(signal?: AbortSignal): Promise<RunSummary[]> {
+  return fetchJSON<RunSummary[]>("/api/v1/lab/runs", signal);
 }

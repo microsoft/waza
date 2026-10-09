@@ -59,7 +59,9 @@ func (sa *StorageAdapter) GetRun(id string) (*RunDetail, error) {
 		return nil, err
 	}
 
-	return outcomeToDetail(outcome), nil
+	detail := outcomeToDetail(outcome)
+	detail.Source = sa.source
+	return detail, nil
 }
 
 // Summary returns aggregate metrics across all runs.

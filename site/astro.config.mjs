@@ -46,6 +46,7 @@ export default defineConfig({
 						{ label: 'Spec Verification', slug: 'guides/spec-verify' },
 						{ label: 'Token Limits', slug: 'guides/token-limits' },
 						{ label: 'Web Dashboard', slug: 'guides/dashboard' },
+						{ label: 'Dashboard Lab (Prototype)', slug: 'guides/dashboard-lab' },
 						{ label: 'Explore the Dashboard', slug: 'guides/dashboard-explore' },
 						{ label: 'CI/CD Integration', slug: 'guides/ci-cd' },
 						{ label: 'OpenTelemetry Tracing', slug: 'guides/otel' },

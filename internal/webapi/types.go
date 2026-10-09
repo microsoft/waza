@@ -29,10 +29,13 @@ type RunSummary struct {
 	// SDK), "table" (priced from the embedded model rate table), or "estimate"
 	// (flat-rate fallback). Empty for legacy summaries that carry no token/cost
 	// data.
-	CostSource string    `json:"costSource,omitempty"`
-	Duration   float64   `json:"duration"`
-	Timestamp  time.Time `json:"timestamp"`
-	Source     string    `json:"source,omitempty"` // "local" or "azure-blob"
+	CostSource    string    `json:"costSource,omitempty"`
+	Duration      float64   `json:"duration"`
+	Timestamp     time.Time `json:"timestamp"`
+	Source        string    `json:"source,omitempty"` // "local" or "azure-blob"
+	Skill         string    `json:"skill,omitempty"`
+	Repetitions   int       `json:"repetitions,omitempty"`
+	WeightedScore *float64  `json:"weightedScore,omitempty"`
 }
 
 // RunDetail is the API response for a single run with per-task results.
@@ -55,10 +58,12 @@ type ModelUsageResponse struct {
 
 // TaskResult is a per-task result within a run.
 type TaskResult struct {
+	ID            string                      `json:"id,omitempty"`
 	Name          string                      `json:"name"`
 	Prompt        string                      `json:"prompt,omitempty"`
 	Outcome       string                      `json:"outcome"`
 	Score         float64                     `json:"score"`
+	WeightedScore *float64                    `json:"weightedScore,omitempty"`
 	Duration      float64                     `json:"duration"`
 	GraderResults []GraderResult              `json:"graderResults"`
 	Transcript    []TranscriptEventResponse   `json:"transcript,omitempty"`
