@@ -1,0 +1,65 @@
+---
+title: Preserving Existing Workflows
+description: Offline compatibility fixtures, known outcome examples, and preservation gates for existing evals.
+---
+
+Waza's compatibility corpus characterizes existing v1 behavior before additive
+workflow features change it. It is not a new assurance policy and does not
+change command defaults, graders, skill discovery, or exit behavior.
+
+## Three recorded examples
+
+The [compatibility examples](https://github.com/microsoft/waza/tree/main/examples/compatibility)
+contain sanitized MCP lookup, CLI inspection, and repository-report tasks.
+Each has known-good, deliberately-bad, and alternative-valid recorded outcomes.
+Wrong lookup arguments, a configuration command in place of inspection, and
+an altered source file fail concrete existing graders. Equivalent JSON,
+different prose, and additional report metadata can pass.
+
+These examples grade recorded tool calls and files. They do **not** claim an
+agent executed the workflow, and are not standalone runnable eval suites.
+The mock executor checks wiring; it does not prove agent quality or make
+MCP/CLI calls. Declarative CLI mocks require `copilot-sdk`; their offline tests
+use controlled SDK/session fakes instead of paid model calls.
+
+## Contributor preservation gate
+
+From a source checkout with the normal Go embed assets present:
+
+```bash
+NO_COLOR=1 make test-compat
+```
+
+This runs fixed fixtures and existing package-owned preservation tests. It
+covers artifact versions, every grader family, skill/custom-agent lifecycle,
+token/quality checks, static/responder multi-turn runs, checkpoints, mocks,
+golden gates, billing/cache semantics, locks, and offline snapshots/replay.
+
+The [engineering inventory](https://github.com/microsoft/waza/blob/main/docs/COMPATIBILITY.md)
+lists exact package owners, fixture paths, focused commands and prerequisites.
+It also describes running the gate twice and comparing deterministic verdicts.
+Browser preservation is separate:
+
+```bash
+cd web
+npm run build
+npx playwright test e2e/compatibility.spec.ts --project=chromium
+```
+
+## Historical artifacts
+
+Eval and result readers tolerate additive same-major fields, reject a different
+major with a migration hint, and default a missing version to the current v1
+schema. Task YAML has no independent version negotiation; unknown fields are
+warned about and ignored. Invalid known-field types remain errors.
+
+Legacy results without prompts, transcripts, or model-credit attribution remain
+readable in the dashboard with explicit unavailable states. Missing credits are
+not reported as numeric zero. Cached task diagnostics remain historical data,
+not new evaluation billing; an empty current execution ledger does not fall
+back to charging those historical credits.
+
+Use `gate` for CI pass/fail policy. Existing `grade` output can say
+`passed: false` while its process exits successfully: it reports verdicts,
+rather than applying the regression gate's exit policy. Offline replay checks
+stored consistency, not real-world reproducibility.
