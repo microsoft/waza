@@ -17,7 +17,7 @@ func equalClusterWeights(count int) []float64 {
 }
 
 func TestFixedPairedHoeffdingBoundRangeAndPrecision(t *testing.T) {
-	for _, count := range []int{1, 49, 185, 737, 738} {
+	for _, count := range []int{1, 3, 12, 49, 185, 737, 738} {
 		t.Run(strconv.Itoa(count), func(t *testing.T) {
 			bound, err := FixedPairedHoeffdingBound(equalClusterWeights(count), 0.05, 1)
 			if err != nil {
@@ -33,6 +33,13 @@ func TestFixedPairedHoeffdingBoundRangeAndPrecision(t *testing.T) {
 			if got := bound.HalfWidth <= 0.1; got != (count >= 738) {
 				t.Fatalf("%d clusters precision eligible = %v", count, got)
 			}
+			if count > 1 {
+				if _, err := FixedPairedHoeffdingBound(equalClusterWeights(count)[1:], 0.05, 1); err == nil {
+					t.Fatalf("omitting one of %d planned equal clusters was accepted", count)
+				}
+			}
+			exactSquares := big.NewRat(1, int64(count))
+			assertConservativePairedBound(t, bound, exactSquares, 0.05, 1)
 		})
 	}
 }
@@ -254,14 +261,111 @@ func TestFixedPairedHoeffdingBoundConservativeRounding(t *testing.T) {
 		w := new(big.Rat).SetFloat64(weight)
 		exactSquares.Add(exactSquares, new(big.Rat).Mul(w, w))
 	}
+	assertConservativePairedBound(t, bound, exactSquares, 0.05, 1)
+}
+
+func assertConservativePairedBound(t *testing.T, bound PairedHoeffdingBound, exactSquares *big.Rat, alpha float64, family int) {
+	t.Helper()
 	effective := new(big.Rat).SetFloat64(bound.EffectiveClusters)
 	if new(big.Rat).Mul(effective, exactSquares).Cmp(big.NewRat(1, 1)) > 0 {
 		t.Fatalf("rounded effective cluster count overstates evidence: %v", bound.EffectiveClusters)
 	}
-	factor := new(big.Rat).SetFloat64(2 * (math.Log(2) - math.Log(0.05)))
+	factor := new(big.Rat).SetFloat64(2 * (math.Log(2) + math.Log(float64(family)) - math.Log(alpha)))
 	requiredRadiusSquared := new(big.Rat).Mul(factor, exactSquares)
 	radius := new(big.Rat).SetFloat64(bound.HalfWidth)
 	if new(big.Rat).Mul(radius, radius).Cmp(requiredRadiusSquared) < 0 {
 		t.Fatalf("rounded radius understates signed-range bound: %v", bound.HalfWidth)
+	}
+}
+
+func TestFixedPairedHoeffdingBoundDeclaredRelativeWeights(t *testing.T) {
+	for _, relative := range [][]float64{
+		{1, 1, 1},
+		{1, 2, 3},
+		{1, 3, 7, 11},
+		{0.1, 0.2, 0.3},
+		{1, 0, 2, 0, 3},
+	} {
+		total := 0.0
+		for _, weight := range relative {
+			total += weight
+		}
+		weights := make([]float64, len(relative))
+		exactTotal := new(big.Rat)
+		for _, weight := range relative {
+			exactTotal.Add(exactTotal, new(big.Rat).SetFloat64(weight))
+		}
+		exactSquares := new(big.Rat)
+		for i, weight := range relative {
+			weights[i] = weight / total
+			exactWeight := new(big.Rat).Quo(new(big.Rat).SetFloat64(weight), exactTotal)
+			exactSquares.Add(exactSquares, new(big.Rat).Mul(exactWeight, exactWeight))
+		}
+		bound, err := FixedPairedHoeffdingBound(weights, 0.05, 1)
+		if err != nil {
+			t.Fatalf("predeclared relative allocation %v generated unusable weights %v: %v", relative, weights, err)
+		}
+		if !isFinite(bound.HalfWidth) || bound.EffectiveClusters <= 0 {
+			t.Fatalf("invalid bound for declared allocation %v: %+v", relative, bound)
+		}
+		assertConservativePairedBound(t, bound, exactSquares, 0.05, 1)
+		// Removing a positive cluster must not silently normalize the survivors.
+		for i, weight := range weights {
+			if weight == 0 {
+				continue
+			}
+			incomplete := append([]float64(nil), weights[:i]...)
+			incomplete = append(incomplete, weights[i+1:]...)
+			if _, err := FixedPairedHoeffdingBound(incomplete, 0.05, 1); err == nil {
+				t.Fatalf("omitted cluster %d accepted for %v", i, weights)
+			}
+		}
+	}
+}
+
+func TestMinimumPairedClustersGeneratedAllocation(t *testing.T) {
+	for _, width := range []float64{1, 0.5, 0.1, 0.05} {
+		for _, family := range []int{1, 2, 10} {
+			count, err := MinimumPairedClusters(0.05, family, width)
+			if err != nil {
+				t.Fatal(err)
+			}
+			bound, err := FixedPairedHoeffdingBound(equalClusterWeights(count), 0.05, family)
+			if err != nil {
+				t.Fatalf("minimum count %d produces unusable allocation: %v", count, err)
+			}
+			if bound.HalfWidth > width {
+				t.Fatalf("minimum count %d produces radius %v above planned %v", count, bound.HalfWidth, width)
+			}
+		}
+	}
+}
+
+func TestGeneratedAllocationAtExactPrecisionBoundary(t *testing.T) {
+	for _, count := range []int{12, 738} {
+		width := math.Sqrt(2 * (math.Log(2) - math.Log(0.05)) / float64(count))
+		minimum, err := MinimumPairedClusters(0.05, 1, width)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if minimum != count {
+			t.Fatalf("mathematical minimum = %d, want %d", minimum, count)
+		}
+		bound, err := FixedPairedHoeffdingBound(equalClusterWeights(minimum), 0.05, 1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// Precollection builders must check actual weights, not bypass the
+		// conservative bound when its radius exceeds an exact boundary.
+		if bound.HalfWidth <= width {
+			continue
+		}
+		bound, err = FixedPairedHoeffdingBound(equalClusterWeights(minimum+1), 0.05, 1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if bound.HalfWidth > width {
+			t.Fatalf("one precollection rounding-reserve cluster did not meet %v: %+v", width, bound)
+		}
 	}
 }
