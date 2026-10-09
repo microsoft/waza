@@ -66,6 +66,17 @@ type TaskResult struct {
 	Responder     *ResponderInfoResponse      `json:"responder,omitempty"`
 	BootstrapCI   *ConfidenceIntervalResponse `json:"bootstrapCI,omitempty"`
 	IsSignificant *bool                       `json:"isSignificant,omitempty"`
+	EvidenceRuns  []EvidenceRunResponse       `json:"evidenceRuns,omitempty"`
+}
+
+type EvidenceRunResponse struct {
+	RunNumber    int                             `json:"runNumber"`
+	Attempts     int                             `json:"attempts"`
+	Cached       bool                            `json:"cached"`
+	Assessment   string                          `json:"assessment"`
+	Manifest     *models.EvidenceManifest        `json:"manifest,omitempty"`
+	Explanations []models.RequirementExplanation `json:"explanations,omitempty"`
+	Message      string                          `json:"message,omitempty"`
 }
 
 // ConfidenceIntervalResponse is the API representation of a bootstrap CI.

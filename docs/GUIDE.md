@@ -756,6 +756,66 @@ waza run evals/code-explainer/eval.yaml -o results.json
 
 ---
 
+## Snapshot inspection and regrading
+
+```bash
+waza run eval.yaml --output results.json --snapshot ./snapshots/
+waza replay ./snapshots/my-task-run1.json
+waza grade eval.yaml --results results.json --workspace ./preserved-agent-workspace
+```
+
+Replay checks stored event sequencing and grader score/pass consistency without contacting an agent. It does not re-run graders, reconstruct files, or verify external state. Fixture and instruction hashes identify bytes but do not preserve them; file-based grading needs the actual agent workspace. Prompt graders may call the configured judge model. Live replay is not implemented.
+
+Portable evidence (manifest `1.0`, snapshot `1.1`, unchanged task/result `1.4`)
+describes every trial, full source origin, source/content digests, availability,
+completeness, redaction, unavailable versions, requested `no_skills`/native skill
+control, and operational uncertainty. Requested controls are not SDK enforcement
+proof. Cached trials retain source origin; historical absence remains unassessed.
+Invalid metadata is withheld. Scoped requirement checks are existing grader
+observations, not enforcement, causal explanations, new scores, or changed defaults.
+
+Snapshot capture sanitizes typed JSON and structurally sensitive keys before
+serialization without modifying original results. Unsafe keys/identifiers,
+opaque bytes, duplicate/trailing JSON, excessive depth, unsupported values, and
+invalid policies fail safely. Numeric lexical tokens are retained. Environment
+capture is default-deny; custom redaction replaces defaults unless `extend: true`.
+Pattern matching cannot certify confidentiality: inspect before sharing. Rule
+counts include selected files; normalization-only changes are not secret matches.
+
+```bash
+# Select only reviewed agent-visible UTF-8 regular files (Linux/macOS)
+waza run eval.yaml --snapshot ./snapshots --snapshot-file report.txt \
+  --snapshot-evaluator-only private-rubric.txt \
+  --snapshot-max-file-bytes 1048576 --snapshot-max-total-bytes 10485760 \
+  --output results.json
+
+# Narrow file-only regrading from an explicitly reviewed snapshot
+waza grade eval.yaml --results results.json --task report-task \
+  --evidence-snapshot ./reviewed-snapshot.json --output regraded.json
+```
+
+Repeatable selected files/exclusions require `--snapshot`; both byte limits must
+be positive (defaults: 1 MiB/file, 10 MiB total). Credentials and evaluator-only
+files must never be captured. Allow-listing is not authorization proof: review
+agent visibility and exclusions. Selected files use private directories/files
+and randomized non-overwriting names; ordinary no-file snapshot defaults remain.
+Partial capture and capture/publication failure have safe missing/unavailable
+states. No paths are automatically fetched and no evidence is exported/uploaded.
+
+Evidence-snapshot regrading requires `--task`, exactly one assessed matching run,
+no explicit `--workspace`, original manifest/full-origin verification, and
+complete unredacted file text/digests. Only explicit required file-grader
+`must_exist`/`content_patterns` inputs are privately materialized. It rejects
+prompt/code/program/diff, absence/wildcard checks, and file graders without
+explicit required paths. Regrading keeps `source_manifest_sha256` and invalidates
+original result/validation/grader-configuration/checkpoint links. Older workspace
+grading is unchanged; no extra automatic model calls are introduced.
+
+See the [complete evidence guide](../site/src/content/docs/guides/snapshot-replay.mdx)
+for hash canonicalization, completeness limits, and a runnable mock example;
+the [dashboard Evidence tab](../site/src/content/docs/guides/dashboard.mdx#portable-evidence)
+shows every trial without local-file fetching.
+
 ## Dashboard
 
 The `waza serve` command launches an interactive web dashboard for viewing and analyzing evaluation results.

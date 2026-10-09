@@ -1,6 +1,7 @@
 import { test, expect } from "@playwright/test";
 import { mockAllAPIs } from "./helpers/api-mock";
 import { RUNS } from "./fixtures/mock-data";
+import { evidenceDetail } from "./fixtures/evidence-data";
 
 /**
  * Screenshot capture for dashboard documentation.
@@ -59,8 +60,23 @@ test.describe("Screenshots", () => {
       animations: "disabled",
       fullPage: false,
     });
+
     for (const path of ["../docs/images/explore/run-detail-tasks.png", "../site/public/images/explore/run-detail-tasks.png"]) {
       await page.screenshot({ path, animations: "disabled", fullPage: false });
+    }
+  });
+
+  test("evidence-tab", async ({ page }) => {
+    await page.route(/\/api\/runs\/run-001$/, (route) =>
+      route.fulfill({ json: evidenceDetail() }),
+    );
+    await page.goto("/#/runs/run-001");
+    await page.getByRole("button", { name: "Evidence", exact: true }).click();
+    await expect(page.getByTestId("evidence-view")).toContainText("Source origin:");
+    await expect(page.getByTestId("evidence-view")).toContainText("Run 2");
+    await page.setViewportSize({ width: 1280, height: 1050 });
+    for (const path of ["../docs/images/explore/evidence-tab.png", "../site/public/images/explore/evidence-tab.png"]) {
+      await page.screenshot({ path, animations: "disabled", fullPage: true });
     }
   });
 

@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/microsoft/waza/internal/evidence"
 	"github.com/microsoft/waza/internal/models"
 )
 
@@ -80,6 +81,23 @@ func FormatSummaryReport(outcome *models.EvaluationOutcome) string {
 			if to.Stats != nil {
 				fmt.Fprintf(&b, "    Score: %.2f — %s\n", to.Stats.AvgScore, InterpretScore(to.Stats.AvgScore))
 				fmt.Fprintf(&b, "    %s\n", InterpretFlaky(to.Stats.Flaky, to.Stats.PassRate))
+			}
+			for _, run := range to.Runs {
+				if run.Evidence != nil {
+					if err := evidence.Bind(run.Evidence, outcome.RunID, to.TestID, run.RunNumber, run.Attempts, to.Cached); err != nil {
+						fmt.Fprintf(&b, "    Run %d evidence: invalid metadata; assessment references are unavailable.\n", run.RunNumber)
+						continue
+					}
+					fmt.Fprintf(&b, "    Run %d evidence: %s; source eval %s; captured metadata is not verified state or enforcement.\n",
+						run.RunNumber, run.Evidence.Version, run.Evidence.Origin.EvalID)
+				}
+				for _, explanation := range run.RequirementExplanations {
+					for _, check := range explanation.Checks {
+						fmt.Fprintf(&b, "    Run %d requirement %s: %s/%s = %s (%s). %s\n",
+							run.RunNumber, explanation.RequirementID, check.Check.Scope, check.Check.Grader,
+							check.Observation, check.Category, check.Message)
+					}
+				}
 			}
 		}
 	}
