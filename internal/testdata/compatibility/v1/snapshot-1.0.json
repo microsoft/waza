@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "1.0",
+  "kind": "task-snapshot",
+  "wazaVersion": "compatibility-fixture",
+  "createdAt": "2026-01-01T00:00:00Z",
+  "evalId": "compatibility-run",
+  "evalName": "compatibility",
+  "skill": "compatibility-skill",
+  "task": {"testId": "compatibility-task", "displayName": "Compatibility task", "golden": true, "runNumber": 1},
+  "engine": {"type": "mock", "modelId": "mock-model", "timeoutSec": 30},
+  "prompt": {"message": "Say ready.", "followUps": ["Confirm ready."]},
+  "toolEvents": [{"turn": 1, "sequence": 1, "tool_call_id": "compat-call", "tool_name": "read_file", "args": {"path": "note.txt"}, "result": "ready", "success": true}],
+  "env": {},
+  "redaction": {"policy": "default"},
+  "result": {"status": "passed", "finalOutput": "ready", "durationMs": 10, "validations": {"answer": {"identifier": "answer", "type": "text", "passed": true, "score": 1, "weight": 1}}}
+}
