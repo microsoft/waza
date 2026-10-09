@@ -86,6 +86,9 @@ func TestCheckCommand_ExplicitPathEvalIndependentOfCWD(t *testing.T) {
 							require.Equal(t, evalPath, report.Skills[0].Eval.Path)
 						} else {
 							require.Contains(t, output.String(), "Evaluation Suite: Found")
+							require.Contains(t, output.String(), fmt.Sprintf("Run 'waza run %q' to test.", filepath.ToSlash(evalPath)))
+							require.Contains(t, output.String(), evalFile+" detected.")
+							require.NotContains(t, output.String(), "'waza run eval.yaml'")
 						}
 					}
 				}

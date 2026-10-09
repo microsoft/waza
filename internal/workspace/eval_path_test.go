@@ -157,3 +157,35 @@ func TestFindEvalForSkill_UnreadableEvalDirectory(t *testing.T) {
 	require.ErrorContains(t, err, "checking eval file")
 	require.ErrorIs(t, err, os.ErrPermission)
 }
+
+func TestFindEval_UnreadableFallbacks(t *testing.T) {
+	if runtime.GOOS == "windows" || os.Getuid() == 0 {
+		t.Skip("requires Unix directory permissions and a non-root user")
+	}
+	for _, layout := range []string{"nested", "colocated", "compiled nested", "compiled colocated"} {
+		t.Run(layout, func(t *testing.T) {
+			root := t.TempDir()
+			source := filepath.Join(root, "source")
+			compiled := filepath.Join(root, "compiled")
+			si := SkillInfo{Name: "my-skill", Dir: source}
+			dir := source
+			switch layout {
+			case "nested":
+				dir = filepath.Join(source, "evals")
+			case "compiled nested":
+				si.Dir, si.SourceDir = compiled, source
+				dir = filepath.Join(compiled, "evals")
+			case "compiled colocated":
+				si.Dir, si.SourceDir = compiled, source
+				dir = compiled
+			}
+			writeFile(t, filepath.Join(dir, "eval.yaml"), "name: test\n")
+			require.NoError(t, os.Chmod(dir, 0))
+			t.Cleanup(func() { require.NoError(t, os.Chmod(dir, 0o755)) })
+			path, err := FindEval(&WorkspaceContext{Root: root, Skills: []SkillInfo{si}}, si.Name)
+			require.Empty(t, path)
+			require.ErrorContains(t, err, "checking eval file")
+			require.ErrorIs(t, err, os.ErrPermission)
+		})
+	}
+}

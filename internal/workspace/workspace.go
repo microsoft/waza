@@ -256,33 +256,21 @@ func FindEval(wsCtx *WorkspaceContext, skillName string) (string, error) {
 	}
 
 	// Priority 2: nested subdir inside skill directory
-	for _, evalFile := range evalFiles {
-		nested := filepath.Join(evalLookupDir(si), "evals", evalFile)
-		if isFile(nested) {
-			return nested, nil
-		}
+	if path, err := findEvalInDir(filepath.Join(evalLookupDir(si), "evals"), evalFiles); err != nil || path != "" {
+		return path, err
 	}
 
 	// Priority 3: co-located / legacy
-	for _, evalFile := range evalFiles {
-		colocated := filepath.Join(evalLookupDir(si), evalFile)
-		if isFile(colocated) {
-			return colocated, nil
-		}
+	if path, err := findEvalInDir(evalLookupDir(si), evalFiles); err != nil || path != "" {
+		return path, err
 	}
 
 	if si.SourceDir != "" && !samePath(si.SourceDir, si.Dir) {
-		for _, evalFile := range evalFiles {
-			nested := filepath.Join(si.Dir, "evals", evalFile)
-			if isFile(nested) {
-				return nested, nil
-			}
+		if path, err := findEvalInDir(filepath.Join(si.Dir, "evals"), evalFiles); err != nil || path != "" {
+			return path, err
 		}
-		for _, evalFile := range evalFiles {
-			colocated := filepath.Join(si.Dir, evalFile)
-			if isFile(colocated) {
-				return colocated, nil
-			}
+		if path, err := findEvalInDir(si.Dir, evalFiles); err != nil || path != "" {
+			return path, err
 		}
 	}
 
@@ -354,8 +342,12 @@ func findSeparatedEval(root, evalsDir, skillName string, evalFiles []string) (st
 	if !filepath.IsAbs(evalsDir) {
 		evalsDir = filepath.Join(root, evalsDir)
 	}
+	return findEvalInDir(filepath.Join(evalsDir, skillName), evalFiles)
+}
+
+func findEvalInDir(dir string, evalFiles []string) (string, error) {
 	for _, evalFile := range evalFiles {
-		path := filepath.Join(evalsDir, skillName, evalFile)
+		path := filepath.Join(dir, evalFile)
 		info, err := os.Stat(path)
 		if errors.Is(err, os.ErrNotExist) {
 			continue
