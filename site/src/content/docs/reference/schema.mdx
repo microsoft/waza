@@ -176,6 +176,8 @@ mcp_mocks:
 
 Response entries are checked in order. Unknown tools and unmatched calls fail loudly with a tool error that names the missing mock fixture.
 
+Unmatched-call diagnostics omit argument values, including nested payloads. A canceled or expired context at the in-process handler's tool-call admission boundary produces an MCP `isError` result before matching or returning a fixture; non-tool methods retain their existing behavior. This does not implement per-request stdio cancellation or a timeout fixture, and adds no YAML or result fields.
+
 ### command_mocks
 
 **Type:** array

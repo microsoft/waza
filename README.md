@@ -1224,6 +1224,8 @@ mcp_mocks:
 
 Inline responses support exact full-argument matching (`match`), JSON Schema matching (`match_schema`), and per-field regex matching (`match_regex`). Unknown tools and unmatched calls fail loudly with an MCP tool error that names the missing fixture.
 
+Unmatched MCP diagnostics omit argument values to avoid exposing credentials or private payloads. The in-process mock handler rejects a tool call if its context is already canceled or expired before fixture dispatch, using the existing MCP `isError` result. This admission check is not per-request stdio cancellation, timeout injection, or filesystem/network sandboxing. Mock responses verify controlled interactions, not the external server implementation.
+
 ### Command Mocks
 
 Use top-level `command_mocks` when the agent must invoke a CLI such as `az`, `gh`, or `kubectl`. Waza creates temporary executable shims for each task and prepends their directory to the Copilot runtime's existing `PATH`; the host `PATH` remains available. This requires `schemaVersion: "1.3"` or newer and `executor: copilot-sdk`.

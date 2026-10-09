@@ -385,6 +385,8 @@ tasks:
 
 Response matching is evaluated in order. `match` requires exact full-argument equality, `match_schema` validates the call arguments against an inline JSON Schema, and `match_regex` applies regular expressions to individual argument fields. Unknown tools or calls that do not match any response fail loudly with an MCP tool error that points to the missing mock fixture.
 
+Unmatched MCP errors intentionally omit argument values, rather than echoing private or nested payloads. The in-process mock handler also rejects tool calls whose context is already canceled or expired before fixture dispatch. This is an admission check only: it does not add per-request stdio cancellation or simulated delays/timeouts. Existing responses remain first-match, repeatable fixtures; an `error` response can model a permanent dependency failure or denial, but it does not verify a live service. The returned JSON value is encoded inside a valid MCP text result, so an unexpected application value is not a malformed MCP/JSON-RPC envelope.
+
 You can keep larger fixtures in JSON files instead of inline YAML:
 
 ```yaml

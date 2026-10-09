@@ -34,6 +34,8 @@ A single `waza` CLI built in **Go** that automates the skill development workflo
 
 Custom agent evaluations enforce the selected `.agent.md` tool policy with the Copilot SDK (#585): omitted tools remain unrestricted, empty lists deny all tools, and populated lists allow named tools with shared runtime/grader aliases. Policy selection follows task-level skill paths and `SKILL.md` precedence. Initial and resumed turns use native filtering, pre-tool checks, and fail-closed permission checks. Denials fail the run and are surfaced in results schema 1.3, session logs, and the dashboard. Tool policies are not host filesystem/network sandboxing.
 
+The baseline for controlled dependency-fault testing (#662) preserves existing MCP and CLI response formats and fail-closed matching. Unmatched MCP diagnostics omit argument values, and the in-process MCP handler rejects an already-canceled or expired tool call before fixture dispatch. This narrow admission check does not provide per-request stdio cancellation, simulated timeout fixtures, or finite recovery sequences. Mocked interactions do not prove live dependency behavior; command shims are not filesystem/network enforcement. Requirement-linked recovery and new attempt metadata remain separate integration work.
+
 ---
 
 ## User Personas
