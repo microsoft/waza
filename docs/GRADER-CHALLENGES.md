@@ -73,6 +73,41 @@ verdict is characterized here; a future assurance verifier must classify
 availability independently and must not count an incomplete reference as
 agreement with a reviewed bad label.
 
+## In-memory mechanical observations
+
+`internal/assurance.ObserveDeclaredMechanical` resolves an actual eval, task or
+checkpoint declaration through the shared pure preflight lookup and invokes its
+existing grader. The identity includes task ID, scope, checkpoint turn where
+applicable, and explicit declaration name. Same-name checks in different scopes
+are not joined through a flattened result-name map.
+
+The internal helper returns raw `observed`, `not_assessed`,
+`insufficient_evidence`, `operational_error` or `invalid` state, preserving an
+actual grader result when one exists. **Observed does not mean assured**:
+independent label review and captured-evidence completeness remain additional
+requirements. An empty observed tool history can retain its legacy passing
+verdict without proving that events were captured.
+
+File grading uses a private evaluator-only workspace containing only configured
+artifacts captured through rooted reads. Diff grading uses copied captured bytes
+and private snapshot copies. The grader does not reopen the original source
+after preparation, and snapshot updates are rejected. Required missing state
+produces insufficient evidence before grading; unreadable state and malformed
+argument evidence used by structured matchers are operational errors. Invalid
+regex/schema configuration is rejected by shared pure configuration validation,
+not interpreted as a correct rejection of a bad candidate.
+
+Prompt, program, inline-script and trigger execution, and file-backed JSON
+schemas, are explicitly not assessed by this mechanical helper. It does not
+start an agent, subprocess or model, or infer model-backed calibration. Existing
+commands still support their existing grader families unchanged.
+
+Run its deterministic scoped, state-isolation and error tests:
+
+```bash
+NO_COLOR=1 go test ./internal/assurance -count=1
+```
+
 ## Integration boundary
 
 These tests introduce no public schema, command, default, exit-code change, or

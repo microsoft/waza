@@ -590,6 +590,27 @@ waza serve --tcp :9000
 
 ## Advanced Usage
 
+### Baseline Grader Challenges
+
+Contributors can run the fixed synthetic challenge corpus without an agent,
+workflow service, model or credentials:
+
+```bash
+NO_COLOR=1 go test ./internal/graders -run '^TestBaselineChallenge' -count=1
+```
+
+The corpus contains 12 scenarios across MCP, CLI and repository state, each
+with good, alternative-valid and two bad candidates. The same existing graders
+accept different valid tool paths and inspect actual temporary workspace state;
+identical final success prose is not the correctness oracle.
+
+These candidate labels are not independently human-reviewed, and MCP/CLI state
+is synthetic rather than proof of a live external operation. Missing required
+evidence is insufficient evidence, not a correct bad-case rejection establishing
+assurance. The test-local checks do not change `run`, `grade`, golden tasks,
+defaults or exit codes. See [Baseline Grader Challenges](GRADER-CHALLENGES.md)
+for the matrix, runnable command and evidence limitations.
+
 ### Existing-workflow compatibility examples
 
 The [recorded compatibility examples](../examples/compatibility/README.md) cover
