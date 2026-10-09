@@ -447,7 +447,7 @@ config:
 **Type:** boolean
 **Default:** true
 
-Controls whether Waza injects the full target `SKILL.md` or `.agent.md` body into the system prompt when `skill:` is set.
+Controls whether Waza injects the full target `SKILL.md` or `.agent.md` body into the system prompt when `skill:` is set. The injected `<skill_context>` block starts with `Base directory for this skill: <absolute path>`, so relative links in the body (for example `scripts/install.sh` or `assets/templates/`) resolve from the skill's own directory even though the agent runs in a temp workspace. This matters for a skill with `disable-model-invocation: true`, which the agent cannot load through the `skill` tool.
 
 ```yaml
 config:

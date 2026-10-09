@@ -1327,7 +1327,9 @@ Relative fixture paths are resolved from the eval spec directory. Directory fixt
 
 ### Skill Body Injection
 
-By default, an eval with `skill: <name>` injects the target `SKILL.md` or `.agent.md` body into the agent system prompt. For trigger-precision evals, disable that body injection while preserving the skill association and SDK skill discovery:
+By default, an eval with `skill: <name>` injects the target `SKILL.md` or `.agent.md` body into the agent system prompt. The injected `<skill_context>` block starts with `Base directory for this skill: <absolute path>`, so relative links in the body (for example `scripts/install.sh` or `assets/templates/`) resolve from the skill's own directory even though the agent runs in a temp workspace. This matters for a skill with `disable-model-invocation: true`, which the agent cannot load through the `skill` tool.
+
+For trigger-precision evals, disable that body injection while preserving the skill association and SDK skill discovery:
 
 ```yaml
 skill: xyz
