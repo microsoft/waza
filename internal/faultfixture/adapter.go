@@ -200,8 +200,16 @@ func observationFailure(observer Observer, matcher, step int, err error) error {
 }
 
 func execute(ctx context.Context, dir string, matcher, count int, finite bool, delay func(int) int64, deliver func(int) error, observer Observer) error {
+	index, observedStep, err := reserveExecution(ctx, dir, matcher, count, finite, observer)
+	if err != nil {
+		return err
+	}
+	return deliverExecution(ctx, matcher, index, observedStep, delay, deliver, observer)
+}
+
+func reserveExecution(ctx context.Context, dir string, matcher, count int, finite bool, observer Observer) (int, int, error) {
 	if err := ctx.Err(); err != nil {
-		return observationFailure(observer, matcher, -1, err)
+		return -1, -1, observationFailure(observer, matcher, -1, err)
 	}
 	index, observedStep := 0, -1
 	if finite {
@@ -212,9 +220,13 @@ func execute(ctx context.Context, dir string, matcher, count int, finite bool, d
 			err = errors.Join(err, observe(observer, matcher, index, Reserved))
 		}
 		if err != nil {
-			return observationFailure(observer, matcher, observedStep, err)
+			return index, observedStep, observationFailure(observer, matcher, observedStep, err)
 		}
 	}
+	return index, observedStep, nil
+}
+
+func deliverExecution(ctx context.Context, matcher, index, observedStep int, delay func(int) int64, deliver func(int) error, observer Observer) error {
 	if err := faultsequence.Delay(ctx, delay(index)); err != nil {
 		return observationFailure(observer, matcher, observedStep, err)
 	}

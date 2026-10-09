@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
+	"sync/atomic"
 
 	"github.com/microsoft/waza/internal/jsonrpc"
 	"github.com/microsoft/waza/internal/mcpmock"
@@ -29,6 +31,19 @@ type mcpEntry struct {
 type MCPAdapter struct {
 	envelope Envelope
 	entries  []mcpEntry
+}
+
+// PendingMCPCall owns an irreversible allocation admitted by Prepare.
+// Deliver may run once; copying a pointer does not permit another delivery.
+type PendingMCPCall struct {
+	called       atomic.Bool
+	matcher      int
+	index        int
+	observedStep int
+	step         mcpStep
+	id           json.RawMessage
+	observer     Observer
+	admittedCtx  context.Context
 }
 
 func NewMCPAdapter(envelope Envelope, root string) (*MCPAdapter, error) {
@@ -115,46 +130,95 @@ func (adapter *MCPAdapter) Invoke(ctx context.Context, request *jsonrpc.Request,
 	if err := ctx.Err(); err != nil {
 		return observationFailure(observer, -1, -1, err)
 	}
-	if request == nil || request.Method != "tools/call" || deliver == nil {
-		return observationFailure(observer, -1, -1, fmt.Errorf("MCP fault adapter requires tools/call and a delivery callback"))
+	if deliver == nil {
+		return observationFailure(observer, -1, -1, fmt.Errorf("MCP fault adapter requires a delivery callback"))
+	}
+	pending, err := adapter.Prepare(ctx, request, observer)
+	if err != nil {
+		return err
+	}
+	return pending.Deliver(ctx, deliver)
+}
+
+// Prepare validates and reserves synchronously so a native admission reader can
+// allocate in request order before running cancellable delivery concurrently.
+// Observer callbacks must be prompt or cooperate with the caller's cancellation.
+func (adapter *MCPAdapter) Prepare(ctx context.Context, request *jsonrpc.Request, observer Observer) (*PendingMCPCall, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, observationFailure(observer, -1, -1, err)
+	}
+	if request == nil || request.Method != "tools/call" {
+		return nil, observationFailure(observer, -1, -1, fmt.Errorf("MCP fault adapter requires tools/call"))
 	}
 	var params struct {
 		Name      string          `json:"name"`
 		Arguments json.RawMessage `json:"arguments"`
 	}
 	if err := json.Unmarshal(request.Params, &params); err != nil {
-		return observationFailure(observer, -1, -1, fmt.Errorf("decoding MCP fault request: %w", err))
+		return nil, observationFailure(observer, -1, -1, fmt.Errorf("decoding MCP fault request: %w", err))
 	}
 	arguments := map[string]any{}
 	if len(params.Arguments) > 0 && !bytes.Equal(bytes.TrimSpace(params.Arguments), []byte("null")) {
 		if err := json.Unmarshal(params.Arguments, &arguments); err != nil {
-			return observationFailure(observer, -1, -1, fmt.Errorf("MCP fault arguments must be a JSON object"))
+			return nil, observationFailure(observer, -1, -1, fmt.Errorf("MCP fault arguments must be a JSON object"))
 		}
 	}
 	if params.Name != adapter.envelope.Tool {
-		return observationFailure(observer, -1, -1, ErrUnmatched)
+		return nil, observationFailure(observer, -1, -1, ErrUnmatched)
 	}
 	id := bytes.Clone(request.ID)
 	for index, entry := range adapter.entries {
 		matched, err := entry.matcher.MatchesWithLoader(arguments, schemaloader.Offline{})
 		if err != nil {
-			return observationFailure(observer, index, -1, err)
+			return nil, observationFailure(observer, index, -1, err)
 		}
 		if !matched {
 			continue
 		}
-		return execute(ctx, entry.dir, index, len(entry.steps), entry.finite,
-			func(step int) int64 { return entry.steps[step].delay },
-			func(step int) error {
-				value := entry.steps[step]
-				result := map[string]any{
-					"content": []map[string]string{{"type": "text", "text": value.text}},
-				}
-				if value.fails {
-					result["isError"] = true
-				}
-				return deliver(&jsonrpc.Response{JSONRPC: "2.0", ID: bytes.Clone(id), Result: result})
-			}, observer)
+		step, observedStep, err := reserveExecution(ctx, entry.dir, index, len(entry.steps), entry.finite, observer)
+		if err != nil {
+			return nil, err
+		}
+		return &PendingMCPCall{
+			matcher: index, index: step, observedStep: observedStep,
+			step: entry.steps[step], id: id, observer: observer, admittedCtx: ctx,
+		}, nil
 	}
-	return observationFailure(observer, -1, -1, ErrUnmatched)
+	return nil, observationFailure(observer, -1, -1, ErrUnmatched)
+}
+
+// Deliver delays and emits once. Native I/O cancellation remains the caller's
+// responsibility; successful emission cannot be undone by later cancellation.
+func (pending *PendingMCPCall) Deliver(ctx context.Context, deliver func(*jsonrpc.Response) error) error {
+	if pending == nil {
+		return fmt.Errorf("MCP fault delivery requires a prepared call")
+	}
+	if !pending.called.CompareAndSwap(false, true) {
+		return fmt.Errorf("prepared MCP fault delivery already attempted")
+	}
+	if deliver == nil {
+		return observationFailure(pending.observer, pending.matcher, pending.observedStep, fmt.Errorf("MCP fault delivery requires a delivery callback"))
+	}
+	if err := pending.admittedCtx.Err(); err != nil {
+		return observationFailure(pending.observer, pending.matcher, pending.observedStep, err)
+	}
+	deliveryCtx, cancel := context.WithCancel(ctx)
+	stop := context.AfterFunc(pending.admittedCtx, cancel)
+	defer stop()
+	defer cancel()
+	err := deliverExecution(deliveryCtx, pending.matcher, pending.index, pending.observedStep,
+		func(int) int64 { return pending.step.delay },
+		func(int) error {
+			result := map[string]any{
+				"content": []map[string]string{{"type": "text", "text": pending.step.text}},
+			}
+			if pending.step.fails {
+				result["isError"] = true
+			}
+			return deliver(&jsonrpc.Response{JSONRPC: "2.0", ID: bytes.Clone(pending.id), Result: result})
+		}, pending.observer)
+	if err != nil {
+		return errors.Join(err, pending.admittedCtx.Err())
+	}
+	return nil
 }
