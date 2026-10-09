@@ -42,6 +42,8 @@ The private `internal/faultfixture` source validators check JSON/YAML response f
 
 Shared MCP matcher validation preserves an explicitly supplied schema resource loader. Its legacy wrapper retains compiler defaults, including local file references; offline callers must select a denying loader rather than assuming compiler defaults prohibit resource access.
 
+Unregistered private MCP/CLI adapters now exercise these source validators and reservation primitives against native request/output shapes. Their subprocess envelopes retain raw source presence, exact scenario eligibility, cached CLI fixture bytes and immutable workspace configuration. A changed configuration cannot reset an active attempt; MCP counters are scoped by server, tool and matcher. Configured fixture errors are delivered payloads, while cancellation, exhaustion and callback failures remain operational errors without fabricated success receipts. Native callbacks are synchronous and their caller owns I/O cancellation. Captured invocation references use the shared evidence API and actual array ordinals, never inferred SDK/MCP joins. These internal adapters do not yet enable public sequence fields, prove external integration or provide sandbox enforcement.
+
 Source-fragment MCP validation selects `schemaloader.Offline` before processing, refusing unregistered file and HTTP schema references without fetching them. The explicit offline MCP constructor shares existing fixture normalization, while the legacy runtime constructor retains its resource behavior. This schema-loading policy is not a filesystem/network sandbox.
 
 ---

@@ -11,7 +11,6 @@ import (
 	"sort"
 
 	"github.com/microsoft/waza/internal/jsonrpc"
-	"github.com/santhosh-tekuri/jsonschema/v6"
 )
 
 const protocolVersion = "2024-11-05"
@@ -182,15 +181,8 @@ func regexMatch(patterns map[string]string, args map[string]any) bool {
 }
 
 func schemaMatch(schemaDoc map[string]any, args map[string]any) bool {
-	compiler := jsonschema.NewCompiler()
-	if err := compiler.AddResource("memory://mcp-mock-schema.json", schemaDoc); err != nil {
-		return false
-	}
-	schema, err := compiler.Compile("memory://mcp-mock-schema.json")
-	if err != nil {
-		return false
-	}
-	return schema.Validate(args) == nil
+	matched, err := schemaMatchWithLoader(schemaDoc, args, nil)
+	return err == nil && matched
 }
 
 func ServeStdio(ctx context.Context, cfg *Config, r io.Reader, w io.Writer, logger *slog.Logger) {

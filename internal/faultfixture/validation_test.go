@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"os"
 	"path/filepath"
 	"sync/atomic"
@@ -16,6 +15,7 @@ import (
 	"github.com/microsoft/waza/internal/faultsequence"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/schemaloader"
+	"github.com/microsoft/waza/internal/testutil"
 	"github.com/santhosh-tekuri/jsonschema/v6"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
@@ -226,7 +226,7 @@ func TestMCPSourceValidationCannotLoadExternalSchemas(t *testing.T) {
 	defer server.Close()
 	path := filepath.Join(t.TempDir(), "valid-schema.json")
 	require.NoError(t, os.WriteFile(path, []byte(`{"type":"object"}`), 0600))
-	fileURI := (&url.URL{Scheme: "file", Path: filepath.ToSlash(path)}).String()
+	fileURI := testutil.FileURL(path)
 	for _, location := range []string{fileURI, server.URL + "/schema"} {
 		for _, format := range []Format{JSON, YAML} {
 			for _, mode := range []string{`"return":null`, `"sequence":[{"return":null}]`} {

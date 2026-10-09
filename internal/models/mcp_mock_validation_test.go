@@ -4,12 +4,12 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"os"
 	"path/filepath"
 	"sync/atomic"
 	"testing"
 
+	"github.com/microsoft/waza/internal/testutil"
 	"github.com/santhosh-tekuri/jsonschema/v6"
 	"github.com/stretchr/testify/require"
 )
@@ -55,7 +55,7 @@ func TestMCPMatcherPreservesExplicitResourceLoader(t *testing.T) {
 	defer server.Close()
 	path := filepath.Join(t.TempDir(), "valid-schema.json")
 	require.NoError(t, os.WriteFile(path, []byte(`{"type":"object"}`), 0600))
-	fileURI := (&url.URL{Scheme: "file", Path: filepath.ToSlash(path)}).String()
+	fileURI := testutil.FileURL(path)
 	sentinel := errors.New("test loader refuses external resources")
 	for _, location := range []string{fileURI, server.URL + "/schema"} {
 		t.Run(location, func(t *testing.T) {
