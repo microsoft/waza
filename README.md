@@ -80,6 +80,12 @@ Run `waza update` to download and execute the official OS-specific installer aft
 
 ## Quick Start
 
+For contributor regression gates and sanitized MCP, CLI, and repository
+recorded-outcome examples, see the [compatibility corpus](docs/COMPATIBILITY.md)
+and [example guide](examples/compatibility/README.md). Run `NO_COLOR=1 make test-compat`
+to preserve existing workflows; recorded/mock outcomes are not evidence of live
+agent quality.
+
 ### For New Users: Get Started in 5 Minutes
 
 See **[Getting Started Guide](docs/GETTING-STARTED.md)** for a complete walkthrough:
