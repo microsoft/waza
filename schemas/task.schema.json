@@ -57,6 +57,37 @@
     "expected": {
       "$ref": "#/$defs/expected"
     },
+    "requirements": {
+      "type": "array",
+      "description": "Descriptive task-local intent linked to explicit existing grader declarations. Not runtime enforcement or proof of satisfaction.",
+      "items": {
+        "type": "object",
+        "required": ["id", "category", "description"],
+        "additionalProperties": false,
+        "properties": {
+          "id": {"type": "string", "minLength": 1},
+          "category": {"enum": ["outcome", "boundary", "recovery", "quality"]},
+          "description": {"type": "string", "minLength": 1},
+          "checks": {
+            "type": "array",
+            "description": "Empty or absent means uncovered/unresolved, not success.",
+            "items": {
+              "type": "object",
+              "required": ["scope", "grader"],
+              "additionalProperties": false,
+              "properties": {
+                "scope": {"enum": ["eval", "task", "checkpoint"]},
+                "grader": {"type": "string", "minLength": 1},
+                "after_turn": {"type": "integer", "minimum": 1}
+              },
+              "if": {"properties": {"scope": {"const": "checkpoint"}}},
+              "then": {"required": ["after_turn"]},
+              "else": {"not": {"required": ["after_turn"]}}
+            }
+          }
+        }
+      }
+    },
     "graders": {
       "type": "array",
       "items": {
