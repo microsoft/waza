@@ -95,6 +95,27 @@ azd waza serve
 
 Get a complete evaluation suite running in 5 minutes.
 
+For a repository or CLI workflow without a skill, start directly with:
+
+```bash
+waza new eval inventory --scenario --template repository
+waza run evals/inventory/eval.yaml
+```
+
+This selects the real Copilot SDK executor and requires the normal Copilot
+runtime/authentication. `--template cli` uses installed Git; `--template mcp`
+uses a harness-only mocked MCP dependency, not production-service evidence.
+`config.executor: mock` is an offline harness check, never an agent-quality score. See
+[sanitized scenario examples](../examples/scenarios/README.md).
+Scenario evals require explicit `schemaVersion: "2.0"` and a nonempty string
+`scenario`. Tasks/results retain `1.x`. Old executables reject eval `2.0`
+before execution. Optional `skill` uses existing skill/custom-agent precedence;
+without it or explicit directories, ambient discovery is disabled. An empty
+task `skill_directories: []` disables discovery; `--no-skills` overrides all
+contexts. Fixtures default to the eval's `fixtures/` directory, instruction
+and input files resolve from their existing context root, and generated outputs
+remain relative to each fresh task workspace.
+
 ### Step 1: Initialize a Project
 
 Create a new directory and initialize a waza project:

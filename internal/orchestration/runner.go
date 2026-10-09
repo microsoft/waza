@@ -1016,7 +1016,10 @@ func (r *EvalRunner) runTest(ctx context.Context, tc *models.TestCase, testNum, 
 	defer taskSpan.End()
 
 	// Check cache if enabled
-	if r.cache != nil {
+	if r.cache != nil && spec.Scenario != "" {
+		fmt.Fprintf(os.Stderr, "[WARN] Scenario caching disabled for test %q: external workflow dependencies are not fully fingerprinted\n", tc.DisplayName)
+	}
+	if r.cache != nil && spec.Scenario == "" {
 		cacheKey, err := cache.CacheKey(spec, tc, r.cfg.FixtureDir())
 		if err == nil {
 			if cachedOutcome, found := r.cache.Get(cacheKey); found {
@@ -1517,7 +1520,7 @@ func (r *EvalRunner) buildExecutionRequest(tc *models.TestCase) (*execution.Exec
 
 	spec := r.cfg.Spec()
 	resolvedSkillPaths := r.taskSkillPaths(tc)
-	noSkills := spec.Config.AllSkillsDisabled()
+	noSkills := spec.SkillsDisabledForTask(tc.SkillPaths)
 	_, fm, err := r.resolveTaskAgent(tc)
 	if err != nil {
 		return nil, err
@@ -1557,14 +1560,14 @@ func effectiveCommandMocks(tc *models.TestCase, spec *models.EvalSpec) []models.
 
 func (r *EvalRunner) taskSkillPaths(tc *models.TestCase) []string {
 	skillPaths := r.cfg.Spec().Config.FilteredSkillPaths()
-	if len(tc.SkillPaths) > 0 {
+	if len(tc.SkillPaths) > 0 || (r.cfg.Spec().Scenario != "" && tc.SkillPaths != nil) {
 		skillPaths = tc.SkillPaths
 	}
 	return utils.ResolvePaths(skillPaths, r.cfg.SpecDir())
 }
 
 func (r *EvalRunner) resolveTaskAgent(tc *models.TestCase) (string, *skill.AgentFrontmatter, error) {
-	if r.cfg.Spec().Config.AllSkillsDisabled() {
+	if r.cfg.Spec().SkillsDisabledForTask(tc.SkillPaths) {
 		return "", nil, nil
 	}
 	cwd, err := os.Getwd()
