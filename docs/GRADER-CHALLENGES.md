@@ -122,6 +122,13 @@ NO_COLOR=1 go test ./internal/assurance -count=1
 
 ## Integration boundary
 
+The [offline CLI target example](../examples/grader-challenges/cli-target/README.md)
+runs the existing `grade` command over good, alternative-valid and two bad
+synthetic candidates. It asserts actual stdout and saved grader artifacts,
+preserves legacy negative-verdict exit behavior, and passes state-only
+workspaces without evaluator configuration or candidate records. It is
+grading-only, not a task-agent eval or a new assurance/reference format.
+
 The in-memory author-review gate requires a supplied current declaration from a
 source explicitly accepted by the evaluator. It binds the label subject ID,
 version and SHA-256 digest of exact label bytes; changing whitespace or newlines
