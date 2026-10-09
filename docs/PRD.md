@@ -38,6 +38,12 @@ Custom agent evaluations enforce the selected `.agent.md` tool policy with the C
 
 ## User Personas
 
+### Workflow Author
+- **Role:** Developer evaluating MCP, CLI or repository workflows
+- **Goals:** Author scenario suites without an unrelated `SKILL.md`, retaining optional skill/custom-agent context
+- **Scope:** `waza new eval <name> --scenario --template repository|cli|mcp` uses existing graders and real agent execution; mocked dependencies are explicitly harness-only evidence
+- **Compatibility:** Scenario evals opt into exact schema `2.0` so old executables reject changed discovery semantics before execution; legacy evals and task/result artifacts retain their prior formats
+
 ### Primary: Skill Author
 - **Role:** Developer contributing skills to microsoft/skills
 - **Goals:** Create high-quality skills that pass CI, work across models

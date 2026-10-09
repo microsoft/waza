@@ -138,7 +138,14 @@ With no arguments, uses workspace detection to find eval.yaml automatically:
   - Multi-skill workspace → runs ALL evals sequentially with summary
 
 You can also specify a skill name to run its eval:
-  waza run code-explainer`,
+  waza run code-explainer
+
+Scenario suites use an explicit eval file, without requiring a skill:
+  waza new eval inventory --scenario
+  waza run evals/inventory/eval.yaml
+
+Scenario evals require schemaVersion 2.0; tasks/results remain 1.x.
+config.executor: mock checks only the harness, not agent quality.`,
 		Args:          cobra.MaximumNArgs(1),
 		RunE:          runCommandE,
 		SilenceErrors: true,
@@ -723,7 +730,7 @@ func runSingleModel(cmd *cobra.Command, spec *models.EvalSpec, specPath string, 
 		}
 	}
 
-	if len(spec.Config.SkillPaths) == 0 {
+	if len(spec.Config.SkillPaths) == 0 && (spec.Scenario == "" || spec.SkillName != "") {
 		// ie, the user hasn't configured skill paths explicitly
 		spec.Config.SkillPaths = append(spec.Config.SkillPaths, defaultSkills...)
 	}
@@ -740,6 +747,10 @@ func runSingleModel(cmd *cobra.Command, spec *models.EvalSpec, specPath string, 
 	// Setup cache if enabled
 	var resultCache *cache.Cache
 	useCaching := enableCache && !disableCache
+	if useCaching && spec.Scenario != "" {
+		fmt.Println("Note: Scenario caching disabled because external workflow dependencies are not fully fingerprinted; each task executes again.")
+		useCaching = false
+	}
 
 	if useCaching && cache.HasNonDeterministicGraders(spec) {
 		if verbose {
@@ -892,7 +903,12 @@ func runSingleModel(cmd *cobra.Command, spec *models.EvalSpec, specPath string, 
 	defer stop()
 
 	fmt.Printf("Running benchmark: %s\n", spec.Name)
-	fmt.Printf("Skill: %s\n", spec.SkillName)
+	if spec.Scenario != "" {
+		fmt.Printf("Scenario: %s\n", spec.Scenario)
+	}
+	if spec.SkillName != "" || spec.Scenario == "" {
+		fmt.Printf("Skill: %s\n", spec.SkillName)
+	}
 	fmt.Printf("Engine: %s\n", spec.Config.EngineType)
 	fmt.Printf("Model: %s\n", spec.Config.ModelID)
 	if spec.Config.JudgeModel != "" {
