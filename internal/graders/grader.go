@@ -3,11 +3,13 @@ package graders
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
 	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/models"
+	"github.com/santhosh-tekuri/jsonschema/v6"
 )
 
 // Grader is the interface for all validators
@@ -81,9 +83,101 @@ type Context struct {
 
 // Create creates a validator from the global registry
 func Create(identifier string, params models.GraderParameters) (Grader, error) {
+	if p, ok := params.(models.InlineScriptGraderParameters); ok {
+		return NewInlineScriptGrader(identifier, p)
+	}
+	return createLocalGrader(identifier, params)
+}
+
+// ValidateConfig checks static parameters without filesystem, subprocess, or
+// model I/O. Files, interpreter syntax, and live readiness need separate checks.
+// It also rejects inert text checks and malformed regex/schema configuration
+// that legacy constructors defer until Grade; Create retains its behavior.
+func ValidateConfig(identifier string, params models.GraderParameters) error {
 	switch p := params.(type) {
 	case models.InlineScriptGraderParameters:
-		return NewInlineScriptGrader(identifier, p)
+		if len(p.Assertions) == 0 {
+			return fmt.Errorf("code grader %q has no assertions", identifier)
+		}
+		for _, assertion := range p.Assertions {
+			if strings.TrimSpace(assertion) == "" {
+				return fmt.Errorf("code grader %q has an empty assertion", identifier)
+			}
+		}
+		switch p.Language {
+		case "", models.LanguagePython, models.LanguageJavascript:
+			return nil
+		default:
+			return fmt.Errorf("language '%s' is not yet supported with inline scripts", p.Language)
+		}
+	case models.TextGraderParameters:
+		if len(p.Contains)+len(p.NotContains)+len(p.ContainsCS)+len(p.NotContainsCS)+len(p.RegexMatch)+len(p.RegexNotMatch) == 0 {
+			return fmt.Errorf("text grader %q has no checks", identifier)
+		}
+		for _, checks := range [][]string{p.Contains, p.NotContains, p.ContainsCS, p.NotContainsCS, p.RegexMatch, p.RegexNotMatch} {
+			if err := nonemptyChecks(checks); err != nil {
+				return err
+			}
+		}
+		for _, pattern := range append(append([]string{}, p.RegexMatch...), p.RegexNotMatch...) {
+			if _, err := regexp.Compile(pattern); err != nil {
+				return fmt.Errorf("text grader regex: %w", err)
+			}
+		}
+	case models.FileGraderParameters:
+		if err := nonemptyChecks(append(append([]string{}, p.MustExist...), p.MustNotExist...)); err != nil {
+			return err
+		}
+		for _, content := range p.ContentPatterns {
+			if content.Path == "" || len(content.MustMatch)+len(content.MustNotMatch) == 0 {
+				return fmt.Errorf("file grader %q has an empty content check", identifier)
+			}
+			if err := nonemptyChecks(append(append([]string{}, content.MustMatch...), content.MustNotMatch...)); err != nil {
+				return err
+			}
+			for _, pattern := range append(append([]string{}, content.MustMatch...), content.MustNotMatch...) {
+				if _, err := regexp.Compile(pattern); err != nil {
+					return fmt.Errorf("file grader regex: %w", err)
+				}
+			}
+		}
+	case models.JSONSchemaGraderParameters:
+		if p.Schema != nil {
+			compiler := jsonschema.NewCompiler()
+			// No URLLoader is installed: unresolved references cannot perform I/O.
+			const location = "memory://waza-grader-schema.json"
+			if err := compiler.AddResource(location, p.Schema); err != nil {
+				return fmt.Errorf("adding grader schema: %w", err)
+			}
+			if _, err := compiler.Compile(location); err != nil {
+				return fmt.Errorf("compiling grader schema: %w", err)
+			}
+		}
+	case models.TriggerHeuristicGraderParameters:
+		_, _, err := validateTriggerParameters(identifier, p)
+		return err
+	case models.PromptGraderParameters:
+		if err := validatePromptSeed(identifier, p); err != nil {
+			return err
+		}
+		g := models.GraderConfig{Identifier: identifier, Kind: models.GraderKindPrompt, Parameters: p}
+		return g.Validate()
+	}
+	_, err := createLocalGrader(identifier, params)
+	return err
+}
+
+func nonemptyChecks(checks []string) error {
+	for _, check := range checks {
+		if check == "" {
+			return fmt.Errorf("static grader configuration contains an empty check")
+		}
+	}
+	return nil
+}
+
+func createLocalGrader(identifier string, params models.GraderParameters) (Grader, error) {
+	switch p := params.(type) {
 	case models.TextGraderParameters:
 		return NewTextGrader(identifier, p)
 	case models.FileGraderParameters:
