@@ -97,6 +97,9 @@ Inspection must count zero engine/model/live-service/subprocess calls and never
 launch mock services or update checks. Unavailable credentials, external state,
 model/interpreter availability and conditional checkpoint execution remain
 unresolved rather than verified.
+Eager schema decoding must be guarded across eval/task/checkpoint sources,
+cached presets, and merged overrides. External prerequisites remain unresolved
+and prevent complete inventory claims without changing native runtime loaders.
 
 Optional task-local requirements categorize outcome, boundary, recovery and
 quality intent using stable IDs and explicit references to current graders.

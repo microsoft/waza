@@ -135,6 +135,14 @@ replaces eval mocks, including explicit `[]`. Same-name MCP mocks replace live
 server declarations. MCP fixture responses and matchers are parsed without
 starting a mock. External schema references are not fetched.
 
+Native argument matchers compile eagerly while reading YAML. Preflight guards
+the same source bytes before that decoder, including `tool_calls.expect` and
+`tool_constraint` argument matchers in eval/task/checkpoint declarations,
+pinned cached presets, and merged overrides. External schema prerequisites
+stop that materialization with an unresolved diagnostic and `complete: false`;
+ordinary matcher literals and MCP returned payloads are not treated as schemas.
+Existing runtime loaders retain their normal resource-loading behavior.
+
 Every remote grader requires a valid matching `waza.lock`, just as execution
 does. Missing/malformed locks, missing entries, or digest mismatch are invalid.
 A missing pinned cache is unresolved; populate it explicitly with `waza get`

@@ -154,6 +154,12 @@ func ValidateConfig(identifier string, params models.GraderParameters) error {
 				return fmt.Errorf("compiling grader schema: %w", err)
 			}
 		}
+	case models.ToolCallsGraderParameters:
+		_, err := newToolCallsGraderWithLoader(identifier, p, schemaloader.Offline{})
+		return err
+	case models.ToolConstraintGraderParameters:
+		_, err := newToolConstraintGraderWithLoader(identifier, p, schemaloader.Offline{})
+		return err
 	case models.TriggerHeuristicGraderParameters:
 		_, _, err := validateTriggerParameters(identifier, p)
 		return err
