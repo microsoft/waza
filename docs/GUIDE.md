@@ -418,8 +418,14 @@ Validate that a skill is ready for submission.
 
 **Arguments:**
 - `[skill-name]` — Skill name (e.g., `code-explainer`)
-- `[skill-path]` — Path to skill directory (e.g., `skills/my-skill`)
+- `[skill-path]` — Relative or absolute path to a skill directory or `SKILL.md` file
 - *(none)* — Auto-detect using workspace detection
+
+Explicit paths resolve evals from the target skill's workspace, independent of
+the current directory. The target's `.waza.yaml` controls eval paths and filenames.
+Without configuration, discovery searches up to 10 directory levels for
+`evals/<skill-name>/eval.yaml`, then checks `<skill-dir>/evals/eval.yaml` and
+`<skill-dir>/eval.yaml`, in that order.
 
 **What it checks:**
 1. **Compliance scoring** — Validates SKILL.md frontmatter (Low/Medium/Medium-High/High)

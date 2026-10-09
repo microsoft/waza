@@ -636,6 +636,12 @@ Performs five types of checks:
 
 Provides a plain-language summary and actionable next steps to improve the skill.
 
+Pass a skill directory or its `SKILL.md` file using a relative or absolute path.
+Eval discovery is anchored to that skill, not your current directory: it honors
+the target workspace's `.waza.yaml`, or searches up to 10 directory levels for
+`evals/<skill-name>/eval.yaml` when no config exists, before checking the skill's
+`evals/eval.yaml` and co-located `eval.yaml`.
+
 **Example output:**
 ```
 🔍 Skill Readiness Check

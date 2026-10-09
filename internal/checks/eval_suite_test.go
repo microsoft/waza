@@ -60,3 +60,27 @@ func TestEvalSuiteChecker_WithSkillName(t *testing.T) {
 	require.True(t, ok)
 	require.True(t, data.Found)
 }
+
+func TestEvalSuiteChecker_TargetWorkspace(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "skills", "my-skill")
+	require.NoError(t, os.MkdirAll(dir, 0o755))
+	evals := filepath.Join(root, "tests", "my-skill")
+	require.NoError(t, os.MkdirAll(evals, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(root, ".waza.yaml"), []byte("paths:\n  evals: tests\nfiles:\n  evalFile: suite.yml\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(evals, "suite.yml"), []byte("name: test\n"), 0o644))
+	t.Chdir(t.TempDir())
+	data, err := (&EvalSuiteChecker{}).Eval(skill.Skill{
+		Path:        filepath.Join(dir, "SKILL.md"),
+		Frontmatter: skill.Frontmatter{Name: "my-skill"},
+	})
+	require.NoError(t, err)
+	require.True(t, data.Found)
+}
+
+func TestEvalSuiteChecker_InvalidConfig(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".waza.yaml"), []byte("unknown_field: true\n"), 0o644))
+	_, err := (&EvalSuiteChecker{}).Eval(skill.Skill{Path: filepath.Join(dir, "SKILL.md")})
+	require.ErrorContains(t, err, "finding evaluation suite")
+}
