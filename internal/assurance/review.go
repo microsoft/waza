@@ -74,16 +74,8 @@ func CheckAuthorReview(subject ReviewSubject, supplied SuppliedReview, acceptanc
 	invalid := func(err error) (ReviewEligibility, error) {
 		return ReviewEligibility{Reason: ReviewInvalid}, err
 	}
-	for _, identifier := range []struct{ name, value string }{
-		{"label subject ID", subject.ID},
-		{"label subject version", subject.Version},
-	} {
-		if err := validateReviewIdentifier(identifier.name, identifier.value); err != nil {
-			return invalid(err)
-		}
-	}
-	if len(subject.Labels) == 0 {
-		return invalid(errors.New("review subject requires nonempty label bytes"))
+	if err := validateReviewSubject(subject); err != nil {
+		return invalid(err)
 	}
 	if !acceptance.AcceptCurrentDecision || acceptance.SourceID != supplied.SourceID {
 		return ReviewEligibility{Reason: ReviewSourceNotAccepted}, nil
@@ -136,6 +128,21 @@ func CheckAuthorReview(subject ReviewSubject, supplied SuppliedReview, acceptanc
 func validateReviewIdentifier(name, value string) error {
 	if strings.TrimSpace(value) == "" || value != strings.TrimSpace(value) {
 		return fmt.Errorf("%s must be nonempty and unpadded", name)
+	}
+	return nil
+}
+
+func validateReviewSubject(subject ReviewSubject) error {
+	for _, identifier := range []struct{ name, value string }{
+		{"label subject ID", subject.ID},
+		{"label subject version", subject.Version},
+	} {
+		if err := validateReviewIdentifier(identifier.name, identifier.value); err != nil {
+			return err
+		}
+	}
+	if len(subject.Labels) == 0 {
+		return errors.New("review subject requires nonempty label bytes")
 	}
 	return nil
 }

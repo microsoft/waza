@@ -102,6 +102,11 @@ schemas, are explicitly not assessed by this mechanical helper. It does not
 start an agent, subprocess or model, or infer model-backed calibration. Existing
 commands still support their existing grader families unchanged.
 
+Inline schemas with external references are also not assessed. Shared offline
+validation disables both filesystem and network loaders; an existing valid
+schema file and an absent file produce the same unavailable sentinel. Such
+unavailability cannot count as ordinary bad-case rejection.
+
 The observer tests also assert actual JSON-schema, behavior, action-sequence and
 skill-invocation verdicts, scores and feedback for good, alternative-valid and
 bad candidates under fixed grader configuration. Reordered actions and skills
@@ -129,6 +134,15 @@ or source freshness, discover withheld revocations, establish independent review
 or substitute for actual grader agreement and complete evidence. The caller owns
 current-source selection. Test declarations are explicitly synthetic; no actual
 human label review has occurred and bundled candidates remain unreviewed.
+
+The in-memory lifecycle preserves append-only application events and supplied
+declarations with defensive copies. Unreviewed, rejected or revoked labels may
+be submitted; only a submitted subject can receive an explicit reviewed or
+rejected decision, and a reviewed subject can be revoked. Resubmission clears
+the current reviewer fields without erasing history. Reusing an already applied
+declaration across rounds is rejected even when timestamps are equal or use
+different time-zone offsets. Transitions do not establish external freshness or
+authenticate review; callers must serialize lifecycle access.
 
 These tests introduce no public schema, command, default, exit-code change, or
 agent-visible fixture. Reference expectations remain evaluator-only test code;
