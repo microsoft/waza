@@ -1,149 +1,253 @@
 ---
 title: Snapshot & Replay
-description: Capture self-contained task snapshots during `waza run` and replay them later for deterministic, offline eval reproduction.
+description: Inspect portable task evidence, capture selected files, and understand offline replay and regrading limits.
 ---
 
-`waza` can capture a **self-contained snapshot** of every task it executes, then replay those snapshots later to detect non-determinism, regressions, or environment drift — all without contacting the agent engine.
+Snapshots preserve recorded observations, not a reconstructible workspace or
+proof of external state. Evidence is local and opt-in: waza does not automatically
+export, upload, or fetch paths named in metadata.
 
-This guide covers:
+## Operation capabilities
 
-- What a snapshot contains and what it deliberately leaves out
-- Capturing snapshots with `waza run --snapshot`
-- Replaying snapshots with `waza replay` (model-replay, bisect)
-- Redaction and environment defaults that keep snapshots safe to commit
-- Schema and forward-compatibility
+| Operation | Inputs and checks | What it does not establish |
+| --- | --- | --- |
+| Inspect evidence | Result metadata for every task trial; assessed manifest and full origin | Enforcement, complete execution history, external state, or preserved source bytes |
+| Offline replay | Explicit snapshot; event sequence and stored score/pass consistency | Grader reruns, workspace reconstruction, or agent reproducibility |
+| Bisect | Two explicit snapshots; ordered tool-name/argument fingerprints | A causal explanation for divergence |
+| Regrade with workspace | Results and actual agent workspace via `--workspace` | That fixture hashes supply the workspace; prompt grading may call a paid judge |
+| Regrade selected captured files | Explicit `--evidence-snapshot`, task, matching result origin, verified manifest and file content | Arbitrary graders, absent files, external receipts, or a complete workspace |
+| Live replay | Unsupported; `--mode live` returns exit code `2` | No live replay behavior or delivery date is promised |
 
-## Why snapshots?
+## Capture a mock run
 
-Agentic evals depend on far more than just `prompt → completion`. Tool calls, fixture file contents, environment variables, and grader configurations all shape the outcome. To reproduce a run faithfully — especially when investigating a flaky failure or an outcome that "won't repro on my machine" — you need to bundle all of those inputs together with the resulting tool-event tape.
-
-A waza snapshot is exactly that bundle, serialized as a single JSON file per task run.
-
-## What's in a snapshot
-
-Each `snapshot.json` (schema `1.0`) contains:
-
-- **Identity** — `waza_version`, `eval_id`, `eval_name`, `skill`, `task` (TestID, DisplayName, Golden flag, RunNumber)
-- **Prompt** — initial user message and follow-ups, plus content-addressed (`sha256`) digests of every instruction file
-- **Fixtures** — recursive content-addressed digests of every file under the task's `context_dir`
-- **Tool events** — the ordered tape from the run, preserving `tool_call_id`, `name`, `args`, `result`, `duration_ms`, `success`, and `error` for each call
-- **Engine** — the captured engine identity (model, vendor, etc.)
-- **Env** — the explicit allow-list and the redacted KEY/VALUE pairs that were captured
-- **Redaction** — the policy label, matched rule names, and a count of redactions applied
-- **Result** — final status, redacted `final_output`/`error_msg`, total duration, and the grader-level `validations` map
-
-Snapshots **do not** contain:
-
-- Raw environment variables outside the allow-list (default-deny)
-- Secrets that match the built-in or custom redaction rules (replaced with `[REDACTED]` placeholders)
-- Live engine outputs not present in the tool-event tape
-
-## Capturing snapshots
+From the repository root, this example uses the existing mock executor and makes
+no model calls. It records observations without selecting workspace contents:
 
 ```bash
-waza run eval.yaml --snapshot ./snapshots/
+waza run examples/code-explainer/eval.yaml \
+  --context-dir examples/code-explainer/fixtures \
+  --snapshot ./evidence-snapshots \
+  --output ./evidence-results.json
 ```
 
-Each task run produces a file named `<test-id>-run<N>.json` in the directory. The path is also recorded inline in `results.json` under each `RunResult.SnapshotPath`.
-
-### Allow-listing environment variables
-
-By default, **no environment variables** are captured. Pass `--snapshot-env-allow` (repeatable) with explicit names or `*`-suffixed prefixes:
+Read and review the exact `snapshot_path` recorded in each task's `runs[]` in
+`evidence-results.json`. With `jq` installed, select the first recorded path:
 
 ```bash
-waza run eval.yaml \
-  --snapshot ./snapshots/ \
-  --snapshot-env-allow "WAZA_*" \
-  --snapshot-env-allow "MODEL"
+snapshot=$(jq -r '.tasks[0].runs[0].snapshot_path' ./evidence-results.json)
+waza replay "$snapshot" --json
+waza serve --results-dir .
 ```
 
-Even allow-listed values are still passed through the redaction policy, so a `GITHUB_TOKEN=ghp_…` ends up as `GITHUB_TOKEN=[REDACTED]` if it matches a rule.
+The path is selected explicitly by the user, not inferred or fetched by a
+consumer. Ordinary snapshots retain legacy names/defaults. Selected-file
+capture uses randomized, non-overwriting filenames, private `0700` output
+directories, and `0600` files.
 
-### Customising redaction
+## What's recorded
 
-Provide a YAML file via `--redact <path>` on `waza run`:
+Snapshot schema **`1.1`** carries a separately versioned evidence manifest
+**`1.0`**. Result and task schema versions remain **`1.4`**; legacy snapshots and
+results still load. Evidence-aware consumers reject unsupported manifest
+versions, unknown metadata, and duplicate JSON keys rather than interpreting
+them as assessed evidence.
+
+Each manifest describes:
+
+- Full source origin: `eval_id`, `task_id`, `run_number`, `attempt_count`, and
+  `prior_attempts`. References are observational and scoped to that entire origin.
+  Earlier attempts are not inferred from the final attempt.
+- Requested engine/model, actual `mock`/`live`/`unknown` execution mode derived
+  from the concrete `MockEngine` or `CopilotEngine`, requested tool policy, and verified enforcement.
+  Dependency mode and verified enforcement remain `unknown` unless recorded.
+- waza, SDK, effective model, Go, and platform versions. Missing/null/unknown
+  version metadata is unavailable, not an inferred version. Grader implementation,
+  external rubric version, and lockfile provenance are explicitly unavailable.
+- `runtime.no_skills` (`boolean|null`) from the actual execution request and
+  `native_skill_control`: `unknown`, `sdk_default`, `requested_sdk_disable`, or
+  `mock_not_applicable`. This describes requested native skill control, **not**
+  proof that the SDK enforced it. An empty directory is not a disablement proxy.
+- Prompt/follow-ups, ordered tool events, command invocations, grader outcomes,
+  checkpoints, final output, and allowed environment values where recorded.
+  The `environment` artifact fingerprints captured allow-list/configuration
+  at `/env`; `engine-config` fingerprints captured configuration at `/engine`.
+  Neither claims to capture the full host environment.
+  Task/grader configuration, fixture, and instruction digests identify source
+  material but do **not** preserve the source bytes.
+- Redaction rules that actually matched, match counts (including selected files),
+  limitations, and fixed safe operational diagnostics.
+
+### Availability and completeness
+
+| Availability | Meaning |
+| --- | --- |
+| `captured` | Actual content digest plus a snapshot document/pointer; verify content for the requested operation |
+| `digest_only` | Separate source digest, no preserved content and no content locator |
+| `unavailable` | Reason recorded; no locator or digest that pretends to be content |
+| `not_requested` | Capture was not requested for this artifact; reason, no locator |
+
+Most tapes have `unknown` completeness; an operational run error makes them
+`partial`. A selected workspace file can be individually `complete`, while the
+overall workspace remains `partial` or `unavailable`. External state is
+unavailable: a successful tool event is not an authoritative receipt.
+
+Cached trials retain their **source** eval/task/run/attempt origin and are not
+new executions. A different eval ID is legitimate for cached source evidence;
+task, run, and attempt must still match. Every trial is exposed independently
+in the dashboard, including unassessed trials.
+
+For legacy API compatibility, `evidenceRuns` is omitted when all task runs lack
+both evidence and requirement explanations; the dashboard's fallback reports
+unassessed. Once any run has metadata, every trial is returned, including rows
+with missing historical metadata.
+
+Historical absence is **unassessed**, not successful capture. Selected-file
+failures have fixed safe diagnostics and missing-file states. Capture or
+publication failure produces a fixed unavailable envelope and logs; rejected
+origin metadata is not copied into that envelope. Invalid metadata is withheld
+from the dashboard.
+
+## Select workspace files
+
+Only explicitly reviewed agent-visible UTF-8 regular files can be selected:
+
+```bash
+waza run eval.yaml --snapshot ./evidence-snapshots \
+  --snapshot-file report.txt \
+  --snapshot-evaluator-only private-rubric.txt \
+  --snapshot-max-file-bytes 1048576 \
+  --snapshot-max-total-bytes 10485760 \
+  --output ./evidence-results.json
+```
+
+- `--snapshot-file` and `--snapshot-evaluator-only` are repeatable and require
+  `--snapshot`. Exclusions identify evaluator-only files; credentials and
+  evaluator-only files must never be selected.
+- Explicit allow-listing is **not authorization proof**. The user must review
+  agent visibility and exclude evaluator-only material; no automatic discovery
+  grants capture permission.
+- Both byte limits are mandatory positive values when configured; defaults are
+  **1 MiB per file** and **10 MiB total**.
+- Safe descriptor-based file reads are supported on Linux and macOS only;
+  selected-file capture is unsupported elsewhere. Unsafe paths, nonregular
+  files, invalid UTF-8, and over-limit files are not silently accepted.
+- Captured text has its own verified content digest. Source configuration and
+  instruction/fixture digests cannot substitute for that text.
+
+### Environment and redaction
+
+Environment capture is default-deny. `--snapshot-env-allow` is repeatable and
+accepts explicit names or `*`-suffixed prefixes. Allowed values still undergo
+redaction; avoid broad prefixes containing credentials. Secret environment-key
+removals contribute to the redaction match count, as do actual selected-file
+rule matches.
+
+Typed JSON context, tool arguments/results, grader feedback/details, and
+structurally sensitive keys are sanitized **before serialization**, without
+modifying original results. Opaque bytes, unsafe keys or identifiers, malformed
+JSON, duplicate keys, trailing values, excessive nesting, and unsupported values
+are rejected. Numeric lexical tokens are preserved without float coercion.
+
+Custom `--redact policy.yaml` rules replace defaults unless `extend: true`:
 
 ```yaml
-# my-redaction.yaml
+extend: true
 rules:
   - name: internal-id
     pattern: 'INT-[0-9]{6}'
 ```
 
-The custom rules are **merged** with the built-in defaults (which already cover GitHub tokens, AWS keys, JWTs, emails, etc.). The snapshot's `redaction.policy` field records which set was used (`default`, `custom`, or `default+custom`).
+Pattern redaction is **not a confidentiality proof**. Review content before
+sharing. A file's `redacted: true` can also mean JSON normalization, not a secret
+match. Summary counts describe actual rule matches, not normalization-only
+changes. Changed/redacted files are not eligible as original file-grading inputs.
 
-## Replaying snapshots
-
-### Model-replay (offline, fast)
-
-The default mode re-checks **internal consistency** without re-running the engine:
-
-- Tool-event `sequence` is strictly `1..N`
-- When `--strict` (default), a grader that reports `passed=true` with `score=0` and non-zero `weight` is surfaced as an inconsistency
+## Offline replay and bisect
 
 ```bash
-waza replay ./snapshots/my-task-run1.json
+waza replay ./reviewed-snapshot.json --json
+waza replay ./reviewed-snapshot.json --bisect ./other-reviewed-snapshot.json --json
 ```
 
+Replay checks that tool-event sequence is `1..N` and, with `--strict` (default),
+that recorded grader score/pass values are consistent. It does not rerun graders.
 Exit codes: `0` consistent, `1` divergent, `2` load/parse error.
+Bisect compares ordered tool-name/argument fingerprints, ignoring durations and
+raw output text. It identifies divergence, not its cause.
 
-Use `--json` for machine-readable output suitable for CI:
-
-```bash
-waza replay ./snapshots/my-task-run1.json --json
-```
-
-```json
-{
-  "source": "./snapshots/my-task-run1.json",
-  "mode": "model-replay",
-  "pass": true,
-  "status": "passed",
-  "tool_events": 7,
-  "graders": 2
-}
-```
-
-### Bisect two snapshots
-
-Comparing two runs of the same task and locating the first divergent turn:
+## Regrade selected captured files
 
 ```bash
-waza replay ./snapshots/a.json --bisect ./snapshots/b.json --json
+waza grade eval.yaml --results ./evidence-results.json --task report-task \
+  --evidence-snapshot ./reviewed-snapshot.json --output ./regraded-results.json
 ```
 
-The diff focuses on the **ordered tool-name/args fingerprint**, ignoring per-call durations and raw output text. This is what catches environment drift (different model versions, prompt-tweaks, fixture mutations) cleanly.
+This explicit mode requires exactly one assessed matching run for the selected
+task. It verifies the original manifest SHA-256, full source origin, and
+complete, unredacted file contents, including each text digest. It never follows
+`snapshot_path` implicitly and cannot be combined with an explicit `--workspace`.
+Verification also binds the snapshot header to the full origin, checks that
+each declared workspace pointer names the actual file index, and rejects raw
+supplied workspace JSON with unknown/unhashed members or duplicate keys.
 
-### Live mode (planned, Wave 4)
+Only file graders with explicit required `must_exist` / `content_patterns` paths
+are supported. Only those required files are materialized in a private workspace.
+Wildcard checks, absence checks, file graders without explicit required checks,
+and prompt/code/program/diff graders are rejected. This is not general workspace
+reconstruction. The older `grade --workspace` mode is unchanged; its prompt
+graders may contact a paid judge. Evidence inspection adds no automatic calls.
 
-`--mode live` is reserved for the upcoming adversarial harness: it will re-run the task against the real engine and diff the produced tool events against the snapshot tape, surfacing non-determinism in the engine itself. Today the flag returns exit code `2` with an explanatory message.
+Regrading retains the original capture SHA-256 as `source_manifest_sha256` but
+invalidates original validation, result, grader-configuration, and checkpoint
+links. Original checkpoints are never observations of newly declared checks.
 
-## Schema and forward compatibility
+## Scoped requirement observations
 
-The snapshot wire format starts at its own independent `1.0`, separate from `results.json` (`1.2`) and `eval.yaml` (`1.0`).
+Declared requirement checks resolve named graders only when the name is unique
+in the declared scope. Missing names and flattened-name collisions are unresolved.
+`passed` / `failed` describe **existing grader observations**, not requirement
+enforcement, a new requirement score, or changed pass/fail defaults.
 
-- MAJOR mismatch is **rejected** at load (`exit 2`).
-- Additive MINOR fields are forward-compatible: a `1.1` snapshot can be replayed by `1.0`-aware tooling, with the extra fields preserved verbatim under the standard json round-tripping rules.
+Prompt checks are qualitative; code/program operational status remains typed
+`unavailable` where it cannot be certified. File/diff inputs are uncertified unless
+verified for the requested operation. Overall operational errors remain distinct
+from grader outcomes. Categories and references do not infer agent intent,
+causal classification, or hypotheses.
 
-When you author new graders, mocks, or harnesses that touch snapshots, prefer adding fields under the existing branches rather than introducing parallel top-level keys.
+### Optional interpretation output
 
-## CI patterns
+`waza run ... --interpret` prints a summary with per-trial scoped requirement
+check observations and evidence metadata when present. Existing no-metadata
+summary text remains unchanged. Malformed evidence and its assessment
+references are withheld, not treated as assessed observations. Interpretation
+does not add enforcement, causal diagnosis, or automatic model calls.
 
-```yaml
-# Capture every task in your nightly run
-- run: waza run eval.yaml --snapshot ./out/snapshots
+## Portable hash contract
 
-# In a follow-up job, replay each one and fail on divergence
-- run: |
-    for s in out/snapshots/*.json; do
-      waza replay "$s" --json >> replay-report.ndjson
-    done
-```
+`json-v1` content and manifest digests use sorted-map Go JSON canonicalization:
+UTF-8 object keys sorted via map encoding, exact numeric lexical tokens, and
+array order preserved. Go `encoding/json` escaping applies, including HTML
+escaping of `<`, `>`, and `&`, and escaping U+2028/U+2029 as `\u2028`/`\u2029`.
+The manifest hash omits the `sha256`
+member entirely (not an empty string) and includes all recognized metadata.
+Timings participate in hashes; no cross-run hash stability is promised.
+`json-v1` identifies canonical JSON digests; `utf8` identifies captured text bytes;
+`source-bytes` identifies source bytes only, not captured content.
 
-For per-PR regression gates, capture a baseline snapshot during the release branch build and bisect each PR's snapshot against it. The bisect output's `first_divergent_turn` field tells reviewers exactly where to look.
+These independently tested vectors are **JSON content digests**, not full
+manifest hashes. The integer token is preserved without rounding:
+
+| Canonical JSON input | SHA-256 |
+| --- | --- |
+| `{"a/b":["ok"],"count":9007199254740993}` | `ae787d745a6a9350aff0908f9bfb76ccdaf889b874927d3e5067392db310c003` |
+| `{"a":9007199254740993,"z":"ok"}` | `7b80b3c931fd14341f4f635196e2a8004ddd3b98f1d9b5cb2788a78353e4c90e` |
+
+The vectors are checked in
+[`internal/evidence/manifest_test.go`](https://github.com/microsoft/waza/blob/main/internal/evidence/manifest_test.go).
 
 ## See also
 
-- [`waza replay` CLI reference](/reference/cli/#waza-replay)
-- [`waza run` snapshot flags](/reference/cli/#flags)
-- [Schema versioning policy](/reference/schema-changes/)
+- [Dashboard evidence view](/waza/guides/dashboard/#portable-evidence)
+- [Run, grade, and replay flags](/waza/reference/cli/)
+- [Schema reference](/waza/reference/schema/#portable-evidence)
+- [Schema versions and compatibility](/waza/reference/schema-changes/)

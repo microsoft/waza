@@ -7,6 +7,69 @@ description: Complete reference for eval.yaml and task file formats.
 
 Complete reference for YAML schema used in waza evaluations.
 
+## Portable evidence
+
+Result/task schemas remain `1.4`. Snapshot schema `1.1` adds optional `evidence`
+and selected `workspaceFiles`; the portable manifest has an independent
+`version: "1.0"`. Legacy artifacts still load without assessed evidence.
+New evidence consumers reject duplicate keys, unknown metadata, and unsupported
+manifest versions; historical same-major reader tolerance does not authorize
+unrecognized evidence.
+
+The independent manifest schema is
+[`schemas/evidence-manifest-1.0.schema.json`](https://github.com/microsoft/waza/blob/main/schemas/evidence-manifest-1.0.schema.json).
+It is embedded for Go consumers as `schemas.EvidenceManifestSchemaJSON`, not
+versioned with the result/task schemas.
+
+The dashboard API omits `evidenceRuns` entirely when all task runs lack both
+evidence and requirement explanations, preserving the legacy response shape.
+The UI reports that absence as unassessed. If any run has either kind of
+metadata, the API returns every trial, including historical missing-metadata
+rows; absence is never inferred to be successful capture.
+
+| Manifest field | Meaning |
+| --- | --- |
+| `version`, `sha256` | Independent manifest version and canonical metadata digest |
+| `source_manifest_sha256` | Original capture digest retained after regrading |
+| `origin` | `eval_id`, `task_id`, `run_number`, `attempt_count`, `prior_attempts`; references are scoped to all fields |
+| `runtime` | Requested engine/model/tool policy, actual engine-derived execution mode, dependency mode, verified enforcement, waza/SDK/effective-model/Go/platform versions |
+| `runtime.no_skills` | `boolean|null` from the actual execution request; unknown is not inferred false |
+| `runtime.native_skill_control` | `unknown`, `sdk_default`, `requested_sdk_disable`, `mock_not_applicable`; requested native control, not SDK enforcement proof |
+| `artifacts[]` | `id`, `kind`, `availability`, `completeness`, optional content/source digest, snapshot document/pointer, reason, redacted flag |
+| `redaction` | Policy, actual matched rules and count, limitations; normalization-only changes are not secret matches |
+| `diagnostics[]` | Typed category/code and safe message; operational uncertainty, not causal classification |
+
+`captured` artifacts require a content digest and snapshot pointer. `digest_only`
+uses a separate source digest without preserved content or a content locator.
+`unavailable` / `not_requested` have reasons and no locator. Most tapes have
+`unknown` completeness; run errors make them `partial`. A selected file may be
+`complete` while the workspace remains partial/unavailable. External state,
+grader implementation, rubric version, and lockfile provenance are unavailable.
+Unknown/null versions stay unavailable rather than being guessed.
+Captured `environment` and `engine-config` artifacts fingerprint the snapshot's
+`/env` allow-list/configuration and `/engine` configuration respectively; they
+do not certify the full host environment. Secret environment-key removals count
+as actual redaction matches.
+
+Cached evidence keeps the original full source origin; task/run/attempt still
+match even if source eval ID differs. Per-run `requirement_explanations` contain
+scoped named-check observations and references with the full origin. Unique
+names resolve; missing/flattened collisions remain unresolved. Observations are
+existing grader pass/fail, qualitative prompt checks, or typed unavailable
+operational status, not new requirement scores or enforcement. Regrading
+invalidates original result/validation/grader-configuration/checkpoint links:
+old checkpoints never observe newly declared checks.
+
+Canonical JSON hashes use Go map-encoded sorted UTF-8 object keys, exact numeric
+lexical tokens, Go `encoding/json` HTML escaping (`<`, `>`, `&`) and U+2028/U+2029
+escaping, and ordered arrays (`json-v1`). Manifest SHA-256
+omits its own member entirely and includes all recognized metadata, including
+timings; no cross-run hash stability is claimed. Source configuration,
+instruction, and fixture digests do not preserve source bytes. See
+[Snapshot & Replay](/waza/guides/snapshot-replay/) for capture safety and the
+narrow verified file-only regrading operation, and
+[Schema Changes](/waza/reference/schema-changes/) for compatibility.
+
 ## eval.yaml
 
 Main evaluation configuration file.
@@ -14,7 +77,7 @@ Main evaluation configuration file.
 ```yaml
 name: code-explainer-eval # Required: eval suite name
 description: "..." # Required: what this eval tests
-skill: code-explainer # Required: skill name
+skill: code-explainer # Required for legacy suites; optional scenario context
 schemaVersion: "1.4" # Optional: schema version; defaults to the current version
 version: "1.0" # Optional: version number
 
@@ -79,12 +142,29 @@ description: "Evaluates agent's ability to explain Python code"
 ### skill
 
 **Type:** string  
-**Required:** yes
+**Required:** yes unless `scenario` is present
 
-The skill being evaluated.
+The skill or custom agent being evaluated; optional context for a scenario.
 
 ```yaml
 skill: code-explainer
+```
+
+### scenario
+
+**Type:** nonempty string
+**Requires:** explicit eval `schemaVersion: "2.0"` (only this exact version)
+
+Workflow identity without a required skill. A scenario may retain optional
+`skill` context using existing discovery precedence. No target or explicit
+skill directories means no ambient skill loading. An empty task
+`skill_directories: []` disables discovery; `--no-skills` overrides contexts.
+Legacy suites retain existing behavior. Tasks and results remain `1.x`.
+
+```yaml
+name: inventory-eval
+scenario: inventory
+schemaVersion: "2.0"
 ```
 
 ### version
@@ -106,6 +186,10 @@ version: "1.0"
 **Default:** current schema version (currently `1.4`)
 
 Schema version for the public artifact shape. It uses `MAJOR.MINOR` format with no patch component. Same-major minor additions are backward-compatible; readers ignore unknown fields and warn. Different major versions are rejected with a migration hint.
+
+Scenario-bearing evals explicitly opt into exact `2.0`, ensuring older
+executables reject their new discovery semantics. Eval `2.0` requires a
+nonempty `scenario`; legacy eval/task/result defaults remain unchanged.
 
 ```yaml
 schemaVersion: "1.2"

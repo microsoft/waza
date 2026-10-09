@@ -80,6 +80,12 @@ Run `waza update` to download and execute the official OS-specific installer aft
 
 ## Quick Start
 
+For contributor regression gates and sanitized MCP, CLI, and repository
+recorded-outcome examples, see the [compatibility corpus](docs/COMPATIBILITY.md)
+and [example guide](examples/compatibility/README.md). Run `NO_COLOR=1 make test-compat`
+to preserve existing workflows; recorded/mock outcomes are not evidence of live
+agent quality.
+
 ### For New Users: Get Started in 5 Minutes
 
 See **[Getting Started Guide](docs/GETTING-STARTED.md)** for a complete walkthrough:
@@ -120,6 +126,9 @@ waza new skill skill-name
 # Create a new eval scaffold from an existing SKILL.md
 waza new eval skill-name
 
+# Create a workflow scenario without SKILL.md (real agent execution)
+waza new eval inventory --scenario --template repository
+
 # Generate a task YAML by recording a prompt run
 waza new task from-prompt "Explain this code and suggest fixes" evals/code-explainer/tasks/recorded-task.yaml
 
@@ -153,7 +162,7 @@ waza grade eval.yaml --results results.json
 # Compare results across models
 waza compare results-gpt4.json results-sonnet.json
 
-# Capture snapshots during a run and replay them later for determinism checks
+# Capture snapshots during a run and inspect offline consistency
 waza run eval.yaml --snapshot ./snapshots/
 waza replay ./snapshots/my-task-run1.json
 
@@ -281,6 +290,12 @@ waza new skill code-explainer
 
 Scaffold an eval suite from an existing `SKILL.md` (reads frontmatter trigger hints from `USE FOR` and `DO NOT USE FOR`).
 
+For a workflow with no target skill, use `waza new eval <name> --scenario`.
+`--template repository|cli|mcp` selects sanitized repository, installed Git CLI,
+or harness-only mocked MCP examples. These templates explicitly use the real
+`copilot-sdk` executor; setting `config.executor: mock` checks the harness only,
+not agent quality. See [scenario examples](examples/scenarios/README.md).
+
 Creates:
 - `evals/<skill-name>/<files.evalFile>`
 - `evals/<skill-name>/tasks/positive-trigger-1<files.taskFileSuffix>`
@@ -290,6 +305,8 @@ Creates:
 | Flag | Description |
 |------|-------------|
 | `--output <path>` | Custom path for the eval file (tasks are generated under sibling `tasks/`) |
+| `--scenario` | Create a workflow suite without reading or creating `SKILL.md` |
+| `--template <kind>` | `repository` (default), `cli`, or `mcp`; requires `--scenario` |
 
 Generated eval and task filenames are configurable in `.waza.yaml`:
 
@@ -349,7 +366,7 @@ Run an evaluation benchmark from a spec file.
 | `--parallel` | | Run tasks concurrently |
 | `--workers <n>` | | Concurrent workers (default: auto, requires `--parallel`) |
 | `--trials <n>` | | Run each task `n` times to detect flakiness (omit to use `config.trials_per_task`; if provided, `n` must be >= 1) |
-| `--interpret` | | Print plain-language result interpretation |
+| `--interpret` | | Print optional plain-language interpretation, including per-trial scoped requirement observations/evidence when present; legacy no-metadata text remains unchanged. |
 | `--format <fmt>` | | Output format: `default` or `github-comment` (default: `default`) |
 | `--cache` | | Enable result caching to speed up repeated runs |
 | `--no-cache` | | Explicitly disable result caching |
@@ -376,9 +393,13 @@ Run an evaluation benchmark from a spec file.
 | `--otel-headers` | | Comma-separated `key=value` OTLP headers (e.g. for auth) |
 | `--otel-file` | | File path for span JSON when `--otel-exporter=file` |
 | `--otel-include-payloads` | | Include prompt/tool-arg/tool-result/completion content in spans (default: redacted to `sha256`+length) |
-| `--snapshot <dir>` | | Capture self-contained `snapshot.json` per task for later [`waza replay`](#waza-replay-snapshotjson). |
+| `--snapshot <dir>` | | Capture redacted per-trial observations and portable evidence for [`waza replay`](#waza-replay-snapshotjson); not a complete workspace. |
+| `--snapshot-file <path>` | | Repeatable reviewed agent-visible UTF-8 regular-file allow-list; requires `--snapshot`. Linux/macOS only. |
+| `--snapshot-evaluator-only <path>` | | Repeatable evaluator-only file/directory exclusions; never select credentials or evaluator-only files. |
+| `--snapshot-max-file-bytes <n>` | | Positive per-file capture limit (default: 1048576 bytes / 1 MiB). |
+| `--snapshot-max-total-bytes <n>` | | Positive aggregate capture limit (default: 10485760 bytes / 10 MiB). |
 | `--snapshot-env-allow <patterns>` | | Allow-list of env var name patterns embedded in snapshots (default-deny; supports `WAZA_*` wildcards). |
-| `--redact <path>` | | YAML redaction policy applied to snapshot output (merged with built-in defaults). |
+| `--redact <path>` | | YAML redaction policy applied to snapshot output (replaces defaults unless `extend: true`). |
 
 **Result Caching**
 
@@ -459,7 +480,15 @@ Compare results from multiple evaluation runs side by side — per-task score de
 
 ### `waza replay <snapshot.json>`
 
-Replay a task snapshot to verify deterministic reproduction. Snapshots are produced by `waza run --snapshot <dir>` and capture the prompt, fixture digests, ordered tool events, environment allow-list, and redacted grader outcomes.
+Check a task snapshot's offline consistency or compare two snapshots. Snapshots are produced by `waza run --snapshot <dir>` and capture the prompt, fixture digests, ordered tool events, environment allow-list, and redacted grader outcomes. Digests are not file contents: replay does not reconstruct a workspace, re-run graders, verify external state, or reproduce an agent execution.
+
+Snapshot capture sanitizes typed JSON tool/context payloads, structurally sensitive keys, and grader feedback/details before serialization, without modifying the original results. Opaque bytes, unsafe keys/identifiers, duplicate or trailing JSON, excessive nesting, and invalid policies fail capture explicitly. Pattern matching is not a confidentiality proof: review artifacts before sharing. Actual rule-match counts include selected files and secret environment-key removals; normalization-only file changes can set `redacted` without adding secret matches.
+
+The manifest fingerprints the captured environment allow-list/configuration (`environment`, snapshot pointer `/env`) and engine configuration (`engine-config`, `/engine`), not the full host environment. Optional `--interpret` output reports per-trial scoped check observations and evidence metadata without changing legacy no-metadata text; malformed evidence is withheld.
+
+Portable evidence uses independent manifest version **1.0** and snapshot schema **1.1**, retaining result/task **1.4** and legacy readers. Each task exposes every trial, its full source origin (eval/task/run/attempt/prior attempts), availability/completeness, separate source/content digests, redaction, unavailable versions, requested native skill control (`no_skills`, `native_skill_control`), and operational uncertainty. Native control is requested behavior, not proof of SDK enforcement. Cached metadata retains the original origin, not a new execution. Captured artifacts require content plus a snapshot pointer; source digests do not preserve bytes. Historical absence is unassessed, invalid metadata is withheld, and capture/publication failures produce safe unavailable states rather than leaking rejected metadata.
+
+Selected-file capture is opt-in, bounded, and private (`0700` directories, `0600` randomized non-overwriting files). Ordinary no-file snapshot names/defaults are unchanged. Allow-listing is not authorization: review agent visibility and exclude evaluator-only material. There is no automatic export, upload, or local-path fetch. Individual files may be complete while the workspace is only partial/unavailable; external state remains unavailable. Scoped requirement observations describe existing named grader outcomes, not enforcement, causal explanations, new scores, or changed pass/fail defaults. See the [capture/regrading guide](site/src/content/docs/guides/snapshot-replay.mdx) and [dashboard evidence view](site/src/content/docs/guides/dashboard.mdx#portable-evidence).
 
 ```bash
 # Capture during a run
@@ -950,11 +979,14 @@ waza results compare run-20250226-001 run-20250226-002 --format json
 
 Run graders against agent output without executing an agent. Designed for standalone grading of previous eval runs.
 
+File-based checks ordinarily require the actual preserved agent workspace, selected with `--workspace`; neither snapshot hashes nor a successful replay supplies that state. Prompt graders can contact the configured judge model. The explicit `--evidence-snapshot` mode instead verifies selected captured files for a narrow file-only operation, without model calls.
+
 | Flag | Description |
 |------|-------------|
 | `--task <id>` | Task ID to grade |
 | `--results <file>` | Path to waza run output JSON |
 | `--workspace <dir>` | Agent workspace directory for file-based graders; must point to the agent's actual workspace (default: `.`) |
+| `--evidence-snapshot <path>` | Explicit reviewed snapshot for file-only regrading; requires `--task`, exactly one assessed matching run, and no explicit `--workspace`. |
 | `--judge-model <model>` | Model for prompt graders |
 | `-o, --output <file>` | Write full EvaluationOutcome JSON (compatible with `waza compare`) |
 | `-v, --verbose` | Verbose output |
@@ -963,6 +995,15 @@ Run graders against agent output without executing an agent. Designed for standa
 waza run eval.yaml --output results.json
 waza grade eval.yaml --results results.json
 ```
+
+Evidence-snapshot regrading accepts only file graders with explicit required
+`must_exist` / `content_patterns` paths. It verifies original manifest SHA-256,
+full origin, and complete unredacted file text/digests, then materializes only
+required files privately. Prompt/code/program/diff, wildcard, absence, and
+no-explicit-file-check grading are rejected; the older workspace mode is unchanged.
+Regraded manifests retain `source_manifest_sha256` and invalidate original
+result/validation/grader-configuration/checkpoint links. Original checkpoints
+never become observations of new declarations.
 
 ### `waza session list`
 
@@ -1204,6 +1245,17 @@ Pin `reasoning_effort` and `judge_reasoning_effort` to `low`, `medium`, `high`, 
 With explicit effort, choose a concrete model from `waza models`. Waza checks the runtime's supported-effort metadata before creating or resuming hosted Copilot sessions; unknown models, unavailable metadata, and unsupported efforts produce actionable errors instead of silently using a different effort. Custom-provider efforts are forwarded directly because the hosted catalog does not describe those models. Result setup metadata and cache keys include both eval-level effort settings; regrading replaces the judge effort, including clearing a previously pinned value when omitted.
 
 `schemaVersion` uses `MAJOR.MINOR` format. Missing values are interpreted as the current schema version (currently `1.4`). Readers allow same-major minor additions with warnings for unknown fields, but reject different majors with a hint to run `waza migrate <file>`.
+
+Scenario-bearing **evals only** explicitly select `schemaVersion: "2.0"` and
+`scenario: <workflow-name>`. Only this exact scenario version is supported;
+older executables reject it before running. Results and tasks remain `1.x`,
+so existing result readers and the dashboard keep working. Optional `skill:`
+retains existing skill/custom-agent context and discovery precedence. Without
+a target or explicit skill directories, scenarios disable ambient skill loading.
+An explicit empty task `skill_directories: []` disables discovery for that task;
+`--no-skills` overrides every task. Legacy suites keep their existing defaults.
+Scenario `2.0` bypasses result caching with an explicit notice because external
+workflow dependencies are not fully fingerprinted; legacy caching is unchanged.
 
 Remote grader refs use Go-module-style paths: `<host>/<owner>/<repo>[/path][#export]@<version>`. The remote module must provide a `waza.registry.yaml` manifest and export a grader preset. Config-only grader presets expand to built-in grader types by default; remote program graders require explicit trust with `waza registry add --allow-exec` or interactive confirmation. Run `waza get eval.yaml` after manually adding or changing refs so `waza.lock` records the resolved commit and digest.
 

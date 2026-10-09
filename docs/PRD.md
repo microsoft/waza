@@ -34,9 +34,21 @@ A single `waza` CLI built in **Go** that automates the skill development workflo
 
 Custom agent evaluations enforce the selected `.agent.md` tool policy with the Copilot SDK (#585): omitted tools remain unrestricted, empty lists deny all tools, and populated lists allow named tools with shared runtime/grader aliases. Policy selection follows task-level skill paths and `SKILL.md` precedence. Initial and resumed turns use native filtering, pre-tool checks, and fail-closed permission checks. Denials fail the run and are surfaced in results schema 1.3, session logs, and the dashboard. Tool policies are not host filesystem/network sandboxing.
 
+Portable evaluation evidence (#663): independently versioned manifest `1.0` in snapshot `1.1`, retaining task/result `1.4`, records full source origin, every trial, separate source/content digests, availability/completeness, redaction, nullable/unavailable versions, requested native skill/tool controls, and typed operational uncertainty. Cached evidence retains source origin; historical absence is unassessed and invalid metadata is withheld. These are observations, not enforcement, complete workspace/external-state certification, causal classification, requirement scores, or changed pass/fail defaults.
+
+Capture sanitizes typed JSON and structural sensitive keys before serialization, preserves numeric lexical tokens, rejects opaque bytes/unsafe identifiers/keys/duplicate or trailing JSON/excessive nesting, and isolates rule-match counters (including selected files). Pattern matching is not a confidentiality proof. Reviewed agent-visible UTF-8 regular-file capture is explicitly allow-listed, excludes evaluator-only files/credentials, bounded (1 MiB/file, 10 MiB total by default), private, non-overwriting, and supported only on Linux/macOS. Allow-listing is not authorization proof. Partial capture and publication failure have safe unavailable states; there is no automatic export/upload/path fetch.
+
+`grade --evidence-snapshot` verifies one selected task/run's original full origin, manifest hash, and complete unredacted text/digests, then privately materializes only explicit required file-grader inputs. Other grader types, wildcard/absence checks, ambiguous runs, and explicit `--workspace` combinations are rejected. Regrading retains the original capture hash but invalidates original result/validation/grader-configuration/checkpoint links; existing workspace grading remains unchanged and may use a paid prompt judge. Offline replay checks event sequencing and stored score/pass consistency or bisects tapes; it does not rerun graders, reconstruct a workspace, or support live replay. See the [portable evidence guide](../site/src/content/docs/guides/snapshot-replay.mdx).
+
 ---
 
 ## User Personas
+
+### Workflow Author
+- **Role:** Developer evaluating MCP, CLI or repository workflows
+- **Goals:** Author scenario suites without an unrelated `SKILL.md`, retaining optional skill/custom-agent context
+- **Scope:** `waza new eval <name> --scenario --template repository|cli|mcp` uses existing graders and real agent execution; mocked dependencies are explicitly harness-only evidence
+- **Compatibility:** Scenario evals opt into exact schema `2.0` so old executables reject changed discovery semantics before execution; legacy evals and task/result artifacts retain their prior formats
 
 ### Primary: Skill Author
 - **Role:** Developer contributing skills to microsoft/skills
@@ -56,6 +68,17 @@ Custom agent evaluations enforce the selected `.agent.md` tool policy with the C
 ---
 
 ## Feature Requirements
+
+### Existing-workflow preservation contract
+
+The additive evaluation work tracked in #657 must preserve current command,
+exit, grader, skill/custom-agent, multi-turn, mock, billing/cache, snapshot and
+historical dashboard behavior. The fixed offline corpus and package-owned
+coverage inventory are specified in [COMPATIBILITY.md](COMPATIBILITY.md) (#658).
+The required integration gate is `NO_COLOR=1 make test-compat`, with historical
+browser checks when dashboard surfaces change. Known bugs are tracked
+separately rather than accepted as new semantics; recorded/mock outcomes are
+not real-agent quality or full assurance claims.
 
 ### Epic 1: Go CLI Foundation (P0)
 

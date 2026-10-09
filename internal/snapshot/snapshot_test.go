@@ -303,7 +303,7 @@ func TestSnapshotMarshalSetsHeader(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(b), `"schemaVersion":"1.0"`) {
+	if !strings.Contains(string(b), `"schemaVersion":"`+CurrentSchemaVersion+`"`) {
 		t.Errorf("schemaVersion not set: %s", b)
 	}
 	if !strings.Contains(string(b), `"kind":"task-snapshot"`) {

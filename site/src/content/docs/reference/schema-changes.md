@@ -5,13 +5,23 @@ description: Versioning policy and changelog for waza public schema artifacts.
 
 Waza public artifacts use an explicit `schemaVersion` field so checked-in eval suites, baselines, and dashboard data remain stable across CLI upgrades.
 
+Scenario-bearing evals opt into **exact `2.0`** with a nonempty string
+`scenario`. This is eval-only: tasks/results and their readers stay `1.x`.
+Older executables reject eval major `2` before execution rather than ignoring
+the new no-ambient-discovery semantics. Optional `skill` retains existing
+skill/custom-agent precedence; no target or explicit skill directories
+disables ambient skills. Empty task `skill_directories: []` disables discovery;
+`--no-skills` overrides every context. Missing or `1.x` versions cannot select
+scenario semantics; `2.1` and future majors are not supported scenario versions.
+
 ## Versioned artifacts
 
 | Artifact | Field | Current version |
 |---|---|---|
 | `eval.yaml` | `schemaVersion` | `1.4` |
 | `results.json` | `schemaVersion` | `1.4` |
-| `snapshot.json` | `schemaVersion` | `1.0` |
+| `snapshot.json` | `schemaVersion` | `1.1` |
+| Portable evidence manifest | `version` | `1.0` (independent) |
 | Dashboard/SSE event envelope | `schemaVersion` | `1.0` |
 
 ## Policy
@@ -35,6 +45,46 @@ waza migrate results.json
 For schema `1.0`, the command is a no-op because there is no prior major version to migrate from.
 
 ## Changelog
+
+### Portable evidence manifest 1.0 / snapshot 1.1 (#663)
+
+- Added optional per-run `evidence` and scoped `requirement_explanations` to
+  results, retaining result/task `1.4`. The dashboard exposes every trial via
+  `evidenceRuns` when any task run has evidence or requirement explanations.
+  When all runs lack both, the API omits that field to preserve the legacy
+  response shape; the dashboard fallback reports unassessed.
+- Snapshot `1.1` adds `evidence`, selected `workspaceFiles`, command invocations,
+  and checkpoints. Ordinary snapshot names/defaults and legacy loading remain.
+- Manifest `version: "1.0"` is independent of artifact `schemaVersion`. It records
+  full source origin (including prior-attempt state), runtime requested controls,
+  nullable SDK/effective-model versions, unavailable version provenance,
+  source/content digests, availability/completeness, redaction, and diagnostics.
+  `no_skills` is `boolean|null`; `native_skill_control` is `unknown`,
+  `sdk_default`, `requested_sdk_disable`, or `mock_not_applicable`, describing
+  requested native control, not proven SDK enforcement.
+- The precise independent schema is `schemas/evidence-manifest-1.0.schema.json`,
+  embedded as `schemas.EvidenceManifestSchemaJSON`.
+- Captured `environment` (`/env`) and `engine-config` (`/engine`) artifacts
+  fingerprint captured allow-list/configuration and engine configuration, not
+  the full host environment. Secret environment-key removals contribute to the
+  redaction match count.
+- `captured` requires actual content digest plus a snapshot pointer.
+  `digest_only` has a separate source digest but no preserved contents/locator.
+  Unavailable/not-requested artifacts have reasons and no locator. Overall
+  workspace/external state cannot be inferred from individual captured files.
+- Regraded evidence keeps `source_manifest_sha256`, invalidating original
+  result/validation/grader-configuration/checkpoint links.
+- Evidence-aware consumers reject raw duplicate keys, unknown metadata, and
+  unsupported manifest versions; this is stricter than historical same-major
+  artifact loading. Invalid evidence is withheld rather than treated as assessed.
+
+See the [evidence hash and capture contract](/waza/guides/snapshot-replay/)
+and [schema fields](/waza/reference/schema/#portable-evidence). Canonical JSON
+uses Go sorted UTF-8 object keys, exact numeric lexical tokens, Go JSON escaping,
+including HTML and U+2028/U+2029 escaping, and array order (`json-v1`).
+Manifest SHA-256 excludes its own member (not an empty string)
+and includes all recognized metadata. Timings participate; hashes are not
+promised stable across runs.
 
 ### 1.4
 

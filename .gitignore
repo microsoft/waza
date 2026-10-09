@@ -40,6 +40,8 @@ env/
 # Eval results (keep examples, ignore user runs)
 results.json
 results-*.json
+!/internal/testdata/compatibility/v1/results-1.0.json
+!/internal/testdata/compatibility/v1/results-1.4.json
 *.results.json
 /output/
 
