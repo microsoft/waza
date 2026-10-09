@@ -38,6 +38,31 @@ Custom agent evaluations enforce the selected `.agent.md` tool policy with the C
 
 ## User Personas
 
+### Grader Assurance Scope (#661)
+
+The initial integrated assurance path is an offline preserved-file/finite-output
+challenge workflow, reusing native graders and approved scoped requirement/evidence
+contracts. Reports distinguish actual observations, finite-case label agreement,
+critical false acceptance, missing coverage, exact binding domains and supplied
+current-source review eligibility. Every selected task, including requirement-free
+tasks, must have mapped and covered requirements for strict corpus pass. Existing grader defaults, exits, golden tasks
+and skill flows remain unchanged. Bundled labels are unreviewed; declarations do
+not authenticate human review. Unknown input completeness and absence from a
+subset cannot become assurance success.
+
+The independent authored-output profile is evaluator-supplied finite text,
+not historical execution, complete tool evidence or observed billing. Native
+historical consumers reject its exact outer `schemaVersion: "2.0"` and
+`kind: "waza.grader-reference-input"` compatibility fences; payload `1.0` and
+manifest `1.1` remain independent, not native historical schema upgrades.
+Strict reports bind original label/envelope bytes
+and separate reviewed-source eligibility from actual native agreement.
+
+Paid model calibration and final dashboard/example delivery remain acceptance work.
+Selecting an unavailable calibration plan records not assessed with zero executions
+and null observed usage/credits; it is not measured calibration or confidence.
+`max_judge_executions` never bounds SDK follow-up billable calls or spend.
+
 ### Workflow Author
 - **Role:** Developer evaluating MCP, CLI or repository workflows
 - **Goals:** Author scenario suites without an unrelated `SKILL.md`, retaining optional skill/custom-agent context

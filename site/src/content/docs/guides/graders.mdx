@@ -65,6 +65,35 @@ finite corpus does not establish universal grader correctness or model-backed
 calibration.
 </Aside>
 
+### Strict preserved-file assurance
+
+`waza assure eval.yaml --references labels.json` compares actual native file
+grader outputs with fixed labels and emits a scoped `waza.grader-assurance`
+report. It is offline and never runs a task agent. A supplied current-review
+document needs separate explicit source acceptance; bundled labels remain
+unreviewed. Exact source/declaration/executable identities, complete unredacted
+files and good/alternative/critical-bad coverage are independent gates.
+
+Finite authored output separately supports native text and inline JSON-schema
+checks. Labels select exactly one historical snapshot or authored document;
+original authored envelope bytes are externally bound by SHA-256. Empty and
+whitespace strings are supplied input, while null is unavailable. This scope
+does not establish historical execution, tool completeness or billing.
+The exact envelope requires outer `schemaVersion: "2.0"` and
+`kind: "waza.grader-reference-input"` to prevent native historical import; the
+inner payload `1.0` and evidence `1.1` retain their independent meanings.
+
+Unpreserved paths cannot prove absence. Unknown snapshot output/event completeness
+is not upgraded by success text, hashes or stored grader verdicts. Missing
+evidence and operational errors never count as correct negative rejection.
+Any wrongly accepted targeted critical bad case fails independently of average
+agreement. These finite cases supply no universal confidence guarantee.
+
+Model calibration is currently unavailable: `--calibrate` reports not assessed,
+makes zero paid calls and leaves usage/credits null. See the
+[CLI reference](/reference/cli/#waza-assure) and
+[exact contract](https://github.com/microsoft/waza/blob/main/docs/GRADER-CHALLENGES.md#strict-file-content-assurance).
+
 ---
 
 ## At a glance

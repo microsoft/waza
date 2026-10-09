@@ -211,6 +211,26 @@ func (s Snapshot) MarshalJSON() ([]byte, error) {
 	return json.Marshal(alias(s))
 }
 
+func (s *Snapshot) UnmarshalJSON(data []byte) error {
+	if err := models.ValidateNativeJSONKeys(data, Snapshot{}); err != nil {
+		return err
+	}
+	type alias Snapshot
+	var decoded alias
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	if err := decoder.Decode(&decoded); err != nil {
+		return err
+	}
+	if decoded.Evidence != nil {
+		if err := models.ValidateNativeEvidenceProfile(decoded.Evidence); err != nil {
+			return err
+		}
+	}
+	*s = Snapshot(decoded)
+	return nil
+}
+
 // ParseSnapshot decodes a snapshot from bytes and validates its schema
 // version. The source argument is included in error messages for diagnostics.
 func ParseSnapshot(data []byte, source string) (*Snapshot, error) {

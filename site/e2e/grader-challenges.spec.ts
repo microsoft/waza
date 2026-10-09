@@ -13,8 +13,22 @@ test('grader challenges disclose offline scope and candidate limitations', async
     'href',
     'https://github.com/microsoft/waza/blob/main/docs/GRADER-CHALLENGES.md',
   );
+  await expect(page.getByRole('heading', { name: 'Strict preserved-file assurance', exact: true })).toBeVisible();
+  await expect(page.getByText(/Any wrongly accepted targeted critical bad case fails independently/)).toBeVisible();
+  await expect(page.getByText(/makes zero paid calls and leaves usage\/credits null/)).toBeVisible();
   await page.screenshot({
     path: fileURLToPath(new URL('../../docs/images/site-graders.png', import.meta.url)),
     fullPage: true,
   });
+
+});
+
+test('assure CLI documents explicit review and unavailable paid calibration', async ({ page }) => {
+  await page.goto('/waza/reference/cli/');
+  const section = page.locator('.sl-markdown-content');
+  await expect(page.getByRole('heading', { name: 'waza assure', exact: true })).toBeVisible();
+  await expect(section).toContainText('--accept-review-source');
+  await expect(section).toContainText('Currently unavailable');
+  await expect(section).toContainText('null usage/credits');
+  await expect(section).toContainText('Existing grade, run and golden-task semantics are unchanged');
 });
