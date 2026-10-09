@@ -193,10 +193,11 @@ legacy_extension: retained compatibility
 			path := classifierWriteFile(t, "eval-byte-parse-*.yaml", string(data))
 			inject := false
 			expected := &EvalSpec{
-				SchemaVersion: version,
-				SpecIdentity:  SpecIdentity{Name: "legacy-values", Description: "unchanged decoding"},
-				SkillName:     "code-explainer",
-				Version:       "0.7",
+				SchemaVersion:  version,
+				sourceDocument: data,
+				SpecIdentity:   SpecIdentity{Name: "legacy-values", Description: "unchanged decoding"},
+				SkillName:      "code-explainer",
+				Version:        "0.7",
 				Config: Config{
 					TrialsPerTask: 3, TimeoutSec: 120, FirstEventTimeoutSec: 10,
 					EngineType: "mock", ModelID: "test-model", Concurrent: true, Workers: 2,

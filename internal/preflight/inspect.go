@@ -42,7 +42,7 @@ func Inspect(evalPath string, opts Options) *Report {
 	for range validation.ValidateEvalBytes(data) {
 		r.add("eval.schema", Invalid, evalPath, "", "", "Eval configuration does not match the embedded schema.", "Check required fields, types, and configuration against schemas/eval.schema.json.")
 	}
-	spec, err := models.LoadEvalSpecOffline(evalPath)
+	spec, err := models.ParseEvalSpecOffline(data, evalPath)
 	if err != nil {
 		r.add("eval.configuration", schemaState(err), evalPath, "", "", "Eval could not be decoded or validated offline.", "Check schemaVersion, YAML types, self-contained grader schemas, trials, timeout, and executor-specific settings.")
 		r.Complete = false
@@ -141,7 +141,7 @@ func discoverTasks(r *Report, spec *models.EvalSpec, base string) ([]*models.Tes
 			for range validation.ValidateTaskBytes(data) {
 				r.add("task.schema", Invalid, path, "", "", "Task does not match the embedded schema.", "Check id, name, inputs, grader configuration, and requirement metadata against schemas/task.schema.json.")
 			}
-			task, err := models.LoadTestCaseOffline(path)
+			task, err := models.ParseTestCaseOffline(data, path)
 			if err != nil {
 				r.add("task.configuration", schemaState(err), path, "", "", "Task could not be decoded or validated offline.", "Check prompt/prompt_file, paths, self-contained grader schemas, checkpoints, responder settings, and mocks.")
 				r.Complete = false

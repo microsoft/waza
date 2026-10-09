@@ -124,7 +124,10 @@ func TestCompatibilityTaskContract(t *testing.T) {
 			defer slog.SetDefault(originalLogger)
 			loaded, err := LoadTestCase(path)
 			require.NoError(t, err, "unknown task fields warn and are ignored; tasks have no version negotiation")
-			require.Equal(t, tc, loaded)
+			expectedValues, loadedValues := *tc, *loaded
+			expectedValues.sourceDocument, loadedValues.sourceDocument = nil, nil
+			require.Equal(t, expectedValues, loadedValues)
+			require.Equal(t, append(bytes.Clone(data), []byte("\n"+extra+"\n")...), loaded.SourceBytes())
 			require.Contains(t, warnings.String(), "unknown schema field ignored for same-major compatibility")
 			require.Contains(t, warnings.String(), "task YAML")
 		})
