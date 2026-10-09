@@ -211,6 +211,8 @@ and static executor capabilities. It does not initialize an engine, execute
 graders/hooks, launch subprocesses or mock/live servers, fetch dependencies, or
 contact services (including update checks). Credentials and external resulting
 state remain unresolved.
+Eager schema matchers are guarded before decoding; external schema prerequisites
+remain unresolved and leave the affected inventory incomplete.
 
 `verified` means a static check, **not a satisfied requirement or proven
 enforcement**. Invalid configuration exits 1; unresolved/unsupported prerequisites
