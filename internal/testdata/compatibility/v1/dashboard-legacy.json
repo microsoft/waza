@@ -1,0 +1,23 @@
+{
+  "id": "compatibility-run",
+  "spec": "compatibility",
+  "model": "mock-model",
+  "outcome": "passed",
+  "passCount": 1,
+  "taskCount": 1,
+  "tokens": 0,
+  "premiumRequests": 0,
+  "cost": 0,
+  "costSource": "estimate",
+  "duration": 0.01,
+  "timestamp": "2026-01-01T00:00:00Z",
+  "source": "local",
+  "tasks": [{
+    "name": "Compatibility task",
+    "outcome": "passed",
+    "score": 0,
+    "duration": 0.01,
+    "graderResults": [{"name": "answer", "type": "text", "passed": true, "score": 1, "weight": 1, "message": ""}],
+    "sessionDigest": {"totalTurns": 0, "toolCallCount": 0, "tokensIn": 0, "tokensOut": 0, "tokensTotal": 0, "toolsUsed": [], "errors": []}
+  }]
+}

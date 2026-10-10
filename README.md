@@ -80,6 +80,12 @@ Run `waza update` to download and execute the official OS-specific installer aft
 
 ## Quick Start
 
+For contributor regression gates and sanitized MCP, CLI, and repository
+recorded-outcome examples, see the [compatibility corpus](docs/COMPATIBILITY.md)
+and [example guide](examples/compatibility/README.md). Run `NO_COLOR=1 make test-compat`
+to preserve existing workflows; recorded/mock outcomes are not evidence of live
+agent quality.
+
 ### For New Users: Get Started in 5 Minutes
 
 See **[Getting Started Guide](docs/GETTING-STARTED.md)** for a complete walkthrough:
@@ -120,6 +126,9 @@ waza new skill skill-name
 # Create a new eval scaffold from an existing SKILL.md
 waza new eval skill-name
 
+# Create a workflow scenario without SKILL.md (real agent execution)
+waza new eval inventory --scenario --template repository
+
 # Generate a task YAML by recording a prompt run
 waza new task from-prompt "Explain this code and suggest fixes" evals/code-explainer/tasks/recorded-task.yaml
 
@@ -141,10 +150,14 @@ waza spec verify skills/my-skill evals/my-skill/eval.yaml --fail --format github
 # Resolve remote grader refs and write waza.lock
 waza get evals/my-skill/eval.yaml
 
+# Challenge native file/output checks with evaluator-only references (offline)
+waza assure eval.yaml --references labels.json
+
 # Note: 'generate' is available as an alias for 'new' (see below for new command)
 # Note: Custom agents (.agent.md) are supported — see https://microsoft.github.io/waza/guides/custom-agents/
 
 # Run evaluations (works with both skills and custom agents)
+waza preflight examples/code-explainer/eval.yaml --context-dir examples/code-explainer/fixtures
 waza run examples/code-explainer/eval.yaml --context-dir examples/code-explainer/fixtures -v
 
 # Grade output from a previous `waza run --output results.json ...`
@@ -184,6 +197,39 @@ to create or update evals and guide eval-driven implementation. It provides the
 canonical workflow, target-specific validation steps, and a reusable delegation prompt.
 
 ## Commands
+
+### `waza preflight <eval.yaml>`
+
+Inspect eval setup **offline and agent-free** before execution:
+
+```bash
+waza preflight eval.yaml
+waza preflight eval.yaml --format json > preflight.json
+waza preflight eval.yaml --strict
+```
+
+Checks schemas, discovered task IDs, local resources/instructions, grader
+configuration and locks/cache, mock matchers, descriptive requirement references,
+and static executor capabilities. It does not initialize an engine, execute
+graders/hooks, launch subprocesses or mock/live servers, fetch dependencies, or
+contact services (including update checks). Credentials and external resulting
+state remain unresolved.
+Eager schema matchers are guarded before decoding; external schema prerequisites
+remain unresolved and leave the affected inventory incomplete.
+
+`verified` means a static check, **not a satisfied requirement or proven
+enforcement**. Invalid configuration exits 1; unresolved/unsupported prerequisites
+warn and exit 0 unless `--strict` selects exit 1. Existing `run`, `grade`, `check`,
+and `gate` behavior is unchanged. The independently versioned `waza.preflight`
+report is not evaluation results and is excluded from results/dashboard discovery.
+
+Optional task `requirements` link stable task-local IDs and
+`outcome|boundary|recovery|quality` categories to existing eval/task/checkpoint
+graders; empty checks mean uncovered. Metadata is descriptive in v1 and never
+creates assertions or forces a tool sequence. This command requires a build
+containing #660; earlier v1 readers can ignore metadata, so minimum-version notes
+are not hard enforcement. See the [offline preflight guide](https://microsoft.github.io/waza/guides/preflight/)
+for reference shapes, path bases, and offline limitations.
 
 ### `waza update`
 
@@ -281,6 +327,12 @@ waza new skill code-explainer
 
 Scaffold an eval suite from an existing `SKILL.md` (reads frontmatter trigger hints from `USE FOR` and `DO NOT USE FOR`).
 
+For a workflow with no target skill, use `waza new eval <name> --scenario`.
+`--template repository|cli|mcp` selects sanitized repository, installed Git CLI,
+or harness-only mocked MCP examples. These templates explicitly use the real
+`copilot-sdk` executor; setting `config.executor: mock` checks the harness only,
+not agent quality. See [scenario examples](examples/scenarios/README.md).
+
 Creates:
 - `evals/<skill-name>/<files.evalFile>`
 - `evals/<skill-name>/tasks/positive-trigger-1<files.taskFileSuffix>`
@@ -290,6 +342,8 @@ Creates:
 | Flag | Description |
 |------|-------------|
 | `--output <path>` | Custom path for the eval file (tasks are generated under sibling `tasks/`) |
+| `--scenario` | Create a workflow suite without reading or creating `SKILL.md` |
+| `--template <kind>` | `repository` (default), `cli`, or `mcp`; requires `--scenario` |
 
 Generated eval and task filenames are configurable in `.waza.yaml`:
 
@@ -456,6 +510,49 @@ Compare results from multiple evaluation runs side by side — per-task score de
 | Flag | Short | Description |
 |------|-------|-------------|
 | `--format <fmt>` | `-f` | Output format: `table` or `json` (default: `table`) |
+| `--release-policy <file>` | | Explicit fixed-design policy assessment; requires `--collection-dir` instead of historical result arguments |
+| `--collection-dir <dir>` | | New paired collection sidecars; missing/invalid/inconclusive selected evidence exits `1` |
+
+`gate` accepts the same explicit policy selection. Its ordinary regression,
+golden, task-set defaults and `0/1/2/3` exits remain unchanged. Policy metadata in
+an ordinary results file is **not** enforcement; older executables reject the
+new flags. Use `waza compare-plan` to bind an explicit design to inspected sources
+and `waza compare-collect` for fresh paired offline mock/native-text attempts.
+Do not convert historical results into policy receipts. The
+[offline example](examples/controlled-comparison/) intentionally remains
+statistically inconclusive; mock observations are not agent-quality evidence.
+See [controlled comparison contracts](docs/CONTROLLED-COMPARISONS.md) for the
+fixed-design assumptions, missing-evidence states and current limitations.
+
+### `waza compare-assurance-plan`
+
+Explicitly bind an **independent offline assurance contract** to a base policy
+with assurance required, before fresh collection:
+
+```bash
+waza compare-assurance-plan --release-policy policy.json \
+  --baseline-eval baseline/eval.yaml --candidate-eval candidate/eval.yaml \
+  --baseline-references baseline/references.json \
+  --candidate-references candidate/references.json \
+  --output assurance-contract.json
+```
+
+These paths represent your authored inputs. Output must be a new file. Collect
+with `compare-collect --assurance-contract assurance-contract.json`, then assess
+with `compare` or `gate` using that explicit contract, `--release-policy`,
+`--collection-dir` and current per-arm eval/reference inputs. Optional per-arm
+`--review` and `--accept-review-source` are separately supplied acceptance, not
+authenticated human review. Unreviewed examples remain nonpassing.
+
+Only mock/no-skills/native-text/finite-authored-output qualification is supported:
+both arms need fresh exact offline1.0 reports and deterministic regrading of
+retained actual responses, plus every base non-assurance pass condition.
+No live SDK, calibration, paid1.1/billing support or automatic paid validation.
+Frozen base 1.0 policy/journal/decision and legacy defaults stay unchanged; the
+base API/dashboard remain nonpassing when assurance is required. Only explicit
+outer assessment can pass. Use JSON for machine-readable outer decisions;
+selected human output does not promise all legacy rendering layouts.
+See [profile artifacts, flags and limits](docs/CONTROLLED-COMPARISONS.md#independent-offline-assurance-profile).
 
 ### `waza replay <snapshot.json>`
 
@@ -1205,6 +1302,17 @@ With explicit effort, choose a concrete model from `waza models`. Waza checks th
 
 `schemaVersion` uses `MAJOR.MINOR` format. Missing values are interpreted as the current schema version (currently `1.4`). Readers allow same-major minor additions with warnings for unknown fields, but reject different majors with a hint to run `waza migrate <file>`.
 
+Scenario-bearing **evals only** explicitly select `schemaVersion: "2.0"` and
+`scenario: <workflow-name>`. Only this exact scenario version is supported;
+older executables reject it before running. Results and tasks remain `1.x`,
+so existing result readers and the dashboard keep working. Optional `skill:`
+retains existing skill/custom-agent context and discovery precedence. Without
+a target or explicit skill directories, scenarios disable ambient skill loading.
+An explicit empty task `skill_directories: []` disables discovery for that task;
+`--no-skills` overrides every task. Legacy suites keep their existing defaults.
+Scenario `2.0` bypasses result caching with an explicit notice because external
+workflow dependencies are not fully fingerprinted; legacy caching is unchanged.
+
 Remote grader refs use Go-module-style paths: `<host>/<owner>/<repo>[/path][#export]@<version>`. The remote module must provide a `waza.registry.yaml` manifest and export a grader preset. Config-only grader presets expand to built-in grader types by default; remote program graders require explicit trust with `waza registry add --allow-exec` or interactive confirmation. Run `waza get eval.yaml` after manually adding or changing refs so `waza.lock` records the resolved commit and digest.
 
 `results.json` is currently emitted at `schemaVersion` `1.4`. Version `1.1` added per-turn checkpoints (`runs[].checkpoints[]`, see #358) and the normalized `runs[].tool_events[]` array (`turn`, `sequence`, `tool_call_id`, `tool_name`, `args`, `result`, `success`, `error`, `duration_ms`; see #366). Version `1.2` added `runs[].snapshot_path` for `waza run --snapshot` artifacts (#367) and the eval-level `adversarial:` block consumed by `waza adversarial --spec` (#365). Version `1.3` adds `session_digest.tool_policy_mode` and `tool_policy_denials` (#585). Version `1.4` adds sanitized `runs[].command_invocations` for declarative CLI mocks (#634). See [docs/PRD](docs/PRD.md) and [schema-changes](site/src/content/docs/reference/schema-changes.md) for details.
@@ -1710,6 +1818,7 @@ See the complete [Grader Reference](docs/GRADERS.md) for detailed configuration 
 - **[Getting Started](docs/GETTING-STARTED.md)** - Complete walkthrough: init → new → run → check
 - **[Demo Guide](docs/DEMO-GUIDE.md)** - 7 live demo scenarios for presentations
 - **[Grader Reference](docs/GRADERS.md)** - Complete grader types and configuration
+- **[Grader Challenges and Assurance](docs/GRADER-CHALLENGES.md)** - Offline native file/output verification; bundled labels remain unreviewed, paid calibration unavailable
 - **[Tutorial](docs/TUTORIAL.md)** - Getting started with writing skill evals
 - **[CI Integration](docs/SKILLS_CI_INTEGRATION.md)** - GitHub Actions workflows for skill evaluation
 - **[Token Management](docs/TOKEN-LIMITS.md)** - Tracking and optimizing skill context size

@@ -66,6 +66,7 @@ type EvalSummary struct {
 	Path      string `json:"path"`
 	Name      string `json:"name"`
 	SkillName string `json:"skill,omitempty"`
+	Scenario  string `json:"scenario,omitempty"`
 }
 
 func (h *HandlerContext) handleEvalList(_ context.Context, params json.RawMessage) (any, *Error) {
@@ -93,6 +94,7 @@ func (h *HandlerContext) handleEvalList(_ context.Context, params json.RawMessag
 			if loadErr == nil {
 				summary.Name = spec.Name
 				summary.SkillName = spec.SkillName
+				summary.Scenario = spec.Scenario
 			} else {
 				summary.Name = path
 			}
@@ -117,6 +119,7 @@ type EvalGetResult struct {
 	Name        string          `json:"name"`
 	Description string          `json:"description,omitempty"`
 	SkillName   string          `json:"skill,omitempty"`
+	Scenario    string          `json:"scenario,omitempty"`
 	Config      models.Config   `json:"config"`
 	Tasks       []string        `json:"tasks"`
 	Graders     []GraderSummary `json:"graders"`
@@ -157,6 +160,7 @@ func (h *HandlerContext) handleEvalGet(_ context.Context, params json.RawMessage
 		Name:        spec.Name,
 		Description: spec.Description,
 		SkillName:   spec.SkillName,
+		Scenario:    spec.Scenario,
 		Config:      spec.Config,
 		Tasks:       spec.Tasks,
 		Graders:     graders,

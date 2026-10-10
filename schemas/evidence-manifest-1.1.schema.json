@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/microsoft/waza/main/schemas/evidence-manifest-1.1.schema.json",
+  "title": "Waza authored finite input evidence manifest 1.1",
+  "description": "Only the exact authored grader input is complete. No historical execution, runtime billing or enforcement is certified. SHA256 covers normalized metadata excluding sha256.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "sha256", "origin", "runtime", "redaction", "artifacts"],
+  "properties": {
+    "version": { "const": "1.1" },
+    "sha256": { "$ref": "#/$defs/sha256" },
+    "origin": {
+      "type": "object", "additionalProperties": false,
+      "required": ["eval_id", "task_id", "run_number", "attempt_count", "prior_attempts"],
+      "properties": {
+        "eval_id": { "type": "string", "pattern": "^reference:[A-Za-z0-9][A-Za-z0-9._-]{0,127}$" },
+        "task_id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$" },
+        "run_number": { "type": "integer", "minimum": 1 },
+        "attempt_count": { "const": 1 },
+        "prior_attempts": { "const": "none" }
+      }
+    },
+    "runtime": {
+      "type": "object", "additionalProperties": false,
+      "required": ["waza_version", "requested_engine", "requested_model", "execution_mode", "dependency_mode", "requested_policy", "verified_enforcement", "go_version", "platform", "sdk_version", "effective_model_version", "no_skills", "native_skill_control"],
+      "properties": {
+        "waza_version": { "const": "" },
+        "requested_engine": { "const": "" },
+        "requested_model": { "const": "" },
+        "execution_mode": { "const": "unknown" },
+        "dependency_mode": { "const": "" },
+        "requested_policy": { "const": "" },
+        "verified_enforcement": { "const": "" },
+        "go_version": { "const": "" },
+        "platform": { "const": "" },
+        "sdk_version": { "type": "null" },
+        "effective_model_version": { "type": "null" },
+        "no_skills": { "type": "null" },
+        "native_skill_control": { "const": "unknown" }
+      }
+    },
+    "redaction": {
+      "type": "object", "additionalProperties": false,
+      "required": ["policy", "match_count", "limitations"],
+      "properties": {
+        "policy": { "const": "none" },
+        "match_count": { "const": 0 },
+        "applied_rules": { "type": "array", "maxItems": 0 },
+        "limitations": { "type": ["array", "null"], "maxItems": 0 }
+      }
+    },
+    "artifacts": {
+      "type": "array", "minItems": 1, "maxItems": 1,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["id", "kind", "availability", "completeness"],
+        "properties": {
+          "id": { "const": "authored-output" },
+          "kind": { "const": "grader_reference_input" },
+          "availability": { "enum": ["captured", "unavailable"] },
+          "completeness": { "enum": ["complete", "unknown"] },
+          "document": { "const": "supplied-finite-input" },
+          "pointer": { "const": "/payload" },
+          "content_digest": {
+            "type": "object", "additionalProperties": false,
+            "required": ["sha256", "encoding"],
+            "properties": { "sha256": { "$ref": "#/$defs/sha256" }, "encoding": { "const": "json-v1" } }
+          },
+          "reason": { "type": "string", "minLength": 1 },
+          "redacted": { "const": false }
+        },
+        "oneOf": [
+          {
+            "required": ["document", "pointer", "content_digest"],
+            "properties": { "availability": { "const": "captured" }, "completeness": { "const": "complete" } },
+            "not": { "required": ["reason"] }
+          },
+          {
+            "required": ["reason"],
+            "properties": { "availability": { "const": "unavailable" }, "completeness": { "const": "unknown" } },
+            "not": { "anyOf": [{ "required": ["document"] }, { "required": ["pointer"] }, { "required": ["content_digest"] }] }
+          }
+        ]
+      }
+    },
+    "diagnostics": { "type": "array", "maxItems": 0 }
+  },
+  "$defs": { "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" } }
+}

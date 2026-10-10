@@ -1,0 +1,260 @@
+---
+title: Controlled comparisons
+description: Explicit fixed-design release assessment, lineage boundaries and current integration limitations.
+---
+
+Source-bound planning, paired collection, strict reassessment, structural schemas
+and a separate dashboard decision view are implemented for **offline mock,
+no-skills execution with native text/string checks**. Other strict collection
+paths are unsupported; ordinary runs retain all existing capabilities. An
+explicit independent offline assurance profile qualifies finite authored text
+cases and regrades retained actual responses without changing base 1.0.
+Mock observations validate the harness, not agent quality.
+
+## Plan and collect offline
+
+```bash
+waza compare-plan \
+  --baseline-eval examples/controlled-comparison/eval.yaml \
+  --candidate-eval examples/controlled-comparison/eval.yaml \
+  --design examples/controlled-comparison/design.json \
+  --requirements examples/controlled-comparison/requirements.json \
+  --output policy.json
+waza compare-collect \
+  --baseline-eval examples/controlled-comparison/eval.yaml \
+  --candidate-eval examples/controlled-comparison/eval.yaml \
+  --release-policy policy.json --collection-dir new-collection
+```
+
+The example is intentionally inconclusive on assessment (exit `1`): one
+deterministic cluster does not justify a release claim. Design/requirements
+use the corresponding policy 1.0 member shapes. Explicit requiredness cannot
+silently default; input allocation must be empty. The planner generates the
+seed once and binds exact effective trial counts before any outcomes.
+`--allow-change model` expands actual differences to exact per-task entries;
+timeouts/retries/graders/fixtures cannot be hidden by a model allowance.
+
+Source inspection is engine-free and never turns preflight inventory readiness
+into assurance. Both sources are rechecked before BEGIN and every attempt;
+execution uses privately frozen input bytes, then a fresh initialized mock and
+workspace after its durable start. Actual copied resource/instruction order and
+bytes, resolved prompts, native scoped checks, remaining settings and executable
+identity are bound. Present lock bytes are bound; only inspected empty rubric/
+lock applicability is `not_applicable`. Requested model labels do not establish
+provider versions. The harness's `mock_no_provider` identity is not agent quality
+or loaded-image authenticity.
+
+Context flags retain cwd-relative behavior; task context roots do too.
+`inputs.context.fixture` stays eval-directory-relative. Unused fixture files
+are not falsely reported as executed-input drift. No CSV/template-generated
+tasks, skills/agents, external dependencies, hooks, parallelism, multiturn,
+checkpoint or non-text graders are supported by this collection producer.
+
+## Dashboard and structural schemas
+
+Serve the local collection parent with `waza serve --results-dir <root>` and
+open **Release policies**. `/api/release-collections` recomputes strict decisions
+without mixing sidecars into ordinary runs. All seven dimensions and available
+full/partial attempt counts remain separate; missing rates are unavailable.
+Exact usage numbers are transported as strings, not rounded JavaScript numbers.
+This independently tagged `waza.release-decision-view` 1.0 transport is distinct
+from the stored numeric-token `waza.release-decision` artifact.
+Interrupted tapes never become completed evidence or resumed collections.
+
+The versioned `schemas/release-*-1.0.schema.json` files provide structural
+validation. The Go reader additionally enforces exact JSON tokens, source
+binding, conditional availability, transitions and statistical validity.
+
+The base API/dashboard intentionally remain **nonpassing when assurance is
+required**, even when an independent profile is present. Only explicit outer
+CLI assessment can pass; stored report/view pass labels cannot upgrade base
+semantics.
+
+## Opt in separately to offline assurance
+
+Full actual rows are retained in the fixed evaluator-owned
+`assurance-rows.ndjson` tape: payload fsync precedes its assurance digest/output
+record and the core terminal. Readers require exact positional count/order,
+JSON-v1 identity and final-result agreement; missing, torn, duplicated, reordered
+or orphan payloads cannot pass. Fixed artifacts use bounded (16 MiB), rooted,
+regular-file reads; cancellation stops additive assessment. JSON-v1-equivalent
+whitespace is not an exact-source-byte authenticity claim.
+
+Freeze a base policy with `requirements.assurance: true`, then create an
+independent contract before collection. The following paths are your authored
+inputs, not bundled ready-to-pass fixtures:
+
+```bash
+waza compare-assurance-plan \
+  --release-policy policy.json \
+  --baseline-eval baseline/eval.yaml --candidate-eval candidate/eval.yaml \
+  --baseline-references baseline/references.json \
+  --candidate-references candidate/references.json \
+  --output assurance-contract.json
+waza compare-collect \
+  --release-policy policy.json --assurance-contract assurance-contract.json \
+  --baseline-eval baseline/eval.yaml --candidate-eval candidate/eval.yaml \
+  --baseline-references baseline/references.json \
+  --candidate-references candidate/references.json \
+  --collection-dir new-assured-collection
+waza gate \
+  --release-policy policy.json --assurance-contract assurance-contract.json \
+  --collection-dir new-assured-collection \
+  --baseline-eval baseline/eval.yaml --candidate-eval candidate/eval.yaml \
+  --baseline-references baseline/references.json \
+  --candidate-references candidate/references.json --format json
+```
+
+`compare` accepts the same assessment inputs without historical positional
+results. Optional per-arm context overrides retain existing cwd resolution.
+Contract output is a new exclusive file; collection is a new directory.
+Collection and assessment require explicit `--assurance-contract` and
+`--release-policy`; assessment also needs `--collection-dir` and **current**
+per-arm eval/reference inputs. Missing/empty required values fail, not fall back.
+Old executables reject new commands/flags; legacy defaults stay unchanged.
+
+Only **mock / no_skills / native text / finite authored outputs** are admitted.
+Every actual endpoint needs an unambiguous requirement/check mapping. Both
+arms need fresh exact offline1.0 reports, deterministic regrading of retained
+actual responses, and all base non-assurance pass conditions, including
+statistics, golden first-attempt veto, operations and any required billing
+totals. No live SDK, calibration, paid1.1/billing support or automatic paid
+validation is supported.
+
+References remain evaluator-only and use the existing grader-reference and
+authored-output contracts. Reviews are separately supplied current inputs:
+`--baseline-review` / `--candidate-review`, plus independent explicit
+`--baseline-accept-review-source` / `--candidate-accept-review-source`.
+Supply the same selected inputs throughout all stages. A file is not acceptance,
+acceptance without a supplied review is invalid, and neither authenticates a
+human. Unreviewed examples remain nonpassing; test reviewed declarations are
+clearly synthetic. Revocation/staleness invalidates eligibility; withheld
+revocations cannot be discovered.
+
+Sources/evidence/review are rechecked after verification, before final
+publication and before assessment returns. Stored pass reports are never
+adopted. These finite-corpus reports do not claim live-agent reliability, full
+correctness, confidence calibration or authenticated human review.
+
+The independent contract, attempt row, final ledger and outer decision use
+`waza.release-assurance-contract`, `waza.release-assurance-attempt`,
+`waza.release-assurance-ledger` and `waza.release-assured-decision`, each at
+`1.0`, with dedicated schemas. Regenerate them with
+`go run schemas/assurance_generate.go`; frozen base schemas are not broadened.
+Contract/ledger self-digests omit the `digest` member and use JSON-v1, as do
+policy/plan/config/task/grader declarations, core journal and result-row
+identities. Eval/executable/labels/review/authored documents, final NDJSON tape
+and raw result files use **exact source bytes**, including whitespace/newlines.
+Those domains are not interchangeable. The contract digest identifies the
+collection. Hashes and a nonce prove local consistency, not authenticity,
+global uniqueness or globally witnessed precommitment.
+
+An actually empty response is explicitly
+`{"availability":"available","value":""}`. An unavailable response has a
+nonblank `reason` and **no value**; an empty result field cannot manufacture a
+captured response. Regrading checks actual result-row lineage and preserved
+native verdicts/scores; no chosen successful attempt replaces earlier failures.
+
+Use `--format json` for the outer machine-readable decision or human output
+(`gate` default; `compare` table selection renders human text). Other selected
+styles do not promise legacy layouts. Selected nonpass exits `1`; an outer pass
+still embeds a nonpassing base decision. See the
+[complete profile contract](https://github.com/microsoft/waza/blob/main/docs/CONTROLLED-COMPARISONS.md#independent-offline-assurance-profile)
+for raw-reader validation beyond structural schemas.
+
+## Explicit enforcement
+
+```bash
+waza compare --release-policy policy.json --collection-dir new-collection --format json
+waza gate --release-policy policy.json --collection-dir new-collection --format json
+```
+
+Both flags are mandatory, and the selected policy must exactly match the
+precollection commitment. Selected nonpass exits `1`; output separates
+compatibility, completeness, assurance, golden, billing, statistics and
+operations. No historical result adoption or resume is supported. Do not mix
+this mode with legacy gate flags or positional comparison files.
+
+Without explicit selection, compare/gate defaults, golden union/task-set
+semantics and gate `0/1/2/3` exits remain unchanged. Metadata alone does not
+enforce a policy. Old executables reject the new unknown flags.
+
+## Statistical design first
+
+The estimand is expected candidate-minus-baseline pass reliability for the
+**fixed declared suite under its repeated-execution mechanism**. Select one
+first-attempt or retry-policy endpoint before collection. Report both endpoint
+reliabilities and recovery/attempt counts, but do not treat retries or tasks
+within a cluster as independent samples.
+
+For independent bounded cluster differences in `[-1,1]`, declared coefficients
+`w`, error probability `alpha` and external conservative family bound `M`,
+the two-sided Hoeffding radius is:
+
+```text
+h = sqrt(2 * log(2*M/alpha) * sum(w*w))
+```
+
+One selected contrast is verified; larger `M` is not a verified full-family
+inventory. `.05`, `M=1`, `h<=.1` gives a mathematical precision requirement of
+738 equal independent clusters, **not power, cost or an execution promise**.
+Actual frozen weights must meet the declared precision with conservative
+rounding. Reserve extra precision margin before collection, never afterwards.
+
+Canonical Go JSON coefficient tokens admit routine uniform 3/12/738 and
+ordinary relative allocations. Narrow representation-mass admission precedes
+exact rational normalization of the whole declared set; both estimate and
+radius use it. Omitted cluster/task mass and hidden coefficient precision
+reject rather than being normalized away.
+
+Independence needs a mechanism, justification and limitations. Fresh sessions,
+reset fixtures and frozen pair ordering do not remove shared service/time/state
+dependence. Unjustified independence stays descriptive/inconclusive. No
+adaptive stopping, outcome-selected seeds, post-hoc endpoints, selected
+successful attempts or denominator changes are supported.
+
+## Evidence is not an assurance label
+
+Independent JSON-v1 policy/receipt/journal identity uses strict original JSON
+numeric tokens; duplicate, unknown, trailing or unsupported content rejects.
+Per-task effective settings and source identities bind the plan. Only exact
+declared engine/model/reasoning changes are allowed. Expected runtime belongs
+to the plan; actual observed versions belong to attempts/receipts. Requested
+model labels never supply unknown actual provenance.
+
+Source identity, stored-byte digest and aggregate manifest identity are
+different domains. Captured artifacts may still be incomplete/redacted.
+Rubric/lock `not_applicable` is a verified empty inventory, not unavailable
+applicable evidence. Preflight completeness/reference verification means
+examined declarations, not runtime readiness, enforcement or satisfaction.
+
+Every required golden task must pass its first attempt in **both arms for
+every planned trial**, independently of selected endpoint. Recovery cannot
+average away a first-attempt golden failure. Missing required golden evidence
+is distinct from observed failure and from missing required assurance.
+
+## Durable collection and spend
+
+A new private Linux/macOS collection requires both durable BEGINs before
+engines and a synced start before each attempt. Shared contiguous events
+record exact cluster/arm/task/trial/retry order. Reassessment checks the exact
+durable NDJSON stream, BEGINs, complete journal, final receipts, result
+projection and actual run/attempt/grader rows. Missing/crashed/contradictory
+publications never pass. Unsupported platforms fail closed only for this new
+protocol; legacy writers remain available.
+
+File and containing-directory sync primitives are checked. Machine-crash
+durability still depends on storage/filesystem semantics. Local hashes are
+consistency checks, not authenticity or independently witnessed precommitment.
+
+Tokens, provider currency and AI credits are independent. Unavailable is not
+zero; tokens are exact nonnegative integers. Only final complete attributable
+totals satisfy a required budget. Partial zero does not pass. Final observed
+spend can exceed a budget: asynchronous overshoot is not prevented by an atomic
+spend cap.
+
+Program process-launch/timeout failures can look like nil-error grader
+rejections. Unsupported operational observability therefore cannot be counted
+as behavioral failures or successes. Ordinary runs retain those features;
+affirmative controlled instrumentation is currently limited to the safe
+mock/native-text/string-expectation path.

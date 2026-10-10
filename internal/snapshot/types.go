@@ -1,15 +1,15 @@
 // Package snapshot implements waza's per-task snapshot/replay artifact.
 //
-// A snapshot is a self-contained, versioned record of one task execution:
+// A snapshot is a versioned record of observations from one task execution:
 // prompt sequence, every tool call (name/args/result/timing), engine/model
 // config, fixture file hashes, and an env-var allow-list capture. Snapshots
 // are written under `--output-dir` when `waza run --snapshot` is passed and
 // referenced from `results.json` (additive in outcome schema 1.2).
 //
-// `waza replay <snapshot.json>` consumes snapshots to deterministically
-// re-run a task without burning LLM calls (model-replay mode), to detect
-// drift against the real engine (live mode), or to bisect divergence
-// between two snapshots.
+// `waza replay <snapshot.json>` checks stored event sequencing and grader
+// score/pass consistency without model calls, or compares two snapshots.
+// It does not reconstruct workspace state or re-run graders. Live replay
+// is not implemented.
 //
 // The snapshot wire format is its own MAJOR.MINOR schema independent of the
 // results.json schema. Additions are MINOR bumps; renames/removals are MAJOR.
@@ -18,12 +18,14 @@
 package snapshot
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/microsoft/waza/internal/jsonutil"
 	"github.com/microsoft/waza/internal/models"
 )
 
@@ -35,16 +37,13 @@ const Kind = "task-snapshot"
 // wire format.
 //
 // 1.0 — initial snapshot format (issue #367).
-const CurrentSchemaVersion = "1.0"
+const CurrentSchemaVersion = "1.1"
 
 // Snapshot is the on-disk record of a single task run that `waza replay` can
-// consume to either deterministically re-run graders (model-replay) or to
-// compare against a fresh live execution (live mode / bisect).
+// inspect for internal consistency or compare against another snapshot.
 //
-// Snapshot is intentionally self-contained: all fields needed to reproduce a
-// run are captured in the JSON document. Consumers should treat unknown
-// fields as a forward-compat signal (same MAJOR, future MINOR) and log a
-// warning rather than fail.
+// Fixture and instruction digests do not preserve source contents. Unknown
+// same-major fields are ignored by typed readers.
 type Snapshot struct {
 	// SchemaVersion is the MAJOR.MINOR version of the snapshot wire format.
 	SchemaVersion string `json:"schemaVersion"`
@@ -83,13 +82,11 @@ type Snapshot struct {
 	// ToolEvents is the canonical replay tape: the ordered, normalised
 	// tool-call record exactly as it appears in
 	// EvaluationOutcome.RunResult.ToolEvents (schema 1.1+). It is the
-	// deterministic input that replay model-replay mode feeds back into
-	// graders that consume tool events.
+	// input inspected by replay model-replay mode for sequence consistency.
 	ToolEvents []models.ToolEvent `json:"toolEvents,omitempty"`
 
-	// Fixtures records the sha256 digest of every fixture/resource file the
-	// task started with. Replay live mode uses this to detect drift in the
-	// fixtures directory.
+	// Fixtures records sha256 digests of source fixture/resource files.
+	// These hashes do not preserve their contents or final workspace state.
 	Fixtures []FixtureDigest `json:"fixtures,omitempty"`
 
 	// Env captures the env-var allow-list and (for auditing) the names of
@@ -100,8 +97,14 @@ type Snapshot struct {
 	Redaction SnapshotRedaction `json:"redaction"`
 
 	// Result holds the outcome of the captured run (status / final output /
-	// grader results) so model-replay can verify graders deterministically.
+	// grader results) so model-replay can inspect stored score/pass consistency.
 	Result SnapshotResult `json:"result"`
+
+	CommandInvocations []models.CommandInvocation `json:"commandInvocations,omitempty"`
+	Checkpoints        []models.CheckpointOutcome `json:"checkpoints,omitempty"`
+	Evidence           *models.EvidenceManifest   `json:"evidence,omitempty"`
+	WorkspaceFiles     []WorkspaceFile            `json:"workspaceFiles,omitempty"`
+	rawWorkspaceFiles  []json.RawMessage
 }
 
 // SnapshotTask carries identifying task metadata.
@@ -208,15 +211,42 @@ func (s Snapshot) MarshalJSON() ([]byte, error) {
 	return json.Marshal(alias(s))
 }
 
+func (s *Snapshot) UnmarshalJSON(data []byte) error {
+	if err := models.ValidateNativeJSONKeys(data, Snapshot{}); err != nil {
+		return err
+	}
+	type alias Snapshot
+	var decoded alias
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	if err := decoder.Decode(&decoded); err != nil {
+		return err
+	}
+	if decoded.Evidence != nil {
+		if err := models.ValidateNativeEvidenceProfile(decoded.Evidence); err != nil {
+			return err
+		}
+	}
+	*s = Snapshot(decoded)
+	return nil
+}
+
 // ParseSnapshot decodes a snapshot from bytes and validates its schema
 // version. The source argument is included in error messages for diagnostics.
 func ParseSnapshot(data []byte, source string) (*Snapshot, error) {
 	var header struct {
-		SchemaVersion string `json:"schemaVersion"`
-		Kind          string `json:"kind"`
+		SchemaVersion  string            `json:"schemaVersion"`
+		Kind           string            `json:"kind"`
+		Evidence       json.RawMessage   `json:"evidence"`
+		WorkspaceFiles []json.RawMessage `json:"workspaceFiles"`
 	}
 	if err := json.Unmarshal(data, &header); err != nil {
 		return nil, fmt.Errorf("snapshot %s: %w", source, err)
+	}
+	if len(header.Evidence) > 0 && string(header.Evidence) != "null" {
+		if _, err := jsonutil.Parse(data); err != nil {
+			return nil, fmt.Errorf("snapshot %s: %w", source, err)
+		}
 	}
 	if header.Kind != "" && header.Kind != Kind {
 		return nil, fmt.Errorf("snapshot %s: kind %q is not %q", source, header.Kind, Kind)
@@ -237,7 +267,9 @@ func ParseSnapshot(data []byte, source string) (*Snapshot, error) {
 	}
 
 	var snap Snapshot
-	if err := json.Unmarshal(data, &snap); err != nil {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	if err := decoder.Decode(&snap); err != nil {
 		return nil, fmt.Errorf("snapshot %s: %w", source, err)
 	}
 	if snap.SchemaVersion == "" {
@@ -246,6 +278,7 @@ func ParseSnapshot(data []byte, source string) (*Snapshot, error) {
 	if snap.Kind == "" {
 		snap.Kind = Kind
 	}
+	snap.rawWorkspaceFiles = header.WorkspaceFiles
 	return &snap, nil
 }
 

@@ -1,0 +1,2601 @@
+{
+  "$defs": {
+    "models_CheckExplanation": {
+      "additionalProperties": false,
+      "properties": {
+        "category": {
+          "type": "string"
+        },
+        "check": {
+          "$ref": "#/$defs/models_RequirementCheck"
+        },
+        "message": {
+          "type": "string"
+        },
+        "observation": {
+          "type": "string"
+        },
+        "references": {
+          "items": {
+            "$ref": "#/$defs/models_EvidenceReference"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "check",
+        "observation",
+        "category",
+        "message"
+      ],
+      "type": "object"
+    },
+    "models_CheckpointOutcome": {
+      "additionalProperties": false,
+      "properties": {
+        "after_turn": {
+          "type": "integer"
+        },
+        "status": {
+          "type": "string"
+        },
+        "stopped": {
+          "type": "boolean"
+        },
+        "validations": {
+          "additionalProperties": {
+            "$ref": "#/$defs/models_GraderResults"
+          },
+          "type": [
+            "object",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "after_turn",
+        "status",
+        "validations"
+      ],
+      "type": "object"
+    },
+    "models_CommandInvocation": {
+      "additionalProperties": false,
+      "properties": {
+        "args": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "command": {
+          "type": "string"
+        },
+        "exit_code": {
+          "type": "integer"
+        },
+        "response_index": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "command",
+        "exit_code",
+        "response_index"
+      ],
+      "type": "object"
+    },
+    "models_EvidenceArtifact": {
+      "additionalProperties": false,
+      "properties": {
+        "availability": {
+          "type": "string"
+        },
+        "completeness": {
+          "type": "string"
+        },
+        "content_digest": {
+          "$ref": "#/$defs/models_EvidenceDigest"
+        },
+        "document": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "pointer": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "redacted": {
+          "type": "boolean"
+        },
+        "source_digest": {
+          "$ref": "#/$defs/models_EvidenceDigest"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "availability",
+        "completeness"
+      ],
+      "type": "object"
+    },
+    "models_EvidenceDiagnostic": {
+      "additionalProperties": false,
+      "properties": {
+        "category": {
+          "type": "string"
+        },
+        "code": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "category",
+        "code",
+        "message"
+      ],
+      "type": "object"
+    },
+    "models_EvidenceDigest": {
+      "additionalProperties": false,
+      "properties": {
+        "encoding": {
+          "type": "string"
+        },
+        "sha256": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "sha256",
+        "encoding"
+      ],
+      "type": "object"
+    },
+    "models_EvidenceManifest": {
+      "additionalProperties": false,
+      "properties": {
+        "artifacts": {
+          "items": {
+            "$ref": "#/$defs/models_EvidenceArtifact"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "diagnostics": {
+          "items": {
+            "$ref": "#/$defs/models_EvidenceDiagnostic"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "origin": {
+          "$ref": "#/$defs/models_EvidenceOrigin"
+        },
+        "redaction": {
+          "$ref": "#/$defs/models_EvidenceRedaction"
+        },
+        "runtime": {
+          "$ref": "#/$defs/models_EvidenceRuntime"
+        },
+        "sha256": {
+          "type": "string"
+        },
+        "source_manifest_sha256": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "version",
+        "sha256",
+        "origin",
+        "runtime",
+        "redaction",
+        "artifacts"
+      ],
+      "type": "object"
+    },
+    "models_EvidenceOrigin": {
+      "additionalProperties": false,
+      "properties": {
+        "attempt_count": {
+          "type": "integer"
+        },
+        "eval_id": {
+          "type": "string"
+        },
+        "prior_attempts": {
+          "type": "string"
+        },
+        "run_number": {
+          "type": "integer"
+        },
+        "task_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "eval_id",
+        "task_id",
+        "run_number",
+        "attempt_count",
+        "prior_attempts"
+      ],
+      "type": "object"
+    },
+    "models_EvidenceRedaction": {
+      "additionalProperties": false,
+      "properties": {
+        "applied_rules": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "limitations": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "match_count": {
+          "type": "integer"
+        },
+        "policy": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "policy",
+        "match_count",
+        "limitations"
+      ],
+      "type": "object"
+    },
+    "models_EvidenceReference": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact_id": {
+          "type": "string"
+        },
+        "origin": {
+          "$ref": "#/$defs/models_EvidenceOrigin"
+        },
+        "pointer": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "origin",
+        "artifact_id"
+      ],
+      "type": "object"
+    },
+    "models_EvidenceRuntime": {
+      "additionalProperties": false,
+      "properties": {
+        "dependency_mode": {
+          "type": "string"
+        },
+        "effective_model_version": {
+          "type": "string"
+        },
+        "execution_mode": {
+          "type": "string"
+        },
+        "go_version": {
+          "type": "string"
+        },
+        "native_skill_control": {
+          "type": "string"
+        },
+        "no_skills": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "platform": {
+          "type": "string"
+        },
+        "requested_engine": {
+          "type": "string"
+        },
+        "requested_model": {
+          "type": "string"
+        },
+        "requested_policy": {
+          "type": "string"
+        },
+        "sdk_version": {
+          "type": "string"
+        },
+        "verified_enforcement": {
+          "type": "string"
+        },
+        "waza_version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "waza_version",
+        "requested_engine",
+        "requested_model",
+        "execution_mode",
+        "dependency_mode",
+        "requested_policy",
+        "verified_enforcement",
+        "go_version",
+        "platform",
+        "sdk_version",
+        "effective_model_version",
+        "no_skills",
+        "native_skill_control"
+      ],
+      "type": "object"
+    },
+    "models_FailureArtifacts": {
+      "additionalProperties": false,
+      "properties": {
+        "captured_at": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "context": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "error_patterns": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "exit_code": {
+          "type": "integer"
+        },
+        "failed_graders": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "stderr": {
+          "type": "string"
+        },
+        "stdout": {
+          "type": "string"
+        },
+        "triage_summary": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "captured_at"
+      ],
+      "type": "object"
+    },
+    "models_GraderResults": {
+      "additionalProperties": false,
+      "properties": {
+        "details": {
+          "additionalProperties": {},
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "duration_ms": {
+          "type": "integer"
+        },
+        "feedback": {
+          "type": "string"
+        },
+        "identifier": {
+          "type": "string"
+        },
+        "passed": {
+          "type": "boolean"
+        },
+        "score": {
+          "type": "number"
+        },
+        "type": {
+          "type": "string"
+        },
+        "weight": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "identifier",
+        "type",
+        "score",
+        "weight",
+        "passed",
+        "feedback",
+        "duration_ms"
+      ],
+      "type": "object"
+    },
+    "models_ModelUsage": {
+      "additionalProperties": false,
+      "properties": {
+        "ai_credits": {
+          "type": "number"
+        },
+        "cache_read_tokens": {
+          "type": "integer"
+        },
+        "cache_write_tokens": {
+          "type": "integer"
+        },
+        "input_tokens": {
+          "type": "integer"
+        },
+        "output_tokens": {
+          "type": "integer"
+        },
+        "request_cost": {
+          "type": "number"
+        },
+        "request_count": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "input_tokens",
+        "output_tokens",
+        "cache_read_tokens",
+        "cache_write_tokens",
+        "request_count",
+        "request_cost"
+      ],
+      "type": "object"
+    },
+    "models_RequirementCheck": {
+      "additionalProperties": false,
+      "properties": {
+        "after_turn": {
+          "type": "integer"
+        },
+        "grader": {
+          "type": "string"
+        },
+        "scope": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "scope",
+        "grader"
+      ],
+      "type": "object"
+    },
+    "models_RequirementExplanation": {
+      "additionalProperties": false,
+      "properties": {
+        "checks": {
+          "items": {
+            "$ref": "#/$defs/models_CheckExplanation"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "requirement_id": {
+          "type": "string"
+        },
+        "task_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "task_id",
+        "requirement_id",
+        "checks"
+      ],
+      "type": "object"
+    },
+    "models_ResponderInfo": {
+      "additionalProperties": false,
+      "properties": {
+        "followups_sent": {
+          "type": "integer"
+        },
+        "outcome": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "followups_sent",
+        "outcome"
+      ],
+      "type": "object"
+    },
+    "models_RunResult": {
+      "additionalProperties": false,
+      "properties": {
+        "attempts": {
+          "type": "integer"
+        },
+        "checkpoints": {
+          "items": {
+            "$ref": "#/$defs/models_CheckpointOutcome"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "command_invocations": {
+          "items": {
+            "$ref": "#/$defs/models_CommandInvocation"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "duration_ms": {
+          "type": "integer"
+        },
+        "error_msg": {
+          "type": "string"
+        },
+        "evidence": {
+          "$ref": "#/$defs/models_EvidenceManifest"
+        },
+        "failure_artifacts": {
+          "$ref": "#/$defs/models_FailureArtifacts"
+        },
+        "final_output": {
+          "type": "string"
+        },
+        "grader_sessions": {
+          "items": {
+            "$ref": "#/$defs/models_SessionDigest"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "prompt": {
+          "type": "string"
+        },
+        "requirement_explanations": {
+          "items": {
+            "$ref": "#/$defs/models_RequirementExplanation"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "responder": {
+          "$ref": "#/$defs/models_ResponderInfo"
+        },
+        "run_number": {
+          "type": "integer"
+        },
+        "session_digest": {
+          "$ref": "#/$defs/models_SessionDigest"
+        },
+        "skill_invocations": {
+          "items": {
+            "$ref": "#/$defs/models_SkillInvocation"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "snapshot_path": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "tool_events": {
+          "items": {
+            "$ref": "#/$defs/models_ToolEvent"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "transcript": {
+          "items": {
+            "$ref": "#/$defs/models_TranscriptEvent"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "usage": {
+          "$ref": "#/$defs/models_UsageStats"
+        },
+        "validations": {
+          "additionalProperties": {
+            "$ref": "#/$defs/models_GraderResults"
+          },
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "workspace_dir": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "run_number",
+        "attempts",
+        "status",
+        "duration_ms",
+        "validations",
+        "session_digest",
+        "final_output"
+      ],
+      "type": "object"
+    },
+    "models_SessionDigest": {
+      "additionalProperties": false,
+      "properties": {
+        "errors": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "session_id": {
+          "type": "string"
+        },
+        "tool_call_count": {
+          "type": "integer"
+        },
+        "tool_calls": {
+          "items": {
+            "$ref": "#/$defs/models_ToolCall"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "tool_policy_denials": {
+          "items": {
+            "$ref": "#/$defs/models_ToolPolicyDenial"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "tool_policy_mode": {
+          "type": "string"
+        },
+        "tools_used": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "usage": {
+          "$ref": "#/$defs/models_UsageStats"
+        }
+      },
+      "required": [
+        "tool_call_count",
+        "tools_used",
+        "errors"
+      ],
+      "type": "object"
+    },
+    "models_SkillInvocation": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "type": "object"
+    },
+    "models_ToolCall": {
+      "additionalProperties": false,
+      "properties": {
+        "arguments": {
+          "$ref": "#/$defs/models_ToolCallArgs"
+        },
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "result": {
+          "$ref": "#/$defs/rpc_ToolExecutionCompleteResult"
+        },
+        "success": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "name",
+        "success"
+      ],
+      "type": "object"
+    },
+    "models_ToolCallArgs": {
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "file_text": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "skill": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "file_text",
+        "command",
+        "description",
+        "skill"
+      ],
+      "type": "object"
+    },
+    "models_ToolEvent": {
+      "additionalProperties": false,
+      "properties": {
+        "args": {},
+        "duration_ms": {
+          "type": "integer"
+        },
+        "error": {
+          "type": "string"
+        },
+        "result": {},
+        "sequence": {
+          "type": "integer"
+        },
+        "success": {
+          "type": "boolean"
+        },
+        "tool_call_id": {
+          "type": "string"
+        },
+        "tool_name": {
+          "type": "string"
+        },
+        "turn": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "turn",
+        "sequence",
+        "tool_name",
+        "success"
+      ],
+      "type": "object"
+    },
+    "models_ToolPolicyDenial": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "tool": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "tool",
+        "kind",
+        "reason"
+      ],
+      "type": "object"
+    },
+    "models_TranscriptEvent": {
+      "additionalProperties": false,
+      "properties": {},
+      "required": [],
+      "type": "object"
+    },
+    "models_UsageStats": {
+      "additionalProperties": false,
+      "properties": {
+        "ai_credits": {
+          "type": "number"
+        },
+        "cache_read_tokens": {
+          "type": "integer"
+        },
+        "cache_write_tokens": {
+          "type": "integer"
+        },
+        "input_tokens": {
+          "type": "integer"
+        },
+        "model_metrics": {
+          "additionalProperties": {
+            "$ref": "#/$defs/models_ModelUsage"
+          },
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "output_tokens": {
+          "type": "integer"
+        },
+        "premium_requests": {
+          "type": "number"
+        },
+        "provider": {
+          "type": "string"
+        },
+        "provider_host": {
+          "type": "string"
+        },
+        "turns": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "turns",
+        "input_tokens",
+        "output_tokens",
+        "cache_read_tokens",
+        "cache_write_tokens",
+        "premium_requests"
+      ],
+      "type": "object"
+    },
+    "releasepolicy_ActualRunRow": {
+      "additionalProperties": false,
+      "properties": {
+        "origin": {
+          "$ref": "#/$defs/models_EvidenceOrigin"
+        },
+        "run": {
+          "$ref": "#/$defs/models_RunResult"
+        }
+      },
+      "required": [
+        "origin",
+        "run"
+      ],
+      "type": "object"
+    },
+    "releasepolicy_Allocation": {
+      "additionalProperties": false,
+      "properties": {
+        "assignments": {
+          "items": {
+            "$ref": "#/$defs/releasepolicy_Assignment"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "mechanism": {
+          "type": "string"
+        },
+        "seed": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "mechanism",
+        "seed",
+        "assignments"
+      ],
+      "type": "object"
+    },
+    "releasepolicy_AllowedChange": {
+      "additionalProperties": false,
+      "properties": {
+        "after": {
+          "type": "string"
+        },
+        "before": {
+          "type": "string"
+        },
+        "field": {
+          "type": "string"
+        },
+        "task_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "task_id",
+        "field",
+        "before",
+        "after"
+      ],
+      "type": "object"
+    },
+    "releasepolicy_Assignment": {
+      "additionalProperties": false,
+      "properties": {
+        "arm_order": {
+          "items": {
+            "enum": [
+              "baseline",
+              "candidate"
+            ]
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "cluster_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "cluster_id",
+        "arm_order"
+      ],
+      "type": "object"
+    },
+    "releasepolicy_AttemptKey": {
+      "additionalProperties": false,
+      "properties": {
+        "arm": {
+          "enum": [
+            "baseline",
+            "candidate"
+          ]
+        },
+        "attempt_ordinal": {
+          "type": "integer"
+        },
+        "cluster_id": {
+          "type": "string"
+        },
+        "eval_id": {
+          "type": "string"
+        },
+        "task_id": {
+          "type": "string"
+        },
+        "trial_ordinal": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "cluster_id",
+        "task_id",
+        "trial_ordinal",
+        "arm",
+        "eval_id",
+        "attempt_ordinal"
+      ],
+      "type": "object"
+    },
+    "releasepolicy_AttemptSummary": {
+      "additionalProperties": false,
+      "properties": {
+        "category": {
+          "type": "string"
+        },
+        "checks": {
+          "items": {
+            "$ref": "#/$defs/releasepolicy_CheckSummary"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "evidence_references": {
+          "items": {
+            "$ref": "#/$defs/models_EvidenceReference"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "key": {
+          "$ref": "#/$defs/releasepolicy_AttemptKey"
+        },
+        "origin": {
+          "$ref": "#/$defs/models_EvidenceOrigin"
+        },
+        "runtime": {
+          "$ref": "#/$defs/releasepolicy_RuntimeObservation"
+        },
+        "status": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "key",
+        "origin",
+        "status",
+        "category",
+        "checks",
+        "runtime",
+        "evidence_references"
+      ],
+      "type": "object"
+    },
+    "releasepolicy_BillingRequirement": {
+      "additionalProperties": false,
+      "properties": {
+        "axis": {
+          "type": "string"
+        },
+        "currency": {
+          "type": "string"
+        },
+        "maximum": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "axis",
+        "maximum"
+      ],
+      "type": "object"
+    },
+    "releasepolicy_CheckSummary": {
+      "additionalProperties": false,
+      "properties": {
+        "after_turn": {
+          "type": "integer"
+        },
+        "grader": {
+          "type": "string"
+        },
+        "operational_state": {
+          "type": "string"
+        },
+        "passed": {
+          "type": "boolean"
+        },
+        "scope": {
+          "type": "string"
+        },
+        "score": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "scope",
+        "grader",
+        "passed",
+        "score",
+        "operational_state"
+      ],
+      "type": "object"
+    },
+    "releasepolicy_Cluster": {
+      "additionalProperties": false,
+      "properties": {
+        "cluster_id": {
+          "type": "string"
+        },
+        "tasks": {
+          "items": {
+            "$ref": "#/$defs/releasepolicy_PlannedTask"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "weight": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "cluster_id",
+        "weight",
+        "tasks"
+      ],
+      "type": "object"
+    },
+    "releasepolicy_Decision": {
+      "additionalProperties": false,
+      "properties": {
+        "accepted": {
+          "type": "boolean"
+        },
+        "accounting": {
+          "additionalProperties": {
+            "$ref": "#/$defs/releasepolicy_Reliability"
+          },
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "assurance": {
+          "$ref": "#/$defs/releasepolicy_Dimension"
+        },
+        "billing": {
+          "$ref": "#/$defs/releasepolicy_Dimension"
+        },
+        "compatibility": {
+          "$ref": "#/$defs/releasepolicy_Dimension"
+        },
+        "completeness": {
+          "$ref": "#/$defs/releasepolicy_Dimension"
+        },
+        "effective_clusters": {
+          "type": "number"
+        },
+        "estimate": {
+          "type": "number"
+        },
+        "golden": {
+          "$ref": "#/$defs/releasepolicy_Dimension"
+        },
+        "half_width": {
+          "type": "number"
+        },
+        "kind": {
+          "const": "waza.release-decision"
+        },
+        "limitations": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "lower": {
+          "type": "number"
+        },
+        "operations": {
+          "$ref": "#/$defs/releasepolicy_Dimension"
+        },
+        "planned_clusters": {
+          "type": "integer"
+        },
+        "statistics": {
+          "$ref": "#/$defs/releasepolicy_Dimension"
+        },
+        "upper": {
+          "type": "number"
+        },
+        "usage": {
+          "additionalProperties": {
+            "items": {
+              "$ref": "#/$defs/releasepolicy_UsageAxis"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "version": {
+          "const": "1.0"
+        }
+      },
+      "required": [
+        "kind",
+        "version",
+        "accepted",
+        "compatibility",
+        "completeness",
+        "assurance",
+        "golden",
+        "billing",
+        "statistics",
+        "operations",
+        "planned_clusters",
+        "limitations",
+        "accounting",
+        "usage"
+      ],
+      "type": "object"
+    },
+    "releasepolicy_Design": {
+      "additionalProperties": false,
+      "properties": {
+        "accept": {
+          "type": "string"
+        },
+        "allocation": {
+          "$ref": "#/$defs/releasepolicy_Allocation"
+        },
+        "alpha": {
+          "type": "number"
+        },
+        "clusters": {
+          "items": {
+            "$ref": "#/$defs/releasepolicy_Cluster"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "comparison_family_size": {
+          "type": "integer"
+        },
+        "endpoint": {
+          "type": "string"
+        },
+        "estimand": {
+          "type": "string"
+        },
+        "independence": {
+          "$ref": "#/$defs/releasepolicy_Independence"
+        },
+        "maximum_half_width": {
+          "type": "number"
+        },
+        "noninferiority_margin": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "estimand",
+        "endpoint",
+        "alpha",
+        "comparison_family_size",
+        "maximum_half_width",
+        "noninferiority_margin",
+        "accept",
+        "independence",
+        "clusters",
+        "allocation"
+      ],
+      "type": "object"
+    },
+    "releasepolicy_Dimension": {
+      "additionalProperties": false,
+      "properties": {
+        "reasons": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "state": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "state",
+        "reasons"
+      ],
+      "type": "object"
+    },
+    "releasepolicy_Event": {
+      "additionalProperties": false,
+      "properties": {
+        "arm": {
+          "enum": [
+            "baseline",
+            "candidate"
+          ]
+        },
+        "attempt": {
+          "$ref": "#/$defs/releasepolicy_AttemptSummary"
+        },
+        "cluster_id": {
+          "type": "string"
+        },
+        "collection_id": {
+          "type": "string"
+        },
+        "eval_id": {
+          "type": "string"
+        },
+        "key": {
+          "$ref": "#/$defs/releasepolicy_AttemptKey"
+        },
+        "policy_digest": {
+          "$ref": "#/$defs/models_EvidenceDigest"
+        },
+        "runtime": {
+          "items": {
+            "$ref": "#/$defs/releasepolicy_RuntimeObservation"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "sequence": {
+          "type": "integer"
+        },
+        "trial": {
+          "$ref": "#/$defs/releasepolicy_TrialSummary"
+        },
+        "type": {
+          "type": "string"
+        },
+        "usage": {
+          "items": {
+            "$ref": "#/$defs/releasepolicy_UsageAxis"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "sequence",
+        "collection_id",
+        "policy_digest",
+        "type"
+      ],
+      "type": "object"
+    },
+    "releasepolicy_ExpectedRuntime": {
+      "additionalProperties": false,
+      "properties": {
+        "availability": {
+          "type": "string"
+        },
+        "engine_implementation": {
+          "type": "string"
+        },
+        "model_version": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "availability",
+        "engine_implementation",
+        "model_version",
+        "reason"
+      ],
+      "type": "object"
+    },
+    "releasepolicy_Identity": {
+      "additionalProperties": false,
+      "properties": {
+        "availability": {
+          "type": "string"
+        },
+        "digest": {
+          "$ref": "#/$defs/models_EvidenceDigest"
+        },
+        "domain": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "task_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "domain",
+        "availability"
+      ],
+      "type": "object"
+    },
+    "releasepolicy_Independence": {
+      "additionalProperties": false,
+      "properties": {
+        "assessment": {
+          "type": "string"
+        },
+        "justification": {
+          "type": "string"
+        },
+        "limitations": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "assessment",
+        "justification",
+        "limitations"
+      ],
+      "type": "object"
+    },
+    "releasepolicy_Journal": {
+      "additionalProperties": false,
+      "properties": {
+        "collection_id": {
+          "type": "string"
+        },
+        "digest": {
+          "$ref": "#/$defs/models_EvidenceDigest"
+        },
+        "events": {
+          "items": {
+            "$ref": "#/$defs/releasepolicy_Event"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "kind": {
+          "const": "waza.release-journal"
+        },
+        "stream_digest": {
+          "$ref": "#/$defs/models_EvidenceDigest"
+        },
+        "version": {
+          "const": "1.0"
+        }
+      },
+      "required": [
+        "kind",
+        "version",
+        "collection_id",
+        "digest",
+        "stream_digest",
+        "events"
+      ],
+      "type": "object"
+    },
+    "releasepolicy_PlannedTask": {
+      "additionalProperties": false,
+      "properties": {
+        "task_id": {
+          "type": "string"
+        },
+        "trial_ordinals": {
+          "items": {
+            "type": "integer"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "weight": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "task_id",
+        "weight",
+        "trial_ordinals"
+      ],
+      "type": "object"
+    },
+    "releasepolicy_Policy": {
+      "additionalProperties": false,
+      "properties": {
+        "allowed_changes": {
+          "items": {
+            "$ref": "#/$defs/releasepolicy_AllowedChange"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "arms": {
+          "additionalProperties": false,
+          "properties": {
+            "baseline": {
+              "$ref": "#/$defs/releasepolicy_PolicyArm"
+            },
+            "candidate": {
+              "$ref": "#/$defs/releasepolicy_PolicyArm"
+            }
+          },
+          "required": [
+            "baseline",
+            "candidate"
+          ],
+          "type": "object"
+        },
+        "design": {
+          "$ref": "#/$defs/releasepolicy_Design"
+        },
+        "digest": {
+          "$ref": "#/$defs/models_EvidenceDigest"
+        },
+        "family_rule": {
+          "type": "string"
+        },
+        "golden_rule": {
+          "type": "string"
+        },
+        "kind": {
+          "const": "waza.release-policy"
+        },
+        "required_golden_task_ids": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "requirements": {
+          "$ref": "#/$defs/releasepolicy_Requirements"
+        },
+        "version": {
+          "const": "1.0"
+        }
+      },
+      "required": [
+        "kind",
+        "version",
+        "digest",
+        "design",
+        "arms",
+        "allowed_changes",
+        "required_golden_task_ids",
+        "golden_rule",
+        "family_rule",
+        "requirements"
+      ],
+      "type": "object"
+    },
+    "releasepolicy_PolicyArm": {
+      "additionalProperties": false,
+      "properties": {
+        "resolved_plan": {
+          "$ref": "#/$defs/releasepolicy_ResolvedPlan"
+        },
+        "resolved_plan_digest": {
+          "$ref": "#/$defs/models_EvidenceDigest"
+        }
+      },
+      "required": [
+        "resolved_plan",
+        "resolved_plan_digest"
+      ],
+      "type": "object"
+    },
+    "releasepolicy_Receipt": {
+      "additionalProperties": false,
+      "properties": {
+        "arm": {
+          "enum": [
+            "baseline",
+            "candidate"
+          ]
+        },
+        "attempts": {
+          "items": {
+            "$ref": "#/$defs/releasepolicy_AttemptSummary"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "collection_id": {
+          "type": "string"
+        },
+        "digest": {
+          "$ref": "#/$defs/models_EvidenceDigest"
+        },
+        "eval_id": {
+          "type": "string"
+        },
+        "journal_count": {
+          "type": "integer"
+        },
+        "journal_digest": {
+          "$ref": "#/$defs/models_EvidenceDigest"
+        },
+        "kind": {
+          "const": "waza.release-receipt"
+        },
+        "planned_samples": {
+          "items": {
+            "$ref": "#/$defs/releasepolicy_SampleKey"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "policy_digest": {
+          "$ref": "#/$defs/models_EvidenceDigest"
+        },
+        "resolved_plan_digest": {
+          "$ref": "#/$defs/models_EvidenceDigest"
+        },
+        "result_binding": {
+          "$ref": "#/$defs/releasepolicy_ResultBinding"
+        },
+        "result_binding_digest": {
+          "$ref": "#/$defs/models_EvidenceDigest"
+        },
+        "runtime": {
+          "items": {
+            "$ref": "#/$defs/releasepolicy_RuntimeObservation"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "started_samples": {
+          "items": {
+            "$ref": "#/$defs/releasepolicy_SampleKey"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "state": {
+          "type": "string"
+        },
+        "trials": {
+          "items": {
+            "$ref": "#/$defs/releasepolicy_TrialSummary"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "usage": {
+          "items": {
+            "$ref": "#/$defs/releasepolicy_UsageAxis"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "version": {
+          "const": "1.0"
+        }
+      },
+      "required": [
+        "kind",
+        "version",
+        "digest",
+        "collection_id",
+        "policy_digest",
+        "arm",
+        "eval_id",
+        "resolved_plan_digest",
+        "state",
+        "planned_samples",
+        "started_samples",
+        "attempts",
+        "trials",
+        "runtime",
+        "usage",
+        "journal_count"
+      ],
+      "type": "object"
+    },
+    "releasepolicy_Reliability": {
+      "additionalProperties": false,
+      "properties": {
+        "attempts": {
+          "type": "integer"
+        },
+        "complete_attempts": {
+          "type": "integer"
+        },
+        "complete_trials": {
+          "type": "integer"
+        },
+        "first_attempt_passes": {
+          "type": "integer"
+        },
+        "first_attempt_rate": {
+          "type": "number"
+        },
+        "planned_trials": {
+          "type": "integer"
+        },
+        "recovered_trials": {
+          "type": "integer"
+        },
+        "retry_policy_passes": {
+          "type": "integer"
+        },
+        "retry_policy_rate": {
+          "type": "number"
+        },
+        "started_attempts": {
+          "type": "integer"
+        },
+        "started_trials": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "planned_trials",
+        "started_trials",
+        "complete_trials",
+        "attempts",
+        "started_attempts",
+        "complete_attempts",
+        "first_attempt_passes",
+        "retry_policy_passes",
+        "recovered_trials",
+        "first_attempt_rate",
+        "retry_policy_rate"
+      ],
+      "type": "object"
+    },
+    "releasepolicy_Requirements": {
+      "additionalProperties": false,
+      "properties": {
+        "assurance": {
+          "type": "boolean"
+        },
+        "billing": {
+          "items": {
+            "$ref": "#/$defs/releasepolicy_BillingRequirement"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "required_identity_domains": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "runtime": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "required_identity_domains",
+        "assurance",
+        "runtime",
+        "billing"
+      ],
+      "type": "object"
+    },
+    "releasepolicy_ResolvedPlan": {
+      "additionalProperties": false,
+      "properties": {
+        "identities": {
+          "items": {
+            "$ref": "#/$defs/releasepolicy_Identity"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "kind": {
+          "const": "waza.release-resolved-plan"
+        },
+        "tasks": {
+          "items": {
+            "$ref": "#/$defs/releasepolicy_TaskPlan"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "version": {
+          "const": "1.0"
+        }
+      },
+      "required": [
+        "kind",
+        "version",
+        "tasks",
+        "identities"
+      ],
+      "type": "object"
+    },
+    "releasepolicy_ResultBinding": {
+      "additionalProperties": false,
+      "properties": {
+        "arm": {
+          "enum": [
+            "baseline",
+            "candidate"
+          ]
+        },
+        "attempts": {
+          "items": {
+            "$ref": "#/$defs/releasepolicy_AttemptSummary"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "collection_id": {
+          "type": "string"
+        },
+        "eval_id": {
+          "type": "string"
+        },
+        "kind": {
+          "const": "waza.release-result-binding"
+        },
+        "planned_samples": {
+          "items": {
+            "$ref": "#/$defs/releasepolicy_SampleKey"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "policy_digest": {
+          "$ref": "#/$defs/models_EvidenceDigest"
+        },
+        "resolved_plan_digest": {
+          "$ref": "#/$defs/models_EvidenceDigest"
+        },
+        "trials": {
+          "items": {
+            "$ref": "#/$defs/releasepolicy_TrialSummary"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "usage": {
+          "items": {
+            "$ref": "#/$defs/releasepolicy_UsageAxis"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "version": {
+          "const": "1.0"
+        }
+      },
+      "required": [
+        "kind",
+        "version",
+        "collection_id",
+        "policy_digest",
+        "arm",
+        "eval_id",
+        "resolved_plan_digest",
+        "planned_samples",
+        "trials",
+        "attempts",
+        "usage"
+      ],
+      "type": "object"
+    },
+    "releasepolicy_Results": {
+      "additionalProperties": false,
+      "properties": {
+        "arm": {
+          "enum": [
+            "baseline",
+            "candidate"
+          ]
+        },
+        "collection_id": {
+          "type": "string"
+        },
+        "eval_id": {
+          "type": "string"
+        },
+        "kind": {
+          "const": "waza.release-results"
+        },
+        "rows": {
+          "items": {
+            "$ref": "#/$defs/releasepolicy_ActualRunRow"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "version": {
+          "const": "1.0"
+        }
+      },
+      "required": [
+        "kind",
+        "version",
+        "collection_id",
+        "arm",
+        "eval_id",
+        "rows"
+      ],
+      "type": "object"
+    },
+    "releasepolicy_RuntimeObservation": {
+      "additionalProperties": false,
+      "properties": {
+        "availability": {
+          "type": "string"
+        },
+        "engine_implementation": {
+          "type": "string"
+        },
+        "model_version": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "requested_engine": {
+          "type": "string"
+        },
+        "requested_model": {
+          "type": "string"
+        },
+        "requested_reasoning": {
+          "type": "string"
+        },
+        "task_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "task_id",
+        "requested_engine",
+        "requested_model",
+        "requested_reasoning",
+        "availability",
+        "engine_implementation",
+        "model_version",
+        "reason"
+      ],
+      "type": "object"
+    },
+    "releasepolicy_SampleKey": {
+      "additionalProperties": false,
+      "properties": {
+        "cluster_id": {
+          "type": "string"
+        },
+        "task_id": {
+          "type": "string"
+        },
+        "trial_ordinal": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "cluster_id",
+        "task_id",
+        "trial_ordinal"
+      ],
+      "type": "object"
+    },
+    "releasepolicy_Settings": {
+      "additionalProperties": false,
+      "properties": {
+        "engine": {
+          "type": "string"
+        },
+        "judge_model": {
+          "type": "string"
+        },
+        "judge_reasoning_effort": {
+          "type": "string"
+        },
+        "max_attempts": {
+          "type": "integer"
+        },
+        "model": {
+          "type": "string"
+        },
+        "no_skills": {
+          "type": "boolean"
+        },
+        "other_settings_digest": {
+          "$ref": "#/$defs/models_EvidenceDigest"
+        },
+        "reasoning_effort": {
+          "type": "string"
+        },
+        "timeout_seconds": {
+          "type": "integer"
+        },
+        "trials_per_task": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "engine",
+        "model",
+        "reasoning_effort",
+        "judge_model",
+        "judge_reasoning_effort",
+        "timeout_seconds",
+        "max_attempts",
+        "trials_per_task",
+        "no_skills",
+        "other_settings_digest"
+      ],
+      "type": "object"
+    },
+    "releasepolicy_TaskPlan": {
+      "additionalProperties": false,
+      "properties": {
+        "expected_runtime": {
+          "$ref": "#/$defs/releasepolicy_ExpectedRuntime"
+        },
+        "settings": {
+          "$ref": "#/$defs/releasepolicy_Settings"
+        },
+        "task_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "task_id",
+        "settings",
+        "expected_runtime"
+      ],
+      "type": "object"
+    },
+    "releasepolicy_TrialSummary": {
+      "additionalProperties": false,
+      "properties": {
+        "first_attempt_pass": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "key": {
+          "$ref": "#/$defs/releasepolicy_SampleKey"
+        },
+        "retry_policy_pass": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "state": {
+          "type": "string"
+        },
+        "terminal_attempt_ordinal": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "key",
+        "terminal_attempt_ordinal",
+        "state",
+        "first_attempt_pass",
+        "retry_policy_pass"
+      ],
+      "type": "object"
+    },
+    "releasepolicy_UsageAxis": {
+      "additionalProperties": false,
+      "properties": {
+        "availability": {
+          "type": "string"
+        },
+        "axis": {
+          "type": "string"
+        },
+        "currency": {
+          "type": "string"
+        },
+        "observation": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "value": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "axis",
+        "availability",
+        "observation"
+      ],
+      "type": "object"
+    },
+    "rpc_CitableSource": {
+      "additionalProperties": false,
+      "properties": {
+        "content": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "content",
+        "id"
+      ],
+      "type": "object"
+    },
+    "rpc_ToolExecutionCompleteResult": {
+      "additionalProperties": false,
+      "properties": {
+        "binaryResultsForLlm": {
+          "items": {},
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "citableSources": {
+          "items": {
+            "$ref": "#/$defs/rpc_CitableSource"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "content": {
+          "type": "string"
+        },
+        "contents": {
+          "items": {},
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "detailedContent": {
+          "type": "string"
+        },
+        "mcpMeta": {},
+        "structuredContent": {},
+        "uiResource": {
+          "$ref": "#/$defs/rpc_ToolExecutionCompleteUIResource"
+        }
+      },
+      "required": [
+        "binaryResultsForLlm",
+        "citableSources",
+        "content",
+        "contents"
+      ],
+      "type": "object"
+    },
+    "rpc_ToolExecutionCompleteUIResource": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/rpc_ToolExecutionCompleteUIResourceMeta"
+        },
+        "blob": {
+          "type": "string"
+        },
+        "mimeType": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "uri": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "mimeType",
+        "uri"
+      ],
+      "type": "object"
+    },
+    "rpc_ToolExecutionCompleteUIResourceMeta": {
+      "additionalProperties": false,
+      "properties": {
+        "ui": {
+          "$ref": "#/$defs/rpc_ToolExecutionCompleteUIResourceMetaUI"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "rpc_ToolExecutionCompleteUIResourceMetaUI": {
+      "additionalProperties": false,
+      "properties": {
+        "csp": {
+          "$ref": "#/$defs/rpc_ToolExecutionCompleteUIResourceMetaUICsp"
+        },
+        "domain": {
+          "type": "string"
+        },
+        "permissions": {
+          "$ref": "#/$defs/rpc_ToolExecutionCompleteUIResourceMetaUIPermissions"
+        },
+        "prefersBorder": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "rpc_ToolExecutionCompleteUIResourceMetaUICsp": {
+      "additionalProperties": false,
+      "properties": {
+        "baseUriDomains": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "connectDomains": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "frameDomains": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "resourceDomains": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "baseUriDomains",
+        "connectDomains",
+        "frameDomains",
+        "resourceDomains"
+      ],
+      "type": "object"
+    },
+    "rpc_ToolExecutionCompleteUIResourceMetaUIPermissions": {
+      "additionalProperties": false,
+      "properties": {
+        "camera": {
+          "$ref": "#/$defs/rpc_ToolExecutionCompleteUIResourceMetaUIPermissionsCamera"
+        },
+        "clipboardWrite": {
+          "$ref": "#/$defs/rpc_ToolExecutionCompleteUIResourceMetaUIPermissionsClipboardWrite"
+        },
+        "geolocation": {
+          "$ref": "#/$defs/rpc_ToolExecutionCompleteUIResourceMetaUIPermissionsGeolocation"
+        },
+        "microphone": {
+          "$ref": "#/$defs/rpc_ToolExecutionCompleteUIResourceMetaUIPermissionsMicrophone"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "rpc_ToolExecutionCompleteUIResourceMetaUIPermissionsCamera": {
+      "additionalProperties": false,
+      "properties": {},
+      "required": [],
+      "type": "object"
+    },
+    "rpc_ToolExecutionCompleteUIResourceMetaUIPermissionsClipboardWrite": {
+      "additionalProperties": false,
+      "properties": {},
+      "required": [],
+      "type": "object"
+    },
+    "rpc_ToolExecutionCompleteUIResourceMetaUIPermissionsGeolocation": {
+      "additionalProperties": false,
+      "properties": {},
+      "required": [],
+      "type": "object"
+    },
+    "rpc_ToolExecutionCompleteUIResourceMetaUIPermissionsMicrophone": {
+      "additionalProperties": false,
+      "properties": {},
+      "required": [],
+      "type": "object"
+    },
+    "webapi_ReleaseDecision": {
+      "additionalProperties": false,
+      "properties": {
+        "accepted": {
+          "type": "boolean"
+        },
+        "accounting": {
+          "additionalProperties": {
+            "$ref": "#/$defs/releasepolicy_Reliability"
+          },
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "assurance": {
+          "$ref": "#/$defs/releasepolicy_Dimension"
+        },
+        "billing": {
+          "$ref": "#/$defs/releasepolicy_Dimension"
+        },
+        "compatibility": {
+          "$ref": "#/$defs/releasepolicy_Dimension"
+        },
+        "completeness": {
+          "$ref": "#/$defs/releasepolicy_Dimension"
+        },
+        "effective_clusters": {
+          "type": "number"
+        },
+        "estimate": {
+          "type": "number"
+        },
+        "golden": {
+          "$ref": "#/$defs/releasepolicy_Dimension"
+        },
+        "half_width": {
+          "type": "number"
+        },
+        "kind": {
+          "const": "waza.release-decision-view"
+        },
+        "limitations": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "lower": {
+          "type": "number"
+        },
+        "operations": {
+          "$ref": "#/$defs/releasepolicy_Dimension"
+        },
+        "planned_clusters": {
+          "type": "integer"
+        },
+        "statistics": {
+          "$ref": "#/$defs/releasepolicy_Dimension"
+        },
+        "upper": {
+          "type": "number"
+        },
+        "usage": {
+          "additionalProperties": {
+            "items": {
+              "$ref": "#/$defs/webapi_ReleaseUsage"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "version": {
+          "const": "1.0"
+        }
+      },
+      "required": [
+        "kind",
+        "version",
+        "accepted",
+        "compatibility",
+        "completeness",
+        "assurance",
+        "golden",
+        "billing",
+        "statistics",
+        "operations",
+        "planned_clusters",
+        "limitations",
+        "accounting",
+        "usage"
+      ],
+      "type": "object"
+    },
+    "webapi_ReleaseUsage": {
+      "additionalProperties": false,
+      "properties": {
+        "availability": {
+          "type": "string"
+        },
+        "axis": {
+          "type": "string"
+        },
+        "currency": {
+          "type": "string"
+        },
+        "observation": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "axis",
+        "availability",
+        "observation"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "https://raw.githubusercontent.com/microsoft/waza/main/schemas/release-artifacts-1.0.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Generated structural schema. Normative numeric-token identity, conditional availability, ordered replay, source binding and statistical admission are additionally enforced by Waza's strict Go reader.",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/releasepolicy_Policy"
+    },
+    {
+      "$ref": "#/$defs/releasepolicy_ResolvedPlan"
+    },
+    {
+      "$ref": "#/$defs/releasepolicy_Receipt"
+    },
+    {
+      "$ref": "#/$defs/releasepolicy_Journal"
+    },
+    {
+      "$ref": "#/$defs/releasepolicy_ResultBinding"
+    },
+    {
+      "$ref": "#/$defs/releasepolicy_Results"
+    },
+    {
+      "$ref": "#/$defs/releasepolicy_Decision"
+    },
+    {
+      "$ref": "#/$defs/webapi_ReleaseDecision"
+    }
+  ],
+  "title": "Waza release artifacts 1.0"
+}

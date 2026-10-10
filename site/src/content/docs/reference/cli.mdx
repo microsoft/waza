@@ -36,6 +36,30 @@ waza update --yes
 
 The native Windows update path schedules the final binary replacement after the running `waza.exe` exits, avoiding Windows executable file locks. In WSL, `waza update` uses the Linux Bash installer and updates the WSL installation.
 
+## waza preflight
+
+Inspect an explicit eval file offline, without an agent/model, grader execution,
+subprocesses, mock servers, live services, dependency downloads, or update checks:
+
+```bash
+waza preflight eval.yaml
+waza preflight eval.yaml --format json > preflight.json
+waza preflight eval.yaml --context-dir ./fixtures --strict
+```
+
+| Flag | Default | Meaning |
+|------|---------|---------|
+| `--format` | `human` | `human` or `json` inventory/diagnostics |
+| `--context-dir` | eval directory/fixtures | Context directory; relative values resolve from cwd |
+| `--strict` | `false` | Exit 1 for unresolved/unsupported prerequisites, not only invalid configuration |
+
+Invalid configuration exits 1; unresolved/unsupported warn and exit 0 unless
+`--strict` opts into 1. Usage/output errors use exit 2. Existing command exits
+are unchanged. `verified` means static inspection, not a satisfied requirement
+or runtime enforcement. The separately typed report is not `results.json`.
+See [Offline Eval Preflight](/guides/preflight/) for descriptive requirement
+references, capability/dependency plans, and offline limitations.
+
 ## waza run
 
 Run an evaluation benchmark.
@@ -269,6 +293,10 @@ EOF
 
 Scaffold an eval suite for an existing skill.
 
+For target-free workflows, use `waza new eval <name> --scenario`.
+Scenario scaffolds do not read or create `SKILL.md` and explicitly select
+`copilot-sdk`, even if project defaults use a mock engine.
+
 ### waza new eval
 
 Generate an eval scaffold from an existing `SKILL.md`.
@@ -288,6 +316,8 @@ Creates:
 | Flag | Description |
 |------|-------------|
 | `--output` | Custom path for the generated eval file; task YAMLs are created in a sibling `tasks/` directory next to this file. |
+| `--scenario` | Scaffold a workflow without a target skill/custom agent; eval schema `2.0`. |
+| `--template` | Scenario template: `repository` (default), `cli`, or `mcp`; requires `--scenario`. |
 
 The generated eval filename, task glob, and task filename suffix come from `.waza.yaml` `files` settings when configured.
 
@@ -299,6 +329,13 @@ waza new eval my-skill
 
 # Write eval.yaml to a custom location
 waza new eval my-skill --output evals/custom/my-skill-eval.yaml
+
+# Real repository workflow; no skill required
+waza new eval inventory --scenario --template repository
+waza run evals/inventory/eval.yaml
+
+# For offline harness checks, set config.executor: mock in a copy.
+# Mock output is not agent-quality evidence.
 ```
 
 ## waza new task
@@ -436,6 +473,20 @@ waza compare [results-1.json] [results-2.json] ...
 | Flag | Description |
 |------|-------------|
 | `--format` | Output format: `table` (default), `json` |
+| `--release-policy` | Explicit independent fixed-design release policy; requires `--collection-dir` instead of historical positional results. |
+| `--collection-dir` | New paired collection sidecars. Invalid, incomplete, rejected or inconclusive selected policy exits `1`. |
+| `--assurance-contract` | Explicit independent offline assurance profile; requires `--release-policy`, `--collection-dir` and current per-arm eval/reference inputs. Empty selection fails. |
+| `--baseline-eval`, `--candidate-eval` | Current per-arm eval sources required for selected assurance assessment. |
+| `--baseline-context-dir`, `--candidate-context-dir` | Optional cwd-relative per-arm context overrides. |
+| `--baseline-references`, `--candidate-references` | Current evaluator-only finite authored reference labels required for selected assurance. |
+| `--baseline-review`, `--candidate-review` | Optional separately supplied current review files. |
+| `--baseline-accept-review-source`, `--candidate-accept-review-source` | Explicit acceptance of each supplied current review source; not authenticated human review. |
+
+Selected policy assessment does not change default descriptive comparisons.
+Policy metadata in ordinary results is not enforcement, and older executables
+reject the new flags. Use `compare-plan` and `compare-collect` for the explicit
+offline mock/native-text producer; do not adopt historical outcomes.
+See [controlled comparisons](/waza/guides/controlled-comparisons/).
 
 ### Examples
 
@@ -459,6 +510,85 @@ When the input files include the `tool_events[]` array (`results.json` schema 1.
 | `call_count_histogram` | Distribution of per-task call counts in buckets `0`, `1`, `2`, `3+` |
 
 The section is suppressed when none of the compared files contain tool data, so legacy 1.0 results remain unchanged.
+
+## waza compare-plan
+
+Bind a mandatory fixed design and explicit requirements to inspected sources
+before collecting outcomes. Supported collection capability is offline
+mock/no-skills/native-text only; static metadata is not assurance.
+
+| Flag | Description |
+|---|---|
+| `--baseline-eval`, `--candidate-eval` | Required source eval YAML files. |
+| `--baseline-context-dir`, `--candidate-context-dir` | Cwd-relative context override; default is each eval directory's `fixtures`. |
+| `--design` | Required policy-1.0 design member JSON, with empty allocation; seed generated once. |
+| `--requirements` | Required explicit identity/runtime/assurance/billing member JSON. |
+| `--allow-change` | Comma-separated `engine,model,reasoning_effort`; exact actual per-task differences only. |
+| `-o`, `--output` | Required new private policy file; no overwrite. |
+
+Invalid or unsupported planning exits `1`; nothing is collected. Planned trial
+ordinals must match effective `config.trials_per_task`. The policy's metadata
+alone never enforces a gate.
+
+## waza compare-assurance-plan
+
+Create a new independently versioned offline assurance contract before BEGIN,
+without changing frozen base policy/journal/decision 1.0 semantics. The selected
+base policy must explicitly require assurance.
+
+| Flag | Description |
+|---|---|
+| `--release-policy` | Required exact base 1.0 policy with assurance required. |
+| `--baseline-eval`, `--candidate-eval` | Required current per-arm eval YAML. |
+| `--baseline-context-dir`, `--candidate-context-dir` | Optional context overrides with the existing cwd semantics. |
+| `--baseline-references`, `--candidate-references` | Required current evaluator-only reference-label JSON with finite authored outputs. |
+| `--baseline-review`, `--candidate-review` | Optional separately supplied current review declarations. |
+| `--baseline-accept-review-source`, `--candidate-accept-review-source` | Explicit acceptance of each supplied current review source; supplying a file alone is not acceptance. |
+| `-o`, `--output` | Required **new** exclusive contract file; no overwrite. |
+
+No existing contract is an input to planning. Collection/assessment must select
+the resulting `--assurance-contract` explicitly with `--release-policy` and
+current per-arm inputs; assessment additionally needs `--collection-dir`.
+Missing/empty required flags fail; empty contract selection never falls back.
+Unreviewed examples remain nonpassing. Review-source acceptance is not
+authenticated human review; test-only reviewed declarations are synthetic.
+
+Only mock/no-skills/native-text finite authored outputs are supported. Fresh
+exact offline1.0 reports for both arms, retained actual-response deterministic
+regrade and every base non-assurance condition are required for an outer pass.
+No live SDK, calibration, paid1.1/billing support or automatic paid validation.
+Stored report pass labels are never adopted. The base API/dashboard intentionally
+remain nonpassing for required assurance. See the
+[independent profile lifecycle](/waza/guides/controlled-comparisons/#opt-in-separately-to-offline-assurance).
+
+## waza compare-collect
+
+Collect fresh paired attempts under an explicit frozen policy. Sources are
+rechecked before BEGIN and every attempt; private frozen requests avoid mutable
+fixture rereads. Linux/macOS only for the new durable protocol.
+
+| Flag | Description |
+|---|---|
+| `--baseline-eval`, `--candidate-eval` | Required exact source eval YAML files. |
+| `--baseline-context-dir`, `--candidate-context-dir` | Same context semantics used during planning. |
+| `--release-policy` | Required precollection policy. |
+| `--collection-dir` | Required new private directory; no overwrite, adoption or resume. |
+| `--assurance-contract` | Optional explicit independent offline contract; requires `--release-policy` and current per-arm references. Empty selection fails. |
+| `--baseline-references`, `--candidate-references` | Required current evaluator-only labels when assurance is selected. |
+| `--baseline-review`, `--candidate-review` | Optional separately supplied current review files for selected assurance. |
+| `--baseline-accept-review-source`, `--candidate-accept-review-source` | Separate explicit acceptance of each supplied review source. |
+
+Source drift, unsupported capability, cancellation or persistence errors exit
+`1`. Successful collection persists evidence, **not a release pass**. Assess
+it separately with `compare` or `gate --release-policy --collection-dir`.
+The [offline example](/waza/guides/controlled-comparisons/) intentionally remains
+inconclusive; no default live/paid execution or adaptive stopping is enabled.
+Selected assurance additionally persists `assurance-contract.json`,
+`assurance.ndjson` actual-response rows and `assurance-ledger.json`. Sources,
+evaluator evidence and review inputs are rechecked after verification and before
+final publication. A captured empty response has an explicit available `value:
+""`; unavailable output has a reason and **no value**. Neither collection nor
+stored grader assurance reports are adopted as an outer release pass.
 
 ## waza replay
 
@@ -528,6 +658,32 @@ waza gate --baseline baseline.json --current results.json [flags]
 | `--on-new-tasks` | `allow` | Policy when current has tasks not in baseline: `allow`, `warn`, `fail`. |
 | `--on-removed-tasks` | `warn` | Policy when baseline has tasks not in current: `allow`, `warn`, `fail`. |
 | `--format` | `human` | Output format: `human`, `json`, `markdown`, `github-actions`. |
+| `--release-policy` | _(off)_ | Explicit independently versioned fixed-design policy assessment; selected nonpass exits `1`. |
+| `--collection-dir` | _(unset)_ | New paired collection, required with `--release-policy`; no historical adoption or resume. |
+| `--assurance-contract` | _(off)_ | Explicit independent offline profile; requires `--release-policy`, `--collection-dir` and current per-arm inputs. Empty selection fails. |
+| `--baseline-eval`, `--candidate-eval` | _(unset)_ | Required current eval sources for selected assurance. |
+| `--baseline-context-dir`, `--candidate-context-dir` | _(unset)_ | Optional per-arm context overrides. |
+| `--baseline-references`, `--candidate-references` | _(unset)_ | Required current evaluator-only finite authored reference labels for selected assurance. |
+| `--baseline-review`, `--candidate-review` | _(unset)_ | Optional separately supplied current review declarations. |
+| `--baseline-accept-review-source`, `--candidate-accept-review-source` | _(unset)_ | Explicit per-arm acceptance of each supplied current review source, not authenticated human review. |
+
+The default exit matrix below is unchanged. Explicit policy mode cannot be
+combined with legacy baseline/current/threshold/golden/task-set flags. It emits
+separate compatibility, completeness, assurance, golden, billing, statistical
+and operational states. Missing required golden evidence, unavailable final
+billing, missing assurance and an inconclusive comparison are not the same
+reason. Static preflight declarations never count as observed assurance.
+
+An independent contract permits only an **outer** `waza.release-assured-decision`
+1.0 pass when both fresh exact offline1.0 reports, retained actual-response
+deterministic regrade and every base non-assurance condition pass. The embedded
+base decision and API/dashboard remain nonpassing for required assurance.
+Assessment rechecks current sources/evidence/review; stored report pass labels
+are not adopted. Use `--format json` for the machine-readable outer contract or
+the default human output. Selected assurance does not promise legacy
+markdown/GitHub Actions layouts. Its nonpass exit is `1`, not the legacy
+exit matrix below. No live SDK, calibration, paid1.1/billing support or automatic
+paid validation is selected; old executables reject new command/unknown flags.
 
 ### Exit codes
 
@@ -1092,6 +1248,33 @@ Iteratively:
 4. Applies changes
 5. Re-scores
 6. Repeats until target reached
+
+## waza assure
+
+Challenge scoped native file/output checks against evaluator-only references
+without running a task agent.
+
+```bash
+waza assure eval.yaml --references labels.json
+waza assure eval.yaml --references labels.json \
+  --review current-review.json --accept-review-source selected-source \
+  --output assurance.json
+```
+
+| Flag | Meaning |
+|------|---------|
+| `--references` | Required strict versioned label JSON; relative snapshots are rooted at this document's directory |
+| `--review` | Separate current-source supplied review declaration |
+| `--accept-review-source` | Explicit evaluator acceptance of that source; not human authentication |
+| `-o, --output` | Write standalone `waza.grader-assurance` report |
+| `--calibrate` | Currently unavailable: report not assessed with zero paid calls and null usage/credits |
+
+Exit 1 unless the strict finite-corpus assessment passes. Missing evidence,
+unknown completeness, unreviewed labels, operational failures and critical
+false acceptance cannot pass. Preserved subsets cannot prove missing-path absence.
+Executable-byte provenance is specific to the exact platform/build. No assurance
+cache is reused. Existing `grade`, `run` and golden-task semantics are unchanged.
+See [grader challenges](/guides/graders/#challenge-the-checks-not-just-the-answer).
 
 ## waza grade
 

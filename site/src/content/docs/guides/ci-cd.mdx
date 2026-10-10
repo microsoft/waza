@@ -7,6 +7,66 @@ import { Tabs, TabItem } from '@astrojs/starlight/components';
 
 Automate waza evaluations in your CI/CD pipeline to catch regressions early and validate agent behavior across models.
 
+## Explicit fixed-design release assessment
+
+Ordinary `gate` defaults and exits stay unchanged. Explicitly select a new
+protocol collection with:
+
+```bash
+waza gate --release-policy policy.json --collection-dir new-collection --format github-actions
+```
+
+Selected invalid, rejected, incomplete or inconclusive evidence exits `1`.
+Do not combine this mode with legacy gate policy flags or manufacture receipts
+from historical result files. Use `compare-plan` and `compare-collect` before
+assessment for the supported offline mock/native-text path. The example above
+assesses a completed collection; a mock run is not agent-quality evidence.
+
+Design sampling clusters, retry policy, weights, independent-execution
+justification, endpoint, family bound and precision **before collection**.
+Retries/tasks inside a cluster are not extra independent samples. Required
+golden tasks must pass their first attempt in both arms, even when retry
+recovery is the selected endpoint. Required unavailable billing or assurance
+cannot strict-pass. See [controlled comparisons](/waza/guides/controlled-comparisons/).
+
+### Independent offline assurance in CI
+
+Required assurance remains nonpassing in the **frozen base 1.0** decision and
+API/dashboard. To select the independent outer profile, first create a new
+exclusive contract with `compare-assurance-plan --output ... --release-policy
+...`, current per-arm `--baseline-eval` / `--candidate-eval`, and
+`--baseline-references` / `--candidate-references`. Optional context overrides
+retain their existing resolution. Collect with explicit `--assurance-contract`
+plus `--release-policy`, then assess with those flags, `--collection-dir` and
+current per-arm inputs.
+
+```bash
+# Illustrative authored source paths; not a ready-to-pass bundled fixture.
+waza gate --release-policy policy.json \
+  --assurance-contract assurance-contract.json \
+  --collection-dir new-assured-collection \
+  --baseline-eval baseline/eval.yaml --candidate-eval candidate/eval.yaml \
+  --baseline-references baseline/references.json \
+  --candidate-references candidate/references.json --format json
+```
+
+Use JSON for the outer machine-readable contract or default human output;
+do not assume selected assurance reproduces legacy CI annotation/markdown
+layouts. Selected nonpass exits `1`. Both fresh exact offline1.0 reports,
+deterministic regrading of retained actual responses and every base
+non-assurance condition must pass. A saved report label is not current evidence.
+Recheck current source/evidence/review after verify and before publication/
+assessment; use the same bound executable throughout.
+
+Per-arm `--review` files and `--accept-review-source` acceptance are separate
+current inputs, not authenticated human review. Supply selected inputs at each
+stage; examples stay unreviewed and test reviews are explicitly synthetic.
+Only mock/no-skills/native-text/finite-authored-output qualification is
+supported. No live SDK, calibration, paid1.1/billing support or automatic paid
+validation. Local hashes establish consistency, not authenticity or globally
+witnessed precommitment. See the
+[profile limits](/waza/guides/controlled-comparisons/#opt-in-separately-to-offline-assurance).
+
 ## Installation in CI
 
 ### Via azd Extension (Recommended)
@@ -45,7 +105,35 @@ cd waza
 go build -o waza ./cmd/waza
 ```
 
+## Offline setup gate
+
+```bash
+waza preflight eval.yaml --format json > preflight.json
+```
+
+This setup gate makes no model/live-service calls and launches no subprocesses
+or mock servers. Invalid config exits 1. Credentials, live readiness, interpreter
+syntax, and external state stay unresolved; default warnings exit 0.
+Use `--strict` only when you deliberately want those unresolved/unsupported
+prerequisites to fail with exit 1. It is not a release-assurance or runtime
+requirement-enforcement policy and does not change existing `run`/`gate` exits.
+See [Offline Eval Preflight](/guides/preflight/) for diagnostics and limitations.
+
 ## GitHub Actions
+
+### Offline challenge assessment
+
+Use `waza assure eval.yaml --references labels.json` as a separate strict
+file-content challenge gate. It does not change `grade`, `gate`, golden-task or
+evaluation exits. Its standalone report preserves actual observations, scoped
+requirements, evidence bindings, review eligibility and finite-case coverage.
+Missing/unknown evidence, unreviewed labels and critical false acceptance fail
+the gate. Supply a current review source explicitly; do not promote bundled
+candidate labels to reviewed truth in automation.
+
+Calibration is not currently available: requesting it makes no paid calls and
+returns not assessed, with unknown usage/credits remaining null. This offline
+gate does not certify external state, runtime history or statistical confidence.
 
 ### Quick Start ΓÇö Scaffold with waza init
 

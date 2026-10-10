@@ -11,6 +11,46 @@ When you run evaluations with multiple trials (`trials_per_task > 1`), waza perf
 
 ## When Statistical Fields Appear
 
+### Separate fixed-design release decisions
+
+Legacy statistical fields below are descriptive and unchanged. They are not
+evidence that an explicitly selected release policy passed. Policy decisions
+use independently versioned sidecars and emit `estimate`, `lower`, `upper`,
+`half_width`, `effective_clusters`, full planned trial/attempt accounting and
+separate decision dimensions.
+
+The fixed-suite repeated-execution contrast assumes independent bounded
+**cluster** differences in `[-1,1]`; retries and tasks within a cluster are not
+iid samples. The two-sided weighted Hoeffding radius is
+`sqrt(2*log(2*M/alpha)*sum(w*w))`. One selected contrast is assessed; `M` is an
+external conservative family bound, not a verified family inventory.
+Insufficient declared precision is reported separately and is not a power
+calculation. Unjustified independence, missing/partial/invalid evidence and
+inconclusive intervals cannot strict-pass.
+
+Canonical declared coefficients undergo representation-only mass admission
+before exact normalization; omitted clusters are never reweighted away. Golden
+first-attempt failures and operational errors cannot be averaged into a
+statistical success. Read the [controlled comparison limitations](/waza/guides/controlled-comparisons/)
+before using selected policy decisions.
+
+Independent offline assurance never changes the frozen base statistical
+decision, sample denominator, first-attempt golden veto or legacy fields.
+Only explicit outer assessment with `--assurance-contract` can pass required
+assurance: both arms need fresh exact offline1.0 finite-authored-output reports,
+retained actual-response deterministic regrade and **all** base non-assurance
+conditions. A grader qualification pass cannot repair insufficient precision,
+unjustified independence, operational failure or a statistically inconclusive
+comparison. Base API/dashboard required-assurance decisions remain nonpassing.
+
+Finite supplied-corpus agreement is not confidence calibration or live-agent
+reliability. Stored report labels are not fresh qualification; current sources,
+evidence and separately supplied review acceptance are rechecked. Examples
+remain unreviewed; synthetic test reviews are not authenticated human review.
+No live SDK, calibration, paid1.1/billing support or automatic paid validation
+is selected. See the
+[independent profile](/waza/guides/controlled-comparisons/#opt-in-separately-to-offline-assurance).
+
 Statistical fields are computed when:
 
 - `trials_per_task > 1` in your eval YAML

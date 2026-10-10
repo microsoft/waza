@@ -6,6 +6,8 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/santhosh-tekuri/jsonschema/v6"
+
 	"github.com/microsoft/waza/internal/graders/argmatcher"
 	"github.com/microsoft/waza/internal/models"
 )
@@ -28,6 +30,10 @@ type compiledExpectation struct {
 // parameters are invalid (e.g. no constraints defined, negative bounds, or
 // min > max).
 func NewToolCallsGrader(name string, params models.ToolCallsGraderParameters) (*ToolCallsGrader, error) {
+	return newToolCallsGraderWithLoader(name, params, nil)
+}
+
+func newToolCallsGraderWithLoader(name string, params models.ToolCallsGraderParameters, loader jsonschema.URLLoader) (*ToolCallsGrader, error) {
 	hasConstraint := len(params.RequiredTools) > 0 ||
 		len(params.ForbiddenTools) > 0 ||
 		params.MinCalls != nil ||
@@ -59,7 +65,7 @@ func NewToolCallsGrader(name string, params models.ToolCallsGraderParameters) (*
 		}
 		mm := make(map[string]argmatcher.Matcher, len(exp.Args))
 		for k, m := range exp.Args {
-			if err := m.Compile(); err != nil {
+			if err := m.CompileWithLoader(loader); err != nil {
 				return nil, fmt.Errorf("tool_calls grader %q: expect[%d].args[%s]: %w", name, i, k, err)
 			}
 			mm[k] = m
