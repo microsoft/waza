@@ -57,6 +57,13 @@ semantics are reused, including distinct canonical versus digest arguments.
 Unknown historical capture, unsupported modes and file-subset absence remain
 nonpass; no paid calibration or automatic CLI/dashboard dispatch is introduced.
 
+Private engine-free qualification primitives provide bounded original-byte
+custody, selected-source inventory binding, immutable handles, a label-free
+execution-view projection and capture-only equivalence controls. They introduce
+no public wire/API, task execution, durable backend, trusted currentness authority
+or lifecycle. These internal preparation checks do not authenticate human review
+or turn source seals into execution/receipt evidence.
+
 The independent authored-output profile is evaluator-supplied finite text,
 not historical execution, complete tool evidence or observed billing. Native
 historical consumers reject its exact outer `schemaVersion: "2.0"` and

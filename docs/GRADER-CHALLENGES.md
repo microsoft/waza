@@ -132,6 +132,35 @@ Deterministic adapter and report controls run without an engine factory:
 NO_COLOR=1 go test ./internal/assurance -run 'Preserved' -count=1
 ```
 
+### Private engine-free qualification primitives
+
+The unexported `qualification_*` helpers prepare bounded, immutable evaluator
+inputs for a future separately reviewed qualification operation. They acquire
+original source/review bytes from caller-owned roots and validate original bytes
+of supplied standalone-report artifacts separately. They bind selected task and
+native grader inventories, require selected local rubric custody, and check
+exact canonical role bytes. Encoded blobs and cumulative projections are bounded
+before payload decoding or oversized serialization. Handles defensively copy
+bytes; the restricted execution view contains only its kind/version, scoped job
+digest, requested model and boundary profile, not human labels or reference cases.
+
+Capture-only equivalence checks reuse existing request identities without
+constructing an engine or executing a task. This bounded input profile requires
+mechanical observations to be empty. These helpers
+are not a public wire format, `Qualify` API, CLI mode, durable backend, currentness
+authority or lifecycle implementation. A source seal is not authenticated human
+review, durable receipt, provider enforcement or execution evidence. Existing
+`Verify`, `Calibrate` and report readers remain unchanged.
+
+Run the focused deterministic controls with:
+
+```bash
+go test ./internal/assurance -run '^TestQualification' -count=1
+```
+
+When validating packages that can discover SDK paths, use an absolute rejecting
+`COPILOT_CLI_PATH` guard as in CI, not only `ENABLE_COPILOT_TESTS=false`.
+
 `internal/assurance.ObserveDeclaredMechanical` resolves an actual eval, task or
 checkpoint declaration through the shared pure preflight lookup and invokes its
 existing grader. The identity includes task ID, scope, checkpoint turn where
