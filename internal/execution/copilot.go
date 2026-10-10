@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	copilot "github.com/github/copilot-sdk/go"
@@ -68,7 +69,8 @@ type CopilotEngine struct {
 	shutdownOnce sync.Once
 	shutdownErr  error
 
-	provider customProviderConfig
+	provider    customProviderConfig
+	diagnostics *diagnosticState
 }
 
 type customProviderConfig struct {
@@ -169,6 +171,10 @@ type CopilotEngineBuilder struct {
 
 type CopilotEngineBuilderOptions struct {
 	NewCopilotClient func(clientOptions *copilot.ClientOptions) CopilotClient
+	// DiagnosticObserver enables sanitized, failure-retaining lifecycle diagnostics.
+	// Calls are serialized outside engine state locks. Observers must not reenter
+	// engine lifecycle methods (including Execute, Initialize, DeleteSession, Shutdown).
+	DiagnosticObserver func(ExecutionDiagnostic) error
 }
 
 // NewCopilotEngineBuilder creates a builder for CopilotEngine
@@ -216,6 +222,11 @@ func NewCopilotEngineBuilder(defaultModelID string, options *CopilotEngineBuilde
 	}
 
 	builder.engine.client = client
+	if options != nil && options.DiagnosticObserver != nil {
+		builder.engine.diagnostics = &diagnosticState{
+			observer: options.DiagnosticObserver, busy: make(map[string]bool), pending: make(map[string]bool),
+		}
+	}
 	return builder
 }
 
@@ -261,6 +272,9 @@ func (e *CopilotEngine) SetKeepWorkspace(keep bool) {
 
 // Initialize sets up the Copilot client
 func (e *CopilotEngine) Initialize(ctx context.Context) error {
+	if e.diagnostics != nil {
+		return e.initializeDiagnostic(ctx)
+	}
 	var startErr error
 
 	e.startOnce.Do(func() {
@@ -351,6 +365,13 @@ func (e *CopilotEngine) validateReasoningEffort(ctx context.Context, modelID, ef
 
 // Execute runs a test with Copilot SDK
 func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*ExecutionResponse, error) {
+	if e.diagnostics != nil {
+		return e.executeDiagnostic(ctx, req)
+	}
+	return e.execute(ctx, req)
+}
+
+func (e *CopilotEngine) execute(ctx context.Context, req *ExecutionRequest) (*ExecutionResponse, error) {
 	if req == nil {
 		return nil, fmt.Errorf("nil req was passed to CopilotEngine.Execute")
 	}
@@ -400,7 +421,18 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 	var systemMessageParts []string
 	if !req.NoSkills {
 		skillDirs = e.getSkillDirs(sourceDir, req)
-		if msg := buildSkillSystemMessage(skillDirs, req.SkillName, !req.SuppressSkillBody); msg != "" {
+		var msg string
+		if e.diagnostics != nil {
+			msg, err = buildSkillSystemMessageChecked(skillDirs, req.SkillName, !req.SuppressSkillBody, false)
+			if err != nil {
+				op := operationFrom(ctx)
+				op.report(StageExecute, CodeExecute, "")
+				return nil, op.err()
+			}
+		} else {
+			msg = buildSkillSystemMessage(skillDirs, req.SkillName, !req.SuppressSkillBody)
+		}
+		if msg != "" {
 			systemMessageParts = append(systemMessageParts, msg)
 		}
 		if msg := buildTriggerSkillRoutingSystemMessage(req.SkillName, req.TriggerSkillRouting && req.SuppressSkillBody); msg != "" {
@@ -466,6 +498,10 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 		})
 
 		if err != nil {
+			if op := operationFrom(ctx); op != nil {
+				op.report(StageExecute, CodeCreate, "")
+				return nil, op.err()
+			}
 			return nil, fmt.Errorf("failed to create session: %w", err)
 		}
 	} else {
@@ -489,23 +525,67 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 		})
 
 		if err != nil {
+			if op := operationFrom(ctx); op != nil {
+				op.report(StageExecute, CodeResume, req.SessionID)
+				return nil, op.err()
+			}
 			return nil, fmt.Errorf("failed to resume session (%s): %w", req.SessionID, err)
 		}
 	}
 
 	sessionID := session.SessionID()
+	if e.diagnostics != nil && sessionID == "" {
+		op := operationFrom(ctx)
+		op.report(StageExecute, CodeExecute, "")
+		if err := session.Disconnect(); err != nil {
+			op.report(StageDisconnect, CodeCleanup, "")
+		}
+		return nil, op.err()
+	}
+	if e.diagnostics != nil && req.SessionID == "" {
+		e.diagnostics.mu.Lock()
+		busy := e.diagnostics.busy[sessionID]
+		if !busy {
+			e.diagnostics.busy[sessionID] = true
+		}
+		e.diagnostics.mu.Unlock()
+		if busy {
+			op := operationFrom(ctx)
+			op.report(StageExecute, CodeSessionBusy, sessionID)
+			if err := session.Disconnect(); err != nil {
+				op.report(StageDisconnect, CodeCleanup, sessionID)
+			}
+			return nil, op.err()
+		}
+		defer func() {
+			e.diagnostics.mu.Lock()
+			delete(e.diagnostics.busy, sessionID)
+			e.diagnostics.mu.Unlock()
+		}()
+	}
 	defer func() {
 		// Close the session, release its resources, and trigger any session end events. The destroy
 		// operation doesn't remove data and isn't final in that the caller can resume the session by
 		// calling Execute again with [ExecutionRequest.SessionID] set
 		if err := session.Disconnect(); err != nil {
-			slog.Info("failed to destroy session", "sessionID", sessionID, "error", err)
+			if op := operationFrom(ctx); op != nil {
+				op.report(StageDisconnect, CodeCleanup, sessionID)
+			} else {
+				slog.Info("failed to destroy session", "sessionID", sessionID, "error", err)
+			}
 		}
 		if req.EphemeralSession && req.SessionID == "" {
 			deleteCtx, cancelDelete := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancelDelete()
 			if err := e.client.DeleteSession(deleteCtx, sessionID); err != nil {
-				slog.Warn("failed to delete ephemeral session", "sessionID", sessionID, "error", err)
+				if op := operationFrom(ctx); op != nil {
+					e.diagnostics.mu.Lock()
+					e.diagnostics.pending[sessionID] = true
+					e.diagnostics.mu.Unlock()
+					op.report(StageEphemeralDelete, CodeCleanup, sessionID)
+				} else {
+					slog.Warn("failed to delete ephemeral session", "sessionID", sessionID, "error", err)
+				}
 			}
 		}
 	}()
@@ -529,12 +609,12 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 	// can abort SendAndWait as soon as a skill invocation event arrives. This
 	// lets trigger tests terminate early once the skill fires, rather than
 	// waiting for the agent to finish its full turn.
-	canceledForSkill := false
+	var canceledForSkill atomic.Bool
 	if req.CancelOnSkillInvocation {
 		var cancelSkill context.CancelFunc
 		ctx, cancelSkill = context.WithCancel(ctx)
 		eventsCollector.SetOnSkillInvoked(func(_ SkillInvocation) {
-			canceledForSkill = true
+			canceledForSkill.Store(true)
 			cancelSkill()
 		})
 		defer cancelSkill() // no-op if already called, ensures cleanup
@@ -543,7 +623,54 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 	// Event handler — NOT deferred for unsubscribe because we need to receive
 	// session.shutdown events later during client.Stop(). The usage handler is
 	// stored in e.collectors so we can read final usage after shutdown.
-	session.On(eventsCollector.On)
+	var eventsMu sync.Mutex
+	var sendDiagnostic atomic.Bool
+	finishEvents := func() {}
+	if e.diagnostics != nil {
+		var callbackGate sync.Mutex
+		var callbackActive sync.WaitGroup
+		callbackClosed := false
+		unsubscribe := session.On(func(event copilot.SessionEvent) {
+			callbackGate.Lock()
+			if callbackClosed {
+				callbackGate.Unlock()
+				return
+			}
+			callbackActive.Add(1)
+			callbackGate.Unlock()
+			defer callbackActive.Done()
+			if event.Type() == copilot.SessionEventTypeSkillInvoked {
+				data, ok := copilotevents.SkillInvoked(event)
+				if !ok || (data.Name == "" && data.Path == "") {
+					operationFrom(ctx).report(StageExecute, CodeExecute, sessionID)
+					return
+				}
+			}
+			if event.Type() == copilot.SessionEventTypeSessionError {
+				operationFrom(ctx).report(StageExecute, CodeSend, sessionID)
+				sendDiagnostic.Store(true)
+				event.Data = &copilot.SessionErrorData{Message: (&DiagnosticError{Diagnostic: ExecutionDiagnostic{Stage: StageExecute, Code: CodeSend}}).Error()}
+			}
+			eventsMu.Lock()
+			defer eventsMu.Unlock()
+			eventsCollector.On(event)
+		})
+		var finishOnce sync.Once
+		finishEvents = func() {
+			finishOnce.Do(func() {
+				// Close callback admission before waiting, just as shutdown
+				// closes execution admission before draining deferred cleanup.
+				callbackGate.Lock()
+				callbackClosed = true
+				callbackGate.Unlock()
+				unsubscribe()
+				callbackActive.Wait()
+			})
+		}
+		defer finishEvents()
+	} else {
+		session.On(eventsCollector.On)
+	}
 	session.On(usageCollector.On)
 
 	if !req.EphemeralSession {
@@ -551,12 +678,16 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 		if e.sessions == nil {
 			e.sessions = make(map[string]CopilotSession)
 		}
-		e.sessions[sessionID] = session
+		if e.diagnostics == nil || req.SessionID == "" || e.sessions[sessionID] != nil {
+			e.sessions[sessionID] = session
+		}
 		e.sessionsMu.Unlock()
 	}
 
-	unsubscribe := session.On(utils.NewSessionToSlog())
-	defer unsubscribe()
+	if e.diagnostics == nil {
+		unsubscribe := session.On(utils.NewSessionToSlog())
+		defer unsubscribe()
+	}
 
 	// First-event watchdog. SendAndWait blocks until the session reaches a
 	// terminal state (session.idle / session.error) or sendCtx is canceled. A
@@ -604,6 +735,7 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 		Mode:   string(req.MessageMode),
 	})
 	stopFirstEventWatchdog()
+	finishEvents()
 
 	var errMsg string
 
@@ -611,7 +743,10 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 		// If the context was canceled because we detected a skill invocation
 		// (CancelOnSkillInvocation), that's not an error — it's expected early
 		// termination. We clear the error so the response reports success.
-		if canceledForSkill && ctx.Err() == context.Canceled {
+		if canceledForSkill.Load() && ctx.Err() == context.Canceled {
+			if op := operationFrom(ctx); op != nil {
+				op.report(StageExecute, CodeExpectedSkillCancellation, sessionID)
+			}
 			err = nil
 		} else if errors.Is(context.Cause(sendCtx), errFirstEventTimeout) {
 			// Session-start hang: no first event arrived within the budget.
@@ -624,6 +759,13 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 			// in the returned error. Rather than having one of those fun functions that returns
 			// both an error and a result, I'll just put the error message in the ExecutionResponse.
 			errMsg = err.Error()
+		}
+		if err != nil && e.diagnostics != nil {
+			op := operationFrom(ctx)
+			if !sendDiagnostic.Load() {
+				op.report(StageExecute, CodeSend, sessionID)
+			}
+			errMsg = (&DiagnosticError{Diagnostic: ExecutionDiagnostic{Stage: StageExecute, Code: CodeSend}}).Error()
 		}
 	}
 
@@ -641,13 +783,31 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 	e.captureUsage(ctx, sessionID, session, usageCollector, req.EphemeralSession && req.SessionID == "")
 	usage := usageCollector.UsageStats()
 	e.provider.applyToUsage(usage)
+	var finalOutput string
+	var collectedEvents []copilot.SessionEvent
+	var skillInvocations []SkillInvocation
+	var toolCalls []models.ToolCall
+	func() {
+		if e.diagnostics != nil {
+			eventsMu.Lock()
+			defer eventsMu.Unlock()
+		}
+		finalOutput = joinStrings(eventsCollector.OutputParts())
+		collectedEvents = eventsCollector.SessionEvents()
+		skillInvocations = eventsCollector.SkillInvocations
+		toolCalls = eventsCollector.ToolCalls()
+		if e.diagnostics != nil {
+			collectedEvents = append([]copilot.SessionEvent(nil), collectedEvents...)
+			skillInvocations = append([]SkillInvocation(nil), skillInvocations...)
+		}
+	}()
 	resp := &ExecutionResponse{
-		FinalOutput:        joinStrings(eventsCollector.OutputParts()),
-		Events:             copilotevents.FromSDK(eventsCollector.SessionEvents()),
+		FinalOutput:        finalOutput,
+		Events:             copilotevents.FromSDK(collectedEvents),
 		ModelID:            modelID,
-		SkillInvocations:   eventsCollector.SkillInvocations,
+		SkillInvocations:   skillInvocations,
 		DurationMs:         duration.Milliseconds(),
-		ToolCalls:          eventsCollector.ToolCalls(),
+		ToolCalls:          toolCalls,
 		ErrorMsg:           errMsg,
 		Success:            err == nil,
 		WorkspaceDir:       workspaceDir,
@@ -665,6 +825,9 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 	if denials := policyRecorder.snapshot(); len(denials) > 0 {
 		resp.ToolPolicyDenials = denials
 		for _, d := range denials {
+			if e.diagnostics != nil {
+				continue
+			}
 			slog.Warn("tool denied by .agent.md tool policy",
 				"session_id", sessionID, "tool", d.Tool, "kind", d.Kind, "reason", d.Reason)
 		}
@@ -682,7 +845,11 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 // error.
 func (e *CopilotEngine) Shutdown(ctx context.Context) error {
 	e.shutdownOnce.Do(func() {
-		e.shutdownErr = e.doShutdown(ctx)
+		if e.diagnostics != nil {
+			e.shutdownErr = e.shutdownDiagnostic(ctx)
+		} else {
+			e.shutdownErr = e.doShutdown(ctx)
+		}
 	})
 	return e.shutdownErr
 }
@@ -774,12 +941,19 @@ func (e *CopilotEngine) captureUsage(parent context.Context, sessionID string, s
 	metrics, err := session.UsageMetrics(ctx)
 	if err == nil && metrics != nil {
 		collector.SetMetrics(metrics)
+		if op := operationFrom(ctx); op != nil {
+			reportUsageObservation(op, StageUsageMetrics, sessionID, collector.Observation())
+		}
 		return
 	}
 	if err == nil {
 		err = errors.New("empty usage metrics response")
 	}
-	slog.Warn("final usage metrics unavailable; using session events", "sessionID", sessionID, "error", err)
+	if op := operationFrom(ctx); op != nil {
+		op.report(StageUsageMetrics, CodeUsageMissingOrPartial, sessionID)
+	} else {
+		slog.Warn("final usage metrics unavailable; using session events", "sessionID", sessionID, "error", err)
+	}
 	if !final {
 		return
 	}
@@ -789,7 +963,29 @@ func (e *CopilotEngine) captureUsage(parent context.Context, sessionID string, s
 func (e *CopilotEngine) captureShutdownUsage(ctx context.Context, sessionID string, session CopilotSession, collector *SessionUsageCollector) {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	shutdown, err := session.ShutdownUsage(ctx)
+	var shutdown *copilot.SessionShutdownData
+	var err error
+	if op := operationFrom(ctx); op != nil {
+		if reporter, ok := session.(interface {
+			shutdownUsageDiagnostic(context.Context, func(DiagnosticCode)) (*copilot.SessionShutdownData, error)
+		}); ok {
+			shutdown, err = reporter.shutdownUsageDiagnostic(ctx, func(code DiagnosticCode) { op.report(StageShutdownUsage, code, sessionID) })
+		} else {
+			shutdown, err = session.ShutdownUsage(ctx)
+			if err != nil {
+				op.report(StageShutdownUsage, CodeShutdownRPC, sessionID)
+			}
+		}
+		if shutdown != nil {
+			collector.On(copilot.SessionEvent{Data: shutdown})
+		}
+		if shutdown == nil && err == nil {
+			op.report(StageShutdownUsage, CodeUsageMissingOrPartial, sessionID)
+		}
+		reportUsageObservation(op, StageShutdownUsage, sessionID, collector.Observation())
+		return
+	}
+	shutdown, err = session.ShutdownUsage(ctx)
 	if err != nil {
 		slog.Warn("shutdown usage unavailable", "sessionID", sessionID, "error", err)
 		return
@@ -824,6 +1020,13 @@ func (e *CopilotEngine) commandMockSession(workspace string, req *ExecutionReque
 
 // FinalizeCommandMocks closes the task's command-mock state after all turns.
 func (e *CopilotEngine) FinalizeCommandMocks(workspace string) ([]models.CommandInvocation, error) {
+	if e.diagnostics != nil {
+		return e.finalizeCommandMocksDiagnostic(workspace)
+	}
+	return e.finalizeCommandMocks(workspace)
+}
+
+func (e *CopilotEngine) finalizeCommandMocks(workspace string) ([]models.CommandInvocation, error) {
 	workspace, err := filepath.Abs(workspace)
 	if err != nil {
 		return nil, fmt.Errorf("resolving command-mock workspace: %w", err)
@@ -843,6 +1046,13 @@ func (e *CopilotEngine) FinalizeCommandMocks(workspace string) ([]models.Command
 // used by callers that own a long-lived session, such as the responder, to
 // tear it down promptly rather than waiting for engine Shutdown.
 func (e *CopilotEngine) DeleteSession(ctx context.Context, sessionID string) error {
+	if e.diagnostics != nil {
+		return e.deleteSessionDiagnostic(ctx, sessionID)
+	}
+	return e.deleteSession(ctx, sessionID)
+}
+
+func (e *CopilotEngine) deleteSession(ctx context.Context, sessionID string) error {
 	if sessionID == "" {
 		return nil
 	}
@@ -920,7 +1130,7 @@ func (e *CopilotEngine) extractReqParams(req *ExecutionRequest) (modelID string,
 	return modelID, sourceDir, nil
 }
 
-func (*CopilotEngine) getSkillDirs(cwd string, req *ExecutionRequest) []string {
+func (e *CopilotEngine) getSkillDirs(cwd string, req *ExecutionRequest) []string {
 	skillDirs := []string{cwd}
 
 	seen := map[string]bool{
@@ -932,13 +1142,16 @@ func (*CopilotEngine) getSkillDirs(cwd string, req *ExecutionRequest) []string {
 		if !seen[path] {
 			seen[path] = true
 			skillDirs = append(skillDirs, path)
-		} else {
+		} else if e.diagnostics == nil {
 			slog.Warn("Skill directory included more than once in request", "path", path)
 		}
 	}
 
 	// Log skill directories in verbose mode
 	for _, dir := range skillDirs {
+		if e.diagnostics != nil {
+			continue
+		}
 		slog.Debug("Adding skill directory", "path", dir)
 	}
 
@@ -1050,19 +1263,27 @@ type skillDefinition struct {
 // therefore emitted the block-scalar indicator (">-", ">", "|") as the
 // literal description for skills scaffolded by `waza new skill`. See #578.
 func buildSkillSystemMessage(skillDirs []string, skillName string, injectSkillBody bool) string {
-	if !injectSkillBody || skillName == "" {
-		return ""
-	}
-
-	sd, err := findSkillDefinition(skillDirs, skillName)
+	message, err := buildSkillSystemMessageChecked(skillDirs, skillName, injectSkillBody, true)
 	if err != nil {
 		slog.Warn("failed to resolve skill definition", "error", err)
 		return ""
 	}
-	if sd != nil {
-		return skillContextBlock(sd.Content)
+	return message
+}
+
+func buildSkillSystemMessageChecked(skillDirs []string, skillName string, injectSkillBody, logRaw bool) (string, error) {
+	if !injectSkillBody || skillName == "" {
+		return "", nil
 	}
-	return ""
+
+	sd, err := findSkillDefinitionWithLogging(skillDirs, skillName, logRaw)
+	if err != nil {
+		return "", err
+	}
+	if sd != nil {
+		return skillContextBlock(sd.Content), nil
+	}
+	return "", nil
 }
 
 // ResolveAgentDefinition uses the same selection and SKILL.md precedence as
@@ -1087,12 +1308,16 @@ func IsSkillAvailable(skillDirs []string, skillName string) bool {
 }
 
 func findSkillDefinition(skillDirs []string, skillName string) (*skillDefinition, error) {
+	return findSkillDefinitionWithLogging(skillDirs, skillName, true)
+}
+
+func findSkillDefinitionWithLogging(skillDirs []string, skillName string, logRaw bool) (*skillDefinition, error) {
 	if skillName == "" {
 		return nil, nil
 	}
 	for _, dir := range skillDirs {
 		// Check direct SKILL.md in this directory
-		sd, err := loadSkillDefinitionChecked(dir, skillName)
+		sd, err := loadSkillDefinitionWithLogging(dir, logRaw, skillName)
 		if err != nil {
 			return nil, err
 		}
@@ -1119,7 +1344,7 @@ func findSkillDefinition(skillDirs []string, skillName string) (*skillDefinition
 			if strings.HasPrefix(name, ".") || name == "node_modules" || name == "vendor" {
 				continue
 			}
-			sd, err := loadSkillDefinitionChecked(filepath.Join(dir, name), skillName)
+			sd, err := loadSkillDefinitionWithLogging(filepath.Join(dir, name), logRaw, skillName)
 			if err != nil {
 				return nil, err
 			}
@@ -1185,7 +1410,7 @@ func buildInstructionSystemMessage(instructions []InstructionFile) string {
 	return sb.String()
 }
 
-func loadSkillDefinitionChecked(dir string, selectedName ...string) (*skillDefinition, error) {
+func loadSkillDefinitionWithLogging(dir string, logRaw bool, selectedName ...string) (*skillDefinition, error) {
 	// Try SKILL.md first (existing behavior)
 	skillPath := filepath.Join(dir, "SKILL.md")
 	data, err := os.ReadFile(skillPath)
@@ -1195,7 +1420,9 @@ func loadSkillDefinitionChecked(dir string, selectedName ...string) (*skillDefin
 		if name == "" {
 			name = filepath.Base(dir)
 		}
-		slog.Debug("Loaded skill definition", "name", name, "dir", dir)
+		if logRaw {
+			slog.Debug("Loaded skill definition", "name", name, "dir", dir)
+		}
 		return &skillDefinition{Name: name, Description: desc, Content: content, Dir: dir, Path: skillPath}, nil
 	}
 
@@ -1221,7 +1448,9 @@ func loadSkillDefinitionChecked(dir string, selectedName ...string) (*skillDefin
 			if name == "" {
 				name = strings.TrimSuffix(entry.Name(), ".agent.md")
 			}
-			slog.Debug("Loaded agent definition", "name", name, "dir", dir)
+			if logRaw {
+				slog.Debug("Loaded agent definition", "name", name, "dir", dir)
+			}
 			sd := &skillDefinition{Name: name, Description: desc, Content: content, Dir: dir, Path: agentPath}
 			if len(selectedName) == 0 || strings.EqualFold(name, selectedName[0]) {
 				return sd, nil

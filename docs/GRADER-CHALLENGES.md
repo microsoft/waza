@@ -155,6 +155,37 @@ The baseline tests and raw observer do not change existing defaults, grader
 semantics or exit codes. Reference expectations remain evaluator-only;
 temporary workspaces contain only synthetic resulting state.
 
+### Native judge support boundary
+
+The additive internal judge support preserves exact finite candidate bytes,
+including empty and whitespace-only output, when `graders.Context.OutputPresent`
+selects independent, non-continuation grading. Native rendering and fresh grade
+callbacks remain authoritative; captured callback handlers must not be reused.
+Legacy, continuation and pairwise rendering and tool defaults are unchanged.
+
+That opt-in path installs a client-side two-callback tool filter, a pre-tool
+guard and a default-deny permission handler on the actual SDK request. Only
+`set_waza_grade_pass` and `set_waza_grade_fail` custom callbacks are permitted.
+Missing or unknown permission source/name, builtins, other custom tools and
+workflow/hook impersonation are denied rather than prompted or delegated to
+legacy policy. Offline doubles and pinned SDK loopback tests exercise actual
+new/resumed session configurations, automatic callback turns and unsupported
+policy rejection before sending candidate content.
+
+These checks establish tested **client-side policy and guard enforcement**.
+The SDK exposes no server-side enforcement acknowledgement; successful session
+creation does not certify a server silently ignoring filters or decisions,
+exhaustive builtin isolation, or unsupported live runtime behavior.
+
+An explicitly owned engine can report sanitized lifecycle diagnostics and
+finalized usage separately from native verdicts. Independent received-event
+model attribution survives usage replacement and shutdown, but does not prove
+exhaustive event delivery or billed usage. It must not be inferred from the
+requested model or substituted for authoritative accounting attribution.
+These support APIs alone do not implement calibration, authorize paid calls,
+authenticate labels or produce an assuring report. `Verify` remains offline,
+and published report consumers remain on report version `1.0`.
+
 ## Strict file-content assurance
 
 `waza assure eval.yaml --references labels.json` evaluates complete unredacted
