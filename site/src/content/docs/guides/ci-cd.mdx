@@ -71,9 +71,16 @@ Missing/unknown evidence, unreviewed labels and critical false acceptance fail
 the gate. Supply a current review source explicitly; do not promote bundled
 candidate labels to reviewed truth in automation.
 
-CLI calibration is not currently available: requesting it makes no paid calls and
+The existing `assure --calibrate` remains unavailable: requesting it makes no paid calls and
 returns not assessed, with unknown usage/credits remaining null. This offline
 gate does not certify external state, runtime history or statistical confidence.
+
+Do not select `assure calibrate --accept-paid-calls` in an offline CI gate: it is
+a distinct paid-operation acknowledgment, not ordinary assurance or generic
+noninteractive consent. The explicit command still requires eligible current
+review-source acceptance and a rubric root; job ceilings do not cap provider
+credits or money. Deterministic CI uses injected engines and a rejecting runtime
+guard instead.
 
 The **Offline Grader Assurance** repository workflow separately tests the
 evaluator calibration producer through injected deterministic engines. It

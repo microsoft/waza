@@ -1,4 +1,4 @@
-import { test } from '@playwright/test';
+import { expect, test } from '@playwright/test';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -14,7 +14,9 @@ const pages = [
 
 for (const pg of pages) {
   test(`screenshot: ${pg.name}`, async ({ page }) => {
-    await page.goto(pg.path);
+    const response = await page.goto(`/waza${pg.path}`);
+    expect(response?.ok()).toBe(true);
+    await expect(page.locator('main h1').first()).toBeVisible();
     await page.waitForLoadState('networkidle');
     await page.screenshot({
       path: path.join(outputDir, `site-${pg.name}.png`),

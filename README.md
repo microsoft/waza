@@ -155,7 +155,10 @@ waza assure eval.yaml --references labels.json
 
 # Inspect its standalone JSON locally in the dashboard's Assurance view.
 # Bundled authored-output examples remain unreviewed: expected exit 1/not assessed.
-# Calibrated 1.1 claims require explicit inspector selection; no paid CLI calls.
+# Calibrated 1.1 claims require explicit inspector selection.
+# Existing `assure --calibrate` remains unavailable and makes zero paid calls.
+# A separate `assure calibrate` command requires reviewed inputs and explicit
+# --accept-paid-calls; it can incur provider usage and is never enabled by default.
 
 # Note: 'generate' is available as an alias for 'new' (see below for new command)
 # Note: Custom agents (.agent.md) are supported — see https://microsoft.github.io/waza/guides/custom-agents/
@@ -1779,7 +1782,7 @@ See the complete [Grader Reference](docs/GRADERS.md) for detailed configuration 
 - **[Getting Started](docs/GETTING-STARTED.md)** - Complete walkthrough: init → new → run → check
 - **[Demo Guide](docs/DEMO-GUIDE.md)** - 7 live demo scenarios for presentations
 - **[Grader Reference](docs/GRADERS.md)** - Complete grader types and configuration
-- **[Grader Challenges and Assurance](docs/GRADER-CHALLENGES.md)** - Offline native checks and separate explicitly selected evaluator API; bundled labels remain unreviewed, paid CLI calibration unavailable
+- **[Grader Challenges and Assurance](docs/GRADER-CHALLENGES.md)** - Offline native checks and separately selected calibration; bundled labels remain unreviewed, paid calls require explicit acknowledgment
 - **[Tutorial](docs/TUTORIAL.md)** - Getting started with writing skill evals
 - **[CI Integration](docs/SKILLS_CI_INTEGRATION.md)** - GitHub Actions workflows for skill evaluation
 - **[Token Management](docs/TOKEN-LIMITS.md)** - Tracking and optimizing skill context size

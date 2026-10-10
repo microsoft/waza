@@ -134,6 +134,7 @@ grader defaults are unchanged. Exit 1 unless strict corpus assessment passes.`,
 	if err := cmd.MarkFlagRequired("references"); err != nil {
 		panic(err)
 	}
+	cmd.AddCommand(newAssureCalibrateCommand())
 	return cmd
 }
 

@@ -1158,11 +1158,46 @@ cache is reused. Existing `grade`, `run` and golden-task semantics are unchanged
 See [grader challenges](/guides/graders/#challenge-the-checks-not-just-the-answer).
 
 The separate internal evaluator API `assurance.Calibrate` has no default engine
-factory and does not enable paid CLI execution. Its version-1.1 report claims
-require separate explicit consumer selection; the CLI above continues to emit
+factory. Its version-1.1 report claims require separate explicit consumer
+selection; the offline CLI above continues to emit
 offline version `1.0`. See the
 [evaluator boundary](/waza/guides/graders/) for selection, notice, supported
 rubric modes and missing/operational evidence.
+
+### waza assure calibrate
+
+This distinctly selected command can incur paid provider usage. It is not enabled
+by the existing `assure --calibrate` flag, and bundled labels remain unreviewed.
+
+```bash
+waza assure calibrate eval.yaml --references reviewed-labels.json \
+  --review current-review.json --accept-review-source selected-source \
+  --rubric-root evaluator-rubrics --accept-paid-calls \
+  --timeout 10m --output calibrated-assurance.json
+```
+
+| Flag | Meaning |
+|------|---------|
+| `--references` | Required evaluator-only labels and rooted evidence |
+| `--review` | Required separate current supplied review |
+| `--accept-review-source` | Required explicit source acceptance, not human authentication |
+| `--rubric-root` | Required root for original local rubric reads |
+| `--accept-paid-calls` | Default false; explicit acknowledgment for this invocation |
+| `--timeout` | Positive cooperative assessment duration, default `10m`; not a spend cap |
+| `-o, --output` | Atomically replace requested standalone report; also write JSON to stdout |
+
+Without payment acknowledgment the admitted notice refuses execution with an
+empty ledger/null billing. No interactive prompt, generic `--yes`, model override
+or automatic review acceptance is provided. Notice failure blocks construction;
+ambient custom-provider redirects are rejected. Reviewed model/protocol and
+actual/maximum independent-job counts print to stderr before any owned engine;
+these counts do not bound provider follow-ups, retries, credits or money.
+
+Only a clean strict pass exits 0. Ordinary nonpass/refusal exits 1; invalid,
+operational, canceled, notice-I/O, output or root-close failure exits 2. A nonnil
+partial report is output even when the API also returns an error. Cleanup uses
+cooperative deadlines, not forced join. Version-1.1 inspection is explicit and
+does not certify server isolation, current evidence or human identity.
 
 ## waza grade
 

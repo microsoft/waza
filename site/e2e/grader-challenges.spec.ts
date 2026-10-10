@@ -33,11 +33,23 @@ test('assure CLI documents explicit review and unavailable paid calibration', as
   await expect(section).toContainText('Existing grade, run and golden-task semantics are unchanged');
 });
 
-test('evaluator calibration and ledger inspection remain explicitly separate from CLI execution', async ({ page }) => {
+test('evaluator calibration and paid command stay explicit while inspection remains read-only', async ({ page }) => {
   await page.goto('/waza/guides/graders/');
   await expect(page.getByText(/The separate evaluator API/)).toContainText('assurance.Calibrate');
   await expect(page.getByText(/It has no default factory/)).toBeVisible();
+  await expect(page.locator('.sl-markdown-content')).toContainText('waza assure calibrate');
+  await expect(page.locator('.sl-markdown-content')).toContainText('--accept-paid-calls');
   await page.getByRole('link', { name: 'dashboard inspection', exact: true }).click();
   await expect(page.getByText(/Calibrated report 1.1 claims require the separate/)).toBeVisible();
   await expect(page.locator('.sl-markdown-content')).toContainText('Inspection neither runs nor authorizes paid calibration');
+});
+
+test('paid calibration reference preserves legacy selection and explicit consent', async ({ page }) => {
+  await page.goto('/waza/reference/cli/');
+  const section = page.locator('.sl-markdown-content');
+  await expect(page.getByRole('heading', { name: 'waza assure calibrate', exact: true })).toBeVisible();
+  await expect(section).toContainText('not enabled by the existing assure --calibrate flag');
+  await expect(section).toContainText('Default false; explicit acknowledgment');
+  await expect(section).toContainText('default 10m; not a spend cap');
+  await expect(section).toContainText('partial report is output even when the API also returns an error');
 });

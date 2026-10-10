@@ -89,7 +89,7 @@ evidence and operational errors never count as correct negative rejection.
 Any wrongly accepted targeted critical bad case fails independently of average
 agreement. These finite cases supply no universal confidence guarantee.
 
-CLI model calibration remains unavailable: `--calibrate` reports not assessed,
+The existing offline `assure --calibrate` remains unavailable: it reports not assessed,
 makes zero paid calls and leaves usage/credits null. See the
 [CLI reference](/reference/cli/#waza-assure) and
 [exact contract](https://github.com/microsoft/waza/blob/main/docs/GRADER-CHALLENGES.md#strict-file-content-assurance).
@@ -103,6 +103,16 @@ or operational evidence cannot establish strict pass. Report-1.1 claims require
 separate explicit [dashboard inspection](/waza/guides/dashboard/#grader-assurance).
 Neither schema admission nor a finite agreement authenticates human review,
 proves exhaustive server isolation or authorizes paid calls.
+
+The distinctly selected `waza assure calibrate` command supplies an owned factory
+only for that operation. Required references/review/current-source acceptance and
+rubric root remain independent of `--accept-paid-calls`, which defaults to false.
+Without acknowledgment its notice refuses execution with an empty ledger/null
+billing, on both interactive and noninteractive input. There is no prompt or
+generic `--yes` fallback. Its admitted job count is not a provider spending cap.
+The positive cooperative timeout defaults to 10m; partial reports remain available
+with execution errors. See the [explicit calibration flags](/waza/reference/cli/#waza-assure-calibrate)
+for error exits, source/provider boundaries and output persistence.
 
 ---
 

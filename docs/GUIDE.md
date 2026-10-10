@@ -632,7 +632,7 @@ operational failures cannot pass. A subset of captured files cannot establish
 absence. Any wrongly accepted targeted critical negative independently fails,
 regardless of domain agreement. These are finite corpus checks, not confidence.
 
-Model calibration remains unavailable: `--calibrate` makes zero paid calls and
+Legacy `assure --calibrate` remains unavailable: it makes zero paid calls and
 reports not assessed, with null usage/credits. Bundled candidates have not had
 actual human review. See [the contract and support boundary](GRADER-CHALLENGES.md#strict-file-content-assurance).
 
@@ -645,8 +645,15 @@ claims or associating it with historical runs.
 
 The separate evaluator API `assurance.Calibrate` requires explicit selection,
 a bound local rubric root, a construction-only engine factory and a successful
-paid-call notice before any initialization. It has no default factory or paid
-CLI wiring; `waza assure --calibrate` therefore remains unavailable. Its
+paid-call notice before any initialization. It has no default factory.
+The separate `waza assure calibrate` command explicitly installs an owned factory
+and requires `--references`, `--review`, `--accept-review-source` and
+`--rubric-root`. Without `--accept-paid-calls` its notice refuses execution,
+including noninteractive use; there is no prompt or generic `--yes` fallback.
+The reviewed model, admitted job count and count-versus-spend warning are printed
+before construction. A positive `--timeout` defaults to 10m for cooperative
+assessment, not forced cleanup or a spending cap. Existing
+`waza assure --calibrate` still makes zero paid calls. Its
 version-1.1 reports require explicit inspector selection and show supplied judge
 lifecycle/model/accounting claims. See the
 [calibration API boundary](GRADER-CHALLENGES.md#explicit-evaluator-calibration-api)

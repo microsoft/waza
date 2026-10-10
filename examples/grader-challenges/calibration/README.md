@@ -67,7 +67,17 @@ reference-answer field presence is rejected before notice or initialization.
 Operational execution failure cannot become correct negative rejection, even
 after a native callback. Cleanup uses a cooperative deadline, not forced shutdown.
 
-Default offline `Verify` and the CLI remain adapter-free and report version
-`1.0`. Calibrated version-`1.1` inspection requires separate explicit selection.
+Default offline `Verify`, `waza assure`, and legacy `waza assure --calibrate`
+remain adapter-free and report version `1.0`. The separately selected
+`waza assure calibrate` child command produces version `1.1`; it requires
+explicit references, current review-source acceptance, a rubric root, and
+`--accept-paid-calls` before its production factory can be invoked. It prints
+the reviewed plan and admitted execution count before construction. That count
+and the cooperative timeout are not a provider-call or spending cap.
+
+Do not run the paid child command to reproduce this offline example. Its CLI
+tests inject engines and cover refused consent, notice/output failures, partial
+reports, cancellation and strict-pass exits without credentials or paid calls.
+Calibrated version-`1.1` inspection requires separate explicit selection.
 Tested client policy/guards and finite-corpus agreement do not certify server
 isolation, universal correctness or measured live-model confidence.

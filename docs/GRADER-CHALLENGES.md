@@ -177,6 +177,13 @@ The SDK exposes no server-side enforcement acknowledgement; successful session
 creation does not certify a server silently ignoring filters or decisions,
 exhaustive builtin isolation, or unsupported live runtime behavior.
 
+An explicitly empty native tool policy also installs the empty SDK tool filter,
+default-deny permission wrapper and pre-tool hook before both new and resumed
+sessions, even without grader callbacks or a caller permission handler. Offline
+configuration and denial controls cover this client-side boundary; a nil policy
+remains unrestricted. This is not certification of a server ignoring those
+controls.
+
 An explicitly owned engine can report sanitized lifecycle diagnostics and
 finalized usage separately from native verdicts. Independent received-event
 model attribution survives usage replacement and shutdown, but does not prove
@@ -212,7 +219,7 @@ The request embeds `VerifyRequest` and requires explicit `Calibrate: true`, a
 separate evaluator-owned `RubricRoot *os.Root`, a construction-only
 `EngineFactory(model, diagnosticObserver) (CalibrationEngine, error)`, and
 `PaidCallNotice(plan, admittedUniqueExecutions) error`. There is no default
-engine factory or paid CLI integration. Missing selection/factory/notice or
+engine factory. Missing selection/factory/notice or
 notice refusal produces a non-passing report with no judge executions.
 
 The notice runs only after current supplied-review eligibility, exact source/
@@ -371,6 +378,49 @@ local inspector validates raw JSON and report shape, not the supplied states,
 digests, reviewer identity or evidence freshness. Historical runs remain
 explicitly not assessed; imported reports are neither uploaded nor associated
 with them.
+
+### Explicit calibration command
+
+`waza assure calibrate` is separate from the unchanged offline command and its
+legacy `--calibrate` flag. This example **can incur paid provider usage** and is
+not an instruction to run bundled, unreviewed candidates:
+
+```bash
+waza assure calibrate eval.yaml --references reviewed-labels.json \
+  --review current-review.json --accept-review-source selected-source \
+  --rubric-root evaluator-rubrics --accept-paid-calls \
+  --timeout 10m --output calibrated-assurance.json
+```
+
+The four input/review/root flags are required. `--accept-paid-calls` defaults to
+false; without it the successful notice refuses execution, returning a nonpass
+1.1 report with an empty ledger and null billing. Interactive and noninteractive
+use follow the same explicit acknowledgment rule. There is no prompt, generic
+`--yes`, model override, automatic source acceptance or production fallback.
+Ambient `COPILOT_BASE_URL`/`COPILOT_PROVIDER_BASE_URL` redirects are rejected for
+this operation, not removed or inherited silently.
+
+The notice prints reviewed model/protocol, actual admitted unique jobs N and
+declared maximum M before engine construction. N<=M limits independent jobs,
+not provider follow-up requests, retries, credits or money. Current eligible
+review and exact source/configuration/executable/rubric/evidence bindings remain
+mandatory even with payment acknowledgment. Acceptance is of a supplied current
+review source, not authentication of a human or discovery of withheld revocations.
+
+Only this selected command supplies the construction-only owned engine factory.
+The producer supplies independent no-skills/ephemeral native requests and the
+two-callback client policy. Borrowed roots remain open until final accounting;
+the command then closes them and retains close failures. `--timeout` must be
+positive (default 10m); it bounds cooperative assessment, not spending or forced
+shutdown. No server isolation or exhaustive event-delivery certification follows.
+
+Both returned report and error are checked. A nonnil partial report is still
+written when execution errors occur; no offline/success-shaped fallback replaces
+it. Requested file output uses a protected sibling staging file and atomic
+replacement; file and stdout writes are attempted independently. A plain
+nonpass/refusal exits 1, invalid/operational/cancellation/notice-I/O/output/close
+failure exits 2, and only a clean strict pass exits 0. Notices use stderr, JSON
+uses stdout. The local inspector still requires explicit version-1.1 selection.
 
 The [finite authored-output example](../examples/grader-challenges/authored-output/README.md)
 generates evaluator-only inputs and binds an actual selected executable. Its
