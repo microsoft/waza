@@ -35,9 +35,12 @@ type Context struct {
 	TestCase   *models.TestCase
 	Transcript []models.TranscriptEvent
 	Output     string
-	Outcome    map[string]any
-	DurationMS int64
-	Metadata   map[string]any
+	// OutputPresent opts independent prompt grading into byte-exact injection,
+	// including an explicitly present empty output. False preserves legacy rendering.
+	OutputPresent bool
+	Outcome       map[string]any
+	DurationMS    int64
+	Metadata      map[string]any
 
 	// WorkspaceDir is the sandbox folder we used for this session - it should contain any edits
 	// or other changes we've made. This can be useful for things like the [FileGrader],

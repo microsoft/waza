@@ -295,3 +295,25 @@ func (r *Rubric) RenderPrompt(taskInput, sourceContext, candidateOutput string) 
 	}
 	return sb.String()
 }
+
+// RenderPromptExact injects a present candidate without trimming any input bytes.
+// The receiver's Body is the effective prompt (including any inline override).
+func (r *Rubric) RenderPromptExact(taskInput, sourceContext, candidateOutput string) string {
+	var sb strings.Builder
+	sb.WriteString(r.Body)
+	sb.WriteString("\n\n---\n")
+	if taskInput != "" {
+		sb.WriteString("\n## Task input\n")
+		sb.WriteString(taskInput)
+		sb.WriteString("\n")
+	}
+	if sourceContext != "" {
+		sb.WriteString("\n## Source context\n")
+		sb.WriteString(sourceContext)
+		sb.WriteString("\n")
+	}
+	sb.WriteString("\n## Candidate output\n")
+	sb.WriteString(candidateOutput)
+	sb.WriteString("\n")
+	return sb.String()
+}

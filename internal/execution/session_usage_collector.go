@@ -1,6 +1,8 @@
 package execution
 
 import (
+	"sort"
+	"strings"
 	"sync"
 
 	copilot "github.com/github/copilot-sdk/go"
@@ -29,8 +31,15 @@ type SessionUsageCollector struct {
 	usageRevision uint64
 
 	// Session-level usage from termination events (authoritative)
-	sessionUsage *models.UsageStats
-	rpcUsage     *models.UsageStats
+	sessionUsage        *models.UsageStats
+	rpcUsage            *models.UsageStats
+	rpcObservation      SessionUsageObservation
+	shutdownObservation SessionUsageObservation
+	turnModels          map[string]bool
+
+	eventModels           map[string]bool
+	modelEventsObserved   uint64
+	eventModelsIncomplete bool
 
 	mut *sync.RWMutex
 }
@@ -48,6 +57,7 @@ func (s *SessionUsageCollector) On(event copilot.SessionEvent) {
 	s.mut.Lock()
 	defer s.mut.Unlock()
 
+	s.observeEventModels(event)
 	switch event.Type() {
 	case copilot.SessionEventTypeAssistantTurnStart:
 		s.turns++
@@ -96,6 +106,8 @@ func (s *SessionUsageCollector) beginTurn() {
 	defer s.mut.Unlock()
 	s.rpcUsage = nil
 	s.sessionUsage = nil
+	s.rpcObservation = SessionUsageObservation{}
+	s.shutdownObservation = SessionUsageObservation{}
 	s.usageRevision++
 }
 
@@ -115,6 +127,10 @@ func (s *SessionUsageCollector) hasMetrics() bool {
 func (s *SessionUsageCollector) SetMetrics(metrics *rpc.UsageGetMetricsResult) {
 	s.mut.Lock()
 	defer s.mut.Unlock()
+	if metrics == nil {
+		return
+	}
+	observation := SessionUsageObservation{Source: "rpc", Complete: metrics.TotalNanoAiu != nil && len(metrics.ModelMetrics) > 0, ModelAttributionComplete: len(metrics.ModelMetrics) > 0}
 	usage := &models.UsageStats{
 		PremiumRequests: metrics.TotalPremiumRequestCost,
 		ModelMetrics:    make(map[string]models.ModelUsage, len(metrics.ModelMetrics)),
@@ -124,6 +140,15 @@ func (s *SessionUsageCollector) SetMetrics(metrics *rpc.UsageGetMetricsResult) {
 		usage.AICredits = &credits
 	}
 	for name, mm := range metrics.ModelMetrics {
+		if !observedModel(name) {
+			observation.Complete = false
+			observation.ModelAttributionComplete = false
+		} else {
+			observation.Models = append(observation.Models, name)
+		}
+		if mm.TotalNanoAiu == nil {
+			observation.Complete = false
+		}
 		mu := models.ModelUsage{
 			InputTokens:      int(mm.Usage.InputTokens),
 			OutputTokens:     int(mm.Usage.OutputTokens),
@@ -143,6 +168,8 @@ func (s *SessionUsageCollector) SetMetrics(metrics *rpc.UsageGetMetricsResult) {
 		usage.CacheWriteTokens += mu.CacheWriteTokens
 	}
 	s.rpcUsage = usage
+	sort.Strings(observation.Models)
+	s.rpcObservation = observation
 }
 
 // extractSessionUsage captures cumulative usage from session termination events.
@@ -152,9 +179,23 @@ func (s *SessionUsageCollector) SetMetrics(metrics *rpc.UsageGetMetricsResult) {
 // totals than earlier events.
 func (s *SessionUsageCollector) extractSessionUsage(event copilot.SessionEvent) {
 	shutdown, ok := copilotevents.Shutdown(event)
-	if !ok {
+	if !ok || shutdown == nil {
 		return
 	}
+	observation := SessionUsageObservation{Source: "shutdown", Complete: shutdown.TotalNanoAiu != nil && shutdown.TotalPremiumRequests != nil && len(shutdown.ModelMetrics) > 0, ModelAttributionComplete: len(shutdown.ModelMetrics) > 0}
+	for name, mm := range shutdown.ModelMetrics {
+		if !observedModel(name) {
+			observation.Complete = false
+			observation.ModelAttributionComplete = false
+		} else {
+			observation.Models = append(observation.Models, name)
+		}
+		if mm.TotalNanoAiu == nil || mm.Requests.Count == nil || mm.Requests.Cost == nil {
+			observation.Complete = false
+		}
+	}
+	sort.Strings(observation.Models)
+	s.shutdownObservation = observation
 
 	if s.sessionUsage == nil {
 		s.sessionUsage = &models.UsageStats{}
@@ -212,7 +253,7 @@ func (s *SessionUsageCollector) extractSessionUsage(event copilot.SessionEvent) 
 // is not available.
 func (s *SessionUsageCollector) extractTurnUsage(event copilot.SessionEvent) {
 	usage, ok := copilotevents.AssistantUsage(event)
-	if !ok {
+	if !ok || usage == nil {
 		return
 	}
 	if usage.InputTokens == nil && usage.OutputTokens == nil &&
@@ -220,6 +261,11 @@ func (s *SessionUsageCollector) extractTurnUsage(event copilot.SessionEvent) {
 		usage.Cost == nil {
 		return
 	}
+	if s.turnModels == nil {
+		s.turnModels = make(map[string]bool)
+	}
+	s.turnModels[usage.Model] = true
+
 	if s.turnUsage == nil {
 		s.turnUsage = &models.UsageStats{}
 	}
@@ -237,5 +283,221 @@ func (s *SessionUsageCollector) extractTurnUsage(event copilot.SessionEvent) {
 	}
 	if usage.Cost != nil {
 		s.turnUsage.PremiumRequests += *usage.Cost
+	}
+}
+
+// Observation reports completeness of the same authoritative source selected
+// by UsageStats. Per-turn data remains partial; credits are never inferred.
+func (s *SessionUsageCollector) Observation() SessionUsageObservation {
+	s.mut.RLock()
+	defer s.mut.RUnlock()
+	var result SessionUsageObservation
+	switch {
+	case s.rpcUsage != nil:
+		result = s.rpcObservation
+	case s.sessionUsage != nil:
+		result = s.shutdownObservation
+	case s.turnUsage != nil:
+		result.Source = "events"
+		result.ModelAttributionComplete = len(s.turnModels) > 0
+		for name := range s.turnModels {
+			if observedModel(name) {
+				result.Models = append(result.Models, name)
+			} else {
+				result.ModelAttributionComplete = false
+			}
+		}
+		sort.Strings(result.Models)
+	}
+	result.Models = append([]string(nil), result.Models...)
+	return result
+}
+
+func observedModel(name string) bool {
+	switch strings.ToLower(strings.TrimSpace(name)) {
+	case "", "unknown", "auto":
+		return false
+	default:
+		return true
+	}
+}
+
+// EventModelObservation is cumulative for this collector's session lifetime;
+// RPC snapshots, shutdown totals and beginTurn never replace received evidence.
+func (s *SessionUsageCollector) EventModelObservation() SessionEventModelObservation {
+	s.mut.RLock()
+	defer s.mut.RUnlock()
+	result := SessionEventModelObservation{
+		EventsObserved: s.modelEventsObserved,
+		Complete:       s.modelEventsObserved > 0 && !s.eventModelsIncomplete,
+	}
+	for name := range s.eventModels {
+		result.Models = append(result.Models, name)
+	}
+	sort.Strings(result.Models)
+	return result
+}
+
+func (s *SessionUsageCollector) observeEventModels(event copilot.SessionEvent) {
+	var ids []*string
+	switch data := event.Data.(type) {
+	case *copilot.AssistantUsageData:
+		if data != nil {
+			ids = append(ids, &data.Model)
+			if usage := data.CopilotUsage; usage != nil {
+				if usage.Model != nil {
+					ids = append(ids, usage.Model)
+				}
+				for _, detail := range usage.TokenDetails {
+					if detail.Model != nil {
+						ids = append(ids, detail.Model)
+					}
+				}
+			}
+		}
+	case *copilot.AssistantMessageData:
+		if data != nil {
+			ids = append(ids, data.Model)
+		}
+	case *copilot.AssistantTurnStartData:
+		if data != nil {
+			ids = append(ids, data.Model)
+		}
+	case *copilot.AssistantTurnEndData:
+		if data != nil {
+			ids = append(ids, data.Model)
+		}
+	case *copilot.AssistantTurnRetryData:
+		if data != nil {
+			ids = append(ids, data.Model)
+		}
+	case *copilot.ModelCallStartData:
+		if data != nil {
+			ids = append(ids, data.Model)
+		}
+	case *copilot.ModelCallFailureData:
+		if data != nil {
+			ids = append(ids, data.Model)
+		}
+	case *copilot.SessionStartData:
+		if data != nil {
+			ids = append(ids, data.SelectedModel)
+		}
+	case *copilot.SessionResumeData:
+		if data != nil {
+			ids = append(ids, data.SelectedModel)
+		}
+	case *copilot.SessionModelChangeData:
+		if data != nil {
+			ids = append(ids, &data.NewModel)
+			if data.PreviousModel != nil {
+				ids = append(ids, data.PreviousModel)
+			}
+		}
+	case *copilot.SessionModelDeselectedData:
+		if data != nil {
+			ids = append(ids, &data.PreviousModel)
+		}
+	case *copilot.SessionShutdownData:
+		if data != nil {
+			if data.CurrentModel != nil {
+				ids = append(ids, data.CurrentModel)
+			}
+			for model := range data.ModelMetrics {
+				ids = append(ids, &model)
+			}
+			for _, agent := range data.AgentMetrics {
+				for model := range agent.ModelMetrics {
+					ids = append(ids, &model)
+				}
+			}
+		}
+	case *copilot.SessionCompactionStartData:
+		if data != nil {
+			ids = append(ids, data.Model)
+		}
+	case *copilot.SessionCompactionCompleteData:
+		if data != nil && data.CompactionTokensUsed != nil {
+			tokens := data.CompactionTokensUsed
+			ids = append(ids, tokens.Model)
+			if usage := tokens.CopilotUsage; usage != nil {
+				if usage.Model != nil {
+					ids = append(ids, usage.Model)
+				}
+				for _, detail := range usage.TokenDetails {
+					if detail.Model != nil {
+						ids = append(ids, detail.Model)
+					}
+				}
+			}
+		}
+	case *copilot.AssistantFusionPhaseStartedData:
+		if data != nil {
+			ids = append(ids, &data.Model)
+		}
+	case *copilot.AssistantFusionPhaseCompletedData:
+		if data != nil {
+			ids = append(ids, &data.Model)
+		}
+	case *copilot.AssistantFusionPhaseFailedData:
+		if data != nil {
+			ids = append(ids, &data.Model)
+		}
+	case *copilot.SubagentConfiguredData:
+		if data != nil {
+			ids = append(ids, &data.Model)
+		}
+	case *copilot.SubagentStartedData:
+		if data != nil {
+			ids = append(ids, data.Model)
+		}
+	case *copilot.SubagentCompletedData:
+		if data != nil {
+			ids = append(ids, data.Model)
+		}
+	case *copilot.SubagentFailedData:
+		if data != nil {
+			ids = append(ids, data.Model)
+		}
+	case *copilot.AgentInterruptedData:
+		if data != nil {
+			ids = append(ids, data.Model)
+		}
+	case *copilot.SessionToolsUpdatedData:
+		if data != nil {
+			ids = append(ids, &data.Model)
+		}
+	case *copilot.ToolExecutionStartData:
+		if data != nil {
+			ids = append(ids, data.Model)
+		}
+	case *copilot.ToolExecutionCompleteData:
+		if data != nil {
+			ids = append(ids, data.Model)
+		}
+	case *copilot.SkillInvokedData:
+		if data != nil {
+			ids = append(ids, data.Model)
+		}
+	case *copilot.ExitPlanModeRequestedData:
+		if data != nil {
+			ids = append(ids, data.Model)
+		}
+	default:
+		return
+	}
+	s.modelEventsObserved++
+	if len(ids) == 0 {
+		s.eventModelsIncomplete = true
+	}
+	for _, id := range ids {
+		if id == nil || !observedModel(*id) {
+			s.eventModelsIncomplete = true
+			continue
+		}
+		if s.eventModels == nil {
+			s.eventModels = make(map[string]bool)
+		}
+		s.eventModels[*id] = true
 	}
 }

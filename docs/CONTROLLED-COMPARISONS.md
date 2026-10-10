@@ -39,6 +39,15 @@ remain incomplete/invalid without repair; a parsed local prefix does not prove
 fsync acknowledgment or publish a final ledger. Existing public protocols and
 API/dashboard required-assurance nonpass behavior remain unchanged.
 
+The separate native dependency provides an explicitly installed diagnostic
+observer, owned-client factory and independent received-model/final-usage
+observations. These hooks are not connected to controlled collection. Observer
+callbacks must not reenter engine lifecycle methods; delivery is synchronous,
+not runtime reentrancy protection. The native SDK deny-all filter, permission
+guard and pre-tool guard have offline create/resume controls, not server
+isolation or permission to execute live tasks. Exact prompt injection is
+separately opted in by a grader context and does not broaden assurance readers.
+
 ## Offline planning and collection
 
 ```bash
