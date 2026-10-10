@@ -48,6 +48,32 @@ guard and pre-tool guard have offline create/resume controls, not server
 isolation or permission to execute live tasks. Exact prompt injection is
 separately opted in by a grader context and does not broaden assurance readers.
 
+`internal/nativesnapshot` separately resolves actual two-arm source files with
+engine-free `Prepare` and independent `Recheck`, and returns detached CLIENT
+requests for inspection. It reuses native declaration parsing and request
+construction, capturing raw eval/task/prompt/fixture/instruction bytes, present
+lockfiles, task discovery order and the caller-selected evaluator executable.
+An empty CLI context uses the corresponding eval directory's `fixtures`;
+explicit CLI and task contexts keep their native cwd-relative semantics.
+Borrowed root handles and original cwd associations cannot be retargeted during
+recheck. Reads are bounded, rooted and cancellation-aware; aliases, unsupported
+inputs and missing consumed resources reject rather than silently disappearing.
+The shared platform opener preserves assurance-reader behavior. Unix file and
+directory opens use nonblocking flags followed by caller-owned descriptor
+checks; Windows directory discovery is explicitly unsupported and fails closed.
+Cross-compilation does not establish Windows runtime behavior.
+
+This resolver supports only independent, no-skills native-text declarations
+with a fixed named model. Cross-root inputs, authored floating-point identities,
+parallel/dependency/hook/multiturn modes and other graders remain unsupported.
+Its private full CLIENT request projection is **not** the narrower
+`nativetask` request-intent digest or a public integration wire. Source recapture
+does not authenticate a hostile filesystem, the loaded executable, server
+isolation or exhaustive runtime instructions. No current-review authorization,
+allocation/budget admission, paired lifecycle collection or native execution is
+enabled; unsupported required runtime/routing/output-presence/currency evidence
+still cannot pass through existing protocols.
+
 ## Offline planning and collection
 
 ```bash

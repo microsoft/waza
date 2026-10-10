@@ -529,7 +529,31 @@ func loadTestCase(path string, offline bool) (*TestCase, error) {
 	if err != nil {
 		return nil, err
 	}
+	return parseTestCase(data, path, offline, os.ReadFile)
+}
 
+// ParseTestCaseOffline resolves prompt_file through a captured-byte reader.
+// The reader receives the same task-directory-relative path as the loader.
+func ParseTestCaseOffline(data []byte, path string, readFile func(string) ([]byte, error)) (*TestCase, error) {
+	if readFile == nil {
+		return nil, fmt.Errorf("offline task parsing requires a source reader")
+	}
+	if err := validateCapturedModelSource(data, true); err != nil {
+		return nil, err
+	}
+	tc, err := parseTestCase(data, path, true, readFile)
+	if err != nil {
+		return nil, err
+	}
+	metadata, err := capturedTaskMetadata(tc.Stimulus.Metadata)
+	if err != nil {
+		return nil, err
+	}
+	tc.Stimulus.Metadata = metadata
+	return tc, nil
+}
+
+func parseTestCase(data []byte, path string, offline bool, readFile func(string) ([]byte, error)) (*TestCase, error) {
 	if offline {
 		if err := guardOfflineModelSchemas(data, true); err != nil {
 			return nil, fmt.Errorf("task schema dependencies: %w", err)
@@ -555,7 +579,7 @@ func loadTestCase(path string, offline bool) (*TestCase, error) {
 	}
 
 	// Resolve prompt_file into the prompt message
-	if err := tc.Stimulus.resolvePromptFile(filepath.Dir(path)); err != nil {
+	if err := tc.Stimulus.resolvePromptFileWithReader(filepath.Dir(path), readFile); err != nil {
 		return nil, fmt.Errorf("test case %s: %w", path, err)
 	}
 
@@ -581,10 +605,10 @@ func loadTestCase(path string, offline bool) (*TestCase, error) {
 	return &tc, nil
 }
 
-// resolvePromptFile loads prompt content from a file if prompt_file is set.
+// resolvePromptFileWithReader loads prompt content if prompt_file is set.
 // The path is resolved relative to baseDir. Absolute and traversal paths are
 // rejected, consistent with resource path validation in the runner.
-func (s *TaskStimulus) resolvePromptFile(baseDir string) error {
+func (s *TaskStimulus) resolvePromptFileWithReader(baseDir string, readFile func(string) ([]byte, error)) error {
 	if s.MessageFile == "" {
 		return nil
 	}
@@ -603,7 +627,7 @@ func (s *TaskStimulus) resolvePromptFile(baseDir string) error {
 
 	resolved := filepath.Join(baseDir, clean)
 
-	data, err := os.ReadFile(resolved)
+	data, err := readFile(resolved)
 	if err != nil {
 		return fmt.Errorf("reading prompt_file %q: %w", s.MessageFile, err)
 	}

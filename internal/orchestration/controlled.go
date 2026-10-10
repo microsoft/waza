@@ -156,15 +156,7 @@ func freezeControlledInput(req *execution.ExecutionRequest) (*ControlledInput, e
 		len(req.MCPServers) != 0 || len(req.CommandMocks) != 0 || len(req.SkillPaths) != 0 {
 		return nil, fmt.Errorf("controlled request contains unsupported session/dependency capabilities")
 	}
-	// Function-typed SDK members cannot be JSON encoded, even when nil. Remove
-	// only those known absent members; all remaining request fields are bound.
-	type request execution.ExecutionRequest
-	value := struct {
-		*request
-		PermissionHandler any `json:"PermissionHandler"`
-		Tools             any `json:"Tools"`
-	}{request: (*request)(req)}
-	data, err := json.Marshal(value)
+	data, err := encodeCallbackFreeRequest(req)
 	if err != nil {
 		return nil, fmt.Errorf("freezing controlled request: %w", err)
 	}

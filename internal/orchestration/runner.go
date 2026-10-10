@@ -45,6 +45,7 @@ type responderClassifier interface {
 // Deprecated alias: TestRunner is provided for backward compatibility.
 type EvalRunner struct {
 	cfg              *config.EvalConfig
+	requestFiles     RequestFiles
 	engine           execution.AgentEngine
 	verbose          bool
 	controlledOutput func(string)
@@ -1398,11 +1399,14 @@ func (r *EvalRunner) captureFailureArtifacts(run *models.RunResult) {
 
 func (r *EvalRunner) buildExecutionRequest(tc *models.TestCase) (*execution.ExecutionRequest, error) {
 	// Load resource files
+	r.setRequestInputRole("context_fixture")
 	resources, err := r.loadContextFixtureResources(tc)
 	if err != nil {
 		return nil, err
 	}
+	r.setRequestInputRole("resource")
 	resources = append(resources, r.loadResources(tc)...)
+	r.setRequestInputRole("instruction")
 	instructions, instructionResources, err := r.loadInstructionFiles(tc)
 	if err != nil {
 		return nil, err
@@ -1781,7 +1785,7 @@ func (r *EvalRunner) loadResources(tc *models.TestCase) []execution.ResourceFile
 				continue
 			}
 
-			content, err := os.ReadFile(fullPath)
+			content, err := r.inputFiles().ReadFile(fullPath)
 			if err != nil {
 				// Log error but continue - let the test fail if resource is critical
 				fmt.Fprintf(os.Stderr, "Warning: failed to load resource file %s: %v\n", fullPath, err)
@@ -1798,12 +1802,16 @@ func (r *EvalRunner) loadResources(tc *models.TestCase) []execution.ResourceFile
 }
 
 func (r *EvalRunner) loadContextFixtureResources(tc *models.TestCase) ([]execution.ResourceFile, error) {
-	return LoadContextFixtureResources(tc, r.cfg.SpecDir())
+	return loadContextFixtureResources(tc, r.cfg.SpecDir(), r.inputFiles())
 }
 
 // LoadContextFixtureResources reads local fixtures with runtime containment and
 // symlink rules. It does not create a workspace or initialize an engine.
 func LoadContextFixtureResources(tc *models.TestCase, baseDir string) ([]execution.ResourceFile, error) {
+	return loadContextFixtureResources(tc, baseDir, nativeRequestFiles{})
+}
+
+func loadContextFixtureResources(tc *models.TestCase, baseDir string, files RequestFiles) ([]execution.ResourceFile, error) {
 	fixtureValue, ok := tc.Stimulus.Metadata["fixture"]
 	if !ok {
 		return nil, nil
@@ -1843,17 +1851,17 @@ func LoadContextFixtureResources(tc *models.TestCase, baseDir string) ([]executi
 		return nil, fmt.Errorf("inputs.context.fixture path %q escapes spec directory", fixturePath)
 	}
 
-	info, err := os.Stat(fullPath)
+	info, err := files.Stat(fullPath)
 	if err != nil {
 		return nil, fmt.Errorf("reading inputs.context.fixture %q: %w", fixturePath, err)
 	}
 
 	// Re-check containment using symlink-resolved paths.
-	realFullPath, err := filepath.EvalSymlinks(fullPath)
+	realFullPath, err := files.EvalSymlinks(fullPath)
 	if err != nil {
 		return nil, fmt.Errorf("resolving symlinks for inputs.context.fixture %q: %w", fixturePath, err)
 	}
-	realBaseDir, err := filepath.EvalSymlinks(absBaseDir)
+	realBaseDir, err := files.EvalSymlinks(absBaseDir)
 	if err != nil {
 		return nil, fmt.Errorf("resolving symlinks for spec directory: %w", err)
 	}
@@ -1862,7 +1870,7 @@ func LoadContextFixtureResources(tc *models.TestCase, baseDir string) ([]executi
 	}
 
 	if !info.IsDir() {
-		content, err := os.ReadFile(fullPath)
+		content, err := files.ReadFile(fullPath)
 		if err != nil {
 			return nil, fmt.Errorf("reading inputs.context.fixture file %q: %w", fixturePath, err)
 		}
@@ -1873,7 +1881,7 @@ func LoadContextFixtureResources(tc *models.TestCase, baseDir string) ([]executi
 	}
 
 	var resources []execution.ResourceFile
-	err = filepath.WalkDir(fullPath, func(path string, d os.DirEntry, err error) error {
+	err = files.WalkDir(fullPath, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -1891,7 +1899,7 @@ func LoadContextFixtureResources(tc *models.TestCase, baseDir string) ([]executi
 		if rel == "." {
 			return nil
 		}
-		content, err := os.ReadFile(path)
+		content, err := files.ReadFile(path)
 		if err != nil {
 			return err
 		}
@@ -1935,7 +1943,7 @@ func (r *EvalRunner) loadInstructionFiles(tc *models.TestCase) ([]execution.Inst
 			return nil, nil, err
 		}
 
-		content, err := os.ReadFile(fullPath)
+		content, err := r.inputFiles().ReadFile(fullPath)
 		if err != nil {
 			return nil, nil, fmt.Errorf("reading instruction file %q: %w", path, err)
 		}
