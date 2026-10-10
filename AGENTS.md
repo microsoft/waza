@@ -140,6 +140,14 @@ Each task execution gets a **fresh temp workspace** with fixtures copied in:
 
 **The original fixtures directory is never modified.** This ensures task isolation.
 
+CLI tests additionally allocate their temporary storage outside project ancestry,
+even when `TMPDIR` points into a checkout. Their `TestMain` fails closed if the
+canonical fixture path inherits `skills/`, `.waza.yaml`, or `.git`. Tests that
+exercise default discovery must also change into their fixture directory.
+`ENABLE_COPILOT_TESTS=false` only disables explicitly gated integration tests;
+it does not disable the production SDK execution path. Deterministic CLI gates
+must also use an absolute, verified `COPILOT_CLI_PATH` that rejects runtime launch.
+
 ## Documentation Requirements
 
 **Use Mermaid for all diagrams** in markdown files (docs, design docs, plans). No ASCII art diagrams.
