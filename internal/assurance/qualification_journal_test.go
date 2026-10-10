@@ -119,17 +119,19 @@ func qualificationTestStartedJournal(t *testing.T, manifest qualificationManifes
 	_, err := journal.Claim(t.Context(), manifest)
 	require.NoError(t, err)
 	previous := manifest.document.sha256()
+	events := []qualificationEvent{}
 	event := qualificationTestEvent(t, manifest, 1, previous, "run_admission", nil)
-	qualificationTestAppend(t, journal, manifest, event)
+	events = append(events, event)
 	previous = event.document.sha256()
 	event = qualificationTestCurrentness(t, manifest, 2, previous, "before_job", new(uint64(0)), strings.Repeat("a", 64))
-	qualificationTestAppend(t, journal, manifest, event)
+	events = append(events, event)
 	previous = event.document.sha256()
 	event = qualificationTestEvent(t, manifest, 3, previous, "job_admission", new(uint64(0)))
-	qualificationTestAppend(t, journal, manifest, event)
+	events = append(events, event)
 	previous = event.document.sha256()
 	event = qualificationTestEvent(t, manifest, 4, previous, "job_start", new(uint64(0)))
-	qualificationTestAppend(t, journal, manifest, event)
+	events = append(events, event)
+	qualificationTestMaterializeHistory(t, journal, events, nil)
 	terminal := qualificationTestOperationalTerminal(t, manifest, 0)
 	return journal, qualificationTestTerminalEvent(t, manifest, 5, event.document.sha256(), 0, terminal), terminal
 }

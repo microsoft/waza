@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/json"
-	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -47,39 +46,22 @@ func qualificationTestCompletePrefix(t *testing.T, manifest qualificationManifes
 	journal, _, _ := qualificationLocalTestJournal(t, manifest)
 	_, err := journal.Claim(t.Context(), manifest)
 	require.NoError(t, err)
-	sequence, previous := uint64(1), manifest.document.sha256()
-	appendEvent := func(event qualificationEvent) {
-		qualificationTestAppend(t, journal, manifest, event)
-		sequence++
-		previous = event.document.sha256()
-	}
-	appendEvent(qualificationTestEvent(t, manifest, sequence, previous, "run_admission", nil))
-	m, err := qualificationManifestValue(manifest)
-	require.NoError(t, err)
-	terminals := []qualificationTerminal{}
-	for ordinal := range m.Jobs {
-		o := uint64(ordinal)
-		appendEvent(qualificationTestCurrentness(t, manifest, sequence, previous, "before_job", new(o), fmt.Sprintf("%064x", ordinal+1)))
-		appendEvent(qualificationTestEvent(t, manifest, sequence, previous, "job_admission", new(o)))
-		appendEvent(qualificationTestEvent(t, manifest, sequence, previous, "job_start", new(o)))
-		terminal := qualificationTestObservedTerminal(t, manifest, o)
-		event := qualificationTestTerminalEvent(t, manifest, sequence, previous, o, terminal)
-		_, err := journal.CommitTerminal(t.Context(), terminal, event)
-		require.NoError(t, err)
-		sequence++
-		previous = event.document.sha256()
-		terminals = append(terminals, terminal)
-	}
-	for i, stage := range []string{"after_cleanup", "before_decision"} {
-		appendEvent(qualificationTestCurrentness(t, manifest, sequence, previous, stage, nil, fmt.Sprintf("%064x", i+100)))
-	}
-	return journal, journal.Evidence(), terminals
+	events, terminals := qualificationTestCompleteHistory(t, manifest, true)
+	prefix := qualificationTestMaterializeHistory(t, journal, events, terminals)
+	return journal, prefix, terminals
 }
 
 func TestQualificationArtifactActualCoreTapeCutoff(t *testing.T) {
 	manifest, fixture := qualificationProtocolFixture(t)
 	journal, prefix, terminals := qualificationTestCompletePrefix(t, manifest)
 	require.True(t, prefix.complete)
+	key, err := journal.key(manifest)
+	require.NoError(t, err)
+	recovered, err := journal.Read(t.Context(), key, manifest.context)
+	require.NoError(t, err)
+	require.True(t, recovered.complete)
+	require.Equal(t, prefix.document.bytes(), recovered.document.bytes(), "materialized setup equals actual bounded recovery")
+	require.Len(t, recovered.records, len(prefix.records))
 	artifacts, err := qualificationDeriveCoreAndTape(prefix, terminals)
 	require.NoError(t, err)
 	require.Len(t, artifacts, 6)

@@ -117,13 +117,19 @@ func (verifier *qualificationProofTestVerifier) Verify(ctx context.Context, mate
 	return ctx.Err()
 }
 func qualificationFreshnessFixture(t *testing.T) (*qualificationFreshnessSession, *qualificationLocalJournal, qualificationSourceFixture, *qualificationTestClock, *qualificationProofTestAttestor, *qualificationProofTestVerifier) {
+	return qualificationFreshnessFixtureSetup(t, true)
+}
+
+func qualificationFreshnessFixtureSetup(t *testing.T, admitRun bool) (*qualificationFreshnessSession, *qualificationLocalJournal, qualificationSourceFixture, *qualificationTestClock, *qualificationProofTestAttestor, *qualificationProofTestVerifier) {
 	t.Helper()
 	manifest, fixture := qualificationProtocolFixture(t)
 	journal, _, _ := qualificationLocalTestJournal(t, manifest)
 	_, err := journal.Claim(t.Context(), manifest)
 	require.NoError(t, err)
-	event := qualificationTestEvent(t, manifest, 1, manifest.document.sha256(), "run_admission", nil)
-	qualificationTestAppend(t, journal, manifest, event)
+	if admitRun {
+		event := qualificationTestEvent(t, manifest, 1, manifest.document.sha256(), "run_admission", nil)
+		qualificationTestAppend(t, journal, manifest, event)
+	}
 	m, err := qualificationManifestValue(manifest)
 	require.NoError(t, err)
 	policy, err := qualificationSeal(m.Inputs.CurrentnessProfile)

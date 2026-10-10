@@ -115,25 +115,52 @@ func TestQualificationFreshnessRandomChallengeAndCanceledGeneration(t *testing.T
 }
 
 func TestQualificationFreshnessFinalAckExpiryRetainsNonpassEvidence(t *testing.T) {
-	session, journal, _, clock, _, _ := qualificationFreshnessFixture(t)
-	for ordinal := uint64(0); ordinal < 4; ordinal++ {
-		_, err := session.Check(t.Context(), "before_job", new(ordinal))
+	session, journal, _, clock, _, verifier := qualificationFreshnessFixtureSetup(t, false)
+	events, terminals := qualificationTestCompleteHistory(t, session.manifest, false)
+	// Seed only the preceding history; the last terminal, cleanup receipt and
+	// expiring final receipt still enter the real production methods.
+	events = events[:len(events)-2]
+	previous := session.manifest.document.sha256()
+	for i, event := range events {
+		wire, err := qualificationDecode[qualificationEventWire](event.document.bytes(), qualificationDocumentLimit)
 		require.NoError(t, err)
-		for _, kind := range []string{"job_admission", "job_start"} {
-			head, err := qualificationDecode[qualificationPrefixWire](journal.Evidence().document.bytes(), qualificationDocumentLimit)
+		wire.PreviousSHA256 = previous
+		if wire.Type == "currentness" {
+			request, err := qualificationSeal(*wire.CurrentnessRequest)
 			require.NoError(t, err)
-			event := qualificationTestEvent(t, session.manifest, head.LastSequence+1, head.LastEventSHA256, kind, new(ordinal))
-			qualificationTestAppend(t, journal, session.manifest, event)
+			ack, err := session.config.Attestor.Check(t.Context(), request)
+			require.NoError(t, err)
+			lease := &qualificationReceiptLease{owner: session, request: request, ack: ack}
+			require.NoError(t, session.verify(t.Context(), lease), "each historical receipt retains actual current-source/proof verification")
+			ackWire, err := qualificationDecode[qualificationCurrentnessAcknowledgment](ack.bytes(), qualificationDocumentLimit)
+			require.NoError(t, err)
+			wire.CurrentnessAcknowledgment = &ackWire
+			session.seen[wire.CurrentnessRequest.Challenge] = true
+			checkKey := wire.CurrentnessRequest.Stage
+			if wire.CurrentnessRequest.JobSHA256 != nil {
+				checkKey += ":" + *wire.CurrentnessRequest.JobSHA256
+			}
+			session.checked[checkKey] = true
 		}
-		terminal := qualificationTestObservedTerminal(t, session.manifest, ordinal)
-		head, err := qualificationDecode[qualificationPrefixWire](journal.Evidence().document.bytes(), qualificationDocumentLimit)
+		doc, err := qualificationSeal(wire)
 		require.NoError(t, err)
-		event := qualificationTestTerminalEvent(t, session.manifest, head.LastSequence+1, head.LastEventSHA256, ordinal, terminal)
-		_, err = journal.CommitTerminal(t.Context(), terminal, event)
+		events[i], err = qualificationParseEvent(doc.bytes(), session.manifest)
 		require.NoError(t, err)
+		previous = events[i].document.sha256()
 	}
-	_, err := session.Check(t.Context(), "after_cleanup", nil)
+	require.Equal(t, 4, verifier.calls, "four independent jobs preserve source-specific proof controls")
+	prefix := qualificationTestMaterializeHistory(t, journal, events, terminals[:len(terminals)-1])
+	require.Equal(t, "job_terminal", prefix.nextStage)
+	head, err := qualificationDecode[qualificationPrefixWire](prefix.document.bytes(), qualificationDocumentLimit)
 	require.NoError(t, err)
+	terminal := terminals[len(terminals)-1]
+	event := qualificationTestTerminalEvent(t, session.manifest, head.LastSequence+1, head.LastEventSHA256, 3, terminal)
+	_, err = journal.CommitTerminal(t.Context(), terminal, event)
+	require.NoError(t, err)
+	session.challenges = &qualificationTestChallenges{value: 99}
+	_, err = session.Check(t.Context(), "after_cleanup", nil)
+	require.NoError(t, err)
+	require.GreaterOrEqual(t, verifier.calls, 6, "cleanup still validates proof before and after its actual acknowledgment")
 	journal.config.IO = &qualificationClockBarrierIO{qualificationJournalIO: journal.config.IO, clock: clock}
 	lease, err := session.Check(t.Context(), "before_decision", nil)
 	require.Error(t, err, "final durable acknowledgment is not an expiry exemption")
@@ -141,9 +168,9 @@ func TestQualificationFreshnessFinalAckExpiryRetainsNonpassEvidence(t *testing.T
 	require.NotEmpty(t, journal.Evidence().pending)
 	require.NotNil(t, journal.poison)
 	require.Error(t, lease.Revalidate(t.Context()))
-	head, err := qualificationDecode[qualificationPrefixWire](journal.Evidence().document.bytes(), qualificationDocumentLimit)
+	head, err = qualificationDecode[qualificationPrefixWire](journal.Evidence().document.bytes(), qualificationDocumentLimit)
 	require.NoError(t, err)
-	event := qualificationTestEvent(t, session.manifest, head.LastSequence+1, head.LastEventSHA256, "run_admission", nil)
+	event = qualificationTestEvent(t, session.manifest, head.LastSequence+1, head.LastEventSHA256, "run_admission", nil)
 	_, err = journal.Append(t.Context(), event)
 	require.Error(t, err, "no terminal can upgrade expired final authority evidence")
 }
@@ -165,4 +192,93 @@ func TestQualificationFreshnessConstructorMaterialBudgetBeforeCopies(t *testing.
 		require.Zero(t, calls, "role/aggregate material budgets precede defensive-copy allocation")
 		require.NotNil(t, journal.poison)
 	}
+}
+
+func TestQualificationFreshnessUnseededCompleteProductionSequence(t *testing.T) {
+	// This fixture calls actual Claim and run-admission Append. No history is
+	// seeded; synthetic terminal evidence never invokes a provider.
+	session, journal, _, _, _, verifier := qualificationFreshnessFixture(t)
+	manifest := session.manifest
+	m, err := qualificationManifestValue(manifest)
+	require.NoError(t, err)
+	require.Len(t, m.Jobs, 4)
+	challenges := map[string]bool{}
+	check := func(stage string, ordinal *uint64) *qualificationReceiptLease {
+		t.Helper()
+		lease, err := session.Check(t.Context(), stage, ordinal)
+		require.NoError(t, err)
+		request, err := qualificationDecode[qualificationCurrentnessRequest](lease.request.bytes(), qualificationDocumentLimit)
+		require.NoError(t, err)
+		require.Equal(t, stage, request.Stage)
+		require.Equal(t, ordinal, request.Ordinal)
+		require.False(t, challenges[request.Challenge], "each actual Check generates a fresh invocation challenge")
+		challenges[request.Challenge] = true
+		receipt, err := qualificationParseCurrentnessAcknowledgment(lease.ack.bytes())
+		require.NoError(t, err)
+		value, err := qualificationDecode[qualificationCurrentnessAcknowledgment](receipt.bytes(), qualificationDocumentLimit)
+		require.NoError(t, err)
+		require.Equal(t, lease.request.sha256(), value.RequestSHA256)
+		require.True(t, value.Current)
+		require.True(t, value.AssociationValid)
+		require.NoError(t, lease.Revalidate(t.Context()))
+		return lease
+	}
+	head := func() qualificationPrefixWire {
+		t.Helper()
+		value, err := qualificationDecode[qualificationPrefixWire](journal.Evidence().document.bytes(), qualificationDocumentLimit)
+		require.NoError(t, err)
+		return value
+	}
+	for ordinal := range m.Jobs {
+		o := uint64(ordinal)
+		check("before_job", new(o))
+		for _, kind := range []string{"job_admission", "job_start"} {
+			h := head()
+			event := qualificationTestEvent(t, manifest, h.LastSequence+1, h.LastEventSHA256, kind, new(o))
+			qualificationTestAppend(t, journal, manifest, event)
+		}
+		terminal := qualificationTestObservedTerminal(t, manifest, o)
+		h := head()
+		event := qualificationTestTerminalEvent(t, manifest, h.LastSequence+1, h.LastEventSHA256, o, terminal)
+		ack, err := journal.CommitTerminal(t.Context(), terminal, event)
+		require.NoError(t, err)
+		require.NoError(t, qualificationMatchAck(manifest, event.document, h.LastSequence+1, new(h.LastEventSHA256),
+			new(terminal.document.sha256()), ack))
+	}
+	check("after_cleanup", nil)
+	finalLease := check("before_decision", nil)
+	prefix := journal.Evidence()
+	require.True(t, prefix.complete)
+	require.Empty(t, prefix.pending)
+	require.Len(t, prefix.records, 19)
+	require.Len(t, challenges, 6)
+	require.Len(t, session.checked, 6)
+	require.GreaterOrEqual(t, verifier.calls, 18, "every receipt invokes real source-specific verification before/after ack and revalidation")
+	// Nonpassing completion describes this synthetic engine-free test, not an
+	// actual paid calibration claim. Publication cannot expand the core cutoff.
+	h := head()
+	event := qualificationTestEvent(t, manifest, h.LastSequence+1, h.LastEventSHA256, "run_admission", nil)
+	wire, err := qualificationDecode[qualificationEventWire](event.document.bytes(), qualificationDocumentLimit)
+	require.NoError(t, err)
+	wire.Type, wire.Admission = "run_terminal", nil
+	wire.Completion = &qualificationCompletionWire{State: "not_assessed", ReasonCode: "report_invalid", CompletedJobs: uint64(len(m.Jobs))}
+	document, err := qualificationSeal(wire)
+	require.NoError(t, err)
+	final, err := qualificationParseEvent(document.bytes(), manifest)
+	require.NoError(t, err)
+	require.NoError(t, finalLease.Revalidate(t.Context()), "actual final receipt rechecked immediately before publication")
+	ack := qualificationTestAppend(t, journal, manifest, final)
+	require.NoError(t, qualificationMatchAck(manifest, final.document, h.LastSequence+1, new(h.LastEventSHA256), nil, ack))
+	published := journal.Evidence()
+	require.NotNil(t, published.final)
+	require.Equal(t, prefix.document.bytes(), published.document.bytes())
+	key, err := journal.key(manifest)
+	require.NoError(t, err)
+	recovered, err := journal.Read(t.Context(), key, manifest.context)
+	require.NoError(t, err)
+	require.True(t, recovered.complete)
+	require.NotNil(t, recovered.final)
+	require.Equal(t, prefix.document.bytes(), recovered.document.bytes())
+	require.Equal(t, published.final.document.bytes(), recovered.final.document.bytes())
+	require.Nil(t, journal.poison)
 }
