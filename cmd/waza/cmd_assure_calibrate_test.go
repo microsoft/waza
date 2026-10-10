@@ -778,7 +778,9 @@ func TestAssureCalibrateOwnedFactoryIsExactConstructionOnly(t *testing.T) {
 				case "NewCopilotEngineBuilder":
 					builders++
 					require.Len(t, call.Args, 2)
-					require.Equal(t, "model", call.Args[0].(*ast.Ident).Name)
+					model, ok := call.Args[0].(*ast.Ident)
+					require.True(t, ok)
+					require.Equal(t, "model", model.Name)
 				case "SharedClient", "Initialize", "Execute", "ListModels":
 					t.Errorf("CLI factory must not initialize, execute, query models or share clients: %s", selector.Sel.Name)
 				}
@@ -791,11 +793,15 @@ func TestAssureCalibrateOwnedFactoryIsExactConstructionOnly(t *testing.T) {
 					ownedClients++
 					value, ok := field.Value.(*ast.SelectorExpr)
 					require.True(t, ok)
-					require.Equal(t, "execution", value.X.(*ast.Ident).Name)
+					pkg, ok := value.X.(*ast.Ident)
+					require.True(t, ok)
+					require.Equal(t, "execution", pkg.Name)
 					require.Equal(t, "NewOwnedCopilotClient", value.Sel.Name)
 				case "DiagnosticObserver":
 					observers++
-					require.Equal(t, "observer", field.Value.(*ast.Ident).Name)
+					observer, ok := field.Value.(*ast.Ident)
+					require.True(t, ok)
+					require.Equal(t, "observer", observer.Name)
 				}
 			}
 		}
