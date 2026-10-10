@@ -10,6 +10,35 @@ retained actual responses; it does not change the base 1.0 protocol.
 These contracts do not make historical outcomes strict evidence or mock
 observations agent-quality evidence.
 
+### Internal native-task groundwork (not an enabled producer)
+
+`internal/nativetask` contains engine-free draft input freezing/admission,
+strict supplied-record validation and ordered local payload/terminal persistence.
+It has no CLI/profile registration, collector wiring, native-hook import or
+engine execution. Freezing a caller-supplied resolved request and rooted source
+bytes does not establish native source resolution, current policy allocation,
+authenticity or runtime readiness. Synthetic fixtures test these primitives;
+they are not live-agent or reviewed-provider evidence.
+
+Canonical SDK text is usable only when **every** contributing assistant message
+has nonempty typed content and their complete concatenation matches the retained
+response. Any empty/defaulted message makes output unavailable, even with other
+nonempty messages. The SDK discards absent/null/empty wire distinctions before
+public callbacks; actual-empty support needs an upstream presence contract.
+The planned request must carry explicit nonnil deny-all policy, whose native
+SDK filter, permission guard and pre-tool guard are client restrictions, not
+server isolation.
+
+The legacy `RunResult.SessionDigest` is a value struct. Neutral counts and empty
+inventories in a draft row are **structural defaults, not observed session or
+absent-tool evidence**. The draft reader's full-tool/session/runtime-version/
+currency/assurance capabilities remain `not_assessed`; row usage is absent and
+only separate finalized qualified accounting may contribute totals.
+Payload fsync precedes the draft terminal fsync. Missing/orphan/torn records
+remain incomplete/invalid without repair; a parsed local prefix does not prove
+fsync acknowledgment or publish a final ledger. Existing public protocols and
+API/dashboard required-assurance nonpass behavior remain unchanged.
+
 ## Offline planning and collection
 
 ```bash
