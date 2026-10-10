@@ -95,6 +95,27 @@ azd waza serve
 
 Get a complete evaluation suite running in 5 minutes.
 
+For a repository or CLI workflow without a skill, start directly with:
+
+```bash
+waza new eval inventory --scenario --template repository
+waza run evals/inventory/eval.yaml
+```
+
+This selects the real Copilot SDK executor and requires the normal Copilot
+runtime/authentication. `--template cli` uses installed Git; `--template mcp`
+uses a harness-only mocked MCP dependency, not production-service evidence.
+`config.executor: mock` is an offline harness check, never an agent-quality score. See
+[sanitized scenario examples](../examples/scenarios/README.md).
+Scenario evals require explicit `schemaVersion: "2.0"` and a nonempty string
+`scenario`. Tasks/results retain `1.x`. Old executables reject eval `2.0`
+before execution. Optional `skill` uses existing skill/custom-agent precedence;
+without it or explicit directories, ambient discovery is disabled. An empty
+task `skill_directories: []` disables discovery; `--no-skills` overrides all
+contexts. Fixtures default to the eval's `fixtures/` directory, instruction
+and input files resolve from their existing context root, and generated outputs
+remain relative to each fresh task workspace.
+
 ### Step 1: Initialize a Project
 
 Create a new directory and initialize a waza project:
@@ -201,6 +222,60 @@ Execute the benchmark:
 ```bash
 waza run evals/code-explainer/eval.yaml --context-dir evals/code-explainer/fixtures -v
 ```
+
+Inspect setup without starting any agent, interpreter, hook, mock server, or live
+service first:
+
+```bash
+waza preflight evals/code-explainer/eval.yaml --context-dir evals/code-explainer/fixtures
+waza preflight evals/code-explainer/eval.yaml --format json > preflight.json
+```
+
+Preflight verifies only local schemas/configuration, task discovery/IDs, paths,
+locked cached graders, mock matching, references, and static capability support.
+Model availability, credentials, conditional checkpoint execution, interpreter
+syntax, service readiness, and external state are unresolved. Missing/invalid
+configuration exits 1; unresolved/unsupported warns and exits 0, or 1 with the
+new opt-in `--strict` policy. Existing commands keep their prior exits.
+Preflight guards eager argument schemas before eval/task/checkpoint decoding and
+before cached-preset or merged-override materialization. External prerequisites
+remain unresolved with an incomplete report; literals and returned mock payloads
+are not schemas. Runtime schema-loading defaults remain unchanged.
+
+Task requirements are optional **descriptions**, not assertions:
+
+```yaml
+requirements:
+  - id: artifact-present
+    category: outcome
+    description: The expected artifact exists in the captured workspace.
+    checks:
+      - scope: task
+        grader: artifact-files
+  - id: recovery-visible
+    category: recovery
+    description: Recovery state is observable after the second turn.
+    checks:
+      - scope: checkpoint
+        after_turn: 2
+        grader: recovery-state
+```
+
+Each reference selects an existing explicit grader by name in its `eval`, `task`,
+or `checkpoint` scope. Only checkpoint references accept `after_turn`. IDs are
+unique within a task; several requirements may share a check. Empty/absent checks
+are uncovered/unresolved. Unknown or ambiguous references are preflight errors,
+without changing runtime grader execution. Equivalent valid tool paths remain
+allowed unless the chosen existing grader explicitly constrains a sequence.
+Text success alone does not establish external resulting state.
+
+Use a build containing #660 for `preflight`; descriptive metadata remains
+v1-compatible and old readers may ignore it. This is not a minimum-version
+enforcement mechanism. Preflight reports use `kind: waza.preflight` and their own
+`schemaVersion: "1.0"`; they are not `results.json`, and inventory `complete`
+does not mean requirements are satisfied. See the
+[preflight guide](https://microsoft.github.io/waza/guides/preflight/) for diagnostics
+and path-resolution rules.
 
 If your eval uses remote grader presets, resolve them first:
 
@@ -508,6 +583,99 @@ waza serve --tcp :9000
 ---
 
 ## Advanced Usage
+
+### Baseline Grader Challenges
+
+Contributors can run the fixed synthetic challenge corpus without an agent,
+workflow service, model or credentials:
+
+```bash
+NO_COLOR=1 go test ./internal/graders -run '^TestBaselineChallenge' -count=1
+```
+
+The corpus contains 12 scenarios across MCP, CLI and repository state, each
+with good, alternative-valid and two bad candidates. The same existing graders
+accept different valid tool paths and inspect actual temporary workspace state;
+identical final success prose is not the correctness oracle.
+
+These candidate labels are not independently human-reviewed, and MCP/CLI state
+is synthetic rather than proof of a live external operation. Missing required
+evidence is insufficient evidence, not a correct bad-case rejection establishing
+assurance. The test-local checks do not change `run`, `grade`, golden tasks,
+defaults or exit codes. See [Baseline Grader Challenges](GRADER-CHALLENGES.md)
+for the matrix, runnable command and evidence limitations.
+
+### Strict preserved-file assurance
+
+For native selected tool-event and workspace evidence, the separate internal
+`assurance.VerifyPreserved` API and `assurance.ParsePreservedReport` select
+report `1.2`; default CLI/report/dashboard flows do not. Native origin,
+artifact completeness, raw argument presence and actual grader agreement are
+required. File subsets cannot prove absence, unknown historical capture remains
+unknown, and calibration is always not selected with null billing. See the
+[preserved-native scope and limits](GRADER-CHALLENGES.md#separately-selected-preserved-native-observations).
+
+`waza assure eval.yaml --references labels.json` observes native file graders
+against complete unredacted preserved files, without a task agent or model.
+Finite authored output can separately challenge native text and inline-schema
+graders; its exact supplied bytes never establish historical execution or billing.
+It emits standalone `waza.grader-assurance` JSON with scoped requirements,
+actual verdicts/scores/feedback, declared and observed coverage, binding domains
+and supplied-review eligibility. The new command exits 1 unless strict
+finite-corpus assessment passes; existing `grade` and golden behavior is unchanged.
+
+Labels use `schemas/grader-reference-1.0.schema.json`; a separate
+`schemas/grader-review-1.0.schema.json` declaration needs `--review` and explicit
+`--accept-review-source`. Original label bytes, resolved native declarations,
+source bytes and actual executable bytes are distinct binding domains.
+Reports follow `schemas/grader-assurance-1.0.schema.json`. A case selects exactly
+one historical `snapshot` or `authored_input` with rooted path and external
+SHA-256 of the original authored envelope bytes.
+Authored envelopes require exact outer `schemaVersion: "2.0"` and
+`kind: "waza.grader-reference-input"` compatibility fences plus `payload` and
+`evidence`. These markers prevent native historical import, not upgrade native
+snapshot/result schemas; the inner payload remains `1.0`, evidence `1.1`.
+Missing applicable provenance, unreviewed labels, absent required evidence and
+operational failures cannot pass. A subset of captured files cannot establish
+absence. Any wrongly accepted targeted critical negative independently fails,
+regardless of domain agreement. These are finite corpus checks, not confidence.
+
+Legacy `assure --calibrate` remains unavailable: it makes zero paid calls and
+reports not assessed, with null usage/credits. Bundled candidates have not had
+actual human review. See [the contract and support boundary](GRADER-CHALLENGES.md#strict-file-content-assurance).
+
+The [authored-output example](../examples/grader-challenges/authored-output/README.md)
+generates four finite evaluator-only inputs against a selected binary. Its native
+grader outputs agree with the candidate labels, but the expected result remains
+exit 1/not assessed without human review. The dashboard's separate **Assurance**
+view inspects the report locally without uploading it, rechecking its supplied
+claims or associating it with historical runs.
+
+The separate evaluator API `assurance.Calibrate` requires explicit selection,
+a bound local rubric root, a construction-only engine factory and a successful
+paid-call notice before any initialization. It has no default factory.
+The separate `waza assure calibrate` command explicitly installs an owned factory
+and requires `--references`, `--review`, `--accept-review-source` and
+`--rubric-root`. Without `--accept-paid-calls` its notice refuses execution,
+including noninteractive use; there is no prompt or generic `--yes` fallback.
+The reviewed model, admitted job count and count-versus-spend warning are printed
+before construction. A positive `--timeout` defaults to 10m for cooperative
+assessment, not forced cleanup or a spending cap. Existing
+`waza assure --calibrate` still makes zero paid calls. Its
+version-1.1 reports require explicit inspector selection and show supplied judge
+lifecycle/model/accounting claims. See the
+[calibration API boundary](GRADER-CHALLENGES.md#explicit-evaluator-calibration-api)
+for supported modes, fixed-domain criteria, ownership and missing/error states.
+
+### Existing-workflow compatibility examples
+
+The [recorded compatibility examples](../examples/compatibility/README.md) cover
+MCP lookup, read-only CLI inspection, and repository artifact preservation, each
+with known-good, deliberately-bad, and alternative-valid outcomes. They grade
+fixed evidence offline rather than executing an agent or claiming assurance.
+Contributor integration gates, fixture paths, feature ownership, historical
+artifact policies and known-bug boundaries are in
+[COMPATIBILITY.md](COMPATIBILITY.md).
 
 ### Caching and Reproducibility
 

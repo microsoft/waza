@@ -7,8 +7,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
+	"runtime/debug"
+	"slices"
 	"time"
 
+	"github.com/microsoft/waza/internal/evidence"
 	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/models"
 )
@@ -32,14 +36,20 @@ type CaptureInput struct {
 	// fixture digests. The runner uses this to exclude the configured
 	// snapshot output directory, which prevents previously-emitted
 	// snapshots from perturbing the fixture hash on re-runs.
-	SkipDirs     []string
-	EnvAllowList []string
-	Policy       *Policy
+	SkipDirs           []string
+	EnvAllowList       []string
+	Policy             *Policy
+	Spec               *models.EvalSpec
+	ExecutionMode      string
+	DiagnosticCategory string
+	WorkspacePaths     []string
+	EvaluatorOnly      []string
+	WorkspaceLimits    WorkspaceLimits
 }
 
 // Capture builds a Snapshot from input. The returned snapshot's redaction
-// counters reflect everything scrubbed during this call; the caller may
-// inspect input.Policy.MatchCount() / MatchedRules() after.
+// counters reflect everything scrubbed during this call. Policy configuration
+// is copied so concurrent captures do not share mutable counters.
 //
 // Capture does NOT write to disk; see Writer.Write for that.
 func Capture(in CaptureInput) (*Snapshot, error) {
@@ -49,39 +59,49 @@ func Capture(in CaptureInput) (*Snapshot, error) {
 	if in.Run == nil {
 		return nil, fmt.Errorf("snapshot: capture requires Run")
 	}
-	policy := in.Policy
-	if policy == nil {
-		policy = DefaultPolicy()
+	policy, err := in.Policy.forCapture()
+	if err != nil {
+		return nil, err
 	}
-	policy.ResetCounters()
-
-	// Reset matched-rule statistics so this snapshot reports only its own
-	// matches, not the running totals across previous captures.
+	for _, identity := range []struct{ value, field string }{
+		{in.Task.TestID, "task ID"},
+		{in.EvalID, "eval ID"},
+		{in.Engine.Type, "engine type"},
+		{in.Engine.ModelID, "model ID"},
+	} {
+		if err := policy.checkIdentity(identity.value, identity.field); err != nil {
+			return nil, err
+		}
+	}
 
 	snap := &Snapshot{
 		SchemaVersion: CurrentSchemaVersion,
 		Kind:          Kind,
-		WazaVersion:   in.WazaVersion,
+		WazaVersion:   policy.RedactString(in.WazaVersion),
 		CreatedAt:     time.Now().UTC(),
 		EvalID:        in.EvalID,
-		EvalName:      in.EvalName,
-		Skill:         in.Skill,
+		EvalName:      policy.RedactString(in.EvalName),
+		Skill:         policy.RedactString(in.Skill),
 		Task: SnapshotTask{
 			TestID:      in.Task.TestID,
-			DisplayName: in.Task.DisplayName,
+			DisplayName: policy.RedactString(in.Task.DisplayName),
 			Golden:      in.Task.Golden,
-			Tags:        append([]string(nil), in.Task.Tags...),
+			Tags:        policy.RedactStringSlice(in.Task.Tags),
 			RunNumber:   in.Run.RunNumber,
 		},
 		Engine: in.Engine,
 	}
+	snap.Engine.JudgeModel = policy.RedactString(snap.Engine.JudgeModel)
 
 	// Prompt: copy with redaction. Context values may contain user-supplied
 	// strings (e.g., interpolated tokens), so route through RedactAny.
 	if in.Request != nil {
 		snap.Prompt.Message = policy.RedactString(in.Request.Message)
 		if len(in.Request.Context) > 0 {
-			redactedCtx := policy.RedactAny(in.Request.Context)
+			redactedCtx, err := policy.redactJSON(in.Request.Context)
+			if err != nil {
+				return nil, fmt.Errorf("snapshot: prompt context: %w", err)
+			}
 			if m, ok := redactedCtx.(map[string]any); ok {
 				snap.Prompt.Context = m
 			}
@@ -89,8 +109,12 @@ func Capture(in CaptureInput) (*Snapshot, error) {
 		if len(in.Request.Instructions) > 0 {
 			snap.Prompt.Instructions = make([]InstructionEntry, len(in.Request.Instructions))
 			for i, instr := range in.Request.Instructions {
+				path := filepath.ToSlash(instr.Path)
+				if err := policy.checkIdentity(path, "instruction path"); err != nil {
+					return nil, err
+				}
 				snap.Prompt.Instructions[i] = InstructionEntry{
-					Path:   filepath.ToSlash(instr.Path),
+					Path:   path,
 					SHA256: shaBytes(instr.Content),
 				}
 			}
@@ -107,7 +131,11 @@ func Capture(in CaptureInput) (*Snapshot, error) {
 	if len(in.Run.ToolEvents) > 0 {
 		snap.ToolEvents = make([]models.ToolEvent, len(in.Run.ToolEvents))
 		for i, ev := range in.Run.ToolEvents {
-			snap.ToolEvents[i] = redactToolEvent(ev, policy)
+			redacted, err := redactToolEvent(ev, policy)
+			if err != nil {
+				return nil, fmt.Errorf("snapshot: tool event %d: %w", i+1, err)
+			}
+			snap.ToolEvents[i] = redacted
 		}
 	}
 
@@ -115,15 +143,33 @@ func Capture(in CaptureInput) (*Snapshot, error) {
 	if in.FixturesRoot != "" {
 		digests, err := HashFixturesExcluding(in.FixturesRoot, in.SkipDirs)
 		if err != nil {
-			return nil, fmt.Errorf("snapshot: hash fixtures: %w", err)
+			return nil, fmt.Errorf("snapshot: hash fixtures: %s", policy.RedactString(err.Error()))
 		}
 		snap.Fixtures = digests
+		for i := range snap.Fixtures {
+			if err := policy.checkIdentity(snap.Fixtures[i].Path, "fixture path"); err != nil {
+				return nil, err
+			}
+		}
 	}
 
 	// Env capture: default-deny allow-list with redaction. Always populate
 	// AllowList so consumers know whether capture was intentionally empty
 	// vs. configured-with-no-matches.
 	snap.Env = CaptureEnv(in.EnvAllowList, policy)
+	for _, key := range append(append([]string(nil), snap.Env.AllowList...), snap.Env.DeniedKeys...) {
+		if err := policy.checkIdentity(key, "environment variable name"); err != nil {
+			return nil, err
+		}
+	}
+	for key := range snap.Env.Captured {
+		if err := policy.checkIdentity(key, "environment variable name"); err != nil {
+			return nil, err
+		}
+		if policy.IsSensitiveKey(key) {
+			policy.recordSensitiveMatch()
+		}
+	}
 
 	// Redaction summary — always present so users can confirm rules ran.
 	snap.Redaction = SnapshotRedaction{
@@ -138,28 +184,279 @@ func Capture(in CaptureInput) (*Snapshot, error) {
 		FinalOutput: policy.RedactString(in.Run.FinalOutput),
 		ErrorMsg:    policy.RedactString(in.Run.ErrorMsg),
 		DurationMs:  in.Run.DurationMs,
-		Validations: in.Run.Validations,
+	}
+	if in.Run.Validations != nil {
+		snap.Result.Validations = make(map[string]models.GraderResults, len(in.Run.Validations))
+		for key, result := range in.Run.Validations {
+			if err := policy.checkIdentity(key, "grader reference"); err != nil {
+				return nil, err
+			}
+			if err := policy.checkIdentity(result.Name, "grader identifier"); err != nil {
+				return nil, err
+			}
+			if err := policy.checkIdentity(string(result.Type), "grader type"); err != nil {
+				return nil, err
+			}
+			result.Feedback = policy.RedactString(result.Feedback)
+			if result.Details != nil {
+				details, err := policy.redactJSON(result.Details)
+				if err != nil {
+					return nil, fmt.Errorf("snapshot: grader details: %w", err)
+				}
+				normalized, ok := details.(map[string]any)
+				if !ok {
+					return nil, fmt.Errorf("snapshot: grader details must be a JSON object")
+				}
+				result.Details = normalized
+			}
+			snap.Result.Validations[key] = result
+		}
+	}
+	snap.CommandInvocations, err = redactTyped(in.Run.CommandInvocations, policy)
+	if err != nil {
+		return nil, fmt.Errorf("snapshot: command invocations: %w", err)
+	}
+	snap.Checkpoints, err = redactTyped(in.Run.Checkpoints, policy)
+	if err != nil {
+		return nil, fmt.Errorf("snapshot: checkpoints: %w", err)
+	}
+	var workspaceErr error
+	var workspaceRedaction SnapshotRedaction
+	if len(in.WorkspacePaths) > 0 {
+		snap.WorkspaceFiles, workspaceRedaction, workspaceErr = CaptureWorkspaceWithAccounting(in.Run.WorkspaceDir, in.WorkspacePaths, in.EvaluatorOnly, policy, in.WorkspaceLimits)
 	}
 
 	// Final-pass: recompute the redaction summary because RedactString
 	// calls in the Result/Prompt sections may have added more matches
 	// after the Env phase.
-	snap.Redaction.AppliedRules = policy.MatchedRules()
-	snap.Redaction.RedactionCount = policy.MatchCount()
+	snap.Redaction.AppliedRules = append(policy.MatchedRules(), workspaceRedaction.AppliedRules...)
+	slices.Sort(snap.Redaction.AppliedRules)
+	snap.Redaction.AppliedRules = slices.Compact(snap.Redaction.AppliedRules)
+	snap.Redaction.RedactionCount = policy.MatchCount() + workspaceRedaction.RedactionCount
+	snap.Evidence, err = buildEvidence(in, snap)
+	if err != nil {
+		return nil, err
+	}
+	if len(in.WorkspacePaths) > 0 {
+		for i := range snap.Evidence.Artifacts {
+			if snap.Evidence.Artifacts[i].ID == "workspace" {
+				snap.Evidence.Artifacts[i].Availability = "unavailable"
+				snap.Evidence.Artifacts[i].Completeness = "partial"
+				snap.Evidence.Artifacts[i].Reason = "Only explicitly selected files were requested; a complete workspace is not preserved."
+			}
+		}
+		for i, file := range snap.WorkspaceFiles {
+			digest, err := evidence.JSONDigest(file)
+			if err != nil {
+				return nil, err
+			}
+			snap.Evidence.Artifacts = append(snap.Evidence.Artifacts, models.EvidenceArtifact{
+				ID: "workspace-file/" + file.Path, Kind: "workspace_file", Availability: "captured",
+				Completeness: "complete", Document: "snapshot", Pointer: fmt.Sprintf("/workspaceFiles/%d", i),
+				ContentDigest: digest, Redacted: file.Redacted,
+			})
+		}
+		captured := make(map[string]bool, len(snap.WorkspaceFiles))
+		for _, file := range snap.WorkspaceFiles {
+			captured[file.Path] = true
+		}
+		for i, name := range in.WorkspacePaths {
+			if !captured[name] {
+				snap.Evidence.Artifacts = append(snap.Evidence.Artifacts, models.EvidenceArtifact{
+					ID: fmt.Sprintf("workspace-request/%d", i+1), Kind: "workspace_file",
+					Availability: "unavailable", Completeness: "unknown",
+					Reason: "This requested file was not preserved; review the capture diagnostic and explicit allowlist.",
+				})
+			}
+		}
+		if workspaceErr != nil {
+			snap.Evidence.Diagnostics = append(snap.Evidence.Diagnostics, models.EvidenceDiagnostic{
+				Category: "capture", Code: "workspace_partial", Message: workspaceErr.Error(),
+			})
+		}
+		if err := evidence.Seal(snap.Evidence); err != nil {
+			return nil, err
+		}
+	}
 	return snap, nil
 }
 
-// redactToolEvent returns a copy of ev with every captured string value
-// passed through the policy. The tool_call_id, tool_name, turn, sequence,
-// success, and duration_ms fields are preserved verbatim because they are
-// required keys for replay correlation; only the user-controlled args /
-// result payload and error message are scrubbed.
-func redactToolEvent(ev models.ToolEvent, policy *Policy) models.ToolEvent {
+func buildEvidence(in CaptureInput, snap *Snapshot) (*models.EvidenceManifest, error) {
+	mode := in.ExecutionMode
+	if mode == "" {
+		mode = "unknown"
+	}
+	policyMode := "unknown"
+	if in.Request != nil && in.Request.ToolPolicy != nil {
+		policyMode = string(in.Request.ToolPolicy.Mode)
+	}
+	manifest := &models.EvidenceManifest{
+		Origin: models.EvidenceOrigin{
+			EvalID: in.EvalID, TaskID: in.Task.TestID, RunNumber: in.Run.RunNumber,
+			AttemptCount: in.Run.Attempts, PriorAttempts: "not_preserved",
+		},
+		Runtime: models.EvidenceRuntime{
+			WazaVersion: snap.WazaVersion, RequestedEngine: snap.Engine.Type,
+			RequestedModel: snap.Engine.ModelID, ExecutionMode: mode, DependencyMode: "unknown",
+			RequestedPolicy: policyMode, VerifiedEnforcement: "unknown",
+			GoVersion: runtime.Version(), Platform: runtime.GOOS + "/" + runtime.GOARCH,
+			SDKVersion: sdkVersion(), NativeSkillControl: "unknown",
+		},
+		Redaction: models.EvidenceRedaction{
+			Policy: snap.Redaction.Policy, AppliedRules: snap.Redaction.AppliedRules,
+			MatchCount:  snap.Redaction.RedactionCount,
+			Limitations: []string{"Pattern redaction is not a confidentiality proof.", "Source digests do not preserve contents."},
+		},
+	}
+	if in.Request != nil {
+		noSkills := in.Request.NoSkills
+		manifest.Runtime.NoSkills = &noSkills
+		switch mode {
+		case "live":
+			manifest.Runtime.NativeSkillControl = "sdk_default"
+			if noSkills {
+				manifest.Runtime.NativeSkillControl = "requested_sdk_disable"
+			}
+		case "mock":
+			manifest.Runtime.NativeSkillControl = "mock_not_applicable"
+		}
+	}
+	switch in.Run.Attempts {
+	case 1:
+		manifest.Origin.PriorAttempts = "none"
+	case 0:
+		manifest.Origin.PriorAttempts = "unknown"
+	}
+	completeness, reason := "unknown", "Collector completeness is not certified."
+	if in.Run.Status == models.StatusError {
+		completeness, reason = "partial", "The run recorded an operational error."
+		category := in.DiagnosticCategory
+		if category == "" {
+			category = "unknown"
+		}
+		manifest.Diagnostics = append(manifest.Diagnostics, models.EvidenceDiagnostic{
+			Category: category, Code: "run_error", Message: "The run recorded an operational error; no agent cause is inferred.",
+		})
+	}
+	for _, item := range []struct {
+		id, kind, pointer string
+		value             any
+	}{
+		{"prompt", "prompt", "/prompt", snap.Prompt},
+		{"tool-events", "tool_events", "/toolEvents", snap.ToolEvents},
+		{"command-invocations", "command_invocations", "/commandInvocations", snap.CommandInvocations},
+		{"validations", "grader_results", "/result/validations", snap.Result.Validations},
+		{"checkpoints", "checkpoint_results", "/checkpoints", snap.Checkpoints},
+		{"result", "run_result", "/result", snap.Result},
+		{"environment", "environment_capture", "/env", snap.Env},
+		{"engine-config", "engine_configuration", "/engine", snap.Engine},
+	} {
+		data, err := json.Marshal(item.value)
+		if err != nil {
+			return nil, fmt.Errorf("snapshot: evidence content cannot be encoded")
+		}
+		if string(data) == "null" {
+			manifest.Artifacts = append(manifest.Artifacts, models.EvidenceArtifact{
+				ID: item.id, Kind: item.kind, Availability: "unavailable", Completeness: "unknown",
+				Reason: "No content was recorded for this artifact.",
+			})
+			continue
+		}
+		digest, err := evidence.JSONDigest(item.value)
+		if err != nil {
+			return nil, err
+		}
+		manifest.Artifacts = append(manifest.Artifacts, models.EvidenceArtifact{
+			ID: item.id, Kind: item.kind, Availability: "captured", Completeness: completeness,
+			Document: "snapshot", Pointer: item.pointer, ContentDigest: digest, Reason: reason,
+			Redacted: snap.Redaction.RedactionCount > 0,
+		})
+	}
+	for _, item := range []struct {
+		id, kind string
+		value    any
+	}{
+		{"task-config", "task_configuration", in.Task},
+		{"grader-config", "grader_configuration", in.Spec},
+		{"fixtures", "fixture_inventory", snap.Fixtures},
+		{"instructions", "instruction_inventory", snap.Prompt.Instructions},
+	} {
+		data, err := json.Marshal(item.value)
+		if err != nil {
+			return nil, fmt.Errorf("snapshot: evidence source cannot be encoded")
+		}
+		if string(data) == "null" {
+			manifest.Artifacts = append(manifest.Artifacts, models.EvidenceArtifact{
+				ID: item.id, Kind: item.kind, Availability: "unavailable", Completeness: "unknown",
+				Reason: "Source identity is unavailable.",
+			})
+			continue
+		}
+		digest, err := evidence.JSONDigest(item.value)
+		if err != nil {
+			return nil, err
+		}
+		manifest.Artifacts = append(manifest.Artifacts, models.EvidenceArtifact{
+			ID: item.id, Kind: item.kind, Availability: "digest_only", Completeness: "unknown",
+			SourceDigest: digest, Reason: "Source/configuration inventory identity only; file contents are not preserved.",
+		})
+	}
+	manifest.Artifacts = append(manifest.Artifacts,
+		models.EvidenceArtifact{ID: "workspace", Kind: "workspace_state", Availability: "not_requested", Completeness: "unknown", Reason: "Workspace contents are not preserved by ordinary snapshots."},
+		models.EvidenceArtifact{ID: "external-state", Kind: "external_state", Availability: "unavailable", Completeness: "unknown", Reason: "No authoritative external-state verification is recorded."},
+		models.EvidenceArtifact{ID: "grader-implementation", Kind: "implementation_version", Availability: "unavailable", Completeness: "unknown", Reason: "Per-grader implementation and executable dependency versions are not certified."},
+		models.EvidenceArtifact{ID: "rubric-version", Kind: "rubric_version", Availability: "unavailable", Completeness: "unknown", Reason: "Resolved external rubric/version provenance is not certified."},
+		models.EvidenceArtifact{ID: "lockfile", Kind: "lockfile", Availability: "unavailable", Completeness: "unknown", Reason: "An actual lockfile was not preserved or fingerprinted by this capture."},
+	)
+	if err := evidence.Seal(manifest); err != nil {
+		return nil, err
+	}
+	return manifest, nil
+}
+
+func sdkVersion() *string {
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return nil
+	}
+	for _, dep := range info.Deps {
+		if dep.Path != "github.com/github/copilot-sdk/go" {
+			continue
+		}
+		if dep.Replace != nil {
+			dep = dep.Replace
+		}
+		if dep.Version != "" && dep.Version != "(devel)" {
+			version := dep.Version
+			return &version
+		}
+	}
+	return nil
+}
+
+// redactToolEvent rejects unsafe correlation identifiers rather than changing
+// their meaning, and normalizes arbitrary JSON payloads before redaction.
+func redactToolEvent(ev models.ToolEvent, policy *Policy) (models.ToolEvent, error) {
 	out := ev
-	out.Args = policy.RedactAny(ev.Args)
-	out.Result = policy.RedactAny(ev.Result)
+	for _, identity := range []struct{ value, field string }{
+		{ev.ToolCallID, "tool call ID"},
+		{ev.ToolName, "tool name"},
+	} {
+		if err := policy.checkIdentity(identity.value, identity.field); err != nil {
+			return models.ToolEvent{}, err
+		}
+	}
+	var err error
+	out.Args, err = policy.redactJSON(ev.Args)
+	if err != nil {
+		return models.ToolEvent{}, fmt.Errorf("arguments: %w", err)
+	}
+	out.Result, err = policy.redactJSON(ev.Result)
+	if err != nil {
+		return models.ToolEvent{}, fmt.Errorf("result: %w", err)
+	}
 	out.Error = policy.RedactString(ev.Error)
-	return out
+	return out, nil
 }
 
 func shaBytes(b []byte) string {
@@ -196,6 +493,13 @@ func (w *Writer) Write(snap *Snapshot) (string, error) {
 	}
 	if snap == nil {
 		return "", fmt.Errorf("snapshot: nil snapshot")
+	}
+	if len(snap.WorkspaceFiles) > 0 {
+		data, err := json.MarshalIndent(snap, "", "  ")
+		if err != nil {
+			return "", fmt.Errorf("snapshot: workspace evidence cannot be encoded")
+		}
+		return writePrivateSnapshot(w.root, data)
 	}
 	if err := os.MkdirAll(w.root, 0o755); err != nil {
 		return "", fmt.Errorf("snapshot: create dir %s: %w", w.root, err)

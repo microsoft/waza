@@ -66,6 +66,62 @@ func TestCopilotResumeToolPolicy(t *testing.T) {
 	}
 }
 
+func TestCopilotNewSessionDenyAllWithoutCallbacks(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	client := newClientMock(ctrl)
+	session := newSessionMock(ctrl)
+	emptyTools := []string{}
+	var cfg *copilot.SessionConfig
+	client.EXPECT().CreateSession(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, config *copilot.SessionConfig) (CopilotSession, error) {
+			cfg = config
+			require.NotNil(t, cfg.AvailableTools)
+			require.Empty(t, cfg.AvailableTools)
+			require.Empty(t, cfg.Tools)
+			require.Empty(t, cfg.MCPServers)
+			require.Equal(t, copilot.Bool(false), cfg.EnableSkills)
+			require.NotNil(t, cfg.OnPermissionRequest)
+			require.NotNil(t, cfg.Hooks)
+			require.NotNil(t, cfg.Hooks.OnPreToolUse)
+			return session, nil
+		})
+	client.EXPECT().DeleteSession(gomock.Any(), "session-1")
+	session.EXPECT().SessionID().Return("session-1")
+	session.EXPECT().Disconnect()
+	session.EXPECT().On(gomock.Any()).Times(3).Return(func() {})
+	session.EXPECT().SendAndWait(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(context.Context, copilot.MessageOptions) (*copilot.SessionEvent, error) {
+			for _, request := range []copilot.PermissionRequest{
+				&copilot.PermissionRequestShell{}, &copilot.PermissionRequestCustomTool{ToolName: "unexpected"}, nil,
+			} {
+				decision, err := cfg.OnPermissionRequest(request, copilot.PermissionInvocation{})
+				require.NoError(t, err)
+				require.IsType(t, &rpc.PermissionDecisionReject{}, decision)
+			}
+			for _, tool := range []string{"bash", "set_waza_grade_pass", ""} {
+				output, err := cfg.Hooks.OnPreToolUse(copilot.PreToolUseHookInput{ToolName: tool}, copilot.HookInvocation{})
+				require.NoError(t, err)
+				require.NotNil(t, output)
+				require.Equal(t, "deny", output.PermissionDecision)
+			}
+			return &copilot.SessionEvent{}, nil
+		})
+	engine := NewCopilotEngineBuilder("gpt-4o-mini", &CopilotEngineBuilderOptions{
+		NewCopilotClient: func(*copilot.ClientOptions) CopilotClient { return client },
+	}).Build()
+	require.NoError(t, engine.Initialize(t.Context()))
+	t.Cleanup(func() { require.NoError(t, engine.Shutdown(context.Background())) })
+	response, err := engine.Execute(t.Context(), &ExecutionRequest{
+		Message: "independent task", SourceDir: t.TempDir(), NoSkills: true,
+		ToolPolicy: NewToolPolicy(&emptyTools), EphemeralSession: true,
+	})
+	require.NoError(t, err)
+	require.False(t, response.Success)
+	require.Equal(t, string(ToolPolicyDenyAll), response.ToolPolicyMode)
+	require.Len(t, response.ToolPolicyDenials, 6)
+	require.Contains(t, response.ErrorMsg, "tool policy violation")
+}
+
 func TestToolPolicyReadOnly_Live(t *testing.T) {
 	skipIfCopilotNotEnabled(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)

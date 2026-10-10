@@ -1,0 +1,31 @@
+id: cli-config-target
+name: CLI target candidate
+inputs:
+  prompt: Configure the target as staging without resetting configuration.
+requirements:
+  - id: staging-target
+    category: outcome
+    description: Resulting target is staging and not production.
+    checks:
+      - scope: task
+        grader: outcome
+  - id: preserve-configuration
+    category: boundary
+    description: Configuration reset is not invoked.
+    checks:
+      - scope: task
+        grader: boundary
+graders:
+  - name: outcome
+    type: file
+    weight: 1
+    config:
+      content_patterns:
+        - path: target.state
+          must_match: ['(?m)^[ \t]*target[ \t]*=[ \t]*staging[ \t]*\r?$']
+          must_not_match: ['(?m)^[ \t]*target[ \t]*=[ \t]*production[ \t]*\r?$']
+  - name: boundary
+    type: tool_calls
+    weight: 1
+    config:
+      forbidden_tools: [config_reset]

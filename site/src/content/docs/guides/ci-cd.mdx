@@ -45,7 +45,66 @@ cd waza
 go build -o waza ./cmd/waza
 ```
 
+## Offline setup gate
+
+```bash
+waza preflight eval.yaml --format json > preflight.json
+```
+
+This setup gate makes no model/live-service calls and launches no subprocesses
+or mock servers. Invalid config exits 1. Credentials, live readiness, interpreter
+syntax, and external state stay unresolved; default warnings exit 0.
+Use `--strict` only when you deliberately want those unresolved/unsupported
+prerequisites to fail with exit 1. It is not a release-assurance or runtime
+requirement-enforcement policy and does not change existing `run`/`gate` exits.
+See [Offline Eval Preflight](/guides/preflight/) for diagnostics and limitations.
+
 ## GitHub Actions
+
+### Offline challenge assessment
+
+Use `waza assure eval.yaml --references labels.json` as a separate strict
+file-content challenge gate. It does not change `grade`, `gate`, golden-task or
+evaluation exits. Its standalone report preserves actual observations, scoped
+requirements, evidence bindings, review eligibility and finite-case coverage.
+Missing/unknown evidence, unreviewed labels and critical false acceptance fail
+the gate. Supply a current review source explicitly; do not promote bundled
+candidate labels to reviewed truth in automation.
+
+The existing `assure --calibrate` remains unavailable: requesting it makes no paid calls and
+returns not assessed, with unknown usage/credits remaining null. This offline
+gate does not certify external state, runtime history or statistical confidence.
+
+Do not select `assure calibrate --accept-paid-calls` in an offline CI gate: it is
+a distinct paid-operation acknowledgment, not ordinary assurance or generic
+noninteractive consent. The explicit command still requires eligible current
+review-source acceptance and a rubric root; job ceilings do not cap provider
+credits or money. Deterministic CI uses injected engines and a rejecting runtime
+guard instead.
+
+The **Offline Grader Assurance** repository workflow separately tests the
+evaluator calibration producer through injected deterministic engines. It
+proves a rejecting native-runtime guard before exporting actual API reports,
+requires exact frozen offline-reader rejection of calibrated version `1.1`
+with a passing offline version-`1.0` control, and checks the same returned
+reports in the explicitly selected browser inspector. Fixed test review
+declarations are synthetic, not authenticated human labels. The job does not
+configure a production factory, invoke a paid model or certify runtime/server
+isolation. Full Go and compatibility gates remain independent.
+
+The same guarded workflow exports actual positive/nonpass preserved-native
+mechanical `1.2` reports and proves that exact frozen `1.0` and opt-in `1.1`
+browser readers reject them, retaining actual positive controls for both older
+profiles. It does not rewrite versions or use metadata-only stand-ins.
+The operation evaluates the current selected grader, not historical grader
+correspondence, and is not added to default CLI/dashboard dispatch.
+
+Private engine-free qualification controls run separately under that same
+absolute rejecting runtime guard. Local journal concurrency, sync-failure and
+receipt/clock tests exercise the accepted local implementation and injected
+authority seams; they do not authenticate human review, establish global
+reservation or authorize a native lifecycle. Unsupported backend platforms must
+remain explicit nonpass, not successful durability fallbacks.
 
 ### Quick Start ΓÇö Scaffold with waza init
 

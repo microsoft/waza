@@ -1,0 +1,113 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/microsoft/waza/main/schemas/grader-assurance-1.2.schema.json",
+  "title": "Waza preserved native mechanical assurance report 1.2",
+  "description": "Applies currently selected native grader declarations to preserved artifacts. native_grader_declaration_json_v1 binds the current selected declaration, not the historical grader, configuration or version that originally produced a snapshot.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["kind", "schema_version", "assessment_mode", "created_at", "state", "reason", "labels_sha256", "review", "bindings", "requirements", "domains", "calibration", "cache_policy", "limitations"],
+  "properties": {
+    "kind": { "const": "waza.grader-assurance" },
+    "schema_version": { "const": "1.2" },
+    "assessment_mode": { "const": "preserved_native_mechanical_assurance" },
+    "created_at": { "type": "string", "format": "date-time" },
+    "state": { "$ref": "grader-assurance-1.0.schema.json#/$defs/state" },
+    "reason": { "type": "string", "minLength": 1 },
+    "labels_sha256": { "$ref": "grader-reference-1.0.schema.json#/$defs/sha256" },
+    "review": { "$ref": "grader-assurance-1.0.schema.json#/properties/review" },
+    "bindings": { "$ref": "grader-assurance-1.0.schema.json#/$defs/bindings" },
+    "requirements": { "type": "array", "items": { "$ref": "#/$defs/requirement" } },
+    "domains": { "$ref": "grader-assurance-1.0.schema.json#/properties/domains" },
+    "calibration": { "$ref": "#/$defs/calibration" },
+    "cache_policy": { "const": "no_reuse" },
+    "limitations": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } }
+  },
+  "$defs": {
+    "requirement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["task_id", "requirement_id", "check", "state", "reason", "declared_coverage", "observed_coverage", "observations"],
+      "properties": {
+        "task_id": { "type": "string", "minLength": 1 },
+        "requirement_id": { "type": "string", "minLength": 1 },
+        "check": { "$ref": "grader-reference-1.0.schema.json#/$defs/check" },
+        "state": { "$ref": "grader-assurance-1.0.schema.json#/$defs/state" },
+        "reason": { "type": "string", "minLength": 1 },
+        "declared_coverage": { "$ref": "grader-assurance-1.0.schema.json#/$defs/coverage" },
+        "observed_coverage": { "$ref": "grader-assurance-1.0.schema.json#/$defs/coverage" },
+        "observations": { "type": "array", "items": { "$ref": "#/$defs/observation" } }
+      }
+    },
+    "observation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["case_id", "scenario_id", "domain", "classification", "source_scope", "expected_passed", "state", "reason", "agreement", "result", "evidence", "bindings"],
+      "properties": {
+        "case_id": { "type": "string", "minLength": 1 },
+        "scenario_id": { "type": "string", "minLength": 1 },
+        "domain": { "type": "string", "minLength": 1 },
+        "classification": { "enum": ["good", "alternative_valid", "critical_bad"] },
+        "source_scope": { "enum": ["preserved_file_subset", "preserved_native_selected_artifacts"] },
+        "expected_passed": { "type": "boolean" },
+        "state": { "enum": ["observed", "not_assessed", "insufficient_evidence", "operational_error", "invalid"] },
+        "reason": { "type": "string", "minLength": 1 },
+        "agreement": { "type": ["boolean", "null"] },
+        "result": { "$ref": "#/$defs/result" },
+        "evidence": { "type": "array", "items": { "$ref": "grader-reference-1.0.schema.json#/$defs/reference" } },
+        "bindings": { "$ref": "grader-assurance-1.0.schema.json#/$defs/bindings" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "state": { "const": "observed" } } },
+          "then": { "properties": { "result": { "type": "object" }, "agreement": { "type": "boolean" } } },
+          "else": { "properties": { "agreement": { "type": "null" } } }
+        },
+        {
+          "if": { "properties": { "state": { "enum": ["not_assessed", "insufficient_evidence", "invalid"] } } },
+          "then": { "properties": { "result": { "type": "null" } } }
+        },
+        {
+          "if": { "properties": { "result": { "type": "object", "properties": { "type": { "const": "file" } } } } },
+          "then": { "properties": { "source_scope": { "const": "preserved_file_subset" } } }
+        },
+        {
+          "if": { "properties": { "result": { "type": "object", "properties": { "type": { "enum": ["", "tool_calls", "tool_constraint", "action_sequence"] } } } } },
+          "then": { "properties": { "source_scope": { "const": "preserved_native_selected_artifacts" } } }
+        }
+      ]
+    },
+    "result": {
+      "allOf": [
+        { "$ref": "grader-assurance-1.0.schema.json#/$defs/observation/properties/result" },
+        {
+          "if": { "type": "object" },
+          "then": {
+            "properties": {
+              "identifier": { "type": "string", "minLength": 1 },
+              "type": { "enum": ["", "file", "tool_calls", "tool_constraint", "action_sequence"] },
+              "score": { "type": "number", "minimum": 0, "maximum": 1 },
+              "weight": { "type": "number", "minimum": 0 }
+            }
+          }
+        }
+      ]
+    },
+    "calibration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state", "reason", "max_judge_executions", "executions", "billable_calls_bounded", "cost_bounded", "samples", "confidence_supported", "usage", "credits"],
+      "properties": {
+        "state": { "const": "not_assessed" },
+        "reason": { "const": "calibration_not_selected" },
+        "max_judge_executions": { "const": 0 },
+        "executions": { "const": 0 },
+        "billable_calls_bounded": { "const": false },
+        "cost_bounded": { "const": false },
+        "samples": { "const": 0 },
+        "confidence_supported": { "const": false },
+        "usage": { "type": "null" },
+        "credits": { "type": "null" }
+      }
+    }
+  }
+}

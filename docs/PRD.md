@@ -38,6 +38,76 @@ Custom agent evaluations enforce the selected `.agent.md` tool policy with the C
 
 ## User Personas
 
+### Grader Assurance Scope (#661)
+
+The initial integrated assurance path is an offline preserved-file/finite-output
+challenge workflow, reusing native graders and approved scoped requirement/evidence
+contracts. Reports distinguish actual observations, finite-case label agreement,
+critical false acceptance, missing coverage, exact binding domains and supplied
+current-source review eligibility. Every selected task, including requirement-free
+tasks, must have mapped and covered requirements for strict corpus pass. Existing grader defaults, exits, golden tasks
+and skill flows remain unchanged. Bundled labels are unreviewed; declarations do
+not authenticate human review. Unknown input completeness and absence from a
+subset cannot become assurance success.
+
+The separately selected internal preserved-native mechanical operation uses
+report `1.2`, checking whole selected tool artifacts and private selected-file
+materialization with original byte/presence/provenance admission. Native grader
+semantics are reused, including distinct canonical versus digest arguments.
+Unknown historical capture, unsupported modes and file-subset absence remain
+nonpass; no paid calibration or automatic CLI/dashboard dispatch is introduced.
+
+Private engine-free qualification primitives provide bounded original-byte
+custody, selected-source inventory binding, immutable handles, a label-free
+execution-view projection and capture-only equivalence controls. The private
+journal extension admits source-bound manifests, derives fixed-role artifacts,
+and tests accepted-host local process-lock/sync barriers with read-only recovery
+and injected invocation-wide freshness seams. It introduces no public wire/API,
+task execution, deployed backend, production currentness authority or lifecycle.
+These checks do not authenticate human review, establish global reservation or
+turn source seals into execution evidence or current publication authorization.
+
+The independent authored-output profile is evaluator-supplied finite text,
+not historical execution, complete tool evidence or observed billing. Native
+historical consumers reject its exact outer `schemaVersion: "2.0"` and
+`kind: "waza.grader-reference-input"` compatibility fences; payload `1.0` and
+manifest `1.1` remain independent, not native historical schema upgrades.
+Strict reports bind original label/envelope bytes
+and separate reviewed-source eligibility from actual native agreement.
+
+Paid model calibration remains acceptance work. The dashboard offers a separate
+read-only local report inspector and historical not-assessed states; imports are
+supplied claims, not verified evidence or native-run associations. The runnable
+authored-output example remains unreviewed with an expected not-assessed result.
+Selecting an unavailable calibration plan records not assessed with zero executions
+and null observed usage/credits; it is not measured calibration or confidence.
+`max_judge_executions` never bounds SDK follow-up billable calls or spend.
+
+The separate evaluator-selected calibration API has no default factory.
+A distinctly selected `assure calibrate` CLI operation requires explicit current
+review-source acceptance, rubric root and default-false `--accept-paid-calls`,
+with no interactive fallback. Existing offline `assure --calibrate` remains
+unavailable with zero paid calls. The new operation requires a pre-initialization
+notice carrying the reviewed plan
+and admitted unique-job count, frozen evaluator-owned declarations/finite inputs/
+local rubric bytes, and source-bound native grading with finalized diagnostics,
+independent model attribution and accounting. Version-1.1 claims require explicit
+consumer selection; strict agreement does not erase operational failure or
+critical false acceptance. Tested client-side callback policy/guards do not
+certify exhaustive server isolation. Missing review, evidence, attribution,
+accounting or unsupported calibration modes remain non-passing.
+Partial reports are output even alongside execution errors; runtime, invalid,
+notice-I/O, output and root-close errors exit 2, ordinary nonpass exits 1.
+Ambient custom-provider redirects are rejected rather than silently changing
+the reviewed provider route. The cooperative assessment timeout is not a spend
+cap or a forced cleanup guarantee.
+
+### Workflow Author
+- **Role:** Developer evaluating MCP, CLI or repository workflows
+- **Goals:** Author scenario suites without an unrelated `SKILL.md`, retaining optional skill/custom-agent context
+- **Scope:** `waza new eval <name> --scenario --template repository|cli|mcp` uses existing graders and real agent execution; mocked dependencies are explicitly harness-only evidence
+- **Compatibility:** Scenario evals opt into exact schema `2.0` so old executables reject changed discovery semantics before execution; legacy evals and task/result artifacts retain their prior formats
+
 ### Primary: Skill Author
 - **Role:** Developer contributing skills to microsoft/skills
 - **Goals:** Create high-quality skills that pass CI, work across models
@@ -57,7 +127,47 @@ Custom agent evaluations enforce the selected `.agent.md` tool policy with the C
 
 ## Feature Requirements
 
+### Existing-workflow preservation contract
+
+The additive evaluation work tracked in #657 must preserve current command,
+exit, grader, skill/custom-agent, multi-turn, mock, billing/cache, snapshot and
+historical dashboard behavior. The fixed offline corpus and package-owned
+coverage inventory are specified in [COMPATIBILITY.md](COMPATIBILITY.md) (#658).
+The required integration gate is `NO_COLOR=1 make test-compat`, with historical
+browser checks when dashboard surfaces change. Known bugs are tracked
+separately rather than accepted as new semantics; recorded/mock outcomes are
+not real-agent quality or full assurance claims.
+
 ### Epic 1: Go CLI Foundation (P0)
+
+#### Agent-free execution planning (#660)
+
+Before an eval starts, `waza preflight` inspects offline schemas, tasks and IDs,
+resource/instruction paths, grader configuration and locked cached modules,
+effective mocks, scoped requirement references, and static executor support.
+Inspection must count zero engine/model/live-service/subprocess calls and never
+launch mock services or update checks. Unavailable credentials, external state,
+model/interpreter availability and conditional checkpoint execution remain
+unresolved rather than verified.
+Eager schema decoding must be guarded across eval/task/checkpoint sources,
+cached presets, and merged overrides. External prerequisites remain unresolved
+and prevent complete inventory claims without changing native runtime loaders.
+
+Optional task-local requirements categorize outcome, boundary, recovery and
+quality intent using stable IDs and explicit references to current graders.
+They compose current checks, not a new assertion language. Valid alternatives
+are unconstrained unless a selected existing grader intentionally specifies
+sequence semantics. Reference resolution is not requirement satisfaction,
+runtime enforcement, or assurance of external side effects.
+
+All existing v1 inputs and runtime/default/exit semantics remain supported.
+New preflight invalid diagnostics exit 1; unresolved/unsupported warnings exit 0
+unless explicit `--strict` opts into exit 1. Empty check lists mean uncovered.
+Descriptive v1 metadata cannot enforce hard requirements in old readers; future
+hard semantics must select a new artifact boundary those readers reject.
+Preflight reports have their own typed artifact/version and never enter the
+historical results/dashboard pipeline. No new evaluation result fields are
+introduced. The #658 corpus remains the offline preservation gate.
 
 Port existing Python waza functionality to Go for single-binary distribution.
 

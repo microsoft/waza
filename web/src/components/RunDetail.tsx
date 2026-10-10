@@ -359,6 +359,13 @@ export default function RunDetail({ id }: { id: string }) {
         Back to runs
       </a>
 
+      <div className="rounded border border-zinc-700 p-3 text-sm text-zinc-400" data-testid="assurance-not-assessed">
+        Grader assurance: not assessed for this historical run. Native passes, cached
+        results and a judge model do not establish reviewed reference agreement.
+        {" "}<a href="#/assurance" className="text-blue-400">Inspect a separate supplied assurance report</a>;
+        reports are not automatically associated with this run.
+      </div>
+
       <div className="flex flex-wrap items-center gap-3">
         <h1 className="text-2xl font-semibold text-zinc-100">{data.spec}</h1>
         <OutcomeBadge outcome={data.outcome} />

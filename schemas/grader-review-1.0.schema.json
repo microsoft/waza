@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/microsoft/waza/main/schemas/grader-review-1.0.schema.json",
+  "title": "Waza supplied grader label review 1.0",
+  "description": "A declaration of current source state, not human authentication or discovery of withheld revocations. Acceptance is a separate evaluator decision. SHA256 hashes exact original label bytes.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "kind", "source_id", "subject_id", "subject_version", "labels_sha256", "state"],
+  "properties": {
+    "schema_version": { "const": "1.0" },
+    "kind": { "const": "waza.grader-review" },
+    "source_id": { "$ref": "grader-reference-1.0.schema.json#/$defs/identity" },
+    "subject_id": { "$ref": "grader-reference-1.0.schema.json#/$defs/identity" },
+    "subject_version": { "$ref": "grader-reference-1.0.schema.json#/$defs/identity" },
+    "labels_sha256": { "$ref": "evidence-manifest-1.0.schema.json#/$defs/sha256" },
+    "state": { "enum": ["unreviewed", "submitted", "reviewed", "rejected", "revoked"] },
+    "reviewer": { "type": "string" },
+    "reviewed_at": { "type": "string", "format": "date-time" }
+  },
+  "if": { "properties": { "state": { "enum": ["reviewed", "rejected", "revoked"] } } },
+  "then": {
+    "required": ["reviewer", "reviewed_at"],
+    "properties": { "reviewer": { "$ref": "grader-reference-1.0.schema.json#/$defs/identity" } }
+  }
+}

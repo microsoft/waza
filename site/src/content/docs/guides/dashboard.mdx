@@ -7,6 +7,10 @@ The waza dashboard provides an interactive web interface for exploring evaluatio
 
 ## Starting the Dashboard
 
+Historical artifact loading and unavailable billing/prompt/trajectory states
+are covered by the [existing-workflow compatibility corpus](/waza/guides/compatibility/).
+The corpus adds regression tests without changing dashboard views or screenshots.
+
 ```bash
 waza serve
 ```
@@ -75,6 +79,45 @@ The waterfall timeline arranges tool call spans on a horizontal axis proportiona
 - **Span correlation** — Start and complete events matched by `toolCallId`
 - **Interleaved support** — Handles concurrent or nested tool calls
 - **Detail sidebar** — Click a span to see arguments, result, and raw event data; press Escape to close
+
+### Grader Assurance
+
+Historical run details explicitly show **not assessed** for grader assurance.
+Native passes, cached verdicts and a configured judge model do not establish
+reviewed reference agreement.
+
+The **Assurance** view reads a supplied standalone `waza.grader-assurance` 1.0
+report using the same versioned JSON schema as the CLI. Inspection stays entirely
+in your browser: no automatic upload, grader/model calls or association with a
+historical run. Importing rejects malformed/ambiguous raw JSON, invalid UTF-8,
+non-finite numbers and unsupported shapes; it does not verify report freshness,
+fingerprints, evidence or reviewer identity.
+
+Calibrated report `1.1` claims require the separate **Explicitly inspect
+calibrated report 1.1** selection; they are not silently accepted by the default
+offline reader. Changing that selection clears the previous report. The
+versioned calibrated shape includes the explicit independent-authored-rubric
+operation and a required judge execution ledger; unknown versions or missing
+ledger fields are rejected.
+
+The ledger separates initialization, actual execution, native callback counts,
+requested model, received-event model attribution, authoritative accounting
+attribution, finalized usage/credits and sanitized lifecycle diagnostics.
+Unavailable models or credits remain unavailable; callback counts are not
+billable-call counts. These are supplied claims, not reverified execution,
+exhaustive event delivery or server-side tool isolation. Inspection neither
+runs nor authorizes paid calibration, authenticates labels, or accepts the
+report for a historical run.
+
+Scoped requirement links lead to case observations with actual native verdict,
+score and feedback, artifact-relative evidence references, coverage and separate
+review/provenance states. Invalid, unavailable, unsupported and operational
+states remain distinct from agreement. Domain criteria describe a fixed finite
+corpus, not independence or confidence. Unavailable credits remain unavailable;
+an explicitly supplied zero is shown as zero. Judge-execution limits never bound
+SDK follow-up billable calls or spend.
+
+![Local supplied assurance report](https://raw.githubusercontent.com/microsoft/waza/main/docs/images/assurance-report.png)
 
 ### Compare View
 

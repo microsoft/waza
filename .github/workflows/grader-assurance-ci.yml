@@ -1,0 +1,103 @@
+name: Offline Grader Assurance
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  producer-reader:
+    name: Verify offline producer and frozen readers
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      ENABLE_COPILOT_TESTS: 'false'
+      NO_COLOR: '1'
+    steps:
+      - name: Checkout exact reader ancestry
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          lfs: true
+
+      - name: Setup Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.26'
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Build dashboard
+        working-directory: web
+        run: npm ci && npm run build && npm run lint
+
+      - name: Install and prove rejecting runtime guard
+        shell: bash
+        run: |
+          guard="$RUNNER_TEMP/offline-copilot"
+          printf '#!/bin/sh\nprintf "offline assurance gate: native runtime disabled\\n" >&2\nexit 64\n' > "$guard"
+          chmod +x "$guard"
+          set +e
+          "$guard" --version
+          result=$?
+          set -e
+          test "$result" -eq 64
+          echo "COPILOT_CLI_PATH=$guard" >> "$GITHUB_ENV"
+          echo "WAZA_CALIBRATION_REPORT_DIR=$GITHUB_WORKSPACE/.cache/assurance-reports" >> "$GITHUB_ENV"
+          echo "WAZA_PRESERVED_REPORT_DIR=$GITHUB_WORKSPACE/.cache/preserved-reports" >> "$GITHUB_ENV"
+
+      - name: Verify private engine-free qualification controls
+        run: go test ./internal/assurance -run '^TestQualification' -count=1 -timeout=180s
+
+      - name: Export actual deterministic API reports
+        run: go test ./internal/assurance -run '^TestCalibrateExportActualOfflineReports$' -count=1 -timeout=120s
+
+      - name: Export actual preserved-native mechanical reports
+        run: go test ./internal/assurance -run '^TestVerifyPreservedActual(NativeResultsAndExport|CleanupFailureRetainsNativeResult)$' -count=1 -timeout=120s
+
+      - name: Verify injected CLI consent and native deny-all controls
+        run: |
+          go test ./cmd/waza -run 'Test(Assure|AssuranceDocument|CalibrationAtomic)' -count=1 -timeout=120s
+          go test ./internal/execution -run 'TestCopilotNewSessionDenyAllWithoutCallbacks|TestCopilotResumeToolPolicy' -count=1 -timeout=120s
+
+      - name: Verify exact frozen offline reader
+        shell: bash
+        run: |
+          NODE_PATH="$PWD/web/node_modules" WAZA_FROZEN_READER_DIR="$RUNNER_TEMP/frozen-assurance-reader" \
+            node scripts/verify-frozen-assurance-reader.cjs \
+            "$WAZA_CALIBRATION_REPORT_DIR/positive-calibrated-1.1.json" \
+            "$WAZA_CALIBRATION_REPORT_DIR/operational-failure-calibrated-1.1.json" \
+            "$WAZA_CALIBRATION_REPORT_DIR/verify-control-1.0.json"
+
+      - name: Install Chromium
+        working-directory: web
+        run: npx --no-install playwright install --with-deps chromium
+
+      - name: Verify exact frozen readers reject the separate native profile
+        shell: bash
+        run: |
+          NODE_PATH="$PWD/web/node_modules" WAZA_FROZEN_PRESERVED_READER_DIR="$RUNNER_TEMP/frozen-preserved-readers" \
+            node scripts/verify-frozen-preserved-readers.cjs \
+            "$WAZA_PRESERVED_REPORT_DIR/positive.json" \
+            "$WAZA_PRESERVED_REPORT_DIR/nonpass.json" \
+            "$WAZA_CALIBRATION_REPORT_DIR/verify-control-1.0.json" \
+            "$WAZA_CALIBRATION_REPORT_DIR/positive-calibrated-1.1.json"
+          NODE_PATH="$PWD/web/node_modules" WAZA_FROZEN_PRESERVED_READER_DIR="$RUNNER_TEMP/frozen-preserved-cleanup-readers" \
+            node scripts/verify-frozen-preserved-readers.cjs \
+            "$WAZA_PRESERVED_REPORT_DIR/positive.json" \
+            "$WAZA_PRESERVED_REPORT_DIR/cleanup-failure.json" \
+            "$WAZA_CALIBRATION_REPORT_DIR/verify-control-1.0.json" \
+            "$WAZA_CALIBRATION_REPORT_DIR/positive-calibrated-1.1.json"
+
+      - name: Verify actual API reports in explicit inspector
+        working-directory: web
+        run: npx --no-install playwright test e2e/assurance.spec.ts --project=chromium

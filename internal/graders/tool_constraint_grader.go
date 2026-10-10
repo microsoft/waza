@@ -6,6 +6,8 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/santhosh-tekuri/jsonschema/v6"
+
 	"github.com/microsoft/waza/internal/models"
 )
 
@@ -23,6 +25,10 @@ type toolConstraintGrader struct {
 
 // validateToolSpecs ensures each spec has a valid tool regex and optional args regex.
 func validateToolSpecs(specs []models.ToolSpecParameters, fieldName string) ([]models.ToolSpecParameters, error) {
+	return validateToolSpecsWithLoader(specs, fieldName, nil)
+}
+
+func validateToolSpecsWithLoader(specs []models.ToolSpecParameters, fieldName string, loader jsonschema.URLLoader) ([]models.ToolSpecParameters, error) {
 	normalized := make([]models.ToolSpecParameters, len(specs))
 	copy(normalized, specs)
 
@@ -61,7 +67,7 @@ func validateToolSpecs(specs []models.ToolSpecParameters, fieldName string) ([]m
 		// copy into the map preserves compiledRegex/compiledSchema for hot
 		// paths and keeps subsequent Match() calls allocation-free.
 		for argName, m := range spec.Args {
-			if err := m.Compile(); err != nil {
+			if err := m.CompileWithLoader(loader); err != nil {
 				return nil, fmt.Errorf("config.%s[%d].args[%s]: %w", fieldName, i, argName, err)
 			}
 			spec.Args[argName] = m
@@ -78,7 +84,7 @@ func validateToolSpecs(specs []models.ToolSpecParameters, fieldName string) ([]m
 // grade time — it is NOT compiled as a regex — so we only require a non-empty
 // name here. The other pattern fields (CommandPattern, SkillPattern,
 // PathPattern) are still regexes and still compiled/validated.
-func validateAllowOnlySpecs(specs []models.ToolSpecParameters, fieldName string) ([]models.ToolSpecParameters, error) {
+func validateAllowOnlySpecsWithLoader(specs []models.ToolSpecParameters, fieldName string, loader jsonschema.URLLoader) ([]models.ToolSpecParameters, error) {
 	normalized := make([]models.ToolSpecParameters, len(specs))
 	copy(normalized, specs)
 
@@ -107,7 +113,7 @@ func validateAllowOnlySpecs(specs []models.ToolSpecParameters, fieldName string)
 		}
 
 		for argName, m := range spec.Args {
-			if err := m.Compile(); err != nil {
+			if err := m.CompileWithLoader(loader); err != nil {
 				return nil, fmt.Errorf("config.%s[%d].args[%s]: %w", fieldName, i, argName, err)
 			}
 			spec.Args[argName] = m
@@ -121,22 +127,26 @@ func validateAllowOnlySpecs(specs []models.ToolSpecParameters, fieldName string)
 
 // NewToolConstraintGrader creates a toolConstraintGrader from decoded parameters.
 func NewToolConstraintGrader(name string, params models.ToolConstraintGraderParameters) (*toolConstraintGrader, error) {
+	return newToolConstraintGraderWithLoader(name, params, nil)
+}
+
+func newToolConstraintGraderWithLoader(name string, params models.ToolConstraintGraderParameters, loader jsonschema.URLLoader) (*toolConstraintGrader, error) {
 	if len(params.ExpectTools) == 0 && len(params.RejectTools) == 0 && params.AllowOnly == nil {
 		return nil, fmt.Errorf("tool_constraint grader '%s' must have at least one constraint configured", name)
 	}
 
-	expectSpecs, err := validateToolSpecs(params.ExpectTools, "expect_tools")
+	expectSpecs, err := validateToolSpecsWithLoader(params.ExpectTools, "expect_tools", loader)
 	if err != nil {
 		return nil, fmt.Errorf("tool_constraint grader '%s': %w", name, err)
 	}
-	rejectSpecs, err := validateToolSpecs(params.RejectTools, "reject_tools")
+	rejectSpecs, err := validateToolSpecsWithLoader(params.RejectTools, "reject_tools", loader)
 	if err != nil {
 		return nil, fmt.Errorf("tool_constraint grader '%s': %w", name, err)
 	}
 
 	var allowOnly *[]models.ToolSpecParameters
 	if params.AllowOnly != nil {
-		allowSpecs, err := validateAllowOnlySpecs(*params.AllowOnly, "allow_only")
+		allowSpecs, err := validateAllowOnlySpecsWithLoader(*params.AllowOnly, "allow_only", loader)
 		if err != nil {
 			return nil, fmt.Errorf("tool_constraint grader '%s': %w", name, err)
 		}

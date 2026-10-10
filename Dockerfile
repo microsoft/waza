@@ -10,6 +10,7 @@ COPY web/package.json web/package-lock.json ./
 RUN npm ci --silent
 
 COPY web/ ./
+COPY schemas/ /build/schemas/
 RUN npm run build
 
 # Stage 2: Build Go binary

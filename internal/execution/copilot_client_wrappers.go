@@ -2,6 +2,7 @@ package execution
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 
@@ -57,6 +58,13 @@ func newCopilotClient(clientOptions *copilot.ClientOptions) CopilotClient {
 	return &copilotClientWrapper{
 		inner: copilot.NewClient(clientOptions),
 	}
+}
+
+// NewOwnedCopilotClient constructs a dedicated SDK client. Supply this factory
+// through CopilotEngineBuilderOptions.NewCopilotClient to avoid SharedClient;
+// the engine then owns and stops the client.
+func NewOwnedCopilotClient(clientOptions *copilot.ClientOptions) CopilotClient {
+	return newCopilotClient(clientOptions)
 }
 
 type copilotClientWrapper struct {
@@ -134,32 +142,51 @@ func (w *copilotSessionWrapper) UsageMetrics(ctx context.Context) (*rpc.UsageGet
 }
 
 func (w *copilotSessionWrapper) ShutdownUsage(ctx context.Context) (*copilot.SessionShutdownData, error) {
+	return w.shutdownUsage(ctx, nil)
+}
+
+func (w *copilotSessionWrapper) shutdownUsageDiagnostic(ctx context.Context, report func(DiagnosticCode)) (*copilot.SessionShutdownData, error) {
+	return w.shutdownUsage(ctx, report)
+}
+
+func (w *copilotSessionWrapper) shutdownUsage(ctx context.Context, report func(DiagnosticCode)) (data *copilot.SessionShutdownData, resultErr error) {
+	fail := func(code DiagnosticCode, err error) error {
+		if report == nil {
+			return err
+		}
+		report(code)
+		return &DiagnosticError{Diagnostic: ExecutionDiagnostic{Stage: StageShutdownUsage, Code: code}}
+	}
 	session := w.inner
 	if w.disconnected {
 		resumed, err := w.client.ResumeSessionWithOptions(ctx, session.SessionID, &copilot.ResumeSessionConfig{})
 		if err != nil {
-			return nil, err
+			return nil, fail(CodeResume, err)
 		}
 		session = resumed
 		defer func() {
 			if err := session.Disconnect(); err != nil {
-				slog.Warn("failed to disconnect usage fallback session", "sessionID", session.SessionID, "error", err)
+				if report == nil {
+					slog.Warn("failed to disconnect usage fallback session", "sessionID", session.SessionID, "error", err)
+				} else {
+					resultErr = errors.Join(resultErr, fail(CodeFallbackDisconnect, err))
+				}
 			}
 		}()
 	}
 	if _, err := session.RPC.Shutdown(ctx, nil); err != nil {
-		return nil, err
+		return nil, fail(CodeShutdownRPC, err)
 	}
 	// Disconnect clears live handlers. Read the persisted shutdown event as
 	// well so finalization works for previously detached/resumed sessions.
 	events, err := session.GetEvents(ctx)
 	if err != nil {
-		return nil, err
+		return nil, fail(CodeHistory, err)
 	}
 	for i := len(events) - 1; i >= 0; i-- {
 		if data, ok := events[i].Data.(*copilot.SessionShutdownData); ok {
 			return data, nil
 		}
 	}
-	return nil, fmt.Errorf("no final session.shutdown event reported")
+	return nil, fail(CodeUsageMissingOrPartial, fmt.Errorf("no final session.shutdown event reported"))
 }

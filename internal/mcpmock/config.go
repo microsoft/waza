@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 
 	"github.com/microsoft/waza/internal/models"
+	"github.com/microsoft/waza/internal/schemaloader"
 	"github.com/santhosh-tekuri/jsonschema/v6"
 )
 
@@ -36,6 +36,16 @@ type Response struct {
 
 // FromEvalConfig resolves an eval.yaml mcp_mocks entry into a mock server config.
 func FromEvalConfig(mock models.MCPMockConfig, baseDir string) (*Config, error) {
+	return fromEvalConfig(mock, baseDir, nil)
+}
+
+// FromEvalConfigOffline reads declared local fixtures while refusing external
+// schema resources, including the compiler's default filesystem loader.
+func FromEvalConfigOffline(mock models.MCPMockConfig, baseDir string) (*Config, error) {
+	return fromEvalConfig(mock, baseDir, schemaloader.Offline{})
+}
+
+func fromEvalConfig(mock models.MCPMockConfig, baseDir string, loader jsonschema.URLLoader) (*Config, error) {
 	name := strings.TrimSpace(mock.Name)
 	if name == "" {
 		return nil, fmt.Errorf("mcp_mocks entry missing name")
@@ -68,7 +78,7 @@ func FromEvalConfig(mock models.MCPMockConfig, baseDir string) (*Config, error) 
 			return nil, fmt.Errorf("mcp mock %q tool %q must define at least one response", name, toolName)
 		}
 		for i, response := range tool.Responses {
-			if err := validateResponse(response); err != nil {
+			if err := validateResponse(response, loader); err != nil {
 				return nil, fmt.Errorf("mcp mock %q tool %q response %d: %w", name, toolName, i, err)
 			}
 		}
@@ -141,20 +151,9 @@ func convertResponses(in []models.MCPMockResponse) []Response {
 	return out
 }
 
-func validateResponse(response Response) error {
-	for field, pattern := range response.MatchRegex {
-		if _, err := regexp.Compile(pattern); err != nil {
-			return fmt.Errorf("match_regex field %q has invalid regex %q: %w", field, pattern, err)
-		}
-	}
-	if len(response.MatchSchema) > 0 {
-		compiler := jsonschema.NewCompiler()
-		if err := compiler.AddResource("memory://mcp-mock-schema.json", response.MatchSchema); err != nil {
-			return fmt.Errorf("match_schema is invalid: %w", err)
-		}
-		if _, err := compiler.Compile("memory://mcp-mock-schema.json"); err != nil {
-			return fmt.Errorf("match_schema is invalid: %w", err)
-		}
-	}
-	return nil
+func validateResponse(response Response, loader jsonschema.URLLoader) error {
+	return models.ValidateMCPMockResponseWithLoader(models.MCPMockResponse{
+		MatchRegex:  response.MatchRegex,
+		MatchSchema: response.MatchSchema,
+	}, loader)
 }

@@ -1,0 +1,176 @@
+---
+title: Offline Eval Preflight
+description: Inspect local prerequisites and descriptive requirement references without starting an agent or service.
+---
+
+`waza preflight` builds an agent-free inventory of an eval's local prerequisites.
+It does **not** replace `waza check` skill readiness or execute the evaluation.
+
+```bash
+waza preflight eval.yaml
+waza preflight eval.yaml --context-dir ./fixtures --format json > preflight.json
+waza preflight eval.yaml --strict
+waza preflight examples/preflight/eval.yaml --format json
+```
+
+## Meaning and exit policy
+
+| State | Meaning | Default exit policy |
+|-------|---------|---------------------|
+| `verified` | A static declaration, reference, or local dependency check passed | 0 |
+| `unresolved` | Evidence is unavailable or cannot be checked offline | Warning; 0, or 1 with `--strict` |
+| `unsupported` | The selected reader/executor cannot provide a requested capability | Warning; 0, or 1 with `--strict` |
+| `invalid` | Configuration, references, paths, or integrity checks are invalid | 1 |
+
+Usage/output errors retain the CLI's configuration-error exit 2. This new command
+does not change `run`, `grade`, `check`, or `gate` exit policies.
+
+**Verified never means requirement satisfied, runtime enforcement established,
+or external state changed.** A plausible answer or success message does not prove
+that a remote object was created, a command had the intended effect, or a
+forbidden side effect did not occur. Inspect actual captured state with suitable
+existing graders. A mock response tests the harness, not live agent quality.
+
+Preflight never initializes or calls an engine/model, executes graders or hooks,
+starts subprocesses, launches MCP/CLI mocks or live services, probes credentials,
+fetches module/schema references, or runs update checks. It makes only local
+reads. Live services, model access, interpreter syntax, credential/permission
+availability, Git revision materialization, and conditional checkpoint execution
+remain unresolved.
+
+## Descriptive requirements
+
+Task YAML can attach stable IDs to observable outcomes, forbidden effects,
+recovery expectations, and qualitative checks. IDs are local to the task.
+
+```yaml
+id: save-record
+name: Save a local record
+inputs:
+  prompt: Create record.json with the requested local data.
+graders:
+  - name: persisted
+    type: file
+    config:
+      must_exist: [record.json]
+  - name: no-unrelated-file
+    type: file
+    config:
+      must_not_exist: [unrelated.json]
+requirements:
+  - id: record-present
+    category: outcome
+    description: The record exists in captured workspace state.
+    checks:
+      - scope: task
+        grader: persisted
+  - id: no-unrelated-effects
+    category: boundary
+    description: The unrelated local artifact was not created.
+    checks:
+      - scope: task
+        grader: no-unrelated-file
+```
+
+Categories are `outcome`, `boundary`, `recovery`, and `quality`.
+`checks` select existing **explicit** grader declarations:
+
+| Scope | Selection |
+|-------|-----------|
+| `eval` | One `eval.yaml` grader with the selected `name` |
+| `task` | One task-level grader with the selected `name` |
+| `checkpoint` | One grader at the selected `after_turn` (required, 1-based) |
+
+`after_turn` is forbidden outside checkpoint scope. Several requirements may
+share a grader. Empty/absent `checks` means **uncovered/unresolved**, not success.
+Unknown references, duplicate requirement IDs, repeated identical checks, or
+ambiguous declarations within a scope are invalid configuration.
+
+Distinct eval/task scopes can have the same grader name; references still
+resolve, but current flattened final results may overwrite same-name results.
+Preflight reports this as `grader.result_collision` **unresolved attribution**,
+not an invalid declaration. Use distinct names before joining runtime evidence.
+Implicit agent-policy and synthesized expectation graders are not referenceable.
+
+Metadata never adds assertions or changes runtime grading. Equivalent valid
+tool paths remain permitted unless the referenced existing grader explicitly
+requires a sequence. A post-run boundary grader detects recorded violations; it
+does not prevent side effects. A checkpoint may not run if execution stops before
+its turn. These limitations apply even when references resolve.
+
+## Local resolution
+
+Task globs and `tasks_from` CSV paths resolve from the eval directory. Nonempty
+`tasks_from` retains runtime precedence over YAML task lists; CSV range, ID
+fallback, variables and template rules are shared with execution. CSV rows do
+not acquire invented requirements.
+
+Default fixtures are `<eval-directory>/fixtures`. CLI `--context-dir` resolves
+from the process cwd, as does the existing task `context_dir` override.
+Resource/instruction paths must stay workspace/context relative; local resource
+and instruction files are inspected, never modified. `inputs.context.fixture`
+accepts files or directories from the eval directory with runtime symlink
+containment rules. Explicit skill directories resolve from the eval directory;
+`required_skills` follows existing eval-level declaration discovery. Relative Git
+source paths resolve from process cwd, as at runtime. Source existence is local
+evidence, not verification of a commit or successful worktree creation.
+
+Legacy suites and scenarios with an explicit target also receive the same
+read-only `.waza.yaml` workspace skill-directory defaults as `waza run` when eval
+directories are omitted. Explicit eval directories take precedence. Disabled
+scenario discovery does not inspect or inject ambient project skills.
+
+Scenario-bearing evals require exact explicit `schemaVersion: "2.0"` with a
+nonempty `scenario`. Existing v1 suites retain their version/default/discovery
+semantics. The approved scenario loader determines requested skill discovery:
+no target or explicit directories means no ambient discovery, and task
+`skill_directories: []` disables it. The actual SDK discovery control is native
+`EnableSkills=false`, not an empty-directory proxy; preflight records static
+intent without constructing a session. `.agent.md` tools use native
+SKILL.md/agent/cwd/directory discovery precedence and report requested
+allowlist/deny-all as unresolved, never proof of enforcement or observed behavior.
+
+Command-mock fixtures resolve from the eval directory. Task `command_mocks`
+replaces eval mocks, including explicit `[]`. Same-name MCP mocks replace live
+server declarations. MCP fixture responses and matchers are parsed without
+starting a mock. External schema references are not fetched.
+
+Native argument matchers compile eagerly while reading YAML. Preflight guards
+the same source bytes before that decoder, including `tool_calls.expect` and
+`tool_constraint` argument matchers in eval/task/checkpoint declarations,
+pinned cached presets, and merged overrides. External schema prerequisites
+stop that materialization with an unresolved diagnostic and `complete: false`;
+ordinary matcher literals and MCP returned payloads are not treated as schemas.
+Existing runtime loaders retain their normal resource-loading behavior.
+
+Every remote grader requires a valid matching `waza.lock`, just as execution
+does. Missing/malformed locks, missing entries, or digest mismatch are invalid.
+A missing pinned cache is unresolved; populate it explicitly with `waza get`
+while online. Cache integrity is not trust or grading success. Local grader
+`schema_file`, rubric, trigger and snapshot paths retain their runtime resolution
+bases; relative schema/rubric paths resolve from cwd, while snapshots use the
+grader's `context_dir` when configured.
+
+## JSON report and compatibility
+
+The report has `kind: "waza.preflight"` and its own `schemaVersion: "1.0"`.
+Its independent contract is `schemas/preflight.schema.json`; invalid authored
+requirement metadata remains visible in failed reports instead of preventing
+diagnostic serialization.
+It contains `source`, `executor`, `complete`, `tasks`, `capabilities`,
+`dependencies`, and `diagnostics`. `complete` means inventory examination
+completed, **not satisfaction, enforcement, live readiness, or valid config**.
+Partial reports retain actionable diagnostics and do not silently verify
+unexamined evidence.
+
+Diagnostics contain stable `code`, `state`, `severity`, `source`,
+optional `task_id`/`requirement_id`, `message`, and `remediation`.
+Configuration/credential payloads are not included in messages; authored
+requirement descriptions are intent, not secrets storage.
+
+Use a CLI build containing #660 for this command. Requirements remain optional
+descriptive metadata in existing v1 tasks; older readers can ignore them.
+No new hard runtime semantics or global artifact-version bump is introduced.
+A minimum-version note or ignored minor field is not enforcement. Future hard
+semantics must choose a separate explicit artifact boundary older readers reject.
+Preflight reports are not evaluation results and do not create dashboard runs.
