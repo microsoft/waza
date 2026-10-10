@@ -39,6 +39,14 @@ remain incomplete/invalid without repair; a parsed local prefix does not prove
 fsync acknowledgment or publish a final ledger. Existing public protocols and
 API/dashboard required-assurance nonpass behavior remain unchanged.
 
+Private native tape **creation** is supported only on Linux and macOS. Other
+platforms, including Windows, reject before reserving any directory or artifact
+with an actionable unsupported-platform error (cancellation still takes precedence).
+File and directory sync errors remain fatal on supported platforms. Reading
+supplied rooted regular tape files and validating byte prefixes is separate from
+durable creation and remains available on Windows; successful parsing does not
+establish persistence acknowledgment or machine-crash durability.
+
 The separate native dependency provides an explicitly installed diagnostic
 observer, owned-client factory and independent received-model/final-usage
 observations. These hooks are not connected to controlled collection. Observer

@@ -5,8 +5,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io/fs"
 	"os"
+	"runtime"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -190,17 +193,12 @@ func TestTapeDigestsPreserveRawNumberTokens(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEqual(t, first, second)
 	require.NotEqual(t, rowFirst, rowSecond)
-	parent, err := os.OpenRoot(t.TempDir())
-	require.NoError(t, err)
-	defer func() { require.NoError(t, parent.Close()) }()
-	tape, err := CreateTape(context.Background(), parent, "collection")
-	require.NoError(t, err)
-	require.NoError(t, tape.Start(context.Background(), admitted))
-	require.NoError(t, tape.Complete(context.Background(), modified))
-	prefix, err := ReadPrefix(context.Background(), tape.root, []*Admitted{admitted})
+	events, payload := fixtureTapeBytes(t, []*Admitted{admitted}, [][]byte{modified})
+	prefix, err := verifyPrefix(context.Background(), events, payload, []*Admitted{admitted})
 	require.NoError(t, err)
 	require.Len(t, prefix.Records, 1)
-	require.NoError(t, tape.Close())
+	_, err = verifyPrefix(context.Background(), events, append(bytes.Clone(original), '\n'), []*Admitted{admitted})
+	require.Error(t, err, "raw numeric spelling is part of the terminal binding")
 }
 
 func TestPrepareRejectsUnsupportedInputs(t *testing.T) {
@@ -490,20 +488,7 @@ func TestTapeBindsMultipleAttemptsIncludingOperationalRows(t *testing.T) {
 	r2.ActualRow.Origin, r2.Summary.Origin = r2.Origin, r2.Origin
 	r2.ActualRow.Run.Attempts = 2
 	r2.Lifecycle.Grade = Phase{"failed", "grade_failed"}
-	parent, err := os.OpenRoot(t.TempDir())
-	require.NoError(t, err)
-	defer func() { require.NoError(t, parent.Close()) }()
-	tape, err := CreateTape(context.Background(), parent, "collection")
-	require.NoError(t, err)
-	defer func() { require.NoError(t, tape.Close()) }()
-	require.NoError(t, tape.Start(context.Background(), first))
-	require.NoError(t, tape.Complete(context.Background(), encoded(t, r1)))
-	require.NoError(t, tape.Start(context.Background(), second))
-	require.NoError(t, tape.Complete(context.Background(), encoded(t, r2)))
-	events, err := tape.root.ReadFile(eventFile)
-	require.NoError(t, err)
-	payload, err := tape.root.ReadFile(payloadFile)
-	require.NoError(t, err)
+	events, payload := fixtureTapeBytes(t, []*Admitted{first, second}, [][]byte{encoded(t, r1), encoded(t, r2)})
 	prefix, err := verifyPrefix(context.Background(), events, payload, []*Admitted{first, second})
 	require.NoError(t, err)
 	require.Len(t, prefix.Records, 2)
@@ -540,71 +525,86 @@ func TestAbsentResponseCannotBecomeEmptyText(t *testing.T) {
 
 func TestTapeReaderRequiresRootedRegularArtifactsAndUniqueAllocation(t *testing.T) {
 	_, _, admitted, r := fixture(t)
-	parent, err := os.OpenRoot(t.TempDir())
+	root, err := os.OpenRoot(t.TempDir())
 	require.NoError(t, err)
-	defer func() { require.NoError(t, parent.Close()) }()
-	tape, err := CreateTape(context.Background(), parent, "collection")
-	require.NoError(t, err)
-	defer func() { require.NoError(t, tape.Close()) }()
-	require.NoError(t, tape.Start(context.Background(), admitted))
-	require.NoError(t, tape.Complete(context.Background(), encoded(t, r)))
-	require.Error(t, tape.Start(context.Background(), admitted))
-	prefix, err := ReadPrefix(context.Background(), tape.root, []*Admitted{admitted})
+	defer func() { require.NoError(t, root.Close()) }()
+	events, payload := fixtureTapeBytes(t, []*Admitted{admitted}, [][]byte{encoded(t, r)})
+	require.NoError(t, root.WriteFile(eventFile, events, 0o600))
+	require.NoError(t, root.WriteFile(payloadFile, payload, 0o600))
+	prefix, err := ReadPrefix(context.Background(), root, []*Admitted{admitted})
 	require.NoError(t, err)
 	require.Len(t, prefix.Records, 1)
-	_, err = ReadPrefix(context.Background(), tape.root, []*Admitted{admitted, admitted})
-	require.Error(t, err)
-	require.NoError(t, tape.root.Rename(payloadFile, "real-rows.ndjson"))
-	require.NoError(t, tape.root.Symlink("real-rows.ndjson", payloadFile))
-	_, err = ReadPrefix(context.Background(), tape.root, []*Admitted{admitted})
+	_, err = ReadPrefix(context.Background(), root, []*Admitted{admitted, admitted})
 	require.Error(t, err)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, err = ReadPrefix(ctx, tape.root, []*Admitted{admitted})
+	_, err = ReadPrefix(ctx, root, []*Admitted{admitted})
 	require.ErrorIs(t, err, context.Canceled)
+	_, err = ReadPrefix(context.Background(), nil, []*Admitted{admitted})
+	require.ErrorContains(t, err, "requires an evaluator root")
+
+	t.Run("symlink capability or actual reader rejection", func(t *testing.T) {
+		require.NoError(t, root.Rename(payloadFile, "real-rows.ndjson"))
+		t.Cleanup(func() {
+			require.NoError(t, root.Rename("real-rows.ndjson", payloadFile))
+		})
+		err := root.Symlink("real-rows.ndjson", payloadFile)
+		if err != nil {
+			require.Equal(t, "windows", runtime.GOOS, "symlink creation must succeed on Linux/macOS")
+			var linkErr *os.LinkError
+			require.ErrorAs(t, err, &linkErr)
+			require.Equal(t, "symlinkat", linkErr.Op)
+			// Windows ERROR_PRIVILEGE_NOT_HELD is 1314, not fs.ErrPermission.
+			require.True(t, errors.Is(err, fs.ErrPermission) || errors.Is(err, syscall.Errno(1314)),
+				"unexpected Windows symlink creation error: %v", err)
+			_, statErr := root.Lstat(payloadFile)
+			require.ErrorIs(t, statErr, fs.ErrNotExist)
+			t.Log("Windows symlink creation capability unavailable; reader symlink rejection NOT certified")
+			return
+		}
+		t.Cleanup(func() { require.NoError(t, root.Remove(payloadFile)) })
+		info, err := root.Lstat(payloadFile)
+		require.NoError(t, err)
+		require.NotZero(t, info.Mode()&os.ModeSymlink)
+		_, err = ReadPrefix(context.Background(), root, []*Admitted{admitted})
+		require.ErrorContains(t, err, "contains a symlink")
+		_, err = ReadPrefix(ctx, root, []*Admitted{admitted})
+		require.ErrorIs(t, err, context.Canceled)
+	})
+
+	for _, artifact := range []string{eventFile, payloadFile} {
+		t.Run("directory "+artifact, func(t *testing.T) {
+			require.NoError(t, root.Rename(artifact, "regular-artifact"))
+			require.NoError(t, root.Mkdir(artifact, 0o700))
+			_, err := ReadPrefix(context.Background(), root, []*Admitted{admitted})
+			require.ErrorContains(t, err, "must be a regular file")
+			require.NoError(t, root.Remove(artifact))
+			require.NoError(t, root.Rename("regular-artifact", artifact))
+		})
+		t.Run("missing "+artifact, func(t *testing.T) {
+			require.NoError(t, root.Rename(artifact, "regular-artifact"))
+			_, err := ReadPrefix(context.Background(), root, []*Admitted{admitted})
+			require.ErrorIs(t, err, fs.ErrNotExist)
+			require.NoError(t, root.Rename("regular-artifact", artifact))
+		})
+	}
+	prefix, err = ReadPrefix(context.Background(), root, []*Admitted{admitted})
+	require.NoError(t, err)
+	require.Len(t, prefix.Records, 1)
 }
 
 func TestTapePayloadBeforeTerminalAndCrashPrefixes(t *testing.T) {
 	for _, failure := range []string{"none", "payload sync", "terminal sync", "start only", "orphan", "null start field", "torn", "duplicate payload", "changed payload", "cancel"} {
 		t.Run(failure, func(t *testing.T) {
 			_, _, admitted, r := fixture(t)
-			parent, err := os.OpenRoot(t.TempDir())
-			require.NoError(t, err)
-			defer func() { require.NoError(t, parent.Close()) }()
-			tape, err := CreateTape(context.Background(), parent, "collection")
-			require.NoError(t, err)
-			require.NoError(t, tape.Start(context.Background(), admitted))
-			failed := errors.New("injected fsync failure")
+			// Synthetic byte prefixes model observations, not fsync acknowledgments.
+			events, payload := fixtureTapeBytes(t, []*Admitted{admitted}, [][]byte{encoded(t, r)})
 			switch failure {
-			case "payload sync":
-				tape.syncPayload = func() error { return failed }
-			case "terminal sync":
-				tape.syncEvents = func() error { return failed }
-			}
-			if failure != "start only" {
-				ctx := context.Background()
-				if failure == "cancel" {
-					c, cancel := context.WithCancel(ctx)
-					cancel()
-					ctx = c
-				}
-				err = tape.Complete(ctx, encoded(t, r))
-				if failure == "payload sync" || failure == "terminal sync" || failure == "cancel" {
-					require.Error(t, err)
-				} else {
-					require.NoError(t, err)
-				}
-			}
-			if tape.poisoned {
-				require.Error(t, tape.Start(context.Background(), admitted))
-			}
-			events, err := tape.root.ReadFile(eventFile)
-			require.NoError(t, err)
-			payload, err := tape.root.ReadFile(payloadFile)
-			require.NoError(t, err)
-			switch failure {
-			case "orphan":
+			case "orphan", "payload sync":
 				events = bytes.SplitAfter(events, []byte{'\n'})[0]
+			case "start only", "cancel":
+				events = bytes.SplitAfter(events, []byte{'\n'})[0]
+				payload = nil
 			case "null start field":
 				events = bytes.Replace(events, []byte(`"type":"start"`), []byte(`"type":"start","row_digest":null`), 1)
 			case "torn":
@@ -629,9 +629,31 @@ func TestTapePayloadBeforeTerminalAndCrashPrefixes(t *testing.T) {
 			if failure == "payload sync" {
 				require.NotContains(t, string(events), `"type":"terminal"`)
 			}
-			require.NoError(t, tape.Close())
-			_, err = CreateTape(context.Background(), parent, "collection")
-			require.Error(t, err, "never reuse or repair a reserved destination")
 		})
 	}
+}
+
+// fixtureTapeBytes supplies valid local bytes without constructing a durable writer.
+func fixtureTapeBytes(t *testing.T, admissions []*Admitted, records [][]byte) ([]byte, []byte) {
+	t.Helper()
+	require.Len(t, records, len(admissions))
+	var events, payload []byte
+	for i, admitted := range admissions {
+		binding, err := admitted.Binding()
+		require.NoError(t, err)
+		record, err := DecodeRecord(records[i], admitted)
+		require.NoError(t, err)
+		recordDigest, rowDigest, err := recordDigests(records[i])
+		require.NoError(t, err)
+		start := Event{Kind: eventKind, Version: version, Sequence: 2*i + 1, Type: "start", Admission: binding}
+		terminal := Event{Kind: eventKind, Version: version, Sequence: 2*i + 2, Type: "terminal", Admission: binding,
+			State: record.Summary.Category, RecordDigest: recordDigest, RowDigest: rowDigest}
+		events = append(events, encoded(t, start)...)
+		events = append(events, '\n')
+		events = append(events, encoded(t, terminal)...)
+		events = append(events, '\n')
+		payload = append(payload, records[i]...)
+		payload = append(payload, '\n')
+	}
+	return events, payload
 }

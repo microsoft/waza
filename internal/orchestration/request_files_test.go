@@ -162,7 +162,10 @@ func TestCapturedNativeRejectsLoaderSkippedResource(t *testing.T) {
 	spec := &models.EvalSpec{Config: models.Config{EngineType: "copilot-sdk", ModelID: "offline-model",
 		DisabledSkills: []string{"*"}},
 		Graders: []models.GraderConfig{{Identifier: "text", Kind: models.GraderKindText, Parameters: models.TextGraderParameters{Contains: []string{"hello"}}}}}
-	for _, path := range []string{"input..txt", "../input.txt", "/input.txt"} {
+	absolute, err := filepath.Abs(filepath.Join(t.TempDir(), "input.txt"))
+	require.NoError(t, err)
+	require.True(t, filepath.IsAbs(absolute))
+	for _, path := range []string{"input..txt", "../input.txt", absolute} {
 		t.Run(path, func(t *testing.T) {
 			task := &models.TestCase{TestID: "task", Stimulus: models.TaskStimulus{Message: "hello",
 				Resources: []models.ResourceRef{{Location: path}}}}

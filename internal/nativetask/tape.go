@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"runtime"
 
 	"github.com/microsoft/waza/internal/evidence"
 	"github.com/microsoft/waza/internal/jsonutil"
@@ -45,6 +46,9 @@ func syncRoot(root *os.Root) (err error) {
 func CreateTape(ctx context.Context, parent *os.Root, name string) (_ *Tape, err error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
+	}
+	if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
+		return nil, fmt.Errorf("private durable native tape creation is unsupported on %s; use Linux or macOS for creation; reading supplied tapes remains available", runtime.GOOS)
 	}
 	if parent == nil || name == "" || name == "." || name == ".." || bytes.ContainsAny([]byte(name), "/\\") {
 		return nil, fmt.Errorf("native tape needs a new direct evaluator-owned directory")

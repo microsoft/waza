@@ -145,12 +145,55 @@ func TestRetainedNativeRequestContextAndCapturedGuardParity(t *testing.T) {
 	req, err = BuildRetainedNativeRequest(context.Background(), spec, task, "", "", nil)
 	require.Nil(t, req)
 	require.ErrorContains(t, err, "requires retained inputs")
-	for _, destination := range []string{"", "../outside", "/absolute", "input..txt"} {
+	absolute, err := filepath.Abs(filepath.Join(t.TempDir(), "absolute"))
+	require.NoError(t, err)
+	require.True(t, filepath.IsAbs(absolute))
+	for _, destination := range []string{"", "../outside", absolute, "input..txt"} {
 		task.Stimulus.Resources = []models.ResourceRef{{Location: destination}}
 		_, originalErr := frozenOriginalBuildCapturedNativeRequest(spec, task, "eval", "context", nativeRequestFiles{})
 		req, actualErr := BuildRetainedNativeRequest(context.Background(), spec, task, "eval", "context", AdaptRequestFiles(nativeRequestFiles{}))
 		require.Nil(t, req)
 		require.Equal(t, originalErr, actualErr)
+	}
+}
+
+func TestCapturedAndRetainedNativeSlashRootPathParity(t *testing.T) {
+	base := t.TempDir()
+	contextDir := filepath.Join(base, "context")
+	require.NoError(t, os.Mkdir(contextDir, 0o700))
+	for _, destination := range []string{"/input.txt", "/absolute"} {
+		t.Run(destination, func(t *testing.T) {
+			spec, task := retainedRequestDeclarations()
+			task.Stimulus.Resources = []models.ResourceRef{{Location: destination}}
+			if !filepath.IsAbs(destination) {
+				// On Windows a slash root without a volume follows the unchanged native relative loader.
+				require.NoError(t, os.WriteFile(filepath.Join(contextDir, destination), []byte("retained relative input"), 0o600))
+			}
+			original, originalErr := frozenOriginalBuildCapturedNativeRequest(spec, task, base, contextDir, nativeRequestFiles{})
+			captured, capturedErr := BuildCapturedNativeRequest(spec, task, base, contextDir, nativeRequestFiles{})
+			retained, retainedErr := BuildRetainedNativeRequest(context.Background(), spec, task, base, contextDir,
+				AdaptRequestFiles(nativeRequestFiles{}))
+			require.Equal(t, originalErr, capturedErr)
+			require.Equal(t, originalErr, retainedErr)
+			if filepath.IsAbs(destination) {
+				require.Nil(t, original)
+				require.Nil(t, captured)
+				require.Nil(t, retained)
+				require.ErrorContains(t, originalErr, "native loader")
+				return
+			}
+			require.NoError(t, originalErr)
+			require.Len(t, original.Resources, 1)
+			require.Equal(t, []byte("retained relative input"), original.Resources[0].Content)
+			originalBytes, err := FreezeCapturedNativeRequest(original)
+			require.NoError(t, err)
+			capturedBytes, err := FreezeCapturedNativeRequest(captured)
+			require.NoError(t, err)
+			retainedBytes, err := FreezeCapturedNativeRequest(retained)
+			require.NoError(t, err)
+			require.Equal(t, originalBytes, capturedBytes)
+			require.Equal(t, originalBytes, retainedBytes)
+		})
 	}
 }
 
