@@ -636,6 +636,13 @@ Model calibration remains unavailable: `--calibrate` makes zero paid calls and
 reports not assessed, with null usage/credits. Bundled candidates have not had
 actual human review. See [the contract and support boundary](GRADER-CHALLENGES.md#strict-file-content-assurance).
 
+The [authored-output example](../examples/grader-challenges/authored-output/README.md)
+generates four finite evaluator-only inputs against a selected binary. Its native
+grader outputs agree with the candidate labels, but the expected result remains
+exit 1/not assessed without human review. The dashboard's separate **Assurance**
+view inspects the report locally without uploading it, rechecking its supplied
+claims or associating it with historical runs.
+
 ### Existing-workflow compatibility examples
 
 The [recorded compatibility examples](../examples/compatibility/README.md) cover

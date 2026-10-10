@@ -246,10 +246,17 @@ made, and records zero executions with **null** usage/credits. A supplied plan's
 protocol/model/execution budget does not itself perform calibration. Program, script,
 trigger and unsupported candidate-input paths remain not assessed.
 
-Isolated paid calibration, historical
-not-assessed dashboard states and full runnable assurance examples are remaining
-acceptance work. Absence of calibration or human review must never be presented
-as assurance.
+Isolated paid calibration remains acceptance work. Absence of calibration or
+human review must never be presented as assurance. The dashboard's separate
+local inspector validates raw JSON and report shape, not the supplied states,
+digests, reviewer identity or evidence freshness. Historical runs remain
+explicitly not assessed; imported reports are neither uploaded nor associated
+with them.
+
+The [finite authored-output example](../examples/grader-challenges/authored-output/README.md)
+generates evaluator-only inputs and binds an actual selected executable. Its
+expected exit is 1/not assessed despite four agreeing native grader outputs,
+because no review is supplied or fabricated.
 
 ### Finite authored-output checks
 

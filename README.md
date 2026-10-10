@@ -153,6 +153,9 @@ waza get evals/my-skill/eval.yaml
 # Challenge native file/output checks with evaluator-only references (offline)
 waza assure eval.yaml --references labels.json
 
+# Inspect its standalone JSON locally in the dashboard's Assurance view.
+# Bundled authored-output examples remain unreviewed: expected exit 1/not assessed.
+
 # Note: 'generate' is available as an alias for 'new' (see below for new command)
 # Note: Custom agents (.agent.md) are supported — see https://microsoft.github.io/waza/guides/custom-agents/
 

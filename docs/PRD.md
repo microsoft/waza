@@ -58,7 +58,10 @@ manifest `1.1` remain independent, not native historical schema upgrades.
 Strict reports bind original label/envelope bytes
 and separate reviewed-source eligibility from actual native agreement.
 
-Paid model calibration and final dashboard/example delivery remain acceptance work.
+Paid model calibration remains acceptance work. The dashboard offers a separate
+read-only local report inspector and historical not-assessed states; imports are
+supplied claims, not verified evidence or native-run associations. The runnable
+authored-output example remains unreviewed with an expected not-assessed result.
 Selecting an unavailable calibration plan records not assessed with zero executions
 and null observed usage/credits; it is not measured calibration or confidence.
 `max_judge_executions` never bounds SDK follow-up billable calls or spend.

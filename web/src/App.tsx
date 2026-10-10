@@ -1,23 +1,26 @@
-import { useState, useEffect } from "react";
+import { lazy, Suspense, useState, useEffect } from "react";
 import Layout from "./components/Layout";
 import Dashboard from "./components/Dashboard";
 import RunDetail from "./components/RunDetail";
 import CompareView from "./components/CompareView";
 import TrendsPage from "./components/TrendsPage";
 import LiveView from "./components/LiveView";
+const AssurancePage = lazy(() => import("./components/AssurancePage"));
 
 type Route =
   | { page: "home" }
   | { page: "run"; id: string }
   | { page: "compare" }
   | { page: "trends" }
-  | { page: "live" };
+  | { page: "live" }
+  | { page: "assurance" };
 
 function parseHash(): Route {
   const hash = window.location.hash.slice(1);
   if (hash === "/compare") return { page: "compare" };
   if (hash === "/trends") return { page: "trends" };
   if (hash === "/live") return { page: "live" };
+  if (hash === "/assurance") return { page: "assurance" };
   const runMatch = hash.match(/^\/runs\/(.+)$/);
   if (runMatch?.[1]) return { page: "run", id: runMatch[1] };
   return { page: "home" };
@@ -39,6 +42,7 @@ export default function App() {
       {route.page === "compare" && <CompareView />}
       {route.page === "trends" && <TrendsPage />}
       {route.page === "live" && <LiveView />}
+      {route.page === "assurance" && <Suspense fallback={<p role="status">Loading report inspector...</p>}><AssurancePage /></Suspense>}
     </Layout>
   );
 }
