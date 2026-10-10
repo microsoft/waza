@@ -177,6 +177,12 @@ func qualificationProjectionSize(value reflect.Value, budget *int, depth int) er
 	if !value.IsValid() {
 		return qualificationSpendProjection(budget, 4)
 	}
+	if (value.Kind() == reflect.Pointer || value.Kind() == reflect.Interface) && value.IsNil() {
+		return qualificationSpendProjection(budget, 4)
+	}
+	if value.Type() == reflect.TypeFor[*json.RawMessage]() {
+		return qualificationProjectionSize(value.Elem(), budget, depth+1)
+	}
 	if value.Type() == reflect.TypeFor[json.RawMessage]() {
 		if value.IsNil() {
 			return qualificationSpendProjection(budget, 4)
@@ -980,6 +986,16 @@ type qualificationCurrentnessAcknowledgment struct {
 
 // Neither the issuer's identity nor runtime freshness follows from this parser.
 func qualificationParseCurrentnessAcknowledgment(data []byte) (qualificationDocument, error) {
+	return qualificationParseCurrentnessAcknowledgmentBounded(data, qualificationDocumentLimit, qualificationTotalLimit, nil, nil)
+}
+
+func qualificationParseCurrentnessAcknowledgmentBounded(data []byte, documentLimit int, total uint64, role func(string) uint64, materializing func()) (qualificationDocument, error) {
+	if err := qualificationProtocolBlobPreflight(data, documentLimit, total, role); err != nil {
+		return qualificationDocument{}, err
+	}
+	if materializing != nil {
+		materializing()
+	}
 	ack, err := qualificationDecode[qualificationCurrentnessAcknowledgment](data, qualificationDocumentLimit)
 	if err != nil {
 		return qualificationDocument{}, err

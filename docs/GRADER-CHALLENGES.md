@@ -146,9 +146,9 @@ digest, requested model and boundary profile, not human labels or reference case
 
 Capture-only equivalence checks reuse existing request identities without
 constructing an engine or executing a task. This bounded input profile requires
-mechanical observations to be empty. These helpers
-are not a public wire format, `Qualify` API, CLI mode, durable backend, currentness
-authority or lifecycle implementation. A source seal is not authenticated human
+mechanical observations to be empty. These helpers are not a public wire format,
+`Qualify` API, CLI mode, deployed backend, production currentness authority or
+lifecycle implementation. A source seal is not authenticated human
 review, durable receipt, provider enforcement or execution evidence. Existing
 `Verify`, `Calibrate` and report readers remain unchanged.
 
@@ -160,6 +160,29 @@ go test ./internal/assurance -run '^TestQualification' -count=1
 
 When validating packages that can discover SDK paths, use an absolute rejecting
 `COPILOT_CLI_PATH` guard as in CI, not only `ENABLE_COPILOT_TESTS=false`.
+
+The private journal subset additionally admits manifests against retained
+original sources, acquires fixed-role artifacts through borrowed roots, and
+derives the exact acknowledged core prefix, ordered job tape and artifact
+inventory. Standalone report bytes retain their original formatting; canonical
+event/tape bytes use their separate JSON identity domain. A complete inventory
+requires the acknowledged `before_decision` cutoff and excludes the final
+terminal suffix, avoiding circular hashes.
+
+The local journal uses process locks and exclusive file/directory sync barriers
+on caller-accepted Linux/macOS local storage. Payload persistence precedes event
+and acknowledgment persistence. Failed or uncertain writes poison mutation;
+recovery is read-only. Duplicate claims, closed/poisoned handles, automatic
+resume, repair and supersession are not accepted. This scope is not global
+reservation or proof of physical filesystem durability.
+
+Injected freshness sessions own invocation-wide clock/nonce/job identity and
+require separate current-source, attestor and source-specific verifier inputs.
+Missing/negative proof cannot authorize replay. Test verifiers do not
+authenticate humans or supply a production authority; these helpers construct
+no engines and implement no factory, initialization or task execution lifecycle.
+Complete stored evidence is historical structure, not current publication
+authorization. A future consumer must independently enforce final freshness.
 
 `internal/assurance.ObserveDeclaredMechanical` resolves an actual eval, task or
 checkpoint declaration through the shared pure preflight lookup and invokes its

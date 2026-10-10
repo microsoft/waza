@@ -59,10 +59,13 @@ nonpass; no paid calibration or automatic CLI/dashboard dispatch is introduced.
 
 Private engine-free qualification primitives provide bounded original-byte
 custody, selected-source inventory binding, immutable handles, a label-free
-execution-view projection and capture-only equivalence controls. They introduce
-no public wire/API, task execution, durable backend, trusted currentness authority
-or lifecycle. These internal preparation checks do not authenticate human review
-or turn source seals into execution/receipt evidence.
+execution-view projection and capture-only equivalence controls. The private
+journal extension admits source-bound manifests, derives fixed-role artifacts,
+and tests accepted-host local process-lock/sync barriers with read-only recovery
+and injected invocation-wide freshness seams. It introduces no public wire/API,
+task execution, deployed backend, production currentness authority or lifecycle.
+These checks do not authenticate human review, establish global reservation or
+turn source seals into execution evidence or current publication authorization.
 
 The independent authored-output profile is evaluator-supplied finite text,
 not historical execution, complete tool evidence or observed billing. Native

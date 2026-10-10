@@ -55,6 +55,9 @@ jobs:
           echo "WAZA_CALIBRATION_REPORT_DIR=$GITHUB_WORKSPACE/.cache/assurance-reports" >> "$GITHUB_ENV"
           echo "WAZA_PRESERVED_REPORT_DIR=$GITHUB_WORKSPACE/.cache/preserved-reports" >> "$GITHUB_ENV"
 
+      - name: Verify private engine-free qualification controls
+        run: go test ./internal/assurance -run '^TestQualification' -count=1 -timeout=180s
+
       - name: Export actual deterministic API reports
         run: go test ./internal/assurance -run '^TestCalibrateExportActualOfflineReports$' -count=1 -timeout=120s
 
