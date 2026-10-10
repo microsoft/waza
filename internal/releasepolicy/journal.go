@@ -48,8 +48,17 @@ func replay(p *Policy, j *Journal, prefix bool) (result map[Arm]Receipt, err err
 		j.CollectionID == "" || !isDigest(j.Digest) {
 		return nil, fmt.Errorf("invalid journal identity/collection")
 	}
-	for i, event := range j.Events {
-		if event.Sequence != i+1 || event.CollectionID != j.CollectionID ||
+	return replayEvents(p, j.CollectionID, j.Events, &j.Digest, prefix, nil)
+}
+
+func replayEvents(p *Policy, collectionID string, events []Event,
+	journalDigest *models.EvidenceDigest, prefix bool, trace *replayTrace,
+) (result map[Arm]Receipt, err error) {
+	for i, event := range events {
+		if err := trace.check(); err != nil {
+			return nil, err
+		}
+		if event.Sequence != i+1 || event.CollectionID != collectionID ||
 			event.PolicyDigest != p.Digest {
 			return nil, fmt.Errorf("journal event %d sequence/collection/policy mismatch", i+1)
 		}
@@ -62,13 +71,16 @@ func replay(p *Policy, j *Journal, prefix bool) (result map[Arm]Receipt, err err
 	}()
 	offset := 0
 	take := func(kind string) (*Event, error) {
-		if offset >= len(j.Events) && prefix {
+		if err := trace.check(); err != nil {
+			return nil, err
+		}
+		if offset >= len(events) && prefix {
 			return nil, io.EOF
 		}
-		if offset >= len(j.Events) || j.Events[offset].Type != kind {
+		if offset >= len(events) || events[offset].Type != kind {
 			return nil, fmt.Errorf("journal event %d: expected %s", offset+1, kind)
 		}
-		event := &j.Events[offset]
+		event := &events[offset]
 		offset++
 		// Each event type has an exact conditional field set.
 		fields := Event{Sequence: event.Sequence, CollectionID: event.CollectionID,
@@ -104,12 +116,18 @@ func replay(p *Policy, j *Journal, prefix bool) (result map[Arm]Receipt, err err
 			(arm == Candidate && e.EvalID == receipts[Baseline].EvalID) {
 			return nil, fmt.Errorf("both distinct arm BEGIN identities are required before collection")
 		}
-		receipts[arm] = Receipt{Kind: ReceiptKind, Version: Version, CollectionID: j.CollectionID,
+		if err := trace.accept(*e); err != nil {
+			return nil, err
+		}
+		receipts[arm] = Receipt{Kind: ReceiptKind, Version: Version, CollectionID: collectionID,
 			PolicyDigest: p.Digest, Arm: arm, EvalID: e.EvalID,
 			PlanDigest: p.Arms[arm].Digest, State: "final",
 			Samples: PlannedSamples(p), Started: []SampleKey{}, Attempts: []AttemptSummary{},
 			Trials: []TrialSummary{}, Runtime: []RuntimeObservation{}, Usage: []UsageAxis{},
-			JournalDigest: &j.Digest, JournalCount: len(j.Events)}
+			JournalDigest: journalDigest, JournalCount: len(events)}
+		if err := trace.check(); err != nil {
+			return nil, err
+		}
 	}
 	for ci, cluster := range p.Design.Clusters {
 		e, err := take("cluster_start")
@@ -119,10 +137,19 @@ func replay(p *Policy, j *Journal, prefix bool) (result map[Arm]Receipt, err err
 		if e.ClusterID != cluster.ID {
 			return nil, fmt.Errorf("cluster order differs from frozen allocation")
 		}
+		if err := trace.accept(*e); err != nil {
+			return nil, err
+		}
 		for _, arm := range p.Design.Allocation.Assignments[ci].Order {
 			r := receipts[arm]
 			for _, task := range cluster.Tasks {
+				if err := trace.check(); err != nil {
+					return nil, err
+				}
 				settings := settingsFor(p, arm, task.ID)
+				if err := trace.check(); err != nil {
+					return nil, err
+				}
 				for _, trial := range task.TrialOrdinals {
 					sample := SampleKey{ClusterID: cluster.ID, TaskID: task.ID, Trial: trial}
 					attempts := []AttemptSummary{}
@@ -135,6 +162,9 @@ func replay(p *Policy, j *Journal, prefix bool) (result map[Arm]Receipt, err err
 						if start.Key == nil || *start.Key != key {
 							return nil, fmt.Errorf("attempt does not match frozen cluster/arm/task/trial/retry order")
 						}
+						if err := trace.accept(*start); err != nil {
+							return nil, err
+						}
 						end, err := take("attempt_terminal")
 						if err != nil {
 							return nil, err
@@ -142,7 +172,13 @@ func replay(p *Policy, j *Journal, prefix bool) (result map[Arm]Receipt, err err
 						if end.Attempt == nil || end.Attempt.Key != key {
 							return nil, fmt.Errorf("attempt terminal is missing or mismatched")
 						}
+						if err := trace.check(); err != nil {
+							return nil, err
+						}
 						if err := validateAttempt(p, *end.Attempt); err != nil {
+							return nil, err
+						}
+						if err := trace.accept(*end); err != nil {
 							return nil, err
 						}
 						attempts = append(attempts, *end.Attempt)
@@ -154,9 +190,18 @@ func replay(p *Policy, j *Journal, prefix bool) (result map[Arm]Receipt, err err
 					if err != nil {
 						return nil, err
 					}
+					if err := trace.check(); err != nil {
+						return nil, err
+					}
 					expected := summarizeTrial(sample, attempts)
+					if err := trace.check(); err != nil {
+						return nil, err
+					}
 					if terminal.Arm != arm || terminal.Trial == nil || !reflect.DeepEqual(*terminal.Trial, expected) {
 						return nil, fmt.Errorf("trial terminal contradicts its complete attempt tape")
+					}
+					if err := trace.accept(*terminal); err != nil {
+						return nil, err
 					}
 					r.Started = append(r.Started, sample)
 					r.Attempts = append(r.Attempts, attempts...)
@@ -179,7 +224,13 @@ func replay(p *Policy, j *Journal, prefix bool) (result map[Arm]Receipt, err err
 		}
 		seen := map[string]bool{}
 		for _, u := range e.Usage {
+			if err := trace.check(); err != nil {
+				return nil, err
+			}
 			if err := ValidateUsage(u); err != nil {
+				return nil, err
+			}
+			if err := trace.check(); err != nil {
 				return nil, err
 			}
 			key := u.Axis + ":" + u.Currency
@@ -198,18 +249,31 @@ func replay(p *Policy, j *Journal, prefix bool) (result map[Arm]Receipt, err err
 		binding := ResultBinding{Kind: BindingKind, Version: Version, CollectionID: r.CollectionID,
 			PolicyDigest: r.PolicyDigest, Arm: arm, EvalID: r.EvalID, PlanDigest: r.PlanDigest,
 			Samples: r.Samples, Trials: r.Trials, Attempts: r.Attempts, Usage: r.Usage}
+		if err := trace.check(); err != nil {
+			return nil, err
+		}
 		digest, err := evidence.JSONDigest(binding)
 		if err != nil {
 			return nil, err
 		}
+		if err := trace.check(); err != nil {
+			return nil, err
+		}
 		r.Binding, r.BindingDigest = &binding, digest
 		receipts[arm] = r
+		if err := trace.accept(*e); err != nil {
+			return nil, err
+		}
 	}
-	if _, err := take("collection_end"); err != nil {
+	end, err := take("collection_end")
+	if err != nil {
 		return nil, err
 	}
-	if offset != len(j.Events) {
+	if offset != len(events) {
 		return nil, fmt.Errorf("extra journal transitions after collection end")
+	}
+	if err := trace.accept(*end); err != nil {
+		return nil, err
 	}
 	return receipts, nil
 }

@@ -122,7 +122,7 @@ missing lookups remain explicit; they do not prove future absence or currentness
 Independent pinned original capture/constructor and discovery oracles cover this
 path, including reconstruction after roots close or disappear. New bounds apply
 only to the private selected capture path; Windows directory capture remains
-unsupported. Public collection, retry-prefix inspection,
+unsupported. Public collection, native retry-prefix joins,
 current-review/budget/lifecycle integration and provider execution remain absent.
 
 Private `PrepareSlotSet` accepts only that distinct associated capture and
@@ -140,6 +140,25 @@ binding verification. Required assurance, runtime or billing remain unsupported
 by this private inspection subset. No public selection or encoding changes;
 closing roots or changing sources does not turn retained consistency into
 currentness, authentication, budget acceptance or release approval.
+
+Separate internal retry-prefix inspection validates supplied policy and paired
+journal event bytes through the same replay machine. It retains accepted starts
+before terminals and accepted terminals before trial summaries, including when
+incomplete receipts do not yet expose them. Missing input, empty streams, torn
+final fragments and structurally complete collections remain distinct; invalid
+complete events or any tail after collection end are rejected. The entire raw
+stream, including an unparsed fragment, is digest-bound. Owned inputs and nested
+outputs are detached and every inspection rederives the view.
+
+Selected-path raw-member and allocation limits do not strengthen legacy
+decoders or replay. Token, line, event and escaped-representation budgets apply
+before parsing and derived receipt/binding allocation, including declared sample
+expansion before the sealed journal's first replay. Existing noncontextual
+parsing and digest calls remain bounded calls with cancellation checks around
+them, not internally interruptible operations. Supplied event consistency is
+not independently witnessed execution, durable acknowledgment, retry permission
+or a join to native tapes/static slots. No public profile, collection lifecycle,
+currentness, billing availability or release authority is added.
 
 ## Offline planning and collection
 
