@@ -375,39 +375,43 @@ func qualificationParseManifest(data []byte, admitted qualificationAdmittedInput
 	return qualificationParseManifestBounded(data, admitted, qualificationDocumentLimit, qualificationTotalLimit, nil, nil)
 }
 func qualificationParseManifestBounded(data []byte, admitted qualificationAdmittedInputContext, documentLimit int, total uint64, role func(string) uint64, materializing func()) (qualificationManifest, error) {
+	manifest, _, err := qualificationParseManifestProjection(data, admitted, documentLimit, total, role, materializing)
+	return manifest, err
+}
+func qualificationParseManifestProjection(data []byte, admitted qualificationAdmittedInputContext, documentLimit int, total uint64, role func(string) uint64, materializing func()) (qualificationManifest, qualificationManifestWire, error) {
 	if err := qualificationProtocolBlobPreflight(data, documentLimit, total, role); err != nil {
-		return qualificationManifest{}, err
+		return qualificationManifest{}, qualificationManifestWire{}, err
 	}
 	if materializing != nil {
 		materializing()
 	}
 	if admitted.input.canonical == "" || admitted.jobs.canonical == "" || admitted.sources.native.canonical == "" {
-		return qualificationManifest{}, errors.New("qualification: source-admitted context required")
+		return qualificationManifest{}, qualificationManifestWire{}, errors.New("qualification: source-admitted context required")
 	}
 	wire, err := qualificationDecode[qualificationManifestWire](data, qualificationDocumentLimit)
 	if err != nil {
-		return qualificationManifest{}, err
+		return qualificationManifest{}, qualificationManifestWire{}, err
 	}
 	input, err := qualificationSeal(wire.Inputs)
 	if err != nil || input.canonical != admitted.input.canonical || wire.InputsSHA256 != admitted.input.sha256() ||
 		wire.Kind != "waza.qualification-manifest" || wire.Version != qualificationVersion ||
 		wire.Profile != qualificationProfile || !qualificationIdentifier(wire.InvocationID) {
-		return qualificationManifest{}, errors.New("qualification: source manifest identity")
+		return qualificationManifest{}, qualificationManifestWire{}, errors.New("qualification: source manifest identity")
 	}
 	jobs, err := qualificationSeal(wire.Jobs)
 	if err != nil || jobs.canonical != admitted.jobs.canonical {
-		return qualificationManifest{}, errors.New("qualification: manifest jobs differ from actual source capture")
+		return qualificationManifest{}, qualificationManifestWire{}, errors.New("qualification: manifest jobs differ from actual source capture")
 	}
 	labels, err := ParseReferences(mustSource(admitted.sources, "references"))
 	if err != nil {
-		return qualificationManifest{}, err
+		return qualificationManifest{}, qualificationManifestWire{}, err
 	}
 	reference, err := labels.Document()
 	if err != nil || reference.Calibration == nil || *reference.Calibration != wire.Plan {
-		return qualificationManifest{}, errors.New("qualification: manifest source plan mismatch")
+		return qualificationManifest{}, qualificationManifestWire{}, errors.New("qualification: manifest source plan mismatch")
 	}
 	document, err := qualificationSeal(wire)
-	return qualificationManifest{document: document, context: admitted}, err
+	return qualificationManifest{document: document, context: admitted}, wire, err
 }
 
 func mustSource(sources qualificationSources, role string) []byte {
@@ -443,6 +447,9 @@ func qualificationParseEvent(data []byte, manifest qualificationManifest) (quali
 	return qualificationParseEventBounded(data, manifest, qualificationDocumentLimit, qualificationTotalLimit, nil, nil)
 }
 func qualificationParseEventBounded(data []byte, manifest qualificationManifest, documentLimit int, total uint64, role func(string) uint64, materializing func()) (qualificationEvent, error) {
+	return qualificationParseEventBoundedView(data, manifest, documentLimit, total, role, materializing, nil)
+}
+func qualificationParseEventBoundedView(data []byte, manifest qualificationManifest, documentLimit int, total uint64, role func(string) uint64, materializing func(), view *qualificationManifestView) (qualificationEvent, error) {
 	if err := qualificationProtocolBlobPreflight(data, documentLimit, total, role); err != nil {
 		return qualificationEvent{}, err
 	}
@@ -453,11 +460,19 @@ func qualificationParseEventBounded(data []byte, manifest qualificationManifest,
 	if err != nil {
 		return qualificationEvent{}, err
 	}
-	wire, err := qualificationManifestValue(manifest)
+	if view == nil {
+		view, err = qualificationNewManifestView(manifest)
+		if err != nil {
+			return qualificationEvent{}, err
+		}
+	}
+	if view.manifest.document.canonical != manifest.document.canonical {
+		return qualificationEvent{}, errors.New("qualification: operation view exact manifest mismatch")
+	}
 	if err != nil || event.Kind != "waza.qualification-event" || event.Version != qualificationVersion ||
-		event.InvocationID != wire.InvocationID || event.ManifestSHA256 != manifest.document.sha256() ||
-		event.ContractSHA256 != wire.Inputs.Association.ContractSHA256 || event.CID != wire.Inputs.Association.CID ||
-		event.ArmID != wire.Inputs.Association.ArmID || event.Sequence < 1 || event.Sequence > 32768 ||
+		event.InvocationID != view.invocationID || event.ManifestSHA256 != manifest.document.sha256() ||
+		event.ContractSHA256 != view.contractSHA256 || event.CID != view.cid ||
+		event.ArmID != view.armID || event.Sequence < 1 || event.Sequence > 32768 ||
 		!qualificationDigest(event.PreviousSHA256) {
 		return qualificationEvent{}, errors.New("qualification: event identity")
 	}
@@ -466,7 +481,7 @@ func qualificationParseEventBounded(data []byte, manifest qualificationManifest,
 		if event.Ordinal == nil || event.Selector == nil || event.JobSHA256 == nil {
 			return qualificationEvent{}, errors.New("qualification: complete scoped job identity required")
 		}
-		job, document, err := qualificationJobAt(manifest, *event.Ordinal)
+		job, document, err := view.job(*event.Ordinal)
 		if err != nil || *event.Selector != job.Selector || *event.JobSHA256 != document.sha256() {
 			return qualificationEvent{}, errors.New("qualification: event job mismatch")
 		}
@@ -484,7 +499,7 @@ func qualificationParseEventBounded(data []byte, manifest qualificationManifest,
 		valid = hasJob && !admission && !currentness && payload && !completion && qualificationDigest(*event.PayloadSHA256)
 	case "run_terminal":
 		valid = !hasJob && !admission && !currentness && !payload && completion &&
-			event.Completion.CompletedJobs <= uint64(len(wire.Jobs)) && qualificationState(event.Completion.State) &&
+			event.Completion.CompletedJobs <= uint64(len(view.jobs)) && qualificationState(event.Completion.State) &&
 			qualificationReason(event.Completion.ReasonCode)
 		if valid {
 			for _, digest := range []*string{event.Completion.ActualReportSHA256, event.Completion.ArtifactInventorySHA256} {
@@ -492,7 +507,7 @@ func qualificationParseEventBounded(data []byte, manifest qualificationManifest,
 			}
 			if event.Completion.State == "passed" {
 				valid = valid && event.Completion.ReasonCode == "qualification_passed" &&
-					event.Completion.CompletedJobs == uint64(len(wire.Jobs)) &&
+					event.Completion.CompletedJobs == uint64(len(view.jobs)) &&
 					event.Completion.ActualReportSHA256 != nil && event.Completion.ArtifactInventorySHA256 != nil
 			}
 		}
@@ -501,15 +516,15 @@ func qualificationParseEventBounded(data []byte, manifest qualificationManifest,
 		if valid {
 			request := *event.CurrentnessRequest
 			ack := *event.CurrentnessAcknowledgment
-			profile, profileErr := qualificationSeal(wire.Inputs.CurrentnessProfile)
+			profile := view.currentness
 			requestDoc, requestErr := qualificationSeal(request)
 			ackDoc, ackErr := qualificationSeal(ack)
 			_, parseErr := qualificationParseCurrentnessAcknowledgment(ackDoc.bytes())
-			valid = profileErr == nil && requestErr == nil && ackErr == nil && parseErr == nil &&
+			valid = requestErr == nil && ackErr == nil && parseErr == nil &&
 				request.Kind == "waza.qualification-currentness-request" && request.Version == qualificationVersion &&
-				request.InvocationID == wire.InvocationID && request.ContractSHA256 == event.ContractSHA256 &&
+				request.InvocationID == view.invocationID && request.ContractSHA256 == event.ContractSHA256 &&
 				request.CID == event.CID && request.ArmID == event.ArmID && request.ManifestSHA256 == event.ManifestSHA256 &&
-				request.InputsSHA256 == wire.InputsSHA256 && request.CurrentnessProfileSHA256 == profile.sha256() &&
+				request.InputsSHA256 == view.inputsSHA256 && request.CurrentnessProfileSHA256 == profile.sha256() &&
 				ack.CurrentnessProfileSHA256 == profile.sha256() && ack.RequestSHA256 == requestDoc.sha256() &&
 				request.Stage == ack.Stage && qualificationDigest(request.Challenge) &&
 				((request.Stage == "before_job" && hasJob && equalPointer(request.Ordinal, event.Ordinal) && equalPointer(request.JobSHA256, event.JobSHA256)) ||
@@ -539,6 +554,9 @@ func qualificationParseTerminal(data []byte, manifest qualificationManifest) (qu
 	return qualificationParseTerminalBounded(data, manifest, qualificationDocumentLimit, qualificationTotalLimit, nil, nil)
 }
 func qualificationParseTerminalBounded(data []byte, manifest qualificationManifest, documentLimit int, total uint64, role func(string) uint64, materializing func()) (qualificationTerminal, error) {
+	return qualificationParseTerminalBoundedView(data, manifest, documentLimit, total, role, materializing, nil)
+}
+func qualificationParseTerminalBoundedView(data []byte, manifest qualificationManifest, documentLimit int, total uint64, role func(string) uint64, materializing func(), view *qualificationManifestView) (qualificationTerminal, error) {
 	if err := qualificationProtocolBlobPreflight(data, documentLimit, total, role); err != nil {
 		return qualificationTerminal{}, err
 	}
@@ -549,11 +567,19 @@ func qualificationParseTerminalBounded(data []byte, manifest qualificationManife
 	if err != nil {
 		return qualificationTerminal{}, err
 	}
-	m, err := qualificationManifestValue(manifest)
-	job, jobDoc, jobErr := qualificationJobAt(manifest, wire.Ordinal)
+	if view == nil {
+		view, err = qualificationNewManifestView(manifest)
+		if err != nil {
+			return qualificationTerminal{}, err
+		}
+	}
+	if view.manifest.document.canonical != manifest.document.canonical {
+		return qualificationTerminal{}, errors.New("qualification: operation view exact manifest mismatch")
+	}
+	job, jobDoc, jobErr := view.job(wire.Ordinal)
 	if err != nil || jobErr != nil || wire.Kind != "waza.qualification-terminal-payload" || wire.Version != qualificationVersion ||
-		wire.InvocationID != m.InvocationID || wire.ManifestSHA256 != manifest.document.sha256() ||
-		wire.ContractSHA256 != m.Inputs.Association.ContractSHA256 || wire.CID != m.Inputs.Association.CID ||
+		wire.InvocationID != view.invocationID || wire.ManifestSHA256 != manifest.document.sha256() ||
+		wire.ContractSHA256 != view.contractSHA256 || wire.CID != view.cid ||
 		wire.Selector != job.Selector || wire.JobSHA256 != jobDoc.sha256() || wire.FailureCodes == nil {
 		return qualificationTerminal{}, errors.New("qualification: terminal identity")
 	}

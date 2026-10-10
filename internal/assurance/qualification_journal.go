@@ -183,12 +183,18 @@ func (journal *qualificationLocalJournal) durable(ctx context.Context, root *os.
 }
 
 func (journal *qualificationLocalJournal) acknowledgment(manifest qualificationManifest, event qualificationDocument, sequence uint64, previous, payload *string) (qualificationDocument, error) {
-	m, err := qualificationManifestValue(manifest)
+	view, err := qualificationNewManifestView(manifest)
 	if err != nil {
 		return qualificationDocument{}, err
 	}
+	return journal.acknowledgmentView(manifest, event, sequence, previous, payload, view)
+}
+func (journal *qualificationLocalJournal) acknowledgmentView(manifest qualificationManifest, event qualificationDocument, sequence uint64, previous, payload *string, view *qualificationManifestView) (qualificationDocument, error) {
+	if view.manifest.document.canonical != manifest.document.canonical {
+		return qualificationDocument{}, errors.New("qualification: exact manifest/backend view mismatch")
+	}
 	wire := qualificationAcknowledgment{
-		Kind: "waza.qualification-acknowledgment", Version: qualificationVersion, InvocationID: m.InvocationID,
+		Kind: "waza.qualification-acknowledgment", Version: qualificationVersion, InvocationID: view.invocationID,
 		ManifestSHA256: manifest.document.sha256(), BackendProfileSHA256: journal.config.BackendPolicy.sha256(),
 		Sequence: sequence, EventSHA256: event.sha256(), PreviousSHA256: previous, PayloadSHA256: payload,
 		ReceiptToken: event.sha256(),
@@ -321,10 +327,13 @@ func (journal *qualificationLocalJournal) mutate(ctx context.Context, terminal *
 		return ack, err
 	}
 	defer func() { returnErr = errors.Join(returnErr, child.Close()) }()
-	prefix, err := journal.readChild(ctx, child, key, journal.manifest.context)
+	prefix, replay, err := journal.readChildWithReplay(ctx, child, key, journal.manifest.context)
 	journal.evidence = prefix
 	if err != nil {
 		return ack, err
+	}
+	if prefix.manifest.document.canonical != journal.manifest.document.canonical {
+		return ack, errors.New("qualification: persisted manifest differs from uniquely claimed manifest")
 	}
 	if prefix.final != nil {
 		return ack, errors.New("qualification: terminal publication forbids mutation")
@@ -332,7 +341,7 @@ func (journal *qualificationLocalJournal) mutate(ctx context.Context, terminal *
 	if reservation != nil && (journal.currentnessReservation != reservation || prefix.document.canonical != reservation.head.canonical) {
 		return ack, errors.New("qualification: reserved durable head changed before currentness append")
 	}
-	parsed, err := qualificationParseEvent(event.document.bytes(), journal.manifest)
+	parsed, err := qualificationParseEventBoundedView(event.document.bytes(), prefix.manifest, qualificationDocumentLimit, qualificationTotalLimit, nil, nil, replay.view)
 	if err != nil {
 		return ack, err
 	}
@@ -344,12 +353,12 @@ func (journal *qualificationLocalJournal) mutate(ctx context.Context, terminal *
 		return ack, errors.New("qualification: terminal payload barrier cannot be bypassed")
 	}
 	if terminal != nil {
-		valid, err := qualificationParseTerminal(terminal.document.bytes(), journal.manifest)
+		valid, err := qualificationParseTerminalBoundedView(terminal.document.bytes(), prefix.manifest, qualificationDocumentLimit, qualificationTotalLimit, nil, nil, replay.view)
 		if err != nil || qualificationMatchTerminalEvent(valid, wire) != nil {
 			return ack, errors.New("qualification: exact terminal payload linkage required")
 		}
 	}
-	ack, err = journal.acknowledgment(journal.manifest, parsed.document, wire.Sequence, new(wire.PreviousSHA256), wire.PayloadSHA256)
+	ack, err = journal.acknowledgmentView(prefix.manifest, parsed.document, wire.Sequence, new(wire.PreviousSHA256), wire.PayloadSHA256, replay.view)
 	if err != nil {
 		return ack, err
 	}
@@ -361,9 +370,13 @@ func (journal *qualificationLocalJournal) mutate(ctx context.Context, terminal *
 	if err != nil {
 		return ack, err
 	}
-	nextRecords := append(slices.Clone(prefix.records), qualificationRecord{recordDoc})
-	// Replaying the persisted exact head plus new record rejects stale CAS.
-	if _, err := qualificationDerivePrefix(journal.manifest, prefix.ack, nextRecords); err != nil {
+	candidate := replay.fork()
+	// Freshly verified persisted head plus one exact transition rejects stale CAS.
+	if err := candidate.advance(qualificationRecord{recordDoc}); err != nil {
+		return ack, err
+	}
+	candidatePrefix, err := candidate.prefix()
+	if err != nil {
 		return ack, err
 	}
 	if terminal != nil {
@@ -381,8 +394,8 @@ func (journal *qualificationLocalJournal) mutate(ctx context.Context, terminal *
 	if err := journal.durable(ctx, child, qualificationSequenceName("ack", wire.Sequence), ack.bytes()); err != nil {
 		return ack, err
 	}
-	journal.evidence, err = qualificationDerivePrefix(journal.manifest, prefix.ack, nextRecords)
-	if terminal != nil && err == nil {
+	journal.evidence = candidatePrefix
+	if terminal != nil {
 		payload, decodeErr := qualificationDecode[qualificationTerminalWire](terminal.document.bytes(), qualificationDocumentLimit)
 		if decodeErr != nil {
 			return ack, decodeErr
@@ -419,47 +432,55 @@ func (journal *qualificationLocalJournal) Read(ctx context.Context, key qualific
 }
 
 func (journal *qualificationLocalJournal) readChild(ctx context.Context, child *os.Root, key qualificationReservationKey, admitted qualificationAdmittedInputContext) (prefix qualificationPrefix, returnErr error) {
+	prefix, _, err := journal.readChildWithReplay(ctx, child, key, admitted)
+	return prefix, err
+}
+func (journal *qualificationLocalJournal) readChildWithReplay(ctx context.Context, child *os.Root, key qualificationReservationKey, admitted qualificationAdmittedInputContext) (prefix qualificationPrefix, replay *qualificationReplayState, returnErr error) {
 	keyData, err := journal.config.IO.ReadDirect(ctx, child, "reservation.json", qualificationDocumentLimit)
 	if err != nil {
-		return prefix, err
+		return prefix, replay, err
 	}
 	expected, err := qualificationSeal(key)
 	if err != nil || string(keyData) != expected.canonical {
-		return prefix, errors.New("qualification: full persisted reservation differs")
+		return prefix, replay, errors.New("qualification: full persisted reservation differs")
 	}
 	data, err := journal.config.IO.ReadDirect(ctx, child, "manifest.json", qualificationDocumentLimit)
 	if err != nil {
-		return prefix, err
+		return prefix, replay, err
 	}
-	manifest, err := qualificationParseManifest(data, admitted)
+	manifest, view, err := qualificationParseManifestView(data, admitted)
 	prefix.manifest = manifest
 	if err != nil || string(data) != manifest.document.canonical {
-		return prefix, errors.New("qualification: historical source manifest invalid")
+		return prefix, replay, errors.New("qualification: historical source manifest invalid")
 	}
-	actualKey, err := journal.key(manifest)
-	if err != nil || actualKey != key {
-		return prefix, errors.New("qualification: historical association mismatch")
+	actualKey := qualificationReservationKey{journal.config.Scope.Namespace, view.contractSHA256, view.cid, view.armID}
+	if actualKey != key {
+		return prefix, replay, errors.New("qualification: historical association mismatch")
 	}
 	ackData, err := journal.config.IO.ReadDirect(ctx, child, qualificationSequenceName("ack", 0), qualificationDocumentLimit)
 	if err != nil {
 		prefix.pending = append(prefix.pending, manifest.document)
-		return prefix, err
+		return prefix, replay, err
 	}
 	prefix.ack, err = qualificationParseAcknowledgment(ackData)
 	if err != nil || string(ackData) != prefix.ack.canonical {
-		return prefix, errors.New("qualification: historical manifest acknowledgment invalid")
+		return prefix, replay, errors.New("qualification: historical manifest acknowledgment invalid")
+	}
+	replay, err = qualificationBeginReplay(view, prefix.ack)
+	if err != nil {
+		return prefix, replay, err
 	}
 	directory, err := child.Open(".")
 	if err != nil {
-		return prefix, err
+		return prefix, replay, err
 	}
 	names, listErr := directory.Readdirnames(3*qualificationArtifactLimit + 1)
 	closeErr := directory.Close()
 	if listErr != nil && !errors.Is(listErr, io.EOF) {
-		return prefix, errors.Join(listErr, closeErr)
+		return prefix, replay, errors.Join(listErr, closeErr)
 	}
 	if closeErr != nil || len(names) >= 3*qualificationArtifactLimit+1 {
-		return prefix, errors.Join(errors.New("qualification: historical file count"), closeErr)
+		return prefix, replay, errors.Join(errors.New("qualification: historical file count"), closeErr)
 	}
 	files := map[string]bool{}
 	for _, name := range names {
@@ -469,7 +490,6 @@ func (journal *qualificationLocalJournal) readChild(ctx context.Context, child *
 	delete(files, "manifest.json")
 	delete(files, qualificationSequenceName("ack", 0))
 	total := uint64(len(data) + len(ackData) + len(keyData))
-	records := []qualificationRecord{}
 	for sequence := uint64(1); sequence <= qualificationArtifactLimit; sequence++ {
 		eventName, ackName := qualificationSequenceName("event", sequence), qualificationSequenceName("ack", sequence)
 		if !files[eventName] {
@@ -477,33 +497,33 @@ func (journal *qualificationLocalJournal) readChild(ctx context.Context, child *
 		}
 		eventData, err := journal.config.IO.ReadDirect(ctx, child, eventName, min(qualificationDocumentLimit, qualificationTotalLimit-total))
 		if err != nil {
-			return prefix, err
+			return prefix, replay, err
 		}
 		total += uint64(len(eventData))
-		event, err := qualificationParseEvent(eventData, manifest)
+		event, err := qualificationParseEventBoundedView(eventData, manifest, qualificationDocumentLimit, qualificationTotalLimit, nil, nil, view)
 		if err != nil || string(eventData) != event.document.canonical {
-			return prefix, errors.New("qualification: historical event invalid")
+			return prefix, replay, errors.New("qualification: historical event invalid")
 		}
 		value, err := qualificationDecode[qualificationEventWire](event.document.bytes(), qualificationDocumentLimit)
 		if err != nil {
-			return prefix, err
+			return prefix, replay, err
 		}
 		var pendingPayload qualificationDocument
 		if value.Type == "job_terminal" {
 			payloadName, err := qualificationArtifactFilename("job_terminal_payload", value.Ordinal)
 			if err != nil {
-				return prefix, err
+				return prefix, replay, err
 			}
 			payload, err := journal.config.IO.ReadDirect(ctx, child, payloadName, min(qualificationDocumentLimit, qualificationTotalLimit-total))
 			if err != nil {
-				return prefix, err
+				return prefix, replay, err
 			}
 			total += uint64(len(payload))
-			terminal, err := qualificationParseTerminal(payload, manifest)
+			terminal, err := qualificationParseTerminalBoundedView(payload, manifest, qualificationDocumentLimit, qualificationTotalLimit, nil, nil, view)
 			pendingPayload = qualificationDocument{canonical: string(payload)}
 			if err != nil || qualificationMatchTerminalEvent(terminal, value) != nil || string(payload) != terminal.document.canonical {
 				prefix.pending = append(prefix.pending, event.document, pendingPayload)
-				return prefix, errors.New("qualification: historical payload invalid")
+				return prefix, replay, errors.New("qualification: historical payload invalid")
 			}
 			delete(files, payloadName)
 		}
@@ -512,29 +532,31 @@ func (journal *qualificationLocalJournal) readChild(ctx context.Context, child *
 			if pendingPayload.canonical != "" {
 				prefix.pending = append(prefix.pending, pendingPayload)
 			}
-			return prefix, errors.New("qualification: stored event lacks durable acknowledgment")
+			return prefix, replay, errors.New("qualification: stored event lacks durable acknowledgment")
 		}
 		ackData, err := journal.config.IO.ReadDirect(ctx, child, ackName, min(qualificationDocumentLimit, qualificationTotalLimit-total))
 		if err != nil {
-			return prefix, err
+			return prefix, replay, err
 		}
 		total += uint64(len(ackData))
 		ack, err := qualificationParseAcknowledgment(ackData)
 		if err != nil || string(ackData) != ack.canonical {
-			return prefix, errors.New("qualification: historical acknowledgment invalid")
+			return prefix, replay, errors.New("qualification: historical acknowledgment invalid")
 		}
 		ackWire, err := qualificationDecode[qualificationAcknowledgment](ack.bytes(), qualificationDocumentLimit)
 		if err != nil {
-			return prefix, err
+			return prefix, replay, err
 		}
 		record, err := qualificationSeal(qualificationRecordWire{value, ackWire})
 		if err != nil {
-			return prefix, err
+			return prefix, replay, err
 		}
-		records = append(records, qualificationRecord{record})
-		derived, err := qualificationDerivePrefix(manifest, prefix.ack, records)
+		if err := replay.advance(qualificationRecord{record}); err != nil {
+			return prefix, replay, err
+		}
+		derived, err := replay.prefix()
 		if err != nil {
-			return prefix, err
+			return prefix, replay, err
 		}
 		prefix = derived
 		delete(files, eventName)
@@ -550,12 +572,13 @@ func (journal *qualificationLocalJournal) readChild(ctx context.Context, child *
 				}
 			}
 		}
-		return prefix, errors.New("qualification: orphan/conflicting suffix; read-only incomplete")
+		return prefix, replay, errors.New("qualification: orphan/conflicting suffix; read-only incomplete")
 	}
-	if len(records) == 0 {
-		return qualificationDerivePrefix(manifest, prefix.ack, records)
+	if len(replay.records) == 0 && replay.final == nil {
+		empty, err := replay.prefix()
+		return empty, replay, err
 	}
-	return prefix, nil
+	return prefix, replay, nil
 }
 
 func (journal *qualificationLocalJournal) Close() error {
