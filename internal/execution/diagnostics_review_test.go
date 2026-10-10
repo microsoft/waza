@@ -26,7 +26,7 @@ func TestDiagnosticSkillHelpersNeverLogPrivateData(t *testing.T) {
 			old := slog.Default()
 			slog.SetDefault(slog.New(slog.NewTextHandler(&log, &slog.HandlerOptions{Level: slog.LevelDebug})))
 			t.Cleanup(func() { slog.SetDefault(old) })
-			source := filepath.Join(t.TempDir(), "credential-secret ", "private", "provider", "path")
+			source := filepath.Join(t.TempDir(), "credential-secret directory", "private", "provider", "path")
 			require.NoError(t, os.MkdirAll(source, 0700))
 			content := "---\nname: private-name\ndescription: private-description\n---\nprivate-body\n"
 			file := "SKILL.md"

@@ -291,7 +291,9 @@ func TestDiagnosticShutdownNativeCleanupFailures(t *testing.T) {
 	e, client := diagnosticTestEngine(t, func(ExecutionDiagnostic) error { return errors.New(privateDiagnosticSentinel) })
 	parentFile := filepath.Join(t.TempDir(), "private-file")
 	require.NoError(t, os.WriteFile(parentFile, nil, 0600))
-	e.workspaces = []string{filepath.Join(parentFile, "impossible-child")}
+	invalidWorkspace := parentFile + "\x00impossible-child"
+	require.Error(t, os.RemoveAll(invalidWorkspace))
+	e.workspaces = []string{invalidWorkspace}
 	e.gitResources = []GitResource{diagnosticFailingGitResource{}}
 	session, err := commandmock.NewSession(t.TempDir(), []models.CommandMockConfig{{
 		Name: "diagnostic-mock", ExpectCalls: utils.Ptr(1),
