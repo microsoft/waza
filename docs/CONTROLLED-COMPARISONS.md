@@ -122,8 +122,24 @@ missing lookups remain explicit; they do not prove future absence or currentness
 Independent pinned original capture/constructor and discovery oracles cover this
 path, including reconstruction after roots close or disappear. New bounds apply
 only to the private selected capture path; Windows directory capture remains
-unsupported. Slot allocation, retry-prefix inspection, public collection,
+unsupported. Public collection, retry-prefix inspection,
 current-review/budget/lifecycle integration and provider execution remain absent.
+
+Private `PrepareSlotSet` accepts only that distinct associated capture and
+reconstructs both full source plans and their exact golden union against the
+original number-preserving policy. Its root-free seal independently binds raw
+policy bytes, snapshot, association supplement, full source inventories and
+separately declared eval IDs. Two-pass enumeration bounds possible reservations
+at 65,536, with independent identifier and escaped-JSON expansion budgets checked
+before allocation or marshaling. These are static possible attempts, not starts,
+skips, retry evidence, allocation authority or permission to execute.
+`CheckSlotJoin` derives the indexed key internally and checks each independently
+admitted primitive through the unchanged intent matcher. Retained joins must
+match the set's complete snapshot and both source inventories before and after
+binding verification. Required assurance, runtime or billing remain unsupported
+by this private inspection subset. No public selection or encoding changes;
+closing roots or changing sources does not turn retained consistency into
+currentness, authentication, budget acceptance or release approval.
 
 ## Offline planning and collection
 
