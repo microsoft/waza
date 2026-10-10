@@ -4,7 +4,9 @@ The explicit workflow provides source-bound planning, fresh paired offline
 collection, strict artifact reassessment, structural schemas and a separate
 dashboard decision view. Affirmative collection currently supports **mock,
 no-skills execution with native text/string checks only**. General live
-engine/grader observability and assurance verdict integration are not supported.
+engine/grader observability is not supported. An explicitly selected independent
+offline assurance profile qualifies finite authored text cases and regrades
+retained actual responses; it does not change the base 1.0 protocol.
 These contracts do not make historical outcomes strict evidence or mock
 observations agent-quality evidence.
 
@@ -81,6 +83,126 @@ payloads or recompute statistical policy from this transport.
 unavailable values remain absent, not zero. Invalid/partial publications remain
 visible with distinct reasons. This endpoint reads only the configured local
 root; remote storage remains an ordinary-results feature.
+
+### Independent offline assurance profile
+
+The base policy, journal and decision 1.0 semantics are frozen. A base policy
+with `requirements.assurance: true` still produces a **nonpassing base decision**,
+including through `/api/release-collections` and the dashboard. Only explicit
+CLI assessment with an independent assurance contract can produce a passing
+**outer** `waza.release-assured-decision` 1.0. Metadata, a stored report's pass
+label or a dashboard payload cannot upgrade the base decision.
+
+The supported subset is **mock / no_skills / native text / finite authored
+outputs**. Both arms need fresh, exact offline1.0 grader assurance reports,
+covering every actual native text endpoint through unambiguous requirement/check
+mappings, plus deterministic regrading of retained actual execution responses.
+Every base **non-assurance** pass condition still applies: compatibility,
+completeness, observed operations, golden first-attempt veto, any required
+available billing totals, and the predeclared statistical decision. Finite
+supplied-corpus qualification is not full behavioral correctness, live-agent
+reliability, statistical calibration or authenticated human review.
+
+First create a base policy using `compare-plan`, with assurance explicitly
+required in its requirements input. Then use the *same executable* and current
+per-arm sources throughout planning, collection and assessment:
+
+```bash
+# Paths below are your authored inputs, not bundled ready-to-pass fixtures.
+waza compare-assurance-plan \
+  --release-policy policy.json \
+  --baseline-eval baseline/eval.yaml --candidate-eval candidate/eval.yaml \
+  --baseline-references baseline/references.json \
+  --candidate-references candidate/references.json \
+  --output assurance-contract.json
+waza compare-collect \
+  --release-policy policy.json --assurance-contract assurance-contract.json \
+  --baseline-eval baseline/eval.yaml --candidate-eval candidate/eval.yaml \
+  --baseline-references baseline/references.json \
+  --candidate-references candidate/references.json \
+  --collection-dir new-assured-collection
+waza gate \
+  --release-policy policy.json --assurance-contract assurance-contract.json \
+  --collection-dir new-assured-collection \
+  --baseline-eval baseline/eval.yaml --candidate-eval candidate/eval.yaml \
+  --baseline-references baseline/references.json \
+  --candidate-references candidate/references.json --format json
+```
+
+`compare` accepts the same assessment inputs instead of historical positional
+results. `--baseline-context-dir` and `--candidate-context-dir` retain the
+existing context resolution. `compare-assurance-plan --output` requires a
+**new**, exclusive file; collection requires a **new** directory. Collection
+and assessment both require explicit `--assurance-contract` and
+`--release-policy`; assessment additionally requires `--collection-dir` and
+current per-arm eval/reference inputs. Missing or empty required flags fail,
+and selecting an empty contract never falls back to base or legacy assessment.
+Old executables reject the new command/unknown flags; defaults remain unchanged.
+
+Reference-label documents and their authored-output envelopes follow the
+existing [grader challenge contracts](GRADER-CHALLENGES.md#strict-file-content-assurance),
+not a new label API. References stay evaluator-only, outside agent execution
+inputs. Bind labels to the exact eval/config/task/native grader declarations
+and executable. Each arm can separately supply `--baseline-review` /
+`--candidate-review` and explicitly accept its current source with
+`--baseline-accept-review-source` / `--candidate-accept-review-source`.
+Add these inputs consistently at all three stages when selecting review.
+Supplying a review file alone is **not acceptance**; accepting a source without
+a supplied review is invalid. Revoked, unreviewed, missing or unaccepted current
+review cannot pass. Current-source acceptance is a caller declaration, not
+authentication of a person; withheld revocations cannot be discovered.
+Examples are unreviewed by default; test-only reviewed declarations are
+explicitly synthetic and are not real review evidence.
+
+Verification rechecks current source bytes, evaluator evidence and review
+inputs after verification, before final publication, and again before outer
+assessment returns. Changed inputs invalidate the commitment; stored reports
+are never adopted as fresh qualification. No calibration plan, paid1.1 report,
+live SDK, provider billing support or automatic paid validation is admitted.
+
+| Artifact | Independent kind / version | Purpose |
+|---|---|---|
+| `assurance-contract.json` | `waza.release-assurance-contract` / `1.0` | Nonce and exact per-arm source/declaration bindings before BEGIN |
+| Each `assurance.ndjson` row | `waza.release-assurance-attempt` / `1.0` | Contiguous attempt key, origin, result-row identity and actual response availability |
+| Each `assurance-rows.ndjson` payload | Existing full `ActualRunRow` JSON | Evaluator-owned payload synced before its assurance record and core terminal; positional JSON-v1 identity must match the sealed row and final raw results |
+| `assurance-ledger.json` | `waza.release-assurance-ledger` / `1.0` | Final rows, core journal identity, exact row tape and raw result identities |
+| Outer JSON assessment | `waza.release-assured-decision` / `1.0` | Nonpassing base decision, fresh reports, separate assurance/regrade dimensions and limitations |
+
+Fixed release artifacts use bounded (16 MiB), rooted regular-file reads. Additive
+assessment supports cancellation; oversized evidence is invalid, not silently
+truncated. Full payload whitespace may be JSON-v1-equivalent, but missing,
+duplicate, reordered, torn or extra records never pass.
+
+The contract, final ledger and result-row digests use **JSON-v1**; contract/
+ledger self-digests omit the `digest` member entirely. Policy/plan/config/task/
+grader declaration and core-journal identities are JSON-v1 too. Eval source,
+executable, labels, supplied review, authored-input documents, final row tape
+and raw result documents use **exact `source-bytes`**, including whitespace and
+newlines. Formatting-only source changes therefore invalidate source-byte
+bindings. Collection identity is the independent contract's digest, not the
+policy digest. Hashes and a local nonce establish consistency, **not authenticity,
+global uniqueness or globally witnessed precommitment**.
+
+Available output is `{"availability":"available","value":""}` when the actual
+response is explicitly empty. Unavailable output has a nonblank `reason` and
+**no `value` member**; it cannot be manufactured from an empty/default
+`final_output`. Deterministic regrading must match preserved native grader
+verdicts/scores and actual result-row lineage; no successful attempt is selected
+to replace an earlier failure.
+
+The four dedicated `release-assurance-{contract,attempt,ledger}-1.0.schema.json`
+and `release-assured-decision-1.0.schema.json` schemas do not broaden the frozen
+base artifact schema. Regenerate only this profile with
+`go run schemas/assurance_generate.go`. Schema validation enforces structural
+tags, unknown-member rejection, digest domains and output availability; raw
+readers additionally reject duplicate keys, verify identities/order/freshness
+and enforce the actual assessment. A structurally passing label is not proof.
+
+Use `--format json` for the outer machine-readable contract, or human output
+(`gate` default, `compare` default table selection renders human text).
+Do not assume selected assurance output reproduces legacy markdown/table/
+GitHub Actions layouts. Selected nonpass exits `1`; a passing outer assessment
+does not turn its embedded base decision into a pass.
 
 ## Explicit selection and compatibility
 
@@ -256,7 +378,9 @@ zero. Only final, complete, attributable available totals satisfy required
 budgets; partial zero does not. Final observed spend may exceed a declared
 budget because asynchronous overshoot is not prevented by an atomic spend cap.
 
-Policies requiring assurance cannot pass until independently attributable
-assurance verdicts are integrated. Static requirement reference verification
-and preflight inventory completeness never supply that verdict. Other selected
-policies do not acquire a universal assurance dependency.
+Base 1.0 policies requiring assurance remain nonpassing. Only the explicitly
+selected independent offline profile described above can satisfy the outer
+assurance dimension, with fresh qualification and actual-response regrading.
+Static requirement reference verification and preflight inventory completeness
+never supply that verdict. Other selected policies do not acquire a universal
+assurance dependency.

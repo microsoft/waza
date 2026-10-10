@@ -8,6 +8,9 @@ test('controlled comparison guide exposes the real offline boundary and distinct
   await expect(page.locator('main')).toContainText('waza.release-decision-view');
   await expect(page.locator('main')).toContainText('one deterministic cluster does not justify a release claim');
   await expect(page.locator('main')).toContainText('Old executables reject the new unknown flags');
+  await expect(page.getByRole('heading', { name: 'Opt in separately to offline assurance', exact: true })).toBeVisible();
+  await expect(page.locator('main')).toContainText('waza.release-assured-decision');
+  await expect(page.locator('main')).toContainText('fresh exact offline1.0 reports');
 });
 
 test('CLI reference exposes dedicated offline planning and collection', async ({ page }) => {
@@ -15,6 +18,8 @@ test('CLI reference exposes dedicated offline planning and collection', async ({
   expect(response?.status()).toBe(200);
   await expect(page.getByRole('heading', { name: 'waza compare-plan', exact: true })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'waza compare-collect', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'waza compare-assurance-plan', exact: true })).toBeVisible();
   await expect(page.locator('main')).toContainText('--collection-dir');
+  await expect(page.locator('main')).toContainText('--assurance-contract');
   await expect(page.locator('main')).toContainText('no historical adoption or resume');
 });

@@ -25,7 +25,12 @@ func escalate(d *Dimension, state, reason string) {
 	if dimensionSeverity(state) > dimensionSeverity(d.State) {
 		d.State = state
 	}
+
 	if reason != "" {
 		d.Reasons = append(d.Reasons, reason)
 	}
+}
+
+func (d *Dimension) Escalate(state, reason string) {
+	escalate(d, state, reason)
 }

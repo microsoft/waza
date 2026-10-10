@@ -274,11 +274,7 @@ func Assess(p *Policy, receipts map[Arm]Receipt) (Decision, error) {
 	} else {
 		d.Statistics.State = "inconclusive"
 	}
-	d.Accepted = d.Compatibility.State == "compatible" && d.Completeness.State == "complete" &&
-		d.Operations.State == "observed" && d.Assurance.State == "not_required" &&
-		(d.Golden.State == "passed" || d.Golden.State == "not_required") &&
-		(d.Billing.State == "within_budget" || d.Billing.State == "not_required") &&
-		(d.Statistics.State == "noninferiority" || d.Statistics.State == "improvement")
+	d.Accepted = d.NonAssurancePass() && d.Assurance.State == "not_required"
 	return d, nil
 }
 

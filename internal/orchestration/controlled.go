@@ -18,6 +18,7 @@ type ControlledObservation struct {
 	Origin models.EvidenceOrigin
 	Run    models.RunResult
 	Checks []ControlledCheck
+	Output *string
 }
 
 type ControlledCheck struct {
@@ -192,9 +193,11 @@ func (r *EvalRunner) executeControlledAttempt(ctx context.Context, tc *models.Te
 	if r.cache != nil || r.skipGraders {
 		return nil, fmt.Errorf("controlled attempt cannot use cached or ungraded execution")
 	}
-	previous := r.evalRunID
+	previous, previousOutput := r.evalRunID, r.controlledOutput
+	var output *string
+	r.controlledOutput = func(value string) { output = new(value) }
 	r.evalRunID = origin.EvalID
-	defer func() { r.evalRunID = previous }()
+	defer func() { r.evalRunID, r.controlledOutput = previous, previousOutput }()
 	run := r.executeRunWithAttempt(ctx, tc, origin.RunNumber, origin.AttemptCount, prepared)
 	checks := []ControlledCheck{}
 	names := make([]string, 0, len(run.Validations))
@@ -216,5 +219,5 @@ func (r *EvalRunner) executeControlledAttempt(ctx context.Context, tc *models.Te
 		}
 		checks = append(checks, ControlledCheck{Scope: scope, Result: run.Validations[name]})
 	}
-	return &ControlledObservation{Origin: origin, Run: run, Checks: checks}, nil
+	return &ControlledObservation{Origin: origin, Run: run, Checks: checks, Output: output}, nil
 }

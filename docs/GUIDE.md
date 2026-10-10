@@ -17,6 +17,19 @@ Waza helps you:
   become fresh paired evidence. Use `compare-plan` with explicit design/
   requirements and `compare-collect` for supported offline mock/native-text
   collection. See [the end-to-end example and limits](CONTROLLED-COMPARISONS.md).
+- **Opt in separately to offline assurance** with `compare-assurance-plan`
+  and a new exclusive `--output`, then explicitly select `--assurance-contract`
+  with `--release-policy` during collection and assessment. Supply current
+  per-arm eval/reference inputs and separately selected review-source acceptance.
+  Only mock/no-skills/native-text finite authored cases and retained actual
+  responses are supported. Both fresh offline1.0 reports, deterministic regrade
+  and all base non-assurance conditions must pass; stored report labels are
+  never adopted. Unreviewed examples stay nonpassing. No calibration, paid1.1,
+  billing/live SDK support or automatic paid validation.
+  Frozen base decisions and the API/dashboard still cannot pass required
+  assurance; only the explicit outer CLI decision can.
+  See [the independent profile](CONTROLLED-COMPARISONS.md#independent-offline-assurance-profile)
+  for exact-source-byte versus JSON-v1 bindings and human/JSON output.
 - **View metrics** in an interactive dashboard with live results, trends, detailed analysis
   and a separate **Release policies** view of strict collection decisions
 

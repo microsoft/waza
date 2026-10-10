@@ -16,12 +16,22 @@ import (
 // Collect owns the admitted lifecycle. No arbitrary engine/callback can be
 // supplied through this producer; every attempt has a fresh mock and workspace.
 func Collect(ctx context.Context, policyData []byte, baseline, candidate Source, directory string) error {
+	return collectControlled(ctx, policyData, baseline, candidate, directory, nil, nil)
+}
+
+func collectControlled(ctx context.Context, policyData []byte, baseline, candidate Source, directory string,
+	contractData []byte, assureSources map[releasepolicy.Arm]AssuranceSource) error {
 	policy, err := releasepolicy.DecodePolicy(policyData)
 	if err != nil {
 		return err
 	}
 	sources := map[releasepolicy.Arm]Source{releasepolicy.Baseline: baseline, releasepolicy.Candidate: candidate}
 	verify := func(arm releasepolicy.Arm) (*preparedPlan, error) {
+		if contractData != nil {
+			if _, err := verifyAssuranceSource(ctx, policy, contractData, arm, assureSources[arm]); err != nil {
+				return nil, err
+			}
+		}
 		prepared, err := prepare(sources[arm])
 		if err != nil {
 			return nil, err
@@ -100,9 +110,25 @@ func Collect(ctx context.Context, policyData []byte, baseline, candidate Source,
 					Grader: check.Result.Name, Passed: check.Result.Passed,
 					Score: releaseNumber(check.Result.Score), OperationalState: "observed"})
 			}
-			return releasepolicy.AttemptObservation{Summary: summary,
+			output := releasepolicy.AssuranceOutput{Availability: "unavailable",
+				Reason: "No successful execution response was preserved."}
+			if observation.Output != nil {
+				output = releasepolicy.AssuranceOutput{Availability: "available", Value: observation.Output}
+			}
+			return releasepolicy.AttemptObservation{Summary: summary, Output: &output,
 				Result: releasepolicy.ActualRunRow{Origin: observation.Origin, Run: observation.Run}}, nil
 		},
+	}
+	if contractData != nil {
+		collector.BeforePublish = func(ctx context.Context) error {
+			for _, arm := range []releasepolicy.Arm{releasepolicy.Baseline, releasepolicy.Candidate} {
+				if _, err := verify(arm); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+		return releasepolicy.CollectAssured(ctx, policyData, contractData, directory, collector)
 	}
 	return releasepolicy.Collect(ctx, policyData, directory, collector)
 }

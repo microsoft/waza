@@ -44,9 +44,10 @@ type responderClassifier interface {
 //
 // Deprecated alias: TestRunner is provided for backward compatibility.
 type EvalRunner struct {
-	cfg     *config.EvalConfig
-	engine  execution.AgentEngine
-	verbose bool
+	cfg              *config.EvalConfig
+	engine           execution.AgentEngine
+	verbose          bool
+	controlledOutput func(string)
 
 	// newClassifier builds a responder classifier for a task. Overridable in
 	// tests; defaults to a responder backed by the runner's engine.
@@ -1087,6 +1088,12 @@ func (r *EvalRunner) executeRunWithAttempt(ctx context.Context, tc *models.TestC
 	resp, err := execution.ExecuteRecorded(execCtx, r.engine, req)
 	if attempt > 0 && err == nil && execCtx.Err() != nil {
 		err = fmt.Errorf("controlled execution completed after its deadline or cancellation: %w", execCtx.Err())
+	}
+	if attempt > 0 && err == nil && resp == nil {
+		err = fmt.Errorf("controlled execution returned no actual response")
+	}
+	if attempt > 0 && err == nil && resp != nil && r.controlledOutput != nil {
+		r.controlledOutput(resp.FinalOutput)
 	}
 	cancelExec()
 	if err != nil {

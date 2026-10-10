@@ -29,6 +29,44 @@ golden tasks must pass their first attempt in both arms, even when retry
 recovery is the selected endpoint. Required unavailable billing or assurance
 cannot strict-pass. See [controlled comparisons](/waza/guides/controlled-comparisons/).
 
+### Independent offline assurance in CI
+
+Required assurance remains nonpassing in the **frozen base 1.0** decision and
+API/dashboard. To select the independent outer profile, first create a new
+exclusive contract with `compare-assurance-plan --output ... --release-policy
+...`, current per-arm `--baseline-eval` / `--candidate-eval`, and
+`--baseline-references` / `--candidate-references`. Optional context overrides
+retain their existing resolution. Collect with explicit `--assurance-contract`
+plus `--release-policy`, then assess with those flags, `--collection-dir` and
+current per-arm inputs.
+
+```bash
+# Illustrative authored source paths; not a ready-to-pass bundled fixture.
+waza gate --release-policy policy.json \
+  --assurance-contract assurance-contract.json \
+  --collection-dir new-assured-collection \
+  --baseline-eval baseline/eval.yaml --candidate-eval candidate/eval.yaml \
+  --baseline-references baseline/references.json \
+  --candidate-references candidate/references.json --format json
+```
+
+Use JSON for the outer machine-readable contract or default human output;
+do not assume selected assurance reproduces legacy CI annotation/markdown
+layouts. Selected nonpass exits `1`. Both fresh exact offline1.0 reports,
+deterministic regrading of retained actual responses and every base
+non-assurance condition must pass. A saved report label is not current evidence.
+Recheck current source/evidence/review after verify and before publication/
+assessment; use the same bound executable throughout.
+
+Per-arm `--review` files and `--accept-review-source` acceptance are separate
+current inputs, not authenticated human review. Supply selected inputs at each
+stage; examples stay unreviewed and test reviews are explicitly synthetic.
+Only mock/no-skills/native-text/finite-authored-output qualification is
+supported. No live SDK, calibration, paid1.1/billing support or automatic paid
+validation. Local hashes establish consistency, not authenticity or globally
+witnessed precommitment. See the
+[profile limits](/waza/guides/controlled-comparisons/#opt-in-separately-to-offline-assurance).
+
 ## Installation in CI
 
 ### Via azd Extension (Recommended)

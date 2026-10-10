@@ -2,6 +2,7 @@ package releasepolicy
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -17,18 +18,23 @@ import (
 // ReadDecision admits independent sidecars and separately published results.
 // Missing, partial, malformed or contradictory publications never strict-pass.
 func ReadDecision(directory string) (Decision, error) {
-	return readDecision(directory, nil)
+	return readDecision(context.Background(), directory, nil)
 }
 
 // ReadSelectedDecision compares the selection with the same admitted policy
 // used for assessment, rather than reopening the commitment independently.
 func ReadSelectedDecision(directory string, selected models.EvidenceDigest) (Decision, error) {
-	return readDecision(directory, &selected)
+	return ReadSelectedDecisionContext(context.Background(), directory, selected)
 }
 
-func readDecision(directory string, selected *models.EvidenceDigest) (Decision, error) {
+// ReadSelectedDecisionContext threads cancellation through all fixed reads.
+func ReadSelectedDecisionContext(ctx context.Context, directory string, selected models.EvidenceDigest) (Decision, error) {
+	return readDecision(ctx, directory, &selected)
+}
+
+func readDecision(ctx context.Context, directory string, selected *models.EvidenceDigest) (Decision, error) {
 	d := InitialDecision()
-	data, err := readArtifact(directory, "policy.json")
+	data, err := readArtifactContext(ctx, directory, "policy.json")
 	if err != nil {
 		d.Compatibility.State = "invalid"
 		return d, fmt.Errorf("reading precollection policy: %w", err)
@@ -51,11 +57,11 @@ func readDecision(directory string, selected *models.EvidenceDigest) (Decision, 
 	}
 	d.Golden = assessGolden(p, map[Arm]Receipt{})
 	d.Billing = assessBilling(p, map[Arm]Receipt{})
-	data, err = readArtifact(directory, "journal.json")
+	data, err = readArtifactContext(ctx, directory, "journal.json")
 	if err != nil {
 		d.Completeness.State, d.Statistics.State, d.Operations.State = "missing", "inconclusive", "incomplete"
 		if errors.Is(err, os.ErrNotExist) {
-			if prefixErr := accountIncomplete(directory, p, &d); prefixErr != nil {
+			if prefixErr := accountIncomplete(ctx, directory, p, &d); prefixErr != nil {
 				d.Compatibility.State = "invalid"
 				d.Compatibility.Reasons = append(d.Compatibility.Reasons, prefixErr.Error())
 				return d, prefixErr
@@ -73,7 +79,7 @@ func readDecision(directory string, selected *models.EvidenceDigest) (Decision, 
 	if err != nil {
 		return d, err
 	}
-	stream, err := readArtifact(directory, "journal.ndjson")
+	stream, err := readArtifactContext(ctx, directory, "journal.ndjson")
 	if err != nil {
 		d.Completeness.State = "missing"
 		return d, fmt.Errorf("reading durable event tape: %w", err)
@@ -93,6 +99,9 @@ func readDecision(directory string, selected *models.EvidenceDigest) (Decision, 
 		return d, fmt.Errorf("durable event tape count differs from sealed journal")
 	}
 	for i, line := range lines {
+		if err := ctx.Err(); err != nil {
+			return d, err
+		}
 		if _, err := jsonutil.Parse(line); err != nil {
 			d.Compatibility.State = "invalid"
 			return d, err
@@ -111,7 +120,7 @@ func readDecision(directory string, selected *models.EvidenceDigest) (Decision, 
 	}
 	actual := map[Arm]Receipt{}
 	for _, arm := range []Arm{Baseline, Candidate} {
-		data, err := readArtifact(directory, string(arm)+".begin.json")
+		data, err := readArtifactContext(ctx, directory, string(arm)+".begin.json")
 		if err != nil {
 			d.Completeness.State = "missing"
 			return d, fmt.Errorf("reading precollection %s BEGIN: %w", arm, err)
@@ -129,7 +138,7 @@ func readDecision(directory string, selected *models.EvidenceDigest) (Decision, 
 			d.Compatibility.State = "mismatched"
 			return d, fmt.Errorf("%s BEGIN identity contradicts collection commitment", arm)
 		}
-		data, err = readArtifact(directory, string(arm)+".final.json")
+		data, err = readArtifactContext(ctx, directory, string(arm)+".final.json")
 		if err != nil {
 			d.Completeness.State, d.Statistics.State = "missing", "inconclusive"
 			return d, fmt.Errorf("reading final %s receipt: %w", arm, err)
@@ -139,7 +148,7 @@ func readDecision(directory string, selected *models.EvidenceDigest) (Decision, 
 			d.Compatibility.State = "invalid"
 			return d, err
 		}
-		data, err = readArtifact(directory, string(arm)+".result-binding.json")
+		data, err = readArtifactContext(ctx, directory, string(arm)+".result-binding.json")
 		if err != nil {
 			d.Completeness.State = "missing"
 			return d, fmt.Errorf("reading attributable %s results: %w", arm, err)
@@ -154,7 +163,7 @@ func readDecision(directory string, selected *models.EvidenceDigest) (Decision, 
 			d.Compatibility.Reasons = append(d.Compatibility.Reasons, err.Error())
 			return d, err
 		}
-		data, err = readArtifact(directory, string(arm)+".results.json")
+		data, err = readArtifactContext(ctx, directory, string(arm)+".results.json")
 		if err != nil {
 			d.Completeness.State = "missing"
 			return d, fmt.Errorf("reading actual %s result rows: %w", arm, err)
@@ -170,7 +179,15 @@ func readDecision(directory string, selected *models.EvidenceDigest) (Decision, 
 		}
 		actual[arm] = *receipt
 	}
-	return Assess(p, actual)
+	if err := ctx.Err(); err != nil {
+		return d, err
+	}
+	decision, err := Assess(p, actual)
+	if cancellation := ctx.Err(); cancellation != nil {
+		decision.Accepted = false
+		return decision, cancellation
+	}
+	return decision, err
 }
 
 func DecodeResults(data []byte) (*Results, error) {

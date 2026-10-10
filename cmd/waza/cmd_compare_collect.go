@@ -89,6 +89,7 @@ func newComparePlanCommand() *cobra.Command {
 func newCompareCollectCommand() *cobra.Command {
 	var sources controlledSources
 	var policyPath, directory string
+	var assurance assuranceFlags
 	cmd := &cobra.Command{
 		Use: "compare-collect", Short: "Collect fresh paired offline attempts under a predeclared policy",
 		Long: "Reinspect and bind both sources before BEGIN, then each attempt before executing its frozen inputs. Durable starts precede fresh mock-engine initialization. New directory only; no cached outcomes, historical adoption, resume, adaptive stopping, or live/paid execution.",
@@ -100,11 +101,25 @@ func newCompareCollectCommand() *cobra.Command {
 			if policyPath == "" || directory == "" {
 				return &ExitCodeError{Code: 1, Err: fmt.Errorf("--release-policy and --collection-dir are required")}
 			}
+			if assurance.selected(cmd) && assurance.contract == "" {
+				return &ExitCodeError{Code: 1, Err: fmt.Errorf("--assurance-contract cannot be omitted or empty when assurance inputs are selected")}
+			}
 			data, err := os.ReadFile(policyPath)
 			if err != nil {
 				return &ExitCodeError{Code: 1, Err: err}
 			}
-			if err := controlledcomparison.Collect(cmd.Context(), data, sources.baseline, sources.candidate, directory); err != nil {
+			if assurance.selected(cmd) {
+				if err := assurance.sources(cmd); err != nil {
+					return &ExitCodeError{Code: 1, Err: err}
+				}
+				contract, err := os.ReadFile(assurance.contract)
+				if err != nil {
+					return &ExitCodeError{Code: 1, Err: err}
+				}
+				if err := controlledcomparison.CollectWithAssurance(cmd.Context(), data, contract, assurance.baseline, assurance.candidate, directory); err != nil {
+					return &ExitCodeError{Code: 1, Err: err}
+				}
+			} else if err := controlledcomparison.Collect(cmd.Context(), data, sources.baseline, sources.candidate, directory); err != nil {
 				return &ExitCodeError{Code: 1, Err: err}
 			}
 			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Collection persisted: %s; assess with compare/gate --release-policy --collection-dir.\n", directory)
@@ -114,5 +129,6 @@ func newCompareCollectCommand() *cobra.Command {
 	sources.flags(cmd)
 	cmd.Flags().StringVar(&policyPath, "release-policy", "", "Explicit precollection policy JSON (required)")
 	cmd.Flags().StringVar(&directory, "collection-dir", "", "New private collection directory (required)")
+	assurance.flags(cmd, false)
 	return cmd
 }

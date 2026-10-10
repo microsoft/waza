@@ -19,15 +19,17 @@ import (
 // Initialize may start engines only after both BEGIN receipts and directory
 // entries have been synced. Attempt is called only after its durable start.
 type Collector struct {
-	Initialize func(context.Context) error
-	Attempt    func(context.Context, AttemptKey) (AttemptObservation, error)
-	Usage      func(context.Context, Arm) ([]UsageAxis, error)
-	Shutdown   func(context.Context) error
+	Initialize    func(context.Context) error
+	Attempt       func(context.Context, AttemptKey) (AttemptObservation, error)
+	Usage         func(context.Context, Arm) ([]UsageAxis, error)
+	Shutdown      func(context.Context) error
+	BeforePublish func(context.Context) error
 }
 
 type AttemptObservation struct {
 	Summary AttemptSummary
 	Result  ActualRunRow
+	Output  *AssuranceOutput
 }
 
 // Collect creates a new private collection, never adopts or resumes one. File
@@ -35,6 +37,10 @@ type AttemptObservation struct {
 // primitives provide process-exit persistence; machine-crash durability still
 // depends on the filesystem/storage honoring them. Legacy writers are untouched.
 func Collect(ctx context.Context, policyData []byte, directory string, collector Collector) (err error) {
+	return collect(ctx, policyData, directory, collector, nil)
+}
+
+func collect(ctx context.Context, policyData []byte, directory string, collector Collector, assured *assuranceCollection) (err error) {
 	p, err := DecodePolicy(policyData)
 	if err != nil {
 		return err
@@ -49,6 +55,9 @@ func Collect(ctx context.Context, policyData []byte, directory string, collector
 	if err != nil {
 		return err
 	}
+	if assured != nil {
+		collectionID = assured.contract.Digest.SHA256
+	}
 	if err := os.Mkdir(directory, 0o700); err != nil {
 		return fmt.Errorf("reserving new collection directory (no resume): %w", err)
 	}
@@ -57,6 +66,12 @@ func Collect(ctx context.Context, policyData []byte, directory string, collector
 	}
 	if err := writeExclusive(directory, "policy.json", policyData); err != nil {
 		return err
+	}
+	if assured != nil {
+		if err := assured.open(directory); err != nil {
+			return err
+		}
+		defer func() { err = errors.Join(err, assured.close()) }()
 	}
 	stream, err := os.OpenFile(filepath.Join(directory, "journal.ndjson"), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
@@ -153,6 +168,11 @@ func Collect(ctx context.Context, policyData []byte, directory string, collector
 						if err := VerifyRunRow(attempt, observation.Result); err != nil {
 							return fmt.Errorf("observed raw result contradicts attempt summary: %w", err)
 						}
+						if assured != nil {
+							if err := assured.append(observation); err != nil {
+								return fmt.Errorf("persisting full assurance attempt before core terminal: %w", err)
+							}
+						}
 						if err := appendEvent(Event{Type: "attempt_terminal", Attempt: &attempt}); err != nil {
 							return err
 						}
@@ -178,6 +198,16 @@ func Collect(ctx context.Context, policyData []byte, directory string, collector
 		return fmt.Errorf("finalizing collection engines: %w", err)
 	}
 	collector.Shutdown = func(context.Context) error { return nil }
+	if assured != nil {
+		if err := assured.close(); err != nil {
+			return fmt.Errorf("closing full assurance attempt tape before publication: %w", err)
+		}
+	}
+	if collector.BeforePublish != nil {
+		if err := collector.BeforePublish(ctx); err != nil {
+			return fmt.Errorf("rechecking prepublication sources: %w", err)
+		}
+	}
 	for _, arm := range []Arm{Baseline, Candidate} {
 		usage, err := collector.Usage(ctx, arm)
 		if err != nil {
@@ -227,6 +257,11 @@ func Collect(ctx context.Context, policyData []byte, directory string, collector
 			return err
 		}
 		if err := writeExclusive(directory, string(arm)+".final.json", data); err != nil {
+			return err
+		}
+	}
+	if assured != nil {
+		if err := assured.finish(directory, p, sealed); err != nil {
 			return err
 		}
 	}

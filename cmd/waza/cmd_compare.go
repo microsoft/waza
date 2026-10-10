@@ -14,6 +14,7 @@ var compareOutputFormat string
 
 func newCompareCommand() *cobra.Command {
 	var releasePolicy, collectionDir string
+	var assurance assuranceFlags
 	cmd := &cobra.Command{
 		Use:   "compare <result1.json> <result2.json> [result3.json ...]",
 		Short: "Compare multiple evaluation result files",
@@ -26,7 +27,7 @@ Explicit --release-policy and --collection-dir instead assess a new paired
 collection. Missing, partial, invalid or inconclusive selected evidence exits 1.
 This mode does not adopt historical result files or change default comparison.`,
 		Args: func(cmd *cobra.Command, args []string) error {
-			if cmd.Flags().Changed("release-policy") || cmd.Flags().Changed("collection-dir") {
+			if cmd.Flags().Changed("release-policy") || cmd.Flags().Changed("collection-dir") || assurance.assessmentSelected(cmd) {
 				if len(args) != 0 {
 					return &ExitCodeError{Code: 1, Err: fmt.Errorf("selected release policy uses its paired collection, not historical positional result files")}
 				}
@@ -35,6 +36,9 @@ This mode does not adopt historical result files or change default comparison.`,
 			return cobra.MinimumNArgs(2)(cmd, args)
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if assurance.assessmentSelected(cmd) {
+				return runAssuredAssessment(cmd, &assurance, releasePolicy, collectionDir, compareOutputFormat)
+			}
 			if cmd.Flags().Changed("release-policy") || cmd.Flags().Changed("collection-dir") {
 				format := compareOutputFormat
 				if format == "table" {
@@ -49,6 +53,7 @@ This mode does not adopt historical result files or change default comparison.`,
 	cmd.Flags().StringVarP(&compareOutputFormat, "format", "f", "table", "Output format: table or json")
 	cmd.Flags().StringVar(&releasePolicy, "release-policy", "", "Explicit independently versioned release policy; selected rejection/inconclusive/invalid exits 1")
 	cmd.Flags().StringVar(&collectionDir, "collection-dir", "", "New paired collection directory required with --release-policy")
+	assurance.flags(cmd, true)
 
 	return cmd
 }

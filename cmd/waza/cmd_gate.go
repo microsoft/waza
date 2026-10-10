@@ -90,6 +90,7 @@ type GoldenStatus struct {
 }
 
 func newGateCommand() *cobra.Command {
+	var assurance assuranceFlags
 	opts := &gateOptions{
 		maxRegressionPct: 0,
 		goldenMustPass:   true,
@@ -139,13 +140,16 @@ Without explicit policy selection all default gate behavior/exits above remain.`
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			opts.releaseSelected = cmd.Flags().Changed("release-policy") || cmd.Flags().Changed("collection-dir")
+			opts.releaseSelected = cmd.Flags().Changed("release-policy") || cmd.Flags().Changed("collection-dir") || assurance.assessmentSelected(cmd)
 			if opts.releaseSelected || opts.releasePolicy != "" || opts.collectionDir != "" {
 				for _, flag := range []string{"baseline", "current", "max-regression-pct", "golden-must-pass", "on-new-tasks", "on-removed-tasks"} {
 					if cmd.Flags().Changed(flag) {
 						return &ExitCodeError{Code: 1, Err: fmt.Errorf("selected release policy cannot be combined with legacy --%s", flag)}
 					}
 				}
+			}
+			if assurance.assessmentSelected(cmd) {
+				return runAssuredAssessment(cmd, &assurance, opts.releasePolicy, opts.collectionDir, opts.format)
 			}
 			return runGate(cmd.OutOrStdout(), opts)
 		},
@@ -154,6 +158,7 @@ Without explicit policy selection all default gate behavior/exits above remain.`
 	f := cmd.Flags()
 	f.StringVar(&opts.releasePolicy, "release-policy", "", "Explicit independently versioned release policy; selected rejection/inconclusive/invalid exits 1")
 	f.StringVar(&opts.collectionDir, "collection-dir", "", "New paired collection directory required with --release-policy (no historical adoption)")
+	assurance.flags(cmd, true)
 	f.StringVar(&opts.baselinePath, "baseline", "", "Path to the baseline results.json (required)")
 	f.StringVar(&opts.currentPath, "current", "", "Path to the candidate results.json (required)")
 	f.Float64Var(&opts.maxRegressionPct, "max-regression-pct", opts.maxRegressionPct,

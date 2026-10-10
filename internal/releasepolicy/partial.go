@@ -2,6 +2,7 @@ package releasepolicy
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,11 +10,11 @@ import (
 	"reflect"
 )
 
-func accountIncomplete(directory string, p *Policy, d *Decision) error {
+func accountIncomplete(ctx context.Context, directory string, p *Policy, d *Decision) error {
 	for _, arm := range []Arm{Baseline, Candidate} {
 		d.Accounting[arm] = Reliability{PlannedTrials: len(PlannedSamples(p))}
 	}
-	stream, err := readArtifact(directory, "journal.ndjson")
+	stream, err := readArtifactContext(ctx, directory, "journal.ndjson")
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
 	}
@@ -25,6 +26,9 @@ func accountIncomplete(directory string, p *Policy, d *Decision) error {
 	// An unterminated final fragment was not a complete persisted transition.
 	// Keep the publication incomplete rather than repairing or adopting it.
 	for _, line := range lines[:len(lines)-1] {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		object, err := objectJSON(line)
 		if err != nil {
 			return err

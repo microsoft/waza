@@ -1,0 +1,501 @@
+{
+  "$defs": {
+    "jsonDigest": {
+      "additionalProperties": false,
+      "description": "SHA-256 in the json-v1 domain; not interchangeable with other encodings or proof of authenticity.",
+      "properties": {
+        "encoding": {
+          "const": "json-v1"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "encoding",
+        "sha256"
+      ],
+      "type": "object"
+    },
+    "releasepolicy_AssuredDecision": {
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "accepted": {
+                "const": true
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "assurance": {
+                "properties": {
+                  "state": {
+                    "const": "passed"
+                  }
+                }
+              },
+              "base_decision": {
+                "properties": {
+                  "billing": {
+                    "properties": {
+                      "state": {
+                        "enum": [
+                          "within_budget",
+                          "not_required"
+                        ]
+                      }
+                    }
+                  },
+                  "compatibility": {
+                    "properties": {
+                      "state": {
+                        "enum": [
+                          "compatible"
+                        ]
+                      }
+                    }
+                  },
+                  "completeness": {
+                    "properties": {
+                      "state": {
+                        "enum": [
+                          "complete"
+                        ]
+                      }
+                    }
+                  },
+                  "golden": {
+                    "properties": {
+                      "state": {
+                        "enum": [
+                          "passed",
+                          "not_required"
+                        ]
+                      }
+                    }
+                  },
+                  "operations": {
+                    "properties": {
+                      "state": {
+                        "enum": [
+                          "observed"
+                        ]
+                      }
+                    }
+                  },
+                  "statistics": {
+                    "properties": {
+                      "state": {
+                        "enum": [
+                          "noninferiority",
+                          "improvement"
+                        ]
+                      }
+                    }
+                  }
+                }
+              },
+              "collection_id": {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              "contract_digest": {
+                "$ref": "#/$defs/jsonDigest"
+              },
+              "regrade": {
+                "properties": {
+                  "state": {
+                    "const": "passed"
+                  }
+                }
+              },
+              "reports": {
+                "additionalProperties": false,
+                "properties": {
+                  "baseline": {
+                    "allOf": [
+                      {
+                        "allOf": [
+                          {
+                            "$ref": "grader-assurance-1.0.schema.json"
+                          },
+                          {
+                            "properties": {
+                              "calibration": {
+                                "properties": {
+                                  "credits": {
+                                    "type": "null"
+                                  },
+                                  "executions": {
+                                    "const": 0
+                                  },
+                                  "usage": {
+                                    "type": "null"
+                                  }
+                                }
+                              },
+                              "requirements": {
+                                "items": {
+                                  "properties": {
+                                    "observations": {
+                                      "items": {
+                                        "properties": {
+                                          "source_scope": {
+                                            "const": "authored_finite_output"
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        ]
+                      },
+                      {
+                        "properties": {
+                          "review": {
+                            "properties": {
+                              "current_source_accepted": {
+                                "const": true
+                              },
+                              "declared_state": {
+                                "const": "reviewed"
+                              },
+                              "eligible": {
+                                "const": true
+                              }
+                            }
+                          },
+                          "state": {
+                            "const": "passed"
+                          }
+                        }
+                      }
+                    ]
+                  },
+                  "candidate": {
+                    "allOf": [
+                      {
+                        "allOf": [
+                          {
+                            "$ref": "grader-assurance-1.0.schema.json"
+                          },
+                          {
+                            "properties": {
+                              "calibration": {
+                                "properties": {
+                                  "credits": {
+                                    "type": "null"
+                                  },
+                                  "executions": {
+                                    "const": 0
+                                  },
+                                  "usage": {
+                                    "type": "null"
+                                  }
+                                }
+                              },
+                              "requirements": {
+                                "items": {
+                                  "properties": {
+                                    "observations": {
+                                      "items": {
+                                        "properties": {
+                                          "source_scope": {
+                                            "const": "authored_finite_output"
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        ]
+                      },
+                      {
+                        "properties": {
+                          "review": {
+                            "properties": {
+                              "current_source_accepted": {
+                                "const": true
+                              },
+                              "declared_state": {
+                                "const": "reviewed"
+                              },
+                              "eligible": {
+                                "const": true
+                              }
+                            }
+                          },
+                          "state": {
+                            "const": "passed"
+                          }
+                        }
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "baseline",
+                  "candidate"
+                ],
+                "type": "object"
+              }
+            }
+          }
+        }
+      ],
+      "properties": {
+        "accepted": {
+          "type": "boolean"
+        },
+        "assurance": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/releasepolicy_Dimension"
+            },
+            {
+              "properties": {
+                "state": {
+                  "enum": [
+                    "not_assessed",
+                    "passed",
+                    "failed",
+                    "invalid",
+                    "incomplete"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "base_decision": {
+          "allOf": [
+            {
+              "$ref": "release-artifacts-1.0.schema.json#/$defs/releasepolicy_Decision"
+            },
+            {
+              "properties": {
+                "accepted": {
+                  "const": false
+                }
+              }
+            }
+          ]
+        },
+        "collection_id": {
+          "pattern": "^([0-9a-f]{64})?$",
+          "type": "string"
+        },
+        "contract_digest": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/jsonDigest"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "encoding": {
+                  "const": ""
+                },
+                "sha256": {
+                  "const": ""
+                }
+              },
+              "required": [
+                "encoding",
+                "sha256"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        "kind": {
+          "const": "waza.release-assured-decision"
+        },
+        "limitations": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "regrade": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/releasepolicy_Dimension"
+            },
+            {
+              "properties": {
+                "state": {
+                  "enum": [
+                    "not_assessed",
+                    "passed",
+                    "invalid",
+                    "incomplete",
+                    "mismatched"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "reports": {
+          "additionalProperties": false,
+          "properties": {
+            "baseline": {
+              "allOf": [
+                {
+                  "$ref": "grader-assurance-1.0.schema.json"
+                },
+                {
+                  "properties": {
+                    "calibration": {
+                      "properties": {
+                        "credits": {
+                          "type": "null"
+                        },
+                        "executions": {
+                          "const": 0
+                        },
+                        "usage": {
+                          "type": "null"
+                        }
+                      }
+                    },
+                    "requirements": {
+                      "items": {
+                        "properties": {
+                          "observations": {
+                            "items": {
+                              "properties": {
+                                "source_scope": {
+                                  "const": "authored_finite_output"
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            "candidate": {
+              "allOf": [
+                {
+                  "$ref": "grader-assurance-1.0.schema.json"
+                },
+                {
+                  "properties": {
+                    "calibration": {
+                      "properties": {
+                        "credits": {
+                          "type": "null"
+                        },
+                        "executions": {
+                          "const": 0
+                        },
+                        "usage": {
+                          "type": "null"
+                        }
+                      }
+                    },
+                    "requirements": {
+                      "items": {
+                        "properties": {
+                          "observations": {
+                            "items": {
+                              "properties": {
+                                "source_scope": {
+                                  "const": "authored_finite_output"
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "type": "object"
+        },
+        "version": {
+          "const": "1.0"
+        }
+      },
+      "required": [
+        "kind",
+        "version",
+        "accepted",
+        "contract_digest",
+        "collection_id",
+        "base_decision",
+        "assurance",
+        "regrade",
+        "reports",
+        "limitations"
+      ],
+      "type": "object"
+    },
+    "releasepolicy_Dimension": {
+      "additionalProperties": false,
+      "properties": {
+        "reasons": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "state": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "state",
+        "reasons"
+      ],
+      "type": "object"
+    },
+    "sourceDigest": {
+      "additionalProperties": false,
+      "description": "SHA-256 in the source-bytes domain; not interchangeable with other encodings or proof of authenticity.",
+      "properties": {
+        "encoding": {
+          "const": "source-bytes"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "encoding",
+        "sha256"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "https://raw.githubusercontent.com/microsoft/waza/main/schemas/release-assured-decision-1.0.schema.json",
+  "$ref": "#/$defs/releasepolicy_AssuredDecision",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Structural admission only. Strict readers additionally verify original JSON tokens, self-digest omission, exact source bytes, ordered replay, source/review freshness, deterministic regrading and base non-assurance conditions. Hashes are local consistency, not authentication.",
+  "title": "waza.release-assured-decision 1.0 (independent offline profile)"
+}

@@ -524,6 +524,36 @@ statistically inconclusive; mock observations are not agent-quality evidence.
 See [controlled comparison contracts](docs/CONTROLLED-COMPARISONS.md) for the
 fixed-design assumptions, missing-evidence states and current limitations.
 
+### `waza compare-assurance-plan`
+
+Explicitly bind an **independent offline assurance contract** to a base policy
+with assurance required, before fresh collection:
+
+```bash
+waza compare-assurance-plan --release-policy policy.json \
+  --baseline-eval baseline/eval.yaml --candidate-eval candidate/eval.yaml \
+  --baseline-references baseline/references.json \
+  --candidate-references candidate/references.json \
+  --output assurance-contract.json
+```
+
+These paths represent your authored inputs. Output must be a new file. Collect
+with `compare-collect --assurance-contract assurance-contract.json`, then assess
+with `compare` or `gate` using that explicit contract, `--release-policy`,
+`--collection-dir` and current per-arm eval/reference inputs. Optional per-arm
+`--review` and `--accept-review-source` are separately supplied acceptance, not
+authenticated human review. Unreviewed examples remain nonpassing.
+
+Only mock/no-skills/native-text/finite-authored-output qualification is supported:
+both arms need fresh exact offline1.0 reports and deterministic regrading of
+retained actual responses, plus every base non-assurance pass condition.
+No live SDK, calibration, paid1.1/billing support or automatic paid validation.
+Frozen base 1.0 policy/journal/decision and legacy defaults stay unchanged; the
+base API/dashboard remain nonpassing when assurance is required. Only explicit
+outer assessment can pass. Use JSON for machine-readable outer decisions;
+selected human output does not promise all legacy rendering layouts.
+See [profile artifacts, flags and limits](docs/CONTROLLED-COMPARISONS.md#independent-offline-assurance-profile).
+
 ### `waza replay <snapshot.json>`
 
 Replay a task snapshot to verify deterministic reproduction. Snapshots are produced by `waza run --snapshot <dir>` and capture the prompt, fixture digests, ordered tool events, environment allow-list, and redacted grader outcomes.

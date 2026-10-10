@@ -1,11 +1,14 @@
 package releasepolicy
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestFixedArtifactSymlinksNeverPass(t *testing.T) {
@@ -65,6 +68,7 @@ func TestFixedArtifactReaderRejectsNonFilesAndEscapes(t *testing.T) {
 	if err := os.Mkdir(filepath.Join(directory, "policy.json"), 0o700); err != nil {
 		t.Fatal(err)
 	}
+
 	for _, name := range []string{"policy.json", "../policy.json", ".", ".."} {
 		if _, err := readArtifact(directory, name); err == nil {
 			t.Fatalf("invalid fixed artifact path accepted: %q", name)
@@ -73,4 +77,42 @@ func TestFixedArtifactReaderRejectsNonFilesAndEscapes(t *testing.T) {
 	if _, err := readArtifact(directory, "missing.json"); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("missing publication classification lost: %v", err)
 	}
+}
+
+func TestFixedArtifactReaderCancellationAndSizeBound(t *testing.T) {
+	dir := t.TempDir()
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	_, err := readArtifactContext(ctx, dir, "missing.json")
+	require.ErrorIs(t, err, context.Canceled)
+	path := filepath.Join(dir, "large.json")
+	file, err := os.Create(path)
+	require.NoError(t, err)
+	require.NoError(t, file.Truncate(16<<20+1))
+	require.NoError(t, file.Close())
+	_, err = readArtifact(dir, "large.json")
+	require.Error(t, err)
+}
+
+type cancelDuringArtifactReads struct {
+	context.Context
+	checks int
+}
+
+func (ctx *cancelDuringArtifactReads) Err() error {
+	ctx.checks++
+	if ctx.checks >= 8 {
+		return context.Canceled
+	}
+	return nil
+}
+
+func TestSelectedDecisionCancellationDuringBaseVerification(t *testing.T) {
+	p := testPolicy(t, 8)
+	dir := collectTest(t, p, testCollector(p))
+	ctx := &cancelDuringArtifactReads{Context: t.Context()}
+	d, err := ReadSelectedDecisionContext(ctx, dir, p.Digest)
+	require.ErrorIs(t, err, context.Canceled)
+	require.False(t, d.Accepted)
+	require.GreaterOrEqual(t, ctx.checks, 8)
 }
