@@ -74,6 +74,21 @@ allocation/budget admission, paired lifecycle collection or native execution is
 enabled; unsupported required runtime/routing/output-presence/currency evidence
 still cannot pass through existing protocols.
 
+The engine-free `CheckPrimitiveJoin` compares an existing internal admission to
+the resolver's retained request and complete selected-arm source inventory.
+It reuses the primitive's exact request projector and JSON-v1 identity, while
+separately retaining both arms' full serialized CLIENT/source identities.
+Its opaque `Joined.Binding` is inspection-only: matching a provided attempt key
+does not prove policy allocation, source currentness, execution authorization or
+any unavailable capability. Actual origins retain the existing full-key rule.
+The primitive's **1 MiB raw and encoded preparation limits** apply to the
+selected arm; its larger complete inventory cannot join, and sources are never
+omitted to fit. The other arm remains bound under unchanged resolver limits,
+not admitted as a primitive. Joining one supplied key does not establish paired
+collection eligibility: each future selected slot needs its own independent
+join/admission. No filesystem reads, preparation, admission or execution occur
+in the join itself. Callers must independently recheck sources for currentness.
+
 ## Offline planning and collection
 
 ```bash

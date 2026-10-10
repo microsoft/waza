@@ -67,44 +67,10 @@ func Prepare(ctx context.Context, arm releasepolicy.Arm, taskID string, req *exe
 	if (arm != releasepolicy.Baseline && arm != releasepolicy.Candidate) || taskID == "" || req == nil {
 		return nil, fmt.Errorf("native preparation requires arm, task and request")
 	}
-	if req.ModelID == "" || strings.TrimSpace(req.ModelID) != req.ModelID || req.ModelID == "auto" ||
-		strings.EqualFold(req.ModelID, "auto") || strings.EqualFold(req.ModelID, "unknown") ||
-		req.Message == "" || !req.NoSkills || !req.SkipWorkspaceCapture || req.EphemeralSession ||
-		req.PermissionHandler != nil || len(req.Tools) != 0 || req.ToolPolicy == nil ||
-		req.ToolPolicy.Mode != execution.ToolPolicyDenyAll || req.SessionID != "" || req.WorkspaceDir != "" ||
-		req.Streaming || req.MessageMode != "" || req.CancelOnSkillInvocation || req.TriggerSkillRouting || req.SuppressSkillBody ||
-		req.SkillName != "" || len(req.SkillPaths) != 0 || len(req.GitResources) != 0 ||
-		len(req.MCPServers) != 0 || len(req.CommandMocks) != 0 || req.CommandMocksBaseDir != "" ||
-		req.FirstEventTimeout < 0 {
-		return nil, fmt.Errorf("native input contains unsupported or unguarded capabilities")
+	intent, total, err := projectRequest(req)
+	if err != nil {
+		return nil, err
 	}
-	if req.WorkDir != "" && (req.WorkDir == "." || !filepath.IsLocal(req.WorkDir) || strings.Contains(req.WorkDir, "\\") ||
-		filepath.ToSlash(filepath.Clean(req.WorkDir)) != req.WorkDir) {
-		return nil, fmt.Errorf("native workdir must be a canonical local relative path")
-	}
-	seen := map[string]bool{}
-	total := 0
-	for _, resource := range req.Resources {
-		if resource.Path == "." || !filepath.IsLocal(resource.Path) || strings.Contains(resource.Path, "\\") ||
-			filepath.ToSlash(filepath.Clean(resource.Path)) != resource.Path || seen[resource.Path] {
-			return nil, fmt.Errorf("native resource path is invalid or duplicated")
-		}
-		seen[resource.Path] = true
-		total += len(resource.Content)
-	}
-	instructionPaths := map[string]bool{}
-	for _, instruction := range req.Instructions {
-		if instruction.Path == "." || !filepath.IsLocal(instruction.Path) || strings.Contains(instruction.Path, "\\") ||
-			filepath.ToSlash(filepath.Clean(instruction.Path)) != instruction.Path || instructionPaths[instruction.Path] {
-			return nil, fmt.Errorf("native instruction path is invalid or duplicated")
-		}
-		instructionPaths[instruction.Path] = true
-		total += len(instruction.Content)
-	}
-	intent := requestIntent{Model: req.ModelID, Reasoning: req.ReasoningEffort, Message: req.Message,
-		WorkDir: req.WorkDir, SourceDir: req.SourceDir, TaskName: req.TaskName, TaskDescription: req.TaskDescription,
-		Context: req.Context, Resources: req.Resources, Instructions: req.Instructions,
-		FirstEventTimeout: int64(req.FirstEventTimeout), PermissionMode: "deny_all", ToolPolicyMode: "deny_all"}
 	data := preparedData{Arm: arm, TaskID: taskID, Request: intent, Sources: []sourceBytes{}}
 	last := ""
 	if len(sources) == 0 {
@@ -142,6 +108,53 @@ func Prepare(ctx context.Context, arm releasepolicy.Arm, taskID string, req *exe
 		return nil, err
 	}
 	return &Prepared{payload, *seal, *requestDigest}, nil
+}
+
+// projectRequest is shared by preparation and read-only comparison. It retains
+// the original validation order, projection, defaults and byte accounting.
+func projectRequest(req *execution.ExecutionRequest) (requestIntent, int, error) {
+	if req == nil {
+		return requestIntent{}, 0, fmt.Errorf("native preparation requires arm, task and request")
+	}
+	if req.ModelID == "" || strings.TrimSpace(req.ModelID) != req.ModelID || req.ModelID == "auto" ||
+		strings.EqualFold(req.ModelID, "auto") || strings.EqualFold(req.ModelID, "unknown") ||
+		req.Message == "" || !req.NoSkills || !req.SkipWorkspaceCapture || req.EphemeralSession ||
+		req.PermissionHandler != nil || len(req.Tools) != 0 || req.ToolPolicy == nil ||
+		req.ToolPolicy.Mode != execution.ToolPolicyDenyAll || req.SessionID != "" || req.WorkspaceDir != "" ||
+		req.Streaming || req.MessageMode != "" || req.CancelOnSkillInvocation || req.TriggerSkillRouting || req.SuppressSkillBody ||
+		req.SkillName != "" || len(req.SkillPaths) != 0 || len(req.GitResources) != 0 ||
+		len(req.MCPServers) != 0 || len(req.CommandMocks) != 0 || req.CommandMocksBaseDir != "" ||
+		req.FirstEventTimeout < 0 {
+		return requestIntent{}, 0, fmt.Errorf("native input contains unsupported or unguarded capabilities")
+	}
+	if req.WorkDir != "" && (req.WorkDir == "." || !filepath.IsLocal(req.WorkDir) || strings.Contains(req.WorkDir, "\\") ||
+		filepath.ToSlash(filepath.Clean(req.WorkDir)) != req.WorkDir) {
+		return requestIntent{}, 0, fmt.Errorf("native workdir must be a canonical local relative path")
+	}
+	seen := map[string]bool{}
+	total := 0
+	for _, resource := range req.Resources {
+		if resource.Path == "." || !filepath.IsLocal(resource.Path) || strings.Contains(resource.Path, "\\") ||
+			filepath.ToSlash(filepath.Clean(resource.Path)) != resource.Path || seen[resource.Path] {
+			return requestIntent{}, 0, fmt.Errorf("native resource path is invalid or duplicated")
+		}
+		seen[resource.Path] = true
+		total += len(resource.Content)
+	}
+	instructionPaths := map[string]bool{}
+	for _, instruction := range req.Instructions {
+		if instruction.Path == "." || !filepath.IsLocal(instruction.Path) || strings.Contains(instruction.Path, "\\") ||
+			filepath.ToSlash(filepath.Clean(instruction.Path)) != instruction.Path || instructionPaths[instruction.Path] {
+			return requestIntent{}, 0, fmt.Errorf("native instruction path is invalid or duplicated")
+		}
+		instructionPaths[instruction.Path] = true
+		total += len(instruction.Content)
+	}
+	intent := requestIntent{Model: req.ModelID, Reasoning: req.ReasoningEffort, Message: req.Message,
+		WorkDir: req.WorkDir, SourceDir: req.SourceDir, TaskName: req.TaskName, TaskDescription: req.TaskDescription,
+		Context: req.Context, Resources: req.Resources, Instructions: req.Instructions,
+		FirstEventTimeout: int64(req.FirstEventTimeout), PermissionMode: "deny_all", ToolPolicyMode: "deny_all"}
+	return intent, total, nil
 }
 
 func readSource(ctx context.Context, source Source) ([]byte, error) {
