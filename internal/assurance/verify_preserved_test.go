@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -19,6 +20,66 @@ import (
 )
 
 func preservedVerificationFixture(t *testing.T) (VerifyRequest, ReferenceDocument, string) {
+	return preservedVerificationFixtureWithFiles(t, true)
+}
+
+func preservedPortableVerificationFixture(t *testing.T) (VerifyRequest, ReferenceDocument, string) {
+	return preservedVerificationFixtureWithFiles(t, false)
+}
+
+func preservedWorkspaceSupported() bool {
+	return runtime.GOOS == "linux" || runtime.GOOS == "darwin"
+}
+
+func requirePreservedUnsupportedWorkspaceReport(t *testing.T, report *Report) {
+	t.Helper()
+	require.Equal(t, AssessmentError, report.State)
+	require.Equal(t, PreservedReportVersion, report.SchemaVersion)
+	require.Equal(t, PreservedAssessmentMode, report.AssessmentMode)
+	require.Len(t, report.Requirements, 2)
+	require.Equal(t, AssessmentPassed, report.Requirements[0].State)
+	require.Equal(t, Coverage{Good: 1, AlternativeValid: 1, CriticalBad: 2, IntendedNegative: 1}, report.Requirements[0].Observed)
+	for _, observation := range report.Requirements[0].Observations {
+		require.Equal(t, Observed, observation.State)
+		require.NotNil(t, observation.Result)
+		require.True(t, *observation.Agreement)
+	}
+	require.Equal(t, AssessmentError, report.Requirements[1].State)
+	require.Equal(t, Coverage{}, report.Requirements[1].Observed)
+	for _, observation := range report.Requirements[1].Observations {
+		require.Equal(t, OperationalError, observation.State)
+		require.Equal(t, "preserved_file_subset", observation.SourceScope)
+		require.Nil(t, observation.Result)
+		require.Nil(t, observation.Agreement)
+	}
+	require.Equal(t, 0, report.Domains[0].ObservedCases)
+	require.Equal(t, 4, report.Domains[0].ObservedChecks)
+	require.Equal(t, 4, report.Domains[0].Agreements)
+	require.Equal(t, CalibrationReport{State: AssessmentNotAssessed, Reason: "calibration_not_selected"}, report.Calibration)
+	data := marshalReferenceTest(t, report)
+	parsed, err := ParsePreservedReport(data)
+	require.NoError(t, err)
+	require.JSONEq(t, string(data), string(marshalReferenceTest(t, parsed)))
+}
+
+func TestVerifyPreservedUnsupportedWorkspaceFailsBeforeGradeAndCleanup(t *testing.T) {
+	if preservedWorkspaceSupported() {
+		t.Skip("unsupported materialization contract applies on non-Linux/macOS platforms")
+	}
+	request, _, _ := preservedVerificationFixture(t)
+	closes := 0
+	report, err := verifyPreserved(t.Context(), request, preservedMechanicalHooks{
+		close: func(close func() error) error {
+			closes++
+			return close()
+		},
+	})
+	require.NoError(t, err)
+	require.Zero(t, closes)
+	requirePreservedUnsupportedWorkspaceReport(t, report)
+}
+
+func preservedVerificationFixtureWithFiles(t *testing.T, files bool) (VerifyRequest, ReferenceDocument, string) {
 	t.Helper()
 	eventConfig := models.GraderConfig{
 		Identifier: "check", Kind: models.GraderKindToolCalls,
@@ -29,6 +90,14 @@ func preservedVerificationFixture(t *testing.T) (VerifyRequest, ReferenceDocumen
 		Parameters: models.FileGraderParameters{ContentPatterns: []models.FileContentPatternParameters{{
 			Path: "state.txt", MustMatch: []string{"state: ready"},
 		}}},
+	}
+	if !files {
+		fileConfig = models.GraderConfig{
+			Identifier: "state", Kind: models.GraderKindToolConstraint,
+			Parameters: models.ToolConstraintGraderParameters{
+				ExpectTools: []models.ToolSpecParameters{{Tool: "^write$", PathPattern: "^state.txt$"}},
+			},
+		}
 	}
 	task := &models.TestCase{TestID: "synthetic-finite-task", Requirements: []models.Requirement{{
 		ID: "outcome", Checks: []models.RequirementCheck{{Scope: "eval", Grader: "check"}, {Scope: "eval", Grader: "state"}},
@@ -61,6 +130,9 @@ func preservedVerificationFixture(t *testing.T) (VerifyRequest, ReferenceDocumen
 		{"forbidden-action", CaseCriticalBad, "state: ready\n", true},
 	} {
 		tape := []any{preservedEvent("write", 1, map[string]any{"path": "state.txt"})}
+		if !files && candidate.id == "wrong-state" {
+			tape = []any{preservedEvent("write", 1, map[string]any{"path": "wrong.txt"})}
+		}
 		if candidate.forbidden {
 			tape = append(tape, preservedEvent("destroy", 2, map[string]any{}))
 		}
@@ -101,6 +173,13 @@ func TestVerifyPreservedActualNativeResultsAndExport(t *testing.T) {
 	require.NoError(t, err)
 	report, err := VerifyPreserved(t.Context(), request)
 	require.NoError(t, err)
+	if !preservedWorkspaceSupported() {
+		requirePreservedUnsupportedWorkspaceReport(t, report)
+		after, err := os.ReadFile(filepath.Join(root, document.Cases[0].Snapshot))
+		require.NoError(t, err)
+		require.Equal(t, before, after)
+		return
+	}
 	require.Equal(t, AssessmentPassed, report.State)
 	require.Equal(t, PreservedReportVersion, report.SchemaVersion)
 	require.Equal(t, PreservedAssessmentMode, report.AssessmentMode)
@@ -233,7 +312,7 @@ func TestVerifyPreservedSourceReviewAndUnavailableGates(t *testing.T) {
 		}, AssessmentInsufficient},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			request, document, root := preservedVerificationFixture(t)
+			request, document, root := preservedPortableVerificationFixture(t)
 			test.mutate(t, &request, &document, root)
 			ctx := t.Context()
 			if test.name == "canceled" {
@@ -319,6 +398,9 @@ func TestPreservedSelectedFileBudgetBoundaries(t *testing.T) {
 }
 
 func TestVerifyPreservedCriticalFalseAcceptanceCannotUseDomainTolerance(t *testing.T) {
+	if !preservedWorkspaceSupported() {
+		t.Skip("actual native file verdict requires supported secure workspace materialization")
+	}
 	request, document, root := preservedVerificationFixture(t)
 	candidate := &document.Cases[2]
 	var raw map[string]any
@@ -380,6 +462,9 @@ func TestVerifyPreservedInputAndAuthoredSelection(t *testing.T) {
 }
 
 func TestVerifyPreservedActualCleanupFailureRetainsNativeResult(t *testing.T) {
+	if !preservedWorkspaceSupported() {
+		t.Skip("post-Grade cleanup requires supported secure workspace materialization")
+	}
 	request, _, _ := preservedVerificationFixture(t)
 	cleanupFailure := errors.New("synthetic cleanup failure after actual native Grade")
 	closes := 0
@@ -416,7 +501,7 @@ func TestVerifyPreservedActualCleanupFailureRetainsNativeResult(t *testing.T) {
 func TestVerifyPreservedCurrentDeclarationNotHistoricalIdentity(t *testing.T) {
 	for _, change := range []string{"changed captured declaration", "missing captured declaration"} {
 		t.Run(change, func(t *testing.T) {
-			request, document, root := preservedVerificationFixture(t)
+			request, document, root := preservedPortableVerificationFixture(t)
 			for i := range document.Cases {
 				candidate := &document.Cases[i]
 				var raw map[string]any
@@ -470,7 +555,7 @@ func TestVerifyPreservedCurrentDeclarationNotHistoricalIdentity(t *testing.T) {
 		})
 	}
 	t.Run("mismatched currently selected native parameters", func(t *testing.T) {
-		request, document, _ := preservedVerificationFixture(t)
+		request, document, _ := preservedPortableVerificationFixture(t)
 		request.Spec.Graders[0].Parameters = models.ToolCallsGraderParameters{RequiredTools: []string{"other-current-tool"}}
 		// Keep the eval binding current to isolate the selected grader binding.
 		digest, err := evidence.JSONDigest(request.Spec)

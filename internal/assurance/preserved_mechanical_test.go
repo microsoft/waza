@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -173,6 +174,13 @@ func requirePreservedResult(t *testing.T, observation Observation, passed bool, 
 	require.Contains(t, observation.Result.Feedback, feedback)
 }
 
+func requireSupportedPreservedWorkspace(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
+		t.Skip("secure preserved workspace materialization is supported only on Linux and macOS")
+	}
+}
+
 func TestPreservedMechanicalNativeFinite12By4(t *testing.T) {
 	// Twelve domain/configuration pairs share the exact declaration across four
 	// candidates. State and forbidden-side-effect verdicts are separate native
@@ -248,17 +256,20 @@ func TestPreservedMechanicalNativeFinite12By4(t *testing.T) {
 							}
 						}
 						requirePreservedResult(t, result, pass, score, feedback)
-						fileParams := models.FileGraderParameters{ContentPatterns: []models.FileContentPatternParameters{{
-							Path: "state.txt", MustMatch: []string{`(?m)^state: ready$`},
-						}}}
-						f.input.Spec = &models.EvalSpec{Graders: []models.GraderConfig{{Identifier: "check", Kind: models.GraderKindFile, Parameters: fileParams}}}
-						f.root["nativeDeclaration"] = f.input.Spec.Graders[0]
-						f.seal(t)
-						filePass, fileScore, fileFeedback := true, 1.0, "passed"
-						if candidate == "critical-wrong-state" {
-							filePass, fileScore, fileFeedback = false, 0.5, "missing expected pattern"
-						}
-						requirePreservedResult(t, ObservePreservedMechanical(t.Context(), f.input), filePass, fileScore, fileFeedback)
+						t.Run("native workspace verdict", func(t *testing.T) {
+							requireSupportedPreservedWorkspace(t)
+							fileParams := models.FileGraderParameters{ContentPatterns: []models.FileContentPatternParameters{{
+								Path: "state.txt", MustMatch: []string{`(?m)^state: ready$`},
+							}}}
+							f.input.Spec = &models.EvalSpec{Graders: []models.GraderConfig{{Identifier: "check", Kind: models.GraderKindFile, Parameters: fileParams}}}
+							f.root["nativeDeclaration"] = f.input.Spec.Graders[0]
+							f.seal(t)
+							filePass, fileScore, fileFeedback := true, 1.0, "passed"
+							if candidate == "critical-wrong-state" {
+								filePass, fileScore, fileFeedback = false, 0.5, "missing expected pattern"
+							}
+							requirePreservedResult(t, ObservePreservedMechanical(t.Context(), f.input), filePass, fileScore, fileFeedback)
+						})
 						after, err := evidence.JSONDigest(params)
 						require.NoError(t, err)
 						require.Equal(t, declared.SHA256, after.SHA256)
@@ -516,19 +527,23 @@ func TestPreservedMechanicalFileAdmissionAndIsolation(t *testing.T) {
 		})
 	}
 	for _, content := range []string{"", "ready forbidden", "ready"} {
-		f := newPreservedFixture(t, models.GraderKindFile, params, []any{}, []snapshot.WorkspaceFile{preservedFile("state.txt", content)})
-		before := bytes.Clone(f.input.SnapshotBytes)
-		score, feedback := 0.75, "missing expected pattern"
-		if content == "ready forbidden" {
-			feedback = "contains forbidden pattern"
-		}
-		if content == "ready" {
-			score, feedback = 1, "passed"
-		}
-		requirePreservedResult(t, ObservePreservedMechanical(t.Context(), f.input), content == "ready", score, feedback)
-		require.Equal(t, before, f.input.SnapshotBytes)
+		t.Run("native content verdict/"+content, func(t *testing.T) {
+			requireSupportedPreservedWorkspace(t)
+			f := newPreservedFixture(t, models.GraderKindFile, params, []any{}, []snapshot.WorkspaceFile{preservedFile("state.txt", content)})
+			before := bytes.Clone(f.input.SnapshotBytes)
+			score, feedback := 0.75, "missing expected pattern"
+			if content == "ready forbidden" {
+				feedback = "contains forbidden pattern"
+			}
+			if content == "ready" {
+				score, feedback = 1, "passed"
+			}
+			requirePreservedResult(t, ObservePreservedMechanical(t.Context(), f.input), content == "ready", score, feedback)
+			require.Equal(t, before, f.input.SnapshotBytes)
+		})
 	}
 	t.Run("required files only and private state", func(t *testing.T) {
+		requireSupportedPreservedWorkspace(t)
 		f := newPreservedFixture(t, models.GraderKindFile, params, []any{}, []snapshot.WorkspaceFile{
 			preservedFile("state.txt", "ready"), preservedFile("evaluator-only.txt", "never materialize"),
 		})
@@ -598,26 +613,29 @@ func TestPreservedMechanicalErrorsCancellationAndLegacy(t *testing.T) {
 		require.Equal(t, OperationalError, result.State)
 		require.ErrorIs(t, result.Err, context.Canceled)
 		require.Nil(t, result.Result)
-		ctx, cancel = context.WithCancel(t.Context())
-		result = observePreservedMechanical(ctx, f.input, preservedMechanicalHooks{prepared: func(*graders.Context) { cancel() }})
-		require.Equal(t, OperationalError, result.State)
-		require.ErrorIs(t, result.Err, context.Canceled)
-		operational := errors.New("synthetic cleanup error")
-		result = observePreservedMechanical(t.Context(), f.input, preservedMechanicalHooks{close: func(close func() error) error {
-			return errors.Join(close(), operational)
-		}})
-		require.Equal(t, OperationalError, result.State)
-		require.ErrorIs(t, result.Err, operational)
-		require.True(t, result.Result.Passed)
-		ctxAfterGrade := &preservedCancelAfterGrade{Context: t.Context()}
-		result = observePreservedMechanical(ctxAfterGrade, f.input, preservedMechanicalHooks{
-			prepared: func(*graders.Context) { ctxAfterGrade.armed = true },
-			close:    func(close func() error) error { return errors.Join(close(), operational) },
+		t.Run("materialized cancellation and cleanup", func(t *testing.T) {
+			requireSupportedPreservedWorkspace(t)
+			ctx, cancel = context.WithCancel(t.Context())
+			result = observePreservedMechanical(ctx, f.input, preservedMechanicalHooks{prepared: func(*graders.Context) { cancel() }})
+			require.Equal(t, OperationalError, result.State)
+			require.ErrorIs(t, result.Err, context.Canceled)
+			operational := errors.New("synthetic cleanup error")
+			result = observePreservedMechanical(t.Context(), f.input, preservedMechanicalHooks{close: func(close func() error) error {
+				return errors.Join(close(), operational)
+			}})
+			require.Equal(t, OperationalError, result.State)
+			require.ErrorIs(t, result.Err, operational)
+			require.True(t, result.Result.Passed)
+			ctxAfterGrade := &preservedCancelAfterGrade{Context: t.Context()}
+			result = observePreservedMechanical(ctxAfterGrade, f.input, preservedMechanicalHooks{
+				prepared: func(*graders.Context) { ctxAfterGrade.armed = true },
+				close:    func(close func() error) error { return errors.Join(close(), operational) },
+			})
+			require.Equal(t, OperationalError, result.State)
+			require.ErrorIs(t, result.Err, context.Canceled)
+			require.ErrorIs(t, result.Err, operational)
+			require.True(t, result.Result.Passed)
 		})
-		require.Equal(t, OperationalError, result.State)
-		require.ErrorIs(t, result.Err, context.Canceled)
-		require.ErrorIs(t, result.Err, operational)
-		require.True(t, result.Result.Passed)
 	})
 	t.Run("native task selection and unchanged legacy Grade", func(t *testing.T) {
 		params := models.ToolCallsGraderParameters{RequiredTools: []string{"write"}}
@@ -690,6 +708,9 @@ func TestPreservedMechanicalAdapterOwnedSizeCaps(t *testing.T) {
 	}
 	for _, size := range []int{preservedMaxFileBytes, preservedMaxFileBytes + 1} {
 		t.Run(fmt.Sprintf("decoded per-file bytes/%d", size), func(t *testing.T) {
+			if size == preservedMaxFileBytes {
+				requireSupportedPreservedWorkspace(t)
+			}
 			// Byte limits apply to decoded UTF-8, not character count or the
 			// enclosing JSON artifact's size.
 			content := strings.Repeat("é", preservedMaxFileBytes/2)
@@ -715,6 +736,9 @@ func TestPreservedMechanicalAdapterOwnedSizeCaps(t *testing.T) {
 	}
 	for _, size := range []int{preservedMaxSelectedBytes, preservedMaxSelectedBytes + 1} {
 		t.Run(fmt.Sprintf("decoded selected aggregate bytes/%d", size), func(t *testing.T) {
+			if size == preservedMaxSelectedBytes {
+				requireSupportedPreservedWorkspace(t)
+			}
 			content := strings.Repeat("r", preservedMaxFileBytes)
 			files := []snapshot.WorkspaceFile{preservedFile("one.txt", content), preservedFile("two.txt", content)}
 			paths := []string{"one.txt", "two.txt"}
@@ -739,6 +763,9 @@ func TestPreservedMechanicalAdapterOwnedSizeCaps(t *testing.T) {
 	}
 	for _, count := range []int{preservedMaxSelectedFiles, preservedMaxSelectedFiles + 1} {
 		t.Run(fmt.Sprintf("selected count/%d", count), func(t *testing.T) {
+			if count == preservedMaxSelectedFiles {
+				requireSupportedPreservedWorkspace(t)
+			}
 			files := make([]snapshot.WorkspaceFile, 0, count)
 			paths := make([]string, 0, count)
 			for index := range count {
@@ -775,6 +802,7 @@ func TestPreservedMechanicalAdapterOwnedSizeCaps(t *testing.T) {
 		require.Nil(t, result.Result)
 	})
 	t.Run("duplicate selected references do not multiply decoded bytes", func(t *testing.T) {
+		requireSupportedPreservedWorkspace(t)
 		f := newPreservedFixture(t, models.GraderKindFile,
 			models.FileGraderParameters{MustExist: []string{"state.txt"}}, []any{},
 			[]snapshot.WorkspaceFile{preservedFile("state.txt", strings.Repeat("r", preservedMaxFileBytes))})
@@ -909,6 +937,7 @@ func TestPreservedMechanicalAdditionalNativeEvidenceBoundaries(t *testing.T) {
 		require.Equal(t, Invalid, ObservePreservedMechanical(t.Context(), f.input).State)
 	})
 	t.Run("original symlink path is never reopened", func(t *testing.T) {
+		requireSupportedPreservedWorkspace(t)
 		f := newPreservedFixture(t, models.GraderKindFile, models.FileGraderParameters{MustExist: []string{"state.txt"}},
 			[]any{}, []snapshot.WorkspaceFile{preservedFile("state.txt", "ready")})
 		sentinel, err := os.MkdirTemp(".", ".preserved-source-")
@@ -976,6 +1005,7 @@ func TestPreservedMechanicalAdditionalNativeEvidenceBoundaries(t *testing.T) {
 		require.Equal(t, Invalid, ObservePreservedMechanical(t.Context(), f.input).State)
 	})
 	t.Run("native grader error remains operational", func(t *testing.T) {
+		requireSupportedPreservedWorkspace(t)
 		params := models.FileGraderParameters{MustExist: []string{"state.txt"}}
 		f := newPreservedFixture(t, models.GraderKindFile, params, []any{}, []snapshot.WorkspaceFile{preservedFile("state.txt", "ready")})
 		f.input.Check.Scope = "task"
@@ -1139,6 +1169,9 @@ func TestPreservedMechanicalOriginalUnicodeEscapeAdmission(t *testing.T) {
 	for _, text := range []string{"😀", `\ud800`} {
 		for _, source := range []string{"event args", "file content"} {
 			t.Run("valid/"+source+"/"+text, func(t *testing.T) {
+				if source == "file content" {
+					requireSupportedPreservedWorkspace(t)
+				}
 				var f *preservedFixture
 				if source == "event args" {
 					f = newPreservedFixture(t, models.GraderKindToolCalls, models.ToolCallsGraderParameters{
@@ -1169,4 +1202,38 @@ func TestPreservedMechanicalOriginalUnicodeEscapeAdmission(t *testing.T) {
 			})
 		}
 	})
+}
+
+func TestPreservedMechanicalUnsupportedWorkspaceIsOperational(t *testing.T) {
+	if runtime.GOOS == "linux" || runtime.GOOS == "darwin" {
+		t.Skip("unsupported materialization control requires a platform other than Linux or macOS")
+	}
+	observedCoverage := 0
+	for _, content := range []string{"ready", "wrong"} {
+		t.Run(content, func(t *testing.T) {
+			f := newPreservedFixture(t, models.GraderKindFile, models.FileGraderParameters{
+				ContentPatterns: []models.FileContentPatternParameters{{Path: "state.txt", MustMatch: []string{"ready"}}},
+			}, []any{}, []snapshot.WorkspaceFile{preservedFile("state.txt", content)})
+			before := bytes.Clone(f.input.SnapshotBytes)
+			prepared, cleaned := false, false
+			result := observePreservedMechanical(t.Context(), f.input, preservedMechanicalHooks{
+				prepared: func(*graders.Context) { prepared = true },
+				close: func(close func() error) error {
+					cleaned = true
+					return close()
+				},
+			})
+			if result.State == Observed || result.Result != nil {
+				observedCoverage++
+			}
+			require.Equal(t, OperationalError, result.State)
+			require.ErrorContains(t, result.Err, "materializing preserved workspace")
+			require.ErrorContains(t, result.Err, "unsupported on this platform")
+			require.Nil(t, result.Result)
+			require.False(t, prepared, "native Grade must not run on an unavailable workspace")
+			require.False(t, cleaned, "no workspace was materialized")
+			require.Equal(t, before, f.input.SnapshotBytes)
+		})
+	}
+	require.Zero(t, observedCoverage, "unsupported platform results cannot contribute observed verdict coverage")
 }

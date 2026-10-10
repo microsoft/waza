@@ -12,7 +12,7 @@ import (
 )
 
 func TestParsePreservedReportStrictClaims(t *testing.T) {
-	request, _, _ := preservedVerificationFixture(t)
+	request, _, _ := preservedPortableVerificationFixture(t)
 	report, err := VerifyPreserved(t.Context(), request)
 	require.NoError(t, err)
 	original := marshalReferenceTest(t, report)
@@ -29,6 +29,7 @@ func TestParsePreservedReportStrictClaims(t *testing.T) {
 		{"authored scope", func(root map[string]any) { preservedWireObservation(root)["source_scope"] = "authored_finite_output" }},
 		{"mislabeled event scope", func(root map[string]any) { preservedWireObservation(root)["source_scope"] = "preserved_file_subset" }},
 		{"mislabeled file scope", func(root map[string]any) {
+			preservedWireObject(preservedWireObservationAt(root, 1)["result"])["type"] = "file"
 			preservedWireObservationAt(root, 1)["source_scope"] = PreservedNativeSourceScope
 		}},
 		{"null passed result", func(root map[string]any) { preservedWireObservation(root)["result"] = nil }},
@@ -187,7 +188,7 @@ func preservedWireDomain(root map[string]any) map[string]any {
 }
 
 func TestPreservedReportNonpassNullAndMissingClaims(t *testing.T) {
-	request, _, _ := preservedVerificationFixture(t)
+	request, _, _ := preservedPortableVerificationFixture(t)
 	request.Calibrate = true
 	report, err := VerifyPreserved(t.Context(), request)
 	require.NoError(t, err)
@@ -209,7 +210,7 @@ func TestPreservedReportNonpassNullAndMissingClaims(t *testing.T) {
 }
 
 func TestPreservedReportSelectedLocalSchemaAndVersionFence(t *testing.T) {
-	request, _, _ := preservedVerificationFixture(t)
+	request, _, _ := preservedPortableVerificationFixture(t)
 	report, err := VerifyPreserved(t.Context(), request)
 	require.NoError(t, err)
 	value, err := jsonschema.UnmarshalJSON(bytes.NewReader(marshalReferenceTest(t, report)))
@@ -223,7 +224,7 @@ func TestPreservedReportSelectedLocalSchemaAndVersionFence(t *testing.T) {
 	require.Error(t, assuranceSchema(t, "grader-assurance-1.1.schema.json").Validate(value))
 	_, err = ParseCalibratedReport(marshalReferenceTest(t, report))
 	require.Error(t, err)
-	oldRequest, _, _ := fileVerificationFixture(t)
+	oldRequest, _, _ := authoredVerificationFixture(t)
 	old, err := Verify(t.Context(), oldRequest)
 	require.NoError(t, err)
 	_, err = ParsePreservedReport(marshalReferenceTest(t, old))
@@ -239,7 +240,7 @@ func TestPreservedReportSelectedLocalSchemaAndVersionFence(t *testing.T) {
 }
 
 func TestPreservedPreObservationResultsAreRejectedByParserAndSchema(t *testing.T) {
-	request, _, _ := preservedVerificationFixture(t)
+	request, _, _ := preservedPortableVerificationFixture(t)
 	report, err := VerifyPreserved(t.Context(), request)
 	require.NoError(t, err)
 	schema, err := preservedReportSchema()
