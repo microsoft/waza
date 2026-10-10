@@ -3,7 +3,10 @@ package releasepolicy
 import (
 	"bytes"
 	"context"
+	"crypto/sha1"
+	"crypto/sha256"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -1043,16 +1046,18 @@ func TestRetryPinnedOriginalJournalOracle(t *testing.T) {
 		t.Fatal(err)
 	}
 	dir := t.TempDir()
-	original, err := exec.CommandContext(t.Context(), "git", "show",
-		"71186704448f61f950480c76226232536366287a:internal/releasepolicy/journal.go").Output()
+	original, err := os.ReadFile(filepath.Join(root, "internal/releasepolicy/testdata/journal_711867044.go.original"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	hash := exec.CommandContext(t.Context(), "git", "hash-object", "--stdin")
-	hash.Stdin = bytes.NewReader(original)
-	blob, err := hash.Output()
-	if err != nil || strings.TrimSpace(string(blob)) != "6f98e45697bf826877bd9062bf147f7b3e7abd55" {
-		t.Fatalf("original blob not pinned: %s %v", blob, err)
+	sourceSHA := fmt.Sprintf("%x", sha256.Sum256(original))
+	if sourceSHA != "0afd2da4386c76094df514ff748619764c726fa53e4bb4c355c16e20fea7fc29" {
+		t.Fatalf("original source SHA-256 not pinned: %s", sourceSHA)
+	}
+	blobBytes := append([]byte(fmt.Sprintf("blob %d\x00", len(original))), original...)
+	blobSHA := fmt.Sprintf("%x", sha1.Sum(blobBytes))
+	if blobSHA != "6f98e45697bf826877bd9062bf147f7b3e7abd55" {
+		t.Fatalf("original Git blob not pinned: %s", blobSHA)
 	}
 	write := func(name string, data []byte) string {
 		t.Helper()
