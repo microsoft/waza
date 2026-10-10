@@ -101,6 +101,22 @@ domain. These intermediate projections do not reconstruct retained source
 custody, allocate policy slots, certify retry state or enable a native collector.
 No public profile, command, schema or decision handling changes.
 
+The separate private G2 capture path retains typed directory/node observations
+and ordered consumer read associations under an independent version-1 seal.
+It returns a distinct private capture handle; existing `Prepared` handles are
+not implicitly upgraded. Legacy capture limits and canonical CLIENT/source/
+primitive identities remain unchanged. Root-free reconstruction reparses actual
+retained eval/task/prompt bytes and uses the same native request constructor,
+checking complete CLIENT bytes, discovery/query order, every consumed role and
+both source projections before returning any result. It neither reopens roots
+nor reconstructs OS file metadata. Visited empty directories and finite observed
+missing lookups remain explicit; they do not prove future absence or currentness.
+Independent pinned original capture/constructor and discovery oracles cover this
+path, including reconstruction after roots close or disappear. New bounds apply
+only to the private selected capture path; Windows directory capture remains
+unsupported. Slot allocation, retry-prefix inspection, public collection,
+current-review/budget/lifecycle integration and provider execution remain absent.
+
 ## Offline planning and collection
 
 ```bash

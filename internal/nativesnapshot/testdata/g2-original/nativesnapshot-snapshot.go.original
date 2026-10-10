@@ -253,76 +253,49 @@ func bind(ctx context.Context, location ArmLocation) (boundLocation, error) {
 }
 
 func recapture(ctx context.Context, bindings map[releasepolicy.Arm]boundLocation) ([]byte, map[releasepolicy.Arm][]source, error) {
-	canonical, sources, _, err := recaptureNative(ctx, bindings, nil)
-	return canonical, sources, err
-}
-
-func recaptureNative(ctx context.Context, bindings map[releasepolicy.Arm]boundLocation, budget *associationBudget) ([]byte, map[releasepolicy.Arm][]source, map[releasepolicy.Arm]armAssociations, error) {
 	snapshots := make(map[releasepolicy.Arm]armSnapshot, 2)
 	sources := make(map[releasepolicy.Arm][]source, 2)
-	associations := make(map[releasepolicy.Arm]armAssociations, 2)
 	total := 0
 	taskCount := 0
 	for _, arm := range []releasepolicy.Arm{releasepolicy.Baseline, releasepolicy.Candidate} {
 		binding := bindings[arm]
 		current, err := bind(ctx, binding.location)
 		if err != nil {
-			return nil, nil, nil, fmt.Errorf("%s root/cwd association changed: %w", arm, err)
+			return nil, nil, fmt.Errorf("%s root/cwd association changed: %w", arm, err)
 		}
 		if current.base != binding.base || !os.SameFile(binding.identity, current.identity) ||
 			!os.SameFile(binding.cwdIdentity, current.cwdIdentity) {
-			return nil, nil, nil, fmt.Errorf("%s root/cwd association changed", arm)
+			return nil, nil, fmt.Errorf("%s root/cwd association changed", arm)
 		}
-		var recorder *associationRecorder
-		if budget != nil {
-			recorder = newAssociationRecorder(ctx, binding.base, budget)
-		}
-		var snapshot armSnapshot
-		var inventory []source
-		if recorder == nil {
-			snapshot, inventory, err = captureArm(ctx, binding, &total)
-		} else {
-			snapshot, inventory, err = captureArmRecorded(ctx, binding, &total, recorder)
-		}
+		snapshot, inventory, err := captureArm(ctx, binding, &total)
 		if err != nil {
-			return nil, nil, nil, fmt.Errorf("%s native capture: %w", arm, err)
-		}
-		if recorder != nil {
-			associated, err := recorder.finish(inventory)
-			if err != nil {
-				return nil, nil, nil, err
-			}
-			associations[arm] = associated
+			return nil, nil, fmt.Errorf("%s native capture: %w", arm, err)
 		}
 		current, err = bind(ctx, binding.location)
 		if err != nil {
-			return nil, nil, nil, fmt.Errorf("%s root/cwd association changed during capture: %w", arm, err)
+			return nil, nil, fmt.Errorf("%s root/cwd association changed during capture: %w", arm, err)
 		}
 		if !os.SameFile(binding.identity, current.identity) ||
 			!os.SameFile(binding.cwdIdentity, current.cwdIdentity) {
-			return nil, nil, nil, fmt.Errorf("%s root/cwd association changed during capture", arm)
+			return nil, nil, fmt.Errorf("%s root/cwd association changed during capture", arm)
 		}
 		snapshots[arm], sources[arm] = snapshot, inventory
 		taskCount += len(snapshot.Tasks)
 		if taskCount > maxTasks {
-			return nil, nil, nil, fmt.Errorf("two-arm native task limit exceeded")
+			return nil, nil, fmt.Errorf("two-arm native task limit exceeded")
 		}
 	}
 	canonical, err := json.Marshal(snapshots)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
 	if len(canonical) > maxProjectionBytes {
-		return nil, nil, nil, fmt.Errorf("native projection exceeds bounded limit")
+		return nil, nil, fmt.Errorf("native projection exceeds bounded limit")
 	}
-	return canonical, sources, associations, nil
+	return canonical, sources, nil
 }
 
 func captureArm(ctx context.Context, binding boundLocation, total *int) (armSnapshot, []source, error) {
-	return captureArmRecorded(ctx, binding, total, nil)
-}
-
-func captureArmRecorded(ctx context.Context, binding boundLocation, total *int, recorder *associationRecorder) (armSnapshot, []source, error) {
 	location := binding.location
 	files := &capturedFiles{ctx: ctx, root: location.Root, base: binding.base,
 		data: map[string][]byte{}, info: map[string]os.FileInfo{},
@@ -338,14 +311,7 @@ func captureArmRecorded(ctx context.Context, binding boundLocation, total *int, 
 	}
 	read := func(path, role string) ([]byte, error) {
 		files.role = role
-		data, err := files.ReadFile(filepath.Join(binding.base, path))
-		if err == nil && recorder != nil {
-			err = recorder.read(path, role)
-		}
-		return data, err
-	}
-	if recorder != nil {
-		recorder.set(evalPhase, 0)
+		return files.ReadFile(filepath.Join(binding.base, path))
 	}
 	eval, err := read(location.EvalPath, "eval")
 	if err != nil {
@@ -371,13 +337,7 @@ func captureArmRecorded(ctx context.Context, binding boundLocation, total *int, 
 	}
 	specDir := filepath.Dir(evalPath)
 	lockPath := filepath.Join(filepath.Dir(location.EvalPath), models.LockfileName)
-	lockInfo, err := files.check(lockPath)
-	if recorder != nil {
-		recorder.set(lockPhase, 0)
-		if recordErr := recorder.observe(lockPath, "present_lock", lockInfo, err); recordErr != nil {
-			return result, nil, recordErr
-		}
-	}
+	_, err = files.check(lockPath)
 	if err == nil {
 		if _, err := read(lockPath, "present_lock"); err != nil {
 			return result, nil, err
@@ -385,15 +345,12 @@ func captureArmRecorded(ctx context.Context, binding boundLocation, total *int, 
 	} else if !errors.Is(err, fs.ErrNotExist) {
 		return result, nil, err
 	}
-	if recorder != nil {
-		recorder.set(executablePhase, 0)
-	}
 	if _, err := read(location.Executable, "executable"); err != nil {
 		return result, nil, err
 	}
 	ids := map[string]bool{}
 	enabled := 0
-	for patternIndex, pattern := range spec.Tasks {
+	for _, pattern := range spec.Tasks {
 		if err := canonical(pattern, false); err != nil {
 			return result, nil, err
 		}
@@ -401,12 +358,7 @@ func captureArmRecorded(ctx context.Context, binding boundLocation, total *int, 
 			return result, nil, err
 		}
 		rootPattern := filepath.Join(filepath.Dir(location.EvalPath), pattern)
-		var discoveryInput fs.FS = discoveryFiles{files}
-		if recorder != nil {
-			recorder.set(discoveryPhase, uint32(patternIndex))
-			discoveryInput = associatedDiscoveryFiles{discoveryFiles{files}, recorder}
-		}
-		matches, err := fs.Glob(discoveryInput, rootPattern)
+		matches, err := fs.Glob(discoveryFiles{files}, rootPattern)
 		if err != nil {
 			return result, nil, err
 		}
@@ -418,31 +370,17 @@ func captureArmRecorded(ctx context.Context, binding boundLocation, total *int, 
 			if len(result.Tasks) >= maxTasks {
 				return result, nil, fmt.Errorf("native task limit exceeded")
 			}
-			if recorder != nil {
-				recorder.set(taskPhase, uint32(len(result.Tasks)))
-			}
 			taskBytes, err := read(path, "task")
 			if err != nil {
 				return result, nil, err
 			}
 			files.role = "prompt_file"
-			if recorder != nil {
-				recorder.set(promptPhase, uint32(len(result.Tasks)))
-			}
 			task, err := models.ParseTestCaseOffline(taskBytes, filepath.Join(binding.base, path), func(promptPath string) ([]byte, error) {
 				rel, err := filepath.Rel(filepath.Dir(filepath.Join(binding.base, path)), promptPath)
 				if err != nil || canonical(rel, false) != nil {
 					return nil, fmt.Errorf("unsupported prompt_file path")
 				}
-				data, err := files.ReadFile(promptPath)
-				if err == nil && recorder != nil {
-					label, labelErr := files.relative(promptPath)
-					if labelErr != nil {
-						return nil, labelErr
-					}
-					err = recorder.read(label, "prompt_file")
-				}
-				return data, err
+				return files.ReadFile(promptPath)
 			})
 			if err != nil {
 				return result, nil, err
@@ -514,17 +452,7 @@ func captureArmRecorded(ctx context.Context, binding boundLocation, total *int, 
 					return result, nil, fmt.Errorf("missing/unsupported native request input: %w", files.sticky)
 				}
 				files.frozen = true
-				var request *execution.ExecutionRequest
-				if recorder == nil {
-					request, err = orchestration.BuildCapturedNativeRequest(spec, task, specDir, contextDir, files)
-				} else {
-					recorder.set(requestPhase, uint32(len(result.Tasks)))
-					request, err = orchestration.BuildRetainedNativeRequest(ctx, spec, task, specDir, contextDir,
-						&semanticRequestInputs{inputs: orchestration.AdaptRequestFiles(files), files: files, recorder: recorder, role: "request_input"})
-					if err == nil {
-						err = recorder.err
-					}
-				}
+				request, err := orchestration.BuildCapturedNativeRequest(spec, task, specDir, contextDir, files)
 				files.frozen = false
 				if err != nil {
 					return result, nil, err
@@ -559,11 +487,6 @@ func captureArmRecorded(ctx context.Context, binding boundLocation, total *int, 
 	}
 	if err := files.verifyStable(); err != nil {
 		return result, nil, err
-	}
-	if recorder != nil {
-		if err := recorder.recheckMissing(files); err != nil {
-			return result, nil, err
-		}
 	}
 	inventory := files.inventory()
 	result.Sources = make([]sourceIdentity, 0, len(inventory))

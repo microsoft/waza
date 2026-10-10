@@ -46,7 +46,6 @@ type responderClassifier interface {
 type EvalRunner struct {
 	cfg              *config.EvalConfig
 	requestFiles     RequestFiles
-	requestInputs    RequestInputs
 	engine           execution.AgentEngine
 	verbose          bool
 	controlledOutput func(string)
@@ -1809,10 +1808,10 @@ func (r *EvalRunner) loadContextFixtureResources(tc *models.TestCase) ([]executi
 // LoadContextFixtureResources reads local fixtures with runtime containment and
 // symlink rules. It does not create a workspace or initialize an engine.
 func LoadContextFixtureResources(tc *models.TestCase, baseDir string) ([]execution.ResourceFile, error) {
-	return loadContextFixtureResources(tc, baseDir, requestFilesInputs{nativeRequestFiles{}})
+	return loadContextFixtureResources(tc, baseDir, nativeRequestFiles{})
 }
 
-func loadContextFixtureResources(tc *models.TestCase, baseDir string, files RequestInputs) ([]execution.ResourceFile, error) {
+func loadContextFixtureResources(tc *models.TestCase, baseDir string, files RequestFiles) ([]execution.ResourceFile, error) {
 	fixtureValue, ok := tc.Stimulus.Metadata["fixture"]
 	if !ok {
 		return nil, nil
@@ -1852,17 +1851,17 @@ func loadContextFixtureResources(tc *models.TestCase, baseDir string, files Requ
 		return nil, fmt.Errorf("inputs.context.fixture path %q escapes spec directory", fixturePath)
 	}
 
-	kind, err := files.Kind(fullPath)
+	info, err := files.Stat(fullPath)
 	if err != nil {
 		return nil, fmt.Errorf("reading inputs.context.fixture %q: %w", fixturePath, err)
 	}
 
 	// Re-check containment using symlink-resolved paths.
-	realFullPath, err := files.Resolve(fullPath)
+	realFullPath, err := files.EvalSymlinks(fullPath)
 	if err != nil {
 		return nil, fmt.Errorf("resolving symlinks for inputs.context.fixture %q: %w", fixturePath, err)
 	}
-	realBaseDir, err := files.Resolve(absBaseDir)
+	realBaseDir, err := files.EvalSymlinks(absBaseDir)
 	if err != nil {
 		return nil, fmt.Errorf("resolving symlinks for spec directory: %w", err)
 	}
@@ -1870,7 +1869,7 @@ func loadContextFixtureResources(tc *models.TestCase, baseDir string, files Requ
 		return nil, fmt.Errorf("inputs.context.fixture path %q escapes spec directory", fixturePath)
 	}
 
-	if kind != RequestInputDirectory {
+	if !info.IsDir() {
 		content, err := files.ReadFile(fullPath)
 		if err != nil {
 			return nil, fmt.Errorf("reading inputs.context.fixture file %q: %w", fixturePath, err)
@@ -1882,11 +1881,14 @@ func loadContextFixtureResources(tc *models.TestCase, baseDir string, files Requ
 	}
 
 	var resources []execution.ResourceFile
-	err = files.Walk(fullPath, func(path string, kind RequestInputKind) error {
-		if kind == RequestInputSymlink {
+	err = files.WalkDir(fullPath, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.Type()&os.ModeSymlink != 0 {
 			return nil
 		}
-		if kind == RequestInputDirectory {
+		if d.IsDir() {
 			return nil
 		}
 
