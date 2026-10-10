@@ -89,6 +89,18 @@ collection eligibility: each future selected slot needs its own independent
 join/admission. No filesystem reads, preparation, admission or execution occur
 in the join itself. Callers must independently recheck sources for currentness.
 
+`internal/controlledprojection` computes complete task/suite identity domains,
+settings, arm digests and golden inventories from already prepared typed inputs.
+The mock planner reuses its legacy projection without new limits or numeric
+normalization. The separate bounded `NativePlan` supports only offline native-text,
+no-skills, deny-all declarations; its dependency label describes declared client
+configuration, not server isolation. Runtime implementation and model version
+remain explicitly unavailable. Independent tests compare the original mock
+planner and actual captured native request construction against every identity
+domain. These intermediate projections do not reconstruct retained source
+custody, allocate policy slots, certify retry state or enable a native collector.
+No public profile, command, schema or decision handling changes.
+
 ## Offline planning and collection
 
 ```bash
