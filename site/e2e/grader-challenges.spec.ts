@@ -53,3 +53,15 @@ test('paid calibration reference preserves legacy selection and explicit consent
   await expect(section).toContainText('default 10m; not a spend cap');
   await expect(section).toContainText('partial report is output even when the API also returns an error');
 });
+
+test('preserved-native profile stays separate from default readers and calibration', async ({ page }) => {
+  await page.goto('/waza/guides/graders/');
+  await expect(page.getByRole('heading', { name: 'Separately selected preserved-native assurance', exact: true })).toBeVisible();
+  const section = page.locator('.sl-markdown-content');
+  await expect(section).toContainText('preserved_native_mechanical_assurance');
+  await expect(section).toContainText('Missing/null arguments are not an empty object');
+  await expect(section).toContainText('256 selected paths');
+  await expect(section).toContainText('cannot be promoted by synthetic complete fixtures');
+  await expect(section).toContainText('No engine factory or paid execution');
+  await expect(section).toContainText('Historical grader correspondence is not certified');
+});

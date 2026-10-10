@@ -114,6 +114,38 @@ The positive cooperative timeout defaults to 10m; partial reports remain availab
 with execution errors. See the [explicit calibration flags](/waza/reference/cli/#waza-assure-calibrate)
 for error exits, source/provider boundaries and output persistence.
 
+### Separately selected preserved-native assurance
+
+The offline evaluator API `assurance.VerifyPreserved` selects report `1.2` and
+`preserved_native_mechanical_assurance`; `assurance.ParsePreservedReport` is its
+separate strict reader. Default CLI assurance, offline `Verify`, calibrated
+`1.1` reading and dashboard inspection do not select this profile.
+
+It challenges the current selected grader against preserved artifacts. The
+native-declaration binding identifies that current declaration, not the grader
+or source version used in an earlier execution. Historical grader correspondence
+is not certified.
+
+It checks actual snapshot bytes, exact native origins/artifact locators and
+digests, complete unredacted selected evidence and consumed raw field presence
+before invoking existing tool-call, tool-constraint, action-sequence and
+required-file existence/content graders. Canonical event arguments and
+normalized digest arguments retain their native differences. Complete explicit
+empty tapes are specific to this operation; the nonempty-tape importer is
+unchanged. Missing/null arguments are not an empty object.
+
+Selected files cannot prove absence. Adapter limits are 16 MiB raw snapshot,
+4 MiB decoded bytes per file, 8 MiB selected-file total and 256 selected paths.
+Unsupported modes remain not assessed. Unknown historical collector completeness
+cannot be promoted by synthetic complete fixtures.
+
+Strict pass requires eligible supplied review, verified provenance, complete
+scoped coverage and actual mechanical agreement; targeted critical false
+acceptance independently fails. Calibration remains not selected with null
+billing and no ledger, even if requested. No engine factory or paid execution
+is involved. See the
+[preserved-native boundary](https://github.com/microsoft/waza/blob/main/docs/GRADER-CHALLENGES.md#separately-selected-preserved-native-observations).
+
 ---
 
 ## At a glance

@@ -31,3 +31,6 @@ var GraderAssuranceSchemaJSON string
 
 //go:embed grader-assurance-1.1.schema.json
 var CalibratedGraderAssuranceSchemaJSON string
+
+//go:embed grader-assurance-1.2.schema.json
+var PreservedGraderAssuranceSchemaJSON string

@@ -607,6 +607,14 @@ for the matrix, runnable command and evidence limitations.
 
 ### Strict preserved-file assurance
 
+For native selected tool-event and workspace evidence, the separate internal
+`assurance.VerifyPreserved` API and `assurance.ParsePreservedReport` select
+report `1.2`; default CLI/report/dashboard flows do not. Native origin,
+artifact completeness, raw argument presence and actual grader agreement are
+required. File subsets cannot prove absence, unknown historical capture remains
+unknown, and calibration is always not selected with null billing. See the
+[preserved-native scope and limits](GRADER-CHALLENGES.md#separately-selected-preserved-native-observations).
+
 `waza assure eval.yaml --references labels.json` observes native file graders
 against complete unredacted preserved files, without a task agent or model.
 Finite authored output can separately challenge native text and inline-schema

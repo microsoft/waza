@@ -50,6 +50,13 @@ and skill flows remain unchanged. Bundled labels are unreviewed; declarations do
 not authenticate human review. Unknown input completeness and absence from a
 subset cannot become assurance success.
 
+The separately selected internal preserved-native mechanical operation uses
+report `1.2`, checking whole selected tool artifacts and private selected-file
+materialization with original byte/presence/provenance admission. Native grader
+semantics are reused, including distinct canonical versus digest arguments.
+Unknown historical capture, unsupported modes and file-subset absence remain
+nonpass; no paid calibration or automatic CLI/dashboard dispatch is introduced.
+
 The independent authored-output profile is evaluator-supplied finite text,
 not historical execution, complete tool evidence or observed billing. Native
 historical consumers reject its exact outer `schemaVersion: "2.0"` and

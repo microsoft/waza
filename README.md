@@ -159,6 +159,8 @@ waza assure eval.yaml --references labels.json
 # Existing `assure --calibrate` remains unavailable and makes zero paid calls.
 # A separate `assure calibrate` command requires reviewed inputs and explicit
 # --accept-paid-calls; it can incur provider usage and is never enabled by default.
+# Internal preserved-native mechanical assurance has a separately selected 1.2
+# API/profile; default CLI and dashboard readers do not admit it automatically.
 
 # Note: 'generate' is available as an alias for 'new' (see below for new command)
 # Note: Custom agents (.agent.md) are supported — see https://microsoft.github.io/waza/guides/custom-agents/

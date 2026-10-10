@@ -75,6 +75,63 @@ agreement with a reviewed bad label.
 
 ## In-memory mechanical observations
 
+### Separately selected preserved-native observations
+
+`assurance.VerifyPreserved(ctx, VerifyRequest)` is a separate offline operation
+for selected native tool-event and captured-workspace artifacts.
+`assurance.ParsePreservedReport` admits only its version-`1.2` profile,
+`preserved_native_mechanical_assurance`. Default `Verify`, CLI assurance,
+calibrated version-`1.1` admission and dashboard readers do not select this
+profile automatically.
+
+This operation challenges the **current selected grader** against preserved
+artifacts. Its `native_grader_declaration_json_v1` binding identifies that
+current eval/task declaration, not a claim that a prior execution used the same
+grader, configuration, source revision or version. A snapshot's historical
+native-declaration artifact is not that binding's authority. Historical grader
+correspondence requires a separately verified source/declaration contract and
+is not established here.
+
+The adapter checks original snapshot bytes, manifest identity, exact artifact
+kind/ID/locator, native task/run origin, selected content digests and raw field
+presence before invoking existing graders. Explicit complete, unredacted `[]`
+tool events are operation-specific evidence, not a relaxation of the importer
+that requires nonempty tapes. Missing/null tapes or relevant arguments remain
+insufficient; an explicitly present argument object may be empty. Canonical
+event arguments and normalized session-digest arguments retain their distinct
+native grader semantics.
+
+Supported checks are native tool calls, tool constraints, action sequences and
+required-file existence/content. Selected files are a subset and cannot prove
+absence; unresolved references and other unsupported modes remain not assessed.
+Private materialization includes only verified selected files. Adapter-owned
+limits are 16 MiB raw snapshot bytes, 4 MiB decoded bytes per selected file,
+8 MiB total selected-file bytes and 256 distinct selected paths. These are
+admission bounds, not certification of capture completeness.
+
+Version `1.2` uses `preserved_native_selected_artifacts` for events and
+`preserved_file_subset` for files, never authored-output scope. Calibration is
+always not selected with zero samples/executions, null billing and no judge
+ledger; selecting calibration on this operation cannot execute or pass.
+Strict pass requires eligible supplied review, verified required provenance,
+supported actual grader results, complete scoped coverage and mechanical
+agreement. An incorrectly accepted targeted critical negative fails
+independently; unrelated checks may legitimately pass for that same candidate.
+
+Pre-observation not-assessed, insufficient or invalid observations cannot contain
+a grader result. An operational error after grading may retain the actual known
+result, for example when private-workspace cleanup fails; agreement remains null
+and the observation cannot contribute passing coverage.
+
+Synthetic complete fixtures establish only finite fixture behavior. Current
+historical collector completeness is unknown and cannot be upgraded by this
+operation. Parser admission is not authenticated review or re-execution.
+Deterministic adapter and report controls run without an engine factory:
+
+```bash
+NO_COLOR=1 go test ./internal/assurance -run 'Preserved' -count=1
+```
+
 `internal/assurance.ObserveDeclaredMechanical` resolves an actual eval, task or
 checkpoint declaration through the shared pure preflight lookup and invokes its
 existing grader. The identity includes task ID, scope, checkpoint turn where
