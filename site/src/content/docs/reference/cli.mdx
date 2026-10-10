@@ -1157,6 +1157,13 @@ Executable-byte provenance is specific to the exact platform/build. No assurance
 cache is reused. Existing `grade`, `run` and golden-task semantics are unchanged.
 See [grader challenges](/guides/graders/#challenge-the-checks-not-just-the-answer).
 
+The separate internal evaluator API `assurance.Calibrate` has no default engine
+factory and does not enable paid CLI execution. Its version-1.1 report claims
+require separate explicit consumer selection; the CLI above continues to emit
+offline version `1.0`. See the
+[evaluator boundary](/waza/guides/graders/) for selection, notice, supported
+rubric modes and missing/operational evidence.
+
 ## waza grade
 
 Re-grade previous evaluation results without re-executing the agent.

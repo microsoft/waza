@@ -71,9 +71,19 @@ Missing/unknown evidence, unreviewed labels and critical false acceptance fail
 the gate. Supply a current review source explicitly; do not promote bundled
 candidate labels to reviewed truth in automation.
 
-Calibration is not currently available: requesting it makes no paid calls and
+CLI calibration is not currently available: requesting it makes no paid calls and
 returns not assessed, with unknown usage/credits remaining null. This offline
 gate does not certify external state, runtime history or statistical confidence.
+
+The **Offline Grader Assurance** repository workflow separately tests the
+evaluator calibration producer through injected deterministic engines. It
+proves a rejecting native-runtime guard before exporting actual API reports,
+requires exact frozen offline-reader rejection of calibrated version `1.1`
+with a passing offline version-`1.0` control, and checks the same returned
+reports in the explicitly selected browser inspector. Fixed test review
+declarations are synthetic, not authenticated human labels. The job does not
+configure a production factory, invoke a paid model or certify runtime/server
+isolation. Full Go and compatibility gates remain independent.
 
 ### Quick Start ΓÇö Scaffold with waza init
 

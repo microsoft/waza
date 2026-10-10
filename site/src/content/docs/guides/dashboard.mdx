@@ -93,6 +93,22 @@ historical run. Importing rejects malformed/ambiguous raw JSON, invalid UTF-8,
 non-finite numbers and unsupported shapes; it does not verify report freshness,
 fingerprints, evidence or reviewer identity.
 
+Calibrated report `1.1` claims require the separate **Explicitly inspect
+calibrated report 1.1** selection; they are not silently accepted by the default
+offline reader. Changing that selection clears the previous report. The
+versioned calibrated shape includes the explicit independent-authored-rubric
+operation and a required judge execution ledger; unknown versions or missing
+ledger fields are rejected.
+
+The ledger separates initialization, actual execution, native callback counts,
+requested model, received-event model attribution, authoritative accounting
+attribution, finalized usage/credits and sanitized lifecycle diagnostics.
+Unavailable models or credits remain unavailable; callback counts are not
+billable-call counts. These are supplied claims, not reverified execution,
+exhaustive event delivery or server-side tool isolation. Inspection neither
+runs nor authorizes paid calibration, authenticates labels, or accepts the
+report for a historical run.
+
 Scoped requirement links lead to case observations with actual native verdict,
 score and feedback, artifact-relative evidence references, coverage and separate
 review/provenance states. Invalid, unavailable, unsupported and operational

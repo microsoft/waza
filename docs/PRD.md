@@ -66,6 +66,16 @@ Selecting an unavailable calibration plan records not assessed with zero executi
 and null observed usage/credits; it is not measured calibration or confidence.
 `max_judge_executions` never bounds SDK follow-up billable calls or spend.
 
+The separate evaluator-selected calibration API has no default factory or paid
+CLI execution. It requires a pre-initialization notice carrying the reviewed plan
+and admitted unique-job count, frozen evaluator-owned declarations/finite inputs/
+local rubric bytes, and source-bound native grading with finalized diagnostics,
+independent model attribution and accounting. Version-1.1 claims require explicit
+consumer selection; strict agreement does not erase operational failure or
+critical false acceptance. Tested client-side callback policy/guards do not
+certify exhaustive server isolation. Missing review, evidence, attribution,
+accounting or unsupported calibration modes remain non-passing.
+
 ### Workflow Author
 - **Role:** Developer evaluating MCP, CLI or repository workflows
 - **Goals:** Author scenario suites without an unrelated `SKILL.md`, retaining optional skill/custom-agent context

@@ -643,6 +643,15 @@ exit 1/not assessed without human review. The dashboard's separate **Assurance**
 view inspects the report locally without uploading it, rechecking its supplied
 claims or associating it with historical runs.
 
+The separate evaluator API `assurance.Calibrate` requires explicit selection,
+a bound local rubric root, a construction-only engine factory and a successful
+paid-call notice before any initialization. It has no default factory or paid
+CLI wiring; `waza assure --calibrate` therefore remains unavailable. Its
+version-1.1 reports require explicit inspector selection and show supplied judge
+lifecycle/model/accounting claims. See the
+[calibration API boundary](GRADER-CHALLENGES.md#explicit-evaluator-calibration-api)
+for supported modes, fixed-domain criteria, ownership and missing/error states.
+
 ### Existing-workflow compatibility examples
 
 The [recorded compatibility examples](../examples/compatibility/README.md) cover

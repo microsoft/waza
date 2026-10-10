@@ -32,3 +32,12 @@ test('assure CLI documents explicit review and unavailable paid calibration', as
   await expect(section).toContainText('null usage/credits');
   await expect(section).toContainText('Existing grade, run and golden-task semantics are unchanged');
 });
+
+test('evaluator calibration and ledger inspection remain explicitly separate from CLI execution', async ({ page }) => {
+  await page.goto('/waza/guides/graders/');
+  await expect(page.getByText(/The separate evaluator API/)).toContainText('assurance.Calibrate');
+  await expect(page.getByText(/It has no default factory/)).toBeVisible();
+  await page.getByRole('link', { name: 'dashboard inspection', exact: true }).click();
+  await expect(page.getByText(/Calibrated report 1.1 claims require the separate/)).toBeVisible();
+  await expect(page.locator('.sl-markdown-content')).toContainText('Inspection neither runs nor authorizes paid calibration');
+});

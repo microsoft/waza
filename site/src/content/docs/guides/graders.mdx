@@ -89,10 +89,20 @@ evidence and operational errors never count as correct negative rejection.
 Any wrongly accepted targeted critical bad case fails independently of average
 agreement. These finite cases supply no universal confidence guarantee.
 
-Model calibration is currently unavailable: `--calibrate` reports not assessed,
+CLI model calibration remains unavailable: `--calibrate` reports not assessed,
 makes zero paid calls and leaves usage/credits null. See the
 [CLI reference](/reference/cli/#waza-assure) and
 [exact contract](https://github.com/microsoft/waza/blob/main/docs/GRADER-CHALLENGES.md#strict-file-content-assurance).
+
+The separate evaluator API `assurance.Calibrate` requires explicit selection,
+a bound local rubric, frozen native declarations and inputs, a construction-only
+factory and successful pre-initialization notice. It has no default factory.
+Independent native callbacks, lifecycle diagnostics and independent received-event/
+accounting attribution remain distinct from native candidate verdicts; missing
+or operational evidence cannot establish strict pass. Report-1.1 claims require
+separate explicit [dashboard inspection](/waza/guides/dashboard/#grader-assurance).
+Neither schema admission nor a finite agreement authenticates human review,
+proves exhaustive server isolation or authorizes paid calls.
 
 ---
 

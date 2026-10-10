@@ -13,10 +13,16 @@ function Bindings({ bindings }: { bindings: AssuranceBinding[] | null }) {
   )}</dl>;
 }
 
+function modelNames(models: string[] | null) {
+  return models == null ? "unavailable" : models.length ? models.join(", ") : "none reported";
+}
+
 export default function AssurancePage() {
   const [report, setReport] = useState<AssuranceReport | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [allowCalibrated, setAllowCalibrated] = useState(false);
   const generation = useRef(0);
+  const fileInput = useRef<HTMLInputElement>(null);
 
   async function load(file: File | undefined) {
     const current = ++generation.current;
@@ -29,7 +35,7 @@ export default function AssurancePage() {
     }
     try {
       const bytes = await file.arrayBuffer();
-      const parsed = parseAssuranceReport(new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes));
+      const parsed = parseAssuranceReport(new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes), allowCalibrated);
       if (current === generation.current) setReport(parsed);
     } catch {
       if (current === generation.current) setError("Cannot inspect this report: invalid JSON, unsupported kind/version/shape, unreadable file, or display limit exceeded.");
@@ -43,9 +49,19 @@ export default function AssurancePage() {
       Importing validates raw JSON and shape, not claimed assessment states, digest bindings, fresh evidence or reviewer identity.
       It does not rerun graders.
     </p>
+    <label className="flex items-center gap-2 text-sm text-zinc-200">
+      <input type="checkbox" checked={allowCalibrated} onChange={(event) => {
+        ++generation.current;
+        setAllowCalibrated(event.currentTarget.checked);
+        setReport(null);
+        setError(null);
+        if (fileInput.current) fileInput.current.value = "";
+      }} />
+      Explicitly inspect calibrated report 1.1 claims (does not run or authorize paid calibration)
+    </label>
     <label className="block text-sm text-zinc-200">
       Supplied assurance report
-      <input className="mt-2 block rounded border border-zinc-700 p-2" type="file" accept=".json,application/json"
+      <input ref={fileInput} className="mt-2 block rounded border border-zinc-700 p-2" type="file" accept=".json,application/json"
         onChange={(event) => void load(event.currentTarget.files?.[0])} />
     </label>
     {error && <p role="alert" className="rounded border border-red-500/40 p-4 text-red-400">{error}</p>}
@@ -54,8 +70,31 @@ export default function AssurancePage() {
       <section className="rounded border border-zinc-700 p-4" aria-label="Supplied assessment">
         <h2 className="text-lg text-zinc-100">Supplied assessment: {report.state}</h2>
         <p className="text-zinc-300">{report.reason}</p>
+        <p className="text-sm text-zinc-400">Report version: {report.schema_version};
+          {" "}operation: {report.schema_version === "1.1" ? report.assessment_mode : "offline verification"}.</p>
         <p className="break-all text-sm text-zinc-400">Exact label bytes SHA-256: {report.labels_sha256}</p>
       </section>
+      {report.schema_version === "1.1" && <section aria-label="Supplied judge execution ledger" className="space-y-3">
+        <h2 className="text-lg text-zinc-100">Supplied judge execution ledger</h2>
+        <p className="text-sm text-zinc-400">Declared lifecycle and accounting, not reverified execution or server isolation.
+          Model attribution concerns received events and reported accounting, not exhaustive event delivery.</p>
+        {!report.calibration.execution_ledger.length && <p className="text-zinc-400">No judge execution evidence supplied.</p>}
+        {report.calibration.execution_ledger.map((entry, index) => <details key={index} className="rounded border border-zinc-700 p-3">
+          <summary className="cursor-pointer text-zinc-200">{entry.case_id}/{entry.task_id}/{entry.requirement_id}: {entry.state}</summary>
+          <div className="mt-3 space-y-2 text-sm text-zinc-300">
+            <p>{entry.check.scope}/{entry.check.grader}{entry.check.after_turn == null ? "" : ` turn ${entry.check.after_turn}`}: {entry.reason}</p>
+            <p>Initialized: {String(entry.initialized)}; executed: {String(entry.executed)}; native callbacks: {entry.callbacks} (not billable calls).</p>
+            <p>Requested model: {entry.requested_model}</p>
+            <p>Received event models: {modelNames(entry.event_models)};
+              {" "}attribution complete: {String(entry.event_model_attribution_complete)}</p>
+            <p>Accounting models: {modelNames(entry.accounting_models)};
+              {" "}attribution complete: {String(entry.accounting_model_attribution_complete)}</p>
+            <p>Usage source: {entry.usage_source || "unavailable"}; usage complete: {String(entry.usage_complete)};
+              {" "}credits: {entry.credits == null ? "unavailable" : formatAICredits(entry.credits)}</p>
+            <p>Sanitized diagnostics: {entry.diagnostics.map((diagnostic) => `${diagnostic.stage}/${diagnostic.code}`).join(", ") || "none supplied"}</p>
+          </div>
+        </details>)}
+      </section>}
       <section className="rounded border border-zinc-700 p-4" aria-label="Supplied review and provenance">
         <h2 className="mb-3 text-lg text-zinc-100">Supplied review and provenance</h2>
         <p className="mb-3 text-zinc-300">

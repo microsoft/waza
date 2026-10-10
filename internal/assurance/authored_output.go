@@ -104,23 +104,10 @@ func NewAuthoredOutput(subjectID, caseID, taskID string, ordinal int, output *st
 }
 
 var referenceInputSchema = sync.OnceValues(func() (*jsonschema.Schema, error) {
-	compiler := jsonschema.NewCompiler()
-	for resource, source := range map[string]string{
+	return compileLocalSchema("grader-reference-input-1.0.schema.json", map[string]string{
 		"evidence-manifest-1.1.schema.json":      schemas.ReferenceInputEvidenceManifestSchemaJSON,
 		"grader-reference-input-1.0.schema.json": schemas.GraderReferenceInputSchemaJSON,
-	} {
-		var value any
-		if err := json.Unmarshal([]byte(source), &value); err != nil {
-			return nil, err
-		}
-		if err := compiler.AddResource(resource, value); err != nil {
-			return nil, err
-		}
-		if err := compiler.AddResource("https://raw.githubusercontent.com/microsoft/waza/main/schemas/"+resource, value); err != nil {
-			return nil, err
-		}
-	}
-	return compiler.Compile("grader-reference-input-1.0.schema.json")
+	})
 })
 
 func ParseAuthoredOutput(data []byte) (*AuthoredOutput, error) {

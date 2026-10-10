@@ -442,46 +442,9 @@ func verifyAuthoredCase(ctx context.Context, request VerifyRequest, candidate Re
 		observation.Reason = "rubric_not_applicable"
 		return observation
 	}
-	if err := ctx.Err(); err != nil {
-		observation.State, observation.Reason = OperationalError, "assessment_interrupted"
+	input, observation := verifyAuthoredInput(ctx, request, candidate, check, observation)
+	if input == nil {
 		return observation
-	}
-	data, err := ReadDocument(ctx, request.SnapshotRoot, candidate.AuthoredInput.Path, maxSnapshotBytes)
-	if err != nil {
-		observation.State, observation.Reason = InsufficientEvidence, "authored_input_unavailable"
-		if !errors.Is(err, os.ErrNotExist) {
-			observation.State, observation.Reason = OperationalError, "authored_input_read_failed"
-		}
-		return observation
-	}
-	if byteSHA256(data) != candidate.AuthoredInput.DocumentSHA256 {
-		observation.Reason = "authored_document_binding_invalid"
-		return observation
-	}
-	input, err := ParseAuthoredOutput(data)
-	if err != nil || input.CaseID() != candidate.ID || input.Manifest().SHA256 != candidate.ManifestSHA256 {
-		observation.Reason = "authored_profile_binding_invalid"
-		return observation
-	}
-	if input.Output() == nil {
-		observation.State, observation.Reason = InsufficientEvidence, "authored_output_unavailable"
-		return observation
-	}
-	document, err := request.References.Document()
-	if err != nil {
-		observation.State, observation.Reason = OperationalError, "reference_document_unavailable"
-		return observation
-	}
-	for _, reference := range check.Evidence {
-		if reference.Origin.EvalID != "reference:"+document.ID ||
-			reference.Origin.TaskID != candidate.TaskID || reference.Pointer != "/output" {
-			observation.Reason = "authored_reference_invalid"
-			return observation
-		}
-		if err := evidence.VerifyContent(input.Manifest(), reference, input.ProjectionBytes(), true, true); err != nil {
-			observation.State, observation.Reason = InsufficientEvidence, "authored_content_not_verified"
-			return observation
-		}
 	}
 	observed := ObserveDeclaredMechanical(ctx, request.Tasks[candidate.TaskID], request.Spec, check.Check,
 		&graders.Context{Output: *input.Output(), TestCase: request.Tasks[candidate.TaskID]})
@@ -496,6 +459,51 @@ func verifyAuthoredCase(ctx context.Context, request VerifyRequest, candidate Re
 		observation.Reason = "label_disagreement"
 	}
 	return observation
+}
+
+func verifyAuthoredInput(ctx context.Context, request VerifyRequest, candidate ReferenceCase, check ReferenceCheck, observation ChallengeObservation) (*AuthoredOutput, ChallengeObservation) {
+	if err := ctx.Err(); err != nil {
+		observation.State, observation.Reason = OperationalError, "assessment_interrupted"
+		return nil, observation
+	}
+	data, err := ReadDocument(ctx, request.SnapshotRoot, candidate.AuthoredInput.Path, maxSnapshotBytes)
+	if err != nil {
+		observation.State, observation.Reason = InsufficientEvidence, "authored_input_unavailable"
+		if !errors.Is(err, os.ErrNotExist) {
+			observation.State, observation.Reason = OperationalError, "authored_input_read_failed"
+		}
+		return nil, observation
+	}
+	if byteSHA256(data) != candidate.AuthoredInput.DocumentSHA256 {
+		observation.Reason = "authored_document_binding_invalid"
+		return nil, observation
+	}
+	input, err := ParseAuthoredOutput(data)
+	if err != nil || input.CaseID() != candidate.ID || input.Manifest().SHA256 != candidate.ManifestSHA256 {
+		observation.Reason = "authored_profile_binding_invalid"
+		return nil, observation
+	}
+	if input.Output() == nil {
+		observation.State, observation.Reason = InsufficientEvidence, "authored_output_unavailable"
+		return nil, observation
+	}
+	document, err := request.References.Document()
+	if err != nil {
+		observation.State, observation.Reason = OperationalError, "reference_document_unavailable"
+		return nil, observation
+	}
+	for _, reference := range check.Evidence {
+		if reference.Origin.EvalID != "reference:"+document.ID ||
+			reference.Origin.TaskID != candidate.TaskID || reference.Pointer != "/output" {
+			observation.Reason = "authored_reference_invalid"
+			return nil, observation
+		}
+		if err := evidence.VerifyContent(input.Manifest(), reference, input.ProjectionBytes(), true, true); err != nil {
+			observation.State, observation.Reason = InsufficientEvidence, "authored_content_not_verified"
+			return nil, observation
+		}
+	}
+	return input, observation
 }
 
 func pointerValue(value any, pointer string) (any, error) {

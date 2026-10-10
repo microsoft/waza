@@ -7,6 +7,26 @@ description: Complete reference for eval.yaml and task file formats.
 
 Complete reference for YAML schema used in waza evaluations.
 
+## Separate grader-assurance reports
+
+Assurance documents do not change native eval/task/historical result versions.
+Offline reports use `waza.grader-assurance` version `1.0`; calibrated evaluator
+reports use version `1.1` with required
+`assessment_mode: independent_authored_rubric_calibration` and a required
+`calibration.execution_ledger` array. Default offline readers reject `1.1`;
+explicit consumer selection is required.
+
+The calibrated ledger distinguishes actual lifecycle/callback evidence,
+requested model, independent received-event and accounting attribution,
+sanitized diagnostics and finalized usage/credits. Incomplete usage is null,
+not zero; known complete accounting survives operational failure. Exact
+versioned schemas reject unknown members and inconsistent lifecycle shapes.
+Supplied-claim admission additionally checks aggregate accounting, provenance
+and scoped finite-case/domain consistency, but does not authenticate a reviewer
+or re-execute source evidence. See the
+[grader guide](/waza/guides/graders/) and
+[explicit inspector](/waza/guides/dashboard/#grader-assurance).
+
 ## Optional descriptive task requirements
 
 `requirements` is an optional task array. Each entry has `id` (task-local stable

@@ -184,7 +184,95 @@ exhaustive event delivery or billed usage. It must not be inferred from the
 requested model or substituted for authoritative accounting attribution.
 These support APIs alone do not implement calibration, authorize paid calls,
 authenticate labels or produce an assuring report. `Verify` remains offline,
-and published report consumers remain on report version `1.0`.
+and default offline report consumers remain on report version `1.0`.
+
+The explicit calibrated-report admission contract has the same report kind,
+version `1.1` and required operation
+`independent_authored_rubric_calibration`. Its execution ledger separates
+requested models from independent received-event and accounting attribution,
+and records lifecycle/callback/diagnostic evidence without treating absent
+accounting as zero. Strict supplied-claim admission reconciles aggregate
+accounting, scoped observations, provenance, coverage and domain criteria.
+Mechanical domains require every agreement; they cannot dilute paid-domain
+agreement or acquire judge-ledger entries. Critical false acceptance cannot
+average away under ordinary paid disagreement thresholds.
+
+The dashboard inspector can explicitly select this versioned shape, displaying
+supplied ledger claims without re-verification or paid execution. Default
+offline reading still rejects version `1.1`. Schema/claim admission is not
+producer correctness, authenticated review, measured calibration or full
+assurance acceptance; those require their separate implementation and gates.
+
+![Explicit calibrated-claim inspection with unavailable initialization evidence](images/assurance-calibrated-report.png)
+
+### Explicit evaluator calibration API
+
+`assurance.Calibrate(ctx, CalibrateRequest)` is separate from offline `Verify`.
+The request embeds `VerifyRequest` and requires explicit `Calibrate: true`, a
+separate evaluator-owned `RubricRoot *os.Root`, a construction-only
+`EngineFactory(model, diagnosticObserver) (CalibrationEngine, error)`, and
+`PaidCallNotice(plan, admittedUniqueExecutions) error`. There is no default
+engine factory or paid CLI integration. Missing selection/factory/notice or
+notice refusal produces a non-passing report with no judge executions.
+
+The notice runs only after current supplied-review eligibility, exact source/
+configuration/executable/declaration/rubric bindings, finite input completeness,
+coverage, independent stimuli, effective model and execution ceiling checks.
+It receives both the unchanged reviewed plan and actual admitted job count.
+Declarations, inputs, original rubric bytes and jobs are frozen before either
+callback. Factory callbacks must not initialize or execute; ownership includes
+every nonnil returned engine even when accompanied by an error.
+
+Initial support is independent finite authored-output judging against a bound
+local rubric file in eval/task scope. Native inline prompt overrides remain
+effective when accompanied by that bound rubric. Pairwise, continuing-session,
+checkpoint, historical paid-input, builtin-rubric, inline-only and unexpanded
+reference modes are unsupported. Golden/reference-answer field presence,
+including null or empty forms, is rejected before notice or initialization.
+Duplicate effective stimuli are conservatively
+rejected rather than multiplying samples. Paid domain criteria must use one
+effective rubric/judging configuration; separate mechanical domains remain
+strict and cannot dilute them.
+
+Selected native `RunAll` grading preserves defaults and fresh callback handlers.
+Each admitted job owns a fresh engine lifecycle; shutdown uses an independent,
+30-second cleanup context even after cancellation. That deadline bounds
+cooperative API waits, not an uncooperative engine's shutdown or process join.
+Cancellation halts admission of new executions without suppressing cleanup
+failures or known accounting. Only finalized accounting is
+reported; known zero is distinct from missing usage. Report `1.1` masks partial
+ledger usage as null when completeness is unavailable, rather than certifying
+partial snapshots. Native results and complete known accounting survive
+operational failures, but agreement becomes unavailable and strict pass is
+blocked. A usable ledger entry does not mean the candidate received a pass.
+
+Callers must inspect both returned errors and report state: structurally invalid
+inputs, freezing failures or internal contradictions can return an error, while
+ineligible/unsupported evidence returns a non-passing assessment. The protocol
+describes supplied finite-corpus agreement, not authenticated human review,
+statistical confidence or runtime isolation certification. An execution ceiling
+does not cap automatic provider calls, native callbacks, credits or spending.
+
+### Offline producer compatibility gate
+
+The [injected offline calibration example](../examples/grader-challenges/calibration/README.md)
+shows the callable request/current-source acceptance boundary and runnable native
+callback tests without a production factory or human-certification claim.
+
+The **Offline Grader Assurance** CI workflow exports actual returned reports
+using deterministic injected engines and explicitly synthetic review fixtures.
+An independently verified rejecting `COPILOT_CLI_PATH` prevents native runtime
+launch; `ENABLE_COPILOT_TESTS=false` alone is not that guard.
+
+`scripts/verify-frozen-assurance-reader.cjs` extracts the exact published offline
+inspector and schemas from immutable commit
+`d82cba11265919996660e02d348bb92a3ff1fd4d`, records source/output SHA-256 values,
+and transpiles TypeScript without changing reader logic. Actual calibrated
+producer reports must reject there while an actual offline `Verify` report
+remains accepted. The explicit browser inspector then exercises those same
+returned reports, including operational failure with retained known accounting.
+This is producer-output compatibility proof, not a live model assessment,
+authenticated review or runtime/server certification.
 
 ## Strict file-content assurance
 

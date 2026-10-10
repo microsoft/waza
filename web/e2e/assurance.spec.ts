@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import path from "node:path";
 import { mockAllAPIs } from "./helpers/api-mock";
 
 function suppliedReport(state = "failed", credits: number | null = null) {
@@ -122,4 +123,98 @@ test("overflowing numeric claims anywhere reject and clear a displayed report", 
     await expect(page.getByRole("alert")).toContainText("Cannot inspect");
     await expect(page.getByRole("heading", { name: /Supplied assessment/ })).toHaveCount(0);
   }
+});
+
+function suppliedCalibratedReport() {
+  const report = suppliedReport("operational_error");
+  return {
+    ...report, schema_version: "1.1", assessment_mode: "independent_authored_rubric_calibration",
+    calibration: {
+      ...report.calibration, state: "operational_error", reason: "synthetic_initialize_failure",
+      protocol: "fixed_corpus_agreement_v1", model: "synthetic-model", max_judge_executions: 1,
+      execution_ledger: [{
+        case_id: "bad", task_id: "task", requirement_id: "state", check: { scope: "eval", grader: "check" },
+        initialized: false, executed: false, callbacks: 0, requested_model: "synthetic-model",
+        event_models: null, accounting_models: null, event_model_attribution_complete: false,
+        accounting_model_attribution_complete: false, usage_source: "", usage_complete: false,
+        state: "operational_error", reason: "synthetic_initialize_failure",
+        diagnostics: [{ stage: "initialize", code: "start_failed" }], usage: null, credits: null,
+      }],
+    },
+  };
+}
+
+test("calibrated claims require explicit version selection and expose unavailable lifecycle evidence", async ({ page }) => {
+  const requests: string[] = [];
+  page.on("request", (request) => { if (request.method() !== "GET") requests.push(request.url()); });
+  await page.goto("/#/assurance");
+  const input = page.getByLabel("Supplied assurance report");
+  const report = suppliedCalibratedReport();
+  await input.setInputFiles({ name: "calibrated.json", mimeType: "application/json", buffer: Buffer.from(JSON.stringify(report)) });
+  await expect(page.getByRole("alert")).toContainText("Cannot inspect");
+  await page.getByRole("checkbox", { name: /Explicitly inspect calibrated report 1.1/ }).check();
+  await expect(input).toHaveValue("");
+  await input.setInputFiles({ name: "calibrated.json", mimeType: "application/json", buffer: Buffer.from(JSON.stringify(report)) });
+  await expect(page.getByText(/Report version: 1.1/)).toBeVisible();
+  await page.getByText("bad/task/state: operational_error", { exact: true }).click();
+  await expect(page.getByText(/Initialized: false; executed: false; native callbacks: 0/)).toBeVisible();
+  await expect(page.getByText(/Received event models: unavailable/)).toBeVisible();
+  await expect(page.getByText(/Accounting models: unavailable/)).toBeVisible();
+  await expect(page.getByText(/Sanitized diagnostics: initialize\/start_failed/)).toBeVisible();
+  await page.screenshot({ path: "../docs/images/assurance-calibrated-report.png", fullPage: true });
+  await page.getByRole("checkbox", { name: /Explicitly inspect calibrated report 1.1/ }).uncheck();
+  await expect(input).toHaveValue("");
+  await expect(page.getByRole("heading", { name: /Supplied assessment/ })).toHaveCount(0);
+  expect(requests).toEqual([]);
+});
+
+test("selected calibrated claims reject incomplete ledgers and do not reinterpret offline versions", async ({ page }) => {
+  await page.goto("/#/assurance");
+  await page.getByRole("checkbox", { name: /Explicitly inspect calibrated report 1.1/ }).check();
+  const valid = JSON.stringify(suppliedCalibratedReport());
+  const invalid = [
+    valid.replace('"execution_ledger":[', '"unknown_ledger":['),
+    valid.replace('"execution_ledger":[', '"execution_ledger":null,"unknown_ledger":['),
+    valid.replace('"schema_version":"1.1"', '"schema_version":"1.0"'),
+    valid.replace('"schema_version":"1.1"', '"schema_version":"1.2"'),
+    valid.replace('"callbacks":0', '"callbacks":1'),
+    valid.replace('"credits":null', '"credits":1e400'),
+    valid.replace('"initialized":false', '"initialized":true,"initialized":false'),
+    valid.replace('"event_model_attribution_complete":false', '"event_model_attribution_complete":true'),
+  ];
+  for (const text of invalid) {
+    await page.getByLabel("Supplied assurance report").setInputFiles({
+      name: "invalid-ledger.json", mimeType: "application/json", buffer: Buffer.from(text),
+    });
+    await expect(page.getByRole("alert")).toContainText("Cannot inspect");
+    await expect(page.getByRole("heading", { name: /Supplied assessment/ })).toHaveCount(0);
+  }
+  const report = suppliedCalibratedReport();
+  report.calibration.execution_ledger = [];
+  await page.getByLabel("Supplied assurance report").setInputFiles({
+    name: "empty-ledger.json", mimeType: "application/json", buffer: Buffer.from(JSON.stringify(report)),
+  });
+  await expect(page.getByText("No judge execution evidence supplied.")).toBeVisible();
+});
+
+test("actual offline producer outputs retain version boundaries and operational failures", async ({ page }) => {
+  const directory = process.env.WAZA_CALIBRATION_REPORT_DIR;
+  test.skip(!directory, "Requires actual deterministic Calibrate and Verify export gate.");
+  if (!directory) return;
+  await page.goto("/#/assurance");
+  const input = page.getByLabel("Supplied assurance report");
+  await input.setInputFiles(path.join(directory, "verify-control-1.0.json"));
+  await expect(page.getByRole("heading", { name: "Supplied assessment: passed", exact: true })).toBeVisible();
+  await expect(page.getByText(/Report version: 1.0/)).toBeVisible();
+  await input.setInputFiles(path.join(directory, "positive-calibrated-1.1.json"));
+  await expect(page.getByRole("alert")).toContainText("Cannot inspect");
+  await page.getByRole("checkbox", { name: /Explicitly inspect calibrated report 1.1/ }).check();
+  await input.setInputFiles(path.join(directory, "positive-calibrated-1.1.json"));
+  await expect(page.getByRole("heading", { name: "Supplied assessment: passed", exact: true })).toBeVisible();
+  await expect(page.getByText(/Judge executions: 4\/4/)).toBeVisible();
+  await expect(page.getByText(/Supplied observed credits: 0.00/)).toBeVisible();
+  await input.setInputFiles(path.join(directory, "operational-failure-calibrated-1.1.json"));
+  await expect(page.getByRole("heading", { name: "Supplied assessment: operational_error", exact: true })).toBeVisible();
+  await expect(page.getByText(/Supplied observed credits: 2.50/)).toBeVisible();
+  await expect(page.getByRole("region", { name: "Supplied judge execution ledger" })).toBeVisible();
 });
