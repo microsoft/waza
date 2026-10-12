@@ -319,6 +319,9 @@ task glob selects local metadata. If both locations collide or select an extra
 task, generation fails before writing; narrow the task-directory glob or use a
 different eval filename. Existing suites require regeneration to adopt this
 policy.
+`waza migrate` validates supported scenario evals without rewriting them,
+including custom `.yaml`/`.yml` filenames such as `evals/inventory/suite.yml`.
+Legacy YAML filename rules and JSON-results recognition remain unchanged.
 In YAML and JSON, a present `scenario` key must contain a nonblank string and
 requires exact eval schema `2.0`. Null, booleans, numbers, arrays and objects
 are invalid; omit the key entirely to keep legacy eval semantics.

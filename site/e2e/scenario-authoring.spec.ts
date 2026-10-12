@@ -33,4 +33,8 @@ test('CLI reference distinguishes scenario outputs from legacy trigger tasks', a
   await expect(main).toContainText('CLI/MCP scenarios retain two graders.');
   await expect(main).toContainText('Metadata files are also protected against overwrite.');
   await expect(main).toContainText('fixtures/*.yaml is supported, but fixtures/* selects .gitkeep');
+  await expect(main).toContainText('Legacy eval/task/result defaults remain 1.4.');
+  await expect(main).toContainText('Custom .yaml/.yml filenames');
+  await expect(main).toContainText('JSON dispatch remains results-only');
+  await expect(main).toContainText('waza migrate evals/inventory/suite.yml');
 });

@@ -146,6 +146,10 @@ glob selects local metadata. If both paths are selected or collide with the eval
 or task, generation fails before writing: narrow the task-directory glob or
 choose a different eval filename. Regenerate older suites to adopt this policy;
 attributes alone do not rewrite an existing working copy.
+`waza migrate evals/inventory/suite.yml` validates a supported scenario YAML
+without changing it. Custom `.yaml`/`.yml` filenames require a present scenario
+header with exact schema `2.0`; legacy YAML keeps its `eval.yaml`/`eval.yml`
+filename convention, and JSON retains results-artifact recognition.
 
 ### Step 1: Initialize a Project
 

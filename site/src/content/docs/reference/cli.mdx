@@ -726,7 +726,23 @@ Check or migrate a public schema artifact.
 waza migrate <file>
 ```
 
-The current schema version is `1.0`, so v1 `eval.yaml` and `results.json` files are already current and this command makes no file changes. When Waza introduces a future breaking schema, this command is where explicit major-version migrations will run.
+Legacy eval/task/result defaults remain `1.4`. Compatible legacy YAML evals use
+the `eval.yaml`/`eval.yml` filename convention; JSON results are recognized by
+their artifact shape, including custom `.json` filenames.
+
+A present `scenario` header requires a nonblank native string and exact schema
+`2.0`, including in canonical `eval.yaml`/`eval.yml` files. Supported scenario
+evals are validated without rewriting them. Custom `.yaml`/`.yml` filenames,
+such as a configured `files.evalFile: suite.yml` or a custom `--output`, are
+recognized only when the scenario header is present. Task/unrelated YAML and
+custom-named legacy YAML are not treated as evals.
+
+This does not extend migration recognition to scenario `.json`, extensionless
+or metadata filenames; JSON dispatch remains results-only even though the
+scaffold can emit YAML to other filenames. Use a `.yaml`/`.yml` filename when
+checking a scenario with `migrate`. Invalid present headers, unsupported
+versions and invalid scenario bodies fail without changing the file. Future
+breaking changes will require explicit migration steps here.
 
 ### Arguments
 
@@ -739,6 +755,7 @@ The current schema version is `1.0`, so v1 `eval.yaml` and `results.json` files 
 ```bash
 waza migrate eval.yaml
 waza migrate results.json
+waza migrate evals/inventory/suite.yml
 ```
 
 ## waza coverage
