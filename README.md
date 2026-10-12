@@ -297,7 +297,9 @@ or harness-only mocked MCP examples. These templates explicitly use the real
 not agent quality. See [scenario examples](examples/scenarios/README.md).
 Scenario task files retain `tasks/` when it matches `files.taskGlob`, including
 wildcard-directory globs; otherwise they use a matching literal directory.
-Incompatible or unsafe configurations fail before writing.
+Incompatible or unsafe configurations fail before writing. The task glob must
+select only generated task files, not evals, fixtures or metadata. For example,
+`fixtures/*.yaml` works, while `fixtures/*` also selects `.gitkeep` and is rejected.
 Scenario scaffolding rejects symlinked parent directories in the selected
 output path, including the scaffold root and generated task/fixture parents.
 Use a physical output path instead. Relative paths start at the retained working
@@ -307,6 +309,19 @@ expected `/private` targets. Writes retain admitted directories and cannot be
 redirected by subsequently replacing their path entries; moving an admitted
 directory can move its outputs. This is not a whole-scaffold transaction or a
 filesystem sandbox.
+The repository template has three existing file graders: report outcome,
+absence of `private.txt`, and byte-exact final preservation of `inventory.txt`.
+The CLI/MCP templates retain two graders. Preservation checks final workspace
+bytes, not transient writes or filesystem isolation.
+Repository scaffolds include a fixture-scoped `.gitattributes` to preserve
+inventory LF bytes through Git checkout; a safe root-level rule is used if the
+task glob selects local metadata. If both locations collide or select an extra
+task, generation fails before writing; narrow the task-directory glob or use a
+different eval filename. Existing suites require regeneration to adopt this
+policy.
+In YAML and JSON, a present `scenario` key must contain a nonblank string and
+requires exact eval schema `2.0`. Null, booleans, numbers, arrays and objects
+are invalid; omit the key entirely to keep legacy eval semantics.
 
 Creates:
 - `evals/<skill-name>/<files.evalFile>`

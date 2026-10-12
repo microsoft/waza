@@ -109,7 +109,9 @@ uses a harness-only mocked MCP dependency, not production-service evidence.
 [sanitized scenario examples](../examples/scenarios/README.md).
 Scenario evals require explicit `schemaVersion: "2.0"` and a nonempty string
 `scenario`. Tasks/results retain `1.x`. Old executables reject eval `2.0`
-before execution. Optional `skill` uses existing skill/custom-agent precedence;
+before execution. In YAML and JSON, null, blank or non-string `scenario` values
+are invalid, not legacy opt-outs; omit the key entirely for a legacy eval.
+Optional `skill` uses existing skill/custom-agent precedence;
 without it or explicit directories, ambient discovery is disabled. An empty
 task `skill_directories: []` disables discovery; `--no-skills` overrides all
 contexts. Fixtures default to the eval's `fixtures/` directory. `inputs.files`
@@ -119,7 +121,9 @@ template explicitly sets `fixtures/inventory.txt`). Generated outputs remain
 relative to each fresh task workspace.
 The scenario task stays under `tasks/` when selected by `files.taskGlob`
 (including wildcard-directory globs), otherwise in a matching literal
-directory; incompatible globs/suffixes fail before writing. Disabling
+directory; incompatible globs/suffixes fail before writing. The glob must select
+only generated tasks, not evals, fixtures or metadata: use `fixtures/*.yaml`
+instead of `fixtures/*`, which also selects `.gitkeep`. Disabling
 the last eval skill directory does not re-enable ambient discovery.
 Scenario generation rejects symlinked parents in the selected output path;
 replace them with physical directories or choose a physical `--output` path.
@@ -130,6 +134,18 @@ a parent path cannot redirect creation. Renaming an admitted directory may move
 its outputs; earlier directories/files can remain after a later error. This does
 not add rollback or a filesystem sandbox, and other scaffolding commands are
 unchanged.
+
+The repository template uses three file graders: report outcome, absence of
+`private.txt`, and exact final `inventory.txt` bytes. The third grader fails on
+changed, missing or differently terminated source content; it does not track
+transient writes. CLI/MCP templates retain their two existing graders.
+
+Repository generation includes `fixtures/.gitattributes` to keep inventory LF
+bytes through Git checkout, or a safe root `.gitattributes` when a custom task
+glob selects local metadata. If both paths are selected or collide with the eval
+or task, generation fails before writing: narrow the task-directory glob or
+choose a different eval filename. Regenerate older suites to adopt this policy;
+attributes alone do not rewrite an existing working copy.
 
 ### Step 1: Initialize a Project
 

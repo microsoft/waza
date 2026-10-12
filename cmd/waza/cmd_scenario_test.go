@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"testing"
 
 	"github.com/microsoft/waza/internal/models"
@@ -91,7 +92,7 @@ func TestScenarioScaffoldDefaultAndCustomOutput(t *testing.T) {
 }
 
 func TestScenarioScaffoldPreflightsEveryOutput(t *testing.T) {
-	for _, existing := range []string{"eval.yaml", "tasks/workflow.yaml", "fixtures/inventory.txt"} {
+	for _, existing := range []string{"eval.yaml", "tasks/workflow.yaml", "fixtures/inventory.txt", "fixtures/.gitattributes"} {
 		t.Run(existing, func(t *testing.T) {
 			t.Chdir(t.TempDir())
 			path := filepath.Join("evals", "inventory", existing)
@@ -106,11 +107,45 @@ func TestScenarioScaffoldPreflightsEveryOutput(t *testing.T) {
 			after, err := os.ReadFile(path)
 			require.NoError(t, err)
 			require.Equal(t, original, after)
-			for _, output := range []string{"eval.yaml", "tasks/workflow.yaml", "fixtures/inventory.txt", "fixtures/.gitkeep"} {
+			for _, output := range []string{"eval.yaml", "tasks/workflow.yaml", "fixtures/inventory.txt", "fixtures/.gitkeep", "fixtures/.gitattributes"} {
 				if output != existing {
 					require.NoFileExists(t, filepath.Join("evals", "inventory", output))
 				}
 			}
+		})
+	}
+}
+
+func TestScenarioScaffoldAttributeFallback(t *testing.T) {
+	t.Chdir(t.TempDir())
+	require.NoError(t, os.WriteFile(".waza.yaml", []byte("files:\n  taskGlob: fixtures/*.gitattributes\n  taskFileSuffix: .gitattributes\n"), 0o600))
+	attribute := filepath.Join("evals", "inventory", ".gitattributes")
+	require.NoError(t, os.MkdirAll(filepath.Dir(attribute), 0o755))
+	original := []byte("keep original attributes\n")
+	require.NoError(t, os.WriteFile(attribute, original, 0o600))
+	root := newRootCommand()
+	root.SetOut(&bytes.Buffer{})
+	root.SetErr(&bytes.Buffer{})
+	root.SetArgs([]string{"new", "eval", "inventory", "--scenario"})
+	require.ErrorContains(t, root.Execute(), "refusing to overwrite")
+	after, err := os.ReadFile(attribute)
+	require.NoError(t, err)
+	require.Equal(t, original, after)
+	require.NoFileExists(t, filepath.Join("evals", "inventory", "eval.yaml"))
+	require.NoDirExists(t, filepath.Join("evals", "inventory", "fixtures"))
+}
+
+func TestScenarioScaffoldAttributeBoundaryBeforeWriting(t *testing.T) {
+	for _, glob := range []string{"fixtures/*.gitattributes", "**/*.gitattributes"} {
+		t.Run(glob, func(t *testing.T) {
+			t.Chdir(t.TempDir())
+			require.NoError(t, os.WriteFile(".waza.yaml", []byte("files:\n  taskGlob: "+strconv.Quote(glob)+"\n  taskFileSuffix: .gitattributes\n"), 0o600))
+			root := newRootCommand()
+			root.SetOut(&bytes.Buffer{})
+			root.SetErr(&bytes.Buffer{})
+			root.SetArgs([]string{"new", "eval", "inventory", "--scenario", "--output", filepath.Join("evals", "inventory", ".gitattributes")})
+			require.ErrorContains(t, root.Execute(), "no safe inventory Git attribute path")
+			require.NoDirExists(t, "evals")
 		})
 	}
 }
@@ -128,6 +163,25 @@ func TestScenarioScaffoldOutputParentIsFile(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "keep original bytes", string(after))
 	require.NoDirExists(t, "evals")
+}
+
+func TestScenarioScaffoldNonTaskSelectionBeforeWriting(t *testing.T) {
+	for _, template := range []string{"repository", "cli", "mcp"} {
+		t.Run(template, func(t *testing.T) {
+			for _, glob := range []string{"fixtures/*", "fixtures/*.*", "tasks/../fixtures/*"} {
+				t.Run(glob, func(t *testing.T) {
+					t.Chdir(t.TempDir())
+					require.NoError(t, os.WriteFile(".waza.yaml", []byte("files:\n  taskGlob: "+strconv.Quote(glob)+"\n"), 0o600))
+					root := newRootCommand()
+					root.SetOut(&bytes.Buffer{})
+					root.SetErr(&bytes.Buffer{})
+					root.SetArgs([]string{"new", "eval", "inventory", "--scenario", "--template", template})
+					require.ErrorContains(t, root.Execute(), "selects generated non-task file")
+					require.NoDirExists(t, "evals")
+				})
+			}
+		})
+	}
 }
 
 func TestScenarioDoesNotClaimSkillCoverage(t *testing.T) {

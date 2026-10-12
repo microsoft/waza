@@ -1,10 +1,13 @@
 package models
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
 
+	"github.com/microsoft/waza/schemas"
+	"github.com/santhosh-tekuri/jsonschema/v6"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
 )
@@ -25,7 +28,7 @@ func TestScenarioVersionBoundary(t *testing.T) {
 		{"no-scenario-v2", "skill: reader\nschemaVersion: \"2.0\"\n", "schema major"},
 		{"empty-scenario", "scenario: \"\"\nschemaVersion: \"2.0\"\n", "non-empty"},
 		{"blank-scenario", "scenario: \"  \"\nschemaVersion: \"2.0\"\n", "non-empty"},
-		{"invalid-scenario-type", "scenario: {name: inventory}\nschemaVersion: \"2.0\"\n", "parsing eval spec YAML"},
+		{"invalid-scenario-type", "scenario: {name: inventory}\nschemaVersion: \"2.0\"\n", "non-empty string"},
 		{"unknown-scenario-field", "scenario: inventory\nschemaVersion: \"2.0\"\ncontext: {agent: reader}\n", "field context not found"},
 		{"legacy-unknown-field", "skill: reader\nschemaVersion: \"1.99\"\nfuture_metadata: safe\n", ""},
 		{"required-without-context", "scenario: inventory\nschemaVersion: \"2.0\"\nconfig:\n  trials_per_task: 1\n  timeout_seconds: 30\n  required_skills: [reader]\n", "explicit skill_directories"},
@@ -48,6 +51,145 @@ func TestScenarioVersionBoundary(t *testing.T) {
 			if spec.Scenario != "" {
 				require.Equal(t, ScenarioSchemaVersion, spec.SchemaVersion)
 			}
+		})
+	}
+}
+
+func TestScenarioPresenceNativeSchemaMatrix(t *testing.T) {
+	var document any
+	require.NoError(t, json.Unmarshal([]byte(schemas.EvalSchemaJSON), &document))
+	compiler := jsonschema.NewCompiler()
+	require.NoError(t, compiler.AddResource("eval.schema.json", document))
+	schema, err := compiler.Compile("eval.schema.json")
+	require.NoError(t, err)
+	for _, format := range []string{"yaml", "json"} {
+		for _, version := range []string{"", "1.0", "2.0", "2.1"} {
+			for _, tc := range []struct {
+				name    string
+				present bool
+				value   any
+			}{
+				{"absent", false, nil},
+				{"null", true, nil},
+				{"number", true, 42},
+				{"boolean", true, true},
+				{"object", true, map[string]any{}},
+				{"array", true, []any{"recovery"}},
+				{"blank", true, " \t\n"},
+				{"string", true, "recovery"},
+			} {
+				t.Run(format+"/"+version+"/"+tc.name, func(t *testing.T) {
+					fields := map[string]any{
+						"name": "presence", "skill": "reader",
+						"config":  map[string]any{"executor": "mock", "model": "harness", "trials_per_task": 1, "timeout_seconds": 60},
+						"metrics": []any{map[string]any{"name": "accuracy", "weight": 1, "threshold": 0.8}},
+						"tasks":   []any{"task.yaml"},
+					}
+					if version != "" {
+						fields["schemaVersion"] = version
+					}
+					if tc.present {
+						fields["scenario"] = tc.value
+					}
+					var data []byte
+					var err error
+					if format == "yaml" {
+						data, err = yaml.Marshal(fields)
+					} else {
+						data, err = json.Marshal(fields)
+					}
+					require.NoError(t, err)
+					path := filepath.Join(t.TempDir(), "eval."+format)
+					require.NoError(t, os.WriteFile(path, data, 0o600))
+					gotVersion, gotScenario, classErr := ClassifyEvalSpec(data, path)
+					loaded, loadErr := LoadEvalSpec(path)
+					valid := (!tc.present && (version == "" || version == "1.0")) ||
+						(tc.name == "string" && version == "2.0")
+					if valid {
+						require.NoError(t, classErr)
+						require.NoError(t, loadErr)
+						require.NoError(t, schema.Validate(fields))
+						wantVersion := version
+						if wantVersion == "" {
+							wantVersion = CurrentSchemaVersion
+						}
+						wantScenario := ""
+						if tc.present {
+							wantScenario = "recovery"
+						}
+						require.Equal(t, wantVersion, gotVersion)
+						require.Equal(t, wantScenario, gotScenario)
+						require.Equal(t, gotVersion, loaded.SchemaVersion)
+						require.Equal(t, gotScenario, loaded.Scenario)
+					} else {
+						require.Error(t, classErr)
+						require.EqualError(t, loadErr, classErr.Error())
+						require.Nil(t, loaded)
+						require.Empty(t, gotVersion)
+						require.Empty(t, gotScenario)
+						if !tc.present && version == "2.1" {
+							require.NoError(t, schema.Validate(fields), "schema syntax does not replace the native supported-major fence")
+						} else {
+							require.Error(t, schema.Validate(fields))
+						}
+						if tc.present {
+							require.Contains(t, classErr.Error(), "remove the scenario field for a legacy suite")
+							require.Contains(t, classErr.Error(), "schemaVersion 2.0")
+						}
+					}
+				})
+			}
+		}
+	}
+}
+
+func TestScenarioAbsentWithoutSkillNativeBoundary(t *testing.T) {
+	for _, version := range []string{"", "1.0"} {
+		t.Run(version, func(t *testing.T) {
+			data := "name: legacy\nconfig:\n  trials_per_task: 1\n  timeout_seconds: 30\n"
+			if version != "" {
+				data += "schemaVersion: \"" + version + "\"\n"
+			}
+			path := filepath.Join(t.TempDir(), "eval.yaml")
+			require.NoError(t, os.WriteFile(path, []byte(data), 0o600))
+			gotVersion, gotScenario, err := ClassifyEvalSpec([]byte(data), path)
+			require.NoError(t, err)
+			loaded, err := LoadEvalSpec(path)
+			require.NoError(t, err)
+			require.Empty(t, gotScenario)
+			require.Empty(t, loaded.SkillName)
+			require.Equal(t, gotVersion, loaded.SchemaVersion)
+		})
+	}
+}
+
+func TestScenarioPresenceAliases(t *testing.T) {
+	for _, tc := range []struct {
+		name, value, want string
+	}{
+		{"string", `"inventory"`, "inventory"},
+		{"quoted-number", `"42"`, "42"},
+		{"null", "null", ""},
+		{"number", "42", ""},
+		{"blank", `"  "`, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			data := "name: &identity " + tc.value + "\nscenario: *identity\nschemaVersion: \"2.0\"\nconfig:\n  trials_per_task: 1\n  timeout_seconds: 30\n"
+			path := filepath.Join(t.TempDir(), "eval.yaml")
+			require.NoError(t, os.WriteFile(path, []byte(data), 0o600))
+			version, scenario, classErr := ClassifyEvalSpec([]byte(data), path)
+			loaded, loadErr := LoadEvalSpec(path)
+			if tc.want == "" {
+				require.ErrorContains(t, classErr, "non-empty string")
+				require.EqualError(t, loadErr, classErr.Error())
+				require.Nil(t, loaded)
+				return
+			}
+			require.NoError(t, classErr)
+			require.NoError(t, loadErr)
+			require.Equal(t, ScenarioSchemaVersion, version)
+			require.Equal(t, tc.want, scenario)
+			require.Equal(t, scenario, loaded.Scenario)
 		})
 	}
 }

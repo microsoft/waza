@@ -44,6 +44,9 @@ plumbing only, not agent quality. See the
 Scenario evals require a nonempty `scenario` string and **exact**
 `schemaVersion: "2.0"`. Older executables reject that major before executing;
 `1.x`, omitted versions, `2.1` and future majors are not scenario contracts.
+Presence of the `scenario` key is explicit in YAML and JSON: null, blank strings,
+booleans, numbers, arrays and objects are invalid, not legacy opt-outs. To keep
+a legacy eval, omit the `scenario` key entirely.
 Tasks and results retain `1.x`; the dashboard still displays the suite's
 `eval_name` and generic results have an empty `skill`.
 Optional `skill` selects existing skill/custom-agent context with unchanged
@@ -54,6 +57,9 @@ Disabling the last eval-level directory preserves target-free isolation.
 Scenario task files retain `tasks/` when selected by `files.taskGlob`, including
 wildcard-directory globs; otherwise they use a matching literal directory.
 Unsupported or nonmatching glob/suffix combinations fail before writing.
+The glob must select only generated tasks, not evals, fixtures or metadata.
+`fixtures/*.yaml` remains supported; `fixtures/*` is rejected because it also
+selects `.gitkeep` and repository inventory. Narrow the glob before regenerating.
 Scenario scaffolding requires physical parent directories for the selected
 output path; symlinked roots or generated task/fixture parents are rejected.
 Use a physical `--output` path. Relative paths start at the retained working
@@ -64,11 +70,27 @@ provide rollback or prevent an admitted directory from subsequently being moved.
 Scenario `2.0` bypasses result caching with an explicit notice, even with
 `--cache`, until external workflow dependencies can be fully fingerprinted.
 Legacy `1.x` caching and billing attribution are unchanged.
+Repository scaffolds include `fixtures/.gitattributes` preserving inventory LF
+bytes through Git checkout. If a task glob selects that file, a safe root
+`.gitattributes` is used instead. When neither placement avoids an eval/task
+collision or extra task, generation fails before writing; narrow the
+task-directory glob or choose a different eval filename. For example, use
+`tasks/*.gitattributes` instead of `fixtures/*.gitattributes` when the eval itself
+is named `.gitattributes`. A normal eval filename with `**/*.gitattributes` keeps
+the existing runtime glob semantics and uses the root fallback.
+Older suites must be regenerated to adopt this policy; Git attributes do not
+rewrite existing working copies.
 Task globs and `inputs.context.fixture` resolve relative to the eval directory.
 Fixtures default to its `fixtures/` directory; `inputs.files` and
 `instruction_files` resolve from the fixtures/context root. The repository
 template explicitly declares `inputs.context.fixture: fixtures/inventory.txt`.
 File grader outputs are task-workspace-relative.
+The repository template uses three file graders: report outcome, absence of
+`private.txt`, and byte-exact final preservation of `inventory.txt`. Altering,
+deleting or changing its line endings fails independently of the other checks.
+This checks final bytes, not transient writes or edit history. CLI/MCP templates
+retain two graders. The tracked repository fixture alone disables Git text
+conversion so Windows checkout preserves the expected LF bytes.
 
 For a `SKILL.md` target:
 

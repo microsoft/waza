@@ -301,9 +301,22 @@ when selected by `files.taskGlob`, otherwise in its matching literal directory,
 and a `fixtures/` directory beside the eval file; the repository template includes
 `fixtures/inventory.txt`. It rejects blank names and refuses to overwrite any
 generated file. The three trigger tasks above belong to the default skill flow.
+The repository scenario has three file graders: report outcome, no `private.txt`,
+and exact final `inventory.txt` bytes. CLI/MCP scenarios retain two graders.
+This is a final-state check, not proof that no transient edits occurred.
+In YAML and JSON, a present `scenario` key requires a nonblank string and exact
+schema `2.0`; null or other types are invalid. Omit the key for a legacy eval.
+Repository mode emits fixture-local `.gitattributes` to preserve inventory LF
+bytes during Git checkout, or a safe root rule if the configured glob selects
+local metadata. If neither location is safe, generation fails before writing;
+narrow the task-directory glob or choose a different eval filename. Metadata
+files are also protected against overwrite. Older working copies are not
+rewritten automatically.
 Wildcard-directory globs that select the default `tasks/` path remain supported.
-Globs that cannot select that task or a safe literal alternative are rejected
-before writing. A failed later write can leave earlier created files;
+Globs that cannot select that task or a safe literal alternative, or that select
+generated non-task files, are rejected before writing. For example,
+`fixtures/*.yaml` is supported, but `fixtures/*` selects `.gitkeep` and must be
+narrowed. A failed later write can leave earlier created files;
 inspect and remove only the generated partial files before retrying. The
 scaffold is not a whole-directory transaction.
 Scenario mode also rejects symlinked parents in the selected output path,

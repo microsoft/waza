@@ -434,6 +434,41 @@ type MeasurementDef struct {
 	Desc       string  `yaml:"description,omitempty" json:"desc,omitempty"`
 }
 
+// ClassifyEvalSpec checks the canonical eval version and scenario header without
+// decoding grader parameters or loading their resources.
+func ClassifyEvalSpec(data []byte, path string) (string, string, error) {
+	var header struct {
+		SchemaVersion string    `yaml:"schemaVersion"`
+		Scenario      yaml.Node `yaml:"scenario"`
+	}
+	if err := yaml.Unmarshal(data, &header); err != nil {
+		return "", "", fmt.Errorf("parsing eval spec YAML (%s): %w", path, err)
+	}
+	scenario := ""
+	hasScenario := header.Scenario.Kind != 0
+	if hasScenario {
+		value := &header.Scenario
+		for value.Kind == yaml.AliasNode {
+			value = value.Alias
+		}
+		if value.Kind != yaml.ScalarNode || value.Tag != "!!str" || strings.TrimSpace(value.Value) == "" {
+			return "", "", fmt.Errorf("scenario must be a non-empty string workflow identity; remove the scenario field for a legacy suite or provide a nonblank string with schemaVersion %s", ScenarioSchemaVersion)
+		}
+		scenario = value.Value
+	}
+	version := header.SchemaVersion
+	var err error
+	if !hasScenario {
+		version, err = ValidateSchemaVersion("eval.yaml", path, header.SchemaVersion)
+	} else if version != ScenarioSchemaVersion {
+		err = fmt.Errorf("scenario requires explicit schemaVersion %s; remove the scenario field for a legacy suite or set schemaVersion %s for a scenario", ScenarioSchemaVersion, ScenarioSchemaVersion)
+	}
+	if err != nil {
+		return "", "", err
+	}
+	return version, scenario, nil
+}
+
 // LoadEvalSpec loads a spec from a YAML file with strict validation.
 //
 // Normally the schema validation will catch errors in the eval.yaml, but this also does
@@ -445,22 +480,7 @@ func LoadEvalSpec(path string) (*EvalSpec, error) {
 		return nil, err
 	}
 
-	var header struct {
-		SchemaVersion string  `yaml:"schemaVersion"`
-		Scenario      *string `yaml:"scenario"`
-	}
-	if err := yaml.Unmarshal(data, &header); err != nil {
-		return nil, fmt.Errorf("parsing eval spec YAML (%s): %w", path, err)
-	}
-	if header.Scenario != nil && strings.TrimSpace(*header.Scenario) == "" {
-		return nil, fmt.Errorf("scenario must be a non-empty workflow identity")
-	}
-	version := header.SchemaVersion
-	if header.Scenario == nil {
-		version, err = ValidateSchemaVersion("eval.yaml", path, header.SchemaVersion)
-	} else if version != ScenarioSchemaVersion {
-		err = fmt.Errorf("scenario requires explicit schemaVersion %s; older executables must reject scenario semantics", ScenarioSchemaVersion)
-	}
+	version, scenario, err := ClassifyEvalSpec(data, path)
 	if err != nil {
 		return nil, err
 	}
@@ -468,7 +488,7 @@ func LoadEvalSpec(path string) (*EvalSpec, error) {
 	var spec EvalSpec
 
 	decoder := yaml.NewDecoder(bytes.NewReader(data))
-	if header.Scenario != nil {
+	if scenario != "" {
 		decoder.KnownFields(true)
 	}
 	if err := decoder.Decode(&spec); err != nil {
