@@ -42,6 +42,11 @@ type responderClassifier interface {
 	Close(ctx context.Context) error
 }
 
+type snapshotPublisher interface {
+	Write(*snapshot.Snapshot) (string, error)
+	Root() string
+}
+
 // EvalRunner orchestrates the execution of tests.
 //
 // Deprecated alias: TestRunner is provided for backward compatibility.
@@ -88,7 +93,7 @@ type EvalRunner struct {
 	// after grading completes; the resulting path is recorded on
 	// RunResult.SnapshotPath. Capture is best-effort: write failures log a
 	// warning but do not fail the run.
-	snapshotWriter          *snapshot.Writer
+	snapshotWriter          snapshotPublisher
 	snapshotEnvAllow        []string
 	redactionPolicy         *snapshot.Policy
 	snapshotWorkspacePaths  []string
@@ -190,6 +195,10 @@ func WithTelemetry(p *telemetry.Provider) RunnerOption {
 // fail the run.
 func WithSnapshotWriter(w *snapshot.Writer) RunnerOption {
 	return func(r *EvalRunner) {
+		if w == nil {
+			r.snapshotWriter = nil
+			return
+		}
 		r.snapshotWriter = w
 	}
 }

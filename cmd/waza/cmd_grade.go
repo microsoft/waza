@@ -41,6 +41,8 @@ and grades the specified task using the eval's grader configuration.
 File-based graders require the agent's actual preserved workspace via
 --workspace; snapshot hashes and tool events cannot reconstruct those files.
 Prompt graders may contact the configured judge model.
+--evidence-snapshot supports only verified file checks, without output-based
+expectations; it does not certify absence from the original workspace.
 
 Example:
   waza run eval.yaml --output results.json
@@ -60,7 +62,7 @@ Example:
 	cmd.Flags().StringVar(&taskID, "task", "", "task ID to grade (omit to grade all tasks)")
 	cmd.Flags().StringVar(&resultsFile, "results", "", "path to waza run JSON output")
 	cmd.Flags().StringVar(&workspace, "workspace", ".", "agent workspace directory for file-based graders; must point to the agent's actual workspace")
-	cmd.Flags().StringVar(&evidenceSnapshot, "evidence-snapshot", "", "Explicit local snapshot containing verified unredacted required files; requires --task and exactly one run")
+	cmd.Flags().StringVar(&evidenceSnapshot, "evidence-snapshot", "", "Explicit local snapshot for verified file-only checks, without output-based expectations; requires --task and exactly one run")
 	cmd.Flags().StringVar(&judgeModel, "judge-model", "", "model override for prompt graders")
 	cmd.Flags().StringVarP(&outputPath, "output", "o", "", "write full EvaluationOutcome JSON to file (grading results merged with the original task outcomes)")
 	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "verbose output")
@@ -378,20 +380,33 @@ func gradeRun(ctx context.Context, spec *models.EvalSpec, tc *models.TestCase, r
 }
 
 func preservedGradeInputs(spec *models.EvalSpec, task *models.TestCase) ([]string, error) {
+	for _, check := range []struct {
+		name   string
+		values []string
+	}{
+		{"output_contains", task.Expectation.MustInclude},
+		{"output_not_contains", task.Expectation.MustExclude},
+		{"output_contains_any", task.Expectation.MayInclude},
+	} {
+		if len(check.values) > 0 {
+			return nil, fmt.Errorf("preserved-state grading does not support expected.%s; grade recorded outputs without --evidence-snapshot", check.name)
+		}
+	}
 	var paths []string
 	add := func(kind models.GraderKind, params models.GraderParameters) error {
-		switch kind {
-		case models.GraderKindPrompt, models.GraderKindProgram, models.GraderKindInlineScript, models.GraderKindDiff:
-			return fmt.Errorf("preserved-state grading does not support prompt, executable or diff graders; use an explicitly supplied actual workspace")
+		if kind != models.GraderKindFile {
+			return fmt.Errorf("preserved-state grading only supports file graders, not %q; grade recorded outputs without --evidence-snapshot", kind)
 		}
-		if params, ok := params.(models.FileGraderParameters); ok {
-			if len(params.MustNotExist) > 0 {
-				return fmt.Errorf("selected-file evidence cannot prove file absence; use the actual workspace")
-			}
-			paths = append(paths, params.MustExist...)
-			for _, pattern := range params.ContentPatterns {
-				paths = append(paths, pattern.Path)
-			}
+		fileParams, ok := params.(models.FileGraderParameters)
+		if !ok {
+			return fmt.Errorf("preserved-state file grader parameters are missing or incompatible; supply a file grader configuration")
+		}
+		if len(fileParams.MustNotExist) > 0 {
+			return fmt.Errorf("selected-file evidence cannot prove file absence; use the actual workspace")
+		}
+		paths = append(paths, fileParams.MustExist...)
+		for _, pattern := range fileParams.ContentPatterns {
+			paths = append(paths, pattern.Path)
 		}
 		return nil
 	}

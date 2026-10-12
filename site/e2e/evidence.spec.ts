@@ -48,4 +48,19 @@ test('filesystem evidence guide states bounded admission and observational limit
   await expect(main).toContainText('not an atomic or authentic snapshot');
   await expect(main).toContainText('not continued integrity after the workspace is returned');
   await expect(main).toContainText('retains that path with unavailable capture evidence');
+  await expect(main).toContainText('at most one independently verified complete residual location');
+  await expect(main).toContainText('a single path cannot enumerate it');
+  await expect(main).toContainText('not a cleanup or moving-namespace guarantee');
+});
+
+test('verified file regrading excludes recorded-output checks and workspace absence', async ({ page }) => {
+  await page.goto('/waza/guides/snapshot-replay/');
+  const main = page.locator('main');
+  await expect(main).toContainText('all non-file graders');
+  await expect(main).toContainText('expected.output_contains');
+  await expect(main).toContainText('expected.output_not_contains');
+  await expect(main).toContainText('expected.output_contains_any');
+  await expect(main).toContainText('rejected before materialization');
+  await expect(main).toContainText('not absence from the original workspace');
+  await expect(main).toContainText('checks the complete verified text of its selected file');
 });

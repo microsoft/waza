@@ -3,8 +3,10 @@
 package snapshot
 
 import (
+	"bytes"
 	"crypto/rand"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -36,7 +38,7 @@ func writePrivateSnapshotWithHooks(root string, data []byte, hooks privateWriter
 			closeDirectory = func() error { return hooks.closeDirectory(dir) }
 		}
 		if closeErr := closeDirectory(); closeErr != nil {
-			// A successfully verified publication remains locatable even if the
+			// A verified publication or residual remains locatable even if the
 			// final descriptor close fails after publication cleanup.
 			err = errors.Join(err, errors.New("snapshot: close private evidence directory failed"))
 		}
@@ -54,22 +56,73 @@ func writePrivateSnapshotWithHooks(root string, data []byte, hooks privateWriter
 		return "", errors.New("snapshot: create private evidence file failed")
 	}
 	published := false
+	var original os.FileInfo
+	ops := privateResidualOperations()
+	if hooks.residualOps != nil {
+		ops = *hooks.residualOps
+	}
+	unlink := unix.Unlinkat
+	if hooks.unlink != nil {
+		unlink = hooks.unlink
+	}
 	defer func() {
-		if removeErr := unix.Unlinkat(int(dir.Fd()), temporary, 0); removeErr != nil {
-			publishedPath = ""
+		tempFailed := unlink(int(dir.Fd()), temporary, 0) != nil
+		if tempFailed {
 			err = errors.Join(err, errors.New("snapshot: remove incomplete private evidence failed"))
 		}
+		finalFailed := false
 		if published && err != nil {
-			if removeErr := unix.Unlinkat(int(dir.Fd()), name, 0); removeErr != nil {
+			if finalFailed = unlink(int(dir.Fd()), name, 0) != nil; finalFailed {
 				err = errors.Join(err, errors.New("snapshot: remove unpublished private evidence failed"))
 			}
 		}
+		if !tempFailed && !finalFailed {
+			return
+		}
+		publishedPath = ""
+		if tempFailed && finalFailed {
+			err = errors.Join(err, errors.New("snapshot: additional private evidence residue may remain; only one verified location can be returned"))
+		}
+		for _, candidate := range []struct {
+			name   string
+			failed bool
+		}{{temporary, tempFailed}, {name, finalFailed}} {
+			if !candidate.failed {
+				continue
+			}
+			valid, verifyErr := verifyPrivateResidual(absolute, dir, candidate.name, original, data, ops)
+			if verifyErr != nil {
+				err = errors.Join(err, verifyErr)
+				break
+			}
+			if valid {
+				publishedPath = filepath.Join(root, candidate.name)
+				return
+			}
+		}
+		err = errors.Join(err, errors.New("snapshot: remaining private evidence location is unavailable; inspect the selected destination"))
 	}()
 	file := os.NewFile(uintptr(fd), "private evidence")
-	_, writeErr := file.Write(data)
+	original, statErr := ops.stat(file)
+	if statErr != nil {
+		problem := errors.New("snapshot: inspect owned private evidence failed")
+		if closeErr := file.Close(); closeErr != nil {
+			problem = errors.Join(problem, errors.New("snapshot: close private evidence file failed"))
+		}
+		return "", problem
+	}
+	write := (*os.File).Write
+	if hooks.write != nil {
+		write = hooks.write
+	}
+	written, writeErr := write(file, data)
 	closeErr := file.Close()
-	if writeErr != nil || closeErr != nil {
-		return "", errors.New("snapshot: write private evidence failed")
+	if writeErr != nil || written != len(data) || closeErr != nil {
+		problem := errors.New("snapshot: write private evidence failed")
+		if closeErr != nil {
+			problem = errors.Join(problem, errors.New("snapshot: close private evidence file failed"))
+		}
+		return "", problem
 	}
 	if hooks.beforePublication != nil {
 		hooks.beforePublication()
@@ -89,6 +142,89 @@ func writePrivateSnapshotWithHooks(root string, data []byte, hooks privateWriter
 		return "", identityErr
 	}
 	return filepath.Join(root, name), nil
+}
+
+func privateResidualOperations() privateResidualOps {
+	return privateResidualOps{
+		openat: unix.Openat, stat: (*os.File).Stat, close: (*os.File).Close,
+		read: func(file *os.File, limit int64) ([]byte, error) {
+			return io.ReadAll(io.LimitReader(file, limit))
+		},
+	}
+}
+
+func verifyPrivateResidual(absolute string, dir *os.File, name string, original os.FileInfo, expected []byte, ops privateResidualOps) (valid bool, err error) {
+	if original == nil {
+		return false, errors.New("snapshot: original private evidence identity is unavailable")
+	}
+	if err := checkPrivatePublicationDirectoryIdentity(absolute, dir); err != nil {
+		return false, err
+	}
+	flags := unix.O_RDONLY | unix.O_NOFOLLOW | unix.O_CLOEXEC | unix.O_NONBLOCK
+	fd, openErr := ops.openat(int(dir.Fd()), name, flags, 0)
+	if openErr != nil {
+		if errors.Is(openErr, unix.ENOENT) || errors.Is(openErr, unix.ELOOP) {
+			return false, nil
+		}
+		return false, errors.New("snapshot: open residual private evidence failed")
+	}
+	file := os.NewFile(uintptr(fd), "residual private evidence")
+	defer func() {
+		if file != nil {
+			if closeErr := ops.close(file); closeErr != nil {
+				valid = false
+				err = errors.Join(err, errors.New("snapshot: close residual private evidence failed"))
+			}
+		}
+	}()
+	before, statErr := ops.stat(file)
+	if statErr != nil {
+		return false, errors.New("snapshot: inspect residual private evidence failed")
+	}
+	if !before.Mode().IsRegular() || before.Mode().Perm() != 0o600 ||
+		!os.SameFile(original, before) || before.Size() != int64(len(expected)) {
+		return false, nil
+	}
+	content, readErr := ops.read(file, int64(len(expected))+1)
+	if readErr != nil {
+		return false, errors.New("snapshot: read residual private evidence failed")
+	}
+	after, statErr := ops.stat(file)
+	if statErr != nil {
+		return false, errors.New("snapshot: inspect residual private evidence failed")
+	}
+	if !bytes.Equal(content, expected) || !sameObservedFile(before, after) {
+		return false, nil
+	}
+	closeErr := ops.close(file)
+	file = nil
+	if closeErr != nil {
+		return false, errors.New("snapshot: close residual private evidence failed")
+	}
+	nameFD, openErr := ops.openat(int(dir.Fd()), name, flags, 0)
+	if openErr != nil {
+		if errors.Is(openErr, unix.ENOENT) || errors.Is(openErr, unix.ELOOP) {
+			return false, nil
+		}
+		return false, errors.New("snapshot: recheck residual private evidence name failed")
+	}
+	file = os.NewFile(uintptr(nameFD), "residual private evidence name")
+	info, statErr := ops.stat(file)
+	if statErr != nil {
+		return false, errors.New("snapshot: inspect residual private evidence name failed")
+	}
+	if !sameObservedFile(after, info) || !os.SameFile(original, info) {
+		return false, nil
+	}
+	closeErr = ops.close(file)
+	file = nil
+	if closeErr != nil {
+		return false, errors.New("snapshot: close residual private evidence name failed")
+	}
+	if err := checkPrivatePublicationDirectoryIdentity(absolute, dir); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 type privateDirectoryOps struct {

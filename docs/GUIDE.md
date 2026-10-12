@@ -813,6 +813,11 @@ symlinks except the explicitly validated macOS `/var` and `/tmp` system aliases.
 Identity and before/after metadata checks do not freeze concurrent same-user
 directory membership or certify atomic/authentic state. A late close failure
 after verified publication retains a residual path with unavailable evidence.
+Private-file cleanup failure can similarly retain one independently verified
+complete residual, including a hidden temporary file, with an explicit error
+and unavailable capture evidence. Additional possible residue is reported
+separately; one path cannot enumerate it. Partial/changed bytes and unverified
+moved-root locations do not become complete snapshots or cleanup success.
 
 Selected-state destination publication on Linux/macOS uses component-wise
 no-follow creation/admission, including intermediate directories. Missing
@@ -826,8 +831,11 @@ Evidence-snapshot regrading requires `--task`, exactly one assessed matching run
 no explicit `--workspace`, original manifest/full-origin verification, and
 complete unredacted file text/digests. Only explicit required file-grader
 `must_exist`/`content_patterns` inputs are privately materialized. It rejects
-prompt/code/program/diff, absence/wildcard checks, and file graders without
-explicit required paths. Regrading keeps `source_manifest_sha256` and invalidates
+all non-file graders, output-based expectations, absence/wildcard checks, and
+file graders without explicit required paths. Checks cover only the materialized
+captured subset: `must_not_match` checks a selected file's complete verified text,
+not absence from the original workspace.
+Regrading keeps `source_manifest_sha256` and invalidates
 original result/validation/grader-configuration/checkpoint links. Older workspace
 grading is unchanged; no extra automatic model calls are introduced.
 Capture byte limits are not reapplied to independently supplied snapshots during

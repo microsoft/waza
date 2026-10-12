@@ -1124,8 +1124,11 @@ digests, and no explicit `--workspace`. Cached source eval IDs can differ while
 task/run/attempt identity must match. No `snapshot_path` is fetched implicitly.
 Only file graders with explicit required `must_exist` / `content_patterns` paths
 are supported; wildcard/absence checks, no-explicit-file-check graders, and
-prompt/code/program/diff graders are rejected. Only required files are privately
-materialized. Older workspace grading remains unchanged.
+all non-file graders and output-based expectations are rejected before
+materialization. Only required files are privately materialized; checks cover
+that captured subset, not original-workspace absence. `must_not_match` checks
+only its selected file's complete verified text.
+Older workspace grading remains unchanged.
 
 Regrading retains `source_manifest_sha256` and invalidates original
 result/validation/grader-configuration/checkpoint links. Original checkpoints

@@ -505,6 +505,11 @@ be `0700`; missing directories are created `0700`. Non-creating identity checks
 precede evidence writes and surround publication. These are observations, not
 moving-directory protection. A later failure may leave newly created empty
 directories; ordinary metadata-only snapshot paths retain historical behavior.
+On private-file cleanup failure, at most one independently verified complete
+residual path is retained with an error and unavailable capture evidence; it
+may be a hidden temporary file. Additional possible residue is reported
+explicitly. Partial/changed files and unverified moved-root locations are not
+reported as complete snapshots, and no full cleanup guarantee is made.
 
 ```bash
 # Capture during a run
@@ -1015,8 +1020,11 @@ waza grade eval.yaml --results results.json
 Evidence-snapshot regrading accepts only file graders with explicit required
 `must_exist` / `content_patterns` paths. It verifies original manifest SHA-256,
 full origin, and complete unredacted file text/digests, then materializes only
-required files privately. Prompt/code/program/diff, wildcard, absence, and
-no-explicit-file-check grading are rejected; the older workspace mode is unchanged.
+required files privately. All non-file graders, output-based expectations,
+wildcard/absence checks, and no-explicit-file-check grading are rejected;
+the older workspace mode is unchanged. Checks cover only the materialized
+captured subset, not absence from the original workspace. `must_not_match`
+checks only the complete verified text of its selected file.
 Regraded manifests retain `source_manifest_sha256` and invalidate original
 result/validation/grader-configuration/checkpoint links. Original checkpoints
 never become observations of new declarations.

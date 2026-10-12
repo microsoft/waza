@@ -176,6 +176,15 @@ A late close error after verified private publication can leave a residual
 snapshot path. The result retains that path with unavailable capture evidence
 and an explicit failure diagnostic; it is not recorded as successful capture.
 
+If private-file cleanup fails, waza can retain at most one independently
+verified complete residual location, preferring an eligible temporary name
+before the final name. The path may identify a hidden `.json.tmp` file; it is
+a failed-capture diagnostic, not a newly published snapshot or successful
+export. Additional possible residue is reported explicitly, but a single path
+cannot enumerate it. Partial/changed bytes and unverified moved-root locations
+are not represented as complete snapshots. Name, inode, byte and metadata
+checks are bounded observations, not a cleanup or moving-namespace guarantee.
+
 ### Environment and redaction
 
 Environment capture is default-deny. `--snapshot-env-allow` is repeatable and
@@ -235,8 +244,13 @@ supplied workspace JSON with unknown/unhashed members or duplicate keys.
 Only file graders with explicit required `must_exist` / `content_patterns` paths
 are supported. Only those required files are materialized in a private workspace.
 Wildcard checks, absence checks, file graders without explicit required checks,
-and prompt/code/program/diff graders are rejected. This is not general workspace
-reconstruction. The older `grade --workspace` mode is unchanged; its prompt
+all non-file graders, and output-based `expected.output_contains`,
+`expected.output_not_contains`, and `expected.output_contains_any` checks are
+rejected before materialization. Checks cover only the materialized captured
+subset, not absence from the original workspace. A `must_not_match` pattern
+checks the complete verified text of its selected file.
+This is not general workspace reconstruction.
+The older `grade --workspace` mode is unchanged; its prompt
 graders may contact a paid judge. Evidence inspection adds no automatic calls.
 
 The `--snapshot-max-file-bytes` and `--snapshot-max-total-bytes` limits govern
