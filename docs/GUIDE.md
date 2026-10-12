@@ -509,6 +509,16 @@ waza serve --tcp :9000
 
 ## Advanced Usage
 
+### Existing-workflow compatibility examples
+
+The [recorded compatibility examples](../examples/compatibility/README.md) cover
+MCP lookup, read-only CLI inspection, and repository artifact preservation, each
+with known-good, deliberately-bad, and alternative-valid outcomes. They grade
+fixed evidence offline rather than executing an agent or claiming assurance.
+Contributor integration gates, fixture paths, feature ownership, historical
+artifact policies and known-bug boundaries are in
+[COMPATIBILITY.md](COMPATIBILITY.md).
+
 ### Caching and Reproducibility
 
 Cache evaluation results to avoid redundant runs:

@@ -1,0 +1,17 @@
+schemaVersion: "1.4"
+name: compatibility-mocks
+skill: compatibility-skill
+version: "1.0"
+config:
+  trials_per_task: 1
+  timeout_seconds: 30
+  executor: copilot-sdk
+  model: fixture-model
+command_mocks:
+  - name: compat-cli
+    expect_calls: 1
+    responses:
+      - args: [status]
+        stdout: {state: ready}
+tasks: [task.yaml]
+metrics: []
