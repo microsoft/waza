@@ -104,6 +104,10 @@ func (g *generator) fields(typ reflect.Type) (document, []string) {
 			name = field.Name
 		}
 		properties[name] = g.schema(field.Type)
+		if typ == reflect.TypeFor[releasepolicy.Reliability]() &&
+			(field.Name == "FirstRate" || field.Name == "RetryRate") {
+			properties[name] = document{"type": []string{"number", "null"}}
+		}
 		if !strings.Contains(tag, ",omitempty") && !requiredNames[name] {
 			required = append(required, name)
 			requiredNames[name] = true

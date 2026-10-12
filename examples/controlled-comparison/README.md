@@ -38,3 +38,9 @@ No live SDK, calibration, paid1.1/billing support or automatic paid validation i
 selected. Required-assurance base decisions, the API and dashboard remain
 nonpassing; only explicitly selected outer CLI assessment can pass.
 See [the profile lifecycle, schemas and limitations](../../docs/CONTROLLED-COMPARISONS.md#independent-offline-assurance-profile).
+
+This example uses the public offline mock producer, not the internal native
+source/capture/slot/retry inspection primitives. Those establish supplied
+consistency, not witnessed execution, durability or retry permission. New
+private durable collection writers support Linux/macOS only; Windows reader
+checks do not enable this example's collection writer.

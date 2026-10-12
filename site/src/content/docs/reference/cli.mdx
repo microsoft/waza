@@ -486,7 +486,17 @@ Selected policy assessment does not change default descriptive comparisons.
 Policy metadata in ordinary results is not enforcement, and older executables
 reject the new flags. Use `compare-plan` and `compare-collect` for the explicit
 offline mock/native-text producer; do not adopt historical outcomes.
+Internal native source/capture/slot/retry inspection does not add a public
+native producer or execution/durability/retry-permission authority. New private
+durable collection writers support Linux/macOS only; Windows reader checks
+do not certify writing.
 See [controlled comparisons](/waza/guides/controlled-comparisons/).
+
+**Existing legacy JSON limitation:** when task sets differ, missing-task score
+and pass-rate entries use non-finite values internally, so `compare --format
+json` fails to encode the report. Table output still displays those entries as
+`n/a`. This predates controlled-policy selection; no missing-task JSON fix or
+change to legacy task-set semantics is included here.
 
 ### Examples
 

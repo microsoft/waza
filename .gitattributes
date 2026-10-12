@@ -8,3 +8,8 @@
 *.zst filter=lfs diff=lfs merge=lfs -text
 internal/embedded/zcopilotruntimeassets_*.tgz filter=lfs diff=lfs merge=lfs -text
 internal/releasepolicy/testdata/journal_711867044.go.original -text
+internal/nativesnapshot/testdata/g2-original/nativesnapshot-files.go.original -text
+internal/nativesnapshot/testdata/g2-original/nativesnapshot-join.go.original -text
+internal/nativesnapshot/testdata/g2-original/nativesnapshot-snapshot.go.original -text
+internal/nativesnapshot/testdata/g2-original/orchestration-request_files.go.original -text
+internal/nativesnapshot/testdata/g2-original/orchestration-runner.go.original -text

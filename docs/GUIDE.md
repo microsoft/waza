@@ -35,6 +35,13 @@ Waza helps you:
 
 Perfect for skill authors, platform teams, and developers building AI-powered applications.
 
+The native G1 source projector, G2 root-free capture reconstruction, static
+slot joins and G3 supplied retry-prefix inspection remain internal, not public
+collection modes. Retained consistency is not independently witnessed execution,
+durability, retry permission or release authority. New private durable writers
+support Linux/macOS only; Windows supplied-reader checks do not certify writing.
+See [the internal boundary](CONTROLLED-COMPARISONS.md#internal-native-task-groundwork-not-an-enabled-producer).
+
 ---
 
 ## Installation

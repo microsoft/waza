@@ -170,6 +170,66 @@ func TestCompareCommand_JSONOutput(t *testing.T) {
 	assert.NoError(t, err)
 }
 
+func TestCompareCommand_LegacyJSONPayloadAndProcessExits(t *testing.T) {
+	binary := buildOfflineComparisonCLI(t)
+	for _, tc := range []struct {
+		name string
+		from float64
+		to   float64
+	}{{"improvement", 0.25, 0.75}, {"regression", 0.75, 0.25}} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			baseline := sampleOutcome("baseline", tc.from, tc.from, tc.from)
+			current := sampleOutcome("current", tc.to, tc.to, tc.to)
+			extra := baseline.TestOutcomes[0]
+			extra.TestID, extra.DisplayName = "task-002", "Second Task"
+			baseline.TestOutcomes = append(baseline.TestOutcomes, extra)
+			extra = current.TestOutcomes[0]
+			extra.TestID, extra.DisplayName = "task-002", "Second Task"
+			current.TestOutcomes = append([]models.TestOutcome{extra}, current.TestOutcomes...)
+			baseline.Digest.TotalTests, current.Digest.TotalTests = 2, 2
+			from := createResultFile(t, dir, "baseline.json", baseline)
+			to := createResultFile(t, dir, "current.json", current)
+			output, code := runOfflineComparisonCLI(t, binary, "compare", from, to, "--format", "json")
+			require.Equal(t, 0, code, "%s", output)
+			var payload map[string]json.RawMessage
+			require.NoError(t, json.Unmarshal(output, &payload), "%s", output)
+			require.ElementsMatch(t, []string{
+				"files", "models", "aggregate_scores", "success_rates", "aggregate_score_delta",
+				"success_rate_delta", "task_deltas", "total_tests", "durations_ms",
+				"duration_delta_ms", "tool_metrics",
+			}, func() []string {
+				keys := make([]string, 0, len(payload))
+				for key := range payload {
+					keys = append(keys, key)
+				}
+				return keys
+			}(), "legacy JSON must not acquire release-policy fields")
+			var report comparisonReport
+			require.NoError(t, json.Unmarshal(output, &report))
+			require.Equal(t, []string{from, to}, report.Files)
+			require.Equal(t, []string{"baseline", "current"}, report.Models)
+			require.Equal(t, []float64{tc.from, tc.to}, report.AggScores)
+			require.Equal(t, []float64{tc.from, tc.to}, report.SuccessRates)
+			require.Equal(t, tc.to-tc.from, report.AggScoreDelta)
+			require.Equal(t, tc.to-tc.from, report.SuccessRDelta)
+			require.Equal(t, []int{2, 2}, report.TotalTests)
+			require.Equal(t, []int64{1000, 1000}, report.DurationsMs)
+			require.Zero(t, report.DurationDeltaM)
+			require.Len(t, report.TaskDeltas, 2)
+			for i, id := range []string{"task-001", "task-002"} {
+				task := report.TaskDeltas[i]
+				require.Equal(t, id, task.TaskID)
+				require.Equal(t, []float64{tc.from, tc.to}, task.Scores)
+				require.Equal(t, []float64{tc.from, tc.to}, task.PassRates)
+				require.Equal(t, []models.Status{models.StatusPassed, models.StatusPassed}, task.Statuses)
+				require.Equal(t, tc.to-tc.from, task.ScoreDelta)
+				require.Equal(t, tc.to-tc.from, task.PassDelta)
+			}
+		})
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Three-way compare
 // ---------------------------------------------------------------------------

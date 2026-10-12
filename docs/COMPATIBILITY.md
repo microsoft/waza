@@ -44,6 +44,16 @@ overwrite existing assets. Missing prerequisites are failures, not evidence of
 compatibility. Live integration tests remain opt-in and separate; this target
 does not set their enabling environment variables or use paid agent calls.
 
+The broader Go suite also includes
+`internal/nativesnapshot: TestPinnedOriginalFixturesPreserveCheckoutBytes`.
+This test requires Git to perform actual isolated index checkouts with
+`core.autocrlf=true` and `false`; missing Git is an explicit infrastructure
+failure, not a skipped compatibility check. This is not a runtime Git
+dependency. The separate mandatory
+`internal/releasepolicy: TestRetryPinnedOriginalJournalOracle` checks all 431
+cases against retained exact source bytes without Git or historical ancestry.
+Checkout tests do not certify Windows durable collection writers.
+
 ## Fixed artifacts and repeatability
 
 `internal/testdata/compatibility/v1/` owns the versioned evals, task, all-grader

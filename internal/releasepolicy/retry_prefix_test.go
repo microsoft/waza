@@ -1027,6 +1027,9 @@ func TestRetryPinnedOriginalJournalOracle(t *testing.T) {
 		inputs = append(inputs, retryOracleInput{Policy: p, Journal: &validJournal, Raw: raw})
 	}
 	expected := make([]retryOracleResult, 0, len(inputs))
+	if len(inputs) != 431 {
+		t.Fatalf("pinned original oracle case inventory changed: got %d, want 431", len(inputs))
+	}
 	for i, input := range inputs {
 		if input.Journal != nil {
 			for index, event := range input.Journal.Events {

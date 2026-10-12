@@ -1785,7 +1785,10 @@
           "type": "integer"
         },
         "first_attempt_rate": {
-          "type": "number"
+          "type": [
+            "number",
+            "null"
+          ]
         },
         "planned_trials": {
           "type": "integer"
@@ -1797,7 +1800,10 @@
           "type": "integer"
         },
         "retry_policy_rate": {
-          "type": "number"
+          "type": [
+            "number",
+            "null"
+          ]
         },
         "started_attempts": {
           "type": "integer"

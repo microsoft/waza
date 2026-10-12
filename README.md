@@ -554,6 +554,13 @@ outer assessment can pass. Use JSON for machine-readable outer decisions;
 selected human output does not promise all legacy rendering layouts.
 See [profile artifacts, flags and limits](docs/CONTROLLED-COMPARISONS.md#independent-offline-assurance-profile).
 
+Internal native source projections, root-free capture reconstruction, static
+slot joins and supplied retry-prefix inspection are not public collection
+commands. They establish retained consistency, not witnessed execution,
+durability, retry permission or release authority. New private durable
+collection writers support Linux/macOS only; Windows reader checks do not
+certify durable writing. See [the internal boundaries](docs/CONTROLLED-COMPARISONS.md#internal-native-task-groundwork-not-an-enabled-producer).
+
 ### `waza replay <snapshot.json>`
 
 Replay a task snapshot to verify deterministic reproduction. Snapshots are produced by `waza run --snapshot <dir>` and capture the prompt, fixture digests, ordered tool events, environment allow-list, and redacted grader outcomes.
