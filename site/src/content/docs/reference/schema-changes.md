@@ -28,9 +28,9 @@ scenario semantics; `2.1` and future majors are not supported scenario versions.
 
 Schema versions use `MAJOR.MINOR` format with no patch component.
 
-- **MINOR** changes are backward-compatible additions, usually optional fields. Readers accept same-major artifacts and warn when they see unknown fields.
-- **MAJOR** changes are breaking. Readers refuse artifacts from a different major version and point to `waza migrate <file>`.
-- Missing `schemaVersion` is interpreted as the current schema version (currently `1.4` for eval/result artifacts). Same-major minor differences are accepted and any unknown fields are warned about; cross-major mismatches are rejected.
+- **Legacy MINOR** changes are backward-compatible additions, usually optional fields. Legacy readers accept same-major artifacts and warn when they see unknown fields. Scenario evals are an exception: only exact `2.0` is supported.
+- **MAJOR** changes are breaking. Legacy readers refuse artifacts from a different major version and point to `waza migrate <file>`; scenario-aware readers additionally accept explicitly selected scenario eval `2.0`.
+- Missing `schemaVersion` in legacy artifacts is interpreted as the current schema version (currently `1.4` for eval/result artifacts). Legacy same-major minor differences are accepted and any unknown fields are warned about; cross-major mismatches are rejected. Scenario-bearing evals must explicitly select `2.0` and cannot omit the version.
 - New legacy eval/result artifacts should emit the current `schemaVersion` (currently `1.4`). Scenario scaffolds explicitly emit eval `2.0`; scenario readers reject unknown eval/config fields instead of granting forward-minor compatibility. Result writers continue to emit `1.4`.
 
 ## Migration command
@@ -47,6 +47,13 @@ For a supported scenario eval `2.0`, it validates the file and leaves its bytes
 unchanged; it does not downgrade scenario discovery semantics to `1.x`.
 
 ## Changelog
+
+### 2.0 (scenario evals only)
+
+- Added a nonempty `scenario` workflow identity with optional existing `skill` context; scenario scaffolds explicitly select exact eval `2.0`, while task/result defaults remain `1.4`.
+- Target-free scenarios without effective explicit skill directories disable native SDK skill discovery; disabling the last eval directory preserves that isolation. Explicit task directories still opt in, empty task directories disable discovery, and `--no-skills` overrides opt-ins.
+- Scenario evals reject unknown eval/config fields and future minor versions. Old executables reject major `2` before execution.
+- Scenario result caching is bypassed with a notice until external dependencies can be completely fingerprinted.
 
 ### 1.4
 

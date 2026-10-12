@@ -2,6 +2,7 @@ package scaffold
 
 import (
 	"fmt"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -17,6 +18,39 @@ func ScenarioFiles(name, model, evalFile, taskGlob, taskSuffix, template string)
 	if err := ValidateName(name); err != nil {
 		return nil, err
 	}
+	taskPattern := filepath.Clean(filepath.FromSlash(taskGlob))
+	taskDir := filepath.Dir(taskPattern)
+	taskPath := filepath.Join("tasks", "workflow"+taskSuffix)
+	if !filepath.IsLocal(taskPath) || strings.Contains(taskSuffix, "/") || strings.Contains(taskSuffix, "\\") {
+		return nil, fmt.Errorf("scenario task glob %q and suffix %q must select a local task file in a literal directory", taskGlob, taskSuffix)
+	}
+	matches, err := filepath.Match(taskPattern, taskPath)
+	if err != nil {
+		return nil, fmt.Errorf("parsing scenario task glob %q: %w", taskGlob, err)
+	}
+	if !matches {
+		taskPath = filepath.Join(taskDir, "workflow"+taskSuffix)
+		if !filepath.IsLocal(taskPath) || strings.ContainsAny(taskDir, "*?[:") {
+			return nil, fmt.Errorf("scenario task glob %q cannot select the default task or a local task file in a literal directory", taskGlob)
+		}
+		matches, err = filepath.Match(taskPattern, taskPath)
+		if err != nil {
+			return nil, fmt.Errorf("parsing scenario task glob %q: %w", taskGlob, err)
+		}
+	}
+	if !matches {
+		return nil, fmt.Errorf("scenario task glob %q does not match generated task %q; use a glob matching workflow%s", taskGlob, taskPath, taskSuffix)
+	}
+	if filepath.Clean(evalFile) == taskPath {
+		return nil, fmt.Errorf("scenario task path %q conflicts with the eval file", taskPath)
+	}
+	matchesEval, err := filepath.Match(taskPattern, filepath.Clean(evalFile))
+	if err != nil {
+		return nil, fmt.Errorf("matching eval file against scenario task glob %q: %w", taskGlob, err)
+	}
+	if matchesEval {
+		return nil, fmt.Errorf("scenario task glob %q must not select the eval file %q", taskGlob, evalFile)
+	}
 	prompt := ""
 	pattern := ""
 	dependencies := ""
@@ -26,7 +60,7 @@ func ScenarioFiles(name, model, evalFile, taskGlob, taskSuffix, template string)
 	case "repository":
 		description = "Real agent execution against sanitized repository fixtures."
 		prompt = "Read inventory.txt. Write report.txt containing exactly: Inventory total: 3. Do not modify inventory.txt or create private.txt."
-		pattern = "Inventory total: 3"
+		pattern = `\AInventory total: 3(?:\r?\n)?\z`
 		fixture = true
 	case "cli":
 		description = "Real agent execution using the installed git CLI, without command mocks."
@@ -35,7 +69,7 @@ func ScenarioFiles(name, model, evalFile, taskGlob, taskSuffix, template string)
 	case "mcp":
 		description = "Real agent execution with a harness-only mocked MCP dependency; not production MCP reliability evidence."
 		prompt = "Call the inventory MCP server list_items tool. Sum the returned quantities and write exactly Inventory total: 3 to report.txt. Do not create private.txt."
-		pattern = "Inventory total: 3"
+		pattern = `\AInventory total: 3(?:\r?\n)?\z`
 		dependencies = `# Harness-only mocked dependency, not a production MCP server.
 mcp_mocks:
   - name: inventory
@@ -98,9 +132,9 @@ inputs:
 		task += "  context:\n    fixture: fixtures/inventory.txt\n"
 	}
 	files := map[string]string{
-		evalFile:                      eval,
-		"tasks/workflow" + taskSuffix: task,
-		"fixtures/.gitkeep":           "",
+		evalFile:                   eval,
+		filepath.ToSlash(taskPath): task,
+		"fixtures/.gitkeep":        "",
 	}
 	if fixture {
 		files["fixtures/inventory.txt"] = "apples: 2\npears: 1\n"

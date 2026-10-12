@@ -15,7 +15,8 @@ test('scenario guide exposes exact versions, discovery controls and resource roo
 test('CLI reference distinguishes scenario outputs from legacy trigger tasks', async ({ page }) => {
   await page.goto('/waza/reference/cli/');
   const main = page.locator('main');
-  await expect(main).toContainText('tasks/workflow<files.taskFileSuffix>');
+  await expect(main).toContainText('workflow<files.taskFileSuffix>');
+  await expect(main).toContainText('Wildcard-directory globs that select the default tasks/ path remain supported.');
   await expect(main).toContainText('refuses to overwrite any generated file');
   await expect(main).toContainText('The three trigger tasks above belong to the default skill flow.');
 });

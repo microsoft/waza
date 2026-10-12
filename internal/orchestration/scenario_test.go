@@ -33,6 +33,7 @@ func TestScenarioExecutionRequest(t *testing.T) {
 	}{
 		{name: "no-ambient", want: true},
 		{name: "explicit-eval", evalPaths: []string{"../"}, want: false},
+		{name: "last-eval-path-disabled", evalPaths: []string{"skills/foo"}, disabled: []string{"foo"}, want: true},
 		{name: "empty-task", evalPaths: []string{"../"}, taskPaths: []string{}, want: true},
 		{name: "explicit-task", taskPaths: []string{"../"}, want: false},
 		{name: "no-skills-override", taskPaths: []string{"../"}, disabled: []string{"*"}, want: true},
@@ -48,6 +49,12 @@ func TestScenarioExecutionRequest(t *testing.T) {
 			req, err := runner.buildExecutionRequest(task)
 			require.NoError(t, err)
 			require.Equal(t, tt.want, req.NoSkills)
+			if tt.want {
+				require.Nil(t, req.ToolPolicy)
+			}
+			if tt.name == "last-eval-path-disabled" {
+				require.Empty(t, req.SkillPaths)
+			}
 			require.Empty(t, req.SkillName)
 			require.NotEmpty(t, req.Resources)
 			require.Equal(t, "inventory.txt", req.Resources[0].Path)

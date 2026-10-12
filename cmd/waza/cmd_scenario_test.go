@@ -258,3 +258,31 @@ func TestScenarioExclusiveWrite(t *testing.T) {
 	require.ErrorContains(t, err, "creating")
 	require.NoFileExists(t, missingParent)
 }
+
+func TestScenarioScaffoldConfiguredTaskDirectory(t *testing.T) {
+	t.Chdir(t.TempDir())
+	require.NoError(t, os.WriteFile(".waza.yaml", []byte("files:\n  taskGlob: cases/*.task.yaml\n  taskFileSuffix: .task.yaml\n"), 0o600))
+	root := newRootCommand()
+	root.SetOut(&bytes.Buffer{})
+	root.SetErr(&bytes.Buffer{})
+	root.SetArgs([]string{"new", "eval", "inventory", "--scenario"})
+	require.NoError(t, root.Execute())
+	evalPath := filepath.Join("evals", "inventory", "eval.yaml")
+	spec, err := models.LoadEvalSpec(evalPath)
+	require.NoError(t, err)
+	tasks, err := spec.ResolveTestFiles(filepath.Dir(evalPath))
+	require.NoError(t, err)
+	require.Equal(t, []string{filepath.Join("evals", "inventory", "cases", "workflow.task.yaml")}, tasks)
+	require.NoDirExists(t, filepath.Join("evals", "inventory", "tasks"))
+}
+
+func TestScenarioScaffoldRejectsUnmatchedTaskGlobBeforeWriting(t *testing.T) {
+	t.Chdir(t.TempDir())
+	require.NoError(t, os.WriteFile(".waza.yaml", []byte("files:\n  taskGlob: cases/task-*.yaml\n"), 0o600))
+	root := newRootCommand()
+	root.SetOut(&bytes.Buffer{})
+	root.SetErr(&bytes.Buffer{})
+	root.SetArgs([]string{"new", "eval", "inventory", "--scenario"})
+	require.ErrorContains(t, root.Execute(), "does not match generated task")
+	require.NoDirExists(t, "evals")
+}

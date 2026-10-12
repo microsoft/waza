@@ -295,6 +295,9 @@ For a workflow with no target skill, use `waza new eval <name> --scenario`.
 or harness-only mocked MCP examples. These templates explicitly use the real
 `copilot-sdk` executor; setting `config.executor: mock` checks the harness only,
 not agent quality. See [scenario examples](examples/scenarios/README.md).
+Scenario task files retain `tasks/` when it matches `files.taskGlob`, including
+wildcard-directory globs; otherwise they use a matching literal directory.
+Incompatible or unsafe configurations fail before writing.
 
 Creates:
 - `evals/<skill-name>/<files.evalFile>`
@@ -1228,6 +1231,7 @@ older executables reject it before running. Results and tasks remain `1.x`,
 so existing result readers and the dashboard keep working. Optional `skill:`
 retains existing skill/custom-agent context and discovery precedence. Without
 a target or explicit skill directories, scenarios disable ambient skill loading.
+Disabling the last eval-level directory also leaves target-free discovery disabled.
 An explicit empty task `skill_directories: []` disables discovery for that task;
 `--no-skills` overrides every task. Legacy suites keep their existing defaults.
 Scenario `2.0` bypasses result caching with an explicit notice because external

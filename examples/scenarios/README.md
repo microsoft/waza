@@ -26,8 +26,10 @@ grader should fail for missing `report.txt`, while the absent-private-file check
 passes. A mock pass is never agent-quality or production-service evidence.
 
 The outcome grader checks `report.txt`; the boundary grader rejects `private.txt`.
-Known-good repository/MCP output contains `Inventory total: 3`; `Inventory total:
-4` deliberately fails, and a correct report plus `private.txt` fails the boundary.
+Known-good repository/MCP output is exactly `Inventory total: 3`, with at most
+one optional trailing LF or CRLF. `Inventory total: 4`, `Inventory total: 30`,
+extra text or extra blank lines fail; a correct report plus `private.txt` fails
+the boundary.
 CLI output must contain `git version`. These narrow checks are not comprehensive
 filesystem/network isolation or proof of complete workflow reliability.
 
@@ -44,6 +46,7 @@ precedence over `.agent.md` is unchanged. Scenario-only suites do not opt into
 ambient skill discovery. Explicit directories opt in; an empty task
 `skill_directories: []` disables discovery for that task, and `--no-skills`
 overrides all context.
+Disabling the last eval-level directory preserves target-free isolation.
 
 Scenario `2.0` currently bypasses result caching with an explicit notice,
 including when `--cache` is requested. External MCP/CLI state, grader resources,

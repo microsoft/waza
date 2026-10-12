@@ -117,6 +117,10 @@ and `instruction_files` resolve from the fixtures/context root, while
 `inputs.context.fixture` resolves relative to the eval directory (the repository
 template explicitly sets `fixtures/inventory.txt`). Generated outputs remain
 relative to each fresh task workspace.
+The scenario task stays under `tasks/` when selected by `files.taskGlob`
+(including wildcard-directory globs), otherwise in a matching literal
+directory; incompatible globs/suffixes fail before writing. Disabling
+the last eval skill directory does not re-enable ambient discovery.
 
 ### Step 1: Initialize a Project
 

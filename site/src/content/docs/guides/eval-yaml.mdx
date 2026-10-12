@@ -50,6 +50,10 @@ Optional `skill` selects existing skill/custom-agent context with unchanged
 precedence. Without a target or explicit eval/task skill directories, ambient
 skills are disabled. An explicit empty task `skill_directories: []` disables
 discovery for that task; `--no-skills` wins over every opt-in.
+Disabling the last eval-level directory preserves target-free isolation.
+Scenario task files retain `tasks/` when selected by `files.taskGlob`, including
+wildcard-directory globs; otherwise they use a matching literal directory.
+Unsupported or nonmatching glob/suffix combinations fail before writing.
 Scenario `2.0` bypasses result caching with an explicit notice, even with
 `--cache`, until external workflow dependencies can be fully fingerprinted.
 Legacy `1.x` caching and billing attribution are unchanged.

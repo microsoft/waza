@@ -575,7 +575,7 @@ func (s *EvalSpec) Validate() error {
 func (s *EvalSpec) SkillsDisabledForTask(taskPaths []string) bool {
 	return s.Config.AllSkillsDisabled() ||
 		(s.Scenario != "" && taskPaths != nil && len(taskPaths) == 0) ||
-		(s.Scenario != "" && s.SkillName == "" && len(s.Config.SkillPaths) == 0 && len(taskPaths) == 0)
+		(s.Scenario != "" && s.SkillName == "" && len(s.Config.FilteredSkillPaths()) == 0 && len(taskPaths) == 0)
 }
 
 func validateGraderReasoningEffort(name string, parameters GraderParameters, executor string) error {
