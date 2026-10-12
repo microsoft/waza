@@ -1,0 +1,18 @@
+id: compatibility-task
+name: Compatibility task
+golden: true
+inputs:
+  prompt: Say ready.
+  follow_up_prompts: [Confirm ready.]
+checkpoints:
+  - after_turn: 1
+    graders:
+      - name: intermediate
+        type: text
+        config:
+          contains: [ready]
+graders:
+  - name: final
+    type: text
+    config:
+      contains: [ready]
