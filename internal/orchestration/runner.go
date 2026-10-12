@@ -1354,12 +1354,19 @@ func (r *EvalRunner) captureSnapshot(tc *models.TestCase, req *execution.Executi
 		return
 	}
 	path, err := r.snapshotWriter.Write(snap)
+	recordSnapshotPublication(run, snap, path, err)
 	if err != nil {
-		run.Evidence = failedSnapshotEvidence(run)
 		slog.Warn("snapshot write failed", "test", tc.TestID, "run", run.RunNumber, "err", err)
 		return
 	}
+}
+
+func recordSnapshotPublication(run *models.RunResult, snap *snapshot.Snapshot, path string, err error) {
 	run.SnapshotPath = path
+	if err != nil {
+		run.Evidence = failedSnapshotEvidence(run)
+		return
+	}
 	run.Evidence = snap.Evidence
 }
 
