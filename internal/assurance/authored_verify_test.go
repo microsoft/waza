@@ -2,8 +2,12 @@ package assurance
 
 import (
 	"encoding/json"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -13,6 +17,40 @@ import (
 )
 
 func authoredVerificationFixture(t *testing.T) (VerifyRequest, ReferenceDocument, string) {
+	t.Helper()
+	request, document, root := fileVerificationFixture(t)
+	request.Spec.Graders[0].Kind = models.GraderKindText
+	request.Spec.Graders[0].Parameters = models.TextGraderParameters{
+		RegexMatch: []string{`(?m)^state:\s*ready$`}, RegexNotMatch: []string{`forbidden:\s*yes`},
+	}
+	config, err := evidence.JSONDigest(request.Spec)
+	require.NoError(t, err)
+	declaration, err := evidence.JSONDigest(request.Spec.Graders[0])
+	require.NoError(t, err)
+	document.EvalResolvedConfigSHA256 = config.SHA256
+	for index, output := range []string{
+		"state: ready\n", "note: alternate explanation\nstate: ready\n",
+		"state: wrong\n", "state: ready\nforbidden: yes\n",
+	} {
+		candidate := &document.Cases[index]
+		input, err := NewAuthoredOutput(document.ID, candidate.ID, candidate.TaskID, index+1, new(output))
+		require.NoError(t, err)
+		name := candidate.ID + "-authored.json"
+		require.NoError(t, os.WriteFile(filepath.Join(root, name), input.Document(), 0o600))
+		candidate.Snapshot = ""
+		candidate.AuthoredInput = &AuthoredSource{Path: name, DocumentSHA256: byteSHA256(input.Document())}
+		candidate.ManifestSHA256 = input.Manifest().SHA256
+		reference, err := evidence.Reference(input.Manifest(), "authored-output")
+		require.NoError(t, err)
+		reference.Pointer = "/output"
+		candidate.Checks[0].Evidence = []models.EvidenceReference{reference}
+		candidate.Checks[0].GraderDeclarationSHA256 = declaration.SHA256
+	}
+	rebindSyntheticReview(t, &request, document)
+	return request, document, root
+}
+
+func portableAuthoredVerificationFixture(t *testing.T) (VerifyRequest, ReferenceDocument, string) {
 	t.Helper()
 	task := &models.TestCase{TestID: "task", DisplayName: "Finite state", Requirements: []models.Requirement{{
 		ID: "state", Category: "outcome", Description: "State is ready without forbidden content.",
@@ -81,7 +119,7 @@ func authoredVerificationFixture(t *testing.T) (VerifyRequest, ReferenceDocument
 }
 
 func TestVerifyFiniteAuthoredOutputUsesActualNativeTextVerdicts(t *testing.T) {
-	request, document, root := authoredVerificationFixture(t)
+	request, document, root := portableAuthoredVerificationFixture(t)
 	files, err := os.ReadDir(root)
 	require.NoError(t, err)
 	require.Len(t, files, 4)
@@ -112,7 +150,7 @@ func TestVerifyFiniteAuthoredOutputUsesActualNativeTextVerdicts(t *testing.T) {
 }
 
 func TestVerifyFiniteAuthoredOutputUsesActualNativeInlineSchemaVerdicts(t *testing.T) {
-	request, document, root := authoredVerificationFixture(t)
+	request, document, root := portableAuthoredVerificationFixture(t)
 	request.Spec.Graders[0].Kind = models.GraderKindJSONSchema
 	request.Spec.Graders[0].Parameters = models.JSONSchemaGraderParameters{Schema: map[string]any{
 		"type": "object",
@@ -184,7 +222,7 @@ func TestVerifyFiniteAuthoredOutputUsesActualNativeInlineSchemaVerdicts(t *testi
 func TestVerifyAuthoredReviewAndNativeBindingsRemainRequired(t *testing.T) {
 	for _, mutation := range []string{"review", "source", "config", "task", "grader"} {
 		t.Run(mutation, func(t *testing.T) {
-			request, document, _ := authoredVerificationFixture(t)
+			request, document, _ := portableAuthoredVerificationFixture(t)
 			switch mutation {
 			case "review":
 				request.Acceptance.AcceptCurrentDecision = false
@@ -216,7 +254,7 @@ func TestVerifyAuthoredReviewAndNativeBindingsRemainRequired(t *testing.T) {
 
 func TestVerifyAuthoredEmptyWhitespaceAndUnavailableAreDistinct(t *testing.T) {
 	for _, output := range []*string{new(""), new(" \n\t"), nil} {
-		request, document, root := authoredVerificationFixture(t)
+		request, document, root := portableAuthoredVerificationFixture(t)
 		candidate := &document.Cases[2]
 		input, err := NewAuthoredOutput(document.ID, candidate.ID, candidate.TaskID, 3, output)
 		require.NoError(t, err)
@@ -243,7 +281,7 @@ func TestVerifyAuthoredEmptyWhitespaceAndUnavailableAreDistinct(t *testing.T) {
 func TestVerifyAuthoredSourceRequiresExactEnvelopeAndProfileBinding(t *testing.T) {
 	for _, mutation := range []string{"bytes", "case", "pointer", "missing"} {
 		t.Run(mutation, func(t *testing.T) {
-			request, document, root := authoredVerificationFixture(t)
+			request, document, root := portableAuthoredVerificationFixture(t)
 			candidate := &document.Cases[0]
 			switch mutation {
 			case "bytes":
@@ -264,4 +302,38 @@ func TestVerifyAuthoredSourceRequiresExactEnvelopeAndProfileBinding(t *testing.T
 			require.Nil(t, report.Requirements[0].Observations[0].Result)
 		})
 	}
+}
+
+func TestNativeAuthoredTestsUsePortableFixture(t *testing.T) {
+	file, err := parser.ParseFile(token.NewFileSet(), "authored_verify_test.go", nil, 0)
+	require.NoError(t, err)
+	tests := 0
+	for _, declaration := range file.Decls {
+		function, ok := declaration.(*ast.FuncDecl)
+		if !ok || !strings.HasPrefix(function.Name.Name, "TestVerify") {
+			continue
+		}
+		tests++
+		t.Run(function.Name.Name, func(t *testing.T) {
+			portable := false
+			ast.Inspect(function.Body, func(node ast.Node) bool {
+				call, ok := node.(*ast.CallExpr)
+				if !ok {
+					return true
+				}
+				name, ok := call.Fun.(*ast.Ident)
+				if !ok {
+					return true
+				}
+				require.NotEqual(t, "authoredVerificationFixture", name.Name,
+					"native authored tests must not inherit preserved-file platform admission")
+				if name.Name == "portableAuthoredVerificationFixture" {
+					portable = true
+				}
+				return true
+			})
+			require.True(t, portable, "native authored tests must explicitly select the portable fixture")
+		})
+	}
+	require.GreaterOrEqual(t, tests, 5)
 }
