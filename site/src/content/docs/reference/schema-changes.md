@@ -31,7 +31,7 @@ metadata, without a global schema bump or new runtime/exit semantics. Old reader
 can ignore them; a minimum-version note does not enforce requirements.
 `waza preflight` requires a CLI build containing #660. Its report is identified
 by `kind: "waza.preflight"` and is never parsed/discovered as evaluation results.
-See [Offline Eval Preflight](/guides/preflight/) for its states and strict policy.
+See [Offline Eval Preflight](../../guides/preflight/) for its states and strict policy.
 
 The independent grader profiles use strict `schema_version` admission, not
 the native same-major minor-version policy below. Offline `1.0`, calibrated
@@ -39,7 +39,7 @@ the native same-major minor-version policy below. Offline `1.0`, calibrated
 unselected profiles. Missing versions, unknown members and implicit migration
 cannot select them. These profiles do not bump native eval/result/snapshot
 versions or enable a public qualification lifecycle.
-See [Separate grader-assurance reports](/reference/schema/#separate-grader-assurance-reports).
+See [Separate grader-assurance reports](../schema/#separate-grader-assurance-reports).
 
 ## Policy
 
