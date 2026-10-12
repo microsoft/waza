@@ -1,11 +1,71 @@
 package evidence
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/microsoft/waza/internal/models"
 	"github.com/stretchr/testify/require"
 )
+
+func TestRequirementReferencesVerifyWholeScopedArtifactAndEscapedNames(t *testing.T) {
+	const name = "check~/output"
+	for _, scope := range []string{"task", "eval", "checkpoint"} {
+		t.Run(scope, func(t *testing.T) {
+			check := models.RequirementCheck{Scope: scope, Grader: name}
+			task := &models.TestCase{TestID: "task",
+				Requirements: []models.Requirement{{ID: "req", Checks: []models.RequirementCheck{check}}},
+			}
+			spec := &models.EvalSpec{}
+			declaration := models.ValidatorInline{Identifier: name, Kind: models.GraderKindText}
+			results := map[string]models.GraderResults{name: {Passed: false}}
+			run := &models.RunResult{Status: models.StatusFailed, Validations: results}
+			id, pointer, relative := "validations", "/result/validations", "/check~0~1output"
+			kind := "grader_results"
+			var content any = results
+			switch scope {
+			case "task":
+				task.Validators = []models.ValidatorInline{declaration}
+			case "eval":
+				spec.Graders = []models.GraderConfig{{Identifier: name, Kind: models.GraderKindText}}
+			case "checkpoint":
+				task.Requirements[0].Checks[0].AfterTurn = 2
+				task.Checkpoints = []models.Checkpoint{{AfterTurn: 2, Graders: []models.ValidatorInline{declaration}}}
+				run.Checkpoints = []models.CheckpointOutcome{{AfterTurn: 2, Validations: results}}
+				id, pointer, relative = "checkpoints", "/checkpoints", "/0/validations/check~0~1output"
+				kind = "checkpoint_results"
+				content = run.Checkpoints
+			}
+			digest, err := JSONDigest(content)
+			require.NoError(t, err)
+			manifest := sampleManifest(t)
+			manifest.Artifacts[0] = models.EvidenceArtifact{
+				ID: id, Kind: kind, Availability: "captured", Completeness: "complete",
+				Document: "snapshot", Pointer: pointer, ContentDigest: digest,
+			}
+			require.NoError(t, Seal(manifest))
+			run.Evidence = manifest
+			observation := ExplainRequirements(spec, task, run)[0].Checks[0]
+			require.Equal(t, "grader_recorded_failure", observation.Observation)
+			require.Len(t, observation.References, 1)
+			reference := observation.References[0]
+			require.Equal(t, manifest.Origin, reference.Origin)
+			require.Equal(t, id, reference.ArtifactID)
+			require.Equal(t, relative, reference.Pointer)
+			data, err := json.Marshal(content)
+			require.NoError(t, err)
+			require.NoError(t, VerifyContent(manifest, reference, data, true, true))
+			onlyResult, err := json.Marshal(results[name])
+			require.NoError(t, err)
+			require.Error(t, VerifyContent(manifest, reference, onlyResult, true, true))
+
+			run.Evidence, err = Regrade(manifest)
+			require.NoError(t, err)
+			require.Empty(t, ExplainRegradedRequirements(spec, task, run)[0].Checks[0].References)
+			require.Equal(t, "captured", manifest.Artifacts[0].Availability)
+		})
+	}
+}
 
 func TestRequirementObservationsRespectScopeAndOperationalUncertainty(t *testing.T) {
 	for _, test := range []struct {

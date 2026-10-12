@@ -682,6 +682,45 @@ expected:
 | `skill_directories` | string[] | Skill directories for this task (overrides eval-level) |
 | `instruction_files` | string[] | Instruction files for this task (adds to eval-level files) |
 | `golden`      | bool   | Mark as a critical "golden" task — enforced by [`waza gate`](/reference/cli/#waza-gate) (must always pass) |
+| `requirements` | array | Descriptive intent linked to explicitly scoped existing graders; does not add assertions or change pass/fail |
+
+### Link intent to existing checks
+
+Use `requirements` to identify the intent behind an existing named grader:
+
+```yaml
+id: report-task
+name: Report the inspected result
+inputs:
+  prompt: "Return a report containing the word inspected."
+graders:
+  - name: report-check
+    type: text
+    config:
+      contains: ["inspected"]
+requirements:
+  - id: report-content
+    category: output
+    description: The report identifies the inspected result.
+    checks:
+      - scope: task
+        grader: report-check
+```
+
+`task` selects a task grader; `eval` selects an eval-level grader.
+`checkpoint` selects a checkpoint grader and requires the matching `after_turn`.
+Names must resolve uniquely in their scope. A final result name shared by eval
+and task graders is unresolved because the stored result map does not distinguish
+their observations. Missing checks and requirements without checks stay unassessed.
+
+`runs[].requirement_explanations` records existing grader outcomes and their
+uncertainty, not new requirement scores, enforcement, or causes. A passing check
+does not erase an overall operational error. With `--snapshot`, references identify
+the whole captured artifact and an artifact-relative result pointer; they are not
+file contents or proof that a grader's workspace is reconstructible.
+Regrading applies the currently selected declarations and never reassesses
+historical checkpoints. See [portable evidence](/waza/guides/snapshot-replay/#scoped-requirement-observations)
+and the [result schema](/waza/reference/schema/#portable-evidence).
 
 ### Inputs Section
 

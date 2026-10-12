@@ -800,7 +800,9 @@ files must never be captured. Allow-listing is not authorization proof: review
 agent visibility and exclusions. Selected files use private directories/files
 and randomized non-overwriting names; ordinary no-file snapshot defaults remain.
 Partial capture and capture/publication failure have safe missing/unavailable
-states. No paths are automatically fetched and no evidence is exported/uploaded.
+states. Capture adds no path fetching or export/upload. Existing explicitly
+configured result storage still uploads results, including evidence metadata,
+but does not fetch or upload separate snapshot files.
 
 Evidence-snapshot regrading requires `--task`, exactly one assessed matching run,
 no explicit `--workspace`, original manifest/full-origin verification, and
@@ -810,6 +812,11 @@ prompt/code/program/diff, absence/wildcard checks, and file graders without
 explicit required paths. Regrading keeps `source_manifest_sha256` and invalidates
 original result/validation/grader-configuration/checkpoint links. Older workspace
 grading is unchanged; no extra automatic model calls are introduced.
+Capture byte limits are not reapplied to independently supplied snapshots during
+workspace verification/materialization; review their sizes before selection.
+The [task authoring example](../site/src/content/docs/guides/eval-yaml.mdx#link-intent-to-existing-checks)
+shows how descriptive `requirements` reference existing scoped graders without
+adding assertions or changing pass/fail.
 
 See the [complete evidence guide](../site/src/content/docs/guides/snapshot-replay.mdx)
 for hash canonicalization, completeness limits, and a runnable mock example;

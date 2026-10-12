@@ -136,6 +136,54 @@ func TestRegradePreservesOriginalWithoutReusingAssessmentIdentity(t *testing.T) 
 	require.Error(t, err)
 }
 
+func TestRegradeInvalidatesAllAssessmentArtifactsAndRetainsExecutionEvidence(t *testing.T) {
+	original := sampleManifest(t)
+	for _, id := range []string{"validations", "result", "grader-config", "checkpoints"} {
+		artifact := original.Artifacts[0]
+		artifact.ID = id
+		switch id {
+		case "validations":
+			artifact.Kind, artifact.Pointer = "grader_results", "/result/validations"
+		case "result":
+			artifact.Kind, artifact.Pointer = "run_result", "/result"
+		case "checkpoints":
+			artifact.Kind, artifact.Pointer = "checkpoint_results", "/checkpoints"
+		case "grader-config":
+			artifact.Kind, artifact.Availability, artifact.Completeness = "grader_configuration", "digest_only", "unknown"
+			artifact.SourceDigest, artifact.ContentDigest = artifact.ContentDigest, nil
+			artifact.Document, artifact.Pointer = "", ""
+			artifact.Reason = "Source configuration identity only."
+		}
+		original.Artifacts = append(original.Artifacts, artifact)
+	}
+	require.NoError(t, Seal(original))
+	before, err := json.Marshal(original)
+	require.NoError(t, err)
+	updated, err := Regrade(original)
+	require.NoError(t, err)
+	require.Equal(t, original.Artifacts[0], updated.Artifacts[0])
+	reference, err := Reference(updated, "receipt")
+	require.NoError(t, err)
+	require.NoError(t, VerifyContent(updated, reference, []byte(`{"a/b":["ok"],"count":9007199254740993}`), true, true))
+	for _, id := range []string{"validations", "result", "grader-config", "checkpoints"} {
+		reference, err := Reference(updated, id)
+		require.NoError(t, err)
+		artifact, err := Resolve(updated, reference)
+		require.NoError(t, err)
+		require.Equal(t, "unavailable", artifact.Availability)
+		require.Equal(t, "unknown", artifact.Completeness)
+		require.Nil(t, artifact.ContentDigest)
+		require.Nil(t, artifact.SourceDigest)
+		require.Empty(t, artifact.Document)
+		require.Empty(t, artifact.Pointer)
+		require.NotEmpty(t, artifact.Reason)
+		require.Error(t, VerifyContent(updated, reference, []byte(`{}`), false, false))
+	}
+	after, err := json.Marshal(original)
+	require.NoError(t, err)
+	require.Equal(t, before, after)
+}
+
 func TestCanonicalTypedAndParsedContentIdentity(t *testing.T) {
 	type payload struct {
 		Z string      `json:"z"`

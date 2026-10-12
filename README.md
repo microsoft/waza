@@ -488,7 +488,7 @@ The manifest fingerprints the captured environment allow-list/configuration (`en
 
 Portable evidence uses independent manifest version **1.0** and snapshot schema **1.1**, retaining result/task **1.4** and legacy readers. Each task exposes every trial, its full source origin (eval/task/run/attempt/prior attempts), availability/completeness, separate source/content digests, redaction, unavailable versions, requested native skill control (`no_skills`, `native_skill_control`), and operational uncertainty. Native control is requested behavior, not proof of SDK enforcement. Cached metadata retains the original origin, not a new execution. Captured artifacts require content plus a snapshot pointer; source digests do not preserve bytes. Historical absence is unassessed, invalid metadata is withheld, and capture/publication failures produce safe unavailable states rather than leaking rejected metadata.
 
-Selected-file capture is opt-in, bounded, and private (`0700` directories, `0600` randomized non-overwriting files). Ordinary no-file snapshot names/defaults are unchanged. Allow-listing is not authorization: review agent visibility and exclude evaluator-only material. There is no automatic export, upload, or local-path fetch. Individual files may be complete while the workspace is only partial/unavailable; external state remains unavailable. Scoped requirement observations describe existing named grader outcomes, not enforcement, causal explanations, new scores, or changed pass/fail defaults. See the [capture/regrading guide](site/src/content/docs/guides/snapshot-replay.mdx) and [dashboard evidence view](site/src/content/docs/guides/dashboard.mdx#portable-evidence).
+Selected-file capture is opt-in, bounded, and private (`0700` directories, `0600` randomized non-overwriting files). Ordinary no-file snapshot names/defaults are unchanged. Allow-listing is not authorization: review agent visibility and exclude evaluator-only material. Capture adds no export, upload, or local-path fetch. Existing explicitly configured result storage still uploads results, including evidence metadata, but does not fetch or upload the separate snapshot files. Individual files may be complete while the workspace is only partial/unavailable; external state remains unavailable. Scoped requirement observations describe existing named grader outcomes, not enforcement, causal explanations, new scores, or changed pass/fail defaults. See the [capture/regrading guide](site/src/content/docs/guides/snapshot-replay.mdx) and [dashboard evidence view](site/src/content/docs/guides/dashboard.mdx#portable-evidence).
 
 ```bash
 # Capture during a run
@@ -1004,6 +1004,10 @@ no-explicit-file-check grading are rejected; the older workspace mode is unchang
 Regraded manifests retain `source_manifest_sha256` and invalidate original
 result/validation/grader-configuration/checkpoint links. Original checkpoints
 never become observations of new declarations.
+The byte-limit flags govern capture, not admission of independently supplied
+snapshots; review supplied artifact sizes before file regrading.
+For descriptive `requirements` linked to existing scoped checks, see the
+[task authoring example](site/src/content/docs/guides/eval-yaml.mdx#link-intent-to-existing-checks).
 
 ### `waza session list`
 

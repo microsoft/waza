@@ -4,8 +4,11 @@ description: Inspect portable task evidence, capture selected files, and underst
 ---
 
 Snapshots preserve recorded observations, not a reconstructible workspace or
-proof of external state. Evidence is local and opt-in: waza does not automatically
-export, upload, or fetch paths named in metadata.
+proof of external state. Snapshot capture is local and opt-in; it adds no
+automatic export, upload, or fetching of paths named in metadata. Existing
+explicitly configured result storage still uploads results, including evidence
+metadata, but does not fetch or upload the separate snapshot files. See
+[storage and portable evidence](/waza/guides/azure-storage/#portable-evidence).
 
 ## Operation capabilities
 
@@ -197,6 +200,12 @@ and prompt/code/program/diff graders are rejected. This is not general workspace
 reconstruction. The older `grade --workspace` mode is unchanged; its prompt
 graders may contact a paid judge. Evidence inspection adds no automatic calls.
 
+The `--snapshot-max-file-bytes` and `--snapshot-max-total-bytes` limits govern
+capture, not admission of an independently supplied snapshot. Workspace
+verification/materialization checks identity and required content but does not
+reapply those capture budgets. Review supplied artifact sizes before selecting
+them; a valid digest is not a resource-limit or trust guarantee.
+
 Regrading retains the original capture SHA-256 as `source_manifest_sha256` but
 invalidates original validation, result, grader-configuration, and checkpoint
 links. Original checkpoints are never observations of newly declared checks.
@@ -205,6 +214,8 @@ links. Original checkpoints are never observations of newly declared checks.
 
 Declared requirement checks resolve named graders only when the name is unique
 in the declared scope. Missing names and flattened-name collisions are unresolved.
+See the [task authoring example](/waza/guides/eval-yaml/#link-intent-to-existing-checks)
+for the `requirements` YAML shape and scope selection.
 `passed` / `failed` describe **existing grader observations**, not requirement
 enforcement, a new requirement score, or changed pass/fail defaults.
 
