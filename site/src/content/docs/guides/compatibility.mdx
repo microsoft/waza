@@ -30,7 +30,8 @@ From a source checkout with the normal Go embed assets present:
 NO_COLOR=1 make test-compat
 ```
 
-This runs fixed fixtures and existing package-owned preservation tests. It
+This forces `ENABLE_COPILOT_TESTS=false`, even if the caller enabled live tests,
+and runs fixed fixtures and existing package-owned preservation tests. It
 covers artifact versions, every grader family, skill/custom-agent lifecycle,
 token/quality checks, static/responder multi-turn runs, checkpoints, mocks,
 golden gates, billing/cache semantics, locks, and offline snapshots/replay.

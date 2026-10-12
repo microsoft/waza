@@ -31,6 +31,8 @@ func TestCompatibilityCLIProcessExits(t *testing.T) {
 	base := filepath.Join(root, "results-1.0.json")
 	o, err := models.LoadEvaluationOutcome(base)
 	require.NoError(t, err)
+	require.Len(t, o.TestOutcomes, 1)
+	require.Len(t, o.TestOutcomes[0].Runs, 1)
 	o.Digest.SuccessRate = 0
 	o.Digest.Succeeded = 0
 	o.Digest.Failed = 1
@@ -111,10 +113,10 @@ func TestCompatibilityCLIProcessExits(t *testing.T) {
 			require.NoError(t, err)
 			require.NotEmpty(t, outcome.RunID)
 			require.False(t, outcome.Timestamp.IsZero())
-			require.Equal(t, "compatibility-task", outcome.TestOutcomes[0].TestID)
-			require.Equal(t, models.StatusPassed, outcome.TestOutcomes[0].Status)
 			require.Len(t, outcome.TestOutcomes, 1)
 			require.Len(t, outcome.TestOutcomes[0].Runs, 1)
+			require.Equal(t, "compatibility-task", outcome.TestOutcomes[0].TestID)
+			require.Equal(t, models.StatusPassed, outcome.TestOutcomes[0].Status)
 			require.NotNil(t, outcome.EvaluationUsage)
 			require.Len(t, outcome.EvaluationUsage.Sessions, 1)
 			sessionID := outcome.TestOutcomes[0].Runs[0].SessionDigest.SessionID

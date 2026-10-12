@@ -42,7 +42,10 @@ Chromium. A fresh worktree must have `web/dist/index.html` and
 `web/dist/favicon.svg` for Go embedding; create missing stubs only, never
 overwrite existing assets. Missing prerequisites are failures, not evidence of
 compatibility. Live integration tests remain opt-in and separate; this target
-does not set their enabling environment variables or use paid agent calls.
+forces `ENABLE_COPILOT_TESTS=false`, even when the caller enabled live tests,
+and does not use paid agent calls. `TestCompatibilityOfflineMakeTarget` checks
+the actual recipe's subprocess environment and each missing prerequisite
+without executing Go or an agent (POSIX hosts with Make installed).
 
 ## Fixed artifacts and repeatability
 
