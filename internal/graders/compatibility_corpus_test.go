@@ -1,7 +1,10 @@
 package graders
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -28,6 +31,88 @@ func TestCompatibilityGraderInventory(t *testing.T) {
 	require.ElementsMatch(t, models.AllGraderKinds(), kinds, "extend the fixture and preservation inventory when adding a grader")
 }
 
+func TestCompatibilityProgramGraderProcess(t *testing.T) {
+	binary, err := os.Executable()
+	require.NoError(t, err)
+	t.Setenv("WAZA_COMPAT_PROGRAM_HELPER", "1")
+	for _, c := range []struct {
+		name    string
+		mode    string
+		missing bool
+		cancel  bool
+		passed  bool
+	}{
+		{name: "success", mode: "success", passed: true},
+		{name: "nonzero exit with stderr", mode: "failure"},
+		{name: "missing executable", missing: true},
+		{name: "canceled context", mode: "success", cancel: true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			command := binary
+			if c.missing {
+				command = filepath.Join(t.TempDir(), "missing-program")
+			}
+			args := []string{"-test.run=^TestCompatibilityProgramHelper$", "--", c.mode}
+			g, err := Create("compat-program", models.ProgramGraderParameters{Command: command, Args: args, Timeout: 10})
+			require.NoError(t, err)
+			workspace := t.TempDir()
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			if c.cancel {
+				cancel()
+			}
+			result, err := g.Grade(ctx, &Context{Output: "recorded input", WorkspaceDir: workspace})
+			require.NoError(t, err)
+			require.Equal(t, "compat-program", result.Name)
+			require.Equal(t, models.GraderKindProgram, result.Type)
+			require.Equal(t, c.passed, result.Passed)
+			require.Equal(t, command, result.Details["command"])
+			require.Equal(t, args, result.Details["args"])
+			require.Equal(t, workspace, result.Details["workspace_dir"])
+			if c.passed {
+				require.Equal(t, 1.0, result.Score)
+				require.Equal(t, "recorded input|"+workspace, result.Feedback)
+				require.Equal(t, result.Feedback, result.Details["stdout"])
+				require.Equal(t, "", result.Details["stderr"])
+			} else {
+				require.Equal(t, 0.0, result.Score)
+				require.Contains(t, result.Feedback, "Program exited with error:")
+				require.NotEmpty(t, result.Details["exit_error"])
+				if c.mode == "failure" {
+					require.Equal(t, "rejected input", result.Details["stdout"])
+					require.Equal(t, "fixture failure", result.Details["stderr"])
+					require.Contains(t, result.Feedback, "fixture failure")
+				}
+			}
+		})
+	}
+}
+
+func TestCompatibilityProgramHelper(t *testing.T) {
+	if os.Getenv("WAZA_COMPAT_PROGRAM_HELPER") != "1" {
+		return
+	}
+	if len(os.Args) != 4 || os.Args[1] != "-test.run=^TestCompatibilityProgramHelper$" || os.Args[2] != "--" {
+		t.Fatal("invalid program helper invocation")
+	}
+	switch os.Args[3] {
+	case "success":
+		input, err := io.ReadAll(os.Stdin)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(2)
+		}
+		fmt.Printf("%s|%s", input, os.Getenv("WAZA_WORKSPACE_DIR"))
+		os.Exit(0)
+	case "failure":
+		_, err := fmt.Fprint(os.Stdout, "rejected input")
+		require.NoError(t, err)
+		fmt.Fprint(os.Stderr, "fixture failure")
+		os.Exit(7)
+	default:
+		t.Fatal("unknown program helper mode")
+	}
+}
 func TestCompatibilityScenariosRepeatable(t *testing.T) {
 	type sample struct {
 		Name           string             `json:"name"`

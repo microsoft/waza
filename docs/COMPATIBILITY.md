@@ -15,7 +15,8 @@ From the repository root, after the normal embedded dashboard assets exist:
 NO_COLOR=1 make test-compat
 ```
 
-The target checks Git/Node/Python availability, fixes the locale/timezone, and
+The target checks Git/Node and a working Python interpreter (preferring
+`python3`, then `python`), fixes the locale/timezone, and
 executes the fixed corpus **and** the existing package-owned
 preservation suites, uncached. This intentionally reuses the tests and their
 SDK fakes rather than copying them into a second suite. It includes all CLI
@@ -42,7 +43,10 @@ Chromium. A fresh worktree must have `web/dist/index.html` and
 `web/dist/favicon.svg` for Go embedding; create missing stubs only, never
 overwrite existing assets. Missing prerequisites are failures, not evidence of
 compatibility. Live integration tests remain opt-in and separate; this target
-does not set their enabling environment variables or use paid agent calls.
+forces `ENABLE_COPILOT_TESTS=false`, even when the caller enabled live tests,
+and does not use paid agent calls. `TestCompatibilityOfflineMakeTarget` checks
+the actual recipe's subprocess environment and each missing prerequisite
+without executing Go or an agent (POSIX hosts with Make installed).
 
 ## Fixed artifacts and repeatability
 
@@ -83,14 +87,23 @@ snapshot and the result's eval/task/run identities, events, output and
 verdicts; it proves changed tool arguments diverge. No identity fields are
 stripped from those assertions.
 
-The CLI process test additionally produces two full result artifacts and
-compares their typed content. Its volatile allowlist is `eval_id`, `timestamp`,
+The CLI process test compares each full raw JSON artifact against the independent
+`cmd/waza/testdata/compatibility-run-1.4.json` oracle, verified by executing
+the CLI built from an isolated `git archive` of baseline `04e7b4c6` against
+the fixed eval/task inputs. Historical corpus files are not
+rewritten. A separate two-run comparison still checks repeatability.
+Mutation tests prove prompt, checkpoint, configuration, billing, score, output
+and removed-field, null/empty, omitted/zero and cardinality drift cannot be
+normalized away. Its volatile allowlist is `eval_id`, `timestamp`,
 summary/run/grader durations, average task duration, workspace directory and
 the mock session ID. Before replacing the session ID, it requires exactly one
 task/run/session and proves the run digest and evaluation ledger reference the
 same nonempty session. Both references then receive the same canonical ID.
 Checkpoint verdicts, prompts, outputs, billing, configuration and scores remain
-in the comparison.
+in the comparison, as do raw optional-field omission and null-versus-empty shapes.
+Program-grader execution uses a native test executable on every platform to
+cover pass/fail, stdin, workspace environment, stderr, missing executables and
+pre-cancelled contexts; older shell-specific tests remain POSIX-only.
 
 ## Capability inventory and package ownership
 
