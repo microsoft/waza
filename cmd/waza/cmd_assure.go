@@ -29,6 +29,9 @@ unknown capture completeness, absence from a subset, unsupported graders and
 unreviewed labels cannot pass assurance. Grader outputs remain separate from
 review eligibility and provenance. Agreement describes only this finite corpus.
 
+Executable provenance hashes the observed on-disk path, not the mapped running
+image, RAM or authenticity. Replacement can change it or make acquisition fail.
+
 Review declarations require --review and explicit --accept-review-source to
 accept that source's current decision; this does not authenticate a human or
 discover withheld revocations. Bundled challenge candidates are unreviewed.

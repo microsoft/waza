@@ -71,8 +71,15 @@ calibration.
 grader outputs with fixed labels and emits a scoped `waza.grader-assurance`
 report. It is offline and never runs a task agent. A supplied current-review
 document needs separate explicit source acceptance; bundled labels remain
-unreviewed. Exact source/declaration/executable identities, complete unredacted
+unreviewed. Exact source/declaration bindings and an observed executable-path
+digest, complete unredacted
 files and good/alternative/critical-bad coverage are independent gates.
+
+The executable digest hashes the on-disk file opened at `os.Executable()` at
+observation time, not the mapped running image, RAM or authenticity. Replacement
+can change the observed bytes or make acquisition fail. Missing applicable
+provenance remains unavailable, with no zero or startup-cache digest fallback.
+The existing portable algorithm and report domain are unchanged.
 
 Finite authored output separately supports native text and inline JSON-schema
 checks. Labels select exactly one historical snapshot or authored document;

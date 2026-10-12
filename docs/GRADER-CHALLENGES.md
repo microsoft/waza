@@ -454,12 +454,16 @@ demonstrate eligibility and the actual file-content path, not real human review.
 | `eval_resolved_config_json_v1` | Selected native resolved eval object using the shared JSON digest |
 | `native_task_declaration_json_v1` | Whole selected native task, including requirement references |
 | `native_grader_declaration_json_v1` | Whole native scoped declaration, not merely its name or type |
-| `implementation_executable_bytes` | Actual running executable bytes, not an author-supplied version string |
+| `implementation_executable_bytes` | Observed on-disk bytes opened at the path returned by `os.Executable()`, not an author-supplied version string |
 | `rubric_content_bytes` | Applicable actual rubric content; native file graders are rubric-free |
 
-Executable identity is conservative and platform/build specific; even a rebuild
-can require a new label binding and review. Missing applicable provenance is not
-assessed. No assurance cache is reused.
+The existing executable digest is a portable observation of that path's file,
+not proof of mapped executable bytes, running RAM, authenticity or historical
+execution. Replacement or mutation may change the observed bytes or make
+acquisition fail; errors leave applicable provenance unavailable, never a zero
+or startup-cache digest. It is platform/build specific; even a rebuild can
+require a new label binding and review. The algorithm, binding domain and report
+format are unchanged. No assurance cache is reused.
 
 Label/review JSON rejects unknown versions/fields, duplicate keys, trailing data,
 invalid identities, repeated cases/references and invalid thresholds. Inputs are

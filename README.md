@@ -157,6 +157,8 @@ waza assure eval.yaml --references labels.json
 # Bundled authored-output examples remain unreviewed: expected exit 1/not assessed.
 # Calibrated 1.1 claims require explicit inspector selection.
 # Existing `assure --calibrate` remains unavailable and makes zero paid calls.
+# Executable provenance observes on-disk path bytes, not the mapped image,
+# running RAM or authenticity; unavailable provenance cannot pass.
 # A separate `assure calibrate` command requires reviewed inputs and explicit
 # --accept-paid-calls; it can incur provider usage and is never enabled by default.
 # Internal preserved-native mechanical assurance has a separately selected 1.2

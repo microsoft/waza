@@ -627,7 +627,11 @@ finite-corpus assessment passes; existing `grade` and golden behavior is unchang
 Labels use `schemas/grader-reference-1.0.schema.json`; a separate
 `schemas/grader-review-1.0.schema.json` declaration needs `--review` and explicit
 `--accept-review-source`. Original label bytes, resolved native declarations,
-source bytes and actual executable bytes are distinct binding domains.
+source bytes and observed on-disk executable-path bytes are distinct binding
+domains. The executable digest reads the file opened at `os.Executable()` at
+observation time; it does not certify the mapped image, running RAM,
+authenticity or historical execution. Replacement can change that observation
+or make acquisition fail; missing applicable provenance cannot pass.
 Reports follow `schemas/grader-assurance-1.0.schema.json`. A case selects exactly
 one historical `snapshot` or `authored_input` with rooted path and external
 SHA-256 of the original authored envelope bytes.

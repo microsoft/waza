@@ -1153,7 +1153,10 @@ waza assure eval.yaml --references labels.json \
 Exit 1 unless the strict finite-corpus assessment passes. Missing evidence,
 unknown completeness, unreviewed labels, operational failures and critical
 false acceptance cannot pass. Preserved subsets cannot prove missing-path absence.
-Executable-byte provenance is specific to the exact platform/build. No assurance
+Executable provenance observes the on-disk file opened at `os.Executable()`,
+not mapped executing bytes, RAM or authenticity. Path replacement may change
+the digest or make acquisition fail; unavailable provenance cannot pass.
+The portable digest algorithm and binding domain are unchanged. No assurance
 cache is reused. Existing `grade`, `run` and golden-task semantics are unchanged.
 See [grader challenges](/guides/graders/#challenge-the-checks-not-just-the-answer).
 
