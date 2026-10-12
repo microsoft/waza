@@ -1,0 +1,5 @@
+[
+  {"name":"known-good","pass":true,"output":"{\"id\":\"item-7\",\"state\":\"ready\"}","tool_events":[{"turn":1,"sequence":1,"tool_name":"catalog_lookup","args":{"id":"item-7"},"success":true}]},
+  {"name":"deliberately-bad","pass":false,"output":"{\"id\":\"item-7\",\"state\":\"ready\"}","tool_events":[{"turn":1,"sequence":1,"tool_name":"catalog_lookup","args":{"id":"item-8"},"success":true}]},
+  {"name":"alternative-valid","pass":true,"output":"{ \"state\": \"ready\", \"id\": \"item-7\", \"source\": \"fixture\" }","tool_events":[{"turn":1,"sequence":1,"tool_name":"catalog_lookup","args":{"id":"item-7","detail":true},"success":true}]}
+]
