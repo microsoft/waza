@@ -152,9 +152,18 @@ guarantee that the operating system has that many free descriptors.
 Descriptor identities reject aliases of admitted excluded files/directories,
 including hard links to inspected descendants. Unrelated hard-linked public
 files remain eligible, and a missing exclusion does not reject neighboring files.
-Capture roots and descendants use no-follow component admission. On macOS only,
+Source capture roots and descendants use no-follow component admission. On macOS only,
 the literal system `/var` and `/tmp` aliases are accepted after checking their
 expected `/private` targets; arbitrary ancestor aliases are rejected.
+
+Selected-state snapshot destination publication on Linux/macOS separately
+admits/creates each component without following arbitrary ancestor symlinks.
+Missing directories are created `0700`; existing ancestors need not be private,
+but the final destination must be `0700`. Non-creating identity checks precede
+evidence writes and surround publication; they never recreate a missing
+destination. A later failure may leave newly created empty directories.
+The existing cleaned destination spelling and ordinary metadata-only snapshot
+writer behavior are unchanged.
 
 These checks observe admitted identities, not an immutable directory inventory:
 concurrent same-user renames, changes to excluded membership or later edits are

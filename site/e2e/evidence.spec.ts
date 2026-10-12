@@ -41,6 +41,10 @@ test('filesystem evidence guide states bounded admission and observational limit
   await expect(main).toContainText('before any selected file content is read');
   await expect(main).toContainText('pruning the inventory or raising process limits');
   await expect(main).toContainText('Unrelated hard-linked public files remain eligible');
+  await expect(main).toContainText('admits/creates each component without following arbitrary ancestor symlinks');
+  await expect(main).toContainText('they never recreate a missing destination');
+  await expect(main).toContainText('may leave newly created empty directories');
+  await expect(main).toContainText('ordinary metadata-only snapshot writer behavior are unchanged');
   await expect(main).toContainText('not an atomic or authentic snapshot');
   await expect(main).toContainText('not continued integrity after the workspace is returned');
   await expect(main).toContainText('retains that path with unavailable capture evidence');

@@ -7,7 +7,9 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 
+	"github.com/microsoft/waza/internal/pathadmission"
 	"golang.org/x/sys/unix"
 )
 
@@ -16,13 +18,15 @@ func writePrivateSnapshotWithHooks(root string, data []byte, hooks privateWriter
 		return "", errors.New("snapshot: a private evidence directory is required")
 	}
 	root = filepath.Clean(root)
-	if mkdirErr := os.MkdirAll(root, 0o700); mkdirErr != nil {
-		return "", errors.New("snapshot: create private evidence directory failed")
+	absolute, err := filepath.Abs(root)
+	if err != nil {
+		return "", errors.New("snapshot: resolve private evidence directory failed")
 	}
-	if hooks.beforeAdmission != nil {
-		hooks.beforeAdmission()
+	absolute, err = pathadmission.SystemRootAlias(absolute)
+	if err != nil {
+		return "", errors.New("snapshot: system root alias is unavailable or changed")
 	}
-	dir, err := openPrivateDirectory(root)
+	dir, err := openPrivateDirectory(absolute, true)
 	if err != nil {
 		return "", err
 	}
@@ -37,6 +41,12 @@ func writePrivateSnapshotWithHooks(root string, data []byte, hooks privateWriter
 			err = errors.Join(err, errors.New("snapshot: close private evidence directory failed"))
 		}
 	}()
+	if hooks.beforeAdmission != nil {
+		hooks.beforeAdmission()
+	}
+	if identityErr := checkPrivatePublicationDirectoryIdentity(absolute, dir); identityErr != nil {
+		return "", identityErr
+	}
 	name := "evidence-" + rand.Text() + ".json"
 	temporary := "." + name + ".tmp"
 	fd, createErr := unix.Openat(int(dir.Fd()), temporary, unix.O_WRONLY|unix.O_CREAT|unix.O_EXCL|unix.O_NOFOLLOW|unix.O_CLOEXEC|unix.O_NONBLOCK, 0o600)
@@ -64,7 +74,7 @@ func writePrivateSnapshotWithHooks(root string, data []byte, hooks privateWriter
 	if hooks.beforePublication != nil {
 		hooks.beforePublication()
 	}
-	if identityErr := checkPrivateDirectoryIdentity(root, dir); identityErr != nil {
+	if identityErr := checkPrivatePublicationDirectoryIdentity(absolute, dir); identityErr != nil {
 		return "", identityErr
 	}
 	// Descriptor-relative linking is atomic and cannot replace an existing name.
@@ -75,33 +85,96 @@ func writePrivateSnapshotWithHooks(root string, data []byte, hooks privateWriter
 	if hooks.afterPublication != nil {
 		hooks.afterPublication()
 	}
-	if identityErr := checkPrivateDirectoryIdentity(root, dir); identityErr != nil {
+	if identityErr := checkPrivatePublicationDirectoryIdentity(absolute, dir); identityErr != nil {
 		return "", identityErr
 	}
 	return filepath.Join(root, name), nil
 }
 
-func openPrivateDirectory(root string) (*os.File, error) {
-	fd, err := unix.Open(root, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC|unix.O_NONBLOCK, 0)
-	if err != nil {
-		return nil, errors.New("snapshot: open non-symlink private evidence directory failed")
-	}
-	dir := os.NewFile(uintptr(fd), "private evidence directory")
-	info, err := dir.Stat()
-	if err != nil || !info.IsDir() || info.Mode().Perm() != 0o700 {
-		if closeErr := dir.Close(); closeErr != nil {
-			return nil, errors.New("snapshot: inspect and close private evidence directory failed")
-		}
-		return nil, errors.New("snapshot: workspace evidence requires a non-symlink directory with mode 0700")
-	}
-	return dir, nil
+type privateDirectoryOps struct {
+	open    func(string, int, uint32) (int, error)
+	openat  func(int, string, int, uint32) (int, error)
+	mkdirat func(int, string, uint32) error
+	stat    func(*os.File) (os.FileInfo, error)
+	close   func(*os.File) error
 }
 
-func checkPrivateDirectoryIdentity(root string, admitted *os.File) (err error) {
-	current, err := openPrivateDirectory(root)
+func privateDirectoryOperations() privateDirectoryOps {
+	return privateDirectoryOps{
+		open: unix.Open, openat: unix.Openat, mkdirat: unix.Mkdirat,
+		stat: (*os.File).Stat, close: (*os.File).Close,
+	}
+}
+
+func openPrivateDirectory(absolute string, create bool) (*os.File, error) {
+	return openPrivateDirectoryWithOps(absolute, create, privateDirectoryOperations())
+}
+
+func openPrivateDirectoryWithOps(absolute string, create bool, ops privateDirectoryOps) (directory *os.File, err error) {
+	fd, err := ops.open("/", directoryOpenFlags(), 0)
+	if err != nil {
+		return nil, errors.New("snapshot: open private evidence anchor failed")
+	}
+	current := os.NewFile(uintptr(fd), "private evidence anchor")
+	defer func() {
+		if current != nil {
+			if closeErr := ops.close(current); closeErr != nil {
+				err = errors.Join(err, errors.New("snapshot: close private evidence ancestor failed"))
+			}
+		}
+	}()
+	for _, part := range strings.Split(strings.TrimPrefix(absolute, "/"), "/") {
+		if part == "" {
+			continue
+		}
+		childFD, openErr := ops.openat(int(current.Fd()), part, directoryOpenFlags(), 0)
+		if create && errors.Is(openErr, unix.ENOENT) {
+			if mkdirErr := ops.mkdirat(int(current.Fd()), part, 0o700); mkdirErr != nil && !errors.Is(mkdirErr, unix.EEXIST) {
+				return nil, errors.New("snapshot: create private evidence ancestor failed")
+			}
+			childFD, openErr = ops.openat(int(current.Fd()), part, directoryOpenFlags(), 0)
+		}
+		if openErr != nil {
+			return nil, errors.New("snapshot: private evidence ancestor is unavailable or not a non-symlink directory")
+		}
+		child := os.NewFile(uintptr(childFD), "private evidence directory")
+		closeErr := ops.close(current)
+		current = nil
+		if closeErr != nil {
+			problem := errors.New("snapshot: close private evidence ancestor failed")
+			if childCloseErr := ops.close(child); childCloseErr != nil {
+				return nil, errors.Join(problem, errors.New("snapshot: close admitted private evidence directory failed"))
+			}
+			return nil, problem
+		}
+		current = child
+	}
+	info, err := ops.stat(current)
+	if err != nil || !info.IsDir() || info.Mode().Perm() != 0o700 {
+		return nil, errors.New("snapshot: workspace evidence requires a non-symlink directory with mode 0700")
+	}
+	directory, current = current, nil
+	return directory, nil
+}
+
+func checkPrivatePublicationDirectoryIdentity(root string, admitted *os.File) error {
+	current, err := openPrivateDirectory(root, false)
+	if err != nil {
+		return errors.Join(errors.New("snapshot: private evidence directory identity changed during publication"), err)
+	}
+	return checkRetainedPrivateDirectoryIdentity(current, admitted)
+}
+
+// Materialization retains its existing leaf-only directory check.
+func checkPrivateDirectoryIdentity(root string, admitted *os.File) error {
+	fd, err := unix.Open(root, directoryOpenFlags(), 0)
 	if err != nil {
 		return errors.New("snapshot: private evidence directory identity changed during publication")
 	}
+	return checkRetainedPrivateDirectoryIdentity(os.NewFile(uintptr(fd), "private evidence directory"), admitted)
+}
+
+func checkRetainedPrivateDirectoryIdentity(current, admitted *os.File) (err error) {
 	defer func() {
 		if closeErr := current.Close(); closeErr != nil {
 			err = errors.Join(err, errors.New("snapshot: close checked private evidence directory failed"))
@@ -109,7 +182,7 @@ func checkPrivateDirectoryIdentity(root string, admitted *os.File) (err error) {
 	}()
 	before, beforeErr := admitted.Stat()
 	after, afterErr := current.Stat()
-	if beforeErr != nil || afterErr != nil || before.Mode().Perm() != 0o700 || after.Mode().Perm() != 0o700 || !os.SameFile(before, after) {
+	if beforeErr != nil || afterErr != nil || !after.IsDir() || before.Mode().Perm() != 0o700 || after.Mode().Perm() != 0o700 || !os.SameFile(before, after) {
 		return errors.New("snapshot: private evidence directory identity changed during publication")
 	}
 	return nil

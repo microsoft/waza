@@ -499,6 +499,13 @@ before/after metadata checks are bounded observations, not atomic snapshots or
 guarantees against concurrent same-user namespace changes. Regrading checks
 materialized expected bytes before returning the workspace, not after return.
 
+On Linux/macOS, selected-state snapshot destinations also admit/create each
+component without following arbitrary symlinks. Only the final directory must
+be `0700`; missing directories are created `0700`. Non-creating identity checks
+precede evidence writes and surround publication. These are observations, not
+moving-directory protection. A later failure may leave newly created empty
+directories; ordinary metadata-only snapshot paths retain historical behavior.
+
 ```bash
 # Capture during a run
 waza run eval.yaml --snapshot ./snapshots/

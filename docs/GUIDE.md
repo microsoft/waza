@@ -814,6 +814,14 @@ Identity and before/after metadata checks do not freeze concurrent same-user
 directory membership or certify atomic/authentic state. A late close failure
 after verified publication retains a residual path with unavailable evidence.
 
+Selected-state destination publication on Linux/macOS uses component-wise
+no-follow creation/admission, including intermediate directories. Missing
+directories are created `0700`; existing ancestors need not be private, but the
+final directory must be `0700`. Identity rechecks before evidence writes and
+before/after linking never recreate missing directories. Failures may leave
+newly created empty directories; these observations do not protect a moving
+same-user namespace. Ordinary metadata-only snapshot output is unchanged.
+
 Evidence-snapshot regrading requires `--task`, exactly one assessed matching run,
 no explicit `--workspace`, original manifest/full-origin verification, and
 complete unredacted file text/digests. Only explicit required file-grader
