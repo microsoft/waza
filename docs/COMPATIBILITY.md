@@ -15,7 +15,8 @@ From the repository root, after the normal embedded dashboard assets exist:
 NO_COLOR=1 make test-compat
 ```
 
-The target checks Git/Node/Python availability, fixes the locale/timezone, and
+The target checks Git/Node availability and a working `python3 --version` or
+`python --version` (trying Python 3 first), fixes the locale/timezone, and
 executes the fixed corpus **and** the existing package-owned
 preservation suites, uncached. This intentionally reuses the tests and their
 SDK fakes rather than copying them into a second suite. It includes all CLI
@@ -42,7 +43,9 @@ Chromium. A fresh worktree must have `web/dist/index.html` and
 `web/dist/favicon.svg` for Go embedding; create missing stubs only, never
 overwrite existing assets. Missing prerequisites are failures, not evidence of
 compatibility. Live integration tests remain opt-in and separate; this target
-does not set their enabling environment variables or use paid agent calls.
+forces `ENABLE_COPILOT_TESTS=false`, even if enabled by the caller, and does not
+use paid agent calls. The real-Make regression checks the recipe with an isolated
+fake-only PATH rather than executing Go or an agent.
 
 ## Fixed artifacts and repeatability
 
@@ -50,6 +53,14 @@ does not set their enabling environment variables or use paid agent calls.
 configuration, results, snapshot, lock shape and dashboard API fixture.
 Treat these as fixed inputs. Change an expectation only with an explicit
 reviewed behavioral decision, not to make a failing test green.
+The user-directed 2026-10-12 scenario admission correction is an explicit
+exception: native YAML/JSON readers reject present null/non-string/blank
+`scenario` fields, including previously accepted versionless/`1.x` nulls and
+scalar coercions. A present identity requires a nonblank string and exact eval
+`schemaVersion: "2.0"`. Remove the field to retain legacy behavior, or supply that
+identity/version pair. Truly absent scenario fields and task/result defaults are
+unchanged. `TestClassifyEvalSpecDeclaredScenarioSchemaParity` compares native
+classify/parse/load/offline admission with the published schema for both formats.
 Remote-lock setup exercises both LF and CRLF eval inputs and asserts that
 the inline grader was replaced before testing lock expansion and tampering.
 

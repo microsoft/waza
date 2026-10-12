@@ -166,13 +166,14 @@ func LoadEvaluationOutcome(path string) (*EvaluationOutcome, error) {
 // ParseEvaluationOutcome decodes an EvaluationOutcome and defaults missing schemaVersion to the current version.
 func ParseEvaluationOutcome(data []byte, source string) (*EvaluationOutcome, error) {
 	var header struct {
-		SchemaVersion string `json:"schemaVersion"`
-		Kind          string `json:"kind"`
+		SchemaVersion string          `json:"schemaVersion"`
+		Kind          json.RawMessage `json:"kind"`
 	}
 	if err := json.Unmarshal(data, &header); err != nil {
 		return nil, err
 	}
-	if header.Kind == "waza.preflight" {
+	var kind string
+	if json.Unmarshal(header.Kind, &kind) == nil && kind == "waza.preflight" {
 		return nil, fmt.Errorf("%s is an offline preflight report, not evaluation results", source)
 	}
 	version, err := ValidateSchemaVersion("results.json", source, header.SchemaVersion)

@@ -119,6 +119,16 @@ Task globs and `tasks_from` CSV paths resolve from the eval directory. Nonempty
 `tasks_from` retains runtime precedence over YAML task lists; CSV range, ID
 fallback, variables and template rules are shared with execution. CSV rows do
 not acquire invented requirements.
+An individual valid task glob may match nothing if another pattern supplies
+tasks; malformed globs and an entirely empty discovered inventory are invalid.
+Any present `scenario` must be a nonblank string with exact
+`schemaVersion: "2.0"`, including in raw native YAML/JSON parsing. Null and
+non-string values no longer fall back to legacy admission or scalar coercion.
+Remove `scenario` for a legacy suite, or supply the valid identity/version pair;
+truly absent fields retain legacy defaults.
+CSV paths must remain within the eval directory after symlinks resolve, including
+when the eval directory itself is a symlink. Fallback IDs/names use the original
+1-based data row, so selecting `range: [2, 2]` retains `row-2`, not `row-1`.
 
 Default fixtures are `<eval-directory>/fixtures`. CLI `--context-dir` resolves
 from the process cwd, as does the existing task `context_dir` override.
@@ -149,6 +159,9 @@ Command-mock fixtures resolve from the eval directory. Task `command_mocks`
 replaces eval mocks, including explicit `[]`. Same-name MCP mocks replace live
 server declarations. MCP fixture responses and matchers are parsed without
 starting a mock. External schema references are not fetched.
+Live stdio/HTTP/SSE settings also use the runtime's full side-effect-free decoder;
+malformed headers, environment maps or arguments are invalid, not just unresolved
+live availability.
 
 Native argument matchers compile eagerly while reading YAML. Preflight guards
 the same source bytes before that decoder, including `tool_calls.expect` and
@@ -157,6 +170,8 @@ pinned cached presets, and merged overrides. External schema prerequisites
 stop that materialization with an unresolved diagnostic and `complete: false`;
 ordinary matcher literals and MCP returned payloads are not treated as schemas.
 Existing runtime loaders retain their normal resource-loading behavior.
+Only the explicit offline external-reference denial is unresolved; unrelated
+schema loader failures remain invalid and fail the default preflight policy.
 
 Every remote grader requires a valid matching `waza.lock`, just as execution
 does. Missing/malformed locks, missing entries, or digest mismatch are invalid.
@@ -189,3 +204,6 @@ No new hard runtime semantics or global artifact-version bump is introduced.
 A minimum-version note or ignored minor field is not enforcement. Future hard
 semantics must choose a separate explicit artifact boundary older readers reject.
 Preflight reports are not evaluation results and do not create dashboard runs.
+Only the exact string `kind: "waza.preflight"` is reserved for this result-reader
+fence; unknown same-major result fields, including non-string `kind` values,
+retain normal compatibility behavior.

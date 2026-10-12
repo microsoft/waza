@@ -53,6 +53,16 @@ For schema `1.0`, the command is a no-op because there is no prior major version
 
 ## Changelog
 
+### Scenario admission correction (2026-10-12)
+
+- Native eval YAML/JSON parsing now enforces the published `scenario` schema
+  whenever the field is present: a nonblank string and exact `schemaVersion: "2.0"`.
+- This is an intentional compatibility change: previously accepted
+  versionless/`1.x` `scenario: null` and numeric/boolean scalar coercions are
+  rejected. Remove the field for legacy behavior, or provide a nonblank string
+  with exact `2.0`. Truly absent `scenario` retains existing legacy defaults;
+  tasks/results and their same-major behavior are unchanged.
+
 ### 1.4
 
 - Added optional `runs[].command_invocations` to `results.json`. Invocation arguments are sanitized; command response output is not copied into this field.

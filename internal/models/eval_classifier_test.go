@@ -1,6 +1,7 @@
 package models
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +13,10 @@ import (
 	"testing"
 
 	"github.com/microsoft/waza/internal/testutil"
+	"github.com/microsoft/waza/schemas"
+	"github.com/santhosh-tekuri/jsonschema/v6"
+	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 )
 
 const classifierValidBody = `name: classifier-test
@@ -50,8 +55,8 @@ func classifierWriteFile(t *testing.T, pattern, data string) string {
 }
 
 func TestClassifyEvalSpecHeaderParity(t *testing.T) {
-	explicitScenarioError := "scenario requires explicit schemaVersion 2.0; older executables must reject scenario semantics"
-	emptyScenarioError := "scenario must be a non-empty workflow identity"
+	explicitScenarioError := "scenario requires explicit schemaVersion 2.0; remove the scenario field for a legacy suite or set schemaVersion 2.0 for a scenario"
+	emptyScenarioError := "scenario must be a non-empty string workflow identity; remove the scenario field for a legacy suite or provide a nonblank string with schemaVersion 2.0"
 	tests := []struct {
 		name         string
 		header       string
@@ -69,8 +74,14 @@ func TestClassifyEvalSpecHeaderParity(t *testing.T) {
 		{name: "blank version", header: "schemaVersion: '  '\n", version: CurrentSchemaVersion},
 		{name: "explicit scenario", header: "schemaVersion: '2.0'\nscenario: checkout-recovery\n", version: "2.0", scenario: "checkout-recovery"},
 		{name: "scenario identity preserved", header: "schemaVersion: '2.0'\nscenario: ' checkout-recovery '\n", version: "2.0", scenario: " checkout-recovery "},
-		{name: "null legacy scenario", header: "scenario: null\n", version: CurrentSchemaVersion},
-		{name: "null explicit legacy scenario", header: "schemaVersion: '1.0'\nscenario: null\n", version: "1.0"},
+		{name: "null legacy scenario migration", header: "scenario: null\n", exactError: emptyScenarioError},
+		{name: "null explicit legacy scenario migration", header: "schemaVersion: '1.0'\nscenario: null\n", exactError: emptyScenarioError},
+		{name: "implicit null scenario", header: "scenario:\n", exactError: emptyScenarioError},
+		{name: "boolean scenario", header: "schemaVersion: '2.0'\nscenario: true\n", exactError: emptyScenarioError},
+		{name: "numeric scenario", header: "schemaVersion: '2.0'\nscenario: 42\n", exactError: emptyScenarioError},
+		{name: "string alias scenario", header: "schemaVersion: '2.0'\nscenario: &identity recovery\n", version: "2.0", scenario: "recovery"},
+		{name: "merged scenario alias", header: "schemaVersion: '2.0'\n<<: &header {scenario: &identity recovery}\nscenario: *identity\n", version: "2.0", scenario: "recovery"},
+		{name: "merged null scenario", header: "<<: {scenario: null}\n", exactError: emptyScenarioError},
 		{name: "empty scenario", header: "schemaVersion: '2.0'\nscenario: ''\n", exactError: emptyScenarioError},
 		{name: "blank scenario", header: "schemaVersion: '2.0'\nscenario: '  '\n", exactError: emptyScenarioError},
 		{name: "whitespace scenario", header: "schemaVersion: '2.0'\nscenario: \"\\t\\n\"\n", exactError: emptyScenarioError},
@@ -80,14 +91,14 @@ func TestClassifyEvalSpecHeaderParity(t *testing.T) {
 		{name: "future scenario minor", header: "schemaVersion: '2.1'\nscenario: recovery\n", exactError: explicitScenarioError},
 		{name: "future scenario major", header: "schemaVersion: '3.0'\nscenario: recovery\n", exactError: explicitScenarioError},
 		{name: "scenario version without scenario", header: "schemaVersion: '2.0'\n", invalidMajor: "2.0"},
-		{name: "scenario version with null scenario", header: "schemaVersion: '2.0'\nscenario: null\n", invalidMajor: "2.0"},
+		{name: "scenario version with null scenario", header: "schemaVersion: '2.0'\nscenario: null\n", exactError: emptyScenarioError},
 		{name: "future version without scenario", header: "schemaVersion: '2.1'\n", invalidMajor: "2.1"},
 		{name: "future major without scenario", header: "schemaVersion: '3.0'\n", invalidMajor: "3.0"},
 		{name: "malformed version", header: "schemaVersion: '1'\n", exactError: `eval.yaml {path} has invalid schemaVersion "1": expected MAJOR.MINOR`},
 		{name: "version mapping", header: "schemaVersion: {major: 1}\n", yamlError: "cannot unmarshal !!map into string"},
 		{name: "version sequence", header: "schemaVersion: [1, 0]\n", yamlError: "cannot unmarshal !!seq into string"},
-		{name: "scenario mapping", header: "schemaVersion: '2.0'\nscenario: {name: recovery}\n", yamlError: "cannot unmarshal !!map into string"},
-		{name: "scenario sequence", header: "schemaVersion: '2.0'\nscenario: [recovery]\n", yamlError: "cannot unmarshal !!seq into string"},
+		{name: "scenario mapping", header: "schemaVersion: '2.0'\nscenario: {name: recovery}\n", exactError: emptyScenarioError},
+		{name: "scenario sequence", header: "schemaVersion: '2.0'\nscenario: [recovery]\n", exactError: emptyScenarioError},
 		{name: "malformed YAML", header: "schemaVersion: [\n", yamlError: "yaml:"},
 		{name: "duplicate version", header: "schemaVersion: '1.0'\nschemaVersion: '1.99'\n", yamlError: `mapping key "schemaVersion" already defined`},
 		{name: "duplicate scenario", header: "schemaVersion: '2.0'\nscenario: one\nscenario: two\n", yamlError: `mapping key "scenario" already defined`},
@@ -139,6 +150,99 @@ func TestClassifyEvalSpecHeaderParity(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestClassifyEvalSpecDeclaredScenarioSchemaParity(t *testing.T) {
+	var schemaDocument any
+	require.NoError(t, json.Unmarshal([]byte(schemas.EvalSchemaJSON), &schemaDocument))
+	compiler := jsonschema.NewCompiler()
+	require.NoError(t, compiler.AddResource("eval.schema.json", schemaDocument))
+	schema, err := compiler.Compile("eval.schema.json")
+	require.NoError(t, err)
+	for _, format := range []string{"yaml", "json"} {
+		for _, version := range []string{"", "1.0", "2.0", "2.1"} {
+			for _, tc := range []struct {
+				name    string
+				present bool
+				value   any
+			}{
+				{"absent", false, nil},
+				{"null", true, nil},
+				{"number", true, 42},
+				{"boolean", true, true},
+				{"empty object", true, map[string]any{}},
+				{"array", true, []any{"recovery"}},
+				{"blank", true, " \t\n"},
+				{"valid string", true, "recovery"},
+			} {
+				t.Run(format+"/"+version+"/"+tc.name, func(t *testing.T) {
+					fields := map[string]any{
+						"name": "classification", "skill": "test-skill",
+						"config":  map[string]any{"executor": "mock", "model": "harness", "trials_per_task": 1, "timeout_seconds": 60},
+						"metrics": []any{map[string]any{"name": "accuracy", "weight": 1, "threshold": 0.8}},
+						"tasks":   []any{"task.yaml"},
+					}
+					if version != "" {
+						fields["schemaVersion"] = version
+					}
+					if tc.present {
+						fields["scenario"] = tc.value
+					}
+					var data []byte
+					var err error
+					if format == "yaml" {
+						data, err = yaml.Marshal(fields)
+					} else {
+						data, err = json.Marshal(fields)
+					}
+					require.NoError(t, err)
+					path := classifierWriteFile(t, "scenario-presence-*."+format, string(data))
+					gotVersion, gotScenario, classErr := ClassifyEvalSpec(data, path)
+					parsed, parseErr := ParseEvalSpec(data, path)
+					loaded, loadErr := LoadEvalSpec(path)
+					offline, offlineErr := LoadEvalSpecOffline(path)
+					valid := (!tc.present && (version == "" || version == "1.0")) ||
+						(tc.name == "valid string" && version == "2.0")
+					if valid {
+						require.NoError(t, classErr)
+						require.NoError(t, parseErr)
+						require.NoError(t, loadErr)
+						require.NoError(t, offlineErr)
+						require.NoError(t, schema.Validate(fields))
+						if !tc.present && version == "" {
+							require.Equal(t, CurrentSchemaVersion, gotVersion)
+						} else {
+							require.Equal(t, version, gotVersion)
+						}
+						if tc.present {
+							require.Equal(t, "recovery", gotScenario)
+						} else {
+							require.Empty(t, gotScenario)
+						}
+						require.Equal(t, parsed, loaded)
+						require.Equal(t, parsed, offline)
+					} else {
+						require.Error(t, classErr)
+						require.EqualError(t, parseErr, classErr.Error())
+						require.EqualError(t, loadErr, classErr.Error())
+						require.EqualError(t, offlineErr, classErr.Error())
+						if !tc.present && version == "2.1" {
+							require.NoError(t, schema.Validate(fields), "schema syntax does not replace the native supported-major fence")
+						} else {
+							require.Error(t, schema.Validate(fields))
+						}
+						require.Nil(t, parsed)
+						require.Empty(t, gotVersion)
+						require.Empty(t, gotScenario)
+						if tc.present {
+							require.Contains(t, classErr.Error(), "remove the scenario field for a legacy suite")
+							require.Contains(t, classErr.Error(), "schemaVersion 2.0")
+						}
+					}
+				})
+			}
+		}
 	}
 }
 

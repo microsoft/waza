@@ -461,28 +461,33 @@ func loadEvalSpec(path string, offline bool) (*EvalSpec, error) {
 // decoding grader parameters or loading their resources.
 func ClassifyEvalSpec(data []byte, path string) (string, string, error) {
 	var header struct {
-		SchemaVersion string  `yaml:"schemaVersion"`
-		Scenario      *string `yaml:"scenario"`
+		SchemaVersion string    `yaml:"schemaVersion"`
+		Scenario      yaml.Node `yaml:"scenario"`
 	}
 	if err := yaml.Unmarshal(data, &header); err != nil {
 		return "", "", fmt.Errorf("parsing eval spec YAML (%s): %w", path, err)
 	}
-	if header.Scenario != nil && strings.TrimSpace(*header.Scenario) == "" {
-		return "", "", fmt.Errorf("scenario must be a non-empty workflow identity")
+	scenario := ""
+	hasScenario := header.Scenario.Kind != 0
+	if hasScenario {
+		value := &header.Scenario
+		for value.Kind == yaml.AliasNode {
+			value = value.Alias
+		}
+		if value.Kind != yaml.ScalarNode || value.Tag != "!!str" || strings.TrimSpace(value.Value) == "" {
+			return "", "", fmt.Errorf("scenario must be a non-empty string workflow identity; remove the scenario field for a legacy suite or provide a nonblank string with schemaVersion %s", ScenarioSchemaVersion)
+		}
+		scenario = value.Value
 	}
 	version := header.SchemaVersion
 	var err error
-	if header.Scenario == nil {
+	if !hasScenario {
 		version, err = ValidateSchemaVersion("eval.yaml", path, header.SchemaVersion)
 	} else if version != ScenarioSchemaVersion {
-		err = fmt.Errorf("scenario requires explicit schemaVersion %s; older executables must reject scenario semantics", ScenarioSchemaVersion)
+		err = fmt.Errorf("scenario requires explicit schemaVersion %s; remove the scenario field for a legacy suite or set schemaVersion %s for a scenario", ScenarioSchemaVersion, ScenarioSchemaVersion)
 	}
 	if err != nil {
 		return "", "", err
-	}
-	scenario := ""
-	if header.Scenario != nil {
-		scenario = *header.Scenario
 	}
 	return version, scenario, nil
 }

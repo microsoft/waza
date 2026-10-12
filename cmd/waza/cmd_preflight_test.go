@@ -133,6 +133,11 @@ graders:
 	path := filepath.Join(dir, "eval.yaml")
 	taskPath := filepath.Join(dir, "task.yaml")
 	require.NoError(t, os.WriteFile(path, []byte(eval), 0600))
+	malformedMCPPath := filepath.Join(dir, "malformed-mcp.yaml")
+	require.NoError(t, os.WriteFile(malformedMCPPath, []byte(strings.ReplaceAll(eval,
+		"headers: {Authorization: private-token}", "headers: [private-token]")), 0600))
+	nullScenarioPath := filepath.Join(dir, "null-scenario.yaml")
+	require.NoError(t, os.WriteFile(nullScenarioPath, []byte("scenario: null\n"+eval), 0600))
 	require.NoError(t, os.WriteFile(taskPath, []byte(task), 0600))
 	scenarioPath := filepath.Join(dir, "scenario.yaml")
 	scenario := strings.ReplaceAll(strings.ReplaceAll(eval, `schemaVersion: "1.4"`, `schemaVersion: "2.0"`), "skill: example", "scenario: local-workflow")
@@ -173,6 +178,8 @@ tasks: [unsupported-task.yaml]
 		{"configured live mocks hooks scripts and judges", path, false, false, false},
 		{"scenario no ambient discovery", scenarioPath, false, false, false},
 		{"strict unresolved", path, true, true, false},
+		{"malformed live MCP configuration", malformedMCPPath, false, true, false},
+		{"declared null scenario fails without calls", nullScenarioPath, false, true, false},
 		{"unsupported capability warns", unsupportedPath, false, false, false},
 		{"unsupported capability strict", unsupportedPath, true, true, false},
 		{"canceled command context retains offline inspection", path, false, false, true},

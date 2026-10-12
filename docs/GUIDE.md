@@ -109,7 +109,11 @@ uses a harness-only mocked MCP dependency, not production-service evidence.
 [sanitized scenario examples](../examples/scenarios/README.md).
 Scenario evals require explicit `schemaVersion: "2.0"` and a nonempty string
 `scenario`. Tasks/results retain `1.x`. Old executables reject eval `2.0`
-before execution. Optional `skill` uses existing skill/custom-agent precedence;
+before execution. Native YAML/JSON parsing rejects present null/non-string/blank
+scenario identities, intentionally replacing earlier null acceptance and scalar
+coercion. Remove the field for a legacy suite, or use a nonblank string with
+exact `2.0`; truly absent fields retain legacy behavior. Optional `skill` uses
+existing skill/custom-agent precedence;
 without it or explicit directories, ambient discovery is disabled. An empty
 task `skill_directories: []` disables discovery; `--no-skills` overrides all
 contexts. Fixtures default to the eval's `fixtures/` directory, instruction
@@ -233,6 +237,11 @@ waza preflight evals/code-explainer/eval.yaml --format json > preflight.json
 
 Preflight verifies only local schemas/configuration, task discovery/IDs, paths,
 locked cached graders, mock matching, references, and static capability support.
+Valid unmatched task globs are optional when other patterns discover tasks.
+CSV paths are checked after resolving symlinks against the eval directory;
+ranged CSV fallback IDs/names retain their original 1-based data row number.
+Live MCP settings use the runtime's pure decoder, so malformed headers or
+environment maps fail even though live availability remains unresolved.
 Model availability, credentials, conditional checkpoint execution, interpreter
 syntax, service readiness, and external state are unresolved. Missing/invalid
 configuration exits 1; unresolved/unsupported warns and exits 0, or 1 with the

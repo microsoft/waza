@@ -10,6 +10,23 @@ test('offline preflight guide separates static references from runtime assurance
   await expect(page.locator('main')).toContainText('Exit policy is driven by diagnostics');
   await expect(page.locator('main')).toContainText('no context/cancellation parameter');
   await expect(page.locator('main')).toContainText('nonempty description');
+  await expect(page.locator('main')).toContainText('An individual valid task glob may match nothing');
+  await expect(page.locator('main')).toContainText('after symlinks resolve');
+  await expect(page.locator('main')).toContainText('row-2, not row-1');
+  await expect(page.locator('main')).toContainText('unrelated schema loader failures remain invalid');
+  await expect(page.locator('main')).toContainText('including non-string kind values');
+});
+
+test('scenario admission history documents the intentional compatibility change and migration', async ({ page }) => {
+  await page.goto('/waza/reference/schema-changes/');
+  await expect(page.getByRole('heading', { name: 'Scenario admission correction (2026-10-12)', exact: true })).toBeVisible();
+  await expect(page.locator('main')).toContainText('intentional compatibility change');
+  await expect(page.locator('main')).toContainText('scenario: null');
+  await expect(page.locator('main')).toContainText('Remove the field for legacy behavior');
+  await expect(page.locator('main')).toContainText('Truly absent scenario retains existing legacy defaults');
+  await page.goto('/waza/guides/eval-yaml/');
+  await expect(page.locator('main')).toContainText('Presence is checked in native YAML/JSON parsing');
+  await expect(page.locator('main')).toContainText('Remove the field for a legacy suite');
 });
 
 test('CLI reference documents opt-in preflight exits', async ({ page }) => {

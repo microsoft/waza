@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/microsoft/waza/internal/copilotconfig"
 	"github.com/microsoft/waza/internal/dataset"
 	"github.com/microsoft/waza/internal/mcpmock"
 	"github.com/microsoft/waza/internal/models"
@@ -126,8 +127,8 @@ func discoverTasks(r *Report, spec *models.EvalSpec, base string) ([]*models.Tes
 	var sources []string
 	for _, pattern := range spec.Tasks {
 		matches, err := filepath.Glob(filepath.Join(base, pattern))
-		if err != nil || len(matches) == 0 {
-			r.add("tasks.pattern", Invalid, r.Source, "", "", "A task pattern is invalid or has no matches.", "Ensure every tasks entry is a valid glob matching readable YAML files.")
+		if err != nil {
+			r.add("tasks.pattern", Invalid, r.Source, "", "", "A task pattern is malformed.", "Use valid glob syntax; at least one task must be discovered across all patterns.")
 			r.Complete = false
 			continue
 		}
@@ -235,13 +236,15 @@ func inspectMCP(r *Report, spec *models.EvalSpec, base string) {
 			serverType, _ := config["type"].(string)
 			switch strings.ToLower(serverType) {
 			case "", "stdio":
+				_, decodeErr := copilotconfig.DecodeMCPStdioServer(config)
 				command, ok := config["command"].(string)
-				if !ok || strings.TrimSpace(command) == "" {
+				if decodeErr != nil || !ok || strings.TrimSpace(command) == "" {
 					state = Invalid
 				}
 			case "http", "sse":
+				_, decodeErr := copilotconfig.DecodeMCPHTTPServer(config)
 				url, ok := config["url"].(string)
-				if !ok || strings.TrimSpace(url) == "" {
+				if decodeErr != nil || !ok || strings.TrimSpace(url) == "" {
 					state = Invalid
 				}
 			default:
@@ -439,7 +442,8 @@ func checkDirectory(r *Report, path, source, task, code string) {
 // Keep errors classifiable without exposing arbitrary configuration values.
 func schemaState(err error) State {
 	var loadError *jsonschema.LoadURLError
-	if errors.Is(err, schemaloader.ErrExternalReference) || errors.As(err, &loadError) {
+	if errors.Is(err, schemaloader.ErrExternalReference) ||
+		errors.As(err, &loadError) && errors.Is(loadError.Err, schemaloader.ErrExternalReference) {
 		return Unresolved
 	}
 	return Invalid

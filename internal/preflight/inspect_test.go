@@ -2,6 +2,8 @@ package preflight
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,6 +11,8 @@ import (
 
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/registry"
+	"github.com/microsoft/waza/internal/schemaloader"
+	"github.com/santhosh-tekuri/jsonschema/v6"
 	"github.com/stretchr/testify/require"
 )
 
@@ -81,7 +85,7 @@ func TestInspectInvalidConfigurations(t *testing.T) {
 	tests := []struct {
 		name, eval, task, code string
 	}{
-		{"unmatched pattern", strings.ReplaceAll(validEval, "task.yaml", "absent*.yaml"), validTask, "tasks.pattern"},
+		{"unmatched pattern", strings.ReplaceAll(validEval, "task.yaml", "absent*.yaml"), validTask, "tasks.empty"},
 		{"malformed pattern", strings.ReplaceAll(validEval, "task.yaml", "["), validTask, "eval.configuration"},
 		{"invalid eval schema", strings.ReplaceAll(validEval, "accuracy", ""), validTask, "eval.schema"},
 		{"timeout", strings.ReplaceAll(validEval, "timeout_seconds: 10", "timeout_seconds: 0"), validTask, "eval.configuration"},
@@ -151,6 +155,26 @@ func TestInspectCSVParity(t *testing.T) {
 	require.Len(t, r.Tasks, 1)
 	require.Equal(t, "second", r.Tasks[0].ID)
 	require.Empty(t, r.Tasks[0].Requirements, "CSV has no implicit assurance or invented requirements")
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "cases.csv"), []byte("prompt\nFirst\nSecond\n"), 0600))
+	r = Inspect(path, Options{})
+	require.False(t, r.Failed(true), "%+v", r.Diagnostics)
+	require.Equal(t, "row-2", r.Tasks[0].ID)
+	require.Equal(t, "row-2", r.Tasks[0].Name)
+}
+
+func TestInspectCSVRejectsSymlinkEscape(t *testing.T) {
+	eval := strings.ReplaceAll(validEval, "tasks:\n  - task.yaml", "tasks: []\ntasks_from: cases.csv")
+	path, dir := writeSuite(t, eval, validTask)
+	outside := filepath.Join(t.TempDir(), "outside.csv")
+	require.NoError(t, os.WriteFile(outside, []byte("prompt\nprivate-outside-data\n"), 0600))
+	require.NoError(t, os.Symlink(outside, filepath.Join(dir, "cases.csv")))
+	r := Inspect(path, Options{})
+	require.True(t, hasDiagnostic(r, "tasks.csv", Invalid), "%+v", r.Diagnostics)
+	require.False(t, r.Complete)
+	require.Empty(t, r.Tasks)
+	data, err := json.Marshal(r)
+	require.NoError(t, err)
+	require.NotContains(t, string(data), "private-outside-data")
 }
 
 func TestInspectMockOverridesAndSecretFreeOutput(t *testing.T) {
@@ -221,6 +245,9 @@ func TestInspectLiveMCPConfigurationStates(t *testing.T) {
 		{"missing URL", "{type: http}", Invalid},
 		{"unknown transport", "{type: custom, url: 'https://never-contact.invalid'}", Unsupported},
 		{"non-object configuration", "[]", Invalid},
+		{"malformed headers", "{type: http, url: 'https://never-contact.invalid', headers: [secret-value]}", Invalid},
+		{"malformed environment", "{command: never-run, env: [secret-value]}", Invalid},
+		{"malformed args", "{command: never-run, args: {unexpected: secret-value}}", Invalid},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			eval := strings.ReplaceAll(validEval, "executor: mock", "executor: copilot-sdk")
@@ -236,6 +263,73 @@ func TestInspectLiveMCPConfigurationStates(t *testing.T) {
 			require.NoError(t, err)
 			require.NotContains(t, string(data), "never-contact.invalid")
 			require.NotContains(t, string(data), "never-run")
+			require.NotContains(t, string(data), "secret-value")
+		})
+	}
+}
+
+func TestInspectOptionalUnmatchedTaskPatternsRetainRuntimeParity(t *testing.T) {
+	eval := strings.ReplaceAll(validEval, "  - task.yaml", "  - task.yaml\n  - optional/*.yaml")
+	path, _ := writeSuite(t, eval, validTask)
+	r := Inspect(path, Options{})
+	require.True(t, r.Complete)
+	require.False(t, r.Failed(true), "%+v", r.Diagnostics)
+	require.Len(t, r.Tasks, 1)
+	require.False(t, hasDiagnostic(r, "tasks.pattern", Invalid))
+	eval = strings.ReplaceAll(validEval, "  - task.yaml", "  - task.yaml\n  - optional/[")
+	path, _ = writeSuite(t, eval, validTask)
+	r = Inspect(path, Options{})
+	require.True(t, hasDiagnostic(r, "tasks.pattern", Invalid))
+	require.False(t, r.Complete)
+}
+
+func TestInspectDeclaredScenarioAdmission(t *testing.T) {
+	for _, version := range []string{"", "1.0", "2.0", "2.1"} {
+		for _, value := range []string{"null", "42", "true", "{}", "[]", "'   '", "recovery"} {
+			t.Run(version+"/"+value, func(t *testing.T) {
+				eval := strings.ReplaceAll(validEval, "schemaVersion: \"1.4\"\n", "")
+				if version != "" {
+					eval = "schemaVersion: '" + version + "'\n" + eval
+				}
+				eval = "scenario: " + value + "\n" + eval
+				path, _ := writeSuite(t, eval, validTask)
+				r := Inspect(path, Options{})
+				if version == "2.0" && value == "recovery" {
+					require.False(t, r.Failed(true), "%+v", r.Diagnostics)
+					require.True(t, r.Complete)
+				} else {
+					require.True(t, r.Failed(false))
+					require.True(t, hasDiagnostic(r, "eval.configuration", Invalid))
+					require.False(t, r.Complete)
+					require.Empty(t, r.Tasks)
+				}
+			})
+		}
+	}
+}
+
+func TestSchemaStateRequiresExplicitOfflineSentinel(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		err  error
+		want State
+	}{
+		{"direct sentinel", schemaloader.ErrExternalReference, Unresolved},
+		{"wrapped sentinel", fmt.Errorf("schema: %w", schemaloader.ErrExternalReference), Unresolved},
+		{"load sentinel", &jsonschema.LoadURLError{URL: "file:///schema.json", Err: schemaloader.ErrExternalReference}, Unresolved},
+		{"wrapped load sentinel", fmt.Errorf("compile: %w", &jsonschema.LoadURLError{URL: "file:///schema.json", Err: fmt.Errorf("offline: %w", schemaloader.ErrExternalReference)}), Unresolved},
+		{"unrelated load failure", &jsonschema.LoadURLError{URL: "file:///schema.json", Err: errors.New("malformed schema resource")}, Invalid},
+		{"missing load cause", &jsonschema.LoadURLError{URL: "file:///schema.json"}, Invalid},
+		{"ordinary error", errors.New("invalid schema"), Invalid},
+		{"nil", nil, Invalid},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			state := schemaState(tc.err)
+			require.Equal(t, tc.want, state)
+			report := &Report{}
+			report.add("grader.schema", state, "eval.yaml", "", "", "Schema diagnosis.", "Inspect schema.")
+			require.Equal(t, tc.want == Invalid, report.Failed(false))
+			require.True(t, report.Failed(true))
 		})
 	}
 }

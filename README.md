@@ -1247,7 +1247,7 @@ tasks:
 
 # Optional: Generate tasks from CSV dataset
 # tasks_from: ./test-cases.csv
-# range: [1, 10]  # Only include rows 1-10 (0-indexed, skips header)
+# range: [1, 10]  # Include 1-based data rows 1-10 (header excluded)
 ```
 
 Pin `reasoning_effort` and `judge_reasoning_effort` to `low`, `medium`, `high`, `xhigh`, or `max` when benchmarking model-and-effort combinations. Both settings require `executor: copilot-sdk`. Omit either setting to preserve the Copilot SDK/model default. A `prompt` grader can override the judge default with `graders[].config.reasoning_effort`, including task/checkpoint graders and graders with `continue_session: true`, which resume the task session with the overridden or default judge effort. Agent effort remains eval-level, not per-task.
@@ -1264,6 +1264,11 @@ retains existing skill/custom-agent context and discovery precedence. Without
 a target or explicit skill directories, scenarios disable ambient skill loading.
 An explicit empty task `skill_directories: []` disables discovery for that task;
 `--no-skills` overrides every task. Legacy suites keep their existing defaults.
+Native YAML/JSON parsing checks whether `scenario` is present: null, non-string
+values and blank strings are rejected. This intentionally corrects earlier
+versionless/`1.x` null acceptance and numeric/boolean coercion. Remove the field
+for legacy behavior, or provide a nonblank string with exact `2.0` for a scenario;
+truly absent scenario fields retain legacy defaults.
 Scenario `2.0` bypasses result caching with an explicit notice because external
 workflow dependencies are not fully fingerprinted; legacy caching is unchanged.
 
@@ -1417,7 +1422,7 @@ Generate tasks dynamically from a CSV file using `tasks_from`:
 ```yaml
 # eval.yaml
 tasks_from: ./test-cases.csv
-range: [0, 50]  # Optional: limit to rows 0-50 (skip header at 0)
+range: [1, 50]  # Optional: include 1-based data rows 1-50 (header excluded)
 ```
 
 **CSV Format:**
@@ -1449,7 +1454,7 @@ tasks:
   - "tasks/*.yaml"        # Explicit tasks
 
 tasks_from: ./test-cases.csv    # CSV-generated tasks
-range: [0, 20]                  # Only first 20 rows
+range: [1, 20]                  # Only first 20 data rows
 ```
 
 **CSV vs Inputs:**
