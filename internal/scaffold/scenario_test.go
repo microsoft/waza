@@ -3,6 +3,7 @@ package scaffold_test
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/microsoft/waza/internal/graders"
@@ -75,5 +76,40 @@ func TestScenarioCheckedInExamples(t *testing.T) {
 			_, err := models.LoadTestCase(taskPath)
 			require.NoError(t, err)
 		}
+		generated, err := scaffold.ScenarioFiles(spec.Scenario, spec.Config.ModelID, "eval.yaml", "tasks/*.yaml", ".yaml", template)
+		require.NoError(t, err)
+		for relative, expected := range generated {
+			actual, err := os.ReadFile(filepath.Join(filepath.Dir(path), relative))
+			require.NoError(t, err)
+			require.Equal(t, expected, strings.ReplaceAll(string(actual), "\r\n", "\n"), "checked-in %s must match the callable scaffold apart from checkout line endings", relative)
+		}
 	}
+}
+
+func TestScenarioFilesRejectInvalidNamesAndTemplates(t *testing.T) {
+	for _, name := range []string{"", " \t\n ", ".", "..", "../escape", `..\escape`} {
+		t.Run(name, func(t *testing.T) {
+			files, err := scaffold.ScenarioFiles(name, "model", "eval.yaml", "tasks/*.yaml", ".yaml", "repository")
+			require.Error(t, err)
+			require.Nil(t, files)
+		})
+	}
+	files, err := scaffold.ScenarioFiles("inventory", "model", "eval.yaml", "tasks/*.yaml", ".yaml", "unknown")
+	require.ErrorContains(t, err, "unknown scenario template")
+	require.Nil(t, files)
+}
+
+func TestScenarioFilesQuoteYAMLValues(t *testing.T) {
+	name := `inventory: "sanitized"`
+	model := `model: "custom"`
+	files, err := scaffold.ScenarioFiles(name, model, "eval.yaml", "tasks/*.yaml", ".yaml", "repository")
+	require.NoError(t, err)
+	require.Empty(t, validation.ValidateEvalBytes([]byte(files["eval.yaml"])))
+	require.Empty(t, validation.ValidateTaskBytes([]byte(files["tasks/workflow.yaml"])))
+	path := filepath.Join(t.TempDir(), "eval.yaml")
+	require.NoError(t, os.WriteFile(path, []byte(files["eval.yaml"]), 0o600))
+	spec, err := models.LoadEvalSpec(path)
+	require.NoError(t, err)
+	require.Equal(t, name, spec.Scenario)
+	require.Equal(t, model, spec.Config.ModelID)
 }

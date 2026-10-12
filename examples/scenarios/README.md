@@ -32,9 +32,11 @@ CLI output must contain `git version`. These narrow checks are not comprehensive
 filesystem/network isolation or proof of complete workflow reliability.
 
 Fixtures default to the eval directory's `fixtures/` folder. Task globs are
-eval-directory-relative; input and instruction paths retain context-root
-resolution. Output paths are relative to each fresh task workspace, not the
-source fixtures. The original fixtures are never modified.
+eval-directory-relative. `inputs.context.fixture` is also eval-directory-relative
+(the repository task declares `fixtures/inventory.txt`); `inputs.files` and
+`instruction_files` resolve from the fixtures/context root. Output paths are
+relative to each fresh task workspace, not the source fixtures. The original
+fixtures are never modified.
 
 To add skill or custom-agent context, set `skill: <name>` and configure
 `config.skill_directories` relative to the eval directory. Existing `SKILL.md`

@@ -296,6 +296,10 @@ Creates:
 | `--template` | Scenario template: `repository` (default), `cli`, or `mcp`; requires `--scenario`. |
 
 The generated eval filename, task glob, and task filename suffix come from `.waza.yaml` `files` settings when configured.
+Scenario mode creates one `tasks/workflow<files.taskFileSuffix>` task and a
+`fixtures/` directory beside the eval file; the repository template includes
+`fixtures/inventory.txt`. It rejects blank names and refuses to overwrite any
+generated file. The three trigger tasks above belong to the default skill flow.
 
 ### Examples
 

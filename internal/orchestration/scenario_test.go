@@ -2,6 +2,7 @@ package orchestration
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -86,6 +87,12 @@ func TestScenarioCacheBypassPreservesLegacyCaching(t *testing.T) {
 			first, err := runner.RunBenchmark(t.Context())
 			require.NoError(t, err)
 			require.False(t, first.TestOutcomes[0].Cached)
+			data, err := json.Marshal(first)
+			require.NoError(t, err)
+			var emitted models.EvaluationOutcome
+			require.NoError(t, json.Unmarshal(data, &emitted))
+			require.Equal(t, models.CurrentSchemaVersion, emitted.SchemaVersion)
+			require.Empty(t, emitted.SkillTested)
 			if scenario != "" {
 				require.NoError(t, os.WriteFile(filepath.Join(dir, "inventory.txt"), []byte("4"), 0o600))
 				spec.MCPMocks = []models.MCPMockConfig{{Name: "inventory", Tools: map[string]models.MCPMockTool{
@@ -94,12 +101,16 @@ func TestScenarioCacheBypassPreservesLegacyCaching(t *testing.T) {
 			}
 			second, err := runner.RunBenchmark(t.Context())
 			require.NoError(t, err)
+			require.NotNil(t, second.EvaluationUsage)
 			if scenario == "" {
 				require.True(t, second.TestOutcomes[0].Cached)
 				require.Equal(t, 1, engine.calls)
+				require.Empty(t, second.EvaluationUsage.Sessions, "cached diagnostics must not count as current billed attempts")
 			} else {
 				require.False(t, second.TestOutcomes[0].Cached)
 				require.Equal(t, 2, engine.calls)
+				require.Len(t, second.EvaluationUsage.Sessions, 1)
+				require.Equal(t, second.TestOutcomes[0].Runs[0].SessionDigest.SessionID, second.EvaluationUsage.Sessions[0].SessionID)
 			}
 		})
 	}
@@ -111,4 +122,53 @@ func TestScenarioMissingInstructionFails(t *testing.T) {
 	runner := NewEvalRunner(config.NewEvalConfig(spec, config.WithSpecDir(dir), config.WithFixtureDir(dir)), nil)
 	_, err := runner.buildExecutionRequest(&models.TestCase{Stimulus: models.TaskStimulus{Message: "hello"}})
 	require.ErrorContains(t, err, "missing.md")
+}
+
+func TestScenarioOptionalAgentContext(t *testing.T) {
+	for _, tt := range []struct {
+		name, scenario string
+		emptyOverride  bool
+		skillPriority  bool
+		malformed      bool
+	}{
+		{name: "legacy-agent"},
+		{name: "scenario-agent", scenario: "inventory"},
+		{name: "scenario-empty-override", scenario: "inventory", emptyOverride: true},
+		{name: "scenario-skill-priority", scenario: "inventory", skillPriority: true},
+		{name: "scenario-malformed-agent", scenario: "inventory", malformed: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			body := "---\nname: reader\ntools: [fileRead]\n---\nRead only.\n"
+			if tt.malformed {
+				body = "---\nname: [unterminated\n---\n"
+			}
+			require.NoError(t, os.WriteFile(filepath.Join(dir, "reader.agent.md"), []byte(body), 0o600))
+			if tt.skillPriority {
+				require.NoError(t, os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("---\nname: reader\ndescription: Read only\n---\n"), 0o600))
+			}
+			spec := &models.EvalSpec{Scenario: tt.scenario, SkillName: "reader", Config: models.Config{SkillPaths: []string{dir}}}
+			task := &models.TestCase{Stimulus: models.TaskStimulus{Message: "hello"}}
+			if tt.emptyOverride {
+				task.SkillPaths = []string{}
+			}
+			runner := NewEvalRunner(config.NewEvalConfig(spec, config.WithSpecDir(dir)), nil)
+			req, err := runner.buildExecutionRequest(task)
+			if tt.malformed {
+				require.Error(t, err)
+				require.Nil(t, req)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tt.emptyOverride, req.NoSkills)
+			if tt.emptyOverride || tt.skillPriority {
+				require.Nil(t, req.ToolPolicy)
+			} else {
+				require.NotNil(t, req.ToolPolicy)
+				require.Equal(t, execution.ToolPolicyAllowList, req.ToolPolicy.Mode)
+				require.True(t, req.ToolPolicy.IsAllowed("view"))
+				require.False(t, req.ToolPolicy.IsAllowed("bash"))
+			}
+		})
+	}
 }

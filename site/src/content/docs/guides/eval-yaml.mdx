@@ -53,9 +53,11 @@ discovery for that task; `--no-skills` wins over every opt-in.
 Scenario `2.0` bypasses result caching with an explicit notice, even with
 `--cache`, until external workflow dependencies can be fully fingerprinted.
 Legacy `1.x` caching and billing attribution are unchanged.
-Task globs resolve relative to the eval directory, fixtures default to its
-`fixtures/` directory, input/instruction paths retain their context-root
-resolution, and file grader outputs are task-workspace-relative.
+Task globs and `inputs.context.fixture` resolve relative to the eval directory.
+Fixtures default to its `fixtures/` directory; `inputs.files` and
+`instruction_files` resolve from the fixtures/context root. The repository
+template explicitly declares `inputs.context.fixture: fixtures/inventory.txt`.
+File grader outputs are task-workspace-relative.
 
 For a `SKILL.md` target:
 

@@ -43,6 +43,8 @@ Custom agent evaluations enforce the selected `.agent.md` tool policy with the C
 - **Goals:** Author scenario suites without an unrelated `SKILL.md`, retaining optional skill/custom-agent context
 - **Scope:** `waza new eval <name> --scenario --template repository|cli|mcp` uses existing graders and real agent execution; mocked dependencies are explicitly harness-only evidence
 - **Compatibility:** Scenario evals opt into exact schema `2.0` so old executables reject changed discovery semantics before execution; legacy evals and task/result artifacts retain their prior formats
+- **Discovery:** No target or explicit skill directories disables ambient skills on new/resumed SDK sessions; explicit empty task directories disable discovery and `--no-skills` overrides opt-ins
+- **Cache limitation:** Scenario evals bypass result caching with a notice until external workflow dependencies can be fully fingerprinted; legacy cache/default/billing behavior is unchanged
 
 ### Primary: Skill Author
 - **Role:** Developer contributing skills to microsoft/skills

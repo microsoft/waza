@@ -21,9 +21,13 @@ func TestScenarioVersionBoundary(t *testing.T) {
 		{"missing-version", "scenario: inventory\n", "scenario requires"},
 		{"future-minor", "scenario: inventory\nschemaVersion: \"2.1\"\n", "scenario requires"},
 		{"future-major", "scenario: inventory\nschemaVersion: \"3.0\"\n", "scenario requires"},
+		{"future-skill-context", "scenario: inventory\nskill: reader\nschemaVersion: \"2.1\"\n", "scenario requires"},
 		{"no-scenario-v2", "skill: reader\nschemaVersion: \"2.0\"\n", "schema major"},
 		{"empty-scenario", "scenario: \"\"\nschemaVersion: \"2.0\"\n", "non-empty"},
 		{"blank-scenario", "scenario: \"  \"\nschemaVersion: \"2.0\"\n", "non-empty"},
+		{"invalid-scenario-type", "scenario: {name: inventory}\nschemaVersion: \"2.0\"\n", "parsing eval spec YAML"},
+		{"unknown-scenario-field", "scenario: inventory\nschemaVersion: \"2.0\"\ncontext: {agent: reader}\n", "field context not found"},
+		{"legacy-unknown-field", "skill: reader\nschemaVersion: \"1.99\"\nfuture_metadata: safe\n", ""},
 		{"required-without-context", "scenario: inventory\nschemaVersion: \"2.0\"\nconfig:\n  trials_per_task: 1\n  timeout_seconds: 30\n  required_skills: [reader]\n", "explicit skill_directories"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -32,6 +36,7 @@ func TestScenarioVersionBoundary(t *testing.T) {
 			if tt.name == "required-without-context" {
 				data = "name: suite\n" + tt.fields
 			}
+
 			path := filepath.Join(t.TempDir(), "eval.yaml")
 			require.NoError(t, os.WriteFile(path, []byte(data), 0o600))
 			spec, err := LoadEvalSpec(path)
@@ -75,4 +80,11 @@ func TestScenarioTaskDiscovery(t *testing.T) {
 	var task TestCase
 	require.NoError(t, yaml.Unmarshal([]byte("skill_directories: []\ninputs:\n  prompt: hello\n"), &task))
 	require.NotNil(t, task.SkillPaths)
+}
+
+func TestScenarioRejectsUnknownConfigField(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "eval.yaml")
+	require.NoError(t, os.WriteFile(path, []byte("name: suite\nscenario: inventory\nschemaVersion: \"2.0\"\nconfig:\n  trials_per_task: 1\n  timeout_seconds: 30\n  future_setting: true\n"), 0o600))
+	_, err := LoadEvalSpec(path)
+	require.ErrorContains(t, err, "field future_setting not found")
 }

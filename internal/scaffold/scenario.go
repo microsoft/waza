@@ -3,6 +3,7 @@ package scaffold
 import (
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/microsoft/waza/internal/models"
 )
@@ -10,6 +11,9 @@ import (
 // ScenarioFiles returns a self-contained suite relative to its eval directory.
 // It uses existing graders and the real agent executor, never a mock engine.
 func ScenarioFiles(name, model, evalFile, taskGlob, taskSuffix, template string) (map[string]string, error) {
+	if strings.TrimSpace(name) == "" {
+		return nil, fmt.Errorf("scenario name must not be empty")
+	}
 	if err := ValidateName(name); err != nil {
 		return nil, err
 	}

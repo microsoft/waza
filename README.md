@@ -1232,6 +1232,10 @@ An explicit empty task `skill_directories: []` disables discovery for that task;
 `--no-skills` overrides every task. Legacy suites keep their existing defaults.
 Scenario `2.0` bypasses result caching with an explicit notice because external
 workflow dependencies are not fully fingerprinted; legacy caching is unchanged.
+Scenario readers reject unknown eval/config fields rather than accepting
+future-minor additions. `inputs.context.fixture` resolves relative to the eval
+directory; `inputs.files` and `instruction_files` resolve from the fixtures/context
+root, and file grader output paths are relative to the task workspace.
 
 Remote grader refs use Go-module-style paths: `<host>/<owner>/<repo>[/path][#export]@<version>`. The remote module must provide a `waza.registry.yaml` manifest and export a grader preset. Config-only grader presets expand to built-in grader types by default; remote program graders require explicit trust with `waza registry add --allow-exec` or interactive confirmation. Run `waza get eval.yaml` after manually adding or changing refs so `waza.lock` records the resolved commit and digest.
 

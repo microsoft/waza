@@ -112,9 +112,11 @@ Scenario evals require explicit `schemaVersion: "2.0"` and a nonempty string
 before execution. Optional `skill` uses existing skill/custom-agent precedence;
 without it or explicit directories, ambient discovery is disabled. An empty
 task `skill_directories: []` disables discovery; `--no-skills` overrides all
-contexts. Fixtures default to the eval's `fixtures/` directory, instruction
-and input files resolve from their existing context root, and generated outputs
-remain relative to each fresh task workspace.
+contexts. Fixtures default to the eval's `fixtures/` directory. `inputs.files`
+and `instruction_files` resolve from the fixtures/context root, while
+`inputs.context.fixture` resolves relative to the eval directory (the repository
+template explicitly sets `fixtures/inventory.txt`). Generated outputs remain
+relative to each fresh task workspace.
 
 ### Step 1: Initialize a Project
 
@@ -541,6 +543,10 @@ artifact policies and known-bug boundaries are in
 [COMPATIBILITY.md](COMPATIBILITY.md).
 
 ### Caching and Reproducibility
+
+Scenario eval `2.0` bypasses result caching with an explicit notice, even with
+`--cache`, because external dependencies are not fully fingerprinted. The cache
+behavior below applies to legacy `1.x` suites.
 
 Cache evaluation results to avoid redundant runs:
 
