@@ -69,6 +69,8 @@ documents the executable test coverage and these limits.
 - **Scope:** `waza new eval <name> --scenario --template repository|cli|mcp` uses existing graders and real agent execution; mocked dependencies are explicitly harness-only evidence
 - **Compatibility:** Scenario evals opt into exact schema `2.0` so old executables reject changed discovery semantics before execution; legacy evals and task/result artifacts retain their prior formats
 
+- **Scaffold parent policy:** Scenario generation rejects selected symlinked output parents, including the scaffold root and nested generated directories, and retains admitted directory handles for exclusive file creation. Relative output uses the retained working directory; absolute output is admitted from the filesystem root with only verified literal macOS `/var` and `/tmp` aliases. This does not add whole-suite rollback, filesystem sandboxing or protection against moving an already admitted directory; legacy scaffold behavior is unchanged.
+
 ### Primary: Skill Author
 - **Role:** Developer contributing skills to microsoft/skills
 - **Goals:** Create high-quality skills that pass CI, work across models
