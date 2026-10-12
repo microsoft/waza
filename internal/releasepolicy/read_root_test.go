@@ -6,6 +6,8 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
+	"syscall"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -74,7 +76,12 @@ func TestRetainedDecisionRootCompleteAndPartial(t *testing.T) {
 			require.Equal(t, complete, expected.Accepted)
 			root, err := os.OpenRoot(directory)
 			require.NoError(t, err)
-			t.Cleanup(func() { require.NoError(t, root.Close()) })
+			moved := directory + "-retained"
+			t.Cleanup(func() {
+				closeErr := root.Close()
+				removeErr := os.RemoveAll(moved)
+				require.NoError(t, errors.Join(closeErr, removeErr))
+			})
 			actual, actualErr := ReadDecisionRootContext(t.Context(), root)
 			require.Equal(t, expected, actual)
 			if expectedErr == nil {
@@ -84,20 +91,39 @@ func TestRetainedDecisionRootCompleteAndPartial(t *testing.T) {
 			}
 			_, err = root.Stat("policy.json")
 			require.NoError(t, err, "borrowed root must remain open")
-			moved := directory + "-retained"
-			require.NoError(t, os.Rename(directory, moved))
-			t.Cleanup(func() {
+			renameErr := os.Rename(directory, moved)
+			pinned := runtime.GOOS == "windows" && renameErr != nil
+			if pinned {
+				require.ErrorIs(t, renameErr, syscall.Errno(32), "only Windows sharing violation is an expected pin")
+				_, err := os.Stat(directory)
+				require.NoError(t, err)
+				_, err = os.Stat(moved)
+				require.ErrorIs(t, err, os.ErrNotExist)
+				actual, actualErr = ReadDecisionRootContext(t.Context(), root)
+				require.Equal(t, expected, actual, "pinned full/partial reads must retain the exact original decision")
+				if expectedErr == nil {
+					require.NoError(t, actualErr)
+				} else {
+					require.EqualError(t, actualErr, expectedErr.Error())
+				}
 				require.NoError(t, root.Close())
-				require.NoError(t, os.RemoveAll(moved))
-			})
+				require.NoError(t, os.Rename(directory, moved), "closing the caller-owned root must release the pin")
+			} else {
+				require.NoError(t, renameErr)
+			}
 			require.NoError(t, os.Mkdir(directory, 0o700))
 			require.NoError(t, os.WriteFile(filepath.Join(directory, "policy.json"), []byte(`{"replacement":true}`), 0o600))
 			actual, actualErr = ReadDecisionRootContext(t.Context(), root)
-			require.Equal(t, expected, actual, "renamed handle must not reopen replacement directory")
-			if expectedErr == nil {
-				require.NoError(t, actualErr)
+			if pinned {
+				require.ErrorIs(t, actualErr, os.ErrClosed)
+				require.False(t, actual.Accepted, "closed borrowed roots must not reopen the replacement")
 			} else {
-				require.EqualError(t, actualErr, expectedErr.Error())
+				require.Equal(t, expected, actual, "renamed handle must not reopen replacement directory")
+				if expectedErr == nil {
+					require.NoError(t, actualErr)
+				} else {
+					require.EqualError(t, actualErr, expectedErr.Error())
+				}
 			}
 			replacement, err := ReadDecision(directory)
 			require.Error(t, err)

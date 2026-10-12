@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"syscall"
 	"testing"
 
 	"github.com/microsoft/waza/internal/releasepolicy"
@@ -23,8 +24,16 @@ func TestReleaseRouteRetainsConfiguredRootAcrossReplacement(t *testing.T) {
 	require.NoError(t, os.Mkdir(filepath.Join(outside, "replacement"), 0o700))
 	require.NoError(t, os.WriteFile(filepath.Join(outside, "replacement", "policy.json"), []byte(`{"outside":true}`), 0o600))
 	moved := directory + "-retained"
-	t.Cleanup(func() { require.NoError(t, os.RemoveAll(moved)) })
 	var opened []*os.Root
+	t.Cleanup(func() {
+		var cleanupErr error
+		for _, root := range opened {
+			cleanupErr = errors.Join(cleanupErr, root.Close())
+		}
+		cleanupErr = errors.Join(cleanupErr, os.RemoveAll(moved))
+		require.NoError(t, cleanupErr)
+	})
+	pinned := false
 	mux := http.NewServeMux()
 	registerReleaseRoutes(mux, directory, func(name string) (*os.Root, error) {
 		root, err := os.OpenRoot(name)
@@ -32,7 +41,17 @@ func TestReleaseRouteRetainsConfiguredRootAcrossReplacement(t *testing.T) {
 			return nil, err
 		}
 		opened = append(opened, root)
-		require.NoError(t, os.Rename(directory, moved))
+		renameErr := os.Rename(directory, moved)
+		if runtime.GOOS == "windows" && renameErr != nil {
+			require.ErrorIs(t, renameErr, syscall.Errno(32), "only Windows sharing violation is an expected pin")
+			pinned = true
+			_, err := os.Stat(directory)
+			require.NoError(t, err)
+			_, err = os.Stat(moved)
+			require.ErrorIs(t, err, os.ErrNotExist)
+			return root, nil
+		}
+		require.NoError(t, renameErr)
 		if runtime.GOOS == "windows" {
 			require.NoError(t, os.Mkdir(directory, 0o700))
 			require.NoError(t, os.WriteFile(filepath.Join(directory, "policy.json"), []byte(`{"replacement":true}`), 0o600))
@@ -57,6 +76,9 @@ func TestReleaseRouteRetainsConfiguredRootAcrossReplacement(t *testing.T) {
 	for _, root := range opened {
 		_, err := root.Stat(".")
 		require.ErrorIs(t, err, os.ErrClosed, "all owned handles close before HTTP output")
+	}
+	if pinned {
+		require.NoError(t, os.Rename(directory, moved), "HTTP-owned handles must release the pin before cleanup")
 	}
 }
 

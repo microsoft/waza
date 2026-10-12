@@ -488,7 +488,10 @@ close errors prevent a successful response. The internal borrowed-root reader
 does not close its caller's handle.
 
 This confinement relies on descriptor/handle-backed roots, including Unix and
-Windows. The new confined API/borrowed-root seam rejects JavaScript and Plan 9,
+Windows. Windows directory handles may prevent rename with a sharing violation
+while held; closing the owning handles releases that pin. Retention does not
+promise that rename is available on every platform.
+The new confined API/borrowed-root seam rejects JavaScript and Plan 9,
 whose pathname-backed roots do not supply that guarantee; legacy wrapper
 signatures remain unchanged. Retention is not snapshot immutability, race-free
 no-follow/ABA protection, mount/device exclusion or authenticity. Fixed-file

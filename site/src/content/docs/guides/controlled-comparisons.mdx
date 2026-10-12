@@ -90,7 +90,10 @@ Owned handles close before publication; cancellation or close errors cannot
 publish a successful response. This is **confinement, not snapshot immutability
 or authenticity**: it does not guarantee race-free no-follow/ABA protection or
 exclude mounts/devices. The new confined reader supports Unix/Windows retained
-handles and explicitly rejects JavaScript/Plan 9 pathname-backed roots.
+handles; Windows may prevent directory rename while the handle is held, and
+closing the owning handles releases that pin. Retention does not promise rename
+availability on every platform. The reader explicitly rejects JavaScript/Plan 9
+pathname-backed roots.
 Windows supplied-artifact reading is not support for durable collection.
 
 The versioned `schemas/release-*-1.0.schema.json` files provide structural
