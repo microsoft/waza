@@ -16,6 +16,8 @@ test('grader challenges disclose offline scope and candidate limitations', async
   await expect(page.getByRole('heading', { name: 'Strict preserved-file assurance', exact: true })).toBeVisible();
   await expect(page.getByText(/Any wrongly accepted targeted critical bad case fails independently/)).toBeVisible();
   await expect(page.getByText(/makes zero paid calls and leaves usage\/credits null/)).toBeVisible();
+  await expect(page.locator('.sl-markdown-content')).toContainText('Missing or changed pins/cache fail without fetching');
+  await expect(page.locator('.sl-markdown-content')).toContainText('Direct API references remain unsupported');
   await page.screenshot({
     path: fileURLToPath(new URL('../../docs/images/site-graders.png', import.meta.url)),
     fullPage: true,

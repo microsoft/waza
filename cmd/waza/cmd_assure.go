@@ -12,6 +12,7 @@ import (
 	"github.com/microsoft/waza/internal/assurance"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/preflight"
+	"github.com/microsoft/waza/internal/registry"
 	"github.com/spf13/cobra"
 )
 
@@ -68,7 +69,7 @@ grader defaults are unchanged. Exit 1 unless strict corpus assessment passes.`,
 			if !inspection.Complete || inspection.Failed(false) {
 				return errors.New("assurance prerequisites invalid; run waza preflight for diagnostics")
 			}
-			spec, err := models.LoadEvalSpec(args[0])
+			spec, err := loadAssuranceEvalSpec(cmd.Context(), args[0])
 			if err != nil {
 				return errors.New("assurance eval configuration unavailable; run waza preflight for diagnostics")
 			}
@@ -152,4 +153,54 @@ func readAssuranceDocument(ctx context.Context, name string) ([]byte, error) {
 		return nil, fmt.Errorf("reading assurance input: %w", errors.Join(readErr, closeErr))
 	}
 	return data, nil
+}
+
+func loadAssuranceEvalSpec(ctx context.Context, path string) (*models.EvalSpec, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("loading assurance configuration: %w", err)
+	}
+	spec, err := models.LoadEvalSpec(path)
+	if err != nil {
+		return nil, fmt.Errorf("loading assurance configuration: %w", err)
+	}
+	if len(registry.CollectGraderRefs(spec)) == 0 {
+		return spec, nil
+	}
+	lock, err := models.LoadLockfile(filepath.Join(filepath.Dir(path), models.LockfileName))
+	if err != nil {
+		return nil, fmt.Errorf("loading assurance grader lock: %w", err)
+	}
+	resolver, err := registry.NewResolver()
+	if err != nil {
+		return nil, fmt.Errorf("locating assurance grader cache: %w", err)
+	}
+	for i, grader := range spec.Graders {
+		if grader.Ref == "" {
+			continue
+		}
+		if err := ctx.Err(); err != nil {
+			return nil, fmt.Errorf("resolving assurance grader: %w", err)
+		}
+		entry, ok := lock.Grader(grader.Ref)
+		if !ok {
+			return nil, fmt.Errorf("assurance grader %q has no matching lock entry", grader.Ref)
+		}
+		ref, err := registry.ParseRef(grader.Ref)
+		if err != nil {
+			return nil, fmt.Errorf("parsing assurance grader reference: %w", err)
+		}
+		preset, err := resolver.LoadLockedGraderOffline(ctx, ref, entry)
+		if err != nil {
+			return nil, fmt.Errorf("reading locked assurance grader: %w", err)
+		}
+		merged, err := registry.MergeGraderConfigOffline(preset, grader)
+		if err != nil {
+			return nil, fmt.Errorf("merging locked assurance grader: %w", err)
+		}
+		// Only a verified offline materialization may enter the native observer;
+		// the original ref remains bound separately in the unchanged eval bytes.
+		merged.Ref = ""
+		spec.Graders[i] = merged
+	}
+	return spec, nil
 }

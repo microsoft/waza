@@ -75,6 +75,14 @@ unreviewed. Exact source/declaration bindings and an observed executable-path
 digest, complete unredacted
 files and good/alternative/critical-bad coverage are independent gates.
 
+Both `assure` and `assure calibrate` materialize locked grader presets from the
+local cache only, rechecking digest, trust and offline schema/override admission
+after preflight. Missing or changed pins/cache fail without fetching. Original
+eval bytes retain the reference; resolved-config and declaration digests bind
+the materialized configuration. Direct API references remain unsupported, even
+with a supplied native type. This neither authenticates presets nor authorizes
+paid calls.
+
 The executable digest hashes the on-disk file opened at `os.Executable()` at
 observation time, not the mapped running image, RAM or authenticity. Replacement
 can change the observed bytes or make acquisition fail. Missing applicable

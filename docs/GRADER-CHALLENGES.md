@@ -409,6 +409,16 @@ a task agent, start mocks, run a program, check for updates or contact a model.
 The new command exits 1 unless its strict finite-corpus assessment passes;
 existing `grade`, `run`, `gate` and golden-task behavior stays unchanged.
 
+Both `assure` and the separately selected `assure calibrate` materialize locked
+grader presets only from the local cache. They recheck the actual cache digest,
+trust and offline schema/override admission after preflight; missing or changed
+pins/cache cannot be repaired by fetching. Only successfully materialized copies
+lose their `ref` marker before native observation. The exact original eval bytes
+retain that reference binding, while resolved-config and grader-declaration
+digests bind the consumed materialized configuration. Direct API references
+remain unsupported, even if a caller supplies a native type beside the reference.
+This does not authenticate the preset or authorize paid calibration.
+
 The standalone report has kind `waza.grader-assurance` and schema version `1.0`.
 Its wire shape follows
 [`grader-assurance-1.0.schema.json`](../schemas/grader-assurance-1.0.schema.json).

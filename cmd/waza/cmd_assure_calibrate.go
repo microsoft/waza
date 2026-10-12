@@ -125,7 +125,7 @@ Exit 0: clean pass; 1: ordinary nonpass/refusal; 2: invalid or operational error
 			if !inspection.Complete || inspection.Failed(false) {
 				return fail(errors.New("calibration prerequisites invalid; run waza preflight for diagnostics"))
 			}
-			spec, err := models.LoadEvalSpec(args[0])
+			spec, err := loadAssuranceEvalSpec(ctx, args[0])
 			if err != nil {
 				return fail(errors.New("calibration eval configuration unavailable"))
 			}
