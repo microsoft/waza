@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strconv"
 	"sync"
 	"unicode/utf8"
 
@@ -119,9 +118,6 @@ func ParseAuthoredOutput(data []byte) (*AuthoredOutput, error) {
 	if err != nil {
 		return nil, fmt.Errorf("assurance: authored envelope: %w", err)
 	}
-	if err := validateUnicodeEscapes(data); err != nil {
-		return nil, err
-	}
 	object, ok := value.(map[string]any)
 	if !ok || !exactKeys(object, "schemaVersion", "kind", "payload", "evidence") {
 		return nil, errors.New("assurance: authored envelope requires only schemaVersion, kind, payload and evidence")
@@ -198,35 +194,9 @@ func exactKeys(object map[string]any, keys ...string) bool {
 	return true
 }
 
-// Encoding/json replaces unpaired UTF-16 surrogates. Reject them instead of
-// silently changing authored text while claiming identity for that text.
 func validateUnicodeEscapes(data []byte) error {
-	for i := 0; i < len(data); i++ {
-		if data[i] != '\\' {
-			continue
-		}
-		i++
-		if data[i] != 'u' {
-			continue
-		}
-		code, err := strconv.ParseUint(string(data[i+1:i+5]), 16, 16)
-		if err != nil {
-			return errors.New("assurance: invalid Unicode escape")
-		}
-		i += 4
-		if code >= 0xdc00 && code <= 0xdfff {
-			return errors.New("assurance: unpaired Unicode surrogate")
-		}
-		if code >= 0xd800 && code <= 0xdbff {
-			if i+6 >= len(data) || data[i+1] != '\\' || data[i+2] != 'u' {
-				return errors.New("assurance: unpaired Unicode surrogate")
-			}
-			low, err := strconv.ParseUint(string(data[i+3:i+7]), 16, 16)
-			if err != nil || low < 0xdc00 || low > 0xdfff {
-				return errors.New("assurance: unpaired Unicode surrogate")
-			}
-			i += 6
-		}
+	if err := jsonutil.ValidateUnicodeEscapes(data); err != nil {
+		return fmt.Errorf("assurance: %w", err)
 	}
 	return nil
 }

@@ -54,9 +54,6 @@ func ParseCalibratedReport(data []byte) (*Report, error) {
 	if _, err := jsonutil.Parse(data); err != nil {
 		return nil, fmt.Errorf("assurance: calibrated report JSON: %w", err)
 	}
-	if err := validateUnicodeEscapes(data); err != nil {
-		return nil, err
-	}
 	schema, err := calibratedReportSchema()
 	if err != nil {
 		return nil, fmt.Errorf("assurance: calibrated report schema: %w", err)

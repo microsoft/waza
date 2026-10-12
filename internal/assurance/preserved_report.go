@@ -44,9 +44,6 @@ func ParsePreservedReport(data []byte) (*Report, error) {
 	if _, err := jsonutil.Parse(data); err != nil {
 		return nil, fmt.Errorf("assurance: preserved report JSON: %w", err)
 	}
-	if err := validateUnicodeEscapes(data); err != nil {
-		return nil, err
-	}
 	schema, err := preservedReportSchema()
 	if err != nil {
 		return nil, fmt.Errorf("assurance: preserved report schema: %w", err)

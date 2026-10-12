@@ -51,20 +51,19 @@ type TranscriptEvent struct {
 	copilot.SessionEvent `json:"-"`
 }
 
+type transcriptEventJSON struct {
+	Content    *string                              `json:"content,omitempty"`
+	Type       copilot.SessionEventType             `json:"type"`
+	Message    *string                              `json:"message,omitempty"`
+	Arguments  any                                  `json:"arguments,omitempty"`
+	Success    *bool                                `json:"success,omitempty"`
+	ToolCallID *string                              `json:"tool_call_id,omitempty"`
+	ToolName   *string                              `json:"tool_name,omitempty"`
+	ToolResult *copilot.ToolExecutionCompleteResult `json:"tool_result,omitempty"`
+}
+
 func (te TranscriptEvent) MarshalJSON() ([]byte, error) {
-	v := struct {
-		Content *string                  `json:"content,omitempty"`
-		Type    copilot.SessionEventType `json:"type"`
-
-		Message *string `json:"message,omitempty"`
-
-		// tool call fields
-		Arguments  any                                  `json:"arguments,omitempty"`
-		Success    *bool                                `json:"success,omitempty"`
-		ToolCallID *string                              `json:"tool_call_id,omitempty"`
-		ToolName   *string                              `json:"tool_name,omitempty"`
-		ToolResult *copilot.ToolExecutionCompleteResult `json:"tool_result,omitempty"`
-	}{
+	v := transcriptEventJSON{
 		Type: te.Type(),
 	}
 
@@ -92,16 +91,7 @@ func (te TranscriptEvent) MarshalJSON() ([]byte, error) {
 }
 
 func (te *TranscriptEvent) UnmarshalJSON(data []byte) error {
-	var v struct {
-		Content    *string                              `json:"content,omitempty"`
-		Type       copilot.SessionEventType             `json:"type"`
-		Message    *string                              `json:"message,omitempty"`
-		Arguments  any                                  `json:"arguments,omitempty"`
-		Success    *bool                                `json:"success,omitempty"`
-		ToolCallID *string                              `json:"tool_call_id,omitempty"`
-		ToolName   *string                              `json:"tool_name,omitempty"`
-		ToolResult *copilot.ToolExecutionCompleteResult `json:"tool_result,omitempty"`
-	}
+	var v transcriptEventJSON
 
 	if err := json.Unmarshal(data, &v); err != nil {
 		return err

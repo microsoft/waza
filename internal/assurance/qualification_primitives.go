@@ -42,9 +42,6 @@ func qualificationCanonical(data []byte) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("qualification: strict JSON: %w", err)
 	}
-	if err := validateUnicodeEscapes(data); err != nil {
-		return nil, err
-	}
 	return json.Marshal(value)
 }
 
@@ -347,9 +344,6 @@ func qualificationDecode[T any](data []byte, limit int) (T, error) {
 	}
 	value, err := jsonutil.Parse(data)
 	if err != nil {
-		return target, err
-	}
-	if err := validateUnicodeEscapes(data); err != nil {
 		return target, err
 	}
 	if err := qualificationShape(value, reflect.TypeFor[T]()); err != nil {

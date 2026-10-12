@@ -152,14 +152,6 @@ func observePreservedMechanical(ctx context.Context, input PreservedMechanicalIn
 	}
 	data := bytes.Clone(input.SnapshotBytes)
 	references := slices.Clone(input.Evidence)
-	// The existing Unicode validator assumes syntactically valid JSON. Check
-	// syntax without decoding, then reject lossy escapes before any raw parsing.
-	if !json.Valid(data) {
-		return fail(Invalid, errors.New("preserved snapshot is not valid JSON"))
-	}
-	if err := validateUnicodeEscapes(data); err != nil {
-		return fail(Invalid, fmt.Errorf("validating preserved raw Unicode escapes: %w", err))
-	}
 	value, err := jsonutil.Parse(data)
 	if err != nil {
 		return fail(Invalid, fmt.Errorf("parsing preserved raw JSON: %w", err))

@@ -195,4 +195,96 @@ func TestNativeReadersRejectMarkedAuthoredEnvelopeBeforeAssessment(t *testing.T)
 		require.Zero(t, summary.TotalRuns)
 		require.Zero(t, summary.TotalTasks)
 	}
+
+}
+
+func TestNativeReadersPreserveOpaqueLegacyJSONWithoutEvidence(t *testing.T) {
+	deep := strings.Repeat("[", 70) + "0" + strings.Repeat("]", 70)
+	captured, err := snapshot.Capture(snapshot.CaptureInput{
+		EvalID: "native", Task: &models.TestCase{TestID: "task"},
+		Run: &models.RunResult{RunNumber: 1, Attempts: 1},
+	})
+	require.NoError(t, err)
+	manifest, err := json.Marshal(captured.Evidence)
+	require.NoError(t, err)
+	for _, opaque := range []string{
+		`{"duplicate":1,"duplicate":2}`, deep,
+		`{"evidence":{"version":"1.1"},"Evidence":null}`,
+	} {
+		t.Run(opaque, func(t *testing.T) {
+			details := `"validations":{"answer":{"score":1,"details":{"opaque":` + opaque + `}}}`
+			for _, evidence := range []string{"", `,"evidence":null`} {
+				run := `{` + details + evidence + `}`
+				var decoded models.RunResult
+				require.NoError(t, json.Unmarshal([]byte(run), &decoded))
+				result := []byte(`{"eval_id":"legacy","tasks":[{"runs":[` + run + `]}],"future":` + opaque + `}`)
+				_, err := models.ParseEvaluationOutcome(result, "legacy-opaque")
+				require.NoError(t, err)
+				var outcome models.EvaluationOutcome
+				require.NoError(t, json.Unmarshal(result, &outcome))
+				dir := t.TempDir()
+				require.NoError(t, os.WriteFile(filepath.Join(dir, "results.json"), result, 0600))
+				store := webapi.NewFileStore(dir)
+				runs, err := store.ListRuns("", "")
+				require.NoError(t, err)
+				require.Len(t, runs, 1)
+				_, err = store.GetRun("legacy")
+				require.NoError(t, err)
+				snap := []byte(`{"schemaVersion":"1.0","kind":"task-snapshot","result":{` + details + `}` + evidence + `}`)
+				var decodedSnapshot snapshot.Snapshot
+				require.NoError(t, json.Unmarshal(snap, &decodedSnapshot))
+				_, err = snapshot.ParseSnapshot(snap, "legacy-opaque")
+				require.NoError(t, err)
+			}
+			if strings.Contains(opaque, "duplicate") || opaque == deep {
+				profiled := []byte(`{` + details + `,"evidence":` + string(manifest) + `}`)
+				var decoded models.RunResult
+				require.Error(t, json.Unmarshal(profiled, &decoded))
+				_, err = models.ParseEvaluationOutcome([]byte(`{"tasks":[{"runs":[`+string(profiled)+`]}]}`), "profiled-opaque")
+				require.Error(t, err)
+				var decodedSnapshot snapshot.Snapshot
+				require.Error(t, json.Unmarshal([]byte(`{"result":{`+details+`},"evidence":`+string(manifest)+`}`), &decodedSnapshot))
+			}
+		})
+	}
+}
+
+func TestNativeTranscriptWireAdmission(t *testing.T) {
+	for _, event := range []string{
+		`{"type":"user.message","type":"session.error"}`,
+		`{"Type":"user.message"}`,
+		`{"type":"user.message","Content":"message"}`,
+		`{"type":"tool.execution_start","arguments":{},"arguments":{}}`,
+	} {
+		var run models.RunResult
+		require.Error(t, json.Unmarshal([]byte(`{"transcript":[`+event+`]}`), &run))
+	}
+	deep := strings.Repeat("[", 70) + "0" + strings.Repeat("]", 70)
+	for _, arguments := range []string{`{"value":1,"value":2}`, deep} {
+		var run models.RunResult
+		data := []byte(`{"transcript":[{"type":"tool.execution_start","arguments":` + arguments + `,"tool_call_id":"call","tool_name":"tool"}]}`)
+		require.NoError(t, json.Unmarshal(data, &run))
+		require.Len(t, run.Transcript, 1)
+		require.Error(t, models.ValidateNativeJSONKeys(data, models.RunResult{}), "explicit strict consumers must not become permissive")
+	}
+	var event models.TranscriptEvent
+	require.NoError(t, json.Unmarshal([]byte(`{"type":"tool.execution_start","arguments":{"value":1},"tool_call_id":"call","tool_name":"tool"}`), &event))
+	encoded, err := json.Marshal(event)
+	require.NoError(t, err)
+	require.Equal(t, `{"type":"tool.execution_start","arguments":{"value":1},"tool_call_id":"call","tool_name":"tool"}`, string(encoded), "wire field order and bytes are unchanged")
+}
+
+func TestNativeAdmissionKeepsTypedStructureFenceWithoutEvidence(t *testing.T) {
+	for _, data := range []string{
+		`{"tasks":[],"tasks":[]}`, `{"tasks":[{"runs":[],"runs":[]}]}`,
+		`{"tasks":[{"runs":[{"evidence":null,"evidence":null}]}]}`,
+		`{"tasks":[{"runs":[{"validations":{"answer":{"score":1,"score":2}}}]}]}`,
+		strings.Repeat(`{"baseline_outcome":`, 65) + `{}` + strings.Repeat("}", 65),
+		`{"tasks":[]} {}`, `{"tasks":[}`,
+	} {
+		_, err := models.ParseEvaluationOutcome([]byte(data), "typed-fence")
+		require.Error(t, err, data)
+	}
+	require.Error(t, models.ValidateNativeJSONAdmission([]byte(`{}`), nil))
+	require.NoError(t, models.ValidateNativeJSONAdmission([]byte(`null`), (*models.RunResult)(nil)))
 }

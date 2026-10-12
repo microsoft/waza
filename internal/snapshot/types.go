@@ -25,7 +25,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/microsoft/waza/internal/jsonutil"
 	"github.com/microsoft/waza/internal/models"
 )
 
@@ -212,7 +211,7 @@ func (s Snapshot) MarshalJSON() ([]byte, error) {
 }
 
 func (s *Snapshot) UnmarshalJSON(data []byte) error {
-	if err := models.ValidateNativeJSONKeys(data, Snapshot{}); err != nil {
+	if err := models.ValidateNativeJSONAdmission(data, Snapshot{}); err != nil {
 		return err
 	}
 	type alias Snapshot
@@ -237,16 +236,10 @@ func ParseSnapshot(data []byte, source string) (*Snapshot, error) {
 	var header struct {
 		SchemaVersion  string            `json:"schemaVersion"`
 		Kind           string            `json:"kind"`
-		Evidence       json.RawMessage   `json:"evidence"`
 		WorkspaceFiles []json.RawMessage `json:"workspaceFiles"`
 	}
 	if err := json.Unmarshal(data, &header); err != nil {
 		return nil, fmt.Errorf("snapshot %s: %w", source, err)
-	}
-	if len(header.Evidence) > 0 && string(header.Evidence) != "null" {
-		if _, err := jsonutil.Parse(data); err != nil {
-			return nil, fmt.Errorf("snapshot %s: %w", source, err)
-		}
 	}
 	if header.Kind != "" && header.Kind != Kind {
 		return nil, fmt.Errorf("snapshot %s: kind %q is not %q", source, header.Kind, Kind)

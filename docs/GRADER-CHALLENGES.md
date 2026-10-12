@@ -465,6 +465,12 @@ Label/review JSON rejects unknown versions/fields, duplicate keys, trailing data
 invalid identities, repeated cases/references and invalid thresholds. Inputs are
 bounded; snapshot paths are canonical relative paths rooted at the label
 directory. Shared manifest attribution binds full eval/task/run/attempt identity.
+Strict readers reject unpaired Unicode surrogate escapes before decoding.
+Legacy result/snapshot readers without consumed evidence preserve opaque
+tool-argument/detail/unknown-field duplicate and deep JSON values; known typed
+keys still require exact spelling, reject duplicates and retain depth 64.
+Any non-null evidence profile invokes strict original whole-document admission,
+including every profile-bearing occurrence before overwrite selection.
 Every selected full artifact is content-verified before a relative pointer is
 used; required files also retain their exact native array ordinals and raw
 content identity. Only verified required files enter private temporary workspaces.

@@ -50,6 +50,19 @@ Schema versions use `MAJOR.MINOR` format with no patch component.
 - Missing `schemaVersion` is interpreted as the current schema version (currently `1.4` for eval/result artifacts). Same-major minor differences are accepted and any unknown fields are warned about; cross-major mismatches are rejected.
 - New eval/result artifacts should emit the current `schemaVersion` (currently `1.4`). The version is automatically populated by the writer; you only need to set it manually when authoring fixtures or schema-pinned test data.
 
+Legacy results and snapshots without consumed evidence retain ordinary JSON
+decoding for opaque tool arguments, grader details and unknown fields, including
+duplicate keys and nesting beyond 64 levels in those opaque values. Known typed
+DTO keys still require exact spelling, reject duplicates and retain the
+64-level structural limit; this is not restoration of every historical
+last-key-wins behavior. Any non-null evidence profile invokes strict admission
+on the original whole document, so overwrites cannot hide authored provenance.
+Strict identity readers reject unpaired Unicode surrogate escapes instead of
+normalizing them to replacement characters.
+Transcript events use their actual wire keys for this fence, closing the
+previous custom-decoder case-alias blind spot without changing serialized
+field order or bytes.
+
 ## Migration command
 
 Use `waza migrate <file>` when a reader reports an incompatible major version.
