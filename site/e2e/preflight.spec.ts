@@ -15,6 +15,9 @@ test('offline preflight guide separates static references from runtime assurance
   await expect(page.locator('main')).toContainText('row-2, not row-1');
   await expect(page.locator('main')).toContainText('unrelated schema loader failures remain invalid');
   await expect(page.locator('main')).toContainText('including non-string kind values');
+  await expect(page.locator('main')).toContainText('filesystem/volume root');
+  await expect(page.locator('main')).toContainText('Later grader schema-file and MCP input-schema compilation');
+  await expect(page.locator('main')).toContainText('containing .. within any cleaned segment');
 });
 
 test('scenario admission history documents the intentional compatibility change and migration', async ({ page }) => {

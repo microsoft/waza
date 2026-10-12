@@ -92,6 +92,7 @@ func TestInspectRequiredSkillsUseEvalDeclarationDiscovery(t *testing.T) {
 			if tc.definition != "" {
 				require.NoError(t, os.WriteFile(filepath.Join(dir, "skills", "SKILL.md"), []byte(tc.definition), 0600))
 			}
+
 			r := Inspect(path, Options{})
 			require.Equal(t, tc.wantInvalid, hasDiagnostic(r, "skill.required", Invalid), "%+v", r.Diagnostics)
 			require.Equal(t, tc.wantInvalid, r.Failed(false), "%+v", r.Diagnostics)
@@ -105,6 +106,34 @@ func TestInspectSnapshotUsesRuntimeContainment(t *testing.T) {
 	require.NoError(t, os.Mkdir("snapshots", 0700))
 	require.NoError(t, os.WriteFile("outside.json", []byte("{}"), 0600))
 	require.True(t, hasDiagnostic(Inspect(path, Options{}), "grader.snapshot", Invalid))
+}
+
+func TestInspectFileResourceRuntimePathParity(t *testing.T) {
+	for _, tc := range []struct {
+		name, path, content string
+		invalid             bool
+	}{
+		{"ordinary file", "record.json", "", false},
+		{"double dot filename", "record..json", "", true},
+		{"double dot directory", "records../record.json", "", true},
+		{"parent segment remains rejected", "unused/../record.json", "", true},
+		{"inline double dot filename", "record..json", "{}", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			declaration := "  files: [{path: '" + tc.path + "'"
+			if tc.content != "" {
+				declaration += ", content: '" + tc.content + "'"
+			}
+			declaration += "}]\n  prompt:"
+			path, dir := writeSuite(t, validEval, strings.ReplaceAll(validTask, "  prompt:", declaration))
+			fixture := filepath.Join(dir, "fixtures", filepath.Clean(tc.path))
+			require.NoError(t, os.MkdirAll(filepath.Dir(fixture), 0700))
+			require.NoError(t, os.WriteFile(fixture, []byte("{}"), 0600))
+			report := Inspect(path, Options{})
+			require.Equal(t, tc.invalid, hasDiagnostic(report, "resource.path", Invalid), "%+v", report.Diagnostics)
+			require.Equal(t, tc.invalid, report.Failed(false), "%+v", report.Diagnostics)
+		})
+	}
 }
 
 func TestInspectExactScenarioVersionAndNoAmbientDiscovery(t *testing.T) {

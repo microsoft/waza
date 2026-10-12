@@ -140,6 +140,7 @@ func TestInspectMCPSourceSchemaPipeline(t *testing.T) {
 				} else {
 					response[field] = map[string]any{"$ref": ref}
 				}
+
 				eval := strings.ReplaceAll(validEval, "executor: mock", "executor: copilot-sdk") + pipelineYAML(t, map[string]any{"mcp_mocks": []any{map[string]any{"name": "local", "tools": map[string]any{"read": tool}}}})
 				path, _ := writeSuite(t, eval, validTask)
 				report := Inspect(path, Options{})
@@ -151,7 +152,7 @@ func TestInspectMCPSourceSchemaPipeline(t *testing.T) {
 					require.True(t, report.Complete)
 				} else {
 					require.True(t, report.Failed(true), "%+v", report.Diagnostics)
-					require.Equal(t, field == "input_schema", report.Complete)
+					require.False(t, report.Complete)
 				}
 				require.Zero(t, requests.Load(), "HTTP schema loads must remain exactly zero")
 			})

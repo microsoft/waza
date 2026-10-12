@@ -259,7 +259,12 @@ new opt-in `--strict` policy. Existing commands keep their prior exits.
 Preflight guards eager argument schemas before eval/task/checkpoint decoding and
 before cached-preset or merged-override materialization. External prerequisites
 remain unresolved with an incomplete report; literals and returned mock payloads
-are not schemas. Runtime schema-loading defaults remain unchanged.
+are not schemas. Later grader schema-file and MCP input-schema checks also mark
+unavailable external dependencies incomplete. Runtime schema-loading defaults
+remain unchanged. CSV containment accepts filesystem/volume-root eval
+directories. File-backed resource paths containing `..` within a cleaned segment
+are rejected by the existing runtime loader and diagnosed by preflight; rename
+the file or segment. Inline resource content retains existing path handling.
 
 Task requirements are optional **descriptions**, not assertions:
 

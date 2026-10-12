@@ -202,13 +202,13 @@ func inspectMCP(r *Report, spec *models.EvalSpec, base string) {
 		mocked[strings.TrimSpace(mock.Name)] = true
 		state := Verified
 		if cfg, err := mcpmock.FromEvalConfigOffline(mock, base); err != nil {
-			state = schemaState(err)
+			state = r.schemaFailureState(err)
 			r.add("mock.mcp", state, r.Source, "", "", "MCP mock fixtures or matching configuration could not be verified.", "Check fixture files, tool responses, regexes, and self-contained match_schema references.")
 		} else {
 			for _, tool := range cfg.Tools {
 				if doc, ok := tool.InputSchema.(map[string]any); ok {
 					if err := compileOfflineSchema(doc, filepath.Join(base, "mock-input-schema.json")); err != nil {
-						state = schemaState(err)
+						state = r.schemaFailureState(err)
 						r.add("mock.input_schema", state, r.Source, "", "", "Mock tool input schema could not be verified offline.", "Use valid self-contained JSON schemas.")
 					}
 				}
@@ -321,6 +321,8 @@ func inspectTask(r *Report, task *models.TestCase, spec *models.EvalSpec, source
 	for _, ref := range task.Stimulus.Resources {
 		if !safeWorkspacePath(ref.Location) {
 			r.add("resource.path", Invalid, source, task.TestID, "", "Resource destination is not a bounded relative path.", "Use a workspace-relative path without traversal segments.")
+		} else if ref.Body == "" && strings.Contains(filepath.Clean(ref.Location), "..") {
+			r.add("resource.path", Invalid, source, task.TestID, "", "File-backed resource path contains '..' and is rejected by the runtime loader.", "Rename the file or path segment to remove '..'; inline resource content does not use the file loader.")
 		} else if ref.Body == "" {
 			checkFile(r, filepath.Join(fixtures, ref.Location), source, task.TestID, "resource.file")
 		}

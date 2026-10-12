@@ -137,3 +137,18 @@ func TestLoadTasksErrors(t *testing.T) {
 		})
 	}
 }
+
+func TestLoadTasksFilesystemRootContainment(t *testing.T) {
+	dir := t.TempDir()
+	writeCSV(t, dir, "data.csv", "prompt\nroot-contained\n")
+	root := filepath.VolumeName(dir) + string(filepath.Separator)
+	path := filepath.Join(dir, "data.csv")
+	relative, err := filepath.Rel(root, path)
+	require.NoError(t, err)
+	for _, input := range []string{path, relative} {
+		tasks, err := LoadTasks(&models.EvalSpec{TasksFrom: input}, root, time.Unix(0, 0))
+		require.NoError(t, err)
+		require.Len(t, tasks, 1)
+		require.Equal(t, "root-contained", tasks[0].Stimulus.Message)
+	}
+}

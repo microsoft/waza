@@ -347,6 +347,9 @@ func TestRunGraders_DiffSnapshotUpdateOption(t *testing.T) {
 func TestLoadResources_PathValidation(t *testing.T) {
 	fixtureDir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(fixtureDir, "ok.txt"), []byte("ok"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(fixtureDir, "record..json"), []byte("{}"), 0o644))
+	require.NoError(t, os.Mkdir(filepath.Join(fixtureDir, "records.."), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(fixtureDir, "records..", "record.json"), []byte("{}"), 0o644))
 
 	spec := &models.EvalSpec{}
 	cfg := config.NewEvalConfig(spec, config.WithFixtureDir(fixtureDir))
@@ -360,16 +363,21 @@ func TestLoadResources_PathValidation(t *testing.T) {
 				{Location: filepath.Join(fixtureDir, "absolute.txt")},
 				{Location: "../escape.txt"},
 				{Location: "missing.txt"},
+				{Location: "record..json"},
+				{Location: "records../record.json"},
+				{Location: "record..json", Body: "{}"},
 			},
 		},
 	}
 
 	resources := runner.loadResources(testCase)
-	require.Len(t, resources, 2)
+	require.Len(t, resources, 3)
 	assert.Equal(t, "inline.txt", resources[0].Path)
 	assert.Equal(t, []byte("inline"), resources[0].Content)
 	assert.Equal(t, "ok.txt", resources[1].Path)
 	assert.Equal(t, []byte("ok"), resources[1].Content)
+	assert.Equal(t, "record..json", resources[2].Path)
+	assert.Equal(t, []byte("{}"), resources[2].Content)
 }
 
 func TestBuildGraderContextAndScoreHelpers(t *testing.T) {

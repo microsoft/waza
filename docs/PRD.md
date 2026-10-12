@@ -85,8 +85,11 @@ Before an eval starts, `waza preflight` inspects offline schemas, tasks and IDs,
 resource/instruction paths, grader configuration and locked cached modules,
 effective mocks, scoped requirement references, and static executor support.
 Task discovery accepts individually unmatched valid globs when tasks exist;
-CSV containment checks resolved symlinks, and range selection preserves original
-fallback row identities. Malformed MCP fields and non-external schema loader
+CSV containment checks resolved symlinks, including filesystem/volume-root eval
+directories, and range selection preserves original fallback row identities.
+Preflight diagnoses file-resource names rejected by the existing runtime loader
+without changing runtime acceptance or inline content handling.
+Malformed MCP fields and non-external schema loader
 errors are invalid rather than unresolved availability.
 Inspection must count zero engine/model/live-service/subprocess calls and never
 launch mock services or update checks. Unavailable credentials, external state,
@@ -94,7 +97,8 @@ model/interpreter availability and conditional checkpoint execution remain
 unresolved rather than verified.
 Eager schema decoding must be guarded across eval/task/checkpoint sources,
 cached presets, and merged overrides. External prerequisites remain unresolved
-and prevent complete inventory claims without changing native runtime loaders.
+and prevent complete inventory claims, including later grader schema-file and
+MCP input-schema inspection, without changing native runtime loaders.
 
 Optional task-local requirements categorize outcome, boundary, recovery and
 quality intent using stable IDs and explicit references to current graders.

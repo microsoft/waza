@@ -28,7 +28,8 @@ func inspectGraders(r *Report, configs []models.GraderConfig, source, task, fixt
 			continue
 		}
 		if err := graders.ValidateConfig(g.Identifier, g.Parameters); err != nil {
-			r.add("grader.configuration", schemaState(err), source, task, "", "Static grader configuration could not be verified.", "Check grader regexes, matching modes, bounds, and self-contained schemas.")
+			state := r.schemaFailureState(err)
+			r.add("grader.configuration", state, source, task, "", "Static grader configuration could not be verified.", "Check grader regexes, matching modes, bounds, and self-contained schemas.")
 		}
 		switch p := g.Parameters.(type) {
 		case models.InlineScriptGraderParameters:
@@ -60,7 +61,8 @@ func inspectGraders(r *Report, configs []models.GraderConfig, source, task, fixt
 				}
 			}
 			if err := compileOfflineSchema(doc, location); err != nil {
-				r.add("grader.schema", schemaState(err), source, task, "", "JSON schema cannot be compiled from self-contained local evidence.", "Use valid self-contained schemas; external refs are never fetched by preflight.")
+				state := r.schemaFailureState(err)
+				r.add("grader.schema", state, source, task, "", "JSON schema cannot be compiled from self-contained local evidence.", "Use valid self-contained schemas; external refs are never fetched by preflight.")
 			}
 		case models.DiffGraderParameters:
 			for _, expected := range p.ExpectedFiles {

@@ -76,6 +76,14 @@ func (r *Report) Failed(strict bool) bool {
 	return false
 }
 
+func (r *Report) schemaFailureState(err error) State {
+	state := schemaState(err)
+	if state == Unresolved {
+		r.Complete = false
+	}
+	return state
+}
+
 func (r *Report) add(code string, state State, source, task, requirement, message, remediation string) {
 	severity := "info"
 	if state == Invalid {
