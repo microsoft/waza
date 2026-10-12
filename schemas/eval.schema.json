@@ -70,7 +70,7 @@
     },
     "tasks_from": {
       "type": "string",
-      "description": "CSV dataset path relative to the eval directory. When nonempty, takes precedence over tasks."
+      "description": "CSV dataset path, resolved relative to the eval directory unless absolute. When nonempty, takes precedence over tasks."
     },
     "range": {
       "type": "array",
