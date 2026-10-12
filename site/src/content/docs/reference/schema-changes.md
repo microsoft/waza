@@ -23,6 +23,8 @@ scenario semantics; `2.1` and future majors are not supported scenario versions.
 | `snapshot.json` | `schemaVersion` | `1.0` |
 | Dashboard/SSE event envelope | `schemaVersion` | `1.0` |
 | `waza.preflight` report | `schemaVersion` | `1.0` (independent artifact) |
+| `waza.grader-reference` labels / `waza.grader-review` declaration | `schema_version` | Exact `1.0` (independent profiles) |
+| `waza.grader-assurance` report | `schema_version` | Separately selected `1.0`, `1.1`, or `1.2` |
 
 Optional task `requirements` introduced by #660 are descriptive v1-compatible
 metadata, without a global schema bump or new runtime/exit semantics. Old readers
@@ -30,6 +32,14 @@ can ignore them; a minimum-version note does not enforce requirements.
 `waza preflight` requires a CLI build containing #660. Its report is identified
 by `kind: "waza.preflight"` and is never parsed/discovered as evaluation results.
 See [Offline Eval Preflight](/guides/preflight/) for its states and strict policy.
+
+The independent grader profiles use strict `schema_version` admission, not
+the native same-major minor-version policy below. Offline `1.0`, calibrated
+`1.1` and preserved-native `1.2` are separate operations; default readers reject
+unselected profiles. Missing versions, unknown members and implicit migration
+cannot select them. These profiles do not bump native eval/result/snapshot
+versions or enable a public qualification lifecycle.
+See [Separate grader-assurance reports](/reference/schema/#separate-grader-assurance-reports).
 
 ## Policy
 

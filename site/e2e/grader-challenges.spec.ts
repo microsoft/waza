@@ -65,3 +65,16 @@ test('preserved-native profile stays separate from default readers and calibrati
   await expect(section).toContainText('No engine factory or paid execution');
   await expect(section).toContainText('Historical grader correspondence is not certified');
 });
+
+test('schema references preserve separately selected assurance profiles', async ({ page }) => {
+  await page.goto('/waza/reference/schema/');
+  const section = page.locator('.sl-markdown-content');
+  await expect(section).toContainText('preserved_native_mechanical_assurance');
+  await expect(section).toContainText('assurance.ParsePreservedReport');
+  await expect(section).toContainText('do not admit it automatically');
+  await expect(section).toContainText('no execution ledger is present');
+  await page.goto('/waza/reference/schema-changes/');
+  await expect(section).toContainText('strict schema_version admission');
+  await expect(section).toContainText('default readers reject unselected profiles');
+  await expect(section).toContainText('do not bump native eval/result/snapshot');
+});

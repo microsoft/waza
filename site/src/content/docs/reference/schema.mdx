@@ -27,6 +27,16 @@ or re-execute source evidence. See the
 [grader guide](/waza/guides/graders/) and
 [explicit inspector](/waza/guides/dashboard/#grader-assurance).
 
+Preserved-native mechanical reports separately select version `1.2` with
+`assessment_mode: preserved_native_mechanical_assurance`.
+The internal `assurance.VerifyPreserved` operation and
+`assurance.ParsePreservedReport` reader use this profile; default CLI/dashboard
+readers and calibrated `1.1` reading do not admit it automatically.
+Its source scopes are `preserved_native_selected_artifacts` and
+`preserved_file_subset`. Calibration is not selected: usage/credits remain
+null, executions/samples are zero and no execution ledger is present.
+Current native grader bindings do not certify historical grader correspondence.
+
 ## Optional descriptive task requirements
 
 `requirements` is an optional task array. Each entry has `id` (task-local stable
