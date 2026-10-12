@@ -32,6 +32,8 @@ NO_COLOR=1 make test-compat
 
 This forces `ENABLE_COPILOT_TESTS=false`, even if the caller enabled live tests,
 and runs fixed fixtures and existing package-owned preservation tests. It
+accepts a working `python3` or fallback `python` for Python graders. Native
+program-grader execution coverage runs on Windows as well as POSIX hosts.
 covers artifact versions, every grader family, skill/custom-agent lifecycle,
 token/quality checks, static/responder multi-turn runs, checkpoints, mocks,
 golden gates, billing/cache semantics, locks, and offline snapshots/replay.
@@ -39,6 +41,8 @@ golden gates, billing/cache semantics, locks, and offline snapshots/replay.
 The [engineering inventory](https://github.com/microsoft/waza/blob/main/docs/COMPATIBILITY.md)
 lists exact package owners, fixture paths, focused commands and prerequisites.
 It also describes running the gate twice and comparing deterministic verdicts.
+Each CLI result is additionally checked against an independent baseline JSON
+oracle, so equally deterministic changes cannot silently redefine compatibility.
 Browser preservation is separate:
 
 ```bash

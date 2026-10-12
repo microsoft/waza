@@ -111,6 +111,13 @@ func TestCompatibilityCLIProcessExits(t *testing.T) {
 			require.NoError(t, err, "%s", log)
 			outcome, err := models.LoadEvaluationOutcome(resultPath)
 			require.NoError(t, err)
+			wireBytes, err := os.ReadFile(resultPath)
+			require.NoError(t, err)
+			expected, err := os.ReadFile(testutil.RepoFile(t, "cmd", "waza", "testdata", "compatibility-run-1.4.json"))
+			require.NoError(t, err)
+			normalized, err := json.Marshal(normalizeCompatibilityRunWire(t, wireBytes))
+			require.NoError(t, err)
+			require.JSONEq(t, string(expected), string(normalized), "independent baseline wire oracle must match on every iteration")
 			require.NotEmpty(t, outcome.RunID)
 			require.False(t, outcome.Timestamp.IsZero())
 			require.Len(t, outcome.TestOutcomes, 1)
@@ -154,4 +161,129 @@ func TestCompatibilityCLIProcessExits(t *testing.T) {
 			previous = outcome
 		}
 	})
+}
+
+func compatibilityWireObject(t *testing.T, value any) map[string]any {
+	t.Helper()
+	object, ok := value.(map[string]any)
+	require.True(t, ok, "expected JSON object, got %T", value)
+	return object
+}
+
+func compatibilityWireArray(t *testing.T, value any) []any {
+	t.Helper()
+	array, ok := value.([]any)
+	require.True(t, ok, "expected JSON array, got %T", value)
+	return array
+}
+
+func normalizeCompatibilityRunWire(t *testing.T, data []byte) map[string]any {
+	t.Helper()
+	var wire map[string]any
+	require.NoError(t, json.Unmarshal(data, &wire))
+	normalizeCompatibilityWireField(wire, "eval_id", "normalized-run")
+	normalizeCompatibilityWireField(wire, "timestamp", "0001-01-01T00:00:00Z")
+	normalizeCompatibilityWireField(compatibilityWireObject(t, wire["summary"]), "duration_ms", float64(0))
+	for _, session := range compatibilityWireArray(t, compatibilityWireObject(t, wire["evaluation_usage"])["sessions"]) {
+		normalizeCompatibilityWireField(compatibilityWireObject(t, session), "session_id", "normalized-session")
+	}
+	for _, value := range compatibilityWireArray(t, wire["tasks"]) {
+		task := compatibilityWireObject(t, value)
+		if stats, exists := task["stats"]; exists {
+			normalizeCompatibilityWireField(compatibilityWireObject(t, stats), "avg_duration_ms", float64(0))
+		}
+		for _, value := range compatibilityWireArray(t, task["runs"]) {
+			run := compatibilityWireObject(t, value)
+			normalizeCompatibilityWireField(run, "duration_ms", float64(0))
+			delete(run, "workspace_dir")
+			normalizeCompatibilityWireField(compatibilityWireObject(t, run["session_digest"]), "session_id", "normalized-session")
+			for _, verdict := range compatibilityWireObject(t, run["validations"]) {
+				normalizeCompatibilityWireField(compatibilityWireObject(t, verdict), "duration_ms", float64(0))
+			}
+			if checkpoints, exists := run["checkpoints"]; exists {
+				for _, value := range compatibilityWireArray(t, checkpoints) {
+					for _, verdict := range compatibilityWireObject(t, compatibilityWireObject(t, value)["validations"]) {
+						normalizeCompatibilityWireField(compatibilityWireObject(t, verdict), "duration_ms", float64(0))
+					}
+				}
+			}
+		}
+	}
+	return wire
+}
+
+func normalizeCompatibilityWireField(object map[string]any, key string, normalized any) {
+	switch normalized.(type) {
+	case string:
+		if _, ok := object[key].(string); ok {
+			object[key] = normalized
+		}
+	case float64:
+		if _, ok := object[key].(float64); ok {
+			object[key] = normalized
+		}
+	}
+}
+
+func TestCompatibilityRunOracleRejectsDeterministicDrift(t *testing.T) {
+	data, err := os.ReadFile(testutil.RepoFile(t, "cmd", "waza", "testdata", "compatibility-run-1.4.json"))
+	require.NoError(t, err)
+	expected := normalizeCompatibilityRunWire(t, data)
+	for _, name := range []string{"prompt", "checkpoint", "config", "billing", "score", "output", "wire shape", "null instead of empty", "zero instead of omitted", "cardinality",
+		"missing run ID", "missing timestamp", "missing summary duration", "missing run duration", "missing verdict duration", "missing checkpoint duration", "missing stats duration", "missing digest ID", "missing ledger ID", "wrong duration type"} {
+		t.Run(name, func(t *testing.T) {
+			var wire map[string]any
+			require.NoError(t, json.Unmarshal(data, &wire))
+			task := compatibilityWireObject(t, compatibilityWireArray(t, wire["tasks"])[0])
+			run := compatibilityWireObject(t, compatibilityWireArray(t, task["runs"])[0])
+			switch name {
+			case "prompt":
+				run["prompt"] = "different prompt"
+			case "checkpoint":
+				compatibilityWireObject(t, compatibilityWireArray(t, run["checkpoints"])[0])["after_turn"] = float64(2)
+			case "config":
+				compatibilityWireObject(t, wire["config"])["timeout_sec"] = float64(60)
+			case "billing":
+				session := compatibilityWireArray(t, compatibilityWireObject(t, wire["evaluation_usage"])["sessions"])[0]
+				compatibilityWireObject(t, session)["usage"] = map[string]any{"ai_credits": float64(5)}
+			case "score":
+				compatibilityWireObject(t, wire["summary"])["aggregate_score"] = float64(0)
+			case "output":
+				run["final_output"] = "different output"
+			case "wire shape":
+				delete(run, "prompt")
+			case "null instead of empty":
+				compatibilityWireObject(t, run["session_digest"])["tools_used"] = nil
+			case "zero instead of omitted":
+				compatibilityWireObject(t, run["session_digest"])["usage"] = map[string]any{"ai_credits": float64(0)}
+			case "cardinality":
+				wire["tasks"] = append(compatibilityWireArray(t, wire["tasks"]), task)
+			case "missing run ID":
+				delete(wire, "eval_id")
+			case "missing timestamp":
+				delete(wire, "timestamp")
+			case "missing summary duration":
+				delete(compatibilityWireObject(t, wire["summary"]), "duration_ms")
+			case "missing run duration":
+				delete(run, "duration_ms")
+			case "missing verdict duration":
+				delete(compatibilityWireObject(t, compatibilityWireObject(t, run["validations"])["answer"]), "duration_ms")
+			case "missing checkpoint duration":
+				checkpoint := compatibilityWireObject(t, compatibilityWireArray(t, run["checkpoints"])[0])
+				delete(compatibilityWireObject(t, compatibilityWireObject(t, checkpoint["validations"])["intermediate"]), "duration_ms")
+			case "missing stats duration":
+				delete(compatibilityWireObject(t, task["stats"]), "avg_duration_ms")
+			case "missing digest ID":
+				delete(compatibilityWireObject(t, run["session_digest"]), "session_id")
+			case "missing ledger ID":
+				session := compatibilityWireArray(t, compatibilityWireObject(t, wire["evaluation_usage"])["sessions"])[0]
+				delete(compatibilityWireObject(t, session), "session_id")
+			case "wrong duration type":
+				run["duration_ms"] = "0"
+			}
+			mutated, err := json.Marshal(wire)
+			require.NoError(t, err)
+			require.NotEqual(t, expected, normalizeCompatibilityRunWire(t, mutated), "normalization must not erase deterministic contract drift")
+		})
+	}
 }
