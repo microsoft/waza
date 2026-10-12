@@ -40,7 +40,7 @@ func TestPrivateWriterPublication(t *testing.T) {
 }
 
 func TestPrivateWriterAdmissionReplacement(t *testing.T) {
-	for _, replacement := range []string{"symlink", "permissive"} {
+	for _, replacement := range []string{"symlink", "permissive", "private"} {
 		t.Run(replacement, func(t *testing.T) {
 			base := workspaceTestRoot(t)
 			root := filepath.Join(base, "private")
@@ -61,8 +61,14 @@ func TestPrivateWriterAdmissionReplacement(t *testing.T) {
 						if err := os.Symlink(absolute, root); err != nil {
 							t.Fatal(err)
 						}
-					} else if err := os.Mkdir(root, 0o755); err != nil {
-						t.Fatal(err)
+					} else {
+						mode := os.FileMode(0o755)
+						if replacement == "private" {
+							mode = 0o700
+						}
+						if err := os.Mkdir(root, mode); err != nil {
+							t.Fatal(err)
+						}
 					}
 				},
 			})

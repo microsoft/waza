@@ -41,6 +41,17 @@ Snapshots **do not** contain:
 - Secrets that match the built-in or custom redaction rules (replaced with `[REDACTED]` placeholders)
 - Live engine outputs not present in the tool-event tape
 
+### Internal selected-state publication
+
+The internal selected-state writer on Linux/macOS admits each destination
+component without following symlinks and retains the final `0700` directory
+before writing exclusive `0600` evidence files. Only verified literal macOS
+`/var` and `/tmp` system aliases are accepted. Identity rechecks do not recreate
+a removed destination. This policy does not change ordinary metadata-only
+snapshots, materialization, Windows support or the public capture flags below.
+New empty directories may remain after failure; moving-directory confinement,
+rollback, atomic authenticity and confidentiality guarantees are not provided.
+
 ## Capturing snapshots
 
 ```bash
