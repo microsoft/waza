@@ -89,6 +89,9 @@ CSV containment checks resolved symlinks, including filesystem/volume-root eval
 directories, and range selection preserves original fallback row identities.
 Preflight diagnoses file-resource names rejected by the existing runtime loader
 without changing runtime acceptance or inline content handling.
+Contained absolute CSV paths must retain their source identity in task plans and
+diagnostics. Workspace-root destinations must be invalid for resource/instruction
+and file/diff checks, including inline resources, consistent with runtime limits.
 Malformed MCP fields and non-external schema loader
 errors are invalid rather than unresolved availability.
 Inspection must count zero engine/model/live-service/subprocess calls and never

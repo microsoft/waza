@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/microsoft/waza/internal/models"
 	"github.com/stretchr/testify/require"
 )
 
@@ -133,6 +134,29 @@ func TestInspectFileResourceRuntimePathParity(t *testing.T) {
 			require.Equal(t, tc.invalid, hasDiagnostic(report, "resource.path", Invalid), "%+v", report.Diagnostics)
 			require.Equal(t, tc.invalid, report.Failed(false), "%+v", report.Diagnostics)
 		})
+	}
+}
+
+func TestInspectRejectsCleanedWorkspaceRoot(t *testing.T) {
+	for _, location := range []string{".", "./", "././"} {
+		t.Run(location, func(t *testing.T) {
+			require.False(t, safeWorkspacePath(location))
+			task := strings.ReplaceAll(validTask, "  prompt:", "  files: [{path: '"+location+"', content: '{}'}]\n  prompt:")
+			path, _ := writeSuite(t, validEval, task)
+			report := Inspect(path, Options{})
+			require.True(t, hasDiagnostic(report, "resource.path", Invalid))
+			require.True(t, report.Failed(false))
+			gradersReport := &Report{Complete: true}
+			inspectGraders(gradersReport, []models.GraderConfig{
+				{Identifier: "file-root", Kind: models.GraderKindFile, Parameters: models.FileGraderParameters{MustExist: []string{location}}},
+				{Identifier: "diff-root", Kind: models.GraderKindDiff, Parameters: models.DiffGraderParameters{ExpectedFiles: []models.DiffExpectedFileParameters{{Path: location, Contains: []string{"+{}"}}}}},
+			}, path, "task", "")
+			require.True(t, hasDiagnostic(gradersReport, "grader.file_path", Invalid))
+			require.True(t, hasDiagnostic(gradersReport, "grader.diff_path", Invalid))
+		})
+	}
+	for _, location := range []string{"record.json", "./record.json", "records..archive/record.json"} {
+		require.True(t, safeWorkspacePath(location))
 	}
 }
 

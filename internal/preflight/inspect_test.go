@@ -162,6 +162,37 @@ func TestInspectCSVParity(t *testing.T) {
 	require.Equal(t, "row-2", r.Tasks[0].Name)
 }
 
+func TestInspectCSVSourcePathParity(t *testing.T) {
+	for _, absolute := range []bool{false, true} {
+		t.Run(fmt.Sprintf("absolute=%t", absolute), func(t *testing.T) {
+			path, dir := writeSuite(t, validEval, validTask)
+			csvPath := filepath.Join(dir, "cases.csv")
+			require.NoError(t, os.WriteFile(csvPath, []byte("id,name,prompt\nfirst,First,Inspect\n"), 0600))
+			source := "cases.csv"
+			if absolute {
+				source = csvPath
+			}
+			eval := strings.ReplaceAll(validEval, "tasks:\n  - task.yaml", fmt.Sprintf("tasks: []\ntasks_from: %q", source))
+			require.NoError(t, os.WriteFile(path, []byte(eval), 0600))
+			report := Inspect(path, Options{})
+			require.False(t, report.Failed(true), "%+v", report.Diagnostics)
+			require.Len(t, report.Tasks, 1)
+			require.Equal(t, csvPath, report.Tasks[0].Source)
+			spec, err := models.LoadEvalSpec(path)
+			require.NoError(t, err)
+			spec.Config.InstructionFiles = []string{"missing.txt"}
+			diagnostics := &Report{Complete: true}
+			tasks, sources := discoverTasks(diagnostics, spec, dir)
+			require.Len(t, tasks, 1)
+			inspectTask(diagnostics, tasks[0], spec, sources[0], dir, filepath.Join(dir, "fixtures"))
+			require.True(t, hasDiagnostic(diagnostics, "instruction.file", Invalid))
+			for _, diagnostic := range diagnostics.Diagnostics {
+				require.Equal(t, csvPath, diagnostic.Source)
+			}
+		})
+	}
+}
+
 func TestInspectCSVRejectsSymlinkEscape(t *testing.T) {
 	eval := strings.ReplaceAll(validEval, "tasks:\n  - task.yaml", "tasks: []\ntasks_from: cases.csv")
 	path, dir := writeSuite(t, eval, validTask)

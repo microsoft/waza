@@ -264,7 +264,10 @@ unavailable external dependencies incomplete. Runtime schema-loading defaults
 remain unchanged. CSV containment accepts filesystem/volume-root eval
 directories. File-backed resource paths containing `..` within a cleaned segment
 are rejected by the existing runtime loader and diagnosed by preflight; rename
-the file or segment. Inline resource content retains existing path handling.
+the file or segment. Workspace-relative resource/instruction and file/diff paths
+must not clean to the workspace root (`.` or `./`), including inline resource
+destinations. Contained absolute CSV paths retain their actual source in task
+plans and diagnostics; relative CSV sources still resolve from the eval directory.
 
 Task requirements are optional **descriptions**, not assertions:
 

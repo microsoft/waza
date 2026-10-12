@@ -217,7 +217,9 @@ This also covers grader schema files and MCP tool input schemas encountered
 during later inspection. CSV containment accepts filesystem/volume-root eval
 directories. File-backed resource paths containing `..` anywhere in a cleaned
 segment are diagnosed as runtime-rejected; inline content retains its existing
-path behavior.
+path behavior, except that workspace-root destinations (`.` or paths cleaned to
+`.`) are invalid for resource/instruction and file/diff checks. Contained absolute
+CSV paths retain their actual source in task plans and diagnostics.
 
 `verified` means a static check, **not a satisfied requirement or proven
 enforcement**. Invalid configuration exits 1; unresolved/unsupported prerequisites

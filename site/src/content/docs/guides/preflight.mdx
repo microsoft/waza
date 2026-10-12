@@ -129,6 +129,8 @@ truly absent fields retain legacy defaults.
 CSV paths must remain within the eval directory after symlinks resolve, including
 when the eval directory itself is a symlink or filesystem/volume root. Fallback IDs/names use the original
 1-based data row, so selecting `range: [2, 2]` retains `row-2`, not `row-1`.
+Contained absolute CSV paths retain their actual source in task plans and
+diagnostics; relative sources still resolve from the eval directory.
 
 Default fixtures are `<eval-directory>/fixtures`. CLI `--context-dir` resolves
 from the process cwd, as does the existing task `context_dir` override.
@@ -136,7 +138,9 @@ Resource/instruction paths must stay workspace/context relative; local resource
 and instruction files are inspected, never modified. File-backed resource paths
 containing `..` within any cleaned segment are diagnosed as rejected by the
 existing runtime loader; rename the file or segment. Inline content retains its
-existing path handling. `inputs.context.fixture`
+existing path handling except that workspace-root destinations (`.` or any path
+cleaned to `.`) are invalid for resource/instruction and file/diff checks,
+including inline resource destinations. `inputs.context.fixture`
 accepts files or directories from the eval directory with runtime symlink
 containment rules. Explicit skill directories resolve from the eval directory;
 `required_skills` follows existing eval-level declaration discovery. Relative Git

@@ -118,8 +118,12 @@ func discoverTasks(r *Report, spec *models.EvalSpec, base string) ([]*models.Tes
 			return nil, nil
 		}
 		sources := make([]string, len(tasks))
+		source := spec.TasksFrom
+		if !filepath.IsAbs(source) {
+			source = filepath.Join(base, source)
+		}
 		for i := range sources {
-			sources[i] = filepath.Join(base, spec.TasksFrom)
+			sources[i] = source
 		}
 		return tasks, sources
 	}
@@ -407,7 +411,7 @@ func inspectTask(r *Report, task *models.TestCase, spec *models.EvalSpec, source
 }
 
 func safeWorkspacePath(path string) bool {
-	if path == "" || filepath.IsAbs(path) || strings.HasPrefix(path, `\`) || strings.Contains(path, ":") {
+	if path == "" || filepath.Clean(path) == "." || filepath.IsAbs(path) || strings.HasPrefix(path, `\`) || strings.Contains(path, ":") {
 		return false
 	}
 	for _, segment := range strings.FieldsFunc(path, func(r rune) bool { return r == '/' || r == '\\' }) {
