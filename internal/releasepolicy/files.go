@@ -26,6 +26,19 @@ func readArtifactContext(ctx context.Context, directory, name string) (data []by
 		return nil, err
 	}
 	defer func() { err = errors.Join(err, root.Close()) }()
+	return readArtifactRootContext(ctx, root, name)
+}
+
+func readArtifactRootContext(ctx context.Context, root *os.Root, name string) ([]byte, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if root == nil {
+		return nil, fmt.Errorf("release artifact root is nil")
+	}
+	if filepath.Base(name) != name || name == "." || name == ".." {
+		return nil, fmt.Errorf("invalid fixed release artifact name %q", name)
+	}
 	info, err := root.Lstat(name)
 	if err != nil {
 		return nil, err
@@ -33,7 +46,7 @@ func readArtifactContext(ctx context.Context, directory, name string) (data []by
 	if !info.Mode().IsRegular() {
 		return nil, fmt.Errorf("release artifact %s must be a regular file, not a symlink or directory", name)
 	}
-	data, err = assurance.ReadDocument(ctx, root, name, 16<<20)
+	data, err := assurance.ReadDocument(ctx, root, name, 16<<20)
 	if err != nil {
 		return nil, err
 	}

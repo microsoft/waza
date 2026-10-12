@@ -10,11 +10,11 @@ import (
 	"reflect"
 )
 
-func accountIncomplete(ctx context.Context, directory string, p *Policy, d *Decision) error {
+func accountIncomplete(ctx context.Context, read artifactReader, p *Policy, d *Decision) error {
 	for _, arm := range []Arm{Baseline, Candidate} {
 		d.Accounting[arm] = Reliability{PlannedTrials: len(PlannedSamples(p))}
 	}
-	stream, err := readArtifactContext(ctx, directory, "journal.ndjson")
+	stream, err := read("journal.ndjson")
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
 	}

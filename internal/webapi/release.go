@@ -1,11 +1,14 @@
 package webapi
 
 import (
+	"context"
+	"errors"
 	"fmt"
+	"io/fs"
 	"net/http"
 	"os"
-	"path/filepath"
-	"strings"
+	"path"
+	"runtime"
 
 	"github.com/microsoft/waza/internal/releasepolicy"
 )
@@ -49,59 +52,86 @@ func releaseView(d releasepolicy.Decision) ReleaseDecision {
 // dashboard never supplies an arbitrary filesystem path or assesses summaries
 // as ordinary runs. Each response re-verifies the collection artifacts.
 func RegisterReleaseRoutes(mux *http.ServeMux, directory string) {
-	mux.HandleFunc("GET /api/release-collections", func(w http.ResponseWriter, _ *http.Request) {
-		root, err := filepath.EvalSymlinks(directory)
+	registerReleaseRoutes(mux, directory, os.OpenRoot, (*os.Root).Close)
+}
+
+func registerReleaseRoutes(mux *http.ServeMux, directory string,
+	openRoot func(string) (*os.Root, error), closeRoot func(*os.Root) error) {
+	mux.HandleFunc("GET /api/release-collections", func(w http.ResponseWriter, request *http.Request) {
+		if runtime.GOOS == "js" || runtime.GOOS == "plan9" {
+			writeError(w, http.StatusInternalServerError, fmt.Sprintf("retained release collection confinement is unsupported on %s", runtime.GOOS))
+			return
+		}
+		if err := request.Context().Err(); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		root, err := openRoot(directory)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, fmt.Sprintf("opening local release collections: %v", err))
 			return
 		}
-		root, err = filepath.Abs(root)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-		collections := []ReleaseCollection{}
-		err = filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
-			if walkErr != nil {
-				return walkErr
-			}
-			if entry.IsDir() || entry.Name() != "policy.json" {
-				return nil
-			}
-			parent := filepath.Dir(path)
-			// Reject symlinked artifacts rather than allowing fixed filenames
-			// inside a collection to escape the configured root.
-			for _, name := range []string{"policy.json", "journal.json", "journal.ndjson",
-				"baseline.begin.json", "candidate.begin.json", "baseline.final.json", "candidate.final.json",
-				"baseline.results.json", "candidate.results.json", "baseline.result-binding.json", "candidate.result-binding.json"} {
-				info, err := os.Lstat(filepath.Join(parent, name))
-				if os.IsNotExist(err) {
-					continue // Missing publication is an explicit nonpass state.
-				}
-				if err != nil {
-					return err
-				}
-				if info.Mode()&os.ModeSymlink != 0 {
-					return fmt.Errorf("release collection artifact is a symlink: %s", name)
-				}
-			}
-			relative, err := filepath.Rel(root, parent)
-			if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
-				return fmt.Errorf("release collection escapes results root")
-			}
-			decision, readErr := releasepolicy.ReadDecision(parent)
-			item := ReleaseCollection{Path: filepath.ToSlash(relative), Decision: releaseView(decision)}
-			if readErr != nil {
-				item.Decision.Accepted = false
-				item.Error = readErr.Error()
-			}
-			collections = append(collections, item)
-			return nil
-		})
+		collections, readErr := readReleaseCollections(request.Context(), root, closeRoot)
+		closeErr := closeRoot(root)
+		err = errors.Join(readErr, closeErr, request.Context().Err())
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
 		writeJSON(w, http.StatusOK, collections)
 	})
+}
+
+func readReleaseCollections(ctx context.Context, root *os.Root, closeRoot func(*os.Root) error) ([]ReleaseCollection, error) {
+	collections := []ReleaseCollection{}
+	err := fs.WalkDir(root.FS(), ".", func(name string, entry fs.DirEntry, walkErr error) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() || entry.Name() != "policy.json" {
+			return nil
+		}
+		relative := path.Dir(name)
+		collection, err := root.OpenRoot(relative)
+		if err != nil {
+			return err
+		}
+		item, inspectErr := readReleaseCollection(ctx, collection, relative)
+		closeErr := closeRoot(collection)
+		if err := errors.Join(inspectErr, closeErr, ctx.Err()); err != nil {
+			return err
+		}
+		collections = append(collections, item)
+		return nil
+	})
+	return collections, err
+}
+
+func readReleaseCollection(ctx context.Context, collection *os.Root, relative string) (ReleaseCollection, error) {
+	// Reject symlinked artifacts rather than allowing fixed filenames
+	// inside a collection to escape the configured root.
+	for _, name := range []string{"policy.json", "journal.json", "journal.ndjson",
+		"baseline.begin.json", "candidate.begin.json", "baseline.final.json", "candidate.final.json",
+		"baseline.results.json", "candidate.results.json", "baseline.result-binding.json", "candidate.result-binding.json"} {
+		info, err := collection.Lstat(name)
+		if os.IsNotExist(err) {
+			continue // Missing publication is an explicit nonpass state.
+		}
+		if err != nil {
+			return ReleaseCollection{}, err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return ReleaseCollection{}, fmt.Errorf("release collection artifact is a symlink: %s", name)
+		}
+	}
+	decision, readErr := releasepolicy.ReadDecisionRootContext(ctx, collection)
+	item := ReleaseCollection{Path: relative, Decision: releaseView(decision)}
+	if readErr != nil {
+		item.Decision.Accepted = false
+		item.Error = readErr.Error()
+	}
+	return item, nil
 }

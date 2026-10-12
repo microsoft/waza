@@ -28,6 +28,12 @@ Insufficient declared precision is reported separately and is not a power
 calculation. Unjustified independence, missing/partial/invalid evidence and
 inconclusive intervals cannot strict-pass.
 
+Equal-cluster planning uses an exact rational logarithm enclosure with a bounded
+remainder, not a nearest-rounded radius comparison. An ambiguous boundary may
+conservatively require an extra cluster; subnormal alpha and integer family
+sizes retain their exact values. Validate the actual frozen weights separately
+before collection: a certified count is not a power or release-pass promise.
+
 Canonical declared coefficients undergo representation-only mass admission
 before exact normalization; omitted clusters are never reweighted away. Golden
 first-attempt failures and operational errors cannot be averaged into a

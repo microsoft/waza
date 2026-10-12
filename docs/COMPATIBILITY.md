@@ -37,12 +37,14 @@ npx playwright test e2e/compatibility.spec.ts --project=chromium
 ```
 
 These commands need Go 1.26+, Git, the existing script-grader runtimes
-(Python and Node), and, for the browser gate, installed web dependencies and
+(a working `python3`, or `python` as fallback, and Node), and, for the browser gate, installed web dependencies and
 Chromium. A fresh worktree must have `web/dist/index.html` and
 `web/dist/favicon.svg` for Go embedding; create missing stubs only, never
 overwrite existing assets. Missing prerequisites are failures, not evidence of
 compatibility. Live integration tests remain opt-in and separate; this target
 does not set their enabling environment variables or use paid agent calls.
+The corpus recipe explicitly sets `ENABLE_COPILOT_TESTS=false`, overriding
+an inherited enabling value rather than relying on the caller's environment.
 
 The broader Go suite also includes
 `internal/nativesnapshot: TestPinnedOriginalFixturesPreserveCheckoutBytes`.

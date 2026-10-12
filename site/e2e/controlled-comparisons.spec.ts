@@ -1,11 +1,27 @@
 import { expect, test } from '@playwright/test';
 
+test('controlled comparison and compatibility guides are discoverable in navigation', async ({ page }) => {
+  await page.goto('/waza/quick-start/');
+  const navigation = page.getByRole('navigation', { name: 'Main' });
+  const controlled = navigation.getByRole('link', { name: 'Controlled comparisons', exact: true });
+  const compatibility = navigation.getByRole('link', { name: 'Preserving Existing Workflows', exact: true });
+  await expect(controlled).toHaveAttribute('href', '/waza/guides/controlled-comparisons/');
+  await expect(compatibility).toHaveAttribute('href', '/waza/guides/compatibility/');
+  await controlled.click();
+  await expect(page.getByRole('heading', { name: 'Controlled comparisons', exact: true })).toBeVisible();
+  await compatibility.click();
+  await expect(page.getByRole('heading', { name: 'Preserving Existing Workflows', exact: true })).toBeVisible();
+});
+
 test('controlled comparison guide exposes the real offline boundary and distinct API contract', async ({ page }) => {
   const response = await page.goto('/waza/guides/controlled-comparisons/');
   expect(response?.status()).toBe(200);
   await expect(page.getByRole('heading', { name: 'Controlled comparisons', exact: true })).toBeVisible();
   await expect(page.locator('main')).toContainText('Mock observations validate the harness, not agent quality');
   await expect(page.locator('main')).toContainText('waza.release-decision-view');
+  await expect(page.locator('main')).toContainText('confinement, not snapshot immutability or authenticity');
+  await expect(page.locator('main')).toContainText('Owned handles close before publication');
+  await expect(page.locator('main')).toContainText('Windows supplied-artifact reading is not support for durable collection');
   await expect(page.locator('main')).toContainText('one deterministic cluster does not justify a release claim');
   await expect(page.locator('main')).toContainText('Old executables reject the new unknown flags');
   await expect(page.getByRole('heading', { name: 'Opt in separately to offline assurance', exact: true })).toBeVisible();

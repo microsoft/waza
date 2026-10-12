@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"reflect"
+	"runtime"
 
 	"github.com/microsoft/waza/internal/jsonutil"
 	"github.com/microsoft/waza/internal/models"
@@ -18,7 +19,7 @@ import (
 // ReadDecision admits independent sidecars and separately published results.
 // Missing, partial, malformed or contradictory publications never strict-pass.
 func ReadDecision(directory string) (Decision, error) {
-	return readDecision(context.Background(), directory, nil)
+	return readOwnedDecision(context.Background(), directory, nil)
 }
 
 // ReadSelectedDecision compares the selection with the same admitted policy
@@ -29,12 +30,54 @@ func ReadSelectedDecision(directory string, selected models.EvidenceDigest) (Dec
 
 // ReadSelectedDecisionContext threads cancellation through all fixed reads.
 func ReadSelectedDecisionContext(ctx context.Context, directory string, selected models.EvidenceDigest) (Decision, error) {
-	return readDecision(ctx, directory, &selected)
+	return readOwnedDecision(ctx, directory, &selected)
 }
 
-func readDecision(ctx context.Context, directory string, selected *models.EvidenceDigest) (Decision, error) {
+// ReadDecisionRootContext borrows a retained collection handle. It confines
+// reads to that root, but does not establish an immutable or authentic snapshot.
+// The caller owns the root and must handle its close before publishing a result.
+func ReadDecisionRootContext(ctx context.Context, root *os.Root) (Decision, error) {
+	if err := ctx.Err(); err != nil {
+		return InitialDecision(), err
+	}
+	if runtime.GOOS == "js" || runtime.GOOS == "plan9" {
+		return InitialDecision(), fmt.Errorf("retained release collection confinement is unsupported on %s", runtime.GOOS)
+	}
+	return readDecision(ctx, func(name string) ([]byte, error) {
+		return readArtifactRootContext(ctx, root, name)
+	}, nil)
+}
+
+func readOwnedDecision(ctx context.Context, directory string, selected *models.EvidenceDigest) (d Decision, err error) {
+	d = InitialDecision()
+	if err := ctx.Err(); err != nil {
+		d.Compatibility.State = "invalid"
+		return d, fmt.Errorf("reading precollection policy: %w", err)
+	}
+	root, err := os.OpenRoot(directory)
+	if err != nil {
+		d.Compatibility.State = "invalid"
+		return d, fmt.Errorf("reading precollection policy: %w", err)
+	}
+	defer func() { finishOwnedDecision(ctx, &d, &err, root.Close) }()
+	return readDecision(ctx, func(name string) ([]byte, error) {
+		return readArtifactRootContext(ctx, root, name)
+	}, selected)
+}
+
+func finishOwnedDecision(ctx context.Context, d *Decision, err *error, closeRoot func() error) {
+	closeErr := closeRoot()
+	*err = errors.Join(*err, closeErr, ctx.Err())
+	if *err != nil {
+		d.Accepted = false
+	}
+}
+
+type artifactReader func(string) ([]byte, error)
+
+func readDecision(ctx context.Context, read artifactReader, selected *models.EvidenceDigest) (Decision, error) {
 	d := InitialDecision()
-	data, err := readArtifactContext(ctx, directory, "policy.json")
+	data, err := read("policy.json")
 	if err != nil {
 		d.Compatibility.State = "invalid"
 		return d, fmt.Errorf("reading precollection policy: %w", err)
@@ -57,11 +100,11 @@ func readDecision(ctx context.Context, directory string, selected *models.Eviden
 	}
 	d.Golden = assessGolden(p, map[Arm]Receipt{})
 	d.Billing = assessBilling(p, map[Arm]Receipt{})
-	data, err = readArtifactContext(ctx, directory, "journal.json")
+	data, err = read("journal.json")
 	if err != nil {
 		d.Completeness.State, d.Statistics.State, d.Operations.State = "missing", "inconclusive", "incomplete"
 		if errors.Is(err, os.ErrNotExist) {
-			if prefixErr := accountIncomplete(ctx, directory, p, &d); prefixErr != nil {
+			if prefixErr := accountIncomplete(ctx, read, p, &d); prefixErr != nil {
 				d.Compatibility.State = "invalid"
 				d.Compatibility.Reasons = append(d.Compatibility.Reasons, prefixErr.Error())
 				return d, prefixErr
@@ -79,7 +122,7 @@ func readDecision(ctx context.Context, directory string, selected *models.Eviden
 	if err != nil {
 		return d, err
 	}
-	stream, err := readArtifactContext(ctx, directory, "journal.ndjson")
+	stream, err := read("journal.ndjson")
 	if err != nil {
 		d.Completeness.State = "missing"
 		return d, fmt.Errorf("reading durable event tape: %w", err)
@@ -120,7 +163,7 @@ func readDecision(ctx context.Context, directory string, selected *models.Eviden
 	}
 	actual := map[Arm]Receipt{}
 	for _, arm := range []Arm{Baseline, Candidate} {
-		data, err := readArtifactContext(ctx, directory, string(arm)+".begin.json")
+		data, err := read(string(arm) + ".begin.json")
 		if err != nil {
 			d.Completeness.State = "missing"
 			return d, fmt.Errorf("reading precollection %s BEGIN: %w", arm, err)
@@ -138,7 +181,7 @@ func readDecision(ctx context.Context, directory string, selected *models.Eviden
 			d.Compatibility.State = "mismatched"
 			return d, fmt.Errorf("%s BEGIN identity contradicts collection commitment", arm)
 		}
-		data, err = readArtifactContext(ctx, directory, string(arm)+".final.json")
+		data, err = read(string(arm) + ".final.json")
 		if err != nil {
 			d.Completeness.State, d.Statistics.State = "missing", "inconclusive"
 			return d, fmt.Errorf("reading final %s receipt: %w", arm, err)
@@ -148,7 +191,7 @@ func readDecision(ctx context.Context, directory string, selected *models.Eviden
 			d.Compatibility.State = "invalid"
 			return d, err
 		}
-		data, err = readArtifactContext(ctx, directory, string(arm)+".result-binding.json")
+		data, err = read(string(arm) + ".result-binding.json")
 		if err != nil {
 			d.Completeness.State = "missing"
 			return d, fmt.Errorf("reading attributable %s results: %w", arm, err)
@@ -163,7 +206,7 @@ func readDecision(ctx context.Context, directory string, selected *models.Eviden
 			d.Compatibility.Reasons = append(d.Compatibility.Reasons, err.Error())
 			return d, err
 		}
-		data, err = readArtifactContext(ctx, directory, string(arm)+".results.json")
+		data, err = read(string(arm) + ".results.json")
 		if err != nil {
 			d.Completeness.State = "missing"
 			return d, fmt.Errorf("reading actual %s result rows: %w", arm, err)

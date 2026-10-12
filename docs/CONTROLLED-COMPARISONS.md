@@ -402,6 +402,13 @@ require at least 738 clusters mathematically. This is a **precision bound, not
 power, cost or an execution-count promise**. Validate the actual allocation
 before collection; arithmetic boundaries may need a preplanned reserve.
 
+The equal-cluster planning helper certifies counts against an upper logarithm
+enclosure computed with exact rational series and a bounded positive remainder.
+It does not treat a nearest-rounded radius as an exact boundary: a numerically
+ambiguous threshold can require an additional cluster. Subnormal alpha and
+integer family sizes retain their exact input values. Actual frozen weights
+still require their own conservative-bound check before collection.
+
 Weights use canonical Go JSON float64 numeric tokens. Admission requires
 positive coefficients and unit mass within only the representation-rounding
 budget. Then the entire declared set is normalized exactly as rational numbers;
@@ -473,6 +480,20 @@ must agree, not merely have separately valid hashes.
 CLI and API readers open fixed artifacts beneath the collection root and reject
 symlinks and non-regular files. The selected policy digest is checked against the
 same admitted commitment used for assessment, without an independent reread.
+Full and partial base decisions share one retained collection handle. The API
+opens the configured results root per request, walks through that handle and
+opens each collection relative to it; replacing a pathname does not redirect
+these reads. Owned handles close before HTTP publication, and cancellation or
+close errors prevent a successful response. The internal borrowed-root reader
+does not close its caller's handle.
+
+This confinement relies on descriptor/handle-backed roots, including Unix and
+Windows. The new confined API/borrowed-root seam rejects JavaScript and Plan 9,
+whose pathname-backed roots do not supply that guarantee; legacy wrapper
+signatures remain unchanged. Retention is not snapshot immutability, race-free
+no-follow/ABA protection, mount/device exclusion or authenticity. Fixed-file
+and cross-artifact digest/identity checks still apply; durable collection on
+Windows remains unsupported independently of confined supplied-artifact reads.
 
 Interrupted publication exposes validated durable-prefix planned/started trial
 and started/completed attempt counts. Without final independently published raw

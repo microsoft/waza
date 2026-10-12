@@ -3,6 +3,7 @@ package statistics
 import (
 	"fmt"
 	"math"
+	"math/big"
 )
 
 // PairedHoeffdingBound describes a fixed-sample precision bound, not a release
@@ -31,7 +32,7 @@ type PairedHoeffdingBound struct {
 // Missing clusters must not be dropped or their weights renormalized. Adaptive
 // stopping, selected successful attempts and post-hoc comparisons are unsupported.
 func FixedPairedHoeffdingBound(weights []float64, alpha float64, comparisons int) (PairedHoeffdingBound, error) {
-	logTail, err := pairedLogTail(alpha, comparisons)
+	factor, err := pairedFactorUpper(alpha, comparisons)
 	if err != nil {
 		return PairedHoeffdingBound{}, err
 	}
@@ -73,7 +74,7 @@ func FixedPairedHoeffdingBound(weights []float64, alpha float64, comparisons int
 	}
 
 	return PairedHoeffdingBound{
-		HalfWidth:         math.Nextafter(math.Sqrt(2*logTail*sumSquares), math.Inf(1)),
+		HalfWidth:         math.Nextafter(math.Sqrt(math.Nextafter(rationalUpperFloat(factor)*sumSquares, math.Inf(1))), math.Inf(1)),
 		EffectiveClusters: math.Nextafter(1/sumSquares, math.Inf(-1)),
 	}, nil
 }
@@ -84,8 +85,10 @@ func FixedPairedHoeffdingBound(weights []float64, alpha float64, comparisons int
 // particular release threshold will be met. Always validate the actual frozen
 // weights with FixedPairedHoeffdingBound: unequal weighting or conservative
 // arithmetic rounding at an exact precision boundary can require more clusters.
+// The count is minimal for an upper logarithm enclosure; an ambiguous
+// transcendental boundary may conservatively require one additional cluster.
 func MinimumPairedClusters(alpha float64, comparisons int, maxHalfWidth float64) (int, error) {
-	logTail, err := pairedLogTail(alpha, comparisons)
+	factor, err := pairedFactorUpper(alpha, comparisons)
 	if err != nil {
 		return 0, err
 	}
@@ -93,37 +96,21 @@ func MinimumPairedClusters(alpha float64, comparisons int, maxHalfWidth float64)
 		return 0, fmt.Errorf("maximum half-width must be finite and in (0, 1], got %v", maxHalfWidth)
 	}
 
-	factor := 2 * logTail
-	count := math.Ceil(factor / (maxHalfWidth * maxHalfWidth))
-	// Beyond these limits an integer conversion or integer precision is unsafe.
-	limit := math.Min(float64(math.MaxInt), 1<<53)
-	if !isFinite(count) || count >= limit {
+	width := new(big.Rat).SetFloat64(maxHalfWidth)
+	squaredWidth := new(big.Rat).Mul(width, width)
+	required := new(big.Rat).Quo(factor, squaredWidth)
+	count, remainder := new(big.Int).QuoRem(required.Num(), required.Denom(), new(big.Int))
+	if remainder.Sign() != 0 {
+		count.Add(count, big.NewInt(1))
+	}
+	limit := big.NewInt(math.MaxInt)
+	if limit.Cmp(new(big.Int).Lsh(big.NewInt(1), 53)) > 0 {
+		limit.Lsh(big.NewInt(1), 53)
+	}
+	if count.Cmp(limit) >= 0 {
 		return 0, fmt.Errorf("required cluster count exceeds supported integer precision; choose a wider half-width or smaller comparison family")
 	}
-	clusters := int(count)
-	// Inverting a squared, rounded half-width can land just above an integer.
-	// Check the original inequality to retain the inclusive precision boundary.
-	for clusters > 1 && math.Sqrt(factor/float64(clusters-1)) <= maxHalfWidth {
-		clusters--
-	}
-	for math.Sqrt(factor/float64(clusters)) > maxHalfWidth {
-		if float64(clusters+1) >= limit {
-			return 0, fmt.Errorf("required cluster count exceeds supported integer precision; choose a wider half-width or smaller comparison family")
-		}
-		clusters++
-	}
-	return clusters, nil
-}
-
-func pairedLogTail(alpha float64, comparisons int) (float64, error) {
-	if !isFinite(alpha) || alpha <= 0 || alpha >= 1 {
-		return 0, fmt.Errorf("family error probability alpha must be finite and in (0, 1), got %v", alpha)
-	}
-	if comparisons < 1 {
-		return 0, fmt.Errorf("declare at least one comparison in the fixed family, got %d", comparisons)
-	}
-	// Log separately so a valid tiny alpha does not overflow 2*M/alpha.
-	return math.Log(2) + math.Log(float64(comparisons)) - math.Log(alpha), nil
+	return int(count.Int64()), nil
 }
 
 func isFinite(value float64) bool {

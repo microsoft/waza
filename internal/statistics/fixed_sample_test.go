@@ -214,14 +214,22 @@ func TestMinimumPairedClustersInvalidPrecision(t *testing.T) {
 
 func TestMinimumPairedClustersExactBoundary(t *testing.T) {
 	logTail := math.Log(2) - math.Log(0.05)
+	radiusLower, radiusUpper := eightClusterRadiusReference(t)
+	factorLower := new(big.Rat).Mul(new(big.Rat).Mul(radiusLower, radiusLower), big.NewRat(8, 1))
+	factorUpper := new(big.Rat).Mul(new(big.Rat).Mul(radiusUpper, radiusUpper), big.NewRat(8, 1))
 	for count := 8; count < 1000; count++ {
 		width := math.Sqrt(2 * logTail / float64(count))
 		got, err := MinimumPairedClusters(0.05, 1, width)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if got != count {
-			t.Fatalf("precision exactly at %d-cluster boundary requires %d clusters, want %d", count, got, count)
+		squared := new(big.Rat).SetFloat64(width)
+		squared.Mul(squared, squared)
+		if new(big.Rat).Mul(squared, big.NewRat(int64(got), 1)).Cmp(factorUpper) < 0 {
+			t.Fatalf("count %d understates the independently enclosed radius at %d", got, count)
+		}
+		if new(big.Rat).Mul(squared, big.NewRat(int64(got-1), 1)).Cmp(factorLower) >= 0 {
+			t.Fatalf("count %d is not minimal against the independent radius enclosure at %d", got, count)
 		}
 	}
 }
@@ -348,8 +356,8 @@ func TestGeneratedAllocationAtExactPrecisionBoundary(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if minimum != count {
-			t.Fatalf("mathematical minimum = %d, want %d", minimum, count)
+		if minimum != count && minimum != count+1 {
+			t.Fatalf("certified minimum = %d, want %d or conservative boundary reserve %d", minimum, count, count+1)
 		}
 		bound, err := FixedPairedHoeffdingBound(equalClusterWeights(minimum), 0.05, 1)
 		if err != nil {
