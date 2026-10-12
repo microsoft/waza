@@ -298,6 +298,15 @@ not agent quality. See [scenario examples](examples/scenarios/README.md).
 Scenario task files retain `tasks/` when it matches `files.taskGlob`, including
 wildcard-directory globs; otherwise they use a matching literal directory.
 Incompatible or unsafe configurations fail before writing.
+Scenario scaffolding rejects symlinked parent directories in the selected
+output path, including the scaffold root and generated task/fixture parents.
+Use a physical output path instead. Relative paths start at the retained working
+directory; absolute paths are admitted from their filesystem root. Only the
+literal macOS `/var` and `/tmp` aliases are accepted after verifying their
+expected `/private` targets. Writes retain admitted directories and cannot be
+redirected by subsequently replacing their path entries; moving an admitted
+directory can move its outputs. This is not a whole-scaffold transaction or a
+filesystem sandbox.
 
 Creates:
 - `evals/<skill-name>/<files.evalFile>`

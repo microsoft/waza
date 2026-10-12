@@ -54,6 +54,13 @@ Disabling the last eval-level directory preserves target-free isolation.
 Scenario task files retain `tasks/` when selected by `files.taskGlob`, including
 wildcard-directory globs; otherwise they use a matching literal directory.
 Unsupported or nonmatching glob/suffix combinations fail before writing.
+Scenario scaffolding requires physical parent directories for the selected
+output path; symlinked roots or generated task/fixture parents are rejected.
+Use a physical `--output` path. Relative paths start at the retained working
+directory; absolute paths are admitted from the filesystem root, with only
+verified literal macOS `/var` and `/tmp` system aliases. Writes use retained
+directory handles rather than following replaced parent paths. This does not
+provide rollback or prevent an admitted directory from subsequently being moved.
 Scenario `2.0` bypasses result caching with an explicit notice, even with
 `--cache`, until external workflow dependencies can be fully fingerprinted.
 Legacy `1.x` caching and billing attribution are unchanged.

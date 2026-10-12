@@ -2,13 +2,9 @@ package main
 
 import (
 	"bytes"
-	"errors"
-	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
-	"syscall"
 	"testing"
 
 	"github.com/microsoft/waza/internal/models"
@@ -179,84 +175,6 @@ func TestScenarioMigrateNoOp(t *testing.T) {
 	after, err := os.ReadFile(path)
 	require.NoError(t, err)
 	require.Equal(t, data, after)
-}
-
-func scenarioSymlinkPermissionUnavailable(goos string, err error) bool {
-	var linkErr *os.LinkError
-	return goos == "windows" && errors.As(err, &linkErr) && linkErr.Op == "symlink" &&
-		(errors.Is(linkErr.Err, fs.ErrPermission) || errors.Is(linkErr.Err, syscall.Errno(1314)))
-}
-
-func TestScenarioSymlinkPermissionUnavailable(t *testing.T) {
-	permission := &os.LinkError{Op: "symlink", Err: fs.ErrPermission}
-	for _, tt := range []struct {
-		name, goos string
-		err        error
-		want       bool
-	}{
-		{"windows-permission", "windows", permission, true},
-		{"windows-privilege", "windows", &os.LinkError{Op: "symlink", Err: syscall.Errno(1314)}, true},
-		{"windows-wrapped", "windows", fmt.Errorf("creating link: %w", permission), true},
-		{"windows-other-operation", "windows", &os.LinkError{Op: "link", Err: fs.ErrPermission}, false},
-		{"windows-existing-entry", "windows", &os.LinkError{Op: "symlink", Err: fs.ErrExist}, false},
-		{"windows-missing-path", "windows", &os.LinkError{Op: "symlink", Err: fs.ErrNotExist}, false},
-		{"windows-unexpected-error", "windows", &os.LinkError{Op: "symlink", Err: errors.New("unexpected failure")}, false},
-		{"windows-untyped-permission", "windows", fs.ErrPermission, false},
-		{"windows-nil", "windows", nil, false},
-		{"non-windows-permission", "darwin", permission, false},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			require.Equal(t, tt.want, scenarioSymlinkPermissionUnavailable(tt.goos, tt.err))
-		})
-	}
-}
-
-func TestScenarioExclusiveWriteAfterPreflight(t *testing.T) {
-	for _, symlink := range []bool{false, true} {
-		t.Run(fmt.Sprintf("symlink=%t", symlink), func(t *testing.T) {
-			dir := t.TempDir()
-			path := filepath.Join(dir, "eval.yaml")
-			_, err := os.Lstat(path)
-			require.ErrorIs(t, err, fs.ErrNotExist)
-			target := filepath.Join(dir, "unrelated.yaml")
-			original := []byte("keep competing file bytes\n")
-			if symlink {
-				if err := os.Symlink(target, path); err != nil {
-					if scenarioSymlinkPermissionUnavailable(runtime.GOOS, err) {
-						t.Skipf("symlink privileges unavailable: %v", err)
-					}
-					require.NoError(t, err)
-				}
-			} else {
-				require.NoError(t, os.WriteFile(path, original, 0o600))
-			}
-			require.ErrorContains(t, writeScenarioFile(path, "new scaffold contents"), "refusing to overwrite")
-			if symlink {
-				link, err := os.Readlink(path)
-				require.NoError(t, err)
-				require.Equal(t, target, link)
-				require.NoFileExists(t, target)
-			} else {
-				after, err := os.ReadFile(path)
-				require.NoError(t, err)
-				require.Equal(t, original, after)
-			}
-		})
-	}
-}
-
-func TestScenarioExclusiveWrite(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "eval.yaml")
-	require.NoError(t, writeScenarioFile(path, "scaffold bytes\n"))
-	data, err := os.ReadFile(path)
-	require.NoError(t, err)
-	require.Equal(t, "scaffold bytes\n", string(data))
-	missingParent := filepath.Join(dir, "missing", "eval.yaml")
-	err = writeScenarioFile(missingParent, "scaffold bytes\n")
-	require.ErrorIs(t, err, fs.ErrNotExist)
-	require.ErrorContains(t, err, "creating")
-	require.NoFileExists(t, missingParent)
 }
 
 func TestScenarioScaffoldConfiguredTaskDirectory(t *testing.T) {

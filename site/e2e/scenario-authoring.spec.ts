@@ -10,6 +10,8 @@ test('scenario guide exposes exact versions, discovery controls and resource roo
   await expect(main).toContainText('inputs.context.fixture: fixtures/inventory.txt');
   await expect(main).toContainText('bypasses result caching');
   await expect(main).toContainText('not agent quality');
+  await expect(main).toContainText('symlinked roots or generated task/fixture parents are rejected');
+  await expect(main).toContainText('retained directory handles');
 });
 
 test('CLI reference distinguishes scenario outputs from legacy trigger tasks', async ({ page }) => {
@@ -19,4 +21,6 @@ test('CLI reference distinguishes scenario outputs from legacy trigger tasks', a
   await expect(main).toContainText('Wildcard-directory globs that select the default tasks/ path remain supported.');
   await expect(main).toContainText('refuses to overwrite any generated file');
   await expect(main).toContainText('The three trigger tasks above belong to the default skill flow.');
+  await expect(main).toContainText('rejects symlinked parents in the selected output path');
+  await expect(main).toContainText('This parent policy applies to scenario generation, not legacy skill/eval scaffolding.');
 });

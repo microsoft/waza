@@ -121,6 +121,15 @@ The scenario task stays under `tasks/` when selected by `files.taskGlob`
 (including wildcard-directory globs), otherwise in a matching literal
 directory; incompatible globs/suffixes fail before writing. Disabling
 the last eval skill directory does not re-enable ambient discovery.
+Scenario generation rejects symlinked parents in the selected output path;
+replace them with physical directories or choose a physical `--output` path.
+Relative output starts at the retained working directory, and absolute output
+is checked from the filesystem root (with verified literal macOS `/var` and
+`/tmp` system aliases). Directory handles are retained for writes, so replacing
+a parent path cannot redirect creation. Renaming an admitted directory may move
+its outputs; earlier directories/files can remain after a later error. This does
+not add rollback or a filesystem sandbox, and other scaffolding commands are
+unchanged.
 
 ### Step 1: Initialize a Project
 

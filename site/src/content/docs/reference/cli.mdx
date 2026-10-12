@@ -306,6 +306,16 @@ Globs that cannot select that task or a safe literal alternative are rejected
 before writing. A failed later write can leave earlier created files;
 inspect and remove only the generated partial files before retrying. The
 scaffold is not a whole-directory transaction.
+Scenario mode also rejects symlinked parents in the selected output path,
+including its root and nested task/fixture directories. Choose a physical output
+path instead. Relative paths use the retained working directory; absolute paths
+are checked from their filesystem root. The literal macOS `/var` and `/tmp`
+aliases are accepted only when their targets exactly match the expected
+`/private` locations. Admitted directory handles are retained, so replacing a
+parent path cannot redirect subsequent file creation. Moving an admitted
+directory can move its outputs; this is not a filesystem sandbox or whole-suite
+rollback. This parent policy applies to scenario generation, not legacy
+skill/eval scaffolding.
 
 ### Examples
 
