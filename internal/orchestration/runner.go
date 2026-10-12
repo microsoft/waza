@@ -1488,14 +1488,15 @@ func (r *EvalRunner) captureSnapshot(tc *models.TestCase, req *execution.Executi
 	}
 	snap, err := snapshot.Capture(in)
 	if err != nil {
-		run.Evidence = failedSnapshotEvidence(run)
-		slog.Warn("snapshot capture failed", "test", tc.TestID, "run", run.RunNumber, "err", err)
+		origin, originErr := snapshot.CaptureOrigin(in)
+		run.Evidence = failedSnapshotEvidence(origin)
+		slog.Warn("snapshot capture failed", "test", origin.TaskID, "run", run.RunNumber, "err", err, "origin_err", originErr)
 		return
 	}
 	path, err := r.snapshotWriter.Write(snap)
 	recordSnapshotPublication(run, snap, path, err)
 	if err != nil {
-		slog.Warn("snapshot write failed", "test", tc.TestID, "run", run.RunNumber, "err", err)
+		slog.Warn("snapshot write failed", "test", run.Evidence.Origin.TaskID, "run", run.RunNumber, "err", err)
 		return
 	}
 }
@@ -1503,21 +1504,42 @@ func (r *EvalRunner) captureSnapshot(tc *models.TestCase, req *execution.Executi
 func recordSnapshotPublication(run *models.RunResult, snap *snapshot.Snapshot, path string, err error) {
 	run.SnapshotPath = path
 	if err != nil {
-		run.Evidence = failedSnapshotEvidence(run)
+		var origin models.EvidenceOrigin
+		if snap != nil && snap.Evidence != nil && snap.Evidence.Origin.EvalID != "" && snap.Evidence.Origin.TaskID != "" {
+			origin = snap.Evidence.Origin
+		} else {
+			in := snapshot.CaptureInput{Run: run}
+			if snap != nil {
+				in.EvalID = snap.EvalID
+				in.Task = &models.TestCase{TestID: snap.Task.TestID}
+			}
+			var originErr error
+			origin, originErr = snapshot.CaptureOrigin(in)
+			if originErr != nil {
+				slog.Warn("snapshot publication origin unavailable", "run", run.RunNumber, "err", originErr)
+			}
+		}
+		run.Evidence = failedSnapshotEvidence(origin)
 		return
 	}
 	run.Evidence = snap.Evidence
 }
 
-func failedSnapshotEvidence(run *models.RunResult) *models.EvidenceManifest {
+func failedSnapshotEvidence(origin models.EvidenceOrigin) *models.EvidenceManifest {
 	manifest := &models.EvidenceManifest{
-		Origin:      models.EvidenceOrigin{RunNumber: run.RunNumber, AttemptCount: run.Attempts, PriorAttempts: "not_preserved"},
+		Origin:      origin,
 		Runtime:     models.EvidenceRuntime{ExecutionMode: "unknown", DependencyMode: "unknown", RequestedPolicy: "unknown", VerifiedEnforcement: "unknown", NativeSkillControl: "unknown"},
 		Redaction:   models.EvidenceRedaction{Policy: "unavailable", Limitations: []string{"Requested capture failed; content safety is not certified."}},
 		Artifacts:   []models.EvidenceArtifact{{ID: "snapshot", Kind: "snapshot", Availability: "unavailable", Completeness: "unknown", Reason: "Requested snapshot capture or publication failed."}},
 		Diagnostics: []models.EvidenceDiagnostic{{Category: "capture", Code: "capture_failed", Message: "Requested capture failed; inspect the capture diagnostic and correct the inputs or destination."}},
 	}
-	// The envelope contains only fixed strings and numeric lineage.
+	if origin.EvalID == "" || origin.TaskID == "" {
+		manifest.Diagnostics = append(manifest.Diagnostics, models.EvidenceDiagnostic{
+			Category: "capture", Code: "origin_unavailable",
+			Message: "Source eval/task identity could not be safely preserved; numeric lineage alone does not establish attribution.",
+		})
+	}
+	// Identity was policy-validated; all other strings are fixed.
 	if err := evidence.Seal(manifest); err != nil {
 		panic("invalid fixed snapshot failure envelope")
 	}

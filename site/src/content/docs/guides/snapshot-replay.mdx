@@ -47,6 +47,13 @@ consumer. Ordinary snapshots retain legacy names/defaults. Selected-file
 capture uses randomized, non-overwriting filenames, private `0700` output
 directories, and `0600` files.
 
+Immediate capture-to-write keeps this private route whenever any files were
+requested, even if every requested file is missing or rejected. This internal
+request marker is not serialized. Loaded or manually constructed zero-file
+snapshots retain historical metadata-only writer routing; existing nonempty
+file snapshots still use private publication. On unsupported platforms, selected
+publication returns an explicit error instead of falling back to ordinary output.
+
 ## What's recorded
 
 Snapshot schema **`1.1`** carries a separately versioned evidence manifest
@@ -98,6 +105,12 @@ Cached trials retain their **source** eval/task/run/attempt origin and are not
 new executions. A different eval ID is legitimate for cached source evidence;
 task, run, and attempt must still match. Every trial is exposed independently
 in the dashboard, including unassessed trials.
+
+Capture and publication failures retain safely validated source eval/task
+identity without claiming successful content preservation. Missing or rejected
+identity produces an explicit `origin_unavailable` diagnostic; numeric lineage
+alone does not establish attribution. This leaves historical binding behavior
+and original execution result fields unchanged.
 
 For legacy API compatibility, `evidenceRuns` is omitted when all task runs lack
 both evidence and requirement explanations; the dashboard's fallback reports

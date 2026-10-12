@@ -804,6 +804,13 @@ states. Capture adds no path fetching or export/upload. Existing explicitly
 configured result storage still uploads results, including evidence metadata,
 but does not fetch or upload separate snapshot files.
 
+Immediate capture-to-write uses private publication for any nonempty selected-file
+request, including zero preserved files. The internal request marker is not
+serialized; loaded/manual zero-file snapshots keep historical writer routing.
+Failure evidence retains policy-validated eval/task identity when available;
+otherwise it records unavailable attribution with numeric lineage only.
+This does not sanitize or replace original execution result fields.
+
 Before selected content is read, metadata-only exclusion admission permits at
 most 256 entry inspections and depth 32, including descendants and repeated
 inspections. Limit, inspection and resource failures prevent capture; no silent

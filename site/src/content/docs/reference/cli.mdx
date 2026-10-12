@@ -302,6 +302,11 @@ Creates:
 
 The generated eval filename, task glob, and task filename suffix come from `.waza.yaml` `files` settings when configured.
 
+Scenario templates honor configured task discovery, including literal custom
+directories such as `cases/*.task.yaml`. An incompatible glob/suffix, unsafe
+destination, or glob selecting generated non-task artifacts fails scaffolding
+instead of producing an undiscoverable task.
+
 ### Examples
 
 ```bash

@@ -490,6 +490,13 @@ Portable evidence uses independent manifest version **1.0** and snapshot schema 
 
 Selected-file capture is opt-in, bounded, and private (`0700` directories, `0600` randomized non-overwriting files). Ordinary no-file snapshot names/defaults are unchanged. Allow-listing is not authorization: review agent visibility and exclude evaluator-only material. Capture adds no export, upload, or local-path fetch. Existing explicitly configured result storage still uploads results, including evidence metadata, but does not fetch or upload the separate snapshot files. Individual files may be complete while the workspace is only partial/unavailable; external state remains unavailable. Scoped requirement observations describe existing named grader outcomes, not enforcement, causal explanations, new scores, or changed pass/fail defaults. See the [capture/regrading guide](site/src/content/docs/guides/snapshot-replay.mdx) and [dashboard evidence view](site/src/content/docs/guides/dashboard.mdx#portable-evidence).
 
+A fresh capture with any selected-file requests uses private publication even if
+every requested file is unavailable. This request marker is in-memory only:
+loaded or manually constructed zero-file snapshots retain historical writer
+routing. Capture/publication failures retain safely validated source identity;
+missing or rejected identity is explicitly unavailable, and numeric lineage
+alone cannot establish attribution. Original execution result fields are unchanged.
+
 Evaluator-only identity admission uses a metadata-only exclusion inventory capped
 at 256 entry inspections and depth 32. Limits or inspection/resource failures
 prevent selected-content capture, without pruning exclusions or raising process

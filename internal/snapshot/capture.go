@@ -89,7 +89,8 @@ func Capture(in CaptureInput) (*Snapshot, error) {
 			Tags:        policy.RedactStringSlice(in.Task.Tags),
 			RunNumber:   in.Run.RunNumber,
 		},
-		Engine: in.Engine,
+		Engine:                    in.Engine,
+		workspaceCaptureRequested: len(in.WorkspacePaths) > 0,
 	}
 	snap.Engine.JudgeModel = policy.RedactString(snap.Engine.JudgeModel)
 
@@ -291,10 +292,7 @@ func buildEvidence(in CaptureInput, snap *Snapshot) (*models.EvidenceManifest, e
 		policyMode = string(in.Request.ToolPolicy.Mode)
 	}
 	manifest := &models.EvidenceManifest{
-		Origin: models.EvidenceOrigin{
-			EvalID: in.EvalID, TaskID: in.Task.TestID, RunNumber: in.Run.RunNumber,
-			AttemptCount: in.Run.Attempts, PriorAttempts: "not_preserved",
-		},
+		Origin: captureOrigin(in.EvalID, in.Task.TestID, in.Run),
 		Runtime: models.EvidenceRuntime{
 			WazaVersion: snap.WazaVersion, RequestedEngine: snap.Engine.Type,
 			RequestedModel: snap.Engine.ModelID, ExecutionMode: mode, DependencyMode: "unknown",
@@ -320,12 +318,6 @@ func buildEvidence(in CaptureInput, snap *Snapshot) (*models.EvidenceManifest, e
 		case "mock":
 			manifest.Runtime.NativeSkillControl = "mock_not_applicable"
 		}
-	}
-	switch in.Run.Attempts {
-	case 1:
-		manifest.Origin.PriorAttempts = "none"
-	case 0:
-		manifest.Origin.PriorAttempts = "unknown"
 	}
 	completeness, reason := "unknown", "Collector completeness is not certified."
 	if in.Run.Status == models.StatusError {
@@ -494,7 +486,7 @@ func (w *Writer) Write(snap *Snapshot) (string, error) {
 	if snap == nil {
 		return "", fmt.Errorf("snapshot: nil snapshot")
 	}
-	if len(snap.WorkspaceFiles) > 0 {
+	if snap.workspaceCaptureRequested || len(snap.WorkspaceFiles) > 0 {
 		data, err := json.MarshalIndent(snap, "", "  ")
 		if err != nil {
 			return "", fmt.Errorf("snapshot: workspace evidence cannot be encoded")

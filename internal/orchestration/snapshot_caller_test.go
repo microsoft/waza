@@ -61,6 +61,7 @@ func TestSnapshotCallerRetainsResidualPublication(t *testing.T) {
 			t.Cleanup(func() { slog.SetDefault(previous) })
 			cfg, task, request, run := snapshotCallerInputs(t)
 			runner := NewEvalRunner(cfg, nil)
+			runner.evalRunID = "snapshot-eval"
 			writer := &snapshotCallerWriter{Writer: snapshot.NewWriter(t.TempDir())}
 			switch name {
 			case "late-error":
@@ -84,6 +85,7 @@ func TestSnapshotCallerRetainsResidualPublication(t *testing.T) {
 			require.NoError(t, err)
 			var captured snapshot.Snapshot
 			require.NoError(t, json.Unmarshal(data, &captured))
+			require.Equal(t, captured.Evidence.Origin, run.Evidence.Origin)
 			require.Equal(t, task.TestID, captured.Task.TestID)
 			require.Equal(t, run.RunNumber, captured.Task.RunNumber)
 			if writer.problem != nil {
@@ -129,6 +131,72 @@ func TestSnapshotCallerNilWriterOptions(t *testing.T) {
 			require.Equal(t, original, run)
 			_, err := os.Stat(root)
 			require.ErrorIs(t, err, os.ErrNotExist)
+		})
+	}
+}
+
+func TestSnapshotCaptureFailureKeepsOnlySafeLineage(t *testing.T) {
+	for _, cause := range []string{"fixtures", "payload", "task-identity", "eval-identity", "empty-eval", "policy"} {
+		t.Run(cause, func(t *testing.T) {
+			var logs bytes.Buffer
+			previous := slog.Default()
+			slog.SetDefault(slog.New(slog.NewJSONHandler(&logs, nil)))
+			t.Cleanup(func() { slog.SetDefault(previous) })
+			cfg, task, request, run := snapshotCallerInputs(t)
+			runner := NewEvalRunner(cfg, nil)
+			runner.evalRunID = "snapshot-eval"
+			writer := &snapshotCallerWriter{Writer: snapshot.NewWriter(t.TempDir())}
+			runner.snapshotWriter = writer
+			unsafe := false
+			switch cause {
+			case "fixtures":
+				task.ContextRoot = filepath.Join(t.TempDir(), "not-a-directory")
+				require.NoError(t, os.WriteFile(task.ContextRoot, []byte("fixture"), 0o600))
+			case "payload":
+				run.ToolEvents = []models.ToolEvent{{Args: []byte("opaque payload")}}
+			case "task-identity":
+				task.TestID = "rejected@example.com"
+				unsafe = true
+			case "eval-identity":
+				runner.evalRunID = "rejected@example.com"
+				unsafe = true
+			case "empty-eval":
+				runner.evalRunID = ""
+				run.ToolEvents = []models.ToolEvent{{Args: []byte("opaque payload")}}
+				unsafe = true
+			case "policy":
+				runner.redactionPolicy = &snapshot.Policy{Rules: []snapshot.RedactionRule{{Name: "rule", Pattern: "["}}}
+				unsafe = true
+			}
+			original := run
+			runner.captureSnapshot(task, request, nil, &run, "")
+			require.Empty(t, writer.published)
+			require.Empty(t, run.SnapshotPath)
+			require.NotNil(t, run.Evidence)
+			original.Evidence = run.Evidence
+			require.Equal(t, original, run)
+			require.NoError(t, evidence.Validate(run.Evidence))
+			require.Equal(t, "unavailable", run.Evidence.Artifacts[0].Availability)
+			require.Equal(t, "none", run.Evidence.Origin.PriorAttempts)
+			for _, artifact := range run.Evidence.Artifacts {
+				require.Empty(t, artifact.Document)
+				require.Empty(t, artifact.Pointer)
+			}
+			if unsafe {
+				require.Empty(t, run.Evidence.Origin.EvalID)
+				require.Empty(t, run.Evidence.Origin.TaskID)
+				require.Equal(t, "origin_unavailable", run.Evidence.Diagnostics[1].Code)
+			} else {
+				require.Equal(t, runner.evalRunID, run.Evidence.Origin.EvalID)
+				require.Equal(t, task.TestID, run.Evidence.Origin.TaskID)
+				require.Error(t, evidence.Bind(run.Evidence, "other", task.TestID, 1, 1, false))
+				require.Error(t, evidence.Bind(run.Evidence, runner.evalRunID, "other", 1, 1, false))
+			}
+			data, err := json.Marshal(run.Evidence)
+			require.NoError(t, err)
+			require.NotContains(t, string(data), "rejected@example.com")
+			require.NotContains(t, logs.String(), "rejected@example.com")
+			require.Contains(t, logs.String(), `"msg":"snapshot capture failed"`)
 		})
 	}
 }
