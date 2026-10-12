@@ -22,9 +22,12 @@ func TestDocumentedRequirementTaskValidatesSchemaAndRuntime(t *testing.T) {
 	for _, format := range []struct {
 		name     string
 		document string
+		newline  string
 	}{
-		{name: "LF", document: lfDocument},
-		{name: "CRLF", document: strings.ReplaceAll(lfDocument, "\n", "\r\n")},
+		{name: "MarkdownLF/TaskLF", document: lfDocument, newline: "\n"},
+		{name: "MarkdownLF/TaskCRLF", document: lfDocument, newline: "\r\n"},
+		{name: "MarkdownCRLF/TaskLF", document: strings.ReplaceAll(lfDocument, "\n", "\r\n"), newline: "\n"},
+		{name: "MarkdownCRLF/TaskCRLF", document: strings.ReplaceAll(lfDocument, "\n", "\r\n"), newline: "\r\n"},
 	} {
 		t.Run(format.name, func(t *testing.T) {
 			text := strings.ReplaceAll(format.document, "\r\n", "\n")
@@ -34,6 +37,8 @@ func TestDocumentedRequirementTaskValidatesSchemaAndRuntime(t *testing.T) {
 			require.True(t, found)
 			snippet, _, found = strings.Cut(snippet, "\n```")
 			require.True(t, found)
+			snippet = strings.ReplaceAll(snippet, "\n", format.newline)
+			require.Contains(t, snippet, format.newline)
 
 			var schema any
 			require.NoError(t, json.Unmarshal([]byte(schemas.TaskSchemaJSON), &schema))
@@ -48,6 +53,18 @@ func TestDocumentedRequirementTaskValidatesSchemaAndRuntime(t *testing.T) {
 
 			filename := filepath.Join(t.TempDir(), "documented.task.yaml")
 			require.NoError(t, os.WriteFile(filename, []byte(snippet), 0o600))
+			raw, err := os.ReadFile(filename)
+			require.NoError(t, err)
+			require.Equal(t, []byte(snippet), raw)
+			if format.newline == "\r\n" {
+				require.Contains(t, string(raw), "\r\n")
+				withoutCRLF := strings.ReplaceAll(string(raw), "\r\n", "")
+				require.NotContains(t, withoutCRLF, "\n")
+				require.NotContains(t, withoutCRLF, "\r")
+			} else {
+				require.Contains(t, string(raw), "\n")
+				require.NotContains(t, string(raw), "\r")
+			}
 			task, err := models.LoadTestCase(filename)
 			require.NoError(t, err)
 			require.NoError(t, task.Validate())
@@ -61,6 +78,8 @@ func TestDocumentedRequirementTaskValidatesSchemaAndRuntime(t *testing.T) {
 			require.True(t, ok)
 			requirement, ok := requirements[0].(map[string]any)
 			require.True(t, ok)
+			requirement["category"] = 17
+			require.Error(t, compiled.Validate(instance), "the category type must satisfy real schema admission")
 			requirement["category"] = "output"
 			require.Error(t, compiled.Validate(instance), "the previous copied example must fail real schema admission")
 		})
