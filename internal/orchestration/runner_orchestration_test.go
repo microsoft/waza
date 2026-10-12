@@ -348,8 +348,8 @@ func TestLoadResources_PathValidation(t *testing.T) {
 	fixtureDir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(fixtureDir, "ok.txt"), []byte("ok"), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(fixtureDir, "record..json"), []byte("{}"), 0o644))
-	require.NoError(t, os.Mkdir(filepath.Join(fixtureDir, "records.."), 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(fixtureDir, "records..", "record.json"), []byte("{}"), 0o644))
+	require.NoError(t, os.Mkdir(filepath.Join(fixtureDir, "records..archive"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(fixtureDir, "records..archive", "record.json"), []byte("{}"), 0o644))
 
 	spec := &models.EvalSpec{}
 	cfg := config.NewEvalConfig(spec, config.WithFixtureDir(fixtureDir))
@@ -364,7 +364,7 @@ func TestLoadResources_PathValidation(t *testing.T) {
 				{Location: "../escape.txt"},
 				{Location: "missing.txt"},
 				{Location: "record..json"},
-				{Location: "records../record.json"},
+				{Location: "records..archive/record.json"},
 				{Location: "record..json", Body: "{}"},
 			},
 		},

@@ -115,7 +115,7 @@ func TestInspectFileResourceRuntimePathParity(t *testing.T) {
 	}{
 		{"ordinary file", "record.json", "", false},
 		{"double dot filename", "record..json", "", true},
-		{"double dot directory", "records../record.json", "", true},
+		{"double dot directory", "records..archive/record.json", "", true},
 		{"parent segment remains rejected", "unused/../record.json", "", true},
 		{"inline double dot filename", "record..json", "{}", false},
 	} {
