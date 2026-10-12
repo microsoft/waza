@@ -84,7 +84,7 @@ type EvalRunner struct {
 	telemetry *telemetry.Provider
 
 	// Snapshot capture (issue #367). When snapshotWriter is non-nil, every
-	// completed run is serialized to disk as a self-contained snapshot.json
+	// completed run is serialized to disk as recorded snapshot observations
 	// after grading completes; the resulting path is recorded on
 	// RunResult.SnapshotPath. Capture is best-effort: write failures log a
 	// warning but do not fail the run.
@@ -1431,7 +1431,7 @@ func (r *EvalRunner) executeAttempt(ctx context.Context, tc *models.TestCase, ru
 	return returnWithArtifacts(run)
 }
 
-// captureSnapshot writes a self-contained snapshot.json for the given run
+// captureSnapshot writes recorded snapshot observations for the given run
 // when a writer has been configured. Failures are logged but do not fail
 // the run; missing fields default to their zero values so partial captures
 // (e.g. after an early-exit error) remain valid.
@@ -1484,12 +1484,19 @@ func (r *EvalRunner) captureSnapshot(tc *models.TestCase, req *execution.Executi
 		return
 	}
 	path, err := r.snapshotWriter.Write(snap)
+	recordSnapshotPublication(run, snap, path, err)
 	if err != nil {
-		run.Evidence = failedSnapshotEvidence(run)
 		slog.Warn("snapshot write failed", "test", tc.TestID, "run", run.RunNumber, "err", err)
 		return
 	}
+}
+
+func recordSnapshotPublication(run *models.RunResult, snap *snapshot.Snapshot, path string, err error) {
 	run.SnapshotPath = path
+	if err != nil {
+		run.Evidence = failedSnapshotEvidence(run)
+		return
+	}
 	run.Evidence = snap.Evidence
 }
 

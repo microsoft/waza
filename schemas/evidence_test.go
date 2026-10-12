@@ -30,6 +30,9 @@ func TestEvidenceSchemaAcceptsCapturedAndRegradedManifest(t *testing.T) {
 			manifest, err = evidence.Regrade(manifest)
 			require.NoError(t, err)
 		}
+		manifest.Redaction.Limitations = nil
+		require.NoError(t, evidence.Seal(manifest))
+		require.NoError(t, evidence.Validate(manifest), "null limitations remain valid in the existing Go contract")
 		data, err := json.Marshal(manifest)
 		require.NoError(t, err)
 		var instance any

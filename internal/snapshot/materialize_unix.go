@@ -4,6 +4,7 @@ package snapshot
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"errors"
 	"os"
 	"path/filepath"
@@ -14,16 +15,19 @@ import (
 )
 
 type materializeHooks struct {
-	afterAdmission    func(string)
-	beforeFile        func(string, string)
-	beforePublication func(string)
+	afterAdmission        func(string)
+	beforeFile            func(string, string)
+	beforePublication     func(string)
+	afterVerificationRead func(string, string)
 }
 
 type materializedEntry struct {
-	parent *os.File
-	name   string
-	info   os.FileInfo
-	dir    bool
+	parent        *os.File
+	name          string
+	info          os.FileInfo
+	dir           bool
+	contentSHA256 [sha256.Size]byte
+	contentBytes  int64
 }
 
 func materializeVerifiedWorkspace(snap *Snapshot, required []string) (*MaterializedWorkspace, error) {
@@ -151,7 +155,8 @@ func materializeWithHooks(snap *Snapshot, required []string, hooks materializeHo
 		}
 		output := os.NewFile(uintptr(fd), "preserved materialized file")
 		info, statErr := output.Stat()
-		entries = append(entries, materializedEntry{parent: parent, name: name, info: info})
+		entries = append(entries, materializedEntry{parent: parent, name: name, info: info,
+			contentSHA256: sha256.Sum256([]byte(file.Content)), contentBytes: int64(len(file.Content))})
 		if statErr != nil || !info.Mode().IsRegular() || info.Mode().Perm() != 0o600 {
 			problem := errors.New("snapshot: preserved file is not a private regular file")
 			if closeErr := output.Close(); closeErr != nil {
@@ -177,9 +182,28 @@ func materializeWithHooks(snap *Snapshot, required []string, hooks materializeHo
 			return nil, errors.New("snapshot: materialized entry identity changed before publication")
 		}
 		info, statErr := current.Stat()
+		var verifyErr error
+		if statErr == nil && !entry.dir {
+			var content []byte
+			if entry.contentBytes == 0 {
+				if info.Size() != 0 {
+					verifyErr = errors.New("snapshot: materialized content changed before publication")
+				}
+			} else {
+				content, verifyErr = workspaceRead(current, info.Size(), entry.contentBytes)
+			}
+			if hooks.afterVerificationRead != nil {
+				hooks.afterVerificationRead(root, entry.name)
+			}
+			after, err := current.Stat()
+			if err != nil || !sameObservedFile(info, after) || int64(len(content)) != entry.contentBytes ||
+				sha256.Sum256(content) != entry.contentSHA256 {
+				verifyErr = errors.Join(verifyErr, errors.New("snapshot: materialized content changed before publication"))
+			}
+		}
 		closeErr := current.Close()
-		if statErr != nil || closeErr != nil || !os.SameFile(entry.info, info) {
-			return nil, errors.New("snapshot: materialized entry identity changed before publication")
+		if statErr != nil || closeErr != nil || !os.SameFile(entry.info, info) || verifyErr != nil {
+			return nil, errors.Join(errors.New("snapshot: materialized entry identity or content changed before publication"), verifyErr)
 		}
 	}
 	if err := checkPrivateDirectoryIdentity(root, dir); err != nil {

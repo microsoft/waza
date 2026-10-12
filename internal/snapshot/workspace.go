@@ -80,6 +80,9 @@ func CaptureWorkspaceWithAccounting(root string, paths []string, evaluatorOnly [
 			err = errors.Join(err, errors.New("workspace: closing root failed; evidence may be partial"))
 		}
 	}()
+	if err := dir.admitExclusions(evaluatorOnly); err != nil {
+		return nil, summary, err
+	}
 
 	requested := append([]string(nil), paths...)
 	sort.Strings(requested)

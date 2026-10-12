@@ -27,8 +27,13 @@ func writePrivateSnapshotWithHooks(root string, data []byte, hooks privateWriter
 		return "", err
 	}
 	defer func() {
-		if closeErr := dir.Close(); closeErr != nil {
-			publishedPath = ""
+		closeDirectory := dir.Close
+		if hooks.closeDirectory != nil {
+			closeDirectory = func() error { return hooks.closeDirectory(dir) }
+		}
+		if closeErr := closeDirectory(); closeErr != nil {
+			// A successfully verified publication remains locatable even if the
+			// final descriptor close fails after publication cleanup.
 			err = errors.Join(err, errors.New("snapshot: close private evidence directory failed"))
 		}
 	}()

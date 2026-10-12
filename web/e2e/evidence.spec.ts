@@ -68,6 +68,18 @@ test("unknown version values are unavailable rather than inferred", async ({ pag
   await expect(view).toContainText("waza: unavailable · SDK: unavailable · Effective model: unavailable");
 });
 
+for (const limitations of [null, []] as const) {
+  test(`schema-valid ${limitations === null ? "null" : "empty"} redaction limitations remain displayable`, async ({ page }) => {
+    const run = evidenceRun();
+    run.manifest!.redaction.limitations = limitations === null ? null : [];
+    const view = await openEvidence(page, [run]);
+    await expect(view).toContainText("Manifest 1.0");
+    await expect(view).toContainText("No limitations recorded; this is not proof of secret absence.");
+    await expect(view).not.toContainText("Evidence metadata withheld");
+    await expect(view.getByRole("table")).toHaveCount(1);
+  });
+}
+
 test("overall operational errors remain distinct from a passing check", async ({ page }) => {
   const run = evidenceRun();
   run.explanations![0].checks[0] = {
@@ -97,7 +109,7 @@ for (const [native, noSkills] of [
   });
 }
 
-for (const invalid of ["api-invalid", "unknown-version", "unknown-metadata", "wrong-origin", "missing-content", "malformed-runtime", "unknown-encoding", "duplicate-artifact", "absent-complete"] as const) {
+for (const invalid of ["api-invalid", "unknown-version", "unknown-metadata", "wrong-origin", "missing-content", "malformed-runtime", "unknown-encoding", "duplicate-artifact", "absent-complete", "malformed-limitations"] as const) {
   test(`${invalid} metadata is withheld without rendering payload or references`, async ({ page }) => {
     const run = evidenceRun();
     run.manifest!.origin.eval_id = "DO-NOT-DISPLAY-ORIGIN";
@@ -111,6 +123,7 @@ for (const invalid of ["api-invalid", "unknown-version", "unknown-metadata", "wr
     if (invalid === "unknown-encoding") run.manifest!.artifacts[0].content_digest!.encoding = "unrecognized";
     if (invalid === "duplicate-artifact") run.manifest!.artifacts.push(run.manifest!.artifacts[0]);
     if (invalid === "absent-complete") run.manifest!.artifacts[3].completeness = "complete";
+    if (invalid === "malformed-limitations") Object.assign(run.manifest!.redaction, { limitations: "not-an-array" });
     const view = await openEvidence(page, [run]);
     await expect(view).toContainText("Evidence metadata withheld");
     await expect(view).not.toContainText("DO-NOT-DISPLAY");

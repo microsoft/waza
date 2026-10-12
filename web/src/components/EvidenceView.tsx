@@ -65,7 +65,7 @@ export default function EvidenceView({ tasks }: { tasks: TaskResult[] }) {
                   <p className="text-zinc-400">
                     Redaction: {manifest.redaction.policy} · {manifest.redaction.match_count} rule matches.
                     {" "}Rules: {manifest.redaction.applied_rules?.join(", ") || "none recorded"}.
-                    {" "}{manifest.redaction.limitations.join(" ")}
+                    {" "}{manifest.redaction.limitations?.join(" ") || "No limitations recorded; this is not proof of secret absence."}
                   </p>
                   <div className="overflow-x-auto">
                     <table className="w-full text-left">

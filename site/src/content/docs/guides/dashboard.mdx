@@ -63,6 +63,9 @@ and snapshot locators, with availability, completeness, reasons, and changed-fil
 flags. Redaction rule-match counts do not certify confidentiality; normalization
 can change a file without matching a secret. A complete selected file does not
 make the workspace complete, and external state remains unavailable.
+Schema-valid null or empty redaction limitations remain displayable as
+unrecorded limitations, not proof of secret absence. Malformed non-array
+limitations are still withheld.
 
 Scoped requirement checks display existing grader observations and full-origin
 references. Unresolved names/collisions, qualitative checks, uncertified inputs,

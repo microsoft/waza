@@ -12,6 +12,10 @@ func openWorkspaceRoot(string) (*workspaceRoot, error) {
 
 func (*workspaceRoot) Close() error { return nil }
 
+func (*workspaceRoot) admitExclusions([]string) error {
+	return errors.New("workspace: safe exclusion admission is unsupported on this platform")
+}
+
 func (*workspaceRoot) readFile(string, int64) ([]byte, error) {
 	return nil, errors.New("workspace: safe no-symlink capture is unsupported on this platform")
 }

@@ -1,0 +1,34 @@
+package main
+
+import (
+	"io"
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
+
+func TestRunSnapshotExclusionRequiresCapture(t *testing.T) {
+	for _, flag := range []string{"--snapshot-file", "--snapshot-evaluator-only"} {
+		t.Run(flag, func(t *testing.T) {
+			resetRunGlobals()
+			t.Cleanup(resetRunGlobals)
+			command := newRunCommand()
+			command.SetOut(io.Discard)
+			command.SetErr(io.Discard)
+			command.SetArgs([]string{"missing-eval.yaml", flag, "rubric/report.txt"})
+			require.ErrorContains(t, command.Execute(), flag+" requires --snapshot")
+		})
+	}
+	t.Run("capture present", func(t *testing.T) {
+		resetRunGlobals()
+		t.Cleanup(resetRunGlobals)
+		command := newRunCommand()
+		command.SetOut(io.Discard)
+		command.SetErr(io.Discard)
+		command.SetArgs([]string{"missing-eval.yaml", "--snapshot", t.TempDir(),
+			"--snapshot-evaluator-only", "rubric/report.txt"})
+		err := command.Execute()
+		require.Error(t, err)
+		require.NotContains(t, err.Error(), "requires --snapshot")
+	})
+}

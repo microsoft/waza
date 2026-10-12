@@ -137,6 +137,36 @@ waza run eval.yaml --snapshot ./evidence-snapshots \
 - Captured text has its own verified content digest. Source configuration and
   instruction/fixture digests cannot substitute for that text.
 
+### Filesystem admission and observation limits
+
+On supported Linux/macOS hosts, evaluator-only exclusions are admitted before
+any selected file content is read. The metadata-only inventory is limited to
+**256 entry inspections and depth 32**, including excluded directories and their
+descendants. Repeated/overlapping exclusions consume the same aggregate budget.
+It does not read file contents, follow symlinks or traverse special entries.
+An inventory limit, inspection failure or descriptor/resource failure prevents
+selected-content capture; waza reports unavailable/partial evidence rather than
+pruning the inventory or raising process limits. The configured limit does not
+guarantee that the operating system has that many free descriptors.
+
+Descriptor identities reject aliases of admitted excluded files/directories,
+including hard links to inspected descendants. Unrelated hard-linked public
+files remain eligible, and a missing exclusion does not reject neighboring files.
+Capture roots and descendants use no-follow component admission. On macOS only,
+the literal system `/var` and `/tmp` aliases are accepted after checking their
+expected `/private` targets; arbitrary ancestor aliases are rejected.
+
+These checks observe admitted identities, not an immutable directory inventory:
+concurrent same-user renames, changes to excluded membership or later edits are
+not certified. Capture checks identity, size, modification time and change time
+before/after a bounded read, which is not an atomic or authentic snapshot.
+Materialization checks expected bytes and observed metadata immediately before
+publication, not continued integrity after the workspace is returned.
+
+A late close error after verified private publication can leave a residual
+snapshot path. The result retains that path with unavailable capture evidence
+and an explicit failure diagnostic; it is not recorded as successful capture.
+
 ### Environment and redaction
 
 Environment capture is default-deny. `--snapshot-env-allow` is repeatable and

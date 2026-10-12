@@ -198,7 +198,7 @@ config.executor: mock checks only the harness, not agent quality.`,
 	cmd.Flags().StringArrayVar(&snapshotEnvAllow, "snapshot-env-allow", nil, "Environment variables to capture in snapshots (supports trailing-* wildcards). Default-deny.")
 	cmd.Flags().StringVar(&snapshotRedactPath, "redact", "", "Optional path to a custom redaction policy YAML applied during snapshot capture")
 	cmd.Flags().StringArrayVar(&snapshotFiles, "snapshot-file", nil, "Reviewed agent-visible UTF-8 workspace file to preserve (repeatable; requires --snapshot)")
-	cmd.Flags().StringArrayVar(&snapshotEvaluatorOnly, "snapshot-evaluator-only", nil, "Evaluator-only file or directory to exclude from workspace capture (repeatable)")
+	cmd.Flags().StringArrayVar(&snapshotEvaluatorOnly, "snapshot-evaluator-only", nil, "Evaluator-only file or directory to exclude from workspace capture (repeatable; requires --snapshot; metadata inventory capped at 256 inspections/depth 32)")
 	cmd.Flags().Int64Var(&snapshotMaxFileBytes, "snapshot-max-file-bytes", 1<<20, "Maximum input and sanitized bytes per preserved file")
 	cmd.Flags().Int64Var(&snapshotMaxTotalBytes, "snapshot-max-total-bytes", 10<<20, "Maximum aggregate input and sanitized bytes for preserved files")
 
@@ -208,6 +208,9 @@ config.executor: mock checks only the harness, not agent quality.`,
 func runCommandE(cmd *cobra.Command, args []string) error {
 	if len(snapshotFiles) > 0 && snapshotDir == "" {
 		return fmt.Errorf("--snapshot-file requires --snapshot")
+	}
+	if len(snapshotEvaluatorOnly) > 0 && snapshotDir == "" {
+		return fmt.Errorf("--snapshot-evaluator-only requires --snapshot")
 	}
 	if len(snapshotFiles) > 0 && (snapshotMaxFileBytes <= 0 || snapshotMaxTotalBytes <= 0) {
 		return fmt.Errorf("workspace snapshot byte limits must be positive")

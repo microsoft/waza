@@ -1,5 +1,7 @@
 package snapshot
 
+import "os"
+
 func writePrivateSnapshot(root string, data []byte) (string, error) {
 	return writePrivateSnapshotWithHooks(root, data, privateWriterHooks{})
 }
@@ -10,4 +12,5 @@ type privateWriterHooks struct {
 	beforeAdmission   func()
 	beforePublication func()
 	afterPublication  func()
+	closeDirectory    func(*os.File) error
 }

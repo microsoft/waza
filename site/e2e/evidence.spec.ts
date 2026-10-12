@@ -31,3 +31,17 @@ test('configured result storage does not transfer separate snapshot contents', a
   await expect(main).toContainText('does not follow that path or upload separate snapshot files');
   await expect(main).toContainText('snapshot redaction is not a confidentiality guarantee for the entire result');
 });
+
+test('filesystem evidence guide states bounded admission and observational limits', async ({ page }) => {
+  await page.goto('/waza/guides/snapshot-replay/');
+  await expect(page.getByRole('heading', { name: 'Filesystem admission and observation limits', exact: true }))
+    .toBeVisible();
+  const main = page.locator('main');
+  await expect(main).toContainText('256 entry inspections and depth 32');
+  await expect(main).toContainText('before any selected file content is read');
+  await expect(main).toContainText('pruning the inventory or raising process limits');
+  await expect(main).toContainText('Unrelated hard-linked public files remain eligible');
+  await expect(main).toContainText('not an atomic or authentic snapshot');
+  await expect(main).toContainText('not continued integrity after the workspace is returned');
+  await expect(main).toContainText('retains that path with unavailable capture evidence');
+});

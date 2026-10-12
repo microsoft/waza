@@ -804,6 +804,16 @@ states. Capture adds no path fetching or export/upload. Existing explicitly
 configured result storage still uploads results, including evidence metadata,
 but does not fetch or upload separate snapshot files.
 
+Before selected content is read, metadata-only exclusion admission permits at
+most 256 entry inspections and depth 32, including descendants and repeated
+inspections. Limit, inspection and resource failures prevent capture; no silent
+pruning or descriptor-limit increases are attempted. Unrelated hard links and
+missing-exclusion neighbors remain eligible. Root/child admission rejects
+symlinks except the explicitly validated macOS `/var` and `/tmp` system aliases.
+Identity and before/after metadata checks do not freeze concurrent same-user
+directory membership or certify atomic/authentic state. A late close failure
+after verified publication retains a residual path with unavailable evidence.
+
 Evidence-snapshot regrading requires `--task`, exactly one assessed matching run,
 no explicit `--workspace`, original manifest/full-origin verification, and
 complete unredacted file text/digests. Only explicit required file-grader
@@ -814,6 +824,8 @@ original result/validation/grader-configuration/checkpoint links. Older workspac
 grading is unchanged; no extra automatic model calls are introduced.
 Capture byte limits are not reapplied to independently supplied snapshots during
 workspace verification/materialization; review their sizes before selection.
+Expected materialized bytes and observed metadata are checked before workspace
+return; integrity after that point is not certified.
 The [task authoring example](../site/src/content/docs/guides/eval-yaml.mdx#link-intent-to-existing-checks)
 shows how descriptive `requirements` reference existing scoped graders without
 adding assertions or changing pass/fail.

@@ -141,7 +141,7 @@ export interface EvidenceManifest {
     no_skills: boolean | null;
     native_skill_control: "unknown" | "sdk_default" | "requested_sdk_disable" | "mock_not_applicable";
   };
-  redaction: { policy: string; applied_rules?: string[]; match_count: number; limitations: string[] };
+  redaction: { policy: string; applied_rules?: string[]; match_count: number; limitations: string[] | null };
   artifacts: {
     id: string;
     kind: string;
@@ -204,7 +204,7 @@ export function canDisplayEvidence(run: EvidenceRun): boolean {
       !["unknown", "sdk_default", "requested_sdk_disable", "mock_not_applicable"].includes(runtime.native_skill_control)) return false;
   if (!knownKeys(redaction, ["policy", "applied_rules", "match_count", "limitations"]) ||
       typeof redaction.policy !== "string" || !Number.isSafeInteger(redaction.match_count) || redaction.match_count < 0 ||
-      !Array.isArray(redaction.limitations) || !redaction.limitations.every((value) => typeof value === "string") ||
+      !(redaction.limitations === null || (Array.isArray(redaction.limitations) && redaction.limitations.every((value) => typeof value === "string"))) ||
       (redaction.applied_rules !== undefined && (!Array.isArray(redaction.applied_rules) || !redaction.applied_rules.every((value) => typeof value === "string")))) return false;
   const ids = new Set<string>();
   return artifacts.every((artifact) => {

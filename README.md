@@ -395,7 +395,7 @@ Run an evaluation benchmark from a spec file.
 | `--otel-include-payloads` | | Include prompt/tool-arg/tool-result/completion content in spans (default: redacted to `sha256`+length) |
 | `--snapshot <dir>` | | Capture redacted per-trial observations and portable evidence for [`waza replay`](#waza-replay-snapshotjson); not a complete workspace. |
 | `--snapshot-file <path>` | | Repeatable reviewed agent-visible UTF-8 regular-file allow-list; requires `--snapshot`. Linux/macOS only. |
-| `--snapshot-evaluator-only <path>` | | Repeatable evaluator-only file/directory exclusions; never select credentials or evaluator-only files. |
+| `--snapshot-evaluator-only <path>` | | Repeatable evaluator-only file/directory exclusions; metadata inventory capped at 256 inspections/depth 32 before selected content. Never select credentials or evaluator-only files. |
 | `--snapshot-max-file-bytes <n>` | | Positive per-file capture limit (default: 1048576 bytes / 1 MiB). |
 | `--snapshot-max-total-bytes <n>` | | Positive aggregate capture limit (default: 10485760 bytes / 10 MiB). |
 | `--snapshot-env-allow <patterns>` | | Allow-list of env var name patterns embedded in snapshots (default-deny; supports `WAZA_*` wildcards). |
@@ -489,6 +489,15 @@ The manifest fingerprints the captured environment allow-list/configuration (`en
 Portable evidence uses independent manifest version **1.0** and snapshot schema **1.1**, retaining result/task **1.4** and legacy readers. Each task exposes every trial, its full source origin (eval/task/run/attempt/prior attempts), availability/completeness, separate source/content digests, redaction, unavailable versions, requested native skill control (`no_skills`, `native_skill_control`), and operational uncertainty. Native control is requested behavior, not proof of SDK enforcement. Cached metadata retains the original origin, not a new execution. Captured artifacts require content plus a snapshot pointer; source digests do not preserve bytes. Historical absence is unassessed, invalid metadata is withheld, and capture/publication failures produce safe unavailable states rather than leaking rejected metadata.
 
 Selected-file capture is opt-in, bounded, and private (`0700` directories, `0600` randomized non-overwriting files). Ordinary no-file snapshot names/defaults are unchanged. Allow-listing is not authorization: review agent visibility and exclude evaluator-only material. Capture adds no export, upload, or local-path fetch. Existing explicitly configured result storage still uploads results, including evidence metadata, but does not fetch or upload the separate snapshot files. Individual files may be complete while the workspace is only partial/unavailable; external state remains unavailable. Scoped requirement observations describe existing named grader outcomes, not enforcement, causal explanations, new scores, or changed pass/fail defaults. See the [capture/regrading guide](site/src/content/docs/guides/snapshot-replay.mdx) and [dashboard evidence view](site/src/content/docs/guides/dashboard.mdx#portable-evidence).
+
+Evaluator-only identity admission uses a metadata-only exclusion inventory capped
+at 256 entry inspections and depth 32. Limits or inspection/resource failures
+prevent selected-content capture, without pruning exclusions or raising process
+limits. Unrelated hard links remain eligible. No-follow root admission permits
+only explicitly checked macOS `/var` and `/tmp` system aliases. These identity and
+before/after metadata checks are bounded observations, not atomic snapshots or
+guarantees against concurrent same-user namespace changes. Regrading checks
+materialized expected bytes before returning the workspace, not after return.
 
 ```bash
 # Capture during a run
