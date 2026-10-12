@@ -60,6 +60,10 @@ plumbing only, not agent quality. See the
 Scenario evals require a nonempty `scenario` string and **exact**
 `schemaVersion: "2.0"`. Older executables reject that major before executing;
 `1.x`, omitted versions, `2.1` and future majors are not scenario contracts.
+Presence is checked in native YAML/JSON parsing: null, numeric/boolean values,
+objects, arrays and blank strings are invalid. This intentionally stops earlier
+versionless/`1.x` null acceptance and scalar coercion. Remove the field for a
+legacy suite, or provide a nonblank string and exact `2.0` for a scenario.
 Tasks and results retain `1.x`; the dashboard still displays the suite's
 `eval_name` and generic results have an empty `skill`.
 Optional `skill` selects existing skill/custom-agent context with unchanged

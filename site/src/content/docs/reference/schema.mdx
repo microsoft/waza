@@ -111,6 +111,12 @@ Workflow identity without a required skill. A scenario may retain optional
 skill directories means no ambient skill loading. An empty task
 `skill_directories: []` disables discovery; `--no-skills` overrides contexts.
 Legacy suites retain existing behavior. Tasks and results remain `1.x`.
+Native YAML/JSON admission checks field presence, not its truthiness. A present
+`scenario` must be a nonblank string and explicitly use `2.0`; null, numbers,
+booleans, objects and arrays are rejected. This intentionally corrects earlier
+native-reader acceptance of `scenario: null` in versionless/`1.x` suites and
+scalar-to-string coercion. To retain a legacy suite, remove the `scenario` field;
+to select a scenario, supply a nonblank string with `schemaVersion: "2.0"`.
 
 ```yaml
 name: inventory-eval

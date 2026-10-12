@@ -1,27 +1,27 @@
 ---
 title: Snapshot & Replay
-description: Capture self-contained task snapshots during `waza run` and replay them later for deterministic, offline eval reproduction.
+description: Capture recorded task observations and inspect their offline consistency.
 ---
 
-`waza` can capture a **self-contained snapshot** of every task it executes, then replay those snapshots later to detect non-determinism, regressions, or environment drift — all without contacting the agent engine.
+`waza` captures recorded task observations. Offline replay checks internal consistency or compares stored event tapes without contacting the agent engine; it does not reproduce execution, reconstruct a workspace, or verify external state.
 
 This guide covers:
 
 - What a snapshot contains and what it deliberately leaves out
 - Capturing snapshots with `waza run --snapshot`
 - Replaying snapshots with `waza replay` (model-replay, bisect)
-- Redaction and environment defaults that keep snapshots safe to commit
+- Redaction and environment defaults, which do not certify confidentiality
 - Schema and forward-compatibility
 
 ## Why snapshots?
 
-Agentic evals depend on far more than just `prompt → completion`. Tool calls, fixture file contents, environment variables, and grader configurations all shape the outcome. To reproduce a run faithfully — especially when investigating a flaky failure or an outcome that "won't repro on my machine" — you need to bundle all of those inputs together with the resulting tool-event tape.
+Tool calls, fixture contents, environment variables and grader configuration shape an outcome. A recorded event tape and source hashes can support inspection, but do not preserve all inputs needed to reproduce the run.
 
-A waza snapshot is exactly that bundle, serialized as a single JSON file per task run.
+A snapshot is an observation artifact, not proof of complete preserved state.
 
 ## What's in a snapshot
 
-Each `snapshot.json` (schema `1.0`) contains:
+Each newly generated `snapshot.json` uses independent schema `1.1`:
 
 - **Identity** — `waza_version`, `eval_id`, `eval_name`, `skill`, `task` (TestID, DisplayName, Golden flag, RunNumber)
 - **Prompt** — initial user message and follow-ups, plus content-addressed (`sha256`) digests of every instruction file
@@ -31,6 +31,9 @@ Each `snapshot.json` (schema `1.0`) contains:
 - **Env** — the explicit allow-list and the redacted KEY/VALUE pairs that were captured
 - **Redaction** — the policy label, matched rule names, and a count of redactions applied
 - **Result** — final status, redacted `final_output`/`error_msg`, total duration, and the grader-level `validations` map
+- **Evidence** — full source origin, source/content digests, explicit availability and uncertainty, requested engine/model and actual known execution mode.
+
+Source hashes do not include the corresponding source bytes. Evidence metadata does not certify collector completeness, external state, enforcement or secrets absence.
 
 Snapshots **do not** contain:
 
@@ -70,7 +73,7 @@ rules:
     pattern: 'INT-[0-9]{6}'
 ```
 
-The custom rules are **merged** with the built-in defaults (which already cover GitHub tokens, AWS keys, JWTs, emails, etc.). The snapshot's `redaction.policy` field records which set was used (`default`, `custom`, or `default+custom`).
+Custom rules replace built-in defaults unless the policy sets `extend: true`. The snapshot records the selected policy; pattern redaction does not certify secret absence.
 
 ## Replaying snapshots
 
@@ -120,10 +123,10 @@ The diff focuses on the **ordered tool-name/args fingerprint**, ignoring per-cal
 
 ## Schema and forward compatibility
 
-The snapshot wire format starts at its own independent `1.0`, separate from `results.json` (`1.2`) and `eval.yaml` (`1.0`).
+The snapshot wire format is independent `1.1`; historical `1.0` snapshots remain readable. Eval and result formats retain their own independent versions.
 
 - MAJOR mismatch is **rejected** at load (`exit 2`).
-- Additive MINOR fields are forward-compatible: a `1.1` snapshot can be replayed by `1.0`-aware tooling, with the extra fields preserved verbatim under the standard json round-tripping rules.
+- Same-major minor additions remain readable; typed snapshot decoding ignores unknown fields rather than preserving them verbatim.
 
 When you author new graders, mocks, or harnesses that touch snapshots, prefer adding fields under the existing branches rather than introducing parallel top-level keys.
 

@@ -21,7 +21,7 @@ graders:
       must_exist: [report.txt]
       content_patterns:
         - path: report.txt
-          must_match: ["Inventory total: 3"]
+          must_match: ["\\AInventory total: 3(?:\\r?\\n)?\\z"]
   - type: file
     name: private-file-boundary
     config:

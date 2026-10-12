@@ -20,7 +20,7 @@ scenario semantics; `2.1` and future majors are not supported scenario versions.
 |---|---|---|
 | `eval.yaml` | `schemaVersion` | `1.4` |
 | `results.json` | `schemaVersion` | `1.4` |
-| `snapshot.json` | `schemaVersion` | `1.0` |
+| `snapshot.json` | `schemaVersion` | `1.1` |
 | Dashboard/SSE event envelope | `schemaVersion` | `1.0` |
 | `waza.preflight` report | `schemaVersion` | `1.0` (independent artifact) |
 
@@ -52,6 +52,24 @@ waza migrate results.json
 For schema `1.0`, the command is a no-op because there is no prior major version to migrate from.
 
 ## Changelog
+
+### Scenario admission correction (2026-10-12)
+
+- Native eval YAML/JSON parsing now enforces the published `scenario` schema
+  whenever the field is present: a nonblank string and exact `schemaVersion: "2.0"`.
+- This is an intentional compatibility change: previously accepted
+  versionless/`1.x` `scenario: null` and numeric/boolean scalar coercions are
+  rejected. Remove the field for legacy behavior, or provide a nonblank string
+  with exact `2.0`. Truly absent `scenario` retains existing legacy defaults;
+  tasks/results and their same-major behavior are unchanged.
+
+### Snapshot 1.1 (independent artifact)
+
+- Adds portable evidence metadata with full source origin, availability,
+  separate source/content digests, requested engine/model and observed execution
+  mode. Unsupported or uncertified runtime details remain unknown.
+- Snapshot hashes and tool events do not preserve a reconstructible workspace
+  or prove external state. Offline replay checks stored consistency only.
 
 ### 1.4
 

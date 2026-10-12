@@ -17,6 +17,7 @@ import (
 	"github.com/microsoft/waza/internal/copilotconfig"
 	"github.com/microsoft/waza/internal/copilotevents"
 	"github.com/microsoft/waza/internal/dataset"
+	"github.com/microsoft/waza/internal/evidence"
 	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/failures"
 	"github.com/microsoft/waza/internal/graders"
@@ -82,14 +83,17 @@ type EvalRunner struct {
 	telemetry *telemetry.Provider
 
 	// Snapshot capture (issue #367). When snapshotWriter is non-nil, every
-	// completed run is serialized to disk as a self-contained snapshot.json
+	// completed run is serialized to disk as recorded snapshot observations
 	// after grading completes; the resulting path is recorded on
 	// RunResult.SnapshotPath. Capture is best-effort: write failures log a
 	// warning but do not fail the run.
-	snapshotWriter   *snapshot.Writer
-	snapshotEnvAllow []string
-	redactionPolicy  *snapshot.Policy
-	wazaVersion      string
+	snapshotWriter          *snapshot.Writer
+	snapshotEnvAllow        []string
+	redactionPolicy         *snapshot.Policy
+	snapshotWorkspacePaths  []string
+	snapshotEvaluatorOnly   []string
+	snapshotWorkspaceLimits snapshot.WorkspaceLimits
+	wazaVersion             string
 	// evalRunID echoes EvaluationOutcome.RunID so per-run snapshots can be
 	// correlated back to their parent results.json. Set at the start of a
 	// benchmark run; empty for code paths that bypass the orchestrator.
@@ -186,6 +190,14 @@ func WithTelemetry(p *telemetry.Provider) RunnerOption {
 func WithSnapshotWriter(w *snapshot.Writer) RunnerOption {
 	return func(r *EvalRunner) {
 		r.snapshotWriter = w
+	}
+}
+
+func WithWorkspaceEvidence(paths, evaluatorOnly []string, limits snapshot.WorkspaceLimits) RunnerOption {
+	return func(r *EvalRunner) {
+		r.snapshotWorkspacePaths = append([]string(nil), paths...)
+		r.snapshotEvaluatorOnly = append([]string(nil), evaluatorOnly...)
+		r.snapshotWorkspaceLimits = limits
 	}
 }
 
@@ -945,7 +957,7 @@ func (r *EvalRunner) runTestUncached(ctx context.Context, tc *models.TestCase, t
 
 		var run models.RunResult
 		for attempt := 1; attempt <= maxAttempts; attempt++ {
-			run = r.executeRun(ctx, tc, runNum)
+			run = r.executeAttempt(ctx, tc, runNum, attempt)
 			run.Attempts = attempt
 
 			// If all graders passed or this is an infrastructure error, stop retrying
@@ -1021,14 +1033,42 @@ func overallStatus(runs []models.RunResult) models.Status {
 }
 
 func (r *EvalRunner) executeRun(ctx context.Context, tc *models.TestCase, runNum int) models.RunResult {
+	return r.executeAttempt(ctx, tc, runNum, 1)
+}
+
+func (r *EvalRunner) executeAttempt(ctx context.Context, tc *models.TestCase, runNum, attempt int) models.RunResult {
 	startTime := time.Now()
+	var req *execution.ExecutionRequest
+	var resp *execution.ExecutionResponse
+	var err error
+	diagnosticCategory := "setup"
 	returnWithArtifacts := func(run models.RunResult) models.RunResult {
+		run.Attempts = attempt
+		if resp != nil {
+			if run.ToolEvents == nil {
+				run.ToolEvents = buildToolEvents(copilotevents.ToSDK(resp.Events))
+			}
+			if run.CommandInvocations == nil {
+				run.CommandInvocations = resp.CommandInvocations
+			}
+			if run.Transcript == nil {
+				run.Transcript = transcript.BuildFromSessionEvents(copilotevents.ToSDK(resp.Events))
+			}
+			if run.WorkspaceDir == "" {
+				run.WorkspaceDir = resp.WorkspaceDir
+			}
+			if run.FinalOutput == "" {
+				run.FinalOutput = resp.FinalOutput
+			}
+		}
+		r.captureSnapshot(tc, req, resp, &run, diagnosticCategory)
+		run.RequirementExplanations = evidence.ExplainRequirements(r.cfg.Spec(), tc, &run)
 		r.captureFailureArtifacts(&run)
 		return run
 	}
 
 	// Prepare execution request
-	req, err := r.buildExecutionRequest(tc)
+	req, err = r.buildExecutionRequest(tc)
 	if err != nil {
 		return returnWithArtifacts(models.RunResult{
 			RunNumber:  runNum,
@@ -1073,7 +1113,8 @@ func (r *EvalRunner) executeRun(ctx context.Context, tc *models.TestCase, runNum
 		})
 	}
 	execCtx, cancelExec := context.WithTimeout(turnCtx, timeout)
-	resp, err := execution.ExecuteRecorded(execCtx, r.engine, req)
+	diagnosticCategory = "execution"
+	resp, err = execution.ExecuteRecorded(execCtx, r.engine, req)
 	cancelExec()
 	if err != nil {
 		return returnWithArtifacts(models.RunResult{
@@ -1156,6 +1197,7 @@ func (r *EvalRunner) executeRun(ctx context.Context, tc *models.TestCase, runNum
 		gradersResults = make(map[string]models.GraderResults)
 	} else {
 		var err error
+		diagnosticCategory = "grader"
 		gradersResults, err = r.runGraders(ctx, tc, vCtx)
 
 		if err != nil {
@@ -1194,6 +1236,7 @@ func (r *EvalRunner) executeRun(ctx context.Context, tc *models.TestCase, runNum
 	}
 
 	// Determine status
+	diagnosticCategory = "execution"
 	status := models.StatusPassed
 	if resp.ErrorMsg != "" {
 		status = models.StatusError
@@ -1220,6 +1263,7 @@ func (r *EvalRunner) executeRun(ctx context.Context, tc *models.TestCase, runNum
 			switch co.Status {
 			case models.StatusError:
 				status = models.StatusError
+				diagnosticCategory = "grader"
 			case models.StatusFailed:
 				if status != models.StatusError {
 					status = models.StatusFailed
@@ -1254,15 +1298,14 @@ func (r *EvalRunner) executeRun(ctx context.Context, tc *models.TestCase, runNum
 		ToolEvents:         buildToolEvents(sdkEvents),
 		CommandInvocations: commandInvocations,
 	}
-	r.captureSnapshot(tc, req, resp, &run)
 	return returnWithArtifacts(run)
 }
 
-// captureSnapshot writes a self-contained snapshot.json for the given run
+// captureSnapshot writes recorded snapshot observations for the given run
 // when a writer has been configured. Failures are logged but do not fail
 // the run; missing fields default to their zero values so partial captures
 // (e.g. after an early-exit error) remain valid.
-func (r *EvalRunner) captureSnapshot(tc *models.TestCase, req *execution.ExecutionRequest, _ *execution.ExecutionResponse, run *models.RunResult) {
+func (r *EvalRunner) captureSnapshot(tc *models.TestCase, req *execution.ExecutionRequest, _ *execution.ExecutionResponse, run *models.RunResult, diagnosticCategory string) {
 	if r == nil || r.snapshotWriter == nil || run == nil {
 		return
 	}
@@ -1275,29 +1318,64 @@ func (r *EvalRunner) captureSnapshot(tc *models.TestCase, req *execution.Executi
 		skillName = spec.SkillName
 	}
 	in := snapshot.CaptureInput{
-		EvalID:       evalID,
-		EvalName:     evalName,
-		Skill:        skillName,
-		WazaVersion:  r.wazaVersion,
-		Task:         tc,
-		Request:      req,
-		Run:          run,
-		EnvAllowList: r.snapshotEnvAllow,
-		Policy:       r.redactionPolicy,
-		FixturesRoot: r.fixturesRoot(tc),
-		SkipDirs:     r.snapshotSkipDirs(tc),
+		EvalID:             evalID,
+		EvalName:           evalName,
+		Skill:              skillName,
+		WazaVersion:        r.wazaVersion,
+		Task:               tc,
+		Request:            req,
+		Run:                run,
+		EnvAllowList:       r.snapshotEnvAllow,
+		Policy:             r.redactionPolicy,
+		FixturesRoot:       r.fixturesRoot(tc),
+		SkipDirs:           r.snapshotSkipDirs(tc),
+		Spec:               spec,
+		DiagnosticCategory: diagnosticCategory,
+		WorkspacePaths:     r.snapshotWorkspacePaths,
+		EvaluatorOnly:      r.snapshotEvaluatorOnly,
+		WorkspaceLimits:    r.snapshotWorkspaceLimits,
+	}
+	if spec != nil {
+		in.Engine = snapshot.SnapshotEngine{Type: spec.Config.EngineType, ModelID: spec.Config.ModelID,
+			JudgeModel: spec.Config.JudgeModel, TimeoutSec: spec.Config.TimeoutSec}
+	}
+	switch r.engine.(type) {
+	case *execution.MockEngine:
+		in.ExecutionMode = "mock"
+	case *execution.CopilotEngine:
+		in.ExecutionMode = "live"
+	default:
+		in.ExecutionMode = "unknown"
 	}
 	snap, err := snapshot.Capture(in)
 	if err != nil {
+		run.Evidence = failedSnapshotEvidence(run)
 		slog.Warn("snapshot capture failed", "test", tc.TestID, "run", run.RunNumber, "err", err)
 		return
 	}
 	path, err := r.snapshotWriter.Write(snap)
 	if err != nil {
+		run.Evidence = failedSnapshotEvidence(run)
 		slog.Warn("snapshot write failed", "test", tc.TestID, "run", run.RunNumber, "err", err)
 		return
 	}
 	run.SnapshotPath = path
+	run.Evidence = snap.Evidence
+}
+
+func failedSnapshotEvidence(run *models.RunResult) *models.EvidenceManifest {
+	manifest := &models.EvidenceManifest{
+		Origin:      models.EvidenceOrigin{RunNumber: run.RunNumber, AttemptCount: run.Attempts, PriorAttempts: "not_preserved"},
+		Runtime:     models.EvidenceRuntime{ExecutionMode: "unknown", DependencyMode: "unknown", RequestedPolicy: "unknown", VerifiedEnforcement: "unknown", NativeSkillControl: "unknown"},
+		Redaction:   models.EvidenceRedaction{Policy: "unavailable", Limitations: []string{"Requested capture failed; content safety is not certified."}},
+		Artifacts:   []models.EvidenceArtifact{{ID: "snapshot", Kind: "snapshot", Availability: "unavailable", Completeness: "unknown", Reason: "Requested snapshot capture or publication failed."}},
+		Diagnostics: []models.EvidenceDiagnostic{{Category: "capture", Code: "capture_failed", Message: "Requested capture failed; inspect the capture diagnostic and correct the inputs or destination."}},
+	}
+	// The envelope contains only fixed strings and numeric lineage.
+	if err := evidence.Seal(manifest); err != nil {
+		panic("invalid fixed snapshot failure envelope")
+	}
+	return manifest
 }
 
 // fixturesRoot returns the absolute directory that fixture digests should be
