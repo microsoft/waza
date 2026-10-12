@@ -41,6 +41,41 @@ func TestInspectRepositorySourceRetainsRuntimeCwdBase(t *testing.T) {
 	require.True(t, hasDiagnostic(Inspect(path, Options{}), "repository.source", Invalid))
 }
 
+func TestInspectContextDirectoryResolutionAndTaskPrecedence(t *testing.T) {
+	for _, mode := range []string{"default eval fixtures", "CLI relative to cwd", "task overrides CLI"} {
+		t.Run(mode, func(t *testing.T) {
+			task := strings.ReplaceAll(validTask, "  prompt:",
+				"  files: [{path: record.json}]\n  prompt:")
+			if mode == "task overrides CLI" {
+				task += "\ncontext_dir: task-context\n"
+			}
+			path, dir := writeSuite(t, validEval, task)
+			cwd := t.TempDir()
+			t.Chdir(cwd)
+			opts := Options{}
+			expected := filepath.Join(dir, "fixtures")
+			if mode != "default eval fixtures" {
+				opts.ContextDir = "cli-context"
+				expected = filepath.Join(cwd, opts.ContextDir)
+			}
+			if mode == "task overrides CLI" {
+				expected = filepath.Join(cwd, "task-context")
+			}
+			require.NoError(t, os.Mkdir(expected, 0700))
+			fixture := filepath.Join(expected, "record.json")
+			require.NoError(t, os.WriteFile(fixture, []byte("{}"), 0600))
+			r := Inspect(path, opts)
+			require.False(t, r.Failed(true), "%+v", r.Diagnostics)
+			require.Len(t, r.Tasks, 1)
+			require.Equal(t, expected, r.Tasks[0].ContextDir)
+			require.NoError(t, os.Remove(fixture))
+			r = Inspect(path, opts)
+			require.True(t, hasDiagnostic(r, "resource.file", Invalid), "%+v", r.Diagnostics)
+			require.True(t, r.Failed(false))
+		})
+	}
+}
+
 func TestInspectRequiredSkillsUseEvalDeclarationDiscovery(t *testing.T) {
 	for _, tc := range []struct {
 		name, config, definition string

@@ -209,6 +209,37 @@ command_mocks:
 	require.Contains(t, r.Dependencies, Dependency{Kind: "command", Name: "offline-tool", Mode: "mocked", State: Invalid, TaskID: "task"})
 }
 
+func TestInspectLiveMCPConfigurationStates(t *testing.T) {
+	for _, tc := range []struct {
+		name, config string
+		state        State
+	}{
+		{"stdio", "{command: never-run}", Unresolved},
+		{"HTTP", "{type: http, url: 'https://never-contact.invalid'}", Unresolved},
+		{"SSE", "{type: sse, url: 'https://never-contact.invalid'}", Unresolved},
+		{"missing command", "{type: stdio}", Invalid},
+		{"missing URL", "{type: http}", Invalid},
+		{"unknown transport", "{type: custom, url: 'https://never-contact.invalid'}", Unsupported},
+		{"non-object configuration", "[]", Invalid},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			eval := strings.ReplaceAll(validEval, "executor: mock", "executor: copilot-sdk")
+			eval = strings.ReplaceAll(eval, "  model: harness", "  model: harness\n  mcp_servers:\n    live: "+tc.config)
+			path, _ := writeSuite(t, eval, validTask)
+			r := Inspect(path, Options{})
+			require.Contains(t, r.Dependencies, Dependency{Kind: "mcp", Name: "live", Mode: "live", State: tc.state})
+			require.True(t, hasDiagnostic(r, "dependency.live", Unresolved))
+			require.Equal(t, tc.state != Unresolved, hasDiagnostic(r, "dependency.mcp_configuration", tc.state))
+			require.Equal(t, tc.state == Invalid, r.Failed(false), "%+v", r.Diagnostics)
+			require.True(t, r.Failed(true))
+			data, err := json.Marshal(r)
+			require.NoError(t, err)
+			require.NotContains(t, string(data), "never-contact.invalid")
+			require.NotContains(t, string(data), "never-run")
+		})
+	}
+}
+
 func TestOfflineSchemaStates(t *testing.T) {
 	require.NoError(t, compileOfflineSchema(map[string]any{"type": "object"}, "memory://schema.json"))
 	require.Equal(t, Invalid, schemaState(compileOfflineSchema(map[string]any{"type": "invalid"}, "memory://schema.json")))

@@ -7,6 +7,9 @@ test('offline preflight guide separates static references from runtime assurance
   await expect(page.locator('main')).toContainText('uncovered/unresolved');
   await expect(page.locator('main')).toContainText('grader.result_collision');
   await expect(page.locator('main')).toContainText('waza.preflight');
+  await expect(page.locator('main')).toContainText('Exit policy is driven by diagnostics');
+  await expect(page.locator('main')).toContainText('no context/cancellation parameter');
+  await expect(page.locator('main')).toContainText('nonempty description');
 });
 
 test('CLI reference documents opt-in preflight exits', async ({ page }) => {

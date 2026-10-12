@@ -38,6 +38,19 @@ reads. Live services, model access, interpreter syntax, credential/permission
 availability, Git revision materialization, and conditional checkpoint execution
 remain unresolved.
 
+Exit policy is driven by `diagnostics`, not every entry in the capability
+inventory. For example, the `mock` executor lists MCP support as `unsupported`,
+but that alone does not fail `--strict` when the eval does not request MCP.
+A well-formed configured MCP dependency on that executor adds a `runtime.mcp`
+diagnostic; that unsupported-capability diagnostic warns by default and fails
+with `--strict`. Malformed MCP configuration also produces an `invalid`
+diagnostic and fails by default, regardless of strict mode.
+
+Inspection is synchronous. `Inspect` has no context/cancellation parameter, and
+the command does not use a canceled Cobra context to skip local inspection.
+There is no cooperative cancellation or deadline guarantee for local filesystem
+reads; this limitation does not permit model or service calls.
+
 ## Descriptive requirements
 
 Task YAML can attach stable IDs to observable outcomes, forbidden effects,
@@ -72,7 +85,9 @@ requirements:
         grader: no-unrelated-file
 ```
 
-Categories are `outcome`, `boundary`, `recovery`, and `quality`.
+Each requirement needs a nonempty description and a unique, nonempty ID without
+leading or trailing whitespace. Categories are `outcome`, `boundary`, `recovery`,
+and `quality`.
 `checks` select existing **explicit** grader declarations:
 
 | Scope | Selection |
