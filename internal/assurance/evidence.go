@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 
 	"github.com/microsoft/waza/internal/graders"
 	"github.com/microsoft/waza/internal/models"
@@ -68,6 +69,21 @@ func prepareLocalEvidence(parameters models.GraderParameters, input *graders.Con
 		evidence.WorkspaceDir = workspace
 		return &evidence, params, cleanup, Observed, nil
 	case models.DiffGraderParameters:
+		if params.ContextDir == "" && slices.ContainsFunc(params.ExpectedFiles, func(file models.DiffExpectedFileParameters) bool {
+			return file.Snapshot != ""
+		}) {
+			for _, file := range params.ExpectedFiles {
+				if err := validateArtifactPath(file.Path); err != nil {
+					return nil, nil, nil, Invalid, err
+				}
+				if file.Snapshot != "" {
+					if err := validateArtifactPath(file.Snapshot); err != nil {
+						return nil, nil, nil, Invalid, err
+					}
+				}
+			}
+			return nil, nil, nil, NotAssessed, errors.New("snapshot diff reference requires an evaluator-resolved context_dir")
+		}
 		evidence.WorkspaceDir = ""
 		evidence.WorkspaceFiles = map[string][]byte{}
 		references, err := os.MkdirTemp("", "waza-reference-snapshots-")
@@ -92,11 +108,7 @@ func prepareLocalEvidence(parameters models.GraderParameters, input *graders.Con
 			}
 			evidence.WorkspaceFiles[filepath.ToSlash(file.Path)] = append([]byte{}, content...)
 			if file.Snapshot != "" {
-				contextDir := params.ContextDir
-				if contextDir == "" {
-					contextDir = "."
-				}
-				if state, err := captureArtifact(contextDir, references, file.Snapshot, true); err != nil {
+				if state, err := captureArtifact(params.ContextDir, references, file.Snapshot, true); err != nil {
 					return failedPreparation(cleanup, state, err)
 				}
 			}

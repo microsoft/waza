@@ -200,7 +200,13 @@ verdict without proving that events were captured.
 File grading uses a private evaluator-only workspace containing only configured
 artifacts captured through rooted reads. Diff grading uses copied captured bytes
 and private snapshot copies. The grader does not reopen the original source
-after preparation, and snapshot updates are rejected. Required missing state
+after preparation, and snapshot updates are rejected. Snapshot-backed Diff
+observations require a caller-supplied evaluator-resolved `context_dir`; this
+private observation resolver does not know the ordinary eval context fallback.
+An omitted base is `not_assessed` with an actionable error before consulting
+the process working directory or copying references. Ordinary eval Diff
+defaults, explicitly supplied relative bases and snapshot-free checks are
+unchanged. Required missing state
 produces insufficient evidence before grading; unreadable state and malformed
 argument evidence used by structured matchers are operational errors. Invalid
 regex/schema configuration is rejected by shared pure configuration validation,

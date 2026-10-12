@@ -96,6 +96,12 @@ evidence and operational errors never count as correct negative rejection.
 Any wrongly accepted targeted critical bad case fails independently of average
 agreement. These finite cases supply no universal confidence guarantee.
 
+The internal mechanical observation resolver has no eval-context fallback:
+snapshot-backed Diff observations need a caller-supplied evaluator-resolved
+`context_dir`. Omission returns `not_assessed` before consulting unrelated
+working-directory files. Ordinary eval Diff defaults, explicitly supplied
+relative bases and snapshot-free observations are unchanged.
+
 The existing offline `assure --calibrate` remains unavailable: it reports not assessed,
 makes zero paid calls and leaves usage/credits null. See the
 [CLI reference](/reference/cli/#waza-assure) and

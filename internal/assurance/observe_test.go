@@ -192,6 +192,131 @@ func TestObserveMechanicalCapturedDiffAndSnapshots(t *testing.T) {
 	require.Equal(t, "ready", string(snapshot))
 }
 
+func TestObserveMechanicalSnapshotContextBase(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		base       string
+		cwdContent string
+		reference  string
+		snapshot   bool
+		state      ObservationState
+		passed     bool
+	}{
+		{"omitted-matching-cwd", "", "ready", "", true, NotAssessed, false},
+		{"omitted-missing-cwd", "", "", "", true, NotAssessed, false},
+		{"no-snapshot", "", "wrong", "", false, Observed, true},
+		{"resolved-matching", "absolute", "wrong", "ready", true, Observed, true},
+		{"resolved-mismatching", "absolute", "ready", "wrong", true, Observed, false},
+		{"resolved-missing", "absolute", "ready", "", true, InsufficientEvidence, false},
+		{"explicit-relative", "relative", "wrong", "ready", true, Observed, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cwd := t.TempDir()
+			references := filepath.Join(cwd, "references")
+			require.NoError(t, os.Mkdir(references, 0o700))
+			if tc.cwdContent != "" {
+				require.NoError(t, os.WriteFile(filepath.Join(cwd, "expected.txt"), []byte(tc.cwdContent), 0o600))
+			}
+			if tc.reference != "" {
+				require.NoError(t, os.WriteFile(filepath.Join(references, "expected.txt"), []byte(tc.reference), 0o600))
+			}
+			t.Chdir(cwd)
+			file := models.DiffExpectedFileParameters{Path: "state.txt", Contains: []string{"ready"}}
+			if tc.snapshot {
+				file.Snapshot = "expected.txt"
+			}
+			parameters := models.DiffGraderParameters{ExpectedFiles: []models.DiffExpectedFileParameters{file}}
+			switch tc.base {
+			case "absolute":
+				parameters.ContextDir = references
+			case "relative":
+				parameters.ContextDir = "references"
+			}
+			result := ObserveMechanical(t.Context(), referenceInput(parameters,
+				&graders.Context{WorkspaceFiles: map[string][]byte{"state.txt": []byte("ready")}}))
+			if result.Result != nil {
+				t.Logf("observation state=%s native_pass=%t", result.State, result.Result.Passed)
+			}
+			require.Equal(t, tc.state, result.State)
+			if tc.state == Observed {
+				require.NoError(t, result.Err)
+				require.NotNil(t, result.Result)
+				require.Equal(t, tc.passed, result.Result.Passed)
+			} else {
+				require.Error(t, result.Err)
+				require.Nil(t, result.Result)
+				if tc.state == NotAssessed {
+					require.ErrorContains(t, result.Err, "evaluator-resolved context_dir")
+				}
+			}
+			if tc.cwdContent != "" {
+				data, err := os.ReadFile(filepath.Join(cwd, "expected.txt"))
+				require.NoError(t, err)
+				require.Equal(t, tc.cwdContent, string(data))
+			}
+		})
+	}
+}
+
+func TestObserveDeclaredSnapshotRequiresContextBase(t *testing.T) {
+	cwd := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(cwd, "expected.txt"), []byte("ready"), 0o600))
+	t.Chdir(cwd)
+	parameters := models.DiffGraderParameters{ExpectedFiles: []models.DiffExpectedFileParameters{{
+		Path: "state.txt", Snapshot: "expected.txt",
+	}}}
+	task := &models.TestCase{TestID: "task", Validators: []models.ValidatorInline{{
+		Identifier: "check", Kind: models.GraderKindDiff, Parameters: parameters,
+	}}}
+	check := models.RequirementCheck{Scope: "task", Grader: "check"}
+	result := ObserveDeclaredMechanical(t.Context(), task, &models.EvalSpec{}, check,
+		&graders.Context{WorkspaceFiles: map[string][]byte{"state.txt": []byte("ready")}})
+	require.Equal(t, NotAssessed, result.State)
+	require.ErrorContains(t, result.Err, "evaluator-resolved context_dir")
+	require.Nil(t, result.Result)
+	require.Equal(t, check, result.Check)
+	require.Equal(t, "task", result.TaskID)
+}
+
+func TestPreparedDiffMissingContextBasePrecedesStorage(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "unavailable")
+	for _, name := range []string{"TMPDIR", "TMP", "TEMP"} {
+		t.Setenv(name, missing)
+	}
+	parameters := models.DiffGraderParameters{ExpectedFiles: []models.DiffExpectedFileParameters{{
+		Path: "state.txt", Snapshot: "expected.txt",
+	}}}
+	evidence, prepared, cleanup, state, err := prepareLocalEvidence(parameters,
+		&graders.Context{WorkspaceFiles: map[string][]byte{"state.txt": []byte("ready")}})
+	require.Equal(t, NotAssessed, state)
+	require.ErrorContains(t, err, "evaluator-resolved context_dir")
+	require.Nil(t, evidence)
+	require.Nil(t, prepared)
+	require.Nil(t, cleanup)
+	_, err = os.Stat(missing)
+	require.ErrorIs(t, err, os.ErrNotExist)
+}
+
+func TestPreparedDiffMissingContextBasePreservesInvalidPaths(t *testing.T) {
+	for _, files := range [][]models.DiffExpectedFileParameters{
+		{{Path: "../state.txt", Snapshot: "expected.txt"}},
+		{{Path: "state.txt", Snapshot: "../expected.txt"}},
+		{{Path: "state.txt", Snapshot: "."}},
+		{{Path: "../first.txt", Contains: []string{"ready"}}, {Path: "state.txt", Snapshot: "expected.txt"}},
+		{{Path: "state.txt", Snapshot: "expected.txt"}, {Path: "../last.txt", Contains: []string{"ready"}}},
+		{{Path: "state.txt", Snapshot: "expected.txt"}, {Path: "last.txt", Snapshot: "../expected.txt"}},
+	} {
+		evidence, prepared, cleanup, state, err := prepareLocalEvidence(
+			models.DiffGraderParameters{ExpectedFiles: files},
+			&graders.Context{WorkspaceFiles: map[string][]byte{"state.txt": []byte("ready")}})
+		require.Equal(t, Invalid, state)
+		require.ErrorContains(t, err, "must stay within")
+		require.Nil(t, evidence)
+		require.Nil(t, prepared)
+		require.Nil(t, cleanup)
+	}
+}
+
 func TestObserveMechanicalUnavailableDiff(t *testing.T) {
 	parameters := models.DiffGraderParameters{ExpectedFiles: []models.DiffExpectedFileParameters{{Path: "state.txt", Contains: []string{"+ready"}}}}
 	for _, evidence := range []*graders.Context{{}, {WorkspaceDir: t.TempDir()}} {
