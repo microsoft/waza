@@ -1326,6 +1326,21 @@ Choose the mechanism that matches the dependency boundary:
 | Hooks | Setup, teardown, or validation should run around a task/eval; hooks do not intercept commands started by the agent. |
 | Live integration tests | Real CLI/service behavior, authentication, or infrastructure interaction is what the test must verify. Keep these separate from hermetic evals. |
 
+### Private Dependency-Fault Harness
+
+The #662 groundwork provides **private, injected test adapters**, not public
+finite-sequence YAML or automatic recovery. Source validators retain field
+presence, reject invalid finite fragments before eager resource decoding, and
+require explicit scenario eligibility. Existing repeating mocks, defaults and
+task `command_mocks: []` replacement remain unchanged.
+
+Native harness tests cover irreversible allocation, failed/interrupted delivery,
+bounded MCP workers, redaction and receipt custody. Owned MCP cancellation
+requires caller-supplied endpoints whose concurrent close interrupts I/O; these
+tests do not certify platform stdio, arbitrary closers or resumed SDK attempts.
+Captured array ordinals and verified content do not prove external integration.
+See the [private fault harness guide](site/src/content/docs/guides/private-fault-fixtures.mdx).
+
 ### Adversarial Packs
 
 Use top-level `adversarial` with `schemaVersion: "1.2"` to pin built-in fault-injection packs for `waza adversarial --spec`:

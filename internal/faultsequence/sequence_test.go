@@ -51,6 +51,26 @@ func TestReserveCancellationDoesNotConsume(t *testing.T) {
 	}
 }
 
+func TestReserveExpiredDeadlineDoesNotConsume(t *testing.T) {
+	dir := t.TempDir()
+	ctx, cancel := context.WithDeadline(context.Background(), time.Unix(0, 0))
+	defer cancel()
+	index, err := Reserve(ctx, dir, 1)
+	if index != -1 || !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expired reservation = (%d, %v)", index, err)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil || len(entries) != 0 {
+		t.Fatalf("expired reservation changed state: %v, %v", entries, err)
+	}
+	if index, err := Reserve(context.Background(), dir, 1); err != nil || index != 0 {
+		t.Fatalf("first active reservation = (%d, %v)", index, err)
+	}
+	if _, err := Reserve(ctx, dir, 1); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("deadline should take precedence over exhaustion: %v", err)
+	}
+}
+
 func TestReserveRejectsInvalidCountsAndStorageFailures(t *testing.T) {
 	for _, count := range []int{-1, 0} {
 		if _, err := Reserve(context.Background(), t.TempDir(), count); err == nil || errors.Is(err, ErrExhausted) {
@@ -171,14 +191,16 @@ func TestReserveAcrossProcesses(t *testing.T) {
 		command *exec.Cmd
 		gate    io.WriteCloser
 		output  *bytes.Buffer
+		stderr  *bytes.Buffer
 	}
 	var children []child
 	for range 8 {
 		command := exec.CommandContext(ctx, executable, "-test.run=^TestReservationProcess$")
-		command.Env = append(os.Environ(), "WAZA_FAULT_SEQUENCE_TEST_DIR="+dir, "WAZA_FAULT_SEQUENCE_TEST_INTERRUPT=")
-		output := new(bytes.Buffer)
+		// Instrumented siblings must not race to rename the same coverage metadata.
+		command.Env = append(os.Environ(), "WAZA_FAULT_SEQUENCE_TEST_DIR="+dir, "WAZA_FAULT_SEQUENCE_TEST_INTERRUPT=", "GOCOVERDIR="+t.TempDir())
+		output, stderr := new(bytes.Buffer), new(bytes.Buffer)
 		command.Stdout = output
-		command.Stderr = output
+		command.Stderr = stderr
 		gate, err := command.StdinPipe()
 		if err != nil {
 			t.Fatal(err)
@@ -186,7 +208,7 @@ func TestReserveAcrossProcesses(t *testing.T) {
 		if err := command.Start(); err != nil {
 			t.Fatal(err)
 		}
-		children = append(children, child{command, gate, output})
+		children = append(children, child{command, gate, output, stderr})
 		registerReservationProcessCleanup(t, command, gate)
 	}
 	for _, child := range children {
@@ -200,11 +222,16 @@ func TestReserveAcrossProcesses(t *testing.T) {
 	indices := make(chan int, len(children))
 	for _, child := range children {
 		if err := child.command.Wait(); err != nil {
-			t.Fatalf("reservation subprocess: %v: %s", err, child.output)
+			t.Errorf("reservation subprocess: %v: %s", err, child.stderr)
+			continue
+		}
+		if child.stderr.Len() != 0 {
+			t.Errorf("reservation subprocess diagnostics: %s", child.stderr)
 		}
 		index, err := strconv.Atoi(child.output.String())
 		if err != nil {
-			t.Fatalf("subprocess index %q: %v", child.output, err)
+			t.Errorf("subprocess index %q: %v", child.output, err)
+			continue
 		}
 		indices <- index
 	}
@@ -224,7 +251,9 @@ func TestKilledReservationProcessDoesNotRollBackOrResetOtherAttempts(t *testing.
 	defer cancel()
 	dir := t.TempDir()
 	command := exec.CommandContext(ctx, executable, "-test.run=^TestReservationProcess$")
-	command.Env = append(os.Environ(), "WAZA_FAULT_SEQUENCE_TEST_DIR="+dir, "WAZA_FAULT_SEQUENCE_TEST_INTERRUPT=1")
+	command.Env = append(os.Environ(), "WAZA_FAULT_SEQUENCE_TEST_DIR="+dir, "WAZA_FAULT_SEQUENCE_TEST_INTERRUPT=1", "GOCOVERDIR="+t.TempDir())
+	stderr := new(bytes.Buffer)
+	command.Stderr = stderr
 	gate, err := command.StdinPipe()
 	if err != nil {
 		t.Fatal(err)
@@ -260,6 +289,9 @@ func TestKilledReservationProcessDoesNotRollBackOrResetOtherAttempts(t *testing.
 	var exitErr *exec.ExitError
 	if err := command.Wait(); !errors.As(err, &exitErr) {
 		t.Fatalf("killed child must exit unsuccessfully: %v", err)
+	}
+	if stderr.Len() != 0 {
+		t.Errorf("interrupted reservation subprocess diagnostics: %s", stderr)
 	}
 	if err := ctx.Err(); err != nil {
 		t.Fatalf("watchdog expiry cannot stand in for explicit interruption: %v", err)

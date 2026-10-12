@@ -40,7 +40,7 @@ The private `internal/faultsequence` groundwork provides finite cross-process st
 
 The canonical `internal/models` source validators, also used by private `internal/faultfixture` delegates, check JSON/YAML response fragments before normalization erases field presence. Finite sequences require the explicit enclosing scenario version; mixed zero/empty/null fields, nested matchers, duplicate finite JSON keys and invalid delays fail explicitly. YAML step floats are not converted into integer delay/exit fields, and response-level delay configuration cannot silently disappear as an unknown legacy field. This validation groundwork does not register sequence fields in the public eval/runtime; execution and invocation-bound evidence integration remain pending.
 
-Canonical eval/task byte loaders retain an immutable, nonserialized copy of their input, before prompt-file resolution or eager grader decoding. Selected mock response sources detach YAML aliases and merges while preserving scalar tags and duplicate finite fields; payload properties are not treated as configuration. Invalid finite sources fail before matcher/grader resource loading. Standalone task admission proves structure only, not enclosing scenario eligibility, and rejects otherwise-valid finite task declarations until public execution is registered. Preflight reuses its captured eval bytes rather than rereading a mutable eval file.
+Canonical eval/task byte loaders retain an immutable, nonserialized copy of their input, before prompt-file resolution or eager grader decoding. Selected mock response sources detach YAML aliases and merges while preserving scalar tags and duplicate finite fields; payload properties are not treated as configuration. Invalid finite sources fail before matcher/grader resource loading. Standalone task admission proves structure only, not enclosing scenario eligibility, and rejects otherwise-valid finite task declarations until public execution is registered. Preflight reuses its captured eval and task bytes rather than rereading mutable files. YAML source expansion is bounded at 100,000 visited nodes and depth 1,000; budget exhaustion fails explicitly rather than returning partial sources.
 
 Shared MCP matcher validation preserves an explicitly supplied schema resource loader. Its legacy wrapper retains compiler defaults, including local file references; offline callers must select a denying loader rather than assuming compiler defaults prohibit resource access.
 
@@ -51,6 +51,13 @@ Optional, unregistered native serving hooks now place private dispatch around ac
 A separate unregistered MCP owned-serving path performs serial irreversible preparation, once-only delivery and bounded concurrent response work. Actual native cancellation notifications fail closed, close owned interruptible endpoints and join execution without synthetic result payloads. Context is checked under the output lock at write commitment; cancellation cannot retract completed emission. Endpoints must be distinct and explicitly guarantee that concurrent close promptly interrupts I/O; this is not a guarantee for arbitrary closers or validated process/platform stdio. EOF drains accepted calls while cancellation supervision remains active. Native request IDs are not SDK IDs. Public registration, process-signal wiring and resumed attempt lifecycle remain pending.
 
 Source-fragment MCP validation selects `schemaloader.Offline` before processing, refusing unregistered file and HTTP schema references without fetching them. The explicit offline MCP constructor shares existing fixture normalization, while the legacy runtime constructor retains its resource behavior. This schema-loading policy is not a filesystem/network sandbox.
+
+The owned-serving capacity is explicit and positive; duplicate active native IDs
+and capacity overflow reject before reservation. This remains a private injected
+boundary on every platform: public finite serving, process-signal cancellation,
+platform process-pipe guarantees and resumed SDK attempt ownership are not
+registered. The [private fault harness guide](../site/src/content/docs/guides/private-fault-fixtures.mdx)
+documents the executable test coverage and these limits.
 
 ---
 

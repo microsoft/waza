@@ -215,6 +215,13 @@ Unmatched-call diagnostics omit argument values, including nested payloads. A ca
 
 ### command_mocks
 
+Private raw-fragment validators can inspect finite `sequence` and `delay_ms`
+presence before normalization, but these are **not registered public eval/runtime
+fields**. Valid standalone finite task declarations still reject as unregistered.
+Do not infer execution support from a validator or source snapshot. See
+[Private Fault Harness](/waza/guides/private-fault-fixtures/) for the injected testing
+boundary and cancellation limitations.
+
 **Type:** array
 **Required:** no
 **Requires:** `schemaVersion: "1.3"` or newer and `config.executor: copilot-sdk`

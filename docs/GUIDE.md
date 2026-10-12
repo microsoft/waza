@@ -18,6 +18,20 @@ Perfect for skill authors, platform teams, and developers building AI-powered ap
 
 ---
 
+## Private dependency-fault testing
+
+The #662 harness is an internal, injected testing boundary, not a public
+finite-sequence configuration or retry feature. It preserves existing CLI/MCP
+mocks and explicit empty task overrides. Fault source validation happens before
+normalization or eager matcher/grader decoding; a standalone task's valid
+fragment does not establish enclosing scenario eligibility.
+
+Private tests exercise cancellation with owned interruptible endpoints, finite
+allocation, matching, capture failures and isolated state. They do not certify
+platform process pipes, SDK resume, external integration or filesystem/network
+sandboxing. No live-agent execution is required for these tests. See the
+[private fault harness guide](../site/src/content/docs/guides/private-fault-fixtures.mdx).
+
 ## Installation
 
 Choose one of three methods:
