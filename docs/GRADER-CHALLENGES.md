@@ -206,6 +206,11 @@ argument evidence used by structured matchers are operational errors. Invalid
 regex/schema configuration is rejected by shared pure configuration validation,
 not interpreted as a correct rejection of a bad candidate.
 
+Static validation does not populate compiled matcher caches in caller-owned
+tool-argument declarations. Program configuration checks only its required
+command; project timeout defaults are resolved by the runtime constructor, not
+by static validation. These checks do not establish interpreter availability.
+
 Prompt, program, inline-script and trigger execution, and file-backed JSON
 schemas, are explicitly not assessed by this mechanical helper. It does not
 start an agent, subprocess or model, or infer model-backed calibration. Existing

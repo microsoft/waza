@@ -28,8 +28,8 @@ type programGrader struct {
 
 // NewProgramGrader creates a [programGrader] that runs an external command to grade output.
 func NewProgramGrader(name string, args models.ProgramGraderParameters) (*programGrader, error) {
-	if args.Command == "" {
-		return nil, fmt.Errorf("program grader '%s' must have a 'command'", name)
+	if err := validateProgramParameters(name, args); err != nil {
+		return nil, err
 	}
 
 	timeout := args.Timeout
@@ -49,6 +49,13 @@ func NewProgramGrader(name string, args models.ProgramGraderParameters) (*progra
 		args:    args.Args,
 		timeout: time.Duration(timeout) * time.Second,
 	}, nil
+}
+
+func validateProgramParameters(name string, args models.ProgramGraderParameters) error {
+	if args.Command == "" {
+		return fmt.Errorf("program grader '%s' must have a 'command'", name)
+	}
+	return nil
 }
 
 func (pg *programGrader) Name() string            { return pg.name }

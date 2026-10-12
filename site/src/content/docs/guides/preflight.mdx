@@ -100,6 +100,11 @@ its turn. These limitations apply even when references resolve.
 
 ## Local resolution
 
+Static grader validation leaves caller-owned tool-argument declarations
+unchanged and disables external JSON Schema loading. Program declarations are
+checked for their required command without loading project timeout defaults or
+launching a process; runtime constructors still resolve their existing defaults.
+
 Task globs and `tasks_from` CSV paths resolve from the eval directory. Nonempty
 `tasks_from` retains runtime precedence over YAML task lists; CSV range, ID
 fallback, variables and template rules are shared with execution. CSV rows do

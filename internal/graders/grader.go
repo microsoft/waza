@@ -99,6 +99,8 @@ func Create(identifier string, params models.GraderParameters) (Grader, error) {
 // that legacy constructors defer until Grade; Create retains its behavior.
 func ValidateConfig(identifier string, params models.GraderParameters) error {
 	switch p := params.(type) {
+	case models.ProgramGraderParameters:
+		return validateProgramParameters(identifier, p)
 	case models.InlineScriptGraderParameters:
 		if len(p.Assertions) == 0 {
 			return fmt.Errorf("code grader %q has no assertions", identifier)
