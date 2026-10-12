@@ -31,6 +31,7 @@ func TestActualNativeCancellationConsumesPreparedStepWithoutDelivery(t *testing.
 		require.NoError(t, clientRead.Close())
 	}()
 	reserved := make(chan struct{})
+	executing := make(chan struct{})
 	var mu sync.Mutex
 	var transitions []faultfixture.Transition
 	prepare := func(ctx context.Context, request *jsonrpc.Request) (func(context.Context, func(*jsonrpc.Response) error) error, error) {
@@ -49,7 +50,10 @@ func TestActualNativeCancellationConsumesPreparedStepWithoutDelivery(t *testing.
 		if err != nil {
 			return nil, err
 		}
-		return pending.Deliver, nil
+		return func(ctx context.Context, deliver func(*jsonrpc.Response) error) error {
+			close(executing)
+			return pending.Deliver(ctx, deliver)
+		}, nil
 	}
 	done := make(chan error, 1)
 	go func() {
@@ -73,6 +77,11 @@ func TestActualNativeCancellationConsumesPreparedStepWithoutDelivery(t *testing.
 	case <-ctx.Done():
 		t.Fatal("native admission did not allocate before cancellation")
 	}
+	select {
+	case <-executing:
+	case <-ctx.Done():
+		t.Fatal("native execution did not start before cancellation")
+	}
 	start := time.Now()
 	_, err = io.WriteString(clientWrite,
 		"{\"jsonrpc\":\"2.0\",\"method\":\"notifications/cancelled\",\"params\":{\"requestId\":\"first\"}}\n") //nolint:misspell // Exact MCP protocol method.
@@ -80,7 +89,7 @@ func TestActualNativeCancellationConsumesPreparedStepWithoutDelivery(t *testing.
 	select {
 	case err := <-done:
 		require.ErrorIs(t, err, context.Canceled)
-		require.Less(t, time.Since(start), 2*time.Second, "native notification must interrupt a long finite delay")
+		require.Less(t, time.Since(start), 2*time.Second, "native notification must stop prepared delivery promptly")
 	case <-ctx.Done():
 		t.Fatal("owned native cancellation failed to stop and join dispatch")
 	}
