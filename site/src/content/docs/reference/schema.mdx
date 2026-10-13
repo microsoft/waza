@@ -128,6 +128,10 @@ Scenario-bearing evals explicitly opt into exact `2.0`, ensuring older
 executables reject their new discovery semantics. Eval `2.0` requires a
 nonempty `scenario` and rejects unknown eval/config fields; it does not allow
 future minor versions. Legacy eval/task/result defaults remain unchanged.
+Every nested `baseline_outcome` result is checked against the same result-version
+boundary as its parent. Missing or blank nested versions retain the legacy `1.4`
+reader default; declared same-major versions are preserved, while malformed or
+different-major versions are rejected rather than silently reserialized.
 
 ```yaml
 schemaVersion: "1.2"

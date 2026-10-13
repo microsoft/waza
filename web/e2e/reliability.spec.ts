@@ -37,7 +37,7 @@ test.describe("Recorded trial reliability", () => {
     await showDetail(page, recorded);
     const task = page.getByTestId("task-pass-rate").first();
     await expect(task).toContainText("66.7%");
-    await expect(task).toContainText("95% Wilson CI: [20.8%, 93.8%]");
+    await expect(task).toContainText("95% Wilson CI: [20.8%, 93.9%]");
     await expect(task).toContainText("2/3 trials passed");
     const scoreCI = page.getByTestId("ci-range");
     await expect(scoreCI).toHaveCount(1);
@@ -45,7 +45,7 @@ test.describe("Recorded trial reliability", () => {
     await expect(scoreCI).toHaveAttribute("title", /bootstrap weighted-score/);
     const suite = page.getByTestId("suite-success-rate-ci");
     await expect(suite).toContainText("50.0%");
-    await expect(suite).toContainText("95% Wilson CI: [9.4%, 90.5%]");
+    await expect(suite).toContainText("95% Wilson CI: [9.5%, 90.5%]");
     await expect(suite).toContainText("1/2 tasks passed (each task is one sample)");
     const curve = page.getByTestId("pass-hat-k");
     await expect(curve).toContainText("pass^1: 83.3%");
@@ -71,13 +71,13 @@ test.describe("Recorded trial reliability", () => {
     await showDetail(page, {
       ...recorded, passCount: 0,
       statistics: {
-        successRateCI: { lower: 0, upper: 0.6576, mean: 0, confidenceLevel: 0.95 },
+        successRateCI: { lower: 0, upper: 0.6576197724933469, mean: 0, confidenceLevel: 0.95 },
         passHatK: [0, 0, 0],
       },
       tasks: recorded.tasks.map((task) => ({
         ...task, outcome: "failed",
         trials: { passed: 0, total: 3 },
-        passRateCI: { lower: 0, upper: 0.5615, mean: 0, confidenceLevel: 0.95 },
+        passRateCI: { lower: 0, upper: 0.5614970317550455, mean: 0, confidenceLevel: 0.95 },
       })),
     });
     await expect(page.getByTestId("task-pass-rate").first()).toContainText("0.0%");
@@ -104,7 +104,7 @@ test.describe("Recorded trial reliability", () => {
   test("uses recorded confidence levels and renders partial metadata independently", async ({ page }) => {
     await showDetail(page, {
       ...recorded,
-      statistics: { successRateCI: { lower: 0.1209, upper: 0.8791, mean: 0.5, confidenceLevel: 0.9 } },
+      statistics: { successRateCI: { lower: 0.12086631942227366, upper: 0.8791336805777263, mean: 0.5, confidenceLevel: 0.9 } },
       tasks: recorded.tasks.map((task) => ({ ...task, trials: undefined })),
     });
     await expect(page.getByTestId("suite-success-rate-ci")).toContainText("90% Wilson CI");

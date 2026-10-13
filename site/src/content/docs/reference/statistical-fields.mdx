@@ -135,7 +135,15 @@ In the second example, a 0.10 improvement from 0.80 is more impressive (50% of r
 
 ```yaml
 - name: Run evaluations with 10 trials
-  run: waza run eval.yaml --trials 10 -o results.json || true  # the next step decides
+  run: |
+    rm -f results.json
+    status=0
+    waza run eval.yaml --trials 10 -o results.json || status=$?
+    if [ ! -s results.json ]; then
+      echo "Evaluation produced no result artifact (exit $status); refusing to gate stale results." >&2
+      exit 1
+    fi
+    # The next step assesses only this invocation's result artifact.
 
 - name: Gate on the success-rate interval
   run: |
@@ -156,6 +164,12 @@ In the second example, a 0.10 improvement from 0.80 is more impressive (50% of r
             print(f"⚠️  {task['display_name']}: pass-rate CI95 wider than 50 points; add trials")
     EOF
 ```
+
+The run step removes any earlier artifact and fails if this invocation does not
+produce a nonempty result. A failed evaluation may still produce a valid result
+for the interval gate; a command failure without results cannot reuse stale data.
+Recorded one-element `pass_hat_k` curves are valid `pass^1` evidence in the CLI,
+API, and dashboard; they do not imply any unrecorded higher-*k* estimates.
 
 ### Gate Strategies
 

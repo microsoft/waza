@@ -182,8 +182,14 @@ func ParseEvaluationOutcome(data []byte, source string) (*EvaluationOutcome, err
 		return nil, err
 	}
 	outcome.SchemaVersion = version
+	baselineSource := source
 	for baseline := outcome.BaselineOutcome; baseline != nil; baseline = baseline.BaselineOutcome {
-		baseline.SchemaVersion = defaultSchemaVersion(baseline.SchemaVersion)
+		baselineSource += ".baseline_outcome"
+		version, err := ValidateSchemaVersion("results.json", baselineSource, baseline.SchemaVersion)
+		if err != nil {
+			return nil, err
+		}
+		baseline.SchemaVersion = version
 	}
 
 	var strict EvaluationOutcome

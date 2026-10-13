@@ -2,11 +2,31 @@ package models
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
+
+func TestParseEvaluationOutcome_RejectsUnsupportedNestedVersions(t *testing.T) {
+	for _, version := range []string{"2.0", "3.0", "invalid", "1", "1.-1"} {
+		for _, depth := range []int{1, 3} {
+			t.Run(fmt.Sprintf("%s/depth-%d", version, depth), func(t *testing.T) {
+				nested := minimalOutcomeJSON(version)
+				for range depth {
+					nested = strings.Replace(minimalOutcomeJSON("1.5"),
+						`"tasks": []`, `"tasks": [], "baseline_outcome": `+nested, 1)
+				}
+				outcome, err := ParseEvaluationOutcome([]byte(nested), "nested-results.json")
+				require.Error(t, err)
+				require.Nil(t, outcome)
+				require.Contains(t, err.Error(), version)
+				require.Contains(t, err.Error(), "nested-results.json"+strings.Repeat(".baseline_outcome", depth))
+			})
+		}
+	}
+}
 
 func TestParseEvaluationOutcome_NestedHistoricalVersionsRoundTrip(t *testing.T) {
 	for _, tc := range []struct {

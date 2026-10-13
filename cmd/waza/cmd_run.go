@@ -1339,7 +1339,7 @@ func printSummary(outcome *models.EvaluationOutcome) {
 		if ci := s.SuccessRateCI; ci != nil {
 			fmt.Printf("Success CI95:   [%.1f%%, %.1f%%]\n", ci.Lower*100, ci.Upper*100)
 		}
-		if len(s.PassHatK) > 1 {
+		if len(s.PassHatK) > 0 {
 			fmt.Printf("Reliability:    %s\n", formatPassHatK(s.PassHatK))
 		}
 	}

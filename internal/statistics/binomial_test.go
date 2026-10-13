@@ -12,17 +12,18 @@ func TestWilsonCI(t *testing.T) {
 		wantLo, wantHi   float64
 		wantObservedRate float64
 	}{
-		// Reference values from the Wilson score formula at z = 1.959964.
-		{"none of three", 0, 3, 0.0, 0.5615, 0.0},
-		{"all of three", 3, 3, 0.4385, 1.0, 1.0},
-		{"two of three", 2, 3, 0.2077, 0.9385, 2.0 / 3.0},
-		{"half of ten", 5, 10, 0.2366, 0.7634, 0.5},
+		// Full-precision reference values preserve display rounding boundaries.
+		{"none of three", 0, 3, 0.0, 0.5614970317550455, 0.0},
+		{"all of three", 3, 3, 0.43850296824495455, 1.0, 1.0},
+		{"two of three", 2, 3, 0.20765960080204765, 0.9385080552796037, 2.0 / 3.0},
+		{"one of two", 1, 2, 0.09453120573423074, 0.9054687942657693, 0.5},
+		{"half of ten", 5, 10, 0.236593090512564, 0.7634069094874361, 0.5},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ci := WilsonCI(tt.successes, tt.n, 0.95)
-			if math.Abs(ci.Lower-tt.wantLo) > 1e-4 || math.Abs(ci.Upper-tt.wantHi) > 1e-4 {
-				t.Errorf("WilsonCI(%d, %d) = [%.4f, %.4f], want [%.4f, %.4f]",
+			if math.Abs(ci.Lower-tt.wantLo) > 1e-12 || math.Abs(ci.Upper-tt.wantHi) > 1e-12 {
+				t.Errorf("WilsonCI(%d, %d) = [%.17g, %.17g], want [%.17g, %.17g]",
 					tt.successes, tt.n, ci.Lower, ci.Upper, tt.wantLo, tt.wantHi)
 			}
 			if math.Abs(ci.Mean-tt.wantObservedRate) > 1e-9 {

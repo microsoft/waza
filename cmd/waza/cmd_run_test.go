@@ -2713,12 +2713,38 @@ func TestFormatPassHatK(t *testing.T) {
 	assert.Empty(t, formatPassHatK(nil))
 }
 
+func TestPrintSummary_PartialReliabilityCurve(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		curve []float64
+		want  string
+	}{
+		{"absent", nil, ""},
+		{"empty", []float64{}, ""},
+		{"single-recorded-zero", []float64{0}, "Reliability:    pass^1=0%"},
+		{"single-recorded-estimate", []float64{5.0 / 6.0}, "Reliability:    pass^1=83%"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			outcome := &models.EvaluationOutcome{
+				Digest: models.OutcomeDigest{Statistics: &models.StatisticalSummary{PassHatK: tc.curve}},
+			}
+			out := captureStdout(t, func() { printSummary(outcome) })
+			if tc.want == "" {
+				assert.NotContains(t, out, "Reliability:")
+			} else {
+				assert.Contains(t, out, tc.want)
+				assert.NotContains(t, out, "pass^2=")
+			}
+		})
+	}
+}
+
 func TestPrintSummary_ReportsPassRateIntervalsAndReliability(t *testing.T) {
 	outcome := &models.EvaluationOutcome{
 		Digest: models.OutcomeDigest{
 			TotalTests: 2, Succeeded: 1, Failed: 1, SuccessRate: 0.5,
 			Statistics: &models.StatisticalSummary{
-				SuccessRateCI: &statistics.ConfidenceInterval{Lower: 0.0945, Upper: 0.9055, Mean: 0.5, ConfidenceLevel: 0.95},
+				SuccessRateCI: new(statistics.WilsonCI(1, 2, 0.95)),
 				PassHatK:      []float64{0.6667, 0.5, 0.5},
 			},
 		},
@@ -2727,14 +2753,14 @@ func TestPrintSummary_ReportsPassRateIntervalsAndReliability(t *testing.T) {
 			Status:      models.StatusFailed,
 			Stats: &models.TestStats{
 				PassRate:   2.0 / 3.0,
-				PassRateCI: &statistics.ConfidenceInterval{Lower: 0.2077, Upper: 0.9385, Mean: 2.0 / 3.0, ConfidenceLevel: 0.95},
+				PassRateCI: new(statistics.WilsonCI(2, 3, 0.95)),
 			},
 		}},
 	}
 
 	out := captureStdout(t, func() { printSummary(outcome) })
 
-	assert.Contains(t, out, "Success CI95:   [9.4%, 90.5%]")
+	assert.Contains(t, out, "Success CI95:   [9.5%, 90.5%]")
 	assert.Contains(t, out, "Reliability:    pass^1=67%  pass^2=50%  pass^3=50%")
 	assert.Contains(t, out, "pass_rate=66.7% [CI95 21-94%]")
 }
