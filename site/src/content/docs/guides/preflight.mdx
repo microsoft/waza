@@ -178,6 +178,8 @@ Command-mock fixtures resolve from the eval directory. Task `command_mocks`
 replaces eval mocks, including explicit `[]`. Same-name MCP mocks replace live
 server declarations. MCP fixture responses and matchers are parsed without
 starting a mock. External schema references are not fetched.
+Fixture `input_schema` must be a JSON object when supplied; strings, numbers,
+booleans and arrays are invalid. Omitting it retains the default tool schema.
 Live stdio/HTTP/SSE settings also use the runtime's full side-effect-free decoder;
 malformed headers, environment maps or arguments are invalid, not just unresolved
 live availability.
@@ -201,6 +203,10 @@ while online. Cache integrity is not trust or grading success. Local grader
 `schema_file`, rubric, trigger and snapshot paths retain their runtime resolution
 bases; relative schema/rubric paths resolve from cwd, while snapshots use the
 grader's `context_dir` when configured.
+With `update_snapshots: true`, a missing snapshot leaf that resolves within its
+runtime context is **unresolved**, not invalid: preflight neither creates it nor
+verifies write permissions. Missing snapshots without update mode, invalid
+containment, unreadable files, dangling symlinks and non-file paths remain invalid.
 
 ## JSON report and compatibility
 

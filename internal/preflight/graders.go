@@ -2,6 +2,7 @@ package preflight
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -73,6 +74,8 @@ func inspectGraders(r *Report, configs []models.GraderConfig, source, task, fixt
 					path, err := graders.ResolveSnapshotPath(p.ContextDir, expected.Snapshot)
 					if err != nil {
 						r.add("grader.snapshot", Invalid, source, task, "", "Snapshot path cannot be resolved within its runtime context.", "Use a readable snapshot within the configured grader context, including resolved symlinks.")
+					} else if _, statErr := os.Lstat(path); p.UpdateSnapshots && errors.Is(statErr, os.ErrNotExist) {
+						r.add("grader.snapshot_bootstrap", Unresolved, source, task, "", "Snapshot is missing and update mode requests its creation; preflight does not write it or verify creation permissions.", "Review the intended new snapshot and verify write access during explicit execution.")
 					} else {
 						checkFile(r, path, source, task, "grader.snapshot")
 					}

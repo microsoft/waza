@@ -146,7 +146,8 @@ Schema version for the public artifact shape. It uses `MAJOR.MINOR` format with 
 
 Scenario-bearing evals explicitly opt into exact `2.0`, ensuring older
 executables reject their new discovery semantics. Eval `2.0` requires a
-nonempty `scenario`; legacy eval/task/result defaults remain unchanged.
+nonempty `scenario` and rejects unknown eval/config fields; it does not allow
+future minor versions. Legacy eval/task/result defaults remain unchanged.
 
 ```yaml
 schemaVersion: "1.2"

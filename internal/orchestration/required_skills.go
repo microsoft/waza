@@ -16,14 +16,21 @@ func ValidateRequiredSkillConfiguration(spec *models.EvalSpec, baseDir string) e
 }
 
 func validateRequiredSkillConfiguration(spec *models.EvalSpec, baseDir string, discover func([]string) (map[string]string, error)) error {
-	if spec.Config.AllSkillsDisabled() || len(spec.Config.RequiredSkills) == 0 {
+	if len(spec.Config.RequiredSkills) == 0 || (spec.Scenario == "" && spec.Config.AllSkillsDisabled()) {
 		return nil
 	}
 	if baseDir == "" {
 		baseDir = "."
 	}
-	resolvedPaths := utils.ResolvePaths(spec.Config.SkillPaths, baseDir)
+	skillPaths := spec.Config.SkillPaths
+	if spec.Scenario != "" {
+		skillPaths = spec.Config.FilteredSkillPaths()
+	}
+	resolvedPaths := utils.ResolvePaths(skillPaths, baseDir)
 	if len(resolvedPaths) == 0 {
+		if spec.Scenario != "" {
+			return fmt.Errorf("required_skills specified but no skill_directories remain enabled; configure a directory not excluded by disabled_skills")
+		}
 		return fmt.Errorf("required_skills specified but no skill_directories configured")
 	}
 	discoveredSkills, err := discover(resolvedPaths)

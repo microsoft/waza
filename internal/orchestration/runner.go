@@ -667,8 +667,8 @@ func (r *EvalRunner) loadTestCasesFromFiles() ([]*models.TestCase, error) {
 func (r *EvalRunner) validateRequiredSkills() error {
 	spec := r.cfg.Spec()
 
-	// If all skills are disabled, skip validation
-	if spec.Config.AllSkillsDisabled() {
+	// Legacy suites skip validation when all skills are disabled.
+	if spec.Config.AllSkillsDisabled() && spec.Scenario == "" {
 		return nil
 	}
 

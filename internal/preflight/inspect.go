@@ -210,11 +210,21 @@ func inspectMCP(r *Report, spec *models.EvalSpec, base string) {
 			r.add("mock.mcp", state, r.Source, "", "", "MCP mock fixtures or matching configuration could not be verified.", "Check fixture files, tool responses, regexes, and self-contained match_schema references.")
 		} else {
 			for _, tool := range cfg.Tools {
-				if doc, ok := tool.InputSchema.(map[string]any); ok {
-					if err := compileOfflineSchema(doc, filepath.Join(base, "mock-input-schema.json")); err != nil {
-						state = r.schemaFailureState(err)
-						r.add("mock.input_schema", state, r.Source, "", "", "Mock tool input schema could not be verified offline.", "Use valid self-contained JSON schemas.")
+				if tool.InputSchema == nil {
+					continue
+				}
+				doc, ok := tool.InputSchema.(map[string]any)
+				if !ok {
+					state = Invalid
+					r.add("mock.input_schema", Invalid, r.Source, "", "", "Mock tool input schema is not a JSON object.", "Use an object-valued JSON schema or omit input_schema for the default tool schema.")
+					continue
+				}
+				if err := compileOfflineSchema(doc, filepath.Join(base, "mock-input-schema.json")); err != nil {
+					failure := r.schemaFailureState(err)
+					if state != Invalid {
+						state = failure
 					}
+					r.add("mock.input_schema", failure, r.Source, "", "", "Mock tool input schema could not be verified offline.", "Use valid self-contained JSON schemas.")
 				}
 			}
 		}

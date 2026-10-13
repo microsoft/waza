@@ -70,6 +70,17 @@ Optional `skill` selects existing skill/custom-agent context with unchanged
 precedence. Without a target or explicit eval/task skill directories, ambient
 skills are disabled. An explicit empty task `skill_directories: []` disables
 discovery for that task; `--no-skills` wins over every opt-in.
+Disabling the last eval-level directory preserves target-free isolation.
+Whitespace-only optional `skill` values do not opt into workspace-default or
+ambient discovery. Scenario `required_skills` checks search enabled directories
+only; a disabled path, `["*"]` or `none` cannot satisfy a required skill.
+Legacy discovery and validation retain their existing behavior.
+Scenario task files retain `tasks/` when selected by `files.taskGlob`, including
+wildcard-directory globs; otherwise they use a matching literal directory.
+Unsupported or nonmatching glob/suffix combinations fail before writing.
+The glob must select only generated tasks, not evals, fixtures or metadata.
+`fixtures/*.yaml` remains supported; `fixtures/*` is rejected because it also
+selects `.gitkeep` and repository inventory. Narrow the glob before regenerating.
 Scenario scaffolding requires physical parent directories for the selected
 output path; symlinked roots or generated task/fixture parents are rejected.
 Use a physical `--output` path. Relative paths start at the retained working
@@ -81,9 +92,27 @@ provide rollback or prevent an admitted directory from subsequently being moved.
 Scenario `2.0` bypasses result caching with an explicit notice, even with
 `--cache`, until external workflow dependencies can be fully fingerprinted.
 Legacy `1.x` caching and billing attribution are unchanged.
-Task globs resolve relative to the eval directory, fixtures default to its
-`fixtures/` directory, input/instruction paths retain their context-root
-resolution, and file grader outputs are task-workspace-relative.
+Repository scaffolds include `fixtures/.gitattributes` preserving inventory LF
+bytes through Git checkout. If a task glob selects that file, a safe root
+`.gitattributes` is used instead. When neither placement avoids an eval/task
+collision or extra task, generation fails before writing; narrow the
+task-directory glob or choose a different eval filename. For example, use
+`tasks/*.gitattributes` instead of `fixtures/*.gitattributes` when the eval itself
+is named `.gitattributes`. A normal eval filename with `**/*.gitattributes` keeps
+the existing runtime glob semantics and uses the root fallback.
+Older suites must be regenerated to adopt this policy; Git attributes do not
+rewrite existing working copies.
+Task globs and `inputs.context.fixture` resolve relative to the eval directory.
+Fixtures default to its `fixtures/` directory; `inputs.files` and
+`instruction_files` resolve from the fixtures/context root. The repository
+template explicitly declares `inputs.context.fixture: fixtures/inventory.txt`.
+File grader outputs are task-workspace-relative.
+The repository template uses three file graders: report outcome, absence of
+`private.txt`, and byte-exact final preservation of `inventory.txt`. Altering,
+deleting or changing its line endings fails independently of the other checks.
+This checks final bytes, not transient writes or edit history. CLI/MCP templates
+retain two graders. The tracked repository fixture alone disables Git text
+conversion so Windows checkout preserves the expected LF bytes.
 
 For a `SKILL.md` target:
 
@@ -264,8 +293,9 @@ tasks:
 | ------------- | ------ | -------- | ------------------------------------------------------------------------------------------ |
 | `name`        | string | ✓        | Eval suite name                                                                            |
 | `description` | string | ✗        | What the eval tests                                                                        |
-| `skill`       | string | ✓        | Associated skill or custom agent name (`SKILL.md` or `.agent.md`)                       |
-| `schemaVersion` | string | ✗     | Public schema version for this artifact; defaults to `1.0`                              |
+| `skill`       | string | Legacy schema | Associated skill/custom-agent target; optional context for scenario `2.0` |
+| `scenario`    | string | Scenario `2.0` | Nonblank workflow identity; legacy authoring omits this field |
+| `schemaVersion` | string | Scenario `2.0` | Legacy defaults to `1.4`; scenarios explicitly select `2.0` |
 | `version`     | string | ✗        | Version number (e.g., "1.0")                                                               |
 | `inputs`      | object | ✗        | Key-value map of global template variables (see [Template Variables](#template-variables)) |
 | `tasks_from`  | string | ✗        | Relative or absolute CSV dataset path; takes precedence over `tasks` when nonempty         |
@@ -275,9 +305,18 @@ tasks:
 | `adversarial` | object | ✗        | Built-in fault-injection packs consumed by `waza adversarial --spec`; requires `schemaVersion: "1.2"` |
 | `baseline`    | bool   | ✗        | Mark this spec as a baseline for A/B comparison                                            |
 
-`skill` is required.
+Legacy JSON-schema authoring requires `skill` when `scenario` is absent.
+Scenario `2.0` requires a nonblank `scenario` and may omit `skill`.
+The native loader/model validation used by `waza run` is a different surface
+from full JSON-schema validation: legacy default/`1.0`-`1.4` data historically
+loads with an absent or empty target and retains existing discovery behavior.
+Preserving that compatibility does not make targetless legacy data the
+recommended workflow; author a named legacy target or a scenario `2.0` suite.
+The schema's `skill` constraint is length-only: whitespace passes that check
+but is not a meaningful target. JSON-RPC `eval.validate` reports schema errors;
+separate preflight checks are not universal runtime target enforcement.
 
-`schemaVersion` uses `MAJOR.MINOR` format. Omit it for legacy files that should default to `1.0`; add it to new evals so future schema migrations are explicit. See [Schema Changes](/reference/schema-changes/) for the compatibility policy.
+`schemaVersion` uses `MAJOR.MINOR` format. Omit it for legacy files that should default to `1.4`; scenario evals must select `2.0`. See [Schema Changes](/reference/schema-changes/) for the compatibility policy.
 
 ## Targeting Custom Agents
 

@@ -107,19 +107,39 @@ runtime/authentication. `--template cli` uses installed Git; `--template mcp`
 uses a harness-only mocked MCP dependency, not production-service evidence.
 `config.executor: mock` is an offline harness check, never an agent-quality score. See
 [sanitized scenario examples](../examples/scenarios/README.md).
+Legacy JSON-schema authoring requires `skill` when `scenario` is absent.
+Native loading/model validation used by `waza run` historically accepts legacy
+default/`1.0`-`1.4` data with no target and preserves existing discovery.
+This compatibility is not the recommended authoring path: use a named legacy
+target or a scenario `2.0` workflow. Schema `skill` checks length only;
+whitespace passes that check but is not a meaningful target.
+JSON-RPC `eval.validate` reports schema violations. Separate preflight checks do not
+make native loading equivalent to full schema validation or universally
+enforce a target.
 Scenario evals require explicit `schemaVersion: "2.0"` and a nonempty string
 `scenario`. Tasks/results retain `1.x`. Old executables reject eval `2.0`
 before execution. Native YAML/JSON parsing rejects present null/non-string/blank
 scenario identities, intentionally replacing earlier null acceptance and scalar
 coercion. Remove the field for a legacy suite, or use a nonblank string with
-exact `2.0`; truly absent fields retain legacy behavior. Optional `skill` uses
-existing skill/custom-agent precedence;
+exact `2.0`; truly absent fields retain legacy behavior.
+Optional `skill` uses existing skill/custom-agent precedence;
 without it or explicit directories, ambient discovery is disabled. An empty
 task `skill_directories: []` disables discovery; `--no-skills` overrides all
-contexts. Fixtures default to the eval's `fixtures/` directory, instruction
-and input files resolve from their existing context root, and generated outputs
-remain relative to each fresh task workspace.
-
+contexts. Fixtures default to the eval's `fixtures/` directory. `inputs.files`
+and `instruction_files` resolve from the fixtures/context root, while
+`inputs.context.fixture` resolves relative to the eval directory (the repository
+template explicitly sets `fixtures/inventory.txt`). Generated outputs remain
+relative to each fresh task workspace.
+The scenario task stays under `tasks/` when selected by `files.taskGlob`
+(including wildcard-directory globs), otherwise in a matching literal
+directory; incompatible globs/suffixes fail before writing. The glob must select
+only generated tasks, not evals, fixtures or metadata: use `fixtures/*.yaml`
+instead of `fixtures/*`, which also selects `.gitkeep`. Disabling
+the last eval skill directory does not re-enable ambient discovery.
+Whitespace-only optional `skill` values are absent for scenario discovery and
+do not import workspace-default skills. Scenario `required_skills` validation
+searches only enabled directories; disabled paths, `["*"]` or `none` cannot
+satisfy a required skill. Legacy discovery and validation behavior is unchanged.
 Scenario generation rejects symlinked parents in the selected output path;
 replace them with physical directories or choose a physical `--output` path.
 Relative output starts at the retained working directory, and absolute output
@@ -129,6 +149,22 @@ a parent path cannot redirect creation. Renaming an admitted directory may move
 its outputs; earlier directories/files can remain after a later error. This does
 not add rollback or a filesystem sandbox, and other scaffolding commands are
 unchanged.
+
+The repository template uses three file graders: report outcome, absence of
+`private.txt`, and exact final `inventory.txt` bytes. The third grader fails on
+changed, missing or differently terminated source content; it does not track
+transient writes. CLI/MCP templates retain their two existing graders.
+
+Repository generation includes `fixtures/.gitattributes` to keep inventory LF
+bytes through Git checkout, or a safe root `.gitattributes` when a custom task
+glob selects local metadata. If both paths are selected or collide with the eval
+or task, generation fails before writing: narrow the task-directory glob or
+choose a different eval filename. Regenerate older suites to adopt this policy;
+attributes alone do not rewrite an existing working copy.
+`waza migrate evals/inventory/suite.yml` validates a supported scenario YAML
+without changing it. Custom `.yaml`/`.yml` filenames require a present scenario
+header with exact schema `2.0`; legacy YAML keeps its `eval.yaml`/`eval.yml`
+filename convention, and JSON retains results-artifact recognition.
 
 ### Step 1: Initialize a Project
 
@@ -574,6 +610,15 @@ waza check
 
 Launch the web dashboard to view evaluation results.
 
+JSON-RPC `eval.list` and MCP `waza_eval_list` retain canonical
+`eval.yaml`/`eval.yml` discovery and also list native-loadable scenario
+`.yaml`/`.yml` files with configured/custom filenames. Classification and native
+loading determine eligibility, not full authoring-schema or task validation.
+Custom absent or classification/loading-invalid scenario, task and unrelated
+YAML stays unlisted; `eval.get`/`eval.validate` provide diagnostics.
+The existing caller-root traversal and canonical invalid-file fallback remain
+unchanged; this is not a containment guarantee or a dashboard result change.
+
 **Flags:**
 - `--port <n>` — HTTP server port (default: `3000`)
 - `--no-browser` — Don't auto-open the browser
@@ -631,6 +676,10 @@ artifact policies and known-bug boundaries are in
 [COMPATIBILITY.md](COMPATIBILITY.md).
 
 ### Caching and Reproducibility
+
+Scenario eval `2.0` bypasses result caching with an explicit notice, even with
+`--cache`, because external dependencies are not fully fingerprinted. The cache
+behavior below applies to legacy `1.x` suites.
 
 Cache evaluation results to avoid redundant runs:
 

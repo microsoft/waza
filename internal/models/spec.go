@@ -542,8 +542,8 @@ func (s *EvalSpec) Validate() error {
 		if s.SchemaVersion != ScenarioSchemaVersion {
 			return fmt.Errorf("scenario requires explicit schemaVersion %s", ScenarioSchemaVersion)
 		}
-		if strings.TrimSpace(s.SkillName) == "" && len(s.Config.SkillPaths) == 0 && len(s.Config.RequiredSkills) > 0 {
-			return fmt.Errorf("scenario required_skills requires explicit skill_directories")
+		if strings.TrimSpace(s.SkillName) == "" && len(s.Config.FilteredSkillPaths()) == 0 && len(s.Config.RequiredSkills) > 0 {
+			return fmt.Errorf("scenario required_skills requires explicit skill_directories with an enabled path")
 		}
 	}
 	if !ValidReasoningEffort(s.Config.ReasoningEffort) {
@@ -620,7 +620,7 @@ func (s *EvalSpec) Validate() error {
 func (s *EvalSpec) SkillsDisabledForTask(taskPaths []string) bool {
 	return s.Config.AllSkillsDisabled() ||
 		(s.Scenario != "" && taskPaths != nil && len(taskPaths) == 0) ||
-		(s.Scenario != "" && s.SkillName == "" && len(s.Config.SkillPaths) == 0 && len(taskPaths) == 0)
+		(s.Scenario != "" && strings.TrimSpace(s.SkillName) == "" && len(s.Config.FilteredSkillPaths()) == 0 && len(taskPaths) == 0)
 }
 
 func validateGraderReasoningEffort(name string, parameters GraderParameters, executor string) error {
