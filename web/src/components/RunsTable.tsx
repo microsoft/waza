@@ -69,7 +69,7 @@ export default function RunsTable({ data }: { data: RunSummary[] }) {
   const [sorting, setSorting] = useState<SortingState>([]);
 
   const columns = useMemo(
-    () => [
+    () => col.columns([
       col.accessor("outcome", {
         header: "",
         cell: (info) => <OutcomeBadge outcome={info.getValue()} />,
@@ -168,7 +168,7 @@ export default function RunsTable({ data }: { data: RunSummary[] }) {
         ),
         sortFn: "datetime",
       }),
-    ],
+    ]),
     [],
   );
 
