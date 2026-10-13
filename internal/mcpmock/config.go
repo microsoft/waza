@@ -2,6 +2,7 @@ package mcpmock
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -73,15 +74,28 @@ func fromEvalConfig(mock models.MCPMockConfig, baseDir string, loader jsonschema
 	if len(cfg.Tools) == 0 {
 		return nil, fmt.Errorf("mcp mock %q must define at least one tool via tools or fixtures", name)
 	}
+	var errs []error
 	for toolName, tool := range cfg.Tools {
 		if len(tool.Responses) == 0 {
-			return nil, fmt.Errorf("mcp mock %q tool %q must define at least one response", name, toolName)
+			failure := fmt.Errorf("mcp mock %q tool %q must define at least one response", name, toolName)
+			if loader == nil {
+				return nil, failure
+			}
+			errs = append(errs, failure)
+			continue
 		}
 		for i, response := range tool.Responses {
 			if err := validateResponse(response, loader); err != nil {
-				return nil, fmt.Errorf("mcp mock %q tool %q response %d: %w", name, toolName, i, err)
+				failure := fmt.Errorf("mcp mock %q tool %q response %d: %w", name, toolName, i, err)
+				if loader == nil {
+					return nil, failure
+				}
+				errs = append(errs, failure)
 			}
 		}
+	}
+	if err := errors.Join(errs...); err != nil {
+		return nil, err
 	}
 
 	return cfg, nil

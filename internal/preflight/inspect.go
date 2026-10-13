@@ -210,6 +210,7 @@ func inspectMCP(r *Report, spec *models.EvalSpec, base string) {
 		if cfg, err := mcpmock.FromEvalConfigOffline(mock, base); err != nil {
 			state = r.schemaFailureState(err)
 			r.add("mock.mcp", state, r.Source, "", "", "MCP mock fixtures or matching configuration could not be verified.", "Check fixture files, tool responses, regexes, and self-contained match_schema references.")
+			addMixedExternalDiagnostic(r, err, r.Source)
 		} else {
 			for _, tool := range cfg.Tools {
 				if tool.InputSchema == nil {

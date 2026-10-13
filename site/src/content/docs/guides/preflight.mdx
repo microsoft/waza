@@ -195,6 +195,12 @@ the same source bytes before that decoder, including `tool_calls.expect` and
 pinned cached presets, and merged overrides. External schema prerequisites
 stop that materialization with an unresolved diagnostic and `complete: false`;
 ordinary matcher literals and MCP returned payloads are not treated as schemas.
+Invalid static grader fields still fail by default when the same pinned preset
+or merged override also has an unavailable schema. Fixture-backed MCP responses
+likewise retain both invalid regex configuration and unresolved schema
+prerequisites, across responses and declaration order. These mixed cases report
+`invalid` plus an `unresolved` diagnostic and keep `complete: false`; a regex or
+static-field failure never makes an external schema prerequisite verified.
 Later grader schema-file and MCP input-schema compilation also sets
 `complete: false` when external evidence cannot be inspected.
 Existing runtime loaders retain their normal resource-loading behavior.

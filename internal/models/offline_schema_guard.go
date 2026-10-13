@@ -20,12 +20,27 @@ type schemaGuardGrader struct {
 
 // DecodeGraderConfigOffline guards cached/merged grader declarations before
 // their native argument matcher decoder can load external schema resources.
-func DecodeGraderConfigOffline(data []byte) (GraderConfig, error) {
+// Validators inspect retained tool parameters when external schemas block decode.
+func DecodeGraderConfigOffline(data []byte, validators ...func(string, GraderParameters) error) (GraderConfig, error) {
 	var declaration schemaGuardGrader
 	if err := yaml.Unmarshal(data, &declaration); err != nil {
 		return GraderConfig{}, err
 	}
 	if err := guardOfflineGraderSchema(declaration); err != nil {
+		_, external := schemaloader.ClassifyError(err)
+		if external && len(validators) > 0 {
+			var node yaml.Node
+			if decodeErr := yaml.Unmarshal(data, &node); decodeErr != nil {
+				return GraderConfig{}, errors.Join(err, decodeErr)
+			}
+			errs := []error{err}
+			for _, validate := range validators {
+				if validate != nil {
+					errs = append(errs, validateOfflineDeclaredGrader(&node, false, validate))
+				}
+			}
+			return GraderConfig{}, errors.Join(errs...)
+		}
 		return GraderConfig{}, err
 	}
 	var grader GraderConfig
@@ -67,15 +82,7 @@ func guardOfflineModelSchemas(data []byte, task bool, validate func(string, Grad
 		for _, mock := range document.MCPMocks {
 			for _, tool := range mock.Tools {
 				for _, response := range tool.Responses {
-					// Check independent schema and regex operands even when
-					// one cannot be resolved, without changing runtime validation.
-					schemaResponse, regexResponse := response, response
-					schemaResponse.MatchRegex = nil
-					regexResponse.MatchSchema = nil
-					if err := errors.Join(
-						ValidateMCPMockResponseWithLoader(schemaResponse, schemaloader.Offline{}),
-						ValidateMCPMockResponseWithLoader(regexResponse, schemaloader.Offline{}),
-					); err != nil {
+					if err := ValidateMCPMockResponseWithLoader(response, schemaloader.Offline{}); err != nil {
 						errs = append(errs, err)
 					}
 				}
