@@ -16,6 +16,8 @@ import type {
   GraderResult,
   ResponderInfo,
   ModelUsage,
+  ConfidenceInterval,
+  ReliabilitySummary,
 } from "../api/client";
 import {
   formatDuration,
@@ -106,15 +108,64 @@ function ResponderBadge({ responder }: { responder?: ResponderInfo }) {
   );
 }
 
-function CIRange({ lower, upper }: { lower: number; upper: number }) {
+function CIRange({ ci }: { ci: ConfidenceInterval }) {
   return (
     <span
       className="text-xs text-zinc-400"
       data-testid="ci-range"
-      title={`95% CI: ${formatCIRange(lower, upper)}`}
+      title={`${formatPercent(ci.confidenceLevel)} bootstrap weighted-score CI: ${formatCIRange(ci.lower, ci.upper)}`}
     >
-      {formatCIRange(lower, upper)}
+      {formatCIRange(ci.lower, ci.upper)}
     </span>
+  );
+}
+
+function PassRateInterval({ ci }: { ci?: ConfidenceInterval }) {
+  if (!ci) return <span className="text-xs text-zinc-500">Not assessed</span>;
+  return (
+    <div className="text-xs text-zinc-400" data-testid="pass-rate-ci">
+      <div className="text-zinc-300">{(ci.mean * 100).toFixed(1)}%</div>
+      <div title="Wilson interval on binary pass/fail outcomes, not weighted scores">
+        {formatPercent(ci.confidenceLevel)} Wilson CI: {formatCIRange(ci.lower, ci.upper)}
+      </div>
+    </div>
+  );
+}
+
+function ReliabilityCard({ statistics, passed, total }: {
+  statistics?: ReliabilitySummary;
+  passed: number;
+  total: number;
+}) {
+  return (
+    <section className="rounded-lg border border-zinc-700 bg-zinc-800 p-4" data-testid="reliability-summary">
+      <h2 className="font-medium text-zinc-100">Recorded reliability</h2>
+      <div className="mt-3 grid gap-4 sm:grid-cols-2">
+        <div data-testid="suite-success-rate-ci">
+          <h3 className="text-sm text-zinc-300">Suite success-rate interval</h3>
+          <PassRateInterval ci={statistics?.successRateCI} />
+          {statistics?.successRateCI && (
+            <p className="mt-1 text-xs text-zinc-500">{passed}/{total} tasks passed (each task is one sample)</p>
+          )}
+        </div>
+        <div data-testid="pass-hat-k">
+          <h3 className="text-sm text-zinc-300">pass^k (all k trials pass)</h3>
+          {statistics?.passHatK?.length ? (
+            <>
+              <ul className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-zinc-300">
+                {statistics.passHatK.map((value, index) => (
+                  <li key={index}>pass^{index + 1}: {(value * 100).toFixed(1)}%</li>
+                ))}
+              </ul>
+              <p className="mt-1 text-xs text-zinc-500">Stored estimates averaged over tasks, not pass@k or a guarantee.</p>
+            </>
+          ) : <p className="text-xs text-zinc-500">Not assessed</p>}
+        </div>
+      </div>
+      <p className="mt-3 text-xs text-zinc-500">
+        Missing statistics are not reconstructed from scores or outcomes. These are not significance tests between runs.
+      </p>
+    </section>
   );
 }
 
@@ -263,7 +314,13 @@ function TaskRow({ task }: { task: TaskResult }) {
             {ws != null ? formatPercent(ws) : "—"}
           </span>
           {task.bootstrapCI && (
-            <CIRange lower={task.bootstrapCI.lower} upper={task.bootstrapCI.upper} />
+            <CIRange ci={task.bootstrapCI} />
+          )}
+        </td>
+        <td className="px-4 py-3" data-testid="task-pass-rate">
+          <PassRateInterval ci={task.passRateCI} />
+          {task.trials && (
+            <p className="mt-1 text-xs text-zinc-500">{task.trials.passed}/{task.trials.total} trials passed</p>
           )}
         </td>
         <td className="px-4 py-3 text-zinc-300">
@@ -376,6 +433,8 @@ export default function RunDetail({ id }: { id: string }) {
 
       <UsageByModel models={data.modelUsage} />
 
+      <ReliabilityCard statistics={data.statistics} passed={data.passCount} total={data.taskCount} />
+
       <div className="flex gap-1 border-b border-zinc-700">
         <button
           onClick={() => { setActiveTab("tasks"); setTrajectoryTask(null); }}
@@ -425,6 +484,9 @@ export default function RunDetail({ id }: { id: string }) {
               </th>
               <th className="px-4 py-3 text-xs font-medium text-zinc-400 uppercase">
                 W. Score
+              </th>
+              <th className="px-4 py-3 text-xs font-medium text-zinc-400 uppercase">
+                Trial Pass Rate
               </th>
               <th className="px-4 py-3 text-xs font-medium text-zinc-400 uppercase">
                 Duration

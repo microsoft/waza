@@ -17,9 +17,11 @@ func newMigrateCommand() *cobra.Command {
 		Short: "Migrate a waza schema artifact to the current schema version",
 		Long: `Migrate a waza schema artifact to the current schema version.
 
-The current schema version is 1.0, so v1 artifacts are already current and the
-command performs no file changes. Future major schema versions will add explicit
-migration steps here.`,
+Legacy eval/task/result artifacts retain schema 1.x. Scenario evals explicitly
+select schema 2.0; supported files need no migration and are never rewritten.
+Scenario evals also support custom .yaml/.yml filenames. Legacy YAML evals
+retain the eval.yaml/eval.yml filename convention; JSON results use their shape.
+Future migrations will require explicit migration steps here.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runMigrate(cmd.OutOrStdout(), args[0])
@@ -39,6 +41,14 @@ func runMigrate(out io.Writer, path string) error {
 		return err
 	}
 
+	if artifact == "eval.yaml" && version == models.ScenarioSchemaVersion {
+		if _, err := models.LoadEvalSpec(path); err != nil {
+			return err
+		}
+		_, err = fmt.Fprintf(out, "%s is a supported scenario eval with schemaVersion %s; no migration needed.\n", path, version)
+		return err
+	}
+
 	version, err = models.ValidateSchemaVersion(artifact, path, version)
 	if err != nil {
 		return err
@@ -54,27 +64,45 @@ func runMigrate(out io.Writer, path string) error {
 }
 
 func readArtifactSchemaVersion(path string, data []byte) (artifact string, version string, err error) {
-	switch filepath.Base(path) {
-	case "eval.yaml", "eval.yml":
-		artifact = "eval.yaml"
-		var header struct {
+	base := filepath.Base(path)
+	canonicalEval := base == "eval.yaml" || base == "eval.yml"
+	extension := filepath.Ext(path)
+	if canonicalEval || extension == ".yaml" || extension == ".yml" {
+		var legacyHeader struct {
 			SchemaVersion string `yaml:"schemaVersion"`
+		}
+		if canonicalEval {
+			// Preserve the original legacy header parsing diagnostics.
+			if err := yaml.Unmarshal(data, &legacyHeader); err != nil {
+				return "", "", fmt.Errorf("parsing %s: %w", path, err)
+			}
+		}
+		var header struct {
+			Scenario yaml.Node `yaml:"scenario"`
 		}
 		if err := yaml.Unmarshal(data, &header); err != nil {
 			return "", "", fmt.Errorf("parsing %s: %w", path, err)
 		}
-		return artifact, header.SchemaVersion, nil
-	default:
-		if filepath.Ext(path) == ".json" {
-			version, ok, err := models.ProbeEvaluationOutcomeSchemaVersion(data)
+		if header.Scenario.Kind != 0 {
+			version, _, err := models.ClassifyEvalSpec(data, path)
 			if err != nil {
-				return "", "", fmt.Errorf("parsing %s: %w", path, err)
+				return "", "", err
 			}
-			if !ok {
-				return "", "", fmt.Errorf("unsupported JSON schema artifact %s: expected a results.json object with top-level eval_id, eval_name, summary, or tasks", path)
-			}
-			return "results.json", version, nil
+			return "eval.yaml", version, nil
 		}
+		if canonicalEval {
+			return "eval.yaml", legacyHeader.SchemaVersion, nil
+		}
+	}
+	if extension == ".json" {
+		version, ok, err := models.ProbeEvaluationOutcomeSchemaVersion(data)
+		if err != nil {
+			return "", "", fmt.Errorf("parsing %s: %w", path, err)
+		}
+		if !ok {
+			return "", "", fmt.Errorf("unsupported JSON schema artifact %s: expected a results.json object with top-level eval_id, eval_name, summary, or tasks", path)
+		}
+		return "results.json", version, nil
 	}
 	return "", "", fmt.Errorf("unsupported schema artifact %s: expected eval.yaml, eval.yml, or a JSON results artifact", path)
 }

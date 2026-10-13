@@ -38,7 +38,14 @@ type RunSummary struct {
 // RunDetail is the API response for a single run with per-task results.
 type RunDetail struct {
 	RunSummary
-	Tasks []TaskResult `json:"tasks"`
+	Tasks      []TaskResult                `json:"tasks"`
+	Statistics *ReliabilitySummaryResponse `json:"statistics,omitempty"`
+}
+
+// ReliabilitySummaryResponse carries recorded estimates, never reconstructed ones.
+type ReliabilitySummaryResponse struct {
+	SuccessRateCI *ConfidenceIntervalResponse `json:"successRateCI,omitempty"`
+	PassHatK      []float64                   `json:"passHatK,omitempty"`
 }
 
 // ModelUsageResponse is the per-model usage breakdown for a run. AICredits is
@@ -65,9 +72,16 @@ type TaskResult struct {
 	SessionDigest *SessionDigestResponse      `json:"sessionDigest,omitempty"`
 	Responder     *ResponderInfoResponse      `json:"responder,omitempty"`
 	BootstrapCI   *ConfidenceIntervalResponse `json:"bootstrapCI,omitempty"`
+	PassRateCI    *ConfidenceIntervalResponse `json:"passRateCI,omitempty"`
+	Trials        *TrialCountsResponse        `json:"trials,omitempty"`
 }
 
-// ConfidenceIntervalResponse is the API representation of a bootstrap CI.
+type TrialCountsResponse struct {
+	Passed int `json:"passed"`
+	Total  int `json:"total"`
+}
+
+// ConfidenceIntervalResponse represents either a score or a binomial interval.
 type ConfidenceIntervalResponse struct {
 	Lower           float64 `json:"lower"`
 	Upper           float64 `json:"upper"`

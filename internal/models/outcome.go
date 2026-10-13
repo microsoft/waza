@@ -119,7 +119,7 @@ type EvaluationSessionUsage struct {
 func (o EvaluationOutcome) MarshalJSON() ([]byte, error) {
 	type alias EvaluationOutcome
 	if o.SchemaVersion == "" {
-		o.SchemaVersion = CurrentSchemaVersion
+		o.SchemaVersion = CurrentResultSchemaVersion
 	}
 	return json.Marshal(alias(o))
 }
@@ -492,7 +492,7 @@ type TestStats struct {
 
 // StatisticalSummary holds aggregate statistical data for the digest when trials > 1.
 type StatisticalSummary struct {
-	BootstrapCI statistics.ConfidenceInterval `json:"bootstrap_ci"`
+	BootstrapCI *statistics.ConfidenceInterval `json:"bootstrap_ci,omitempty"`
 	// Wilson 95% interval on SuccessRate, counting each task as one sample.
 	SuccessRateCI *statistics.ConfidenceInterval `json:"success_rate_ci,omitempty"`
 	// PassHatK[k-1] is the τ-bench pass^k: the chance that k fresh trials of a

@@ -11,6 +11,14 @@ Get from zero to running your first evaluation benchmark in 5 minutes.
 Waza evaluates both `SKILL.md`-based skills and `.agent.md` custom agents. This guide uses a skill — see [Evaluating Custom Agents](/waza/guides/custom-agents/) if you're targeting a `.agent.md` agent instead.
 </Aside>
 
+For a workflow without a skill, use `waza new eval inventory --scenario` and
+`waza run evals/inventory/eval.yaml` after installation/authentication.
+This selects a real agent and sanitized repository fixtures, not a mock-engine
+quality check. Scenario evals require exact schema `2.0`; tasks/results stay
+`1.x`. See [Writing Eval Specs](/waza/guides/eval-yaml/) for CLI/MCP templates,
+optional context and harness-only limitations. The skill walkthrough below
+remains unchanged.
+
 ## Prerequisites
 
 - **GitHub Copilot access** for the default provider, or custom Copilot SDK provider environment variables.

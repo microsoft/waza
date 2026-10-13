@@ -12,7 +12,9 @@ When you run evaluations with multiple trials (`trials_per_task > 1`), waza quan
 ## When Statistical Fields Appear
 
 - Per-task fields (`tasks[].stats.pass_rate_ci`, `tasks[].stats.bootstrap_ci`) appear when a task ran more than one trial.
-- Suite fields (`summary.statistics`) appear when `trials_per_task > 1` and at least two tasks ran.
+- The suite success-rate interval (`summary.statistics.success_rate_ci`) appears when `trials_per_task > 1` and at least one task outcome exists. Its denominator includes every task outcome, including failures before trial execution; missing trial statistics do not remove known task outcomes from this interval.
+- The suite bootstrap weighted-score interval requires at least two tasks with recorded scores from executed trials. It is omitted when those scores are unavailable.
+- The pass^k curve requires recorded trial counts for every task. Missing trial statistics omit the curve rather than inventing estimates.
 
 Single-trial runs skip statistical analysis.
 
@@ -34,6 +36,8 @@ Single-trial runs skip statistical analysis.
 Interpretation: 4 of 5 trials passed, but the task's true pass rate could plausibly be anywhere from about 38% to 96%. A wide interval means you need more trials before trusting the pass rate.
 
 `summary.statistics.success_rate_ci` is the same interval for the suite's `success_rate`, counting each task as one sample.
+
+The dashboard's **Trial Pass Rate** column shows each recorded task estimate and Wilson interval with available passed/total trial counts. **Recorded reliability** shows the suite interval and the stored pass^k curve, independently of the bootstrap weighted-score interval. The API maps these to `tasks[].passRateCI`, `tasks[].trials`, `statistics.successRateCI`, and `statistics.passHatK` on run detail. Confidence levels and estimates come from the artifact; readers do not recompute them. Historical absence is omitted from the API and shown as **Not assessed**, never zero or inferred success.
 
 `waza run` prints both:
 

@@ -1,0 +1,16 @@
+id: compatibility-repository
+name: Repository artifact preservation
+golden: true
+inputs:
+  prompt: Write report.txt with state=ready and preserve source.txt.
+graders:
+  - name: report
+    type: file
+    config:
+      must_exist: [report.txt, source.txt]
+      must_not_exist: [deleted.txt]
+      content_patterns:
+        - path: report.txt
+          must_match: ["(?m)^state=ready$"]
+        - path: source.txt
+          must_match: ["^original\n$"]

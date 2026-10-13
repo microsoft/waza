@@ -36,6 +36,8 @@ Clicking a run opens its detail page. The Tasks tab shows every task in the eval
 - **Outcome badges** — green `pass` and red `fail` badges make it easy to spot problems
 - **Score vs. W. Score** — the raw grader score and the weighted aggregate score are shown side by side
 - **Statistical confidence** — tasks run with multiple trials show a 95% confidence interval range under the weighted score
+- **Trial Pass Rate** — the recorded pass-rate estimate, Wilson interval, and passed/total trial counts appear separately from the weighted-score interval
+- **Recorded reliability** — the suite success-rate interval and pass^k curve show stored evidence; absent historical fields are **Not assessed**, not reconstructed estimates
 - **Export CSV** — export task-level results for the current run
 
 ## Run Detail — Usage by model
@@ -173,4 +175,7 @@ Tasks run with more than one trial show a 95% bootstrap confidence interval unde
 
 - **Narrow range** (e.g., [82.0%, 98.0%]) — the average score is well determined by the trials run
 - **Wide range** — the average score is still uncertain; add trials before trusting it
-- **Pass/fail reliability** — for the pass-rate interval and the pass^k reliability curve, see [Statistical Fields](../../reference/statistical-fields/)
+- **Pass/fail reliability** — the **Trial Pass Rate** column shows stored Wilson intervals and trial counts. **Recorded reliability** shows the suite success-rate interval (one sample per task) and pass^k estimates (all k trials pass, averaged over tasks), not pass@k or a guarantee. Missing fields show **Not assessed** even if scores or task outcomes are available. See [Statistical Fields](../../reference/statistical-fields/) for definitions.
+- **No significance claim** — score and pass-rate intervals describe this run; they do not test a difference between runs.
+
+<ZoomImage src="../../images/explore/recorded-reliability.png" alt="Recorded suite Wilson interval and pass^k curve, alongside separate task pass-rate and weighted-score intervals" />

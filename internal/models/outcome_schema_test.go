@@ -84,7 +84,7 @@ func TestEvaluationOutcomeMarshalDefaultsSchemaVersion(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Marshal() error = %v", err)
 	}
-	if !strings.Contains(string(data), `"schemaVersion":"`+CurrentSchemaVersion+`"`) {
+	if !strings.Contains(string(data), `"schemaVersion":"`+CurrentResultSchemaVersion+`"`) {
 		t.Fatalf("marshaled outcome missing default schemaVersion: %s", data)
 	}
 }
@@ -205,7 +205,7 @@ func TestParseEvaluationOutcome_LegacyStatisticsRoundTripWithoutInventedFields(t
 }
 
 func TestParseEvaluationOutcome_CurrentStatisticsRoundTrip(t *testing.T) {
-	current := withSummaryStatistics(CurrentSchemaVersion, `{"bootstrap_ci": {"lower": 0.2, "upper": 0.9, "mean": 0.6, "confidence_level": 0.95, "num_bootstraps": 10000}, "success_rate_ci": {"lower": 0.0945, "upper": 0.9055, "mean": 0.5, "confidence_level": 0.95}, "pass_hat_k": [0.6667, 0.5]}`)
+	current := withSummaryStatistics(CurrentResultSchemaVersion, `{"bootstrap_ci": {"lower": 0.2, "upper": 0.9, "mean": 0.6, "confidence_level": 0.95, "num_bootstraps": 10000}, "success_rate_ci": {"lower": 0.0945, "upper": 0.9055, "mean": 0.5, "confidence_level": 0.95}, "pass_hat_k": [0.6667, 0.5]}`)
 	outcome, err := ParseEvaluationOutcome([]byte(current), "results.json")
 	if err != nil {
 		t.Fatalf("ParseEvaluationOutcome() error = %v", err)
@@ -218,7 +218,7 @@ func TestParseEvaluationOutcome_CurrentStatisticsRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Marshal() error = %v", err)
 	}
-	for _, want := range []string{`"schemaVersion":"` + CurrentSchemaVersion + `"`, `"success_rate_ci":{`, `"pass_hat_k":[0.6667,0.5]`} {
+	for _, want := range []string{`"schemaVersion":"` + CurrentResultSchemaVersion + `"`, `"success_rate_ci":{`, `"pass_hat_k":[0.6667,0.5]`} {
 		if !strings.Contains(string(data), want) {
 			t.Errorf("round-tripped artifact missing %s: %s", want, data)
 		}

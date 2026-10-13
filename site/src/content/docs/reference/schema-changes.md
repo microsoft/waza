@@ -5,12 +5,24 @@ description: Versioning policy and changelog for waza public schema artifacts.
 
 Waza public artifacts use an explicit `schemaVersion` field so checked-in eval suites, baselines, and dashboard data remain stable across CLI upgrades.
 
+Scenario-bearing evals opt into **exact `2.0`** with a nonempty string
+`scenario`. This is eval-only: tasks/results and their readers stay `1.x`.
+Older executables reject eval major `2` before execution rather than ignoring
+the new no-ambient-discovery semantics. Optional `skill` retains existing
+skill/custom-agent precedence; no target or explicit skill directories
+disables ambient skills. Empty task `skill_directories: []` disables discovery;
+`--no-skills` overrides every context. Missing or `1.x` versions cannot select
+scenario semantics; `2.1` and future majors are not supported scenario versions.
+
 ## Versioned artifacts
 
 | Artifact | Field | Current version |
 |---|---|---|
-| `eval.yaml` | `schemaVersion` | `1.5` |
-| `results.json` | `schemaVersion` | `1.5` |
+| Legacy `eval.yaml` | `schemaVersion` | `1.4` |
+| Scenario `eval.yaml` | `schemaVersion` | Exact `2.0`, explicit opt-in |
+| Newly generated `results.json` | `schemaVersion` | `1.5` |
+| Historical `results.json` | `schemaVersion` | Declared `1.x`; missing version defaults to `1.4` |
+| Task YAML | No independent version field | Existing legacy format, unchanged |
 | `snapshot.json` | `schemaVersion` | `1.0` |
 | Dashboard/SSE event envelope | `schemaVersion` | `1.0` |
 
@@ -18,10 +30,10 @@ Waza public artifacts use an explicit `schemaVersion` field so checked-in eval s
 
 Schema versions use `MAJOR.MINOR` format with no patch component.
 
-- **MINOR** changes are backward-compatible additions, usually optional fields. Readers accept same-major artifacts and warn when they see unknown fields.
-- **MAJOR** changes are breaking. Readers refuse artifacts from a different major version and point to `waza migrate <file>`.
-- Missing `schemaVersion` is interpreted as the current schema version (currently `1.5` for eval/result artifacts). Same-major minor differences are accepted and any unknown fields are warned about; cross-major mismatches are rejected.
-- New eval/result artifacts should emit the current `schemaVersion` (currently `1.5`). The version is automatically populated by the writer; you only need to set it manually when authoring fixtures or schema-pinned test data.
+- **Legacy MINOR** changes are backward-compatible additions, usually optional fields. Legacy readers accept same-major artifacts and warn when they see unknown fields. Scenario evals are an exception: only exact `2.0` is supported.
+- **MAJOR** changes are breaking. Legacy readers refuse artifacts from a different major version and point to `waza migrate <file>`; scenario-aware readers additionally accept explicitly selected scenario eval `2.0`.
+- Missing `schemaVersion` in legacy eval/result inputs continues to default to `1.4`. Declared same-major versions remain accepted and unchanged on read/re-save; unknown fields are warned about. Scenario-bearing evals must explicitly select `2.0` and cannot omit the version. Task YAML has no independent version field.
+- New evaluations and regrades write results `1.5`, independently of their eval input version. This does not upgrade legacy eval defaults or task formats. Scenario scaffolds explicitly emit eval `2.0`; scenario readers reject unknown eval/config fields instead of granting forward-minor compatibility. Reading/re-saving historical results does not invent reliability metadata or upgrade their declared version.
 
 ## Migration command
 
@@ -33,13 +45,23 @@ waza migrate results.json
 ```
 
 For schema `1.0`, the command is a no-op because there is no prior major version to migrate from.
+For a supported scenario eval `2.0`, it validates the file and leaves its bytes
+unchanged; it does not downgrade scenario discovery semantics to `1.x`.
 
 ## Changelog
 
-### 1.5
+### 2.0 (scenario evals only)
+
+- Added a nonempty `scenario` workflow identity with optional existing `skill` context; scenario scaffolds explicitly select exact eval `2.0`, while legacy reader defaults remain `1.4` and task formats are unchanged.
+- Target-free scenarios without effective explicit skill directories disable native SDK skill discovery; disabling the last eval directory preserves that isolation. Explicit task directories still opt in, empty task directories disable discovery, and `--no-skills` overrides opt-ins.
+- Scenario evals reject unknown eval/config fields and future minor versions. Old executables reject major `2` before execution.
+- Scenario result caching is bypassed with a notice until external dependencies can be completely fingerprinted.
+
+### 1.5 (new results only)
 
 - Added optional `tasks[].stats.pass_rate_ci` (Wilson 95% interval on each task's pass rate) and `summary.statistics.success_rate_ci` and `pass_hat_k` (suite success-rate interval and pass^k reliability curve) to `results.json`. See [Statistical Fields](../statistical-fields/).
 - `is_significant` is no longer written. It tested whether a CI on a task's own 0–1 score excluded zero, which compares an absolute score with zero instead of testing a difference between runs. Readers still accept it in older artifacts.
+- Result emission uses a separate writer version; legacy eval defaults, task loading, scenario admission, and historical result round-trips are not upgraded.
 
 ### 1.4
 

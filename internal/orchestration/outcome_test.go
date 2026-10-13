@@ -152,3 +152,32 @@ func TestRegradeOutcome_ComputesStatsAndDigest(t *testing.T) {
 	assert.Equal(t, "judge-model", result.Setup.JudgeModel)
 	assert.Equal(t, "high", result.Setup.JudgeReasoningEffort)
 }
+
+func TestRegradeOutcome_VersionsNewReliabilityWithoutChangingOriginal(t *testing.T) {
+	for _, version := range []string{"1.0", "1.4", "1.5", "1.99"} {
+		t.Run(version, func(t *testing.T) {
+			original := &models.EvaluationOutcome{
+				SchemaVersion: version,
+				Setup:         models.OutcomeSetup{RunsPerTest: 3},
+			}
+			graded := []models.TestOutcome{
+				{Status: models.StatusPassed, Runs: trialRuns(3, 3)},
+				{Status: models.StatusFailed, Runs: trialRuns(1, 3)},
+			}
+			result := RegradeOutcome(original, graded, "", "")
+			require.Equal(t, "1.5", result.SchemaVersion)
+			require.Equal(t, version, original.SchemaVersion)
+			require.Nil(t, original.Digest.Statistics)
+			require.NotNil(t, result.TestOutcomes[0].Stats.PassRateCI)
+			require.NotNil(t, result.Digest.Statistics)
+			require.NotNil(t, result.Digest.Statistics.SuccessRateCI)
+			require.Len(t, result.Digest.Statistics.PassHatK, 3)
+			data, err := json.Marshal(result)
+			require.NoError(t, err)
+			require.Contains(t, string(data), `"schemaVersion":"1.5"`)
+			require.Contains(t, string(data), `"pass_rate_ci":`)
+			require.Contains(t, string(data), `"success_rate_ci":`)
+			require.Contains(t, string(data), `"pass_hat_k":`)
+		})
+	}
+}

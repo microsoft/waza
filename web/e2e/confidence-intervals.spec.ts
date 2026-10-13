@@ -40,6 +40,6 @@ test.describe("Confidence Intervals", () => {
     await page.goto("/#/runs/run-001");
 
     const ciRange = page.locator('[data-testid="ci-range"]').first();
-    await expect(ciRange).toHaveAttribute("title", /95% CI/);
+    await expect(ciRange).toHaveAttribute("title", /95% bootstrap weighted-score CI/);
   });
 });

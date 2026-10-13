@@ -148,20 +148,21 @@ func BuildDigest(testOutcomes []models.TestOutcome, durationMs int64, runsPerTes
 		Usage:          aggregateUsageFromOutcomes(testOutcomes),
 	}
 
-	if runsPerTest > 1 && len(testOutcomes) > 0 {
+	if runsPerTest > 1 && totalTests > 0 {
+		successCI := statistics.WilsonCI(succeeded, totalTests, 0.95)
+		digest.Statistics = &models.StatisticalSummary{
+			SuccessRateCI: &successCI,
+			PassHatK:      computePassHatK(testOutcomes),
+		}
 		perTestScores := make([]float64, 0, len(testOutcomes))
 		for _, to := range testOutcomes {
-			if to.Stats != nil {
+			if to.Stats != nil && to.Stats.TotalRuns > 0 {
 				perTestScores = append(perTestScores, to.Stats.AvgWeightedScore)
 			}
 		}
 		if len(perTestScores) >= 2 {
-			successCI := statistics.WilsonCI(succeeded, totalTests, 0.95)
-			digest.Statistics = &models.StatisticalSummary{
-				BootstrapCI:   statistics.BootstrapCI(perTestScores, 0.95),
-				SuccessRateCI: &successCI,
-				PassHatK:      computePassHatK(testOutcomes),
-			}
+			scoreCI := statistics.BootstrapCI(perTestScores, 0.95)
+			digest.Statistics.BootstrapCI = &scoreCI
 		}
 	}
 
@@ -331,14 +332,15 @@ func RegradeOutcome(original *models.EvaluationOutcome, gradedOutcomes []models.
 	}
 
 	return &models.EvaluationOutcome{
-		RunID:        original.RunID,
-		SkillTested:  original.SkillTested,
-		BenchName:    original.BenchName,
-		Timestamp:    original.Timestamp,
-		Setup:        setup,
-		Digest:       BuildDigest(gradedOutcomes, original.Digest.DurationMs, runsPerTest),
-		Measures:     make(map[string]models.MeasureResult),
-		TestOutcomes: gradedOutcomes,
-		Metadata:     original.Metadata,
+		SchemaVersion: models.CurrentResultSchemaVersion,
+		RunID:         original.RunID,
+		SkillTested:   original.SkillTested,
+		BenchName:     original.BenchName,
+		Timestamp:     original.Timestamp,
+		Setup:         setup,
+		Digest:        BuildDigest(gradedOutcomes, original.Digest.DurationMs, runsPerTest),
+		Measures:      make(map[string]models.MeasureResult),
+		TestOutcomes:  gradedOutcomes,
+		Metadata:      original.Metadata,
 	}
 }
