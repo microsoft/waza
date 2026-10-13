@@ -126,9 +126,18 @@ Any present `scenario` must be a nonblank string with exact
 non-string values no longer fall back to legacy admission or scalar coercion.
 Remove `scenario` for a legacy suite, or supply the valid identity/version pair;
 truly absent fields retain legacy defaults.
-CSV paths must remain within the eval directory after symlinks resolve, including
+CSV paths must be lexically within the eval directory and remain within it after symlinks resolve, including
 when the eval directory itself is a symlink or filesystem/volume root. Fallback IDs/names use the original
 1-based data row, so selecting `range: [2, 2]` retains `row-2`, not `row-1`.
+Regrading and run analysis use the same CSV loader: results from that range can
+be regraded with `waza grade eval.yaml --results results.json --task row-2`, or
+by omitting `--task` to grade all selected tasks. Explicit CSV IDs/names and
+template variables retain their precedence. Contained links remain allowed;
+resolved escapes are rejected, without a retained-root or race-free guarantee.
+An aliased eval base allows relative contained sources and absolute paths within
+the lexical alias root. An alternate physical absolute spelling outside that
+lexical root is rejected even when it resolves inside; physical equivalence alone
+does not grant admission.
 Contained absolute CSV paths retain their actual source in task plans and
 diagnostics; relative sources still resolve from the eval directory.
 

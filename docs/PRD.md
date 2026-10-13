@@ -85,8 +85,13 @@ Before an eval starts, `waza preflight` inspects offline schemas, tasks and IDs,
 resource/instruction paths, grader configuration and locked cached modules,
 effective mocks, scoped requirement references, and static executor support.
 Task discovery accepts individually unmatched valid globs when tasks exist;
-CSV containment checks resolved symlinks, including filesystem/volume-root eval
+CSV containment requires lexical containment and then checks resolved symlinks, including filesystem/volume-root eval
 directories, and range selection preserves original fallback row identities.
+Execution, preflight, regrading, and run analysis must share CSV selection,
+original row IDs/names, template context, and bounded resolved-path admission.
+Aliased eval bases admit lexically contained relative sources, not alternate
+physical absolute spellings outside their lexical root.
+Ranged results must remain addressable by their original task IDs in `grade`.
 Preflight diagnoses file-resource names rejected by the existing runtime loader
 without changing runtime acceptance or inline content handling.
 Contained absolute CSV paths must retain their source identity in task plans and

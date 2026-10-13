@@ -1455,6 +1455,16 @@ prompt,expected_output,language
 - **Column values** are available as `{{.Vars.column_name}}`
 - **Range filtering** (optional) allows limiting to a subset of rows
 
+CSV loading is shared by `run`, `preflight`, `grade`, and run analysis.
+Fallback IDs and names retain the original 1-based data row number: `range: [2, 2]`
+selects `row-2`, including when regrading with `--task row-2`. Explicit `id` and
+`name` columns retain their precedence. Relative or absolute CSV paths must be
+lexically within the eval directory and remain inside after symlinks resolve.
+Contained links and relative sources under an aliased eval directory are allowed;
+an alternate physical absolute spelling outside the lexical alias root is rejected.
+This is a bounded path check, not a universal physical-equivalence, retained-root,
+or race-free guarantee.
+
 **Example task prompt using CSV variables:**
 
 In your task file or inline prompt:

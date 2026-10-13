@@ -248,8 +248,17 @@ waza preflight evals/code-explainer/eval.yaml --format json > preflight.json
 Preflight verifies only local schemas/configuration, task discovery/IDs, paths,
 locked cached graders, mock matching, references, and static capability support.
 Valid unmatched task globs are optional when other patterns discover tasks.
-CSV paths are checked after resolving symlinks against the eval directory;
+CSV paths must be lexically within the eval directory and remain within it
+after resolving symlinks;
 ranged CSV fallback IDs/names retain their original 1-based data row number.
+The same CSV loader serves execution, preflight, regrading, and run analysis:
+`range: [2, 2]` results can be regraded with `waza grade --task row-2`.
+Explicit CSV IDs/names and template variables retain their existing precedence.
+Command-side CSV loading also rejects resolved symlink escapes while allowing
+contained links. An aliased eval base accepts relative contained sources, but an
+alternate physical absolute spelling outside its lexical alias root is rejected.
+This does not provide universal physical equivalence, a retained-root, or a
+race-free guarantee.
 Live MCP settings use the runtime's pure decoder, so malformed headers or
 environment maps fail even though live availability remains unresolved.
 Model availability, credentials, conditional checkpoint execution, interpreter

@@ -90,6 +90,9 @@ func TestLoadTasksResolvedSymlinkContainment(t *testing.T) {
 	tasks, err := LoadTasks(&models.EvalSpec{TasksFrom: "local.csv"}, alias, time.Unix(0, 0))
 	require.NoError(t, err)
 	require.Equal(t, "local", tasks[0].Stimulus.Message)
+	tasks, err = LoadTasks(&models.EvalSpec{TasksFrom: filepath.Join(dir, "local.csv")}, alias, time.Unix(0, 0))
+	require.ErrorContains(t, err, "escapes spec directory")
+	require.Nil(t, tasks)
 	for _, tc := range []struct {
 		name, target, csv string
 		escape            bool
