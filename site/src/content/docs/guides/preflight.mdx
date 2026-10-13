@@ -46,6 +46,11 @@ diagnostic; that unsupported-capability diagnostic warns by default and fails
 with `--strict`. Malformed MCP configuration also produces an `invalid`
 diagnostic and fails by default, regardless of strict mode.
 
+Required-skill discovery follows runtime discovery: malformed skill or agent
+definitions are warned about and skipped without printing their parsing
+payloads. An unrelated malformed definition does not invalidate a valid required
+skill. A required name that cannot be discovered still fails validation.
+
 Inspection is synchronous. `Inspect` has no context/cancellation parameter, and
 the command does not use a canceled Cobra context to skip local inspection.
 There is no cooperative cancellation or deadline guarantee for local filesystem

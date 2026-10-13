@@ -2,16 +2,20 @@ package orchestration
 
 import (
 	"fmt"
+	"log/slog"
 
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/utils"
 )
 
 // ValidateRequiredSkillConfiguration uses runtime declaration discovery without
-// initializing an engine. Parse errors are returned, not printed with payloads.
+// initializing an engine. Malformed definitions are warned and skipped like
+// runtime discovery, without exposing their parsing payloads.
 func ValidateRequiredSkillConfiguration(spec *models.EvalSpec, baseDir string) error {
 	return validateRequiredSkillConfiguration(spec, baseDir, func(paths []string) (map[string]string, error) {
-		return discoverSkillsWithReporter(paths, nil)
+		return discoverSkillsWithReporter(paths, func(path string, _ error) {
+			slog.Warn("skipping malformed definition during required-skill discovery; correct its frontmatter", "path", path)
+		})
 	})
 }
 
