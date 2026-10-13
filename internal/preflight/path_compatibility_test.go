@@ -160,6 +160,49 @@ func TestInspectRejectsCleanedWorkspaceRoot(t *testing.T) {
 	}
 }
 
+func TestSafeWorkspacePathUsesHostVolumeRules(t *testing.T) {
+	for _, path := range []string{
+		"reports/run:1.json",
+		"record:version.json",
+		"C:record.json",
+		"C:/reports/record.json",
+		`C:\reports\record.json`,
+	} {
+		t.Run(path, func(t *testing.T) {
+			require.Equal(t, filepath.VolumeName(path) == "", safeWorkspacePath(path))
+		})
+	}
+	for _, path := range []string{"../run:1.json", `reports\..\run:1.json`, "/run:1.json", `\run:1.json`} {
+		t.Run(path, func(t *testing.T) {
+			require.False(t, safeWorkspacePath(path))
+		})
+	}
+}
+
+func TestInspectHostNativeResourceInstructionAndGraderPaths(t *testing.T) {
+	location := "reports/run:1.json"
+	if runtime.GOOS == "windows" {
+		// The filesystem fixture uses a portable name; drive rules are tested above.
+		location = "reports/run.json"
+	}
+	task := strings.ReplaceAll(validTask, "  prompt:", "  files: [{path: '"+location+"'}]\n  prompt:")
+	task += "\ninstruction_files: ['" + location + "']\n"
+	path, dir := writeSuite(t, validEval, task)
+	fixtures := filepath.Join(dir, "fixtures")
+	file := filepath.Join(fixtures, filepath.FromSlash(location))
+	require.NoError(t, os.MkdirAll(filepath.Dir(file), 0700))
+	require.NoError(t, os.WriteFile(file, []byte("{}"), 0600))
+	report := Inspect(path, Options{})
+	require.False(t, report.Failed(true), "%+v", report.Diagnostics)
+
+	gradersReport := &Report{Complete: true}
+	inspectGraders(gradersReport, []models.GraderConfig{
+		{Identifier: "file-native", Kind: models.GraderKindFile, Parameters: models.FileGraderParameters{MustExist: []string{location}}},
+		{Identifier: "diff-native", Kind: models.GraderKindDiff, Parameters: models.DiffGraderParameters{ExpectedFiles: []models.DiffExpectedFileParameters{{Path: location, Contains: []string{"+{}"}}}}},
+	}, path, "task", fixtures)
+	require.False(t, gradersReport.Failed(true), "%+v", gradersReport.Diagnostics)
+}
+
 func TestInspectExactScenarioVersionAndNoAmbientDiscovery(t *testing.T) {
 	for _, tc := range []struct {
 		name, version, context string
