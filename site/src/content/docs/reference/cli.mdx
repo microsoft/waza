@@ -1219,6 +1219,17 @@ waza session view <session-file>
 
 Start the interactive dashboard.
 
+For JSON-RPC, `eval.list` recursively lists canonical `eval.yaml`/`eval.yml`
+files plus native-loadable scenario `.yaml`/`.yml` files with configured/custom
+names. Classification and native loading determine eligibility, not full
+authoring-schema or task validation.
+MCP `waza_eval_list` uses the same handler. Custom absent or
+classification/loading-invalid scenario, task, unrelated and legacy YAML
+remains unlisted; use `eval.get`/`eval.validate`
+for diagnostics. Canonical invalid-file fallback and caller-root traversal
+are unchanged. No depth/vendor exclusions or filesystem containment are added;
+HTTP dashboard result listing is unchanged.
+
 ```bash
 waza serve
 ```

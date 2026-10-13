@@ -271,8 +271,9 @@ tasks:
 | ------------- | ------ | -------- | ------------------------------------------------------------------------------------------ |
 | `name`        | string | ✓        | Eval suite name                                                                            |
 | `description` | string | ✗        | What the eval tests                                                                        |
-| `skill`       | string | ✓        | Associated skill or custom agent name (`SKILL.md` or `.agent.md`)                       |
-| `schemaVersion` | string | ✗     | Public schema version for this artifact; defaults to `1.0`                              |
+| `skill`       | string | Legacy schema | Associated skill/custom-agent target; optional context for scenario `2.0` |
+| `scenario`    | string | Scenario `2.0` | Nonblank workflow identity; legacy authoring omits this field |
+| `schemaVersion` | string | Scenario `2.0` | Legacy defaults to `1.4`; scenarios explicitly select `2.0` |
 | `version`     | string | ✗        | Version number (e.g., "1.0")                                                               |
 | `inputs`      | object | ✗        | Key-value map of global template variables (see [Template Variables](#template-variables)) |
 | `tasks_from`  | string | ✗        | Path to an external YAML file containing the task list                                     |
@@ -282,9 +283,18 @@ tasks:
 | `adversarial` | object | ✗        | Built-in fault-injection packs consumed by `waza adversarial --spec`; requires `schemaVersion: "1.2"` |
 | `baseline`    | bool   | ✗        | Mark this spec as a baseline for A/B comparison                                            |
 
-`skill` is required.
+Legacy JSON-schema authoring requires `skill` when `scenario` is absent.
+Scenario `2.0` requires a nonblank `scenario` and may omit `skill`.
+The native loader/model validation used by `waza run` is a different surface
+from full JSON-schema validation: legacy default/`1.0`-`1.4` data historically
+loads with an absent or empty target and retains existing discovery behavior.
+Preserving that compatibility does not make targetless legacy data the
+recommended workflow; author a named legacy target or a scenario `2.0` suite.
+The schema's `skill` constraint is length-only: whitespace passes that check
+but is not a meaningful target. JSON-RPC `eval.validate` reports schema errors;
+separate preflight checks are not universal runtime target enforcement.
 
-`schemaVersion` uses `MAJOR.MINOR` format. Omit it for legacy files that should default to `1.0`; add it to new evals so future schema migrations are explicit. See [Schema Changes](/reference/schema-changes/) for the compatibility policy.
+`schemaVersion` uses `MAJOR.MINOR` format. Omit it for legacy files that should default to `1.4`; scenario evals must select `2.0`. See [Schema Changes](/reference/schema-changes/) for the compatibility policy.
 
 ## Targeting Custom Agents
 

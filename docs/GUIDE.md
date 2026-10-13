@@ -107,6 +107,15 @@ runtime/authentication. `--template cli` uses installed Git; `--template mcp`
 uses a harness-only mocked MCP dependency, not production-service evidence.
 `config.executor: mock` is an offline harness check, never an agent-quality score. See
 [sanitized scenario examples](../examples/scenarios/README.md).
+Legacy JSON-schema authoring requires `skill` when `scenario` is absent.
+Native loading/model validation used by `waza run` historically accepts legacy
+default/`1.0`-`1.4` data with no target and preserves existing discovery.
+This compatibility is not the recommended authoring path: use a named legacy
+target or a scenario `2.0` workflow. Schema `skill` checks length only;
+whitespace passes that check but is not a meaningful target.
+JSON-RPC `eval.validate` reports schema violations. Separate preflight checks do not
+make native loading equivalent to full schema validation or universally
+enforce a target.
 Scenario evals require explicit `schemaVersion: "2.0"` and a nonempty string
 `scenario`. Tasks/results retain `1.x`. Old executables reject eval `2.0`
 before execution. In YAML and JSON, null, blank or non-string `scenario` values
@@ -518,6 +527,15 @@ waza check
 ### `waza serve`
 
 Launch the web dashboard to view evaluation results.
+
+JSON-RPC `eval.list` and MCP `waza_eval_list` retain canonical
+`eval.yaml`/`eval.yml` discovery and also list native-loadable scenario
+`.yaml`/`.yml` files with configured/custom filenames. Classification and native
+loading determine eligibility, not full authoring-schema or task validation.
+Custom absent or classification/loading-invalid scenario, task and unrelated
+YAML stays unlisted; `eval.get`/`eval.validate` provide diagnostics.
+The existing caller-root traversal and canonical invalid-file fallback remain
+unchanged; this is not a containment guarantee or a dashboard result change.
 
 **Flags:**
 - `--port <n>` — HTTP server port (default: `3000`)

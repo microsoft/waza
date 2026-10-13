@@ -892,6 +892,16 @@ Start the waza dashboard server to visualize evaluation results. The HTTP server
 
 Optionally, run a JSON-RPC 2.0 server (for IDE integration) instead of the HTTP dashboard using the `--tcp` flag.
 
+JSON-RPC `eval.list` and MCP `waza_eval_list` recursively list canonical
+`eval.yaml`/`eval.yml` files plus native-loadable scenario `.yaml`/`.yml` files,
+including configured/custom filenames. Scenario eligibility uses classification
+and native loading, not full authoring-schema or task validation.
+Custom task, unrelated, legacy or classification/loading-invalid YAML
+remains unlisted; use `eval.get`/`eval.validate` for diagnostics. Existing
+canonical invalid-file fallback behavior is unchanged. Choose the directory
+to inspect; traversal is not a filesystem sandbox. HTTP dashboard result
+listing is unchanged.
+
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--port <port>` | `3000` | HTTP server port |
@@ -1261,6 +1271,15 @@ a target or explicit skill directories, scenarios disable ambient skill loading.
 Disabling the last eval-level directory also leaves target-free discovery disabled.
 An explicit empty task `skill_directories: []` disables discovery for that task;
 `--no-skills` overrides every task. Legacy suites keep their existing defaults.
+Legacy JSON-schema authoring requires `skill` when `scenario` is absent.
+The historical native loader/model validation used by `waza run` is not full
+JSON-schema validation: legacy default/`1.0`-`1.4` data can still load without
+a target and retain existing discovery behavior. That compatibility is not
+a recommended authoring workflow; use a named legacy target or scenario `2.0`.
+Schema `skill` uses a length-only constraint, so whitespace passes that check
+but is not a meaningful target. JSON-RPC `eval.validate` reports schema errors;
+separate preflight checks are not a universal runtime target-enforcement gate.
+Scenario `2.0` requires a nonblank `scenario` and may omit `skill`.
 Scenario `2.0` bypasses result caching with an explicit notice because external
 workflow dependencies are not fully fingerprinted; legacy caching is unchanged.
 Scenario readers reject unknown eval/config fields rather than accepting

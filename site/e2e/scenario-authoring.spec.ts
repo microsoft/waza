@@ -37,4 +37,7 @@ test('CLI reference distinguishes scenario outputs from legacy trigger tasks', a
   await expect(main).toContainText('Custom .yaml/.yml filenames');
   await expect(main).toContainText('JSON dispatch remains results-only');
   await expect(main).toContainText('waza migrate evals/inventory/suite.yml');
+  await expect(main).toContainText('MCP waza_eval_list uses the same handler.');
+  await expect(main).toContainText('Canonical invalid-file fallback and caller-root traversal are unchanged.');
+  await expect(main).toContainText('HTTP dashboard result listing is unchanged.');
 });
