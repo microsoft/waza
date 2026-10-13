@@ -54,12 +54,20 @@ func runMigrate(out io.Writer, path string) error {
 		return err
 	}
 
-	if version != models.CurrentSchemaVersion {
-		_, err = fmt.Fprintf(out, "%s uses schemaVersion %s, which is compatible with waza schemaVersion %s; no migration needed.\n", artifact, version, models.CurrentSchemaVersion)
+	currentVersion := models.CurrentSchemaVersion
+	if artifact == "results.json" {
+		currentVersion = models.CurrentResultSchemaVersion
+		if version == models.CurrentSchemaVersion {
+			_, err = fmt.Fprintf(out, "%s is already compatible with schemaVersion %s (legacy reader default); current result writer schemaVersion %s; no migration needed.\n", artifact, version, currentVersion)
+			return err
+		}
+	}
+	if version != currentVersion {
+		_, err = fmt.Fprintf(out, "%s uses schemaVersion %s, which is compatible with waza schemaVersion %s; no migration needed.\n", artifact, version, currentVersion)
 		return err
 	}
 
-	_, err = fmt.Fprintf(out, "%s is already compatible with schemaVersion %s; no migration needed.\n", artifact, models.CurrentSchemaVersion)
+	_, err = fmt.Fprintf(out, "%s is already compatible with schemaVersion %s; no migration needed.\n", artifact, currentVersion)
 	return err
 }
 

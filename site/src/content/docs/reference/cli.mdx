@@ -734,6 +734,9 @@ This legacy input/reader policy is separate from new result emission: current
 evaluations and regrades write results `1.5`. Task YAML has no independent version
 field. Historical result versions and missing reliability metadata are preserved
 when reading/re-saving; migration does not upgrade them.
+Compatibility reports select the current version by artifact type: eval `1.4`
+or result writer `1.5`. Missing/`1.4` result versions are explicitly labeled as
+the legacy reader default alongside the current writer version, not rewritten.
 
 A present `scenario` header requires a nonblank native string and exact schema
 `2.0`, including in canonical `eval.yaml`/`eval.yml` files. Supported scenario

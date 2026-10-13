@@ -560,6 +560,9 @@ Exit codes: `0` all packs PASSED, `2` unsafe outcome with policy=fail (matches `
 ### `waza migrate <file>`
 
 Check a public schema artifact and migrate it when a future major schema requires it. Legacy input and reader defaults remain `1.4`, while new result writers independently emit `1.5`. Compatible v1 `eval.yaml` and `results.json` files are not rewritten.
+Compatibility reports use the current version for the artifact type: legacy eval
+`1.4` or result writer `1.5`. Unversioned/`1.4` results explicitly distinguish
+their legacy reader default from the current writer version without upgrading them.
 
 ```bash
 waza migrate eval.yaml
