@@ -127,6 +127,11 @@ make lint
 
 The workflow is defined in `.github/workflows/go-ci.yml`.
 
+Both Go lint workflows use `.github/scripts/lint.sh` to require configuration
+validation against a checksum-pinned upstream release schema before running lint.
+When upgrading golangci-lint, update both workflow versions and the script's
+version check, upstream release commit, and schema checksum together.
+
 ## Fixture Isolation
 
 Each task execution gets a **fresh temp workspace** with fixtures copied in:
