@@ -1,0 +1,27 @@
+id: compatibility-mcp
+name: Read-only MCP lookup
+golden: true
+inputs:
+  prompt: Look up fixture item item-7 and return its id and ready state as JSON.
+graders:
+  - name: lookup-behavior
+    type: behavior
+    config:
+      max_tool_calls: 1
+      required_tools: [catalog_lookup]
+  - name: lookup-arguments
+    type: tool_calls
+    config:
+      expect:
+        - tool: "^catalog_lookup$"
+          args:
+            id: {equals: item-7}
+  - name: lookup-answer
+    type: json_schema
+    config:
+      schema:
+        type: object
+        required: [id, state]
+        properties:
+          id: {const: item-7}
+          state: {const: ready}

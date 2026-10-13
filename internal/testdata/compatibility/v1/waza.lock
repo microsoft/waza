@@ -1,0 +1,6 @@
+schema_version: 1
+graders:
+  - ref: example.com/compat/graders#answer@v1.0.0
+    commit: 0123456789abcdef0123456789abcdef01234567
+    digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+    url: https://example.com/compat/graders.git
