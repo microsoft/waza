@@ -172,7 +172,7 @@ func TestSafeWorkspacePathUsesHostVolumeRules(t *testing.T) {
 			require.Equal(t, filepath.VolumeName(path) == "", safeWorkspacePath(path))
 		})
 	}
-	for _, path := range []string{"../run:1.json", `reports\..\run:1.json`, "/run:1.json", `\run:1.json`} {
+	for _, path := range []string{"../run:1.json", `reports\..\run:1.json`, "/run:1.json", "/record.json", "//server/share/record.json", `\run:1.json`} {
 		t.Run(path, func(t *testing.T) {
 			require.False(t, safeWorkspacePath(path))
 		})

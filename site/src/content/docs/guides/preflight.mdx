@@ -145,7 +145,8 @@ Default fixtures are `<eval-directory>/fixtures`. CLI `--context-dir` resolves
 from the process cwd, as does the existing task `context_dir` override.
 Resource/instruction paths must stay workspace/context relative. Native volume
 prefixes are rejected using the host platform's path rules; a colon alone is not
-an absolute-path marker on POSIX (for example, `reports/run:1.json`). Local resource
+an absolute-path marker on POSIX (for example, `reports/run:1.json`). Rooted paths
+starting with `/` or `\` remain invalid on every host. Local resource
 and instruction files are inspected, never modified. File-backed resource paths
 containing `..` within any cleaned segment are diagnosed as rejected by the
 existing runtime loader; rename the file or segment. Inline content retains its

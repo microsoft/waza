@@ -411,7 +411,7 @@ func inspectTask(r *Report, task *models.TestCase, spec *models.EvalSpec, source
 }
 
 func safeWorkspacePath(path string) bool {
-	if path == "" || filepath.Clean(path) == "." || filepath.IsAbs(path) || strings.HasPrefix(path, `\`) || filepath.VolumeName(path) != "" {
+	if path == "" || filepath.Clean(path) == "." || filepath.IsAbs(path) || strings.HasPrefix(path, "/") || strings.HasPrefix(path, `\`) || filepath.VolumeName(path) != "" {
 		return false
 	}
 	for _, segment := range strings.FieldsFunc(path, func(r rune) bool { return r == '/' || r == '\\' }) {
