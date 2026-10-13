@@ -60,7 +60,7 @@ plumbing only, not agent quality. See the
 Scenario evals require a nonempty `scenario` string and **exact**
 `schemaVersion: "2.0"`. Older executables reject that major before executing;
 `1.x`, omitted versions, `2.1` and future majors are not scenario contracts.
-Presence is checked in native YAML/JSON parsing: null, numeric/boolean values,
+Presence of the `scenario` key is explicit in YAML and JSON: null, numeric/boolean values,
 objects, arrays and blank strings are invalid. This intentionally stops earlier
 versionless/`1.x` null acceptance and scalar coercion. Remove the field for a
 legacy suite, or provide a nonblank string and exact `2.0` for a scenario.
