@@ -529,9 +529,18 @@ func loadTestCase(path string, offline bool) (*TestCase, error) {
 	if err != nil {
 		return nil, err
 	}
+	return parseTestCase(data, path, offline, nil)
+}
 
+// ParseTestCaseOffline examines immutable bytes with offline schema loading.
+// validate checks static configuration when external dependencies block native decode.
+func ParseTestCaseOffline(data []byte, path string, validate func(string, GraderParameters) error) (*TestCase, error) {
+	return parseTestCase(data, path, true, validate)
+}
+
+func parseTestCase(data []byte, path string, offline bool, validate func(string, GraderParameters) error) (*TestCase, error) {
 	if offline {
-		if err := guardOfflineModelSchemas(data, true); err != nil {
+		if err := guardOfflineModelSchemas(data, true, validate); err != nil {
 			return nil, fmt.Errorf("task schema dependencies: %w", err)
 		}
 	}

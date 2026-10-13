@@ -11,6 +11,7 @@ import (
 
 	"github.com/microsoft/waza/internal/copilotconfig"
 	"github.com/microsoft/waza/internal/dataset"
+	"github.com/microsoft/waza/internal/graders"
 	"github.com/microsoft/waza/internal/mcpmock"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/orchestration"
@@ -18,7 +19,6 @@ import (
 	"github.com/microsoft/waza/internal/schemaloader"
 	"github.com/microsoft/waza/internal/utils"
 	"github.com/microsoft/waza/internal/validation"
-	"github.com/santhosh-tekuri/jsonschema/v6"
 )
 
 type Options struct {
@@ -43,9 +43,10 @@ func Inspect(evalPath string, opts Options) *Report {
 	for range validation.ValidateEvalBytes(data) {
 		r.add("eval.schema", Invalid, evalPath, "", "", "Eval configuration does not match the embedded schema.", "Check required fields, types, and configuration against schemas/eval.schema.json.")
 	}
-	spec, err := models.LoadEvalSpecOffline(evalPath)
+	spec, err := models.ParseEvalSpecOffline(data, evalPath, graders.ValidateConfig)
 	if err != nil {
 		r.add("eval.configuration", schemaState(err), evalPath, "", "", "Eval could not be decoded or validated offline.", "Check schemaVersion, YAML types, self-contained grader schemas, trials, timeout, and executor-specific settings.")
+		addMixedExternalDiagnostic(r, err, evalPath)
 		r.Complete = false
 		return r
 	}
@@ -146,9 +147,10 @@ func discoverTasks(r *Report, spec *models.EvalSpec, base string) ([]*models.Tes
 			for range validation.ValidateTaskBytes(data) {
 				r.add("task.schema", Invalid, path, "", "", "Task does not match the embedded schema.", "Check id, name, inputs, grader configuration, and requirement metadata against schemas/task.schema.json.")
 			}
-			task, err := models.LoadTestCaseOffline(path)
+			task, err := models.ParseTestCaseOffline(data, path, graders.ValidateConfig)
 			if err != nil {
 				r.add("task.configuration", schemaState(err), path, "", "", "Task could not be decoded or validated offline.", "Check prompt/prompt_file, paths, self-contained grader schemas, checkpoints, responder settings, and mocks.")
+				addMixedExternalDiagnostic(r, err, path)
 				r.Complete = false
 				continue
 			}
@@ -314,6 +316,7 @@ func inspectLockedGraders(r *Report, spec *models.EvalSpec, path string) {
 						state, code = Unresolved, "grader.cache_missing"
 					}
 					r.add(code, state, path, "", "", "Locked grader is unavailable, untrusted, or inconsistent with its local cache.", "Populate the pinned cache explicitly while online; verify the lock digest and trust remote program graders explicitly.")
+					addMixedExternalDiagnostic(r, loadErr, path)
 					r.Complete = false
 				} else {
 					merged, mergeErr := registry.MergeGraderConfigOffline(preset, grader)
@@ -321,6 +324,7 @@ func inspectLockedGraders(r *Report, spec *models.EvalSpec, path string) {
 						r.Complete = false
 						state = schemaState(mergeErr)
 						r.add("grader.merge", state, path, "", "", "Remote preset and local grader configuration conflict or need unavailable schemas.", "Use compatible type/configuration overrides and self-contained schemas for the locked preset.")
+						addMixedExternalDiagnostic(r, mergeErr, path)
 					} else {
 						spec.Graders[i] = merged
 					}
@@ -457,10 +461,17 @@ func checkDirectory(r *Report, path, source, task, code string) {
 
 // Keep errors classifiable without exposing arbitrary configuration values.
 func schemaState(err error) State {
-	var loadError *jsonschema.LoadURLError
-	if errors.Is(err, schemaloader.ErrExternalReference) ||
-		errors.As(err, &loadError) && errors.Is(loadError.Err, schemaloader.ErrExternalReference) {
+	invalid, external := schemaloader.ClassifyError(err)
+	if external && !invalid {
 		return Unresolved
 	}
 	return Invalid
+}
+
+func addMixedExternalDiagnostic(r *Report, err error, source string) {
+	invalid, external := schemaloader.ClassifyError(err)
+	if invalid && external {
+		r.add("schema.external_reference", Unresolved, source, "", "", "External schema prerequisites remain unavailable alongside invalid configuration.", "Make grader schemas self-contained before treating the inventory as complete; preflight never loads external schema resources.")
+		r.Complete = false
+	}
 }

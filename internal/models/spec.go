@@ -454,7 +454,7 @@ func loadEvalSpec(path string, offline bool) (*EvalSpec, error) {
 	if err != nil {
 		return nil, err
 	}
-	return parseEvalSpec(data, path, offline)
+	return parseEvalSpec(data, path, offline, nil)
 }
 
 // ClassifyEvalSpec checks the canonical eval version and scenario header without
@@ -495,17 +495,23 @@ func ClassifyEvalSpec(data []byte, path string) (string, string, error) {
 // ParseEvalSpec retains the runtime loader behavior of LoadEvalSpec.
 // Offline consumers must guard resource-bearing parameters before typed decode.
 func ParseEvalSpec(data []byte, path string) (*EvalSpec, error) {
-	return parseEvalSpec(data, path, false)
+	return parseEvalSpec(data, path, false, nil)
 }
 
-func parseEvalSpec(data []byte, path string, offline bool) (*EvalSpec, error) {
+// ParseEvalSpecOffline examines immutable bytes with offline schema loading.
+// validate checks static configuration when external dependencies block native decode.
+func ParseEvalSpecOffline(data []byte, path string, validate func(string, GraderParameters) error) (*EvalSpec, error) {
+	return parseEvalSpec(data, path, true, validate)
+}
+
+func parseEvalSpec(data []byte, path string, offline bool, validate func(string, GraderParameters) error) (*EvalSpec, error) {
 	version, scenario, err := ClassifyEvalSpec(data, path)
 	if err != nil {
 		return nil, err
 	}
 
 	if offline {
-		if err := guardOfflineModelSchemas(data, false); err != nil {
+		if err := guardOfflineModelSchemas(data, false, validate); err != nil {
 			return nil, fmt.Errorf("eval schema dependencies: %w", err)
 		}
 	}
