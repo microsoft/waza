@@ -674,6 +674,12 @@ inputs:
 
 ---
 
+### Skill Body Injection
+
+By default, an eval with `skill: <name>` injects the target `SKILL.md` or `.agent.md` body into the agent system prompt. The injected `<skill_context>` block starts with `Base directory for this skill: <absolute path>`, so relative links in the body (for example `scripts/install.sh` or `assets/templates/`) resolve from the skill's or agent file's own directory even though the agent runs in a temp workspace. Set `config.inject_skill_body: false` to skip the injection; see `### Skill Body Injection` in the README for details.
+
+---
+
 ### Filtering and Selective Runs
 
 Run only specific tasks:
@@ -736,6 +742,8 @@ waza compare results-gpt4.json results-sonnet.json
 ---
 
 ### CI/CD Integration
+
+Waza's own repository checks use locked frontend dependencies. `Site Build` runs the full site Chromium suite, including preflight, compatibility, mobile-menu and screenshot tests. `Dashboard Build and Test` runs lint, a production build and the full dashboard Chromium suite when dashboard files or its workflow change. Both suites disable retries in CI and upload test/screenshot evidence; the dashboard artifact also retains the rebuilt embed inputs. PRs without dashboard changes report an explicit skip, not frontend qualification. After the dashboard workflow is available on the default branch, `workflow_dispatch` can qualify a selected branch even without dashboard file changes. These frontend checks do not replace Go, compatibility or native-platform gates.
 
 Run waza as part of your GitHub Actions workflow:
 
