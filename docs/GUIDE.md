@@ -776,6 +776,8 @@ waza compare results-gpt4.json results-sonnet.json
 
 ### CI/CD Integration
 
+Waza's own repository checks use locked frontend dependencies. `Site Build` runs the full site Chromium suite, including preflight, compatibility, mobile-menu and screenshot tests. `Dashboard Build and Test` runs lint, a production build and the full dashboard Chromium suite when dashboard files or its workflow change. Both suites disable retries in CI and upload test/screenshot evidence; the dashboard artifact also retains the rebuilt embed inputs. PRs without dashboard changes report an explicit skip, not frontend qualification. After the dashboard workflow is available on the default branch, `workflow_dispatch` can qualify a selected branch even without dashboard file changes. These frontend checks do not replace Go, compatibility or native-platform gates.
+
 Run waza as part of your GitHub Actions workflow:
 
 ```yaml
