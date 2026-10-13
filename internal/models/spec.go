@@ -17,6 +17,7 @@ import (
 type EvalSpec struct {
 	SchemaVersion string `yaml:"schemaVersion,omitempty" json:"schemaVersion,omitempty"`
 	SpecIdentity  `yaml:",inline"`
+	Scenario      string              `yaml:"scenario,omitempty" json:"scenario,omitempty"`
 	SkillName     string              `yaml:"skill"`
 	Version       string              `yaml:"version"`
 	Config        Config              `yaml:"config"`
@@ -41,6 +42,7 @@ type SpecIdentity struct {
 type strictEvalSpec struct {
 	SchemaVersion string `yaml:"schemaVersion,omitempty"`
 	SpecIdentity  `yaml:",inline"`
+	Scenario      string              `yaml:"scenario,omitempty"`
 	SkillName     string              `yaml:"skill"`
 	Version       string              `yaml:"version"`
 	Config        Config              `yaml:"config"`
@@ -432,6 +434,41 @@ type MeasurementDef struct {
 	Desc       string  `yaml:"description,omitempty" json:"desc,omitempty"`
 }
 
+// ClassifyEvalSpec checks the canonical eval version and scenario header without
+// decoding grader parameters or loading their resources.
+func ClassifyEvalSpec(data []byte, path string) (string, string, error) {
+	var header struct {
+		SchemaVersion string    `yaml:"schemaVersion"`
+		Scenario      yaml.Node `yaml:"scenario"`
+	}
+	if err := yaml.Unmarshal(data, &header); err != nil {
+		return "", "", fmt.Errorf("parsing eval spec YAML (%s): %w", path, err)
+	}
+	scenario := ""
+	hasScenario := header.Scenario.Kind != 0
+	if hasScenario {
+		value := &header.Scenario
+		for value.Kind == yaml.AliasNode {
+			value = value.Alias
+		}
+		if value.Kind != yaml.ScalarNode || value.Tag != "!!str" || strings.TrimSpace(value.Value) == "" {
+			return "", "", fmt.Errorf("scenario must be a non-empty string workflow identity; remove the scenario field for a legacy suite or provide a nonblank string with schemaVersion %s", ScenarioSchemaVersion)
+		}
+		scenario = value.Value
+	}
+	version := header.SchemaVersion
+	var err error
+	if !hasScenario {
+		version, err = ValidateSchemaVersion("eval.yaml", path, header.SchemaVersion)
+	} else if version != ScenarioSchemaVersion {
+		err = fmt.Errorf("scenario requires explicit schemaVersion %s; remove the scenario field for a legacy suite or set schemaVersion %s for a scenario", ScenarioSchemaVersion, ScenarioSchemaVersion)
+	}
+	if err != nil {
+		return "", "", err
+	}
+	return version, scenario, nil
+}
+
 // LoadEvalSpec loads a spec from a YAML file with strict validation.
 //
 // Normally the schema validation will catch errors in the eval.yaml, but this also does
@@ -443,13 +480,7 @@ func LoadEvalSpec(path string) (*EvalSpec, error) {
 		return nil, err
 	}
 
-	var header struct {
-		SchemaVersion string `yaml:"schemaVersion"`
-	}
-	if err := yaml.Unmarshal(data, &header); err != nil {
-		return nil, fmt.Errorf("parsing eval spec YAML (%s): %w", path, err)
-	}
-	version, err := ValidateSchemaVersion("eval.yaml", path, header.SchemaVersion)
+	version, scenario, err := ClassifyEvalSpec(data, path)
 	if err != nil {
 		return nil, err
 	}
@@ -457,6 +488,9 @@ func LoadEvalSpec(path string) (*EvalSpec, error) {
 	var spec EvalSpec
 
 	decoder := yaml.NewDecoder(bytes.NewReader(data))
+	if scenario != "" {
+		decoder.KnownFields(true)
+	}
 	if err := decoder.Decode(&spec); err != nil {
 		return nil, fmt.Errorf("parsing eval spec YAML (%s): %w", path, err)
 	}
@@ -476,6 +510,17 @@ func LoadEvalSpec(path string) (*EvalSpec, error) {
 
 // Validate checks that the spec is valid
 func (s *EvalSpec) Validate() error {
+	if s.Scenario != "" {
+		if strings.TrimSpace(s.Scenario) == "" {
+			return fmt.Errorf("scenario must be a non-empty workflow identity")
+		}
+		if s.SchemaVersion != ScenarioSchemaVersion {
+			return fmt.Errorf("scenario requires explicit schemaVersion %s", ScenarioSchemaVersion)
+		}
+		if strings.TrimSpace(s.SkillName) == "" && len(s.Config.FilteredSkillPaths()) == 0 && len(s.Config.RequiredSkills) > 0 {
+			return fmt.Errorf("scenario required_skills requires explicit skill_directories with an enabled path")
+		}
+	}
 	if !ValidReasoningEffort(s.Config.ReasoningEffort) {
 		return fmt.Errorf("reasoning_effort must be one of low, medium, high, xhigh, or max, got %q", s.Config.ReasoningEffort)
 	}
@@ -495,7 +540,7 @@ func (s *EvalSpec) Validate() error {
 		if err != nil {
 			return err
 		}
-		if minor < 1 {
+		if minor < 1 && s.Scenario == "" {
 			return fmt.Errorf("mcp_mocks requires schemaVersion 1.1 or newer")
 		}
 		seen := make(map[string]bool, len(s.MCPMocks))
@@ -526,7 +571,7 @@ func (s *EvalSpec) Validate() error {
 		if err != nil {
 			return err
 		}
-		if minor < 2 {
+		if minor < 2 && s.Scenario == "" {
 			return fmt.Errorf("adversarial requires schemaVersion 1.2 or newer")
 		}
 		if err := s.Adversarial.Validate(); err != nil {
@@ -543,6 +588,14 @@ func (s *EvalSpec) Validate() error {
 		return fmt.Errorf("first_event_timeout_seconds must not be negative, got %d", s.Config.FirstEventTimeoutSec)
 	}
 	return nil
+}
+
+// SkillsDisabledForTask keeps scenario-only runs independent of ambient skills.
+// Legacy suites retain discovery; explicit scenario context opts back in.
+func (s *EvalSpec) SkillsDisabledForTask(taskPaths []string) bool {
+	return s.Config.AllSkillsDisabled() ||
+		(s.Scenario != "" && taskPaths != nil && len(taskPaths) == 0) ||
+		(s.Scenario != "" && strings.TrimSpace(s.SkillName) == "" && len(s.Config.FilteredSkillPaths()) == 0 && len(taskPaths) == 0)
 }
 
 func validateGraderReasoningEffort(name string, parameters GraderParameters, executor string) error {

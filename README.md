@@ -126,6 +126,9 @@ waza new skill skill-name
 # Create a new eval scaffold from an existing SKILL.md
 waza new eval skill-name
 
+# Create a workflow scenario without SKILL.md (real agent execution)
+waza new eval inventory --scenario --template repository
+
 # Generate a task YAML by recording a prompt run
 waza new task from-prompt "Explain this code and suggest fixes" evals/code-explainer/tasks/recorded-task.yaml
 
@@ -287,6 +290,42 @@ waza new skill code-explainer
 
 Scaffold an eval suite from an existing `SKILL.md` (reads frontmatter trigger hints from `USE FOR` and `DO NOT USE FOR`).
 
+For a workflow with no target skill, use `waza new eval <name> --scenario`.
+`--template repository|cli|mcp` selects sanitized repository, installed Git CLI,
+or harness-only mocked MCP examples. These templates explicitly use the real
+`copilot-sdk` executor; setting `config.executor: mock` checks the harness only,
+not agent quality. See [scenario examples](examples/scenarios/README.md).
+Scenario task files retain `tasks/` when it matches `files.taskGlob`, including
+wildcard-directory globs; otherwise they use a matching literal directory.
+Incompatible or unsafe configurations fail before writing. The task glob must
+select only generated task files, not evals, fixtures or metadata. For example,
+`fixtures/*.yaml` works, while `fixtures/*` also selects `.gitkeep` and is rejected.
+Scenario scaffolding rejects symlinked parent directories in the selected
+output path, including the scaffold root and generated task/fixture parents.
+Use a physical output path instead. Relative paths start at the retained working
+directory; absolute paths are admitted from their filesystem root. Only the
+literal macOS `/var` and `/tmp` aliases are accepted after verifying their
+expected `/private` targets. Writes retain admitted directories and cannot be
+redirected by subsequently replacing their path entries; moving an admitted
+directory can move its outputs. This is not a whole-scaffold transaction or a
+filesystem sandbox.
+The repository template has three existing file graders: report outcome,
+absence of `private.txt`, and byte-exact final preservation of `inventory.txt`.
+The CLI/MCP templates retain two graders. Preservation checks final workspace
+bytes, not transient writes or filesystem isolation.
+Repository scaffolds include a fixture-scoped `.gitattributes` to preserve
+inventory LF bytes through Git checkout; a safe root-level rule is used if the
+task glob selects local metadata. If both locations collide or select an extra
+task, generation fails before writing; narrow the task-directory glob or use a
+different eval filename. Existing suites require regeneration to adopt this
+policy.
+`waza migrate` validates supported scenario evals without rewriting them,
+including custom `.yaml`/`.yml` filenames such as `evals/inventory/suite.yml`.
+Legacy YAML filename rules and JSON-results recognition remain unchanged.
+In YAML and JSON, a present `scenario` key must contain a nonblank string and
+requires exact eval schema `2.0`. Null, booleans, numbers, arrays and objects
+are invalid; omit the key entirely to keep legacy eval semantics.
+
 Creates:
 - `evals/<skill-name>/<files.evalFile>`
 - `evals/<skill-name>/tasks/positive-trigger-1<files.taskFileSuffix>`
@@ -296,6 +335,8 @@ Creates:
 | Flag | Description |
 |------|-------------|
 | `--output <path>` | Custom path for the eval file (tasks are generated under sibling `tasks/`) |
+| `--scenario` | Create a workflow suite without reading or creating `SKILL.md` |
+| `--template <kind>` | `repository` (default), `cli`, or `mcp`; requires `--scenario` |
 
 Generated eval and task filenames are configurable in `.waza.yaml`:
 
@@ -851,6 +892,16 @@ Start the waza dashboard server to visualize evaluation results. The HTTP server
 
 Optionally, run a JSON-RPC 2.0 server (for IDE integration) instead of the HTTP dashboard using the `--tcp` flag.
 
+JSON-RPC `eval.list` and MCP `waza_eval_list` recursively list canonical
+`eval.yaml`/`eval.yml` files plus native-loadable scenario `.yaml`/`.yml` files,
+including configured/custom filenames. Scenario eligibility uses classification
+and native loading, not full authoring-schema or task validation.
+Custom task, unrelated, legacy or classification/loading-invalid YAML
+remains unlisted; use `eval.get`/`eval.validate` for diagnostics. Existing
+canonical invalid-file fallback behavior is unchanged. Choose the directory
+to inspect; traversal is not a filesystem sandbox. HTTP dashboard result
+listing is unchanged.
+
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--port <port>` | `3000` | HTTP server port |
@@ -1211,6 +1262,31 @@ With explicit effort, choose a concrete model from `waza models`. Waza checks th
 
 `schemaVersion` uses `MAJOR.MINOR` format. Missing values are interpreted as the current schema version (currently `1.4`). Readers allow same-major minor additions with warnings for unknown fields, but reject different majors with a hint to run `waza migrate <file>`.
 
+Scenario-bearing **evals only** explicitly select `schemaVersion: "2.0"` and
+`scenario: <workflow-name>`. Only this exact scenario version is supported;
+older executables reject it before running. Results and tasks remain `1.x`,
+so existing result readers and the dashboard keep working. Optional `skill:`
+retains existing skill/custom-agent context and discovery precedence. Without
+a target or explicit skill directories, scenarios disable ambient skill loading.
+Disabling the last eval-level directory also leaves target-free discovery disabled.
+An explicit empty task `skill_directories: []` disables discovery for that task;
+`--no-skills` overrides every task. Legacy suites keep their existing defaults.
+Legacy JSON-schema authoring requires `skill` when `scenario` is absent.
+The historical native loader/model validation used by `waza run` is not full
+JSON-schema validation: legacy default/`1.0`-`1.4` data can still load without
+a target and retain existing discovery behavior. That compatibility is not
+a recommended authoring workflow; use a named legacy target or scenario `2.0`.
+Schema `skill` uses a length-only constraint, so whitespace passes that check
+but is not a meaningful target. JSON-RPC `eval.validate` reports schema errors;
+separate preflight checks are not a universal runtime target-enforcement gate.
+Scenario `2.0` requires a nonblank `scenario` and may omit `skill`.
+Scenario `2.0` bypasses result caching with an explicit notice because external
+workflow dependencies are not fully fingerprinted; legacy caching is unchanged.
+Scenario readers reject unknown eval/config fields rather than accepting
+future-minor additions. `inputs.context.fixture` resolves relative to the eval
+directory; `inputs.files` and `instruction_files` resolve from the fixtures/context
+root, and file grader output paths are relative to the task workspace.
+
 Remote grader refs use Go-module-style paths: `<host>/<owner>/<repo>[/path][#export]@<version>`. The remote module must provide a `waza.registry.yaml` manifest and export a grader preset. Config-only grader presets expand to built-in grader types by default; remote program graders require explicit trust with `waza registry add --allow-exec` or interactive confirmation. Run `waza get eval.yaml` after manually adding or changing refs so `waza.lock` records the resolved commit and digest.
 
 `results.json` is currently emitted at `schemaVersion` `1.4`. Version `1.1` added per-turn checkpoints (`runs[].checkpoints[]`, see #358) and the normalized `runs[].tool_events[]` array (`turn`, `sequence`, `tool_call_id`, `tool_name`, `args`, `result`, `success`, `error`, `duration_ms`; see #366). Version `1.2` added `runs[].snapshot_path` for `waza run --snapshot` artifacts (#367) and the eval-level `adversarial:` block consumed by `waza adversarial --spec` (#365). Version `1.3` adds `session_digest.tool_policy_mode` and `tool_policy_denials` (#585). Version `1.4` adds sanitized `runs[].command_invocations` for declarative CLI mocks (#634). See [docs/PRD](docs/PRD.md) and [schema-changes](site/src/content/docs/reference/schema-changes.md) for details.
@@ -1333,7 +1409,9 @@ Relative fixture paths are resolved from the eval spec directory. Directory fixt
 
 ### Skill Body Injection
 
-By default, an eval with `skill: <name>` injects the target `SKILL.md` or `.agent.md` body into the agent system prompt. For trigger-precision evals, disable that body injection while preserving the skill association and SDK skill discovery:
+By default, an eval with `skill: <name>` injects the target `SKILL.md` or `.agent.md` body into the agent system prompt. The injected `<skill_context>` block starts with `Base directory for this skill: <absolute path>`, so relative links in the body (for example `scripts/install.sh` or `assets/templates/`) resolve from the skill's own directory even though the agent runs in a temp workspace. This matters for a skill with `disable-model-invocation: true`, which the agent cannot load through the `skill` tool.
+
+For trigger-precision evals, disable that body injection while preserving the skill association and SDK skill discovery:
 
 ```yaml
 skill: xyz

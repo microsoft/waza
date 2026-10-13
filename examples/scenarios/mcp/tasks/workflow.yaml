@@ -1,0 +1,5 @@
+id: "mcp-inventory-001"
+name: Workflow outcome
+description: "Real agent execution with a harness-only mocked MCP dependency; not production MCP reliability evidence."
+inputs:
+  prompt: "Call the inventory MCP server list_items tool. Sum the returned quantities and write exactly Inventory total: 3 to report.txt. Do not create private.txt."
