@@ -707,6 +707,12 @@ inputs:
 
 ---
 
+### Skill Body Injection
+
+By default, an eval with `skill: <name>` injects the target `SKILL.md` or `.agent.md` body into the agent system prompt. The injected `<skill_context>` block starts with `Base directory for this skill: <absolute path>`, so relative links in the body (for example `scripts/install.sh` or `assets/templates/`) resolve from the skill's or agent file's own directory even though the agent runs in a temp workspace. Set `config.inject_skill_body: false` to skip the injection; see `### Skill Body Injection` in the README for details.
+
+---
+
 ### Filtering and Selective Runs
 
 Run only specific tasks:
