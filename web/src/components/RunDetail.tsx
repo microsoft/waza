@@ -172,24 +172,20 @@ function ReliabilityCard({ statistics, passed, total }: {
 function GraderRow({ grader }: { grader: GraderResult }) {
   return (
     <tr className="border-b border-zinc-700/30">
-      <td className="py-2 pl-12 pr-4 text-zinc-300">{grader.name}</td>
-      <td className="px-4 py-2">
-        <TypeBadge type={grader.type} />
+      <td colSpan={6} className="py-2 pl-12 pr-4" data-testid="grader-details">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-zinc-400">
+          <span className="text-zinc-300">{grader.name}</span>
+          <TypeBadge type={grader.type} />
+          {grader.passed ? (
+            <CheckCircle2 className="h-4 w-4 text-green-500" />
+          ) : (
+            <XCircle className="h-4 w-4 text-red-500" />
+          )}
+          <span>Score: {formatPercent(grader.score)}</span>
+          <span>Weight: {grader.weight != null ? `×${grader.weight}` : "—"}</span>
+          <span>Message: {grader.message}</span>
+        </div>
       </td>
-      <td className="px-4 py-2">
-        {grader.passed ? (
-          <CheckCircle2 className="h-4 w-4 text-green-500" />
-        ) : (
-          <XCircle className="h-4 w-4 text-red-500" />
-        )}
-      </td>
-      <td className="px-4 py-2 text-zinc-300">
-        {formatPercent(grader.score)}
-      </td>
-      <td className="px-4 py-2 text-zinc-400">
-        {grader.weight != null ? `×${grader.weight}` : "—"}
-      </td>
-      <td className="px-4 py-2 text-zinc-400">{grader.message}</td>
     </tr>
   );
 }

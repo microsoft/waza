@@ -11,6 +11,28 @@ async function showDetail(page: Page, detail: RunDetail) {
 }
 
 test.describe("Recorded trial reliability", () => {
+  test("labels expanded grader metadata instead of placing it under task metric columns", async ({ page }) => {
+    await showDetail(page, {
+      ...recorded,
+      tasks: [{
+        ...recorded.tasks[0],
+        graderResults: [{
+          name: "file-present", type: "file", passed: true,
+          score: 1, weight: 2, message: "record persisted",
+        }],
+      }],
+    });
+    await page.getByRole("row").filter({ hasText: "mixed-trials" }).click();
+    const row = page.getByRole("row").filter({ hasText: "file-present" });
+    await expect(row.locator("td")).toHaveCount(1);
+    await expect(row.getByTestId("grader-details")).toHaveAttribute("colspan", "6");
+    await expect(row).toContainText("Score: 100%");
+    await expect(row).toContainText("Weight: ×2");
+    await expect(row).toContainText("Message: record persisted");
+    await expect(row).not.toContainText("Wilson");
+    await expect(row).not.toContainText("trials passed");
+  });
+
   test("shows distinct pass-rate and weighted-score intervals with recorded evidence", async ({ page }) => {
     await showDetail(page, recorded);
     const task = page.getByTestId("task-pass-rate").first();
