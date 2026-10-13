@@ -46,6 +46,39 @@ func TestScenarioScaffold(t *testing.T) {
 	}
 }
 
+func TestScenarioRunWorkspaceSkillDefaults(t *testing.T) {
+	for _, tt := range []struct {
+		name     string
+		scenario string
+		skill    string
+		explicit []string
+		want     []string
+	}{
+		{name: "absent", scenario: "inventory"},
+		{name: "whitespace", scenario: "inventory", skill: " \t "},
+		{name: "named", scenario: "inventory", skill: "reader", want: []string{"workspace/skills"}},
+		{name: "explicit", scenario: "inventory", skill: " \t ", explicit: []string{"selected/skills"}, want: []string{"selected/skills"}},
+		{name: "legacy", skill: " \t ", want: []string{"workspace/skills"}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			resetRunGlobals()
+			t.Cleanup(resetRunGlobals)
+			specPath := createTestSpec(t, "mock")
+			spec, err := models.LoadEvalSpec(specPath)
+			require.NoError(t, err)
+			spec.Scenario = tt.scenario
+			if tt.scenario != "" {
+				spec.SchemaVersion = models.ScenarioSchemaVersion
+			}
+			spec.SkillName = tt.skill
+			spec.Config.SkillPaths = tt.explicit
+			_, err = runSingleModel(nil, spec, specPath, []string{"workspace/skills"})
+			require.NoError(t, err)
+			require.Equal(t, tt.want, spec.Config.SkillPaths)
+		})
+	}
+}
+
 func TestScenarioScaffoldInvalid(t *testing.T) {
 	for _, args := range [][]string{
 		{"new", "eval", "inventory", "--template", "cli"},

@@ -730,7 +730,7 @@ func runSingleModel(cmd *cobra.Command, spec *models.EvalSpec, specPath string, 
 		}
 	}
 
-	if len(spec.Config.SkillPaths) == 0 && (spec.Scenario == "" || spec.SkillName != "") {
+	if len(spec.Config.SkillPaths) == 0 && (spec.Scenario == "" || strings.TrimSpace(spec.SkillName) != "") {
 		// ie, the user hasn't configured skill paths explicitly
 		spec.Config.SkillPaths = append(spec.Config.SkillPaths, defaultSkills...)
 	}
@@ -906,7 +906,7 @@ func runSingleModel(cmd *cobra.Command, spec *models.EvalSpec, specPath string, 
 	if spec.Scenario != "" {
 		fmt.Printf("Scenario: %s\n", spec.Scenario)
 	}
-	if spec.SkillName != "" || spec.Scenario == "" {
+	if strings.TrimSpace(spec.SkillName) != "" || spec.Scenario == "" {
 		fmt.Printf("Skill: %s\n", spec.SkillName)
 	}
 	fmt.Printf("Engine: %s\n", spec.Config.EngineType)

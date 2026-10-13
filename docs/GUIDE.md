@@ -134,6 +134,10 @@ directory; incompatible globs/suffixes fail before writing. The glob must select
 only generated tasks, not evals, fixtures or metadata: use `fixtures/*.yaml`
 instead of `fixtures/*`, which also selects `.gitkeep`. Disabling
 the last eval skill directory does not re-enable ambient discovery.
+Whitespace-only optional `skill` values are absent for scenario discovery and
+do not import workspace-default skills. Scenario `required_skills` validation
+searches only enabled directories; disabled paths, `["*"]` or `none` cannot
+satisfy a required skill. Legacy discovery and validation behavior is unchanged.
 Scenario generation rejects symlinked parents in the selected output path;
 replace them with physical directories or choose a physical `--output` path.
 Relative output starts at the retained working directory, and absolute output

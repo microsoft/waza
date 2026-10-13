@@ -776,8 +776,8 @@ func (r *EvalRunner) loadTestCasesFromFiles() ([]*models.TestCase, error) {
 func (r *EvalRunner) validateRequiredSkills() error {
 	spec := r.cfg.Spec()
 
-	// If all skills are disabled, skip validation
-	if spec.Config.AllSkillsDisabled() {
+	// Legacy suites skip validation when all skills are disabled.
+	if spec.Config.AllSkillsDisabled() && spec.Scenario == "" {
 		return nil
 	}
 
@@ -793,10 +793,17 @@ func (r *EvalRunner) validateRequiredSkills() error {
 	}
 
 	// Resolve skill paths
-	resolvedPaths := utils.ResolvePaths(spec.Config.SkillPaths, baseDir)
+	skillPaths := spec.Config.SkillPaths
+	if spec.Scenario != "" {
+		skillPaths = spec.Config.FilteredSkillPaths()
+	}
+	resolvedPaths := utils.ResolvePaths(skillPaths, baseDir)
 
 	// If required skills specified but no skill directories, that's an error
 	if len(resolvedPaths) == 0 {
+		if spec.Scenario != "" {
+			return fmt.Errorf("required_skills specified but no skill_directories remain enabled; configure a directory not excluded by disabled_skills")
+		}
 		return fmt.Errorf("required_skills specified but no skill_directories configured")
 	}
 

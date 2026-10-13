@@ -54,6 +54,10 @@ precedence. Without a target or explicit eval/task skill directories, ambient
 skills are disabled. An explicit empty task `skill_directories: []` disables
 discovery for that task; `--no-skills` wins over every opt-in.
 Disabling the last eval-level directory preserves target-free isolation.
+Whitespace-only optional `skill` values do not opt into workspace-default or
+ambient discovery. Scenario `required_skills` checks search enabled directories
+only; a disabled path, `["*"]` or `none` cannot satisfy a required skill.
+Legacy discovery and validation retain their existing behavior.
 Scenario task files retain `tasks/` when selected by `files.taskGlob`, including
 wildcard-directory globs; otherwise they use a matching literal directory.
 Unsupported or nonmatching glob/suffix combinations fail before writing.

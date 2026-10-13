@@ -26,12 +26,14 @@ func TestScenarioExecutionRequest(t *testing.T) {
 
 	for _, tt := range []struct {
 		name      string
+		skill     string
 		evalPaths []string
 		taskPaths []string
 		disabled  []string
 		want      bool
 	}{
 		{name: "no-ambient", want: true},
+		{name: "whitespace-target", skill: " \t ", want: true},
 		{name: "explicit-eval", evalPaths: []string{"../"}, want: false},
 		{name: "last-eval-path-disabled", evalPaths: []string{"skills/foo"}, disabled: []string{"foo"}, want: true},
 		{name: "empty-task", evalPaths: []string{"../"}, taskPaths: []string{}, want: true},
@@ -39,7 +41,7 @@ func TestScenarioExecutionRequest(t *testing.T) {
 		{name: "no-skills-override", taskPaths: []string{"../"}, disabled: []string{"*"}, want: true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			spec := &models.EvalSpec{Scenario: "inventory", SchemaVersion: "2.0", Config: models.Config{
+			spec := &models.EvalSpec{Scenario: "inventory", SkillName: tt.skill, SchemaVersion: "2.0", Config: models.Config{
 				SkillPaths: tt.evalPaths, DisabledSkills: tt.disabled, InstructionFiles: []string{"instructions.md"},
 			}}
 			runner := NewEvalRunner(config.NewEvalConfig(spec, config.WithSpecDir(specDir), config.WithFixtureDir(fixtures)), nil)
@@ -55,7 +57,7 @@ func TestScenarioExecutionRequest(t *testing.T) {
 			if tt.name == "last-eval-path-disabled" {
 				require.Empty(t, req.SkillPaths)
 			}
-			require.Empty(t, req.SkillName)
+			require.Equal(t, tt.skill, req.SkillName)
 			require.NotEmpty(t, req.Resources)
 			require.Equal(t, "inventory.txt", req.Resources[0].Path)
 			require.Equal(t, []byte("apples: 2\npears: 1\n"), req.Resources[0].Content)
@@ -65,6 +67,44 @@ func TestScenarioExecutionRequest(t *testing.T) {
 			}
 			if len(tt.taskPaths) > 0 {
 				require.Equal(t, []string{filepath.Clean(dir)}, req.SkillPaths)
+			}
+		})
+	}
+}
+
+func TestScenarioRequiredSkillsUseEnabledPaths(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"foo", "bar"} {
+		skillDir := filepath.Join(dir, "skills", name)
+		require.NoError(t, os.MkdirAll(skillDir, 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("---\nname: "+name+"\ndescription: Test skill\n---\n"), 0o600))
+	}
+	for _, tt := range []struct {
+		name     string
+		scenario string
+		paths    []string
+		disabled []string
+		wantErr  string
+	}{
+		{name: "enabled", scenario: "inventory", paths: []string{"skills/foo"}},
+		{name: "all-paths-filtered", scenario: "inventory", paths: []string{"skills/foo"}, disabled: []string{"foo"}, wantErr: "no skill_directories"},
+		{name: "disabled-full-path", scenario: "inventory", paths: []string{"skills/foo"}, disabled: []string{"skills/foo"}, wantErr: "no skill_directories"},
+		{name: "other-enabled-path", scenario: "inventory", paths: []string{"skills/foo", "skills/bar"}, disabled: []string{"foo"}, wantErr: "foo"},
+		{name: "wildcard-disabled", scenario: "inventory", paths: []string{"skills/foo"}, disabled: []string{"*"}, wantErr: "no skill_directories"},
+		{name: "none-marker", scenario: "inventory", paths: []string{"none"}, wantErr: "no skill_directories"},
+		{name: "legacy-named-filter-preserved", paths: []string{"skills/foo"}, disabled: []string{"foo"}},
+		{name: "legacy-wildcard-preserved", paths: []string{"skills/foo"}, disabled: []string{"*"}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			spec := &models.EvalSpec{Scenario: tt.scenario, Config: models.Config{
+				SkillPaths: tt.paths, DisabledSkills: tt.disabled, RequiredSkills: []string{"foo"},
+			}}
+			runner := NewEvalRunner(config.NewEvalConfig(spec, config.WithSpecDir(dir)), nil)
+			err := runner.validateRequiredSkills()
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+			} else {
+				require.NoError(t, err)
 			}
 		})
 	}

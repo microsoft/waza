@@ -206,6 +206,8 @@ func TestScenarioTaskDiscovery(t *testing.T) {
 	}{
 		{name: "legacy-ambient"},
 		{name: "generic", scenario: "inventory", want: true},
+		{name: "whitespace-target", scenario: "inventory", skill: " \t ", want: true},
+		{name: "legacy-whitespace-target", skill: " \t "},
 		{name: "explicit-skill", scenario: "inventory", skill: "reader"},
 		{name: "explicit-directories", scenario: "inventory", evalPaths: []string{"skills"}},
 		{name: "explicit-task", scenario: "inventory", taskPaths: []string{"skills"}},
@@ -228,6 +230,34 @@ func TestScenarioTaskDiscovery(t *testing.T) {
 	var task TestCase
 	require.NoError(t, yaml.Unmarshal([]byte("skill_directories: []\ninputs:\n  prompt: hello\n"), &task))
 	require.NotNil(t, task.SkillPaths)
+}
+
+func TestScenarioRequiresEnabledSkillPaths(t *testing.T) {
+	for _, tt := range []struct {
+		name     string
+		scenario string
+		disabled []string
+		wantErr  bool
+	}{
+		{name: "enabled", scenario: "inventory"},
+		{name: "disabled-name", scenario: "inventory", disabled: []string{"foo"}, wantErr: true},
+		{name: "disabled-path", scenario: "inventory", disabled: []string{"skills/foo"}, wantErr: true},
+		{name: "disabled-all", scenario: "inventory", disabled: []string{"*"}, wantErr: true},
+		{name: "legacy-preserved", disabled: []string{"foo"}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			spec := &EvalSpec{Scenario: tt.scenario, SchemaVersion: ScenarioSchemaVersion, SkillName: " \t ", Config: Config{
+				TrialsPerTask: 1, TimeoutSec: 30,
+				SkillPaths: []string{"skills/foo"}, DisabledSkills: tt.disabled, RequiredSkills: []string{"foo"},
+			}}
+			err := spec.Validate()
+			if tt.wantErr {
+				require.ErrorContains(t, err, "explicit skill_directories")
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
 }
 
 func TestScenarioRejectsUnknownConfigField(t *testing.T) {
