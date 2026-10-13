@@ -141,7 +141,8 @@ func TestScenarioCacheBypassPreservesLegacyCaching(t *testing.T) {
 			require.NoError(t, err)
 			var emitted models.EvaluationOutcome
 			require.NoError(t, json.Unmarshal(data, &emitted))
-			require.Equal(t, models.CurrentSchemaVersion, emitted.SchemaVersion)
+			require.Equal(t, models.CurrentResultSchemaVersion, first.SchemaVersion)
+			require.Equal(t, models.CurrentResultSchemaVersion, emitted.SchemaVersion)
 			require.Empty(t, emitted.SkillTested)
 			if scenario != "" {
 				require.NoError(t, os.WriteFile(filepath.Join(dir, "inventory.txt"), []byte("4"), 0o600))

@@ -50,6 +50,33 @@ func TestMigrateCommandDefaultsMissingSchemaVersion(t *testing.T) {
 	require.Contains(t, out.String(), "already compatible with schemaVersion 1.4")
 }
 
+func TestMigrateCommandReportsArtifactVersionsWithoutRewriting(t *testing.T) {
+	for _, tc := range []struct {
+		name, filename, contents, want string
+	}{
+		{"unversioned-results", "results.json", `{"tasks":[]}`,
+			"results.json is already compatible with schemaVersion 1.4 (legacy reader default); current result writer schemaVersion 1.5; no migration needed.\n"},
+		{"legacy-results", "history.json", `{"schemaVersion":"1.4","tasks":[]}`,
+			"results.json is already compatible with schemaVersion 1.4 (legacy reader default); current result writer schemaVersion 1.5; no migration needed.\n"},
+		{"current-results", "results.json", `{"schemaVersion":"1.5","tasks":[]}`,
+			"results.json is already compatible with schemaVersion 1.5; no migration needed.\n"},
+		{"older-results", "history.json", `{"schemaVersion":"1.0","tasks":[]}`,
+			"results.json uses schemaVersion 1.0, which is compatible with waza schemaVersion 1.5; no migration needed.\n"},
+		{"future-minor-results", "results.json", `{"schemaVersion":"1.99","tasks":[]}`,
+			"results.json uses schemaVersion 1.99, which is compatible with waza schemaVersion 1.5; no migration needed.\n"},
+		{"legacy-eval", "eval.yaml", "schemaVersion: \"1.4\"\n",
+			"eval.yaml is already compatible with schemaVersion 1.4; no migration needed.\n"},
+		{"older-eval", "eval.yml", "schemaVersion: \"1.0\"\n",
+			"eval.yaml uses schemaVersion 1.0, which is compatible with waza schemaVersion 1.4; no migration needed.\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			output, err := migrateArtifactUnchanged(t, tc.filename, tc.contents)
+			require.NoError(t, err)
+			require.Equal(t, tc.want, output)
+		})
+	}
+}
+
 func TestMigrateCommandRejectsUnknownJSONShape(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "settings.json")

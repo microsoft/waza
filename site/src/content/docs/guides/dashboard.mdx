@@ -34,6 +34,8 @@ Summary of all evaluation runs:
 Detailed results for a single evaluation run:
 
 - **Task List** — All tasks with pass/fail status
+- **Trial Pass Rate** — Recorded trial pass-rate estimates, Wilson confidence intervals, and passed/total trial counts. The bootstrap weighted-score interval stays under **W. Score**, separate from binary pass/fail reliability.
+- **Recorded reliability** — The suite success-rate Wilson interval counts each task as one sample. The stored pass^k curve estimates all k trials passing, averaged over tasks; it is not pass@k or a guarantee. Missing historical fields show **Not assessed** and are never reconstructed from scores or status. These are not significance tests between runs.
 - **Prompts** — Raw resolved task prompts captured in the result artifact, with readable JSON formatting and copy actions. Results created by older waza versions show an explicit unavailable state.
 - **Validator Results** — Per-validator scores and messages
 - **Execution Stats** — Duration, token usage, tool calls

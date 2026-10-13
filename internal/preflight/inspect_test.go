@@ -421,3 +421,79 @@ func TestInspectLockedGraderCacheMatrix(t *testing.T) {
 	r = Inspect(path, Options{})
 	require.True(t, hasDiagnostic(r, "grader.lock_entry", Invalid))
 }
+
+func TestInspectRefOnlyLockedGraderMissingCache(t *testing.T) {
+	for _, scenario := range []bool{false, true} {
+		for _, scope := range []string{"eval", "task", "checkpoint"} {
+			t.Run(fmt.Sprintf("scenario=%t/%s", scenario, scope), func(t *testing.T) {
+				cache := t.TempDir()
+				t.Setenv("WAZA_MODULE_CACHE", cache)
+				ref := "github.com/example/checks/check.yaml@v1"
+				commit := strings.Repeat("a", 40)
+				eval, task := validEval, validTask
+				if scenario {
+					eval = strings.Replace(eval, `schemaVersion: "1.4"`, "schemaVersion: \"2.0\"\nscenario: offline-cache", 1)
+					eval = strings.Replace(eval, "skill: example\n", "", 1)
+				}
+				declaration := "{ref: '" + ref + "'}"
+				switch scope {
+				case "eval":
+					eval += "\ngraders: [" + declaration + "]\n"
+				case "task":
+					task = strings.Replace(task, "\nrequirements:", "\n  - "+declaration+"\nrequirements:", 1)
+				case "checkpoint":
+					task += "\ncheckpoints: [{after_turn: 1, graders: [" + declaration + "]}]\n"
+				}
+				path, dir := writeSuite(t, eval, task)
+				lock := models.NewLockfile()
+				entry := models.LockfileGrader{Ref: ref, Commit: commit, Digest: "sha256:" + strings.Repeat("b", 64), URL: "https://not-fetched.invalid"}
+				lock.UpsertGrader(entry)
+				require.NoError(t, models.WriteLockfile(filepath.Join(dir, models.LockfileName), lock))
+				report := Inspect(path, Options{})
+				if scope != "eval" {
+					// Task and checkpoint schemas support inline validators, not refs.
+					require.True(t, hasDiagnostic(report, "task.schema", Invalid))
+					require.True(t, report.Failed(false))
+					require.False(t, hasDiagnostic(report, "grader.cache_missing", Unresolved))
+					return
+				}
+				require.True(t, hasDiagnostic(report, "grader.cache_missing", Unresolved), "%+v", report.Diagnostics)
+				require.False(t, hasDiagnostic(report, "grader.name", Invalid), "%+v", report.Diagnostics)
+				require.False(t, report.Failed(false), "%+v", report.Diagnostics)
+				require.True(t, report.Failed(true))
+				require.False(t, report.Complete)
+
+				module := filepath.Join(cache, "github.com", "example", "checks", commit)
+				require.NoError(t, os.MkdirAll(module, 0o700))
+				require.NoError(t, os.WriteFile(filepath.Join(module, "check.yaml"), []byte("name: cached\ntype: text\nconfig: {contains: [ready]}\n"), 0o600))
+				digest, err := registry.DigestDirectory(module)
+				require.NoError(t, err)
+				entry.Digest = digest
+				lock.UpsertGrader(entry)
+				require.NoError(t, models.WriteLockfile(filepath.Join(dir, models.LockfileName), lock))
+				report = Inspect(path, Options{})
+				require.False(t, report.Failed(true), "%+v", report.Diagnostics)
+				require.True(t, report.Complete)
+			})
+		}
+	}
+}
+
+func TestInspectGradersPreservesKnownNameErrors(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		configs []models.GraderConfig
+	}{
+		{"unnamed-inline", []models.GraderConfig{{}}},
+		{"duplicate-explicit-ref-names", []models.GraderConfig{
+			{Identifier: "duplicate", Ref: "github.com/example/checks/a.yaml@v1"},
+			{Identifier: "duplicate", Ref: "github.com/example/checks/b.yaml@v1"},
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			report := &Report{}
+			inspectGraders(report, tc.configs, "eval.yaml", "", "")
+			require.True(t, hasDiagnostic(report, "grader.name", Invalid))
+		})
+	}
+}

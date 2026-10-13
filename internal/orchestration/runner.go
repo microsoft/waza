@@ -378,10 +378,11 @@ func (r *EvalRunner) runNormalBenchmark(ctx context.Context) (*models.Evaluation
 		outcomeRunID = fmt.Sprintf("run-%d", time.Now().Unix())
 	}
 	outcome := &models.EvaluationOutcome{
-		RunID:       outcomeRunID,
-		SkillTested: spec.SkillName,
-		BenchName:   spec.Name,
-		Timestamp:   startTime,
+		SchemaVersion: models.CurrentResultSchemaVersion,
+		RunID:         outcomeRunID,
+		SkillTested:   spec.SkillName,
+		BenchName:     spec.Name,
+		Timestamp:     startTime,
 		Setup: models.OutcomeSetup{
 			RunsPerTest:          spec.Config.TrialsPerTask,
 			ModelID:              spec.Config.ModelID,
@@ -893,8 +894,10 @@ func (r *EvalRunner) runTest(ctx context.Context, tc *models.TestCase, testNum, 
 		cacheKey, err := cache.CacheKey(spec, tc, r.cfg.FixtureDir())
 		if err == nil {
 			if cachedOutcome, found := r.cache.Get(cacheKey); found {
-				// Return cached outcome with cached flag
+				// Return cached outcome with cached flag. Stats derive from the
+				// cached runs, so recompute them in case an older waza wrote them.
 				cachedOutcome.Cached = true
+				cachedOutcome.Stats = ComputeTestStats(cachedOutcome.Runs)
 				return *cachedOutcome, true
 			}
 			// Run the test and cache the result

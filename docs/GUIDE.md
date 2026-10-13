@@ -932,6 +932,7 @@ The dashboard opens automatically at `http://localhost:3000`.
 - **Sortable run history** — Click a column's sort button to cycle through both directions and the original order. Text columns start ascending, numeric columns start descending, and **When** sorts by the run timestamp. Pass Rate and W. Score are display-only columns. Click a row to open its run details.
 - **Live updates** — See results as tasks complete
 - **Prompt inspection** — Review the raw resolved prompt sent to each task, format JSON prompts, and copy prompt text
+- **Recorded reliability** — Run detail shows stored Wilson pass-rate intervals with trial counts, the suite success-rate interval (one sample per task), and pass^k estimates (all k trials pass, averaged over tasks). These are separate from the bootstrap weighted-score interval and are not between-run significance tests. Missing historical fields show **Not assessed**, never reconstructed estimates.
 - **Search** — Find runs, tasks, and models
 - **Filtering** — Filter by status (passed/failed), tags, date range
 - **Export** — Download results as CSV or JSON

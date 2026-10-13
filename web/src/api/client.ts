@@ -64,11 +64,19 @@ export interface TranscriptEvent {
   success?: boolean;
 }
 
-export interface BootstrapCI {
+export interface ConfidenceInterval {
   lower: number;
   upper: number;
   mean: number;
   confidenceLevel: number;
+}
+
+export type BootstrapCI = ConfidenceInterval;
+
+export interface ReliabilitySummary {
+  successRateCI?: ConfidenceInterval;
+  /** Stored pass^k estimates: index k-1, averaged over tasks, not pass@k. */
+  passHatK?: number[];
 }
 
 export interface SessionDigest {
@@ -103,11 +111,13 @@ export interface TaskResult {
   sessionDigest?: SessionDigest;
   responder?: ResponderInfo;
   bootstrapCI?: BootstrapCI;
-  isSignificant?: boolean;
+  passRateCI?: ConfidenceInterval;
+  trials?: { passed: number; total: number };
 }
 
 export interface RunDetail extends RunSummary {
   tasks: TaskResult[];
+  statistics?: ReliabilitySummary;
 }
 
 async function fetchJSON<T>(url: string): Promise<T> {

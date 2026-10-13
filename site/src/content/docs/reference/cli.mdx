@@ -57,6 +57,9 @@ Invalid configuration exits 1; unresolved/unsupported warn and exit 0 unless
 `--strict` opts into 1. Usage/output errors use exit 2. Existing command exits
 are unchanged. `verified` means static inspection, not a satisfied requirement
 or runtime enforcement. The separately typed report is not `results.json`.
+Ref-only eval graders with a missing pinned cache remain unresolved until
+their preset/fallback can supply the effective name. Explicit duplicate names
+remain invalid; task/checkpoint graders still require inline declarations.
 See [Offline Eval Preflight](/guides/preflight/) for descriptive requirement
 references, capability/dependency plans, and offline limitations.
 
@@ -753,6 +756,14 @@ waza migrate <file>
 Legacy eval/task/result defaults remain `1.4`. Compatible legacy YAML evals use
 the `eval.yaml`/`eval.yml` filename convention; JSON results are recognized by
 their artifact shape, including custom `.json` filenames.
+
+This legacy input/reader policy is separate from new result emission: current
+evaluations and regrades write results `1.5`. Task YAML has no independent version
+field. Historical result versions and missing reliability metadata are preserved
+when reading/re-saving; migration does not upgrade them.
+Compatibility reports select the current version by artifact type: eval `1.4`
+or result writer `1.5`. Missing/`1.4` result versions are explicitly labeled as
+the legacy reader default alongside the current writer version, not rewritten.
 
 A present `scenario` header requires a nonblank native string and exact schema
 `2.0`, including in canonical `eval.yaml`/`eval.yml` files. Supported scenario

@@ -13,6 +13,7 @@ import (
 	"github.com/microsoft/waza/internal/copilotevents"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/pricing"
+	"github.com/microsoft/waza/internal/statistics"
 )
 
 // ErrRunNotFound is returned when a run ID does not match any stored run.
@@ -275,6 +276,12 @@ func modelUsageResponses(usage *models.UsageStats) []ModelUsageResponse {
 func outcomeToDetail(o *models.EvaluationOutcome) *RunDetail {
 	s := outcomeToSummary(o)
 	detail := &RunDetail{RunSummary: s}
+	if stats := o.Digest.Statistics; stats != nil && (stats.SuccessRateCI != nil || len(stats.PassHatK) > 0) {
+		detail.Statistics = &ReliabilitySummaryResponse{
+			SuccessRateCI: confidenceIntervalResponse(stats.SuccessRateCI),
+			PassHatK:      append([]float64(nil), stats.PassHatK...),
+		}
+	}
 
 	for _, to := range o.TestOutcomes {
 		tr := TaskResult{
@@ -284,15 +291,14 @@ func outcomeToDetail(o *models.EvaluationOutcome) *RunDetail {
 		if to.Stats != nil {
 			tr.Score = to.Stats.AvgScore
 			tr.Duration = float64(to.Stats.AvgDurationMs) / 1000.0
-			if to.Stats.BootstrapCI != nil {
-				tr.BootstrapCI = &ConfidenceIntervalResponse{
-					Lower:           to.Stats.BootstrapCI.Lower,
-					Upper:           to.Stats.BootstrapCI.Upper,
-					Mean:            to.Stats.BootstrapCI.Mean,
-					ConfidenceLevel: to.Stats.BootstrapCI.ConfidenceLevel,
+			tr.BootstrapCI = confidenceIntervalResponse(to.Stats.BootstrapCI)
+			tr.PassRateCI = confidenceIntervalResponse(to.Stats.PassRateCI)
+			if to.Stats.TotalRuns > 0 {
+				tr.Trials = &TrialCountsResponse{
+					Passed: to.Stats.PassedRuns,
+					Total:  to.Stats.TotalRuns,
 				}
 			}
-			tr.IsSignificant = to.Stats.IsSignificant
 		}
 
 		// Collect grader results, transcript, and session digest from the first run.
@@ -332,6 +338,18 @@ func outcomeToDetail(o *models.EvaluationOutcome) *RunDetail {
 	}
 
 	return detail
+}
+
+func confidenceIntervalResponse(ci *statistics.ConfidenceInterval) *ConfidenceIntervalResponse {
+	if ci == nil {
+		return nil
+	}
+	return &ConfidenceIntervalResponse{
+		Lower:           ci.Lower,
+		Upper:           ci.Upper,
+		Mean:            ci.Mean,
+		ConfidenceLevel: ci.ConfidenceLevel,
+	}
 }
 
 func promptFromRun(run models.RunResult) string {

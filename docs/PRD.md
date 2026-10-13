@@ -166,7 +166,7 @@ Cross-model testing and comprehensive metrics.
 | E3-02 | As a developer, I can see task completion metrics | Pass rate, composite score |
 | E3-03 | As a developer, I can see trigger accuracy metrics | Activation pattern validation |
 | E3-04 | As a developer, I can see behavior quality metrics | Response quality scoring |
-| E3-05 | As a developer, I can run trials for statistical confidence | Multiple runs per task |
+| E3-05 | As a developer, I can run trials for statistical confidence | Multiple runs per task; recorded task/suite Wilson pass-rate intervals and pass^k reliability in result schema 1.5, surfaced consistently in CLI/API/dashboard. Historical absent metrics remain unassessed; paired significance is a separate capability. |
 | E3-06 | As a developer, I can get LLM-powered improvement suggestions | --suggestions flag |
 | E3-07 | As a developer, I can run tasks in parallel | --parallel flag |
 | E3-08 | As a developer, I can filter to specific tasks | --task flag |

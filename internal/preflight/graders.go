@@ -16,6 +16,10 @@ import (
 func inspectGraders(r *Report, configs []models.GraderConfig, source, task, fixtures string) {
 	names := map[string]bool{}
 	for _, g := range configs {
+		if g.Ref != "" && g.Kind == "" && g.Identifier == "" {
+			// The preset/fallback supplies this name only after expansion.
+			continue
+		}
 		if g.Identifier == "" || names[g.Identifier] {
 			r.add("grader.name", Invalid, source, task, "", "Grader name is empty or duplicated within its scope.", "Assign unique nonempty grader names within each eval, task, or checkpoint scope.")
 		}
