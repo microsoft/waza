@@ -78,6 +78,11 @@ for (const assessment of ["recorded", "unassessed"] as const) {
         run.assessment = "unassessed";
         run.cached = false;
         run.message = "No evidence manifest recorded; historical absence is not success.";
+        for (const explanation of run.explanations!) {
+          for (const check of explanation.checks ?? []) {
+            delete check.references;
+          }
+        }
       }
 
       const view = await openEvidence(page, [run]);
@@ -95,7 +100,11 @@ for (const assessment of ["recorded", "unassessed"] as const) {
         await expect(target).not.toContainText("Evidence:");
       }
       await expect(control).toContainText("task / report-check: grader_recorded_failure · operational_status_unavailable");
-      await expect(control).toContainText("Evidence: tool-events/toolEvents/0 · eval source-evaluation");
+      if (assessment === "recorded") {
+        await expect(control).toContainText("Evidence: tool-events/toolEvents/0 · eval source-evaluation");
+      } else {
+        await expect(view).not.toContainText("Evidence:");
+      }
       await expect(control).not.toContainText(unavailable);
       await expect(view).toContainText(`Run 1 · 2 attempts · ${assessment}`);
       await expect(view).not.toContainText("Evidence metadata withheld");
@@ -182,7 +191,7 @@ test("server-withheld metadata never appears as recorded success", async ({ page
     runNumber: 1, attempts: 1, cached: false, assessment: "invalid",
     message: "Evidence identity or metadata is invalid; do not use it for state reconstruction.",
   }]);
-  await expect(view).toContainText("1 attempts · invalid");
+  await expect(view).toContainText("1 attempt · invalid");
   await expect(view).toContainText("do not use it for state reconstruction");
   await expect(view).not.toContainText("Manifest");
 });
