@@ -475,7 +475,8 @@
             "skill_invocation",
             "trigger",
             "diff",
-            "tool_constraint"
+            "tool_constraint",
+            "tool_calls"
           ],
           "description": "The grader type."
         },
@@ -500,6 +501,15 @@
         }
       },
       "allOf": [
+        {
+          "if": {
+            "properties": {"type": {"const": "tool_calls"}},
+            "required": ["type"]
+          },
+          "then": {
+            "properties": {"config": {"$ref": "#/$defs/toolCallsGraderConfig"}}
+          }
+        },
         {
           "if": {
             "properties": {
@@ -1158,6 +1168,35 @@
         }
       }
     },
+    "toolCallsGraderConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "anyOf": [
+        {"required": ["required_tools"]},
+        {"required": ["forbidden_tools"]},
+        {"required": ["min_calls"]},
+        {"required": ["max_calls"]},
+        {"required": ["expect"]}
+      ],
+      "properties": {
+        "required_tools": {"type": "array", "items": {"type": "string"}},
+        "forbidden_tools": {"type": "array", "items": {"type": "string"}},
+        "min_calls": {"type": "integer", "minimum": 0},
+        "max_calls": {"type": "integer", "minimum": 0},
+        "expect": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["tool"],
+            "additionalProperties": false,
+            "properties": {
+              "tool": {"type": "string", "minLength": 1},
+              "args": {"$ref": "#/$defs/toolArgumentMatchers"}
+            }
+          }
+        }
+      }
+    },
     "toolConstraintGraderConfig": {
       "type": "object",
       "additionalProperties": false,
@@ -1267,14 +1306,20 @@
     },
     "promptGraderConfig": {
       "type": "object",
-      "required": [
-        "prompt"
+      "anyOf": [
+        {"required": ["prompt"]},
+        {"required": ["rubric"]}
       ],
       "additionalProperties": false,
       "properties": {
         "prompt": {
           "type": "string",
           "minLength": 1
+        },
+        "rubric": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Existing built-in rubric name or local markdown rubric path; descriptive task metadata does not change judge execution."
         },
         "model": {
           "type": "string"

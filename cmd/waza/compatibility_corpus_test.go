@@ -113,8 +113,9 @@ func TestCompatibilityCLIProcessExits(t *testing.T) {
 			require.NoError(t, err)
 			wireBytes, err := os.ReadFile(resultPath)
 			require.NoError(t, err)
-			expected, err := os.ReadFile(testutil.RepoFile(t, "cmd", "waza", "testdata", "compatibility-run-1.4.json"))
+			expected, err := os.ReadFile(testutil.RepoFile(t, "cmd", "waza", "testdata", "compatibility-run-1.6.json"))
 			require.NoError(t, err)
+			require.Equal(t, "1.6", outcome.SchemaVersion)
 			normalized, err := json.Marshal(normalizeCompatibilityRunWire(t, wireBytes))
 			require.NoError(t, err)
 			require.JSONEq(t, string(expected), string(normalized), "independent baseline wire oracle must match on every iteration")
@@ -229,7 +230,7 @@ func TestCompatibilityRunOracleRejectsDeterministicDrift(t *testing.T) {
 	data, err := os.ReadFile(testutil.RepoFile(t, "cmd", "waza", "testdata", "compatibility-run-1.4.json"))
 	require.NoError(t, err)
 	expected := normalizeCompatibilityRunWire(t, data)
-	for _, name := range []string{"prompt", "checkpoint", "config", "billing", "score", "output", "wire shape", "null instead of empty", "zero instead of omitted", "cardinality",
+	for _, name := range []string{"schema version", "prompt", "checkpoint", "config", "billing", "score", "output", "wire shape", "null instead of empty", "zero instead of omitted", "cardinality",
 		"missing run ID", "missing timestamp", "missing summary duration", "missing run duration", "missing verdict duration", "missing checkpoint duration", "missing stats duration", "missing digest ID", "missing ledger ID", "wrong duration type"} {
 		t.Run(name, func(t *testing.T) {
 			var wire map[string]any
@@ -237,6 +238,8 @@ func TestCompatibilityRunOracleRejectsDeterministicDrift(t *testing.T) {
 			task := compatibilityWireObject(t, compatibilityWireArray(t, wire["tasks"])[0])
 			run := compatibilityWireObject(t, compatibilityWireArray(t, task["runs"])[0])
 			switch name {
+			case "schema version":
+				wire["schemaVersion"] = "1.5"
 			case "prompt":
 				run["prompt"] = "different prompt"
 			case "checkpoint":
@@ -281,9 +284,32 @@ func TestCompatibilityRunOracleRejectsDeterministicDrift(t *testing.T) {
 			case "wrong duration type":
 				run["duration_ms"] = "0"
 			}
+
 			mutated, err := json.Marshal(wire)
 			require.NoError(t, err)
 			require.NotEqual(t, expected, normalizeCompatibilityRunWire(t, mutated), "normalization must not erase deterministic contract drift")
 		})
 	}
+}
+
+func TestCompatibilityResultWriterOracleDiffersOnlyByVersion(t *testing.T) {
+	legacyBytes, err := os.ReadFile(testutil.RepoFile(t, "cmd", "waza", "testdata", "compatibility-run-1.4.json"))
+	require.NoError(t, err)
+	currentBytes, err := os.ReadFile(testutil.RepoFile(t, "cmd", "waza", "testdata", "compatibility-run-1.6.json"))
+	require.NoError(t, err)
+	var legacy, current map[string]any
+	require.NoError(t, json.Unmarshal(legacyBytes, &legacy))
+	require.NoError(t, json.Unmarshal(currentBytes, &current))
+	require.Equal(t, "1.4", legacy["schemaVersion"])
+	require.Equal(t, "1.6", current["schemaVersion"])
+	require.Equal(t, models.CurrentResultSchemaVersion, current["schemaVersion"])
+	legacy["schemaVersion"] = "1.6"
+	require.Equal(t, legacy, current, "only the explicitly changed writer version may differ from the frozen legacy oracle")
+	priorBytes, err := os.ReadFile(testutil.RepoFile(t, "cmd", "waza", "testdata", "compatibility-run-1.5.json"))
+	require.NoError(t, err)
+	var prior map[string]any
+	require.NoError(t, json.Unmarshal(priorBytes, &prior))
+	require.Equal(t, "1.5", prior["schemaVersion"])
+	prior["schemaVersion"] = "1.6"
+	require.Equal(t, prior, current, "the frozen prior-writer oracle must remain unchanged apart from version negotiation")
 }

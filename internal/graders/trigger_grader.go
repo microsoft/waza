@@ -70,6 +70,13 @@ func validateTriggerParameters(name string, params models.TriggerHeuristicGrader
 	return mode, threshold, nil
 }
 
+// ValidateTriggerSource reads the runtime-selected local skill data without
+// constructing or executing a grader.
+func ValidateTriggerSource(params models.TriggerHeuristicGraderParameters) error {
+	_, _, err := loadTriggerHeuristicData(resolveSkillPath(params.SkillPath))
+	return err
+}
+
 func (g *triggerHeuristicGrader) Name() string            { return g.name }
 func (g *triggerHeuristicGrader) Kind() models.GraderKind { return models.GraderKindTrigger }
 

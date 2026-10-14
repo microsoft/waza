@@ -85,6 +85,15 @@ type RangeSpec struct {
 
 // UnmarshalYAML decodes a single-key mapping into a tagged Matcher.
 func (m *Matcher) UnmarshalYAML(node *yaml.Node) error {
+	return m.DecodeYAMLWithLoader(node, nil)
+}
+
+// DecodeYAMLWithLoader decodes and validates a matcher without changing the
+// caller's schema resource policy. Nil retains legacy native decoding.
+func (m *Matcher) DecodeYAMLWithLoader(node *yaml.Node, loader jsonschema.URLLoader) error {
+	for node.Kind == yaml.AliasNode {
+		node = node.Alias
+	}
 	if node.Kind != yaml.MappingNode {
 		return fmt.Errorf("argmatcher: expected mapping (e.g. {regex: '^foo'}), got %s", yamlKindName(node.Kind))
 	}
@@ -142,7 +151,7 @@ func (m *Matcher) UnmarshalYAML(node *yaml.Node) error {
 		return fmt.Errorf("argmatcher: unknown matcher kind %q (allowed: equals, regex, contains, range, json_schema)", key)
 	}
 
-	return m.Compile()
+	return m.CompileWithLoader(loader)
 }
 
 // UnmarshalJSON mirrors the YAML decoder for results-file round trips.
@@ -246,6 +255,12 @@ func (m *Matcher) IsCompiled() bool {
 // Compile validates the matcher invariants and pre-compiles any embedded
 // regex/schema. It is safe to call multiple times.
 func (m *Matcher) Compile() error {
+	return m.CompileWithLoader(nil)
+}
+
+// CompileWithLoader preserves an explicit schema resource policy. Nil retains
+// the runtime compiler's legacy resource loading behavior.
+func (m *Matcher) CompileWithLoader(loader jsonschema.URLLoader) error {
 	switch m.Kind {
 	case KindEquals:
 		// nothing to compile; presence of value is allowed to be nil (matches null).
@@ -282,6 +297,9 @@ func (m *Matcher) Compile() error {
 			return fmt.Errorf("argmatcher: failed to parse json_schema: %w", err)
 		}
 		compiler := jsonschema.NewCompiler()
+		if loader != nil {
+			compiler.UseLoader(loader)
+		}
 		if err := compiler.AddResource("argmatcher.json", schemaVal); err != nil {
 			return fmt.Errorf("argmatcher: failed to register json_schema: %w", err)
 		}

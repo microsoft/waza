@@ -16,6 +16,8 @@ import type {
   GraderResult,
   ResponderInfo,
   ModelUsage,
+  ConfidenceInterval,
+  ReliabilitySummary,
 } from "../api/client";
 import {
   formatDuration,
@@ -83,30 +85,6 @@ function TypeBadge({ type }: { type: string }) {
   );
 }
 
-function SignificanceBadge({ isSignificant }: { isSignificant?: boolean }) {
-  if (isSignificant == null) return null;
-  if (isSignificant) {
-    return (
-      <span
-        className="inline-flex items-center gap-0.5 rounded-full bg-green-500/10 px-1.5 py-0.5 text-xs font-medium text-green-400"
-        data-testid="significance-badge"
-        title="Statistically significant"
-      >
-        ✓ significant
-      </span>
-    );
-  }
-  return (
-    <span
-      className="inline-flex items-center gap-0.5 rounded-full bg-yellow-500/10 px-1.5 py-0.5 text-xs font-medium text-yellow-400"
-      data-testid="significance-badge"
-      title="Not statistically significant"
-    >
-      ⚠ not significant
-    </span>
-  );
-}
-
 function ResponderBadge({ responder }: { responder?: ResponderInfo }) {
   if (!responder) return null;
 
@@ -131,39 +109,84 @@ function ResponderBadge({ responder }: { responder?: ResponderInfo }) {
   );
 }
 
-function CIRange({ lower, upper }: { lower: number; upper: number }) {
+function CIRange({ ci }: { ci: ConfidenceInterval }) {
   return (
     <span
       className="text-xs text-zinc-400"
       data-testid="ci-range"
-      title={`95% CI: ${formatCIRange(lower, upper)}`}
+      title={`${formatPercent(ci.confidenceLevel)} bootstrap weighted-score CI: ${formatCIRange(ci.lower, ci.upper)}`}
     >
-      {formatCIRange(lower, upper)}
+      {formatCIRange(ci.lower, ci.upper)}
     </span>
+  );
+}
+
+function PassRateInterval({ ci }: { ci?: ConfidenceInterval }) {
+  if (!ci) return <span className="text-xs text-zinc-500">Not assessed</span>;
+  return (
+    <div className="text-xs text-zinc-400" data-testid="pass-rate-ci">
+      <div className="text-zinc-300">{(ci.mean * 100).toFixed(1)}%</div>
+      <div title="Wilson interval on binary pass/fail outcomes, not weighted scores">
+        {formatPercent(ci.confidenceLevel)} Wilson CI: {formatCIRange(ci.lower, ci.upper)}
+      </div>
+    </div>
+  );
+}
+
+function ReliabilityCard({ statistics, passed, total }: {
+  statistics?: ReliabilitySummary;
+  passed: number;
+  total: number;
+}) {
+  return (
+    <section className="rounded-lg border border-zinc-700 bg-zinc-800 p-4" data-testid="reliability-summary">
+      <h2 className="font-medium text-zinc-100">Recorded reliability</h2>
+      <div className="mt-3 grid gap-4 sm:grid-cols-2">
+        <div data-testid="suite-success-rate-ci">
+          <h3 className="text-sm text-zinc-300">Suite success-rate interval</h3>
+          <PassRateInterval ci={statistics?.successRateCI} />
+          {statistics?.successRateCI && (
+            <p className="mt-1 text-xs text-zinc-500">{passed}/{total} tasks passed (each task is one sample)</p>
+          )}
+        </div>
+        <div data-testid="pass-hat-k">
+          <h3 className="text-sm text-zinc-300">pass^k (all k trials pass)</h3>
+          {statistics?.passHatK?.length ? (
+            <>
+              <ul className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-zinc-300">
+                {statistics.passHatK.map((value, index) => (
+                  <li key={index}>pass^{index + 1}: {(value * 100).toFixed(1)}%</li>
+                ))}
+              </ul>
+              <p className="mt-1 text-xs text-zinc-500">Stored estimates averaged over tasks, not pass@k or a guarantee.</p>
+            </>
+          ) : <p className="text-xs text-zinc-500">Not assessed</p>}
+        </div>
+      </div>
+      <p className="mt-3 text-xs text-zinc-500">
+        Missing statistics are not reconstructed from scores or outcomes. These are not significance tests between runs.
+      </p>
+    </section>
   );
 }
 
 function GraderRow({ grader }: { grader: GraderResult }) {
   return (
     <tr className="border-b border-zinc-700/30">
-      <td className="py-2 pl-12 pr-4 text-zinc-300">{grader.name}</td>
-      <td className="px-4 py-2">
-        <TypeBadge type={grader.type} />
+      <td colSpan={6} className="py-2 pl-12 pr-4" data-testid="grader-details">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-zinc-400">
+          <span className="text-zinc-300">{grader.name}</span>
+          <TypeBadge type={grader.type} />
+          {grader.passed ? (
+            <CheckCircle2 className="h-4 w-4 text-green-500" />
+          ) : (
+            <XCircle className="h-4 w-4 text-red-500" />
+          )}
+          <span>Score: {formatPercent(grader.score)}</span>
+          <span>Weight: {grader.weight != null ? `×${grader.weight}` : "—"}</span>
+          <span>Message: {grader.message}</span>
+        </div>
       </td>
-      <td className="px-4 py-2">
-        {grader.passed ? (
-          <CheckCircle2 className="h-4 w-4 text-green-500" />
-        ) : (
-          <XCircle className="h-4 w-4 text-red-500" />
-        )}
-      </td>
-      <td className="px-4 py-2 text-zinc-300">
-        {formatPercent(grader.score)}
-      </td>
-      <td className="px-4 py-2 text-zinc-400">
-        {grader.weight != null ? `×${grader.weight}` : "—"}
-      </td>
-      <td className="px-4 py-2 text-zinc-400">{grader.message}</td>
     </tr>
   );
 }
@@ -286,10 +309,15 @@ function TaskRow({ task }: { task: TaskResult }) {
         <td className="px-4 py-3 text-zinc-300">
           <span className="flex items-center gap-1.5">
             {ws != null ? formatPercent(ws) : "—"}
-            <SignificanceBadge isSignificant={task.isSignificant} />
           </span>
           {task.bootstrapCI && (
-            <CIRange lower={task.bootstrapCI.lower} upper={task.bootstrapCI.upper} />
+            <CIRange ci={task.bootstrapCI} />
+          )}
+        </td>
+        <td className="px-4 py-3" data-testid="task-pass-rate">
+          <PassRateInterval ci={task.passRateCI} />
+          {task.trials && (
+            <p className="mt-1 text-xs text-zinc-500">{task.trials.passed}/{task.trials.total} trials passed</p>
           )}
         </td>
         <td className="px-4 py-3 text-zinc-300">
@@ -402,6 +430,8 @@ export default function RunDetail({ id }: { id: string }) {
 
       <UsageByModel models={data.modelUsage} />
 
+      <ReliabilityCard statistics={data.statistics} passed={data.passCount} total={data.taskCount} />
+
       <div className="flex gap-1 border-b border-zinc-700">
         <button
           onClick={() => setActiveTab("evidence")}
@@ -457,6 +487,9 @@ export default function RunDetail({ id }: { id: string }) {
               </th>
               <th className="px-4 py-3 text-xs font-medium text-zinc-400 uppercase">
                 W. Score
+              </th>
+              <th className="px-4 py-3 text-xs font-medium text-zinc-400 uppercase">
+                Trial Pass Rate
               </th>
               <th className="px-4 py-3 text-xs font-medium text-zinc-400 uppercase">
                 Duration

@@ -19,7 +19,7 @@ func TestRunSnapshotExclusionRequiresCapture(t *testing.T) {
 			require.ErrorContains(t, command.Execute(), flag+" requires --snapshot")
 		})
 	}
-	t.Run("capture present", func(t *testing.T) {
+	t.Run("capture without file selection", func(t *testing.T) {
 		resetRunGlobals()
 		t.Cleanup(resetRunGlobals)
 		command := newRunCommand()
@@ -27,6 +27,16 @@ func TestRunSnapshotExclusionRequiresCapture(t *testing.T) {
 		command.SetErr(io.Discard)
 		command.SetArgs([]string{"missing-eval.yaml", "--snapshot", t.TempDir(),
 			"--snapshot-evaluator-only", "rubric/report.txt"})
+		require.ErrorContains(t, command.Execute(), "--snapshot-evaluator-only requires --snapshot-file")
+	})
+	t.Run("capture and file selection present", func(t *testing.T) {
+		resetRunGlobals()
+		t.Cleanup(resetRunGlobals)
+		command := newRunCommand()
+		command.SetOut(io.Discard)
+		command.SetErr(io.Discard)
+		command.SetArgs([]string{"missing-eval.yaml", "--snapshot", t.TempDir(),
+			"--snapshot-file", "report.txt", "--snapshot-evaluator-only", "rubric/report.txt"})
 		err := command.Execute()
 		require.Error(t, err)
 		require.NotContains(t, err.Error(), "requires --snapshot")

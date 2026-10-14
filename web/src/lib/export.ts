@@ -13,20 +13,24 @@ function escapeCSV(value: string): string {
   return safe;
 }
 
-function toCSV(headers: string[], rows: string[][]): string {
+export function toCSV(headers: string[], rows: string[][]): string {
   const headerLine = headers.map(escapeCSV).join(",");
   const dataLines = rows.map((row) => row.map(escapeCSV).join(","));
   return [headerLine, ...dataLines].join("\n");
 }
 
-function downloadCSV(csv: string, filename: string) {
-  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+export function downloadText(content: string, filename: string, type: string) {
+  const blob = new Blob([content], { type });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
   a.download = filename;
   a.click();
   URL.revokeObjectURL(url);
+}
+
+function downloadCSV(csv: string, filename: string) {
+  downloadText(csv, filename, "text/csv;charset=utf-8;");
 }
 
 export function exportRunsToCSV(runs: RunSummary[]) {

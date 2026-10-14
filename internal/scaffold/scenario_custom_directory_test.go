@@ -15,7 +15,7 @@ func TestScenarioCustomDirectoryDiscoveryAllTemplates(t *testing.T) {
 		t.Run(template, func(t *testing.T) {
 			files, err := scaffold.ScenarioFiles("inventory", "model", "eval.yaml", "cases/*.task.yaml", ".task.yaml", template)
 			require.NoError(t, err)
-			dir := writeScenarioGlobFiles(t, files)
+			dir := writeScenarioFiles(t, files)
 			evalPath := filepath.Join(dir, "eval.yaml")
 			evalErrors, taskErrors, err := validation.ValidateEvalFile(evalPath)
 			require.NoError(t, err)

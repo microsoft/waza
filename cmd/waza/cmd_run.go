@@ -198,7 +198,7 @@ config.executor: mock checks only the harness, not agent quality.`,
 	cmd.Flags().StringArrayVar(&snapshotEnvAllow, "snapshot-env-allow", nil, "Environment variables to capture in snapshots (supports trailing-* wildcards). Default-deny.")
 	cmd.Flags().StringVar(&snapshotRedactPath, "redact", "", "Optional path to a custom redaction policy YAML applied during snapshot capture")
 	cmd.Flags().StringArrayVar(&snapshotFiles, "snapshot-file", nil, "Reviewed agent-visible UTF-8 workspace file to preserve (repeatable; requires --snapshot)")
-	cmd.Flags().StringArrayVar(&snapshotEvaluatorOnly, "snapshot-evaluator-only", nil, "Evaluator-only file or directory to exclude from workspace capture (repeatable; requires --snapshot; metadata inventory capped at 256 inspections/depth 32)")
+	cmd.Flags().StringArrayVar(&snapshotEvaluatorOnly, "snapshot-evaluator-only", nil, "Evaluator-only file or directory to exclude from workspace capture (repeatable; requires --snapshot and --snapshot-file; metadata inventory capped at 256 inspections/depth 32)")
 	cmd.Flags().Int64Var(&snapshotMaxFileBytes, "snapshot-max-file-bytes", 1<<20, "Maximum input and sanitized bytes per preserved file")
 	cmd.Flags().Int64Var(&snapshotMaxTotalBytes, "snapshot-max-total-bytes", 10<<20, "Maximum aggregate input and sanitized bytes for preserved files")
 
@@ -211,6 +211,9 @@ func runCommandE(cmd *cobra.Command, args []string) error {
 	}
 	if len(snapshotEvaluatorOnly) > 0 && snapshotDir == "" {
 		return fmt.Errorf("--snapshot-evaluator-only requires --snapshot")
+	}
+	if len(snapshotEvaluatorOnly) > 0 && len(snapshotFiles) == 0 {
+		return fmt.Errorf("--snapshot-evaluator-only requires --snapshot-file")
 	}
 	if len(snapshotFiles) > 0 && (snapshotMaxFileBytes <= 0 || snapshotMaxTotalBytes <= 0) {
 		return fmt.Errorf("workspace snapshot byte limits must be positive")
@@ -343,14 +346,9 @@ func runCommandE(cmd *cobra.Command, args []string) error {
 			slog.Warn("skills folder is not a directory, will not do skills discovery",
 				slog.String("path", skillsPath))
 		default:
-			discoveredSkills, err := discovery.Discover(skillsPath)
-
+			skillFolders, err = discovery.SkillDirectories(skillsPath)
 			if err != nil {
 				return err
-			}
-
-			for _, ds := range discoveredSkills {
-				skillFolders = append(skillFolders, ds.Dir)
 			}
 
 			slog.Debug("Workspace skills added", "skills", skillFolders, "base", skillsPath)
@@ -747,7 +745,7 @@ func runSingleModel(cmd *cobra.Command, spec *models.EvalSpec, specPath string, 
 		}
 	}
 
-	if len(spec.Config.SkillPaths) == 0 && (spec.Scenario == "" || spec.SkillName != "") {
+	if len(spec.Config.SkillPaths) == 0 && (spec.Scenario == "" || strings.TrimSpace(spec.SkillName) != "") {
 		// ie, the user hasn't configured skill paths explicitly
 		spec.Config.SkillPaths = append(spec.Config.SkillPaths, defaultSkills...)
 	}
@@ -788,22 +786,15 @@ func runSingleModel(cmd *cobra.Command, spec *models.EvalSpec, specPath string, 
 	}
 
 	// Create engine based on spec
-	var engine execution.AgentEngine
-
-	switch spec.Config.EngineType {
-	case "mock":
-		engine = execution.NewMockEngine(spec.Config.ModelID)
-	case "copilot-sdk":
-		engine = execution.NewCopilotEngineBuilder(spec.Config.ModelID, &execution.CopilotEngineBuilderOptions{
-			NewCopilotClient: newCopilotClientFn, // if nil, uses the real function, otherwise overridable for tests.
-		}).Build()
-	default:
-		return nil, fmt.Errorf("unknown engine type: %s", spec.Config.EngineType)
+	engine, err := newRunEngine(spec.Config)
+	if err != nil {
+		return nil, err
 	}
 	if keepWorkspace {
 		if wk, ok := engine.(execution.WorkspaceKeeper); ok {
 			wk.SetKeepWorkspace(true)
 		}
+
 	}
 	if err := engine.Initialize(context.Background()); err != nil {
 		return nil, fmt.Errorf("failed to initialize agent: %w", err)
@@ -927,7 +918,7 @@ func runSingleModel(cmd *cobra.Command, spec *models.EvalSpec, specPath string, 
 	if spec.Scenario != "" {
 		fmt.Printf("Scenario: %s\n", spec.Scenario)
 	}
-	if spec.SkillName != "" || spec.Scenario == "" {
+	if strings.TrimSpace(spec.SkillName) != "" || spec.Scenario == "" {
 		fmt.Printf("Skill: %s\n", spec.SkillName)
 	}
 	fmt.Printf("Engine: %s\n", spec.Config.EngineType)
@@ -1330,6 +1321,15 @@ func parseSnapshotUpdates(raw any) ([]graders.SnapshotUpdate, error) {
 	}
 }
 
+// formatPassHatK renders a pass^k curve, e.g. "pass^1=83%  pass^2=71%  pass^3=62%".
+func formatPassHatK(curve []float64) string {
+	parts := make([]string, len(curve))
+	for i, v := range curve {
+		parts[i] = fmt.Sprintf("pass^%d=%.0f%%", i+1, v*100)
+	}
+	return strings.Join(parts, "  ")
+}
+
 func printSummary(outcome *models.EvaluationOutcome) {
 	fmt.Println("=" + strings.Repeat("=", 50))
 	fmt.Println(" BENCHMARK RESULTS")
@@ -1347,6 +1347,14 @@ func printSummary(outcome *models.EvaluationOutcome) {
 	fmt.Printf("Min Score:      %.2f\n", digest.MinScore)
 	fmt.Printf("Max Score:      %.2f\n", digest.MaxScore)
 	fmt.Printf("Std Dev:        %.4f\n", digest.StdDev)
+	if s := digest.Statistics; s != nil {
+		if ci := s.SuccessRateCI; ci != nil {
+			fmt.Printf("Success CI95:   [%.1f%%, %.1f%%]\n", ci.Lower*100, ci.Upper*100)
+		}
+		if len(s.PassHatK) > 0 {
+			fmt.Printf("Reliability:    %s\n", formatPassHatK(s.PassHatK))
+		}
+	}
 
 	duration := time.Duration(digest.DurationMs) * time.Millisecond
 	fmt.Printf("Duration:       %v\n", duration)
@@ -1379,8 +1387,12 @@ func printSummary(outcome *models.EvaluationOutcome) {
 		}
 		fmt.Printf("  %s %s [%s]\n", icon, to.DisplayName, to.Status)
 		if to.Stats != nil {
-			fmt.Printf("      pass_rate=%.1f%%  avg=%.2f  min=%.2f  max=%.2f  stddev=%.4f  avg_dur=%dms\n",
-				to.Stats.PassRate*100, to.Stats.AvgScore,
+			passRate := fmt.Sprintf("%.1f%%", to.Stats.PassRate*100)
+			if ci := to.Stats.PassRateCI; ci != nil {
+				passRate += fmt.Sprintf(" [CI95 %.0f-%.0f%%]", ci.Lower*100, ci.Upper*100)
+			}
+			fmt.Printf("      pass_rate=%s  avg=%.2f  min=%.2f  max=%.2f  stddev=%.4f  avg_dur=%dms\n",
+				passRate, to.Stats.AvgScore,
 				to.Stats.MinScore, to.Stats.MaxScore,
 				to.Stats.StdDevScore, to.Stats.AvgDurationMs)
 		}

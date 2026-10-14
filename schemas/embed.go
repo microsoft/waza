@@ -10,3 +10,6 @@ var TaskSchemaJSON string
 
 //go:embed evidence-manifest-1.0.schema.json
 var EvidenceManifestSchemaJSON string
+
+//go:embed preflight.schema.json
+var PreflightSchemaJSON string

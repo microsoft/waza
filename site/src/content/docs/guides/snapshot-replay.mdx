@@ -57,7 +57,8 @@ publication returns an explicit error instead of falling back to ordinary output
 ## What's recorded
 
 Snapshot schema **`1.1`** carries a separately versioned evidence manifest
-**`1.0`**. Result and task schema versions remain **`1.4`**; legacy snapshots and
+**`1.0`**. Legacy task/eval reader defaults remain **`1.4`**, while newly
+generated results use result schema **`1.6`**; legacy snapshots and
 results still load. Evidence-aware consumers reject unsupported manifest
 versions, unknown metadata, and duplicate JSON keys rather than interpreting
 them as assessed evidence.
@@ -137,7 +138,8 @@ waza run eval.yaml --snapshot ./evidence-snapshots \
 ```
 
 - `--snapshot-file` and `--snapshot-evaluator-only` are repeatable and require
-  `--snapshot`. Exclusions identify evaluator-only files; credentials and
+  `--snapshot`. Exclusions additionally require `--snapshot-file` so workspace
+  capture actually runs. Exclusions identify evaluator-only files; credentials and
   evaluator-only files must never be selected.
 - Explicit allow-listing is **not authorization proof**. The user must review
   agent visibility and exclude evaluator-only material; no automatic discovery
@@ -205,6 +207,13 @@ accepts explicit names or `*`-suffixed prefixes. Allowed values still undergo
 redaction; avoid broad prefixes containing credentials. Secret environment-key
 removals contribute to the redaction match count, as do actual selected-file
 rule matches.
+
+For new captures, each artifact's `redacted` flag describes changes to its own
+materialized content, not the capture-wide match count. Validation changes also
+mark the enclosing result; unrelated metadata, environment or workspace changes
+do not mark unchanged siblings. Core JSON representation-only normalization and
+no-op replacements do not mark an artifact changed, while removal of a
+materialized field does. Historical artifacts keep their recorded flags.
 
 Typed JSON context, tool arguments/results, grader feedback/details, and
 structurally sensitive keys are sanitized **before serialization**, without
@@ -298,6 +307,13 @@ check observations and evidence metadata when present. Existing no-metadata
 summary text remains unchanged. Malformed evidence and its assessment
 references are withheld, not treated as assessed observations. Interpretation
 does not add enforcement, causal diagnosis, or automatic model calls.
+
+## Snapshot compatibility
+
+The snapshot wire format is independent `1.1`; historical `1.0` snapshots remain readable. Eval and result formats retain their own independent versions.
+
+- MAJOR mismatch is **rejected** at load (`exit 2`).
+- Same-major minor additions remain readable; typed snapshot decoding ignores unknown fields rather than preserving them verbatim.
 
 ## Portable hash contract
 

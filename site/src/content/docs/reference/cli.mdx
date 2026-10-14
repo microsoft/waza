@@ -36,6 +36,33 @@ waza update --yes
 
 The native Windows update path schedules the final binary replacement after the running `waza.exe` exits, avoiding Windows executable file locks. In WSL, `waza update` uses the Linux Bash installer and updates the WSL installation.
 
+## waza preflight
+
+Inspect an explicit eval file offline, without an agent/model, grader execution,
+subprocesses, mock servers, live services, dependency downloads, or update checks:
+
+```bash
+waza preflight eval.yaml
+waza preflight eval.yaml --format json > preflight.json
+waza preflight eval.yaml --context-dir ./fixtures --strict
+```
+
+| Flag | Default | Meaning |
+|------|---------|---------|
+| `--format` | `human` | `human` or `json` inventory/diagnostics |
+| `--context-dir` | eval directory/fixtures | Context directory; relative values resolve from cwd |
+| `--strict` | `false` | Exit 1 for unresolved/unsupported prerequisites, not only invalid configuration |
+
+Invalid configuration exits 1; unresolved/unsupported warn and exit 0 unless
+`--strict` opts into 1. Usage/output errors use exit 2. Existing command exits
+are unchanged. `verified` means static inspection, not a satisfied requirement
+or runtime enforcement. The separately typed report is not `results.json`.
+Ref-only eval graders with a missing pinned cache remain unresolved until
+their preset/fallback can supply the effective name. Explicit duplicate names
+remain invalid; task/checkpoint graders still require inline declarations.
+See [Offline Eval Preflight](/guides/preflight/) for descriptive requirement
+references, capability/dependency plans, and offline limitations.
+
 ## waza run
 
 Run an evaluation benchmark.
@@ -58,6 +85,11 @@ waza run [eval.yaml | skill-name | agent-name]
 **APM-managed skills:** Waza detects compiled APM skills at `skills/<name>/.apm/skills/<name>/SKILL.md`, so `waza run <name>` and no-argument workspace detection work without symlinking `SKILL.md` into the source skill directory. If both `skills/<name>/SKILL.md` and the APM compiled output exist for the same skill, the top-level `SKILL.md` takes precedence.
 
 ### Flags
+
+The private dependency-fault harness does not add a public `run` flag, automatic
+retry policy or finite-sequence runtime configuration. Its injected native
+dispatch tests do not certify SDK resume or platform stdio. See
+[Private Fault Harness](/waza/guides/private-fault-fixtures/).
 
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
@@ -100,7 +132,7 @@ waza run [eval.yaml | skill-name | agent-name]
 | `--otel-include-payloads` | | bool | false | Include prompt/tool-arg/tool-result/completion content in spans (default: redacted to `sha256`+length) |
 | `--snapshot` | | string | | Capture redacted per-trial observations and portable evidence to the given directory; not a complete workspace. See [Snapshot & Replay](/waza/guides/snapshot-replay/). |
 | `--snapshot-file` | | string[] | | Repeatable reviewed agent-visible UTF-8 regular-file allow-list; requires `--snapshot`. Linux/macOS only. |
-| `--snapshot-evaluator-only` | | string[] | | Repeatable evaluator-only file/directory exclusions; requires `--snapshot`. Metadata inventory capped at 256 inspections/depth 32 before selected content; limit/inspection/resource failure prevents capture. Never capture credentials or evaluator-only files. |
+| `--snapshot-evaluator-only` | | string[] | | Repeatable evaluator-only file/directory exclusions; requires `--snapshot` and `--snapshot-file`. Metadata inventory capped at 256 inspections/depth 32 before selected content; limit/inspection/resource failure prevents capture. Never capture credentials or evaluator-only files. |
 | `--snapshot-max-file-bytes` | | int64 | 1048576 | Positive input/sanitized byte limit per file (1 MiB). |
 | `--snapshot-max-total-bytes` | | int64 | 10485760 | Positive aggregate input/sanitized byte limit (10 MiB). |
 | `--snapshot-env-allow` | | string[] | | Allow-list of environment variable name patterns to embed in snapshots (default-deny; supports `WAZA_*` wildcards). |
@@ -301,6 +333,39 @@ Creates:
 | `--template` | Scenario template: `repository` (default), `cli`, or `mcp`; requires `--scenario`. |
 
 The generated eval filename, task glob, and task filename suffix come from `.waza.yaml` `files` settings when configured.
+Scenario mode creates one `workflow<files.taskFileSuffix>` task under `tasks/`
+when selected by `files.taskGlob`, otherwise in its matching literal directory,
+and a `fixtures/` directory beside the eval file; the repository template includes
+`fixtures/inventory.txt`. It rejects blank names and refuses to overwrite any
+generated file. The three trigger tasks above belong to the default skill flow.
+The repository scenario has three file graders: report outcome, no `private.txt`,
+and exact final `inventory.txt` bytes. CLI/MCP scenarios retain two graders.
+This is a final-state check, not proof that no transient edits occurred.
+In YAML and JSON, a present `scenario` key requires a nonblank string and exact
+schema `2.0`; null or other types are invalid. Omit the key for a legacy eval.
+Repository mode emits fixture-local `.gitattributes` to preserve inventory LF
+bytes during Git checkout, or a safe root rule if the configured glob selects
+local metadata. If neither location is safe, generation fails before writing;
+narrow the task-directory glob or choose a different eval filename. Metadata
+files are also protected against overwrite. Older working copies are not
+rewritten automatically.
+Wildcard-directory globs that select the default `tasks/` path remain supported.
+Globs that cannot select that task or a safe literal alternative, or that select
+generated non-task files, are rejected before writing. For example,
+`fixtures/*.yaml` is supported, but `fixtures/*` selects `.gitkeep` and must be
+narrowed. A failed later write can leave earlier created files;
+inspect and remove only the generated partial files before retrying. The
+scaffold is not a whole-directory transaction.
+Scenario mode also rejects symlinked parents in the selected output path,
+including its root and nested task/fixture directories. Choose a physical output
+path instead. Relative paths use the retained working directory; absolute paths
+are checked from their filesystem root. The literal macOS `/var` and `/tmp`
+aliases are accepted only when their targets exactly match the expected
+`/private` locations. Admitted directory handles are retained, so replacing a
+parent path cannot redirect subsequent file creation. Moving an admitted
+directory can move its outputs; this is not a filesystem sandbox or whole-suite
+rollback. This parent policy applies to scenario generation, not legacy
+skill/eval scaffolding.
 
 Scenario templates honor configured task discovery, including literal custom
 directories such as `cases/*.task.yaml`. An incompatible glob/suffix, unsafe
@@ -703,7 +768,31 @@ Check or migrate a public schema artifact.
 waza migrate <file>
 ```
 
-The current schema version is `1.0`, so v1 `eval.yaml` and `results.json` files are already current and this command makes no file changes. When Waza introduces a future breaking schema, this command is where explicit major-version migrations will run.
+Legacy eval/task/result defaults remain `1.4`. Compatible legacy YAML evals use
+the `eval.yaml`/`eval.yml` filename convention; JSON results are recognized by
+their artifact shape, including custom `.json` filenames.
+
+This legacy input/reader policy is separate from new result emission: current
+evaluations and regrades write results `1.6`. Task YAML has no independent version
+field. Historical result versions and missing reliability metadata are preserved
+when reading/re-saving; migration does not upgrade them.
+Compatibility reports select the current version by artifact type: eval `1.4`
+or result writer `1.6`. Missing/`1.4` result versions are explicitly labeled as
+the legacy reader default alongside the current writer version, not rewritten.
+
+A present `scenario` header requires a nonblank native string and exact schema
+`2.0`, including in canonical `eval.yaml`/`eval.yml` files. Supported scenario
+evals are validated without rewriting them. Custom `.yaml`/`.yml` filenames,
+such as a configured `files.evalFile: suite.yml` or a custom `--output`, are
+recognized only when the scenario header is present. Task/unrelated YAML and
+custom-named legacy YAML are not treated as evals.
+
+This does not extend migration recognition to scenario `.json`, extensionless
+or metadata filenames; JSON dispatch remains results-only even though the
+scaffold can emit YAML to other filenames. Use a `.yaml`/`.yml` filename when
+checking a scenario with `migrate`. Invalid present headers, unsupported
+versions and invalid scenario bodies fail without changing the file. Future
+breaking changes will require explicit migration steps here.
 
 ### Arguments
 
@@ -716,6 +805,7 @@ The current schema version is `1.0`, so v1 `eval.yaml` and `results.json` files 
 ```bash
 waza migrate eval.yaml
 waza migrate results.json
+waza migrate evals/inventory/suite.yml
 ```
 
 ## waza coverage
@@ -1204,6 +1294,17 @@ waza session view <session-file>
 
 Start the interactive dashboard.
 
+For JSON-RPC, `eval.list` recursively lists canonical `eval.yaml`/`eval.yml`
+files plus native-loadable scenario `.yaml`/`.yml` files with configured/custom
+names. Classification and native loading determine eligibility, not full
+authoring-schema or task validation.
+MCP `waza_eval_list` uses the same handler. Custom absent or
+classification/loading-invalid scenario, task, unrelated and legacy YAML
+remains unlisted; use `eval.get`/`eval.validate`
+for diagnostics. Canonical invalid-file fallback and caller-root traversal
+are unchanged. No depth/vendor exclusions or filesystem containment are added;
+HTTP dashboard result listing is unchanged.
+
 ```bash
 waza serve
 ```
@@ -1213,6 +1314,9 @@ waza serve
 | Flag | Description |
 |------|-------------|
 | `--port` | Port (default: 3000) |
+| `--lab` | Open the experimental real-results dashboard at `/#/lab`; classic dashboard remains at `/#/` |
+| `--results-dir` | Directory to scan for saved result artifacts (default: `.`) |
+| `--no-browser` | Print the dashboard URL without opening a browser |
 | `--tcp` | TCP address for JSON-RPC (e.g., `:9000`) |
 | `--stdio` | Use stdin/stdout for piping |
 
@@ -1221,8 +1325,15 @@ waza serve
 ```bash
 waza serve                    # http://localhost:3000
 waza serve --port 8080        # http://localhost:8080
+waza serve --lab --results-dir ./results  # http://localhost:3000/#/lab
 waza serve --tcp :9000        # JSON-RPC TCP server
 ```
+
+`--lab` and `--tcp` are mutually exclusive. The [experimental lab](../../guides/dashboard-lab/)
+refreshes saved results, exposes actual task evidence, and exports reports.
+Its activity stream replays artifact-derived events, not live worker state.
+Unsupported readiness/coverage checks and revision metadata remain unavailable.
+The synthetic demo is separate at `/#/lab/demo`, never an API-error fallback.
 
 ### AI Credit usage
 

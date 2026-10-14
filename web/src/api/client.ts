@@ -32,6 +32,9 @@ export interface RunSummary {
   duration: number;
   timestamp: string;
   weightedScore?: number;
+  skill?: string;
+  repetitions?: number;
+  source?: string;
 }
 
 export interface ModelUsage {
@@ -64,11 +67,19 @@ export interface TranscriptEvent {
   success?: boolean;
 }
 
-export interface BootstrapCI {
+export interface ConfidenceInterval {
   lower: number;
   upper: number;
   mean: number;
   confidenceLevel: number;
+}
+
+export type BootstrapCI = ConfidenceInterval;
+
+export interface ReliabilitySummary {
+  successRateCI?: ConfidenceInterval;
+  /** Stored pass^k estimates: index k-1, averaged over tasks, not pass@k. */
+  passHatK?: number[];
 }
 
 export interface SessionDigest {
@@ -92,6 +103,7 @@ export interface ResponderInfo {
 }
 
 export interface TaskResult {
+  id?: string;
   name: string;
   prompt?: string;
   outcome: string;
@@ -103,7 +115,8 @@ export interface TaskResult {
   sessionDigest?: SessionDigest;
   responder?: ResponderInfo;
   bootstrapCI?: BootstrapCI;
-  isSignificant?: boolean;
+  passRateCI?: ConfidenceInterval;
+  trials?: { passed: number; total: number };
   evidenceRuns?: EvidenceRun[];
 }
 
@@ -167,13 +180,13 @@ export interface EvidenceRun {
   explanations?: {
     task_id: string;
     requirement_id: string;
-    checks: {
+    checks?: {
       check: { scope: string; grader: string; after_turn?: number };
       observation: string;
       category: string;
       message: string;
       references?: EvidenceReference[];
-    }[];
+    }[] | null;
   }[];
 }
 
@@ -235,14 +248,34 @@ export function canDisplayEvidence(run: EvidenceRun): boolean {
   }) && (manifest.diagnostics === undefined || (Array.isArray(manifest.diagnostics) &&
     manifest.diagnostics.every((value) => value && knownKeys(value, ["category", "code", "message"]) &&
       [value.category, value.code, value.message].every((field) => typeof field === "string"))));
+
 }
 
 export interface RunDetail extends RunSummary {
   tasks: TaskResult[];
+  statistics?: ReliabilitySummary;
 }
 
-async function fetchJSON<T>(url: string): Promise<T> {
-  const res = await fetch(url);
+export type TaskResultWire = Omit<TaskResult, "graderResults"> & {
+  graderResults: GraderResult[] | null;
+};
+
+export type RunDetailWire = Omit<RunDetail, "tasks"> & {
+  tasks: TaskResultWire[] | null;
+};
+
+export function normalizeRunDetail(detail: RunDetailWire): RunDetail {
+  return {
+    ...detail,
+    tasks: (detail.tasks ?? []).map((task) => ({
+      ...task,
+      graderResults: task.graderResults ?? [],
+    })),
+  };
+}
+
+async function fetchJSON<T>(url: string, signal?: AbortSignal): Promise<T> {
+  const res = await fetch(url, { signal });
   if (!res.ok) {
     throw new Error(`API error: ${res.status} ${res.statusText}`);
   }
@@ -262,6 +295,12 @@ export function fetchRuns(
   );
 }
 
-export function fetchRunDetail(id: string): Promise<RunDetail> {
-  return fetchJSON<RunDetail>(`/api/runs/${encodeURIComponent(id)}`);
+export async function fetchRunDetail(id: string, signal?: AbortSignal): Promise<RunDetail> {
+  return normalizeRunDetail(
+    await fetchJSON<RunDetailWire>(`/api/runs/${encodeURIComponent(id)}`, signal),
+  );
+}
+
+export function fetchLabRuns(signal?: AbortSignal): Promise<RunSummary[]> {
+  return fetchJSON<RunSummary[]>("/api/v1/lab/runs", signal);
 }

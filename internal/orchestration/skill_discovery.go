@@ -14,6 +14,12 @@ import (
 // files and returns a map of skill/agent names to their file paths.
 // SKILL.md takes priority over .agent.md when both exist in the same directory.
 func discoverSkills(directories []string) (map[string]string, error) {
+	return discoverSkillsWithReporter(directories, func(path string, err error) {
+		fmt.Fprintf(os.Stderr, "warning: failed to parse %s: %v\n", path, err)
+	})
+}
+
+func discoverSkillsWithReporter(directories []string, warn func(string, error)) (map[string]string, error) {
 	discovered := make(map[string]string)
 
 	for _, dir := range directories {
@@ -27,7 +33,10 @@ func discoverSkills(directories []string) (map[string]string, error) {
 		if _, err := os.Stat(skillPath); err == nil {
 			skillName, err := parseSkillName(skillPath)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "warning: failed to parse %s: %v\n", skillPath, err)
+				if warn == nil {
+					return nil, fmt.Errorf("parsing skill definition: %w", err)
+				}
+				warn(skillPath, err)
 				continue
 			}
 			if skillName != "" {
@@ -46,7 +55,10 @@ func discoverSkills(directories []string) (map[string]string, error) {
 				agentPath := filepath.Join(dir, entry.Name())
 				agentName, err := parseAgentName(agentPath)
 				if err != nil {
-					fmt.Fprintf(os.Stderr, "warning: failed to parse %s: %v\n", agentPath, err)
+					if warn == nil {
+						return nil, fmt.Errorf("parsing agent definition: %w", err)
+					}
+					warn(agentPath, err)
 					continue
 				}
 				if agentName != "" {

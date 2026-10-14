@@ -9,7 +9,9 @@ Complete reference for YAML schema used in waza evaluations.
 
 ## Portable evidence
 
-Result/task schemas remain `1.4`. Snapshot schema `1.1` adds optional `evidence`
+Tasks retain their legacy format; new results use `1.6` and historical results
+retain their declared `1.x` versions or the missing-version `1.4` reader default.
+Snapshot schema `1.1` adds optional `evidence`
 and selected `workspaceFiles`; the portable manifest has an independent
 `version: "1.0"`. Legacy artifacts still load without assessed evidence.
 New evidence consumers reject duplicate keys, unknown metadata, and unsupported
@@ -69,6 +71,20 @@ instruction, and fixture digests do not preserve source bytes. See
 [Snapshot & Replay](/waza/guides/snapshot-replay/) for capture safety and the
 narrow verified file-only regrading operation, and
 [Schema Changes](/waza/reference/schema-changes/) for compatibility.
+
+## Optional descriptive task requirements
+
+`requirements` is an optional task array. Each entry has `id` (task-local stable
+string), `category` (`outcome|boundary|recovery|quality`), `description`, and
+optional `checks`. A check has `scope: eval|task|checkpoint`, `grader` (explicit
+existing grader name), and `after_turn` only for checkpoint scope.
+Absent/empty checks are uncovered/unresolved. Metadata is descriptive and keeps
+v1 runtime behavior unchanged; minimum-version notes are not enforcement.
+See [Offline Eval Preflight](/guides/preflight/) for schema-valid examples,
+reference diagnostics and the independent `waza.preflight` JSON artifact.
+
+Nonempty `tasks_from` selects CSV tasks instead of YAML `tasks`; either a
+nonempty task list or a nonempty CSV source is required by the eval schema.
 
 ## eval.yaml
 
@@ -160,6 +176,12 @@ Workflow identity without a required skill. A scenario may retain optional
 skill directories means no ambient skill loading. An empty task
 `skill_directories: []` disables discovery; `--no-skills` overrides contexts.
 Legacy suites retain existing behavior. Tasks and results remain `1.x`.
+Native YAML/JSON admission checks field presence, not its truthiness. A present
+`scenario` must be a nonblank string and explicitly use `2.0`; null, numbers,
+booleans, objects and arrays are rejected. This intentionally corrects earlier
+native-reader acceptance of `scenario: null` in versionless/`1.x` suites and
+scalar-to-string coercion. To retain a legacy suite, remove the `scenario` field;
+to select a scenario, supply a nonblank string with `schemaVersion: "2.0"`.
 
 ```yaml
 name: inventory-eval
@@ -183,13 +205,18 @@ version: "1.0"
 
 **Type:** string  
 **Required:** no  
-**Default:** current schema version (currently `1.4`)
+**Default:** legacy eval schema version (`1.4`); new result writers independently emit `1.6`
 
 Schema version for the public artifact shape. It uses `MAJOR.MINOR` format with no patch component. Same-major minor additions are backward-compatible; readers ignore unknown fields and warn. Different major versions are rejected with a migration hint.
 
 Scenario-bearing evals explicitly opt into exact `2.0`, ensuring older
 executables reject their new discovery semantics. Eval `2.0` requires a
-nonempty `scenario`; legacy eval/task/result defaults remain unchanged.
+nonempty `scenario` and rejects unknown eval/config fields; it does not allow
+future minor versions. Legacy eval/task/result defaults remain unchanged.
+Every nested `baseline_outcome` result is checked against the same result-version
+boundary as its parent. Missing or blank nested versions retain the legacy `1.4`
+reader default; declared same-major versions are preserved, while malformed or
+different-major versions are rejected rather than silently reserialized.
 
 ```yaml
 schemaVersion: "1.2"
@@ -260,7 +287,16 @@ mcp_mocks:
 
 Response entries are checked in order. Unknown tools and unmatched calls fail loudly with a tool error that names the missing mock fixture.
 
+Unmatched-call diagnostics omit argument values, including nested payloads. A canceled or expired context at the in-process handler's tool-call admission boundary produces an MCP `isError` result before matching or returning a fixture; non-tool methods retain their existing behavior. This does not implement per-request stdio cancellation or a timeout fixture, and adds no YAML or result fields.
+
 ### command_mocks
+
+Private raw-fragment validators can inspect finite `sequence` and `delay_ms`
+presence before normalization, but these are **not registered public eval/runtime
+fields**. Valid standalone finite task declarations still reject as unregistered.
+Do not infer execution support from a validator or source snapshot. See
+[Private Fault Harness](/waza/guides/private-fault-fixtures/) for the injected testing
+boundary and cancellation limitations.
 
 **Type:** array
 **Required:** no
@@ -531,7 +567,7 @@ config:
 **Type:** boolean
 **Default:** true
 
-Controls whether Waza injects the full target `SKILL.md` or `.agent.md` body into the system prompt when `skill:` is set.
+Controls whether Waza injects the full target `SKILL.md` or `.agent.md` body into the system prompt when `skill:` is set. The injected `<skill_context>` block starts with `Base directory for this skill: <absolute path>`, so relative links in the body (for example `scripts/install.sh` or `assets/templates/`) resolve from the skill's own directory even though the agent runs in a temp workspace. This matters for a skill with `disable-model-invocation: true`, which the agent cannot load through the `skill` tool.
 
 ```yaml
 config:

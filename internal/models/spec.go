@@ -15,23 +15,29 @@ import (
 //
 // Deprecated alias: BenchmarkSpec is provided for backward compatibility.
 type EvalSpec struct {
-	SchemaVersion string `yaml:"schemaVersion,omitempty" json:"schemaVersion,omitempty"`
-	SpecIdentity  `yaml:",inline"`
-	Scenario      string              `yaml:"scenario,omitempty" json:"scenario,omitempty"`
-	SkillName     string              `yaml:"skill"`
-	Version       string              `yaml:"version"`
-	Config        Config              `yaml:"config"`
-	Hooks         hooks.HooksConfig   `yaml:"hooks,omitempty"`
-	MCPMocks      []MCPMockConfig     `yaml:"mcp_mocks,omitempty" json:"mcp_mocks,omitempty"`
-	CommandMocks  []CommandMockConfig `yaml:"command_mocks,omitempty" json:"command_mocks,omitempty"`
-	Adversarial   *AdversarialConfig  `yaml:"adversarial,omitempty" json:"adversarial,omitempty"`
-	Inputs        map[string]string   `yaml:"inputs,omitempty" json:"inputs,omitempty"`
-	TasksFrom     string              `yaml:"tasks_from,omitempty" json:"tasks_from,omitempty"`
-	Range         [2]int              `yaml:"range,omitempty" json:"range,omitempty"`
-	Graders       []GraderConfig      `yaml:"graders"`
-	Metrics       []MeasurementDef    `yaml:"metrics"`
-	Tasks         []string            `yaml:"tasks"`
-	Baseline      bool                `yaml:"baseline,omitempty" json:"baseline,omitempty"`
+	SchemaVersion  string `yaml:"schemaVersion,omitempty" json:"schemaVersion,omitempty"`
+	SpecIdentity   `yaml:",inline"`
+	Scenario       string              `yaml:"scenario,omitempty" json:"scenario,omitempty"`
+	SkillName      string              `yaml:"skill"`
+	Version        string              `yaml:"version"`
+	Config         Config              `yaml:"config"`
+	Hooks          hooks.HooksConfig   `yaml:"hooks,omitempty"`
+	MCPMocks       []MCPMockConfig     `yaml:"mcp_mocks,omitempty" json:"mcp_mocks,omitempty"`
+	CommandMocks   []CommandMockConfig `yaml:"command_mocks,omitempty" json:"command_mocks,omitempty"`
+	Adversarial    *AdversarialConfig  `yaml:"adversarial,omitempty" json:"adversarial,omitempty"`
+	Inputs         map[string]string   `yaml:"inputs,omitempty" json:"inputs,omitempty"`
+	TasksFrom      string              `yaml:"tasks_from,omitempty" json:"tasks_from,omitempty"`
+	Range          [2]int              `yaml:"range,omitempty" json:"range,omitempty"`
+	Graders        []GraderConfig      `yaml:"graders"`
+	Metrics        []MeasurementDef    `yaml:"metrics"`
+	Tasks          []string            `yaml:"tasks"`
+	Baseline       bool                `yaml:"baseline,omitempty" json:"baseline,omitempty"`
+	sourceDocument []byte
+}
+
+// SourceBytes returns the immutable input document, not normalized model JSON.
+func (s *EvalSpec) SourceBytes() []byte {
+	return bytes.Clone(s.sourceDocument)
 }
 
 type SpecIdentity struct {
@@ -440,35 +446,91 @@ type MeasurementDef struct {
 // strict YAML parsing to catch errors like unknown fields or type errors that the schema
 // validation might miss.
 func LoadEvalSpec(path string) (*EvalSpec, error) {
+	return loadEvalSpec(path, false)
+}
+
+// LoadEvalSpecOffline guards eager schema dependencies before native decoding.
+// An unavailable dependency returns an error rather than a partial EvalSpec.
+func LoadEvalSpecOffline(path string) (*EvalSpec, error) {
+	return loadEvalSpec(path, true)
+}
+
+func loadEvalSpec(path string, offline bool) (*EvalSpec, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
+	return parseEvalSpec(data, path, offline, nil)
+}
 
+// ClassifyEvalSpec checks the canonical eval version and scenario header without
+// decoding grader parameters or loading their resources.
+func ClassifyEvalSpec(data []byte, path string) (string, string, error) {
 	var header struct {
-		SchemaVersion string  `yaml:"schemaVersion"`
-		Scenario      *string `yaml:"scenario"`
+		SchemaVersion string    `yaml:"schemaVersion"`
+		Scenario      yaml.Node `yaml:"scenario"`
 	}
 	if err := yaml.Unmarshal(data, &header); err != nil {
-		return nil, fmt.Errorf("parsing eval spec YAML (%s): %w", path, err)
+		return "", "", fmt.Errorf("parsing eval spec YAML (%s): %w", path, err)
 	}
-	if header.Scenario != nil && strings.TrimSpace(*header.Scenario) == "" {
-		return nil, fmt.Errorf("scenario must be a non-empty workflow identity")
+	scenario := ""
+	hasScenario := header.Scenario.Kind != 0
+	if hasScenario {
+		value := &header.Scenario
+		for value.Kind == yaml.AliasNode {
+			value = value.Alias
+		}
+		if value.Kind != yaml.ScalarNode || value.Tag != "!!str" || strings.TrimSpace(value.Value) == "" {
+			return "", "", fmt.Errorf("scenario must be a non-empty string workflow identity; remove the scenario field for a legacy suite or provide a nonblank string with schemaVersion %s", ScenarioSchemaVersion)
+		}
+		scenario = value.Value
 	}
 	version := header.SchemaVersion
-	if header.Scenario == nil {
+	var err error
+	if !hasScenario {
 		version, err = ValidateSchemaVersion("eval.yaml", path, header.SchemaVersion)
 	} else if version != ScenarioSchemaVersion {
-		err = fmt.Errorf("scenario requires explicit schemaVersion %s; older executables must reject scenario semantics", ScenarioSchemaVersion)
+		err = fmt.Errorf("scenario requires explicit schemaVersion %s; remove the scenario field for a legacy suite or set schemaVersion %s for a scenario", ScenarioSchemaVersion, ScenarioSchemaVersion)
 	}
 	if err != nil {
+		return "", "", err
+	}
+	return version, scenario, nil
+}
+
+// ParseEvalSpec retains the runtime loader behavior of LoadEvalSpec.
+// Offline consumers must guard resource-bearing parameters before typed decode.
+func ParseEvalSpec(data []byte, path string) (*EvalSpec, error) {
+	return parseEvalSpec(data, path, false, nil)
+}
+
+// ParseEvalSpecOffline examines immutable bytes with offline schema loading.
+// validate checks static configuration when external dependencies block native decode.
+func ParseEvalSpecOffline(data []byte, path string, validate func(string, GraderParameters) error) (*EvalSpec, error) {
+	return parseEvalSpec(data, path, true, validate)
+}
+
+func parseEvalSpec(data []byte, path string, offline bool, validate func(string, GraderParameters) error) (*EvalSpec, error) {
+	data = bytes.Clone(data)
+	version, scenario, err := ClassifyEvalSpec(data, path)
+	if err != nil {
 		return nil, err
+	}
+
+	if err := validateDeclaredFaults(data, version, false); err != nil {
+		return nil, fmt.Errorf("eval fault sources: %w", err)
+	}
+
+	if offline {
+		if err := guardOfflineModelSchemas(data, false, validate); err != nil {
+			return nil, fmt.Errorf("eval schema dependencies: %w", err)
+		}
 	}
 
 	var spec EvalSpec
 
 	decoder := yaml.NewDecoder(bytes.NewReader(data))
-	if header.Scenario != nil {
+	if scenario != "" {
 		decoder.KnownFields(true)
 	}
 	if err := decoder.Decode(&spec); err != nil {
@@ -485,6 +547,7 @@ func LoadEvalSpec(path string) (*EvalSpec, error) {
 		return nil, err
 	}
 
+	spec.sourceDocument = data
 	return &spec, nil
 }
 
@@ -497,8 +560,8 @@ func (s *EvalSpec) Validate() error {
 		if s.SchemaVersion != ScenarioSchemaVersion {
 			return fmt.Errorf("scenario requires explicit schemaVersion %s", ScenarioSchemaVersion)
 		}
-		if strings.TrimSpace(s.SkillName) == "" && len(s.Config.SkillPaths) == 0 && len(s.Config.RequiredSkills) > 0 {
-			return fmt.Errorf("scenario required_skills requires explicit skill_directories")
+		if strings.TrimSpace(s.SkillName) == "" && len(s.Config.FilteredSkillPaths()) == 0 && len(s.Config.RequiredSkills) > 0 {
+			return fmt.Errorf("scenario required_skills requires explicit skill_directories with an enabled path")
 		}
 	}
 	if !ValidReasoningEffort(s.Config.ReasoningEffort) {
@@ -575,7 +638,7 @@ func (s *EvalSpec) Validate() error {
 func (s *EvalSpec) SkillsDisabledForTask(taskPaths []string) bool {
 	return s.Config.AllSkillsDisabled() ||
 		(s.Scenario != "" && taskPaths != nil && len(taskPaths) == 0) ||
-		(s.Scenario != "" && s.SkillName == "" && len(s.Config.SkillPaths) == 0 && len(taskPaths) == 0)
+		(s.Scenario != "" && strings.TrimSpace(s.SkillName) == "" && len(s.Config.FilteredSkillPaths()) == 0 && len(taskPaths) == 0)
 }
 
 func validateGraderReasoningEffort(name string, parameters GraderParameters, executor string) error {

@@ -94,7 +94,7 @@ export default function EvidenceView({ tasks }: { tasks: TaskResult[] }) {
               {!withheld && run.assessment !== "invalid" && run.explanations?.map((requirement) => (
                 <div key={`${requirement.task_id}-${requirement.requirement_id}`} className="rounded border border-zinc-700 p-3">
                   <h3 className="text-zinc-100">Requirement {requirement.requirement_id}</h3>
-                  {requirement.checks.map((check, i) => (
+                  {requirement.checks?.length ? requirement.checks.map((check, i) => (
                     <div key={i} className="mt-2 text-zinc-400">
                       <p>{check.check.scope || "uncovered"} / {check.check.grader || "no check"}{check.check.after_turn ? ` / turn ${check.check.after_turn}` : ""}: {check.observation} · {check.category}</p>
                       <p>{check.message}</p>
@@ -102,7 +102,11 @@ export default function EvidenceView({ tasks }: { tasks: TaskResult[] }) {
                         <p key={j} className="break-all text-xs">Evidence: {reference.artifact_id}{reference.pointer ?? ""} · {originLabel(reference.origin)}</p>
                       ))}
                     </div>
-                  ))}
+                  )) : (
+                    <p className="mt-2 text-zinc-400">
+                      Check observations unavailable; requirement satisfaction is unassessed.
+                    </p>
+                  )}
                 </div>
               ))}
             </div>

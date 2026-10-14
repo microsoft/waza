@@ -59,6 +59,52 @@ test("scoped checks and operational uncertainty do not invent a cause", async ({
   await expect(view).toContainText("Evidence: tool-events/toolEvents/0 · eval source-evaluation");
 });
 
+for (const assessment of ["recorded", "unassessed"] as const) {
+  for (const checks of ["omitted", "null", "empty", "populated"] as const) {
+    test(`${assessment} explanations with ${checks} checks retain explicit uncertainty and valid siblings`, async ({ page }) => {
+      const errors: string[] = [];
+      page.on("pageerror", (error) => errors.push(error.message));
+      const run = evidenceRun();
+      const requirement = run.explanations![0];
+      if (checks === "omitted") delete requirement.checks;
+      if (checks === "null") requirement.checks = null;
+      if (checks === "empty") requirement.checks = [];
+      run.explanations!.push({
+        ...evidenceRun().explanations![0],
+        requirement_id: "populated-control",
+      });
+      if (assessment === "unassessed") {
+        delete run.manifest;
+        run.assessment = "unassessed";
+        run.cached = false;
+        run.message = "No evidence manifest recorded; historical absence is not success.";
+      }
+
+      const view = await openEvidence(page, [run]);
+      const target = view.getByRole("heading", { name: "Requirement required-report", exact: true }).locator("..");
+      const control = view.getByRole("heading", { name: "Requirement populated-control", exact: true }).locator("..");
+      const unavailable = "Check observations unavailable; requirement satisfaction is unassessed.";
+      if (checks === "populated") {
+        await expect(target).not.toContainText(unavailable);
+        await expect(target).toContainText("task / report-check: grader_recorded_failure · operational_status_unavailable");
+        await expect(target).toContainText("checkpoint / report-check / turn 2: unresolved · insufficient_evidence");
+      } else {
+        await expect(target).toContainText(unavailable);
+        await expect(target).not.toContainText("grader_recorded_pass");
+        await expect(target).not.toContainText("grader_recorded_failure");
+        await expect(target).not.toContainText("Evidence:");
+      }
+      await expect(control).toContainText("task / report-check: grader_recorded_failure · operational_status_unavailable");
+      await expect(control).toContainText("Evidence: tool-events/toolEvents/0 · eval source-evaluation");
+      await expect(control).not.toContainText(unavailable);
+      await expect(view).toContainText(`Run 1 · 2 attempts · ${assessment}`);
+      await expect(view).not.toContainText("Evidence metadata withheld");
+      await expect(view.getByRole("table")).toHaveCount(assessment === "recorded" ? 1 : 0);
+      expect(errors).toEqual([]);
+    });
+  }
+}
+
 test("unknown version values are unavailable rather than inferred", async ({ page }) => {
   const run = evidenceRun();
   run.manifest!.runtime.waza_version = null;
@@ -82,7 +128,7 @@ for (const limitations of [null, []] as const) {
 
 test("overall operational errors remain distinct from a passing check", async ({ page }) => {
   const run = evidenceRun();
-  run.explanations![0].checks[0] = {
+  run.explanations![0].checks![0] = {
     check: { scope: "eval", grader: "content" },
     observation: "grader_recorded_pass",
     category: "operational_error",

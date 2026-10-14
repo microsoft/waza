@@ -6,10 +6,13 @@ import (
 	"encoding/json"
 	"io"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/microsoft/waza/internal/jsonrpc"
+	"github.com/stretchr/testify/require"
 )
 
 func TestHandleInitialize(t *testing.T) {
@@ -131,6 +134,44 @@ func TestHandleToolsCallEvalList(t *testing.T) {
 	}
 	if len(result.Content) != 1 || result.Content[0].Type != "text" {
 		t.Fatalf("expected 1 text content block, got %d", len(result.Content))
+	}
+}
+
+func TestHandleToolsCallScenarioEvalList(t *testing.T) {
+	for _, filename := range []string{"suite.yaml", "suite.yml"} {
+		t.Run(filename, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, filename)
+			contents := []byte("schemaVersion: \"2.0\"\nscenario: inventory\nname: inventory\nskill: reader\ntasks: []\nconfig:\n  trials_per_task: 1\n  timeout_seconds: 30\n")
+			require.NoError(t, os.WriteFile(path, contents, 0o600))
+			require.NoError(t, os.WriteFile(filepath.Join(dir, "task.yaml"), []byte("id: task\nname: Task\ninputs:\n  prompt: Test\n"), 0o600))
+			srv := NewServer(slog.Default())
+			args, err := json.Marshal(map[string]string{"dir": dir})
+			require.NoError(t, err)
+			params, err := json.Marshal(toolsCallParams{Name: "waza_eval_list", Arguments: args})
+			require.NoError(t, err)
+			resp := srv.HandleRequest(context.Background(), &jsonrpc.Request{
+				JSONRPC: "2.0",
+				Method:  "tools/call",
+				Params:  params,
+				ID:      json.RawMessage(`3`),
+			})
+			require.NotNil(t, resp)
+			require.Nil(t, resp.Error)
+			data, err := json.Marshal(resp.Result)
+			require.NoError(t, err)
+			var result toolsCallResult
+			require.NoError(t, json.Unmarshal(data, &result))
+			require.False(t, result.IsError)
+			require.Len(t, result.Content, 1)
+			require.Equal(t, "text", result.Content[0].Type)
+			var listed jsonrpc.EvalListResult
+			require.NoError(t, json.Unmarshal([]byte(result.Content[0].Text), &listed))
+			require.Equal(t, []jsonrpc.EvalSummary{{Path: path, Name: "inventory", SkillName: "reader", Scenario: "inventory"}}, listed.Evals)
+			after, err := os.ReadFile(path)
+			require.NoError(t, err)
+			require.Equal(t, contents, after)
+		})
 	}
 }
 

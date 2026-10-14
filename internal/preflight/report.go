@@ -1,7 +1,10 @@
 // Package preflight inspects local eval prerequisites without executing them.
 package preflight
 
-import "github.com/microsoft/waza/internal/models"
+import (
+	"github.com/microsoft/waza/internal/models"
+	"github.com/microsoft/waza/internal/schemaloader"
+)
 
 const ReportKind = "waza.preflight"
 
@@ -74,6 +77,15 @@ func (r *Report) Failed(strict bool) bool {
 		}
 	}
 	return false
+}
+
+func (r *Report) schemaFailureState(err error) State {
+	state := schemaState(err)
+	_, external := schemaloader.ClassifyError(err)
+	if external {
+		r.Complete = false
+	}
+	return state
 }
 
 func (r *Report) add(code string, state State, source, task, requirement, message, remediation string) {

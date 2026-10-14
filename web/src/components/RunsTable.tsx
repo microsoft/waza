@@ -1,9 +1,15 @@
 import { useMemo, useState } from "react";
 import {
-  useReactTable,
-  getCoreRowModel,
-  getSortedRowModel,
-  flexRender,
+  useTable,
+  tableFeatures,
+  columnSizingFeature,
+  columnVisibilityFeature,
+  rowSortingFeature,
+  createSortedRowModel,
+  sortFn_alphanumeric,
+  sortFn_basic,
+  sortFn_datetime,
+  sortFn_text,
   createColumnHelper,
   type SortingState,
 } from "@tanstack/react-table";
@@ -27,7 +33,20 @@ function OutcomeBadge({ outcome }: { outcome: string }) {
   return <AlertCircle className="h-4 w-4 text-yellow-500" />;
 }
 
-const col = createColumnHelper<RunSummary>();
+const features = tableFeatures({
+  columnSizingFeature,
+  columnVisibilityFeature,
+  rowSortingFeature,
+  sortedRowModel: createSortedRowModel(),
+  sortFns: {
+    alphanumeric: sortFn_alphanumeric,
+    basic: sortFn_basic,
+    datetime: sortFn_datetime,
+    text: sortFn_text,
+  },
+});
+
+const col = createColumnHelper<typeof features, RunSummary>();
 
 export function RunsTableSkeleton() {
   return (
@@ -50,7 +69,7 @@ export default function RunsTable({ data }: { data: RunSummary[] }) {
   const [sorting, setSorting] = useState<SortingState>([]);
 
   const columns = useMemo(
-    () => [
+    () => col.columns([
       col.accessor("outcome", {
         header: "",
         cell: (info) => <OutcomeBadge outcome={info.getValue()} />,
@@ -147,20 +166,18 @@ export default function RunsTable({ data }: { data: RunSummary[] }) {
             {formatRelativeTime(info.getValue())}
           </span>
         ),
-        sortingFn: "datetime",
+        sortFn: "datetime",
       }),
-    ],
+    ]),
     [],
   );
 
-  // eslint-disable-next-line react-hooks/incompatible-library -- TanStack Table's hook intentionally returns callable table helpers.
-  const table = useReactTable({
+  const table = useTable({
+    features,
     data,
     columns,
     state: { sorting },
     onSortingChange: setSorting,
-    getCoreRowModel: getCoreRowModel(),
-    getSortedRowModel: getSortedRowModel(),
   });
 
   return (
@@ -180,17 +197,11 @@ export default function RunsTable({ data }: { data: RunSummary[] }) {
                       className="flex items-center gap-1"
                       onClick={header.column.getToggleSortingHandler()}
                     >
-                      {flexRender(
-                        header.column.columnDef.header,
-                        header.getContext(),
-                      )}
+                      <table.FlexRender header={header} />
                       <ArrowUpDown className="h-3 w-3" />
                     </button>
                   ) : (
-                    flexRender(
-                      header.column.columnDef.header,
-                      header.getContext(),
-                    )
+                    <table.FlexRender header={header} />
                   )}
                 </th>
               ))}
@@ -210,7 +221,7 @@ export default function RunsTable({ data }: { data: RunSummary[] }) {
             >
               {row.getVisibleCells().map((cell) => (
                 <td key={cell.id} className="px-4 py-3">
-                  {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                  <table.FlexRender cell={cell} />
                 </td>
               ))}
             </tr>

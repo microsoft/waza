@@ -1,6 +1,7 @@
 package webapi
 
 import (
+	"encoding/json"
 	"time"
 
 	"github.com/microsoft/waza/internal/models"
@@ -8,6 +9,7 @@ import (
 
 // RunSummary is the API response for a single run in the list.
 type RunSummary struct {
+	skillRecorded   bool
 	ID              string  `json:"id"`
 	Spec            string  `json:"spec"`
 	Model           string  `json:"model"`
@@ -29,16 +31,51 @@ type RunSummary struct {
 	// SDK), "table" (priced from the embedded model rate table), or "estimate"
 	// (flat-rate fallback). Empty for legacy summaries that carry no token/cost
 	// data.
-	CostSource string    `json:"costSource,omitempty"`
-	Duration   float64   `json:"duration"`
-	Timestamp  time.Time `json:"timestamp"`
-	Source     string    `json:"source,omitempty"` // "local" or "azure-blob"
+	CostSource    string    `json:"costSource,omitempty"`
+	Duration      float64   `json:"duration"`
+	Timestamp     time.Time `json:"timestamp"`
+	Source        string    `json:"source,omitempty"` // "local" or "azure-blob"
+	Skill         string    `json:"skill,omitempty"`
+	Repetitions   int       `json:"repetitions,omitempty"`
+	WeightedScore *float64  `json:"weightedScore,omitempty"`
 }
 
 // RunDetail is the API response for a single run with per-task results.
 type RunDetail struct {
 	RunSummary
-	Tasks []TaskResult `json:"tasks"`
+	Tasks      []TaskResult                `json:"tasks"`
+	Statistics *ReliabilitySummaryResponse `json:"statistics,omitempty"`
+}
+
+type runSummaryJSON RunSummary
+
+func (s RunSummary) skillValue() *string {
+	if s.Skill == "" && !s.skillRecorded {
+		return nil
+	}
+	return &s.Skill
+}
+
+func (s RunSummary) MarshalJSON() ([]byte, error) {
+	return json.Marshal(struct {
+		runSummaryJSON
+		Skill *string `json:"skill,omitempty"`
+	}{runSummaryJSON(s), s.skillValue()})
+}
+
+func (d RunDetail) MarshalJSON() ([]byte, error) {
+	return json.Marshal(struct {
+		runSummaryJSON
+		Skill      *string                     `json:"skill,omitempty"`
+		Tasks      []TaskResult                `json:"tasks"`
+		Statistics *ReliabilitySummaryResponse `json:"statistics,omitempty"`
+	}{runSummaryJSON(d.RunSummary), d.skillValue(), d.Tasks, d.Statistics})
+}
+
+// ReliabilitySummaryResponse carries recorded estimates, never reconstructed ones.
+type ReliabilitySummaryResponse struct {
+	SuccessRateCI *ConfidenceIntervalResponse `json:"successRateCI,omitempty"`
+	PassHatK      []float64                   `json:"passHatK,omitempty"`
 }
 
 // ModelUsageResponse is the per-model usage breakdown for a run. AICredits is
@@ -55,17 +92,20 @@ type ModelUsageResponse struct {
 
 // TaskResult is a per-task result within a run.
 type TaskResult struct {
+	ID            string                      `json:"id,omitempty"`
 	Name          string                      `json:"name"`
 	Prompt        string                      `json:"prompt,omitempty"`
 	Outcome       string                      `json:"outcome"`
 	Score         float64                     `json:"score"`
+	WeightedScore *float64                    `json:"weightedScore,omitempty"`
 	Duration      float64                     `json:"duration"`
 	GraderResults []GraderResult              `json:"graderResults"`
 	Transcript    []TranscriptEventResponse   `json:"transcript,omitempty"`
 	SessionDigest *SessionDigestResponse      `json:"sessionDigest,omitempty"`
 	Responder     *ResponderInfoResponse      `json:"responder,omitempty"`
 	BootstrapCI   *ConfidenceIntervalResponse `json:"bootstrapCI,omitempty"`
-	IsSignificant *bool                       `json:"isSignificant,omitempty"`
+	PassRateCI    *ConfidenceIntervalResponse `json:"passRateCI,omitempty"`
+	Trials        *TrialCountsResponse        `json:"trials,omitempty"`
 	EvidenceRuns  []EvidenceRunResponse       `json:"evidenceRuns,omitempty"`
 }
 
@@ -79,7 +119,12 @@ type EvidenceRunResponse struct {
 	Message      string                          `json:"message,omitempty"`
 }
 
-// ConfidenceIntervalResponse is the API representation of a bootstrap CI.
+type TrialCountsResponse struct {
+	Passed int `json:"passed"`
+	Total  int `json:"total"`
+}
+
+// ConfidenceIntervalResponse represents either a score or a binomial interval.
 type ConfidenceIntervalResponse struct {
 	Lower           float64 `json:"lower"`
 	Upper           float64 `json:"upper"`

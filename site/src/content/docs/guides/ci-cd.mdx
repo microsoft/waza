@@ -45,6 +45,20 @@ cd waza
 go build -o waza ./cmd/waza
 ```
 
+## Offline setup gate
+
+```bash
+waza preflight eval.yaml --format json > preflight.json
+```
+
+This setup gate makes no model/live-service calls and launches no subprocesses
+or mock servers. Invalid config exits 1. Credentials, live readiness, interpreter
+syntax, and external state stay unresolved; default warnings exit 0.
+Use `--strict` only when you deliberately want those unresolved/unsupported
+prerequisites to fail with exit 1. It is not a release-assurance or runtime
+requirement-enforcement policy and does not change existing `run`/`gate` exits.
+See [Offline Eval Preflight](/guides/preflight/) for diagnostics and limitations.
+
 ## GitHub Actions
 
 ### Quick Start ΓÇö Scaffold with waza init

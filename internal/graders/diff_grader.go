@@ -211,20 +211,25 @@ func (dg *diffGrader) checkSnapshot(ef models.DiffExpectedFileParameters, actual
 }
 
 func (dg *diffGrader) resolveSnapshotPath(snapshot string) (string, error) {
+	return ResolveSnapshotPath(dg.contextDir, snapshot)
+}
+
+// ResolveSnapshotPath applies runtime containment rules without executing a grader.
+func ResolveSnapshotPath(contextDir, snapshot string) (string, error) {
 	snapshotPath := snapshot
-	if dg.contextDir != "" && !filepath.IsAbs(snapshotPath) {
-		snapshotPath = filepath.Join(dg.contextDir, snapshotPath)
+	if contextDir != "" && !filepath.IsAbs(snapshotPath) {
+		snapshotPath = filepath.Join(contextDir, snapshotPath)
 	}
 
 	absSnapshotPath, err := filepath.Abs(snapshotPath)
 	if err != nil {
 		return "", err
 	}
-	if dg.contextDir == "" {
+	if contextDir == "" {
 		return absSnapshotPath, nil
 	}
 
-	absContextDir, err := filepath.Abs(dg.contextDir)
+	absContextDir, err := filepath.Abs(contextDir)
 	if err != nil {
 		return "", err
 	}
