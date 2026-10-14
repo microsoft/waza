@@ -1,6 +1,6 @@
 ---
 title: Explore the Dashboard
-description: A visual tour of every waza dashboard view — runs overview, task detail, trajectory, comparison, trends, and live monitoring.
+description: A visual tour of every waza dashboard view — runs overview, task detail, evidence, trajectory, comparison, trends, and live monitoring.
 ---
 
 import ZoomImage from '../../../components/ZoomImage.astro';
@@ -47,6 +47,14 @@ Above the tabs, the **Usage by model** table breaks the run's Copilot usage down
 - **AI Credits** — the SDK-reported final credit total attributed to that model. Models the SDK reported no credit total for show `—`. If a contributing session lacks model attribution, model-credit aggregates are unavailable rather than reported as partial totals
 - **Token categories** — retained as diagnostics; waza never prices them to produce the AI Credit figure
 - **Scope** — like the run-level total, these values cover only the Copilot usage waza initiated
+
+## Run Detail — Evidence
+
+The **Evidence** tab retains each trial's recorded manifest, source origin, runtime metadata, artifact availability, redaction match count, diagnostics, and scoped grader observations. Cached evidence keeps its original source identity rather than implying a new execution.
+
+<ZoomImage src="../../images/explore/evidence-tab.png" alt="Evidence tab showing recorded source identity, artifact availability, and scoped grader observations" />
+
+Missing evaluation or task identifiers display as **unavailable**, including capture-failure envelopes with `origin_unavailable` diagnostics; they are not inferred from the displayed run or task names. Invalid metadata is withheld, while missing historical evidence remains unassessed. Digests are not file contents, requested controls are not verified enforcement, and grader observations do not establish universal requirement satisfaction. The view does not fetch local paths, upload artifacts, or perform live replay.
 
 ## Run Detail — Prompts
 

@@ -2,7 +2,7 @@ import type { EvidenceOrigin, TaskResult } from "../api/client";
 import { canDisplayEvidence } from "../api/client";
 
 function originLabel(origin: EvidenceOrigin) {
-  return `eval ${origin.eval_id} · task ${origin.task_id} · run ${origin.run_number} · attempt ${origin.attempt_count} · prior attempts ${origin.prior_attempts}`;
+  return `eval ${origin.eval_id || "unavailable"} · task ${origin.task_id || "unavailable"} · run ${origin.run_number} · attempt ${origin.attempt_count} · prior attempts ${origin.prior_attempts}`;
 }
 
 function versionLabel(value: string | null) {
@@ -63,7 +63,7 @@ export default function EvidenceView({ tasks }: { tasks: TaskResult[] }) {
                     {" "}Requested control is not proof of SDK enforcement.
                   </p>
                   <p className="text-zinc-400">
-                    Redaction: {manifest.redaction.policy} · {manifest.redaction.match_count} rule matches.
+                    Redaction: {manifest.redaction.policy} · {manifest.redaction.match_count} rule {manifest.redaction.match_count === 1 ? "match" : "matches"}.
                     {" "}Rules: {manifest.redaction.applied_rules?.join(", ") || "none recorded"}.
                     {" "}{manifest.redaction.limitations?.join(" ") || "No limitations recorded; this is not proof of secret absence."}
                   </p>

@@ -44,11 +44,46 @@ test("every trial retains partial mock evidence and cached source origin", async
   await expect(view).toContainText("snapshot/toolEvents");
   await expect(view).toContainText("no source bytes");
   await expect(view).toContainText("normalization; this flag is not a secret-match count");
-  await expect(view).toContainText("1 rule matches");
+  await expect(view).toContainText("1 rule match.");
+  await expect(view).not.toContainText("1 rule matches");
   await expect(view.getByRole("link")).toHaveCount(0);
   await expect(view.getByRole("button")).toHaveCount(0);
   expect(requests.filter((path) => /snapshot|report\.txt|upload|grade|replay/.test(path))).toEqual([]);
 });
+
+for (const [evalID, taskID] of [
+  ["", "report-task"], ["source-evaluation", ""], ["", ""],
+] as const) {
+  test(`capture failure with unavailable origin ${JSON.stringify([evalID, taskID])} retains explicit identity labels`, async ({ page }) => {
+    const run = evidenceRun();
+    run.cached = false;
+    delete run.explanations;
+    run.manifest!.origin.eval_id = evalID;
+    run.manifest!.origin.task_id = taskID;
+    run.manifest!.artifacts = [];
+    run.manifest!.diagnostics = [{
+      category: "capture", code: "origin_unavailable",
+      message: "Source identity could not be safely preserved.",
+    }];
+    const view = await openEvidence(page, [run]);
+    await expect(view).toContainText(`Source origin: eval ${evalID || "unavailable"} · task ${taskID || "unavailable"} · run 1 · attempt 2`);
+    await expect(view).toContainText("capture / origin_unavailable");
+    await expect(view).not.toContainText("Evidence metadata withheld");
+    await expect(view).not.toContainText("Source origin: eval  ·");
+    await expect(view).not.toContainText("· task  ·");
+  });
+}
+
+for (const matchCount of [0, 2] as const) {
+  test(`${matchCount} redaction matches retain the plural label`, async ({ page }) => {
+    const run = evidenceRun();
+    run.manifest!.redaction.match_count = matchCount;
+    if (matchCount === 0) run.manifest!.redaction.applied_rules = [];
+    const view = await openEvidence(page, [run]);
+    await expect(view).toContainText(`${matchCount} rule matches.`);
+    await expect(view).not.toContainText("Evidence metadata withheld");
+  });
+}
 
 test("scoped checks and operational uncertainty do not invent a cause", async ({ page }) => {
   const view = await openEvidence(page, [evidenceRun()]);
