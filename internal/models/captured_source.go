@@ -15,7 +15,7 @@ import (
 // These stricter captured-byte entrypoints do not alter same-major compatibility
 // warnings in the ordinary path loaders.
 func validateCapturedModelSource(data []byte, task bool) error {
-	if err := guardOfflineModelSchemas(data, task); err != nil {
+	if err := guardOfflineModelSchemas(data, task, nil); err != nil {
 		return err
 	}
 	var doc yaml.Node

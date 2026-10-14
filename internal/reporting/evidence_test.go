@@ -1,0 +1,262 @@
+package reporting
+
+import (
+	"encoding/json"
+	"fmt"
+	"testing"
+
+	"github.com/microsoft/waza/internal/evidence"
+	"github.com/microsoft/waza/internal/models"
+	"github.com/stretchr/testify/require"
+)
+
+func TestSummaryDisclosesUnverifiedValuePointers(t *testing.T) {
+	for _, cached := range []bool{false, true} {
+		for _, pointer := range []string{"", "/value", "/missing"} {
+			t.Run(fmt.Sprintf("cached=%t/pointer=%s", cached, pointer), func(t *testing.T) {
+				digest, err := evidence.JSONDigest(map[string]any{"value": "ok"})
+				require.NoError(t, err)
+				sourceEvalID := "eval"
+				if cached {
+					sourceEvalID = "source"
+				}
+				manifest := &models.EvidenceManifest{
+					Origin:  models.EvidenceOrigin{EvalID: sourceEvalID, TaskID: "task", RunNumber: 1, AttemptCount: 1},
+					Runtime: models.EvidenceRuntime{ExecutionMode: "unknown", NativeSkillControl: "unknown"},
+					Artifacts: []models.EvidenceArtifact{{
+						ID: "receipt", Kind: "grader_results", Availability: "captured", Completeness: "complete",
+						Document: "snapshot", Pointer: "/result/validations", ContentDigest: digest,
+					}},
+				}
+				require.NoError(t, evidence.Seal(manifest))
+				reference, err := evidence.Reference(manifest, "receipt")
+				require.NoError(t, err)
+				reference.Pointer = pointer
+				outcome := &models.EvaluationOutcome{RunID: "eval", TestOutcomes: []models.TestOutcome{{
+					TestID: "task", Cached: cached, Runs: []models.RunResult{{
+						RunNumber: 1, Attempts: 1, Evidence: manifest,
+						RequirementExplanations: []models.RequirementExplanation{{TaskID: "task", RequirementID: "req",
+							Checks: []models.CheckExplanation{{Observation: "grader_recorded_pass", References: []models.EvidenceReference{reference}}}}},
+					}},
+				}}}
+				before, err := json.Marshal(outcome)
+				require.NoError(t, err)
+				report := FormatSummaryReport(outcome)
+				require.Contains(t, report, "grader_recorded_pass")
+				require.NotContains(t, report, "invalid references")
+				require.Contains(t, report, fmt.Sprintf(
+					"Evidence: receipt; artifact metadata only; value pointer unverified; eval %s; task task; run 1; attempt 1; prior attempts %s",
+					sourceEvalID, reference.Origin.PriorAttempts))
+				require.NotContains(t, report, "receipt/value")
+				require.NotContains(t, report, "receipt/missing")
+				require.NotContains(t, report, "/value")
+				require.NotContains(t, report, "/missing")
+				if pointer != "" {
+					require.Contains(t, report, "value pointers: unverified and withheld")
+				} else {
+					require.NotContains(t, report, "value pointers: unverified and withheld")
+				}
+				after, err := json.Marshal(outcome)
+				require.NoError(t, err)
+				require.Equal(t, before, after)
+			})
+		}
+	}
+}
+
+func TestSummaryDistinguishesCheckpointTurns(t *testing.T) {
+	outcome := &models.EvaluationOutcome{TestOutcomes: []models.TestOutcome{{
+		TestID: "task", Runs: []models.RunResult{{RunNumber: 1, RequirementExplanations: []models.RequirementExplanation{{
+			TaskID: "task", RequirementID: "req", Checks: []models.CheckExplanation{
+				{Check: models.RequirementCheck{Scope: "checkpoint", Grader: "shared", AfterTurn: 2}, Observation: "grader_recorded_pass"},
+				{Check: models.RequirementCheck{Scope: "checkpoint", Grader: "shared", AfterTurn: 4}, Observation: "grader_recorded_failure"},
+				{Check: models.RequirementCheck{Scope: "task", Grader: "shared"}, Observation: "grader_recorded_pass"},
+			},
+		}}}},
+	}}}
+	before, err := json.Marshal(outcome)
+	require.NoError(t, err)
+	report := FormatSummaryReport(outcome)
+	require.Contains(t, report, "checkpoint/shared/turn 2 = grader_recorded_pass")
+	require.Contains(t, report, "checkpoint/shared/turn 4 = grader_recorded_failure")
+	require.Contains(t, report, "task/shared = grader_recorded_pass")
+	require.NotContains(t, report, "checkpoint/shared =")
+	after, err := json.Marshal(outcome)
+	require.NoError(t, err)
+	require.Equal(t, before, after)
+}
+
+func TestSummaryPreservesUnavailableCheckObservations(t *testing.T) {
+	for _, checks := range []string{"", `,"checks":null`, `,"checks":[]`} {
+		t.Run(checks, func(t *testing.T) {
+			var explanations []models.RequirementExplanation
+			require.NoError(t, json.Unmarshal([]byte(fmt.Sprintf(
+				`[{"task_id":"task","requirement_id":"missing"%s},{"task_id":"task","requirement_id":"control","checks":[{"check":{"scope":"task","grader":"control"},"observation":"grader_recorded_pass"}]}]`,
+				checks)), &explanations))
+			outcome := &models.EvaluationOutcome{TestOutcomes: []models.TestOutcome{{
+				TestID: "task", Runs: []models.RunResult{{RunNumber: 1, RequirementExplanations: explanations}},
+			}}}
+			before, err := json.Marshal(outcome)
+			require.NoError(t, err)
+			report := FormatSummaryReport(outcome)
+			require.Contains(t, report, "Run 1 requirement missing: check observations unavailable; requirement satisfaction is unassessed.")
+			require.Contains(t, report, "Run 1 requirement control: task/control = grader_recorded_pass")
+			after, err := json.Marshal(outcome)
+			require.NoError(t, err)
+			require.Equal(t, before, after)
+		})
+	}
+}
+
+func TestSummaryLabelsUnavailableSourceEvaluationWithoutChangingEvidence(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		evalID string
+		cached bool
+		label  string
+	}{
+		{name: "known ordinary origin", evalID: "eval", label: "eval"},
+		{name: "unavailable ordinary origin", label: "unavailable"},
+		{name: "known cached origin", evalID: "source", cached: true, label: "source"},
+		{name: "unavailable cached origin", cached: true, label: "unavailable"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			manifest := &models.EvidenceManifest{
+				Origin:  models.EvidenceOrigin{EvalID: tc.evalID, TaskID: "task", RunNumber: 1, AttemptCount: 1},
+				Runtime: models.EvidenceRuntime{ExecutionMode: "unknown", NativeSkillControl: "unknown"},
+			}
+			require.NoError(t, evidence.Seal(manifest))
+			before, err := json.Marshal(manifest)
+			require.NoError(t, err)
+			outcome := &models.EvaluationOutcome{RunID: "eval", TestOutcomes: []models.TestOutcome{{
+				TestID: "task", Cached: tc.cached,
+				Runs: []models.RunResult{{RunNumber: 1, Attempts: 1, Evidence: manifest}},
+			}}}
+
+			report := FormatSummaryReport(outcome)
+			require.Contains(t, report, "source eval "+tc.label+";")
+			require.NotContains(t, report, "source eval ;")
+			require.NotContains(t, report, "invalid metadata")
+			after, err := json.Marshal(manifest)
+			require.NoError(t, err)
+			require.Equal(t, before, after)
+		})
+	}
+}
+
+func TestSummaryWithholdsInvalidEvidenceAndItsRequirementObservations(t *testing.T) {
+	manifest := &models.EvidenceManifest{
+		Origin:  models.EvidenceOrigin{EvalID: "source", TaskID: "task", RunNumber: 1, AttemptCount: 1},
+		Runtime: models.EvidenceRuntime{ExecutionMode: "unknown", NativeSkillControl: "unknown"},
+	}
+	require.NoError(t, evidence.Seal(manifest))
+	outcome := &models.EvaluationOutcome{RunID: "current", TestOutcomes: []models.TestOutcome{{
+		TestID: "task", Runs: []models.RunResult{{RunNumber: 1, Attempts: 1, Evidence: manifest,
+			RequirementExplanations: []models.RequirementExplanation{{RequirementID: "do-not-display",
+				Checks: []models.CheckExplanation{{Observation: "grader_recorded_pass"}}}},
+		}},
+	}}}
+	report := FormatSummaryReport(outcome)
+	require.Contains(t, report, "Run 1 evidence: invalid metadata")
+	require.NotContains(t, report, "do-not-display")
+	require.NotContains(t, report, "grader_recorded_pass")
+	outcome.TestOutcomes[0].Cached = true
+	report = FormatSummaryReport(outcome)
+	require.Contains(t, report, "source eval source")
+	require.Contains(t, report, "do-not-display")
+	require.Equal(t, "source", manifest.Origin.EvalID)
+}
+
+func TestSummaryExplainsEveryAssessedTrialWithoutChangingLegacyOutput(t *testing.T) {
+	outcome := &models.EvaluationOutcome{TestOutcomes: []models.TestOutcome{{TestID: "task", Runs: []models.RunResult{{RunNumber: 1}}}}}
+	legacy := FormatSummaryReport(outcome)
+	require.NotContains(t, legacy, "requirement")
+	outcome.TestOutcomes[0].Runs = []models.RunResult{
+		{RunNumber: 1, RequirementExplanations: []models.RequirementExplanation{{RequirementID: "boundary",
+			Checks: []models.CheckExplanation{{Observation: "grader_recorded_failure", Category: "operational_status_unavailable"}}}}},
+		{RunNumber: 2, RequirementExplanations: []models.RequirementExplanation{{RequirementID: "boundary",
+			Checks: []models.CheckExplanation{{Observation: "unresolved", Category: "insufficient_evidence"}}}}},
+	}
+
+	report := FormatSummaryReport(outcome)
+	require.Contains(t, report, "Run 1 requirement boundary")
+	require.Contains(t, report, "operational_status_unavailable")
+	require.Contains(t, report, "Run 2 requirement boundary")
+	require.Contains(t, report, "insufficient_evidence")
+}
+
+func TestSummaryWithholdsForeignRequirementReferences(t *testing.T) {
+	digest, err := evidence.JSONDigest("Captured observation.")
+	require.NoError(t, err)
+	manifest := &models.EvidenceManifest{
+		Origin:    models.EvidenceOrigin{EvalID: "eval", TaskID: "task", RunNumber: 1, AttemptCount: 1},
+		Runtime:   models.EvidenceRuntime{ExecutionMode: "unknown", NativeSkillControl: "unknown"},
+		Artifacts: []models.EvidenceArtifact{{ID: "receipt", Availability: "captured", Completeness: "complete", Document: "snapshot", Pointer: "/receipt", ContentDigest: digest}},
+	}
+	require.NoError(t, evidence.Seal(manifest))
+	reference, err := evidence.Reference(manifest, "receipt")
+	require.NoError(t, err)
+	outcome := &models.EvaluationOutcome{RunID: "eval", TestOutcomes: []models.TestOutcome{{
+		TestID: "task", Runs: []models.RunResult{{RunNumber: 1, Attempts: 1, Evidence: manifest,
+			RequirementExplanations: []models.RequirementExplanation{{TaskID: "task", RequirementID: "do-not-display",
+				Checks: []models.CheckExplanation{{References: []models.EvidenceReference{reference}}}}},
+		}},
+	}}}
+	report := FormatSummaryReport(outcome)
+	require.Contains(t, report, "do-not-display")
+	require.NotContains(t, report, "invalid references")
+	outcome.TestOutcomes[0].Runs[0].RequirementExplanations[0].Checks[0].References[0].Origin.TaskID = "foreign"
+	report = FormatSummaryReport(outcome)
+	require.Contains(t, report, "invalid references")
+	require.NotContains(t, report, "do-not-display")
+	outcome.TestOutcomes[0].Runs[0].Evidence = nil
+	report = FormatSummaryReport(outcome)
+	require.Contains(t, report, "invalid references")
+	require.NotContains(t, report, "do-not-display")
+}
+
+func TestSummaryWithholdsRequirementReferencesWithoutCapturedContent(t *testing.T) {
+	for _, availability := range []string{"unavailable", "not_requested", "digest_only"} {
+		for _, cached := range []bool{false, true} {
+			name := availability + "/ordinary"
+			if cached {
+				name = availability + "/cached"
+			}
+			t.Run(name, func(t *testing.T) {
+				digest, err := evidence.JSONDigest("Source identity only.")
+				require.NoError(t, err)
+				artifact := models.EvidenceArtifact{
+					ID: "receipt", Availability: availability, Completeness: "unknown", Reason: "No observed content preserved.",
+				}
+				if availability == "digest_only" {
+					artifact.SourceDigest = digest
+				}
+				manifest := &models.EvidenceManifest{
+					Origin:    models.EvidenceOrigin{EvalID: "eval", TaskID: "task", RunNumber: 1, AttemptCount: 1},
+					Runtime:   models.EvidenceRuntime{ExecutionMode: "unknown", NativeSkillControl: "unknown"},
+					Artifacts: []models.EvidenceArtifact{artifact},
+				}
+				require.NoError(t, evidence.Seal(manifest))
+				reference, err := evidence.Reference(manifest, "receipt")
+				require.NoError(t, err, "general metadata references remain resolvable")
+				outcome := &models.EvaluationOutcome{RunID: "eval", TestOutcomes: []models.TestOutcome{{
+					TestID: "task", Cached: cached, Runs: []models.RunResult{{RunNumber: 1, Attempts: 1, Evidence: manifest,
+						RequirementExplanations: []models.RequirementExplanation{{TaskID: "task", RequirementID: "do-not-display",
+							Checks: []models.CheckExplanation{{References: []models.EvidenceReference{reference}}}}},
+					}},
+				}}}
+				if cached {
+					outcome.RunID = "current"
+				}
+				before, err := json.Marshal(outcome)
+				require.NoError(t, err)
+				report := FormatSummaryReport(outcome)
+				require.Contains(t, report, "invalid references")
+				require.NotContains(t, report, "do-not-display")
+				after, err := json.Marshal(outcome)
+				require.NoError(t, err)
+				require.Equal(t, before, after)
+			})
+		}
+	}
+}

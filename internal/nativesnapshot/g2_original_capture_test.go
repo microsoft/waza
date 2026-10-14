@@ -1,6 +1,7 @@
 package nativesnapshot
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -68,7 +69,7 @@ func projectionFromOriginalCapture(t *testing.T, prepared *Prepared) map[release
 		for _, source := range prepared.sources[arm] {
 			raw[source.Path] = source.Bytes
 		}
-		spec, err := models.ParseEvalSpecOffline(raw[snapshot.EvalPath], filepath.Join(snapshot.RootPath, snapshot.EvalPath))
+		spec, err := models.ParseCapturedEvalSpecOffline(raw[snapshot.EvalPath], filepath.Join(snapshot.RootPath, snapshot.EvalPath))
 		require.NoError(t, err)
 		suite := controlledprojection.SuiteInput{Spec: *spec, Tasks: []controlledprojection.TaskInput{},
 			Executable: raw[snapshot.Executable]}
@@ -77,7 +78,7 @@ func projectionFromOriginalCapture(t *testing.T, prepared *Prepared) map[release
 			if !row.Enabled {
 				continue
 			}
-			task, err := models.ParseTestCaseOffline(raw[row.Path], filepath.Join(snapshot.RootPath, row.Path), func(absolute string) ([]byte, error) {
+			task, err := models.ParseCapturedTestCaseOffline(raw[row.Path], filepath.Join(snapshot.RootPath, row.Path), func(absolute string) ([]byte, error) {
 				label, err := filepath.Rel(snapshot.RootPath, absolute)
 				if err != nil {
 					return nil, err
@@ -119,6 +120,17 @@ func frozenOriginalCapture(t *testing.T, locations map[releasepolicy.Arm]ArmLoca
 		require.NoError(t, err)
 		hash := sha256.Sum256(raw)
 		require.Equal(t, digest, hex.EncodeToString(hash[:]))
+		if name == "nativesnapshot-snapshot.go" {
+			// Retarget only renamed parser entrypoints; the pinned oracle and
+			// its capture logic remain unchanged.
+			for _, parser := range []string{"EvalSpec", "TestCase"} {
+				old := "models.Parse" + parser + "Offline("
+				require.Equal(t, 1, strings.Count(string(raw), old))
+				raw = bytes.ReplaceAll(raw, []byte(old), []byte("models.ParseCaptured"+parser+"Offline("))
+			}
+			source = filepath.Join(scratch, name)
+			require.NoError(t, os.WriteFile(source, raw, 0600))
+		}
 		parts := strings.SplitN(name, "-", 2)
 		replacements[filepath.Join(repository, "internal", parts[0], parts[1])] = source
 	}

@@ -571,8 +571,9 @@ func ReadDocument(ctx context.Context, root *os.Root, name string, maxBytes int)
 	return data, nil
 }
 
-// CurrentExecutableSHA256 hashes actual running executable bytes, not an
-// author-supplied version or a mutable source checkout.
+// CurrentExecutableSHA256 hashes the on-disk file opened at os.Executable()
+// at observation time. It does not identify the mapped image or running RAM;
+// path replacement may change the observed bytes or make acquisition fail.
 func CurrentExecutableSHA256() (string, error) {
 	name, err := os.Executable()
 	if err != nil {

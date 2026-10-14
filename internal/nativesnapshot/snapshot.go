@@ -352,7 +352,7 @@ func captureArmRecorded(ctx context.Context, binding boundLocation, total *int, 
 		return result, nil, err
 	}
 	evalPath := filepath.Join(binding.base, location.EvalPath)
-	spec, err := models.ParseEvalSpecOffline(eval, evalPath)
+	spec, err := models.ParseCapturedEvalSpecOffline(eval, evalPath)
 	if err != nil {
 		return result, nil, err
 	}
@@ -429,7 +429,7 @@ func captureArmRecorded(ctx context.Context, binding boundLocation, total *int, 
 			if recorder != nil {
 				recorder.set(promptPhase, uint32(len(result.Tasks)))
 			}
-			task, err := models.ParseTestCaseOffline(taskBytes, filepath.Join(binding.base, path), func(promptPath string) ([]byte, error) {
+			task, err := models.ParseCapturedTestCaseOffline(taskBytes, filepath.Join(binding.base, path), func(promptPath string) ([]byte, error) {
 				rel, err := filepath.Rel(filepath.Dir(filepath.Join(binding.base, path)), promptPath)
 				if err != nil || canonical(rel, false) != nil {
 					return nil, fmt.Errorf("unsupported prompt_file path")

@@ -1,6 +1,7 @@
 package models
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +13,15 @@ import (
 	"testing"
 
 	"github.com/microsoft/waza/internal/testutil"
+	"github.com/microsoft/waza/schemas"
+	"github.com/santhosh-tekuri/jsonschema/v6"
+	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
+)
+
+const (
+	explicitScenarioError = "scenario requires explicit schemaVersion 2.0; remove the scenario field for a legacy suite or set schemaVersion 2.0 for a scenario"
+	emptyScenarioError    = "scenario must be a non-empty string workflow identity; remove the scenario field for a legacy suite or provide a nonblank string with schemaVersion 2.0"
 )
 
 const classifierValidBody = `name: classifier-test
@@ -50,8 +60,6 @@ func classifierWriteFile(t *testing.T, pattern, data string) string {
 }
 
 func TestClassifyEvalSpecHeaderParity(t *testing.T) {
-	explicitScenarioError := "scenario requires explicit schemaVersion 2.0; older executables must reject scenario semantics"
-	emptyScenarioError := "scenario must be a non-empty workflow identity"
 	tests := []struct {
 		name         string
 		header       string
@@ -69,8 +77,14 @@ func TestClassifyEvalSpecHeaderParity(t *testing.T) {
 		{name: "blank version", header: "schemaVersion: '  '\n", version: CurrentSchemaVersion},
 		{name: "explicit scenario", header: "schemaVersion: '2.0'\nscenario: checkout-recovery\n", version: "2.0", scenario: "checkout-recovery"},
 		{name: "scenario identity preserved", header: "schemaVersion: '2.0'\nscenario: ' checkout-recovery '\n", version: "2.0", scenario: " checkout-recovery "},
-		{name: "null legacy scenario", header: "scenario: null\n", version: CurrentSchemaVersion},
-		{name: "null explicit legacy scenario", header: "schemaVersion: '1.0'\nscenario: null\n", version: "1.0"},
+		{name: "null legacy scenario migration", header: "scenario: null\n", exactError: emptyScenarioError},
+		{name: "null explicit legacy scenario migration", header: "schemaVersion: '1.0'\nscenario: null\n", exactError: emptyScenarioError},
+		{name: "implicit null scenario", header: "scenario:\n", exactError: emptyScenarioError},
+		{name: "boolean scenario", header: "schemaVersion: '2.0'\nscenario: true\n", exactError: emptyScenarioError},
+		{name: "numeric scenario", header: "schemaVersion: '2.0'\nscenario: 42\n", exactError: emptyScenarioError},
+		{name: "string alias scenario", header: "schemaVersion: '2.0'\nscenario: &identity recovery\n", version: "2.0", scenario: "recovery"},
+		{name: "merged scenario alias", header: "schemaVersion: '2.0'\n<<: &header {scenario: &identity recovery}\nscenario: *identity\n", version: "2.0", scenario: "recovery"},
+		{name: "merged null scenario", header: "<<: {scenario: null}\n", exactError: emptyScenarioError},
 		{name: "empty scenario", header: "schemaVersion: '2.0'\nscenario: ''\n", exactError: emptyScenarioError},
 		{name: "blank scenario", header: "schemaVersion: '2.0'\nscenario: '  '\n", exactError: emptyScenarioError},
 		{name: "whitespace scenario", header: "schemaVersion: '2.0'\nscenario: \"\\t\\n\"\n", exactError: emptyScenarioError},
@@ -80,14 +94,14 @@ func TestClassifyEvalSpecHeaderParity(t *testing.T) {
 		{name: "future scenario minor", header: "schemaVersion: '2.1'\nscenario: recovery\n", exactError: explicitScenarioError},
 		{name: "future scenario major", header: "schemaVersion: '3.0'\nscenario: recovery\n", exactError: explicitScenarioError},
 		{name: "scenario version without scenario", header: "schemaVersion: '2.0'\n", invalidMajor: "2.0"},
-		{name: "scenario version with null scenario", header: "schemaVersion: '2.0'\nscenario: null\n", invalidMajor: "2.0"},
+		{name: "scenario version with null scenario", header: "schemaVersion: '2.0'\nscenario: null\n", exactError: emptyScenarioError},
 		{name: "future version without scenario", header: "schemaVersion: '2.1'\n", invalidMajor: "2.1"},
 		{name: "future major without scenario", header: "schemaVersion: '3.0'\n", invalidMajor: "3.0"},
 		{name: "malformed version", header: "schemaVersion: '1'\n", exactError: `eval.yaml {path} has invalid schemaVersion "1": expected MAJOR.MINOR`},
 		{name: "version mapping", header: "schemaVersion: {major: 1}\n", yamlError: "cannot unmarshal !!map into string"},
 		{name: "version sequence", header: "schemaVersion: [1, 0]\n", yamlError: "cannot unmarshal !!seq into string"},
-		{name: "scenario mapping", header: "schemaVersion: '2.0'\nscenario: {name: recovery}\n", yamlError: "cannot unmarshal !!map into string"},
-		{name: "scenario sequence", header: "schemaVersion: '2.0'\nscenario: [recovery]\n", yamlError: "cannot unmarshal !!seq into string"},
+		{name: "scenario mapping", header: "schemaVersion: '2.0'\nscenario: {name: recovery}\n", exactError: emptyScenarioError},
+		{name: "scenario sequence", header: "schemaVersion: '2.0'\nscenario: [recovery]\n", exactError: emptyScenarioError},
 		{name: "malformed YAML", header: "schemaVersion: [\n", yamlError: "yaml:"},
 		{name: "duplicate version", header: "schemaVersion: '1.0'\nschemaVersion: '1.99'\n", yamlError: `mapping key "schemaVersion" already defined`},
 		{name: "duplicate scenario", header: "schemaVersion: '2.0'\nscenario: one\nscenario: two\n", yamlError: `mapping key "scenario" already defined`},
@@ -142,6 +156,231 @@ func TestClassifyEvalSpecHeaderParity(t *testing.T) {
 	}
 }
 
+func TestClassifyEvalSpecScenarioPresenceMatrix(t *testing.T) {
+	for _, format := range []string{"yaml", "json"} {
+		for _, declared := range []string{"", "1.0", "2.0", "2.1"} {
+			for _, scenario := range []struct {
+				name  string
+				yaml  string
+				value any
+			}{
+				{name: "absent"},
+				{name: "null", yaml: "null"},
+				{name: "number", yaml: "7", value: 7},
+				{name: "bool", yaml: "true", value: true},
+				{name: "map", yaml: "{name: recovery}", value: map[string]any{"name": "recovery"}},
+				{name: "seq", yaml: "[recovery]", value: []any{"recovery"}},
+				{name: "blank", yaml: "'  '", value: "  "},
+				{name: "string", yaml: "' recovery '", value: " recovery "},
+			} {
+				versionName := declared
+				if versionName == "" {
+					versionName = "omitted"
+				}
+				t.Run(format+"/"+versionName+"/"+scenario.name, func(t *testing.T) {
+					body := "name: classifier-test\nconfig:\n  trials_per_task: 1\n  timeout_seconds: 60\n  executor: mock\n"
+					header := ""
+					if declared != "" {
+						header += fmt.Sprintf("schemaVersion: %q\n", declared)
+					}
+					if scenario.name != "absent" {
+						header += "scenario: " + scenario.yaml + "\n"
+					}
+					data := []byte(header + body)
+					if format == "json" {
+						document := map[string]any{
+							"name": "classifier-test",
+							"config": map[string]any{
+								"trials_per_task": 1,
+								"timeout_seconds": 60,
+								"executor":        "mock",
+							},
+						}
+						if declared != "" {
+							document["schemaVersion"] = declared
+						}
+						if scenario.name != "absent" {
+							document["scenario"] = scenario.value
+						}
+						var err error
+						data, err = json.Marshal(document)
+						require.NoError(t, err)
+					}
+					path := classifierWriteFile(t, "eval-classifier-presence-*."+format, string(data))
+					expectedVersion := declared
+					if expectedVersion == "" {
+						expectedVersion = CurrentSchemaVersion
+					}
+					expectedScenario := ""
+					expectedError := ""
+					switch scenario.name {
+					case "absent":
+						if declared == "2.0" || declared == "2.1" {
+							expectedError = fmt.Sprintf("eval.yaml %s uses schemaVersion %q (major 2), but this waza supports schema major 1 (current schemaVersion %s); run \"waza migrate <file>\" to migrate the artifact file", path, declared, CurrentSchemaVersion)
+						}
+					case "string":
+						value, ok := scenario.value.(string)
+						require.True(t, ok)
+						expectedScenario = value
+						if declared != "2.0" {
+							expectedError = explicitScenarioError
+						}
+					default:
+						expectedError = emptyScenarioError
+					}
+					version, identity, err := ClassifyEvalSpec(data, path)
+					if expectedError != "" {
+						require.EqualError(t, err, expectedError)
+						require.Empty(t, version)
+						require.Empty(t, identity)
+					} else {
+						require.NoError(t, err)
+						require.Equal(t, expectedVersion, version)
+						require.Equal(t, expectedScenario, identity)
+					}
+					for _, loader := range []struct {
+						name string
+						load func() (*EvalSpec, error)
+					}{
+						{name: "parse", load: func() (*EvalSpec, error) { return ParseEvalSpec(data, path) }},
+						{name: "parse-offline", load: func() (*EvalSpec, error) { return ParseCapturedEvalSpecOffline(data, path) }},
+						{name: "load", load: func() (*EvalSpec, error) { return LoadEvalSpec(path) }},
+						{name: "load-offline", load: func() (*EvalSpec, error) { return LoadEvalSpecOffline(path) }},
+					} {
+						t.Run(loader.name, func(t *testing.T) {
+							spec, err := loader.load()
+							loaderError := expectedError
+							if loader.name == "parse-offline" {
+								switch scenario.name {
+								case "null":
+									loaderError = "captured native string field must not be null"
+								case "number":
+									loaderError = "captured native string field requires !!str, got !!int"
+								case "bool":
+									loaderError = "captured native string field requires !!str, got !!bool"
+								case "map":
+									loaderError = "captured native string field does not accept a mapping"
+								case "seq":
+									loaderError = "captured native string field does not accept a sequence"
+								}
+							}
+							if loaderError != "" {
+								require.EqualError(t, err, loaderError)
+								require.Nil(t, spec)
+								return
+							}
+							require.NoError(t, err)
+							require.Equal(t, &EvalSpec{
+								SchemaVersion:  expectedVersion,
+								SpecIdentity:   SpecIdentity{Name: "classifier-test"},
+								Scenario:       expectedScenario,
+								Config:         Config{TrialsPerTask: 1, TimeoutSec: 60, EngineType: "mock"},
+								sourceDocument: data,
+							}, spec)
+							if scenario.name == "absent" {
+								require.False(t, spec.SkillsDisabledForTask(nil))
+							}
+						})
+					}
+				})
+			}
+		}
+	}
+}
+
+func TestClassifyEvalSpecDeclaredScenarioSchemaParity(t *testing.T) {
+	var schemaDocument any
+	require.NoError(t, json.Unmarshal([]byte(schemas.EvalSchemaJSON), &schemaDocument))
+	compiler := jsonschema.NewCompiler()
+	require.NoError(t, compiler.AddResource("eval.schema.json", schemaDocument))
+	schema, err := compiler.Compile("eval.schema.json")
+	require.NoError(t, err)
+	for _, format := range []string{"yaml", "json"} {
+		for _, version := range []string{"", "1.0", "2.0", "2.1"} {
+			for _, tc := range []struct {
+				name    string
+				present bool
+				value   any
+			}{
+				{"absent", false, nil},
+				{"null", true, nil},
+				{"number", true, 42},
+				{"boolean", true, true},
+				{"empty object", true, map[string]any{}},
+				{"array", true, []any{"recovery"}},
+				{"blank", true, " \t\n"},
+				{"valid string", true, "recovery"},
+			} {
+				t.Run(format+"/"+version+"/"+tc.name, func(t *testing.T) {
+					fields := map[string]any{
+						"name": "classification", "skill": "test-skill",
+						"config":  map[string]any{"executor": "mock", "model": "harness", "trials_per_task": 1, "timeout_seconds": 60},
+						"metrics": []any{map[string]any{"name": "accuracy", "weight": 1, "threshold": 0.8}},
+						"tasks":   []any{"task.yaml"},
+					}
+					if version != "" {
+						fields["schemaVersion"] = version
+					}
+					if tc.present {
+						fields["scenario"] = tc.value
+					}
+					var data []byte
+					var err error
+					if format == "yaml" {
+						data, err = yaml.Marshal(fields)
+					} else {
+						data, err = json.Marshal(fields)
+					}
+					require.NoError(t, err)
+					path := classifierWriteFile(t, "scenario-presence-*."+format, string(data))
+					gotVersion, gotScenario, classErr := ClassifyEvalSpec(data, path)
+					parsed, parseErr := ParseEvalSpec(data, path)
+					loaded, loadErr := LoadEvalSpec(path)
+					offline, offlineErr := LoadEvalSpecOffline(path)
+					valid := (!tc.present && (version == "" || version == "1.0")) ||
+						(tc.name == "valid string" && version == "2.0")
+					if valid {
+						require.NoError(t, classErr)
+						require.NoError(t, parseErr)
+						require.NoError(t, loadErr)
+						require.NoError(t, offlineErr)
+						require.NoError(t, schema.Validate(fields))
+						if !tc.present && version == "" {
+							require.Equal(t, CurrentSchemaVersion, gotVersion)
+						} else {
+							require.Equal(t, version, gotVersion)
+						}
+						if tc.present {
+							require.Equal(t, "recovery", gotScenario)
+						} else {
+							require.Empty(t, gotScenario)
+						}
+						require.Equal(t, parsed, loaded)
+						require.Equal(t, parsed, offline)
+					} else {
+						require.Error(t, classErr)
+						require.EqualError(t, parseErr, classErr.Error())
+						require.EqualError(t, loadErr, classErr.Error())
+						require.EqualError(t, offlineErr, classErr.Error())
+						if !tc.present && version == "2.1" {
+							require.NoError(t, schema.Validate(fields), "schema syntax does not replace the native supported-major fence")
+						} else {
+							require.Error(t, schema.Validate(fields))
+						}
+						require.Nil(t, parsed)
+						require.Empty(t, gotVersion)
+						require.Empty(t, gotScenario)
+						if tc.present {
+							require.Contains(t, classErr.Error(), "remove the scenario field for a legacy suite")
+							require.Contains(t, classErr.Error(), "schemaVersion 2.0")
+						}
+					}
+				})
+			}
+		}
+	}
+}
+
 func TestByteParseEvalSpecLegacyValues(t *testing.T) {
 	body := `name: legacy-values
 description: unchanged decoding
@@ -193,10 +432,11 @@ legacy_extension: retained compatibility
 			path := classifierWriteFile(t, "eval-byte-parse-*.yaml", string(data))
 			inject := false
 			expected := &EvalSpec{
-				SchemaVersion: version,
-				SpecIdentity:  SpecIdentity{Name: "legacy-values", Description: "unchanged decoding"},
-				SkillName:     "code-explainer",
-				Version:       "0.7",
+				SchemaVersion:  version,
+				sourceDocument: data,
+				SpecIdentity:   SpecIdentity{Name: "legacy-values", Description: "unchanged decoding"},
+				SkillName:      "code-explainer",
+				Version:        "0.7",
 				Config: Config{
 					TrialsPerTask: 3, TimeoutSec: 120, FirstEventTimeoutSec: 10,
 					EngineType: "mock", ModelID: "test-model", Concurrent: true, Workers: 2,

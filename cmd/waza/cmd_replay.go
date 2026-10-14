@@ -20,18 +20,17 @@ func newReplayCommand() *cobra.Command {
 	)
 	cmd := &cobra.Command{
 		Use:   "replay <snapshot.json>",
-		Short: "Replay a snapshot to verify deterministic reproduction",
-		Long: `Replay a self-contained task snapshot to verify that the eval is
-reproducible from the captured tool_events tape.
+		Short: "Check a snapshot's offline consistency or compare two snapshots",
+		Long: `Check the internal consistency of a task snapshot or compare its
+captured tool_events tape with another snapshot. This does not reconstruct
+workspace files, re-run graders, verify external state, or execute an agent.
 
 Modes:
-  model-replay  (default) Re-check grader outcomes against the snapshot's
-                tool_events without contacting the engine; exits 0 when the
+  model-replay  (default) Check event sequencing and stored grader
+                score/pass consistency without contacting the engine; exits 0 when the
                 snapshot is internally consistent.
-  live          (planned) Re-run the task against the real engine and
-                compare the resulting tool_events to the snapshot's. The
-                comparison ignores durations and raw output text, focusing
-                on the ordered tool name/args fingerprint.
+  live          Unsupported; returns exit code 2.
+                No live replay behavior or delivery date is promised.
 
 Bisect:
   --bisect <other.json> compares two snapshots and reports the first
@@ -40,7 +39,7 @@ Bisect:
 Exit codes:
   0  snapshots match / replay succeeded
   1  divergence detected (kind/value rendered to stderr or --json output)
-  2  load / parse / IO error`,
+  2  load / parse / snapshot IO / JSON output / unsupported or unknown mode error`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			snapPath := args[0]
@@ -64,13 +63,13 @@ Exit codes:
 			case "", snapshot.ModeModelReplay:
 				return runModelReplay(cmd, snap, snapPath, jsonOut, strict)
 			case snapshot.ModeLive:
-				return exitErr(2, fmt.Errorf("live mode is not implemented yet; use --mode model-replay or open a tracking issue"))
+				return exitErr(2, fmt.Errorf("live mode is unsupported; use --mode model-replay"))
 			default:
 				return exitErr(2, fmt.Errorf("unknown --mode %q (expected model-replay or live)", mode))
 			}
 		},
 	}
-	cmd.Flags().StringVar(&mode, "mode", string(snapshot.ModeModelReplay), "Replay mode: model-replay (default) or live")
+	cmd.Flags().StringVar(&mode, "mode", string(snapshot.ModeModelReplay), "Replay mode: model-replay (default) or live (unsupported; exits 2)")
 	cmd.Flags().StringVar(&bisectArg, "bisect", "", "Path to a second snapshot to bisect against the primary")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON to stdout instead of a human summary")
 	cmd.Flags().BoolVar(&strict, "strict", true, "In model-replay mode, also re-check final status and grader outcomes")

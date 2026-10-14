@@ -28,10 +28,13 @@ func LoadTasks(spec *models.EvalSpec, baseDir string, now time.Time) ([]*models.
 	if err != nil {
 		return nil, fmt.Errorf("resolving CSV path: %w", err)
 	}
-	if !strings.HasPrefix(absCSVPath, absBaseDir+string(filepath.Separator)) {
+	lexicalRelative, err := filepath.Rel(absBaseDir, absCSVPath)
+	if err != nil {
+		return nil, fmt.Errorf("checking CSV path containment: %w", err)
+	}
+	if lexicalRelative == "." || !filepath.IsLocal(lexicalRelative) {
 		return nil, fmt.Errorf("tasks_from path %q escapes spec directory", spec.TasksFrom)
 	}
-	var rows []Row
 	if spec.Range != [2]int{} {
 		if spec.Range[0] <= 0 || spec.Range[1] <= 0 {
 			return nil, fmt.Errorf("invalid range: both values must be > 0, got [%d, %d]", spec.Range[0], spec.Range[1])
@@ -39,9 +42,27 @@ func LoadTasks(spec *models.EvalSpec, baseDir string, now time.Time) ([]*models.
 		if spec.Range[0] > spec.Range[1] {
 			return nil, fmt.Errorf("invalid range: start (%d) must be <= end (%d)", spec.Range[0], spec.Range[1])
 		}
-		rows, err = LoadCSVRange(csvPath, spec.Range[0], spec.Range[1])
+	}
+	resolvedBase, err := filepath.EvalSymlinks(absBaseDir)
+	if err != nil {
+		return nil, fmt.Errorf("resolving spec directory symlinks: %w", err)
+	}
+	resolvedCSV, err := filepath.EvalSymlinks(absCSVPath)
+	if err != nil {
+		return nil, fmt.Errorf("loading CSV dataset: resolving path symlinks: %w", err)
+	}
+	relative, err := filepath.Rel(resolvedBase, resolvedCSV)
+	if err != nil {
+		return nil, fmt.Errorf("checking CSV path containment: %w", err)
+	}
+	if relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) || filepath.IsAbs(relative) {
+		return nil, fmt.Errorf("tasks_from path %q escapes spec directory through symlinks", spec.TasksFrom)
+	}
+	var rows []Row
+	if spec.Range != [2]int{} {
+		rows, err = LoadCSVRange(resolvedCSV, spec.Range[0], spec.Range[1])
 	} else {
-		rows, err = LoadCSV(csvPath)
+		rows, err = LoadCSV(resolvedCSV)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("loading CSV dataset: %w", err)
@@ -49,6 +70,9 @@ func LoadTasks(spec *models.EvalSpec, baseDir string, now time.Time) ([]*models.
 	tasks := make([]*models.TestCase, 0, len(rows))
 	for i, row := range rows {
 		rowNum := i + 1
+		if spec.Range != [2]int{} {
+			rowNum += spec.Range[0] - 1
+		}
 		id := fmt.Sprintf("row-%d", rowNum)
 		if row["id"] != "" {
 			id = row["id"]

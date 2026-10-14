@@ -19,7 +19,6 @@ import (
 	"github.com/microsoft/waza/internal/dataset"
 	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/models"
-	"github.com/microsoft/waza/internal/template"
 	"github.com/microsoft/waza/internal/transcript"
 	"github.com/microsoft/waza/internal/utils"
 	"gopkg.in/yaml.v3"
@@ -530,97 +529,7 @@ func loadTestCasesFromFiles(spec *models.EvalSpec, specPath string) ([]*models.T
 }
 
 func loadTestCasesFromCSV(spec *models.EvalSpec, specPath string) ([]*models.TestCase, error) {
-	specDir := filepath.Dir(specPath)
-	csvPath := spec.TasksFrom
-	if !filepath.IsAbs(csvPath) {
-		csvPath = filepath.Join(specDir, csvPath)
-	}
-
-	absSpecDir, err := filepath.Abs(specDir)
-	if err != nil {
-		return nil, fmt.Errorf("resolving spec directory: %w", err)
-	}
-	absCSVPath, err := filepath.Abs(csvPath)
-	if err != nil {
-		return nil, fmt.Errorf("resolving CSV path: %w", err)
-	}
-	if !strings.HasPrefix(absCSVPath, absSpecDir+string(filepath.Separator)) {
-		return nil, fmt.Errorf("tasks_from path %q escapes spec directory", spec.TasksFrom)
-	}
-
-	var rows []dataset.Row
-	if spec.Range != [2]int{} {
-		if spec.Range[0] <= 0 || spec.Range[1] <= 0 {
-			return nil, fmt.Errorf("invalid range: both values must be > 0, got [%d, %d]", spec.Range[0], spec.Range[1])
-		}
-		if spec.Range[0] > spec.Range[1] {
-			return nil, fmt.Errorf("invalid range: start (%d) must be <= end (%d)", spec.Range[0], spec.Range[1])
-		}
-		rows, err = dataset.LoadCSVRange(csvPath, spec.Range[0], spec.Range[1])
-	} else {
-		rows, err = dataset.LoadCSV(csvPath)
-	}
-	if err != nil {
-		return nil, fmt.Errorf("loading CSV dataset: %w", err)
-	}
-
-	now := time.Now()
-	baseCtx := &template.Context{
-		JobID:     fmt.Sprintf("run-%d", now.Unix()),
-		Timestamp: now.Format(time.RFC3339),
-		Vars:      make(map[string]string),
-	}
-	for k, v := range spec.Inputs {
-		baseCtx.Vars[k] = v
-	}
-
-	testCases := make([]*models.TestCase, 0, len(rows))
-	for i, row := range rows {
-		rowNum := i + 1
-		testID := fmt.Sprintf("row-%d", rowNum)
-		if v, ok := row["id"]; ok && v != "" {
-			testID = v
-		} else if v, ok := row["name"]; ok && v != "" {
-			testID = v
-		}
-
-		displayName := fmt.Sprintf("row-%d", rowNum)
-		if v, ok := row["name"]; ok && v != "" {
-			displayName = v
-		}
-
-		rowCtx := &template.Context{
-			JobID:     baseCtx.JobID,
-			TaskName:  displayName,
-			Iteration: 0,
-			Attempt:   0,
-			Timestamp: baseCtx.Timestamp,
-			Vars:      make(map[string]string),
-		}
-		for k, v := range spec.Inputs {
-			rowCtx.Vars[k] = v
-		}
-		for k, v := range row {
-			rowCtx.Vars[k] = v
-		}
-
-		prompt := row["prompt"]
-		if strings.Contains(prompt, "{{") {
-			prompt, err = template.Render(prompt, rowCtx)
-			if err != nil {
-				return nil, fmt.Errorf("resolving prompt template for row %d: %w", rowNum, err)
-			}
-		}
-
-		testCases = append(testCases, &models.TestCase{
-			TestID:      testID,
-			DisplayName: displayName,
-			Stimulus: models.TaskStimulus{
-				Message: prompt,
-			},
-		})
-	}
-	return testCases, nil
+	return dataset.LoadTasks(spec, filepath.Dir(specPath), time.Now())
 }
 
 func extractCopilotTrace(transcript []models.TranscriptEvent) []string {

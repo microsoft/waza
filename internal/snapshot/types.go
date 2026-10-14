@@ -100,11 +100,12 @@ type Snapshot struct {
 	// grader results) so model-replay can inspect stored score/pass consistency.
 	Result SnapshotResult `json:"result"`
 
-	CommandInvocations []models.CommandInvocation `json:"commandInvocations,omitempty"`
-	Checkpoints        []models.CheckpointOutcome `json:"checkpoints,omitempty"`
-	Evidence           *models.EvidenceManifest   `json:"evidence,omitempty"`
-	WorkspaceFiles     []WorkspaceFile            `json:"workspaceFiles,omitempty"`
-	rawWorkspaceFiles  []json.RawMessage
+	CommandInvocations        []models.CommandInvocation `json:"commandInvocations,omitempty"`
+	Checkpoints               []models.CheckpointOutcome `json:"checkpoints,omitempty"`
+	Evidence                  *models.EvidenceManifest   `json:"evidence,omitempty"`
+	WorkspaceFiles            []WorkspaceFile            `json:"workspaceFiles,omitempty"`
+	rawWorkspaceFiles         []json.RawMessage
+	workspaceCaptureRequested bool
 }
 
 // SnapshotTask carries identifying task metadata.

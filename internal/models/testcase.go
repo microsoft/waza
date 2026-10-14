@@ -38,8 +38,14 @@ type TestCase struct {
 	// against the cumulative conversation state at the end of that turn.
 	// Checkpoints are additive — task-level `graders:` still run against
 	// the final state after all turns complete.
-	Checkpoints  []Checkpoint  `yaml:"checkpoints,omitempty" json:"checkpoints,omitempty"`
-	Requirements []Requirement `yaml:"requirements,omitempty" json:"requirements,omitempty"`
+	Checkpoints    []Checkpoint  `yaml:"checkpoints,omitempty" json:"checkpoints,omitempty"`
+	Requirements   []Requirement `yaml:"requirements,omitempty" json:"requirements,omitempty"`
+	sourceDocument []byte
+}
+
+// SourceBytes returns the original input, before prompt-file resolution.
+func (tc *TestCase) SourceBytes() []byte {
+	return bytes.Clone(tc.sourceDocument)
 }
 
 // CheckpointOnFailure controls multi-turn behavior when a checkpoint fails.
@@ -529,19 +535,19 @@ func loadTestCase(path string, offline bool) (*TestCase, error) {
 	if err != nil {
 		return nil, err
 	}
-	return parseTestCase(data, path, offline, os.ReadFile)
+	return parseTestCase(data, path, offline, os.ReadFile, nil)
 }
 
-// ParseTestCaseOffline resolves prompt_file through a captured-byte reader.
+// ParseCapturedTestCaseOffline resolves prompt_file through a captured-byte reader.
 // The reader receives the same task-directory-relative path as the loader.
-func ParseTestCaseOffline(data []byte, path string, readFile func(string) ([]byte, error)) (*TestCase, error) {
+func ParseCapturedTestCaseOffline(data []byte, path string, readFile func(string) ([]byte, error)) (*TestCase, error) {
 	if readFile == nil {
 		return nil, fmt.Errorf("offline task parsing requires a source reader")
 	}
 	if err := validateCapturedModelSource(data, true); err != nil {
 		return nil, err
 	}
-	tc, err := parseTestCase(data, path, true, readFile)
+	tc, err := parseTestCase(data, path, true, readFile, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -553,9 +559,38 @@ func ParseTestCaseOffline(data []byte, path string, readFile func(string) ([]byt
 	return tc, nil
 }
 
-func parseTestCase(data []byte, path string, offline bool, readFile func(string) ([]byte, error)) (*TestCase, error) {
+// ParseTestCase preserves native task loading and path-relative prompt resolution.
+func ParseTestCase(data []byte, path string) (*TestCase, error) {
+	return parseTestCase(data, path, false, os.ReadFile, nil)
+}
+
+// ParseTestCaseOffline examines immutable bytes with offline schema loading.
+// validate checks static configuration when external dependencies block native decode.
+func ParseTestCaseOffline(data []byte, path string, validate func(string, GraderParameters) error) (*TestCase, error) {
+	return parseTestCase(data, path, true, os.ReadFile, validate)
+}
+
+func parseTestCase(data []byte, path string, offline bool, readFile func(string) ([]byte, error), validate func(string, GraderParameters) error) (*TestCase, error) {
+	data = bytes.Clone(data)
+	if err := validateDeclaredFaults(data, "", true); err != nil {
+		return nil, fmt.Errorf("task fault sources: %w", err)
+	}
+	var source yaml.Node
+	if err := yaml.Unmarshal(data, &source); err != nil {
+		return nil, fmt.Errorf("parsing test case YAML: %w", err)
+	}
+	if len(source.Content) == 1 {
+		finite, err := faultPathPresent(source.Content[0], []string{"command_mocks", "[]", "responses", "[]", "sequence"}, nil)
+		if err != nil {
+			return nil, fmt.Errorf("task fault sources: %w", err)
+		}
+		if finite {
+			return nil, fmt.Errorf("finite task responses are not registered for public scenario execution")
+		}
+	}
+
 	if offline {
-		if err := guardOfflineModelSchemas(data, true); err != nil {
+		if err := guardOfflineModelSchemas(data, true, validate); err != nil {
 			return nil, fmt.Errorf("task schema dependencies: %w", err)
 		}
 	}
@@ -602,6 +637,7 @@ func parseTestCase(data []byte, path string, offline bool, readFile func(string)
 		}
 	}
 
+	tc.sourceDocument = data
 	return &tc, nil
 }
 

@@ -1,6 +1,29 @@
 import { test, expect } from "@playwright/test";
 import { mockAllAPIs } from "./helpers/api-mock";
 import { RUNS } from "./fixtures/mock-data";
+import { evidenceDetail } from "./fixtures/evidence-data";
+
+import { RECORDED_RELIABILITY } from "./fixtures/reliability-data";
+
+test.describe("Dashboard lab screenshots", () => {
+  test.use({ viewport: { width: 1440, height: 1000 } });
+
+  test("dashboard-lab-overview", async ({ page }) => {
+    await page.goto("/#/lab/demo");
+    await expect(page.getByRole("heading", { name: "Know where your skills stand." })).toBeVisible();
+    for (const path of ["../docs/images/dashboard-lab-overview.png", "../site/public/images/dashboard-lab-overview.png"]) {
+      await page.screenshot({ path, animations: "disabled", fullPage: true });
+    }
+  });
+
+  test("dashboard-lab-compare", async ({ page }) => {
+    await page.goto("/#/lab/demo/compare");
+    await expect(page.getByRole("heading", { name: "Task-level score matrix" })).toBeVisible();
+    for (const path of ["../docs/images/dashboard-lab-compare.png", "../site/public/images/dashboard-lab-compare.png"]) {
+      await page.screenshot({ path, animations: "disabled", fullPage: true });
+    }
+  });
+});
 
 /**
  * Screenshot capture for dashboard documentation.
@@ -57,10 +80,55 @@ test.describe("Screenshots", () => {
     await page.screenshot({
       path: "../docs/images/run-detail.png",
       animations: "disabled",
-      fullPage: false,
+      fullPage: true,
     });
+
     for (const path of ["../docs/images/explore/run-detail-tasks.png", "../site/public/images/explore/run-detail-tasks.png"]) {
-      await page.screenshot({ path, animations: "disabled", fullPage: false });
+      await page.screenshot({ path, animations: "disabled", fullPage: true });
+    }
+  });
+
+  test("recorded-reliability", async ({ page }) => {
+    await page.route(/\/api\/runs\/run-001$/, (route) =>
+      route.fulfill({
+        json: { ...RECORDED_RELIABILITY, timestamp: "2026-09-14T11:00:00Z" },
+      }),
+    );
+    await page.goto("/#/runs/run-001");
+    await expect(page.getByTestId("task-pass-rate").first()).toContainText("2/3 trials passed");
+    await expect(page.getByTestId("pass-hat-k")).toContainText("pass^3: 50.0%");
+    for (const path of ["../docs/images/explore/recorded-reliability.png", "../site/public/images/explore/recorded-reliability.png"]) {
+      await page.screenshot({ path, animations: "disabled", fullPage: true });
+    }
+  });
+
+  test("statistical-confidence", async ({ page }) => {
+    await page.goto("/#/runs/run-001");
+
+    const tasks = page.locator("table", { has: page.getByText("explain-merge-sort") });
+    await expect(tasks.locator('[data-testid="ci-range"]').first()).toBeVisible();
+
+    for (const path of [
+      "../docs/images/explore/statistical-confidence.png",
+      "../site/public/images/explore/statistical-confidence.png",
+      "../docs/images/explore/weighted-scores.png",
+      "../site/public/images/explore/weighted-scores.png",
+    ]) {
+      await tasks.screenshot({ path, animations: "disabled" });
+    }
+  });
+
+  test("evidence-tab", async ({ page }) => {
+    await page.route(/\/api\/runs\/run-001$/, (route) =>
+      route.fulfill({ json: evidenceDetail() }),
+    );
+    await page.goto("/#/runs/run-001");
+    await page.getByRole("button", { name: "Evidence", exact: true }).click();
+    await expect(page.getByTestId("evidence-view")).toContainText("Source origin:");
+    await expect(page.getByTestId("evidence-view")).toContainText("Run 2");
+    await page.setViewportSize({ width: 1280, height: 1050 });
+    for (const path of ["../docs/images/explore/evidence-tab.png", "../site/public/images/explore/evidence-tab.png"]) {
+      await page.screenshot({ path, animations: "disabled", fullPage: true });
     }
   });
 

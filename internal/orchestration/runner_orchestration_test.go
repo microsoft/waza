@@ -2,6 +2,7 @@ package orchestration
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -108,7 +109,7 @@ graders:
 		assert.Equal(t, "mock-model", testOutcome.Group)
 		require.NotNil(t, testOutcome.Stats)
 		require.NotNil(t, testOutcome.Stats.BootstrapCI)
-		require.NotNil(t, testOutcome.Stats.IsSignificant)
+		require.NotNil(t, testOutcome.Stats.PassRateCI)
 		require.Len(t, testOutcome.Runs, 2)
 
 		for _, run := range testOutcome.Runs {
@@ -347,6 +348,9 @@ func TestRunGraders_DiffSnapshotUpdateOption(t *testing.T) {
 func TestLoadResources_PathValidation(t *testing.T) {
 	fixtureDir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(fixtureDir, "ok.txt"), []byte("ok"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(fixtureDir, "record..json"), []byte("{}"), 0o644))
+	require.NoError(t, os.Mkdir(filepath.Join(fixtureDir, "records..archive"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(fixtureDir, "records..archive", "record.json"), []byte("{}"), 0o644))
 
 	spec := &models.EvalSpec{}
 	cfg := config.NewEvalConfig(spec, config.WithFixtureDir(fixtureDir))
@@ -360,16 +364,21 @@ func TestLoadResources_PathValidation(t *testing.T) {
 				{Location: filepath.Join(fixtureDir, "absolute.txt")},
 				{Location: "../escape.txt"},
 				{Location: "missing.txt"},
+				{Location: "record..json"},
+				{Location: "records..archive/record.json"},
+				{Location: "record..json", Body: "{}"},
 			},
 		},
 	}
 
 	resources := runner.loadResources(testCase)
-	require.Len(t, resources, 2)
+	require.Len(t, resources, 3)
 	assert.Equal(t, "inline.txt", resources[0].Path)
 	assert.Equal(t, []byte("inline"), resources[0].Content)
 	assert.Equal(t, "ok.txt", resources[1].Path)
 	assert.Equal(t, []byte("ok"), resources[1].Content)
+	assert.Equal(t, "record..json", resources[2].Path)
+	assert.Equal(t, []byte("{}"), resources[2].Content)
 }
 
 func TestBuildGraderContextAndScoreHelpers(t *testing.T) {
@@ -503,6 +512,36 @@ func TestRunTest_CacheHitAndTranscriptWrite(t *testing.T) {
 	assert.True(t, wasCached)
 	assert.Equal(t, outcome.TestID, cachedOutcome.TestID)
 	assert.Equal(t, outcome.Status, cachedOutcome.Status)
+}
+
+func TestRunTest_CacheHitRecomputesStatsFromRuns(t *testing.T) {
+	spec := &models.EvalSpec{
+		SkillName: "cache-skill",
+		Config:    models.Config{TrialsPerTask: 3, TimeoutSec: 30, EngineType: "mock", ModelID: "mock-model"},
+	}
+	resultCache := cache.New(t.TempDir())
+	runner := NewEvalRunner(config.NewEvalConfig(spec), execution.NewMockEngine("mock-model"), WithCache(resultCache))
+	testCase := &models.TestCase{TestID: "legacy-task", DisplayName: "Legacy Task", Stimulus: models.TaskStimulus{Message: "cached"}}
+
+	// A cache entry written by an older waza: stats carry is_significant and no pass_rate_ci.
+	var legacy models.TestOutcome
+	require.NoError(t, json.Unmarshal([]byte(`{
+		"test_id": "legacy-task", "display_name": "Legacy Task", "status": "failed",
+		"runs": [{"status": "passed"}, {"status": "passed"}, {"status": "failed"}],
+		"stats": {"total_runs": 3, "passed_runs": 2, "is_significant": true}
+	}`), &legacy))
+	key, err := cache.CacheKey(spec, testCase, runner.cfg.FixtureDir())
+	require.NoError(t, err)
+	require.NoError(t, resultCache.Put(key, &legacy))
+
+	outcome, wasCached := runner.runTest(context.Background(), testCase, 1, 1)
+	require.True(t, wasCached)
+	require.NotNil(t, outcome.Stats)
+	require.NotNil(t, outcome.Stats.PassRateCI, "cache hits must carry current stats")
+	assert.InDelta(t, 2.0/3.0, outcome.Stats.PassRateCI.Mean, 1e-9)
+	data, err := json.Marshal(outcome.Stats)
+	require.NoError(t, err)
+	assert.NotContains(t, string(data), "is_significant")
 }
 
 // --- Follow-up prompt test helpers ---

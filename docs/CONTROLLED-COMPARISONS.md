@@ -10,6 +10,14 @@ retained actual responses; it does not change the base 1.0 protocol.
 These contracts do not make historical outcomes strict evidence or mock
 observations agent-quality evidence.
 
+Ordinary `run` and `grade` do not currently produce new result-level
+`evidence` or `requirement_explanations`. A captured manifest belongs to its
+snapshot; a `snapshot_path` or optional result field is not integrated release
+evidence. Absent explanations remain unassessed, not successful observations.
+Selected required evidence must still be supplied through the explicit release
+protocols and cannot be replaced by snapshot-only metadata. Integrating ordinary
+run/regrade result manifests and requirement observations is deferred.
+
 ### Internal native-task groundwork (not an enabled producer)
 
 `internal/nativetask` contains engine-free draft input freezing/admission,
@@ -207,9 +215,13 @@ instruction order/multiplicity. Logical paths and separate source-byte digests
 are wrapped by JSON-v1 identities; resolved prompts, scoped grader configuration
 and remaining effective settings are bound separately. Rubric absence follows
 native-grader admission; present `waza.lock` bytes are bound even when unused.
-Local executable bytes bind implementation identity; `mock_no_provider` is an
+Observed executable-path file bytes bind implementation identity;
+`mock_no_provider` is an
 explicit no-provider harness observation, **not an observed requested model
 version or authenticity/loaded-image attestation**.
+The existing digest reads the on-disk file at `os.Executable()` at observation
+time, not the mapped running image or RAM. Path replacement can change those
+bytes or make acquisition fail; its algorithm and binding domains are unchanged.
 
 ## Schemas, API and dashboard
 
@@ -430,6 +442,12 @@ unknown nested properties, trailing input, unsupported versions and mismatched
 identities. JSON-v1 uses the imported normative Go JSON projection with original
 numeric tokens, sorted keys and Go escaping. A self-identity member is removed
 entirely, not replaced with a null or empty value.
+
+Number-preserving JSON admission rejects invalid UTF-8 and unpaired escaped
+UTF-16 surrogates before decoding, so malformed strings cannot acquire the
+identity of a valid U+FFFD replacement character. Valid surrogate pairs,
+literal or escaped U+FFFD and escaped backslashes remain valid; JSON-v1
+number tokens and identity domains are unchanged.
 
 Plan settings and expected-runtime constraints are recorded **per task**.
 Remaining effective settings are bound by their explicit projection digest.

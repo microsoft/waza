@@ -27,6 +27,9 @@ func SealReferenceInput(manifest *models.EvidenceManifest) error {
 	if manifest == nil || manifest.Version != ReferenceInputVersion || manifest.HasUnknownFields() {
 		return errors.New("evidence: reference sealing requires explicit manifest version 1.1")
 	}
+	if manifest.HasInvalidRequiredObjects() || manifest.HasInvalidSchema() {
+		return Validate(manifest)
+	}
 	if err := validateReferenceInputProfile(manifest); err != nil {
 		return err
 	}

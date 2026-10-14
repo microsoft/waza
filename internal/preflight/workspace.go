@@ -3,6 +3,7 @@ package preflight
 import (
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/microsoft/waza/internal/discovery"
 	"github.com/microsoft/waza/internal/models"
@@ -11,7 +12,7 @@ import (
 
 func applyWorkspaceSkillDefaults(r *Report, spec *models.EvalSpec) {
 	if spec.Config.AllSkillsDisabled() || len(spec.Config.SkillPaths) > 0 ||
-		(spec.Scenario != "" && spec.SkillName == "") {
+		(spec.Scenario != "" && strings.TrimSpace(spec.SkillName) == "") {
 		return
 	}
 	cfg, err := projectconfig.Load(".")

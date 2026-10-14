@@ -66,11 +66,22 @@ jobs:
         if: steps.filter.outputs.site == 'true' || github.event_name == 'push'
         run: cd site && npx --no-install playwright install --with-deps chromium
 
-      - name: Test site regressions
+      - name: Test site
+        id: tests
         if: steps.filter.outputs.site == 'true' || github.event_name == 'push'
-        run: cd site && npm run test:e2e -- mobile-menu.spec.ts grader-challenges.spec.ts compatibility.spec.ts preflight.spec.ts controlled-comparisons.spec.ts --project=chromium
+        run: cd site && npm run test:e2e -- --project=chromium --retries=0
         env:
           CI: 'true'
+
+      - name: Upload site test evidence
+        if: always() && steps.tests.outcome != 'skipped' && steps.tests.outcome != ''
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: site-chromium-${{ github.run_id }}
+          path: |
+            site/test-results/
+            docs/images/site-*.png
+          if-no-files-found: error
 
       - name: Skip (no site changes)
         if: steps.filter.outputs.site != 'true' && github.event_name == 'pull_request'

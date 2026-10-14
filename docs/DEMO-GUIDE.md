@@ -649,6 +649,14 @@ EOF
 
 **What it shows:** The interactive web dashboard for exploring eval results, comparing runs, and tracking trends over time.
 
+For the experimental evaluation workspace, use `./waza-bin serve --lab
+--results-dir ./results`. It opens `/#/lab` with real saved results and keeps the
+classic dashboard at `/#/`. Show linked charts, history, task evidence,
+stable-task comparisons, and JSON/CSV/print reports. Explain that Current runs
+replays artifact-derived events, not live worker telemetry; readiness, coverage,
+and git revisions are unavailable. The separate `/#/lab/demo` route is synthetic
+and is never used as an API-error fallback.
+
 ### Setup
 
 - **Prerequisite:** Run an evaluation first to generate results
@@ -702,6 +710,9 @@ echo "🖥️  Start without auto-opening browser:"
 - Filter by date range or status
 
 **Run Detail**
+- The **Trial Pass Rate** column shows recorded pass-rate estimates, Wilson intervals, and passed/total trial counts when available; the bootstrap interval remains under **W. Score**
+- **Recorded reliability** shows the suite success-rate interval and pass^k estimates (all k trials pass, averaged over tasks); missing fields show **Not assessed**, not zero or inferred success
+- These intervals describe the recorded run, not statistical significance between runs
 - AI Credits includes task, trigger, and prompt-grader sessions; missing contributing metrics show unavailable, never an estimated or partial total
 - Usage by model shows credits and input, cached-input, cache-write, and output tokens
 - Trends visibly count unavailable credit runs; primary billing views do not show estimated USD

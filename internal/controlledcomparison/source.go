@@ -49,6 +49,9 @@ func executableIdentity() (fileIdentity, error) {
 	return fileIdentity{Path: "waza_executable", Digest: bytesDigest(data)}, nil
 }
 
+// executableBytes reads the observed on-disk executable path, not the mapped
+// image, RAM, authenticity, or historical execution. Path replacement can
+// change the observed bytes or make acquisition fail.
 func executableBytes() ([]byte, error) {
 	path, err := os.Executable()
 	if err != nil {

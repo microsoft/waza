@@ -32,6 +32,22 @@ test('controlled comparison guide exposes the real offline boundary and distinct
   await expect(page.locator('main')).toContainText('not independently witnessed execution');
   await expect(page.locator('main')).toContainText('support Linux/macOS only, not Windows');
   await expect(page.locator('main')).toContainText('legacy decoders and command defaults remain unchanged');
+  await expect(page.locator('main')).toContainText('snapshot-only metadata cannot satisfy selected required evidence');
+  await expect(page.locator('main')).toContainText('not the mapped running image or RAM');
+});
+
+test('snapshot guide states the actual selected-preservation and replay limits', async ({ page }) => {
+  const response = await page.goto('/waza/guides/snapshot-replay/');
+  expect(response?.status()).toBe(200);
+  await expect(page.getByRole('heading', { name: 'Snapshot & Replay', exact: true })).toBeVisible();
+  const main = page.locator('main');
+  await expect(main).toContainText('A digest or event tape is not reconstructible workspace state');
+  await expect(main).toContainText('256 aggregate entry inspections and depth 32');
+  await expect(main).toContainText('not the existing recursive fixture-digest inventory');
+  await expect(main).toContainText('supported on Linux and macOS only');
+  await expect(main).toContainText('not atomic or authentic snapshots');
+  await expect(main).toContainText('unknown fields are ignored, not preserved verbatim on round-trip');
+  await expect(main).toContainText('Custom rules replace built-in defaults unless the policy sets extend: true');
 });
 
 test('CLI reference exposes dedicated offline planning and collection', async ({ page }) => {

@@ -78,7 +78,7 @@ func (h *HandlerContext) handleEvalList(_ context.Context, params json.RawMessag
 		return nil, ErrInvalidParams("dir is required")
 	}
 
-	// Walk the directory looking for eval.yaml files
+	// Walk the directory looking for canonical evals and valid scenario YAML.
 	var evals []EvalSummary
 	err := filepath.Walk(p.Dir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -99,6 +99,25 @@ func (h *HandlerContext) handleEvalList(_ context.Context, params json.RawMessag
 				summary.Name = path
 			}
 			evals = append(evals, summary)
+		} else if ext := filepath.Ext(path); ext == ".yaml" || ext == ".yml" {
+			data, readErr := os.ReadFile(path)
+			if readErr != nil {
+				return nil
+			}
+			_, scenario, classifyErr := models.ClassifyEvalSpec(data, path)
+			if classifyErr != nil || scenario == "" {
+				return nil
+			}
+			spec, loadErr := models.LoadEvalSpec(path)
+			if loadErr != nil || spec.Scenario == "" {
+				return nil
+			}
+			evals = append(evals, EvalSummary{
+				Path:      path,
+				Name:      spec.Name,
+				SkillName: spec.SkillName,
+				Scenario:  spec.Scenario,
+			})
 		}
 		return nil
 	})

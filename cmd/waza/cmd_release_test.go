@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/microsoft/waza/internal/controlledcomparison"
+	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/releasepolicy"
 	"github.com/microsoft/waza/internal/testutil"
 	"github.com/spf13/cobra"
@@ -52,6 +53,11 @@ func runOfflineComparisonCLI(t *testing.T, binary string, args ...string) ([]byt
 
 func acceptedOfflineComparison(t *testing.T) (string, string) {
 	t.Helper()
+	return offlineComparisonWithAssuranceRequirement(t, false)
+}
+
+func offlineComparisonWithAssuranceRequirement(t *testing.T, required bool) (string, string) {
+	t.Helper()
 	if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
 		t.Skip("private durable release collection unsupported")
 	}
@@ -87,6 +93,7 @@ func acceptedOfflineComparison(t *testing.T) (string, string) {
 		[]byte(strings.Replace(eval, "  - task.yaml", strings.Join(taskNames, "\n"), 1)), 0o600))
 	requirements, err := releasepolicy.DecodeRequirementsInput(read("requirements.json"))
 	require.NoError(t, err)
+	requirements.Assurance = required
 	source := controlledcomparison.Source{EvalPath: evalPath}
 	policy, err := controlledcomparison.Plan(source, source, design, requirements, nil)
 	require.NoError(t, err)
@@ -94,8 +101,55 @@ func acceptedOfflineComparison(t *testing.T) (string, string) {
 	require.NoError(t, controlledcomparison.Collect(t.Context(), policy, source, source, dir))
 	decision, err := releasepolicy.ReadDecision(dir)
 	require.NoError(t, err)
-	require.True(t, decision.Accepted, "%+v", decision)
+	require.True(t, decision.NonAssurancePass(), "%+v", decision)
+	require.Equal(t, !required, decision.Accepted, "%+v", decision)
 	return filepath.Join(dir, "policy.json"), dir
+}
+
+func TestSelectedReleaseRequiredAssuranceCannotUseLegacySnapshotMetadata(t *testing.T) {
+	policyPath, collection := offlineComparisonWithAssuranceRequirement(t, true)
+	expected, err := releasepolicy.ReadDecision(collection)
+	require.NoError(t, err)
+	require.Equal(t, "compatible", expected.Compatibility.State)
+	require.Equal(t, "complete", expected.Completeness.State)
+	require.Equal(t, "noninferiority", expected.Statistics.State)
+	require.Equal(t, "not_assessed", expected.Assurance.State)
+	require.NotEmpty(t, expected.Assurance.Reasons)
+	binary := buildOfflineComparisonCLI(t)
+	for _, metadata := range []string{"absent", "snapshot-path-only"} {
+		t.Run(metadata, func(t *testing.T) {
+			if metadata == "snapshot-path-only" {
+				data, err := os.ReadFile(testutil.RepoFile(t, "cmd", "waza", "testdata", "compatibility-run-1.4.json"))
+				require.NoError(t, err)
+				var legacy models.EvaluationOutcome
+				require.NoError(t, json.Unmarshal(data, &legacy))
+				require.NotEmpty(t, legacy.TestOutcomes)
+				for i := range legacy.TestOutcomes {
+					require.NotEmpty(t, legacy.TestOutcomes[i].Runs)
+					for j := range legacy.TestOutcomes[i].Runs {
+						run := &legacy.TestOutcomes[i].Runs[j]
+						run.SnapshotPath = "ordinary-run/snapshot.json"
+						require.Nil(t, run.Evidence)
+						require.Nil(t, run.RequirementExplanations)
+					}
+				}
+				data, err = json.Marshal(legacy)
+				require.NoError(t, err)
+				require.NoError(t, os.WriteFile(filepath.Join(collection, "ordinary-results.json"), data, 0o600))
+			}
+			for _, command := range []string{"compare", "gate"} {
+				t.Run(command, func(t *testing.T) {
+					output, code := runOfflineComparisonCLI(t, binary, command,
+						"--release-policy", policyPath, "--collection-dir", collection, "--format", "json")
+					require.Equal(t, 1, code, "%s", output)
+					var decision releasepolicy.Decision
+					require.NoError(t, json.Unmarshal(output, &decision), "%s", output)
+					require.Equal(t, expected, decision)
+					require.False(t, decision.Accepted)
+				})
+			}
+		})
+	}
 }
 
 func TestSelectedReleasePolicyAcceptedAndMismatchProcessExits(t *testing.T) {

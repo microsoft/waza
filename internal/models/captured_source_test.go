@@ -25,7 +25,7 @@ func TestCapturedOfflineNativeParserEquivalence(t *testing.T) {
 	require.NoError(t, os.WriteFile(path, eval, 0600))
 	legacy, err := LoadEvalSpecOffline(path)
 	require.NoError(t, err)
-	actual, err := ParseEvalSpecOffline(eval, path)
+	actual, err := ParseCapturedEvalSpecOffline(eval, path)
 	require.NoError(t, err)
 	require.Equal(t, legacy, actual)
 
@@ -36,7 +36,7 @@ func TestCapturedOfflineNativeParserEquivalence(t *testing.T) {
 	legacyTask, err := LoadTestCaseOffline(path)
 	require.NoError(t, err)
 	calls := 0
-	actualTask, err := ParseTestCaseOffline(task, path, func(requested string) ([]byte, error) {
+	actualTask, err := ParseCapturedTestCaseOffline(task, path, func(requested string) ([]byte, error) {
 		calls++
 		require.Equal(t, filepath.Join(base, "prompt.txt"), requested)
 		return []byte("hello"), nil
@@ -65,7 +65,7 @@ graders:
             path:
               json_schema: {$ref: "https://never-fetched.invalid/schema.json"}
 `)
-	_, err := ParseTestCaseOffline(data, "task.yaml", func(string) ([]byte, error) {
+	_, err := ParseCapturedTestCaseOffline(data, "task.yaml", func(string) ([]byte, error) {
 		return nil, fmt.Errorf("unexpected source read")
 	})
 	require.Error(t, err)
@@ -80,18 +80,18 @@ func TestCapturedOfflineStrictSourceErrors(t *testing.T) {
 		"id: task\ninputs: {prompt: hello, context: {large: 18446744073709551616}}\n",
 		"id: task\ninputs: {prompt: hello, context: {decimal: 0.1234567890123456789}}\n",
 	} {
-		_, err := ParseTestCaseOffline([]byte(data), "task.yaml", func(string) ([]byte, error) {
+		_, err := ParseCapturedTestCaseOffline([]byte(data), "task.yaml", func(string) ([]byte, error) {
 			return []byte("hello"), nil
 		})
 		require.Error(t, err)
 	}
 
-	_, err := ParseTestCaseOffline([]byte("id: task\ninputs: {prompt: hello}\n"), "task.yaml", nil)
+	_, err := ParseCapturedTestCaseOffline([]byte("id: task\ninputs: {prompt: hello}\n"), "task.yaml", nil)
 	require.Error(t, err)
 }
 
 func TestCapturedNativeIntegerSemantics(t *testing.T) {
-	task, err := ParseTestCaseOffline([]byte("id: task\ninputs: {prompt: hello, context: {hex: 0xFFFFFFFFFFFFFFFF, nested: [9007199254740993]}}\n"),
+	task, err := ParseCapturedTestCaseOffline([]byte("id: task\ninputs: {prompt: hello, context: {hex: 0xFFFFFFFFFFFFFFFF, nested: [9007199254740993]}}\n"),
 		"task.yaml", func(string) ([]byte, error) { return nil, fmt.Errorf("unexpected prompt read") })
 	require.NoError(t, err)
 	require.Equal(t, json.Number("18446744073709551615"), task.Stimulus.Metadata["hex"])
@@ -102,11 +102,11 @@ func TestCapturedSourceRejectsEmptyNullAndWrongDocumentKinds(t *testing.T) {
 	for _, source := range []string{"", "# comment only\n", "\n", "null\n", "~\n", "---\n", "[]\n", "123\n", "true\n", "'scalar'\n"} {
 		t.Run(fmt.Sprintf("%q", source), func(t *testing.T) {
 			require.NotPanics(t, func() {
-				_, err := ParseEvalSpecOffline([]byte(source), "eval.yaml")
+				_, err := ParseCapturedEvalSpecOffline([]byte(source), "eval.yaml")
 				require.Error(t, err)
 			})
 			require.NotPanics(t, func() {
-				_, err := ParseTestCaseOffline([]byte(source), "task.yaml", func(string) ([]byte, error) {
+				_, err := ParseCapturedTestCaseOffline([]byte(source), "task.yaml", func(string) ([]byte, error) {
 					t.Fatal("invalid document must not read a prompt source")
 					return nil, fmt.Errorf("unexpected read")
 				})
@@ -159,10 +159,10 @@ func TestCapturedSourceTypeAndCoercionGuards(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			require.NotPanics(t, func() {
 				if tc.eval {
-					_, err := ParseEvalSpecOffline([]byte(tc.source), "eval.yaml")
+					_, err := ParseCapturedEvalSpecOffline([]byte(tc.source), "eval.yaml")
 					require.Error(t, err)
 				} else {
-					_, err := ParseTestCaseOffline([]byte(tc.source), "task.yaml", func(string) ([]byte, error) {
+					_, err := ParseCapturedTestCaseOffline([]byte(tc.source), "task.yaml", func(string) ([]byte, error) {
 						t.Fatal("invalid type must not read a prompt source")
 						return nil, fmt.Errorf("unexpected read")
 					})
@@ -174,7 +174,7 @@ func TestCapturedSourceTypeAndCoercionGuards(t *testing.T) {
 }
 
 func TestCapturedSourcePreservesNullableDefaultsAndQuotedStrings(t *testing.T) {
-	task, err := ParseTestCaseOffline([]byte(`id: "123"
+	task, err := ParseCapturedTestCaseOffline([]byte(`id: "123"
 inputs:
   prompt: "true"
   context: null
@@ -207,7 +207,7 @@ tags: null
 	source := strings.Replace(capturedEvalFixture, "timeout_seconds: 30}",
 		"timeout_seconds: 30, inject_skill_body: null, instruction_files: null, mcp_servers: null}", 1)
 	source += "inputs: null\nmetrics: null\n"
-	spec, err := ParseEvalSpecOffline([]byte(source), "eval.yaml")
+	spec, err := ParseCapturedEvalSpecOffline([]byte(source), "eval.yaml")
 	require.NoError(t, err)
 	require.Nil(t, spec.Config.InjectSkillBody)
 	require.Nil(t, spec.Config.InstructionFiles)
@@ -225,7 +225,7 @@ func TestCapturedStringGuardsDoNotChangeLegacyLoaderCoercion(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "123", legacy.TestID)
 	require.Equal(t, "123", legacy.Stimulus.Message)
-	_, err = ParseTestCaseOffline(source, path, func(string) ([]byte, error) {
+	_, err = ParseCapturedTestCaseOffline(source, path, func(string) ([]byte, error) {
 		return nil, fmt.Errorf("unexpected read")
 	})
 	require.ErrorContains(t, err, "requires !!str")

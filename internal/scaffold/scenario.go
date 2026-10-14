@@ -2,16 +2,58 @@ package scaffold
 
 import (
 	"fmt"
+	"path/filepath"
+	"regexp"
+	"sort"
 	"strconv"
+	"strings"
 
 	"github.com/microsoft/waza/internal/models"
 )
 
+const scenarioInventoryFixture = "apples: 2\npears: 1\n"
+
 // ScenarioFiles returns a self-contained suite relative to its eval directory.
 // It uses existing graders and the real agent executor, never a mock engine.
 func ScenarioFiles(name, model, evalFile, taskGlob, taskSuffix, template string) (map[string]string, error) {
+	if strings.TrimSpace(name) == "" {
+		return nil, fmt.Errorf("scenario name must not be empty")
+	}
 	if err := ValidateName(name); err != nil {
 		return nil, err
+	}
+	taskPattern := filepath.Clean(filepath.FromSlash(taskGlob))
+	taskDir := filepath.Dir(taskPattern)
+	taskPath := filepath.Join("tasks", "workflow"+taskSuffix)
+	if !filepath.IsLocal(taskPath) || strings.Contains(taskSuffix, "/") || strings.Contains(taskSuffix, "\\") {
+		return nil, fmt.Errorf("scenario task glob %q and suffix %q must select a local task file in a literal directory", taskGlob, taskSuffix)
+	}
+	matches, err := filepath.Match(taskPattern, taskPath)
+	if err != nil {
+		return nil, fmt.Errorf("parsing scenario task glob %q: %w", taskGlob, err)
+	}
+	if !matches {
+		taskPath = filepath.Join(taskDir, "workflow"+taskSuffix)
+		if !filepath.IsLocal(taskPath) || strings.ContainsAny(taskDir, "*?[:") {
+			return nil, fmt.Errorf("scenario task glob %q cannot select the default task or a local task file in a literal directory", taskGlob)
+		}
+		matches, err = filepath.Match(taskPattern, taskPath)
+		if err != nil {
+			return nil, fmt.Errorf("parsing scenario task glob %q: %w", taskGlob, err)
+		}
+	}
+	if !matches {
+		return nil, fmt.Errorf("scenario task glob %q does not match generated task %q; use a glob matching workflow%s", taskGlob, taskPath, taskSuffix)
+	}
+	if filepath.Clean(evalFile) == taskPath {
+		return nil, fmt.Errorf("scenario task path %q conflicts with the eval file", taskPath)
+	}
+	matchesEval, err := filepath.Match(taskPattern, filepath.Clean(evalFile))
+	if err != nil {
+		return nil, fmt.Errorf("matching eval file against scenario task glob %q: %w", taskGlob, err)
+	}
+	if matchesEval {
+		return nil, fmt.Errorf("scenario task glob %q must not select the eval file %q", taskGlob, evalFile)
 	}
 	prompt := ""
 	pattern := ""
@@ -22,7 +64,7 @@ func ScenarioFiles(name, model, evalFile, taskGlob, taskSuffix, template string)
 	case "repository":
 		description = "Real agent execution against sanitized repository fixtures."
 		prompt = "Read inventory.txt. Write report.txt containing exactly: Inventory total: 3. Do not modify inventory.txt or create private.txt."
-		pattern = "Inventory total: 3"
+		pattern = `\AInventory total: 3(?:\r?\n)?\z`
 		fixture = true
 	case "cli":
 		description = "Real agent execution using the installed git CLI, without command mocks."
@@ -31,7 +73,7 @@ func ScenarioFiles(name, model, evalFile, taskGlob, taskSuffix, template string)
 	case "mcp":
 		description = "Real agent execution with a harness-only mocked MCP dependency; not production MCP reliability evidence."
 		prompt = "Call the inventory MCP server list_items tool. Sum the returned quantities and write exactly Inventory total: 3 to report.txt. Do not create private.txt."
-		pattern = "Inventory total: 3"
+		pattern = `\AInventory total: 3(?:\r?\n)?\z`
 		dependencies = `# Harness-only mocked dependency, not a production MCP server.
 mcp_mocks:
   - name: inventory
@@ -51,6 +93,16 @@ mcp_mocks:
 `
 	default:
 		return nil, fmt.Errorf("unknown scenario template %q; choose repository, cli or mcp", template)
+	}
+	preservation := ""
+	if fixture {
+		preservation = fmt.Sprintf(`  - type: file
+    name: inventory-preservation
+    config:
+      content_patterns:
+        - path: inventory.txt
+          must_match: [%s]
+`, strconv.Quote(`\A`+regexp.QuoteMeta(scenarioInventoryFixture)+`\z`))
 	}
 	eval := fmt.Sprintf(`# Real agent executor. config.executor: mock checks the harness only.
 name: %s
@@ -80,10 +132,10 @@ graders:
     name: private-file-boundary
     config:
       must_not_exist: [private.txt]
-%stasks:
+%s%stasks:
   - %q
 `, strconv.Quote(name+"-eval"), strconv.Quote(name), strconv.Quote(description),
-		models.ScenarioSchemaVersion, strconv.Quote(model), strconv.Quote(pattern), dependencies, taskGlob)
+		models.ScenarioSchemaVersion, strconv.Quote(model), strconv.Quote(pattern), preservation, dependencies, taskGlob)
 	task := fmt.Sprintf(`id: %s
 name: Workflow outcome
 description: %s
@@ -94,12 +146,50 @@ inputs:
 		task += "  context:\n    fixture: fixtures/inventory.txt\n"
 	}
 	files := map[string]string{
-		evalFile:                      eval,
-		"tasks/workflow" + taskSuffix: task,
-		"fixtures/.gitkeep":           "",
+		evalFile:                   eval,
+		filepath.ToSlash(taskPath): task,
+		"fixtures/.gitkeep":        "",
 	}
 	if fixture {
-		files["fixtures/inventory.txt"] = "apples: 2\npears: 1\n"
+		files["fixtures/inventory.txt"] = scenarioInventoryFixture
+		hasAttributes := false
+		for _, attributes := range []struct{ path, contents string }{
+			{"fixtures/.gitattributes", "inventory.txt -text\n"},
+			{".gitattributes", "fixtures/inventory.txt -text\n"},
+		} {
+			attributePath := filepath.FromSlash(attributes.path)
+			selected, err := filepath.Match(taskPattern, attributePath)
+			if err != nil {
+				return nil, fmt.Errorf("matching scenario task glob %q against Git attributes: %w", taskGlob, err)
+			}
+			if selected || filepath.Clean(evalFile) == attributePath || taskPath == attributePath {
+				continue
+			}
+			files[attributes.path] = attributes.contents
+			hasAttributes = true
+			break
+		}
+		if !hasAttributes {
+			return nil, fmt.Errorf("scenario task glob %q and eval file %q leave no safe inventory Git attribute path: fixtures/.gitattributes and .gitattributes are selected or collide; narrow the task-directory glob or choose a different eval filename", taskGlob, evalFile)
+		}
+	}
+	paths := make([]string, 0, len(files))
+	for path := range files {
+		paths = append(paths, path)
+	}
+	sort.Strings(paths)
+	for _, path := range paths {
+		artifactPath := filepath.Clean(filepath.FromSlash(path))
+		if artifactPath == taskPath {
+			continue
+		}
+		selected, err := filepath.Match(taskPattern, artifactPath)
+		if err != nil {
+			return nil, fmt.Errorf("matching scenario task glob %q against generated file %q: %w", taskGlob, path, err)
+		}
+		if selected {
+			return nil, fmt.Errorf("scenario task glob %q selects generated non-task file %q; narrow the glob to select only the generated task %q", taskGlob, path, filepath.ToSlash(taskPath))
+		}
 	}
 	return files, nil
 }

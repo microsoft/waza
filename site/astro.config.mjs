@@ -42,6 +42,8 @@ export default defineConfig({
 					items: [
 						{ label: 'Writing Eval Specs', slug: 'guides/eval-yaml' },
 						{ label: 'Offline Eval Preflight', slug: 'guides/preflight' },
+						{ label: 'Private Fault Harness', slug: 'guides/private-fault-fixtures' },
+
 						{ label: 'Controlled comparisons', slug: 'guides/controlled-comparisons' },
 						{ label: 'Preserving Existing Workflows', slug: 'guides/compatibility' },
 						{ label: 'Evaluating Custom Agents', slug: 'guides/custom-agents' },
@@ -49,6 +51,7 @@ export default defineConfig({
 						{ label: 'Spec Verification', slug: 'guides/spec-verify' },
 						{ label: 'Token Limits', slug: 'guides/token-limits' },
 						{ label: 'Web Dashboard', slug: 'guides/dashboard' },
+						{ label: 'Dashboard Lab (Prototype)', slug: 'guides/dashboard-lab' },
 						{ label: 'Explore the Dashboard', slug: 'guides/dashboard-explore' },
 						{ label: 'CI/CD Integration', slug: 'guides/ci-cd' },
 						{ label: 'OpenTelemetry Tracing', slug: 'guides/otel' },

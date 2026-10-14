@@ -17,6 +17,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/microsoft/waza/internal/graders"
 	"github.com/microsoft/waza/internal/models"
 	"gopkg.in/yaml.v3"
 )
@@ -481,7 +482,7 @@ func loadGraderFileWithPolicy(graderPath string, fallbackName string, allowProgr
 	}
 	var grader models.GraderConfig
 	if offline {
-		grader, err = models.DecodeGraderConfigOffline(data)
+		grader, err = models.DecodeGraderConfigOffline(data, graders.ValidateConfig)
 	} else {
 		err = yaml.Unmarshal(data, &grader)
 	}
@@ -579,7 +580,7 @@ func mergeGraderConfig(preset models.GraderConfig, override models.GraderConfig,
 	}
 	var merged models.GraderConfig
 	if offline {
-		merged, err = models.DecodeGraderConfigOffline(data)
+		merged, err = models.DecodeGraderConfigOffline(data, graders.ValidateConfig)
 	} else {
 		err = yaml.Unmarshal(data, &merged)
 	}

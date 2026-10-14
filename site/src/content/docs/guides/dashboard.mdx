@@ -17,6 +17,11 @@ waza serve
 
 Opens http://localhost:3000 automatically.
 
+An opt-in [Dashboard Lab](../dashboard-lab/) opens with `waza serve --lab` at
+`/#/lab`, using saved results for linked charts, history, comparisons, evidence,
+and reports. The classic dashboard remains at `/#/`. Activity is artifact-derived
+event replay, not worker monitoring. The synthetic demo is isolated at `/#/lab/demo`.
+
 ## Views
 
 ### Release policies
@@ -47,6 +52,7 @@ pass as a base decision.
 Summary of all evaluation runs:
 
 - **Recent Runs** — List of recent evaluations with pass rate and model
+- **Sorting** — Click a column's sort button to cycle through both directions and the original order. Text columns start ascending, numeric columns start descending, and **When** sorts by the run timestamp. Pass Rate and W. Score are display-only columns. Click a row to open its run details.
 - **Pass Rate Trend** — Historical pass rate over time
 - **Model Comparison** — Side-by-side performance metrics
 - **Top Failing Tasks** — Tasks with lowest pass rate
@@ -56,11 +62,52 @@ Summary of all evaluation runs:
 Detailed results for a single evaluation run:
 
 - **Task List** — All tasks with pass/fail status
+- **Trial Pass Rate** — Recorded trial pass-rate estimates, Wilson confidence intervals, and passed/total trial counts. The bootstrap weighted-score interval stays under **W. Score**, separate from binary pass/fail reliability.
+- **Recorded reliability** — The suite success-rate Wilson interval counts each task as one sample. The stored pass^k curve estimates all k trials passing, averaged over tasks; it is not pass@k or a guarantee. Missing historical fields show **Not assessed** and are never reconstructed from scores or status. These are not significance tests between runs.
 - **Prompts** — Raw resolved task prompts captured in the result artifact, with readable JSON formatting and copy actions. Results created by older waza versions show an explicit unavailable state.
 - **Validator Results** — Per-validator scores and messages
 - **Execution Stats** — Duration, token usage, tool calls
 - **Trajectory Viewer** — Two-mode trace inspection (see below)
+- **Evidence** — Every task trial's recorded provenance, explicit unavailable states, and scoped grader observations (see below)
 - **Export** — Download run as JSON
+
+#### Portable evidence
+
+The **Evidence** tab shows **every trial**, not just the task's aggregate result.
+Historical results without metadata are unassessed; invalid evidence is withheld,
+not repaired or used as proof of state.
+The API preserves the legacy shape by omitting `evidenceRuns` when every task
+run lacks both evidence and requirement explanations. If any run has metadata,
+every trial is included, even rows missing historical metadata.
+
+![Every trial's portable evidence, runtime uncertainty, and artifact availability](/waza/images/explore/evidence-tab.png)
+
+Each trial includes source eval/task/run/attempt and prior-attempt state,
+cached-source labeling, manifest/original-capture SHA-256, requested engine/model,
+actual execution mode, dependency mode, requested tool policy, verified
+enforcement, versions, and requested `no_skills`/native skill control. Null or
+unknown versions are unavailable. Native skill control describes the actual
+request, not proven SDK enforcement.
+
+Artifact rows separate **source hashes** (no source bytes) from **content hashes**
+and snapshot locators, with availability, completeness, reasons, and changed-file
+flags. Redaction rule-match counts do not certify confidentiality; normalization
+can change a file without matching a secret. A complete selected file does not
+make the workspace complete, and external state remains unavailable.
+Schema-valid null or empty redaction limitations remain displayable as
+unrecorded limitations, not proof of secret absence. Malformed non-array
+limitations are still withheld.
+
+Scoped requirement checks display existing grader observations and full-origin
+references. Unresolved names/collisions, qualitative checks, uncertified inputs,
+and operational uncertainty remain explicit. Recorded pass/fail is not
+requirement enforcement, a requirement score, or a causal diagnosis. Original
+checkpoints cannot observe new declarations after regrading.
+
+This tab does **not** fetch local paths, download captured contents, upload
+evidence, call a model, or reconstruct a workspace. See
+[Snapshot & Replay](/waza/guides/snapshot-replay/) for bounded capture,
+offline consistency checks, and verified file-only regrading.
 
 #### Current-evaluation AI Credits
 

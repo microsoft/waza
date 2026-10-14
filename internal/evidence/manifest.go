@@ -5,6 +5,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -45,6 +47,9 @@ func Seal(manifest *models.EvidenceManifest) error {
 	if manifest == nil {
 		return errors.New("evidence: manifest is required")
 	}
+	if manifest.HasInvalidRequiredObjects() || manifest.HasInvalidSchema() {
+		return Validate(manifest)
+	}
 	if manifest.Version != "" && manifest.Version != Version {
 		return errors.New("evidence: Seal only supports snapshot manifest version 1.0")
 	}
@@ -55,6 +60,9 @@ func Seal(manifest *models.EvidenceManifest) error {
 		return errors.New("evidence: synthetic reference origins are not native execution evidence")
 	}
 	manifest.Version = Version
+	if manifest.Artifacts == nil {
+		manifest.Artifacts = []models.EvidenceArtifact{}
+	}
 	digest, err := manifestDigest(manifest)
 	if err != nil {
 		return err
@@ -66,6 +74,15 @@ func Seal(manifest *models.EvidenceManifest) error {
 func Validate(manifest *models.EvidenceManifest) error {
 	if manifest == nil || manifest.Version != Version && manifest.Version != ReferenceInputVersion || manifest.HasUnknownFields() {
 		return errors.New("evidence: unsupported or absent manifest version")
+	}
+	if manifest.HasInvalidRequiredObjects() {
+		return errors.New("evidence: origin, runtime and redaction must be objects")
+	}
+	if manifest.HasInvalidSchema() {
+		return errors.New("evidence: manifest JSON does not match the evidence schema")
+	}
+	if manifest.Artifacts == nil {
+		return errors.New("evidence: artifacts must be an array")
 	}
 	digest, err := manifestDigest(manifest)
 	if err != nil {
@@ -177,6 +194,48 @@ func Bind(manifest *models.EvidenceManifest, evalID, taskID string, runNumber, a
 		return errors.New("evidence: attribution does not match the selected result")
 	}
 	return nil
+}
+
+func ValidateExplanations(manifest *models.EvidenceManifest, taskID string, explanations []models.RequirementExplanation) error {
+	for _, explanation := range explanations {
+		if explanation.TaskID != "" && explanation.TaskID != taskID {
+			return errors.New("evidence: requirement observation belongs to a different task")
+		}
+		for _, check := range explanation.Checks {
+			for _, reference := range check.References {
+				artifact, err := Resolve(manifest, reference)
+				if err != nil {
+					return fmt.Errorf("evidence: requirement reference: %w", err)
+				}
+				if artifact.Availability != "captured" {
+					return errors.New("evidence: requirement reference points to an artifact without captured content")
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// MetadataExplanations omits value pointers because metadata alone cannot verify
+// their targets. Content-aware operations must use VerifyContent separately.
+func MetadataExplanations(manifest *models.EvidenceManifest, taskID string, explanations []models.RequirementExplanation) ([]models.RequirementExplanation, bool, error) {
+	if err := ValidateExplanations(manifest, taskID, explanations); err != nil {
+		return nil, false, err
+	}
+	projected := slices.Clone(explanations)
+	withheld := false
+	for i := range projected {
+		projected[i].Checks = slices.Clone(projected[i].Checks)
+		for j := range projected[i].Checks {
+			check := &projected[i].Checks[j]
+			check.References = slices.Clone(check.References)
+			for k := range check.References {
+				withheld = withheld || check.References[k].Pointer != ""
+				check.References[k].Pointer = ""
+			}
+		}
+	}
+	return projected, withheld, nil
 }
 
 func validPointer(pointer string) bool {

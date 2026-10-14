@@ -5,10 +5,12 @@ import (
 	"strings"
 
 	"github.com/microsoft/waza/internal/models"
+	"github.com/microsoft/waza/internal/registry"
 	"github.com/microsoft/waza/internal/requirements"
 )
 
 func resolveRequirements(r *Report, task *models.TestCase, spec *models.EvalSpec, source string) []RequirementPlan {
+	effectiveSpec, unknownIdentity := requirementEvalIdentities(r, spec)
 	plans := make([]RequirementPlan, 0, len(task.Requirements))
 	ids := map[string]bool{}
 	for _, req := range task.Requirements {
@@ -38,8 +40,20 @@ func resolveRequirements(r *Report, task *models.TestCase, spec *models.EvalSpec
 				continue
 			}
 			seen[check] = true
-			if err := resolveCheck(check, task, spec); err != nil {
-				invalid(fmt.Sprintf("requirement %q: %v", req.ID, err))
+			if err := resolveCheck(check, task, effectiveSpec); err != nil {
+				if unknownIdentity && check.Scope == "eval" && check.AfterTurn == 0 &&
+					strings.TrimSpace(check.Grader) != "" && !hasEvalGraderName(effectiveSpec, check.Grader) {
+					if plan.State != Invalid {
+						plan.State = Unresolved
+						plan.Meaning = "An unexpanded remote declaration could supply this identity; the reference is not verified."
+					}
+					r.Complete = false
+					r.add("requirement.reference_unresolved", Unresolved, source, task.TestID, req.ID,
+						"An unnamed remote eval grader has no verified effective identity yet.",
+						"Make the pinned preset available offline; requirement metadata does not establish a match or coverage.")
+				} else {
+					invalid(fmt.Sprintf("requirement %q: %v", req.ID, err))
+				}
 			}
 		}
 		if len(req.Checks) == 0 && plan.State != Invalid {
@@ -56,6 +70,50 @@ func resolveRequirements(r *Report, task *models.TestCase, spec *models.EvalSpec
 		plans = append(plans, plan)
 	}
 	return plans
+}
+
+func requirementEvalIdentities(r *Report, spec *models.EvalSpec) (*models.EvalSpec, bool) {
+	if spec == nil {
+		return nil, false
+	}
+	effective := *spec
+	effective.Graders = append([]models.GraderConfig(nil), spec.Graders...)
+	var names []string
+	for _, dependency := range r.Dependencies {
+		if dependency.Kind == "grader" && dependency.Mode == "locked-cache" {
+			names = append(names, dependency.Name)
+		}
+	}
+	unknown, next := false, 0
+	for i := range effective.Graders {
+		grader := &effective.Graders[i]
+		if grader.Ref == "" {
+			continue
+		}
+		// Locked-cache dependencies follow eval reference declaration order,
+		// including failed merges whose authored configuration remains intact.
+		if next < len(names) && grader.Identifier == "" {
+			grader.Identifier = names[next]
+		}
+		next++
+		if grader.Identifier == "" {
+			if _, err := registry.ParseRef(grader.Ref); err == nil {
+				unknown = true
+			}
+		}
+	}
+	return &effective, unknown
+}
+
+func hasEvalGraderName(spec *models.EvalSpec, name string) bool {
+	if spec != nil {
+		for _, grader := range spec.Graders {
+			if grader.Identifier == name {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func resolveCheck(check models.RequirementCheck, task *models.TestCase, spec *models.EvalSpec) error {

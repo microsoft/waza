@@ -11,6 +11,12 @@ explicit independent offline assurance profile qualifies finite authored text
 cases and regrades retained actual responses without changing base 1.0.
 Mock observations validate the harness, not agent quality.
 
+Ordinary `run`/`grade` do not currently produce new result-level `evidence` or
+`requirement_explanations`. Snapshot manifests and optional result readers are
+separate foundations, not integrated release evidence. Absent explanations stay
+unassessed; snapshot-only metadata cannot satisfy selected required evidence.
+Ordinary run/regrade producer integration remains deferred.
+
 ## Internal native groundwork is not a public producer
 
 G1 shares complete source projections; G2 reconstructs them from a distinct
@@ -61,10 +67,13 @@ into assurance. Both sources are rechecked before BEGIN and every attempt;
 execution uses privately frozen input bytes, then a fresh initialized mock and
 workspace after its durable start. Actual copied resource/instruction order and
 bytes, resolved prompts, native scoped checks, remaining settings and executable
-identity are bound. Present lock bytes are bound; only inspected empty rubric/
+path-file bytes are bound. Present lock bytes are bound; only inspected empty rubric/
 lock applicability is `not_applicable`. Requested model labels do not establish
 provider versions. The harness's `mock_no_provider` identity is not agent quality
 or loaded-image authenticity.
+The unchanged digest observes the on-disk file at `os.Executable()` at observation
+time, not the mapped running image or RAM. Path replacement can change the
+observed bytes or make acquisition fail; this is not stronger identity proof.
 
 Context flags retain cwd-relative behavior; task context roots do too.
 `inputs.context.fixture` stays eval-directory-relative. Unused fixture files
@@ -99,6 +108,11 @@ Windows supplied-artifact reading is not support for durable collection.
 The versioned `schemas/release-*-1.0.schema.json` files provide structural
 validation. The Go reader additionally enforces exact JSON tokens, source
 binding, conditional availability, transitions and statistical validity.
+
+Number-preserving JSON admission also rejects invalid UTF-8 and unpaired
+escaped UTF-16 surrogates before decoding. Malformed strings cannot become
+valid U+FFFD identity evidence; valid surrogate pairs, U+FFFD and escaped
+backslashes remain supported without changing JSON-v1 number tokens.
 
 The base API/dashboard intentionally remain **nonpassing when assurance is
 required**, even when an independent profile is present. Only explicit outer

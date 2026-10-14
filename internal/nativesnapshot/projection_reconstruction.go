@@ -345,7 +345,7 @@ func reconstructArm(ctx context.Context, snapshot armSnapshot, associated armAss
 		return controlledprojection.SourceProjection{}, err
 	}
 	evalPath := filepath.Join(snapshot.RootPath, snapshot.EvalPath)
-	spec, err := models.ParseEvalSpecOffline(evalBytes, evalPath)
+	spec, err := models.ParseCapturedEvalSpecOffline(evalBytes, evalPath)
 	if err != nil {
 		return controlledprojection.SourceProjection{}, err
 	}
@@ -406,7 +406,7 @@ func reconstructArm(ctx context.Context, snapshot armSnapshot, associated armAss
 			}
 			reader.set(promptPhase, uint32(taskIndex), "prompt_file")
 			taskPath := filepath.Join(snapshot.RootPath, label)
-			task, err := models.ParseTestCaseOffline(taskBytes, taskPath, func(absolute string) ([]byte, error) {
+			task, err := models.ParseCapturedTestCaseOffline(taskBytes, taskPath, func(absolute string) ([]byte, error) {
 				relative, err := filepath.Rel(filepath.Dir(taskPath), absolute)
 				if err != nil || canonical(relative, false) != nil {
 					return nil, reader.fail(fmt.Errorf("unsupported prompt_file path"))

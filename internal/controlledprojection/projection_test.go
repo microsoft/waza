@@ -130,7 +130,7 @@ func nativeSourceTimeInput(t *testing.T, overrides string) (SuiteInput, executio
 	resolved, err := filepath.EvalSymlinks(base)
 	require.NoError(t, err)
 	files.resolved[base] = resolved
-	spec, err := models.ParseEvalSpecOffline([]byte(`schemaVersion: '2.0'
+	spec, err := models.ParseCapturedEvalSpecOffline([]byte(`schemaVersion: '2.0'
 name: source-time
 scenario: source-time
 version: '1.0'
@@ -152,7 +152,7 @@ graders:
 tasks: [task.yaml]
 `), filepath.Join(base, "eval.yaml"))
 	require.NoError(t, err)
-	task, err := models.ParseTestCaseOffline([]byte(`id: task
+	task, err := models.ParseCapturedTestCaseOffline([]byte(`id: task
 name: source-time task
 description: offline description
 golden: true
@@ -302,7 +302,7 @@ func TestNativeSourceTimeConstructorAndEveryProjectionOracle(t *testing.T) {
 func TestNativeStrictParserNumbers(t *testing.T) {
 	for _, token := range []string{"1.0", "1e2", "18446744073709551616", "-9223372036854775809", ".nan", ".inf"} {
 		t.Run(token, func(t *testing.T) {
-			_, err := models.ParseTestCaseOffline([]byte("id: task\nname: task\ninputs:\n  prompt: hello\n  context:\n    value: "+token+"\n"),
+			_, err := models.ParseCapturedTestCaseOffline([]byte("id: task\nname: task\ninputs:\n  prompt: hello\n  context:\n    value: "+token+"\n"),
 				"task.yaml", func(string) ([]byte, error) { return nil, fmt.Errorf("unexpected source read") })
 			require.Error(t, err)
 		})

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/microsoft/waza/internal/models"
+	"github.com/microsoft/waza/schemas"
 	"github.com/stretchr/testify/require"
 )
 
@@ -27,6 +28,27 @@ func sampleManifest(t *testing.T) *models.EvidenceManifest {
 	return manifest
 }
 
+func TestSealNormalizesArtifactsAndValidateRejectsNull(t *testing.T) {
+	for _, artifacts := range [][]models.EvidenceArtifact{nil, {}} {
+		manifest := &models.EvidenceManifest{
+			Runtime:   models.EvidenceRuntime{ExecutionMode: "unknown", NativeSkillControl: "unknown"},
+			Artifacts: artifacts,
+		}
+		require.NoError(t, Seal(manifest))
+		require.NotNil(t, manifest.Artifacts)
+		require.Empty(t, manifest.Artifacts)
+		data, err := json.Marshal(manifest)
+		require.NoError(t, err)
+		require.Contains(t, string(data), `"artifacts":[]`)
+		require.NoError(t, Validate(manifest))
+		manifest.Artifacts = nil
+		digest, err := manifestDigest(manifest)
+		require.NoError(t, err)
+		manifest.SHA256 = digest.SHA256
+		require.ErrorContains(t, Validate(manifest), "artifacts must be an array")
+	}
+}
+
 func TestManifestIdentityAndScopedReferences(t *testing.T) {
 	manifest := sampleManifest(t)
 	require.NoError(t, Validate(manifest))
@@ -44,6 +66,91 @@ func TestManifestIdentityAndScopedReferences(t *testing.T) {
 	require.Error(t, err)
 	manifest.Artifacts[0].Completeness = "partial"
 	require.ErrorContains(t, Validate(manifest), "identity")
+}
+
+func TestValidateRejectsRequiredObjectNormalization(t *testing.T) {
+	for _, field := range []string{"origin", "runtime", "redaction"} {
+		for _, absent := range []bool{false, true} {
+			t.Run(field+map[bool]string{false: "/null", true: "/missing"}[absent], func(t *testing.T) {
+				manifest := sampleManifest(t)
+				switch field {
+				case "origin":
+					manifest.Origin = models.EvidenceOrigin{}
+				case "runtime":
+					manifest.Runtime = models.EvidenceRuntime{}
+				case "redaction":
+					manifest.Redaction = models.EvidenceRedaction{}
+				}
+				digest, err := manifestDigest(manifest)
+				require.NoError(t, err)
+				manifest.SHA256 = digest.SHA256
+				data, err := json.Marshal(manifest)
+				require.NoError(t, err)
+				var object map[string]json.RawMessage
+				require.NoError(t, json.Unmarshal(data, &object))
+				object[field] = json.RawMessage("null")
+				if absent {
+					delete(object, field)
+				}
+				data, err = json.Marshal(object)
+				require.NoError(t, err)
+				require.NoError(t, json.Unmarshal(data, manifest))
+				require.ErrorContains(t, Validate(manifest), "origin, runtime and redaction must be objects")
+				after, err := json.Marshal(manifest)
+				require.NoError(t, err)
+				require.JSONEq(t, string(data), string(after))
+				require.Error(t, Seal(manifest))
+			})
+		}
+	}
+}
+
+func TestValidateRejectsRawRequiredMemberNormalization(t *testing.T) {
+	var schema map[string]any
+	require.NoError(t, json.Unmarshal([]byte(schemas.EvidenceManifestSchemaJSON), &schema))
+	defs, ok := schema["$defs"].(map[string]any)
+	require.True(t, ok)
+	for _, section := range []string{"origin", "runtime", "redaction"} {
+		definition, ok := defs[section].(map[string]any)
+		require.True(t, ok)
+		required, ok := definition["required"].([]any)
+		require.True(t, ok)
+		for _, member := range required {
+			name, ok := member.(string)
+			require.True(t, ok)
+			for _, absent := range []bool{false, true} {
+				t.Run(section+"/"+name+map[bool]string{false: "/null", true: "/missing"}[absent], func(t *testing.T) {
+					manifest := sampleManifest(t)
+					manifest.Origin = models.EvidenceOrigin{}
+					manifest.Redaction = models.EvidenceRedaction{}
+					require.NoError(t, Seal(manifest))
+					data, err := json.Marshal(manifest)
+					require.NoError(t, err)
+					var object map[string]any
+					require.NoError(t, json.Unmarshal(data, &object))
+					container, ok := object[section].(map[string]any)
+					require.True(t, ok)
+					container[name] = nil
+					if absent {
+						delete(container, name)
+					}
+					data, err = json.Marshal(object)
+					require.NoError(t, err)
+					require.NoError(t, json.Unmarshal(data, manifest))
+					nullable := !absent && (name == "sdk_version" || name == "effective_model_version" || name == "no_skills" || name == "limitations")
+					if nullable {
+						require.NoError(t, Validate(manifest))
+						return
+					}
+					require.Error(t, Validate(manifest))
+					retained, err := json.Marshal(manifest)
+					require.NoError(t, err)
+					require.JSONEq(t, string(data), string(retained))
+					require.Error(t, Seal(manifest))
+				})
+			}
+		}
+	}
 }
 
 func TestVerifyContentAndPointers(t *testing.T) {
@@ -134,6 +241,54 @@ func TestRegradePreservesOriginalWithoutReusingAssessmentIdentity(t *testing.T) 
 	require.Equal(t, original.SHA256, again.SourceManifestSHA256)
 	_, err = Regrade(nil)
 	require.Error(t, err)
+}
+
+func TestRegradeInvalidatesAllAssessmentArtifactsAndRetainsExecutionEvidence(t *testing.T) {
+	original := sampleManifest(t)
+	for _, id := range []string{"validations", "result", "grader-config", "checkpoints"} {
+		artifact := original.Artifacts[0]
+		artifact.ID = id
+		switch id {
+		case "validations":
+			artifact.Kind, artifact.Pointer = "grader_results", "/result/validations"
+		case "result":
+			artifact.Kind, artifact.Pointer = "run_result", "/result"
+		case "checkpoints":
+			artifact.Kind, artifact.Pointer = "checkpoint_results", "/checkpoints"
+		case "grader-config":
+			artifact.Kind, artifact.Availability, artifact.Completeness = "grader_configuration", "digest_only", "unknown"
+			artifact.SourceDigest, artifact.ContentDigest = artifact.ContentDigest, nil
+			artifact.Document, artifact.Pointer = "", ""
+			artifact.Reason = "Source configuration identity only."
+		}
+		original.Artifacts = append(original.Artifacts, artifact)
+	}
+	require.NoError(t, Seal(original))
+	before, err := json.Marshal(original)
+	require.NoError(t, err)
+	updated, err := Regrade(original)
+	require.NoError(t, err)
+	require.Equal(t, original.Artifacts[0], updated.Artifacts[0])
+	reference, err := Reference(updated, "receipt")
+	require.NoError(t, err)
+	require.NoError(t, VerifyContent(updated, reference, []byte(`{"a/b":["ok"],"count":9007199254740993}`), true, true))
+	for _, id := range []string{"validations", "result", "grader-config", "checkpoints"} {
+		reference, err := Reference(updated, id)
+		require.NoError(t, err)
+		artifact, err := Resolve(updated, reference)
+		require.NoError(t, err)
+		require.Equal(t, "unavailable", artifact.Availability)
+		require.Equal(t, "unknown", artifact.Completeness)
+		require.Nil(t, artifact.ContentDigest)
+		require.Nil(t, artifact.SourceDigest)
+		require.Empty(t, artifact.Document)
+		require.Empty(t, artifact.Pointer)
+		require.NotEmpty(t, artifact.Reason)
+		require.Error(t, VerifyContent(updated, reference, []byte(`{}`), false, false))
+	}
+	after, err := json.Marshal(original)
+	require.NoError(t, err)
+	require.Equal(t, before, after)
 }
 
 func TestCanonicalTypedAndParsedContentIdentity(t *testing.T) {
