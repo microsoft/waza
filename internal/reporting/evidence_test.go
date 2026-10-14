@@ -1,12 +1,49 @@
 package reporting
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/microsoft/waza/internal/evidence"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/stretchr/testify/require"
 )
+
+func TestSummaryLabelsUnavailableSourceEvaluationWithoutChangingEvidence(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		evalID string
+		cached bool
+		label  string
+	}{
+		{name: "known ordinary origin", evalID: "eval", label: "eval"},
+		{name: "unavailable ordinary origin", label: "unavailable"},
+		{name: "known cached origin", evalID: "source", cached: true, label: "source"},
+		{name: "unavailable cached origin", cached: true, label: "unavailable"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			manifest := &models.EvidenceManifest{
+				Origin:  models.EvidenceOrigin{EvalID: tc.evalID, TaskID: "task", RunNumber: 1, AttemptCount: 1},
+				Runtime: models.EvidenceRuntime{ExecutionMode: "unknown", NativeSkillControl: "unknown"},
+			}
+			require.NoError(t, evidence.Seal(manifest))
+			before, err := json.Marshal(manifest)
+			require.NoError(t, err)
+			outcome := &models.EvaluationOutcome{RunID: "eval", TestOutcomes: []models.TestOutcome{{
+				TestID: "task", Cached: tc.cached,
+				Runs: []models.RunResult{{RunNumber: 1, Attempts: 1, Evidence: manifest}},
+			}}}
+
+			report := FormatSummaryReport(outcome)
+			require.Contains(t, report, "source eval "+tc.label+";")
+			require.NotContains(t, report, "source eval ;")
+			require.NotContains(t, report, "invalid metadata")
+			after, err := json.Marshal(manifest)
+			require.NoError(t, err)
+			require.Equal(t, before, after)
+		})
+	}
+}
 
 func TestSummaryWithholdsInvalidEvidenceAndItsRequirementObservations(t *testing.T) {
 	manifest := &models.EvidenceManifest{

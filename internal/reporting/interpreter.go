@@ -88,8 +88,12 @@ func FormatSummaryReport(outcome *models.EvaluationOutcome) string {
 						fmt.Fprintf(&b, "    Run %d evidence: invalid metadata; assessment references are unavailable.\n", run.RunNumber)
 						continue
 					}
+					sourceEvalID := run.Evidence.Origin.EvalID
+					if sourceEvalID == "" {
+						sourceEvalID = "unavailable"
+					}
 					fmt.Fprintf(&b, "    Run %d evidence: %s; source eval %s; captured metadata is not verified state or enforcement.\n",
-						run.RunNumber, run.Evidence.Version, run.Evidence.Origin.EvalID)
+						run.RunNumber, run.Evidence.Version, sourceEvalID)
 				}
 				if err := evidence.ValidateExplanations(run.Evidence, to.TestID, run.RequirementExplanations); err != nil {
 					fmt.Fprintf(&b, "    Run %d requirement observations: invalid references; assessment references are unavailable.\n", run.RunNumber)

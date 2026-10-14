@@ -1011,6 +1011,8 @@ serialized; loaded/manual zero-file snapshots keep historical writer routing.
 Failure evidence retains policy-validated eval/task identity when available;
 otherwise it records unavailable attribution with numeric lineage only.
 This does not sanitize or replace original execution result fields.
+The dashboard and `--interpret` report missing source identifiers as unavailable;
+they do not substitute the displayed evaluation or task identity.
 
 Before selected content is read, metadata-only exclusion admission permits at
 most 256 entry inspections and depth 32, including descendants and repeated
