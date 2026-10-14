@@ -87,10 +87,12 @@ func TestSummaryExplainsEveryAssessedTrialWithoutChangingLegacyOutput(t *testing
 }
 
 func TestSummaryWithholdsForeignRequirementReferences(t *testing.T) {
+	digest, err := evidence.JSONDigest("Captured observation.")
+	require.NoError(t, err)
 	manifest := &models.EvidenceManifest{
 		Origin:    models.EvidenceOrigin{EvalID: "eval", TaskID: "task", RunNumber: 1, AttemptCount: 1},
 		Runtime:   models.EvidenceRuntime{ExecutionMode: "unknown", NativeSkillControl: "unknown"},
-		Artifacts: []models.EvidenceArtifact{{ID: "receipt", Availability: "not_requested", Completeness: "unknown", Reason: "Not captured."}},
+		Artifacts: []models.EvidenceArtifact{{ID: "receipt", Availability: "captured", Completeness: "complete", Document: "snapshot", Pointer: "/receipt", ContentDigest: digest}},
 	}
 	require.NoError(t, evidence.Seal(manifest))
 	reference, err := evidence.Reference(manifest, "receipt")
@@ -112,4 +114,50 @@ func TestSummaryWithholdsForeignRequirementReferences(t *testing.T) {
 	report = FormatSummaryReport(outcome)
 	require.Contains(t, report, "invalid references")
 	require.NotContains(t, report, "do-not-display")
+}
+
+func TestSummaryWithholdsRequirementReferencesWithoutCapturedContent(t *testing.T) {
+	for _, availability := range []string{"unavailable", "not_requested", "digest_only"} {
+		for _, cached := range []bool{false, true} {
+			name := availability + "/ordinary"
+			if cached {
+				name = availability + "/cached"
+			}
+			t.Run(name, func(t *testing.T) {
+				digest, err := evidence.JSONDigest("Source identity only.")
+				require.NoError(t, err)
+				artifact := models.EvidenceArtifact{
+					ID: "receipt", Availability: availability, Completeness: "unknown", Reason: "No observed content preserved.",
+				}
+				if availability == "digest_only" {
+					artifact.SourceDigest = digest
+				}
+				manifest := &models.EvidenceManifest{
+					Origin:    models.EvidenceOrigin{EvalID: "eval", TaskID: "task", RunNumber: 1, AttemptCount: 1},
+					Runtime:   models.EvidenceRuntime{ExecutionMode: "unknown", NativeSkillControl: "unknown"},
+					Artifacts: []models.EvidenceArtifact{artifact},
+				}
+				require.NoError(t, evidence.Seal(manifest))
+				reference, err := evidence.Reference(manifest, "receipt")
+				require.NoError(t, err, "general metadata references remain resolvable")
+				outcome := &models.EvaluationOutcome{RunID: "eval", TestOutcomes: []models.TestOutcome{{
+					TestID: "task", Cached: cached, Runs: []models.RunResult{{RunNumber: 1, Attempts: 1, Evidence: manifest,
+						RequirementExplanations: []models.RequirementExplanation{{TaskID: "task", RequirementID: "do-not-display",
+							Checks: []models.CheckExplanation{{References: []models.EvidenceReference{reference}}}}},
+					}},
+				}}}
+				if cached {
+					outcome.RunID = "current"
+				}
+				before, err := json.Marshal(outcome)
+				require.NoError(t, err)
+				report := FormatSummaryReport(outcome)
+				require.Contains(t, report, "invalid references")
+				require.NotContains(t, report, "do-not-display")
+				after, err := json.Marshal(outcome)
+				require.NoError(t, err)
+				require.Equal(t, before, after)
+			})
+		}
+	}
 }

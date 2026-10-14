@@ -181,8 +181,12 @@ func ValidateExplanations(manifest *models.EvidenceManifest, taskID string, expl
 		}
 		for _, check := range explanation.Checks {
 			for _, reference := range check.References {
-				if _, err := Resolve(manifest, reference); err != nil {
+				artifact, err := Resolve(manifest, reference)
+				if err != nil {
 					return fmt.Errorf("evidence: requirement reference: %w", err)
+				}
+				if artifact.Availability != "captured" {
+					return errors.New("evidence: requirement reference points to an artifact without captured content")
 				}
 			}
 		}

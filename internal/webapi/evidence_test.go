@@ -113,21 +113,35 @@ func TestEvidenceAPIValidatesRequirementReferences(t *testing.T) {
 		mutate      func(*models.EvidenceReference)
 		taskID      string
 		noManifest  bool
+		cached      bool
 		wantInvalid bool
 	}{
 		{name: "valid"},
-		{name: "cached valid"},
+		{name: "cached valid", cached: true},
 		{name: "foreign origin", mutate: func(r *models.EvidenceReference) { r.Origin.EvalID = "foreign" }, wantInvalid: true},
 		{name: "missing artifact", mutate: func(r *models.EvidenceReference) { r.ArtifactID = "missing" }, wantInvalid: true},
+		{name: "unavailable artifact", mutate: func(r *models.EvidenceReference) { r.ArtifactID = "unavailable" }, wantInvalid: true},
+		{name: "unrequested artifact", mutate: func(r *models.EvidenceReference) { r.ArtifactID = "not-requested" }, wantInvalid: true},
+		{name: "digest-only artifact", mutate: func(r *models.EvidenceReference) { r.ArtifactID = "digest-only" }, wantInvalid: true},
+		{name: "cached unavailable artifact", cached: true, mutate: func(r *models.EvidenceReference) { r.ArtifactID = "unavailable" }, wantInvalid: true},
+		{name: "cached unrequested artifact", cached: true, mutate: func(r *models.EvidenceReference) { r.ArtifactID = "not-requested" }, wantInvalid: true},
+		{name: "cached digest-only artifact", cached: true, mutate: func(r *models.EvidenceReference) { r.ArtifactID = "digest-only" }, wantInvalid: true},
 		{name: "invalid pointer", mutate: func(r *models.EvidenceReference) { r.Pointer = "not-a-pointer" }, wantInvalid: true},
 		{name: "foreign explanation task", taskID: "foreign", wantInvalid: true},
 		{name: "missing manifest", noManifest: true, wantInvalid: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
+			digest, err := evidence.JSONDigest("Captured observation.")
+			require.NoError(t, err)
 			manifest := &models.EvidenceManifest{
-				Origin:    models.EvidenceOrigin{EvalID: "eval", TaskID: "task", RunNumber: 1, AttemptCount: 1},
-				Runtime:   models.EvidenceRuntime{ExecutionMode: "unknown", NativeSkillControl: "unknown"},
-				Artifacts: []models.EvidenceArtifact{{ID: "receipt", Availability: "not_requested", Completeness: "unknown", Reason: "Not captured."}},
+				Origin:  models.EvidenceOrigin{EvalID: "eval", TaskID: "task", RunNumber: 1, AttemptCount: 1},
+				Runtime: models.EvidenceRuntime{ExecutionMode: "unknown", NativeSkillControl: "unknown"},
+				Artifacts: []models.EvidenceArtifact{
+					{ID: "receipt", Availability: "captured", Completeness: "complete", Document: "snapshot", Pointer: "/receipt", ContentDigest: digest},
+					{ID: "unavailable", Availability: "unavailable", Completeness: "unknown", Reason: "Not captured."},
+					{ID: "not-requested", Availability: "not_requested", Completeness: "unknown", Reason: "Not requested."},
+					{ID: "digest-only", Availability: "digest_only", Completeness: "unknown", Reason: "Source identity only.", SourceDigest: digest},
+				},
 			}
 			require.NoError(t, evidence.Seal(manifest))
 			reference, err := evidence.Reference(manifest, "receipt")
@@ -146,7 +160,7 @@ func TestEvidenceAPIValidatesRequirementReferences(t *testing.T) {
 			if test.noManifest {
 				run.Evidence = nil
 			}
-			cached := test.name == "cached valid"
+			cached := test.cached
 			outcome := &models.EvaluationOutcome{RunID: "eval", TestOutcomes: []models.TestOutcome{{
 				TestID: "task", Cached: cached, Runs: []models.RunResult{run},
 			}}}

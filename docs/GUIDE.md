@@ -1013,6 +1013,9 @@ otherwise it records unavailable attribution with numeric lineage only.
 This does not sanitize or replace original execution result fields.
 The dashboard and `--interpret` report missing source identifiers as unavailable;
 they do not substitute the displayed evaluation or task identity.
+Requirement observations may reference captured artifacts, including explicitly
+partial or redacted captures, but not unavailable, unrequested, or digest-only
+artifacts. A resolvable metadata identity does not establish observed content.
 
 Before selected content is read, metadata-only exclusion admission permits at
 most 256 entry inspections and depth 32, including descendants and repeated

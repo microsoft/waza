@@ -8,11 +8,12 @@ import (
 )
 
 func TestValidateExplanations(t *testing.T) {
-	manifest := &models.EvidenceManifest{
-		Origin:    models.EvidenceOrigin{EvalID: "eval", TaskID: "task", RunNumber: 1, AttemptCount: 1},
-		Runtime:   models.EvidenceRuntime{ExecutionMode: "unknown", NativeSkillControl: "unknown"},
-		Artifacts: []models.EvidenceArtifact{{ID: "receipt", Availability: "not_requested", Completeness: "unknown", Reason: "Not captured."}},
-	}
+	manifest := sampleManifest(t)
+	manifest.Artifacts = append(manifest.Artifacts,
+		models.EvidenceArtifact{ID: "unavailable", Availability: "unavailable", Completeness: "unknown", Reason: "Not captured."},
+		models.EvidenceArtifact{ID: "not-requested", Availability: "not_requested", Completeness: "unknown", Reason: "Not requested."},
+		models.EvidenceArtifact{ID: "digest-only", Availability: "digest_only", Completeness: "unknown", Reason: "Source identity only.", SourceDigest: manifest.Artifacts[0].ContentDigest},
+	)
 	require.NoError(t, Seal(manifest))
 	reference, err := Reference(manifest, "receipt")
 	require.NoError(t, err)
@@ -34,6 +35,9 @@ func TestValidateExplanations(t *testing.T) {
 		{name: "foreign run", mutate: func(r *models.EvidenceReference) { r.Origin.RunNumber++ }, wantError: "different eval/task/run/attempt"},
 		{name: "foreign attempt", mutate: func(r *models.EvidenceReference) { r.Origin.AttemptCount++ }, wantError: "different eval/task/run/attempt"},
 		{name: "missing artifact", mutate: func(r *models.EvidenceReference) { r.ArtifactID = "absent" }, wantError: "artifact is absent"},
+		{name: "unavailable artifact", mutate: func(r *models.EvidenceReference) { r.ArtifactID = "unavailable" }, wantError: "without captured content"},
+		{name: "unrequested artifact", mutate: func(r *models.EvidenceReference) { r.ArtifactID = "not-requested" }, wantError: "without captured content"},
+		{name: "digest-only artifact", mutate: func(r *models.EvidenceReference) { r.ArtifactID = "digest-only" }, wantError: "without captured content"},
 		{name: "malformed pointer", mutate: func(r *models.EvidenceReference) { r.Pointer = "/bad~2escape" }, wantError: "invalid artifact-relative pointer"},
 		{name: "missing manifest", noManifest: true, wantError: "absent manifest"},
 	} {
@@ -56,4 +60,19 @@ func TestValidateExplanations(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestValidateExplanationsAllowsPartialAndRedactedCapturedArtifacts(t *testing.T) {
+	manifest := sampleManifest(t)
+	manifest.Artifacts[0].Completeness = "partial"
+	manifest.Artifacts[0].Redacted = true
+	manifest.Artifacts[0].Reason = "Partial capture changed by redaction."
+	require.NoError(t, Seal(manifest))
+	reference, err := Reference(manifest, "receipt")
+	require.NoError(t, err)
+	require.NoError(t, ValidateExplanations(manifest, "task", []models.RequirementExplanation{{
+		TaskID: "task", Checks: []models.CheckExplanation{{References: []models.EvidenceReference{reference}}},
+	}}))
+	require.ErrorContains(t, VerifyContent(manifest, reference, nil, true, false), "incomplete")
+	require.ErrorContains(t, VerifyContent(manifest, reference, nil, false, true), "redaction")
 }
