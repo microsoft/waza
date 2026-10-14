@@ -262,6 +262,14 @@ func outcomeToDetail(o *models.EvaluationOutcome) *RunDetail {
 					row.Manifest = run.Evidence
 				}
 			}
+			if row.Assessment != "invalid" {
+				if err := evidence.ValidateExplanations(row.Manifest, to.TestID, row.Explanations); err != nil {
+					row.Assessment = "invalid"
+					row.Message = "Requirement observation references are invalid; the observations are withheld."
+					row.Manifest = nil
+					row.Explanations = nil
+				}
+			}
 			tr.EvidenceRuns = append(tr.EvidenceRuns, row)
 		}
 		if !hasEvidenceMetadata {

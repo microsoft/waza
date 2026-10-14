@@ -32,7 +32,7 @@ export default function EvidenceView({ tasks }: { tasks: TaskResult[] }) {
             return (
             <div key={`${run.runNumber}-${index}`} className="mt-4 space-y-3 text-sm">
               <p className="text-zinc-300">
-                Run {run.runNumber} · {run.attempts} attempts · {withheld ? "invalid" : run.assessment}
+                Run {run.runNumber} · {run.attempts} {run.attempts === 1 ? "attempt" : "attempts"} · {withheld ? "invalid" : run.assessment}
                 {run.cached ? " · cached source evidence, not a new execution" : ""}
               </p>
               <p className="text-zinc-400">{withheld ? "Evidence metadata withheld: invalid metadata, assessment, or unsupported manifest version." : run.message}</p>

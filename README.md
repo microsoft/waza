@@ -1115,14 +1115,16 @@ waza results compare run-20250226-001 run-20250226-002 --format json
 
 Run graders against agent output without executing an agent. Designed for standalone grading of previous eval runs.
 
-File-based checks ordinarily require the actual preserved agent workspace, selected with `--workspace`; neither snapshot hashes nor a successful replay supplies that state. Prompt graders can contact the configured judge model. The explicit `--evidence-snapshot` mode instead verifies selected captured files for a narrow file-only operation, without model calls.
+File-based checks ordinarily require the actual preserved agent workspace, selected with `--workspace`; neither snapshot hashes nor a successful replay supplies that state. Prompt graders can contact the configured judge model. The explicit `--evidence-snapshot` mode instead verifies selected captured files for a narrow file-only operation on Linux/macOS, without model calls.
+
+Both ordinary and snapshot grading validate every selected evidence-bearing run's manifest digest and recorded eval/task/run/attempt attribution before grading. Cached results may retain a different source eval ID, but not a different task, run or attempt. Historical runs without evidence remain supported. API and interpretation output withhold requirement observations whose task or artifact references do not match the bound manifest; reference-free historical observations remain displayable.
 
 | Flag | Description |
 |------|-------------|
 | `--task <id>` | Task ID to grade |
 | `--results <file>` | Path to waza run output JSON |
 | `--workspace <dir>` | Agent workspace directory for file-based graders; must point to the agent's actual workspace (default: `.`) |
-| `--evidence-snapshot <path>` | Explicit reviewed snapshot for file-only regrading; requires `--task`, exactly one assessed matching run, and no explicit `--workspace`. |
+| `--evidence-snapshot <path>` | Explicit reviewed snapshot for file-only regrading on Linux/macOS; requires `--task`, exactly one assessed matching run, and no explicit `--workspace`. |
 | `--judge-model <model>` | Model for prompt graders |
 | `-o, --output <file>` | Write full EvaluationOutcome JSON (compatible with `waza compare`) |
 | `-v, --verbose` | Verbose output |

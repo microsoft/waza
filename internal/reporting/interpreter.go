@@ -91,6 +91,10 @@ func FormatSummaryReport(outcome *models.EvaluationOutcome) string {
 					fmt.Fprintf(&b, "    Run %d evidence: %s; source eval %s; captured metadata is not verified state or enforcement.\n",
 						run.RunNumber, run.Evidence.Version, run.Evidence.Origin.EvalID)
 				}
+				if err := evidence.ValidateExplanations(run.Evidence, to.TestID, run.RequirementExplanations); err != nil {
+					fmt.Fprintf(&b, "    Run %d requirement observations: invalid references; assessment references are unavailable.\n", run.RunNumber)
+					continue
+				}
 				for _, explanation := range run.RequirementExplanations {
 					for _, check := range explanation.Checks {
 						fmt.Fprintf(&b, "    Run %d requirement %s: %s/%s = %s (%s). %s\n",

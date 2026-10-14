@@ -41,9 +41,38 @@ func TestSummaryExplainsEveryAssessedTrialWithoutChangingLegacyOutput(t *testing
 		{RunNumber: 2, RequirementExplanations: []models.RequirementExplanation{{RequirementID: "boundary",
 			Checks: []models.CheckExplanation{{Observation: "unresolved", Category: "insufficient_evidence"}}}}},
 	}
+
 	report := FormatSummaryReport(outcome)
 	require.Contains(t, report, "Run 1 requirement boundary")
 	require.Contains(t, report, "operational_status_unavailable")
 	require.Contains(t, report, "Run 2 requirement boundary")
 	require.Contains(t, report, "insufficient_evidence")
+}
+
+func TestSummaryWithholdsForeignRequirementReferences(t *testing.T) {
+	manifest := &models.EvidenceManifest{
+		Origin:    models.EvidenceOrigin{EvalID: "eval", TaskID: "task", RunNumber: 1, AttemptCount: 1},
+		Runtime:   models.EvidenceRuntime{ExecutionMode: "unknown", NativeSkillControl: "unknown"},
+		Artifacts: []models.EvidenceArtifact{{ID: "receipt", Availability: "not_requested", Completeness: "unknown", Reason: "Not captured."}},
+	}
+	require.NoError(t, evidence.Seal(manifest))
+	reference, err := evidence.Reference(manifest, "receipt")
+	require.NoError(t, err)
+	outcome := &models.EvaluationOutcome{RunID: "eval", TestOutcomes: []models.TestOutcome{{
+		TestID: "task", Runs: []models.RunResult{{RunNumber: 1, Attempts: 1, Evidence: manifest,
+			RequirementExplanations: []models.RequirementExplanation{{TaskID: "task", RequirementID: "do-not-display",
+				Checks: []models.CheckExplanation{{References: []models.EvidenceReference{reference}}}}},
+		}},
+	}}}
+	report := FormatSummaryReport(outcome)
+	require.Contains(t, report, "do-not-display")
+	require.NotContains(t, report, "invalid references")
+	outcome.TestOutcomes[0].Runs[0].RequirementExplanations[0].Checks[0].References[0].Origin.TaskID = "foreign"
+	report = FormatSummaryReport(outcome)
+	require.Contains(t, report, "invalid references")
+	require.NotContains(t, report, "do-not-display")
+	outcome.TestOutcomes[0].Runs[0].Evidence = nil
+	report = FormatSummaryReport(outcome)
+	require.Contains(t, report, "invalid references")
+	require.NotContains(t, report, "do-not-display")
 }

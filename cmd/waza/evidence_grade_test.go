@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/microsoft/waza/internal/evidence"
@@ -102,6 +103,90 @@ func TestGradeVerifiedSelectedFilesAndCachedSource(t *testing.T) {
 				_, err = executeGrade(t, fixture.specPath, "--task", "task-001", "--results", results, "--evidence-snapshot", fixture.snapshotPath)
 				require.ErrorContains(t, err, "attribution")
 			}
+		})
+	}
+}
+
+func TestGradeEvidenceSnapshotHelpStatesSupportedHosts(t *testing.T) {
+	cmd := newGradeCommand()
+	require.Contains(t, cmd.Long, "only on Linux/macOS")
+	require.Contains(t, cmd.Flags().Lookup("evidence-snapshot").Usage, "on Linux/macOS")
+}
+
+func TestOrdinaryGradeBindsEveryEvidenceBearingRun(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		cached     bool
+		mutate     func(*models.EvidenceManifest)
+		wantError  string
+		noEvidence bool
+		secondOnly bool
+		tampered   bool
+	}{
+		{name: "matching"},
+		{name: "cached source eval", cached: true},
+		{name: "foreign eval", mutate: func(m *models.EvidenceManifest) { m.Origin.EvalID = "other" }, wantError: "attribution"},
+		{name: "foreign task", mutate: func(m *models.EvidenceManifest) { m.Origin.TaskID = "other" }, wantError: "attribution"},
+		{name: "foreign task cached", cached: true, mutate: func(m *models.EvidenceManifest) { m.Origin.TaskID = "other" }, wantError: "attribution"},
+		{name: "foreign run", mutate: func(m *models.EvidenceManifest) { m.Origin.RunNumber = 7 }, wantError: "attribution"},
+		{name: "foreign run cached", cached: true, mutate: func(m *models.EvidenceManifest) { m.Origin.RunNumber = 7 }, wantError: "attribution"},
+		{name: "foreign attempt", mutate: func(m *models.EvidenceManifest) { m.Origin.AttemptCount = 7 }, wantError: "attribution"},
+		{name: "foreign attempt cached", cached: true, mutate: func(m *models.EvidenceManifest) { m.Origin.AttemptCount = 7 }, wantError: "attribution"},
+		{name: "foreign later run", secondOnly: true, mutate: func(m *models.EvidenceManifest) { m.Origin.TaskID = "other" }, wantError: "attribution"},
+		{name: "tampered digest", tampered: true, wantError: "identity does not match"},
+		{name: "legacy absent", noEvidence: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newPreservedGradeFixture(t, preservedFileTask)
+			validManifest := *fixture.run.Evidence
+			if test.mutate != nil {
+				test.mutate(fixture.run.Evidence)
+				require.NoError(t, evidence.Seal(fixture.run.Evidence))
+			}
+			if test.noEvidence {
+				fixture.run.Evidence = nil
+			}
+			if test.tampered {
+				fixture.run.Evidence.Origin.TaskID = "tampered"
+			}
+			outcome := outcomeWithTasks(models.TestOutcome{TestID: "task-001", Cached: test.cached,
+				Runs: []models.RunResult{fixture.run, fixture.run}})
+			if test.secondOnly {
+				outcome.TestOutcomes[0].Runs[0].Evidence = &validManifest
+			}
+			outcome.RunID = "source-eval"
+			if test.cached {
+				outcome.RunID = "current-eval"
+			}
+			results := gradeResultsFile(t, fixture.dir, outcome)
+			original, err := os.ReadFile(results)
+			require.NoError(t, err)
+			output := filepath.Join(fixture.dir, "graded.json")
+			text, err := executeGrade(t, fixture.specPath, "--task", "task-001", "--results", results,
+				"--workspace", fixture.workspace, "--output", output)
+			if test.wantError != "" {
+				require.ErrorContains(t, err, test.wantError)
+				require.NotContains(t, text, `"overall_score"`)
+				_, err = os.Stat(output)
+				require.ErrorIs(t, err, os.ErrNotExist)
+			} else {
+				require.NoError(t, err)
+				data, err := os.ReadFile(output)
+				require.NoError(t, err)
+				graded, err := models.ParseEvaluationOutcome(data, output)
+				require.NoError(t, err)
+				for _, run := range graded.TestOutcomes[0].Runs {
+					if test.noEvidence {
+						require.Nil(t, run.Evidence)
+					} else {
+						require.NoError(t, evidence.Bind(run.Evidence, graded.RunID, "task-001", run.RunNumber, run.Attempts, graded.TestOutcomes[0].Cached))
+						require.Equal(t, "source-eval", run.Evidence.Origin.EvalID)
+					}
+				}
+			}
+			unchanged, err := os.ReadFile(results)
+			require.NoError(t, err)
+			require.Equal(t, original, unchanged)
 		})
 	}
 }
@@ -253,17 +338,65 @@ func TestPreservedGradeRejectsRecordedOutputChecks(t *testing.T) {
 	}
 }
 
-func TestPreservedGradeRejectsBeforeExecutingProgram(t *testing.T) {
-	fixture := newPreservedGradeFixture(t, preservedFileTask)
+func gradeSentinelTask(t *testing.T, marker string) string {
+	t.Helper()
 	program, err := os.Executable()
 	require.NoError(t, err)
-	marker := filepath.Join(fixture.dir, "executed")
-	writeTaskFile(t, fixture.dir, "task.yaml", preservedFileTask+fmt.Sprintf(`  - name: executable-sentinel
+	return preservedFileTask + fmt.Sprintf(`  - name: executable-sentinel
     type: program
     config:
       command: %q
       args: ['-test.run=^TestPreservedGradeExecutionSentinel$', '--', '--grader-admission-sentinel', %q]
-`, program, marker))
+`, program, marker)
+}
+
+func TestOrdinaryGradePreflightsAllSelectedTasksBeforeExecutingProgram(t *testing.T) {
+	fixture := newPreservedGradeFixture(t, preservedFileTask)
+	marker := filepath.Join(fixture.dir, "executed")
+	writeTaskFile(t, fixture.dir, "task.yaml", gradeSentinelTask(t, marker))
+	writeTaskFile(t, fixture.dir, "task2.yaml", strings.Replace(preservedFileTask, "task-001", "task-002", 1))
+	manifest := *fixture.run.Evidence
+	manifest.Origin.TaskID = "foreign"
+	require.NoError(t, evidence.Seal(&manifest))
+	second := fixture.run
+	second.Evidence = &manifest
+	outcome := &models.EvaluationOutcome{RunID: "source-eval", TestOutcomes: []models.TestOutcome{
+		{TestID: "task-001", Runs: []models.RunResult{fixture.run}},
+		{TestID: "task-002", Runs: []models.RunResult{second}},
+	}}
+	results := gradeResultsFile(t, fixture.dir, outcome)
+	original, err := os.ReadFile(results)
+	require.NoError(t, err)
+	output := filepath.Join(fixture.dir, "graded.json")
+	text, err := executeGrade(t, fixture.specPath, "--results", results, "--workspace", fixture.workspace, "--output", output)
+	require.ErrorContains(t, err, `task "task-002"`)
+	require.NotContains(t, text, `"overall_score"`)
+	for _, path := range []string{marker, output} {
+		_, err := os.Stat(path)
+		require.ErrorIs(t, err, os.ErrNotExist)
+	}
+	unchanged, err := os.ReadFile(results)
+	require.NoError(t, err)
+	require.Equal(t, original, unchanged)
+	_, err = executeGrade(t, fixture.specPath, "--task", "task-001", "--results", results, "--workspace", fixture.workspace)
+	require.NoError(t, err, "unselected bad evidence does not block a valid selected task")
+	require.FileExists(t, marker)
+	require.NoError(t, os.Remove(marker))
+	manifest.Origin.TaskID = "task-002"
+	require.NoError(t, evidence.Seal(&manifest))
+	results = gradeResultsFile(t, fixture.dir, outcome)
+	_, err = executeGrade(t, fixture.specPath, "--results", results, "--workspace", fixture.workspace, "--output", output)
+	require.NoError(t, err)
+	executed, err := os.ReadFile(marker)
+	require.NoError(t, err)
+	require.Equal(t, "executed", string(executed))
+	require.FileExists(t, output)
+}
+
+func TestPreservedGradeRejectsBeforeExecutingProgram(t *testing.T) {
+	fixture := newPreservedGradeFixture(t, preservedFileTask)
+	marker := filepath.Join(fixture.dir, "executed")
+	writeTaskFile(t, fixture.dir, "task.yaml", gradeSentinelTask(t, marker))
 	results := gradeResultsFile(t, fixture.dir, &models.EvaluationOutcome{RunID: "source-eval",
 		TestOutcomes: []models.TestOutcome{{TestID: "task-001", Runs: []models.RunResult{fixture.run}}}})
 	text, err := executeGrade(t, fixture.specPath, "--task", "task-001", "--results", results, "--evidence-snapshot", fixture.snapshotPath)

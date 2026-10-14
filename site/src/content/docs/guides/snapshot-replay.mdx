@@ -255,7 +255,7 @@ waza grade eval.yaml --results ./evidence-results.json --task report-task \
   --evidence-snapshot ./reviewed-snapshot.json --output ./regraded-results.json
 ```
 
-This explicit mode requires exactly one assessed matching run for the selected
+This explicit Linux/macOS mode requires exactly one assessed matching run for the selected
 task. It verifies the original manifest SHA-256, full source origin, and
 complete, unredacted file contents, including each text digest. It never follows
 `snapshot_path` implicitly and cannot be combined with an explicit `--workspace`.
@@ -272,8 +272,12 @@ rejected before materialization. Checks cover only the materialized captured
 subset, not absence from the original workspace. A `must_not_match` pattern
 checks the complete verified text of its selected file.
 This is not general workspace reconstruction.
-The older `grade --workspace` mode is unchanged; its prompt
-graders may contact a paid judge. Evidence inspection adds no automatic calls.
+Ordinary `grade --workspace` grading and this snapshot mode both validate the
+manifest digest and recorded eval/task/run/attempt attribution of every selected
+evidence-bearing run before grading. Cached results may retain their source eval
+ID, but never a foreign task, run or attempt. Historical runs without evidence
+remain supported. Ordinary prompt graders may contact a paid judge; evidence
+inspection adds no automatic calls.
 
 The `--snapshot-max-file-bytes` and `--snapshot-max-total-bytes` limits govern
 capture, not admission of an independently supplied snapshot. Workspace
@@ -305,7 +309,10 @@ causal classification, or hypotheses.
 `waza run ... --interpret` prints a summary with per-trial scoped requirement
 check observations and evidence metadata when present. Existing no-metadata
 summary text remains unchanged. Malformed evidence and its assessment
-references are withheld, not treated as assessed observations. Interpretation
+references are withheld, not treated as assessed observations. The API and report
+also withhold requirement observations when a declared task differs from the
+selected task or a reference fails manifest-origin, artifact-ID or pointer
+validation. Reference-free historical observations remain displayable. Interpretation
 does not add enforcement, causal diagnosis, or automatic model calls.
 
 ## Snapshot compatibility

@@ -29,7 +29,7 @@ test("every trial retains partial mock evidence and cached source origin", async
   }]);
   await expect(view).toContainText("Run 1 · 2 attempts · recorded");
   await expect(view).toContainText("Run 2 · 2 attempts · recorded");
-  await expect(view).toContainText("Run 3 · 1 attempts · unassessed");
+  await expect(view).toContainText("Run 3 · 1 attempt · unassessed");
   await expect(view.getByText(/cached source evidence/)).toHaveCount(2);
   await expect(view).toContainText("eval source-evaluation · task report-task · run 2 · attempt 2 · prior attempts not_preserved");
   await expect(view).toContainText("Actual execution mode: mock");

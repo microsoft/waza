@@ -71,6 +71,107 @@ func TestEvidenceAPIIncludesEveryRunAndHistoricalAbsence(t *testing.T) {
 	require.Nil(t, rows[1].Manifest)
 }
 
+func TestEvidenceAPIRejectsNullArtifactsWithoutRelabelingThem(t *testing.T) {
+	manifest := &models.EvidenceManifest{
+		Origin:  models.EvidenceOrigin{EvalID: "eval", TaskID: "task", RunNumber: 1, AttemptCount: 1},
+		Runtime: models.EvidenceRuntime{ExecutionMode: "unknown", NativeSkillControl: "unknown"},
+	}
+	require.NoError(t, evidence.Seal(manifest))
+	outcome := &models.EvaluationOutcome{RunID: "eval", TestOutcomes: []models.TestOutcome{{
+		TestID: "task", Runs: []models.RunResult{{RunNumber: 1, Attempts: 1, Evidence: manifest}},
+	}}}
+	row := outcomeToDetail(outcome).Tasks[0].EvidenceRuns[0]
+	require.Equal(t, "recorded", row.Assessment)
+	require.NotNil(t, row.Manifest.Artifacts)
+	data, err := json.Marshal(manifest)
+	require.NoError(t, err)
+	var object map[string]any
+	require.NoError(t, json.Unmarshal(data, &object))
+	object["artifacts"] = nil
+	delete(object, "sha256")
+	digest, err := evidence.JSONDigest(object)
+	require.NoError(t, err)
+	object["sha256"] = digest.SHA256
+	data, err = json.Marshal(object)
+	require.NoError(t, err)
+	require.NoError(t, json.Unmarshal(data, manifest))
+	before, err := json.Marshal(outcome)
+	require.NoError(t, err)
+	row = outcomeToDetail(outcome).Tasks[0].EvidenceRuns[0]
+	require.Equal(t, "invalid", row.Assessment)
+	require.Nil(t, row.Manifest)
+	require.Empty(t, row.Explanations)
+	require.Contains(t, row.Message, "invalid")
+	after, err := json.Marshal(outcome)
+	require.NoError(t, err)
+	require.Equal(t, before, after)
+}
+
+func TestEvidenceAPIValidatesRequirementReferences(t *testing.T) {
+	for _, test := range []struct {
+		name        string
+		mutate      func(*models.EvidenceReference)
+		taskID      string
+		noManifest  bool
+		wantInvalid bool
+	}{
+		{name: "valid"},
+		{name: "cached valid"},
+		{name: "foreign origin", mutate: func(r *models.EvidenceReference) { r.Origin.EvalID = "foreign" }, wantInvalid: true},
+		{name: "missing artifact", mutate: func(r *models.EvidenceReference) { r.ArtifactID = "missing" }, wantInvalid: true},
+		{name: "invalid pointer", mutate: func(r *models.EvidenceReference) { r.Pointer = "not-a-pointer" }, wantInvalid: true},
+		{name: "foreign explanation task", taskID: "foreign", wantInvalid: true},
+		{name: "missing manifest", noManifest: true, wantInvalid: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			manifest := &models.EvidenceManifest{
+				Origin:    models.EvidenceOrigin{EvalID: "eval", TaskID: "task", RunNumber: 1, AttemptCount: 1},
+				Runtime:   models.EvidenceRuntime{ExecutionMode: "unknown", NativeSkillControl: "unknown"},
+				Artifacts: []models.EvidenceArtifact{{ID: "receipt", Availability: "not_requested", Completeness: "unknown", Reason: "Not captured."}},
+			}
+			require.NoError(t, evidence.Seal(manifest))
+			reference, err := evidence.Reference(manifest, "receipt")
+			require.NoError(t, err)
+			if test.mutate != nil {
+				test.mutate(&reference)
+			}
+			taskID := test.taskID
+			if taskID == "" {
+				taskID = "task"
+			}
+			run := models.RunResult{RunNumber: 1, Attempts: 1, Evidence: manifest,
+				RequirementExplanations: []models.RequirementExplanation{{TaskID: taskID, RequirementID: "req",
+					Checks: []models.CheckExplanation{{References: []models.EvidenceReference{reference}}}}},
+			}
+			if test.noManifest {
+				run.Evidence = nil
+			}
+			cached := test.name == "cached valid"
+			outcome := &models.EvaluationOutcome{RunID: "eval", TestOutcomes: []models.TestOutcome{{
+				TestID: "task", Cached: cached, Runs: []models.RunResult{run},
+			}}}
+			if cached {
+				outcome.RunID = "current"
+			}
+			before, err := json.Marshal(outcome)
+			require.NoError(t, err)
+			row := outcomeToDetail(outcome).Tasks[0].EvidenceRuns[0]
+			if test.wantInvalid {
+				require.Equal(t, "invalid", row.Assessment)
+				require.Nil(t, row.Manifest)
+				require.Empty(t, row.Explanations)
+				require.Contains(t, row.Message, "references are invalid")
+			} else {
+				require.Equal(t, "recorded", row.Assessment)
+				require.Equal(t, run.RequirementExplanations, row.Explanations)
+			}
+			after, err := json.Marshal(outcome)
+			require.NoError(t, err)
+			require.Equal(t, before, after)
+		})
+	}
+}
+
 func TestEvidenceAPIPreservesAbsentAndPopulatedCheckObservations(t *testing.T) {
 	const populated = `{"check":{"scope":"task","grader":"content"},"observation":"grader_recorded_pass","category":"operational_status_unavailable","message":"A recorded check is not requirement enforcement."}`
 	var control models.CheckExplanation

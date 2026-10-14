@@ -1035,7 +1035,7 @@ before/after linking never recreate missing directories. Failures may leave
 newly created empty directories; these observations do not protect a moving
 same-user namespace. Ordinary metadata-only snapshot output is unchanged.
 
-Evidence-snapshot regrading requires `--task`, exactly one assessed matching run,
+Evidence-snapshot regrading on Linux/macOS requires `--task`, exactly one assessed matching run,
 no explicit `--workspace`, original manifest/full-origin verification, and
 complete unredacted file text/digests. Only explicit required file-grader
 `must_exist`/`content_patterns` inputs are privately materialized. It rejects

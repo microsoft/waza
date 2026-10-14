@@ -1241,7 +1241,7 @@ waza grade <eval.yaml>
 | `--results` | | string | | **Required.** Path to `waza run` output JSON |
 | `--task` | | string | | Grade a specific task ID only |
 | `--workspace` | | string | `.` | Agent workspace directory for file-based graders |
-| `--evidence-snapshot` | | string | | Explicit reviewed snapshot for verified file-only regrading; requires `--task` and is incompatible with explicit `--workspace` |
+| `--evidence-snapshot` | | string | | Explicit reviewed snapshot for verified file-only regrading on Linux/macOS; requires `--task` and is incompatible with explicit `--workspace` |
 | `--judge-model` | | string | | Model for prompt graders (overrides execution model) |
 | `--output` | `-o` | string | | Write full EvaluationOutcome JSON |
 | `--verbose` | `-v` | bool | false | Verbose output |

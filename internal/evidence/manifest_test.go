@@ -27,6 +27,27 @@ func sampleManifest(t *testing.T) *models.EvidenceManifest {
 	return manifest
 }
 
+func TestSealNormalizesArtifactsAndValidateRejectsNull(t *testing.T) {
+	for _, artifacts := range [][]models.EvidenceArtifact{nil, {}} {
+		manifest := &models.EvidenceManifest{
+			Runtime:   models.EvidenceRuntime{ExecutionMode: "unknown", NativeSkillControl: "unknown"},
+			Artifacts: artifacts,
+		}
+		require.NoError(t, Seal(manifest))
+		require.NotNil(t, manifest.Artifacts)
+		require.Empty(t, manifest.Artifacts)
+		data, err := json.Marshal(manifest)
+		require.NoError(t, err)
+		require.Contains(t, string(data), `"artifacts":[]`)
+		require.NoError(t, Validate(manifest))
+		manifest.Artifacts = nil
+		digest, err := manifestDigest(manifest)
+		require.NoError(t, err)
+		manifest.SHA256 = digest.SHA256
+		require.ErrorContains(t, Validate(manifest), "artifacts must be an array")
+	}
+}
+
 func TestManifestIdentityAndScopedReferences(t *testing.T) {
 	manifest := sampleManifest(t)
 	require.NoError(t, Validate(manifest))

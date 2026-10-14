@@ -41,8 +41,9 @@ and grades the specified task using the eval's grader configuration.
 File-based graders require the agent's actual preserved workspace via
 --workspace; snapshot hashes and tool events cannot reconstruct those files.
 Prompt graders may contact the configured judge model.
---evidence-snapshot supports only verified file checks, without output-based
-expectations; it does not certify absence from the original workspace.
+--evidence-snapshot is available only on Linux/macOS and supports verified file
+checks without output-based expectations; it does not certify absence from the
+original workspace.
 
 Example:
   waza run eval.yaml --output results.json
@@ -62,7 +63,7 @@ Example:
 	cmd.Flags().StringVar(&taskID, "task", "", "task ID to grade (omit to grade all tasks)")
 	cmd.Flags().StringVar(&resultsFile, "results", "", "path to waza run JSON output")
 	cmd.Flags().StringVar(&workspace, "workspace", ".", "agent workspace directory for file-based graders; must point to the agent's actual workspace")
-	cmd.Flags().StringVar(&evidenceSnapshot, "evidence-snapshot", "", "Explicit local snapshot for verified file-only checks, without output-based expectations; requires --task and exactly one run")
+	cmd.Flags().StringVar(&evidenceSnapshot, "evidence-snapshot", "", "Explicit local snapshot for verified file-only checks on Linux/macOS, without output-based expectations; requires --task and exactly one run")
 	cmd.Flags().StringVar(&judgeModel, "judge-model", "", "model override for prompt graders")
 	cmd.Flags().StringVarP(&outputPath, "output", "o", "", "write full EvaluationOutcome JSON to file (grading results merged with the original task outcomes)")
 	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "verbose output")
@@ -124,6 +125,16 @@ func runGradeWithEvidence(ctx context.Context, w, errW io.Writer, specPath, task
 		cachedByTask[to.TestID] = to.Cached
 	}
 
+	for _, tc := range allTasks {
+		for _, run := range runsByTask[tc.TestID] {
+			if run.Evidence != nil {
+				if err := evidence.Bind(run.Evidence, outcome.RunID, tc.TestID, run.RunNumber, run.Attempts, cachedByTask[tc.TestID]); err != nil {
+					return fmt.Errorf("grading task %q run %d original evidence: %w", tc.TestID, run.RunNumber, err)
+				}
+			}
+		}
+	}
+
 	effectiveJudgeModel := judgeModel
 	if effectiveJudgeModel == "" {
 		effectiveJudgeModel = spec.Config.JudgeModel
@@ -158,9 +169,6 @@ func runGradeWithEvidence(ctx context.Context, w, errW io.Writer, specPath, task
 		if evidenceSnapshot != "" {
 			if len(runs) != 1 || runs[0].Evidence == nil {
 				return fmt.Errorf("preserved-state grading requires exactly one run with assessed evidence")
-			}
-			if err := evidence.Bind(runs[0].Evidence, outcome.RunID, tc.TestID, runs[0].RunNumber, runs[0].Attempts, cachedByTask[tc.TestID]); err != nil {
-				return err
 			}
 			snap, err := snapshot.LoadSnapshotFile(evidenceSnapshot)
 			if err != nil {

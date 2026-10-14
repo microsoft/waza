@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -46,6 +47,9 @@ func Seal(manifest *models.EvidenceManifest) error {
 		return errors.New("evidence: manifest is required")
 	}
 	manifest.Version = Version
+	if manifest.Artifacts == nil {
+		manifest.Artifacts = []models.EvidenceArtifact{}
+	}
 	digest, err := manifestDigest(manifest)
 	if err != nil {
 		return err
@@ -57,6 +61,9 @@ func Seal(manifest *models.EvidenceManifest) error {
 func Validate(manifest *models.EvidenceManifest) error {
 	if manifest == nil || manifest.Version != Version || manifest.HasUnknownFields() {
 		return errors.New("evidence: unsupported or absent manifest version")
+	}
+	if manifest.Artifacts == nil {
+		return errors.New("evidence: artifacts must be an array")
 	}
 	digest, err := manifestDigest(manifest)
 	if err != nil {
@@ -163,6 +170,22 @@ func Bind(manifest *models.EvidenceManifest, evalID, taskID string, runNumber, a
 		origin.AttemptCount != 0 && origin.AttemptCount != attempts ||
 		!cached && origin.EvalID != "" && origin.EvalID != evalID {
 		return errors.New("evidence: attribution does not match the selected result")
+	}
+	return nil
+}
+
+func ValidateExplanations(manifest *models.EvidenceManifest, taskID string, explanations []models.RequirementExplanation) error {
+	for _, explanation := range explanations {
+		if explanation.TaskID != "" && explanation.TaskID != taskID {
+			return errors.New("evidence: requirement observation belongs to a different task")
+		}
+		for _, check := range explanation.Checks {
+			for _, reference := range check.References {
+				if _, err := Resolve(manifest, reference); err != nil {
+					return fmt.Errorf("evidence: requirement reference: %w", err)
+				}
+			}
+		}
 	}
 	return nil
 }
