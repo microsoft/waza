@@ -28,7 +28,7 @@ Or browse the [GitHub Releases](https://github.com/microsoft/waza/releases) page
 
 ### Install from Source
 
-Requires Go 1.26+:
+Requires Go 1.26+, Make, Node.js, and npm. The source build generates the dashboard assets before embedding them in the binary.
 
 Note: due to the use of LFS artifacts you cannot install waza using `go install`. To install waza outside of a normal release, clone the repository:
 
@@ -40,7 +40,7 @@ cd waza
 git lfs install
 git lfs pull
 
-go build -o waza ./cmd/waza
+make build
 ./waza <waza command line>
 ```
 

@@ -46,12 +46,14 @@ waza --version
 </TabItem>
 
 <TabItem label="From Source">
+Requires Go 1.26+, Git LFS, Make, Node.js, and npm. `make build` generates the dashboard assets before embedding them in the binary.
+
 ```bash
 git clone https://github.com/microsoft/waza.git
 cd waza
 git lfs install
 git lfs pull
-go build -o waza ./cmd/waza
+make build
 ./waza --version
 ```
 </TabItem>
