@@ -28,15 +28,20 @@ export default function RunInspector({
       run.tasks.find((task) => task.outcome === "failed")?.id ??
       run.tasks[0]?.id,
   );
+  const [resolvedTasks, setResolvedTasks] = useState<LabRun["tasks"]>();
   const [tab, setTab] = useState<"graders" | "trajectory" | "configuration">(
     "graders",
   );
-  const requestedTaskId = taskId ?? initialTask;
   const task =
-    run.tasks.find((task) => task.id === requestedTaskId) ??
+    run.tasks.find((task) => task.id === taskId) ??
     run.tasks.find((task) => task.outcome === "failed") ??
     run.tasks[0];
   const activeTaskId = task?.id;
+  // Persist a fallback only once full evidence, including an empty task set, exists.
+  if ((demo || run.api !== undefined) && resolvedTasks !== run.tasks) {
+    setResolvedTasks(run.tasks);
+    if (taskId !== activeTaskId) setTaskId(activeTaskId);
+  }
 
   useEffect(() => {
     const element = dialog.current;

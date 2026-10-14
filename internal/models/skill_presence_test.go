@@ -87,3 +87,26 @@ func TestEvaluationOutcomeFreshSkillWriterCompatibility(t *testing.T) {
 	legacy.SkillTested = "newly-recorded"
 	require.True(t, legacy.HasSkillTested(), "public string assignments remain supported")
 }
+
+func TestEvaluationOutcomeShallowCopyPreservesRecordedPresence(t *testing.T) {
+	for _, field := range []string{"", `,"skill":null`, `,"skill":""`, `,"skill":"recorded-skill"`} {
+		t.Run(field, func(t *testing.T) {
+			original, err := ParseEvaluationOutcome([]byte(`{"eval_id":"original","baseline_outcome":{"skill":""}`+field+`}`), "copy.json")
+			require.NoError(t, err)
+			copied := original.ShallowCopy()
+			require.NotSame(t, original, copied)
+			require.Equal(t, original, copied)
+			require.Equal(t, original.HasSkillTested(), copied.HasSkillTested())
+			copied.RunID = "copy"
+			require.Equal(t, "original", original.RunID)
+			encoded, err := json.Marshal(copied)
+			require.NoError(t, err)
+			restored, err := ParseEvaluationOutcome(encoded, "copied.json")
+			require.NoError(t, err)
+			require.Equal(t, copied, restored)
+			require.True(t, restored.BaselineOutcome.HasSkillTested())
+		})
+	}
+	fresh := EvaluationOutcome{}
+	require.True(t, fresh.ShallowCopy().HasSkillTested(), "fresh writer blanks remain recorded")
+}

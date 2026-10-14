@@ -49,6 +49,9 @@ artifacts or unrelated inspectors. Remote archives still refresh only on demand.
 The inspector retains a selected task while it still exists; if a refresh removes
 it, both the selector and evidence use the first remaining failed task, or the
 first remaining task when none failed. Empty task sets have no task selection.
+That resolved fallback becomes the selection: reintroducing a removed task does
+not switch back to it unless you explicitly select it. Initial summary-only
+loading does not reset a requested task.
 This refresh also applies when storage is enabled with the local/default backend.
 An incomplete or invalid rewrite of a previously loaded artifact reports a
 refresh error and retains the prior snapshot. Intentional file deletion is
@@ -109,6 +112,8 @@ Saved-result decoding, storage, and the summary/detail API preserve an explicitl
 recorded `"skill": ""` as a blank string. An absent or `null` skill is unavailable
 and omitted from the API, not inferred from the eval name. Rewriting a decoded
 artifact retains that distinction, including historical nested baselines.
+`waza grade --output` also preserves recorded skill presence and original run
+provenance while updating grading fields and the result writer version.
 
 The sidebar reports the same refresh policy as the results status: local
 archives refresh every 15 seconds, while remote archives refresh on demand.

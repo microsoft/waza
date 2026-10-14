@@ -331,16 +331,11 @@ func RegradeOutcome(original *models.EvaluationOutcome, gradedOutcomes []models.
 		runsPerTest = 1
 	}
 
-	return &models.EvaluationOutcome{
-		SchemaVersion: models.CurrentResultSchemaVersion,
-		RunID:         original.RunID,
-		SkillTested:   original.SkillTested,
-		BenchName:     original.BenchName,
-		Timestamp:     original.Timestamp,
-		Setup:         setup,
-		Digest:        BuildDigest(gradedOutcomes, original.Digest.DurationMs, runsPerTest),
-		Measures:      make(map[string]models.MeasureResult),
-		TestOutcomes:  gradedOutcomes,
-		Metadata:      original.Metadata,
-	}
+	result := original.ShallowCopy()
+	result.SchemaVersion = models.CurrentResultSchemaVersion
+	result.Setup = setup
+	result.Digest = BuildDigest(gradedOutcomes, original.Digest.DurationMs, runsPerTest)
+	result.Measures = make(map[string]models.MeasureResult)
+	result.TestOutcomes = gradedOutcomes
+	return result
 }

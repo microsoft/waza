@@ -219,7 +219,7 @@ test.describe("Real dashboard lab", () => {
       } else {
         if (trigger === "focus") await page.clock.setSystemTime(new Date("2030-01-01T00:00:00Z"));
         await page.evaluate((trigger) => {
-          if (trigger === "focus") document.dispatchEvent(new Event("visibilitychange"));
+          if (trigger === "focus") document.dispatchEvent(new Event("visibilitychange", { bubbles: true }));
           else {
             window.dispatchEvent(new Event("offline"));
             window.dispatchEvent(new Event("online"));
@@ -286,7 +286,7 @@ test.describe("Real dashboard lab", () => {
     const before = requests;
     await page.clock.fastForward(60_000);
     await page.evaluate(() => {
-      document.dispatchEvent(new Event("visibilitychange"));
+      document.dispatchEvent(new Event("visibilitychange", { bubbles: true }));
       window.dispatchEvent(new Event("offline"));
       window.dispatchEvent(new Event("online"));
     });
@@ -508,6 +508,83 @@ test.describe("Real dashboard lab", () => {
     });
   }
 
+  for (const fallback of ["failed", "first"] as const) {
+    test(`mounted inspector persists the ${fallback} fallback when a removed task returns and after empty reload`, async ({ page }) => {
+      const summary = { ...savedRuns[0]!, source: "local" };
+      const recorded = (id: string, outcome: string, score: number) => ({
+        ...generationDetail(summary, id, score).tasks[0]!, id, name: id, outcome,
+      });
+      const first = recorded("remaining-first", "pass", 0.4);
+      const second = recorded("remaining-second", fallback === "failed" ? "fail" : "pass", 0.2);
+      const selected = recorded("selected-task", "pass", 0.8);
+      const expected = fallback === "failed" ? second : first;
+      let current: RunDetail = { ...detail(summary), weightedScore: undefined, tasks: [], taskCount: 0, passCount: 0 };
+      const replaceTasks = (tasks: RunDetail["tasks"]) => {
+        const passCount = tasks.filter((task) => task.outcome === "pass").length;
+        current = { ...current, tasks, taskCount: tasks.length, passCount, outcome: passCount === tasks.length ? "pass" : "fail" };
+      };
+      replaceTasks([first, selected, second]);
+      let release!: () => void;
+      const ready = new Promise<void>((resolve) => { release = resolve; });
+      await mockResults(page, [summary]);
+      await page.route("**/api/v1/lab/runs", (route) => route.fulfill({ json: [current] }));
+      await page.route("**/api/runs/run-001", async (route) => {
+        await ready;
+        await route.fulfill({ json: current });
+      });
+      try {
+        await page.goto("/#/lab/history");
+        await page.getByRole("button", { name: "custom-skill", exact: true }).click();
+        const dialog = page.getByRole("dialog");
+        await expect(dialog.getByText("Loading task evidence...", { exact: true })).toBeVisible();
+        release();
+        const select = dialog.getByRole("combobox", { name: "Task", exact: true });
+        await expect(select).toHaveValue(`id:${expected.id}`);
+        await select.selectOption("id:selected-task");
+        await expect(dialog.getByText("selected-task run-001 grader", { exact: true })).toBeVisible();
+        const mounted = await dialog.elementHandle();
+        if (!mounted) throw new Error("Inspector did not mount");
+        const refresh = async () => {
+          const button = page.getByRole("button", { name: "Refresh results", exact: true, includeHidden: true });
+          await expect(button).toBeEnabled();
+          await button.evaluate((element: HTMLButtonElement) => element.click());
+        };
+        replaceTasks([first, second]);
+        await refresh();
+        await expect(select).toHaveValue(`id:${expected.id}`);
+        await expect(dialog.getByText(`${expected.id} run-001 grader`, { exact: true })).toBeVisible();
+        replaceTasks([selected, first, second]);
+        await refresh();
+        await expect(select.locator('option[value="id:selected-task"]')).toHaveCount(1);
+        await expect(select).toHaveValue(`id:${expected.id}`);
+        await expect(select.locator("option:checked")).toContainText(expected.name);
+        await expect(dialog.getByText(`${expected.id} run-001 grader`, { exact: true })).toBeVisible();
+        await select.selectOption("id:selected-task");
+        await expect(dialog.getByText("selected-task run-001 grader", { exact: true })).toBeVisible();
+        replaceTasks([first, second, selected]);
+        await refresh();
+        await expect(select.locator("option").last()).toHaveAttribute("value", "id:selected-task");
+        await expect(select).toHaveValue("id:selected-task");
+        replaceTasks([]);
+        await refresh();
+        await expect(select).toHaveValue("");
+        await expect(select).toBeDisabled();
+        await expect(select.locator("option")).toHaveCount(0);
+        replaceTasks([first, second, selected]);
+        await refresh();
+        await expect(select.locator("option")).toHaveCount(3);
+        await expect(select).toHaveValue(`id:${expected.id}`);
+        await expect(dialog.getByText(`${expected.id} run-001 grader`, { exact: true })).toBeVisible();
+        expect(current.id).toBe(summary.id);
+        expect(current.timestamp).toBe(summary.timestamp);
+        expect(await dialog.evaluate((element, original) => element === original, mounted)).toBe(true);
+        await mounted.dispose();
+      } finally {
+        release();
+      }
+    });
+  }
+
   test("summary polling refreshes shared comparison and inspector details once per active run", async ({
     page,
   }) => {
@@ -565,7 +642,7 @@ test.describe("Real dashboard lab", () => {
     expect(initialListings).toBeGreaterThan(0);
     await page.clock.fastForward(60_000);
     await page.evaluate(() => {
-      document.dispatchEvent(new Event("visibilitychange"));
+      document.dispatchEvent(new Event("visibilitychange", { bubbles: true }));
       window.dispatchEvent(new Event("offline"));
       window.dispatchEvent(new Event("online"));
     });

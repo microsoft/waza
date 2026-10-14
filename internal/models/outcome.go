@@ -138,6 +138,12 @@ func (o EvaluationOutcome) HasSkillTested() bool {
 	return o.SkillTested != "" || !o.skillUnavailable
 }
 
+// ShallowCopy preserves recorded field presence and all outcome metadata.
+// Callers must replace shared collections before modifying their contents.
+func (o EvaluationOutcome) ShallowCopy() *EvaluationOutcome {
+	return &o
+}
+
 type OutcomeSetup struct {
 	RunsPerTest          int    `json:"runs_per_test"`
 	ModelID              string `json:"model_id"`
