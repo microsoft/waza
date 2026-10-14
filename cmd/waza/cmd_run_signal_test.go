@@ -38,6 +38,20 @@ func TestRunCommand_CancelsOnSIGTERM(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("SIGTERM is not supported on Windows")
 	}
+	for _, tt := range []struct {
+		name, identity string
+	}{
+		{"legacy", "skill: test-skill\n"},
+		{"scenario", "scenario: inventory\nschemaVersion: \"2.0\"\n"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			runCommandCancelsOnSIGTERM(t, tt.identity)
+		})
+	}
+}
+
+func runCommandCancelsOnSIGTERM(t *testing.T, identity string) {
+	t.Helper()
 	resetRunGlobals()
 
 	dir := t.TempDir()
@@ -53,7 +67,7 @@ inputs:
 	specPath := filepath.Join(dir, "eval.yaml")
 	require.NoError(t, os.WriteFile(specPath, []byte(`
 name: signal-cancel-test
-skill: test-skill
+`+identity+`
 version: "1.0"
 config:
   trials_per_task: 1

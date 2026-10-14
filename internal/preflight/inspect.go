@@ -9,7 +9,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/microsoft/waza/internal/copilotconfig"
 	"github.com/microsoft/waza/internal/dataset"
+	"github.com/microsoft/waza/internal/graders"
 	"github.com/microsoft/waza/internal/mcpmock"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/orchestration"
@@ -17,7 +19,6 @@ import (
 	"github.com/microsoft/waza/internal/schemaloader"
 	"github.com/microsoft/waza/internal/utils"
 	"github.com/microsoft/waza/internal/validation"
-	"github.com/santhosh-tekuri/jsonschema/v6"
 )
 
 type Options struct {
@@ -42,9 +43,10 @@ func Inspect(evalPath string, opts Options) *Report {
 	for range validation.ValidateEvalBytes(data) {
 		r.add("eval.schema", Invalid, evalPath, "", "", "Eval configuration does not match the embedded schema.", "Check required fields, types, and configuration against schemas/eval.schema.json.")
 	}
-	spec, err := models.ParseEvalSpecOffline(data, evalPath)
+	spec, err := models.ParseEvalSpecOffline(data, evalPath, graders.ValidateConfig)
 	if err != nil {
 		r.add("eval.configuration", schemaState(err), evalPath, "", "", "Eval could not be decoded or validated offline.", "Check schemaVersion, YAML types, self-contained grader schemas, trials, timeout, and executor-specific settings.")
+		addMixedExternalDiagnostic(r, err, evalPath)
 		r.Complete = false
 		return r
 	}
@@ -117,8 +119,12 @@ func discoverTasks(r *Report, spec *models.EvalSpec, base string) ([]*models.Tes
 			return nil, nil
 		}
 		sources := make([]string, len(tasks))
+		source := spec.TasksFrom
+		if !filepath.IsAbs(source) {
+			source = filepath.Join(base, source)
+		}
 		for i := range sources {
-			sources[i] = filepath.Join(base, spec.TasksFrom)
+			sources[i] = source
 		}
 		return tasks, sources
 	}
@@ -126,8 +132,8 @@ func discoverTasks(r *Report, spec *models.EvalSpec, base string) ([]*models.Tes
 	var sources []string
 	for _, pattern := range spec.Tasks {
 		matches, err := filepath.Glob(filepath.Join(base, pattern))
-		if err != nil || len(matches) == 0 {
-			r.add("tasks.pattern", Invalid, r.Source, "", "", "A task pattern is invalid or has no matches.", "Ensure every tasks entry is a valid glob matching readable YAML files.")
+		if err != nil {
+			r.add("tasks.pattern", Invalid, r.Source, "", "", "A task pattern is malformed.", "Use valid glob syntax; at least one task must be discovered across all patterns.")
 			r.Complete = false
 			continue
 		}
@@ -141,9 +147,10 @@ func discoverTasks(r *Report, spec *models.EvalSpec, base string) ([]*models.Tes
 			for range validation.ValidateTaskBytes(data) {
 				r.add("task.schema", Invalid, path, "", "", "Task does not match the embedded schema.", "Check id, name, inputs, grader configuration, and requirement metadata against schemas/task.schema.json.")
 			}
-			task, err := models.ParseTestCaseOffline(data, path)
+			task, err := models.ParseTestCaseOffline(data, path, graders.ValidateConfig)
 			if err != nil {
 				r.add("task.configuration", schemaState(err), path, "", "", "Task could not be decoded or validated offline.", "Check prompt/prompt_file, paths, self-contained grader schemas, checkpoints, responder settings, and mocks.")
+				addMixedExternalDiagnostic(r, err, path)
 				r.Complete = false
 				continue
 			}
@@ -200,16 +207,29 @@ func inspectMCP(r *Report, spec *models.EvalSpec, base string) {
 	for _, mock := range spec.MCPMocks {
 		mocked[strings.TrimSpace(mock.Name)] = true
 		state := Verified
-		if cfg, err := mcpmock.FromEvalConfigOffline(mock, base); err != nil {
-			state = schemaState(err)
+		cfg, err := mcpmock.FromEvalConfigOffline(mock, base)
+		if err != nil {
+			state = r.schemaFailureState(err)
 			r.add("mock.mcp", state, r.Source, "", "", "MCP mock fixtures or matching configuration could not be verified.", "Check fixture files, tool responses, regexes, and self-contained match_schema references.")
-		} else {
+			addMixedExternalDiagnostic(r, err, r.Source)
+		}
+		if cfg != nil {
 			for _, tool := range cfg.Tools {
-				if doc, ok := tool.InputSchema.(map[string]any); ok {
-					if err := compileOfflineSchema(doc, filepath.Join(base, "mock-input-schema.json")); err != nil {
-						state = schemaState(err)
-						r.add("mock.input_schema", state, r.Source, "", "", "Mock tool input schema could not be verified offline.", "Use valid self-contained JSON schemas.")
+				if tool.InputSchema == nil {
+					continue
+				}
+				_, ok := tool.InputSchema.(map[string]any)
+				if !ok {
+					state = Invalid
+					r.add("mock.input_schema", Invalid, r.Source, "", "", "Mock tool input schema is not a JSON object.", "Use an object-valued JSON schema or omit input_schema for the default tool schema.")
+					continue
+				}
+				if err := models.ValidateMCPInputSchemaOffline(tool.InputSchema, filepath.Join(base, "mock-input-schema.json")); err != nil {
+					failure := r.schemaFailureState(err)
+					if state != Invalid {
+						state = failure
 					}
+					r.add("mock.input_schema", failure, r.Source, "", "", "Mock tool input schema could not be verified offline.", "Use valid self-contained JSON schemas.")
 				}
 			}
 		}
@@ -235,13 +255,15 @@ func inspectMCP(r *Report, spec *models.EvalSpec, base string) {
 			serverType, _ := config["type"].(string)
 			switch strings.ToLower(serverType) {
 			case "", "stdio":
+				_, decodeErr := copilotconfig.DecodeMCPStdioServer(config)
 				command, ok := config["command"].(string)
-				if !ok || strings.TrimSpace(command) == "" {
+				if decodeErr != nil || !ok || strings.TrimSpace(command) == "" {
 					state = Invalid
 				}
 			case "http", "sse":
+				_, decodeErr := copilotconfig.DecodeMCPHTTPServer(config)
 				url, ok := config["url"].(string)
-				if !ok || strings.TrimSpace(url) == "" {
+				if decodeErr != nil || !ok || strings.TrimSpace(url) == "" {
 					state = Invalid
 				}
 			default:
@@ -277,6 +299,7 @@ func inspectLockedGraders(r *Report, spec *models.EvalSpec, path string) {
 		if grader.Ref == "" {
 			continue
 		}
+		name := grader.Identifier
 		state := Verified
 		entry, ok := lock.Grader(grader.Ref)
 		if !ok {
@@ -297,20 +320,26 @@ func inspectLockedGraders(r *Report, spec *models.EvalSpec, path string) {
 						state, code = Unresolved, "grader.cache_missing"
 					}
 					r.add(code, state, path, "", "", "Locked grader is unavailable, untrusted, or inconsistent with its local cache.", "Populate the pinned cache explicitly while online; verify the lock digest and trust remote program graders explicitly.")
+					addMixedExternalDiagnostic(r, loadErr, path)
 					r.Complete = false
 				} else {
+					if name == "" {
+						name = preset.Identifier
+					}
 					merged, mergeErr := registry.MergeGraderConfigOffline(preset, grader)
 					if mergeErr != nil {
 						r.Complete = false
 						state = schemaState(mergeErr)
 						r.add("grader.merge", state, path, "", "", "Remote preset and local grader configuration conflict or need unavailable schemas.", "Use compatible type/configuration overrides and self-contained schemas for the locked preset.")
+						addMixedExternalDiagnostic(r, mergeErr, path)
 					} else {
 						spec.Graders[i] = merged
+						name = merged.Identifier
 					}
 				}
 			}
 		}
-		r.Dependencies = append(r.Dependencies, Dependency{Kind: "grader", Name: grader.Identifier, Mode: "locked-cache", State: state})
+		r.Dependencies = append(r.Dependencies, Dependency{Kind: "grader", Name: name, Mode: "locked-cache", State: state})
 	}
 }
 
@@ -318,6 +347,8 @@ func inspectTask(r *Report, task *models.TestCase, spec *models.EvalSpec, source
 	for _, ref := range task.Stimulus.Resources {
 		if !safeWorkspacePath(ref.Location) {
 			r.add("resource.path", Invalid, source, task.TestID, "", "Resource destination is not a bounded relative path.", "Use a workspace-relative path without traversal segments.")
+		} else if ref.Body == "" && strings.Contains(filepath.Clean(ref.Location), "..") {
+			r.add("resource.path", Invalid, source, task.TestID, "", "File-backed resource path contains '..' and is rejected by the runtime loader.", "Rename the file or path segment to remove '..'; inline resource content does not use the file loader.")
 		} else if ref.Body == "" {
 			checkFile(r, filepath.Join(fixtures, ref.Location), source, task.TestID, "resource.file")
 		}
@@ -402,7 +433,7 @@ func inspectTask(r *Report, task *models.TestCase, spec *models.EvalSpec, source
 }
 
 func safeWorkspacePath(path string) bool {
-	if path == "" || filepath.IsAbs(path) || strings.HasPrefix(path, `\`) || strings.Contains(path, ":") {
+	if path == "" || filepath.Clean(path) == "." || filepath.IsAbs(path) || strings.HasPrefix(path, "/") || strings.HasPrefix(path, `\`) || filepath.VolumeName(path) != "" {
 		return false
 	}
 	for _, segment := range strings.FieldsFunc(path, func(r rune) bool { return r == '/' || r == '\\' }) {
@@ -438,9 +469,17 @@ func checkDirectory(r *Report, path, source, task, code string) {
 
 // Keep errors classifiable without exposing arbitrary configuration values.
 func schemaState(err error) State {
-	var loadError *jsonschema.LoadURLError
-	if errors.Is(err, schemaloader.ErrExternalReference) || errors.As(err, &loadError) {
+	invalid, external := schemaloader.ClassifyError(err)
+	if external && !invalid {
 		return Unresolved
 	}
 	return Invalid
+}
+
+func addMixedExternalDiagnostic(r *Report, err error, source string) {
+	invalid, external := schemaloader.ClassifyError(err)
+	if invalid && external {
+		r.add("schema.external_reference", Unresolved, source, "", "", "External schema prerequisites remain unavailable alongside invalid configuration.", "Make grader schemas self-contained before treating the inventory as complete; preflight never loads external schema resources.")
+		r.Complete = false
+	}
 }

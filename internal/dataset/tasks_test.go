@@ -90,6 +90,9 @@ func TestLoadTasksResolvedSymlinkContainment(t *testing.T) {
 	tasks, err := LoadTasks(&models.EvalSpec{TasksFrom: "local.csv"}, alias, time.Unix(0, 0))
 	require.NoError(t, err)
 	require.Equal(t, "local", tasks[0].Stimulus.Message)
+	tasks, err = LoadTasks(&models.EvalSpec{TasksFrom: filepath.Join(dir, "local.csv")}, alias, time.Unix(0, 0))
+	require.ErrorContains(t, err, "escapes spec directory")
+	require.Nil(t, tasks)
 	for _, tc := range []struct {
 		name, target, csv string
 		escape            bool
@@ -135,5 +138,20 @@ func TestLoadTasksErrors(t *testing.T) {
 			_, err := LoadTasks(&models.EvalSpec{TasksFrom: tc.path, Range: tc.bounds}, dir, time.Unix(0, 0))
 			require.ErrorContains(t, err, tc.want)
 		})
+	}
+}
+
+func TestLoadTasksFilesystemRootContainment(t *testing.T) {
+	dir := t.TempDir()
+	writeCSV(t, dir, "data.csv", "prompt\nroot-contained\n")
+	root := filepath.VolumeName(dir) + string(filepath.Separator)
+	path := filepath.Join(dir, "data.csv")
+	relative, err := filepath.Rel(root, path)
+	require.NoError(t, err)
+	for _, input := range []string{path, relative} {
+		tasks, err := LoadTasks(&models.EvalSpec{TasksFrom: input}, root, time.Unix(0, 0))
+		require.NoError(t, err)
+		require.Len(t, tasks, 1)
+		require.Equal(t, "root-contained", tasks[0].Stimulus.Message)
 	}
 }

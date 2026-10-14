@@ -13,19 +13,24 @@ import (
 // redactJSON normalizes typed payloads before redaction without rounding large
 // integers or retaining references to the execution's original data.
 func (p *Policy) redactJSON(value any) (any, error) {
+	output, _, err := p.redactJSONWithChanges(value)
+	return output, err
+}
+
+func (p *Policy) redactJSONWithChanges(value any) (any, bool, error) {
 	if err := checkJSONPayload(reflect.ValueOf(value), 0); err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	data, err := json.Marshal(value)
 	if err != nil {
 		// MarshalJSON errors may contain the original secret-bearing payload.
-		return nil, errors.New("payload cannot be encoded as JSON")
+		return nil, false, errors.New("payload cannot be encoded as JSON")
 	}
 	normalized, err := jsonutil.Parse(data)
 	if err != nil {
-		return nil, errors.New("payload cannot be decoded as JSON")
+		return nil, false, errors.New("payload cannot be decoded as JSON")
 	}
-	return p.redactJSONValue(normalized)
+	return p.redactJSONValueWithChanges(normalized)
 }
 
 func checkJSONPayload(value reflect.Value, depth int) error {
@@ -73,36 +78,42 @@ func checkJSONPayload(value reflect.Value, depth int) error {
 	return nil
 }
 
-func (p *Policy) redactJSONValue(value any) (any, error) {
+func (p *Policy) redactJSONValueWithChanges(value any) (any, bool, error) {
+	changed := false
 	switch value := value.(type) {
 	case map[string]any:
 		for key, item := range value {
 			if p.RedactString(key) != key {
-				return nil, errors.New("object key requires redaction; cannot preserve its identity safely")
+				return nil, false, errors.New("object key requires redaction; cannot preserve its identity safely")
 			}
 			if p.IsSensitiveKey(key) {
+				text, ok := item.(string)
+				changed = changed || !ok || text != RedactionPlaceholder
 				value[key] = RedactionPlaceholder
 				p.recordSensitiveMatch()
 				continue
 			}
-			redacted, err := p.redactJSONValue(item)
+			redacted, itemChanged, err := p.redactJSONValueWithChanges(item)
 			if err != nil {
-				return nil, err
+				return nil, false, err
 			}
+			changed = changed || itemChanged
 			value[key] = redacted
 		}
 	case []any:
 		for i, item := range value {
-			redacted, err := p.redactJSONValue(item)
+			redacted, itemChanged, err := p.redactJSONValueWithChanges(item)
 			if err != nil {
-				return nil, err
+				return nil, false, err
 			}
+			changed = changed || itemChanged
 			value[i] = redacted
 		}
 	case string:
-		return p.RedactString(value), nil
+		redacted := p.RedactString(value)
+		return redacted, redacted != value, nil
 	}
-	return value, nil
+	return value, changed, nil
 }
 
 func (p *Policy) recordSensitiveMatch() {
@@ -120,20 +131,20 @@ func (p *Policy) checkIdentity(value, field string) error {
 	return nil
 }
 
-func redactTyped[T any](value T, policy *Policy) (T, error) {
+func redactTypedWithChanges[T any](value T, policy *Policy) (T, bool, error) {
 	var output T
-	normalized, err := policy.redactJSON(value)
+	normalized, changed, err := policy.redactJSONWithChanges(value)
 	if err != nil {
-		return output, err
+		return output, false, err
 	}
 	data, err := json.Marshal(normalized)
 	if err != nil {
-		return output, errors.New("normalized payload cannot be encoded")
+		return output, false, errors.New("normalized payload cannot be encoded")
 	}
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.UseNumber()
 	if err := decoder.Decode(&output); err != nil {
-		return output, errors.New("redacted payload no longer matches its required shape")
+		return output, false, errors.New("redacted payload no longer matches its required shape")
 	}
-	return output, nil
+	return output, changed, nil
 }

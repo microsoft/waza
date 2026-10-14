@@ -54,6 +54,14 @@ without executing Go or an agent (POSIX hosts with Make installed).
 configuration, results, snapshot, lock shape and dashboard API fixture.
 Treat these as fixed inputs. Change an expectation only with an explicit
 reviewed behavioral decision, not to make a failing test green.
+The user-directed 2026-10-12 scenario admission correction is an explicit
+exception: native YAML/JSON readers reject present null/non-string/blank
+`scenario` fields, including previously accepted versionless/`1.x` nulls and
+scalar coercions. A present identity requires a nonblank string and exact eval
+`schemaVersion: "2.0"`. Remove the field to retain legacy behavior, or supply that
+identity/version pair. Truly absent scenario fields and task/result defaults are
+unchanged. `TestClassifyEvalSpecDeclaredScenarioSchemaParity` compares native
+classify/parse/load/offline admission with the published schema for both formats.
 Remote-lock setup exercises both LF and CRLF eval inputs and asserts that
 the inline grader was replaced before testing lock expansion and tampering.
 
@@ -67,8 +75,11 @@ Task YAML has no independent `schemaVersion` member or version negotiation.
 Its current loader warns and ignores unknown fields while rejecting invalid
 known-field types/constraints. Do not infer a task major-version policy from
 the eval/result policy. Eval/result versionless inputs default to the current
-v1 version; explicit same-major versions load, cross-major versions require
-migration. Snapshot versioning is independent of result versioning.
+v1 reader version (`1.4`); explicit same-major versions load, cross-major versions
+require migration. New evaluations and regrades independently write result
+version `1.5`; reading/re-saving historical inputs keeps their declared version
+and never invents reliability fields. Snapshot versioning is independent of
+result versioning.
 
 Run the full corpus twice, without Go test caching:
 
@@ -87,11 +98,14 @@ snapshot and the result's eval/task/run identities, events, output and
 verdicts; it proves changed tool arguments diverge. No identity fields are
 stripped from those assertions.
 
-The CLI process test compares each full raw JSON artifact against the independent
-`cmd/waza/testdata/compatibility-run-1.4.json` oracle, verified by executing
+The frozen `cmd/waza/testdata/compatibility-run-1.4.json` oracle was verified by executing
 the CLI built from an isolated `git archive` of baseline `04e7b4c6` against
-the fixed eval/task inputs. Historical corpus files are not
-rewritten. A separate two-run comparison still checks repeatability.
+the fixed eval/task inputs. The current CLI process test compares each full raw
+JSON artifact against `compatibility-run-1.5.json`: a separate expected writer
+artifact differing only in the explicitly advanced result version. A regression
+asserts that this is the only difference; neither schema versions nor reliability
+fields are added to the normalization allowlist. Historical corpus files and the
+original `1.4` oracle are not rewritten. A separate two-run comparison still checks repeatability.
 Mutation tests prove prompt, checkpoint, configuration, billing, score, output
 and removed-field, null/empty, omitted/zero and cardinality drift cannot be
 normalized away. Its volatile allowlist is `eval_id`, `timestamp`,

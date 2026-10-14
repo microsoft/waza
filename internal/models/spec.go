@@ -460,7 +460,7 @@ func loadEvalSpec(path string, offline bool) (*EvalSpec, error) {
 	if err != nil {
 		return nil, err
 	}
-	return parseEvalSpec(data, path, offline)
+	return parseEvalSpec(data, path, offline, nil)
 }
 
 // ClassifyEvalSpec checks the canonical eval version and scenario header without
@@ -501,15 +501,16 @@ func ClassifyEvalSpec(data []byte, path string) (string, string, error) {
 // ParseEvalSpec retains the runtime loader behavior of LoadEvalSpec.
 // Offline consumers must guard resource-bearing parameters before typed decode.
 func ParseEvalSpec(data []byte, path string) (*EvalSpec, error) {
-	return parseEvalSpec(data, path, false)
+	return parseEvalSpec(data, path, false, nil)
 }
 
-// ParseEvalSpecOffline applies the canonical same-byte resource guard.
-func ParseEvalSpecOffline(data []byte, path string) (*EvalSpec, error) {
-	return parseEvalSpec(data, path, true)
+// ParseEvalSpecOffline examines immutable bytes with offline schema loading.
+// validate checks static configuration when external dependencies block native decode.
+func ParseEvalSpecOffline(data []byte, path string, validate func(string, GraderParameters) error) (*EvalSpec, error) {
+	return parseEvalSpec(data, path, true, validate)
 }
 
-func parseEvalSpec(data []byte, path string, offline bool) (*EvalSpec, error) {
+func parseEvalSpec(data []byte, path string, offline bool, validate func(string, GraderParameters) error) (*EvalSpec, error) {
 	data = bytes.Clone(data)
 	version, scenario, err := ClassifyEvalSpec(data, path)
 	if err != nil {
@@ -521,7 +522,7 @@ func parseEvalSpec(data []byte, path string, offline bool) (*EvalSpec, error) {
 	}
 
 	if offline {
-		if err := guardOfflineModelSchemas(data, false); err != nil {
+		if err := guardOfflineModelSchemas(data, false, validate); err != nil {
 			return nil, fmt.Errorf("eval schema dependencies: %w", err)
 		}
 	}
@@ -559,8 +560,8 @@ func (s *EvalSpec) Validate() error {
 		if s.SchemaVersion != ScenarioSchemaVersion {
 			return fmt.Errorf("scenario requires explicit schemaVersion %s", ScenarioSchemaVersion)
 		}
-		if strings.TrimSpace(s.SkillName) == "" && len(s.Config.SkillPaths) == 0 && len(s.Config.RequiredSkills) > 0 {
-			return fmt.Errorf("scenario required_skills requires explicit skill_directories")
+		if strings.TrimSpace(s.SkillName) == "" && len(s.Config.FilteredSkillPaths()) == 0 && len(s.Config.RequiredSkills) > 0 {
+			return fmt.Errorf("scenario required_skills requires explicit skill_directories with an enabled path")
 		}
 	}
 	if !ValidReasoningEffort(s.Config.ReasoningEffort) {
@@ -637,7 +638,7 @@ func (s *EvalSpec) Validate() error {
 func (s *EvalSpec) SkillsDisabledForTask(taskPaths []string) bool {
 	return s.Config.AllSkillsDisabled() ||
 		(s.Scenario != "" && taskPaths != nil && len(taskPaths) == 0) ||
-		(s.Scenario != "" && s.SkillName == "" && len(s.Config.SkillPaths) == 0 && len(taskPaths) == 0)
+		(s.Scenario != "" && strings.TrimSpace(s.SkillName) == "" && len(s.Config.FilteredSkillPaths()) == 0 && len(taskPaths) == 0)
 }
 
 func validateGraderReasoningEffort(name string, parameters GraderParameters, executor string) error {

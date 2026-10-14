@@ -12,6 +12,14 @@ A complete walkthrough for creating, testing, and validating AI agent skills.
 
 ## Two Workflows: Project vs Standalone
 
+For a workflow without a target skill, use `waza new eval inventory --scenario`
+then `waza run evals/inventory/eval.yaml`. This runs a real Copilot SDK agent
+against sanitized repository fixtures and requires normal runtime/authentication.
+Scenario evals explicitly select exact schema `2.0`; tasks/results remain
+`1.x`. See [scenario examples](../examples/scenarios/README.md) for CLI/MCP
+templates, optional skill/custom-agent context, and offline harness limitations.
+The project/standalone skill workflows below remain unchanged.
+
 Waza supports two skill development workflows:
 
 | Workflow | Best For | Structure |

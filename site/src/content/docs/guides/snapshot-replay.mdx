@@ -35,6 +35,13 @@ Each newly generated `snapshot.json` uses independent schema `1.1`:
 
 Source hashes do not include the corresponding source bytes. Evidence metadata does not certify collector completeness, external state, enforcement or secrets absence.
 
+For newly captured evidence, each artifact's `redacted` flag describes changes
+to that artifact's own captured content, not the snapshot-wide match count.
+Changed validations also mark their enclosing result; an environment or selected
+workspace-file change does not mark an unchanged prompt or invocation tape.
+No-op replacements can increase aggregate matches without changing an artifact.
+Previously recorded flags are preserved when loading historical snapshots.
+
 Snapshots **do not** contain:
 
 - Raw environment variables outside the allow-list (default-deny)

@@ -28,7 +28,11 @@ func LoadTasks(spec *models.EvalSpec, baseDir string, now time.Time) ([]*models.
 	if err != nil {
 		return nil, fmt.Errorf("resolving CSV path: %w", err)
 	}
-	if !strings.HasPrefix(absCSVPath, absBaseDir+string(filepath.Separator)) {
+	lexicalRelative, err := filepath.Rel(absBaseDir, absCSVPath)
+	if err != nil {
+		return nil, fmt.Errorf("checking CSV path containment: %w", err)
+	}
+	if lexicalRelative == "." || !filepath.IsLocal(lexicalRelative) {
 		return nil, fmt.Errorf("tasks_from path %q escapes spec directory", spec.TasksFrom)
 	}
 	if spec.Range != [2]int{} {

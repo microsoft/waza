@@ -145,6 +145,99 @@ func TestGradeCommand_NoArgs(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestGradeCommandOutputPreservesRawRecordedSkill(t *testing.T) {
+	for _, version := range []string{"", "1.4", "1.5"} {
+		for _, inPlace := range []bool{false, true} {
+			mode := "separate-output"
+			if inPlace {
+				mode = "in-place-output"
+			}
+			for _, tc := range []struct {
+				name, value string
+				present     bool
+				null        bool
+			}{
+				{name: "absent"},
+				{name: "null", null: true},
+				{name: "blank", present: true},
+				{name: "named", value: "recorded-skill", present: true},
+				{name: "authored-unavailable", value: "Unavailable", present: true},
+			} {
+				t.Run(version+"/"+mode+"/"+tc.name, func(t *testing.T) {
+					dir := t.TempDir()
+					spec := gradeSpec(t, dir, minimalSpec)
+					writeTaskFile(t, dir, "task.yaml", taskWithTextGrader)
+					baseline := map[string]any{"schemaVersion": "1.0", "eval_id": "baseline"}
+					if !tc.present {
+						baseline["skill"] = ""
+					}
+					raw := map[string]any{
+						"eval_id": "recorded", "eval_name": "original-eval",
+						"timestamp": "2026-10-14T00:00:00Z",
+						"config":    map[string]any{"model_id": "original-model", "runs_per_test": 1},
+						"summary":   map[string]any{"duration_ms": 42},
+						"tasks": []models.TestOutcome{
+							taskOutcome("task-002", "hello recorded output"),
+							taskOutcome("untouched-task", "original untouched output"),
+						},
+						"metadata":         map[string]any{"marker": "original"},
+						"baseline_outcome": baseline, "is_baseline": true,
+					}
+					if version != "" {
+						raw["schemaVersion"] = version
+					}
+					if tc.null {
+						raw["skill"] = nil
+					} else if tc.present {
+						raw["skill"] = tc.value
+					}
+					input, err := json.Marshal(raw)
+					require.NoError(t, err)
+					inputPath := filepath.Join(dir, "original.json")
+					outputPath := filepath.Join(dir, "graded.json")
+					require.NoError(t, os.WriteFile(inputPath, input, 0o600))
+					if inPlace {
+						outputPath = inputPath
+					}
+					_, err = executeGrade(t, spec, "--task", "task-002", "--results", inputPath, "--output", outputPath, "--workspace", dir)
+					require.NoError(t, err)
+					data, err := os.ReadFile(outputPath)
+					require.NoError(t, err)
+					var fields map[string]json.RawMessage
+					require.NoError(t, json.Unmarshal(data, &fields))
+					require.Equal(t, tc.present, fields["skill"] != nil)
+					if tc.present {
+						var value string
+						require.NoError(t, json.Unmarshal(fields["skill"], &value))
+						require.Equal(t, tc.value, value)
+					}
+					outcome, err := models.ParseEvaluationOutcome(data, outputPath)
+					require.NoError(t, err)
+					require.Equal(t, tc.present, outcome.HasSkillTested())
+					require.Equal(t, "1.5", outcome.SchemaVersion)
+					require.Equal(t, "recorded", outcome.RunID)
+					require.Equal(t, "original-eval", outcome.BenchName)
+					require.Equal(t, "original-model", outcome.Setup.ModelID)
+					require.Equal(t, "original", outcome.Metadata["marker"])
+					require.True(t, outcome.IsBaseline)
+					require.NotNil(t, outcome.BaselineOutcome)
+					require.Equal(t, "1.0", outcome.BaselineOutcome.SchemaVersion)
+					require.Equal(t, !tc.present, outcome.BaselineOutcome.HasSkillTested())
+					require.Len(t, outcome.TestOutcomes, 2)
+					require.NotEmpty(t, outcome.TestOutcomes[0].Runs[0].Validations)
+					require.Equal(t, "original untouched output", outcome.TestOutcomes[1].Runs[0].FinalOutput)
+					require.Empty(t, outcome.TestOutcomes[1].Runs[0].Validations)
+					if !inPlace {
+						unchanged, err := os.ReadFile(inputPath)
+						require.NoError(t, err)
+						require.Equal(t, input, unchanged)
+					}
+				})
+			}
+		}
+	}
+}
+
 func TestGradeCommand_MissingResults(t *testing.T) {
 	dir := t.TempDir()
 	specPath := gradeSpec(t, dir, minimalSpec)

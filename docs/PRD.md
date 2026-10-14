@@ -59,6 +59,20 @@ platform process-pipe guarantees and resumed SDK attempt ownership are not
 registered. The [private fault harness guide](../site/src/content/docs/guides/private-fault-fixtures.mdx)
 documents the executable test coverage and these limits.
 
+### Dashboard workspace exploration (2026-10-06)
+
+`waza serve --lab` opens the opt-in `/#/lab` evaluation workspace without replacing
+the current dashboard. It connects saved-result overview metrics, artifact-derived
+activity replay, searchable history, stable-task baseline comparisons, recorded
+evidence inspection, reports, and an observed skill/eval catalog. Local artifact
+refresh and explicit missing-data states are core requirements. An isolated
+synthetic UX demo remains at `/#/lab/demo`; API errors never substitute fixtures.
+
+This is not a production execution or hosting feature. Authentication, run
+control, durable history, API identity/version compatibility, repetition-level
+statistics, and cloud workers remain future design work. The [dashboard lab guide](../site/src/content/docs/guides/dashboard-lab.mdx)
+records the research, prototype boundaries, and proposed architecture.
+
 ---
 
 ## User Personas
@@ -68,8 +82,13 @@ documents the executable test coverage and these limits.
 - **Goals:** Author scenario suites without an unrelated `SKILL.md`, retaining optional skill/custom-agent context
 - **Scope:** `waza new eval <name> --scenario --template repository|cli|mcp` uses existing graders and real agent execution; mocked dependencies are explicitly harness-only evidence
 - **Compatibility:** Scenario evals opt into exact schema `2.0` so old executables reject changed discovery semantics before execution; legacy evals and task/result artifacts retain their prior formats
-
+- **Admission correction (2026-10-12):** User-directed native YAML/JSON schema parity rejects present null/non-string/blank scenario identities, including earlier versionless/`1.x` null acceptance and scalar coercion. Remove the field for legacy behavior or provide a nonblank string with exact `2.0`; absent fields preserve legacy defaults.
+- **Discovery:** No target or explicit skill directories disables ambient skills on new/resumed SDK sessions; explicit empty task directories disable discovery and `--no-skills` overrides opt-ins
+- **Cache limitation:** Scenario evals bypass result caching with a notice until external workflow dependencies can be fully fingerprinted; legacy cache/default/billing behavior is unchanged
 - **Scaffold parent policy:** Scenario generation rejects selected symlinked output parents, including the scaffold root and nested generated directories, and retains admitted directory handles for exclusive file creation. Relative output uses the retained working directory; absolute output is admitted from the filesystem root with only verified literal macOS `/var` and `/tmp` aliases. This does not add whole-suite rollback, filesystem sandboxing or protection against moving an already admitted directory; legacy scaffold behavior is unchanged.
+- **Repository fixture preservation:** The repository template uses an existing file grader to require the final workspace inventory bytes to equal its generated fixture. Missing or changed content fails independently of a valid report. This checks final state, not transient writes or filesystem isolation; CLI/MCP templates retain their existing checks.
+- **Git checkout policy:** Repository scaffolds emit fixture-local Git attributes preserving inventory LF bytes, with a safe root fallback when custom task globs select local metadata. If neither path is safe, generation fails before writing with a narrower-glob/different-filename migration; legacy and CLI/MCP scaffolds are unchanged. Existing working copies are not retroactively rewritten.
+- **Generated task selection:** All scenario templates reject task globs selecting any generated non-task file before writing. Loadable layouts such as `fixtures/*.yaml` remain supported; `fixtures/*` must be narrowed because it selects `.gitkeep` and repository inventory.
 
 ### Primary: Skill Author
 - **Role:** Developer contributing skills to microsoft/skills
@@ -108,13 +127,29 @@ not real-agent quality or full assurance claims.
 Before an eval starts, `waza preflight` inspects offline schemas, tasks and IDs,
 resource/instruction paths, grader configuration and locked cached modules,
 effective mocks, scoped requirement references, and static executor support.
+Task discovery accepts individually unmatched valid globs when tasks exist;
+CSV containment requires lexical containment and then checks resolved symlinks, including filesystem/volume-root eval
+directories, and range selection preserves original fallback row identities.
+Execution, preflight, regrading, and run analysis must share CSV selection,
+original row IDs/names, template context, and bounded resolved-path admission.
+Aliased eval bases admit lexically contained relative sources, not alternate
+physical absolute spellings outside their lexical root.
+Ranged results must remain addressable by their original task IDs in `grade`.
+Preflight diagnoses file-resource names rejected by the existing runtime loader
+without changing runtime acceptance or inline content handling.
+Contained absolute CSV paths must retain their source identity in task plans and
+diagnostics. Workspace-root destinations must be invalid for resource/instruction
+and file/diff checks, including inline resources, consistent with runtime limits.
+Malformed MCP fields and non-external schema loader
+errors are invalid rather than unresolved availability.
 Inspection must count zero engine/model/live-service/subprocess calls and never
 launch mock services or update checks. Unavailable credentials, external state,
 model/interpreter availability and conditional checkpoint execution remain
 unresolved rather than verified.
 Eager schema decoding must be guarded across eval/task/checkpoint sources,
 cached presets, and merged overrides. External prerequisites remain unresolved
-and prevent complete inventory claims without changing native runtime loaders.
+and prevent complete inventory claims, including later grader schema-file and
+MCP input-schema inspection, without changing native runtime loaders.
 
 Optional task-local requirements categorize outcome, boundary, recovery and
 quality intent using stable IDs and explicit references to current graders.
@@ -170,7 +205,7 @@ Cross-model testing and comprehensive metrics.
 | E3-02 | As a developer, I can see task completion metrics | Pass rate, composite score |
 | E3-03 | As a developer, I can see trigger accuracy metrics | Activation pattern validation |
 | E3-04 | As a developer, I can see behavior quality metrics | Response quality scoring |
-| E3-05 | As a developer, I can run trials for statistical confidence | Multiple runs per task |
+| E3-05 | As a developer, I can run trials for statistical confidence | Multiple runs per task; recorded task/suite Wilson pass-rate intervals and pass^k reliability in result schema 1.5, surfaced consistently in CLI/API/dashboard. Historical absent metrics remain unassessed; paired significance is a separate capability. |
 | E3-06 | As a developer, I can get LLM-powered improvement suggestions | --suggestions flag |
 | E3-07 | As a developer, I can run tasks in parallel | --parallel flag |
 | E3-08 | As a developer, I can filter to specific tasks | --task flag |

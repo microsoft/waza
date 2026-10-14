@@ -30,13 +30,13 @@ graders:
       schema: {$ref: "` + server.URL + `"}
 `
 	eval := "schemaVersion: '2.0'\nscenario: recovery\nname: admission\n" + invalid
-	for _, parse := range []func([]byte, string) (*EvalSpec, error){ParseEvalSpec, ParseEvalSpecOffline} {
+	for _, parse := range []func([]byte, string) (*EvalSpec, error){ParseEvalSpec, parseEvalSourceOffline} {
 		spec, err := parse([]byte(eval), "eval.yaml")
 		require.ErrorContains(t, err, "cannot mix sequence")
 		require.Nil(t, spec)
 	}
 	task := "id: admission\nname: source\ninputs: {prompt: test}\n" + invalid
-	for _, parse := range []func([]byte, string) (*TestCase, error){ParseTestCase, ParseTestCaseOffline} {
+	for _, parse := range []func([]byte, string) (*TestCase, error){ParseTestCase, parseTaskSourceOffline} {
 		tc, err := parse([]byte(task), "task.yaml")
 		require.ErrorContains(t, err, "cannot mix sequence")
 		require.Nil(t, tc)

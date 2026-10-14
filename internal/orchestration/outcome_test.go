@@ -62,6 +62,69 @@ func TestBuildDigest_MixedTasks(t *testing.T) {
 	assert.InDelta(t, 0.5, d.AggregateScore, 0.001)
 }
 
+func trialRuns(passed, total int) []models.RunResult {
+	runs := make([]models.RunResult, total)
+	for i := range runs {
+		runs[i].Status = models.StatusFailed
+		if i < passed {
+			runs[i].Status = models.StatusPassed
+		}
+	}
+	return runs
+}
+
+func TestComputeTestStats_PassRateCI(t *testing.T) {
+	stats := ComputeTestStats(trialRuns(2, 3))
+	require.NotNil(t, stats.PassRateCI)
+	assert.InDelta(t, 2.0/3.0, stats.PassRateCI.Mean, 1e-9)
+	assert.InDelta(t, 0.2077, stats.PassRateCI.Lower, 1e-4)
+	assert.InDelta(t, 0.9385, stats.PassRateCI.Upper, 1e-4)
+
+	assert.Nil(t, ComputeTestStats(trialRuns(1, 1)).PassRateCI, "a single trial has no interval")
+}
+
+func TestComputeTestStats_NoSignificanceOnAbsoluteScores(t *testing.T) {
+	// A CI on a single task's own score says nothing about significance, so it must not be reported.
+	data, err := json.Marshal(ComputeTestStats(trialRuns(3, 3)))
+	require.NoError(t, err)
+	assert.NotContains(t, string(data), "is_significant")
+}
+
+func TestBuildDigest_ReliabilityStatistics(t *testing.T) {
+	outcomes := []models.TestOutcome{
+		{Status: models.StatusPassed, Stats: ComputeTestStats(trialRuns(3, 3))},
+		{Status: models.StatusFailed, Stats: ComputeTestStats(trialRuns(1, 3))},
+	}
+	d := BuildDigest(outcomes, 1000, 3)
+	require.NotNil(t, d.Statistics)
+
+	// pass^k averages C(c,k)/C(n,k) over tasks: (1 + 1/3)/2, (1 + 0)/2, (1 + 0)/2.
+	require.Len(t, d.Statistics.PassHatK, 3)
+	assert.InDelta(t, 2.0/3.0, d.Statistics.PassHatK[0], 1e-9)
+	assert.InDelta(t, 0.5, d.Statistics.PassHatK[1], 1e-9)
+	assert.InDelta(t, 0.5, d.Statistics.PassHatK[2], 1e-9)
+
+	// Success rate interval treats each task as one sample: 1 of 2 tasks passed.
+	require.NotNil(t, d.Statistics.SuccessRateCI)
+	assert.InDelta(t, 0.5, d.Statistics.SuccessRateCI.Mean, 1e-9)
+	assert.InDelta(t, 0.0945, d.Statistics.SuccessRateCI.Lower, 1e-4)
+	assert.InDelta(t, 0.9055, d.Statistics.SuccessRateCI.Upper, 1e-4)
+
+	data, err := json.Marshal(d.Statistics)
+	require.NoError(t, err)
+	assert.NotContains(t, string(data), "is_significant")
+}
+
+func TestBuildDigest_PassHatKStopsAtFewestTrials(t *testing.T) {
+	outcomes := []models.TestOutcome{
+		{Status: models.StatusPassed, Stats: ComputeTestStats(trialRuns(3, 3))},
+		{Status: models.StatusPassed, Stats: ComputeTestStats(trialRuns(2, 2))},
+	}
+	d := BuildDigest(outcomes, 1000, 3)
+	require.NotNil(t, d.Statistics)
+	assert.Equal(t, []float64{1, 1}, d.Statistics.PassHatK)
+}
+
 func TestRegradeOutcome_ComputesStatsAndDigest(t *testing.T) {
 	original := &models.EvaluationOutcome{
 		RunID:       "run-1",
@@ -88,4 +151,33 @@ func TestRegradeOutcome_ComputesStatsAndDigest(t *testing.T) {
 	assert.InDelta(t, 1.0, result.Digest.SuccessRate, 0.001)
 	assert.Equal(t, "judge-model", result.Setup.JudgeModel)
 	assert.Equal(t, "high", result.Setup.JudgeReasoningEffort)
+}
+
+func TestRegradeOutcome_VersionsNewReliabilityWithoutChangingOriginal(t *testing.T) {
+	for _, version := range []string{"1.0", "1.4", "1.5", "1.99"} {
+		t.Run(version, func(t *testing.T) {
+			original := &models.EvaluationOutcome{
+				SchemaVersion: version,
+				Setup:         models.OutcomeSetup{RunsPerTest: 3},
+			}
+			graded := []models.TestOutcome{
+				{Status: models.StatusPassed, Runs: trialRuns(3, 3)},
+				{Status: models.StatusFailed, Runs: trialRuns(1, 3)},
+			}
+			result := RegradeOutcome(original, graded, "", "")
+			require.Equal(t, "1.5", result.SchemaVersion)
+			require.Equal(t, version, original.SchemaVersion)
+			require.Nil(t, original.Digest.Statistics)
+			require.NotNil(t, result.TestOutcomes[0].Stats.PassRateCI)
+			require.NotNil(t, result.Digest.Statistics)
+			require.NotNil(t, result.Digest.Statistics.SuccessRateCI)
+			require.Len(t, result.Digest.Statistics.PassHatK, 3)
+			data, err := json.Marshal(result)
+			require.NoError(t, err)
+			require.Contains(t, string(data), `"schemaVersion":"1.5"`)
+			require.Contains(t, string(data), `"pass_rate_ci":`)
+			require.Contains(t, string(data), `"success_rate_ci":`)
+			require.Contains(t, string(data), `"pass_hat_k":`)
+		})
+	}
 }

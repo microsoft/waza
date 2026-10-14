@@ -149,11 +149,13 @@ func (abs *AzureBlobStore) Upload(ctx context.Context, outcome *models.Evaluatio
 	}
 
 	metadata := map[string]*string{
-		"skill":     stringPtr(outcome.SkillTested),
 		"model":     stringPtr(outcome.Setup.ModelID),
 		"passrate":  stringPtr(fmt.Sprintf("%.2f", passRate)),
 		"timestamp": stringPtr(outcome.Timestamp.Format(time.RFC3339)),
 		"runid":     stringPtr(outcome.RunID),
+	}
+	if outcome.HasSkillTested() {
+		metadata["skill"] = stringPtr(outcome.SkillTested)
 	}
 
 	_, err = abs.client.UploadBuffer(ctx, abs.containerName, blobPath, data, &azblob.UploadBufferOptions{
@@ -360,7 +362,6 @@ func (abs *AzureBlobStore) blobToResultSummary(blob *container.BlobItem) (Result
 	}
 
 	runID := getMetadata(metadata, "runid")
-	skill := getMetadata(metadata, "skill")
 	model := getMetadata(metadata, "model")
 	passRateStr := getMetadata(metadata, "passrate")
 	timestampStr := getMetadata(metadata, "timestamp")
@@ -384,13 +385,31 @@ func (abs *AzureBlobStore) blobToResultSummary(blob *container.BlobItem) (Result
 		blobPath = *blob.Name
 	}
 
+	// Preserve exact-key precedence, including nil; otherwise choose a stable variant.
+	skillValue, canonicalSkill := metadata["skill"]
+	if !canonicalSkill {
+		matchingKey := ""
+		for key := range metadata {
+			if strings.EqualFold(key, "skill") && (matchingKey == "" || key < matchingKey) {
+				matchingKey = key
+			}
+		}
+		if matchingKey != "" {
+			skillValue = metadata[matchingKey]
+		}
+	}
+	skill := ""
+	if skillValue != nil {
+		skill = *skillValue
+	}
 	return ResultSummary{
-		RunID:     runID,
-		Skill:     skill,
-		Model:     model,
-		Timestamp: timestamp,
-		PassRate:  passRate,
-		BlobPath:  blobPath,
+		skillUnavailable: skillValue == nil,
+		RunID:            runID,
+		Skill:            skill,
+		Model:            model,
+		Timestamp:        timestamp,
+		PassRate:         passRate,
+		BlobPath:         blobPath,
 	}, nil
 }
 
@@ -404,12 +423,13 @@ func (abs *AzureBlobStore) outcomeToResultSummary(o *models.EvaluationOutcome) R
 	blobPath := fmt.Sprintf("%s/%s.json", sanitizePathSegment(o.SkillTested), sanitizePathSegment(o.RunID))
 
 	return ResultSummary{
-		RunID:     o.RunID,
-		Skill:     o.SkillTested,
-		Model:     o.Setup.ModelID,
-		Timestamp: o.Timestamp,
-		PassRate:  passRate,
-		BlobPath:  blobPath,
+		skillUnavailable: !o.HasSkillTested(),
+		RunID:            o.RunID,
+		Skill:            o.SkillTested,
+		Model:            o.Setup.ModelID,
+		Timestamp:        o.Timestamp,
+		PassRate:         passRate,
+		BlobPath:         blobPath,
 	}
 }
 

@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/microsoft/waza/internal/testutil"
+
 	"github.com/santhosh-tekuri/jsonschema/v6"
 	"github.com/stretchr/testify/require"
 )

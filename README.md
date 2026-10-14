@@ -28,7 +28,7 @@ Or browse the [GitHub Releases](https://github.com/microsoft/waza/releases) page
 
 ### Install from Source
 
-Requires Go 1.26+:
+Requires Go 1.26+, Make, Node.js, and npm. The source build generates the dashboard assets before embedding them in the binary.
 
 Note: due to the use of LFS artifacts you cannot install waza using `go install`. To install waza outside of a normal release, clone the repository:
 
@@ -40,7 +40,7 @@ cd waza
 git lfs install
 git lfs pull
 
-go build -o waza ./cmd/waza
+make build
 ./waza <waza command line>
 ```
 
@@ -213,12 +213,22 @@ contact services (including update checks). Credentials and external resulting
 state remain unresolved.
 Eager schema matchers are guarded before decoding; external schema prerequisites
 remain unresolved and leave the affected inventory incomplete.
+This also covers grader schema files and MCP tool input schemas encountered
+during later inspection. CSV containment accepts filesystem/volume-root eval
+directories. File-backed resource paths containing `..` anywhere in a cleaned
+segment are diagnosed as runtime-rejected; inline content retains its existing
+path behavior, except that workspace-root destinations (`.` or paths cleaned to
+`.`) are invalid for resource/instruction and file/diff checks. Contained absolute
+CSV paths retain their actual source in task plans and diagnostics.
 
 `verified` means a static check, **not a satisfied requirement or proven
 enforcement**. Invalid configuration exits 1; unresolved/unsupported prerequisites
 warn and exit 0 unless `--strict` selects exit 1. Existing `run`, `grade`, `check`,
 and `gate` behavior is unchanged. The independently versioned `waza.preflight`
 report is not evaluation results and is excluded from results/dashboard discovery.
+Ref-only eval graders with a missing pinned cache stay unresolved: their effective
+name is supplied by the preset/fallback after expansion. Known explicit duplicate
+names remain invalid. Task/checkpoint graders still require inline declarations.
 
 Optional task `requirements` link stable task-local IDs and
 `outcome|boundary|recovery|quality` categories to existing eval/task/checkpoint
@@ -329,7 +339,11 @@ For a workflow with no target skill, use `waza new eval <name> --scenario`.
 or harness-only mocked MCP examples. These templates explicitly use the real
 `copilot-sdk` executor; setting `config.executor: mock` checks the harness only,
 not agent quality. See [scenario examples](examples/scenarios/README.md).
-
+Scenario task files retain `tasks/` when it matches `files.taskGlob`, including
+wildcard-directory globs; otherwise they use a matching literal directory.
+Incompatible or unsafe configurations fail before writing. The task glob must
+select only generated task files, not evals, fixtures or metadata. For example,
+`fixtures/*.yaml` works, while `fixtures/*` also selects `.gitkeep` and is rejected.
 Scenario scaffolding rejects symlinked parent directories in the selected
 output path, including the scaffold root and generated task/fixture parents.
 Use a physical output path instead. Relative paths start at the retained working
@@ -339,6 +353,22 @@ expected `/private` targets. Writes retain admitted directories and cannot be
 redirected by subsequently replacing their path entries; moving an admitted
 directory can move its outputs. This is not a whole-scaffold transaction or a
 filesystem sandbox.
+The repository template has three existing file graders: report outcome,
+absence of `private.txt`, and byte-exact final preservation of `inventory.txt`.
+The CLI/MCP templates retain two graders. Preservation checks final workspace
+bytes, not transient writes or filesystem isolation.
+Repository scaffolds include a fixture-scoped `.gitattributes` to preserve
+inventory LF bytes through Git checkout; a safe root-level rule is used if the
+task glob selects local metadata. If both locations collide or select an extra
+task, generation fails before writing; narrow the task-directory glob or use a
+different eval filename. Existing suites require regeneration to adopt this
+policy.
+`waza migrate` validates supported scenario evals without rewriting them,
+including custom `.yaml`/`.yml` filenames such as `evals/inventory/suite.yml`.
+Legacy YAML filename rules and JSON-results recognition remain unchanged.
+In YAML and JSON, a present `scenario` key must contain a nonblank string and
+requires exact eval schema `2.0`. Null, booleans, numbers, arrays and objects
+are invalid; omit the key entirely to keep legacy eval semantics.
 
 Creates:
 - `evals/<skill-name>/<files.evalFile>`
@@ -573,7 +603,10 @@ Exit codes: `0` all packs PASSED, `2` unsafe outcome with policy=fail (matches `
 
 ### `waza migrate <file>`
 
-Check a public schema artifact and migrate it to the current schema version when a future major schema requires it. The current schema is `1.4`, so v1 `eval.yaml` and `results.json` files are compatible and no file changes are made.
+Check a public schema artifact and migrate it when a future major schema requires it. Legacy input and reader defaults remain `1.4`, while new result writers independently emit `1.5`. Compatible v1 `eval.yaml` and `results.json` files are not rewritten.
+Compatibility reports use the current version for the artifact type: legacy eval
+`1.4` or result writer `1.5`. Unversioned/`1.4` results explicitly distinguish
+their legacy reader default from the current writer version without upgrading them.
 
 ```bash
 waza migrate eval.yaml
@@ -906,10 +939,21 @@ Start the waza dashboard server to visualize evaluation results. The HTTP server
 
 Optionally, run a JSON-RPC 2.0 server (for IDE integration) instead of the HTTP dashboard using the `--tcp` flag.
 
+JSON-RPC `eval.list` and MCP `waza_eval_list` recursively list canonical
+`eval.yaml`/`eval.yml` files plus native-loadable scenario `.yaml`/`.yml` files,
+including configured/custom filenames. Scenario eligibility uses classification
+and native loading, not full authoring-schema or task validation.
+Custom task, unrelated, legacy or classification/loading-invalid YAML
+remains unlisted; use `eval.get`/`eval.validate` for diagnostics. Existing
+canonical invalid-file fallback behavior is unchanged. Choose the directory
+to inspect; traversal is not a filesystem sandbox. HTTP dashboard result
+listing is unchanged.
+
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--port <port>` | `3000` | HTTP server port |
 | `--no-browser` | `false` | Don't auto-open the browser |
+| `--lab` | `false` | Open the experimental real-results dashboard; keep the classic dashboard at `/#/` |
 | `--results-dir <dir>` | `.` | Directory to scan for result files |
 | `--tcp <addr>` | (off) | TCP address for JSON-RPC (e.g., `:9000`); defaults to loopback for security |
 | `--tcp-allow-remote` | `false` | Allow TCP binding to non-loopback addresses (⚠️ no authentication) |
@@ -944,6 +988,24 @@ The dashboard displays evaluation results with:
 - Score distributions across trials
 - Model comparisons
 - Aggregated metrics and trends
+
+**Dashboard lab (experimental):**
+```bash
+waza serve --lab --results-dir ./results
+# Opens http://localhost:3000/#/lab; classic dashboard stays at http://localhost:3000/#/
+```
+The lab uses saved Waza results for linked charts, searchable history, stable-task
+comparisons, recorded evidence, and JSON/CSV/print reports. Local results refresh
+every 15 seconds or on demand; nonempty remote archives refresh on demand rather
+than being downloaded repeatedly. Current runs shows **saved-result event replay**,
+not live worker discovery or execution controls. Readiness, coverage, and revision
+metadata absent from the API remain explicitly unavailable. `--lab` cannot be
+combined with `--tcp`. An isolated synthetic UX demo remains at `/#/lab/demo`;
+API failures never substitute mock results. Cloud authentication, hosting, and
+execution are not implemented. See the [dashboard lab guide](site/src/content/docs/guides/dashboard-lab.mdx).
+Refreshes update mounted evidence after same-ID regrading and preserve cached
+results on failure. Missing/null weighted scores are unavailable, not zero.
+Singleton suites keep the candidate picker; closed streams require manual reconnect.
 
 **AI Credit usage:**
 
@@ -1257,14 +1319,47 @@ tasks:
 
 # Optional: Generate tasks from CSV dataset
 # tasks_from: ./test-cases.csv
-# range: [1, 10]  # Only include rows 1-10 (0-indexed, skips header)
+# range: [1, 10]  # Include 1-based data rows 1-10 (header excluded)
 ```
 
 Pin `reasoning_effort` and `judge_reasoning_effort` to `low`, `medium`, `high`, `xhigh`, or `max` when benchmarking model-and-effort combinations. Both settings require `executor: copilot-sdk`. Omit either setting to preserve the Copilot SDK/model default. A `prompt` grader can override the judge default with `graders[].config.reasoning_effort`, including task/checkpoint graders and graders with `continue_session: true`, which resume the task session with the overridden or default judge effort. Agent effort remains eval-level, not per-task.
 
 With explicit effort, choose a concrete model from `waza models`. Waza checks the runtime's supported-effort metadata before creating or resuming hosted Copilot sessions; unknown models, unavailable metadata, and unsupported efforts produce actionable errors instead of silently using a different effort. Custom-provider efforts are forwarded directly because the hosted catalog does not describe those models. Result setup metadata and cache keys include both eval-level effort settings; regrading replaces the judge effort, including clearing a previously pinned value when omitted.
 
-`schemaVersion` uses `MAJOR.MINOR` format. Missing values are interpreted as the current schema version (currently `1.4`). Readers allow same-major minor additions with warnings for unknown fields, but reject different majors with a hint to run `waza migrate <file>`.
+`schemaVersion` uses `MAJOR.MINOR` format. Missing versions in legacy eval/result inputs continue to default to `1.4`; task YAML has no independent version field. New evaluations and regrades emit results `1.5`, separately from their input version. Readers preserve historical declared versions and do not invent absent reliability metadata. Legacy readers allow same-major minor additions with warnings for unknown fields, but reject different majors with a hint to run `waza migrate <file>`.
+
+Scenario-bearing **evals only** explicitly select `schemaVersion: "2.0"` and
+`scenario: <workflow-name>`. Only this exact scenario version is supported;
+older executables reject it before running. Results and tasks remain `1.x`,
+so existing result readers and the dashboard keep working. Optional `skill:`
+retains existing skill/custom-agent context and discovery precedence. Without
+a target or explicit skill directories, scenarios disable ambient skill loading.
+Disabling the last eval-level directory also leaves target-free discovery disabled.
+Whitespace-only optional `skill` values do not opt into workspace-default or
+ambient discovery. Scenario `required_skills` checks search enabled directories
+only; disabled paths, `["*"]` or `none` cannot satisfy a required skill.
+An explicit empty task `skill_directories: []` disables discovery for that task;
+`--no-skills` overrides every task. Legacy suites keep their existing defaults.
+Native YAML/JSON parsing checks whether `scenario` is present: null, non-string
+values and blank strings are rejected. This intentionally corrects earlier
+versionless/`1.x` null acceptance and numeric/boolean coercion. Remove the field
+for legacy behavior, or provide a nonblank string with exact `2.0` for a scenario;
+truly absent scenario fields retain legacy defaults.
+Legacy JSON-schema authoring requires `skill` when `scenario` is absent.
+The historical native loader/model validation used by `waza run` is not full
+JSON-schema validation: legacy default/`1.0`-`1.4` data can still load without
+a target and retain existing discovery behavior. That compatibility is not
+a recommended authoring workflow; use a named legacy target or scenario `2.0`.
+Schema `skill` uses a length-only constraint, so whitespace passes that check
+but is not a meaningful target. JSON-RPC `eval.validate` reports schema errors;
+separate preflight checks are not a universal runtime target-enforcement gate.
+Scenario `2.0` requires a nonblank `scenario` and may omit `skill`.
+Scenario `2.0` bypasses result caching with an explicit notice because external
+workflow dependencies are not fully fingerprinted; legacy caching is unchanged.
+Scenario readers reject unknown eval/config fields rather than accepting
+future-minor additions. `inputs.context.fixture` resolves relative to the eval
+directory; `inputs.files` and `instruction_files` resolve from the fixtures/context
+root, and file grader output paths are relative to the task workspace.
 
 Scenario-bearing **evals only** explicitly select `schemaVersion: "2.0"` and
 `scenario: <workflow-name>`. Only this exact scenario version is supported;
@@ -1279,7 +1374,9 @@ workflow dependencies are not fully fingerprinted; legacy caching is unchanged.
 
 Remote grader refs use Go-module-style paths: `<host>/<owner>/<repo>[/path][#export]@<version>`. The remote module must provide a `waza.registry.yaml` manifest and export a grader preset. Config-only grader presets expand to built-in grader types by default; remote program graders require explicit trust with `waza registry add --allow-exec` or interactive confirmation. Run `waza get eval.yaml` after manually adding or changing refs so `waza.lock` records the resolved commit and digest.
 
-`results.json` is currently emitted at `schemaVersion` `1.4`. Version `1.1` added per-turn checkpoints (`runs[].checkpoints[]`, see #358) and the normalized `runs[].tool_events[]` array (`turn`, `sequence`, `tool_call_id`, `tool_name`, `args`, `result`, `success`, `error`, `duration_ms`; see #366). Version `1.2` added `runs[].snapshot_path` for `waza run --snapshot` artifacts (#367) and the eval-level `adversarial:` block consumed by `waza adversarial --spec` (#365). Version `1.3` adds `session_digest.tool_policy_mode` and `tool_policy_denials` (#585). Version `1.4` adds sanitized `runs[].command_invocations` for declarative CLI mocks (#634). See [docs/PRD](docs/PRD.md) and [schema-changes](site/src/content/docs/reference/schema-changes.md) for details.
+`results.json` is currently emitted at `schemaVersion` `1.5`. Version `1.1` added per-turn checkpoints (`runs[].checkpoints[]`, see #358) and the normalized `runs[].tool_events[]` array (`turn`, `sequence`, `tool_call_id`, `tool_name`, `args`, `result`, `success`, `error`, `duration_ms`; see #366). Version `1.2` added `runs[].snapshot_path` for `waza run --snapshot` artifacts (#367) and the eval-level `adversarial:` block consumed by `waza adversarial --spec` (#365). Version `1.3` adds `session_digest.tool_policy_mode` and `tool_policy_denials` (#585). Version `1.4` adds sanitized `runs[].command_invocations` for declarative CLI mocks (#634). Version `1.5` adds `tasks[].stats.pass_rate_ci` and `summary.statistics.success_rate_ci` and `pass_hat_k`, and stops writing `is_significant`. See [docs/PRD](docs/PRD.md) and [schema-changes](site/src/content/docs/reference/schema-changes.md) for details.
+
+The dashboard displays these recorded Wilson intervals and pass^k estimates separately from bootstrap weighted-score intervals, with available trial counts. Missing historical statistics show **Not assessed**; readers never infer them from scores or successful outcomes. None of these intervals is a significance test between runs.
 
 For custom `.agent.md` targets, `copilot-sdk` enforces the selected agent's `tools:` declaration on initial and resumed turns: omitted means unrestricted, `[]` denies all tools, and a populated list allows only named tools. Runtime enforcement and the implicit `tool_constraint` grader share built-in aliases such as `fileRead`/`readFile`/`view`. Denials fail the run and appear in results, `--session-log` run events, and the dashboard trajectory digest. This is a tool boundary, not host filesystem or network sandboxing. See [custom agent policies](site/src/content/docs/guides/custom-agents.mdx) for MCP names, task overrides, and limitations.
 
@@ -1416,7 +1513,9 @@ Relative fixture paths are resolved from the eval spec directory. Directory fixt
 
 ### Skill Body Injection
 
-By default, an eval with `skill: <name>` injects the target `SKILL.md` or `.agent.md` body into the agent system prompt. For trigger-precision evals, disable that body injection while preserving the skill association and SDK skill discovery:
+By default, an eval with `skill: <name>` injects the target `SKILL.md` or `.agent.md` body into the agent system prompt. The injected `<skill_context>` block starts with `Base directory for this skill: <absolute path>`, so relative links in the body (for example `scripts/install.sh` or `assets/templates/`) resolve from the skill's own directory even though the agent runs in a temp workspace. This matters for a skill with `disable-model-invocation: true`, which the agent cannot load through the `skill` tool.
+
+For trigger-precision evals, disable that body injection while preserving the skill association and SDK skill discovery:
 
 ```yaml
 skill: xyz
@@ -1444,7 +1543,7 @@ Generate tasks dynamically from a CSV file using `tasks_from`:
 ```yaml
 # eval.yaml
 tasks_from: ./test-cases.csv
-range: [0, 50]  # Optional: limit to rows 0-50 (skip header at 0)
+range: [1, 50]  # Optional: include 1-based data rows 1-50 (header excluded)
 ```
 
 **CSV Format:**
@@ -1459,6 +1558,16 @@ prompt,expected_output,language
 - **Each subsequent row** becomes a task
 - **Column values** are available as `{{.Vars.column_name}}`
 - **Range filtering** (optional) allows limiting to a subset of rows
+
+CSV loading is shared by `run`, `preflight`, `grade`, and run analysis.
+Fallback IDs and names retain the original 1-based data row number: `range: [2, 2]`
+selects `row-2`, including when regrading with `--task row-2`. Explicit `id` and
+`name` columns retain their precedence. Relative or absolute CSV paths must be
+lexically within the eval directory and remain inside after symlinks resolve.
+Contained links and relative sources under an aliased eval directory are allowed;
+an alternate physical absolute spelling outside the lexical alias root is rejected.
+This is a bounded path check, not a universal physical-equivalence, retained-root,
+or race-free guarantee.
 
 **Example task prompt using CSV variables:**
 
@@ -1476,7 +1585,7 @@ tasks:
   - "tasks/*.yaml"        # Explicit tasks
 
 tasks_from: ./test-cases.csv    # CSV-generated tasks
-range: [0, 20]                  # Only first 20 rows
+range: [1, 20]                  # Only first 20 data rows
 ```
 
 **CSV vs Inputs:**

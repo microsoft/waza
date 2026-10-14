@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/microsoft/waza/internal/models"
 	"github.com/stretchr/testify/require"
 )
 
@@ -41,6 +42,41 @@ func TestInspectRepositorySourceRetainsRuntimeCwdBase(t *testing.T) {
 	require.True(t, hasDiagnostic(Inspect(path, Options{}), "repository.source", Invalid))
 }
 
+func TestInspectContextDirectoryResolutionAndTaskPrecedence(t *testing.T) {
+	for _, mode := range []string{"default eval fixtures", "CLI relative to cwd", "task overrides CLI"} {
+		t.Run(mode, func(t *testing.T) {
+			task := strings.ReplaceAll(validTask, "  prompt:",
+				"  files: [{path: record.json}]\n  prompt:")
+			if mode == "task overrides CLI" {
+				task += "\ncontext_dir: task-context\n"
+			}
+			path, dir := writeSuite(t, validEval, task)
+			cwd := t.TempDir()
+			t.Chdir(cwd)
+			opts := Options{}
+			expected := filepath.Join(dir, "fixtures")
+			if mode != "default eval fixtures" {
+				opts.ContextDir = "cli-context"
+				expected = filepath.Join(cwd, opts.ContextDir)
+			}
+			if mode == "task overrides CLI" {
+				expected = filepath.Join(cwd, "task-context")
+			}
+			require.NoError(t, os.Mkdir(expected, 0700))
+			fixture := filepath.Join(expected, "record.json")
+			require.NoError(t, os.WriteFile(fixture, []byte("{}"), 0600))
+			r := Inspect(path, opts)
+			require.False(t, r.Failed(true), "%+v", r.Diagnostics)
+			require.Len(t, r.Tasks, 1)
+			require.Equal(t, expected, r.Tasks[0].ContextDir)
+			require.NoError(t, os.Remove(fixture))
+			r = Inspect(path, opts)
+			require.True(t, hasDiagnostic(r, "resource.file", Invalid), "%+v", r.Diagnostics)
+			require.True(t, r.Failed(false))
+		})
+	}
+}
+
 func TestInspectRequiredSkillsUseEvalDeclarationDiscovery(t *testing.T) {
 	for _, tc := range []struct {
 		name, config, definition string
@@ -57,6 +93,7 @@ func TestInspectRequiredSkillsUseEvalDeclarationDiscovery(t *testing.T) {
 			if tc.definition != "" {
 				require.NoError(t, os.WriteFile(filepath.Join(dir, "skills", "SKILL.md"), []byte(tc.definition), 0600))
 			}
+
 			r := Inspect(path, Options{})
 			require.Equal(t, tc.wantInvalid, hasDiagnostic(r, "skill.required", Invalid), "%+v", r.Diagnostics)
 			require.Equal(t, tc.wantInvalid, r.Failed(false), "%+v", r.Diagnostics)
@@ -70,6 +107,100 @@ func TestInspectSnapshotUsesRuntimeContainment(t *testing.T) {
 	require.NoError(t, os.Mkdir("snapshots", 0700))
 	require.NoError(t, os.WriteFile("outside.json", []byte("{}"), 0600))
 	require.True(t, hasDiagnostic(Inspect(path, Options{}), "grader.snapshot", Invalid))
+}
+
+func TestInspectFileResourceRuntimePathParity(t *testing.T) {
+	for _, tc := range []struct {
+		name, path, content string
+		invalid             bool
+	}{
+		{"ordinary file", "record.json", "", false},
+		{"double dot filename", "record..json", "", true},
+		{"double dot directory", "records..archive/record.json", "", true},
+		{"parent segment remains rejected", "unused/../record.json", "", true},
+		{"inline double dot filename", "record..json", "{}", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			declaration := "  files: [{path: '" + tc.path + "'"
+			if tc.content != "" {
+				declaration += ", content: '" + tc.content + "'"
+			}
+			declaration += "}]\n  prompt:"
+			path, dir := writeSuite(t, validEval, strings.ReplaceAll(validTask, "  prompt:", declaration))
+			fixture := filepath.Join(dir, "fixtures", filepath.Clean(tc.path))
+			require.NoError(t, os.MkdirAll(filepath.Dir(fixture), 0700))
+			require.NoError(t, os.WriteFile(fixture, []byte("{}"), 0600))
+			report := Inspect(path, Options{})
+			require.Equal(t, tc.invalid, hasDiagnostic(report, "resource.path", Invalid), "%+v", report.Diagnostics)
+			require.Equal(t, tc.invalid, report.Failed(false), "%+v", report.Diagnostics)
+		})
+	}
+}
+
+func TestInspectRejectsCleanedWorkspaceRoot(t *testing.T) {
+	for _, location := range []string{".", "./", "././"} {
+		t.Run(location, func(t *testing.T) {
+			require.False(t, safeWorkspacePath(location))
+			task := strings.ReplaceAll(validTask, "  prompt:", "  files: [{path: '"+location+"', content: '{}'}]\n  prompt:")
+			path, _ := writeSuite(t, validEval, task)
+			report := Inspect(path, Options{})
+			require.True(t, hasDiagnostic(report, "resource.path", Invalid))
+			require.True(t, report.Failed(false))
+			gradersReport := &Report{Complete: true}
+			inspectGraders(gradersReport, []models.GraderConfig{
+				{Identifier: "file-root", Kind: models.GraderKindFile, Parameters: models.FileGraderParameters{MustExist: []string{location}}},
+				{Identifier: "diff-root", Kind: models.GraderKindDiff, Parameters: models.DiffGraderParameters{ExpectedFiles: []models.DiffExpectedFileParameters{{Path: location, Contains: []string{"+{}"}}}}},
+			}, path, "task", "")
+			require.True(t, hasDiagnostic(gradersReport, "grader.file_path", Invalid))
+			require.True(t, hasDiagnostic(gradersReport, "grader.diff_path", Invalid))
+		})
+	}
+	for _, location := range []string{"record.json", "./record.json", "records..archive/record.json"} {
+		require.True(t, safeWorkspacePath(location))
+	}
+}
+
+func TestSafeWorkspacePathUsesHostVolumeRules(t *testing.T) {
+	for _, path := range []string{
+		"reports/run:1.json",
+		"record:version.json",
+		"C:record.json",
+		"C:/reports/record.json",
+		`C:\reports\record.json`,
+	} {
+		t.Run(path, func(t *testing.T) {
+			require.Equal(t, filepath.VolumeName(path) == "", safeWorkspacePath(path))
+		})
+	}
+	for _, path := range []string{"../run:1.json", `reports\..\run:1.json`, "/run:1.json", "/record.json", "//server/share/record.json", `\run:1.json`} {
+		t.Run(path, func(t *testing.T) {
+			require.False(t, safeWorkspacePath(path))
+		})
+	}
+}
+
+func TestInspectHostNativeResourceInstructionAndGraderPaths(t *testing.T) {
+	location := "reports/run:1.json"
+	if runtime.GOOS == "windows" {
+		// The filesystem fixture uses a portable name; drive rules are tested above.
+		location = "reports/run.json"
+	}
+	task := strings.ReplaceAll(validTask, "  prompt:", "  files: [{path: '"+location+"'}]\n  prompt:")
+	task += "\ninstruction_files: ['" + location + "']\n"
+	path, dir := writeSuite(t, validEval, task)
+	fixtures := filepath.Join(dir, "fixtures")
+	file := filepath.Join(fixtures, filepath.FromSlash(location))
+	require.NoError(t, os.MkdirAll(filepath.Dir(file), 0700))
+	require.NoError(t, os.WriteFile(file, []byte("{}"), 0600))
+	report := Inspect(path, Options{})
+	require.False(t, report.Failed(true), "%+v", report.Diagnostics)
+
+	gradersReport := &Report{Complete: true}
+	inspectGraders(gradersReport, []models.GraderConfig{
+		{Identifier: "file-native", Kind: models.GraderKindFile, Parameters: models.FileGraderParameters{MustExist: []string{location}}},
+		{Identifier: "diff-native", Kind: models.GraderKindDiff, Parameters: models.DiffGraderParameters{ExpectedFiles: []models.DiffExpectedFileParameters{{Path: location, Contains: []string{"+{}"}}}}},
+	}, path, "task", fixtures)
+	require.False(t, gradersReport.Failed(true), "%+v", gradersReport.Diagnostics)
 }
 
 func TestInspectExactScenarioVersionAndNoAmbientDiscovery(t *testing.T) {
