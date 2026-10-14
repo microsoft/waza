@@ -40,6 +40,9 @@ Successful summary refreshes also refresh mounted inspector and comparison
 evidence, even when regrading keeps the run ID and timestamp unchanged. Failed
 refreshes retain previously loaded summaries and evidence; a failed local reload
 does not discard the classic dashboard's cached artifacts.
+The inspector retains a selected task while it still exists; if a refresh removes
+it, both the selector and evidence use the first remaining failed task, or the
+first remaining task when none failed. Empty task sets have no task selection.
 This refresh also applies when storage is enabled with the local/default backend.
 An incomplete or invalid rewrite of a previously loaded artifact reports a
 refresh error and retains the prior snapshot. Intentional file deletion is

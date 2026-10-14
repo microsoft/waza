@@ -29,12 +29,12 @@ export default function RunInspector({
   const [tab, setTab] = useState<"graders" | "trajectory" | "configuration">(
     "graders",
   );
-  const activeTaskId =
-    taskId ??
-    initialTask ??
-    run.tasks.find((task) => task.outcome === "failed")?.id ??
-    run.tasks[0]?.id;
-  const task = run.tasks.find((task) => task.id === activeTaskId);
+  const requestedTaskId = taskId ?? initialTask;
+  const task =
+    run.tasks.find((task) => task.id === requestedTaskId) ??
+    run.tasks.find((task) => task.outcome === "failed") ??
+    run.tasks[0];
+  const activeTaskId = task?.id;
 
   useEffect(() => {
     const element = dialog.current;
@@ -136,7 +136,7 @@ export default function RunInspector({
           <label className="lab-field">
             Task
             <select
-              value={activeTaskId}
+              value={activeTaskId ?? ""}
               disabled={run.tasks.length === 0}
               onChange={(event) => setTaskId(event.target.value)}
             >

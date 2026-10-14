@@ -187,6 +187,105 @@ test.describe("Real dashboard lab", () => {
     await expect(page.getByText("+10.0 pp", { exact: true })).toHaveCount(2);
   });
 
+  for (const fallback of ["failed", "first"] as const) {
+    test(`mounted inspector retains valid tasks and resolves a removed task to the ${fallback} fallback on manual refresh`, async ({
+      page,
+    }) => {
+      const base = detail(savedRuns[0]!);
+      const template = base.tasks[0]!;
+      const recordedTask = (id: string, name: string, outcome: string) => ({
+        ...template,
+        id,
+        name,
+        outcome,
+        prompt: `Inspect ${id}-artifact.txt`,
+        graderResults: [{
+          name: `${id}-artifact`,
+          type: "file",
+          passed: outcome === "pass",
+          score: outcome === "pass" ? 1 : 0,
+          weight: 1,
+          message: `Verified ${id}-artifact.txt`,
+        }],
+        transcript: [
+          { type: "ToolExecutionStart", toolCallId: `${id}-call`, toolName: "read_file", arguments: { path: `${id}-artifact.txt` } },
+          { type: "ToolExecutionComplete", toolCallId: `${id}-call`, toolResult: `Recorded ${id}-artifact contents`, success: true },
+          { type: "Error", message: `${id} recorded trajectory` },
+        ],
+      });
+      const selected = recordedTask("selected-task", "Selected task", "pass");
+      const first = recordedTask("remaining-first", "Remaining first task", "pass");
+      const second = recordedTask("remaining-second", "Remaining second task", fallback === "failed" ? "fail" : "pass");
+      let current: RunDetail = {
+        ...base, weightedScore: undefined, tasks: [first, selected], taskCount: 2, passCount: 2,
+      };
+      await mockResults(page, [current], [current]);
+      await page.route("**/api/v1/lab/runs", (route) => route.fulfill({ json: [current] }));
+      await page.route("**/api/runs/run-001", (route) => route.fulfill({ json: current }));
+      await page.goto("/#/lab/history");
+      await page.getByRole("button", { name: "custom-skill", exact: true }).click();
+      const dialog = page.getByRole("dialog");
+      const select = dialog.getByRole("combobox", { name: "Task", exact: true });
+      await select.selectOption("id:selected-task");
+      await expect(dialog.getByText("Verified selected-task-artifact.txt", { exact: true })).toBeVisible();
+      const mounted = await dialog.elementHandle();
+      if (!mounted) throw new Error("Inspector did not mount");
+      const refresh = async () => {
+        const button = page.getByRole("button", { name: "Refresh results", exact: true, includeHidden: true });
+        await expect(button).toBeEnabled();
+        // The modal makes the archive button inert to pointer clicks; invoke its real refresh action.
+        await button.evaluate((element: HTMLButtonElement) => element.click());
+      };
+      current = {
+        ...current,
+        tasks: [second, {
+          ...selected,
+          graderResults: [{
+            ...selected.graderResults[0]!,
+            message: "Refreshed selected-task-artifact.txt",
+          }],
+        }, first],
+        taskCount: 3,
+        passCount: fallback === "failed" ? 2 : 3,
+        outcome: fallback === "failed" ? "fail" : "pass",
+      };
+      await refresh();
+      await expect(dialog.getByText("Refreshed selected-task-artifact.txt", { exact: true })).toBeVisible();
+      await expect(select).toHaveValue("id:selected-task");
+      current = {
+        ...current,
+        tasks: [first, second],
+        taskCount: 2,
+        passCount: fallback === "failed" ? 1 : 2,
+      };
+      await refresh();
+      const expected = fallback === "failed" ? second : first;
+      await expect(select).toHaveValue(`id:${expected.id}`);
+      await expect(select.locator("option:checked")).toContainText(expected.name);
+      await expect(dialog.getByText(`Verified ${expected.id}-artifact.txt`, { exact: true })).toBeVisible();
+      await expect(dialog.getByText("Refreshed selected-task-artifact.txt", { exact: true })).toHaveCount(0);
+      expect(current.id).toBe(base.id);
+      expect(current.timestamp).toBe(base.timestamp);
+      expect(await dialog.evaluate((element, original) => element === original, mounted)).toBe(true);
+      await mounted.dispose();
+      await dialog.getByRole("tab", { name: "Trajectory", exact: true }).click();
+      await dialog.getByRole("button", { name: "Events", exact: true }).click();
+      await expect(dialog.getByText(`${expected.id} recorded trajectory`, { exact: true })).toBeVisible();
+      await dialog.getByRole("tab", { name: "Configuration", exact: true }).click();
+      expect(JSON.parse(await dialog.locator("pre").innerText()).prompt).toBe(expected.prompt);
+      current = { ...current, tasks: [], taskCount: 0, passCount: 0, outcome: "pass" };
+      await refresh();
+      await expect(select).toBeDisabled();
+      await expect(select).toHaveValue("");
+      await expect(select.locator("option")).toHaveCount(0);
+      await expect(dialog.getByText("No recorded tasks in this result.", { exact: true })).toBeVisible();
+      const configuration = JSON.parse(await dialog.locator("pre").innerText());
+      expect(Object.hasOwn(configuration, "prompt")).toBe(false);
+      await dialog.getByRole("tab", { name: "Grader evidence", exact: true }).click();
+      await expect(dialog.locator(".lab-grader")).toHaveCount(0);
+    });
+  }
+
   test("summary polling refreshes shared comparison and inspector details once per active run", async ({
     page,
   }) => {
