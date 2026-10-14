@@ -207,22 +207,24 @@ func inspectMCP(r *Report, spec *models.EvalSpec, base string) {
 	for _, mock := range spec.MCPMocks {
 		mocked[strings.TrimSpace(mock.Name)] = true
 		state := Verified
-		if cfg, err := mcpmock.FromEvalConfigOffline(mock, base); err != nil {
+		cfg, err := mcpmock.FromEvalConfigOffline(mock, base)
+		if err != nil {
 			state = r.schemaFailureState(err)
 			r.add("mock.mcp", state, r.Source, "", "", "MCP mock fixtures or matching configuration could not be verified.", "Check fixture files, tool responses, regexes, and self-contained match_schema references.")
 			addMixedExternalDiagnostic(r, err, r.Source)
-		} else {
+		}
+		if cfg != nil {
 			for _, tool := range cfg.Tools {
 				if tool.InputSchema == nil {
 					continue
 				}
-				doc, ok := tool.InputSchema.(map[string]any)
+				_, ok := tool.InputSchema.(map[string]any)
 				if !ok {
 					state = Invalid
 					r.add("mock.input_schema", Invalid, r.Source, "", "", "Mock tool input schema is not a JSON object.", "Use an object-valued JSON schema or omit input_schema for the default tool schema.")
 					continue
 				}
-				if err := compileOfflineSchema(doc, filepath.Join(base, "mock-input-schema.json")); err != nil {
+				if err := models.ValidateMCPInputSchemaOffline(tool.InputSchema, filepath.Join(base, "mock-input-schema.json")); err != nil {
 					failure := r.schemaFailureState(err)
 					if state != Invalid {
 						state = failure
@@ -297,6 +299,7 @@ func inspectLockedGraders(r *Report, spec *models.EvalSpec, path string) {
 		if grader.Ref == "" {
 			continue
 		}
+		name := grader.Identifier
 		state := Verified
 		entry, ok := lock.Grader(grader.Ref)
 		if !ok {
@@ -320,6 +323,9 @@ func inspectLockedGraders(r *Report, spec *models.EvalSpec, path string) {
 					addMixedExternalDiagnostic(r, loadErr, path)
 					r.Complete = false
 				} else {
+					if name == "" {
+						name = preset.Identifier
+					}
 					merged, mergeErr := registry.MergeGraderConfigOffline(preset, grader)
 					if mergeErr != nil {
 						r.Complete = false
@@ -328,11 +334,12 @@ func inspectLockedGraders(r *Report, spec *models.EvalSpec, path string) {
 						addMixedExternalDiagnostic(r, mergeErr, path)
 					} else {
 						spec.Graders[i] = merged
+						name = merged.Identifier
 					}
 				}
 			}
 		}
-		r.Dependencies = append(r.Dependencies, Dependency{Kind: "grader", Name: grader.Identifier, Mode: "locked-cache", State: state})
+		r.Dependencies = append(r.Dependencies, Dependency{Kind: "grader", Name: name, Mode: "locked-cache", State: state})
 	}
 }
 

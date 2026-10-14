@@ -6,6 +6,7 @@ import (
 
 	"github.com/microsoft/waza/internal/graders/argmatcher"
 	"github.com/microsoft/waza/internal/schemaloader"
+	"github.com/santhosh-tekuri/jsonschema/v6"
 	"gopkg.in/yaml.v3"
 )
 
@@ -54,7 +55,13 @@ func guardOfflineModelSchemas(data []byte, task bool, validate func(string, Grad
 		Checkpoints []struct {
 			Graders []yaml.Node `yaml:"graders"`
 		} `yaml:"checkpoints"`
-		MCPMocks []MCPMockConfig `yaml:"mcp_mocks"`
+		MCPMocks []struct {
+			Name  string `yaml:"name"`
+			Tools map[string]struct {
+				InputSchema any               `yaml:"input_schema"`
+				Responses   []MCPMockResponse `yaml:"responses"`
+			} `yaml:"tools"`
+		} `yaml:"mcp_mocks"`
 	}
 	if err := yaml.Unmarshal(data, &document); err != nil {
 		return fmt.Errorf("reading schema declarations: %w", err)
@@ -90,6 +97,15 @@ func guardOfflineModelSchemas(data []byte, task bool, validate func(string, Grad
 		}
 	}
 	_, external := schemaloader.ClassifyError(errors.Join(errs...))
+	if external && !task {
+		for _, mock := range document.MCPMocks {
+			for name, tool := range mock.Tools {
+				if err := ValidateMCPInputSchemaOffline(tool.InputSchema, "mock-input-schema.json"); err != nil {
+					errs = append(errs, fmt.Errorf("mcp mock %q tool %q input schema: %w", mock.Name, name, err))
+				}
+			}
+		}
+	}
 	if external && validate != nil {
 		// Tool declarations retain blocked matchers for offline field validation;
 		// only other safe declarations may enter the eager native decoder.
@@ -100,6 +116,27 @@ func guardOfflineModelSchemas(data []byte, task bool, validate func(string, Grad
 		}
 	}
 	return errors.Join(errs...)
+}
+
+// ValidateMCPInputSchemaOffline validates a supplied tool schema without loading
+// external resources. A nil schema retains the runtime's default tool schema.
+func ValidateMCPInputSchemaOffline(schema any, location string) error {
+	if schema == nil {
+		return nil
+	}
+	doc, ok := schema.(map[string]any)
+	if !ok {
+		return fmt.Errorf("mock tool input schema must be a JSON object")
+	}
+	compiler := jsonschema.NewCompiler()
+	compiler.UseLoader(schemaloader.Offline{})
+	if err := compiler.AddResource(location, doc); err != nil {
+		return fmt.Errorf("adding mock input schema: %w", err)
+	}
+	if _, err := compiler.Compile(location); err != nil {
+		return fmt.Errorf("compiling mock input schema: %w", err)
+	}
+	return nil
 }
 
 func validateOfflineDeclaredGrader(node *yaml.Node, task bool, validate func(string, GraderParameters) error) error {

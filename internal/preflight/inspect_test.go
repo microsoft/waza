@@ -462,18 +462,42 @@ func TestInspectRefOnlyLockedGraderMissingCache(t *testing.T) {
 				require.False(t, report.Failed(false), "%+v", report.Diagnostics)
 				require.True(t, report.Failed(true))
 				require.False(t, report.Complete)
+				require.Equal(t, Dependency{Kind: "grader", Mode: "locked-cache", State: Unresolved}, report.Dependencies[0])
 
 				module := filepath.Join(cache, "github.com", "example", "checks", commit)
 				require.NoError(t, os.MkdirAll(module, 0o700))
-				require.NoError(t, os.WriteFile(filepath.Join(module, "check.yaml"), []byte("name: cached\ntype: text\nconfig: {contains: [ready]}\n"), 0o600))
-				digest, err := registry.DigestDirectory(module)
-				require.NoError(t, err)
-				entry.Digest = digest
-				lock.UpsertGrader(entry)
-				require.NoError(t, models.WriteLockfile(filepath.Join(dir, models.LockfileName), lock))
-				report = Inspect(path, Options{})
-				require.False(t, report.Failed(true), "%+v", report.Diagnostics)
-				require.True(t, report.Complete)
+				for _, identity := range []struct{ preset, alias, want string }{
+					{"cached", "", "cached"},
+					{"", "", "check"},
+					{"cached", "explicit", "explicit"},
+					{"", "explicit", "explicit"},
+				} {
+					t.Run(fmt.Sprintf("preset=%q/alias=%q", identity.preset, identity.alias), func(t *testing.T) {
+						selected := eval
+						if identity.alias != "" {
+							selected = strings.Replace(eval, declaration, "{name: '"+identity.alias+"', ref: '"+ref+"'}", 1)
+						}
+						require.NoError(t, os.WriteFile(path, []byte(selected), 0o600))
+						presetData := "type: text\nconfig: {contains: [ready]}\n"
+						if identity.preset != "" {
+							presetData = "name: " + identity.preset + "\n" + presetData
+						}
+						presetPath := filepath.Join(module, "check.yaml")
+						require.NoError(t, os.WriteFile(presetPath, []byte(presetData), 0o600))
+						digest, err := registry.DigestDirectory(module)
+						require.NoError(t, err)
+						entry.Digest = digest
+						lock.UpsertGrader(entry)
+						require.NoError(t, models.WriteLockfile(filepath.Join(dir, models.LockfileName), lock))
+						report = Inspect(path, Options{})
+						require.False(t, report.Failed(true), "%+v", report.Diagnostics)
+						require.True(t, report.Complete)
+						require.Equal(t, Dependency{Kind: "grader", Name: identity.want, Mode: "locked-cache", State: Verified}, report.Dependencies[0])
+						after, err := os.ReadFile(presetPath)
+						require.NoError(t, err)
+						require.Equal(t, presetData, string(after))
+					})
+				}
 			})
 		}
 	}
@@ -495,5 +519,92 @@ func TestInspectGradersPreservesKnownNameErrors(t *testing.T) {
 			inspectGraders(report, tc.configs, "eval.yaml", "", "")
 			require.True(t, hasDiagnostic(report, "grader.name", Invalid))
 		})
+	}
+}
+
+func TestInspectLockedGraderMergeFailureNames(t *testing.T) {
+	refs, requests := offlineFixtureCacheReferences(t)
+	for _, scenario := range []bool{false, true} {
+		for _, identity := range []struct{ preset, alias, want string }{
+			{"cached", "", "cached"},
+			{"", "", "check"},
+			{"cached", "explicit", "explicit"},
+			{"", "explicit", "explicit"},
+		} {
+			for _, problem := range []string{"invalid", refs[0], refs[1]} {
+				t.Run(fmt.Sprintf("scenario=%t/preset=%q/alias=%q/%s", scenario, identity.preset, identity.alias, problem), func(t *testing.T) {
+					const moduleRef = "github.com/example/checks/check.yaml@v1"
+					override := map[string]any{"ref": moduleRef}
+					if identity.alias != "" {
+						override["name"] = identity.alias
+					}
+					state := Unresolved
+					if problem == "invalid" {
+						state = Invalid
+						override["type"] = "text"
+						override["config"] = map[string]any{"contains": []string{"ready"}}
+					} else {
+						override["config"] = map[string]any{"expect": []any{map[string]any{
+							"tool": "read", "args": map[string]any{"value": map[string]any{
+								"json_schema": map[string]any{"$ref": problem},
+							}},
+						}}}
+					}
+					eval := validEval
+					if scenario {
+						eval = strings.Replace(eval, `schemaVersion: "1.4"`, "schemaVersion: \"2.0\"\nscenario: offline-cache", 1)
+						eval = strings.Replace(eval, "skill: example\n", "", 1)
+					}
+					eval += pipelineYAML(t, map[string]any{"graders": []any{override}})
+					evalPath, dir := writeSuite(t, eval, validTask)
+					cache := t.TempDir()
+					t.Setenv("WAZA_MODULE_CACHE", cache)
+					commit := strings.Repeat("a", 40)
+					module := filepath.Join(cache, "github.com", "example", "checks", commit)
+					require.NoError(t, os.MkdirAll(module, 0o700))
+					preset := map[string]any{"type": "tool_calls", "config": map[string]any{
+						"expect": []any{map[string]any{"tool": "read"}},
+					}}
+					if identity.preset != "" {
+						preset["name"] = identity.preset
+					}
+					presetData := []byte(pipelineYAML(t, preset))
+					presetPath := filepath.Join(module, "check.yaml")
+					require.NoError(t, os.WriteFile(presetPath, presetData, 0o600))
+					digest, err := registry.DigestDirectory(module)
+					require.NoError(t, err)
+					lock := models.NewLockfile()
+					lock.UpsertGrader(models.LockfileGrader{
+						Ref: moduleRef, Commit: commit, Digest: digest, URL: "https://not-contacted.invalid",
+					})
+					lockPath := filepath.Join(dir, models.LockfileName)
+					require.NoError(t, models.WriteLockfile(lockPath, lock))
+					lockData, err := os.ReadFile(lockPath)
+					require.NoError(t, err)
+					report := Inspect(evalPath, Options{})
+					require.True(t, hasDiagnostic(report, "grader.merge", state), "%+v", report.Diagnostics)
+					require.Equal(t, state == Invalid, report.Failed(false), "%+v", report.Diagnostics)
+					require.True(t, report.Failed(true))
+					require.False(t, report.Complete)
+					require.Equal(t, Dependency{Kind: "grader", Name: identity.want, Mode: "locked-cache", State: state}, report.Dependencies[0])
+					spec, err := models.ParseEvalSpecOffline([]byte(eval), evalPath, nil)
+					require.NoError(t, err)
+					authored, err := models.ParseEvalSpecOffline([]byte(eval), evalPath, nil)
+					require.NoError(t, err)
+					inspectLockedGraders(&Report{Complete: true}, spec, evalPath)
+					require.Equal(t, authored.Graders, spec.Graders, "failed merges must not rewrite the authored configuration")
+					after, err := os.ReadFile(evalPath)
+					require.NoError(t, err)
+					require.Equal(t, eval, string(after))
+					after, err = os.ReadFile(presetPath)
+					require.NoError(t, err)
+					require.Equal(t, presetData, after)
+					after, err = os.ReadFile(lockPath)
+					require.NoError(t, err)
+					require.Equal(t, lockData, after)
+					require.Zero(t, requests.Load())
+				})
+			}
+		}
 	}
 }

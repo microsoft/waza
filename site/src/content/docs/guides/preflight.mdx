@@ -172,7 +172,11 @@ scenario discovery does not inspect or inject ambient project skills.
 Scenario-bearing evals require exact explicit `schemaVersion: "2.0"` with a
 nonempty `scenario`. Existing v1 suites retain their version/default/discovery
 semantics. The approved scenario loader determines requested skill discovery:
-no target or explicit directories means no ambient discovery, and task
+an absent, null, empty, or whitespace-only target with no explicit directories
+means no ambient discovery. Nonblank target names and explicit directory values
+retain their original spelling. Explicit null/empty targets still fail the
+embedded eval schema; their parsed discovery intent is not ambient discovery.
+Task
 `skill_directories: []` disables it. The actual SDK discovery control is native
 `EnableSkills=false`, not an empty-directory proxy; preflight records static
 intent without constructing a session. `.agent.md` tools use native
@@ -183,8 +187,12 @@ Command-mock fixtures resolve from the eval directory. Task `command_mocks`
 replaces eval mocks, including explicit `[]`. Same-name MCP mocks replace live
 server declarations. MCP fixture responses and matchers are parsed without
 starting a mock. External schema references are not fetched.
-Fixture `input_schema` must be a JSON object when supplied; strings, numbers,
+Fixture and inline `input_schema` must be a JSON object when supplied; strings, numbers,
 booleans and arrays are invalid. Omitting it retains the default tool schema.
+Input schemas are checked independently of response matchers: an unavailable
+response schema does not hide an invalid input schema. Offline fixture loading
+retains resolved declarations for this inventory even when response validation
+fails; that partial configuration is not executable or verified.
 Live stdio/HTTP/SSE settings also use the runtime's full side-effect-free decoder;
 malformed headers, environment maps or arguments are invalid, not just unresolved
 live availability.
@@ -210,7 +218,11 @@ schema loader failures remain invalid and fail the default preflight policy.
 Every remote grader requires a valid matching `waza.lock`, just as execution
 does. Missing/malformed locks, missing entries, or digest mismatch are invalid.
 A missing pinned cache is unresolved; populate it explicitly with `waza get`
-while online. Cache integrity is not trust or grading success. Local grader
+while online. Cache integrity is not trust or grading success. Locked grader
+dependencies use the effective expanded name: an explicit alias overrides the
+preset name, with the export filename supplying the fallback for unnamed presets.
+An unnamed unresolved reference remains unnamed until its preset is available.
+Local grader
 `schema_file`, rubric, trigger and snapshot paths retain their runtime resolution
 bases; relative schema/rubric paths resolve from cwd, while snapshots use the
 grader's `context_dir` when configured.

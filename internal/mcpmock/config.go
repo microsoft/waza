@@ -42,6 +42,7 @@ func FromEvalConfig(mock models.MCPMockConfig, baseDir string) (*Config, error) 
 
 // FromEvalConfigOffline reads declared local fixtures while refusing external
 // schema resources, including the compiler's default filesystem loader.
+// Response validation errors retain the resolved config for inventory only.
 func FromEvalConfigOffline(mock models.MCPMockConfig, baseDir string) (*Config, error) {
 	return fromEvalConfig(mock, baseDir, schemaloader.Offline{})
 }
@@ -95,7 +96,7 @@ func fromEvalConfig(mock models.MCPMockConfig, baseDir string, loader jsonschema
 		}
 	}
 	if err := errors.Join(errs...); err != nil {
-		return nil, err
+		return cfg, err
 	}
 
 	return cfg, nil
