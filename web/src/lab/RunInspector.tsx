@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Check, ChevronRight, X } from "lucide-react";
-import { duration, percent, shortDate, runScore, type LabRun } from "./data";
+import { duration, percent, shortDate, runScore, skillLabel, type LabRun } from "./data";
 import { useLabDetails } from "./source";
 import { formatAICredits } from "../lib/format";
 import TrajectoryViewer from "../components/TrajectoryViewer";
@@ -78,7 +78,7 @@ export default function RunInspector({
             RUN INSPECTOR ·{" "}
             {demo ? "SYNTHETIC EVIDENCE" : "SAVED RESULT EVIDENCE"}
           </p>
-          <h2 id="lab-inspector-title">{run.skill}</h2>
+          <h2 id="lab-inspector-title">{skillLabel(run.skill)}</h2>
           <p>
             {run.model} · {shortDate(run.date)} · <code>{run.revision}</code>
           </p>
@@ -271,7 +271,7 @@ export default function RunInspector({
                       <div>
                         <strong>User prompt</strong>
                         <p>
-                          Follow the {run.skill} skill to complete:{" "}
+                          Follow the {skillLabel(run.skill)} skill to complete:{" "}
                           {task.name.toLowerCase()}. Verify the result and
                           explain the outcome.
                         </p>
@@ -286,7 +286,9 @@ export default function RunInspector({
                             {
                               tool: "read_file",
                               arguments: {
-                                path: `skills/${run.skill}/SKILL.md`,
+                                path: run.skill
+                                  ? `skills/${run.skill}/SKILL.md`
+                                  : undefined,
                               },
                               success: true,
                             },
@@ -331,9 +333,7 @@ export default function RunInspector({
                   {JSON.stringify(
                     {
                       eval: run.evalId,
-                      skill: demo
-                        ? run.skill
-                        : (run.summary?.skill ?? "Unavailable"),
+                      skill: run.skill,
                       revision: run.revision,
                       model: run.model,
                       judge_model: run.judge,

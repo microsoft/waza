@@ -89,6 +89,13 @@ Eval selection matches the stored eval identity even when skill metadata is
 absent; identical skill and eval names are not interchangeable. **All evals**
 and **Reset filters** clear the eval restriction. The synthetic demo retains
 its existing skill-only filter.
+History search also matches the recorded eval identity, independently of the
+Eval dropdown. Missing or blank skill metadata displays **Unavailable** but
+does not become a skill identity or filter option. An authored skill named
+`Unavailable` remains a real, selectable skill. Inspector configuration and JSON
+reports preserve absent skill fields rather than replacing them with the eval
+name or a presentation label. Observed-suite links scope by their actual eval
+identity, including suites with no recorded skill.
 
 The sidebar reports the same refresh policy as the results status: local
 archives refresh every 15 seconds, while remote archives refresh on demand.

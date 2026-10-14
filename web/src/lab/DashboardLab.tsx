@@ -43,6 +43,7 @@ import {
   referenceDate,
   runScore,
   shortDate,
+  skillLabel,
   skills,
   summarize,
   type Filters,
@@ -194,7 +195,7 @@ function RunsTable({
                     className="lab-run-link"
                     onClick={() => onInspect(run)}
                   >
-                    {run.skill}
+                    {skillLabel(run.skill)}
                     <ChevronRight size={13} />
                   </button>
                   <small>
@@ -722,7 +723,7 @@ function ObservedCatalog({
   onExplore,
 }: {
   items: LabRun[];
-  onExplore: (skill: string) => void;
+  onExplore: (evalId: string) => void;
 }) {
   const suites = [...new Set(items.map((run) => run.evalId))].sort();
   return (
@@ -732,7 +733,7 @@ function ObservedCatalog({
         const first = suiteRuns[0];
         if (!first) return null;
         return (
-          <button key={suite} onClick={() => onExplore(first.skill)}>
+          <button key={suite} onClick={() => onExplore(suite)}>
             <span className="lab-health-icon">
               <Layers3 size={17} />
             </span>
@@ -950,6 +951,7 @@ export default function DashboardLab({ demo = false }: { demo?: boolean }) {
   const availableSkills = demo
     ? skills.map((skill) => ({ id: skill.id, name: skill.name }))
     : [...new Set(allRuns.map((run) => run.skill))]
+        .filter((id): id is SkillId => typeof id === "string" && id !== "")
         .sort()
         .map((id) => ({ id, name: id }));
   const availableEvals = [...new Set(allRuns.map((run) => run.evalId))]
@@ -1447,7 +1449,7 @@ export default function DashboardLab({ demo = false }: { demo?: boolean }) {
                         <div>
                           <strong>{task.name}</strong>
                           <p>
-                            {run.skill} · {run.model}
+                            {skillLabel(run.skill)} · {run.model}
                           </p>
                         </div>
                         <ChevronRight size={16} />
@@ -1463,7 +1465,7 @@ export default function DashboardLab({ demo = false }: { demo?: boolean }) {
                               <X size={12} />
                             </span>
                             <div>
-                              <strong>{run.skill}</strong>
+                              <strong>{skillLabel(run.skill)}</strong>
                               <p>
                                 {run.model} · {run.summary?.passCount}/
                                 {run.summary?.taskCount} passed
@@ -1496,8 +1498,8 @@ export default function DashboardLab({ demo = false }: { demo?: boolean }) {
                     {!demo && (
                       <ObservedCatalog
                         items={filtered}
-                        onExplore={(skill) => {
-                          setFilters({ ...filters, skill });
+                        onExplore={(evalId) => {
+                          setFilters({ ...filters, evalId: evalId || undefined });
                           navigate("catalog");
                         }}
                       />
@@ -1591,7 +1593,7 @@ export default function DashboardLab({ demo = false }: { demo?: boolean }) {
                     <Search size={16} />
                     <input
                       aria-label="Search run history"
-                      placeholder="Search skills, models, revisions, source..."
+                      placeholder="Search skills, evals, models, revisions, source..."
                       value={search}
                       onChange={(event) => setSearch(event.target.value)}
                     />
@@ -1661,7 +1663,7 @@ export default function DashboardLab({ demo = false }: { demo?: boolean }) {
                         )}
                         {baselines.map((run) => (
                           <option key={run.id} value={run.id}>
-                            {run.skill} · {run.model} · {shortDate(run.date)} ·{" "}
+                            {skillLabel(run.skill)} · {run.model} · {shortDate(run.date)} ·{" "}
                             {run.revision}
                           </option>
                         ))}
@@ -1682,7 +1684,7 @@ export default function DashboardLab({ demo = false }: { demo?: boolean }) {
                       >
                         {filtered.map((run) => (
                           <option key={run.id} value={run.id}>
-                            {run.skill} · {run.model} · {shortDate(run.date)} ·{" "}
+                            {skillLabel(run.skill)} · {run.model} · {shortDate(run.date)} ·{" "}
                             {run.revision}
                           </option>
                         ))}
@@ -1780,8 +1782,8 @@ export default function DashboardLab({ demo = false }: { demo?: boolean }) {
               >
                 <ObservedCatalog
                   items={filtered}
-                  onExplore={(skill) => {
-                    setFilters({ ...filters, skill });
+                  onExplore={(evalId) => {
+                    setFilters({ ...filters, evalId: evalId || undefined });
                     navigate("history");
                   }}
                 />

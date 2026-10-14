@@ -27,7 +27,7 @@ export interface LabTask {
 
 export interface LabRun {
   id: string;
-  skill: SkillId;
+  skill?: SkillId;
   evalId: string;
   revision: string;
   model: Model;
@@ -249,10 +249,14 @@ export function filterRuns(
       (filters.model === "all" || run.model === filters.model) &&
       (filters.days === 0 || new Date(run.date) >= cutoff) &&
       (!filters.day || run.date.startsWith(filters.day)) &&
-      `${run.id} ${run.skill} ${run.model} ${run.revision} ${run.source}`
+      `${run.id} ${run.skill ?? ""} ${run.model} ${run.revision} ${run.source} ${run.evalId}`
         .toLowerCase()
         .includes(search.toLowerCase()),
   );
+}
+
+export function skillLabel(skill: SkillId | undefined) {
+  return skill || "Unavailable";
 }
 
 export function passRate(run: LabRun) {

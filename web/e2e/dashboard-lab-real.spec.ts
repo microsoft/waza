@@ -328,6 +328,113 @@ test.describe("Real dashboard lab", () => {
     expect(report.runs[0].spec).toBe("all");
   });
 
+  test("history search indexes actual eval identity independently of skill and eval selection", async ({
+    page,
+  }) => {
+    await mockResults(page, [
+      { ...savedRuns[0]!, skill: "distinct-skill", spec: "actual-eval-name" },
+      { ...savedRuns[1]!, skill: "another-skill", spec: "other-eval" },
+    ]);
+    await page.goto("/#/lab/history");
+    const search = page.getByRole("textbox", { name: "Search run history" });
+    const evaluation = page.getByRole("combobox", { name: "Filter eval" });
+    await search.fill("AcTuAl-EvAl-NaMe");
+    await expect(page.locator("tbody tr")).toHaveCount(1);
+    await expect(page.getByRole("checkbox", { name: "Select run-001", exact: true })).toBeVisible();
+    await expect(evaluation).toHaveValue("");
+    await expect(page.getByRole("combobox", { name: "Filter skill" })).toHaveValue("all");
+    await evaluation.selectOption("other-eval");
+    await expect(page.locator("tbody tr")).toHaveCount(0);
+    await search.fill("");
+    await expect(page.getByRole("checkbox", { name: "Select run-002", exact: true })).toBeVisible();
+    await evaluation.selectOption("");
+    await expect(page.locator("tbody tr")).toHaveCount(2);
+    await search.fill("DISTINCT-SKILL");
+    await expect(page.getByRole("checkbox", { name: "Select run-001", exact: true })).toBeVisible();
+    await expect(page.locator("tbody tr")).toHaveCount(1);
+    await search.fill("azure-blob");
+    await expect(page.getByRole("checkbox", { name: "Select run-002", exact: true })).toBeVisible();
+    await expect(page.locator("tbody tr")).toHaveCount(1);
+  });
+
+  for (const missing of ["absent", "blank"] as const) {
+    test(`${missing} skill metadata stays distinct from an authored Unavailable skill`, async ({
+      page,
+    }) => {
+      const evalId = `legacy-${missing}-eval`;
+      await mockResults(page, [
+        { ...savedRuns[0]!, skill: missing === "blank" ? "" : undefined, spec: evalId },
+        { ...savedRuns[1]!, skill: "Unavailable", spec: "authored-skill-eval" },
+      ]);
+      await page.goto("/#/lab/history");
+      const skill = page.getByRole("combobox", { name: "Filter skill" });
+      const evaluation = page.getByRole("combobox", { name: "Filter eval" });
+      await expect(page.locator("tbody tr")).toHaveCount(2);
+      await expect(skill.locator("option")).toHaveText(["All skills", "Unavailable"]);
+      const legacyRow = page.locator("tbody tr").filter({
+        has: page.getByRole("checkbox", { name: "Select run-001", exact: true }),
+      });
+      await expect(legacyRow.getByRole("button", { name: "Unavailable", exact: true })).toBeVisible();
+      await skill.selectOption("Unavailable");
+      await expect(page.locator("tbody tr")).toHaveCount(1);
+      await expect(page.getByRole("checkbox", { name: "Select run-002", exact: true })).toBeVisible();
+      await expect(page.getByRole("checkbox", { name: "Select run-001", exact: true })).toHaveCount(0);
+      await page.getByRole("button", { name: "Unavailable", exact: true }).click();
+      const dialog = page.getByRole("dialog");
+      await dialog.getByRole("tab", { name: "Configuration", exact: true }).click();
+      expect(JSON.parse(await dialog.locator("pre").innerText()).skill).toBe("Unavailable");
+      await page.keyboard.press("Escape");
+      await page.getByRole("button", { name: "Reset filters" }).click();
+      await page.getByRole("textbox", { name: "Search run history" }).fill(evalId.toUpperCase());
+      await expect(page.locator("tbody tr")).toHaveCount(1);
+      await expect(evaluation).toHaveValue("");
+      await legacyRow.getByRole("button", { name: "Unavailable", exact: true }).click();
+      await expect(dialog.getByRole("heading", { name: "Unavailable", exact: true })).toBeVisible();
+      await dialog.getByRole("tab", { name: "Configuration", exact: true }).click();
+      const configuration = JSON.parse(await dialog.locator("pre").innerText());
+      expect(configuration.eval).toBe(evalId);
+      expect(Object.hasOwn(configuration, "skill")).toBe(missing === "blank");
+      if (missing === "blank") expect(configuration.skill).toBe("");
+      await page.keyboard.press("Escape");
+      await evaluation.selectOption(evalId);
+      await expect(skill).toHaveValue("all");
+      await page.getByRole("link", { name: "Reports", exact: true }).click();
+      const download = page.waitForEvent("download");
+      await page.getByRole("button", { name: "Download JSON" }).click();
+      const path = await (await download).path();
+      const report = JSON.parse(await readFile(path!, "utf8"));
+      expect(report.filters.skill).toBe("all");
+      expect(report.runs.map((run: RunDetail) => run.id)).toEqual(["run-001"]);
+      expect(report.runs[0].spec).toBe(evalId);
+      expect(Object.hasOwn(report.runs[0], "skill")).toBe(missing === "blank");
+      if (missing === "blank") expect(report.runs[0].skill).toBe("");
+    });
+  }
+
+  test("unskilled suites explore by actual eval and retain stable comparison and activity labels", async ({
+    page,
+  }) => {
+    await mockEventSource(page);
+    await mockResults(page, [
+      { ...savedRuns[0]!, skill: undefined, spec: "legacy-suite" },
+      { ...savedRuns[1]!, skill: undefined, spec: "legacy-suite" },
+      { ...savedRuns[2]!, skill: undefined, spec: "another-suite" },
+    ]);
+    await page.goto("/#/lab/catalog");
+    const skill = page.getByRole("combobox", { name: "Filter skill" });
+    await expect(skill.locator("option")).toHaveText(["All skills"]);
+    await page.getByRole("button", { name: /legacy-suite/ }).click();
+    await expect(page.getByRole("combobox", { name: "Filter eval" })).toHaveValue("legacy-suite");
+    await expect(skill).toHaveValue("all");
+    await expect(page.locator("tbody tr")).toHaveCount(2);
+    await page.getByRole("link", { name: "Compare", exact: true }).click();
+    await expect(page.getByText("+30.0 pp", { exact: true })).toHaveCount(2);
+    await expect(page.getByRole("combobox", { name: "Baseline run" }).locator("option")).toHaveText([/^Unavailable ·/]);
+    await expect(page.getByRole("combobox", { name: "Candidate run" }).locator("option")).toHaveText([/^Unavailable ·/, /^Unavailable ·/]);
+    await page.getByRole("link", { name: "Current runs", exact: true }).click();
+    await expect(page.getByRole("combobox", { name: "Activity run" }).locator("option")).toHaveText([/^Unavailable ·/, /^Unavailable ·/]);
+  });
+
   test("sidebar waits for archive evidence before reporting a refresh policy", async ({
     page,
   }) => {

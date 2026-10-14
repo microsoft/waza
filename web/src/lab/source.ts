@@ -11,7 +11,7 @@ import { runs, type LabRun } from "./data";
 export function fromSummary(summary: RunSummary): LabRun {
   return {
     id: summary.id,
-    skill: summary.skill || summary.spec,
+    ...(summary.skill === undefined ? {} : { skill: summary.skill }),
     evalId: summary.spec,
     revision: "Unavailable",
     model: summary.model,

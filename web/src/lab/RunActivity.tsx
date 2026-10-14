@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { SSEEvent } from "../hooks/useSSE";
-import type { LabRun } from "./data";
+import { skillLabel, type LabRun } from "./data";
 
 const eventTypes = [
   "run_started",
@@ -198,7 +198,7 @@ export default function RunActivity({ runs }: { runs: LabRun[] }) {
               >
                 {runs.map((run) => (
                   <option key={run.id} value={run.id}>
-                    {run.skill} · {run.model} · {run.id}
+                    {skillLabel(run.skill)} · {run.model} · {run.id}
                   </option>
                 ))}
               </select>
