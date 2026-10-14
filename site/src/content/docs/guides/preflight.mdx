@@ -222,6 +222,13 @@ while online. Cache integrity is not trust or grading success. Locked grader
 dependencies use the effective expanded name: an explicit alias overrides the
 preset name, with the export filename supplying the fallback for unnamed presets.
 An unnamed unresolved reference remains unnamed until its preset is available.
+Requirement references to eval graders use that known effective identity even
+when the preset and override cannot be merged. If a valid unnamed remote
+reference has no known identity yet, a zero-match requirement lookup is
+**unresolved**, not invalid or verified: the unavailable preset could supply the
+name. Known nonmatching names, duplicate matches, malformed references and
+invalid requirement metadata remain invalid. Authored failed-merge declarations
+are not rewritten to achieve this reporting lookup.
 Local grader
 `schema_file`, rubric, trigger and snapshot paths retain their runtime resolution
 bases; relative schema/rubric paths resolve from cwd, while snapshots use the

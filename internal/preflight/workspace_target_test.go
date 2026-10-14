@@ -19,6 +19,8 @@ func TestInspectWorkspaceBlankTargetParity(t *testing.T) {
 	skillDir := filepath.Join(cwd, "custom-skills", "example")
 	require.NoError(t, os.MkdirAll(skillDir, 0o700))
 	require.NoError(t, os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("---\nname: example\ndescription: Local skill\n---\nBody\n"), 0o600))
+	canonicalSkillDir, err := filepath.EvalSymlinks(skillDir)
+	require.NoError(t, err)
 	for _, target := range []struct {
 		name, field, want string
 		blank             bool
@@ -56,7 +58,7 @@ func TestInspectWorkspaceBlankTargetParity(t *testing.T) {
 					require.Equal(t, schemaInvalid, full.Failed(true), "%+v", full.Diagnostics)
 					require.Equal(t, schemaInvalid, hasDiagnostic(full, "eval.schema", Invalid))
 				default:
-					require.Contains(t, spec.Config.SkillPaths, skillDir, "a configured nonblank target retains runtime workspace discovery")
+					require.Contains(t, spec.Config.SkillPaths, canonicalSkillDir, "a configured nonblank target retains runtime workspace discovery")
 					require.False(t, spec.SkillsDisabledForTask(nil))
 				}
 				require.Empty(t, report.Diagnostics)
@@ -76,7 +78,7 @@ func TestInspectWorkspaceBlankTargetParity(t *testing.T) {
 			}
 			require.NoError(t, err)
 			applyWorkspaceSkillDefaults(&Report{Complete: true}, spec)
-			require.Contains(t, spec.Config.SkillPaths, skillDir, "absent scenario retains legacy workspace discovery")
+			require.Contains(t, spec.Config.SkillPaths, canonicalSkillDir, "absent scenario retains legacy workspace discovery")
 		})
 	}
 	after, err := os.ReadFile(".waza.yaml")
