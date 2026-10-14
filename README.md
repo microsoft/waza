@@ -603,9 +603,9 @@ Exit codes: `0` all packs PASSED, `2` unsafe outcome with policy=fail (matches `
 
 ### `waza migrate <file>`
 
-Check a public schema artifact and migrate it when a future major schema requires it. Legacy input and reader defaults remain `1.4`, while new result writers independently emit `1.5`. Compatible v1 `eval.yaml` and `results.json` files are not rewritten.
+Check a public schema artifact and migrate it when a future major schema requires it. Legacy input and reader defaults remain `1.4`, while new result writers independently emit `1.6`. Compatible v1 `eval.yaml` and `results.json` files are not rewritten.
 Compatibility reports use the current version for the artifact type: legacy eval
-`1.4` or result writer `1.5`. Unversioned/`1.4` results explicitly distinguish
+`1.4` or result writer `1.6`. Unversioned/`1.4` results explicitly distinguish
 their legacy reader default from the current writer version without upgrading them.
 
 ```bash
@@ -1326,7 +1326,7 @@ Pin `reasoning_effort` and `judge_reasoning_effort` to `low`, `medium`, `high`, 
 
 With explicit effort, choose a concrete model from `waza models`. Waza checks the runtime's supported-effort metadata before creating or resuming hosted Copilot sessions; unknown models, unavailable metadata, and unsupported efforts produce actionable errors instead of silently using a different effort. Custom-provider efforts are forwarded directly because the hosted catalog does not describe those models. Result setup metadata and cache keys include both eval-level effort settings; regrading replaces the judge effort, including clearing a previously pinned value when omitted.
 
-`schemaVersion` uses `MAJOR.MINOR` format. Missing versions in legacy eval/result inputs continue to default to `1.4`; task YAML has no independent version field. New evaluations and regrades emit results `1.5`, separately from their input version. Readers preserve historical declared versions and do not invent absent reliability metadata. Legacy readers allow same-major minor additions with warnings for unknown fields, but reject different majors with a hint to run `waza migrate <file>`.
+`schemaVersion` uses `MAJOR.MINOR` format. Missing versions in legacy eval/result inputs continue to default to `1.4`; task YAML has no independent version field. New evaluations and regrades emit results `1.6`, separately from their input version. Readers preserve historical declared versions and do not invent absent reliability metadata. Legacy readers allow same-major minor additions with warnings for unknown fields, but reject different majors with a hint to run `waza migrate <file>`.
 
 Scenario-bearing **evals only** explicitly select `schemaVersion: "2.0"` and
 `scenario: <workflow-name>`. Only this exact scenario version is supported;
@@ -1374,7 +1374,7 @@ workflow dependencies are not fully fingerprinted; legacy caching is unchanged.
 
 Remote grader refs use Go-module-style paths: `<host>/<owner>/<repo>[/path][#export]@<version>`. The remote module must provide a `waza.registry.yaml` manifest and export a grader preset. Config-only grader presets expand to built-in grader types by default; remote program graders require explicit trust with `waza registry add --allow-exec` or interactive confirmation. Run `waza get eval.yaml` after manually adding or changing refs so `waza.lock` records the resolved commit and digest.
 
-`results.json` is currently emitted at `schemaVersion` `1.5`. Version `1.1` added per-turn checkpoints (`runs[].checkpoints[]`, see #358) and the normalized `runs[].tool_events[]` array (`turn`, `sequence`, `tool_call_id`, `tool_name`, `args`, `result`, `success`, `error`, `duration_ms`; see #366). Version `1.2` added `runs[].snapshot_path` for `waza run --snapshot` artifacts (#367) and the eval-level `adversarial:` block consumed by `waza adversarial --spec` (#365). Version `1.3` adds `session_digest.tool_policy_mode` and `tool_policy_denials` (#585). Version `1.4` adds sanitized `runs[].command_invocations` for declarative CLI mocks (#634). Version `1.5` adds `tasks[].stats.pass_rate_ci` and `summary.statistics.success_rate_ci` and `pass_hat_k`, and stops writing `is_significant`. See [docs/PRD](docs/PRD.md) and [schema-changes](site/src/content/docs/reference/schema-changes.md) for details.
+`results.json` is currently emitted at `schemaVersion` `1.6`. Version `1.1` added per-turn checkpoints (`runs[].checkpoints[]`, see #358) and the normalized `runs[].tool_events[]` array (`turn`, `sequence`, `tool_call_id`, `tool_name`, `args`, `result`, `success`, `error`, `duration_ms`; see #366). Version `1.2` added `runs[].snapshot_path` for `waza run --snapshot` artifacts (#367) and the eval-level `adversarial:` block consumed by `waza adversarial --spec` (#365). Version `1.3` adds `session_digest.tool_policy_mode` and `tool_policy_denials` (#585). Version `1.4` adds sanitized `runs[].command_invocations` for declarative CLI mocks (#634). Version `1.5` adds `tasks[].stats.pass_rate_ci` and `summary.statistics.success_rate_ci` and `pass_hat_k`, and stops writing `is_significant`. Version `1.6` adds optional `runs[].evidence` and `runs[].requirement_explanations`. See [docs/PRD](docs/PRD.md) and [schema-changes](site/src/content/docs/reference/schema-changes.md) for details.
 
 The dashboard displays these recorded Wilson intervals and pass^k estimates separately from bootstrap weighted-score intervals, with available trial counts. Missing historical statistics show **Not assessed**; readers never infer them from scores or successful outcomes. None of these intervals is a significance test between runs.
 

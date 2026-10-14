@@ -9,7 +9,7 @@ import (
 )
 
 func TestRegradeOutcomePreservesRecordedSkillAndProvenance(t *testing.T) {
-	for _, version := range []string{"", "1.0", "1.4", "1.5"} {
+	for _, version := range []string{"", "1.0", "1.4", "1.5", "1.6"} {
 		for _, tc := range []struct {
 			name, field, value string
 			present            bool
@@ -34,7 +34,7 @@ func TestRegradeOutcomePreservesRecordedSkillAndProvenance(t *testing.T) {
 				result := RegradeOutcome(original, graded, "", "")
 				require.Equal(t, tc.value, result.SkillTested)
 				require.Equal(t, tc.present, result.HasSkillTested())
-				require.Equal(t, "1.5", result.SchemaVersion)
+				require.Equal(t, "1.6", result.SchemaVersion)
 				require.Equal(t, original.RunID, result.RunID)
 				require.Equal(t, original.BenchName, result.BenchName)
 				require.Equal(t, original.Timestamp, result.Timestamp)

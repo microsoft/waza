@@ -13,7 +13,7 @@ import (
 
 func TestArtifactVersionSeparation(t *testing.T) {
 	require.Equal(t, "1.4", CurrentSchemaVersion)
-	require.Equal(t, "1.5", CurrentResultSchemaVersion)
+	require.Equal(t, "1.6", CurrentResultSchemaVersion)
 	require.Equal(t, "2.0", ScenarioSchemaVersion)
 	require.Equal(t, "1.4", defaultSchemaVersion(""))
 
@@ -25,6 +25,7 @@ func TestArtifactVersionSeparation(t *testing.T) {
 		{"legacy-forward-minor", "skill: reader\nschemaVersion: \"1.5\"\n", "1.5", ""},
 		{"scenario", "scenario: inventory\nschemaVersion: \"2.0\"\n", "2.0", ""},
 		{"scenario-with-result-version", "scenario: inventory\nschemaVersion: \"1.5\"\n", "", "scenario requires"},
+		{"scenario-with-current-result-version", "scenario: inventory\nschemaVersion: \"1.6\"\n", "", "scenario requires"},
 		{"scenario-without-version", "scenario: inventory\n", "", "scenario requires"},
 		{"scenario-future-minor", "scenario: inventory\nschemaVersion: \"2.1\"\n", "", "scenario requires"},
 		{"legacy-with-scenario-version", "skill: reader\nschemaVersion: \"2.0\"\n", "", "schema major"},
@@ -69,7 +70,7 @@ func TestArtifactVersionSeparation(t *testing.T) {
 }
 
 func TestHistoricalResultVersionsSurviveWriterVersionBump(t *testing.T) {
-	for _, version := range []string{"", "1.0", "1.1", "1.4", "1.5", "1.99"} {
+	for _, version := range []string{"", "1.0", "1.1", "1.4", "1.5", "1.6", "1.99"} {
 		t.Run("version="+version, func(t *testing.T) {
 			outcome, err := ParseEvaluationOutcome([]byte(minimalOutcomeJSON(version)), "historical.json")
 			require.NoError(t, err)
@@ -99,5 +100,39 @@ func TestHistoricalResultVersionsSurviveWriterVersionBump(t *testing.T) {
 	require.NoError(t, err)
 	var emitted EvaluationOutcome
 	require.NoError(t, json.Unmarshal(data, &emitted))
-	require.Equal(t, "1.5", emitted.SchemaVersion)
+	require.Equal(t, "1.6", emitted.SchemaVersion)
+}
+
+func TestEvidenceResultFieldsUseCurrentWriterVersion(t *testing.T) {
+	for _, recorded := range []bool{false, true} {
+		t.Run(map[bool]string{false: "absent", true: "recorded"}[recorded], func(t *testing.T) {
+			run := RunResult{RunNumber: 1}
+			if recorded {
+				run.Evidence = &EvidenceManifest{Version: "1.0"}
+				run.RequirementExplanations = []RequirementExplanation{{
+					TaskID: "task", RequirementID: "requirement", Checks: []CheckExplanation{},
+				}}
+			}
+			outcome := EvaluationOutcome{RunID: "new", TestOutcomes: []TestOutcome{{TestID: "task", Runs: []RunResult{run}}}}
+			data, err := json.Marshal(outcome)
+			require.NoError(t, err)
+			var wire struct {
+				SchemaVersion string `json:"schemaVersion"`
+				Tasks         []struct {
+					Runs []map[string]json.RawMessage `json:"runs"`
+				} `json:"tasks"`
+			}
+			require.NoError(t, json.Unmarshal(data, &wire))
+			require.Equal(t, "1.6", wire.SchemaVersion)
+			require.Len(t, wire.Tasks, 1)
+			require.Len(t, wire.Tasks[0].Runs, 1)
+			require.Equal(t, recorded, wire.Tasks[0].Runs[0]["evidence"] != nil)
+			require.Equal(t, recorded, wire.Tasks[0].Runs[0]["requirement_explanations"] != nil)
+			restored, err := ParseEvaluationOutcome(data, "new.json")
+			require.NoError(t, err)
+			require.Equal(t, "1.6", restored.SchemaVersion)
+			require.Equal(t, run.Evidence, restored.TestOutcomes[0].Runs[0].Evidence)
+			require.Equal(t, run.RequirementExplanations, restored.TestOutcomes[0].Runs[0].RequirementExplanations)
+		})
+	}
 }

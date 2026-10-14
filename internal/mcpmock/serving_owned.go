@@ -237,13 +237,13 @@ func (serving *ownedMCPServing) admit(id json.RawMessage) (*ownedMCPCall, error)
 }
 
 func (serving *ownedMCPServing) release(call *ownedMCPCall) {
-	call.cancel()
 	serving.mu.Lock()
 	if call.key != "" {
 		delete(serving.active, call.key)
 	}
 	serving.inFlight--
 	serving.mu.Unlock()
+	call.cancel()
 	select {
 	case serving.finished <- struct{}{}:
 	default:
