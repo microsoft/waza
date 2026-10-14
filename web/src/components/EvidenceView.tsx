@@ -2,7 +2,7 @@ import type { EvidenceOrigin, TaskResult } from "../api/client";
 import { canDisplayEvidence } from "../api/client";
 
 function originLabel(origin: EvidenceOrigin) {
-  return `eval ${origin.eval_id || "unavailable"} · task ${origin.task_id || "unavailable"} · run ${origin.run_number} · attempt ${origin.attempt_count} · prior attempts ${origin.prior_attempts}`;
+  return `eval ${origin.eval_id || "unavailable"} · task ${origin.task_id || "unavailable"} · run ${origin.run_number || "unavailable"} · attempt ${origin.attempt_count || "unavailable"} · prior attempts ${origin.prior_attempts}`;
 }
 
 function versionLabel(value: string | null) {

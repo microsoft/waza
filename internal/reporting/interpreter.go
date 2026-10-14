@@ -112,6 +112,11 @@ func FormatSummaryReport(outcome *models.EvaluationOutcome) string {
 						fmt.Fprintf(&b, "    Run %d requirement %s: %s = %s (%s). %s\n",
 							run.RunNumber, explanation.RequirementID, checkLabel,
 							check.Observation, check.Category, check.Message)
+						for _, reference := range check.References {
+							fmt.Fprintf(&b, "      Evidence: %s; artifact metadata only; value pointer unverified; eval %s; task %s; run %d; attempt %d; prior attempts %s\n",
+								reference.ArtifactID, reference.Origin.EvalID, reference.Origin.TaskID,
+								reference.Origin.RunNumber, reference.Origin.AttemptCount, reference.Origin.PriorAttempts)
+						}
 					}
 				}
 			}

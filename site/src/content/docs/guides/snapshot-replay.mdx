@@ -74,6 +74,11 @@ withheld and explicitly labeled unverified. Explicit snapshot-content verificati
 checks digests and pointer existence when actual artifact bytes are supplied.
 Interpretation labels retain each checkpoint's declared `after_turn`; observations
 from the same grader at different turns are not collapsed into the same label.
+`--interpret` lists captured-artifact IDs and source origins as metadata only,
+never verified value pointers. Present zero-valued source run/attempt fields
+denote unavailable attribution and are labeled unavailable, not reconstructed
+from the selected result. Known nonzero lineage mismatches remain withheld;
+omitted/null required fields remain invalid.
 
 Each manifest describes:
 

@@ -978,6 +978,11 @@ limitation. Explicit snapshot-content verification independently checks digests
 and pointer existence when the actual bytes are supplied.
 Checkpoint observation labels include their declared `after_turn`, so the same
 grader's observations at different turns remain distinguishable in `--interpret`.
+Interpretation also lists each captured-artifact reference's ID and source origin
+as metadata only, without claiming verified values. Present zero-valued source
+run/attempt fields mean unavailable attribution; the dashboard labels them
+unavailable without copying the selected result's lineage. Nonzero mismatches
+remain withheld, and omitted/null required fields remain invalid.
 
 Snapshot capture sanitizes typed JSON and structurally sensitive keys before
 serialization without modifying original results. Unsafe keys/identifiers,

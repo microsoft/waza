@@ -16,8 +16,12 @@ func TestSummaryDisclosesUnverifiedValuePointers(t *testing.T) {
 			t.Run(fmt.Sprintf("cached=%t/pointer=%s", cached, pointer), func(t *testing.T) {
 				digest, err := evidence.JSONDigest(map[string]any{"value": "ok"})
 				require.NoError(t, err)
+				sourceEvalID := "eval"
+				if cached {
+					sourceEvalID = "source"
+				}
 				manifest := &models.EvidenceManifest{
-					Origin:  models.EvidenceOrigin{EvalID: "eval", TaskID: "task", RunNumber: 1, AttemptCount: 1},
+					Origin:  models.EvidenceOrigin{EvalID: sourceEvalID, TaskID: "task", RunNumber: 1, AttemptCount: 1},
 					Runtime: models.EvidenceRuntime{ExecutionMode: "unknown", NativeSkillControl: "unknown"},
 					Artifacts: []models.EvidenceArtifact{{
 						ID: "receipt", Kind: "grader_results", Availability: "captured", Completeness: "complete",
@@ -40,6 +44,13 @@ func TestSummaryDisclosesUnverifiedValuePointers(t *testing.T) {
 				report := FormatSummaryReport(outcome)
 				require.Contains(t, report, "grader_recorded_pass")
 				require.NotContains(t, report, "invalid references")
+				require.Contains(t, report, fmt.Sprintf(
+					"Evidence: receipt; artifact metadata only; value pointer unverified; eval %s; task task; run 1; attempt 1; prior attempts %s",
+					sourceEvalID, reference.Origin.PriorAttempts))
+				require.NotContains(t, report, "receipt/value")
+				require.NotContains(t, report, "receipt/missing")
+				require.NotContains(t, report, "/value")
+				require.NotContains(t, report, "/missing")
 				if pointer != "" {
 					require.Contains(t, report, "value pointers: unverified and withheld")
 				} else {

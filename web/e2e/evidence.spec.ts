@@ -87,6 +87,33 @@ for (const [evalID, taskID] of [
   });
 }
 
+for (const fields of [
+  ["run_number"], ["attempt_count"], ["run_number", "attempt_count"],
+] as const) {
+  test(`unavailable zero lineage ${fields.join(",")} retains recorded metadata without inventing attribution`, async ({ page }) => {
+    const run = evidenceRun();
+    delete run.explanations;
+    for (const field of fields) run.manifest!.origin[field] = 0;
+    const view = await openEvidence(page, [run]);
+    await expect(view).toContainText("Run 1 · 2 attempts · recorded");
+    await expect(view).toContainText(`Source origin: eval source-evaluation · task report-task · run ${run.manifest!.origin.run_number || "unavailable"} · attempt ${run.manifest!.origin.attempt_count || "unavailable"}`);
+    await expect(view).toContainText("Manifest 1.0");
+    await expect(view).not.toContainText("Evidence metadata withheld");
+    await expect(view).not.toContainText("Evidence:");
+  });
+}
+
+for (const field of ["run_number", "attempt_count"] as const) {
+  test(`nonzero ${field} mismatch remains withheld`, async ({ page }) => {
+    const run = evidenceRun();
+    delete run.explanations;
+    run.manifest!.origin[field] += 1;
+    const view = await openEvidence(page, [run]);
+    await expect(view).toContainText("Evidence metadata withheld");
+    await expect(view).not.toContainText("Manifest 1.0");
+  });
+}
+
 for (const matchCount of [0, 2] as const) {
   test(`${matchCount} redaction matches retain the plural label`, async ({ page }) => {
     const run = evidenceRun();

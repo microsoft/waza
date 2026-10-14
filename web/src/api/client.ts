@@ -208,7 +208,8 @@ export function canDisplayEvidence(run: EvidenceRun): boolean {
       ![origin.eval_id, origin.task_id, origin.prior_attempts].every((value) => typeof value === "string") ||
       !Number.isSafeInteger(origin.run_number) || origin.run_number < 0 ||
       !Number.isSafeInteger(origin.attempt_count) || origin.attempt_count < 0 ||
-      origin.run_number !== run.runNumber || origin.attempt_count !== run.attempts) return false;
+      (origin.run_number !== 0 && origin.run_number !== run.runNumber) ||
+      (origin.attempt_count !== 0 && origin.attempt_count !== run.attempts)) return false;
   if (!knownKeys(runtime, ["waza_version", "requested_engine", "requested_model", "execution_mode", "dependency_mode", "requested_policy", "verified_enforcement", "go_version", "platform", "sdk_version", "effective_model_version", "no_skills", "native_skill_control"]) ||
       ![runtime.waza_version, runtime.requested_engine, runtime.requested_model, runtime.execution_mode, runtime.dependency_mode, runtime.requested_policy, runtime.verified_enforcement, runtime.go_version, runtime.platform].every((value) => typeof value === "string") ||
       !["mock", "live", "unknown"].includes(runtime.execution_mode) ||
