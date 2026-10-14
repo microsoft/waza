@@ -105,8 +105,12 @@ func FormatSummaryReport(outcome *models.EvaluationOutcome) string {
 				}
 				for _, explanation := range explanations {
 					for _, check := range explanation.Checks {
-						fmt.Fprintf(&b, "    Run %d requirement %s: %s/%s = %s (%s). %s\n",
-							run.RunNumber, explanation.RequirementID, check.Check.Scope, check.Check.Grader,
+						checkLabel := check.Check.Scope + "/" + check.Check.Grader
+						if check.Check.AfterTurn > 0 {
+							checkLabel += fmt.Sprintf("/turn %d", check.Check.AfterTurn)
+						}
+						fmt.Fprintf(&b, "    Run %d requirement %s: %s = %s (%s). %s\n",
+							run.RunNumber, explanation.RequirementID, checkLabel,
 							check.Observation, check.Category, check.Message)
 					}
 				}

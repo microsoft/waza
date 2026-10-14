@@ -53,6 +53,28 @@ func TestSummaryDisclosesUnverifiedValuePointers(t *testing.T) {
 	}
 }
 
+func TestSummaryDistinguishesCheckpointTurns(t *testing.T) {
+	outcome := &models.EvaluationOutcome{TestOutcomes: []models.TestOutcome{{
+		TestID: "task", Runs: []models.RunResult{{RunNumber: 1, RequirementExplanations: []models.RequirementExplanation{{
+			TaskID: "task", RequirementID: "req", Checks: []models.CheckExplanation{
+				{Check: models.RequirementCheck{Scope: "checkpoint", Grader: "shared", AfterTurn: 2}, Observation: "grader_recorded_pass"},
+				{Check: models.RequirementCheck{Scope: "checkpoint", Grader: "shared", AfterTurn: 4}, Observation: "grader_recorded_failure"},
+				{Check: models.RequirementCheck{Scope: "task", Grader: "shared"}, Observation: "grader_recorded_pass"},
+			},
+		}}}},
+	}}}
+	before, err := json.Marshal(outcome)
+	require.NoError(t, err)
+	report := FormatSummaryReport(outcome)
+	require.Contains(t, report, "checkpoint/shared/turn 2 = grader_recorded_pass")
+	require.Contains(t, report, "checkpoint/shared/turn 4 = grader_recorded_failure")
+	require.Contains(t, report, "task/shared = grader_recorded_pass")
+	require.NotContains(t, report, "checkpoint/shared =")
+	after, err := json.Marshal(outcome)
+	require.NoError(t, err)
+	require.Equal(t, before, after)
+}
+
 func TestSummaryLabelsUnavailableSourceEvaluationWithoutChangingEvidence(t *testing.T) {
 	for _, tc := range []struct {
 		name   string

@@ -976,6 +976,8 @@ snapshot bytes. Their requirement references identify captured artifact metadata
 artifact-relative value pointers are unverified and withheld, with an explicit
 limitation. Explicit snapshot-content verification independently checks digests
 and pointer existence when the actual bytes are supplied.
+Checkpoint observation labels include their declared `after_turn`, so the same
+grader's observations at different turns remain distinguishable in `--interpret`.
 
 Snapshot capture sanitizes typed JSON and structurally sensitive keys before
 serialization without modifying original results. Unsafe keys/identifiers,

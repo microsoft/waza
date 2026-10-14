@@ -104,7 +104,8 @@ test("scoped checks and operational uncertainty do not invent a cause", async ({
   await expect(view).toContainText("checkpoint / report-check / turn 2: unresolved · insufficient_evidence");
   await expect(view).toContainText("unknown / run_error");
   await expect(view).toContainText("no agent cause is inferred");
-  await expect(view).toContainText("Evidence: tool-events/toolEvents/0 · eval source-evaluation");
+  await expect(view).toContainText("Evidence: tool-events · artifact metadata only; value pointer unverified · eval source-evaluation");
+  await expect(view).not.toContainText("Evidence: tool-events/toolEvents/0");
 });
 
 for (const assessment of ["recorded", "unassessed"] as const) {
@@ -149,7 +150,8 @@ for (const assessment of ["recorded", "unassessed"] as const) {
       }
       await expect(control).toContainText("task / report-check: grader_recorded_failure · operational_status_unavailable");
       if (assessment === "recorded") {
-        await expect(control).toContainText("Evidence: tool-events/toolEvents/0 · eval source-evaluation");
+        await expect(control).toContainText("Evidence: tool-events · artifact metadata only; value pointer unverified · eval source-evaluation");
+        await expect(control).not.toContainText("Evidence: tool-events/toolEvents/0");
       } else {
         await expect(view).not.toContainText("Evidence:");
       }

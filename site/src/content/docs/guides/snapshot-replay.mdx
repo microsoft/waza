@@ -72,6 +72,8 @@ snapshot bytes. Requirement references in these views identify captured artifact
 metadata, not verified values inside it; artifact-relative value pointers are
 withheld and explicitly labeled unverified. Explicit snapshot-content verification
 checks digests and pointer existence when actual artifact bytes are supplied.
+Interpretation labels retain each checkpoint's declared `after_turn`; observations
+from the same grader at different turns are not collapsed into the same label.
 
 Each manifest describes:
 
