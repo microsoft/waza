@@ -872,6 +872,7 @@ function Reports({
           <div className="lab-report-filters">
             <strong>Scope</strong>
             <span>Skill: {filters.skill}</span>
+            {!demo && <span>Eval: {filters.evalId ?? "All"}</span>}
             <span>Model: {filters.model}</span>
             <span>
               Window: {filters.days === 0 ? "All time" : `${filters.days} days`}
@@ -936,6 +937,13 @@ export default function DashboardLab({ demo = false }: { demo?: boolean }) {
   const source = useLabSource(demo);
   const allRuns = source.runs;
   const routeBase = demo ? "/lab/demo" : "/lab";
+  const refreshDescription = source.data === undefined
+    ? source.isPending
+      ? "Loading refresh policy..."
+      : "Refresh policy unavailable"
+    : source.automaticRefresh
+      ? "Refreshes every 15 seconds"
+      : "Refresh on demand";
   const availableModels = demo
     ? models
     : [...new Set(allRuns.map((run) => run.model))].sort();
@@ -944,6 +952,9 @@ export default function DashboardLab({ demo = false }: { demo?: boolean }) {
     : [...new Set(allRuns.map((run) => run.skill))]
         .sort()
         .map((id) => ({ id, name: id }));
+  const availableEvals = [...new Set(allRuns.map((run) => run.evalId))]
+    .filter((id) => id !== "")
+    .sort();
   const [section, setSection] = useState<Section>(currentSection);
   const [filters, setFilters] = useState<Filters>({
     skill: "all",
@@ -1094,7 +1105,7 @@ export default function DashboardLab({ demo = false }: { demo?: boolean }) {
             <small>
               {demo
                 ? "No credentials or backend required"
-                : "Refreshes every 15 seconds"}
+                : refreshDescription}
             </small>
           </div>
           <a href="#/">
@@ -1230,7 +1241,7 @@ export default function DashboardLab({ demo = false }: { demo?: boolean }) {
               Scope
             </span>
             <label>
-              {demo ? "Skill" : "Skill / eval"}
+              Skill
               <select
                 aria-label="Filter skill"
                 value={filters.skill}
@@ -1249,6 +1260,28 @@ export default function DashboardLab({ demo = false }: { demo?: boolean }) {
                 ))}
               </select>
             </label>
+            {!demo && (
+              <label>
+                Eval
+                <select
+                  aria-label="Filter eval"
+                  value={filters.evalId ?? ""}
+                  onChange={(event) =>
+                    setFilters({
+                      ...filters,
+                      evalId: event.target.value || undefined,
+                    })
+                  }
+                >
+                  <option value="">All evals</option>
+                  {availableEvals.map((id) => (
+                    <option key={id} value={id}>
+                      {id}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
             <label>
               Model
               <select

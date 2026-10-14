@@ -3,10 +3,12 @@ package webapi
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 
@@ -45,6 +47,29 @@ func labRefreshRuns(t *testing.T, mux *http.ServeMux, path string) []RunSummary 
 	var runs []RunSummary
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &runs))
 	return runs
+}
+
+func requireLabRefreshErrorPath(t *testing.T, rec *httptest.ResponseRecorder, path string) {
+	t.Helper()
+	var response ErrorResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &response))
+	require.Equal(t, http.StatusInternalServerError, response.Code)
+	require.Contains(t, response.Error, strconv.Quote(path))
+}
+
+func TestLabRefreshErrorPathWireFormat(t *testing.T) {
+	for name, path := range map[string]string{
+		"unix":    "/results/cached.json",
+		"windows": `C:\Users\RUNNER~1\results\cached.json`,
+		"spaces":  `C:\saved results\cached.json`,
+		"quoted":  `/results/"cached".json`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			writeError(rec, http.StatusInternalServerError, fmt.Sprintf("refreshing evaluation results: previously loaded results artifact %q is invalid", path))
+			requireLabRefreshErrorPath(t, rec, path)
+		})
+	}
 }
 
 func labRefreshOutcome(id string, score float64) models.EvaluationOutcome {
@@ -103,7 +128,7 @@ func TestLabCachedArtifactRefreshTransaction(t *testing.T) {
 						require.NoError(t, os.WriteFile(file, []byte(corruption.contents), 0o600))
 					}
 					failed := labRefreshRequest(t, mux, "/api/v1/lab/runs", http.StatusInternalServerError)
-					require.Contains(t, failed.Body.String(), file)
+					requireLabRefreshErrorPath(t, failed, file)
 					require.JSONEq(t, before, labRefreshRequest(t, mux, "/api/runs/cached", http.StatusOK).Body.String())
 					require.JSONEq(t, summary, labRefreshRequest(t, mux, "/api/summary", http.StatusOK).Body.String())
 					require.Len(t, labRefreshRuns(t, mux, "/api/runs"), 1)

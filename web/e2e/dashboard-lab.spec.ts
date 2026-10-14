@@ -221,6 +221,7 @@ test.describe("Dashboard lab", () => {
     page,
   }) => {
     await page.goto("/#/lab/demo/reports");
+    await expect(page.getByRole("combobox", { name: "Filter eval" })).toHaveCount(0);
     await page
       .getByRole("combobox", { name: "Filter skill" })
       .selectOption("azure-deploy");

@@ -195,6 +195,7 @@ test.describe("Real dashboard lab", () => {
     const requests = await mockResults(page, localRuns);
     await page.goto("/#/lab/compare");
     await expect(page.getByText("+30.0 pp", { exact: true })).toHaveCount(2);
+    await expect(page.locator(".lab-local-indicator small")).toHaveText("Refreshes every 15 seconds");
     const inspectorResponse = page.waitForResponse("**/api/runs/run-001");
     await page.getByRole("button", { name: "Renamed task", exact: true }).click();
     await inspectorResponse;
@@ -237,6 +238,7 @@ test.describe("Real dashboard lab", () => {
     await page.goto("/#/lab/compare");
     await expect(page.getByText("+30.0 pp", { exact: true })).toHaveCount(2);
     await expect(page.getByText(/remote archive: refresh on demand/)).toBeVisible();
+    await expect(page.locator(".lab-local-indicator small")).toHaveText("Refresh on demand");
     const initialDetails = requests.length;
     const initialListings = listings;
     expect(initialListings).toBeGreaterThan(0);
@@ -252,6 +254,100 @@ test.describe("Real dashboard lab", () => {
     await page.getByRole("button", { name: "Refresh results" }).click();
     await expect.poll(() => listings).toBe(initialListings + 1);
     await expect.poll(() => requests.length).toBe(initialDetails + 2);
+  });
+
+  test("filters multiple evaluation suites of one skill independently", async ({
+    page,
+  }) => {
+    await mockResults(page, [
+      { ...savedRuns[0]!, skill: "shared-skill", spec: "suite-one" },
+      { ...savedRuns[1]!, skill: "shared-skill", spec: "suite-two" },
+      { ...savedRuns[2]!, skill: "other-skill", spec: "scenario-suite" },
+    ]);
+    await page.goto("/#/lab/history");
+    const skill = page.getByRole("combobox", { name: "Filter skill" });
+    const evaluation = page.getByRole("combobox", { name: "Filter eval" });
+    await skill.selectOption("shared-skill");
+    await expect(page.locator("tbody tr")).toHaveCount(2);
+    await evaluation.selectOption("suite-one");
+    await expect(page.locator("tbody tr")).toHaveCount(1);
+    await expect(page.getByRole("checkbox", { name: "Select run-001", exact: true })).toBeVisible();
+    await evaluation.selectOption("suite-two");
+    await expect(page.locator("tbody tr")).toHaveCount(1);
+    await expect(page.getByRole("checkbox", { name: "Select run-002", exact: true })).toBeVisible();
+    await expect(page.locator("tbody")).toContainText("azure-blob");
+    await evaluation.selectOption("");
+    await expect(page.locator("tbody tr")).toHaveCount(2);
+    await page.getByRole("combobox", { name: "Filter model" }).selectOption("custom-model-v1");
+    await expect(page.locator("tbody tr")).toHaveCount(1);
+    await evaluation.selectOption("suite-one");
+    await page.getByRole("button", { name: "Reset filters" }).click();
+    await expect(evaluation).toHaveValue("");
+    await expect(skill).toHaveValue("all");
+    await expect(page.locator("tbody tr")).toHaveCount(3);
+    await evaluation.selectOption("scenario-suite");
+    await expect(page.getByRole("checkbox", { name: "Select run-003", exact: true })).toBeVisible();
+    await expect(page.locator("tbody tr")).toHaveCount(1);
+  });
+
+  test("eval filters distinguish overlapping skill names, absent skills and an eval named all", async ({
+    page,
+  }) => {
+    await mockResults(page, [
+      { ...savedRuns[0]!, skill: "shared-identity", spec: "first-eval" },
+      { ...savedRuns[1]!, skill: "first-eval", spec: "shared-identity" },
+      { ...savedRuns[2]!, skill: undefined, spec: "eval-without-skill" },
+      { ...savedRuns[0]!, id: "run-004", skill: "sentinel-skill", spec: "all" },
+    ]);
+    await page.goto("/#/lab/history");
+    const skill = page.getByRole("combobox", { name: "Filter skill" });
+    const evaluation = page.getByRole("combobox", { name: "Filter eval" });
+    await evaluation.selectOption("shared-identity");
+    await expect(page.getByRole("checkbox", { name: "Select run-002", exact: true })).toBeVisible();
+    await expect(page.locator("tbody tr")).toHaveCount(1);
+    await skill.selectOption("shared-identity");
+    await expect(page.locator("tbody tr")).toHaveCount(0);
+    await evaluation.selectOption("");
+    await expect(page.getByRole("checkbox", { name: "Select run-001", exact: true })).toBeVisible();
+    await expect(page.locator("tbody tr")).toHaveCount(1);
+    await page.getByRole("button", { name: "Reset filters" }).click();
+    await evaluation.selectOption("eval-without-skill");
+    await expect(page.getByRole("checkbox", { name: "Select run-003", exact: true })).toBeVisible();
+    await expect(page.locator("tbody tr")).toHaveCount(1);
+    await evaluation.selectOption("all");
+    await expect(page.getByRole("checkbox", { name: "Select run-004", exact: true })).toBeVisible();
+    await expect(page.locator("tbody tr")).toHaveCount(1);
+    await page.getByRole("link", { name: "Reports", exact: true }).click();
+    await expect(page.locator(".lab-report-filters")).toContainText("Eval: all");
+    const download = page.waitForEvent("download");
+    await page.getByRole("button", { name: "Download JSON" }).click();
+    const path = await (await download).path();
+    const report = JSON.parse(await readFile(path!, "utf8"));
+    expect(report.filters.evalId).toBe("all");
+    expect(report.runs.map((run: RunDetail) => run.id)).toEqual(["run-004"]);
+    expect(report.runs[0].spec).toBe("all");
+  });
+
+  test("sidebar waits for archive evidence before reporting a refresh policy", async ({
+    page,
+  }) => {
+    const remote = { ...savedRuns[0]!, source: "azure-blob" };
+    await mockResults(page, [remote]);
+    let release!: () => void;
+    const ready = new Promise<void>((resolve) => { release = resolve; });
+    await page.route("**/api/v1/lab/runs", async (route) => {
+      await ready;
+      return route.fulfill({ json: [remote] });
+    });
+    try {
+      await page.goto("/#/lab/history");
+      await expect(page.locator(".lab-local-indicator small")).toHaveText("Loading refresh policy...");
+      await expect(page.locator(".lab-local-indicator")).not.toContainText("Refreshes every 15 seconds");
+      release();
+      await expect(page.locator(".lab-local-indicator small")).toHaveText("Refresh on demand");
+    } finally {
+      release();
+    }
   });
 
   test("inspector tabs implement roving focus and labelled keyboard selection", async ({
@@ -497,6 +593,7 @@ test.describe("Real dashboard lab", () => {
     await expect(page.getByRole("alert")).toContainText(
       "No synthetic fallback",
     );
+    await expect(page.locator(".lab-local-indicator small")).toHaveText("Refresh policy unavailable");
     await expect(
       page.locator(".lab-metrics").getByText("84", { exact: true }),
     ).toHaveCount(0);

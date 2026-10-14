@@ -228,6 +228,7 @@ export const runs: LabRun[] = Array.from({ length: 14 }, (_, day) =>
 
 export interface Filters {
   skill: SkillId | "all";
+  evalId?: string;
   model: Model | "all";
   days: number;
   day: string | null;
@@ -244,6 +245,7 @@ export function filterRuns(
   return items.filter(
     (run) =>
       (filters.skill === "all" || run.skill === filters.skill) &&
+      (!filters.evalId || run.evalId === filters.evalId) &&
       (filters.model === "all" || run.model === filters.model) &&
       (filters.days === 0 || new Date(run.date) >= cutoff) &&
       (!filters.day || run.date.startsWith(filters.day)) &&

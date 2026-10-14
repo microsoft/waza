@@ -83,6 +83,17 @@ evidence, not errors or invented scores, including in JSON reports.
 
 <ZoomImage src="../../images/dashboard-lab-compare.png" alt="Baseline comparison with aligned task scores, regressions, and added task coverage." />
 
+The real-results **Skill** and **Eval** controls are independent: select one
+eval when a skill has multiple suites, or combine both to narrow the scope.
+Eval selection matches the stored eval identity even when skill metadata is
+absent; identical skill and eval names are not interchangeable. **All evals**
+and **Reset filters** clear the eval restriction. The synthetic demo retains
+its existing skill-only filter.
+
+The sidebar reports the same refresh policy as the results status: local
+archives refresh every 15 seconds, while remote archives refresh on demand.
+Before the first archive response, it shows that the refresh policy is loading.
+
 Scope filters apply to historical summaries, tables, comparisons, reports, the
 observed catalog, and activity run selection. Selecting a chart date filters runs
 while the trend retains the time-window context.
