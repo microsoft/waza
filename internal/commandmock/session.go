@@ -1,7 +1,9 @@
 package commandmock
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -21,9 +23,10 @@ type storedConfig struct {
 }
 
 type storedMock struct {
-	Name        string           `json:"name"`
-	ExpectCalls *int             `json:"expect_calls,omitempty"`
-	Responses   []storedResponse `json:"responses"`
+	Name         string           `json:"name"`
+	ExpectCalls  *int             `json:"expect_calls,omitempty"`
+	Responses    []storedResponse `json:"responses"`
+	NativeConfig json.RawMessage  `json:"native_config,omitempty"`
 }
 
 type storedResponse struct {
@@ -50,11 +53,19 @@ type Session struct {
 	workspace string
 	mocks     []models.CommandMockConfig
 	closed    bool
+	native    map[string]bool
 }
 
 // NewSession validates and materializes task-scoped mock config outside the
 // workspace so fixtures and credentials are not captured in workspace snapshots.
 func NewSession(workspace string, mocks []models.CommandMockConfig, baseDir string) (*Session, error) {
+	return NewNativeSession(context.Background(), workspace, mocks, baseDir, nil)
+}
+
+// NewNativeSession optionally prepares opaque task-private configuration after
+// the task directory exists, but before baseline responses are materialized.
+// A nil preparation preserves NewSession's legacy configuration and behavior.
+func NewNativeSession(ctx context.Context, workspace string, mocks []models.CommandMockConfig, baseDir string, prepare NativePrepare) (_ *Session, resultErr error) {
 	if err := models.ValidateCommandMocks(mocks); err != nil {
 		return nil, err
 	}
@@ -74,12 +85,49 @@ func NewSession(workspace string, mocks []models.CommandMockConfig, baseDir stri
 		return nil, fmt.Errorf("resolving command-mock fixture directory: %w", err)
 	}
 
+	sessionRoot := filepath.Join(root, "sessions")
+	dir, err := os.MkdirTemp(sessionRoot, "task-*")
+	if err != nil {
+		return nil, fmt.Errorf("creating command-mock task directory: %w", err)
+	}
+	defer func() {
+		if resultErr != nil {
+			if err := os.RemoveAll(dir); err != nil {
+				resultErr = errors.Join(resultErr, fmt.Errorf("removing command-mock task data: %w", err))
+			}
+		}
+	}()
+	native := make(map[string]bool)
 	stored := make([]storedMock, 0, len(mocks))
 	for _, mock := range mocks {
 		if err := ensureShim(mock.Name, shimDir); err != nil {
 			return nil, err
 		}
 		item := storedMock{Name: mock.Name, ExpectCalls: mock.ExpectCalls}
+		if prepare != nil {
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
+			baselineJSON, err := json.Marshal(mock)
+			if err != nil {
+				return nil, fmt.Errorf("encoding typed command mock %q: %w", mock.Name, err)
+			}
+			item.NativeConfig, err = prepare(ctx, NativePrepareRequest{StateDir: dir, Workspace: workspace, Mock: baselineJSON})
+			if err != nil {
+				return nil, fmt.Errorf("preparing command mock %q: %w", mock.Name, err)
+			}
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
+			if item.NativeConfig != nil {
+				if !json.Valid(item.NativeConfig) {
+					return nil, fmt.Errorf("preparing command mock %q: invalid private JSON", mock.Name)
+				}
+				native[mock.Name] = true
+				stored = append(stored, item)
+				continue
+			}
+		}
 		for _, response := range mock.Responses {
 			output, err := responseOutput(response, baseDir)
 			if err != nil {
@@ -103,14 +151,13 @@ func NewSession(workspace string, mocks []models.CommandMockConfig, baseDir stri
 		stored = append(stored, item)
 	}
 
-	sessionRoot := filepath.Join(root, "sessions")
-	dir, err := os.MkdirTemp(sessionRoot, "task-*")
-	if err != nil {
-		return nil, fmt.Errorf("creating command-mock task directory: %w", err)
+	if len(native) != 0 {
+		if err := os.Mkdir(filepath.Join(dir, "attempts"), 0700); err != nil {
+			return nil, fmt.Errorf("creating command-mock attempt directory: %w", err)
+		}
 	}
 	logDir := filepath.Join(dir, "calls")
 	if err := os.Mkdir(logDir, 0700); err != nil {
-		_ = os.RemoveAll(dir)
 		return nil, fmt.Errorf("creating command-mock history directory: %w", err)
 	}
 	config := storedConfig{
@@ -121,32 +168,20 @@ func NewSession(workspace string, mocks []models.CommandMockConfig, baseDir stri
 	}
 	data, err := json.Marshal(config)
 	if err != nil {
-		_ = os.RemoveAll(dir)
 		return nil, fmt.Errorf("encoding command-mock config: %w", err)
 	}
 	configFile, err := os.CreateTemp(dir, ".config-*")
 	if err != nil {
-		_ = os.RemoveAll(dir)
 		return nil, fmt.Errorf("writing command-mock config: %w", err)
 	}
 	configPath := configFile.Name()
-	defer func() {
-		_ = os.Remove(configPath)
-	}()
-	if _, err := configFile.Write(data); err != nil {
-		_ = configFile.Close()
-		_ = os.RemoveAll(dir)
-		return nil, fmt.Errorf("writing command-mock config: %w", err)
-	}
-	if err := configFile.Close(); err != nil {
-		_ = os.RemoveAll(dir)
+	if err := errors.Join(writeNative(configFile, data), configFile.Close()); err != nil {
 		return nil, fmt.Errorf("writing command-mock config: %w", err)
 	}
 	if err := os.Rename(configPath, filepath.Join(dir, "config.json")); err != nil {
-		_ = os.RemoveAll(dir)
 		return nil, fmt.Errorf("writing command-mock config: %w", err)
 	}
-	return &Session{id: filepath.Base(dir), dir: dir, logDir: logDir, workspace: workspace, mocks: mocks}, nil
+	return &Session{id: filepath.Base(dir), dir: dir, logDir: logDir, workspace: workspace, mocks: mocks, native: native}, nil
 }
 
 // ID returns the opaque task identifier passed to command-mock shims.
@@ -180,9 +215,16 @@ func responseOutput(response models.CommandMockResponse, baseDir string) ([]byte
 }
 
 // Invocations returns sanitized invocation records in chronological order.
+// Legacy records reflect selection, not stream delivery. Close checks private
+// native capture integrity; this legacy accessor cannot report capture errors
+// but omits corrupt or unmatched native receipts.
 func (s *Session) Invocations() []models.CommandInvocation {
 	if s == nil || s.closed {
 		return nil
+	}
+	if len(s.native) != 0 {
+		invocations, _, _ := s.nativeCapture()
+		return invocations
 	}
 	entries, err := os.ReadDir(s.logDir)
 	if err != nil {
@@ -218,8 +260,14 @@ func (s *Session) Close() ([]models.CommandInvocation, error) {
 	if s == nil {
 		return nil, nil
 	}
-	invocations := s.Invocations()
+	var invocations []models.CommandInvocation
 	var expectationErr error
+	var attempts map[string]int
+	if len(s.native) != 0 && !s.closed {
+		invocations, attempts, expectationErr = s.nativeCapture()
+	} else {
+		invocations = s.Invocations()
+	}
 	for _, mock := range s.mocks {
 		if mock.ExpectCalls == nil {
 			continue
@@ -230,15 +278,22 @@ func (s *Session) Close() ([]models.CommandInvocation, error) {
 				count++
 			}
 		}
+		if s.native[mock.Name] {
+			if attempts == nil {
+				// Lost attempt data cannot support an exact-count assertion.
+				continue
+			}
+			count = attempts[mock.Name]
+		}
 		if count != *mock.ExpectCalls {
-			expectationErr = fmt.Errorf("command mock %q expected %d call(s), got %d", mock.Name, *mock.ExpectCalls, count)
+			expectationErr = errors.Join(expectationErr, fmt.Errorf("command mock %q expected %d call(s), got %d", mock.Name, *mock.ExpectCalls, count))
 			break
 		}
 	}
 	if !s.closed {
 		s.closed = true
-		if err := os.RemoveAll(s.dir); err != nil && expectationErr == nil {
-			expectationErr = fmt.Errorf("removing command-mock task data: %w", err)
+		if err := os.RemoveAll(s.dir); err != nil {
+			expectationErr = errors.Join(expectationErr, fmt.Errorf("removing command-mock task data: %w", err))
 		}
 	}
 	return invocations, expectationErr
@@ -261,6 +316,9 @@ func Invoke(root, sessionID, name string, args []string, cwd string) (invocation
 	}
 	if mock == nil {
 		return invocationResult{PassThrough: true}, nil
+	}
+	if mock.NativeConfig != nil {
+		return invocationResult{}, fmt.Errorf("command mock %q requires a private native dispatcher", name)
 	}
 	for i, response := range mock.Responses {
 		matched, err := responseMatches(response, args, cwd, config.Workspace)

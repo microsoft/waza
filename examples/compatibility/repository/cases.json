@@ -1,0 +1,5 @@
+[
+  {"name":"known-good","pass":true,"output":"Report written.","workspace_files":{"report.txt":"state=ready\n","source.txt":"original\n"}},
+  {"name":"deliberately-bad","pass":false,"output":"Report written.","workspace_files":{"report.txt":"state=ready\n","source.txt":"changed\n"}},
+  {"name":"alternative-valid","pass":true,"output":"Preserved source; added report metadata.","workspace_files":{"report.txt":"format=plain\nstate=ready\n","source.txt":"original\n"}}
+]

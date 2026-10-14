@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/microsoft/waza/internal/storage"
 )
 
 // Version is set at build time or defaults to dev.
@@ -69,6 +71,17 @@ func (h *Handlers) HandleRuns(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, runs)
+}
+
+// HandleLabRuns refreshes local artifacts for the opt-in dashboard.
+func (h *Handlers) HandleLabRuns(w http.ResponseWriter, r *http.Request) {
+	if store, ok := h.store.(storage.ResultsRefresher); ok {
+		if err := store.Reload(); err != nil {
+			writeError(w, http.StatusInternalServerError, fmt.Sprintf("refreshing evaluation results: %v", err))
+			return
+		}
+	}
+	h.HandleRuns(w, r)
 }
 
 // HandleRunDetail returns full run detail with per-task results.
@@ -209,6 +222,7 @@ func RegisterRoutes(mux *http.ServeMux, store RunStore) {
 	mux.HandleFunc("GET /api/summary", h.HandleSummary)
 	mux.HandleFunc("GET /api/events", h.HandleLatestRunEvents)
 	mux.HandleFunc("GET /api/runs", h.HandleRuns)
+	mux.HandleFunc("GET /api/v1/lab/runs", h.HandleLabRuns)
 	mux.HandleFunc("GET /api/runs/{id}", h.HandleRunDetail)
 	mux.HandleFunc("GET /api/v1/runs/{id}/events", h.HandleRunEvents)
 	mux.HandleFunc("GET /api/storage/status", h.HandleStorageStatus)
@@ -221,6 +235,7 @@ func RegisterRoutesWithStorage(mux *http.ServeMux, store RunStore, cfg *StorageC
 	mux.HandleFunc("GET /api/summary", h.HandleSummary)
 	mux.HandleFunc("GET /api/events", h.HandleLatestRunEvents)
 	mux.HandleFunc("GET /api/runs", h.HandleRuns)
+	mux.HandleFunc("GET /api/v1/lab/runs", h.HandleLabRuns)
 	mux.HandleFunc("GET /api/runs/{id}", h.HandleRunDetail)
 	mux.HandleFunc("GET /api/v1/runs/{id}/events", h.HandleRunEvents)
 	mux.HandleFunc("GET /api/storage/status", h.HandleStorageStatus)

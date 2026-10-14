@@ -64,8 +64,8 @@ type promptGrader struct {
 }
 
 func NewPromptGrader(name string, args models.PromptGraderParameters) (*promptGrader, error) {
-	if name == "" {
-		return nil, errors.New("missing name")
+	if err := validatePromptSeed(name, args); err != nil {
+		return nil, err
 	}
 
 	var rubric *Rubric
@@ -93,6 +93,16 @@ func NewPromptGrader(name string, args models.PromptGraderParameters) (*promptGr
 		args:   args,
 		rubric: rubric,
 	}, nil
+}
+
+func validatePromptSeed(name string, args models.PromptGraderParameters) error {
+	if name == "" {
+		return errors.New("missing name")
+	}
+	if args.Prompt == "" && strings.TrimSpace(args.Rubric) == "" {
+		return errors.New("required field 'prompt' is missing (provide 'prompt' or 'rubric')")
+	}
+	return nil
 }
 
 // Grade implements [Grader].

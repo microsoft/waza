@@ -1,0 +1,5 @@
+id: "cli-version-001"
+name: Workflow outcome
+description: "Real agent execution using the installed git CLI, without command mocks."
+inputs:
+  prompt: "Run git --version (read-only). Write its version line to report.txt. Do not initialize a repository, access network services, or create private.txt."

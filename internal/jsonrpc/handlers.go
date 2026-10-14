@@ -66,6 +66,7 @@ type EvalSummary struct {
 	Path      string `json:"path"`
 	Name      string `json:"name"`
 	SkillName string `json:"skill,omitempty"`
+	Scenario  string `json:"scenario,omitempty"`
 }
 
 func (h *HandlerContext) handleEvalList(_ context.Context, params json.RawMessage) (any, *Error) {
@@ -77,7 +78,7 @@ func (h *HandlerContext) handleEvalList(_ context.Context, params json.RawMessag
 		return nil, ErrInvalidParams("dir is required")
 	}
 
-	// Walk the directory looking for eval.yaml files
+	// Walk the directory looking for canonical evals and valid scenario YAML.
 	var evals []EvalSummary
 	err := filepath.Walk(p.Dir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -93,10 +94,30 @@ func (h *HandlerContext) handleEvalList(_ context.Context, params json.RawMessag
 			if loadErr == nil {
 				summary.Name = spec.Name
 				summary.SkillName = spec.SkillName
+				summary.Scenario = spec.Scenario
 			} else {
 				summary.Name = path
 			}
 			evals = append(evals, summary)
+		} else if ext := filepath.Ext(path); ext == ".yaml" || ext == ".yml" {
+			data, readErr := os.ReadFile(path)
+			if readErr != nil {
+				return nil
+			}
+			_, scenario, classifyErr := models.ClassifyEvalSpec(data, path)
+			if classifyErr != nil || scenario == "" {
+				return nil
+			}
+			spec, loadErr := models.LoadEvalSpec(path)
+			if loadErr != nil || spec.Scenario == "" {
+				return nil
+			}
+			evals = append(evals, EvalSummary{
+				Path:      path,
+				Name:      spec.Name,
+				SkillName: spec.SkillName,
+				Scenario:  spec.Scenario,
+			})
 		}
 		return nil
 	})
@@ -117,6 +138,7 @@ type EvalGetResult struct {
 	Name        string          `json:"name"`
 	Description string          `json:"description,omitempty"`
 	SkillName   string          `json:"skill,omitempty"`
+	Scenario    string          `json:"scenario,omitempty"`
 	Config      models.Config   `json:"config"`
 	Tasks       []string        `json:"tasks"`
 	Graders     []GraderSummary `json:"graders"`
@@ -157,6 +179,7 @@ func (h *HandlerContext) handleEvalGet(_ context.Context, params json.RawMessage
 		Name:        spec.Name,
 		Description: spec.Description,
 		SkillName:   spec.SkillName,
+		Scenario:    spec.Scenario,
 		Config:      spec.Config,
 		Tasks:       spec.Tasks,
 		Graders:     graders,

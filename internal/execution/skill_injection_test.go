@@ -244,3 +244,66 @@ func TestParseSkillFrontmatter(t *testing.T) {
 		})
 	}
 }
+
+// Regression for #656: the injected skill body must carry the skill's
+// absolute directory so relative links such as scripts/ and assets/ resolve.
+// This matters most for a manual-only skill (disable-model-invocation: true),
+// whose skill tool call fails, leaving <skill_context> as its only copy.
+func TestBuildSkillSystemMessage_IncludesBaseDirectory(t *testing.T) {
+	dir := t.TempDir()
+	skillContent := "---\nname: manual-skill\ndescription: Manual only\ndisable-model-invocation: true\n---\nRun `scripts/install.sh` and copy `assets/templates/a.txt`."
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(skillContent), 0644))
+
+	msg := buildSkillSystemMessage([]string{dir}, "manual-skill", true)
+
+	assert.Contains(t, msg, "<skill_context>\nBase directory for this skill: "+dir+"\n\n"+skillContent+"\n</skill_context>")
+}
+
+func TestBuildSkillSystemMessage_NestedSkillBaseDirectory(t *testing.T) {
+	root := t.TempDir()
+	skillDir := filepath.Join(root, "my-skill")
+	require.NoError(t, os.MkdirAll(skillDir, 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("---\nname: nested-skill\n---\nbody"), 0644))
+
+	msg := buildSkillSystemMessage([]string{root}, "nested-skill", true)
+
+	assert.Contains(t, msg, "Base directory for this skill: "+skillDir+"\n")
+}
+
+// Skill paths are joined onto the spec directory, which may itself be
+// relative; the agent runs in a temp workspace, so the directory must be
+// absolute to resolve from there.
+func TestBuildSkillSystemMessage_RelativeSkillDirIsAbsolute(t *testing.T) {
+	root := t.TempDir()
+	skillDir := filepath.Join(root, "skills", "rel-skill")
+	require.NoError(t, os.MkdirAll(skillDir, 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("---\nname: rel-skill\n---\nbody"), 0644))
+	t.Chdir(root)
+
+	msg := buildSkillSystemMessage([]string{filepath.Join("skills", "rel-skill")}, "rel-skill", true)
+
+	wantDir, err := filepath.Abs(filepath.Join("skills", "rel-skill"))
+	require.NoError(t, err)
+	assert.Contains(t, msg, "Base directory for this skill: "+wantDir+"\n")
+}
+
+func TestBuildSkillSystemMessage_AgentFileBaseDirectory(t *testing.T) {
+	dir := t.TempDir()
+	agentContent := "---\nname: my-agent\ndescription: An agent\n---\nRead `docs/guide.md`."
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "my-agent.agent.md"), []byte(agentContent), 0644))
+
+	msg := buildSkillSystemMessage([]string{dir}, "my-agent", true)
+
+	assert.Contains(t, msg, "Base directory for this skill: "+dir+"\n\n"+agentContent)
+}
+
+func TestBuildSkillSystemMessage_BaseDirectoryWithSpaces(t *testing.T) {
+	root := t.TempDir()
+	skillDir := filepath.Join(root, "my skills", "spaced-skill")
+	require.NoError(t, os.MkdirAll(skillDir, 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("---\nname: spaced-skill\n---\nbody"), 0644))
+
+	msg := buildSkillSystemMessage([]string{filepath.Join(root, "my skills")}, "spaced-skill", true)
+
+	assert.Contains(t, msg, "Base directory for this skill: "+skillDir+"\n")
+}

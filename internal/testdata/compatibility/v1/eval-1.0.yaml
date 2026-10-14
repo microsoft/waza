@@ -1,0 +1,16 @@
+schemaVersion: "1.0"
+name: compatibility
+skill: compatibility-skill
+version: "1.0"
+config:
+  trials_per_task: 1
+  timeout_seconds: 30
+  executor: mock
+  model: mock-model
+tasks: [task.yaml]
+graders:
+  - name: answer
+    type: text
+    config:
+      contains: [ready]
+metrics: []

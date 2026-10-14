@@ -43,20 +43,18 @@ func ConvertMCPServersWithMocks(serverConfigs map[string]any, mocks []models.MCP
 		serverType, _ := cfgMap["type"].(string)
 		switch strings.ToLower(serverType) {
 		case "", "stdio":
-			var stdio copilot.MCPStdioServerConfig
-			if err := decode(cfgMap, &stdio); err != nil {
+			stdio, err := DecodeMCPStdioServer(cfgMap)
+			if err != nil {
 				warnf("Warning: mcp_server %q stdio config is invalid: %v, skipping\n", name, err)
 				continue
 			}
-			defaultMCPTools(cfgMap, &stdio.Tools)
 			result[name] = stdio
 		case "http", "sse":
-			var http copilot.MCPHTTPServerConfig
-			if err := decode(cfgMap, &http); err != nil {
+			http, err := DecodeMCPHTTPServer(cfgMap)
+			if err != nil {
 				warnf("Warning: mcp_server %q http config is invalid: %v, skipping\n", name, err)
 				continue
 			}
-			defaultMCPTools(cfgMap, &http.Tools)
 			result[name] = http
 		default:
 			warnf("Warning: mcp_server %q has unsupported type %q, skipping\n", name, serverType)
@@ -85,6 +83,26 @@ func ConvertMCPServersWithMocks(serverConfigs map[string]any, mocks []models.MCP
 		return nil
 	}
 	return result
+}
+
+// DecodeMCPStdioServer performs the runtime's local decoding without starting a server.
+func DecodeMCPStdioServer(input map[string]any) (copilot.MCPStdioServerConfig, error) {
+	var server copilot.MCPStdioServerConfig
+	if err := decode(input, &server); err != nil {
+		return server, err
+	}
+	defaultMCPTools(input, &server.Tools)
+	return server, nil
+}
+
+// DecodeMCPHTTPServer performs the runtime's local decoding without contacting a server.
+func DecodeMCPHTTPServer(input map[string]any) (copilot.MCPHTTPServerConfig, error) {
+	var server copilot.MCPHTTPServerConfig
+	if err := decode(input, &server); err != nil {
+		return server, err
+	}
+	defaultMCPTools(input, &server.Tools)
+	return server, nil
 }
 
 func defaultMCPTools(cfgMap map[string]any, tools *[]string) {

@@ -19,6 +19,7 @@ type Config struct {
 	Port          int
 	ResultsDir    string
 	NoBrowser     bool
+	Lab           bool
 	Logger        *slog.Logger
 	StorageConfig *projectconfig.StorageConfig // Optional storage config
 }
@@ -61,7 +62,7 @@ func New(cfg Config) (*Server, error) {
 
 // ListenAndServe starts the HTTP server and optionally opens a browser.
 func (s *Server) ListenAndServe(ctx context.Context) error {
-	url := fmt.Sprintf("http://localhost:%d", s.cfg.Port)
+	url := s.dashboardURL()
 	s.logger.Info("HTTP server starting", "address", s.srv.Addr, "url", url)
 	fmt.Printf("waza dashboard: %s\n", url)
 
@@ -90,6 +91,14 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 		return fmt.Errorf("HTTP server error: %w", err)
 	}
 	return nil
+}
+
+func (s *Server) dashboardURL() string {
+	url := fmt.Sprintf("http://localhost:%d", s.cfg.Port)
+	if s.cfg.Lab {
+		url += "/#/lab"
+	}
+	return url
 }
 
 // Handler returns the underlying http.Handler (useful for testing).

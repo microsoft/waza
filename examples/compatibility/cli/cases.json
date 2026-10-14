@@ -1,0 +1,5 @@
+[
+  {"name":"known-good","pass":true,"output":"Fixture service is ready.","tool_events":[{"turn":1,"sequence":1,"tool_name":"bash","args":{"command":"compat-cli status"},"success":true}]},
+  {"name":"deliberately-bad","pass":false,"output":"Fixture service is ready.","tool_events":[{"turn":1,"sequence":1,"tool_name":"bash","args":{"command":"compat-cli configure"},"success":true}]},
+  {"name":"alternative-valid","pass":true,"output":"READY: inspection complete.","tool_events":[{"turn":1,"sequence":1,"tool_name":"bash","args":{"command":"compat-cli status","description":"Read-only status"},"success":true}]}
+]

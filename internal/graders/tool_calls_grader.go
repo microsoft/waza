@@ -6,6 +6,8 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/santhosh-tekuri/jsonschema/v6"
+
 	"github.com/microsoft/waza/internal/graders/argmatcher"
 	"github.com/microsoft/waza/internal/models"
 )
@@ -28,6 +30,30 @@ type compiledExpectation struct {
 // parameters are invalid (e.g. no constraints defined, negative bounds, or
 // min > max).
 func NewToolCallsGrader(name string, params models.ToolCallsGraderParameters) (*ToolCallsGrader, error) {
+	return newToolCallsGraderWithLoader(name, params, nil)
+}
+
+func newToolCallsGraderWithLoader(name string, params models.ToolCallsGraderParameters, loader jsonschema.URLLoader) (*ToolCallsGrader, error) {
+	toolRegexes, err := validateToolCallsFields(name, params)
+	if err != nil {
+		return nil, err
+	}
+	compiled := make([]compiledExpectation, 0, len(params.Expect))
+	for i, exp := range params.Expect {
+		mm := make(map[string]argmatcher.Matcher, len(exp.Args))
+		for k, m := range exp.Args {
+			if err := m.CompileWithLoader(loader); err != nil {
+				return nil, fmt.Errorf("tool_calls grader %q: expect[%d].args[%s]: %w", name, i, k, err)
+			}
+			mm[k] = m
+		}
+		compiled = append(compiled, compiledExpectation{raw: exp, toolRe: toolRegexes[i], matcher: mm})
+	}
+
+	return &ToolCallsGrader{name: name, params: params, compiledExpect: compiled}, nil
+}
+
+func validateToolCallsFields(name string, params models.ToolCallsGraderParameters) ([]*regexp.Regexp, error) {
 	hasConstraint := len(params.RequiredTools) > 0 ||
 		len(params.ForbiddenTools) > 0 ||
 		params.MinCalls != nil ||
@@ -48,7 +74,7 @@ func NewToolCallsGrader(name string, params models.ToolCallsGraderParameters) (*
 		return nil, fmt.Errorf("tool_calls grader %q: min_calls (%d) must be <= max_calls (%d)", name, *params.MinCalls, *params.MaxCalls)
 	}
 
-	compiled := make([]compiledExpectation, 0, len(params.Expect))
+	toolRegexes := make([]*regexp.Regexp, len(params.Expect))
 	for i, exp := range params.Expect {
 		if strings.TrimSpace(exp.Tool) == "" {
 			return nil, fmt.Errorf("tool_calls grader %q: expect[%d].tool: required non-empty string", name, i)
@@ -57,17 +83,9 @@ func NewToolCallsGrader(name string, params models.ToolCallsGraderParameters) (*
 		if err != nil {
 			return nil, fmt.Errorf("tool_calls grader %q: expect[%d].tool: invalid regex: %w", name, i, err)
 		}
-		mm := make(map[string]argmatcher.Matcher, len(exp.Args))
-		for k, m := range exp.Args {
-			if err := m.Compile(); err != nil {
-				return nil, fmt.Errorf("tool_calls grader %q: expect[%d].args[%s]: %w", name, i, k, err)
-			}
-			mm[k] = m
-		}
-		compiled = append(compiled, compiledExpectation{raw: exp, toolRe: re, matcher: mm})
+		toolRegexes[i] = re
 	}
-
-	return &ToolCallsGrader{name: name, params: params, compiledExpect: compiled}, nil
+	return toolRegexes, nil
 }
 
 func (g *ToolCallsGrader) Name() string            { return g.name }

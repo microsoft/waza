@@ -1,0 +1,30 @@
+{
+  "schemaVersion": "1.4",
+  "eval_id": "compatibility-run",
+  "skill": "compatibility-skill",
+  "eval_name": "compatibility",
+  "timestamp": "2026-01-01T00:00:00Z",
+  "config": {"runs_per_test": 1, "model_id": "mock-model", "engine_type": "mock", "timeout_sec": 30},
+  "summary": {"total_tests": 1, "succeeded": 1, "failed": 0, "errors": 0, "skipped": 0, "success_rate": 1, "aggregate_score": 1, "weighted_score": 1, "min_score": 1, "max_score": 1, "std_dev": 0, "duration_ms": 10},
+  "metrics": {},
+  "evaluation_usage": {"sessions": []},
+  "tasks": [{
+    "test_id": "compatibility-task",
+    "display_name": "Compatibility task",
+    "golden": true,
+    "cached": true,
+    "status": "passed",
+    "runs": [{
+      "run_number": 1,
+      "attempts": 1,
+      "status": "passed",
+      "duration_ms": 10,
+      "validations": {"answer": {"identifier": "answer", "type": "text", "passed": true, "score": 1, "weight": 1}},
+      "session_digest": {"session_id": "historical-session", "usage": {"input_tokens": 100, "output_tokens": 20, "ai_credits": 5}},
+      "tool_events": [{"turn": 1, "sequence": 1, "tool_call_id": "compat-call", "tool_name": "read_file", "args": {"path": "note.txt"}, "result": "ready", "success": true}],
+      "command_invocations": [{"command": "compat-cli", "args": ["status"], "exit_code": 0, "response_index": 0}],
+      "snapshot_path": "snapshot-1.0.json",
+      "final_output": "ready"
+    }]
+  }]
+}

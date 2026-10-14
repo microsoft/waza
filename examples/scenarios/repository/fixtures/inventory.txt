@@ -1,0 +1,2 @@
+apples: 2
+pears: 1

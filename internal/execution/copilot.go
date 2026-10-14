@@ -415,6 +415,10 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 
 	// Build skill directories list and system message, unless skills are disabled
 	var skillDirs []string
+	var enableSkills *bool
+	if req.NoSkills {
+		enableSkills = copilot.Bool(false)
+	}
 	var systemMessage *copilot.SystemMessageConfig
 	var systemMessageParts []string
 	if !req.NoSkills {
@@ -491,6 +495,7 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 			Hooks:               sessionHooks,
 
 			SkillDirectories: skillDirs,
+			EnableSkills:     enableSkills,
 			WorkingDirectory: workingDir,
 			SystemMessage:    systemMessage,
 			Streaming:        streamingPtr(req.Streaming),
@@ -513,6 +518,7 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 
 			// these are the directory for the skill itself.
 			SkillDirectories: skillDirs,
+			EnableSkills:     enableSkills,
 			WorkingDirectory: workingDir,
 			SystemMessage:    systemMessage,
 			Streaming:        streamingPtr(req.Streaming),
@@ -1373,7 +1379,7 @@ func buildSkillSystemMessage(skillDirs []string, skillName string, injectSkillBo
 		return ""
 	}
 	if sd != nil {
-		return skillContextBlock(sd.Content)
+		return skillContextBlock(sd)
 	}
 	return ""
 }
@@ -1509,10 +1515,20 @@ func findSkillDefinition(skillDirs []string, skillName string) (*skillDefinition
 	return nil, nil
 }
 
-func skillContextBlock(content string) string {
+// skillContextBlock prefixes the skill body with its absolute directory so
+// relative links resolve from the temp workspace; a disable-model-invocation
+// skill has no other way to learn it (#656).
+func skillContextBlock(sd *skillDefinition) string {
+	dir, err := filepath.Abs(sd.Dir)
+	if err != nil {
+		dir = sd.Dir
+	}
 	var sb strings.Builder
 	sb.WriteString("\n<skill_context>\n")
-	sb.WriteString(content)
+	sb.WriteString("Base directory for this skill: ")
+	sb.WriteString(dir)
+	sb.WriteString("\n\n")
+	sb.WriteString(sd.Content)
 	sb.WriteString("\n</skill_context>\n")
 	return sb.String()
 }

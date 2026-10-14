@@ -1,0 +1,44 @@
+id: compatibility-graders
+name: All v1 grader configurations
+inputs:
+  prompt: Fixture construction only; execution semantics are covered by each grader suite.
+graders:
+  - name: code
+    type: code
+    config: {language: javascript, assertions: ["true"]}
+  - name: prompt
+    type: prompt
+    config: {prompt: Judge fixture output.}
+  - name: text
+    type: text
+    config: {contains: [ready]}
+  - name: file
+    type: file
+    config: {must_exist: [report.txt]}
+  - name: json_schema
+    type: json_schema
+    config: {schema: {type: object}}
+  - name: program
+    type: program
+    config: {command: fixture-grader, timeout: 1}
+  - name: behavior
+    type: behavior
+    config: {max_tool_calls: 2}
+  - name: action_sequence
+    type: action_sequence
+    config: {matching_mode: in_order_match, expected_actions: [read_file]}
+  - name: skill_invocation
+    type: skill_invocation
+    config: {mode: in_order, required_skills: [compatibility-skill]}
+  - name: trigger
+    type: trigger
+    config: {skill_path: SKILL.md, mode: positive}
+  - name: diff
+    type: diff
+    config: {expected_files: [{path: report.txt, contains: ["+ready"]}]}
+  - name: tool_constraint
+    type: tool_constraint
+    config: {expect_tools: [{tool: read_file}]}
+  - name: tool_calls
+    type: tool_calls
+    config: {required_tools: [read_file]}

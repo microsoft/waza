@@ -1,5 +1,5 @@
 # Waza Build System
-.PHONY: all build build-web clean test lint fmt install help
+.PHONY: all build build-web clean test test-compat lint fmt install help
 
 # Build configuration
 BINARY_NAME=waza
@@ -27,6 +27,13 @@ test: build-web
 	@echo "Running tests..."
 	@go test -v -race -coverprofile=coverage.out $(GO_PACKAGES)
 	@go tool cover -func=coverage.out | tail -1
+
+# Run the offline corpus without building or installing frontend dependencies.
+test-compat:
+	@echo "Running offline compatibility corpus and package-owned preservation tests..."
+	@for tool in git node; do command -v "$$tool" >/dev/null 2>&1 || { echo "test-compat requires $$tool on PATH; no grader family may be silently skipped"; exit 1; }; done
+	@python3 --version >/dev/null 2>&1 || python --version >/dev/null 2>&1 || { echo "test-compat requires working python3 or python on PATH; no grader family may be silently skipped"; exit 1; }
+	@ENABLE_COPILOT_TESTS=false NO_COLOR=1 TZ=UTC LC_ALL=C go test -count=1 ./cmd/waza/... ./internal/models ./internal/validation ./internal/graders/... ./internal/execution ./internal/orchestration ./internal/commandmock ./internal/mcpmock ./internal/cache ./internal/snapshot ./internal/registry ./internal/skill ./internal/checks ./internal/quality ./internal/responder ./internal/trigger ./internal/adversarial ./internal/scoring ./internal/workspace ./internal/webapi
 
 # Run linter
 lint:
@@ -63,6 +70,7 @@ help:
 	@echo "  all      - Format, lint, build, and test (default)"
 	@echo "  build    - Compile the binary"
 	@echo "  test     - Run all tests with coverage"
+	@echo "  test-compat - Run offline v1 compatibility corpus (see docs/COMPATIBILITY.md)"
 	@echo "  lint     - Run golangci-lint"
 	@echo "  fmt      - Format Go code and tidy modules"
 	@echo "  install  - Install binary to GOPATH"

@@ -1,0 +1,23 @@
+id: compatibility-cli
+name: CLI status inspection
+golden: true
+inputs:
+  prompt: Inspect the fixture CLI status without changing configuration; report ready.
+graders:
+  - name: status-behavior
+    type: behavior
+    config:
+      max_tool_calls: 1
+      required_tools: [bash]
+  - name: status-command
+    type: tool_calls
+    config:
+      expect:
+        - tool: "^bash$"
+          args:
+            command: {equals: "compat-cli status"}
+  - name: status-answer
+    type: text
+    config:
+      contains: [ready]
+      not_contains: [unavailable]

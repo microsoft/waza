@@ -128,9 +128,32 @@ func (p *Policy) compile() error {
 		if err != nil {
 			return fmt.Errorf("rule %q: %w", p.Rules[i].Name, err)
 		}
+
 		p.Rules[i].compiled = re
 	}
 	return nil
+}
+
+func (p *Policy) forCapture() (*Policy, error) {
+	if p == nil {
+		return DefaultPolicy(), nil
+	}
+	copy := &Policy{
+		Rules:          append([]RedactionRule(nil), p.Rules...),
+		EnvKeyDenyList: append([]string(nil), p.EnvKeyDenyList...),
+		label:          p.label,
+	}
+	if err := copy.compile(); err != nil {
+		// Custom patterns and compiler errors can themselves contain secrets.
+		return nil, fmt.Errorf("snapshot: invalid redaction policy; check rule patterns")
+	}
+	for _, rule := range copy.Rules {
+		if err := copy.checkIdentity(rule.Name, "redaction rule name"); err != nil {
+			return nil, err
+		}
+	}
+	copy.ResetCounters()
+	return copy, nil
 }
 
 // Label returns the policy label ("default", "custom", "default+custom").

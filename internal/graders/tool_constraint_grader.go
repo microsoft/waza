@@ -6,6 +6,8 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/santhosh-tekuri/jsonschema/v6"
+
 	"github.com/microsoft/waza/internal/models"
 )
 
@@ -23,35 +25,18 @@ type toolConstraintGrader struct {
 
 // validateToolSpecs ensures each spec has a valid tool regex and optional args regex.
 func validateToolSpecs(specs []models.ToolSpecParameters, fieldName string) ([]models.ToolSpecParameters, error) {
+	return validateToolSpecsWithLoader(specs, fieldName, nil)
+}
+
+func validateToolSpecsWithLoader(specs []models.ToolSpecParameters, fieldName string, loader jsonschema.URLLoader) ([]models.ToolSpecParameters, error) {
 	normalized := make([]models.ToolSpecParameters, len(specs))
 	copy(normalized, specs)
 
 	for i, spec := range normalized {
-		spec.Tool = strings.TrimSpace(spec.Tool)
-		if spec.Tool == "" {
-			return nil, fmt.Errorf("config.%s[%d].tool: required non-empty string", fieldName, i)
-		}
-
-		if _, err := regexp.Compile("(?i)" + spec.Tool); err != nil {
-			return nil, fmt.Errorf("config.%s[%d].tool: invalid regex: %w", fieldName, i, err)
-		}
-
-		if spec.CommandPattern != "" {
-			if _, err := regexp.Compile("(?i)" + spec.CommandPattern); err != nil {
-				return nil, fmt.Errorf("config.%s[%d].command_pattern: invalid regex: %w", fieldName, i, err)
-			}
-		}
-
-		if spec.SkillPattern != "" {
-			if _, err := regexp.Compile("(?i)" + spec.SkillPattern); err != nil {
-				return nil, fmt.Errorf("config.%s[%d].skill_pattern: invalid regex: %w", fieldName, i, err)
-			}
-		}
-
-		if spec.PathPattern != "" {
-			if _, err := regexp.Compile("(?i)" + spec.PathPattern); err != nil {
-				return nil, fmt.Errorf("config.%s[%d].path_pattern: invalid regex: %w", fieldName, i, err)
-			}
+		var err error
+		spec, err = validateToolSpecFields(spec, fieldName, i, false)
+		if err != nil {
+			return nil, err
 		}
 
 		// Persist Compile() side-effects back into the map. Map values are not
@@ -61,7 +46,7 @@ func validateToolSpecs(specs []models.ToolSpecParameters, fieldName string) ([]m
 		// copy into the map preserves compiledRegex/compiledSchema for hot
 		// paths and keeps subsequent Match() calls allocation-free.
 		for argName, m := range spec.Args {
-			if err := m.Compile(); err != nil {
+			if err := m.CompileWithLoader(loader); err != nil {
 				return nil, fmt.Errorf("config.%s[%d].args[%s]: %w", fieldName, i, argName, err)
 			}
 			spec.Args[argName] = m
@@ -78,36 +63,19 @@ func validateToolSpecs(specs []models.ToolSpecParameters, fieldName string) ([]m
 // grade time — it is NOT compiled as a regex — so we only require a non-empty
 // name here. The other pattern fields (CommandPattern, SkillPattern,
 // PathPattern) are still regexes and still compiled/validated.
-func validateAllowOnlySpecs(specs []models.ToolSpecParameters, fieldName string) ([]models.ToolSpecParameters, error) {
+func validateAllowOnlySpecsWithLoader(specs []models.ToolSpecParameters, fieldName string, loader jsonschema.URLLoader) ([]models.ToolSpecParameters, error) {
 	normalized := make([]models.ToolSpecParameters, len(specs))
 	copy(normalized, specs)
 
 	for i, spec := range normalized {
-		spec.Tool = strings.TrimSpace(spec.Tool)
-		if spec.Tool == "" {
-			return nil, fmt.Errorf("config.%s[%d].tool: required non-empty string", fieldName, i)
-		}
-
-		if spec.CommandPattern != "" {
-			if _, err := regexp.Compile("(?i)" + spec.CommandPattern); err != nil {
-				return nil, fmt.Errorf("config.%s[%d].command_pattern: invalid regex: %w", fieldName, i, err)
-			}
-		}
-
-		if spec.SkillPattern != "" {
-			if _, err := regexp.Compile("(?i)" + spec.SkillPattern); err != nil {
-				return nil, fmt.Errorf("config.%s[%d].skill_pattern: invalid regex: %w", fieldName, i, err)
-			}
-		}
-
-		if spec.PathPattern != "" {
-			if _, err := regexp.Compile("(?i)" + spec.PathPattern); err != nil {
-				return nil, fmt.Errorf("config.%s[%d].path_pattern: invalid regex: %w", fieldName, i, err)
-			}
+		var err error
+		spec, err = validateToolSpecFields(spec, fieldName, i, true)
+		if err != nil {
+			return nil, err
 		}
 
 		for argName, m := range spec.Args {
-			if err := m.Compile(); err != nil {
+			if err := m.CompileWithLoader(loader); err != nil {
 				return nil, fmt.Errorf("config.%s[%d].args[%s]: %w", fieldName, i, argName, err)
 			}
 			spec.Args[argName] = m
@@ -119,24 +87,78 @@ func validateAllowOnlySpecs(specs []models.ToolSpecParameters, fieldName string)
 	return normalized, nil
 }
 
+func validateToolSpecFields(spec models.ToolSpecParameters, fieldName string, index int, literalTool bool) (models.ToolSpecParameters, error) {
+	spec.Tool = strings.TrimSpace(spec.Tool)
+	if spec.Tool == "" {
+		return spec, fmt.Errorf("config.%s[%d].tool: required non-empty string", fieldName, index)
+	}
+	if !literalTool {
+		if _, err := regexp.Compile("(?i)" + spec.Tool); err != nil {
+			return spec, fmt.Errorf("config.%s[%d].tool: invalid regex: %w", fieldName, index, err)
+		}
+	}
+	for _, pattern := range []struct{ field, value string }{
+		{"command_pattern", spec.CommandPattern},
+		{"skill_pattern", spec.SkillPattern},
+		{"path_pattern", spec.PathPattern},
+	} {
+		if pattern.value != "" {
+			if _, err := regexp.Compile("(?i)" + pattern.value); err != nil {
+				return spec, fmt.Errorf("config.%s[%d].%s: invalid regex: %w", fieldName, index, pattern.field, err)
+			}
+		}
+	}
+	return spec, nil
+}
+
+func validateToolConstraintFields(name string, params models.ToolConstraintGraderParameters) error {
+	if len(params.ExpectTools) == 0 && len(params.RejectTools) == 0 && params.AllowOnly == nil {
+		return fmt.Errorf("tool_constraint grader '%s' must have at least one constraint configured", name)
+	}
+	type fieldGroup struct {
+		field   string
+		specs   []models.ToolSpecParameters
+		literal bool
+	}
+	groups := []fieldGroup{
+		{"expect_tools", params.ExpectTools, false},
+		{"reject_tools", params.RejectTools, false},
+	}
+	if params.AllowOnly != nil {
+		groups = append(groups, fieldGroup{"allow_only", *params.AllowOnly, true})
+	}
+	for _, group := range groups {
+		for i, spec := range group.specs {
+			if _, err := validateToolSpecFields(spec, group.field, i, group.literal); err != nil {
+				return fmt.Errorf("tool_constraint grader '%s': %w", name, err)
+			}
+		}
+	}
+	return nil
+}
+
 // NewToolConstraintGrader creates a toolConstraintGrader from decoded parameters.
 func NewToolConstraintGrader(name string, params models.ToolConstraintGraderParameters) (*toolConstraintGrader, error) {
-	if len(params.ExpectTools) == 0 && len(params.RejectTools) == 0 && params.AllowOnly == nil {
-		return nil, fmt.Errorf("tool_constraint grader '%s' must have at least one constraint configured", name)
+	return newToolConstraintGraderWithLoader(name, params, nil)
+}
+
+func newToolConstraintGraderWithLoader(name string, params models.ToolConstraintGraderParameters, loader jsonschema.URLLoader) (*toolConstraintGrader, error) {
+	if err := validateToolConstraintFields(name, params); err != nil {
+		return nil, err
 	}
 
-	expectSpecs, err := validateToolSpecs(params.ExpectTools, "expect_tools")
+	expectSpecs, err := validateToolSpecsWithLoader(params.ExpectTools, "expect_tools", loader)
 	if err != nil {
 		return nil, fmt.Errorf("tool_constraint grader '%s': %w", name, err)
 	}
-	rejectSpecs, err := validateToolSpecs(params.RejectTools, "reject_tools")
+	rejectSpecs, err := validateToolSpecsWithLoader(params.RejectTools, "reject_tools", loader)
 	if err != nil {
 		return nil, fmt.Errorf("tool_constraint grader '%s': %w", name, err)
 	}
 
 	var allowOnly *[]models.ToolSpecParameters
 	if params.AllowOnly != nil {
-		allowSpecs, err := validateAllowOnlySpecs(*params.AllowOnly, "allow_only")
+		allowSpecs, err := validateAllowOnlySpecsWithLoader(*params.AllowOnly, "allow_only", loader)
 		if err != nil {
 			return nil, fmt.Errorf("tool_constraint grader '%s': %w", name, err)
 		}

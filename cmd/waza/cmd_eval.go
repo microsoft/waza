@@ -17,24 +17,38 @@ import (
 
 func newEvalNewCommand() *cobra.Command {
 	var output string
+	var scenario bool
+	var template string
 
 	cmd := &cobra.Command{
-		Use:   "eval <skill-name>",
-		Short: "Scaffold a new eval suite for an existing skill",
+		Use:   "eval <name>",
+		Short: "Scaffold a skill eval or a target-free scenario",
 		Long: `Generate an eval scaffold using a skill's SKILL.md frontmatter.
 
 Creates:
   - evals/<skill-name>/<configured eval filename>
   - evals/<skill-name>/tasks/positive-trigger-1<configured task suffix>
   - evals/<skill-name>/tasks/positive-trigger-2<configured task suffix>
-  - evals/<skill-name>/tasks/negative-trigger-1<configured task suffix>`,
+  - evals/<skill-name>/tasks/negative-trigger-1<configured task suffix>
+
+Use --scenario to author a workflow without SKILL.md. --template selects
+repository (default), cli or mcp. Scenario scaffolds use the real copilot-sdk
+executor; config.executor: mock runs harness checks only, not agent quality.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if scenario {
+				return scenarioNewCommandE(cmd, args[0], output, template)
+			}
+			if cmd.Flags().Changed("template") {
+				return fmt.Errorf("--template requires --scenario")
+			}
 			return evalNewCommandE(cmd, args[0], output)
 		},
 	}
 
 	cmd.Flags().StringVar(&output, "output", "", "Path for eval file (default: evals/<skill-name>/<configured eval filename>)")
+	cmd.Flags().BoolVar(&scenario, "scenario", false, "Author a scenario without requiring a skill or custom agent")
+	cmd.Flags().StringVar(&template, "template", "repository", "Scenario template: repository, cli or mcp (requires --scenario)")
 	return cmd
 }
 

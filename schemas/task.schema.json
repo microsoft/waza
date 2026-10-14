@@ -57,6 +57,37 @@
     "expected": {
       "$ref": "#/$defs/expected"
     },
+    "requirements": {
+      "type": "array",
+      "description": "Descriptive task-local intent linked to explicit existing grader declarations. Not runtime enforcement or proof of satisfaction.",
+      "items": {
+        "type": "object",
+        "required": ["id", "category", "description"],
+        "additionalProperties": false,
+        "properties": {
+          "id": {"type": "string", "minLength": 1},
+          "category": {"enum": ["outcome", "boundary", "recovery", "quality"]},
+          "description": {"type": "string", "minLength": 1},
+          "checks": {
+            "type": "array",
+            "description": "Empty or absent means uncovered/unresolved, not success.",
+            "items": {
+              "type": "object",
+              "required": ["scope", "grader"],
+              "additionalProperties": false,
+              "properties": {
+                "scope": {"enum": ["eval", "task", "checkpoint"]},
+                "grader": {"type": "string", "minLength": 1},
+                "after_turn": {"type": "integer", "minimum": 1}
+              },
+              "if": {"properties": {"scope": {"const": "checkpoint"}}},
+              "then": {"required": ["after_turn"]},
+              "else": {"not": {"required": ["after_turn"]}}
+            }
+          }
+        }
+      }
+    },
     "graders": {
       "type": "array",
       "items": {
@@ -444,7 +475,8 @@
             "skill_invocation",
             "trigger",
             "diff",
-            "tool_constraint"
+            "tool_constraint",
+            "tool_calls"
           ],
           "description": "The grader type."
         },
@@ -469,6 +501,15 @@
         }
       },
       "allOf": [
+        {
+          "if": {
+            "properties": {"type": {"const": "tool_calls"}},
+            "required": ["type"]
+          },
+          "then": {
+            "properties": {"config": {"$ref": "#/$defs/toolCallsGraderConfig"}}
+          }
+        },
         {
           "if": {
             "properties": {
@@ -1127,6 +1168,35 @@
         }
       }
     },
+    "toolCallsGraderConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "anyOf": [
+        {"required": ["required_tools"]},
+        {"required": ["forbidden_tools"]},
+        {"required": ["min_calls"]},
+        {"required": ["max_calls"]},
+        {"required": ["expect"]}
+      ],
+      "properties": {
+        "required_tools": {"type": "array", "items": {"type": "string"}},
+        "forbidden_tools": {"type": "array", "items": {"type": "string"}},
+        "min_calls": {"type": "integer", "minimum": 0},
+        "max_calls": {"type": "integer", "minimum": 0},
+        "expect": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["tool"],
+            "additionalProperties": false,
+            "properties": {
+              "tool": {"type": "string", "minLength": 1},
+              "args": {"$ref": "#/$defs/toolArgumentMatchers"}
+            }
+          }
+        }
+      }
+    },
     "toolConstraintGraderConfig": {
       "type": "object",
       "additionalProperties": false,
@@ -1236,14 +1306,20 @@
     },
     "promptGraderConfig": {
       "type": "object",
-      "required": [
-        "prompt"
+      "anyOf": [
+        {"required": ["prompt"]},
+        {"required": ["rubric"]}
       ],
       "additionalProperties": false,
       "properties": {
         "prompt": {
           "type": "string",
           "minLength": 1
+        },
+        "rubric": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Existing built-in rubric name or local markdown rubric path; descriptive task metadata does not change judge execution."
         },
         "model": {
           "type": "string"

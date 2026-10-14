@@ -146,7 +146,7 @@ Provide:
 
 ### Body content
 
-The markdown body becomes the agent's system message. Waza injects it into the execution context to guide the agent's behavior during evaluation tasks.
+The markdown body becomes the agent's system message. Waza injects it into the execution context to guide the agent's behavior during evaluation tasks, prefixed with `Base directory for this skill: <absolute path>` so relative links in the body resolve from the agent file's directory.
 
 ## How waza evaluates agents
 

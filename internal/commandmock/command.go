@@ -83,6 +83,10 @@ func RunCommand(root, name string, args []string) int {
 		fmt.Fprintln(os.Stderr, "waza command mock: failed to load task configuration")
 		return 127
 	}
+	return runInvocationResult(root, name, args, result)
+}
+
+func runInvocationResult(root, name string, args []string, result invocationResult) int {
 	if result.PassThrough {
 		return runHostCommand(root, name, args)
 	}

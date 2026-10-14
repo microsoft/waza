@@ -6,13 +6,14 @@ import (
 	"sort"
 )
 
-// ConfidenceInterval holds the result of a bootstrap confidence interval computation.
+// ConfidenceInterval holds a confidence interval and its point estimate.
+// NumBootstraps is set only for bootstrap intervals.
 type ConfidenceInterval struct {
 	Lower           float64 `json:"lower"`
 	Upper           float64 `json:"upper"`
 	Mean            float64 `json:"mean"`
 	ConfidenceLevel float64 `json:"confidence_level"`
-	NumBootstraps   int     `json:"num_bootstraps"`
+	NumBootstraps   int     `json:"num_bootstraps,omitempty"`
 }
 
 // DefaultBootstrapIterations is the number of bootstrap resamples.
@@ -80,7 +81,10 @@ func BootstrapCIWithSeed(scores []float64, confidenceLevel float64, seed int64) 
 }
 
 // IsSignificant returns true if the confidence interval does not contain zero,
-// indicating statistical significance at the given confidence level.
+// indicating statistical significance at the given confidence level. It is only
+// meaningful for an interval on a difference (e.g. treatment minus baseline);
+// for an interval on an absolute, non-negative score it only says the score is
+// above zero.
 func IsSignificant(ci ConfidenceInterval) bool {
 	return ci.Lower > 0 || ci.Upper < 0
 }

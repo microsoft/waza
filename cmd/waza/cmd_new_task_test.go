@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -307,7 +308,13 @@ func TestNewTaskFromPromptCommand_EndToEndCreatesTaskFile(t *testing.T) {
 		},
 	}
 
-	require.Equal(t, expected, actual)
+	expectedJSON, err := json.Marshal(expected)
+	require.NoError(t, err)
+	actualJSON, err := json.Marshal(actual)
+	require.NoError(t, err)
+	require.JSONEq(t, string(expectedJSON), string(actualJSON))
+	require.Equal(t, expected.Validators, actual.Validators)
+	require.NotEmpty(t, actual.SourceBytes())
 }
 
 func newClientMock(ctrl *gomock.Controller) *MockCopilotClient {

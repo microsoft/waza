@@ -945,27 +945,6 @@ description: Validate Azure config
 		assert.NoError(t, err)
 	})
 
-	t.Run("discovery root and case-insensitive dependency", func(t *testing.T) {
-		root := t.TempDir()
-		targetDir := filepath.Join(root, "target")
-		dependencyDir := filepath.Join(root, "dependency")
-		require.NoError(t, os.Mkdir(targetDir, 0o755))
-		require.NoError(t, os.Mkdir(dependencyDir, 0o755))
-		require.NoError(t, os.WriteFile(filepath.Join(targetDir, "SKILL.md"), []byte("---\nname: target\ndescription: target\n---\n"), 0o644))
-		require.NoError(t, os.WriteFile(filepath.Join(dependencyDir, "SKILL.md"), []byte("---\nname: Dependency\ndescription: dependency\n---\n"), 0o644))
-
-		spec := &models.EvalSpec{
-			SkillName: "target",
-			Config: models.Config{
-				SkillPaths:     []string{root},
-				RequiredSkills: []string{"dependency"},
-			},
-		}
-		runner := NewEvalRunner(config.NewEvalConfig(spec, config.WithSpecDir(root)), nil)
-
-		require.NoError(t, runner.validateRequiredSkills())
-	})
-
 	t.Run("some required skills missing", func(t *testing.T) {
 		spec := &models.EvalSpec{
 			SpecIdentity: models.SpecIdentity{

@@ -2,6 +2,7 @@ package jsonrpc
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -42,28 +43,40 @@ func (t *Transport) ReadRequest() (*Request, []byte, error) {
 
 // WriteResponse sends a JSON-RPC response (newline-delimited).
 func (t *Transport) WriteResponse(resp *Response) error {
-	t.writeMu.Lock()
-	defer t.writeMu.Unlock()
-	data, err := json.Marshal(resp)
-	if err != nil {
-		return err
-	}
-	data = append(data, '\n')
-	_, err = t.writer.Write(data)
-	return err
+	return t.writeMessage(context.Background(), resp)
+}
+
+// WriteResponseContext checks cancellation at native write commitment, after
+// acquiring the output lock. The owner must close interruptible I/O to abort a
+// write already in progress; a complete write cannot be retracted.
+func (t *Transport) WriteResponseContext(ctx context.Context, resp *Response) error {
+	return t.writeMessage(ctx, resp)
 }
 
 // WriteNotification sends a JSON-RPC notification (newline-delimited).
 func (t *Transport) WriteNotification(notif *Notification) error {
+	return t.writeMessage(context.Background(), notif)
+}
+
+func (t *Transport) writeMessage(ctx context.Context, message any) error {
 	t.writeMu.Lock()
 	defer t.writeMu.Unlock()
-	data, err := json.Marshal(notif)
+	data, err := json.Marshal(message)
 	if err != nil {
 		return err
 	}
 	data = append(data, '\n')
-	_, err = t.writer.Write(data)
-	return err
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	n, err := t.writer.Write(data)
+	if err != nil {
+		return err
+	}
+	if n != len(data) {
+		return io.ErrShortWrite
+	}
+	return nil
 }
 
 // TCPListener listens for TCP connections and serves each with the given server.

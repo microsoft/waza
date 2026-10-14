@@ -1,0 +1,7 @@
+id: "repository-inventory-001"
+name: Workflow outcome
+description: "Real agent execution against sanitized repository fixtures."
+inputs:
+  prompt: "Read inventory.txt. Write report.txt containing exactly: Inventory total: 3. Do not modify inventory.txt or create private.txt."
+  context:
+    fixture: fixtures/inventory.txt

@@ -90,7 +90,6 @@ export const RUN_DETAIL = {
       weightedScore: 1.0,
       duration: 12,
       bootstrapCI: { lower: 0.82, upper: 0.98, mean: 0.91, confidenceLevel: 0.95 },
-      isSignificant: true,
       graderResults: [
         {
           name: "output-exists",
@@ -138,7 +137,6 @@ export const RUN_DETAIL = {
       weightedScore: 1.0,
       duration: 10,
       bootstrapCI: { lower: 0.75, upper: 0.95, mean: 0.85, confidenceLevel: 0.95 },
-      isSignificant: true,
       graderResults: [
         {
           name: "output-exists",
@@ -158,7 +156,6 @@ export const RUN_DETAIL = {
       weightedScore: 0.33,
       duration: 8,
       bootstrapCI: { lower: -0.05, upper: 0.15, mean: 0.05, confidenceLevel: 0.95 },
-      isSignificant: false,
       graderResults: [
         {
           name: "output-exists",

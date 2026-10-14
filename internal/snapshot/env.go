@@ -29,9 +29,15 @@ func CaptureEnv(allowList []string, policy *Policy) SnapshotEnv {
 }
 
 func captureEnvFrom(environ []string, allowList []string, policy *Policy) SnapshotEnv {
+	env, _ := captureEnvFromWithChanges(environ, allowList, policy)
+	return env
+}
+
+func captureEnvFromWithChanges(environ []string, allowList []string, policy *Policy) (SnapshotEnv, bool) {
 	allow := normaliseAllowList(allowList)
 	captured := map[string]string{}
 	var denied []string
+	changed := false
 	recordDenied := len(allow) > 0
 
 	for _, e := range environ {
@@ -52,6 +58,7 @@ func captureEnvFrom(environ []string, allowList []string, policy *Policy) Snapsh
 		default:
 			captured[key] = policy.RedactString(val)
 		}
+		changed = changed || captured[key] != val
 	}
 	sort.Strings(denied)
 
@@ -64,7 +71,7 @@ func captureEnvFrom(environ []string, allowList []string, policy *Policy) Snapsh
 	if len(denied) > 0 {
 		out.DeniedKeys = denied
 	}
-	return out
+	return out, changed
 }
 
 type allowEntry struct {

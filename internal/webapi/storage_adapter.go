@@ -25,6 +25,14 @@ func NewStorageAdapter(store storage.ResultStore, source string) *StorageAdapter
 	}
 }
 
+// Reload refreshes backends with local snapshot support; remote behavior is unchanged.
+func (sa *StorageAdapter) Reload() error {
+	if store, ok := sa.store.(storage.ResultsRefresher); ok {
+		return store.Reload()
+	}
+	return nil
+}
+
 // ListRuns returns all runs, sorted by the given field and order.
 func (sa *StorageAdapter) ListRuns(sortField, order string) ([]RunSummary, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -59,7 +67,9 @@ func (sa *StorageAdapter) GetRun(id string) (*RunDetail, error) {
 		return nil, err
 	}
 
-	return outcomeToDetail(outcome), nil
+	detail := outcomeToDetail(outcome)
+	detail.Source = sa.source
+	return detail, nil
 }
 
 // Summary returns aggregate metrics across all runs.
