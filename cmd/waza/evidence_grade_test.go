@@ -350,6 +350,69 @@ func gradeSentinelTask(t *testing.T, marker string) string {
 `, program, marker)
 }
 
+func TestGradeRejectsDuplicateTaskRowsBeforeExecutingAnyGrader(t *testing.T) {
+	for _, test := range []struct {
+		name         string
+		firstInvalid bool
+		lastAbsent   bool
+		firstEmpty   bool
+		lastCached   bool
+		unselected   bool
+	}{
+		{name: "first invalid later absent", firstInvalid: true, lastAbsent: true},
+		{name: "both valid"},
+		{name: "first empty", firstEmpty: true},
+		{name: "cached overwrite", firstInvalid: true, lastCached: true},
+		{name: "unselected duplicate", unselected: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newPreservedGradeFixture(t, preservedFileTask)
+			marker := filepath.Join(fixture.dir, "executed")
+			writeTaskFile(t, fixture.dir, "task.yaml", gradeSentinelTask(t, marker))
+			first := fixture.run
+			last := fixture.run
+			if test.firstInvalid {
+				manifest := *fixture.run.Evidence
+				manifest.Origin.TaskID = "foreign"
+				require.NoError(t, evidence.Seal(&manifest))
+				first.Evidence = &manifest
+			}
+			if test.lastAbsent {
+				last.Evidence = nil
+			}
+			duplicateID := "task-001"
+			if test.unselected {
+				duplicateID = "task-002"
+			}
+			outcome := &models.EvaluationOutcome{RunID: "source-eval", TestOutcomes: []models.TestOutcome{
+				{TestID: duplicateID, Runs: []models.RunResult{first}},
+				{TestID: duplicateID, Cached: test.lastCached, Runs: []models.RunResult{last}},
+			}}
+			if test.firstEmpty {
+				outcome.TestOutcomes[0].Runs = nil
+			}
+			if test.unselected {
+				outcome.TestOutcomes = append([]models.TestOutcome{{TestID: "task-001", Runs: []models.RunResult{fixture.run}}}, outcome.TestOutcomes...)
+			}
+			results := gradeResultsFile(t, fixture.dir, outcome)
+			original, err := os.ReadFile(results)
+			require.NoError(t, err)
+			output := filepath.Join(fixture.dir, "graded.json")
+			text, err := executeGrade(t, fixture.specPath, "--task", "task-001", "--results", results,
+				"--workspace", fixture.workspace, "--output", output)
+			require.ErrorContains(t, err, fmt.Sprintf("duplicate task ID %q", duplicateID))
+			require.NotContains(t, text, `"overall_score"`)
+			for _, path := range []string{marker, output} {
+				_, err := os.Stat(path)
+				require.ErrorIs(t, err, os.ErrNotExist)
+			}
+			unchanged, err := os.ReadFile(results)
+			require.NoError(t, err)
+			require.Equal(t, original, unchanged)
+		})
+	}
+}
+
 func TestOrdinaryGradePreflightsAllSelectedTasksBeforeExecutingProgram(t *testing.T) {
 	fixture := newPreservedGradeFixture(t, preservedFileTask)
 	marker := filepath.Join(fixture.dir, "executed")

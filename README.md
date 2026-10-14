@@ -1117,7 +1117,7 @@ Run graders against agent output without executing an agent. Designed for standa
 
 File-based checks ordinarily require the actual preserved agent workspace, selected with `--workspace`; neither snapshot hashes nor a successful replay supplies that state. Prompt graders can contact the configured judge model. The explicit `--evidence-snapshot` mode instead verifies selected captured files for a narrow file-only operation on Linux/macOS, without model calls.
 
-Both ordinary and snapshot grading validate every selected evidence-bearing run's manifest digest and recorded eval/task/run/attempt attribution before grading. Cached results may retain a different source eval ID, but not a different task, run or attempt. Historical runs without evidence remain supported. API and interpretation output withhold requirement observations whose task or artifact references do not match the bound manifest; reference-free historical observations remain displayable.
+Both ordinary and snapshot grading reject duplicate task IDs in results before any grader executes, so overwritten rows cannot bypass validation. Every selected evidence-bearing run's manifest digest and recorded eval/task/run/attempt attribution is then checked before grading. Cached results may retain a different source eval ID, but not a different task, run or attempt. Historical runs without evidence remain supported. API and interpretation output withhold requirement observations whose task or artifact references do not match the bound manifest; reference-free historical observations remain displayable.
 
 | Flag | Description |
 |------|-------------|

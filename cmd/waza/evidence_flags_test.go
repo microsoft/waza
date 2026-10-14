@@ -7,6 +7,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestRunSnapshotHelpQualifiesWorkspaceCapture(t *testing.T) {
+	resetRunGlobals()
+	t.Cleanup(resetRunGlobals)
+	command := newRunCommand()
+	require.Contains(t, command.Flags().Lookup("snapshot").Usage, "only with explicit --snapshot-file selections")
+}
+
 func TestRunSnapshotExclusionRequiresCapture(t *testing.T) {
 	for _, flag := range []string{"--snapshot-file", "--snapshot-evaluator-only"} {
 		t.Run(flag, func(t *testing.T) {

@@ -140,7 +140,7 @@ export interface EvidenceManifest {
   source_manifest_sha256?: string;
   origin: EvidenceOrigin;
   runtime: {
-    waza_version: string | null;
+    waza_version: string;
     requested_engine: string;
     requested_model: string;
     execution_mode: string;
@@ -210,9 +210,9 @@ export function canDisplayEvidence(run: EvidenceRun): boolean {
       !Number.isSafeInteger(origin.attempt_count) || origin.attempt_count < 0 ||
       origin.run_number !== run.runNumber || origin.attempt_count !== run.attempts) return false;
   if (!knownKeys(runtime, ["waza_version", "requested_engine", "requested_model", "execution_mode", "dependency_mode", "requested_policy", "verified_enforcement", "go_version", "platform", "sdk_version", "effective_model_version", "no_skills", "native_skill_control"]) ||
-      ![runtime.requested_engine, runtime.requested_model, runtime.execution_mode, runtime.dependency_mode, runtime.requested_policy, runtime.verified_enforcement, runtime.go_version, runtime.platform].every((value) => typeof value === "string") ||
+      ![runtime.waza_version, runtime.requested_engine, runtime.requested_model, runtime.execution_mode, runtime.dependency_mode, runtime.requested_policy, runtime.verified_enforcement, runtime.go_version, runtime.platform].every((value) => typeof value === "string") ||
       !["mock", "live", "unknown"].includes(runtime.execution_mode) ||
-      ![runtime.waza_version, runtime.sdk_version, runtime.effective_model_version].every((value) => value === null || typeof value === "string") ||
+      ![runtime.sdk_version, runtime.effective_model_version].every((value) => value === null || typeof value === "string") ||
       !(runtime.no_skills === null || typeof runtime.no_skills === "boolean") ||
       !["unknown", "sdk_default", "requested_sdk_disable", "mock_not_applicable"].includes(runtime.native_skill_control)) return false;
   if (!knownKeys(redaction, ["policy", "applied_rules", "match_count", "limitations"]) ||

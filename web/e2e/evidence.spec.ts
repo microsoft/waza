@@ -116,7 +116,7 @@ for (const assessment of ["recorded", "unassessed"] as const) {
 
 test("unknown version values are unavailable rather than inferred", async ({ page }) => {
   const run = evidenceRun();
-  run.manifest!.runtime.waza_version = null;
+  run.manifest!.runtime.waza_version = "unknown";
   run.manifest!.runtime.sdk_version = "unknown";
   run.manifest!.runtime.effective_model_version = "unknown";
   const view = await openEvidence(page, [run]);
@@ -164,7 +164,7 @@ for (const [native, noSkills] of [
   });
 }
 
-for (const invalid of ["api-invalid", "unknown-version", "unknown-metadata", "wrong-origin", "missing-content", "malformed-runtime", "unknown-encoding", "duplicate-artifact", "absent-complete", "malformed-limitations"] as const) {
+for (const invalid of ["api-invalid", "unknown-version", "unknown-metadata", "wrong-origin", "missing-content", "malformed-runtime", "null-waza-version", "unknown-encoding", "duplicate-artifact", "absent-complete", "malformed-limitations"] as const) {
   test(`${invalid} metadata is withheld without rendering payload or references`, async ({ page }) => {
     const run = evidenceRun();
     run.manifest!.origin.eval_id = "DO-NOT-DISPLAY-ORIGIN";
@@ -175,6 +175,7 @@ for (const invalid of ["api-invalid", "unknown-version", "unknown-metadata", "wr
     if (invalid === "wrong-origin") run.manifest!.origin.run_number = 10;
     if (invalid === "missing-content") delete run.manifest!.artifacts[0].content_digest;
     if (invalid === "malformed-runtime") Object.assign(run.manifest!, { runtime: null });
+    if (invalid === "null-waza-version") Object.assign(run.manifest!.runtime, { waza_version: null });
     if (invalid === "unknown-encoding") run.manifest!.artifacts[0].content_digest!.encoding = "unrecognized";
     if (invalid === "duplicate-artifact") run.manifest!.artifacts.push(run.manifest!.artifacts[0]);
     if (invalid === "absent-complete") run.manifest!.artifacts[3].completeness = "complete";

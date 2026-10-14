@@ -194,7 +194,7 @@ config.executor: mock checks only the harness, not agent quality.`,
 	cmd.Flags().StringVar(&otelFile, "otel-file", "", "File path for span JSON when --otel-exporter=file")
 	cmd.Flags().BoolVar(&otelIncludePayloads, "otel-include-payloads", false, "Include prompt/tool-arg/tool-result/completion content in spans (default: redacted, only sha256+length emitted)")
 
-	cmd.Flags().StringVar(&snapshotDir, "snapshot", "", "Write per-task snapshot.json files for offline consistency checks; does not preserve workspace contents (see `waza replay`)")
+	cmd.Flags().StringVar(&snapshotDir, "snapshot", "", "Write per-task snapshot.json files for offline consistency checks; preserves workspace contents only with explicit --snapshot-file selections (see `waza replay`)")
 	cmd.Flags().StringArrayVar(&snapshotEnvAllow, "snapshot-env-allow", nil, "Environment variables to capture in snapshots (supports trailing-* wildcards). Default-deny.")
 	cmd.Flags().StringVar(&snapshotRedactPath, "redact", "", "Optional path to a custom redaction policy YAML applied during snapshot capture")
 	cmd.Flags().StringArrayVar(&snapshotFiles, "snapshot-file", nil, "Reviewed agent-visible UTF-8 workspace file to preserve (repeatable; requires --snapshot)")

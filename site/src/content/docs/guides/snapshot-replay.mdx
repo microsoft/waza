@@ -71,8 +71,9 @@ Each manifest describes:
 - Requested engine/model, actual `mock`/`live`/`unknown` execution mode derived
   from the concrete `MockEngine` or `CopilotEngine`, requested tool policy, and verified enforcement.
   Dependency mode and verified enforcement remain `unknown` unless recorded.
-- waza, SDK, effective model, Go, and platform versions. Missing/null/unknown
-  version metadata is unavailable, not an inferred version. Grader implementation,
+- waza, SDK, effective model, Go, and platform versions. Empty/unknown strings
+  are unavailable, not inferred versions. Only SDK and effective-model versions
+  may be null; waza, Go and platform metadata remain strings. Grader implementation,
   external rubric version, and lockfile provenance are explicitly unavailable.
 - `runtime.no_skills` (`boolean|null`) from the actual execution request and
   `native_skill_control`: `unknown`, `sdk_default`, `requested_sdk_disable`, or
@@ -276,7 +277,9 @@ Ordinary `grade --workspace` grading and this snapshot mode both validate the
 manifest digest and recorded eval/task/run/attempt attribution of every selected
 evidence-bearing run before grading. Cached results may retain their source eval
 ID, but never a foreign task, run or attempt. Historical runs without evidence
-remain supported. Ordinary prompt graders may contact a paid judge; evidence
+remain supported. Duplicate task IDs in the results are rejected before grading,
+even if one duplicate has no runs or evidence; an overwritten row cannot bypass
+preflight. Ordinary prompt graders may contact a paid judge; evidence
 inspection adds no automatic calls.
 
 The `--snapshot-max-file-bytes` and `--snapshot-max-total-bytes` limits govern

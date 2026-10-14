@@ -121,6 +121,9 @@ func runGradeWithEvidence(ctx context.Context, w, errW io.Writer, specPath, task
 	runsByTask := make(map[string][]models.RunResult)
 	cachedByTask := make(map[string]bool)
 	for _, to := range outcome.TestOutcomes {
+		if _, exists := runsByTask[to.TestID]; exists {
+			return fmt.Errorf("results file contains duplicate task ID %q", to.TestID)
+		}
 		runsByTask[to.TestID] = append([]models.RunResult(nil), to.Runs...)
 		cachedByTask[to.TestID] = to.Cached
 	}
