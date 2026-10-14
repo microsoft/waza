@@ -1,0 +1,98 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://raw.githubusercontent.com/microsoft/waza/main/schemas/preflight.schema.json",
+  "title": "Waza Offline Preflight Report",
+  "description": "Static inventory and diagnostics, not evaluation results or requirement satisfaction. Authored requirement metadata may be invalid and is preserved for diagnosis.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["kind", "schemaVersion", "source", "executor", "complete", "tasks", "capabilities", "dependencies", "diagnostics"],
+  "properties": {
+    "kind": {"const": "waza.preflight"},
+    "schemaVersion": {"const": "1.0"},
+    "source": {"type": "string"},
+    "executor": {"type": "string"},
+    "complete": {"type": "boolean", "description": "Inventory examination completeness, never assurance or configuration validity."},
+    "tasks": {"type": "array", "items": {"$ref": "#/$defs/task"}},
+    "capabilities": {"type": "array", "items": {"$ref": "#/$defs/capability"}},
+    "dependencies": {"type": "array", "items": {"$ref": "#/$defs/dependency"}},
+    "diagnostics": {"type": "array", "items": {"$ref": "#/$defs/diagnostic"}}
+  },
+  "$defs": {
+    "state": {"enum": ["verified", "unresolved", "unsupported", "invalid"]},
+    "task": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "source", "enabled", "context_dir", "requirements"],
+      "properties": {
+        "id": {"type": "string"},
+        "name": {"type": "string"},
+        "source": {"type": "string"},
+        "enabled": {"type": "boolean"},
+        "context_dir": {"type": "string"},
+        "requirements": {"type": "array", "items": {"$ref": "#/$defs/requirement"}}
+      }
+    },
+    "requirement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "category", "description", "state", "meaning"],
+      "properties": {
+        "id": {"type": "string"},
+        "category": {"type": "string"},
+        "description": {"type": "string"},
+        "state": {"$ref": "#/$defs/state"},
+        "meaning": {"type": "string"},
+        "checks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["scope", "grader"],
+            "properties": {
+              "scope": {"type": "string"},
+              "grader": {"type": "string"},
+              "after_turn": {"type": "integer"}
+            }
+          }
+        }
+      }
+    },
+    "capability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "state", "meaning"],
+      "properties": {
+        "name": {"type": "string"},
+        "state": {"$ref": "#/$defs/state"},
+        "meaning": {"type": "string"}
+      }
+    },
+    "dependency": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "name", "mode", "state"],
+      "properties": {
+        "kind": {"type": "string"},
+        "name": {"type": "string"},
+        "mode": {"type": "string"},
+        "state": {"$ref": "#/$defs/state"},
+        "task_id": {"type": "string"}
+      }
+    },
+    "diagnostic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "state", "severity", "source", "message", "remediation"],
+      "properties": {
+        "code": {"type": "string"},
+        "state": {"$ref": "#/$defs/state"},
+        "severity": {"enum": ["info", "warning", "error"]},
+        "source": {"type": "string"},
+        "task_id": {"type": "string"},
+        "requirement_id": {"type": "string"},
+        "message": {"type": "string"},
+        "remediation": {"type": "string"}
+      }
+    }
+  }
+}

@@ -1,6 +1,8 @@
 import { expect, test, type Page } from "@playwright/test";
 import { readFile } from "node:fs/promises";
-import type { RunDetail, RunSummary } from "../src/api/client";
+import { once } from "node:events";
+import { createServer } from "node:http";
+import type { RunDetail, RunDetailWire, RunSummary } from "../src/api/client";
 import { RUN_DETAIL, RUNS } from "./fixtures/mock-data";
 
 const savedRuns: RunSummary[] = RUNS.map((run, index) => ({
@@ -42,7 +44,7 @@ function detail(run: RunSummary): RunDetail {
 async function mockResults(
   page: Page,
   runs = savedRuns,
-  details = runs.map(detail),
+  details: RunDetailWire[] = runs.map(detail),
 ) {
   const requests: string[] = [];
   await page.route("**/api/v1/lab/runs", (route) =>
@@ -189,7 +191,8 @@ test.describe("Real dashboard lab", () => {
     page,
   }) => {
     await page.clock.install();
-    const requests = await mockResults(page);
+    const localRuns = savedRuns.map((run) => ({ ...run, source: "local" }));
+    const requests = await mockResults(page, localRuns);
     await page.goto("/#/lab/compare");
     await expect(page.getByText("+30.0 pp", { exact: true })).toHaveCount(2);
     const inspectorResponse = page.waitForResponse("**/api/runs/run-001");
@@ -218,6 +221,118 @@ test.describe("Real dashboard lab", () => {
     await expect(dialog.getByText("Regraded recorded evidence")).toBeVisible();
     expect(requests.length).toBe(initialRequests + 2);
   });
+
+  test("remote archives do not poll or refetch mounted details until explicit refresh", async ({
+    page,
+  }) => {
+    await page.clock.install();
+    const remoteRuns = savedRuns.map((run) => ({ ...run, source: "azure-blob" }));
+    let listings = 0;
+    const requests = await mockResults(page, remoteRuns);
+    // Keep the counting route newest without altering the result payload.
+    await page.route("**/api/v1/lab/runs", (route) => {
+      listings++;
+      return route.fulfill({ json: remoteRuns });
+    });
+    await page.goto("/#/lab/compare");
+    await expect(page.getByText("+30.0 pp", { exact: true })).toHaveCount(2);
+    await expect(page.getByText(/remote archive: refresh on demand/)).toBeVisible();
+    const initialDetails = requests.length;
+    const initialListings = listings;
+    expect(initialListings).toBeGreaterThan(0);
+    await page.clock.fastForward(60_000);
+    await page.evaluate(() => {
+      document.dispatchEvent(new Event("visibilitychange"));
+      window.dispatchEvent(new Event("offline"));
+      window.dispatchEvent(new Event("online"));
+    });
+    await page.waitForTimeout(100);
+    expect(listings).toBe(initialListings);
+    expect(requests.length).toBe(initialDetails);
+    await page.getByRole("button", { name: "Refresh results" }).click();
+    await expect.poll(() => listings).toBe(initialListings + 1);
+    await expect.poll(() => requests.length).toBe(initialDetails + 2);
+  });
+
+  test("inspector tabs implement roving focus and labelled keyboard selection", async ({
+    page,
+  }) => {
+    await mockResults(page);
+    await page.goto("/#/lab/history");
+    await page.getByRole("button", { name: "custom-skill", exact: true }).first().click();
+    const dialog = page.getByRole("dialog");
+    const graders = dialog.getByRole("tab", { name: "Grader evidence" });
+    const trajectory = dialog.getByRole("tab", { name: "Trajectory", exact: true });
+    const configuration = dialog.getByRole("tab", { name: "Configuration" });
+    await expect(graders).toHaveAttribute("tabindex", "0");
+    await expect(trajectory).toHaveAttribute("tabindex", "-1");
+    await expect(configuration).toHaveAttribute("tabindex", "-1");
+    await graders.focus();
+    for (const [key, selected, name] of [
+      ["ArrowRight", trajectory, "Trajectory"],
+      ["End", configuration, "Configuration"],
+      ["ArrowRight", graders, "Grader evidence"],
+      ["ArrowLeft", configuration, "Configuration"],
+      ["Home", graders, "Grader evidence"],
+    ] as const) {
+      await page.keyboard.press(key);
+      await expect(selected).toBeFocused();
+      await expect(selected).toHaveAttribute("aria-selected", "true");
+      await expect(dialog.getByRole("tab", { selected: true })).toHaveCount(1);
+      await expect(dialog.locator('[role="tab"][tabindex="0"]')).toHaveCount(1);
+      const id = await selected.getAttribute("id");
+      await expect(dialog.getByRole("tabpanel", { name, exact: true })).toHaveAttribute("aria-labelledby", id!);
+      await expect(selected).toHaveAttribute("aria-controls", "lab-evidence-panel");
+    }
+    await page.keyboard.press("Escape");
+    await expect(dialog).not.toBeVisible();
+  });
+
+  for (const nullable of ["tasks", "graderResults"] as const) {
+    test(`nullable ${nullable} remain empty evidence in inspector and JSON reports`, async ({
+      page,
+    }) => {
+      const summary = {
+        ...savedRuns[0]!,
+        weightedScore: undefined,
+        taskCount: nullable === "tasks" ? 0 : 1,
+        passCount: nullable === "tasks" ? 0 : 1,
+      };
+      const wire: RunDetailWire = {
+        ...detail(summary),
+        weightedScore: undefined,
+        tasks: nullable === "tasks" ? null : [{
+          ...detail(summary).tasks[0]!,
+          weightedScore: undefined,
+          graderResults: null,
+        }],
+      };
+      await mockResults(page, [summary], [wire]);
+      await page.goto("/#/lab/history");
+      await page.getByRole("button", { name: "custom-skill", exact: true }).click();
+      const dialog = page.getByRole("dialog");
+      await expect(dialog.locator(".lab-grader")).toHaveCount(0);
+      if (nullable === "tasks") {
+        await expect(dialog.getByText("No recorded tasks in this result.")).toBeVisible();
+        await expect(dialog.getByRole("combobox", { name: "Task", exact: true })).toBeDisabled();
+      } else {
+        await expect(dialog.getByText(/Weighted score Unavailable/)).toBeVisible();
+      }
+      await page.keyboard.press("Escape");
+      await page.getByRole("link", { name: "Reports" }).click();
+      const download = page.waitForEvent("download");
+      await page.getByRole("button", { name: "Download JSON" }).click();
+      const path = await (await download).path();
+      const report = JSON.parse(await readFile(path!, "utf8"));
+      expect(report.runs[0].weightedScore).toBeUndefined();
+      if (nullable === "tasks") {
+        expect(report.runs[0].tasks).toEqual([]);
+      } else {
+        expect(report.runs[0].tasks[0].graderResults).toEqual([]);
+        expect(report.runs[0].tasks[0].weightedScore).toBeUndefined();
+      }
+    });
+  }
 
   test("light lab preserves readable recorded content, arguments and results", async ({
     page,
@@ -672,9 +787,11 @@ test.describe("Real dashboard lab", () => {
   }) => {
     await mockResults(page);
     const headers: string[] = [];
-    await page.route("**/api/v1/runs/run-001/events", (route) => {
-      headers.push(route.request().headers()["last-event-id"] ?? "");
-      const sequence = headers.length === 1 ? 1 : 2;
+    const endpoint = "**/api/v1/runs/run-001/events";
+    const server = createServer((request, response) => {
+      const cursor = request.headers["last-event-id"];
+      headers.push(Array.isArray(cursor) ? cursor.join(",") : (cursor ?? ""));
+      const sequence = cursor === "1" ? 2 : 1;
       const event = {
         runId: "run-001",
         sequence,
@@ -682,17 +799,46 @@ test.describe("Real dashboard lab", () => {
         timestamp: "2024-01-03T12:00:00Z",
         data: { totalTasks: 4, completedTasks: sequence === 1 ? 0 : 4 },
       };
-      return route.fulfill({
-        contentType: "text/event-stream",
-        body: `retry: 50\nid: ${sequence}\ndata: ${JSON.stringify(event)}\n\n`,
+      response.writeHead(200, {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-store",
+        "Access-Control-Allow-Origin": "*",
+        Connection: "close",
       });
+      response.end(`retry: 50\nid: ${sequence}\ndata: ${JSON.stringify(event)}\n\n`);
     });
-    await page.goto("/#/lab/current");
-    await expect(page.getByText("Run completed (replayed)")).toBeVisible();
-    await expect(page.getByText("4 / 4 stored tasks replayed")).toBeVisible();
-    await expect(page.locator(".lab-stream > div")).toHaveCount(2);
-    expect(headers).toEqual(["", "1"]);
-    await page.getByRole("link", { name: "Run history" }).click();
-    expect(headers).toHaveLength(2);
+    try {
+      const ready = once(server, "listening");
+      server.listen(0, "127.0.0.1");
+      await ready;
+      const address = server.address();
+      if (!address || typeof address === "string") throw new Error("SSE fixture did not bind a TCP port");
+      // Observe the wire header rather than the interception snapshot.
+      await page.route(endpoint, (route) => route.continue({
+        url: `http://127.0.0.1:${address.port}/api/v1/runs/run-001/events`,
+      }));
+      await page.goto("/#/lab/current");
+      await expect(page.getByText("Run completed (replayed)")).toBeVisible();
+      await expect(page.getByText("4 / 4 stored tasks replayed")).toBeVisible();
+      await expect(page.locator(".lab-stream > div")).toHaveCount(2);
+      expect(headers).toEqual(["", "1"]);
+      // Multiple advertised retry periods expose an incorrectly retained source.
+      await page.waitForTimeout(200);
+      expect(headers).toHaveLength(2);
+      await page.getByRole("link", { name: "Run history" }).click();
+      await page.waitForTimeout(200);
+      expect(headers).toHaveLength(2);
+    } finally {
+      try {
+        await page.unroute(endpoint);
+      } finally {
+        server.closeAllConnections();
+        if (server.listening) {
+          await new Promise<void>((resolve, reject) =>
+            server.close((error) => error ? reject(error) : resolve()),
+          );
+        }
+      }
+    }
   });
 });

@@ -5,6 +5,8 @@ import { useLabDetails } from "./source";
 import { formatAICredits } from "../lib/format";
 import TrajectoryViewer from "../components/TrajectoryViewer";
 
+const evidenceTabs = ["graders", "trajectory", "configuration"] as const;
+
 export default function RunInspector({
   run: summary,
   demo,
@@ -53,7 +55,7 @@ export default function RunInspector({
       onKeyDown={(event) => {
         if (event.key !== "Tab") return;
         const controls = event.currentTarget.querySelectorAll<HTMLElement>(
-          "button:not([disabled]), select:not([disabled])",
+          "button:not([disabled]):not([tabindex='-1']), select:not([disabled])",
         );
         const first = controls[0];
         const last = controls[controls.length - 1];
@@ -135,6 +137,7 @@ export default function RunInspector({
             Task
             <select
               value={activeTaskId}
+              disabled={run.tasks.length === 0}
               onChange={(event) => setTaskId(event.target.value)}
             >
               {run.tasks.map((item) => (
@@ -144,15 +147,45 @@ export default function RunInspector({
               ))}
             </select>
           </label>
+          {run.tasks.length === 0 && (
+            <p className="lab-note">No recorded tasks in this result.</p>
+          )}
           <div className="lab-tabs" role="tablist" aria-label="Task evidence">
-            {(["graders", "trajectory", "configuration"] as const).map(
-              (value) => (
+            {evidenceTabs.map(
+              (value, index) => (
                 <button
                   key={value}
+                  id={`lab-evidence-tab-${value}`}
                   role="tab"
+                  tabIndex={tab === value ? 0 : -1}
                   aria-selected={tab === value}
                   aria-controls="lab-evidence-panel"
                   onClick={() => setTab(value)}
+                  onKeyDown={(event) => {
+                    let next: number;
+                    switch (event.key) {
+                      case "ArrowRight":
+                        next = (index + 1) % evidenceTabs.length;
+                        break;
+                      case "ArrowLeft":
+                        next = (index + evidenceTabs.length - 1) % evidenceTabs.length;
+                        break;
+                      case "Home":
+                        next = 0;
+                        break;
+                      case "End":
+                        next = evidenceTabs.length - 1;
+                        break;
+                      default:
+                        return;
+                    }
+                    event.preventDefault();
+                    const selected = evidenceTabs[next]!;
+                    setTab(selected);
+                    dialog.current
+                      ?.querySelector<HTMLButtonElement>(`#lab-evidence-tab-${selected}`)
+                      ?.focus();
+                  }}
                 >
                   {value === "graders"
                     ? "Grader evidence"
@@ -163,7 +196,7 @@ export default function RunInspector({
               ),
             )}
           </div>
-          <div id="lab-evidence-panel" role="tabpanel" aria-label={tab}>
+          <div id="lab-evidence-panel" role="tabpanel" aria-labelledby={`lab-evidence-tab-${tab}`}>
             {tab === "graders" && task && (
               <>
                 <div className="lab-task-summary">

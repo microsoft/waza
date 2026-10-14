@@ -57,7 +57,7 @@ records the research, prototype boundaries, and proposed architecture.
 - **Goals:** Author scenario suites without an unrelated `SKILL.md`, retaining optional skill/custom-agent context
 - **Scope:** `waza new eval <name> --scenario --template repository|cli|mcp` uses existing graders and real agent execution; mocked dependencies are explicitly harness-only evidence
 - **Compatibility:** Scenario evals opt into exact schema `2.0` so old executables reject changed discovery semantics before execution; legacy evals and task/result artifacts retain their prior formats
-- **Presence contract:** In YAML and JSON, every present `scenario` key must hold a nonblank string and exact schema `2.0`; null and other scalar/container types are invalid. Legacy semantics require the key to be absent.
+- **Admission correction (2026-10-12):** User-directed native YAML/JSON schema parity rejects present null/non-string/blank scenario identities, including earlier versionless/`1.x` null acceptance and scalar coercion. Remove the field for legacy behavior or provide a nonblank string with exact `2.0`; absent fields preserve legacy defaults.
 - **Discovery:** No target or explicit skill directories disables ambient skills on new/resumed SDK sessions; explicit empty task directories disable discovery and `--no-skills` overrides opt-ins
 - **Cache limitation:** Scenario evals bypass result caching with a notice until external workflow dependencies can be fully fingerprinted; legacy cache/default/billing behavior is unchanged
 - **Scaffold parent policy:** Scenario generation rejects selected symlinked output parents, including the scaffold root and nested generated directories, and retains admitted directory handles for exclusive file creation. Relative output uses the retained working directory; absolute output is admitted from the filesystem root with only verified literal macOS `/var` and `/tmp` aliases. This does not add whole-suite rollback, filesystem sandboxing or protection against moving an already admitted directory; legacy scaffold behavior is unchanged.
@@ -96,6 +96,51 @@ separately rather than accepted as new semantics; recorded/mock outcomes are
 not real-agent quality or full assurance claims.
 
 ### Epic 1: Go CLI Foundation (P0)
+
+#### Agent-free execution planning (#660)
+
+Before an eval starts, `waza preflight` inspects offline schemas, tasks and IDs,
+resource/instruction paths, grader configuration and locked cached modules,
+effective mocks, scoped requirement references, and static executor support.
+Task discovery accepts individually unmatched valid globs when tasks exist;
+CSV containment requires lexical containment and then checks resolved symlinks, including filesystem/volume-root eval
+directories, and range selection preserves original fallback row identities.
+Execution, preflight, regrading, and run analysis must share CSV selection,
+original row IDs/names, template context, and bounded resolved-path admission.
+Aliased eval bases admit lexically contained relative sources, not alternate
+physical absolute spellings outside their lexical root.
+Ranged results must remain addressable by their original task IDs in `grade`.
+Preflight diagnoses file-resource names rejected by the existing runtime loader
+without changing runtime acceptance or inline content handling.
+Contained absolute CSV paths must retain their source identity in task plans and
+diagnostics. Workspace-root destinations must be invalid for resource/instruction
+and file/diff checks, including inline resources, consistent with runtime limits.
+Malformed MCP fields and non-external schema loader
+errors are invalid rather than unresolved availability.
+Inspection must count zero engine/model/live-service/subprocess calls and never
+launch mock services or update checks. Unavailable credentials, external state,
+model/interpreter availability and conditional checkpoint execution remain
+unresolved rather than verified.
+Eager schema decoding must be guarded across eval/task/checkpoint sources,
+cached presets, and merged overrides. External prerequisites remain unresolved
+and prevent complete inventory claims, including later grader schema-file and
+MCP input-schema inspection, without changing native runtime loaders.
+
+Optional task-local requirements categorize outcome, boundary, recovery and
+quality intent using stable IDs and explicit references to current graders.
+They compose current checks, not a new assertion language. Valid alternatives
+are unconstrained unless a selected existing grader intentionally specifies
+sequence semantics. Reference resolution is not requirement satisfaction,
+runtime enforcement, or assurance of external side effects.
+
+All existing v1 inputs and runtime/default/exit semantics remain supported.
+New preflight invalid diagnostics exit 1; unresolved/unsupported warnings exit 0
+unless explicit `--strict` opts into exit 1. Empty check lists mean uncovered.
+Descriptive v1 metadata cannot enforce hard requirements in old readers; future
+hard semantics must select a new artifact boundary those readers reject.
+Preflight reports have their own typed artifact/version and never enter the
+historical results/dashboard pipeline. No new evaluation result fields are
+introduced. The #658 corpus remains the offline preservation gate.
 
 Port existing Python waza functionality to Go for single-binary distribution.
 

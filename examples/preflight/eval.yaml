@@ -1,0 +1,15 @@
+schemaVersion: "2.0"
+name: offline-preflight-example
+description: Inspect local observation prerequisites without starting an agent.
+scenario: preserve-local-record
+config:
+  executor: mock
+  model: harness
+  trials_per_task: 1
+  timeout_seconds: 10
+metrics:
+  - name: accuracy
+    weight: 1
+    threshold: 1
+tasks:
+  - tasks/*.yaml

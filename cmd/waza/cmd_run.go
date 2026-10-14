@@ -326,14 +326,9 @@ func runCommandE(cmd *cobra.Command, args []string) error {
 			slog.Warn("skills folder is not a directory, will not do skills discovery",
 				slog.String("path", skillsPath))
 		default:
-			discoveredSkills, err := discovery.Discover(skillsPath)
-
+			skillFolders, err = discovery.SkillDirectories(skillsPath)
 			if err != nil {
 				return err
-			}
-
-			for _, ds := range discoveredSkills {
-				skillFolders = append(skillFolders, ds.Dir)
 			}
 
 			slog.Debug("Workspace skills added", "skills", skillFolders, "base", skillsPath)
@@ -771,22 +766,15 @@ func runSingleModel(cmd *cobra.Command, spec *models.EvalSpec, specPath string, 
 	}
 
 	// Create engine based on spec
-	var engine execution.AgentEngine
-
-	switch spec.Config.EngineType {
-	case "mock":
-		engine = execution.NewMockEngine(spec.Config.ModelID)
-	case "copilot-sdk":
-		engine = execution.NewCopilotEngineBuilder(spec.Config.ModelID, &execution.CopilotEngineBuilderOptions{
-			NewCopilotClient: newCopilotClientFn, // if nil, uses the real function, otherwise overridable for tests.
-		}).Build()
-	default:
-		return nil, fmt.Errorf("unknown engine type: %s", spec.Config.EngineType)
+	engine, err := newRunEngine(spec.Config)
+	if err != nil {
+		return nil, err
 	}
 	if keepWorkspace {
 		if wk, ok := engine.(execution.WorkspaceKeeper); ok {
 			wk.SetKeepWorkspace(true)
 		}
+
 	}
 	if err := engine.Initialize(context.Background()); err != nil {
 		return nil, fmt.Errorf("failed to initialize agent: %w", err)

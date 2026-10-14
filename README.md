@@ -154,6 +154,7 @@ waza get evals/my-skill/eval.yaml
 # Note: Custom agents (.agent.md) are supported — see https://microsoft.github.io/waza/guides/custom-agents/
 
 # Run evaluations (works with both skills and custom agents)
+waza preflight examples/code-explainer/eval.yaml --context-dir examples/code-explainer/fixtures
 waza run examples/code-explainer/eval.yaml --context-dir examples/code-explainer/fixtures -v
 
 # Grade output from a previous `waza run --output results.json ...`
@@ -193,6 +194,49 @@ to create or update evals and guide eval-driven implementation. It provides the
 canonical workflow, target-specific validation steps, and a reusable delegation prompt.
 
 ## Commands
+
+### `waza preflight <eval.yaml>`
+
+Inspect eval setup **offline and agent-free** before execution:
+
+```bash
+waza preflight eval.yaml
+waza preflight eval.yaml --format json > preflight.json
+waza preflight eval.yaml --strict
+```
+
+Checks schemas, discovered task IDs, local resources/instructions, grader
+configuration and locks/cache, mock matchers, descriptive requirement references,
+and static executor capabilities. It does not initialize an engine, execute
+graders/hooks, launch subprocesses or mock/live servers, fetch dependencies, or
+contact services (including update checks). Credentials and external resulting
+state remain unresolved.
+Eager schema matchers are guarded before decoding; external schema prerequisites
+remain unresolved and leave the affected inventory incomplete.
+This also covers grader schema files and MCP tool input schemas encountered
+during later inspection. CSV containment accepts filesystem/volume-root eval
+directories. File-backed resource paths containing `..` anywhere in a cleaned
+segment are diagnosed as runtime-rejected; inline content retains its existing
+path behavior, except that workspace-root destinations (`.` or paths cleaned to
+`.`) are invalid for resource/instruction and file/diff checks. Contained absolute
+CSV paths retain their actual source in task plans and diagnostics.
+
+`verified` means a static check, **not a satisfied requirement or proven
+enforcement**. Invalid configuration exits 1; unresolved/unsupported prerequisites
+warn and exit 0 unless `--strict` selects exit 1. Existing `run`, `grade`, `check`,
+and `gate` behavior is unchanged. The independently versioned `waza.preflight`
+report is not evaluation results and is excluded from results/dashboard discovery.
+Ref-only eval graders with a missing pinned cache stay unresolved: their effective
+name is supplied by the preset/fallback after expansion. Known explicit duplicate
+names remain invalid. Task/checkpoint graders still require inline declarations.
+
+Optional task `requirements` link stable task-local IDs and
+`outcome|boundary|recovery|quality` categories to existing eval/task/checkpoint
+graders; empty checks mean uncovered. Metadata is descriptive in v1 and never
+creates assertions or forces a tool sequence. This command requires a build
+containing #660; earlier v1 readers can ignore metadata, so minimum-version notes
+are not hard enforcement. See the [offline preflight guide](https://microsoft.github.io/waza/guides/preflight/)
+for reference shapes, path bases, and offline limitations.
 
 ### `waza update`
 
@@ -952,7 +996,8 @@ waza serve --lab --results-dir ./results
 ```
 The lab uses saved Waza results for linked charts, searchable history, stable-task
 comparisons, recorded evidence, and JSON/CSV/print reports. Local results refresh
-every 15 seconds or on demand. Current runs shows **saved-result event replay**,
+every 15 seconds or on demand; nonempty remote archives refresh on demand rather
+than being downloaded repeatedly. Current runs shows **saved-result event replay**,
 not live worker discovery or execution controls. Readiness, coverage, and revision
 metadata absent from the API remain explicitly unavailable. `--lab` cannot be
 combined with `--tcp`. An isolated synthetic UX demo remains at `/#/lab/demo`;
@@ -1274,7 +1319,7 @@ tasks:
 
 # Optional: Generate tasks from CSV dataset
 # tasks_from: ./test-cases.csv
-# range: [1, 10]  # Only include rows 1-10 (0-indexed, skips header)
+# range: [1, 10]  # Include 1-based data rows 1-10 (header excluded)
 ```
 
 Pin `reasoning_effort` and `judge_reasoning_effort` to `low`, `medium`, `high`, `xhigh`, or `max` when benchmarking model-and-effort combinations. Both settings require `executor: copilot-sdk`. Omit either setting to preserve the Copilot SDK/model default. A `prompt` grader can override the judge default with `graders[].config.reasoning_effort`, including task/checkpoint graders and graders with `continue_session: true`, which resume the task session with the overridden or default judge effort. Agent effort remains eval-level, not per-task.
@@ -1290,8 +1335,16 @@ so existing result readers and the dashboard keep working. Optional `skill:`
 retains existing skill/custom-agent context and discovery precedence. Without
 a target or explicit skill directories, scenarios disable ambient skill loading.
 Disabling the last eval-level directory also leaves target-free discovery disabled.
+Whitespace-only optional `skill` values do not opt into workspace-default or
+ambient discovery. Scenario `required_skills` checks search enabled directories
+only; disabled paths, `["*"]` or `none` cannot satisfy a required skill.
 An explicit empty task `skill_directories: []` disables discovery for that task;
 `--no-skills` overrides every task. Legacy suites keep their existing defaults.
+Native YAML/JSON parsing checks whether `scenario` is present: null, non-string
+values and blank strings are rejected. This intentionally corrects earlier
+versionless/`1.x` null acceptance and numeric/boolean coercion. Remove the field
+for legacy behavior, or provide a nonblank string with exact `2.0` for a scenario;
+truly absent scenario fields retain legacy defaults.
 Legacy JSON-schema authoring requires `skill` when `scenario` is absent.
 The historical native loader/model validation used by `waza run` is not full
 JSON-schema validation: legacy default/`1.0`-`1.4` data can still load without
@@ -1462,7 +1515,7 @@ Generate tasks dynamically from a CSV file using `tasks_from`:
 ```yaml
 # eval.yaml
 tasks_from: ./test-cases.csv
-range: [0, 50]  # Optional: limit to rows 0-50 (skip header at 0)
+range: [1, 50]  # Optional: include 1-based data rows 1-50 (header excluded)
 ```
 
 **CSV Format:**
@@ -1477,6 +1530,16 @@ prompt,expected_output,language
 - **Each subsequent row** becomes a task
 - **Column values** are available as `{{.Vars.column_name}}`
 - **Range filtering** (optional) allows limiting to a subset of rows
+
+CSV loading is shared by `run`, `preflight`, `grade`, and run analysis.
+Fallback IDs and names retain the original 1-based data row number: `range: [2, 2]`
+selects `row-2`, including when regrading with `--task row-2`. Explicit `id` and
+`name` columns retain their precedence. Relative or absolute CSV paths must be
+lexically within the eval directory and remain inside after symlinks resolve.
+Contained links and relative sources under an aliased eval directory are allowed;
+an alternate physical absolute spelling outside the lexical alias root is rejected.
+This is a bounded path check, not a universal physical-equivalence, retained-root,
+or race-free guarantee.
 
 **Example task prompt using CSV variables:**
 
@@ -1494,7 +1557,7 @@ tasks:
   - "tasks/*.yaml"        # Explicit tasks
 
 tasks_from: ./test-cases.csv    # CSV-generated tasks
-range: [0, 20]                  # Only first 20 rows
+range: [1, 20]                  # Only first 20 data rows
 ```
 
 **CSV vs Inputs:**

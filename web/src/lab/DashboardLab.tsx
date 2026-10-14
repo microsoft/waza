@@ -1321,7 +1321,7 @@ export default function DashboardLab({ demo = false }: { demo?: boolean }) {
                   ? `Results could not be refreshed: ${source.error.message}. ${allRuns.length ? "Previously loaded results remain visible." : "No synthetic fallback is used."}`
                   : source.isPending
                     ? "Loading Waza results..."
-                    : `${allRuns.length} saved runs · automatic refresh every 15 seconds`}
+                    : `${allRuns.length} saved runs · ${source.automaticRefresh ? "automatic refresh every 15 seconds" : "remote archive: refresh on demand"}`}
               </p>
               <button
                 className="lab-button"

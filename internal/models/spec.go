@@ -434,6 +434,29 @@ type MeasurementDef struct {
 	Desc       string  `yaml:"description,omitempty" json:"desc,omitempty"`
 }
 
+// LoadEvalSpec loads a spec from a YAML file with strict validation.
+//
+// Normally the schema validation will catch errors in the eval.yaml, but this also does
+// strict YAML parsing to catch errors like unknown fields or type errors that the schema
+// validation might miss.
+func LoadEvalSpec(path string) (*EvalSpec, error) {
+	return loadEvalSpec(path, false)
+}
+
+// LoadEvalSpecOffline guards eager schema dependencies before native decoding.
+// An unavailable dependency returns an error rather than a partial EvalSpec.
+func LoadEvalSpecOffline(path string) (*EvalSpec, error) {
+	return loadEvalSpec(path, true)
+}
+
+func loadEvalSpec(path string, offline bool) (*EvalSpec, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	return parseEvalSpec(data, path, offline, nil)
+}
+
 // ClassifyEvalSpec checks the canonical eval version and scenario header without
 // decoding grader parameters or loading their resources.
 func ClassifyEvalSpec(data []byte, path string) (string, string, error) {
@@ -469,20 +492,28 @@ func ClassifyEvalSpec(data []byte, path string) (string, string, error) {
 	return version, scenario, nil
 }
 
-// LoadEvalSpec loads a spec from a YAML file with strict validation.
-//
-// Normally the schema validation will catch errors in the eval.yaml, but this also does
-// strict YAML parsing to catch errors like unknown fields or type errors that the schema
-// validation might miss.
-func LoadEvalSpec(path string) (*EvalSpec, error) {
-	data, err := os.ReadFile(path)
+// ParseEvalSpec retains the runtime loader behavior of LoadEvalSpec.
+// Offline consumers must guard resource-bearing parameters before typed decode.
+func ParseEvalSpec(data []byte, path string) (*EvalSpec, error) {
+	return parseEvalSpec(data, path, false, nil)
+}
+
+// ParseEvalSpecOffline examines immutable bytes with offline schema loading.
+// validate checks static configuration when external dependencies block native decode.
+func ParseEvalSpecOffline(data []byte, path string, validate func(string, GraderParameters) error) (*EvalSpec, error) {
+	return parseEvalSpec(data, path, true, validate)
+}
+
+func parseEvalSpec(data []byte, path string, offline bool, validate func(string, GraderParameters) error) (*EvalSpec, error) {
+	version, scenario, err := ClassifyEvalSpec(data, path)
 	if err != nil {
 		return nil, err
 	}
 
-	version, scenario, err := ClassifyEvalSpec(data, path)
-	if err != nil {
-		return nil, err
+	if offline {
+		if err := guardOfflineModelSchemas(data, false, validate); err != nil {
+			return nil, fmt.Errorf("eval schema dependencies: %w", err)
+		}
 	}
 
 	var spec EvalSpec

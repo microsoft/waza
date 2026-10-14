@@ -118,8 +118,10 @@ make native loading equivalent to full schema validation or universally
 enforce a target.
 Scenario evals require explicit `schemaVersion: "2.0"` and a nonempty string
 `scenario`. Tasks/results retain `1.x`. Old executables reject eval `2.0`
-before execution. In YAML and JSON, null, blank or non-string `scenario` values
-are invalid, not legacy opt-outs; omit the key entirely for a legacy eval.
+before execution. Native YAML/JSON parsing rejects present null/non-string/blank
+scenario identities, intentionally replacing earlier null acceptance and scalar
+coercion. Remove the field for a legacy suite, or use a nonblank string with
+exact `2.0`; truly absent fields retain legacy behavior.
 Optional `skill` uses existing skill/custom-agent precedence;
 without it or explicit directories, ambient discovery is disabled. An empty
 task `skill_directories: []` disables discovery; `--no-skills` overrides all
@@ -270,6 +272,82 @@ Execute the benchmark:
 ```bash
 waza run evals/code-explainer/eval.yaml --context-dir evals/code-explainer/fixtures -v
 ```
+
+Inspect setup without starting any agent, interpreter, hook, mock server, or live
+service first:
+
+```bash
+waza preflight evals/code-explainer/eval.yaml --context-dir evals/code-explainer/fixtures
+waza preflight evals/code-explainer/eval.yaml --format json > preflight.json
+```
+
+Preflight verifies only local schemas/configuration, task discovery/IDs, paths,
+locked cached graders, mock matching, references, and static capability support.
+Valid unmatched task globs are optional when other patterns discover tasks.
+CSV paths must be lexically within the eval directory and remain within it
+after resolving symlinks;
+ranged CSV fallback IDs/names retain their original 1-based data row number.
+The same CSV loader serves execution, preflight, regrading, and run analysis:
+`range: [2, 2]` results can be regraded with `waza grade --task row-2`.
+Explicit CSV IDs/names and template variables retain their existing precedence.
+Command-side CSV loading also rejects resolved symlink escapes while allowing
+contained links. An aliased eval base accepts relative contained sources, but an
+alternate physical absolute spelling outside its lexical alias root is rejected.
+This does not provide universal physical equivalence, a retained-root, or a
+race-free guarantee.
+Live MCP settings use the runtime's pure decoder, so malformed headers or
+environment maps fail even though live availability remains unresolved.
+Model availability, credentials, conditional checkpoint execution, interpreter
+syntax, service readiness, and external state are unresolved. Missing/invalid
+configuration exits 1; unresolved/unsupported warns and exits 0, or 1 with the
+new opt-in `--strict` policy. Existing commands keep their prior exits.
+Preflight guards eager argument schemas before eval/task/checkpoint decoding and
+before cached-preset or merged-override materialization. External prerequisites
+remain unresolved with an incomplete report; literals and returned mock payloads
+are not schemas. Later grader schema-file and MCP input-schema checks also mark
+unavailable external dependencies incomplete. Runtime schema-loading defaults
+remain unchanged. CSV containment accepts filesystem/volume-root eval
+directories. File-backed resource paths containing `..` within a cleaned segment
+are rejected by the existing runtime loader and diagnosed by preflight; rename
+the file or segment. Workspace-relative resource/instruction and file/diff paths
+must not clean to the workspace root (`.` or `./`), including inline resource
+destinations. Contained absolute CSV paths retain their actual source in task
+plans and diagnostics; relative CSV sources still resolve from the eval directory.
+
+Task requirements are optional **descriptions**, not assertions:
+
+```yaml
+requirements:
+  - id: artifact-present
+    category: outcome
+    description: The expected artifact exists in the captured workspace.
+    checks:
+      - scope: task
+        grader: artifact-files
+  - id: recovery-visible
+    category: recovery
+    description: Recovery state is observable after the second turn.
+    checks:
+      - scope: checkpoint
+        after_turn: 2
+        grader: recovery-state
+```
+
+Each reference selects an existing explicit grader by name in its `eval`, `task`,
+or `checkpoint` scope. Only checkpoint references accept `after_turn`. IDs are
+unique within a task; several requirements may share a check. Empty/absent checks
+are uncovered/unresolved. Unknown or ambiguous references are preflight errors,
+without changing runtime grader execution. Equivalent valid tool paths remain
+allowed unless the chosen existing grader explicitly constrains a sequence.
+Text success alone does not establish external resulting state.
+
+Use a build containing #660 for `preflight`; descriptive metadata remains
+v1-compatible and old readers may ignore it. This is not a minimum-version
+enforcement mechanism. Preflight reports use `kind: waza.preflight` and their own
+`schemaVersion: "1.0"`; they are not `results.json`, and inventory `complete`
+does not mean requirements are satisfied. See the
+[preflight guide](https://microsoft.github.io/waza/guides/preflight/) for diagnostics
+and path-resolution rules.
 
 If your eval uses remote grader presets, resolve them first:
 
@@ -592,6 +670,11 @@ streams require **Reconnect stream** rather than claiming automatic retry.
 The configured local storage adapter refreshes too. Incomplete rewrites of known
 artifacts fail refresh without discarding cached evidence; successful scans still
 reflect intentional deletion and ignore unrelated malformed new files.
+Missing directories remain empty while no artifacts have been admitted. New
+unrelated inaccessible paths are skipped; root and admitted-path failures remain
+explicit. Nonempty remote archives refresh on demand rather than every 15
+seconds. Evidence tabs support arrow/Home/End navigation, and nullable task or
+grader lists normalize to empty evidence in inspectors and exports.
 
 Don't auto-open browser:
 ```bash

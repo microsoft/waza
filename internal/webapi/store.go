@@ -51,7 +51,7 @@ func (fs *FileStore) load() error {
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
 
-	replacement, files, err := storage.ReadLocalResults(fs.dir, fs.files, fs.loaded)
+	replacement, files, err := storage.ReadLocalResults(fs.dir, fs.files)
 	if err != nil {
 		fs.loadErr = err
 		return err

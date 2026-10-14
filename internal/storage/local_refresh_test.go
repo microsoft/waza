@@ -1,12 +1,66 @@
 package storage
 
 import (
+	"encoding/json"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
+
+func TestLocalStoreMissingEmptyDirectoryRemainsEmpty(t *testing.T) {
+	store := NewLocalStore(filepath.Join(t.TempDir(), "not-created"))
+	for range 3 {
+		list, err := store.List(t.Context(), ListOptions{})
+		require.NoError(t, err)
+		require.Empty(t, list)
+		require.NoError(t, store.Reload())
+	}
+}
+
+func TestReadLocalResultsWalkErrorsRespectAdmission(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "known", "cached.json")
+	require.NoError(t, os.MkdirAll(filepath.Dir(file), 0o700))
+	data, err := json.Marshal(makeOutcome("cached", "skill", "mock", 1, 1))
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(file, data, 0o600))
+	info, err := os.Stat(file)
+	require.NoError(t, err)
+	for _, tc := range []struct {
+		name, path string
+		fail       bool
+	}{
+		{"root", dir, true},
+		{"known-file", file, true},
+		{"known-subtree", filepath.Dir(file), true},
+		{"new-file", filepath.Join(dir, "new.json"), false},
+		{"unrelated-subtree", filepath.Join(dir, "unrelated"), false},
+		{"similar-prefix-not-known", filepath.Join(dir, "known-other"), false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			walk := func(_ string, visit fs.WalkDirFunc) error {
+				if err := visit(file, fs.FileInfoToDirEntry(info), nil); err != nil {
+					return err
+				}
+				return visit(tc.path, nil, &os.PathError{Op: "readdir", Path: tc.path, Err: fs.ErrPermission})
+			}
+			results, files, err := readLocalResults(dir, map[string]struct{}{file: {}}, walk)
+			if tc.fail {
+				require.ErrorIs(t, err, fs.ErrPermission)
+				require.ErrorContains(t, err, tc.path)
+				require.Nil(t, results)
+				require.Nil(t, files)
+			} else {
+				require.NoError(t, err)
+				require.Contains(t, results, "cached")
+				require.Contains(t, files, file)
+			}
+		})
+	}
+}
 
 func TestReadLocalResultReadFailuresRespectAdmission(t *testing.T) {
 	for _, known := range []bool{false, true} {

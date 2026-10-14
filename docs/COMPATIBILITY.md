@@ -54,6 +54,14 @@ without executing Go or an agent (POSIX hosts with Make installed).
 configuration, results, snapshot, lock shape and dashboard API fixture.
 Treat these as fixed inputs. Change an expectation only with an explicit
 reviewed behavioral decision, not to make a failing test green.
+The user-directed 2026-10-12 scenario admission correction is an explicit
+exception: native YAML/JSON readers reject present null/non-string/blank
+`scenario` fields, including previously accepted versionless/`1.x` nulls and
+scalar coercions. A present identity requires a nonblank string and exact eval
+`schemaVersion: "2.0"`. Remove the field to retain legacy behavior, or supply that
+identity/version pair. Truly absent scenario fields and task/result defaults are
+unchanged. `TestClassifyEvalSpecDeclaredScenarioSchemaParity` compares native
+classify/parse/load/offline admission with the published schema for both formats.
 Remote-lock setup exercises both LF and CRLF eval inputs and asserts that
 the inline grader was replaced before testing lock expansion and tampering.
 

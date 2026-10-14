@@ -7,6 +7,22 @@ description: Complete guide to YAML structure for evaluation benchmarks.
 
 A complete reference for writing `eval.yaml` specifications and task definitions.
 
+## Offline planning and descriptive requirements
+
+Run `waza preflight eval.yaml --format json` before starting an evaluation.
+It inspects local task discovery/IDs, paths, configuration, locks/cache, mocks,
+capabilities and requirement references without starting any agent or service.
+Unresolved credentials and external state are not reported verified.
+
+Task `requirements` optionally describe `outcome`, `boundary`, `recovery` and
+`quality` intent with stable task-local IDs. Each check names an explicit existing
+grader using `scope: eval|task|checkpoint` and `grader`; checkpoint scope alone
+requires `after_turn`. Empty checks are uncovered/unresolved. Metadata does not
+create assertions, enforce runtime policy, require one implementation path, or
+change existing v1 grading/exits. Reference resolution is not satisfaction.
+Use [Offline Eval Preflight](../preflight/) for complete valid examples and the
+static-versus-runtime evidence distinction.
+
 ## Agent-ready workflow
 
 This guide is designed to be given directly to a coding agent. The agent should
@@ -44,9 +60,11 @@ plumbing only, not agent quality. See the
 Scenario evals require a nonempty `scenario` string and **exact**
 `schemaVersion: "2.0"`. Older executables reject that major before executing;
 `1.x`, omitted versions, `2.1` and future majors are not scenario contracts.
-Presence of the `scenario` key is explicit in YAML and JSON: null, blank strings,
-booleans, numbers, arrays and objects are invalid, not legacy opt-outs. To keep
-a legacy eval, omit the `scenario` key entirely.
+Presence of the `scenario` key is explicit in YAML and JSON.
+Presence is checked in native YAML/JSON parsing: null, numeric/boolean values,
+objects, arrays and blank strings are invalid. This intentionally stops earlier
+versionless/`1.x` null acceptance and scalar coercion. Remove the field for a
+legacy suite, or provide a nonblank string and exact `2.0` for a scenario.
 Tasks and results retain `1.x`; the dashboard still displays the suite's
 `eval_name` and generic results have an empty `skill`.
 Optional `skill` selects existing skill/custom-agent context with unchanged
@@ -71,6 +89,7 @@ directory; absolute paths are admitted from the filesystem root, with only
 verified literal macOS `/var` and `/tmp` system aliases. Writes use retained
 directory handles rather than following replaced parent paths. This does not
 provide rollback or prevent an admitted directory from subsequently being moved.
+
 Scenario `2.0` bypasses result caching with an explicit notice, even with
 `--cache`, until external workflow dependencies can be fully fingerprinted.
 Legacy `1.x` caching and billing attribution are unchanged.
@@ -280,7 +299,7 @@ tasks:
 | `schemaVersion` | string | Scenario `2.0` | Legacy defaults to `1.4`; scenarios explicitly select `2.0` |
 | `version`     | string | ✗        | Version number (e.g., "1.0")                                                               |
 | `inputs`      | object | ✗        | Key-value map of global template variables (see [Template Variables](#template-variables)) |
-| `tasks_from`  | string | ✗        | Path to an external YAML file containing the task list                                     |
+| `tasks_from`  | string | ✗        | Relative or absolute CSV dataset path; takes precedence over `tasks` when nonempty         |
 | `hooks`       | object | ✗        | Lifecycle hooks that run shell commands at specific points (see [Hooks](#hooks))           |
 | `mcp_mocks`   | array  | ✗        | Hermetic MCP server mocks for deterministic tool-call evals; requires `schemaVersion: "1.1"` |
 | `command_mocks` | array | ✗       | Hermetic executable shims for CLI-dependent evals; requires `schemaVersion: "1.3"` or newer and `executor: copilot-sdk` |
@@ -1172,11 +1191,12 @@ inputs:
 
 ## External Task Lists
 
-Use `tasks_from` to load task definitions from a separate YAML file:
+Use `tasks_from` to generate tasks from a CSV dataset:
 
 ```yaml
 name: shared-eval
-tasks_from: shared-tasks.yaml
+tasks_from: shared-tasks.csv
+range: [2, 2]
 
 config:
   trials_per_task: 3
@@ -1184,6 +1204,19 @@ config:
 ```
 
 This is useful when multiple eval specs share the same task set but differ in config or graders.
+
+The first CSV row supplies headers; subsequent rows are 1-based data rows.
+Fallback IDs/names retain the original row number, so this range selects
+`row-2` unless an explicit `id` or `name` supplies the identity. `run`,
+`preflight`, `grade`, and run analysis share selection and template semantics.
+Regrade the resulting task with `waza grade eval.yaml --results results.json
+--task row-2`, or omit `--task` to grade all selected tasks.
+CSV paths resolve from the eval directory unless absolute. They must be lexically
+inside that directory and remain inside after symlinks resolve. Contained links
+are allowed. An aliased eval base accepts relative contained sources, but an
+alternate physical absolute spelling outside the lexical alias root is rejected.
+The check does not provide universal physical equivalence, a retained-root, or a
+race-free guarantee.
 
 ---
 

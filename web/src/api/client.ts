@@ -124,6 +124,24 @@ export interface RunDetail extends RunSummary {
   statistics?: ReliabilitySummary;
 }
 
+export type TaskResultWire = Omit<TaskResult, "graderResults"> & {
+  graderResults: GraderResult[] | null;
+};
+
+export type RunDetailWire = Omit<RunDetail, "tasks"> & {
+  tasks: TaskResultWire[] | null;
+};
+
+export function normalizeRunDetail(detail: RunDetailWire): RunDetail {
+  return {
+    ...detail,
+    tasks: (detail.tasks ?? []).map((task) => ({
+      ...task,
+      graderResults: task.graderResults ?? [],
+    })),
+  };
+}
+
 async function fetchJSON<T>(url: string, signal?: AbortSignal): Promise<T> {
   const res = await fetch(url, { signal });
   if (!res.ok) {
@@ -145,8 +163,10 @@ export function fetchRuns(
   );
 }
 
-export function fetchRunDetail(id: string, signal?: AbortSignal): Promise<RunDetail> {
-  return fetchJSON<RunDetail>(`/api/runs/${encodeURIComponent(id)}`, signal);
+export async function fetchRunDetail(id: string, signal?: AbortSignal): Promise<RunDetail> {
+  return normalizeRunDetail(
+    await fetchJSON<RunDetailWire>(`/api/runs/${encodeURIComponent(id)}`, signal),
+  );
 }
 
 export function fetchLabRuns(signal?: AbortSignal): Promise<RunSummary[]> {

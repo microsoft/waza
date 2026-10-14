@@ -29,7 +29,10 @@ waza serve --lab --results-dir ./results --no-browser
 or replace classic views. `--lab` and `--tcp` are mutually exclusive. The server
 keeps its existing loopback bind; no cloud authentication or hosting is added.
 
-Local artifacts refresh every 15 seconds or with **Refresh results**.
+Local artifacts refresh every 15 seconds or with **Refresh results**. Once
+summaries identify a remote archive, automatic polling stops: use **Refresh
+results** to reload it explicitly rather than repeatedly downloading every
+remote artifact. Empty archives keep checking for their first saved result.
 Storage-backed results use the existing configured storage adapter. Loading,
 refresh failures, stale results, and retry actions are visible. The default
 window is **All time**, so older histories remain accessible.
@@ -41,6 +44,9 @@ This refresh also applies when storage is enabled with the local/default backend
 An incomplete or invalid rewrite of a previously loaded artifact reports a
 refresh error and retains the prior snapshot. Intentional file deletion is
 reflected after a successful scan; unrelated malformed new files remain ignored.
+An uncreated empty results directory remains empty across refreshes. Inaccessible
+new unrelated paths are skipped; failures affecting the root or previously
+admitted artifacts retain explicit errors and the prior snapshot.
 
 For frontend-only exploration of the synthetic demo, no Go server is needed:
 
@@ -71,6 +77,9 @@ The inspector uses actual recorded prompts, graders, session digests, responder
 metadata, model usage, and the existing trajectory viewer. It supports keyboard
 focus containment, Escape to close, and focus restoration. Detail artifacts are
 loaded on demand rather than downloading all transcripts for the overview.
+Evidence tabs use a single Tab stop with ArrowLeft/ArrowRight, Home, and End to
+move focus and selection. Nullable task/grader arrays are empty recorded
+evidence, not errors or invented scores, including in JSON reports.
 
 <ZoomImage src="../../images/dashboard-lab-compare.png" alt="Baseline comparison with aligned task scores, regressions, and added task coverage." />
 

@@ -202,3 +202,21 @@ func TestLabConfiguredLocalAdapterRefreshesArtifacts(t *testing.T) {
 		})
 	}
 }
+
+func TestLabMissingEmptyArchiveKeepsRefreshing(t *testing.T) {
+	for _, configured := range []bool{false, true} {
+		t.Run(map[bool]string{false: "file-store", true: "configured-local-adapter"}[configured], func(t *testing.T) {
+			dir := filepath.Join(t.TempDir(), "not-created")
+			mux := labRefreshMux(t, dir, configured)
+			for range 3 {
+				require.Empty(t, labRefreshRuns(t, mux, "/api/v1/lab/runs"))
+			}
+			writeOutcomeFile(t, filepath.Join(dir, "known.json"), labRefreshOutcome("known", 0.5))
+			require.Len(t, labRefreshRuns(t, mux, "/api/v1/lab/runs"), 1)
+			require.NoError(t, os.Remove(filepath.Join(dir, "known.json")))
+			require.NoError(t, os.Remove(dir))
+			labRefreshRequest(t, mux, "/api/v1/lab/runs", http.StatusInternalServerError)
+			labRefreshRequest(t, mux, "/api/runs/known", http.StatusOK)
+		})
+	}
+}

@@ -2,7 +2,8 @@ import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   fetchLabRuns,
   fetchRunDetail,
-  type RunDetail,
+  normalizeRunDetail,
+  type RunDetailWire,
   type RunSummary,
 } from "../api/client";
 import { runs, type LabRun } from "./data";
@@ -24,7 +25,8 @@ export function fromSummary(summary: RunSummary): LabRun {
   };
 }
 
-export function fromDetail(detail: RunDetail): LabRun {
+export function fromDetail(wire: RunDetailWire): LabRun {
+  const detail = normalizeRunDetail(wire);
   const names = new Map<string, number>();
   const ids = new Map<string, number>();
   for (const task of detail.tasks) {
@@ -68,6 +70,10 @@ export function fromDetail(detail: RunDetail): LabRun {
   };
 }
 
+function isLocalArchive(items: LabRun[] | undefined) {
+  return !(items?.some((run) => run.source !== "local") ?? false);
+}
+
 export function useLabSource(demo: boolean) {
   const queryClient = useQueryClient();
   const query = useQuery({
@@ -83,10 +89,16 @@ export function useLabSource(demo: boolean) {
       return summaries;
     },
     enabled: !demo,
-    refetchInterval: 15_000,
+    refetchInterval: (query) => isLocalArchive(query.state.data) ? 15_000 : false,
+    refetchOnWindowFocus: (query) => isLocalArchive(query.state.data),
+    refetchOnReconnect: (query) => isLocalArchive(query.state.data),
     retry: false,
   });
-  return { ...query, runs: demo ? runs : (query.data ?? []) };
+  return {
+    ...query,
+    automaticRefresh: isLocalArchive(query.data),
+    runs: demo ? runs : (query.data ?? []),
+  };
 }
 
 export function useLabDetails(ids: string[], demo: boolean) {
@@ -97,6 +109,8 @@ export function useLabDetails(ids: string[], demo: boolean) {
         fromDetail(await fetchRunDetail(id, signal)),
       enabled: !demo,
       staleTime: 0,
+      refetchOnReconnect: (query: { state: { data?: LabRun } }) =>
+        isLocalArchive(query.state.data ? [query.state.data] : undefined),
       retry: false,
     })),
   });

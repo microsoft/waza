@@ -25,6 +25,14 @@ scenario semantics; `2.1` and future majors are not supported scenario versions.
 | Task YAML | No independent version field | Existing legacy format, unchanged |
 | `snapshot.json` | `schemaVersion` | `1.0` |
 | Dashboard/SSE event envelope | `schemaVersion` | `1.0` |
+| `waza.preflight` report | `schemaVersion` | `1.0` (independent artifact) |
+
+Optional task `requirements` introduced by #660 are descriptive v1-compatible
+metadata, without a global schema bump or new runtime/exit semantics. Old readers
+can ignore them; a minimum-version note does not enforce requirements.
+`waza preflight` requires a CLI build containing #660. Its report is identified
+by `kind: "waza.preflight"` and is never parsed/discovered as evaluation results.
+See [Offline Eval Preflight](/guides/preflight/) for its states and strict policy.
 
 ## Policy
 
@@ -49,6 +57,16 @@ For a supported scenario eval `2.0`, it validates the file and leaves its bytes
 unchanged; it does not downgrade scenario discovery semantics to `1.x`.
 
 ## Changelog
+
+### Scenario admission correction (2026-10-12)
+
+- Native eval YAML/JSON parsing now enforces the published `scenario` schema
+  whenever the field is present: a nonblank string and exact `schemaVersion: "2.0"`.
+- This is an intentional compatibility change: previously accepted
+  versionless/`1.x` `scenario: null` and numeric/boolean scalar coercions are
+  rejected. Remove the field for legacy behavior, or provide a nonblank string
+  with exact `2.0`. Truly absent `scenario` retains existing legacy defaults;
+  tasks/results and their same-major behavior are unchanged.
 
 ### 2.0 (scenario evals only)
 

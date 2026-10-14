@@ -101,10 +101,13 @@ func TestScenarioRequiredSkillsUseEnabledPaths(t *testing.T) {
 			}}
 			runner := NewEvalRunner(config.NewEvalConfig(spec, config.WithSpecDir(dir)), nil)
 			err := runner.validateRequiredSkills()
+			offlineErr := ValidateRequiredSkillConfiguration(spec, dir)
 			if tt.wantErr != "" {
 				require.ErrorContains(t, err, tt.wantErr)
+				require.ErrorContains(t, offlineErr, tt.wantErr)
 			} else {
 				require.NoError(t, err)
+				require.NoError(t, offlineErr)
 			}
 		})
 	}

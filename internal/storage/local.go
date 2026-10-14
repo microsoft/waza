@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -140,7 +141,7 @@ func (ls *LocalStore) load() error {
 	ls.mu.Lock()
 	defer ls.mu.Unlock()
 
-	cache, files, err := ReadLocalResults(ls.dir, ls.files, ls.loaded)
+	cache, files, err := ReadLocalResults(ls.dir, ls.files)
 	if err != nil {
 		return err
 	}
@@ -158,7 +159,11 @@ func (ls *LocalStore) Reload() error {
 // ReadLocalResults builds a replacement snapshot without mutating the caller's
 // cache. Previously admitted file paths must remain readable valid artifacts;
 // newly introduced unrelated or malformed files retain tolerant admission.
-func ReadLocalResults(dir string, previousFiles map[string]struct{}, loaded bool) (map[string]*models.EvaluationOutcome, map[string]struct{}, error) {
+func ReadLocalResults(dir string, previousFiles map[string]struct{}) (map[string]*models.EvaluationOutcome, map[string]struct{}, error) {
+	return readLocalResults(dir, previousFiles, filepath.WalkDir)
+}
+
+func readLocalResults(dir string, previousFiles map[string]struct{}, walk func(string, fs.WalkDirFunc) error) (map[string]*models.EvaluationOutcome, map[string]struct{}, error) {
 	results := make(map[string]*models.EvaluationOutcome)
 	files := make(map[string]struct{})
 	if dir == "" {
@@ -167,7 +172,7 @@ func ReadLocalResults(dir string, previousFiles map[string]struct{}, loaded bool
 
 	info, err := os.Stat(dir)
 	if err != nil {
-		if os.IsNotExist(err) && !loaded {
+		if os.IsNotExist(err) && len(previousFiles) == 0 {
 			return results, files, nil
 		}
 		return nil, nil, fmt.Errorf("reading results directory: %w", err)
@@ -176,9 +181,19 @@ func ReadLocalResults(dir string, previousFiles map[string]struct{}, loaded bool
 		return nil, nil, fmt.Errorf("results path %q is not a directory", dir)
 	}
 
-	err = filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
+	err = walk(dir, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
-			return fmt.Errorf("walking results path %q: %w", path, err)
+			knownSubtree := path == dir
+			for file := range previousFiles {
+				if file == path || strings.HasPrefix(file, path+string(filepath.Separator)) {
+					knownSubtree = true
+					break
+				}
+			}
+			if knownSubtree {
+				return fmt.Errorf("walking results path %q: %w", path, err)
+			}
+			return nil
 		}
 		_, known := previousFiles[path]
 		if d.IsDir() {
