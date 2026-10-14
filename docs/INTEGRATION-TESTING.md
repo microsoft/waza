@@ -51,7 +51,7 @@ config:
 
 ### Native command sandbox
 
-Set `schemaVersion: "1.3"` and opt into Copilot CLI's native sandbox when an evaluation allows model-visible shell or file tools:
+Set `schemaVersion: "1.3"` or newer (or use a scenario eval with `schemaVersion: "2.0"`) and opt into Copilot CLI's native sandbox when an evaluation allows model-visible shell or file tools:
 
 ```yaml
 schemaVersion: "1.3"

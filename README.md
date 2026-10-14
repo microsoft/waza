@@ -1527,7 +1527,7 @@ The skill remains available to the Copilot SDK through its configured skill dire
 
 ### Copilot-native sandbox
 
-`copilot-sdk` evaluations can opt into Copilot CLI's native OS sandbox with `schemaVersion: "1.3"`:
+`copilot-sdk` evaluations can opt into Copilot CLI's native OS sandbox with legacy `schemaVersion: "1.3"` or newer, or in a scenario eval with `schemaVersion: "2.0"`:
 
 ```yaml
 schemaVersion: "1.3"

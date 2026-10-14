@@ -716,19 +716,8 @@ func (s *EvalSpec) Validate() error {
 		}
 	}
 	if s.Config.Sandbox != nil {
-		major, minor, err := parseSchemaVersion(s.SchemaVersion)
-		if err != nil {
+		if err := validateSandboxSchemaVersion(s.SchemaVersion, s.Scenario != ""); err != nil {
 			return err
-		}
-		currentMajor, _, err := parseSchemaVersion(CurrentSchemaVersion)
-		if err != nil {
-			return err
-		}
-		if major != currentMajor {
-			return fmt.Errorf("sandbox does not support schema major %d (current major %d)", major, currentMajor)
-		}
-		if minor < 3 {
-			return fmt.Errorf("sandbox requires schemaVersion 1.3 or newer")
 		}
 		if s.Config.EngineType != "copilot-sdk" {
 			return fmt.Errorf("sandbox requires executor copilot-sdk")
@@ -755,6 +744,25 @@ func (s *EvalSpec) SkillsDisabledForTask(taskPaths []string) bool {
 	return s.Config.AllSkillsDisabled() ||
 		(s.Scenario != "" && taskPaths != nil && len(taskPaths) == 0) ||
 		(s.Scenario != "" && strings.TrimSpace(s.SkillName) == "" && len(s.Config.FilteredSkillPaths()) == 0 && len(taskPaths) == 0)
+}
+
+// validateSandboxSchemaVersion accepts the legacy 1.3+ sandbox contract and the
+// exact scenario schema. The scenario header itself owns 2.0 admission.
+func validateSandboxSchemaVersion(version string, scenario bool) error {
+	if scenario && version == ScenarioSchemaVersion {
+		return nil
+	}
+	major, minor, err := parseSchemaVersion(version)
+	if err != nil {
+		return err
+	}
+	if major == 1 && minor >= 3 {
+		return nil
+	}
+	if major == 1 {
+		return fmt.Errorf("sandbox requires schemaVersion 1.3 or newer")
+	}
+	return fmt.Errorf("sandbox does not support schemaVersion %s; use legacy 1.3 or newer, or a scenario eval with schemaVersion %s", version, ScenarioSchemaVersion)
 }
 
 func validateGraderReasoningEffort(name string, parameters GraderParameters, executor string) error {

@@ -387,7 +387,7 @@ config:
 | `disabled_skills`   | list[str] | `[]`              | Skills to disable. Use `["*"]` to disable all skills        |
 | `required_skills`   | list[str] | `[]`              | Skills that must be available before running                |
 | `mcp_servers`       | object    | —                 | MCP server configurations for the evaluation. When `tools` is omitted or null for a server, Waza exposes all server tools by sending `["*"]` to the Copilot SDK. Set `tools` to an explicit list, including `[]`, to restrict or disable exposed tools. |
-| `sandbox`           | object    | —                 | Opt into Copilot-native command isolation. Waza grants task-workspace read/write and declared-skill read-only access; risky capabilities default off. Requires `schemaVersion: "1.3"`. |
+| `sandbox`           | object    | —                 | Opt into Copilot-native command isolation. Waza grants task-workspace read/write and declared-skill read-only access; risky capabilities default off. Requires legacy `schemaVersion: "1.3"` or newer, or scenario `2.0`. |
 
 ### Copilot-native sandbox
 

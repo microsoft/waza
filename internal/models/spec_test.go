@@ -155,7 +155,7 @@ func TestEvalSpec_Validate_SandboxRequiresSchemaVersion13(t *testing.T) {
 
 func TestEvalSpec_Validate_SandboxRejectsUnsupportedSchemaMajor(t *testing.T) {
 	spec := &EvalSpec{
-		SchemaVersion: "2.0",
+		SchemaVersion: "3.0",
 		SpecIdentity:  SpecIdentity{Name: "sandboxed"},
 		Config: Config{
 			TrialsPerTask: 1,
@@ -166,7 +166,39 @@ func TestEvalSpec_Validate_SandboxRejectsUnsupportedSchemaMajor(t *testing.T) {
 	}
 
 	err := spec.Validate()
-	require.ErrorContains(t, err, "sandbox does not support schema major 2")
+	require.ErrorContains(t, err, "sandbox does not support schemaVersion 3.0")
+}
+
+func TestEvalSpec_Validate_SandboxSchemaVersions(t *testing.T) {
+	for _, tc := range []struct {
+		name, version, scenario, wantErr string
+	}{
+		{name: "legacy current", version: "1.4"},
+		{name: "legacy introduced", version: "1.3"},
+		{name: "scenario", version: "2.0", scenario: "inventory"},
+		{name: "major two without scenario", version: "2.0", wantErr: "sandbox does not support schemaVersion 2.0"},
+		{name: "future scenario minor", version: "2.1", scenario: "inventory", wantErr: "scenario requires explicit schemaVersion"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			spec := &EvalSpec{
+				SchemaVersion: tc.version,
+				SpecIdentity:  SpecIdentity{Name: "sandboxed"},
+				Scenario:      tc.scenario,
+				Config: Config{
+					TrialsPerTask: 1,
+					TimeoutSec:    60,
+					EngineType:    "copilot-sdk",
+					Sandbox:       &SandboxConfig{Enabled: true},
+				},
+			}
+			err := spec.Validate()
+			if tc.wantErr == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorContains(t, err, tc.wantErr)
+		})
+	}
 }
 
 func TestEvalSpec_Validate_SandboxRequiresCopilotExecutor(t *testing.T) {

@@ -374,6 +374,43 @@ tasks:
 	}
 }
 
+func TestValidateEvalBytes_SandboxScenarioSchemaVersion(t *testing.T) {
+	for name, tc := range map[string]struct {
+		header  string
+		valid   bool
+		wantErr string
+	}{
+		"scenario 2.0":             {header: "scenario: inventory\nschemaVersion: \"2.0\"\n", valid: true},
+		"skill with major two":     {header: "skill: test-skill\nschemaVersion: \"2.0\"\n", wantErr: "scenario"},
+		"scenario future minor":    {header: "scenario: inventory\nschemaVersion: \"2.1\"\n", wantErr: "schemaVersion"},
+		"skill future major three": {header: "skill: test-skill\nschemaVersion: \"3.0\"\n", wantErr: "schemaVersion"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			yaml := "name: test-eval\n" + tc.header + `config:
+  trials_per_task: 1
+  timeout_seconds: 60
+  executor: copilot-sdk
+  model: gpt-4o
+  sandbox:
+    enabled: true
+metrics:
+  - name: accuracy
+    weight: 1.0
+    threshold: 0.8
+tasks:
+  - "tasks/*.yaml"
+`
+			errs := ValidateEvalBytes([]byte(yaml))
+			if tc.valid {
+				require.Empty(t, errs)
+				return
+			}
+			require.NotEmpty(t, errs)
+			require.Contains(t, joinErrs(errs), tc.wantErr)
+		})
+	}
+}
+
 func TestValidateEvalBytes_SandboxRequiresExplicitExecutor(t *testing.T) {
 	yaml := `name: test-eval
 skill: test-skill

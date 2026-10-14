@@ -81,6 +81,7 @@ unchanged; it does not downgrade scenario discovery semantics to `1.x`.
 - Added a nonempty `scenario` workflow identity with optional existing `skill` context; scenario scaffolds explicitly select exact eval `2.0`, while legacy reader defaults remain `1.4` and task formats are unchanged.
 - Target-free scenarios without effective explicit skill directories disable native SDK skill discovery; disabling the last eval directory preserves that isolation. Explicit task directories still opt in, empty task directories disable discovery, and `--no-skills` overrides opt-ins.
 - Scenario evals reject unknown eval/config fields and future minor versions. Old executables reject major `2` before execution.
+- Scenario evals accept the existing optional `config.sandbox` policy with the same `copilot-sdk` requirement and behavior as legacy `1.3`+ evals.
 - Scenario result caching is bypassed with a notice until external dependencies can be completely fingerprinted.
 
 ### 1.6 (new results only)
