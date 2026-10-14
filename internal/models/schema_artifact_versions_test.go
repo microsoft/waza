@@ -108,7 +108,12 @@ func TestEvidenceResultFieldsUseCurrentWriterVersion(t *testing.T) {
 		t.Run(map[bool]string{false: "absent", true: "recorded"}[recorded], func(t *testing.T) {
 			run := RunResult{RunNumber: 1}
 			if recorded {
-				run.Evidence = &EvidenceManifest{Version: "1.0"}
+				run.Evidence = &EvidenceManifest{
+					Version:   "1.0",
+					SHA256:    "0000000000000000000000000000000000000000000000000000000000000000",
+					Runtime:   EvidenceRuntime{ExecutionMode: "unknown", NativeSkillControl: "unknown"},
+					Artifacts: []EvidenceArtifact{},
+				}
 				run.RequirementExplanations = []RequirementExplanation{{
 					TaskID: "task", RequirementID: "requirement", Checks: []CheckExplanation{},
 				}}

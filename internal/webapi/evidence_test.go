@@ -153,6 +153,48 @@ func TestEvidenceAPIWithholdsAbsentRequiredObjects(t *testing.T) {
 	}
 }
 
+func TestEvidenceAPIWithholdsRawScalarNormalization(t *testing.T) {
+	for _, absent := range []bool{false, true} {
+		for _, cached := range []bool{false, true} {
+			t.Run(fmt.Sprintf("missing=%t/cached=%t", absent, cached), func(t *testing.T) {
+				manifest := &models.EvidenceManifest{
+					Origin:  models.EvidenceOrigin{EvalID: "eval", TaskID: "task", RunNumber: 1, AttemptCount: 1},
+					Runtime: models.EvidenceRuntime{ExecutionMode: "unknown", NativeSkillControl: "unknown"},
+				}
+				require.NoError(t, evidence.Seal(manifest))
+				data, err := json.Marshal(manifest)
+				require.NoError(t, err)
+				var object map[string]any
+				require.NoError(t, json.Unmarshal(data, &object))
+				runtime, ok := object["runtime"].(map[string]any)
+				require.True(t, ok)
+				runtime["waza_version"] = nil
+				if absent {
+					delete(runtime, "waza_version")
+				}
+				data, err = json.Marshal(object)
+				require.NoError(t, err)
+				require.NoError(t, json.Unmarshal(data, manifest))
+				outcome := &models.EvaluationOutcome{RunID: "eval", TestOutcomes: []models.TestOutcome{{
+					TestID: "task", Cached: cached, Runs: []models.RunResult{{
+						RunNumber: 1, Attempts: 1, Evidence: manifest,
+						RequirementExplanations: []models.RequirementExplanation{{RequirementID: "do-not-display"}},
+					}},
+				}}}
+				before, err := json.Marshal(outcome)
+				require.NoError(t, err)
+				row := outcomeToDetail(outcome).Tasks[0].EvidenceRuns[0]
+				require.Equal(t, "invalid", row.Assessment)
+				require.Nil(t, row.Manifest)
+				require.Empty(t, row.Explanations)
+				after, err := json.Marshal(outcome)
+				require.NoError(t, err)
+				require.Equal(t, before, after)
+			})
+		}
+	}
+}
+
 func TestEvidenceAPIValidatesRequirementReferences(t *testing.T) {
 	for _, test := range []struct {
 		name        string

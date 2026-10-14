@@ -46,7 +46,7 @@ func Seal(manifest *models.EvidenceManifest) error {
 	if manifest == nil {
 		return errors.New("evidence: manifest is required")
 	}
-	if manifest.HasInvalidRequiredObjects() {
+	if manifest.HasInvalidRequiredObjects() || manifest.HasInvalidSchema() {
 		return Validate(manifest)
 	}
 	manifest.Version = Version
@@ -67,6 +67,9 @@ func Validate(manifest *models.EvidenceManifest) error {
 	}
 	if manifest.HasInvalidRequiredObjects() {
 		return errors.New("evidence: origin, runtime and redaction must be objects")
+	}
+	if manifest.HasInvalidSchema() {
+		return errors.New("evidence: manifest JSON does not match the evidence schema")
 	}
 	if manifest.Artifacts == nil {
 		return errors.New("evidence: artifacts must be an array")

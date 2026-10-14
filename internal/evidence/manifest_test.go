@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/microsoft/waza/internal/models"
+	"github.com/microsoft/waza/schemas"
 	"github.com/stretchr/testify/require"
 )
 
@@ -100,6 +101,54 @@ func TestValidateRejectsRequiredObjectNormalization(t *testing.T) {
 				require.JSONEq(t, string(data), string(after))
 				require.Error(t, Seal(manifest))
 			})
+		}
+	}
+}
+
+func TestValidateRejectsRawRequiredMemberNormalization(t *testing.T) {
+	var schema map[string]any
+	require.NoError(t, json.Unmarshal([]byte(schemas.EvidenceManifestSchemaJSON), &schema))
+	defs, ok := schema["$defs"].(map[string]any)
+	require.True(t, ok)
+	for _, section := range []string{"origin", "runtime", "redaction"} {
+		definition, ok := defs[section].(map[string]any)
+		require.True(t, ok)
+		required, ok := definition["required"].([]any)
+		require.True(t, ok)
+		for _, member := range required {
+			name, ok := member.(string)
+			require.True(t, ok)
+			for _, absent := range []bool{false, true} {
+				t.Run(section+"/"+name+map[bool]string{false: "/null", true: "/missing"}[absent], func(t *testing.T) {
+					manifest := sampleManifest(t)
+					manifest.Origin = models.EvidenceOrigin{}
+					manifest.Redaction = models.EvidenceRedaction{}
+					require.NoError(t, Seal(manifest))
+					data, err := json.Marshal(manifest)
+					require.NoError(t, err)
+					var object map[string]any
+					require.NoError(t, json.Unmarshal(data, &object))
+					container, ok := object[section].(map[string]any)
+					require.True(t, ok)
+					container[name] = nil
+					if absent {
+						delete(container, name)
+					}
+					data, err = json.Marshal(object)
+					require.NoError(t, err)
+					require.NoError(t, json.Unmarshal(data, manifest))
+					nullable := !absent && (name == "sdk_version" || name == "effective_model_version" || name == "no_skills" || name == "limitations")
+					if nullable {
+						require.NoError(t, Validate(manifest))
+						return
+					}
+					require.Error(t, Validate(manifest))
+					retained, err := json.Marshal(manifest)
+					require.NoError(t, err)
+					require.JSONEq(t, string(data), string(retained))
+					require.Error(t, Seal(manifest))
+				})
+			}
 		}
 	}
 }

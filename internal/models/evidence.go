@@ -3,8 +3,13 @@ package models
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
+	"sync"
 
 	"github.com/microsoft/waza/internal/jsonutil"
+	"github.com/microsoft/waza/internal/schemaloader"
+	"github.com/microsoft/waza/schemas"
+	"github.com/santhosh-tekuri/jsonschema/v6"
 )
 
 // EvidenceManifest is descriptive provenance, not an enforcement or assurance
@@ -20,6 +25,7 @@ type EvidenceManifest struct {
 	Diagnostics            []EvidenceDiagnostic `json:"diagnostics,omitempty"`
 	unknownFields          bool
 	invalidRequiredObjects bool
+	invalidSchema          bool
 	unknownRaw             json.RawMessage
 }
 
@@ -27,8 +33,32 @@ func (m *EvidenceManifest) HasUnknownFields() bool { return m.unknownFields }
 
 func (m *EvidenceManifest) HasInvalidRequiredObjects() bool { return m.invalidRequiredObjects }
 
+func (m *EvidenceManifest) HasInvalidSchema() bool { return m.invalidSchema }
+
+var evidenceManifestSchema = sync.OnceValues(func() (*jsonschema.Schema, error) {
+	var document any
+	if err := json.Unmarshal([]byte(schemas.EvidenceManifestSchemaJSON), &document); err != nil {
+		return nil, fmt.Errorf("parsing embedded evidence schema: %w", err)
+	}
+	compiler := jsonschema.NewCompiler()
+	compiler.UseLoader(schemaloader.Offline{})
+	if err := compiler.AddResource("evidence-manifest.json", document); err != nil {
+		return nil, fmt.Errorf("adding embedded evidence schema: %w", err)
+	}
+	schema, err := compiler.Compile("evidence-manifest.json")
+	if err != nil {
+		return nil, fmt.Errorf("compiling embedded evidence schema: %w", err)
+	}
+	return schema, nil
+})
+
 func (m *EvidenceManifest) UnmarshalJSON(data []byte) error {
-	if _, err := jsonutil.Parse(data); err != nil {
+	instance, err := jsonutil.Parse(data)
+	if err != nil {
+		return err
+	}
+	schema, err := evidenceManifestSchema()
+	if err != nil {
 		return err
 	}
 	type alias EvidenceManifest
@@ -41,6 +71,7 @@ func (m *EvidenceManifest) UnmarshalJSON(data []byte) error {
 	}
 	*m = EvidenceManifest(decoded)
 	m.unknownFields = unknown
+	m.invalidSchema = schema.Validate(instance) != nil
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(data, &fields); err != nil {
 		return err
@@ -51,14 +82,14 @@ func (m *EvidenceManifest) UnmarshalJSON(data []byte) error {
 			m.invalidRequiredObjects = true
 		}
 	}
-	if unknown || m.invalidRequiredObjects {
+	if unknown || m.invalidSchema {
 		m.unknownRaw = append(json.RawMessage(nil), data...)
 	}
 	return nil
 }
 
 func (m EvidenceManifest) MarshalJSON() ([]byte, error) {
-	if m.unknownFields || m.invalidRequiredObjects {
+	if m.unknownFields || m.invalidSchema {
 		return append([]byte(nil), m.unknownRaw...), nil
 	}
 	type alias EvidenceManifest

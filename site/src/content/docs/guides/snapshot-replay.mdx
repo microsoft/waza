@@ -57,11 +57,15 @@ publication returns an explicit error instead of falling back to ordinary output
 ## What's recorded
 
 Snapshot schema **`1.1`** carries a separately versioned evidence manifest
-**`1.0`**. Legacy task/eval reader defaults remain **`1.4`**, while newly
-generated results use result schema **`1.6`**; legacy snapshots and
-results still load. Evidence-aware consumers reject unsupported manifest
-versions, unknown metadata, and duplicate JSON keys rather than interpreting
-them as assessed evidence.
+**`1.0`**. Missing-version defaults for legacy eval/results readers remain
+**`1.4`**, while newly generated results use result schema **`1.6`**.
+Task YAML has no independent schema-version field or default; legacy snapshots
+and results still load. Raw manifest JSON must satisfy the full embedded
+evidence schema, including required members and their types, before decoded
+metadata can be assessed. Missing fields or invalid null scalars are withheld
+without repairing zero values; schema-declared nullable fields remain valid.
+Evidence-aware consumers also reject unsupported manifest versions, unknown
+metadata, and duplicate JSON keys rather than interpreting them as assessed evidence.
 
 Each manifest describes:
 

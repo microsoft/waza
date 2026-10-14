@@ -958,13 +958,17 @@ waza grade eval.yaml --results results.json --workspace ./preserved-agent-worksp
 
 Replay checks stored event sequencing and grader score/pass consistency without contacting an agent. It does not re-run graders, reconstruct files, or verify external state. Fixture and instruction hashes identify bytes but do not preserve them; file-based grading needs the actual agent workspace. Prompt graders may call the configured judge model. Live replay is not implemented.
 
-Portable evidence (manifest `1.0`, snapshot `1.1`) keeps legacy task/eval
-reader defaults at `1.4`, while newly generated results continue to use result
-schema `1.6`. It describes every trial, full source origin, source/content
+Portable evidence (manifest `1.0`, snapshot `1.1`) keeps missing-version defaults
+for legacy eval/results readers at `1.4`, while newly generated results use result
+schema `1.6`. Task YAML has no independent schema-version field or default.
+It describes every trial, full source origin, source/content
 digests, availability, completeness, redaction, unavailable versions, requested
 `no_skills`/native skill control, and operational uncertainty. Requested
 controls are not SDK enforcement proof. Cached trials retain source origin;
 historical absence remains unassessed.
+Raw manifest JSON must satisfy the complete embedded evidence schema before
+decoded metadata can be assessed; missing fields and invalid null scalars are
+withheld, not repaired into zero values. Schema-declared nullable fields remain valid.
 Invalid metadata is withheld. Scoped requirement checks are existing grader
 observations, not enforcement, causal explanations, new scores, or changed defaults.
 
