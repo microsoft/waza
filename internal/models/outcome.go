@@ -98,6 +98,22 @@ type EvaluationOutcome struct {
 	Metadata        map[string]any           `json:"metadata,omitempty"`
 	IsBaseline      bool                     `json:"is_baseline,omitempty"`
 	BaselineOutcome *EvaluationOutcome       `json:"baseline_outcome,omitempty"`
+	// EvaluationUsage is present for current evaluations, including cache-only
+	// runs. Its sessions, not cached task diagnostics, define billing scope.
+	EvaluationUsage *EvaluationUsage `json:"evaluation_usage,omitempty"`
+}
+
+type EvaluationUsage struct {
+	Sessions []EvaluationSessionUsage `json:"sessions"`
+}
+
+type EvaluationSessionUsage struct {
+	SessionID       string      `json:"session_id,omitempty"`
+	Usage           *UsageStats `json:"usage,omitempty"`
+	InitialUsage    *UsageStats `json:"initial_usage,omitempty"`
+	UnknownBaseline bool        `json:"unknown_baseline,omitempty"`
+	Cumulative      bool        `json:"cumulative,omitempty"`
+	UsageRevision   uint64      `json:"usage_revision,omitempty"`
 }
 
 func (o EvaluationOutcome) MarshalJSON() ([]byte, error) {
@@ -149,6 +165,7 @@ type MeasureResult struct {
 
 // TestOutcome represents the result of one test case
 type TestOutcome struct {
+	Cached      bool   `json:"cached,omitempty"`
 	TestID      string `json:"test_id"`
 	DisplayName string `json:"display_name"`
 	Group       string `json:"group,omitempty"`
@@ -189,6 +206,7 @@ type RunResult struct {
 	DurationMs       int64                    `json:"duration_ms"`
 	Validations      map[string]GraderResults `json:"validations"`
 	SessionDigest    SessionDigest            `json:"session_digest"`
+	GraderSessions   []SessionDigest          `json:"grader_sessions,omitempty"`
 	Transcript       []TranscriptEvent        `json:"transcript,omitempty"`
 	FinalOutput      string                   `json:"final_output"`
 	ErrorMsg         string                   `json:"error_msg,omitempty"`
@@ -207,6 +225,10 @@ type RunResult struct {
 	// (see issue #366). The legacy SessionDigest.ToolCalls is preserved for
 	// backward compatibility; new consumers should prefer ToolEvents.
 	ToolEvents []ToolEvent `json:"tool_events,omitempty"`
+
+	// CommandInvocations records sanitized calls handled by declarative
+	// command_mocks. Response output is intentionally excluded.
+	CommandInvocations []CommandInvocation `json:"command_invocations,omitempty"`
 
 	// SnapshotPath is the on-disk path of the self-contained snapshot.json
 	// artifact for this run, as returned by snapshot.Writer.Write. It is
@@ -304,22 +326,38 @@ const (
 // from the custom provider base URL; it intentionally omits scheme, path, query,
 // and credentials.
 type UsageStats struct {
-	Turns            int                   `json:"turns"`
-	InputTokens      int                   `json:"input_tokens"`
-	OutputTokens     int                   `json:"output_tokens"`
-	CacheReadTokens  int                   `json:"cache_read_tokens"`
-	CacheWriteTokens int                   `json:"cache_write_tokens"`
-	PremiumRequests  float64               `json:"premium_requests"`
-	Provider         string                `json:"provider,omitempty"`
-	ProviderHost     string                `json:"provider_host,omitempty"`
-	ModelMetrics     map[string]ModelUsage `json:"model_metrics,omitempty"`
+	Turns            int     `json:"turns"`
+	InputTokens      int     `json:"input_tokens"`
+	OutputTokens     int     `json:"output_tokens"`
+	CacheReadTokens  int     `json:"cache_read_tokens"`
+	CacheWriteTokens int     `json:"cache_write_tokens"`
+	PremiumRequests  float64 `json:"premium_requests"`
+	// AICredits is the final GitHub Copilot AI-credit total reported by the
+	// Copilot SDK for the session (nano-AI units converted with
+	// [AICreditsFromNanoAIU]). It is nil when the SDK or bundled runtime did not
+	// report a final credit total — for example artifacts produced by older
+	// runtimes, or custom providers — and consumers must render that as an
+	// explicit unavailable state rather than a computed estimate.
+	AICredits    *float64              `json:"ai_credits,omitempty"`
+	Provider     string                `json:"provider,omitempty"`
+	ProviderHost string                `json:"provider_host,omitempty"`
+	ModelMetrics map[string]ModelUsage `json:"model_metrics,omitempty"`
+}
+
+// NanoAIUPerCredit is the number of nano-AI units in one GitHub Copilot AI credit.
+const NanoAIUPerCredit = 1e9
+
+// AICreditsFromNanoAIU converts a nano-AI-unit total reported by the Copilot SDK
+// into AI credits.
+func AICreditsFromNanoAIU(nanoAIU float64) float64 {
+	return nanoAIU / NanoAIUPerCredit
 }
 
 // IsZero returns true if no usage data has been recorded.
 func (u *UsageStats) IsZero() bool {
 	return u.InputTokens == 0 && u.OutputTokens == 0 &&
 		u.CacheReadTokens == 0 && u.CacheWriteTokens == 0 &&
-		u.PremiumRequests == 0 && u.Turns == 0
+		u.PremiumRequests == 0 && u.Turns == 0 && u.AICredits == nil
 }
 
 // ModelUsage holds per-model token and request usage.
@@ -330,6 +368,9 @@ type ModelUsage struct {
 	CacheWriteTokens int     `json:"cache_write_tokens"`
 	RequestCount     float64 `json:"request_count"`
 	RequestCost      float64 `json:"request_cost"`
+	// AICredits is the final AI-credit total the Copilot SDK attributed to this
+	// model, or nil when the SDK did not report one.
+	AICredits *float64 `json:"ai_credits,omitempty"`
 }
 
 // AggregateUsageStats sums usage across multiple UsageStats (e.g. across runs).
@@ -344,9 +385,17 @@ func AggregateUsageStats(stats []*UsageStats) *UsageStats {
 	var providerHost string
 	providerSet := false
 	providerConsistent := true
+	creditsComplete := len(stats) > 0
+	modelAttributionComplete := true
+	modelCreditsMissing := make(map[string]bool)
 	for _, s := range stats {
 		if s == nil {
+			creditsComplete = false
+			modelAttributionComplete = false
 			continue
+		}
+		if len(s.ModelMetrics) == 0 {
+			modelAttributionComplete = false
 		}
 		if !providerSet {
 			provider = s.Provider
@@ -361,6 +410,15 @@ func AggregateUsageStats(stats []*UsageStats) *UsageStats {
 		agg.CacheReadTokens += s.CacheReadTokens
 		agg.CacheWriteTokens += s.CacheWriteTokens
 		agg.PremiumRequests += s.PremiumRequests
+		if s.AICredits != nil {
+			total := *s.AICredits
+			if agg.AICredits != nil {
+				total += *agg.AICredits
+			}
+			agg.AICredits = &total
+		} else {
+			creditsComplete = false
+		}
 		for model, mu := range s.ModelMetrics {
 			existing := agg.ModelMetrics[model]
 			existing.InputTokens += mu.InputTokens
@@ -369,7 +427,25 @@ func AggregateUsageStats(stats []*UsageStats) *UsageStats {
 			existing.CacheWriteTokens += mu.CacheWriteTokens
 			existing.RequestCount += mu.RequestCount
 			existing.RequestCost += mu.RequestCost
+			if mu.AICredits != nil {
+				total := *mu.AICredits
+				if existing.AICredits != nil {
+					total += *existing.AICredits
+				}
+				existing.AICredits = &total
+			} else {
+				modelCreditsMissing[model] = true
+			}
 			agg.ModelMetrics[model] = existing
+		}
+	}
+	if !creditsComplete {
+		agg.AICredits = nil
+	}
+	for model, mu := range agg.ModelMetrics {
+		if modelCreditsMissing[model] || !modelAttributionComplete {
+			mu.AICredits = nil
+			agg.ModelMetrics[model] = mu
 		}
 	}
 	if agg.IsZero() && len(agg.ModelMetrics) == 0 {

@@ -35,6 +35,27 @@ Detailed results for a single evaluation run:
 - **Trajectory Viewer** — Two-mode trace inspection (see below)
 - **Export** — Download run as JSON
 
+#### Current-evaluation AI Credits
+
+AI Credits and per-model billing include every executed task attempt, prompt grader,
+responder/classifier, trigger, and evaluation-analysis session, including attempts
+discarded by retries. A session's cumulative snapshots are counted once rather
+than summed across turns. Token-limit grading uses the latest snapshot before
+engine shutdown.
+
+Cached task diagnostics describe their original execution; their historical
+credits do not count toward a new evaluation. Result JSON records current
+executions in `evaluation_usage.sessions`, including an empty list for a fully
+cached task-only evaluation. That empty scope has no reported current-session
+billing total and never falls back to cached credits. A known starting snapshot
+is subtracted when a session is resumed across evaluations; missing baselines,
+counter resets, final metrics, or model attribution leave affected billing
+unavailable.
+
+Final usage is captured before auxiliary sessions are deleted. If the metrics
+RPC times out, its independently bounded shutdown fallback still gets a fresh
+context. Usage collection remains bounded when task execution is canceled.
+
 #### Trajectory Viewer
 
 The trajectory viewer provides two ways to inspect agent execution:

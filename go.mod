@@ -12,15 +12,15 @@ module github.com/microsoft/waza
 go 1.26.4
 
 require (
-	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.23.1
+	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.23.2
 	github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.14.1
 	github.com/Azure/azure-sdk-for-go/sdk/storage/azblob v1.8.1
 	github.com/Masterminds/semver/v3 v3.5.0
-	github.com/azure/azure-dev/cli/azd v1.34.0
+	github.com/azure/azure-dev/cli/azd v1.35.0
 	github.com/charmbracelet/huh v1.0.0
-	github.com/github/copilot-sdk/go v1.0.14
+	github.com/github/copilot-sdk/go v1.0.15
 	github.com/go-viper/mapstructure/v2 v2.5.0
-	github.com/klauspost/compress v1.19.2
+	github.com/klauspost/compress v1.20.1
 	github.com/mattn/go-runewidth v0.0.30
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3
 	github.com/spf13/cobra v1.10.2
@@ -33,7 +33,7 @@ require (
 	go.opentelemetry.io/otel/trace v1.46.0
 	go.uber.org/mock v0.6.0
 	golang.org/x/sync v0.23.0
-	golang.org/x/term v0.45.0
+	golang.org/x/term v0.46.0
 	golang.org/x/text v0.42.0
 	gopkg.in/yaml.v3 v3.0.1
 )
@@ -138,7 +138,7 @@ require (
 	golang.org/x/exp v0.0.0-20260813180055-c1d0aacb2297 // indirect
 	golang.org/x/mod v0.41.0 // indirect
 	golang.org/x/net v0.58.0 // indirect
-	golang.org/x/sys v0.47.0 // indirect
+	golang.org/x/sys v0.48.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
 	golang.org/x/tools v0.49.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260819154853-08b0e4226688 // indirect

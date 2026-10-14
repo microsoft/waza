@@ -1,6 +1,6 @@
 // Package storage defines the ResultStore interface for persisting and
 // retrieving evaluation outcomes. Implementations include a local filesystem
-// adapter and (planned) an Azure Blob Storage adapter.
+// adapter and an Azure Blob Storage adapter.
 package storage
 
 import (
@@ -28,6 +28,20 @@ type ResultStore interface {
 	Download(ctx context.Context, runID string) (*models.EvaluationOutcome, error)
 	// Compare downloads two runs and produces a comparison report.
 	Compare(ctx context.Context, runID1, runID2 string) (*ComparisonReport, error)
+}
+
+// ListedResultDownloader optionally loads a listed result using its known path,
+// avoiding another lookup by run ID in remote stores.
+type ListedResultDownloader interface {
+	DownloadListedResult(context.Context, ResultSummary) (*models.EvaluationOutcome, error)
+}
+
+// DownloadListedResult uses a store's direct path support when available.
+func DownloadListedResult(ctx context.Context, store ResultStore, result ResultSummary) (*models.EvaluationOutcome, error) {
+	if direct, ok := store.(ListedResultDownloader); ok {
+		return direct.DownloadListedResult(ctx, result)
+	}
+	return store.Download(ctx, result.RunID)
 }
 
 // ListOptions controls filtering and pagination for List.

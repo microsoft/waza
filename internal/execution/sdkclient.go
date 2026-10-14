@@ -15,6 +15,7 @@ import (
 	"sync"
 
 	copilot "github.com/github/copilot-sdk/go"
+	"github.com/microsoft/waza/internal/commandmock"
 	"github.com/microsoft/waza/internal/embedded"
 )
 
@@ -129,7 +130,7 @@ func sharedClientOptions(logLevel string, cliArgs []string, sanitizeEnvironment 
 			return nil, fmt.Errorf("COPILOT_CLI_PATH %q is not usable: path is a directory", cliPath)
 		}
 		slog.Info("using Copilot CLI", "source", "COPILOT_CLI_PATH", "path", cliPath)
-		return copilotClientOptions(logLevel, cliArgs, cliPath, sanitizeEnvironment), nil
+		return sharedCopilotClientOptions(logLevel, cliArgs, cliPath, sanitizeEnvironment)
 	}
 
 	cliPath, err := embeddedCLIPath()
@@ -137,7 +138,24 @@ func sharedClientOptions(logLevel string, cliArgs []string, sanitizeEnvironment 
 		return nil, fmt.Errorf("embedded Copilot CLI is unavailable and COPILOT_CLI_PATH is not set; refusing to fall back to PATH: %w", err)
 	}
 	slog.Info("using Copilot CLI", "source", "embedded", "path", cliPath)
-	return copilotClientOptions(logLevel, cliArgs, cliPath, sanitizeEnvironment), nil
+	return sharedCopilotClientOptions(logLevel, cliArgs, cliPath, sanitizeEnvironment)
+}
+
+func sharedCopilotClientOptions(logLevel string, cliArgs []string, cliPath string, sanitizeEnvironment bool) (*copilot.ClientOptions, error) {
+	if sanitizeEnvironment {
+		return copilotClientOptions(logLevel, cliArgs, cliPath, true), nil
+	}
+	// Client environments are startup-only; later unsandboxed task sessions may
+	// create command mocks even when the first eval or grader does not use them.
+	// Sandboxed clients keep their explicit environment allowlist.
+	env, err := commandmock.RuntimeEnvironment()
+	if err != nil {
+		return nil, err
+	}
+	return &copilot.ClientOptions{
+		LogLevel:   logLevel,
+		Connection: copilot.StdioConnection{Path: cliPath, Args: append([]string{}, cliArgs...), Env: env},
+	}, nil
 }
 
 func copilotClientOptions(logLevel string, cliArgs []string, cliPath string, sanitizeEnvironment bool) *copilot.ClientOptions {
@@ -276,6 +294,9 @@ func ShutdownSharedClient(_ context.Context) error {
 			if err := client.Stop(); err != nil {
 				errs = append(errs, err)
 			}
+		}
+		if err := commandmock.CloseRuntime(); err != nil {
+			errs = append(errs, err)
 		}
 		sharedErr = errors.Join(errs...)
 	})

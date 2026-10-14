@@ -247,3 +247,43 @@ func TestResponderInfoSerializes(t *testing.T) {
 	require.NoError(t, err)
 	require.NotContains(t, string(data2), `"responder"`)
 }
+
+func TestAggregateUsageStats_AICredits(t *testing.T) {
+	credits := func(v float64) *float64 { return &v }
+
+	agg := AggregateUsageStats([]*UsageStats{
+		{
+			InputTokens: 100,
+			AICredits:   credits(1.5),
+			ModelMetrics: map[string]ModelUsage{
+				"gpt-4o": {InputTokens: 100, AICredits: credits(1.5)},
+			},
+		},
+		{
+			// Legacy stats make the aggregate incomplete.
+			InputTokens: 50,
+			ModelMetrics: map[string]ModelUsage{
+				"gpt-4o": {InputTokens: 50},
+			},
+		},
+		{
+			InputTokens: 25,
+			AICredits:   credits(0.5),
+			ModelMetrics: map[string]ModelUsage{
+				"gpt-4o": {InputTokens: 25, AICredits: credits(0.5)},
+			},
+		},
+	})
+
+	require.NotNil(t, agg)
+	require.Nil(t, agg.AICredits)
+	require.Nil(t, agg.ModelMetrics["gpt-4o"].AICredits)
+	require.Equal(t, 175, agg.InputTokens)
+}
+
+func TestAggregateUsageStats_AICreditsUnavailable(t *testing.T) {
+	agg := AggregateUsageStats([]*UsageStats{{InputTokens: 100, PremiumRequests: 1}})
+
+	require.NotNil(t, agg)
+	require.Nil(t, agg.AICredits)
+}

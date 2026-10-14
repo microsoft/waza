@@ -6,6 +6,8 @@ export interface SummaryResponse {
   passRate: number;
   avgTokens: number;
   avgPremiumRequests: number;
+  /** Mean final AI-credit total across runs that reported one; omitted when none did. */
+  avgAICredits?: number;
   avgCost: number;
   avgDuration: number;
   costSource?: CostSource;
@@ -21,11 +23,25 @@ export interface RunSummary {
   taskCount: number;
   tokens: number;
   premiumRequests: number;
+  /** Final AI-credit total reported by the Copilot SDK; omitted for legacy runs. */
+  aiCredits?: number;
+  /** Per-model usage breakdown, sorted by model ID. */
+  modelUsage?: ModelUsage[];
   cost: number;
   costSource?: CostSource;
   duration: number;
   timestamp: string;
   weightedScore?: number;
+}
+
+export interface ModelUsage {
+  model: string;
+  /** Final AI-credit total the Copilot SDK attributed to this model. */
+  aiCredits?: number;
+  inputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  outputTokens: number;
 }
 
 export interface GraderResult {

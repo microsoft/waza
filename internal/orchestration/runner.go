@@ -308,6 +308,7 @@ func (r *EvalRunner) RunBenchmark(ctx context.Context) (*models.EvaluationOutcom
 
 // runNormalBenchmark executes a normal single-pass evaluation
 func (r *EvalRunner) runNormalBenchmark(ctx context.Context) (*models.EvaluationOutcome, error) {
+	ctx, usageScope := execution.NewUsageScope(ctx)
 	startTime := time.Now()
 
 	// Set up hooks runner
@@ -398,11 +399,13 @@ func (r *EvalRunner) runNormalBenchmark(ctx context.Context) (*models.Evaluation
 			ReasoningEffort:      spec.Config.ReasoningEffort,
 			JudgeReasoningEffort: spec.Config.JudgeReasoningEffort,
 		},
-		Digest:       digest,
-		Measures:     make(map[string]models.MeasureResult),
-		TestOutcomes: testOutcomes,
-		Metadata:     make(map[string]any),
+		Digest:          digest,
+		Measures:        make(map[string]models.MeasureResult),
+		TestOutcomes:    testOutcomes,
+		Metadata:        make(map[string]any),
+		EvaluationUsage: usageScope.Snapshot(),
 	}
+	execution.UpdateOutcomeUsage(outcome, r.engine)
 
 	r.notifyProgress(ProgressEvent{
 		EventType:  EventBenchmarkComplete,
@@ -761,6 +764,11 @@ func (r *EvalRunner) loadTestCasesFromFiles() ([]*models.TestCase, error) {
 		if err := tc.ValidateForExecutor(spec.Config.EngineType); err != nil {
 			return nil, fmt.Errorf("invalid test case %s: %w", path, err)
 		}
+		if tc.CommandMocks != nil {
+			if err := models.ValidateCommandMocksSchemaVersion(spec.SchemaVersion); err != nil {
+				return nil, fmt.Errorf("invalid test case %s: %w", path, err)
+			}
+		}
 		// Only include active test cases
 		// LoadTestCase defaults Active to true (nil case), so include nil or explicitly true
 		if tc.Active == nil || *tc.Active {
@@ -1015,6 +1023,7 @@ func (r *EvalRunner) runTest(ctx context.Context, tc *models.TestCase, testNum, 
 		if err == nil {
 			if cachedOutcome, found := r.cache.Get(cacheKey); found {
 				// Return cached outcome with cached flag
+				cachedOutcome.Cached = true
 				return *cachedOutcome, true
 			}
 			// Run the test and cache the result
@@ -1193,7 +1202,7 @@ func (r *EvalRunner) executeRun(ctx context.Context, tc *models.TestCase, runNum
 		})
 	}
 	execCtx, cancelExec := context.WithTimeout(turnCtx, timeout)
-	resp, err := r.engine.Execute(execCtx, req)
+	resp, err := execution.ExecuteRecorded(execCtx, r.engine, req)
 	cancelExec()
 	if err != nil {
 		return returnWithArtifacts(models.RunResult{
@@ -1244,6 +1253,21 @@ func (r *EvalRunner) executeRun(ctx context.Context, tc *models.TestCase, runNum
 			r.executeFollowUps(ctx, tc, resp, cps)
 		}
 	}
+	commandInvocations := resp.CommandInvocations
+	if finalizer, ok := r.engine.(execution.CommandMockFinalizer); ok {
+		commandInvocations, err = finalizer.FinalizeCommandMocks(resp.WorkspaceDir)
+		if err != nil {
+			resp.Success = false
+			resp.ErrorMsg = err.Error()
+		}
+		resp.CommandInvocations = commandInvocations
+	}
+	if r.verbose {
+		for _, invocation := range commandInvocations {
+			fmt.Fprintf(os.Stderr, "Command mock: %s %q (exit %d)\n",
+				invocation.Command, strings.Join(invocation.Args, " "), invocation.ExitCode)
+		}
+	}
 
 	// Convert engine-neutral events to SDK form once for the remaining
 	// transcript/tool-event/grader-context work. resp.Events is no longer
@@ -1265,11 +1289,13 @@ func (r *EvalRunner) executeRun(ctx context.Context, tc *models.TestCase, runNum
 
 		if err != nil {
 			return returnWithArtifacts(models.RunResult{
-				RunNumber:  runNum,
-				Prompt:     req.Message,
-				Status:     models.StatusError,
-				DurationMs: time.Since(startTime).Milliseconds(),
-				ErrorMsg:   "running graders: " + err.Error(),
+				RunNumber:      runNum,
+				Prompt:         req.Message,
+				Status:         models.StatusError,
+				DurationMs:     time.Since(startTime).Milliseconds(),
+				ErrorMsg:       "running graders: " + err.Error(),
+				SessionDigest:  r.buildSessionDigest(resp),
+				GraderSessions: resp.GraderSessions,
 			})
 		}
 	}
@@ -1340,20 +1366,22 @@ func (r *EvalRunner) executeRun(ctx context.Context, tc *models.TestCase, runNum
 	}
 
 	run := models.RunResult{
-		RunNumber:        runNum,
-		Prompt:           req.Message,
-		Status:           status,
-		DurationMs:       resp.DurationMs,
-		Validations:      gradersResults,
-		SessionDigest:    r.buildSessionDigest(resp),
-		Transcript:       transcript,
-		FinalOutput:      resp.FinalOutput,
-		ErrorMsg:         resp.ErrorMsg,
-		SkillInvocations: skillInvocations,
-		WorkspaceDir:     resp.WorkspaceDir,
-		Responder:        responderInfo,
-		Checkpoints:      checkpointOutcomes,
-		ToolEvents:       buildToolEvents(sdkEvents),
+		RunNumber:          runNum,
+		Prompt:             req.Message,
+		Status:             status,
+		DurationMs:         resp.DurationMs,
+		Validations:        gradersResults,
+		SessionDigest:      r.buildSessionDigest(resp),
+		GraderSessions:     resp.GraderSessions,
+		Transcript:         transcript,
+		FinalOutput:        resp.FinalOutput,
+		ErrorMsg:           resp.ErrorMsg,
+		SkillInvocations:   skillInvocations,
+		WorkspaceDir:       resp.WorkspaceDir,
+		Responder:          responderInfo,
+		Checkpoints:        checkpointOutcomes,
+		ToolEvents:         buildToolEvents(sdkEvents),
+		CommandInvocations: commandInvocations,
 	}
 	r.captureSnapshot(tc, req, resp, &run)
 	return returnWithArtifacts(run)
@@ -1517,13 +1545,22 @@ func (r *EvalRunner) buildExecutionRequest(tc *models.TestCase) (*execution.Exec
 		SuppressSkillBody: !spec.Config.ShouldInjectSkillBody(),
 		TriggerSkillRouting: spec.Config.ShouldTriggerSkillRouting() &&
 			execution.IsSkillAvailable(resolvedSkillPaths, spec.SkillName),
-		MCPServers:        convertMCPServers(spec.Config.ServerConfigs, spec.MCPMocks, r.cfg.SpecDir()),
-		FirstEventTimeout: r.firstEventTimeout(tc),
-		Sandbox:           spec.Config.Sandbox,
-		ToolPolicy:        resolveToolPolicy(fm),
-		ModelID:           spec.Config.ModelID,
-		ReasoningEffort:   spec.Config.ReasoningEffort,
+		MCPServers:          convertMCPServers(spec.Config.ServerConfigs, spec.MCPMocks, r.cfg.SpecDir()),
+		CommandMocks:        effectiveCommandMocks(tc, spec),
+		CommandMocksBaseDir: r.cfg.SpecDir(),
+		FirstEventTimeout:   r.firstEventTimeout(tc),
+		Sandbox:             spec.Config.Sandbox,
+		ToolPolicy:          resolveToolPolicy(fm),
+		ModelID:             spec.Config.ModelID,
+		ReasoningEffort:     spec.Config.ReasoningEffort,
 	}, nil
+}
+
+func effectiveCommandMocks(tc *models.TestCase, spec *models.EvalSpec) []models.CommandMockConfig {
+	if tc.CommandMocks != nil {
+		return *tc.CommandMocks
+	}
+	return spec.CommandMocks
 }
 
 func (r *EvalRunner) taskSkillPaths(tc *models.TestCase) []string {
@@ -1630,7 +1667,7 @@ func (r *EvalRunner) executeFollowUps(ctx context.Context, tc *models.TestCase, 
 			Prompt:       prompt,
 		})
 		followCtx, cancelFollow := context.WithTimeout(turnCtx, timeout)
-		followResp, err := r.engine.Execute(followCtx, followReq)
+		followResp, err := execution.ExecuteRecorded(followCtx, r.engine, followReq)
 		cancelFollow()
 		if err != nil {
 			turnSpan.End()
@@ -1638,6 +1675,7 @@ func (r *EvalRunner) executeFollowUps(ctx context.Context, tc *models.TestCase, 
 			break
 		}
 
+		resp.CommandInvocations = followResp.CommandInvocations
 		markToolPolicyViolation(followResp)
 		if followResp.ErrorMsg != "" {
 			emitChildSpans(turnCtx, r.telemetry, turnSpan, followResp, r.cfg.Spec().Config.ModelID)
@@ -1658,13 +1696,7 @@ func (r *EvalRunner) executeFollowUps(ctx context.Context, tc *models.TestCase, 
 		resp.FinalOutput = followResp.FinalOutput
 		resp.WorkspaceFiles = followResp.WorkspaceFiles
 		mergeToolPolicyResult(resp, followResp)
-		if followResp.Usage != nil {
-			if resp.Usage == nil {
-				resp.Usage = followResp.Usage
-			} else {
-				resp.Usage = models.AggregateUsageStats([]*models.UsageStats{resp.Usage, followResp.Usage})
-			}
-		}
+		execution.MergeResponseUsage(resp, followResp)
 
 		// Run any checkpoint scheduled after this turn. Turn number is
 		// i+2 because the initial Execute was turn 1 and follow-ups are
@@ -1789,12 +1821,13 @@ func (r *EvalRunner) sendResponderReply(ctx context.Context, tc *models.TestCase
 	})
 	defer turnSpan.End()
 	followCtx, cancelFollow := context.WithTimeout(turnCtx, timeout)
-	followResp, err := r.engine.Execute(followCtx, followReq)
+	followResp, err := execution.ExecuteRecorded(followCtx, r.engine, followReq)
 	cancelFollow()
 	if err != nil {
 		resp.ErrorMsg = fmt.Sprintf("responder reply %d failed: %v", turn, err)
 		return false
 	}
+	resp.CommandInvocations = followResp.CommandInvocations
 	markToolPolicyViolation(followResp)
 	if followResp.ErrorMsg != "" {
 		emitChildSpans(turnCtx, r.telemetry, turnSpan, followResp, r.cfg.Spec().Config.ModelID)
@@ -1811,13 +1844,7 @@ func (r *EvalRunner) sendResponderReply(ctx context.Context, tc *models.TestCase
 	resp.FinalOutput = followResp.FinalOutput
 	resp.WorkspaceFiles = followResp.WorkspaceFiles
 	mergeToolPolicyResult(resp, followResp)
-	if followResp.Usage != nil {
-		if resp.Usage == nil {
-			resp.Usage = followResp.Usage
-		} else {
-			resp.Usage = models.AggregateUsageStats([]*models.UsageStats{resp.Usage, followResp.Usage})
-		}
-	}
+	execution.MergeResponseUsage(resp, followResp)
 	return true
 }
 
@@ -2090,20 +2117,33 @@ func (r *EvalRunner) buildGraderContext(tc *models.TestCase, resp *execution.Exe
 	sessionDigest := r.buildSessionDigest(resp)
 
 	return &graders.Context{
-		TestCase:         tc,
-		Transcript:       transcriptEntries,
-		Output:           resp.FinalOutput,
-		Outcome:          make(map[string]any),
-		DurationMS:       resp.DurationMs,
-		Metadata:         make(map[string]any),
-		WorkspaceDir:     resp.WorkspaceDir,
-		WorkspaceFiles:   resp.WorkspaceFiles,
-		Sandbox:          r.cfg.Spec().Config.Sandbox,
-		SkillInvocations: resp.SkillInvocations,
-		SessionID:        resp.SessionID,
-		Session:          &sessionDigest,
-		ToolEvents:       buildToolEvents(sdkEvents),
-		Executor:         r.engine,
+		TestCase:           tc,
+		Transcript:         transcriptEntries,
+		Output:             resp.FinalOutput,
+		Outcome:            make(map[string]any),
+		DurationMS:         resp.DurationMs,
+		Metadata:           make(map[string]any),
+		WorkspaceDir:       resp.WorkspaceDir,
+		WorkspaceFiles:     resp.WorkspaceFiles,
+		Sandbox:            r.cfg.Spec().Config.Sandbox,
+		SkillInvocations:   resp.SkillInvocations,
+		SessionID:          resp.SessionID,
+		Session:            &sessionDigest,
+		ToolEvents:         buildToolEvents(sdkEvents),
+		CommandInvocations: resp.CommandInvocations,
+		Executor:           r.engine,
+		RecordUsage: func(digest models.SessionDigest) {
+			resp.GraderSessions = append(resp.GraderSessions, digest)
+			if digest.SessionID != "" && digest.SessionID == resp.SessionID {
+				resp.Usage = digest.Usage
+			}
+		},
+		RecordResponseUsage: func(graderResp *execution.ExecutionResponse) {
+			resp.GraderSessions = append(resp.GraderSessions, models.SessionDigest{SessionID: graderResp.SessionID, Usage: graderResp.Usage})
+			if graderResp.SessionID != "" && graderResp.SessionID == resp.SessionID {
+				execution.MergeResponseUsage(resp, graderResp)
+			}
+		},
 	}
 }
 

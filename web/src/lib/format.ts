@@ -14,12 +14,39 @@ export function formatCost(dollars: number): string {
   return `$${dollars.toFixed(2)}`;
 }
 
-// formatCredits renders a premium-request count as an integer with thousands
-// separators. Premium requests are not dollars — the dashboard surfaces this
-// as "Credits" to match the GitHub Copilot billing UI nomenclature.
-export function formatCredits(n: number): string {
-  const rounded = Math.round(n);
-  return rounded.toLocaleString("en-US");
+// AI_CREDITS_TOOLTIP explains what the "AI Credits" metric represents. The value
+// is the final AI-credit usage the Copilot SDK reports for the session(s) this
+// waza run started — it does not include Copilot usage from anywhere else in
+// the account.
+export const AI_CREDITS_TOOLTIP =
+  "Final AI Credit usage reported by the Copilot SDK for this waza run — not account-wide Copilot usage.";
+
+// AI_CREDITS_UNAVAILABLE_TOOLTIP is shown when a run carries no authoritative
+// AI-credit total (legacy result artifacts, or Copilot runtimes that don't
+// report final credit metrics). waza never substitutes an estimate here.
+export const AI_CREDITS_UNAVAILABLE_TOOLTIP =
+  "AI Credit usage unavailable — at least one session did not report final metrics (legacy runtime, custom provider, or missing usage). No estimate is substituted.";
+
+export const AVG_AI_CREDITS_TOOLTIP =
+  "Average final AI Credit usage across only runs with complete reported totals. Runs with unavailable totals are excluded from the denominator; this is not account-wide Copilot usage.";
+
+export const AVG_AI_CREDITS_UNAVAILABLE_TOOLTIP =
+  "Average AI Credit usage unavailable — none of the runs report a complete final total. No estimate is substituted.";
+
+// AI_CREDITS_UNAVAILABLE is the placeholder rendered for runs and models with
+// no authoritative AI-credit total.
+export const AI_CREDITS_UNAVAILABLE = "—";
+
+// formatAICredits renders an AI-credit amount reported by the Copilot SDK.
+// Returns an explicit unavailable marker when the backend omitted the value.
+export function formatAICredits(credits?: number | null): string {
+  if (credits == null || !Number.isFinite(credits)) {
+    return AI_CREDITS_UNAVAILABLE;
+  }
+  return credits.toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 9,
+  });
 }
 
 export function costSourceTooltip(source?: string): string {

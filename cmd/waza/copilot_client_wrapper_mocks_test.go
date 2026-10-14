@@ -14,6 +14,7 @@ import (
 	reflect "reflect"
 
 	copilot "github.com/github/copilot-sdk/go"
+	rpc "github.com/github/copilot-sdk/go/rpc"
 	execution "github.com/microsoft/waza/internal/execution"
 	models "github.com/microsoft/waza/internal/models"
 	gomock "go.uber.org/mock/gomock"
@@ -112,6 +113,36 @@ func (m *MockCopilotSession) SessionID() string {
 func (mr *MockCopilotSessionMockRecorder) SessionID() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SessionID", reflect.TypeOf((*MockCopilotSession)(nil).SessionID))
+}
+
+// ShutdownUsage mocks base method.
+func (m *MockCopilotSession) ShutdownUsage(ctx context.Context) (*copilot.SessionShutdownData, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ShutdownUsage", ctx)
+	ret0, _ := ret[0].(*copilot.SessionShutdownData)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ShutdownUsage indicates an expected call of ShutdownUsage.
+func (mr *MockCopilotSessionMockRecorder) ShutdownUsage(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ShutdownUsage", reflect.TypeOf((*MockCopilotSession)(nil).ShutdownUsage), ctx)
+}
+
+// UsageMetrics mocks base method.
+func (m *MockCopilotSession) UsageMetrics(ctx context.Context) (*rpc.UsageGetMetricsResult, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UsageMetrics", ctx)
+	ret0, _ := ret[0].(*rpc.UsageGetMetricsResult)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// UsageMetrics indicates an expected call of UsageMetrics.
+func (mr *MockCopilotSessionMockRecorder) UsageMetrics(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UsageMetrics", reflect.TypeOf((*MockCopilotSession)(nil).UsageMetrics), ctx)
 }
 
 // MockCopilotClient is a mock of CopilotClient interface.

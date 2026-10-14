@@ -194,7 +194,7 @@ func (r *Runner) testTrigger(ctx context.Context, prompt string) (*execution.Exe
 	if spec.Config.Sandbox != nil && spec.Config.Sandbox.Enabled && specDir != "" && !specDirBlocked {
 		requestSkillPaths = append([]string{specDir}, skillPaths...)
 	}
-	return r.engine.Execute(execCtx, &execution.ExecutionRequest{
+	return execution.ExecuteRecorded(execCtx, r.engine, &execution.ExecutionRequest{
 		Message:           prompt,
 		SkillName:         r.spec.Skill,
 		RequiredSkills:    append([]string(nil), spec.Config.RequiredSkills...),

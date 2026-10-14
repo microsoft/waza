@@ -1,0 +1,144 @@
+package execution
+
+import (
+	"strings"
+	"testing"
+
+	copilot "github.com/github/copilot-sdk/go"
+
+	"github.com/microsoft/waza/internal/commandmock"
+	"github.com/microsoft/waza/internal/models"
+)
+
+func TestCommandMockEnvironmentPrefix(t *testing.T) {
+	if got := commandMockEnvironmentPrefix("bash", "task-123"); got != "export WAZA_COMMAND_MOCK_SESSION='task-123'; " {
+		t.Fatalf("bash prefix = %q", got)
+	}
+	if got := commandMockEnvironmentPrefix("powershell", "task-123"); got != "$env:WAZA_COMMAND_MOCK_SESSION='task-123'; " {
+		t.Fatalf("PowerShell prefix = %q", got)
+	}
+}
+
+func TestCombinePreToolUseHandlersPreservesPolicyDenial(t *testing.T) {
+	secondCalled := false
+	handler := combinePreToolUseHandlers(
+		func(copilot.PreToolUseHookInput, copilot.HookInvocation) (*copilot.PreToolUseHookOutput, error) {
+			return &copilot.PreToolUseHookOutput{PermissionDecision: "deny"}, nil
+		},
+		func(copilot.PreToolUseHookInput, copilot.HookInvocation) (*copilot.PreToolUseHookOutput, error) {
+			secondCalled = true
+			return nil, nil
+		},
+	)
+	output, err := handler(copilot.PreToolUseHookInput{}, copilot.HookInvocation{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if output == nil || output.PermissionDecision != "deny" {
+		t.Fatalf("unexpected output: %+v", output)
+	}
+	if secondCalled {
+		t.Fatal("second handler ran after policy denial")
+	}
+}
+
+func TestToolArgsMapCopiesCommand(t *testing.T) {
+	input := map[string]any{"command": "cd /tmp && az account show", "description": "test", "timeout": 7}
+	args, err := toolArgsMap(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	command, ok := args["command"].(string)
+	if !ok {
+		t.Fatalf("command type = %T", args["command"])
+	}
+	args["command"] = commandMockEnvironmentPrefix("bash", "task-123") + command
+	got, ok := args["command"].(string)
+	if !ok {
+		t.Fatalf("modified command type = %T", args["command"])
+	}
+	if !strings.HasPrefix(got, "export WAZA_COMMAND_MOCK_SESSION='task-123'; ") {
+		t.Fatalf("command = %q", got)
+	}
+	if args["description"] != "test" {
+		t.Fatalf("description was not preserved: %#v", args)
+	}
+	if args["timeout"] != 7 {
+		t.Fatalf("integer argument was changed: %#v", args["timeout"])
+	}
+	if input["command"] != command {
+		t.Fatalf("original command was mutated: %#v", input)
+	}
+}
+
+func TestToolArgsMapFallbackAndErrors(t *testing.T) {
+	tests := []struct {
+		name    string
+		value   any
+		wantErr bool
+	}{
+		{
+			name: "struct input",
+			value: struct {
+				Command string `json:"command"`
+			}{Command: "az account show"},
+		},
+		{name: "nil input", wantErr: true},
+		{name: "nil map", value: map[string]any(nil), wantErr: true},
+		{name: "non-object input", value: []string{"az"}, wantErr: true},
+		{name: "unsupported input", value: make(chan string), wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			args, err := toolArgsMap(tt.value)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("toolArgsMap() error = %v, want error %v", err, tt.wantErr)
+			}
+			if !tt.wantErr && args["command"] != "az account show" {
+				t.Fatalf("command was not preserved: %#v", args)
+			}
+		})
+	}
+}
+
+func TestCommandMockToolHookInjectsSessionIdentity(t *testing.T) {
+	session, err := commandmock.NewSession(t.TempDir(), []models.CommandMockConfig{{
+		Name: "az",
+		Responses: []models.CommandMockResponse{{
+			Args: []string{"account", "show"},
+		}},
+	}}, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = session.Close()
+		_ = commandmock.CloseRuntime()
+	})
+
+	output, err := commandMockToolHook(session)(copilot.PreToolUseHookInput{
+		ToolName: "bash",
+		ToolArgs: map[string]any{
+			"command":     "cd /tmp && az account show",
+			"description": "test",
+		},
+	}, copilot.HookInvocation{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	args, ok := output.ModifiedArgs.(map[string]any)
+	if !ok {
+		t.Fatalf("modified args type = %T", output.ModifiedArgs)
+	}
+	wantPrefix := "export WAZA_COMMAND_MOCK_SESSION='" + session.ID() + "'; "
+	got, ok := args["command"].(string)
+	if !ok {
+		t.Fatalf("command type = %T", args["command"])
+	}
+	if !strings.HasPrefix(got, wantPrefix) {
+		t.Fatalf("command = %q, want prefix %q", got, wantPrefix)
+	}
+	if args["description"] != "test" {
+		t.Fatalf("description was not preserved: %#v", args)
+	}
+}

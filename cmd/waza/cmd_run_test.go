@@ -2640,7 +2640,7 @@ func testWazaRun(t *testing.T, cwd string, args []string) (evalNames []string, s
 
 	newCopilotClientFn = func(clientOptions *copilot.ClientOptions) execution.CopilotClient {
 		client := newClientMock(ctrl)
-		sess := NewMockCopilotSession(ctrl)
+		sess := newSessionMock(ctrl)
 
 		// currently, each run of an eval spec requires us a new copilot engine.
 		client.EXPECT().CreateSession(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, config *copilot.SessionConfig) (execution.CopilotSession, error) {

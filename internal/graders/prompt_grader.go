@@ -251,7 +251,15 @@ func executePromptGrader(ctx context.Context, gradingContext *Context, req *exec
 	}
 	execCtx, cancel := context.WithTimeout(ctx, resolvePromptGraderTimeout())
 	defer cancel()
-	return gradingContext.Executor.Execute(execCtx, req)
+	resp, err := execution.ExecuteRecorded(execCtx, gradingContext.Executor, req)
+	if resp != nil {
+		if gradingContext.RecordResponseUsage != nil {
+			gradingContext.RecordResponseUsage(resp)
+		} else if gradingContext.RecordUsage != nil {
+			gradingContext.RecordUsage(models.SessionDigest{SessionID: resp.SessionID, Usage: resp.Usage})
+		}
+	}
+	return resp, err
 }
 
 func promptGraderErrorMessage(resp *execution.ExecutionResponse, err error) string {

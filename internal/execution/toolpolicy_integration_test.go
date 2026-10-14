@@ -19,7 +19,7 @@ func TestCopilotResumeToolPolicy(t *testing.T) {
 		t.Run(string(policy.Mode), func(t *testing.T) {
 			ctrl := gomock.NewController(t)
 			client := newClientMock(ctrl)
-			session := NewMockCopilotSession(ctrl)
+			session := newSessionMock(ctrl)
 			var cfg *copilot.ResumeSessionConfig
 			client.EXPECT().ResumeSessionWithOptions(gomock.Any(), "session-1", gomock.Any()).DoAndReturn(
 				func(_ context.Context, _ string, c *copilot.ResumeSessionConfig) (CopilotSession, error) {

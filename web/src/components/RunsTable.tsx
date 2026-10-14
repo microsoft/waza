@@ -11,17 +11,13 @@ import { ArrowUpDown, CheckCircle2, XCircle, AlertCircle } from "lucide-react";
 import type { RunSummary } from "../api/client";
 import {
   formatDuration,
-  formatCost,
-  formatCredits,
+  formatAICredits,
   formatNumber,
   formatRelativeTime,
   formatPercent,
-  costSourceTooltip,
+  AI_CREDITS_TOOLTIP,
+  AI_CREDITS_UNAVAILABLE_TOOLTIP,
 } from "../lib/format";
-import { InfoTooltip } from "./InfoTooltip";
-
-const CREDITS_TOOLTIP =
-  "Premium request count reported by the Copilot SDK — not dollars.";
 
 function OutcomeBadge({ outcome }: { outcome: string }) {
   if (outcome.startsWith("pass"))
@@ -114,33 +110,27 @@ export default function RunsTable({ data }: { data: RunSummary[] }) {
           <span className="text-zinc-300">{formatNumber(info.getValue())}</span>
         ),
       }),
-      col.accessor("premiumRequests", {
+      col.accessor("aiCredits", {
         header: () => (
-          <span title={CREDITS_TOOLTIP} className="cursor-help">
-            Credits
+          <span title={AI_CREDITS_TOOLTIP} className="cursor-help">
+            AI Credits
           </span>
         ),
-        cell: (info) => (
-          <span className="text-zinc-300" title={CREDITS_TOOLTIP}>
-            {formatCredits(info.getValue() ?? 0)}
-          </span>
-        ),
-      }),
-      col.accessor("cost", {
-        header: () => (
-          <span className="inline-flex items-center gap-1">
-            Cost
-            <InfoTooltip text="Cost source varies per run. Hover individual values for the source (SDK, rate table, or estimate)." />
-          </span>
-        ),
-        cell: (info) => (
-          <span
-            className="text-zinc-300"
-            title={costSourceTooltip(info.row.original.costSource)}
-          >
-            {formatCost(info.getValue())}
-          </span>
-        ),
+        cell: (info) => {
+          const credits = info.getValue();
+          return (
+            <span
+              className="text-zinc-300"
+              title={
+                credits == null
+                  ? AI_CREDITS_UNAVAILABLE_TOOLTIP
+                  : AI_CREDITS_TOOLTIP
+              }
+            >
+              {formatAICredits(credits)}
+            </span>
+          );
+        },
       }),
       col.accessor("duration", {
         header: "Duration",

@@ -29,7 +29,8 @@ const (
 	//       command isolation, and session_digest records tool_policy_mode and
 	//       tool_policy_denials (#585). These fields are optional, so older
 	//       artifacts retain their existing execution behavior.
-	CurrentSchemaVersion = "1.3"
+	// 1.4 — additive: run command_invocations records for declarative CLI mocks (#634).
+	CurrentSchemaVersion = "1.4"
 )
 
 func defaultSchemaVersion(version string) string {

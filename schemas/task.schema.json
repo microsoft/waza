@@ -104,9 +104,81 @@
       "items": {
         "type": "string"
       }
+    },
+    "command_mocks": {
+      "type": "array",
+      "description": "Task-level command mocks; when present, replaces the eval-level command_mocks list. Use an empty list to disable inherited mocks for this task.",
+      "items": {
+        "$ref": "#/$defs/commandMock"
+      }
     }
   },
   "$defs": {
+    "commandMock": {
+      "type": "object",
+      "required": ["name", "responses"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+        },
+        "expect_calls": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "responses": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/commandMockResponse"
+          }
+        }
+      }
+    },
+    "commandMockResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "args": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "args_regex": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "environment": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        },
+        "workdir": {
+          "type": "string"
+        },
+        "stdout": {},
+        "stderr": {
+          "type": "string"
+        },
+        "exit_code": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 255,
+          "default": 0
+        },
+        "fixture": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "oneOf": [
+        { "required": ["args"] },
+        { "required": ["args_regex"] }
+      ],
+      "allOf": [
+        { "not": { "required": ["args", "args_regex"] } },
+        { "not": { "required": ["stdout", "fixture"] } }
+      ]
+    },
     "inputs": {
       "type": "object",
       "additionalProperties": false,

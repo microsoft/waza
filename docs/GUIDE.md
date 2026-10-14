@@ -331,6 +331,23 @@ waza new task from-prompt "Explain this diff and risks" evals/code-explainer/tas
   --overwrite
 ```
 
+### Agent-assisted eval authoring
+
+The [Writing Eval Specs guide](https://microsoft.github.io/waza/guides/eval-yaml/)
+can be used as direct instructions for a coding agent. It provides:
+
+- Required files to inspect before editing
+- Schema and task invariants
+- Separate create and update workflows
+- A test-first loop for implementation changes
+- Guidance for fixtures, MCP mocks, and grader selection
+- A targeted-to-full validation ladder
+- A reusable prompt for delegating eval implementation
+
+When reviewing agent-authored evals, require stable task IDs, focused changes,
+coverage for changed behavior, and the exact verification commands with their
+results.
+
 ---
 
 ### `waza run [eval.yaml | skill-name]`
@@ -401,8 +418,14 @@ Validate that a skill is ready for submission.
 
 **Arguments:**
 - `[skill-name]` — Skill name (e.g., `code-explainer`)
-- `[skill-path]` — Path to skill directory (e.g., `skills/my-skill`)
+- `[skill-path]` — Relative or absolute path to a skill directory or `SKILL.md` file
 - *(none)* — Auto-detect using workspace detection
+
+Explicit paths resolve evals from the target skill's workspace, independent of
+the current directory. The target's `.waza.yaml` controls eval paths and filenames.
+Without configuration, discovery searches up to 10 directory levels for
+`evals/<skill-name>/eval.yaml`, then checks `<skill-dir>/evals/eval.yaml` and
+`<skill-dir>/eval.yaml`, in that order.
 
 **What it checks:**
 1. **Compliance scoring** — Validates SKILL.md frontmatter (Low/Medium/Medium-High/High)
@@ -730,6 +753,10 @@ waza run evals/code-explainer/eval.yaml -o results.json
 ## Dashboard
 
 The `waza serve` command launches an interactive web dashboard for viewing and analyzing evaluation results.
+
+AI Credits uses the Copilot SDK's final `session.usage.getMetrics` totals, with an independently bounded shutdown fallback. The evaluation's execution ledger covers all attempts (including discarded retries), prompt graders, responders/classifiers, triggers, and evaluation-analysis sessions. Resumed cumulative snapshots count once; multi-turn token-limit grading uses the latest snapshot before shutdown. Cached task diagnostics remain visible but their historical credits are excluded from current billing. Result JSON persists this scope in `evaluation_usage.sessions`; an empty scope never falls back to cached billing. Cross-evaluation session reuse subtracts known starting counters, otherwise affected billing stays unavailable.
+
+A run or model aggregate is unavailable if any contributing metric or model attribution is missing. The average KPI excludes unavailable runs, and Trends explicitly counts them instead of plotting zero. Primary billing views and CSV omit estimated USD; credits display up to nine fractional digits, while CSV preserves the numeric API value with an empty cell for unavailable usage.
 
 ### Starting the Dashboard
 

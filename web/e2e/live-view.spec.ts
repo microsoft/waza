@@ -136,5 +136,7 @@ test.describe("Live View", () => {
     await expect(page.getByText("step_executed")).toBeVisible();
     await expect(page.getByText("output-exists [code]: ✓ Output file found")).toBeVisible();
     await expect(page.getByText("12.4K")).toBeVisible();
+    await expect(page.getByText("Est. Cost")).toHaveCount(0);
+    await expect(page.getByText("$1.24")).toHaveCount(0);
   });
 });

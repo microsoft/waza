@@ -177,6 +177,12 @@ waza tokens compare main --skills --threshold 10
 waza tokens suggest skills/
 ```
 
+### Agent-assisted eval authoring
+
+Point your coding agent at the [Writing Eval Specs guide](https://microsoft.github.io/waza/guides/eval-yaml/)
+to create or update evals and guide eval-driven implementation. It provides the
+canonical workflow, target-specific validation steps, and a reusable delegation prompt.
+
 ## Commands
 
 ### `waza update`
@@ -506,7 +512,7 @@ Exit codes: `0` all packs PASSED, `2` unsafe outcome with policy=fail (matches `
 
 ### `waza migrate <file>`
 
-Check a public schema artifact and migrate it to the current schema version when a future major schema requires it. The current schema is `1.3`, so v1 `eval.yaml` and `results.json` files are already current and no file changes are made.
+Check a public schema artifact and migrate it to the current schema version when a future major schema requires it. The current schema is `1.4`, so v1 `eval.yaml` and `results.json` files are compatible and no file changes are made.
 
 ```bash
 waza migrate eval.yaml
@@ -629,6 +635,12 @@ Performs five types of checks:
 5. **Advisory checks** — Detects quality and maintainability issues (reference module count, complexity classification, negative delta risk patterns, procedural content, and over-specificity)
 
 Provides a plain-language summary and actionable next steps to improve the skill.
+
+Pass a skill directory or its `SKILL.md` file using a relative or absolute path.
+Eval discovery is anchored to that skill, not your current directory: it honors
+the target workspace's `.waza.yaml`, or searches up to 10 directory levels for
+`evals/<skill-name>/eval.yaml` when no config exists, before checking the skill's
+`evals/eval.yaml` and co-located `eval.yaml`.
 
 **Example output:**
 ```
@@ -871,6 +883,26 @@ The dashboard displays evaluation results with:
 - Score distributions across trials
 - Model comparisons
 - Aggregated metrics and trends
+
+**AI Credit usage:**
+
+Copilot-backed runs query `session.usage.getMetrics` after completion for the authoritative final GitHub Copilot AI Credit total (`totalNanoAiu` ÷ 1e9). Shutdown metrics are a fallback if the RPC is unavailable; waza never derives credits from its token rate table. Result JSON stores:
+
+| Field | Description |
+|-------|-------------|
+| `summary.usage.ai_credits` | Final AI Credits for the run |
+| `summary.usage.model_metrics.<model>.ai_credits` | Final AI Credits attributed to a model |
+| `summary.usage.model_metrics.<model>.{input,output,cache_read,cache_write}_tokens` | Token-category diagnostics retained alongside credits |
+
+The dashboard surfaces these as **AI Credits** (run rows, the Avg AI Credits KPI, run detail, compare, trends, and CSV export) plus a **Usage by model** table on run details. An evaluation-scoped execution ledger includes every task attempt, prompt grader, responder/classifier, trigger, and evaluation-analysis session, even when a failed attempt is replaced in the final task results. Cumulative snapshots count once per session; per-turn engines retain additive semantics. Multi-turn token-limit grading uses the latest cumulative snapshot before shutdown. These totals are not account-wide Copilot usage.
+
+Cache hits retain historical task diagnostics but do not contribute historical credits to the new evaluation. The additive `evaluation_usage.sessions` result field identifies current executions, including an empty ledger for a fully cached task-only run; such a run has no reported current-session billing total. Resuming a session from a previous evaluation subtracts its known starting counters. Missing starting metrics or counter resets leave affected billing unavailable. Final usage is captured before responder/grader session deletion; an RPC timeout cannot consume the independently bounded shutdown fallback's timeout.
+
+Dashboard evaluation-level token and request totals, along with legacy cost API fields, use the same current-evaluation scope. Individual cached task rows retain their historical diagnostics.
+
+A run total is unavailable if any contributing session lacks final credits, and each model total is unavailable if its contributing credits or model attribution are incomplete. Reporting uses the pinned Go SDK's typed API; legacy artifacts and runtimes without metrics show `—` instead of an estimate. The KPI averages only complete reporting runs; trends visibly count unavailable runs. Display preserves up to nine fractional digits, and CSV preserves the numeric API value (empty when unavailable). Estimated USD is not shown on primary dashboard billing surfaces; legacy cost fields remain in the API for compatibility.
+
+Storage-backed dashboard listings preserve outcome usage rather than relying on metadata-only summaries. Azure Blob listings use known blob paths and bounded concurrent downloads, avoiding a repeated container scan for each run; storage errors surface explicitly instead of yielding partial billing summaries.
 
 For detailed documentation on the dashboard and result visualization, see [docs/GUIDE.md](docs/GUIDE.md).
 
@@ -1171,11 +1203,11 @@ Pin `reasoning_effort` and `judge_reasoning_effort` to `low`, `medium`, `high`, 
 
 With explicit effort, choose a concrete model from `waza models`. Waza checks the runtime's supported-effort metadata before creating or resuming hosted Copilot sessions; unknown models, unavailable metadata, and unsupported efforts produce actionable errors instead of silently using a different effort. Custom-provider efforts are forwarded directly because the hosted catalog does not describe those models. Result setup metadata and cache keys include both eval-level effort settings; regrading replaces the judge effort, including clearing a previously pinned value when omitted.
 
-`schemaVersion` uses `MAJOR.MINOR` format. Missing values are interpreted as the current schema version (currently `1.3`). Readers allow same-major minor additions with warnings for unknown fields, but reject different majors with a hint to run `waza migrate <file>`.
+`schemaVersion` uses `MAJOR.MINOR` format. Missing values are interpreted as the current schema version (currently `1.4`). Readers allow same-major minor additions with warnings for unknown fields, but reject different majors with a hint to run `waza migrate <file>`.
 
 Remote grader refs use Go-module-style paths: `<host>/<owner>/<repo>[/path][#export]@<version>`. The remote module must provide a `waza.registry.yaml` manifest and export a grader preset. Config-only grader presets expand to built-in grader types by default; remote program graders require explicit trust with `waza registry add --allow-exec` or interactive confirmation. Run `waza get eval.yaml` after manually adding or changing refs so `waza.lock` records the resolved commit and digest.
 
-`results.json` is currently emitted at `schemaVersion` `1.3`. Version `1.1` added per-turn checkpoints (`runs[].checkpoints[]`, see #358) and the normalized `runs[].tool_events[]` array (`turn`, `sequence`, `tool_call_id`, `tool_name`, `args`, `result`, `success`, `error`, `duration_ms`; see #366). Version `1.2` added `runs[].snapshot_path` for `waza run --snapshot` artifacts (#367) and the eval-level `adversarial:` block consumed by `waza adversarial --spec` (#365). Version `1.3` adds the optional eval-level `config.sandbox` block for Copilot-native task isolation plus `session_digest.tool_policy_mode` and `tool_policy_denials` (#585). See [docs/PRD](docs/PRD.md) and [schema-changes](site/src/content/docs/reference/schema-changes.md) for details.
+`results.json` is currently emitted at `schemaVersion` `1.4`. Version `1.1` added per-turn checkpoints (`runs[].checkpoints[]`, see #358) and the normalized `runs[].tool_events[]` array (`turn`, `sequence`, `tool_call_id`, `tool_name`, `args`, `result`, `success`, `error`, `duration_ms`; see #366). Version `1.2` added `runs[].snapshot_path` for `waza run --snapshot` artifacts (#367) and the eval-level `adversarial:` block consumed by `waza adversarial --spec` (#365). Version `1.3` adds the optional eval-level `config.sandbox` block for Copilot-native task isolation plus `session_digest.tool_policy_mode` and `tool_policy_denials` (#585). Version `1.4` adds sanitized `runs[].command_invocations` for declarative CLI mocks (#634). See [docs/PRD](docs/PRD.md) and [schema-changes](site/src/content/docs/reference/schema-changes.md) for details.
 
 For custom `.agent.md` targets, `copilot-sdk` enforces the selected agent's `tools:` declaration on initial and resumed turns: omitted means unrestricted, `[]` denies all tools, and a populated list allows only named tools. Runtime enforcement and the implicit `tool_constraint` grader share built-in aliases such as `fileRead`/`readFile`/`view`. Denials fail the run and appear in results, `--session-log` run events, and the dashboard trajectory digest. This is a tool boundary, not host filesystem or network sandboxing. See [custom agent policies](site/src/content/docs/guides/custom-agents.mdx) for MCP names, task overrides, and limitations.
 
@@ -1191,6 +1223,44 @@ mcp_mocks:
 ```
 
 Inline responses support exact full-argument matching (`match`), JSON Schema matching (`match_schema`), and per-field regex matching (`match_regex`). Unknown tools and unmatched calls fail loudly with an MCP tool error that names the missing fixture.
+
+### Command Mocks
+
+Use top-level `command_mocks` when the agent must invoke a CLI such as `az`, `gh`, or `kubectl`. Waza creates temporary executable shims for each task and prepends their directory to the Copilot runtime's existing `PATH`; the host `PATH` remains available. This requires `schemaVersion: "1.3"` or newer and `executor: copilot-sdk`.
+
+```yaml
+schemaVersion: "1.3"
+config:
+  executor: copilot-sdk
+  model: claude-sonnet-4.6
+
+command_mocks:
+  - name: az
+    expect_calls: 3
+    responses:
+      - args: ["account", "show", "--output", "json"]
+        stdout:
+          subscriptionId: "00000000-0000-0000-0000-000000000000"
+          name: Test Subscription
+      - args_regex: ["group", "show", "--name", ".+"]
+        fixture: fixtures/commands/az-group-show.json
+      - args: ["deployment", "group", "create"]
+        stderr: "deployment failed"
+        exit_code: 1
+```
+
+Each response matches the complete argument vector, excluding the executable. `args_regex` applies a full-string regular expression to each argument at the same position. Responses are checked in order; the first match wins. `stdout` strings are emitted as-is and structured values are JSON-encoded. `fixture` reads a response file relative to `eval.yaml`. `environment` can require exact environment-variable values, and `workdir` can require an exact workspace-relative directory. `expect_calls` checks the exact invocation count after the task finishes.
+
+Task-level `command_mocks` replace the eval-level list; use `command_mocks: []` on a task to disable inherited mocks. Mocked invocations (command, sanitized arguments, exit code, and response index) are available to graders and appear under `runs[].command_invocations` in `results.json`. Verbose output shows the same sanitized records. An unmatched invocation of a declared executable exits with an actionable missing-fixture error including sanitized arguments and working-directory context. Only declared executable names are intercepted; this feature is not a shell sandbox, and other commands continue to resolve through the host `PATH`. Host commands reached through shim pass-through do not inherit the internal `WAZA_COMMAND_MOCK_*` variables. Do not use real credentials in response fixtures.
+
+Choose the mechanism that matches the dependency boundary:
+
+| Use | When |
+| --- | --- |
+| `command_mocks` | The skill shells out to a named CLI and needs deterministic stdout, stderr, and exit codes. |
+| `mcp_mocks` | The skill calls structured tools from an MCP server rather than a shell executable. |
+| Hooks | Setup, teardown, or validation should run around a task/eval; hooks do not intercept commands started by the agent. |
+| Live integration tests | Real CLI/service behavior, authentication, or infrastructure interaction is what the test must verify. Keep these separate from hermetic evals. |
 
 ### Adversarial Packs
 

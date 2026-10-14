@@ -416,31 +416,24 @@ func checkReadiness(skillDir string, wsCtx *workspace.WorkspaceContext) (*readin
 		}
 	}
 
-	// 5. Check for eval.yaml (try workspace-aware detection first, then co-located)
+	// 5. Resolve evals from the known workspace or the target skill's ancestors.
 	if wsCtx != nil {
-		if evalPath, findErr := workspace.FindEval(wsCtx, sk.Frontmatter.Name); findErr == nil && evalPath != "" {
-			report.hasEval = true
-			report.evalPath = evalPath
+		report.evalPath, err = workspace.FindEval(wsCtx, sk.Frontmatter.Name)
+		if err != nil {
+			return nil, fmt.Errorf("finding evaluation suite: %w", err)
 		}
 	}
-	if !report.hasEval {
-		// Try workspace detection from the working directory
-		if wd, wdErr := os.Getwd(); wdErr == nil {
-			if autoCtx, ctxErr := workspace.DetectContext(wd, configDetectOptions()...); ctxErr == nil {
-				if evalPath, findErr := workspace.FindEval(autoCtx, sk.Frontmatter.Name); findErr == nil && evalPath != "" {
-					report.hasEval = true
-					report.evalPath = evalPath
-				}
-			}
+	if report.evalPath == "" {
+		report.evalPath, err = workspace.FindEvalForSkill(workspace.SkillInfo{
+			Name:      sk.Frontmatter.Name,
+			Dir:       skillDir,
+			SkillPath: skillPath,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("finding evaluation suite: %w", err)
 		}
 	}
-	if !report.hasEval {
-		colocated := filepath.Join(skillDir, "eval.yaml")
-		if _, err := os.Stat(colocated); err == nil {
-			report.hasEval = true
-			report.evalPath = colocated
-		}
-	}
+	report.hasEval = report.evalPath != ""
 
 	// 6. Validate eval.yaml and task schemas
 	if report.hasEval && report.evalPath != "" {
@@ -903,7 +896,7 @@ func displayReadinessReport(out writer, report *readinessReport) {
 	// 6. Evaluation Check
 	if report.hasEval {
 		writeSection(w, "🧪", "Evaluation Suite", "Found")
-		writeStatus(w, statusIcon("ok"), "eval.yaml detected. Run 'waza run eval.yaml' to test.")
+		writeStatus(w, statusIcon("ok"), fmt.Sprintf("%s detected. Run 'waza run %q' to test.", filepath.Base(report.evalPath), filepath.ToSlash(report.evalPath)))
 	} else {
 		writeSection(w, "🧪", "Evaluation Suite", "Not Found")
 		writeStatus(w, statusIcon("warning"), "No eval.yaml found. Consider creating tests.")
@@ -934,7 +927,7 @@ func displayReadinessReport(out writer, report *readinessReport) {
 		}
 		if !hasEvalSchemaErrs && !hasTaskSchemaErrs {
 			writeSection(w, "📐", "Schema Validation", "Passed")
-			writeStatus(w, statusIcon("ok"), "eval.yaml schema valid")
+			writeStatus(w, statusIcon("ok"), fmt.Sprintf("%s schema valid", filepath.Base(report.evalPath)))
 			taskCount := countValidatedTasks(report)
 			if taskCount > 0 {
 				writeStatus(w, statusIcon("ok"), fmt.Sprintf("%d task file(s) validated", taskCount))
@@ -983,7 +976,9 @@ func displayReadinessReport(out writer, report *readinessReport) {
 	if len(steps) == 0 {
 		fmt.Fprintf(w, "✨ No action needed! Your skill looks great.\n")
 		fmt.Fprintf(w, "\nConsider:\n")
-		fmt.Fprintf(w, "  • Running 'waza run eval.yaml' to verify functionality\n")
+		if report.hasEval {
+			fmt.Fprintf(w, "  • Running 'waza run %q' to verify functionality\n", filepath.ToSlash(report.evalPath))
+		}
 		fmt.Fprintf(w, "  • Sharing your skill with the community\n")
 	} else {
 		fmt.Fprintf(w, "To improve your skill:\n\n")

@@ -83,7 +83,7 @@ func generateEvalAnalysis(
 	}
 	prompt := buildRunAnalysisPrompt(spec, failingTests, failedTriggers, testDefinitions)
 	execCtx, cancel := context.WithTimeout(ctx, 120*time.Second)
-	res, err := engine.Execute(execCtx, &execution.ExecutionRequest{
+	res, err := execution.ExecuteRecorded(execCtx, engine, &execution.ExecutionRequest{
 		Message:           prompt,
 		SkillName:         spec.SkillName,
 		RequiredSkills:    append([]string(nil), spec.Config.RequiredSkills...),

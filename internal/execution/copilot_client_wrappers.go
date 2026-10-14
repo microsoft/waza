@@ -3,9 +3,11 @@ package execution
 import (
 	"context"
 	"fmt"
+	"log/slog"
 
 	"github.com/Masterminds/semver/v3"
 	copilot "github.com/github/copilot-sdk/go"
+	"github.com/github/copilot-sdk/go/rpc"
 	"github.com/microsoft/waza/internal/models"
 )
 
@@ -27,6 +29,10 @@ type CopilotSession interface {
 
 	// SessionID returns [copilot.Session.SessionID]
 	SessionID() string
+
+	UsageMetrics(ctx context.Context) (*rpc.UsageGetMetricsResult, error)
+
+	ShutdownUsage(ctx context.Context) (*copilot.SessionShutdownData, error)
 }
 
 // CopilotClient is just an interface over [*copilot.Client]
@@ -70,7 +76,7 @@ func (w *copilotClientWrapper) CreateSession(ctx context.Context, config *copilo
 		return nil, err
 	}
 
-	return &copilotSessionWrapper{inner: sess, getStatus: w.inner.GetStatus}, nil
+	return &copilotSessionWrapper{inner: sess, client: w.inner, getStatus: w.inner.GetStatus}, nil
 }
 
 func (w *copilotClientWrapper) ResumeSessionWithOptions(ctx context.Context, sessionID string, config *copilot.ResumeSessionConfig) (CopilotSession, error) {
@@ -80,7 +86,7 @@ func (w *copilotClientWrapper) ResumeSessionWithOptions(ctx context.Context, ses
 		return nil, err
 	}
 
-	return &copilotSessionWrapper{inner: sess, getStatus: w.inner.GetStatus}, nil
+	return &copilotSessionWrapper{inner: sess, client: w.inner, getStatus: w.inner.GetStatus}, nil
 }
 
 func (w *copilotClientWrapper) Start(ctx context.Context) error {
@@ -107,8 +113,10 @@ func (w *copilotClientWrapper) ListModels(ctx context.Context) ([]copilot.ModelI
 // and only has to exist because [copilot.Session.SessionID] is a field, so we can't represent
 // it in an interface...
 type copilotSessionWrapper struct {
-	inner     *copilot.Session
-	getStatus func(context.Context) (*copilot.GetStatusResponse, error)
+	inner        *copilot.Session
+	client       *copilot.Client
+	getStatus    func(context.Context) (*copilot.GetStatusResponse, error)
+	disconnected bool
 }
 
 func (w *copilotSessionWrapper) checkSandboxRuntime(ctx context.Context) error {
@@ -162,6 +170,7 @@ func (w *copilotSessionWrapper) ConfigureSandbox(ctx context.Context, workspaceD
 }
 
 func (w *copilotSessionWrapper) Disconnect() error {
+	w.disconnected = true
 	return w.inner.Disconnect()
 }
 
@@ -175,4 +184,39 @@ func (w *copilotSessionWrapper) SendAndWait(ctx context.Context, options copilot
 
 func (w *copilotSessionWrapper) SessionID() string {
 	return w.inner.SessionID
+}
+
+func (w *copilotSessionWrapper) UsageMetrics(ctx context.Context) (*rpc.UsageGetMetricsResult, error) {
+	return w.inner.RPC.Usage.GetMetrics(ctx)
+}
+
+func (w *copilotSessionWrapper) ShutdownUsage(ctx context.Context) (*copilot.SessionShutdownData, error) {
+	session := w.inner
+	if w.disconnected {
+		resumed, err := w.client.ResumeSessionWithOptions(ctx, session.SessionID, &copilot.ResumeSessionConfig{})
+		if err != nil {
+			return nil, err
+		}
+		session = resumed
+		defer func() {
+			if err := session.Disconnect(); err != nil {
+				slog.Warn("failed to disconnect usage fallback session", "sessionID", session.SessionID, "error", err)
+			}
+		}()
+	}
+	if _, err := session.RPC.Shutdown(ctx, nil); err != nil {
+		return nil, err
+	}
+	// Disconnect clears live handlers. Read the persisted shutdown event as
+	// well so finalization works for previously detached/resumed sessions.
+	events, err := session.GetEvents(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for i := len(events) - 1; i >= 0; i-- {
+		if data, ok := events[i].Data.(*copilot.SessionShutdownData); ok {
+			return data, nil
+		}
+	}
+	return nil, fmt.Errorf("no final session.shutdown event reported")
 }

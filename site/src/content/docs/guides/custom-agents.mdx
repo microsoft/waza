@@ -255,7 +255,11 @@ Matching is exact, case-insensitive, and uses the same fixed aliases as `allow_o
 
 Bare names refer to built-ins. For MCP tools, declare `mcp:<server-key>-<tool-name>` (for example `mcp:github-list_issues`); for caller-provided tools, use `custom:<tool-name>` (for example `custom:CodeSearch`). Permission matching preserves these namespaces: `CodeSearch` does not authorize `custom:CodeSearch`, and `github-list_issues` does not authorize `mcp:github-list_issues`. Declaring one MCP tool never authorizes another server or its other tools. Custom/MCP identifiers retain their original case and source qualifier in the SDK filter and do not use built-in aliases.
 
-Hooks and transcripts may omit source metadata. For those observations, declared custom/MCP names match the literal unqualified name; source isolation then relies on the SDK filter. Explicit source information is never discarded when present. Subagent launches must pass both the tool-name check (typically `task`) and the factory permission check using the factory's name, or `task` if unnamed. Permitting a launcher is not a separate sandbox for the subagent.
+Hooks and transcripts may omit source metadata. For those observations, declared custom/MCP names match the literal unqualified name; source isolation then relies on the SDK filter. Explicit source information is never discarded when present.
+
+A launch must pass its tool-name check (typically `task` for subagent launches) and any associated permission check. For SDK 1.0.15 `workflow` permission requests, waza matches the workflow's `Name` exactly and case-insensitively against the declared tools, using the fixed aliases above. An empty or omitted name falls back to `task`; permitting `task` alone does not authorize a named workflow. Permitting a launcher is not a separate sandbox for the subagent.
+
+The bundled Copilot CLI 1.0.85 still uses the legacy `factory` permission kind, which SDK 1.0.15 preserves as a raw request. Waza accepts this specific legacy kind only when its JSON parses into the compatible workflow fields and the payload's kind matches the `factory` discriminator. Valid legacy requests use the same name matching and unnamed `task` fallback as workflow requests. Malformed legacy payloads and all other unrecognized kinds remain denied. Allowed requests are forwarded unchanged to the existing permission handler, preserving its decisions and managed-approval metadata.
 
 The opt-in live SDK regression exercises an allowed file read and a current-information request in both an initial and resumed session:
 

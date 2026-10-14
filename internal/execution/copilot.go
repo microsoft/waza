@@ -19,6 +19,7 @@ import (
 	"github.com/github/copilot-sdk/go/rpc"
 	"gopkg.in/yaml.v3"
 
+	"github.com/microsoft/waza/internal/commandmock"
 	"github.com/microsoft/waza/internal/copilotevents"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/safeio"
@@ -63,8 +64,12 @@ type CopilotEngine struct {
 
 	// collectors tracks usage collectors by session ID so we can read
 	// shutdown-event usage after client.Stop() fires session.shutdown events.
-	usageCollectors   map[string]*SessionUsageCollector
-	usageCollectorsMu sync.RWMutex
+	usageCollectors     map[string]*SessionUsageCollector
+	usageCollectorsMu   sync.RWMutex
+	usageMetricsTimeout time.Duration
+
+	commandMocksMu      sync.Mutex
+	commandMockSessions map[string]*commandmock.Session
 
 	shutdownOnce sync.Once
 	shutdownErr  error
@@ -191,7 +196,7 @@ func NewCopilotEngineBuilder(defaultModelID string, options *CopilotEngineBuilde
 	var client CopilotClient
 	ownsClient := false
 	provider := providerFromEnv()
-	cliArgs := modelCLIArgs(defaultModelID, provider.enabled())
+	cliArgs := modelCLIArgs()
 	sanitizeEnvironment := options != nil && options.SanitizeEnvironment
 
 	if options == nil || options.NewCopilotClient == nil {
@@ -209,6 +214,7 @@ func NewCopilotEngineBuilder(defaultModelID string, options *CopilotEngineBuilde
 			ownsClient:           ownsClient,
 			sanitizedEnvironment: sanitizeEnvironment,
 			provider:             provider,
+			commandMockSessions:  make(map[string]*commandmock.Session),
 		},
 	}
 
@@ -216,29 +222,27 @@ func NewCopilotEngineBuilder(defaultModelID string, options *CopilotEngineBuilde
 	return builder
 }
 
-// modelCLIArgs returns the startup CLI args needed to pin the embedded
-// Copilot CLI to defaultModelID, or an empty slice when no pinning should
-// occur.
+// modelCLIArgs returns the extra CLI startup arguments prepended to the
+// SDK-managed runtime args when spawning the embedded Copilot CLI.
 //
-// When customProvider is true (a BYOK provider is configured via
-// COPILOT_BASE_URL / COPILOT_PROVIDER_BASE_URL), we deliberately omit
-// --model: the Copilot CLI validates the startup --model against the
-// GitHub Copilot catalog before per-session ProviderConfig is applied, so
-// provider-only model IDs (e.g. minimax-m2.7) would fail startup with
-// `Model "..." is not available`. The per-session SessionConfig.Model +
-// SessionConfig.Provider passed in Execute still selects the right model
-// against the custom provider. See #305.
-func modelCLIArgs(defaultModelID string, customProvider bool) []string {
-	if defaultModelID == "" || customProvider {
-		return []string{}
-	}
-	// --model forces the configured model at CLI startup, overriding any
-	// user preference in the local Copilot settings.json (located under
-	// the user's home directory on Unix and %USERPROFILE% on Windows) or
-	// experiment flights that would otherwise cause the embedded CLI to
-	// use unintended models. SessionConfig.Model still takes precedence
-	// for per-session overrides via Execute.
-	return []string{"--model", defaultModelID}
+// Historically (see #262 / PR #263) we injected "--model <defaultModelID>"
+// here to override the user's local Copilot settings.json / experiment
+// flights at CLI startup. Starting with the runtime bundled by
+// copilot-sdk/go v1.0.14 (copilot-runtime 1.0.85+), the runtime rejects
+// --model with:
+//
+//	copilot-runtime: unsupported argument '--model'
+//
+// causing every waza run to fail at startup with `failed to initialize
+// agent: copilot failed to start` (see #630). SessionConfig.Model is still
+// passed on every CreateSession / ResumeSession call in Execute (see the
+// e.client.CreateSession call below), so the eval-configured model
+// continues to win over any local user default at the session layer.
+//
+// Returning an empty slice keeps this seam in place for future SDK / runtime
+// flags without re-introducing --model.
+func modelCLIArgs() []string {
+	return nil
 }
 
 func (b *CopilotEngineBuilder) Build() *CopilotEngine {
@@ -401,6 +405,10 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 	if err != nil {
 		return nil, err
 	}
+	commandMockSession, err := e.commandMockSession(workspaceDir, req)
+	if err != nil {
+		return nil, err
+	}
 
 	// Build skill directories list and system message, unless skills are disabled
 	var skillDirs []string
@@ -455,12 +463,17 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 	// every later turn in the same session.
 	var policyRecorder *toolPolicyRecorder
 	var availableTools []string
-	var policyHooks *copilot.SessionHooks
+	var preToolUseHook copilot.PreToolUseHandler
 	if req.ToolPolicy.Active() {
 		policyRecorder = newToolPolicyRecorder()
 		permRequestCallback = enforceToolPolicy(req.ToolPolicy, policyRecorder, permRequestCallback)
 		availableTools = req.ToolPolicy.SessionToolFilter()
-		policyHooks = &copilot.SessionHooks{OnPreToolUse: enforceToolCall(req.ToolPolicy, policyRecorder)}
+		preToolUseHook = enforceToolCall(req.ToolPolicy, policyRecorder)
+	}
+	preToolUseHook = combinePreToolUseHandlers(preToolUseHook, commandMockToolHook(commandMockSession))
+	var sessionHooks *copilot.SessionHooks
+	if preToolUseHook != nil {
+		sessionHooks = &copilot.SessionHooks{OnPreToolUse: preToolUseHook}
 	}
 
 	if req.SessionID == "" {
@@ -472,7 +485,7 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 
 			OnPermissionRequest: permRequestCallback,
 			AvailableTools:      availableTools,
-			Hooks:               policyHooks,
+			Hooks:               sessionHooks,
 
 			SkillDirectories: skillDirs,
 			WorkingDirectory: workingDir,
@@ -493,7 +506,7 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 
 			OnPermissionRequest: permRequestCallback,
 			AvailableTools:      availableTools,
-			Hooks:               policyHooks,
+			Hooks:               sessionHooks,
 
 			// these are the directory for the skill itself.
 			SkillDirectories: skillDirs,
@@ -526,7 +539,7 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 			deleteCtx, cancelDelete := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancelDelete()
 			if err := e.client.DeleteSession(deleteCtx, sessionID); err != nil {
-				slog.Debug("failed to delete ephemeral session", "sessionID", sessionID, "error", err)
+				slog.Warn("failed to delete ephemeral session", "sessionID", sessionID, "error", err)
 			}
 		}
 	}()
@@ -545,7 +558,19 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 	}
 
 	eventsCollector := NewSessionEventsCollector()
-	usageCollector := NewSessionUsageCollector()
+	e.usageCollectorsMu.Lock()
+	if e.usageCollectors == nil {
+		e.usageCollectors = make(map[string]*SessionUsageCollector)
+	}
+	usageCollector := e.usageCollectors[sessionID]
+	if usageCollector == nil {
+		usageCollector = NewSessionUsageCollector()
+		e.usageCollectors[sessionID] = usageCollector
+	} else {
+		usageCollector.beginTurn()
+	}
+	e.usageCollectorsMu.Unlock()
+	usageRevision := usageCollector.revision()
 
 	// When CancelOnSkillInvocation is set, derive a cancellable context so we
 	// can abort SendAndWait as soon as a skill invocation event arrives. This
@@ -575,13 +600,6 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 		}
 		e.sessions[sessionID] = session
 		e.sessionsMu.Unlock()
-
-		e.usageCollectorsMu.Lock()
-		if e.usageCollectors == nil {
-			e.usageCollectors = make(map[string]*SessionUsageCollector)
-		}
-		e.usageCollectors[sessionID] = usageCollector
-		e.usageCollectorsMu.Unlock()
 	}
 
 	unsubscribe := session.On(utils.NewSessionToSlog())
@@ -667,21 +685,25 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 	}
 
 	// Build response
+	e.captureUsage(ctx, sessionID, session, usageCollector, req.EphemeralSession && req.SessionID == "")
 	usage := usageCollector.UsageStats()
 	e.provider.applyToUsage(usage)
 	resp := &ExecutionResponse{
-		FinalOutput:      joinStrings(eventsCollector.OutputParts()),
-		Events:           copilotevents.FromSDK(eventsCollector.SessionEvents()),
-		ModelID:          modelID,
-		SkillInvocations: eventsCollector.SkillInvocations,
-		DurationMs:       duration.Milliseconds(),
-		ToolCalls:        eventsCollector.ToolCalls(),
-		ErrorMsg:         errMsg,
-		Success:          err == nil,
-		WorkspaceDir:     workspaceDir,
-		WorkspaceFiles:   workspaceFiles,
-		SessionID:        sessionID,
-		Usage:            usage,
+		FinalOutput:        joinStrings(eventsCollector.OutputParts()),
+		Events:             copilotevents.FromSDK(eventsCollector.SessionEvents()),
+		ModelID:            modelID,
+		SkillInvocations:   eventsCollector.SkillInvocations,
+		DurationMs:         duration.Milliseconds(),
+		ToolCalls:          eventsCollector.ToolCalls(),
+		ErrorMsg:           errMsg,
+		Success:            err == nil,
+		WorkspaceDir:       workspaceDir,
+		WorkspaceFiles:     workspaceFiles,
+		CommandInvocations: commandMockSession.Invocations(), // Checkpoint graders run before task finalization.
+		SessionID:          sessionID,
+		Usage:              usage,
+		UsageIsCumulative:  true,
+		UsageRevision:      usageRevision,
 	}
 
 	if req.ToolPolicy != nil {
@@ -721,7 +743,13 @@ func (e *CopilotEngine) doShutdown(ctx context.Context) error {
 		return s
 	}()
 
-	for id := range sessions {
+	for id, session := range sessions {
+		e.usageCollectorsMu.RLock()
+		collector := e.usageCollectors[id]
+		e.usageCollectorsMu.RUnlock()
+		if !collector.hasMetrics() {
+			e.captureShutdownUsage(ctx, id, session, collector)
+		}
 		if err := e.client.DeleteSession(ctx, id); err != nil {
 			slog.Debug("failed to delete session", "sessionID", id, "error", err)
 		}
@@ -736,6 +764,15 @@ func (e *CopilotEngine) doShutdown(ctx context.Context) error {
 	if e.ownsClient {
 		if err := e.client.Stop(); err != nil {
 			shutdownErr = fmt.Errorf("failed to stop client: %w", err)
+		}
+	}
+	e.commandMocksMu.Lock()
+	commandMockSessions := e.commandMockSessions
+	e.commandMockSessions = make(map[string]*commandmock.Session)
+	e.commandMocksMu.Unlock()
+	for _, commandSession := range commandMockSessions {
+		if _, err := commandSession.Close(); err != nil {
+			slog.Warn("failed to close command-mock task session", "error", err)
 		}
 	}
 
@@ -775,6 +812,80 @@ func (e *CopilotEngine) doShutdown(ctx context.Context) error {
 	return shutdownErr
 }
 
+func (e *CopilotEngine) captureUsage(parent context.Context, sessionID string, session CopilotSession, collector *SessionUsageCollector, final bool) {
+	timeout := e.usageMetricsTimeout
+	if timeout <= 0 {
+		timeout = 30 * time.Second
+	}
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(parent), timeout)
+	defer cancel()
+	metrics, err := session.UsageMetrics(ctx)
+	if err == nil && metrics != nil {
+		collector.SetMetrics(metrics)
+		return
+	}
+	if err == nil {
+		err = errors.New("empty usage metrics response")
+	}
+	slog.Warn("final usage metrics unavailable; using session events", "sessionID", sessionID, "error", err)
+	if !final {
+		return
+	}
+	e.captureShutdownUsage(context.WithoutCancel(parent), sessionID, session, collector)
+}
+
+func (e *CopilotEngine) captureShutdownUsage(ctx context.Context, sessionID string, session CopilotSession, collector *SessionUsageCollector) {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	shutdown, err := session.ShutdownUsage(ctx)
+	if err != nil {
+		slog.Warn("shutdown usage unavailable", "sessionID", sessionID, "error", err)
+		return
+	}
+	if shutdown == nil {
+		slog.Warn("no final shutdown usage reported", "sessionID", sessionID)
+		return
+	}
+	collector.On(copilot.SessionEvent{Data: shutdown})
+}
+
+func (e *CopilotEngine) commandMockSession(workspace string, req *ExecutionRequest) (*commandmock.Session, error) {
+	workspace, err := filepath.Abs(workspace)
+	if err != nil {
+		return nil, fmt.Errorf("resolving command-mock workspace: %w", err)
+	}
+	e.commandMocksMu.Lock()
+	defer e.commandMocksMu.Unlock()
+	if session := e.commandMockSessions[workspace]; session != nil {
+		return session, nil
+	}
+	if len(req.CommandMocks) == 0 {
+		return nil, nil
+	}
+	session, err := commandmock.NewSession(workspace, req.CommandMocks, req.CommandMocksBaseDir)
+	if err != nil {
+		return nil, fmt.Errorf("setting up command mocks: %w", err)
+	}
+	e.commandMockSessions[workspace] = session
+	return session, nil
+}
+
+// FinalizeCommandMocks closes the task's command-mock state after all turns.
+func (e *CopilotEngine) FinalizeCommandMocks(workspace string) ([]models.CommandInvocation, error) {
+	workspace, err := filepath.Abs(workspace)
+	if err != nil {
+		return nil, fmt.Errorf("resolving command-mock workspace: %w", err)
+	}
+	e.commandMocksMu.Lock()
+	session := e.commandMockSessions[workspace]
+	delete(e.commandMockSessions, workspace)
+	e.commandMocksMu.Unlock()
+	if session == nil {
+		return nil, nil
+	}
+	return session.Close()
+}
+
 // DeleteSession removes a persistent session created via Execute (with
 // EphemeralSession=false) and stops tracking it for shutdown cleanup. It is
 // used by callers that own a long-lived session, such as the responder, to
@@ -782,6 +893,15 @@ func (e *CopilotEngine) doShutdown(ctx context.Context) error {
 func (e *CopilotEngine) DeleteSession(ctx context.Context, sessionID string) error {
 	if sessionID == "" {
 		return nil
+	}
+	e.sessionsMu.Lock()
+	session := e.sessions[sessionID]
+	e.sessionsMu.Unlock()
+	e.usageCollectorsMu.RLock()
+	collector := e.usageCollectors[sessionID]
+	e.usageCollectorsMu.RUnlock()
+	if session != nil && collector != nil {
+		e.captureUsage(ctx, sessionID, session, collector, true)
 	}
 	// Delete the remote session first; only drop local tracking on success so a
 	// failed remote delete leaves the session registered for shutdown cleanup
@@ -794,11 +914,19 @@ func (e *CopilotEngine) DeleteSession(ctx context.Context, sessionID string) err
 	delete(e.sessions, sessionID)
 	e.sessionsMu.Unlock()
 
-	e.usageCollectorsMu.Lock()
-	delete(e.usageCollectors, sessionID)
-	e.usageCollectorsMu.Unlock()
-
 	return nil
+}
+
+// SessionUsageRevision identifies the last execution contributing to a
+// snapshot, preventing an older evaluation from absorbing a later resumed turn.
+func (e *CopilotEngine) SessionUsageRevision(sessionID string) uint64 {
+	e.usageCollectorsMu.RLock()
+	collector := e.usageCollectors[sessionID]
+	e.usageCollectorsMu.RUnlock()
+	if collector == nil {
+		return 0
+	}
+	return collector.revision()
 }
 
 // SessionUsage returns the final usage stats for a session. Call after Shutdown()
@@ -1173,36 +1301,36 @@ func sessionSandboxConfiguration(workspaceDir string, readonlyDirs []string, con
 	}
 
 	return &rpc.SessionUpdateOptionsParams{
-			SandboxConfig: &rpc.SandboxConfig{
-				Enabled:                    true,
-				AddCurrentWorkingDirectory: copilot.Bool(false),
-				AllowDevToolAccess:         copilot.Bool(config.AllowDevToolCaches),
-				Auth: &rpc.SandboxConfigAuth{
-					Gh:  copilot.Bool(config.GHAuth),
-					Git: copilot.Bool(config.GitAuth),
-				},
-				UserPolicy: &rpc.SandboxConfigUserPolicy{
-					Filesystem: &rpc.SandboxConfigUserPolicyFilesystem{
-						ClearPolicyOnExit: copilot.Bool(true),
-						DeniedPaths:       deniedTempDirs,
-						ReadonlyPaths:     readonlyPaths,
-						ReadwritePaths:    readwritePaths,
-					},
-					Network: &rpc.SandboxConfigUserPolicyNetwork{
-						AllowLocalNetwork: copilot.Bool(config.AllowLocalNetwork),
-						AllowOutbound:     copilot.Bool(config.AllowOutboundNetwork),
-					},
-					Seatbelt: &rpc.SandboxConfigUserPolicySeatbelt{KeychainAccess: copilot.Bool(false)},
-				},
+		SandboxConfig: &rpc.SandboxConfig{
+			Enabled:                    true,
+			AddCurrentWorkingDirectory: copilot.Bool(false),
+			AllowDevToolAccess:         copilot.Bool(config.AllowDevToolCaches),
+			Auth: &rpc.SandboxConfigAuth{
+				Gh:  copilot.Bool(config.GHAuth),
+				Git: copilot.Bool(config.GitAuth),
 			},
-		}, &rpc.PermissionsConfigureParams{
-			Paths: &rpc.PermissionPathsConfig{
-				AdditionalDirectories: additionalDirectories,
-				WorkspacePath:         &workspaceDir,
-				IncludeTempDirectory:  copilot.Bool(false),
-				Unrestricted:          copilot.Bool(false),
+			UserPolicy: &rpc.SandboxConfigUserPolicy{
+				Filesystem: &rpc.SandboxConfigUserPolicyFilesystem{
+					ClearPolicyOnExit: copilot.Bool(true),
+					DeniedPaths:       deniedTempDirs,
+					ReadonlyPaths:     readonlyPaths,
+					ReadwritePaths:    readwritePaths,
+				},
+				Network: &rpc.SandboxConfigUserPolicyNetwork{
+					AllowLocalNetwork: copilot.Bool(config.AllowLocalNetwork),
+					AllowOutbound:     copilot.Bool(config.AllowOutboundNetwork),
+				},
+				Seatbelt: &rpc.SandboxConfigUserPolicySeatbelt{KeychainAccess: copilot.Bool(false)},
 			},
-		}, nil
+		},
+	}, &rpc.PermissionsConfigureParams{
+		Paths: &rpc.PermissionPathsConfig{
+			AdditionalDirectories: additionalDirectories,
+			WorkspacePath:         &workspaceDir,
+			IncludeTempDirectory:  copilot.Bool(false),
+			Unrestricted:          copilot.Bool(false),
+		},
+	}, nil
 }
 
 // streamingPtr converts the caller's bool Streaming field into the *bool the

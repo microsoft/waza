@@ -5,29 +5,29 @@ import TaskTrajectoryCompare from "./TaskTrajectoryCompare";
 import { InfoTooltip } from "./InfoTooltip";
 import {
   formatDuration,
-  formatCost,
-  formatCredits,
+  formatAICredits,
   formatNumber,
   formatPercent,
   formatRelativeTime,
+  AI_CREDITS_TOOLTIP,
+  AI_CREDITS_UNAVAILABLE_TOOLTIP,
 } from "../lib/format";
-
-const CREDITS_TOOLTIP =
-  "Premium request count reported by the Copilot SDK — not dollars.";
 
 function Delta({
   a,
   b,
   format,
   higherIsBetter = true,
+  precision = 0.001,
 }: {
   a: number;
   b: number;
   format: (v: number) => string;
   higherIsBetter?: boolean;
+  precision?: number;
 }) {
   const diff = b - a;
-  if (Math.abs(diff) < 0.001)
+  if (Math.abs(diff) < precision)
     return <span className="text-zinc-400">—</span>;
 
   const improved = higherIsBetter ? diff > 0 : diff < 0;
@@ -308,7 +308,7 @@ export default function CompareView() {
             <h3 className="mb-4 text-sm font-medium text-zinc-300">
               Metrics Comparison
             </h3>
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
               <MetricCard
                 label="Pass Rate"
                 valueA={formatPercent(
@@ -352,30 +352,30 @@ export default function CompareView() {
                 }
               />
               <MetricCard
-                label="Credits"
-                labelExtra={<InfoTooltip text={CREDITS_TOOLTIP} />}
-                valueA={formatCredits(runA.premiumRequests ?? 0)}
-                valueB={formatCredits(runB.premiumRequests ?? 0)}
-                delta={
-                  <Delta
-                    a={runA.premiumRequests ?? 0}
-                    b={runB.premiumRequests ?? 0}
-                    format={formatCredits}
-                    higherIsBetter={false}
+                label="AI Credits"
+                labelExtra={
+                  <InfoTooltip
+                    text={
+                      runA.aiCredits == null || runB.aiCredits == null
+                        ? AI_CREDITS_UNAVAILABLE_TOOLTIP
+                        : AI_CREDITS_TOOLTIP
+                    }
                   />
                 }
-              />
-              <MetricCard
-                label="Cost"
-                valueA={formatCost(runA.cost)}
-                valueB={formatCost(runB.cost)}
+                valueA={formatAICredits(runA.aiCredits)}
+                valueB={formatAICredits(runB.aiCredits)}
                 delta={
-                  <Delta
-                    a={runA.cost}
-                    b={runB.cost}
-                    format={formatCost}
-                    higherIsBetter={false}
-                  />
+                  runA.aiCredits == null || runB.aiCredits == null ? (
+                    <span className="text-zinc-400">—</span>
+                  ) : (
+                    <Delta
+                      a={runA.aiCredits}
+                      b={runB.aiCredits}
+                      format={formatAICredits}
+                      higherIsBetter={false}
+                      precision={0.0000000005}
+                    />
+                  )
                 }
               />
               <MetricCard

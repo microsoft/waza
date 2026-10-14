@@ -112,6 +112,9 @@ type ExecutionRequest struct {
 	// values follow the copilot SDK MCPServerConfig format (type/command/args).
 	MCPServers map[string]copilot.MCPServerConfig
 
+	CommandMocks        []models.CommandMockConfig
+	CommandMocksBaseDir string
+
 	// PermissionHandler called when the copilot SDK wants to determine if a tool can be used.
 	// Default: allows all tools.
 	PermissionHandler copilot.PermissionHandlerFunc
@@ -172,6 +175,12 @@ type ExecutionResponse struct {
 	WorkspaceFiles   map[string][]byte // Post-execution workspace file contents captured before session disconnect
 	SessionID        string            // Copilot session ID
 	Usage            *models.UsageStats
+	// UsageIsCumulative distinguishes a session snapshot from per-execution
+	// usage. Engines that report per-turn usage leave this false.
+	UsageIsCumulative bool
+	UsageRevision     uint64
+	usageAccumulator  *UsageAccumulator
+	GraderSessions    []models.SessionDigest
 
 	// ToolPolicyMode is the effective ToolPolicy mode applied to this
 	// execution ("unrestricted", "deny_all", or "allow_list"), empty when no
@@ -180,7 +189,14 @@ type ExecutionResponse struct {
 	// ToolPolicyDenials records every tool-execution attempt the engine
 	// denied under an active ToolPolicy. Empty when the policy was
 	// unrestricted or no tool was ever denied.
-	ToolPolicyDenials []ToolPolicyDenial
+	ToolPolicyDenials  []ToolPolicyDenial
+	CommandInvocations []models.CommandInvocation
+}
+
+// CommandMockFinalizer collects task-level command records and checks expected
+// call counts after the final agent turn has completed.
+type CommandMockFinalizer interface {
+	FinalizeCommandMocks(workspace string) ([]models.CommandInvocation, error)
 }
 
 // ExtractMessages gets all non-empty assistant messages from events.

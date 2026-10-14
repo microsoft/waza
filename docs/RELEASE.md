@@ -21,6 +21,16 @@ This triggers the full pipeline: CLI build → extension build → GitHub Releas
 4. **release-extension** — Syncs `version.txt` and `extension.yaml`, builds the web UI, builds and packs the azd extension, creates the **Extension GitHub Release** (`Waza azd Extension vX.Y.Z`), publishes to the azd registry, then opens a PR with updated `registry.json` and synced version files.
 5. **pages.yml** — Deploys the documentation site after the `Release` workflow completes successfully, ensuring release notes and download links published to `site/` are pushed to GitHub Pages.
 
+The version-sync PR remains open until its normal review requirements and real
+CI checks pass. The release workflow does not synthesize successful checks or
+merge this PR itself. If enterprise policy prevents the workflow token from
+creating the PR, a maintainer must open it from the pushed `release/vX.Y.Z` branch
+so the pull-request workflows run. When the workflow token creates or updates
+the PR successfully, the resulting CI runs require approval: a maintainer with
+write access must select **Approve workflows to run** in the PR's merge box.
+Approving workflow execution does not replace the required code review or
+passing checks.
+
 ## Version File Locations
 
 | File | Purpose |
