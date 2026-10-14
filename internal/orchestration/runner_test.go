@@ -66,8 +66,13 @@ inputs:
 		require.Len(t, tasks, 1)
 
 		spec.Config.Sandbox = &models.SandboxConfig{Enabled: true}
-		_, err = runner.loadTestCases()
-		require.ErrorContains(t, err, "sandbox does not support command_mocks")
+		tasks, err = runner.loadTestCases()
+		if commandMocks == "command_mocks: []" {
+			require.NoError(t, err, "an explicit empty list disables mocks")
+			require.Len(t, tasks, 1)
+		} else {
+			require.ErrorContains(t, err, "sandbox does not support command_mocks")
+		}
 
 		spec.Config.Sandbox.Enabled = false
 		tasks, err = runner.loadTestCases()

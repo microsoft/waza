@@ -722,7 +722,7 @@ func (s *EvalSpec) Validate() error {
 		if s.Config.EngineType != "copilot-sdk" {
 			return fmt.Errorf("sandbox requires executor copilot-sdk")
 		}
-		if s.Config.Sandbox.Enabled && s.CommandMocks != nil {
+		if s.Config.Sandbox.Enabled && len(s.CommandMocks) > 0 {
 			return fmt.Errorf("sandbox does not support command_mocks")
 		}
 	}

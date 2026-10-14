@@ -672,7 +672,7 @@ func (r *EvalRunner) loadTestCasesFromFiles() ([]*models.TestCase, error) {
 			if err := models.ValidateCommandMocksSchemaVersion(spec.SchemaVersion); err != nil {
 				return nil, fmt.Errorf("invalid test case %s: %w", path, err)
 			}
-			if spec.Config.Sandbox != nil && spec.Config.Sandbox.Enabled {
+			if spec.Config.Sandbox != nil && spec.Config.Sandbox.Enabled && len(*tc.CommandMocks) > 0 {
 				return nil, fmt.Errorf("invalid test case %s: sandbox does not support command_mocks", path)
 			}
 		}
