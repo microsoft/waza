@@ -64,6 +64,15 @@ inputs:
 		tasks, err := runner.loadTestCases()
 		require.NoError(t, err)
 		require.Len(t, tasks, 1)
+
+		spec.Config.Sandbox = &models.SandboxConfig{Enabled: true}
+		_, err = runner.loadTestCases()
+		require.ErrorContains(t, err, "sandbox does not support command_mocks")
+
+		spec.Config.Sandbox.Enabled = false
+		tasks, err = runner.loadTestCases()
+		require.NoError(t, err)
+		require.Len(t, tasks, 1)
 	}
 }
 

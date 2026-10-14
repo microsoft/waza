@@ -94,6 +94,7 @@ Model-backed prompt-grader turns retain the evaluated task's sandbox configurati
 
 ## Safety boundaries
 
+- Declarative `command_mocks` (#634) are rejected when the sandbox is enabled. Their shims and per-task state live under the system temporary directory, which the sandbox denies, and the sandboxed process environment does not include the mock-runtime variables. Unsandboxed evaluations keep command-mock support unchanged. Supporting both together requires a separate, non-temporary mock runtime location with explicit read-only grants.
 - Sandboxed Copilot CLI processes receive an allowlisted environment, but retained credential-free proxy and CA configuration remain visible to child tools.
 - Copilot applies the OS sandbox to local MCP and LSP subprocesses by default. Remote MCP servers are outside the local process boundary.
 - Copilot's built-in file and URL tools run in the CLI process. The bundled Copilot CLI 1.0.85 enforces the configured filesystem and network policy in application code, including redirect and cross-origin URL checks.

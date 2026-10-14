@@ -185,6 +185,38 @@ func TestEvalSpec_Validate_SandboxRequiresCopilotExecutor(t *testing.T) {
 	require.ErrorContains(t, err, "sandbox requires executor copilot-sdk")
 }
 
+func TestEvalSpec_Validate_EnabledSandboxRejectsCommandMocks(t *testing.T) {
+	mocks := []CommandMockConfig{{Name: "gh", Responses: []CommandMockResponse{{Args: []string{"auth", "status"}, Stdout: "ok"}}}}
+	for name, tc := range map[string]struct {
+		enabled bool
+		wantErr string
+	}{
+		"enabled sandbox rejects mocks": {enabled: true, wantErr: "sandbox does not support command_mocks"},
+		"disabled sandbox keeps mocks":  {enabled: false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			spec := &EvalSpec{
+				SchemaVersion: "1.4",
+				SpecIdentity:  SpecIdentity{Name: "sandboxed"},
+				CommandMocks:  mocks,
+				Config: Config{
+					TrialsPerTask: 1,
+					TimeoutSec:    60,
+					EngineType:    "copilot-sdk",
+					Sandbox:       &SandboxConfig{Enabled: tc.enabled},
+				},
+			}
+
+			err := spec.Validate()
+			if tc.wantErr == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorContains(t, err, tc.wantErr)
+		})
+	}
+}
+
 func TestLoadEvalSpec_StrictYAML(t *testing.T) {
 	tests := []struct {
 		name        string

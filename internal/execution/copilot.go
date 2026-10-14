@@ -362,6 +362,9 @@ func (e *CopilotEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 		if !e.sanitizedEnvironment {
 			return nil, fmt.Errorf("sandboxed execution requires an engine built with CopilotEngineBuilderOptions.SanitizeEnvironment because the Copilot CLI process environment is fixed at startup")
 		}
+		if len(req.CommandMocks) > 0 {
+			return nil, fmt.Errorf("sandboxed execution does not support command_mocks; command-mock shims run from the denied system temporary directory")
+		}
 		resolved, err := resolveSandboxPaths(*sandbox)
 		if err != nil {
 			return nil, err

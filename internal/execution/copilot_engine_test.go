@@ -262,6 +262,27 @@ func TestCopilotEngine_Execute_FailsClosedWhenSandboxConfigurationFails(t *testi
 	require.ErrorContains(t, err, "failed to configure Copilot sandbox: sandbox unavailable")
 }
 
+func TestCopilotEngine_Execute_SandboxRejectsCommandMocksBeforeSessionCreation(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	clientMock := newClientMock(ctrl)
+
+	engine := NewCopilotEngineBuilder("test-model", &CopilotEngineBuilderOptions{
+		NewCopilotClient:    func(*copilot.ClientOptions) CopilotClient { return clientMock },
+		SanitizeEnvironment: true,
+	}).Build()
+	require.NoError(t, engine.Initialize(context.Background()))
+	t.Cleanup(func() { require.NoError(t, engine.Shutdown(context.Background())) })
+
+	resp, err := engine.Execute(context.Background(), &ExecutionRequest{
+		Message:      "hello",
+		Sandbox:      &models.SandboxConfig{Enabled: true},
+		CommandMocks: []models.CommandMockConfig{{Name: "gh"}},
+	})
+
+	require.Nil(t, resp)
+	require.ErrorContains(t, err, "sandboxed execution does not support command_mocks")
+}
+
 func TestCopilotEngine_Execute_ReportsFailedSandboxSessionDeletion(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	clientMock := newClientMock(ctrl)

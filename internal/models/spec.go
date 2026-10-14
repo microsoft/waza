@@ -645,6 +645,9 @@ func (s *EvalSpec) Validate() error {
 		if s.Config.EngineType != "copilot-sdk" {
 			return fmt.Errorf("sandbox requires executor copilot-sdk")
 		}
+		if s.Config.Sandbox.Enabled && s.CommandMocks != nil {
+			return fmt.Errorf("sandbox does not support command_mocks")
+		}
 	}
 	if s.Config.TrialsPerTask < 1 {
 		return fmt.Errorf("trials_per_task must be at least 1, got %d", s.Config.TrialsPerTask)
