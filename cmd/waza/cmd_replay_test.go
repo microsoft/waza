@@ -68,6 +68,19 @@ func TestReplayModelReplayPasses(t *testing.T) {
 	require.Contains(t, out.String(), "OK model-replay")
 }
 
+func TestReplayHelpStatesUnsupportedLiveMode(t *testing.T) {
+	cmd := newReplayCommand()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"--help"})
+	require.NoError(t, cmd.Execute())
+	require.Contains(t, out.String(), "live          Unsupported; returns exit code 2.")
+	require.Contains(t, out.String(), "No live replay behavior or delivery date is promised.")
+	require.Contains(t, out.String(), "load / parse / snapshot IO / JSON output / unsupported or unknown mode error")
+	require.NotContains(t, out.String(), "(planned)")
+	require.Contains(t, cmd.Flags().Lookup("mode").Usage, "live (unsupported; exits 2)")
+}
+
 func TestReplayModelReplayDetectsInconsistency(t *testing.T) {
 	dir := t.TempDir()
 	snap := makeSnap(models.StatusPassed, true,

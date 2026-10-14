@@ -28,7 +28,7 @@ export default function EvidenceView({ tasks }: { tasks: TaskResult[] }) {
           )}
           {task.evidenceRuns?.map((run, index) => {
             const manifest = canDisplayEvidence(run) ? run.manifest : undefined;
-            const withheld = !!run.manifest && !manifest;
+            const withheld = (run.assessment === "recorded" || !!run.manifest) && !manifest;
             return (
             <div key={`${run.runNumber}-${index}`} className="mt-4 space-y-3 text-sm">
               <p className="text-zinc-300">

@@ -46,6 +46,9 @@ func Seal(manifest *models.EvidenceManifest) error {
 	if manifest == nil {
 		return errors.New("evidence: manifest is required")
 	}
+	if manifest.HasInvalidRequiredObjects() {
+		return Validate(manifest)
+	}
 	manifest.Version = Version
 	if manifest.Artifacts == nil {
 		manifest.Artifacts = []models.EvidenceArtifact{}
@@ -61,6 +64,9 @@ func Seal(manifest *models.EvidenceManifest) error {
 func Validate(manifest *models.EvidenceManifest) error {
 	if manifest == nil || manifest.Version != Version || manifest.HasUnknownFields() {
 		return errors.New("evidence: unsupported or absent manifest version")
+	}
+	if manifest.HasInvalidRequiredObjects() {
+		return errors.New("evidence: origin, runtime and redaction must be objects")
 	}
 	if manifest.Artifacts == nil {
 		return errors.New("evidence: artifacts must be an array")

@@ -607,12 +607,12 @@ waza replay ./snapshots/a.json --bisect ./snapshots/b.json --json
 
 | Flag | Description |
 |------|-------------|
-| `--mode <mode>` | Replay mode: `model-replay` (default, offline consistency check) or `live` (planned) |
+| `--mode <mode>` | Replay mode: `model-replay` (default, offline consistency check) or `live` (unsupported; exits `2`) |
 | `--bisect <file>` | Path to second snapshot to bisect against the primary |
 | `--json` | Emit machine-readable JSON instead of human summary |
 | `--strict` | Re-check final status and grader outcome consistency (default true) |
 
-Exit codes: `0` match, `1` divergence, `2` load/parse error.
+Exit codes: `0` match, `1` divergence, `2` snapshot load/parse/I/O, JSON output, unsupported live mode, or unknown mode error.
 
 ### `waza adversarial`
 

@@ -10,19 +10,22 @@ import (
 // EvidenceManifest is descriptive provenance, not an enforcement or assurance
 // verdict. Its version is independent of the result and snapshot schemas.
 type EvidenceManifest struct {
-	Version              string               `json:"version"`
-	SHA256               string               `json:"sha256"`
-	SourceManifestSHA256 string               `json:"source_manifest_sha256,omitempty"`
-	Origin               EvidenceOrigin       `json:"origin"`
-	Runtime              EvidenceRuntime      `json:"runtime"`
-	Redaction            EvidenceRedaction    `json:"redaction"`
-	Artifacts            []EvidenceArtifact   `json:"artifacts"`
-	Diagnostics          []EvidenceDiagnostic `json:"diagnostics,omitempty"`
-	unknownFields        bool
-	unknownRaw           json.RawMessage
+	Version                string               `json:"version"`
+	SHA256                 string               `json:"sha256"`
+	SourceManifestSHA256   string               `json:"source_manifest_sha256,omitempty"`
+	Origin                 EvidenceOrigin       `json:"origin"`
+	Runtime                EvidenceRuntime      `json:"runtime"`
+	Redaction              EvidenceRedaction    `json:"redaction"`
+	Artifacts              []EvidenceArtifact   `json:"artifacts"`
+	Diagnostics            []EvidenceDiagnostic `json:"diagnostics,omitempty"`
+	unknownFields          bool
+	invalidRequiredObjects bool
+	unknownRaw             json.RawMessage
 }
 
 func (m *EvidenceManifest) HasUnknownFields() bool { return m.unknownFields }
+
+func (m *EvidenceManifest) HasInvalidRequiredObjects() bool { return m.invalidRequiredObjects }
 
 func (m *EvidenceManifest) UnmarshalJSON(data []byte) error {
 	if _, err := jsonutil.Parse(data); err != nil {
@@ -38,14 +41,24 @@ func (m *EvidenceManifest) UnmarshalJSON(data []byte) error {
 	}
 	*m = EvidenceManifest(decoded)
 	m.unknownFields = unknown
-	if unknown {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return err
+	}
+	for _, field := range []string{"origin", "runtime", "redaction"} {
+		raw := bytes.TrimSpace(fields[field])
+		if len(raw) == 0 || bytes.Equal(raw, []byte("null")) {
+			m.invalidRequiredObjects = true
+		}
+	}
+	if unknown || m.invalidRequiredObjects {
 		m.unknownRaw = append(json.RawMessage(nil), data...)
 	}
 	return nil
 }
 
 func (m EvidenceManifest) MarshalJSON() ([]byte, error) {
-	if m.unknownFields {
+	if m.unknownFields || m.invalidRequiredObjects {
 		return append([]byte(nil), m.unknownRaw...), nil
 	}
 	type alias EvidenceManifest

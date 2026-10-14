@@ -232,6 +232,24 @@ test("server-withheld metadata never appears as recorded success", async ({ page
   await expect(view).not.toContainText("Manifest");
 });
 
+for (const cached of [false, true]) {
+  for (const absent of ["missing", "null"] as const) {
+    test(`${cached ? "cached" : "ordinary"} recorded assessment with ${absent} manifest is withheld`, async ({ page }) => {
+      const run = evidenceRun();
+      run.cached = cached;
+      run.explanations![0].requirement_id = "DO-NOT-DISPLAY-REQUIREMENT";
+      if (absent === "missing") delete run.manifest;
+      else Object.assign(run, { manifest: null });
+      const view = await openEvidence(page, [run]);
+      await expect(view).toContainText("Evidence metadata withheld");
+      await expect(view).toContainText("2 attempts · invalid");
+      await expect(view).not.toContainText("· recorded");
+      await expect(view).not.toContainText("DO-NOT-DISPLAY");
+      await expect(view.getByRole("table")).toHaveCount(0);
+    });
+  }
+}
+
 test("regraded original capture digest and unavailable links stay explicit", async ({ page }) => {
   const run = evidenceRun();
   run.manifest!.source_manifest_sha256 = "e".repeat(64);

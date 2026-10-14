@@ -245,7 +245,8 @@ waza replay ./reviewed-snapshot.json --bisect ./other-reviewed-snapshot.json --j
 
 Replay checks that tool-event sequence is `1..N` and, with `--strict` (default),
 that recorded grader score/pass values are consistent. It does not rerun graders.
-Exit codes: `0` consistent, `1` divergent, `2` load/parse error.
+Exit codes: `0` consistent, `1` divergent, `2` snapshot load/parse/I/O,
+JSON output, unsupported live mode, or unknown mode error.
 Bisect compares ordered tool-name/argument fingerprints, ignoring durations and
 raw output text. It identifies divergence, not its cause.
 

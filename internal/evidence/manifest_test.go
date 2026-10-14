@@ -67,6 +67,43 @@ func TestManifestIdentityAndScopedReferences(t *testing.T) {
 	require.ErrorContains(t, Validate(manifest), "identity")
 }
 
+func TestValidateRejectsRequiredObjectNormalization(t *testing.T) {
+	for _, field := range []string{"origin", "runtime", "redaction"} {
+		for _, absent := range []bool{false, true} {
+			t.Run(field+map[bool]string{false: "/null", true: "/missing"}[absent], func(t *testing.T) {
+				manifest := sampleManifest(t)
+				switch field {
+				case "origin":
+					manifest.Origin = models.EvidenceOrigin{}
+				case "runtime":
+					manifest.Runtime = models.EvidenceRuntime{}
+				case "redaction":
+					manifest.Redaction = models.EvidenceRedaction{}
+				}
+				digest, err := manifestDigest(manifest)
+				require.NoError(t, err)
+				manifest.SHA256 = digest.SHA256
+				data, err := json.Marshal(manifest)
+				require.NoError(t, err)
+				var object map[string]json.RawMessage
+				require.NoError(t, json.Unmarshal(data, &object))
+				object[field] = json.RawMessage("null")
+				if absent {
+					delete(object, field)
+				}
+				data, err = json.Marshal(object)
+				require.NoError(t, err)
+				require.NoError(t, json.Unmarshal(data, manifest))
+				require.ErrorContains(t, Validate(manifest), "origin, runtime and redaction must be objects")
+				after, err := json.Marshal(manifest)
+				require.NoError(t, err)
+				require.JSONEq(t, string(data), string(after))
+				require.Error(t, Seal(manifest))
+			})
+		}
+	}
+}
+
 func TestVerifyContentAndPointers(t *testing.T) {
 	manifest := sampleManifest(t)
 	reference, err := Reference(manifest, "receipt")
