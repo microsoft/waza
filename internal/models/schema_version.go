@@ -14,7 +14,8 @@ import (
 )
 
 const (
-	// CurrentSchemaVersion is the current MAJOR.MINOR schema version for public artifacts.
+	// CurrentSchemaVersion is the legacy input and reader default. Result
+	// writers use CurrentResultSchemaVersion without changing this contract.
 	//
 	// 1.0 — initial public schema (PR #382 / issue #368).
 	// 1.1 — additive: per-turn checkpoints (TestCase.Checkpoints / RunResult.Checkpoints, #358)
@@ -28,6 +29,16 @@ const (
 	// 1.3 — additive: session_digest tool_policy_mode and tool_policy_denials (#585).
 	// 1.4 — additive: run command_invocations records for declarative CLI mocks (#634).
 	CurrentSchemaVersion = "1.4"
+
+	// CurrentResultSchemaVersion applies only to newly generated results.
+	// 1.5 adds task stats.pass_rate_ci and summary statistics success_rate_ci
+	// and pass_hat_k. is_significant is no longer written but still accepted.
+	CurrentResultSchemaVersion = "1.5"
+
+	// ScenarioSchemaVersion is eval-only. A major boundary makes older
+	// executables reject no-ambient-discovery semantics instead of ignoring them.
+	// Task and result artifacts retain their existing 1.x format.
+	ScenarioSchemaVersion = "2.0"
 )
 
 func defaultSchemaVersion(version string) string {
@@ -152,7 +163,8 @@ func LoadEvaluationOutcome(path string) (*EvaluationOutcome, error) {
 	return ParseEvaluationOutcome(data, path)
 }
 
-// ParseEvaluationOutcome decodes an EvaluationOutcome and defaults missing schemaVersion to the current version.
+// ParseEvaluationOutcome decodes results while preserving declared versions.
+// A missing version retains the legacy reader default, not the writer version.
 func ParseEvaluationOutcome(data []byte, source string) (*EvaluationOutcome, error) {
 	var header struct {
 		SchemaVersion string `json:"schemaVersion"`
@@ -169,7 +181,21 @@ func ParseEvaluationOutcome(data []byte, source string) (*EvaluationOutcome, err
 	if err := json.Unmarshal(data, &outcome); err != nil {
 		return nil, err
 	}
+	var presence weightedScorePresence
+	if err := json.Unmarshal(data, &presence); err != nil {
+		return nil, err
+	}
+	recordWeightedScorePresence(&outcome, &presence)
 	outcome.SchemaVersion = version
+	baselineSource := source
+	for baseline := outcome.BaselineOutcome; baseline != nil; baseline = baseline.BaselineOutcome {
+		baselineSource += ".baseline_outcome"
+		version, err := ValidateSchemaVersion("results.json", baselineSource, baseline.SchemaVersion)
+		if err != nil {
+			return nil, err
+		}
+		baseline.SchemaVersion = version
+	}
 
 	var strict EvaluationOutcome
 	if err := warnUnknownJSONFields(data, "results.json", source, &strict); err != nil {
@@ -177,4 +203,35 @@ func ParseEvaluationOutcome(data []byte, source string) (*EvaluationOutcome, err
 	}
 
 	return &outcome, nil
+}
+
+// Decode presence separately so strict unknown-field checks and schema admission
+// keep using the normal outcome decoder, including nested legacy artifacts.
+type weightedScorePresence struct {
+	Summary struct {
+		WeightedScore *float64 `json:"weighted_score"`
+	} `json:"summary"`
+	Tasks []struct {
+		Stats *struct {
+			AvgWeightedScore *float64 `json:"avg_weighted_score"`
+		} `json:"stats"`
+	} `json:"tasks"`
+	Baseline *weightedScorePresence `json:"baseline_outcome"`
+}
+
+func recordWeightedScorePresence(outcome *EvaluationOutcome, presence *weightedScorePresence) {
+	outcome.Digest.weightedScoreDecoded = true
+	outcome.Digest.weightedScoreRecorded = presence.Summary.WeightedScore != nil
+	for i := range outcome.TestOutcomes {
+		stats := outcome.TestOutcomes[i].Stats
+		if stats == nil {
+			continue
+		}
+		stats.weightedScoreDecoded = true
+		stats.weightedScoreRecorded = i < len(presence.Tasks) &&
+			presence.Tasks[i].Stats != nil && presence.Tasks[i].Stats.AvgWeightedScore != nil
+	}
+	if outcome.BaselineOutcome != nil && presence.Baseline != nil {
+		recordWeightedScorePresence(outcome.BaselineOutcome, presence.Baseline)
+	}
 }

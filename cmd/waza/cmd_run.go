@@ -138,7 +138,14 @@ With no arguments, uses workspace detection to find eval.yaml automatically:
   - Multi-skill workspace → runs ALL evals sequentially with summary
 
 You can also specify a skill name to run its eval:
-  waza run code-explainer`,
+  waza run code-explainer
+
+Scenario suites use an explicit eval file, without requiring a skill:
+  waza new eval inventory --scenario
+  waza run evals/inventory/eval.yaml
+
+Scenario evals require schemaVersion 2.0; tasks/results remain 1.x.
+config.executor: mock checks only the harness, not agent quality.`,
 		Args:          cobra.MaximumNArgs(1),
 		RunE:          runCommandE,
 		SilenceErrors: true,
@@ -723,7 +730,7 @@ func runSingleModel(cmd *cobra.Command, spec *models.EvalSpec, specPath string, 
 		}
 	}
 
-	if len(spec.Config.SkillPaths) == 0 {
+	if len(spec.Config.SkillPaths) == 0 && (spec.Scenario == "" || strings.TrimSpace(spec.SkillName) != "") {
 		// ie, the user hasn't configured skill paths explicitly
 		spec.Config.SkillPaths = append(spec.Config.SkillPaths, defaultSkills...)
 	}
@@ -740,6 +747,10 @@ func runSingleModel(cmd *cobra.Command, spec *models.EvalSpec, specPath string, 
 	// Setup cache if enabled
 	var resultCache *cache.Cache
 	useCaching := enableCache && !disableCache
+	if useCaching && spec.Scenario != "" {
+		fmt.Println("Note: Scenario caching disabled because external workflow dependencies are not fully fingerprinted; each task executes again.")
+		useCaching = false
+	}
 
 	if useCaching && cache.HasNonDeterministicGraders(spec) {
 		if verbose {
@@ -892,7 +903,12 @@ func runSingleModel(cmd *cobra.Command, spec *models.EvalSpec, specPath string, 
 	defer stop()
 
 	fmt.Printf("Running benchmark: %s\n", spec.Name)
-	fmt.Printf("Skill: %s\n", spec.SkillName)
+	if spec.Scenario != "" {
+		fmt.Printf("Scenario: %s\n", spec.Scenario)
+	}
+	if strings.TrimSpace(spec.SkillName) != "" || spec.Scenario == "" {
+		fmt.Printf("Skill: %s\n", spec.SkillName)
+	}
 	fmt.Printf("Engine: %s\n", spec.Config.EngineType)
 	fmt.Printf("Model: %s\n", spec.Config.ModelID)
 	if spec.Config.JudgeModel != "" {
@@ -1293,6 +1309,15 @@ func parseSnapshotUpdates(raw any) ([]graders.SnapshotUpdate, error) {
 	}
 }
 
+// formatPassHatK renders a pass^k curve, e.g. "pass^1=83%  pass^2=71%  pass^3=62%".
+func formatPassHatK(curve []float64) string {
+	parts := make([]string, len(curve))
+	for i, v := range curve {
+		parts[i] = fmt.Sprintf("pass^%d=%.0f%%", i+1, v*100)
+	}
+	return strings.Join(parts, "  ")
+}
+
 func printSummary(outcome *models.EvaluationOutcome) {
 	fmt.Println("=" + strings.Repeat("=", 50))
 	fmt.Println(" BENCHMARK RESULTS")
@@ -1310,6 +1335,14 @@ func printSummary(outcome *models.EvaluationOutcome) {
 	fmt.Printf("Min Score:      %.2f\n", digest.MinScore)
 	fmt.Printf("Max Score:      %.2f\n", digest.MaxScore)
 	fmt.Printf("Std Dev:        %.4f\n", digest.StdDev)
+	if s := digest.Statistics; s != nil {
+		if ci := s.SuccessRateCI; ci != nil {
+			fmt.Printf("Success CI95:   [%.1f%%, %.1f%%]\n", ci.Lower*100, ci.Upper*100)
+		}
+		if len(s.PassHatK) > 0 {
+			fmt.Printf("Reliability:    %s\n", formatPassHatK(s.PassHatK))
+		}
+	}
 
 	duration := time.Duration(digest.DurationMs) * time.Millisecond
 	fmt.Printf("Duration:       %v\n", duration)
@@ -1342,8 +1375,12 @@ func printSummary(outcome *models.EvaluationOutcome) {
 		}
 		fmt.Printf("  %s %s [%s]\n", icon, to.DisplayName, to.Status)
 		if to.Stats != nil {
-			fmt.Printf("      pass_rate=%.1f%%  avg=%.2f  min=%.2f  max=%.2f  stddev=%.4f  avg_dur=%dms\n",
-				to.Stats.PassRate*100, to.Stats.AvgScore,
+			passRate := fmt.Sprintf("%.1f%%", to.Stats.PassRate*100)
+			if ci := to.Stats.PassRateCI; ci != nil {
+				passRate += fmt.Sprintf(" [CI95 %.0f-%.0f%%]", ci.Lower*100, ci.Upper*100)
+			}
+			fmt.Printf("      pass_rate=%s  avg=%.2f  min=%.2f  max=%.2f  stddev=%.4f  avg_dur=%dms\n",
+				passRate, to.Stats.AvgScore,
 				to.Stats.MinScore, to.Stats.MaxScore,
 				to.Stats.StdDevScore, to.Stats.AvgDurationMs)
 		}

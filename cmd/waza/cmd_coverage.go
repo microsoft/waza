@@ -34,6 +34,7 @@ type coverageReport struct {
 }
 
 type evalSpecLite struct {
+	Scenario  string                `yaml:"scenario,omitempty"`
 	Skill     string                `yaml:"skill"`
 	Tasks     []string              `yaml:"tasks"`
 	TasksFrom string                `yaml:"tasks_from,omitempty"`
@@ -125,6 +126,9 @@ func buildCoverageReport(root string, discoverPaths []string) (*coverageReport, 
 			continue
 		}
 		skillName := strings.TrimSpace(spec.Skill)
+		if spec.Scenario != "" && skillName == "" {
+			continue
+		}
 		if skillName == "" {
 			skillName = inferSkillNameFromEvalPath(evalPath)
 		}

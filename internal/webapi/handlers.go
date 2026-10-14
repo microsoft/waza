@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/microsoft/waza/internal/storage"
 )
 
 // Version is set at build time or defaults to dev.
@@ -73,7 +75,7 @@ func (h *Handlers) HandleRuns(w http.ResponseWriter, r *http.Request) {
 
 // HandleLabRuns refreshes local artifacts for the opt-in dashboard.
 func (h *Handlers) HandleLabRuns(w http.ResponseWriter, r *http.Request) {
-	if store, ok := h.store.(*FileStore); ok {
+	if store, ok := h.store.(storage.ResultsRefresher); ok {
 		if err := store.Reload(); err != nil {
 			writeError(w, http.StatusInternalServerError, fmt.Sprintf("refreshing evaluation results: %v", err))
 			return

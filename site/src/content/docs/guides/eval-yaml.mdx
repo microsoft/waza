@@ -17,7 +17,7 @@ can use the same checklist during review.
 
 Before editing, inspect:
 
-1. The target `SKILL.md` or `.agent.md`.
+1. The workflow's expected outcomes and boundaries; the target `SKILL.md` or `.agent.md` when evaluating one.
 2. The existing `eval.yaml`, task files, and fixtures, if present.
 3. [`schemas/eval.schema.json`](https://github.com/microsoft/waza/blob/main/schemas/eval.schema.json)
    and [`schemas/task.schema.json`](https://github.com/microsoft/waza/blob/main/schemas/task.schema.json).
@@ -27,6 +27,74 @@ Treat the schemas as the source of truth for allowed fields. Do not invent YAML
 properties from examples or model memory.
 
 ### Create an eval suite
+
+For a workflow without a target:
+
+```bash
+waza new eval inventory --scenario --template repository
+waza run evals/inventory/eval.yaml
+```
+
+Templates are `repository` (sanitized fixtures), `cli` (installed Git), and
+`mcp` (harness-only mocked dependency). All use a real `copilot-sdk` agent;
+MCP mocks do not establish production MCP reliability. `config.executor: mock` checks harness
+plumbing only, not agent quality. See the
+[scenario examples](https://github.com/microsoft/waza/tree/main/examples/scenarios).
+
+Scenario evals require a nonempty `scenario` string and **exact**
+`schemaVersion: "2.0"`. Older executables reject that major before executing;
+`1.x`, omitted versions, `2.1` and future majors are not scenario contracts.
+Presence of the `scenario` key is explicit in YAML and JSON: null, blank strings,
+booleans, numbers, arrays and objects are invalid, not legacy opt-outs. To keep
+a legacy eval, omit the `scenario` key entirely.
+Tasks and results retain `1.x`; the dashboard still displays the suite's
+`eval_name` and generic results have an empty `skill`.
+Optional `skill` selects existing skill/custom-agent context with unchanged
+precedence. Without a target or explicit eval/task skill directories, ambient
+skills are disabled. An explicit empty task `skill_directories: []` disables
+discovery for that task; `--no-skills` wins over every opt-in.
+Disabling the last eval-level directory preserves target-free isolation.
+Whitespace-only optional `skill` values do not opt into workspace-default or
+ambient discovery. Scenario `required_skills` checks search enabled directories
+only; a disabled path, `["*"]` or `none` cannot satisfy a required skill.
+Legacy discovery and validation retain their existing behavior.
+Scenario task files retain `tasks/` when selected by `files.taskGlob`, including
+wildcard-directory globs; otherwise they use a matching literal directory.
+Unsupported or nonmatching glob/suffix combinations fail before writing.
+The glob must select only generated tasks, not evals, fixtures or metadata.
+`fixtures/*.yaml` remains supported; `fixtures/*` is rejected because it also
+selects `.gitkeep` and repository inventory. Narrow the glob before regenerating.
+Scenario scaffolding requires physical parent directories for the selected
+output path; symlinked roots or generated task/fixture parents are rejected.
+Use a physical `--output` path. Relative paths start at the retained working
+directory; absolute paths are admitted from the filesystem root, with only
+verified literal macOS `/var` and `/tmp` system aliases. Writes use retained
+directory handles rather than following replaced parent paths. This does not
+provide rollback or prevent an admitted directory from subsequently being moved.
+Scenario `2.0` bypasses result caching with an explicit notice, even with
+`--cache`, until external workflow dependencies can be fully fingerprinted.
+Legacy `1.x` caching and billing attribution are unchanged.
+Repository scaffolds include `fixtures/.gitattributes` preserving inventory LF
+bytes through Git checkout. If a task glob selects that file, a safe root
+`.gitattributes` is used instead. When neither placement avoids an eval/task
+collision or extra task, generation fails before writing; narrow the
+task-directory glob or choose a different eval filename. For example, use
+`tasks/*.gitattributes` instead of `fixtures/*.gitattributes` when the eval itself
+is named `.gitattributes`. A normal eval filename with `**/*.gitattributes` keeps
+the existing runtime glob semantics and uses the root fallback.
+Older suites must be regenerated to adopt this policy; Git attributes do not
+rewrite existing working copies.
+Task globs and `inputs.context.fixture` resolve relative to the eval directory.
+Fixtures default to its `fixtures/` directory; `inputs.files` and
+`instruction_files` resolve from the fixtures/context root. The repository
+template explicitly declares `inputs.context.fixture: fixtures/inventory.txt`.
+File grader outputs are task-workspace-relative.
+The repository template uses three file graders: report outcome, absence of
+`private.txt`, and byte-exact final preservation of `inventory.txt`. Altering,
+deleting or changing its line endings fails independently of the other checks.
+This checks final bytes, not transient writes or edit history. CLI/MCP templates
+retain two graders. The tracked repository fixture alone disables Git text
+conversion so Windows checkout preserves the expected LF bytes.
 
 For a `SKILL.md` target:
 
@@ -41,7 +109,7 @@ waza suggest <path-to-SKILL.md> --dry-run
 waza suggest <path-to-SKILL.md> --apply --output-dir evals/<skill-name>
 ```
 
-`waza new eval`, `waza suggest`, and `waza spec verify` currently accept
+The default `waza new eval` flow, `waza suggest`, and `waza spec verify` accept
 `SKILL.md` targets only. For a `.agent.md` target, create `eval.yaml`, tasks,
 and fixtures directly by following the [custom agent guide](../custom-agents/)
 and the schemas linked above.
@@ -207,8 +275,9 @@ tasks:
 | ------------- | ------ | -------- | ------------------------------------------------------------------------------------------ |
 | `name`        | string | ✓        | Eval suite name                                                                            |
 | `description` | string | ✗        | What the eval tests                                                                        |
-| `skill`       | string | ✓        | Associated skill or custom agent name (`SKILL.md` or `.agent.md`)                       |
-| `schemaVersion` | string | ✗     | Public schema version for this artifact; defaults to `1.0`                              |
+| `skill`       | string | Legacy schema | Associated skill/custom-agent target; optional context for scenario `2.0` |
+| `scenario`    | string | Scenario `2.0` | Nonblank workflow identity; legacy authoring omits this field |
+| `schemaVersion` | string | Scenario `2.0` | Legacy defaults to `1.4`; scenarios explicitly select `2.0` |
 | `version`     | string | ✗        | Version number (e.g., "1.0")                                                               |
 | `inputs`      | object | ✗        | Key-value map of global template variables (see [Template Variables](#template-variables)) |
 | `tasks_from`  | string | ✗        | Path to an external YAML file containing the task list                                     |
@@ -218,9 +287,18 @@ tasks:
 | `adversarial` | object | ✗        | Built-in fault-injection packs consumed by `waza adversarial --spec`; requires `schemaVersion: "1.2"` |
 | `baseline`    | bool   | ✗        | Mark this spec as a baseline for A/B comparison                                            |
 
-`skill` is required.
+Legacy JSON-schema authoring requires `skill` when `scenario` is absent.
+Scenario `2.0` requires a nonblank `scenario` and may omit `skill`.
+The native loader/model validation used by `waza run` is a different surface
+from full JSON-schema validation: legacy default/`1.0`-`1.4` data historically
+loads with an absent or empty target and retains existing discovery behavior.
+Preserving that compatibility does not make targetless legacy data the
+recommended workflow; author a named legacy target or a scenario `2.0` suite.
+The schema's `skill` constraint is length-only: whitespace passes that check
+but is not a meaningful target. JSON-RPC `eval.validate` reports schema errors;
+separate preflight checks are not universal runtime target enforcement.
 
-`schemaVersion` uses `MAJOR.MINOR` format. Omit it for legacy files that should default to `1.0`; add it to new evals so future schema migrations are explicit. See [Schema Changes](/reference/schema-changes/) for the compatibility policy.
+`schemaVersion` uses `MAJOR.MINOR` format. Omit it for legacy files that should default to `1.4`; scenario evals must select `2.0`. See [Schema Changes](/reference/schema-changes/) for the compatibility policy.
 
 ## Targeting Custom Agents
 
@@ -285,7 +363,7 @@ config:
 | `fail_fast`         | bool      | false             | Stop the entire run on first task failure                   |
 | `skill_directories` | list[str] | `[]`              | Additional directories to search for skills                 |
 | `instruction_files` | list[str] | `[]`              | Instruction files to apply to every task                    |
-| `inject_skill_body` | bool      | true              | Inject the target `SKILL.md` or `.agent.md` body into the system prompt |
+| `inject_skill_body` | bool      | true              | Inject the target `SKILL.md` or `.agent.md` body, prefixed with its absolute base directory, into the system prompt |
 | `trigger_skill_routing` | bool  | false             | With `inject_skill_body: false`, add an eval-only routing instruction for trigger-precision runs |
 | `disabled_skills`   | list[str] | `[]`              | Skills to disable. Use `["*"]` to disable all skills        |
 | `required_skills`   | list[str] | `[]`              | Skills that must be available before running                |
@@ -329,7 +407,7 @@ tasks:
 
 `trigger_skill_routing` is optional and scoped to trigger-precision runs. It helps distinguish skill routing from general model fluency by telling the agent to invoke the target skill when the task is in scope, while still withholding the skill body. It has no effect unless `inject_skill_body` is `false`.
 
-With this setting, Waza still discovers skills and passes their directories to the Copilot SDK, but it does not add the full target `<skill_context>` body or a synthetic `<available_skills>` summary. This lets `behavior` graders with `required_tools` or `forbidden_tools` and `skill_invocation` graders observe whether the `skill` tool was used. If you also set `disabled_skills: ["*"]`, all skill loading is disabled and this setting has no effect.
+With this setting, Waza still discovers skills and passes their directories to the Copilot SDK, but it does not add the full target `<skill_context>` body (normally prefixed with the skill's absolute base directory) or a synthetic `<available_skills>` summary. This lets `behavior` graders with `required_tools` or `forbidden_tools` and `skill_invocation` graders observe whether the `skill` tool was used. If you also set `disabled_skills: ["*"]`, all skill loading is disabled and this setting has no effect.
 
 **Common Timeouts:**
 

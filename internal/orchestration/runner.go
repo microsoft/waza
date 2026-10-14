@@ -379,10 +379,11 @@ func (r *EvalRunner) runNormalBenchmark(ctx context.Context) (*models.Evaluation
 		outcomeRunID = fmt.Sprintf("run-%d", time.Now().Unix())
 	}
 	outcome := &models.EvaluationOutcome{
-		RunID:       outcomeRunID,
-		SkillTested: spec.SkillName,
-		BenchName:   spec.Name,
-		Timestamp:   startTime,
+		SchemaVersion: models.CurrentResultSchemaVersion,
+		RunID:         outcomeRunID,
+		SkillTested:   spec.SkillName,
+		BenchName:     spec.Name,
+		Timestamp:     startTime,
 		Setup: models.OutcomeSetup{
 			RunsPerTest:          spec.Config.TrialsPerTask,
 			ModelID:              spec.Config.ModelID,
@@ -776,8 +777,8 @@ func (r *EvalRunner) loadTestCasesFromFiles() ([]*models.TestCase, error) {
 func (r *EvalRunner) validateRequiredSkills() error {
 	spec := r.cfg.Spec()
 
-	// If all skills are disabled, skip validation
-	if spec.Config.AllSkillsDisabled() {
+	// Legacy suites skip validation when all skills are disabled.
+	if spec.Config.AllSkillsDisabled() && spec.Scenario == "" {
 		return nil
 	}
 
@@ -793,10 +794,17 @@ func (r *EvalRunner) validateRequiredSkills() error {
 	}
 
 	// Resolve skill paths
-	resolvedPaths := utils.ResolvePaths(spec.Config.SkillPaths, baseDir)
+	skillPaths := spec.Config.SkillPaths
+	if spec.Scenario != "" {
+		skillPaths = spec.Config.FilteredSkillPaths()
+	}
+	resolvedPaths := utils.ResolvePaths(skillPaths, baseDir)
 
 	// If required skills specified but no skill directories, that's an error
 	if len(resolvedPaths) == 0 {
+		if spec.Scenario != "" {
+			return fmt.Errorf("required_skills specified but no skill_directories remain enabled; configure a directory not excluded by disabled_skills")
+		}
 		return fmt.Errorf("required_skills specified but no skill_directories configured")
 	}
 
@@ -1016,12 +1024,17 @@ func (r *EvalRunner) runTest(ctx context.Context, tc *models.TestCase, testNum, 
 	defer taskSpan.End()
 
 	// Check cache if enabled
-	if r.cache != nil {
+	if r.cache != nil && spec.Scenario != "" {
+		fmt.Fprintf(os.Stderr, "[WARN] Scenario caching disabled for test %q: external workflow dependencies are not fully fingerprinted\n", tc.DisplayName)
+	}
+	if r.cache != nil && spec.Scenario == "" {
 		cacheKey, err := cache.CacheKey(spec, tc, r.cfg.FixtureDir())
 		if err == nil {
 			if cachedOutcome, found := r.cache.Get(cacheKey); found {
-				// Return cached outcome with cached flag
+				// Return cached outcome with cached flag. Stats derive from the
+				// cached runs, so recompute them in case an older waza wrote them.
 				cachedOutcome.Cached = true
+				cachedOutcome.Stats = ComputeTestStats(cachedOutcome.Runs)
 				return *cachedOutcome, true
 			}
 			// Run the test and cache the result
@@ -1517,7 +1530,7 @@ func (r *EvalRunner) buildExecutionRequest(tc *models.TestCase) (*execution.Exec
 
 	spec := r.cfg.Spec()
 	resolvedSkillPaths := r.taskSkillPaths(tc)
-	noSkills := spec.Config.AllSkillsDisabled()
+	noSkills := spec.SkillsDisabledForTask(tc.SkillPaths)
 	_, fm, err := r.resolveTaskAgent(tc)
 	if err != nil {
 		return nil, err
@@ -1557,14 +1570,14 @@ func effectiveCommandMocks(tc *models.TestCase, spec *models.EvalSpec) []models.
 
 func (r *EvalRunner) taskSkillPaths(tc *models.TestCase) []string {
 	skillPaths := r.cfg.Spec().Config.FilteredSkillPaths()
-	if len(tc.SkillPaths) > 0 {
+	if len(tc.SkillPaths) > 0 || (r.cfg.Spec().Scenario != "" && tc.SkillPaths != nil) {
 		skillPaths = tc.SkillPaths
 	}
 	return utils.ResolvePaths(skillPaths, r.cfg.SpecDir())
 }
 
 func (r *EvalRunner) resolveTaskAgent(tc *models.TestCase) (string, *skill.AgentFrontmatter, error) {
-	if r.cfg.Spec().Config.AllSkillsDisabled() {
+	if r.cfg.Spec().SkillsDisabledForTask(tc.SkillPaths) {
 		return "", nil, nil
 	}
 	cwd, err := os.Getwd()

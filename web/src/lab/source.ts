@@ -1,4 +1,4 @@
-import { useQueries, useQuery } from "@tanstack/react-query";
+import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   fetchLabRuns,
   fetchRunDetail,
@@ -69,10 +69,19 @@ export function fromDetail(detail: RunDetail): LabRun {
 }
 
 export function useLabSource(demo: boolean) {
+  const queryClient = useQueryClient();
   const query = useQuery({
     queryKey: ["lab", "runs"],
-    queryFn: async ({ signal }) =>
-      (await fetchLabRuns(signal)).map(fromSummary),
+    queryFn: async ({ signal }) => {
+      const summaries = (await fetchLabRuns(signal)).map(fromSummary);
+      // Regrading can change evidence without changing the run ID or timestamp.
+      // Refresh mounted details only after the archive refresh succeeds.
+      await queryClient.invalidateQueries({
+        queryKey: ["lab", "detail"],
+        refetchType: "active",
+      });
+      return summaries;
+    },
     enabled: !demo,
     refetchInterval: 15_000,
     retry: false,

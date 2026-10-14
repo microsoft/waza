@@ -1215,7 +1215,7 @@
   line-height: 1.7;
   margin: 12px 0 0;
 }
-.lab-inspector pre {
+.lab-inspector pre:not(.lab-recorded-trajectory pre) {
   padding: 15px;
   white-space: pre-wrap;
   word-break: break-word;

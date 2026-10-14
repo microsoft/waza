@@ -2,11 +2,10 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://raw.githubusercontent.com/microsoft/waza/main/schemas/eval.schema.json",
   "title": "Waza Eval Specification",
-  "description": "Schema for waza eval.yaml files that define skill evaluation suites. Validates the complete evaluation specification including config, metrics, graders, hooks, and task references.",
+  "description": "Schema for scenario, skill and custom-agent evaluation suites.",
   "type": "object",
   "required": [
     "name",
-    "skill",
     "config",
     "metrics",
     "tasks"
@@ -22,16 +21,21 @@
       "type": "string",
       "description": "Detailed description of what this evaluation tests."
     },
+    "scenario": {
+      "type": "string",
+      "pattern": "\\S",
+      "description": "Workflow identity, independent of optional skill or custom-agent context. Requires explicit eval schemaVersion 2.0 so older executables reject new discovery semantics."
+    },
     "skill": {
       "type": "string",
       "minLength": 1,
-      "description": "Name of the skill being evaluated."
+      "description": "Optional skill or custom-agent context for a scenario; required for legacy skill suites. Existing discovery precedence is preserved."
     },
     "schemaVersion": {
       "type": "string",
       "pattern": "^[0-9]+\\.[0-9]+$",
       "default": "1.4",
-      "description": "Schema version for this evaluation artifact. Uses MAJOR.MINOR; omitted files default to the current version (1.4)."
+      "description": "Legacy evals default to 1.4. Scenario evals require explicit 2.0; tasks and results remain 1.x."
     },
     "version": {
       "type": "string",
@@ -110,6 +114,28 @@
     }
   },
   "allOf": [
+    {
+      "anyOf": [
+        { "required": ["skill"] },
+        { "required": ["scenario"] }
+      ]
+    },
+    {
+      "if": { "required": ["scenario"] },
+      "then": {
+        "required": ["schemaVersion"],
+        "properties": {
+          "schemaVersion": { "const": "2.0" }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": ["schemaVersion"],
+        "properties": { "schemaVersion": { "const": "2.0" } }
+      },
+      "then": { "required": ["scenario"] }
+    },
     {
       "if": {
         "required": ["config"],

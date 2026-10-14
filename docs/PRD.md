@@ -52,6 +52,19 @@ records the research, prototype boundaries, and proposed architecture.
 
 ## User Personas
 
+### Workflow Author
+- **Role:** Developer evaluating MCP, CLI or repository workflows
+- **Goals:** Author scenario suites without an unrelated `SKILL.md`, retaining optional skill/custom-agent context
+- **Scope:** `waza new eval <name> --scenario --template repository|cli|mcp` uses existing graders and real agent execution; mocked dependencies are explicitly harness-only evidence
+- **Compatibility:** Scenario evals opt into exact schema `2.0` so old executables reject changed discovery semantics before execution; legacy evals and task/result artifacts retain their prior formats
+- **Presence contract:** In YAML and JSON, every present `scenario` key must hold a nonblank string and exact schema `2.0`; null and other scalar/container types are invalid. Legacy semantics require the key to be absent.
+- **Discovery:** No target or explicit skill directories disables ambient skills on new/resumed SDK sessions; explicit empty task directories disable discovery and `--no-skills` overrides opt-ins
+- **Cache limitation:** Scenario evals bypass result caching with a notice until external workflow dependencies can be fully fingerprinted; legacy cache/default/billing behavior is unchanged
+- **Scaffold parent policy:** Scenario generation rejects selected symlinked output parents, including the scaffold root and nested generated directories, and retains admitted directory handles for exclusive file creation. Relative output uses the retained working directory; absolute output is admitted from the filesystem root with only verified literal macOS `/var` and `/tmp` aliases. This does not add whole-suite rollback, filesystem sandboxing or protection against moving an already admitted directory; legacy scaffold behavior is unchanged.
+- **Repository fixture preservation:** The repository template uses an existing file grader to require the final workspace inventory bytes to equal its generated fixture. Missing or changed content fails independently of a valid report. This checks final state, not transient writes or filesystem isolation; CLI/MCP templates retain their existing checks.
+- **Git checkout policy:** Repository scaffolds emit fixture-local Git attributes preserving inventory LF bytes, with a safe root fallback when custom task globs select local metadata. If neither path is safe, generation fails before writing with a narrower-glob/different-filename migration; legacy and CLI/MCP scaffolds are unchanged. Existing working copies are not retroactively rewritten.
+- **Generated task selection:** All scenario templates reject task globs selecting any generated non-task file before writing. Loadable layouts such as `fixtures/*.yaml` remain supported; `fixtures/*` must be narrowed because it selects `.gitkeep` and repository inventory.
+
 ### Primary: Skill Author
 - **Role:** Developer contributing skills to microsoft/skills
 - **Goals:** Create high-quality skills that pass CI, work across models
@@ -70,6 +83,17 @@ records the research, prototype boundaries, and proposed architecture.
 ---
 
 ## Feature Requirements
+
+### Existing-workflow preservation contract
+
+The additive evaluation work tracked in #657 must preserve current command,
+exit, grader, skill/custom-agent, multi-turn, mock, billing/cache, snapshot and
+historical dashboard behavior. The fixed offline corpus and package-owned
+coverage inventory are specified in [COMPATIBILITY.md](COMPATIBILITY.md) (#658).
+The required integration gate is `NO_COLOR=1 make test-compat`, with historical
+browser checks when dashboard surfaces change. Known bugs are tracked
+separately rather than accepted as new semantics; recorded/mock outcomes are
+not real-agent quality or full assurance claims.
 
 ### Epic 1: Go CLI Foundation (P0)
 
@@ -111,7 +135,7 @@ Cross-model testing and comprehensive metrics.
 | E3-02 | As a developer, I can see task completion metrics | Pass rate, composite score |
 | E3-03 | As a developer, I can see trigger accuracy metrics | Activation pattern validation |
 | E3-04 | As a developer, I can see behavior quality metrics | Response quality scoring |
-| E3-05 | As a developer, I can run trials for statistical confidence | Multiple runs per task |
+| E3-05 | As a developer, I can run trials for statistical confidence | Multiple runs per task; recorded task/suite Wilson pass-rate intervals and pass^k reliability in result schema 1.5, surfaced consistently in CLI/API/dashboard. Historical absent metrics remain unassessed; paired significance is a separate capability. |
 | E3-06 | As a developer, I can get LLM-powered improvement suggestions | --suggestions flag |
 | E3-07 | As a developer, I can run tasks in parallel | --parallel flag |
 | E3-08 | As a developer, I can filter to specific tasks | --task flag |

@@ -18,7 +18,7 @@ import (
 )
 
 func skipIfNoPython(t *testing.T) {
-	pythonCheck := exec.Command("python", "--version")
+	pythonCheck := exec.Command(resolvePythonBin(), "--version")
 
 	if err := pythonCheck.Run(); err != nil {
 		t.Skip("Skipping InlineScriptGrader that needs Python")

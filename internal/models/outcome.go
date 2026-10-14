@@ -119,7 +119,7 @@ type EvaluationSessionUsage struct {
 func (o EvaluationOutcome) MarshalJSON() ([]byte, error) {
 	type alias EvaluationOutcome
 	if o.SchemaVersion == "" {
-		o.SchemaVersion = CurrentSchemaVersion
+		o.SchemaVersion = CurrentResultSchemaVersion
 	}
 	return json.Marshal(alias(o))
 }
@@ -135,6 +135,9 @@ type OutcomeSetup struct {
 }
 
 type OutcomeDigest struct {
+	weightedScoreDecoded  bool
+	weightedScoreRecorded bool
+
 	TotalTests     int          `json:"total_tests"`
 	Succeeded      int          `json:"succeeded"`
 	Failed         int          `json:"failed"`
@@ -152,6 +155,24 @@ type OutcomeDigest struct {
 
 	// Statistical summary populated when trials_per_task > 1
 	Statistics *StatisticalSummary `json:"statistics,omitempty"`
+}
+
+// HasWeightedScore distinguishes recorded zero from omitted/null legacy fields.
+// In-memory outcomes are writer data and have not passed through artifact decoding.
+func (d OutcomeDigest) HasWeightedScore() bool {
+	return !d.weightedScoreDecoded || d.weightedScoreRecorded
+}
+
+func (d OutcomeDigest) MarshalJSON() ([]byte, error) {
+	type alias OutcomeDigest
+	var score *float64
+	if d.HasWeightedScore() {
+		score = &d.WeightedScore
+	}
+	return json.Marshal(struct {
+		alias
+		WeightedScore *float64 `json:"weighted_score,omitempty"`
+	}{alias(d), score})
 }
 
 type MeasureResult struct {
@@ -461,6 +482,9 @@ func AggregateUsageStats(stats []*UsageStats) *UsageStats {
 }
 
 type TestStats struct {
+	weightedScoreDecoded  bool
+	weightedScoreRecorded bool
+
 	PassRate         float64 `json:"pass_rate"`
 	FlakinessPercent float64 `json:"flakiness_percent"`
 	PassedRuns       int     `json:"passed_runs"`
@@ -479,15 +503,47 @@ type TestStats struct {
 	AvgDurationMs    int64   `json:"avg_duration_ms"`
 
 	// Bootstrap confidence interval over weighted scores (populated when trials > 1)
-	BootstrapCI   *statistics.ConfidenceInterval `json:"bootstrap_ci,omitempty"`
-	IsSignificant *bool                          `json:"is_significant,omitempty"`
+	BootstrapCI *statistics.ConfidenceInterval `json:"bootstrap_ci,omitempty"`
+	// Wilson 95% interval on PassRate over this task's trials (populated when trials > 1)
+	PassRateCI *statistics.ConfidenceInterval `json:"pass_rate_ci,omitempty"`
+
+	// Deprecated: no longer populated. It tested whether a CI on the task's own
+	// 0–1 score excluded zero, which compares an absolute score with zero instead
+	// of testing a difference, so it was not a significance test. Kept so older
+	// results files load without unknown-field warnings.
+	IsSignificant *bool `json:"is_significant,omitempty"`
+}
+
+// HasAvgWeightedScore reports whether decoded task statistics recorded a score.
+func (s TestStats) HasAvgWeightedScore() bool {
+	return !s.weightedScoreDecoded || s.weightedScoreRecorded
+}
+
+func (s TestStats) MarshalJSON() ([]byte, error) {
+	type alias TestStats
+	var score *float64
+	if s.HasAvgWeightedScore() {
+		score = &s.AvgWeightedScore
+	}
+	return json.Marshal(struct {
+		alias
+		AvgWeightedScore *float64 `json:"avg_weighted_score,omitempty"`
+	}{alias(s), score})
 }
 
 // StatisticalSummary holds aggregate statistical data for the digest when trials > 1.
 type StatisticalSummary struct {
-	BootstrapCI    statistics.ConfidenceInterval `json:"bootstrap_ci"`
-	IsSignificant  bool                          `json:"is_significant"`
-	NormalizedGain *float64                      `json:"normalized_gain,omitempty"`
+	BootstrapCI *statistics.ConfidenceInterval `json:"bootstrap_ci,omitempty"`
+	// Wilson 95% interval on SuccessRate, counting each task as one sample.
+	SuccessRateCI *statistics.ConfidenceInterval `json:"success_rate_ci,omitempty"`
+	// PassHatK[k-1] is the τ-bench pass^k: the chance that k fresh trials of a
+	// task all pass, averaged over tasks. k runs up to the fewest trials of any task.
+	PassHatK       []float64 `json:"pass_hat_k,omitempty"`
+	NormalizedGain *float64  `json:"normalized_gain,omitempty"`
+
+	// Deprecated: no longer populated (see TestStats.IsSignificant). A pointer
+	// so older artifacts round-trip a stored false.
+	IsSignificant *bool `json:"is_significant,omitempty"`
 }
 
 // SkillImpactMetric represents A/B comparison for a single task

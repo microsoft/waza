@@ -89,6 +89,7 @@ export default function RunActivity({ runs }: { runs: LabRun[] }) {
   useEffect(() => {
     if (!runId) return;
     let sequence = 0;
+    let terminalReplay = false;
     const eventSource = new EventSource(
       `/api/v1/runs/${encodeURIComponent(runId)}/events`,
     );
@@ -126,6 +127,7 @@ export default function RunActivity({ runs }: { runs: LabRun[] }) {
       sequence = parsed.sequence;
       const terminal =
         parsed.type === "run_completed" || parsed.type === "run_failed";
+      terminalReplay = terminal;
       if (terminal) eventSource.close();
       setStream((previous) => ({
         runId,
@@ -140,14 +142,18 @@ export default function RunActivity({ runs }: { runs: LabRun[] }) {
         ].slice(0, 200),
       }));
     };
-    eventSource.onerror = () =>
+    eventSource.onerror = () => {
+      if (terminalReplay) return;
+      const reconnecting = eventSource.readyState === EventSource.CONNECTING;
       setStream((previous) => ({
         ...previous,
         runId,
-        status: "Reconnecting",
-        error:
-          "Event connection lost. The browser will reconnect using Last-Event-ID; saved progress remains visible.",
+        status: reconnecting ? "Reconnecting" : "Error",
+        error: reconnecting
+          ? "Event connection lost. The browser will reconnect using Last-Event-ID; saved progress remains visible."
+          : "Event connection closed. Use Reconnect stream to retry; saved progress remains visible.",
       }));
+    };
     return () => eventSource.close();
   }, [runId, attempt]);
   const state =

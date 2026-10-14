@@ -25,6 +25,7 @@ import (
 	"github.com/microsoft/waza/internal/graders"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/orchestration"
+	"github.com/microsoft/waza/internal/statistics"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -2705,4 +2706,73 @@ func testWazaRun(t *testing.T, cwd string, args []string) (evalNames []string, s
 	sort.Strings(skillsLoaded)
 
 	return slices.Sorted(maps.Keys(evalNamesMap)), slices.Compact(skillsLoaded)
+}
+
+func TestFormatPassHatK(t *testing.T) {
+	assert.Equal(t, "pass^1=83%  pass^2=71%  pass^3=62%", formatPassHatK([]float64{0.8333, 0.7083, 0.625}))
+	assert.Empty(t, formatPassHatK(nil))
+}
+
+func TestPrintSummary_PartialReliabilityCurve(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		curve []float64
+		want  string
+	}{
+		{"absent", nil, ""},
+		{"empty", []float64{}, ""},
+		{"single-recorded-zero", []float64{0}, "Reliability:    pass^1=0%"},
+		{"single-recorded-estimate", []float64{5.0 / 6.0}, "Reliability:    pass^1=83%"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			outcome := &models.EvaluationOutcome{
+				Digest: models.OutcomeDigest{Statistics: &models.StatisticalSummary{PassHatK: tc.curve}},
+			}
+			out := captureStdout(t, func() { printSummary(outcome) })
+			if tc.want == "" {
+				assert.NotContains(t, out, "Reliability:")
+			} else {
+				assert.Contains(t, out, tc.want)
+				assert.NotContains(t, out, "pass^2=")
+			}
+		})
+	}
+}
+
+func TestPrintSummary_ReportsPassRateIntervalsAndReliability(t *testing.T) {
+	outcome := &models.EvaluationOutcome{
+		Digest: models.OutcomeDigest{
+			TotalTests: 2, Succeeded: 1, Failed: 1, SuccessRate: 0.5,
+			Statistics: &models.StatisticalSummary{
+				SuccessRateCI: new(statistics.WilsonCI(1, 2, 0.95)),
+				PassHatK:      []float64{0.6667, 0.5, 0.5},
+			},
+		},
+		TestOutcomes: []models.TestOutcome{{
+			DisplayName: "flaky-task",
+			Status:      models.StatusFailed,
+			Stats: &models.TestStats{
+				PassRate:   2.0 / 3.0,
+				PassRateCI: new(statistics.WilsonCI(2, 3, 0.95)),
+			},
+		}},
+	}
+
+	out := captureStdout(t, func() { printSummary(outcome) })
+
+	assert.Contains(t, out, "Success CI95:   [9.5%, 90.5%]")
+	assert.Contains(t, out, "Reliability:    pass^1=67%  pass^2=50%  pass^3=50%")
+	assert.Contains(t, out, "pass_rate=66.7% [CI95 21-94%]")
+}
+
+func TestPrintSummary_OmitsIntervalMissingFromOlderResults(t *testing.T) {
+	// Results written before schema 1.5 have summary statistics but no success_rate_ci.
+	outcome := &models.EvaluationOutcome{
+		Digest: models.OutcomeDigest{TotalTests: 2, Statistics: &models.StatisticalSummary{}},
+	}
+
+	out := captureStdout(t, func() { printSummary(outcome) })
+
+	assert.NotContains(t, out, "Success CI95")
+	assert.NotContains(t, out, "Reliability")
 }

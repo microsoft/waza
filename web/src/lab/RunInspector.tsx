@@ -116,7 +116,7 @@ export default function RunInspector({
         <p role="status" className="lab-note">
           Loading task evidence...
         </p>
-      ) : !demo && query?.isError ? (
+      ) : !demo && query?.isError && !query.data ? (
         <div role="alert" className="lab-note">
           <p>Run evidence could not be loaded: {query.error.message}</p>
           <button className="lab-button" onClick={() => void query.refetch()}>
@@ -125,6 +125,12 @@ export default function RunInspector({
         </div>
       ) : (
         <>
+          {!demo && query?.isError && (
+            <p role="alert" className="lab-note">
+              Evidence refresh failed: {query.error.message}. Previously loaded
+              evidence remains visible.
+            </p>
+          )}
           <label className="lab-field">
             Task
             <select

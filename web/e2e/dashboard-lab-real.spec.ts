@@ -21,6 +21,7 @@ function detail(run: RunSummary): RunDetail {
     tasks: [
       {
         ...RUN_DETAIL.tasks[0],
+        graderResults: RUN_DETAIL.tasks[0]!.graderResults.map((grader) => ({ ...grader })),
         id: "stable-task",
         name: candidate ? "Renamed task" : "Original name",
         weightedScore: candidate ? 0.8 : 0.5,
@@ -65,14 +66,19 @@ async function mockEventSource(page: Page) {
     const sources: {
       url: string;
       closed: boolean;
+      readyState: number;
       onopen?: (event: Event) => void;
       onerror?: (event: Event) => void;
       onmessage?: (event: MessageEvent) => void;
     }[] = [];
     Object.defineProperty(window, "EventSource", {
       value: class {
+        static CONNECTING = 0;
+        static OPEN = 1;
+        static CLOSED = 2;
         url: string;
         closed = false;
+        readyState = 0;
         onopen?: (event: Event) => void;
         onerror?: (event: Event) => void;
         onmessage?: (event: MessageEvent) => void;
@@ -82,15 +88,21 @@ async function mockEventSource(page: Page) {
         }
         close() {
           this.closed = true;
+          this.readyState = 2;
         }
       },
     });
     Object.defineProperty(window, "labEmit", {
       value: (payload: unknown, kind = "message") => {
         const active = sources.at(-1);
-        if (kind === "open") active?.onopen?.(new Event("open"));
-        else if (kind === "error") active?.onerror?.(new Event("error"));
-        else
+        if (!active) return;
+        if (kind === "open") {
+          active.readyState = 1;
+          active.onopen?.(new Event("open"));
+        } else if (kind === "error" || kind === "closed") {
+          active.readyState = kind === "closed" ? 2 : 0;
+          active.onerror?.(new Event("error"));
+        } else
           active?.onmessage?.(
             new MessageEvent("message", { data: JSON.stringify(payload) }),
           );
@@ -117,6 +129,175 @@ async function emit(page: Page, payload: unknown, kind?: string) {
 }
 
 test.describe("Real dashboard lab", () => {
+  test("keeps candidate selection available for singleton suites and filters baselines", async ({
+    page,
+  }) => {
+    const singleton = { ...savedRuns[2]!, timestamp: "2024-01-04T12:00:00Z" };
+    await mockResults(page, [singleton, ...savedRuns.slice(0, 2)]);
+    await page.goto("/#/lab/compare");
+    const candidate = page.getByRole("combobox", { name: "Candidate run" });
+    const baseline = page.getByRole("combobox", { name: "Baseline run" });
+    await expect(candidate).toHaveValue(singleton.id);
+    await expect(baseline).toBeDisabled();
+    await expect(page.getByText("Two runs from the same eval are needed")).toBeVisible();
+    await candidate.selectOption("run-001");
+    await expect(baseline).toBeEnabled();
+    await expect(baseline.locator("option")).toHaveCount(1);
+    await expect(baseline).toHaveValue("run-002");
+    await expect(page.getByText("1 comparable tasks")).toBeVisible();
+    await candidate.selectOption(singleton.id);
+    await expect(baseline).toBeDisabled();
+    await expect(page.locator(".lab-matrix")).toHaveCount(0);
+    await candidate.selectOption("run-002");
+    await expect(baseline).toHaveValue("run-001");
+    await expect(baseline.locator("option")).toHaveCount(1);
+    await expect(page.getByText("1 comparable tasks")).toBeVisible();
+  });
+
+  test("manual refresh updates same-ID same-timestamp comparison and preserves failed refresh evidence", async ({
+    page,
+  }) => {
+    await mockResults(page);
+    await page.goto("/#/lab/compare");
+    await expect(page.getByText("+30.0 pp", { exact: true })).toHaveCount(2);
+    const regraded = detail(savedRuns[0]!);
+    regraded.tasks[0]!.weightedScore = 0.6;
+    await page.route("**/api/runs/run-001", (route) =>
+      route.fulfill({ json: regraded }),
+    );
+    await page.getByRole("button", { name: "Refresh results" }).click();
+    await expect(page.getByText("+10.0 pp", { exact: true })).toHaveCount(2);
+    await expect(page.getByText("+30.0 pp", { exact: true })).toHaveCount(0);
+    await page.route("**/api/v1/lab/runs", (route) =>
+      route.fulfill({ status: 500 }),
+    );
+    await page.getByRole("button", { name: "Refresh results" }).click();
+    await expect(page.getByRole("alert")).toContainText("Previously loaded results");
+    await expect(page.getByText("+10.0 pp", { exact: true })).toHaveCount(2);
+    await page.route("**/api/v1/lab/runs", (route) =>
+      route.fulfill({ json: savedRuns }),
+    );
+    await page.route("**/api/runs/run-001", (route) =>
+      route.fulfill({ status: 503 }),
+    );
+    await page.getByRole("button", { name: "Refresh results" }).click();
+    await expect(page.getByRole("alert")).toContainText("Previously loaded comparison");
+    await expect(page.getByText("+10.0 pp", { exact: true })).toHaveCount(2);
+  });
+
+  test("summary polling refreshes shared comparison and inspector details once per active run", async ({
+    page,
+  }) => {
+    await page.clock.install();
+    const requests = await mockResults(page);
+    await page.goto("/#/lab/compare");
+    await expect(page.getByText("+30.0 pp", { exact: true })).toHaveCount(2);
+    const inspectorResponse = page.waitForResponse("**/api/runs/run-001");
+    await page.getByRole("button", { name: "Renamed task", exact: true }).click();
+    await inspectorResponse;
+    const dialog = page.getByRole("dialog");
+    await expect(dialog.getByText("Output file found")).toBeVisible();
+    const initialRequests = requests.length;
+    const regraded = detail(savedRuns[0]!);
+    regraded.tasks[0]!.weightedScore = 0.4;
+    regraded.tasks[0]!.graderResults[0]!.message = "Regraded recorded evidence";
+    await page.route("**/api/runs/run-001", (route) => {
+      requests.push("run-001");
+      return route.fulfill({ json: regraded });
+    });
+    await page.clock.fastForward(15_000);
+    await expect(dialog.getByText("Regraded recorded evidence")).toBeVisible();
+    await expect(dialog.getByText(/Weighted score 40.0%/)).toBeVisible();
+    expect(requests.length).toBe(initialRequests + 2);
+    expect(requests.slice(initialRequests).sort()).toEqual(["run-001", "run-002"]);
+    await page.route("**/api/v1/lab/runs", (route) =>
+      route.fulfill({ status: 500 }),
+    );
+    await page.clock.fastForward(15_000);
+    await expect(page.locator(".lab-root [role='alert']")).toContainText("Previously loaded results");
+    await expect(dialog.getByText("Regraded recorded evidence")).toBeVisible();
+    expect(requests.length).toBe(initialRequests + 2);
+  });
+
+  test("light lab preserves readable recorded content, arguments and results", async ({
+    page,
+  }) => {
+    await mockResults(page);
+    await page.goto("/#/lab/history");
+    await page.getByRole("button", { name: "custom-skill", exact: true }).first().click();
+    const dialog = page.getByRole("dialog");
+    await expect(dialog.getByText("Output file found")).toBeVisible();
+    await page.getByRole("tab", { name: "Trajectory", exact: true }).click();
+    await dialog.getByRole("button", { name: "Events", exact: true }).click();
+    await dialog.getByRole("button", { name: "Show details", exact: true }).nth(0).click();
+    await dialog.getByRole("button", { name: "Show details", exact: true }).nth(0).click();
+    await dialog.getByRole("button", { name: "Arguments", exact: true }).first().click();
+    await dialog.getByRole("button", { name: "Result", exact: true }).first().click();
+    const blocks = dialog.locator(".lab-recorded-trajectory pre");
+    await expect(blocks).toHaveCount(3);
+    await expect(blocks.filter({ hasText: "I'll analyze" })).toHaveCount(1);
+    await expect(blocks.filter({ hasText: "fibonacci.py" })).toHaveCount(1);
+    await expect(blocks.filter({ hasText: "def fib" })).toHaveCount(1);
+    const contrasts = await blocks.evaluateAll((elements) => {
+      const luminance = (color: string) => {
+        const canvas = document.createElement("canvas");
+        canvas.width = canvas.height = 1;
+        const context = canvas.getContext("2d", { willReadFrequently: true })!;
+        context.fillStyle = color;
+        context.fillRect(0, 0, 1, 1);
+        const channels = Array.from(context.getImageData(0, 0, 1, 1).data).slice(0, 3).map((value) => {
+          const v = value / 255;
+          return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+        });
+        return channels[0]! * 0.2126 + channels[1]! * 0.7152 + channels[2]! * 0.0722;
+      };
+      return elements.map((element) => {
+        const style = getComputedStyle(element);
+        const text = getComputedStyle(element.querySelector("code") ?? element);
+        const a = luminance(style.backgroundColor);
+        const b = luminance(text.color);
+        return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+      });
+    });
+    contrasts.forEach((contrast) => expect(contrast).toBeGreaterThan(4.5));
+    await page.getByRole("tab", { name: "Configuration" }).click();
+    await expect(dialog.locator("pre")).toHaveCSS("background-color", "rgb(246, 248, 251)");
+    await expect(dialog.locator("pre")).toHaveCSS("color", "rgb(36, 49, 70)");
+    await expect(dialog.locator("pre")).toContainText("Explain how the Fibonacci");
+  });
+
+  test("permanently closed activity streams require manual reconnect and release prior resources", async ({
+    page,
+  }) => {
+    await mockEventSource(page);
+    await mockResults(page);
+    await page.goto("/#/lab/current");
+    await expect(page.getByRole("heading", { name: "Run activity", exact: true })).toBeVisible();
+    await emit(page, {
+      runId: "run-001",
+      sequence: 1,
+      type: "run_started",
+      timestamp: "2024-01-03T12:00:00Z",
+      data: { totalTasks: 4 },
+    });
+    await emit(page, null, "closed");
+    await expect(page.locator(".lab-status").filter({ hasText: /^Error$/ })).toBeVisible();
+    await expect(page.getByRole("alert")).toContainText("Use Reconnect stream");
+    await expect(page.getByRole("alert")).not.toContainText("will reconnect");
+    await expect(page.locator(".lab-stream > div")).toHaveCount(1);
+    await page.getByRole("button", { name: "Reconnect stream" }).click();
+    await expect(page.locator(".lab-stream > div")).toHaveCount(0);
+    const sources = await page.evaluate(
+      () => (Reflect.get(window, "labSources") as () => { closed: boolean }[])(),
+    );
+    expect(sources.length).toBeGreaterThan(1);
+    expect(sources.at(-2)?.closed).toBe(true);
+    expect(sources.at(-1)?.closed).toBe(false);
+    await emit(page, null, "open");
+    await expect(page.getByText("Connected", { exact: true })).toBeVisible();
+    await expect(page.getByRole("alert")).toHaveCount(0);
+  });
+
   test("uses UTC calendar dates consistently for chart selection and history", async ({
     page,
   }) => {
@@ -445,6 +626,8 @@ test.describe("Real dashboard lab", () => {
       type: "run_failed",
       data: { completedTasks: 2, totalTasks: 4 },
     });
+    await expect(page.getByText("Run failed (replayed)")).toBeVisible();
+    await emit(page, null, "closed");
     await expect(page.getByText("Run failed (replayed)")).toBeVisible();
     expect(
       await page.evaluate(

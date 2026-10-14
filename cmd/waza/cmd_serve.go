@@ -41,7 +41,7 @@ to all interfaces.
 
 JSON-RPC methods (when using --tcp or stdin/stdout):
   eval.run       Run an eval (returns run ID)
-  eval.list      List available evals in a directory
+  eval.list      List canonical evals and native-loadable scenario YAML in a directory
   eval.get       Get eval details
   eval.validate  Validate an eval spec
   task.list      List tasks for an eval

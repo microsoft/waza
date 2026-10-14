@@ -703,6 +703,9 @@ echo "🖥️  Start without auto-opening browser:"
 - Filter by date range or status
 
 **Run Detail**
+- The **Trial Pass Rate** column shows recorded pass-rate estimates, Wilson intervals, and passed/total trial counts when available; the bootstrap interval remains under **W. Score**
+- **Recorded reliability** shows the suite success-rate interval and pass^k estimates (all k trials pass, averaged over tasks); missing fields show **Not assessed**, not zero or inferred success
+- These intervals describe the recorded run, not statistical significance between runs
 - AI Credits includes task, trigger, and prompt-grader sessions; missing contributing metrics show unavailable, never an estimated or partial total
 - Usage by model shows credits and input, cached-input, cache-write, and output tokens
 - Trends visibly count unavailable credit runs; primary billing views do not show estimated USD

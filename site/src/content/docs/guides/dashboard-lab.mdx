@@ -33,6 +33,14 @@ Local artifacts refresh every 15 seconds or with **Refresh results**.
 Storage-backed results use the existing configured storage adapter. Loading,
 refresh failures, stale results, and retry actions are visible. The default
 window is **All time**, so older histories remain accessible.
+Successful summary refreshes also refresh mounted inspector and comparison
+evidence, even when regrading keeps the run ID and timestamp unchanged. Failed
+refreshes retain previously loaded summaries and evidence; a failed local reload
+does not discard the classic dashboard's cached artifacts.
+This refresh also applies when storage is enabled with the local/default backend.
+An incomplete or invalid rewrite of a previously loaded artifact reports a
+refresh error and retains the prior snapshot. Intentional file deletion is
+reflected after a successful scan; unrelated malformed new files remain ignored.
 
 For frontend-only exploration of the synthetic demo, no Go server is needed:
 
@@ -76,12 +84,17 @@ artifacts. Browser reconnections resume with `Last-Event-ID`. The lab closes
 terminal or malformed streams, reports connection errors, and clears activity
 when the selected run changes. Start/cancel/retry controls and real execution
 discovery are not available.
+Retrying connections show **Reconnecting** while the browser is attempting to
+reopen them. Permanently closed connections show an error and require **Reconnect
+stream**; they do not claim an automatic retry is in progress.
 
 ### Data honesty
 
 - A task pass rate is distinct from its weighted quality score.
 - Task scores aggregate repetitions; grader evidence and trajectories describe
   the **first repetition**, not every trial. Missing weighted scores remain unavailable.
+  Omitted or null task/suite weighted-score fields are not recorded zeroes;
+  explicit numeric zero remains a valid recorded score.
 - AI Credits use authoritative API values, never token-derived estimates.
   Unknown billing is shown as unavailable; aggregate credit values are explicitly
   **known subtotals**, with reporting coverage.
@@ -89,6 +102,8 @@ discovery are not available.
   IDs, or unique legacy names when both artifacts lack IDs. Duplicate identities
   are non-comparable, not silently paired.
   Added/missing tasks are **not comparable**, not zero-score regressions.
+  The candidate picker remains available for singleton suites; only comparison
+  evidence requires a matching baseline.
 - Comparisons are descriptive, not claims of statistical significance.
 - Eval names do not prove matching spec/grader revisions; verify compatibility
   before drawing conclusions. Git revisions and full configurations are unavailable.

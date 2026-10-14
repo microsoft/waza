@@ -30,6 +30,12 @@ type ResultStore interface {
 	Compare(ctx context.Context, runID1, runID2 string) (*ComparisonReport, error)
 }
 
+// ResultsRefresher optionally refreshes a local result snapshot transactionally.
+// Remote stores need not implement this capability.
+type ResultsRefresher interface {
+	Reload() error
+}
+
 // ListedResultDownloader optionally loads a listed result using its known path,
 // avoiding another lookup by run ID in remote stores.
 type ListedResultDownloader interface {

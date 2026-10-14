@@ -1612,16 +1612,20 @@ export default function DashboardLab({ demo = false }: { demo?: boolean }) {
           )}
           {section === "compare" && (
             <>
-              {candidate && baseline ? (
+              {candidate ? (
                 <>
                   <div className="lab-compare-picker">
                     <label>
                       <span>BASELINE</span>
                       <select
                         aria-label="Baseline run"
-                        value={baseline.id}
+                        value={baseline?.id ?? ""}
+                        disabled={!baseline}
                         onChange={(event) => setBaselineId(event.target.value)}
                       >
+                        {!baseline && (
+                          <option value="">No comparable baseline</option>
+                        )}
                         {baselines.map((run) => (
                           <option key={run.id} value={run.id}>
                             {run.skill} · {run.model} · {shortDate(run.date)} ·{" "}
@@ -1630,7 +1634,9 @@ export default function DashboardLab({ demo = false }: { demo?: boolean }) {
                         ))}
                       </select>
                       <small>
-                        {baseline.id} · judge {baseline.judge}
+                        {baseline
+                          ? `${baseline.id} · judge ${baseline.judge}`
+                          : "Choose a candidate with another run in its suite"}
                       </small>
                     </label>
                     <GitCompareArrows size={24} />
@@ -1653,13 +1659,24 @@ export default function DashboardLab({ demo = false }: { demo?: boolean }) {
                       </small>
                     </label>
                   </div>
-                  {demo ? (
+                  {!baseline ? (
+                    <div className="lab-empty">
+                      <GitCompareArrows size={25} />
+                      <h3>Two runs from the same eval are needed</h3>
+                      <p>
+                        Choose another candidate or broaden the model or time
+                        filters to find a comparable baseline.
+                      </p>
+                    </div>
+                  ) : demo ? (
                     <Comparison
                       baseline={baseline}
                       candidate={candidate}
                       onInspect={inspect}
                     />
-                  ) : detailQueries.some((query) => query.isError) ? (
+                  ) : detailQueries.some(
+                      (query) => query.isError && !query.data,
+                    ) ? (
                     <div className="lab-empty" role="alert">
                       <p>
                         Comparison evidence could not be loaded.{" "}
@@ -1680,11 +1697,19 @@ export default function DashboardLab({ demo = false }: { demo?: boolean }) {
                       </button>
                     </div>
                   ) : detailQueries[0]?.data && detailQueries[1]?.data ? (
-                    <Comparison
-                      baseline={detailQueries[0].data}
-                      candidate={detailQueries[1].data}
-                      onInspect={inspect}
-                    />
+                    <>
+                      {detailQueries.some((query) => query.isError) && (
+                        <p role="alert" className="lab-note">
+                          Evidence refresh failed. Previously loaded comparison
+                          evidence remains visible.
+                        </p>
+                      )}
+                      <Comparison
+                        baseline={detailQueries[0].data}
+                        candidate={detailQueries[1].data}
+                        onInspect={inspect}
+                      />
+                    </>
                   ) : (
                     <p role="status" className="lab-note">
                       Loading comparison evidence...

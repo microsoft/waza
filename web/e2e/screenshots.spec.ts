@@ -1,6 +1,7 @@
 import { test, expect } from "@playwright/test";
 import { mockAllAPIs } from "./helpers/api-mock";
 import { RUNS } from "./fixtures/mock-data";
+import { RECORDED_RELIABILITY } from "./fixtures/reliability-data";
 
 test.describe("Dashboard lab screenshots", () => {
   test.use({ viewport: { width: 1440, height: 1000 } });
@@ -77,10 +78,40 @@ test.describe("Screenshots", () => {
     await page.screenshot({
       path: "../docs/images/run-detail.png",
       animations: "disabled",
-      fullPage: false,
+      fullPage: true,
     });
     for (const path of ["../docs/images/explore/run-detail-tasks.png", "../site/public/images/explore/run-detail-tasks.png"]) {
-      await page.screenshot({ path, animations: "disabled", fullPage: false });
+      await page.screenshot({ path, animations: "disabled", fullPage: true });
+    }
+  });
+
+  test("recorded-reliability", async ({ page }) => {
+    await page.route(/\/api\/runs\/run-001$/, (route) =>
+      route.fulfill({
+        json: { ...RECORDED_RELIABILITY, timestamp: "2026-09-14T11:00:00Z" },
+      }),
+    );
+    await page.goto("/#/runs/run-001");
+    await expect(page.getByTestId("task-pass-rate").first()).toContainText("2/3 trials passed");
+    await expect(page.getByTestId("pass-hat-k")).toContainText("pass^3: 50.0%");
+    for (const path of ["../docs/images/explore/recorded-reliability.png", "../site/public/images/explore/recorded-reliability.png"]) {
+      await page.screenshot({ path, animations: "disabled", fullPage: true });
+    }
+  });
+
+  test("statistical-confidence", async ({ page }) => {
+    await page.goto("/#/runs/run-001");
+
+    const tasks = page.locator("table", { has: page.getByText("explain-merge-sort") });
+    await expect(tasks.locator('[data-testid="ci-range"]').first()).toBeVisible();
+
+    for (const path of [
+      "../docs/images/explore/statistical-confidence.png",
+      "../site/public/images/explore/statistical-confidence.png",
+      "../docs/images/explore/weighted-scores.png",
+      "../site/public/images/explore/weighted-scores.png",
+    ]) {
+      await tasks.screenshot({ path, animations: "disabled" });
     }
   });
 
