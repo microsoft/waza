@@ -84,6 +84,8 @@ type ResponderInfo struct {
 
 // EvaluationOutcome represents the complete result of an evaluation run
 type EvaluationOutcome struct {
+	skillUnavailable bool
+
 	SchemaVersion   string                   `json:"schemaVersion"`
 	RunID           string                   `json:"eval_id"`
 	SkillTested     string                   `json:"skill"`
@@ -121,7 +123,19 @@ func (o EvaluationOutcome) MarshalJSON() ([]byte, error) {
 	if o.SchemaVersion == "" {
 		o.SchemaVersion = CurrentResultSchemaVersion
 	}
-	return json.Marshal(alias(o))
+	var skill *string
+	if o.HasSkillTested() {
+		skill = &o.SkillTested
+	}
+	return json.Marshal(struct {
+		alias
+		Skill *string `json:"skill,omitempty"`
+	}{alias(o), skill})
+}
+
+// HasSkillTested distinguishes a recorded blank string from unavailable legacy metadata.
+func (o EvaluationOutcome) HasSkillTested() bool {
+	return o.SkillTested != "" || !o.skillUnavailable
 }
 
 type OutcomeSetup struct {

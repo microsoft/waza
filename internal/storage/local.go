@@ -284,12 +284,13 @@ func outcomeToResultSummary(o *models.EvaluationOutcome, dir string) ResultSumma
 		passRate = float64(o.Digest.Succeeded) / float64(o.Digest.TotalTests) * 100.0
 	}
 	return ResultSummary{
-		RunID:     o.RunID,
-		Skill:     o.SkillTested,
-		Model:     o.Setup.ModelID,
-		Timestamp: o.Timestamp,
-		PassRate:  passRate,
-		BlobPath:  filepath.Join(dir, sanitizeFilename(o.RunID)+".json"),
+		skillUnavailable: !o.HasSkillTested(),
+		RunID:            o.RunID,
+		Skill:            o.SkillTested,
+		Model:            o.Setup.ModelID,
+		Timestamp:        o.Timestamp,
+		PassRate:         passRate,
+		BlobPath:         filepath.Join(dir, sanitizeFilename(o.RunID)+".json"),
 	}
 }
 

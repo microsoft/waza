@@ -379,7 +379,8 @@ export function percent(value: number | null) {
 
 export function duration(value: number | null) {
   if (value === null) return "Unavailable";
-  return `${Math.floor(value / 60)}m ${Math.round(value % 60)}s`;
+  const rounded = Math.round(value);
+  return `${Math.floor(rounded / 60)}m ${rounded % 60}s`;
 }
 
 export function shortDate(date: string) {

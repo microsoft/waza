@@ -82,16 +82,25 @@ export function useLabSource(demo: boolean) {
       const summaries = (await fetchLabRuns(signal)).map(fromSummary);
       // Regrading can change evidence without changing the run ID or timestamp.
       // Refresh mounted details only after the archive refresh succeeds.
-      await queryClient.invalidateQueries({
-        queryKey: ["lab", "detail"],
-        refetchType: "active",
+      await queryClient.cancelQueries({ queryKey: ["lab", "comparison"], type: "active" });
+      const pairs = queryClient.getQueryCache().findAll({
+        queryKey: ["lab", "comparison"], type: "active",
       });
+      const pairedIds = new Set(pairs.flatMap((pair) => pair.queryKey.slice(2)));
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["lab", "comparison"], refetchType: "active" }),
+        queryClient.invalidateQueries({
+          queryKey: ["lab", "detail"],
+          predicate: (detail) => !pairedIds.has(detail.queryKey[2]),
+          refetchType: "active",
+        }),
+      ]);
       return summaries;
     },
     enabled: !demo,
     refetchInterval: (query) => isLocalArchive(query.state.data) ? 15_000 : false,
     refetchOnWindowFocus: (query) => isLocalArchive(query.state.data),
-    refetchOnReconnect: (query) => isLocalArchive(query.state.data),
+    refetchOnReconnect: (query) => isLocalArchive(query.state.data) ? "always" : false,
     retry: false,
   });
   return {
@@ -101,7 +110,47 @@ export function useLabSource(demo: boolean) {
   };
 }
 
-export function useLabDetails(ids: string[], demo: boolean) {
+export function useLabComparison(ids: [string, string] | undefined, demo: boolean) {
+  const queryClient = useQueryClient();
+  return useQuery({
+    queryKey: ["lab", "comparison", ids?.[0], ids?.[1]],
+    enabled: !demo && ids !== undefined,
+    queryFn: async ({ signal }): Promise<[LabRun, LabRun]> => {
+      if (!ids) throw new Error("Choose two runs to load comparison evidence");
+      const before = ids.map((id) => queryClient.getQueryState<LabRun>(["lab", "detail", id]));
+      const abort = new AbortController();
+      try {
+        const requestSignal = AbortSignal.any([signal, abort.signal]);
+        const pair = await Promise.all(ids.map(async (id) =>
+          fromDetail(await fetchRunDetail(id, requestSignal)),
+        ));
+        signal.throwIfAborted();
+        // Publish shared inspector data only after both responses succeeded, and
+        // never overwrite an independent request or a newer cache update.
+        pair.forEach((run, index) => {
+          const key = ["lab", "detail", run.id];
+          const current = queryClient.getQueryState<LabRun>(key);
+          if (current?.fetchStatus !== "fetching" &&
+              current?.data === before[index]?.data &&
+              current?.dataUpdatedAt === before[index]?.dataUpdatedAt) {
+            queryClient.setQueryData(key, run);
+          }
+        });
+        return [pair[0]!, pair[1]!];
+      } catch (error) {
+        abort.abort(error);
+        throw error;
+      }
+    },
+    staleTime: 0,
+    // The archive observer drives local reconnects through the same pair refresh.
+    refetchOnReconnect: false,
+    retry: false,
+  });
+}
+
+export function useLabDetails(ids: string[], demo: boolean, snapshot = false) {
+  const queryClient = useQueryClient();
   return useQueries({
     queries: ids.map((id) => ({
       queryKey: ["lab", "detail", id],
@@ -110,7 +159,9 @@ export function useLabDetails(ids: string[], demo: boolean) {
       enabled: !demo,
       staleTime: 0,
       refetchOnReconnect: (query: { state: { data?: LabRun } }) =>
-        isLocalArchive(query.state.data ? [query.state.data] : undefined),
+        !snapshot && isLocalArchive(query.state.data
+          ? [query.state.data]
+          : queryClient.getQueryData<LabRun[]>(["lab", "runs"])),
       retry: false,
     })),
   });

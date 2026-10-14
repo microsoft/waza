@@ -28,7 +28,7 @@ import {
 } from "lucide-react";
 import { downloadText, toCSV } from "../lib/export";
 import { formatAICredits } from "../lib/format";
-import { reportDetails, useLabSource, useLabDetails } from "./source";
+import { reportDetails, useLabSource, useLabComparison } from "./source";
 import RunActivity from "./RunActivity";
 import { ModelChart, QualityChart } from "./Charts";
 import RunInspector from "./RunInspector";
@@ -972,6 +972,7 @@ export default function DashboardLab({ demo = false }: { demo?: boolean }) {
   const [inspector, setInspector] = useState<{
     run: LabRun;
     task?: string;
+    pair?: [string, string];
   } | null>(null);
   const [about, setAbout] = useState(false);
   useEffect(() => {
@@ -1014,10 +1015,10 @@ export default function DashboardLab({ demo = false }: { demo?: boolean }) {
       (run) => run.model === candidate?.model && run.date < candidate.date,
     ) ??
     baselines[0];
-  const detailQueries = useLabDetails(
+  const comparison = useLabComparison(
     section === "compare" && candidate && baseline
       ? [baseline.id, candidate.id]
-      : [],
+      : undefined,
     demo,
   );
   const chartRuns = filterRuns(
@@ -1036,7 +1037,11 @@ export default function DashboardLab({ demo = false }: { demo?: boolean }) {
   const activeSection = sections.find((item) => item.id === section)!;
 
   function inspect(run: LabRun, task?: string) {
-    setInspector({ run, task });
+    setInspector({
+      run, task,
+      pair: !demo && section === "compare" && baseline && candidate
+        ? [baseline.id, candidate.id] : undefined,
+    });
   }
   function navigate(next: Section) {
     window.location.hash = `${routeBase}/${next}`;
@@ -1709,39 +1714,34 @@ export default function DashboardLab({ demo = false }: { demo?: boolean }) {
                       candidate={candidate}
                       onInspect={inspect}
                     />
-                  ) : detailQueries.some(
-                      (query) => query.isError && !query.data,
-                    ) ? (
+                  ) : comparison.isError && !comparison.data ? (
                     <div className="lab-empty" role="alert">
                       <p>
                         Comparison evidence could not be loaded.{" "}
                         {
-                          detailQueries.find((query) => query.isError)?.error
-                            ?.message
+                          comparison.error?.message
                         }
                       </p>
                       <button
                         className="lab-button"
                         onClick={() => {
-                          detailQueries.forEach(
-                            (query) => void query.refetch(),
-                          );
+                          void comparison.refetch();
                         }}
                       >
                         Retry comparison
                       </button>
                     </div>
-                  ) : detailQueries[0]?.data && detailQueries[1]?.data ? (
+                  ) : comparison.data ? (
                     <>
-                      {detailQueries.some((query) => query.isError) && (
+                      {comparison.isError && (
                         <p role="alert" className="lab-note">
                           Evidence refresh failed. Previously loaded comparison
-                          evidence remains visible.
+                          evidence remains visible. {comparison.error.message}
                         </p>
                       )}
                       <Comparison
-                        baseline={detailQueries[0].data}
-                        candidate={detailQueries[1].data}
+                        baseline={comparison.data[0]}
+                        candidate={comparison.data[1]}
                         onInspect={inspect}
                       />
                     </>
@@ -1813,7 +1813,12 @@ export default function DashboardLab({ demo = false }: { demo?: boolean }) {
       {inspector && (
         <RunInspector
           key={`${inspector.run.id}-${inspector.task ?? ""}`}
-          run={inspector.run}
+          run={
+            inspector.pair?.[0] === baseline?.id && inspector.pair?.[1] === candidate?.id
+              ? comparison.data?.find((run) => run.id === inspector.run.id) ?? inspector.run
+              : inspector.run
+          }
+          snapshot={inspector.pair !== undefined}
           demo={demo}
           initialTask={inspector.task}
           onClose={() => setInspector(null)}

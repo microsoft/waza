@@ -1,6 +1,7 @@
 package webapi
 
 import (
+	"encoding/json"
 	"time"
 
 	"github.com/microsoft/waza/internal/models"
@@ -8,6 +9,7 @@ import (
 
 // RunSummary is the API response for a single run in the list.
 type RunSummary struct {
+	skillRecorded   bool
 	ID              string  `json:"id"`
 	Spec            string  `json:"spec"`
 	Model           string  `json:"model"`
@@ -43,6 +45,31 @@ type RunDetail struct {
 	RunSummary
 	Tasks      []TaskResult                `json:"tasks"`
 	Statistics *ReliabilitySummaryResponse `json:"statistics,omitempty"`
+}
+
+type runSummaryJSON RunSummary
+
+func (s RunSummary) skillValue() *string {
+	if s.Skill == "" && !s.skillRecorded {
+		return nil
+	}
+	return &s.Skill
+}
+
+func (s RunSummary) MarshalJSON() ([]byte, error) {
+	return json.Marshal(struct {
+		runSummaryJSON
+		Skill *string `json:"skill,omitempty"`
+	}{runSummaryJSON(s), s.skillValue()})
+}
+
+func (d RunDetail) MarshalJSON() ([]byte, error) {
+	return json.Marshal(struct {
+		runSummaryJSON
+		Skill      *string                     `json:"skill,omitempty"`
+		Tasks      []TaskResult                `json:"tasks"`
+		Statistics *ReliabilitySummaryResponse `json:"statistics,omitempty"`
+	}{runSummaryJSON(d.RunSummary), d.skillValue(), d.Tasks, d.Statistics})
 }
 
 // ReliabilitySummaryResponse carries recorded estimates, never reconstructed ones.

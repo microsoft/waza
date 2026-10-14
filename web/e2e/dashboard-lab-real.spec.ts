@@ -4,6 +4,7 @@ import { once } from "node:events";
 import { createServer } from "node:http";
 import type { RunDetail, RunDetailWire, RunSummary } from "../src/api/client";
 import { RUN_DETAIL, RUNS } from "./fixtures/mock-data";
+import { duration } from "../src/lab/data";
 
 const savedRuns: RunSummary[] = RUNS.map((run, index) => ({
   ...run,
@@ -61,6 +62,25 @@ async function mockResults(
     );
   });
   return requests;
+}
+
+function generationDetail(run: RunSummary, generation: string, score: number): RunDetail {
+  return {
+    ...detail(run), weightedScore: score, taskCount: 1, passCount: 1,
+    tasks: [{
+      ...detail(run).tasks[0]!, name: `${run.id} task`, weightedScore: score,
+      prompt: `Inspect ${generation}-${run.id}.txt`,
+      graderResults: [{
+        name: "artifact", type: "file", score, passed: true, weight: 1,
+        message: `${generation} ${run.id} grader`,
+      }],
+      transcript: [
+        { type: "ToolExecutionStart", toolCallId: "read", toolName: "read_file", arguments: { path: `${generation}-${run.id}.txt` } },
+        { type: "ToolExecutionComplete", toolCallId: "read", toolResult: `${generation} ${run.id} artifact`, success: true },
+        { type: "Error", message: `${generation} ${run.id} trajectory` },
+      ],
+    }],
+  };
 }
 
 async function mockEventSource(page: Page) {
@@ -131,6 +151,208 @@ async function emit(page: Page, payload: unknown, kind?: string) {
 }
 
 test.describe("Real dashboard lab", () => {
+  test("duration rounding carries into minutes without changing lab formatting", () => {
+    for (const [seconds, label] of [
+      [null, "Unavailable"], [0, "0m 0s"], [0.4, "0m 0s"], [0.5, "0m 1s"],
+      [12.4, "0m 12s"], [12.5, "0m 13s"], [59.4, "0m 59s"],
+      [59.5, "1m 0s"], [59.6, "1m 0s"], [60, "1m 0s"],
+      [119.4, "1m 59s"], [119.5, "2m 0s"], [119.6, "2m 0s"], [120, "2m 0s"],
+    ] as const) expect(duration(seconds)).toBe(label);
+  });
+
+  test("history renders carried minute boundaries from actual API seconds", async ({ page }) => {
+    const durations = [59.4, 59.6, 119.4, 119.6];
+    await mockResults(page, durations.map((duration, index) => ({
+      ...savedRuns[0]!, id: `duration-${index}`, duration,
+    })));
+    await page.goto("/#/lab/history");
+    for (const [index, label] of ["0m 59s", "1m 0s", "1m 59s", "2m 0s"].entries()) {
+      const row = page.locator("tbody tr").filter({
+        has: page.getByRole("checkbox", { name: `Select duration-${index}`, exact: true }),
+      });
+      await expect(row.getByText(label, { exact: true })).toBeVisible();
+    }
+    await expect(page.locator("tbody")).not.toContainText("m 60s");
+  });
+
+  for (const trigger of ["manual", "poll", "focus", "reconnect"] as const) {
+    test(`${trigger} comparison refresh retains both prior generations on partial failure and retries atomically`, async ({ page }) => {
+      await page.clock.install();
+      const localRuns = savedRuns.slice(0, 2).map((run, index) => ({
+        ...run, source: "local", skill: index ? "baseline-skill" : "candidate-skill",
+      }));
+      let phase: "initial" | "partial" | "success" = "initial";
+      let candidateReplied!: () => void;
+      const candidateReady = new Promise<void>((resolve) => { candidateReplied = resolve; });
+      const requests: string[] = [];
+      await mockResults(page, localRuns);
+      await page.route(/\/api\/runs\/[^/]+$/, async (route) => {
+        const run = localRuns.find((run) => route.request().url().endsWith(`/${run.id}`));
+        if (!run) throw new Error("Unexpected comparison run request");
+        requests.push(run.id);
+        if (phase === "partial" && run.id === "run-002") {
+          await candidateReady;
+          return route.fulfill({ status: 503, json: { error: "baseline generation unavailable" } });
+        }
+        const generation = phase === "initial" ? "A" : "B";
+        const score = run.id === "run-001" ? (generation === "A" ? 0.8 : 0.9) : (generation === "A" ? 0.5 : 0.7);
+        await route.fulfill({ json: generationDetail(run, generation, score) });
+        if (phase === "partial" && run.id === "run-001") candidateReplied();
+      });
+      await page.goto("/#/lab/compare");
+      const matrix = page.locator(".lab-matrix tbody tr");
+      await expect(matrix.locator("td").nth(1)).toHaveText("50.0%");
+      await expect(matrix.locator("td").nth(2)).toHaveText("80.0%");
+      const initialInspector = page.waitForResponse("**/api/runs/run-001");
+      await page.getByRole("button", { name: "run-001 task", exact: true }).click();
+      await initialInspector;
+      const mounted = await page.getByRole("dialog").elementHandle();
+      if (!mounted) throw new Error("Comparison inspector did not mount");
+      await expect(page.getByRole("dialog").getByText("A run-001 grader", { exact: true })).toBeVisible();
+      const beforeRefresh = requests.length;
+      phase = "partial";
+      if (trigger === "manual") {
+        await page.getByRole("button", { name: "Refresh results", exact: true, includeHidden: true })
+          .evaluate((element: HTMLButtonElement) => element.click());
+      } else if (trigger === "poll") {
+        await page.clock.fastForward(15_000);
+      } else {
+        if (trigger === "focus") await page.clock.setSystemTime(new Date("2030-01-01T00:00:00Z"));
+        await page.evaluate((trigger) => {
+          if (trigger === "focus") document.dispatchEvent(new Event("visibilitychange"));
+          else {
+            window.dispatchEvent(new Event("offline"));
+            window.dispatchEvent(new Event("online"));
+          }
+        }, trigger);
+      }
+      const warning = page.locator(".lab-root [role='alert']").filter({ hasText: "Previously loaded comparison" });
+      await expect(warning).toContainText("503");
+      expect(requests.slice(beforeRefresh).sort()).toEqual(["run-001", "run-002"]);
+      expect(await mounted.evaluate((element) => element.isConnected)).toBe(true);
+      await expect(matrix.locator("td").nth(1)).toHaveText("50.0%");
+      await expect(matrix.locator("td").nth(2)).toHaveText("80.0%");
+      await expect(page.getByText("+30.0 pp", { exact: true })).toHaveCount(2);
+      const assertEvidence = async (id: string, generation: string) => {
+        const dialog = page.getByRole("dialog");
+        await expect(dialog.getByText(`${generation} ${id} grader`, { exact: true })).toBeVisible();
+        await dialog.getByRole("tab", { name: "Trajectory", exact: true }).click();
+        await dialog.getByRole("button", { name: "Events", exact: true }).click();
+        await expect(dialog.getByText(`${generation} ${id} trajectory`, { exact: true })).toBeVisible();
+        await dialog.getByRole("button", { name: "Show details", exact: true }).first().click();
+        await dialog.getByRole("button", { name: "Arguments", exact: true }).click();
+        await expect(dialog.locator(".lab-recorded-trajectory pre").filter({ hasText: `"${generation}-${id}.txt"` })).toBeVisible();
+        await dialog.getByRole("button", { name: "Result", exact: true }).click();
+        await expect(dialog.getByText(`${generation} ${id} artifact`, { exact: true })).toBeVisible();
+        await dialog.getByRole("tab", { name: "Configuration", exact: true }).click();
+        expect(JSON.parse(await dialog.locator("pre").innerText()).prompt).toBe(`Inspect ${generation}-${id}.txt`);
+        await page.keyboard.press("Escape");
+      };
+      await assertEvidence("run-001", "A");
+      await page.getByRole("link", { name: "Run history", exact: true }).click();
+      await page.getByRole("button", { name: "baseline-skill", exact: true }).click();
+      await assertEvidence("run-002", "A");
+      await page.getByRole("link", { name: "Compare", exact: true }).click();
+      await expect(page.getByText("+30.0 pp", { exact: true })).toHaveCount(2);
+      phase = "success";
+      await page.getByRole("button", { name: "Refresh results", exact: true }).click();
+      await expect(matrix.locator("td").nth(1)).toHaveText("70.0%");
+      await expect(matrix.locator("td").nth(2)).toHaveText("90.0%");
+      await expect(page.getByText("+20.0 pp", { exact: true })).toHaveCount(2);
+      await expect(page.getByRole("alert")).toHaveCount(0);
+      await page.getByRole("button", { name: "run-001 task", exact: true }).click();
+      await assertEvidence("run-001", "B");
+      await page.getByRole("link", { name: "Run history", exact: true }).click();
+      await page.getByRole("button", { name: "baseline-skill", exact: true }).click();
+      await assertEvidence("run-002", "B");
+    });
+  }
+
+  test("a failed initial remote comparison waits for explicit retry, including after reconnect", async ({ page }) => {
+    await page.clock.install();
+    const remoteRuns = savedRuns.slice(0, 2).map((run) => ({ ...run, source: "azure-blob" }));
+    let ready = false;
+    let requests = 0;
+    await mockResults(page, remoteRuns);
+    await page.route(/\/api\/runs\/[^/]+$/, (route) => {
+      requests++;
+      const run = remoteRuns.find((run) => route.request().url().endsWith(`/${run.id}`));
+      if (!run) throw new Error("Unexpected remote comparison run");
+      return route.fulfill(ready ? { json: detail(run) } : { status: 503 });
+    });
+    await page.goto("/#/lab/compare");
+    await expect(page.getByRole("alert")).toContainText("Comparison evidence could not be loaded");
+    await expect(page.locator(".lab-matrix")).toHaveCount(0);
+    const before = requests;
+    await page.clock.fastForward(60_000);
+    await page.evaluate(() => {
+      document.dispatchEvent(new Event("visibilitychange"));
+      window.dispatchEvent(new Event("offline"));
+      window.dispatchEvent(new Event("online"));
+    });
+    await page.waitForTimeout(100);
+    expect(requests).toBe(before);
+    ready = true;
+    await page.getByRole("button", { name: "Retry comparison", exact: true }).click();
+    await expect(page.getByText("+30.0 pp", { exact: true })).toHaveCount(2);
+    expect(requests).toBe(before + 2);
+  });
+
+  test("a late canceled refresh cannot replace a newly selected comparison or its inspector", async ({ page }) => {
+    const localRuns = [
+      ...savedRuns.slice(0, 2).map((run) => ({ ...run, source: "local" })),
+      { ...savedRuns[0]!, id: "run-004", model: "third-model", source: "local", timestamp: "2024-01-01T12:00:00Z" },
+    ];
+    let phase: "initial" | "held" | "current" = "initial";
+    let heldCount = 0;
+    let release!: () => void;
+    let settled = 0;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    await mockResults(page, localRuns);
+    await page.route(/\/api\/runs\/[^/]+$/, async (route) => {
+      const run = localRuns.find((run) => route.request().url().endsWith(`/${run.id}`));
+      if (!run) throw new Error("Unexpected selected comparison run");
+      const requestPhase = phase;
+      if (requestPhase === "held") {
+        heldCount++;
+        await gate;
+      }
+      const score = requestPhase === "held" ? 0.1 : run.id === "run-004" ? 0.9 : run.id === "run-001" ? 0.8 : 0.5;
+      await route.fulfill({ json: generationDetail(run, requestPhase, score) });
+      if (requestPhase === "held") settled++;
+    });
+    try {
+      await page.goto("/#/lab/compare");
+      await expect(page.getByText("+30.0 pp", { exact: true })).toHaveCount(2);
+      phase = "held";
+      await page.getByRole("button", { name: "Refresh results", exact: true }).click();
+      await expect.poll(() => heldCount).toBe(2);
+      phase = "current";
+      await page.getByRole("combobox", { name: "Candidate run", exact: true }).selectOption("run-004");
+      await expect(page.getByRole("combobox", { name: "Baseline run", exact: true })).toHaveValue("run-001");
+      await expect(page.getByText("+10.0 pp", { exact: true })).toHaveCount(2);
+      await page.getByRole("button", { name: "run-004 task", exact: true }).click();
+      const dialog = page.getByRole("dialog");
+      await expect(dialog.getByText("current run-004 grader", { exact: true })).toBeVisible();
+      release();
+      await expect.poll(() => settled).toBe(2);
+      await expect(dialog.getByText("current run-004 grader", { exact: true })).toBeVisible();
+      await expect(dialog.getByText(/held .* grader/)).toHaveCount(0);
+      await page.keyboard.press("Escape");
+      await expect(page.getByText("+10.0 pp", { exact: true })).toHaveCount(2);
+      await expect(page.locator(".lab-matrix tbody tr td").nth(1)).toHaveText("80.0%");
+      await expect(page.locator(".lab-matrix tbody tr td").nth(2)).toHaveText("90.0%");
+      await page.getByRole("link", { name: "Run history", exact: true }).click();
+      const row = page.locator("tbody tr").filter({
+        has: page.getByRole("checkbox", { name: "Select run-001", exact: true }),
+      });
+      await row.getByRole("button", { name: "custom-skill", exact: true }).click();
+      await expect(dialog.getByText("current run-001 grader", { exact: true })).toBeVisible();
+    } finally {
+      release();
+    }
+  });
+
   test("keeps candidate selection available for singleton suites and filters baselines", async ({
     page,
   }) => {

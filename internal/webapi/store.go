@@ -144,6 +144,7 @@ func outcomeToSummary(o *models.EvaluationOutcome) RunSummary {
 	}
 
 	return RunSummary{
+		skillRecorded:   o.SkillTested == "" && o.HasSkillTested(),
 		ID:              o.RunID,
 		Spec:            o.BenchName,
 		Model:           o.Setup.ModelID,

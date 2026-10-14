@@ -11,15 +11,17 @@ export default function RunInspector({
   run: summary,
   demo,
   initialTask,
+  snapshot = false,
   onClose,
 }: {
   run: LabRun;
   demo: boolean;
   initialTask?: string;
+  snapshot?: boolean;
   onClose: () => void;
 }) {
-  const query = useLabDetails([summary.id], demo)[0];
-  const run = query?.data ?? summary;
+  const query = useLabDetails([summary.id], demo, snapshot)[0];
+  const run = snapshot ? summary : query?.data ?? summary;
   const dialog = useRef<HTMLDialogElement>(null);
   const [taskId, setTaskId] = useState(
     initialTask ??
@@ -114,11 +116,11 @@ export default function RunInspector({
           complete repetition-level export.
         </p>
       )}
-      {!demo && query?.isPending ? (
+      {!demo && !snapshot && query?.isPending ? (
         <p role="status" className="lab-note">
           Loading task evidence...
         </p>
-      ) : !demo && query?.isError && !query.data ? (
+      ) : !demo && !snapshot && query?.isError && !query.data ? (
         <div role="alert" className="lab-note">
           <p>Run evidence could not be loaded: {query.error.message}</p>
           <button className="lab-button" onClick={() => void query.refetch()}>
@@ -127,7 +129,7 @@ export default function RunInspector({
         </div>
       ) : (
         <>
-          {!demo && query?.isError && (
+          {!demo && query?.isError && (snapshot || query.data) && (
             <p role="alert" className="lab-note">
               Evidence refresh failed: {query.error.message}. Previously loaded
               evidence remains visible.

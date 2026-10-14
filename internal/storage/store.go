@@ -5,6 +5,7 @@ package storage
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"math"
 	"time"
@@ -61,12 +62,31 @@ type ListOptions struct {
 // ResultSummary is a lightweight representation of a stored evaluation run,
 // suitable for listing without loading the full outcome.
 type ResultSummary struct {
+	skillUnavailable bool
+
 	RunID     string    `json:"run_id"`
 	Skill     string    `json:"skill"`
 	Model     string    `json:"model"`
 	Timestamp time.Time `json:"timestamp"`
 	PassRate  float64   `json:"pass_rate"`
 	BlobPath  string    `json:"blob_path"`
+}
+
+// HasSkill distinguishes recorded blanks from unavailable artifact metadata.
+func (s ResultSummary) HasSkill() bool {
+	return s.Skill != "" || !s.skillUnavailable
+}
+
+func (s ResultSummary) MarshalJSON() ([]byte, error) {
+	type alias ResultSummary
+	var skill *string
+	if s.HasSkill() {
+		skill = &s.Skill
+	}
+	return json.Marshal(struct {
+		alias
+		Skill *string `json:"skill,omitempty"`
+	}{alias(s), skill})
 }
 
 // ComparisonReport holds the result of comparing two evaluation runs.
