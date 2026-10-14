@@ -86,6 +86,28 @@ func TestSummaryDistinguishesCheckpointTurns(t *testing.T) {
 	require.Equal(t, before, after)
 }
 
+func TestSummaryPreservesUnavailableCheckObservations(t *testing.T) {
+	for _, checks := range []string{"", `,"checks":null`, `,"checks":[]`} {
+		t.Run(checks, func(t *testing.T) {
+			var explanations []models.RequirementExplanation
+			require.NoError(t, json.Unmarshal([]byte(fmt.Sprintf(
+				`[{"task_id":"task","requirement_id":"missing"%s},{"task_id":"task","requirement_id":"control","checks":[{"check":{"scope":"task","grader":"control"},"observation":"grader_recorded_pass"}]}]`,
+				checks)), &explanations))
+			outcome := &models.EvaluationOutcome{TestOutcomes: []models.TestOutcome{{
+				TestID: "task", Runs: []models.RunResult{{RunNumber: 1, RequirementExplanations: explanations}},
+			}}}
+			before, err := json.Marshal(outcome)
+			require.NoError(t, err)
+			report := FormatSummaryReport(outcome)
+			require.Contains(t, report, "Run 1 requirement missing: check observations unavailable; requirement satisfaction is unassessed.")
+			require.Contains(t, report, "Run 1 requirement control: task/control = grader_recorded_pass")
+			after, err := json.Marshal(outcome)
+			require.NoError(t, err)
+			require.Equal(t, before, after)
+		})
+	}
+}
+
 func TestSummaryLabelsUnavailableSourceEvaluationWithoutChangingEvidence(t *testing.T) {
 	for _, tc := range []struct {
 		name   string

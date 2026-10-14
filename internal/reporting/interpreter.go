@@ -104,6 +104,11 @@ func FormatSummaryReport(outcome *models.EvaluationOutcome) string {
 					fmt.Fprintf(&b, "    Run %d artifact-relative value pointers: unverified and withheld; references identify artifact metadata only.\n", run.RunNumber)
 				}
 				for _, explanation := range explanations {
+					if len(explanation.Checks) == 0 {
+						fmt.Fprintf(&b, "    Run %d requirement %s: check observations unavailable; requirement satisfaction is unassessed.\n",
+							run.RunNumber, explanation.RequirementID)
+						continue
+					}
 					for _, check := range explanation.Checks {
 						checkLabel := check.Check.Scope + "/" + check.Check.Grader
 						if check.Check.AfterTurn > 0 {

@@ -983,6 +983,8 @@ as metadata only, without claiming verified values. Present zero-valued source
 run/attempt fields mean unavailable attribution; the dashboard labels them
 unavailable without copying the selected result's lineage. Nonzero mismatches
 remain withheld, and omitted/null required fields remain invalid.
+Requirements with omitted, null, or empty check lists remain visible as unassessed
+in interpretation; populated sibling observations are retained.
 
 Snapshot capture sanitizes typed JSON and structurally sensitive keys before
 serialization without modifying original results. Unsafe keys/identifiers,
