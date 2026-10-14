@@ -971,6 +971,11 @@ decoded metadata can be assessed; missing fields and invalid null scalars are
 withheld, not repaired into zero values. Schema-declared nullable fields remain valid.
 Invalid metadata is withheld. Scoped requirement checks are existing grader
 observations, not enforcement, causal explanations, new scores, or changed defaults.
+API, interpretation reports and dashboard views inspect metadata without fetching
+snapshot bytes. Their requirement references identify captured artifact metadata;
+artifact-relative value pointers are unverified and withheld, with an explicit
+limitation. Explicit snapshot-content verification independently checks digests
+and pointer existence when the actual bytes are supplied.
 
 Snapshot capture sanitizes typed JSON and structurally sensitive keys before
 serialization without modifying original results. Unsafe keys/identifiers,

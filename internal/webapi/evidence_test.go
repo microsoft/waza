@@ -195,6 +195,51 @@ func TestEvidenceAPIWithholdsRawScalarNormalization(t *testing.T) {
 	}
 }
 
+func TestEvidenceAPIOmitsUnverifiedValuePointers(t *testing.T) {
+	for _, cached := range []bool{false, true} {
+		for _, pointer := range []string{"", "/value", "/missing"} {
+			t.Run(fmt.Sprintf("cached=%t/pointer=%s", cached, pointer), func(t *testing.T) {
+				digest, err := evidence.JSONDigest(map[string]any{"value": "ok"})
+				require.NoError(t, err)
+				manifest := &models.EvidenceManifest{
+					Origin:  models.EvidenceOrigin{EvalID: "eval", TaskID: "task", RunNumber: 1, AttemptCount: 1},
+					Runtime: models.EvidenceRuntime{ExecutionMode: "unknown", NativeSkillControl: "unknown"},
+					Artifacts: []models.EvidenceArtifact{{
+						ID: "receipt", Kind: "grader_results", Availability: "captured", Completeness: "complete",
+						Document: "snapshot", Pointer: "/result/validations", ContentDigest: digest,
+					}},
+				}
+				require.NoError(t, evidence.Seal(manifest))
+				reference, err := evidence.Reference(manifest, "receipt")
+				require.NoError(t, err)
+				reference.Pointer = pointer
+				outcome := &models.EvaluationOutcome{RunID: "eval", TestOutcomes: []models.TestOutcome{{
+					TestID: "task", Cached: cached, Runs: []models.RunResult{{
+						RunNumber: 1, Attempts: 1, Evidence: manifest,
+						RequirementExplanations: []models.RequirementExplanation{{TaskID: "task", RequirementID: "req",
+							Checks: []models.CheckExplanation{{Observation: "grader_recorded_pass", References: []models.EvidenceReference{reference}}}}},
+					}},
+				}}}
+				before, err := json.Marshal(outcome)
+				require.NoError(t, err)
+				row := outcomeToDetail(outcome).Tasks[0].EvidenceRuns[0]
+				require.Equal(t, "recorded", row.Assessment)
+				require.Equal(t, "grader_recorded_pass", row.Explanations[0].Checks[0].Observation)
+				require.Empty(t, row.Explanations[0].Checks[0].References[0].Pointer)
+				require.Equal(t, "receipt", row.Explanations[0].Checks[0].References[0].ArtifactID)
+				if pointer != "" {
+					require.Contains(t, row.Message, "value pointers are unverified and withheld")
+				} else {
+					require.NotContains(t, row.Message, "value pointers are unverified and withheld")
+				}
+				after, err := json.Marshal(outcome)
+				require.NoError(t, err)
+				require.Equal(t, before, after)
+			})
+		}
+	}
+}
+
 func TestEvidenceAPIValidatesRequirementReferences(t *testing.T) {
 	for _, test := range []struct {
 		name        string

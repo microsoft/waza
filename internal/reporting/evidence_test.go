@@ -2,12 +2,56 @@ package reporting
 
 import (
 	"encoding/json"
+	"fmt"
 	"testing"
 
 	"github.com/microsoft/waza/internal/evidence"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/stretchr/testify/require"
 )
+
+func TestSummaryDisclosesUnverifiedValuePointers(t *testing.T) {
+	for _, cached := range []bool{false, true} {
+		for _, pointer := range []string{"", "/value", "/missing"} {
+			t.Run(fmt.Sprintf("cached=%t/pointer=%s", cached, pointer), func(t *testing.T) {
+				digest, err := evidence.JSONDigest(map[string]any{"value": "ok"})
+				require.NoError(t, err)
+				manifest := &models.EvidenceManifest{
+					Origin:  models.EvidenceOrigin{EvalID: "eval", TaskID: "task", RunNumber: 1, AttemptCount: 1},
+					Runtime: models.EvidenceRuntime{ExecutionMode: "unknown", NativeSkillControl: "unknown"},
+					Artifacts: []models.EvidenceArtifact{{
+						ID: "receipt", Kind: "grader_results", Availability: "captured", Completeness: "complete",
+						Document: "snapshot", Pointer: "/result/validations", ContentDigest: digest,
+					}},
+				}
+				require.NoError(t, evidence.Seal(manifest))
+				reference, err := evidence.Reference(manifest, "receipt")
+				require.NoError(t, err)
+				reference.Pointer = pointer
+				outcome := &models.EvaluationOutcome{RunID: "eval", TestOutcomes: []models.TestOutcome{{
+					TestID: "task", Cached: cached, Runs: []models.RunResult{{
+						RunNumber: 1, Attempts: 1, Evidence: manifest,
+						RequirementExplanations: []models.RequirementExplanation{{TaskID: "task", RequirementID: "req",
+							Checks: []models.CheckExplanation{{Observation: "grader_recorded_pass", References: []models.EvidenceReference{reference}}}}},
+					}},
+				}}}
+				before, err := json.Marshal(outcome)
+				require.NoError(t, err)
+				report := FormatSummaryReport(outcome)
+				require.Contains(t, report, "grader_recorded_pass")
+				require.NotContains(t, report, "invalid references")
+				if pointer != "" {
+					require.Contains(t, report, "value pointers: unverified and withheld")
+				} else {
+					require.NotContains(t, report, "value pointers: unverified and withheld")
+				}
+				after, err := json.Marshal(outcome)
+				require.NoError(t, err)
+				require.Equal(t, before, after)
+			})
+		}
+	}
+}
 
 func TestSummaryLabelsUnavailableSourceEvaluationWithoutChangingEvidence(t *testing.T) {
 	for _, tc := range []struct {

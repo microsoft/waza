@@ -56,6 +56,11 @@ The **Evidence** tab retains each trial's recorded manifest, source origin, runt
 
 Missing evaluation or task identifiers display as **unavailable**, including capture-failure envelopes with `origin_unavailable` diagnostics; they are not inferred from the displayed run or task names. Invalid metadata is withheld, while missing historical evidence remains unassessed. Recorded assessments require a displayable manifest; an absent or null manifest withholds their observations instead of presenting recorded evidence. Manifests require non-null origin, runtime and redaction objects; readers do not repair missing objects into zero-valued metadata. Requirement references identify captured artifacts, not unavailable, unrequested, or digest-only entries; partial or redacted captures retain their limitations. Digests are not file contents, requested controls are not verified enforcement, and grader observations do not establish universal requirement satisfaction. The view does not fetch local paths, upload artifacts, or perform live replay.
 
+Requirement reference labels identify **artifact metadata only**. Artifact-relative
+value pointers are unverified without snapshot bytes and are not displayed as
+exact evidence. The API and interpretation report withhold these pointers without
+mutating stored results; explicit content verification remains a separate operation.
+
 ## Run Detail — Prompts
 
 Switch to the **Prompts** tab to verify the exact resolved instruction captured for each task. JSON prompts are formatted for readability, and the copy action makes it easy to reuse the prompt while debugging an eval.

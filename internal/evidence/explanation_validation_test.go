@@ -1,11 +1,56 @@
 package evidence
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/microsoft/waza/internal/models"
 	"github.com/stretchr/testify/require"
 )
+
+func TestMetadataExplanationsWithholdUnverifiedValuePointers(t *testing.T) {
+	manifest := sampleManifest(t)
+	for _, pointer := range []string{"", "/a~1b/0", "/missing"} {
+		t.Run(pointer, func(t *testing.T) {
+			reference, err := Reference(manifest, "receipt")
+			require.NoError(t, err)
+			reference.Pointer = pointer
+			input := []models.RequirementExplanation{{
+				TaskID: "task", RequirementID: "req",
+				Checks: []models.CheckExplanation{{Observation: "grader_recorded_pass", References: []models.EvidenceReference{reference}}},
+			}}
+			before, err := json.Marshal(input)
+			require.NoError(t, err)
+			projected, withheld, err := MetadataExplanations(manifest, "task", input)
+			require.NoError(t, err)
+			require.Equal(t, pointer != "", withheld)
+			require.Equal(t, "grader_recorded_pass", projected[0].Checks[0].Observation)
+			require.Equal(t, "receipt", projected[0].Checks[0].References[0].ArtifactID)
+			require.Empty(t, projected[0].Checks[0].References[0].Pointer)
+			after, err := json.Marshal(input)
+			require.NoError(t, err)
+			require.Equal(t, before, after)
+			projected[0].Checks[0].References[0].ArtifactID = "changed projection"
+			require.Equal(t, "receipt", input[0].Checks[0].References[0].ArtifactID)
+			if pointer != "" {
+				err = VerifyContent(manifest, reference, []byte(`{"a/b":["ok"],"count":9007199254740993}`), false, false)
+				if pointer == "/missing" {
+					require.Error(t, err)
+				} else {
+					require.NoError(t, err)
+				}
+			}
+		})
+	}
+	for _, checks := range [][]models.CheckExplanation{nil, {}} {
+		result, withheld, err := MetadataExplanations(nil, "task", []models.RequirementExplanation{{Checks: checks}})
+		require.NoError(t, err)
+		require.False(t, withheld)
+		require.Equal(t, checks, result[0].Checks)
+	}
+	_, _, err := MetadataExplanations(nil, "task", []models.RequirementExplanation{{TaskID: "other"}})
+	require.ErrorContains(t, err, "different task")
+}
 
 func TestValidateExplanations(t *testing.T) {
 	manifest := sampleManifest(t)

@@ -95,11 +95,15 @@ func FormatSummaryReport(outcome *models.EvaluationOutcome) string {
 					fmt.Fprintf(&b, "    Run %d evidence: %s; source eval %s; captured metadata is not verified state or enforcement.\n",
 						run.RunNumber, run.Evidence.Version, sourceEvalID)
 				}
-				if err := evidence.ValidateExplanations(run.Evidence, to.TestID, run.RequirementExplanations); err != nil {
+				explanations, pointersWithheld, err := evidence.MetadataExplanations(run.Evidence, to.TestID, run.RequirementExplanations)
+				if err != nil {
 					fmt.Fprintf(&b, "    Run %d requirement observations: invalid references; assessment references are unavailable.\n", run.RunNumber)
 					continue
 				}
-				for _, explanation := range run.RequirementExplanations {
+				if pointersWithheld {
+					fmt.Fprintf(&b, "    Run %d artifact-relative value pointers: unverified and withheld; references identify artifact metadata only.\n", run.RunNumber)
+				}
+				for _, explanation := range explanations {
 					for _, check := range explanation.Checks {
 						fmt.Fprintf(&b, "    Run %d requirement %s: %s/%s = %s (%s). %s\n",
 							run.RunNumber, explanation.RequirementID, check.Check.Scope, check.Check.Grader,

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -201,6 +202,28 @@ func ValidateExplanations(manifest *models.EvidenceManifest, taskID string, expl
 		}
 	}
 	return nil
+}
+
+// MetadataExplanations omits value pointers because metadata alone cannot verify
+// their targets. Content-aware operations must use VerifyContent separately.
+func MetadataExplanations(manifest *models.EvidenceManifest, taskID string, explanations []models.RequirementExplanation) ([]models.RequirementExplanation, bool, error) {
+	if err := ValidateExplanations(manifest, taskID, explanations); err != nil {
+		return nil, false, err
+	}
+	projected := slices.Clone(explanations)
+	withheld := false
+	for i := range projected {
+		projected[i].Checks = slices.Clone(projected[i].Checks)
+		for j := range projected[i].Checks {
+			check := &projected[i].Checks[j]
+			check.References = slices.Clone(check.References)
+			for k := range check.References {
+				withheld = withheld || check.References[k].Pointer != ""
+				check.References[k].Pointer = ""
+			}
+		}
+	}
+	return projected, withheld, nil
 }
 
 func validPointer(pointer string) bool {

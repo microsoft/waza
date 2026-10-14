@@ -67,6 +67,12 @@ without repairing zero values; schema-declared nullable fields remain valid.
 Evidence-aware consumers also reject unsupported manifest versions, unknown
 metadata, and duplicate JSON keys rather than interpreting them as assessed evidence.
 
+Metadata-only API, interpretation reports and dashboard views do not fetch
+snapshot bytes. Requirement references in these views identify captured artifact
+metadata, not verified values inside it; artifact-relative value pointers are
+withheld and explicitly labeled unverified. Explicit snapshot-content verification
+checks digests and pointer existence when actual artifact bytes are supplied.
+
 Each manifest describes:
 
 - Full source origin: `eval_id`, `task_id`, `run_number`, `attempt_count`, and

@@ -20,6 +20,19 @@ test("legacy results without evidence stay unassessed", async ({ page }) => {
   await expect(view).toContainText("not verified enforcement");
 });
 
+for (const pointer of ["/missing-value-DO-NOT-DISPLAY", "/0"]) {
+  test(`metadata-only requirement reference does not claim verified value ${pointer}`, async ({ page }) => {
+    const run = evidenceRun();
+    const reference = run.explanations![0].checks![0].references![0];
+    reference.pointer = pointer;
+    const view = await openEvidence(page, [run]);
+    await expect(view).toContainText(`Evidence: ${reference.artifact_id} · artifact metadata only; value pointer unverified`);
+    await expect(view).not.toContainText(`${reference.artifact_id}${pointer}`);
+    await expect(view).not.toContainText("DO-NOT-DISPLAY");
+    await expect(view).not.toContainText("Evidence metadata withheld");
+  });
+}
+
 test("every trial retains partial mock evidence and cached source origin", async ({ page }) => {
   const requests: string[] = [];
   page.on("request", (request) => requests.push(new URL(request.url()).pathname));

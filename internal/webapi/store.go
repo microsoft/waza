@@ -263,11 +263,17 @@ func outcomeToDetail(o *models.EvaluationOutcome) *RunDetail {
 				}
 			}
 			if row.Assessment != "invalid" {
-				if err := evidence.ValidateExplanations(row.Manifest, to.TestID, row.Explanations); err != nil {
+				explanations, pointersWithheld, err := evidence.MetadataExplanations(row.Manifest, to.TestID, row.Explanations)
+				if err != nil {
 					row.Assessment = "invalid"
 					row.Message = "Requirement observation references are invalid; the observations are withheld."
 					row.Manifest = nil
 					row.Explanations = nil
+				} else {
+					row.Explanations = explanations
+					if pointersWithheld {
+						row.Message += " Artifact-relative value pointers are unverified and withheld; references identify artifact metadata only."
+					}
 				}
 			}
 			tr.EvidenceRuns = append(tr.EvidenceRuns, row)

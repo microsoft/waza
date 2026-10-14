@@ -99,7 +99,7 @@ export default function EvidenceView({ tasks }: { tasks: TaskResult[] }) {
                       <p>{check.check.scope || "uncovered"} / {check.check.grader || "no check"}{check.check.after_turn ? ` / turn ${check.check.after_turn}` : ""}: {check.observation} · {check.category}</p>
                       <p>{check.message}</p>
                       {check.references?.map((reference, j) => (
-                        <p key={j} className="break-all text-xs">Evidence: {reference.artifact_id}{reference.pointer ?? ""} · {originLabel(reference.origin)}</p>
+                        <p key={j} className="break-all text-xs">Evidence: {reference.artifact_id} · artifact metadata only; value pointer unverified · {originLabel(reference.origin)}</p>
                       ))}
                     </div>
                   )) : (
