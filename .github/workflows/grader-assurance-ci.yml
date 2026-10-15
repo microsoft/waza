@@ -18,10 +18,9 @@ jobs:
       ENABLE_COPILOT_TESTS: 'false'
       NO_COLOR: '1'
     steps:
-      - name: Checkout exact reader ancestry
+      - name: Checkout source and immutable reader snapshots
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          fetch-depth: 0
           lfs: true
 
       - name: Setup Go
@@ -39,6 +38,9 @@ jobs:
       - name: Build dashboard
         working-directory: web
         run: npm ci && npm run build && npm run lint
+
+      - name: Verify frozen reader custody and clean-checkout regression
+        run: NODE_PATH="$PWD/web/node_modules" node --test scripts/frozen-assurance-reader.test.cjs
 
       - name: Install and prove rejecting runtime guard
         shell: bash
