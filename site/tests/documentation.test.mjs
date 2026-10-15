@@ -175,3 +175,15 @@ test('adversarial replay example identifies the baseline before its comparison',
     .matchAll(/`(waza replay [^`\n]+)`/g)].map((match) => match[1]);
   assert.deepEqual(examples, ['waza replay before.json --bisect after.json']);
 });
+
+test('concepts distinguish repeated trials from discarded retry outputs', () => {
+  const concepts = read('site/src/content/docs/concepts.mdx').replaceAll('**', '').replace(/\s+/g, ' ');
+  assert.doesNotMatch(concepts, /final success does not erase earlier failures/i, 'ordinary results do not preserve earlier failed attempts');
+  assert.match(concepts, /Independently repeated trials produce separate run results \(`trials_per_task`\)/);
+  assert.match(concepts, /final attempt's response, grader verdicts and status/);
+  assert.match(concepts, /attempt count \(`attempts`\)/);
+  assert.match(concepts, /Earlier attempt outputs and verdicts are not retained in that trial's result/);
+  assert.match(concepts, /`prior_attempts: not_preserved`/);
+  assert.match(concepts, /reported usage from discarded attempts/);
+  assert.match(concepts, /An individual snapshot is not a complete retry history/);
+});
