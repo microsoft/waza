@@ -1,8 +1,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const crypto = require("node:crypto");
-const { execFileSync } = require("node:child_process");
-const ts = require("../web/node_modules/typescript");
+const { acquireFrozenReader, readerRefs } = require("./frozen-assurance-reader.cjs");
 
 // Extracted readers resolve their unchanged imports through NODE_PATH.
 require.resolve("ajv/dist/2020");
@@ -26,27 +25,11 @@ if (inputs[0].report.schema_version !== "1.2" || inputs[0].report.state !== "pas
   throw new Error("Actual positive/nonpass 1.2 and positive 1.0/1.1 controls are required.");
 }
 for (const reader of [
-  { ref: "d82cba11265919996660e02d348bb92a3ff1fd4d", allowCalibrated: false },
-  { ref: "91146d4f53c986365e56cdbf503a10331c54d98a", allowCalibrated: true },
+  { ref: readerRefs[0], allowCalibrated: false },
+  { ref: readerRefs[1], allowCalibrated: true },
 ]) {
   const directory = path.join(root, reader.ref);
-  const sources = [
-    "web/src/types/assurance.ts", "web/src/lib/strictJson.ts",
-    "schemas/grader-assurance-1.0.schema.json",
-    "schemas/grader-reference-1.0.schema.json",
-    "schemas/evidence-manifest-1.0.schema.json",
-  ];
-  if (reader.allowCalibrated) sources.push("schemas/grader-assurance-1.1.schema.json");
-  for (const source of sources) {
-    const bytes = execFileSync("git", ["show", `${reader.ref}:${source}`]);
-    const target = path.join(directory, source.replace(/\.ts$/, ".js"));
-    fs.mkdirSync(path.dirname(target), { recursive: true });
-    fs.writeFileSync(target, source.endsWith(".ts") ? ts.transpileModule(bytes.toString("utf8"), {
-      compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
-    }).outputText : bytes);
-    console.log(`${reader.ref}:${source}: ${crypto.createHash("sha256").update(bytes).digest("hex")}`);
-  }
-  const { parseAssuranceReport } = require(path.resolve(directory, "web/src/types/assurance.js"));
+  const { parseAssuranceReport } = acquireFrozenReader(reader.ref, directory);
   for (const input of inputs) {
     let accepted = false;
     try {

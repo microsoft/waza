@@ -5,6 +5,7 @@
 .squad/orchestration-log/** merge=union
 # Set the default behavior, in case people don't have core.autocrlf set.
 * text=auto
+testdata/frozen-assurance-readers/** -text
 schemas/grader-assurance-1.0.schema.json text eol=lf
 schemas/grader-reference-1.0.schema.json text eol=lf
 schemas/evidence-manifest-1.0.schema.json text eol=lf

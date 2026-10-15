@@ -108,7 +108,7 @@ func preservedVerificationFixtureWithFiles(t *testing.T, files bool) (VerifyRequ
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, root.Close()) })
 	source := []byte("synthetic complete finite native declaration source, not a historical capture")
-	executable, err := CurrentExecutableSHA256()
+	executable, err := fixtureExecutableSHA256()
 	require.NoError(t, err)
 	specDigest, err := evidence.JSONDigest(spec)
 	require.NoError(t, err)
