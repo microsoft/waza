@@ -591,6 +591,9 @@ with `compare` or `gate` using that explicit contract, `--release-policy`,
 `--collection-dir` and current per-arm eval/reference inputs. Optional per-arm
 `--review` and `--accept-review-source` are separately supplied acceptance, not
 authenticated human review. Unreviewed examples remain nonpassing.
+An explicitly supplied review timestamp must be a nonnull date-time string:
+two-digit hours, dot-separated fractions and bounded numeric timezone offsets.
+Omitted timestamps remain allowed only for unreviewed/submitted declarations.
 
 Only mock/no-skills/native-text/finite-authored-output qualification is supported:
 both arms need fresh exact offline1.0 reports and deterministic regrading of

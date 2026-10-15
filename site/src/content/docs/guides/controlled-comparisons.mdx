@@ -188,6 +188,10 @@ acceptance without a supplied review is invalid, and neither authenticates a
 human. Unreviewed examples remain nonpassing; test reviewed declarations are
 clearly synthetic. Revocation/staleness invalidates eligibility; withheld
 revocations cannot be discovered.
+Explicit `reviewed_at` values must be nonnull date-time strings with two-digit
+hours, dot-separated fractional seconds and bounded numeric timezone offsets;
+typed decoding cannot normalize malformed original timestamps into eligibility.
+Unreviewed/submitted declarations may omit the timestamp.
 
 Sources/evidence/review are rechecked after verification, before final
 publication and before assessment returns. Stored pass reports are never

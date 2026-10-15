@@ -205,6 +205,11 @@ independent review or discover a withheld revocation. The reviewed digest binds
 the **original label-file bytes**, so whitespace changes invalidate the review.
 Bundled candidates remain unreviewed. Synthetic declarations in tests
 demonstrate eligibility and the actual file-content path, not real human review.
+An explicitly present `reviewed_at` must satisfy the schema's nonnull date-time
+string contract before typed decoding: two-digit hours, a dot for fractional
+seconds and numeric timezone hours/minutes within range. Native decoding still
+validates calendar dates. Unreviewed/submitted declarations may omit this field;
+decisions still require a nonzero time no later than the evaluator's clock.
 
 ### Binding domains and evidence admission
 
