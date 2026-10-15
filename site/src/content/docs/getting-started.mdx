@@ -114,15 +114,27 @@ in results; missing or provisional usage is not zero cost.
 
 ## Run a real workflow
 
-For a workflow without a skill, scaffold a scenario directly:
+Continue in the project created by Quick Start and **reuse** its inventory
+scenario. Only scaffold when that file does not already exist:
 
 ```bash
-waza new eval inventory --scenario --template repository
+if [ ! -f evals/inventory/eval.yaml ]; then
+  waza new eval inventory --scenario --template repository
+fi
+```
+
+**Before running**, edit `evals/inventory/eval.yaml` and restore
+`config.executor: copilot-sdk` if Quick Start changed it to `mock`. Keep the
+separate wiring-control task under `evals/docs-smoke/`, not inventory's tasks.
+After completing the authentication, model-access, permissions and cost
+prerequisites above:
+
+```bash
 waza run evals/inventory/eval.yaml --output agent-results.json
 ```
 
-The generated `config.executor: copilot-sdk` runs a real agent against sanitized fixtures.
-If you previously changed that field to `mock`, restore `copilot-sdk` first. CLI and MCP
+The restored `config.executor: copilot-sdk` runs a real agent against sanitized fixtures.
+CLI and MCP
 templates are also available: CLI uses installed Git; MCP uses a harness-only
 mocked dependency, not a production service. `config.executor: mock` validates the harness
 only. Scenario evals require explicit schema `2.0`; tasks/results remain `1.x`.

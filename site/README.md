@@ -42,16 +42,29 @@ npm run build
 npx playwright test --project=chromium
 ```
 
-The example tests extract the published YAML, create fresh project-local
-workspaces, explicitly select mock and check both passing and failing controls.
-They never fall back to an authenticated engine. Set `WAZA_BIN` explicitly;
-missing binaries fail instead of skipping. `TMPDIR` is kept under the project.
+The example tests extract published YAML and allocate owned fixture storage in
+the platform user cache, outside project ancestry. The canonical path and every
+ancestor are checked for `skills/`, `.waza.yaml` and `.git`; inherited `TMPDIR`
+is never trusted. `WAZA_DOCS_FIXTURE_ROOT` can select another external cache
+location, subject to the same fail-closed checks. Child `TMPDIR`, `TMP` and
+`TEMP` point into the owned fixture and are removed after the test.
+Tests explicitly select mock, check positive/negative controls, and always
+override `COPILOT_CLI_PATH` with an absolute verified directory: production SDK
+setup must reject it before embedded-runtime selection, even if a future
+snippet unexpectedly selects SDK. A regression proves an inherited executable
+is not used. Live-test environment flags alone do not provide this guard.
+Set `WAZA_BIN` explicitly; missing binaries fail instead of skipping.
 The Chromium sweep validates built page routes, exact fragments and local image
 assets under `/waza/`, while source checks cover public repository Markdown
 targets/anchors and native enum/schema/catalog agreement. External link
 availability and historical design documents are outside this local gate.
 `npm run build` also runs the source-contract checks through `prebuild`, so a
 normal docs build cannot omit the repository link/catalog checks.
+The Site Build workflow also runs an **Offline documentation examples** job on
+relevant docs/runtime changes: it fetches LFS assets, builds the current CLI
+through `make build` (real dashboard assets, no stubs), and invokes
+`test:examples` with that binary. The built-in Node test runner needs no separate
+site dependency installation for this job.
 
 Use Node.js 22.19.0 or later. The site's transitive `undici` dependency requires
 this minimum; the site CI and GitHub Pages workflows use Node.js 22.19.0.

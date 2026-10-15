@@ -14,6 +14,16 @@ on:
     branches: [main]
     paths:
       - 'site/**'
+      - 'docs/**'
+      - 'README.md'
+      - 'registry.json'
+      - 'cmd/waza/**'
+      - 'internal/**'
+      - 'schemas/**'
+      - 'go.mod'
+      - 'go.sum'
+      - 'Makefile'
+      - 'web/**'
       - '.github/workflows/site-ci.yml'
       - '.github/workflows/pages.yml'
   pull_request:
@@ -32,6 +42,8 @@ jobs:
     name: Build site
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    outputs:
+      examples: ${{ steps.filter.outputs.examples }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -43,8 +55,24 @@ jobs:
           filters: |
             site:
               - 'site/**'
+              - 'docs/**'
+              - 'README.md'
+              - 'registry.json'
               - '.github/workflows/site-ci.yml'
               - '.github/workflows/pages.yml'
+            examples:
+              - 'site/**'
+              - 'docs/**'
+              - 'README.md'
+              - 'registry.json'
+              - 'cmd/waza/**'
+              - 'internal/**'
+              - 'schemas/**'
+              - 'go.mod'
+              - 'go.sum'
+              - 'Makefile'
+              - 'web/**'
+              - '.github/workflows/site-ci.yml'
 
       - name: Setup Node
         if: steps.filter.outputs.site == 'true' || github.event_name == 'push'
@@ -86,3 +114,43 @@ jobs:
       - name: Skip (no site changes)
         if: steps.filter.outputs.site != 'true' && github.event_name == 'pull_request'
         run: echo "No site/** changes detected — skipping site build."
+
+  examples:
+    name: Offline documentation examples
+    needs: build
+    if: needs.build.outputs.examples == 'true' || github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CI: '1'
+      NO_COLOR: '1'
+      GOMAXPROCS: '2'
+      WAZA_NO_UPDATE_CHECK: '1'
+      ENABLE_COPILOT_TESTS: 'false'
+      ENABLE_COPILOT_SDK_TESTS: 'false'
+      ENABLE_LIVE_COPILOT_TESTS: 'false'
+      COPILOT_CLI_PATH: ${{ github.workspace }}
+    steps:
+      - name: Checkout source and embedded runtime assets
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          lfs: true
+
+      - name: Setup Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.26'
+          cache-dependency-path: go.sum
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22.19.0'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Build current CLI with genuine dashboard assets
+        run: make build
+
+      - name: Run extracted examples and fail-closed isolation regressions
+        run: WAZA_BIN="$GITHUB_WORKSPACE/waza" npm --prefix site run test:examples

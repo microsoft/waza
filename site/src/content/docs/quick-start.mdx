@@ -94,7 +94,14 @@ publication limits, selected-file capture and regrade restrictions.
 
 ## 4. Prove a predicate can reject bad output
 
-Create `evals/inventory/tasks/docs-probe.yaml`:
+Keep the wiring control in its own suite so it cannot enter inventory's
+`tasks/*.yaml` selection:
+
+```bash
+mkdir -p evals/docs-smoke/tasks
+```
+
+Create `evals/docs-smoke/tasks/docs-probe.yaml`:
 
 ```yaml
 id: docs-probe
@@ -103,7 +110,7 @@ inputs:
   prompt: "Reply with the word inventory."
 ```
 
-Create `evals/inventory/smoke.yaml`. Task entries are **file paths**, not inline
+Create `evals/docs-smoke/eval.yaml`. Task entries are **file paths**, not inline
 task objects; native text predicates use `regex_match`, not `pattern`:
 
 ```yaml
@@ -129,14 +136,17 @@ tasks:
 ```
 
 ```bash
-waza preflight evals/inventory/smoke.yaml
-waza run evals/inventory/smoke.yaml --output smoke.json
+waza preflight evals/docs-smoke/eval.yaml
+waza run evals/docs-smoke/eval.yaml --output smoke.json
 ```
 
 Expect exit **0**. Change only the regex to `["^IMPOSSIBLE_DOCS_SENTINEL$"]`
 and run again: expect exit **1** and a missing-pattern failure. An impossible
 `pattern:` field can be inert in legacy decoding; never use it as a text assertion.
 This negative control is essential: rendering YAML is not testing the check.
+Do not add this reply-only task to `evals/inventory/tasks/`: inventory's native
+workflow graders require a report. Its original task set must stay unchanged
+when you later restore the real executor.
 
 ## Next: choose actual agent execution
 

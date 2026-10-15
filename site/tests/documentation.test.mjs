@@ -105,3 +105,12 @@ test('source build and safety boundary examples stay explicit', () => {
     assert.match(read(path), /Run with `--snapshot`/);
   }
 });
+
+test('executable documentation controls have a maintained real-asset CI entrypoint', () => {
+  const workflow = read('.github/workflows/site-ci.yml');
+  assert.match(workflow, /name: Offline documentation examples/);
+  assert.match(workflow, /lfs: true/);
+  assert.match(workflow, /run: make build/);
+  assert.match(workflow, /WAZA_BIN="\$GITHUB_WORKSPACE\/waza" npm --prefix site run test:examples/);
+  assert.match(workflow, /COPILOT_CLI_PATH: \$\{\{ github.workspace \}\}/);
+});

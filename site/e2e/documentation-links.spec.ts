@@ -59,7 +59,12 @@ test('beginner learning order and source availability are visible', async ({ pag
   await expect(page.locator('main')).toContainText('expect exit 1');
   await page.goto('/waza/getting-started/');
   const text = await page.locator('main').innerText();
-  expect(text.indexOf('Authenticate before real execution')).toBeLessThan(text.indexOf('waza run evals/inventory/eval.yaml'));
+  const realRun = text.indexOf('waza run evals/inventory/eval.yaml');
+  for (const prerequisite of ['Authenticate before real execution', 'Before running', 'restore']) {
+    expect(text.indexOf(prerequisite)).toBeGreaterThanOrEqual(0);
+    expect(text.indexOf(prerequisite)).toBeLessThan(realRun);
+  }
+  await expect(page.locator('main')).toContainText('if [ ! -f evals/inventory/eval.yaml ]; then');
   await expect(page.locator('main')).toContainText('not a provider spending cap');
   expect(readFileSync(join(dist, 'concepts/index.html'), 'utf8')).toContain('A graded result is not release authority');
 });

@@ -1,29 +1,31 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
-import { resolve, join } from 'node:path';
+import { accessSync, constants, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { isAbsolute, resolve, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
+import { allocateExampleFixture, offlineEnvironment, replaceExactlyOnce, validateFixtureAncestry } from './helpers/example-fixtures.mjs';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
 assert.ok(process.env.WAZA_BIN, 'Set WAZA_BIN to a built current-main binary; examples must not be silently skipped');
 const binary = resolve(process.env.WAZA_BIN);
-const scratch = resolve(root, '.docs-validation', `examples-${process.pid}`);
-mkdirSync(join(scratch, 'tmp'), { recursive: true });
-const env = { ...process.env, CI: '1', NO_COLOR: '1', WAZA_NO_UPDATE_CHECK: '1',
-  ENABLE_COPILOT_TESTS: 'false', ENABLE_COPILOT_SDK_TESTS: 'false',
-  ENABLE_LIVE_COPILOT_TESTS: 'false', TMPDIR: join(scratch, 'tmp') };
 const read = (path) => readFileSync(resolve(root, path), 'utf8');
 const blocks = (path) => [...read(path).matchAll(/```yaml\n([\s\S]*?)```/g)].map((m) => m[1]);
 
-function run(args, cwd, status = 0) {
-  const result = spawnSync(binary, args, { cwd, env, encoding: 'utf8', timeout: 90_000 });
-  assert.equal(result.error, undefined, String(result.error));
-  assert.equal(result.status, status, `${args.join(' ')}\n${result.stdout}\n${result.stderr}`);
-  return result.stdout;
+function cliRunner(env) {
+  assert.ok(isAbsolute(env.COPILOT_CLI_PATH) && statSync(env.COPILOT_CLI_PATH).isDirectory());
+  return (args, cwd, status = 0) => {
+    const result = spawnSync(binary, args, { cwd, env, encoding: 'utf8', timeout: 90_000 });
+    assert.equal(result.error, undefined, String(result.error));
+    assert.equal(result.status, status, `${args.join(' ')}\n${result.stdout}\n${result.stderr}`);
+    return result.stdout;
+  };
 }
 
 test('copy/paste scaffold, preflight, mock capture and predicate controls', () => {
+  const fixture = allocateExampleFixture(root);
+  const scratch = fixture.directory;
+  const run = cliRunner(fixture.env);
   try {
     run(['init', 'workflow-lab', '--no-skill'], scratch);
     const project = join(scratch, 'workflow-lab');
@@ -36,7 +38,7 @@ test('copy/paste scaffold, preflight, mock capture and predicate controls', () =
       run(['preflight', `evals/${name}/eval.yaml`], project);
     }
     const generated = join(project, 'evals/inventory/eval.yaml');
-    writeFileSync(generated, readFileSync(generated, 'utf8').replace('executor: copilot-sdk', 'executor: mock'));
+    writeFileSync(generated, replaceExactlyOnce(readFileSync(generated, 'utf8'), '\n  executor: copilot-sdk\n', '\n  executor: mock\n'));
     run(['run', 'evals/inventory/eval.yaml', '--snapshot', 'snapshots', '--output', 'results.json'], project, 1);
     const results = JSON.parse(readFileSync(join(project, 'results.json'), 'utf8'));
     const recorded = results.tasks[0].runs[0];
@@ -48,18 +50,27 @@ test('copy/paste scaffold, preflight, mock capture and predicate controls', () =
     const regraded = JSON.parse(readFileSync(join(project, 'regraded.json'), 'utf8'));
     assert.ok(regraded.tasks[0].runs[0].evidence);
 
+    const quickStart = read('site/src/content/docs/quick-start.mdx');
+    assert.match(quickStart, /Create `evals\/docs-smoke\/tasks\/docs-probe\.yaml`/);
+    assert.match(quickStart, /Create `evals\/docs-smoke\/eval\.yaml`/);
+    assert.match(quickStart, /waza run evals\/docs-smoke\/eval\.yaml --output smoke\.json/);
+    assert.doesNotMatch(quickStart, /evals\/inventory\/(?:tasks\/docs-probe\.yaml|smoke\.yaml)/);
     const snippets = blocks('site/src/content/docs/quick-start.mdx');
     const task = snippets.find((block) => block.startsWith('id: docs-probe'));
     const suite = snippets.find((block) => block.includes('name: docs-smoke'));
     assert.ok(task && suite, 'Quick Start must contain complete task and suite YAML');
-    writeFileSync(join(project, 'evals/inventory/tasks/docs-probe.yaml'), task);
-    const suitePath = join(project, 'evals/inventory/smoke.yaml');
+    const inventoryTasks = () => readdirSync(join(project, 'evals/inventory/tasks')).sort()
+      .map((name) => [name, readFileSync(join(project, 'evals/inventory/tasks', name), 'utf8')]);
+    const originalTasks = inventoryTasks();
+    mkdirSync(join(project, 'evals/docs-smoke/tasks'), { recursive: true });
+    writeFileSync(join(project, 'evals/docs-smoke/tasks/docs-probe.yaml'), task);
+    const suitePath = join(project, 'evals/docs-smoke/eval.yaml');
     writeFileSync(suitePath, suite);
     run(['preflight', suitePath], project);
     run(['run', suitePath, '--output', 'smoke.json'], project);
-    writeFileSync(suitePath, suite.replace('^Mock response for:', '^IMPOSSIBLE_DOCS_SENTINEL$'));
+    writeFileSync(suitePath, replaceExactlyOnce(suite, '^Mock response for:', '^IMPOSSIBLE_DOCS_SENTINEL$'));
     assert.match(run(['run', suitePath], project, 1), /pattern|regex|FAIL/i);
-    writeFileSync(suitePath, suite.replace('regex_match:', 'pattern:'));
+    writeFileSync(suitePath, replaceExactlyOnce(suite, 'regex_match:', 'pattern:'));
     run(['preflight', suitePath, '--strict'], project, 1);
     const tutorial = blocks('docs/TUTORIAL.md');
     run(['new', 'skill', 'my-awesome-skill'], project);
@@ -84,8 +95,28 @@ test('copy/paste scaffold, preflight, mock capture and predicate controls', () =
     run(['run', suitePath], project);
     writeFileSync(suitePath, withGrader(program).replace('output.trim() ? 0 : 1', '1'));
     run(['run', suitePath], project, 1);
-    writeFileSync(suitePath, withGrader(prompt).replace('executor: mock', 'executor: copilot-sdk'));
+    writeFileSync(suitePath, replaceExactlyOnce(withGrader(prompt), 'executor: mock', 'executor: copilot-sdk'));
     run(['preflight', suitePath], project);
+    assert.deepEqual(inventoryTasks(), originalTasks, 'smoke controls must not change the inventory task set');
+    const gettingStarted = read('site/src/content/docs/getting-started.mdx');
+    assert.match(gettingStarted, /if \[ ! -f evals\/inventory\/eval\.yaml \]; then\n  waza new eval inventory --scenario --template repository\nfi/);
+    const realRun = gettingStarted.indexOf('waza run evals/inventory/eval.yaml');
+    for (const prerequisite of ['**Before running**', 'restore\n`config.executor: copilot-sdk`']) {
+      const position = gettingStarted.indexOf(prerequisite);
+      assert.ok(position >= 0 && realRun > position, `Real execution must follow ${prerequisite}`);
+    }
+    const beforeContinuation = readFileSync(generated, 'utf8');
+    if (!existsSync(generated)) run(['new', 'eval', 'inventory', '--scenario', '--template', 'repository'], project);
+    assert.equal(readFileSync(generated, 'utf8'), beforeContinuation, 'Getting Started must reuse the Quick Start scaffold');
+    writeFileSync(generated, replaceExactlyOnce(beforeContinuation, '\n  executor: mock\n', '\n  executor: copilot-sdk\n'));
+    run(['preflight', generated], project);
+    assert.deepEqual(inventoryTasks(), originalTasks);
+    run(['init', 'continuation-only', '--no-skill'], scratch);
+    const continuation = join(scratch, 'continuation-only');
+    if (!existsSync(join(continuation, 'evals/inventory/eval.yaml'))) {
+      run(['new', 'eval', 'inventory', '--scenario', '--template', 'repository'], continuation);
+    }
+    run(['preflight', 'evals/inventory/eval.yaml'], continuation);
     run(['new', 'skill', 'code-explainer'], project);
     for (const path of ['site/src/content/docs/index.mdx', 'site/src/content/docs/getting-started.mdx', 'docs/GETTING-STARTED.md']) {
       const example = blocks(path).find((block) => block.startsWith('name: code-explainer-eval'));
@@ -97,15 +128,16 @@ test('copy/paste scaffold, preflight, mock capture and predicate controls', () =
     run(['adversarial', '--engine', 'mock', '--packs', 'prompt-injection,scope-bypass'], project, 2);
     run(['adversarial', '--engine', 'mock', '--packs', 'prompt-injection,scope-bypass', '--on-unsafe-outcome', 'warn'], project);
   } finally {
-    rmSync(scratch, { recursive: true, force: true });
+    fixture.cleanup();
   }
 });
 
 test('schema outcome snippet accepts alternatives and rejects wrong state/forbidden file', () => {
-  const directory = resolve(root, '.docs-validation', `outcomes-${process.pid}`);
+  const fixture = allocateExampleFixture(root);
+  const directory = fixture.directory;
+  const run = cliRunner(fixture.env);
   mkdirSync(join(directory, 'tasks'), { recursive: true });
   mkdirSync(join(directory, 'fixtures'), { recursive: true });
-  mkdirSync(join(scratch, 'tmp'), { recursive: true });
   try {
     const task = blocks('site/src/content/docs/reference/schema.mdx').find((block) => block.startsWith('id: local-record'));
     assert.ok(task);
@@ -122,7 +154,60 @@ test('schema outcome snippet accepts alternatives and rejects wrong state/forbid
     run(['preflight', 'eval.yaml'], directory);
     run(['run', 'eval.yaml'], directory, 1);
   } finally {
-    rmSync(directory, { recursive: true, force: true });
-    rmSync(scratch, { recursive: true, force: true });
+    fixture.cleanup();
+  }
+});
+
+test('inherited executable cannot bypass the directory runtime guard', () => {
+  const fixture = allocateExampleFixture(root);
+  try {
+    const inherited = join(fixture.directory, 'inherited-copilot');
+    const marker = join(fixture.directory, 'inherited-runtime-was-used');
+    writeFileSync(inherited, `#!/usr/bin/env node\nrequire('node:fs').writeFileSync(${JSON.stringify(marker)}, 'used');\nprocess.exit(97);\n`, { mode: 0o700 });
+    accessSync(inherited, constants.X_OK);
+    const directory = join(fixture.directory, 'guard-probe');
+    mkdirSync(directory);
+    const env = offlineEnvironment(directory, { ...process.env, COPILOT_CLI_PATH: inherited });
+    assert.notEqual(env.COPILOT_CLI_PATH, inherited);
+    assert.ok(statSync(env.COPILOT_CLI_PATH).isDirectory());
+    writeFileSync(join(directory, 'eval.yaml'), 'schemaVersion: "2.0"\nname: guard-probe\nscenario: Guard rejection\nconfig:\n  executor: copilot-sdk\n  model: mock\n  trials_per_task: 1\n  timeout_seconds: 1\nmetrics:\n  - name: task_completion\n    weight: 1\n    threshold: 1\ntasks:\n  - task.yaml\n');
+    writeFileSync(join(directory, 'task.yaml'), 'id: guard-probe\nname: Guard probe\ninputs:\n  prompt: Never execute an agent.\n');
+    const result = spawnSync(binary, ['run', 'eval.yaml'], { cwd: directory, env, encoding: 'utf8', timeout: 10_000 });
+    assert.equal(result.error, undefined);
+    assert.notEqual(result.status, 0);
+    assert.match(`${result.stdout}\n${result.stderr}`, /COPILOT_CLI_PATH.*path is a directory/);
+    assert.equal(existsSync(marker), false);
+    assert.throws(() => replaceExactlyOnce('executor: future', 'executor: copilot-sdk', 'executor: mock'));
+    assert.throws(() => replaceExactlyOnce('executor: copilot-sdk\nexecutor: copilot-sdk', 'executor: copilot-sdk', 'executor: mock'));
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test('canonical fixture ancestry rejects project markers and ignores inherited TMPDIR', () => {
+  const fixture = allocateExampleFixture(root);
+  try {
+    for (const marker of ['skills', '.waza.yaml', '.git']) {
+      const parent = join(fixture.directory, marker.replace(/\W/g, '') || 'marker');
+      mkdirSync(join(parent, 'nested'), { recursive: true });
+      writeFileSync(join(parent, marker), '');
+      assert.throws(() => validateFixtureAncestry(join(parent, 'nested')), /inherits project marker/);
+    }
+    const alias = join(fixture.directory, 'checkout-alias');
+    symlinkSync(root, alias, process.platform === 'win32' ? 'junction' : 'dir');
+    assert.throws(() => validateFixtureAncestry(alias), /inherits project marker/);
+    assert.throws(() => allocateExampleFixture(root, { ...process.env, WAZA_DOCS_FIXTURE_ROOT: alias }), /inherits project marker/);
+    const external = allocateExampleFixture(root, { ...process.env, TMPDIR: root, TMP: root, TEMP: root });
+    try {
+      validateFixtureAncestry(external.directory);
+      assert.equal(realpathSync(external.env.TMPDIR), join(external.directory, 'workspaces'));
+      assert.notEqual(external.env.TMPDIR, root);
+      assert.equal(external.env.TMP, external.env.TMPDIR);
+      assert.equal(external.env.TEMP, external.env.TMPDIR);
+    } finally {
+      external.cleanup();
+    }
+  } finally {
+    fixture.cleanup();
   }
 });
