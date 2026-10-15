@@ -1,52 +1,17 @@
 ---
 title: Quick Start
-description: Get your first skill evaluation running in 5 minutes.
+description: Run an offline workflow harness, inspect its evidence, and test a failing predicate without credentials.
 ---
 
-import { Aside, Tabs, TabItem } from '@astrojs/starlight/components';
+Start with [Concepts](../concepts/) if suite/task/trial or scenario is new to you.
+This walkthrough is **offline harness validation**, not proof of agent quality.
 
-Get from zero to running your first evaluation benchmark in 5 minutes.
+## 1. Select the right build
 
-<Aside type="tip" title="Skills and Custom Agents">
-Waza evaluates both `SKILL.md`-based skills and `.agent.md` custom agents. This guide uses a skill — see [Evaluating Custom Agents](/waza/guides/custom-agents/) if you're targeting a `.agent.md` agent instead.
-</Aside>
-
-For a workflow without a skill, use `waza new eval inventory --scenario` and
-`waza run evals/inventory/eval.yaml` after installation/authentication.
-This selects a real agent and sanitized repository fixtures, not a mock-engine
-quality check. Scenario evals require exact schema `2.0`; tasks/results stay
-`1.x`. See [Writing Eval Specs](/waza/guides/eval-yaml/) for CLI/MCP templates,
-optional context and harness-only limitations. The skill walkthrough below
-remains unchanged.
-
-## Prerequisites
-
-- **GitHub Copilot access** for the default provider, or custom Copilot SDK provider environment variables.
-- **Go 1.26 or later** and **Git LFS** only if installing from source.
-
-## 1. Install
-
-Choose one method:
-
-<Tabs>
-<TabItem label="macOS / Linux / Bash">
-```bash
-curl -fsSL https://raw.githubusercontent.com/microsoft/waza/main/install.sh | bash
-waza --version
-```
-The Bash installer detects the environment where Bash is running. From PowerShell, `bash` may resolve to WSL and install the Linux binary inside WSL.
-</TabItem>
-
-<TabItem label="Windows">
-Download `waza-windows-amd64.exe` or `waza-windows-arm64.exe` from the newest stable `vX.Y.Z` CLI release on the [Releases page](https://github.com/microsoft/waza/releases), rename it to `waza.exe`, and place it in a directory on your `PATH`.
-
-```powershell
-waza --version
-```
-</TabItem>
-
-<TabItem label="From Source">
-Requires Go 1.26+, Git LFS, Make, Node.js, and npm. `make build` generates the dashboard assets before embedding them in the binary.
+As of October 15, 2026, published standalone `v0.38.10` (October 9) does not
+include the upcoming scenario/preflight/evidence journey below. `waza update`
+does not install main. Use a source build with **Go 1.26+, Git LFS, Make,
+Node.js and npm**:
 
 ```bash
 git clone https://github.com/microsoft/waza.git
@@ -55,154 +20,130 @@ git lfs install
 git lfs pull
 make build
 ./waza --version
-```
-</TabItem>
-
-<TabItem label="Azure Developer CLI">
-```bash
-azd ext source add -n waza -t url -l https://raw.githubusercontent.com/microsoft/waza/main/registry.json
-azd ext install microsoft.azd.waza
-azd waza --version
-```
-All commands below use `waza` — with azd extension, replace with `azd waza`.
-</TabItem>
-</Tabs>
-
-## 2. Authenticate
-
-By default, Waza uses the `copilot-sdk` executor and needs GitHub Copilot access for running evaluations:
-
-```bash
-copilot login
+export PATH="$PWD:$PATH"
 ```
 
-This opens your browser to authenticate. After login, you're ready to go.
+`make build` installs locked dashboard dependencies and generates real embedded
+assets before Go compilation; bare `go build`/`go install` in a fresh checkout
+is not this procedure. See [Releases](../reference/releases/) for stable
+installers, native Windows binaries and separate azd extension availability.
+The shell examples use Bash; on Windows use a suitable development shell.
+Selected-file publication and strict durable collection have narrower platform
+support than ordinary execution.
 
-Waza bundles the GitHub Copilot CLI used by the `copilot-sdk` executor and extracts it and its runtime assets to a versioned directory in the local user cache on first use (or under `COPILOT_HOME/cache` when set). Set `COPILOT_CLI_PATH` only when you need to force a specific Copilot CLI binary. Installation failures are reported without falling back to a CLI on `PATH`; set `COPILOT_CLI_INSTALL_VERBOSE=1` for installation diagnostics.
+## 2. Scaffold a project and scenario
 
-<Aside type="note" title="Custom Provider">
-If your Copilot SDK setup uses a custom provider, set `COPILOT_BASE_URL` or `COPILOT_PROVIDER_BASE_URL` instead. Waza will pass the provider configuration to the SDK and skip the default Copilot auth check.
-</Aside>
-
-## 3. Create Your First Skill
-
-Initialize a project and create a skill:
+Run outside the source checkout, in a new directory:
 
 ```bash
-mkdir my-eval-suite
-cd my-eval-suite
-waza init
+waza init workflow-lab --no-skill
+cd workflow-lab
+waza new eval inventory --scenario --template repository
+waza preflight evals/inventory/eval.yaml
+```
+
+Preflight makes no agent/model calls and executes no graders or subprocesses.
+Warnings about unresolved runtime readiness are expected; exit zero means
+configuration inventory readiness, **not execution quality**. `--strict`
+deliberately makes unresolved prerequisites fail.
+
+The scenario has `evals/inventory/eval.yaml`, task YAML under
+`evals/inventory/tasks/`, and sanitized fixtures under
+`evals/inventory/fixtures/`. For existing skills, the supported alternative is:
+
+```bash
 waza new skill my-skill
 ```
 
-You'll see:
+That creates `skills/my-skill/SKILL.md` and
+`evals/my-skill/{eval.yaml,tasks/,fixtures/}` — not `skill.yaml` or nested
+`skills/my-skill/evals/`. `init` in a TTY can prompt to create a skill;
+`--no-skill` skips it. There is no `init --interactive` or `init --path`.
 
+## 3. Run and inspect offline evidence
+
+Edit `evals/inventory/eval.yaml`: change `config.executor: copilot-sdk` to
+`config.executor: mock`. Executor selection is configuration, not a `run --engine`
+flag. Leave all graders intact.
+
+```bash
+waza run evals/inventory/eval.yaml \
+  --snapshot ./snapshots --output ./results.json
 ```
-✓ Created skill: skills/my-skill/
-├── skill.yaml          # Skill definition
-├── evals/
-│   └── eval.yaml       # Evaluation spec
-└── fixtures/
-    ├── input.txt       # Sample task input
-    └── README.md       # How to add more fixtures
+
+Expect exit **1**: the mock does not write the required `report.txt`. This is a
+useful negative control, not a broken installation. The mock echoes prompt/task
+metadata and does not solve the workflow. Step 4 supplies a positive wiring
+control. Inspect `results.json`:
+`tasks[].runs[]` contains individual observations, `validations`, source
+evidence and `snapshot_path` when capture succeeded. Do not infer missing state
+from a passing summary.
+
+With `jq` installed, inspect the recorded path and check its consistency:
+
+```bash
+snapshot=$(jq -r '.tasks[0].runs[0].snapshot_path' results.json)
+waza replay "$snapshot" --json
+waza serve --results-dir .
 ```
 
-## 4. Write Your First Eval
+Replay checks recorded events/scores; it does not rerun the agent or graders.
+Review snapshots for secrets before sharing; capture is local and opt-in.
+See [Snapshot & Replay](../guides/snapshot-replay/) for redaction, Windows
+publication limits, selected-file capture and regrade restrictions.
 
-Open `skills/my-skill/evals/eval.yaml` and modify it to this minimal spec:
+## 4. Prove a predicate can reject bad output
 
-If your task needs files in the sandbox, list them under `inputs.files`; `--context-dir` is only the lookup base for those paths.
+Create `evals/inventory/tasks/docs-probe.yaml`:
 
 ```yaml
-name: my-skill-eval
-description: Test my skill
+id: docs-probe
+name: Offline response wiring
+inputs:
+  prompt: "Reply with the word inventory."
+```
+
+Create `evals/inventory/smoke.yaml`. Task entries are **file paths**, not inline
+task objects; native text predicates use `regex_match`, not `pattern`:
+
+```yaml
+schemaVersion: "2.0"
+name: docs-smoke
+scenario: Offline response wiring
 config:
-  model: claude-sonnet-4.6
+  executor: mock
+  trials_per_task: 1
   timeout_seconds: 30
-
+  model: mock
+metrics:
+  - name: task_completion
+    weight: 1
+    threshold: 1
 graders:
-  - type: text
-    name: has_response
+  - name: response-wiring
+    type: text
     config:
-      contains:
-        - "How can I help"
-
+      regex_match: ["^Mock response for:"]
 tasks:
-  - name: test-task-1
-    description: Simple test
-    input: "Hello, world!"
-    expected: "Should say hello"
+  - tasks/docs-probe.yaml
 ```
-
-## 5. Run It
 
 ```bash
-waza run skills/my-skill/evals/eval.yaml -v
+waza preflight evals/inventory/smoke.yaml
+waza run evals/inventory/smoke.yaml --output smoke.json
 ```
 
-You'll see live execution:
+Expect exit **0**. Change only the regex to `["^IMPOSSIBLE_DOCS_SENTINEL$"]`
+and run again: expect exit **1** and a missing-pattern failure. An impossible
+`pattern:` field can be inert in legacy decoding; never use it as a text assertion.
+This negative control is essential: rendering YAML is not testing the check.
 
-```
-Running evaluation: my-skill-eval
-──────────────────────────────────
+## Next: choose actual agent execution
 
-Task: test-task-1
-Prompt: Hello, world!
-
-Agent Response:
-Hello! I'm an AI assistant. How can I help you?
-
-Grading...
-✓ has_response [PASS]
-
-Task Summary:
-  Passed: 1/1
-  Score: 100%
-```
-
-<Aside type="tip">
-The `-v` flag shows verbose output. Omit it for a summary.
-</Aside>
-
-## 6. View Results
-
-Serve the interactive dashboard:
-
-```bash
-waza serve
-```
-
-Open your browser to `http://localhost:3000` — you'll see:
-
-- **Dashboard** — overview of all runs
-- **Run Details** — task-by-task breakdown with pass/fail
-- **Scoring** — individual grader results and weights
-- **Trends** — historical performance across runs
-
-## Workflow Diagram
-
-```mermaid
-graph LR
-    A["Create Skill<br/>waza new skill"] --> B["Write Eval YAML<br/>eval.yaml"]
-    B --> C["Run Evaluation<br/>waza run eval.yaml"]
-    C --> D["View Results<br/>waza serve"]
-    D --> E["Dashboard<br/>localhost:3000"]
-    style A fill:#e1f5ff
-    style B fill:#f3e5f5
-    style C fill:#e8f5e9
-    style D fill:#fff3e0
-    style E fill:#fce4ec
-```
-
-## Next Steps
-
-- **[Getting Started](/waza/getting-started/)** — Complete reference with project structure and workflow
-- **[Eval YAML Reference](/waza/guides/eval-yaml/)** — Full spec for writing eval files
-- **[Validators & Graders](/waza/guides/graders/)** — All 11 grader types with examples
-- **[Web Dashboard Guide](/waza/guides/dashboard/)** — Features and navigation
-- **[Evaluating Custom Agents](/waza/guides/custom-agents/)** — Evaluate `.agent.md` files with automatic tool constraint validation
-- **[CI/CD Integration](/waza/guides/ci-cd/)** — Automate evaluations in GitHub Actions
-
----
-
-**Stuck?** Open an issue on [GitHub](https://github.com/microsoft/waza/issues).
+[Getting Started](../getting-started/) explains supported authentication,
+permissions, model access and possible costs **before** real SDK commands.
+Skills and [custom agents](../guides/custom-agents/) remain supported; CLI and
+MCP scenarios do not require a skill. Then learn the
+[13 native graders](../guides/graders/#at-a-glance),
+[project defaults](../reference/waza-yaml/) and
+[CI regression gates](../guides/ci-cd/).

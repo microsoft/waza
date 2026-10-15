@@ -1,6 +1,16 @@
 # Waza User Guide
 
-Welcome to **Waza**, a CLI tool for evaluating AI agent skills. This guide covers everything you need to get started: installation, creating evaluations, running benchmarks, and reviewing results in the dashboard.
+Welcome to **Waza**, a Go CLI for evaluating agent workflows, skills and custom
+agents. Author repository, CLI and MCP scenarios, run graded trials and inspect
+recorded evidence. Existing skill workflows remain supported.
+
+Begin with [Concepts and learning order](../site/src/content/docs/concepts.mdx),
+then the [offline Quick Start](../site/src/content/docs/quick-start.mdx).
+Mock trials prove harness wiring, not agent quality. Read the
+[authentication and usage prerequisites](../site/src/content/docs/getting-started.mdx#authenticate-before-real-execution)
+before model-backed runs. Upcoming scenario/preflight/evidence features require
+main, not stable `v0.38.10` (October 9, 2026); `waza update` only installs
+published releases. See [availability](../site/src/content/docs/reference/releases.mdx).
 
 ## What is Waza?
 
@@ -90,14 +100,15 @@ export PATH="$HOME/bin:$PATH"
 
 ### 2. Install from Source
 
-Requires **Go 1.26 or later** and **Git LFS**:
+Requires **Go 1.26+, Git LFS, Make, Node.js and npm**. `make build` installs
+locked dashboard dependencies and generates embedded assets before Go compilation:
 
 ```bash
 git clone https://github.com/microsoft/waza.git
 cd waza
 git lfs install
 git lfs pull
-go build -o waza ./cmd/waza
+make build
 ```
 
 Verify installation:

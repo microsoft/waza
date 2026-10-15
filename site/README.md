@@ -33,6 +33,26 @@ Static assets, like favicons, can be placed in the `public/` directory.
 
 ## 🧞 Commands
 
+Documentation regressions (from `site/`):
+
+```bash
+npm run test:docs
+WAZA_BIN=/absolute/path/to/current-main/waza npm run test:examples
+npm run build
+npx playwright test --project=chromium
+```
+
+The example tests extract the published YAML, create fresh project-local
+workspaces, explicitly select mock and check both passing and failing controls.
+They never fall back to an authenticated engine. Set `WAZA_BIN` explicitly;
+missing binaries fail instead of skipping. `TMPDIR` is kept under the project.
+The Chromium sweep validates built page routes, exact fragments and local image
+assets under `/waza/`, while source checks cover public repository Markdown
+targets/anchors and native enum/schema/catalog agreement. External link
+availability and historical design documents are outside this local gate.
+`npm run build` also runs the source-contract checks through `prebuild`, so a
+normal docs build cannot omit the repository link/catalog checks.
+
 Use Node.js 22.19.0 or later. The site's transitive `undici` dependency requires
 this minimum; the site CI and GitHub Pages workflows use Node.js 22.19.0.
 

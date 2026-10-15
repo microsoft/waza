@@ -1,9 +1,12 @@
 ---
 title: Adversarial Harness
-description: Run waza's built-in fault-injection packs to verify your skill refuses prompt-injection and out-of-scope requests.
+description: Distinguish offline adversarial harness checks from authenticated, scoped skill safety observations.
 ---
 
-`waza adversarial` runs **fault-injection test packs** against your skill — adversarial prompts crafted to trip prompt-injection, scope-bypass, exfiltration, and out-of-policy tool use. It exists so you can answer one question on every PR: *does my skill behave safely when the inputs are hostile?*
+`waza adversarial` runs prompt-injection and scope-bypass packs. With an explicit
+skill and real engine it observes behavior on those finite inputs; without a
+skill it defaults to **mock**, which validates the harness only, not the changed
+skill's safety. Neither path is complete production safety certification.
 
 This guide covers:
 
@@ -38,20 +41,32 @@ Each pack lives under `internal/adversarial/data/<pack>/` and is embedded into t
 ## Quick start
 
 ```sh
-# Run both packs against the default engine (mock if no --skill given)
-waza adversarial --packs prompt-injection,scope-bypass
+# Offline harness-only smoke: no agent, credentials or model calls
+waza adversarial --engine mock --packs prompt-injection,scope-bypass
 
 # Run against a real skill via the Copilot SDK engine
-waza adversarial --packs prompt-injection --skill ./skills/my-skill --model gpt-4o
+waza adversarial --engine copilot-sdk --packs prompt-injection --skill ./skills/my-skill --model gpt-4o
 
 # Save the full results JSON so you can drill in with the dashboard
-waza adversarial --packs scope-bypass --output adversarial.json
+waza adversarial --engine mock --packs scope-bypass --output adversarial.json
 
 # Run a single pack and tolerate unsafe outcomes (CI smoke; non-blocking)
-waza adversarial --packs prompt-injection --on-unsafe-outcome warn
+waza adversarial --engine mock --packs prompt-injection --on-unsafe-outcome warn
 ```
 
-A typical summary looks like:
+Before the real-engine command, complete the
+[SDK authentication and usage prerequisites](../../getting-started/#authenticate-before-real-execution):
+standalone CLI login, model access and approved runtime/tool permissions.
+Real runs may incur model costs; dependency mocks do not establish live service
+safety. The offline commands above must not be labeled skill safety gates.
+
+The mock echoes the hostile prompts; it does not implement safe refusal.
+With the default `fail` policy, the offline command above reports eight unsafe
+observations and exits **2**. This is an expected negative harness control, not
+evidence that a skill was evaluated. `--on-unsafe-outcome warn` exercises the
+nonblocking path and exits **0**, without changing those unsafe observations.
+A successful real-engine summary (illustrative, not a recorded live result) can
+look like:
 
 ```
 Adversarial summary (packs: prompt-injection)
@@ -118,8 +133,8 @@ waza adversarial --spec eval.yaml --on-unsafe-outcome warn
 
 ```yaml
 # .github/workflows/eval.yml
-- name: Run adversarial harness
-  run: waza adversarial --packs prompt-injection,scope-bypass --output adversarial.json
+- name: Offline adversarial harness smoke (not skill safety)
+  run: waza adversarial --engine mock --packs prompt-injection,scope-bypass --on-unsafe-outcome warn --output adversarial.json
 
 - name: Upload adversarial results
   if: always()
@@ -129,15 +144,23 @@ waza adversarial --spec eval.yaml --on-unsafe-outcome warn
     path: adversarial.json
 ```
 
-For PRs that legitimately need to land before a fix, downgrade to `warn` temporarily:
+This smoke checks serialization/command wiring only. Its warning policy is
+deliberately nonblocking and **must not gate skill safety**. For a real skill
+gate use explicit `--engine copilot-sdk --skill ...` with the prerequisites above
+and keep the default `fail` policy. To inspect the offline warning path:
 
 ```sh
-waza adversarial --on-unsafe-outcome warn --output adversarial.json
+waza adversarial --engine mock --on-unsafe-outcome warn --output adversarial.json
 ```
 
 ## Determinism
 
-Adversarial packs are pure-input adversarial *prompts* — they do not depend on the network. Pair them with `waza run --snapshot` / `waza replay` on your skill to detect drift in refusal behavior even when the live agent has changed: capture a green run with snapshots enabled, then replay later for a pure-offline diff.
+Pack inputs are embedded; real agent execution still requires its runtime and
+may use configured dependencies. `waza replay` checks **recorded consistency**:
+it does not rerun a changed agent, execute graders or automatically execute
+adversarial packs. For observed drift, capture two separately executed runs with
+`waza run --snapshot`, then use offline `waza replay --bisect before.json after.json`.
+That compares retained tool fingerprints, not causes or current model safety.
 
 ## Schema reference
 

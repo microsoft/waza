@@ -6,6 +6,10 @@ description: Inspect local prerequisites and descriptive requirement references 
 `waza preflight` builds an agent-free inventory of an eval's local prerequisites.
 It does **not** replace `waza check` skill readiness or execute the evaluation.
 
+**Upcoming/main-only:** build current source, not standalone stable `v0.38.10`,
+before these commands. See [availability](../../reference/releases/) and the
+[credential-free Quick Start](../../quick-start/).
+
 ```bash
 waza preflight eval.yaml
 waza preflight eval.yaml --context-dir ./fixtures --format json > preflight.json

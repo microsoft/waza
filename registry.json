@@ -16,7 +16,7 @@
             {
               "name": "init",
               "description": "Scaffold a new eval suite with eval.yaml, tasks/, and fixtures/ directories.",
-              "usage": "azd waza init my-eval --interactive"
+              "usage": "azd waza init my-eval"
             },
             {
               "name": "generate",
@@ -101,7 +101,7 @@
             {
               "name": "init",
               "description": "Scaffold a new eval suite with eval.yaml, tasks/, and fixtures/ directories.",
-              "usage": "azd waza init my-eval --interactive"
+              "usage": "azd waza init my-eval"
             },
             {
               "name": "generate",
@@ -186,7 +186,7 @@
             {
               "name": "init",
               "description": "Scaffold a new eval suite with eval.yaml, tasks/, and fixtures/ directories.",
-              "usage": "azd waza init my-eval --interactive"
+              "usage": "azd waza init my-eval"
             },
             {
               "name": "generate",
@@ -271,7 +271,7 @@
             {
               "name": "init",
               "description": "Scaffold a new eval suite with eval.yaml, tasks/, and fixtures/ directories.",
-              "usage": "azd waza init my-eval --interactive"
+              "usage": "azd waza init my-eval"
             },
             {
               "name": "generate",
@@ -356,7 +356,7 @@
             {
               "name": "init",
               "description": "Scaffold a new eval suite with eval.yaml, tasks/, and fixtures/ directories.",
-              "usage": "azd waza init my-eval --interactive"
+              "usage": "azd waza init my-eval"
             },
             {
               "name": "generate",
@@ -441,7 +441,7 @@
             {
               "name": "init",
               "description": "Scaffold a new eval suite with eval.yaml, tasks/, and fixtures/ directories.",
-              "usage": "azd waza init my-eval --interactive"
+              "usage": "azd waza init my-eval"
             },
             {
               "name": "generate",
@@ -526,7 +526,7 @@
             {
               "name": "init",
               "description": "Scaffold a new eval suite with eval.yaml, tasks/, and fixtures/ directories.",
-              "usage": "azd waza init my-eval --interactive"
+              "usage": "azd waza init my-eval"
             },
             {
               "name": "generate",
@@ -611,7 +611,7 @@
             {
               "name": "init",
               "description": "Scaffold a new eval suite with eval.yaml, tasks/, and fixtures/ directories.",
-              "usage": "azd waza init my-eval --interactive"
+              "usage": "azd waza init my-eval"
             },
             {
               "name": "generate",
@@ -696,7 +696,7 @@
             {
               "name": "init",
               "description": "Scaffold a new eval suite with eval.yaml, tasks/, and fixtures/ directories.",
-              "usage": "azd waza init my-eval --interactive"
+              "usage": "azd waza init my-eval"
             },
             {
               "name": "generate",
@@ -781,7 +781,7 @@
             {
               "name": "init",
               "description": "Scaffold a new eval suite with eval.yaml, tasks/, and fixtures/ directories.",
-              "usage": "azd waza init my-eval --interactive"
+              "usage": "azd waza init my-eval"
             },
             {
               "name": "generate",
@@ -866,7 +866,7 @@
             {
               "name": "init",
               "description": "Scaffold a new eval suite with eval.yaml, tasks/, and fixtures/ directories.",
-              "usage": "azd waza init my-eval --interactive"
+              "usage": "azd waza init my-eval"
             },
             {
               "name": "generate",

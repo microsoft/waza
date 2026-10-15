@@ -1,8 +1,8 @@
-# Waza Skills Development Platform - Product Requirements Document
+# Waza Workflow Evaluation Platform - Product Requirements Document
 
-**Status:** Active  
+**Status:** Active requirements; original skill-platform plan retained below, not a shipping checklist
 **Version:** 1.0  
-**Last Updated:** 2026-02-06  
+**Last Updated:** 2026-10-15
 **Owner:** @spboyer  
 **Source:** [Squad Proposal](https://github.com/spboyer/azure-mcp-v-skills/blob/main/squad-proposal.md)
 
@@ -10,7 +10,23 @@
 
 ## Executive Summary
 
-Waza (技 - Japanese for "skill/technique") is a unified CLI platform for creating, testing, and evaluating AI agent skills. It consolidates existing skill development tools into a single binary that provides the complete developer experience for contributing to [microsoft/skills](https://github.com/microsoft/skills).
+Waza (技 - Japanese for "skill/technique") evaluates agent workflows, skills and
+custom agents. Repository, CLI and MCP scenarios provide a workflow-first path;
+`SKILL.md` and `.agent.md` context remain supported. See
+[Concepts](../site/src/content/docs/concepts.mdx) for the learning order.
+
+Upcoming main increments include scenario authoring, agent-free preflight,
+recorded reliability, opt-in dashboard Lab, selected evidence/regrade,
+conservative offline release policies and bounded authored-case assurance with
+explicitly selected calibration. Stable standalone `v0.38.10` was published
+October 9, 2026; these main features are not declared part of it.
+This document does not assert current CI is green or announce a release.
+Private fault adapters remain unregistered; public production fault recovery,
+universal release authority, a full human-labelled corpus, sandbox enforcement
+and default paid calibration are **not delivered**.
+
+The historical skill-specific requirements below remain product context, not
+authority to infer current native grader keys or completed feature scope.
 
 ### The Problem
 

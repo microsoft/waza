@@ -1,6 +1,13 @@
 # Getting Started with Waza
 
-A complete walkthrough for creating, testing, and validating AI agent skills.
+A skill walkthrough within Waza's workflow, skill and custom-agent evaluation
+platform. Begin with [Concepts](../site/src/content/docs/concepts.mdx) and the
+[offline workflow Quick Start](../site/src/content/docs/quick-start.mdx).
+Scenario authoring/preflight require upcoming main, not stable `v0.38.10`
+(October 9, 2026). See [availability](../site/src/content/docs/reference/releases.mdx).
+Before any real SDK run, read the
+[authentication, permissions and possible-cost prerequisites](../site/src/content/docs/getting-started.mdx#authenticate-before-real-execution).
+The mock config below checks harness wiring only, not agent quality.
 
 > **Custom Agents:** Waza also supports evaluating VS Code custom agents (`.agent.md` files) with automatic tool constraint validation. This guide focuses on `SKILL.md`-based skills — see the [Custom Agents guide](https://microsoft.github.io/waza/guides/custom-agents/) for `.agent.md` evaluation.
 
@@ -36,12 +43,9 @@ Choose **Project Mode** if you're building multiple skills or contributing to [m
 ### Step 1: Initialize Your Project
 
 ```bash
-# Create a new project directory
-mkdir my-skills-repo
+# Create a project without the interactive skill prompt
+waza init my-skills-repo --no-skill
 cd my-skills-repo
-
-# Initialize the workspace
-waza init
 ```
 
 This creates:
@@ -55,16 +59,12 @@ my-skills-repo/
 └── README.md
 ```
 
-You'll be prompted to create your first skill. You can:
-
-- Type a skill name (e.g., `code-explainer`) and continue
-- Type `skip` to initialize without a skill
-- Use `--no-skill` flag to skip the prompt entirely
+In a TTY, plain `waza init` can prompt for a first skill. This example uses
+`--no-skill` so the next command creates it exactly once.
 
 ### Step 2: Create a New Skill
 
 ```bash
-cd my-skills-repo
 waza new skill code-explainer
 ```
 
@@ -190,6 +190,10 @@ config:
   parallel: false              # Run tasks sequentially
   executor: mock               # Use mock executor (no API calls)
   model: gpt-4o
+metrics:
+  - name: task_completion
+    weight: 1
+    threshold: 1
 
 graders:
   - type: code
@@ -201,7 +205,7 @@ graders:
   - type: text
     name: explains_concepts
     config:
-      pattern: "(?i)(function|variable|parameter|return|logic)"
+      regex_match: ["(?i)(function|variable|parameter|return|logic)"]
   
   - type: behavior
     name: reasonable_cost

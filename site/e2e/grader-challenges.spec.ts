@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url';
 
 test('grader challenges disclose offline scope and candidate limitations', async ({ page }) => {
   await page.goto('/waza/guides/graders/');
+  await page.getByText('Advanced assurance profiles and observational limits', { exact: true }).click();
 
   await expect(page.getByRole('heading', { name: 'Challenge the checks, not just the answer', exact: true })).toBeVisible();
   await expect(page.locator('pre').filter({ hasText: "go test ./internal/graders -run '^TestBaselineChallenge'" })).toBeVisible();
@@ -37,6 +38,7 @@ test('assure CLI documents explicit review and unavailable paid calibration', as
 
 test('evaluator calibration and paid command stay explicit while inspection remains read-only', async ({ page }) => {
   await page.goto('/waza/guides/graders/');
+  await page.getByText('Advanced assurance profiles and observational limits', { exact: true }).click();
   await expect(page.getByText(/The separate evaluator API/)).toContainText('assurance.Calibrate');
   await expect(page.getByText(/It has no default factory/)).toBeVisible();
   await expect(page.locator('.sl-markdown-content')).toContainText('waza assure calibrate');
@@ -65,6 +67,7 @@ test('paid calibration reference preserves legacy selection and explicit consent
 
 test('preserved-native profile stays separate from default readers and calibration', async ({ page }) => {
   await page.goto('/waza/guides/graders/');
+  await page.getByText('Advanced assurance profiles and observational limits', { exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Separately selected preserved-native assurance', exact: true })).toBeVisible();
   const section = page.locator('.sl-markdown-content');
   await expect(section).toContainText('preserved_native_mechanical_assurance');

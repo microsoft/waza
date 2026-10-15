@@ -1,8 +1,22 @@
 # Waza
 
-A Go CLI for evaluating AI agent skills — scaffold eval suites, run benchmarks, and compare results across models.
+A Go CLI for evaluating agent workflows, skills, and custom agents — author repository, CLI, and MCP scenarios, run graded trials, and inspect the evidence.
 
 📖 **[Getting Started / Docs](https://microsoft.github.io/waza/)**
+
+**Choose your path:** [Concepts and learning order](site/src/content/docs/concepts.mdx)
+→ [offline harness Quick Start](site/src/content/docs/quick-start.mdx)
+→ [authenticated workflow evaluation](site/src/content/docs/getting-started.mdx)
+→ [CI regression gates](site/src/content/docs/guides/ci-cd.mdx).
+Mock success checks the harness, not agent quality or live service safety.
+
+**Version boundary (October 15, 2026):** the published standalone CLI is
+`v0.38.10` (October 9). Scenario authoring, preflight, selected-file evidence,
+assurance profiles, controlled release policies, recorded reliability, and the
+opt-in dashboard Lab described here are **upcoming/main-only**, not a promise
+about that stable binary. Build the current source below before using them;
+`waza update` installs published releases, not unreleased code. See the
+[feature/platform matrix](site/src/content/docs/reference/releases.mdx#upcoming-main-only-capabilities).
 
 ## Installation
 
@@ -61,10 +75,15 @@ azd ext install microsoft.azd.waza
 azd waza --help
 ```
 
-Once installed, all waza commands are available under `azd waza`. For example:
+The extension has its own version and artifact history; a command prefix does
+not establish parity with standalone main. Check `azd waza --version` and
+`azd waza --help` before following examples. The registry currently lists
+through `0.38.9`, separately from the published `0.38.10` extension artifact.
+No listed extension is claimed to include the upcoming features above.
+For supported commands, for example:
 
 ```bash
-azd waza init my-eval --interactive
+azd waza init my-eval
 azd waza run examples/code-explainer/eval.yaml -v
 ```
 
@@ -91,8 +110,8 @@ agent quality.
 See **[Getting Started Guide](docs/GETTING-STARTED.md)** for a complete walkthrough:
 
 ```bash
-# Initialize a new project
-waza init my-project && cd my-project
+# Initialize without the interactive skill prompt
+waza init my-project --no-skill && cd my-project
 
 # Create a new skill
 waza new skill my-skill
@@ -101,12 +120,19 @@ waza new skill my-skill
 # Write evaluation tasks in evals/my-skill/tasks/
 # Add test fixtures in evals/my-skill/fixtures/
 
-# Run evaluations
+# Offline harness check (no model calls; not skill quality)
+# Set config.executor: mock in evals/my-skill/eval.yaml first.
 waza run my-skill
 
 # Check skill readiness
 waza check my-skill
 ```
+
+### Fixture Isolation
+
+Each task uses a fresh copied workspace; original fixtures are not modified.
+This is not host filesystem/network sandboxing. Final-file checks cannot prove
+the absence of transient edits or external side effects.
 
 ### All Commands
 
@@ -181,9 +207,11 @@ waza compare results-gpt4.json results-sonnet.json
 waza run eval.yaml --snapshot ./snapshots/
 waza replay ./snapshots/my-task-run1.json
 
-# Run offline adversarial / fault-injection packs against a skill
+# Offline adversarial harness smoke (not skill safety)
 waza adversarial --list-packs
-waza adversarial --skill ./skills/my-skill --model gpt-4o
+waza adversarial --engine mock --packs prompt-injection,scope-bypass
+# Real skill evaluation requires auth/model access and may incur usage:
+waza adversarial --engine copilot-sdk --skill ./skills/my-skill --model gpt-4o
 
 # Check whether a schema artifact needs migration
 waza migrate eval.yaml
@@ -1319,7 +1347,7 @@ waza results list
 waza results compare run-id-1 run-id-2
 ```
 
-For step-by-step setup and troubleshooting, see [Getting Started with Azure Storage](../docs/guides/azure-storage/) guide.
+For step-by-step setup and troubleshooting, see [Getting Started with Azure Storage](site/src/content/docs/guides/azure-storage.mdx).
 
 ## Building
 
@@ -1964,12 +1992,12 @@ curl -fsSL https://raw.githubusercontent.com/microsoft/waza/main/install.sh | ba
 
 **Option 2: Install from source**
 ```bash
-# Requires Go 1.26+ and Git LFS
+# Requires Go 1.26+, Git LFS, Make, Node.js and npm
 git clone https://github.com/microsoft/waza.git
 cd waza
 git lfs install
 git lfs pull
-go build -o waza ./cmd/waza
+make build
 ```
 
 **Option 3: Use Docker**
@@ -2071,7 +2099,8 @@ See [`examples/ci/README.md`](examples/ci/README.md) for detailed documentation 
 
 ### Available Grader Types
 
-Waza supports multiple grader types for comprehensive evaluation:
+Waza supports 13 native grader kinds. `trigger_tests` is suite configuration,
+not a grader kind; regex/keyword checks belong to `text`.
 
 | Grader | Purpose | Documentation |
 |--------|---------|---------------|
@@ -2083,7 +2112,11 @@ Waza supports multiple grader types for comprehensive evaluation:
 | `action_sequence` | Tool call sequence validation with F1 scoring | [docs/GRADERS.md](docs/GRADERS.md#action_sequence---tool-call-sequence-validation) |
 | `skill_invocation` | Skill orchestration sequence validation | [docs/GRADERS.md](docs/GRADERS.md#skill_invocation---skill-invocation-sequence-validation) |
 | `prompt` | LLM-as-judge evaluation with rubrics (built-in: `groundedness`, `helpfulness`, `instruction-following`, `refusal-correctness`, `tool-use-appropriateness`) | [docs/GRADERS.md](docs/GRADERS.md#prompt---llm-based-evaluation) |
-| `trigger_tests` | Prompt trigger accuracy detection | [docs/GRADERS.md](docs/GRADERS.md#trigger-tests) |
+| `trigger` | Prompt trigger accuracy detection | [Trigger](docs/graders/trigger.md) |
+| `json_schema` | Structured output validation | [JSON Schema](docs/graders/json_schema.md) |
+| `program` | External program exit-status checks | [Program](docs/graders/program.md) |
+| `tool_constraint` | Required/forbidden tool policies | [Tool Constraint](docs/graders/tool_constraint.md) |
+| `tool_calls` | Tool event and argument checks | [Tool Calls](docs/graders/tool_calls.md) |
 
 See the complete [Grader Reference](docs/GRADERS.md) for detailed configuration options and examples.
 
