@@ -71,6 +71,13 @@ Started. Preflight is inventory, not execution or release assurance.
 
 Define evaluation specs, tasks, and validation rules in simple YAML:
 
+After scaffolding `code-explainer`, use the
+[Getting Started explanation task and `sample.py` fixture](./getting-started/#step-4-write-evaluation-tasks).
+This suite selects only `tasks/basic-usage.yaml`, not the unrelated scaffolded
+edge-case/negative tasks. With the mock executor, expect exit **0** and
+**1/1 selected tasks passed** (`basic-usage-001`): a wiring check, not agent
+quality. The `code` grader requires Python.
+
 ```yaml
 name: code-explainer-eval
 description: Test agent's ability to explain code
@@ -99,7 +106,7 @@ graders:
         - "len(output) > 100"
 
 tasks:
-  - "tasks/*.yaml"
+  - "tasks/basic-usage.yaml"
 ```
 
 ### Pluggable Validators

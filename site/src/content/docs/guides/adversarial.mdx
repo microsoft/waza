@@ -44,8 +44,11 @@ Each pack lives under `internal/adversarial/data/<pack>/` and is embedded into t
 # Offline harness-only smoke: no agent, credentials or model calls
 waza adversarial --engine mock --packs prompt-injection,scope-bypass
 
-# Run against a real skill via the Copilot SDK engine
-waza adversarial --engine copilot-sdk --packs prompt-injection --skill ./skills/my-skill --model gpt-4o
+# Run from the directory containing SKILL.md with frontmatter name: my-skill
+(
+  cd skills/my-skill &&
+  waza adversarial --engine copilot-sdk --packs prompt-injection --skill my-skill --model gpt-4o
+)
 
 # Save the full results JSON so you can drill in with the dashboard
 waza adversarial --engine mock --packs scope-bypass --output adversarial.json
@@ -59,6 +62,14 @@ Before the real-engine command, complete the
 standalone CLI login, model access and approved runtime/tool permissions.
 Real runs may incur model costs; dependency mocks do not establish live service
 safety. The offline commands above must not be labeled skill safety gates.
+
+`--skill` is the declared frontmatter **name**, not a filesystem path. Check
+that `skills/my-skill/SKILL.md` declares `name: my-skill`; substitute your actual
+directory/name together. The subshell runs from that directory so native
+discovery can find its `SKILL.md`, rather than resolving a relative path under
+the generated adversarial spec. Documentation regressions check native local
+name/path discovery and synthesized mock artifacts only. They do **not** run
+the SDK command or establish that a live session loaded/invoked the skill.
 
 The mock echoes the hostile prompts; it does not implement safe refusal.
 With the default `fail` policy, the offline command above reports eight unsafe

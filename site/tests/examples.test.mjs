@@ -117,16 +117,100 @@ test('copy/paste scaffold, preflight, mock capture and predicate controls', () =
       run(['new', 'eval', 'inventory', '--scenario', '--template', 'repository'], continuation);
     }
     run(['preflight', 'evals/inventory/eval.yaml'], continuation);
-    run(['new', 'skill', 'code-explainer'], project);
-    for (const path of ['site/src/content/docs/index.mdx', 'site/src/content/docs/getting-started.mdx', 'docs/GETTING-STARTED.md']) {
-      const example = blocks(path).find((block) => block.startsWith('name: code-explainer-eval'));
-      assert.ok(example, path);
-      const destination = join(project, 'evals/code-explainer/docs-example.yaml');
-      writeFileSync(destination, example);
-      run(['preflight', destination], project);
-    }
     run(['adversarial', '--engine', 'mock', '--packs', 'prompt-injection,scope-bypass'], project, 2);
     run(['adversarial', '--engine', 'mock', '--packs', 'prompt-injection,scope-bypass', '--on-unsafe-outcome', 'warn'], project);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test('all published explanation walkthroughs execute only their selected task, including negative controls', () => {
+  const fixture = allocateExampleFixture(root);
+  const run = cliRunner(fixture.env);
+  const canonical = 'site/src/content/docs/getting-started.mdx';
+  try {
+    for (const [index, path] of [canonical, 'docs/GETTING-STARTED.md', 'site/src/content/docs/index.mdx'].entries()) {
+      const name = `walkthrough-${index}`;
+      run(['init', name, '--no-skill'], fixture.directory);
+      const project = join(fixture.directory, name);
+      run(['new', 'skill', 'code-explainer'], project);
+      const suite = blocks(path).find((block) => block.startsWith('name: code-explainer-eval'));
+      const task = blocks(path).find((block) => block.startsWith('id: basic-usage-001'))
+        ?? blocks(canonical).find((block) => block.startsWith('id: basic-usage-001'));
+      const python = [...read(path).matchAll(/```python\n([\s\S]*?)```/g)][0]?.[1]
+        ?? [...read(canonical).matchAll(/```python\n([\s\S]*?)```/g)][0]?.[1];
+      assert.ok(suite && task && python, path);
+      assert.match(suite, /executor: mock/);
+      assert.match(suite, /tasks:\n  - "tasks\/basic-usage\.yaml"/);
+      assert.match(read(path), /1\/1 selected tasks passed/);
+      const tasksDirectory = join(project, 'evals/code-explainer/tasks');
+      const originalTasks = readdirSync(tasksDirectory).sort();
+      assert.ok(originalTasks.length > 1, 'retain unrelated scaffolded tasks to catch accidental wildcard selection');
+      writeFileSync(join(tasksDirectory, 'basic-usage.yaml'), task);
+      writeFileSync(join(project, 'evals/code-explainer/fixtures/sample.py'), python);
+      const destination = join(project, 'evals/code-explainer/eval.yaml');
+      writeFileSync(destination, suite);
+      run(['preflight', destination], project);
+      for (const args of [[], ['code-explainer'], ['code-explainer', '-v'], ['code-explainer', '-o', 'results.json']]) {
+        run(['run', ...args], project);
+      }
+      const result = JSON.parse(readFileSync(join(project, 'results.json'), 'utf8'));
+      assert.deepEqual(result.tasks.map((task) => [task.test_id, task.status]), [['basic-usage-001', 'passed']], path);
+      assert.deepEqual(readdirSync(tasksDirectory).sort(), originalTasks);
+      const predicates = [...suite.matchAll(/regex_match: \[[^\n]+\]/g)];
+      assert.equal(predicates.length, 1);
+      writeFileSync(destination, replaceExactlyOnce(suite, predicates[0][0], 'regex_match: ["^IMPOSSIBLE_EXPLANATION_SENTINEL$"]'));
+      run(['run', 'code-explainer', '-o', 'negative.json'], project, 1);
+      const negative = JSON.parse(readFileSync(join(project, 'negative.json'), 'utf8'));
+      assert.deepEqual(negative.tasks.map((task) => [task.test_id, task.status]), [['basic-usage-001', 'failed']], path);
+    }
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test('documented adversarial skill names resolve locally and survive mock synthesis without SDK execution', () => {
+  const fixture = allocateExampleFixture(root);
+  const run = cliRunner(fixture.env);
+  try {
+    const helper = join(fixture.directory, process.platform === 'win32' ? 'skill-discovery.exe' : 'skill-discovery');
+    const build = spawnSync('go', ['build', '-o', helper, './site/tests/helpers/skill-discovery.go'], {
+      cwd: root, env: fixture.env, encoding: 'utf8', timeout: 90_000,
+    });
+    assert.equal(build.error, undefined);
+    assert.equal(build.status, 0, build.stderr);
+    const missingArguments = spawnSync(helper, [], { env: fixture.env, encoding: 'utf8', timeout: 10_000 });
+    assert.equal(missingArguments.error, undefined);
+    assert.equal(missingArguments.status, 1);
+    assert.match(missingArguments.stderr, /usage: skill-discovery/);
+    const discover = (directory, name, status = 0) => {
+      const result = spawnSync(helper, [directory, name], { env: fixture.env, encoding: 'utf8', timeout: 10_000 });
+      assert.equal(result.error, undefined);
+      assert.equal(result.status, status, result.stderr);
+      return result.stdout.trim();
+    };
+    for (const [index, path] of ['README.md', 'site/src/content/docs/guides/adversarial.mdx'].entries()) {
+      const command = read(path).match(/\(\n  cd ([^\s]+) &&\n  waza adversarial --engine copilot-sdk --packs ([^\s]+) --skill ([^\s]+) --model ([^\s]+)\n\)/);
+      assert.ok(command, `${path}: real-engine example must bind the skill directory and declared name`);
+      const [, directory, pack, name] = command;
+      assert.equal(directory, 'skills/my-skill');
+      assert.equal(name, 'my-skill');
+      assert.equal(pack, 'prompt-injection');
+      assert.doesNotMatch(read(path), /--skill \.\/skills\/my-skill/);
+      run(['init', `adversarial-${index}`, '--no-skill'], fixture.directory);
+      const project = join(fixture.directory, `adversarial-${index}`);
+      run(['new', 'skill', name], project);
+      const skillDirectory = join(project, directory);
+      assert.match(readFileSync(join(skillDirectory, 'SKILL.md'), 'utf8'), /^name: my-skill$/m);
+      assert.equal(discover(skillDirectory, name), 'available');
+      discover(skillDirectory, './skills/my-skill', 1);
+      discover(project, name, 1);
+      const artifacts = join(fixture.directory, `adversarial-artifacts-${index}`);
+      run(['adversarial', '--engine', 'mock', '--packs', pack, '--skill', name, '--artifacts-dir', artifacts, '--output', 'mock-results.json'], skillDirectory, 2);
+      assert.match(readFileSync(join(artifacts, 'eval.yaml'), 'utf8'), /^skill: my-skill$/m);
+      const result = JSON.parse(readFileSync(join(skillDirectory, 'mock-results.json'), 'utf8'));
+      assert.equal(result.tasks.length, 4);
+    }
   } finally {
     fixture.cleanup();
   }

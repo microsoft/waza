@@ -54,6 +54,14 @@ setup must reject it before embedded-runtime selection, even if a future
 snippet unexpectedly selects SDK. A regression proves an inherited executable
 is not used. Live-test environment flags alone do not provide this guard.
 Set `WAZA_BIN` explicitly; missing binaries fail instead of skipping.
+Published explanation suites are executed against mock with their task/fixture
+snippets and retained unrelated scaffold tasks, not merely preflighted; each
+selects one explanation task and has an impossible-predicate negative control.
+These walkthroughs require Python for native `code` graders. The adversarial
+contract uses Go to compile a tiny local-discovery helper calling the native
+resolver, checks name/path negative controls, and runs mock synthesis only.
+No SDK session is created by that helper; local discovery and mock artifacts
+are not proof of live skill loading, invocation or safety.
 The Chromium sweep validates built page routes, exact fragments and local image
 assets under `/waza/`, while source checks cover public repository Markdown
 targets/anchors and native enum/schema/catalog agreement. External link

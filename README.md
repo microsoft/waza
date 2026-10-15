@@ -210,8 +210,12 @@ waza replay ./snapshots/my-task-run1.json
 # Offline adversarial harness smoke (not skill safety)
 waza adversarial --list-packs
 waza adversarial --engine mock --packs prompt-injection,scope-bypass
-# Real skill evaluation requires auth/model access and may incur usage:
-waza adversarial --engine copilot-sdk --skill ./skills/my-skill --model gpt-4o
+# Real evaluation requires auth/model access and may incur usage.
+# SKILL.md must declare name: my-skill; --skill is a name, not a path.
+(
+  cd skills/my-skill &&
+  waza adversarial --engine copilot-sdk --packs prompt-injection --skill my-skill --model gpt-4o
+)
 
 # Check whether a schema artifact needs migration
 waza migrate eval.yaml

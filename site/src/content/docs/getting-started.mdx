@@ -230,7 +230,7 @@ tags:
   - basic
   - happy-path
 inputs:
-  prompt: "Read sample.py and explain the function it contains."
+  prompt: "Read sample.py and explain how the function works, what each parameter means, and how its return value is computed. Include any edge cases."
   files:
     - path: sample.py
 expected:
@@ -287,7 +287,7 @@ graders:
       regex_match: ["(?i)(function|variable|parameter|return)"]
 
 tasks:
-  - "tasks/*.yaml"
+  - "tasks/basic-usage.yaml"
 ```
 
 ### Step 7: Run Evaluations
@@ -306,15 +306,11 @@ waza run code-explainer -v
 waza run code-explainer -o results.json
 ```
 
-Example output:
-
-```
-Running evaluations for code-explainer...
-  ✓ basic-usage-001 passed
-  ✓ edge-case-001 passed
-
-Results: 2/2 tasks passed ✓
-```
+Expect exit **0** and **1/1 selected tasks passed**: `basic-usage-001`.
+The explanation predicate applies only to the task edited above. Other
+scaffolded tasks remain on disk but are not selected by this suite; give them
+their own appropriate checks before including them. This mock pass checks
+response/grader wiring, not whether an agent can explain code.
 
 ### Step 8: Check Skill Readiness
 

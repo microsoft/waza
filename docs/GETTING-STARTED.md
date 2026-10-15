@@ -129,7 +129,7 @@ tags:
   - basic
   - happy-path
 inputs:
-  prompt: "Explain this function"
+  prompt: "Read sample.py and explain how the function works, what each parameter means, and how its return value is computed. Include any edge cases."
   files:
     - path: sample.py
 expected:
@@ -213,7 +213,7 @@ graders:
       max_tool_calls: 10
 
 tasks:
-  - "tasks/*.yaml"
+  - "tasks/basic-usage.yaml"
 ```
 
 ### Step 7: Run Evaluations
@@ -232,16 +232,11 @@ waza run code-explainer -v
 waza run code-explainer -o results.json
 ```
 
-Example output:
-
-```
-Running evaluations for code-explainer...
-  ✓ basic-usage-001 passed (has_output, explains_concepts, reasonable_cost)
-  ✓ edge-case-001 passed
-  ✓ should-not-trigger-001 passed
-
-Results: 3/3 tasks passed ✓
-```
+Expect exit **0** and **1/1 selected tasks passed**: `basic-usage-001`.
+Only the explanation task edited above is selected. Other scaffolded tasks
+remain on disk; add task-appropriate predicates before selecting them.
+This mock result checks harness wiring, not an agent's explanation quality.
+The native `code` grader in this example requires Python.
 
 ### Step 8: Check Skill Readiness
 
