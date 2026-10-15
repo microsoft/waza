@@ -182,6 +182,8 @@ On supported Linux/macOS hosts, evaluator-only exclusions are admitted before
 any selected file content is read. The metadata-only inventory is limited to
 **256 entry inspections and depth 32**, including excluded directories and their
 descendants. Repeated/overlapping exclusions consume the same aggregate budget.
+This selected-content exclusion inventory is not the existing recursive
+fixture-digest inventory; it does not change fixture hashing.
 It does not read file contents, follow symlinks or traverse special entries.
 An inventory limit, inspection failure or descriptor/resource failure prevents
 selected-content capture; waza reports unavailable/partial evidence rather than

@@ -28,9 +28,39 @@ func decodeExact(raw []byte, target any) error {
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.UseNumber()
 	decoder.DisallowUnknownFields()
+	if record, ok := target.(*Record); ok {
+		return decodeRecordJSON(decoder, record)
+	}
 	if err := decoder.Decode(target); err != nil {
 		return fmt.Errorf("decoding native document: %w", err)
 	}
+	return nil
+}
+
+type exactRunResult models.RunResult
+
+func (run *exactRunResult) UnmarshalJSON(raw []byte) error {
+	return (*models.RunResult)(run).UnmarshalJSONExact(raw)
+}
+
+func decodeRecordJSON(decoder *json.Decoder, record *Record) error {
+	type alias Record
+	var decoded alias
+	document := struct {
+		*alias
+		ActualRow struct {
+			Origin models.EvidenceOrigin `json:"origin"`
+			Run    exactRunResult        `json:"run"`
+		} `json:"actual_row"`
+	}{alias: &decoded}
+	if err := decoder.Decode(&document); err != nil {
+		return fmt.Errorf("decoding native document: %w", err)
+	}
+	decoded.ActualRow = releasepolicy.ActualRunRow{
+		Origin: document.ActualRow.Origin,
+		Run:    models.RunResult(document.ActualRow.Run),
+	}
+	*record = Record(decoded)
 	return nil
 }
 

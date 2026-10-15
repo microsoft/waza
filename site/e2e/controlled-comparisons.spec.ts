@@ -41,13 +41,14 @@ test('snapshot guide states the actual selected-preservation and replay limits',
   expect(response?.status()).toBe(200);
   await expect(page.getByRole('heading', { name: 'Snapshot & Replay', exact: true })).toBeVisible();
   const main = page.locator('main');
-  await expect(main).toContainText('A digest or event tape is not reconstructible workspace state');
-  await expect(main).toContainText('256 aggregate entry inspections and depth 32');
+  await expect(main).toContainText('Snapshots preserve recorded observations, not a reconstructible workspace');
+  await expect(main).toContainText('256 entry inspections and depth 32');
+  await expect(main).toContainText('the same aggregate budget');
   await expect(main).toContainText('not the existing recursive fixture-digest inventory');
   await expect(main).toContainText('supported on Linux and macOS only');
-  await expect(main).toContainText('not atomic or authentic snapshots');
-  await expect(main).toContainText('unknown fields are ignored, not preserved verbatim on round-trip');
-  await expect(main).toContainText('Custom rules replace built-in defaults unless the policy sets extend: true');
+  await expect(main).toContainText('not an atomic or authentic snapshot');
+  await expect(main).toContainText('typed snapshot decoding ignores unknown fields rather than preserving them verbatim');
+  await expect(main).toContainText('rules replace defaults unless extend: true');
 });
 
 test('CLI reference exposes dedicated offline planning and collection', async ({ page }) => {

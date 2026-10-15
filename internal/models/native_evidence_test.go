@@ -79,6 +79,7 @@ func TestNativeResultOrdinaryCaptureAndLegacyReaderRegression(t *testing.T) {
 		_, err = store.GetRun("native")
 		require.NoError(t, err)
 	}
+
 	require.Error(t, models.ValidateNativeEvidenceProfile(nil))
 	for _, doc := range []string{"supplied-finite-input", "snapshot"} {
 		manifest := *captured.Evidence
@@ -96,6 +97,45 @@ func TestNativeResultOrdinaryCaptureAndLegacyReaderRegression(t *testing.T) {
 	require.Error(t, models.ValidateNativeEvidenceProfile(&manifest))
 	manifest.Origin.EvalID = strings.TrimPrefix(manifest.Origin.EvalID, "reference:")
 	require.NoError(t, models.ValidateNativeEvidenceProfile(&manifest))
+}
+
+func TestNativeResultLegacyDynamicNumbersRemainFloat64(t *testing.T) {
+	for _, token := range []string{"9007199254740993", "-9007199254740993", "1e-300", "0.1234567890123456789"} {
+		t.Run(token, func(t *testing.T) {
+			data := []byte(`{"validations":{"check":{"details":{"count":` + token + `}}}}`)
+			var run models.RunResult
+			require.NoError(t, json.Unmarshal(data, &run))
+			details := run.Validations["check"].Details
+			require.IsType(t, float64(0), details["count"])
+			var expected any
+			require.NoError(t, json.Unmarshal([]byte(token), &expected))
+			require.Equal(t, expected, details["count"])
+		})
+	}
+}
+
+func TestNativeResultExactNumbersAndAdmission(t *testing.T) {
+	for _, token := range []string{"9007199254740993", "-9007199254740993", "1e-300", "0.1234567890123456789", "1e1000"} {
+		t.Run(token, func(t *testing.T) {
+			data := []byte(`{"validations":{"check":{"details":{"count":` + token + `}}}}`)
+			var run models.RunResult
+			require.NoError(t, run.UnmarshalJSONExact(data))
+			require.Equal(t, json.Number(token), run.Validations["check"].Details["count"])
+		})
+	}
+	for _, invalid := range []string{
+		`{"evidence":null,"Evidence":null}`,
+		`{"final_output":"\ud800"}`,
+		`{"final_output":1}`,
+		`{"final_output":"first"} {}`,
+		`{"evidence":{"version":"1.1"}}`,
+	} {
+		t.Run(invalid, func(t *testing.T) {
+			run := models.RunResult{FinalOutput: "unchanged"}
+			require.Error(t, run.UnmarshalJSONExact([]byte(invalid)))
+			require.Equal(t, models.RunResult{FinalOutput: "unchanged"}, run)
+		})
+	}
 }
 
 func TestNativeResultRejectsHiddenAuthoredJSONAliases(t *testing.T) {

@@ -1,6 +1,7 @@
 package models
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -25,12 +26,26 @@ func ValidateNativeEvidenceProfile(manifest *EvidenceManifest) error {
 }
 
 func (run *RunResult) UnmarshalJSON(data []byte) error {
+	return run.unmarshalJSON(data, false)
+}
+
+// UnmarshalJSONExact preserves dynamic numeric tokens for explicit evidence readers.
+// Ordinary JSON decoding retains its legacy float64 representation.
+func (run *RunResult) UnmarshalJSONExact(data []byte) error {
+	return run.unmarshalJSON(data, true)
+}
+
+func (run *RunResult) unmarshalJSON(data []byte, exact bool) error {
 	if err := ValidateNativeJSONKeys(data, RunResult{}); err != nil {
 		return err
 	}
 	type alias RunResult
 	var decoded alias
-	if err := json.Unmarshal(data, &decoded); err != nil {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	if exact {
+		decoder.UseNumber()
+	}
+	if err := decoder.Decode(&decoded); err != nil {
 		return err
 	}
 	if decoded.Evidence != nil {

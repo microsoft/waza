@@ -152,6 +152,7 @@ func TestRecordRejectsUnsupportedEvidenceAndContradictoryGrades(t *testing.T) {
 				} else {
 					grade.Weight = 0
 				}
+
 				record.ActualRow.Run.Validations["check"] = grade
 			case "unscoped check":
 				record.Summary.Checks[0].Scope = "invented"
@@ -176,6 +177,46 @@ func TestRecordRejectsUnsupportedEvidenceAndContradictoryGrades(t *testing.T) {
 			}
 			_, err := DecodeRecord(encoded(t, record), admitted)
 			require.Error(t, err)
+		})
+	}
+}
+
+func TestRecordAndTapePreserveDynamicNumberTokens(t *testing.T) {
+	for _, reader := range []string{"record", "supplied tape"} {
+		t.Run(reader, func(t *testing.T) {
+			_, _, admitted, record := fixture(t)
+			expected := map[string]any{
+				"count":    json.Number("9007199254740993"),
+				"negative": json.Number("-9007199254740993"),
+				"huge":     json.Number("1e1000"),
+				"nested": map[string]any{
+					"values": []any{json.Number("1e-300"), json.Number("0.1234567890123456789")},
+				},
+			}
+			check := record.ActualRow.Run.Validations["check"]
+			check.Details = expected
+			record.ActualRow.Run.Validations["check"] = check
+			raw := encoded(t, record)
+			var decoded *Record
+			if reader == "record" {
+				var err error
+				decoded, err = DecodeRecord(raw, admitted)
+				require.NoError(t, err)
+			} else {
+				root, err := os.OpenRoot(t.TempDir())
+				require.NoError(t, err)
+				defer func() { require.NoError(t, root.Close()) }()
+				events, payload := fixtureTapeBytes(t, []*Admitted{admitted}, [][]byte{raw})
+				require.NoError(t, root.WriteFile(eventFile, events, 0o600))
+				require.NoError(t, root.WriteFile(payloadFile, payload, 0o600))
+				prefix, err := ReadPrefix(t.Context(), root, []*Admitted{admitted})
+				require.NoError(t, err)
+				require.Len(t, prefix.Records, 1)
+				decoded = &prefix.Records[0]
+			}
+			actual := decoded.ActualRow.Run.Validations["check"].Details
+			require.Equal(t, expected, actual)
+			require.Equal(t, encoded(t, expected), encoded(t, actual))
 		})
 	}
 }
