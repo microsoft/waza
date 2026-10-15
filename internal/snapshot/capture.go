@@ -47,6 +47,11 @@ type CaptureInput struct {
 	WorkspaceLimits    WorkspaceLimits
 }
 
+type artifactChanges struct {
+	prompt, toolEvents, commandInvocations, validations bool
+	checkpoints, result, environment, engine            bool
+}
+
 // Capture builds a Snapshot from input. The returned snapshot's redaction
 // counters reflect everything scrubbed during this call. Policy configuration
 // is copied so concurrent captures do not share mutable counters.
@@ -74,6 +79,7 @@ func Capture(in CaptureInput) (*Snapshot, error) {
 		}
 	}
 
+	var changes artifactChanges
 	snap := &Snapshot{
 		SchemaVersion: CurrentSchemaVersion,
 		Kind:          Kind,
@@ -89,22 +95,26 @@ func Capture(in CaptureInput) (*Snapshot, error) {
 			Tags:        policy.RedactStringSlice(in.Task.Tags),
 			RunNumber:   in.Run.RunNumber,
 		},
-		Engine: in.Engine,
+		Engine:                    in.Engine,
+		workspaceCaptureRequested: len(in.WorkspacePaths) > 0,
 	}
 	snap.Engine.JudgeModel = policy.RedactString(snap.Engine.JudgeModel)
+	changes.engine = snap.Engine.JudgeModel != in.Engine.JudgeModel
 
 	// Prompt: copy with redaction. Context values may contain user-supplied
 	// strings (e.g., interpolated tokens), so route through RedactAny.
 	if in.Request != nil {
 		snap.Prompt.Message = policy.RedactString(in.Request.Message)
+		changes.prompt = snap.Prompt.Message != in.Request.Message
 		if len(in.Request.Context) > 0 {
-			redactedCtx, err := policy.redactJSON(in.Request.Context)
+			redactedCtx, changed, err := policy.redactJSONWithChanges(in.Request.Context)
 			if err != nil {
 				return nil, fmt.Errorf("snapshot: prompt context: %w", err)
 			}
 			if m, ok := redactedCtx.(map[string]any); ok {
 				snap.Prompt.Context = m
 			}
+			changes.prompt = changes.prompt || changed
 		}
 		if len(in.Request.Instructions) > 0 {
 			snap.Prompt.Instructions = make([]InstructionEntry, len(in.Request.Instructions))
@@ -125,17 +135,21 @@ func Capture(in CaptureInput) (*Snapshot, error) {
 		// capture the static list as configured. Live multi-turn responder
 		// traffic is recoverable from ToolEvents.Turn fields below.
 		snap.Prompt.FollowUps = policy.RedactStringSlice(in.Task.Stimulus.FollowUps)
+		for i, text := range in.Task.Stimulus.FollowUps {
+			changes.prompt = changes.prompt || snap.Prompt.FollowUps[i] != text
+		}
 	}
 
 	// Tool events: redact strings inside Args/Result/Error map structures.
 	if len(in.Run.ToolEvents) > 0 {
 		snap.ToolEvents = make([]models.ToolEvent, len(in.Run.ToolEvents))
 		for i, ev := range in.Run.ToolEvents {
-			redacted, err := redactToolEvent(ev, policy)
+			redacted, changed, err := redactToolEvent(ev, policy)
 			if err != nil {
 				return nil, fmt.Errorf("snapshot: tool event %d: %w", i+1, err)
 			}
 			snap.ToolEvents[i] = redacted
+			changes.toolEvents = changes.toolEvents || changed
 		}
 	}
 
@@ -156,7 +170,7 @@ func Capture(in CaptureInput) (*Snapshot, error) {
 	// Env capture: default-deny allow-list with redaction. Always populate
 	// AllowList so consumers know whether capture was intentionally empty
 	// vs. configured-with-no-matches.
-	snap.Env = CaptureEnv(in.EnvAllowList, policy)
+	snap.Env, changes.environment = captureEnvFromWithChanges(os.Environ(), in.EnvAllowList, policy)
 	for _, key := range append(append([]string(nil), snap.Env.AllowList...), snap.Env.DeniedKeys...) {
 		if err := policy.checkIdentity(key, "environment variable name"); err != nil {
 			return nil, err
@@ -185,6 +199,7 @@ func Capture(in CaptureInput) (*Snapshot, error) {
 		ErrorMsg:    policy.RedactString(in.Run.ErrorMsg),
 		DurationMs:  in.Run.DurationMs,
 	}
+	changes.result = snap.Result.FinalOutput != in.Run.FinalOutput || snap.Result.ErrorMsg != in.Run.ErrorMsg
 	if in.Run.Validations != nil {
 		snap.Result.Validations = make(map[string]models.GraderResults, len(in.Run.Validations))
 		for key, result := range in.Run.Validations {
@@ -197,9 +212,11 @@ func Capture(in CaptureInput) (*Snapshot, error) {
 			if err := policy.checkIdentity(string(result.Type), "grader type"); err != nil {
 				return nil, err
 			}
-			result.Feedback = policy.RedactString(result.Feedback)
+			feedback := policy.RedactString(result.Feedback)
+			changes.validations = changes.validations || feedback != result.Feedback
+			result.Feedback = feedback
 			if result.Details != nil {
-				details, err := policy.redactJSON(result.Details)
+				details, changed, err := policy.redactJSONWithChanges(result.Details)
 				if err != nil {
 					return nil, fmt.Errorf("snapshot: grader details: %w", err)
 				}
@@ -208,15 +225,17 @@ func Capture(in CaptureInput) (*Snapshot, error) {
 					return nil, fmt.Errorf("snapshot: grader details must be a JSON object")
 				}
 				result.Details = normalized
+				changes.validations = changes.validations || changed
 			}
 			snap.Result.Validations[key] = result
 		}
 	}
-	snap.CommandInvocations, err = redactTyped(in.Run.CommandInvocations, policy)
+	changes.result = changes.result || changes.validations
+	snap.CommandInvocations, changes.commandInvocations, err = redactTypedWithChanges(in.Run.CommandInvocations, policy)
 	if err != nil {
 		return nil, fmt.Errorf("snapshot: command invocations: %w", err)
 	}
-	snap.Checkpoints, err = redactTyped(in.Run.Checkpoints, policy)
+	snap.Checkpoints, changes.checkpoints, err = redactTypedWithChanges(in.Run.Checkpoints, policy)
 	if err != nil {
 		return nil, fmt.Errorf("snapshot: checkpoints: %w", err)
 	}
@@ -233,7 +252,7 @@ func Capture(in CaptureInput) (*Snapshot, error) {
 	slices.Sort(snap.Redaction.AppliedRules)
 	snap.Redaction.AppliedRules = slices.Compact(snap.Redaction.AppliedRules)
 	snap.Redaction.RedactionCount = policy.MatchCount() + workspaceRedaction.RedactionCount
-	snap.Evidence, err = buildEvidence(in, snap)
+	snap.Evidence, err = buildEvidence(in, snap, changes)
 	if err != nil {
 		return nil, err
 	}
@@ -281,7 +300,7 @@ func Capture(in CaptureInput) (*Snapshot, error) {
 	return snap, nil
 }
 
-func buildEvidence(in CaptureInput, snap *Snapshot) (*models.EvidenceManifest, error) {
+func buildEvidence(in CaptureInput, snap *Snapshot, changes artifactChanges) (*models.EvidenceManifest, error) {
 	mode := in.ExecutionMode
 	if mode == "" {
 		mode = "unknown"
@@ -291,10 +310,7 @@ func buildEvidence(in CaptureInput, snap *Snapshot) (*models.EvidenceManifest, e
 		policyMode = string(in.Request.ToolPolicy.Mode)
 	}
 	manifest := &models.EvidenceManifest{
-		Origin: models.EvidenceOrigin{
-			EvalID: in.EvalID, TaskID: in.Task.TestID, RunNumber: in.Run.RunNumber,
-			AttemptCount: in.Run.Attempts, PriorAttempts: "not_preserved",
-		},
+		Origin: captureOrigin(in.EvalID, in.Task.TestID, in.Run),
 		Runtime: models.EvidenceRuntime{
 			WazaVersion: snap.WazaVersion, RequestedEngine: snap.Engine.Type,
 			RequestedModel: snap.Engine.ModelID, ExecutionMode: mode, DependencyMode: "unknown",
@@ -321,12 +337,6 @@ func buildEvidence(in CaptureInput, snap *Snapshot) (*models.EvidenceManifest, e
 			manifest.Runtime.NativeSkillControl = "mock_not_applicable"
 		}
 	}
-	switch in.Run.Attempts {
-	case 1:
-		manifest.Origin.PriorAttempts = "none"
-	case 0:
-		manifest.Origin.PriorAttempts = "unknown"
-	}
 	completeness, reason := "unknown", "Collector completeness is not certified."
 	if in.Run.Status == models.StatusError {
 		completeness, reason = "partial", "The run recorded an operational error."
@@ -338,24 +348,27 @@ func buildEvidence(in CaptureInput, snap *Snapshot) (*models.EvidenceManifest, e
 			Category: category, Code: "run_error", Message: "The run recorded an operational error; no agent cause is inferred.",
 		})
 	}
+	// Collection presence must match Snapshot's omitempty wire projection.
 	for _, item := range []struct {
 		id, kind, pointer string
 		value             any
+		present           bool
+		changed           bool
 	}{
-		{"prompt", "prompt", "/prompt", snap.Prompt},
-		{"tool-events", "tool_events", "/toolEvents", snap.ToolEvents},
-		{"command-invocations", "command_invocations", "/commandInvocations", snap.CommandInvocations},
-		{"validations", "grader_results", "/result/validations", snap.Result.Validations},
-		{"checkpoints", "checkpoint_results", "/checkpoints", snap.Checkpoints},
-		{"result", "run_result", "/result", snap.Result},
-		{"environment", "environment_capture", "/env", snap.Env},
-		{"engine-config", "engine_configuration", "/engine", snap.Engine},
+		{"prompt", "prompt", "/prompt", snap.Prompt, true, changes.prompt},
+		{"tool-events", "tool_events", "/toolEvents", snap.ToolEvents, len(snap.ToolEvents) > 0, changes.toolEvents},
+		{"command-invocations", "command_invocations", "/commandInvocations", snap.CommandInvocations, len(snap.CommandInvocations) > 0, changes.commandInvocations},
+		{"validations", "grader_results", "/result/validations", snap.Result.Validations, len(snap.Result.Validations) > 0, changes.validations},
+		{"checkpoints", "checkpoint_results", "/checkpoints", snap.Checkpoints, len(snap.Checkpoints) > 0, changes.checkpoints},
+		{"result", "run_result", "/result", snap.Result, true, changes.result},
+		{"environment", "environment_capture", "/env", snap.Env, true, changes.environment},
+		{"engine-config", "engine_configuration", "/engine", snap.Engine, true, changes.engine},
 	} {
 		data, err := json.Marshal(item.value)
 		if err != nil {
 			return nil, fmt.Errorf("snapshot: evidence content cannot be encoded")
 		}
-		if string(data) == "null" {
+		if !item.present || string(data) == "null" {
 			manifest.Artifacts = append(manifest.Artifacts, models.EvidenceArtifact{
 				ID: item.id, Kind: item.kind, Availability: "unavailable", Completeness: "unknown",
 				Reason: "No content was recorded for this artifact.",
@@ -369,7 +382,7 @@ func buildEvidence(in CaptureInput, snap *Snapshot) (*models.EvidenceManifest, e
 		manifest.Artifacts = append(manifest.Artifacts, models.EvidenceArtifact{
 			ID: item.id, Kind: item.kind, Availability: "captured", Completeness: completeness,
 			Document: "snapshot", Pointer: item.pointer, ContentDigest: digest, Reason: reason,
-			Redacted: snap.Redaction.RedactionCount > 0,
+			Redacted: item.changed,
 		})
 	}
 	for _, item := range []struct {
@@ -436,27 +449,31 @@ func sdkVersion() *string {
 
 // redactToolEvent rejects unsafe correlation identifiers rather than changing
 // their meaning, and normalizes arbitrary JSON payloads before redaction.
-func redactToolEvent(ev models.ToolEvent, policy *Policy) (models.ToolEvent, error) {
+func redactToolEvent(ev models.ToolEvent, policy *Policy) (models.ToolEvent, bool, error) {
 	out := ev
 	for _, identity := range []struct{ value, field string }{
 		{ev.ToolCallID, "tool call ID"},
 		{ev.ToolName, "tool name"},
 	} {
 		if err := policy.checkIdentity(identity.value, identity.field); err != nil {
-			return models.ToolEvent{}, err
+			return models.ToolEvent{}, false, err
 		}
 	}
 	var err error
-	out.Args, err = policy.redactJSON(ev.Args)
+	var argsChanged, resultChanged bool
+	out.Args, argsChanged, err = policy.redactJSONWithChanges(ev.Args)
 	if err != nil {
-		return models.ToolEvent{}, fmt.Errorf("arguments: %w", err)
+		return models.ToolEvent{}, false, fmt.Errorf("arguments: %w", err)
 	}
-	out.Result, err = policy.redactJSON(ev.Result)
+	out.Result, resultChanged, err = policy.redactJSONWithChanges(ev.Result)
 	if err != nil {
-		return models.ToolEvent{}, fmt.Errorf("result: %w", err)
+		return models.ToolEvent{}, false, fmt.Errorf("result: %w", err)
 	}
 	out.Error = policy.RedactString(ev.Error)
-	return out, nil
+	// Normalizing a non-nil interface to nil removes its omitempty field.
+	changed := argsChanged || resultChanged || out.Error != ev.Error ||
+		ev.Args != nil && out.Args == nil || ev.Result != nil && out.Result == nil
+	return out, changed, nil
 }
 
 func shaBytes(b []byte) string {
@@ -494,7 +511,7 @@ func (w *Writer) Write(snap *Snapshot) (string, error) {
 	if snap == nil {
 		return "", fmt.Errorf("snapshot: nil snapshot")
 	}
-	if len(snap.WorkspaceFiles) > 0 {
+	if snap.workspaceCaptureRequested || len(snap.WorkspaceFiles) > 0 {
 		data, err := json.MarshalIndent(snap, "", "  ")
 		if err != nil {
 			return "", fmt.Errorf("snapshot: workspace evidence cannot be encoded")

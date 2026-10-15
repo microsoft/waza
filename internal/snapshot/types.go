@@ -25,6 +25,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/microsoft/waza/internal/jsonutil"
 	"github.com/microsoft/waza/internal/models"
 )
 
@@ -99,11 +100,12 @@ type Snapshot struct {
 	// grader results) so model-replay can inspect stored score/pass consistency.
 	Result SnapshotResult `json:"result"`
 
-	CommandInvocations []models.CommandInvocation `json:"commandInvocations,omitempty"`
-	Checkpoints        []models.CheckpointOutcome `json:"checkpoints,omitempty"`
-	Evidence           *models.EvidenceManifest   `json:"evidence,omitempty"`
-	WorkspaceFiles     []WorkspaceFile            `json:"workspaceFiles,omitempty"`
-	rawWorkspaceFiles  []json.RawMessage
+	CommandInvocations        []models.CommandInvocation `json:"commandInvocations,omitempty"`
+	Checkpoints               []models.CheckpointOutcome `json:"checkpoints,omitempty"`
+	Evidence                  *models.EvidenceManifest   `json:"evidence,omitempty"`
+	WorkspaceFiles            []WorkspaceFile            `json:"workspaceFiles,omitempty"`
+	rawWorkspaceFiles         []json.RawMessage
+	workspaceCaptureRequested bool
 }
 
 // SnapshotTask carries identifying task metadata.
@@ -236,10 +238,16 @@ func ParseSnapshot(data []byte, source string) (*Snapshot, error) {
 	var header struct {
 		SchemaVersion  string            `json:"schemaVersion"`
 		Kind           string            `json:"kind"`
+		Evidence       json.RawMessage   `json:"evidence"`
 		WorkspaceFiles []json.RawMessage `json:"workspaceFiles"`
 	}
 	if err := json.Unmarshal(data, &header); err != nil {
 		return nil, fmt.Errorf("snapshot %s: %w", source, err)
+	}
+	if len(header.Evidence) > 0 && string(header.Evidence) != "null" {
+		if _, err := jsonutil.Parse(data); err != nil {
+			return nil, fmt.Errorf("snapshot %s: %w", source, err)
+		}
 	}
 	if header.Kind != "" && header.Kind != Kind {
 		return nil, fmt.Errorf("snapshot %s: kind %q is not %q", source, header.Kind, Kind)

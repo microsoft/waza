@@ -205,25 +205,31 @@ func qualificationRecomputeJobs(ctx context.Context, sources qualificationSource
 		if source.Role == "references" {
 			references, err = ParseReferences(data)
 		} else {
-			if err := qualificationNoIncludes(data); err != nil {
-				return result, err
+			if source.Role != "eval" {
+				if err := qualificationNoIncludes(data); err != nil {
+					return result, err
+				}
 			}
 			name, writeErr := store.write(data)
 			if writeErr != nil {
 				return result, writeErr
 			}
 			if source.Role == "eval" {
-				spec, err = models.LoadEvalSpecOffline(name)
+				spec, err = qualificationRetainedEval(sources, data, name)
 			} else {
 				var task *models.TestCase
-				task, err = models.LoadTestCaseOffline(name)
+				acquired, acquireErr := models.AcquireOfflineDocument(name, source.SHA256, data)
+				if acquireErr != nil {
+					return result, acquireErr
+				}
+				task, err = models.LoadAcquiredTestCase(acquired)
 				if err == nil {
 					tasks[source.TaskID] = task
 				}
 			}
 		}
 		if err != nil {
-			return result, errors.New("qualification: retained native source reload failed")
+			return result, errors.Join(errors.New("qualification: retained native source reload failed"), err)
 		}
 	}
 	document, err := references.Document()
@@ -312,7 +318,8 @@ func qualificationRecomputeJobs(ctx context.Context, sources qualificationSource
 			return result, errors.New("qualification: rubric profile unsupported")
 		}
 		job := calibrationJob{config: config, task: tasks[selector.TaskID], output: *authored.Output(),
-			rubric: rubric, rubricSHA: rubricSource.SHA256, judgeModel: spec.Config.JudgeModel, judgeEffort: spec.Config.JudgeReasoningEffort}
+			rubric: rubric, rubricSHA: rubricSource.SHA256, declarationSHA: check.GraderDeclarationSHA256,
+			judgeModel: spec.Config.JudgeModel, judgeEffort: spec.Config.JudgeReasoningEffort}
 		if job.judgeModel == "" {
 			job.judgeModel = plan.Model
 		}

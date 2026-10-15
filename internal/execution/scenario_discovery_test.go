@@ -52,3 +52,56 @@ func TestNoSkillsDoesNotReintroduceSourceDirectory(t *testing.T) {
 		})
 	}
 }
+
+func TestScenarioExplicitContextPreservesSDKDiscovery(t *testing.T) {
+	for _, sessionID := range []string{"", "resumed"} {
+		t.Run("session="+sessionID, func(t *testing.T) {
+			dir := t.TempDir()
+			client := newClientMock(gomock.NewController(t))
+			stopped := errors.New("stop before any model call")
+			if sessionID == "" {
+				client.EXPECT().CreateSession(gomock.Any(), gomock.Any()).DoAndReturn(
+					func(_ context.Context, cfg *copilot.SessionConfig) (CopilotSession, error) {
+						require.Contains(t, cfg.SkillDirectories, dir)
+						require.Nil(t, cfg.EnableSkills, "explicit paths must preserve SDK defaults")
+						return nil, stopped
+					})
+			} else {
+				client.EXPECT().ResumeSessionWithOptions(gomock.Any(), sessionID, gomock.Any()).DoAndReturn(
+					func(_ context.Context, _ string, cfg *copilot.ResumeSessionConfig) (CopilotSession, error) {
+						require.Contains(t, cfg.SkillDirectories, dir)
+						require.Nil(t, cfg.EnableSkills, "explicit paths must preserve SDK defaults")
+						return nil, stopped
+					})
+			}
+			engine := NewCopilotEngineBuilder("model", &CopilotEngineBuilderOptions{
+				NewCopilotClient: func(*copilot.ClientOptions) CopilotClient { return client },
+			}).Build()
+			require.NoError(t, engine.Initialize(t.Context()))
+			defer func() { require.NoError(t, engine.Shutdown(context.Background())) }()
+			_, err := engine.Execute(t.Context(), &ExecutionRequest{
+				Message: "hello", SessionID: sessionID, SourceDir: dir, SkillPaths: []string{dir},
+				WorkspaceDir: t.TempDir(),
+			})
+			require.ErrorIs(t, err, stopped)
+		})
+	}
+}
+
+func TestScenarioNoSkillsCancelledBeforeSession(t *testing.T) {
+	for _, sessionID := range []string{"", "resumed"} {
+		t.Run("session="+sessionID, func(t *testing.T) {
+			client := newClientMock(gomock.NewController(t))
+			engine := NewCopilotEngineBuilder("model", &CopilotEngineBuilderOptions{
+				NewCopilotClient: func(*copilot.ClientOptions) CopilotClient { return client },
+			}).Build()
+			require.NoError(t, engine.Initialize(t.Context()))
+			defer func() { require.NoError(t, engine.Shutdown(context.Background())) }()
+			ctx, cancel := context.WithCancel(t.Context())
+			cancel()
+			resp, err := engine.Execute(ctx, &ExecutionRequest{Message: "hello", SessionID: sessionID, NoSkills: true})
+			require.ErrorIs(t, err, context.Canceled)
+			require.Nil(t, resp)
+		})
+	}
+}

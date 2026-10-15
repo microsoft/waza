@@ -461,6 +461,11 @@ independent review or discover a withheld revocation. The reviewed digest binds
 the **original label-file bytes**, so whitespace changes invalidate the review.
 Bundled candidates remain unreviewed. Synthetic declarations in tests
 demonstrate eligibility and the actual file-content path, not real human review.
+An explicitly present `reviewed_at` must satisfy the schema's nonnull date-time
+string contract before typed decoding: two-digit hours, a dot for fractional
+seconds and numeric timezone hours/minutes within range. Native decoding still
+validates calendar dates. Unreviewed/submitted declarations may omit this field;
+decisions still require a nonzero time no later than the evaluator's clock.
 
 ### Binding domains and evidence admission
 
@@ -519,6 +524,13 @@ digests, reviewer identity or evidence freshness. Historical runs remain
 explicitly not assessed; imported reports are neither uploaded nor associated
 with them.
 
+Before schema validation, the inspector rejects fractional wire numbers that
+JavaScript would round to integers, including underflow to zero. Mathematical
+integer decimal/exponent forms and finite fractional numbers retain their
+existing admission. This is an integer-type safeguard, not arbitrary-precision
+decoding or a new safe-integer cap for report `1.0`; report `1.1` retains its
+existing count bounds. Invalid imports clear the previous displayed report.
+
 ### Explicit calibration command
 
 `waza assure calibrate` is separate from the unchanged offline command and its
@@ -556,11 +568,42 @@ shutdown. No server isolation or exhaustive event-delivery certification follows
 
 Both returned report and error are checked. A nonnil partial report is still
 written when execution errors occur; no offline/success-shaped fallback replaces
-it. Requested file output uses a protected sibling staging file and atomic
-replacement; file and stdout writes are attempted independently. A plain
+it. On Unix, requested file output uses a protected sibling staging file and
+atomic replacement; file and stdout writes are attempted independently. Other
+platforms, including Windows, reject an explicit `--output` with exit 2 before
+preflight, producer, paid notice or engine creation. Omit the flag and capture
+stdout instead; default stdout remains available on every platform. A plain
 nonpass/refusal exits 1, invalid/operational/cancellation/notice-I/O/output/close
 failure exits 2, and only a clean strict pass exits 0. Notices use stderr, JSON
 uses stdout. The local inspector still requires explicit version-1.1 selection.
+
+Private calibration and retained native-source consumers acquire bounded,
+content-bound copies before native construction/decoding. Rubric selection binds
+the original identifier, reference, canonical declaration digest and content
+digest before defaults; selected native rubric metadata says
+`acquired:sha256:<digest>`. Ordinary native path/builtin metadata remains
+`file:`/`builtin:`. The same native parser, formatter and execution loop consume
+the acquired bytes without reopening audit-copy paths. Selected acquired task
+decoding additionally requires an explicit nonblank `id` and refuses
+`prompt_file` rather than reopening a pathname; ordinary task-loading APIs
+retain their existing behavior.
+
+Audit files stay under the worktree cache. The shared store retains `os.Root`
+handles for the worktree, `.cache` and private audit directory. Audit creation
+and cleanup use those retained roots, not reopened absolute paths. Before and
+after audit writes, the store compares the acquired cache and private-child
+identities; parent or child replacement refuses further writes, and cleanup
+cannot delete files in the replacement namespace. POSIX permission checks reject
+a group/world-writable cache parent and any group/other mode bits on the private
+child; changed permissions that violate these checks fail closed. Unknown
+residual files cause an explicit cleanup failure and are retained rather than
+recursively deleted.
+
+These active retained-root namespace and POSIX-mode checks complement
+digest-bound acquired-byte consumption; judge and source decoding still do not
+consume audit paths. They do not certify cache confidentiality, whole-filesystem
+ancestry or Windows ACLs. Windows mode bits are explicitly not ACL certification;
+cross-platform source support is not evidence of actual Windows execution.
 
 The [finite authored-output example](../examples/grader-challenges/authored-output/README.md)
 generates evaluator-only inputs and binds an actual selected executable. Its

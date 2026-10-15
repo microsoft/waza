@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -292,7 +293,11 @@ func TestAssureCalibrateNativeLifecycle(t *testing.T) {
 			cmd.SetOut(&output)
 			cmd.SetErr(&notice)
 			path := filepath.Join(t.TempDir(), "report.json")
-			cmd.SetArgs(fixture.args("--accept-paid-calls", "-o", path))
+			args := fixture.args("--accept-paid-calls")
+			if calibrationAtomicOutputSupported {
+				args = append(args, "-o", path)
+			}
+			cmd.SetArgs(args)
 			err := cmd.Execute()
 			require.NotEmpty(t, engines, "error=%v report=%s", err, output.String())
 			for _, engine := range engines {
@@ -310,9 +315,14 @@ func TestAssureCalibrateNativeLifecycle(t *testing.T) {
 			if mode == "shutdown-diagnostic" {
 				require.Contains(t, output.String(), "cleanup_failed")
 			}
-			saved, readErr := os.ReadFile(path)
-			require.NoError(t, readErr)
-			require.Equal(t, output.Bytes(), saved)
+			if calibrationAtomicOutputSupported {
+				saved, readErr := os.ReadFile(path)
+				require.NoError(t, readErr)
+				require.Equal(t, output.Bytes(), saved)
+			} else {
+				_, readErr := os.Stat(path)
+				require.True(t, os.IsNotExist(readErr))
+			}
 			switch mode {
 			case "pass", "nonzero-accounting":
 				calibrationCLIExit(t, err, 0)
@@ -426,6 +436,8 @@ func TestAssureCalibratePresenceHelpAndRegistration(t *testing.T) {
 			require.NoError(t, err)
 			require.Contains(t, output.String(), "--accept-paid-calls")
 			require.Contains(t, output.String(), "default 10m0s")
+			require.Contains(t, output.String(), "Unix atomic replacement")
+			require.Contains(t, output.String(), "otherwise use stdout")
 		} else {
 			require.Error(t, err)
 		}
@@ -629,6 +641,7 @@ func TestAssureCalibrateReportErrorAndSinkMatrix(t *testing.T) {
 			opts := calibrationCLIOptions()
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
+			producers := 0
 			want := 2
 			state := assurance.AssessmentPassed
 			switch mode {
@@ -646,6 +659,7 @@ func TestAssureCalibrateReportErrorAndSinkMatrix(t *testing.T) {
 				state = assurance.AssessmentError
 			}
 			opts.Calibrate = func(ctx context.Context, request assurance.CalibrateRequest) (*assurance.Report, error) {
+				producers++
 				require.True(t, request.Calibrate)
 				require.True(t, request.Acceptance.AcceptCurrentDecision)
 				require.Equal(t, "synthetic-source", request.Acceptance.SourceID)
@@ -699,9 +713,37 @@ func TestAssureCalibrateReportErrorAndSinkMatrix(t *testing.T) {
 			} else {
 				require.NoError(t, os.WriteFile(path, []byte("old report"), 0o644))
 			}
-			cmd.SetArgs(fixture.args("-o", path))
-			calibrationCLIExit(t, cmd.Execute(), want)
+			args := fixture.args()
+			selectedOutput := calibrationAtomicOutputSupported || mode == "file-error" || mode == "both-sinks-fail"
+			if selectedOutput {
+				args = append(args, "-o", path)
+			}
+			cmd.SetArgs(args)
+			err := cmd.Execute()
+			if selectedOutput && !calibrationAtomicOutputSupported {
+				calibrationCLIExit(t, err, 2)
+				require.ErrorContains(t, err, "omit --output and use stdout")
+				require.Zero(t, producers)
+				require.Zero(t, closed)
+				require.Empty(t, output.String())
+				return
+			}
+			calibrationCLIExit(t, err, want)
 			require.Equal(t, 2, closed)
+			require.Equal(t, 1, producers)
+			if !selectedOutput {
+				data, err := os.ReadFile(path)
+				require.NoError(t, err)
+				require.Equal(t, "old report", string(data))
+				switch mode {
+				case "nil-and-error", "nil-without-error", "encoding-error", "stdout-error", "stdout-short":
+					require.Empty(t, output.String())
+				default:
+					require.True(t, json.Valid(output.Bytes()))
+					require.True(t, bytes.HasSuffix(output.Bytes(), []byte("\n")))
+				}
+				return
+			}
 			switch mode {
 			case "nil-and-error", "nil-without-error", "encoding-error":
 				require.Empty(t, output.String())
@@ -743,6 +785,96 @@ func TestCalibrationAtomicReportFailurePreservesDestination(t *testing.T) {
 	entries, err := os.ReadDir(dir)
 	require.NoError(t, err)
 	require.Len(t, entries, 1, "staging must be removed")
+}
+
+func TestAssureCalibrateOutputPlatformCapability(t *testing.T) {
+	if calibrationAtomicOutputSupported {
+		require.NoError(t, calibrationOutputCapability())
+		for _, existing := range []bool{false, true} {
+			t.Run(fmt.Sprintf("replace-existing-%t", existing), func(t *testing.T) {
+				dir := t.TempDir()
+				target := filepath.Join(dir, "report.json")
+				if existing {
+					require.NoError(t, os.WriteFile(target, []byte("old"), 0o644))
+				}
+				data := []byte("{}\n")
+				require.NoError(t, writeCalibrationReport(target, data))
+				saved, err := os.ReadFile(target)
+				require.NoError(t, err)
+				require.Equal(t, data, saved)
+				info, err := os.Stat(target)
+				require.NoError(t, err)
+				require.Equal(t, os.FileMode(0o600), info.Mode().Perm())
+				entries, err := os.ReadDir(dir)
+				require.NoError(t, err)
+				require.Len(t, entries, 1)
+			})
+		}
+		return
+	}
+
+	require.ErrorContains(t, calibrationOutputCapability(), "omit --output and use stdout")
+	for _, selection := range []string{"existing", "new", "empty"} {
+		t.Run(selection, func(t *testing.T) {
+			dir := t.TempDir()
+			target := filepath.Join(dir, "report.json")
+			original := []byte("unchanged")
+			require.NoError(t, os.WriteFile(target, original, 0o600))
+			selected := target
+			switch selection {
+			case "new":
+				selected = filepath.Join(dir, "new-report.json")
+			case "empty":
+				selected = ""
+			}
+			opts := calibrationCLIOptions()
+			producers, factories, signals, closes := 0, 0, 0, 0
+			opts.Calibrate = func(context.Context, assurance.CalibrateRequest) (*assurance.Report, error) {
+				producers++
+				return nil, errors.New("producer must not run")
+			}
+			opts.EngineFactory = func(string, func(execution.ExecutionDiagnostic) error) (assurance.CalibrationEngine, error) {
+				factories++
+				return nil, errors.New("factory must not run")
+			}
+			opts.SignalContext = func(ctx context.Context) (context.Context, context.CancelFunc) {
+				signals++
+				return context.WithCancel(ctx)
+			}
+			opts.CloseRoot = func(root *os.Root) error {
+				closes++
+				return root.Close()
+			}
+			var output, notice bytes.Buffer
+			missing := filepath.Join(dir, "missing")
+			for _, positional := range [][]string{nil, {missing}, {missing, "extra"}} {
+				cmd := newAssureCalibrateCommandWithOptions(opts)
+				cmd.SetOut(&output)
+				cmd.SetErr(&notice)
+				args := append([]string{}, positional...)
+				args = append(args, "--references", missing, "--review", missing,
+					"--accept-review-source", "synthetic-source", "--rubric-root", missing,
+					"--accept-paid-calls", "--output="+selected)
+				cmd.SetArgs(args)
+				err := cmd.Execute()
+				calibrationCLIExit(t, err, 2)
+				require.ErrorContains(t, err, "omit --output and use stdout")
+			}
+			require.Zero(t, producers)
+			require.Zero(t, factories)
+			require.Zero(t, signals)
+			require.Zero(t, closes)
+			require.Empty(t, output.String())
+			require.NotContains(t, notice.String(), "Calibration paid-call notice:")
+			require.ErrorContains(t, writeCalibrationReport(selected, []byte("{}\n")), "omit --output and use stdout")
+			saved, err := os.ReadFile(target)
+			require.NoError(t, err)
+			require.Equal(t, original, saved)
+			entries, err := os.ReadDir(dir)
+			require.NoError(t, err)
+			require.Len(t, entries, 1, "unsupported output must not create staging or a destination")
+		})
+	}
 }
 
 func TestAssureCalibrateCommandsDoNotShareInjectionOrFlags(t *testing.T) {
@@ -855,14 +987,23 @@ func TestAssureCalibrateSignalAndTimeoutAreCommandLocal(t *testing.T) {
 		t.Run(mode, func(t *testing.T) {
 			fixture := writeCalibrationCLIFixture(t)
 			opts := calibrationCLIOptions()
-			signals, stopped, producers := 0, 0, 0
+			signals, stopped, producers, factories := 0, 0, 0, 0
 			opts.SignalContext = func(ctx context.Context) (context.Context, context.CancelFunc) {
 				signals++
-				child, cancel := context.WithCancel(ctx)
+				var child context.Context
+				var cancel context.CancelFunc
 				if mode == "signal" {
+					child, cancel = context.WithCancel(ctx)
 					cancel()
+				} else {
+					child, cancel = context.WithDeadline(ctx, time.Time{})
+					require.ErrorIs(t, child.Err(), context.DeadlineExceeded)
 				}
 				return child, func() { stopped++; cancel() }
+			}
+			opts.EngineFactory = func(string, func(execution.ExecutionDiagnostic) error) (assurance.CalibrationEngine, error) {
+				factories++
+				return nil, errors.New("must not construct")
 			}
 			opts.Calibrate = func(context.Context, assurance.CalibrateRequest) (*assurance.Report, error) {
 				producers++
@@ -874,8 +1015,65 @@ func TestAssureCalibrateSignalAndTimeoutAreCommandLocal(t *testing.T) {
 			require.Equal(t, 1, signals)
 			require.Equal(t, 1, stopped)
 			require.Zero(t, producers)
+			require.Zero(t, factories)
 		})
 	}
+}
+
+func TestAssureCalibrateCommandDeadlineExpiresWithoutCancelingSignalParent(t *testing.T) {
+	fixture := writeCalibrationCLIFixture(t)
+	opts := calibrationCLIOptions()
+	signals, stopped, producers, factories := 0, 0, 0, 0
+	var signalContext context.Context
+	var timeoutStart time.Time
+	opts.SignalContext = func(ctx context.Context) (context.Context, context.CancelFunc) {
+		signals++
+		parent, cancel := context.WithCancel(ctx)
+		signalContext = parent
+		timeoutStart = time.Now()
+		return parent, func() { stopped++; cancel() }
+	}
+	opts.EngineFactory = func(string, func(execution.ExecutionDiagnostic) error) (assurance.CalibrationEngine, error) {
+		factories++
+		return nil, errors.New("must not construct")
+	}
+	opts.Calibrate = func(ctx context.Context, _ assurance.CalibrateRequest) (*assurance.Report, error) {
+		producers++
+		require.NotNil(t, signalContext)
+		_, parentDeadline := signalContext.Deadline()
+		require.False(t, parentDeadline)
+		require.NotEqual(t, signalContext.Done(), ctx.Done())
+		deadline, hasDeadline := ctx.Deadline()
+		require.True(t, hasDeadline)
+		require.False(t, deadline.Before(timeoutStart.Add(time.Second)))
+		require.False(t, deadline.After(time.Now().Add(time.Second)))
+		require.NoError(t, ctx.Err())
+		require.NoError(t, signalContext.Err())
+		select {
+		case <-ctx.Done():
+		case <-time.After(5 * time.Second):
+			t.Fatal("command deadline did not expire")
+		}
+		require.ErrorIs(t, ctx.Err(), context.DeadlineExceeded)
+		require.NoError(t, signalContext.Err())
+		return &assurance.Report{State: assurance.AssessmentPassed}, nil
+	}
+	cmd := newAssureCalibrateCommandWithOptions(opts)
+	var output, notice bytes.Buffer
+	cmd.SetOut(&output)
+	cmd.SetErr(&notice)
+	cmd.SetArgs(fixture.args("--timeout=1s"))
+	err := cmd.Execute()
+	calibrationCLIExit(t, err, 2)
+	require.ErrorContains(t, err, "calibration assessment interrupted")
+	require.Equal(t, 1, signals)
+	require.Equal(t, 1, stopped)
+	require.Equal(t, 1, producers)
+	require.Zero(t, factories)
+	require.Empty(t, notice.String())
+	var report assurance.Report
+	require.NoError(t, json.Unmarshal(output.Bytes(), &report))
+	require.Equal(t, assurance.AssessmentPassed, report.State)
 }
 
 type calibrationHookWriter struct {

@@ -38,8 +38,14 @@ type TestCase struct {
 	// against the cumulative conversation state at the end of that turn.
 	// Checkpoints are additive — task-level `graders:` still run against
 	// the final state after all turns complete.
-	Checkpoints  []Checkpoint  `yaml:"checkpoints,omitempty" json:"checkpoints,omitempty"`
-	Requirements []Requirement `yaml:"requirements,omitempty" json:"requirements,omitempty"`
+	Checkpoints    []Checkpoint  `yaml:"checkpoints,omitempty" json:"checkpoints,omitempty"`
+	Requirements   []Requirement `yaml:"requirements,omitempty" json:"requirements,omitempty"`
+	sourceDocument []byte
+}
+
+// SourceBytes returns the original input, before prompt-file resolution.
+func (tc *TestCase) SourceBytes() []byte {
+	return bytes.Clone(tc.sourceDocument)
 }
 
 // CheckpointOnFailure controls multi-turn behavior when a checkpoint fails.
@@ -529,9 +535,62 @@ func loadTestCase(path string, offline bool) (*TestCase, error) {
 	if err != nil {
 		return nil, err
 	}
+	return parseTestCase(data, path, offline, os.ReadFile, nil)
+}
+
+// ParseCapturedTestCaseOffline resolves prompt_file through a captured-byte reader.
+// The reader receives the same task-directory-relative path as the loader.
+func ParseCapturedTestCaseOffline(data []byte, path string, readFile func(string) ([]byte, error)) (*TestCase, error) {
+	if readFile == nil {
+		return nil, fmt.Errorf("offline task parsing requires a source reader")
+	}
+	if err := validateCapturedModelSource(data, true); err != nil {
+		return nil, err
+	}
+	tc, err := parseTestCase(data, path, true, readFile, nil)
+	if err != nil {
+		return nil, err
+	}
+	metadata, err := capturedTaskMetadata(tc.Stimulus.Metadata)
+	if err != nil {
+		return nil, err
+	}
+	tc.Stimulus.Metadata = metadata
+	return tc, nil
+}
+
+// ParseTestCase preserves native task loading and path-relative prompt resolution.
+func ParseTestCase(data []byte, path string) (*TestCase, error) {
+	return parseTestCase(data, path, false, os.ReadFile, nil)
+}
+
+// ParseTestCaseOffline examines immutable bytes with offline schema loading.
+// validate checks static configuration when external dependencies block native decode.
+func ParseTestCaseOffline(data []byte, path string, validate func(string, GraderParameters) error) (*TestCase, error) {
+	return parseTestCase(data, path, true, os.ReadFile, validate)
+}
+
+func parseTestCase(data []byte, path string, offline bool, readFile func(string) ([]byte, error), validate func(string, GraderParameters) error) (*TestCase, error) {
+	data = bytes.Clone(data)
+	if err := validateDeclaredFaults(data, "", true); err != nil {
+		return nil, fmt.Errorf("task fault sources: %w", err)
+	}
+	var source yaml.Node
+	if err := yaml.Unmarshal(data, &source); err != nil {
+		return nil, fmt.Errorf("parsing test case YAML: %w", err)
+	}
+	if len(source.Content) == 1 {
+		finite, err := faultPathPresent(source.Content[0], []string{"command_mocks", "[]", "responses", "[]", "sequence"}, nil)
+		if err != nil {
+			return nil, fmt.Errorf("task fault sources: %w", err)
+		}
+		if finite {
+			return nil, fmt.Errorf("finite task responses are not registered for public scenario execution")
+		}
+	}
 
 	if offline {
-		if err := guardOfflineModelSchemas(data, true); err != nil {
+		if err := guardOfflineModelSchemas(data, true, validate); err != nil {
 			return nil, fmt.Errorf("task schema dependencies: %w", err)
 		}
 	}
@@ -555,7 +614,7 @@ func loadTestCase(path string, offline bool) (*TestCase, error) {
 	}
 
 	// Resolve prompt_file into the prompt message
-	if err := tc.Stimulus.resolvePromptFile(filepath.Dir(path)); err != nil {
+	if err := tc.Stimulus.resolvePromptFileWithReader(filepath.Dir(path), readFile); err != nil {
 		return nil, fmt.Errorf("test case %s: %w", path, err)
 	}
 
@@ -578,13 +637,14 @@ func loadTestCase(path string, offline bool) (*TestCase, error) {
 		}
 	}
 
+	tc.sourceDocument = data
 	return &tc, nil
 }
 
-// resolvePromptFile loads prompt content from a file if prompt_file is set.
+// resolvePromptFileWithReader loads prompt content if prompt_file is set.
 // The path is resolved relative to baseDir. Absolute and traversal paths are
 // rejected, consistent with resource path validation in the runner.
-func (s *TaskStimulus) resolvePromptFile(baseDir string) error {
+func (s *TaskStimulus) resolvePromptFileWithReader(baseDir string, readFile func(string) ([]byte, error)) error {
 	if s.MessageFile == "" {
 		return nil
 	}
@@ -603,7 +663,7 @@ func (s *TaskStimulus) resolvePromptFile(baseDir string) error {
 
 	resolved := filepath.Join(baseDir, clean)
 
-	data, err := os.ReadFile(resolved)
+	data, err := readFile(resolved)
 	if err != nil {
 		return fmt.Errorf("reading prompt_file %q: %w", s.MessageFile, err)
 	}

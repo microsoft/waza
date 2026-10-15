@@ -1,7 +1,9 @@
 package dataset
 
 import (
+	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -28,10 +30,13 @@ func LoadTasks(spec *models.EvalSpec, baseDir string, now time.Time) ([]*models.
 	if err != nil {
 		return nil, fmt.Errorf("resolving CSV path: %w", err)
 	}
-	if !strings.HasPrefix(absCSVPath, absBaseDir+string(filepath.Separator)) {
+	lexicalRelative, err := filepath.Rel(absBaseDir, absCSVPath)
+	if err != nil {
+		return nil, fmt.Errorf("checking CSV path containment: %w", err)
+	}
+	if lexicalRelative == "." || !filepath.IsLocal(lexicalRelative) {
 		return nil, fmt.Errorf("tasks_from path %q escapes spec directory", spec.TasksFrom)
 	}
-	var rows []Row
 	if spec.Range != [2]int{} {
 		if spec.Range[0] <= 0 || spec.Range[1] <= 0 {
 			return nil, fmt.Errorf("invalid range: both values must be > 0, got [%d, %d]", spec.Range[0], spec.Range[1])
@@ -39,16 +44,20 @@ func LoadTasks(spec *models.EvalSpec, baseDir string, now time.Time) ([]*models.
 		if spec.Range[0] > spec.Range[1] {
 			return nil, fmt.Errorf("invalid range: start (%d) must be <= end (%d)", spec.Range[0], spec.Range[1])
 		}
-		rows, err = LoadCSVRange(csvPath, spec.Range[0], spec.Range[1])
-	} else {
-		rows, err = LoadCSV(csvPath)
 	}
+	rows, err := loadTaskRows(absBaseDir, absCSVPath, spec.TasksFrom)
 	if err != nil {
 		return nil, fmt.Errorf("loading CSV dataset: %w", err)
+	}
+	if spec.Range != [2]int{} {
+		rows = selectCSVRange(rows, spec.Range[0], spec.Range[1])
 	}
 	tasks := make([]*models.TestCase, 0, len(rows))
 	for i, row := range rows {
 		rowNum := i + 1
+		if spec.Range != [2]int{} {
+			rowNum += spec.Range[0] - 1
+		}
 		id := fmt.Sprintf("row-%d", rowNum)
 		if row["id"] != "" {
 			id = row["id"]
@@ -81,4 +90,39 @@ func LoadTasks(spec *models.EvalSpec, baseDir string, now time.Time) ([]*models.
 		})
 	}
 	return tasks, nil
+}
+
+func loadTaskRows(base, path, reference string) (rows []Row, err error) {
+	root, err := os.OpenRoot(base)
+	if err != nil {
+		return nil, fmt.Errorf("opening spec directory: %w", err)
+	}
+	defer func() { err = errors.Join(err, root.Close()) }()
+	resolvedBase, err := filepath.EvalSymlinks(base)
+	if err != nil {
+		return nil, fmt.Errorf("resolving spec directory symlinks: %w", err)
+	}
+	resolvedCSV, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return nil, fmt.Errorf("resolving path symlinks: %w", err)
+	}
+	relative, err := filepath.Rel(resolvedBase, resolvedCSV)
+	if err != nil {
+		return nil, fmt.Errorf("checking CSV path containment: %w", err)
+	}
+	if !filepath.IsLocal(relative) || relative == "." {
+		return nil, fmt.Errorf("tasks_from path %q escapes spec directory through symlinks", reference)
+	}
+	observed, err := os.Stat(resolvedBase)
+	if err != nil {
+		return nil, fmt.Errorf("checking spec directory identity: %w", err)
+	}
+	retained, err := root.Stat(".")
+	if err != nil {
+		return nil, fmt.Errorf("checking retained spec directory identity: %w", err)
+	}
+	if !os.SameFile(observed, retained) {
+		return nil, fmt.Errorf("spec directory changed during CSV admission")
+	}
+	return readCSVAt(root, relative)
 }

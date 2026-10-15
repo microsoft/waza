@@ -12,8 +12,16 @@ import (
 
 	"github.com/microsoft/waza/internal/evidence"
 	"github.com/microsoft/waza/internal/execution"
+	"github.com/microsoft/waza/internal/models"
 	"github.com/stretchr/testify/require"
 )
+
+func qualificationTestGraderSHA(t *testing.T, config models.GraderConfig) string {
+	t.Helper()
+	digest, err := evidence.JSONDigest(config)
+	require.NoError(t, err)
+	return digest.SHA256
+}
 
 func qualificationTestPolicies(t *testing.T) ([]byte, []byte) {
 	t.Helper()
@@ -230,7 +238,9 @@ func TestQualificationActualNativeCaptureOnlyByteEquivalence(t *testing.T) {
 	for _, output := range []string{"", " \n\t", "é \"exact\""} {
 		capture := &qualificationCapture{}
 		job := calibrationJob{config: request.Spec.Graders[0], task: request.Tasks["task"], output: output,
-			rubric: []byte(calibrationTestRubric), judgeModel: calibrationTestModel, judgeEffort: "low"}
+			rubric: []byte(calibrationTestRubric), rubricSHA: byteSHA256([]byte(calibrationTestRubric)),
+			declarationSHA: qualificationTestGraderSHA(t, request.Spec.Graders[0]),
+			judgeModel:     calibrationTestModel, judgeEffort: "low"}
 		_, err := runCalibrationGrade(t.Context(), job, store, capture)
 		require.ErrorIs(t, err, errCalibrationCapture)
 		require.Equal(t, 1, capture.calls)
@@ -317,7 +327,8 @@ func TestQualificationCaptureConstructorBudgetBeforeSerialization(t *testing.T) 
 		return nil
 	}}
 	job := calibrationJob{config: request.Spec.Graders[0], task: request.Tasks["task"], output: "é",
-		rubric: []byte(calibrationTestRubric), judgeModel: calibrationTestModel}
+		rubric: []byte(calibrationTestRubric), rubricSHA: byteSHA256([]byte(calibrationTestRubric)),
+		declarationSHA: qualificationTestGraderSHA(t, request.Spec.Graders[0]), judgeModel: calibrationTestModel}
 	_, err = runCalibrationGrade(t.Context(), job, store, control)
 	require.ErrorIs(t, err, errCalibrationCapture)
 	require.Zero(t, harness.factories)

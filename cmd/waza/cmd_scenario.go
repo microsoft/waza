@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,7 +11,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func scenarioNewCommandE(cmd *cobra.Command, name, outputPath, template string) error {
+func scenarioNewCommandE(cmd *cobra.Command, name, outputPath, template string) (err error) {
 	fileConfig := scaffold.ReadProjectFiles()
 	_, model := scaffold.ReadProjectDefaults()
 	if outputPath == "" {
@@ -26,23 +27,138 @@ func scenarioNewCommandE(cmd *cobra.Command, name, outputPath, template string) 
 		paths = append(paths, path)
 	}
 	slices.Sort(paths)
-	for _, path := range paths {
-		full := filepath.Join(base, path)
-		if _, err := os.Stat(full); err == nil {
-			return fmt.Errorf("refusing to overwrite existing file: %s", full)
-		} else if !os.IsNotExist(err) {
-			return fmt.Errorf("checking %s: %w", full, err)
+	directory, err := openScenarioDirectory(base, false)
+	if err != nil {
+		return err
+	}
+	if directory != nil {
+		for _, path := range paths {
+			parent, parentErr := walkScenarioDirectory(directory, filepath.Dir(path), false)
+			if parentErr != nil {
+				return errors.Join(parentErr, directory.Close())
+			}
+			if parent == nil {
+				continue
+			}
+			checkErr := checkScenarioOutput(parent, filepath.Base(path), filepath.Join(base, path))
+			if checkErr = errors.Join(checkErr, parent.Close()); checkErr != nil {
+				return errors.Join(checkErr, directory.Close())
+			}
+		}
+		if err := directory.Close(); err != nil {
+			return fmt.Errorf("closing scenario preflight directory: %w", err)
 		}
 	}
+	directory, err = openScenarioDirectory(base, true)
+	if err != nil {
+		return err
+	}
+	parents := make(map[string]*os.Root, len(paths))
+	defer func() {
+		for _, path := range paths {
+			if parent := parents[path]; parent != nil {
+				if closeErr := parent.Close(); closeErr != nil {
+					err = errors.Join(err, fmt.Errorf("closing scenario output parent %s: %w", path, closeErr))
+				}
+			}
+		}
+		if directory != nil {
+			err = errors.Join(err, directory.Close())
+		}
+	}()
 	for _, path := range paths {
-		full := filepath.Join(base, path)
-		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
-			return fmt.Errorf("creating directory for %s: %w", full, err)
+		parent, err := walkScenarioDirectory(directory, filepath.Dir(path), true)
+		if err != nil {
+			return err
 		}
-		if err := os.WriteFile(full, []byte(files[path]), 0o644); err != nil {
-			return fmt.Errorf("writing %s: %w", full, err)
+		parents[path] = parent
+		if err := checkScenarioOutput(parent, filepath.Base(path), filepath.Join(base, path)); err != nil {
+			return err
 		}
+	}
+	if err := writeScenarioFiles(paths, parents, base, files, writeScenarioFileAt); err != nil {
+		return err
+	}
+	for _, path := range paths {
+		closeErr := parents[path].Close()
+		parents[path] = nil
+		if closeErr != nil {
+			err = errors.Join(err, fmt.Errorf("closing scenario output parent %s: %w", path, closeErr))
+		}
+	}
+	err = errors.Join(err, directory.Close())
+	directory = nil
+	if err != nil {
+		return err
 	}
 	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Scenario scaffold created: %s\nReal execution: waza run %s\nFor harness-only checks, set config.executor: mock in a copy (not agent-quality evidence).\n", outputPath, outputPath)
 	return nil
+}
+
+func checkScenarioOutput(parent *os.Root, name, path string) error {
+	if _, err := parent.Lstat(name); err == nil {
+		return fmt.Errorf("refusing to overwrite existing file: %s", path)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("checking %s: %w", path, err)
+	}
+	return nil
+}
+
+func writeScenarioFiles(paths []string, parents map[string]*os.Root, base string, files map[string]string,
+	create func(*os.Root, string, string, string) (os.FileInfo, error),
+) (err error) {
+	created := make(map[string]os.FileInfo, len(paths))
+	defer func() {
+		if err == nil {
+			return
+		}
+		for _, path := range slices.Backward(paths) {
+			if original := created[path]; original != nil {
+				parent, name := parents[path], filepath.Base(path)
+				current, statErr := parent.Lstat(name)
+				switch {
+				case errors.Is(statErr, os.ErrNotExist):
+					continue
+				case statErr != nil:
+					err = errors.Join(err, fmt.Errorf("checking scenario rollback %s: %w", path, statErr))
+				case !os.SameFile(original, current):
+					err = errors.Join(err, fmt.Errorf("refusing scenario rollback of replaced file %s; inspect retained output", path))
+				default:
+					if removeErr := parent.Remove(name); removeErr != nil {
+						err = errors.Join(err, fmt.Errorf("rolling back scenario output %s: %w", path, removeErr))
+					}
+				}
+			}
+		}
+	}()
+	for _, path := range paths {
+		info, createErr := create(parents[path], filepath.Base(path), filepath.Join(base, path), files[path])
+		if info != nil {
+			created[path] = info
+		}
+		if createErr != nil {
+			return createErr
+		}
+	}
+	return nil
+}
+
+func writeScenarioFileAt(parent *os.Root, name, path, contents string) (os.FileInfo, error) {
+	file, err := parent.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	if errors.Is(err, os.ErrExist) {
+		return nil, fmt.Errorf("refusing to overwrite existing file: %s", path)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("creating %s: %w", path, err)
+	}
+	info, statErr := file.Stat()
+	if statErr != nil {
+		return nil, errors.Join(fmt.Errorf("inspecting new scenario file %s; retained because ownership is unavailable: %w", path, statErr), file.Close())
+	}
+	_, writeErr := file.WriteString(contents)
+	closeErr := file.Close()
+	if err := errors.Join(writeErr, closeErr); err != nil {
+		return info, fmt.Errorf("writing %s: %w", path, err)
+	}
+	return info, nil
 }

@@ -1,6 +1,7 @@
 import { test, expect } from "@playwright/test";
 import path from "node:path";
 import { mockAllAPIs } from "./helpers/api-mock";
+import { parseStrictJSON } from "../src/lib/strictJson";
 
 function suppliedReport(state = "failed", credits: number | null = null) {
   return {
@@ -43,6 +44,24 @@ test("historical passes remain explicitly not assessed", async ({ page }) => {
   await expect(page.getByTestId("assurance-not-assessed")).toContainText("not assessed");
   await page.getByRole("link", { name: "Inspect a separate supplied assurance report" }).click();
   await expect(page.getByRole("heading", { name: "Grader assurance", exact: true })).toBeVisible();
+  await expect(page.getByText(/no assurance report selected/)).toBeVisible();
+});
+
+test("assurance inspection and release policies retain separate routes", async ({ page }) => {
+  await mockAllAPIs(page);
+  await page.route(/\/api\/release-collections$/, (route) => route.fulfill({ json: [] }));
+  await page.goto("/#/assurance");
+  const assuranceLink = page.getByRole("link", { name: "Assurance", exact: true });
+  const releaseLink = page.getByRole("link", { name: "Release policies", exact: true });
+  await expect(assuranceLink).toHaveAttribute("href", "#/assurance");
+  await expect(releaseLink).toHaveAttribute("href", "#/release");
+  await page.getByRole("checkbox", { name: /Explicitly inspect calibrated report 1.1/ }).check();
+  await releaseLink.click();
+  await expect(page.getByRole("heading", { name: "Release policies", exact: true })).toBeVisible();
+  await expect(page.getByLabel("Supplied assurance report")).toHaveCount(0);
+  await assuranceLink.click();
+  await expect(page.getByRole("heading", { name: "Grader assurance", exact: true })).toBeVisible();
+  await expect(page.getByRole("checkbox", { name: /Explicitly inspect calibrated report 1.1/ })).not.toBeChecked();
   await expect(page.getByText(/no assurance report selected/)).toBeVisible();
 });
 
@@ -142,6 +161,71 @@ function suppliedCalibratedReport() {
       }],
     },
   };
+}
+
+test("numeric wire fractions cannot round into integers before schema admission", () => {
+  for (const token of [
+    "9007199254740992.5", "9007199254740991.4", "1.00000000000000001",
+    "0.99999999999999999", "-0.99999999999999999", "1e-400", "-1e-400",
+    "2.5e-99999999999999999999999999999999999999999",
+    "100.00000000000000001e-2", "-9007199254740992.5",
+    "1e99999999999999999999999999999999999999999",
+    "-1e99999999999999999999999999999999999999999",
+    "01", "1.", ".1", "+1", "1e", "NaN", "Infinity",
+  ]) {
+    expect(() => parseStrictJSON(`{"count":${token}}`), token).toThrow();
+  }
+  for (const token of [
+    "0", "-0", "1", "1.0", "1e0", "1.25e2", "100e-2", "10.00e-1",
+    "1.2500e2", "1.2500e1", "100000e-5", "100e-00000000000000000000000000000000002",
+    "0.000e-99999999999999999999999999999999999999999",
+    "0e99999999999999999999999999999999999999999",
+    "-0.000e99999999999999999999999999999999999999999",
+    "-0e-99999999999999999999999999999999999999999",
+    "9007199254740991", "9007199254740992", "1e20", "0.1", "-0.1", "5e-324",
+  ]) {
+    expect(parseStrictJSON(`{"count":${token}}`), token).toEqual({ count: Number(token) });
+  }
+});
+
+for (const version of ["1.0", "1.1"]) {
+  test(`fractional ${version} counts reject rounded imports and clear displayed claims`, async ({ page }) => {
+    const requests: string[] = [];
+    page.on("request", (request) => { if (request.method() !== "GET") requests.push(request.url()); });
+    await page.goto("/#/assurance");
+    if (version === "1.1") {
+      await page.getByRole("checkbox", { name: /Explicitly inspect calibrated report 1.1/ }).check();
+    }
+    const input = page.getByLabel("Supplied assurance report");
+    const valid = JSON.stringify(version === "1.0" ? suppliedReport() : suppliedCalibratedReport());
+    for (const token of [
+      "1.0", "1e0", "1.25e2", "100e-2", "0e99999999999999999999999999999999999999999",
+      version === "1.0" ? "9007199254740992" : "9007199254740991",
+    ]) {
+      await input.setInputFiles({
+        name: "integral.json", mimeType: "application/json",
+        buffer: Buffer.from(valid.replace('"samples":0', `"samples":${token}`)),
+      });
+      await expect(page.getByRole("heading", { name: /Supplied assessment/ })).toBeVisible();
+    }
+    for (const token of ["9007199254740991.4", "1.00000000000000001", "-1e-400"]) {
+      await input.setInputFiles({ name: "valid.json", mimeType: "application/json", buffer: Buffer.from(valid) });
+      await expect(page.getByRole("heading", { name: /Supplied assessment/ })).toBeVisible();
+      const invalid = valid.replace('"samples":0', `"samples":${token}`);
+      expect(invalid).not.toEqual(valid);
+      await input.setInputFiles({ name: "fractional.json", mimeType: "application/json", buffer: Buffer.from(invalid) });
+      await expect(page.getByRole("alert")).toContainText("Cannot inspect");
+      await expect(page.getByRole("heading", { name: /Supplied assessment/ })).toHaveCount(0);
+    }
+    const boundedInvalid = version === "1.0" ? "9007199254740992.5" : "9007199254740992";
+    await input.setInputFiles({
+      name: "count-invalid.json", mimeType: "application/json",
+      buffer: Buffer.from(valid.replace('"samples":0', `"samples":${boundedInvalid}`)),
+    });
+    await expect(page.getByRole("alert")).toContainText("Cannot inspect");
+    await expect(page.getByRole("heading", { name: /Supplied assessment/ })).toHaveCount(0);
+    expect(requests).toEqual([]);
+  });
 }
 
 test("calibrated claims require explicit version selection and expose unavailable lifecycle evidence", async ({ page }) => {

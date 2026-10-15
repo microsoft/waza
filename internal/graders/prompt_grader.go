@@ -85,15 +85,17 @@ func NewPromptGrader(name string, args models.PromptGraderParameters) (*promptGr
 			return nil, fmt.Errorf("rubric %q: %w", args.Rubric, err)
 		}
 		rubric = r
-		// If neither an inline prompt nor a rubric body would seed the judge,
-		// the grader has nothing to send. The rubric body is required by
-		// Rubric.Validate, so reaching here means the rubric resolved cleanly
-		// and supplies the prompt.
-		if args.Prompt == "" {
-			args.Prompt = rubric.Body
-		}
 	}
+	return newPromptGraderWithRubric(name, args, rubric)
+}
 
+func newPromptGraderWithRubric(name string, args models.PromptGraderParameters, rubric *Rubric) (*promptGrader, error) {
+	if err := validatePromptSeed(name, args); err != nil {
+		return nil, err
+	}
+	if rubric != nil && args.Prompt == "" {
+		args.Prompt = rubric.Body
+	}
 	if args.Prompt == "" {
 		return nil, errors.New("required field 'prompt' is missing (provide 'prompt' or 'rubric')")
 	}

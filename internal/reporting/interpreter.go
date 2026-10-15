@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/microsoft/waza/internal/evidence"
 	"github.com/microsoft/waza/internal/models"
 )
 
@@ -80,6 +81,49 @@ func FormatSummaryReport(outcome *models.EvaluationOutcome) string {
 			if to.Stats != nil {
 				fmt.Fprintf(&b, "    Score: %.2f — %s\n", to.Stats.AvgScore, InterpretScore(to.Stats.AvgScore))
 				fmt.Fprintf(&b, "    %s\n", InterpretFlaky(to.Stats.Flaky, to.Stats.PassRate))
+			}
+			for _, run := range to.Runs {
+				if run.Evidence != nil {
+					if err := evidence.Bind(run.Evidence, outcome.RunID, to.TestID, run.RunNumber, run.Attempts, to.Cached); err != nil {
+						fmt.Fprintf(&b, "    Run %d evidence: invalid metadata; assessment references are unavailable.\n", run.RunNumber)
+						continue
+					}
+					sourceEvalID := run.Evidence.Origin.EvalID
+					if sourceEvalID == "" {
+						sourceEvalID = "unavailable"
+					}
+					fmt.Fprintf(&b, "    Run %d evidence: %s; source eval %s; captured metadata is not verified state or enforcement.\n",
+						run.RunNumber, run.Evidence.Version, sourceEvalID)
+				}
+				explanations, pointersWithheld, err := evidence.MetadataExplanations(run.Evidence, to.TestID, run.RequirementExplanations)
+				if err != nil {
+					fmt.Fprintf(&b, "    Run %d requirement observations: invalid references; assessment references are unavailable.\n", run.RunNumber)
+					continue
+				}
+				if pointersWithheld {
+					fmt.Fprintf(&b, "    Run %d artifact-relative value pointers: unverified and withheld; references identify artifact metadata only.\n", run.RunNumber)
+				}
+				for _, explanation := range explanations {
+					if len(explanation.Checks) == 0 {
+						fmt.Fprintf(&b, "    Run %d requirement %s: check observations unavailable; requirement satisfaction is unassessed.\n",
+							run.RunNumber, explanation.RequirementID)
+						continue
+					}
+					for _, check := range explanation.Checks {
+						checkLabel := check.Check.Scope + "/" + check.Check.Grader
+						if check.Check.AfterTurn > 0 {
+							checkLabel += fmt.Sprintf("/turn %d", check.Check.AfterTurn)
+						}
+						fmt.Fprintf(&b, "    Run %d requirement %s: %s = %s (%s). %s\n",
+							run.RunNumber, explanation.RequirementID, checkLabel,
+							check.Observation, check.Category, check.Message)
+						for _, reference := range check.References {
+							fmt.Fprintf(&b, "      Evidence: %s; artifact metadata only; value pointer unverified; eval %s; task %s; run %d; attempt %d; prior attempts %s\n",
+								reference.ArtifactID, reference.Origin.EvalID, reference.Origin.TaskID,
+								reference.Origin.RunNumber, reference.Origin.AttemptCount, reference.Origin.PriorAttempts)
+						}
+					}
+				}
 			}
 		}
 	}

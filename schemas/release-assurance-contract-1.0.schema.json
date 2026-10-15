@@ -1,0 +1,242 @@
+{
+  "$defs": {
+    "jsonDigest": {
+      "additionalProperties": false,
+      "description": "SHA-256 in the json-v1 domain; not interchangeable with other encodings or proof of authenticity.",
+      "properties": {
+        "encoding": {
+          "const": "json-v1"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "encoding",
+        "sha256"
+      ],
+      "type": "object"
+    },
+    "models_RequirementCheck": {
+      "additionalProperties": false,
+      "properties": {
+        "after_turn": {
+          "const": 0
+        },
+        "grader": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "scope": {
+          "enum": [
+            "eval",
+            "task"
+          ]
+        }
+      },
+      "required": [
+        "scope",
+        "grader"
+      ],
+      "type": "object"
+    },
+    "releasepolicy_AssuranceArm": {
+      "additionalProperties": false,
+      "properties": {
+        "checks": {
+          "items": {
+            "$ref": "#/$defs/releasepolicy_AssuranceCheck"
+          },
+          "minItems": 1,
+          "type": "array"
+        },
+        "eval_source_digest": {
+          "$ref": "#/$defs/sourceDigest"
+        },
+        "executable_digest": {
+          "$ref": "#/$defs/sourceDigest"
+        },
+        "inputs": {
+          "items": {
+            "$ref": "#/$defs/releasepolicy_AssuranceInput"
+          },
+          "minItems": 1,
+          "type": "array"
+        },
+        "labels_digest": {
+          "$ref": "#/$defs/sourceDigest"
+        },
+        "mode": {
+          "const": "authored_finite_output"
+        },
+        "resolved_config_digest": {
+          "$ref": "#/$defs/jsonDigest"
+        },
+        "resolved_plan_digest": {
+          "$ref": "#/$defs/jsonDigest"
+        },
+        "review_digest": {
+          "$ref": "#/$defs/sourceDigest"
+        },
+        "review_source_id": {
+          "type": "string"
+        },
+        "tasks": {
+          "items": {
+            "$ref": "#/$defs/releasepolicy_AssuranceTask"
+          },
+          "minItems": 1,
+          "type": "array"
+        }
+      },
+      "required": [
+        "mode",
+        "resolved_plan_digest",
+        "eval_source_digest",
+        "resolved_config_digest",
+        "executable_digest",
+        "tasks",
+        "checks",
+        "labels_digest",
+        "review_source_id",
+        "inputs"
+      ],
+      "type": "object"
+    },
+    "releasepolicy_AssuranceCheck": {
+      "additionalProperties": false,
+      "properties": {
+        "check": {
+          "$ref": "#/$defs/models_RequirementCheck"
+        },
+        "declaration_digest": {
+          "$ref": "#/$defs/jsonDigest"
+        },
+        "requirement_id": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "task_id": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "validation_key": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "task_id",
+        "requirement_id",
+        "check",
+        "declaration_digest",
+        "validation_key"
+      ],
+      "type": "object"
+    },
+    "releasepolicy_AssuranceContract": {
+      "additionalProperties": false,
+      "properties": {
+        "arms": {
+          "additionalProperties": false,
+          "properties": {
+            "baseline": {
+              "$ref": "#/$defs/releasepolicy_AssuranceArm"
+            },
+            "candidate": {
+              "$ref": "#/$defs/releasepolicy_AssuranceArm"
+            }
+          },
+          "required": [
+            "baseline",
+            "candidate"
+          ],
+          "type": "object"
+        },
+        "digest": {
+          "$ref": "#/$defs/jsonDigest"
+        },
+        "kind": {
+          "const": "waza.release-assurance-contract"
+        },
+        "nonce": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "policy_digest": {
+          "$ref": "#/$defs/jsonDigest"
+        },
+        "version": {
+          "const": "1.0"
+        }
+      },
+      "required": [
+        "kind",
+        "version",
+        "nonce",
+        "policy_digest",
+        "arms",
+        "digest"
+      ],
+      "type": "object"
+    },
+    "releasepolicy_AssuranceInput": {
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "source_digest": {
+          "$ref": "#/$defs/sourceDigest"
+        }
+      },
+      "required": [
+        "path",
+        "source_digest"
+      ],
+      "type": "object"
+    },
+    "releasepolicy_AssuranceTask": {
+      "additionalProperties": false,
+      "properties": {
+        "declaration_digest": {
+          "$ref": "#/$defs/jsonDigest"
+        },
+        "task_id": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "task_id",
+        "declaration_digest"
+      ],
+      "type": "object"
+    },
+    "sourceDigest": {
+      "additionalProperties": false,
+      "description": "SHA-256 in the source-bytes domain; not interchangeable with other encodings or proof of authenticity.",
+      "properties": {
+        "encoding": {
+          "const": "source-bytes"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "encoding",
+        "sha256"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "https://raw.githubusercontent.com/microsoft/waza/main/schemas/release-assurance-contract-1.0.schema.json",
+  "$ref": "#/$defs/releasepolicy_AssuranceContract",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Structural admission only. Strict readers additionally verify original JSON tokens, self-digest omission, exact source bytes, ordered replay, source/review freshness, deterministic regrading and base non-assurance conditions. Hashes are local consistency, not authentication.",
+  "title": "waza.release-assurance-contract 1.0 (independent offline profile)"
+}

@@ -21,6 +21,54 @@ func referenceFixture(t *testing.T) *assurance.AuthoredOutput {
 	return input
 }
 
+func TestReferenceInputRawSchemaAdmission(t *testing.T) {
+	for _, shape := range []string{"valid", "omitted", "null", "missing runtime", "null runtime", "missing version", "unknown version"} {
+		t.Run(shape, func(t *testing.T) {
+			t.Parallel()
+			manifest := referenceFixture(t).Manifest()
+			data, err := json.Marshal(manifest)
+			require.NoError(t, err)
+			var object map[string]any
+			require.NoError(t, json.Unmarshal(data, &object))
+			runtime, ok := object["runtime"].(map[string]any)
+			require.True(t, ok)
+			switch shape {
+			case "omitted":
+				delete(runtime, "waza_version")
+			case "null":
+				runtime["waza_version"] = nil
+			case "missing runtime":
+				delete(object, "runtime")
+			case "null runtime":
+				object["runtime"] = nil
+			case "missing version":
+				delete(object, "version")
+			case "unknown version":
+				object["version"] = "1.2"
+			}
+			data, err = json.Marshal(object)
+			require.NoError(t, err)
+			var decoded models.EvidenceManifest
+			require.NoError(t, json.Unmarshal(data, &decoded))
+			if shape == "valid" {
+				require.False(t, decoded.HasInvalidSchema())
+				require.NoError(t, evidence.Validate(&decoded))
+				require.NoError(t, evidence.SealReferenceInput(&decoded))
+				require.Error(t, evidence.ValidateNative(&decoded))
+				require.Error(t, evidence.Seal(&decoded))
+			} else {
+				require.True(t, decoded.HasInvalidSchema())
+				beforeSHA := decoded.SHA256
+				require.Error(t, evidence.SealReferenceInput(&decoded))
+				require.Equal(t, beforeSHA, decoded.SHA256, "invalid raw inputs must not be resealed")
+				after, err := json.Marshal(&decoded)
+				require.NoError(t, err)
+				require.JSONEq(t, string(data), string(after))
+			}
+		})
+	}
+}
+
 func TestReferenceInputSharedProfileAndHistoricalGuards(t *testing.T) {
 	input := referenceFixture(t)
 	manifest := input.Manifest()

@@ -17,6 +17,7 @@ import (
 	"github.com/microsoft/waza/internal/copilotconfig"
 	"github.com/microsoft/waza/internal/copilotevents"
 	"github.com/microsoft/waza/internal/dataset"
+	"github.com/microsoft/waza/internal/evidence"
 	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/failures"
 	"github.com/microsoft/waza/internal/graders"
@@ -40,13 +41,21 @@ type responderClassifier interface {
 	Close(ctx context.Context) error
 }
 
+type snapshotPublisher interface {
+	Write(*snapshot.Snapshot) (string, error)
+	Root() string
+}
+
 // EvalRunner orchestrates the execution of tests.
 //
 // Deprecated alias: TestRunner is provided for backward compatibility.
 type EvalRunner struct {
-	cfg     *config.EvalConfig
-	engine  execution.AgentEngine
-	verbose bool
+	cfg              *config.EvalConfig
+	requestFiles     RequestFiles
+	requestInputs    RequestInputs
+	engine           execution.AgentEngine
+	verbose          bool
+	controlledOutput func(string)
 
 	// newClassifier builds a responder classifier for a task. Overridable in
 	// tests; defaults to a responder backed by the runner's engine.
@@ -82,14 +91,17 @@ type EvalRunner struct {
 	telemetry *telemetry.Provider
 
 	// Snapshot capture (issue #367). When snapshotWriter is non-nil, every
-	// completed run is serialized to disk as a self-contained snapshot.json
+	// completed run is serialized to disk as recorded snapshot observations
 	// after grading completes; the resulting path is recorded on
 	// RunResult.SnapshotPath. Capture is best-effort: write failures log a
 	// warning but do not fail the run.
-	snapshotWriter   *snapshot.Writer
-	snapshotEnvAllow []string
-	redactionPolicy  *snapshot.Policy
-	wazaVersion      string
+	snapshotWriter          snapshotPublisher
+	snapshotEnvAllow        []string
+	redactionPolicy         *snapshot.Policy
+	snapshotWorkspacePaths  []string
+	snapshotEvaluatorOnly   []string
+	snapshotWorkspaceLimits snapshot.WorkspaceLimits
+	wazaVersion             string
 	// evalRunID echoes EvaluationOutcome.RunID so per-run snapshots can be
 	// correlated back to their parent results.json. Set at the start of a
 	// benchmark run; empty for code paths that bypass the orchestrator.
@@ -185,7 +197,19 @@ func WithTelemetry(p *telemetry.Provider) RunnerOption {
 // fail the run.
 func WithSnapshotWriter(w *snapshot.Writer) RunnerOption {
 	return func(r *EvalRunner) {
+		if w == nil {
+			r.snapshotWriter = nil
+			return
+		}
 		r.snapshotWriter = w
+	}
+}
+
+func WithWorkspaceEvidence(paths, evaluatorOnly []string, limits snapshot.WorkspaceLimits) RunnerOption {
+	return func(r *EvalRunner) {
+		r.snapshotWorkspacePaths = append([]string(nil), paths...)
+		r.snapshotEvaluatorOnly = append([]string(nil), evaluatorOnly...)
+		r.snapshotWorkspaceLimits = limits
 	}
 }
 
@@ -378,10 +402,11 @@ func (r *EvalRunner) runNormalBenchmark(ctx context.Context) (*models.Evaluation
 		outcomeRunID = fmt.Sprintf("run-%d", time.Now().Unix())
 	}
 	outcome := &models.EvaluationOutcome{
-		RunID:       outcomeRunID,
-		SkillTested: spec.SkillName,
-		BenchName:   spec.Name,
-		Timestamp:   startTime,
+		SchemaVersion: models.CurrentResultSchemaVersion,
+		RunID:         outcomeRunID,
+		SkillTested:   spec.SkillName,
+		BenchName:     spec.Name,
+		Timestamp:     startTime,
 		Setup: models.OutcomeSetup{
 			RunsPerTest:          spec.Config.TrialsPerTask,
 			ModelID:              spec.Config.ModelID,
@@ -667,8 +692,8 @@ func (r *EvalRunner) loadTestCasesFromFiles() ([]*models.TestCase, error) {
 func (r *EvalRunner) validateRequiredSkills() error {
 	spec := r.cfg.Spec()
 
-	// If all skills are disabled, skip validation
-	if spec.Config.AllSkillsDisabled() {
+	// Legacy suites skip validation when all skills are disabled.
+	if spec.Config.AllSkillsDisabled() && spec.Scenario == "" {
 		return nil
 	}
 
@@ -893,8 +918,10 @@ func (r *EvalRunner) runTest(ctx context.Context, tc *models.TestCase, testNum, 
 		cacheKey, err := cache.CacheKey(spec, tc, r.cfg.FixtureDir())
 		if err == nil {
 			if cachedOutcome, found := r.cache.Get(cacheKey); found {
-				// Return cached outcome with cached flag
+				// Return cached outcome with cached flag. Stats derive from the
+				// cached runs, so recompute them in case an older waza wrote them.
 				cachedOutcome.Cached = true
+				cachedOutcome.Stats = ComputeTestStats(cachedOutcome.Runs)
 				return *cachedOutcome, true
 			}
 			// Run the test and cache the result
@@ -945,7 +972,7 @@ func (r *EvalRunner) runTestUncached(ctx context.Context, tc *models.TestCase, t
 
 		var run models.RunResult
 		for attempt := 1; attempt <= maxAttempts; attempt++ {
-			run = r.executeRun(ctx, tc, runNum)
+			run = r.executeAttempt(ctx, tc, runNum, attempt)
 			run.Attempts = attempt
 
 			// If all graders passed or this is an infrastructure error, stop retrying
@@ -1021,14 +1048,55 @@ func overallStatus(runs []models.RunResult) models.Status {
 }
 
 func (r *EvalRunner) executeRun(ctx context.Context, tc *models.TestCase, runNum int) models.RunResult {
+	return r.executeAttempt(ctx, tc, runNum, 1)
+}
+
+func (r *EvalRunner) executeAttempt(ctx context.Context, tc *models.TestCase, runNum, attempt int) models.RunResult {
+	return r.executeAttemptWithRequest(ctx, tc, runNum, attempt, nil, false)
+}
+
+func (r *EvalRunner) executeRunWithAttempt(ctx context.Context, tc *models.TestCase, runNum, attempt int, prepared *execution.ExecutionRequest) models.RunResult {
+	return r.executeAttemptWithRequest(ctx, tc, runNum, attempt, prepared, attempt > 0)
+}
+
+func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.TestCase, runNum, attempt int, prepared *execution.ExecutionRequest, controlled bool) models.RunResult {
 	startTime := time.Now()
+	var req *execution.ExecutionRequest
+	var resp *execution.ExecutionResponse
+	var err error
+	diagnosticCategory := "setup"
 	returnWithArtifacts := func(run models.RunResult) models.RunResult {
+		if attempt > 0 {
+			run.Attempts = attempt
+		}
+		if resp != nil {
+			if run.ToolEvents == nil {
+				run.ToolEvents = buildToolEvents(copilotevents.ToSDK(resp.Events))
+			}
+			if run.CommandInvocations == nil {
+				run.CommandInvocations = resp.CommandInvocations
+			}
+			if run.Transcript == nil {
+				run.Transcript = transcript.BuildFromSessionEvents(copilotevents.ToSDK(resp.Events))
+			}
+			if run.WorkspaceDir == "" {
+				run.WorkspaceDir = resp.WorkspaceDir
+			}
+			if run.FinalOutput == "" {
+				run.FinalOutput = resp.FinalOutput
+			}
+		}
+		r.captureSnapshot(tc, req, resp, &run, diagnosticCategory)
+		run.RequirementExplanations = evidence.ExplainRequirements(r.cfg.Spec(), tc, &run)
 		r.captureFailureArtifacts(&run)
 		return run
 	}
 
 	// Prepare execution request
-	req, err := r.buildExecutionRequest(tc)
+	req = prepared
+	if req == nil {
+		req, err = r.buildExecutionRequest(tc)
+	}
 	if err != nil {
 		return returnWithArtifacts(models.RunResult{
 			RunNumber:  runNum,
@@ -1073,7 +1141,17 @@ func (r *EvalRunner) executeRun(ctx context.Context, tc *models.TestCase, runNum
 		})
 	}
 	execCtx, cancelExec := context.WithTimeout(turnCtx, timeout)
-	resp, err := execution.ExecuteRecorded(execCtx, r.engine, req)
+	diagnosticCategory = "execution"
+	resp, err = execution.ExecuteRecorded(execCtx, r.engine, req)
+	if controlled && err == nil && execCtx.Err() != nil {
+		err = fmt.Errorf("controlled execution completed after its deadline or cancellation: %w", execCtx.Err())
+	}
+	if controlled && err == nil && resp == nil {
+		err = fmt.Errorf("controlled execution returned no actual response")
+	}
+	if controlled && err == nil && resp != nil && r.controlledOutput != nil {
+		r.controlledOutput(resp.FinalOutput)
+	}
 	cancelExec()
 	if err != nil {
 		return returnWithArtifacts(models.RunResult{
@@ -1156,6 +1234,7 @@ func (r *EvalRunner) executeRun(ctx context.Context, tc *models.TestCase, runNum
 		gradersResults = make(map[string]models.GraderResults)
 	} else {
 		var err error
+		diagnosticCategory = "grader"
 		gradersResults, err = r.runGraders(ctx, tc, vCtx)
 
 		if err != nil {
@@ -1194,6 +1273,7 @@ func (r *EvalRunner) executeRun(ctx context.Context, tc *models.TestCase, runNum
 	}
 
 	// Determine status
+	diagnosticCategory = "execution"
 	status := models.StatusPassed
 	if resp.ErrorMsg != "" {
 		status = models.StatusError
@@ -1220,6 +1300,7 @@ func (r *EvalRunner) executeRun(ctx context.Context, tc *models.TestCase, runNum
 			switch co.Status {
 			case models.StatusError:
 				status = models.StatusError
+				diagnosticCategory = "grader"
 			case models.StatusFailed:
 				if status != models.StatusError {
 					status = models.StatusFailed
@@ -1254,15 +1335,14 @@ func (r *EvalRunner) executeRun(ctx context.Context, tc *models.TestCase, runNum
 		ToolEvents:         buildToolEvents(sdkEvents),
 		CommandInvocations: commandInvocations,
 	}
-	r.captureSnapshot(tc, req, resp, &run)
 	return returnWithArtifacts(run)
 }
 
-// captureSnapshot writes a self-contained snapshot.json for the given run
+// captureSnapshot writes recorded snapshot observations for the given run
 // when a writer has been configured. Failures are logged but do not fail
 // the run; missing fields default to their zero values so partial captures
 // (e.g. after an early-exit error) remain valid.
-func (r *EvalRunner) captureSnapshot(tc *models.TestCase, req *execution.ExecutionRequest, _ *execution.ExecutionResponse, run *models.RunResult) {
+func (r *EvalRunner) captureSnapshot(tc *models.TestCase, req *execution.ExecutionRequest, _ *execution.ExecutionResponse, run *models.RunResult, diagnosticCategory string) {
 	if r == nil || r.snapshotWriter == nil || run == nil {
 		return
 	}
@@ -1275,29 +1355,93 @@ func (r *EvalRunner) captureSnapshot(tc *models.TestCase, req *execution.Executi
 		skillName = spec.SkillName
 	}
 	in := snapshot.CaptureInput{
-		EvalID:       evalID,
-		EvalName:     evalName,
-		Skill:        skillName,
-		WazaVersion:  r.wazaVersion,
-		Task:         tc,
-		Request:      req,
-		Run:          run,
-		EnvAllowList: r.snapshotEnvAllow,
-		Policy:       r.redactionPolicy,
-		FixturesRoot: r.fixturesRoot(tc),
-		SkipDirs:     r.snapshotSkipDirs(tc),
+		EvalID:             evalID,
+		EvalName:           evalName,
+		Skill:              skillName,
+		WazaVersion:        r.wazaVersion,
+		Task:               tc,
+		Request:            req,
+		Run:                run,
+		EnvAllowList:       r.snapshotEnvAllow,
+		Policy:             r.redactionPolicy,
+		FixturesRoot:       r.fixturesRoot(tc),
+		SkipDirs:           r.snapshotSkipDirs(tc),
+		Spec:               spec,
+		DiagnosticCategory: diagnosticCategory,
+		WorkspacePaths:     r.snapshotWorkspacePaths,
+		EvaluatorOnly:      r.snapshotEvaluatorOnly,
+		WorkspaceLimits:    r.snapshotWorkspaceLimits,
+	}
+	if spec != nil {
+		in.Engine = snapshot.SnapshotEngine{Type: spec.Config.EngineType, ModelID: spec.Config.ModelID,
+			JudgeModel: spec.Config.JudgeModel, TimeoutSec: spec.Config.TimeoutSec}
+	}
+	switch r.engine.(type) {
+	case *execution.MockEngine:
+		in.ExecutionMode = "mock"
+	case *execution.CopilotEngine:
+		in.ExecutionMode = "live"
+	default:
+		in.ExecutionMode = "unknown"
 	}
 	snap, err := snapshot.Capture(in)
 	if err != nil {
-		slog.Warn("snapshot capture failed", "test", tc.TestID, "run", run.RunNumber, "err", err)
+		origin, originErr := snapshot.CaptureOrigin(in)
+		run.Evidence = failedSnapshotEvidence(origin)
+		slog.Warn("snapshot capture failed", "test", origin.TaskID, "run", run.RunNumber, "err", err, "origin_err", originErr)
 		return
 	}
 	path, err := r.snapshotWriter.Write(snap)
+	recordSnapshotPublication(run, snap, path, err)
 	if err != nil {
-		slog.Warn("snapshot write failed", "test", tc.TestID, "run", run.RunNumber, "err", err)
+		slog.Warn("snapshot write failed", "test", run.Evidence.Origin.TaskID, "run", run.RunNumber, "err", err)
 		return
 	}
+}
+
+func recordSnapshotPublication(run *models.RunResult, snap *snapshot.Snapshot, path string, err error) {
 	run.SnapshotPath = path
+	if err != nil {
+		var origin models.EvidenceOrigin
+		if snap != nil && snap.Evidence != nil && snap.Evidence.Origin.EvalID != "" && snap.Evidence.Origin.TaskID != "" {
+			origin = snap.Evidence.Origin
+		} else {
+			in := snapshot.CaptureInput{Run: run}
+			if snap != nil {
+				in.EvalID = snap.EvalID
+				in.Task = &models.TestCase{TestID: snap.Task.TestID}
+			}
+			var originErr error
+			origin, originErr = snapshot.CaptureOrigin(in)
+			if originErr != nil {
+				slog.Warn("snapshot publication origin unavailable", "run", run.RunNumber, "err", originErr)
+			}
+		}
+		run.Evidence = failedSnapshotEvidence(origin)
+		return
+	}
+	run.Evidence = snap.Evidence
+}
+
+func failedSnapshotEvidence(origin models.EvidenceOrigin) *models.EvidenceManifest {
+	manifest := &models.EvidenceManifest{
+		Origin:      origin,
+		Runtime:     models.EvidenceRuntime{ExecutionMode: "unknown", DependencyMode: "unknown", RequestedPolicy: "unknown", VerifiedEnforcement: "unknown", NativeSkillControl: "unknown"},
+		Redaction:   models.EvidenceRedaction{Policy: "unavailable", Limitations: []string{"Requested capture failed; content safety is not certified."}},
+		Artifacts:   []models.EvidenceArtifact{{ID: "snapshot", Kind: "snapshot", Availability: "unavailable", Completeness: "unknown", Reason: "Requested snapshot capture or publication failed."}},
+		Diagnostics: []models.EvidenceDiagnostic{{Category: "capture", Code: "capture_failed", Message: "Requested capture failed; inspect the capture diagnostic and correct the inputs or destination."}},
+	}
+	if origin.EvalID == "" || origin.TaskID == "" {
+		manifest.Diagnostics = append(manifest.Diagnostics, models.EvidenceDiagnostic{
+			Category: "capture", Code: "origin_unavailable",
+			Message: "Source eval/task identity could not be safely preserved; numeric lineage alone does not establish attribution.",
+		})
+	}
+	// Identity was policy-validated; all other strings are fixed.
+	if err := evidence.Seal(manifest); err != nil {
+		panic("invalid fixed snapshot failure envelope")
+	}
+	return manifest
 }
 
 // fixturesRoot returns the absolute directory that fixture digests should be
@@ -1374,11 +1518,14 @@ func (r *EvalRunner) captureFailureArtifacts(run *models.RunResult) {
 
 func (r *EvalRunner) buildExecutionRequest(tc *models.TestCase) (*execution.ExecutionRequest, error) {
 	// Load resource files
+	r.setRequestInputRole("context_fixture")
 	resources, err := r.loadContextFixtureResources(tc)
 	if err != nil {
 		return nil, err
 	}
+	r.setRequestInputRole("resource")
 	resources = append(resources, r.loadResources(tc)...)
+	r.setRequestInputRole("instruction")
 	instructions, instructionResources, err := r.loadInstructionFiles(tc)
 	if err != nil {
 		return nil, err
@@ -1757,7 +1904,7 @@ func (r *EvalRunner) loadResources(tc *models.TestCase) []execution.ResourceFile
 				continue
 			}
 
-			content, err := os.ReadFile(fullPath)
+			content, err := r.inputFiles().ReadFile(fullPath)
 			if err != nil {
 				// Log error but continue - let the test fail if resource is critical
 				fmt.Fprintf(os.Stderr, "Warning: failed to load resource file %s: %v\n", fullPath, err)
@@ -1774,12 +1921,16 @@ func (r *EvalRunner) loadResources(tc *models.TestCase) []execution.ResourceFile
 }
 
 func (r *EvalRunner) loadContextFixtureResources(tc *models.TestCase) ([]execution.ResourceFile, error) {
-	return LoadContextFixtureResources(tc, r.cfg.SpecDir())
+	return loadContextFixtureResources(tc, r.cfg.SpecDir(), r.inputFiles())
 }
 
 // LoadContextFixtureResources reads local fixtures with runtime containment and
 // symlink rules. It does not create a workspace or initialize an engine.
 func LoadContextFixtureResources(tc *models.TestCase, baseDir string) ([]execution.ResourceFile, error) {
+	return loadContextFixtureResources(tc, baseDir, requestFilesInputs{nativeRequestFiles{}})
+}
+
+func loadContextFixtureResources(tc *models.TestCase, baseDir string, files RequestInputs) ([]execution.ResourceFile, error) {
 	fixtureValue, ok := tc.Stimulus.Metadata["fixture"]
 	if !ok {
 		return nil, nil
@@ -1819,17 +1970,17 @@ func LoadContextFixtureResources(tc *models.TestCase, baseDir string) ([]executi
 		return nil, fmt.Errorf("inputs.context.fixture path %q escapes spec directory", fixturePath)
 	}
 
-	info, err := os.Stat(fullPath)
+	kind, err := files.Kind(fullPath)
 	if err != nil {
 		return nil, fmt.Errorf("reading inputs.context.fixture %q: %w", fixturePath, err)
 	}
 
 	// Re-check containment using symlink-resolved paths.
-	realFullPath, err := filepath.EvalSymlinks(fullPath)
+	realFullPath, err := files.Resolve(fullPath)
 	if err != nil {
 		return nil, fmt.Errorf("resolving symlinks for inputs.context.fixture %q: %w", fixturePath, err)
 	}
-	realBaseDir, err := filepath.EvalSymlinks(absBaseDir)
+	realBaseDir, err := files.Resolve(absBaseDir)
 	if err != nil {
 		return nil, fmt.Errorf("resolving symlinks for spec directory: %w", err)
 	}
@@ -1837,8 +1988,8 @@ func LoadContextFixtureResources(tc *models.TestCase, baseDir string) ([]executi
 		return nil, fmt.Errorf("inputs.context.fixture path %q escapes spec directory", fixturePath)
 	}
 
-	if !info.IsDir() {
-		content, err := os.ReadFile(fullPath)
+	if kind != RequestInputDirectory {
+		content, err := files.ReadFile(fullPath)
 		if err != nil {
 			return nil, fmt.Errorf("reading inputs.context.fixture file %q: %w", fixturePath, err)
 		}
@@ -1849,14 +2000,11 @@ func LoadContextFixtureResources(tc *models.TestCase, baseDir string) ([]executi
 	}
 
 	var resources []execution.ResourceFile
-	err = filepath.WalkDir(fullPath, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if d.Type()&os.ModeSymlink != 0 {
+	err = files.Walk(fullPath, func(path string, kind RequestInputKind) error {
+		if kind == RequestInputSymlink {
 			return nil
 		}
-		if d.IsDir() {
+		if kind == RequestInputDirectory {
 			return nil
 		}
 
@@ -1867,7 +2015,7 @@ func LoadContextFixtureResources(tc *models.TestCase, baseDir string) ([]executi
 		if rel == "." {
 			return nil
 		}
-		content, err := os.ReadFile(path)
+		content, err := files.ReadFile(path)
 		if err != nil {
 			return err
 		}
@@ -1911,7 +2059,7 @@ func (r *EvalRunner) loadInstructionFiles(tc *models.TestCase) ([]execution.Inst
 			return nil, nil, err
 		}
 
-		content, err := os.ReadFile(fullPath)
+		content, err := r.inputFiles().ReadFile(fullPath)
 		if err != nil {
 			return nil, nil, fmt.Errorf("reading instruction file %q: %w", path, err)
 		}

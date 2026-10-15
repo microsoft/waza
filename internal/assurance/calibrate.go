@@ -7,9 +7,11 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"maps"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 
@@ -50,6 +52,7 @@ type calibrationJob struct {
 	output                   string
 	rubric                   []byte
 	rubricSHA                string
+	declarationSHA           string
 	requestIdentity          string
 	requestedModel           string
 	judgeModel, judgeEffort  string
@@ -253,7 +256,8 @@ func Calibrate(ctx context.Context, request CalibrateRequest) (*Report, error) {
 				requirement: ri, observation: oi, config: config,
 				task: frozen.Tasks[candidate.TaskID], output: *input.Output(),
 				rubric: rubric, rubricSHA: rubricSHA,
-				judgeModel: frozen.Spec.Config.JudgeModel, judgeEffort: frozen.Spec.Config.JudgeReasoningEffort,
+				declarationSHA: check.GraderDeclarationSHA256,
+				judgeModel:     frozen.Spec.Config.JudgeModel, judgeEffort: frozen.Spec.Config.JudgeReasoningEffort,
 			}
 			if job.judgeModel == "" {
 				job.judgeModel = plan.Model
@@ -443,66 +447,162 @@ func calibrationRubricGoldensPresent(data []byte) (bool, error) {
 }
 
 type calibrationRubricStore struct {
-	directory string
-	files     []string
+	directory             string
+	files                 []string
+	worktree, cache, root *os.Root
+	cacheInfo, info       os.FileInfo
 }
 
-func newCalibrationRubricStore() (*calibrationRubricStore, error) {
+func newCalibrationRubricStore() (_ *calibrationRubricStore, returnErr error) {
 	id := make([]byte, 16)
 	if _, err := rand.Read(id); err != nil {
 		return nil, err
-	}
-	if err := os.MkdirAll(".cache", 0o700); err != nil {
-		return nil, err
-	}
-	info, err := os.Lstat(".cache")
-	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
-		return nil, errors.New("assurance: calibration cache must be a local directory")
 	}
 	directory, err := filepath.Abs(filepath.Join(".cache", "assurance-calibration-"+hex.EncodeToString(id)))
 	if err != nil {
 		return nil, err
 	}
-	if err := os.Mkdir(directory, 0o700); err != nil {
+	store := &calibrationRubricStore{}
+	defer func() {
+		if returnErr == nil {
+			return
+		}
+		if store.directory != "" {
+			returnErr = errors.Join(returnErr, fmt.Errorf("assurance: incomplete calibration cache retained for inspection: %s", store.directory))
+		}
+		for _, root := range []*os.Root{store.root, store.cache, store.worktree} {
+			if root != nil {
+				returnErr = errors.Join(returnErr, root.Close())
+			}
+		}
+	}()
+	store.worktree, err = os.OpenRoot(".")
+	if err != nil {
+		return nil, fmt.Errorf("assurance: opening calibration worktree: %w", err)
+	}
+	if err := store.worktree.Mkdir(".cache", 0o700); err != nil && !errors.Is(err, os.ErrExist) {
+		return nil, fmt.Errorf("assurance: creating calibration cache parent: %w", err)
+	}
+	store.cacheInfo, err = store.worktree.Lstat(".cache")
+	if err != nil {
+		return nil, fmt.Errorf("assurance: inspecting calibration cache parent: %w", err)
+	}
+	if err := validateCalibrationCacheDirectory(store.cacheInfo, false); err != nil {
 		return nil, err
 	}
-	return &calibrationRubricStore{directory: directory}, nil
+	store.cache, err = store.worktree.OpenRoot(".cache")
+	if err != nil {
+		return nil, fmt.Errorf("assurance: retaining calibration cache parent: %w", err)
+	}
+	info, err := store.cache.Stat(".")
+	if err != nil {
+		return nil, fmt.Errorf("assurance: inspecting retained calibration cache parent: %w", err)
+	}
+	if !os.SameFile(store.cacheInfo, info) {
+		return nil, errors.New("assurance: calibration cache parent changed during acquisition")
+	}
+	if err := store.cache.Mkdir(filepath.Base(directory), 0o700); err != nil {
+		return nil, fmt.Errorf("assurance: creating exclusive calibration cache: %w", err)
+	}
+	store.directory = directory
+	store.root, err = store.cache.OpenRoot(filepath.Base(directory))
+	if err != nil {
+		return nil, fmt.Errorf("assurance: retaining private calibration cache: %w", err)
+	}
+	store.info, err = store.root.Stat(".")
+	if err != nil {
+		return nil, fmt.Errorf("assurance: inspecting private calibration cache: %w", err)
+	}
+	if err := store.verify(); err != nil {
+		return nil, err
+	}
+	return store, nil
+}
+
+func validateCalibrationCacheDirectory(info os.FileInfo, private bool) error {
+	if info == nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return errors.New("assurance: calibration cache must be a local directory")
+	}
+	// Windows mode bits do not certify ACLs; descriptor confinement still applies.
+	if runtime.GOOS != "windows" {
+		forbidden := os.FileMode(0o022)
+		if private {
+			forbidden = 0o077
+		}
+		if info.Mode().Perm()&forbidden != 0 {
+			return errors.New("assurance: calibration cache permissions expose an untrusted principal")
+		}
+	}
+	return nil
+}
+
+func (store *calibrationRubricStore) verify() error {
+	if store.worktree == nil || store.cache == nil || store.root == nil || store.directory == "" {
+		return errors.New("assurance: calibration cache is closed")
+	}
+	for _, entry := range []struct {
+		root *os.Root
+		name string
+		info os.FileInfo
+	}{{store.worktree, ".cache", store.cacheInfo}, {store.cache, filepath.Base(store.directory), store.info}, {store.root, ".", store.info}} {
+		info, err := entry.root.Lstat(entry.name)
+		if err != nil {
+			return fmt.Errorf("assurance: checking calibration cache identity: %w", err)
+		}
+		if !os.SameFile(entry.info, info) {
+			return errors.New("assurance: calibration cache identity changed")
+		}
+		if err := validateCalibrationCacheDirectory(info, entry.root != store.worktree); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (store *calibrationRubricStore) write(data []byte) (string, error) {
+	if err := store.verify(); err != nil {
+		return "", err
+	}
 	id := make([]byte, 16)
 	if _, err := rand.Read(id); err != nil {
 		return "", err
 	}
-	name := filepath.Join(store.directory, hex.EncodeToString(id)+".md")
-	file, err := os.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	name := hex.EncodeToString(id) + ".md"
+	file, err := store.root.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		return "", err
 	}
 	store.files = append(store.files, name)
 	_, writeErr := file.Write(data)
-	if err := errors.Join(writeErr, file.Close()); err != nil {
+	if err := errors.Join(writeErr, file.Close(), store.verify()); err != nil {
 		return "", err
 	}
-	return name, nil
+	return filepath.Join(store.directory, name), nil
 }
 
 func (store *calibrationRubricStore) close() error {
 	if store.directory == "" {
 		return nil
 	}
-	var failures []error
+	failures := []error{store.verify()}
 	for _, name := range store.files {
-		if err := os.Remove(name); err != nil && !errors.Is(err, os.ErrNotExist) {
+		if err := store.root.Remove(name); err != nil && !errors.Is(err, os.ErrNotExist) {
 			failures = append(failures, err)
 		}
 	}
-	if err := os.Remove(store.directory); err != nil && !errors.Is(err, os.ErrNotExist) {
+	info, err := store.cache.Lstat(filepath.Base(store.directory))
+	if err != nil {
+		failures = append(failures, fmt.Errorf("assurance: locating calibration cache for cleanup: %w", err))
+	} else if !os.SameFile(store.info, info) {
+		failures = append(failures, errors.New("assurance: refusing cleanup of a replaced calibration cache"))
+	} else if err := store.cache.Remove(filepath.Base(store.directory)); err != nil {
 		failures = append(failures, err)
 	}
-	if len(failures) == 0 {
-		store.directory, store.files = "", nil
+	for _, root := range []*os.Root{store.root, store.cache, store.worktree} {
+		failures = append(failures, root.Close())
 	}
+	store.directory, store.files = "", nil
+	store.root, store.cache, store.worktree = nil, nil, nil
 	return errors.Join(failures...)
 }
 
@@ -514,21 +614,22 @@ func runCalibrationGrade(ctx context.Context, job calibrationJob, store *calibra
 	if err != nil {
 		return nil, err
 	}
-	parameters, ok := config.Parameters.(models.PromptGraderParameters)
+	_, ok := config.Parameters.(models.PromptGraderParameters)
 	if !ok {
 		return nil, errors.New("assurance: calibrated native grader is not a prompt grader")
 	}
-	name, err := store.write(job.rubric)
+	acquired, err := graders.AcquireRubric(config, job.declarationSHA, job.rubricSHA, job.rubric)
 	if err != nil {
 		return nil, err
 	}
-	parameters.Rubric = name
-	config.Parameters = parameters
+	if _, err := store.write(job.rubric); err != nil {
+		return nil, err
+	}
 	// The real frozen task supplies prompt input, but the runner task must be
 	// empty so unrelated validators and expectations can never execute.
-	return graders.RunAll(ctx, []models.GraderConfig{config}, &models.TestCase{}, &graders.Context{
+	return graders.RunAllWithAcquiredRubrics(ctx, []models.GraderConfig{config}, &models.TestCase{}, &graders.Context{
 		TestCase: job.task, Output: job.output, OutputPresent: true, Executor: executor,
-	}, job.judgeModel, job.judgeEffort, false)
+	}, job.judgeModel, job.judgeEffort, false, []*graders.AcquiredRubric{acquired})
 }
 
 func calibrationObservationState(state AssessmentState) ObservationState {

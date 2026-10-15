@@ -216,7 +216,8 @@ tasks:
 	evalExternalTasks := `name: shared-eval
 skill: test-skill
 version: "1.0"
-tasks_from: shared-tasks.yaml
+tasks_from: shared-tasks.csv
+range: [2, 2]
 config:
   trials_per_task: 3
   timeout_seconds: 300

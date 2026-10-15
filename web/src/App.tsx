@@ -5,22 +5,34 @@ import RunDetail from "./components/RunDetail";
 import CompareView from "./components/CompareView";
 import TrendsPage from "./components/TrendsPage";
 import LiveView from "./components/LiveView";
+import ReleaseView from "./components/ReleaseView";
+
 const AssurancePage = lazy(() => import("./components/AssurancePage"));
+const DashboardLab = lazy(() => import("./lab/DashboardLab"));
 
 type Route =
   | { page: "home" }
+  | { page: "lab"; demo: boolean }
   | { page: "run"; id: string }
   | { page: "compare" }
   | { page: "trends" }
   | { page: "live" }
-  | { page: "assurance" };
+  | { page: "assurance" }
+  | { page: "release" };
 
 function parseHash(): Route {
   const hash = window.location.hash.slice(1);
+  if (hash === "/lab" || hash.startsWith("/lab/")) {
+    return {
+      page: "lab",
+      demo: hash === "/lab/demo" || hash.startsWith("/lab/demo/"),
+    };
+  }
   if (hash === "/compare") return { page: "compare" };
   if (hash === "/trends") return { page: "trends" };
   if (hash === "/live") return { page: "live" };
   if (hash === "/assurance") return { page: "assurance" };
+  if (hash === "/release") return { page: "release" };
   const runMatch = hash.match(/^\/runs\/(.+)$/);
   if (runMatch?.[1]) return { page: "run", id: runMatch[1] };
   return { page: "home" };
@@ -35,6 +47,16 @@ export default function App() {
     return () => window.removeEventListener("hashchange", onHashChange);
   }, []);
 
+  if (route.page === "lab") {
+    return (
+      <Suspense
+        fallback={<p className="p-8 text-zinc-100">Loading dashboard lab...</p>}
+      >
+        <DashboardLab key={route.demo ? "demo" : "results"} demo={route.demo} />
+      </Suspense>
+    );
+  }
+
   return (
     <Layout>
       {route.page === "home" && <Dashboard />}
@@ -42,7 +64,12 @@ export default function App() {
       {route.page === "compare" && <CompareView />}
       {route.page === "trends" && <TrendsPage />}
       {route.page === "live" && <LiveView />}
-      {route.page === "assurance" && <Suspense fallback={<p role="status">Loading report inspector...</p>}><AssurancePage /></Suspense>}
+      {route.page === "assurance" && (
+        <Suspense fallback={<p role="status">Loading report inspector...</p>}>
+          <AssurancePage />
+        </Suspense>
+      )}
+      {route.page === "release" && <ReleaseView />}
     </Layout>
   );
 }

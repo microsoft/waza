@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/microsoft/waza/internal/jsonrpc"
 	"github.com/microsoft/waza/internal/models"
@@ -85,6 +86,93 @@ func TestServerUnknownAndUnmatchedCallsReturnMCPErrorResult(t *testing.T) {
 
 	requireToolError(t, srv, "missing", map[string]any{}, `unknown tool "missing"`)
 	requireToolError(t, srv, "list_issues", map[string]any{"owner": "microsoft"}, `unmatched tool call "list_issues"`)
+}
+
+func TestUnmatchedResponseOmitsArbitraryArgumentValues(t *testing.T) {
+	srv := NewServer(&Config{
+		Name: "dependency",
+		Tools: map[string]Tool{
+			"read": {Responses: []Response{{Match: map[string]any{"id": "known"}, Return: "ok"}}},
+		},
+	}, nil)
+	args := map[string]any{
+		"id": "private-unrecognized-value",
+		"nested": map[string]any{
+			"password": "private-password",
+			"list":     []any{"private-list-value"},
+		},
+	}
+	result := toolCall(t, srv, "read", args)
+	require.True(t, result.IsError)
+	data, err := json.Marshal(result)
+	require.NoError(t, err)
+	for _, secret := range []string{"private-unrecognized-value", "private-password", "private-list-value"} {
+		require.NotContains(t, string(data), secret)
+	}
+	require.Contains(t, string(data), "arguments omitted")
+	require.Contains(t, string(data), "add a matching fixture response")
+	requireToolJSON(t, srv, "read", map[string]any{"id": "known"}, `"ok"`)
+}
+
+func TestCancelledToolCallsRejectBeforeFixtureDispatch(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		ctx  func() (context.Context, context.CancelFunc)
+		want string
+	}{
+		{
+			name: "canceled",
+			ctx: func() (context.Context, context.CancelFunc) {
+				ctx, cancel := context.WithCancel(context.Background())
+				cancel()
+				return ctx, cancel
+			},
+			want: context.Canceled.Error(),
+		},
+		{
+			name: "expired",
+			ctx: func() (context.Context, context.CancelFunc) {
+				return context.WithDeadline(context.Background(), time.Unix(0, 0))
+			},
+			want: context.DeadlineExceeded.Error(),
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// An unencodable response proves canceled requests never dispatch fixtures.
+			srv := NewServer(&Config{Name: "dependency", Tools: map[string]Tool{
+				"read": {Responses: []Response{{Return: make(chan int)}}},
+			}}, nil)
+			ctx, cancel := test.ctx()
+			defer cancel()
+			for _, params := range []json.RawMessage{
+				json.RawMessage(`{"name":"read","arguments":{}}`),
+				json.RawMessage(`not-json`),
+			} {
+				req := &jsonrpc.Request{Method: "tools/call", Params: params, ID: json.RawMessage(`42`)}
+				resp := srv.HandleRequest(ctx, req)
+				require.Nil(t, resp.Error)
+				require.Equal(t, req.ID, resp.ID)
+				data, err := json.Marshal(resp.Result)
+				require.NoError(t, err)
+				require.Contains(t, string(data), `"isError":true`)
+				require.Contains(t, string(data), "before fixture dispatch")
+				require.Contains(t, string(data), test.want)
+				require.NotContains(t, string(data), "marshal response")
+			}
+		})
+	}
+}
+
+func TestCancelledContextPreservesNonToolMethods(t *testing.T) {
+	srv := NewServer(&Config{Name: "dependency"}, nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	for _, method := range []string{"initialize", "tools/list", "notifications/initialized", "unknown"} {
+		t.Run(method, func(t *testing.T) {
+			req := &jsonrpc.Request{Method: method, ID: json.RawMessage(`1`)}
+			require.Equal(t, srv.HandleRequest(context.Background(), req), srv.HandleRequest(ctx, req))
+		})
+	}
 }
 
 func TestToolsListIncludesConfiguredSchemas(t *testing.T) {

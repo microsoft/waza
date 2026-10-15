@@ -1,6 +1,7 @@
 package assurance
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -472,6 +473,26 @@ func verifyAuthoredInput(ctx context.Context, request VerifyRequest, candidate R
 		if !errors.Is(err, os.ErrNotExist) {
 			observation.State, observation.Reason = OperationalError, "authored_input_read_failed"
 		}
+		return nil, observation
+	}
+	return verifyAuthoredInputData(ctx, request, candidate, check, observation, data)
+}
+
+func verifyAcquiredAuthoredInput(ctx context.Context, request VerifyRequest, candidate ReferenceCase, check ReferenceCheck, observation ChallengeObservation, data []byte) (*AuthoredOutput, ChallengeObservation) {
+	if len(data) == 0 || len(data) > maxSnapshotBytes {
+		observation.State, observation.Reason = Invalid, "authored_input_size_invalid"
+		return nil, observation
+	}
+	return verifyAuthoredInputData(ctx, request, candidate, check, observation, bytes.Clone(data))
+}
+
+func verifyAuthoredInputData(ctx context.Context, request VerifyRequest, candidate ReferenceCase, check ReferenceCheck, observation ChallengeObservation, data []byte) (*AuthoredOutput, ChallengeObservation) {
+	if ctx.Err() != nil {
+		observation.State, observation.Reason = OperationalError, "assessment_interrupted"
+		return nil, observation
+	}
+	if candidate.AuthoredInput == nil {
+		observation.State, observation.Reason = Invalid, "authored_input_binding_unavailable"
 		return nil, observation
 	}
 	if byteSHA256(data) != candidate.AuthoredInput.DocumentSHA256 {

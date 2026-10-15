@@ -81,10 +81,18 @@ Paid calls require --accept-paid-calls for this invocation, even without a TTY.
 The reviewed execution ceiling bounds independent jobs, not follow-up calls,
 retries, credits or money. Unknown finalized accounting is not zero.
 --timeout is a cooperative assessment deadline, not a spending budget.
+--output requires Unix atomic replacement; on other platforms omit it and use stdout.
 Exit 0: clean pass; 1: ordinary nonpass/refusal; 2: invalid or operational error.`,
 		SilenceErrors: true,
 		SilenceUsage:  true,
-		Args:          cobra.ExactArgs(1),
+		Args: func(cmd *cobra.Command, args []string) error {
+			if cmd.Flags().Changed("output") {
+				if err := calibrationOutputCapability(); err != nil {
+					return &ExitCodeError{Code: 2, Err: err}
+				}
+			}
+			return cobra.ExactArgs(1)(cmd, args)
+		},
 		RunE: func(cmd *cobra.Command, args []string) (returnErr error) {
 			fail := func(err error) error { return &ExitCodeError{Code: 2, Err: err} }
 			for _, value := range []string{referencesPath, reviewPath, acceptedSource, rubricPath} {
@@ -239,7 +247,7 @@ Exit 0: clean pass; 1: ordinary nonpass/refusal; 2: invalid or operational error
 	cmd.Flags().StringVar(&reviewPath, "review", "", "Separate supplied current-review declaration")
 	cmd.Flags().StringVar(&acceptedSource, "accept-review-source", "", "Accept this supplied source's current review decision")
 	cmd.Flags().StringVar(&rubricPath, "rubric-root", "", "Explicit directory confining original local rubric reads")
-	cmd.Flags().StringVarP(&outputPath, "output", "o", "", "Atomically write a private standalone calibration report")
+	cmd.Flags().StringVarP(&outputPath, "output", "o", "", "Atomically write a private standalone calibration report (Unix only; otherwise use stdout)")
 	cmd.Flags().BoolVar(&acceptPaid, "accept-paid-calls", false, "Acknowledge paid calls for this admitted invocation only")
 	cmd.Flags().DurationVar(&timeout, "timeout", 10*time.Minute, "Positive cooperative assessment timeout, not a spending budget")
 	for _, name := range []string{"references", "review", "accept-review-source", "rubric-root"} {
@@ -267,7 +275,17 @@ func writeCalibrationBytes(writer io.Writer, data []byte) error {
 	return err
 }
 
+func calibrationOutputCapability() error {
+	if !calibrationAtomicOutputSupported {
+		return errors.New("calibration --output requires Unix atomic replacement; omit --output and use stdout on this platform")
+	}
+	return nil
+}
+
 func writeCalibrationReport(path string, data []byte) (returnErr error) {
+	if err := calibrationOutputCapability(); err != nil {
+		return err
+	}
 	// Exclusive private sibling staging preserves the old report on failure.
 	var suffix [16]byte
 	if _, err := rand.Read(suffix[:]); err != nil {

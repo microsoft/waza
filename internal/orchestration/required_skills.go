@@ -2,28 +2,39 @@ package orchestration
 
 import (
 	"fmt"
+	"log/slog"
 
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/utils"
 )
 
 // ValidateRequiredSkillConfiguration uses runtime declaration discovery without
-// initializing an engine. Parse errors are returned, not printed with payloads.
+// initializing an engine. Malformed definitions are warned and skipped like
+// runtime discovery, without exposing their parsing payloads.
 func ValidateRequiredSkillConfiguration(spec *models.EvalSpec, baseDir string) error {
 	return validateRequiredSkillConfiguration(spec, baseDir, func(paths []string) (map[string]string, error) {
-		return discoverSkillsWithReporter(paths, nil)
+		return discoverSkillsWithReporter(paths, func(path string, _ error) {
+			slog.Warn("skipping malformed definition during required-skill discovery; correct its frontmatter", "path", path)
+		})
 	})
 }
 
 func validateRequiredSkillConfiguration(spec *models.EvalSpec, baseDir string, discover func([]string) (map[string]string, error)) error {
-	if spec.Config.AllSkillsDisabled() || len(spec.Config.RequiredSkills) == 0 {
+	if len(spec.Config.RequiredSkills) == 0 || (spec.Scenario == "" && spec.Config.AllSkillsDisabled()) {
 		return nil
 	}
 	if baseDir == "" {
 		baseDir = "."
 	}
-	resolvedPaths := utils.ResolvePaths(spec.Config.SkillPaths, baseDir)
+	skillPaths := spec.Config.SkillPaths
+	if spec.Scenario != "" {
+		skillPaths = spec.Config.FilteredSkillPaths()
+	}
+	resolvedPaths := utils.ResolvePaths(skillPaths, baseDir)
 	if len(resolvedPaths) == 0 {
+		if spec.Scenario != "" {
+			return fmt.Errorf("required_skills specified but no skill_directories remain enabled; configure a directory not excluded by disabled_skills")
+		}
 		return fmt.Errorf("required_skills specified but no skill_directories configured")
 	}
 	discoveredSkills, err := discover(resolvedPaths)

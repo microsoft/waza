@@ -67,6 +67,19 @@ export function parseStrictJSON(text: string): unknown {
     const start = offset;
     while (offset < text.length && !/[ \t\r\n,\]}]/.test(text[offset]!)) offset++;
     if (start === offset) return invalid();
+    const token = text.slice(start, offset);
+    if (token === "true" || token === "false" || token === "null") return;
+    const parts = /^-?(0|[1-9]\d*)(?:\.(\d+))?(?:[eE]([+-]?\d+))?$/.exec(token);
+    const value = Number(token);
+    if (!parts || parts[1] === undefined || !Number.isFinite(value)) return invalid();
+    if (!Number.isInteger(value)) return;
+    const fraction = parts[2] ?? "";
+    const coefficient = parts[1] + fraction;
+    if (/^0+$/.test(coefficient)) return;
+    let trailingZeros = 0;
+    while (coefficient[coefficient.length - trailingZeros - 1] === "0") trailingZeros++;
+    // Preserve wire integrality before AJV sees a rounded integer, including underflow to zero.
+    if (fraction.length > Number(parts[3] ?? 0) + trailingZeros) return invalid();
   }
   read(0);
   space();

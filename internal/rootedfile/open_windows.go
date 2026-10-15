@@ -1,13 +1,13 @@
 //go:build windows
 
-package assurance
+package rootedfile
 
 import (
 	"errors"
 	"os"
 )
 
-func openReferenceDocument(root *os.Root, name string) (*os.File, error) {
+func Open(root *os.Root, name string) (*os.File, error) {
 	info, err := root.Stat(name)
 	if err != nil {
 		return nil, err

@@ -1,6 +1,8 @@
 package dataset
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -30,6 +32,92 @@ func TestLoadTasksPreservesFallbacksAndSharedTemplateContext(t *testing.T) {
 	require.Equal(t, "NameOnly", tasks[0].TestID)
 }
 
+func TestLoadTasksRangedFallbackIdentityUsesOriginalRow(t *testing.T) {
+	dir := t.TempDir()
+	writeCSV(t, dir, "data.csv", "id,name,prompt\nexplicit,Named,{{.TaskName}}\n,,{{.TaskName}}\n,,{{.TaskName}}\n")
+	spec := &models.EvalSpec{TasksFrom: "data.csv"}
+	now := time.Unix(0, 0)
+	full, err := LoadTasks(spec, dir, now)
+	require.NoError(t, err)
+	for _, bounds := range [][2]int{{2, 2}, {2, 3}, {3, 99}} {
+		spec.Range = bounds
+		selected, err := LoadTasks(spec, dir, now)
+		require.NoError(t, err)
+		require.NotEmpty(t, selected)
+		for i, task := range selected {
+			require.Equal(t, full[bounds[0]-1+i], task)
+		}
+	}
+	spec.Range = [2]int{4, 99}
+	selected, err := LoadTasks(spec, dir, now)
+	require.NoError(t, err)
+	require.Empty(t, selected)
+	spec.Range = [2]int{2, 2}
+	writeCSV(t, dir, "data.csv", "prompt\nfirst\n{{bad\n")
+	_, err = LoadTasks(spec, dir, now)
+	require.ErrorContains(t, err, "resolving prompt template for row 2")
+}
+
+func TestLoadTasksResolvedSymlinkContainment(t *testing.T) {
+	dir := t.TempDir()
+	outside := t.TempDir()
+	writeCSV(t, dir, "local.csv", "prompt\nlocal\n")
+	writeCSV(t, outside, "outside.csv", "prompt\noutside-secret\n")
+	for _, tc := range []struct {
+		name, target string
+		escape       bool
+	}{
+		{"internal", filepath.Join(dir, "local.csv"), false},
+		{"external", filepath.Join(outside, "outside.csv"), true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			link := filepath.Join(dir, tc.name+".csv")
+			require.NoError(t, os.Symlink(tc.target, link))
+			for _, bounds := range [][2]int{{}, {1, 1}} {
+				tasks, err := LoadTasks(&models.EvalSpec{TasksFrom: filepath.Base(link), Range: bounds}, dir, time.Unix(0, 0))
+				if tc.escape {
+					require.ErrorContains(t, err, "escapes spec directory through symlinks")
+					require.Nil(t, tasks)
+				} else {
+					require.NoError(t, err)
+					require.Equal(t, "local", tasks[0].Stimulus.Message)
+				}
+			}
+		})
+	}
+	alias := filepath.Join(t.TempDir(), "suite")
+	require.NoError(t, os.Symlink(dir, alias))
+	tasks, err := LoadTasks(&models.EvalSpec{TasksFrom: "local.csv"}, alias, time.Unix(0, 0))
+	require.NoError(t, err)
+	require.Equal(t, "local", tasks[0].Stimulus.Message)
+	tasks, err = LoadTasks(&models.EvalSpec{TasksFrom: filepath.Join(dir, "local.csv")}, alias, time.Unix(0, 0))
+	require.ErrorContains(t, err, "escapes spec directory")
+	require.Nil(t, tasks)
+	for _, tc := range []struct {
+		name, target, csv string
+		escape            bool
+	}{
+		{"internal-dir", dir, "local.csv", false},
+		{"external-dir", outside, "outside.csv", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			link := filepath.Join(dir, tc.name)
+			require.NoError(t, os.Symlink(tc.target, link))
+			tasks, err := LoadTasks(&models.EvalSpec{TasksFrom: filepath.Join(tc.name, tc.csv)}, dir, time.Unix(0, 0))
+			if tc.escape {
+				require.ErrorContains(t, err, "escapes spec directory through symlinks")
+				require.Nil(t, tasks)
+			} else {
+				require.NoError(t, err)
+				require.Equal(t, "local", tasks[0].Stimulus.Message)
+			}
+		})
+	}
+	require.NoError(t, os.Symlink(filepath.Join(dir, "absent.csv"), filepath.Join(dir, "dangling.csv")))
+	_, err = LoadTasks(&models.EvalSpec{TasksFrom: "dangling.csv"}, dir, time.Unix(0, 0))
+	require.ErrorContains(t, err, "loading CSV dataset")
+}
+
 func TestLoadTasksErrors(t *testing.T) {
 	for _, tc := range []struct {
 		name, path, csv, want string
@@ -51,4 +139,86 @@ func TestLoadTasksErrors(t *testing.T) {
 			require.ErrorContains(t, err, tc.want)
 		})
 	}
+}
+
+func TestLoadTasksFilesystemRootContainment(t *testing.T) {
+	dir := t.TempDir()
+	writeCSV(t, dir, "data.csv", "prompt\nroot-contained\n")
+	root := filepath.VolumeName(dir) + string(filepath.Separator)
+	path := filepath.Join(dir, "data.csv")
+	relative, err := filepath.Rel(root, path)
+	require.NoError(t, err)
+	for _, input := range []string{path, relative} {
+		tasks, err := LoadTasks(&models.EvalSpec{TasksFrom: input}, root, time.Unix(0, 0))
+		require.NoError(t, err)
+		require.Len(t, tasks, 1)
+		require.Equal(t, "root-contained", tasks[0].Stimulus.Message)
+	}
+}
+
+func TestTaskCSVOpenRejectsReplacementAfterContainment(t *testing.T) {
+	for _, parent := range []bool{false, true} {
+		t.Run(map[bool]string{false: "leaf", true: "parent"}[parent], func(t *testing.T) {
+			dir, outside := t.TempDir(), t.TempDir()
+			var err error
+			dir, err = filepath.EvalSymlinks(dir)
+			require.NoError(t, err)
+			require.NoError(t, os.Mkdir(filepath.Join(dir, "data"), 0o755))
+			writeCSV(t, filepath.Join(dir, "data"), "tasks.csv", "prompt\ninside\n")
+			writeCSV(t, outside, "tasks.csv", "prompt\noutside\n")
+			root, err := os.OpenRoot(dir)
+			require.NoError(t, err)
+			defer func() { require.NoError(t, root.Close()) }()
+			path := filepath.Join(dir, "data", "tasks.csv")
+			resolved, err := filepath.EvalSymlinks(path)
+			require.NoError(t, err)
+			relative, err := filepath.Rel(dir, resolved)
+			require.NoError(t, err)
+			require.True(t, filepath.IsLocal(relative))
+			target, replacement := path, filepath.Join(outside, "tasks.csv")
+			if parent {
+				target, replacement = filepath.Dir(path), outside
+			}
+			require.NoError(t, os.Rename(target, target+".original"))
+			require.NoError(t, os.Symlink(replacement, target))
+			rows, err := readCSVAt(root, relative)
+			require.Error(t, err)
+			require.Nil(t, rows)
+		})
+	}
+}
+
+func TestTaskCSVReadKeepsRetainedRoot(t *testing.T) {
+	base := t.TempDir()
+	dir := filepath.Join(base, "suite")
+	require.NoError(t, os.Mkdir(dir, 0o755))
+	writeCSV(t, dir, "tasks.csv", "prompt\noriginal\n")
+	root, err := os.OpenRoot(dir)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, root.Close()) }()
+	require.NoError(t, os.Rename(dir, dir+".original"))
+	require.NoError(t, os.Mkdir(dir, 0o755))
+	writeCSV(t, dir, "tasks.csv", "prompt\nreplacement\n")
+	rows, err := readCSVAt(root, "tasks.csv")
+	require.NoError(t, err)
+	require.Equal(t, []Row{{"prompt": "original"}}, rows)
+}
+
+func TestTaskCSVReadRejectsInvalidFiles(t *testing.T) {
+	dir := t.TempDir()
+	root, err := os.OpenRoot(dir)
+	require.NoError(t, err)
+	for _, path := range []string{".", "missing.csv"} {
+		rows, err := readCSVAt(root, path)
+		require.Error(t, err)
+		require.Nil(t, rows)
+	}
+	writeCSV(t, dir, "invalid.csv", "prompt\n\"unclosed\n")
+	rows, err := readCSVAt(root, "invalid.csv")
+	require.ErrorContains(t, err, "csv: parse")
+	require.Nil(t, rows)
+	require.NoError(t, root.Close())
+	rows, err = readCSVAt(root, "invalid.csv")
+	require.ErrorIs(t, err, os.ErrClosed)
+	require.Nil(t, rows)
 }

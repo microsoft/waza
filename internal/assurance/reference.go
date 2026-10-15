@@ -9,6 +9,7 @@ import (
 	"math"
 	"path"
 	"reflect"
+	"regexp"
 	"strings"
 	"time"
 
@@ -16,6 +17,8 @@ import (
 	"github.com/microsoft/waza/internal/jsonutil"
 	"github.com/microsoft/waza/internal/models"
 )
+
+var referenceTimestamp = regexp.MustCompile(`^[0-9]{4}-[0-9]{2}-[0-9]{2}T(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](?:\.[0-9]+)?(?:Z|[+-](?:[01][0-9]|2[0-3]):[0-5][0-9])$`)
 
 const (
 	ReferenceVersion  = "1.0"
@@ -195,7 +198,7 @@ func decodeDocument(data []byte, destination any) (any, error) {
 		return nil, errors.New("reference document: expected an object")
 	}
 	if !exactDocumentFields(value, reflect.TypeOf(destination)) {
-		return nil, errors.New("reference document: unsupported property names")
+		return nil, errors.New("reference document: unsupported property names or values")
 	}
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
@@ -208,6 +211,10 @@ func decodeDocument(data []byte, destination any) (any, error) {
 func exactDocumentFields(value any, typ reflect.Type) bool {
 	for typ.Kind() == reflect.Pointer {
 		typ = typ.Elem()
+	}
+	if typ == reflect.TypeFor[time.Time]() {
+		text, ok := value.(string)
+		return ok && referenceTimestamp.MatchString(text)
 	}
 	switch object := value.(type) {
 	case map[string]any:

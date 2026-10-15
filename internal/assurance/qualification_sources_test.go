@@ -405,6 +405,9 @@ func TestQualificationNativeSelectionAggregateBudgetBeforeSerialization(t *testi
 	fixture.reads = append(fixture.reads, qualificationSourceRead{
 		ID: "task-other", Role: "task", TaskID: task.TestID, Root: fixture.request.SnapshotRoot, Path: "task-other.yaml",
 	})
+	fixture.document.EvalSourceSHA256 = byteSHA256(evalBytes)
+	calibrationRebind(t, &fixture.request, &fixture.document)
+	qualificationSaveLockedLabels(t, fixture)
 	sources, err := qualificationAcquireSources(t.Context(), fixture.reads)
 	require.NoError(t, err)
 	set, err := qualificationDecode[qualificationSourceSet](sources.document.bytes(), qualificationEncodedLimit)

@@ -38,6 +38,24 @@ reads. Live services, model access, interpreter syntax, credential/permission
 availability, Git revision materialization, and conditional checkpoint execution
 remain unresolved.
 
+Exit policy is driven by `diagnostics`, not every entry in the capability
+inventory. For example, the `mock` executor lists MCP support as `unsupported`,
+but that alone does not fail `--strict` when the eval does not request MCP.
+A well-formed configured MCP dependency on that executor adds a `runtime.mcp`
+diagnostic; that unsupported-capability diagnostic warns by default and fails
+with `--strict`. Malformed MCP configuration also produces an `invalid`
+diagnostic and fails by default, regardless of strict mode.
+
+Required-skill discovery follows runtime discovery: malformed skill or agent
+definitions are warned about and skipped without printing their parsing
+payloads. An unrelated malformed definition does not invalidate a valid required
+skill. A required name that cannot be discovered still fails validation.
+
+Inspection is synchronous. `Inspect` has no context/cancellation parameter, and
+the command does not use a canceled Cobra context to skip local inspection.
+There is no cooperative cancellation or deadline guarantee for local filesystem
+reads; this limitation does not permit model or service calls.
+
 ## Descriptive requirements
 
 Task YAML can attach stable IDs to observable outcomes, forbidden effects,
@@ -72,7 +90,9 @@ requirements:
         grader: no-unrelated-file
 ```
 
-Categories are `outcome`, `boundary`, `recovery`, and `quality`.
+Each requirement needs a nonempty description and a unique, nonempty ID without
+leading or trailing whitespace. Categories are `outcome`, `boundary`, `recovery`,
+and `quality`.
 `checks` select existing **explicit** grader declarations:
 
 | Scope | Selection |
@@ -109,11 +129,42 @@ Task globs and `tasks_from` CSV paths resolve from the eval directory. Nonempty
 `tasks_from` retains runtime precedence over YAML task lists; CSV range, ID
 fallback, variables and template rules are shared with execution. CSV rows do
 not acquire invented requirements.
+An individual valid task glob may match nothing if another pattern supplies
+tasks; malformed globs and an entirely empty discovered inventory are invalid.
+Any present `scenario` must be a nonblank string with exact
+`schemaVersion: "2.0"`, including in raw native YAML/JSON parsing. Null and
+non-string values no longer fall back to legacy admission or scalar coercion.
+Remove `scenario` for a legacy suite, or supply the valid identity/version pair;
+truly absent fields retain legacy defaults.
+CSV paths must be lexically within the eval directory and remain within it after symlinks resolve, including
+when the eval directory itself is a symlink or filesystem/volume root. Fallback IDs/names use the original
+1-based data row, so selecting `range: [2, 2]` retains `row-2`, not `row-1`.
+Regrading and run analysis use the same CSV loader: results from that range can
+be regraded with `waza grade eval.yaml --results results.json --task row-2`, or
+by omitting `--task` to grade all selected tasks. Explicit CSV IDs/names and
+template variables retain their precedence. Contained links remain allowed;
+resolved escapes are rejected. The final CSV read uses a retained eval-directory
+root so late symlink replacement cannot escape it; concurrent file contents are
+not frozen.
+An aliased eval base allows relative contained sources and absolute paths within
+the lexical alias root. An alternate physical absolute spelling outside that
+lexical root is rejected even when it resolves inside; physical equivalence alone
+does not grant admission.
+Contained absolute CSV paths retain their actual source in task plans and
+diagnostics; relative sources still resolve from the eval directory.
 
 Default fixtures are `<eval-directory>/fixtures`. CLI `--context-dir` resolves
 from the process cwd, as does the existing task `context_dir` override.
-Resource/instruction paths must stay workspace/context relative; local resource
-and instruction files are inspected, never modified. `inputs.context.fixture`
+Resource/instruction paths must stay workspace/context relative. Native volume
+prefixes are rejected using the host platform's path rules; a colon alone is not
+an absolute-path marker on POSIX (for example, `reports/run:1.json`). Rooted paths
+starting with `/` or `\` remain invalid on every host. Local resource
+and instruction files are inspected, never modified. File-backed resource paths
+containing `..` within any cleaned segment are diagnosed as rejected by the
+existing runtime loader; rename the file or segment. Inline content retains its
+existing path handling except that workspace-root destinations (`.` or any path
+cleaned to `.`) are invalid for resource/instruction and file/diff checks,
+including inline resource destinations. `inputs.context.fixture`
 accepts files or directories from the eval directory with runtime symlink
 containment rules. Explicit skill directories resolve from the eval directory;
 `required_skills` follows existing eval-level declaration discovery. Relative Git
@@ -128,7 +179,11 @@ scenario discovery does not inspect or inject ambient project skills.
 Scenario-bearing evals require exact explicit `schemaVersion: "2.0"` with a
 nonempty `scenario`. Existing v1 suites retain their version/default/discovery
 semantics. The approved scenario loader determines requested skill discovery:
-no target or explicit directories means no ambient discovery, and task
+an absent, null, empty, or whitespace-only target with no explicit directories
+means no ambient discovery. Nonblank target names and explicit directory values
+retain their original spelling. Explicit null/empty targets still fail the
+embedded eval schema; their parsed discovery intent is not ambient discovery.
+Task
 `skill_directories: []` disables it. The actual SDK discovery control is native
 `EnableSkills=false`, not an empty-directory proxy; preflight records static
 intent without constructing a session. `.agent.md` tools use native
@@ -139,6 +194,15 @@ Command-mock fixtures resolve from the eval directory. Task `command_mocks`
 replaces eval mocks, including explicit `[]`. Same-name MCP mocks replace live
 server declarations. MCP fixture responses and matchers are parsed without
 starting a mock. External schema references are not fetched.
+Fixture and inline `input_schema` must be a JSON object when supplied; strings, numbers,
+booleans and arrays are invalid. Omitting it retains the default tool schema.
+Input schemas are checked independently of response matchers: an unavailable
+response schema does not hide an invalid input schema. Offline fixture loading
+retains resolved declarations for this inventory even when response validation
+fails; that partial configuration is not executable or verified.
+Live stdio/HTTP/SSE settings also use the runtime's full side-effect-free decoder;
+malformed headers, environment maps or arguments are invalid, not just unresolved
+live availability.
 
 Native argument matchers compile eagerly while reading YAML. Preflight guards
 the same source bytes before that decoder, including `tool_calls.expect` and
@@ -146,15 +210,40 @@ the same source bytes before that decoder, including `tool_calls.expect` and
 pinned cached presets, and merged overrides. External schema prerequisites
 stop that materialization with an unresolved diagnostic and `complete: false`;
 ordinary matcher literals and MCP returned payloads are not treated as schemas.
+Invalid static grader fields still fail by default when the same pinned preset
+or merged override also has an unavailable schema. Fixture-backed MCP responses
+likewise retain both invalid regex configuration and unresolved schema
+prerequisites, across responses and declaration order. These mixed cases report
+`invalid` plus an `unresolved` diagnostic and keep `complete: false`; a regex or
+static-field failure never makes an external schema prerequisite verified.
+Later grader schema-file and MCP input-schema compilation also sets
+`complete: false` when external evidence cannot be inspected.
 Existing runtime loaders retain their normal resource-loading behavior.
+Only the explicit offline external-reference denial is unresolved; unrelated
+schema loader failures remain invalid and fail the default preflight policy.
 
 Every remote grader requires a valid matching `waza.lock`, just as execution
 does. Missing/malformed locks, missing entries, or digest mismatch are invalid.
 A missing pinned cache is unresolved; populate it explicitly with `waza get`
-while online. Cache integrity is not trust or grading success. Local grader
+while online. Cache integrity is not trust or grading success. Locked grader
+dependencies use the effective expanded name: an explicit alias overrides the
+preset name, with the export filename supplying the fallback for unnamed presets.
+An unnamed unresolved reference remains unnamed until its preset is available.
+Requirement references to eval graders use that known effective identity even
+when the preset and override cannot be merged. If a valid unnamed remote
+reference has no known identity yet, a zero-match requirement lookup is
+**unresolved**, not invalid or verified: the unavailable preset could supply the
+name. Known nonmatching names, duplicate matches, malformed references and
+invalid requirement metadata remain invalid. Authored failed-merge declarations
+are not rewritten to achieve this reporting lookup.
+Local grader
 `schema_file`, rubric, trigger and snapshot paths retain their runtime resolution
 bases; relative schema/rubric paths resolve from cwd, while snapshots use the
 grader's `context_dir` when configured.
+With `update_snapshots: true`, a missing snapshot leaf that resolves within its
+runtime context is **unresolved**, not invalid: preflight neither creates it nor
+verifies write permissions. Missing snapshots without update mode, invalid
+containment, unreadable files, dangling symlinks and non-file paths remain invalid.
 
 ## JSON report and compatibility
 
@@ -179,3 +268,6 @@ No new hard runtime semantics or global artifact-version bump is introduced.
 A minimum-version note or ignored minor field is not enforcement. Future hard
 semantics must choose a separate explicit artifact boundary older readers reject.
 Preflight reports are not evaluation results and do not create dashboard runs.
+Only the exact string `kind: "waza.preflight"` is reserved for this result-reader
+fence; unknown same-major result fields, including non-string `kind` values,
+retain normal compatibility behavior.

@@ -41,6 +41,10 @@ test('evaluator calibration and paid command stay explicit while inspection rema
   await expect(page.getByText(/It has no default factory/)).toBeVisible();
   await expect(page.locator('.sl-markdown-content')).toContainText('waza assure calibrate');
   await expect(page.locator('.sl-markdown-content')).toContainText('--accept-paid-calls');
+  await expect(page.locator('.sl-markdown-content')).toContainText('Explicit --output requires Unix atomic replacement');
+  await expect(page.locator('.sl-markdown-content')).toContainText('Omit the flag and capture stdout instead');
+  await expect(page.locator('.sl-markdown-content')).toContainText('acquired:sha256:<digest>');
+  await expect(page.locator('.sl-markdown-content')).toContainText('Consumption integrity does not certify cache confidentiality');
   await page.getByRole('link', { name: 'dashboard inspection', exact: true }).click();
   await expect(page.getByText(/Calibrated report 1.1 claims require the separate/)).toBeVisible();
   await expect(page.locator('.sl-markdown-content')).toContainText('Inspection neither runs nor authorizes paid calibration');
@@ -54,6 +58,9 @@ test('paid calibration reference preserves legacy selection and explicit consent
   await expect(section).toContainText('Default false; explicit acknowledgment');
   await expect(section).toContainText('default 10m; not a spend cap');
   await expect(section).toContainText('partial report is output even when the API also returns an error');
+  await expect(section).toContainText('Unix only: atomically replace requested standalone report');
+  await expect(section).toContainText('an explicit --output exits 2 before preflight, producer, paid notice or engine creation');
+  await expect(section).toContainText('default stdout remains available on every platform');
 });
 
 test('preserved-native profile stays separate from default readers and calibration', async ({ page }) => {

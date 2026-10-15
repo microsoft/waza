@@ -15,6 +15,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/microsoft/waza/internal/evidence"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/preflight"
 	"gopkg.in/yaml.v3"
@@ -46,6 +47,8 @@ type qualificationSourceSet struct {
 type qualificationSources struct {
 	document qualificationDocument
 	native   qualificationDocument
+	// Only rooted acquisition can retain an offline-admitted expansion.
+	materializedEval string
 }
 
 type qualificationNativeTask struct {
@@ -237,7 +240,7 @@ func qualificationAcquireSources(ctx context.Context, reads []qualificationSourc
 	if err != nil {
 		return qualificationSources{}, err
 	}
-	sources.native, err = qualificationLoadSelection(ctx, set, byID)
+	sources.native, err = qualificationLoadSelectionOwned(ctx, set, byID, qualificationDocumentLimit, nil, nil, &sources.materializedEval)
 	if err == nil {
 		err = qualificationValidateScopedSources(ctx, set, byID)
 	}
@@ -291,11 +294,6 @@ func qualificationValidateScopedSources(ctx context.Context, set qualificationSo
 		return err
 	}
 	defer func() { returnErr = errors.Join(returnErr, store.close()) }()
-	root, err := os.OpenRoot(store.directory)
-	if err != nil {
-		return err
-	}
-	defer func() { returnErr = errors.Join(returnErr, root.Close()) }()
 	for _, candidate := range document.Cases {
 		if candidate.AuthoredInput == nil {
 			return errors.New("qualification: non-authored input integration unsupported")
@@ -315,15 +313,10 @@ func qualificationValidateScopedSources(ctx context.Context, set qualificationSo
 			if err != nil {
 				return err
 			}
-			name, err := store.write(data)
-			if err != nil {
+			if _, err := store.write(data); err != nil {
 				return err
 			}
-			copy := candidate
-			binding := *candidate.AuthoredInput
-			binding.Path = filepath.Base(name)
-			copy.AuthoredInput = &binding
-			input, observation := verifyAuthoredInput(ctx, VerifyRequest{References: labels, SnapshotRoot: root}, copy, check, ChallengeObservation{})
+			input, observation := verifyAcquiredAuthoredInput(ctx, VerifyRequest{References: labels}, candidate, check, ChallengeObservation{}, data)
 			if input == nil {
 				return fmt.Errorf("qualification: finite authored source not admitted: %s", observation.Reason)
 			}
@@ -345,15 +338,11 @@ func qualificationValidateScopedSources(ctx context.Context, set qualificationSo
 
 // Native offline loaders only see evaluator-private snapshot copies. Original
 // rooted selection is proved separately; includes/globs are not guessed.
-func qualificationLoadSelection(ctx context.Context, set qualificationSourceSet, reads map[string]qualificationSourceRead) (result qualificationDocument, returnErr error) {
-	return qualificationLoadSelectionBounded(ctx, set, reads, qualificationDocumentLimit, nil)
-}
-
-func qualificationLoadSelectionBounded(ctx context.Context, set qualificationSourceSet, reads map[string]qualificationSourceRead, limit int, materializing func()) (result qualificationDocument, returnErr error) {
-	return qualificationLoadSelectionWithHooks(ctx, set, reads, limit, materializing, nil)
-}
-
 func qualificationLoadSelectionWithHooks(ctx context.Context, set qualificationSourceSet, reads map[string]qualificationSourceRead, limit int, materializing func(), declarationMaterializing func(string)) (result qualificationDocument, returnErr error) {
+	return qualificationLoadSelectionOwned(ctx, set, reads, limit, materializing, declarationMaterializing, nil)
+}
+
+func qualificationLoadSelectionOwned(ctx context.Context, set qualificationSourceSet, reads map[string]qualificationSourceRead, limit int, materializing func(), declarationMaterializing func(string), materialized *string) (result qualificationDocument, returnErr error) {
 	store, err := newCalibrationRubricStore()
 	if err != nil {
 		return result, err
@@ -379,14 +368,18 @@ func qualificationLoadSelectionWithHooks(ctx context.Context, set qualificationS
 				return result, err
 			}
 		case "eval":
-			if err := qualificationNoIncludes(data); err != nil {
+			if err := qualificationSourceYAML(data, true); err != nil {
 				return result, err
 			}
 			name, err := store.write(data)
 			if err != nil {
 				return result, err
 			}
-			spec, err = models.LoadEvalSpecOffline(name)
+			acquired, err := models.AcquireOfflineDocument(name, source.SHA256, data)
+			if err != nil {
+				return result, err
+			}
+			spec, err = models.LoadAcquiredEvalSpec(acquired)
 			if err != nil {
 				return result, errors.New("qualification: native snapshot eval invalid")
 			}
@@ -397,6 +390,9 @@ func qualificationLoadSelectionWithHooks(ctx context.Context, set qualificationS
 				return result, err
 			}
 			eval = reads[source.ID]
+			if err := qualificationExpandLockedGraders(ctx, spec, eval); err != nil {
+				return result, err
+			}
 		}
 	}
 	if err := ctx.Err(); err != nil {
@@ -455,7 +451,11 @@ func qualificationLoadSelectionWithHooks(ctx context.Context, set qualificationS
 		if err != nil {
 			return result, err
 		}
-		task, err := models.LoadTestCaseOffline(name)
+		acquired, err := models.AcquireOfflineDocument(name, source.SHA256, data)
+		if err != nil {
+			return result, err
+		}
+		task, err := models.LoadAcquiredTestCase(acquired)
 		if err != nil || task.TestID != source.TaskID {
 			return result, errors.New("qualification: task ID differs from actual selected source")
 		}
@@ -493,6 +493,15 @@ func qualificationLoadSelectionWithHooks(ctx context.Context, set qualificationS
 	referenceDocument, err := references.Document()
 	if err != nil {
 		return result, err
+	}
+	resolvedDigest, err := evidence.JSONDigest(spec)
+	if err != nil || resolvedDigest.SHA256 != referenceDocument.EvalResolvedConfigSHA256 {
+		return result, errors.New("qualification: admitted resolved eval differs from original reference binding")
+	}
+	for _, source := range set.Sources {
+		if source.Role == "eval" && source.SHA256 != referenceDocument.EvalSourceSHA256 {
+			return result, errors.New("qualification: original eval differs from reference source binding")
+		}
 	}
 	for _, candidate := range referenceDocument.Cases {
 		for _, check := range candidate.Checks {
@@ -546,10 +555,23 @@ func qualificationLoadSelectionWithHooks(ctx context.Context, set qualificationS
 	if err := ctx.Err(); err != nil {
 		return result, err
 	}
+	if materialized != nil {
+		data, err := yaml.Marshal(spec)
+		if err != nil {
+			return result, fmt.Errorf("qualification: retaining admitted native eval: %w", err)
+		}
+		if len(data) > qualificationDocumentLimit {
+			return result, errors.New("qualification: retained native eval exceeds document byte limit")
+		}
+		*materialized = string(data)
+	}
 	return qualificationSealBounded(selection, limit, materializing)
 }
-
 func qualificationNoIncludes(data []byte) error {
+	return qualificationSourceYAML(data, false)
+}
+
+func qualificationSourceYAML(data []byte, allowLockedGraders bool) error {
 	if !utf8ValidQualificationSource(data) {
 		return errors.New("qualification: source Unicode invalid")
 	}
@@ -561,6 +583,17 @@ func qualificationNoIncludes(data []byte) error {
 	var trailing yaml.Node
 	if decoder.Decode(&trailing) != io.EOF {
 		return errors.New("qualification: multiple YAML documents unsupported")
+	}
+	allowed := map[*yaml.Node]bool{}
+	if allowLockedGraders && len(node.Content) == 1 && node.Content[0].Kind == yaml.MappingNode {
+		root := node.Content[0]
+		for i := 0; i+1 < len(root.Content); i += 2 {
+			if root.Content[i].Value == "graders" && root.Content[i+1].Kind == yaml.SequenceNode {
+				for _, grader := range root.Content[i+1].Content {
+					allowed[grader] = true
+				}
+			}
+		}
 	}
 	var visit func(*yaml.Node, int) error
 	visit = func(node *yaml.Node, depth int) error {
@@ -576,9 +609,14 @@ func qualificationNoIncludes(data []byte) error {
 				}
 				seen[key] = true
 				switch key {
-				case "ref", "$ref", "prompt_file", "tasks_from", "include", "includes", "schema_file":
+				case "ref":
+					if !allowed[node] {
+						return errors.New("qualification: external include/ref resolution unsupported")
+					}
+				case "$ref", "prompt_file", "tasks_from", "include", "includes", "schema_file":
 					return errors.New("qualification: external include/ref resolution unsupported")
 				}
+
 			}
 		}
 		for _, child := range node.Content {
@@ -589,6 +627,54 @@ func qualificationNoIncludes(data []byte) error {
 		return nil
 	}
 	return visit(&node, 0)
+}
+
+func qualificationRetainedEval(sources qualificationSources, original []byte, label string) (*models.EvalSpec, error) {
+	if err := qualificationSourceYAML(original, true); err != nil {
+		return nil, err
+	}
+	set, err := qualificationDecode[qualificationSourceSet](sources.document.bytes(), qualificationEncodedLimit)
+	if err != nil {
+		return nil, err
+	}
+	bound := false
+	for _, source := range set.Sources {
+		if source.Role == "eval" {
+			data, err := qualificationSourceBytes(source)
+			if err != nil || !bytes.Equal(data, original) {
+				return nil, errors.New("qualification: retained original eval source binding differs")
+			}
+			bound = true
+		}
+	}
+	if !bound {
+		return nil, errors.New("qualification: retained original eval source unavailable")
+	}
+	data := []byte(sources.materializedEval)
+	if len(data) == 0 {
+		return nil, errors.New("qualification: rooted admitted native eval unavailable")
+	}
+	if err := qualificationNoIncludes(data); err != nil {
+		return nil, err
+	}
+	acquired, err := models.AcquireOfflineDocument(label, byteSHA256(data), data)
+	if err != nil {
+		return nil, err
+	}
+	spec, err := models.LoadAcquiredEvalSpec(acquired)
+	if err != nil {
+		return nil, err
+	}
+	native, err := qualificationDecode[qualificationNativeSelection](sources.native.bytes(), qualificationDocumentLimit)
+	if err != nil {
+		return nil, err
+	}
+	digest, err := evidence.JSONDigest(spec)
+	expected, canonicalErr := qualificationCanonical(native.ResolvedSpec)
+	if err != nil || canonicalErr != nil || digest.SHA256 != byteSHA256(expected) {
+		return nil, errors.New("qualification: retained native eval differs from admitted resolved specification")
+	}
+	return spec, nil
 }
 
 func utf8ValidQualificationSource(data []byte) bool {

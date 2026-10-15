@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -21,6 +22,7 @@ type LocalStore struct {
 
 	mu     sync.RWMutex
 	cache  map[string]*models.EvaluationOutcome
+	files  map[string]struct{}
 	loaded bool
 }
 
@@ -29,6 +31,7 @@ func NewLocalStore(dir string) *LocalStore {
 	return &LocalStore{
 		dir:   dir,
 		cache: make(map[string]*models.EvaluationOutcome),
+		files: make(map[string]struct{}),
 	}
 }
 
@@ -57,6 +60,7 @@ func (ls *LocalStore) Upload(_ context.Context, outcome *models.EvaluationOutcom
 	// Update cache.
 	ls.mu.Lock()
 	ls.cache[outcome.RunID] = outcome
+	ls.files[path] = struct{}{}
 	ls.mu.Unlock()
 
 	return nil
@@ -137,69 +141,129 @@ func (ls *LocalStore) load() error {
 	ls.mu.Lock()
 	defer ls.mu.Unlock()
 
-	ls.cache = make(map[string]*models.EvaluationOutcome)
-
-	if ls.dir == "" {
-		ls.loaded = true
-		return nil
-	}
-
-	if _, err := os.Stat(ls.dir); err != nil {
-		if os.IsNotExist(err) {
-			ls.loaded = true
-			return nil
-		}
+	cache, files, err := ReadLocalResults(ls.dir, ls.files)
+	if err != nil {
 		return err
 	}
+	ls.cache = cache
+	ls.files = files
+	ls.loaded = true
+	return nil
+}
 
-	err := filepath.WalkDir(ls.dir, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			return nil // skip inaccessible paths
+// Reload replaces the local cache only after a successful artifact scan.
+func (ls *LocalStore) Reload() error {
+	return ls.load()
+}
+
+// ReadLocalResults builds a replacement snapshot without mutating the caller's
+// cache. Previously admitted file paths must remain readable valid artifacts;
+// newly introduced unrelated or malformed files retain tolerant admission.
+func ReadLocalResults(dir string, previousFiles map[string]struct{}) (map[string]*models.EvaluationOutcome, map[string]struct{}, error) {
+	return readLocalResults(dir, previousFiles, filepath.WalkDir)
+}
+
+func readLocalResults(dir string, previousFiles map[string]struct{}, walk func(string, fs.WalkDirFunc) error) (map[string]*models.EvaluationOutcome, map[string]struct{}, error) {
+	results := make(map[string]*models.EvaluationOutcome)
+	files := make(map[string]struct{})
+	if dir == "" {
+		return results, files, nil
+	}
+
+	info, err := os.Stat(dir)
+	if err != nil {
+		if os.IsNotExist(err) && len(previousFiles) == 0 {
+			return results, files, nil
 		}
+		return nil, nil, fmt.Errorf("reading results directory: %w", err)
+	}
+	if !info.IsDir() {
+		return nil, nil, fmt.Errorf("results path %q is not a directory", dir)
+	}
+
+	err = walk(dir, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			knownSubtree := path == dir
+			for file := range previousFiles {
+				if file == path || strings.HasPrefix(file, path+string(filepath.Separator)) {
+					knownSubtree = true
+					break
+				}
+			}
+			if knownSubtree {
+				return fmt.Errorf("walking results path %q: %w", path, err)
+			}
+			return nil
+		}
+		_, known := previousFiles[path]
 		if d.IsDir() {
+			if known {
+				return fmt.Errorf("previously loaded results artifact %q is now a directory", path)
+			}
 			return nil
 		}
 		if !strings.HasSuffix(d.Name(), ".json") {
 			return nil
 		}
 
-		data, err := os.ReadFile(path)
+		outcome, err := readLocalResult(path, known)
 		if err != nil {
-			return nil
+			return err
 		}
-
-		_, ok, err := models.ProbeEvaluationOutcomeSchemaVersion(data)
-		if err != nil {
-			return nil
-		}
-		if !ok {
-			return nil
-		}
-
-		outcome, err := models.ParseEvaluationOutcome(data, path)
-		if err != nil {
-			slog.Warn("skipping unreadable results artifact", "path", path, "error", err)
+		if outcome == nil {
 			return nil
 		}
 
 		if outcome.RunID == "" {
-			relPath, relErr := filepath.Rel(ls.dir, path)
+			relPath, relErr := filepath.Rel(dir, path)
 			if relErr != nil {
 				relPath = d.Name()
 			}
 			outcome.RunID = strings.TrimSuffix(filepath.ToSlash(relPath), ".json")
 		}
 
-		ls.cache[outcome.RunID] = outcome
+		results[outcome.RunID] = outcome
+		files[path] = struct{}{}
 		return nil
 	})
 
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 
-	ls.loaded = true
-	return nil
+	return results, files, nil
+}
+
+func readLocalResult(path string, known bool) (*models.EvaluationOutcome, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if known {
+			return nil, fmt.Errorf("reading previously loaded results artifact %q: %w", path, err)
+		}
+		return nil, nil
+	}
+	_, ok, err := models.ProbeEvaluationOutcomeSchemaVersion(data)
+	if err != nil {
+		if known {
+			return nil, fmt.Errorf("probing previously loaded results artifact %q: %w", path, err)
+		}
+		return nil, nil
+	}
+	if !ok {
+		if known {
+			return nil, fmt.Errorf("previously loaded results artifact %q is no longer a results object", path)
+		}
+		return nil, nil
+	}
+	outcome, err := models.ParseEvaluationOutcome(data, path)
+	if err != nil {
+		if known {
+			return nil, fmt.Errorf("decoding previously loaded results artifact %q: %w", path, err)
+		}
+		slog.Warn("skipping unreadable results artifact", "path", path, "error", err)
+		return nil, nil
+	}
+	return outcome, nil
 }
 
 // ensureLoaded triggers a load if data hasn't been read yet.
@@ -220,12 +284,13 @@ func outcomeToResultSummary(o *models.EvaluationOutcome, dir string) ResultSumma
 		passRate = float64(o.Digest.Succeeded) / float64(o.Digest.TotalTests) * 100.0
 	}
 	return ResultSummary{
-		RunID:     o.RunID,
-		Skill:     o.SkillTested,
-		Model:     o.Setup.ModelID,
-		Timestamp: o.Timestamp,
-		PassRate:  passRate,
-		BlobPath:  filepath.Join(dir, sanitizeFilename(o.RunID)+".json"),
+		skillUnavailable: !o.HasSkillTested(),
+		RunID:            o.RunID,
+		Skill:            o.SkillTested,
+		Model:            o.Setup.ModelID,
+		Timestamp:        o.Timestamp,
+		PassRate:         passRate,
+		BlobPath:         filepath.Join(dir, sanitizeFilename(o.RunID)+".json"),
 	}
 }
 

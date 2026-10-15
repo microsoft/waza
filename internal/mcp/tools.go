@@ -14,11 +14,11 @@ func ToolsDef() []Tool {
 	return []Tool{
 		{
 			Name:        "waza_eval_list",
-			Description: "List available eval specs in a directory",
+			Description: "List canonical eval specs and native-loadable scenario YAML in a directory",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
-					"dir": {"type": "string", "description": "Directory to search for eval.yaml files"}
+					"dir": {"type": "string", "description": "Directory to search recursively for canonical evals and native-loadable scenario .yaml/.yml files"}
 				}
 			}`),
 		},

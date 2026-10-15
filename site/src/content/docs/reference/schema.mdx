@@ -37,6 +37,71 @@ Its source scopes are `preserved_native_selected_artifacts` and
 null, executions/samples are zero and no execution ledger is present.
 Current native grader bindings do not certify historical grader correspondence.
 
+## Portable evidence
+
+Tasks retain their legacy format; new results use `1.6` and historical results
+retain their declared `1.x` versions or the missing-version `1.4` reader default.
+Snapshot schema `1.1` adds optional `evidence`
+and selected `workspaceFiles`; the portable manifest has an independent
+`version: "1.0"`. Legacy artifacts still load without assessed evidence.
+New evidence consumers reject duplicate keys, unknown metadata, and unsupported
+manifest versions; historical same-major reader tolerance does not authorize
+unrecognized evidence.
+
+The independent manifest schema is
+[`schemas/evidence-manifest-1.0.schema.json`](https://github.com/microsoft/waza/blob/main/schemas/evidence-manifest-1.0.schema.json).
+It is embedded for Go consumers as `schemas.EvidenceManifestSchemaJSON`, not
+versioned with the result/task schemas.
+
+The dashboard API omits `evidenceRuns` entirely when all task runs lack both
+evidence and requirement explanations, preserving the legacy response shape.
+The UI reports that absence as unassessed. If any run has either kind of
+metadata, the API returns every trial, including historical missing-metadata
+rows; absence is never inferred to be successful capture.
+
+| Manifest field | Meaning |
+| --- | --- |
+| `version`, `sha256` | Independent manifest version and canonical metadata digest |
+| `source_manifest_sha256` | Original capture digest retained after regrading |
+| `origin` | `eval_id`, `task_id`, `run_number`, `attempt_count`, `prior_attempts`; references are scoped to all fields |
+| `runtime` | Requested engine/model/tool policy, actual engine-derived execution mode, dependency mode, verified enforcement, waza/SDK/effective-model/Go/platform versions |
+| `runtime.no_skills` | `boolean|null` from the actual execution request; unknown is not inferred false |
+| `runtime.native_skill_control` | `unknown`, `sdk_default`, `requested_sdk_disable`, `mock_not_applicable`; requested native control, not SDK enforcement proof |
+| `artifacts[]` | `id`, `kind`, `availability`, `completeness`, optional content/source digest, snapshot document/pointer, reason, redacted flag |
+| `redaction` | Policy, actual matched rules and count, limitations; normalization-only changes are not secret matches |
+| `diagnostics[]` | Typed category/code and safe message; operational uncertainty, not causal classification |
+
+`captured` artifacts require a content digest and snapshot pointer. `digest_only`
+uses a separate source digest without preserved content or a content locator.
+`unavailable` / `not_requested` have reasons and no locator. Most tapes have
+`unknown` completeness; run errors make them `partial`. A selected file may be
+`complete` while the workspace remains partial/unavailable. External state,
+grader implementation, rubric version, and lockfile provenance are unavailable.
+Unknown/null versions stay unavailable rather than being guessed.
+Captured `environment` and `engine-config` artifacts fingerprint the snapshot's
+`/env` allow-list/configuration and `/engine` configuration respectively; they
+do not certify the full host environment. Secret environment-key removals count
+as actual redaction matches.
+
+Cached evidence keeps the original full source origin; task/run/attempt still
+match even if source eval ID differs. Per-run `requirement_explanations` contain
+scoped named-check observations and references with the full origin. Unique
+names resolve; missing/flattened collisions remain unresolved. Observations are
+existing grader pass/fail, qualitative prompt checks, or typed unavailable
+operational status, not new requirement scores or enforcement. Regrading
+invalidates original result/validation/grader-configuration/checkpoint links:
+old checkpoints never observe newly declared checks.
+
+Canonical JSON hashes use Go map-encoded sorted UTF-8 object keys, exact numeric
+lexical tokens, Go `encoding/json` HTML escaping (`<`, `>`, `&`) and U+2028/U+2029
+escaping, and ordered arrays (`json-v1`). Manifest SHA-256
+omits its own member entirely and includes all recognized metadata, including
+timings; no cross-run hash stability is claimed. Source configuration,
+instruction, and fixture digests do not preserve source bytes. See
+[Snapshot & Replay](/waza/guides/snapshot-replay/) for capture safety and the
+narrow verified file-only regrading operation, and
+[Schema Changes](/waza/reference/schema-changes/) for compatibility.
+
 ## Optional descriptive task requirements
 
 `requirements` is an optional task array. Each entry has `id` (task-local stable
@@ -50,6 +115,11 @@ reference diagnostics and the independent `waza.preflight` JSON artifact.
 
 Nonempty `tasks_from` selects CSV tasks instead of YAML `tasks`; either a
 nonempty task list or a nonempty CSV source is required by the eval schema.
+CSV paths are bounded to the eval directory both lexically and after symlinks
+resolve; filesystem/volume-root eval directories are valid. Inclusive `range`
+bounds use 1-based data rows, excluding the header. Fallback IDs/names retain the
+original row number (`range: [2, 2]` selects `row-2`). This is not retained-root,
+snapshot, or race-free-read assurance.
 
 ## eval.yaml
 
@@ -141,6 +211,12 @@ Workflow identity without a required skill. A scenario may retain optional
 skill directories means no ambient skill loading. An empty task
 `skill_directories: []` disables discovery; `--no-skills` overrides contexts.
 Legacy suites retain existing behavior. Tasks and results remain `1.x`.
+Native YAML/JSON admission checks field presence, not its truthiness. A present
+`scenario` must be a nonblank string and explicitly use `2.0`; null, numbers,
+booleans, objects and arrays are rejected. This intentionally corrects earlier
+native-reader acceptance of `scenario: null` in versionless/`1.x` suites and
+scalar-to-string coercion. To retain a legacy suite, remove the `scenario` field;
+to select a scenario, supply a nonblank string with `schemaVersion: "2.0"`.
 
 ```yaml
 name: inventory-eval
@@ -164,13 +240,18 @@ version: "1.0"
 
 **Type:** string  
 **Required:** no  
-**Default:** current schema version (currently `1.4`)
+**Default:** legacy eval schema version (`1.4`); new result writers independently emit `1.6`
 
 Schema version for the public artifact shape. It uses `MAJOR.MINOR` format with no patch component. Same-major minor additions are backward-compatible; readers ignore unknown fields and warn. Different major versions are rejected with a migration hint.
 
 Scenario-bearing evals explicitly opt into exact `2.0`, ensuring older
 executables reject their new discovery semantics. Eval `2.0` requires a
-nonempty `scenario`; legacy eval/task/result defaults remain unchanged.
+nonempty `scenario` and rejects unknown eval/config fields; it does not allow
+future minor versions. Legacy eval/task/result defaults remain unchanged.
+Every nested `baseline_outcome` result is checked against the same result-version
+boundary as its parent. Missing or blank nested versions retain the legacy `1.4`
+reader default; declared same-major versions are preserved, while malformed or
+different-major versions are rejected rather than silently reserialized.
 
 ```yaml
 schemaVersion: "1.2"
@@ -241,7 +322,16 @@ mcp_mocks:
 
 Response entries are checked in order. Unknown tools and unmatched calls fail loudly with a tool error that names the missing mock fixture.
 
+Unmatched-call diagnostics omit argument values, including nested payloads. A canceled or expired context at the in-process handler's tool-call admission boundary produces an MCP `isError` result before matching or returning a fixture; non-tool methods retain their existing behavior. This does not implement per-request stdio cancellation or a timeout fixture, and adds no YAML or result fields.
+
 ### command_mocks
+
+Private raw-fragment validators can inspect finite `sequence` and `delay_ms`
+presence before normalization, but these are **not registered public eval/runtime
+fields**. Valid standalone finite task declarations still reject as unregistered.
+Do not infer execution support from a validator or source snapshot. See
+[Private Fault Harness](/waza/guides/private-fault-fixtures/) for the injected testing
+boundary and cancellation limitations.
 
 **Type:** array
 **Required:** no
@@ -512,7 +602,7 @@ config:
 **Type:** boolean
 **Default:** true
 
-Controls whether Waza injects the full target `SKILL.md` or `.agent.md` body into the system prompt when `skill:` is set.
+Controls whether Waza injects the full target `SKILL.md` or `.agent.md` body into the system prompt when `skill:` is set. The injected `<skill_context>` block starts with `Base directory for this skill: <absolute path>`, so relative links in the body (for example `scripts/install.sh` or `assets/templates/`) resolve from the skill's own directory even though the agent runs in a temp workspace. This matters for a skill with `disable-model-invocation: true`, which the agent cannot load through the `skill` tool.
 
 ```yaml
 config:

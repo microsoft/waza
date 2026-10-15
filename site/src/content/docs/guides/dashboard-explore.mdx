@@ -1,6 +1,6 @@
 ---
 title: Explore the Dashboard
-description: A visual tour of every waza dashboard view — runs overview, task detail, trajectory, comparison, trends, and live monitoring.
+description: A visual tour of every waza dashboard view — runs overview, task detail, evidence, trajectory, comparison, trends, and live monitoring.
 ---
 
 import ZoomImage from '../../../components/ZoomImage.astro';
@@ -35,7 +35,9 @@ Clicking a run opens its detail page. The Tasks tab shows every task in the eval
 
 - **Outcome badges** — green `pass` and red `fail` badges make it easy to spot problems
 - **Score vs. W. Score** — the raw grader score and the weighted aggregate score are shown side by side
-- **Statistical confidence** — tasks with weighted scores display significance badges (✓ significant / ⚠ not significant) and confidence interval ranges
+- **Statistical confidence** — tasks run with multiple trials show a 95% confidence interval range under the weighted score
+- **Trial Pass Rate** — the recorded pass-rate estimate, Wilson interval, and passed/total trial counts appear separately from the weighted-score interval
+- **Recorded reliability** — the suite success-rate interval and pass^k curve show stored evidence; absent historical fields are **Not assessed**, not reconstructed estimates
 - **Export CSV** — export task-level results for the current run
 
 ## Run Detail — Usage by model
@@ -45,6 +47,19 @@ Above the tabs, the **Usage by model** table breaks the run's Copilot usage down
 - **AI Credits** — the SDK-reported final credit total attributed to that model. Models the SDK reported no credit total for show `—`. If a contributing session lacks model attribution, model-credit aggregates are unavailable rather than reported as partial totals
 - **Token categories** — retained as diagnostics; waza never prices them to produce the AI Credit figure
 - **Scope** — like the run-level total, these values cover only the Copilot usage waza initiated
+
+## Run Detail — Evidence
+
+The **Evidence** tab retains each trial's recorded manifest, source origin, runtime metadata, artifact availability, redaction match count, diagnostics, and scoped grader observations. Cached evidence keeps its original source identity rather than implying a new execution.
+
+<ZoomImage src="../../images/explore/evidence-tab.png" alt="Evidence tab showing recorded source identity, artifact availability, and scoped grader observations" />
+
+Missing evaluation or task identifiers display as **unavailable**, including capture-failure envelopes with `origin_unavailable` diagnostics; they are not inferred from the displayed run or task names. Invalid metadata is withheld, while missing historical evidence remains unassessed. Recorded assessments require a displayable manifest; an absent or null manifest withholds their observations instead of presenting recorded evidence. Manifests require non-null origin, runtime and redaction objects; readers do not repair missing objects into zero-valued metadata. Requirement references identify captured artifacts, not unavailable, unrequested, or digest-only entries; partial or redacted captures retain their limitations. Digests are not file contents, requested controls are not verified enforcement, and grader observations do not establish universal requirement satisfaction. The view does not fetch local paths, upload artifacts, or perform live replay.
+
+Requirement reference labels identify **artifact metadata only**. Artifact-relative
+value pointers are unverified without snapshot bytes and are not displayed as
+exact evidence. The API and interpretation report withhold these pointers without
+mutating stored results; explicit content verification remains a separate operation.
 
 ## Run Detail — Prompts
 
@@ -167,11 +182,13 @@ The W. Score column in the Tasks table shows the weighted aggregate score for ea
 
 ## Statistical Confidence
 
-Tasks with weighted scores display statistical significance indicators. These help you determine whether score differences between models or runs are meaningful or just noise.
+Tasks run with more than one trial show a 95% bootstrap confidence interval under the weighted score. It shows how precisely the trials pin down the task's average score: its width depends on how much trial scores varied and on how many trials ran.
 
-<ZoomImage src="../../images/explore/statistical-confidence.png" alt="Task rows showing significance badges and confidence interval ranges" />
+<ZoomImage src="../../images/explore/statistical-confidence.png" alt="Task rows showing confidence interval ranges under the weighted scores" />
 
-- **✓ significant** (green) — the score is statistically significant with tight confidence intervals (e.g., [82.0%, 85.0%])
-- **⚠ not significant** (yellow) — the score has wide confidence intervals (e.g., [45.0%, 90.0%]), meaning more data is needed
-- **Confidence intervals** — shown as [lower%, upper%] ranges below the weighted score
-- **Actionable insight** — significant scores validate your skill's behavior; non-significant scores suggest you need more test cases or the grader criteria need refinement
+- **Narrow range** (e.g., [82.0%, 98.0%]) — the average score is well determined by the trials run
+- **Wide range** — the average score is still uncertain; add trials before trusting it
+- **Pass/fail reliability** — the **Trial Pass Rate** column shows stored Wilson intervals and trial counts. **Recorded reliability** shows the suite success-rate interval (one sample per task) and pass^k estimates (all k trials pass, averaged over tasks), not pass@k or a guarantee. Missing fields show **Not assessed** even if scores or task outcomes are available. See [Statistical Fields](../../reference/statistical-fields/) for definitions.
+- **No significance claim** — score and pass-rate intervals describe this run; they do not test a difference between runs.
+
+<ZoomImage src="../../images/explore/recorded-reliability.png" alt="Recorded suite Wilson interval and pass^k curve, alongside separate task pass-rate and weighted-score intervals" />

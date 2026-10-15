@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 
@@ -120,6 +121,23 @@ func TestQualificationArtifactActualCoreTapeCutoff(t *testing.T) {
 		require.NoError(t, qualificationDecodeNative(wire.Execution, &entry))
 		ledger = append(ledger, entry)
 		usages = append(usages, entry.Usage)
+		matched := false
+		for ri := range report.Requirements {
+			requirement := &report.Requirements[ri]
+			if requirement.TaskID != wire.Selector.TaskID || requirement.RequirementID != wire.Selector.RequirementID ||
+				(qualificationCheck{requirement.Check.Scope, requirement.Check.AfterTurn, requirement.Check.Grader}) != wire.Selector.Check {
+				continue
+			}
+			for oi := range requirement.Observations {
+				observation := &requirement.Observations[oi]
+				if observation.CaseID == wire.Selector.CaseID {
+					require.NotNil(t, wire.NativeResult)
+					require.NoError(t, qualificationDecodeNative(*wire.NativeResult, &observation.Result))
+					matched = true
+				}
+			}
+		}
+		require.True(t, matched)
 	}
 	report.Calibration.ExecutionLedger = &ledger
 	report.Calibration.Usage = models.AggregateUsageStats(usages)
@@ -134,6 +152,56 @@ func TestQualificationArtifactActualCoreTapeCutoff(t *testing.T) {
 	inventory, err := qualificationDeriveInventory(prefix, complete)
 	require.NoError(t, err)
 	require.NotEmpty(t, inventory.document.bytes())
+	for _, field := range []string{"identifier", "type", "score", "weight", "passed", "feedback", "details", "duration", "missing", "duplicate", "selector"} {
+		t.Run("native-result-"+field, func(t *testing.T) {
+			changed, err := calibrationJSONCopy(*report)
+			require.NoError(t, err)
+			observation := &changed.Requirements[0].Observations[0]
+			result := observation.Result
+			require.NotNil(t, result)
+			switch field {
+			case "identifier":
+				result.Name += "-changed"
+			case "type":
+				result.Type = models.GraderKindText
+			case "score":
+				result.Score = 0.5
+			case "weight":
+				result.Weight = 2
+			case "passed":
+				result.Passed = !result.Passed
+			case "feedback":
+				result.Feedback = "altered native feedback"
+			case "details":
+				result.Details = map[string]any{"unbound": "changed"}
+			case "duration":
+				result.DurationMs++
+			case "missing":
+				observation.Result = nil
+			case "duplicate":
+				changed.Requirements[0].Observations = append(changed.Requirements[0].Observations, *observation)
+			case "selector":
+				observation.CaseID += "-changed"
+			}
+			data := append(marshalReferenceTest(t, changed), '\n')
+			_, err = ParseCalibratedReport(data)
+			require.NoError(t, err, "ordinary report validation alone does not bind terminal native results")
+			require.NoError(t, root.WriteFile("actual_calibration_report.json", data, 0o600))
+			tampered, err := qualificationAcquireArtifacts(t.Context(), completeReads)
+			require.NoError(t, err)
+			_, err = qualificationDeriveInventory(prefix, tampered)
+			require.ErrorContains(t, err, "report observation")
+		})
+	}
+	reordered, err := calibrationJSONCopy(*report)
+	require.NoError(t, err)
+	slices.Reverse(reordered.Requirements[0].Observations)
+	require.NoError(t, root.WriteFile("actual_calibration_report.json", append(marshalReferenceTest(t, reordered), '\n'), 0o600))
+	reorderedArtifacts, err := qualificationAcquireArtifacts(t.Context(), completeReads)
+	require.NoError(t, err)
+	_, err = qualificationDeriveInventory(prefix, reorderedArtifacts)
+	require.NoError(t, err, "selector binding is independent of report observation order")
+	require.NoError(t, root.WriteFile("actual_calibration_report.json", reportBytes, 0o600))
 	complete.originals["actual_calibration_report.json"] = string(bytes.TrimSpace(reportBytes))
 	_, err = qualificationDeriveInventory(prefix, complete)
 	require.Error(t, err, "original-byte report identity cannot be normalized")

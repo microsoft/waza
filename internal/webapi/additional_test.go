@@ -205,7 +205,6 @@ func TestFileStoreSkipsIncompatibleResultJSON(t *testing.T) {
 }
 
 func TestOutcomeToDetailMapsStatsTranscriptAndDigest(t *testing.T) {
-	significant := true
 	success := true
 	toolCallID := "call-123"
 
@@ -227,7 +226,6 @@ func TestOutcomeToDetailMapsStatsTranscriptAndDigest(t *testing.T) {
 						Mean:            0.3,
 						ConfidenceLevel: 0.95,
 					},
-					IsSignificant: &significant,
 				},
 				Runs: []models.RunResult{
 					{
@@ -275,9 +273,6 @@ func TestOutcomeToDetailMapsStatsTranscriptAndDigest(t *testing.T) {
 	}
 	if taskWithData.Prompt != "Explain the code under test." {
 		t.Errorf("expected prompt to be mapped, got %q", taskWithData.Prompt)
-	}
-	if taskWithData.IsSignificant == nil || !*taskWithData.IsSignificant {
-		t.Fatal("expected significant=true")
 	}
 	if len(taskWithData.GraderResults) != 1 {
 		t.Fatalf("expected 1 grader result, got %d", len(taskWithData.GraderResults))

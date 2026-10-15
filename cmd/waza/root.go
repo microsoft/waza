@@ -56,6 +56,9 @@ performance against predefined test cases.`,
 	cmd.AddCommand(newGetCommand())
 	cmd.AddCommand(tokens.NewCommand())
 	cmd.AddCommand(newCompareCommand())
+	cmd.AddCommand(newComparePlanCommand())
+	cmd.AddCommand(newCompareAssurancePlanCommand())
+	cmd.AddCommand(newCompareCollectCommand())
 	cmd.AddCommand(newGateCommand())
 	cmd.AddCommand(newCoverageCommand())
 	cmd.AddCommand(dev.NewCommand())
@@ -93,7 +96,15 @@ func shouldRunUpdateCheck(cmd *cobra.Command, noUpdateCheck bool) bool {
 		return false
 	}
 	for c := cmd; c != nil; c = c.Parent() {
-		if c.Name() == "update" || c.Name() == "preflight" || c.Name() == "assure" {
+		if c.Name() == "update" || c.Name() == "preflight" || c.Name() == "compare-plan" || c.Name() == "compare-assurance-plan" || c.Name() == "compare-collect" || c.Name() == "assure" {
+			return false
+		}
+	}
+	for _, name := range []string{"release-policy", "collection-dir", "assurance-contract",
+		"baseline-eval", "candidate-eval", "baseline-context-dir", "candidate-context-dir",
+		"baseline-references", "candidate-references", "baseline-review", "candidate-review",
+		"baseline-accept-review-source", "candidate-accept-review-source"} {
+		if flag := cmd.Flags().Lookup(name); flag != nil && flag.Changed {
 			return false
 		}
 	}

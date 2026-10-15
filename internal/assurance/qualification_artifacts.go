@@ -387,6 +387,40 @@ func qualificationDeriveInventory(prefix qualificationPrefix, acquired qualifica
 	if !ok || len(ledger) != len(m.Jobs) {
 		return qualificationInventory{}, errors.New("qualification: exact original report ledger required")
 	}
+	results := map[string]qualificationDocument{}
+	rawRequirements, ok := reportObject["requirements"].([]any)
+	if !ok || len(rawRequirements) != len(actualReport.Requirements) {
+		return qualificationInventory{}, errors.New("qualification: exact original report requirements required")
+	}
+	for ri, requirement := range actualReport.Requirements {
+		rawRequirement, ok := rawRequirements[ri].(map[string]any)
+		if !ok {
+			return qualificationInventory{}, errors.New("qualification: original report requirement object required")
+		}
+		rawObservations, ok := rawRequirement["observations"].([]any)
+		if !ok || len(rawObservations) != len(requirement.Observations) {
+			return qualificationInventory{}, errors.New("qualification: exact original report observations required")
+		}
+		for oi, observation := range requirement.Observations {
+			key := qualificationSelectorKey(qualificationSelector{
+				ArmID: m.Inputs.Association.ArmID, TaskID: requirement.TaskID, RequirementID: requirement.RequirementID,
+				Check:  qualificationCheck{requirement.Check.Scope, requirement.Check.AfterTurn, requirement.Check.Grader},
+				CaseID: observation.CaseID,
+			})
+			if _, duplicate := results[key]; duplicate {
+				return qualificationInventory{}, errors.New("qualification: duplicate original report observation selector")
+			}
+			rawObservation, ok := rawObservations[oi].(map[string]any)
+			if !ok {
+				return qualificationInventory{}, errors.New("qualification: original report observation object required")
+			}
+			result, err := qualificationSeal(rawObservation["result"])
+			if err != nil {
+				return qualificationInventory{}, err
+			}
+			results[key] = result
+		}
+	}
 	for _, terminal := range terminals {
 		value, err := qualificationDecode[qualificationTerminalWire](terminal.document.bytes(), qualificationDocumentLimit)
 		if err != nil {
@@ -396,6 +430,11 @@ func qualificationDeriveInventory(prefix qualificationPrefix, acquired qualifica
 		expected, expectedErr := qualificationCanonical(value.Execution)
 		if err != nil || expectedErr != nil || !bytes.Equal(rawExecution.bytes(), expected) {
 			return qualificationInventory{}, errors.New("qualification: actual report ledger differs from terminal evidence")
+		}
+		result, found := results[qualificationSelectorKey(value.Selector)]
+		expectedResult, resultErr := qualificationSeal(value.NativeResult)
+		if !found || resultErr != nil || !bytes.Equal(result.bytes(), expectedResult.bytes()) {
+			return qualificationInventory{}, errors.New("qualification: actual report observation result differs from terminal native result")
 		}
 	}
 	derived, err := qualificationDeriveCoreAndTape(prefix, terminals)

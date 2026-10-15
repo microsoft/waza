@@ -132,8 +132,33 @@ Without acknowledgment its notice refuses execution with an empty ledger/null
 billing, on both interactive and noninteractive input. There is no prompt or
 generic `--yes` fallback. Its admitted job count is not a provider spending cap.
 The positive cooperative timeout defaults to 10m; partial reports remain available
-with execution errors. See the [explicit calibration flags](/waza/reference/cli/#waza-assure-calibrate)
+with execution errors. Explicit `--output` requires Unix atomic replacement;
+other platforms, including Windows, refuse it before preflight or paid calls.
+Omit the flag and capture stdout instead. See the [explicit calibration flags](/waza/reference/cli/#waza-assure-calibrate)
 for error exits, source/provider boundaries and output persistence.
+
+Private calibration and retained-source decoding use bounded, content-bound
+acquired copies through the same native parsers and formatter, without reopening
+audit-copy paths. Selected rubric metadata is `acquired:sha256:<digest>`;
+ordinary path/builtin APIs retain `file:`/`builtin:` metadata. Selected acquired
+task decoding additionally requires an explicit nonblank `id` and refuses
+`prompt_file` rather than reopening a pathname; ordinary task-loading APIs
+retain their existing behavior.
+
+The shared audit store retains worktree, `.cache` and private-directory
+`os.Root` handles for creation and cleanup rather than reopening absolute paths.
+Cache and private-child identities are compared before and after audit writes;
+replacement refuses further writes, and cleanup cannot delete
+replacement-namespace files. POSIX checks reject group/world-writable cache
+parents and private children with group/other mode bits; changed permissions
+that violate these checks fail closed. Unknown residual files are retained with
+an explicit cleanup failure. Judge/source decoding still consumes digest-bound
+acquired bytes, not audit paths.
+
+Retained-root namespace custody and POSIX-mode checks do not certify cache
+confidentiality, whole-filesystem ancestry or Windows ACLs. Windows mode bits
+are not ACL certification, and cross-platform source support is not evidence
+of actual Windows execution.
 
 ### Separately selected preserved-native assurance
 

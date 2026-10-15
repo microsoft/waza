@@ -85,6 +85,15 @@ type RangeSpec struct {
 
 // UnmarshalYAML decodes a single-key mapping into a tagged Matcher.
 func (m *Matcher) UnmarshalYAML(node *yaml.Node) error {
+	return m.DecodeYAMLWithLoader(node, nil)
+}
+
+// DecodeYAMLWithLoader decodes and validates a matcher without changing the
+// caller's schema resource policy. Nil retains legacy native decoding.
+func (m *Matcher) DecodeYAMLWithLoader(node *yaml.Node, loader jsonschema.URLLoader) error {
+	for node.Kind == yaml.AliasNode {
+		node = node.Alias
+	}
 	if node.Kind != yaml.MappingNode {
 		return fmt.Errorf("argmatcher: expected mapping (e.g. {regex: '^foo'}), got %s", yamlKindName(node.Kind))
 	}
@@ -142,7 +151,7 @@ func (m *Matcher) UnmarshalYAML(node *yaml.Node) error {
 		return fmt.Errorf("argmatcher: unknown matcher kind %q (allowed: equals, regex, contains, range, json_schema)", key)
 	}
 
-	return m.Compile()
+	return m.CompileWithLoader(loader)
 }
 
 // UnmarshalJSON mirrors the YAML decoder for results-file round trips.

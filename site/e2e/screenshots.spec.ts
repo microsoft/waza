@@ -15,7 +15,7 @@ const pages = [
 for (const pg of pages) {
   test(`screenshot: ${pg.name}`, async ({ page }) => {
     const response = await page.goto(`/waza${pg.path}`);
-    expect(response?.ok()).toBe(true);
+    expect(response?.ok(), `screenshot page ${pg.name} must load successfully`).toBe(true);
     await expect(page.locator('main h1').first()).toBeVisible();
     await page.waitForLoadState('networkidle');
     await page.screenshot({

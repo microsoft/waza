@@ -29,6 +29,10 @@
       "type": "boolean",
       "description": "Whether this task is active. Defaults to true when omitted."
     },
+    "golden": {
+      "type": "boolean",
+      "description": "Existing must-pass task designation. Selected release policies require first-attempt passes in both arms for every planned trial."
+    },
     "context_dir": {
       "type": "string",
       "description": "Override the context/fixtures directory for this task."

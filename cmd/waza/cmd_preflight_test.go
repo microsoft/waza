@@ -133,6 +133,11 @@ graders:
 	path := filepath.Join(dir, "eval.yaml")
 	taskPath := filepath.Join(dir, "task.yaml")
 	require.NoError(t, os.WriteFile(path, []byte(eval), 0600))
+	malformedMCPPath := filepath.Join(dir, "malformed-mcp.yaml")
+	require.NoError(t, os.WriteFile(malformedMCPPath, []byte(strings.ReplaceAll(eval,
+		"headers: {Authorization: private-token}", "headers: [private-token]")), 0600))
+	nullScenarioPath := filepath.Join(dir, "null-scenario.yaml")
+	require.NoError(t, os.WriteFile(nullScenarioPath, []byte("scenario: null\n"+eval), 0600))
 	require.NoError(t, os.WriteFile(taskPath, []byte(task), 0600))
 	scenarioPath := filepath.Join(dir, "scenario.yaml")
 	scenario := strings.ReplaceAll(strings.ReplaceAll(eval, `schemaVersion: "1.4"`, `schemaVersion: "2.0"`), "skill: example", "scenario: local-workflow")
@@ -147,18 +152,42 @@ graders:
 	require.NoError(t, os.WriteFile(eagerTaskPath, []byte(strings.Split(task, "graders:")[0]+"graders:\n"+argumentGrader), 0600))
 	eagerTaskEvalPath := filepath.Join(dir, "eager-task-eval.yaml")
 	require.NoError(t, os.WriteFile(eagerTaskEvalPath, []byte(strings.ReplaceAll(eval, "task.yaml", "eager-task.yaml")), 0600))
+	unsupportedPath := filepath.Join(dir, "unsupported.yaml")
+	unsupportedEval := `schemaVersion: "2.0"
+name: offline-unsupported
+scenario: mock-mcp
+config:
+  executor: mock
+  model: harness
+  trials_per_task: 1
+  timeout_seconds: 10
+  mcp_servers:
+    live: {command: offline-service}
+metrics: [{name: accuracy, weight: 1, threshold: 0.8}]
+tasks: [unsupported-task.yaml]
+`
+	require.NoError(t, os.WriteFile(unsupportedPath, []byte(unsupportedEval), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "unsupported-task.yaml"),
+		[]byte("id: unsupported\nname: Unsupported\ninputs: {prompt: inspect}\ngraders: [{name: answer, type: text, config: {contains: [ready]}}]\n"), 0600))
 	for _, tc := range []struct {
 		name, input string
 		strict      bool
 		wantFailure bool
+		canceled    bool
 	}{
-		{"configured live mocks hooks scripts and judges", path, false, false},
-		{"scenario no ambient discovery", scenarioPath, false, false},
-		{"strict unresolved", path, true, true},
-		{"eager eval argument schema", eagerEvalPath, false, false},
-		{"eager task argument schema", eagerTaskEvalPath, false, false},
-		{"eager schema strict", eagerTaskEvalPath, true, true},
-		{"missing eval", filepath.Join(dir, "absent.yaml"), false, true},
+		{"configured live mocks hooks scripts and judges", path, false, false, false},
+		{"scenario no ambient discovery", scenarioPath, false, false, false},
+		{"strict unresolved", path, true, true, false},
+		{"malformed live MCP configuration", malformedMCPPath, false, true, false},
+		{"declared null scenario fails without calls", nullScenarioPath, false, true, false},
+		{"unsupported capability warns", unsupportedPath, false, false, false},
+		{"unsupported capability strict", unsupportedPath, true, true, false},
+		{"canceled command context retains offline inspection", path, false, false, true},
+		{"canceled strict context retains failure report", path, true, true, true},
+		{"eager eval argument schema", eagerEvalPath, false, false, false},
+		{"eager task argument schema", eagerTaskEvalPath, false, false, false},
+		{"eager schema strict", eagerTaskEvalPath, true, true, false},
+		{"missing eval", filepath.Join(dir, "absent.yaml"), false, true, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			root := newRootCommand()
@@ -173,19 +202,42 @@ graders:
 				args = append(args, "--strict")
 			}
 			root.SetArgs(args)
-			err = root.Execute()
+			ctx := context.Background()
+			if tc.canceled {
+				canceled, cancel := context.WithCancel(ctx)
+				cancel()
+				ctx = canceled
+			}
+			err = root.ExecuteContext(ctx)
 			if tc.wantFailure {
 				var exit *ExitCodeError
 				require.ErrorAs(t, err, &exit)
 				require.Equal(t, 1, exit.Code)
 			} else {
-				require.NoError(t, err)
+				require.NoError(t, err, out.String())
 			}
 			var report preflight.Report
 			require.NoError(t, json.Unmarshal(out.Bytes(), &report))
 			require.Equal(t, preflight.ReportKind, report.Kind)
 			require.NotContains(t, out.String(), "private-token")
 			require.NotContains(t, out.String(), "never-contact.invalid")
+			require.Equal(t, tc.wantFailure, report.Failed(tc.strict))
+			if tc.input == unsupportedPath {
+				require.Contains(t, report.Capabilities, preflight.Capability{
+					Name: "mcp_servers", State: preflight.Unsupported,
+					Meaning: "Static capability only; not proof of configuration enforcement or task success.",
+				})
+				var found bool
+				for _, diagnostic := range report.Diagnostics {
+					require.NotEqual(t, preflight.Invalid, diagnostic.State, "default warning must not conceal invalid configuration")
+					if diagnostic.Code == "runtime.mcp" {
+						found = true
+						require.Equal(t, preflight.Unsupported, diagnostic.State)
+						require.Equal(t, "warning", diagnostic.Severity)
+					}
+				}
+				require.True(t, found, "requested unsupported capability must have a diagnostic")
+			}
 		})
 	}
 	require.Zero(t, constructions.Load(), "engine construction")

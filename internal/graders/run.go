@@ -11,11 +11,15 @@ import (
 // RunAll runs spec-level graders and task-level validators, returning the
 // combined results. Judge settings provide defaults for prompt graders.
 func RunAll(ctx context.Context, specGraders []models.GraderConfig, tc *models.TestCase, gCtx *Context, judgeModel, judgeReasoningEffort string, updateSnapshots bool) (map[string]models.GraderResults, error) {
+	return runAll(ctx, specGraders, tc, gCtx, judgeModel, judgeReasoningEffort, updateSnapshots, Create)
+}
+
+func runAll(ctx context.Context, specGraders []models.GraderConfig, tc *models.TestCase, gCtx *Context, judgeModel, judgeReasoningEffort string, updateSnapshots bool, create func(string, models.GraderParameters) (Grader, error)) (map[string]models.GraderResults, error) {
 	results := make(map[string]models.GraderResults)
 
 	for _, vCfg := range specGraders {
 		params := applyDefaults(vCfg.Parameters, judgeModel, judgeReasoningEffort, updateSnapshots)
-		grader, err := Create(vCfg.Identifier, params)
+		grader, err := create(vCfg.Identifier, params)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create grader %s: %w", vCfg.Identifier, err)
 		}
@@ -35,7 +39,7 @@ func RunAll(ctx context.Context, specGraders []models.GraderConfig, tc *models.T
 		}
 
 		params := applyDefaults(vCfg.Parameters, judgeModel, judgeReasoningEffort, updateSnapshots)
-		grader, err := Create(vCfg.Identifier, params)
+		grader, err := create(vCfg.Identifier, params)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create grader %s: %w", vCfg.Identifier, err)
 		}
