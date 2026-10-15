@@ -564,6 +564,8 @@ new flags. Use `waza compare-plan` to bind an explicit design to inspected sourc
 and `waza compare-collect` for fresh paired offline mock/native-text attempts.
 Strict reassessment rejects absent, null or case-aliased required verdict fields;
 only explicitly observed `false` and numeric zero may count as failed checks.
+Selected requirements and promoted cluster/task/trial keys also reject
+case aliases, including contradictory declarations in either order.
 Do not convert historical results into policy receipts. The
 [offline example](examples/controlled-comparison/) intentionally remains
 statistically inconclusive; mock observations are not agent-quality evidence.

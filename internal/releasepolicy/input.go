@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+
+	"github.com/microsoft/waza/internal/models"
 )
 
 // Input documents use the corresponding policy 1.0 member shape, not a
@@ -12,6 +14,9 @@ import (
 func decodeInput(data []byte, target any) error {
 	object, err := objectJSON(data)
 	if err != nil {
+		return err
+	}
+	if err := models.ValidateNativeJSONKeys(data, target); err != nil {
 		return err
 	}
 	decoder := json.NewDecoder(bytes.NewReader(data))

@@ -16,13 +16,18 @@ import (
 // These are authored artifact fixtures, not durable-writer qualification.
 func authoredRootCollection(t *testing.T, p *Policy, complete bool) string {
 	t.Helper()
+	return authoredRootCollectionWithStatus(t, p, complete, "passed")
+}
+
+func authoredRootCollectionWithStatus(t *testing.T, p *Policy, complete bool, status string) string {
+	t.Helper()
 	directory := t.TempDir()
 	write := func(name string, data []byte) {
 		t.Helper()
 		require.NoError(t, os.WriteFile(filepath.Join(directory, name), data, 0o600))
 	}
 	write("policy.json", testBytes(t, p))
-	events := retryTestEvents(t, p, "passed")
+	events := retryTestEvents(t, p, status)
 	if !complete {
 		write("journal.ndjson", retryTestStream(t, events[:4]))
 		return directory

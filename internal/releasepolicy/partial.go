@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"os"
 	"reflect"
+
+	"github.com/microsoft/waza/internal/models"
 )
 
 func accountIncomplete(ctx context.Context, read artifactReader, p *Policy, d *Decision) error {
@@ -31,6 +33,9 @@ func accountIncomplete(ctx context.Context, read artifactReader, p *Policy, d *D
 		}
 		object, err := objectJSON(line)
 		if err != nil {
+			return err
+		}
+		if err := models.ValidateNativeJSONKeys(line, Event{}); err != nil {
 			return err
 		}
 		var event Event

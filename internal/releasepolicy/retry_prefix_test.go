@@ -999,9 +999,10 @@ func TestRetryPinnedOriginalJournalOracle(t *testing.T) {
 	inputPath := write("inputs.json", in)
 	outputPath := filepath.Join(dir, "results.json")
 	overlay := map[string]any{"Replace": map[string]string{
-		filepath.Join(root, "internal/releasepolicy/journal.go"):           write("journal.go", original),
-		filepath.Join(root, "internal/releasepolicy/retry_prefix.go"):      write("empty.go", []byte("package releasepolicy\n")),
-		filepath.Join(root, "internal/releasepolicy/retry_prefix_test.go"): write("oracle_test.go", []byte(retryOriginalOracleSource)),
+		filepath.Join(root, "internal/releasepolicy/journal.go"):            write("journal.go", original),
+		filepath.Join(root, "internal/releasepolicy/retry_prefix.go"):       write("empty.go", []byte("package releasepolicy\n")),
+		filepath.Join(root, "internal/releasepolicy/partial_alias_test.go"): write("partial_empty.go", []byte("package releasepolicy\n")),
+		filepath.Join(root, "internal/releasepolicy/retry_prefix_test.go"):  write("oracle_test.go", []byte(retryOriginalOracleSource)),
 	}}
 	encoded, err := json.Marshal(overlay)
 	if err != nil {

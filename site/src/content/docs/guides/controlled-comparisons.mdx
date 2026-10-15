@@ -113,6 +113,10 @@ declare each required verdict member. Missing, null or case-aliased `passed`
 and `score` fields cannot become observed `false` or zero, even when those
 values would agree with the journal. Explicit `false` and numeric zero remain
 valid observations; legacy ordinary-result decoding is unchanged.
+Selected policy/planning requirements and complete or partial attempt identities
+also reject known-key aliases before typed decoding. Untagged embedded fields
+use their promoted JSON names, with JSON depth/tag shadowing and ambiguity
+rules; arbitrary dynamic-detail map keys remain unchanged.
 
 Number-preserving JSON admission also rejects invalid UTF-8 and unpaired
 escaped UTF-16 surrogates before decoding. Malformed strings cannot become

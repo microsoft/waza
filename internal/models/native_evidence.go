@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"unicode"
 
 	"github.com/microsoft/waza/internal/jsonutil"
 )
@@ -82,21 +83,7 @@ func validateNativeJSONKeys(value any, kind reflect.Type) error {
 		if !ok {
 			return nil
 		}
-		fields := make(map[string]reflect.Type)
-		for i := 0; i < kind.NumField(); i++ {
-			field := kind.Field(i)
-			if field.PkgPath != "" {
-				continue
-			}
-			name := strings.Split(field.Tag.Get("json"), ",")[0]
-			if name == "-" {
-				continue
-			}
-			if name == "" {
-				name = field.Name
-			}
-			fields[name] = field.Type
-		}
+		fields := nativeJSONFields(kind)
 		for key, member := range object {
 			field, exact := fields[key]
 			if exact {
@@ -129,4 +116,80 @@ func validateNativeJSONKeys(value any, kind reflect.Type) error {
 		}
 	}
 	return nil
+}
+
+type nativeJSONField struct {
+	kind      reflect.Type
+	depth     int
+	tagged    bool
+	ambiguous bool
+}
+
+// JSON promotion uses depth and explicit tags, not reflect.VisibleFields' Go names.
+func nativeJSONFields(kind reflect.Type) map[string]reflect.Type {
+	candidates := map[string]nativeJSONField{}
+	visiting := map[reflect.Type]bool{}
+	var collect func(reflect.Type, int)
+	collect = func(kind reflect.Type, depth int) {
+		if visiting[kind] {
+			return
+		}
+		visiting[kind] = true
+		defer delete(visiting, kind)
+		for i := 0; i < kind.NumField(); i++ {
+			field := kind.Field(i)
+			embedded := field.Type
+			if embedded.Kind() == reflect.Pointer {
+				embedded = embedded.Elem()
+			}
+			if !field.IsExported() && (!field.Anonymous || embedded.Kind() != reflect.Struct) {
+				continue
+			}
+			tag := field.Tag.Get("json")
+			if tag == "-" {
+				continue
+			}
+			name := nativeJSONTagName(tag)
+			if field.Anonymous && embedded.Kind() == reflect.Struct && name == "" {
+				collect(embedded, depth+1)
+				continue
+			}
+			tagged := name != ""
+			if name == "" {
+				name = field.Name
+			}
+			next := nativeJSONField{kind: field.Type, depth: depth, tagged: tagged}
+			previous, found := candidates[name]
+			switch {
+			case !found || depth < previous.depth:
+				candidates[name] = next
+			case depth == previous.depth:
+				if tagged && !previous.tagged {
+					candidates[name] = next
+				} else if tagged == previous.tagged {
+					previous.ambiguous = true
+					candidates[name] = previous
+				}
+			}
+		}
+	}
+	collect(kind, 0)
+	fields := map[string]reflect.Type{}
+	for name, field := range candidates {
+		if !field.ambiguous {
+			fields[name] = field.kind
+		}
+	}
+	return fields
+}
+
+func nativeJSONTagName(tag string) string {
+	name, _, _ := strings.Cut(tag, ",")
+	for _, character := range name {
+		if !unicode.IsLetter(character) && !unicode.IsDigit(character) &&
+			!strings.ContainsRune("!#$%&()*+-./:;<=>?@[]^_{|}~ ", character) {
+			return ""
+		}
+	}
+	return name
 }

@@ -560,6 +560,9 @@ func retryStreamEvents(ctx context.Context, stream []byte) ([]Event, int, error)
 		if err := strictRetryEvent(ctx, object); err != nil {
 			return nil, 0, err
 		}
+		if err := models.ValidateNativeJSONKeys(line, Event{}); err != nil {
+			return nil, 0, err
+		}
 		var e Event
 		d := json.NewDecoder(bytes.NewReader(line))
 		d.DisallowUnknownFields()

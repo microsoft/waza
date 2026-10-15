@@ -65,6 +65,9 @@ func admit(data []byte, kind string, target any) (map[string]any, error) {
 	if object["kind"] != kind || object["version"] != Version {
 		return nil, fmt.Errorf("unsupported release document kind/version")
 	}
+	if err := models.ValidateNativeJSONKeys(data, target); err != nil {
+		return nil, err
+	}
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(target); err != nil {

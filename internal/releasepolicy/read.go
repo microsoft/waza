@@ -12,7 +12,6 @@ import (
 	"reflect"
 	"runtime"
 
-	"github.com/microsoft/waza/internal/jsonutil"
 	"github.com/microsoft/waza/internal/models"
 )
 
@@ -145,7 +144,16 @@ func readDecision(ctx context.Context, read artifactReader, selected *models.Evi
 		if err := ctx.Err(); err != nil {
 			return d, err
 		}
-		if _, err := jsonutil.Parse(line); err != nil {
+		if err := models.ValidateNativeJSONKeys(line, Event{}); err != nil {
+			d.Compatibility.State = "invalid"
+			return d, err
+		}
+		object, err := objectJSON(line)
+		if err != nil {
+			d.Compatibility.State = "invalid"
+			return d, err
+		}
+		if err := requireFields(object, reflect.TypeFor[Event](), ""); err != nil {
 			d.Compatibility.State = "invalid"
 			return d, err
 		}
