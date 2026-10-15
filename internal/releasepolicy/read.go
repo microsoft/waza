@@ -234,7 +234,14 @@ func readDecision(ctx context.Context, read artifactReader, selected *models.Evi
 }
 
 func DecodeResults(data []byte) (*Results, error) {
-	if _, err := jsonutil.Parse(data); err != nil {
+	object, err := objectJSON(data)
+	if err != nil {
+		return nil, err
+	}
+	if err := requireFields(object, reflect.TypeFor[Results](), ""); err != nil {
+		return nil, err
+	}
+	if err := models.ValidateNativeJSONKeys(data, Results{}); err != nil {
 		return nil, err
 	}
 	var result Results
@@ -250,7 +257,14 @@ func DecodeResults(data []byte) (*Results, error) {
 }
 
 func DecodeResult(data []byte) (*ResultBinding, error) {
-	if _, err := jsonutil.Parse(data); err != nil {
+	object, err := objectJSON(data)
+	if err != nil {
+		return nil, err
+	}
+	if err := requireFields(object, reflect.TypeFor[ResultBinding](), ""); err != nil {
+		return nil, err
+	}
+	if err := models.ValidateNativeJSONKeys(data, ResultBinding{}); err != nil {
 		return nil, err
 	}
 	var result ResultBinding

@@ -108,6 +108,11 @@ Windows supplied-artifact reading is not support for durable collection.
 The versioned `schemas/release-*-1.0.schema.json` files provide structural
 validation. The Go reader additionally enforces exact JSON tokens, source
 binding, conditional availability, transitions and statistical validity.
+Actual result rows and their independent result projections must explicitly
+declare each required verdict member. Missing, null or case-aliased `passed`
+and `score` fields cannot become observed `false` or zero, even when those
+values would agree with the journal. Explicit `false` and numeric zero remain
+valid observations; legacy ordinary-result decoding is unchanged.
 
 Number-preserving JSON admission also rejects invalid UTF-8 and unpaired
 escaped UTF-16 surrogates before decoding. Malformed strings cannot become

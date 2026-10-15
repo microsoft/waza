@@ -562,6 +562,8 @@ golden, task-set defaults and `0/1/2/3` exits remain unchanged. Policy metadata 
 an ordinary results file is **not** enforcement; older executables reject the
 new flags. Use `waza compare-plan` to bind an explicit design to inspected sources
 and `waza compare-collect` for fresh paired offline mock/native-text attempts.
+Strict reassessment rejects absent, null or case-aliased required verdict fields;
+only explicitly observed `false` and numeric zero may count as failed checks.
 Do not convert historical results into policy receipts. The
 [offline example](examples/controlled-comparison/) intentionally remains
 statistically inconclusive; mock observations are not agent-quality evidence.
