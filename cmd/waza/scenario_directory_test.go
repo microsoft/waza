@@ -585,8 +585,7 @@ func TestScenarioRollbackRetainsOwnershipAcrossUnlinkAndRecreate(t *testing.T) {
 			} else {
 				require.NoError(t, err)
 			}
-			_, err = held.Stat()
-			require.ErrorIs(t, err, os.ErrClosed, "success and rollback must both release ownership")
+			require.Equal(t, ^uintptr(0), held.Fd(), "success and rollback must both release ownership")
 		})
 	}
 }

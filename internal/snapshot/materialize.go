@@ -29,15 +29,20 @@ func VerifyWorkspace(snap *Snapshot, origin models.EvidenceOrigin, manifestSHA s
 	if len(required) == 0 {
 		return errors.New("snapshot: explicitly required workspace files are needed")
 	}
+	resolver, err := evidence.NewResolver(snap.Evidence)
+	if err != nil {
+		return err
+	}
+	policy := DefaultPolicy()
 	seen := make(map[string]bool)
 	for _, file := range snap.WorkspaceFiles {
-		if workspacePathProblem(file.Path, nil, DefaultPolicy()) != nil || seen[file.Path] {
+		if workspacePathProblem(file.Path, nil, policy) != nil || seen[file.Path] {
 			return errors.New("snapshot: invalid or duplicated preserved file identity")
 		}
 		seen[file.Path] = true
 	}
 	for _, name := range required {
-		if workspacePathProblem(name, nil, DefaultPolicy()) != nil {
+		if workspacePathProblem(name, nil, policy) != nil {
 			return errors.New("snapshot: required workspace path is unsafe or unsupported")
 		}
 		found := false
@@ -46,11 +51,8 @@ func VerifyWorkspace(snap *Snapshot, origin models.EvidenceOrigin, manifestSHA s
 				continue
 			}
 			found = true
-			reference, err := evidence.Reference(snap.Evidence, "workspace-file/"+name)
-			if err != nil {
-				return err
-			}
-			artifact, err := evidence.Resolve(snap.Evidence, reference)
+			reference := models.EvidenceReference{Origin: origin, ArtifactID: "workspace-file/" + name}
+			artifact, err := resolver.Resolve(reference)
 			if err != nil {
 				return err
 			}
@@ -61,7 +63,7 @@ func VerifyWorkspace(snap *Snapshot, origin models.EvidenceOrigin, manifestSHA s
 				if index >= len(snap.rawWorkspaceFiles) {
 					return errors.New("snapshot: preserved file bytes are unavailable")
 				}
-				if err := evidence.VerifyContent(snap.Evidence, reference, snap.rawWorkspaceFiles[index], true, true); err != nil {
+				if err := resolver.VerifyContent(reference, snap.rawWorkspaceFiles[index], true, true); err != nil {
 					return err
 				}
 			}
@@ -69,7 +71,7 @@ func VerifyWorkspace(snap *Snapshot, origin models.EvidenceOrigin, manifestSHA s
 			if err != nil {
 				return errors.New("snapshot: preserved file metadata cannot be encoded")
 			}
-			if err := evidence.VerifyContent(snap.Evidence, reference, data, true, true); err != nil {
+			if err := resolver.VerifyContent(reference, data, true, true); err != nil {
 				return err
 			}
 			if file.Redacted || !utf8.ValidString(file.Content) || shaBytes([]byte(file.Content)) != file.SHA256 {

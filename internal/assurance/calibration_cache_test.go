@@ -80,7 +80,11 @@ func TestCalibrationCacheParentReplacementCannotRedirectWritesOrCleanup(t *testi
 	renameErr := os.Rename(".cache", "retained-cache")
 	pinned := runtime.GOOS == "windows" && renameErr != nil
 	if pinned {
-		require.ErrorIs(t, renameErr, syscall.Errno(32))
+		// Either native pin error is admitted only if closing the roots makes
+		// the identical rename succeed below.
+		var cause syscall.Errno
+		require.ErrorAs(t, renameErr, &cause)
+		require.Contains(t, []syscall.Errno{5, 32}, cause)
 		require.NoError(t, store.verify())
 		_, err = store.write([]byte("still owned"))
 		require.NoError(t, err)

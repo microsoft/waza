@@ -95,6 +95,50 @@ func TestRedactedStateCannotBeMaterializedForExactRegrade(t *testing.T) {
 	require.ErrorContains(t, err, "redaction")
 }
 
+func TestVerifyManyRequiredFilesRevalidatesEveryCall(t *testing.T) {
+	for _, raw := range []bool{false, true} {
+		t.Run(fmt.Sprintf("raw=%t", raw), func(t *testing.T) {
+			snap, err := Capture(CaptureInput{
+				EvalID: "eval", Task: &models.TestCase{TestID: "task"},
+				Run: &models.RunResult{RunNumber: 1, Attempts: 1, Status: models.StatusPassed},
+			})
+			require.NoError(t, err)
+			paths := make([]string, 256)
+			for i := range paths {
+				name := fmt.Sprintf("approved/%03d.txt", i)
+				file := WorkspaceFile{Path: name, Content: "ready", SHA256: shaBytes([]byte("ready"))}
+				snap.WorkspaceFiles = append(snap.WorkspaceFiles, file)
+				digest, err := evidence.JSONDigest(file)
+				require.NoError(t, err)
+				snap.Evidence.Artifacts = append(snap.Evidence.Artifacts, models.EvidenceArtifact{
+					ID: "workspace-file/" + name, Kind: "workspace_file", Document: "snapshot",
+					Pointer: fmt.Sprintf("/workspaceFiles/%d", i), Availability: "captured",
+					Completeness: "complete", ContentDigest: digest,
+				})
+				paths[i] = name
+			}
+			require.NoError(t, evidence.Seal(snap.Evidence))
+			if raw {
+				data, err := json.Marshal(snap)
+				require.NoError(t, err)
+				snap, err = ParseSnapshot(data, "many-file verification regression")
+				require.NoError(t, err)
+			}
+			origin, identity := snap.Evidence.Origin, snap.Evidence.SHA256
+			require.NoError(t, VerifyWorkspace(snap, origin, identity, paths))
+			last := len(snap.WorkspaceFiles) - 1
+			snap.WorkspaceFiles[last].Content = "changed"
+			require.Error(t, VerifyWorkspace(snap, origin, identity, paths), "even the last required file must be checked")
+			snap.WorkspaceFiles[last].Content = "ready"
+			require.NoError(t, VerifyWorkspace(snap, origin, identity, paths))
+			snap.Evidence.Artifacts[len(snap.Evidence.Artifacts)-1].Pointer = "/workspaceFiles/0"
+			require.NoError(t, evidence.Seal(snap.Evidence))
+			require.ErrorContains(t, VerifyWorkspace(snap, origin, snap.Evidence.SHA256, paths), "locator",
+				"validated metadata must not be cached across separate calls")
+		})
+	}
+}
+
 func TestPartialWorkspaceCaptureRemainsExplicit(t *testing.T) {
 	snap := capturedWorkspace(t, "actual output")
 	input := CaptureInput{

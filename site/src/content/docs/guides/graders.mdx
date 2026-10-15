@@ -118,6 +118,13 @@ makes zero paid calls and leaves usage/credits null. See the
 The separate evaluator API `assurance.Calibrate` requires explicit selection,
 a bound local rubric, frozen native declarations and inputs, a construction-only
 factory and successful pre-initialization notice. It has no default factory.
+Freezing copies matcher declarations without compiling regular expressions or
+loading external schema references, including in unselected eval, task and
+checkpoint graders. Nested JSON numbers retain their exact values; compilation
+and resource policy remain the responsibility of the selected validation path.
+Preserved workspace verification reuses validated manifest metadata and one
+path policy within each call while still checking every required file's locator,
+raw and typed content digests, completeness and redaction state.
 Independent native callbacks, lifecycle diagnostics and independent received-event/
 accounting attribution remain distinct from native candidate verdicts; missing
 or operational evidence cannot establish strict pass. Report-1.1 claims require

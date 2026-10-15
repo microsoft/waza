@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"reflect"
 
+	"github.com/microsoft/waza/internal/graders/argmatcher"
 	"github.com/microsoft/waza/internal/jsonutil"
 	"github.com/microsoft/waza/internal/models"
 )
@@ -19,6 +20,11 @@ func calibrationJSONCopy[T any](source T) (T, error) {
 	if err != nil {
 		return target, err
 	}
+	return calibrationJSONDecode[T](data)
+}
+
+func calibrationJSONDecode[T any](data []byte) (T, error) {
+	var target T
 	if _, err := jsonutil.Parse(data); err != nil {
 		return target, err
 	}
@@ -34,6 +40,24 @@ func calibrationJSONCopy[T any](source T) (T, error) {
 func calibrationParametersCopy(source models.GraderParameters) (models.GraderParameters, error) {
 	if source == nil {
 		return nil, nil
+	}
+	switch parameters := source.(type) {
+	case models.ToolCallsGraderParameters:
+		return calibrationToolCallsCopy(parameters)
+	case *models.ToolCallsGraderParameters:
+		if parameters == nil {
+			return source, nil
+		}
+		target, err := calibrationToolCallsCopy(*parameters)
+		return &target, err
+	case models.ToolConstraintGraderParameters:
+		return calibrationToolConstraintsCopy(parameters)
+	case *models.ToolConstraintGraderParameters:
+		if parameters == nil {
+			return source, nil
+		}
+		target, err := calibrationToolConstraintsCopy(*parameters)
+		return &target, err
 	}
 	data, err := json.Marshal(source)
 	if err != nil {
@@ -54,6 +78,84 @@ func calibrationParametersCopy(source models.GraderParameters) (models.GraderPar
 		return nil, errors.New("assurance: native parameter copy has an unsupported type")
 	}
 	return parameters, nil
+}
+
+func calibrationToolCallsCopy(source models.ToolCallsGraderParameters) (models.ToolCallsGraderParameters, error) {
+	expect := source.Expect
+	source.Expect = nil
+	target, err := calibrationJSONCopy(source)
+	if err != nil {
+		return target, err
+	}
+	if expect != nil {
+		target.Expect = make([]models.ToolExpectation, len(expect))
+	}
+	for i, expectation := range expect {
+		target.Expect[i] = expectation
+		target.Expect[i].Args, err = calibrationMatcherArgsCopy(expectation.Args)
+		if err != nil {
+			return target, err
+		}
+	}
+	return target, nil
+}
+
+func calibrationToolConstraintsCopy(source models.ToolConstraintGraderParameters) (models.ToolConstraintGraderParameters, error) {
+	var target models.ToolConstraintGraderParameters
+	var err error
+	if target.ExpectTools, err = calibrationToolSpecsCopy(source.ExpectTools); err != nil {
+		return target, err
+	}
+	if target.RejectTools, err = calibrationToolSpecsCopy(source.RejectTools); err != nil {
+		return target, err
+	}
+	if source.AllowOnly != nil {
+		specs, err := calibrationToolSpecsCopy(*source.AllowOnly)
+		if err != nil {
+			return target, err
+		}
+		target.AllowOnly = &specs
+	}
+	return target, nil
+}
+
+func calibrationToolSpecsCopy(source []models.ToolSpecParameters) ([]models.ToolSpecParameters, error) {
+	if source == nil {
+		return nil, nil
+	}
+	target := make([]models.ToolSpecParameters, len(source))
+	for i, spec := range source {
+		target[i] = spec
+		var err error
+		target[i].Args, err = calibrationMatcherArgsCopy(spec.Args)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return target, nil
+}
+
+func calibrationMatcherArgsCopy(source map[string]argmatcher.Matcher) (map[string]argmatcher.Matcher, error) {
+	if source == nil {
+		return nil, nil
+	}
+	target := make(map[string]argmatcher.Matcher, len(source))
+	for name, matcher := range source {
+		// A distinct type omits Matcher.UnmarshalJSON's runtime compilation.
+		// UseNumber reaches nested literals, and compiled caches stay empty.
+		type declaration argmatcher.Matcher
+		data, err := json.Marshal(matcher)
+		if err != nil {
+			return nil, fmt.Errorf("assurance: copy matcher argument %q: %w", name, err)
+		}
+		copied, err := calibrationJSONDecode[declaration](data)
+		if err != nil {
+			return nil, fmt.Errorf("assurance: copy matcher argument %q: %w", name, err)
+		}
+		copied.Kind = matcher.Kind
+		target[name] = argmatcher.Matcher(copied)
+	}
+	return target, nil
 }
 
 func calibrationConfigCopy(source models.GraderConfig) (models.GraderConfig, error) {
