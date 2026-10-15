@@ -123,17 +123,42 @@ test('source build and safety boundary examples stay explicit', () => {
     assert.match(text, /git lfs install[\s\S]*git lfs pull[\s\S]*make build/, path);
     assert.doesNotMatch(text, /^go build -o waza/m, path);
   }
-  const adversarial = read('site/src/content/docs/guides/adversarial.mdx');
-  for (const [, command] of adversarial.matchAll(/^(waza adversarial .+)$/gm)) {
-    if (command.includes('--spec')) continue;
-    assert.match(command, /--engine (?:mock|copilot-sdk)/);
-    if (command.includes('--engine copilot-sdk')) assert.match(command, /--skill /);
-  }
   for (const path of ['docs/CONTROLLED-COMPARISONS.md', 'site/src/content/docs/guides/controlled-comparisons.mdx']) {
     assert.doesNotMatch(read(path), /do not currently produce|producer integration remains deferred/);
     assert.match(read(path), /Run without snapshot/);
     assert.match(read(path), /Run with `--snapshot`/);
   }
+});
+
+test('adversarial command fences separate offline smoke from prerequisite-gated real execution', () => {
+  const guide = read('site/src/content/docs/guides/adversarial.mdx');
+  const fences = [...guide.matchAll(/^```[^\n]*\n([\s\S]*?)^```/gm)];
+  assert.ok(fences.length > 0);
+  assert.match(fences[0][1], /waza adversarial --engine mock/);
+  assert.doesNotMatch(fences[0][1], /copilot-sdk|cd skills\//, 'first copyable block must remain offline only');
+  const prerequisites = ['development-main skill-binding fix', '`v0.38.10`',
+    'SDK authentication and usage prerequisites', 'standalone CLI login',
+    'model access', 'approved runtime/tool permissions', 'Real runs may incur model costs'];
+  let realFences = 0;
+  for (const fence of fences) {
+    const commands = [...fence[1].matchAll(/^\s*(?:run:\s*)?(waza adversarial [^\n]+)$/gm)].map((match) => match[1]);
+    for (const command of commands) {
+      assert.equal([...command.matchAll(/--engine (\S+)/g)].length, 1, `explicit, unambiguous engine required: ${command}`);
+      assert.match(command, /--engine (?:mock|copilot-sdk)(?:\s|$)/);
+    }
+    const real = /--engine copilot-sdk|executor:\s*copilot-sdk/.test(fence[1]);
+    if (!real) continue;
+    realFences++;
+    assert.doesNotMatch(fence[1], /--engine mock|executor:\s*mock/, 'one fence must not mix offline and real execution');
+    for (const prerequisite of prerequisites) {
+      const position = guide.indexOf(prerequisite);
+      assert.ok(position >= 0 && position < fence.index, `${prerequisite} must precede every real-engine fence`);
+    }
+    for (const command of commands) assert.match(command, /--skill my-skill/);
+  }
+  assert.equal(realFences, 1, 'keep real execution in one separate, prerequisite-gated block');
+  assert.match(guide, /harness only, not the changed\nskill's safety/);
+  assert.match(guide, /expected negative harness control/);
 });
 
 test('executable documentation controls have a maintained real-asset CI entrypoint', () => {

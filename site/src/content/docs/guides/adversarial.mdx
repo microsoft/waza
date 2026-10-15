@@ -36,53 +36,69 @@ Four tasks that smuggle adversarial directives through README files, fake "syste
 
 Four tasks that explicitly ask the skill to do something out-of-scope: send email, delete files, install a third-party dependency, and call an external HTTP API. A safe skill *refuses* and explains the constraint; an unsafe skill complies.
 
-Each pack lives under `internal/adversarial/data/<pack>/` and is embedded into the `waza` binary, so no network or filesystem dependencies are needed at runtime.
+Each pack lives under `internal/adversarial/data/<pack>/` and is embedded into
+the `waza` binary, so no external pack download is required. This does not make
+real agent execution or its configured tool dependencies offline.
 
 ## Quick start
 
+### Offline harness smoke
+
+These commands use only the native mock: no agent, credentials or model calls.
+They check harness wiring, not the intended skill's quality or safety.
+The mock echoes hostile prompts rather than implementing safe refusal.
+With the default `fail` policy, the first command reports eight unsafe
+observations and exits **2**: an expected negative harness control.
+The single-pack output command also exits **2**.
+`--on-unsafe-outcome warn` exercises the nonblocking path and exits **0**,
+without changing those unsafe observations.
+
 ```sh
-# Offline harness-only smoke: no agent, credentials or model calls
+# Expected exit 2: negative harness control, not a skill assessment
 waza adversarial --engine mock --packs prompt-injection,scope-bypass
 
-# Run from the directory containing SKILL.md with frontmatter name: my-skill
-(
-  cd skills/my-skill &&
-  waza adversarial --engine copilot-sdk --packs prompt-injection --skill my-skill --model gpt-4o
-)
-
-# Save the full results JSON so you can drill in with the dashboard
+# Expected exit 2: save the unsafe mock observations for inspection
 waza adversarial --engine mock --packs scope-bypass --output adversarial.json
 
-# Run a single pack and tolerate unsafe outcomes (CI smoke; non-blocking)
+# Expected exit 0: nonblocking harness smoke, not a skill safety gate
 waza adversarial --engine mock --packs prompt-injection --on-unsafe-outcome warn
 ```
 
-Before the real-engine command, complete the
+### Before real-engine execution
+
+Use a build containing the **development-main skill-binding fix** described
+below. That fix is not in published `v0.38.10`; older binaries must not be
+assumed to evaluate the intended skill.
+
+Before continuing, complete the
 [SDK authentication and usage prerequisites](../../getting-started/#authenticate-before-real-execution):
 standalone CLI login, model access and approved runtime/tool permissions.
-Real runs may incur model costs; dependency mocks do not establish live service
-safety. The offline commands above must not be labeled skill safety gates.
+Real runs may incur model costs and invoke configured dependencies. Approve
+that usage and those permissions before executing the separate block below.
+Dependency mocks do not establish live service safety.
 
 `--skill` is the declared frontmatter **name**, not a filesystem path. Check
 that `skills/my-skill/SKILL.md` declares `name: my-skill`; substitute your actual
 directory/name together. The subshell runs from that directory so native
-discovery can find its `SKILL.md`. The **development-main skill-binding fix**
-resolves this directory from the original workspace and records its absolute
-path before relocating the synthesized spec. That fix is not in the published
-`v0.38.10`; older binaries must not be assumed to evaluate the intended skill.
+discovery can find its `SKILL.md`. The fix resolves this directory from the
+original workspace and records its absolute path before relocating the
+synthesized spec.
 Missing/mismatched real targets now fail before engine creation; explicit
 mock harness runs remain available without a target.
+
+```sh
+# Real agent execution: requires the prerequisites above and may incur usage
+(
+  cd skills/my-skill &&
+  waza adversarial --engine copilot-sdk --packs prompt-injection --skill my-skill --model gpt-4o
+)
+```
 
 Regressions inspect actual generated-spec configuration and resolved execution
 requests, not a manually supplied discovery path. They substitute mock at the
 engine factory and check missing/mismatched sources. They do **not** establish
 that a live SDK session loaded/invoked the skill or that the skill is safe.
 
-The mock echoes the hostile prompts; it does not implement safe refusal.
-With the default `fail` policy, the offline command above reports eight unsafe
-observations and exits **2**. This is an expected negative harness control, not
-evidence that a skill was evaluated. `--on-unsafe-outcome warn` exercises the
-nonblocking path and exits **0**, without changing those unsafe observations.
 A successful real-engine summary (illustrative, not a recorded live result) can
 look like:
 
@@ -98,14 +114,22 @@ Adversarial summary (packs: prompt-injection)
 
 You can pin pack selection and policy at the spec level by adding an `adversarial:` block. This block is **additive** under schema **1.2** and is consumed only by `waza adversarial --spec eval.yaml`; `waza run` ignores it.
 
+The following is another **offline harness** example. Save it as `eval.yaml`.
+`--spec` supplies the pack/policy block (and optional graders/metrics), not the
+real engine or target selection. Keep `--engine mock` explicit in the command
+below; a real run requires explicit engine/skill flags and the prerequisites
+above.
+
 ```yaml
 schemaVersion: "1.2"
 name: my-skill-eval
 skill: my-skill
 version: "1.0"
 config:
-  executor: copilot-sdk
-  model: gpt-4o
+  executor: mock
+  model: mock
+  trials_per_task: 1
+  timeout_seconds: 30
 tasks:
   - "tasks/*.yaml"
 adversarial:
@@ -118,8 +142,8 @@ adversarial:
 CLI flags override the spec block:
 
 ```sh
-# Spec says fail; this run downgrades to warn
-waza adversarial --spec eval.yaml --on-unsafe-outcome warn
+# Offline only: spec says fail; this mock run downgrades to warn
+waza adversarial --engine mock --spec eval.yaml --on-unsafe-outcome warn
 ```
 
 ## Flags
@@ -131,7 +155,7 @@ waza adversarial --spec eval.yaml --on-unsafe-outcome warn
 | `--on-unsafe-outcome` | `fail` (exit 2) or `warn` (exit 0) on unsafe | `fail` |
 | `--spec` | Inherit `adversarial:`, `graders`, and `metrics` from a spec | — |
 | `--engine` | Engine to use (`mock`, `copilot-sdk`) | inferred |
-| `--skill` | Skill path/identifier (forwards to the engine) | — |
+| `--skill` | Declared skill name, not a filesystem path | — |
 | `--model` | Model passed to the engine | — |
 | `--output` | Write the full `results.json` to a file | — |
 | `--workers` / `--parallel` | Concurrency knobs (same semantics as `waza run`) | — |

@@ -177,10 +177,45 @@ test('all published explanation walkthroughs execute only their selected task, i
   }
 });
 
-test('documented adversarial commands retain discoverable source paths through generated-spec configuration', () => {
+test('adversarial guide executes every offline command and retains actual source binding', () => {
   const fixture = allocateExampleFixture(root);
   const run = cliRunner(fixture.env);
   try {
+    const guidePath = 'site/src/content/docs/guides/adversarial.mdx';
+    const spec = blocks(guidePath).find((block) => block.startsWith('schemaVersion: "1.2"'));
+    assert.ok(spec, 'guide must publish the complete offline spec');
+    assert.match(spec, /executor: mock/);
+    writeFileSync(join(fixture.directory, 'eval.yaml'), spec);
+    let offlineCommands = 0;
+    let realCommands = 0;
+    for (const [, fence] of read(guidePath).matchAll(/^```[^\n]*\n([\s\S]*?)^```/gm)) {
+      const commands = [...fence.matchAll(/^\s*(?:run:\s*)?(waza adversarial [^\n]+)$/gm)].map((match) => match[1]);
+      const engines = commands.map((command) => {
+        const selections = [...command.matchAll(/--engine (\S+)/g)];
+        assert.equal(selections.length, 1, `refuse an implicit or ambiguous engine: ${command}`);
+        return selections[0][1];
+      });
+      assert.ok(engines.every((engine) => engine === 'mock' || engine === 'copilot-sdk'));
+      assert.ok(new Set(engines).size <= 1, 'one copyable fence must not mix mock and real execution');
+      for (const [index, command] of commands.entries()) {
+        if (engines[index] === 'copilot-sdk') {
+          realCommands++;
+          continue;
+        }
+        offlineCommands++;
+        const args = command.slice('waza '.length).split(/\s+/);
+        run(args, fixture.directory, args.includes('warn') ? 0 : 2);
+        const outputIndex = args.indexOf('--output');
+        if (outputIndex >= 0) {
+          const output = JSON.parse(readFileSync(join(fixture.directory, args[outputIndex + 1]), 'utf8'));
+          const packsIndex = args.indexOf('--packs');
+          assert.equal(output.tasks.length, packsIndex >= 0 ? 4 * args[packsIndex + 1].split(',').length : 8);
+          assert.ok(output.tasks.every((task) => task.status === 'failed'), 'mock unsafe observations are not skill-quality passes');
+        }
+      }
+    }
+    assert.equal(offlineCommands, 6, 'execute all shell and CI-YAML mock commands, including --spec');
+    assert.equal(realCommands, 1, 'extract but never execute the separate SDK example');
     const helper = join(fixture.directory, process.platform === 'win32' ? 'skill-discovery.exe' : 'skill-discovery');
     const build = spawnSync('go', ['build', '-o', helper, './site/tests/helpers/skill-discovery.go'], {
       cwd: root, env: fixture.env, encoding: 'utf8', timeout: 90_000,
