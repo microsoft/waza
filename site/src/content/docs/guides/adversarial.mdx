@@ -177,7 +177,9 @@ Pack inputs are embedded; real agent execution still requires its runtime and
 may use configured dependencies. `waza replay` checks **recorded consistency**:
 it does not rerun a changed agent, execute graders or automatically execute
 adversarial packs. For observed drift, capture two separately executed runs with
-`waza run --snapshot`, then use offline `waza replay --bisect before.json after.json`.
+`waza run --snapshot`, then use offline `waza replay before.json --bisect after.json`.
+The positional `before.json` is the baseline; `--bisect after.json` selects the
+comparison snapshot.
 That compares retained tool fingerprints, not causes or current model safety.
 
 ## Schema reference

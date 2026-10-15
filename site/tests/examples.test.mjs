@@ -45,6 +45,14 @@ test('copy/paste scaffold, preflight, mock capture and predicate controls', () =
     assert.ok(recorded.evidence, 'opt-in ordinary run must produce result evidence');
     assert.ok(recorded.snapshot_path);
     run(['replay', recorded.snapshot_path, '--json'], project);
+    const retained = readFileSync(resolve(project, recorded.snapshot_path));
+    for (const name of ['before.json', 'after.json']) writeFileSync(join(project, name), retained);
+    const bisect = read('site/src/content/docs/guides/adversarial.mdx')
+      .match(/`waza (replay [^`\n]+)`/);
+    assert.ok(bisect, 'adversarial guide must publish the complete offline replay comparison');
+    const comparison = JSON.parse(run([...bisect[1].split(/\s+/), '--json'], project));
+    assert.equal(comparison.baseline, 'before.json', 'positional snapshot is the baseline');
+    assert.equal(comparison.replayed, 'after.json', '--bisect snapshot is the comparison');
     const regrade = JSON.parse(run(['grade', 'evals/inventory/eval.yaml', '--results', 'results.json', '--workspace', 'evals/inventory/fixtures', '--output', 'regraded.json'], project));
     assert.equal(regrade.passed, false, 'grade exit zero is not a passing assessment');
     const regraded = JSON.parse(readFileSync(join(project, 'regraded.json'), 'utf8'));

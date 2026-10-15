@@ -114,3 +114,9 @@ test('executable documentation controls have a maintained real-asset CI entrypoi
   assert.match(workflow, /WAZA_BIN="\$GITHUB_WORKSPACE\/waza" npm --prefix site run test:examples/);
   assert.match(workflow, /COPILOT_CLI_PATH: \$\{\{ github.workspace \}\}/);
 });
+
+test('adversarial replay example identifies the baseline before its comparison', () => {
+  const examples = [...read('site/src/content/docs/guides/adversarial.mdx')
+    .matchAll(/`(waza replay [^`\n]+)`/g)].map((match) => match[1]);
+  assert.deepEqual(examples, ['waza replay before.json --bisect after.json']);
+});
