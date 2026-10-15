@@ -105,15 +105,21 @@ func checkScenarioOutput(parent *os.Root, name, path string) error {
 }
 
 func writeScenarioFiles(paths []string, parents map[string]*os.Root, base string, files map[string]string,
-	create func(*os.Root, string, string, string) (os.FileInfo, error),
+	create func(*os.Root, string, string, string) (*os.File, error),
 ) (err error) {
-	created := make(map[string]os.FileInfo, len(paths))
+	created := make(map[string]*os.File, len(paths))
 	defer func() {
-		if err == nil {
-			return
-		}
-		for _, path := range slices.Backward(paths) {
-			if original := created[path]; original != nil {
+		if err != nil {
+			for _, path := range slices.Backward(paths) {
+				file := created[path]
+				if file == nil {
+					continue
+				}
+				original, originalErr := file.Stat()
+				if originalErr != nil {
+					err = errors.Join(err, fmt.Errorf("inspecting scenario rollback ownership %s: %w", path, originalErr))
+					continue
+				}
 				parent, name := parents[path], filepath.Base(path)
 				current, statErr := parent.Lstat(name)
 				switch {
@@ -130,11 +136,18 @@ func writeScenarioFiles(paths []string, parents map[string]*os.Root, base string
 				}
 			}
 		}
+		for _, path := range paths {
+			if file := created[path]; file != nil {
+				if closeErr := file.Close(); closeErr != nil {
+					err = errors.Join(err, fmt.Errorf("closing scenario output %s: %w", path, closeErr))
+				}
+			}
+		}
 	}()
 	for _, path := range paths {
-		info, createErr := create(parents[path], filepath.Base(path), filepath.Join(base, path), files[path])
-		if info != nil {
-			created[path] = info
+		file, createErr := create(parents[path], filepath.Base(path), filepath.Join(base, path), files[path])
+		if file != nil {
+			created[path] = file
 		}
 		if createErr != nil {
 			return createErr
@@ -143,7 +156,7 @@ func writeScenarioFiles(paths []string, parents map[string]*os.Root, base string
 	return nil
 }
 
-func writeScenarioFileAt(parent *os.Root, name, path, contents string) (os.FileInfo, error) {
+func writeScenarioFileAt(parent *os.Root, name, path, contents string) (*os.File, error) {
 	file, err := parent.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
 	if errors.Is(err, os.ErrExist) {
 		return nil, fmt.Errorf("refusing to overwrite existing file: %s", path)
@@ -151,14 +164,13 @@ func writeScenarioFileAt(parent *os.Root, name, path, contents string) (os.FileI
 	if err != nil {
 		return nil, fmt.Errorf("creating %s: %w", path, err)
 	}
-	info, statErr := file.Stat()
+	_, statErr := file.Stat()
 	if statErr != nil {
 		return nil, errors.Join(fmt.Errorf("inspecting new scenario file %s; retained because ownership is unavailable: %w", path, statErr), file.Close())
 	}
 	_, writeErr := file.WriteString(contents)
-	closeErr := file.Close()
-	if err := errors.Join(writeErr, closeErr); err != nil {
-		return info, fmt.Errorf("writing %s: %w", path, err)
+	if writeErr != nil {
+		return file, fmt.Errorf("writing %s: %w", path, writeErr)
 	}
-	return info, nil
+	return file, nil
 }

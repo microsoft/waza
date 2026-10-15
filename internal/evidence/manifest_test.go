@@ -68,6 +68,96 @@ func TestManifestIdentityAndScopedReferences(t *testing.T) {
 	require.ErrorContains(t, Validate(manifest), "identity")
 }
 
+func TestResolverMatchesDirectValidation(t *testing.T) {
+	manifest := sampleManifest(t)
+	resolver, err := NewResolver(manifest)
+	require.NoError(t, err)
+	reference, err := Reference(manifest, "receipt")
+	require.NoError(t, err)
+	for _, mode := range []string{"whole", "pointer", "other-origin", "invalid-pointer", "absent"} {
+		t.Run(mode, func(t *testing.T) {
+			selected := reference
+			switch mode {
+			case "pointer":
+				selected.Pointer = "/a~1b/0"
+			case "other-origin":
+				selected.Origin.TaskID = "foreign"
+			case "invalid-pointer":
+				selected.Pointer = "/invalid~2escape"
+			case "absent":
+				selected.ArtifactID = "absent"
+			}
+			want, wantErr := Resolve(manifest, selected)
+			got, gotErr := resolver.Resolve(selected)
+			require.Equal(t, want, got)
+			if wantErr != nil {
+				require.EqualError(t, gotErr, wantErr.Error())
+			} else {
+				require.NoError(t, gotErr)
+			}
+			content := []byte(`{"count":9007199254740993,"a/b":["ok"]}`)
+			wantErr = VerifyContent(manifest, selected, content, true, true)
+			gotErr = resolver.VerifyContent(selected, content, true, true)
+			if wantErr != nil {
+				require.EqualError(t, gotErr, wantErr.Error())
+			} else {
+				require.NoError(t, gotErr)
+			}
+		})
+	}
+}
+
+func TestResolverOwnsValidatedMetadata(t *testing.T) {
+	manifest := sampleManifest(t)
+	reference, err := Reference(manifest, "receipt")
+	require.NoError(t, err)
+	expected := cloneArtifact(manifest.Artifacts[0])
+	resolver, err := NewResolver(manifest)
+	require.NoError(t, err)
+	manifest.Artifacts[0].ID = "changed"
+	manifest.Artifacts[0].ContentDigest.SHA256 = strings.Repeat("f", 64)
+	manifest.Origin.TaskID = "changed"
+	manifest.Version = "changed"
+	require.Error(t, Validate(manifest))
+	artifact, err := resolver.Resolve(reference)
+	require.NoError(t, err)
+	require.Equal(t, expected, *artifact)
+	artifact.ContentDigest.SHA256 = strings.Repeat("e", 64)
+	again, err := resolver.Resolve(reference)
+	require.NoError(t, err)
+	require.Equal(t, expected, *again, "returned digest pointers must not mutate the retained index")
+	require.NoError(t, resolver.VerifyContent(reference,
+		[]byte(`{"count":9007199254740993,"a/b":["ok"]}`), true, true))
+	require.ErrorContains(t, resolver.VerifyContent(reference, []byte(`{}`), true, true), "digest mismatch")
+
+	original := models.EvidenceArtifact{SourceDigest: &models.EvidenceDigest{SHA256: "owned", Encoding: "source"}}
+	cloned := cloneArtifact(original)
+	original.SourceDigest.SHA256 = "changed"
+	require.Equal(t, "owned", cloned.SourceDigest.SHA256)
+}
+
+func TestResolverRejectsInvalidOrUnattributedMetadata(t *testing.T) {
+	manifest := sampleManifest(t)
+	manifest.SHA256 = strings.Repeat("f", 64)
+	for _, invalid := range []*models.EvidenceManifest{nil, manifest} {
+		resolver, err := NewResolver(invalid)
+		require.Error(t, err)
+		require.Nil(t, resolver)
+	}
+	for _, resolver := range []*Resolver{nil, {}} {
+		_, err := resolver.Resolve(models.EvidenceReference{})
+		require.Error(t, err)
+		require.Error(t, resolver.VerifyContent(models.EvidenceReference{}, nil, true, true))
+	}
+	manifest = sampleManifest(t)
+	manifest.Origin = models.EvidenceOrigin{}
+	require.NoError(t, Seal(manifest))
+	resolver, err := NewResolver(manifest)
+	require.NoError(t, err)
+	_, err = resolver.Resolve(models.EvidenceReference{ArtifactID: "receipt"})
+	require.ErrorContains(t, err, "attribution is incomplete")
+}
+
 func TestValidateRejectsRequiredObjectNormalization(t *testing.T) {
 	for _, field := range []string{"origin", "runtime", "redaction"} {
 		for _, absent := range []bool{false, true} {

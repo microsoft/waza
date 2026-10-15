@@ -194,8 +194,12 @@ func observePreservedMechanical(ctx context.Context, input PreservedMechanicalIn
 	}
 	boundedFiles := make(map[string]bool)
 	selectedBytes := 0
+	resolver, err := evidence.NewResolver(&manifest)
+	if err != nil {
+		return fail(Invalid, fmt.Errorf("resolving preserved reference: %w", err))
+	}
 	for _, reference := range references {
-		artifact, err := evidence.Resolve(&manifest, reference)
+		artifact, err := resolver.Resolve(reference)
 		if err != nil {
 			return fail(Invalid, fmt.Errorf("resolving preserved reference: %w", err))
 		}
@@ -225,13 +229,13 @@ func observePreservedMechanical(ctx context.Context, input PreservedMechanicalIn
 		}
 		if reference.Pointer == "" {
 			selected[artifact.ID] = true
-		} else if state, err := verifyPreservedRawReference(root, &manifest, reference); err != nil {
+		} else if state, err := verifyPreservedRawReference(root, resolver, reference); err != nil {
 			return fail(state, err)
 		}
 	}
 	gCtx := &graders.Context{TestCase: task}
 	if _, file := parameters.(models.FileGraderParameters); file {
-		state, err := verifyPreservedFiles(root, &snapshot.Snapshot{Evidence: &manifest}, paths, selected)
+		state, err := verifyPreservedFiles(root, resolver, origin, paths, selected)
 		if err != nil {
 			return fail(state, err)
 		}
@@ -239,7 +243,7 @@ func observePreservedMechanical(ctx context.Context, input PreservedMechanicalIn
 		if !selected["tool-events"] {
 			return fail(InsufficientEvidence, errors.New("complete whole tool-events reference is required"))
 		}
-		artifact, err := evidence.Resolve(&manifest, models.EvidenceReference{Origin: origin, ArtifactID: "tool-events"})
+		artifact, err := resolver.Resolve(models.EvidenceReference{Origin: origin, ArtifactID: "tool-events"})
 		if err != nil {
 			return fail(Invalid, err)
 		}
@@ -252,7 +256,7 @@ func observePreservedMechanical(ctx context.Context, input PreservedMechanicalIn
 		if reference.Pointer != "" {
 			continue // Already verified before whole-artifact selection.
 		}
-		if state, err := verifyPreservedRawReference(root, &manifest, reference); err != nil {
+		if state, err := verifyPreservedRawReference(root, resolver, reference); err != nil {
 			return fail(state, err)
 		}
 	}
@@ -417,8 +421,8 @@ func preflightPreservedMatchers(parameters models.GraderParameters) error {
 	return nil
 }
 
-func verifyPreservedRawReference(root map[string]any, manifest *models.EvidenceManifest, reference models.EvidenceReference) (ObservationState, error) {
-	artifact, err := evidence.Resolve(manifest, reference)
+func verifyPreservedRawReference(root map[string]any, resolver *evidence.Resolver, reference models.EvidenceReference) (ObservationState, error) {
+	artifact, err := resolver.Resolve(reference)
 	if err != nil {
 		return Invalid, err
 	}
@@ -437,7 +441,7 @@ func verifyPreservedRawReference(root map[string]any, manifest *models.EvidenceM
 		}
 		content = []byte(text)
 	}
-	if err := evidence.VerifyContent(manifest, reference, content, true, true); err != nil {
+	if err := resolver.VerifyContent(reference, content, true, true); err != nil {
 		return Invalid, fmt.Errorf("verifying preserved raw artifact: %w", err)
 	}
 	return Observed, nil
@@ -627,7 +631,7 @@ func preservedConsumesKnownField(parameters models.GraderParameters, name, key s
 	return false
 }
 
-func verifyPreservedFiles(root map[string]any, snap *snapshot.Snapshot, paths []string, selected map[string]bool) (ObservationState, error) {
+func verifyPreservedFiles(root map[string]any, resolver *evidence.Resolver, origin models.EvidenceOrigin, paths []string, selected map[string]bool) (ObservationState, error) {
 	rawFiles, ok := root["workspaceFiles"].([]any)
 	if !ok {
 		return InsufficientEvidence, errors.New("preserved workspace files are absent or null")
@@ -670,7 +674,7 @@ func verifyPreservedFiles(root map[string]any, snap *snapshot.Snapshot, paths []
 			if file["redacted"] == true {
 				return InsufficientEvidence, errors.New("preserved file content is redacted")
 			}
-			artifact, err := evidence.Resolve(snap.Evidence, models.EvidenceReference{Origin: snap.Evidence.Origin, ArtifactID: "workspace-file/" + path})
+			artifact, err := resolver.Resolve(models.EvidenceReference{Origin: origin, ArtifactID: "workspace-file/" + path})
 			if err != nil {
 				return Invalid, err
 			}

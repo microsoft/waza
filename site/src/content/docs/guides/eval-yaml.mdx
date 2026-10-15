@@ -88,8 +88,10 @@ Use a physical `--output` path. Relative paths start at the retained working
 directory; absolute paths are admitted from the filesystem root, with only
 verified literal macOS `/var` and `/tmp` system aliases. Writes use retained
 directory handles rather than following replaced parent paths. Failed creation
-or writing rolls back this attempt's owned files, including a partial output;
-replacements and unknown content are preserved, with explicit cleanup errors.
+or writing rolls back this attempt's owned files, including a partial output.
+Created-file handles stay open until success or rollback so unlinked ownership
+cannot be confused with a recycled inode. Observed replacements and unknown
+content are preserved, with explicit cleanup and handle-close errors.
 Empty directories can remain, and an admitted directory can subsequently move.
 
 Scenario `2.0` bypasses result caching with an explicit notice, even with

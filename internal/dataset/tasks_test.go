@@ -3,6 +3,8 @@ package dataset
 import (
 	"os"
 	"path/filepath"
+	"runtime"
+	"syscall"
 	"testing"
 	"time"
 
@@ -196,7 +198,22 @@ func TestTaskCSVReadKeepsRetainedRoot(t *testing.T) {
 	root, err := os.OpenRoot(dir)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, root.Close()) }()
-	require.NoError(t, os.Rename(dir, dir+".original"))
+	renameErr := os.Rename(dir, dir+".original")
+	if runtime.GOOS == "windows" && renameErr != nil {
+		require.ErrorIs(t, renameErr, syscall.Errno(32))
+		rows, err := readCSVAt(root, "tasks.csv")
+		require.NoError(t, err)
+		require.Equal(t, []Row{{"prompt": "original"}}, rows, "the pinned root still reads its original namespace")
+		require.NoError(t, root.Close())
+		require.NoError(t, os.Rename(dir, dir+".original"), "closing the root releases the Windows pin")
+		require.NoError(t, os.Mkdir(dir, 0o755))
+		writeCSV(t, dir, "tasks.csv", "prompt\nreplacement\n")
+		rows, err = readCSVAt(root, "tasks.csv")
+		require.ErrorIs(t, err, os.ErrClosed)
+		require.Nil(t, rows, "a closed root must not reopen the replacement path")
+		return
+	}
+	require.NoError(t, renameErr)
 	require.NoError(t, os.Mkdir(dir, 0o755))
 	writeCSV(t, dir, "tasks.csv", "prompt\nreplacement\n")
 	rows, err := readCSVAt(root, "tasks.csv")

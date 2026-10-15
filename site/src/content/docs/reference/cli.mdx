@@ -354,8 +354,10 @@ Globs that cannot select that task or a safe literal alternative, or that select
 generated non-task files, are rejected before writing. For example,
 `fixtures/*.yaml` is supported, but `fixtures/*` selects `.gitkeep` and must be
 narrowed. A failed creation or write rolls back files created by the attempt,
-including a partial output. Replaced files are preserved; cleanup failures name
-the retained output instead of silently deleting it. Empty directories may
+including a partial output. File ownership handles remain open through success
+or rollback, preventing an unlinked inode from being recycled before the
+ownership check. Observed replacements are preserved; cleanup and handle-close
+failures are reported instead of silently deleting unowned output. Empty directories may
 remain, so this is not a whole-directory transaction.
 Scenario mode also rejects symlinked parents in the selected output path,
 including its root and nested task/fixture directories. Choose a physical output

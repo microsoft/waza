@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"syscall"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -72,16 +73,33 @@ func TestCalibrationCacheParentReplacementCannotRedirectWritesOrCleanup(t *testi
 	t.Chdir(t.TempDir())
 	store, err := newCalibrationRubricStore()
 	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, store.close()) })
 	name, err := store.write([]byte("original"))
 	require.NoError(t, err)
 	leaf := filepath.Base(store.directory)
-	require.NoError(t, os.Rename(".cache", "retained-cache"))
+	renameErr := os.Rename(".cache", "retained-cache")
+	pinned := runtime.GOOS == "windows" && renameErr != nil
+	if pinned {
+		require.ErrorIs(t, renameErr, syscall.Errno(32))
+		require.NoError(t, store.verify())
+		_, err = store.write([]byte("still owned"))
+		require.NoError(t, err)
+		require.NoError(t, store.close())
+		require.NoError(t, os.Rename(".cache", "retained-cache"), "closing all retained roots must release the Windows pin")
+	} else {
+		require.NoError(t, renameErr)
+	}
 	require.NoError(t, os.MkdirAll(filepath.Join(".cache", leaf), 0o700))
 	foreign := []byte("replacement must remain untouched")
 	require.NoError(t, os.WriteFile(name, foreign, 0o600))
 	_, err = store.write([]byte("must not be written"))
-	require.ErrorContains(t, err, "identity changed")
-	require.ErrorContains(t, store.close(), "identity changed")
+	if pinned {
+		require.ErrorContains(t, err, "cache is closed")
+		require.NoError(t, store.close())
+	} else {
+		require.ErrorContains(t, err, "identity changed")
+		require.ErrorContains(t, store.close(), "identity changed")
+	}
 	content, err := os.ReadFile(name)
 	require.NoError(t, err)
 	require.Equal(t, foreign, content)
