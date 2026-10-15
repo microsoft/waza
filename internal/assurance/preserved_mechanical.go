@@ -276,14 +276,11 @@ func observePreservedMechanical(ctx context.Context, input PreservedMechanicalIn
 		return fail(Invalid, errors.New("preserved snapshot eval/task/run does not match native manifest origin"))
 	}
 	if _, file := parameters.(models.FileGraderParameters); file {
-		if err := snapshot.VerifyWorkspace(snap, origin, input.ManifestSHA256, paths); err != nil {
-			return fail(Invalid, fmt.Errorf("verifying preserved workspace: %w", err))
-		}
-		if err := ctx.Err(); err != nil {
-			return fail(OperationalError, fmt.Errorf("materializing preserved workspace: %w", err))
-		}
-		workspace, err := snapshot.MaterializeWorkspace(snap, origin, input.ManifestSHA256, paths)
+		workspace, err := snapshot.MaterializeWorkspaceContext(ctx, snap, origin, input.ManifestSHA256, paths)
 		if err != nil {
+			if _, invalid := errors.AsType[*snapshot.WorkspaceVerificationError](err); invalid {
+				return fail(Invalid, fmt.Errorf("verifying preserved workspace: %w", err))
+			}
 			return fail(OperationalError, fmt.Errorf("materializing preserved workspace: %w", err))
 		}
 		gCtx.WorkspaceDir = workspace.Path()
