@@ -42,7 +42,7 @@ func fileVerificationFixture(t *testing.T) (VerifyRequest, ReferenceDocument, st
 	require.NoError(t, err)
 	declarationDigest, err := evidence.JSONDigest(spec.Graders[0])
 	require.NoError(t, err)
-	executable, err := CurrentExecutableSHA256()
+	executable, err := fixtureExecutableSHA256()
 	require.NoError(t, err)
 	source := []byte("exact evaluator-owned source bytes")
 	document := admissionDocument()
