@@ -66,10 +66,17 @@ safety. The offline commands above must not be labeled skill safety gates.
 `--skill` is the declared frontmatter **name**, not a filesystem path. Check
 that `skills/my-skill/SKILL.md` declares `name: my-skill`; substitute your actual
 directory/name together. The subshell runs from that directory so native
-discovery can find its `SKILL.md`, rather than resolving a relative path under
-the generated adversarial spec. Documentation regressions check native local
-name/path discovery and synthesized mock artifacts only. They do **not** run
-the SDK command or establish that a live session loaded/invoked the skill.
+discovery can find its `SKILL.md`. The **development-main skill-binding fix**
+resolves this directory from the original workspace and records its absolute
+path before relocating the synthesized spec. That fix is not in the published
+`v0.38.10`; older binaries must not be assumed to evaluate the intended skill.
+Missing/mismatched real targets now fail before engine creation; explicit
+mock harness runs remain available without a target.
+
+Regressions inspect actual generated-spec configuration and resolved execution
+requests, not a manually supplied discovery path. They substitute mock at the
+engine factory and check missing/mismatched sources. They do **not** establish
+that a live SDK session loaded/invoked the skill or that the skill is safe.
 
 The mock echoes the hostile prompts; it does not implement safe refusal.
 With the default `fail` policy, the offline command above reports eight unsafe

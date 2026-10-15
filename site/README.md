@@ -58,10 +58,12 @@ Published explanation suites are executed against mock with their task/fixture
 snippets and retained unrelated scaffold tasks, not merely preflighted; each
 selects one explanation task and has an impossible-predicate negative control.
 These walkthroughs require Python for native `code` graders. The adversarial
-contract uses Go to compile a tiny local-discovery helper calling the native
-resolver, checks name/path negative controls, and runs mock synthesis only.
-No SDK session is created by that helper; local discovery and mock artifacts
-are not proof of live skill loading, invocation or safety.
+contract consumes the actual command-generated spec through native
+`EvalConfig`/path resolution and skill discovery, with missing/mismatched-source
+controls. CLI Go tests additionally capture the factory configuration and
+resolved execution requests, substituting mock even for SDK-selected wiring.
+No manually supplied skill directory can make that contract pass. No live SDK
+session is created; these checks are not proof of model invocation or safety.
 The Chromium sweep validates built page routes, exact fragments and local image
 assets under `/waza/`, while source checks cover public repository Markdown
 targets/anchors and native enum/schema/catalog agreement. External link

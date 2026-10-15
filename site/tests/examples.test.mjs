@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { accessSync, constants, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { accessSync, constants, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, statSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import { isAbsolute, resolve, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
@@ -169,7 +169,7 @@ test('all published explanation walkthroughs execute only their selected task, i
   }
 });
 
-test('documented adversarial skill names resolve locally and survive mock synthesis without SDK execution', () => {
+test('documented adversarial commands retain discoverable source paths through generated-spec configuration', () => {
   const fixture = allocateExampleFixture(root);
   const run = cliRunner(fixture.env);
   try {
@@ -183,8 +183,8 @@ test('documented adversarial skill names resolve locally and survive mock synthe
     assert.equal(missingArguments.error, undefined);
     assert.equal(missingArguments.status, 1);
     assert.match(missingArguments.stderr, /usage: skill-discovery/);
-    const discover = (directory, name, status = 0) => {
-      const result = spawnSync(helper, [directory, name], { env: fixture.env, encoding: 'utf8', timeout: 10_000 });
+    const discover = (specPath, status = 0) => {
+      const result = spawnSync(helper, [specPath], { env: fixture.env, encoding: 'utf8', timeout: 10_000 });
       assert.equal(result.error, undefined);
       assert.equal(result.status, status, result.stderr);
       return result.stdout.trim();
@@ -202,15 +202,21 @@ test('documented adversarial skill names resolve locally and survive mock synthe
       run(['new', 'skill', name], project);
       const skillDirectory = join(project, directory);
       assert.match(readFileSync(join(skillDirectory, 'SKILL.md'), 'utf8'), /^name: my-skill$/m);
-      assert.equal(discover(skillDirectory, name), 'available');
-      discover(skillDirectory, './skills/my-skill', 1);
-      discover(project, name, 1);
       const artifacts = join(fixture.directory, `adversarial-artifacts-${index}`);
       run(['adversarial', '--engine', 'mock', '--packs', pack, '--skill', name, '--artifacts-dir', artifacts, '--output', 'mock-results.json'], skillDirectory, 2);
-      assert.match(readFileSync(join(artifacts, 'eval.yaml'), 'utf8'), /^skill: my-skill$/m);
+      const generatedSpec = join(artifacts, 'eval.yaml');
+      assert.match(readFileSync(generatedSpec, 'utf8'), /^skill: my-skill$/m);
+      assert.equal(discover(generatedSpec), skillDirectory, 'only command-generated config may supply discovery paths');
       const result = JSON.parse(readFileSync(join(skillDirectory, 'mock-results.json'), 'utf8'));
       assert.equal(result.tasks.length, 4);
+      const skillFile = join(skillDirectory, 'SKILL.md');
+      const definition = readFileSync(skillFile, 'utf8');
+      writeFileSync(skillFile, replaceExactlyOnce(definition, 'name: my-skill', 'name: different-skill'));
+      discover(generatedSpec, 1);
+      unlinkSync(skillFile);
+      discover(generatedSpec, 1);
     }
+    discover(join(fixture.directory, 'missing-spec.yaml'), 1);
   } finally {
     fixture.cleanup();
   }

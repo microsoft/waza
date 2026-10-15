@@ -212,6 +212,7 @@ waza adversarial --list-packs
 waza adversarial --engine mock --packs prompt-injection,scope-bypass
 # Real evaluation requires auth/model access and may incur usage.
 # SKILL.md must declare name: my-skill; --skill is a name, not a path.
+# Requires development-main skill-binding fix, not published v0.38.10.
 (
   cd skills/my-skill &&
   waza adversarial --engine copilot-sdk --packs prompt-injection --skill my-skill --model gpt-4o
