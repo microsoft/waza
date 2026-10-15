@@ -6,6 +6,11 @@ import test from 'node:test';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const read = (path) => readFileSync(resolve(root, path), 'utf8');
+const catalogInputs = {
+  native: 'internal/models/outcome.go',
+  schema: 'schemas/eval.schema.json',
+  catalogs: ['README.md', 'site/src/content/docs/guides/graders.mdx'],
+};
 const withoutCode = (text) => text.replace(/^(`{3,}|~{3,})[^\n]*\n[\s\S]*?^\1\s*$/gm, '');
 const slug = (text) => text.toLowerCase().replace(/<\/?[a-z][a-z0-9]*(?:\s[^>]*)?>/g, '').replace(/[^\p{L}\p{N}_ -]/gu, '').replace(/ /g, '-');
 
@@ -52,21 +57,46 @@ test('public repository Markdown targets and exact heading anchors resolve', () 
 });
 
 test('catalogs enumerate exactly the native enum and schema kinds', () => {
-  const native = [...read('internal/models/outcome.go').matchAll(/GraderKind\s*=\s*"([^"]+)"/g)].map((m) => m[1]).sort();
+  const native = [...read(catalogInputs.native).matchAll(/GraderKind\s*=\s*"([^"]+)"/g)].map((m) => m[1]).sort();
   assert.equal(native.length, 13);
-  const schema = JSON.parse(read('schemas/eval.schema.json'));
+  const schema = JSON.parse(read(catalogInputs.schema));
   const findEnum = (node) => {
     if (!node || typeof node !== 'object') return [];
     return [...(Array.isArray(node.enum) && node.enum.includes('tool_constraint') ? [node.enum] : []),
       ...Object.values(node).flatMap(findEnum)];
   };
   assert.ok(findEnum(schema).some((kinds) => JSON.stringify([...kinds].sort()) === JSON.stringify(native)));
-  for (const path of ['README.md', 'site/src/content/docs/guides/graders.mdx']) {
+  for (const path of catalogInputs.catalogs) {
     const kinds = path === 'README.md'
       ? [...read(path).split('### Available Grader Types')[1].split('## Documentation')[0].matchAll(/^\| `([a-z_]+)`/gm)].map((m) => m[1])
       : [...read(path).split('## At a glance')[1].split('\n---')[0].matchAll(/^\|.*?\|\s*`([a-z_]+)`\s*\|/gm)].map((m) => m[1]);
     assert.deepEqual([...kinds].sort(), native, path);
   }
+});
+
+test('every catalog input enables PR site checks and the main push workflow', () => {
+  const workflow = read('.github/workflows/site-ci.yml');
+  const push = workflow.match(/^  push:\n([\s\S]*?)(?=^  pull_request:)/m)?.[1];
+  const pullRequest = workflow.match(/^  pull_request:\n([\s\S]*?)(?=^permissions:)/m)?.[1];
+  const site = workflow.match(/^            site:\n([\s\S]*?)(?=^            examples:)/m)?.[1];
+  assert.ok(push && pullRequest && site, 'expected workflow event/filter blocks must exist');
+  assert.match(push, /branches: \[main\]/);
+  assert.match(pullRequest, /branches: \[main\]/);
+  assert.doesNotMatch(pullRequest, /^\s+paths(?:-ignore)?:/m, 'required PR status must not be path-gated');
+  const paths = (block) => [...block.matchAll(/^\s+- '([^'\n]+)'$/gm)].map((match) => match[1]);
+  const matches = (pattern, path) => pattern.endsWith('/**')
+    ? path.startsWith(pattern.slice(0, -2)) : pattern === path;
+  for (const input of Object.values(catalogInputs).flat()) {
+    assert.ok(paths(site).some((pattern) => matches(pattern, input)), `${input}: PR site filter excludes catalog input`);
+    assert.ok(paths(push).some((pattern) => matches(pattern, input)), `${input}: main push gate excludes catalog input`);
+  }
+  const build = workflow.match(/^      - name: Build site\n([\s\S]*?)(?=^      - name:)/m)?.[1];
+  assert.ok(build, 'site build step must exist');
+  assert.match(build, /if: steps\.filter\.outputs\.site == 'true' \|\| github\.event_name == 'push'/);
+  assert.match(build, /run: cd site && npm run build/);
+  const scripts = JSON.parse(read('site/package.json')).scripts;
+  assert.equal(scripts.prebuild, 'npm run test:docs');
+  assert.equal(scripts['test:docs'], 'node --test tests/documentation.test.mjs');
 });
 
 test('onboarding and active grader docs reject obsolete example contracts', () => {

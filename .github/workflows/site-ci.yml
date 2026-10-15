@@ -58,6 +58,8 @@ jobs:
               - 'docs/**'
               - 'README.md'
               - 'registry.json'
+              - 'internal/models/outcome.go'
+              - 'schemas/eval.schema.json'
               - '.github/workflows/site-ci.yml'
               - '.github/workflows/pages.yml'
             examples:
