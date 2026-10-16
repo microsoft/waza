@@ -28,7 +28,13 @@ func JSONDigest(value any) (*models.EvidenceDigest, error) {
 	if err != nil {
 		return nil, err
 	}
-	data, err = json.Marshal(value)
+	return parsedJSONDigest(value)
+}
+
+// The caller must have obtained value from jsonutil.Parse. Its strict admission
+// and exact number tokens need not be repeated through another JSON round trip.
+func parsedJSONDigest(value any) (*models.EvidenceDigest, error) {
+	data, err := json.Marshal(value)
 	if err != nil {
 		return nil, errors.New("evidence: content cannot be normalized")
 	}
@@ -174,7 +180,7 @@ func manifestDigest(manifest *models.EvidenceManifest) (*models.EvidenceDigest, 
 		return nil, errors.New("evidence: manifest must be an object")
 	}
 	delete(object, "sha256")
-	return JSONDigest(object)
+	return parsedJSONDigest(object)
 }
 
 func CompleteOrigin(origin models.EvidenceOrigin) bool {
@@ -381,7 +387,7 @@ func verifyArtifactContent(artifact *models.EvidenceArtifact, reference models.E
 		if err != nil {
 			return err
 		}
-		digest, err := JSONDigest(value)
+		digest, err := parsedJSONDigest(value)
 		if err != nil {
 			return err
 		}

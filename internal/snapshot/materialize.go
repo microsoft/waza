@@ -1,9 +1,11 @@
 package snapshot
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"unicode/utf8"
 
 	"github.com/microsoft/waza/internal/evidence"
@@ -90,6 +92,15 @@ type MaterializedWorkspace struct {
 	cleanup func() error
 }
 
+// WorkspaceVerificationError distinguishes rejected evidence from a failure to
+// restore already-verified files. It does not change the underlying diagnostic.
+type WorkspaceVerificationError struct {
+	err error
+}
+
+func (err *WorkspaceVerificationError) Error() string { return err.err.Error() }
+func (err *WorkspaceVerificationError) Unwrap() error { return err.err }
+
 func (workspace *MaterializedWorkspace) Path() string {
 	return workspace.dir
 }
@@ -110,7 +121,24 @@ func (workspace *MaterializedWorkspace) Close() error {
 // MaterializeWorkspace writes verified required files only to a private new
 // temporary directory. Callers must close it; no source tree is changed.
 func MaterializeWorkspace(snap *Snapshot, origin models.EvidenceOrigin, manifestSHA string, required []string) (*MaterializedWorkspace, error) {
+	return MaterializeWorkspaceContext(context.Background(), snap, origin, manifestSHA, required)
+}
+
+// MaterializeWorkspaceContext verifies fresh raw and typed content once, checks
+// cancellation, then privately restores the required files in this same call.
+func MaterializeWorkspaceContext(ctx context.Context, snap *Snapshot, origin models.EvidenceOrigin, manifestSHA string, required []string) (*MaterializedWorkspace, error) {
+	// Err can be caller-defined. Keep every value subsequently used for restore
+	// detached before verification, so the callback cannot substitute content.
+	if snap != nil {
+		owned := *snap
+		owned.WorkspaceFiles = slices.Clone(snap.WorkspaceFiles)
+		snap = &owned
+	}
+	required = slices.Clone(required)
 	if err := VerifyWorkspace(snap, origin, manifestSHA, required); err != nil {
+		return nil, &WorkspaceVerificationError{err: err}
+	}
+	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	return materializeVerifiedWorkspace(snap, required)

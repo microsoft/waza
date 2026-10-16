@@ -3,7 +3,14 @@ title: Getting Started
 description: Complete walkthrough for installing and running waza.
 ---
 
-A complete walkthrough for installing waza and running your first evaluation.
+A workflow-first path from offline harness validation to real agent evaluation.
+Read [Concepts](../concepts/) and complete the credential-free
+[Quick Start](../quick-start/) first.
+
+**Availability:** standalone stable is `v0.38.10` (October 9, 2026).
+Scenario authoring, preflight and selected evidence here are upcoming main-only
+features. Build source below; `waza update` does not install unreleased code.
+See the [version/platform matrix](../reference/releases/#upcoming-main-only-capabilities).
 
 :::tip[Custom Agents]
 Waza can also evaluate VS Code custom agents defined in `.agent.md` files. This guide focuses on `SKILL.md`-based skills. For custom agents, see [Evaluating Custom Agents](/waza/guides/custom-agents/) after completing this walkthrough.
@@ -62,7 +69,10 @@ azd ext install microsoft.azd.waza
 azd waza --help
 ```
 
-All waza commands are available under `azd waza`:
+Extension artifacts are versioned separately from standalone main. The registry
+lists through `0.38.9`; published `0.38.10` is a separate extension artifact.
+No upcoming command parity is claimed. Check `azd waza --version` and
+`azd waza <command> --help` before using:
 
 ```bash
 azd waza init my-project
@@ -74,34 +84,79 @@ azd waza serve
 Waza checks for new versions in the background. If an update is available, you'll see a notice after command output. Disable with `--no-update-check` or `WAZA_NO_UPDATE_CHECK=1`.
 :::
 
-## Quick Start
+## Authenticate before real execution
 
-For a workflow without a skill, scaffold a scenario directly:
+The offline Quick Start needs no credentials. For `copilot-sdk`, you need GitHub
+Copilot access, permission to use the selected model and runtime permissions
+suitable for the task. Install a supported **standalone GitHub Copilot CLI**
+using its [official installation instructions](https://docs.github.com/en/copilot/how-tos/set-up/install-copilot-cli),
+then authenticate that installation:
 
 ```bash
-waza new eval inventory --scenario --template repository
-waza run evals/inventory/eval.yaml
+copilot --version
+copilot login
 ```
 
-This runs a real Copilot SDK agent against sanitized fixtures. CLI and MCP
+Waza's embedded runtime is extracted to its private cache; it does **not**
+automatically install a `copilot` executable on `PATH`. Waza checks SDK
+authentication status and supports the standalone CLI login route.
+`COPILOT_CLI_PATH` explicitly selects another supported CLI binary; extraction
+failures do not silently fall back to `PATH`. Custom-provider setups can instead
+configure `COPILOT_BASE_URL`/`COPILOT_PROVIDER_BASE_URL` and their corresponding
+provider credentials. Consult [CLI runtime options](../reference/cli/) before
+selecting one; never paste credentials into task YAML.
+
+**Usage and permissions:** real runs and prompt judges may incur model/provider
+charges or premium-request credits. Use an authorized test repository and
+review tool access first. `--workers`, cooperative timeouts and token-content limits
+are **not a provider spending cap**. Inspect finalized credit/currency attribution
+in results; missing or provisional usage is not zero cost.
+
+## Run a real workflow
+
+Continue in the project created by Quick Start and **reuse** its inventory
+scenario. Only scaffold when that file does not already exist:
+
+```bash
+if [ ! -f evals/inventory/eval.yaml ]; then
+  waza new eval inventory --scenario --template repository
+fi
+```
+
+**Before running**, edit `evals/inventory/eval.yaml` and restore
+`config.executor: copilot-sdk` if Quick Start changed it to `mock`. Keep the
+separate wiring-control task under `evals/docs-smoke/`, not inventory's tasks.
+After completing the authentication, model-access, permissions and cost
+prerequisites above:
+
+```bash
+waza run evals/inventory/eval.yaml --output agent-results.json
+```
+
+The restored `config.executor: copilot-sdk` runs a real agent against sanitized fixtures.
+CLI and MCP
 templates are also available: CLI uses installed Git; MCP uses a harness-only
 mocked dependency, not a production service. `config.executor: mock` validates the harness
 only. Scenario evals require explicit schema `2.0`; tasks/results remain `1.x`.
 See [Writing Eval Specs](../guides/eval-yaml/) for optional skill/agent context.
 
-Get a complete evaluation suite running in 5 minutes.
+## Keep using skills and custom agents
+
+The same runtime prerequisites apply to skills and `.agent.md` custom agents.
+The following skill path uses an explicit mock first; switch to `copilot-sdk`
+only after reviewing the authentication and usage section above.
 
 ### Step 1: Initialize a Project
 
 Create a new directory and initialize a waza project:
 
 ```bash
-mkdir my-eval-suite
+waza init my-eval-suite --no-skill
 cd my-eval-suite
-waza init
+waza new skill code-explainer
 ```
 
-You'll be prompted to create your first skill. Enter a name like `code-explainer`:
+This creates the project and skill without a duplicate interactive skill prompt:
 
 ```
 my-eval-suite/
@@ -132,10 +187,11 @@ waza init --no-skill
 If you didn't create one during `init`, add a new skill:
 
 ```bash
-waza new skill code-analyzer
+waza new skill another-skill
 ```
 
-The interactive wizard collects metadata (name, description, use cases).
+Use a different name only if you need another skill; continue with
+`code-explainer` below.
 
 ### Step 3: Define Your Skill
 
@@ -174,7 +230,7 @@ tags:
   - basic
   - happy-path
 inputs:
-  prompt: "Read sample.py and explain the function it contains."
+  prompt: "Read sample.py and explain how the function works, what each parameter means, and how its return value is computed. Include any edge cases."
   files:
     - path: sample.py
 expected:
@@ -219,15 +275,19 @@ config:
   parallel: false
   executor: mock
   model: claude-sonnet-4.6
+metrics:
+  - name: task_completion
+    weight: 1
+    threshold: 1
 
 graders:
   - type: text
     name: explains_concepts
     config:
-      pattern: "(?i)(function|variable|parameter|return)"
+      regex_match: ["(?i)(function|variable|parameter|return)"]
 
 tasks:
-  - "tasks/*.yaml"
+  - "tasks/basic-usage.yaml"
 ```
 
 ### Step 7: Run Evaluations
@@ -246,19 +306,15 @@ waza run code-explainer -v
 waza run code-explainer -o results.json
 ```
 
-Example output:
-
-```
-Running evaluations for code-explainer...
-  ✓ basic-usage-001 passed
-  ✓ edge-case-001 passed
-
-Results: 2/2 tasks passed ✓
-```
+Expect exit **0** and **1/1 selected tasks passed**: `basic-usage-001`.
+The explanation predicate applies only to the task edited above. Other
+scaffolded tasks remain on disk but are not selected by this suite; give them
+their own appropriate checks before including them. This mock pass checks
+response/grader wiring, not whether an agent can explain code.
 
 ### Step 8: Check Skill Readiness
 
-Validate your skill is production-ready:
+Check static skill compliance (not production readiness or safety):
 
 ```bash
 waza check code-explainer

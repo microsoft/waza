@@ -97,15 +97,24 @@ export PATH="$HOME/bin:$PATH"
 
 For Windows, download `waza.exe` from the latest GitHub release assets and add its directory to `PATH`.
 
-### Via Source (if Go is available)
+### Via Source
+
+Requires Go 1.26+, Git LFS, Make, Node.js and npm. Generate the real dashboard
+assets before Go embedding; `go build` alone is not a fresh-checkout setup:
 
 ```bash
 git clone https://github.com/microsoft/waza.git
 cd waza
-go build -o waza ./cmd/waza
+git lfs install
+git lfs pull
+make build
 ```
 
 ## Offline setup gate
+
+**Upcoming/main-only:** build source above before using `preflight` or controlled
+policy commands. Stable `v0.38.10` and separately versioned azd artifacts do not
+automatically include them; see [availability](../../reference/releases/).
 
 ```bash
 waza preflight eval.yaml --format json > preflight.json
@@ -260,7 +269,7 @@ gh workflow run weekly-regression-loop.yml --repo microsoft/waza
 
 ### Regression gates with `waza gate`
 
-For a focused PR gate, use [`waza gate`](/reference/cli/#waza-gate). It compares a baseline against the current run and exits with stable codes (`0` pass, `1` regression, `2` golden failure, `3` config error), making it easy to wire into any CI system.
+For a focused PR gate, use [`waza gate`](../../reference/cli/#waza-gate). It compares a baseline against the current run and exits with stable codes (`0` pass, `1` regression, `2` golden failure, `3` config error), making it easy to wire into any CI system.
 
 Mark business-critical tasks in your eval YAML with `golden: true` and they must always pass:
 

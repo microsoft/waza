@@ -11,11 +11,24 @@ explicit independent offline assurance profile qualifies finite authored text
 cases and regrades retained actual responses without changing base 1.0.
 Mock observations validate the harness, not agent quality.
 
-Ordinary `run`/`grade` do not currently produce new result-level `evidence` or
-`requirement_explanations`. Snapshot manifests and optional result readers are
-separate foundations, not integrated release evidence. Absent explanations stay
-unassessed; snapshot-only metadata cannot satisfy selected required evidence.
-Ordinary run/regrade producer integration remains deferred.
+**Upcoming/main-only:** build current source as described in
+[release availability](../../reference/releases/#upcoming-main-only-capabilities).
+Stable `v0.38.10` does not include this workflow.
+
+Ordinary opt-in snapshot `run` capture and supported `grade` paths already
+produce scoped result-level `evidence` and `requirement_explanations`.
+These observations are not strict paired-release evidence:
+
+| Ordinary operation | Available observation | Limit |
+| --- | --- | --- |
+| Run without snapshot | Grader outcomes and scoped requirement explanations when assessable | No preserved snapshot bytes; absent evidence stays unassessed |
+| Run with `--snapshot` | Per-trial source manifest, availability/completeness and scoped explanations | Capture can be partial, unavailable or errored; metadata is not external-state verification |
+| Grade with workspace or selected evidence snapshot | Supported native regrade observations and scoped explanations | Only supported checks and verified selected bytes; no inferred workspace or fresh agent run |
+
+Missing, unassessed and error states remain distinct and cannot pass by default.
+Native strict paired producer/lifecycle integration and automatic adoption of
+ordinary or historical results remain unsupported. Snapshot-only metadata cannot
+satisfy selected required release evidence. In particular, snapshot-only metadata cannot satisfy selected required evidence.
 
 ## Internal native groundwork is not a public producer
 

@@ -1,0 +1,143 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/microsoft/waza/main/schemas/grader-assurance-1.0.schema.json",
+  "title": "Waza finite grader assurance report 1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["kind", "schema_version", "created_at", "state", "reason", "labels_sha256", "review", "bindings", "requirements", "domains", "calibration", "cache_policy", "limitations"],
+  "properties": {
+    "kind": { "const": "waza.grader-assurance" },
+    "schema_version": { "const": "1.0" },
+    "created_at": { "type": "string", "format": "date-time" },
+    "state": { "$ref": "#/$defs/state" },
+    "reason": { "type": "string" },
+    "labels_sha256": { "$ref": "grader-reference-1.0.schema.json#/$defs/sha256" },
+    "review": {
+      "type": "object", "additionalProperties": false,
+      "required": ["source_id", "current_source_accepted", "declared_state", "eligible"],
+      "properties": {
+        "source_id": { "type": "string" },
+        "current_source_accepted": { "type": "boolean" },
+        "declared_state": { "enum": ["", "unreviewed", "submitted", "reviewed", "rejected", "revoked"] },
+        "eligible": { "type": "boolean" },
+        "reason": { "type": "string" }
+      }
+    },
+    "bindings": { "$ref": "#/$defs/bindings" },
+    "requirements": {
+      "type": "array",
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["task_id", "requirement_id", "check", "state", "reason", "declared_coverage", "observed_coverage", "observations"],
+        "properties": {
+          "task_id": { "type": "string" },
+          "requirement_id": { "type": "string" },
+          "check": { "$ref": "grader-reference-1.0.schema.json#/$defs/check" },
+          "state": { "$ref": "#/$defs/state" },
+          "reason": { "type": "string" },
+          "declared_coverage": { "$ref": "#/$defs/coverage" },
+          "observed_coverage": { "$ref": "#/$defs/coverage" },
+          "observations": { "type": "array", "items": { "$ref": "#/$defs/observation" } }
+        }
+      }
+    },
+    "domains": {
+      "type": "array",
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["id", "minimum_cases", "minimum_agreement", "declared_cases", "observed_cases", "expected_checks", "observed_checks", "agreements", "agreement", "state"],
+        "properties": {
+          "id": { "type": "string" },
+          "minimum_cases": { "type": "integer", "minimum": 1 },
+          "minimum_agreement": { "type": "number", "exclusiveMinimum": 0, "maximum": 1 },
+          "declared_cases": { "$ref": "#/$defs/count" },
+          "observed_cases": { "$ref": "#/$defs/count" },
+          "expected_checks": { "$ref": "#/$defs/count" },
+          "observed_checks": { "$ref": "#/$defs/count" },
+          "agreements": { "$ref": "#/$defs/count" },
+          "agreement": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+          "state": { "$ref": "#/$defs/state" }
+        }
+      }
+    },
+    "calibration": {
+      "type": "object", "additionalProperties": false,
+      "required": ["state", "reason", "max_judge_executions", "executions", "billable_calls_bounded", "cost_bounded", "samples", "confidence_supported", "usage", "credits"],
+      "properties": {
+        "state": { "$ref": "#/$defs/state" },
+        "reason": { "type": "string" },
+        "protocol": { "const": "fixed_corpus_agreement_v1" },
+        "model": { "type": "string" },
+        "max_judge_executions": { "$ref": "#/$defs/count" },
+        "executions": { "$ref": "#/$defs/count" },
+        "billable_calls_bounded": { "const": false },
+        "cost_bounded": { "const": false },
+        "samples": { "$ref": "#/$defs/count" },
+        "confidence_supported": { "const": false },
+        "usage": { "type": ["object", "null"] },
+        "credits": { "type": ["number", "null"], "minimum": 0 }
+      }
+    },
+    "cache_policy": { "const": "no_reuse" },
+    "limitations": { "type": "array", "items": { "type": "string" } }
+  },
+  "$defs": {
+    "state": { "enum": ["passed", "failed", "not_assessed", "insufficient_evidence", "operational_error", "invalid"] },
+    "count": { "type": "integer", "minimum": 0 },
+    "coverage": {
+      "type": "object", "additionalProperties": false,
+      "required": ["good", "alternative_valid", "critical_bad", "intended_negative"],
+      "properties": {
+        "good": { "$ref": "#/$defs/count" },
+        "alternative_valid": { "$ref": "#/$defs/count" },
+        "critical_bad": { "$ref": "#/$defs/count" },
+        "intended_negative": { "$ref": "#/$defs/count" }
+      }
+    },
+    "bindings": {
+      "type": ["array", "null"],
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["domain", "applicable", "state", "expected", "actual"],
+        "properties": {
+          "domain": { "type": "string" },
+          "applicable": { "type": "boolean" },
+          "state": { "enum": ["verified", "mismatch", "missing", "not_applicable"] },
+          "expected": { "type": ["string", "null"] },
+          "actual": { "type": ["string", "null"] }
+        }
+      }
+    },
+    "observation": {
+      "type": "object", "additionalProperties": false,
+      "required": ["case_id", "scenario_id", "domain", "classification", "source_scope", "expected_passed", "state", "reason", "agreement", "result", "evidence", "bindings"],
+      "properties": {
+        "case_id": { "type": "string" },
+        "scenario_id": { "type": "string" },
+        "domain": { "type": "string" },
+        "classification": { "enum": ["good", "alternative_valid", "critical_bad"] },
+        "source_scope": { "enum": ["preserved_file_subset", "authored_finite_output"] },
+        "expected_passed": { "type": "boolean" },
+        "state": { "enum": ["observed", "not_assessed", "insufficient_evidence", "operational_error", "invalid"] },
+        "reason": { "type": "string" },
+        "agreement": { "type": ["boolean", "null"] },
+        "result": {
+          "type": ["object", "null"], "additionalProperties": false,
+          "required": ["identifier", "type", "score", "weight", "passed", "feedback", "duration_ms"],
+          "properties": {
+            "identifier": { "type": "string" },
+            "type": { "type": "string" },
+            "score": { "type": "number" },
+            "weight": { "type": "number" },
+            "passed": { "type": "boolean" },
+            "feedback": { "type": "string" },
+            "details": { "type": "object" },
+            "duration_ms": { "$ref": "#/$defs/count" }
+          }
+        },
+        "evidence": { "type": "array", "items": { "$ref": "grader-reference-1.0.schema.json#/$defs/reference" } },
+        "bindings": { "$ref": "#/$defs/bindings" }
+      }
+    }
+  }
+}

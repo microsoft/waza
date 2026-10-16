@@ -1,17 +1,6 @@
-### `llm_comparison` - Reference Comparison Grader
+# Migrating the old reference-comparison example
 
-Compares output against a reference using LLM.
-
-> **Status:** `llm_comparison` is not currently implemented in this repository. This document is retained for reference.
-
-```yaml
-- type: llm_comparison
-  name: reference_check
-  config:
-    model: gpt-4o-mini
-    reference: |
-      Expected output should include:
-      - Confirmation of deployment
-      - URL of deployed resource
-      - Next steps for the user
-```
+`llm_comparison` is not a native kind. Use [`prompt`](prompt.md) and include the
+reference criteria in `config.prompt`; request explicit pass/fail tool calls.
+Do not imply an automatic reference-comparison kind or unconfigured score
+threshold exists. Judge runs require model access and may incur costs.

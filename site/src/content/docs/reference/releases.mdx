@@ -5,17 +5,58 @@ description: Download waza binaries and the azd extension. Changelog highlights 
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
-## Current Release: v0.38.2
+## Current published standalone release: v0.38.10
+
+**Released:** October 9, 2026.
+
+Verified against the [standalone release](https://github.com/microsoft/waza/releases/tag/v0.38.10).
+The installers select published standalone releases, not unreleased main.
+`waza update` cannot install upcoming commands.
+
+## Upcoming main-only capabilities
+
+The documentation follows main after `v0.38.10`. No next version or release date
+is assigned here; this is not a claim that release CI is green.
+
+| Capability | Availability | Platform and scope |
+| --- | --- | --- |
+| `new eval --scenario` repository/CLI/MCP | Main/source build | Ordinary Linux/macOS/Windows execution; exact eval schema `2.0`; CLI needs Git, MCP template is harness-only |
+| `preflight` | Main/source build | Agent-free inventory, no runtime/auth/quality certification |
+| Recorded reliability and `serve --lab` | Main/source build, Lab opt-in | Recorded observations and prototype views, not new live execution authority |
+| Ordinary run/grade evidence and selected-file regrade | Main/source build, opt-in capture | Selected-file private publication on Linux/macOS; unsupported Windows publication is an explicit error; historical/metadata-only readers are separate |
+| `assure` authored-case profiles | Main/source build, explicitly selected | Bounded native file/output and offline cases; strict preserved-file publication has platform limits; private preserved-native APIs are not default reader authority |
+| `assure calibrate` | Main/source build, separate opt-in | Reviewed inputs and explicit paid-call acknowledgment required; no default paid calibration |
+| Controlled strict collection/release policy | Main/source build, explicit policy | Offline mock/no-skills/native-text only; private durable writers Linux/macOS, not Windows; supplied-reader checks do not certify writing |
+| azd extension commands | Separate artifacts/version | Registry lists through `0.38.9`; `0.38.10` extension release exists separately. No main-only feature support is asserted for either |
+
+Build main with **Go 1.26+, Git LFS, Make, Node.js and npm**:
+
+```bash
+git clone https://github.com/microsoft/waza.git
+cd waza
+git lfs install
+git lfs pull
+make build
+./waza --version
+```
+
+`make build` generates dashboard assets before embedding. Bare `go install`
+does not fetch LFS artifacts or build the dashboard.
+See [Quick Start](../../quick-start/) for offline validation before credentials.
+
+The eight recent feature increments (#670, #671, #688, #652, #667, #672, #668,
+#666) do not deliver public production fault recovery, universal release
+authority, a full human-labelled corpus, sandbox enforcement or default paid
+calibration. Private fault adapters remain unregistered.
+
+---
+
+## Previous highlighted release: v0.38.2
 
 **Released:** 2026-07-16
 
-### What's New
-
-#### Fixed
-
-- **JSON schema ambiguity detection** — `extract_json` now rejects output containing a JSON code block plus any additional JSON document.
-
----
+- **JSON schema ambiguity detection** — `extract_json` rejects output containing
+  a JSON code block plus an additional JSON document.
 
 ## Previous highlighted release: v0.38.1
 
@@ -81,12 +122,12 @@ Pre-built binaries for all major platforms:
 
 | Platform | Architecture | Download |
 |----------|-------------|----------|
-| macOS | Apple Silicon (ARM64) | [waza-darwin-arm64](https://github.com/microsoft/waza/releases/download/v0.38.2/waza-darwin-arm64) |
-| macOS | Intel (AMD64) | [waza-darwin-amd64](https://github.com/microsoft/waza/releases/download/v0.38.2/waza-darwin-amd64) |
-| Linux | x64 (AMD64) | [waza-linux-amd64](https://github.com/microsoft/waza/releases/download/v0.38.2/waza-linux-amd64) |
-| Linux | ARM64 | [waza-linux-arm64](https://github.com/microsoft/waza/releases/download/v0.38.2/waza-linux-arm64) |
-| Windows | x64 (AMD64) | [waza-windows-amd64.exe](https://github.com/microsoft/waza/releases/download/v0.38.2/waza-windows-amd64.exe) |
-| Windows | ARM64 | [waza-windows-arm64.exe](https://github.com/microsoft/waza/releases/download/v0.38.2/waza-windows-arm64.exe) |
+| macOS | Apple Silicon (ARM64) | [waza-darwin-arm64](https://github.com/microsoft/waza/releases/download/v0.38.10/waza-darwin-arm64) |
+| macOS | Intel (AMD64) | [waza-darwin-amd64](https://github.com/microsoft/waza/releases/download/v0.38.10/waza-darwin-amd64) |
+| Linux | x64 (AMD64) | [waza-linux-amd64](https://github.com/microsoft/waza/releases/download/v0.38.10/waza-linux-amd64) |
+| Linux | ARM64 | [waza-linux-arm64](https://github.com/microsoft/waza/releases/download/v0.38.10/waza-linux-arm64) |
+| Windows | x64 (AMD64) | [waza-windows-amd64.exe](https://github.com/microsoft/waza/releases/download/v0.38.10/waza-windows-amd64.exe) |
+| Windows | ARM64 | [waza-windows-arm64.exe](https://github.com/microsoft/waza/releases/download/v0.38.10/waza-windows-arm64.exe) |
 
 ---
 
@@ -108,7 +149,7 @@ On Windows, use this command only from Git Bash, MSYS2, or Cygwin. If PowerShell
 irm https://raw.githubusercontent.com/microsoft/waza/main/install.ps1 | iex
 ```
 
-The installers choose the latest standalone `waza` CLI release, download the matching binary, verify the checksum, and install it. You can also download the Windows binary from the [standalone waza release](https://github.com/microsoft/waza/releases/tag/v0.38.2), rename it to `waza.exe`, and place it in a directory on your `PATH`.
+The installers choose the latest standalone `waza` CLI release, download the matching binary, verify the checksum, and install it. You can also download the Windows binary from the [standalone waza release](https://github.com/microsoft/waza/releases/tag/v0.38.10), rename it to `waza.exe`, and place it in a directory on your `PATH`.
 
 </TabItem>
 </Tabs>
@@ -125,14 +166,25 @@ waza --version
 
 Install waza as an [Azure Developer CLI](https://learn.microsoft.com/azure/developer/azure-developer-cli/) extension.
 
-**Current version:** v0.38.2
+The [published extension release](https://github.com/microsoft/waza/releases/tag/azd-ext-microsoft-azd-waza_0.38.10)
+is `0.38.10`, separate from standalone `v0.38.10`. The checked-in registry
+currently lists through `0.38.9`; adding it does not guarantee installation of
+the separately published artifact:
 
 ```bash
-azd extension install azd-waza \
-  --source https://github.com/microsoft/waza/releases/download/azd-ext-microsoft-azd-waza_0.38.2/azd-ext-microsoft-azd-waza_0.38.2.tar.gz
+azd ext source add -n waza -t url -l https://raw.githubusercontent.com/microsoft/waza/main/registry.json
+azd ext install microsoft.azd.waza
+azd waza --version
+azd waza --help
 ```
 
-Once installed, run evaluations through `azd`:
+Use commands supported by that installed artifact. No extension version above
+is claimed to support upcoming main scenarios, preflight, selected evidence,
+assurance or strict release-policy collection. Check per-command help rather
+than merely substituting `azd waza` for `waza`.
+Some historical registry entries are owned by a different release repository;
+their presence is not a live artifact-availability verification.
+For supported existing evals:
 
 ```bash
 azd waza run eval.yaml

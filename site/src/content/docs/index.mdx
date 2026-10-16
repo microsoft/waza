@@ -1,6 +1,6 @@
 ---
 title: waza
-description: CLI tool for evaluating AI Agent Skills
+description: Evaluate agent workflows, skills, and custom agents with graded scenarios and inspectable evidence.
 template: splash
 ---
 
@@ -8,15 +8,24 @@ import { Card, CardGrid, LinkCard, Aside } from '@astrojs/starlight/components';
 
 ## The way of technique — measure, refine, master 🥋
 
-**Waza** is a Go CLI tool for evaluating AI agent skills through structured benchmarks. Define test cases in YAML, run them against AI models, and validate results with pluggable validators.
+**Waza** is a Go CLI for evaluating **agent workflows, skills and custom agents**.
+Define repository, CLI or MCP scenarios in YAML, run graded trials and inspect
+the recorded evidence. Existing skill suites remain supported.
+
+<Aside type="note" title="Stable versus upcoming main">
+Published standalone **v0.38.10 (October 9, 2026)** is separate from the upcoming
+scenario, preflight, evidence and assurance features described here. Build
+current source for those commands; `waza update` installs published releases,
+not main. See [release availability](/waza/reference/releases/#upcoming-main-only-capabilities).
+</Aside>
 
 Perfect for skill authors, platform teams, and developers building AI-powered applications.
 
 ## What can waza do?
 
 <CardGrid stagger>
-	<Card title="Define Skills" icon="pencil">
-		Create comprehensive skill definitions with YAML-based evaluation specs and task fixtures.
+	<Card title="Define Workflows" icon="pencil">
+		Author scenario suites for repository, CLI and MCP tasks, optionally with skill or custom-agent context.
 	</Card>
 	<Card title="Run Benchmarks" icon="rocket">
 		Execute evaluations against different AI models with fixture isolation and pluggable validators.
@@ -25,7 +34,7 @@ Perfect for skill authors, platform teams, and developers building AI-powered ap
 		Cross-model comparison to measure skill effectiveness and track improvements.
 	</Card>
 	<Card title="Validate Quality" icon="approve">
-		Use 11 built-in grader types to validate task completion, behavior, and quality metrics.
+		Use 13 native grader types to inspect task output, files, tool observations and behavior.
 	</Card>
 	<Card title="View Metrics" icon="chart">
 		Interactive web dashboard with live results, trends, detailed analysis, and exports.
@@ -37,20 +46,24 @@ Perfect for skill authors, platform teams, and developers building AI-powered ap
 
 ## Quick Start
 
-Get from zero to your first evaluation benchmark in **5 minutes**:
+Start credential-free with the [offline Quick Start](/waza/quick-start/).
+After building upcoming main as described there:
 
 ```bash
-# macOS/Linux or Windows Git Bash/MSYS/Cygwin
-curl -fsSL https://raw.githubusercontent.com/microsoft/waza/main/install.sh | bash
-waza init my-eval-suite
+waza init my-eval-suite --no-skill
 cd my-eval-suite
-waza new skill my-skill
-waza run my-skill -v
-waza serve  # View results in the dashboard
+waza new eval inventory --scenario --template repository
+waza preflight evals/inventory/eval.yaml
+# Continue in Quick Start: explicitly select mock in YAML before any run.
 ```
 
 <LinkCard title="Quick Start Guide" href="/waza/quick-start/" icon="rocket" />
+<LinkCard title="Concepts and workflow choices" href="/waza/concepts/" icon="book" />
 <LinkCard title="Full Getting Started" href="/waza/getting-started/" icon="book" />
+
+A mock pass proves harness wiring, not agent quality. Before real SDK execution,
+read the authentication, permissions and possible-cost prerequisites in Getting
+Started. Preflight is inventory, not execution or release assurance.
 
 ## Key Features
 
@@ -58,20 +71,34 @@ waza serve  # View results in the dashboard
 
 Define evaluation specs, tasks, and validation rules in simple YAML:
 
+After scaffolding `code-explainer`, use the
+[Getting Started explanation task and `sample.py` fixture](./getting-started/#step-4-write-evaluation-tasks).
+This suite selects only `tasks/basic-usage.yaml`, not the unrelated scaffolded
+edge-case/negative tasks. With the mock executor, expect exit **0** and
+**1/1 selected tasks passed** (`basic-usage-001`): a wiring check, not agent
+quality. The `code` grader requires Python.
+
 ```yaml
 name: code-explainer-eval
 description: Test agent's ability to explain code
+skill: code-explainer
 
 config:
+  executor: mock
+  trials_per_task: 1
   model: claude-sonnet-4.6
   timeout_seconds: 300
+metrics:
+  - name: task_completion
+    weight: 1
+    threshold: 1
 
 graders:
   - type: text
     name: checks_logic
     weight: 2.0
     config:
-      pattern: "(?i)(function|logic|parameter)"
+      regex_match: ["(?i)(function|logic|parameter)"]
   - type: code
     name: has_output
     config:
@@ -79,16 +106,15 @@ graders:
         - "len(output) > 100"
 
 tasks:
-  - "tasks/*.yaml"
+  - "tasks/basic-usage.yaml"
 ```
 
 ### Pluggable Validators
 
-11 grader types built-in:
+13 native grader kinds (regex and keyword checks are part of `text`):
 
 - **Code** — Python assertions
-- **Regex** — Pattern matching
-- **Keyword** — Keyword presence
+- **Text** — Substring and regex matching
 - **File** — Output file checking
 - **Diff** — Diff comparison
 - **JSON Schema** — JSON structure validation
@@ -97,6 +123,9 @@ tasks:
 - **Action Sequence** — Tool call sequence validation
 - **Skill Invocation** — Skill invocation validation
 - **Program** — Program execution validation
+- **Trigger** — Skill activation checks
+- **Tool Constraint** — Required/forbidden tool constraints
+- **Tool Calls** — Tool events and argument checks
 
 ### Fixture Isolation
 

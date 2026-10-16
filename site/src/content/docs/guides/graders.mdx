@@ -1,6 +1,6 @@
 ---
 title: Graders
-description: Complete reference for all 12 grader types — how they work, configuration options, and real-world examples.
+description: Complete reference for all 13 native grader kinds, configuration, and examples.
 ---
 
 {/* cspell:ignore astrojs fastapi */}
@@ -37,6 +37,14 @@ graders:
 Run `waza get eval.yaml` after adding a `ref`; it writes `waza.lock` with the commit SHA and content digest. `waza run` expands locked refs from the local module cache and fails if the lock or digest is missing.
 
 ## Challenge the checks, not just the answer
+
+New authors can start with [the catalog](#at-a-glance) and
+[Text](#text), then return to these explicitly selected advanced profiles.
+Assurance/calibration profiles below are upcoming/main-only; see
+[release availability](../../reference/releases/).
+
+<details>
+<summary>Advanced assurance profiles and observational limits</summary>
 
 Before relying on a grader, compare its actual verdict against independently
 reviewed evidence. A correct outcome and a different valid tool path should
@@ -112,7 +120,7 @@ relative bases and snapshot-free observations are unchanged.
 
 The existing offline `assure --calibrate` remains unavailable: it reports not assessed,
 makes zero paid calls and leaves usage/credits null. See the
-[CLI reference](/reference/cli/#waza-assure) and
+[CLI reference](../../reference/cli/#waza-assure) and
 [exact contract](https://github.com/microsoft/waza/blob/main/docs/GRADER-CHALLENGES.md#strict-file-content-assurance).
 
 The separate evaluator API `assurance.Calibrate` requires explicit selection,
@@ -210,14 +218,16 @@ See the [internal boundary](https://github.com/microsoft/waza/blob/main/docs/GRA
 
 ---
 
+</details>
+
 ## At a glance
 
-waza ships with **several built-in grader types**. Pick the right one for the job:
+waza ships with **13 native grader kinds**. Pick the right one for the job:
 
 | Type                                                   | YAML key           | What it checks                                       |
 | ------------------------------------------------------ | ------------------ | ---------------------------------------------------- |
 | [Inline Script](#inline-script-code)                   | `code`             | Python/JS assertion expressions against output       |
-| [Text](#Text)                                          | `text`             | Text and regex matching against output               |
+| [Text](#text)                                          | `text`             | Text and regex matching against output               |
 | [File](#file)                                          | `file`             | File existence and content patterns in workspace     |
 | [Diff](#diff)                                          | `diff`             | Workspace files vs. expected snapshots or fragments  |
 | [JSON Schema](#json-schema-json_schema)                | `json_schema`      | Output validates against a JSON Schema               |
@@ -226,7 +236,7 @@ waza ships with **several built-in grader types**. Pick the right one for the jo
 | [Action Sequence](#action-sequence-action_sequence)    | `action_sequence`  | Tool call ordering and completeness                  |
 | [Skill Invocation](#skill-invocation-skill_invocation) | `skill_invocation` | Which skills were invoked and in what order          |
 | [Program](#program)                                    | `program`          | External command (any language) grades via exit code |
-| [Tool Constraint](#tool-constraint)                    | `tool_constraint`  | Validate tool usage constraints (expect/reject lists and argument patterns) |
+| [Tool Constraint](#tool-constraint-tool_constraint)                    | `tool_constraint`  | Validate tool usage constraints (expect/reject lists and argument patterns) |
 | [Tool Calls](#tool-calls-tool_calls)                   | `tool_calls`       | Validate required/forbidden tools and call count bounds                    |
 | [Trigger](#trigger)                                    | `trigger`          | Heuristic grader for validating whether a prompt should activate a skill   |
 
@@ -516,7 +526,7 @@ This is the closest Waza match for OpenAI Evals `modelgraded` specs. See the eva
 | Option             | Type     | Default      | Description                                          |
 | ------------------ | -------- | ------------ | ---------------------------------------------------- |
 | `prompt`           | `string` | _(required¹)_ | Instructions for the judge LLM                       |
-| `rubric`           | `string` | _(optional)_ | Reusable rubric by name (e.g. `groundedness`) or path to a local `.md` file. See [Rubric library](/reference/rubrics/). |
+| `rubric`           | `string` | _(optional)_ | Reusable rubric by name (e.g. `groundedness`) or path to a local `.md` file. See [Rubric library](../../reference/rubrics/). |
 | `model`            | `string` | _(required)_ | Model to use for judging                             |
 | `reasoning_effort` | `string` | eval `judge_reasoning_effort` | Judge effort: `low`, `medium`, `high`, `xhigh`, or `max`. Requires `executor: copilot-sdk`. |
 | `continue_session` | `bool`   | `false`      | Resume the agent's session (judge sees full context) |
@@ -565,7 +575,7 @@ For custom providers, effort is forwarded directly and provider errors are surfa
     model: "gpt-4o-mini"
 ```
 
-The rubric markdown ships with a YAML frontmatter (`name`, `version`, `scale`, `description`, optional `goldens`) so each rubric is versioned, self-documenting, and testable. See [Rubric library](/reference/rubrics/) for the full schema and the list of built-in rubrics.
+The rubric markdown ships with a YAML frontmatter (`name`, `version`, `scale`, `description`, optional `goldens`) so each rubric is versioned, self-documenting, and testable. See [Rubric library](../../reference/rubrics/) for the full schema and the list of built-in rubrics.
 
 ### How it works
 
