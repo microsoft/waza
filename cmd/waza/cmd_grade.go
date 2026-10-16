@@ -258,8 +258,11 @@ func runGradeWithJudge(ctx context.Context, w, errW io.Writer, specPath, taskID,
 			Runs:        gradedRuns,
 			Cached:      cachedEvidence,
 		})
-		if gradeErr != nil && !usesEvidence {
-			break
+		if gradeErr != nil {
+			failure, graderFailed := errors.AsType[*graders.RunError](gradeErr)
+			if !usesEvidence || !graderFailed || failure.Kind != models.GraderKindPrompt {
+				break
+			}
 		}
 	}
 
@@ -431,8 +434,8 @@ func gradeRunWithJudge(ctx context.Context, spec *models.EvalSpec, tc *models.Te
 	gradedRun := *run
 	gradedRun.PromptJudging = slices.Clone(run.PromptJudging)
 	usesEvidence := models.UsesJudgeEvidence(spec.Graders, tc)
-	fail := func(err error) (*models.RunResult, error) {
-		if usesEvidence && len(gradedRun.PromptJudging) == len(run.PromptJudging) {
+	fail := func(err error, invalidEvidence bool) (*models.RunResult, error) {
+		if usesEvidence && invalidEvidence && len(gradedRun.PromptJudging) == len(run.PromptJudging) {
 			configurations := append([]models.GraderConfig(nil), spec.Graders...)
 			for _, validator := range tc.Validators {
 				configurations = append(configurations, models.GraderConfig{Identifier: validator.Identifier, Parameters: validator.Parameters})
@@ -459,12 +462,22 @@ func gradeRunWithJudge(ctx context.Context, spec *models.EvalSpec, tc *models.Te
 		gradedRun.RequirementExplanations = evidence.ExplainRegradedRequirements(spec, tc, &gradedRun)
 		return &gradedRun, err
 	}
-	if run.Evidence != nil && !usesEvidence {
+	if run.Evidence != nil {
 		updated, err := evidence.Regrade(run.Evidence)
-		if err != nil {
-			return nil, fmt.Errorf("original evidence: %w", err)
+		if err == nil && usesEvidence {
+			err = evidence.Bind(updated, source.EvalID, tc.TestID, run.RunNumber, run.Attempts, source.Cached)
 		}
-		gradedRun.Evidence = updated
+		if err != nil {
+			if !usesEvidence {
+				return nil, fmt.Errorf("original evidence: %w", err)
+			}
+			gradedRun.Evidence = nil
+			if _, writeErr := fmt.Fprintln(errW, "warning: legacy snapshot manifest was withheld because it is invalid or does not match the selected run; record a new execution to restore snapshot provenance"); writeErr != nil {
+				return fail(fmt.Errorf("failed to write manifest warning: %w", writeErr), false)
+			}
+		} else {
+			gradedRun.Evidence = updated
+		}
 	}
 	if !usesEvidence && (gradedRun.ErrorMsg != "" || gradedRun.Status == models.StatusError) {
 		gradedRun.Validations = map[string]models.GraderResults{}
@@ -495,7 +508,7 @@ func gradeRunWithJudge(ctx context.Context, spec *models.EvalSpec, tc *models.Te
 	if usesEvidence {
 		origin, err := snapshot.CaptureOrigin(snapshot.CaptureInput{EvalID: source.EvalID, Task: tc, Run: run})
 		if err != nil {
-			return fail(errors.New("evidence judging requires a valid enclosing evaluation/task/run origin"))
+			return fail(errors.New("evidence judging requires a valid enclosing evaluation/task/run origin"), true)
 		}
 		gradingCtx.JudgeOrigin, gradingCtx.JudgeEvidence = origin, run.JudgeEvidence
 		gradingCtx.JudgingPurpose = "regrade"
@@ -504,14 +517,14 @@ func gradeRunWithJudge(ctx context.Context, spec *models.EvalSpec, tc *models.Te
 		}
 		// Verify the whole run before any model-backed grader is constructed.
 		if err := judgeevidence.ValidateSelection(spec.Graders, tc); err != nil {
-			return fail(err)
+			return fail(err, true)
 		}
 		verifyErr := judgeevidence.Verify(run.JudgeEvidence, origin)
 		if source.Cached {
 			verifyErr = errors.New("evidence judging does not accept cached source runs; record a new execution")
 		}
 		if verifyErr != nil {
-			return fail(verifyErr)
+			return fail(verifyErr, true)
 		}
 		gradedRun.ErrorMsg = ""
 		configurations := append([]models.GraderConfig(nil), spec.Graders...)
@@ -524,10 +537,10 @@ func gradeRunWithJudge(ctx context.Context, spec *models.EvalSpec, tc *models.Te
 				continue
 			}
 			if parameters.EvidenceContext == nil {
-				return fail(errors.New("evidence regrading cannot be mixed with legacy prompt graders; opt every prompt grader into evidence_context"))
+				return fail(errors.New("evidence regrading cannot be mixed with legacy prompt graders; opt every prompt grader into evidence_context"), true)
 			}
 			if _, err := judgeevidence.Delivery(run.JudgeEvidence, origin, *parameters.EvidenceContext); err != nil {
-				return fail(err)
+				return fail(err, true)
 			}
 		}
 		gradingCtx.EvidenceExecutor = source.Executor
@@ -539,19 +552,19 @@ func gradeRunWithJudge(ctx context.Context, spec *models.EvalSpec, tc *models.Te
 	if verbose {
 		if _, err := fmt.Fprintf(errW, "grading %s: %d transcript events, duration=%dms, session=%s\n",
 			tc.TestID, len(run.Transcript), run.DurationMs, run.SessionDigest.SessionID); err != nil {
-			return nil, fmt.Errorf("failed to write verbose output: %w", err)
+			return fail(fmt.Errorf("failed to write verbose output: %w", err), false)
 		}
 	}
 
 	graderResults, err := graders.RunAll(ctx, spec.Graders, tc, gradingCtx, judgeModel, spec.Config.JudgeReasoningEffort, false)
 	if err != nil {
-		return fail(err)
+		return fail(err, false)
 	}
 
 	if verbose {
 		for name, result := range graderResults {
 			if _, err := fmt.Fprintf(errW, "  grader %s: score=%.2f passed=%v\n", name, result.Score, result.Passed); err != nil {
-				return fail(fmt.Errorf("failed to write verbose output: %w", err))
+				return fail(fmt.Errorf("failed to write verbose output: %w", err), false)
 			}
 		}
 	}

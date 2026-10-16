@@ -708,6 +708,10 @@ and `status: failed`; operational errors return nonzero, `status: error`, and no
 `overall_score` in the grading summary. Once evidence grading starts, `--output`
 retains safe per-run failure diagnostics before returning an error; output-write errors
 also propagate. Malformed results that cannot be decoded fail before regrading.
+Valid, run-bound legacy snapshot manifests remain provenance only: old
+validations, result, grader-configuration and checkpoint artifacts become
+unavailable for the new assessment. Invalid or mismatched unused manifests are
+omitted with a warning; the frozen judge bundle is validated independently.
 Original execution billing is unchanged. Each actual new judge session is counted
 once under `regrade_usage.sessions`, separate from historical `evaluation_usage`.
 In a mixed-task invocation, a later mechanical grader's operational failure
@@ -716,7 +720,10 @@ the overall grading status is `error` and its score is withheld. If verbose
 diagnostic output fails after judging, the saved observations and charges are
 retained and the affected run is marked as an error. Mechanical
 errors remain fail-fast: an error before the first evidence attempt starts no
-judge, and a later mechanical error does not start further judges.
+judge, and a later mechanical error does not start further judges, including
+within a task that mixes mechanical and evidence graders in either order.
+Local evidence-admission and diagnostic-output errors also stop further judges;
+prompt-execution failures can still aggregate across independent tasks.
 This field describes only the current regrade; a later mechanical-only regrade
 omits it instead of repeating earlier judge usage.
 Missing usage/credits remain unavailable; explicit reported zero remains zero.

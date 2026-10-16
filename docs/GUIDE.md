@@ -1105,6 +1105,10 @@ Current eval/task selection unions and evaluator-only exclusions are checked
 again before any saved-evidence judge runs. Omitted judge models fall back to
 the eval model (then `auto`); explicit hosted reasoning effort must pass the
 isolated client's model-catalog checks before session creation.
+Valid, run-bound legacy snapshot manifests are retained as provenance only:
+old validations, result, grader-configuration and checkpoint artifacts become
+unavailable for the new assessment. Invalid or mismatched unused manifests are
+omitted with a warning; the frozen judge bundle is validated independently.
 
 Ordinary failed judgments retain `grade`'s zero exit and report `passed: false` /
 `status: failed`. Operational errors return nonzero and `status: error`, without
@@ -1118,7 +1122,11 @@ charges to the requested output, while withholding the overall score.
 If verbose diagnostic output fails after judging, the saved observations and
 charges are retained and the affected run is marked as an error.
 Mechanical errors remain fail-fast and do not start any further judges;
-an error before the first evidence attempt creates no new judge session.
+this also applies within a task that mixes mechanical and evidence graders,
+regardless of validator order. An error before the first evidence attempt
+creates no new judge session.
+Local evidence-admission and diagnostic-output errors also stop further judges;
+prompt-execution failures can still aggregate across independent tasks.
 Original `evaluation_usage` and actor billing remain
 unchanged. Missing credits are unavailable, not zero. The existing Evidence view
 reports per-run/per-grader submission metadata, not proof of inspection, accuracy,
