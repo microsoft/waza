@@ -817,6 +817,13 @@ When an artifact is **rejected** by a Reviewer:
 6. **Lockout duration:** The lockout persists for that revision cycle. If the revision is also rejected, the same rule applies again — the revision author is now also locked out, and a third agent must revise.
 7. **Deadlock handling:** If all eligible agents have been locked out of an artifact, the Coordinator MUST escalate to the user rather than re-admitting a locked-out author.
 
+**Waza rejection boundary (Squad only):** Include concrete counter-evidence, the
+violated requirement, affected scope, and minimum condition for approval.
+The Coordinator selects a different qualified revision owner, not the locked-out
+author or rejecting gate. The rejecting gate does not implement, pair on, or
+advise the immediate revision; it performs a focused rereview of blockers, delta,
+and regressions. These coordination rules do not apply to ordinary Copilot work.
+
 ---
 
 ## Multi-Agent Artifact Format
@@ -921,12 +928,12 @@ These are intent signals, not exact strings — match meaning, not words.
 
 ### Red Verdict — Blocking Behavior
 
-When Rai issues a 🔴 Red verdict:
+When Rai is the selected gate and issues a 🔴 Red verdict:
 
 1. **Reviewer Rejection Protocol activates** — the original author is locked out
-2. **Rai recommends a fix agent** — names who should do the revision
-3. **Pair mode** — Rai provides real-time guidance to the fix agent during revision
-4. **Re-review required** — Rai must issue 🟢 or 🟡 before work can ship
+2. **Independent revision owner** — the Coordinator selects a different qualified owner, not the locked-out author or rejecting gate
+3. **Rejection evidence** — Rai includes concrete counter-evidence and the minimum condition for approval, without implementing, pairing on, or advising the immediate revision
+4. **Focused rereview** — Rai checks blockers, delta, and regressions; repository acceptance rules still apply
 
 ### Background Mode (Default)
 
@@ -963,10 +970,10 @@ Rai's state is minimal:
 
 ### Integration with Reviewer Rejection Protocol
 
-Rai participates as a specialized Reviewer. When Rai rejects:
+Rai participates as a specialized Reviewer. When Rai rejects as the selected gate:
 - Standard lockout semantics apply (original author locked out)
-- Rai names the fix agent based on the violation type
-- Rai enters pair mode to guide the revision
+- The Coordinator selects a different qualified revision owner, not the locked-out author or rejecting gate
+- Rai supplies concrete counter-evidence in the rejection and performs only the focused rereview, not revision pairing or implementation
 - No conflict with general Reviewers — Rai reviews RAI concerns only, not general quality
 
 ---

@@ -94,11 +94,19 @@ Decisions that affect other agents go to `.squad/decisions/inbox/fact-checker-{s
 
 ## Integration with Reviewer Rejection Protocol
 
-When Fact Checker issues a ❌ Contradicted verdict on a user-facing artifact at Pre-Ship time:
+**Waza project override (Squad only):** Activation and gate selection follow
+`.squad/governance.md` and the active Fact Checker charter. This methodology does
+not authorize automatic review or change ordinary Copilot work.
 
-1. **Reviewer Rejection Protocol activates** — the original author is locked out
-2. **Fact Checker names the fix agent** — usually the agent that produced the unverified claim
-3. **Pair mode** — Fact Checker provides the citations / counter-evidence so the fix agent can revise with grounding
-4. **Re-verification required** — Fact Checker must issue ✅ or ⚠️ before the artifact can ship
+When the selected Fact Checker gate issues a blocking ❌ Contradicted verdict:
 
-This mirrors Rai's RAI Reviewer Rejection Protocol. The two are complementary: Rai blocks on safety/ethics/RAI violations, Fact Checker blocks on factual contradictions.
+1. **Reject with evidence** — include concrete counter-evidence, the violated requirement,
+   affected scope, and minimum condition for approval; the original author is locked out.
+2. **Independent revision owner** — the Coordinator selects a different qualified revision owner,
+   not the locked-out author or the rejecting gate. If none is eligible, escalate to the user.
+3. **No revision pairing** — Fact Checker does not implement, pair on, or advise the immediate revision.
+4. **Focused rereview** — Fact Checker checks the blockers, delta, and regressions after independent
+   revision. A verification rating alone does not authorize publication or merge.
+
+Rai follows the same ownership boundary for a selected RAI gate. Gate acceptance and repository
+merge requirements remain governed by the canonical project review policy.

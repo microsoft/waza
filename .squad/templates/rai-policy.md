@@ -89,11 +89,11 @@ These are recommendations. Work proceeds with suggestions attached.
 
 1. **🟢 Green** — No action needed. Work proceeds.
 2. **🟡 Yellow** — Suggestions attached to work output. Author decides.
-3. **🔴 Red** — Work blocked. Reviewer Rejection Protocol activates:
+3. **🔴 Red** — Work blocked when Rai is the selected gate. Reviewer Rejection Protocol activates:
    - Original author locked out of revision
-   - Rai recommends fix agent
-   - Rai provides pair-mode guidance during revision
-   - Re-review required before work can ship
+   - The Coordinator selects a different qualified revision owner, not the locked-out author or rejecting gate
+   - Rai includes concrete counter-evidence and the minimum condition for approval in the rejection
+   - Rai does not implement, pair on, or advise the immediate revision; only focused rereview of blockers, delta, and regressions follows
 
 ## Policy Updates
 

@@ -37,6 +37,13 @@ When an artifact is **rejected** by a Reviewer:
 6. **Lockout duration:** The lockout persists for that revision cycle. If the revision is also rejected, the same rule applies again — the revision author is now also locked out, and a third agent must revise.
 7. **Deadlock handling:** If all eligible agents have been locked out of an artifact, the Coordinator MUST escalate to the user rather than re-admitting a locked-out author.
 
+**Waza rejection boundary (Squad only):** Include concrete counter-evidence, the
+violated requirement, affected scope, and minimum condition for approval.
+The Coordinator selects a different qualified revision owner, not the locked-out
+author or rejecting gate. The rejecting gate does not implement, pair on, or
+advise the immediate revision; it performs a focused rereview of blockers, delta,
+and regressions. These coordination rules do not apply to ordinary Copilot work.
+
 ## Examples
 
 **Example 1: Reassign after rejection**

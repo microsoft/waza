@@ -98,22 +98,27 @@ Commit the new entry and assignment snapshot together using the locked SDK pair 
 
 A reviewer gate means: "Agent X must review Agent Y's output before it proceeds." The framework supports this but does NOT automatically enforce it. You must wire it.
 
+**Waza project repair (Squad only):** These examples describe selected gates under
+`.squad/governance.md`, not automatic extra reviewers or ordinary Copilot rules.
+Rejected revisions require independent ownership and focused rereview, never
+pairing or implementation by the locked-out author or rejecting gate.
+
 ### Option A: Routing Rule (recommended for simple gates)
 
 Add to `routing.md` → `## Rules` section:
 
 ```markdown
-N. **{GateName} Gate** — Every {output type} from {Author} MUST be reviewed by {ReviewerName} before {next step}. The coordinator routes {Author}'s output to {ReviewerName} (sync spawn), collects the verdict, and only proceeds if approved. On rejection, {Author} revises based on {ReviewerName}'s feedback.
+N. **{GateName} Gate** — Every {output type} from {Author} MUST be reviewed by {ReviewerName} before {next step}. The coordinator routes {Author}'s output to {ReviewerName} (sync spawn), collects the verdict, and only proceeds if approved. On rejection, the coordinator assigns a different qualified revision owner, not the locked-out author or rejecting gate. The reviewer provides concrete counter-evidence and performs focused rereview, not revision pairing or implementation.
 ```
 
 **Example — reviewer for all PRs:**
 ```markdown
-9. **{ReviewerName} PR Gate** — Every PR created by any agent MUST be reviewed by {ReviewerName} before merge. The coordinator spawns {ReviewerName} (sync) with the PR diff, collects APPROVE/REJECT verdict. On rejection, the original author addresses feedback.
+9. **{ReviewerName} PR Gate** — Every PR created by any agent MUST be reviewed by {ReviewerName} before merge. The coordinator spawns {ReviewerName} (sync) with the PR diff, collects APPROVE/REJECT verdict. On rejection, a different qualified revision owner addresses concrete counter-evidence; the locked-out author and rejecting gate do not author, pair on, or advise the immediate revision. The reviewer performs focused rereview.
 ```
 
 **Example — design review gate:**
 ```markdown
-10. **{DesignReviewer} Design Gate** — Every design doc produced by the architect MUST be reviewed by {DesignReviewer} before implementation begins. {DesignReviewer} always rejects the first draft on concept/approach. Implementation is BLOCKED until {DesignReviewer} approves.
+10. **{DesignReviewer} Design Gate** — Every design doc produced by the architect MUST be reviewed by {DesignReviewer} before implementation begins. Rejection requires concrete counter-evidence against a stated requirement, not merely a first draft. The coordinator selects a different qualified revision owner; the rejecting gate performs focused rereview rather than pairing or implementation. Implementation is BLOCKED until the selected gate is satisfied.
 ```
 
 **Why this works:** The coordinator reads the Rules section before and after every work batch. Rules are behavioral constraints the coordinator must follow.
@@ -186,7 +191,10 @@ N.  **Issue lifecycle enforcement** — all issue-linked work follows the lifecy
 
 N+1. **{ReviewerName} PR Gate** — every PR created by any agent MUST be reviewed
     by {ReviewerName} before merge. The coordinator spawns {ReviewerName} (sync)
-    with the PR diff. On REJECT, the original author addresses feedback. On APPROVE,
+    with the PR diff. On REJECT, a different qualified revision owner addresses
+    concrete counter-evidence; the locked-out author and rejecting gate do not
+    author, pair on, or advise the immediate revision. The reviewer performs
+    focused rereview. On APPROVE,
     the coordinator merges. No PR merges without {ReviewerName}'s approval.
 
 N+2. **Issue closure restriction** — issues that produced files (code, docs, scripts,

@@ -361,7 +361,8 @@ If the project requires human approval:
 If the issue was assigned to a squad member and they authored the PR:
 1. Another squad member reviews (conflict of interest avoidance)
 2. Original author is locked out from re-working rejected code (rejection lockout)
-3. Reviewer can approve edits or reject outright
+3. The Coordinator selects a different qualified revision owner, not the locked-out author or rejecting gate
+4. Rejection includes concrete counter-evidence; the reviewer does not implement, pair on, or advise the immediate revision and performs focused rereview only
 
 ## Common Issue Lifecycle Patterns
 

@@ -4,7 +4,7 @@ description: "The complete two-phase Init Mode protocol the Squad coordinator ru
 allowedTools: []
 confidence: high
 domain: squad-internals
-source: "Extracted from squad.agent.md as part of the slimming effort (bradygaster/squad#1308). Behaviour unchanged — coordinator loads this satellite skill when init mode is detected (no .squad/team.md present)."
+source: "Extracted from squad.agent.md (bradygaster/squad#1308), with Waza project overrides for paired casting initialization and governance-aligned reviewer seeding."
 ---
 
 > **Load this skill when:** you detect that no `.squad/team.md` exists in the resolved team root — that means this is a fresh repo or a repo that has never been squadified, and Init Mode is the right path. The short stub in `squad.agent.md` tells you to load this skill; the full two-phase protocol lives here.
@@ -79,7 +79,14 @@ place. Known frozen v0.10 state requires the guide's approved, quiesced
 archive-and-initialize procedure with disclosed downtime and continuity limits;
 never infer legacy status from a managed-pair validation failure.
 
-**Seeding:** Each agent's `history.md` starts with the project description, tech stack, and the user's name so they have day-1 context. Agent folder names are the cast name in lowercase (e.g., `.squad/agents/ripley/`). The Scribe's charter includes maintaining `decisions.md` and cross-agent context sharing. Rai's charter is seeded from the `Rai-charter.md` template, and `.squad/rai/policy.md` is seeded from `rai-policy.md`. Fact Checker's charter is seeded from `fact-checker-charter.md` and `.squad/fact-checker/policy.md` is seeded from `fact-checker-policy.md`.
+**Seeding:** Each agent's `history.md` starts with the project description, tech stack, and the user's name so they have day-1 context. Agent folder names are the cast name in lowercase (e.g., `.squad/agents/ripley/`). The Scribe's charter includes maintaining `decisions.md` and cross-agent context sharing. Rai's charter is seeded from the `Rai-charter.md` template, and `.squad/rai/policy.md` is seeded from `rai-policy.md`. `.squad/agents/fact-checker/charter.md` is seeded from `fact-checker-charter.md` and `.squad/fact-checker/policy.md` is seeded from `fact-checker-policy.md`.
+
+**Waza reviewer seeding override (Squad only):** Use the project-repaired templates
+under `.squad/templates/`, not pristine upstream replacements. Seeded review policy
+must agree with `.squad/governance.md` and the support charters: rejection includes
+concrete counter-evidence, a different qualified revision owner, and focused
+rereview rather than author/rejecting-gate pairing. Ordinary Copilot work does
+not enter Squad Init Mode or acquire these coordination rules.
 
 **Team.md structure:** `team.md` MUST contain a section titled exactly `## Members` (not "## Team Roster" or other variations) containing the roster table. This header is hard-coded in GitHub workflows (`squad-heartbeat.yml`, `squad-issue-assign.yml`, `squad-triage.yml`, `sync-squad-labels.yml`) for label automation. If the header is missing or titled differently, label routing breaks.
 

@@ -85,8 +85,11 @@ In `routing.md` → `## Rules` section, add a numbered rule:
 ```markdown
 N. **{Name} PR Gate** — every PR created by any agent MUST be reviewed by {Name}
    before merge. The coordinator spawns {Name} (sync) with the PR diff after
-   the author pushes and creates the PR. On REJECT, the original author addresses
-   feedback. On APPROVE, the coordinator merges via `gh pr merge`. No PR merges
+   the author pushes and creates the PR. On REJECT, the coordinator selects a
+   different qualified revision owner, not the locked-out author or rejecting
+   gate. The reviewer supplies concrete counter-evidence and performs focused
+   rereview, not revision pairing or implementation. On APPROVE, the coordinator
+   follows the authorized repository merge policy. No PR merges
    without {Name}'s approval.
 ```
 

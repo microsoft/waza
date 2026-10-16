@@ -30,6 +30,7 @@ node --test .github/scripts/ralph-triage.test.cjs
 node --test .github/scripts/squad-state.test.cjs
 node --test .github/scripts/squad-worktree.test.cjs
 node --test .github/scripts/squad-casting.test.cjs .github/scripts/squad-triage.test.cjs
+node --test .github/scripts/squad-governance.test.cjs
 ```
 
 The coordinator and managed templates are Squad 1.0.0; `.mcp.json` pins the same
@@ -110,6 +111,15 @@ and actual-workflow-handler regressions there, including the SDK checks when
 configured. Both CI platforms run it. Test scratch directories are bounded
 under the actual checkout root and cleaned afterward; `.git` may be a file, not
 a directory, in a linked worktree.
+
+Reviewer seeding and rejection procedures also have narrow Waza project repairs,
+not pristine upstream bytes. Preserve the Fact Checker/Rai policy templates,
+active/template coordinator boundaries, reviewer skills and gate-wiring examples
+on upgrade: concrete counter-evidence, a different qualified revision owner, and
+focused rereview without locked-out-author or rejecting-gate pairing. Init Mode
+seeds the repaired policy and charter together. These are Squad-only rules, not
+ordinary Copilot activation. Source-contract tests exercise the actual Init Mode
+seed declarations and reject contradictory ownership/pairing/evidence policies.
 
 Verify config/charter/roster agreement, active casting identities and commit
 manifest integrity, required support charters, live references, and unchanged

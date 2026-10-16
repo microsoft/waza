@@ -32,6 +32,8 @@ support agent; new support work uses the fixed identity outside the specialist r
 - After rejection, assign a different qualified revision owner. The rejecting gate
   does not implement, pair on, or advise the immediate revision; it performs a
   focused rereview of blockers, the delta, and regressions.
+  The rejection includes concrete counter-evidence, the violated requirement,
+  affected scope, and minimum condition for approval.
 
 Repository merge requirements remain in `.github/PR_REQUIREMENTS.md`.
 
