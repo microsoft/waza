@@ -201,6 +201,9 @@ for (const crlf of [false, true]) {
     for (const title of [
       'Bug fix: ambiguous requirements needing clarification',
       'Bug fix: multi-system integration requiring coordination',
+      'Bug fix: auth',
+      'Bug fix: encryption',
+      'Bug fix: access control',
       'Bug fixes with clear reproduction steps: ambiguous requirements needing clarification',
       'Bug fixes with clear reproduction steps: multi-system integration requiring coordination',
       'Bug fixes with clear reproduction steps: security-critical changes (auth, encryption, access control)',
@@ -218,6 +221,8 @@ for (const crlf of [false, true]) {
     }
     for (const [title, review] of [
       ['Bug fixes with clear reproduction steps', false],
+      ['Bug fix: repair report formatting', false],
+      ['Bug fix: author display', false],
       ['Test coverage (adding missing tests, fixing flaky tests)', false],
       ['Lint/format fixes and code style cleanup', false],
       ['Dependency updates and version bumps', false],
@@ -271,7 +276,7 @@ for (const [title, copilot, review] of [
 }
 test('real roster exclusions in the issue body override an otherwise good title', async (t) => {
   for (const body of ['Ambiguous requirements needing clarification',
-    'Multi-system integration requiring coordination']) {
+    'Multi-system integration requiring coordination', 'auth', 'encryption', 'access control']) {
     const result = await invoke(t, 'bug fix', { autoAssign: true, issue: { body } });
     assert.notDeepEqual(result.calls[0].params.labels, ['squad:copilot']);
     assert.ok(!result.calls.some((call) => call.method === 'addAssignees'));

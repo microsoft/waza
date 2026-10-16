@@ -79,10 +79,10 @@ Coding-agent routing reads the actual `### Capabilities` profile: bold multiline
 tiers and inline comma-separated keywords are supported with LF or CRLF.
 Bullet text and its leading task subjects supply keywords; short task names
 such as `bug fix` remain supported through simple word/plural normalization.
+Red-tier parenthetical examples are also exclusion keywords: `auth`, `encryption`
+and `access control` block coding-agent routing even alongside `bug fix`.
 Unsuitable matches win over review matches, which win over good-fit matches.
-RED parenthetical examples are exclusion aliases: `auth`, `encryption` and
-`access control` always defeat good-fit keywords, as required by the routing
-policy. Commas inside parentheses do not split tier entries. Parenthetical
+Commas inside parentheses do not split tier entries. Parenthetical
 examples or qualifying `with`/`following` prose in positive tiers do not grant
 standalone eligibility (for example, `acceptance criteria`); unbalanced
 or nested parentheses fail closed instead of dropping exclusions. The same
