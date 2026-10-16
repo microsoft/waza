@@ -73,6 +73,19 @@ workflows unchanged; the other ten remain unchanged. It fixes substring routing
 such as `ui` inside `Build Docker image`, which must route to Virgil, not Yen.
 Actual workflow-script tests retain the event/label gate, existing-owner labels,
 coding-agent capability/assignment opt-in, review warning, and API-failure guards.
+Fallback and ambiguous matches use the handler's already-resolved team lead,
+including a Coordinator, rather than a second Lead/Architect-only lookup.
+Coding-agent routing reads the actual `### Capabilities` profile: bold multiline
+tiers and inline comma-separated keywords are supported with LF or CRLF.
+Bullet text and its leading task subjects supply keywords; short task names
+such as `bug fix` remain supported through simple word/plural normalization.
+Unsuitable matches win over review matches, which win over good-fit matches.
+This remains keyword routing, not proof of semantic eligibility. Missing,
+empty, malformed or duplicate tiers disable coding-agent routing and assignment
+with a diagnostic; there are no hardcoded default capability lists.
+Valid routing to a human continues, and assigning `copilot` still requires the
+explicit opt-in and no existing assignee. Real-roster workflow tests exercise
+every declared bullet and both ambiguous-requirements/multi-system exclusions.
 On Ubuntu and native Windows it also checks role-model agreement and a real Git
 `core.autocrlf=true` checkout: the hash-bound casting files must stay LF while a
 control file converts to CRLF. CI fetches the integrity-pinned SDK 1.0.0 tarball

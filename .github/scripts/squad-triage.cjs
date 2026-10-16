@@ -3,6 +3,43 @@ const {
   parseRoster, parseRoutingRules, parseModuleOwnership, triageIssue,
 } = require('../../.squad/templates/ralph-triage.js');
 
+function parseCapabilities(content) {
+  const tiers = {};
+  let inProfile = false;
+  let current;
+  for (const raw of content.replace(/\r\n/g, '\n').split('\n')) {
+    const line = raw.trim().replace(/\*\*/g, '');
+    if (/^###\s+Capabilities\s*$/i.test(line)) {
+      inProfile = true;
+      continue;
+    }
+    if (!inProfile) continue;
+    if (/^#{1,3}\s/.test(line)) break;
+    if (!line) continue;
+    const heading = line.match(/^(🟢 Good fit|🟡 Needs review|🔴 Not suitable)(?:\s+[—–-][^:]*)?:\s*(.*)$/i);
+    if (heading) {
+      current = heading[1].split(' ')[0];
+      if (tiers[current]) return null;
+      tiers[current] = heading[2].split(',').map((word) => word.trim()).filter(Boolean);
+    } else if (current && /^[-*]\s+/.test(line)) {
+      // Bullet subjects retain short task names; explanatory clauses are not extra capabilities.
+      const bullet = line.replace(/^[-*]\s+/, '');
+      const subjects = bullet.split(/\s+and\s+/i)
+        .map((part) => part.split(/\s+(?:with|following)\s+|\s*\(|-critical\b/i)[0].trim());
+      tiers[current].push(bullet, ...subjects.filter(Boolean));
+    } else {
+      return null;
+    }
+  }
+  return ['🟢', '🟡', '🔴'].every((tier) =>
+    tiers[tier]?.length && tiers[tier].every((word) => /[a-z0-9]/i.test(word))) ? tiers : null;
+}
+
+function capabilityText(text) {
+  return ` ${text.toLowerCase().replace(/\bfixes\b/g, 'fix')
+    .replace(/\b([a-z]{3,})s\b/g, '$1').replace(/[^a-z0-9]+/g, ' ').trim()} `;
+}
+
 async function triageLabeledIssue({ github, context, core }) {
   const { issue, action, label } = context.payload;
   if (context.eventName !== 'issues' || action !== 'labeled' || label?.name !== 'squad' ||
@@ -19,31 +56,24 @@ async function triageLabeledIssue({ github, context, core }) {
   const members = parseRoster(content);
   const lead = members.find((member) => /lead|architect|coordinator/i.test(member.role));
   if (!lead) {
-    core.warning('No Lead role found in team roster - cannot triage');
+    core.warning('No Lead, Architect or Coordinator role found in team roster - cannot triage');
     return;
   }
   const hasCopilot = content.includes('🤖 Coding Agent');
   const copilotAutoAssign = content.includes('<!-- copilot-auto-assign: true -->');
-  const issueText = `${issue.title}\n${issue.body || ''}`.toLowerCase();
-  const keywords = (pattern, fallback) => {
-    const match = content.match(pattern);
-    const values = match ? match[1].toLowerCase().replace(/\*/g, '').split(',')
-      .map((value) => value.trim()).filter(Boolean) : [];
-    return values.length ? values : fallback;
-  };
+  const issueText = capabilityText(`${issue.title}\n${issue.body || ''}`);
   let assignedMember;
   let triageReason;
   let copilotTier;
   if (hasCopilot) {
-    const unsuitable = keywords(/🔴\s*Not suitable[^:]*:\s*(.+)/i,
-      ['architecture', 'system design', 'security', 'auth', 'encryption', 'performance']);
-    const good = keywords(/🟢\s*Good fit[^:]*:\s*(.+)/i,
-      ['bug fix', 'test coverage', 'lint', 'format', 'dependency update', 'small feature', 'scaffolding', 'doc fix', 'documentation']);
-    const review = keywords(/🟡\s*Needs review[^:]*:\s*(.+)/i,
-      ['medium feature', 'refactoring', 'api endpoint', 'migration']);
-    if (unsuitable.some((word) => issueText.includes(word))) copilotTier = 'not-suitable';
-    else if (good.some((word) => issueText.includes(word))) copilotTier = 'good-fit';
-    else if (review.some((word) => issueText.includes(word))) copilotTier = 'needs-review';
+    const capabilities = parseCapabilities(content);
+    const matches = (tier) => capabilities[tier].some((word) => issueText.includes(capabilityText(word)));
+    if (!capabilities) {
+      copilotTier = 'disabled';
+      core.warning('Coding agent capability profile missing or malformed - Copilot routing and assignment disabled');
+    } else if (matches('🔴')) copilotTier = 'not-suitable';
+    else if (matches('🟡')) copilotTier = 'needs-review';
+    else if (matches('🟢')) copilotTier = 'good-fit';
     if (copilotTier === 'good-fit' || copilotTier === 'needs-review') {
       assignedMember = { name: '@copilot', role: 'Coding Agent', label: 'squad:copilot' };
       triageReason = copilotTier === 'good-fit' ? 'Good fit for @copilot - matches capability profile' :
@@ -54,8 +84,13 @@ async function triageLabeledIssue({ github, context, core }) {
     const routingFile = fs.existsSync('.squad/routing.md') ? '.squad/routing.md' : '.ai-team/routing.md';
     const routing = fs.existsSync(routingFile) ? fs.readFileSync(routingFile, 'utf8') : '';
     const result = triageIssue(issue, parseRoutingRules(routing), parseModuleOwnership(routing), members);
-    assignedMember = result.agent;
-    triageReason = result.reason;
+    if (!result || result.source === 'lead-fallback') {
+      assignedMember = lead;
+      triageReason = 'No module or routing match - routed to resolved team lead';
+    } else {
+      assignedMember = result.agent;
+      triageReason = result.reason;
+    }
   }
   const target = { owner: context.repo.owner, repo: context.repo.repo, issue_number: issue.number };
   await github.rest.issues.addLabels({ ...target, labels: [assignedMember.label] });
@@ -74,7 +109,8 @@ async function triageLabeledIssue({ github, context, core }) {
     `**Assigned to:** ${assignedMember.name} (${assignedMember.role})`,
     `**Reason:** ${triageReason}`,
     copilotTier === 'needs-review' ? '**PR review recommended** - a squad member should review @copilot work.' : '',
-    hasCopilot && !isCopilot ? `**@copilot evaluation:** ${copilotTier === 'not-suitable' ?
+    hasCopilot && !isCopilot ? `**@copilot evaluation:** ${copilotTier === 'disabled' ?
+      'Capability profile missing or malformed - Copilot routing and assignment disabled.' : copilotTier === 'not-suitable' ?
       'Not suitable - outside the coding agent capability profile.' : 'No strong capability match - routed to squad member.'}` : '',
     '**Team roster:**',
     ...members.map((member) => `- **${member.name}** (${member.role}) - label: \`${member.label}\``),

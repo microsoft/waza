@@ -27,14 +27,22 @@ async function invoke(t, title, options = {}) {
   }
   fs.mkdirSync(path.join(scratch, directory), { recursive: true });
   let team = fs.readFileSync(path.join(root, '.squad/team.md'), 'utf8');
+  if (options.coordinatorLead) team = team.replace('| Rusty | Lead / Architect |', '| Rusty | Coordinator |');
+  if (options.onlyCoordinator) team = team.replace(/Documentation Lead \/ Information Architecture/g, 'Documentation Specialist');
   if (options.autoAssign) team = team.replace('copilot-auto-assign: false', 'copilot-auto-assign: true');
   if (options.noCopilot) team = team.replace('🤖 Coding Agent', 'Disabled coding agent');
   if (options.noLead) team = team.replace(/lead|architect|coordinator/gi, 'specialist');
   if (options.inlineCapabilities) {
-    team = team.replace(/\*\*🟢 Good fit[^\n]+/, '🟢 Good fit: mechanical task, simple task')
-      .replace(/\*\*🟡 Needs review[^\n]+/, '🟡 Needs review: custom refactor')
-      .replace(/\*\*🔴 Not suitable[^\n]+/, '🔴 Not suitable: dangerous task');
+    team = team.replace(/### Capabilities[\s\S]*?(?=\n## )/,
+      '### Capabilities\n\n🟢 Good fit: mechanical task, simple task\n' +
+      '🟡 Needs review: custom refactor\n🔴 Not suitable: dangerous task\n');
   }
+  if (options.missingCapabilities) team = team.replace(/### Capabilities[\s\S]*?(?=\n## )/, '');
+  if (options.emptyTier) team = team.replace(/\*\*🔴 Not suitable[^\n]+\n(?:- [^\n]+\n)*/, '**🔴 Not suitable:**\n');
+  if (options.malformedCapabilities) team = team.replace('🟢 Good fit', 'Good');
+  if (options.duplicateTier) team = team.replace('## Key Decisions', '**🟢 Good fit:** extra task\n\n## Key Decisions');
+  if (options.punctuationTier) team = team.replace(/\*\*🔴 Not suitable[^\n]+\n(?:- [^\n]+\n)*/, '**🔴 Not suitable:** !!!\n');
+  if (options.crlf) team = team.replace(/\r?\n/g, '\r\n');
   if (!options.missingTeam) fs.writeFileSync(path.join(scratch, directory, 'team.md'), team);
   if (!options.missingRouting) fs.copyFileSync(path.join(root, '.squad/routing.md'),
     path.join(scratch, directory, 'routing.md'));
@@ -158,4 +166,107 @@ test('explicit inline capability tiers retain their declared keywords', async (t
 test('label failures propagate instead of claiming successful triage', async (t) => {
   await assert.rejects(invoke(t, 'Build Docker image', { apiFailure: 'addLabels' }),
     /fixture API rejection/);
+});
+
+for (const onlyCoordinator of [false, true]) {
+  for (const missingRouting of [false, true]) {
+    test(`resolved Coordinator owns fallback with alternate leads=${!onlyCoordinator}, routing=${!missingRouting}`, async (t) => {
+      const result = await invoke(t, 'Unclassified request', {
+        coordinatorLead: true, onlyCoordinator, missingRouting,
+      });
+      assert.deepEqual(result.calls[0].params.labels, ['squad:rusty']);
+      assert.match(result.calls.at(-1).params.body, /Assigned to:\*\* Rusty \(Coordinator\)/);
+      assert.match(result.calls.at(-1).params.body, /resolved team lead/);
+    });
+  }
+}
+test('Coordinator fallback does not override a valid module or routing owner', async (t) => {
+  for (const [title, label] of [['Build Docker image', 'virgil'],
+    ['web/src/components/RunDetail.tsx keyboard navigation', 'yen']]) {
+    const result = await invoke(t, title, { coordinatorLead: true, onlyCoordinator: true });
+    assert.deepEqual(result.calls[0].params.labels, [`squad:${label}`]);
+  }
+});
+
+for (const crlf of [false, true]) {
+  for (const autoAssign of [false, true]) {
+    for (const title of [
+      'Bug fix: ambiguous requirements needing clarification',
+      'Bug fix: multi-system integration requiring coordination',
+      'Bug fixes with clear reproduction steps: ambiguous requirements needing clarification',
+      'Bug fixes with clear reproduction steps: multi-system integration requiring coordination',
+      'Bug fixes with clear reproduction steps: security-critical changes (auth, encryption, access control)',
+      'Bug fixes with clear reproduction steps: architecture decisions and system design',
+      'Bug fixes with clear reproduction steps: performance-critical paths requiring benchmarking',
+      'Bug fixes with clear reproduction steps: changes requiring cross-team discussion',
+    ]) {
+      test(`real roster unsuitable wins for "${title}" (CRLF=${crlf}, opt-in=${autoAssign})`, async (t) => {
+        const result = await invoke(t, title, { crlf, autoAssign });
+        assert.notDeepEqual(result.calls[0].params.labels, ['squad:copilot']);
+        assert.ok(!result.calls.some((call) => call.method === 'addAssignees'));
+        assert.match(result.calls.at(-1).params.body, /Not suitable - outside/);
+        assert.deepEqual(result.warnings, []);
+      });
+    }
+    for (const [title, review] of [
+      ['Bug fixes with clear reproduction steps', false],
+      ['Test coverage (adding missing tests, fixing flaky tests)', false],
+      ['Lint/format fixes and code style cleanup', false],
+      ['Dependency updates and version bumps', false],
+      ['Small isolated features with clear specs', false],
+      ['Boilerplate/scaffolding generation', false],
+      ['Documentation fixes and README updates', false],
+      ['Medium features with clear specs and acceptance criteria', true],
+      ['Refactoring with existing test coverage', true],
+      ['CLI command additions following established patterns', true],
+      ['Internal package additions following established patterns', true],
+    ]) {
+      test(`real roster routes declared "${title}" (CRLF=${crlf}, opt-in=${autoAssign})`, async (t) => {
+        const result = await invoke(t, title, { crlf, autoAssign });
+        assert.deepEqual(result.calls[0].params.labels, ['squad:copilot']);
+        assert.equal(result.calls.some((call) => call.method === 'addAssignees'), autoAssign);
+        assert.equal(/PR review recommended/.test(result.calls.at(-1).params.body), review);
+        assert.deepEqual(result.warnings, []);
+      });
+    }
+  }
+}
+for (const [name, option] of [
+  ['missing', 'missingCapabilities'], ['empty tier', 'emptyTier'],
+  ['malformed tier', 'malformedCapabilities'], ['duplicate tier', 'duplicateTier'],
+  ['punctuation-only tier', 'punctuationTier'],
+]) {
+  for (const crlf of [false, true]) {
+    test(`${name} capability policy fails closed (CRLF=${crlf})`, async (t) => {
+      for (const autoAssign of [false, true]) {
+        const result = await invoke(t, 'bug fix', { [option]: true, autoAssign, crlf });
+        assert.notDeepEqual(result.calls[0].params.labels, ['squad:copilot']);
+        assert.ok(!result.calls.some((call) => call.method === 'addAssignees'));
+        assert.match(result.warnings.join('\n'), /capability profile.*disabled/i);
+        assert.match(result.calls.at(-1).params.body, /capability profile.*disabled/i);
+      }
+    });
+  }
+}
+for (const [title, copilot, review] of [
+  ['mechanical task', true, false], ['custom refactor', true, true],
+  ['dangerous task mechanical task', false, false], ['bug fix', false, false],
+  ['mechanical task custom refactor', true, true],
+]) {
+  test(`inline profile remains authoritative for "${title}"`, async (t) => {
+    const result = await invoke(t, title, { inlineCapabilities: true, autoAssign: true });
+    assert.equal(result.calls[0].params.labels[0] === 'squad:copilot', copilot);
+    assert.equal(result.calls.some((call) => call.method === 'addAssignees'), copilot);
+    assert.equal(/PR review recommended/.test(result.calls.at(-1).params.body), review);
+    assert.deepEqual(result.warnings, []);
+  });
+}
+test('real roster exclusions in the issue body override an otherwise good title', async (t) => {
+  for (const body of ['Ambiguous requirements needing clarification',
+    'Multi-system integration requiring coordination']) {
+    const result = await invoke(t, 'bug fix', { autoAssign: true, issue: { body } });
+    assert.notDeepEqual(result.calls[0].params.labels, ['squad:copilot']);
+    assert.ok(!result.calls.some((call) => call.method === 'addAssignees'));
+    assert.match(result.calls.at(-1).params.body, /Not suitable - outside/);
+  }
 });
