@@ -7,6 +7,21 @@ function parseCapabilities(content) {
   const tiers = {};
   let inProfile = false;
   let current;
+  const addKeywords = (text) => {
+    if (/[()]/.test(text.replace(/\([^()]*\)/g, ''))) return false;
+    for (const entry of text.split(/,(?![^()]*\))/).map((value) => value.trim()).filter(Boolean)) {
+      const subjects = entry.replace(/\([^()]*\)/g, '').split(/\s+(?:with|following)\s+/i)[0]
+        .split(/\s+and\s+/i).map((part) => part.split(/-critical\b/i)[0].trim());
+      tiers[current].push(entry, ...subjects.filter(Boolean));
+      // Exclusion examples constrain eligibility; positive explanatory prose cannot grant it.
+      if (current === '🔴') {
+        for (const example of entry.matchAll(/\(([^()]*)\)/g)) {
+          tiers[current].push(...example[1].split(',').map((value) => value.trim()));
+        }
+      }
+    }
+    return true;
+  };
   for (const raw of content.replace(/\r\n/g, '\n').split('\n')) {
     const line = raw.trim().replace(/\*\*/g, '');
     if (/^###\s+Capabilities\s*$/i.test(line)) {
@@ -20,13 +35,10 @@ function parseCapabilities(content) {
     if (heading) {
       current = heading[1].split(' ')[0];
       if (tiers[current]) return null;
-      tiers[current] = heading[2].split(',').map((word) => word.trim()).filter(Boolean);
+      tiers[current] = [];
+      if (!addKeywords(heading[2])) return null;
     } else if (current && /^[-*]\s+/.test(line)) {
-      // Bullet subjects retain short task names; explanatory clauses are not extra capabilities.
-      const bullet = line.replace(/^[-*]\s+/, '');
-      const subjects = bullet.split(/\s+and\s+/i)
-        .map((part) => part.split(/\s+(?:with|following)\s+|\s*\(|-critical\b/i)[0].trim());
-      tiers[current].push(bullet, ...subjects.filter(Boolean));
+      if (!addKeywords(line.replace(/^[-*]\s+/, ''))) return null;
     } else {
       return null;
     }
