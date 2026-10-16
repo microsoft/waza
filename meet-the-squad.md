@@ -134,6 +134,13 @@ specialist histories or durable health reports; it returns its merge result to t
 Coordinator. Backend-aware archival safety remains a separate Coordinator responsibility.
 Preserve these boundaries and their positive/negative source regressions on upgrade.
 
+Production routing also retains specific red-tier subjects before `needing` or
+`requiring` clauses, so abbreviated ambiguous-requirements and multi-system-integration
+requests cannot become Copilot good-fit assignments. Generic one-word subjects such as
+`Changes` are not derived as exclusions, and positive-tier explanations never grant eligibility.
+Handler regressions cover abbreviated titles/bodies, inline/multiline profiles, both
+line endings and assignment settings, plus ordinary bug-fix and generic-subject controls.
+
 Verify config/charter/roster agreement, active casting identities and commit
 manifest integrity, required support charters, live references, and unchanged
 historical member files. Run the doctor and health commands above. Backups,

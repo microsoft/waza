@@ -32,6 +32,9 @@ async function invoke(t, title, options = {}) {
   if (options.autoAssign) team = team.replace('copilot-auto-assign: false', 'copilot-auto-assign: true');
   if (options.noCopilot) team = team.replace('🤖 Coding Agent', 'Disabled coding agent');
   if (options.noLead) team = team.replace(/lead|architect|coordinator/gi, 'specialist');
+  if (options.genericQualifiedExclusions) team = team
+    .replace('Ambiguous requirements needing clarification', 'Changes needing clarification')
+    .replace('Multi-system integration requiring coordination', 'Changes requiring coordination');
   if (options.inlineCapabilities) {
     team = team.replace(/### Capabilities[\s\S]*?(?=\n## )/,
       '### Capabilities\n\n🟢 Good fit: mechanical task, simple task\n' +
@@ -276,7 +279,8 @@ for (const [title, copilot, review] of [
 }
 test('real roster exclusions in the issue body override an otherwise good title', async (t) => {
   for (const body of ['Ambiguous requirements needing clarification',
-    'Multi-system integration requiring coordination', 'auth', 'encryption', 'access control']) {
+    'Multi-system integration requiring coordination', 'Ambiguous requirements',
+    'Multi-system integration', 'auth', 'encryption', 'access control']) {
     const result = await invoke(t, 'bug fix', { autoAssign: true, issue: { body } });
     assert.notDeepEqual(result.calls[0].params.labels, ['squad:copilot']);
     assert.ok(!result.calls.some((call) => call.method === 'addAssignees'));
@@ -306,6 +310,7 @@ for (const crlf of [false, true]) {
         for (const exclusion of [...declaredExclusions, ...declaredExamples,
           'security', 'security-critical', 'Security-critical changes',
           'architecture decisions', 'system design', 'performance', 'performance-critical',
+          'ambiguous requirements', 'multi-system integration',
           declaredExamples.join(', ')]) {
           const result = await invoke(t, `Bug fix: ${exclusion}`, options);
           assert.notDeepEqual(result.calls[0].params.labels, ['squad:copilot'], exclusion);
@@ -314,14 +319,17 @@ for (const crlf of [false, true]) {
           assert.deepEqual(result.warnings, [], exclusion);
         }
       });
-      test(`real-roster non-security good-fit and whole-word near-misses stay eligible (${format})`, async (t) => {
+      test(`real-roster good-fit, generic subjects and whole-word near-misses stay eligible (${format})`, async (t) => {
         for (const title of ['Bug fix: pagination', 'Bug fix: author column width',
-          'Bug fix: microencryption label typo', 'Bug fix: access controller caption']) {
-          const result = await invoke(t, title, options);
-          assert.deepEqual(result.calls[0].params.labels, ['squad:copilot'], title);
-          assert.equal(result.calls.some((call) => call.method === 'addAssignees'), autoAssign, title);
-          assert.match(result.calls.at(-1).params.body, /Good fit for @copilot/, title);
-          assert.deepEqual(result.warnings, [], title);
+          'Bug fix: microencryption label typo', 'Bug fix: access controller caption',
+          'Bug fix: changes to pagination']) {
+          for (const genericQualifiedExclusions of [false, true]) {
+            const result = await invoke(t, title, { ...options, genericQualifiedExclusions });
+            assert.deepEqual(result.calls[0].params.labels, ['squad:copilot'], title);
+            assert.equal(result.calls.some((call) => call.method === 'addAssignees'), autoAssign, title);
+            assert.match(result.calls.at(-1).params.body, /Good fit for @copilot/, title);
+            assert.deepEqual(result.warnings, [], title);
+          }
         }
       });
       test(`positive parenthetical prose is not a standalone capability (${format})`, async (t) => {

@@ -15,6 +15,10 @@ function parseCapabilities(content) {
       tiers[current].push(entry, ...subjects.filter(Boolean));
       // Exclusion examples constrain eligibility; positive explanatory prose cannot grant it.
       if (current === '🔴') {
+        // Keep specific exclusion subjects, not bare generic words such as "Changes".
+        const subject = entry.replace(/\([^()]*\)/g, '')
+          .match(/^(\S+\s+.+?)\s+(?:needing|requiring)\s+\S/i)?.[1];
+        if (subject) tiers[current].push(subject);
         for (const example of entry.matchAll(/\(([^()]*)\)/g)) {
           tiers[current].push(...example[1].split(',').map((value) => value.trim()));
         }
