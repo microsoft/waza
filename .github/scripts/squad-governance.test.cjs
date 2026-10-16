@@ -99,6 +99,33 @@ function assertRejectionPolicy(text) {
   assert.doesNotMatch(policy, /usually the agent that produced|Pair mode|revise with grounding/i);
 }
 
+test('delegated merge requirements resolve active rules and current-head evidence', () => {
+  assert.match(read('.squad/governance.md'),
+    /Repository merge requirements remain in `\.github\/PR_REQUIREMENTS\.md`/);
+  const good = read('.github/PR_REQUIREMENTS.md');
+  const validate = (text) => {
+    const source = prose(text);
+    assert.match(source, /AGENTS\.md#cicd/);
+    assert.match(source, /gh api repos\/microsoft\/waza\/rules\/branches\/main/);
+    assert.match(source, /status contexts and enforced integration IDs to actual check runs/);
+    assert.match(source, /passing applicable checks on the current PR head/);
+    assert.match(source, /After any source or base update, refresh the head, checks, and review evidence/);
+    assert.match(source, /approval override never waives failing checks or unresolved work/);
+    assert.doesNotMatch(source, /Build and Test Go Implementation|Lint Go Code/);
+  };
+  validate(good);
+  for (const [before, after] of [
+    ['gh api repos/microsoft/waza/rules/branches/main', 'use the copied workflow names'],
+    ['current PR head', 'an earlier PR head'],
+    ['approval override never waives failing', 'approval override waives failing'],
+  ]) {
+    assert.ok(good.includes(before));
+    assert.throws(() => validate(good.replace(before, after)), assert.AssertionError);
+  }
+  assert.throws(() => validate(`${good}\nRequire Build and Test Go Implementation.`),
+    assert.AssertionError);
+});
+
 test('actual Init Mode seeds governance-aligned Fact Checker charter and review policies', (t) => {
   const init = read('.github/skills/coordinator-init-mode/SKILL.md');
   const seeds = [...init.matchAll(/`([^`]+)` is seeded from `([^`]+)`/g)]
