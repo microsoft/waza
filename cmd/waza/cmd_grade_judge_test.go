@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -275,6 +276,172 @@ func TestEvidenceSavedGradeDeterministicRegradeClearsCurrentUsage(t *testing.T) 
 	require.NotContains(t, string(data), `"regrade_usage"`)
 	require.Equal(t, original.EvaluationUsage, deterministic.EvaluationUsage)
 	require.Equal(t, original.TestOutcomes[0].Runs[0].SessionDigest, deterministic.TestOutcomes[0].Runs[0].SessionDigest)
+}
+
+func TestEvidenceSavedGradeRejectsCrossGraderSelectionConflicts(t *testing.T) {
+	for _, excluded := range []string{"a.txt", "a", "a.txt-sibling"} {
+		for _, scope := range []string{"eval", "task"} {
+			t.Run(excluded+"/"+scope, func(t *testing.T) {
+				spec, source, original := savedEvidenceFixture(t)
+				file := "a.txt"
+				if excluded == "a" {
+					file = "a/report.txt"
+				}
+				config, err := os.ReadFile(spec)
+				require.NoError(t, err)
+				config = []byte(strings.Replace(string(config), "evidence_context: {}", "evidence_context: {files: ["+file+"]}", 1))
+				exclusion := "\n  - name: excluded\n    type: prompt\n    config:\n      prompt: Judge without evaluator inputs.\n      evidence_context: {evaluator_only: [" + excluded + "]}\n"
+				if scope == "task" {
+					taskPath := filepath.Join(filepath.Dir(spec), "task.yaml")
+					task, err := os.ReadFile(taskPath)
+					require.NoError(t, err)
+					require.NoError(t, os.WriteFile(taskPath, append(task, []byte("graders:"+exclusion)...), 0600))
+				} else {
+					config = append(config, []byte(exclusion)...)
+				}
+				require.NoError(t, os.WriteFile(spec, config, 0600))
+				old := original.TestOutcomes[0].Runs[0].JudgeEvidence
+				content := "RECORDED_FILE_CANARY"
+				bundle := judgeevidence.Capture(judgeevidence.CaptureInput{
+					Origin: old.Origin, Task: *old.Task.Items, Output: *old.Output.Items, OutputPresent: true, ExecutionMode: "mock",
+					Events: []copilot.SessionEvent{
+						{Data: &copilot.UserMessageData{Content: *old.Task.Items}},
+						{Data: &copilot.AssistantMessageData{Content: *old.Output.Items}},
+					},
+					Files: &models.JudgeFileCapture{Files: []models.JudgeEvidenceFile{{
+						Path: file, Content: content, SHA256: fmt.Sprintf("%x", sha256.Sum256([]byte(content))),
+					}}},
+					Selection: models.PromptEvidenceContext{Files: []string{file}},
+				})
+				require.NoError(t, judgeevidence.Verify(bundle, old.Origin))
+				original.TestOutcomes[0].Runs[0].JudgeEvidence = bundle
+				require.NoError(t, saveOutcome(original, source))
+				calls := 0
+				output := filepath.Join(t.TempDir(), "graded.json")
+				err = runGradeWithJudge(t.Context(), io.Discard, io.Discard, spec, "task", source, "", "", output, false, "", successfulSavedEvidenceJudge(t, &calls))
+				conflict := excluded != "a.txt-sibling"
+				if conflict {
+					require.ErrorContains(t, err, "conflict")
+					require.Zero(t, calls)
+				} else {
+					require.NoError(t, err)
+					require.Equal(t, 2, calls)
+				}
+				data, err := os.ReadFile(output)
+				require.NoError(t, err)
+				graded, err := models.ParseEvaluationOutcome(data, output)
+				require.NoError(t, err)
+				require.NotNil(t, graded.RegradeUsage)
+				if conflict {
+					require.Equal(t, models.StatusError, graded.TestOutcomes[0].Status)
+					require.Empty(t, graded.RegradeUsage.Sessions)
+				} else {
+					require.Equal(t, models.StatusPassed, graded.TestOutcomes[0].Status)
+					require.Len(t, graded.RegradeUsage.Sessions, 2)
+				}
+			})
+		}
+	}
+}
+
+func mixedEvidenceFixture(t *testing.T) (string, string, *models.EvaluationOutcome) {
+	t.Helper()
+	spec, source, original := savedEvidenceFixture(t)
+	config, err := os.ReadFile(spec)
+	require.NoError(t, err)
+	config = []byte(strings.Replace(string(config), "tasks: [task.yaml]", "tasks: [task.yaml, zz-broken.yaml, zzz-evidence.yaml]", 1))
+	head, gradersYAML, found := strings.Cut(string(config), "graders:\n")
+	require.True(t, found)
+	require.NoError(t, os.WriteFile(spec, []byte(head), 0600))
+	taskPath := filepath.Join(filepath.Dir(spec), "task.yaml")
+	task, err := os.ReadFile(taskPath)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(taskPath, append(task, []byte("graders:\n"+gradersYAML)...), 0600))
+	thirdTask := strings.Replace(string(task), "id: task", "id: zzz-evidence", 1) + "graders:\n" + gradersYAML
+	require.NoError(t, os.WriteFile(filepath.Join(filepath.Dir(spec), "zzz-evidence.yaml"), []byte(thirdTask), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(filepath.Dir(spec), "zz-broken.yaml"), []byte(`id: zz-broken
+name: ZZ missing schema
+inputs: {prompt: Mechanical task}
+graders:
+  - name: missing_schema
+    type: json_schema
+    config: {schema_file: missing-schema.json}
+`), 0600))
+	original.TestOutcomes = append(original.TestOutcomes, models.TestOutcome{TestID: "zz-broken", DisplayName: "ZZ missing schema",
+		Status: models.StatusPassed, Runs: []models.RunResult{{RunNumber: 1, Attempts: 1, Status: models.StatusPassed, FinalOutput: "{}"}}})
+	third := original.TestOutcomes[0]
+	third.TestID = "zzz-evidence"
+	third.Runs = append([]models.RunResult(nil), third.Runs...)
+	old := third.Runs[0].JudgeEvidence
+	origin := old.Origin
+	origin.TaskID = third.TestID
+	third.Runs[0].JudgeEvidence = judgeevidence.Capture(judgeevidence.CaptureInput{
+		Origin: origin, Task: *old.Task.Items, Output: *old.Output.Items, OutputPresent: true, ExecutionMode: "mock",
+		Events: []copilot.SessionEvent{
+			{Data: &copilot.UserMessageData{Content: *old.Task.Items}},
+			{Data: &copilot.AssistantMessageData{Content: *old.Output.Items}},
+		},
+	})
+	require.NoError(t, judgeevidence.Verify(third.Runs[0].JudgeEvidence, origin))
+	original.TestOutcomes = append(original.TestOutcomes, third)
+	require.NoError(t, saveOutcome(original, source))
+	return spec, source, original
+}
+
+func TestEvidenceSavedGradeMixedTaskFailurePreservesEarlierUsage(t *testing.T) {
+	spec, source, original := mixedEvidenceFixture(t)
+	calls := 0
+	output := filepath.Join(t.TempDir(), "graded.json")
+	var summary bytes.Buffer
+	err := runGradeWithJudge(t.Context(), &summary, io.Discard, spec, "", source, filepath.Dir(spec), "", output, false, "", successfulSavedEvidenceJudge(t, &calls))
+	require.ErrorContains(t, err, "schema")
+	require.Equal(t, 1, calls, "the evidence task must incur usage before the mechanical task fails")
+	data, err := os.ReadFile(output)
+	require.NoError(t, err)
+	graded, err := models.ParseEvaluationOutcome(data, output)
+	require.NoError(t, err)
+	require.NotNil(t, graded.RegradeUsage)
+	require.Len(t, graded.RegradeUsage.Sessions, 1)
+	require.Equal(t, 0.25, *graded.RegradeUsage.Sessions[0].Usage.AICredits)
+	require.Len(t, graded.TestOutcomes[0].Runs[0].PromptJudging, 1)
+	require.True(t, graded.TestOutcomes[0].Runs[0].PromptJudging[0].SubmissionObserved)
+	require.Equal(t, original.EvaluationUsage, graded.EvaluationUsage)
+	require.Equal(t, models.StatusError, graded.TestOutcomes[1].Status)
+	require.Equal(t, models.StatusError, graded.TestOutcomes[1].Runs[0].Status)
+	require.Contains(t, graded.TestOutcomes[1].Runs[0].ErrorMsg, "missing-schema.json")
+	require.Equal(t, original.TestOutcomes[2].Status, graded.TestOutcomes[2].Status)
+	require.Equal(t, original.TestOutcomes[2].Runs, graded.TestOutcomes[2].Runs, "the later judge must remain unattempted and retain its original runs")
+	require.Contains(t, summary.String(), `"status": "error"`)
+	var summaryFields map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(summary.Bytes(), &summaryFields))
+	require.NotContains(t, summaryFields, "overall_score")
+}
+
+func TestEvidenceSavedGradeMechanicalErrorBeforeEvidenceRemainsFailFast(t *testing.T) {
+	spec, source, original := mixedEvidenceFixture(t)
+	root := filepath.Dir(spec)
+	broken, err := os.ReadFile(filepath.Join(root, "zz-broken.yaml"))
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(root, "aa-broken.yaml"), []byte(strings.Replace(string(broken), "id: zz-broken", "id: aa-broken", 1)), 0600))
+	config, err := os.ReadFile(spec)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(spec, []byte(strings.Replace(string(config), "zz-broken.yaml", "aa-broken.yaml", 1)), 0600))
+	original.TestOutcomes[1].TestID = "aa-broken"
+	require.NoError(t, saveOutcome(original, source))
+	parsed, err := models.LoadEvalSpec(spec)
+	require.NoError(t, err)
+	tasks, err := loadGradeTasks(parsed, spec, "")
+	require.NoError(t, err)
+	require.Len(t, tasks, 3)
+	require.Equal(t, "aa-broken", tasks[0].TestID, "the mechanical error must precede both model-backed tasks")
+	calls := 0
+	output := filepath.Join(t.TempDir(), "graded.json")
+	var summary bytes.Buffer
+	err = runGradeWithJudge(t.Context(), &summary, io.Discard, spec, "", source, root, "", output, false, "", successfulSavedEvidenceJudge(t, &calls))
+	require.ErrorContains(t, err, "schema")
+	require.Zero(t, calls, "a known fatal mechanical error must not start a later paid judge")
+	require.Empty(t, summary.String())
+	require.NoFileExists(t, output)
 }
 
 func TestEvidenceSavedGradeNearLimitPrettyJSONRoundTrip(t *testing.T) {

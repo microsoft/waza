@@ -1101,14 +1101,23 @@ Missing/incomplete/redacted evidence fails before model startup, without
 truncation or workspace recovery. Evidence-only regrading does not inspect
 `--workspace` or `snapshot_path`. It uses the recorded task, even if the current
 task changed, and newly selected files must already have been captured.
+Current eval/task selection unions and evaluator-only exclusions are checked
+again before any saved-evidence judge runs. Omitted judge models fall back to
+the eval model (then `auto`); explicit hosted reasoning effort must pass the
+isolated client's model-catalog checks before session creation.
 
 Ordinary failed judgments retain `grade`'s zero exit and report `passed: false` /
 `status: failed`. Operational errors return nonzero and `status: error`, without
-an `overall_score` in stdout. Admitted source results retain safe failure
-diagnostics in requested output; publication errors propagate. Regrading can
+an `overall_score` in stdout. After evidence grading starts, requested output
+retains safe failure diagnostics; publication errors propagate. Regrading can
 incur new model charges, recorded once per session in `regrade_usage.sessions`;
 this field covers the current regrade only and is omitted for a subsequent
-mechanical-only regrade. Original `evaluation_usage` and actor billing remain
+mechanical-only regrade. In a mixed-task regrade, a later mechanical grader's
+operational failure still publishes earlier judge observations and current
+charges to the requested output, while withholding the overall score.
+Mechanical errors remain fail-fast and do not start any further judges;
+an error before the first evidence attempt creates no new judge session.
+Original `evaluation_usage` and actor billing remain
 unchanged. Missing credits are unavailable, not zero. The existing Evidence view
 reports per-run/per-grader submission metadata, not proof of inspection, accuracy,
 or authenticity.

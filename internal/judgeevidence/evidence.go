@@ -30,6 +30,20 @@ func diagnostic(code string) models.EvidenceDiagnostic {
 }
 
 func Selection(configs []models.GraderConfig, task *models.TestCase) (models.PromptEvidenceContext, error) {
+	selection, err := selectionUnion(configs, task)
+	if err == nil && len(selection.Files) > 0 && runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
+		return selection, errors.New("evidence_context selected-file capture requires Linux or macOS")
+	}
+	return selection, err
+}
+
+// ValidateSelection checks the final-grader union without requiring live file capture.
+func ValidateSelection(configs []models.GraderConfig, task *models.TestCase) error {
+	_, err := selectionUnion(configs, task)
+	return err
+}
+
+func selectionUnion(configs []models.GraderConfig, task *models.TestCase) (models.PromptEvidenceContext, error) {
 	parameters := make([]models.GraderParameters, 0, len(configs))
 	for _, config := range configs {
 		parameters = append(parameters, config.Parameters)
@@ -72,9 +86,6 @@ func Selection(configs []models.GraderConfig, task *models.TestCase) (models.Pro
 	}
 	slices.Sort(selection.Files)
 	slices.Sort(selection.EvaluatorOnly)
-	if len(selection.Files) > 0 && runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
-		return selection, errors.New("evidence_context selected-file capture requires Linux or macOS")
-	}
 	return selection, nil
 }
 

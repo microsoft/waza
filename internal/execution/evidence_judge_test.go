@@ -70,6 +70,7 @@ func evidenceJudgeInvokeGrade(t *testing.T, cfg *copilot.SessionConfig) {
 }
 
 type evidenceJudgeTestPlan struct {
+	catalog                                                                                     []copilot.ModelInfo
 	startErr, createErr, shutdownErr, historyErr, metricsErr, disconnectErr, deleteErr, stopErr error
 	metrics                                                                                     *rpc.UsageGetMetricsResult
 	shutdown                                                                                    *copilot.SessionShutdownData
@@ -141,6 +142,9 @@ func evidenceJudgeTestExecutor(t *testing.T, plan evidenceJudgeTestPlan) (*Evide
 	if plan.startErr != nil {
 		return executor, func() string { return path }
 	}
+	if plan.catalog != nil {
+		client.EXPECT().ListModels(gomock.Any()).Return(plan.catalog, nil)
+	}
 	client.EXPECT().CreateSession(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, config *copilot.SessionConfig) (CopilotSession, error) {
 		cfg = config
 		if plan.createErr != nil {
@@ -184,6 +188,17 @@ func evidenceJudgeTestExecutor(t *testing.T, plan evidenceJudgeTestPlan) (*Evide
 		})
 	}
 	return executor, func() string { return path }
+}
+
+func TestEvidenceJudgeHostedReasoningUsesIsolatedCatalog(t *testing.T) {
+	clearCustomProviderEnv(t)
+	t.Setenv("COPILOT_GITHUB_TOKEN", "synthetic-hosted-judge")
+	executor, path := evidenceJudgeTestExecutor(t, evidenceJudgeTestPlan{catalog: []copilot.ModelInfo{reasoningModel("test-model", "low")}})
+	response, err := executor.Execute(t.Context(), evidenceJudgeTestRequest())
+	require.NoError(t, err)
+	require.True(t, response.Success)
+	require.NotEmpty(t, response.SessionID)
+	require.NoDirExists(t, path())
 }
 
 func TestEvidenceJudgeRequestRejectsActorAccessBeforeRuntime(t *testing.T) {
@@ -596,6 +611,7 @@ func TestEvidenceJudgeHostedAuthUsesOnlyExplicitCredential(t *testing.T) {
 	t.Setenv("GH_TOKEN", "synthetic-not-selected")
 	t.Setenv("GITHUB_TOKEN", "synthetic-not-selected-either")
 	executor, _ := evidenceJudgeTestExecutor(t, evidenceJudgeTestPlan{
+		catalog: []copilot.ModelInfo{reasoningModel("test-model", "low")},
 		options: func(options *copilot.ClientOptions) {
 			require.Equal(t, "synthetic-explicit-token", options.GitHubToken)
 			require.False(t, *options.UseLoggedInUser)

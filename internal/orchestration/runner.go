@@ -2204,6 +2204,7 @@ func (r *EvalRunner) buildGraderContext(tc *models.TestCase, resp *execution.Exe
 		ToolEvents:         buildToolEvents(sdkEvents),
 		CommandInvocations: resp.CommandInvocations,
 		Executor:           r.engine,
+		JudgeModelFallback: r.cfg.Spec().Config.ModelID,
 		RecordUsage: func(digest models.SessionDigest) {
 			resp.GraderSessions = append(resp.GraderSessions, digest)
 			if digest.SessionID != "" && digest.SessionID == resp.SessionID {

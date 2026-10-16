@@ -69,7 +69,23 @@ func TestEvidenceJudgeDirectoriesPreserveCompetingLeafAndParent(t *testing.T) {
 				require.NoError(t, err)
 			}
 			moved := replacedPath + "-moved"
-			require.NoError(t, os.Rename(replacedPath, moved))
+			err = os.Rename(replacedPath, moved)
+			if err != nil {
+				// A retained descendant handle can prevent ancestor replacement outright.
+				require.True(t, parentReplacement, "leaf replacement must remain exercisable")
+				require.ErrorIs(t, err, os.ErrPermission)
+				original, statErr := os.Lstat(replacedPath)
+				require.NoError(t, statErr)
+				require.True(t, os.SameFile(outer.identity, original))
+				require.NoError(t, dirs.root.WriteFile("home/owned", []byte("private"), 0o600))
+				require.NoError(t, dirs.close())
+				require.NoError(t, outer.close())
+				_, statErr = os.Lstat(replacedPath)
+				require.ErrorIs(t, statErr, os.ErrNotExist)
+				_, statErr = os.Lstat(moved)
+				require.ErrorIs(t, statErr, os.ErrNotExist)
+				return
+			}
 			t.Cleanup(func() {
 				require.NoError(t, os.RemoveAll(moved))
 				require.NoError(t, os.RemoveAll(replacedPath))

@@ -111,7 +111,14 @@ func (p *promptGrader) gradeEvidence(ctx context.Context, grading *Context) (res
 		}
 	}
 	allowed := []string{"custom:" + wazaPassToolName, "custom:" + wazaFailToolName}
-	request := &execution.ExecutionRequest{ModelID: p.args.Model, ReasoningEffort: p.args.ReasoningEffort,
+	model := p.args.Model
+	if model == "" {
+		model = grading.JudgeModelFallback
+	}
+	if model == "" {
+		model = "auto"
+	}
+	request := &execution.ExecutionRequest{ModelID: model, ReasoningEffort: p.args.ReasoningEffort,
 		Message: message, Tools: tools,
 		NoSkills: true, EphemeralSession: true, SkipWorkspaceCapture: true,
 		ToolPolicy: execution.NewToolPolicy(&allowed),

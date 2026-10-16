@@ -172,6 +172,7 @@ func runGradeWithJudge(ctx context.Context, w, errW io.Writer, specPath, taskID,
 	taskResults := make(map[string]models.GradeOutcome)
 	gradedOutcomes := make([]models.TestOutcome, 0, len(allTasks))
 	var gradeErrors []error
+	evidenceAttempted := false
 	for _, tc := range allTasks {
 		runs, ok := runsByTask[tc.TestID]
 		if !ok {
@@ -219,19 +220,21 @@ func runGradeWithJudge(ctx context.Context, w, errW io.Writer, specPath, taskID,
 			workspace = materialized.Path()
 		}
 
+		usesEvidence := models.UsesJudgeEvidence(spec.Graders, tc)
+		evidenceAttempted = evidenceAttempted || usesEvidence
 		result, gradedRuns, gradeErr := gradeTaskRunsWithJudge(ctx, spec, tc, runs, workspace, effectiveJudgeModel, errW, verbose,
 			evidenceGradeSource{EvalID: outcome.RunID, Cached: cachedByTask[tc.TestID], Executor: judgeExecutor})
 		if gradeErr != nil {
-			if !models.UsesJudgeEvidence(spec.Graders, tc) {
+			if !evidenceAttempted {
 				return fmt.Errorf("grading task %q: %w", tc.TestID, gradeErr)
 			}
 			gradeErrors = append(gradeErrors, fmt.Errorf("grading task %q: %w", tc.TestID, gradeErr))
 		}
-		if models.UsesJudgeEvidence(spec.Graders, tc) {
+		if evidenceRequested {
 			result.Status = models.StatusPassed
 			if gradeErr != nil {
 				result.Status = models.StatusError
-				result.Error = "Required evidence grading failed; no complete model verdict is available."
+				result.Error = "Task grading failed; no complete verdict is available."
 			} else if !result.Passed {
 				result.Status = models.StatusFailed
 			}
@@ -255,6 +258,9 @@ func runGradeWithJudge(ctx context.Context, w, errW io.Writer, specPath, taskID,
 			Runs:        gradedRuns,
 			Cached:      cachedEvidence,
 		})
+		if gradeErr != nil && !usesEvidence {
+			break
+		}
 	}
 
 	if len(taskResults) == 0 {
@@ -281,7 +287,7 @@ func runGradeWithJudge(ctx context.Context, w, errW io.Writer, specPath, taskID,
 		output.Status = models.StatusPassed
 		if len(gradeErrors) > 0 {
 			output.Status = models.StatusError
-			output.Error = "Independent evidence grading failed for one or more tasks; inspect the saved run diagnostics."
+			output.Error = "One or more tasks failed to grade; inspect the saved run diagnostics."
 		} else if !allPassed {
 			output.Status = models.StatusFailed
 		}
@@ -473,17 +479,18 @@ func gradeRunWithJudge(ctx context.Context, spec *models.EvalSpec, tc *models.Te
 	}
 
 	gradingCtx := &graders.Context{
-		TestCase:         tc,
-		Output:           run.FinalOutput,
-		Transcript:       run.Transcript,
-		Session:          &run.SessionDigest,
-		ToolEvents:       run.ToolEvents,
-		DurationMS:       run.DurationMs,
-		SessionID:        run.SessionDigest.SessionID,
-		WorkspaceDir:     workspace,
-		SkillInvocations: skillInvocations,
-		Outcome:          make(map[string]any),
-		Metadata:         make(map[string]any),
+		TestCase:           tc,
+		Output:             run.FinalOutput,
+		Transcript:         run.Transcript,
+		Session:            &run.SessionDigest,
+		ToolEvents:         run.ToolEvents,
+		DurationMS:         run.DurationMs,
+		SessionID:          run.SessionDigest.SessionID,
+		WorkspaceDir:       workspace,
+		SkillInvocations:   skillInvocations,
+		Outcome:            make(map[string]any),
+		Metadata:           make(map[string]any),
+		JudgeModelFallback: spec.Config.ModelID,
 	}
 	if usesEvidence {
 		origin, err := snapshot.CaptureOrigin(snapshot.CaptureInput{EvalID: source.EvalID, Task: tc, Run: run})
@@ -496,6 +503,9 @@ func gradeRunWithJudge(ctx context.Context, spec *models.EvalSpec, tc *models.Te
 			gradedRun.PromptJudging = append(gradedRun.PromptJudging, observation)
 		}
 		// Verify the whole run before any model-backed grader is constructed.
+		if err := judgeevidence.ValidateSelection(spec.Graders, tc); err != nil {
+			return fail(err)
+		}
 		verifyErr := judgeevidence.Verify(run.JudgeEvidence, origin)
 		if source.Cached {
 			verifyErr = errors.New("evidence judging does not accept cached source runs; record a new execution")
@@ -535,10 +545,7 @@ func gradeRunWithJudge(ctx context.Context, spec *models.EvalSpec, tc *models.Te
 
 	graderResults, err := graders.RunAll(ctx, spec.Graders, tc, gradingCtx, judgeModel, spec.Config.JudgeReasoningEffort, false)
 	if err != nil {
-		if usesEvidence {
-			return fail(err)
-		}
-		return nil, err
+		return fail(err)
 	}
 
 	if verbose {

@@ -131,6 +131,17 @@ func (e *EvidenceJudgeExecutor) Execute(parent context.Context, req *ExecutionRe
 	if err != nil {
 		return resp, errors.Join(ctx.Err(), evidenceJudgeDiagnostic(StageInitialize, CodeStart, err))
 	}
+	modelCtx, cancelModel := context.WithTimeout(ctx, e.timeout)
+	err = evidenceJudgeBoundedContext(modelCtx, client.ForceStop, func() error {
+		return validateReasoningEffort(modelCtx, client, req.ModelID, req.ReasoningEffort, provider.enabled())
+	})
+	cancelModel()
+	if err != nil {
+		return resp, &evidenceJudgeError{
+			message: "evidence judge reasoning effort validation failed; use waza models to choose a supported explicit model and effort, or omit reasoning_effort",
+			cause:   errors.Join(ctx.Err(), err),
+		}
+	}
 	usage := NewSessionUsageCollector()
 	state = &evidenceJudgeState{
 		id: "waza-evidence-" + rand.Text(), ctx: ctx,

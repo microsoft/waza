@@ -34,25 +34,31 @@ func TestEvidenceJudgeExampleAndCanonicalGuideUseActualLoaderAndSchema(t *testin
 	require.NoError(t, err)
 	guide, err := os.ReadFile(filepath.Join(root, "site", "src", "content", "docs", "guides", "graders.mdx"))
 	require.NoError(t, err)
-	_, section, ok := strings.Cut(string(guide), "### Evidence-backed independent judging")
-	require.True(t, ok)
-	_, section, ok = strings.Cut(section, "```yaml\n")
-	require.True(t, ok)
-	snippet, _, ok := strings.Cut(section, "```")
-	require.True(t, ok)
-	var copied []models.GraderConfig
-	require.NoError(t, yaml.Unmarshal([]byte(snippet), &copied))
-	require.Equal(t, spec.Graders, copied, "canonical public YAML must match the runnable example")
-	raw, err := os.ReadFile(evalPath)
-	require.NoError(t, err)
-	var document map[string]any
-	require.NoError(t, yaml.Unmarshal(raw, &document))
-	var graderNodes []any
-	require.NoError(t, yaml.Unmarshal([]byte(snippet), &graderNodes))
-	document["graders"] = graderNodes
-	encoded, err := yaml.Marshal(document)
-	require.NoError(t, err)
-	require.Empty(t, ValidateEvalBytes(encoded))
-	_, err = models.ParseEvalSpec(encoded, "canonical-guide.yaml")
-	require.NoError(t, err)
+	for _, ending := range []struct{ name, newline string }{{"LF", "\n"}, {"CRLF", "\r\n"}} {
+		t.Run(ending.name, func(t *testing.T) {
+			source := strings.ReplaceAll(strings.ReplaceAll(string(guide), "\r\n", "\n"), "\n", ending.newline)
+			require.Contains(t, source, "```yaml"+ending.newline)
+			_, section, ok := strings.Cut(strings.ReplaceAll(source, "\r\n", "\n"), "### Evidence-backed independent judging")
+			require.True(t, ok)
+			_, section, ok = strings.Cut(section, "```yaml\n")
+			require.True(t, ok)
+			snippet, _, ok := strings.Cut(section, "```")
+			require.True(t, ok)
+			var copied []models.GraderConfig
+			require.NoError(t, yaml.Unmarshal([]byte(snippet), &copied))
+			require.Equal(t, spec.Graders, copied, "canonical public YAML must match the runnable example")
+			raw, err := os.ReadFile(evalPath)
+			require.NoError(t, err)
+			var document map[string]any
+			require.NoError(t, yaml.Unmarshal(raw, &document))
+			var graderNodes []any
+			require.NoError(t, yaml.Unmarshal([]byte(snippet), &graderNodes))
+			document["graders"] = graderNodes
+			encoded, err := yaml.Marshal(document)
+			require.NoError(t, err)
+			require.Empty(t, ValidateEvalBytes(encoded))
+			_, err = models.ParseEvalSpec(encoded, "canonical-guide.yaml")
+			require.NoError(t, err)
+		})
+	}
 }

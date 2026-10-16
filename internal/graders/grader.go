@@ -79,6 +79,7 @@ type Context struct {
 	// as task prompts. Only prompt graders require it.
 	Executor            Executor
 	EvidenceExecutor    Executor
+	JudgeModelFallback  string
 	JudgeEvidence       *models.JudgeEvidence
 	JudgeOrigin         models.EvidenceOrigin
 	RecordPromptJudging func(models.PromptJudgeObservation)
