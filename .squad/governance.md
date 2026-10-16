@@ -2,6 +2,7 @@
 
 Effective 2026-10-15. This is the project ownership and review policy; the roster
 and dispatch map live in `team.md` and `routing.md`.
+These Squad coordination rules do not apply to ordinary Copilot work.
 
 ## Ownership
 
@@ -34,6 +35,15 @@ support agent; new support work uses the fixed identity outside the specialist r
   focused rereview of blockers, the delta, and regressions.
   The rejection includes concrete counter-evidence, the violated requirement,
   affected scope, and minimum condition for approval.
+  After successful focused rereview of the independently corrected revision, the
+  selected gate may issue approval/PASS. This is a review verdict, not native
+  repository approval, merge or publishing authority; author lockout persists
+  throughout the revision cycle.
+- Rai and Fact Checker return findings in the current review response.
+  Charter output/persistence restrictions take precedence over generic history,
+  audit-trail or decision-inbox instructions. Only an authorized coordinator or
+  Scribe handles required persistence under the current state contract; no
+  routine review logging is required.
 
 Repository merge requirements remain in `.github/PR_REQUIREMENTS.md`.
 

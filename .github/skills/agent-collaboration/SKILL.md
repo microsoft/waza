@@ -37,8 +37,12 @@ If you have reviewer authority and reject work: include concrete counter-evidenc
 the violated requirement, affected scope, and minimum condition for approval.
 The Coordinator assigns a different qualified revision owner, not the locked-out
 author or rejecting gate. Do not implement, pair on, or advise the immediate
-revision; perform only the focused rereview. This is Squad coordination, not an
-ordinary Copilot workflow.
+revision; perform only the focused rereview. After successful focused rereview of the independently
+corrected revision, the selected gate may issue approval/PASS, not native repository approval,
+merge or publishing authority. This is Squad coordination, not an ordinary Copilot workflow.
+**Rai/Fact Checker output boundary:** Charter output/persistence restrictions take precedence over generic history, audit-trail or
+decision-inbox instructions. Return findings in the current review response; only an authorized
+coordinator or Scribe handles required persistence under the current state contract.
 
 ## Anti-Patterns
 - Don't read all agent charters — you only need your own context + decisions.md

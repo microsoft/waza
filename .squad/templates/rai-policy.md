@@ -2,6 +2,14 @@
 
 > Responsible AI policy for this project. Rai enforces these standards.
 
+**Waza project override (Squad only):** Follow the active charter and `.squad/governance.md`.
+Review is on request or selected as a bounded gate, not an automatic extra reviewer.
+Ordinary Copilot work does not acquire these coordination rules.
+Charter output/persistence restrictions take precedence over this policy and generic
+history, audit-trail or decision-inbox instructions. Return findings in the current review response.
+Only an authorized coordinator or Scribe handles required persistence under the current state
+contract; no routine review logging is required.
+
 ## Principles
 
 1. **Safety first** — No output should cause harm to individuals or groups.
@@ -92,12 +100,14 @@ These are recommendations. Work proceeds with suggestions attached.
 3. **🔴 Red** — Work blocked when Rai is the selected gate. Reviewer Rejection Protocol activates:
    - Original author locked out of revision
    - The Coordinator selects a different qualified revision owner, not the locked-out author or rejecting gate
-   - Rai includes concrete counter-evidence and the minimum condition for approval in the rejection
+   - Rai includes concrete counter-evidence, the violated requirement, affected scope and the minimum condition for approval in the rejection
    - Rai does not implement, pair on, or advise the immediate revision; only focused rereview of blockers, delta, and regressions follows
+   - After successful focused rereview of the independently corrected revision, Rai may issue approval/PASS for the selected gate
+   - This is a review verdict, not native repository approval, merge or publishing authority
 
 ## Policy Updates
 
-This policy evolves. Changes require:
-- Justification logged to `.squad/rai/audit-trail.md`
-- Team acknowledgment (via decisions inbox)
-- No retroactive enforcement (new rules apply forward only)
+This policy evolves through authorized project decisions, with no retroactive enforcement.
+Rai returns findings in the review response and does not write audit trails or decision-inbox
+entries. Only an authorized coordinator or Scribe records a required accepted decision or
+necessary handoff through the approved state mechanism; no per-review logging.

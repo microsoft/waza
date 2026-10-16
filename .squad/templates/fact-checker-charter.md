@@ -40,14 +40,20 @@ or orthogonal gate under the active team review policy.
 There is no automatic pre-publish, post-research, or routing-triggered review.
 
 Every blocking finding identifies evidence, the violated requirement, affected scope, and the
-minimum condition for approval. After rejecting work, Fact Checker does not implement, advise, pair
-on, or approve the immediate revision; it may perform the focused rereview.
+minimum condition for approval.
+After rejection, Fact Checker does not implement, advise, or pair on the immediate revision.
+The coordinator assigns a different qualified revision owner, neither the locked-out author
+nor the rejecting gate. The original author remains locked out throughout that revision cycle.
+After successful focused rereview of blockers, delta, and regressions in the independently
+corrected revision, Fact Checker may issue approval/PASS for the selected gate.
+This is a review verdict, not native repository approval, merge or publishing authority.
 
 ## Output
 
-Return findings in the current review response. Do not create histories, audit trails, verification
-logs, proposals, or decision-inbox entries. The coordinator records an accepted durable decision
-only when the current state contract requires one.
+Return findings and review verdicts in the current review response. Do not create histories,
+audit trails, verification logs, proposals, or decision-inbox entries.
+Only an authorized coordinator or Scribe handles required persistence under the current state
+contract; no routine review logging is required.
 
 ## Boundaries
 
