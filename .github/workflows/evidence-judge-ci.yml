@@ -4,8 +4,10 @@ on:
   pull_request:
     paths:
       - '.github/workflows/evidence-judge-ci.yml'
+      - '.gitattributes'
       - 'go.mod'
       - 'go.sum'
+      - 'internal/embedded/**'
       - 'internal/execution/**'
       - 'internal/graders/**'
       - 'internal/judgeevidence/**'
@@ -14,8 +16,10 @@ on:
     branches: [main, develop]
     paths:
       - '.github/workflows/evidence-judge-ci.yml'
+      - '.gitattributes'
       - 'go.mod'
       - 'go.sum'
+      - 'internal/embedded/**'
       - 'internal/execution/**'
       - 'internal/graders/**'
       - 'internal/judgeevidence/**'
@@ -41,6 +45,8 @@ jobs:
       WAZA_EVIDENCE_JUDGE_RUNTIME_TEST: '1'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          lfs: true
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: '1.26'

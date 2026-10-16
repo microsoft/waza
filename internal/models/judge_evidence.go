@@ -233,9 +233,27 @@ var judgeEvidenceSchema = sync.OnceValues(func() (*jsonschema.Schema, error) {
 })
 
 func (e *JudgeEvidence) UnmarshalJSON(data []byte) error {
-	if len(data) > JudgeEvidenceMaxBytes {
-		return errors.New("judge evidence exceeds the 256 KiB encoded limit")
+	// Ignore formatting without allocating or parsing beyond the compact limit.
+	// Keep quoted whitespace, escapes and numeric tokens unchanged for admission.
+	compact := make([]byte, 0, min(len(data), JudgeEvidenceMaxBytes))
+	quoted, escaped := false, false
+	for _, b := range data {
+		if !quoted && (b == ' ' || b == '\t' || b == '\r' || b == '\n') {
+			continue
+		}
+		if len(compact) == JudgeEvidenceMaxBytes {
+			return errors.New("judge evidence exceeds the 256 KiB encoded limit")
+		}
+		compact = append(compact, b)
+		if b == '"' && !escaped {
+			quoted = !quoted
+		}
+		escaped = quoted && b == '\\' && !escaped
 	}
+	if !json.Valid(data) {
+		return errors.New("judge evidence has invalid or ambiguous JSON")
+	}
+	data = compact
 	instance, err := jsonutil.Parse(data)
 	if err != nil {
 		return errors.New("judge evidence has invalid or ambiguous JSON")

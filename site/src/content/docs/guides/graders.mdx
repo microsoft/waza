@@ -617,12 +617,14 @@ Present null/scalar options, aliases/merges in evidence-enabled grader
 configuration, duplicate declarations, and malformed new wire fields are rejected.
 
 The fixed limits are **64 files** in the run's union, **64 KiB per file**, and
-**256 KiB for the entire encoded bundle**, including core evidence and metadata.
+**256 KiB for the entire compact JSON-encoded bundle**, including core evidence and metadata.
 Exclusions are also limited to 64 paths. Source values, structure traversal and
 sanitized/encoded bytes are bounded; JSON escaping and metadata consume the
-encoded budget. Each filtered delivery must fit too. Rubric text has a separate
-256 KiB cap. These bounds do not guarantee sufficient model context. Selected-file
-capture requires Linux/macOS; it also retains the existing
+encoded budget. Formatting whitespace outside JSON strings does not consume
+this budget; whitespace within strings does. Pretty-printed saved results use
+the same limit as compact capture. Each filtered delivery must fit too. Rubric
+text has a separate 256 KiB cap. These bounds do not guarantee sufficient model
+context. Selected-file capture requires Linux/macOS; it also retains the existing
 [filesystem admission limits](/waza/guides/snapshot-replay/#filesystem-admission-and-observation-limits).
 
 Evidence freezes after the last actor turn and command-mock finalization, before
@@ -688,6 +690,8 @@ model startup. It uses the recorded task even if task YAML changed. A changed
 rubric is allowed; newly requested files must already be captured. Historical,
 cached, invalid or incomplete bundles fail operationally. Do not mix evidence
 regrading with legacy prompt graders; mechanical graders retain their own inputs.
+Saving cached-source rejection diagnostics does not make that evidence eligible
+for a later regrade.
 
 Ordinary failed judgments retain `grade`'s existing zero exit with `passed: false`
 and `status: failed`; operational errors return nonzero, `status: error`, and no
@@ -696,6 +700,8 @@ safe per-run failure diagnostics before returning an error; output-write errors
 also propagate. Malformed results that cannot be decoded fail before regrading.
 Original execution billing is unchanged. Each actual new judge session is counted
 once under `regrade_usage.sessions`, separate from historical `evaluation_usage`.
+This field describes only the current regrade; a later mechanical-only regrade
+omits it instead of repeating earlier judge usage.
 Missing usage/credits remain unavailable; explicit reported zero remains zero.
 This is model-backed regrading and can incur new charges, not offline replay.
 

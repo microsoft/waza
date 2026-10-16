@@ -182,3 +182,142 @@ func TestEvidenceSavedGradeOperationalFailuresSaveDiagnosticsBeforeReturningErro
 		})
 	}
 }
+
+func successfulSavedEvidenceJudge(t *testing.T, calls *int) savedEvidenceJudge {
+	t.Helper()
+	return func(request *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
+		*calls++
+		_, err := request.Tools[0].Handler(copilot.ToolInvocation{ToolName: request.Tools[0].Name})
+		credits := 0.25
+		return &execution.ExecutionResponse{Success: true, SessionID: fmt.Sprintf("judge-%d", *calls),
+			ModelID: request.ModelID, Usage: &models.UsageStats{InputTokens: 4, AICredits: &credits}}, err
+	}
+}
+
+func TestEvidenceSavedGradePreservesCachedSourceAcrossReload(t *testing.T) {
+	for _, tc := range []struct {
+		name           string
+		cached, bundle bool
+	}{
+		{"cached bundle", true, true},
+		{"cached diagnostics", true, false},
+		{"uncached control", false, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			spec, source, original := savedEvidenceFixture(t)
+			original.TestOutcomes[0].Cached = tc.cached
+			require.Nil(t, original.TestOutcomes[0].Runs[0].Evidence)
+			if !tc.bundle {
+				original.TestOutcomes[0].Runs[0].JudgeEvidence = nil
+			}
+			require.NoError(t, saveOutcome(original, source))
+			calls := 0
+			judge := successfulSavedEvidenceJudge(t, &calls)
+			for attempt := range 2 {
+				output := filepath.Join(t.TempDir(), "graded.json")
+				err := runGradeWithJudge(t.Context(), io.Discard, io.Discard, spec, "task", source, "", "", output, false, "", judge)
+				if tc.cached {
+					require.ErrorContains(t, err, "cached")
+					require.Zero(t, calls)
+				} else {
+					require.NoError(t, err)
+					require.Equal(t, attempt+1, calls)
+				}
+				data, err := os.ReadFile(output)
+				require.NoError(t, err)
+				saved, err := models.ParseEvaluationOutcome(data, output)
+				require.NoError(t, err)
+				require.Equal(t, tc.cached, saved.TestOutcomes[0].Cached)
+				if tc.cached {
+					require.Equal(t, models.StatusError, saved.TestOutcomes[0].Status)
+					require.NotEmpty(t, saved.TestOutcomes[0].Runs[0].PromptJudging)
+				}
+				source = output
+			}
+		})
+	}
+}
+
+func TestEvidenceSavedGradeDeterministicRegradeClearsCurrentUsage(t *testing.T) {
+	spec, source, original := savedEvidenceFixture(t)
+	require.NoError(t, saveOutcome(original, source))
+	first := filepath.Join(t.TempDir(), "judged.json")
+	calls := 0
+	judge := successfulSavedEvidenceJudge(t, &calls)
+	require.NoError(t, runGradeWithJudge(t.Context(), io.Discard, io.Discard, spec, "task", source, "", "", first, false, "", judge))
+	data, err := os.ReadFile(first)
+	require.NoError(t, err)
+	judged, err := models.ParseEvaluationOutcome(data, first)
+	require.NoError(t, err)
+	require.NotNil(t, judged.RegradeUsage)
+	require.Len(t, judged.RegradeUsage.Sessions, 1)
+	require.Equal(t, 0.25, *judged.RegradeUsage.Sessions[0].Usage.AICredits)
+
+	config, err := os.ReadFile(spec)
+	require.NoError(t, err)
+	head, _, found := strings.Cut(string(config), "graders:\n")
+	require.True(t, found)
+	require.NoError(t, os.WriteFile(spec, []byte(head+`graders:
+  - name: deterministic
+    type: text
+    config: {regex_not_match: [FATAL_ERROR_CANARY]}
+`), 0600))
+	second := filepath.Join(t.TempDir(), "deterministic.json")
+	require.NoError(t, runGradeWithJudge(t.Context(), io.Discard, io.Discard, spec, "task", first, filepath.Dir(spec), "", second, false, "", judge))
+	data, err = os.ReadFile(second)
+	require.NoError(t, err)
+	deterministic, err := models.ParseEvaluationOutcome(data, second)
+	require.NoError(t, err)
+	require.Equal(t, models.StatusPassed, deterministic.TestOutcomes[0].Status)
+	require.Contains(t, deterministic.TestOutcomes[0].Runs[0].Validations, "deterministic")
+	require.Equal(t, 1, calls, "deterministic grading must not start another judge")
+	require.Nil(t, deterministic.RegradeUsage)
+	require.NotContains(t, string(data), `"regrade_usage"`)
+	require.Equal(t, original.EvaluationUsage, deterministic.EvaluationUsage)
+	require.Equal(t, original.TestOutcomes[0].Runs[0].SessionDigest, deterministic.TestOutcomes[0].Runs[0].SessionDigest)
+}
+
+func TestEvidenceSavedGradeNearLimitPrettyJSONRoundTrip(t *testing.T) {
+	spec, source, original := savedEvidenceFixture(t)
+	origin := original.TestOutcomes[0].Runs[0].JudgeEvidence.Origin
+	events := []copilot.SessionEvent{{Data: &copilot.UserMessageData{Content: "RECORDED_TASK_CANARY"}}}
+	for range 1800 {
+		events = append(events, copilot.SessionEvent{Data: &copilot.AssistantMessageData{Content: strings.Repeat("m", 70)}})
+	}
+	bundle := judgeevidence.Capture(judgeevidence.CaptureInput{
+		Origin: origin, Task: "RECORDED_TASK_CANARY", Output: strings.Repeat("m", 70),
+		OutputPresent: true, ExecutionMode: "mock", Events: events,
+	})
+	require.NoError(t, judgeevidence.Verify(bundle, origin))
+	compact, err := json.Marshal(bundle)
+	require.NoError(t, err)
+	require.LessOrEqual(t, len(compact), models.JudgeEvidenceMaxBytes)
+	original.TestOutcomes[0].Runs[0].JudgeEvidence = bundle
+	require.NoError(t, saveOutcome(original, source))
+	data, err := os.ReadFile(source)
+	require.NoError(t, err)
+	var wire struct {
+		Tasks []struct {
+			Runs []struct {
+				JudgeEvidence json.RawMessage `json:"judge_evidence"`
+			} `json:"runs"`
+		} `json:"tasks"`
+	}
+	require.NoError(t, json.Unmarshal(data, &wire))
+	require.Len(t, wire.Tasks, 1)
+	require.Len(t, wire.Tasks[0].Runs, 1)
+	require.Greater(t, len(wire.Tasks[0].Runs[0].JudgeEvidence), models.JudgeEvidenceMaxBytes, "fixture must exercise indentation beyond the compact limit")
+	parsed, err := models.ParseEvaluationOutcome(data, source)
+	require.NoError(t, err)
+	require.NoError(t, judgeevidence.Verify(parsed.TestOutcomes[0].Runs[0].JudgeEvidence, origin))
+	require.Equal(t, bundle.SHA256, parsed.TestOutcomes[0].Runs[0].JudgeEvidence.SHA256)
+	calls := 0
+	output := filepath.Join(t.TempDir(), "regraded.json")
+	require.NoError(t, runGradeWithJudge(t.Context(), io.Discard, io.Discard, spec, "task", source, "", "", output, false, "", successfulSavedEvidenceJudge(t, &calls)))
+	require.Equal(t, 1, calls)
+	data, err = os.ReadFile(output)
+	require.NoError(t, err)
+	regraded, err := models.ParseEvaluationOutcome(data, output)
+	require.NoError(t, err)
+	require.Equal(t, bundle.SHA256, regraded.TestOutcomes[0].Runs[0].JudgeEvidence.SHA256)
+}

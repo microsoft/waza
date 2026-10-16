@@ -112,7 +112,7 @@ func (p *promptGrader) gradeEvidence(ctx context.Context, grading *Context) (res
 	}
 	allowed := []string{"custom:" + wazaPassToolName, "custom:" + wazaFailToolName}
 	request := &execution.ExecutionRequest{ModelID: p.args.Model, ReasoningEffort: p.args.ReasoningEffort,
-		Message: message, Tools: tools, MessageMode: execution.MessageModeEnqueue, Streaming: true,
+		Message: message, Tools: tools,
 		NoSkills: true, EphemeralSession: true, SkipWorkspaceCapture: true,
 		ToolPolicy: execution.NewToolPolicy(&allowed),
 		PermissionHandler: func(request copilot.PermissionRequest, _ copilot.PermissionInvocation) (rpc.PermissionDecision, error) {

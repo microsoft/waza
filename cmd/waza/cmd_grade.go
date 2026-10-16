@@ -245,7 +245,9 @@ func runGradeWithJudge(ctx context.Context, w, errW io.Writer, specPath, taskID,
 		if gradeErr != nil {
 			status = models.StatusError
 		}
-		cachedEvidence := cachedByTask[tc.TestID] && slices.ContainsFunc(gradedRuns, func(run models.RunResult) bool { return run.Evidence != nil })
+		cachedEvidence := cachedByTask[tc.TestID] && slices.ContainsFunc(gradedRuns, func(run models.RunResult) bool {
+			return run.Evidence != nil || run.JudgeEvidence != nil || len(run.PromptJudging) > 0
+		})
 		gradedOutcomes = append(gradedOutcomes, models.TestOutcome{
 			TestID:      tc.TestID,
 			DisplayName: tc.DisplayName,
@@ -314,6 +316,7 @@ func runGradeWithJudge(ctx context.Context, w, errW io.Writer, specPath, taskID,
 		}
 
 		graded := orchestration.RegradeOutcome(outcome, finalOutcomes, effectiveJudgeModel, judgeReasoningEffort)
+		graded.RegradeUsage = nil
 		if regradeScope != nil {
 			graded.RegradeUsage = regradeScope.Snapshot()
 		}

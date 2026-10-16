@@ -47,6 +47,8 @@ func TestEvidencePromptUsesFrozenDataFreshExecutorAndNoGenericDetails(t *testing
 		require.Empty(t, req.Resources)
 		require.Empty(t, req.Instructions)
 		require.Empty(t, req.MCPServers)
+		require.Empty(t, req.MessageMode)
+		require.False(t, req.Streaming)
 		require.Nil(t, req.CaptureJudgeFiles)
 		require.True(t, req.NoSkills)
 		require.True(t, req.EphemeralSession)
@@ -84,6 +86,20 @@ func TestEvidencePromptUsesFrozenDataFreshExecutorAndNoGenericDetails(t *testing
 	require.NotEmpty(t, observations[0].DeliverySHA256)
 	_, err = requests[0].Tools[0].Handler(copilot.ToolInvocation{ToolName: wazaPassToolName})
 	require.ErrorContains(t, err, "no longer active")
+}
+
+func TestEvidencePromptRealExecutorAdmitsFreshRequest(t *testing.T) {
+	grading := evidenceGradingContext(t)
+	grading.EvidenceExecutor = execution.NewEvidenceJudgeExecutor()
+	g, err := NewPromptGrader("judge", models.PromptGraderParameters{
+		Model: "judge-model", Prompt: "Judge the recorded execution.", EvidenceContext: &models.PromptEvidenceContext{},
+	})
+	require.NoError(t, err)
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	result, err := g.Grade(ctx, grading)
+	require.ErrorIs(t, err, context.Canceled, "the real executor must admit the request before honoring cancellation, without starting a runtime")
+	require.Nil(t, result)
 }
 
 func TestEvidencePromptFailuresCannotBecomePassingGrades(t *testing.T) {

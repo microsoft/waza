@@ -168,4 +168,42 @@ func TestJudgeEvidenceExactNumbersAndStrictAdmission(t *testing.T) {
 	} {
 		require.Error(t, json.Unmarshal([]byte(bad), &run))
 	}
+	pretty, err := json.MarshalIndent(input.JudgeEvidence, "", "  ")
+	require.NoError(t, err)
+	for _, mutation := range [][2]string{
+		{`"version": "1.0"`, `"version": "1.0", "version": "1.0"`},
+		{`"items": ""`, `"items": "\ud800"`},
+		{`"turn": 1`, `"turn": 1 0`},
+	} {
+		bad := strings.Replace(string(pretty), mutation[0], mutation[1], 1)
+		require.NotEqual(t, string(pretty), bad, "strict-admission control must mutate the original wire")
+		var parsed JudgeEvidence
+		require.Error(t, parsed.UnmarshalJSON([]byte(bad)), "formatting must not repair invalid original tokens or hide ambiguous fields")
+	}
+	for _, size := range []int{JudgeEvidenceMaxBytes - 1, JudgeEvidenceMaxBytes, JudgeEvidenceMaxBytes + 1} {
+		t.Run(fmt.Sprint(size), func(t *testing.T) {
+			sample := *input.JudgeEvidence
+			payload := " \t\r\n\"\\<>&é " + strings.Repeat("\\", 3)
+			sample.Task.Items = &payload
+			base, err := json.Marshal(sample)
+			require.NoError(t, err)
+			payload = strings.Repeat(" ", size-len(base)) + payload
+			compact, err := json.Marshal(sample)
+			require.NoError(t, err)
+			require.Len(t, compact, size)
+			indented, err := json.MarshalIndent(sample, "", "  ")
+			require.NoError(t, err)
+			var parsed JudgeEvidence
+			err = json.Unmarshal(indented, &parsed)
+			if size > JudgeEvidenceMaxBytes {
+				require.ErrorContains(t, err, "limit")
+			} else {
+				require.NoError(t, err)
+				require.Equal(t, payload, *parsed.Task.Items, "whitespace inside strings must not be removed")
+				args, ok := (*parsed.ToolEvents.Items)[0].Args.(map[string]any)
+				require.True(t, ok)
+				require.Equal(t, json.Number("9007199254740993"), args["count"])
+			}
+		})
+	}
 }

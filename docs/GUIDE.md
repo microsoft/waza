@@ -1095,7 +1095,8 @@ waza grade examples/evidence-judge/eval.yaml --results results.json --task repor
 
 Provide an explicit hosted token or BYOK environment configuration; stored login,
 ambient actor config, hooks and skills are not inherited. The selected-file path
-requires Linux/macOS, with 64 files, 64 KiB/file and 256 KiB/encoded bundle limits.
+requires Linux/macOS, with 64 files, 64 KiB/file and 256 KiB/compact JSON bundle
+limits. Formatting whitespace outside strings does not count toward that limit.
 Missing/incomplete/redacted evidence fails before model startup, without
 truncation or workspace recovery. Evidence-only regrading does not inspect
 `--workspace` or `snapshot_path`. It uses the recorded task, even if the current
@@ -1106,9 +1107,11 @@ Ordinary failed judgments retain `grade`'s zero exit and report `passed: false` 
 an `overall_score` in stdout. Admitted source results retain safe failure
 diagnostics in requested output; publication errors propagate. Regrading can
 incur new model charges, recorded once per session in `regrade_usage.sessions`;
-original `evaluation_usage` and actor billing remain unchanged. Missing credits
-are unavailable, not zero. The existing Evidence view reports per-run/per-grader
-submission metadata, not proof of inspection, accuracy, or authenticity.
+this field covers the current regrade only and is omitted for a subsequent
+mechanical-only regrade. Original `evaluation_usage` and actor billing remain
+unchanged. Missing credits are unavailable, not zero. The existing Evidence view
+reports per-run/per-grader submission metadata, not proof of inspection, accuracy,
+or authenticity.
 See the [canonical reference](https://microsoft.github.io/waza/guides/graders/#evidence-backed-independent-judging)
 for complete YAML, authentication, native-runtime scope and privacy limits.
 

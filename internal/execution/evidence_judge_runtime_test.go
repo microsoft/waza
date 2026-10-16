@@ -19,12 +19,32 @@ import (
 	copilot "github.com/github/copilot-sdk/go"
 	"github.com/microsoft/waza/internal/embedded"
 	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 )
 
 type evidenceJudgeLoopbackTransport struct {
 	origin string
 	client *http.Transport
 	calls  atomic.Int32
+}
+
+func TestEvidenceJudgeRuntimeWorkflowCoversPinnedAssets(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", ".github", "workflows", "evidence-judge-ci.yml"))
+	require.NoError(t, err)
+	var workflow struct {
+		On map[string]struct {
+			Paths []string `yaml:"paths"`
+		} `yaml:"on"`
+	}
+	require.NoError(t, yaml.Unmarshal(data, &workflow))
+	for _, event := range []string{"pull_request", "push"} {
+		t.Run(event, func(t *testing.T) {
+			require.Contains(t, workflow.On, event)
+			for _, pattern := range []string{"internal/embedded/**", ".gitattributes"} {
+				require.Contains(t, workflow.On[event].Paths, pattern, "pinned executable/assets and LFS changes must rerun the native isolation proof")
+			}
+		})
+	}
 }
 
 func (t *evidenceJudgeLoopbackTransport) RoundTrip(req *http.Request) (*http.Response, error) {

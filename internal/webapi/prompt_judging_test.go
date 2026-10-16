@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -132,7 +133,24 @@ func TestPromptJudgingProducerToResultReaderToAPIMetadata(t *testing.T) {
 	}
 	expected, err := os.ReadFile(path)
 	require.NoError(t, err, "generate the producer-backed fixture with UPDATE_PROMPT_JUDGING_FIXTURE=1")
-	require.JSONEq(t, string(expected), string(fixture))
+	var oracle struct {
+		Tasks []struct {
+			PassRateCI *ConfidenceIntervalResponse `json:"passRateCI"`
+		} `json:"tasks"`
+	}
+	require.NoError(t, json.Unmarshal(expected, &oracle))
+	require.Len(t, oracle.Tasks, 1)
+	require.NotNil(t, oracle.Tasks[0].PassRateCI)
+	require.NotNil(t, detail.Tasks[0].PassRateCI)
+	want, actual := oracle.Tasks[0].PassRateCI, *detail.Tasks[0].PassRateCI
+	// Allow two ULPs of platform-dependent Wilson endpoint variation only.
+	require.InDelta(t, want.Lower, actual.Lower, 2*math.Abs(math.Nextafter(want.Lower, math.Inf(1))-want.Lower))
+	require.InDelta(t, want.Upper, actual.Upper, 2*math.Abs(math.Nextafter(want.Upper, math.Inf(1))-want.Upper))
+	actual.Lower, actual.Upper = want.Lower, want.Upper
+	detail.Tasks[0].PassRateCI = &actual
+	normalized, err := json.Marshal(detail)
+	require.NoError(t, err)
+	require.JSONEq(t, string(expected), string(normalized))
 }
 
 func TestPromptJudgingAPIWithholdsTamperedCrossRunAndUnboundClaims(t *testing.T) {
