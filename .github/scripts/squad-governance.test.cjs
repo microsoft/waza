@@ -69,6 +69,23 @@ function assertPolicy(text) {
   assert.doesNotMatch(source, /spawned automatically|runs in background by default|blocking by default/);
 }
 
+function assertStateOwnership(text) {
+  assertPersistence(text);
+  const row = (file) => text.split('\n').find((line) => line.startsWith(`| \`${file}\` |`));
+  for (const member of ['rai', 'fact-checker']) {
+    for (const file of ['policy.md', 'audit-trail.md']) {
+      const cells = row(`.squad/${member}/${file}`).split('|');
+      assert.match(cells[3], /Coordinator/);
+      assert.doesNotMatch(cells[3], /append only|propose updates via decisions inbox/);
+      if (file === 'audit-trail.md') {
+        assert.match(cells[2], /no routine reviewer logging/);
+        assert.match(cells[3], /Scribe.*only when the current state contract requires persistence/);
+      }
+    }
+  }
+  assert.match(row('.squad/agents/{name}/history.md').split('|')[3], /only where charter permits/);
+}
+
 function assertRejectionPolicy(text) {
   const policy = prose(text.split('## Integration with Reviewer Rejection Protocol')[1] || '');
   for (const pattern of [
@@ -157,7 +174,8 @@ test('reviewer consistency matrix covers active and seeded roles, policies, gate
   const protocol = prose(read('.github/skills/reviewer-protocol/SKILL.md'));
   assert.match(protocol, /locked-out author may NOT contribute.*not as a co-author, advisor, or pair/);
   assert.match(protocol, /Quality Engineer reviews v2 → approves/);
-  t.diagnostic(`Consistency matrix: ${charterFiles.length} active/template charters, ${policyFiles.length} policies, ${callerFiles.length} callers and both coordinator role sections`);
+  assertStateOwnership(read('.github/skills/coordinator-source-of-truth/SKILL.md'));
+  t.diagnostic(`Consistency matrix: ${charterFiles.length} active/template charters, ${policyFiles.length} policies, ${callerFiles.length} callers, explicit state ownership and both coordinator role sections`);
 });
 
 test('reviewer contracts reject permanent gate lockout, self-revision, authoring and forbidden persistence', () => {
@@ -191,6 +209,18 @@ test('reviewer contracts reject permanent gate lockout, self-revision, authoring
     assert.throws(() => assertPolicy(`${good}\nReviewer runs in background by default.`),
       assert.AssertionError);
   }
+  const ownership = read('.github/skills/coordinator-source-of-truth/SKILL.md');
+  assertStateOwnership(ownership);
+  for (const member of ['rai', 'fact-checker']) {
+    for (const file of ['policy.md', 'audit-trail.md']) {
+      const row = ownership.split('\n').find((line) => line.startsWith(`| \`.squad/${member}/${file}\` |`));
+      const cells = row.split('|');
+      const bad = row.replace(cells[3], ` ${member} (append only) `);
+      assert.throws(() => assertStateOwnership(ownership.replace(row, bad)), assert.AssertionError);
+    }
+  }
+  assert.throws(() => assertStateOwnership(ownership.replace('only where charter permits', 'always')),
+    assert.AssertionError);
 });
 
 test('source contract rejects re-admitted authors, reviewer pairing and missing rejection evidence', () => {
