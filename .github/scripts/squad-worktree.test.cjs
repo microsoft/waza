@@ -31,6 +31,8 @@ test('documented Squad regressions run in a genuine linked Git worktree', (t) =>
     '.github/skills/coordinator-source-of-truth/SKILL.md',
     '.github/skills/reviewer-protocol/SKILL.md',
     '.github/skills/agent-collaboration/SKILL.md',
+    '.github/skills/squad/SKILL.md',
+    '.github/skills/squad-help/SKILL.md',
     '.squad/config.json',
     '.squad/team.md',
     '.squad/routing.md',

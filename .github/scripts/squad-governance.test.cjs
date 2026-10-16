@@ -99,6 +99,31 @@ function assertRejectionPolicy(text) {
   assert.doesNotMatch(policy, /usually the agent that produced|Pair mode|revise with grounding/i);
 }
 
+test('installed Squad help distinguishes coordinator and host-dependent menu invocation', () => {
+  const validate = (text) => {
+    assert.match(text, /Squad coordinator agent and the separate squad menu skill/);
+    assert.match(text, /host-dependent/);
+    assert.match(text, /\.github\/skills\/squad\/SKILL\.md/);
+    assert.doesNotMatch(text,
+      /squad-commands|\.copilot\/skills|Squad is not a skill|slash command also does not exist/);
+  };
+  const help = read('.github/skills/squad-help/SKILL.md');
+  validate(help);
+  assert.throws(() => validate(`${help}\nSquad is not a skill.`), assert.AssertionError);
+  assert.throws(() => validate(help.replaceAll('host-dependent', 'universally unsupported')),
+    assert.AssertionError);
+  assert.throws(() => validate(help.replaceAll('/squad/SKILL.md', '/squad-commands/SKILL.md')),
+    assert.AssertionError);
+  const menu = read('.github/skills/squad/SKILL.md');
+  assert.match(menu, /^name: squad$/m);
+  assert.match(menu, /^user-invocable: true$/m);
+  assert.match(menu, /Host-dependent invocation/);
+  for (const file of ['.github/agents/squad.agent.md', '.squad/templates/squad.agent.md.template']) {
+    assert.match(prose(read(file)),
+      /Where the host exposes user-invocable skills as commands, use `\/squad`; otherwise use the natural-language menu triggers/);
+  }
+});
+
 test('delegated Scribe merges preserve Coordinator acceptance and decision-only output', () => {
   const authority = (text) => {
     const source = prose(text).replaceAll('**', '');

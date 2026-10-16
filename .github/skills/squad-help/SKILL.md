@@ -1,9 +1,10 @@
 ---
 name: "squad-help"
-description: "How to actually use Squad — Squad is a custom Copilot agent (invoked via the task tool with agent_type='Squad'), not a skill. This file explains the right invocation paths for setting up a team, listing squad commands, and initializing Squad in a new project."
+description: "How to use the Squad coordinator agent and the separate squad menu skill, with host-dependent discovery and slash-command support."
 allowedTools: []
 confidence: high
 domain: squad-onboarding
+source: "Squad SDK managed help with a Waza project correction for host-dependent menu invocation."
 ---
 
 # Skill: squad-help
@@ -12,7 +13,7 @@ domain: squad-onboarding
 
 ---
 
-## Squad is a custom agent, not a skill
+## Squad coordinator and squad menu skill
 
 The Squad framework registers a **custom Copilot CLI agent** at `.github/agents/squad.agent.md`. The agent is named **`Squad`** and its description is *"Your AI team. Describe what you're building, get a team of specialists that live in your repo."*
 
@@ -20,11 +21,16 @@ Copilot CLI agents and skills are different things:
 
 | Thing | How to invoke | Example |
 |---|---|---|
-| **Skill** | `skill(name)` tool call or natural-language match | `skill(squad-commands)` |
+| **Menu skill** | Host skill tool, natural-language match, or exposed skill command | `skill(squad)` when available |
 | **Agent** | `task` tool with `agent_type=<name>` | `task(name="...", agent_type="Squad", prompt="...")` |
-| **Slash command** | Built-in CLI keyword | `/agent`, `/skills`, `/mcp` |
+| **Slash command** | Host-dependent built-in command or exposed user-invocable skill | `/squad` when the host exposes the installed menu |
 
-Calling `skill(Squad)` will fail with *"Skill not found: Squad"* because Squad is the agent, not a skill. (`/squad` as a slash command also does not exist — only built-in CLI keywords like `/agent`, `/skills`, `/mcp` are slash commands. There's no way to map a skill name to a slash command without a Copilot CLI feature change.)
+The `Squad` agent performs coordination; the separate `squad` menu skill lives at
+`.github/skills/squad/SKILL.md` and declares `user-invocable: true`. They are not
+interchangeable. Slash-command availability is **host-dependent**: use `/squad` only
+where the host exposes that skill as a command. Otherwise use its natural-language
+triggers or the host's skill picker/tool, when available; invoke the coordinator agent
+for actual orchestration.
 
 ---
 
@@ -52,7 +58,7 @@ Use this when the user says things like:
 
 ### B) See what Squad commands exist
 
-The `squad-commands` skill is a categorized catalog of common Squad operations. The coordinator presents it as an interactive menu.
+The `squad` skill is a categorized catalog of common Squad operations. The coordinator presents it as an interactive menu.
 
 Trigger by natural-language match: `"squad commands"`, `"what can squad do"`, `"show me squad options"`, `"slash commands"`, `"what commands are available"`.
 
@@ -75,15 +81,18 @@ Do **not** try to invoke this from inside an existing Copilot session — `.squa
 
 ## What NOT to do
 
-- ❌ Do not call `skill(Squad)`, `skill(squad)`, or `skill(squad-coordinator)` — Squad is not a skill.
-- ❌ Do not type `/squad` expecting a slash command — slash commands are CLI keywords, not skill names. Use `/agent` (browse) or invoke the `Squad` agent via the `task` tool.
+- ❌ Do not use the menu skill as a substitute for the `Squad` coordinator agent.
+- ❌ Do not assume `/squad` is exposed by every host, or universally unsupported; check host discovery and use the natural-language menu fallback.
 - ❌ Do not call `task(agent_type="Squad", …)` for tiny tasks the current agent can handle directly. Squad is for work that needs orchestration; trivial edits do not.
 
 ---
 
 ## How this skill was discovered
 
-This skill ships from the Squad SDK templates and is wired into `MANIFEST_SKILL_NAMES`. It lives at `.copilot/skills/squad-help/SKILL.md` so the Copilot CLI's `/skills` loader picks it up alongside the other bundled Squad skills.
+This repository installs managed help at `.github/skills/squad-help/SKILL.md`.
+Discovery in a picker, tool or command menu depends on the host's repository-skill
+support and settings. This narrow Waza correction is not pristine upstream text;
+preserve its coordinator/menu distinction and source-contract regression on upgrade.
 
 If you removed this skill on purpose, the model will fall back to its own reasoning and may make the lookup mistakes described above.
 
@@ -92,6 +101,4 @@ If you removed this skill on purpose, the model will fall back to its own reason
 ## See also
 
 - `.github/agents/squad.agent.md` — the actual Squad coordinator agent
-- `.copilot/skills/squad-commands/SKILL.md` — the command catalog
-- `.copilot/skills/squad-conventions/SKILL.md` — conventions for working on the Squad codebase itself
-- `.copilot/skills/squad-version-check/SKILL.md` — version-stamping mechanics
+- `.github/skills/squad/SKILL.md` — the separate command catalog and interactive menu

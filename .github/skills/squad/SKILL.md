@@ -1,12 +1,16 @@
 ---
 name: squad
 description: >-
-  Squad's command catalog and interactive menu. Invoke via /squad (slash command) or natural language ("squad commands", "what can squad do", "show me squad options"). Presents categorized operations (Install & Upgrade, Team Management, Issues & PRs, Plugins & Skills, Model & Cost, Sessions & State) as an interactive picker. Routes to the right squad CLI command or the Squad coordinator agent.
+  Squad's command catalog and interactive menu. Invoke via /squad where the host exposes user-invocable skills as commands, or natural language ("squad commands", "what can squad do", "show me squad options"). Presents categorized operations (Install & Upgrade, Team Management, Issues & PRs, Plugins & Skills, Model & Cost, Sessions & State) as an interactive picker. Routes to the right squad CLI command or the Squad coordinator agent.
 user-invocable: true
 allowedTools: []
 ---
 
 ## Menu Presentation Rules
+
+**Host-dependent invocation:** `user-invocable: true` declares menu intent, not a guarantee
+that every host exposes `/squad`. Use natural-language triggers or the host skill picker/tool
+when slash invocation is unavailable. This menu is separate from the `Squad` coordinator agent.
 
 When the user triggers this skill (via `/squad` slash command, "squad commands", "help", "what can squad do", etc.):
 

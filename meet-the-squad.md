@@ -141,6 +141,10 @@ requests cannot become Copilot good-fit assignments. Generic one-word subjects s
 Handler regressions cover abbreviated titles/bodies, inline/multiline profiles, both
 line endings and assignment settings, plus ordinary bug-fix and generic-subject controls.
 
+Managed help/menu invocation has a project correction too: the `Squad` coordinator
+agent is distinct from the installed `squad` menu skill. Slash invocation is host-dependent;
+help, menu metadata and both coordinator copies retain natural-language fallbacks.
+
 Verify config/charter/roster agreement, active casting identities and commit
 manifest integrity, required support charters, live references, and unchanged
 historical member files. Run the doctor and health commands above. Backups,
