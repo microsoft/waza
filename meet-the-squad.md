@@ -27,6 +27,7 @@ current. Node.js 22.5 or newer is required.
 npm exec --yes --package=@bradygaster/squad-cli@1.0.0 -- squad doctor
 npm exec --yes --package=@bradygaster/squad-cli@1.0.0 -- squad health --json
 node --test .github/scripts/ralph-triage.test.cjs
+node --test .github/scripts/squad-state.test.cjs
 ```
 
 The coordinator and managed templates are Squad 1.0.0; `.mcp.json` pins the same
@@ -60,6 +61,15 @@ The installed standalone triage script includes Waza-local routing and GitHub AP
 fixes. Preserve them when refreshing managed assets unless the upstream release
 already contains them. The regression command above runs in Squad Tools CI and
 checks all specialist routes, ambiguous/duplicate matches, and public/Enterprise API defaults.
+On Ubuntu and native Windows it also checks role-model agreement and a real Git
+`core.autocrlf=true` checkout: the hash-bound casting files must stay LF while a
+control file converts to CRLF. CI fetches the integrity-pinned SDK 1.0.0 tarball
+without installing dependencies or executing package scripts, then uses its real
+`readCastingRegistryPair` reader to accept the checkout and reject CRLF corruption.
+For the same SDK check locally, set `SQUAD_SDK_READER` to that package's
+`dist/casting/durable-registry.js`; without it only the SDK subtest is skipped.
+Preserve the casting LF rules in `.gitattributes` and do not regenerate the commit
+manifest merely to accommodate checkout line-ending conversion.
 
 Verify config/charter/roster agreement, active casting identities and commit
 manifest integrity, required support charters, live references, and unchanged
