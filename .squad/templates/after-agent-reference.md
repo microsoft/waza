@@ -7,9 +7,12 @@
      (2) "Server Error Retry Loop" — context overflow after fan-out. Mitigated by lean
      post-work turn + Scribe delegation + compact result presentation. -->
 
-**⚡ Keep the post-work turn LEAN.** Coordinator's job: (1) present compact results, (2) spawn Scribe. That's ALL. No orchestration logs, no decision consolidation, no heavy file I/O.
+**⚡ Keep the post-work turn LEAN.** Present compact results and delegate accepted
+decision merges only when needed. Do not spawn routine logging work.
 
-**⚡ Context budget rule:** After collecting results from 3+ agents, use compact format (agent + 1-line outcome). Full details go in orchestration log via Scribe.
+**⚡ Context budget rule:** After collecting results from 3+ agents, use compact format
+(agent + 1-line outcome). Retain details in agent responses and requested artifacts,
+not automatic Scribe logs.
 
 After each batch of agent work:
 
@@ -22,19 +25,22 @@ After each batch of agent work:
 
 3. **Show compact results:** `{emoji} {Name} — {1-line summary of what they did}`
 
-4. **Spawn Scribe** (background, never wait). Only if agents ran or inbox has files:
+4. **Spawn Scribe** (background, never wait) only for an explicit Coordinator delegation
+   of already-accepted durable decisions, not merely because agents ran or inbox files exist.
+   Resolve the role model through `.squad/model-policy.md`; pass an override only if the
+   host supports it, otherwise disclose the host-controlled limitation.
 
 ```
 agent_type: "general-purpose"
-model: "claude-haiku-4.5"
 mode: "background"
 name: "scribe"
-description: "📋 Scribe: Log session & merge decisions"
+description: "📋 Scribe: Merge accepted decisions"
 prompt: |
   You are the Scribe. Read .squad/agents/scribe/charter.md.
   TEAM ROOT: {team_root}
   CURRENT_DATETIME: <resolved CURRENT_DATETIME literal>
   STATE_BACKEND: {state_backend}
+  ACCEPTED_DECISIONS: {inbox IDs already accepted by the Coordinator}
 
   SPAWN MANIFEST: {spawn_manifest}
 
@@ -43,19 +49,35 @@ prompt: |
      stop without mutating files or git state.
   0b. PRE-CHECK: Read `decisions.md` and list `decisions/inbox` with state tools.
      Record measurements.
-  1. DECISIONS ARCHIVE [HARD GATE]: If decisions.md >= 20480 bytes, archive entries older than 30 days NOW. If >= 51200 bytes, archive entries older than 7 days. Do not skip this step. Follow the ARCHIVAL SAFETY RULES below — they are not optional.
-  2. DECISION INBOX: Use `squad_state_list` and `squad_state_read` on `decisions/inbox`,
-     merge entries into `decisions.md` with `squad_state_write`, delete processed inbox
-     entries with `squad_state_delete`, and deduplicate. Before splicing an inbox body
+  0c. Coordinator alone accepts decisions. Without explicit delegation and accepted
+     inbox IDs, stop without writes; leave proposals untouched.
+  1. DECISION INBOX: Use `squad_state_list` and `squad_state_read` on `decisions/inbox`.
+     Merge only ACCEPTED_DECISIONS into `decisions.md` with `squad_state_write` and
+     deduplicate without rewriting unrelated decisions. Before splicing an inbox body
      beneath an `###` entry, DEMOTE its headings so its shallowest heading lands at
      `####` (`##` -> `####`). Preserve relative structure. Never emit an `##` under an `###`.
-  3. ORCHESTRATION LOG: Write `orchestration-log/{timestamp}-{agent}.md` with `squad_state_write` per agent. Use ISO 8601 UTC timestamp. Replace `:` with `-` in `{timestamp}` so filenames are valid on all platforms (e.g. `2026-06-02T21-15-30Z`).
-  4. SESSION LOG: Write `log/{timestamp}-{topic}.md` with `squad_state_write`. Brief. Use ISO 8601 UTC timestamp. Replace `:` with `-` in `{timestamp}` so filenames are valid on all platforms.
-  5. CROSS-AGENT: Append team updates to affected agents' `agents/{agent}/history.md` with `squad_state_append`.
-  6. HISTORY SUMMARIZATION [HARD GATE]: If any history.md >= 15360 bytes (15KB), summarize now. The ARCHIVAL SAFETY RULES apply here too — summarization moves content out of a file exactly like decision archival does.
-  7. HEALTH REPORT: Report ENTRY COUNTS, never file sizes: `N removed from source / N added to destination` for every archival, plus inbox count processed and history files summarized. Write with `squad_state_write` or `squad_state_append`.
+  2. VERIFY: Re-read `decisions.md` and confirm every merged entry is present before
+     deleting only its accepted inbox source with `squad_state_delete`.
+  3. Return the merge result to the Coordinator: accepted IDs merged, unprocessed
+     inbox entries and any measured blocker. Do not create logs or update specialist
+     histories, audit trails or durable health reports. Leave archival to the Coordinator.
 
-  ARCHIVAL SAFETY RULES (apply to every operation that moves content out of a file):
+  Runtime state tools own persistence. Never switch branches, push note refs, reset
+  `.squad/`, or commit mutable squad state from this prompt.
+
+  Never speak to user. End with plain text summary after all tool calls.
+```
+
+### Coordinator-only archival reference
+
+Archival is separate from the decision-only Scribe merge. The Coordinator arranges an
+explicitly authorized writer when required by the current state contract; absent one,
+stop and report rather than expanding Scribe's charter. Preserve existing historical records.
+Measure before reporting any threshold outcome: decision-ledger gates remain 20480 bytes
+(entries older than 30 days) and 51200 bytes (older than 7 days), and the history gate
+remains 15360 bytes. These thresholds never authorize an unverified or out-of-scope move.
+
+ARCHIVAL SAFETY RULES (apply to every authorized operation that moves content out of a file):
   A. VERIFY THE DESTINATION FOR THE CONFIGURED BACKEND. Confirm the backend with the state tools.
      For checkout-local/worktree storage only, run `git ls-files --error-unmatch <destination>`
      before writing. Exit 0 -> proceed. Non-zero -> redirect to an existing tracked archive file,
@@ -77,12 +99,6 @@ prompt: |
      actual measurement. A gate that reports without measuring is worse than no gate.
   E. If a state tool cannot perform these checks, STOP and report rather than proceeding with an
      unverified move.
-
-  Runtime state tools own persistence. Never switch branches, push note refs, reset
-  `.squad/`, or commit mutable squad state from this prompt.
-
-  Never speak to user. ⚠️ End with plain text summary after all tool calls.
-```
 
 5. **Immediately assess:** Does anything trigger follow-up work? Launch it NOW.
 

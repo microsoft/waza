@@ -624,10 +624,10 @@ to bypass the ownership rules above.
 
 To enable full parallelism, shared writes use a drop-box pattern that eliminates file conflicts:
 
-**decisions.md** — Agents do NOT write directly to `decisions.md`. Instead:
+**decisions.md** — Specialists do NOT write directly to `decisions.md`. Instead:
 - Agents record decisions with `memory.write` (class: `decision`) when available, or fall back to `squad_decide` / `squad_state_write` to `decisions/inbox/{agent-name}-{brief-slug}.md`.
 - The runtime routes that write to the configured state backend. Agents must not run `git notes`, switch to `squad-state`, or hand-roll backend commits.
-- Scribe merges into the canonical `.squad/decisions.md` and clears the inbox
+- Coordinator alone accepts decisions. A coordinator-delegated Scribe merges only those accepted decisions into `.squad/decisions.md`, verifies them, and clears only their processed inbox entries.
 - All agents READ from `.squad/decisions.md` at spawn time (last-merged snapshot)
 
 ### Worktree Awareness
@@ -680,12 +680,15 @@ prompt: |
   TEAM ROOT: {team_root}
   CURRENT_DATETIME: <resolved CURRENT_DATETIME literal>
   STATE_BACKEND: {state_backend}
+  ACCEPTED_DECISIONS: {inbox IDs already accepted by the Coordinator}
 
   Tasks (in order):
   0. PRE-CHECK: Run `squad_state_health` when available. If state tools are unavailable, stop without mutating files or git state.
   0b. PRE-CHECK: Read `decisions.md` and list `decisions/inbox` with state tools. Record measurements.
+  0c. Coordinator alone accepts decisions. Without explicit delegation and accepted inbox IDs, stop without writes; leave proposals untouched. Merge only ACCEPTED_DECISIONS.
   1. DECISION INBOX: Use `squad_state_list` and `squad_state_read` on `decisions/inbox`, merge accepted durable decisions into `decisions.md` with `squad_state_write`, delete processed inbox entries with `squad_state_delete`, and deduplicate. Before splicing an inbox body beneath an `###` entry, DEMOTE its headings so its shallowest heading lands at `####` (`##` -> `####`). Preserve relative structure. Never emit an `##` under an `###`.
   2. VERIFY: Re-read `decisions.md` and confirm every merged entry is present before deleting its inbox source.
+  2b. Return the merge result to the Coordinator; do not create logs or update specialist histories.
   3. GIT COMMIT: Do not commit mutable squad state. If non-state repo files changed, report them for coordinator handling.
 
   Runtime state tools own persistence. Never switch branches, push note refs, reset `.squad/`, or commit mutable squad state from this prompt.
@@ -724,7 +727,7 @@ Ceremonies are structured team meetings where agents align before or after work.
 1. Before spawning a work batch, check `.squad/ceremonies.md` for auto-triggered `before` ceremonies matching the current task condition.
 2. After a batch completes, check for `after` ceremonies. Manual ceremonies run only when the user asks.
 3. Spawn the facilitator (sync) using the template in the reference file. Facilitator spawns participants as sub-tasks.
-4. For `before`: include ceremony summary in work batch spawn prompts. Spawn Scribe (background) to record.
+4. For `before`: include ceremony summary in work batch spawn prompts. Spawn Scribe only for delegated merges of already-accepted durable decisions, not ceremony logging.
 5. **Ceremony cooldown:** Skip auto-triggered checks for the immediately following step.
 6. Show: `📋 {CeremonyName} completed — facilitated by {Lead}. Decisions: {count} | Action items: {count}.`
 
@@ -769,7 +772,7 @@ Squad files split into **authoritative** (governance, roster, charters — stati
 1. **`squad.agent.md` wins** any conflict with another file.
 2. **Runtime-owned state** is changed only through the configured state bridge.
 3. **Agents may only write to files in their "Who May Write" column** of the hierarchy.
-4. **Only Squad (Coordinator)** records accepted decisions in `.squad/decisions.md`.
+4. **Coordinator alone accepts decisions**; only the Coordinator or a coordinator-delegated Scribe may record already-accepted decisions in `.squad/decisions.md`.
 
 **For the full file-by-file table**, invoke the `skill` tool on
 **`coordinator-source-of-truth`** to load the complete reference.

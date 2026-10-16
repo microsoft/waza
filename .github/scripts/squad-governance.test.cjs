@@ -99,6 +99,81 @@ function assertRejectionPolicy(text) {
   assert.doesNotMatch(policy, /usually the agent that produced|Pair mode|revise with grounding/i);
 }
 
+test('delegated Scribe merges preserve Coordinator acceptance and decision-only output', () => {
+  const authority = (text) => {
+    const source = prose(text).replaceAll('**', '');
+    assert.match(source, /Coordinator alone accepts decisions/);
+    assert.match(source,
+      /only the Coordinator or a coordinator-delegated Scribe may record already-accepted decisions/);
+    assert.doesNotMatch(source, /Only Squad \(Coordinator\).*records accepted decisions/);
+  };
+  const prompt = (text) => {
+    const source = prose(text);
+    assert.match(source, /ACCEPTED_DECISIONS: \{inbox IDs already accepted by the Coordinator\}/);
+    assert.match(source, /Coordinator alone accepts decisions/);
+    assert.match(source, /Without explicit delegation and accepted inbox IDs, stop without writes/);
+    assert.match(source, /Merge only ACCEPTED_DECISIONS/);
+    assert.match(source, /Return the merge result to the Coordinator/);
+    assert.match(source, /do not create logs or update specialist histories/i);
+    assert.doesNotMatch(source,
+      /ORCHESTRATION LOG:|SESSION LOG:|CROSS-AGENT:|HISTORY SUMMARIZATION|DECISIONS ARCHIVE|Write `(?:orchestration-log|log)\/|Append .*history\.md/i);
+  };
+  const skill = read('.github/skills/coordinator-source-of-truth/SKILL.md');
+  authority(skill);
+  const ledger = (text) => {
+    const row = text.split('\n').find((line) => line.startsWith('| `.squad/decisions.md` |'));
+    assert.match(row.split('|')[3], /Coordinator or coordinator-delegated Scribe/);
+    assert.match(row.split('|')[3], /already-accepted decisions only, append only/);
+  };
+  ledger(skill);
+  const row = skill.split('\n').find((line) => line.startsWith('| `.squad/decisions.md` |'));
+  const noDelegate = row.replace('Coordinator or coordinator-delegated Scribe', 'Coordinator only');
+  assert.throws(() => ledger(skill.replace(row, noDelegate)), assert.AssertionError);
+  assert.throws(() => authority(skill.replace('coordinator-delegated Scribe may record',
+    'Coordinator alone may record')), assert.AssertionError);
+  for (const file of ['.github/agents/squad.agent.md', '.squad/templates/squad.agent.md.template']) {
+    const source = read(file);
+    const hierarchy = source.split('## Source of Truth Hierarchy')[1]
+      .split('## Casting & Persistent Naming')[0];
+    authority(hierarchy);
+    assert.throws(() => authority(hierarchy.replace('coordinator-delegated Scribe may record',
+      'Coordinator alone may record')), assert.AssertionError);
+    const spawn = source.split('**Scribe Spawn Template**')[1].split('**On-demand reference:**')[0];
+    prompt(spawn);
+  }
+  for (const file of ['.squad/agents/scribe/charter.md', '.squad/templates/scribe-charter.md']) {
+    const source = prose(read(file));
+    assert.match(source, /Coordinator alone accepts decisions/);
+    assert.match(source, /without them, stop without writes and leave proposals untouched/i);
+  }
+  const reference = read('.squad/templates/after-agent-reference.md');
+  assert.match(prose(reference),
+    /only for an explicit Coordinator delegation of already-accepted durable decisions/);
+  assert.doesNotMatch(reference, /Only if agents ran or inbox has files|model: "claude-/);
+  const spawn = reference.split('prompt: |')[1].split('```')[0];
+  prompt(spawn);
+  for (const [before, after] of [
+    ['Merge only ACCEPTED_DECISIONS', 'Merge every inbox proposal'],
+    ['Without explicit delegation and accepted', 'Without checking delegation or accepted'],
+    ['Return the merge result to the Coordinator', 'Write a durable health report'],
+  ]) {
+    assert.ok(spawn.includes(before));
+    assert.throws(() => prompt(spawn.replace(before, after)), assert.AssertionError);
+  }
+  for (const forbidden of [
+    'ORCHESTRATION LOG: Write `orchestration-log/session.md`.',
+    'SESSION LOG: Write `log/session.md`.',
+    'CROSS-AGENT: Append specialist history.md.',
+    'HISTORY SUMMARIZATION [HARD GATE].',
+    'DECISIONS ARCHIVE [HARD GATE].',
+  ]) assert.throws(() => prompt(`${spawn}\n${forbidden}`), assert.AssertionError);
+  const archive = prose(reference.split('### Coordinator-only archival reference')[1] || '');
+  assert.match(archive,
+    /For non-local storage, checkout tracking is not a persistence requirement: do not run this Git gate/);
+  assert.match(archive,
+    /require a successful persistence acknowledgement, and re-read the destination through that backend before removing any source entries/);
+});
+
 test('delegated merge requirements resolve active rules and current-head evidence', () => {
   assert.match(read('.squad/governance.md'),
     /Repository merge requirements remain in `\.github\/PR_REQUIREMENTS\.md`/);

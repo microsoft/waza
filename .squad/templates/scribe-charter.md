@@ -27,6 +27,9 @@ are unavailable, stop without mutating state and report the failure to the coord
 
 When accepted durable decisions exist:
 
+The Coordinator alone accepts decisions. Work only under explicit delegation with
+accepted inbox IDs; without them, stop without writes and leave proposals untouched.
+
 1. List and read `decisions/inbox/` through the configured state backend.
 2. Merge only accepted, current decisions into `decisions.md`; do not manufacture session records.
 3. Demote inbox headings so the shallowest body heading lands at `####`, preserving relative

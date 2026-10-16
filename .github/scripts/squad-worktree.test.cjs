@@ -38,6 +38,8 @@ test('documented Squad regressions run in a genuine linked Git worktree', (t) =>
     '.squad/governance.md',
     '.squad/casting-transactions.md',
     '.squad/templates/casting-reference.md',
+    '.squad/templates/after-agent-reference.md',
+    '.squad/templates/scribe-charter.md',
     '.squad/templates/squad.agent.md.template',
     '.squad/templates/workflow-wiring-guide.md',
     '.squad/templates/workflow-wiring-appendix-a-code-reviewer.md',

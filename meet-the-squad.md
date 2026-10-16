@@ -126,6 +126,14 @@ ordinary Copilot activation. Source-contract tests exercise the actual Init Mode
 seed declarations and a bounded role/policy/caller consistency matrix, rejecting contradictory
 ownership, pairing, evidence, gate-clearance and reviewer-persistence instructions.
 
+Scribe procedures are also a narrow project override, not pristine upstream bytes.
+Only the Coordinator accepts decisions; it may delegate mechanical merges of explicit
+accepted inbox IDs to Scribe. Active/template hierarchies and the on-demand after-agent
+procedure preserve that distinction. The decision-only spawn does not write logs,
+specialist histories or durable health reports; it returns its merge result to the
+Coordinator. Backend-aware archival safety remains a separate Coordinator responsibility.
+Preserve these boundaries and their positive/negative source regressions on upgrade.
+
 Verify config/charter/roster agreement, active casting identities and commit
 manifest integrity, required support charters, live references, and unchanged
 historical member files. Run the doctor and health commands above. Backups,
