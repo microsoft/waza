@@ -40,4 +40,4 @@ jobs:
       - name: Test triage and casting checkout with the real pinned SDK reader
         env:
           SQUAD_SDK_READER: .git/squad-sdk-package/package/dist/casting/durable-registry.js
-        run: node --test .github/scripts/ralph-triage.test.cjs .github/scripts/squad-state.test.cjs
+        run: node --test .github/scripts/ralph-triage.test.cjs .github/scripts/squad-state.test.cjs .github/scripts/squad-worktree.test.cjs

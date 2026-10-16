@@ -28,6 +28,7 @@ npm exec --yes --package=@bradygaster/squad-cli@1.0.0 -- squad doctor
 npm exec --yes --package=@bradygaster/squad-cli@1.0.0 -- squad health --json
 node --test .github/scripts/ralph-triage.test.cjs
 node --test .github/scripts/squad-state.test.cjs
+node --test .github/scripts/squad-worktree.test.cjs
 ```
 
 The coordinator and managed templates are Squad 1.0.0; `.mcp.json` pins the same
@@ -70,6 +71,11 @@ For the same SDK check locally, set `SQUAD_SDK_READER` to that package's
 `dist/casting/durable-registry.js`; without it only the SDK subtest is skipped.
 Preserve the casting LF rules in `.gitattributes` and do not regenerate the commit
 manifest merely to accommodate checkout line-ending conversion.
+The worktree regression creates an isolated repository and a genuine linked Git
+worktree, then runs the same 31 triage/state checks there, including the SDK check
+when configured. Both CI platforms run it. Test scratch directories are bounded
+under the actual checkout root and cleaned afterward; `.git` may be a file, not
+a directory, in a linked worktree.
 
 Verify config/charter/roster agreement, active casting identities and commit
 manifest integrity, required support charters, live references, and unchanged

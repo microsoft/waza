@@ -42,7 +42,7 @@ test('all 13 role models agree across config, active charters and roster', () =>
 
 test('Git autocrlf checkout preserves the hash-bound casting pair', async (t) => {
   // Keep scratch state inside this checkout, including on native Windows runners.
-  const scratch = fs.mkdtempSync(path.join(root, '.git', 'squad-checkout-'));
+  const scratch = fs.mkdtempSync(path.join(fs.realpathSync(root), '.squad-checkout-test-'));
   t.after(() => fs.rmSync(scratch, { recursive: true, force: true }));
   const source = path.join(scratch, 'source');
   const checkout = path.join(scratch, 'checkout');
