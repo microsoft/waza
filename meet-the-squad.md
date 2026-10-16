@@ -98,3 +98,10 @@ transaction scratch files, and local machine paths must not enter the commit.
 
 The pre-1.0 casting files are archived verbatim under
 `.squad/casting/legacy-v0.10.0/`; they are history, not alternative live registries.
+Their immutable bytes are checkout-conversion-disabled. SDK preparation rejects
+these files before a mutation callback can run: follow the transaction guide's
+explicit, approved **archive-and-initialize** procedure, not in-place callback
+normalization. It requires stopped old readers/writers, a verified durable
+archive, a genuinely empty new active target, and disclosure of downtime,
+non-atomic archive steps and limited historical/provenance continuity. Corrupt
+managed pairs are never automatically treated as legacy.

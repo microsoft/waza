@@ -8,6 +8,7 @@
 # Squad commits hash these exact bytes; Windows checkout must retain LF.
 .squad/casting/registry.json text eol=lf
 .squad/casting/history.json text eol=lf
+.squad/casting/legacy-v0.10.0/** -text
 testdata/frozen-assurance-readers/** -text
 schemas/grader-assurance-1.0.schema.json text eol=lf
 schemas/grader-reference-1.0.schema.json text eol=lf

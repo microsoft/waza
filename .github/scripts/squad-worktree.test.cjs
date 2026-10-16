@@ -40,6 +40,10 @@ test('documented Squad regressions run in a genuine linked Git worktree', (t) =>
     '.squad/casting/registry.json',
     '.squad/casting/history.json',
     '.squad/casting/registry-history.commit.json',
+    '.squad/casting/policy.json',
+    '.squad/casting/legacy-v0.10.0/registry.json',
+    '.squad/casting/legacy-v0.10.0/history.json',
+    '.squad/casting/legacy-v0.10.0/policy.json',
     ...Object.keys(config.agentModelOverrides).map((member) =>
       `.squad/agents/${member}/charter.md`),
   ];
@@ -80,5 +84,7 @@ test('documented Squad regressions run in a genuine linked Git worktree', (t) =>
   assert.match(result.stdout, /# Subtest: production triage workflow preserves its event/);
   assert.match(result.stdout, /# fail 0/);
   if (env.SQUAD_SDK_READER) assert.match(result.stdout, /# skipped 0/);
-  t.diagnostic('Linked-worktree child suite passed with real Git metadata and autocrlf conversion');
+  const totals = result.stdout.match(/# tests (\d+)/);
+  assert.ok(totals);
+  t.diagnostic(`Linked-worktree child suite passed ${totals[1]} tests with real Git metadata and autocrlf conversion`);
 });

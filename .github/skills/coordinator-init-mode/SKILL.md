@@ -71,7 +71,13 @@ No team exists yet. **Propose one — but DO NOT create any files until the user
 
 6. Create the `.squad/` directory structure (see `.squad/templates/` for format guides or use the standard structure: `team.md`, `routing.md`, `ceremonies.md`, `decisions.md`, `decisions/inbox/`, `casting/`, `agents/`, `orchestration-log/`, `skills/`, `log/`, `rai/`).
 
-**Casting state initialization — Waza project repair:** Initialize policy config from defaults only if absent. Use `.squad/casting-transactions.md`'s actual locked SDK writer to initialize schema-v1 registry/history and their commit manifest together, including complete provenance and the first assignment snapshot. Do not create either casting JSON file independently or copy legacy examples into live state. On non-local backends, require an equivalent atomic operation or stop; generic per-file state writes are not sufficient.
+**Casting state initialization — Waza project repair:** Begin with a genuinely empty new target. Use `.squad/casting-transactions.md`'s actual locked SDK writer to initialize schema-v1 registry/history and their commit manifest together, including complete provenance and the first assignment snapshot; only then initialize policy config exclusively from approved defaults. Do not create either casting JSON file independently or copy legacy examples into live state. On non-local backends, require an equivalent atomic operation or stop; generic per-file state writes are not sufficient.
+
+Initialization requires a genuinely empty new target. The SDK prepares/validates
+existing files before the callback, so it cannot normalize v0.10 files left in
+place. Known frozen v0.10 state requires the guide's approved, quiesced
+archive-and-initialize procedure with disclosed downtime and continuity limits;
+never infer legacy status from a managed-pair validation failure.
 
 **Seeding:** Each agent's `history.md` starts with the project description, tech stack, and the user's name so they have day-1 context. Agent folder names are the cast name in lowercase (e.g., `.squad/agents/ripley/`). The Scribe's charter includes maintaining `decisions.md` and cross-agent context sharing. Rai's charter is seeded from the `Rai-charter.md` template, and `.squad/rai/policy.md` is seeded from `rai-policy.md`. Fact Checker's charter is seeded from `fact-checker-charter.md` and `.squad/fact-checker/policy.md` is seeded from `fact-checker-policy.md`.
 

@@ -147,7 +147,7 @@ This handshake runs **once per session**, not per spawn. Cache the result.
 summarize current repository, issue, PR, and durable decision state. Do not create or consult
 specialist histories, orchestration logs, or session logs.
 
-**Casting migration check:** If `.squad/team.md` exists but `.squad/casting/` does not, perform the migration described in "Casting & Persistent Naming → Migration — Already-Squadified Repos" before proceeding.
+**Casting migration check:** Missing casting state may be initialized only in an empty target. Known frozen v0.10 state needs the approved, quiesced archive-and-initialize procedure below. A managed-pair validation failure is not evidence of legacy state; stop or use supported SDK recovery, never auto-migrate it.
 
 ### Personal Squad (Ambient Discovery)
 
@@ -771,12 +771,13 @@ The casting system maintains `policy.json` (config), `registry.json` and `histor
 
 ### Migration — Already-Squadified Repos
 
-When `.squad/team.md` exists but `.squad/casting/` does not:
+When an existing team needs canonical casting state:
 
 1. **Do NOT rename existing agents.** Mark every existing agent as `legacy_named: true` in the registry.
-2. Preserve old casting bytes, initialize policy config if absent, and migrate/init registry and history together through `.squad/casting-transactions.md`'s locked SDK writer. Never create or replace only one half of the pair.
-3. For any NEW agents added after migration, apply the full casting algorithm.
-4. Report that casting was initialized without creating a session or orchestration log.
+2. If casting state is absent, initialize canonical state from the approved roster in a genuinely empty target through `.squad/casting-transactions.md`'s locked SDK writer.
+3. For the known frozen v0.10 files, follow that guide's explicit quiesced **archive-and-initialize** maintenance recipe. SDK preparation rejects the legacy pair before the callback; do not leave it in place and attempt callback normalization. Disclose downtime, non-atomic archival and the new provenance generation.
+4. Never classify corrupt managed state or a missing manifest as legacy. Stop and report; only the SDK owns recovery of managed transactions.
+5. For any NEW agents added after accepted pair read-back, apply the full casting algorithm. Report measured initialization/migration results without inventing historical continuity or a session/orchestration log.
 
 ---
 

@@ -9,8 +9,10 @@ pristine upstream bytes. Preserve this override and its tests when upgrading.
 
 After explicit approval for a team change, use
 `.github/scripts/squad-casting.mjs`'s `updateCastingPair` for **every** local/worktree
-casting mutation: initialization, migration, add, retire/status change, role/name/
-universe changes, overflow, and re-casting. Never write `registry.json`,
+canonical casting mutation: initialization into an empty target, add,
+retire/status change, role/name/universe changes, overflow, and re-casting.
+Old v0.10 state requires the separate archive-and-initialize maintenance procedure
+below, not an in-place normalization callback. Never write `registry.json`,
 `history.json`, or `registry-history.commit.json` independently with file/state
 tools. Do not remove the manifest, weaken hash checks, normalize bytes on read, or
 regenerate checksums to conceal a unilateral edit.
@@ -26,7 +28,8 @@ The helper:
 
 1. Calls `acquireCastingRegistryLock(castingDir, purpose)`.
 2. Calls `prepareCastingRegistryPairLocked(castingDir)` while locked, recovering
-   any durable transaction and rejecting corrupt/incomplete input.
+   supported durable transactions and rejecting invalid legacy or corrupt/
+   incomplete input **before the mutation callback runs**.
 3. Clones both roots (or initializes schema-v1 roots if both are absent), advances
    the registry revision and history revision together, and runs a **synchronous**
    in-memory mutation callback. Preserve existing identities and append-only
@@ -84,10 +87,122 @@ Role/name/universe changes likewise update the existing record in a paired
 transaction; maintain `persistent_name === display_name` and append an assignment
 snapshot when the cast changes.
 
-For old-generation migration, first preserve the original bytes in a durable
-archive, then construct schema-v1 records through this transaction callback; never
-overwrite one half of an existing pair to make it look migratable. The existing
-`legacy-v0.10.0/` archive is historical and must remain byte-identical.
+## Archive and initialize the known v0.10 state
+
+`prepareCastingRegistryPairLocked` rejects the frozen v0.10 registry because it
+lacks a positive revision and schema-v1 provenance. The callback cannot normalize
+those files in place. Do **not** treat any validation failure as a legacy detector:
+managed pairs, missing manifests, transaction journals, unexpected files, unknown
+legacy versions or different bytes require investigation, not this procedure.
+
+The supported procedure below is deliberately limited to the exact three frozen
+`legacy-v0.10.0/` files. It is a maintenance recipe, **not a general legacy importer
+or a command to run on this repository's already-managed live casting state**.
+
+1. Obtain explicit approval and quiesce **all** old writers/readers and background
+   workers. Ensure exclusive operator control of the source and archive parent.
+   The SDK lock does not coordinate v0.10 writers. If they cannot be stopped,
+   stop the migration.
+2. Verify the complete old directory has exactly `registry.json`, `history.json`
+   and `policy.json`, with the frozen byte fingerprints below. Reject symlinks.
+   Never remove a manifest/journal or alter bytes to make this check pass.
+3. Create a new exclusive archive container and move the **whole old directory**
+   into it. Read back every original byte before proceeding. Keep that archive
+   durable and version-controlled/backed up through the approved storage process;
+   a successful local rename alone is not proof of remote archival.
+4. Create a genuinely empty new active directory at the former path. Initialize
+   canonical objects using `updateCastingPair` and the verified pinned SDK, then
+   copy the unchanged policy exclusively. Only resume compatible readers/writers
+   after accepted pair/provenance read-back and verified archive persistence.
+
+**Downtime and continuity limits:** archive move, fresh-directory creation, SDK
+commit and policy copy are separate operations, **not one atomic migration**.
+The active path is absent/empty during the maintenance window. If any step fails,
+keep clients quiesced, preserve the archive and report the partial state; do not
+overwrite a newly managed pair or hand-restore individual files. SDK recovery
+applies only to the new managed target, not the archive/move sequence.
+
+The archive is the complete historical record. The live schema below is a
+reviewed projection of these known inputs: it keeps IDs, names, universe labels
+and asserted timestamps, supplies explicitly approved role metadata, marks names
+as imported, and maps supported history fields. Legacy notes/capacity fields
+remain only in the byte-preserved archive. This starts revision 1 with a new
+manifest; it does **not** establish transactional, cryptographic or verified
+historical provenance continuity with v0.10. Roles and old timestamps are not
+independently verified by schema acceptance.
+
+The following example is executed only on isolated copies by the regression
+suite. The role map is an example requiring operator approval, not a recovered
+historical fact. The source's known byte fingerprints make this recipe reject
+even a managed pair whose manifest was removed.
+
+```js
+import fs from 'node:fs';
+import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
+import { updateCastingPair } from './.github/scripts/squad-casting.mjs';
+
+const active = '.squad/casting';
+const archive = '.squad/casting-v0.10.0-approved-archive';
+const fingerprints = {
+  'registry.json': '64d9c852d087ae98acb72bbdf1652c36f247457a6c313805f91725bbfb11bf26',
+  'history.json': '01f651483280eca3710175f928da165dc9e896e53b435f6f259e47ec58df0206',
+  'policy.json': 'b1b95dbf0cb9e2473a59fef43c379ab4046d496ba23cecaea974051ad0fbc2d7',
+};
+assert.ok(fs.lstatSync(active).isDirectory(), 'Legacy source must be a real directory');
+assert.deepEqual(fs.readdirSync(active).sort(), Object.keys(fingerprints).sort(),
+  'Not the supported frozen v0.10 directory; do not classify managed/corrupt state as legacy');
+const original = {};
+for (const [file, fingerprint] of Object.entries(fingerprints)) {
+  assert.ok(fs.lstatSync(`${active}/${file}`).isFile(), 'Legacy input must be a real file');
+  original[file] = fs.readFileSync(`${active}/${file}`);
+  assert.equal(createHash('sha256').update(original[file]).digest('hex'), fingerprint,
+    'Not the supported frozen v0.10 bytes; stop without modifying state');
+}
+fs.mkdirSync(archive); // Exclusive: never overwrite an existing archive.
+fs.renameSync(active, `${archive}/casting`);
+for (const file of Object.keys(fingerprints)) {
+  assert.deepEqual(fs.readFileSync(`${archive}/casting/${file}`), original[file]);
+}
+fs.mkdirSync(active); // New empty active target; the old pair is not left in place.
+assert.deepEqual(fs.readdirSync(active), []);
+const legacyRegistry = JSON.parse(original['registry.json']);
+const legacyHistory = JSON.parse(original['history.json']);
+const approvedRoles = {
+  rusty: 'Lead / Architect', linus: 'Go Backend', basher: 'Test Quality',
+  livingston: 'Technical Documentation', saul: 'Documentation Lead',
+  scribe: 'Session Logger', turk: 'Performance Analysis',
+};
+await updateCastingPair(active, (registry, history) => {
+  for (const [id, record] of Object.entries(legacyRegistry.agents)) {
+    registry.agents[id] = {
+      display_name: record.persistent_name,
+      persistent_name: record.persistent_name,
+      role: approvedRoles[id],
+      universe: record.universe,
+      created_at: record.created_at,
+      updated_at: registry.generated_at,
+      legacy_named: true,
+      status: record.status,
+    };
+  }
+  history.universe_usage_history = legacyHistory.universe_usage_history.map((entry) => ({
+    universe: entry.universe, used_at: entry.timestamp,
+  }));
+  history.assignment_cast_snapshots = Object.fromEntries(
+    Object.entries(legacyHistory.assignment_cast_snapshots).map(([id, entry]) => [
+      id, { universe: entry.universe, created_at: entry.timestamp, agents: entry.cast },
+    ]));
+});
+fs.copyFileSync(`${archive}/casting/policy.json`, `${active}/policy.json`,
+  fs.constants.COPYFILE_EXCL);
+```
+
+The helper validates provenance and reads the committed pair before returning.
+Archive/policy-copy failures are not silently rolled back. Keep all clients
+stopped until the operator verifies both the complete archive and new target.
+The repository's existing `legacy-v0.10.0/` files are immutable reference inputs;
+`.gitattributes` disables checkout conversion for them, including on Windows.
 
 For **non-local backends**, do not invoke this local filesystem helper or write
 individual casting keys through generic state tools. Require a backend-supported
@@ -107,4 +222,7 @@ triage handler, and all other customized workflows.
 on isolated copies with the actual pinned writer/reader and provenance parser.
 It also proves unilateral raw edits are rejected, corrupt input remains rejected,
 and failed mutations leave the old bytes intact and release the writer lock.
+It executes the exact frozen archive-and-initialize recipe, checks archive and
+policy bytes, proves preparation precedes callbacks, and rejects both corrupt
+managed generations and existing archive collisions without moving source state.
 Both platforms execute these checks in normal and genuine linked worktrees.

@@ -8,6 +8,11 @@ inside `.squad/casting-transactions.md`'s locked SDK writer, never unilateral fi
 edits. Initialization, retirement, re-casting and custom universes use that same
 transaction. Preserve this narrow override when upgrading.
 
+Initialization is into an empty target, not normalization of invalid existing
+files: SDK preparation precedes the callback. The known frozen v0.10 files need
+the guide's quiesced archive-and-initialize recipe, with downtime and a new
+provenance generation. Never classify a corrupt managed pair as legacy.
+
 ## Universe Table
 
 | Universe | Capacity | Shape Tags | Resonance Signals |

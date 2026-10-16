@@ -3,6 +3,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
 const { pathToFileURL } = require('node:url');
+const { createHash } = require('node:crypto');
 
 const root = fs.realpathSync(path.resolve(__dirname, '../..'));
 const files = ['registry.json', 'history.json', 'registry-history.commit.json'];
@@ -118,6 +119,100 @@ test('casting procedures publish actual locked SDK transactions', {
     const history = examples.find((value) => value.assignment_cast_snapshots);
     assert.equal(parseAgentProvenanceRegistry(registry).completeness, 'complete');
     sdk.validateCastingRegistryPairForCommit(registry, history, registry.revision);
+  });
+  const legacyFiles = ['registry.json', 'history.json', 'policy.json'];
+  const legacyBytes = Object.fromEntries(legacyFiles.map((file) => [
+    file, fs.readFileSync(path.join(root, '.squad/casting/legacy-v0.10.0', file)),
+  ]));
+  const migrationFixture = (managed = false) => {
+    const parent = fixture(true);
+    const active = path.join(parent, 'active');
+    const archive = path.join(parent, 'archive');
+    fs.mkdirSync(active);
+    for (const file of managed ? [...files, 'policy.json'] : legacyFiles) {
+      fs.writeFileSync(path.join(active, file), managed ?
+        fs.readFileSync(path.join(root, '.squad/casting', file)) : legacyBytes[file]);
+    }
+    return { active, archive };
+  };
+  const migrationExample = fs.readFileSync(path.join(root, '.squad/casting-transactions.md'), 'utf8')
+    .replace(/\r\n/g, '\n').split('## Archive and initialize the known v0.10 state')[1]
+    .match(/```js\n([\s\S]+?)\n```/)[1]
+    .replace(/^import .*;\n/gm, '')
+    .replace(/^const active = .*;\n/m, '')
+    .replace(/^const archive = .*;\n/m, '');
+  const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
+  const runMigration = new AsyncFunction('updateCastingPair', 'active', 'archive',
+    'fs', 'assert', 'createHash', migrationExample);
+
+  await t.test('frozen v0.10 files reject before an in-place normalization callback', async () => {
+    const { active } = migrationFixture();
+    let callbackCalled = false;
+    await assert.rejects(updateCastingPair(active, () => { callbackCalled = true; }, reader),
+      /registry revision is invalid/);
+    assert.equal(callbackCalled, false);
+    for (const file of legacyFiles) {
+      assert.deepEqual(fs.readFileSync(path.join(active, file)), legacyBytes[file]);
+    }
+  });
+  await t.test('documented frozen archive-and-initialize recipe commits into a genuinely empty target', async () => {
+    const { active, archive } = migrationFixture();
+    let writerCalled = false;
+    await runMigration(async (directory, mutate) => {
+      assert.deepEqual(fs.readdirSync(directory), []);
+      writerCalled = true;
+      return updateCastingPair(directory, mutate, reader);
+    }, active, archive, fs, assert, createHash);
+    assert.equal(writerCalled, true);
+    const pair = accepted(active);
+    assert.equal(pair.registry.revision, 1);
+    const legacy = JSON.parse(legacyBytes['registry.json']);
+    assert.deepEqual(Object.keys(pair.registry.agents).sort(), Object.keys(legacy.agents).sort());
+    for (const [id, member] of Object.entries(legacy.agents)) {
+      assert.equal(pair.registry.agents[id].display_name, member.persistent_name);
+      assert.equal(pair.registry.agents[id].created_at, member.created_at);
+      assert.equal(pair.registry.agents[id].legacy_named, true);
+    }
+    const history = JSON.parse(legacyBytes['history.json']);
+    assert.deepEqual(pair.history.assignment_cast_snapshots['2026-02-18'].agents,
+      history.assignment_cast_snapshots['2026-02-18'].cast);
+    assert.equal(pair.history.universe_usage_history[0].used_at,
+      history.universe_usage_history[0].timestamp);
+    for (const file of legacyFiles) {
+      assert.deepEqual(fs.readFileSync(path.join(archive, 'casting', file)), legacyBytes[file]);
+      assert.deepEqual(fs.readFileSync(path.join(root, '.squad/casting/legacy-v0.10.0', file)),
+        legacyBytes[file], 'frozen reference must remain unchanged');
+    }
+    assert.deepEqual(fs.readFileSync(path.join(active, 'policy.json')), legacyBytes['policy.json']);
+  });
+  for (const missingManifest of [false, true]) {
+    await t.test(`corrupt managed state is not legacy (${missingManifest ? 'missing manifest' : 'stale hashes'})`, async () => {
+      const { active, archive } = migrationFixture(true);
+      if (missingManifest) fs.unlinkSync(path.join(active, files[2]));
+      else fs.appendFileSync(path.join(active, files[0]), ' ');
+      const before = Object.fromEntries(fs.readdirSync(active).map((file) =>
+        [file, fs.readFileSync(path.join(active, file))]));
+      let writerCalled = false;
+      await assert.rejects(runMigration(() => { writerCalled = true; },
+        active, archive, fs, assert, createHash), /Not the supported frozen v0.10/);
+      assert.equal(writerCalled, false);
+      assert.equal(fs.existsSync(archive), false);
+      for (const [file, bytes] of Object.entries(before)) {
+        assert.deepEqual(fs.readFileSync(path.join(active, file)), bytes);
+      }
+      assert.throws(() => sdk.readCastingRegistryPair(active, 1), /consistent casting registry\/history pair/);
+    });
+  }
+  await t.test('archive-and-initialize refuses an existing archive without moving legacy input', async () => {
+    const { active, archive } = migrationFixture();
+    fs.mkdirSync(archive);
+    fs.writeFileSync(path.join(archive, 'sentinel'), 'owned by someone else');
+    await assert.rejects(runMigration(() => assert.fail('writer must not run'),
+      active, archive, fs, assert, createHash), /EEXIST/);
+    assert.equal(fs.readFileSync(path.join(archive, 'sentinel'), 'utf8'), 'owned by someone else');
+    for (const file of legacyFiles) {
+      assert.deepEqual(fs.readFileSync(path.join(active, file)), legacyBytes[file]);
+    }
   });
   await t.test('corrupted committed input fails closed without repairing its manifest', async () => {
     const directory = fixture();
