@@ -102,6 +102,8 @@ function assertRejectionPolicy(text) {
 test('delegated merge requirements resolve active rules and current-head evidence', () => {
   assert.match(read('.squad/governance.md'),
     /Repository merge requirements remain in `\.github\/PR_REQUIREMENTS\.md`/);
+  assert.match(read('AGENTS.md'), /^## CI\/CD$/m);
+  assert.match(read('AGENTS.md'), /gh api repos\/microsoft\/waza\/rules\/branches\/main/);
   const good = read('.github/PR_REQUIREMENTS.md');
   const validate = (text) => {
     const source = prose(text);

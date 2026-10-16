@@ -15,7 +15,9 @@ test('documented Squad regressions run in a genuine linked Git worktree', (t) =>
   fs.mkdirSync(path.join(scratch, 'no-hooks'));
   const config = JSON.parse(fs.readFileSync(path.join(root, '.squad/config.json'), 'utf8'));
   const files = [
+    'AGENTS.md',
     '.gitattributes',
+    '.github/PR_REQUIREMENTS.md',
     '.github/agents/squad.agent.md',
     '.github/scripts/ralph-triage.test.cjs',
     '.github/scripts/squad-state.test.cjs',
