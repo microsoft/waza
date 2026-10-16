@@ -80,6 +80,9 @@ type ExecutionRequest struct {
 	// SkipWorkspaceCapture avoids post-run workspace snapshots for callers that
 	// only need model/tool output, such as prompt graders.
 	SkipWorkspaceCapture bool
+	// CaptureJudgeFiles freezes explicitly reviewed files before disconnect can
+	// restore the actor workspace. The callback never runs in a judge session.
+	CaptureJudgeFiles func(string) *models.JudgeFileCapture `json:"-"`
 
 	SessionID    string
 	WorkspaceDir string // Reuse an existing workspace directory (for follow-up prompts)
@@ -169,7 +172,8 @@ type ExecutionResponse struct {
 	Success          bool
 	WorkspaceDir     string            // Path to workspace directory (for file grading)
 	WorkspaceFiles   map[string][]byte // Post-execution workspace file contents captured before session disconnect
-	SessionID        string            // Copilot session ID
+	JudgeFiles       *models.JudgeFileCapture
+	SessionID        string // Copilot session ID
 	Usage            *models.UsageStats
 	// UsageIsCumulative distinguishes a session snapshot from per-execution
 	// usage. Engines that report per-turn usage leave this false.

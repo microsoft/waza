@@ -778,6 +778,10 @@ func (e *CopilotEngine) execute(ctx context.Context, req *ExecutionRequest) (*Ex
 	if !req.SkipWorkspaceCapture {
 		workspaceFiles = captureWorkspaceFiles(workspaceDir)
 	}
+	var judgeFiles *models.JudgeFileCapture
+	if req.CaptureJudgeFiles != nil {
+		judgeFiles = req.CaptureJudgeFiles(workspaceDir)
+	}
 
 	// Build response
 	e.captureUsage(ctx, sessionID, session, usageCollector, req.EphemeralSession && req.SessionID == "")
@@ -812,6 +816,7 @@ func (e *CopilotEngine) execute(ctx context.Context, req *ExecutionRequest) (*Ex
 		Success:            err == nil,
 		WorkspaceDir:       workspaceDir,
 		WorkspaceFiles:     workspaceFiles,
+		JudgeFiles:         judgeFiles,
 		CommandInvocations: commandMockSession.Invocations(), // Checkpoint graders run before task finalization.
 		SessionID:          sessionID,
 		Usage:              usage,

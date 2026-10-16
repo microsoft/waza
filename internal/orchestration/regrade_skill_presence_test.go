@@ -34,7 +34,7 @@ func TestRegradeOutcomePreservesRecordedSkillAndProvenance(t *testing.T) {
 				result := RegradeOutcome(original, graded, "", "")
 				require.Equal(t, tc.value, result.SkillTested)
 				require.Equal(t, tc.present, result.HasSkillTested())
-				require.Equal(t, "1.6", result.SchemaVersion)
+				require.Equal(t, models.CurrentResultSchemaVersion, result.SchemaVersion)
 				require.Equal(t, original.RunID, result.RunID)
 				require.Equal(t, original.BenchName, result.BenchName)
 				require.Equal(t, original.Timestamp, result.Timestamp)

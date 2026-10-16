@@ -1077,6 +1077,43 @@ waza run evals/code-explainer/eval.yaml -o results.json
 
 ## Snapshot inspection and regrading
 
+### Frozen independent prompt judging
+
+Final eval/task prompt graders may opt into `config.evidence_context: {}` for
+recorded task, visible conversation, canonical tools/results and output, with
+optional exact `files` and reviewed `evaluator_only` exclusions. The fresh judge
+has neither the actor session nor its live workspace. Omission preserves legacy
+behavior; checkpoint, pairwise, continuation and `--evidence-snapshot` combinations
+are rejected. This requires the current implementation, not an older CLI that
+does not implement evidence context.
+
+```bash
+waza preflight examples/evidence-judge/eval.yaml --context-dir examples/evidence-judge/fixtures
+waza run examples/evidence-judge/eval.yaml --context-dir examples/evidence-judge/fixtures --output results.json
+waza grade examples/evidence-judge/eval.yaml --results results.json --task report --output regraded.json
+```
+
+Provide an explicit hosted token or BYOK environment configuration; stored login,
+ambient actor config, hooks and skills are not inherited. The selected-file path
+requires Linux/macOS, with 64 files, 64 KiB/file and 256 KiB/encoded bundle limits.
+Missing/incomplete/redacted evidence fails before model startup, without
+truncation or workspace recovery. Evidence-only regrading does not inspect
+`--workspace` or `snapshot_path`. It uses the recorded task, even if the current
+task changed, and newly selected files must already have been captured.
+
+Ordinary failed judgments retain `grade`'s zero exit and report `passed: false` /
+`status: failed`. Operational errors return nonzero and `status: error`, without
+an `overall_score` in stdout. Admitted source results retain safe failure
+diagnostics in requested output; publication errors propagate. Regrading can
+incur new model charges, recorded once per session in `regrade_usage.sessions`;
+original `evaluation_usage` and actor billing remain unchanged. Missing credits
+are unavailable, not zero. The existing Evidence view reports per-run/per-grader
+submission metadata, not proof of inspection, accuracy, or authenticity.
+See the [canonical reference](https://microsoft.github.io/waza/guides/graders/#evidence-backed-independent-judging)
+for complete YAML, authentication, native-runtime scope and privacy limits.
+
+### Snapshot inspection
+
 ```bash
 waza run eval.yaml --output results.json --snapshot ./snapshots/
 waza replay ./snapshots/my-task-run1.json
@@ -1087,7 +1124,7 @@ Replay checks stored event sequencing and grader score/pass consistency without 
 
 Portable evidence (manifest `1.0`, snapshot `1.1`) keeps missing-version defaults
 for legacy eval/results readers at `1.4`, while newly generated results use result
-schema `1.6`. Task YAML has no independent schema-version field or default.
+schema `1.7`. Task YAML has no independent schema-version field or default.
 It describes every trial, full source origin, source/content
 digests, availability, completeness, redaction, unavailable versions, requested
 `no_skills`/native skill control, and operational uncertainty. Requested

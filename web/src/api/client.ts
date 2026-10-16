@@ -118,6 +118,78 @@ export interface TaskResult {
   passRateCI?: ConfidenceInterval;
   trials?: { passed: number; total: number };
   evidenceRuns?: EvidenceRun[];
+  promptJudgingRuns?: PromptJudgingRun[];
+}
+
+export interface PromptJudgeUsage {
+  inputTokens: number;
+  outputTokens: number;
+  aiCredits?: number;
+}
+
+export interface PromptJudgeObservation {
+  grader: string;
+  state: string;
+  purpose: string;
+  submissionObserved: boolean;
+  inspection: "not_observable";
+  deliverySHA256?: string;
+  fileCount: number;
+  model?: string;
+  sessionID?: string;
+  durationMs: number;
+  usage?: PromptJudgeUsage;
+  diagnostics?: string[];
+}
+
+export interface PromptJudgingRun {
+  runNumber: number;
+  attempts: number;
+  cached: boolean;
+  assessment: string;
+  executionMode?: string;
+  bundleSHA256?: string;
+  coverage?: { section: string; availability: string; completeness: string; count?: number }[];
+  limits?: { max_files: number; max_file_bytes: number; max_bundle_bytes: number };
+  observations: PromptJudgeObservation[];
+  message: string;
+}
+
+export function canDisplayPromptJudging(run: PromptJudgingRun): boolean {
+  const keys = (value: object, allowed: string[]) => Object.keys(value).every((key) => allowed.includes(key));
+  const count = (value: unknown): value is number => Number.isSafeInteger(value) && Number(value) >= 0;
+  const digest = (value: unknown) => typeof value === "string" && /^[a-f0-9]{64}$/.test(value);
+  const label = (value: unknown) => typeof value === "string" && /^[A-Za-z0-9][A-Za-z0-9_. /-]{0,127}$/.test(value);
+  if (!run || !keys(run, ["runNumber", "attempts", "cached", "assessment", "executionMode", "bundleSHA256", "coverage", "limits", "observations", "message"]) ||
+      !count(run.runNumber) || !count(run.attempts) || typeof run.cached !== "boolean" ||
+      !["recorded", "unavailable", "invalid", "unassessed"].includes(run.assessment) || typeof run.message !== "string" ||
+      !Array.isArray(run.observations)) return false;
+  if (run.assessment === "invalid" || run.assessment === "unassessed") return run.observations.length === 0 && !run.bundleSHA256 && !run.coverage && !run.limits && !run.executionMode;
+  if (!digest(run.bundleSHA256) || !["live", "mock", "unknown"].includes(run.executionMode ?? "") ||
+      !run.limits || !keys(run.limits, ["max_files", "max_file_bytes", "max_bundle_bytes"]) ||
+      run.limits.max_files !== 64 || run.limits.max_file_bytes !== 65536 || run.limits.max_bundle_bytes !== 262144 ||
+      !Array.isArray(run.coverage) || run.coverage.length !== 5 ||
+      new Set(run.coverage.map((section) => section?.section)).size !== 5) return false;
+  if (!run.coverage.every((section) => section && keys(section, ["section", "availability", "completeness", "count"]) &&
+      ["task", "output", "messages", "tool_events", "files"].includes(section.section) &&
+      ["captured", "unavailable"].includes(section.availability) &&
+      ["complete", "incomplete", "unknown"].includes(section.completeness) &&
+      (section.count === undefined || count(section.count)))) return false;
+  return run.observations.every((observation) => observation &&
+    keys(observation, ["grader", "state", "purpose", "submissionObserved", "inspection", "deliverySHA256", "fileCount", "model", "sessionID", "durationMs", "usage", "diagnostics"]) &&
+    label(observation.grader) && ["prepared", "submitted", "failed", "invalid"].includes(observation.state) &&
+    ["run", "regrade", "unknown"].includes(observation.purpose) &&
+    typeof observation.submissionObserved === "boolean" && observation.inspection === "not_observable" &&
+    (observation.deliverySHA256 === undefined || digest(observation.deliverySHA256)) &&
+    (observation.state !== "submitted" || (observation.submissionObserved && digest(observation.deliverySHA256))) &&
+    count(observation.fileCount) && count(observation.durationMs) &&
+    [observation.model, observation.sessionID].every((value) => value === undefined || label(value)) &&
+    (observation.usage === undefined || (observation.usage !== null &&
+      keys(observation.usage, ["inputTokens", "outputTokens", "aiCredits"]) &&
+      count(observation.usage.inputTokens) && count(observation.usage.outputTokens) &&
+      (observation.usage.aiCredits === undefined || (Number.isFinite(observation.usage.aiCredits) && observation.usage.aiCredits >= 0)))) &&
+    (observation.diagnostics === undefined || (Array.isArray(observation.diagnostics) &&
+      observation.diagnostics.every((code) => ["invalid_observation", "invalid_evidence", "judge_failed", "judge_policy_denied"].includes(code)))));
 }
 
 export interface EvidenceOrigin {
@@ -255,6 +327,7 @@ export function canDisplayEvidence(run: EvidenceRun): boolean {
 export interface RunDetail extends RunSummary {
   tasks: TaskResult[];
   statistics?: ReliabilitySummary;
+  regradeUsage?: PromptJudgeUsage;
 }
 
 export type TaskResultWire = Omit<TaskResult, "graderResults"> & {

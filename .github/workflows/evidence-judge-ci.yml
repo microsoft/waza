@@ -1,0 +1,60 @@
+name: Evidence judge runtime isolation
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/evidence-judge-ci.yml'
+      - 'go.mod'
+      - 'go.sum'
+      - 'internal/execution/**'
+      - 'internal/graders/**'
+      - 'internal/judgeevidence/**'
+      - 'internal/models/**'
+  push:
+    branches: [main, develop]
+    paths:
+      - '.github/workflows/evidence-judge-ci.yml'
+      - 'go.mod'
+      - 'go.sum'
+      - 'internal/execution/**'
+      - 'internal/graders/**'
+      - 'internal/judgeevidence/**'
+      - 'internal/models/**'
+
+permissions:
+  contents: read
+
+jobs:
+  loopback-proof:
+    name: Pinned judge runtime (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    env:
+      NO_COLOR: '1'
+      ENABLE_COPILOT_TESTS: 'false'
+      ENABLE_COPILOT_SDK_TESTS: 'false'
+      ENABLE_LIVE_COPILOT_TESTS: 'false'
+      WAZA_EVIDENCE_JUDGE_RUNTIME_TEST: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.26'
+          cache-dependency-path: go.sum
+      - name: Exercise synthetic-auth loopback inference and adversarial tool controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -race ./internal/execution -run '^TestEvidenceJudgePinnedRuntimeIsolation$' -count=1 -v | tee "$RUNNER_TEMP/evidence-judge-proof.log"
+          if grep -q -- '--- SKIP: TestEvidenceJudgePinnedRuntimeIsolation' "$RUNNER_TEMP/evidence-judge-proof.log"; then
+            echo "::error::The runtime isolation proof did not execute."
+            exit 1
+          fi
+          if ! grep -q -- '^--- PASS: TestEvidenceJudgePinnedRuntimeIsolation (' "$RUNNER_TEMP/evidence-judge-proof.log"; then
+            echo "::error::The runtime isolation proof was not selected or did not pass."
+            exit 1
+          fi
