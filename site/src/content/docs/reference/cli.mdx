@@ -5,6 +5,15 @@ description: Complete reference for all waza commands and flags.
 
 Complete reference for all `waza` CLI commands and their options.
 
+**Version boundary (October 15, 2026):** this reference follows main.
+Published standalone `v0.38.10` is separate. Scenario flags, preflight,
+selected-file evidence/regrade, assurance profiles, controlled policy commands
+and `serve --lab` are upcoming/main-only. Build source before those sections;
+`waza update` installs releases, not main. See the
+[feature/platform matrix](../releases/#upcoming-main-only-capabilities).
+The azd extension is versioned separately; verify its own help rather than
+assuming prefix parity.
+
 ## Installation
 
 ```bash
@@ -60,7 +69,7 @@ or runtime enforcement. The separately typed report is not `results.json`.
 Ref-only eval graders with a missing pinned cache remain unresolved until
 their preset/fallback can supply the effective name. Explicit duplicate names
 remain invalid; task/checkpoint graders still require inline declarations.
-See [Offline Eval Preflight](/guides/preflight/) for descriptive requirement
+See [Offline Eval Preflight](../../guides/preflight/) for descriptive requirement
 references, capability/dependency plans, and offline limitations.
 
 ## waza run
@@ -80,7 +89,7 @@ waza run [eval.yaml | skill-name | agent-name]
 | `[agent-name]` | Custom agent name (auto-detects eval.yaml for `.agent.md` files) |
 | *(none)* | Auto-detect using workspace detection |
 
-**Custom agents:** Waza discovers both `SKILL.md` and `.agent.md` files. You can target a custom agent by name just like a skill. See [Evaluating Custom Agents](/guides/custom-agents) for details.
+**Custom agents:** Waza discovers both `SKILL.md` and `.agent.md` files. You can target a custom agent by name just like a skill. See [Evaluating Custom Agents](../../guides/custom-agents/) for details.
 
 **APM-managed skills:** Waza detects compiled APM skills at `skills/<name>/.apm/skills/<name>/SKILL.md`, so `waza run <name>` and no-argument workspace detection work without symlinking `SKILL.md` into the source skill directory. If both `skills/<name>/SKILL.md` and the APM compiled output exist for the same skill, the top-level `SKILL.md` takes precedence.
 
@@ -125,7 +134,7 @@ dispatch tests do not certify SDK resume or platform stdio. See
 | `--no-cache` | | bool | false | Explicitly disable result caching |
 | `--keep-workspace` | | bool | false | Preserve temp workspaces after execution for debugging |
 | `--auto-file-issue` | | bool | false | Auto-file or update a GitHub issue for failing runs (requires `gh` and `GITHUB_REPOSITORY`) |
-| `--otel-exporter` | | string | | Export OpenTelemetry traces using `otlp`, `stdout`, or `file`. Off by default. See [OpenTelemetry Tracing](/guides/otel/). |
+| `--otel-exporter` | | string | | Export OpenTelemetry traces using `otlp`, `stdout`, or `file`. Off by default. See [OpenTelemetry Tracing](../../guides/otel/). |
 | `--otel-endpoint` | | string | | OTLP endpoint (host:port or URL); only used with `--otel-exporter=otlp` |
 | `--otel-headers` | | string | | Comma-separated `key=value` OTLP headers (e.g. for auth) |
 | `--otel-file` | | string | | File path for span JSON when `--otel-exporter=file` |
@@ -794,11 +803,14 @@ waza gate --baseline baseline.json --current results.json \
   --format markdown > gate-report.md
 ```
 
-See the [CI/CD guide](/guides/ci-cd/#regression-gates-with-waza-gate) for full GitHub Actions and Azure DevOps snippets.
+See the [CI/CD guide](../../guides/ci-cd/#regression-gates-with-waza-gate) for full GitHub Actions and Azure DevOps snippets.
 
 ## waza adversarial
 
-Run offline adversarial / fault-injection packs against a skill. See the [Adversarial harness guide](/guides/adversarial/) for full coverage of the built-in packs and the `adversarial:` spec block.
+Run adversarial packs with an explicit engine. Mock validates harness wiring
+only; real skill evaluation requires `--skill`, `--engine copilot-sdk`,
+authentication/model access and possible usage costs. See the
+[Adversarial harness guide](../../guides/adversarial/).
 
 ```bash
 waza adversarial [flags]
@@ -1367,7 +1379,7 @@ not mapped executing bytes, RAM or authenticity. Path replacement may change
 the digest or make acquisition fail; unavailable provenance cannot pass.
 The portable digest algorithm and binding domain are unchanged. No assurance
 cache is reused. Existing `grade`, `run` and golden-task semantics are unchanged.
-See [grader challenges](/guides/graders/#challenge-the-checks-not-just-the-answer).
+See [grader challenges](../../guides/graders/#challenge-the-checks-not-just-the-answer).
 
 The separate internal evaluator API `assurance.Calibrate` has no default engine
 factory. Its version-1.1 report claims require separate explicit consumer

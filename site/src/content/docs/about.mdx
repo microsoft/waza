@@ -5,9 +5,13 @@ description: About waza, architecture, and how to contribute.
 
 ## What is Waza?
 
-**Waza** (技 - Japanese for "skill/technique") is a unified CLI platform for creating, testing, and evaluating AI agent skills.
+**Waza** (技 - Japanese for "skill/technique") is a Go CLI for evaluating agent
+workflows, skills and custom agents. Repository, CLI and MCP scenarios make
+workflow behavior first-class without requiring a `SKILL.md`.
 
-It consolidates existing skill development tools into a single binary that provides the complete developer experience for creating, testing, and improving AI agent skills across any domain or platform.
+Start with [Concepts](../concepts/) and the [offline Quick Start](../quick-start/),
+then configure an authenticated model-backed run. Upcoming main features are
+not all in stable `v0.38.10`; see [release availability](../reference/releases/).
 
 ## The Problem
 
@@ -32,7 +36,7 @@ Waza automates the skill development workflow:
 ## Architecture
 
 Waza is built in **Go** for:
-- Single-binary distribution (no dependencies)
+- Bundled core runtime; selected graders and dependencies can need interpreters or services
 - Fast execution
 - Cross-platform compatibility (Linux, macOS, Windows)
 
@@ -54,7 +58,7 @@ waza/
 ### Design Principles
 
 1. **Fixture Isolation** — Each task gets a fresh temp workspace. Original fixtures never modified.
-2. **Pluggable Validators** — 11 grader types, easily extended
+2. **Pluggable Validators** — 13 native grader kinds
 3. **Cross-Model Support** — Test skills against multiple LLM providers
 4. **Local-First** — Mock executor for development, real API for CI/CD
 5. **Observability** — Full transcripts, detailed metrics, dashboard visualization
@@ -76,7 +80,7 @@ graders:
       regex_match: ["function", "parameter"]
 ```
 
-### 11 Built-In Validators
+### 13 Native Grader Kinds
 
 - **Code** — Python assertions
 - **Text** — Text matching
@@ -88,6 +92,9 @@ graders:
 - **Action Sequence** — Tool call sequence validation
 - **Skill Invocation** — Skill invocation validation
 - **Program** — Program execution validation
+- **Trigger** — Skill activation checks
+- **Tool Constraint** — Required/forbidden tool constraints
+- **Tool Calls** — Tool events and argument checks
 
 ### Multi-Model Comparison
 
@@ -149,8 +156,10 @@ cd waza
 
 # Set up Go environment
 go version  # Requires 1.26+
+git lfs install
+git lfs pull
 
-# Build
+# Build (requires Make, Node.js and npm; generates dashboard assets)
 make build
 
 # Test
@@ -172,24 +181,12 @@ make lint
 
 ### Adding Validators
 
-To add a new grader type:
+To add a native grader:
 
-1. Implement `Validator` interface in `internal/scoring/`
-2. Register in `ValidatorRegistry`
-3. Add tests
-4. Document in README
-
-Example:
-
-```go
-type MyValidator struct {
-    Config interface{} `json:"config"`
-}
-
-func (v *MyValidator) Grade(ctx *models.GradeContext) (*models.ValidationResult, error) {
-    // Implementation
-}
-```
+1. Implement `Grader` in `internal/graders/`.
+2. Add the parameter type in `internal/models/grader_params.go` and the kind/schema entry.
+3. Add the matching `Create()` factory case and tests.
+4. Update the README, canonical grader catalog and configuration examples.
 
 ### Documentation
 
@@ -219,7 +216,7 @@ Have questions or ideas? Join the conversation:
 - ✅ waza init — Scaffold projects
 - ✅ waza new skill — Create skills
 - ✅ waza compare — Cross-model comparison
-- ✅ All 11 grader types
+- ✅ 13 native grader kinds
 
 ### E2: Sensei Engine (🟡 In Progress)
 

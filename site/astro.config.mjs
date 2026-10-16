@@ -17,7 +17,7 @@ export default defineConfig({
 	integrations: [
 		starlight({
 			title: 'waza',
-			description: 'CLI tool for evaluating AI Agent Skills',
+			description: 'Evaluate agent workflows, skills, and custom agents',
 			components: {
 				Header: './src/components/Header.astro',
 			},
@@ -29,6 +29,10 @@ export default defineConfig({
 			],
 			customCss: ['./src/styles/custom.css'],
 			sidebar: [
+				{
+					label: 'Concepts and Learning Path',
+					slug: 'concepts',
+				},
 				{
 					label: 'Quick Start',
 					slug: 'quick-start',
@@ -64,6 +68,8 @@ export default defineConfig({
 					label: 'Reference',
 					items: [
 						{ label: 'CLI Commands', slug: 'reference/cli' },
+						{ label: 'Project Configuration', slug: 'reference/waza-yaml' },
+						{ label: 'Statistical Fields', slug: 'reference/statistical-fields' },
 						{ label: 'YAML Schema', slug: 'reference/schema' },
 						{ label: 'Rubric Library', slug: 'reference/rubrics' },
 						{ label: 'Schema Changes', slug: 'reference/schema-changes' },

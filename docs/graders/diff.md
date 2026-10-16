@@ -92,4 +92,4 @@ Each expected file contributes:
 
 **Workspace Context:**
 
-The diff grader operates on the post-execution workspace directory. Each task gets a fresh workspace with fixtures copied in (see [Fixture Isolation](#fixture-isolation) in the README). The `snapshot` path is resolved relative to `--context-dir`.
+The diff grader operates on the post-execution workspace directory. Each task gets a fresh workspace with fixtures copied in (see [Fixture Isolation](../../README.md#fixture-isolation)). The `snapshot` path is resolved relative to `--context-dir`.

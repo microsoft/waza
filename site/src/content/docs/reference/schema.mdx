@@ -110,7 +110,7 @@ optional `checks`. A check has `scope: eval|task|checkpoint`, `grader` (explicit
 existing grader name), and `after_turn` only for checkpoint scope.
 Absent/empty checks are uncovered/unresolved. Metadata is descriptive and keeps
 v1 runtime behavior unchanged; minimum-version notes are not enforcement.
-See [Offline Eval Preflight](/guides/preflight/) for schema-valid examples,
+See [Offline Eval Preflight](../../guides/preflight/) for schema-valid examples,
 reference diagnostics and the independent `waza.preflight` JSON artifact.
 
 Nonempty `tasks_from` selects CSV tasks instead of YAML `tasks`; either a
@@ -257,7 +257,7 @@ different-major versions are rejected rather than silently reserialized.
 schemaVersion: "1.2"
 ```
 
-See [Schema Changes](/reference/schema-changes/) for the versioning policy and changelog.
+See [Schema Changes](../schema-changes/) for the versioning policy and changelog.
 
 ### mcp_mocks
 
@@ -1083,15 +1083,71 @@ expected:
 
 **Type:** array of objects
 
-Expected execution outcomes.
+Descriptive metadata consumed by static spec coverage. These entries are
+**not native runtime assertions**: `condition` is not evaluated as a state
+predicate, and metadata does not verify that a tool or external action happened.
+The native fields are `type`, `value` and `condition`; `tool_name` is unsupported.
 
 ```yaml
 expected:
   outcomes:
-    - type: task_completed
-    - type: tool_called
-      tool_name: code_analyzer
+    - type: local-record
+      value: record.txt
+      condition: "contains complete or done (descriptive only)"
 ```
+
+For an executable outcome, use explicit native graders and associate
+`requirements.checks` with their names. This task permits two valid final states
+but rejects a wrong state or a forbidden retained file:
+
+```yaml
+id: local-record
+name: Inspect a local record
+inputs:
+  prompt: "Inspect record.txt; do not create forbidden.txt."
+  files:
+    - path: record.txt
+expected:
+  outcomes:
+    - type: local-record
+      value: record.txt
+graders:
+  - name: final-state
+    type: file
+    config:
+      must_exist: [record.txt]
+      must_not_exist: [forbidden.txt]
+      content_patterns:
+        - path: record.txt
+          must_match: ["^(complete|done)\\n?$"]
+  - name: no-delete-tool
+    type: tool_calls
+    config:
+      forbidden_tools: [delete_record]
+requirements:
+  - id: saved
+    category: outcome
+    description: Accept complete or done, not an arbitrary state.
+    checks:
+      - scope: task
+        grader: final-state
+  - id: boundary
+    category: boundary
+    description: No retained forbidden file or observed delete_record call.
+    checks:
+      - scope: task
+        grader: final-state
+      - scope: task
+        grader: no-delete-tool
+```
+
+For ordered tool observations use `action_sequence` with
+`expected_actions` and an appropriate `matching_mode`; do not demand one tool
+sequence when alternative implementations are valid. File checks observe only
+the supplied final workspace, and tool graders observe recorded calls, not
+external state or absent transient effects. The offline regression suite runs
+the example with `complete`, `done`, wrong-state and forbidden-file controls;
+none is evidence of live agent behavior.
 
 ### behavior
 

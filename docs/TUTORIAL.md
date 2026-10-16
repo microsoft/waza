@@ -1,440 +1,178 @@
 # Writing Skill Evals - Tutorial
 
-This tutorial walks you through creating evaluations for your Agent Skills.
+Skills and custom agents remain supported alongside workflow scenarios. Start
+with [Concepts](../site/src/content/docs/concepts.mdx) and the
+[offline workflow Quick Start](../site/src/content/docs/quick-start.mdx) if you
+need repository, CLI or MCP evaluation without a `SKILL.md`.
 
-> **Evaluating custom agents?** Waza also supports `.agent.md` files as evaluation targets. The workflow is similar — see [Evaluating Custom Agents](https://microsoft.github.io/waza/guides/custom-agents/) for the differences.
+This tutorial starts with **mock harness checks**, not agent-quality claims.
+Preflight and new evidence features require upcoming main; published standalone
+`v0.38.10` (October 9, 2026) is separate. Follow the
+[complete source-build procedure](../README.md#install-from-source), including
+Git LFS, Go 1.26+, Make, Node.js, npm and generated dashboard assets.
 
-## Prerequisites
-
-- `waza` CLI installed:
-  ```bash
-  # macOS/Linux or Windows Git Bash/MSYS/Cygwin
-  curl -fsSL https://raw.githubusercontent.com/microsoft/waza/main/install.sh | bash
-  ```
-  For native Windows, download the Windows binary from the [latest release](https://github.com/microsoft/waza/releases/latest).
-- An existing skill to evaluate
-
-## Step 1: Initialize Your Eval Suite
-
-You have several options to create your eval suite:
-
-### Option A: Create a New Skill (Recommended)
-
-The fastest way to get started:
+## 1. Create a project and skill
 
 ```bash
-# Create a new skill with eval suite
+waza init my-evals --no-skill
+cd my-evals
 waza new skill my-awesome-skill
-
-# Scaffold into a specific directory
-waza new skill my-awesome-skill --output-dir ./my-evals
 ```
 
-`waza new` is idempotent — run it again on an existing skill and it checks what's missing, filling in only the gaps without overwriting your work.
+The skill is `skills/my-awesome-skill/SKILL.md`. Its eval is
+`evals/my-awesome-skill/eval.yaml`, with sibling `tasks/` and `fixtures/`.
+There is no `init --interactive`, `init --path` or nested skill `skill.yaml`.
 
-<!-- Future feature: LLM-assisted generation (--assist flag) for smarter test cases -->
-<!-- Future feature: GitHub repo discovery (--repo, --skill, --scan flags) -->
+## 2. Write a task file
 
-### Option B: Initialize a Project First
-
-```bash
-# Create a waza project with directory structure
-waza init my-awesome-skill
-
-# Then create skills within it
-waza new skill my-skill
-```
-
-## Step 2: Configure Your Eval Specification
-
-Edit `eval.yaml` to define your evaluation:
+Replace `evals/my-awesome-skill/tasks/basic-usage.yaml`:
 
 ```yaml
-name: my-awesome-waza
-description: Evaluate the my-awesome-skill skill
+id: explain-function
+name: Explain a local function
+inputs:
+  prompt: "Read sample.py and explain the function and its parameter."
+  files:
+    - path: sample.py
+requirements:
+  - id: explanation
+    category: quality
+    description: Explain the function and parameter.
+    checks:
+      - scope: eval
+        grader: explains-concepts
+```
+
+Keep the generated `fixtures/sample.py`, or replace it with your own sanitized
+function. `inputs.files` selects files copied from the fixture lookup root into
+a fresh task workspace; their contents are not automatically prompt text.
+Original fixtures are not modified. Isolation is not a host/network sandbox.
+
+`expected.outcomes` is descriptive metadata, not a runtime assertion.
+For final file state or forbidden tool observations, use native `file`,
+`tool_calls` or `action_sequence` graders and name them in `requirements.checks`.
+See the [alternative-valid and rejection controls](../site/src/content/docs/reference/schema.mdx#outcomes).
+
+## 3. Configure the suite
+
+Replace `evals/my-awesome-skill/eval.yaml`:
+
+```yaml
+name: tutorial-eval
 skill: my-awesome-skill
-version: "1.0"
-
 config:
-  trials_per_task: 3      # Run each task 3 times for consistency
-  timeout_seconds: 300    # 5 minute timeout per trial
-  parallel: true          # Run tasks concurrently
-
+  executor: mock
+  model: mock
+  trials_per_task: 1
+  timeout_seconds: 30
 metrics:
   - name: task_completion
-    weight: 0.4           # 40% of composite score
-    threshold: 0.8        # Must achieve 80% to pass
-  
-  - name: trigger_accuracy
-    weight: 0.3
-    threshold: 0.9        # 90% trigger accuracy required
-  
-  - name: behavior_quality
-    weight: 0.3
-    threshold: 0.7
-
+    weight: 1
+    threshold: 1
 graders:
-  - type: code
-    name: basic_validation
+  - type: text
+    name: explains-concepts
     config:
-      assertions:
-        - "len(output) > 0"
-        - "'error' not in output.lower()"
-
+      regex_match: ["(?i)(function|parameter)"]
 tasks:
-  - "tasks/*.yaml"
+  - tasks/basic-usage.yaml
 ```
 
-## Step 3: Write Task Definitions
+Task entries are file paths, not inline objects. A text grader uses
+`regex_match: [...]`, not `pattern:`. Regex and keyword checks are not separate
+grader kinds.
 
-Tasks are individual test cases. Create them in `tasks/`:
+## 4. Run offline and challenge the predicate
 
-```yaml
-# tasks/deploy-app.yaml
-id: deploy-app-001
-name: Deploy Simple App
-description: Test deploying a basic application
-
-# Task-specific context directory (overrides global --context-dir)
-context_dir: ./fixtures/web-app
-
-inputs:
-  prompt: "Deploy this app to Azure"
-  context:
-    project_type: "web-app"
-    language: "python"
-  files:
-    - path: app.py
-      content: |
-        from flask import Flask
-        app = Flask(__name__)
-
-expected:
-  outcomes:
-    - type: deployment_initiated
-  
-  tool_calls:
-    required:
-      - pattern: "azd|az"
-    forbidden:
-      - pattern: "rm -rf"
-  
-  behavior:
-    max_tool_calls: 20
-  
-  output_contains:
-    - "deploy"
-    - "success"
-
-graders:
-  - name: deployment_check
-    type: code
-    assertions:
-      - "'deployed' in output.lower() or 'success' in output.lower()"
+```bash
+waza preflight evals/my-awesome-skill/eval.yaml
+waza run evals/my-awesome-skill/eval.yaml --output results.json
 ```
 
-## Step 4: Define Trigger Tests
+Expect exit **0**: the mock echoes the task prompt, so the text predicate sees
+those words. It has not read/explained Python or demonstrated skill quality.
+Change the regex to `["^IMPOSSIBLE_TUTORIAL_SENTINEL$"]` and run again: expect
+exit **1** and a missing-pattern failure. Restore the original before continuing.
 
-Test when your skill should (and shouldn't) activate:
+Preflight inventories local configuration and explicit references without
+running agents, graders, subprocesses or services. Warnings are not verified
+runtime readiness; `--strict` makes unresolved prerequisites fail.
 
-```yaml
-# trigger_tests.yaml
-skill: my-awesome-skill
+Inspect `tasks[].runs[].validations` and `requirement_explanations` in
+`results.json`, not only its aggregate score. Add `--snapshot snapshots` to
+capture local recorded evidence. [Replay](../site/src/content/docs/guides/snapshot-replay.mdx)
+checks recorded consistency, not fresh agent/grader execution.
 
-should_trigger_prompts:
-  - prompt: "Use my-awesome-skill to do X"
-    reason: "Explicit skill mention"
-  
-  - prompt: "Help me with [relevant task]"
-    reason: "Matches skill domain"
+Other supported run controls:
 
-should_not_trigger_prompts:
-  - prompt: "What's the weather like?"
-    reason: "Completely unrelated"
-  
-  - prompt: "Help with [different domain]"
-    reason: "Wrong skill for this task"
+```bash
+waza run evals/my-awesome-skill/eval.yaml --task explain-function -v
+waza run evals/my-awesome-skill/eval.yaml --trials 3 --output repeated.json
+waza run evals/my-awesome-skill/eval.yaml --transcript-dir transcripts
 ```
 
-## Step 5: Choose Your Graders
+## 5. Choose native graders
 
-### Code Grader (Deterministic)
+There are **13 native kinds**: `code`, `prompt`, `text`, `file`, `json_schema`,
+`program`, `behavior`, `action_sequence`, `skill_invocation`, `trigger`, `diff`,
+`tool_constraint`, and `tool_calls`. See the [catalog](GRADERS.md).
+`trigger_tests` is suite configuration, not a grader kind.
+
+### Prompt grader: authenticated judge, possible model cost
+
+Insert this under `graders:` only when deliberately selecting a real
+`config.executor: copilot-sdk` run and judge:
+
 ```yaml
-- type: code
-  name: output_check
+- type: prompt
+  name: quality-assessment
   config:
-    assertions:
-      - "output_length > 0"
-      - "'success' in output.lower()"
-      - "error_count == 0"
+    model: gpt-4o-mini
+    prompt: |
+      Check whether the explanation is correct, complete and clear.
+      Call set_waza_grade_pass with a reason only if every check passes.
+      Otherwise call set_waza_grade_fail with a reason.
 ```
 
-### Regex Grader (Pattern Matching)
+`llm` is not the native kind. `config.prompt` supplies judge instructions;
+the judge must call the explicit grading tools, not merely print a JSON score.
+This branch is preflight-checked, **not paid/live-tested** by the docs suite.
+
+### Program grader: runnable local Node.js check
+
+Insert this under `graders:` with the existing mock executor:
+
 ```yaml
-- type: text
-  name: format_check
+- type: program
+  name: custom-validation
   config:
-    regex_match:
-      - "deployed to .+"
-      - "https?://.+"
-    regex_not_match:
-      - "error|failed|exception"
+    command: node
+    args:
+      - -e
+      - |
+        let output = '';
+        process.stdin.setEncoding('utf8');
+        process.stdin.on('data', chunk => output += chunk);
+        process.stdin.on('end', () => process.exit(output.trim() ? 0 : 1));
 ```
 
-### LLM Grader (AI Judge)
-```yaml
-- type: llm
-  name: quality_assessment
-  model: gpt-4o-mini
-  rubric: |
-    Score the response 1-5 on:
-    1. Correctness: Did it do the right thing?
-    2. Completeness: Did it address all requirements?
-    3. Clarity: Was the response clear and helpful?
-    
-    Return JSON: {"score": N, "reasoning": "...", "passed": true/false}
-```
+This checks nonempty output: exit zero passes, nonzero fails. Replace the final
+exit expression with `process.exit(1)` to exercise the rejection path.
+`program` replaces the obsolete `script` kind and JSON-returning script protocol.
+A program can inspect the actual `WAZA_WORKSPACE_DIR` supplied by the runner.
 
-### Script Grader (Custom Logic)
-```yaml
-- type: script
-  name: custom_validation
-  config:
-    script: graders/custom_grader.py
-```
+## 6. Evaluate a real agent, then gate regressions
 
-## Step 6: Run Your Evals
+Before changing the suite to `config.executor: copilot-sdk`, complete the
+[SDK installation/authentication, model-access, permissions and usage prerequisites](../site/src/content/docs/getting-started.mdx#authenticate-before-real-execution).
+Select a model available to your account. Waza's bundled runtime does not put
+`copilot` on `PATH`; use the supported standalone CLI login route.
+Real runs and prompt judges can incur usage costs. Worker counts, cooperative
+timeouts and token-content limits are not provider spending caps.
 
-```bash
-# Run all tasks
-waza run my-awesome-skill/eval.yaml
-
-# Run with verbose output (shows real-time conversation)
-waza run my-awesome-skill/eval.yaml -v
-
-# Run with project context (use fixtures or your own project)
-waza run my-awesome-skill/eval.yaml --context-dir ./my-awesome-skill/fixtures
-
-# Save conversation transcript for debugging
-waza run my-awesome-skill/eval.yaml --log transcript.json
-
-# Full debugging run
-waza run my-awesome-skill/eval.yaml -v --context-dir ./fixtures --log transcript.json -o results.json
-
-# Run specific task
-waza run my-awesome-skill/eval.yaml --task deploy-app-001
-
-# Output to file
-waza run my-awesome-skill/eval.yaml -o results.json
-
-# Override trials
-waza run my-awesome-skill/eval.yaml --trials 5
-
-# Set fail threshold
-waza run my-awesome-skill/eval.yaml --fail-threshold 0.9
-
-# Run with real Copilot SDK (requires auth)
-waza run my-awesome-skill/eval.yaml --executor copilot-sdk
-
-# Get LLM suggestions for failed tasks (displays on screen)
-waza run my-awesome-skill/eval.yaml --suggestions
-
-# Save suggestions to markdown file (also displays on screen)
-waza run my-awesome-skill/eval.yaml --suggestions-file suggestions.md
-```
-
-### Progress Output
-
-By default, the CLI shows a progress bar during execution:
-
-```
-Progress: ████████████░░░░░░░░░░░░░░░░░░ 4/10 (40%)
-Running: Deploy Simple App (trial 2/3)
-```
-
-Use `-v/--verbose` for real-time conversation display:
-
-```
-⠋ Running evaluation...
-  Task: Deploy Simple App [Trial 1/3]
-    Prompt: Help me deploy my application
-    Response: I'll help you deploy using Azure...
-    Tool: azure-deploy (2 calls)
-  Task: Deploy Simple App [Trial 2/3]
-    ...
-```
-
-### Conversation Transcript Logging
-
-Save the full conversation transcript for detailed debugging:
-
-```bash
-waza run eval.yaml --log transcript.json -v
-```
-
-The transcript includes timestamps, task/trial info, and full message content:
-
-```json
-[
-  {
-    "timestamp": "2025-01-20T10:30:00Z",
-    "task": "deploy-app-001",
-    "trial": 1,
-    "role": "user",
-    "content": "Help me deploy my application"
-  },
-  {
-    "timestamp": "2025-01-20T10:30:01Z",
-    "task": "deploy-app-001",
-    "trial": 1,
-    "role": "assistant",
-    "content": "I'll help you deploy using Azure..."
-  }
-]
-```
-
-### Using Project Context
-
-The `--context-dir` option provides project files to the skill:
-
-```bash
-# Use generated fixtures as default for all tasks
-waza run my-skill/eval.yaml --context-dir ./my-skill/fixtures
-
-# Use your real project
-waza run my-skill/eval.yaml --context-dir ~/projects/my-app
-```
-
-Individual tasks can override the global context with their own `context_dir`:
-
-```yaml
-# tasks/deploy-app.yaml
-id: deploy-app-001
-name: Deploy Web App
-context_dir: ./fixtures/web-app  # Task-specific, overrides --context-dir
-
-inputs:
-  prompt: "Deploy this web app"
-```
-
-This gives the skill real code to work with, making tests more realistic.
-
-## Step 7: Interpret Results
-
-### Console Output
-```
-╭─────────────────── my-awesome-waza ───────────────────╮
-│ ✅ PASSED                                                    │
-│                                                              │
-│ Pass Rate: 85.0% (17/20)                                     │
-│ Composite Score: 0.82                                        │
-│ Duration: 45000ms                                            │
-╰──────────────────────────────────────────────────────────────╯
-```
-
-### JSON Output Structure
-```json
-{
-  "eval_id": "my-awesome-waza-20260131-001",
-  "skill": "my-awesome-skill",
-  "summary": {
-    "total_tasks": 20,
-    "passed": 17,
-    "failed": 3,
-    "pass_rate": 0.85,
-    "composite_score": 0.82
-  },
-  "metrics": {
-    "task_completion": { "score": 0.9, "passed": true },
-    "trigger_accuracy": { "score": 0.95, "passed": true },
-    "behavior_quality": { "score": 0.78, "passed": true }
-  },
-  "tasks": [...]
-}
-```
-
-## Step 8: Create GitHub Issues from Results
-
-After running an eval, waza can automatically create GitHub issues with your results. This is useful for tracking skill quality over time.
-
-### Interactive Issue Creation
-
-```bash
-# Run eval - prompts to create issues at the end
-waza run ./eval.yaml --executor copilot-sdk
-```
-
-At completion, you'll see:
-```
-Create GitHub issues with results? [y/N]: y
-Target repository [microsoft/GitHub-Copilot-for-Azure]: 
-Create issues for: [F]ailed only, [A]ll skills, [N]one: f
-
-Creating issues...
-✓ Created issue #142: [Eval] azure-nodejs: 2 tasks failed
-  → https://github.com/microsoft/GitHub-Copilot-for-Azure/issues/142
-```
-
-### Skip Prompts in CI
-
-For CI/CD pipelines where you don't want interactive prompts:
-
-```bash
-# Skip issue creation prompt
-waza run ./eval.yaml --no-issues
-```
-
-## Step 9: Integrate with CI/CD
-
-Add to your GitHub Actions workflow:
-
-```yaml
-- name: Run Skill Evals
-  run: |
-    # Linux runner
-    curl -fsSL https://raw.githubusercontent.com/microsoft/waza/main/install.sh | bash
-    waza run ./my-skill/eval.yaml \
-      --output results.json \
-      --fail-threshold 0.8 \
-      --no-issues  # Skip interactive prompts in CI
-```
-
-Or use the reusable workflow:
-
-```yaml
-jobs:
-  eval:
-    uses: your-org/waza/.github/workflows/waza.yaml@main
-    with:
-      eval-path: ./my-skill/eval.yaml
-      fail-threshold: 0.8
-```
-
-## Best Practices
-
-1. **Start Simple**: Begin with basic code graders, add LLM graders later
-2. **Multiple Trials**: Use 3+ trials for consistent results
-3. **Clear Triggers**: Define explicit trigger phrases in your skill description
-4. **Anti-Triggers**: Test what SHOULDN'T trigger your skill
-5. **Incremental Testing**: Add tasks as you find edge cases
-6. **Track Baselines**: Store results to detect regressions
-
-## Troubleshooting
-
-### "No tasks found"
-- Check your `tasks` glob pattern in eval.yaml
-- Ensure task files have `.yaml` extension
-
-### "Grader failed"
-- Check assertion syntax (Python expressions)
-- Verify context variables are available
-
-### "Low trigger accuracy"
-- Improve your skill's `description` field
-- Add more explicit trigger phrases
-
-## Next Steps
-
-- Read the [Grader Reference](GRADERS.md)
-- See [Example Evals](../examples/)
-- Join the discussion on improving skill evals
+There is no `run --executor` or `run --engine` override: edit the YAML executor.
+After a separately authorized run, inspect actual output, workspace and
+finalized usage. Record a reviewed baseline before using
+[CI regression gates](../site/src/content/docs/guides/ci-cd.mdx).
+Mock outcomes, metadata and passing summaries do not establish live service
+safety, external state, production readiness or release authority.

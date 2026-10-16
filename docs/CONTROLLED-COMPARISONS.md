@@ -10,13 +10,22 @@ retained actual responses; it does not change the base 1.0 protocol.
 These contracts do not make historical outcomes strict evidence or mock
 observations agent-quality evidence.
 
-Ordinary `run` and `grade` do not currently produce new result-level
-`evidence` or `requirement_explanations`. A captured manifest belongs to its
-snapshot; a `snapshot_path` or optional result field is not integrated release
-evidence. Absent explanations remain unassessed, not successful observations.
-Selected required evidence must still be supplied through the explicit release
-protocols and cannot be replaced by snapshot-only metadata. Integrating ordinary
-run/regrade result manifests and requirement observations is deferred.
+This is upcoming/main-only behavior, not part of published standalone `v0.38.10`.
+See [source build and availability](../site/src/content/docs/reference/releases.mdx).
+
+Ordinary opt-in snapshot `run` capture and supported `grade` paths already
+produce scoped result-level `evidence` and `requirement_explanations`:
+
+| Ordinary operation | Available observation | Limit |
+| --- | --- | --- |
+| Run without snapshot | Grader outcomes and scoped requirement explanations when assessable | No preserved snapshot bytes; absent evidence stays unassessed |
+| Run with `--snapshot` | Per-trial source manifest, availability/completeness and scoped explanations | Capture can be partial, unavailable or errored; metadata is not external-state verification |
+| Grade with workspace or selected evidence snapshot | Supported native regrade observations and scoped explanations | Only supported checks and verified selected bytes; no inferred workspace or fresh agent run |
+
+Missing, unassessed and error states remain distinct and cannot pass by default.
+Native strict paired producer/lifecycle integration and automatic adoption of
+ordinary or historical results remain unsupported. Selected required evidence
+must use the explicit release protocols, not snapshot-only metadata.
 
 ### Internal native-task groundwork (not an enabled producer)
 

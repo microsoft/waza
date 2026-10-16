@@ -1,0 +1,86 @@
+---
+title: Concepts and learning path
+description: Choose a workflow, understand graded observations, and progress from offline smoke to agent-backed evaluation.
+---
+
+Waza evaluates **agent workflows, skills, and custom agents**. Start with the
+behavior you need to observe, not with a required `SKILL.md`.
+
+## Choose your workflow
+
+1. [Quick Start](../quick-start/): build upcoming main, scaffold a project, run
+   agent-free preflight and an explicit mock trial, then inspect recorded evidence.
+   No credentials or model spend; this proves harness behavior only.
+2. [Getting Started](../getting-started/): configure authentication, model access,
+   permissions and usage expectations **before** running a real agent.
+3. [Writing Eval Specs](../guides/eval-yaml/): select repository, installed-CLI or
+   MCP scenario templates; optionally add a skill or custom-agent context.
+4. [Graders](../guides/graders/#at-a-glance): choose checks and test them against
+   deliberately wrong outputs. Then [gate regressions](../guides/ci-cd/).
+5. Advanced: [portable evidence](../guides/snapshot-replay/),
+   [offline assurance](../guides/graders/#challenge-the-checks-not-just-the-answer)
+   and [controlled comparisons](../guides/controlled-comparisons/).
+
+See [release availability](../reference/releases/#upcoming-main-only-capabilities)
+before using commands: stable `v0.38.10` is not upcoming main.
+
+## Suite, task, trial and attempt
+
+- A **suite** (`eval.yaml`) selects task-file paths, runtime settings and graders.
+- A **task** supplies a prompt, inputs and expected behavior; it can have follow-ups
+  and checkpoints.
+- A **trial** is one measured run of a task. Independently repeated trials produce
+  separate run results (`trials_per_task`), not a preserved retry history.
+- An **attempt** is one execution within a trial; `max_attempts` permits retries
+  within that same trial, rather than adding independent trials.
+- A **scenario** declares a workflow under eval schema `2.0`. Task/result formats
+  remain separately versioned `1.x`. Legacy skill suites still work.
+- **Skills** (`SKILL.md`) and **custom agents** (`.agent.md`) provide optional
+  instructions/tool policy. They are not substitutes for the task's checks.
+
+For ordinary retries, the trial result retains the final attempt's response,
+grader verdicts and status, plus the attempt count (`attempts`). Earlier attempt
+outputs and verdicts are not retained in that trial's result; a later success
+can replace an earlier failure. Opt-in evidence records
+`prior_attempts: not_preserved` when retries occurred, not a full attempt history.
+Usage accounting still includes reported usage from discarded attempts;
+discarding their outputs does not undo costs or external side effects.
+
+## Executors are not dependencies
+
+The executor is the agent engine: `mock` supplies a deterministic canned response;
+`copilot-sdk` runs a real agent. A CLI command mock or mocked MCP dependency changes
+what the agent can observe, **not** which executor runs it. A real agent against a
+mock service can incur model usage without proving production service safety.
+CLI templates need installed Git; MCP templates use a harness-only dependency.
+
+## Requirements, checks and outcomes
+
+Requirements name intended behavior; `requirements.checks` associates native
+grader observations with it. Missing, unassessed or errored observations do not
+become successes. `expected.outcomes` is descriptive metadata used by static
+coverage, **not executable state verification**. Use `file`, `tool_calls` or
+`action_sequence` checks for observable assertions, and independent receipts
+where external state matters. See [outcome examples](../reference/schema/#outcomes).
+
+## State, boundary and reset
+
+Declare fixtures and dependencies, the state to inspect, allowed tools and reset
+expectations. Each task gets a fresh copied workspace; the original fixtures are
+not modified. This is fixture isolation, **not host filesystem/network sandboxing**.
+Final-file checks cannot prove absence of transient edits or side effects.
+Permission guards are client restrictions, not server isolation.
+
+## A graded result is not release authority
+
+Preflight inventories configuration without executing the agent or graders.
+Mock trials validate wiring; live trials observe the chosen agent and dependency
+scope. Snapshots preserve selected observations; replay checks recorded
+consistency and does not rerun the agent or graders. An individual snapshot is
+not a complete retry history.
+
+Legacy `gate` compares results. Explicit controlled policies additionally require
+their supported fresh collection and admission conditions; historical results
+are not automatically promoted. Private fault adapters are not public recovery,
+and finite authored-case assurance is not a full human-labelled corpus or
+universal release approval. Paid calibration is separate and opt-in.

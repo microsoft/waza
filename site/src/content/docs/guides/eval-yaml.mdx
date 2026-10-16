@@ -7,6 +7,12 @@ description: Complete guide to YAML structure for evaluation benchmarks.
 
 A complete reference for writing `eval.yaml` specifications and task definitions.
 
+**Upcoming/main-only:** scenario authoring and preflight require current source,
+not published standalone `v0.38.10`. See [availability and source build](../../reference/releases/).
+Before the real-agent examples below, complete
+[authentication, model access, permissions and usage prerequisites](../../getting-started/#authenticate-before-real-execution).
+For credential-free harness checks start with [Quick Start](../../quick-start/).
+
 ## Offline planning and descriptive requirements
 
 Run `waza preflight eval.yaml --format json` before starting an evaluation.
@@ -321,7 +327,7 @@ The schema's `skill` constraint is length-only: whitespace passes that check
 but is not a meaningful target. JSON-RPC `eval.validate` reports schema errors;
 separate preflight checks are not universal runtime target enforcement.
 
-`schemaVersion` uses `MAJOR.MINOR` format. Omit it for legacy files that should default to `1.4`; scenario evals must select `2.0`. See [Schema Changes](/reference/schema-changes/) for the compatibility policy.
+`schemaVersion` uses `MAJOR.MINOR` format. Omit it for legacy files that should default to `1.4`; scenario evals must select `2.0`. See [Schema Changes](../../reference/schema-changes/) for the compatibility policy.
 
 ## Targeting Custom Agents
 
@@ -347,7 +353,7 @@ config:
 - If both `SKILL.md` and `.agent.md` exist in the same directory, `SKILL.md` takes priority
 - Custom agents can declare a `tools:` field in frontmatter, which auto-injects a `tool_constraint` grader
 
-**Learn more:** See the [Evaluating Custom Agents](/guides/custom-agents) guide for detailed examples and the auto-injected tool constraint behavior.
+**Learn more:** See the [Evaluating Custom Agents](../custom-agents/) guide for detailed examples and the auto-injected tool constraint behavior.
 
 ## Config Section
 
@@ -552,7 +558,7 @@ adversarial:
   on_unsafe_outcome: fail  # or "warn"
 ```
 
-`packs` must name one or more built-in packs. In v0.38.0 those are `prompt-injection` and `scope-bypass`. `on_unsafe_outcome: fail` exits 2 when an unsafe outcome is observed; `warn` records the unsafe result but exits 0. See the [Adversarial Harness guide](/guides/adversarial/) for pack behavior and CI examples.
+`packs` must name one or more built-in packs. In v0.38.0 those are `prompt-injection` and `scope-bypass`. `on_unsafe_outcome: fail` exits 2 when an unsafe outcome is observed; `warn` records the unsafe result but exits 0. See the [Adversarial Harness guide](../adversarial/) for pack behavior and CI examples.
 
 ## Graders Section
 
@@ -605,7 +611,7 @@ All graders return:
 - `passed`: boolean
 - `message`: human-readable result
 
-See the **[Validators & Graders](../graders/)** guide for all 12 types and examples.
+See the **[Validators & Graders](../graders/)** guide for all 13 native kinds and examples.
 
 ## Mapping OpenAI Evals `modelgraded` YAML
 
@@ -755,7 +761,7 @@ expected:
 | `expected`    | object | Validation rules and expected behavior              |
 | `skill_directories` | string[] | Skill directories for this task (overrides eval-level) |
 | `instruction_files` | string[] | Instruction files for this task (adds to eval-level files) |
-| `golden`      | bool   | Mark as a critical "golden" task — enforced by [`waza gate`](/reference/cli/#waza-gate) (must always pass) |
+| `golden`      | bool   | Mark as a critical "golden" task — enforced by [`waza gate`](../../reference/cli/#waza-gate) (must always pass) |
 | `requirements` | array | Descriptive intent linked to explicitly scoped existing graders; does not add assertions or change pass/fail |
 
 ### Link intent to existing checks

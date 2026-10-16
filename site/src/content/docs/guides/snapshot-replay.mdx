@@ -10,6 +10,11 @@ explicitly configured result storage still uploads results, including evidence
 metadata, but does not fetch or upload the separate snapshot files. See
 [storage and portable evidence](/waza/guides/azure-storage/#portable-evidence).
 
+**Upcoming/main-only:** selected-file capture/regrade and new ordinary evidence
+producers require a current source build, not stable `v0.38.10`.
+See [availability and source prerequisites](../../reference/releases/).
+Replay never reruns a changed agent or the graders.
+
 ## Operation capabilities
 
 | Operation | Inputs and checks | What it does not establish |
