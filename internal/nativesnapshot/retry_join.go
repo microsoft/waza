@@ -162,6 +162,10 @@ func (j *RetryJoined) derive(ctx context.Context, set *SlotSet, native *nativeta
 	if err != nil {
 		return fail(err)
 	}
+	policy, err := releasepolicy.DecodePolicy(set.rawPolicy)
+	if err != nil {
+		return fail(err)
+	}
 	for arm, id := range core.EvalIDs {
 		want := set.evalIDs.Baseline
 		if arm == releasepolicy.Candidate {
@@ -254,6 +258,9 @@ func (j *RetryJoined) derive(ctx context.Context, set *SlotSet, native *nativeta
 		actual.NativeState = "pending"
 		if i < len(native.Records) {
 			record := native.Records[i]
+			if err := releasepolicy.ValidateAttempt(policy, record.Summary); err != nil {
+				return fail(fmt.Errorf("native terminal violates frozen retry policy: %w", err))
+			}
 			if actual.Core != nil {
 				if err := equalSlotJSON(record.Summary, *actual.Core); err != nil {
 					return fail(fmt.Errorf("native/core complete terminal summary differs: %w", err))

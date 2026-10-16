@@ -198,17 +198,25 @@ Nil tape inputs are unsupplied; nonnil empty tapes are supplied empty bytes.
 The join records this presence and, only for supplied bytes, their source
 digests. Core `missing`/`partial`/`structurally_complete` state, stream presence
 and `trailing_fragment_bytes` remain separate. A clean pending native start,
-native terminal before its core terminal, missing trial summary or missing
-native evidence remains `incomplete`. Complete core evidence cannot hide
-missing native rows. Every earlier failure, recovered attempt and retained
+policy-admissible native terminal before its core terminal, missing trial
+summary or missing native evidence remains `incomplete`. Complete core evidence
+cannot hide missing native rows. Every earlier failure, recovered attempt and retained
 operational/cancelled record remains visible.
 
 Torn native lines, orphan/extra/duplicate/reordered payloads, native starts
 without core starts and contradictory identities or summaries are invalid,
 not a smaller valid prefix. Errors and cancellation return no joined view.
+Every supplied native terminal is checked against the frozen policy's attempt
+validator, even before its core terminal exists; once both exist, their full
+number-preserving summaries must also match exactly.
 The native reader does **not** adopt the core reader's tolerant torn-tail rule.
 Selected inspection bounds each native input at 1 MiB, lines and admission count
-at 65,536, and aggregate retained preparation bytes at 16 MiB before admission.
+at 65,536, and each retained binding string at 1 MiB. Before seal verification
+or serialization, the 16 MiB aggregate charges retained preparation bytes plus
+each binding's conservative escaped representation (six bytes per string byte
+and a 1 KiB allowance for fixed fields and scalars). This intentionally tightens
+the selected reader's former preparation-only aggregate; primitive admission
+and legacy rooted readers are unchanged.
 Existing static-slot and retry bounds still apply; the join charges its
 admission seal's escaped representation against the existing 64 MiB slot
 budget before encoding. These are serialization/admission bounds, not process

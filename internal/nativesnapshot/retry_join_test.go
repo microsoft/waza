@@ -416,6 +416,38 @@ func TestRetryJoinRejectsContradictionsWithoutPartialResults(t *testing.T) {
 	require.Nil(t, joined)
 }
 
+func TestRetryJoinValidatesNativeTerminalBeforeCore(t *testing.T) {
+	f := newRetryJoinFixture(t)
+	require.Equal(t, "attempt_start", f.events[3].Type)
+	retry, err := releasepolicy.InspectRetryPrefix(t.Context(), f.raw, retryJoinStream(t, f.events[:4]))
+	require.NoError(t, err)
+	for _, mismatch := range []bool{false, true} {
+		t.Run(fmt.Sprintf("mismatched_model=%t", mismatch), func(t *testing.T) {
+			record := f.records[0]
+			if mismatch {
+				record.Summary.Runtime.RequestedModel = "different-model"
+			}
+			events, rows := retryJoinNativeBytes(t, f.admissions[:1], []nativetask.Record{record}, false)
+			native, err := nativetask.InspectPrefix(t.Context(), events, rows, f.admissions[:1])
+			require.NoError(t, err, "native record validation alone does not bind policy runtime settings")
+			require.Equal(t, record.Summary.Runtime.RequestedModel, native.Records[0].Summary.Runtime.RequestedModel)
+			joined, err := CheckRetryJoin(t.Context(), f.set, retry, events, rows, f.admissions[:1])
+			if mismatch {
+				require.ErrorContains(t, err, "runtime")
+				require.Nil(t, joined)
+				return
+			}
+			require.NoError(t, err)
+			view, err := joined.View(t.Context())
+			require.NoError(t, err)
+			require.Equal(t, "incomplete", view.State)
+			require.Len(t, view.Attempts, 1)
+			require.Nil(t, view.Attempts[0].Core)
+			require.Equal(t, "terminal", view.Attempts[0].NativeState)
+		})
+	}
+}
+
 func TestRetryJoinCancellationAndRetainedTampering(t *testing.T) {
 	f := newRetryJoinFixture(t)
 	joined := joinFixturePrefix(t, f, len(f.events), len(f.records), false, false)

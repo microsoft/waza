@@ -11,6 +11,8 @@ import (
 const (
 	maxPrefixEvents         = 65536
 	maxPrefixAdmissionBytes = 16 << 20
+	// Covers Admission's fixed JSON field names, punctuation and integer scalars.
+	prefixBindingOverhead = 1024
 )
 
 // InspectPrefix validates supplied bytes without filesystem access. Nil inputs
@@ -70,6 +72,25 @@ func prefixInputs(ctx context.Context, events, payload []byte, admissions []*Adm
 			return fmt.Errorf("native prefix exceeds retained admission byte limit")
 		}
 		remaining -= size
+		if remaining < prefixBindingOverhead {
+			return fmt.Errorf("native prefix exceeds retained admission byte limit")
+		}
+		remaining -= prefixBindingOverhead
+		binding := admitted.binding
+		for _, text := range []string{
+			binding.CollectionID, binding.Key.ClusterID, binding.Key.TaskID, binding.Key.EvalID, string(binding.Key.Arm),
+			binding.PolicyDigest.SHA256, binding.PolicyDigest.Encoding,
+			binding.ProfileDigest.SHA256, binding.ProfileDigest.Encoding,
+			binding.PlanDigest.SHA256, binding.PlanDigest.Encoding,
+			binding.RequestDigest.SHA256, binding.RequestDigest.Encoding,
+		} {
+			// A JSON string needs at most six encoded bytes per input byte.
+			// Check lengths before multiplication, copying or seal serialization.
+			if len(text) > assurance.MaxLabelBytes || len(text) > remaining/6 {
+				return fmt.Errorf("native prefix exceeds retained admission identity or escaped byte limit")
+			}
+			remaining -= 6 * len(text)
+		}
 	}
 	return ctx.Err()
 }
