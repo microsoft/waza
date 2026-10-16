@@ -1115,6 +1115,8 @@ this field covers the current regrade only and is omitted for a subsequent
 mechanical-only regrade. In a mixed-task regrade, a later mechanical grader's
 operational failure still publishes earlier judge observations and current
 charges to the requested output, while withholding the overall score.
+If verbose diagnostic output fails after judging, the saved observations and
+charges are retained and the affected run is marked as an error.
 Mechanical errors remain fail-fast and do not start any further judges;
 an error before the first evidence attempt creates no new judge session.
 Original `evaluation_usage` and actor billing remain

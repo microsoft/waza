@@ -712,7 +712,9 @@ Original execution billing is unchanged. Each actual new judge session is counte
 once under `regrade_usage.sessions`, separate from historical `evaluation_usage`.
 In a mixed-task invocation, a later mechanical grader's operational failure
 still saves earlier judge observations and current charges to `--output`;
-the overall grading status is `error` and its score is withheld. Mechanical
+the overall grading status is `error` and its score is withheld. If verbose
+diagnostic output fails after judging, the saved observations and charges are
+retained and the affected run is marked as an error. Mechanical
 errors remain fail-fast: an error before the first evidence attempt starts no
 judge, and a later mechanical error does not start further judges.
 This field describes only the current regrade; a later mechanical-only regrade

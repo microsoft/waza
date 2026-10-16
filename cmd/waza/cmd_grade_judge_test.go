@@ -104,6 +104,79 @@ func TestEvidenceSavedGradeUsesRecordedContextWithoutWorkspaceAndKeepsBillingSep
 	require.Equal(t, original.TestOutcomes[0].Runs[0].JudgeEvidence.SHA256, graded.TestOutcomes[0].Runs[0].JudgeEvidence.SHA256)
 }
 
+func TestEvidenceSavedGradeVerboseWriteFailurePreservesJudgedRun(t *testing.T) {
+	for _, tc := range []struct {
+		name                      string
+		verbose, wantError        bool
+		failAt, calls, judgeCalls int
+	}{
+		{"grader-result write failure", true, true, 2, 2, 1},
+		{"initial write failure", true, true, 1, 1, 0},
+		{"verbose success", true, false, 3, 2, 1},
+		{"verbose disabled", false, false, 1, 0, 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			spec, source, original := savedEvidenceFixture(t)
+			require.NoError(t, saveOutcome(original, source))
+			output := filepath.Join(t.TempDir(), "graded.json")
+			calls := 0
+			var summary, stderr bytes.Buffer
+			writer := &preflightFailWriter{failAt: tc.failAt}
+			err := runGradeWithJudge(t.Context(), &summary, io.MultiWriter(&stderr, writer),
+				spec, "task", source, "", "", output, tc.verbose, "", successfulSavedEvidenceJudge(t, &calls))
+			if tc.wantError {
+				require.ErrorContains(t, err, "failed to write verbose output: write failed")
+			} else {
+				require.NoError(t, err)
+			}
+			require.Equal(t, tc.calls, writer.calls)
+			require.Equal(t, tc.judgeCalls, calls)
+			if tc.calls > 0 {
+				require.Contains(t, stderr.String(), "grading task:")
+			}
+			if tc.calls > 1 {
+				require.Contains(t, stderr.String(), "  grader judge:")
+			}
+			data, err := os.ReadFile(output)
+			require.NoError(t, err)
+			graded, err := models.ParseEvaluationOutcome(data, output)
+			require.NoError(t, err)
+			require.Len(t, graded.TestOutcomes, 1)
+			require.Len(t, graded.TestOutcomes[0].Runs, 1)
+			run := graded.TestOutcomes[0].Runs[0]
+			require.Equal(t, original.EvaluationUsage, graded.EvaluationUsage)
+			require.Equal(t, original.TestOutcomes[0].Runs[0].SessionDigest, run.SessionDigest)
+			require.NotNil(t, graded.RegradeUsage)
+			require.Len(t, graded.RegradeUsage.Sessions, tc.judgeCalls)
+			require.Len(t, run.PromptJudging, tc.judgeCalls)
+			if tc.judgeCalls > 0 {
+				require.True(t, run.PromptJudging[0].SubmissionObserved)
+				require.Equal(t, "judge-1", run.PromptJudging[0].SessionID)
+				require.Equal(t, 0.25, *graded.RegradeUsage.Sessions[0].Usage.AICredits)
+				if tc.wantError {
+					require.Equal(t, models.StatusError, run.Status)
+					require.Contains(t, run.ErrorMsg, "failed to write verbose output")
+					require.Empty(t, run.Validations)
+				} else {
+					require.Equal(t, models.StatusPassed, run.Status)
+					require.Contains(t, run.Validations, "judge")
+				}
+			}
+			var fields map[string]json.RawMessage
+			require.NoError(t, json.Unmarshal(summary.Bytes(), &fields))
+			if tc.wantError {
+				require.Equal(t, models.StatusError, graded.TestOutcomes[0].Status)
+				require.JSONEq(t, `"error"`, string(fields["status"]))
+				require.NotContains(t, fields, "overall_score")
+			} else {
+				require.Equal(t, models.StatusPassed, graded.TestOutcomes[0].Status)
+				require.JSONEq(t, `"passed"`, string(fields["status"]))
+				require.JSONEq(t, `1`, string(fields["overall_score"]))
+			}
+		})
+	}
+}
+
 func TestEvidenceSavedGradeOperationalFailuresSaveDiagnosticsBeforeReturningError(t *testing.T) {
 	for _, problem := range []string{"missing", "unbound", "cached", "new-file", "judge-failure", "ordinary-fail"} {
 		t.Run(problem, func(t *testing.T) {

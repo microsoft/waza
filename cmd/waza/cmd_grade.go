@@ -551,7 +551,7 @@ func gradeRunWithJudge(ctx context.Context, spec *models.EvalSpec, tc *models.Te
 	if verbose {
 		for name, result := range graderResults {
 			if _, err := fmt.Fprintf(errW, "  grader %s: score=%.2f passed=%v\n", name, result.Score, result.Passed); err != nil {
-				return nil, fmt.Errorf("failed to write verbose output: %w", err)
+				return fail(fmt.Errorf("failed to write verbose output: %w", err))
 			}
 		}
 	}
