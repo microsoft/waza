@@ -23,8 +23,9 @@ Files below marked as **"Derived / append-only"** are **mutable state** — agen
 | `.squad/routing.md` | **Authoritative routing.** Work assignment rules. | Squad (Coordinator) | Squad (Coordinator) |
 | `.squad/ceremonies.md` | **Authoritative ceremony config.** Definitions, triggers, and participants for team ceremonies. | Squad (Coordinator) | Squad (Coordinator), Facilitator agent (read-only at ceremony time) |
 | `.squad/casting/policy.json` | **Authoritative casting config.** Universe allowlist and capacity. | Squad (Coordinator) | Squad (Coordinator) |
-| `.squad/casting/registry.json` | **Authoritative name registry.** Persistent agent-to-name mappings. | Squad (Coordinator) | Squad (Coordinator) |
-| `.squad/casting/history.json` | **Derived / append-only.** Universe usage history and assignment snapshots. | Squad (Coordinator) — append only | Squad (Coordinator) |
+| `.squad/casting/registry.json` | **Authoritative name registry; paired transaction.** Persistent agent-to-name mappings. | Squad (Coordinator), only via `.squad/casting-transactions.md`'s locked SDK writer | Squad (Coordinator), paired read |
+| `.squad/casting/history.json` | **Derived / append-only contents; paired transaction.** Universe usage history and assignment snapshots. | Squad (Coordinator), only via the same paired writer | Squad (Coordinator), paired read |
+| `.squad/casting/registry-history.commit.json` | **SDK-owned transaction/hash manifest.** Never hand-edit or discard to bypass validation. | Locked SDK paired writer only | SDK paired reader |
 | `.squad/agents/{name}/charter.md` | **Authoritative agent identity.** Per-agent role and boundaries. | Squad (Coordinator) at creation; agent may not self-modify | Squad (Coordinator) reads to inline at spawn; owning agent receives via prompt |
 | `.squad/agents/{name}/history.md` | **Derived / append-only.** Personal learnings. Never authoritative for enforcement. | Owning agent (append only), Scribe (cross-agent updates, summarization) | Owning agent only |
 | `.squad/agents/{name}/history-archive.md` | **Derived / append-only.** Archived history entries. Preserved for reference. | Scribe | Owning agent (read-only) |
@@ -43,3 +44,4 @@ Files below marked as **"Derived / append-only"** are **mutable state** — agen
 2. **Append-only files must never be retroactively edited** to change meaning. They are diagnostic and audit-trail material. Corrections go in a new entry that references the prior one.
 3. **Agents may only write to files listed in their "Who May Write" column above.** Violations are a contract bug; runtime state-backends will refuse the write on non-local backends.
 4. **Non-coordinator agents may propose decisions** in their responses, but only Squad (Coordinator) records accepted decisions in `.squad/decisions.md`.
+5. **Waza casting repair:** write authority does not permit raw registry/history edits. All casting mutations, including initialization and retirement, must commit the pair and manifest through `.squad/casting-transactions.md`; use an equivalent atomic backend operation or stop on non-local storage.

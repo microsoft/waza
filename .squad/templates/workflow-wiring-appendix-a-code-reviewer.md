@@ -104,7 +104,7 @@ This is the operational detail — the step-by-step instructions the coordinator
 
 ### Step 6: Add to casting registry
 
-Update `.squad/casting/registry.json` with the new entry.
+Commit the new entry and assignment snapshot together using the locked SDK pair writer in `.squad/casting-transactions.md`. Never update registry/history/manifest files independently.
 
 ### Step 7: Verify
 

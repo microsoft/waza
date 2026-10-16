@@ -1,0 +1,161 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const { createRequire } = require('node:module');
+const test = require('node:test');
+
+const root = fs.realpathSync(path.resolve(__dirname, '../..'));
+const workflow = fs.readFileSync(path.join(root, '.github/workflows/squad-triage.yml'), 'utf8')
+  .replace(/\r\n/g, '\n');
+const script = workflow.match(/          script: \|\n([\s\S]+)/)[1]
+  .split('\n').map((line) => line.replace(/^ {12}/, '')).join('\n');
+const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
+const runWorkflow = new AsyncFunction('require', 'github', 'context', 'core', script);
+
+async function invoke(t, title, options = {}) {
+  const scratch = fs.mkdtempSync(path.join(root, '.squad-triage-test-'));
+  t.after(() => fs.rmSync(scratch, { recursive: true, force: true }));
+  const directory = options.legacy ? '.ai-team' : '.squad';
+  const copies = [
+    '.github/scripts/squad-triage.cjs',
+    '.squad/templates/ralph-triage.js',
+  ];
+  for (const file of copies) {
+    const destination = path.join(scratch, file);
+    fs.mkdirSync(path.dirname(destination), { recursive: true });
+    fs.copyFileSync(path.join(root, file), destination);
+  }
+  fs.mkdirSync(path.join(scratch, directory), { recursive: true });
+  let team = fs.readFileSync(path.join(root, '.squad/team.md'), 'utf8');
+  if (options.autoAssign) team = team.replace('copilot-auto-assign: false', 'copilot-auto-assign: true');
+  if (options.noCopilot) team = team.replace('🤖 Coding Agent', 'Disabled coding agent');
+  if (options.noLead) team = team.replace(/lead|architect|coordinator/gi, 'specialist');
+  if (options.inlineCapabilities) {
+    team = team.replace(/\*\*🟢 Good fit[^\n]+/, '🟢 Good fit: mechanical task, simple task')
+      .replace(/\*\*🟡 Needs review[^\n]+/, '🟡 Needs review: custom refactor')
+      .replace(/\*\*🔴 Not suitable[^\n]+/, '🔴 Not suitable: dangerous task');
+  }
+  if (!options.missingTeam) fs.writeFileSync(path.join(scratch, directory, 'team.md'), team);
+  if (!options.missingRouting) fs.copyFileSync(path.join(root, '.squad/routing.md'),
+    path.join(scratch, directory, 'routing.md'));
+  const context = {
+    eventName: options.eventName ?? 'issues',
+    repo: { owner: 'example', repo: 'fixture' },
+    payload: {
+      action: options.action ?? 'labeled',
+      label: { name: options.label ?? 'squad' },
+      issue: { number: 42, title, body: '', state: 'open', labels: ['squad'], assignees: [],
+        ...options.issue },
+    },
+  };
+  const calls = [];
+  const warnings = [];
+  const github = { rest: { issues: Object.fromEntries(
+    ['addLabels', 'addAssignees', 'createComment'].map((method) =>
+      [method, async (params) => {
+        calls.push({ method, params });
+        if (options.apiFailure === method) throw new Error('fixture API rejection');
+      }]),
+  ) } };
+  const core = { warning: (message) => warnings.push(message), info: () => {} };
+  const previous = process.cwd();
+  try {
+    process.chdir(scratch);
+    await runWorkflow(createRequire(path.join(scratch, 'workflow-entry.cjs')), github, context, core);
+  } finally {
+    process.chdir(previous);
+  }
+  return { calls, warnings };
+}
+
+test('production triage workflow preserves its event and permission gates', () => {
+  assert.match(workflow, /issues:\n\s+types: \[labeled\]/);
+  assert.match(workflow, /if: github\.event\.label\.name == 'squad'/);
+  assert.match(workflow, /issues: write\n\s+contents: read/);
+  assert.match(workflow, /timeout-minutes: 5/);
+  assert.match(script, /triageLabeledIssue/);
+});
+
+for (const [title, owner] of [
+  ['Build Docker image', 'virgil'],
+  ['Rebuild Docker image', 'virgil'],
+  ['Fix frontend React navigation', 'yen'],
+  ['web/src/components/RunDetail.tsx keyboard navigation', 'yen'],
+  ['internal/faultfixture/adapters.go source admission', 'linus'],
+  ['Fix Go allocation contention', 'turk'],
+  ['Improve navigation', 'saul'],
+  ['frontend allocation', 'rusty'],
+  ['Unclassified request', 'rusty'],
+]) {
+  test(`actual labeled handler routes "${title}" to ${owner}`, async (t) => {
+    const { calls } = await invoke(t, title);
+    assert.deepEqual(calls[0], { method: 'addLabels', params: {
+      owner: 'example', repo: 'fixture', issue_number: 42, labels: [`squad:${owner}`],
+    } });
+    assert.deepEqual(calls[1].params.labels, ['go:needs-research']);
+    assert.equal(calls.at(-1).method, 'createComment');
+    assert.equal(calls.filter((call) => call.method === 'addAssignees').length, 0);
+  });
+}
+for (const [name, options] of [
+  ['other event', { eventName: 'pull_request' }],
+  ['other action', { action: 'opened' }],
+  ['other label', { label: 'bug' }],
+  ['closed issue', { issue: { state: 'closed' } }],
+  ['pull request', { issue: { pull_request: {} } }],
+  ['existing object owner label', { issue: { labels: [{ name: 'squad:linus' }] } }],
+  ['existing string owner label', { issue: { labels: ['squad:virgil'] } }],
+]) {
+  test(`actual handler does not mutate ${name}`, async (t) => {
+    assert.deepEqual((await invoke(t, 'Build Docker image', options)).calls, []);
+  });
+}
+for (const [name, options] of [
+  ['missing roster', { missingTeam: true }],
+  ['missing lead', { noLead: true }],
+]) {
+  test(`actual handler fails closed with ${name}`, async (t) => {
+    const result = await invoke(t, 'Build Docker image', options);
+    assert.deepEqual(result.calls, []);
+    assert.equal(result.warnings.length, 1);
+  });
+}
+test('legacy team path still routes via shared rules', async (t) => {
+  const result = await invoke(t, 'Build Docker image', { legacy: true });
+  assert.deepEqual(result.calls[0].params.labels, ['squad:virgil']);
+});
+test('missing routing falls back to lead rather than substring UI matching', async (t) => {
+  const result = await invoke(t, 'Build Docker image', { missingRouting: true });
+  assert.deepEqual(result.calls[0].params.labels, ['squad:rusty']);
+});
+test('coding-agent eligibility and explicit assignment opt-in are preserved', async (t) => {
+  const disabled = await invoke(t, 'bug fix');
+  assert.deepEqual(disabled.calls[0].params.labels, ['squad:copilot']);
+  assert.ok(!disabled.calls.some((call) => call.method === 'addAssignees'));
+  const enabled = await invoke(t, 'bug fix', { autoAssign: true });
+  assert.deepEqual(enabled.calls.find((call) => call.method === 'addAssignees').params.assignees, ['copilot']);
+  const existing = await invoke(t, 'bug fix', { autoAssign: true, issue: { assignees: [{ login: 'human' }] } });
+  assert.ok(!existing.calls.some((call) => call.method === 'addAssignees'));
+});
+test('needs-review routing retains review warning and assignment failures are surfaced', async (t) => {
+  const result = await invoke(t, 'medium feature', { autoAssign: true, apiFailure: 'addAssignees' });
+  assert.match(result.calls.at(-1).params.body, /PR review recommended/);
+  assert.match(result.warnings[0], /fixture API rejection/);
+});
+test('unsuitable capability cannot become a coding-agent assignment', async (t) => {
+  const result = await invoke(t, 'security architecture bug fix', { autoAssign: true });
+  assert.deepEqual(result.calls[0].params.labels, ['squad:rusty']);
+  assert.ok(!result.calls.some((call) => call.method === 'addAssignees'));
+});
+test('absent coding agent uses shared domain routing', async (t) => {
+  const result = await invoke(t, 'Build Docker image', { noCopilot: true });
+  assert.deepEqual(result.calls[0].params.labels, ['squad:virgil']);
+});
+test('explicit inline capability tiers retain their declared keywords', async (t) => {
+  const result = await invoke(t, 'mechanical task', { inlineCapabilities: true });
+  assert.deepEqual(result.calls[0].params.labels, ['squad:copilot']);
+});
+test('label failures propagate instead of claiming successful triage', async (t) => {
+  await assert.rejects(invoke(t, 'Build Docker image', { apiFailure: 'addLabels' }),
+    /fixture API rejection/);
+});

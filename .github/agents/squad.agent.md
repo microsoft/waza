@@ -734,21 +734,20 @@ If the user says "I need a designer" or "add someone for DevOps":
 1. **Allocate a name** from the current assignment's universe (read from `.squad/casting/history.json`). If the universe is exhausted, apply overflow handling (see Casting & Persistent Naming → Overflow Handling).
 2. **Check plugin marketplaces.** If `.squad/plugins/marketplaces.json` exists and contains registered sources, browse each marketplace for plugins matching the new member's role or domain (e.g., "azure-cloud-development" for an Azure DevOps role). Use the CLI: `squad plugin marketplace browse {marketplace-name}` or read the marketplace repo's directory listing directly. If matches are found, present them: *"Found '{plugin-name}' in {marketplace} — want me to install it as a skill for {CastName}?"* If the user accepts, copy the plugin content into `.squad/skills/{plugin-name}/SKILL.md` or merge relevant instructions into the agent's charter. If no marketplaces are configured, skip silently. If a marketplace is unreachable, warn (*"⚠ Couldn't reach {marketplace} — continuing without it"*) and continue.
 3. Generate a new charter.md + history.md (seeded with project context from team.md), using the cast name. If a plugin was installed in step 2, incorporate its guidance into the charter.
-4. **Update `.squad/casting/registry.json`** with the new agent entry.
+4. **Commit the casting pair**, including the new agent and assignment snapshot, using the actual locked SDK writer in `.squad/casting-transactions.md`. Never edit registry/history/manifest files independently.
 5. Add to team.md roster.
 6. Add routing entries to routing.md.
-7. Run `squad upgrade` to regenerate Team Capabilities.
+7. Re-render Team Capabilities with the SDK under `meet-the-squad.md`'s preservation rules; do not run destructive `squad upgrade` for a member edit.
 8. Say: *"✅ {CastName} joined the team as {Role}."*
 
 ### Removing Team Members
 
 If the user wants to remove someone:
-1. Move their folder to `.squad/agents/_alumni/{name}/`
-2. Remove from team.md roster
-3. Update routing.md
-4. **Update `.squad/casting/registry.json`**: set the agent's `status` to `"retired"`. Do NOT delete the entry — the name remains reserved.
-5. Run `squad upgrade` to regenerate Team Capabilities and remove stale references.
-6. Their knowledge is preserved, just inactive.
+1. **Commit retirement through the locked pair writer** in `.squad/casting-transactions.md`: set `status` to `"retired"` and set `retired_at`/`updated_at`. Do NOT delete the entry — the name remains reserved. Do not write registry/history/manifest files independently. Stop if verified pair read-back fails.
+2. Only after accepted pair read-back, move their folder to `.squad/agents/_alumni/{name}/`.
+3. Remove from team.md roster and update routing.md.
+4. Re-render Team Capabilities with the SDK under `meet-the-squad.md`'s preservation rules; do not run destructive `squad upgrade` for a member edit.
+5. Their knowledge is preserved, just inactive.
 
 ### Plugin Marketplace
 
@@ -796,7 +795,7 @@ Agent names are either **descriptive** (role-based, the default) or drawn from a
 - 15 universes available as built-in (capacity 6–25). See reference file for full list.
 - Custom universes are always accepted — do NOT reject a user's universe choice because it is not in the built-in list.
 - Auto-selection (no user preference) uses descriptive names by default. If the user asks for themed names without specifying a universe, score built-in universes: size_fit + shape_fit + resonance_fit + LRU.
-- **Re-casting:** The user can re-cast at any time by requesting a different universe or descriptive names. All active agents are renamed; folder names and file references are updated throughout `.squad/`.
+- **Re-casting:** The user can request a different universe or descriptive names. Commit the approved names and matching history through `.squad/casting-transactions.md` first; only after accepted pair read-back update folder names and file references throughout `.squad/`.
 
 ### Name Allocation
 
@@ -816,8 +815,8 @@ After selecting a naming mode:
 5. **Ralph is always "Ralph"** — exempt from casting.
 6. **Rai is always "Rai"** — exempt from casting.
 7. **@copilot is always "@copilot"** — exempt from casting. If the user says "add team member copilot" or "add copilot", this is the GitHub Copilot coding agent. Do NOT cast a name — follow the Copilot Coding Agent Member section instead.
-8. Store the mapping in `.squad/casting/registry.json`.
-9. Record the assignment snapshot in `.squad/casting/history.json`.
+8. Stage the mapping in the registry object using `.squad/casting-transactions.md`'s locked SDK transaction, never a raw file edit.
+9. Append the assignment snapshot in the same transaction's history object and commit/read-back the whole pair and manifest together.
 10. Use the allocated name everywhere: charter.md, history.md, team.md, routing.md, spawn prompts.
 
 ### Overflow Handling
@@ -834,14 +833,14 @@ Existing agents are NEVER renamed during overflow (only during explicit re-cast)
 
 **On-demand reference:** Read `.squad/templates/casting-reference.md` for the full JSON schemas of policy.json, registry.json, and history.json.
 
-The casting system maintains state in `.squad/casting/` with three files: `policy.json` (config), `registry.json` (persistent name registry), and `history.json` (universe usage history + snapshots).
+The casting system maintains `policy.json` (config), `registry.json` and `history.json` (one paired state), and `registry-history.commit.json` (the SDK-owned transaction/hash manifest). **Waza project repair:** every mutation, including re-casting and initialization, follows `.squad/casting-transactions.md`; managed registry-only instructions do not apply.
 
 ### Migration — Already-Squadified Repos
 
 When `.squad/team.md` exists but `.squad/casting/` does not:
 
 1. **Do NOT rename existing agents.** Mark every existing agent as `legacy_named: true` in the registry.
-2. Initialize `.squad/casting/` with default policy.json, a registry.json populated from existing agents, and empty history.json.
+2. Preserve old casting bytes, initialize policy config if absent, and migrate/init registry and history together through `.squad/casting-transactions.md`'s locked SDK writer. Never create or replace only one half of the pair.
 3. For any NEW agents added after migration, apply the full casting algorithm.
 4. Report that casting was initialized without creating a session or orchestration log.
 

@@ -2,6 +2,12 @@
 
 On-demand reference for Squad's casting system. Loaded during Init Mode or when adding team members.
 
+**Waza project repair:** This managed reference is locally corrected for the
+manifest-backed Squad 1.0.0 pair. All changes below describe in-memory changes
+inside `.squad/casting-transactions.md`'s locked SDK writer, never unilateral file
+edits. Initialization, retirement, re-casting and custom universes use that same
+transaction. Preserve this narrow override when upgrading.
+
 ## Universe Table
 
 | Universe | Capacity | Shape Tags | Resonance Signals |
@@ -42,8 +48,8 @@ When the user does not request a themed universe, use **descriptive role-based n
 Rules for descriptive naming:
 - Use short, functional names that describe the agent's role.
 - Agent folder names are the descriptive name in lowercase (e.g., `.squad/agents/lead/`).
-- Set `"universe": "descriptive"` in `registry.json`.
-- If the user later requests a themed universe via re-cast, replace all descriptive names with character names from the chosen universe.
+- Set each new registry record's `"universe": "descriptive"` inside the paired transaction.
+- If the user later requests a themed universe via re-cast, commit the approved new names/history through the locked pair writer before updating folder names and references.
 
 ## Custom Universes
 
@@ -55,9 +61,9 @@ Users may request **any universe** — not just those in the built-in allowlist.
 2. **Allocate character names from your knowledge** of the source material. Pick characters whose traits or roles loosely resonate with the agent's function.
 3. **Spoiler awareness still applies.** Follow all spoiler rules (see below) — prefer names as introduced early, avoid fate-revealing epithets.
 4. **Capacity is flexible.** There is no pre-set capacity for custom universes. If the source material has enough named characters for the team, proceed. If not, tell the user and suggest a different universe.
-5. **Record as custom.** In `registry.json`, set `"universe"` to the user-specified universe name (e.g., `"Doctor Who"`, `"The Office"`). In `history.json`, record the universe name as given by the user.
+5. **Record as custom in one transaction.** Set each new registry record's `"universe"` to the user-specified name and append the matching history snapshot/usage inside the locked pair writer in `.squad/casting-transactions.md`. Never edit either file independently.
 6. **ONE UNIVERSE PER ASSIGNMENT** still applies — do not mix custom and built-in characters.
-7. **Re-casting is allowed.** The user can re-cast at any time by requesting a different universe (custom or built-in). All active agents are renamed; folder names and file references are updated.
+7. **Re-casting is allowed.** Commit the approved new names/universe and appended history through `.squad/casting-transactions.md` first; only after accepted pair read-back update folder names and references. This is never permission for independent JSON edits.
 
 ### Custom Universe in policy.json
 
@@ -124,17 +130,27 @@ Runtime location: `.squad/casting/registry.json`
 
 ```json
 {
+  "schema": "squad-agent-provenance/v1",
+  "schema_version": 1,
+  "revision": 1,
+  "generated_at": "2026-10-16T00:00:00.000Z",
   "agents": {
     "agent-role-id": {
+      "display_name": "CharacterName",
       "persistent_name": "CharacterName",
+      "role": "Developer",
       "universe": "Universe Name",
-      "created_at": "ISO-8601",
+      "created_at": "2026-10-16T00:00:00.000Z",
+      "updated_at": "2026-10-16T00:00:00.000Z",
       "legacy_named": false,
       "status": "active"
     }
   }
 }
 ```
+
+The SDK supplies `transaction_id`; retired records also require `retired_at`.
+Do not write this illustrative object directly to the live file.
 
 ### history.json
 
@@ -146,18 +162,19 @@ Runtime location: `.squad/casting/history.json`
   "universe_usage_history": [
     {
       "universe": "Universe Name",
-      "assignment_id": "unique-id",
-      "used_at": "ISO-8601"
+      "used_at": "2026-10-16T00:00:00.000Z"
     }
   ],
   "assignment_cast_snapshots": {
     "assignment-id": {
       "universe": "Universe Name",
-      "agents": {
-        "role-id": "CharacterName"
-      },
-      "created_at": "ISO-8601"
+      "agents": ["agent-role-id"],
+      "created_at": "2026-10-16T00:00:00.000Z"
     }
   }
 }
 ```
+
+Snapshot keys identify assignments; do not add `assignment_id` fields to usage
+records. The SDK supplies `transaction_id` and `registry_revision` and owns
+`registry-history.commit.json`. Only the locked paired writer may publish them.

@@ -117,7 +117,7 @@ This means doc changes also get reviewed. The documenter is not exempt from the 
 
 ### Step 7: Add to casting registry
 
-Update `.squad/casting/registry.json` with the new entry.
+Commit the new entry and assignment snapshot together using the locked SDK pair writer in `.squad/casting-transactions.md`. Never update registry/history/manifest files independently.
 
 ### Step 8: Verify
 

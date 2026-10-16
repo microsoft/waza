@@ -19,10 +19,23 @@ test('documented Squad regressions run in a genuine linked Git worktree', (t) =>
     '.github/agents/squad.agent.md',
     '.github/scripts/ralph-triage.test.cjs',
     '.github/scripts/squad-state.test.cjs',
+    '.github/scripts/squad-casting.mjs',
+    '.github/scripts/squad-casting.test.cjs',
+    '.github/scripts/squad-triage.cjs',
+    '.github/scripts/squad-triage.test.cjs',
+    '.github/workflows/squad-triage.yml',
+    '.github/skills/coordinator-init-mode/SKILL.md',
+    '.github/skills/coordinator-source-of-truth/SKILL.md',
     '.squad/config.json',
     '.squad/team.md',
     '.squad/routing.md',
     '.squad/model-policy.md',
+    '.squad/casting-transactions.md',
+    '.squad/templates/casting-reference.md',
+    '.squad/templates/squad.agent.md.template',
+    '.squad/templates/workflow-wiring-guide.md',
+    '.squad/templates/workflow-wiring-appendix-a-code-reviewer.md',
+    '.squad/templates/workflow-wiring-appendix-b-documenter.md',
     '.squad/templates/ralph-triage.js',
     '.squad/casting/registry.json',
     '.squad/casting/history.json',
@@ -58,9 +71,13 @@ test('documented Squad regressions run in a genuine linked Git worktree', (t) =>
     '--test-reporter=tap',
     '.github/scripts/ralph-triage.test.cjs',
     '.github/scripts/squad-state.test.cjs',
+    '.github/scripts/squad-casting.test.cjs',
+    '.github/scripts/squad-triage.test.cjs',
   ], { cwd: linked, env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 30000 });
   assert.equal(result.status, 0, `${result.error ?? ''}\n${result.stdout}\n${result.stderr}`);
-  assert.match(result.stdout, /# tests 31/);
+  assert.match(result.stdout, /# Subtest: all delivered casting mutation procedures/);
+  assert.match(result.stdout, /# Subtest: casting procedures publish actual locked SDK transactions/);
+  assert.match(result.stdout, /# Subtest: production triage workflow preserves its event/);
   assert.match(result.stdout, /# fail 0/);
   if (env.SQUAD_SDK_READER) assert.match(result.stdout, /# skipped 0/);
   t.diagnostic('Linked-worktree child suite passed with real Git metadata and autocrlf conversion');

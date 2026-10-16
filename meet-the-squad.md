@@ -29,6 +29,7 @@ npm exec --yes --package=@bradygaster/squad-cli@1.0.0 -- squad health --json
 node --test .github/scripts/ralph-triage.test.cjs
 node --test .github/scripts/squad-state.test.cjs
 node --test .github/scripts/squad-worktree.test.cjs
+node --test .github/scripts/squad-casting.test.cjs .github/scripts/squad-triage.test.cjs
 ```
 
 The coordinator and managed templates are Squad 1.0.0; `.mcp.json` pins the same
@@ -55,25 +56,38 @@ Reapply the small project model-policy hook in
 `.github/agents/squad.agent.md` and preserve the contributor hook in
 `.github/copilot-instructions.md`. Keep HEAD/EOF canaries and the pinned MCP
 package. Generic managed templates remain upstream-owned; do not maintain a
-second hand-edited model catalog. Re-render generated Team Capabilities with the
+second hand-edited model catalog. The narrow project repairs to casting mutation
+procedures are an explicit exception: see
+[casting transactions](.squad/casting-transactions.md). Preserve these overrides
+and their actual locked-writer tests; do not restore registry-only write advice. Re-render generated Team Capabilities with the
 SDK after changing the roster, without rerunning the destructive workflow refresh.
 
 The installed standalone triage script includes Waza-local routing and GitHub API
 fixes. Preserve them when refreshing managed assets unless the upstream release
 already contains them. The regression command above runs in Squad Tools CI and
 checks all specialist routes, ambiguous/duplicate matches, and public/Enterprise API defaults.
+The active `issues:labeled` handler in `.github/workflows/squad-triage.yml` now
+calls `.github/scripts/squad-triage.cjs`, which uses that same shared router.
+This is the deliberate exception to preserving the eleven existing customized
+workflows unchanged; the other ten remain unchanged. It fixes substring routing
+such as `ui` inside `Build Docker image`, which must route to Virgil, not Yen.
+Actual workflow-script tests retain the event/label gate, existing-owner labels,
+coding-agent capability/assignment opt-in, review warning, and API-failure guards.
 On Ubuntu and native Windows it also checks role-model agreement and a real Git
 `core.autocrlf=true` checkout: the hash-bound casting files must stay LF while a
 control file converts to CRLF. CI fetches the integrity-pinned SDK 1.0.0 tarball
 without installing dependencies or executing package scripts, then uses its real
 `readCastingRegistryPair` reader to accept the checkout and reject CRLF corruption.
 For the same SDK check locally, set `SQUAD_SDK_READER` to that package's
-`dist/casting/durable-registry.js`; without it only the SDK subtest is skipped.
+`dist/casting/durable-registry.js`; without it the SDK-dependent checks report
+skips. CI configures the real reader and requires zero skips, including in the
+linked-worktree child suite.
 Preserve the casting LF rules in `.gitattributes` and do not regenerate the commit
 manifest merely to accommodate checkout line-ending conversion.
 The worktree regression creates an isolated repository and a genuine linked Git
-worktree, then runs the same 31 triage/state checks there, including the SDK check
-when configured. Both CI platforms run it. Test scratch directories are bounded
+worktree, then runs the original 31 triage/state checks plus the paired-mutation
+and actual-workflow-handler regressions there, including the SDK checks when
+configured. Both CI platforms run it. Test scratch directories are bounded
 under the actual checkout root and cleaned afterward; `.git` may be a file, not
 a directory, in a linked worktree.
 
