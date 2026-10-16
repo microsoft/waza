@@ -650,8 +650,10 @@ selected human output does not promise all legacy rendering layouts.
 See [profile artifacts, flags and limits](docs/CONTROLLED-COMPARISONS.md#independent-offline-assurance-profile).
 
 Internal native source projections, root-free capture reconstruction, static
-slot joins and supplied retry-prefix inspection are not public collection
-commands. They establish retained consistency, not witnessed execution,
+slot joins and supplied retry-prefix/native-tape joins are not public collection
+commands. Joined evidence preserves all actual attempts and distinguishes
+incomplete coverage from invalid tapes. They establish retained consistency,
+not witnessed execution,
 durability, retry permission or release authority. New private durable
 collection writers support Linux/macOS only; Windows reader checks do not
 certify durable writing. See [the internal boundaries](docs/CONTROLLED-COMPARISONS.md#internal-native-task-groundwork-not-an-enabled-producer).

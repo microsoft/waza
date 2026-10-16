@@ -38,16 +38,26 @@ Static slot joins independently check selected possible attempts. G3 inspects
 supplied retry events through the existing replay machine, preserving accepted
 starts before terminals and terminals before complete trial summaries.
 
+Private native retry-evidence joins now connect those retained static slots,
+validated retry prefixes and supplied native event/row tapes. They match exact
+policy, source/request, collection and attempt identities and full terminal
+summaries. All actual attempts, including earlier failures and recovery, remain
+visible; unused possible retries need not execute. Joined views distinguish
+missing or clean incomplete evidence from invalid tapes. Torn native lines and
+orphan payloads return an error, not a reduced valid prefix. Unsupplied inputs
+and supplied empty tapes remain distinct.
+
 These internal primitives do not enable public native collection. Static
 possible slots are not actual starts, skips or consumed retries. Supplied-event
 consistency is not independently witnessed execution, durable acknowledgment,
-retry permission, currentness or release authority. No native tape/paired
-journal identity translation or collector lifecycle is implied.
+retry permission, currentness or release authority. `structurally_matched`
+describes supplied consistency, not a passing release verdict. No collector
+lifecycle, billing aggregation or public native profile is added.
 
 New private durable writers support Linux/macOS only, not Windows. Windows
 supplied-reader and fixture-byte checks do not certify durable writing.
-Missing input, empty streams, torn final fragments and invalid evidence remain
-distinct; no tail after collection end is accepted. Strict raw-member and
+Missing input, empty streams, tolerated core trailing fragments and invalid
+native tapes remain distinct; no tail after collection end is accepted. Strict raw-member and
 allocation checks apply only to the selected internal inspection path; legacy
 decoders and command defaults remain unchanged. See
 [the detailed internal contract](https://github.com/microsoft/waza/blob/main/docs/CONTROLLED-COMPARISONS.md#internal-native-task-groundwork-not-an-enabled-producer).

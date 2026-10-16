@@ -141,6 +141,7 @@ func frozenOriginalCapture(t *testing.T, locations map[releasepolicy.Arm]ArmLoca
 		if packageName == "nativesnapshot" {
 			files = []string{"capture_associations.go", "association_validation.go", "projection_reconstruction.go", "capture_associations_test.go", "g2_discovery_test.go", "g2_association_limits_test.go", "g2_capture_races_test.go", "g2_capture_races_unix_test.go", "g2_capture_windows_test.go"}
 			files = append(files, "slots.go", "slot_validation.go", "slots_test.go", "slots_boundary_test.go")
+			files = append(files, "retry_join.go", "retry_join_test.go")
 		}
 		for _, name := range files {
 			target := filepath.Join(repository, "internal", packageName, name)
