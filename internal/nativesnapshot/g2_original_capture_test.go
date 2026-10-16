@@ -6,10 +6,12 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/microsoft/waza/internal/controlledprojection"
@@ -30,6 +32,27 @@ type originalCaptureResult struct {
 	Canonical  []byte
 	Sources    map[releasepolicy.Arm][]source
 	Projection map[releasepolicy.Arm]controlledprojection.SourceProjection
+}
+
+var originalCaptureHarness struct {
+	sync.Mutex
+	directory  string
+	executable string
+}
+
+func TestMain(m *testing.M) {
+	directory, err := os.MkdirTemp("", "waza-original-capture-")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "creating original capture harness:", err)
+		os.Exit(1)
+	}
+	originalCaptureHarness.directory = directory
+	code := m.Run()
+	if err := os.RemoveAll(directory); err != nil {
+		fmt.Fprintln(os.Stderr, "cleaning original capture harness:", err)
+		code = 1
+	}
+	os.Exit(code)
 }
 
 // This test runs in a Go source overlay containing the exact pinned ORIGINAL
@@ -97,8 +120,13 @@ func projectionFromOriginalCapture(t *testing.T, prepared *Prepared) map[release
 	return result
 }
 
-func frozenOriginalCapture(t *testing.T, locations map[releasepolicy.Arm]ArmLocation) originalCaptureResult {
+func frozenOriginalCaptureBinary(t *testing.T) string {
 	t.Helper()
+	originalCaptureHarness.Lock()
+	defer originalCaptureHarness.Unlock()
+	if originalCaptureHarness.executable != "" {
+		return originalCaptureHarness.executable
+	}
 	packageDir, err := os.Getwd()
 	require.NoError(t, err)
 	repository := filepath.Dir(filepath.Dir(packageDir))
@@ -112,7 +140,7 @@ func frozenOriginalCapture(t *testing.T, locations map[releasepolicy.Arm]ArmLoca
 		"orchestration-request_files.go": "7500d6cb75626a225c4e706c96e278f77c8581a04e1e9e9b4f7561b059e39da3",
 		"orchestration-runner.go":        "a0f9f345c6a59328cd0fd977fa83aa71f495debed5bf08d2916ed527e7dd62f5",
 	}
-	scratch := t.TempDir()
+	scratch := originalCaptureHarness.directory
 	replacements := map[string]string{}
 	for name, digest := range hashes {
 		source := filepath.Join(dataDir, name+".original")
@@ -154,6 +182,20 @@ func frozenOriginalCapture(t *testing.T, locations map[releasepolicy.Arm]ArmLoca
 	require.NoError(t, err)
 	overlayPath := filepath.Join(scratch, "original-overlay.json")
 	require.NoError(t, os.WriteFile(overlayPath, overlay, 0600))
+	executable := filepath.Join(scratch, "original-capture.test.exe")
+	command := exec.CommandContext(t.Context(), "go", "test", "-c", "-overlay="+overlayPath, "-o", executable, "./internal/nativesnapshot")
+	command.Dir = repository
+	command.Env = append(os.Environ(), "ENABLE_COPILOT_TESTS=false", "NO_COLOR=1")
+	output, err := command.CombinedOutput()
+	require.NoError(t, err, "%s", output)
+	originalCaptureHarness.executable = executable
+	return executable
+}
+
+func frozenOriginalCapture(t *testing.T, locations map[releasepolicy.Arm]ArmLocation) originalCaptureResult {
+	t.Helper()
+	executable := frozenOriginalCaptureBinary(t)
+	scratch := t.TempDir()
 	requested := map[releasepolicy.Arm]originalCaptureLocation{}
 	for arm, location := range locations {
 		requested[arm] = originalCaptureLocation{location.Root.Name(), location.EvalPath, location.CWD, location.ContextDir, location.Executable}
@@ -161,8 +203,9 @@ func frozenOriginalCapture(t *testing.T, locations map[releasepolicy.Arm]ArmLoca
 	rawLocations, err := json.Marshal(requested)
 	require.NoError(t, err)
 	outputPath := filepath.Join(scratch, "original-output.json")
-	command := exec.CommandContext(t.Context(), "go", "test", "-overlay="+overlayPath, "./internal/nativesnapshot", "-run=^TestG2OriginalSourceOracle$", "-count=1")
-	command.Dir = repository
+	// Reuse compilation only: each invocation opens the current roots and runs
+	// the pinned capture in a fresh process, with a distinct output artifact.
+	command := exec.CommandContext(t.Context(), executable, "-test.run=^TestG2OriginalSourceOracle$", "-test.count=1", "-test.timeout=10m")
 	command.Env = append(os.Environ(), "WAZA_G2_ORIGINAL_LOCATIONS="+string(rawLocations), "WAZA_G2_ORIGINAL_OUTPUT="+outputPath,
 		"ENABLE_COPILOT_TESTS=false", "NO_COLOR=1")
 	output, err := command.CombinedOutput()
@@ -172,6 +215,33 @@ func frozenOriginalCapture(t *testing.T, locations map[releasepolicy.Arm]ArmLoca
 	var result originalCaptureResult
 	require.NoError(t, json.Unmarshal(raw, &result))
 	return result
+}
+
+func TestG2OriginalOracleReusesOnlyCompilation(t *testing.T) {
+	base, locations := fixture(t)
+	executable := frozenOriginalCaptureBinary(t)
+	before, err := os.Stat(executable)
+	require.NoError(t, err)
+	first := frozenOriginalCapture(t, locations)
+	write(t, base, "baseline/tasks/prompt.txt", "changed current prompt")
+	second := frozenOriginalCapture(t, locations)
+	require.NotEqual(t, first.Canonical, second.Canonical)
+	require.NotEqual(t, first.Sources, second.Sources)
+	require.NotEqual(t, first.Projection, second.Projection)
+	var snapshots map[releasepolicy.Arm]armSnapshot
+	require.NoError(t, json.Unmarshal(second.Canonical, &snapshots))
+	var request struct{ Message string }
+	require.NoError(t, json.Unmarshal(snapshots[releasepolicy.Baseline].Tasks[0].Request, &request))
+	require.Equal(t, "changed current prompt", request.Message)
+	require.Equal(t, first.Projection[releasepolicy.Candidate], second.Projection[releasepolicy.Candidate])
+	_, otherLocations := fixture(t)
+	other := frozenOriginalCapture(t, otherLocations)
+	require.NotEqual(t, first.Canonical, other.Canonical, "different historical roots must not reuse captured results")
+	require.Equal(t, executable, frozenOriginalCaptureBinary(t))
+	after, err := os.Stat(executable)
+	require.NoError(t, err)
+	require.True(t, os.SameFile(before, after), "all captures must reuse the same compiled oracle")
+	require.Equal(t, before.ModTime(), after.ModTime())
 }
 
 func TestG2PreparedAndCopiedPreparedAreCompileIneligible(t *testing.T) {
