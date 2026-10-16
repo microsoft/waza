@@ -22,11 +22,13 @@ function parseCapabilities(content) {
       if (tiers[current]) return null;
       tiers[current] = heading[2].split(',').map((word) => word.trim()).filter(Boolean);
     } else if (current && /^[-*]\s+/.test(line)) {
-      // Bullet subjects retain short task names; explanatory clauses are not extra capabilities.
+      // Positive-tier explanations do not expand eligibility; red examples are exclusions.
       const bullet = line.replace(/^[-*]\s+/, '');
       const subjects = bullet.split(/\s+and\s+/i)
         .map((part) => part.split(/\s+(?:with|following)\s+|\s*\(|-critical\b/i)[0].trim());
-      tiers[current].push(bullet, ...subjects.filter(Boolean));
+      const exclusions = current === '🔴' ? [...bullet.matchAll(/\(([^)]+)\)/g)]
+        .flatMap((match) => match[1].split(',').map((example) => example.trim()).filter(Boolean)) : [];
+      tiers[current].push(bullet, ...subjects.filter(Boolean), ...exclusions);
     } else {
       return null;
     }

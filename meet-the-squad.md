@@ -79,6 +79,8 @@ Coding-agent routing reads the actual `### Capabilities` profile: bold multiline
 tiers and inline comma-separated keywords are supported with LF or CRLF.
 Bullet text and its leading task subjects supply keywords; short task names
 such as `bug fix` remain supported through simple word/plural normalization.
+Red-tier parenthetical examples are also exclusion keywords: `auth`, `encryption`
+and `access control` block coding-agent routing even alongside `bug fix`.
 Unsuitable matches win over review matches, which win over good-fit matches.
 This remains keyword routing, not proof of semantic eligibility. Missing,
 empty, malformed or duplicate tiers disable coding-agent routing and assignment
