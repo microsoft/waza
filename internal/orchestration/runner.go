@@ -22,6 +22,7 @@ import (
 	"github.com/microsoft/waza/internal/failures"
 	"github.com/microsoft/waza/internal/graders"
 	"github.com/microsoft/waza/internal/hooks"
+	"github.com/microsoft/waza/internal/judgeevidence"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/responder"
 	"github.com/microsoft/waza/internal/skill"
@@ -54,6 +55,7 @@ type EvalRunner struct {
 	requestFiles     RequestFiles
 	requestInputs    RequestInputs
 	engine           execution.AgentEngine
+	evidenceExecutor graders.Executor
 	verbose          bool
 	controlledOutput func(string)
 
@@ -914,7 +916,7 @@ func (r *EvalRunner) runTest(ctx context.Context, tc *models.TestCase, testNum, 
 	if r.cache != nil && spec.Scenario != "" {
 		fmt.Fprintf(os.Stderr, "[WARN] Scenario caching disabled for test %q: external workflow dependencies are not fully fingerprinted\n", tc.DisplayName)
 	}
-	if r.cache != nil && spec.Scenario == "" {
+	if r.cache != nil && spec.Scenario == "" && !models.UsesJudgeEvidence(spec.Graders, tc) {
 		cacheKey, err := cache.CacheKey(spec, tc, r.cfg.FixtureDir())
 		if err == nil {
 			if cachedOutcome, found := r.cache.Get(cacheKey); found {
@@ -1064,8 +1066,12 @@ func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.T
 	var req *execution.ExecutionRequest
 	var resp *execution.ExecutionResponse
 	var err error
+	var frozenJudgeEvidence *models.JudgeEvidence
+	var promptJudging []models.PromptJudgeObservation
 	diagnosticCategory := "setup"
 	returnWithArtifacts := func(run models.RunResult) models.RunResult {
+		run.JudgeEvidence = frozenJudgeEvidence
+		run.PromptJudging = promptJudging
 		if attempt > 0 {
 			run.Attempts = attempt
 		}
@@ -1093,6 +1099,10 @@ func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.T
 	}
 
 	// Prepare execution request
+	if controlled && models.UsesJudgeEvidence(r.cfg.Spec().Graders, tc) {
+		return returnWithArtifacts(models.RunResult{RunNumber: runNum, Status: models.StatusError,
+			ErrorMsg: "evidence_context is not supported by controlled execution"})
+	}
 	req = prepared
 	if req == nil {
 		req, err = r.buildExecutionRequest(tc)
@@ -1228,6 +1238,35 @@ func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.T
 
 	// Build validation context
 	vCtx := r.buildGraderContext(tc, resp, sdkEvents)
+	if !r.skipGraders && models.UsesJudgeEvidence(r.cfg.Spec().Graders, tc) {
+		selection, selectionErr := judgeevidence.Selection(r.cfg.Spec().Graders, tc)
+		if selectionErr != nil {
+			return returnWithArtifacts(models.RunResult{RunNumber: runNum, Prompt: req.Message,
+				Status: models.StatusError, ErrorMsg: selectionErr.Error()})
+		}
+		origin, originErr := snapshot.CaptureOrigin(snapshot.CaptureInput{EvalID: r.evalRunID, Task: tc,
+			Run: &models.RunResult{RunNumber: runNum, Attempts: attempt}})
+		mode := "unknown"
+		switch r.engine.(type) {
+		case *execution.CopilotEngine:
+			mode = "live"
+		case *execution.MockEngine:
+			mode = "mock"
+		}
+		frozenJudgeEvidence = judgeevidence.Capture(judgeevidence.CaptureInput{
+			Origin: origin, Task: req.Message, Output: resp.FinalOutput,
+			OutputPresent: resp.Success && resp.ErrorMsg == "" && originErr == nil,
+			Events:        sdkEvents, Files: resp.JudgeFiles, Selection: selection, ExecutionMode: mode,
+		})
+		vCtx.JudgeEvidence, vCtx.JudgeOrigin = frozenJudgeEvidence, origin
+		vCtx.EvidenceExecutor = r.evidenceExecutor
+		if vCtx.EvidenceExecutor == nil {
+			vCtx.EvidenceExecutor = execution.NewEvidenceJudgeExecutor()
+		}
+		vCtx.RecordPromptJudging = func(observation models.PromptJudgeObservation) {
+			promptJudging = append(promptJudging, observation)
+		}
+	}
 
 	var gradersResults map[string]models.GraderResults
 	if r.skipGraders {
@@ -1542,6 +1581,16 @@ func (r *EvalRunner) buildExecutionRequest(tc *models.TestCase) (*execution.Exec
 	if err != nil {
 		return nil, err
 	}
+	var captureJudgeFiles func(string) *models.JudgeFileCapture
+	if !r.skipGraders && models.UsesJudgeEvidence(spec.Graders, tc) {
+		selection, err := judgeevidence.Selection(spec.Graders, tc)
+		if err != nil {
+			return nil, err
+		}
+		captureJudgeFiles = func(root string) *models.JudgeFileCapture {
+			return judgeevidence.CaptureFiles(root, selection)
+		}
+	}
 
 	return &execution.ExecutionRequest{
 		Message:           tc.Stimulus.Message,
@@ -1565,6 +1614,7 @@ func (r *EvalRunner) buildExecutionRequest(tc *models.TestCase) (*execution.Exec
 		ToolPolicy:          resolveToolPolicy(fm),
 		ModelID:             spec.Config.ModelID,
 		ReasoningEffort:     spec.Config.ReasoningEffort,
+		CaptureJudgeFiles:   captureJudgeFiles,
 	}, nil
 }
 
@@ -1702,6 +1752,7 @@ func (r *EvalRunner) executeFollowUps(ctx context.Context, tc *models.TestCase, 
 		resp.DurationMs += followResp.DurationMs
 		resp.FinalOutput = followResp.FinalOutput
 		resp.WorkspaceFiles = followResp.WorkspaceFiles
+		resp.JudgeFiles = followResp.JudgeFiles
 		mergeToolPolicyResult(resp, followResp)
 		execution.MergeResponseUsage(resp, followResp)
 
@@ -1850,6 +1901,7 @@ func (r *EvalRunner) sendResponderReply(ctx context.Context, tc *models.TestCase
 	resp.DurationMs += followResp.DurationMs
 	resp.FinalOutput = followResp.FinalOutput
 	resp.WorkspaceFiles = followResp.WorkspaceFiles
+	resp.JudgeFiles = followResp.JudgeFiles
 	mergeToolPolicyResult(resp, followResp)
 	execution.MergeResponseUsage(resp, followResp)
 	return true
@@ -2152,6 +2204,7 @@ func (r *EvalRunner) buildGraderContext(tc *models.TestCase, resp *execution.Exe
 		ToolEvents:         buildToolEvents(sdkEvents),
 		CommandInvocations: resp.CommandInvocations,
 		Executor:           r.engine,
+		JudgeModelFallback: r.cfg.Spec().Config.ModelID,
 		RecordUsage: func(digest models.SessionDigest) {
 			resp.GraderSessions = append(resp.GraderSessions, digest)
 			if digest.SessionID != "" && digest.SessionID == resp.SessionID {

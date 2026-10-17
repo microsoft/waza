@@ -655,6 +655,12 @@ func validateGraderReasoningEffort(name string, parameters GraderParameters, exe
 	if !ok {
 		return nil
 	}
+	if err := params.ValidateEvidenceContext(); err != nil {
+		return fmt.Errorf("prompt grader %q: %w", name, err)
+	}
+	if params.EvidenceContext != nil && executor != "copilot-sdk" {
+		return fmt.Errorf("prompt grader %q: evidence_context requires executor copilot-sdk", name)
+	}
 	if !ValidReasoningEffort(params.ReasoningEffort) {
 		return fmt.Errorf("prompt grader %q: reasoning_effort must be one of low, medium, high, xhigh, or max, got %q", name, params.ReasoningEffort)
 	}

@@ -29,6 +29,21 @@ change existing v1 grading/exits. Reference resolution is not satisfaction.
 Use [Offline Eval Preflight](../preflight/) for complete valid examples and the
 static-versus-runtime evidence distinction.
 
+## Frozen independent prompt graders
+
+Final eval graders and task `graders` may set `config.evidence_context: {}` to
+request frozen task/conversation/tool/output evidence in a fresh judge session.
+Add `files: [report.json]` and `evaluator_only: [references]` inside that object
+for reviewed explicit file selection. Use `executor: copilot-sdk`; do not use the
+option in `checkpoints`, with `mode: pairwise`, or with `continue_session: true`.
+Omission retains existing behavior; present null is not omission.
+
+The [evidence-backed judging reference](/waza/guides/graders/#evidence-backed-independent-judging)
+contains the canonical runnable YAML, limits, explicit authentication and saved
+regrade commands. Required missing/redacted/incomplete evidence is an operational
+error, not a partial judgment. The persisted bundle is independent of optional
+snapshots; each final grader receives only its own selected file subset.
+
 ## Agent-ready workflow
 
 This guide is designed to be given directly to a coding agent. The agent should

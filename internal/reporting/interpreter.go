@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/microsoft/waza/internal/evidence"
+	"github.com/microsoft/waza/internal/judgeevidence"
 	"github.com/microsoft/waza/internal/models"
 )
 
@@ -68,6 +69,13 @@ func FormatSummaryReport(outcome *models.EvaluationOutcome) string {
 		fmt.Fprintf(&b, "Tests:         %d passed, %d failed, %d errors out of %d total\n",
 			d.Succeeded, d.Failed, d.Errors, d.TotalTests)
 	}
+	if outcome.RegradeUsage != nil {
+		credits := "unavailable"
+		if usage := judgeevidence.ProjectRegradeUsage(outcome.RegradeUsage); usage != nil && usage.AICredits != nil {
+			credits = fmt.Sprint(*usage.AICredits)
+		}
+		fmt.Fprintf(&b, "Current regrade AI credits: %s; original execution billing is unchanged.\n", credits)
+	}
 
 	// Per-task interpretation
 	if len(outcome.TestOutcomes) > 0 {
@@ -83,6 +91,22 @@ func FormatSummaryReport(outcome *models.EvaluationOutcome) string {
 				fmt.Fprintf(&b, "    %s\n", InterpretFlaky(to.Stats.Flaky, to.Stats.PassRate))
 			}
 			for _, run := range to.Runs {
+				if run.JudgeEvidence != nil || len(run.PromptJudging) > 0 {
+					metadata := judgeevidence.ProjectRun(outcome.RunID, to.TestID, to.Cached, run)
+					fmt.Fprintf(&b, "    Run %d attempt %d prompt judging: %s; inspection not observable.\n",
+						run.RunNumber, run.Attempts, metadata.Assessment)
+					if metadata.BundleSHA256 != "" {
+						fmt.Fprintf(&b, "      Frozen bundle SHA-256: %s; integrity metadata, not authenticated history.\n", metadata.BundleSHA256)
+					}
+					for _, observation := range metadata.Observations {
+						credits := "unavailable"
+						if observation.Usage != nil && observation.Usage.AICredits != nil {
+							credits = fmt.Sprint(*observation.Usage.AICredits)
+						}
+						fmt.Fprintf(&b, "      Grader %s: %s / %s; submission observed: %t; judge AI credits: %s.\n",
+							observation.Grader, observation.Purpose, observation.State, observation.SubmissionObserved, credits)
+					}
+				}
 				if run.Evidence != nil {
 					if err := evidence.Bind(run.Evidence, outcome.RunID, to.TestID, run.RunNumber, run.Attempts, to.Cached); err != nil {
 						fmt.Fprintf(&b, "    Run %d evidence: invalid metadata; assessment references are unavailable.\n", run.RunNumber)

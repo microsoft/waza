@@ -1,5 +1,6 @@
-import type { EvidenceOrigin, TaskResult } from "../api/client";
-import { canDisplayEvidence } from "../api/client";
+import type { EvidenceOrigin, PromptJudgeUsage, TaskResult } from "../api/client";
+import { canDisplayEvidence, canDisplayPromptJudging } from "../api/client";
+import { downloadText } from "../lib/export";
 
 function originLabel(origin: EvidenceOrigin) {
   return `eval ${origin.eval_id || "unavailable"} · task ${origin.task_id || "unavailable"} · run ${origin.run_number || "unavailable"} · attempt ${origin.attempt_count || "unavailable"} · prior attempts ${origin.prior_attempts}`;
@@ -9,7 +10,7 @@ function versionLabel(value: string | null) {
   return !value || value === "unknown" ? "unavailable" : value;
 }
 
-export default function EvidenceView({ tasks }: { tasks: TaskResult[] }) {
+export default function EvidenceView({ tasks, regradeUsage }: { tasks: TaskResult[]; regradeUsage?: PromptJudgeUsage }) {
   return (
     <div className="space-y-4" data-testid="evidence-view">
       <p className="text-sm text-zinc-400">
@@ -18,9 +19,45 @@ export default function EvidenceView({ tasks }: { tasks: TaskResult[] }) {
         {" "}Requirement checks describe existing grader observations, not requirement enforcement.
         This view does not fetch local paths, download artifacts, or upload evidence.
       </p>
-      {tasks.map((task, taskIndex) => (
+      {regradeUsage && <p className="text-sm text-zinc-400">Current regrade AI credits: {regradeUsage.aiCredits !== undefined ? String(regradeUsage.aiCredits) : "unavailable"}. Original execution billing is unchanged; regrade usage is separate.</p>}
+      {tasks.map((task, taskIndex) => {
+        const judgingRuns = Array.isArray(task.promptJudgingRuns) ? task.promptJudgingRuns : [];
+        const malformedJudging = task.promptJudgingRuns !== undefined && !Array.isArray(task.promptJudgingRuns);
+        return (
         <section key={`${task.name}-${taskIndex}`} className="rounded-lg border border-zinc-700 bg-zinc-800 p-4">
           <h2 className="font-medium text-zinc-100">{task.name}</h2>
+          <div className="mt-3 space-y-3" data-testid="prompt-judging">
+            <h3 className="text-zinc-100">Prompt judging</h3>
+            <p className="text-sm text-zinc-400">
+              Frozen inline evidence; no actor-session continuation or live workspace access.
+              {" "}Submission is observed only from recorded grade callbacks. Inspection is not observable.
+              {" "}Digests check supplied bytes, not authenticity, unbiased judgment, or evidence truth.
+            </p>
+            {malformedJudging && <p className="text-sm text-yellow-400">Prompt judging metadata withheld: invalid or unsupported metadata.</p>}
+            {!malformedJudging && !judgingRuns.length && <p className="text-sm text-zinc-400">Prompt judging unassessed: no frozen-judging metadata recorded.</p>}
+            {judgingRuns.map((run, index) => {
+              if (!canDisplayPromptJudging(run)) return <p key={index} className="text-sm text-yellow-400">Prompt judging metadata withheld: invalid or unsupported metadata.</p>;
+              return <div key={`${run.runNumber}-${index}`} className="space-y-2 rounded border border-zinc-700 p-3 text-sm">
+                <p>Run {run.runNumber} · attempt {run.attempts} · {run.assessment}{run.cached ? " · cached source, not new judging" : ""}</p>
+                <p className="text-zinc-400">{run.message}</p>
+                {run.bundleSHA256 && <p className="break-all">Frozen bundle SHA-256: {run.bundleSHA256} · execution {run.executionMode}</p>}
+                {run.limits && <p>Limits: {run.limits.max_files} files · {run.limits.max_file_bytes} bytes/file · {run.limits.max_bundle_bytes} bytes/bundle</p>}
+                {run.coverage?.map((section) => <p key={section.section}>{section.section}: {section.availability} / {section.completeness}{section.count !== undefined ? ` · ${section.count} items` : ""}</p>)}
+                {!run.observations.length && <p>Judge submission unavailable; no bound judge observation.</p>}
+                {run.observations.map((observation, observationIndex) => <div key={observationIndex} className="space-y-1 border-t border-zinc-700 pt-2">
+                  <p>{observation.grader} · {observation.purpose} · {observation.state} · submission {observation.submissionObserved ? "observed" : "not observed"} · inspection not observable</p>
+                  <p>Requested judge model: {observation.model ?? "unavailable"} · session: {observation.sessionID ?? "unavailable"} · {observation.durationMs} ms · {observation.fileCount} selected files</p>
+                  <p>Judge AI credits: {observation.usage?.aiCredits !== undefined ? String(observation.usage.aiCredits) : "unavailable"}{observation.usage ? ` · ${observation.usage.inputTokens} input / ${observation.usage.outputTokens} output tokens` : " · usage unavailable"}</p>
+                  {observation.deliverySHA256 && <p className="break-all">Delivery SHA-256: {observation.deliverySHA256}</p>}
+                  {observation.diagnostics?.map((code, codeIndex) => <p key={codeIndex} className="text-yellow-400">{code}</p>)}
+                </div>)}
+              </div>;
+            })}
+            {!!judgingRuns.length && <button type="button" className="rounded border border-zinc-600 px-3 py-1 text-sm" onClick={() => {
+              const runs = judgingRuns.filter(canDisplayPromptJudging);
+              downloadText(JSON.stringify({ version: "1.0", taskID: task.id, promptJudgingRuns: runs, withheldRunCount: judgingRuns.length - runs.length }, null, 2), "waza-prompt-judging.json", "application/json");
+            }}>Export prompt judging metadata</button>}
+          </div>
           {!task.evidenceRuns?.length && (
             <p className="mt-2 text-sm text-zinc-400">
               Evidence unassessed: historical metadata is unavailable or capture was not requested.
@@ -113,7 +150,8 @@ export default function EvidenceView({ tasks }: { tasks: TaskResult[] }) {
             );
           })}
         </section>
-      ))}
+        );
+      })}
     </div>
   );
 }

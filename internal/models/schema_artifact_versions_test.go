@@ -13,7 +13,7 @@ import (
 
 func TestArtifactVersionSeparation(t *testing.T) {
 	require.Equal(t, "1.4", CurrentSchemaVersion)
-	require.Equal(t, "1.6", CurrentResultSchemaVersion)
+	require.Equal(t, "1.7", CurrentResultSchemaVersion)
 	require.Equal(t, "2.0", ScenarioSchemaVersion)
 	require.Equal(t, "1.4", defaultSchemaVersion(""))
 
@@ -100,7 +100,7 @@ func TestHistoricalResultVersionsSurviveWriterVersionBump(t *testing.T) {
 	require.NoError(t, err)
 	var emitted EvaluationOutcome
 	require.NoError(t, json.Unmarshal(data, &emitted))
-	require.Equal(t, "1.6", emitted.SchemaVersion)
+	require.Equal(t, CurrentResultSchemaVersion, emitted.SchemaVersion)
 }
 
 func TestEvidenceResultFieldsUseCurrentWriterVersion(t *testing.T) {
@@ -128,14 +128,14 @@ func TestEvidenceResultFieldsUseCurrentWriterVersion(t *testing.T) {
 				} `json:"tasks"`
 			}
 			require.NoError(t, json.Unmarshal(data, &wire))
-			require.Equal(t, "1.6", wire.SchemaVersion)
+			require.Equal(t, CurrentResultSchemaVersion, wire.SchemaVersion)
 			require.Len(t, wire.Tasks, 1)
 			require.Len(t, wire.Tasks[0].Runs, 1)
 			require.Equal(t, recorded, wire.Tasks[0].Runs[0]["evidence"] != nil)
 			require.Equal(t, recorded, wire.Tasks[0].Runs[0]["requirement_explanations"] != nil)
 			restored, err := ParseEvaluationOutcome(data, "new.json")
 			require.NoError(t, err)
-			require.Equal(t, "1.6", restored.SchemaVersion)
+			require.Equal(t, CurrentResultSchemaVersion, restored.SchemaVersion)
 			require.Equal(t, run.Evidence, restored.TestOutcomes[0].Runs[0].Evidence)
 			require.Equal(t, run.RequirementExplanations, restored.TestOutcomes[0].Runs[0].RequirementExplanations)
 		})

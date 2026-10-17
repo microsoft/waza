@@ -1077,6 +1077,65 @@ waza run evals/code-explainer/eval.yaml -o results.json
 
 ## Snapshot inspection and regrading
 
+### Frozen independent prompt judging
+
+Final eval/task prompt graders may opt into `config.evidence_context: {}` for
+recorded task, visible conversation, canonical tools/results and output, with
+optional exact `files` and reviewed `evaluator_only` exclusions. The fresh judge
+has neither the actor session nor its live workspace. Omission preserves legacy
+behavior; checkpoint, pairwise, continuation and `--evidence-snapshot` combinations
+are rejected. This requires the current implementation, not an older CLI that
+does not implement evidence context.
+
+```bash
+waza preflight examples/evidence-judge/eval.yaml --context-dir examples/evidence-judge/fixtures
+waza run examples/evidence-judge/eval.yaml --context-dir examples/evidence-judge/fixtures --output results.json
+waza grade examples/evidence-judge/eval.yaml --results results.json --task report --output regraded.json
+```
+
+Provide an explicit hosted token or BYOK environment configuration; stored login,
+ambient actor config, hooks and skills are not inherited. The selected-file path
+requires Linux/macOS, with 64 files, 64 KiB/file and 256 KiB/compact JSON bundle
+limits. Formatting whitespace outside strings does not count toward that limit.
+Missing/incomplete/redacted evidence fails before model startup, without
+truncation or workspace recovery. Evidence-only regrading does not inspect
+`--workspace` or `snapshot_path`. It uses the recorded task, even if the current
+task changed, and newly selected files must already have been captured.
+Current eval/task selection unions and evaluator-only exclusions are checked
+again before any saved-evidence judge runs. Omitted judge models fall back to
+the eval model (then `auto`); explicit hosted reasoning effort must pass the
+isolated client's model-catalog checks before session creation.
+Valid, run-bound legacy snapshot manifests are retained as provenance only:
+old validations, result, grader-configuration and checkpoint artifacts become
+unavailable for the new assessment. Invalid or mismatched unused manifests are
+omitted with a warning; the frozen judge bundle is validated independently.
+
+Ordinary failed judgments retain `grade`'s zero exit and report `passed: false` /
+`status: failed`. Operational errors return nonzero and `status: error`, without
+an `overall_score` in stdout. After evidence grading starts, requested output
+retains safe failure diagnostics; publication errors propagate. Regrading can
+incur new model charges, recorded once per session in `regrade_usage.sessions`;
+this field covers the current regrade only and is omitted for a subsequent
+mechanical-only regrade. In a mixed-task regrade, a later mechanical grader's
+operational failure still publishes earlier judge observations and current
+charges to the requested output, while withholding the overall score.
+If verbose diagnostic output fails after judging, the saved observations and
+charges are retained and the affected run is marked as an error.
+Mechanical errors remain fail-fast and do not start any further judges;
+this also applies within a task that mixes mechanical and evidence graders,
+regardless of validator order. An error before the first evidence attempt
+creates no new judge session.
+Local evidence-admission and diagnostic-output errors also stop further judges;
+prompt-execution failures can still aggregate across independent tasks.
+Original `evaluation_usage` and actor billing remain
+unchanged. Missing credits are unavailable, not zero. The existing Evidence view
+reports per-run/per-grader submission metadata, not proof of inspection, accuracy,
+or authenticity.
+See the [canonical reference](https://microsoft.github.io/waza/guides/graders/#evidence-backed-independent-judging)
+for complete YAML, authentication, native-runtime scope and privacy limits.
+
+### Snapshot inspection
+
 ```bash
 waza run eval.yaml --output results.json --snapshot ./snapshots/
 waza replay ./snapshots/my-task-run1.json
@@ -1087,7 +1146,7 @@ Replay checks stored event sequencing and grader score/pass consistency without 
 
 Portable evidence (manifest `1.0`, snapshot `1.1`) keeps missing-version defaults
 for legacy eval/results readers at `1.4`, while newly generated results use result
-schema `1.6`. Task YAML has no independent schema-version field or default.
+schema `1.7`. Task YAML has no independent schema-version field or default.
 It describes every trial, full source origin, source/content
 digests, availability, completeness, redaction, unavailable versions, requested
 `no_skills`/native skill control, and operational uncertainty. Requested

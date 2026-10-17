@@ -614,9 +614,12 @@ func runCalibrationGrade(ctx context.Context, job calibrationJob, store *calibra
 	if err != nil {
 		return nil, err
 	}
-	_, ok := config.Parameters.(models.PromptGraderParameters)
+	parameters, ok := config.Parameters.(models.PromptGraderParameters)
 	if !ok {
 		return nil, errors.New("assurance: calibrated native grader is not a prompt grader")
+	}
+	if parameters.EvidenceContext != nil {
+		return nil, errors.New("assurance: calibration does not support evidence_context")
 	}
 	acquired, err := graders.AcquireRubric(config, job.declarationSHA, job.rubricSHA, job.rubric)
 	if err != nil {

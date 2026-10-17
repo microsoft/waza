@@ -165,7 +165,8 @@ func inspectNativeJSONMembers(data []byte, kind reflect.Type, depth int) (bool, 
 		if memberKind == nil {
 			continue
 		}
-		if memberKind == reflect.TypeFor[*EvidenceManifest]() && !bytes.Equal(bytes.TrimSpace(member), []byte("null")) {
+		if (memberKind == reflect.TypeFor[*EvidenceManifest]() || memberKind == reflect.TypeFor[*JudgeEvidence]()) &&
+			!bytes.Equal(bytes.TrimSpace(member), []byte("null")) {
 			profile = true
 		}
 		nested, err := inspectNativeJSONMembers(member, memberKind, depth+1)
