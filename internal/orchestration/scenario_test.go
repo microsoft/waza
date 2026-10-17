@@ -3,7 +3,6 @@ package orchestration
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -34,14 +33,17 @@ func (e *recoveryEvidenceEngine) Execute(context.Context, *execution.ExecutionRe
 
 func TestRecoveryExampleGradesSDKEventsThroughRunBenchmark(t *testing.T) {
 	evalPath := testutil.RepoFile(t, "examples", "scenarios", "recovery", "mcp", "eval.yaml")
-	for _, errorOnly := range []bool{false, true} {
-		t.Run(fmt.Sprint(errorOnly), func(t *testing.T) {
+	for _, errorForm := range []string{"result", "error", "both"} {
+		t.Run(errorForm, func(t *testing.T) {
 			spec, err := models.LoadEvalSpec(evalPath)
 			require.NoError(t, err)
 			spec.Tasks = []string{"tasks/transient.yaml"}
 			first := &copilot.ToolExecutionCompleteData{ToolCallID: "first", Success: false}
-			if errorOnly {
+			if errorForm != "result" {
 				first.Error = &copilot.ToolExecutionCompleteError{Message: "temporary dependency error"}
+				if errorForm == "both" {
+					first.Result = &copilot.ToolExecutionCompleteResult{}
+				}
 			} else {
 				first.Result = &copilot.ToolExecutionCompleteResult{Content: "temporary dependency error"}
 			}
