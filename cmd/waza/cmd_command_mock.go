@@ -14,7 +14,7 @@ func newCommandMockCommand() *cobra.Command {
 		Hidden: true,
 		Args:   cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			code := commandmock.RunCommand(root, name, args)
+			code := commandmock.RunCommandContext(cmd.Context(), root, name, args)
 			if code != 0 {
 				return &ExitCodeError{Code: code}
 			}

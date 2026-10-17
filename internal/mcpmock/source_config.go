@@ -93,6 +93,7 @@ func FromEvalConfigWithSources(mock models.MCPMockConfig, baseDir string, inline
 			if err != nil {
 				return nil, fmt.Errorf("mcp mock %q tool %q response %d: %w", name, toolName, i, err)
 			}
+			delete(fields, "sequence")
 			data, err := json.Marshal(fields)
 			if err != nil {
 				return nil, fmt.Errorf("mcp mock %q tool %q response %d: %w", name, toolName, i, err)
@@ -138,6 +139,7 @@ func loadSourceFixtureDir(resolved *SourceConfig, dir string) error {
 		if err != nil {
 			return err
 		}
+		typedData := stripSourceSequences(data)
 		// Capture fragments first, but use exactly the native typed recognition:
 		// a malformed/empty bundle can still be a valid basename-named tool.
 		var rawBundle struct {
@@ -147,7 +149,7 @@ func loadSourceFixtureDir(resolved *SourceConfig, dir string) error {
 		var bundle struct {
 			Tools map[string]Tool `json:"tools"`
 		}
-		if err := json.Unmarshal(data, &bundle); err == nil && len(bundle.Tools) > 0 {
+		if err := json.Unmarshal(typedData, &bundle); err == nil && len(bundle.Tools) > 0 {
 			if rawErr != nil {
 				return fmt.Errorf("%s: %w", path, rawErr)
 			}
@@ -160,9 +162,10 @@ func loadSourceFixtureDir(resolved *SourceConfig, dir string) error {
 		var rawTool sourceFixtureTool
 		rawErr = json.Unmarshal(data, &rawTool)
 		var tool Tool
-		if err := json.Unmarshal(data, &tool); err != nil {
+		if err := json.Unmarshal(typedData, &tool); err != nil {
 			return fmt.Errorf("%s: %w", path, err)
 		}
+
 		if rawErr != nil {
 			return fmt.Errorf("%s: %w", path, rawErr)
 		}
@@ -171,6 +174,64 @@ func loadSourceFixtureDir(resolved *SourceConfig, dir string) error {
 		resolved.Responses[name] = fixtureSourceResponses(rawTool.Responses)
 		return nil
 	})
+}
+
+func stripSourceSequences(data []byte) []byte {
+	var root map[string]json.RawMessage
+	if json.Unmarshal(data, &root) != nil {
+		return data
+	}
+	if rawTools, ok := root["tools"]; ok {
+		var tools map[string]json.RawMessage
+		if json.Unmarshal(rawTools, &tools) != nil {
+			return data
+		}
+		for name, raw := range tools {
+			tools[name] = stripToolSequences(raw)
+		}
+		root["tools"], _ = json.Marshal(tools)
+	} else {
+		root = stripToolObjectSequences(root)
+	}
+	result, err := json.Marshal(root)
+	if err != nil {
+		return data
+	}
+	return result
+}
+
+func stripToolSequences(data []byte) []byte {
+	var tool map[string]json.RawMessage
+	if json.Unmarshal(data, &tool) != nil {
+		return data
+	}
+	tool = stripToolObjectSequences(tool)
+	result, err := json.Marshal(tool)
+	if err != nil {
+		return data
+	}
+	return result
+}
+
+func stripToolObjectSequences(tool map[string]json.RawMessage) map[string]json.RawMessage {
+	raw, ok := tool["responses"]
+	if !ok {
+		return tool
+	}
+	var responses []json.RawMessage
+	if json.Unmarshal(raw, &responses) != nil {
+		return tool
+	}
+	for index, response := range responses {
+		var fields map[string]json.RawMessage
+		if json.Unmarshal(response, &fields) != nil {
+			continue
+		}
+		delete(fields, "sequence")
+		responses[index], _ = json.Marshal(fields)
+	}
+	tool["responses"], _ = json.Marshal(responses)
+	return tool
 }
 
 func fixtureSourceResponses(raw []json.RawMessage) []SourceResponse {

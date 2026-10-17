@@ -28,6 +28,11 @@ var commandOutputs = []string{"stdout", "stderr", "exit_code", "fixture"}
 var mcpFields = []string{"match", "match_schema", "match_regex", "return", "error"}
 var mcpOutputs = []string{"return", "error"}
 
+const (
+	MaxMockFaultSequenceSteps = 100
+	MaxMockFaultDelayMS       = 300_000
+)
+
 // ValidateCommandFaultResponse checks a CLI matcher and any finite source sequence.
 // Sequence eligibility requires the explicit enclosing scenario version.
 func ValidateCommandFaultResponse(data []byte, format FaultSourceFormat, enclosingVersion string) error {
@@ -92,6 +97,9 @@ func validateResponse(data []byte, format FaultSourceFormat, version string, fie
 	}
 	if len(steps) == 0 {
 		return fmt.Errorf("fault sequence must contain at least one step")
+	}
+	if len(steps) > MaxMockFaultSequenceSteps {
+		return fmt.Errorf("fault sequence must contain at most %d steps", MaxMockFaultSequenceSteps)
 	}
 	for index, rawStep := range steps {
 		step, duplicates, err := DecodeFaultObject(rawStep)

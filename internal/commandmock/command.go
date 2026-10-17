@@ -1,6 +1,7 @@
 package commandmock
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -73,13 +74,25 @@ func sanitizeArgs(args []string, env []string) []string {
 
 // RunCommand is the entry point for the private executable shims.
 func RunCommand(root, name string, args []string) int {
+	return RunCommandContext(context.Background(), root, name, args)
+}
+
+func RunCommandContext(ctx context.Context, root, name string, args []string) int {
 	cwd, err := os.Getwd()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "waza command mock: cannot determine working directory")
 		return 127
 	}
-	result, err := Invoke(root, os.Getenv(SessionEnvironmentVariable), name, args, cwd)
+	result, err := InvokeContext(ctx, root, os.Getenv(SessionEnvironmentVariable), name, args, cwd)
 	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			fmt.Fprintln(os.Stderr, "waza command mock: invocation timed out")
+			return 124
+		}
+		if errors.Is(err, context.Canceled) {
+			fmt.Fprintln(os.Stderr, "waza command mock: invocation canceled")
+			return 130
+		}
 		fmt.Fprintln(os.Stderr, "waza command mock: failed to load task configuration")
 		return 127
 	}

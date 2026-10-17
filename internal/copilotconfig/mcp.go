@@ -23,6 +23,12 @@ func ConvertMCPServers(serverConfigs map[string]any, warnf func(string, ...any))
 // mcp_mocks entries into Copilot SDK MCP configs. Mock servers are exposed as
 // hermetic stdio MCP servers backed by this waza binary.
 func ConvertMCPServersWithMocks(serverConfigs map[string]any, mocks []models.MCPMockConfig, baseDir string, warnf func(string, ...any)) map[string]copilot.MCPServerConfig {
+	return ConvertMCPServersWithVersion(serverConfigs, mocks, baseDir, "", warnf)
+}
+
+// ConvertMCPServersWithVersion permits finite mock responses only when the
+// enclosing eval schema version explicitly supports them.
+func ConvertMCPServersWithVersion(serverConfigs map[string]any, mocks []models.MCPMockConfig, baseDir, version string, warnf func(string, ...any)) map[string]copilot.MCPServerConfig {
 	if warnf == nil {
 		warnf = func(string, ...any) {}
 	}
@@ -66,7 +72,7 @@ func ConvertMCPServersWithMocks(serverConfigs map[string]any, mocks []models.MCP
 		if mockName != "" {
 			delete(result, mockName)
 		}
-		cfg, err := mcpmock.FromEvalConfig(mock, baseDir)
+		cfg, err := mcpmock.FromEvalConfigWithVersion(mock, baseDir, version)
 		if err != nil {
 			warnf("Warning: mcp_mock %q config is invalid: %v, skipping\n", mock.Name, err)
 			continue

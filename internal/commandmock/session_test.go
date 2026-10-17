@@ -75,6 +75,58 @@ func TestInvokeExactAndNonZeroResponse(t *testing.T) {
 	}
 }
 
+func TestInvokeSequenceRecoversExhaustsAndResetsPerSession(t *testing.T) {
+	root := commandMockTestRoot(t)
+	workspace := t.TempDir()
+	mock := []models.CommandMockConfig{{Name: "az", Responses: []models.CommandMockResponse{{
+		Args: []string{"account", "show"},
+		Sequence: []models.CommandMockStep{
+			{Stderr: "temporarily unavailable", ExitCode: 75},
+			{Stdout: "ready"},
+		},
+	}}}}
+	first, err := NewSession(workspace, mock, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := NewSession(workspace, mock, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if _, err := second.Close(); err != nil {
+			t.Errorf("second Close() error = %v", err)
+		}
+		if err := CloseRuntime(); err != nil {
+			t.Errorf("CloseRuntime() error = %v", err)
+		}
+	})
+
+	result, err := Invoke(root, first.ID(), "az", []string{"account", "show"}, workspace)
+	if err != nil || result.ExitCode != 75 || result.Stderr != "temporarily unavailable" {
+		t.Fatalf("first sequence step = %+v, error = %v", result, err)
+	}
+	result, err = Invoke(root, first.ID(), "az", []string{"account", "show"}, workspace)
+	if err != nil || string(result.Stdout) != "ready" {
+		t.Fatalf("recovery response = %+v, error = %v", result, err)
+	}
+	result, err = Invoke(root, first.ID(), "az", []string{"account", "show"}, workspace)
+	if err != nil || result.ExitCode != 127 || !strings.Contains(result.Stderr, "sequence exhausted") {
+		t.Fatalf("exhausted response = %+v, error = %v", result, err)
+	}
+	result, err = Invoke(root, second.ID(), "az", []string{"account", "show"}, workspace)
+	if err != nil || result.ExitCode != 75 {
+		t.Fatalf("new session did not reset state: %+v, error = %v", result, err)
+	}
+	invocations, err := first.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(invocations) != 3 || invocations[0].ExitCode != 75 || invocations[1].ExitCode != 0 || invocations[2].ExitCode != 127 {
+		t.Fatalf("invocations omitted earlier failure or exhaustion: %+v", invocations)
+	}
+}
+
 func TestInvokeRegexEnvironmentWorkDirAndFixture(t *testing.T) {
 	root := commandMockTestRoot(t)
 	baseDir := t.TempDir()

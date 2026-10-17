@@ -203,6 +203,15 @@
         "fixture": {
           "type": "string",
           "minLength": 1
+        },
+        "sequence": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 100,
+          "items": {
+            "$ref": "#/$defs/commandMockStep"
+          },
+          "description": "Finite per-matcher outputs; accepted at runtime only when the enclosing eval uses scenario schema 2.0."
         }
       },
       "oneOf": [
@@ -211,8 +220,41 @@
       ],
       "allOf": [
         { "not": { "required": ["args", "args_regex"] } },
-        { "not": { "required": ["stdout", "fixture"] } }
+        { "not": { "required": ["stdout", "fixture"] } },
+        {
+          "if": { "required": ["sequence"] },
+          "then": {
+            "not": {
+              "anyOf": [
+                { "required": ["stdout"] },
+                { "required": ["stderr"] },
+                { "required": ["exit_code"] },
+                { "required": ["fixture"] }
+              ]
+            }
+          }
+        }
       ]
+    },
+    "commandMockStep": {
+      "type": "object",
+      "additionalProperties": false,
+      "anyOf": [
+        { "required": ["stdout"] },
+        { "required": ["stderr"] },
+        { "required": ["exit_code"] },
+        { "required": ["fixture"] }
+      ],
+      "properties": {
+        "stdout": {},
+        "stderr": { "type": "string" },
+        "exit_code": { "type": "integer", "minimum": 0, "maximum": 255 },
+        "fixture": { "type": "string", "minLength": 1 },
+        "delay_ms": { "type": "integer", "minimum": 0, "maximum": 300000 }
+      },
+      "not": {
+        "required": ["stdout", "fixture"]
+      }
     },
     "inputs": {
       "type": "object",

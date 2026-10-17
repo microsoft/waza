@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/microsoft/waza/internal/faultsequence"
 	"github.com/microsoft/waza/internal/models"
 )
 
@@ -38,6 +39,9 @@ type storedResponse struct {
 	Stdout      []byte            `json:"stdout,omitempty"`
 	Stderr      string            `json:"stderr,omitempty"`
 	ExitCode    int               `json:"exit_code"`
+	Sequence    []storedResponse  `json:"sequence,omitempty"`
+	SequenceDir string            `json:"sequence_dir,omitempty"`
+	DelayMS     int64             `json:"delay_ms,omitempty"`
 }
 
 type invocationRecord struct {
@@ -99,7 +103,7 @@ func NewNativeSession(ctx context.Context, workspace string, mocks []models.Comm
 	}()
 	native := make(map[string]bool)
 	stored := make([]storedMock, 0, len(mocks))
-	for _, mock := range mocks {
+	for mockIndex, mock := range mocks {
 		if err := ensureShim(mock.Name, shimDir); err != nil {
 			return nil, err
 		}
@@ -128,25 +132,43 @@ func NewNativeSession(ctx context.Context, workspace string, mocks []models.Comm
 				continue
 			}
 		}
-		for _, response := range mock.Responses {
-			output, err := responseOutput(response, baseDir)
-			if err != nil {
-				return nil, fmt.Errorf("command mock %q response fixture: %w", mock.Name, err)
-			}
+		for responseIndex, response := range mock.Responses {
 			workDir := ""
 			if response.WorkDir != "" {
 				workDir = filepath.ToSlash(filepath.Clean(response.WorkDir))
 			}
-			item.Responses = append(item.Responses, storedResponse{
+			stored := storedResponse{
 				Args:        response.Args,
 				ArgsRegex:   response.ArgsRegex,
 				Environment: response.Environment,
 				WorkDir:     workDir,
 				HasWorkDir:  response.WorkDir != "",
-				Stdout:      output,
-				Stderr:      response.Stderr,
 				ExitCode:    response.ExitCode,
-			})
+			}
+			if len(response.Sequence) > 0 {
+				stored.SequenceDir = filepath.Join(dir, "sequences", fmt.Sprintf("mock-%04d-response-%04d", mockIndex, responseIndex))
+				if err := os.MkdirAll(stored.SequenceDir, 0700); err != nil {
+					return nil, fmt.Errorf("creating command-mock sequence state: %w", err)
+				}
+				for _, step := range response.Sequence {
+					output, err := responseOutput(models.CommandMockResponse{Stdout: step.Stdout, Fixture: step.Fixture}, baseDir)
+					if err != nil {
+						return nil, fmt.Errorf("command mock %q sequence fixture: %w", mock.Name, err)
+					}
+					stored.Sequence = append(stored.Sequence, storedResponse{
+						Stdout: output, Stderr: step.Stderr, ExitCode: step.ExitCode, DelayMS: step.DelayMS,
+					})
+				}
+			} else {
+				output, err := responseOutput(response, baseDir)
+				if err != nil {
+					return nil, fmt.Errorf("command mock %q response fixture: %w", mock.Name, err)
+				}
+				stored.Stdout = output
+				stored.Stderr = response.Stderr
+				stored.ExitCode = response.ExitCode
+			}
+			item.Responses = append(item.Responses, stored)
 		}
 		stored = append(stored, item)
 	}
@@ -310,6 +332,13 @@ type invocationResult struct {
 // Invoke chooses the first matching response for the task session. The cwd
 // fallback supports callers without an explicit session ID.
 func Invoke(root, sessionID, name string, args []string, cwd string) (invocationResult, error) {
+	return InvokeContext(context.Background(), root, sessionID, name, args, cwd)
+}
+
+func InvokeContext(ctx context.Context, root, sessionID, name string, args []string, cwd string) (invocationResult, error) {
+	if err := ctx.Err(); err != nil {
+		return invocationResult{}, err
+	}
 	config, mock, err := findMock(root, sessionID, name, cwd)
 	if err != nil {
 		return invocationResult{}, err
@@ -327,6 +356,40 @@ func Invoke(root, sessionID, name string, args []string, cwd string) (invocation
 		}
 		if !matched {
 			continue
+		}
+		if len(response.Sequence) > 0 {
+			index, err := faultsequence.Reserve(ctx, response.SequenceDir, len(response.Sequence))
+			if err != nil {
+				if errors.Is(err, faultsequence.ErrExhausted) {
+					message := fmt.Sprintf("waza command mock: response sequence exhausted for executable %q; define enough sequence steps for expected calls", name)
+					if recordErr := recordInvocation(config.LogDir, name, args, 127, i); recordErr != nil {
+						return invocationResult{}, recordErr
+					}
+					return invocationResult{Stderr: message + "\n", ExitCode: 127, ResponseIndex: i}, nil
+				}
+				return invocationResult{}, err
+			}
+			step := response.Sequence[index]
+			if err := faultsequence.Delay(ctx, step.DelayMS); err != nil {
+				exitCode := 130
+				message := "waza command mock: invocation canceled\n"
+				if errors.Is(err, context.DeadlineExceeded) {
+					exitCode = 124
+					message = "waza command mock: invocation timed out\n"
+				}
+				if recordErr := recordInvocation(config.LogDir, name, args, exitCode, i); recordErr != nil {
+					return invocationResult{}, recordErr
+				}
+				return invocationResult{Stderr: message, ExitCode: exitCode, ResponseIndex: i}, nil
+			}
+			result := invocationResult{
+				Stdout: step.Stdout, Stderr: step.Stderr, ExitCode: step.ExitCode,
+				ResponseIndex: i,
+			}
+			if err := recordInvocation(config.LogDir, name, args, result.ExitCode, i); err != nil {
+				return invocationResult{}, err
+			}
+			return result, nil
 		}
 		result := invocationResult{
 			Stdout:        response.Stdout,

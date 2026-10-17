@@ -207,6 +207,13 @@ type MCPMockResponse struct {
 	MatchRegex  map[string]string `yaml:"match_regex,omitempty" json:"match_regex,omitempty"`
 	Return      any               `yaml:"return,omitempty" json:"return,omitempty"`
 	Error       string            `yaml:"error,omitempty" json:"error,omitempty"`
+	Sequence    []MCPMockStep     `yaml:"sequence,omitempty" json:"sequence,omitempty"`
+}
+
+type MCPMockStep struct {
+	Return  any    `yaml:"return,omitempty" json:"return,omitempty"`
+	Error   string `yaml:"error,omitempty" json:"error,omitempty"`
+	DelayMS int64  `yaml:"delay_ms,omitempty" json:"delay_ms,omitempty"`
 }
 
 // ShouldInjectSkillBody returns true unless the eval explicitly opts out of

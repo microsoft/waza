@@ -9,7 +9,9 @@ import (
 	"log/slog"
 	"regexp"
 	"sort"
+	"sync"
 
+	"github.com/microsoft/waza/internal/faultsequence"
 	"github.com/microsoft/waza/internal/jsonrpc"
 )
 
@@ -18,13 +20,15 @@ const protocolVersion = "2024-11-05"
 type Server struct {
 	cfg    *Config
 	logger *slog.Logger
+	mu     sync.Mutex
+	steps  map[string]int
 }
 
 func NewServer(cfg *Config, logger *slog.Logger) *Server {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Server{cfg: cfg, logger: logger}
+	return &Server{cfg: cfg, logger: logger, steps: make(map[string]int)}
 }
 
 func (s *Server) HandleRequest(ctx context.Context, req *jsonrpc.Request) *jsonrpc.Response {
@@ -52,7 +56,7 @@ func (s *Server) HandleRequest(ctx context.Context, req *jsonrpc.Request) *jsonr
 		if err := ctx.Err(); err != nil {
 			return toolCallResponse(req, "", fmt.Errorf("mcp mock %q: tool call canceled before fixture dispatch: %w", s.cfg.Name, err))
 		}
-		return s.handleToolsCall(req)
+		return s.handleToolsCall(ctx, req)
 	default:
 		return &jsonrpc.Response{JSONRPC: "2.0", Error: jsonrpc.ErrMethodNotFound(req.Method), ID: req.ID}
 	}
@@ -86,7 +90,7 @@ type toolsCallParams struct {
 	Arguments json.RawMessage `json:"arguments"`
 }
 
-func (s *Server) handleToolsCall(req *jsonrpc.Request) *jsonrpc.Response {
+func (s *Server) handleToolsCall(ctx context.Context, req *jsonrpc.Request) *jsonrpc.Response {
 	var params toolsCallParams
 	if err := json.Unmarshal(req.Params, &params); err != nil {
 		return &jsonrpc.Response{JSONRPC: "2.0", Error: jsonrpc.ErrInvalidParams(err.Error()), ID: req.ID}
@@ -99,7 +103,7 @@ func (s *Server) handleToolsCall(req *jsonrpc.Request) *jsonrpc.Response {
 		return &jsonrpc.Response{JSONRPC: "2.0", Error: jsonrpc.ErrInvalidParams("arguments must be a JSON object"), ID: req.ID}
 	}
 
-	result, err := s.call(params.Name, args)
+	result, err := s.call(ctx, params.Name, args)
 	return toolCallResponse(req, result, err)
 }
 
@@ -114,13 +118,37 @@ func toolCallResponse(req *jsonrpc.Request, result string, err error) *jsonrpc.R
 	return &jsonrpc.Response{JSONRPC: "2.0", Result: callResult, ID: req.ID}
 }
 
-func (s *Server) call(toolName string, args map[string]any) (string, error) {
+func (s *Server) call(ctx context.Context, toolName string, args map[string]any) (string, error) {
 	tool, ok := s.cfg.Tools[toolName]
 	if !ok {
 		return "", fmt.Errorf("mcp mock %q: unknown tool %q; add a fixture for this tool", s.cfg.Name, toolName)
 	}
-	for _, response := range tool.Responses {
+	for index, response := range tool.Responses {
 		if response.matches(args) {
+			if len(response.Sequence) > 0 {
+				key := fmt.Sprintf("%s\x00%d", toolName, index)
+				s.mu.Lock()
+				stepIndex := s.steps[key]
+				if stepIndex < len(response.Sequence) {
+					s.steps[key] = stepIndex + 1
+				}
+				s.mu.Unlock()
+				if stepIndex >= len(response.Sequence) {
+					return "", fmt.Errorf("mcp mock %q: response sequence exhausted for tool %q", s.cfg.Name, toolName)
+				}
+				step := response.Sequence[stepIndex]
+				if err := faultsequence.Delay(ctx, step.DelayMS); err != nil {
+					return "", fmt.Errorf("mcp mock %q tool %q sequence step %d: %w", s.cfg.Name, toolName, stepIndex, err)
+				}
+				if step.Error != "" {
+					return "", fmt.Errorf("mcp mock %q tool %q fixture error: %s", s.cfg.Name, toolName, step.Error)
+				}
+				data, err := json.Marshal(step.Return)
+				if err != nil {
+					return "", fmt.Errorf("mcp mock %q tool %q: marshal response: %w", s.cfg.Name, toolName, err)
+				}
+				return string(data), nil
+			}
 			if response.Error != "" {
 				return "", fmt.Errorf("mcp mock %q tool %q fixture error: %s", s.cfg.Name, toolName, response.Error)
 			}

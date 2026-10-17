@@ -575,20 +575,6 @@ func parseTestCase(data []byte, path string, offline bool, readFile func(string)
 	if err := validateDeclaredFaults(data, "", true); err != nil {
 		return nil, fmt.Errorf("task fault sources: %w", err)
 	}
-	var source yaml.Node
-	if err := yaml.Unmarshal(data, &source); err != nil {
-		return nil, fmt.Errorf("parsing test case YAML: %w", err)
-	}
-	if len(source.Content) == 1 {
-		finite, err := faultPathPresent(source.Content[0], []string{"command_mocks", "[]", "responses", "[]", "sequence"}, nil)
-		if err != nil {
-			return nil, fmt.Errorf("task fault sources: %w", err)
-		}
-		if finite {
-			return nil, fmt.Errorf("finite task responses are not registered for public scenario execution")
-		}
-	}
-
 	if offline {
 		if err := guardOfflineModelSchemas(data, true, validate); err != nil {
 			return nil, fmt.Errorf("task schema dependencies: %w", err)

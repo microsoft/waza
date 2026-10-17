@@ -670,6 +670,9 @@ func (r *EvalRunner) loadTestCasesFromFiles() ([]*models.TestCase, error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to load test case %s: %w", path, err)
 		}
+		if err := models.ValidateTaskFaultSources(tc.SourceBytes(), spec.SchemaVersion); err != nil {
+			return nil, fmt.Errorf("invalid test case %s: task fault sources: %w", path, err)
+		}
 		if err := tc.ValidateForExecutor(spec.Config.EngineType); err != nil {
 			return nil, fmt.Errorf("invalid test case %s: %w", path, err)
 		}
@@ -1558,7 +1561,7 @@ func (r *EvalRunner) buildExecutionRequest(tc *models.TestCase) (*execution.Exec
 		SuppressSkillBody: !spec.Config.ShouldInjectSkillBody(),
 		TriggerSkillRouting: spec.Config.ShouldTriggerSkillRouting() &&
 			execution.IsSkillAvailable(resolvedSkillPaths, spec.SkillName),
-		MCPServers:          convertMCPServers(spec.Config.ServerConfigs, spec.MCPMocks, r.cfg.SpecDir()),
+		MCPServers:          convertMCPServers(spec.Config.ServerConfigs, spec.MCPMocks, r.cfg.SpecDir(), spec.SchemaVersion),
 		CommandMocks:        effectiveCommandMocks(tc, spec),
 		CommandMocksBaseDir: r.cfg.SpecDir(),
 		FirstEventTimeout:   r.firstEventTimeout(tc),
@@ -2123,8 +2126,8 @@ func containsPathTraversal(path string) bool {
 
 // convertMCPServers converts the eval YAML mcp_servers config (map[string]any)
 // into the copilot SDK's MCPServerConfig type. Returns nil if no servers configured.
-func convertMCPServers(serverConfigs map[string]any, mocks []models.MCPMockConfig, baseDir string) map[string]copilot.MCPServerConfig {
-	return copilotconfig.ConvertMCPServersWithMocks(serverConfigs, mocks, baseDir, func(format string, args ...any) {
+func convertMCPServers(serverConfigs map[string]any, mocks []models.MCPMockConfig, baseDir, schemaVersion string) map[string]copilot.MCPServerConfig {
+	return copilotconfig.ConvertMCPServersWithVersion(serverConfigs, mocks, baseDir, schemaVersion, func(format string, args ...any) {
 		fmt.Fprintf(os.Stderr, format, args...)
 	})
 }
