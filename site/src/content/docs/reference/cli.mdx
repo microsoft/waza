@@ -95,10 +95,9 @@ waza run [eval.yaml | skill-name | agent-name]
 
 ### Flags
 
-The private dependency-fault harness does not add a public `run` flag, automatic
-retry policy or finite-sequence runtime configuration. Its injected native
-dispatch tests do not certify SDK resume or platform stdio. See
-[Private Fault Harness](/waza/guides/private-fault-fixtures/).
+Finite MCP/CLI fault sequences are configured in scenario eval YAML, not through
+a `run` flag. They do not add an automatic retry policy or certify real CLI/MCP
+implementations. See [Dependency Recovery](/waza/guides/dependency-recovery/).
 
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
@@ -918,11 +917,11 @@ the `eval.yaml`/`eval.yml` filename convention; JSON results are recognized by
 their artifact shape, including custom `.json` filenames.
 
 This legacy input/reader policy is separate from new result emission: current
-evaluations and regrades write results `1.6`. Task YAML has no independent version
+evaluations and regrades write results `1.7`. Task YAML has no independent version
 field. Historical result versions and missing reliability metadata are preserved
 when reading/re-saving; migration does not upgrade them.
 Compatibility reports select the current version by artifact type: eval `1.4`
-or result writer `1.6`. Missing/`1.4` result versions are explicitly labeled as
+or result writer `1.7`. Missing/`1.4` result versions are explicitly labeled as
 the legacy reader default alongside the current writer version, not rewritten.
 
 A present `scenario` header requires a nonblank native string and exact schema

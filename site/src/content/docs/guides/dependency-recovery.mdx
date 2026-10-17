@@ -1,0 +1,103 @@
+---
+title: Deterministic Dependency Recovery
+description: Test bounded MCP and CLI recovery against controlled fault fixtures.
+---
+
+Scenario evals can use finite MCP and CLI response sequences to test how an agent
+handles controlled dependency failures. These are **authored mocked interactions**,
+not replayed recordings or tests of a real CLI/server implementation.
+
+## Run the examples
+
+The MCP suite covers a transient error followed by success, permanent error,
+permission denial, dependency-reported timeout, malformed application payload
+and unmatched arguments. The CLI suite covers a transient failure and one retry.
+Each task grades an exact outcome, a prohibited file side effect, and observed
+dependency evidence: the operation/arguments, error or result, and retry count.
+Writing the expected report without making the required calls does not pass.
+Unrelated report-writing tool calls do not count as dependency retries.
+
+* [MCP recovery eval](https://github.com/microsoft/waza/blob/main/examples/scenarios/recovery/mcp/eval.yaml)
+* [CLI recovery eval](https://github.com/microsoft/waza/blob/main/examples/scenarios/recovery/cli/eval.yaml)
+
+Run static validation without provider credentials:
+
+```bash
+waza preflight examples/scenarios/recovery/mcp/eval.yaml
+waza preflight examples/scenarios/recovery/cli/eval.yaml
+```
+
+Offline inspection never fetches external matcher schemas. An unresolved schema
+does not hide independent invalid matchers or invalid sequence structure, step
+outputs, and bounds in the same response: those still fail non-strict preflight.
+
+Execution rejects invalid selected MCP fixtures before initializing the agent.
+Whole-tool inline overrides replace discarded fixture responses before admission.
+MCP subprocess setup errors also fail execution instead of dropping the mock.
+Temporary configuration creation is not a transaction: a late setup error lists
+any earlier generated configuration paths for inspection and cleanup.
+
+Execution invokes the configured Copilot SDK agent and therefore requires its
+normal runtime credentials:
+
+```bash
+waza run examples/scenarios/recovery/mcp/eval.yaml
+waza run examples/scenarios/recovery/cli/eval.yaml
+```
+
+Scenario evals require a nonempty `scenario` and exact `schemaVersion: "2.0"`.
+The finite `sequence` field belongs to a matching MCP or CLI response; every
+call consumes one step, in order, and an exhausted sequence fails closed.
+Sequences contain at most 100 steps; each optional `delay_ms` is limited to
+300,000 and excessive values are rejected during source admission, before execution.
+Sequence state is scoped to the task's mock session/server instance.
+There is no automatic retry policy: the agent decides whether to call again,
+and the task graders decide whether its final behavior is acceptable.
+
+Each step must declare an output. Use `exit_code: 0` for a silent successful CLI
+step or `return: null` for an MCP null-success step. Typed JSON/YAML round-trips
+preserve these fields without adding a `return` to an MCP error-only step.
+
+## Authoring boundaries
+
+* A transient sequence can return an error first and a normal value next. The
+  attempt record preserves that earlier error even if a later call succeeds.
+  CLI details are in `runs[].command_invocations`; MCP errors/calls appear in
+  the run transcript.
+* A permanent error, permission denial, malformed application response, or
+  unmatched call can be graded as an honest failure. A malformed application
+  payload is not a malformed JSON-RPC frame.
+* An MCP `error` containing “timeout” is a dependency-reported error, not
+  transport cancellation. The MCP mock subprocess accepts MCP
+  `notifications/cancelled` messages while a delayed request runs. A canceled
+  request does not terminate the server or reset its consumed step; a retry can
+  take the next step. Calls dispatch serially in input order, with at most 64
+  pending requests; overflow and duplicate active IDs stop the server. A queued
+  request canceled before it starts consumes no step. Notifications consume no
+  steps and canceled calls receive no fabricated response.
+* CLI attempts are recorded before waiting on a sequence delay. A catchable
+  interruption records cancellation (exit 130) or deadline (exit 124). An
+  abruptly killed process leaves a started attempt with `exit_code` omitted,
+  not an invented success or cancellation code. Completed exit zero is explicit.
+  The dashboard displays an omitted exit as unavailable. Attempt records describe
+  selected mock outcomes, not proof that stdout/stderr reached the caller.
+* Unmatched MCP calls and exhausted sequences return tool errors and never
+  fall through to a live MCP service. A CLI mock intercepts only its declared
+  executable name; undeclared executables may resolve through the host `PATH`.
+  Catchable shim cancellation also stops its pass-through host command.
+  Task `command_mocks: []` disables inherited command mocks.
+* A mock overrides a same-named configured live MCP server. Other configured
+  MCP servers remain live. Mocks do not restrict filesystem, process, remote or
+  network access and are not a host sandbox.
+
+Per-run `dependency_modes` in results schema `1.7` records declared MCP
+servers and effective CLI mocks as `live` or `mocked`. It reports configuration,
+not actual invocation or verified component behavior. No `recorded` mode is
+available. The dashboard shows these modes and captured mocked CLI attempts;
+its task detail is first-repetition evidence, not a complete repetition export.
+Inline `code` graders receive canonical `tool_events` and sanitized
+`command_invocations` arrays both during execution and offline regrading.
+
+These fixtures exercise the agent's decisions against controlled responses.
+Use separate opt-in integration tests when the real CLI/server behavior,
+authentication, or remote service contract is what you need to verify.

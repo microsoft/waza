@@ -24,6 +24,11 @@ type qualificationSourceFixture struct {
 
 func qualificationSourceFixtureForTest(t *testing.T) qualificationSourceFixture {
 	t.Helper()
+	return qualificationSourceFixtureWithEval(t, nil)
+}
+
+func qualificationSourceFixtureWithEval(t *testing.T, rewrite func([]byte) []byte) qualificationSourceFixture {
+	t.Helper()
 	request, document, root := authoredVerificationFixture(t)
 	request.Spec.SchemaVersion = "1.0"
 	request.Spec.Tasks = []string{"task.yaml"}
@@ -32,6 +37,9 @@ func qualificationSourceFixtureForTest(t *testing.T) qualificationSourceFixture 
 	request.Spec.Config.EngineType = "mock"
 	evalBytes, err := yaml.Marshal(request.Spec)
 	require.NoError(t, err)
+	if rewrite != nil {
+		evalBytes = rewrite(evalBytes)
+	}
 	taskBytes, err := yaml.Marshal(request.Tasks["task"])
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(filepath.Join(root, "eval.yaml"), evalBytes, 0o600))
@@ -71,6 +79,47 @@ func qualificationSourceFixtureForTest(t *testing.T) qualificationSourceFixture 
 		}
 	}
 	return qualificationSourceFixture{reads, request, document, root}
+}
+
+func TestQualificationRetainsFiniteFaultOutputs(t *testing.T) {
+	fixture := qualificationSourceFixtureWithEval(t, func(data []byte) []byte {
+		var source map[string]any
+		require.NoError(t, yaml.Unmarshal(data, &source))
+		source["schemaVersion"] = models.ScenarioSchemaVersion
+		source["scenario"] = "retained-faults"
+		delete(source, "skill")
+		config, ok := source["config"].(map[string]any)
+		require.True(t, ok)
+		config["executor"] = "copilot-sdk"
+		data, err := yaml.Marshal(source)
+		require.NoError(t, err)
+		return append(data, []byte(`
+command_mocks:
+  - name: dependency
+    responses:
+      - args: [read]
+        sequence: [{exit_code: 0}]
+mcp_mocks:
+  - name: dependency
+    tools:
+      read:
+        responses:
+          - sequence:
+              - return: null
+              - error: temporary
+`)...)
+	})
+	require.Contains(t, string(fixture.request.EvalSource), "return: null")
+	require.Contains(t, string(fixture.request.EvalSource), "exit_code: 0")
+	require.Len(t, fixture.request.Spec.CommandMocks[0].Responses[0].Sequence, 1)
+	require.Len(t, fixture.request.Spec.MCPMocks[0].Tools["read"].Responses[0].Sequence, 2)
+
+	sources, err := qualificationAcquireSources(t.Context(), fixture.reads)
+	require.NoError(t, err)
+	retained, err := qualificationRetainedEval(sources, fixture.request.EvalSource, "retained-eval.yaml")
+	require.NoError(t, err)
+	require.Equal(t, fixture.request.Spec.CommandMocks, retained.CommandMocks)
+	require.Equal(t, fixture.request.Spec.MCPMocks, retained.MCPMocks)
 }
 
 func TestQualificationAcquiresActualSnapshotAndOriginalReview(t *testing.T) {

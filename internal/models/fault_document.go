@@ -228,6 +228,7 @@ func validateDeclaredFaults(data []byte, version string, task bool) error {
 	if len(document.Content) != 1 {
 		return nil
 	}
+
 	root := document.Content[0]
 	finite, err := faultPathPresent(root, []string{"command_mocks", "[]", "responses", "[]", "sequence"}, nil)
 	if err != nil {
@@ -247,7 +248,7 @@ func validateDeclaredFaults(data []byte, version string, task bool) error {
 	if err != nil {
 		return err
 	}
-	if task {
+	if task && version == "" {
 		version = ScenarioSchemaVersion
 	}
 	for _, source := range sources {
@@ -265,6 +266,12 @@ func validateDeclaredFaults(data []byte, version string, task bool) error {
 		}
 	}
 	return nil
+}
+
+// ValidateTaskFaultSources checks finite task-level mock responses against the
+// enclosing eval version. Task documents have no independent version field.
+func ValidateTaskFaultSources(data []byte, enclosingVersion string) error {
+	return validateDeclaredFaults(data, enclosingVersion, true)
 }
 
 type faultPathVisit struct {

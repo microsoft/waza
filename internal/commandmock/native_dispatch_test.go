@@ -80,6 +80,30 @@ func TestNativeNilCompatibility(t *testing.T) {
 	}
 }
 
+func TestNativeFallbackCancellation(t *testing.T) {
+	root := commandMockTestRoot(t)
+	workspace := t.TempDir()
+	session, err := NewNativeSession(t.Context(), workspace, []models.CommandMockConfig{{
+		Name: "az", ExpectCalls: intPointer(0),
+		Responses: []models.CommandMockResponse{{Args: []string{}, Stdout: "unused"}},
+	}}, workspace, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		records, err := session.Close()
+		if err != nil || len(records) != 0 {
+			t.Fatalf("canceled native fallback recorded an invocation: %+v, %v", records, err)
+		}
+	}()
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	code, err := RunNativeCommand(ctx, root, session.ID(), "az", nil, workspace, NativeDispatchOptions{})
+	if code != 127 || !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled native fallback: %d, %v", code, err)
+	}
+}
+
 func TestNativePreparationOrderingAndCleanup(t *testing.T) {
 	commandMockTestRoot(t)
 	for _, failure := range []string{"prepare", "nil-config-materialize", "invalid-json", "cancel"} {
@@ -169,7 +193,7 @@ func TestNativeOpaqueRoundtripAndActualSanitizedReceipt(t *testing.T) {
 		t.Fatalf("dispatch: %d, %v", code, err)
 	}
 	records, err := s.Close()
-	if err != nil || len(records) != 1 || records[0].ExitCode != 23 || records[0].ResponseIndex != 4 ||
+	if err != nil || len(records) != 1 || records[0].ExitCode == nil || *records[0].ExitCode != 23 || records[0].ResponseIndex != 4 ||
 		!reflect.DeepEqual(records[0].Args, []string{redactedArg, redactedArg, "actual"}) {
 		t.Fatalf("receipt did not reflect sanitized actual output: %+v, %v", records, err)
 	}
@@ -537,7 +561,7 @@ func TestNativeExitCodeRangeBeforeEmission(t *testing.T) {
 			if code != exitCode || err != nil || stdout.String() != "stdout" || stderr.String() != "stderr" {
 				t.Fatalf("valid exit boundary rejected: %d, %v", code, err)
 			}
-			if records, err := s.Close(); err != nil || len(records) != 1 || records[0].ExitCode != exitCode {
+			if records, err := s.Close(); err != nil || len(records) != 1 || records[0].ExitCode == nil || *records[0].ExitCode != exitCode {
 				t.Fatalf("boundary receipt incorrect: %+v, %v", records, err)
 			}
 		})
@@ -732,7 +756,7 @@ func TestNativeCapturePreservesLegacyDecoding(t *testing.T) {
 		t.Fatal(err)
 	}
 	records, err := s.Close()
-	if err != nil || len(records) != 1 || records[0].Command != "gh" || records[0].ExitCode != 0 {
+	if err != nil || len(records) != 1 || records[0].Command != "gh" || records[0].ExitCode == nil || *records[0].ExitCode != 0 {
 		t.Fatalf("legacy decoding changed in mixed capture: %+v, %v", records, err)
 	}
 }

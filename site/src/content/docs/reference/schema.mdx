@@ -39,7 +39,7 @@ Current native grader bindings do not certify historical grader correspondence.
 
 ## Portable evidence
 
-Tasks retain their legacy format; new results use `1.6` and historical results
+Tasks retain their legacy format; new results use `1.7` and historical results
 retain their declared `1.x` versions or the missing-version `1.4` reader default.
 Snapshot schema `1.1` adds optional `evidence`
 and selected `workspaceFiles`; the portable manifest has an independent
@@ -240,7 +240,7 @@ version: "1.0"
 
 **Type:** string  
 **Required:** no  
-**Default:** legacy eval schema version (`1.4`); new result writers independently emit `1.6`
+**Default:** legacy eval schema version (`1.4`); new result writers independently emit `1.7`
 
 Schema version for the public artifact shape. It uses `MAJOR.MINOR` format with no patch component. Same-major minor additions are backward-compatible; readers ignore unknown fields and warn. Different major versions are rejected with a migration hint.
 
@@ -319,19 +319,19 @@ mcp_mocks:
 | `match_regex` | object | Per-field regular expression match |
 | `return` | any | JSON value returned as the mocked tool result |
 | `error` | string | Tool error text returned with `isError: true` |
+| `sequence` | array | Finite scenario-2.0 response steps with `return`/`error` and optional `delay_ms` |
+| `delay_ms` | integer | Per-step delay from 0 to 300,000 ms; not a host/process timeout guarantee |
 
-Response entries are checked in order. Unknown tools and unmatched calls fail loudly with a tool error that names the missing mock fixture.
+Response entries are checked in order. Unknown tools and unmatched calls fail loudly with a tool error that names the missing mock fixture. Finite `sequence` responses are available only in scenario evals using exact `schemaVersion: "2.0"`; each matching call consumes one step, sequences contain 1–100 steps, and optional step delays are bounded at 300,000 ms.
 
-Unmatched-call diagnostics omit argument values, including nested payloads. A canceled or expired context at the in-process handler's tool-call admission boundary produces an MCP `isError` result before matching or returning a fixture; non-tool methods retain their existing behavior. This does not implement per-request stdio cancellation or a timeout fixture, and adds no YAML or result fields.
+Unmatched-call diagnostics omit argument values, including nested payloads. A
+canceled or expired context at the in-process handler's tool-call admission
+boundary produces an MCP `isError` result before matching or returning a fixture.
+This is not per-request stdio cancellation. An error text containing “timeout”
+models a dependency-reported error, not transport cancellation. See
+[Dependency Recovery](/waza/guides/dependency-recovery/).
 
 ### command_mocks
-
-Private raw-fragment validators can inspect finite `sequence` and `delay_ms`
-presence before normalization, but these are **not registered public eval/runtime
-fields**. Valid standalone finite task declarations still reject as unregistered.
-Do not infer execution support from a validator or source snapshot. See
-[Private Fault Harness](/waza/guides/private-fault-fixtures/) for the injected testing
-boundary and cancellation limitations.
 
 **Type:** array
 **Required:** no
@@ -369,8 +369,10 @@ command_mocks:
 | `stderr` | string | Output written to stderr. |
 | `exit_code` | integer | Process exit code from 0 through 255; defaults to 0. |
 | `fixture` | string | Relative path to raw stdout fixture bytes, resolved from `eval.yaml`. |
+| `sequence` | array | Finite response steps, only for scenario eval schema `2.0`; at most 100 steps |
+| `delay_ms` | integer | Per-step delay from 0 to 300,000 ms |
 
-Task-level `command_mocks` replace the eval-level list; an empty list disables the inherited mocks. Configured commands with unmatched calls fail closed and report the executable, sanitized argument vector, and working directory that need a response fixture. Sanitized calls appear in `runs[].command_invocations` and the grader context. Real credentials should not be placed in mock responses.
+Task-level `command_mocks` replace the eval-level list; an empty list disables the inherited mocks. Configured commands with unmatched calls fail closed and report the executable, sanitized argument vector, and working directory that need a response fixture. Sanitized calls appear in `runs[].command_invocations` and the grader context. Real credentials should not be placed in mock responses. Only declared executable names are intercepted; other commands may resolve through the host `PATH`, and shims are not host sandboxing.
 
 ### adversarial
 
@@ -831,7 +833,7 @@ instruction_files:
 
 ### command_mocks (optional)
 
-Replace the eval-level command mock list for this task. The enclosing eval must use `schemaVersion: "1.3"` or newer and `executor: copilot-sdk`. Use an empty list to disable inherited mocks.
+Replace the eval-level command mock list for this task. The enclosing eval must use `schemaVersion: "1.3"` or newer and `executor: copilot-sdk`. Finite response sequences additionally require scenario eval schema `2.0`. Use an empty list to disable inherited mocks.
 
 ```yaml
 command_mocks: []

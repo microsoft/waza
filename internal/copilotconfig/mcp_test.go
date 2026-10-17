@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -12,6 +13,53 @@ import (
 	"github.com/microsoft/waza/internal/models"
 	"github.com/stretchr/testify/require"
 )
+
+func TestResolveMCPServersFailsBeforeCreatingConfigFiles(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("TMPDIR", dir)
+	t.Setenv("TMP", dir)
+	t.Setenv("TEMP", dir)
+	require.NoError(t, os.Mkdir(filepath.Join(dir, "mocks"), 0700))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "mocks", "request.json"), []byte(`{"responses":[{"sequence":[]}]}`), 0600))
+	servers, err := ResolveMCPServersWithVersion(nil, []models.MCPMockConfig{
+		{Name: "valid", Tools: map[string]models.MCPMockTool{"request": {Responses: []models.MCPMockResponse{{Return: "ready"}}}}},
+		{Name: "invalid", Fixtures: "mocks"},
+	}, dir, models.ScenarioSchemaVersion, nil)
+	require.ErrorContains(t, err, `resolve MCP mock "invalid"`)
+	require.Nil(t, servers)
+	files, err := filepath.Glob(filepath.Join(dir, "waza-mcp-mock-*.json"))
+	require.NoError(t, err)
+	require.Empty(t, files, "admission must finish before writing subprocess configurations")
+}
+
+func TestResolveMCPServersPropagatesConfigurationWriteFailure(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"TMPDIR", "TMP", "TEMP"} {
+		t.Setenv(name, filepath.Join(dir, "missing"))
+	}
+	servers, err := ResolveMCPServersWithVersion(nil, []models.MCPMockConfig{
+		{Name: "dependency", Tools: map[string]models.MCPMockTool{"request": {Responses: []models.MCPMockResponse{{Return: "ready"}}}}},
+	}, dir, models.ScenarioSchemaVersion, nil)
+	require.ErrorContains(t, err, "configure MCP mock")
+	require.Nil(t, servers)
+}
+
+func TestResolveMCPServersReportsEarlierConfigurationAfterSetupFailure(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"TMPDIR", "TMP", "TEMP"} {
+		t.Setenv(name, dir)
+	}
+	servers, err := ResolveMCPServersWithVersion(nil, []models.MCPMockConfig{
+		{Name: "first", Tools: map[string]models.MCPMockTool{"request": {Responses: []models.MCPMockResponse{{Return: "ready"}}}}},
+		{Name: "second", Tools: map[string]models.MCPMockTool{"request": {Responses: []models.MCPMockResponse{{Return: make(chan int)}}}}},
+	}, dir, models.ScenarioSchemaVersion, nil)
+	require.ErrorContains(t, err, `configure MCP mock "second"`)
+	require.Nil(t, servers)
+	files, globErr := filepath.Glob(filepath.Join(dir, "waza-mcp-mock-*.json"))
+	require.NoError(t, globErr)
+	require.Len(t, files, 1)
+	require.Contains(t, err.Error(), files[0], "a partial setup must identify its retained configuration")
+}
 
 func TestConvertMCPServersWithMocks_AddsHermeticStdioServer(t *testing.T) {
 	var warnings []string

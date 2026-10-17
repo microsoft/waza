@@ -219,6 +219,14 @@ type TestOutcome struct {
 	SkillImpact *SkillImpactMetric `json:"skill_impact,omitempty"`
 }
 
+// DependencyMode records the configured mode for a declared dependency.
+// It describes configuration, not proof that the dependency was invoked.
+type DependencyMode struct {
+	Kind string `json:"kind"`
+	Name string `json:"name"`
+	Mode string `json:"mode"`
+}
+
 // GroupStats holds aggregate statistics for a group of test outcomes.
 type GroupStats struct {
 	Name     string  `json:"name"`
@@ -270,6 +278,9 @@ type RunResult struct {
 	// CommandInvocations records sanitized calls handled by declarative
 	// command_mocks. Response output is intentionally excluded.
 	CommandInvocations []CommandInvocation `json:"command_invocations,omitempty"`
+	// DependencyModes records the configured mode for declared dependencies.
+	// It describes configuration, not proof that a dependency was invoked.
+	DependencyModes []DependencyMode `json:"dependency_modes,omitempty"`
 
 	// SnapshotPath is the on-disk path of the self-contained snapshot.json
 	// artifact for this run, as returned by snapshot.Writer.Write. It is

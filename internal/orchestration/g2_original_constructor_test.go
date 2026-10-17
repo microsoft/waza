@@ -63,7 +63,7 @@ func (r *frozenOriginalRunner) buildExecutionRequest(tc *models.TestCase) (*exec
 		SuppressSkillBody: !spec.Config.ShouldInjectSkillBody(),
 		TriggerSkillRouting: spec.Config.ShouldTriggerSkillRouting() &&
 			execution.IsSkillAvailable(resolvedSkillPaths, spec.SkillName),
-		MCPServers:          convertMCPServers(spec.Config.ServerConfigs, spec.MCPMocks, r.cfg.SpecDir()),
+		MCPServers:          convertMCPServers(spec.Config.ServerConfigs, spec.MCPMocks, r.cfg.SpecDir(), spec.SchemaVersion),
 		CommandMocks:        effectiveCommandMocks(tc, spec),
 		CommandMocksBaseDir: r.cfg.SpecDir(),
 		FirstEventTimeout:   r.firstEventTimeout(tc),

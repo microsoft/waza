@@ -79,8 +79,9 @@ func ValidateEvalFile(evalPath string) (evalErrs []string, taskErrs map[string][
 	// any schema validation errors in addition to the YAML parsing error for
 	// the "tasks" field, but we won't attempt to validate any tasks.
 	var spec struct {
-		Tasks  []string `yaml:"tasks"`
-		Config struct {
+		Tasks         []string `yaml:"tasks"`
+		SchemaVersion string   `yaml:"schemaVersion"`
+		Config        struct {
 			Executor string `yaml:"executor"`
 		} `yaml:"config"`
 	}
@@ -105,6 +106,13 @@ func ValidateEvalFile(evalPath string) (evalErrs []string, taskErrs map[string][
 				continue
 			}
 			errs := ValidateTaskBytes(taskData)
+			version := spec.SchemaVersion
+			if version == "" {
+				version = models.CurrentSchemaVersion
+			}
+			if faultErr := models.ValidateTaskFaultSources(taskData, version); faultErr != nil {
+				errs = append(errs, faultErr.Error())
+			}
 			if len(errs) == 0 {
 				var task models.TestCase
 				if decodeErr := yaml.Unmarshal(taskData, &task); decodeErr != nil {

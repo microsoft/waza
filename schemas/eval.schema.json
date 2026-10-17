@@ -113,6 +113,38 @@
   },
   "allOf": [
     {
+      "if": {
+        "not": {
+          "required": ["schemaVersion"],
+          "properties": { "schemaVersion": { "const": "2.0" } }
+        }
+      },
+      "then": {
+        "properties": {
+          "command_mocks": {
+            "items": {
+              "properties": {
+                "responses": { "items": { "not": { "required": ["sequence"] } } }
+              }
+            }
+          },
+          "mcp_mocks": {
+            "items": {
+              "properties": {
+                "tools": {
+                  "additionalProperties": {
+                    "properties": {
+                      "responses": { "items": { "not": { "required": ["sequence"] } } }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
       "anyOf": [
         { "required": ["skill"] },
         { "required": ["scenario"] }
@@ -434,6 +466,15 @@
           "type": "string",
           "minLength": 1,
           "description": "Relative path to a file whose contents are written to stdout."
+        },
+        "sequence": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 100,
+          "items": {
+            "$ref": "#/$defs/commandMockStep"
+          },
+          "description": "Finite per-matcher outputs consumed once per call; scenario eval schema 2.0 only."
         }
       },
       "oneOf": [
@@ -442,8 +483,41 @@
       ],
       "allOf": [
         { "not": { "required": ["args", "args_regex"] } },
-        { "not": { "required": ["stdout", "fixture"] } }
+        { "not": { "required": ["stdout", "fixture"] } },
+        {
+          "if": { "required": ["sequence"] },
+          "then": {
+            "not": {
+              "anyOf": [
+                { "required": ["stdout"] },
+                { "required": ["stderr"] },
+                { "required": ["exit_code"] },
+                { "required": ["fixture"] }
+              ]
+            }
+          }
+        }
       ]
+    },
+    "commandMockStep": {
+      "type": "object",
+      "additionalProperties": false,
+      "anyOf": [
+        { "required": ["stdout"] },
+        { "required": ["stderr"] },
+        { "required": ["exit_code"] },
+        { "required": ["fixture"] }
+      ],
+      "properties": {
+        "stdout": {},
+        "stderr": { "type": "string" },
+        "exit_code": { "type": "integer", "minimum": 0, "maximum": 255 },
+        "fixture": { "type": "string", "minLength": 1 },
+        "delay_ms": { "type": "integer", "minimum": 0, "maximum": 300000 }
+      },
+      "not": {
+        "required": ["stdout", "fixture"]
+      }
     },
     "mcpMockTool": {
       "type": "object",
@@ -483,6 +557,24 @@
           "required": [
             "error"
           ]
+        },
+        {
+          "required": [
+            "sequence"
+          ]
+        }
+      ],
+      "allOf": [
+        {
+          "if": { "required": ["sequence"] },
+          "then": {
+            "not": {
+              "anyOf": [
+                { "required": ["return"] },
+                { "required": ["error"] }
+              ]
+            }
+          }
         }
       ],
       "properties": {
@@ -507,7 +599,29 @@
         "error": {
           "type": "string",
           "description": "Fixture error returned by the mocked tool."
+        },
+        "sequence": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 100,
+          "items": {
+            "$ref": "#/$defs/mcpMockStep"
+          },
+          "description": "Finite per-matcher results consumed once per call; scenario eval schema 2.0 only."
         }
+      }
+    },
+    "mcpMockStep": {
+      "type": "object",
+      "additionalProperties": false,
+      "oneOf": [
+        { "required": ["return"] },
+        { "required": ["error"] }
+      ],
+      "properties": {
+        "return": {},
+        "error": { "type": "string", "minLength": 1 },
+        "delay_ms": { "type": "integer", "minimum": 0, "maximum": 300000 }
       }
     },
     "hooksConfig": {

@@ -15,6 +15,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/microsoft/waza/internal/jsonutil"
+	"github.com/microsoft/waza/internal/models"
 )
 
 const (
@@ -192,6 +193,19 @@ func qualificationProjectionSize(value reflect.Value, budget *int, depth int) er
 			return errors.New("qualification: bounded JSON number required")
 		}
 		return qualificationSpendProjection(budget, len(number))
+	}
+	if value.Type() == reflect.TypeFor[*models.MCPMockStep]() {
+		return qualificationProjectionSize(value.Elem(), budget, depth+1)
+	}
+	if value.Type() == reflect.TypeFor[models.MCPMockStep]() {
+		// This known, data-only projection is shared by its JSON and YAML writers.
+		if step, ok := reflect.TypeAssert[models.MCPMockStep](value); ok {
+			projection, err := step.MarshalYAML()
+			if err != nil {
+				return err
+			}
+			return qualificationProjectionSize(reflect.ValueOf(projection), budget, depth+1)
+		}
 	}
 	custom := func(kind reflect.Type) bool {
 		return kind.Implements(reflect.TypeFor[json.Marshaler]()) || kind.Implements(reflect.TypeFor[encoding.TextMarshaler]())

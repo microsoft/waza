@@ -311,8 +311,8 @@ tasks:
 | `inputs`      | object | ✗        | Key-value map of global template variables (see [Template Variables](#template-variables)) |
 | `tasks_from`  | string | ✗        | Relative or absolute CSV dataset path; takes precedence over `tasks` when nonempty         |
 | `hooks`       | object | ✗        | Lifecycle hooks that run shell commands at specific points (see [Hooks](#hooks))           |
-| `mcp_mocks`   | array  | ✗        | Hermetic MCP server mocks for deterministic tool-call evals; requires `schemaVersion: "1.1"` |
-| `command_mocks` | array | ✗       | Hermetic executable shims for CLI-dependent evals; requires `schemaVersion: "1.3"` or newer and `executor: copilot-sdk` |
+| `mcp_mocks`   | array  | ✗        | MCP server mocks for deterministic tool-call evals; requires `schemaVersion: "1.1"`; finite sequences require scenario `2.0` |
+| `command_mocks` | array | ✗       | Executable shims for CLI-dependent evals; requires `schemaVersion: "1.3"` or newer and `executor: copilot-sdk`; finite sequences require scenario `2.0` |
 | `adversarial` | object | ✗        | Built-in fault-injection packs consumed by `waza adversarial --spec`; requires `schemaVersion: "1.2"` |
 | `baseline`    | bool   | ✗        | Mark this spec as a baseline for A/B comparison                                            |
 
@@ -492,7 +492,7 @@ tasks:
 
 Response matching is evaluated in order. `match` requires exact full-argument equality, `match_schema` validates the call arguments against an inline JSON Schema, and `match_regex` applies regular expressions to individual argument fields. Unknown tools or calls that do not match any response fail loudly with an MCP tool error that points to the missing mock fixture.
 
-Unmatched MCP errors intentionally omit argument values, rather than echoing private or nested payloads. The in-process mock handler also rejects tool calls whose context is already canceled or expired before fixture dispatch. This is an admission check only: it does not add per-request stdio cancellation or simulated delays/timeouts. Existing responses remain first-match, repeatable fixtures; an `error` response can model a permanent dependency failure or denial, but it does not verify a live service. The returned JSON value is encoded inside a valid MCP text result, so an unexpected application value is not a malformed MCP/JSON-RPC envelope.
+Unmatched MCP errors intentionally omit argument values, rather than echoing private or nested payloads. Scenario evals with exact `schemaVersion: "2.0"` can use finite `sequence` steps of `return` or `error`, with optional delays from 0 to 300,000 ms and at most 100 steps. A matching call consumes one step; exhaustion and unmatched calls fail closed. An `error` containing “timeout” is a dependency-reported error, not transport cancellation. A malformed application value is still encoded in a valid MCP result, not a malformed MCP/JSON-RPC envelope. See the [Dependency Recovery guide](/waza/guides/dependency-recovery/) for complete scenarios and isolation limits.
 
 You can keep larger fixtures in JSON files instead of inline YAML:
 
@@ -535,6 +535,12 @@ tasks:
 `args` matches the entire argument vector, excluding the executable. `args_regex` applies a full-string regular expression to each argument at the same position. Responses are evaluated in order and the first matching response wins. `stdout` strings are emitted verbatim; structured values are JSON-encoded. `fixture` reads raw response bytes from a path relative to `eval.yaml`. Optional `environment` values must match exactly, and `workdir` matches a workspace-relative path. `expect_calls` requires an exact number of invocations for that executable; a mismatch is reported as a task error.
 
 Task-level `command_mocks` replace the eval-level list. Set `command_mocks: []` on a task to disable inherited mocks. A command that is configured but called with unmatched arguments fails closed with a diagnostic asking for a matching response fixture. Invocation records contain sanitized arguments, exit codes, and response indexes in `runs[].command_invocations`; graders can also read them from their context. Verbose runs print those sanitized details. Only declared executable names are intercepted, so `command_mocks` is not a command sandbox. Do not put real credentials in mock output.
+
+Scenario evals with exact `schemaVersion: "2.0"` may use a response `sequence`
+of at most 100 output steps; each may delay up to 300,000 ms. A matching call
+consumes one step and exhaustion fails closed. Earlier failed attempts remain
+in `runs[].command_invocations` even when a later attempt succeeds. Task-level
+empty-list replacement is unchanged.
 
 ### Choosing a test boundary
 

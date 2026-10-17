@@ -117,8 +117,8 @@ export default function RunInspector({
       {!demo && (
         <p className="lab-note">
           Task scores aggregate repetitions. Grader evidence, prompt, session
-          digest, and trajectory describe the first repetition; they are not a
-          complete repetition-level export.
+          digest, dependency modes, CLI attempts, and trajectory describe the
+          first repetition; they are not a complete repetition-level export.
         </p>
       )}
       {!demo && !snapshot && query?.isPending ? (
@@ -324,9 +324,26 @@ export default function RunInspector({
                 </>
               ) : (
                 task.api && (
-                  <div className="lab-recorded-trajectory">
-                    <TrajectoryViewer task={task.api} />
-                  </div>
+                  <>
+                    {task.api.commandInvocations?.length ? (
+                      <ol className="lab-events" aria-label="Mocked CLI attempts">
+                        {task.api.commandInvocations.map((invocation, index) => (
+                          <li key={`${invocation.command}-${index}`}>
+                            <ChevronRight size={15} />
+                            <div>
+                              <strong>
+                                {invocation.command} attempt {index + 1} · exit {invocation.exit_code ?? 'unavailable'} · response index {invocation.response_index}
+                              </strong>
+                              <pre>{JSON.stringify(invocation.args ?? [], null, 2)}</pre>
+                            </div>
+                          </li>
+                        ))}
+                      </ol>
+                    ) : null}
+                    <div className="lab-recorded-trajectory">
+                      <TrajectoryViewer task={task.api} />
+                    </div>
+                  </>
                 )
               ))}
             {tab === "configuration" && (
@@ -334,7 +351,7 @@ export default function RunInspector({
                 <p className="lab-note">
                   {demo
                     ? "Illustrative configuration. Prototype identities and aggregates are not a drop-in mapping to the current results API."
-                    : "Only recorded metadata is shown. Git revision, skill-routing flags, fixture isolation, and complete eval configuration are not supplied by this API."}
+                    : "Dependency modes reflect declared configuration, not proof of use. Mocked interactions test agent behavior against fixtures, not a real CLI or MCP server. Git revision, skill-routing flags, fixture isolation, and complete eval configuration are not supplied by this API."}
                 </p>
                 <pre>
                   {JSON.stringify(
@@ -360,6 +377,7 @@ export default function RunInspector({
                       source: run.source,
                       ...(!demo
                         ? {
+                            dependency_modes: task?.api?.dependencyModes,
                             prompt: task?.api?.prompt,
                             responder: task?.api?.responder,
                             model_usage: run.api?.modelUsage,

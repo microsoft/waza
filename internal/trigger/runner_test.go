@@ -2,6 +2,7 @@ package trigger
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,6 +13,7 @@ import (
 	copilot "github.com/github/copilot-sdk/go"
 	"github.com/microsoft/waza/internal/config"
 	"github.com/microsoft/waza/internal/execution"
+	"github.com/microsoft/waza/internal/mcpmock"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/stretchr/testify/require"
 )
@@ -471,6 +473,63 @@ func TestEvalRunnerPassesMCPServers(t *testing.T) {
 	require.Equal(t, []string{"*"}, stdio.Tools)
 }
 
+func TestTriggerRejectsInvalidExternalMCPBeforeExecution(t *testing.T) {
+	for _, response := range []string{`{"sequence":[]}`, `{"sequence":[{"return":"ready","delay_ms":300001}]}`} {
+		t.Run(response, func(t *testing.T) {
+			dir := t.TempDir()
+			require.NoError(t, os.Mkdir(filepath.Join(dir, "mocks"), 0700))
+			require.NoError(t, os.WriteFile(filepath.Join(dir, "mocks", "request.json"), []byte(`{"responses":[`+response+`]}`), 0600))
+			cfg := config.NewEvalConfig(&models.EvalSpec{
+				SchemaVersion: models.ScenarioSchemaVersion,
+				Scenario:      "recovery",
+				MCPMocks:      []models.MCPMockConfig{{Name: "dependency", Fixtures: "mocks"}},
+			}, config.WithSpecDir(dir))
+			engine := &capturingEngine{}
+			runner := NewRunner(&TestSpec{ShouldTriggerPrompts: []TestPrompt{{Prompt: "inspect"}}}, engine, cfg, nil)
+			results, metrics, err := runner.RunDetailed(t.Context())
+			require.ErrorContains(t, err, "MCP mock admission")
+			require.Nil(t, results)
+			require.Nil(t, metrics)
+			require.Nil(t, engine.LastReq(), "invalid dependencies must not reach the engine")
+		})
+	}
+}
+
+func TestNewRunnerPassesScenarioVersionForFiniteMCPMocks(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Setenv("TMPDIR", tempDir)
+	spec := &models.EvalSpec{
+		SchemaVersion: models.ScenarioSchemaVersion,
+		Scenario:      "recovery",
+		MCPMocks: []models.MCPMockConfig{{
+			Name: "dependency",
+			Tools: map[string]models.MCPMockTool{
+				"request": {Responses: []models.MCPMockResponse{{Sequence: []models.MCPMockStep{{Error: "temporary"}, {Return: "ready"}}}}},
+			},
+		}},
+	}
+	cfg := config.NewEvalConfig(spec, config.WithSpecDir(tempDir))
+
+	engine := &capturingEngine{}
+	runner := NewRunner(&TestSpec{ShouldTriggerPrompts: []TestPrompt{{Prompt: "Recover from a dependency failure."}}}, engine, cfg, nil)
+	_, err := runner.Run(t.Context())
+	require.NoError(t, err)
+	require.NotNil(t, engine.LastReq())
+	require.Contains(t, engine.LastReq().MCPServers, "dependency")
+	dependency, ok := engine.LastReq().MCPServers["dependency"].(copilot.MCPStdioServerConfig)
+	require.True(t, ok)
+	require.Len(t, dependency.Args, 3)
+	require.Equal(t, []string{"__mcp-mock", "--config-file"}, dependency.Args[:2])
+	data, err := os.ReadFile(dependency.Args[2])
+	require.NoError(t, err)
+	var captured mcpmock.Config
+	require.NoError(t, json.Unmarshal(data, &captured))
+	require.Len(t, captured.Tools["request"].Responses, 1)
+	require.Len(t, captured.Tools["request"].Responses[0].Sequence, 2)
+	require.Equal(t, "temporary", captured.Tools["request"].Responses[0].Sequence[0].Error)
+	require.Equal(t, "ready", captured.Tools["request"].Responses[0].Sequence[1].Return)
+}
+
 func TestLoadFixtureDir_EmptyDir(t *testing.T) {
 	require.Nil(t, loadFixtureDir(""))
 	require.Nil(t, loadFixtureDir("/nonexistent/path"))
@@ -482,7 +541,7 @@ func TestConvertMCPServers_SkipsNonMapEntries(t *testing.T) {
 		"good":  map[string]any{"type": "stdio"},
 		"bad":   "not-a-map",
 		"good2": map[string]any{"type": "sse"},
-	}, nil, "")
+	}, nil, "", "")
 	require.Len(t, result, 2)
 	require.Contains(t, result, "good")
 	require.Contains(t, result, "good2")

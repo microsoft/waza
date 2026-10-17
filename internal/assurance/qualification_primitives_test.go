@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/microsoft/waza/internal/evidence"
+	"github.com/microsoft/waza/internal/models"
 	"github.com/stretchr/testify/require"
 )
 
@@ -81,6 +82,12 @@ func TestQualificationProjectionBudgetBeforeSerialization(t *testing.T) {
 		projection{Name: "é", Number: json.Number("9007199254740993"), Raw: json.RawMessage(`{"html":"<","unicode":"\u00e9","pair":"\ud83d\ude00"}`)},
 		[]string{"é", "alternate"},
 		(*string)(nil),
+		models.CommandMockStep{ExitCode: 0},
+		models.MCPMockStep{Return: nil},
+		models.MCPMockStep{Error: "temporary"},
+		models.MCPMockStep{Return: map[string]any{"value": nil}, DelayMS: 1},
+		&models.MCPMockStep{Return: nil},
+		(*models.MCPMockStep)(nil),
 	} {
 		data, err := json.Marshal(value)
 		require.NoError(t, err)
@@ -122,14 +129,18 @@ func (qualificationTextMarshalProbe) MarshalText() ([]byte, error) {
 
 func TestQualificationUnsupportedCustomProjectionNeverInvokesMarshalers(t *testing.T) {
 	calls := 0
-	reached := false
-	_, err := qualificationMarshalBounded(qualificationCustomMarshalProbe{&calls}, 1024, func() { reached = true })
-	require.ErrorContains(t, err, "unsupported")
-	require.Zero(t, calls)
-	require.False(t, reached)
-	_, err = qualificationMarshalBounded(qualificationTextMarshalProbe("value"), 1024, func() { reached = true })
-	require.ErrorContains(t, err, "unsupported")
-	require.False(t, reached)
+	for _, value := range []any{
+		qualificationCustomMarshalProbe{&calls},
+		qualificationTextMarshalProbe("value"),
+		models.MCPMockStep{Return: qualificationCustomMarshalProbe{&calls}},
+		&models.MCPMockStep{Return: qualificationTextMarshalProbe("value")},
+	} {
+		reached := false
+		_, err := qualificationMarshalBounded(value, 1024, func() { reached = true })
+		require.ErrorContains(t, err, "unsupported")
+		require.Zero(t, calls)
+		require.False(t, reached)
+	}
 }
 
 func TestQualificationBase64BeforeAllocation(t *testing.T) {

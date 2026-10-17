@@ -1,12 +1,13 @@
 package main
 
 import (
-	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/microsoft/waza/internal/mcpmock"
 	"github.com/spf13/cobra"
@@ -29,7 +30,11 @@ func newMCPMockCommand() *cobra.Command {
 				return fmt.Errorf("parse mock config: %w", err)
 			}
 			logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-			mcpmock.ServeStdio(context.Background(), &cfg, os.Stdin, os.Stdout, logger)
+			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
+			defer stop()
+			if err := mcpmock.ServeCancelableStdio(ctx, &cfg, os.Stdin, os.Stdout, logger); err != nil {
+				return fmt.Errorf("serve MCP mock: %w", err)
+			}
 			return nil
 		},
 	}

@@ -7,12 +7,136 @@ import (
 	"path/filepath"
 	"testing"
 
+	copilot "github.com/github/copilot-sdk/go"
 	"github.com/microsoft/waza/internal/cache"
 	"github.com/microsoft/waza/internal/config"
+	"github.com/microsoft/waza/internal/copilotevents"
 	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/models"
+	"github.com/microsoft/waza/internal/testutil"
 	"github.com/stretchr/testify/require"
 )
+
+type recoveryEvidenceEngine struct {
+	execution.AgentEngine
+	events    []copilot.SessionEvent
+	workspace string
+}
+
+func (e *recoveryEvidenceEngine) Execute(context.Context, *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
+	return &execution.ExecutionResponse{
+		Success: true, ModelID: "mock", SessionID: "recovery",
+		Events: copilotevents.FromSDK(e.events), WorkspaceDir: e.workspace,
+		WorkspaceFiles: map[string][]byte{"report.txt": []byte("Recovered after one transient error.")},
+	}, nil
+}
+
+func TestRecoveryExampleGradesSDKEventsThroughRunBenchmark(t *testing.T) {
+	evalPath := testutil.RepoFile(t, "examples", "scenarios", "recovery", "mcp", "eval.yaml")
+	for _, errorForm := range []string{"result", "error", "both"} {
+		t.Run(errorForm, func(t *testing.T) {
+			spec, err := models.LoadEvalSpec(evalPath)
+			require.NoError(t, err)
+			spec.Tasks = []string{"tasks/transient.yaml"}
+			first := &copilot.ToolExecutionCompleteData{ToolCallID: "first", Success: false}
+			if errorForm != "result" {
+				first.Error = &copilot.ToolExecutionCompleteError{Message: "temporary dependency error"}
+				if errorForm == "both" {
+					first.Result = &copilot.ToolExecutionCompleteResult{}
+				}
+			} else {
+				first.Result = &copilot.ToolExecutionCompleteResult{Content: "temporary dependency error"}
+			}
+			workspace := t.TempDir()
+			require.NoError(t, os.WriteFile(filepath.Join(workspace, "report.txt"), []byte("Recovered after one transient error."), 0600))
+			engine := &recoveryEvidenceEngine{
+				AgentEngine: execution.NewMockEngine("mock"),
+				workspace:   workspace,
+				events: []copilot.SessionEvent{
+					{Data: &copilot.ToolExecutionStartData{ToolCallID: "first", ToolName: "dependency-request", Arguments: map[string]any{"operation": "transient"}}},
+					{Data: first},
+					{Data: &copilot.ToolExecutionStartData{ToolCallID: "second", ToolName: "dependency-request", Arguments: map[string]any{"operation": "transient"}}},
+					{Data: &copilot.ToolExecutionCompleteData{ToolCallID: "second", Success: true, Result: &copilot.ToolExecutionCompleteResult{Content: `{"status":"recovered"}`}}},
+					{Data: &copilot.ToolExecutionStartData{ToolCallID: "report", ToolName: "create", Arguments: map[string]any{"path": "report.txt"}}},
+					{Data: &copilot.ToolExecutionCompleteData{ToolCallID: "report", Success: true}},
+				},
+			}
+			runner := NewEvalRunner(config.NewEvalConfig(spec, config.WithSpecDir(filepath.Dir(evalPath))), engine)
+			outcome, err := runner.RunBenchmark(t.Context())
+			require.NoError(t, err)
+			require.Len(t, outcome.TestOutcomes, 1)
+			task := outcome.TestOutcomes[0]
+			require.Equal(t, models.StatusPassed, task.Status, "%+v", task.Runs)
+			require.NotEmpty(t, task.Runs)
+			for _, run := range task.Runs {
+				require.Len(t, run.ToolEvents, 3)
+				require.Equal(t, "dependency-request", run.ToolEvents[0].ToolName)
+				require.Contains(t, run.ToolEvents[0].Error, "temporary dependency error")
+				require.True(t, run.Validations["observed-recovery"].Passed)
+				require.True(t, run.Validations["recovery-report"].Passed)
+			}
+		})
+	}
+}
+
+type admissionMutationEngine struct {
+	execution.AgentEngine
+	fixture string
+	calls   int
+}
+
+func (e *admissionMutationEngine) Initialize(ctx context.Context) error {
+	if err := os.WriteFile(e.fixture, []byte(`{"responses":[{"sequence":[]}]}`), 0600); err != nil {
+		return err
+	}
+	return e.AgentEngine.Initialize(ctx)
+}
+
+func (e *admissionMutationEngine) Execute(ctx context.Context, req *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
+	e.calls++
+	return e.AgentEngine.Execute(ctx, req)
+}
+
+func TestRunBenchmarkRejectsFixtureChangedAfterInitialAdmission(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.Mkdir(filepath.Join(dir, "mocks"), 0700))
+	fixture := filepath.Join(dir, "mocks", "request.json")
+	require.NoError(t, os.WriteFile(fixture, []byte(`{"responses":[{"sequence":[{"return":"ready"}]}]}`), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "task.yaml"), []byte("id: probe\nname: Probe\ninputs: {prompt: inspect}\n"), 0600))
+	spec := &models.EvalSpec{
+		SchemaVersion: models.ScenarioSchemaVersion,
+		Scenario:      "recovery",
+		SpecIdentity:  models.SpecIdentity{Name: "Admission mutation"},
+		Config:        models.Config{EngineType: "mock", ModelID: "mock", TrialsPerTask: 1, TimeoutSec: 10},
+		Tasks:         []string{"task.yaml"},
+		MCPMocks:      []models.MCPMockConfig{{Name: "dependency", Fixtures: "mocks"}},
+	}
+	engine := &admissionMutationEngine{AgentEngine: execution.NewMockEngine("mock"), fixture: fixture}
+	runner := NewEvalRunner(config.NewEvalConfig(spec, config.WithSpecDir(dir)), engine)
+	outcome, err := runner.RunBenchmark(t.Context())
+	require.NoError(t, err)
+	require.Len(t, outcome.TestOutcomes, 1)
+	require.Equal(t, models.StatusFailed, outcome.TestOutcomes[0].Status)
+	require.NotEmpty(t, outcome.TestOutcomes[0].Runs)
+	require.Equal(t, models.StatusError, outcome.TestOutcomes[0].Runs[0].Status)
+	require.Contains(t, outcome.TestOutcomes[0].Runs[0].ErrorMsg, "resolve MCP mock")
+	require.Zero(t, engine.calls, "a changed invalid source must not be warned away before execution")
+}
+
+func TestRunBenchmarkRejectsExternalMCPBeforeEngineInitialization(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.Mkdir(filepath.Join(dir, "mocks"), 0700))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "mocks", "request.json"), []byte(`{"responses":[{"sequence":[]}]}`), 0600))
+	cfg := config.NewEvalConfig(&models.EvalSpec{
+		SchemaVersion: models.ScenarioSchemaVersion,
+		Scenario:      "recovery",
+		MCPMocks:      []models.MCPMockConfig{{Name: "dependency", Fixtures: "mocks"}},
+	}, config.WithSpecDir(dir))
+	runner := NewEvalRunner(cfg, nil)
+	outcome, err := runner.RunBenchmark(t.Context())
+	require.ErrorContains(t, err, "MCP mock admission")
+	require.Nil(t, outcome)
+}
 
 func TestScenarioExecutionRequest(t *testing.T) {
 	dir := t.TempDir()
@@ -68,6 +192,84 @@ func TestScenarioExecutionRequest(t *testing.T) {
 			if len(tt.taskPaths) > 0 {
 				require.Equal(t, []string{filepath.Clean(dir)}, req.SkillPaths)
 			}
+		})
+	}
+}
+
+func TestRunBenchmarkRecordsEffectiveDependencyModes(t *testing.T) {
+	dir := t.TempDir()
+	tasksDir := filepath.Join(dir, "tasks")
+	require.NoError(t, os.MkdirAll(tasksDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(tasksDir, "inherit.yaml"), []byte(`id: inherit
+name: Inherited mocks
+inputs:
+  prompt: Check the configured dependencies.
+`), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(tasksDir, "empty.yaml"), []byte(`id: empty
+name: Empty override
+inputs:
+  prompt: Check the configured dependencies.
+command_mocks: []
+`), 0o600))
+
+	spec := &models.EvalSpec{
+		SchemaVersion: "2.0",
+		Scenario:      "recovery",
+		Tasks:         []string{"tasks/*.yaml"},
+		CommandMocks:  []models.CommandMockConfig{{Name: "az", Responses: []models.CommandMockResponse{{Args: []string{"account"}, Stdout: "ok"}}}},
+		MCPMocks: []models.MCPMockConfig{
+			{Name: " replaced ", Tools: map[string]models.MCPMockTool{"ping": {Responses: []models.MCPMockResponse{{Return: "ok"}}}}},
+			{Name: "mock-only", Tools: map[string]models.MCPMockTool{"ping": {Responses: []models.MCPMockResponse{{Return: "ok"}}}}},
+		},
+		Config: models.Config{
+			EngineType:    "copilot-sdk",
+			ModelID:       "mock-model",
+			TrialsPerTask: 1,
+			TimeoutSec:    30,
+			ServerConfigs: map[string]any{
+				"live":     map[string]any{"type": "http", "url": "https://example.invalid/mcp"},
+				"replaced": map[string]any{"type": "stdio", "command": "server"},
+			},
+		},
+	}
+	runner := NewEvalRunner(config.NewEvalConfig(spec, config.WithSpecDir(dir)), execution.NewMockEngine("mock-model"), WithSkipGraders())
+	outcome, err := runner.RunBenchmark(context.Background())
+	require.NoError(t, err)
+	require.Len(t, outcome.TestOutcomes, 2)
+
+	modesByTask := make(map[string][]models.DependencyMode, len(outcome.TestOutcomes))
+	for _, task := range outcome.TestOutcomes {
+		require.NotEmpty(t, task.Runs)
+		modesByTask[task.TestID] = task.Runs[0].DependencyModes
+	}
+	require.Equal(t, []models.DependencyMode{
+		{Kind: "cli", Name: "az", Mode: "mocked"},
+		{Kind: "mcp", Name: "live", Mode: "live"},
+		{Kind: "mcp", Name: "mock-only", Mode: "mocked"},
+		{Kind: "mcp", Name: "replaced", Mode: "mocked"},
+	}, modesByTask["inherit"])
+	require.Equal(t, []models.DependencyMode{
+		{Kind: "mcp", Name: "live", Mode: "live"},
+		{Kind: "mcp", Name: "mock-only", Mode: "mocked"},
+		{Kind: "mcp", Name: "replaced", Mode: "mocked"},
+	}, modesByTask["empty"])
+}
+
+func TestRecoveryExamplesLoadThroughEvalAndTaskLoaders(t *testing.T) {
+	root, err := filepath.Abs(filepath.Join("..", ".."))
+	require.NoError(t, err)
+	for _, evalPath := range []string{
+		"examples/scenarios/recovery/mcp/eval.yaml",
+		"examples/scenarios/recovery/cli/eval.yaml",
+	} {
+		t.Run(evalPath, func(t *testing.T) {
+			path := filepath.Join(root, evalPath)
+			spec, err := models.LoadEvalSpec(path)
+			require.NoError(t, err)
+			runner := NewEvalRunner(config.NewEvalConfig(spec, config.WithSpecDir(filepath.Dir(path))), nil)
+			tasks, err := runner.loadTestCases()
+			require.NoError(t, err)
+			require.NotEmpty(t, tasks)
 		})
 	}
 }

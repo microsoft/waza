@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -22,6 +23,7 @@ import (
 	"github.com/microsoft/waza/internal/failures"
 	"github.com/microsoft/waza/internal/graders"
 	"github.com/microsoft/waza/internal/hooks"
+	"github.com/microsoft/waza/internal/mcpmock"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/responder"
 	"github.com/microsoft/waza/internal/skill"
@@ -291,7 +293,9 @@ func (r *EvalRunner) notifyProgress(event ProgressEvent) {
 // RunBenchmark executes the entire benchmark
 // If Baseline is enabled, runs twice: skills-enabled and skills-disabled
 func (r *EvalRunner) RunBenchmark(ctx context.Context) (*models.EvaluationOutcome, error) {
-
+	if err := mcpmock.ValidateEvalMocks(r.cfg.Spec().MCPMocks, r.cfg.SpecDir(), r.cfg.Spec().SchemaVersion); err != nil {
+		return nil, fmt.Errorf("MCP mock admission: %w", err)
+	}
 	if err := r.engine.Initialize(ctx); err != nil {
 		return nil, err
 	}
@@ -374,7 +378,6 @@ func (r *EvalRunner) runNormalBenchmark(ctx context.Context) (*models.Evaluation
 	if len(testCases) == 0 {
 		return nil, fmt.Errorf("no test cases found")
 	}
-
 	r.notifyProgress(ProgressEvent{
 		EventType:  EventBenchmarkStart,
 		TotalTests: len(testCases),
@@ -669,6 +672,9 @@ func (r *EvalRunner) loadTestCasesFromFiles() ([]*models.TestCase, error) {
 		tc, err := models.LoadTestCase(path)
 		if err != nil {
 			return nil, fmt.Errorf("failed to load test case %s: %w", path, err)
+		}
+		if err := models.ValidateTaskFaultSources(tc.SourceBytes(), spec.SchemaVersion); err != nil {
+			return nil, fmt.Errorf("invalid test case %s: task fault sources: %w", path, err)
 		}
 		if err := tc.ValidateForExecutor(spec.Config.EngineType); err != nil {
 			return nil, fmt.Errorf("invalid test case %s: %w", path, err)
@@ -1086,6 +1092,7 @@ func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.T
 				run.FinalOutput = resp.FinalOutput
 			}
 		}
+		run.DependencyModes = configuredDependencyModes(req, r.cfg.Spec().MCPMocks)
 		r.captureSnapshot(tc, req, resp, &run, diagnosticCategory)
 		run.RequirementExplanations = evidence.ExplainRequirements(r.cfg.Spec(), tc, &run)
 		r.captureFailureArtifacts(&run)
@@ -1213,8 +1220,12 @@ func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.T
 	}
 	if r.verbose {
 		for _, invocation := range commandInvocations {
-			fmt.Fprintf(os.Stderr, "Command mock: %s %q (exit %d)\n",
-				invocation.Command, strings.Join(invocation.Args, " "), invocation.ExitCode)
+			exit := "unavailable"
+			if invocation.ExitCode != nil {
+				exit = strconv.Itoa(*invocation.ExitCode)
+			}
+			fmt.Fprintf(os.Stderr, "Command mock: %s %q (exit %s)\n",
+				invocation.Command, strings.Join(invocation.Args, " "), exit)
 		}
 	}
 
@@ -1542,6 +1553,12 @@ func (r *EvalRunner) buildExecutionRequest(tc *models.TestCase) (*execution.Exec
 	if err != nil {
 		return nil, err
 	}
+	mcpServers, err := copilotconfig.ResolveMCPServersWithVersion(spec.Config.ServerConfigs, spec.MCPMocks, r.cfg.SpecDir(), spec.SchemaVersion, func(format string, args ...any) {
+		fmt.Fprintf(os.Stderr, format, args...)
+	})
+	if err != nil {
+		return nil, err
+	}
 
 	return &execution.ExecutionRequest{
 		Message:           tc.Stimulus.Message,
@@ -1558,7 +1575,7 @@ func (r *EvalRunner) buildExecutionRequest(tc *models.TestCase) (*execution.Exec
 		SuppressSkillBody: !spec.Config.ShouldInjectSkillBody(),
 		TriggerSkillRouting: spec.Config.ShouldTriggerSkillRouting() &&
 			execution.IsSkillAvailable(resolvedSkillPaths, spec.SkillName),
-		MCPServers:          convertMCPServers(spec.Config.ServerConfigs, spec.MCPMocks, r.cfg.SpecDir()),
+		MCPServers:          mcpServers,
 		CommandMocks:        effectiveCommandMocks(tc, spec),
 		CommandMocksBaseDir: r.cfg.SpecDir(),
 		FirstEventTimeout:   r.firstEventTimeout(tc),
@@ -1573,6 +1590,34 @@ func effectiveCommandMocks(tc *models.TestCase, spec *models.EvalSpec) []models.
 		return *tc.CommandMocks
 	}
 	return spec.CommandMocks
+}
+
+func configuredDependencyModes(req *execution.ExecutionRequest, mcpMocks []models.MCPMockConfig) []models.DependencyMode {
+	if req == nil {
+		return nil
+	}
+	mockNames := make(map[string]bool, len(mcpMocks))
+	for _, mock := range mcpMocks {
+		mockNames[strings.TrimSpace(mock.Name)] = true
+	}
+	modes := make([]models.DependencyMode, 0, len(req.MCPServers)+len(req.CommandMocks))
+	for name := range req.MCPServers {
+		mode := "live"
+		if mockNames[name] {
+			mode = "mocked"
+		}
+		modes = append(modes, models.DependencyMode{Kind: "mcp", Name: name, Mode: mode})
+	}
+	for _, mock := range req.CommandMocks {
+		modes = append(modes, models.DependencyMode{Kind: "cli", Name: mock.Name, Mode: "mocked"})
+	}
+	sort.Slice(modes, func(i, j int) bool {
+		if modes[i].Kind != modes[j].Kind {
+			return modes[i].Kind < modes[j].Kind
+		}
+		return modes[i].Name < modes[j].Name
+	})
+	return modes
 }
 
 func (r *EvalRunner) taskSkillPaths(tc *models.TestCase) []string {
@@ -2123,8 +2168,8 @@ func containsPathTraversal(path string) bool {
 
 // convertMCPServers converts the eval YAML mcp_servers config (map[string]any)
 // into the copilot SDK's MCPServerConfig type. Returns nil if no servers configured.
-func convertMCPServers(serverConfigs map[string]any, mocks []models.MCPMockConfig, baseDir string) map[string]copilot.MCPServerConfig {
-	return copilotconfig.ConvertMCPServersWithMocks(serverConfigs, mocks, baseDir, func(format string, args ...any) {
+func convertMCPServers(serverConfigs map[string]any, mocks []models.MCPMockConfig, baseDir, schemaVersion string) map[string]copilot.MCPServerConfig {
+	return copilotconfig.ConvertMCPServersWithVersion(serverConfigs, mocks, baseDir, schemaVersion, func(format string, args ...any) {
 		fmt.Fprintf(os.Stderr, format, args...)
 	})
 }

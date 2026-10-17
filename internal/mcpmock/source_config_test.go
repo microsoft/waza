@@ -165,6 +165,7 @@ func TestSourceConfigFiniteRawValidation(t *testing.T) {
 		name, response, version, want string
 	}{
 		{"finite accepted", `{ "sequence" : [{"error":"retry"},{"return":null,"delay_ms":0}] }`, models.ScenarioSchemaVersion, ""},
+		{"private duration maximum", `{"sequence":[{"return":null,"delay_ms":9223372036854}]}`, models.ScenarioSchemaVersion, ""},
 		{"missing version", `{"sequence":[{"return":null}]}`, "", "requires explicit enclosing scenario"},
 		{"wrong version", `{"sequence":[{"return":null}]}`, "2.1", "requires explicit enclosing scenario"},
 		{"duplicate sequence", `{"sequence":[{"return":null}],"sequence":[{"return":null}]}`, models.ScenarioSchemaVersion, "duplicate field"},

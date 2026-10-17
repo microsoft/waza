@@ -344,17 +344,18 @@ func gradeRun(ctx context.Context, spec *models.EvalSpec, tc *models.TestCase, r
 	}
 
 	gradingCtx := &graders.Context{
-		TestCase:         tc,
-		Output:           run.FinalOutput,
-		Transcript:       run.Transcript,
-		Session:          &run.SessionDigest,
-		ToolEvents:       run.ToolEvents,
-		DurationMS:       run.DurationMs,
-		SessionID:        run.SessionDigest.SessionID,
-		WorkspaceDir:     workspace,
-		SkillInvocations: skillInvocations,
-		Outcome:          make(map[string]any),
-		Metadata:         make(map[string]any),
+		TestCase:           tc,
+		Output:             run.FinalOutput,
+		Transcript:         run.Transcript,
+		Session:            &run.SessionDigest,
+		ToolEvents:         run.ToolEvents,
+		CommandInvocations: run.CommandInvocations,
+		DurationMS:         run.DurationMs,
+		SessionID:          run.SessionDigest.SessionID,
+		WorkspaceDir:       workspace,
+		SkillInvocations:   skillInvocations,
+		Outcome:            make(map[string]any),
+		Metadata:           make(map[string]any),
 	}
 
 	if verbose {

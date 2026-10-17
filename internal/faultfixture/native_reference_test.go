@@ -32,8 +32,8 @@ func nativeReferenceManifest(t *testing.T, artifact string, content []byte) *mod
 
 func TestNativeReferenceUsesCapturedOrdinalAndFullTape(t *testing.T) {
 	tape, err := json.Marshal([]models.CommandInvocation{
-		{Command: "inspect", Args: []string{"first"}, ResponseIndex: 0, ExitCode: 1},
-		{Command: "inspect", Args: []string{"second"}, ResponseIndex: 0, ExitCode: 0},
+		{Command: "inspect", Args: []string{"first"}, ResponseIndex: 0, ExitCode: new(1)},
+		{Command: "inspect", Args: []string{"second"}, ResponseIndex: 0, ExitCode: new(0)},
 	})
 	require.NoError(t, err)
 	for _, artifact := range []string{"command-invocations", "tool-events"} {

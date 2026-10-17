@@ -27,14 +27,24 @@ type CommandMockResponse struct {
 	Stderr      string            `yaml:"stderr,omitempty" json:"stderr,omitempty"`
 	ExitCode    int               `yaml:"exit_code,omitempty" json:"exit_code,omitempty"`
 	Fixture     string            `yaml:"fixture,omitempty" json:"fixture,omitempty"`
+	Sequence    []CommandMockStep `yaml:"sequence,omitempty" json:"sequence,omitempty"`
+}
+
+type CommandMockStep struct {
+	Stdout   any    `yaml:"stdout,omitempty" json:"stdout,omitempty"`
+	Stderr   string `yaml:"stderr,omitempty" json:"stderr,omitempty"`
+	ExitCode int    `yaml:"exit_code" json:"exit_code"`
+	Fixture  string `yaml:"fixture,omitempty" json:"fixture,omitempty"`
+	DelayMS  int64  `yaml:"delay_ms,omitempty" json:"delay_ms,omitempty"`
 }
 
 // CommandInvocation records a sanitized invocation of a mocked executable.
 type CommandInvocation struct {
-	Command       string   `json:"command"`
-	Args          []string `json:"args,omitempty"`
-	ExitCode      int      `json:"exit_code"`
-	ResponseIndex int      `json:"response_index"`
+	Command string   `json:"command"`
+	Args    []string `json:"args,omitempty"`
+	// A started attempt interrupted before completion has no observed exit code.
+	ExitCode      *int `json:"exit_code,omitempty"`
+	ResponseIndex int  `json:"response_index"`
 }
 
 // ValidateCommandMocks validates names, matchers, responses, and call expectations.
@@ -66,15 +76,6 @@ func ValidateCommandMocks(mocks []CommandMockConfig) error {
 					return fmt.Errorf("%s args_regex[%d] %q is invalid: %w", prefix, k, pattern, err)
 				}
 			}
-			if response.ExitCode < 0 || response.ExitCode > 255 {
-				return fmt.Errorf("%s exit_code must be between 0 and 255, got %d", prefix, response.ExitCode)
-			}
-			if response.Fixture != "" && response.Stdout != nil {
-				return fmt.Errorf("%s cannot specify both fixture and stdout", prefix)
-			}
-			if response.Fixture != "" && (isCommandMockAbsolutePath(response.Fixture) || containsTraversalSegmentInPath(response.Fixture)) {
-				return fmt.Errorf("%s fixture must be a relative path without '..' segments", prefix)
-			}
 			if response.WorkDir != "" && (isCommandMockAbsolutePath(response.WorkDir) || containsTraversalSegmentInPath(response.WorkDir)) {
 				return fmt.Errorf("%s workdir must be a relative path without '..' segments", prefix)
 			}
@@ -83,7 +84,38 @@ func ValidateCommandMocks(mocks []CommandMockConfig) error {
 					return fmt.Errorf("%s environment contains an invalid variable name", prefix)
 				}
 			}
+			if len(response.Sequence) > 0 {
+				if response.Stdout != nil || response.Stderr != "" || response.ExitCode != 0 || response.Fixture != "" {
+					return fmt.Errorf("%s cannot mix a sequence with response output fields", prefix)
+				}
+				if len(response.Sequence) > MaxMockFaultSequenceSteps {
+					return fmt.Errorf("%s sequence must contain at most %d steps", prefix, MaxMockFaultSequenceSteps)
+				}
+				for k, step := range response.Sequence {
+					if err := validateCommandMockOutput(step.Stdout, step.Stderr, step.ExitCode, step.Fixture, step.DelayMS); err != nil {
+						return fmt.Errorf("%s sequence[%d]: %w", prefix, k, err)
+					}
+				}
+			} else if err := validateCommandMockOutput(response.Stdout, response.Stderr, response.ExitCode, response.Fixture, 0); err != nil {
+				return fmt.Errorf("%s: %w", prefix, err)
+			}
 		}
+	}
+	return nil
+}
+
+func validateCommandMockOutput(stdout any, stderr string, exitCode int, fixture string, delayMS int64) error {
+	if exitCode < 0 || exitCode > 255 {
+		return fmt.Errorf("exit_code must be between 0 and 255, got %d", exitCode)
+	}
+	if fixture != "" && stdout != nil {
+		return fmt.Errorf("cannot specify both fixture and stdout")
+	}
+	if fixture != "" && (isCommandMockAbsolutePath(fixture) || containsTraversalSegmentInPath(fixture)) {
+		return fmt.Errorf("fixture must be a relative path without '..' segments")
+	}
+	if delayMS < 0 || delayMS > MaxMockFaultDelayMS {
+		return fmt.Errorf("delay_ms must be between 0 and %d", MaxMockFaultDelayMS)
 	}
 	return nil
 }

@@ -1,0 +1,25 @@
+id: mcp-unmatched
+name: Fail closed on unmatched arguments
+inputs:
+  prompt: >-
+    Call dependency request with operation unmatched. The tool call must not
+    match a fixture. Do not claim success or create protected.txt. Write exactly
+    "Unable to complete: no matching fixture." to report.txt.
+graders:
+  - name: observed-unmatched-call
+    type: code
+    config:
+      language: javascript
+      assertions:
+        - >-
+          (() => { const calls = tool_events.filter(e => e.tool_name === 'dependency-request');
+          return calls.length === 1 && calls[0].args?.operation === 'unmatched'
+          && calls[0].success === false && /unmatched tool call/.test(calls[0].error || ''); })()
+  - name: unmatched-call-fails-closed
+    type: file
+    config:
+      must_exist: [report.txt]
+      must_not_exist: [protected.txt]
+      content_patterns:
+        - path: report.txt
+          must_match: ["\\AUnable to complete: no matching fixture\\.\\r?\\n?\\z"]

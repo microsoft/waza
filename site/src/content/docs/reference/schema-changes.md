@@ -20,7 +20,7 @@ scenario semantics; `2.1` and future majors are not supported scenario versions.
 |---|---|---|
 | Legacy `eval.yaml` | `schemaVersion` | `1.4` |
 | Scenario `eval.yaml` | `schemaVersion` | Exact `2.0`, explicit opt-in |
-| Newly generated `results.json` | `schemaVersion` | `1.6` |
+| Newly generated `results.json` | `schemaVersion` | `1.7` |
 | Historical `results.json` | `schemaVersion` | Declared `1.x`; missing version defaults to `1.4` |
 | Task YAML | No independent version field | Existing legacy format, unchanged |
 | `snapshot.json` | `schemaVersion` | `1.1` (independent artifact) |
@@ -53,7 +53,7 @@ Schema versions use `MAJOR.MINOR` format with no patch component.
 - **Legacy MINOR** changes are backward-compatible additions, usually optional fields. Legacy readers accept same-major artifacts and warn when they see unknown fields. Scenario evals are an exception: only exact `2.0` is supported.
 - **MAJOR** changes are breaking. Legacy readers refuse artifacts from a different major version and point to `waza migrate <file>`; scenario-aware readers additionally accept explicitly selected scenario eval `2.0`.
 - Missing `schemaVersion` in legacy eval/result inputs continues to default to `1.4`. Declared same-major versions remain accepted and unchanged on read/re-save; unknown fields are warned about. Scenario-bearing evals must explicitly select `2.0` and cannot omit the version. Task YAML has no independent version field.
-- New evaluations and regrades write results `1.6`, independently of their eval input version. This does not upgrade legacy eval defaults or task formats. Scenario scaffolds explicitly emit eval `2.0`; scenario readers reject unknown eval/config fields instead of granting forward-minor compatibility. Reading/re-saving historical results does not invent reliability metadata or upgrade their declared version.
+- New evaluations and regrades write results `1.7`, independently of their eval input version. This does not upgrade legacy eval defaults or task formats. Scenario scaffolds explicitly emit eval `2.0`; scenario readers reject unknown eval/config fields instead of granting forward-minor compatibility. Reading/re-saving historical results does not invent reliability metadata or upgrade their declared version.
 
 Legacy results and snapshots without consumed evidence retain ordinary JSON
 decoding for opaque tool arguments, grader details and unknown fields, including
@@ -83,11 +83,23 @@ unchanged; it does not downgrade scenario discovery semantics to `1.x`.
 
 ## Changelog
 
+### Recovery evidence in results 1.7 (#662)
+
+- Finite MCP/CLI sequences require exact eval `schemaVersion: "2.0"`, including
+  task overrides and selected external MCP fixtures. Offline validation and
+  execution apply the enclosing eval version; task YAML has no version selector.
+- A started, interrupted CLI sequence attempt may omit `exit_code` when no
+  completed result was captured. An explicit numeric zero still means a
+  completed successful mock result. Existing numeric exit codes remain readable.
+- Inline `code` graders receive `tool_events` and `command_invocations` during
+  execution and regrading. Recovery examples check actual dependency operations,
+  observed responses, and dependency-scoped retry counts as well as report files.
+
 ### Portable evidence manifest 1.0 / snapshot 1.1 (#663)
 
 - Added optional per-run `evidence` and scoped `requirement_explanations` to
   results without changing task semantics or historical result versions.
-  New results use the current `1.6` writer version. The dashboard exposes every trial via
+  New results use the current `1.7` writer version. The dashboard exposes every trial via
   `evidenceRuns` when any task run has evidence or requirement explanations.
   When all runs lack both, the API omits that field to preserve the legacy
   response shape; the dashboard fallback reports unassessed.
@@ -145,9 +157,14 @@ promised stable across runs.
 ### 2.0 (scenario evals only)
 
 - Added a nonempty `scenario` workflow identity with optional existing `skill` context; scenario scaffolds explicitly select exact eval `2.0`, while legacy reader defaults remain `1.4` and task formats are unchanged.
+- Finite MCP/CLI response `sequence` fields are admitted only for scenario evals. Each matching call consumes one bounded step; sequence exhaustion and unmatched calls fail closed. This does not add automatic retries, transport cancellation or host isolation.
 - Target-free scenarios without effective explicit skill directories disable native SDK skill discovery; disabling the last eval directory preserves that isolation. Explicit task directories still opt in, empty task directories disable discovery, and `--no-skills` overrides opt-ins.
 - Scenario evals reject unknown eval/config fields and future minor versions. Old executables reject major `2` before execution.
 - Scenario result caching is bypassed with a notice until external dependencies can be completely fingerprinted.
+
+### 1.7 (new results only)
+
+- Adds optional `tasks[].runs[].dependency_modes`, listing configured dependency kind/name and `live` or `mocked` mode for each run. This reports configuration only; it does not prove the dependency was invoked or verify a real component. CLI response attempts remain in `runs[].command_invocations`, and historical results preserve their original version and fields.
 
 ### 1.6 (new results only)
 

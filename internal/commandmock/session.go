@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -12,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/microsoft/waza/internal/faultsequence"
 	"github.com/microsoft/waza/internal/models"
 )
 
@@ -38,11 +40,15 @@ type storedResponse struct {
 	Stdout      []byte            `json:"stdout,omitempty"`
 	Stderr      string            `json:"stderr,omitempty"`
 	ExitCode    int               `json:"exit_code"`
+	Sequence    []storedResponse  `json:"sequence,omitempty"`
+	SequenceDir string            `json:"sequence_dir,omitempty"`
+	DelayMS     int64             `json:"delay_ms,omitempty"`
 }
 
 type invocationRecord struct {
 	RecordedAt time.Time                `json:"recorded_at"`
 	Invocation models.CommandInvocation `json:"invocation"`
+	Started    bool                     `json:"started,omitempty"`
 }
 
 // Session owns the temporary configuration and invocation history for a task.
@@ -99,7 +105,7 @@ func NewNativeSession(ctx context.Context, workspace string, mocks []models.Comm
 	}()
 	native := make(map[string]bool)
 	stored := make([]storedMock, 0, len(mocks))
-	for _, mock := range mocks {
+	for mockIndex, mock := range mocks {
 		if err := ensureShim(mock.Name, shimDir); err != nil {
 			return nil, err
 		}
@@ -128,25 +134,43 @@ func NewNativeSession(ctx context.Context, workspace string, mocks []models.Comm
 				continue
 			}
 		}
-		for _, response := range mock.Responses {
-			output, err := responseOutput(response, baseDir)
-			if err != nil {
-				return nil, fmt.Errorf("command mock %q response fixture: %w", mock.Name, err)
-			}
+		for responseIndex, response := range mock.Responses {
 			workDir := ""
 			if response.WorkDir != "" {
 				workDir = filepath.ToSlash(filepath.Clean(response.WorkDir))
 			}
-			item.Responses = append(item.Responses, storedResponse{
+			stored := storedResponse{
 				Args:        response.Args,
 				ArgsRegex:   response.ArgsRegex,
 				Environment: response.Environment,
 				WorkDir:     workDir,
 				HasWorkDir:  response.WorkDir != "",
-				Stdout:      output,
-				Stderr:      response.Stderr,
 				ExitCode:    response.ExitCode,
-			})
+			}
+			if len(response.Sequence) > 0 {
+				stored.SequenceDir = filepath.Join(dir, "sequences", fmt.Sprintf("mock-%04d-response-%04d", mockIndex, responseIndex))
+				if err := os.MkdirAll(stored.SequenceDir, 0700); err != nil {
+					return nil, fmt.Errorf("creating command-mock sequence state: %w", err)
+				}
+				for _, step := range response.Sequence {
+					output, err := responseOutput(models.CommandMockResponse{Stdout: step.Stdout, Fixture: step.Fixture}, baseDir)
+					if err != nil {
+						return nil, fmt.Errorf("command mock %q sequence fixture: %w", mock.Name, err)
+					}
+					stored.Sequence = append(stored.Sequence, storedResponse{
+						Stdout: output, Stderr: step.Stderr, ExitCode: step.ExitCode, DelayMS: step.DelayMS,
+					})
+				}
+			} else {
+				output, err := responseOutput(response, baseDir)
+				if err != nil {
+					return nil, fmt.Errorf("command mock %q response fixture: %w", mock.Name, err)
+				}
+				stored.Stdout = output
+				stored.Stderr = response.Stderr
+				stored.ExitCode = response.ExitCode
+			}
+			item.Responses = append(item.Responses, stored)
 		}
 		stored = append(stored, item)
 	}
@@ -226,23 +250,30 @@ func (s *Session) Invocations() []models.CommandInvocation {
 		invocations, _, _ := s.nativeCapture()
 		return invocations
 	}
+	invocations, err := s.readInvocations()
+	if err != nil {
+		slog.Error("reading command-mock invocation history", "error", err)
+	}
+	return invocations
+}
+
+func (s *Session) readInvocations() ([]models.CommandInvocation, error) {
 	entries, err := os.ReadDir(s.logDir)
 	if err != nil {
-		return nil
+		return nil, fmt.Errorf("reading command-mock history: %w", err)
 	}
 	var records []invocationRecord
+	var captureErr error
 	for _, entry := range entries {
 		if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" {
 			continue
 		}
-		data, err := os.ReadFile(filepath.Join(s.logDir, entry.Name()))
+		record, err := readInvocationRecord(filepath.Join(s.logDir, entry.Name()))
 		if err != nil {
+			captureErr = errors.Join(captureErr, err)
 			continue
 		}
-		var record invocationRecord
-		if json.Unmarshal(data, &record) == nil {
-			records = append(records, record)
-		}
+		records = append(records, record)
 	}
 	// ReadDir orders filenames, so stable sorting also makes timestamp ties deterministic.
 	sort.SliceStable(records, func(i, j int) bool {
@@ -252,7 +283,37 @@ func (s *Session) Invocations() []models.CommandInvocation {
 	for i, record := range records {
 		invocations[i] = record.Invocation
 	}
-	return invocations
+	return invocations, captureErr
+}
+
+func readInvocationRecord(path string) (invocationRecord, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return invocationRecord{}, fmt.Errorf("reading command-mock invocation: %w", err)
+	}
+	var record invocationRecord
+	if err := json.Unmarshal(data, &record); err != nil {
+		return record, fmt.Errorf("decoding command-mock invocation: %w", err)
+	}
+	// Historical private records defaulted an omitted exit code to zero.
+	if !record.Started && record.Invocation.ExitCode == nil {
+		record.Invocation.ExitCode = new(0)
+	}
+	completed, err := os.ReadFile(path + ".completed")
+	if errors.Is(err, os.ErrNotExist) {
+		return record, nil
+	}
+	if err != nil {
+		return record, fmt.Errorf("reading completed command-mock invocation: %w", err)
+	}
+	var final invocationRecord
+	if err := json.Unmarshal(completed, &final); err != nil {
+		return record, fmt.Errorf("decoding completed command-mock invocation: %w", err)
+	}
+	if final.Invocation.ExitCode == nil {
+		return record, fmt.Errorf("completed command-mock invocation is missing its exit code")
+	}
+	return final, nil
 }
 
 // Close removes task-private configuration and verifies exact call counts.
@@ -265,8 +326,8 @@ func (s *Session) Close() ([]models.CommandInvocation, error) {
 	var attempts map[string]int
 	if len(s.native) != 0 && !s.closed {
 		invocations, attempts, expectationErr = s.nativeCapture()
-	} else {
-		invocations = s.Invocations()
+	} else if !s.closed {
+		invocations, expectationErr = s.readInvocations()
 	}
 	for _, mock := range s.mocks {
 		if mock.ExpectCalls == nil {
@@ -310,6 +371,13 @@ type invocationResult struct {
 // Invoke chooses the first matching response for the task session. The cwd
 // fallback supports callers without an explicit session ID.
 func Invoke(root, sessionID, name string, args []string, cwd string) (invocationResult, error) {
+	return InvokeContext(context.Background(), root, sessionID, name, args, cwd)
+}
+
+func InvokeContext(ctx context.Context, root, sessionID, name string, args []string, cwd string) (invocationResult, error) {
+	if err := ctx.Err(); err != nil {
+		return invocationResult{}, err
+	}
 	config, mock, err := findMock(root, sessionID, name, cwd)
 	if err != nil {
 		return invocationResult{}, err
@@ -327,6 +395,13 @@ func Invoke(root, sessionID, name string, args []string, cwd string) (invocation
 		}
 		if !matched {
 			continue
+		}
+		if len(response.Sequence) > 0 {
+			attemptPath, attempt, err := startInvocation(config.LogDir, name, args, i)
+			if err != nil {
+				return invocationResult{}, err
+			}
+			return runStartedSequence(ctx, response, attemptPath, attempt)
 		}
 		result := invocationResult{
 			Stdout:        response.Stdout,
@@ -346,6 +421,44 @@ func Invoke(root, sessionID, name string, args []string, cwd string) (invocation
 		return invocationResult{}, err
 	}
 	return invocationResult{Stderr: message + "\n", ExitCode: 127, ResponseIndex: -1}, nil
+}
+
+func runStartedSequence(ctx context.Context, response storedResponse, path string, attempt invocationRecord) (invocationResult, error) {
+	responseIndex := attempt.Invocation.ResponseIndex
+	complete := func(result invocationResult) (invocationResult, error) {
+		attempt.Invocation.ExitCode = new(result.ExitCode)
+		data, err := json.Marshal(attempt)
+		if err != nil {
+			return invocationResult{}, fmt.Errorf("encoding completed command-mock invocation: %w", err)
+		}
+		if err := publishNativeReceipt(filepath.Dir(path), filepath.Base(path)+".completed", data); err != nil {
+			return invocationResult{}, fmt.Errorf("recording completed command-mock invocation: %w", err)
+		}
+		return result, nil
+	}
+	// Admission is irreversible once its start record is published. Request
+	// cancellation must not skip reservation and replay this step on a retry.
+	index, err := faultsequence.Reserve(context.WithoutCancel(ctx), response.SequenceDir, len(response.Sequence))
+	if err != nil {
+		if errors.Is(err, faultsequence.ErrExhausted) {
+			message := fmt.Sprintf("waza command mock: response sequence exhausted for executable %q; define enough sequence steps for expected calls", attempt.Invocation.Command)
+			return complete(invocationResult{Stderr: message + "\n", ExitCode: 127, ResponseIndex: responseIndex})
+		}
+		return invocationResult{}, err
+	}
+	step := response.Sequence[index]
+	if err := faultsequence.Delay(ctx, step.DelayMS); err != nil {
+		exitCode := 130
+		message := "waza command mock: invocation canceled\n"
+		if errors.Is(err, context.DeadlineExceeded) {
+			exitCode = 124
+			message = "waza command mock: invocation timed out\n"
+		}
+		return complete(invocationResult{Stderr: message, ExitCode: exitCode, ResponseIndex: responseIndex})
+	}
+	return complete(invocationResult{
+		Stdout: step.Stdout, Stderr: step.Stderr, ExitCode: step.ExitCode, ResponseIndex: responseIndex,
+	})
 }
 
 func findMock(root, sessionID, name, cwd string) (storedConfig, *storedMock, error) {
@@ -458,30 +571,45 @@ func responseMatches(response storedResponse, args []string, cwd, workspace stri
 	return true, nil
 }
 
-func recordInvocation(logDir, name string, args []string, exitCode, responseIndex int) error {
+func startInvocation(logDir, name string, args []string, responseIndex int) (string, invocationRecord, error) {
 	invocation := models.CommandInvocation{
 		Command:       name,
 		Args:          sanitizeArgs(args, os.Environ()),
-		ExitCode:      exitCode,
 		ResponseIndex: responseIndex,
 	}
-	record := invocationRecord{RecordedAt: time.Now().UTC(), Invocation: invocation}
+	record := invocationRecord{RecordedAt: time.Now().UTC(), Invocation: invocation, Started: true}
+	path, err := writeInvocation(logDir, record)
+	return path, record, err
+}
+
+func recordInvocation(logDir, name string, args []string, exitCode, responseIndex int) error {
+	record := invocationRecord{RecordedAt: time.Now().UTC(), Invocation: models.CommandInvocation{
+		Command: name, Args: sanitizeArgs(args, os.Environ()), ExitCode: new(exitCode), ResponseIndex: responseIndex,
+	}}
+	_, err := writeInvocation(logDir, record)
+	return err
+}
+
+func writeInvocation(logDir string, record invocationRecord) (_ string, resultErr error) {
 	data, err := json.Marshal(record)
 	if err != nil {
-		return err
+		return "", err
 	}
-	file, err := os.CreateTemp(logDir, "call-*.json")
+	file, err := os.CreateTemp(logDir, ".call-*")
 	if err != nil {
-		return fmt.Errorf("recording command-mock invocation: %w", err)
+		return "", fmt.Errorf("recording command-mock invocation: %w", err)
 	}
-	if _, err := file.Write(data); err != nil {
-		_ = file.Close()
-		_ = os.Remove(file.Name())
-		return fmt.Errorf("recording command-mock invocation: %w", err)
+	defer func() {
+		if err := os.Remove(file.Name()); err != nil && !errors.Is(err, os.ErrNotExist) {
+			resultErr = errors.Join(resultErr, fmt.Errorf("removing unpublished command-mock invocation: %w", err))
+		}
+	}()
+	if err := errors.Join(writeNative(file, data), file.Close()); err != nil {
+		return "", fmt.Errorf("recording command-mock invocation: %w", err)
 	}
-	if err := file.Close(); err != nil {
-		_ = os.Remove(file.Name())
-		return fmt.Errorf("recording command-mock invocation: %w", err)
+	path := file.Name() + ".json"
+	if err := os.Rename(file.Name(), path); err != nil {
+		return "", fmt.Errorf("publishing command-mock invocation: %w", err)
 	}
-	return nil
+	return path, nil
 }
