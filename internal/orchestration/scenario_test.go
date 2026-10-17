@@ -79,6 +79,65 @@ func TestRecoveryExampleGradesSDKEventsThroughRunBenchmark(t *testing.T) {
 	}
 }
 
+type admissionMutationEngine struct {
+	execution.AgentEngine
+	fixture string
+	calls   int
+}
+
+func (e *admissionMutationEngine) Initialize(ctx context.Context) error {
+	if err := os.WriteFile(e.fixture, []byte(`{"responses":[{"sequence":[]}]}`), 0600); err != nil {
+		return err
+	}
+	return e.AgentEngine.Initialize(ctx)
+}
+
+func (e *admissionMutationEngine) Execute(ctx context.Context, req *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
+	e.calls++
+	return e.AgentEngine.Execute(ctx, req)
+}
+
+func TestRunBenchmarkRejectsFixtureChangedAfterInitialAdmission(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.Mkdir(filepath.Join(dir, "mocks"), 0700))
+	fixture := filepath.Join(dir, "mocks", "request.json")
+	require.NoError(t, os.WriteFile(fixture, []byte(`{"responses":[{"sequence":[{"return":"ready"}]}]}`), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "task.yaml"), []byte("id: probe\nname: Probe\ninputs: {prompt: inspect}\n"), 0600))
+	spec := &models.EvalSpec{
+		SchemaVersion: models.ScenarioSchemaVersion,
+		Scenario:      "recovery",
+		SpecIdentity:  models.SpecIdentity{Name: "Admission mutation"},
+		Config:        models.Config{EngineType: "mock", ModelID: "mock", TrialsPerTask: 1, TimeoutSec: 10},
+		Tasks:         []string{"task.yaml"},
+		MCPMocks:      []models.MCPMockConfig{{Name: "dependency", Fixtures: "mocks"}},
+	}
+	engine := &admissionMutationEngine{AgentEngine: execution.NewMockEngine("mock"), fixture: fixture}
+	runner := NewEvalRunner(config.NewEvalConfig(spec, config.WithSpecDir(dir)), engine)
+	outcome, err := runner.RunBenchmark(t.Context())
+	require.NoError(t, err)
+	require.Len(t, outcome.TestOutcomes, 1)
+	require.Equal(t, models.StatusFailed, outcome.TestOutcomes[0].Status)
+	require.NotEmpty(t, outcome.TestOutcomes[0].Runs)
+	require.Equal(t, models.StatusError, outcome.TestOutcomes[0].Runs[0].Status)
+	require.Contains(t, outcome.TestOutcomes[0].Runs[0].ErrorMsg, "resolve MCP mock")
+	require.Zero(t, engine.calls, "a changed invalid source must not be warned away before execution")
+}
+
+func TestRunBenchmarkRejectsExternalMCPBeforeEngineInitialization(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.Mkdir(filepath.Join(dir, "mocks"), 0700))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "mocks", "request.json"), []byte(`{"responses":[{"sequence":[]}]}`), 0600))
+	cfg := config.NewEvalConfig(&models.EvalSpec{
+		SchemaVersion: models.ScenarioSchemaVersion,
+		Scenario:      "recovery",
+		MCPMocks:      []models.MCPMockConfig{{Name: "dependency", Fixtures: "mocks"}},
+	}, config.WithSpecDir(dir))
+	runner := NewEvalRunner(cfg, nil)
+	outcome, err := runner.RunBenchmark(t.Context())
+	require.ErrorContains(t, err, "MCP mock admission")
+	require.Nil(t, outcome)
+}
+
 func TestScenarioExecutionRequest(t *testing.T) {
 	dir := t.TempDir()
 	specDir := filepath.Join(dir, "evals")

@@ -53,6 +53,18 @@ func FromEvalConfigWithVersion(mock models.MCPMockConfig, baseDir, version strin
 	return fromEvalConfig(mock, baseDir, nil, version, true)
 }
 
+// ValidateEvalMocks checks runtime mock admission without creating subprocess
+// configuration files or starting an engine. Offline callers use the offline resolver.
+func ValidateEvalMocks(mocks []models.MCPMockConfig, baseDir, version string) error {
+	var errs []error
+	for _, mock := range mocks {
+		if _, err := FromEvalConfigWithVersion(mock, baseDir, version); err != nil {
+			errs = append(errs, fmt.Errorf("resolve MCP mock %q: %w", mock.Name, err))
+		}
+	}
+	return errors.Join(errs...)
+}
+
 // FromEvalConfigOffline reads declared local fixtures while refusing external
 // schema resources, including the compiler's default filesystem loader.
 // Response validation errors retain the resolved config for inventory only.

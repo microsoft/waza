@@ -3,6 +3,7 @@ package models
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -94,9 +95,10 @@ func validateResponse(data []byte, format FaultSourceFormat, version string, fie
 	}
 	matcher := maps.Clone(source)
 	delete(matcher, "sequence")
-	if err := validate(matcher, false); err != nil {
-		return err
-	}
+	return errors.Join(validate(matcher, false), validateSequence(rawSequence, outputs, maxDelayMS, validate))
+}
+
+func validateSequence(rawSequence json.RawMessage, outputs []string, maxDelayMS int64, validate func(FaultSourceObject, bool) error) error {
 	if bytes.Equal(bytes.TrimSpace(rawSequence), []byte("null")) {
 		return fmt.Errorf("fault sequence must be a non-empty array, not null")
 	}

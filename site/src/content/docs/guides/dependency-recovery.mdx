@@ -28,7 +28,14 @@ waza preflight examples/scenarios/recovery/cli/eval.yaml
 ```
 
 Offline inspection never fetches external matcher schemas. An unresolved schema
-does not hide independent invalid matchers: those still fail non-strict preflight.
+does not hide independent invalid matchers or invalid sequence structure, step
+outputs, and bounds in the same response: those still fail non-strict preflight.
+
+Execution rejects invalid selected MCP fixtures before initializing the agent.
+Whole-tool inline overrides replace discarded fixture responses before admission.
+MCP subprocess setup errors also fail execution instead of dropping the mock.
+Temporary configuration creation is not a transaction: a late setup error lists
+any earlier generated configuration paths for inspection and cleanup.
 
 Execution invokes the configured Copilot SDK agent and therefore requires its
 normal runtime credentials:

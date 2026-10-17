@@ -31,6 +31,7 @@ type Runner struct {
 	out       io.Writer
 	fixtures  []execution.ResourceFile // cached fixture files, loaded once
 	mcpConfig map[string]copilot.MCPServerConfig
+	mcpError  error
 }
 
 type task struct {
@@ -51,7 +52,9 @@ type taskResult struct {
 func NewRunner(spec *TestSpec, engine execution.AgentEngine, cfg *config.EvalConfig, out io.Writer) *Runner {
 	r := &Runner{spec: spec, engine: engine, cfg: cfg, out: out}
 	r.fixtures = loadFixtureDir(cfg.FixtureDir())
-	r.mcpConfig = convertMCPServers(cfg.Spec().Config.ServerConfigs, cfg.Spec().MCPMocks, cfg.SpecDir(), cfg.Spec().SchemaVersion)
+	r.mcpConfig, r.mcpError = copilotconfig.ResolveMCPServersWithVersion(cfg.Spec().Config.ServerConfigs, cfg.Spec().MCPMocks, cfg.SpecDir(), cfg.Spec().SchemaVersion, func(format string, args ...any) {
+		fmt.Fprintf(os.Stderr, format, args...)
+	})
 	return r
 }
 
@@ -61,6 +64,9 @@ func (r *Runner) Run(ctx context.Context) (*models.TriggerMetrics, error) {
 }
 
 func (r *Runner) RunDetailed(ctx context.Context) ([]models.TriggerResult, *models.TriggerMetrics, error) {
+	if r.mcpError != nil {
+		return nil, nil, fmt.Errorf("trigger MCP mock admission: %w", r.mcpError)
+	}
 	var tasks []task
 	for _, p := range r.spec.ShouldTriggerPrompts {
 		tasks = append(tasks, task{prompt: p.Prompt, confidence: p.Confidence, shouldTrigger: true})

@@ -473,6 +473,28 @@ func TestEvalRunnerPassesMCPServers(t *testing.T) {
 	require.Equal(t, []string{"*"}, stdio.Tools)
 }
 
+func TestTriggerRejectsInvalidExternalMCPBeforeExecution(t *testing.T) {
+	for _, response := range []string{`{"sequence":[]}`, `{"sequence":[{"return":"ready","delay_ms":300001}]}`} {
+		t.Run(response, func(t *testing.T) {
+			dir := t.TempDir()
+			require.NoError(t, os.Mkdir(filepath.Join(dir, "mocks"), 0700))
+			require.NoError(t, os.WriteFile(filepath.Join(dir, "mocks", "request.json"), []byte(`{"responses":[`+response+`]}`), 0600))
+			cfg := config.NewEvalConfig(&models.EvalSpec{
+				SchemaVersion: models.ScenarioSchemaVersion,
+				Scenario:      "recovery",
+				MCPMocks:      []models.MCPMockConfig{{Name: "dependency", Fixtures: "mocks"}},
+			}, config.WithSpecDir(dir))
+			engine := &capturingEngine{}
+			runner := NewRunner(&TestSpec{ShouldTriggerPrompts: []TestPrompt{{Prompt: "inspect"}}}, engine, cfg, nil)
+			results, metrics, err := runner.RunDetailed(t.Context())
+			require.ErrorContains(t, err, "MCP mock admission")
+			require.Nil(t, results)
+			require.Nil(t, metrics)
+			require.Nil(t, engine.LastReq(), "invalid dependencies must not reach the engine")
+		})
+	}
+}
+
 func TestNewRunnerPassesScenarioVersionForFiniteMCPMocks(t *testing.T) {
 	tempDir := t.TempDir()
 	t.Setenv("TMPDIR", tempDir)

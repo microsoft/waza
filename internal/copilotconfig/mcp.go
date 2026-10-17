@@ -29,12 +29,26 @@ func ConvertMCPServersWithMocks(serverConfigs map[string]any, mocks []models.MCP
 // ConvertMCPServersWithVersion permits finite mock responses only when the
 // enclosing eval schema version explicitly supports them.
 func ConvertMCPServersWithVersion(serverConfigs map[string]any, mocks []models.MCPMockConfig, baseDir, version string, warnf func(string, ...any)) map[string]copilot.MCPServerConfig {
+	servers, err := convertMCPServers(serverConfigs, mocks, baseDir, version, warnf, false)
+	if err != nil && warnf != nil {
+		warnf("Warning: MCP configuration failed: %v\n", err)
+	}
+	return servers
+}
+
+// ResolveMCPServersWithVersion fails execution admission rather than dropping a
+// declared mock. The conversion-only adapters retain their legacy warning policy.
+func ResolveMCPServersWithVersion(serverConfigs map[string]any, mocks []models.MCPMockConfig, baseDir, version string, warnf func(string, ...any)) (map[string]copilot.MCPServerConfig, error) {
+	return convertMCPServers(serverConfigs, mocks, baseDir, version, warnf, true)
+}
+
+func convertMCPServers(serverConfigs map[string]any, mocks []models.MCPMockConfig, baseDir, version string, warnf func(string, ...any), strict bool) (map[string]copilot.MCPServerConfig, error) {
 	if warnf == nil {
 		warnf = func(string, ...any) {}
 	}
 	if len(serverConfigs) == 0 {
 		if len(mocks) == 0 {
-			return nil
+			return nil, nil
 		}
 	}
 
@@ -67,6 +81,7 @@ func ConvertMCPServersWithVersion(serverConfigs map[string]any, mocks []models.M
 		}
 	}
 
+	resolved := make([]mcpmock.Config, 0, len(mocks))
 	for _, mock := range mocks {
 		mockName := strings.TrimSpace(mock.Name)
 		if mockName != "" {
@@ -74,21 +89,32 @@ func ConvertMCPServersWithVersion(serverConfigs map[string]any, mocks []models.M
 		}
 		cfg, err := mcpmock.FromEvalConfigWithVersion(mock, baseDir, version)
 		if err != nil {
+			if strict {
+				return nil, fmt.Errorf("resolve MCP mock %q: %w", mock.Name, err)
+			}
 			warnf("Warning: mcp_mock %q config is invalid: %v, skipping\n", mock.Name, err)
 			continue
 		}
-		stdio, err := mockServerConfig(*cfg)
+		resolved = append(resolved, *cfg)
+	}
+	var createdPaths []string
+	for _, cfg := range resolved {
+		stdio, err := mockServerConfig(cfg)
 		if err != nil {
+			if strict {
+				return nil, fmt.Errorf("configure MCP mock %q (earlier temporary config files: %v): %w", cfg.Name, createdPaths, err)
+			}
 			warnf("Warning: mcp_mock %q could not be configured: %v, skipping\n", cfg.Name, err)
 			continue
 		}
+		createdPaths = append(createdPaths, stdio.Args[2])
 		result[cfg.Name] = stdio
 	}
 
 	if len(result) == 0 {
-		return nil
+		return nil, nil
 	}
-	return result
+	return result, nil
 }
 
 // DecodeMCPStdioServer performs the runtime's local decoding without starting a server.
@@ -118,6 +144,10 @@ func defaultMCPTools(cfgMap map[string]any, tools *[]string) {
 }
 
 func mockServerConfig(cfg mcpmock.Config) (copilot.MCPStdioServerConfig, error) {
+	exe, err := os.Executable()
+	if err != nil {
+		return copilot.MCPStdioServerConfig{}, fmt.Errorf("resolve waza executable: %w", err)
+	}
 	data, err := json.Marshal(cfg)
 	if err != nil {
 		return copilot.MCPStdioServerConfig{}, fmt.Errorf("marshal mock config: %w", err)
@@ -125,10 +155,6 @@ func mockServerConfig(cfg mcpmock.Config) (copilot.MCPStdioServerConfig, error) 
 	configFile, err := writeMockConfigFile(cfg.Name, data)
 	if err != nil {
 		return copilot.MCPStdioServerConfig{}, err
-	}
-	exe, err := os.Executable()
-	if err != nil {
-		return copilot.MCPStdioServerConfig{}, fmt.Errorf("resolve waza executable: %w", err)
 	}
 	return copilot.MCPStdioServerConfig{
 		Command: exe,

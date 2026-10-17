@@ -30,6 +30,7 @@ import (
 	"github.com/microsoft/waza/internal/discovery"
 	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/graders"
+	"github.com/microsoft/waza/internal/mcpmock"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/orchestration"
 	"github.com/microsoft/waza/internal/projectconfig"
@@ -785,6 +786,10 @@ func runSingleModel(cmd *cobra.Command, spec *models.EvalSpec, specPath string, 
 		}
 	}
 
+	if err := mcpmock.ValidateEvalMocks(spec.MCPMocks, specDir, spec.SchemaVersion); err != nil {
+		return nil, fmt.Errorf("MCP mock admission: %w", err)
+	}
+
 	// Create engine based on spec
 	engine, err := newRunEngine(spec.Config)
 	if err != nil {
@@ -995,7 +1000,7 @@ func runSingleModel(cmd *cobra.Command, spec *models.EvalSpec, specPath string, 
 				fmt.Println("Running trigger tests...")
 			}
 			if triggerResults, tm, err = tr.RunDetailed(ctx); err != nil {
-				fmt.Fprintf(os.Stderr, "Warning: trigger tests failed: %v\n", err)
+				return outcome, fmt.Errorf("trigger tests failed: %w", err)
 			}
 		}
 		if tm != nil {

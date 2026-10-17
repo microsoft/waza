@@ -121,6 +121,59 @@ func TestRecoveryCLIExampleGradesArgumentsAndExitSequence(t *testing.T) {
 	}
 }
 
+func TestRecoveryExternalMCPAdmissionThroughRun(t *testing.T) {
+	for _, test := range []struct {
+		name, executor, response, inline string
+		valid                            bool
+	}{
+		{"empty sequence", "mock", `{"sequence":[]}`, "", false},
+		{"excessive delay", "mock", `{"sequence":[{"return":"ready","delay_ms":300001}]}`, "", false},
+		{"SDK rejected before initialization", "copilot-sdk", `{"sequence":[]}`, "", false},
+		{"null success", "mock", `{"sequence":[{"return":null}]}`, "", true},
+		{"maximum delay", "mock", `{"sequence":[{"return":"ready","delay_ms":300000}]}`, "", true},
+		{"discarded invalid fixture", "mock", `{"sequence":[]}`, "\n    tools:\n      request:\n        responses: [{return: ready}]", true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			resetRunGlobals()
+			dir := t.TempDir()
+			t.Setenv("COPILOT_CLI_PATH", filepath.Join(dir, "must-not-launch"))
+			eval := fmt.Sprintf(`schemaVersion: "2.0"
+scenario: recovery
+name: External admission
+config: {executor: %s, model: mock, trials_per_task: 1, timeout_seconds: 10}
+metrics: []
+tasks: [task.yaml]
+mcp_mocks:
+  - name: dependency
+    fixtures: mocks%s
+`, test.executor, test.inline)
+			require.NoError(t, os.Mkdir(filepath.Join(dir, "mocks"), 0700))
+			require.NoError(t, os.WriteFile(filepath.Join(dir, "mocks", "request.json"), []byte(`{"responses":[`+test.response+`]}`), 0600))
+			path, output := filepath.Join(dir, "eval.yaml"), filepath.Join(dir, "results.json")
+			require.NoError(t, os.WriteFile(path, []byte(eval), 0600))
+			require.NoError(t, os.WriteFile(filepath.Join(dir, "task.yaml"), []byte("id: probe\nname: Probe\ninputs: {prompt: inspect}\n"), 0600))
+			cmd := newRunCommand()
+			cmd.SetArgs([]string{path, "--context-dir", dir, "--output", output})
+			cmd.SetOut(io.Discard)
+			cmd.SetErr(io.Discard)
+			err := cmd.Execute()
+			if !test.valid {
+				require.ErrorContains(t, err, "MCP mock admission")
+				require.NoFileExists(t, output)
+				return
+			}
+			require.NoError(t, err)
+			data, err := os.ReadFile(output)
+			require.NoError(t, err)
+			var outcome models.EvaluationOutcome
+			require.NoError(t, json.Unmarshal(data, &outcome))
+			require.Len(t, outcome.TestOutcomes, 1)
+			require.NotEmpty(t, outcome.TestOutcomes[0].Runs)
+			require.Equal(t, []models.DependencyMode{{Kind: "mcp", Name: "dependency", Mode: "mocked"}}, outcome.TestOutcomes[0].Runs[0].DependencyModes)
+		})
+	}
+}
+
 func TestRecoveryMCPDelayAdmissionThroughRun(t *testing.T) {
 	for _, delay := range []int{0, 300000, 300001} {
 		t.Run(fmt.Sprint(delay), func(t *testing.T) {
