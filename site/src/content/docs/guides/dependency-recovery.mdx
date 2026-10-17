@@ -27,6 +27,9 @@ waza preflight examples/scenarios/recovery/mcp/eval.yaml
 waza preflight examples/scenarios/recovery/cli/eval.yaml
 ```
 
+Offline inspection never fetches external matcher schemas. An unresolved schema
+does not hide independent invalid matchers: those still fail non-strict preflight.
+
 Execution invokes the configured Copilot SDK agent and therefore requires its
 normal runtime credentials:
 
@@ -43,6 +46,10 @@ Sequences contain at most 100 steps; each optional `delay_ms` is limited to
 Sequence state is scoped to the task's mock session/server instance.
 There is no automatic retry policy: the agent decides whether to call again,
 and the task graders decide whether its final behavior is acceptable.
+
+Each step must declare an output. Use `exit_code: 0` for a silent successful CLI
+step or `return: null` for an MCP null-success step. Typed JSON/YAML round-trips
+preserve these fields without adding a `return` to an MCP error-only step.
 
 ## Authoring boundaries
 

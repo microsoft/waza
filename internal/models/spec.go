@@ -2,6 +2,7 @@ package models
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -214,6 +215,28 @@ type MCPMockStep struct {
 	Return  any    `yaml:"return,omitempty" json:"return,omitempty"`
 	Error   string `yaml:"error,omitempty" json:"error,omitempty"`
 	DelayMS int64  `yaml:"delay_ms,omitempty" json:"delay_ms,omitempty"`
+}
+
+type mcpMockStepWire struct {
+	Return  *any   `yaml:"return,omitempty" json:"return,omitempty"`
+	Error   string `yaml:"error,omitempty" json:"error,omitempty"`
+	DelayMS int64  `yaml:"delay_ms,omitempty" json:"delay_ms,omitempty"`
+}
+
+func (s MCPMockStep) wire() mcpMockStepWire {
+	wire := mcpMockStepWire{Error: s.Error, DelayMS: s.DelayMS}
+	if s.Error == "" || s.Return != nil {
+		wire.Return = &s.Return
+	}
+	return wire
+}
+
+func (s MCPMockStep) MarshalJSON() ([]byte, error) {
+	return json.Marshal(s.wire())
+}
+
+func (s MCPMockStep) MarshalYAML() (any, error) {
+	return s.wire(), nil
 }
 
 // ShouldInjectSkillBody returns true unless the eval explicitly opts out of

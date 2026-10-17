@@ -73,13 +73,18 @@ func fromEvalConfig(mock models.MCPMockConfig, baseDir string, loader jsonschema
 	}
 
 	cfg := &Config{Name: name, Tools: make(map[string]Tool)}
+	var errs []error
 	if mock.Fixtures != "" {
 		fixtureDir := mock.Fixtures
 		if !filepath.IsAbs(fixtureDir) {
 			fixtureDir = filepath.Join(baseDir, fixtureDir)
 		}
 		if err := loadFixtureDir(cfg, fixtureDir, version, allowSequences, mock.Tools); err != nil {
-			return nil, fmt.Errorf("mcp mock %q fixtures: %w", name, err)
+			failure := fmt.Errorf("mcp mock %q fixtures: %w", name, err)
+			if loader == nil {
+				return nil, failure
+			}
+			errs = append(errs, failure)
 		}
 	}
 
@@ -96,9 +101,8 @@ func fromEvalConfig(mock models.MCPMockConfig, baseDir string, loader jsonschema
 	}
 
 	if len(cfg.Tools) == 0 {
-		return nil, fmt.Errorf("mcp mock %q must define at least one tool via tools or fixtures", name)
+		return nil, errors.Join(append(errs, fmt.Errorf("mcp mock %q must define at least one tool via tools or fixtures", name))...)
 	}
-	var errs []error
 	for toolName, tool := range cfg.Tools {
 		if len(tool.Responses) == 0 {
 			failure := fmt.Errorf("mcp mock %q tool %q must define at least one response", name, toolName)
@@ -204,12 +208,14 @@ func loadFixtureDir(cfg *Config, dir, version string, allowSequences bool, overr
 		return err
 	}
 	if allowSequences {
+		var errs []error
 		for toolName, source := range sourceByTool {
 			if _, overridden := overrides[toolName]; overridden {
 				continue
 			}
 			if err := validateFixtureTool(source, version); err != nil {
-				return fmt.Errorf("tool %q: %w", toolName, err)
+				errs = append(errs, fmt.Errorf("tool %q: %w", toolName, err))
+				continue
 			}
 			var tool Tool
 			if err := json.Unmarshal(source, &tool); err != nil {
@@ -217,6 +223,7 @@ func loadFixtureDir(cfg *Config, dir, version string, allowSequences bool, overr
 			}
 			cfg.Tools[toolName] = tool
 		}
+		return errors.Join(errs...)
 	}
 	return nil
 }
@@ -257,19 +264,21 @@ func validateFixtureTool(data []byte, version string) error {
 	if err := json.Unmarshal(data, &tool); err != nil {
 		return err
 	}
+	var errs []error
 	for index, response := range tool.Responses {
 		var fields map[string]json.RawMessage
 		if err := json.Unmarshal(response, &fields); err != nil {
-			return err
+			errs = append(errs, fmt.Errorf("response %d: %w", index, err))
+			continue
 		}
 		if _, hasSequence := fields["sequence"]; !hasSequence {
 			continue
 		}
 		if err := models.ValidateMCPFaultResponse(response, models.FaultSourceJSON, version); err != nil {
-			return fmt.Errorf("response %d: %w", index, err)
+			errs = append(errs, fmt.Errorf("response %d: %w", index, err))
 		}
 	}
-	return nil
+	return errors.Join(errs...)
 }
 
 func clearSequences(tool *Tool) {

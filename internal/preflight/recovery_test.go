@@ -1,9 +1,13 @@
 package preflight
 
 import (
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -65,4 +69,46 @@ func TestRecoveryExternalMCPAdmissionAndInlineReplacement(t *testing.T) {
 			require.Equal(t, test.invalid, report.Failed(false), "%+v", report.Diagnostics)
 		})
 	}
+}
+
+func TestRecoveryExternalMCPAggregatesIndependentMatcherFailures(t *testing.T) {
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests.Add(1)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+	for _, test := range []struct {
+		name              string
+		external, invalid bool
+	}{
+		{"external then invalid regex", true, true},
+		{"external with valid regex", true, false},
+		{"invalid regex only", false, true},
+		{"self-contained valid matchers", false, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			eval := recoveryEval("2.0") + "\nmcp_mocks:\n  - name: dependency\n    fixtures: mocks\n"
+			path, dir := writeSuite(t, eval, validTask)
+			require.NoError(t, os.Mkdir(filepath.Join(dir, "mocks"), 0700))
+			schema, pattern := `{}`, "^ready$"
+			if test.external {
+				schema = fmt.Sprintf(`{"$ref":%q}`, server.URL+"/schema.json")
+			}
+			if test.invalid {
+				pattern = "["
+			}
+			fixture := fmt.Sprintf(`{"responses":[
+					{"match_schema":%s,"sequence":[{"return":null}]},
+					{"match_regex":{"value":%q},"sequence":[{"return":"ready"}]}
+				]}`, schema, pattern)
+			require.NoError(t, os.WriteFile(filepath.Join(dir, "mocks", "read.json"), []byte(fixture), 0600))
+			report := Inspect(path, Options{})
+			require.Equal(t, test.invalid, report.Failed(false), "%+v", report.Diagnostics)
+			require.Equal(t, test.invalid, hasDiagnostic(report, "mock.mcp", Invalid), "%+v", report.Diagnostics)
+			require.Equal(t, test.external && !test.invalid, hasDiagnostic(report, "mock.mcp", Unresolved), "%+v", report.Diagnostics)
+			require.Equal(t, test.external && test.invalid, hasDiagnostic(report, "schema.external_reference", Unresolved), "%+v", report.Diagnostics)
+		})
+	}
+	require.Zero(t, requests.Load(), "offline validation must not fetch external prerequisites")
 }

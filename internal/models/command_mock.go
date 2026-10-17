@@ -33,7 +33,7 @@ type CommandMockResponse struct {
 type CommandMockStep struct {
 	Stdout   any    `yaml:"stdout,omitempty" json:"stdout,omitempty"`
 	Stderr   string `yaml:"stderr,omitempty" json:"stderr,omitempty"`
-	ExitCode int    `yaml:"exit_code,omitempty" json:"exit_code,omitempty"`
+	ExitCode int    `yaml:"exit_code" json:"exit_code"`
 	Fixture  string `yaml:"fixture,omitempty" json:"fixture,omitempty"`
 	DelayMS  int64  `yaml:"delay_ms,omitempty" json:"delay_ms,omitempty"`
 }
