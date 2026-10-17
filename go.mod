@@ -20,7 +20,7 @@ require (
 	github.com/charmbracelet/huh v1.0.0
 	github.com/github/copilot-sdk/go v1.0.21
 	github.com/go-viper/mapstructure/v2 v2.5.0
-	github.com/klauspost/compress v1.20.1
+	github.com/klauspost/compress v1.20.3
 	github.com/mattn/go-runewidth v0.0.30
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3
 	github.com/spf13/cobra v1.10.2
