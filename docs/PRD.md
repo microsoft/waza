@@ -15,15 +15,18 @@ custom agents. Repository, CLI and MCP scenarios provide a workflow-first path;
 `SKILL.md` and `.agent.md` context remain supported. See
 [Concepts](../site/src/content/docs/concepts.mdx) for the learning order.
 
-Upcoming main increments include scenario authoring, agent-free preflight,
-recorded reliability, opt-in dashboard Lab, selected evidence/regrade,
+Upcoming main increments include recorded reliability, opt-in dashboard Lab,
+selected evidence/regrade,
 conservative offline release policies and bounded authored-case assurance with
 explicitly selected calibration. Stable standalone `v0.38.10` was published
 October 9, 2026; these main features are not declared part of it.
 This document does not assert current CI is green or announce a release.
-Private fault adapters remain unregistered; public production fault recovery,
-universal release authority, a full human-labelled corpus, sandbox enforcement
-and default paid calibration are **not delivered**.
+Scenario evals support finite MCP/CLI fault sequences and report configured
+dependency modes. These fixtures test agent behavior, not real CLI/server
+implementations; they do not automatically retry, enforce a host sandbox, or
+provide per-request MCP stdio cancellation. Universal release authority, a full
+human-labelled corpus, sandbox enforcement and default paid calibration are
+**not delivered**.
 
 The historical skill-specific requirements below remain product context, not
 authority to infer current native grader keys or completed feature scope.
@@ -50,7 +53,7 @@ A single `waza` CLI built in **Go** that automates the skill development workflo
 
 Custom agent evaluations enforce the selected `.agent.md` tool policy with the Copilot SDK (#585): omitted tools remain unrestricted, empty lists deny all tools, and populated lists allow named tools with shared runtime/grader aliases. Policy selection follows task-level skill paths and `SKILL.md` precedence. Initial and resumed turns use native filtering, pre-tool checks, and fail-closed permission checks. Denials fail the run and are surfaced in results schema 1.3, session logs, and the dashboard. Tool policies are not host filesystem/network sandboxing.
 
-Portable evaluation evidence (#663): independently versioned manifest `1.0` in snapshot `1.1`, retaining legacy task semantics and historical result versions while new results use `1.6`, records full source origin, every trial, separate source/content digests, availability/completeness, redaction, nullable/unavailable versions, requested native skill/tool controls, and typed operational uncertainty. Cached evidence retains source origin; historical absence is unassessed and invalid metadata is withheld. These are observations, not enforcement, complete workspace/external-state certification, causal classification, requirement scores, or changed pass/fail defaults.
+Portable evaluation evidence (#663): independently versioned manifest `1.0` in snapshot `1.1`, retaining legacy task semantics and historical result versions while new results use `1.7`, records full source origin, every trial, separate source/content digests, availability/completeness, redaction, nullable/unavailable versions, requested native skill/tool controls, and typed operational uncertainty. Cached evidence retains source origin; historical absence is unassessed and invalid metadata is withheld. These are observations, not enforcement, complete workspace/external-state certification, causal classification, requirement scores, or changed pass/fail defaults.
 
 Capture sanitizes typed JSON and structural sensitive keys before serialization, preserves numeric lexical tokens, rejects opaque bytes/unsafe identifiers/keys/duplicate or trailing JSON/excessive nesting, and isolates rule-match counters (including selected files). Pattern matching is not a confidentiality proof. Reviewed agent-visible UTF-8 regular-file capture is explicitly allow-listed, excludes evaluator-only files/credentials, bounded (1 MiB/file, 10 MiB total by default), private, non-overwriting, and supported only on Linux/macOS. Allow-listing is not authorization proof. Partial capture and publication failure have safe unavailable states; there is no automatic export/upload/path fetch.
 
@@ -66,30 +69,59 @@ Private-file cleanup failures preserve at most one independently verified comple
 
 `grade --evidence-snapshot` verifies one selected task/run's original full origin, manifest hash, and complete unredacted text/digests, then privately materializes only explicit required file-grader inputs. Other grader types, output-based expectations, wildcard/absence checks, ambiguous runs, and explicit `--workspace` combinations are rejected. Checks cover the materialized captured subset, not original-workspace absence; `must_not_match` checks complete verified text of a selected file. Regrading retains the original capture hash but invalidates original result/validation/grader-configuration/checkpoint links; existing workspace grading remains unchanged and may use a paid prompt judge. Offline replay checks event sequencing and stored score/pass consistency or bisects tapes; it does not rerun graders, reconstruct a workspace, or support live replay. See the [portable evidence guide](../site/src/content/docs/guides/snapshot-replay.mdx).
 
-The baseline for controlled dependency-fault testing (#662) preserves existing MCP and CLI response formats and fail-closed matching. Unmatched MCP diagnostics omit argument values, and the in-process MCP handler rejects an already-canceled or expired tool call before fixture dispatch. This narrow admission check does not provide per-request stdio cancellation, simulated timeout fixtures, or finite recovery sequences. Mocked interactions do not prove live dependency behavior; command shims are not filesystem/network enforcement. Requirement-linked recovery and new attempt metadata remain separate integration work.
+Scenario evals with exact `schemaVersion: "2.0"` can define finite MCP and CLI
+response sequences. Each matching call consumes one step; sequences are bounded
+to 100 steps and delays to 300,000 ms. Unmatched calls and exhausted sequences
+fail closed. Task-level CLI mock lists preserve replacement semantics, including
+`command_mocks: []`. Sanitized CLI attempts remain in
+`runs[].command_invocations`; MCP failures and later calls remain in the
+transcript/checkpoint evidence. Results schema `1.7` records per-run configured
+dependency modes (`live` or `mocked`); this describes configuration, not proof
+of invocation. There is no recorded-replay mode.
 
-The private `internal/faultsequence` groundwork provides finite cross-process step reservation and cancellable, overflow-checked delays. State uses an existing absolute task-private directory, consumes steps at exclusive creation, and never rolls back after cancellation or process exit. Concurrent allocation is unique, not a guarantee of execution order or machine-crash durability. These primitives are not yet wired to public fixture loading or results.
+The private `internal/faultsequence` groundwork provides cross-process step
+reservation and cancellable, overflow-checked delays for the CLI shim. State
+consumes steps at exclusive creation and does not roll back after cancellation
+or process exit. Concurrent allocation is unique, not a guarantee of execution
+order or machine-crash durability.
 
-The canonical `internal/models` source validators, also used by private `internal/faultfixture` delegates, check JSON/YAML response fragments before normalization erases field presence. Finite sequences require the explicit enclosing scenario version; mixed zero/empty/null fields, nested matchers, duplicate finite JSON keys and invalid delays fail explicitly. YAML step floats are not converted into integer delay/exit fields, and response-level delay configuration cannot silently disappear as an unknown legacy field. This validation groundwork does not register sequence fields in the public eval/runtime; execution and invocation-bound evidence integration remain pending.
+The canonical `internal/models` source validators check JSON/YAML response
+fragments before normalization erases field presence. Finite sequences require
+the explicit enclosing scenario version; mixed zero/empty/null fields, nested
+matchers, duplicate finite JSON keys and invalid delays fail explicitly.
 
-Canonical eval/task byte loaders retain an immutable, nonserialized copy of their input, before prompt-file resolution or eager grader decoding. Selected mock response sources detach YAML aliases and merges while preserving scalar tags and duplicate finite fields; payload properties are not treated as configuration. Invalid finite sources fail before matcher/grader resource loading. Standalone task admission proves structure only, not enclosing scenario eligibility, and rejects otherwise-valid finite task declarations until public execution is registered. Preflight reuses its captured eval and task bytes rather than rereading mutable files. YAML source expansion is bounded at 100,000 visited nodes and depth 1,000; budget exhaustion fails explicitly rather than returning partial sources.
+Canonical eval/task byte loaders retain an immutable, nonserialized copy of their
+input before prompt-file resolution or eager grader decoding. Selected mock
+response sources detach YAML aliases and merges while preserving scalar tags and
+duplicate finite fields; payload properties are not treated as configuration.
+Task sequence eligibility is checked against the enclosing scenario eval version.
+Preflight reuses captured eval/task bytes; YAML source expansion is bounded and
+budget exhaustion fails explicitly rather than returning partial sources.
 
 Shared MCP matcher validation preserves an explicitly supplied schema resource loader. Its legacy wrapper retains compiler defaults, including local file references; offline callers must select a denying loader rather than assuming compiler defaults prohibit resource access.
 
-Unregistered private MCP/CLI adapters now exercise these source validators and reservation primitives against native request/output shapes. Their subprocess envelopes retain raw source presence, exact scenario eligibility, cached CLI fixture bytes and immutable workspace configuration. A changed configuration cannot reset an active attempt; MCP counters are scoped by server, tool and matcher. Configured fixture errors are delivered payloads, while cancellation, exhaustion and callback failures remain operational errors without fabricated success receipts. Native callbacks are synchronous and their caller owns I/O cancellation. Captured invocation references use the shared evidence API and actual array ordinals, never inferred SDK/MCP joins. These internal adapters do not yet enable public sequence fields, prove external integration or provide sandbox enforcement.
+Private adapters exercise source validators and reservation primitives against
+native request/output shapes. Their subprocess envelopes retain raw source
+presence, cached CLI fixture bytes and immutable workspace configuration. MCP
+sequence counters are scoped by server, tool and matcher. Fixture errors are
+delivered payloads, while cancellation and exhaustion remain explicit errors.
+These adapters do not prove external integration or provide sandbox enforcement.
 
 Optional, unregistered native serving hooks now place private dispatch around actual stdout/stderr and JSON-RPC writes. Both streams must emit completely before a private command receipt is published; attempted calls are counted separately from delivered receipts, and missing/failed capture returns an error rather than inventing an exit code. Native receipt corruption cannot turn a missing/null exit status into success. JSON-RPC responses and notifications reject short writes. Serial hooks preserve legacy defaults and leave synchronous I/O cancellation with their caller.
 
-A separate unregistered MCP owned-serving path performs serial irreversible preparation, once-only delivery and bounded concurrent response work. Actual native cancellation notifications fail closed, close owned interruptible endpoints and join execution without synthetic result payloads. Context is checked under the output lock at write commitment; cancellation cannot retract completed emission. Endpoints must be distinct and explicitly guarantee that concurrent close promptly interrupts I/O; this is not a guarantee for arbitrary closers or validated process/platform stdio. EOF drains accepted calls while cancellation supervision remains active. Native request IDs are not SDK IDs. Public registration, process-signal wiring and resumed attempt lifecycle remain pending.
+A separate private MCP owned-serving path performs serial irreversible preparation,
+once-only delivery and bounded concurrent response work. Cancellation guarantees
+apply only to injected endpoints that explicitly guarantee concurrent close
+interrupts I/O; they do not certify public process/platform stdio. EOF drains
+accepted calls while cancellation supervision remains active.
 
 Source-fragment MCP validation selects `schemaloader.Offline` before processing, refusing unregistered file and HTTP schema references without fetching them. The explicit offline MCP constructor shares existing fixture normalization, while the legacy runtime constructor retains its resource behavior. This schema-loading policy is not a filesystem/network sandbox.
 
 The owned-serving capacity is explicit and positive; duplicate active native IDs
-and capacity overflow reject before reservation. This remains a private injected
-boundary on every platform: public finite serving, process-signal cancellation,
-platform process-pipe guarantees and resumed SDK attempt ownership are not
-registered. The [private fault harness guide](../site/src/content/docs/guides/private-fault-fixtures.mdx)
-documents the executable test coverage and these limits.
+and capacity overflow reject before reservation. Public per-request stdio
+cancellation, platform process-pipe guarantees and resumed SDK attempt ownership
+remain unverified. The [dependency recovery guide](../site/src/content/docs/guides/dependency-recovery.mdx)
+documents fixture use and these limits.
 
 ### Dashboard workspace exploration (2026-10-06)
 

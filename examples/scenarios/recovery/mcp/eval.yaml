@@ -1,0 +1,47 @@
+name: "mcp-fault-recovery"
+scenario: "fault-recovery"
+description: "Controlled MCP failures for testing recovery behavior; fixtures do not verify a real server."
+schemaVersion: "2.0"
+version: "1.0"
+config:
+  trials_per_task: 1
+  timeout_seconds: 120
+  parallel: false
+  executor: copilot-sdk
+  model: "claude-sonnet-4.6"
+metrics:
+  - name: task_completion
+    weight: 1.0
+    threshold: 1.0
+mcp_mocks:
+  - name: dependency
+    tools:
+      request:
+        description: Return a controlled dependency response.
+        input_schema:
+          type: object
+          properties:
+            operation: { type: string }
+          required: [operation]
+        responses:
+          - match: { operation: transient }
+            sequence:
+              - error: temporary dependency error
+              - return: { status: ok, value: recovered }
+          - match: { operation: permanent }
+            sequence:
+              - error: permanent dependency error
+          - match: { operation: denied }
+            sequence:
+              - error: permission denied
+          - match: { operation: timeout }
+            sequence:
+              - error: dependency reported a timeout
+          - match: { operation: malformed }
+            sequence:
+              - return: { items: not-an-array }
+          - match: { operation: supported }
+            sequence:
+              - return: { status: ok }
+tasks:
+  - "tasks/*.yaml"

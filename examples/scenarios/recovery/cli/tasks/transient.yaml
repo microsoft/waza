@@ -1,0 +1,13 @@
+id: cli-transient
+name: Retry a transient CLI error once
+inputs:
+  prompt: Run az account show --output json. The first call fails transiently; retry exactly once. On success, write exactly "Recovered after one transient error." to report.txt. Do not create protected.txt.
+graders:
+  - name: bounded-recovery
+    type: file
+    config:
+      must_exist: [report.txt]
+      must_not_exist: [protected.txt]
+      content_patterns:
+        - path: report.txt
+          must_match: ["\\ARecovered after one transient error\\.\\r?\\n?\\z"]

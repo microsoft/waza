@@ -100,6 +100,20 @@ func TestServerFaultSequenceReportsRecoveryAndExhaustion(t *testing.T) {
 	requireToolError(t, NewServer(cfg, nil), "read", map[string]any{"id": "item-1"}, "temporary timeout")
 }
 
+func TestServerFaultSequenceCancellationConsumesOnlyTheStartedStep(t *testing.T) {
+	server := NewServer(&Config{Name: "inventory", Tools: map[string]Tool{
+		"read": {Responses: []Response{{Sequence: []ResponseStep{
+			{Error: "late failure", DelayMS: 1000},
+			{Return: "recovered"},
+		}}}},
+	}}, nil)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	requireToolErrorWithContext(t, ctx, server, "read", map[string]any{}, "deadline exceeded")
+	requireToolJSON(t, server, "read", map[string]any{}, "recovered")
+}
+
 func TestServerFaultSequenceConcurrentCallsReserveDistinctSteps(t *testing.T) {
 	server := NewServer(&Config{Name: "inventory", Tools: map[string]Tool{
 		"read": {Responses: []Response{{Sequence: []ResponseStep{
@@ -280,12 +294,16 @@ type callResult struct {
 }
 
 func toolCall(t *testing.T, srv *Server, name string, args map[string]any) callResult {
+	return toolCallWithContext(t, context.Background(), srv, name, args)
+}
+
+func toolCallWithContext(t *testing.T, ctx context.Context, srv *Server, name string, args map[string]any) callResult {
 	t.Helper()
 	argsJSON, err := json.Marshal(args)
 	require.NoError(t, err)
 	params, err := json.Marshal(map[string]any{"name": name, "arguments": json.RawMessage(argsJSON)})
 	require.NoError(t, err)
-	resp := srv.HandleRequest(context.Background(), &jsonrpc.Request{
+	resp := srv.HandleRequest(ctx, &jsonrpc.Request{
 		JSONRPC: "2.0",
 		Method:  "tools/call",
 		Params:  params,
@@ -298,6 +316,13 @@ func toolCall(t *testing.T, srv *Server, name string, args map[string]any) callR
 	require.NoError(t, json.Unmarshal(data, &result))
 	require.Len(t, result.Content, 1)
 	return result
+}
+
+func requireToolErrorWithContext(t *testing.T, ctx context.Context, srv *Server, name string, args map[string]any, want string) {
+	t.Helper()
+	result := toolCallWithContext(t, ctx, srv, name, args)
+	require.True(t, result.IsError, "expected tool error")
+	require.Contains(t, result.Content[0].Text, want)
 }
 
 func osWriteFile(path, content string) error {

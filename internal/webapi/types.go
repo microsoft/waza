@@ -92,21 +92,23 @@ type ModelUsageResponse struct {
 
 // TaskResult is a per-task result within a run.
 type TaskResult struct {
-	ID            string                      `json:"id,omitempty"`
-	Name          string                      `json:"name"`
-	Prompt        string                      `json:"prompt,omitempty"`
-	Outcome       string                      `json:"outcome"`
-	Score         float64                     `json:"score"`
-	WeightedScore *float64                    `json:"weightedScore,omitempty"`
-	Duration      float64                     `json:"duration"`
-	GraderResults []GraderResult              `json:"graderResults"`
-	Transcript    []TranscriptEventResponse   `json:"transcript,omitempty"`
-	SessionDigest *SessionDigestResponse      `json:"sessionDigest,omitempty"`
-	Responder     *ResponderInfoResponse      `json:"responder,omitempty"`
-	BootstrapCI   *ConfidenceIntervalResponse `json:"bootstrapCI,omitempty"`
-	PassRateCI    *ConfidenceIntervalResponse `json:"passRateCI,omitempty"`
-	Trials        *TrialCountsResponse        `json:"trials,omitempty"`
-	EvidenceRuns  []EvidenceRunResponse       `json:"evidenceRuns,omitempty"`
+	ID                 string                      `json:"id,omitempty"`
+	Name               string                      `json:"name"`
+	Prompt             string                      `json:"prompt,omitempty"`
+	Outcome            string                      `json:"outcome"`
+	Score              float64                     `json:"score"`
+	WeightedScore      *float64                    `json:"weightedScore,omitempty"`
+	Duration           float64                     `json:"duration"`
+	GraderResults      []GraderResult              `json:"graderResults"`
+	DependencyModes    []models.DependencyMode     `json:"dependencyModes,omitempty"`
+	CommandInvocations []models.CommandInvocation  `json:"commandInvocations,omitempty"`
+	Transcript         []TranscriptEventResponse   `json:"transcript,omitempty"`
+	SessionDigest      *SessionDigestResponse      `json:"sessionDigest,omitempty"`
+	Responder          *ResponderInfoResponse      `json:"responder,omitempty"`
+	BootstrapCI        *ConfidenceIntervalResponse `json:"bootstrapCI,omitempty"`
+	PassRateCI         *ConfidenceIntervalResponse `json:"passRateCI,omitempty"`
+	Trials             *TrialCountsResponse        `json:"trials,omitempty"`
+	EvidenceRuns       []EvidenceRunResponse       `json:"evidenceRuns,omitempty"`
 }
 
 type EvidenceRunResponse struct {

@@ -54,19 +54,27 @@ See [the internal boundary](CONTROLLED-COMPARISONS.md#internal-native-task-groun
 
 ---
 
-## Private dependency-fault testing
+## Dependency recovery scenarios
 
-The #662 harness is an internal, injected testing boundary, not a public
-finite-sequence configuration or retry feature. It preserves existing CLI/MCP
-mocks and explicit empty task overrides. Fault source validation happens before
-normalization or eager matcher/grader decoding; a standalone task's valid
-fragment does not establish enclosing scenario eligibility.
+Scenario evals (`scenario` plus exact `schemaVersion: "2.0"`) support finite
+MCP and CLI response sequences. They let eval authors test bounded retries,
+honest failure reporting, malformed payload handling and prohibited side effects
+without replaying a real CLI or server. Unmatched calls and sequence exhaustion
+fail closed. A configured timeout error is not transport cancellation.
 
-Private tests exercise cancellation with owned interruptible endpoints, finite
-allocation, matching, capture failures and isolated state. They do not certify
-platform process pipes, SDK resume, external integration or filesystem/network
-sandboxing. No live-agent execution is required for these tests. See the
-[private fault harness guide](../site/src/content/docs/guides/private-fault-fixtures.mdx).
+Run offline preflight without provider credentials:
+
+```bash
+go run ./cmd/waza preflight examples/scenarios/recovery/mcp/eval.yaml
+go run ./cmd/waza preflight examples/scenarios/recovery/cli/eval.yaml
+```
+
+Execution uses the configured Copilot SDK runtime. `command_mocks` intercept
+only declared executable names; other commands may use the host `PATH`. MCP
+fixtures do not restrict remote/network access. Result dependency modes describe
+configuration, and mocked tests do not establish real component reliability.
+See the [dependency recovery guide](../site/src/content/docs/guides/dependency-recovery.mdx)
+for fixtures and platform/cancellation boundaries.
 
 ## Installation
 
@@ -1087,7 +1095,7 @@ Replay checks stored event sequencing and grader score/pass consistency without 
 
 Portable evidence (manifest `1.0`, snapshot `1.1`) keeps missing-version defaults
 for legacy eval/results readers at `1.4`, while newly generated results use result
-schema `1.6`. Task YAML has no independent schema-version field or default.
+schema `1.7`. Task YAML has no independent schema-version field or default.
 It describes every trial, full source origin, source/content
 digests, availability, completeness, redaction, unavailable versions, requested
 `no_skills`/native skill control, and operational uncertainty. Requested

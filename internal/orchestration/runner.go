@@ -374,7 +374,6 @@ func (r *EvalRunner) runNormalBenchmark(ctx context.Context) (*models.Evaluation
 	if len(testCases) == 0 {
 		return nil, fmt.Errorf("no test cases found")
 	}
-
 	r.notifyProgress(ProgressEvent{
 		EventType:  EventBenchmarkStart,
 		TotalTests: len(testCases),
@@ -1089,6 +1088,7 @@ func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.T
 				run.FinalOutput = resp.FinalOutput
 			}
 		}
+		run.DependencyModes = configuredDependencyModes(req, r.cfg.Spec().MCPMocks)
 		r.captureSnapshot(tc, req, resp, &run, diagnosticCategory)
 		run.RequirementExplanations = evidence.ExplainRequirements(r.cfg.Spec(), tc, &run)
 		r.captureFailureArtifacts(&run)
@@ -1576,6 +1576,34 @@ func effectiveCommandMocks(tc *models.TestCase, spec *models.EvalSpec) []models.
 		return *tc.CommandMocks
 	}
 	return spec.CommandMocks
+}
+
+func configuredDependencyModes(req *execution.ExecutionRequest, mcpMocks []models.MCPMockConfig) []models.DependencyMode {
+	if req == nil {
+		return nil
+	}
+	mockNames := make(map[string]bool, len(mcpMocks))
+	for _, mock := range mcpMocks {
+		mockNames[mock.Name] = true
+	}
+	modes := make([]models.DependencyMode, 0, len(req.MCPServers)+len(req.CommandMocks))
+	for name := range req.MCPServers {
+		mode := "live"
+		if mockNames[name] {
+			mode = "mocked"
+		}
+		modes = append(modes, models.DependencyMode{Kind: "mcp", Name: name, Mode: mode})
+	}
+	for _, mock := range req.CommandMocks {
+		modes = append(modes, models.DependencyMode{Kind: "cli", Name: mock.Name, Mode: "mocked"})
+	}
+	sort.Slice(modes, func(i, j int) bool {
+		if modes[i].Kind != modes[j].Kind {
+			return modes[i].Kind < modes[j].Kind
+		}
+		return modes[i].Name < modes[j].Name
+	})
+	return modes
 }
 
 func (r *EvalRunner) taskSkillPaths(tc *models.TestCase) []string {

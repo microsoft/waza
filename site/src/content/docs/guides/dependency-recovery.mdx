@@ -1,0 +1,72 @@
+---
+title: Deterministic Dependency Recovery
+description: Test bounded MCP and CLI recovery against controlled fault fixtures.
+---
+
+Scenario evals can use finite MCP and CLI response sequences to test how an agent
+handles controlled dependency failures. These are **authored mocked interactions**,
+not replayed recordings or tests of a real CLI/server implementation.
+
+## Run the examples
+
+The MCP suite covers a transient error followed by success, permanent error,
+permission denial, dependency-reported timeout, malformed application payload
+and unmatched arguments. The CLI suite covers a transient failure and one retry.
+Each task grades an exact outcome and a prohibited file side effect.
+
+* [MCP eval and tasks](https://github.com/microsoft/waza/tree/main/examples/scenarios/recovery/mcp)
+* [CLI eval and task](https://github.com/microsoft/waza/tree/main/examples/scenarios/recovery/cli)
+
+Run static validation without provider credentials:
+
+```bash
+waza preflight examples/scenarios/recovery/mcp/eval.yaml
+waza preflight examples/scenarios/recovery/cli/eval.yaml
+```
+
+Execution invokes the configured Copilot SDK agent and therefore requires its
+normal runtime credentials:
+
+```bash
+waza run examples/scenarios/recovery/mcp/eval.yaml
+waza run examples/scenarios/recovery/cli/eval.yaml
+```
+
+Scenario evals require a nonempty `scenario` and exact `schemaVersion: "2.0"`.
+The finite `sequence` field belongs to a matching MCP or CLI response; every
+call consumes one step, in order, and an exhausted sequence fails closed.
+Sequences contain at most 100 steps; each optional `delay_ms` is limited to
+300,000. Sequence state is scoped to the task's mock session/server instance.
+There is no automatic retry policy: the agent decides whether to call again,
+and the task graders decide whether its final behavior is acceptable.
+
+## Authoring boundaries
+
+* A transient sequence can return an error first and a normal value next. The
+  attempt record preserves that earlier error even if a later call succeeds.
+  CLI details are in `runs[].command_invocations`; MCP errors/calls appear in
+  the run transcript.
+* A permanent error, permission denial, malformed application response, or
+  unmatched call can be graded as an honest failure. A malformed application
+  payload is not a malformed JSON-RPC frame.
+* An MCP `error` containing “timeout” is a dependency-reported error, not
+  transport cancellation. `delay_ms` can model latency, but public MCP stdio
+  does not promise per-request cancellation. Direct handler tests cover a
+  canceled context; they do not certify process-pipe cancellation.
+* Unmatched MCP calls and exhausted sequences return tool errors and never
+  fall through to a live MCP service. A CLI mock intercepts only its declared
+  executable name; undeclared executables may resolve through the host `PATH`.
+  Task `command_mocks: []` disables inherited command mocks.
+* A mock overrides a same-named configured live MCP server. Other configured
+  MCP servers remain live. Mocks do not restrict filesystem, process, remote or
+  network access and are not a host sandbox.
+
+Per-run `dependency_modes` in results schema `1.7` records declared MCP
+servers and effective CLI mocks as `live` or `mocked`. It reports configuration,
+not actual invocation or verified component behavior. No `recorded` mode is
+available. The dashboard shows these modes and captured mocked CLI attempts;
+its task detail is first-repetition evidence, not a complete repetition export.
+
+These fixtures exercise the agent's decisions against controlled responses.
+Use separate opt-in integration tests when the real CLI/server behavior,
+authentication, or remote service contract is what you need to verify.

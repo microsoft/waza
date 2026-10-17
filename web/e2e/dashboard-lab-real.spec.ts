@@ -28,6 +28,28 @@ function detail(run: RunSummary): RunDetail {
         id: "stable-task",
         name: candidate ? "Renamed task" : "Original name",
         weightedScore: candidate ? 0.8 : 0.5,
+        ...(candidate
+          ? {
+              dependencyModes: [
+                { kind: "mcp", name: "inventory", mode: "mocked" as const },
+                { kind: "mcp", name: "github", mode: "live" as const },
+              ],
+              commandInvocations: [
+                {
+                  command: "az",
+                  args: ["account", "show"],
+                  exit_code: 1,
+                  response_index: 0,
+                },
+                {
+                  command: "az",
+                  args: ["account", "show"],
+                  exit_code: 0,
+                  response_index: 1,
+                },
+              ],
+            }
+          : {}),
       },
       {
         name: candidate ? "Added task" : "Removed task",
@@ -237,6 +259,8 @@ test.describe("Real dashboard lab", () => {
         const dialog = page.getByRole("dialog");
         await expect(dialog.getByText(`${generation} ${id} grader`, { exact: true })).toBeVisible();
         await dialog.getByRole("tab", { name: "Trajectory", exact: true }).click();
+        if (id === "run-001")
+          await expect(dialog.getByText("az attempt 1 · exit 1 · response index 0", { exact: true })).toBeVisible();
         await dialog.getByRole("button", { name: "Events", exact: true }).click();
         await expect(dialog.getByText(`${generation} ${id} trajectory`, { exact: true })).toBeVisible();
         await dialog.getByRole("button", { name: "Show details", exact: true }).first().click();
@@ -245,7 +269,14 @@ test.describe("Real dashboard lab", () => {
         await dialog.getByRole("button", { name: "Result", exact: true }).click();
         await expect(dialog.getByText(`${generation} ${id} artifact`, { exact: true })).toBeVisible();
         await dialog.getByRole("tab", { name: "Configuration", exact: true }).click();
-        expect(JSON.parse(await dialog.locator("pre").innerText()).prompt).toBe(`Inspect ${generation}-${id}.txt`);
+        const configuration = JSON.parse(await dialog.locator("pre").innerText());
+        expect(configuration.prompt).toBe(`Inspect ${generation}-${id}.txt`);
+        if (id === "run-001") {
+          expect(configuration.dependency_modes).toEqual([
+            { kind: "mcp", name: "inventory", mode: "mocked" },
+            { kind: "mcp", name: "github", mode: "live" },
+          ]);
+        }
         await page.keyboard.press("Escape");
       };
       await assertEvidence("run-001", "A");

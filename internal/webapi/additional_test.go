@@ -231,6 +231,12 @@ func TestOutcomeToDetailMapsStatsTranscriptAndDigest(t *testing.T) {
 					{
 						Prompt:     "Explain the code under test.",
 						DurationMs: 1500,
+						DependencyModes: []models.DependencyMode{
+							{Kind: "mcp", Name: "inventory", Mode: "mocked"},
+						},
+						CommandInvocations: []models.CommandInvocation{
+							{Command: "az", Args: []string{"account", "show"}, ExitCode: 1, ResponseIndex: 0},
+						},
 						Validations: map[string]models.GraderResults{
 							"code": {Name: "code", Type: models.GraderKindInlineScript, Passed: false, Score: 0.2, Weight: 1, Feedback: "failed"},
 						},
@@ -285,6 +291,22 @@ func TestOutcomeToDetailMapsStatsTranscriptAndDigest(t *testing.T) {
 	}
 	if taskWithData.SessionDigest == nil {
 		t.Fatal("expected session digest")
+	}
+	if len(taskWithData.DependencyModes) != 1 || taskWithData.DependencyModes[0].Mode != "mocked" {
+		t.Fatalf("expected configured dependency mode, got %+v", taskWithData.DependencyModes)
+	}
+	if len(taskWithData.CommandInvocations) != 1 || taskWithData.CommandInvocations[0].ExitCode != 1 {
+		t.Fatalf("expected recorded failed CLI attempt, got %+v", taskWithData.CommandInvocations)
+	}
+	detailJSON, err := json.Marshal(detail)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(detailJSON), `"dependencyModes":[{"kind":"mcp","name":"inventory","mode":"mocked"}]`) {
+		t.Fatalf("dependency modes missing from API JSON: %s", detailJSON)
+	}
+	if !strings.Contains(string(detailJSON), `"commandInvocations":[{"command":"az","args":["account","show"],"exit_code":1,"response_index":0}]`) {
+		t.Fatalf("CLI invocation history missing from API JSON: %s", detailJSON)
 	}
 	if taskWithData.SessionDigest.ToolsUsed == nil || len(taskWithData.SessionDigest.ToolsUsed) != 0 {
 		t.Errorf("expected empty toolsUsed slice, got %v", taskWithData.SessionDigest.ToolsUsed)

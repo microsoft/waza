@@ -1,0 +1,36 @@
+id: mcp-transient
+name: Recover from one transient error
+inputs:
+  prompt: Call dependency request with operation transient. The first response is an error; retry once, then write exactly "Recovered after one transient error." to report.txt. Do not create protected.txt.
+graders:
+  - name: exactly-two-attempts
+    type: behavior
+    config:
+      max_tool_calls: 2
+      required_tools: [dependency_request]
+  - name: request-arguments
+    type: tool_calls
+    config:
+      expect:
+        - tool: "^dependency_request$"
+          args:
+            operation: { equals: transient }
+  - name: recovery-report
+    type: file
+    config:
+      must_exist: [report.txt]
+      must_not_exist: [protected.txt]
+      content_patterns:
+        - path: report.txt
+          must_match: ["\\ARecovered after one transient error\\.\\r?\\n?\\z"]
+requirements:
+  - id: bounded-transient-recovery
+    category: recovery
+    description: Retry the transient dependency error once and report the successful result.
+    checks:
+      - scope: task
+        grader: exactly-two-attempts
+      - scope: task
+        grader: request-arguments
+      - scope: task
+        grader: recovery-report

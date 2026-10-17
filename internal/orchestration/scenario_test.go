@@ -72,6 +72,84 @@ func TestScenarioExecutionRequest(t *testing.T) {
 	}
 }
 
+func TestRunBenchmarkRecordsEffectiveDependencyModes(t *testing.T) {
+	dir := t.TempDir()
+	tasksDir := filepath.Join(dir, "tasks")
+	require.NoError(t, os.MkdirAll(tasksDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(tasksDir, "inherit.yaml"), []byte(`id: inherit
+name: Inherited mocks
+inputs:
+  prompt: Check the configured dependencies.
+`), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(tasksDir, "empty.yaml"), []byte(`id: empty
+name: Empty override
+inputs:
+  prompt: Check the configured dependencies.
+command_mocks: []
+`), 0o600))
+
+	spec := &models.EvalSpec{
+		SchemaVersion: "2.0",
+		Scenario:      "recovery",
+		Tasks:         []string{"tasks/*.yaml"},
+		CommandMocks:  []models.CommandMockConfig{{Name: "az", Responses: []models.CommandMockResponse{{Args: []string{"account"}, Stdout: "ok"}}}},
+		MCPMocks: []models.MCPMockConfig{
+			{Name: "replaced", Tools: map[string]models.MCPMockTool{"ping": {Responses: []models.MCPMockResponse{{Return: "ok"}}}}},
+			{Name: "mock-only", Tools: map[string]models.MCPMockTool{"ping": {Responses: []models.MCPMockResponse{{Return: "ok"}}}}},
+		},
+		Config: models.Config{
+			EngineType:    "copilot-sdk",
+			ModelID:       "mock-model",
+			TrialsPerTask: 1,
+			TimeoutSec:    30,
+			ServerConfigs: map[string]any{
+				"live":     map[string]any{"type": "http", "url": "https://example.invalid/mcp"},
+				"replaced": map[string]any{"type": "stdio", "command": "server"},
+			},
+		},
+	}
+	runner := NewEvalRunner(config.NewEvalConfig(spec, config.WithSpecDir(dir)), execution.NewMockEngine("mock-model"), WithSkipGraders())
+	outcome, err := runner.RunBenchmark(context.Background())
+	require.NoError(t, err)
+	require.Len(t, outcome.TestOutcomes, 2)
+
+	modesByTask := make(map[string][]models.DependencyMode, len(outcome.TestOutcomes))
+	for _, task := range outcome.TestOutcomes {
+		require.NotEmpty(t, task.Runs)
+		modesByTask[task.TestID] = task.Runs[0].DependencyModes
+	}
+	require.Equal(t, []models.DependencyMode{
+		{Kind: "cli", Name: "az", Mode: "mocked"},
+		{Kind: "mcp", Name: "live", Mode: "live"},
+		{Kind: "mcp", Name: "mock-only", Mode: "mocked"},
+		{Kind: "mcp", Name: "replaced", Mode: "mocked"},
+	}, modesByTask["inherit"])
+	require.Equal(t, []models.DependencyMode{
+		{Kind: "mcp", Name: "live", Mode: "live"},
+		{Kind: "mcp", Name: "mock-only", Mode: "mocked"},
+		{Kind: "mcp", Name: "replaced", Mode: "mocked"},
+	}, modesByTask["empty"])
+}
+
+func TestRecoveryExamplesLoadThroughEvalAndTaskLoaders(t *testing.T) {
+	root, err := filepath.Abs(filepath.Join("..", ".."))
+	require.NoError(t, err)
+	for _, evalPath := range []string{
+		"examples/scenarios/recovery/mcp/eval.yaml",
+		"examples/scenarios/recovery/cli/eval.yaml",
+	} {
+		t.Run(evalPath, func(t *testing.T) {
+			path := filepath.Join(root, evalPath)
+			spec, err := models.LoadEvalSpec(path)
+			require.NoError(t, err)
+			runner := NewEvalRunner(config.NewEvalConfig(spec, config.WithSpecDir(filepath.Dir(path))), nil)
+			tasks, err := runner.loadTestCases()
+			require.NoError(t, err)
+			require.NotEmpty(t, tasks)
+		})
+	}
+}
+
 func TestScenarioRequiredSkillsUseEnabledPaths(t *testing.T) {
 	dir := t.TempDir()
 	for _, name := range []string{"foo", "bar"} {

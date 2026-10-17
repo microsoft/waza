@@ -1,0 +1,17 @@
+id: mcp-malformed
+name: Reject a malformed application payload
+inputs:
+  prompt: >-
+    Call dependency request with operation malformed. The returned object has
+    items as a string instead of an array. Do not use it as valid data. Write
+    exactly "Unable to complete: response malformed." to report.txt and do not
+    create protected.txt.
+graders:
+  - name: malformed-payload-rejected
+    type: file
+    config:
+      must_exist: [report.txt]
+      must_not_exist: [protected.txt]
+      content_patterns:
+        - path: report.txt
+          must_match: ["\\AUnable to complete: response malformed\\.\\r?\\n?\\z"]

@@ -1,6 +1,7 @@
 package commandmock
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -124,6 +125,38 @@ func TestInvokeSequenceRecoversExhaustsAndResetsPerSession(t *testing.T) {
 	}
 	if len(invocations) != 3 || invocations[0].ExitCode != 75 || invocations[1].ExitCode != 0 || invocations[2].ExitCode != 127 {
 		t.Fatalf("invocations omitted earlier failure or exhaustion: %+v", invocations)
+	}
+}
+
+func TestInvokeSequenceCancellationRecordsAttemptAndAdvances(t *testing.T) {
+	root := commandMockTestRoot(t)
+	workspace := t.TempDir()
+	session, err := NewSession(workspace, []models.CommandMockConfig{{Name: "az", Responses: []models.CommandMockResponse{{
+		Args: []string{"account", "show"},
+		Sequence: []models.CommandMockStep{
+			{DelayMS: 1000, ExitCode: 1},
+			{Stdout: "recovered"},
+		},
+	}}}}, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	result, err := InvokeContext(ctx, root, session.ID(), "az", []string{"account", "show"}, workspace)
+	if err != nil || result.ExitCode != 124 || !strings.Contains(result.Stderr, "timed out") {
+		t.Fatalf("canceled sequence attempt = %+v, error = %v", result, err)
+	}
+	result, err = Invoke(root, session.ID(), "az", []string{"account", "show"}, workspace)
+	if err != nil || string(result.Stdout) != "recovered" {
+		t.Fatalf("step after canceled attempt = %+v, error = %v", result, err)
+	}
+	invocations, err := session.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(invocations) != 2 || invocations[0].ExitCode != 124 || invocations[1].ExitCode != 0 {
+		t.Fatalf("canceled attempt history = %+v", invocations)
 	}
 }
 

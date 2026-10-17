@@ -111,6 +111,13 @@ export interface TaskResult {
   weightedScore?: number;
   duration: number;
   graderResults: GraderResult[];
+  dependencyModes?: { kind: string; name: string; mode: "live" | "mocked" }[];
+  commandInvocations?: {
+    command: string;
+    args?: string[];
+    exit_code: number;
+    response_index: number;
+  }[];
   transcript?: TranscriptEvent[];
   sessionDigest?: SessionDigest;
   responder?: ResponderInfo;

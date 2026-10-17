@@ -113,9 +113,9 @@ func TestCompatibilityCLIProcessExits(t *testing.T) {
 			require.NoError(t, err)
 			wireBytes, err := os.ReadFile(resultPath)
 			require.NoError(t, err)
-			expected, err := os.ReadFile(testutil.RepoFile(t, "cmd", "waza", "testdata", "compatibility-run-1.6.json"))
+			expected, err := os.ReadFile(testutil.RepoFile(t, "cmd", "waza", "testdata", "compatibility-run-1.7.json"))
 			require.NoError(t, err)
-			require.Equal(t, "1.6", outcome.SchemaVersion)
+			require.Equal(t, "1.7", outcome.SchemaVersion)
 			normalized, err := json.Marshal(normalizeCompatibilityRunWire(t, wireBytes))
 			require.NoError(t, err)
 			require.JSONEq(t, string(expected), string(normalized), "independent baseline wire oracle must match on every iteration")
@@ -295,21 +295,21 @@ func TestCompatibilityRunOracleRejectsDeterministicDrift(t *testing.T) {
 func TestCompatibilityResultWriterOracleDiffersOnlyByVersion(t *testing.T) {
 	legacyBytes, err := os.ReadFile(testutil.RepoFile(t, "cmd", "waza", "testdata", "compatibility-run-1.4.json"))
 	require.NoError(t, err)
-	currentBytes, err := os.ReadFile(testutil.RepoFile(t, "cmd", "waza", "testdata", "compatibility-run-1.6.json"))
+	currentBytes, err := os.ReadFile(testutil.RepoFile(t, "cmd", "waza", "testdata", "compatibility-run-1.7.json"))
 	require.NoError(t, err)
 	var legacy, current map[string]any
 	require.NoError(t, json.Unmarshal(legacyBytes, &legacy))
 	require.NoError(t, json.Unmarshal(currentBytes, &current))
 	require.Equal(t, "1.4", legacy["schemaVersion"])
-	require.Equal(t, "1.6", current["schemaVersion"])
+	require.Equal(t, "1.7", current["schemaVersion"])
 	require.Equal(t, models.CurrentResultSchemaVersion, current["schemaVersion"])
-	legacy["schemaVersion"] = "1.6"
+	legacy["schemaVersion"] = "1.7"
 	require.Equal(t, legacy, current, "only the explicitly changed writer version may differ from the frozen legacy oracle")
 	priorBytes, err := os.ReadFile(testutil.RepoFile(t, "cmd", "waza", "testdata", "compatibility-run-1.5.json"))
 	require.NoError(t, err)
 	var prior map[string]any
 	require.NoError(t, json.Unmarshal(priorBytes, &prior))
 	require.Equal(t, "1.5", prior["schemaVersion"])
-	prior["schemaVersion"] = "1.6"
+	prior["schemaVersion"] = "1.7"
 	require.Equal(t, prior, current, "the frozen prior-writer oracle must remain unchanged apart from version negotiation")
 }

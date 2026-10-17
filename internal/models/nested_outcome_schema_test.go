@@ -47,7 +47,7 @@ func TestParseEvaluationOutcome_WeightedScorePresenceRoundTrip(t *testing.T) {
 	require.True(t, writer.TestOutcomes[0].Stats.HasAvgWeightedScore())
 	data, err := json.Marshal(writer)
 	require.NoError(t, err)
-	require.Contains(t, string(data), `"schemaVersion":"1.6"`)
+	require.Contains(t, string(data), `"schemaVersion":"1.7"`)
 	require.Contains(t, string(data), `"weighted_score":0`)
 	require.Contains(t, string(data), `"avg_weighted_score":0`)
 }
@@ -130,9 +130,9 @@ func TestEvaluationOutcomeMarshal_FreshNestedWriterDefaultsRemainCurrent(t *test
 	require.NoError(t, err)
 	var restored EvaluationOutcome
 	require.NoError(t, json.Unmarshal(data, &restored))
-	require.Equal(t, "1.6", restored.SchemaVersion)
+	require.Equal(t, "1.7", restored.SchemaVersion)
 	require.NotNil(t, restored.BaselineOutcome)
-	require.Equal(t, "1.6", restored.BaselineOutcome.SchemaVersion)
+	require.Equal(t, "1.7", restored.BaselineOutcome.SchemaVersion)
 	require.NotNil(t, restored.BaselineOutcome.BaselineOutcome)
 	require.Equal(t, "1.0", restored.BaselineOutcome.BaselineOutcome.SchemaVersion)
 }
