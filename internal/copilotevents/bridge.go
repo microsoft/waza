@@ -85,7 +85,7 @@ func kindFromSDK(t copilot.SessionEventType) agentevent.Kind {
 		return agentevent.KindToolExecutionStart
 	case copilot.SessionEventTypeToolExecutionComplete:
 		return agentevent.KindToolExecutionComplete
-	case copilot.SessionEventTypeToolExecutionPartialResult:
+	case copilot.SessionEventTypeToolShellOutput, legacyToolExecutionPartialResultType:
 		return agentevent.KindToolExecutionPartialResult
 	case copilot.SessionEventTypeToolExecutionProgress:
 		return agentevent.KindToolExecutionProgress

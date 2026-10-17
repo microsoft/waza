@@ -91,8 +91,15 @@ func TestTypedAccessors(t *testing.T) {
 	if _, ok := ToolComplete(evt(&copilot.ToolExecutionCompleteData{})); !ok {
 		t.Fatal("ToolComplete")
 	}
-	if _, ok := ToolPartial(evt(&copilot.ToolExecutionPartialResultData{})); !ok {
-		t.Fatal("ToolPartial")
+	if _, ok := ToolShellOutput(evt(&copilot.ToolShellOutputData{})); !ok {
+		t.Fatal("ToolShellOutput")
+	}
+	text, toolCallID, ok := ToolOutput(evt(&copilot.ToolShellOutputData{
+		Text:       "output",
+		ToolCallID: "call-123",
+	}))
+	if !ok || text != "output" || toolCallID != "call-123" {
+		t.Fatalf("ToolOutput = (%q, %q, %v)", text, toolCallID, ok)
 	}
 	if _, ok := ToolProgress(evt(&copilot.ToolExecutionProgressData{})); !ok {
 		t.Fatal("ToolProgress")
@@ -123,9 +130,15 @@ func TestToolCallID(t *testing.T) {
 	}{
 		{"start", evt(&copilot.ToolExecutionStartData{ToolCallID: "a"}), "a", true},
 		{"complete", evt(&copilot.ToolExecutionCompleteData{ToolCallID: "b"}), "b", true},
-		{"partial", evt(&copilot.ToolExecutionPartialResultData{ToolCallID: "c"}), "c", true},
+		{"shell output", evt(&copilot.ToolShellOutputData{ToolCallID: "c"}), "c", true},
 		{"progress", evt(&copilot.ToolExecutionProgressData{ToolCallID: "d"}), "d", true},
 		{"requested", evt(&copilot.ToolUserRequestedData{ToolCallID: "e"}), "e", true},
+		{
+			"legacy partial",
+			evt(RawData(legacyToolExecutionPartialResultType, map[string]any{"toolCallId": "f"})),
+			"f",
+			true,
+		},
 		{"empty", evt(&copilot.ToolExecutionStartData{}), "", false},
 		{"other", evt(&copilot.UserMessageData{}), "", false},
 	}
@@ -136,6 +149,18 @@ func TestToolCallID(t *testing.T) {
 				t.Fatalf("ToolCallID = (%q, %v), want (%q, %v)", got, ok, c.want, c.ok)
 			}
 		})
+	}
+}
+
+func TestToolOutputLegacyPartialResult(t *testing.T) {
+	event := evt(RawData(legacyToolExecutionPartialResultType, map[string]any{
+		"partialOutput": "legacy output",
+		"toolCallId":    "call-123",
+	}))
+
+	text, toolCallID, ok := ToolOutput(event)
+	if !ok || text != "legacy output" || toolCallID != "call-123" {
+		t.Fatalf("ToolOutput = (%q, %q, %v)", text, toolCallID, ok)
 	}
 }
 

@@ -6,6 +6,8 @@ import (
 	copilot "github.com/github/copilot-sdk/go"
 )
 
+const legacyToolExecutionPartialResultType copilot.SessionEventType = "tool.execution_partial_result"
+
 func Content(event copilot.SessionEvent) (string, bool) {
 	switch data := event.Data.(type) {
 	case *copilot.UserMessageData:
@@ -68,9 +70,41 @@ func ToolComplete(event copilot.SessionEvent) (*copilot.ToolExecutionCompleteDat
 	return data, ok
 }
 
-func ToolPartial(event copilot.SessionEvent) (*copilot.ToolExecutionPartialResultData, bool) {
-	data, ok := event.Data.(*copilot.ToolExecutionPartialResultData)
+func ToolShellOutput(event copilot.SessionEvent) (*copilot.ToolShellOutputData, bool) {
+	data, ok := event.Data.(*copilot.ToolShellOutputData)
 	return data, ok
+}
+
+// ToolOutput reads current streaming shell output and legacy partial-result
+// payloads emitted by the embedded CLI before shell output streaming was added.
+func ToolOutput(event copilot.SessionEvent) (text, toolCallID string, ok bool) {
+	if output, ok := ToolShellOutput(event); ok {
+		return output.Text, output.ToolCallID, true
+	}
+	if event.Type() != legacyToolExecutionPartialResultType {
+		return "", "", false
+	}
+
+	var raw []byte
+	switch data := event.Data.(type) {
+	case *copilot.RawSessionEventData:
+		raw = data.Raw
+	default:
+		var err error
+		raw, err = json.Marshal(data)
+		if err != nil {
+			return "", "", false
+		}
+	}
+
+	var legacy struct {
+		PartialOutput string `json:"partialOutput"`
+		ToolCallID    string `json:"toolCallId"`
+	}
+	if err := json.Unmarshal(raw, &legacy); err != nil {
+		return "", "", false
+	}
+	return legacy.PartialOutput, legacy.ToolCallID, true
 }
 
 func ToolProgress(event copilot.SessionEvent) (*copilot.ToolExecutionProgressData, bool) {
@@ -79,12 +113,14 @@ func ToolProgress(event copilot.SessionEvent) (*copilot.ToolExecutionProgressDat
 }
 
 func ToolCallID(event copilot.SessionEvent) (string, bool) {
+	if _, toolCallID, ok := ToolOutput(event); ok {
+		return toolCallID, toolCallID != ""
+	}
+
 	switch data := event.Data.(type) {
 	case *copilot.ToolExecutionStartData:
 		return data.ToolCallID, data.ToolCallID != ""
 	case *copilot.ToolExecutionCompleteData:
-		return data.ToolCallID, data.ToolCallID != ""
-	case *copilot.ToolExecutionPartialResultData:
 		return data.ToolCallID, data.ToolCallID != ""
 	case *copilot.ToolExecutionProgressData:
 		return data.ToolCallID, data.ToolCallID != ""
