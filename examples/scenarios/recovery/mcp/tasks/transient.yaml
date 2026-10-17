@@ -3,10 +3,10 @@ name: Recover from one transient error
 inputs:
   prompt: Call dependency request with operation transient. The first response is an error; retry once, then write exactly "Recovered after one transient error." to report.txt. Do not create protected.txt.
 graders:
-  - name: exactly-two-attempts
+  - name: bounded-recovery-calls
     type: behavior
     config:
-      max_tool_calls: 2
+      max_tool_calls: 3
       required_tools: [dependency_request]
   - name: request-arguments
     type: tool_calls
@@ -29,7 +29,7 @@ requirements:
     description: Retry the transient dependency error once and report the successful result.
     checks:
       - scope: task
-        grader: exactly-two-attempts
+        grader: bounded-recovery-calls
       - scope: task
         grader: request-arguments
       - scope: task

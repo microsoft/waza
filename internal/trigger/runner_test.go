@@ -471,6 +471,26 @@ func TestEvalRunnerPassesMCPServers(t *testing.T) {
 	require.Equal(t, []string{"*"}, stdio.Tools)
 }
 
+func TestNewRunnerPassesScenarioVersionForFiniteMCPMocks(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Setenv("TMPDIR", tempDir)
+	spec := &models.EvalSpec{
+		SchemaVersion: models.ScenarioSchemaVersion,
+		Scenario:      "recovery",
+		MCPMocks: []models.MCPMockConfig{{
+			Name: "dependency",
+			Tools: map[string]models.MCPMockTool{
+				"request": {Responses: []models.MCPMockResponse{{Sequence: []models.MCPMockStep{{Error: "temporary"}, {Return: "ready"}}}}},
+			},
+		}},
+	}
+	cfg := config.NewEvalConfig(spec, config.WithSpecDir(tempDir))
+
+	runner := NewRunner(&TestSpec{}, &capturingEngine{}, cfg, nil)
+
+	require.Contains(t, runner.mcpConfig, "dependency")
+}
+
 func TestLoadFixtureDir_EmptyDir(t *testing.T) {
 	require.Nil(t, loadFixtureDir(""))
 	require.Nil(t, loadFixtureDir("/nonexistent/path"))
@@ -482,7 +502,7 @@ func TestConvertMCPServers_SkipsNonMapEntries(t *testing.T) {
 		"good":  map[string]any{"type": "stdio"},
 		"bad":   "not-a-map",
 		"good2": map[string]any{"type": "sse"},
-	}, nil, "")
+	}, nil, "", "")
 	require.Len(t, result, 2)
 	require.Contains(t, result, "good")
 	require.Contains(t, result, "good2")

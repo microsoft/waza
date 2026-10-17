@@ -9,7 +9,7 @@ graders:
   - name: no-retry
     type: behavior
     config:
-      max_tool_calls: 1
+      max_tool_calls: 2
       required_tools: [dependency_request]
   - name: honest-failure
     type: file

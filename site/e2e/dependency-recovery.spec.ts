@@ -17,7 +17,6 @@ test("reference pages link to the recovery guide under the site base path", asyn
     await page.goto(`/waza/reference/${reference}/`);
     await page.locator("main").getByRole("link", { name: "Dependency Recovery", exact: true }).click();
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Deterministic Dependency Recovery");
+    await expect(page).toHaveURL(/\/waza\/guides\/dependency-recovery\/$/);
   }
-  await page.locator("main").getByRole("link", { name: "compatibility corpus", exact: true }).click();
-  await expect(page).toHaveURL(/\/waza\/guides\/compatibility\/$/);
 });

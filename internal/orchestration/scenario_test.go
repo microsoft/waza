@@ -94,7 +94,7 @@ command_mocks: []
 		Tasks:         []string{"tasks/*.yaml"},
 		CommandMocks:  []models.CommandMockConfig{{Name: "az", Responses: []models.CommandMockResponse{{Args: []string{"account"}, Stdout: "ok"}}}},
 		MCPMocks: []models.MCPMockConfig{
-			{Name: "replaced", Tools: map[string]models.MCPMockTool{"ping": {Responses: []models.MCPMockResponse{{Return: "ok"}}}}},
+			{Name: " replaced ", Tools: map[string]models.MCPMockTool{"ping": {Responses: []models.MCPMockResponse{{Return: "ok"}}}}},
 			{Name: "mock-only", Tools: map[string]models.MCPMockTool{"ping": {Responses: []models.MCPMockResponse{{Return: "ok"}}}}},
 		},
 		Config: models.Config{

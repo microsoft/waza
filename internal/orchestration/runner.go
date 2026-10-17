@@ -1584,7 +1584,7 @@ func configuredDependencyModes(req *execution.ExecutionRequest, mcpMocks []model
 	}
 	mockNames := make(map[string]bool, len(mcpMocks))
 	for _, mock := range mcpMocks {
-		mockNames[mock.Name] = true
+		mockNames[strings.TrimSpace(mock.Name)] = true
 	}
 	modes := make([]models.DependencyMode, 0, len(req.MCPServers)+len(req.CommandMocks))
 	for name := range req.MCPServers {
