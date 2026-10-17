@@ -474,9 +474,9 @@ func mapTranscriptEvents(events []models.TranscriptEvent) []TranscriptEventRespo
 			r.Success = &complete.Success
 			r.ToolResult = complete.Result
 		}
-		if partial, ok := copilotevents.ToolPartial(e.SessionEvent); ok {
-			r.ToolCallID = partial.ToolCallID
-			r.Message = partial.PartialOutput
+		if output, toolCallID, ok := copilotevents.ToolOutput(e.SessionEvent); ok {
+			r.ToolCallID = toolCallID
+			r.Message = output
 		}
 		resp = append(resp, r)
 	}

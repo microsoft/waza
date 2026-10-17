@@ -124,7 +124,12 @@ func (coll *SessionEventsCollector) On(event copilot.SessionEvent) {
 			return
 		}
 
-	case copilot.SessionEventTypeToolExecutionComplete, copilot.SessionEventTypeToolExecutionPartialResult:
+	case copilot.SessionEventTypeToolShellOutput:
+		if toolCallID, ok := copilotevents.ToolCallID(event); ok && coll.intentToolIDs[toolCallID] {
+			return
+		}
+
+	case copilot.SessionEventTypeToolExecutionComplete, "tool.execution_partial_result":
 		if toolCallID, ok := copilotevents.ToolCallID(event); ok && coll.intentToolIDs[toolCallID] {
 			delete(coll.intentToolIDs, toolCallID)
 			return
