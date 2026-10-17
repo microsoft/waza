@@ -39,7 +39,8 @@ Scenario evals require a nonempty `scenario` and exact `schemaVersion: "2.0"`.
 The finite `sequence` field belongs to a matching MCP or CLI response; every
 call consumes one step, in order, and an exhausted sequence fails closed.
 Sequences contain at most 100 steps; each optional `delay_ms` is limited to
-300,000. Sequence state is scoped to the task's mock session/server instance.
+300,000 and excessive values are rejected during source admission, before execution.
+Sequence state is scoped to the task's mock session/server instance.
 There is no automatic retry policy: the agent decides whether to call again,
 and the task graders decide whether its final behavior is acceptable.
 
@@ -69,6 +70,7 @@ and the task graders decide whether its final behavior is acceptable.
 * Unmatched MCP calls and exhausted sequences return tool errors and never
   fall through to a live MCP service. A CLI mock intercepts only its declared
   executable name; undeclared executables may resolve through the host `PATH`.
+  Catchable shim cancellation also stops its pass-through host command.
   Task `command_mocks: []` disables inherited command mocks.
 * A mock overrides a same-named configured live MCP server. Other configured
   MCP servers remain live. Mocks do not restrict filesystem, process, remote or

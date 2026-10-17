@@ -80,6 +80,30 @@ func TestNativeNilCompatibility(t *testing.T) {
 	}
 }
 
+func TestNativeFallbackCancellation(t *testing.T) {
+	root := commandMockTestRoot(t)
+	workspace := t.TempDir()
+	session, err := NewNativeSession(t.Context(), workspace, []models.CommandMockConfig{{
+		Name: "az", ExpectCalls: intPointer(0),
+		Responses: []models.CommandMockResponse{{Args: []string{}, Stdout: "unused"}},
+	}}, workspace, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		records, err := session.Close()
+		if err != nil || len(records) != 0 {
+			t.Fatalf("canceled native fallback recorded an invocation: %+v, %v", records, err)
+		}
+	}()
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	code, err := RunNativeCommand(ctx, root, session.ID(), "az", nil, workspace, NativeDispatchOptions{})
+	if code != 127 || !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled native fallback: %d, %v", code, err)
+	}
+}
+
 func TestNativePreparationOrderingAndCleanup(t *testing.T) {
 	commandMockTestRoot(t)
 	for _, failure := range []string{"prepare", "nil-config-materialize", "invalid-json", "cancel"} {

@@ -36,14 +36,23 @@ const (
 // ValidateCommandFaultResponse checks a CLI matcher and any finite source sequence.
 // Sequence eligibility requires the explicit enclosing scenario version.
 func ValidateCommandFaultResponse(data []byte, format FaultSourceFormat, enclosingVersion string) error {
-	return validateResponse(data, format, enclosingVersion, commandFields, commandOutputs, validateCommand)
+	return validateResponse(data, format, enclosingVersion, commandFields, commandOutputs, MaxMockFaultDelayMS, validateCommand)
 }
 
 // ValidateMCPFaultResponse checks an MCP matcher and any finite source sequence.
 // Callers must run this before serialization can erase zero/null field presence.
 func ValidateMCPFaultResponse(data []byte, format FaultSourceFormat, enclosingVersion string) error {
+	return ValidateMCPFaultResponseWithDelayLimit(data, format, enclosingVersion, MaxMockFaultDelayMS)
+}
+
+// ValidateMCPFaultResponseWithDelayLimit preserves the wider duration bound used
+// by private adapters without changing the public mock admission limit.
+func ValidateMCPFaultResponseWithDelayLimit(data []byte, format FaultSourceFormat, enclosingVersion string, maxDelayMS int64) error {
+	if err := faultsequence.ValidateDelayMilliseconds(maxDelayMS); err != nil {
+		return fmt.Errorf("invalid MCP fault delay limit: %w", err)
+	}
 	loader := schemaloader.Offline{}
-	return validateResponse(data, format, enclosingVersion, mcpFields, mcpOutputs, func(source FaultSourceObject, step bool) error {
+	return validateResponse(data, format, enclosingVersion, mcpFields, mcpOutputs, maxDelayMS, func(source FaultSourceObject, step bool) error {
 		return validateMCP(source, step, loader)
 	})
 }
@@ -51,7 +60,7 @@ func ValidateMCPFaultResponse(data []byte, format FaultSourceFormat, enclosingVe
 // FaultSourceObject preserves raw response field presence before typed decoding.
 type FaultSourceObject map[string]json.RawMessage
 
-func validateResponse(data []byte, format FaultSourceFormat, version string, fields, outputs []string, validate func(FaultSourceObject, bool) error) error {
+func validateResponse(data []byte, format FaultSourceFormat, version string, fields, outputs []string, maxDelayMS int64, validate func(FaultSourceObject, bool) error) error {
 	source, duplicates, err := DecodeFaultSource(data, format)
 	if err != nil {
 		return err
@@ -127,6 +136,9 @@ func validateResponse(data []byte, format FaultSourceFormat, version string, fie
 			}
 			if err := faultsequence.ValidateDelayMilliseconds(*delay); err != nil {
 				return fmt.Errorf("fault sequence[%d]: %w", index, err)
+			}
+			if *delay > maxDelayMS {
+				return fmt.Errorf("fault sequence[%d].delay_ms must be between 0 and %d", index, maxDelayMS)
 			}
 		}
 		if !hasOutput {

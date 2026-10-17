@@ -98,6 +98,7 @@ func TestRecoveryCLIExampleGradesArgumentsAndExitSequence(t *testing.T) {
 	call := func(code *int, args ...string) models.CommandInvocation {
 		return models.CommandInvocation{Command: "az", Args: args, ExitCode: code, ResponseIndex: 0}
 	}
+
 	args := []string{"account", "show", "--output", "json"}
 	for _, test := range []struct {
 		name   string
@@ -116,6 +117,49 @@ func TestRecoveryCLIExampleGradesArgumentsAndExitSequence(t *testing.T) {
 			require.NoError(t, err)
 			require.NotEmpty(t, graded.Validations)
 			require.Equal(t, test.passed, graded.Status == models.StatusPassed, "%+v", graded.Validations)
+		})
+	}
+}
+
+func TestRecoveryMCPDelayAdmissionThroughRun(t *testing.T) {
+	for _, delay := range []int{0, 300000, 300001} {
+		t.Run(fmt.Sprint(delay), func(t *testing.T) {
+			resetRunGlobals()
+			dir := t.TempDir()
+			eval := fmt.Sprintf(`schemaVersion: "2.0"
+scenario: recovery
+name: Delay admission
+config: {executor: mock, model: mock, trials_per_task: 1, timeout_seconds: 10}
+metrics: []
+tasks: [task.yaml]
+mcp_mocks:
+  - name: dependency
+    tools:
+      request:
+        responses:
+          - sequence: [{return: ready, delay_ms: %d}]
+`, delay)
+			path := filepath.Join(dir, "eval.yaml")
+			output := filepath.Join(dir, "results.json")
+			require.NoError(t, os.WriteFile(path, []byte(eval), 0600))
+			require.NoError(t, os.WriteFile(filepath.Join(dir, "task.yaml"), []byte("id: probe\nname: Probe\ninputs: {prompt: inspect}\n"), 0600))
+			cmd := newRunCommand()
+			cmd.SetArgs([]string{path, "--context-dir", dir, "--output", output})
+			cmd.SetOut(io.Discard)
+			cmd.SetErr(io.Discard)
+			err := cmd.Execute()
+			if delay > 300000 {
+				require.ErrorContains(t, err, "delay_ms must be between 0 and 300000")
+				require.NoFileExists(t, output)
+			} else {
+				require.NoError(t, err)
+				data, err := os.ReadFile(output)
+				require.NoError(t, err)
+				var outcome models.EvaluationOutcome
+				require.NoError(t, json.Unmarshal(data, &outcome))
+				require.Len(t, outcome.TestOutcomes, 1)
+				require.NotEmpty(t, outcome.TestOutcomes[0].Runs)
+			}
 		})
 	}
 }

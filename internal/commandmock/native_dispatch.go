@@ -77,11 +77,11 @@ func RunNativeCommand(ctx context.Context, root, sessionID, name string, args []
 		return 1, err
 	}
 	if mock == nil || mock.NativeConfig == nil {
-		result, err := Invoke(root, sessionID, name, args, cwd)
+		result, err := InvokeContext(ctx, root, sessionID, name, args, cwd)
 		if err != nil {
 			return 127, err
 		}
-		return runInvocationResult(root, name, args, result), nil
+		return runInvocationResult(ctx, root, name, args, result), nil
 	}
 	stateDir := filepath.Dir(config.LogDir)
 	file, err := os.CreateTemp(filepath.Join(stateDir, "attempts"), "attempt-*.json")

@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -18,13 +19,19 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestRecoveryCommandMockProcessInterruption(t *testing.T) {
+func buildRecoveryCLI(t *testing.T) string {
+	t.Helper()
 	binary := filepath.Join(t.TempDir(), "waza")
 	if runtime.GOOS == "windows" {
 		binary += ".exe"
 	}
 	log, err := exec.CommandContext(t.Context(), "go", "build", "-o", binary, ".").CombinedOutput()
 	require.NoError(t, err, "%s", log)
+	return binary
+}
+
+func TestRecoveryCommandMockProcessInterruption(t *testing.T) {
+	binary := buildRecoveryCLI(t)
 	for _, abrupt := range []bool{false, true} {
 		name := "SIGTERM"
 		if abrupt {
@@ -60,6 +67,7 @@ func TestRecoveryCommandMockProcessInterruption(t *testing.T) {
 					root = value
 				}
 			}
+
 			require.NotEmpty(t, root)
 			ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
 			defer cancel()
@@ -115,4 +123,86 @@ func TestRecoveryCommandMockProcessInterruption(t *testing.T) {
 			require.Equal(t, new(0), records[1].ExitCode)
 		})
 	}
+}
+
+func TestRecoveryCommandMockPassThroughInterruption(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows does not support sending SIGTERM to an independent process")
+	}
+	binary := buildRecoveryCLI(t)
+	executable, err := os.Executable()
+	require.NoError(t, err)
+	workspace := t.TempDir()
+	session, err := commandmock.NewSession(workspace, []models.CommandMockConfig{{
+		Name: "az", Responses: []models.CommandMockResponse{{Args: []string{}, Stdout: "unused"}},
+	}}, workspace)
+	require.NoError(t, err)
+	defer func() {
+		_, err := session.Close()
+		require.NoError(t, err)
+	}()
+	env, err := commandmock.RuntimeEnvironment()
+	require.NoError(t, err)
+	root := ""
+	for _, item := range env {
+		if value, ok := strings.CutPrefix(item, "WAZA_COMMAND_MOCK_ROOT="); ok {
+			root = value
+		}
+	}
+	require.NotEmpty(t, root)
+	ready := filepath.Join(workspace, "host-started")
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	child := exec.CommandContext(ctx, binary, "__command-mock", "--root", root, "--name", filepath.Base(executable), "--", "-test.run=^TestRecoveryPassThroughHostProcess$")
+	child.Dir = workspace
+	child.Env = append(env, commandmock.SessionEnvironmentVariable+"="+session.ID(),
+		"PATH="+filepath.Dir(executable), "WAZA_TEST_RECOVERY_HOST="+ready, "WAZA_NO_UPDATE_CHECK=1")
+	child.WaitDelay = time.Second
+	var output bytes.Buffer
+	child.Stdout, child.Stderr = &output, &output
+	require.NoError(t, child.Start())
+	waited := false
+	t.Cleanup(func() {
+		if !waited {
+			cancel()
+			require.Error(t, child.Wait())
+		}
+	})
+	var pid int
+	require.Eventually(t, func() bool {
+		data, err := os.ReadFile(ready)
+		if err != nil {
+			return false
+		}
+		pid, err = strconv.Atoi(string(data))
+		return err == nil && pid > 0
+	}, 5*time.Second, 10*time.Millisecond, "pass-through host command never started")
+	host, err := os.FindProcess(pid)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		if host.Signal(syscall.Signal(0)) == nil {
+			require.NoError(t, host.Kill())
+		}
+		require.NoError(t, host.Release())
+	})
+	require.NoError(t, host.Signal(syscall.Signal(0)), "the real host command must be running before termination")
+	require.NoError(t, child.Process.Signal(syscall.SIGTERM))
+	err = child.Wait()
+	waited = true
+	require.NoError(t, ctx.Err(), "shim did not finish before the test safety deadline")
+	var exit *exec.ExitError
+	require.ErrorAs(t, err, &exit, "%s", output.String())
+	require.Equal(t, 130, exit.ExitCode(), "%s", output.String())
+	require.Error(t, host.Signal(syscall.Signal(0)), "pass-through host process survived cancellation")
+	require.Empty(t, session.Invocations(), "a host command must not fabricate a mock invocation")
+}
+
+func TestRecoveryPassThroughHostProcess(t *testing.T) {
+	ready := os.Getenv("WAZA_TEST_RECOVERY_HOST")
+	if ready == "" {
+		return
+	}
+	require.NoError(t, os.WriteFile(ready, []byte(strconv.Itoa(os.Getpid())), 0600))
+	time.Sleep(time.Hour)
+	os.Exit(0)
 }

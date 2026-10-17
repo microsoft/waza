@@ -1,8 +1,10 @@
 package models_test
 
 import (
+	"fmt"
 	"testing"
 
+	"github.com/microsoft/waza/internal/faultsequence"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/stretchr/testify/require"
 )
@@ -37,6 +39,28 @@ func TestFaultSourceModelBoundary(t *testing.T) {
 			json:    `{"sequence":[{"error":"temporary"},{"return":null,"delay_ms":0}]}`,
 			yaml:    "sequence:\n  - {error: temporary}\n  - {return: null, delay_ms: 0}\n",
 			version: models.ScenarioSchemaVersion,
+		},
+		{
+			name: "finite MCP maximum delay", validate: models.ValidateMCPFaultResponse,
+			json: `{"sequence":[{"return":null,"delay_ms":300000}]}`,
+			yaml: "sequence: [{return: null, delay_ms: 300000}]\n", version: models.ScenarioSchemaVersion,
+		},
+		{
+			name: "finite MCP excessive delay", validate: models.ValidateMCPFaultResponse,
+			json: `{"sequence":[{"return":null,"delay_ms":300001}]}`,
+			yaml: "sequence: [{return: null, delay_ms: 300001}]\n", version: models.ScenarioSchemaVersion,
+			want: "delay_ms must be between 0 and 300000",
+		},
+		{
+			name: "finite command maximum delay", validate: models.ValidateCommandFaultResponse,
+			json: `{"args":[],"sequence":[{"exit_code":0,"delay_ms":300000}]}`,
+			yaml: "args: []\nsequence: [{exit_code: 0, delay_ms: 300000}]\n", version: models.ScenarioSchemaVersion,
+		},
+		{
+			name: "finite command excessive delay", validate: models.ValidateCommandFaultResponse,
+			json: `{"args":[],"sequence":[{"exit_code":0,"delay_ms":300001}]}`,
+			yaml: "args: []\nsequence: [{exit_code: 0, delay_ms: 300001}]\n", version: models.ScenarioSchemaVersion,
+			want: "delay_ms must be between 0 and 300000",
 		},
 		{
 			name: "legacy command invalid matcher", validate: models.ValidateCommandFaultResponse,
@@ -78,6 +102,31 @@ func TestFaultSourceModelBoundary(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestMCPFaultSourceExplicitDelayLimit(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		limit int64
+		delay int64
+		valid bool
+	}{
+		{"zero", 0, 0, true},
+		{"exceeds zero", 0, 1, false},
+		{"private duration maximum", faultsequence.MaxDelayMilliseconds, faultsequence.MaxDelayMilliseconds, true},
+		{"negative limit", -1, 0, false},
+		{"overflowing limit", faultsequence.MaxDelayMilliseconds + 1, 0, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			data := []byte(fmt.Sprintf(`{"sequence":[{"return":null,"delay_ms":%d}]}`, test.delay))
+			err := models.ValidateMCPFaultResponseWithDelayLimit(data, models.FaultSourceJSON, models.ScenarioSchemaVersion, test.limit)
+			if test.valid {
+				require.NoError(t, err)
+			} else {
+				require.Error(t, err)
+			}
+		})
 	}
 }
 

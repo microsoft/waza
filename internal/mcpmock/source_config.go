@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/microsoft/waza/internal/faultsequence"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/schemaloader"
 )
@@ -79,7 +80,7 @@ func FromEvalConfigWithSources(mock models.MCPMockConfig, baseDir string, inline
 			return nil, fmt.Errorf("mcp mock %q tool %q must define at least one response", name, toolName)
 		}
 		for i, source := range sources {
-			if err := models.ValidateMCPFaultResponse(source.Data, source.Format, enclosingVersion); err != nil {
+			if err := models.ValidateMCPFaultResponseWithDelayLimit(source.Data, source.Format, enclosingVersion, faultsequence.MaxDelayMilliseconds); err != nil {
 				return nil, fmt.Errorf("mcp mock %q tool %q response %d: %w", name, toolName, i, err)
 			}
 		}

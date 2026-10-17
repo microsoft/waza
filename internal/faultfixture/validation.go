@@ -2,7 +2,10 @@
 // It does not enable public sequence execution or provide runtime evidence.
 package faultfixture
 
-import "github.com/microsoft/waza/internal/models"
+import (
+	"github.com/microsoft/waza/internal/faultsequence"
+	"github.com/microsoft/waza/internal/models"
+)
 
 type Format = models.FaultSourceFormat
 
@@ -20,7 +23,7 @@ func ValidateCommandResponse(data []byte, format Format, enclosingVersion string
 // ValidateMCPResponse checks an MCP matcher and any finite source sequence.
 // Callers must run this before serialization can erase zero/null field presence.
 func ValidateMCPResponse(data []byte, format Format, enclosingVersion string) error {
-	return models.ValidateMCPFaultResponse(data, format, enclosingVersion)
+	return models.ValidateMCPFaultResponseWithDelayLimit(data, format, enclosingVersion, faultsequence.MaxDelayMilliseconds)
 }
 
 type object = models.FaultSourceObject

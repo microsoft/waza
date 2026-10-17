@@ -1,11 +1,13 @@
 package commandmock
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestSanitizeArgsRedactsSensitiveFlagAndValue(t *testing.T) {
@@ -156,9 +158,35 @@ func TestRunHostCommandFiltersEnvironment(t *testing.T) {
 			if exitCode == "7" {
 				want = 7
 			}
-			got := runHostCommand(root, filepath.Base(executable), []string{"-test.run=^TestRunHostCommandHelperProcess$", "--", exitCode})
+			got := runHostCommand(t.Context(), root, filepath.Base(executable), []string{"-test.run=^TestRunHostCommandHelperProcess$", "--", exitCode})
 			if got != want {
 				t.Fatalf("runHostCommand() = %d, want %d", got, want)
+			}
+		})
+	}
+}
+
+func TestRunHostCommandContextCancellation(t *testing.T) {
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", filepath.Dir(executable))
+	canceled, cancel := context.WithCancel(t.Context())
+	cancel()
+	expired, stop := context.WithDeadline(t.Context(), time.Now().Add(-time.Second))
+	defer stop()
+	for _, test := range []struct {
+		name string
+		ctx  context.Context
+		code int
+	}{
+		{"canceled", canceled, 130},
+		{"deadline", expired, 124},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := runHostCommand(test.ctx, t.TempDir(), filepath.Base(executable), []string{"-test.run=^TestRunHostCommandHelperProcess$"}); got != test.code {
+				t.Fatalf("runHostCommand() = %d, want %d", got, test.code)
 			}
 		})
 	}
