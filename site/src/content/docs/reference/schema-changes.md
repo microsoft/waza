@@ -83,6 +83,18 @@ unchanged; it does not downgrade scenario discovery semantics to `1.x`.
 
 ## Changelog
 
+### Recovery evidence in results 1.7 (#662)
+
+- Finite MCP/CLI sequences require exact eval `schemaVersion: "2.0"`, including
+  task overrides and selected external MCP fixtures. Offline validation and
+  execution apply the enclosing eval version; task YAML has no version selector.
+- A started, interrupted CLI sequence attempt may omit `exit_code` when no
+  completed result was captured. An explicit numeric zero still means a
+  completed successful mock result. Existing numeric exit codes remain readable.
+- Inline `code` graders receive `tool_events` and `command_invocations` during
+  execution and regrading. Recovery examples check actual dependency operations,
+  observed responses, and dependency-scoped retry counts as well as report files.
+
 ### Portable evidence manifest 1.0 / snapshot 1.1 (#663)
 
 - Added optional per-run `evidence` and scoped `requirement_explanations` to

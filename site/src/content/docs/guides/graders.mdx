@@ -265,8 +265,15 @@ Evaluates Python or JavaScript assertion expressions against the execution conte
 | `outcome`     | `dict` | Structured outcome state             |
 | `transcript`  | `list` | Full execution transcript events     |
 | `tool_calls`  | `list` | Tool calls extracted from transcript |
+| `tool_events` | `list` | Canonical per-call evidence including arbitrary tool arguments, success, error, and result |
+| `command_invocations` | `list` | Sanitized mocked CLI attempts; omitted `exit_code` means no completed result was captured |
 | `errors`      | `list` | Errors from transcript               |
 | `duration_ms` | `int`  | Execution wall-clock time            |
+
+The evidence arrays default to empty when unavailable; absence is not proof that
+a dependency succeeded. Use `tool_events` for MCP operation arguments rather than
+the legacy typed `tool_calls` view. `command_invocations` preserves completed
+exit zero distinctly from an interrupted attempt with no `exit_code`.
 
 **Built-in functions:** `len`, `any`, `all`, `str`, `int`, `float`, `bool`, `list`, `dict`, `re`
 

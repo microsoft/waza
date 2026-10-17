@@ -2,6 +2,7 @@ package trigger
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,6 +13,7 @@ import (
 	copilot "github.com/github/copilot-sdk/go"
 	"github.com/microsoft/waza/internal/config"
 	"github.com/microsoft/waza/internal/execution"
+	"github.com/microsoft/waza/internal/mcpmock"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/stretchr/testify/require"
 )
@@ -486,9 +488,24 @@ func TestNewRunnerPassesScenarioVersionForFiniteMCPMocks(t *testing.T) {
 	}
 	cfg := config.NewEvalConfig(spec, config.WithSpecDir(tempDir))
 
-	runner := NewRunner(&TestSpec{}, &capturingEngine{}, cfg, nil)
-
-	require.Contains(t, runner.mcpConfig, "dependency")
+	engine := &capturingEngine{}
+	runner := NewRunner(&TestSpec{ShouldTriggerPrompts: []TestPrompt{{Prompt: "Recover from a dependency failure."}}}, engine, cfg, nil)
+	_, err := runner.Run(t.Context())
+	require.NoError(t, err)
+	require.NotNil(t, engine.LastReq())
+	require.Contains(t, engine.LastReq().MCPServers, "dependency")
+	dependency, ok := engine.LastReq().MCPServers["dependency"].(copilot.MCPStdioServerConfig)
+	require.True(t, ok)
+	require.Len(t, dependency.Args, 3)
+	require.Equal(t, []string{"__mcp-mock", "--config-file"}, dependency.Args[:2])
+	data, err := os.ReadFile(dependency.Args[2])
+	require.NoError(t, err)
+	var captured mcpmock.Config
+	require.NoError(t, json.Unmarshal(data, &captured))
+	require.Len(t, captured.Tools["request"].Responses, 1)
+	require.Len(t, captured.Tools["request"].Responses[0].Sequence, 2)
+	require.Equal(t, "temporary", captured.Tools["request"].Responses[0].Sequence[0].Error)
+	require.Equal(t, "ready", captured.Tools["request"].Responses[0].Sequence[1].Return)
 }
 
 func TestLoadFixtureDir_EmptyDir(t *testing.T) {

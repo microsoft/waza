@@ -136,6 +136,7 @@ func (s *Server) call(ctx context.Context, toolName string, args map[string]any)
 				if stepIndex >= len(response.Sequence) {
 					return "", fmt.Errorf("mcp mock %q: response sequence exhausted for tool %q", s.cfg.Name, toolName)
 				}
+				s.logger.Debug("MCP mock sequence step reserved", "step", stepIndex)
 				step := response.Sequence[stepIndex]
 				if err := faultsequence.Delay(ctx, step.DelayMS); err != nil {
 					return "", fmt.Errorf("mcp mock %q tool %q sequence step %d: %w", s.cfg.Name, toolName, stepIndex, err)

@@ -47,6 +47,11 @@ function detail(run: RunSummary): RunDetail {
                   exit_code: 0,
                   response_index: 1,
                 },
+                {
+                  command: "az",
+                  args: ["account", "show"],
+                  response_index: 0,
+                },
               ],
             }
           : {}),
@@ -259,8 +264,11 @@ test.describe("Real dashboard lab", () => {
         const dialog = page.getByRole("dialog");
         await expect(dialog.getByText(`${generation} ${id} grader`, { exact: true })).toBeVisible();
         await dialog.getByRole("tab", { name: "Trajectory", exact: true }).click();
-        if (id === "run-001")
+        if (id === "run-001") {
           await expect(dialog.getByText("az attempt 1 · exit 1 · response index 0", { exact: true })).toBeVisible();
+          await expect(dialog.getByText("az attempt 2 · exit 0 · response index 1", { exact: true })).toBeVisible();
+          await expect(dialog.getByText("az attempt 3 · exit unavailable · response index 0", { exact: true })).toBeVisible();
+        }
         await dialog.getByRole("button", { name: "Events", exact: true }).click();
         await expect(dialog.getByText(`${generation} ${id} trajectory`, { exact: true })).toBeVisible();
         await dialog.getByRole("button", { name: "Show details", exact: true }).first().click();

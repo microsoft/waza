@@ -41,11 +41,12 @@ type ownedMCPJob struct {
 }
 
 type ownedMCPServing struct {
-	ctx       context.Context
-	server    *Server
-	transport *jsonrpc.Transport
-	prepare   ToolCallPrepare
-	capacity  int
+	ctx            context.Context
+	server         *Server
+	transport      *jsonrpc.Transport
+	prepare        ToolCallPrepare
+	capacity       int
+	cancelRequests bool
 
 	mu       sync.Mutex
 	active   map[string]*ownedMCPCall
@@ -83,6 +84,19 @@ type ownedMCPServing struct {
 // joins the reader and all workers. Closure-induced I/O errors do not replace the
 // initiating cause; endpoint Close errors are joined with it.
 func ServeOwnedStdioWithPrepare(ctx context.Context, cfg *Config, r io.ReadCloser, w io.WriteCloser, logger *slog.Logger, prepare ToolCallPrepare, maxInFlight int) error {
+	return serveOwnedStdio(ctx, cfg, r, w, logger, prepare, maxInFlight, false)
+}
+
+// ServeCancelableStdio owns distinct interruptible endpoints until it returns.
+// A reader handles native cancellation while one worker dispatches requests in
+// input order. Canceling a request does not terminate the server or undo a
+// started sequence step. Notifications never consume steps. Up to 64 pending
+// requests are admitted; overflow and duplicate active IDs fail closed.
+func ServeCancelableStdio(ctx context.Context, cfg *Config, r io.ReadCloser, w io.WriteCloser, logger *slog.Logger) error {
+	return serveOwnedStdio(ctx, cfg, r, w, logger, nil, 64, true)
+}
+
+func serveOwnedStdio(ctx context.Context, cfg *Config, r io.ReadCloser, w io.WriteCloser, logger *slog.Logger, prepare ToolCallPrepare, maxInFlight int, cancelRequests bool) error {
 	if err := validateOwnedMCPArguments(ctx, cfg, r, w, maxInFlight); err != nil {
 		return err
 	}
@@ -90,11 +104,16 @@ func ServeOwnedStdioWithPrepare(ctx context.Context, cfg *Config, r io.ReadClose
 	serving := &ownedMCPServing{
 		ctx: runCtx, server: NewServer(cfg, logger), transport: jsonrpc.NewTransport(r, w),
 		prepare: prepare, capacity: maxInFlight, active: make(map[string]*ownedMCPCall),
-		failures: make(chan error, 1), finished: make(chan struct{}, 1), readDone: make(chan struct{}),
+		cancelRequests: cancelRequests,
+		failures:       make(chan error, 1), finished: make(chan struct{}, 1), readDone: make(chan struct{}),
 		jobs: make(chan ownedMCPJob, maxInFlight),
 	}
-	serving.workers.Add(maxInFlight)
-	for range maxInFlight {
+	workerCount := maxInFlight
+	if cancelRequests {
+		workerCount = 1
+	}
+	serving.workers.Add(workerCount)
+	for range workerCount {
 		go serving.work()
 	}
 	go serving.read()
@@ -292,6 +311,9 @@ func (serving *ownedMCPServing) cancelNativeRequest(params json.RawMessage) bool
 	if call == nil {
 		return false
 	}
+	if serving.cancelRequests {
+		return false
+	}
 	serving.fail(fmt.Errorf("owned MCP native request canceled: %w", call.ctx.Err()))
 	return true
 }
@@ -315,6 +337,9 @@ func (serving *ownedMCPServing) respond(call *ownedMCPCall, req *jsonrpc.Request
 		}
 	}
 	if err != nil {
+		if serving.cancelRequests && call.ctx.Err() != nil && serving.ctx.Err() == nil && errors.Is(err, call.ctx.Err()) {
+			return
+		}
 		serving.fail(fmt.Errorf("owned MCP response worker: %w", err))
 	}
 }

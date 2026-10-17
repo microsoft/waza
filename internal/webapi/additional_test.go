@@ -235,7 +235,9 @@ func TestOutcomeToDetailMapsStatsTranscriptAndDigest(t *testing.T) {
 							{Kind: "mcp", Name: "inventory", Mode: "mocked"},
 						},
 						CommandInvocations: []models.CommandInvocation{
-							{Command: "az", Args: []string{"account", "show"}, ExitCode: 1, ResponseIndex: 0},
+							{Command: "az", Args: []string{"account", "show"}, ExitCode: new(1), ResponseIndex: 0},
+							{Command: "az", Args: []string{"account", "show"}, ExitCode: new(0), ResponseIndex: 1},
+							{Command: "az", Args: []string{"account", "show"}, ResponseIndex: 0},
 						},
 						Validations: map[string]models.GraderResults{
 							"code": {Name: "code", Type: models.GraderKindInlineScript, Passed: false, Score: 0.2, Weight: 1, Feedback: "failed"},
@@ -295,7 +297,8 @@ func TestOutcomeToDetailMapsStatsTranscriptAndDigest(t *testing.T) {
 	if len(taskWithData.DependencyModes) != 1 || taskWithData.DependencyModes[0].Mode != "mocked" {
 		t.Fatalf("expected configured dependency mode, got %+v", taskWithData.DependencyModes)
 	}
-	if len(taskWithData.CommandInvocations) != 1 || taskWithData.CommandInvocations[0].ExitCode != 1 {
+	if len(taskWithData.CommandInvocations) != 3 || taskWithData.CommandInvocations[0].ExitCode == nil || *taskWithData.CommandInvocations[0].ExitCode != 1 ||
+		taskWithData.CommandInvocations[1].ExitCode == nil || *taskWithData.CommandInvocations[1].ExitCode != 0 || taskWithData.CommandInvocations[2].ExitCode != nil {
 		t.Fatalf("expected recorded failed CLI attempt, got %+v", taskWithData.CommandInvocations)
 	}
 	detailJSON, err := json.Marshal(detail)
@@ -305,7 +308,7 @@ func TestOutcomeToDetailMapsStatsTranscriptAndDigest(t *testing.T) {
 	if !strings.Contains(string(detailJSON), `"dependencyModes":[{"kind":"mcp","name":"inventory","mode":"mocked"}]`) {
 		t.Fatalf("dependency modes missing from API JSON: %s", detailJSON)
 	}
-	if !strings.Contains(string(detailJSON), `"commandInvocations":[{"command":"az","args":["account","show"],"exit_code":1,"response_index":0}]`) {
+	if !strings.Contains(string(detailJSON), `"commandInvocations":[{"command":"az","args":["account","show"],"exit_code":1,"response_index":0},{"command":"az","args":["account","show"],"exit_code":0,"response_index":1},{"command":"az","args":["account","show"],"response_index":0}]`) {
 		t.Fatalf("CLI invocation history missing from API JSON: %s", detailJSON)
 	}
 	if taskWithData.SessionDigest.ToolsUsed == nil || len(taskWithData.SessionDigest.ToolsUsed) != 0 {

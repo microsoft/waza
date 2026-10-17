@@ -33,6 +33,54 @@ func skipIfNoJavascript(t *testing.T) {
 	}
 }
 
+func TestInlineScriptRecoveryEvidence(t *testing.T) {
+	for _, language := range []models.Language{models.LanguagePython, models.LanguageJavascript} {
+		t.Run(string(language), func(t *testing.T) {
+			if language == models.LanguagePython {
+				skipIfNoPython(t)
+			} else {
+				skipIfNoJavascript(t)
+			}
+			for _, present := range []bool{false, true} {
+				t.Run(fmt.Sprint(present), func(t *testing.T) {
+					ctx := &Context{}
+					assertions := []string{"len(tool_events) == 0", "len(command_invocations) == 0"}
+					if language == models.LanguageJavascript {
+						assertions = []string{"tool_events.length == 0", "command_invocations.length == 0"}
+					}
+					if present {
+						ctx.ToolEvents = []models.ToolEvent{{
+							ToolName: "dependency-request", Args: map[string]any{"operation": "transient"},
+							Success: false, Error: "temporary failure",
+						}}
+						ctx.CommandInvocations = []models.CommandInvocation{
+							{Command: "az", ExitCode: new(0)},
+							{Command: "az"},
+						}
+						assertions = []string{
+							"tool_events[0]['args']['operation'] == 'transient'",
+							"tool_events[0]['error'] == 'temporary failure'",
+							"len(command_invocations) == 2",
+							"command_invocations[0]['exit_code'] == 0",
+						}
+						if language == models.LanguagePython {
+							assertions = append(assertions, "'exit_code' not in command_invocations[1]")
+						} else {
+							assertions[2] = "command_invocations.length == 2"
+							assertions = append(assertions, "!('exit_code' in command_invocations[1])")
+						}
+					}
+					grader, err := Create("evidence", models.InlineScriptGraderParameters{Language: language, Assertions: assertions})
+					require.NoError(t, err)
+					result, err := grader.Grade(t.Context(), ctx)
+					require.NoError(t, err)
+					require.True(t, result.Passed, "%+v", result)
+				})
+			}
+		})
+	}
+}
+
 func TestInlineScriptGrader(t *testing.T) {
 	skipIfNoPython(t)
 

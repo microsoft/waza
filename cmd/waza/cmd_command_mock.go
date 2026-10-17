@@ -1,6 +1,10 @@
 package main
 
 import (
+	"os"
+	"os/signal"
+	"syscall"
+
 	"github.com/microsoft/waza/internal/commandmock"
 	"github.com/spf13/cobra"
 )
@@ -14,7 +18,9 @@ func newCommandMockCommand() *cobra.Command {
 		Hidden: true,
 		Args:   cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			code := commandmock.RunCommandContext(cmd.Context(), root, name, args)
+			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
+			defer stop()
+			code := commandmock.RunCommandContext(ctx, root, name, args)
 			if code != 0 {
 				return &ExitCodeError{Code: code}
 			}

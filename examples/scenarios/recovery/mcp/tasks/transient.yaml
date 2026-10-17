@@ -3,18 +3,16 @@ name: Recover from one transient error
 inputs:
   prompt: Call dependency request with operation transient. The first response is an error; retry once, then write exactly "Recovered after one transient error." to report.txt. Do not create protected.txt.
 graders:
-  - name: bounded-recovery-calls
-    type: behavior
+  - name: observed-recovery
+    type: code
     config:
-      max_tool_calls: 3
-      required_tools: [dependency_request]
-  - name: request-arguments
-    type: tool_calls
-    config:
-      expect:
-        - tool: "^dependency_request$"
-          args:
-            operation: { equals: transient }
+      language: javascript
+      assertions:
+        - >-
+          (() => { const calls = tool_events.filter(e => e.tool_name === 'dependency-request');
+          return calls.length === 2 && calls.every(e => e.args?.operation === 'transient')
+          && calls[0].success === false && /temporary dependency error/.test(calls[0].error || '')
+          && calls[1].success === true && /recovered/.test(JSON.stringify(calls[1].result)); })()
   - name: recovery-report
     type: file
     config:
@@ -29,8 +27,6 @@ requirements:
     description: Retry the transient dependency error once and report the successful result.
     checks:
       - scope: task
-        grader: bounded-recovery-calls
-      - scope: task
-        grader: request-arguments
+        grader: observed-recovery
       - scope: task
         grader: recovery-report

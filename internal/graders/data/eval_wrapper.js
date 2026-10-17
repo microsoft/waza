@@ -20,6 +20,8 @@ const evalContext = {
   outcome: data.outcome,
   transcript: data.transcript,
   tool_calls: data.tool_calls,
+  tool_events: data.tool_events || [],
+  command_invocations: data.command_invocations || [],
   errors: data.transcript.filter(
     (t) =>
       (t.type && t.type.includes("error")) ||

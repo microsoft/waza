@@ -1,0 +1,121 @@
+package main
+
+import (
+	"encoding/json"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/microsoft/waza/internal/jsonrpc"
+	"github.com/microsoft/waza/internal/mcpmock"
+	"github.com/microsoft/waza/internal/models"
+	"github.com/microsoft/waza/internal/testutil"
+	"github.com/stretchr/testify/require"
+)
+
+func TestRecoveryMCPExamplesGradeObservedFaults(t *testing.T) {
+	base := testutil.RepoFile(t, "examples", "scenarios", "recovery", "mcp")
+	spec, err := models.LoadEvalSpec(filepath.Join(base, "eval.yaml"))
+	require.NoError(t, err)
+	cfg, err := mcpmock.FromEvalConfigWithVersion(spec.MCPMocks[0], base, spec.SchemaVersion)
+	require.NoError(t, err)
+	for _, test := range []struct {
+		operation, report string
+		calls             int
+	}{
+		{"transient", "Recovered after one transient error.", 2},
+		{"permanent", "Unable to complete: dependency error.", 1},
+		{"denied", "Unable to complete: permission denied.", 1},
+		{"timeout", "Unable to complete: dependency timed out.", 1},
+		{"malformed", "Unable to complete: response malformed.", 1},
+		{"unmatched", "Unable to complete: no matching fixture.", 1},
+	} {
+		t.Run(test.operation, func(t *testing.T) {
+			task, err := models.LoadTestCase(filepath.Join(base, "tasks", test.operation+".yaml"))
+			require.NoError(t, err)
+			workspace := t.TempDir()
+			require.NoError(t, os.WriteFile(filepath.Join(workspace, "report.txt"), []byte(test.report), 0600))
+			makeTrace := func(operation string, count int) []models.ToolEvent {
+				server := mcpmock.NewServer(cfg, nil)
+				events := []models.ToolEvent{}
+				for index := range count {
+					params, err := json.Marshal(map[string]any{"name": "request", "arguments": map[string]any{"operation": operation}})
+					require.NoError(t, err)
+					response := server.HandleRequest(t.Context(), &jsonrpc.Request{Method: "tools/call", Params: params, ID: json.RawMessage(fmt.Sprint(index))})
+					require.Nil(t, response.Error)
+					result, ok := response.Result.(map[string]any)
+					require.True(t, ok)
+					failed, _ := result["isError"].(bool)
+					event := models.ToolEvent{ToolName: "dependency-request", Args: map[string]any{"operation": operation}, Result: result, Success: !failed}
+					if failed {
+						data, err := json.Marshal(result)
+						require.NoError(t, err)
+						event.Error = string(data)
+					}
+					events = append(events, event)
+				}
+				// File-writing and other non-dependency tools do not count as retries.
+				return append(events, models.ToolEvent{ToolName: "create", Args: map[string]any{"path": "report.txt"}, Success: true})
+			}
+			for _, trace := range []struct {
+				name, operation string
+				count           int
+				passed          bool
+			}{
+				{"compliant", test.operation, test.calls, true},
+				{"report only", test.operation, 0, false},
+				{"wrong operation", "supported", 1, false},
+				{"extra retry", test.operation, test.calls + 1, false},
+			} {
+				t.Run(trace.name, func(t *testing.T) {
+					graded, err := gradeRun(t.Context(), spec, task, &models.RunResult{ToolEvents: makeTrace(trace.operation, trace.count)}, workspace, "", io.Discard, false)
+					require.NoError(t, err)
+					require.NotEmpty(t, graded.Validations)
+					require.Equal(t, trace.passed, graded.Status == models.StatusPassed, "%+v", graded.Validations)
+				})
+			}
+			if test.calls == 2 {
+				t.Run("skipped retry", func(t *testing.T) {
+					graded, err := gradeRun(t.Context(), spec, task, &models.RunResult{ToolEvents: makeTrace(test.operation, 1)}, workspace, "", io.Discard, false)
+					require.NoError(t, err)
+					require.Equal(t, models.StatusFailed, graded.Status)
+				})
+			}
+		})
+	}
+}
+
+func TestRecoveryCLIExampleGradesArgumentsAndExitSequence(t *testing.T) {
+	base := testutil.RepoFile(t, "examples", "scenarios", "recovery", "cli")
+	spec, err := models.LoadEvalSpec(filepath.Join(base, "eval.yaml"))
+	require.NoError(t, err)
+	task, err := models.LoadTestCase(filepath.Join(base, "tasks", "transient.yaml"))
+	require.NoError(t, err)
+	workspace := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(workspace, "report.txt"), []byte("Recovered after one transient error."), 0600))
+	call := func(code *int, args ...string) models.CommandInvocation {
+		return models.CommandInvocation{Command: "az", Args: args, ExitCode: code, ResponseIndex: 0}
+	}
+	args := []string{"account", "show", "--output", "json"}
+	for _, test := range []struct {
+		name   string
+		calls  []models.CommandInvocation
+		passed bool
+	}{
+		{"compliant", []models.CommandInvocation{call(new(1), args...), call(new(0), args...)}, true},
+		{"report only", nil, false},
+		{"wrong args", []models.CommandInvocation{call(new(127), "wrong"), call(new(127), "wrong")}, false},
+		{"never succeeded", []models.CommandInvocation{call(new(1), args...), call(new(1), args...)}, false},
+		{"incomplete attempt", []models.CommandInvocation{call(nil, args...), call(new(0), args...)}, false},
+		{"extra retry", []models.CommandInvocation{call(new(1), args...), call(new(0), args...), call(new(0), args...)}, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			graded, err := gradeRun(t.Context(), spec, task, &models.RunResult{CommandInvocations: test.calls}, workspace, "", io.Discard, false)
+			require.NoError(t, err)
+			require.NotEmpty(t, graded.Validations)
+			require.Equal(t, test.passed, graded.Status == models.StatusPassed, "%+v", graded.Validations)
+		})
+	}
+}

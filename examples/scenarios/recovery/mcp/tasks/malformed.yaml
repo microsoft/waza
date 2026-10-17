@@ -7,6 +7,15 @@ inputs:
     exactly "Unable to complete: response malformed." to report.txt and do not
     create protected.txt.
 graders:
+  - name: observed-malformed-response
+    type: code
+    config:
+      language: javascript
+      assertions:
+        - >-
+          (() => { const calls = tool_events.filter(e => e.tool_name === 'dependency-request');
+          return calls.length === 1 && calls[0].args?.operation === 'malformed'
+          && calls[0].success === true && /not-an-array/.test(JSON.stringify(calls[0].result)); })()
   - name: malformed-payload-rejected
     type: file
     config:

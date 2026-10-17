@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -1216,8 +1217,12 @@ func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.T
 	}
 	if r.verbose {
 		for _, invocation := range commandInvocations {
-			fmt.Fprintf(os.Stderr, "Command mock: %s %q (exit %d)\n",
-				invocation.Command, strings.Join(invocation.Args, " "), invocation.ExitCode)
+			exit := "unavailable"
+			if invocation.ExitCode != nil {
+				exit = strconv.Itoa(*invocation.ExitCode)
+			}
+			fmt.Fprintf(os.Stderr, "Command mock: %s %q (exit %s)\n",
+				invocation.Command, strings.Join(invocation.Args, " "), exit)
 		}
 	}
 

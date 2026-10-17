@@ -12,7 +12,10 @@ not replayed recordings or tests of a real CLI/server implementation.
 The MCP suite covers a transient error followed by success, permanent error,
 permission denial, dependency-reported timeout, malformed application payload
 and unmatched arguments. The CLI suite covers a transient failure and one retry.
-Each task grades an exact outcome and a prohibited file side effect.
+Each task grades an exact outcome, a prohibited file side effect, and observed
+dependency evidence: the operation/arguments, error or result, and retry count.
+Writing the expected report without making the required calls does not pass.
+Unrelated report-writing tool calls do not count as dependency retries.
 
 * [MCP recovery eval](https://github.com/microsoft/waza/blob/main/examples/scenarios/recovery/mcp/eval.yaml)
 * [CLI recovery eval](https://github.com/microsoft/waza/blob/main/examples/scenarios/recovery/cli/eval.yaml)
@@ -50,9 +53,19 @@ and the task graders decide whether its final behavior is acceptable.
   unmatched call can be graded as an honest failure. A malformed application
   payload is not a malformed JSON-RPC frame.
 * An MCP `error` containing “timeout” is a dependency-reported error, not
-  transport cancellation. `delay_ms` can model latency, but public MCP stdio
-  does not promise per-request cancellation. Direct handler tests cover a
-  canceled context; they do not certify process-pipe cancellation.
+  transport cancellation. The MCP mock subprocess accepts MCP
+  `notifications/cancelled` messages while a delayed request runs. A canceled
+  request does not terminate the server or reset its consumed step; a retry can
+  take the next step. Calls dispatch serially in input order, with at most 64
+  pending requests; overflow and duplicate active IDs stop the server. A queued
+  request canceled before it starts consumes no step. Notifications consume no
+  steps and canceled calls receive no fabricated response.
+* CLI attempts are recorded before waiting on a sequence delay. A catchable
+  interruption records cancellation (exit 130) or deadline (exit 124). An
+  abruptly killed process leaves a started attempt with `exit_code` omitted,
+  not an invented success or cancellation code. Completed exit zero is explicit.
+  The dashboard displays an omitted exit as unavailable. Attempt records describe
+  selected mock outcomes, not proof that stdout/stderr reached the caller.
 * Unmatched MCP calls and exhausted sequences return tool errors and never
   fall through to a live MCP service. A CLI mock intercepts only its declared
   executable name; undeclared executables may resolve through the host `PATH`.
@@ -66,6 +79,8 @@ servers and effective CLI mocks as `live` or `mocked`. It reports configuration,
 not actual invocation or verified component behavior. No `recorded` mode is
 available. The dashboard shows these modes and captured mocked CLI attempts;
 its task detail is first-repetition evidence, not a complete repetition export.
+Inline `code` graders receive canonical `tool_events` and sanitized
+`command_invocations` arrays both during execution and offline regrading.
 
 These fixtures exercise the agent's decisions against controlled responses.
 Use separate opt-in integration tests when the real CLI/server behavior,

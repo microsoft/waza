@@ -73,6 +73,8 @@ func buildToolEvents(events []copilot.SessionEvent) []models.ToolEvent {
 				// available so consumers don't have to dig into Result.
 				if s := stringifyResult(complete.Result); s != "" {
 					p.event.Error = s
+				} else if complete.Error != nil {
+					p.event.Error = complete.Error.Message
 				}
 			}
 			if dur := evt.Timestamp.Sub(p.start.Timestamp).Milliseconds(); dur > 0 {

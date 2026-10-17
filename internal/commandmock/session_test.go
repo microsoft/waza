@@ -123,7 +123,7 @@ func TestInvokeSequenceRecoversExhaustsAndResetsPerSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(invocations) != 3 || invocations[0].ExitCode != 75 || invocations[1].ExitCode != 0 || invocations[2].ExitCode != 127 {
+	if len(invocations) != 3 || invocations[0].ExitCode == nil || *invocations[0].ExitCode != 75 || invocations[1].ExitCode == nil || *invocations[1].ExitCode != 0 || invocations[2].ExitCode == nil || *invocations[2].ExitCode != 127 {
 		t.Fatalf("invocations omitted earlier failure or exhaustion: %+v", invocations)
 	}
 }
@@ -155,7 +155,7 @@ func TestInvokeSequenceCancellationRecordsAttemptAndAdvances(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(invocations) != 2 || invocations[0].ExitCode != 124 || invocations[1].ExitCode != 0 {
+	if len(invocations) != 2 || invocations[0].ExitCode == nil || *invocations[0].ExitCode != 124 || invocations[1].ExitCode == nil || *invocations[1].ExitCode != 0 {
 		t.Fatalf("canceled attempt history = %+v", invocations)
 	}
 }

@@ -113,6 +113,38 @@
   },
   "allOf": [
     {
+      "if": {
+        "not": {
+          "required": ["schemaVersion"],
+          "properties": { "schemaVersion": { "const": "2.0" } }
+        }
+      },
+      "then": {
+        "properties": {
+          "command_mocks": {
+            "items": {
+              "properties": {
+                "responses": { "items": { "not": { "required": ["sequence"] } } }
+              }
+            }
+          },
+          "mcp_mocks": {
+            "items": {
+              "properties": {
+                "tools": {
+                  "additionalProperties": {
+                    "properties": {
+                      "responses": { "items": { "not": { "required": ["sequence"] } } }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
       "anyOf": [
         { "required": ["skill"] },
         { "required": ["scenario"] }

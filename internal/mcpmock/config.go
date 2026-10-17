@@ -60,6 +60,12 @@ func FromEvalConfigOffline(mock models.MCPMockConfig, baseDir string) (*Config, 
 	return fromEvalConfig(mock, baseDir, schemaloader.Offline{}, "", false)
 }
 
+// FromEvalConfigOfflineWithVersion validates selected finite responses without
+// allowing matcher schemas to load external resources.
+func FromEvalConfigOfflineWithVersion(mock models.MCPMockConfig, baseDir, version string) (*Config, error) {
+	return fromEvalConfig(mock, baseDir, schemaloader.Offline{}, version, true)
+}
+
 func fromEvalConfig(mock models.MCPMockConfig, baseDir string, loader jsonschema.URLLoader, version string, allowSequences bool) (*Config, error) {
 	name := strings.TrimSpace(mock.Name)
 	if name == "" {
@@ -72,22 +78,21 @@ func fromEvalConfig(mock models.MCPMockConfig, baseDir string, loader jsonschema
 		if !filepath.IsAbs(fixtureDir) {
 			fixtureDir = filepath.Join(baseDir, fixtureDir)
 		}
-		if err := loadFixtureDir(cfg, fixtureDir, version, allowSequences); err != nil {
+		if err := loadFixtureDir(cfg, fixtureDir, version, allowSequences, mock.Tools); err != nil {
 			return nil, fmt.Errorf("mcp mock %q fixtures: %w", name, err)
 		}
 	}
 
 	for toolName, tool := range mock.Tools {
-		if !allowSequences {
-			for index := range tool.Responses {
-				tool.Responses[index].Sequence = nil
-			}
-		}
-		cfg.Tools[toolName] = Tool{
+		resolved := Tool{
 			Description: tool.Description,
 			InputSchema: tool.InputSchema,
 			Responses:   convertResponses(tool.Responses),
 		}
+		if !allowSequences {
+			clearSequences(&resolved)
+		}
+		cfg.Tools[toolName] = resolved
 	}
 
 	if len(cfg.Tools) == 0 {
@@ -135,7 +140,7 @@ func fromEvalConfig(mock models.MCPMockConfig, baseDir string, loader jsonschema
 	return cfg, nil
 }
 
-func loadFixtureDir(cfg *Config, dir, version string, allowSequences bool) error {
+func loadFixtureDir(cfg *Config, dir, version string, allowSequences bool, overrides map[string]models.MCPMockTool) error {
 	info, err := os.Stat(dir)
 	if err != nil {
 		return err
@@ -200,6 +205,9 @@ func loadFixtureDir(cfg *Config, dir, version string, allowSequences bool) error
 	}
 	if allowSequences {
 		for toolName, source := range sourceByTool {
+			if _, overridden := overrides[toolName]; overridden {
+				continue
+			}
 			if err := validateFixtureTool(source, version); err != nil {
 				return fmt.Errorf("tool %q: %w", toolName, err)
 			}

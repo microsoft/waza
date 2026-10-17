@@ -332,7 +332,7 @@ export default function RunInspector({
                             <ChevronRight size={15} />
                             <div>
                               <strong>
-                                {invocation.command} attempt {index + 1} · exit {invocation.exit_code} · response index {invocation.response_index}
+                                {invocation.command} attempt {index + 1} · exit {invocation.exit_code ?? 'unavailable'} · response index {invocation.response_index}
                               </strong>
                               <pre>{JSON.stringify(invocation.args ?? [], null, 2)}</pre>
                             </div>

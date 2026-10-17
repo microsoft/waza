@@ -154,6 +154,9 @@ func discoverTasks(r *Report, spec *models.EvalSpec, base string) ([]*models.Tes
 				r.Complete = false
 				continue
 			}
+			if err := models.ValidateTaskFaultSources(data, spec.SchemaVersion); err != nil {
+				r.add("task.version", Invalid, path, task.TestID, "", "Task mock sequences require explicit enclosing scenario schemaVersion 2.0.", "Select schemaVersion 2.0 with a scenario, or use legacy single responses.")
+			}
 			if err := task.ValidateForExecutor(spec.Config.EngineType); err != nil {
 				r.add("task.executor", Invalid, path, task.TestID, "", "Task settings are incompatible with the configured executor.", "Use copilot-sdk for command mocks and explicit judge reasoning effort.")
 			}
@@ -207,7 +210,7 @@ func inspectMCP(r *Report, spec *models.EvalSpec, base string) {
 	for _, mock := range spec.MCPMocks {
 		mocked[strings.TrimSpace(mock.Name)] = true
 		state := Verified
-		cfg, err := mcpmock.FromEvalConfigOffline(mock, base)
+		cfg, err := mcpmock.FromEvalConfigOfflineWithVersion(mock, base, spec.SchemaVersion)
 		if err != nil {
 			state = r.schemaFailureState(err)
 			r.add("mock.mcp", state, r.Source, "", "", "MCP mock fixtures or matching configuration could not be verified.", "Check fixture files, tool responses, regexes, and self-contained match_schema references.")
@@ -395,6 +398,11 @@ func inspectTask(r *Report, task *models.TestCase, spec *models.EvalSpec, source
 		for _, response := range mock.Responses {
 			if response.Fixture != "" {
 				checkFile(r, filepath.Join(base, response.Fixture), source, task.TestID, "mock.command_fixture")
+			}
+			for _, step := range response.Sequence {
+				if step.Fixture != "" {
+					checkFile(r, filepath.Join(base, step.Fixture), source, task.TestID, "mock.command_fixture")
+				}
 			}
 		}
 		state := Verified

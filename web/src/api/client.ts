@@ -115,7 +115,7 @@ export interface TaskResult {
   commandInvocations?: {
     command: string;
     args?: string[];
-    exit_code: number;
+    exit_code?: number;
     response_index: number;
   }[];
   transcript?: TranscriptEvent[];

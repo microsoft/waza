@@ -192,7 +192,7 @@ func RunNativeCommand(ctx context.Context, root, sessionID, name string, args []
 		invocation := models.CommandInvocation{
 			Command:  sanitizeArgs([]string{name}, os.Environ())[0],
 			Args:     sanitizeArgs(args, os.Environ()),
-			ExitCode: output.ExitCode, ResponseIndex: output.ResponseIndex,
+			ExitCode: new(output.ExitCode), ResponseIndex: output.ResponseIndex,
 		}
 		record := invocationRecord{RecordedAt: time.Now().UTC(), Invocation: invocation}
 		data, err := json.Marshal(record)
@@ -321,7 +321,7 @@ func parseNativeReceipt(data []byte) (invocationRecord, error) {
 		}
 	}
 	return invocationRecord{RecordedAt: recordedAt, Invocation: models.CommandInvocation{
-		Command: command, Args: args, ExitCode: int(exitCode), ResponseIndex: int(index),
+		Command: command, Args: args, ExitCode: new(int(exitCode)), ResponseIndex: int(index),
 	}}, nil
 }
 
@@ -364,7 +364,7 @@ func (s *Session) nativeCapture() ([]models.CommandInvocation, map[string]int, e
 			if nativeReceipt {
 				record, err = parseNativeReceipt(data)
 			} else {
-				err = json.Unmarshal(data, &record)
+				record, err = readInvocationRecord(filepath.Join(s.logDir, entry.Name()))
 			}
 		}
 		if err != nil {

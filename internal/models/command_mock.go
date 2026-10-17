@@ -40,10 +40,11 @@ type CommandMockStep struct {
 
 // CommandInvocation records a sanitized invocation of a mocked executable.
 type CommandInvocation struct {
-	Command       string   `json:"command"`
-	Args          []string `json:"args,omitempty"`
-	ExitCode      int      `json:"exit_code"`
-	ResponseIndex int      `json:"response_index"`
+	Command string   `json:"command"`
+	Args    []string `json:"args,omitempty"`
+	// A started attempt interrupted before completion has no observed exit code.
+	ExitCode      *int `json:"exit_code,omitempty"`
+	ResponseIndex int  `json:"response_index"`
 }
 
 // ValidateCommandMocks validates names, matchers, responses, and call expectations.

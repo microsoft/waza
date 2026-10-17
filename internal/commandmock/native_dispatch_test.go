@@ -169,7 +169,7 @@ func TestNativeOpaqueRoundtripAndActualSanitizedReceipt(t *testing.T) {
 		t.Fatalf("dispatch: %d, %v", code, err)
 	}
 	records, err := s.Close()
-	if err != nil || len(records) != 1 || records[0].ExitCode != 23 || records[0].ResponseIndex != 4 ||
+	if err != nil || len(records) != 1 || records[0].ExitCode == nil || *records[0].ExitCode != 23 || records[0].ResponseIndex != 4 ||
 		!reflect.DeepEqual(records[0].Args, []string{redactedArg, redactedArg, "actual"}) {
 		t.Fatalf("receipt did not reflect sanitized actual output: %+v, %v", records, err)
 	}
@@ -537,7 +537,7 @@ func TestNativeExitCodeRangeBeforeEmission(t *testing.T) {
 			if code != exitCode || err != nil || stdout.String() != "stdout" || stderr.String() != "stderr" {
 				t.Fatalf("valid exit boundary rejected: %d, %v", code, err)
 			}
-			if records, err := s.Close(); err != nil || len(records) != 1 || records[0].ExitCode != exitCode {
+			if records, err := s.Close(); err != nil || len(records) != 1 || records[0].ExitCode == nil || *records[0].ExitCode != exitCode {
 				t.Fatalf("boundary receipt incorrect: %+v, %v", records, err)
 			}
 		})
@@ -732,7 +732,7 @@ func TestNativeCapturePreservesLegacyDecoding(t *testing.T) {
 		t.Fatal(err)
 	}
 	records, err := s.Close()
-	if err != nil || len(records) != 1 || records[0].Command != "gh" || records[0].ExitCode != 0 {
+	if err != nil || len(records) != 1 || records[0].Command != "gh" || records[0].ExitCode == nil || *records[0].ExitCode != 0 {
 		t.Fatalf("legacy decoding changed in mixed capture: %+v, %v", records, err)
 	}
 }

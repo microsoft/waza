@@ -3,16 +3,79 @@ package orchestration
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
 
+	copilot "github.com/github/copilot-sdk/go"
 	"github.com/microsoft/waza/internal/cache"
 	"github.com/microsoft/waza/internal/config"
+	"github.com/microsoft/waza/internal/copilotevents"
 	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/models"
+	"github.com/microsoft/waza/internal/testutil"
 	"github.com/stretchr/testify/require"
 )
+
+type recoveryEvidenceEngine struct {
+	execution.AgentEngine
+	events    []copilot.SessionEvent
+	workspace string
+}
+
+func (e *recoveryEvidenceEngine) Execute(context.Context, *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
+	return &execution.ExecutionResponse{
+		Success: true, ModelID: "mock", SessionID: "recovery",
+		Events: copilotevents.FromSDK(e.events), WorkspaceDir: e.workspace,
+		WorkspaceFiles: map[string][]byte{"report.txt": []byte("Recovered after one transient error.")},
+	}, nil
+}
+
+func TestRecoveryExampleGradesSDKEventsThroughRunBenchmark(t *testing.T) {
+	evalPath := testutil.RepoFile(t, "examples", "scenarios", "recovery", "mcp", "eval.yaml")
+	for _, errorOnly := range []bool{false, true} {
+		t.Run(fmt.Sprint(errorOnly), func(t *testing.T) {
+			spec, err := models.LoadEvalSpec(evalPath)
+			require.NoError(t, err)
+			spec.Tasks = []string{"tasks/transient.yaml"}
+			first := &copilot.ToolExecutionCompleteData{ToolCallID: "first", Success: false}
+			if errorOnly {
+				first.Error = &copilot.ToolExecutionCompleteError{Message: "temporary dependency error"}
+			} else {
+				first.Result = &copilot.ToolExecutionCompleteResult{Content: "temporary dependency error"}
+			}
+			workspace := t.TempDir()
+			require.NoError(t, os.WriteFile(filepath.Join(workspace, "report.txt"), []byte("Recovered after one transient error."), 0600))
+			engine := &recoveryEvidenceEngine{
+				AgentEngine: execution.NewMockEngine("mock"),
+				workspace:   workspace,
+				events: []copilot.SessionEvent{
+					{Data: &copilot.ToolExecutionStartData{ToolCallID: "first", ToolName: "dependency-request", Arguments: map[string]any{"operation": "transient"}}},
+					{Data: first},
+					{Data: &copilot.ToolExecutionStartData{ToolCallID: "second", ToolName: "dependency-request", Arguments: map[string]any{"operation": "transient"}}},
+					{Data: &copilot.ToolExecutionCompleteData{ToolCallID: "second", Success: true, Result: &copilot.ToolExecutionCompleteResult{Content: `{"status":"recovered"}`}}},
+					{Data: &copilot.ToolExecutionStartData{ToolCallID: "report", ToolName: "create", Arguments: map[string]any{"path": "report.txt"}}},
+					{Data: &copilot.ToolExecutionCompleteData{ToolCallID: "report", Success: true}},
+				},
+			}
+			runner := NewEvalRunner(config.NewEvalConfig(spec, config.WithSpecDir(filepath.Dir(evalPath))), engine)
+			outcome, err := runner.RunBenchmark(t.Context())
+			require.NoError(t, err)
+			require.Len(t, outcome.TestOutcomes, 1)
+			task := outcome.TestOutcomes[0]
+			require.Equal(t, models.StatusPassed, task.Status, "%+v", task.Runs)
+			require.NotEmpty(t, task.Runs)
+			for _, run := range task.Runs {
+				require.Len(t, run.ToolEvents, 3)
+				require.Equal(t, "dependency-request", run.ToolEvents[0].ToolName)
+				require.Contains(t, run.ToolEvents[0].Error, "temporary dependency error")
+				require.True(t, run.Validations["observed-recovery"].Passed)
+				require.True(t, run.Validations["recovery-report"].Passed)
+			}
+		})
+	}
+}
 
 func TestScenarioExecutionRequest(t *testing.T) {
 	dir := t.TempDir()

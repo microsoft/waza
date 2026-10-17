@@ -754,7 +754,7 @@ waza serve --tcp :9000
 
 ### Controlled Dependency Failures
 
-MCP mock `error` responses and command mock `stderr`/`exit_code` responses can model permanent failures or permission denial without contacting the dependency. Existing matchers return the first matching fixture on every call; they do not advance through a recovery sequence. Configured unmatched calls fail closed, and MCP unmatched diagnostics omit argument values. The in-process MCP handler rejects tool calls whose context is already canceled or expired before fixture dispatch; this is not per-request stdio cancellation or timeout injection.
+MCP mock `error` responses and command mock `stderr`/`exit_code` responses can model permanent failures or permission denial without contacting the dependency. Legacy responses return the first matching fixture on every call; scenario evals can instead opt into finite recovery sequences. Configured unmatched calls fail closed, and MCP unmatched diagnostics omit argument values. The MCP mock subprocess accepts per-request cancellation without resetting consumed steps or terminating the server. See the [dependency recovery guide](../site/src/content/docs/guides/dependency-recovery.mdx) for dispatch, interruption, and evidence boundaries.
 
 Use existing graders and checkpoints to check honest failure reporting and prohibited effects. A mocked interaction or responder message is not proof that an external operation occurred. Undeclared commands remain available through the host `PATH`, and command shim interception does not isolate the filesystem or network. See the [eval guide](../site/src/content/docs/guides/eval-yaml.mdx#choosing-a-test-boundary) for choosing mocked versus live dependencies.
 
