@@ -1,0 +1,10 @@
+{
+  "data": {
+    "partialOutput": "legacy shell output",
+    "toolCallId": "legacy-call-123"
+  },
+  "id": "legacy-event-123",
+  "parentId": "legacy-parent-123",
+  "timestamp": "2026-02-11T02:03:37.187Z",
+  "type": "tool.execution_partial_result"
+}

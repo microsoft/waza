@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	copilot "github.com/github/copilot-sdk/go"
+	"github.com/microsoft/waza/internal/copilotevents"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/utils"
 	"github.com/stretchr/testify/require"
@@ -128,6 +129,36 @@ func TestSessionEventsCollectorSuppressesAllIntentToolShellOutput(t *testing.T) 
 		},
 	})
 	require.Len(t, coll.SessionEvents(), 1, "ordinary tool output must continue to be collected")
+}
+
+func TestSessionEventsCollectorPreservesLegacyPartialResultFixture(t *testing.T) {
+	wireEvent, err := os.ReadFile("../testdata/legacy_tool_execution_partial_result.json")
+	require.NoError(t, err)
+
+	var event copilot.SessionEvent
+	require.NoError(t, json.Unmarshal(wireEvent, &event))
+	require.Equal(t, copilot.SessionEventType("tool.execution_partial_result"), event.Type())
+
+	coll := NewSessionEventsCollector()
+	coll.On(event)
+	require.Len(t, coll.SessionEvents(), 1)
+
+	text, toolCallID, ok := copilotevents.ToolOutput(coll.SessionEvents()[0])
+	require.True(t, ok)
+	require.Equal(t, "legacy shell output", text)
+	require.Equal(t, "legacy-call-123", toolCallID)
+
+	persisted, err := json.Marshal(models.TranscriptEvent{SessionEvent: coll.SessionEvents()[0]})
+	require.NoError(t, err)
+
+	var restored models.TranscriptEvent
+	require.NoError(t, json.Unmarshal(persisted, &restored))
+	require.Equal(t, event.Type(), restored.Type())
+
+	text, toolCallID, ok = copilotevents.ToolOutput(restored.SessionEvent)
+	require.True(t, ok)
+	require.Equal(t, "legacy shell output", text)
+	require.Equal(t, "legacy-call-123", toolCallID)
 }
 
 func TestSessionEventsCollector_OnSkillInvokedCallback(t *testing.T) {
