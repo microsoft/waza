@@ -139,8 +139,8 @@ missing lookups remain explicit; they do not prove future absence or currentness
 Independent pinned original capture/constructor and discovery oracles cover this
 path, including reconstruction after roots close or disappear. New bounds apply
 only to the private selected capture path; Windows directory capture remains
-unsupported. Public collection, native retry-prefix joins,
-current-review/budget/lifecycle integration and provider execution remain absent.
+unsupported. Public collection, current-review/budget/lifecycle integration and
+provider execution remain absent.
 
 Private `PrepareSlotSet` accepts only that distinct associated capture and
 reconstructs both full source plans and their exact golden union against the
@@ -173,9 +173,65 @@ before parsing and derived receipt/binding allocation, including declared sample
 expansion before the sealed journal's first replay. Existing noncontextual
 parsing and digest calls remain bounded calls with cancellation checks around
 them, not internally interruptible operations. Supplied event consistency is
-not independently witnessed execution, durable acknowledgment, retry permission
-or a join to native tapes/static slots. No public profile, collection lifecycle,
-currentness, billing availability or release authority is added.
+not independently witnessed execution, durable acknowledgment or retry
+permission. No public profile, collection lifecycle, currentness, billing
+availability or release authority is added.
+
+### Private native retry-evidence join
+
+`nativesnapshot.CheckRetryJoin` now connects a retained static slot set, an opaque
+validated retry prefix and supplied native event/row tapes with independent
+primitive admissions. It matches original policy bytes, declared arm/eval IDs,
+collection/profile, actual attempt order, complete captured source inventories,
+request intent and full number-preserving terminal summaries. It validates the
+static set once per inspection and indexes possible slots; it does not rebuild
+the complete set for every attempt or require unused retries to execute.
+
+`nativetask.InspectPrefix` reuses the strict native tape validator without
+opening files. Supplied admissions must cover exactly the native starts.
+The join accepts either existing retry inspection mode: an unfinished
+`stream_prefix`, or a complete independently admitted `sealed_journal`.
+`ViewForPolicy` checks original policy bytes and the retained retry seal,
+including any unparsed core fragment, without changing the existing view shape.
+
+Nil tape inputs are unsupplied; nonnil empty tapes are supplied empty bytes.
+The join records this presence and, only for supplied bytes, their source
+digests. Core `missing`/`partial`/`structurally_complete` state, stream presence
+and `trailing_fragment_bytes` remain separate. A clean pending native start,
+policy-admissible native terminal before its core terminal, missing trial
+summary or missing native evidence remains `incomplete`. Complete core evidence
+cannot hide missing native rows. Every earlier failure, recovered attempt and retained
+operational/cancelled record remains visible.
+
+Torn native lines, orphan/extra/duplicate/reordered payloads, native starts
+without core starts and contradictory identities or summaries are invalid,
+not a smaller valid prefix. Errors and cancellation return no joined view.
+Every supplied native terminal is checked against the frozen policy's attempt
+validator, even before its core terminal exists; once both exist, their full
+number-preserving summaries must also match exactly.
+The native reader does **not** adopt the core reader's tolerant torn-tail rule.
+Selected inspection bounds each native input at 1 MiB, lines and admission count
+at 65,536, and each retained binding string at 1 MiB. Before seal verification
+or serialization, the 16 MiB aggregate charges retained preparation bytes plus
+each binding's conservative escaped representation (six bytes per string byte
+and a 1 KiB allowance for fixed fields and scalars). This intentionally tightens
+the selected reader's former preparation-only aggregate; primitive admission
+and legacy rooted readers are unchanged.
+Existing static-slot and retry bounds still apply; the join charges its
+admission seal's escaped representation against the existing 64 MiB slot
+budget before encoding. These are serialization/admission bounds, not process
+RSS limits or internally interruptible decoder guarantees.
+
+The opaque join owns tape bytes and the admission-slice container, retains
+sealed inputs, and rederives detached views and its seal. Its
+`structurally_matched` state means only that supplied complete core/native
+evidence agrees. There is no pass/approval field, usage total, execution grant,
+retry permit or release decision. Sources can be closed or subsequently changed
+without altering retained consistency; callers must independently recheck
+currentness. No authentic execution, cross-file persistence acknowledgment,
+runtime version, provider currency, assurance or public native collector is
+established. Actual writer round trips are covered on Linux/macOS; portable
+supplied-reader checks do not establish Windows durable creation.
 
 ## Offline planning and collection
 

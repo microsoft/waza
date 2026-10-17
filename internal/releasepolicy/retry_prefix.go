@@ -145,6 +145,23 @@ func (r *RetryPrefix) View(ctx context.Context) (RetryPrefixView, error) {
 	return v, nil
 }
 
+// ViewForPolicy additionally binds the original supplied policy bytes. The
+// returned seal includes the entire stream, even an unparsed trailing fragment.
+// It is retained consistency, not witnessed execution or retry permission.
+func (r *RetryPrefix) ViewForPolicy(ctx context.Context, rawPolicy []byte) (RetryPrefixView, models.EvidenceDigest, error) {
+	if err := retryContext(ctx); err != nil {
+		return RetryPrefixView{}, models.EvidenceDigest{}, err
+	}
+	if r == nil || len(rawPolicy) > retryRawLimit || !bytes.Equal(rawPolicy, r.rawPolicy) {
+		return RetryPrefixView{}, models.EvidenceDigest{}, fmt.Errorf("retry prefix original policy bytes differ")
+	}
+	v, err := r.View(ctx)
+	if err != nil {
+		return RetryPrefixView{}, models.EvidenceDigest{}, err
+	}
+	return v, r.seal, nil
+}
+
 func deriveRetry(ctx context.Context, rawPolicy, rawJournal, rawStream []byte, mode string) (RetryPrefixView, models.EvidenceDigest, error) {
 	fail := func(err error) (RetryPrefixView, models.EvidenceDigest, error) {
 		return RetryPrefixView{}, models.EvidenceDigest{}, err

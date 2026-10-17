@@ -299,6 +299,12 @@ func settingsFor(p *Policy, arm Arm, taskID string) Settings {
 	return Settings{}
 }
 
+// ValidateAttempt checks a terminal against a policy admitted by DecodePolicy.
+// It does not establish start order or retry authority; replay checks those.
+func ValidateAttempt(p *Policy, a AttemptSummary) error {
+	return validateAttempt(p, a)
+}
+
 func validateAttempt(p *Policy, a AttemptSummary) error {
 	expected := models.EvidenceOrigin{EvalID: a.Key.EvalID, TaskID: a.Key.TaskID,
 		RunNumber: a.Key.Trial, AttemptCount: a.Key.Attempt}

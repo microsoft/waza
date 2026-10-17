@@ -58,6 +58,12 @@ dependency. The separate mandatory
 cases against retained exact source bytes without Git or historical ancestry.
 Checkout tests do not certify Windows durable collection writers.
 
+The native-snapshot original-capture oracle compiles its checksum-pinned source
+overlay once per package test process. Only the executable is reused: every
+capture launches a fresh process against the current fixture roots and writes
+a separate output artifact. `TestG2OriginalOracleReusesOnlyCompilation` checks
+changed prompt bytes and different roots without caching captured results.
+
 ## Fixed artifacts and repeatability
 
 `internal/testdata/compatibility/v1/` owns the versioned evals, task, all-grader

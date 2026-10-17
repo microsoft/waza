@@ -29,6 +29,10 @@ test('controlled comparison guide exposes the real offline boundary and distinct
   await expect(page.locator('main')).toContainText('fresh exact offline1.0 reports');
   await expect(page.getByRole('heading', { name: 'Internal native groundwork is not a public producer', exact: true })).toBeVisible();
   await expect(page.locator('main')).toContainText('Static possible slots are not actual starts, skips or consumed retries');
+  await expect(page.locator('main')).toContainText('Private native retry-evidence joins');
+  await expect(page.locator('main')).toContainText('missing or clean incomplete evidence from invalid tapes');
+  await expect(page.locator('main')).toContainText('not a passing release verdict');
+  await expect(page.locator('main')).toContainText('Unsupplied inputs and supplied empty tapes remain distinct');
   await expect(page.locator('main')).toContainText('not independently witnessed execution');
   await expect(page.locator('main')).toContainText('support Linux/macOS only, not Windows');
   await expect(page.locator('main')).toContainText('legacy decoders and command defaults remain unchanged');

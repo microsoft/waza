@@ -173,16 +173,20 @@ func (p *Prepared) Request(arm releasepolicy.Arm, taskID string) (*execution.Exe
 	}
 	for _, task := range snapshots[arm].Tasks {
 		if task.ID == taskID && task.Enabled {
-			var request execution.ExecutionRequest
-			decoder := json.NewDecoder(bytes.NewReader(task.Request))
-			decoder.UseNumber()
-			if err := decoder.Decode(&request); err != nil {
-				return nil, err
-			}
-			return &request, nil
+			return decodeSnapshotRequest(task.Request)
 		}
 	}
 	return nil, fmt.Errorf("native selected task %q is unavailable", taskID)
+}
+
+func decodeSnapshotRequest(raw json.RawMessage) (*execution.ExecutionRequest, error) {
+	var request execution.ExecutionRequest
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	if err := decoder.Decode(&request); err != nil {
+		return nil, err
+	}
+	return &request, nil
 }
 
 func bind(ctx context.Context, location ArmLocation) (boundLocation, error) {
