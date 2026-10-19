@@ -219,6 +219,8 @@ or merged override also has an unavailable schema. Inline and fixture-backed MCP
 responses retain both invalid regex configuration and unresolved schema
 prerequisites, across responses and declaration order. Finite mock source errors
 also do not suppress independent eval, task, or checkpoint grader diagnostics.
+Task sequence eligibility is checked against the enclosing eval version before
+offline decoding; an unavailable grader schema cannot hide an unsupported sequence.
 These mixed cases report
 `invalid` plus an `unresolved` diagnostic and keep `complete: false`; a regex or
 static-field failure never makes an external schema prerequisite verified.

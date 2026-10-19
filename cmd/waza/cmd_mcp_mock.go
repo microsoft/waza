@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"os/signal"
-	"syscall"
 
 	"github.com/microsoft/waza/internal/mcpmock"
 	"github.com/spf13/cobra"
@@ -30,9 +28,9 @@ func newMCPMockCommand() *cobra.Command {
 				return fmt.Errorf("parse mock config: %w", err)
 			}
 			logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
-			defer stop()
-			if err := mcpmock.ServeCancelableStdio(ctx, &cfg, os.Stdin, os.Stdout, logger); err != nil {
+			// Retain default signal termination: inherited stdio may not unblock
+			// on Close, so graceful root cancellation cannot safely join it.
+			if err := mcpmock.ServeCancelableStdio(cmd.Context(), &cfg, os.Stdin, os.Stdout, logger); err != nil {
 				return fmt.Errorf("serve MCP mock: %w", err)
 			}
 			return nil

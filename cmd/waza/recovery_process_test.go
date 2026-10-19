@@ -3,7 +3,10 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -15,6 +18,7 @@ import (
 	"time"
 
 	"github.com/microsoft/waza/internal/commandmock"
+	"github.com/microsoft/waza/internal/jsonrpc"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/stretchr/testify/require"
 )
@@ -28,6 +32,83 @@ func buildRecoveryCLI(t *testing.T) string {
 	log, err := exec.CommandContext(t.Context(), "go", "build", "-o", binary, ".").CombinedOutput()
 	require.NoError(t, err, "%s", log)
 	return binary
+}
+
+func TestRecoveryMCPMockProcessStdinLifecycle(t *testing.T) {
+	binary := buildRecoveryCLI(t)
+	for _, test := range []struct {
+		name   string
+		signal os.Signal
+	}{
+		{"EOF", nil},
+		{"SIGTERM with open stdin", syscall.SIGTERM},
+		{"SIGINT with open stdin", os.Interrupt},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if test.signal != nil && runtime.GOOS == "windows" {
+				t.Skip("Windows cannot send these signals to an independent process")
+			}
+			input, send, err := os.Pipe()
+			require.NoError(t, err)
+			t.Cleanup(func() { require.NoError(t, input.Close()) })
+			sendClosed := false
+			t.Cleanup(func() {
+				if !sendClosed {
+					require.NoError(t, send.Close())
+				}
+			})
+			// A real inherited file descriptor exercises blocking os.Stdin,
+			// unlike the interruptible io.Pipe endpoints in serving tests.
+			config := base64.StdEncoding.EncodeToString([]byte(`{"name":"dependency"}`))
+			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+			defer cancel()
+			child := exec.CommandContext(ctx, binary, "__mcp-mock", "--config-base64", config)
+			child.Stdin = input
+			child.Env = append(os.Environ(), "WAZA_NO_UPDATE_CHECK=1")
+			var stderr bytes.Buffer
+			child.Stderr = &stderr
+			output, err := child.StdoutPipe()
+			require.NoError(t, err)
+			require.NoError(t, child.Start())
+			waited := false
+			t.Cleanup(func() {
+				if !waited {
+					cancel()
+					require.Error(t, child.Wait())
+				}
+			})
+			_, err = io.WriteString(send, "{\"jsonrpc\":\"2.0\",\"method\":\"initialize\",\"id\":1}\n")
+			require.NoError(t, err)
+			var response jsonrpc.Response
+			require.NoError(t, json.NewDecoder(output).Decode(&response))
+			require.JSONEq(t, "1", string(response.ID))
+			require.Nil(t, response.Error)
+			require.NotNil(t, response.Result, "the actual subprocess must be serving before shutdown")
+			if test.signal == nil {
+				require.NoError(t, send.Close())
+				sendClosed = true
+			} else {
+				_, err = io.WriteString(send, `{"jsonrpc":"2.0",`)
+				require.NoError(t, err)
+				require.NoError(t, child.Process.Signal(test.signal))
+			}
+			err = child.Wait()
+			waited = true
+			require.NoError(t, ctx.Err(), "MCP shutdown required the safety timeout; stderr: %s", stderr.String())
+			if test.signal == nil {
+				require.NoError(t, err, "%s", stderr.String())
+				return
+			}
+			_, statErr := send.Stat()
+			require.NoError(t, statErr, "stdin must remain open until after the child exits")
+			var exit *exec.ExitError
+			require.ErrorAs(t, err, &exit, "%s", stderr.String())
+			status, ok := exit.Sys().(syscall.WaitStatus)
+			require.True(t, ok)
+			require.True(t, status.Signaled(), "termination must not fabricate a successful response")
+			require.Equal(t, test.signal, status.Signal())
+		})
+	}
 }
 
 func TestRecoveryCommandMockProcessInterruption(t *testing.T) {

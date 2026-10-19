@@ -155,14 +155,16 @@ func discoverTasks(r *Report, spec *models.EvalSpec, base string) ([]*models.Tes
 			for range validation.ValidateTaskBytes(data) {
 				r.add("task.schema", Invalid, path, "", "", "Task does not match the embedded schema.", "Check id, name, inputs, grader configuration, and requirement metadata against schemas/task.schema.json.")
 			}
+			faultErr := models.ValidateTaskFaultSources(data, spec.SchemaVersion)
 			task, err := models.ParseTestCaseOffline(data, path, graders.ValidateConfig)
 			if err != nil {
+				err = errors.Join(err, faultErr)
 				r.add("task.configuration", schemaState(err), path, "", "", "Task could not be decoded or validated offline.", "Check prompt/prompt_file, paths, self-contained grader schemas, checkpoints, responder settings, and mocks.")
 				addMixedExternalDiagnostic(r, err, path)
 				r.Complete = false
 				continue
 			}
-			if err := models.ValidateTaskFaultSources(data, spec.SchemaVersion); err != nil {
+			if faultErr != nil {
 				r.add("task.version", Invalid, path, task.TestID, "", "Task mock sequences require explicit enclosing scenario schemaVersion 2.0.", "Select schemaVersion 2.0 with a scenario, or use legacy single responses.")
 			}
 			if err := task.ValidateForExecutor(spec.Config.EngineType); err != nil {

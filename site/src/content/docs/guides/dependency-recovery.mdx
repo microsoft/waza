@@ -75,6 +75,10 @@ preserve these fields without adding a `return` to an MCP error-only step.
   pending requests; overflow and duplicate active IDs stop the server. A queued
   request canceled before it starts consumes no step. Notifications consume no
   steps and canceled calls receive no fabricated response.
+  On Unix, SIGTERM/SIGINT terminate the MCP subprocess with normal process-signal
+  behavior, without waiting for an inherited stdin reader to unblock. This is
+  distinct from per-request cancellation; normal stdin EOF still drains accepted
+  requests.
 * CLI attempts are recorded before waiting on a sequence delay. A catchable
   interruption records cancellation (exit 130) or deadline (exit 124). An
   abruptly killed process leaves a started attempt with `exit_code` omitted,

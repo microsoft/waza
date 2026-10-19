@@ -34,6 +34,60 @@ func TestRecoveryTaskAdmissionUsesEnclosingVersion(t *testing.T) {
 	}
 }
 
+func TestRecoveryTaskVersionSurvivesUnavailableGraderSchemas(t *testing.T) {
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests.Add(1)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+	for _, scope := range []string{"task", "checkpoint"} {
+		for _, version := range []string{"1.4", "2.0"} {
+			for _, external := range []bool{false, true} {
+				for _, sequence := range []bool{false, true} {
+					t.Run(fmt.Sprintf("%s/version=%s/external=%t/sequence=%t", scope, version, external, sequence), func(t *testing.T) {
+						schema := map[string]any{"type": "object"}
+						if external {
+							schema = map[string]any{"$ref": server.URL + "/schema.json"}
+						}
+						grader := offlineMatcherDeclaration("schema", map[string]any{"json_schema": schema})
+						task := "id: task\nname: Task\ninputs: {prompt: Inspect.}\n"
+						if scope == "task" {
+							task += pipelineYAML(t, map[string]any{"graders": []any{grader}})
+						} else {
+							task += pipelineYAML(t, map[string]any{"checkpoints": []any{map[string]any{"after_turn": 1, "graders": []any{grader}}}})
+						}
+						output := "stdout: ready"
+						if sequence {
+							output = "sequence: [{stdout: ready}]"
+						}
+						task += "\ncommand_mocks:\n  - name: az\n    responses:\n      - args: []\n        " + output + "\n"
+						eval := recoveryEval(version)
+						path, dir := writeSuite(t, eval, task)
+						report := Inspect(path, Options{})
+						invalid := sequence && version != "2.0"
+						require.False(t, hasDiagnostic(report, "eval.schema", Invalid), "%+v", report.Diagnostics)
+						require.False(t, hasDiagnostic(report, "task.schema", Invalid), "%+v", report.Diagnostics)
+						require.Equal(t, invalid, report.Failed(false), "%+v", report.Diagnostics)
+						require.Equal(t, invalid && !external, hasDiagnostic(report, "task.version", Invalid), "%+v", report.Diagnostics)
+						require.Equal(t, invalid && external, hasDiagnostic(report, "task.configuration", Invalid), "%+v", report.Diagnostics)
+						require.Equal(t, external && !invalid, hasDiagnostic(report, "task.configuration", Unresolved), "%+v", report.Diagnostics)
+						require.Equal(t, external && invalid, hasDiagnostic(report, "schema.external_reference", Unresolved), "%+v", report.Diagnostics)
+						require.Equal(t, !external, report.Complete)
+						after, err := os.ReadFile(path)
+						require.NoError(t, err)
+						require.Equal(t, eval, string(after))
+						after, err = os.ReadFile(filepath.Join(dir, "task.yaml"))
+						require.NoError(t, err)
+						require.Equal(t, task, string(after))
+					})
+				}
+			}
+		}
+	}
+	require.Zero(t, requests.Load(), "version eligibility checks must not fetch unavailable grader schemas")
+}
+
 func TestRecoveryCommandFixturesUseEffectiveMocks(t *testing.T) {
 	eval := recoveryEval("2.0") + "\ncommand_mocks:\n  - name: az\n    responses:\n      - args: []\n        sequence: [{fixture: response.txt}]\n"
 	for _, override := range []string{"", "\ncommand_mocks: []\n"} {
