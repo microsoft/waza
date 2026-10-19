@@ -1031,23 +1031,20 @@ test.describe("Real dashboard lab", () => {
   }) => {
     const summary = {
       ...savedRuns[0]!,
-      taskCount: 1,
+      taskCount: 2,
       passCount: 1,
-      weightedScore: 0.8,
+      weightedScore: 0.925,
     };
     const savedDetail = detail(summary);
     const recordedTask = {
-      ...savedDetail.tasks[0]!,
+      ...RECORDED_RELIABILITY.tasks[0]!,
       id: "report-task",
-      trials: { passed: 2, total: 3 },
-      passRateCI: RECORDED_RELIABILITY.tasks[0]!.passRateCI,
-      bootstrapCI: RECORDED_RELIABILITY.tasks[0]!.bootstrapCI,
       evidenceRuns: [evidenceRun()],
     };
     const savedEvidence: RunDetail = {
       ...savedDetail,
       statistics: RECORDED_RELIABILITY.statistics,
-      tasks: [recordedTask],
+      tasks: [recordedTask, { ...RECORDED_RELIABILITY.tasks[1]!, id: "all-trials-passed" }],
     };
     await mockResults(page, [summary], [savedEvidence]);
     await page.goto("/#/lab/history");

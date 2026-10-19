@@ -36,6 +36,9 @@ test.describe("Dashboard lab screenshots", () => {
       outcome: "failed",
       timestamp: "2026-10-16T12:00:00Z",
       repetitions: 3,
+      taskCount: 2,
+      passCount: 1,
+      weightedScore: 0.925,
       source: "local",
     };
     const recorded = evidenceDetail();
@@ -44,12 +47,10 @@ test.describe("Dashboard lab screenshots", () => {
       ...summary,
       statistics: RECORDED_RELIABILITY.statistics,
       tasks: [{
-        ...recorded.tasks[0]!,
+        ...RECORDED_RELIABILITY.tasks[0]!,
         id: "report-task",
-        trials: { passed: 1, total: 3 },
-        passRateCI: RECORDED_RELIABILITY.tasks[0]!.passRateCI,
-        bootstrapCI: RECORDED_RELIABILITY.tasks[0]!.bootstrapCI,
-      }],
+        evidenceRuns: recorded.tasks[0]!.evidenceRuns,
+      }, { ...RECORDED_RELIABILITY.tasks[1]!, id: "all-trials-passed" }],
     };
     await page.route("**/api/v1/lab/runs", (route) => route.fulfill({ json: [summary] }));
     await page.route(/\/api\/runs\/[^/]+$/, (route) => route.fulfill({ json: run }));
@@ -58,7 +59,7 @@ test.describe("Dashboard lab screenshots", () => {
     const dialog = page.getByRole("dialog");
     await dialog.getByRole("tab", { name: "Recorded evidence" }).click();
     await expect(dialog).toContainText("Source origin: eval source-evaluation");
-    await expect(dialog).toContainText("1/3 passed");
+    await expect(dialog).toContainText("2/3 passed");
     await expect(dialog).toContainText("cached source evidence");
     await expect(dialog).toContainText("Prompt judging unassessed:");
     const evidenceScreenshot = "../docs/images/dashboard-lab-evidence.png";
