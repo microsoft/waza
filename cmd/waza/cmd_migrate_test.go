@@ -60,7 +60,7 @@ func TestMigrateCommandReportsArtifactVersionsWithoutRewriting(t *testing.T) {
 			"results.json is already compatible with schemaVersion 1.4 (legacy reader default); current result writer schemaVersion 1.7; no migration needed.\n"},
 		{"prior-writer-results", "results.json", `{"schemaVersion":"1.5","tasks":[]}`,
 			"results.json uses schemaVersion 1.5, which is compatible with waza schemaVersion 1.7; no migration needed.\n"},
-		{"previous-results", "results.json", `{"schemaVersion":"1.6","tasks":[]}`,
+		{"previous-writer-results", "results.json", `{"schemaVersion":"1.6","tasks":[]}`,
 			"results.json uses schemaVersion 1.6, which is compatible with waza schemaVersion 1.7; no migration needed.\n"},
 		{"current-results", "results.json", `{"schemaVersion":"1.7","tasks":[]}`,
 			"results.json is already compatible with schemaVersion 1.7; no migration needed.\n"},

@@ -11,6 +11,9 @@ var TaskSchemaJSON string
 //go:embed evidence-manifest-1.0.schema.json
 var EvidenceManifestSchemaJSON string
 
+//go:embed judge-evidence-1.0.schema.json
+var JudgeEvidenceSchemaJSON string
+
 //go:embed evidence-manifest-1.1.schema.json
 var ReferenceInputEvidenceManifestSchemaJSON string
 

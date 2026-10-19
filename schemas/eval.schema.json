@@ -195,7 +195,10 @@
           "graders": {
             "items": {
               "properties": {
-                "config": { "not": { "required": ["reasoning_effort"] } }
+                "config": { "not": { "anyOf": [
+                  {"required": ["reasoning_effort"]},
+                  {"required": ["evidence_context"]}
+                ] } }
               }
             }
           }
@@ -1650,6 +1653,13 @@
     },
     "promptGraderConfig": {
       "type": "object",
+      "allOf": [{
+        "if": {"required": ["evidence_context"]},
+        "then": {"properties": {
+          "continue_session": {"const": false},
+          "mode": {"const": "independent"}
+        }}
+      }],
       "anyOf": [
         {"required": ["prompt"]},
         {"required": ["rubric"]}
@@ -1657,6 +1667,7 @@
       "additionalProperties": false,
       "description": "Config for the prompt grader. Uses an LLM to evaluate agent output against a rubric or prompt.",
       "properties": {
+        "evidence_context": {"$ref": "#/$defs/promptEvidenceContext"},
         "prompt": {
           "type": "string",
           "minLength": 1,
@@ -1690,6 +1701,29 @@
           "default": "independent",
           "description": "'independent': grade output alone. 'pairwise': compare baseline vs skill output with position bias detection."
         }
+      }
+    },
+    "promptEvidenceContext": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Required frozen actor evidence for a fresh isolated final prompt judge. Never resumes an actor or exposes its workspace.",
+      "properties": {
+        "files": {"$ref": "#/$defs/judgeEvidencePaths"},
+        "evaluator_only": {"$ref": "#/$defs/judgeEvidencePaths"}
+      }
+    },
+    "judgeEvidencePaths": {
+      "type": "array",
+      "maxItems": 64,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 1024,
+        "allOf": [
+          {"not": {"pattern": "[\\\\:*?\\[\\]\\x00]"}},
+          {"not": {"pattern": "(^/|/$|//|(^|/)\\.{1,2}(/|$))"}}
+        ]
       }
     },
     "jsonSchemaGraderConfig": {

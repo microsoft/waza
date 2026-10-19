@@ -290,7 +290,7 @@ func qualificationRecomputeJobs(ctx context.Context, sources qualificationSource
 		}
 		config := *resolved.Config
 		parameters, ok := config.Parameters.(models.PromptGraderParameters)
-		if !ok || config.Kind != models.GraderKindPrompt || parameters.ContinueSession ||
+		if !ok || config.Kind != models.GraderKindPrompt || parameters.ContinueSession || parameters.EvidenceContext != nil ||
 			(parameters.Mode != "" && parameters.Mode != models.PromptGraderModeIndependent) || !calibrationLocalRubric(parameters.Rubric) {
 			return result, errors.New("qualification: unsupported selected judge configuration")
 		}

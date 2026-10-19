@@ -102,6 +102,28 @@ instruction, and fixture digests do not preserve source bytes. See
 narrow verified file-only regrading operation, and
 [Schema Changes](/waza/reference/schema-changes/) for compatibility.
 
+## Frozen prompt-judging evidence
+
+Result writer `1.7` adds optional `runs[].judge_evidence` and
+`runs[].prompt_judging`, plus separate current-invocation `regrade_usage.sessions`.
+The bundle has its own strict version `1.0` and embedded
+[`judge-evidence-1.0.schema.json`](https://github.com/microsoft/waza/blob/main/schemas/judge-evidence-1.0.schema.json).
+It is not an evidence-manifest document variant. Presence-bearing sections retain
+captured empty values versus unavailable/null items, full origin, source mode,
+fixed limits, redaction and integrity metadata. Readers retain legacy defaults.
+Optional snapshot `1.2` references the frozen digest as `judgeEvidenceSHA256`;
+ordinary snapshots remain `1.1`.
+
+Final eval/task `prompt` config accepts an optional object `evidence_context`
+with exact slash-relative `files` and `evaluator_only` arrays. `{}` opts into core
+recorded evidence; null/wrong types, duplicate paths, traversal and glob paths are
+invalid. Checkpoint, pairwise and `continue_session: true` combinations are
+unsupported. The new profile rejects ambiguous keys, aliases/merges, malformed
+Unicode and invalid wire types before lossy decoding. The runtime verifies
+digest, complete binding, required sections and current selection before judging.
+See [the canonical contract](/waza/guides/graders/#evidence-backed-independent-judging)
+for limits, native-platform/authentication requirements and privacy boundaries.
+
 ## Optional descriptive task requirements
 
 `requirements` is an optional task array. Each entry has `id` (task-local stable

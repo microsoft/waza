@@ -312,4 +312,11 @@ func TestCompatibilityResultWriterOracleDiffersOnlyByVersion(t *testing.T) {
 	require.Equal(t, "1.5", prior["schemaVersion"])
 	prior["schemaVersion"] = "1.7"
 	require.Equal(t, prior, current, "the frozen prior-writer oracle must remain unchanged apart from version negotiation")
+	evidenceBytes, err := os.ReadFile(testutil.RepoFile(t, "cmd", "waza", "testdata", "compatibility-run-1.6.json"))
+	require.NoError(t, err)
+	var previousEvidence map[string]any
+	require.NoError(t, json.Unmarshal(evidenceBytes, &previousEvidence))
+	require.Equal(t, "1.6", previousEvidence["schemaVersion"])
+	previousEvidence["schemaVersion"] = "1.7"
+	require.Equal(t, previousEvidence, current, "omitting evidence_context must not change the frozen 1.6 contract")
 }

@@ -516,7 +516,7 @@ export default function RunDetail({ id }: { id: string }) {
       )}
 
       {activeTab === "prompts" && <PromptsTab tasks={data.tasks} />}
-      {activeTab === "evidence" && <EvidenceView tasks={data.tasks} />}
+      {activeTab === "evidence" && <EvidenceView tasks={data.tasks} regradeUsage={data.regradeUsage} />}
 
       {activeTab === "trajectory" && (
         <div className="space-y-4">

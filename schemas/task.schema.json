@@ -115,7 +115,10 @@
             "type": "array",
             "minItems": 1,
             "items": {
-              "$ref": "#/$defs/validatorInline"
+              "allOf": [
+                {"$ref": "#/$defs/validatorInline"},
+                {"properties": {"config": {"not": {"required": ["evidence_context"]}}}}
+              ]
             }
           },
           "on_failure": {
@@ -1352,12 +1355,20 @@
     },
     "promptGraderConfig": {
       "type": "object",
+      "allOf": [{
+        "if": {"required": ["evidence_context"]},
+        "then": {"properties": {
+          "continue_session": {"const": false},
+          "mode": {"const": "independent"}
+        }}
+      }],
       "anyOf": [
         {"required": ["prompt"]},
         {"required": ["rubric"]}
       ],
       "additionalProperties": false,
       "properties": {
+        "evidence_context": {"$ref": "#/$defs/promptEvidenceContext"},
         "prompt": {
           "type": "string",
           "minLength": 1
@@ -1387,6 +1398,29 @@
           ],
           "default": "independent"
         }
+      }
+    },
+    "promptEvidenceContext": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Required frozen actor evidence for a fresh isolated final prompt judge. Not supported in checkpoints.",
+      "properties": {
+        "files": {"$ref": "#/$defs/judgeEvidencePaths"},
+        "evaluator_only": {"$ref": "#/$defs/judgeEvidencePaths"}
+      }
+    },
+    "judgeEvidencePaths": {
+      "type": "array",
+      "maxItems": 64,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 1024,
+        "allOf": [
+          {"not": {"pattern": "[\\\\:*?\\[\\]\\x00]"}},
+          {"not": {"pattern": "(^/|/$|//|(^|/)\\.{1,2}(/|$))"}}
+        ]
       }
     },
     "jsonSchemaGraderConfig": {

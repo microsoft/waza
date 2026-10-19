@@ -12,6 +12,7 @@ import (
 	"github.com/microsoft/waza/internal/copilotconfig"
 	"github.com/microsoft/waza/internal/dataset"
 	"github.com/microsoft/waza/internal/graders"
+	"github.com/microsoft/waza/internal/judgeevidence"
 	"github.com/microsoft/waza/internal/mcpmock"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/orchestration"
@@ -82,6 +83,13 @@ func Inspect(evalPath string, opts Options) *Report {
 			r.add("task.id", Invalid, source, task.TestID, "", "Task ID is empty or duplicated.", "Assign a unique nonempty ID across all discovered tasks, including disabled tasks.")
 		}
 		ids[task.TestID] = true
+		if models.UsesJudgeEvidence(spec.Graders, task) {
+			if _, err := judgeevidence.Selection(spec.Graders, task); err != nil {
+				r.add("grader.evidence_selection", Invalid, source, task.TestID, "",
+					"Required judge evidence selections conflict, exceed limits, or are unsupported on this platform.",
+					"Use at most 64 exact selected files/exclusions, remove evaluator-only conflicts, and use Linux/macOS for selected-file capture.")
+			}
+		}
 		fixtures := contextDir
 		if task.ContextRoot != "" {
 			// The existing runner uses task context_dir as supplied, relative to cwd.

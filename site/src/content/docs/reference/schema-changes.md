@@ -94,6 +94,9 @@ unchanged; it does not downgrade scenario discovery semantics to `1.x`.
 - Inline `code` graders receive `tool_events` and `command_invocations` during
   execution and regrading. Recovery examples check actual dependency operations,
   observed responses, and dependency-scoped retry counts as well as report files.
+- Independent evidence judges retain an observed SDK tool failure's `error`
+  even when no result payload was emitted. Missing results without an observed
+  failure remain incomplete evidence; no successful response is synthesized.
 
 ### Portable evidence manifest 1.0 / snapshot 1.1 (#663)
 
@@ -164,7 +167,20 @@ promised stable across runs.
 
 ### 1.7 (new results only)
 
+- Recovery metadata and independent-judging fields are separate optional
+  additions to the same-major result contract; readers do not infer either
+  feature from the version alone, and historical artifacts keep their version.
 - Adds optional `tasks[].runs[].dependency_modes`, listing configured dependency kind/name and `live` or `mocked` mode for each run. This reports configuration only; it does not prove the dependency was invoked or verify a real component. CLI response attempts remain in `runs[].command_invocations`, and historical results preserve their original version and fields.
+- Adds optional final prompt-grader `evidence_context`, frozen
+  `runs[].judge_evidence` bundle version `1.0`, typed `runs[].prompt_judging`
+  observations, and separate current-invocation `regrade_usage.sessions`.
+  Omission preserves legacy grading and cache behavior.
+- Evidence-enabled snapshots `1.2` reference the frozen bundle digest; ordinary
+  snapshot writers remain `1.1`. Legacy result/eval defaults remain `1.4`.
+- Independent judging requires the current CLI implementation, explicit
+  credentials, usable required evidence and the pinned runtime isolation profile.
+  See [evidence-backed independent judging](/waza/guides/graders/#evidence-backed-independent-judging)
+  for supported scopes, bounded files, privacy and claim limits.
 
 ### 1.6 (new results only)
 

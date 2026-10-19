@@ -1,5 +1,22 @@
 import { expect, test } from '@playwright/test';
 
+test('independent judging documents required evidence, limits and actual claim boundaries', async ({ page }) => {
+  await page.goto('/waza/guides/graders/#evidence-backed-independent-judging');
+  await expect(page.getByRole('heading', { name: 'Evidence-backed independent judging', exact: true })).toBeVisible();
+  const main = page.locator('main');
+  for (const text of ['evidence_context:', 'evaluator_only: [references]', '256 KiB', '64 KiB',
+    'no truncation', 'COPILOT_GITHUB_TOKEN', 'COPILOT_BASE_URL', 'not an OS sandbox',
+    'not_observable', 'regrade_usage.sessions', 'snapshot_path', '1.7']) {
+    await expect(main).toContainText(text);
+  }
+  await expect(main.getByRole('link', { name: 'Evidence view', exact: true }))
+    .toHaveAttribute('href', '/waza/guides/dashboard/#prompt-judging');
+  await main.getByRole('link', { name: 'Evidence view', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Prompt judging', exact: true })).toBeVisible();
+  await expect(page.locator('main')).toContainText('Export prompt judging metadata');
+  await expect(page.locator('main')).toContainText('missing credits are unavailable');
+});
+
 test('task authoring distinguishes requirement intent from recorded evidence', async ({ page }) => {
   await page.goto('/waza/guides/eval-yaml/');
   await expect(page.getByRole('heading', { name: 'Link intent to existing checks', exact: true })).toBeVisible();

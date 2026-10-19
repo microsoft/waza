@@ -165,7 +165,7 @@ func TestRegradeOutcome_VersionsNewReliabilityWithoutChangingOriginal(t *testing
 				{Status: models.StatusFailed, Runs: trialRuns(1, 3)},
 			}
 			result := RegradeOutcome(original, graded, "", "")
-			require.Equal(t, "1.7", result.SchemaVersion)
+			require.Equal(t, models.CurrentResultSchemaVersion, result.SchemaVersion)
 			require.Equal(t, version, original.SchemaVersion)
 			require.Nil(t, original.Digest.Statistics)
 			require.NotNil(t, result.TestOutcomes[0].Stats.PassRateCI)
@@ -174,7 +174,7 @@ func TestRegradeOutcome_VersionsNewReliabilityWithoutChangingOriginal(t *testing
 			require.Len(t, result.Digest.Statistics.PassHatK, 3)
 			data, err := json.Marshal(result)
 			require.NoError(t, err)
-			require.Contains(t, string(data), `"schemaVersion":"1.7"`)
+			require.Contains(t, string(data), `"schemaVersion":"`+models.CurrentResultSchemaVersion+`"`)
 			require.Contains(t, string(data), `"pass_rate_ci":`)
 			require.Contains(t, string(data), `"success_rate_ci":`)
 			require.Contains(t, string(data), `"pass_hat_k":`)

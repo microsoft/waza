@@ -1,11 +1,81 @@
 package graders
 
 import (
+	"context"
+	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/microsoft/waza/internal/models"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
+
+type runAllErrorGrader struct {
+	kind models.GraderKind
+	err  error
+}
+
+func (g runAllErrorGrader) Name() string            { return "check" }
+func (g runAllErrorGrader) Kind() models.GraderKind { return g.kind }
+func (g runAllErrorGrader) Grade(context.Context, *Context) (*models.GraderResults, error) {
+	if g.err != nil {
+		return nil, g.err
+	}
+	return &models.GraderResults{Name: g.Name(), Score: 1, Passed: true}, nil
+}
+
+func TestRunAllPreservesFailingGraderKindAndCause(t *testing.T) {
+	for _, scope := range []string{"eval", "task"} {
+		for _, kind := range []models.GraderKind{models.GraderKindText, models.GraderKindPrompt} {
+			for _, stage := range []string{"create", "run", "success"} {
+				t.Run(scope+"/"+string(kind)+"/"+stage, func(t *testing.T) {
+					cause := errors.New("original failure")
+					config := models.GraderConfig{Identifier: "check", Kind: kind}
+					var configs []models.GraderConfig
+					task := &models.TestCase{}
+					if scope == "eval" {
+						configs = []models.GraderConfig{config}
+					} else {
+						task.Validators = []models.ValidatorInline{{Identifier: config.Identifier, Kind: kind}}
+					}
+					create := func(name string, _ models.GraderParameters) (Grader, error) {
+						require.Equal(t, "check", name)
+						if stage == "create" {
+							return nil, cause
+						}
+						grader := runAllErrorGrader{kind: kind}
+						if stage == "run" {
+							grader.err = cause
+						}
+						return grader, nil
+					}
+					results, err := runAll(t.Context(), configs, task, &Context{}, "", "", false, create)
+					if stage == "success" {
+						require.NoError(t, err)
+						require.Len(t, results, 1)
+						require.True(t, results["check"].Passed)
+						return
+					}
+					require.Nil(t, results)
+					require.ErrorIs(t, err, cause)
+					require.EqualError(t, err, "failed to "+stage+" grader check: original failure")
+					failure, ok := errors.AsType[*RunError](fmt.Errorf("caller: %w", err))
+					require.True(t, ok)
+					require.Equal(t, kind, failure.Kind)
+				})
+			}
+		}
+	}
+}
+
+func TestRunAllMissingTaskKindRemainsClassifiable(t *testing.T) {
+	_, err := RunAll(t.Context(), nil, &models.TestCase{Validators: []models.ValidatorInline{{Identifier: "missing"}}}, &Context{}, "", "", false)
+	require.EqualError(t, err, "no kind associated with grader missing")
+	failure, ok := errors.AsType[*RunError](err)
+	require.True(t, ok)
+	require.Empty(t, failure.Kind)
+}
 
 func TestApplyDefaults_PromptGrader(t *testing.T) {
 	t.Run("sets judge model when empty", func(t *testing.T) {

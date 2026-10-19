@@ -333,13 +333,17 @@ func (e *CopilotEngine) ListModels(ctx context.Context) ([]copilot.ModelInfo, er
 }
 
 func (e *CopilotEngine) validateReasoningEffort(ctx context.Context, modelID, effort string) error {
-	if effort == "" || e.provider.enabled() {
+	return validateReasoningEffort(ctx, e.client, modelID, effort, e.provider.enabled())
+}
+
+func validateReasoningEffort(ctx context.Context, client CopilotClient, modelID, effort string, customProvider bool) error {
+	if effort == "" || customProvider {
 		return nil
 	}
 	if modelID == "" || modelID == "auto" {
 		return fmt.Errorf("reasoning effort %q requires an explicit model; select one with waza models", effort)
 	}
-	models, err := e.client.ListModels(ctx)
+	models, err := client.ListModels(ctx)
 	if err != nil {
 		return fmt.Errorf("checking reasoning effort %q for model %q: %w", effort, modelID, err)
 	}
@@ -778,6 +782,10 @@ func (e *CopilotEngine) execute(ctx context.Context, req *ExecutionRequest) (*Ex
 	if !req.SkipWorkspaceCapture {
 		workspaceFiles = captureWorkspaceFiles(workspaceDir)
 	}
+	var judgeFiles *models.JudgeFileCapture
+	if req.CaptureJudgeFiles != nil {
+		judgeFiles = req.CaptureJudgeFiles(workspaceDir)
+	}
 
 	// Build response
 	e.captureUsage(ctx, sessionID, session, usageCollector, req.EphemeralSession && req.SessionID == "")
@@ -812,6 +820,7 @@ func (e *CopilotEngine) execute(ctx context.Context, req *ExecutionRequest) (*Ex
 		Success:            err == nil,
 		WorkspaceDir:       workspaceDir,
 		WorkspaceFiles:     workspaceFiles,
+		JudgeFiles:         judgeFiles,
 		CommandInvocations: commandMockSession.Invocations(), // Checkpoint graders run before task finalization.
 		SessionID:          sessionID,
 		Usage:              usage,

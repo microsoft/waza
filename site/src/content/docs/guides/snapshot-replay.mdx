@@ -59,6 +59,21 @@ snapshots retain historical metadata-only writer routing; existing nonempty
 file snapshots still use private publication. On unsupported platforms, selected
 publication returns an explicit error instead of falling back to ordinary output.
 
+## Frozen prompt judging is separate
+
+Final prompt graders can opt into
+[evidence-backed independent judging](/waza/guides/graders/#evidence-backed-independent-judging).
+The bounded `runs[].judge_evidence` bundle persists directly in results, without
+requiring `--snapshot`. A separately requested snapshot `1.2` references its
+already frozen digest as `judgeEvidenceSHA256`; post-grader snapshot workspace
+observations are not replacements for the files actually supplied to a judge.
+Ordinary snapshots keep version `1.1`.
+
+Evidence-only `waza grade` verifies that result bundle and makes new judge-model
+calls without the actor workspace. It does not follow snapshot paths or resume
+the actor. `replay` remains an offline consistency check, and the explicit
+file-only `--evidence-snapshot` operation does not perform model judging.
+
 ## What's recorded
 
 Snapshot schema **`1.1`** carries a separately versioned evidence manifest

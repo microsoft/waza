@@ -1,0 +1,143 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/microsoft/waza/main/schemas/judge-evidence-1.0.schema.json",
+  "title": "Bounded frozen prompt-judge evidence",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "sha256", "origin", "boundary", "execution_mode", "task", "output", "messages", "tool_events", "files", "selection", "redaction", "limits"],
+  "properties": {
+    "version": {"const": "1.0"},
+    "sha256": {"type": "string", "pattern": "^([a-f0-9]{64})?$"},
+    "origin": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["eval_id", "task_id", "run_number", "attempt_count", "prior_attempts"],
+      "properties": {
+        "eval_id": {"type": "string", "maxLength": 1024},
+        "task_id": {"type": "string", "maxLength": 1024},
+        "run_number": {"type": "integer", "minimum": 0},
+        "attempt_count": {"type": "integer", "minimum": 0},
+        "prior_attempts": {"enum": ["none", "not_preserved", "unknown"]}
+      }
+    },
+    "boundary": {"const": "final"},
+    "execution_mode": {"enum": ["live", "mock", "unknown"]},
+    "task": {"$ref": "#/$defs/textSection"},
+    "output": {"$ref": "#/$defs/textSection"},
+    "messages": {
+      "allOf": [
+        {"$ref": "#/$defs/section"},
+        {"properties": {"items": {
+          "type": ["array", "null"], "maxItems": 4096,
+          "items": {
+            "type": "object", "additionalProperties": false, "required": ["role", "content"],
+            "properties": {"role": {"enum": ["user", "assistant"]}, "content": {"type": "string"}}
+          }
+        }}}
+      ]
+    },
+    "tool_events": {
+      "allOf": [
+        {"$ref": "#/$defs/section"},
+        {"properties": {"items": {
+          "type": ["array", "null"], "maxItems": 4096,
+          "items": {
+            "type": "object", "additionalProperties": false,
+            "required": ["turn", "sequence", "tool_name", "success"],
+            "properties": {
+              "turn": {"type": "integer", "minimum": 0},
+              "sequence": {"type": "integer", "minimum": 1},
+              "tool_call_id": {"type": "string"},
+              "tool_name": {"type": "string", "minLength": 1},
+              "args": {},
+              "result": {},
+              "success": {"type": "boolean"},
+              "error": {"type": "string"},
+              "duration_ms": {"type": "integer", "minimum": 0}
+            }
+          }
+        }}}
+      ]
+    },
+    "files": {
+      "allOf": [
+        {"$ref": "#/$defs/section"},
+        {"properties": {"items": {
+          "type": ["array", "null"], "maxItems": 64,
+          "items": {
+            "type": "object", "additionalProperties": false, "required": ["path", "content", "sha256"],
+            "properties": {
+              "path": {"type": "string", "minLength": 1, "maxLength": 1024},
+              "content": {"type": "string", "maxLength": 65536},
+              "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+            }
+          }
+        }}}
+      ]
+    },
+    "selection": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "files": {"$ref": "#/$defs/paths"},
+        "evaluator_only": {"$ref": "#/$defs/paths"}
+      }
+    },
+    "redaction": {
+      "type": "object", "additionalProperties": false,
+      "required": ["policy", "match_count", "limitations"],
+      "properties": {
+        "policy": {"const": "default"},
+        "applied_rules": {"type": "array", "maxItems": 32, "items": {"type": "string", "maxLength": 64}},
+        "match_count": {"type": "integer", "minimum": 0},
+        "limitations": {"type": "array", "maxItems": 8, "items": {"type": "string", "maxLength": 256}}
+      }
+    },
+    "limits": {
+      "type": "object", "additionalProperties": false,
+      "required": ["max_files", "max_file_bytes", "max_bundle_bytes"],
+      "properties": {
+        "max_files": {"const": 64},
+        "max_file_bytes": {"const": 65536},
+        "max_bundle_bytes": {"const": 262144}
+      }
+    },
+    "diagnostics": {
+      "type": "array", "maxItems": 64,
+      "items": {
+        "type": "object", "additionalProperties": false, "required": ["category", "code", "message"],
+        "properties": {
+          "category": {"const": "prompt_judging"},
+          "code": {"type": "string", "maxLength": 64},
+          "message": {"type": "string", "maxLength": 256}
+        }
+      }
+    }
+  },
+  "$defs": {
+    "paths": {
+      "type": "array", "maxItems": 64, "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1, "maxLength": 1024}
+    },
+    "section": {
+      "type": "object", "additionalProperties": false,
+      "required": ["availability", "completeness", "items"],
+      "properties": {
+        "availability": {"enum": ["captured", "unavailable"]},
+        "completeness": {"enum": ["complete", "incomplete", "unknown"]},
+        "items": {},
+        "reason": {"type": "string", "maxLength": 64}
+      },
+      "allOf": [{
+        "if": {"properties": {"availability": {"const": "unavailable"}}},
+        "then": {"properties": {"items": {"type": "null"}}, "required": ["reason"]},
+        "else": {"properties": {"items": {"not": {"type": "null"}}}}
+      }]
+    },
+    "textSection": {
+      "allOf": [
+        {"$ref": "#/$defs/section"},
+        {"properties": {"items": {"type": ["string", "null"]}}}
+      ]
+    }
+  }
+}

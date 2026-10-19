@@ -1,0 +1,4 @@
+id: report
+name: Summarize the supplied report
+inputs:
+  prompt: Read report.json and report its status, item count, and item sum. Do not change the file.

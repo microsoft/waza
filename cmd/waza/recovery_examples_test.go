@@ -70,7 +70,7 @@ func TestRecoveryMCPExamplesGradeObservedFaults(t *testing.T) {
 				{"extra retry", test.operation, test.calls + 1, false},
 			} {
 				t.Run(trace.name, func(t *testing.T) {
-					graded, err := gradeRun(t.Context(), spec, task, &models.RunResult{ToolEvents: makeTrace(trace.operation, trace.count)}, workspace, "", io.Discard, false)
+					graded, err := gradeRunWithJudge(t.Context(), spec, task, &models.RunResult{ToolEvents: makeTrace(trace.operation, trace.count)}, workspace, "", io.Discard, false, evidenceGradeSource{})
 					require.NoError(t, err)
 					require.NotEmpty(t, graded.Validations)
 					require.Equal(t, trace.passed, graded.Status == models.StatusPassed, "%+v", graded.Validations)
@@ -78,7 +78,7 @@ func TestRecoveryMCPExamplesGradeObservedFaults(t *testing.T) {
 			}
 			if test.calls == 2 {
 				t.Run("skipped retry", func(t *testing.T) {
-					graded, err := gradeRun(t.Context(), spec, task, &models.RunResult{ToolEvents: makeTrace(test.operation, 1)}, workspace, "", io.Discard, false)
+					graded, err := gradeRunWithJudge(t.Context(), spec, task, &models.RunResult{ToolEvents: makeTrace(test.operation, 1)}, workspace, "", io.Discard, false, evidenceGradeSource{})
 					require.NoError(t, err)
 					require.Equal(t, models.StatusFailed, graded.Status)
 				})
@@ -113,7 +113,7 @@ func TestRecoveryCLIExampleGradesArgumentsAndExitSequence(t *testing.T) {
 		{"extra retry", []models.CommandInvocation{call(new(1), args...), call(new(0), args...), call(new(0), args...)}, false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			graded, err := gradeRun(t.Context(), spec, task, &models.RunResult{CommandInvocations: test.calls}, workspace, "", io.Discard, false)
+			graded, err := gradeRunWithJudge(t.Context(), spec, task, &models.RunResult{CommandInvocations: test.calls}, workspace, "", io.Discard, false, evidenceGradeSource{})
 			require.NoError(t, err)
 			require.NotEmpty(t, graded.Validations)
 			require.Equal(t, test.passed, graded.Status == models.StatusPassed, "%+v", graded.Validations)

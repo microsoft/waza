@@ -111,6 +111,21 @@ See [repo-resources/README.md](./repo-resources/README.md) for setup (you need t
 
 ---
 
+### 8. [evidence-judge](./evidence-judge/)
+
+**Purpose**: Independently judge a report using frozen recorded evidence rather
+than the actor's live workspace. Requires a current source build, explicit
+hosted/BYOK credentials, and Linux/macOS for selected-file capture.
+
+```bash
+waza run examples/evidence-judge/eval.yaml --context-dir examples/evidence-judge/fixtures --output results.json
+waza grade examples/evidence-judge/eval.yaml --results results.json --task report --output regraded.json
+```
+
+The regrade calls the judge model, not the actor, and records new usage separately.
+See the [evidence-judging reference](https://microsoft.github.io/waza/guides/graders/#evidence-backed-independent-judging)
+for required evidence, limits, isolation and claim boundaries.
+
 ## Usage Patterns
 
 ### Running Examples

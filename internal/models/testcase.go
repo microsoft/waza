@@ -102,6 +102,9 @@ func (c *Checkpoint) Validate() error {
 			c.AfterTurn, CheckpointContinue, CheckpointStop, c.OnFailure)
 	}
 	for i := range c.Graders {
+		if params, ok := c.Graders[i].Parameters.(PromptGraderParameters); ok && params.EvidenceContext != nil {
+			return fmt.Errorf("after_turn %d: evidence_context is supported only by final graders, not checkpoints", c.AfterTurn)
+		}
 		if err := c.Graders[i].Validate(); err != nil {
 			return fmt.Errorf("after_turn %d: grader[%d]: %w", c.AfterTurn, i, err)
 		}

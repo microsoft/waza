@@ -1432,6 +1432,23 @@ Re-grade previous evaluation results without re-executing the agent.
 
 File-based graders require the actual preserved agent workspace via `--workspace`. Snapshot hashes and tool events cannot reconstruct those files. Prompt graders may contact the configured judge model.
 
+Final prompt graders with `config.evidence_context` instead verify the persisted
+`judge_evidence` bundle and create fresh isolated judge sessions, never resuming
+saved actor/judge sessions or fetching `snapshot_path`. Evidence-only grading
+does not inspect `--workspace`. Do not mix it with legacy prompt graders or
+`--evidence-snapshot`; newly selected files must already be captured.
+
+```bash
+waza grade examples/evidence-judge/eval.yaml --results results.json --task report --output regraded.json
+```
+
+This can incur new model charges. Original execution billing is unchanged; new
+sessions appear in `regrade_usage`. Ordinary failed judgments retain `grade`'s
+zero exit with `passed: false` / `status: failed`. Operational evidence/judge
+errors return nonzero, `status: error` and no `overall_score`; requested output
+retains admitted-source run diagnostics, and output-write errors propagate.
+See [frozen judging configuration and prerequisites](/waza/guides/graders/#evidence-backed-independent-judging).
+
 The narrow `--evidence-snapshot` mode verifies captured file contents instead.
 It requires `--task`, exactly one assessed matching run, original manifest
 SHA-256/full-origin verification, complete unredacted required files and text

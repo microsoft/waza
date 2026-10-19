@@ -526,7 +526,7 @@ func qualificationLoadSelectionOwned(ctx context.Context, set qualificationSourc
 			}
 			prompt, isPrompt := parameters.(models.PromptGraderParameters)
 			if kind == models.GraderKindPrompt || isPrompt {
-				if !isPrompt || kind != models.GraderKindPrompt || prompt.ContinueSession ||
+				if !isPrompt || kind != models.GraderKindPrompt || prompt.ContinueSession || prompt.EvidenceContext != nil ||
 					(prompt.Mode != "" && prompt.Mode != models.PromptGraderModeIndependent) ||
 					!calibrationLocalRubric(prompt.Rubric) || check.RubricContentSHA256 == nil {
 					return result, errors.New("qualification: selected prompt requires supported independent local rubric and original binding")

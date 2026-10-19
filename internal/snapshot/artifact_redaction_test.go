@@ -357,9 +357,9 @@ func artifactCaptureSourceJSON(t *testing.T, in CaptureInput) []byte {
 		value := reflect.ValueOf(*in.Request)
 		request = make(map[string]any, value.NumField()-1)
 		for i := range value.NumField() {
-			name := value.Type().Field(i).Name
-			if name != "PermissionHandler" {
-				request[name] = value.Field(i).Interface()
+			field := value.Type().Field(i)
+			if field.Name != "PermissionHandler" && field.Tag.Get("json") != "-" {
+				request[field.Name] = value.Field(i).Interface()
 			}
 		}
 	}

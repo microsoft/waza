@@ -534,10 +534,11 @@ This is the closest Waza match for OpenAI Evals `modelgraded` specs. See the eva
 | ------------------ | -------- | ------------ | ---------------------------------------------------- |
 | `prompt`           | `string` | _(required¹)_ | Instructions for the judge LLM                       |
 | `rubric`           | `string` | _(optional)_ | Reusable rubric by name (e.g. `groundedness`) or path to a local `.md` file. See [Rubric library](../../reference/rubrics/). |
-| `model`            | `string` | _(required)_ | Model to use for judging                             |
+| `model`            | `string` | eval `judge_model` | Optional per-grader judge model override. See evidence-model fallback below. |
 | `reasoning_effort` | `string` | eval `judge_reasoning_effort` | Judge effort: `low`, `medium`, `high`, `xhigh`, or `max`. Requires `executor: copilot-sdk`. |
 | `continue_session` | `bool`   | `false`      | Resume the agent's session (judge sees full context) |
 | `mode`             | `string` | `independent` | Judging mode: `independent` (standard) or `pairwise` (compare two, requires `--baseline`) |
+| `evidence_context` | `object` | omitted | Opt into bounded frozen evidence in a separately owned, fresh judge session; final eval/task graders only. |
 
 ¹ Either `prompt` or `rubric` is required. When only `rubric` is set, the rubric's body becomes the judge prompt. When both are set, the inline `prompt` wins (useful for ad-hoc overrides while keeping the rubric metadata attached for reporting).
 
@@ -565,6 +566,175 @@ resumed session, the runtime retains its existing setting. With an explicit effo
 select a concrete model from `waza models`. Waza validates hosted Copilot model support
 against the runtime catalog before execution rather than allowing a silent downgrade.
 For custom providers, effort is forwarded directly and provider errors are surfaced.
+
+### Evidence-backed independent judging
+
+**Current source/main-only:** use a build containing this feature. Older CLIs do
+not implement the evidence-isolation profile.
+
+Set `evidence_context` to judge a recorded execution without resuming the actor
+or giving the judge its live workspace. Omit it to retain existing prompt-grader
+behavior. An empty object `{}` requests the recorded task, visible user/assistant
+messages, canonical tool arguments/results, and final actor output, with no files.
+Hidden reasoning and ambient instructions are not evidence sections.
+
+For evidence-backed judging, model precedence is the grader's `model`,
+`waza grade --judge-model` when regrading, eval `judge_model`, eval `model`,
+then `auto`. Only the configured model choice is inherited, never actor runtime
+state. An explicit hosted reasoning effort is checked against the isolated
+judge client's own model catalog before creating its session; `auto`,
+unsupported efforts and unverifiable model metadata are rejected.
+Custom providers retain direct effort passthrough.
+
+This is the grader from the runnable
+[evidence-judge example](https://github.com/microsoft/waza/tree/main/examples/evidence-judge):
+
+```yaml
+- type: prompt
+  name: grounded_report
+  config:
+    model: gpt-5-mini
+    prompt: |
+      Evaluate the recorded task using the supplied evidence.
+      Check the reported status, item count, and sum against report.json.
+      Prefer observed tool results over unsupported actor claims.
+      Call exactly one of set_waza_grade_pass or set_waza_grade_fail once.
+    evidence_context:
+      files: [report.json]
+      evaluator_only: [references]
+```
+
+Use `executor: copilot-sdk`. `files` contains exact slash-relative, agent-visible
+file paths: no globs, directories, traversal, absolute paths, or whole-workspace
+capture. `evaluator_only` excludes explicitly reviewed files/directories before
+selected-file reads. Do not select answer keys, labels, grader prompts, or private
+instructions. Existing sensitive-path and symlink protections still apply.
+Exclusions from all final eval and task graders apply to the capture union;
+saved regrading revalidates those exclusions and the union limits before any
+judge starts, without recapturing files. Conflicting declarations fail rather
+than weakening an exclusion. Each judge receives only
+its own selected files, not another grader's files or exclusions.
+
+| Scope / setting | Evidence context |
+| --- | --- |
+| Final eval grader / final task validator | Supported |
+| Saved-result `waza grade` | Supported with a valid persisted bundle |
+| Checkpoint grader / assurance calibration | Rejected |
+| `mode: pairwise` / `continue_session: true` | Rejected |
+| Controlled execution / `--evidence-snapshot` | Rejected |
+
+#### Required evidence and limits
+
+Every requested section and file is required. Explicit empty output, empty files,
+and an observed zero-tool execution are valid. An absent event source is not an
+observed empty tool list. Missing tool completions/results, unavailable sections,
+redacted required content, and unsupported capture fail before judge startup.
+There is no truncation, partial-grading fallback, or live-file recovery.
+Present null/scalar options, aliases/merges in evidence-enabled grader
+configuration, duplicate declarations, and malformed new wire fields are rejected.
+
+The fixed limits are **64 files** in the run's union, **64 KiB per file**, and
+**256 KiB for the entire compact JSON-encoded bundle**, including core evidence and metadata.
+Exclusions are also limited to 64 paths. Source values, structure traversal and
+sanitized/encoded bytes are bounded; JSON escaping and metadata consume the
+encoded budget. Formatting whitespace outside JSON strings does not consume
+this budget; whitespace within strings does. Pretty-printed saved results use
+the same limit as compact capture. Each filtered delivery must fit too. Rubric
+text has a separate 256 KiB cap. These bounds do not guarantee sufficient model
+context. Selected-file capture requires Linux/macOS; it also retains the existing
+[filesystem admission limits](/waza/guides/snapshot-replay/#filesystem-admission-and-observation-limits).
+
+Evidence freezes after the last actor turn and command-mock finalization, before
+any final grader can resume or mutate the actor. Result schema `1.7` stores
+`runs[].judge_evidence` (independent bundle version `1.0`) and typed
+`runs[].prompt_judging` observations. An independently requested snapshot `1.2`
+references that same frozen digest as `judgeEvidenceSHA256`; it does not recapture
+judging files or duplicate the bundle. Ordinary snapshots remain `1.1`.
+Tasks with an effective evidence grader bypass cache reads and writes.
+
+#### Runtime, credentials, and claim boundaries
+
+Each judgment, including a retry or regrade, creates a fresh session on a
+separately owned pinned SDK runtime/client. It uses private empty working/config/
+state roots, replacement judge instructions, and only the two grade tools.
+Actor sessions, resources, skills, instructions, hooks, MCP, command mocks,
+on-demand discovery and session retrieval are not inherited. Tool-source
+impersonation and permissions outside the grade tools fail closed. Exactly one
+valid grade callback is required; a later execution, policy, cancellation or
+cleanup error still makes the operation fail.
+
+Hosted authentication requires an explicit environment credential, in priority
+order: `COPILOT_GITHUB_TOKEN`, `GH_TOKEN`, `GITHUB_TOKEN`. Stored CLI/gh login and
+keychain credentials are not copied. Keep credentials out of evals and results.
+Explicit BYOK uses `COPILOT_BASE_URL`, optional `COPILOT_PROVIDER`,
+`COPILOT_WIRE_API`, `COPILOT_API_KEY`, and `COPILOT_BEARER_TOKEN`; existing
+`COPILOT_PROVIDER_*` aliases remain accepted and canonical names win.
+Arbitrary actor environment, PATH, proxy and certificate variables are not
+inherited; endpoints requiring those ambient settings are not supported by this
+profile. `COPILOT_CLI_PATH`, when set, must identify the same installed native
+executable as the pinned embedded runtime, not a standalone CLI or copied binary.
+
+The isolation contract is about exposed capabilities, discovery, and supplied
+evidence, **not an OS sandbox**, protection from hostile same-user processes,
+absence of provider/authentication traffic, unbiased judging, or better accuracy.
+The pinned-runtime canary test uses synthetic credentials and loopback inference;
+native-platform execution evidence must be reported separately.
+
+Digests establish integrity of supplied bytes, not authenticity against a writer
+who can replace both bytes and hashes, nor truth of actor claims. Submission is
+observed from a real grade callback, not merely constructing a request.
+`inspection: not_observable` explicitly means Waza cannot tell whether the model
+read or understood every item. The dashboard's existing
+[Evidence view](/waza/guides/dashboard/#prompt-judging) shows metadata only.
+The saved result itself contains the bounded sanitized bundle: review it before
+sharing; redaction does not certify absence of secrets.
+
+#### Regrade without the original workspace
+
+From the repository root:
+
+```bash
+waza preflight examples/evidence-judge/eval.yaml --context-dir examples/evidence-judge/fixtures
+waza run examples/evidence-judge/eval.yaml --context-dir examples/evidence-judge/fixtures --output results.json
+waza grade examples/evidence-judge/eval.yaml --results results.json --task report --output regraded.json
+```
+
+Provide the explicit hosted/BYOK credentials above before model-backed commands.
+The evidence-only regrade never inspects `--workspace`, resumes a saved session,
+follows `snapshot_path`, or reruns the actor. It verifies original types, digest,
+eval/task/run/attempt binding, completeness and the current selection before
+model startup. It uses the recorded task even if task YAML changed. A changed
+rubric is allowed; newly requested files must already be captured. Historical,
+cached, invalid or incomplete bundles fail operationally. Do not mix evidence
+regrading with legacy prompt graders; mechanical graders retain their own inputs.
+Saving cached-source rejection diagnostics does not make that evidence eligible
+for a later regrade.
+
+Ordinary failed judgments retain `grade`'s existing zero exit with `passed: false`
+and `status: failed`; operational errors return nonzero, `status: error`, and no
+`overall_score` in the grading summary. Once evidence grading starts, `--output`
+retains safe per-run failure diagnostics before returning an error; output-write errors
+also propagate. Malformed results that cannot be decoded fail before regrading.
+Valid, run-bound legacy snapshot manifests remain provenance only: old
+validations, result, grader-configuration and checkpoint artifacts become
+unavailable for the new assessment. Invalid or mismatched unused manifests are
+omitted with a warning; the frozen judge bundle is validated independently.
+Original execution billing is unchanged. Each actual new judge session is counted
+once under `regrade_usage.sessions`, separate from historical `evaluation_usage`.
+In a mixed-task invocation, a later mechanical grader's operational failure
+still saves earlier judge observations and current charges to `--output`;
+the overall grading status is `error` and its score is withheld. If verbose
+diagnostic output fails after judging, the saved observations and charges are
+retained and the affected run is marked as an error. Mechanical
+errors remain fail-fast: an error before the first evidence attempt starts no
+judge, and a later mechanical error does not start further judges, including
+within a task that mixes mechanical and evidence graders in either order.
+Local evidence-admission and diagnostic-output errors also stop further judges;
+prompt-execution failures can still aggregate across independent tasks.
+This field describes only the current regrade; a later mechanical-only regrade
+omits it instead of repeating earlier judge usage.
+Missing usage/credits remain unavailable; explicit reported zero remains zero.
+This is model-backed regrading and can incur new charges, not offline replay.
 
 ### Using a reusable rubric
 

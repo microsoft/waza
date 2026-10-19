@@ -109,6 +109,25 @@ evidence, call a model, or reconstruct a workspace. See
 [Snapshot & Replay](/waza/guides/snapshot-replay/) for bounded capture,
 offline consistency checks, and verified file-only regrading.
 
+#### Prompt judging
+
+The existing **Evidence** tab includes a distinct **Prompt judging** subsection,
+not another evidence page. For every task/run/attempt it shows frozen bundle
+identity, coverage/counts, fixed limits and each bound grader's delivery digest,
+state (`prepared`, `submitted`, `failed`), purpose, requested model, session,
+elapsed time, safe diagnostics and observed usage. Historical absence remains
+unassessed; unavailable evidence and invalid/unbound observations are explicit.
+
+Only an actual recorded grade callback marks submission observed. Inspection is
+always not observable: inline exposure is not proof that a model read every item.
+Reported zero AI credits remains zero; missing credits are unavailable. Current
+regrade usage is separate from unchanged original execution billing.
+**Export prompt judging metadata** downloads these verified metadata rows as JSON,
+not file contents, evidence bodies, file paths, rendered prompts or raw grader
+details. It does not call a model or fetch local artifacts.
+See [evidence-backed judging](/waza/guides/graders/#evidence-backed-independent-judging)
+for the bounded saved-result contract and authenticity/accuracy limitations.
+
 #### Current-evaluation AI Credits
 
 AI Credits and per-model billing include every executed task attempt, prompt grader,

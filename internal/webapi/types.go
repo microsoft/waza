@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"time"
 
+	"github.com/microsoft/waza/internal/judgeevidence"
 	"github.com/microsoft/waza/internal/models"
 )
 
@@ -43,8 +44,9 @@ type RunSummary struct {
 // RunDetail is the API response for a single run with per-task results.
 type RunDetail struct {
 	RunSummary
-	Tasks      []TaskResult                `json:"tasks"`
-	Statistics *ReliabilitySummaryResponse `json:"statistics,omitempty"`
+	Tasks        []TaskResult                `json:"tasks"`
+	Statistics   *ReliabilitySummaryResponse `json:"statistics,omitempty"`
+	RegradeUsage *PromptJudgeUsageResponse   `json:"regradeUsage,omitempty"`
 }
 
 type runSummaryJSON RunSummary
@@ -66,10 +68,11 @@ func (s RunSummary) MarshalJSON() ([]byte, error) {
 func (d RunDetail) MarshalJSON() ([]byte, error) {
 	return json.Marshal(struct {
 		runSummaryJSON
-		Skill      *string                     `json:"skill,omitempty"`
-		Tasks      []TaskResult                `json:"tasks"`
-		Statistics *ReliabilitySummaryResponse `json:"statistics,omitempty"`
-	}{runSummaryJSON(d.RunSummary), d.skillValue(), d.Tasks, d.Statistics})
+		Skill        *string                     `json:"skill,omitempty"`
+		Tasks        []TaskResult                `json:"tasks"`
+		Statistics   *ReliabilitySummaryResponse `json:"statistics,omitempty"`
+		RegradeUsage *PromptJudgeUsageResponse   `json:"regradeUsage,omitempty"`
+	}{runSummaryJSON(d.RunSummary), d.skillValue(), d.Tasks, d.Statistics, d.RegradeUsage})
 }
 
 // ReliabilitySummaryResponse carries recorded estimates, never reconstructed ones.
@@ -109,6 +112,7 @@ type TaskResult struct {
 	PassRateCI         *ConfidenceIntervalResponse `json:"passRateCI,omitempty"`
 	Trials             *TrialCountsResponse        `json:"trials,omitempty"`
 	EvidenceRuns       []EvidenceRunResponse       `json:"evidenceRuns,omitempty"`
+	PromptJudgingRuns  []PromptJudgingRunResponse  `json:"promptJudgingRuns,omitempty"`
 }
 
 type EvidenceRunResponse struct {
@@ -120,6 +124,9 @@ type EvidenceRunResponse struct {
 	Explanations []models.RequirementExplanation `json:"explanations,omitempty"`
 	Message      string                          `json:"message,omitempty"`
 }
+
+type PromptJudgingRunResponse = judgeevidence.RunMetadata
+type PromptJudgeUsageResponse = judgeevidence.UsageMetadata
 
 type TrialCountsResponse struct {
 	Passed int `json:"passed"`

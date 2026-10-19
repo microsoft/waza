@@ -103,6 +103,7 @@ type EvaluationOutcome struct {
 	// EvaluationUsage is present for current evaluations, including cache-only
 	// runs. Its sessions, not cached task diagnostics, define billing scope.
 	EvaluationUsage *EvaluationUsage `json:"evaluation_usage,omitempty"`
+	RegradeUsage    *EvaluationUsage `json:"regrade_usage,omitempty"`
 }
 
 type EvaluationUsage struct {
@@ -243,8 +244,10 @@ type SkillInvocation struct {
 
 // RunResult is the result of a single run/trial
 type RunResult struct {
-	RunNumber int `json:"run_number"`
-	Attempts  int `json:"attempts"`
+	JudgeEvidence *JudgeEvidence           `json:"judge_evidence,omitempty"`
+	PromptJudging []PromptJudgeObservation `json:"prompt_judging,omitempty"`
+	RunNumber     int                      `json:"run_number"`
+	Attempts      int                      `json:"attempts"`
 	// Prompt is the resolved initial task prompt for this run. It may be
 	// recorded before execution starts when request setup fails.
 	Prompt string `json:"prompt,omitempty"`

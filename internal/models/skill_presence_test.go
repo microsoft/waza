@@ -79,7 +79,7 @@ func TestEvaluationOutcomeFreshSkillWriterCompatibility(t *testing.T) {
 		var skill string
 		require.NoError(t, json.Unmarshal(fields["skill"], &skill))
 		require.Equal(t, value, skill)
-		require.Equal(t, `"1.7"`, string(fields["schemaVersion"]))
+		require.Equal(t, `"`+CurrentResultSchemaVersion+`"`, string(fields["schemaVersion"]))
 	}
 	legacy, err := ParseEvaluationOutcome([]byte(`{"eval_id":"legacy"}`), "legacy.json")
 	require.NoError(t, err)

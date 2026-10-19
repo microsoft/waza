@@ -666,7 +666,7 @@ New captures set each artifact's `redacted` flag from changes to its own materia
 
 The manifest fingerprints the captured environment allow-list/configuration (`environment`, snapshot pointer `/env`) and engine configuration (`engine-config`, `/engine`), not the full host environment. Optional `--interpret` output reports per-trial scoped check observations and evidence metadata without changing legacy no-metadata text; malformed evidence is withheld.
 
-Portable evidence uses independent manifest version **1.0** and snapshot schema **1.1**, retaining legacy task semantics and historical result readers; newly generated results use **1.7**. Each task exposes every trial, its full source origin (eval/task/run/attempt/prior attempts), availability/completeness, separate source/content digests, redaction, unavailable versions, requested native skill control (`no_skills`, `native_skill_control`), and operational uncertainty. Native control is requested behavior, not proof of SDK enforcement. Cached metadata retains the original origin, not a new execution. Captured artifacts require content plus a snapshot pointer; source digests do not preserve bytes. Historical absence is unassessed, invalid metadata is withheld, and capture/publication failures produce safe unavailable states rather than leaking rejected metadata.
+Portable evidence uses independent manifest version **1.0** and ordinary snapshot schema **1.1**, retaining legacy task semantics and historical result readers; newly generated results use **1.7**. Each task exposes every trial, its full source origin (eval/task/run/attempt/prior attempts), availability/completeness, separate source/content digests, redaction, unavailable versions, requested native skill control (`no_skills`, `native_skill_control`), and operational uncertainty. Native control is requested behavior, not proof of SDK enforcement. Cached metadata retains the original origin, not a new execution. Captured artifacts require content plus a snapshot pointer; source digests do not preserve bytes. Historical absence is unassessed, invalid metadata is withheld, and capture/publication failures produce safe unavailable states rather than leaking rejected metadata.
 
 Selected-file capture is opt-in, bounded, and private (`0700` directories, `0600` randomized non-overwriting files). Ordinary no-file snapshot names/defaults are unchanged. Allow-listing is not authorization: review agent visibility and exclude evaluator-only material. Capture adds no export, upload, or local-path fetch. Existing explicitly configured result storage still uploads results, including evidence metadata, but does not fetch or upload the separate snapshot files. Individual files may be complete while the workspace is only partial/unavailable; external state remains unavailable. Scoped requirement observations describe existing named grader outcomes, not enforcement, causal explanations, new scores, or changed pass/fail defaults. See the [capture/regrading guide](site/src/content/docs/guides/snapshot-replay.mdx) and [dashboard evidence view](site/src/content/docs/guides/dashboard.mdx#portable-evidence).
 
@@ -1221,7 +1221,24 @@ Run graders against agent output without executing an agent. Designed for standa
 
 File-based checks ordinarily require the actual preserved agent workspace, selected with `--workspace`; neither snapshot hashes nor a successful replay supplies that state. Prompt graders can contact the configured judge model. The explicit `--evidence-snapshot` mode instead verifies selected captured files for a narrow file-only operation on Linux/macOS, without model calls.
 
-Both ordinary and snapshot grading reject duplicate task IDs in results before any grader executes, so overwritten rows cannot bypass validation. Every selected evidence-bearing run's manifest digest and recorded eval/task/run/attempt attribution is then checked before grading. Cached results may retain a different source eval ID, but not a different task, run or attempt. Historical runs without evidence remain supported. API and interpretation output withhold requirement observations whose task or artifact references do not match the bound manifest; reference-free historical observations remain displayable.
+Final prompt graders can opt into `config.evidence_context: {}` to judge frozen
+task/conversation/tool/output evidence in a fresh isolated session, without actor
+continuation or live workspace access. Add `files: [report.json]` inside that
+object for explicit selected-file evidence. Required evidence fails closed;
+checkpoint, pairwise, and continued-session evidence judging are unsupported.
+Saved evidence-only grading needs neither the original workspace nor a snapshot,
+but calls the judge model and records new usage separately from execution billing.
+See the [canonical evidence-judging guide](https://microsoft.github.io/waza/guides/graders/#evidence-backed-independent-judging)
+and [runnable example](examples/evidence-judge/eval.yaml) for credentials, limits,
+platforms, failure exits, and metadata-only dashboard reporting.
+
+Ordinary and snapshot grading reject duplicate task IDs before any grader runs.
+The legacy snapshot-evidence path checks selected manifests' digests and full
+origin; cached manifests can retain a different source eval ID but not a different
+task/run/attempt. Historical runs remain supported unless the new evidence mode
+is requested. API and interpretation output withhold requirement observations
+whose task/artifact references do not match the bound manifest; reference-free
+historical observations remain displayable.
 
 | Flag | Description |
 |------|-------------|
@@ -1589,7 +1606,7 @@ checks reject group/world-writable cache parents and private children with
 group/other mode bits. These retained-root checks do not certify Windows ACLs,
 cache confidentiality or whole-filesystem ancestry.
 
-`results.json` is currently emitted at `schemaVersion` `1.7`. Version `1.1` added per-turn checkpoints (`runs[].checkpoints[]`, see #358) and the normalized `runs[].tool_events[]` array (`turn`, `sequence`, `tool_call_id`, `tool_name`, `args`, `result`, `success`, `error`, `duration_ms`; see #366). Version `1.2` added `runs[].snapshot_path` for `waza run --snapshot` artifacts (#367) and the eval-level `adversarial:` block consumed by `waza adversarial --spec` (#365). Version `1.3` adds `session_digest.tool_policy_mode` and `tool_policy_denials` (#585). Version `1.4` adds sanitized `runs[].command_invocations` for declarative CLI mocks (#634). Version `1.5` adds `tasks[].stats.pass_rate_ci` and `summary.statistics.success_rate_ci` and `pass_hat_k`, and stops writing `is_significant`. Version `1.6` adds optional `runs[].evidence` and `runs[].requirement_explanations`. Version `1.7` records configured live/mocked dependency modes on each run. See [docs/PRD](docs/PRD.md) and [schema-changes](site/src/content/docs/reference/schema-changes.md) for details.
+`results.json` is currently emitted at `schemaVersion` `1.7`. Version `1.1` added per-turn checkpoints (`runs[].checkpoints[]`, see #358) and the normalized `runs[].tool_events[]` array (`turn`, `sequence`, `tool_call_id`, `tool_name`, `args`, `result`, `success`, `error`, `duration_ms`; see #366). Version `1.2` added `runs[].snapshot_path` for `waza run --snapshot` artifacts (#367) and the eval-level `adversarial:` block consumed by `waza adversarial --spec` (#365). Version `1.3` adds `session_digest.tool_policy_mode` and `tool_policy_denials` (#585). Version `1.4` adds sanitized `runs[].command_invocations` for declarative CLI mocks (#634). Version `1.5` adds `tasks[].stats.pass_rate_ci` and `summary.statistics.success_rate_ci` and `pass_hat_k`, and stops writing `is_significant`. Version `1.6` adds optional `runs[].evidence` and `runs[].requirement_explanations`. Version `1.7` adds optional frozen `runs[].judge_evidence`, metadata-only `runs[].prompt_judging` observations and separate current-regrade `regrade_usage.sessions` for evidence-enabled prompt graders, plus configured live/mocked `runs[].dependency_modes`. The saved bundle contains sanitized evidence, whereas API/report metadata does not copy its bodies. See [docs/PRD](docs/PRD.md) and [schema-changes](site/src/content/docs/reference/schema-changes.md) for details.
 
 The dashboard displays these recorded Wilson intervals and pass^k estimates separately from bootstrap weighted-score intervals, with available trial counts. Missing historical statistics show **Not assessed**; readers never infer them from scores or successful outcomes. None of these intervals is a significance test between runs.
 
