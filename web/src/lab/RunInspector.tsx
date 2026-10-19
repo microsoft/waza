@@ -21,12 +21,14 @@ function intervalLabel(interval?: {
 
 function RecordedEvidence({ run, task }: { run: LabRun; task?: LabRun["tasks"][number] }) {
   const taskResult = task?.api;
-  const evidenceRuns = Array.isArray(taskResult?.evidenceRuns)
-    ? taskResult.evidenceRuns
-    : [];
-  const judgingRuns = Array.isArray(taskResult?.promptJudgingRuns)
-    ? taskResult.promptJudgingRuns
-    : [];
+  const rawEvidenceRuns = taskResult?.evidenceRuns;
+  const malformedEvidenceRuns =
+    rawEvidenceRuns !== undefined && !Array.isArray(rawEvidenceRuns);
+  const evidenceRuns = Array.isArray(rawEvidenceRuns) ? rawEvidenceRuns : [];
+  const rawJudgingRuns = taskResult?.promptJudgingRuns;
+  const malformedJudgingRuns =
+    rawJudgingRuns !== undefined && !Array.isArray(rawJudgingRuns);
+  const judgingRuns = Array.isArray(rawJudgingRuns) ? rawJudgingRuns : [];
   const successRateCI = run.api?.statistics?.successRateCI;
   const passHatK = run.api?.statistics?.passHatK;
 
@@ -62,10 +64,21 @@ function RecordedEvidence({ run, task }: { run: LabRun; task?: LabRun["tasks"][n
 
       <section className="lab-grader">
         <h3>Portable evidence</h3>
-        {!evidenceRuns.length && (
+        {malformedEvidenceRuns && (
+          <p>Portable evidence metadata withheld: invalid or unsupported run list.</p>
+        )}
+        {!malformedEvidenceRuns && !evidenceRuns.length && (
           <p>Evidence unassessed: no portable evidence metadata was recorded.</p>
         )}
         {evidenceRuns.map((evidence, index) => {
+          if (!evidence || typeof evidence !== "object") {
+            return (
+              <div key={`invalid-${index}`} className="lab-evidence-record">
+                <strong>Invalid · withheld</strong>
+                <p>Evidence metadata withheld: invalid or unsupported run record.</p>
+              </div>
+            );
+          }
           const manifest = canDisplayEvidence(evidence) ? evidence.manifest : undefined;
           const withheld =
             (evidence.assessment === "recorded" || evidence.manifest != null) &&
@@ -158,10 +171,21 @@ function RecordedEvidence({ run, task }: { run: LabRun; task?: LabRun["tasks"][n
                 : formatAICredits(run.api.regradeUsage.aiCredits)
             }.`}
         </p>
-        {!judgingRuns.length && (
+        {malformedJudgingRuns && (
+          <p>Prompt judging metadata withheld: invalid or unsupported run list.</p>
+        )}
+        {!malformedJudgingRuns && !judgingRuns.length && (
           <p>Prompt judging unassessed: no frozen-judging metadata was recorded.</p>
         )}
         {judgingRuns.map((judging, index) => {
+          if (!judging || typeof judging !== "object") {
+            return (
+              <div key={`invalid-${index}`} className="lab-evidence-record">
+                <strong>Invalid · withheld</strong>
+                <p>Prompt judging metadata withheld: invalid or unsupported metadata.</p>
+              </div>
+            );
+          }
           const valid = canDisplayPromptJudging(judging);
           return (
             <div key={`${judging.runNumber}-${index}`} className="lab-evidence-record">

@@ -153,8 +153,8 @@ exposes the private native fault controls. The classic dashboard remains at
 ## Verification status
 
 The audit's implementation adds a **Recorded evidence** inspector tab and
-producer-backed API/browser regression coverage for valid, invalid, and
-historical-missing metadata. The Lab guide documents these semantics, the
+producer-backed API/browser regression coverage for valid, invalid, malformed,
+null-row, and historical-missing metadata. The Lab guide documents these semantics, the
 comparison limits, JSON-versus-CSV scope, and the new screenshot. Existing
 documentation for scenario-first authoring, preflight, recovery, release
 readiness, compatibility, and private fault boundaries was checked before
@@ -168,7 +168,7 @@ Validation on this checkout (Linux; Go 1.26.4, Node 24.21.0/npm 11.19.0):
 |---|---|
 | `cd web && npm run lint` | PASS |
 | `cd web && npm run build` | PASS; generated embed assets and entrypoint were cleaned/restored after validation. |
-| `cd web && npx --no-install playwright test --project=chromium --retries=0` | PASS: 232 passed, 1 explicit opt-in skip (`assurance.spec.ts`, requires actual deterministic Calibrate/Verify export gate). |
+| `cd web && npx --no-install playwright test --project=chromium --retries=0` | PASS: 235 passed, 1 explicit opt-in skip (`assurance.spec.ts`, requires actual deterministic Calibrate/Verify export gate). |
 | `cd site && npm run build` | PASS: documentation tests 9/9; 30 site pages built. |
 | `cd site && npm run test:e2e -- --project=chromium --retries=0` | PASS: 36/36; checked 29 built pages, 756 internal routes/fragments, and 19 images under `/waza`. |
 | `cd site && WAZA_BIN=/tmp/waza-docs-validation npm run test:examples` | PASS: 6/6 offline documentation-example/fixture tests using a built current-source CLI and rejecting Copilot runtime guard. |

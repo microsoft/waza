@@ -1125,6 +1125,57 @@ test.describe("Real dashboard lab", () => {
     await expect(invalidDialog).not.toContainText("Delivery SHA-256:");
   });
 
+  for (const [name, evidenceRuns, promptJudgingRuns] of [
+    ["null evidence and object judging", null, { content: "PRIVATE_CANARY" }],
+    ["object evidence and null judging", { content: "PRIVATE_CANARY" }, null],
+  ] as const) {
+    test(`malformed ${name} run lists are withheld instead of called historical absence`, async ({
+      page,
+    }) => {
+      const summary = { ...savedRuns[0]!, taskCount: 1 };
+      const malformed = detail(summary);
+      Object.assign(malformed.tasks[0], { evidenceRuns, promptJudgingRuns });
+      const errors: string[] = [];
+      page.on("pageerror", (error) => errors.push(error.message));
+      await mockResults(page, [summary], [malformed]);
+      await page.goto("/#/lab/history");
+      await page.getByRole("button", { name: "custom-skill", exact: true }).click();
+      const dialog = page.getByRole("dialog");
+      await dialog.getByRole("tab", { name: "Recorded evidence" }).click();
+
+      await expect(dialog).toContainText("Portable evidence metadata withheld: invalid or unsupported run list.");
+      await expect(dialog).toContainText("Prompt judging metadata withheld: invalid or unsupported run list.");
+      await expect(dialog).not.toContainText("no portable evidence metadata was recorded");
+      await expect(dialog).not.toContainText("no frozen-judging metadata was recorded");
+      await expect(dialog).not.toContainText("PRIVATE_CANARY");
+      expect(errors).toEqual([]);
+    });
+  }
+
+  test("null evidence and prompt-judging rows are withheld without crashing the inspector", async ({
+    page,
+  }) => {
+    const summary = { ...savedRuns[0]!, taskCount: 1 };
+    const malformed = detail(summary);
+    Object.assign(malformed.tasks[0], {
+      evidenceRuns: [null],
+      promptJudgingRuns: [null],
+    });
+    const errors: string[] = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    await mockResults(page, [summary], [malformed]);
+    await page.goto("/#/lab/history");
+    await page.getByRole("button", { name: "custom-skill", exact: true }).click();
+    const dialog = page.getByRole("dialog");
+    await dialog.getByRole("tab", { name: "Recorded evidence" }).click();
+
+    await expect(dialog).toContainText("Evidence metadata withheld: invalid or unsupported run record.");
+    await expect(dialog).toContainText("Prompt judging metadata withheld: invalid or unsupported metadata.");
+    await expect(dialog).not.toContainText("Evidence unassessed:");
+    await expect(dialog).not.toContainText("Prompt judging unassessed:");
+    expect(errors).toEqual([]);
+  });
+
   test("permanently closed activity streams require manual reconnect and release prior resources", async ({
     page,
   }) => {
