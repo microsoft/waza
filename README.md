@@ -10,7 +10,7 @@ A Go CLI for evaluating agent workflows, skills, and custom agents — author re
 → [CI regression gates](site/src/content/docs/guides/ci-cd.mdx).
 Mock success checks the harness, not agent quality or live service safety.
 
-**Version boundary (October 15, 2026):** the published standalone CLI is
+**Version boundary (October 19, 2026):** the published standalone CLI is
 `v0.38.10` (October 9). Scenario authoring, preflight, selected-file evidence,
 assurance profiles, controlled release policies, recorded reliability, and the
 opt-in dashboard Lab described here are **upcoming/main-only**, not a promise
@@ -2137,6 +2137,7 @@ See the complete [Grader Reference](docs/GRADERS.md) for detailed configuration 
 - **[Demo Guide](docs/DEMO-GUIDE.md)** - 7 live demo scenarios for presentations
 - **[Grader Reference](docs/GRADERS.md)** - Complete grader types and configuration
 - **[Grader Challenges and Assurance](docs/GRADER-CHALLENGES.md)** - Offline native checks and separately selected calibration; bundled labels remain unreviewed, paid calls require explicit acknowledgment
+- **[October 5–19, 2026 feature coverage audit](docs/FEATURE-COVERAGE-2026-10-05-19.md)** - Linked merged-change inventory and documentation/Lab coverage matrix
 - **[Tutorial](docs/TUTORIAL.md)** - Getting started with writing skill evals
 - **[CI Integration](docs/SKILLS_CI_INTEGRATION.md)** - GitHub Actions workflows for skill evaluation
 - **[Token Management](docs/TOKEN-LIMITS.md)** - Tracking and optimizing skill context size

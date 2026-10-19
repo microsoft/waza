@@ -3,9 +3,210 @@ import { Check, ChevronRight, X } from "lucide-react";
 import { duration, percent, shortDate, runScore, skillLabel, type LabRun } from "./data";
 import { useLabDetails } from "./source";
 import { formatAICredits } from "../lib/format";
+import { canDisplayEvidence, canDisplayPromptJudging } from "../api/client";
 import TrajectoryViewer from "../components/TrajectoryViewer";
 
-const evidenceTabs = ["graders", "trajectory", "configuration"] as const;
+const evidenceTabs = ["graders", "trajectory", "configuration", "evidence"] as const;
+
+function intervalLabel(interval?: {
+  lower: number;
+  upper: number;
+  mean: number;
+  confidenceLevel: number;
+}) {
+  return interval
+    ? `${percent(interval.mean * 100)} · ${(interval.confidenceLevel * 100).toFixed(0)}% CI ${percent(interval.lower * 100)}–${percent(interval.upper * 100)}`
+    : "Not assessed";
+}
+
+function RecordedEvidence({ run, task }: { run: LabRun; task?: LabRun["tasks"][number] }) {
+  const taskResult = task?.api;
+  const evidenceRuns = Array.isArray(taskResult?.evidenceRuns)
+    ? taskResult.evidenceRuns
+    : [];
+  const judgingRuns = Array.isArray(taskResult?.promptJudgingRuns)
+    ? taskResult.promptJudgingRuns
+    : [];
+  const successRateCI = run.api?.statistics?.successRateCI;
+  const passHatK = run.api?.statistics?.passHatK;
+
+  return (
+    <div className="lab-recorded-evidence">
+      <p className="lab-note">
+        These are saved metadata and grader observations, not verified external
+        state or requirement enforcement. Evidence contents are not fetched.
+        Missing historical fields remain unassessed.
+      </p>
+      <article className="lab-grader">
+        <h3>Recorded reliability</h3>
+        <p>
+          Task trials:{" "}
+          {taskResult?.trials
+            ? `${taskResult.trials.passed}/${taskResult.trials.total} passed`
+            : "Not assessed"}
+        </p>
+        <p>Task pass-rate Wilson interval: {intervalLabel(taskResult?.passRateCI)}</p>
+        <p>Weighted-score bootstrap interval: {intervalLabel(taskResult?.bootstrapCI)}</p>
+        <p>Suite success-rate Wilson interval: {intervalLabel(successRateCI)}</p>
+        <p>
+          pass^k (all k trials pass):{" "}
+          {passHatK?.length
+            ? passHatK.map((value, index) => `pass^${index + 1} ${percent(value * 100)}`).join(" · ")
+            : "Not assessed"}
+        </p>
+        <small>
+          Stored estimates are not reconstructed from task scores, are not pass@k
+          guarantees, and are not significance tests between runs.
+        </small>
+      </article>
+
+      <section className="lab-grader">
+        <h3>Portable evidence</h3>
+        {!evidenceRuns.length && (
+          <p>Evidence unassessed: no portable evidence metadata was recorded.</p>
+        )}
+        {evidenceRuns.map((evidence, index) => {
+          const manifest = canDisplayEvidence(evidence) ? evidence.manifest : undefined;
+          const withheld =
+            (evidence.assessment === "recorded" || evidence.manifest != null) &&
+            !manifest;
+          return (
+            <div key={`${evidence.runNumber}-${index}`} className="lab-evidence-record">
+              <strong>
+                Run {evidence.runNumber} · {evidence.attempts}{" "}
+                {evidence.attempts === 1 ? "attempt" : "attempts"} ·{" "}
+                {withheld ? "invalid · withheld" : evidence.assessment}
+                {evidence.cached ? " · cached source evidence" : ""}
+              </strong>
+              <p>
+                {withheld
+                  ? "Evidence metadata withheld: invalid identity, digest, or unsupported manifest."
+                  : evidence.message}
+              </p>
+              {manifest && (
+                <>
+                  <p className="break-all">
+                    Source origin: eval {manifest.origin.eval_id || "unavailable"} ·
+                    task {manifest.origin.task_id || "unavailable"} · run{" "}
+                    {manifest.origin.run_number || "unavailable"} · attempt{" "}
+                    {manifest.origin.attempt_count || "unavailable"} · prior attempts{" "}
+                    {manifest.origin.prior_attempts}
+                  </p>
+                  <p>
+                    Requested engine/model: {manifest.runtime.requested_engine} /{" "}
+                    {manifest.runtime.requested_model} · execution{" "}
+                    {manifest.runtime.execution_mode} · requested policy{" "}
+                    {manifest.runtime.requested_policy} · verified enforcement{" "}
+                    {manifest.runtime.verified_enforcement}
+                  </p>
+                  <p>
+                    Manifest SHA-256: <code>{manifest.sha256}</code>
+                    {manifest.source_manifest_sha256 && (
+                      <> · original capture SHA-256: <code>{manifest.source_manifest_sha256}</code></>
+                    )}
+                  </p>
+                  {manifest.artifacts.map((artifact) => (
+                    <p key={artifact.id}>
+                      {artifact.id}: {artifact.availability} / {artifact.completeness}
+                      {artifact.reason ? ` · ${artifact.reason}` : ""}
+                      {artifact.source_digest &&
+                        ` · source digest only (no source bytes): ${artifact.source_digest.sha256}`}
+                      {artifact.content_digest &&
+                        ` · content digest (${artifact.content_digest.encoding}): ${artifact.content_digest.sha256}`}
+                    </p>
+                  ))}
+                </>
+              )}
+              {!withheld &&
+                evidence.assessment !== "invalid" &&
+                evidence.explanations?.map((requirement) => (
+                  <div key={`${requirement.task_id}-${requirement.requirement_id}`}>
+                    <strong>Requirement {requirement.requirement_id}</strong>
+                    {requirement.checks?.length ? (
+                      requirement.checks.map((check, checkIndex) => (
+                        <p key={checkIndex}>
+                          {check.check.scope || "uncovered"} /{" "}
+                          {check.check.grader || "no check"}
+                          {check.check.after_turn
+                            ? ` / turn ${check.check.after_turn}`
+                            : ""}
+                          : {check.observation} · {check.category} — {check.message}
+                          {check.references?.length
+                            ? ` · artifact metadata: ${check.references.map((reference) => reference.artifact_id).join(", ")}`
+                            : ""}
+                        </p>
+                      ))
+                    ) : (
+                      <p>Check observations unavailable; requirement satisfaction is unassessed.</p>
+                    )}
+                  </div>
+                ))}
+            </div>
+          );
+        })}
+      </section>
+
+      <section className="lab-grader">
+        <h3>Independent prompt judging</h3>
+        <p>
+          Submission callbacks are observable; whether a model inspected every
+          evidence item is not.
+          {run.api?.regradeUsage &&
+            ` Current regrade usage is separate from original execution billing; AI Credits ${
+              run.api.regradeUsage.aiCredits === undefined
+                ? "unavailable"
+                : formatAICredits(run.api.regradeUsage.aiCredits)
+            }.`}
+        </p>
+        {!judgingRuns.length && (
+          <p>Prompt judging unassessed: no frozen-judging metadata was recorded.</p>
+        )}
+        {judgingRuns.map((judging, index) => {
+          const valid = canDisplayPromptJudging(judging);
+          return (
+            <div key={`${judging.runNumber}-${index}`} className="lab-evidence-record">
+              <strong>
+                Run {judging.runNumber} · attempt {judging.attempts} ·{" "}
+                {valid ? judging.assessment : "invalid · withheld"}
+                {judging.cached ? " · cached source, not new judging" : ""}
+              </strong>
+              <p>
+                {valid
+                  ? judging.message
+                  : "Prompt judging metadata withheld: invalid or unsupported metadata."}
+              </p>
+              {valid && judging.bundleSHA256 && (
+                <>
+                  <p className="break-all">
+                    Frozen bundle SHA-256: <code>{judging.bundleSHA256}</code> · execution{" "}
+                    {judging.executionMode}
+                  </p>
+                  {judging.coverage?.map((section) => (
+                    <p key={section.section}>
+                      {section.section}: {section.availability} / {section.completeness}
+                      {section.count !== undefined ? ` · ${section.count} items` : ""}
+                    </p>
+                  ))}
+                </>
+              )}
+              {valid &&
+                judging.observations.map((observation, observationIndex) => (
+                  <p key={observationIndex}>
+                    {observation.grader} · {observation.purpose} · {observation.state} ·
+                    submission {observation.submissionObserved ? "observed" : "not observed"} ·
+                    inspection not observable · judge AI Credits{" "}
+                    {observation.usage?.aiCredits === undefined
+                      ? "unavailable"
+                      : formatAICredits(observation.usage.aiCredits)}
+                  </p>
+                ))}
+            </div>
+          );
+        })}
+      </section>
+    </div>
+  );
+}
 
 export default function RunInspector({
   run: summary,
@@ -29,7 +230,9 @@ export default function RunInspector({
       run.tasks[0]?.id,
   );
   const [resolvedTasks, setResolvedTasks] = useState<LabRun["tasks"]>();
-  const [tab, setTab] = useState<"graders" | "trajectory" | "configuration">(
+  const [tab, setTab] = useState<
+    "graders" | "trajectory" | "configuration" | "evidence"
+  >(
     "graders",
   );
   const task =
@@ -198,12 +401,23 @@ export default function RunInspector({
                     ? "Grader evidence"
                     : value === "trajectory"
                       ? "Trajectory"
-                      : "Configuration"}
+                      : value === "configuration"
+                        ? "Configuration"
+                        : "Recorded evidence"}
                 </button>
               ),
             )}
           </div>
           <div id="lab-evidence-panel" role="tabpanel" aria-labelledby={`lab-evidence-tab-${tab}`}>
+            {tab === "evidence" &&
+              (demo ? (
+                <p className="lab-note">
+                  The synthetic demo has no recorded reliability, portable
+                  evidence, or prompt-judging metadata.
+                </p>
+              ) : (
+                <RecordedEvidence run={run} task={task} />
+              ))}
             {tab === "graders" && task && (
               <>
                 <div className="lab-task-summary">

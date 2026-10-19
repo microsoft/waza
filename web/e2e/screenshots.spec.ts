@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { copyFile } from "node:fs/promises";
 import { mockAllAPIs } from "./helpers/api-mock";
 import { RUNS } from "./fixtures/mock-data";
 import { evidenceDetail } from "./fixtures/evidence-data";
@@ -23,6 +24,47 @@ test.describe("Dashboard lab screenshots", () => {
     for (const path of ["../docs/images/dashboard-lab-compare.png", "../site/public/images/dashboard-lab-compare.png"]) {
       await page.screenshot({ path, animations: "disabled", fullPage: true });
     }
+  });
+
+  test("dashboard-lab-evidence", async ({ page }) => {
+    const summary = {
+      ...RUNS[0]!,
+      model: "mock-model",
+      aiCredits: undefined,
+      skill: "saved-scenario",
+      spec: "evidence-judge",
+      outcome: "failed",
+      timestamp: "2026-10-16T12:00:00Z",
+      repetitions: 3,
+      source: "local",
+    };
+    const recorded = evidenceDetail();
+    const run = {
+      ...recorded,
+      ...summary,
+      statistics: RECORDED_RELIABILITY.statistics,
+      regradeUsage: promptJudging.regradeUsage,
+      tasks: [{
+        ...recorded.tasks[0]!,
+        id: "report-task",
+        trials: { passed: 1, total: 3 },
+        passRateCI: RECORDED_RELIABILITY.tasks[0]!.passRateCI,
+        bootstrapCI: RECORDED_RELIABILITY.tasks[0]!.bootstrapCI,
+        promptJudgingRuns: promptJudging.tasks[0]!.promptJudgingRuns,
+      }],
+    };
+    await page.route("**/api/v1/lab/runs", (route) => route.fulfill({ json: [summary] }));
+    await page.route(/\/api\/runs\/[^/]+$/, (route) => route.fulfill({ json: run }));
+    await page.goto("/#/lab/history");
+    await page.getByRole("button", { name: "saved-scenario", exact: true }).click();
+    const dialog = page.getByRole("dialog");
+    await dialog.getByRole("tab", { name: "Recorded evidence" }).click();
+    await expect(dialog).toContainText("Source origin: eval source-evaluation");
+    await expect(dialog).toContainText("1/3 passed");
+    await expect(dialog).toContainText("a-judge · run · submitted");
+    const evidenceScreenshot = "../docs/images/dashboard-lab-evidence.png";
+    await page.screenshot({ path: evidenceScreenshot, animations: "disabled", fullPage: true });
+    await copyFile(evidenceScreenshot, "../site/public/images/dashboard-lab-evidence.png");
   });
 });
 

@@ -4,6 +4,9 @@ import { once } from "node:events";
 import { createServer } from "node:http";
 import type { RunDetail, RunDetailWire, RunSummary } from "../src/api/client";
 import { RUN_DETAIL, RUNS } from "./fixtures/mock-data";
+import { evidenceRun } from "./fixtures/evidence-data";
+import promptJudging from "./fixtures/prompt-judging.json" with { type: "json" };
+import { RECORDED_RELIABILITY } from "./fixtures/reliability-data";
 import { duration } from "../src/lab/data";
 
 const savedRuns: RunSummary[] = RUNS.map((run, index) => ({
@@ -904,15 +907,17 @@ test.describe("Real dashboard lab", () => {
     const graders = dialog.getByRole("tab", { name: "Grader evidence" });
     const trajectory = dialog.getByRole("tab", { name: "Trajectory", exact: true });
     const configuration = dialog.getByRole("tab", { name: "Configuration" });
+    const evidence = dialog.getByRole("tab", { name: "Recorded evidence" });
     await expect(graders).toHaveAttribute("tabindex", "0");
     await expect(trajectory).toHaveAttribute("tabindex", "-1");
     await expect(configuration).toHaveAttribute("tabindex", "-1");
+    await expect(evidence).toHaveAttribute("tabindex", "-1");
     await graders.focus();
     for (const [key, selected, name] of [
       ["ArrowRight", trajectory, "Trajectory"],
-      ["End", configuration, "Configuration"],
+      ["End", evidence, "Recorded evidence"],
       ["ArrowRight", graders, "Grader evidence"],
-      ["ArrowLeft", configuration, "Configuration"],
+      ["ArrowLeft", evidence, "Recorded evidence"],
       ["Home", graders, "Grader evidence"],
     ] as const) {
       await page.keyboard.press(key);
@@ -1019,6 +1024,105 @@ test.describe("Real dashboard lab", () => {
     await expect(dialog.locator("pre")).toHaveCSS("background-color", "rgb(246, 248, 251)");
     await expect(dialog.locator("pre")).toHaveCSS("color", "rgb(36, 49, 70)");
     await expect(dialog.locator("pre")).toContainText("Explain how the Fibonacci");
+  });
+
+  test("inspector and JSON report expose recorded reliability and evidence without upgrading claims", async ({
+    page,
+  }) => {
+    const summary = {
+      ...savedRuns[0]!,
+      taskCount: 1,
+      passCount: 1,
+      weightedScore: 0.8,
+    };
+    const savedDetail = detail(summary);
+    const recordedTask = {
+      ...savedDetail.tasks[0]!,
+      id: "report-task",
+      trials: { passed: 2, total: 3 },
+      passRateCI: RECORDED_RELIABILITY.tasks[0]!.passRateCI,
+      bootstrapCI: RECORDED_RELIABILITY.tasks[0]!.bootstrapCI,
+      evidenceRuns: [evidenceRun()],
+      promptJudgingRuns: promptJudging.tasks[0]!.promptJudgingRuns,
+    };
+    const savedEvidence: RunDetail = {
+      ...savedDetail,
+      statistics: RECORDED_RELIABILITY.statistics,
+      regradeUsage: promptJudging.regradeUsage,
+      tasks: [recordedTask],
+    };
+    await mockResults(page, [summary], [savedEvidence]);
+    await page.goto("/#/lab/history");
+    await page.getByRole("button", { name: "custom-skill", exact: true }).click();
+    const dialog = page.getByRole("dialog");
+    await dialog.getByRole("tab", { name: "Recorded evidence" }).click();
+
+    await expect(dialog).toContainText("2/3 passed");
+    await expect(dialog).toContainText("pass^1 83.3%");
+    await expect(dialog).toContainText("Task pass-rate Wilson interval: 66.7%");
+    await expect(dialog).toContainText("Source origin: eval source-evaluation");
+    await expect(dialog).toContainText("cached source evidence");
+    await expect(dialog).toContainText("Requirement required-report");
+    await expect(dialog).toContainText("inspection not observable");
+    await expect(dialog).toContainText("judge AI Credits 0");
+    await expect(dialog).toContainText("Current regrade usage is separate");
+    await expect(dialog).not.toContainText("PRIVATE_FILE_BODY");
+    await page.keyboard.press("Escape");
+
+    await page.getByRole("link", { name: "Reports", exact: true }).click();
+    const download = page.waitForEvent("download");
+    await page.getByRole("button", { name: "Download JSON" }).click();
+    const path = await (await download).path();
+    const report = JSON.parse(await readFile(path!, "utf8"));
+    expect(report.runs[0].statistics.passHatK).toEqual([5 / 6, 2 / 3, 0.5]);
+    expect(report.runs[0].tasks[0].trials).toEqual({ passed: 2, total: 3 });
+    expect(report.runs[0].tasks[0].evidenceRuns[0].assessment).toBe("recorded");
+    expect(report.runs[0].tasks[0].promptJudgingRuns[0].assessment).toBe("recorded");
+    expect(report.runs[0].regradeUsage.aiCredits).toBe(0);
+  });
+
+  test("legacy and invalid evidence remain unassessed or withheld in the Lab", async ({
+    page,
+  }) => {
+    const summary = { ...savedRuns[0]!, taskCount: 1, passCount: 0 };
+    const legacy = detail(summary);
+    const invalid = detail({ ...savedRuns[1]!, taskCount: 1, passCount: 0 });
+    invalid.tasks[0]!.id = "invalid-task";
+    invalid.tasks[0]!.evidenceRuns = [{
+      ...evidenceRun(),
+      assessment: "invalid",
+      manifest: undefined,
+      explanations: undefined,
+      message: "Evidence identity or metadata is invalid.",
+    }];
+    invalid.tasks[0]!.promptJudgingRuns = [{
+      runNumber: 1,
+      attempts: 1,
+      cached: false,
+      assessment: "invalid",
+      observations: [],
+      message: "Prompt judging metadata is invalid.",
+    }];
+    await mockResults(page, [summary, savedRuns[1]!], [legacy, invalid]);
+    await page.goto("/#/lab/history");
+
+    await page.getByRole("button", { name: "custom-skill", exact: true }).first().click();
+    const dialog = page.getByRole("dialog");
+    await dialog.getByRole("tab", { name: "Recorded evidence" }).click();
+    await expect(dialog).toContainText("Task trials: Not assessed");
+    await expect(dialog).toContainText("Suite success-rate Wilson interval: Not assessed");
+    await expect(dialog).toContainText("Evidence unassessed: no portable evidence metadata was recorded.");
+    await expect(dialog).toContainText("Prompt judging unassessed: no frozen-judging metadata was recorded.");
+    await page.keyboard.press("Escape");
+
+    await page.getByRole("button", { name: "custom-skill", exact: true }).nth(1).click();
+    const invalidDialog = page.getByRole("dialog");
+    await invalidDialog.getByRole("tab", { name: "Recorded evidence" }).click();
+    await expect(invalidDialog).toContainText("invalid");
+    await expect(invalidDialog).toContainText("Evidence identity or metadata is invalid.");
+    await expect(invalidDialog).toContainText("Prompt judging metadata is invalid.");
+    await expect(invalidDialog).not.toContainText("Source origin:");
+    await expect(invalidDialog).not.toContainText("Delivery SHA-256:");
   });
 
   test("permanently closed activity streams require manual reconnect and release prior resources", async ({

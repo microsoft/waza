@@ -83,21 +83,32 @@ the frontend-only development workflow above.
 |---|---|
 | Overview | Eval/skill/model/window filters, selectable quality-chart dates, model cross-filtering, failing-run drilldown |
 | Current runs | Select a saved run and inspect artifact-derived SSE activity; reconnection, deduplication, and terminal states |
-| Run history | Search, outcome filters, evidence inspection, and selection of two runs from the same eval |
+| Run history | Search, outcome filters, task evidence inspection, and selection of two runs from the same eval |
 | Compare | Baseline/candidate selection, reported weighted task-score deltas, regression evidence, added/missing task coverage |
 | Reports | Filtered JSON/CSV downloads and browser print/save-PDF |
 | Skills & evals | Suites observed in run history; readiness, requirement coverage, and skill token budgets explicitly unavailable |
 
-Try **Overview → failing run → Grader evidence → Trajectory → Reports**.
+Try **Overview → failing run → Grader evidence → Recorded evidence → Trajectory → Reports**.
 The inspector uses actual recorded prompts, graders, session digests, responder
-metadata, model usage, and the existing trajectory viewer. It supports keyboard
-focus containment, Escape to close, and focus restoration. Detail artifacts are
-loaded on demand rather than downloading all transcripts for the overview.
+metadata, model usage, reliability statistics, portable evidence, scoped
+requirement observations, prompt-judging metadata, and the existing trajectory
+viewer. It supports keyboard focus containment, Escape to close, and focus
+restoration. Detail artifacts are loaded on demand rather than downloading all
+transcripts for the overview.
 Evidence tabs use a single Tab stop with ArrowLeft/ArrowRight, Home, and End to
 move focus and selection. Nullable task/grader arrays are empty recorded
 evidence, not errors or invented scores, including in JSON reports.
 
 <ZoomImage src="../../images/dashboard-lab-compare.png" alt="Baseline comparison with aligned task scores, regressions, and added task coverage." />
+
+<ZoomImage src="../../images/dashboard-lab-evidence.png" alt="Lab inspector displaying fixture-backed reliability and evidence metadata, marked mock and not verified." />
+
+The **Recorded evidence** tab shows stored task trial counts and intervals,
+suite reliability, provenance-bound evidence metadata, and independent prompt
+judge observations. Invalid metadata is withheld; missing historical metadata is
+**Not assessed**. Digests and artifact references do not expose file contents or
+prove external state, requirement enforcement, or that a judge inspected every
+item. The synthetic demo does not fabricate these records.
 
 The real-results **Skill** and **Eval** controls are independent: select one
 eval when a skill has multiple suites, or combine both to narrow the scope.
@@ -154,13 +165,18 @@ stream**; they do not claim an automatic retry is in progress.
   The candidate picker remains available for singleton suites; only comparison
   evidence requires a matching baseline.
 - Comparisons are descriptive, not claims of statistical significance.
+- Comparisons align weighted task scores; they do not compare confidence
+  intervals, `pass^k`, provenance, or prompt-judging observations.
 - Eval names do not prove matching spec/grader revisions; verify compatibility
   before drawing conclusions. Git revisions and full configurations are unavailable.
 - JSON exports have their own report format marker and `synthetic: false`, with
   selected API run details. Detail downloads use bounded concurrency; any failure
   aborts the export without downloading a partial report. These reports are not
-  Waza `EvaluationOutcome` artifacts. CSV preserves numeric credit precision and
-  leaves unknown fields empty; browser print can save a PDF.
+  Waza `EvaluationOutcome` artifacts. JSON includes recorded reliability,
+  evidence, and prompt-judging API metadata. CSV is a run-level summary only; it
+  does not include task-level intervals, provenance, evidence, or judge
+  observations. It preserves numeric credit precision and leaves unknown fields
+  empty; browser print can save a PDF.
 
 ### Isolated synthetic demo
 
