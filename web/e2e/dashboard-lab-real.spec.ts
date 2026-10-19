@@ -1174,6 +1174,44 @@ test.describe("Real dashboard lab", () => {
     await expect(dialog).not.toContainText("Withheld:");
   });
 
+  for (const [name, trials] of [
+    ["null", null],
+    ["string", "bad"],
+    ["negative passes", { passed: -1, total: 3 }],
+    ["excess passes", { passed: 4, total: 3 }],
+    ["empty trials", { passed: 0, total: 0 }],
+    ["fractional passes", { passed: 0.5, total: 3 }],
+    ["fractional total", { passed: 0, total: 3.5 }],
+    ["unsafe total", { passed: 0, total: Number.MAX_SAFE_INTEGER + 1 }],
+    ["string passes", { passed: "0", total: 3 }],
+  ] as const) {
+    test(`invalid ${name} trial counts are withheld while valid zero passes remain recorded`, async ({ page }) => {
+      const summary = { ...savedRuns[0]!, taskCount: 1 };
+      const recorded = detail(summary);
+      const task = recorded.tasks[0]!;
+      Object.assign(task, { trials });
+      let valid = false;
+      await mockResults(page, [summary], [recorded]);
+      await page.route(/\/api\/runs\/[^/]+$/, (route) => route.fulfill({
+        json: valid
+          ? { ...recorded, tasks: [{ ...task, trials: { passed: 0, total: 3 } }] }
+          : recorded,
+      }));
+      await page.goto("/#/lab/history");
+      await page.getByRole("button", { name: "custom-skill", exact: true }).click();
+      const dialog = page.getByRole("dialog");
+      await dialog.getByRole("tab", { name: "Recorded evidence" }).click();
+      await expect(dialog).toContainText("Task trials: Withheld: invalid recorded trial counts");
+      await page.keyboard.press("Escape");
+      valid = true;
+      await page.reload();
+      await page.getByRole("button", { name: "custom-skill", exact: true }).click();
+      await dialog.getByRole("tab", { name: "Recorded evidence" }).click();
+      await expect(dialog).toContainText("Task trials: 0/3 passed");
+      await expect(dialog).not.toContainText("invalid recorded trial counts");
+    });
+  }
+
   test("legacy and invalid evidence remain unassessed or withheld in the Lab", async ({
     page,
   }) => {

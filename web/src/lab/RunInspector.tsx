@@ -39,6 +39,22 @@ function passCurveLabel(value: unknown) {
   return value.map((probability, index) => `pass^${index + 1} ${percent(probability * 100)}`).join(" · ");
 }
 
+function trialCountsLabel(value: unknown) {
+  if (value === undefined) return "Not assessed";
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return "Withheld: invalid recorded trial counts";
+  }
+  const counts = value as Record<string, unknown>;
+  if (
+    typeof counts.total !== "number" || !Number.isSafeInteger(counts.total) || counts.total <= 0 ||
+    typeof counts.passed !== "number" || !Number.isSafeInteger(counts.passed) ||
+    counts.passed < 0 || counts.passed > counts.total
+  ) {
+    return "Withheld: invalid recorded trial counts";
+  }
+  return `${counts.passed}/${counts.total} passed`;
+}
+
 function validRequirementExplanations(value: unknown): boolean {
   if (!Array.isArray(value)) return false;
   return value.every((requirement) => {
@@ -103,9 +119,7 @@ function RecordedEvidence({ run, task }: { run: LabRun; task?: LabRun["tasks"][n
         <h3>Recorded reliability</h3>
         <p>
           Task trials:{" "}
-          {taskResult?.trials
-            ? `${taskResult.trials.passed}/${taskResult.trials.total} passed`
-            : "Not assessed"}
+          {trialCountsLabel(taskResult?.trials)}
         </p>
         <p>Task pass-rate Wilson interval: {intervalLabel(taskResult?.passRateCI)}</p>
         <p>Weighted-score bootstrap interval: {intervalLabel(taskResult?.bootstrapCI)}</p>

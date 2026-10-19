@@ -163,7 +163,12 @@ recording those rows as covered. The new Lab screenshot is generated from an
 explicit mock fixture, labels the mock provenance and unverified state, and is
 byte-identical in `docs/images/` and `site/public/images/`.
 
-Validation on this checkout (Linux; Go 1.26.4, Node 24.21.0/npm 11.19.0):
+The initial implementation recorded the following validation on its Linux cloud
+checkout (Go 1.26.4, Node 24.21.0/npm 11.19.0). These are historical results, not
+current-head evidence. Subsequent review fixes add malformed reliability/envelope
+controls, separate cached evidence from producer-projected judging fixtures, and
+regenerate matching screenshots/build output. See the checks and validation record
+on [PR #723](https://github.com/microsoft/waza/pull/723) for the tested revisions.
 
 | Exact command | Result |
 |---|---|
