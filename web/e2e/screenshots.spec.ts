@@ -52,6 +52,12 @@ test.describe("Dashboard lab screenshots", () => {
         evidenceRuns: recorded.tasks[0]!.evidenceRuns,
       }, { ...RECORDED_RELIABILITY.tasks[1]!, id: "all-trials-passed" }],
     };
+    expect(run.taskCount).toBe(run.tasks.length);
+    expect(run.passCount).toBe(run.tasks.filter((task) => task.outcome === "passed").length);
+    expect(run.statistics.successRateCI!.mean).toBe(run.passCount / run.taskCount);
+    for (const task of run.tasks) {
+      expect(task.passRateCI!.mean).toBe(task.trials!.passed / task.trials!.total);
+    }
     await page.route("**/api/v1/lab/runs", (route) => route.fulfill({ json: [summary] }));
     await page.route(/\/api\/runs\/[^/]+$/, (route) => route.fulfill({ json: run }));
     await page.goto("/#/lab/history");

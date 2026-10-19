@@ -1097,6 +1097,83 @@ test.describe("Real dashboard lab", () => {
     expect(report.runs[0].regradeUsage.aiCredits).toBe(0);
   });
 
+  for (const [name, interval] of [
+    ["null", null],
+    ["string", "bad"],
+    ["array", []],
+    ["reversed endpoints", { lower: 0.9, upper: 0.1, mean: 0.5, confidenceLevel: 0.95 }],
+    ["out-of-range endpoints", { lower: -0.1, upper: 1.1, mean: 0.5, confidenceLevel: 0.95 }],
+    ["out-of-range mean", { lower: 0, upper: 1, mean: 2, confidenceLevel: 0.95 }],
+    ["out-of-range confidence", { lower: 0, upper: 1, mean: 0.5, confidenceLevel: 1.5 }],
+    ["zero confidence", { lower: 0, upper: 1, mean: 0.5, confidenceLevel: 0 }],
+    ["unit confidence", { lower: 0, upper: 1, mean: 0.5, confidenceLevel: 1 }],
+    ["null endpoint", { lower: null, upper: 1, mean: 0.5, confidenceLevel: 0.95 }],
+    ["string endpoint", { lower: "0", upper: 1, mean: 0.5, confidenceLevel: 0.95 }],
+    ["missing confidence", { lower: 0, upper: 1, mean: 0.5 }],
+  ] as const) {
+    test(`invalid ${name} reliability intervals are withheld without hiding valid estimates`, async ({ page }) => {
+      const summary = { ...savedRuns[0]!, taskCount: 1 };
+      const recorded = detail(summary);
+      Object.assign(recorded.tasks[0]!, { passRateCI: interval, bootstrapCI: interval });
+      Object.assign(recorded, { statistics: { successRateCI: interval, passHatK: [1, 0.5, 0] } });
+      const errors: string[] = [];
+      page.on("pageerror", (error) => errors.push(error.message));
+      await mockResults(page, [summary], [recorded]);
+      await page.goto("/#/lab/history");
+      await page.getByRole("button", { name: "custom-skill", exact: true }).click();
+      const dialog = page.getByRole("dialog");
+      await dialog.getByRole("tab", { name: "Recorded evidence" }).click();
+      for (const label of ["Task pass-rate Wilson interval", "Weighted-score bootstrap interval", "Suite success-rate Wilson interval"]) {
+        await expect(dialog).toContainText(`${label}: Withheld: invalid recorded interval`);
+      }
+      await expect(dialog).toContainText("pass^1 100.0% · pass^2 50.0% · pass^3 0.0%");
+      expect(errors).toEqual([]);
+    });
+  }
+
+  for (const [name, passHatK] of [
+    ["string", "bad"],
+    ["object", { length: 1 }],
+    ["null", null],
+    ["null entry", [null]],
+    ["out-of-range entries", [-0.25, 1.5]],
+    ["string entry", ["0"]],
+  ] as const) {
+    test(`invalid ${name} pass curves are withheld while valid zero intervals remain visible`, async ({ page }) => {
+      const summary = { ...savedRuns[0]!, taskCount: 1 };
+      const recorded = detail(summary);
+      const zero = { lower: 0, upper: 0, mean: 0, confidenceLevel: 0.95 };
+      recorded.tasks[0]!.passRateCI = zero;
+      recorded.tasks[0]!.bootstrapCI = zero;
+      Object.assign(recorded, { statistics: { successRateCI: zero, passHatK } });
+      const errors: string[] = [];
+      page.on("pageerror", (error) => errors.push(error.message));
+      await mockResults(page, [summary], [recorded]);
+      await page.goto("/#/lab/history");
+      await page.getByRole("button", { name: "custom-skill", exact: true }).click();
+      const dialog = page.getByRole("dialog");
+      await dialog.getByRole("tab", { name: "Recorded evidence" }).click();
+      await expect(dialog).toContainText("Withheld: invalid recorded pass^k estimates");
+      for (const label of ["Task pass-rate Wilson interval", "Weighted-score bootstrap interval", "Suite success-rate Wilson interval"]) {
+        await expect(dialog).toContainText(`${label}: 0.0% · 95% CI 0.0%–0.0%`);
+      }
+      expect(errors).toEqual([]);
+    });
+  }
+
+  test("empty pass curves remain unassessed rather than malformed", async ({ page }) => {
+    const summary = { ...savedRuns[0]!, taskCount: 1 };
+    const recorded = detail(summary);
+    recorded.statistics = { passHatK: [] };
+    await mockResults(page, [summary], [recorded]);
+    await page.goto("/#/lab/history");
+    await page.getByRole("button", { name: "custom-skill", exact: true }).click();
+    const dialog = page.getByRole("dialog");
+    await dialog.getByRole("tab", { name: "Recorded evidence" }).click();
+    await expect(dialog).toContainText("pass^k (all k trials pass): Not assessed");
+    await expect(dialog).not.toContainText("Withheld:");
+  });
+
   test("legacy and invalid evidence remain unassessed or withheld in the Lab", async ({
     page,
   }) => {

@@ -8,15 +8,35 @@ import TrajectoryViewer from "../components/TrajectoryViewer";
 
 const evidenceTabs = ["graders", "trajectory", "configuration", "evidence"] as const;
 
-function intervalLabel(interval?: {
-  lower: number;
-  upper: number;
-  mean: number;
-  confidenceLevel: number;
-}) {
-  return interval
-    ? `${percent(interval.mean * 100)} · ${(interval.confidenceLevel * 100).toFixed(0)}% CI ${percent(interval.lower * 100)}–${percent(interval.upper * 100)}`
-    : "Not assessed";
+function isProbability(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 1;
+}
+
+function intervalLabel(value: unknown) {
+  if (value === undefined) return "Not assessed";
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return "Withheld: invalid recorded interval";
+  }
+  const interval = value as Record<string, unknown>;
+  if (
+    !isProbability(interval.lower) || !isProbability(interval.upper) ||
+    !isProbability(interval.mean) || !isProbability(interval.confidenceLevel) ||
+    interval.confidenceLevel === 0 || interval.confidenceLevel === 1 ||
+    interval.lower > interval.upper
+  ) {
+    return "Withheld: invalid recorded interval";
+  }
+  return `${percent(interval.mean * 100)} · ${(interval.confidenceLevel * 100).toFixed(0)}% CI ${percent(interval.lower * 100)}–${percent(interval.upper * 100)}`;
+}
+
+function passCurveLabel(value: unknown) {
+  if (value === undefined || (Array.isArray(value) && value.length === 0)) {
+    return "Not assessed";
+  }
+  if (!Array.isArray(value) || !value.every(isProbability)) {
+    return "Withheld: invalid recorded pass^k estimates";
+  }
+  return value.map((probability, index) => `pass^${index + 1} ${percent(probability * 100)}`).join(" · ");
 }
 
 function validRequirementExplanations(value: unknown): boolean {
@@ -92,9 +112,7 @@ function RecordedEvidence({ run, task }: { run: LabRun; task?: LabRun["tasks"][n
         <p>Suite success-rate Wilson interval: {intervalLabel(successRateCI)}</p>
         <p>
           pass^k (all k trials pass):{" "}
-          {passHatK?.length
-            ? passHatK.map((value, index) => `pass^${index + 1} ${percent(value * 100)}`).join(" · ")
-            : "Not assessed"}
+          {passCurveLabel(passHatK)}
         </p>
         <small>
           Stored estimates are not reconstructed from task scores, are not pass@k
