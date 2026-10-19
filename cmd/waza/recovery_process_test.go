@@ -63,6 +63,45 @@ func TestRecoveryCommandMockContextCancellation(t *testing.T) {
 	}
 }
 
+func TestRecoveryCommandMockDelayedContextCancellation(t *testing.T) {
+	workspace := t.TempDir()
+	session, err := commandmock.NewSession(workspace, []models.CommandMockConfig{{
+		Name: "az", ExpectCalls: new(1), Responses: []models.CommandMockResponse{{
+			Args: []string{"account"}, Sequence: []models.CommandMockStep{{DelayMS: 300000, Stderr: "not delivered", ExitCode: 7}},
+		}},
+	}}, workspace)
+	require.NoError(t, err)
+	env, err := commandmock.RuntimeEnvironment()
+	require.NoError(t, err)
+	var root string
+	for _, item := range env {
+		if value, ok := strings.CutPrefix(item, "WAZA_COMMAND_MOCK_ROOT="); ok {
+			root = value
+		}
+	}
+	require.NotEmpty(t, root)
+	t.Chdir(workspace)
+	t.Setenv(commandmock.SessionEnvironmentVariable, session.ID())
+	ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
+	defer cancel()
+	cmd := newRootCommand()
+	cmd.SetContext(ctx)
+	cmd.SetArgs([]string{"__command-mock", "--root", root, "--name", "az", "--", "account"})
+	var diagnostic bytes.Buffer
+	cmd.SetErr(&diagnostic)
+	executed, err := cmd.ExecuteC()
+	var exit *ExitCodeError
+	require.ErrorAs(t, err, &exit)
+	require.Equal(t, 124, exit.Code)
+	require.Nil(t, exit.Err, "main must not emit a second diagnostic")
+	require.True(t, executed.SilenceErrors, "the delay cancellation cause must reach Cobra")
+	require.Empty(t, diagnostic.String(), "Cobra must not write after a delayed cancellation")
+	records, err := session.Close()
+	require.NoError(t, err)
+	require.Len(t, records, 1, "the deadline must occur after selecting the delayed step")
+	require.Equal(t, new(124), records[0].ExitCode)
+}
+
 func TestRecoveryMCPMockProcessStdinLifecycle(t *testing.T) {
 	binary := buildRecoveryCLI(t)
 	for _, test := range []struct {

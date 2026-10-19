@@ -283,7 +283,9 @@ func validateFixtureTool(data []byte, version string) error {
 			errs = append(errs, fmt.Errorf("response %d: %w", index, err))
 			continue
 		}
-		if _, hasSequence := fields["sequence"]; !hasSequence {
+		_, hasSequence := fields["sequence"]
+		_, hasDelay := fields["delay_ms"]
+		if !hasSequence && !hasDelay {
 			continue
 		}
 		if err := models.ValidateMCPFaultResponse(response, models.FaultSourceJSON, version); err != nil {

@@ -449,12 +449,11 @@ func runStartedSequence(ctx context.Context, response storedResponse, path strin
 	step := response.Sequence[index]
 	if err := faultsequence.Delay(ctx, step.DelayMS); err != nil {
 		exitCode := 130
-		message := "waza command mock: invocation canceled\n"
 		if errors.Is(err, context.DeadlineExceeded) {
 			exitCode = 124
-			message = "waza command mock: invocation timed out\n"
 		}
-		return complete(invocationResult{Stderr: message, ExitCode: exitCode, ResponseIndex: responseIndex})
+		result, completeErr := complete(invocationResult{ExitCode: exitCode, ResponseIndex: responseIndex})
+		return result, errors.Join(err, completeErr)
 	}
 	return complete(invocationResult{
 		Stdout: step.Stdout, Stderr: step.Stderr, ExitCode: step.ExitCode, ResponseIndex: responseIndex,

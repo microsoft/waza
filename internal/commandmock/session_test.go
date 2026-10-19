@@ -3,6 +3,7 @@ package commandmock
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -144,7 +145,7 @@ func TestInvokeSequenceCancellationRecordsAttemptAndAdvances(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 	result, err := InvokeContext(ctx, root, session.ID(), "az", []string{"account", "show"}, workspace)
-	if err != nil || result.ExitCode != 124 || !strings.Contains(result.Stderr, "timed out") {
+	if !errors.Is(err, context.DeadlineExceeded) || result.ExitCode != 124 || len(result.Stdout) != 0 || result.Stderr != "" {
 		t.Fatalf("canceled sequence attempt = %+v, error = %v", result, err)
 	}
 	result, err = Invoke(root, session.ID(), "az", []string{"account", "show"}, workspace)

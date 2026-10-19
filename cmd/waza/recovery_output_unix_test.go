@@ -5,6 +5,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -22,6 +23,131 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sys/unix"
 )
+
+func TestRecoveryCommandMockDelayCancellationWithFullStderr(t *testing.T) {
+	binary := buildRecoveryCLI(t)
+	for _, signal := range []os.Signal{syscall.SIGTERM, os.Interrupt} {
+		t.Run(signal.String(), func(t *testing.T) {
+			workspace := t.TempDir()
+			session, err := commandmock.NewSession(workspace, []models.CommandMockConfig{{
+				Name: "az", ExpectCalls: new(2), Responses: []models.CommandMockResponse{
+					{Args: []string{"unused"}, Stdout: "not selected"},
+					{Args: []string{"account", "show"}, Sequence: []models.CommandMockStep{
+						{DelayMS: 300000, ExitCode: 7, Stdout: "not delivered", Stderr: "not delivered"},
+						{Stdout: "recovered"},
+					}},
+				},
+			}}, workspace)
+			require.NoError(t, err)
+			closed := false
+			t.Cleanup(func() {
+				if !closed {
+					_, err := session.Close()
+					require.NoError(t, err)
+				}
+			})
+			env, err := commandmock.RuntimeEnvironment()
+			require.NoError(t, err)
+			var root string
+			for _, item := range env {
+				if value, ok := strings.CutPrefix(item, "WAZA_COMMAND_MOCK_ROOT="); ok {
+					root = value
+				}
+			}
+			require.NotEmpty(t, root)
+			output, emit, err := os.Pipe()
+			require.NoError(t, err)
+			t.Cleanup(func() { require.NoError(t, output.Close()) })
+			emitClosed := false
+			t.Cleanup(func() {
+				if !emitClosed {
+					require.NoError(t, emit.Close())
+				}
+			})
+			fd := int(emit.Fd())
+			require.NoError(t, unix.SetNonblock(fd, true))
+			filled := 0
+			for _, chunk := range [][]byte{bytes.Repeat([]byte("x"), 4096), []byte("x")} {
+				for {
+					n, err := unix.Write(fd, chunk)
+					if errors.Is(err, unix.EAGAIN) {
+						break
+					}
+					require.NoError(t, err)
+					require.Positive(t, n)
+					filled += n
+				}
+			}
+			require.Positive(t, filled)
+			fds := []unix.PollFd{{Fd: int32(fd), Events: unix.POLLOUT}}
+			n, err := unix.Poll(fds, 0)
+			require.NoError(t, err)
+			require.Zero(t, n, "inherited stderr must be non-writable before starting the shim")
+			require.NoError(t, unix.SetNonblock(fd, false))
+			t.Logf("prefilled %d bytes; even a one-byte write returned EAGAIN; no reader drains stderr", filled)
+
+			ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
+			defer cancel()
+			command := func() *exec.Cmd {
+				child := exec.CommandContext(ctx, binary, "__command-mock", "--root", root, "--name", "az", "--", "account", "show")
+				child.Dir = workspace
+				child.Env = append(env, commandmock.SessionEnvironmentVariable+"="+session.ID(), "WAZA_NO_UPDATE_CHECK=1")
+				return child
+			}
+			child := command()
+			var stdout bytes.Buffer
+			child.Stdout, child.Stderr = &stdout, emit
+			require.NoError(t, child.Start())
+			done := make(chan error, 1)
+			go func() { done <- child.Wait() }()
+			waited := false
+			t.Cleanup(func() {
+				if !waited {
+					cancel()
+					<-done
+				}
+			})
+			marker := filepath.Join(root, "sessions", session.ID(), "sequences", "mock-0000-response-0001", "step-00000000")
+			require.Eventually(t, func() bool {
+				_, err := os.Stat(marker)
+				records := session.Invocations()
+				return err == nil && len(records) == 1 && records[0].ExitCode == nil
+			}, 5*time.Second, 10*time.Millisecond, "child must reserve the selected delayed step before cancellation")
+			require.NoError(t, child.Process.Signal(signal))
+			select {
+			case err = <-done:
+				waited = true
+			case <-time.After(3 * time.Second):
+				t.Fatal("delay cancellation remained blocked on full stderr; no drainage or second signal is permitted")
+			}
+			require.NoError(t, ctx.Err(), "cancellation required the safety kill")
+			var exit *exec.ExitError
+			require.ErrorAs(t, err, &exit)
+			require.Equal(t, 130, exit.ExitCode(), "catchable delay cancellation must return its cancellation status")
+			require.Empty(t, stdout.String(), "a canceled delay must not emit selected output")
+			require.NoError(t, emit.Close())
+			emitClosed = true
+			data, err := io.ReadAll(output)
+			require.NoError(t, err)
+			require.Equal(t, strings.Repeat("x", filled), string(data), "neither runtime nor Cobra may append a cancellation diagnostic")
+
+			recovered, err := command().CombinedOutput()
+			require.NoError(t, err, "%s", recovered)
+			require.Equal(t, "recovered", string(recovered), "retry must consume the next step")
+			records, err := session.Close()
+			closed = true
+			require.NoError(t, err)
+			require.Len(t, records, 2)
+			for _, record := range records {
+				require.Equal(t, "az", record.Command)
+				require.Equal(t, []string{"account", "show"}, record.Args)
+				require.Equal(t, 1, record.ResponseIndex)
+			}
+			require.Equal(t, new(130), records[0].ExitCode)
+			require.Equal(t, new(0), records[1].ExitCode)
+		})
+	}
+}
 
 func TestRecoveryCommandMockPassThroughOutput(t *testing.T) {
 	binary := buildRecoveryCLI(t)

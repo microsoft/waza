@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/microsoft/waza/internal/mcpmock"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/stretchr/testify/require"
 )
@@ -123,6 +124,93 @@ func TestRecoveryExternalMCPAdmissionAndInlineReplacement(t *testing.T) {
 			require.Equal(t, test.invalid, hasDiagnostic(report, "mock.mcp", Invalid), "%+v", report.Diagnostics)
 			require.Equal(t, test.invalid, report.Failed(false), "%+v", report.Diagnostics)
 		})
+	}
+}
+
+func TestRecoveryExternalMCPResponseDelayAdmission(t *testing.T) {
+	for _, version := range []string{"1.4", "2.0"} {
+		for _, bundled := range []bool{false, true} {
+			for _, test := range []struct {
+				name, response    string
+				override, invalid bool
+			}{
+				{"response delay", `{"return":"ready","delay_ms":300000}`, false, true},
+				{"zero delay", `{"return":"ready","delay_ms":0}`, false, true},
+				{"null delay", `{"return":"ready","delay_ms":null}`, false, true},
+				{"string delay", `{"return":"ready","delay_ms":"slow"}`, false, true},
+				{"boolean delay", `{"return":"ready","delay_ms":false}`, false, true},
+				{"legacy response", `{"return":"ready"}`, false, false},
+				{"zero step delay", `{"sequence":[{"return":"ready","delay_ms":0}]}`, false, version != "2.0"},
+				{"maximum step delay", `{"sequence":[{"return":"ready","delay_ms":300000}]}`, false, version != "2.0"},
+				{"overridden response delay", `{"return":"unused","delay_ms":300000}`, true, false},
+				{"overridden null delay", `{"return":"unused","delay_ms":null}`, true, false},
+			} {
+				t.Run(fmt.Sprintf("%s/version=%s/bundle=%t", test.name, version, bundled), func(t *testing.T) {
+					mock := models.MCPMockConfig{Name: "dependency", Fixtures: "mocks"}
+					eval := recoveryEval(version) + "\nmcp_mocks:\n  - name: dependency\n    fixtures: mocks\n"
+					if test.override {
+						mock.Tools = map[string]models.MCPMockTool{"read": {Responses: []models.MCPMockResponse{{Return: "inline ready"}}}}
+						eval += "    tools:\n      read:\n        responses: [{return: inline ready}]\n"
+					}
+					path, dir := writeSuite(t, eval, validTask)
+					require.NoError(t, os.Mkdir(filepath.Join(dir, "mocks"), 0700))
+					fixture := `{"responses":[` + test.response + `]}`
+					if bundled {
+						fixture = `{"tools":{"read":` + fixture + `}}`
+					}
+					fixturePath := filepath.Join(dir, "mocks", "read.json")
+					require.NoError(t, os.WriteFile(fixturePath, []byte(fixture), 0600))
+					before, err := os.ReadFile(fixturePath)
+					require.NoError(t, err)
+					require.Equal(t, fixture, string(before), "the actual external source must contain the tested declaration")
+
+					report := Inspect(path, Options{})
+					require.Equal(t, test.invalid, report.Failed(false), "%+v", report.Diagnostics)
+					require.Equal(t, test.invalid, hasDiagnostic(report, "mock.mcp", Invalid), "%+v", report.Diagnostics)
+					state := Verified
+					if test.invalid {
+						state = Invalid
+						require.Contains(t, report.Diagnostics, Diagnostic{
+							Code: "mock.mcp", State: Invalid, Severity: "error", Source: path,
+							Message:     "MCP mock fixtures or matching configuration could not be verified.",
+							Remediation: "Check fixture files, tool responses, regexes, and self-contained match_schema references.",
+						})
+					}
+					require.Contains(t, report.Dependencies, Dependency{Kind: "mcp", Name: "dependency", Mode: "mocked", State: state})
+					for _, resolve := range []func(models.MCPMockConfig, string, string) (*mcpmock.Config, error){
+						mcpmock.FromEvalConfigWithVersion, mcpmock.FromEvalConfigOfflineWithVersion,
+					} {
+						cfg, err := resolve(mock, dir, version)
+						if test.invalid {
+							message := "delay_ms is only supported inside a finite sequence step"
+							if strings.Contains(test.response, `"sequence"`) {
+								message = "fault sequence requires explicit enclosing scenario schemaVersion 2.0"
+							}
+							require.EqualError(t, err, `mcp mock "dependency" fixtures: tool "read": response 0: `+message)
+						} else {
+							require.NoError(t, err)
+							require.Len(t, cfg.Tools["read"].Responses, 1)
+							response := cfg.Tools["read"].Responses[0]
+							if test.override {
+								require.Equal(t, "inline ready", response.Return)
+								require.Empty(t, response.Sequence, "override replaces the whole tool")
+							} else if strings.Contains(test.response, `"sequence"`) {
+								require.Len(t, response.Sequence, 1)
+								require.Equal(t, "ready", response.Sequence[0].Return)
+							} else {
+								require.Equal(t, "ready", response.Return)
+							}
+						}
+					}
+					after, err := os.ReadFile(fixturePath)
+					require.NoError(t, err)
+					require.Equal(t, before, after)
+					after, err = os.ReadFile(path)
+					require.NoError(t, err)
+					require.Equal(t, eval, string(after))
+				})
+			}
+		}
 	}
 }
 
