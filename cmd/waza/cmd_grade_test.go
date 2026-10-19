@@ -214,7 +214,7 @@ func TestGradeCommandOutputPreservesRawRecordedSkill(t *testing.T) {
 					outcome, err := models.ParseEvaluationOutcome(data, outputPath)
 					require.NoError(t, err)
 					require.Equal(t, tc.present, outcome.HasSkillTested())
-					require.Equal(t, "1.6", outcome.SchemaVersion)
+					require.Equal(t, models.CurrentResultSchemaVersion, outcome.SchemaVersion)
 					require.Equal(t, "recorded", outcome.RunID)
 					require.Equal(t, "original-eval", outcome.BenchName)
 					require.Equal(t, "original-model", outcome.Setup.ModelID)

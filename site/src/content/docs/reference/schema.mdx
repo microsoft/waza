@@ -39,7 +39,7 @@ Current native grader bindings do not certify historical grader correspondence.
 
 ## Portable evidence
 
-Tasks retain their legacy format; new results use `1.6` and historical results
+Tasks retain their legacy format; new results use `1.7` and historical results
 retain their declared `1.x` versions or the missing-version `1.4` reader default.
 Snapshot schema `1.1` adds optional `evidence`
 and selected `workspaceFiles`; the portable manifest has an independent
@@ -101,6 +101,28 @@ instruction, and fixture digests do not preserve source bytes. See
 [Snapshot & Replay](/waza/guides/snapshot-replay/) for capture safety and the
 narrow verified file-only regrading operation, and
 [Schema Changes](/waza/reference/schema-changes/) for compatibility.
+
+## Frozen prompt-judging evidence
+
+Result writer `1.7` adds optional `runs[].judge_evidence` and
+`runs[].prompt_judging`, plus separate current-invocation `regrade_usage.sessions`.
+The bundle has its own strict version `1.0` and embedded
+[`judge-evidence-1.0.schema.json`](https://github.com/microsoft/waza/blob/main/schemas/judge-evidence-1.0.schema.json).
+It is not an evidence-manifest document variant. Presence-bearing sections retain
+captured empty values versus unavailable/null items, full origin, source mode,
+fixed limits, redaction and integrity metadata. Readers retain legacy defaults.
+Optional snapshot `1.2` references the frozen digest as `judgeEvidenceSHA256`;
+ordinary snapshots remain `1.1`.
+
+Final eval/task `prompt` config accepts an optional object `evidence_context`
+with exact slash-relative `files` and `evaluator_only` arrays. `{}` opts into core
+recorded evidence; null/wrong types, duplicate paths, traversal and glob paths are
+invalid. Checkpoint, pairwise and `continue_session: true` combinations are
+unsupported. The new profile rejects ambiguous keys, aliases/merges, malformed
+Unicode and invalid wire types before lossy decoding. The runtime verifies
+digest, complete binding, required sections and current selection before judging.
+See [the canonical contract](/waza/guides/graders/#evidence-backed-independent-judging)
+for limits, native-platform/authentication requirements and privacy boundaries.
 
 ## Optional descriptive task requirements
 
@@ -240,7 +262,7 @@ version: "1.0"
 
 **Type:** string  
 **Required:** no  
-**Default:** legacy eval schema version (`1.4`); new result writers independently emit `1.6`
+**Default:** legacy eval schema version (`1.4`); new result writers independently emit `1.7`
 
 Schema version for the public artifact shape. It uses `MAJOR.MINOR` format with no patch component. Same-major minor additions are backward-compatible; readers ignore unknown fields and warn. Different major versions are rejected with a migration hint.
 

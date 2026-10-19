@@ -34,7 +34,8 @@ const (
 	// 1.5 adds task stats.pass_rate_ci and summary statistics success_rate_ci
 	// and pass_hat_k. is_significant is no longer written but still accepted.
 	// 1.6 adds optional run evidence and requirement_explanations.
-	CurrentResultSchemaVersion = "1.6"
+	// 1.7 adds frozen judge_evidence, prompt_judging, and separate regrade_usage.
+	CurrentResultSchemaVersion = "1.7"
 
 	// ScenarioSchemaVersion is eval-only. A major boundary makes older
 	// executables reject no-ambient-discovery semantics instead of ignoring them.

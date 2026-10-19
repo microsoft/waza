@@ -39,6 +39,10 @@ const Kind = "task-snapshot"
 // 1.0 — initial snapshot format (issue #367).
 const CurrentSchemaVersion = "1.1"
 
+// Evidence-enabled snapshots use an additive writer version without changing
+// historical reader defaults or ordinary snapshot output.
+const JudgeEvidenceSnapshotSchemaVersion = "1.2"
+
 // Snapshot is the on-disk record of a single task run that `waza replay` can
 // inspect for internal consistency or compare against another snapshot.
 //
@@ -103,6 +107,7 @@ type Snapshot struct {
 	CommandInvocations        []models.CommandInvocation `json:"commandInvocations,omitempty"`
 	Checkpoints               []models.CheckpointOutcome `json:"checkpoints,omitempty"`
 	Evidence                  *models.EvidenceManifest   `json:"evidence,omitempty"`
+	JudgeEvidenceSHA256       string                     `json:"judgeEvidenceSHA256,omitempty"`
 	WorkspaceFiles            []WorkspaceFile            `json:"workspaceFiles,omitempty"`
 	rawWorkspaceFiles         []json.RawMessage
 	workspaceCaptureRequested bool

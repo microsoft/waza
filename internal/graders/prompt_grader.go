@@ -108,6 +108,9 @@ func newPromptGraderWithRubric(name string, args models.PromptGraderParameters, 
 }
 
 func validatePromptSeed(name string, args models.PromptGraderParameters) error {
+	if err := args.ValidateEvidenceContext(); err != nil {
+		return err
+	}
 	if name == "" {
 		return errors.New("missing name")
 	}
@@ -119,7 +122,9 @@ func validatePromptSeed(name string, args models.PromptGraderParameters) error {
 
 // Grade implements [Grader].
 func (p *promptGrader) Grade(ctx context.Context, gradingContext *Context) (*models.GraderResults, error) {
-
+	if p.args.EvidenceContext != nil {
+		return p.gradeEvidence(ctx, gradingContext)
+	}
 	if p.args.Mode == models.PromptGraderModePairwise && gradingContext.BaselineOutput != "" {
 		return p.gradePairwise(ctx, gradingContext)
 	}

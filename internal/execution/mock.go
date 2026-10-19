@@ -154,6 +154,9 @@ func (m *MockEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Execu
 	if req.SkipWorkspaceCapture {
 		resp.WorkspaceFiles = nil
 	}
+	if req.CaptureJudgeFiles != nil {
+		resp.JudgeFiles = req.CaptureJudgeFiles(m.workspace)
+	}
 
 	return resp, nil
 }

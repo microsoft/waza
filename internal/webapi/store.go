@@ -8,6 +8,7 @@ import (
 	copilot "github.com/github/copilot-sdk/go"
 	"github.com/microsoft/waza/internal/copilotevents"
 	"github.com/microsoft/waza/internal/evidence"
+	"github.com/microsoft/waza/internal/judgeevidence"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/pricing"
 	"github.com/microsoft/waza/internal/statistics"
@@ -231,6 +232,7 @@ func modelUsageResponses(usage *models.UsageStats) []ModelUsageResponse {
 func outcomeToDetail(o *models.EvaluationOutcome) *RunDetail {
 	s := outcomeToSummary(o)
 	detail := &RunDetail{RunSummary: s}
+	detail.RegradeUsage = judgeevidence.ProjectRegradeUsage(o.RegradeUsage)
 	if stats := o.Digest.Statistics; stats != nil && (stats.SuccessRateCI != nil || len(stats.PassHatK) > 0) {
 		detail.Statistics = &ReliabilitySummaryResponse{
 			SuccessRateCI: confidenceIntervalResponse(stats.SuccessRateCI),
@@ -245,7 +247,10 @@ func outcomeToDetail(o *models.EvaluationOutcome) *RunDetail {
 			Outcome: string(to.Status),
 		}
 		hasEvidenceMetadata := false
+		hasPromptJudging := false
 		for _, run := range to.Runs {
+			hasPromptJudging = hasPromptJudging || run.JudgeEvidence != nil || len(run.PromptJudging) > 0
+			tr.PromptJudgingRuns = append(tr.PromptJudgingRuns, judgeevidence.ProjectRun(o.RunID, to.TestID, to.Cached, run))
 			hasEvidenceMetadata = hasEvidenceMetadata || run.Evidence != nil || len(run.RequirementExplanations) > 0
 			row := EvidenceRunResponse{
 				RunNumber: run.RunNumber, Attempts: run.Attempts, Cached: to.Cached, Assessment: "unassessed",
@@ -280,6 +285,9 @@ func outcomeToDetail(o *models.EvaluationOutcome) *RunDetail {
 		}
 		if !hasEvidenceMetadata {
 			tr.EvidenceRuns = nil
+		}
+		if !hasPromptJudging {
+			tr.PromptJudgingRuns = nil
 		}
 		if to.Stats != nil {
 			tr.Score = to.Stats.AvgScore
@@ -474,9 +482,9 @@ func mapTranscriptEvents(events []models.TranscriptEvent) []TranscriptEventRespo
 			r.Success = &complete.Success
 			r.ToolResult = complete.Result
 		}
-		if partial, ok := copilotevents.ToolPartial(e.SessionEvent); ok {
-			r.ToolCallID = partial.ToolCallID
-			r.Message = partial.PartialOutput
+		if output, toolCallID, ok := copilotevents.ToolOutput(e.SessionEvent); ok {
+			r.ToolCallID = toolCallID
+			r.Message = output
 		}
 		resp = append(resp, r)
 	}

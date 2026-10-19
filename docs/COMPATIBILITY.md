@@ -93,7 +93,7 @@ known-field types/constraints. Do not infer a task major-version policy from
 the eval/result policy. Eval/result versionless inputs default to the current
 v1 reader version (`1.4`); explicit same-major versions load, cross-major versions
 require migration. New evaluations and regrades independently write result
-version `1.6`; reading/re-saving historical inputs keeps their declared version
+version `1.7`; reading/re-saving historical inputs keeps their declared version
 and never invents reliability fields. Snapshot versioning is independent of
 result versioning.
 
@@ -117,7 +117,7 @@ stripped from those assertions.
 The frozen `cmd/waza/testdata/compatibility-run-1.4.json` oracle was verified by executing
 the CLI built from an isolated `git archive` of baseline `04e7b4c6` against
 the fixed eval/task inputs. The current CLI process test compares each full raw
-JSON artifact against `compatibility-run-1.6.json`: a separate expected writer
+JSON artifact against `compatibility-run-1.7.json`: a separate expected writer
 artifact differing only in the explicitly advanced result version. A regression
 asserts that this is the only difference; neither schema versions nor reliability
 fields are added to the normalization allowlist. Historical corpus files and the

@@ -593,16 +593,16 @@ func extractCopilotTrace(transcript []models.TranscriptEvent) []string {
 				parts = append(parts, "result="+result)
 			}
 			lines = append(lines, strings.Join(parts, " "))
-		case copilot.SessionEventTypeToolExecutionPartialResult:
-			partial, ok := copilotevents.ToolPartial(evt.SessionEvent)
+		case copilot.SessionEventTypeToolShellOutput, "tool.execution_partial_result":
+			output, _, ok := copilotevents.ToolOutput(evt.SessionEvent)
 			if !ok {
 				continue
 			}
-			output := compactWhitespace(partial.PartialOutput)
-			if output == "" {
+			text := compactWhitespace(output)
+			if text == "" {
 				continue
 			}
-			lines = append(lines, "tool partial result: "+truncateForPrompt(output, maxSuggestionTraceEntryLen))
+			lines = append(lines, "tool partial result: "+truncateForPrompt(text, maxSuggestionTraceEntryLen))
 		case copilot.SessionEventTypeToolUserRequested:
 			request, ok := copilotevents.ToolUserRequested(evt.SessionEvent)
 			if !ok {

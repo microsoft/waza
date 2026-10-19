@@ -83,8 +83,9 @@ func (te TranscriptEvent) MarshalJSON() ([]byte, error) {
 		v.ToolResult = complete.Result
 		v.Success = &complete.Success
 	}
-	if partial, ok := copilotevents.ToolPartial(te.SessionEvent); ok {
-		v.ToolCallID = &partial.ToolCallID
+	if output, toolCallID, ok := copilotevents.ToolOutput(te.SessionEvent); ok {
+		v.ToolCallID = &toolCallID
+		v.Message = &output
 	}
 
 	return json.Marshal(v)
@@ -131,8 +132,16 @@ func transcriptData(
 			Success:    derefBool(success),
 			ToolCallID: derefString(toolCallID),
 		}
-	case copilot.SessionEventTypeToolExecutionPartialResult:
-		return &copilot.ToolExecutionPartialResultData{ToolCallID: derefString(toolCallID)}
+	case copilot.SessionEventTypeToolShellOutput:
+		return &copilot.ToolShellOutputData{
+			Text:       derefString(message),
+			ToolCallID: derefString(toolCallID),
+		}
+	case "tool.execution_partial_result":
+		return copilotevents.RawData(eventType, map[string]any{
+			"partialOutput": derefString(message),
+			"toolCallId":    derefString(toolCallID),
+		})
 	case copilot.SessionEventTypeSessionError:
 		return &copilot.SessionErrorData{Message: derefString(message)}
 	default:

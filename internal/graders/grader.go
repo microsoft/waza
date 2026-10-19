@@ -77,7 +77,13 @@ type Context struct {
 
 	// Executor runs model-backed grader prompts through the same execution layer
 	// as task prompts. Only prompt graders require it.
-	Executor Executor
+	Executor            Executor
+	EvidenceExecutor    Executor
+	JudgeModelFallback  string
+	JudgeEvidence       *models.JudgeEvidence
+	JudgeOrigin         models.EvidenceOrigin
+	RecordPromptJudging func(models.PromptJudgeObservation)
+	JudgingPurpose      string
 
 	RecordUsage func(models.SessionDigest)
 	// RecordResponseUsage preserves the engine's cumulative/per-turn semantics.
