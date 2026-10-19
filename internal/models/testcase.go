@@ -2,6 +2,7 @@ package models
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -575,13 +576,17 @@ func ParseTestCaseOffline(data []byte, path string, validate func(string, Grader
 
 func parseTestCase(data []byte, path string, offline bool, readFile func(string) ([]byte, error), validate func(string, GraderParameters) error) (*TestCase, error) {
 	data = bytes.Clone(data)
+	var sourceErr error
 	if err := validateDeclaredFaults(data, "", true); err != nil {
-		return nil, fmt.Errorf("task fault sources: %w", err)
+		sourceErr = fmt.Errorf("task fault sources: %w", err)
 	}
 	if offline {
 		if err := guardOfflineModelSchemas(data, true, validate); err != nil {
-			return nil, fmt.Errorf("task schema dependencies: %w", err)
+			sourceErr = errors.Join(sourceErr, fmt.Errorf("task schema dependencies: %w", err))
 		}
+	}
+	if sourceErr != nil {
+		return nil, sourceErr
 	}
 
 	var tc TestCase

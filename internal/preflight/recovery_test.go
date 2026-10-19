@@ -72,6 +72,109 @@ func TestRecoveryExternalMCPAdmissionAndInlineReplacement(t *testing.T) {
 	}
 }
 
+func TestRecoveryInlineMCPAggregatesIndependentMatcherFailures(t *testing.T) {
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests.Add(1)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+	for _, test := range []struct {
+		name                               string
+		external, invalid, legacy, reverse bool
+	}{
+		{"external then invalid finite regex", true, true, false, false},
+		{"external then invalid legacy regex", true, true, true, false},
+		{"invalid finite regex then external", true, true, false, true},
+		{"invalid legacy regex then external", true, true, true, true},
+		{"external with valid regex", true, false, false, false},
+		{"invalid regex only", false, true, false, false},
+		{"self-contained valid matchers", false, false, false, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			schema, pattern := `{}`, "^ready$"
+			if test.external {
+				schema = fmt.Sprintf(`{"$ref":%q}`, server.URL+"/schema.json")
+			}
+			if test.invalid {
+				pattern = "["
+			}
+			first := fmt.Sprintf(`{"match_schema":%s,"sequence":[{"return":null}]}`, schema)
+			output := `"sequence":[{"return":"ready"}]`
+			if test.legacy {
+				output = `"return":"ready"`
+			}
+			second := fmt.Sprintf(`{"match_regex":{"operation":%q},%s}`, pattern, output)
+			if test.reverse {
+				first, second = second, first
+			}
+			eval := recoveryEval("2.0") + fmt.Sprintf("\nmcp_mocks:\n  - name: dependency\n    tools:\n      read:\n        responses: [%s,%s]\n", first, second)
+			path, _ := writeSuite(t, eval, validTask)
+			sources, err := models.MockResponseSources([]byte(eval))
+			require.NoError(t, err)
+			require.Len(t, sources, 2, "exercise inline declarations, not external fixture admission")
+			report := Inspect(path, Options{})
+			require.False(t, hasDiagnostic(report, "eval.schema", Invalid), "%+v", report.Diagnostics)
+			require.Equal(t, test.invalid, report.Failed(false), "%+v", report.Diagnostics)
+			if test.external {
+				require.True(t, report.Failed(true), "%+v", report.Diagnostics)
+			}
+			require.Equal(t, test.invalid, hasDiagnostic(report, "eval.configuration", Invalid), "%+v", report.Diagnostics)
+			require.Equal(t, test.external && !test.invalid, hasDiagnostic(report, "eval.configuration", Unresolved), "%+v", report.Diagnostics)
+			require.Equal(t, test.external && test.invalid, hasDiagnostic(report, "schema.external_reference", Unresolved), "%+v", report.Diagnostics)
+			require.Equal(t, !test.external && !test.invalid, report.Complete)
+			after, err := os.ReadFile(path)
+			require.NoError(t, err)
+			require.Equal(t, eval, string(after))
+		})
+	}
+	require.Zero(t, requests.Load(), "offline inline admission must not fetch unavailable matcher schemas")
+}
+
+func TestRecoveryFaultSourcesRetainIndependentOfflineGraderDiagnostics(t *testing.T) {
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests.Add(1)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+	for _, scope := range []string{"eval", "task", "checkpoint"} {
+		t.Run(scope, func(t *testing.T) {
+			eval, task, code := recoveryEval("2.0"), "id: task\nname: Task\ninputs: {prompt: Inspect.}\n", "eval.configuration"
+			external := offlineMatcherDeclaration("external", map[string]any{"json_schema": map[string]any{"$ref": server.URL}})
+			switch scope {
+			case "eval":
+				eval += fmt.Sprintf("\nmcp_mocks:\n  - name: dependency\n    tools:\n      read:\n        responses: [{match_schema: {$ref: %q}, sequence: [{return: null}]}]\n", server.URL)
+				eval += "\ngraders:\n  - name: invalid\n    type: text\n    config: {regex_match: ['[']}\n"
+			case "task":
+				task += pipelineYAML(t, map[string]any{"graders": []any{external}})
+				code = "task.configuration"
+			case "checkpoint":
+				task += pipelineYAML(t, map[string]any{"checkpoints": []any{map[string]any{"after_turn": 1, "graders": []any{external}}}})
+				code = "task.configuration"
+			}
+			if scope != "eval" {
+				task += "\ncommand_mocks:\n  - name: az\n    responses:\n      - args_regex: ['[']\n        sequence: [{stdout: ready}]\n"
+			}
+			path, dir := writeSuite(t, eval, task)
+			report := Inspect(path, Options{})
+			require.False(t, hasDiagnostic(report, "eval.schema", Invalid), "%+v", report.Diagnostics)
+			require.False(t, hasDiagnostic(report, "task.schema", Invalid), "%+v", report.Diagnostics)
+			require.True(t, report.Failed(false), "%+v", report.Diagnostics)
+			require.False(t, report.Complete)
+			require.True(t, hasDiagnostic(report, code, Invalid), "%+v", report.Diagnostics)
+			require.True(t, hasDiagnostic(report, "schema.external_reference", Unresolved), "%+v", report.Diagnostics)
+			after, err := os.ReadFile(path)
+			require.NoError(t, err)
+			require.Equal(t, eval, string(after))
+			after, err = os.ReadFile(filepath.Join(dir, "task.yaml"))
+			require.NoError(t, err)
+			require.Equal(t, task, string(after))
+		})
+	}
+	require.Zero(t, requests.Load(), "independent diagnostic aggregation must remain offline")
+}
+
 func TestRecoveryExternalMCPAggregatesIndependentMatcherFailures(t *testing.T) {
 	var requests atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

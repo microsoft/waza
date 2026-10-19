@@ -215,9 +215,11 @@ pinned cached presets, and merged overrides. External schema prerequisites
 stop that materialization with an unresolved diagnostic and `complete: false`;
 ordinary matcher literals and MCP returned payloads are not treated as schemas.
 Invalid static grader fields still fail by default when the same pinned preset
-or merged override also has an unavailable schema. Fixture-backed MCP responses
-likewise retain both invalid regex configuration and unresolved schema
-prerequisites, across responses and declaration order. These mixed cases report
+or merged override also has an unavailable schema. Inline and fixture-backed MCP
+responses retain both invalid regex configuration and unresolved schema
+prerequisites, across responses and declaration order. Finite mock source errors
+also do not suppress independent eval, task, or checkpoint grader diagnostics.
+These mixed cases report
 `invalid` plus an `unresolved` diagnostic and keep `complete: false`; a regex or
 static-field failure never makes an external schema prerequisite verified.
 Later grader schema-file and MCP input-schema compilation also sets

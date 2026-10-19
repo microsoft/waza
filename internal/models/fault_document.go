@@ -2,6 +2,7 @@ package models
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"maps"
@@ -251,6 +252,7 @@ func validateDeclaredFaults(data []byte, version string, task bool) error {
 	if task && version == "" {
 		version = ScenarioSchemaVersion
 	}
+	var errs []error
 	for _, source := range sources {
 		var err error
 		switch source.Kind {
@@ -262,10 +264,10 @@ func validateDeclaredFaults(data []byte, version string, task bool) error {
 			}
 		}
 		if err != nil {
-			return fmt.Errorf("%s mock response[%d]: %w", source.Kind, source.Index, err)
+			errs = append(errs, fmt.Errorf("%s mock response[%d]: %w", source.Kind, source.Index, err))
 		}
 	}
-	return nil
+	return errors.Join(errs...)
 }
 
 // ValidateTaskFaultSources checks finite task-level mock responses against the

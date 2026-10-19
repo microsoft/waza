@@ -3,6 +3,7 @@ package models
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -556,14 +557,18 @@ func parseEvalSpec(data []byte, path string, offline bool, validate func(string,
 		return nil, err
 	}
 
+	var sourceErr error
 	if err := validateDeclaredFaults(data, version, false); err != nil {
-		return nil, fmt.Errorf("eval fault sources: %w", err)
+		sourceErr = fmt.Errorf("eval fault sources: %w", err)
 	}
 
 	if offline {
 		if err := guardOfflineModelSchemas(data, false, validate); err != nil {
-			return nil, fmt.Errorf("eval schema dependencies: %w", err)
+			sourceErr = errors.Join(sourceErr, fmt.Errorf("eval schema dependencies: %w", err))
 		}
+	}
+	if sourceErr != nil {
+		return nil, sourceErr
 	}
 
 	var spec EvalSpec
