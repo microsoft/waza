@@ -19,6 +19,46 @@ function intervalLabel(interval?: {
     : "Not assessed";
 }
 
+function validRequirementExplanations(value: unknown): boolean {
+  if (!Array.isArray(value)) return false;
+  return value.every((requirement) => {
+    if (!requirement || typeof requirement !== "object" || Array.isArray(requirement)) {
+      return false;
+    }
+    const item = requirement as Record<string, unknown>;
+    if (typeof item.task_id !== "string" || typeof item.requirement_id !== "string") {
+      return false;
+    }
+    if (item.checks === undefined || item.checks === null) return true;
+    if (!Array.isArray(item.checks)) return false;
+    return item.checks.every((entry) => {
+      if (!entry || typeof entry !== "object" || Array.isArray(entry)) return false;
+      const check = entry as Record<string, unknown>;
+      if (!check.check || typeof check.check !== "object" || Array.isArray(check.check)) {
+        return false;
+      }
+      const declaration = check.check as Record<string, unknown>;
+      const references = check.references;
+      return typeof declaration.scope === "string" &&
+        typeof declaration.grader === "string" &&
+        (declaration.after_turn === undefined ||
+          (typeof declaration.after_turn === "number" &&
+            Number.isSafeInteger(declaration.after_turn))) &&
+        typeof check.observation === "string" &&
+        typeof check.category === "string" &&
+        typeof check.message === "string" &&
+        (references === undefined ||
+          (Array.isArray(references) &&
+            references.every((reference) =>
+              !!reference &&
+              typeof reference === "object" &&
+              !Array.isArray(reference) &&
+              typeof (reference as Record<string, unknown>).artifact_id === "string",
+            )));
+    });
+  });
+}
+
 function RecordedEvidence({ run, task }: { run: LabRun; task?: LabRun["tasks"][number] }) {
   const taskResult = task?.api;
   const rawEvidenceRuns = taskResult?.evidenceRuns;
@@ -83,6 +123,9 @@ function RecordedEvidence({ run, task }: { run: LabRun; task?: LabRun["tasks"][n
           const withheld =
             (evidence.assessment === "recorded" || evidence.manifest != null) &&
             !manifest;
+          const malformedExplanations =
+            evidence.explanations !== undefined &&
+            !validRequirementExplanations(evidence.explanations);
           return (
             <div key={`${evidence.runNumber}-${index}`} className="lab-evidence-record">
               <strong>
@@ -130,7 +173,11 @@ function RecordedEvidence({ run, task }: { run: LabRun; task?: LabRun["tasks"][n
                   ))}
                 </>
               )}
+              {malformedExplanations && (
+                <p>Requirement observations withheld: invalid or unsupported metadata.</p>
+              )}
               {!withheld &&
+                !malformedExplanations &&
                 evidence.assessment !== "invalid" &&
                 evidence.explanations?.map((requirement) => (
                   <div key={`${requirement.task_id}-${requirement.requirement_id}`}>

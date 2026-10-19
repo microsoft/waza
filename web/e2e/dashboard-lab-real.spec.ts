@@ -1176,6 +1176,70 @@ test.describe("Real dashboard lab", () => {
     expect(errors).toEqual([]);
   });
 
+  for (const [name, explanations] of [
+    ["null explanation list", null],
+    ["null requirement", [null]],
+    ["null check", [{ task_id: "report-task", requirement_id: "required-report", checks: [null] }]],
+    ["null check declaration", [{
+      task_id: "report-task",
+      requirement_id: "required-report",
+      checks: [{ check: null, observation: "unresolved", category: "insufficient_evidence", message: "Unavailable." }],
+    }]],
+    ["null reference", [{
+      task_id: "report-task",
+      requirement_id: "required-report",
+      checks: [{
+        check: { scope: "task", grader: "report-check" },
+        observation: "unresolved",
+        category: "insufficient_evidence",
+        message: "Unavailable.",
+        references: [null],
+      }],
+    }]],
+  ] as const) {
+    test(`malformed ${name} requirement metadata is withheld without crashing`, async ({ page }) => {
+      const summary = { ...savedRuns[0]!, taskCount: 1 };
+      const malformed = detail(summary);
+      const evidence = evidenceRun();
+      Object.assign(evidence, { explanations });
+      malformed.tasks[0]!.evidenceRuns = [evidence];
+      const errors: string[] = [];
+      page.on("pageerror", (error) => errors.push(error.message));
+      await mockResults(page, [summary], [malformed]);
+      await page.goto("/#/lab/history");
+      await page.getByRole("button", { name: "custom-skill", exact: true }).click();
+      const dialog = page.getByRole("dialog");
+      await dialog.getByRole("tab", { name: "Recorded evidence" }).click();
+
+      await expect(dialog).toContainText("Source origin: eval source-evaluation");
+      await expect(dialog).toContainText("Requirement observations withheld: invalid or unsupported metadata.");
+      await expect(dialog).not.toContainText("PRIVATE_CANARY");
+      expect(errors).toEqual([]);
+    });
+  }
+
+  test("valid null check collections remain unassessed rather than invalid", async ({ page }) => {
+    const summary = { ...savedRuns[0]!, taskCount: 1 };
+    const recorded = detail(summary);
+    const evidence = evidenceRun();
+    Object.assign(evidence, {
+      explanations: [{
+        task_id: "report-task",
+        requirement_id: "required-report",
+        checks: null,
+      }],
+    });
+    recorded.tasks[0]!.evidenceRuns = [evidence];
+    await mockResults(page, [summary], [recorded]);
+    await page.goto("/#/lab/history");
+    await page.getByRole("button", { name: "custom-skill", exact: true }).click();
+    const dialog = page.getByRole("dialog");
+    await dialog.getByRole("tab", { name: "Recorded evidence" }).click();
+
+    await expect(dialog).toContainText("Check observations unavailable; requirement satisfaction is unassessed.");
+    await expect(dialog).not.toContainText("Requirement observations withheld:");
+  });
+
   test("permanently closed activity streams require manual reconnect and release prior resources", async ({
     page,
   }) => {
