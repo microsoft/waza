@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"regexp"
 	"runtime"
 	"strings"
+	"syscall"
 )
 
 var sensitiveArgPattern = regexp.MustCompile(`(?i)(gh[pousr]_[A-Za-z0-9_]{20,}|sk-(?:proj-)?[A-Za-z0-9_-]{20,}|AKIA[0-9A-Z]{16}|eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+|bearer\s+[A-Za-z0-9._\-+/=]{16,})`)
@@ -83,7 +85,14 @@ func RunCommandContext(ctx context.Context, root, name string, args []string) in
 		fmt.Fprintln(os.Stderr, "waza command mock: cannot determine working directory")
 		return 127
 	}
+	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+	defer stop()
 	result, err := InvokeContext(ctx, root, os.Getenv(SessionEnvironmentVariable), name, args, cwd)
+	// Only invocation and host execution observe cancellation. Restore process
+	// termination before writing mock output, which can block on inherited pipes.
+	if err != nil || !result.PassThrough {
+		stop()
+	}
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
 			fmt.Fprintln(os.Stderr, "waza command mock: invocation timed out")

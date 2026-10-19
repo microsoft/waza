@@ -79,8 +79,12 @@ preserve these fields without adding a `return` to an MCP error-only step.
   behavior, without waiting for an inherited stdin reader to unblock. This is
   distinct from per-request cancellation; normal stdin EOF still drains accepted
   requests.
-* CLI attempts are recorded before waiting on a sequence delay. A catchable
-  interruption records cancellation (exit 130) or deadline (exit 124). An
+* CLI attempts are recorded before waiting on a sequence delay. During that
+  delay, a catchable interruption records cancellation (exit 130) or deadline
+  (exit 124). On Unix, SIGTERM/SIGINT use normal process-signal termination
+  during mock-output emission, including when an open stdout/stderr pipe stops
+  draining. Output may be partial; a selected outcome already recorded before
+  emission is not rewritten to claim delivery or a cancellation result. An
   abruptly killed process leaves a started attempt with `exit_code` omitted,
   not an invented success or cancellation code. Completed exit zero is explicit.
   The dashboard displays an omitted exit as unavailable. Attempt records describe
