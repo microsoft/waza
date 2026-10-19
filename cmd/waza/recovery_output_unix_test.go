@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -22,6 +23,199 @@ import (
 	"golang.org/x/sys/unix"
 )
 
+func TestRecoveryCommandMockPassThroughOutput(t *testing.T) {
+	binary := buildRecoveryCLI(t)
+	executable, err := os.Executable()
+	require.NoError(t, err)
+	for _, test := range []struct {
+		name   string
+		size   int
+		code   int
+		signal os.Signal
+	}{
+		{name: "small success", size: 32},
+		{name: "small failure", size: 32, code: 7},
+		{name: "ordinary exit 124", size: 32, code: 124},
+		{name: "ordinary exit 130", size: 32, code: 130},
+		{name: "large drained success", size: 8 << 20},
+		{name: "drained SIGTERM", size: 32, signal: syscall.SIGTERM},
+		{name: "drained SIGINT", size: 32, signal: os.Interrupt},
+		{name: "blocked SIGTERM", size: 8 << 20, signal: syscall.SIGTERM},
+		{name: "blocked SIGINT", size: 8 << 20, signal: os.Interrupt},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			workspace := t.TempDir()
+			session, err := commandmock.NewSession(workspace, []models.CommandMockConfig{{
+				Name: "az", Responses: []models.CommandMockResponse{{Args: []string{}, Stdout: "unused"}},
+			}}, workspace)
+			require.NoError(t, err)
+			t.Cleanup(func() {
+				records, err := session.Close()
+				require.NoError(t, err)
+				require.Empty(t, records, "pass-through must not fabricate mock invocation evidence")
+			})
+			env, err := commandmock.RuntimeEnvironment()
+			require.NoError(t, err)
+			var root string
+			for _, item := range env {
+				if value, ok := strings.CutPrefix(item, "WAZA_COMMAND_MOCK_ROOT="); ok {
+					root = value
+				}
+			}
+			require.NotEmpty(t, root)
+			ready := filepath.Join(workspace, "host-started")
+			output, emit, err := os.Pipe()
+			require.NoError(t, err)
+			t.Cleanup(func() { require.NoError(t, output.Close()) })
+			emitClosed := false
+			t.Cleanup(func() {
+				if !emitClosed {
+					require.NoError(t, emit.Close())
+				}
+			})
+			ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
+			defer cancel()
+			child := exec.CommandContext(ctx, binary, "__command-mock", "--root", root, "--name", filepath.Base(executable), "--",
+				"-test.run=^TestRecoveryPassThroughOutputHostProcess$", "--", strconv.Itoa(test.size), strconv.Itoa(test.code))
+			child.Dir = workspace
+			child.Env = append(env, commandmock.SessionEnvironmentVariable+"="+session.ID(),
+				"PATH="+filepath.Dir(executable), "WAZA_TEST_RECOVERY_OUTPUT_HOST="+ready,
+				"WAZA_TEST_RECOVERY_OUTPUT_WAIT="+strconv.FormatBool(test.signal != nil), "WAZA_NO_UPDATE_CHECK=1")
+			var stdout bytes.Buffer
+			child.Stdout, child.Stderr = &stdout, emit
+			require.NoError(t, child.Start())
+			done := make(chan error, 1)
+			go func() { done <- child.Wait() }()
+			waited := false
+			t.Cleanup(func() {
+				if !waited {
+					cancel()
+					<-done
+				}
+			})
+			var pid int
+			require.Eventually(t, func() bool {
+				data, err := os.ReadFile(ready)
+				if err != nil {
+					return false
+				}
+				pid, err = strconv.Atoi(string(data))
+				return err == nil && pid > 0
+			}, 5*time.Second, 10*time.Millisecond, "unconfigured pass-through host never started")
+			host, err := os.FindProcess(pid)
+			require.NoError(t, err)
+			t.Cleanup(func() {
+				if host.Signal(syscall.Signal(0)) == nil {
+					require.NoError(t, host.Kill())
+				}
+				require.NoError(t, host.Release())
+			})
+			require.NoError(t, output.SetReadDeadline(time.Now().Add(10*time.Second)))
+			payload := strings.Repeat("x", test.size)
+			var waitErr error
+			if test.signal == nil {
+				require.NoError(t, emit.Close())
+				emitClosed = true
+				data, err := io.ReadAll(output)
+				require.NoError(t, err)
+				expected := payload
+				if test.code != 0 {
+					expected += fmt.Sprintf("Error: exit code %d\n", test.code)
+				}
+				require.Equal(t, expected, string(data))
+				waitErr = <-done
+				waited = true
+				require.FileExists(t, ready+".finished", "ordinary host must complete its output")
+			} else {
+				prefix := make([]byte, min(test.size, 64<<10))
+				_, err := io.ReadFull(output, prefix)
+				require.NoError(t, err)
+				require.Equal(t, payload[:len(prefix)], string(prefix))
+				blocked := test.size > len(prefix)
+				if blocked {
+					require.EventuallyWithT(t, func(collect *assert.CollectT) {
+						fds := []unix.PollFd{{Fd: int32(emit.Fd()), Events: unix.POLLOUT}}
+						n, err := unix.Poll(fds, 0)
+						assert.NoError(collect, err)
+						assert.Zero(collect, n)
+					}, 5*time.Second, 10*time.Millisecond, "inherited host stderr must be full before signaling")
+					require.NoFileExists(t, ready+".finished", "host output must still be blocked")
+					t.Logf("host PID %d emitted %d bytes; inherited stderr is undrained and not writable", pid, len(prefix))
+				} else {
+					require.Eventually(t, func() bool {
+						_, err := os.Stat(ready + ".finished")
+						return err == nil
+					}, 5*time.Second, 10*time.Millisecond, "drained host never finished its output")
+				}
+				require.NoError(t, host.Signal(syscall.Signal(0)), "actual host must be alive before cancellation")
+				require.NoError(t, child.Process.Signal(test.signal))
+				select {
+				case waitErr = <-done:
+					waited = true
+				case <-time.After(3 * time.Second):
+					t.Error("shim remained blocked after host cancellation")
+					assert.Error(t, host.Signal(syscall.Signal(0)), "cancellation must stop and reap the host before diagnostic output")
+					require.NoError(t, emit.Close())
+					emitClosed = true
+					data, err := io.ReadAll(output)
+					require.NoError(t, err)
+					t.Logf("drained %d bytes to release shim; stderr tail: %q", len(data), string(data[max(0, len(data)-120):]))
+					waitErr = <-done
+					waited = true
+				}
+				require.Error(t, host.Signal(syscall.Signal(0)), "pass-through host survived cancellation")
+				if blocked {
+					require.NoFileExists(t, ready+".finished", "cancellation must interrupt the blocked host output")
+				}
+				if !emitClosed {
+					require.NoError(t, emit.Close())
+					emitClosed = true
+					data, err := io.ReadAll(output)
+					require.NoError(t, err)
+					require.LessOrEqual(t, len(prefix)+len(data), len(payload))
+					require.Equal(t, payload[len(prefix):len(prefix)+len(data)], string(data),
+						"cancellation must not write additional diagnostics after host output")
+				}
+			}
+			require.NoError(t, ctx.Err(), "shim required the safety timeout")
+			require.Equal(t, "host stdout\n", stdout.String())
+			if test.signal != nil || test.code != 0 {
+				var exit *exec.ExitError
+				require.ErrorAs(t, waitErr, &exit)
+				expectedCode := test.code
+				if test.signal != nil {
+					expectedCode = 130
+				}
+				require.Equal(t, expectedCode, exit.ExitCode(), "cancellation must not require a second signal or drainage")
+			} else {
+				require.NoError(t, waitErr)
+			}
+		})
+	}
+}
+
+func TestRecoveryPassThroughOutputHostProcess(t *testing.T) {
+	ready := os.Getenv("WAZA_TEST_RECOVERY_OUTPUT_HOST")
+	if ready == "" {
+		return
+	}
+	size, err := strconv.Atoi(os.Args[len(os.Args)-2])
+	require.NoError(t, err)
+	code, err := strconv.Atoi(os.Args[len(os.Args)-1])
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(ready, []byte(strconv.Itoa(os.Getpid())), 0600))
+	_, err = io.WriteString(os.Stdout, "host stdout\n")
+	require.NoError(t, err)
+	n, err := io.WriteString(os.Stderr, strings.Repeat("x", size))
+	require.NoError(t, err)
+	require.Equal(t, size, n)
+	require.NoError(t, os.WriteFile(ready+".finished", []byte("complete"), 0600))
+	if os.Getenv("WAZA_TEST_RECOVERY_OUTPUT_WAIT") == "true" {
+		time.Sleep(time.Hour)
+	}
+	os.Exit(code)
+}
+
 func TestRecoveryCommandMockOutput(t *testing.T) {
 	binary := buildRecoveryCLI(t)
 	for _, stream := range []string{"stdout", "stderr"} {
@@ -33,6 +227,8 @@ func TestRecoveryCommandMockOutput(t *testing.T) {
 		}{
 			{name: "small success", size: 32},
 			{name: "small failure", size: 32, code: 7},
+			{name: "configured exit 124", size: 32, code: 124},
+			{name: "configured exit 130", size: 32, code: 130},
 			{name: "large drained success", size: 8 << 20},
 			{name: "blocked SIGTERM", size: 8 << 20, signal: syscall.SIGTERM},
 			{name: "blocked SIGINT", size: 8 << 20, signal: os.Interrupt},

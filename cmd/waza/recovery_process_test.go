@@ -34,6 +34,35 @@ func buildRecoveryCLI(t *testing.T) string {
 	return binary
 }
 
+func TestRecoveryCommandMockContextCancellation(t *testing.T) {
+	canceled, cancel := context.WithCancel(t.Context())
+	cancel()
+	expired, stop := context.WithDeadline(t.Context(), time.Now().Add(-time.Second))
+	defer stop()
+	for _, test := range []struct {
+		name string
+		ctx  context.Context
+		code int
+	}{
+		{"canceled", canceled, 130},
+		{"deadline", expired, 124},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			cmd := newRootCommand()
+			cmd.SetContext(test.ctx)
+			cmd.SetArgs([]string{"__command-mock", "--root", t.TempDir(), "--name", "unused"})
+			var diagnostic bytes.Buffer
+			cmd.SetErr(&diagnostic)
+			err := cmd.Execute()
+			var exit *ExitCodeError
+			require.ErrorAs(t, err, &exit)
+			require.Equal(t, test.code, exit.Code)
+			require.Nil(t, exit.Err, "main must not emit a second diagnostic")
+			require.Empty(t, diagnostic.String(), "Cobra must not write after cancellation")
+		})
+	}
+}
+
 func TestRecoveryMCPMockProcessStdinLifecycle(t *testing.T) {
 	binary := buildRecoveryCLI(t)
 	for _, test := range []struct {

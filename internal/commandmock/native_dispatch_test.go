@@ -72,8 +72,8 @@ func TestNativeNilCompatibility(t *testing.T) {
 	}
 	t.Chdir(s.workspace)
 	t.Setenv(SessionEnvironmentVariable, s.ID())
-	if code := RunCommand(root, "az", nil); code != 7 {
-		t.Fatalf("legacy shim path changed: %d", code)
+	if code, err := RunCommand(root, "az", nil); code != 7 || err != nil {
+		t.Fatalf("legacy shim path changed: %d, %v", code, err)
 	}
 	if got, err := s.Close(); err != nil || len(got) != 3 {
 		t.Fatalf("legacy records: %+v, %v", got, err)

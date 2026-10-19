@@ -2,6 +2,7 @@ package commandmock
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -158,9 +159,9 @@ func TestRunHostCommandFiltersEnvironment(t *testing.T) {
 			if exitCode == "7" {
 				want = 7
 			}
-			got := runHostCommand(t.Context(), root, filepath.Base(executable), []string{"-test.run=^TestRunHostCommandHelperProcess$", "--", exitCode})
-			if got != want {
-				t.Fatalf("runHostCommand() = %d, want %d", got, want)
+			got, err := runHostCommand(t.Context(), root, filepath.Base(executable), []string{"-test.run=^TestRunHostCommandHelperProcess$", "--", exitCode})
+			if got != want || err != nil {
+				t.Fatalf("runHostCommand() = %d, %v, want %d, nil", got, err, want)
 			}
 		})
 	}
@@ -185,8 +186,50 @@ func TestRunHostCommandContextCancellation(t *testing.T) {
 		{"deadline", expired, 124},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			if got := runHostCommand(test.ctx, t.TempDir(), filepath.Base(executable), []string{"-test.run=^TestRunHostCommandHelperProcess$"}); got != test.code {
-				t.Fatalf("runHostCommand() = %d, want %d", got, test.code)
+			got, err := runHostCommand(test.ctx, t.TempDir(), filepath.Base(executable), []string{"-test.run=^TestRunHostCommandHelperProcess$"})
+			if got != test.code || !errors.Is(err, test.ctx.Err()) {
+				t.Fatalf("runHostCommand() = %d, %v, want %d, %v", got, err, test.code, test.ctx.Err())
+			}
+		})
+	}
+}
+
+func TestRunCommandContextCancellation(t *testing.T) {
+	canceled, cancel := context.WithCancel(t.Context())
+	cancel()
+	expired, stop := context.WithDeadline(t.Context(), time.Now().Add(-time.Second))
+	defer stop()
+	for _, test := range []struct {
+		name string
+		ctx  context.Context
+		code int
+	}{
+		{"canceled", canceled, 130},
+		{"deadline", expired, 124},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			stderr, err := os.CreateTemp(t.TempDir(), "stderr")
+			if err != nil {
+				t.Fatal(err)
+			}
+			original := os.Stderr
+			os.Stderr = stderr
+			t.Cleanup(func() {
+				os.Stderr = original
+				if err := stderr.Close(); err != nil {
+					t.Error(err)
+				}
+			})
+			code, err := RunCommandContext(test.ctx, t.TempDir(), "unused", nil)
+			if code != test.code || !errors.Is(err, test.ctx.Err()) {
+				t.Fatalf("RunCommandContext() = %d, %v, want %d, %v", code, err, test.code, test.ctx.Err())
+			}
+			info, err := stderr.Stat()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if info.Size() != 0 {
+				t.Fatal("cancellation wrote a diagnostic instead of returning its exit code and cause")
 			}
 		})
 	}

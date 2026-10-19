@@ -81,7 +81,7 @@ func RunNativeCommand(ctx context.Context, root, sessionID, name string, args []
 		if err != nil {
 			return 127, err
 		}
-		return runInvocationResult(ctx, root, name, args, result), nil
+		return runInvocationResult(ctx, root, name, args, result)
 	}
 	stateDir := filepath.Dir(config.LogDir)
 	file, err := os.CreateTemp(filepath.Join(stateDir, "attempts"), "attempt-*.json")

@@ -92,7 +92,10 @@ preserve these fields without adding a `return` to an MCP error-only step.
 * Unmatched MCP calls and exhausted sequences return tool errors and never
   fall through to a live MCP service. A CLI mock intercepts only its declared
   executable name; undeclared executables may resolve through the host `PATH`.
-  Catchable shim cancellation also stops its pass-through host command.
+  Catchable shim cancellation also stops and waits for its pass-through host
+  command, then exits 130 (or 124 for a deadline) without writing another
+  diagnostic to potentially blocked stderr. An ordinary host or configured mock
+  exit with the same code is not treated as context cancellation.
   Task `command_mocks: []` disables inherited command mocks.
 * A mock overrides a same-named configured live MCP server. Other configured
   MCP servers remain live. Mocks do not restrict filesystem, process, remote or
