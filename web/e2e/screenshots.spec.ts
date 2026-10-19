@@ -43,14 +43,12 @@ test.describe("Dashboard lab screenshots", () => {
       ...recorded,
       ...summary,
       statistics: RECORDED_RELIABILITY.statistics,
-      regradeUsage: promptJudging.regradeUsage,
       tasks: [{
         ...recorded.tasks[0]!,
         id: "report-task",
         trials: { passed: 1, total: 3 },
         passRateCI: RECORDED_RELIABILITY.tasks[0]!.passRateCI,
         bootstrapCI: RECORDED_RELIABILITY.tasks[0]!.bootstrapCI,
-        promptJudgingRuns: promptJudging.tasks[0]!.promptJudgingRuns,
       }],
     };
     await page.route("**/api/v1/lab/runs", (route) => route.fulfill({ json: [summary] }));
@@ -61,7 +59,8 @@ test.describe("Dashboard lab screenshots", () => {
     await dialog.getByRole("tab", { name: "Recorded evidence" }).click();
     await expect(dialog).toContainText("Source origin: eval source-evaluation");
     await expect(dialog).toContainText("1/3 passed");
-    await expect(dialog).toContainText("a-judge · run · submitted");
+    await expect(dialog).toContainText("cached source evidence");
+    await expect(dialog).toContainText("Prompt judging unassessed:");
     const evidenceScreenshot = "../docs/images/dashboard-lab-evidence.png";
     await page.screenshot({ path: evidenceScreenshot, animations: "disabled", fullPage: true });
     await copyFile(evidenceScreenshot, "../site/public/images/dashboard-lab-evidence.png");
@@ -166,9 +165,7 @@ test.describe("Screenshots", () => {
       route.fulfill({ json: {
         ...evidenceDetail(),
         regradeUsage: promptJudging.regradeUsage,
-        tasks: evidenceDetail().tasks.map((task, index) => index === 0
-          ? { ...task, promptJudgingRuns: promptJudging.tasks[0].promptJudgingRuns }
-          : task),
+        tasks: [...evidenceDetail().tasks, promptJudging.tasks[0]!],
       } }),
     );
     await page.goto("/#/runs/run-001");

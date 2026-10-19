@@ -111,7 +111,14 @@ function RecordedEvidence({ run, task }: { run: LabRun; task?: LabRun["tasks"][n
           <p>Evidence unassessed: no portable evidence metadata was recorded.</p>
         )}
         {evidenceRuns.map((evidence, index) => {
-          if (!evidence || typeof evidence !== "object") {
+          if (
+            !evidence || typeof evidence !== "object" || Array.isArray(evidence) ||
+            !Number.isSafeInteger(evidence.runNumber) || evidence.runNumber < 0 ||
+            !Number.isSafeInteger(evidence.attempts) || evidence.attempts < 0 ||
+            typeof evidence.cached !== "boolean" ||
+            !["recorded", "unavailable", "invalid", "unassessed"].includes(evidence.assessment) ||
+            (evidence.message !== undefined && typeof evidence.message !== "string")
+          ) {
             return (
               <div key={`invalid-${index}`} className="lab-evidence-record">
                 <strong>Invalid · withheld</strong>
@@ -225,7 +232,8 @@ function RecordedEvidence({ run, task }: { run: LabRun; task?: LabRun["tasks"][n
           <p>Prompt judging unassessed: no frozen-judging metadata was recorded.</p>
         )}
         {judgingRuns.map((judging, index) => {
-          if (!judging || typeof judging !== "object") {
+          const valid = canDisplayPromptJudging(judging);
+          if (!valid) {
             return (
               <div key={`invalid-${index}`} className="lab-evidence-record">
                 <strong>Invalid · withheld</strong>
@@ -233,7 +241,6 @@ function RecordedEvidence({ run, task }: { run: LabRun; task?: LabRun["tasks"][n
               </div>
             );
           }
-          const valid = canDisplayPromptJudging(judging);
           return (
             <div key={`${judging.runNumber}-${index}`} className="lab-evidence-record">
               <strong>

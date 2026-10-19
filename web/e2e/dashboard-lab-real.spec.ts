@@ -1043,12 +1043,10 @@ test.describe("Real dashboard lab", () => {
       passRateCI: RECORDED_RELIABILITY.tasks[0]!.passRateCI,
       bootstrapCI: RECORDED_RELIABILITY.tasks[0]!.bootstrapCI,
       evidenceRuns: [evidenceRun()],
-      promptJudgingRuns: promptJudging.tasks[0]!.promptJudgingRuns,
     };
     const savedEvidence: RunDetail = {
       ...savedDetail,
       statistics: RECORDED_RELIABILITY.statistics,
-      regradeUsage: promptJudging.regradeUsage,
       tasks: [recordedTask],
     };
     await mockResults(page, [summary], [savedEvidence]);
@@ -1063,9 +1061,7 @@ test.describe("Real dashboard lab", () => {
     await expect(dialog).toContainText("Source origin: eval source-evaluation");
     await expect(dialog).toContainText("cached source evidence");
     await expect(dialog).toContainText("Requirement required-report");
-    await expect(dialog).toContainText("inspection not observable");
-    await expect(dialog).toContainText("judge AI Credits 0");
-    await expect(dialog).toContainText("Current regrade usage is separate");
+    await expect(dialog).toContainText("Prompt judging unassessed:");
     await expect(dialog).not.toContainText("PRIVATE_FILE_BODY");
     await page.keyboard.press("Escape");
 
@@ -1077,7 +1073,30 @@ test.describe("Real dashboard lab", () => {
     expect(report.runs[0].statistics.passHatK).toEqual([5 / 6, 2 / 3, 0.5]);
     expect(report.runs[0].tasks[0].trials).toEqual({ passed: 2, total: 3 });
     expect(report.runs[0].tasks[0].evidenceRuns[0].assessment).toBe("recorded");
-    expect(report.runs[0].tasks[0].promptJudgingRuns[0].assessment).toBe("recorded");
+    expect(report.runs[0].tasks[0].promptJudgingRuns).toBeUndefined();
+    expect(report.runs[0].tasks[0].evidenceRuns[0]).toMatchObject({ cached: true, attempts: 2 });
+  });
+
+  test("producer-projected prompt judging remains separate from cached evidence in the inspector and report", async ({ page }) => {
+    await mockResults(page, [promptJudging], [promptJudging]);
+    await page.goto("/#/lab/history");
+    await page.getByRole("button", { name: "Unavailable", exact: true }).click();
+    const dialog = page.getByRole("dialog");
+    await dialog.getByRole("tab", { name: "Recorded evidence" }).click();
+    await expect(dialog).toContainText("Evidence unassessed:");
+    await expect(dialog).not.toContainText("cached source evidence");
+    await expect(dialog).toContainText("inspection not observable");
+    await expect(dialog).toContainText("judge AI Credits 0");
+    await expect(dialog).toContainText("Current regrade usage is separate");
+    await expect(dialog).not.toContainText("PRIVATE_FILE_BODY");
+    await page.keyboard.press("Escape");
+    await page.getByRole("link", { name: "Reports", exact: true }).click();
+    const download = page.waitForEvent("download");
+    await page.getByRole("button", { name: "Download JSON" }).click();
+    const path = await (await download).path();
+    const report = JSON.parse(await readFile(path!, "utf8"));
+    expect(report.runs[0].tasks[0].promptJudgingRuns).toEqual(promptJudging.tasks[0]!.promptJudgingRuns);
+    expect(report.runs[0].tasks[0].evidenceRuns).toBeUndefined();
     expect(report.runs[0].regradeUsage.aiCredits).toBe(0);
   });
 
@@ -1175,6 +1194,42 @@ test.describe("Real dashboard lab", () => {
     await expect(dialog).not.toContainText("Prompt judging unassessed:");
     expect(errors).toEqual([]);
   });
+
+  for (const [field, value] of [
+    ["runNumber", {}],
+    ["attempts", {}],
+    ["cached", "false"],
+    ["assessment", {}],
+    ["message", {}],
+  ] as const) {
+    test(`malformed ${field} envelopes are withheld without hiding valid siblings`, async ({ page }) => {
+      const summary = { ...savedRuns[0]!, taskCount: 1 };
+      const malformed = detail(summary);
+      const evidence = { ...evidenceRun(), [field]: value };
+      const judging = { ...promptJudging.tasks[0]!.promptJudgingRuns[0]!, [field]: value };
+      Object.assign(malformed.tasks[0], {
+        evidenceRuns: [evidence, evidenceRun(2)],
+        promptJudgingRuns: [judging, {
+          runNumber: 2, attempts: 2, cached: true, assessment: "unassessed",
+          observations: [], message: "Cached judging remains unassessed.",
+        }],
+      });
+      const errors: string[] = [];
+      page.on("pageerror", (error) => errors.push(error.message));
+      await mockResults(page, [summary], [malformed]);
+      await page.goto("/#/lab/history");
+      await page.getByRole("button", { name: "custom-skill", exact: true }).click();
+      const dialog = page.getByRole("dialog");
+      await dialog.getByRole("tab", { name: "Recorded evidence" }).click();
+
+      await expect(dialog).toContainText("Evidence metadata withheld: invalid or unsupported run record.");
+      await expect(dialog).toContainText("Prompt judging metadata withheld: invalid or unsupported metadata.");
+      await expect(dialog).toContainText("Run 2 · 2 attempts · recorded · cached source evidence");
+      await expect(dialog).toContainText("Cached judging remains unassessed.");
+      await expect(dialog).toContainText("Source origin: eval source-evaluation");
+      expect(errors).toEqual([]);
+    });
+  }
 
   for (const [name, explanations] of [
     ["null explanation list", null],
