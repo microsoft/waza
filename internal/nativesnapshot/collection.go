@@ -3,6 +3,7 @@ package nativesnapshot
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"path/filepath"
@@ -57,7 +58,7 @@ func (c *CollectionCapture) Projections(ctx context.Context) (map[releasepolicy.
 // bounded request/source descriptors rather than expanding executable bytes.
 func (c *CollectionCapture) initialize(ctx context.Context) error {
 	ctx = collectionContext(ctx)
-	input, err := detachProjectionInput(ctx, c.capture)
+	input, err := projectionInput(ctx, c.capture)
 	if err != nil {
 		return err
 	}
@@ -258,7 +259,7 @@ func ReadCollectionCapture(ctx context.Context, raw []byte) (*CollectionCapture,
 	}
 	wire, decodeErr := decode(strictRaw)
 	if decodeErr == nil && found {
-		decodeErr = json.Unmarshal(raw[blobsStart:blobsEnd], &wire.Blobs)
+		wire.Blobs, decodeErr = decodeCollectionBlobs(raw[blobsStart:blobsEnd])
 	}
 	if decodeErr != nil {
 		// Preserve the original decoder's first error and byte offsets when
@@ -308,4 +309,46 @@ func ReadCollectionCapture(ctx context.Context, raw []byte) (*CollectionCapture,
 		return nil, err
 	}
 	return c, nil
+}
+
+// ObjectMemberRange has already validated grammar, Unicode, depth and duplicate
+// keys. Decode the writer's compact string map without another full JSON scan;
+// other representations and all errors retain encoding/json's exact behavior.
+func decodeCollectionBlobs(raw []byte) (map[string][]byte, error) {
+	fallback := func() (map[string][]byte, error) {
+		var blobs map[string][]byte
+		err := json.Unmarshal(raw, &blobs)
+		return blobs, err
+	}
+	if len(raw) < 2 || raw[0] != '{' || raw[len(raw)-1] != '}' {
+		return fallback()
+	}
+	blobs := map[string][]byte{}
+	remaining := raw[1 : len(raw)-1]
+	for len(remaining) > 0 {
+		if len(remaining) < 69 || remaining[0] != '"' || remaining[65] != '"' ||
+			remaining[66] != ':' || remaining[67] != '"' ||
+			bytes.ContainsAny(remaining[1:65], "\\\"") {
+			return fallback()
+		}
+		end := bytes.IndexByte(remaining[68:], '"')
+		if end < 0 {
+			return fallback()
+		}
+		encoded := remaining[68 : 68+end]
+		content := make([]byte, base64.StdEncoding.DecodedLen(len(encoded)))
+		n, err := base64.StdEncoding.Decode(content, encoded)
+		if err != nil {
+			return fallback()
+		}
+		blobs[string(remaining[1:65])] = content[:n]
+		remaining = remaining[69+end:]
+		if len(remaining) > 0 {
+			if remaining[0] != ',' {
+				return fallback()
+			}
+			remaining = remaining[1:]
+		}
+	}
+	return blobs, nil
 }

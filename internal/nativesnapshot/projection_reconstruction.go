@@ -90,11 +90,19 @@ func (r *retainedArmInputs) next(label string, op associationOperation) (associa
 }
 
 func (r *retainedArmInputs) read(label string) ([]byte, error) {
+	data, err := r.readRetained(label)
+	if err != nil {
+		return nil, err
+	}
+	return bytes.Clone(data), nil
+}
+
+func (r *retainedArmInputs) readRetained(label string) ([]byte, error) {
 	event, err := r.next(label, readOperation)
 	if err != nil {
 		return nil, err
 	}
-	return bytes.Clone(r.sources[*event.Source].Bytes), nil
+	return r.sources[*event.Source].Bytes, nil
 }
 
 func (r *retainedArmInputs) ReadFile(absolute string) ([]byte, error) {
@@ -367,7 +375,8 @@ func reconstructArm(ctx context.Context, snapshot armSnapshot, associated armAss
 		return controlledprojection.SourceProjection{}, err
 	}
 	reader.set(executablePhase, 0, "executable")
-	suite.Executable, err = reader.read(snapshot.Executable)
+	// Projection only hashes this private, already-detached executable.
+	suite.Executable, err = reader.readRetained(snapshot.Executable)
 	if err != nil {
 		return controlledprojection.SourceProjection{}, err
 	}

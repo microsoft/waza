@@ -50,6 +50,10 @@ func Build(t testing.TB, packageName string) string {
 		parts := strings.SplitN(name, "-", 2)
 		replacements[filepath.Join(repository, "internal", parts[0], parts[1])] = path
 	}
+	// Current-only unit tests reference helpers absent from the pinned reader.
+	empty := filepath.Join(scratch, "current-only-tests.go")
+	require.NoError(t, os.WriteFile(empty, []byte("package nativesnapshot\n"), 0600))
+	replacements[filepath.Join(repository, "internal", "nativesnapshot", "collection_blob_decode_test.go")] = empty
 	overlay, err := json.Marshal(struct{ Replace map[string]string }{replacements})
 	require.NoError(t, err)
 	overlayPath := filepath.Join(scratch, "reader15c-overlay.json")

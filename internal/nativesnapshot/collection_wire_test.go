@@ -98,8 +98,12 @@ func TestCollectionLimitSelectionAndWireBoundary(t *testing.T) {
 // against a real test executable at the admitted descriptor boundary.
 func BenchmarkReadCollectionCaptureActualExecutable(b *testing.B) {
 	base, locations := fixture(b)
-	executable, err := os.Executable()
-	require.NoError(b, err)
+	executable := os.Getenv("WAZA_CAPTURE_BENCHMARK_EXECUTABLE")
+	if executable == "" {
+		var err error
+		executable, err = os.Executable()
+		require.NoError(b, err)
+	}
 	input, err := os.Open(executable)
 	require.NoError(b, err)
 	output, err := os.OpenFile(filepath.Join(base, "evaluator"), os.O_WRONLY|os.O_TRUNC, 0o600)
@@ -418,6 +422,97 @@ func TestCollectionCaptureExecutableRecordOnlyMatchesFrozenSource(t *testing.T) 
 			require.NoError(t, err)
 			require.Equal(t, wire, unchanged, "source changes cannot mutate retained capture bytes")
 		})
+	}
+}
+
+func TestCollectionInitializationValidatesAndOwnsProjections(t *testing.T) {
+	for _, mutation := range []string{"none", "source", "snapshot", "associations"} {
+		t.Run(mutation, func(t *testing.T) {
+			_, locations := fixture(t)
+			capture, err := prepareProjectionCapture(collectionContext(t.Context()), locations)
+			require.NoError(t, err)
+			switch mutation {
+			case "source":
+				capture.prepared.sources[releasepolicy.Baseline][0].Bytes[0] ^= 1
+			case "snapshot":
+				capture.prepared.canonical[0] ^= 1
+			case "associations":
+				capture.associations.canonical[0] ^= 1
+			}
+			collection := &CollectionCapture{capture: capture}
+			err = collection.initialize(t.Context())
+			if mutation != "none" {
+				require.Error(t, err)
+				require.Nil(t, collection.projections)
+				return
+			}
+			require.NoError(t, err)
+			before, err := collection.Projections(t.Context())
+			require.NoError(t, err)
+			capture.prepared.sources[releasepolicy.Baseline][0].Bytes[0] ^= 1
+			after, err := collection.Projections(t.Context())
+			require.NoError(t, err)
+			require.Equal(t, before, after)
+		})
+	}
+}
+
+func TestRetainedExecutableReadOwnershipAndAdmission(t *testing.T) {
+	for _, detached := range []bool{false, true} {
+		for _, state := range []string{"valid", "canceled", "mismatched", "exhausted", "sticky"} {
+			name := state
+			if detached {
+				name += "/detached"
+			}
+			t.Run(name, func(t *testing.T) {
+				ctx, cancel := context.WithCancel(t.Context())
+				defer cancel()
+				content := []byte("actual retained executable")
+				index := uint32(0)
+				reader := newRetainedArmInputs(ctx, t.TempDir(), armAssociations{
+					Events: []associationEvent{{
+						Ordinal: 0, Phase: executablePhase, Role: "executable",
+						Op: readOperation, Path: "evaluator", Source: &index,
+					}},
+				}, []source{{Path: "evaluator", Bytes: content}})
+				reader.set(executablePhase, 0, "executable")
+				switch state {
+				case "canceled":
+					cancel()
+				case "mismatched":
+					reader.role = "request_input"
+				case "exhausted":
+					reader.position = 1
+				case "sticky":
+					reader.sticky = context.DeadlineExceeded
+				}
+				read := reader.readRetained
+				if detached {
+					read = reader.read
+				}
+				got, err := read("evaluator")
+				if state != "valid" {
+					require.Error(t, err)
+					require.Nil(t, got)
+					if state == "canceled" {
+						require.ErrorIs(t, err, context.Canceled)
+					} else {
+						require.ErrorIs(t, reader.sticky, err)
+					}
+					return
+				}
+				require.NoError(t, err)
+				require.Equal(t, content, got)
+				require.Equal(t, 1, reader.position)
+				if detached {
+					require.NotSame(t, &content[0], &got[0])
+					got[0] ^= 1
+					require.Equal(t, byte('a'), content[0])
+				} else {
+					require.Same(t, &content[0], &got[0])
+				}
+			})
+		}
 	}
 }
 

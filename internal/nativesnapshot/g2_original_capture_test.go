@@ -170,7 +170,7 @@ func frozenOriginalCaptureBinary(t *testing.T) string {
 			files = []string{"capture_associations.go", "association_validation.go", "projection_reconstruction.go", "collection.go", "collection_wire_test.go", "capture_associations_test.go", "g2_discovery_test.go", "g2_association_limits_test.go", "g2_capture_races_test.go", "g2_capture_races_unix_test.go", "g2_capture_windows_test.go"}
 			files = append(files, "slots.go", "slot_validation.go", "slots_test.go", "slots_boundary_test.go")
 			files = append(files, "retry_join.go", "retry_join_test.go")
-			files = append(files, "reader_parity_test.go")
+			files = append(files, "reader_parity_test.go", "collection_blob_decode_test.go")
 		}
 		for _, name := range files {
 			target := filepath.Join(repository, "internal", packageName, name)
