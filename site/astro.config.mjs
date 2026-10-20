@@ -78,6 +78,7 @@ export default defineConfig({
 							items: [
 								{ label: 'Overview & downloads', slug: 'reference/releases' },
 								{ label: 'Waza v0.39.0', slug: 'releases/v0-39-0' },
+								{ label: 'Introducing Dashboard Lab', slug: 'releases/dashboard-lab' },
 							],
 						},
 					],

@@ -188,19 +188,35 @@ test('concepts distinguish repeated trials from discarded retry outputs', () => 
   assert.match(concepts, /An individual snapshot is not a complete retry history/);
 });
 
-test('release article is linked from Releases and uses published screenshot assets', () => {
-  const article = read('site/src/content/docs/releases/v0-39-0.mdx');
-  assert.match(read('site/astro.config.mjs'), /label: 'Releases',[\s\S]*slug: 'releases\/v0-39-0'/);
-  assert.match(read('site/src/content/docs/reference/releases.mdx'), /\]\(\.\.\/\.\.\/releases\/v0-39-0\/\)/);
-  assert.match(article, /^title: "Waza v0\.39\.0:/m);
-  assert.match(article, /import ZoomImage from '\.\.\/\.\.\/\.\.\/components\/ZoomImage\.astro'/);
-  const screenshots = [...article.matchAll(/<ZoomImage src="([^"]+)" alt="([^"]+)" \/>/g)];
-  assert.equal(screenshots.length, 3);
-  for (const [, source] of screenshots) {
-    assert.match(source, /^\/images\/.+\.png$/);
-    assert.ok(existsSync(resolve(root, `site/public${source}`)), `missing release screenshot: ${source}`);
+test('release articles are linked from Releases and use published screenshot assets', () => {
+  for (const slug of ['v0-39-0', 'dashboard-lab']) {
+    const article = read(`site/src/content/docs/releases/${slug}.mdx`);
+    assert.ok(read('site/astro.config.mjs').includes(`slug: 'releases/${slug}'`));
+    assert.ok(read('site/src/content/docs/reference/releases.mdx').includes(`](../../releases/${slug}/)`));
+    assert.match(article, /import ZoomImage from '\.\.\/\.\.\/\.\.\/components\/ZoomImage\.astro'/);
+    const screenshots = [...article.matchAll(/<ZoomImage src="([^"]+)" alt="([^"]+)" \/>/g)];
+    assert.equal(screenshots.length, 3, slug);
+    for (const [, source] of screenshots) {
+      assert.match(source, /^\/images\/.+\.png$/);
+      assert.ok(existsSync(resolve(root, `site/public${source}`)), `missing release screenshot: ${source}`);
+    }
+    assert.doesNotMatch(article, /\]\(\.\.?\/[^)]*CHANGELOG\.md/);
   }
+  const article = read('site/src/content/docs/releases/v0-39-0.mdx');
+  assert.match(article, /^title: "Waza v0\.39\.0:/m);
   assert.match(article, /Synthetic demo screenshot, not production telemetry/);
   assert.match(article, /Fixture-backed native-profile view/);
-  assert.doesNotMatch(article, /\]\(\.\.?\/[^)]*CHANGELOG\.md/);
+});
+
+test('Dashboard Lab article distinguishes saved results, synthetic examples, and release decisions', () => {
+  const article = read('site/src/content/docs/releases/dashboard-lab.mdx');
+  assert.match(article, /waza serve --lab --results-dir \.\/results --no-browser/);
+  assert.match(article, /experimental, opt-in viewer for saved evaluation results/);
+  assert.match(article, /Synthetic demo screenshot/);
+  assert.match(article, /Fixture-backed saved-result view with cached mock provenance/);
+  assert.match(article, /not an active-worker monitor/);
+  assert.match(article, /descriptive comparisons, not statistical-significance tests/);
+  assert.match(article, /\]\(\.\.\/\.\.\/guides\/dashboard-lab\/\)/);
+  assert.match(article, /\]\(\.\.\/v0-39-0\/\)/);
+  assert.match(read('site/src/content/docs/releases/v0-39-0.mdx'), /\]\(\.\.\/dashboard-lab\/\)/);
 });
