@@ -73,7 +73,13 @@ export default defineConfig({
 						{ label: 'YAML Schema', slug: 'reference/schema' },
 						{ label: 'Rubric Library', slug: 'reference/rubrics' },
 						{ label: 'Schema Changes', slug: 'reference/schema-changes' },
-						{ label: 'Releases', slug: 'reference/releases' },
+						{
+							label: 'Releases',
+							items: [
+								{ label: 'Overview & downloads', slug: 'reference/releases' },
+								{ label: 'Waza v0.39.0', slug: 'releases/v0-39-0' },
+							],
+						},
 					],
 				},
 				{

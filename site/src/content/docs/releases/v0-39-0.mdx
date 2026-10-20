@@ -1,4 +1,9 @@
-# Waza v0.39.0: test the workflow, inspect the evidence
+---
+title: "Waza v0.39.0: test the workflow, inspect the evidence"
+description: Scenario-first evals, offline preflight, recovery tests, recorded evidence, independent judging, and release comparisons.
+---
+
+import ZoomImage from '../../../components/ZoomImage.astro';
 
 An agent can say it finished a task without producing the right result. It can also pass once and fail on the next attempt. Neither makes a particularly useful release signal.
 
@@ -46,13 +51,13 @@ The agent decides whether to retry; Waza does not add an automatic retry policy.
 
 Repeated evaluations now carry clearer recorded reliability information: passed and total trials, Wilson 95% pass-rate intervals, and a suite `pass^k` curve estimating how consistently tasks pass across multiple trials.
 
-![Recorded trial counts, pass-rate intervals, and suite reliability in the dashboard.](../images/explore/recorded-reliability.png)
+<ZoomImage src="/images/explore/recorded-reliability.png" alt="Recorded trial counts, pass-rate intervals, and suite reliability in the dashboard." />
 
 *Documentation fixture: recorded reliability, not a benchmark claim about a production agent.*
 
 This helps distinguish a high average score from consistent behavior. With retries enabled, those trial statistics describe reliability with retries; they are not first-attempt success rates. The old misleading significance badge is removed rather than presenting an absolute score interval as evidence of a difference between runs.
 
-Portable evidence adds source attribution, availability, completeness, and scoped requirement observations. Selected-file capture can support supported offline regrading without reconstructing the original workspace. Missing historical evidence stays unassessed instead of becoming a zero or an invented pass.
+Portable evidence adds source attribution, availability, completeness, and scoped requirement observations. Selected-file capture supports a documented subset of offline regrading without reconstructing the original workspace. Missing historical evidence stays unassessed instead of becoming a zero or an invented pass.
 
 ## Give an independent judge recorded evidence
 
@@ -70,7 +75,7 @@ waza serve --lab --results-dir ./results
 
 The opt-in Lab brings linked quality charts, model filters, run history, task inspection, baseline comparisons, and JSON/CSV reports into one workspace. You can move from a failing run to grader evidence and its recorded trajectory without hunting through result files.
 
-![Dashboard Lab overview with linked charts, model performance, and run history.](../images/dashboard-lab-overview.png)
+<ZoomImage src="/images/dashboard-lab-overview.png" alt="Dashboard Lab overview with linked charts, model performance, and run history." />
 
 *Synthetic demo screenshot, not production telemetry. The default Lab reads saved results and does not substitute demo data.*
 
@@ -80,7 +85,7 @@ The classic dashboard remains available. Lab comparisons are descriptive, and it
 
 For stricter comparisons, `compare-plan`, `compare-collect`, and `gate --release-policy` separate the declared experiment from collection and assessment. They bind inputs and keep compatibility, completeness, assurance, golden checks, billing, operations, and statistics visible as separate dimensions.
 
-![Release-policy assessment with retained native attempts and separate decision dimensions.](../images/native-release-evidence.png)
+<ZoomImage src="/images/native-release-evidence.png" alt="Release-policy assessment with retained native attempts and separate decision dimensions." />
 
 *Fixture-backed native-profile view. A recovered retry does not erase the first-attempt golden failure, so this example does not pass.*
 
@@ -94,4 +99,4 @@ Existing v1 evaluations and the classic dashboard remain supported. The release 
 
 Start with the [v0.39.0 release](https://github.com/microsoft/waza/releases/tag/v0.39.0), or run `waza update` for the standalone CLI. Then try preflight on an existing suite before adopting the new opt-in workflows.
 
-See the [technical changelog](../../CHANGELOG.md#0390---2026-10-20) for the full change breakdown. The practical goal is simple: make it easier to see what was tested, what actually happened, and what the evidence still cannot tell you.
+See the [technical changelog](https://github.com/microsoft/waza/blob/main/CHANGELOG.md#0390---2026-10-20) for the full change breakdown. The practical goal is simple: make it easier to see what was tested, what actually happened, and what the evidence still cannot tell you.

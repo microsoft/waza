@@ -187,3 +187,20 @@ test('concepts distinguish repeated trials from discarded retry outputs', () => 
   assert.match(concepts, /reported usage from discarded attempts/);
   assert.match(concepts, /An individual snapshot is not a complete retry history/);
 });
+
+test('release article is linked from Releases and uses published screenshot assets', () => {
+  const article = read('site/src/content/docs/releases/v0-39-0.mdx');
+  assert.match(read('site/astro.config.mjs'), /label: 'Releases',[\s\S]*slug: 'releases\/v0-39-0'/);
+  assert.match(read('site/src/content/docs/reference/releases.mdx'), /\]\(\.\.\/\.\.\/releases\/v0-39-0\/\)/);
+  assert.match(article, /^title: "Waza v0\.39\.0:/m);
+  assert.match(article, /import ZoomImage from '\.\.\/\.\.\/\.\.\/components\/ZoomImage\.astro'/);
+  const screenshots = [...article.matchAll(/<ZoomImage src="([^"]+)" alt="([^"]+)" \/>/g)];
+  assert.equal(screenshots.length, 3);
+  for (const [, source] of screenshots) {
+    assert.match(source, /^\/images\/.+\.png$/);
+    assert.ok(existsSync(resolve(root, `site/public${source}`)), `missing release screenshot: ${source}`);
+  }
+  assert.match(article, /Synthetic demo screenshot, not production telemetry/);
+  assert.match(article, /Fixture-backed native-profile view/);
+  assert.doesNotMatch(article, /\]\(\.\.?\/[^)]*CHANGELOG\.md/);
+});
