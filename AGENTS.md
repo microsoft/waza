@@ -321,6 +321,21 @@ names are the required status contexts. Go validation is defined in
 `.github/workflows/go-ci.yml` and `.github/workflows/squad-ci.yml`; preserve
 required native-platform tests and lint.
 
+Linux executes `internal/controlledcomparison` in four deterministic shards
+through `.github/workflows/go-native-shards.yml`; all remaining packages run in
+the main Linux build job. Discovery uses the same race/atomic build and includes
+tests, examples, and fuzz seed targets without changing their fixtures or
+internal skip behavior. Each shard retains the 30-minute Go test deadline.
+Windows continues to execute the complete suite in one job.
+
+The required `ubuntu-latest` gate explicitly fails if any build or native shard
+fails, is cancelled, or is skipped. It also requires all five atomic coverage
+profiles, identical native test inventories, and exactly-once selection across
+the four shards before uploading coverage. Do not replace it with a skipped
+dependent job or remove a package without providing exhaustive required shards.
+Exercise discovery and all failure branches with
+`bash .github/scripts/go_test_shard_test.sh` when changing this arrangement.
+
 Both Go lint workflows use `.github/scripts/lint.sh` to require configuration
 validation against a checksum-pinned upstream release schema before running lint.
 When upgrading golangci-lint, update both workflow versions and the script's

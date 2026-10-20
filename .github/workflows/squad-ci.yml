@@ -12,21 +12,24 @@ permissions:
   contents: read
 
 jobs:
+  native-test-shards:
+    uses: ./.github/workflows/go-native-shards.yml
+
   build-and-test:
-    name: ${{ matrix.os }}
+    name: Linux build and remaining tests
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-latest]
 
     defaults:
       run:
         working-directory: ./
         shell: bash
 
-    steps:
+    steps: &go-build-test-steps
       - name: Checkout Repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -78,15 +81,27 @@ jobs:
         run: go vet ./...
 
       - name: Execute Tests
-        run: go test -v -race -timeout=30m -coverprofile=coverage.txt -covermode=atomic ./...
+        run: |
+          if [ "$RUNNER_OS" = Linux ]; then
+            packages="$(go list ./...)"
+            selected=()
+            while IFS= read -r package; do
+              if [ "$package" != github.com/microsoft/waza/internal/controlledcomparison ]; then
+                selected+=("$package")
+              fi
+            done <<< "$packages"
+            go test -v -race -timeout=30m -coverprofile=coverage.txt -covermode=atomic "${selected[@]}"
+          else
+            go test -v -race -timeout=30m -coverprofile=coverage.txt -covermode=atomic ./...
+          fi
 
-      - name: Upload Coverage Report
+      - name: Retain remaining-package coverage
         if: matrix.os == 'ubuntu-latest'
-        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          file: ./coverage.txt
-          flags: go-implementation
-          name: waza
+          name: go-coverage-main
+          path: coverage.txt
+          if-no-files-found: error
 
       - name: Build Binary
         run: |
@@ -115,6 +130,51 @@ jobs:
             exit $EXIT_CODE
           fi
           echo "Integration test completed (exit code: $EXIT_CODE)"
+
+  build-and-test-windows:
+    name: windows-latest
+    runs-on: windows-latest
+    timeout-minutes: 60
+    strategy:
+      matrix:
+        os: [windows-latest]
+    defaults:
+      run:
+        working-directory: ./
+        shell: bash
+    steps: *go-build-test-steps
+
+  linux-gate:
+    name: ubuntu-latest
+    runs-on: ubuntu-latest
+    needs: [build-and-test, native-test-shards]
+    if: ${{ always() }}
+    timeout-minutes: 10
+    steps:
+      - name: Require every build and native test shard
+        env:
+          BUILD_RESULT: ${{ needs.build-and-test.result }}
+          NATIVE_RESULT: ${{ needs.native-test-shards.result }}
+        run: |
+          test "$BUILD_RESULT" = success
+          test "$NATIVE_RESULT" = success
+      - name: Checkout Repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Download all required coverage and discovery evidence
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: go-coverage-*
+          merge-multiple: true
+          path: coverage-reports
+      - name: Verify exhaustive native test selection and coverage
+        run: bash .github/scripts/go_test_shard_verify.sh coverage-reports
+      - name: Upload combined coverage reports
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+        with:
+          files: coverage-reports/coverage.txt,coverage-reports/coverage-native-0.txt,coverage-reports/coverage-native-1.txt,coverage-reports/coverage-native-2.txt,coverage-reports/coverage-native-3.txt
+          disable_search: true
+          flags: go-implementation
+          name: waza
 
   lint:
     name: Lint
