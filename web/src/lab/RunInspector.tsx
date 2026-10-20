@@ -3,9 +3,320 @@ import { Check, ChevronRight, X } from "lucide-react";
 import { duration, percent, shortDate, runScore, skillLabel, type LabRun } from "./data";
 import { useLabDetails } from "./source";
 import { formatAICredits } from "../lib/format";
+import { canDisplayEvidence, canDisplayPromptJudging } from "../api/client";
 import TrajectoryViewer from "../components/TrajectoryViewer";
 
-const evidenceTabs = ["graders", "trajectory", "configuration"] as const;
+const evidenceTabs = ["graders", "trajectory", "configuration", "evidence"] as const;
+
+function isProbability(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 1;
+}
+
+function intervalLabel(value: unknown) {
+  if (value === undefined) return "Not assessed";
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return "Withheld: invalid recorded interval";
+  }
+  const interval = value as Record<string, unknown>;
+  if (
+    !isProbability(interval.lower) || !isProbability(interval.upper) ||
+    !isProbability(interval.mean) || !isProbability(interval.confidenceLevel) ||
+    interval.confidenceLevel === 0 || interval.confidenceLevel === 1 ||
+    interval.lower > interval.upper
+  ) {
+    return "Withheld: invalid recorded interval";
+  }
+  return `${percent(interval.mean * 100)} · ${(interval.confidenceLevel * 100).toFixed(0)}% CI ${percent(interval.lower * 100)}–${percent(interval.upper * 100)}`;
+}
+
+function passCurveLabel(value: unknown) {
+  if (value === undefined || (Array.isArray(value) && value.length === 0)) {
+    return "Not assessed";
+  }
+  if (!Array.isArray(value) || !value.every(isProbability)) {
+    return "Withheld: invalid recorded pass^k estimates";
+  }
+  return value.map((probability, index) => `pass^${index + 1} ${percent(probability * 100)}`).join(" · ");
+}
+
+function trialCountsLabel(value: unknown) {
+  if (value === undefined) return "Not assessed";
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return "Withheld: invalid recorded trial counts";
+  }
+  const counts = value as Record<string, unknown>;
+  if (
+    typeof counts.total !== "number" || !Number.isSafeInteger(counts.total) || counts.total <= 0 ||
+    typeof counts.passed !== "number" || !Number.isSafeInteger(counts.passed) ||
+    counts.passed < 0 || counts.passed > counts.total
+  ) {
+    return "Withheld: invalid recorded trial counts";
+  }
+  return `${counts.passed}/${counts.total} passed`;
+}
+
+function validRequirementExplanations(value: unknown): boolean {
+  if (!Array.isArray(value)) return false;
+  return value.every((requirement) => {
+    if (!requirement || typeof requirement !== "object" || Array.isArray(requirement)) {
+      return false;
+    }
+    const item = requirement as Record<string, unknown>;
+    if (typeof item.task_id !== "string" || typeof item.requirement_id !== "string") {
+      return false;
+    }
+    if (item.checks === undefined || item.checks === null) return true;
+    if (!Array.isArray(item.checks)) return false;
+    return item.checks.every((entry) => {
+      if (!entry || typeof entry !== "object" || Array.isArray(entry)) return false;
+      const check = entry as Record<string, unknown>;
+      if (!check.check || typeof check.check !== "object" || Array.isArray(check.check)) {
+        return false;
+      }
+      const declaration = check.check as Record<string, unknown>;
+      const references = check.references;
+      return typeof declaration.scope === "string" &&
+        typeof declaration.grader === "string" &&
+        (declaration.after_turn === undefined ||
+          (typeof declaration.after_turn === "number" &&
+            Number.isSafeInteger(declaration.after_turn))) &&
+        typeof check.observation === "string" &&
+        typeof check.category === "string" &&
+        typeof check.message === "string" &&
+        (references === undefined ||
+          (Array.isArray(references) &&
+            references.every((reference) =>
+              !!reference &&
+              typeof reference === "object" &&
+              !Array.isArray(reference) &&
+              typeof (reference as Record<string, unknown>).artifact_id === "string",
+            )));
+    });
+  });
+}
+
+function RecordedEvidence({ run, task }: { run: LabRun; task?: LabRun["tasks"][number] }) {
+  const taskResult = task?.api;
+  const rawEvidenceRuns = taskResult?.evidenceRuns;
+  const malformedEvidenceRuns =
+    rawEvidenceRuns !== undefined && !Array.isArray(rawEvidenceRuns);
+  const evidenceRuns = Array.isArray(rawEvidenceRuns) ? rawEvidenceRuns : [];
+  const rawJudgingRuns = taskResult?.promptJudgingRuns;
+  const malformedJudgingRuns =
+    rawJudgingRuns !== undefined && !Array.isArray(rawJudgingRuns);
+  const judgingRuns = Array.isArray(rawJudgingRuns) ? rawJudgingRuns : [];
+  const successRateCI = run.api?.statistics?.successRateCI;
+  const passHatK = run.api?.statistics?.passHatK;
+
+  return (
+    <div className="lab-recorded-evidence">
+      <p className="lab-note">
+        These are saved metadata and grader observations, not verified external
+        state or requirement enforcement. Evidence contents are not fetched.
+        Missing historical fields remain unassessed.
+      </p>
+      <article className="lab-grader">
+        <h3>Recorded reliability</h3>
+        <p>
+          Task trials:{" "}
+          {trialCountsLabel(taskResult?.trials)}
+        </p>
+        <p>Task pass-rate Wilson interval: {intervalLabel(taskResult?.passRateCI)}</p>
+        <p>Weighted-score bootstrap interval: {intervalLabel(taskResult?.bootstrapCI)}</p>
+        <p>Suite success-rate Wilson interval: {intervalLabel(successRateCI)}</p>
+        <p>
+          pass^k (all k trials pass):{" "}
+          {passCurveLabel(passHatK)}
+        </p>
+        <small>
+          Stored estimates are not reconstructed from task scores, are not pass@k
+          guarantees, and are not significance tests between runs.
+        </small>
+      </article>
+
+      <section className="lab-grader">
+        <h3>Portable evidence</h3>
+        {malformedEvidenceRuns && (
+          <p>Portable evidence metadata withheld: invalid or unsupported run list.</p>
+        )}
+        {!malformedEvidenceRuns && !evidenceRuns.length && (
+          <p>Evidence unassessed: no portable evidence metadata was recorded.</p>
+        )}
+        {evidenceRuns.map((evidence, index) => {
+          if (
+            !evidence || typeof evidence !== "object" || Array.isArray(evidence) ||
+            !Number.isSafeInteger(evidence.runNumber) || evidence.runNumber < 0 ||
+            !Number.isSafeInteger(evidence.attempts) || evidence.attempts < 0 ||
+            typeof evidence.cached !== "boolean" ||
+            !["recorded", "unavailable", "invalid", "unassessed"].includes(evidence.assessment) ||
+            (evidence.message !== undefined && typeof evidence.message !== "string")
+          ) {
+            return (
+              <div key={`invalid-${index}`} className="lab-evidence-record">
+                <strong>Invalid · withheld</strong>
+                <p>Evidence metadata withheld: invalid or unsupported run record.</p>
+              </div>
+            );
+          }
+          const manifest = canDisplayEvidence(evidence) ? evidence.manifest : undefined;
+          const withheld =
+            (evidence.assessment === "recorded" || evidence.manifest != null) &&
+            !manifest;
+          const malformedExplanations =
+            evidence.explanations !== undefined &&
+            !validRequirementExplanations(evidence.explanations);
+          return (
+            <div key={`${evidence.runNumber}-${index}`} className="lab-evidence-record">
+              <strong>
+                Run {evidence.runNumber} · {evidence.attempts}{" "}
+                {evidence.attempts === 1 ? "attempt" : "attempts"} ·{" "}
+                {withheld ? "invalid · withheld" : evidence.assessment}
+                {evidence.cached ? " · cached source evidence" : ""}
+              </strong>
+              <p>
+                {withheld
+                  ? "Evidence metadata withheld: invalid identity, digest, or unsupported manifest."
+                  : evidence.message}
+              </p>
+              {manifest && (
+                <>
+                  <p className="break-all">
+                    Source origin: eval {manifest.origin.eval_id || "unavailable"} ·
+                    task {manifest.origin.task_id || "unavailable"} · run{" "}
+                    {manifest.origin.run_number || "unavailable"} · attempt{" "}
+                    {manifest.origin.attempt_count || "unavailable"} · prior attempts{" "}
+                    {manifest.origin.prior_attempts}
+                  </p>
+                  <p>
+                    Requested engine/model: {manifest.runtime.requested_engine} /{" "}
+                    {manifest.runtime.requested_model} · execution{" "}
+                    {manifest.runtime.execution_mode} · requested policy{" "}
+                    {manifest.runtime.requested_policy} · verified enforcement{" "}
+                    {manifest.runtime.verified_enforcement}
+                  </p>
+                  <p>
+                    Manifest SHA-256: <code>{manifest.sha256}</code>
+                    {manifest.source_manifest_sha256 && (
+                      <> · original capture SHA-256: <code>{manifest.source_manifest_sha256}</code></>
+                    )}
+                  </p>
+                  {manifest.artifacts.map((artifact) => (
+                    <p key={artifact.id}>
+                      {artifact.id}: {artifact.availability} / {artifact.completeness}
+                      {artifact.reason ? ` · ${artifact.reason}` : ""}
+                      {artifact.source_digest &&
+                        ` · source digest only (no source bytes): ${artifact.source_digest.sha256}`}
+                      {artifact.content_digest &&
+                        ` · content digest (${artifact.content_digest.encoding}): ${artifact.content_digest.sha256}`}
+                    </p>
+                  ))}
+                </>
+              )}
+              {malformedExplanations && (
+                <p>Requirement observations withheld: invalid or unsupported metadata.</p>
+              )}
+              {!withheld &&
+                !malformedExplanations &&
+                evidence.assessment !== "invalid" &&
+                evidence.explanations?.map((requirement) => (
+                  <div key={`${requirement.task_id}-${requirement.requirement_id}`}>
+                    <strong>Requirement {requirement.requirement_id}</strong>
+                    {requirement.checks?.length ? (
+                      requirement.checks.map((check, checkIndex) => (
+                        <p key={checkIndex}>
+                          {check.check.scope || "uncovered"} /{" "}
+                          {check.check.grader || "no check"}
+                          {check.check.after_turn
+                            ? ` / turn ${check.check.after_turn}`
+                            : ""}
+                          : {check.observation} · {check.category} — {check.message}
+                          {check.references?.length
+                            ? ` · artifact metadata: ${check.references.map((reference) => reference.artifact_id).join(", ")}`
+                            : ""}
+                        </p>
+                      ))
+                    ) : (
+                      <p>Check observations unavailable; requirement satisfaction is unassessed.</p>
+                    )}
+                  </div>
+                ))}
+            </div>
+          );
+        })}
+      </section>
+
+      <section className="lab-grader">
+        <h3>Independent prompt judging</h3>
+        <p>
+          Submission callbacks are observable; whether a model inspected every
+          evidence item is not.
+          {run.api?.regradeUsage &&
+            ` Current regrade usage is separate from original execution billing; AI Credits ${
+              run.api.regradeUsage.aiCredits === undefined
+                ? "unavailable"
+                : formatAICredits(run.api.regradeUsage.aiCredits)
+            }.`}
+        </p>
+        {malformedJudgingRuns && (
+          <p>Prompt judging metadata withheld: invalid or unsupported run list.</p>
+        )}
+        {!malformedJudgingRuns && !judgingRuns.length && (
+          <p>Prompt judging unassessed: no frozen-judging metadata was recorded.</p>
+        )}
+        {judgingRuns.map((judging, index) => {
+          const valid = canDisplayPromptJudging(judging);
+          if (!valid) {
+            return (
+              <div key={`invalid-${index}`} className="lab-evidence-record">
+                <strong>Invalid · withheld</strong>
+                <p>Prompt judging metadata withheld: invalid or unsupported metadata.</p>
+              </div>
+            );
+          }
+          return (
+            <div key={`${judging.runNumber}-${index}`} className="lab-evidence-record">
+              <strong>
+                Run {judging.runNumber} · attempt {judging.attempts} ·{" "}
+                {valid ? judging.assessment : "invalid · withheld"}
+                {judging.cached ? " · cached source, not new judging" : ""}
+              </strong>
+              <p>
+                {valid
+                  ? judging.message
+                  : "Prompt judging metadata withheld: invalid or unsupported metadata."}
+              </p>
+              {valid && judging.bundleSHA256 && (
+                <>
+                  <p className="break-all">
+                    Frozen bundle SHA-256: <code>{judging.bundleSHA256}</code> · execution{" "}
+                    {judging.executionMode}
+                  </p>
+                  {judging.coverage?.map((section) => (
+                    <p key={section.section}>
+                      {section.section}: {section.availability} / {section.completeness}
+                      {section.count !== undefined ? ` · ${section.count} items` : ""}
+                    </p>
+                  ))}
+                </>
+              )}
+              {valid &&
+                judging.observations.map((observation, observationIndex) => (
+                  <p key={observationIndex}>
+                    {observation.grader} · {observation.purpose} · {observation.state} ·
+                    submission {observation.submissionObserved ? "observed" : "not observed"} ·
+                    inspection not observable · judge AI Credits{" "}
+                    {observation.usage?.aiCredits === undefined
+                      ? "unavailable"
+                      : formatAICredits(observation.usage.aiCredits)}
+                  </p>
+                ))}
+            </div>
+          );
+        })}
+      </section>
+    </div>
+  );
+}
 
 export default function RunInspector({
   run: summary,
@@ -29,7 +340,9 @@ export default function RunInspector({
       run.tasks[0]?.id,
   );
   const [resolvedTasks, setResolvedTasks] = useState<LabRun["tasks"]>();
-  const [tab, setTab] = useState<"graders" | "trajectory" | "configuration">(
+  const [tab, setTab] = useState<
+    "graders" | "trajectory" | "configuration" | "evidence"
+  >(
     "graders",
   );
   const task =
@@ -198,12 +511,23 @@ export default function RunInspector({
                     ? "Grader evidence"
                     : value === "trajectory"
                       ? "Trajectory"
-                      : "Configuration"}
+                      : value === "configuration"
+                        ? "Configuration"
+                        : "Recorded evidence"}
                 </button>
               ),
             )}
           </div>
           <div id="lab-evidence-panel" role="tabpanel" aria-labelledby={`lab-evidence-tab-${tab}`}>
+            {tab === "evidence" &&
+              (demo ? (
+                <p className="lab-note">
+                  The synthetic demo has no recorded reliability, portable
+                  evidence, or prompt-judging metadata.
+                </p>
+              ) : (
+                <RecordedEvidence run={run} task={task} />
+              ))}
             {tab === "graders" && task && (
               <>
                 <div className="lab-task-summary">

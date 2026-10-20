@@ -1215,6 +1215,30 @@
   line-height: 1.7;
   margin: 12px 0 0;
 }
+.lab-recorded-evidence {
+  display: grid;
+  gap: 4px;
+}
+.lab-recorded-evidence .lab-grader h3 {
+  font-size: 14px;
+  margin: 0;
+}
+.lab-grader > .lab-evidence-record {
+  display: grid;
+  align-items: start;
+  justify-content: stretch;
+  gap: 4px;
+  border-top: 1px solid #dce1ea;
+  margin-top: 12px;
+  padding-top: 12px;
+}
+.lab-evidence-record strong {
+  font-size: 11px;
+}
+.lab-evidence-record p,
+.lab-evidence-record code {
+  overflow-wrap: anywhere;
+}
 .lab-inspector pre:not(.lab-recorded-trajectory pre) {
   padding: 15px;
   white-space: pre-wrap;

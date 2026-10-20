@@ -4,6 +4,9 @@ import { once } from "node:events";
 import { createServer } from "node:http";
 import type { RunDetail, RunDetailWire, RunSummary } from "../src/api/client";
 import { RUN_DETAIL, RUNS } from "./fixtures/mock-data";
+import { evidenceRun } from "./fixtures/evidence-data";
+import promptJudging from "./fixtures/prompt-judging.json" with { type: "json" };
+import { RECORDED_RELIABILITY } from "./fixtures/reliability-data";
 import { duration } from "../src/lab/data";
 
 const savedRuns: RunSummary[] = RUNS.map((run, index) => ({
@@ -904,15 +907,17 @@ test.describe("Real dashboard lab", () => {
     const graders = dialog.getByRole("tab", { name: "Grader evidence" });
     const trajectory = dialog.getByRole("tab", { name: "Trajectory", exact: true });
     const configuration = dialog.getByRole("tab", { name: "Configuration" });
+    const evidence = dialog.getByRole("tab", { name: "Recorded evidence" });
     await expect(graders).toHaveAttribute("tabindex", "0");
     await expect(trajectory).toHaveAttribute("tabindex", "-1");
     await expect(configuration).toHaveAttribute("tabindex", "-1");
+    await expect(evidence).toHaveAttribute("tabindex", "-1");
     await graders.focus();
     for (const [key, selected, name] of [
       ["ArrowRight", trajectory, "Trajectory"],
-      ["End", configuration, "Configuration"],
+      ["End", evidence, "Recorded evidence"],
       ["ArrowRight", graders, "Grader evidence"],
-      ["ArrowLeft", configuration, "Configuration"],
+      ["ArrowLeft", evidence, "Recorded evidence"],
       ["Home", graders, "Grader evidence"],
     ] as const) {
       await page.keyboard.press(key);
@@ -1019,6 +1024,387 @@ test.describe("Real dashboard lab", () => {
     await expect(dialog.locator("pre")).toHaveCSS("background-color", "rgb(246, 248, 251)");
     await expect(dialog.locator("pre")).toHaveCSS("color", "rgb(36, 49, 70)");
     await expect(dialog.locator("pre")).toContainText("Explain how the Fibonacci");
+  });
+
+  test("inspector and JSON report expose recorded reliability and evidence without upgrading claims", async ({
+    page,
+  }) => {
+    const summary = {
+      ...savedRuns[0]!,
+      taskCount: 2,
+      passCount: 1,
+      weightedScore: 0.925,
+    };
+    const savedDetail = detail(summary);
+    const recordedTask = {
+      ...RECORDED_RELIABILITY.tasks[0]!,
+      id: "report-task",
+      evidenceRuns: [evidenceRun()],
+    };
+    const savedEvidence: RunDetail = {
+      ...savedDetail,
+      statistics: RECORDED_RELIABILITY.statistics,
+      tasks: [recordedTask, { ...RECORDED_RELIABILITY.tasks[1]!, id: "all-trials-passed" }],
+    };
+    await mockResults(page, [summary], [savedEvidence]);
+    await page.goto("/#/lab/history");
+    await page.getByRole("button", { name: "custom-skill", exact: true }).click();
+    const dialog = page.getByRole("dialog");
+    await dialog.getByRole("tab", { name: "Recorded evidence" }).click();
+
+    await expect(dialog).toContainText("2/3 passed");
+    await expect(dialog).toContainText("pass^1 83.3%");
+    await expect(dialog).toContainText("Task pass-rate Wilson interval: 66.7%");
+    await expect(dialog).toContainText("Source origin: eval source-evaluation");
+    await expect(dialog).toContainText("cached source evidence");
+    await expect(dialog).toContainText("Requirement required-report");
+    await expect(dialog).toContainText("Prompt judging unassessed:");
+    await expect(dialog).not.toContainText("PRIVATE_FILE_BODY");
+    await page.keyboard.press("Escape");
+
+    await page.getByRole("link", { name: "Reports", exact: true }).click();
+    const download = page.waitForEvent("download");
+    await page.getByRole("button", { name: "Download JSON" }).click();
+    const path = await (await download).path();
+    const report = JSON.parse(await readFile(path!, "utf8"));
+    expect(report.runs[0].statistics.passHatK).toEqual([5 / 6, 2 / 3, 0.5]);
+    expect(report.runs[0].tasks[0].trials).toEqual({ passed: 2, total: 3 });
+    expect(report.runs[0].tasks[0].evidenceRuns[0].assessment).toBe("recorded");
+    expect(report.runs[0].tasks[0].promptJudgingRuns).toBeUndefined();
+    expect(report.runs[0].tasks[0].evidenceRuns[0]).toMatchObject({ cached: true, attempts: 2 });
+  });
+
+  test("producer-projected prompt judging remains separate from cached evidence in the inspector and report", async ({ page }) => {
+    await mockResults(page, [promptJudging], [promptJudging]);
+    await page.goto("/#/lab/history");
+    await page.getByRole("button", { name: "Unavailable", exact: true }).click();
+    const dialog = page.getByRole("dialog");
+    await dialog.getByRole("tab", { name: "Recorded evidence" }).click();
+    await expect(dialog).toContainText("Evidence unassessed:");
+    await expect(dialog).not.toContainText("cached source evidence");
+    await expect(dialog).toContainText("inspection not observable");
+    await expect(dialog).toContainText("judge AI Credits 0");
+    await expect(dialog).toContainText("Current regrade usage is separate");
+    await expect(dialog).not.toContainText("PRIVATE_FILE_BODY");
+    await page.keyboard.press("Escape");
+    await page.getByRole("link", { name: "Reports", exact: true }).click();
+    const download = page.waitForEvent("download");
+    await page.getByRole("button", { name: "Download JSON" }).click();
+    const path = await (await download).path();
+    const report = JSON.parse(await readFile(path!, "utf8"));
+    expect(report.runs[0].tasks[0].promptJudgingRuns).toEqual(promptJudging.tasks[0]!.promptJudgingRuns);
+    expect(report.runs[0].tasks[0].evidenceRuns).toBeUndefined();
+    expect(report.runs[0].regradeUsage.aiCredits).toBe(0);
+  });
+
+  for (const [name, interval] of [
+    ["null", null],
+    ["string", "bad"],
+    ["array", []],
+    ["reversed endpoints", { lower: 0.9, upper: 0.1, mean: 0.5, confidenceLevel: 0.95 }],
+    ["out-of-range endpoints", { lower: -0.1, upper: 1.1, mean: 0.5, confidenceLevel: 0.95 }],
+    ["out-of-range mean", { lower: 0, upper: 1, mean: 2, confidenceLevel: 0.95 }],
+    ["out-of-range confidence", { lower: 0, upper: 1, mean: 0.5, confidenceLevel: 1.5 }],
+    ["zero confidence", { lower: 0, upper: 1, mean: 0.5, confidenceLevel: 0 }],
+    ["unit confidence", { lower: 0, upper: 1, mean: 0.5, confidenceLevel: 1 }],
+    ["null endpoint", { lower: null, upper: 1, mean: 0.5, confidenceLevel: 0.95 }],
+    ["string endpoint", { lower: "0", upper: 1, mean: 0.5, confidenceLevel: 0.95 }],
+    ["missing confidence", { lower: 0, upper: 1, mean: 0.5 }],
+  ] as const) {
+    test(`invalid ${name} reliability intervals are withheld without hiding valid estimates`, async ({ page }) => {
+      const summary = { ...savedRuns[0]!, taskCount: 1 };
+      const recorded = detail(summary);
+      Object.assign(recorded.tasks[0]!, { passRateCI: interval, bootstrapCI: interval });
+      Object.assign(recorded, { statistics: { successRateCI: interval, passHatK: [1, 0.5, 0] } });
+      const errors: string[] = [];
+      page.on("pageerror", (error) => errors.push(error.message));
+      await mockResults(page, [summary], [recorded]);
+      await page.goto("/#/lab/history");
+      await page.getByRole("button", { name: "custom-skill", exact: true }).click();
+      const dialog = page.getByRole("dialog");
+      await dialog.getByRole("tab", { name: "Recorded evidence" }).click();
+      for (const label of ["Task pass-rate Wilson interval", "Weighted-score bootstrap interval", "Suite success-rate Wilson interval"]) {
+        await expect(dialog).toContainText(`${label}: Withheld: invalid recorded interval`);
+      }
+      await expect(dialog).toContainText("pass^1 100.0% · pass^2 50.0% · pass^3 0.0%");
+      expect(errors).toEqual([]);
+    });
+  }
+
+  for (const [name, passHatK] of [
+    ["string", "bad"],
+    ["object", { length: 1 }],
+    ["null", null],
+    ["null entry", [null]],
+    ["out-of-range entries", [-0.25, 1.5]],
+    ["string entry", ["0"]],
+  ] as const) {
+    test(`invalid ${name} pass curves are withheld while valid zero intervals remain visible`, async ({ page }) => {
+      const summary = { ...savedRuns[0]!, taskCount: 1 };
+      const recorded = detail(summary);
+      const zero = { lower: 0, upper: 0, mean: 0, confidenceLevel: 0.95 };
+      recorded.tasks[0]!.passRateCI = zero;
+      recorded.tasks[0]!.bootstrapCI = zero;
+      Object.assign(recorded, { statistics: { successRateCI: zero, passHatK } });
+      const errors: string[] = [];
+      page.on("pageerror", (error) => errors.push(error.message));
+      await mockResults(page, [summary], [recorded]);
+      await page.goto("/#/lab/history");
+      await page.getByRole("button", { name: "custom-skill", exact: true }).click();
+      const dialog = page.getByRole("dialog");
+      await dialog.getByRole("tab", { name: "Recorded evidence" }).click();
+      await expect(dialog).toContainText("Withheld: invalid recorded pass^k estimates");
+      for (const label of ["Task pass-rate Wilson interval", "Weighted-score bootstrap interval", "Suite success-rate Wilson interval"]) {
+        await expect(dialog).toContainText(`${label}: 0.0% · 95% CI 0.0%–0.0%`);
+      }
+      expect(errors).toEqual([]);
+    });
+  }
+
+  test("empty pass curves remain unassessed rather than malformed", async ({ page }) => {
+    const summary = { ...savedRuns[0]!, taskCount: 1 };
+    const recorded = detail(summary);
+    recorded.statistics = { passHatK: [] };
+    await mockResults(page, [summary], [recorded]);
+    await page.goto("/#/lab/history");
+    await page.getByRole("button", { name: "custom-skill", exact: true }).click();
+    const dialog = page.getByRole("dialog");
+    await dialog.getByRole("tab", { name: "Recorded evidence" }).click();
+    await expect(dialog).toContainText("pass^k (all k trials pass): Not assessed");
+    await expect(dialog).not.toContainText("Withheld:");
+  });
+
+  for (const [name, trials] of [
+    ["null", null],
+    ["string", "bad"],
+    ["negative passes", { passed: -1, total: 3 }],
+    ["excess passes", { passed: 4, total: 3 }],
+    ["empty trials", { passed: 0, total: 0 }],
+    ["fractional passes", { passed: 0.5, total: 3 }],
+    ["fractional total", { passed: 0, total: 3.5 }],
+    ["unsafe total", { passed: 0, total: Number.MAX_SAFE_INTEGER + 1 }],
+    ["string passes", { passed: "0", total: 3 }],
+  ] as const) {
+    test(`invalid ${name} trial counts are withheld while valid zero passes remain recorded`, async ({ page }) => {
+      const summary = { ...savedRuns[0]!, taskCount: 1 };
+      const recorded = detail(summary);
+      const task = recorded.tasks[0]!;
+      Object.assign(task, { trials });
+      let valid = false;
+      await mockResults(page, [summary], [recorded]);
+      await page.route(/\/api\/runs\/[^/]+$/, (route) => route.fulfill({
+        json: valid
+          ? { ...recorded, tasks: [{ ...task, trials: { passed: 0, total: 3 } }] }
+          : recorded,
+      }));
+      await page.goto("/#/lab/history");
+      await page.getByRole("button", { name: "custom-skill", exact: true }).click();
+      const dialog = page.getByRole("dialog");
+      await dialog.getByRole("tab", { name: "Recorded evidence" }).click();
+      await expect(dialog).toContainText("Task trials: Withheld: invalid recorded trial counts");
+      await page.keyboard.press("Escape");
+      valid = true;
+      await page.reload();
+      await page.getByRole("button", { name: "custom-skill", exact: true }).click();
+      await dialog.getByRole("tab", { name: "Recorded evidence" }).click();
+      await expect(dialog).toContainText("Task trials: 0/3 passed");
+      await expect(dialog).not.toContainText("invalid recorded trial counts");
+    });
+  }
+
+  test("legacy and invalid evidence remain unassessed or withheld in the Lab", async ({
+    page,
+  }) => {
+    const summary = { ...savedRuns[0]!, taskCount: 1, passCount: 0 };
+    const legacy = detail(summary);
+    const invalid = detail({ ...savedRuns[1]!, taskCount: 1, passCount: 0 });
+    invalid.tasks[0]!.id = "invalid-task";
+    invalid.tasks[0]!.evidenceRuns = [{
+      ...evidenceRun(),
+      assessment: "invalid",
+      manifest: undefined,
+      explanations: undefined,
+      message: "Evidence identity or metadata is invalid.",
+    }];
+    invalid.tasks[0]!.promptJudgingRuns = [{
+      runNumber: 1,
+      attempts: 1,
+      cached: false,
+      assessment: "invalid",
+      observations: [],
+      message: "Prompt judging metadata is invalid.",
+    }];
+    await mockResults(page, [summary, savedRuns[1]!], [legacy, invalid]);
+    await page.goto("/#/lab/history");
+
+    await page.getByRole("button", { name: "custom-skill", exact: true }).first().click();
+    const dialog = page.getByRole("dialog");
+    await dialog.getByRole("tab", { name: "Recorded evidence" }).click();
+    await expect(dialog).toContainText("Task trials: Not assessed");
+    await expect(dialog).toContainText("Suite success-rate Wilson interval: Not assessed");
+    await expect(dialog).toContainText("Evidence unassessed: no portable evidence metadata was recorded.");
+    await expect(dialog).toContainText("Prompt judging unassessed: no frozen-judging metadata was recorded.");
+    await page.keyboard.press("Escape");
+
+    await page.getByRole("button", { name: "custom-skill", exact: true }).nth(1).click();
+    const invalidDialog = page.getByRole("dialog");
+    await invalidDialog.getByRole("tab", { name: "Recorded evidence" }).click();
+    await expect(invalidDialog).toContainText("invalid");
+    await expect(invalidDialog).toContainText("Evidence identity or metadata is invalid.");
+    await expect(invalidDialog).toContainText("Prompt judging metadata is invalid.");
+    await expect(invalidDialog).not.toContainText("Source origin:");
+    await expect(invalidDialog).not.toContainText("Delivery SHA-256:");
+  });
+
+  for (const [name, evidenceRuns, promptJudgingRuns] of [
+    ["null evidence and object judging", null, { content: "PRIVATE_CANARY" }],
+    ["object evidence and null judging", { content: "PRIVATE_CANARY" }, null],
+  ] as const) {
+    test(`malformed ${name} run lists are withheld instead of called historical absence`, async ({
+      page,
+    }) => {
+      const summary = { ...savedRuns[0]!, taskCount: 1 };
+      const malformed = detail(summary);
+      Object.assign(malformed.tasks[0], { evidenceRuns, promptJudgingRuns });
+      const errors: string[] = [];
+      page.on("pageerror", (error) => errors.push(error.message));
+      await mockResults(page, [summary], [malformed]);
+      await page.goto("/#/lab/history");
+      await page.getByRole("button", { name: "custom-skill", exact: true }).click();
+      const dialog = page.getByRole("dialog");
+      await dialog.getByRole("tab", { name: "Recorded evidence" }).click();
+
+      await expect(dialog).toContainText("Portable evidence metadata withheld: invalid or unsupported run list.");
+      await expect(dialog).toContainText("Prompt judging metadata withheld: invalid or unsupported run list.");
+      await expect(dialog).not.toContainText("no portable evidence metadata was recorded");
+      await expect(dialog).not.toContainText("no frozen-judging metadata was recorded");
+      await expect(dialog).not.toContainText("PRIVATE_CANARY");
+      expect(errors).toEqual([]);
+    });
+  }
+
+  test("null evidence and prompt-judging rows are withheld without crashing the inspector", async ({
+    page,
+  }) => {
+    const summary = { ...savedRuns[0]!, taskCount: 1 };
+    const malformed = detail(summary);
+    Object.assign(malformed.tasks[0], {
+      evidenceRuns: [null],
+      promptJudgingRuns: [null],
+    });
+    const errors: string[] = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    await mockResults(page, [summary], [malformed]);
+    await page.goto("/#/lab/history");
+    await page.getByRole("button", { name: "custom-skill", exact: true }).click();
+    const dialog = page.getByRole("dialog");
+    await dialog.getByRole("tab", { name: "Recorded evidence" }).click();
+
+    await expect(dialog).toContainText("Evidence metadata withheld: invalid or unsupported run record.");
+    await expect(dialog).toContainText("Prompt judging metadata withheld: invalid or unsupported metadata.");
+    await expect(dialog).not.toContainText("Evidence unassessed:");
+    await expect(dialog).not.toContainText("Prompt judging unassessed:");
+    expect(errors).toEqual([]);
+  });
+
+  for (const [field, value] of [
+    ["runNumber", {}],
+    ["attempts", {}],
+    ["cached", "false"],
+    ["assessment", {}],
+    ["message", {}],
+  ] as const) {
+    test(`malformed ${field} envelopes are withheld without hiding valid siblings`, async ({ page }) => {
+      const summary = { ...savedRuns[0]!, taskCount: 1 };
+      const malformed = detail(summary);
+      const evidence = { ...evidenceRun(), [field]: value };
+      const judging = { ...promptJudging.tasks[0]!.promptJudgingRuns[0]!, [field]: value };
+      Object.assign(malformed.tasks[0], {
+        evidenceRuns: [evidence, evidenceRun(2)],
+        promptJudgingRuns: [judging, {
+          runNumber: 2, attempts: 2, cached: true, assessment: "unassessed",
+          observations: [], message: "Cached judging remains unassessed.",
+        }],
+      });
+      const errors: string[] = [];
+      page.on("pageerror", (error) => errors.push(error.message));
+      await mockResults(page, [summary], [malformed]);
+      await page.goto("/#/lab/history");
+      await page.getByRole("button", { name: "custom-skill", exact: true }).click();
+      const dialog = page.getByRole("dialog");
+      await dialog.getByRole("tab", { name: "Recorded evidence" }).click();
+
+      await expect(dialog).toContainText("Evidence metadata withheld: invalid or unsupported run record.");
+      await expect(dialog).toContainText("Prompt judging metadata withheld: invalid or unsupported metadata.");
+      await expect(dialog).toContainText("Run 2 · 2 attempts · recorded · cached source evidence");
+      await expect(dialog).toContainText("Cached judging remains unassessed.");
+      await expect(dialog).toContainText("Source origin: eval source-evaluation");
+      expect(errors).toEqual([]);
+    });
+  }
+
+  for (const [name, explanations] of [
+    ["null explanation list", null],
+    ["null requirement", [null]],
+    ["null check", [{ task_id: "report-task", requirement_id: "required-report", checks: [null] }]],
+    ["null check declaration", [{
+      task_id: "report-task",
+      requirement_id: "required-report",
+      checks: [{ check: null, observation: "unresolved", category: "insufficient_evidence", message: "Unavailable." }],
+    }]],
+    ["null reference", [{
+      task_id: "report-task",
+      requirement_id: "required-report",
+      checks: [{
+        check: { scope: "task", grader: "report-check" },
+        observation: "unresolved",
+        category: "insufficient_evidence",
+        message: "Unavailable.",
+        references: [null],
+      }],
+    }]],
+  ] as const) {
+    test(`malformed ${name} requirement metadata is withheld without crashing`, async ({ page }) => {
+      const summary = { ...savedRuns[0]!, taskCount: 1 };
+      const malformed = detail(summary);
+      const evidence = evidenceRun();
+      Object.assign(evidence, { explanations });
+      malformed.tasks[0]!.evidenceRuns = [evidence];
+      const errors: string[] = [];
+      page.on("pageerror", (error) => errors.push(error.message));
+      await mockResults(page, [summary], [malformed]);
+      await page.goto("/#/lab/history");
+      await page.getByRole("button", { name: "custom-skill", exact: true }).click();
+      const dialog = page.getByRole("dialog");
+      await dialog.getByRole("tab", { name: "Recorded evidence" }).click();
+
+      await expect(dialog).toContainText("Source origin: eval source-evaluation");
+      await expect(dialog).toContainText("Requirement observations withheld: invalid or unsupported metadata.");
+      await expect(dialog).not.toContainText("PRIVATE_CANARY");
+      expect(errors).toEqual([]);
+    });
+  }
+
+  test("valid null check collections remain unassessed rather than invalid", async ({ page }) => {
+    const summary = { ...savedRuns[0]!, taskCount: 1 };
+    const recorded = detail(summary);
+    const evidence = evidenceRun();
+    Object.assign(evidence, {
+      explanations: [{
+        task_id: "report-task",
+        requirement_id: "required-report",
+        checks: null,
+      }],
+    });
+    recorded.tasks[0]!.evidenceRuns = [evidence];
+    await mockResults(page, [summary], [recorded]);
+    await page.goto("/#/lab/history");
+    await page.getByRole("button", { name: "custom-skill", exact: true }).click();
+    const dialog = page.getByRole("dialog");
+    await dialog.getByRole("tab", { name: "Recorded evidence" }).click();
+
+    await expect(dialog).toContainText("Check observations unavailable; requirement satisfaction is unassessed.");
+    await expect(dialog).not.toContainText("Requirement observations withheld:");
   });
 
   test("permanently closed activity streams require manual reconnect and release prior resources", async ({
