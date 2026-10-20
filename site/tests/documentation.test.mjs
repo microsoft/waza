@@ -233,6 +233,7 @@ test('release overview identifies the published version and retains the former a
 test('published workflow guides do not require unreleased main for v0.39.0 features', () => {
   const paths = [
     'README.md', 'docs/GETTING-STARTED.md', 'docs/GUIDE.md',
+    'site/src/content/docs/index.mdx',
     'site/src/content/docs/getting-started.mdx', 'site/src/content/docs/quick-start.mdx',
     'site/src/content/docs/concepts.mdx', 'site/src/content/docs/about.mdx',
     'site/src/content/docs/reference/cli.mdx',

@@ -49,13 +49,19 @@ test('all built internal page routes, fragments and image assets resolve under t
   expect(failures).toEqual([]);
 });
 
-test('beginner learning order and source availability are visible', async ({ page }) => {
+test('beginner learning order and published release availability are visible', async ({ page }) => {
+  await page.goto('/waza/');
+  await expect(page.locator('main')).toContainText('v0.39.0 (October 20, 2026)');
+  await expect(page.locator('main')).toContainText('a source build is optional');
+  await expect(page.locator('main')).not.toContainText('building upcoming main');
   await page.goto('/waza/quick-start/');
   const navigation = page.getByRole('navigation', { name: 'Main' });
   for (const name of ['Concepts and Learning Path', 'Project Configuration', 'Statistical Fields']) {
     await expect(navigation.getByRole('link', { name, exact: true })).toBeVisible();
   }
-  await expect(page.locator('main')).toContainText('v0.38.10');
+  await expect(page.locator('main')).toContainText('Published standalone v0.39.0');
+  await expect(page.locator('main')).toContainText('no source build is required');
+  await expect(page.locator('main')).toContainText('If you prefer to build from source');
   await expect(page.locator('main')).toContainText('expect exit 1');
   await page.goto('/waza/getting-started/');
   const text = await page.locator('main').innerText();

@@ -12,11 +12,12 @@ import { Card, CardGrid, LinkCard, Aside } from '@astrojs/starlight/components';
 Define repository, CLI or MCP scenarios in YAML, run graded trials and inspect
 the recorded evidence. Existing skill suites remain supported.
 
-<Aside type="note" title="Stable versus upcoming main">
-Published standalone **v0.38.10 (October 9, 2026)** is separate from the upcoming
-scenario, preflight, evidence and assurance features described here. Build
-current source for those commands; `waza update` installs published releases,
-not main. See [release availability](/waza/reference/releases/#upcoming-main-only-capabilities).
+<Aside type="note" title="Available in v0.39.0">
+Published standalone **v0.39.0 (October 20, 2026)** includes the scenario,
+preflight, evidence and assurance features described here. Install the published
+binary or run `waza update`; a source build is optional. Explicit opt-in,
+platform and paid-call restrictions still apply. See
+[release availability](/waza/reference/releases/#upcoming-main-only-capabilities).
 </Aside>
 
 Perfect for skill authors, platform teams, and developers building AI-powered applications.
@@ -47,7 +48,7 @@ Perfect for skill authors, platform teams, and developers building AI-powered ap
 ## Quick Start
 
 Start credential-free with the [offline Quick Start](/waza/quick-start/).
-After building upcoming main as described there:
+After installing v0.39.0 or building from source as described there:
 
 ```bash
 waza init my-eval-suite --no-skill
