@@ -3,8 +3,9 @@
 A skill walkthrough within Waza's workflow, skill and custom-agent evaluation
 platform. Begin with [Concepts](../site/src/content/docs/concepts.mdx) and the
 [offline workflow Quick Start](../site/src/content/docs/quick-start.mdx).
-Scenario authoring/preflight require upcoming main, not stable `v0.38.10`
-(October 9, 2026). See [availability](../site/src/content/docs/reference/releases.mdx).
+Scenario authoring/preflight are available in published `v0.39.0`
+(October 20, 2026). Install the release or run `waza update`; see
+[availability and platform limits](../site/src/content/docs/reference/releases.mdx).
 Before any real SDK run, read the
 [authentication, permissions and possible-cost prerequisites](../site/src/content/docs/getting-started.mdx#authenticate-before-real-execution).
 The mock config below checks harness wiring only, not agent quality.

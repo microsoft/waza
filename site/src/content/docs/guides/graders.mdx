@@ -40,7 +40,8 @@ Run `waza get eval.yaml` after adding a `ref`; it writes `waza.lock` with the co
 
 New authors can start with [the catalog](#at-a-glance) and
 [Text](#text), then return to these explicitly selected advanced profiles.
-Assurance/calibration profiles below are upcoming/main-only; see
+Assurance/calibration profiles below are available in v0.39.0 with separate
+explicit selection, paid-call acknowledgment where applicable, and platform limits; see
 [release availability](../../reference/releases/).
 
 <details>
@@ -569,8 +570,9 @@ For custom providers, effort is forwarded directly and provider errors are surfa
 
 ### Evidence-backed independent judging
 
-**Current source/main-only:** use a build containing this feature. Older CLIs do
-not implement the evidence-isolation profile.
+**Available in v0.39.0 and opt-in:** install the published standalone release or
+run `waza update`; see [release availability](../../reference/releases/).
+Older CLIs do not implement the evidence-isolation profile.
 
 Set `evidence_context` to judge a recorded execution without resuming the actor
 or giving the judge its live workspace. Omit it to retain existing prompt-grader

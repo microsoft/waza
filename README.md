@@ -10,12 +10,12 @@ A Go CLI for evaluating agent workflows, skills, and custom agents — author re
 → [CI regression gates](site/src/content/docs/guides/ci-cd.mdx).
 Mock success checks the harness, not agent quality or live service safety.
 
-**Version boundary (October 19, 2026):** the published standalone CLI is
-`v0.38.10` (October 9). Scenario authoring, preflight, selected-file evidence,
+**Version boundary (October 20, 2026):** the published standalone CLI is
+`v0.39.0`. Scenario authoring, preflight, selected-file evidence,
 assurance profiles, controlled release policies, recorded reliability, and the
-opt-in dashboard Lab described here are **upcoming/main-only**, not a promise
-about that stable binary. Build the current source below before using them;
-`waza update` installs published releases, not unreleased code. See the
+opt-in dashboard Lab described here are included in that release.
+Install the published binary or run `waza update`; a source build is optional.
+Platform, explicit opt-in, evidence, and paid-call restrictions still apply. See the
 [feature/platform matrix](site/src/content/docs/reference/releases.mdx#upcoming-main-only-capabilities).
 
 ## Installation

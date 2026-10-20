@@ -136,7 +136,7 @@ test('adversarial command fences separate offline smoke from prerequisite-gated 
   assert.ok(fences.length > 0);
   assert.match(fences[0][1], /waza adversarial --engine mock/);
   assert.doesNotMatch(fences[0][1], /copilot-sdk|cd skills\//, 'first copyable block must remain offline only');
-  const prerequisites = ['development-main skill-binding fix', '`v0.38.10`',
+  const prerequisites = ['skill-binding fix', '`v0.38.10`',
     'SDK authentication and usage prerequisites', 'standalone CLI login',
     'model access', 'approved runtime/tool permissions', 'Real runs may incur model costs'];
   let realFences = 0;
@@ -228,4 +228,21 @@ test('release overview identifies the published version and retains the former a
   assert.equal([...overview.matchAll(/releases\/download\/v0\.39\.0\/waza-/g)].length, 6);
   assert.doesNotMatch(overview, /releases\/(?:download|tag)\/v0\.38\.10/);
   assert.match(read('site/src/content/docs/guides/dashboard-lab.mdx'), /Available in v0\.39\.0 and opt-in/);
+});
+
+test('published workflow guides do not require unreleased main for v0.39.0 features', () => {
+  const paths = [
+    'README.md', 'docs/GETTING-STARTED.md', 'docs/GUIDE.md',
+    'site/src/content/docs/getting-started.mdx', 'site/src/content/docs/quick-start.mdx',
+    'site/src/content/docs/concepts.mdx', 'site/src/content/docs/about.mdx',
+    'site/src/content/docs/reference/cli.mdx',
+    ...['eval-yaml', 'preflight', 'snapshot-replay', 'controlled-comparisons', 'ci-cd', 'graders', 'dashboard-lab', 'adversarial']
+      .map((name) => `site/src/content/docs/guides/${name}.mdx`),
+  ];
+  for (const path of paths) {
+    const text = read(path);
+    assert.match(text, /v0\.39\.0/, path);
+    assert.doesNotMatch(text, /(?:upcoming|current source)\/main-only|source-build-only|require upcoming main|build upcoming main/i, path);
+    assert.match(text, /reference\/releases|releases\/#upcoming-main-only-capabilities/, path);
+  }
 });

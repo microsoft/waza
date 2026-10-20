@@ -8,9 +8,10 @@ Begin with [Concepts and learning order](../site/src/content/docs/concepts.mdx),
 then the [offline Quick Start](../site/src/content/docs/quick-start.mdx).
 Mock trials prove harness wiring, not agent quality. Read the
 [authentication and usage prerequisites](../site/src/content/docs/getting-started.mdx#authenticate-before-real-execution)
-before model-backed runs. Upcoming scenario/preflight/evidence features require
-main, not stable `v0.38.10` (October 9, 2026); `waza update` only installs
-published releases. See [availability](../site/src/content/docs/reference/releases.mdx).
+before model-backed runs. Scenario/preflight/evidence features are included in
+published `v0.39.0` (October 20, 2026); install that release or run `waza update`.
+Explicit opt-in and platform limits still apply; see
+[availability](../site/src/content/docs/reference/releases.mdx).
 
 ## What is Waza?
 

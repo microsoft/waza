@@ -141,9 +141,10 @@ make build
 
 ## Offline setup gate
 
-**Upcoming/main-only:** build source above before using `preflight` or controlled
-policy commands. Stable `v0.38.10` and separately versioned azd artifacts do not
-automatically include them; see [availability](../../reference/releases/).
+**Available in v0.39.0:** install the published standalone release or run
+`waza update` before using `preflight` or controlled policy commands.
+Explicit policy selection and platform limits still apply. The azd extension
+is versioned separately; see [availability](../../reference/releases/).
 
 ```bash
 waza preflight eval.yaml --format json > preflight.json

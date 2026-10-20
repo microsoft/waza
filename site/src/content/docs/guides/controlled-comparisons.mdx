@@ -13,9 +13,10 @@ capabilities. The independent offline assurance profile remains separate and
 does not change base 1.0. Mock observations validate the harness, not agent
 quality.
 
-**Upcoming/main-only:** build current source as described in
+**Available in v0.39.0 and explicitly selected:** install the standalone release as described in
 [release availability](../../reference/releases/#upcoming-main-only-capabilities).
-Stable `v0.38.10` does not include this workflow.
+Older `v0.38.10` does not include this workflow. Platform, paid-call and profile
+restrictions below still apply.
 
 Ordinary opt-in snapshot `run` capture and supported `grade` paths already
 produce scoped result-level `evidence` and `requirement_explanations`.
@@ -110,7 +111,7 @@ waza gate --release-policy native-policy.json \
   --collection-dir new-native-collection --format json
 ```
 
-This source-build-only profile is limited to Copilot SDK, fixed named models,
+This explicitly selected profile is limited to Copilot SDK, fixed named models,
 single turns, no skills, deny-all **client** tools and native text/string
 checks. It does not support hooks, MCP, repositories, cache, concurrency,
 resume, checkpoints, multiturn or other graders. Planning does not invoke the
