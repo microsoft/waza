@@ -1,0 +1,97 @@
+# Waza v0.39.0: test the workflow, inspect the evidence
+
+An agent can say it finished a task without producing the right result. It can also pass once and fail on the next attempt. Neither makes a particularly useful release signal.
+
+Waza v0.39.0 puts more of that distinction into the evaluation workflow: author scenarios without starting from a skill, catch setup problems before calling a model, test dependency failures, and inspect the evidence behind a result. For teams making release decisions, it also adds explicitly selected controlled comparisons and grader assurance.
+
+This release covers changes since v0.38.10. Here's what you can do with them.
+
+## Start with a workflow, not necessarily a skill
+
+You can now scaffold an evaluation for a repository task, CLI interaction, or MCP-backed workflow without creating a `SKILL.md` first:
+
+```bash
+waza new eval inventory --scenario --template repository
+waza preflight evals/inventory/eval.yaml
+waza run evals/inventory/eval.yaml
+```
+
+The repository template supplies sanitized fixtures and checks for the expected report, an unwanted file, and preservation of the original inventory. The CLI template uses installed Git; the MCP template supplies mocked responses.
+
+That makes it easier to evaluate an actual job: produce a report, inspect a repository, or use a tool correctly. You can still select a skill or custom agent when that's what you're testing. Target-free scenarios disable ambient skill discovery by default, so unrelated installed skills don't silently become part of the experiment.
+
+Scenario evals use the exact `schemaVersion: "2.0"` contract. Existing v1 suites keep their established workflow, and scenario runs bypass result caching rather than pretending external dependencies have been fully fingerprinted.
+
+## Catch configuration problems before spending model calls
+
+`waza preflight` inspects local tasks, paths, fixtures, mocks, configuration, and requirement references without starting an agent, subprocess, or service.
+
+```bash
+waza preflight evals/inventory/eval.yaml --format json
+```
+
+It separates verified local declarations from unresolved prerequisites, unsupported capabilities, and invalid configuration. Add `--strict` when unresolved or unsupported diagnostics should fail a CI check.
+
+Tasks can also describe requirements as outcomes, boundaries, recovery expectations, or quality checks, linked to named graders. That gives authors and reviewers a clearer answer to "what is this task checking?" A resolved reference is not a passing requirement, and preflight does not verify credentials, live services, or model quality.
+
+## Test what happens when dependencies fail
+
+The new recovery examples let you author finite MCP and CLI response sequences: a transient error followed by success, permission denial, a permanent failure, or a malformed application response.
+
+The useful part is what the task checks afterward. Producing a convincing report is not enough: the examples also inspect the requested operation, arguments, observed error or result, retry count, and prohibited file side effects.
+
+The agent decides whether to retry; Waza does not add an automatic retry policy. Configured dependency modes and captured CLI attempts help you distinguish mocked interactions from live dependencies. These are controlled fault fixtures, not recordings of a real service and not a host sandbox.
+
+## Read reliability alongside the score
+
+Repeated evaluations now carry clearer recorded reliability information: passed and total trials, Wilson 95% pass-rate intervals, and a suite `pass^k` curve estimating how consistently tasks pass across multiple trials.
+
+![Recorded trial counts, pass-rate intervals, and suite reliability in the dashboard.](../images/explore/recorded-reliability.png)
+
+*Documentation fixture: recorded reliability, not a benchmark claim about a production agent.*
+
+This helps distinguish a high average score from consistent behavior. With retries enabled, those trial statistics describe reliability with retries; they are not first-attempt success rates. The old misleading significance badge is removed rather than presenting an absolute score interval as evidence of a difference between runs.
+
+Portable evidence adds source attribution, availability, completeness, and scoped requirement observations. Selected-file capture can support supported offline regrading without reconstructing the original workspace. Missing historical evidence stays unassessed instead of becoming a zero or an invented pass.
+
+## Give an independent judge recorded evidence
+
+Prompt graders can opt into `evidence_context` to receive frozen task, conversation, tool, and output evidence, plus explicitly selected files. Each judgment runs in a fresh, separately owned session instead of resuming the actor or inheriting its live workspace.
+
+For example, a judge can check a reported total against a captured `report.json`, rather than taking the actor's summary at face value. The saved bundle also supports regrading without the original actor workspace.
+
+Evidence is bounded and required: missing, redacted, or incomplete requested material fails before judging instead of producing a partial judgment. Each grader receives only its selected file subset. This profile requires explicit runtime credentials and makes judge-model calls; it is capability separation, not an OS sandbox or a guarantee of unbiased judgment.
+
+## Explore results in the experimental Dashboard Lab
+
+```bash
+waza serve --lab --results-dir ./results
+```
+
+The opt-in Lab brings linked quality charts, model filters, run history, task inspection, baseline comparisons, and JSON/CSV reports into one workspace. You can move from a failing run to grader evidence and its recorded trajectory without hunting through result files.
+
+![Dashboard Lab overview with linked charts, model performance, and run history.](../images/dashboard-lab-overview.png)
+
+*Synthetic demo screenshot, not production telemetry. The default Lab reads saved results and does not substitute demo data.*
+
+The classic dashboard remains available. Lab comparisons are descriptive, and its "Current runs" view replays saved-result activity; it does not start, cancel, or monitor active evaluation workers.
+
+## Make release decisions against a declared plan
+
+For stricter comparisons, `compare-plan`, `compare-collect`, and `gate --release-policy` separate the declared experiment from collection and assessment. They bind inputs and keep compatibility, completeness, assurance, golden checks, billing, operations, and statistics visible as separate dimensions.
+
+![Release-policy assessment with retained native attempts and separate decision dimensions.](../images/native-release-evidence.png)
+
+*Fixture-backed native-profile view. A recovered retry does not erase the first-attempt golden failure, so this example does not pass.*
+
+The default collector is offline and mocked. An explicitly selected `native-copilot` profile supports potentially paid, fixed-model, single-turn text comparisons on Linux and macOS. It excludes skills and denies client tools; that is not server isolation. Observed usage is not a hard spending cap.
+
+Separately, `waza assure` challenges supported graders against fixed reference cases. `waza assure calibrate` is a distinct, explicitly acknowledged model-backed operation. These bounded checks help expose graders that accept a plausible answer with the wrong state; they do not establish universal correctness or independent human review.
+
+## Upgrade without rewriting existing suites
+
+Existing v1 evaluations and the classic dashboard remain supported. The release also updates the Copilot SDK to 1.0.21, completes the dashboard table migration, includes the skill's base directory in injected context, and improves compatibility coverage, release CI, dependencies, and documentation.
+
+Start with the [v0.39.0 release](https://github.com/microsoft/waza/releases/tag/v0.39.0), or run `waza update` for the standalone CLI. Then try preflight on an existing suite before adopting the new opt-in workflows.
+
+See the [technical changelog](../../CHANGELOG.md#0390---2026-10-20) for the full change breakdown. The practical goal is simple: make it easier to see what was tested, what actually happened, and what the evidence still cannot tell you.

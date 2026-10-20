@@ -7,13 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.39.0] - 2026-10-20
+
 ### Added
 
-- **Pass-rate confidence intervals and pass^k reliability** — Multi-trial runs now report a Wilson 95% interval on each task's pass rate (`stats.pass_rate_ci`) and on the suite success rate (`summary.statistics.success_rate_ci`), plus the τ-bench pass^k curve (`summary.statistics.pass_hat_k`). `waza run` prints them in its summary.
+- **Scenario-first eval authoring** — `waza new eval --scenario --template repository|cli|mcp` scaffolds workflows without a required skill. Scenarios require exact eval schema `2.0`, disable ambient skills unless opted in, and bypass result caching; legacy v1 suites retain their behavior ([#670](https://github.com/microsoft/waza/pull/670)).
+- **Agent-free preflight and descriptive requirements** — `waza preflight` checks local prerequisites and named grader references without starting agents or services. Tasks can describe outcome, boundary, recovery, and quality requirements; metadata does not add assertions or prove satisfaction ([#671](https://github.com/microsoft/waza/pull/671)).
+- **Deterministic dependency recovery** — Finite MCP/CLI fault sequences, recovery examples, configured dependency modes, and captured CLI attempts support testing agent decisions against controlled failures, not real-service reliability or host isolation ([#720](https://github.com/microsoft/waza/pull/720)).
+- **Recorded reliability** — Trial counts, Wilson 95% task/suite pass-rate intervals, and the suite `pass^k` curve are preserved and displayed separately from weighted scores. Retry-enabled trial statistics describe reliability with retries ([#688](https://github.com/microsoft/waza/pull/688)).
+- **Portable evidence and scoped requirement observations** — Ordinary run/grade paths expose source attribution, availability, completeness, opt-in selected-file capture, and supported captured-file regrading. Historical absence remains unassessed; metadata does not verify external state ([#672](https://github.com/microsoft/waza/pull/672)).
+- **Evidence-backed independent prompt judging** — Final prompt graders can select bounded frozen evidence via `evidence_context`. Fresh separately owned judge sessions receive per-grader selections; persisted bundles support saved-result regrading. Explicit credentials and model calls are required; this is not OS sandboxing ([#704](https://github.com/microsoft/waza/pull/704)).
+- **Experimental Dashboard Lab** — `waza serve --lab` opens saved-result charts, filtering, history, task evidence, descriptive comparisons, and reports without replacing the classic dashboard. Recorded evidence includes reliability, provenance, requirement observations, and prompt-judging metadata ([#652](https://github.com/microsoft/waza/pull/652), [#723](https://github.com/microsoft/waza/pull/723)).
+- **Controlled release policies** — Source-bound planning, paired collection, strict assessment, decision views, and exports keep release dimensions separate. The default collector is offline/mock; historical results are not adopted as strict paired evidence ([#668](https://github.com/microsoft/waza/pull/668)).
+- **Opt-in native release comparisons** — Explicit `native-copilot` planning/collection supports fixed named models, single turns, native text checks, retained attempts/lifecycle/output/usage, and dashboard exports. Durable creation supports Linux/macOS only; skills, client tools, native assurance, runtime-version evidence, and provider currency are unsupported or unavailable as documented. Collection can incur usage; observed budgets are not atomic spending caps ([#724](https://github.com/microsoft/waza/pull/724)).
+- **Bounded grader assurance** — `waza assure` checks supported native graders against fixed reference cases; separate `waza assure calibrate` requires explicit paid-call acknowledgment and reviewed inputs. Additional preserved-native and fault/retry components retain separate, non-default API/profile boundaries ([#666](https://github.com/microsoft/waza/pull/666), [#667](https://github.com/microsoft/waza/pull/667), [#703](https://github.com/microsoft/waza/pull/703)).
 
 ### Fixed
 
-- **Misleading significance flag** — `is_significant` and the dashboard's "✓ significant" badge tested whether a CI on a task's own 0–1 score excluded zero. That compares an absolute, non-negative score with zero instead of testing a difference between runs, so it was not a significance test. The field is no longer populated (older results files still load) and the badge is removed.
+- **Misleading significance flag** — `is_significant` no longer treats a task's non-negative score interval excluding zero as a significance test; the dashboard badge is removed and older results still load ([#688](https://github.com/microsoft/waza/pull/688)).
+- **Skill base directory** — Injected skill context includes the skill's base directory for resolving supporting files ([#673](https://github.com/microsoft/waza/pull/673)).
+- **Dashboard table compatibility** — Completed the TanStack React Table v9 migration ([#684](https://github.com/microsoft/waza/pull/684)).
+- **Release CI reliability** — Restored historical reader compatibility and reduced parser/materialization overhead without weakening validation boundaries, coverage, limits, or deadlines (issues [#691](https://github.com/microsoft/waza/issues/691), [#692](https://github.com/microsoft/waza/issues/692)).
+
+### Changed
+
+- **Compatibility coverage** — Added an offline compatibility corpus for existing v1 workflows ([#669](https://github.com/microsoft/waza/pull/669)).
+- **Dependencies** — Updated Copilot SDK Go from `1.0.15` to `1.0.21`, OpenTelemetry, Azure Blob Storage SDK, Astro/Starlight, React Query, dashboard/build tooling, and related lockfiles ([#712](https://github.com/microsoft/waza/pull/712), [#721](https://github.com/microsoft/waza/pull/721), plus dependency updates in the full comparison).
+- **Documentation and contributor tooling** — Expanded workflow prerequisites, compatibility and recovery guidance, evidence limitations, Lab coverage, review conventions, and Squad configuration ([#699](https://github.com/microsoft/waza/pull/699), [#700](https://github.com/microsoft/waza/pull/700), [#725](https://github.com/microsoft/waza/pull/725)).
+
+### Compatibility and operational notes
+
+- New scenario evals require exact `schemaVersion: "2.0"`; older executables reject that major. A present `scenario` must be a nonblank string: remove invalid/null legacy fields or supply the valid scenario contract. Task/results versions evolve separately; new results use `1.7`.
+- Selected-file private publication and native durable collection have Linux/macOS limits. Check individual operation documentation for Windows reader, stdout, and unsupported-output behavior.
+- Existing default commands do not opt into paid calibration or native collection. Evidence-backed prompt grading invokes a judge model when explicitly configured. Missing evidence is not a pass.
+
+**Full comparison:** [v0.38.10...v0.39.0](https://github.com/microsoft/waza/compare/v0.38.10...v0.39.0). **Contributors:** @spboyer, @akunzai, Copilot, and Dependabot.
 
 ## [0.38.6] - 2026-08-14
 
