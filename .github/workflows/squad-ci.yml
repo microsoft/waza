@@ -132,7 +132,7 @@ jobs:
           echo "Integration test completed (exit code: $EXIT_CODE)"
 
   build-and-test-windows:
-    name: windows-latest
+    name: ${{ matrix.os }}
     runs-on: windows-latest
     timeout-minutes: 60
     strategy:
