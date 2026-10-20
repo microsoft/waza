@@ -118,6 +118,28 @@ Malformed trial counts, intervals, and `pass^k` estimates are explicitly withhel
 rather than formatted as valid reliability evidence; recorded zeroes remain
 visible.
 
+### Release policies and assurance use classic views
+
+Lab's **Compare** workspace is descriptive; it does not assess controlled
+release policies or load native collection sidecars. From Lab, choose
+**Original dashboard → Release policies** to open `/#/release` on the same
+server. The [release evidence view](../dashboard/#release-policies) reads local
+controlled collections under `--results-dir`, including native attempt
+outcomes, errors, output, model attribution, usage completeness, and lifecycle
+observations. It provides decision JSON and native-attempt CSV exports,
+separate from Lab's run reports.
+
+[Native collection](../controlled-comparisons/#opt-in-to-native-copilot-collection)
+requires explicit policy selection and may incur provider usage. Viewing saved
+evidence does not start collection. Native assurance is unsupported; runtime
+version and provider currency remain unavailable. Client tool denial is not
+server isolation, and observed budgets are not atomic spending caps.
+
+For a supplied standalone assurance report, choose **Original dashboard →
+Assurance** at `/#/assurance`. The [assurance inspector](../dashboard/#grader-assurance)
+validates the report in your browser; it does not run graders or establish a
+release-policy pass.
+
 The real-results **Skill** and **Eval** controls are independent: select one
 eval when a skill has multiple suites, or combine both to narrow the scope.
 Eval selection matches the stored eval identity even when skill metadata is
@@ -235,11 +257,13 @@ CLI command in the browser**.
 | Skill/custom-agent authoring, scaffolding, suggestions | Skills/evals catalog and capability map | Suite discovery, editing, validation, registry/lock provenance |
 | Sensei/readiness, tokens, spec verification, coverage | Illustrative per-skill quality/coverage/budget | Real check/coverage outputs and artifact links |
 | Eval model, judge, repetitions, weighted graders | Real history, recorded metadata, score matrix, grader evidence | Full-fidelity repetition-level data and configuration |
-| Triggers, responders, command mocks, fixture isolation | Configuration/capability map | Dedicated outcomes, sanitized command evidence, invocation inspection |
+| Triggers, responders, command mocks, fixture isolation | Recorded responder metadata, declared dependency modes in Configuration, and sanitized mocked CLI attempts in Trajectory | Dedicated trigger/MCP invocation analysis and fixture-isolation evidence; declarations do not prove dependency use |
 | Custom-agent tool policies | Actual digest/trajectory denials in the inspector; illustrative demo denial | Richer invocation and policy analysis |
 | Token, request, per-model AI Credit diagnostics | Real summary totals, precise credits/coverage, task digest, model usage in recorded metadata | Dedicated session-ledger and per-model analysis views |
 | Snapshot/replay, adversarial packs, telemetry | Trajectory and capability map | Real snapshot/fault-pack links and trace correlation |
 | Compare, CI, storage, result reports | Real storage sources, stable-task comparisons, report download | Compatible spec versions, CI/revision provenance, durable ingestion |
+| Controlled release policies and native collection | Separate classic Release policies view at `/#/release`, including native evidence and exports | No Lab policy assessment or collection controls; descriptive Compare is not a release gate |
+| Grader assurance | Separate classic Assurance inspector at `/#/assurance` for supplied reports | No Lab assurance execution or inferred qualification from task scores |
 | Runtime progress/cancellation/retries | Artifact-derived SSE replay; explicit demo playback | Authoritative worker state, live events, authenticated run-control APIs |
 
 The real catalog derives observed suites from results; it does not discover all

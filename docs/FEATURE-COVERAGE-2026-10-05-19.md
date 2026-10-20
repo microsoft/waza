@@ -6,6 +6,9 @@ documentation, and the applicability of the opt-in Lab. It is an audit of the
 current source tree, not a claim that every listed change is in the latest
 standalone release.
 
+The [October 20 follow-up](#october-20-follow-up) covers the two later merges
+without changing the original window or its 50-PR count.
+
 ## Scope and release boundary
 
 The source inventory is the GitHub merged-PR query
@@ -150,7 +153,58 @@ Current Runs is saved-artifact replay, not a live worker monitor. Neither route
 exposes the private native fault controls. The classic dashboard remains at
 `/#/`; `--lab` selects the opt-in workspace at `/#/lab`.
 
-## Verification status
+## October 20 follow-up
+
+Reviewed current main at
+[`a58f86b3`](https://github.com/microsoft/waza/commit/a58f86b31a777f71962357a1e51630f0eda504d9)
+on October 20, 2026. Two PRs merged after the original window:
+
+| Merge | Repository documentation and site | Dashboard/Lab disposition |
+|---|---|---|
+| [#723](https://github.com/microsoft/waza/pull/723) | Added this inventory, corrected SDK/release guidance, and updated the Lab guide and evidence screenshots. | Lab's Recorded evidence tab exposes reliability, portable evidence, scoped requirements, and independent prompt judging. Missing/invalid values remain explicit; JSON detail and run-level CSV have different scopes. |
+| [#724](https://github.com/microsoft/waza/pull/724) | Updated README, `docs/CONTROLLED-COMPARISONS.md`, `docs/GUIDE.md`, PRD, compatibility, examples, and the site's controlled-comparison, CI/CD, dashboard, CLI, release, and statistical-field pages. | The classic Release policies view at `/#/release` exposes native attempts, lifecycle, errors, model attribution, usage completeness, decision JSON, and native-attempt CSV. These sidecars do not become Lab result rows or a Lab comparison gate. |
+
+The follow-up found two Lab-guide gaps: it did not direct readers to the
+classic native release-evidence/assurance views, and its feature map still
+listed sanitized command evidence as future work. README and the Lab guide now
+explain **Original dashboard → Release policies**, separate policy assessment
+from descriptive comparison, and distinguish native exports from Lab reports.
+The feature map now reflects recorded dependency modes and mocked CLI attempts
+already displayed by the inspector. No dashboard behavior, result format, or
+release availability changed.
+
+The checked implementation and regression entrypoints are:
+
+| Surface | Implementation | Existing regression coverage |
+|---|---|---|
+| Lab evidence and malformed/historical records | `web/src/lab/RunInspector.tsx` | `web/e2e/dashboard-lab-real.spec.ts`; `internal/webapi/prompt_judging_test.go`; `internal/webapi/reliability_test.go` |
+| Dependency declarations and mocked CLI attempts | `web/src/lab/RunInspector.tsx` Configuration/Trajectory tabs | `web/e2e/dashboard-lab-real.spec.ts` |
+| Classic native release evidence, errors, and exports | `web/src/components/ReleaseView.tsx`, `NativeReleaseEvidence.tsx`, `web/src/api/release.ts`, `web/src/lib/release-export.ts` | `web/e2e/native-release.spec.ts`, `release.spec.ts`, `csv-export.spec.ts` |
+| Published boundaries and discoverability | Site Lab, dashboard, and controlled-comparison guides | `site/e2e/controlled-comparisons.spec.ts`; `site/tests/documentation.test.mjs` |
+
+Native collection remains explicitly selected, potentially paid, and bounded
+to its supported fixed-model single-turn profile. Durable creation supports
+Linux/macOS, not Windows. Native assurance is unsupported; runtime version and
+provider currency are unavailable. Tool denial is not server isolation, and
+observed budgets are not atomic spending caps. Viewing artifacts starts no
+collection or model calls.
+
+No additional public feature-doc gap was identified in the October 13–20
+feature merges. Live worker controls, complete repetition-level inspection,
+policy assessment inside Lab, and private native fault controls remain outside
+Lab's documented scope, not silently completed features. The regression paths
+above identify coverage; they do not claim those suites were rerun for this
+documentation-only follow-up.
+
+Follow-up validation on October 20, 2026:
+
+| Exact command or source | Result |
+|---|---|
+| `cd site && npm run build` | PASS after `npm ci --no-audit --no-fund` restored missing site dependencies; all 9 documentation checks and the 30-page build completed. |
+| `cd site && npm run test:e2e -- --project=chromium --retries=0` | PASS: 38/38, including the new Lab/classic boundary and navigation regression; checked 759 internal route/fragments and 19 images. Incidental screenshot regeneration was discarded; no UI or screenshot change is intended. |
+| Merged-head [Dashboard Build and Test run 39467239699](https://github.com/microsoft/waza/actions/runs/39467239699) at `a58f86b3` | Actual lint/build/browser steps passed; 389 browser tests passed, 1 skipped. This is merged-head CI evidence, not a local dashboard rerun or a pass for the skipped case. |
+
+## Original audit verification status
 
 The audit's implementation adds a **Recorded evidence** inspector tab and
 producer-backed API/browser regression coverage for valid, invalid, malformed

@@ -1159,6 +1159,11 @@ execution are not implemented. See the [dashboard lab guide](site/src/content/do
 Refreshes update mounted evidence after same-ID regrading and preserve cached
 results on failure. Missing/null weighted scores are unavailable, not zero.
 Singleton suites keep the candidate picker; closed streams require manual reconnect.
+Controlled collections and native attempt evidence use the classic **Release
+policies** view at `/#/release`, not Lab's descriptive **Compare** workspace.
+From Lab, choose **Original dashboard → Release policies** on the same server.
+See the [release evidence guide](site/src/content/docs/guides/dashboard.mdx#release-policies)
+for decision JSON and native-attempt CSV exports.
 
 **AI Credit usage:**
 

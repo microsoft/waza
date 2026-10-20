@@ -62,6 +62,24 @@ test('dashboard guide preserves native attempt errors and scopes base assurance 
   await expect(main).toContainText('A selected native collection can pass its supported base decision within the bounded profile, but it cannot satisfy required assurance');
 });
 
+test('Lab guide distinguishes native release evidence from descriptive comparisons and run reports', async ({ page }) => {
+  const response = await page.goto('/waza/guides/dashboard-lab/');
+  expect(response?.status()).toBe(200);
+  const main = page.locator('main');
+  await expect(main).toContainText('it does not assess controlled release policies or load native collection sidecars');
+  await expect(main).toContainText('decision JSON and native-attempt CSV exports, separate from Lab');
+  await expect(main).toContainText('Viewing saved evidence does not start collection');
+  await expect(main).toContainText('Native assurance is unsupported');
+  await expect(main).toContainText('sanitized mocked CLI attempts in Trajectory');
+  await main.getByRole('link', { name: 'release evidence view', exact: true }).click();
+  await expect(page).toHaveURL(/\/waza\/guides\/dashboard\/#release-policies$/);
+  await expect(page.getByRole('heading', { name: 'Release policies', exact: true })).toBeVisible();
+  await page.goBack();
+  await main.getByRole('link', { name: 'assurance inspector', exact: true }).click();
+  await expect(page).toHaveURL(/\/waza\/guides\/dashboard\/#grader-assurance$/);
+  await expect(page.getByRole('heading', { name: 'Grader Assurance', exact: true })).toBeVisible();
+});
+
 test('snapshot guide states the actual selected-preservation and replay limits', async ({ page }) => {
   const response = await page.goto('/waza/guides/snapshot-replay/');
   expect(response?.status()).toBe(200);
