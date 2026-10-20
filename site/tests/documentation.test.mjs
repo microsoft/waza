@@ -220,3 +220,12 @@ test('Dashboard Lab article distinguishes saved results, synthetic examples, and
   assert.match(article, /\]\(\.\.\/v0-39-0\/\)/);
   assert.match(read('site/src/content/docs/releases/v0-39-0.mdx'), /\]\(\.\.\/dashboard-lab\/\)/);
 });
+
+test('release overview identifies the published version and retains the former availability anchor', () => {
+  const overview = read('site/src/content/docs/reference/releases.mdx');
+  assert.match(overview, /## Current published standalone release: v0\.39\.0/);
+  assert.match(overview, /id="upcoming-main-only-capabilities"/);
+  assert.equal([...overview.matchAll(/releases\/download\/v0\.39\.0\/waza-/g)].length, 6);
+  assert.doesNotMatch(overview, /releases\/(?:download|tag)\/v0\.38\.10/);
+  assert.match(read('site/src/content/docs/guides/dashboard-lab.mdx'), /Available in v0\.39\.0 and opt-in/);
+});

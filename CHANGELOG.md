@@ -41,7 +41,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Selected-file private publication and native durable collection have Linux/macOS limits. Check individual operation documentation for Windows reader, stdout, and unsupported-output behavior.
 - Existing default commands do not opt into paid calibration or native collection. Evidence-backed prompt grading invokes a judge model when explicitly configured. Missing evidence is not a pass.
 
-**Full comparison:** [v0.38.10...v0.39.0](https://github.com/microsoft/waza/compare/v0.38.10...v0.39.0). **Contributors:** @spboyer, @akunzai, Copilot, and Dependabot.
+**Full comparison:** [v0.38.10...v0.39.0](https://github.com/microsoft/waza/compare/v0.38.10...v0.39.0). **Contributors:** @spboyer, @akunzai, Copilot, and Dependabot. **First-time contributor:** @akunzai.
 
 ## [0.38.6] - 2026-08-14
 
