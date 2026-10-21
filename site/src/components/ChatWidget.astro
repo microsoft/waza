@@ -1,19 +1,11 @@
 ---
 const enabled = import.meta.env.PUBLIC_CHAT_ENABLED === 'true';
-const apiUrl = import.meta.env.PUBLIC_CHAT_API_URL ?? '';
-const sitekey = import.meta.env.PUBLIC_CHAT_TURNSTILE_SITEKEY ?? '';
-if (enabled) {
-  const endpoint = new URL(apiUrl);
-  if (endpoint.protocol !== 'https:' || endpoint.username || endpoint.password
-      || endpoint.search || endpoint.hash || !sitekey.trim()) {
-    throw new Error('Enabled chat requires an HTTPS API URL and a Turnstile sitekey');
-  }
-}
+const fixtures = import.meta.env.DEV && import.meta.env.PUBLIC_CHAT_FIXTURES === 'true';
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 ---
 
-{enabled && (
-  <div data-chat-root data-api-url={apiUrl.replace(/\/$/, '')} data-sitekey={sitekey}
+{(enabled || fixtures) && (
+  <div data-chat-root
     data-meta-url={`${base}/chat-meta.json`}>
     <button type="button" class="chat-launcher" data-chat-open aria-haspopup="dialog">Ask Waza</button>
     <dialog aria-labelledby="chat-title" data-chat-dialog>
@@ -22,32 +14,38 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
         <button type="button" data-chat-close aria-label="Close Ask Waza">Close</button>
       </div>
       <p class="chat-notice">
-        AI-generated docs help; verify suggestions before use. Do not paste secrets.
-        Input is processed by an Azure model service; bot protection uses Cloudflare.
+        {fixtures
+          ? 'Development fixtures only. Answers are simulated, not live model responses.'
+          : 'Public chat is unavailable. Sending is disabled until a separate authenticated integration is approved.'}
+        Do not paste secrets or sensitive content. Operator-preview history may be retained.
         <a href={`${base}/guides/docs-assistant/`}>Limits and privacy</a>
       </p>
+      <a href={`${base}/reference/cli/`}>Browse the CLI reference</a>
+      <p class="chat-notice">Use the normal documentation search in the header at any time.</p>
+      {fixtures && <p class="chat-notice">Only the latest six messages of at most 2000 Unicode characters each are eligible for context. Longer messages remain visible but are not sent again.</p>}
       <p data-chat-knowledge class="chat-notice"></p>
       <ol data-chat-messages aria-label="Conversation"></ol>
       <p data-chat-status role="status" aria-live="polite"></p>
       <form data-chat-form>
         <label for="chat-question">Question or error message</label>
-        <textarea id="chat-question" name="question" required maxlength="4096" rows="3"
+        <textarea id="chat-question" name="question" required rows="3" disabled={!fixtures}
           placeholder="How do I write an eval for a custom agent?"></textarea>
         <details>
           <summary>Check pasted YAML (optional)</summary>
           <label for="chat-document-kind">Document type</label>
-          <select id="chat-document-kind" name="documentKind">
+          <select id="chat-document-kind" name="documentKind" disabled={!fixtures}>
             <option value="eval">Eval specification</option>
             <option value="task">Task</option>
             <option value="config">Project configuration</option>
           </select>
           <label for="chat-yaml">YAML without credentials</label>
-          <textarea id="chat-yaml" name="yaml" maxlength="8192" rows="5" spellcheck="false"></textarea>
+          <textarea id="chat-yaml" name="yaml" rows="5" spellcheck="false" disabled={!fixtures}></textarea>
         </details>
         <div data-chat-challenge></div>
         <div class="chat-actions">
           <button type="submit" data-chat-send disabled>Send</button>
           <button type="button" data-chat-cancel disabled>Cancel request</button>
+          <button type="button" data-chat-clear disabled={!fixtures}>Clear conversation</button>
         </div>
       </form>
     </dialog>
@@ -76,11 +74,12 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 
 <style>
   .chat-launcher { white-space: nowrap; margin-inline-start: .5rem; }
-  dialog { width: min(42rem, calc(100vw - 2rem)); max-height: 90dvh; overflow: auto;
+  dialog { box-sizing: border-box; width: min(42rem, calc(100vw - 2rem)); max-height: 90dvh; overflow: auto;
     border: 1px solid var(--sl-color-gray-4); border-radius: .75rem; padding: 1.25rem;
     color: var(--sl-color-text); background: var(--sl-color-bg); }
   dialog::backdrop { background: rgb(0 0 0 / .5); }
   .chat-heading, .chat-actions { display: flex; align-items: center; justify-content: space-between; gap: .75rem; }
+  .chat-actions { flex-wrap: wrap; }
   h2 { margin: 0; font-size: 1.25rem; color: var(--sl-color-white); }
   .chat-notice { font-size: .8rem; line-height: 1.5; }
   form { display: grid; gap: .5rem; }

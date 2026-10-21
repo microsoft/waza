@@ -11,6 +11,8 @@
     "astro": "astro",
     "test:e2e": "playwright test",
     "test:chat": "playwright test --config=playwright.chat.config.ts",
+    "test:chat-contract": "node --experimental-strip-types --test tests/chat-contract.test.mjs",
+    "test:chat-unavailable": "playwright test --config=playwright.chat-unavailable.config.ts",
     "test:chat-metadata": "node --test tests/chat-knowledge.test.mjs",
     "test:chat-types": "tsc -p tsconfig.chat.json",
     "test:docs": "node --test tests/documentation.test.mjs",

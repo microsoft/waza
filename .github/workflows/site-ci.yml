@@ -94,7 +94,7 @@ jobs:
 
       - name: Typecheck chat and test public metadata
         if: steps.filter.outputs.site == 'true' || github.event_name == 'push'
-        run: cd site && npm run test:chat-types && npm run test:chat-metadata
+        run: cd site && npm run test:chat-types && npm run test:chat-metadata && npm run test:chat-contract
 
       - name: Install Chromium for site regression tests
         if: steps.filter.outputs.site == 'true' || github.event_name == 'push'
@@ -109,7 +109,7 @@ jobs:
 
       - name: Test optional chat with mocked service and bot protection
         if: steps.filter.outputs.site == 'true' || github.event_name == 'push'
-        run: cd site && npm run test:chat -- --project=chromium
+        run: cd site && npm run test:chat -- --project=chromium --retries=0 && npm run test:chat-unavailable -- --project=chromium --retries=0
         env:
           CI: 'true'
 

@@ -4,14 +4,17 @@ description: Scope, privacy, and limits of the optional documentation assistant.
 ---
 
 Ask Waza is an optional, independently operated documentation assistant.
-The launcher appears only when a site operator explicitly enables it.
+The launcher appears only when a site operator explicitly shows it; it currently
+opens an unavailable state, not a live assistant.
 Ordinary documentation search remains available without using chat.
 
-**Implementation preview:** public chat is not enabled. The backend uses the
-Azure Functions hosted-skills preview and must clear its runtime isolation,
-history-retention, and inference-bound checks before a public rollout. A
-passing widget test with mocked responses is not evidence that the live service
-is ready.
+**Implementation preview (October 21, 2026):** public sending is
+source-hard-disabled, regardless of public build variables. The backend uses
+the Python 3.13 Azure Functions hosted-skills operator preview, not a
+Node/Copilot SDK service. An authenticated operator test succeeded, but that
+does not authorize anonymous site inference. No authenticated browser/BFF
+architecture has been approved. A passing widget test with mocked responses
+is not evidence that the live service is ready.
 
 ## What it can help with
 
@@ -28,19 +31,23 @@ It becomes unavailable while its snapshot needs updating.
 ## Privacy
 
 **Do not paste credentials, secrets, confidential code, or personal information.**
-Questions, bounded conversation context, and optional YAML are sent to the
-configured Azure model service. Cloudflare Turnstile provides bot protection.
-Provider processing and retention policies apply independently.
+The future public integration would send questions, bounded conversation
+context, and optional YAML to the configured Azure model service, with bot
+protection such as Cloudflare Turnstile. This production widget sends nothing.
+Provider processing and retention policies apply independently to operator use.
 
 The widget keeps conversation and anonymous session credentials in browser
-memory, not browser storage. Reloading the page clears them. The service is
-designed not to persist chat transcripts; anonymous quota records and operational
-counts are separate from conversation content.
+memory, not browser storage. Reloading the page clears them.
+The operator preview uses ordinary runtime Blob/file history and fresh
+server-generated session IDs. **Do not assume zero retention.** Clearing the
+widget does not delete server-side data. The widget adds no prompt, answer,
+YAML, or token logging or analytics.
 
 ## Limits and availability
 
-Bot verification, per-session and per-client quotas, and a global usage limit
-protect the service. Visitors behind a shared network may share a client limit.
+The proposed public flow requires bot verification, per-session and per-client
+quotas, and a global usage limit. Those controls still require live verification.
+Visitors behind a shared network may share a client limit.
 When a quota is reached, use the normal docs search. Requests are not
 automatically retried, and a cancelled request may already have consumed model
 usage.
@@ -50,25 +57,93 @@ storage failures, stale knowledge, or model-service failures can also make chat
 unavailable. These controls reduce abuse risk; they do not guarantee protection
 against every prompt injection or denial-of-service attack.
 
-## Site operator configuration
+## Site integration handoff
 
-Chat is disabled by default. Configure these public build variables only after
-the backend's live security and usage-bound checks have passed:
+The component and adapter extend the existing Starlight header and preserve
+ordinary search. `PUBLIC_CHAT_ENABLED=true` only shows the unavailable panel in
+a production build. It cannot enable sending. `PUBLIC_CHAT_API_URL` and
+`PUBLIC_CHAT_TURNSTILE_SITEKEY` do not configure a live transport in this preview.
+The Pages workflow does not need a backend credential.
+
+For **local, simulated UI testing only**:
 
 ```text
-PUBLIC_CHAT_ENABLED=true
-PUBLIC_CHAT_API_URL=https://your-function.azurewebsites.net/api
-PUBLIC_CHAT_TURNSTILE_SITEKEY=your-public-sitekey
+cd site
+PUBLIC_CHAT_FIXTURES=true npm run dev
 ```
 
-The API URL and sitekey are public, not credentials. Never include an Azure
-model key, Turnstile verification secret, bearer token, or Azure Function key
-in the site configuration.
+This mode visibly labels answers as fixtures and uses only the reserved
+`https://waza-chat.example` test origin. Playwright supplies the mock service
+and challenge. Opening this mode manually without those mocks yields an
+explicit unavailable/error state, not live inference. The flag is ignored in
+production builds and cannot be enabled through DOM attributes.
 
-The Pages workflow reads the same names from GitHub repository variables.
-Changing them requires a new site build. A build with enabled chat but missing
-or invalid configuration fails rather than silently weakening security.
+### Frozen backend boundary
+
+The deployed operator base is
+`https://func-chat-fskwox3ttikuc.azurewebsites.net` as of October 21, 2026.
+`POST /api/ask` is Function-key-protected and **must never be called by this
+widget**. Do not put Function keys or provider credentials in browser code,
+public build variables, storage, query parameters, HTML, fixtures, or CI.
+Do not add an unauthenticated key-hiding proxy. CORS is not authentication;
+the allowed `https://microsoft.github.io` origin is shared by GitHub Pages
+projects and does not identify a caller. Localhost CORS has not been approved.
+
+The future public flow is `POST /api/session` with `{challengeToken}`, followed
+by `POST /api/chat` with an in-memory bearer token and
+`{question, history, requestId, document?}`. Session expiry is Unix milliseconds.
+The adapter accepts full JSON responses, **not SSE**. It has no operator
+endpoint, model/tool selection, upload, retrieval URL, or caller-session override.
+
+Currently `GET /api/health` intentionally returns HTTP 503 with
+`{"version":1,"status":"disabled"}`. Public session/chat requests remain denied.
+The widget does not poll health, retry disabled requests, or fall back to the
+operator endpoint. Operator availability does not mean public readiness.
+
+### Input and response handling
+
+Questions are 1–3000 Unicode characters, counted before trimming. History is at
+most six complete user/assistant messages, each 1–2000 Unicode characters;
+longer messages remain visible but are omitted from future context. Pasted
+eval/task/config YAML is limited to 8192 characters **and** 8192 UTF-8 bytes.
+Nonblank YAML is sent byte-for-byte as entered, including indentation and
+trailing newlines. Combined trimmed question, history, and YAML are at most
+12288 UTF-8 bytes; encoded chat JSON is at most 32768 bytes. Inputs are rejected,
+not silently shortened. Clear the conversation if retained context exceeds
+the combined budget. Session JSON is limited to 4096 bytes and challenge tokens
+to 2048 Unicode characters.
+
+Answers and validation findings are inert text. Citation URLs must be HTTPS
+links under `https://microsoft.github.io/waza/`. Schema findings remain separate
+from prose and establish syntax/schema validity only, not evaluation quality.
+Errors are mapped to safe, actionable messages, including bare host-level 401
+responses. Retry delays disable submission until the cooldown ends. There are
+no automatic generation retries; new manual submissions get new UUIDs.
+Cancellation is not proof of provider cancellation or a refund.
 
 The static `chat-meta.json` artifact publishes a content fingerprint of docs and
-schemas. Operators must promote a matching backend knowledge snapshot before
-enabling chat after a content update. This artifact contains no backend secrets.
+schemas. The adapter requires a matching response fingerprint. It displays the
+docs build commit, not a claim of live readiness or permanently current knowledge.
+The October 21 operator snapshot may differ from newly published docs; do not
+pin its observed fingerprint as a timeless value.
+
+### Public integration blockers
+
+A separate reviewed change must approve authenticated browser/BFF architecture
+and resolve backend runtime isolation, history retention, inference bounds,
+challenge verification, quotas, storage/client identity, and matching knowledge
+promotion. Public health/session/chat readiness and deployed-origin integration
+must then be demonstrated before changing the source lock. This frontend PR
+does not provision resources, deploy a backend, or authorize public launch.
+
+### Frontend verification
+
+From `site/`, run `npm run test:chat-contract`, `npm run test:chat-types`,
+`npm run test:chat-metadata`, `npm run build`, and
+`npm run test:e2e -- --project=chromium --retries=0`.
+`npm run test:chat -- --project=chromium --retries=0` exercises the explicitly
+simulated development adapter and UI.
+`npm run test:chat-unavailable -- --project=chromium --retries=0` builds production
+with all public/fixture flags set and proves that neither sending nor external
+requests can be enabled. These tests do not exercise live model calls or
+establish backend controls.
