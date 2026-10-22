@@ -77,9 +77,10 @@ export async function initializeChat(root: HTMLElement) {
   let busy = false;
   let cooldownUntil = 0;
   let cooldownTimer: number | undefined;
+  const requiresChallenge = !privatePreview && (fixtures || !!publicChat?.sitekey);
   const sessionValid = () => session && session.expires > Date.now() + 1000;
   const update = () => {
-    send.disabled = busy || Date.now() < cooldownUntil || !expected || (!privatePreview && !sessionValid() && !challengeToken);
+    send.disabled = busy || Date.now() < cooldownUntil || !expected || (requiresChallenge && !sessionValid() && !challengeToken);
     cancel.disabled = !busy;
     question.disabled = busy;
     yaml.disabled = busy;
@@ -144,7 +145,7 @@ export async function initializeChat(root: HTMLElement) {
     status.textContent = 'Checking the documentation...';
     try {
       if (!privatePreview && !sessionValid()) {
-        if (!challengeToken) throw new Error('Complete bot protection before sending.');
+        if (requiresChallenge && !challengeToken) throw new Error('Complete bot protection before sending.');
         const token = challengeToken;
         challengeToken = '';
         if (Array.from(token).length > 2048 || bytes(JSON.stringify({ challengeToken: token })) > 4096) {
@@ -227,7 +228,7 @@ export async function initializeChat(root: HTMLElement) {
       history = boundedHistory(nextHistory);
       question.value = '';
       yaml.value = '';
-      status.textContent = privatePreview
+      status.textContent = privatePreview || !fixtures
         ? 'Answer ready. Check the linked sources before applying suggestions.'
         : 'Fixture answer ready (simulated, not live). Verify suggestions against the cited documentation.';
     } catch (error) {
@@ -250,7 +251,7 @@ export async function initializeChat(root: HTMLElement) {
     }
   });
   if (!form.contains(document.activeElement)) question.focus();
-  status.textContent = 'Loading bot protection...';
+  status.textContent = requiresChallenge ? 'Loading bot protection...' : 'Loading documentation metadata...';
   try {
     const response = await fetch(root.dataset.metaUrl!, {
       credentials: privatePreview ? 'same-origin' : 'omit', cache: 'no-store', signal: AbortSignal.timeout(15000),
@@ -266,7 +267,7 @@ export async function initializeChat(root: HTMLElement) {
     snapshot.textContent = `Local documentation build: ${value.commit}. A matching fingerprint does not verify answer quality or service readiness.`;
     knowledge.hidden = privatePreview;
     provenance.hidden = privatePreview;
-    if (privatePreview) {
+    if (!requiresChallenge) {
       status.textContent = 'Ready for your question.';
       update();
       return;

@@ -18,7 +18,7 @@ export default defineConfig({
       PUBLIC_CHAT_FIXTURES: 'true',
       PUBLIC_CHAT_PRIVATE_PREVIEW: 'true',
       PUBLIC_CHAT_API_URL: 'https://func-chat-fskwox3ttikuc.azurewebsites.net/api',
-      PUBLIC_CHAT_TURNSTILE_SITEKEY: 'test-public-sitekey',
+      PUBLIC_CHAT_TURNSTILE_SITEKEY: '',
     },
   },
 });

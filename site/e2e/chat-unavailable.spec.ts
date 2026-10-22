@@ -1,4 +1,18 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
+
+async function serveProductionDocs(page: Page) {
+  const unexpected: string[] = [];
+  await page.route('**/*', (route) => {
+    unexpected.push(route.request().url());
+    return route.abort();
+  });
+  await page.route('https://microsoft.github.io/waza/**', async (route) => {
+    const url = new URL(route.request().url());
+    const response = await route.fetch({ url: `http://localhost:4323${url.pathname}${url.search}` });
+    await route.fulfill({ response });
+  });
+  return unexpected;
+}
 
 test('configured production transport cannot send from an untrusted origin even with DOM controls enabled', async ({ page }) => {
   const external: string[] = [];
@@ -41,34 +55,17 @@ test('configured production transport cannot send from an untrusted origin even 
   await expect(search.getByRole('link').first()).toHaveAttribute('href', /\/waza\//);
 });
 
-test('production transport exchanges a session and renders a public answer on the docs origin', async ({ page, request }) => {
+test('production transport without a sitekey exchanges an anonymous session without challenge requests', async ({ page, request }) => {
   const metadataResponse = await request.get('/waza/chat-meta.json');
   expect(metadataResponse.ok()).toBe(true);
   const knowledge = await metadataResponse.json();
   const bodies: Record<string, unknown>[] = [];
-  const unexpected: string[] = [];
-  await page.route('**/*', (route) => {
-    if (new URL(route.request().url()).origin === 'https://microsoft.github.io') return route.continue();
-    unexpected.push(route.request().url());
-    return route.abort();
-  });
-  await page.route('https://microsoft.github.io/waza/**', async (route) => {
-    const url = new URL(route.request().url());
-    const response = await route.fetch({ url: `http://localhost:4323${url.pathname}${url.search}` });
-    await route.fulfill({ response });
-  });
-  await page.addInitScript(() => {
-    Object.assign(window, { turnstile: {
-      render: (_element: HTMLElement, config: { callback: (token: string) => void }) => {
-        config.callback('simulated-production-challenge');
-        return 'simulated-widget';
-      },
-      reset: () => {},
-    } });
-  });
+  const unexpected = await serveProductionDocs(page);
+  let sessions = 0;
   const api = 'https://func-chat-fskwox3ttikuc.azurewebsites.net/api';
   await page.route(`${api}/session`, async (route) => {
-    expect(route.request().postDataJSON()).toEqual({ challengeToken: 'simulated-production-challenge' });
+    sessions++;
+    expect(route.request().postDataJSON()).toEqual({ challengeToken: '' });
     await route.fulfill({ json: { version: 1, sessionToken: 'simulated-session', expiresAt: Date.now() + 60000 } });
   });
   await page.route(`${api}/chat`, async (route) => {
@@ -86,12 +83,47 @@ test('production transport exchanges a session and renders a public answer on th
   await page.getByLabel('Question or error message').fill('What runs an evaluation?');
   await page.getByRole('button', { name: 'Send', exact: true }).click();
   await expect(page.locator('[data-chat-messages]')).toContainText('Simulated production-contract answer: use waza run.');
+  await expect(page.getByRole('status')).toHaveText('Answer ready. Check the linked sources before applying suggestions.');
   await expect(page.locator('[data-chat-messages]').getByRole('link', { name: 'CLI reference' }))
     .toHaveAttribute('href', 'https://microsoft.github.io/waza/reference/cli/');
   expect(bodies).toHaveLength(1);
   expect(bodies[0]).toMatchObject({ question: 'What runs an evaluation?', history: [] });
   expect(bodies[0].requestId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+  await page.getByLabel('Question or error message').fill('How do I read the results?');
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await expect(page.getByRole('status')).toHaveText('Answer ready. Check the linked sources before applying suggestions.');
+  expect(sessions).toBe(1);
+  expect(bodies).toHaveLength(2);
+  expect(bodies[1].history).toEqual([
+    { role: 'user', content: 'What runs an evaluation?' },
+    { role: 'assistant', content: 'Simulated production-contract answer: use waza run.' },
+  ]);
+  expect(bodies[1].requestId).not.toBe(bodies[0].requestId);
+  await expect(page.locator('script[src*="turnstile"], iframe[src*="challenges.cloudflare.com"]')).toHaveCount(0);
+  expect(await page.evaluate(() => 'turnstile' in window)).toBe(false);
   expect(unexpected).toEqual([]);
   expect(await page.evaluate(() => sessionStorage.length)).toBe(0);
   expect(await page.evaluate(() => Object.keys(localStorage).filter((key) => key !== 'starlight-theme'))).toEqual([]);
+});
+
+test('a disabled anonymous session reports unavailable without a challenge, generation, or automatic retry', async ({ page }) => {
+  const unexpected = await serveProductionDocs(page);
+  let sessions = 0;
+  await page.route('https://func-chat-fskwox3ttikuc.azurewebsites.net/api/session', async (route) => {
+    sessions++;
+    expect(route.request().postDataJSON()).toEqual({ challengeToken: '' });
+    await route.fulfill({ status: 503, json: {
+      version: 1, error: { code: 'DISABLED', message: 'backend-private-canary' },
+    } });
+  });
+  await page.goto('https://microsoft.github.io/waza/quick-start/');
+  await page.getByRole('button', { name: 'Ask Waza', exact: true }).click();
+  await page.getByLabel('Question or error message').fill('What is Waza?');
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await expect(page.getByRole('status')).toHaveText('Public chat is unavailable. Please use documentation search.');
+  await expect(page.locator('[data-chat-messages] > li')).toHaveCount(0);
+  await expect(page.getByRole('dialog')).not.toContainText('backend-private-canary');
+  await expect(page.locator('script[src*="turnstile"], iframe[src*="challenges.cloudflare.com"]')).toHaveCount(0);
+  expect(sessions).toBe(1);
+  expect(unexpected).toEqual([]);
 });

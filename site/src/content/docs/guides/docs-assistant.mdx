@@ -76,14 +76,16 @@ against every prompt injection or denial-of-service attack.
 The component and adapter extend the existing Starlight header and preserve
 ordinary search. The header launcher is visible by default; the legacy
 `PUBLIC_CHAT_ENABLED` variable no longer controls its visibility or enables
-sending. `PUBLIC_CHAT_API_URL` and
-`PUBLIC_CHAT_TURNSTILE_SITEKEY` configure the public transport.
+sending. `PUBLIC_CHAT_API_URL` configures the public transport.
+`PUBLIC_CHAT_TURNSTILE_SITEKEY` is optional: when absent or empty, the widget
+does not load a challenge script or widget and starts an anonymous session
+with `{"challengeToken":""}`. A configured sitekey enables Turnstile.
 The Pages workflow does not need a backend credential.
 
 There is no source approval switch. The public adapter accepts the fixed HTTPS
-deployment and a public Turnstile sitekey; it cannot fall back to the operator
+deployment with an optional public Turnstile sitekey; it cannot fall back to the operator
 API. Without public configuration, the panel offers search and the CLI
-reference instead. The real challenge script and production-origin checks
+reference instead. The optional real challenge script and production-origin checks
 are distinct from the simulated fixture transport. Configuration alone is not
 evidence of a successful anonymous answer.
 
@@ -112,11 +114,14 @@ Do not add an unauthenticated key-hiding proxy. CORS is not authentication;
 the allowed `https://microsoft.github.io` origin is shared by GitHub Pages
 projects and does not identify a caller. Localhost CORS has not been approved.
 
-The future public flow is `POST /api/session` with `{challengeToken}`, followed
+The public integration contract is `POST /api/session` with `{challengeToken}`, followed
 by `POST /api/chat` with an in-memory bearer token and
 `{question, history, requestId, document?}`. Session expiry is Unix milliseconds.
 The adapter accepts full JSON responses, **not SSE**. It has no operator
 endpoint, model/tool selection, upload, retrieval URL, or caller-session override.
+Without a sitekey, `challengeToken` is the empty compatibility string, not a
+fabricated verification token. The backend must support anonymous admission;
+this client change does not demonstrate that it has been deployed.
 
 Currently `GET /api/health` intentionally returns HTTP 503 with
 `{"version":1,"status":"disabled"}`. Public session/chat requests remain denied.
@@ -152,19 +157,22 @@ pin its observed fingerprint as a timeless value.
 
 ### Public integration blockers
 
-Sign-in-free public access is the requested outcome, using challenge-protected
+Sign-in-free public access is the requested outcome, using anonymous
 `/api/session` and token-authenticated `/api/chat`. Removing the local preview
 login would not implement that flow; it would expose the privileged operator
 adapter.
 
-As confirmed on October 22, backend runtime and client-identity admission remain
-denied, public transcript retention has no approved policy, and public challenge
-configuration, admission secrets/ledger, and live privacy/usage/cancellation
-probes are not ready. No production public sitekey is available.
-Runtime isolation, history retention, inference bounds, quotas, and matching
-knowledge promotion must be resolved. Public health/session/chat readiness and
-deployed-origin integration must then be demonstrated before changing the
-source lock. Keep private-preview authentication in place in the meantime.
+On October 22, the user accepted normal Function App Blob-backed session
+history and requested public access without runtime changes. No-history and
+hard per-inference launch gates were application policy choices, not Azure
+Functions requirements. The backend is implementing anonymous session admission
+with the empty compatibility challenge string; a Turnstile sitekey is not
+required for that flow.
+
+The last verified deployed public routes were disabled. A backend deployment,
+successful public session and answer, and matching knowledge fingerprint still
+need live verification. There is no frontend source approval switch to remove.
+Keep private-preview authentication in place: it is a separate privileged path.
 This frontend PR does not provision resources, deploy a backend, or enable
 anonymous visitors.
 
@@ -176,8 +184,10 @@ From `site/`, run `npm run test:chat-contract`, `npm run test:chat-types`,
 `npm run test:chat -- --project=chromium --retries=0` exercises the explicitly
 simulated development adapter and UI.
 `npm run test:chat-unavailable -- --project=chromium --retries=0` builds production
-with all public/fixture flags set and proves that neither sending nor external
-requests can be enabled. These tests do not exercise live model calls or
+with the fixed public API and no sitekey. It verifies untrusted-origin rejection,
+anonymous session-to-answer transport with explicitly simulated responses, no
+challenge requests, and explicit handling of a disabled backend without
+generation or automatic retry. These tests do not exercise live model calls or
 establish backend controls.
 
 ## Authenticated local operator preview

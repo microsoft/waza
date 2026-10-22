@@ -25,8 +25,20 @@ test('public transport rejects endpoint overrides and invalid challenge configur
   ]) {
     assert.throws(() => parsePublicChatConfig(api, 'sitekey'), /public chat|Public chat/);
   }
-  for (const sitekey of [undefined, '', ' key ', 'key\ninjected', '<script>']) {
+  for (const sitekey of [' key ', 'key\ninjected', '<script>']) {
     assert.throws(() => parsePublicChatConfig(publicApi, sitekey), /Turnstile sitekey/);
+  }
+});
+
+test('public transport accepts an absent or empty optional sitekey without changing its endpoint or origin', () => {
+  for (const sitekey of [undefined, '']) {
+    const config = parsePublicChatConfig(publicApi, sitekey);
+    assert.equal(config.api, publicApi);
+    assert.equal(config.origin, 'https://microsoft.github.io');
+    assert.equal(config.sitekey, undefined);
+    assert.deepEqual(publicChatConfig({
+      DEV: false, PUBLIC_CHAT_API_URL: publicApi, PUBLIC_CHAT_TURNSTILE_SITEKEY: sitekey,
+    }), config);
   }
 });
 
@@ -36,7 +48,7 @@ test('production uses public configuration without a source approval switch', ()
   assert.equal(publicChatConfig({ DEV: true, ...env }), undefined);
   assert.equal(publicChatConfig({ DEV: false }), undefined);
   assert.equal(publicChatConfig({ DEV: true }), undefined);
-  assert.throws(() => publicChatConfig({ DEV: false, PUBLIC_CHAT_API_URL: publicApi }), /Turnstile sitekey/);
+  assert.deepEqual(publicChatConfig({ DEV: false, PUBLIC_CHAT_API_URL: publicApi }), parsePublicChatConfig(publicApi));
   assert.throws(() => publicChatConfig({ DEV: false, PUBLIC_CHAT_TURNSTILE_SITEKEY: 'sitekey' }), /API URL/);
 });
 
