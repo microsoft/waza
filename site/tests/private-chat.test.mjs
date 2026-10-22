@@ -239,26 +239,37 @@ test('actual Astro server protects bootstrap and adapter, forwards fixed bounded
       await page.getByRole('button', { name: 'Send', exact: true }).click();
       await page.getByRole('status').filter({ hasText: 'Answer ready.' }).waitFor();
       assert.equal(await page.locator('[data-chat-messages] a').count(), 1);
-      assert.match(await page.locator('[data-chat-knowledge]').innerText(), /Answers may differ from the docs/);
+      assert.match(await page.locator('[data-chat-knowledge]').innerText(), /Some answers may differ from the docs/);
       assert.doesNotMatch(await page.locator('[data-chat-knowledge]').innerText(), /aaaa|fingerprint|operator knowledge/);
       assert.equal(await page.locator('[data-chat-snapshot]').isVisible(), false);
       await page.getByText('About these answers', { exact: true }).click();
       assert.equal(await page.locator('[data-chat-snapshot]').isVisible(), true);
       assert.match(await page.locator('[data-chat-snapshot]').innerText(), new RegExp(result.knowledge.commit));
-      assert.match(await page.locator('[data-chat-snapshot]').innerText(), /fingerprints differ/);
+      assert.match(await page.locator('[data-chat-snapshot]').innerText(), /fingerprint differs/);
       const docs = await (await fetch(`${origin}/waza/chat-meta.json`, { headers: { authorization } })).json();
+      assert.notEqual(docs.fingerprint, result.knowledge.fingerprint, 'the first answer must exercise a real snapshot mismatch');
       returnedKnowledge = { commit: docs.commit, fingerprint: docs.fingerprint };
       await page.getByLabel('Question or error message').fill('And the current docs?');
       await page.getByRole('button', { name: 'Send', exact: true }).click();
       await page.getByRole('status').filter({ hasText: 'Answer ready.' }).waitFor();
+      assert.match(await page.locator('[data-chat-knowledge]').innerText(), /Some answers may differ/);
+      const mixed = await page.locator('[data-chat-snapshot]').innerText();
+      assert.ok(mixed.includes(`Answer 1: ${result.knowledge.commit}. Documentation fingerprint differs`));
+      assert.ok(mixed.includes(`Answer 2: ${docs.commit}. Documentation fingerprint matches`));
+      for (let turn = 0; turn < 5; turn++) {
+        await page.getByLabel('Question or error message').fill(`Matching answer ${turn}`);
+        await page.getByRole('button', { name: 'Send', exact: true }).click();
+        await page.getByRole('status').filter({ hasText: 'Answer ready.' }).waitFor();
+      }
+      assert.equal(await page.locator('[data-chat-messages] > li').count(), 12);
       assert.match(await page.locator('[data-chat-knowledge]').innerText(), /same documentation snapshot/);
-      assert.doesNotMatch(await page.locator('[data-chat-knowledge]').innerText(), /Answers may differ/);
-      assert.match(await page.locator('[data-chat-snapshot]').innerText(), /fingerprints match/);
+      assert.doesNotMatch(await page.locator('[data-chat-knowledge]').innerText(), /Some answers may differ/);
+      assert.ok(!(await page.locator('[data-chat-snapshot]').innerText()).includes(result.knowledge.commit));
       await page.getByRole('button', { name: 'Clear conversation', exact: true }).click();
       assert.equal(await page.locator('[data-chat-knowledge]').isVisible(), false);
       assert.equal(await page.locator('[data-chat-provenance]').isVisible(), false);
       assert.equal(navigations, 1, 'authenticated Vite socket must not cause reconnect reloads');
-      assert.equal(calls.length, 10);
+      assert.equal(calls.length, 15);
       await context.close();
     } finally { await browser.close(); }
     adapter.stop();

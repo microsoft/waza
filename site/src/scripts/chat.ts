@@ -7,6 +7,7 @@ import {
 const fixtures = import.meta.env.DEV && import.meta.env.PUBLIC_CHAT_FIXTURES === 'true';
 const privatePreview = import.meta.env.DEV && import.meta.env.PUBLIC_CHAT_PRIVATE_PREVIEW === 'true';
 const api = 'https://waza-chat.example/api';
+const maxVisibleAnswers = 6;
 type Turnstile = {
   render(element: HTMLElement, options: Record<string, unknown>): string;
   reset(widget: string): void;
@@ -70,6 +71,7 @@ export async function initializeChat(root: HTMLElement) {
   let widget: string | undefined;
   let expected: Metadata | undefined;
   let history: HistoryItem[] = [];
+  let snapshots: Metadata[] = [];
   let busy = false;
   let cooldownUntil = 0;
   let cooldownTimer: number | undefined;
@@ -100,7 +102,7 @@ export async function initializeChat(root: HTMLElement) {
     text.textContent = content;
     item.append(heading, text);
     messages.append(item);
-    while (messages.children.length > 12) messages.firstElementChild?.remove();
+    while (messages.children.length > maxVisibleAnswers * 2) messages.firstElementChild?.remove();
     item.scrollIntoView({ block: 'nearest' });
     return item;
   };
@@ -108,6 +110,7 @@ export async function initializeChat(root: HTMLElement) {
   dialog.addEventListener('close', () => controller?.abort());
   clear.addEventListener('click', () => {
     history = [];
+    snapshots = [];
     messages.replaceChildren();
     if (privatePreview) {
       knowledge.hidden = true;
@@ -175,15 +178,24 @@ export async function initializeChat(root: HTMLElement) {
       }
       if (signal.aborted) throw new DOMException('Cancelled', 'AbortError');
       if (privatePreview) {
+        const docs = expected;
+        snapshots = [...snapshots, {
+          commit: value.knowledge.commit, fingerprint: value.knowledge.fingerprint,
+        }].slice(-maxVisibleAnswers);
+        const mismatched = snapshots.some((source) => source.fingerprint !== docs.fingerprint);
         knowledge.textContent =
-          value.knowledge.fingerprint === expected.fingerprint
-            ? 'Answers use the same documentation snapshot as this page. Check the linked sources before applying suggestions.'
-            : 'Answers may differ from the docs you are reading. Check the linked sources for current guidance.';
-        snapshot.textContent = `Answer snapshot: ${value.knowledge.commit}. Local docs: ${expected.commit}. ${
-          value.knowledge.fingerprint === expected.fingerprint
-            ? 'The documentation fingerprints match; this does not verify answer quality or service readiness.'
-            : 'The documentation fingerprints differ; the linked sources belong to the answer snapshot, not verified-current local content.'
-        }`;
+          mismatched
+            ? 'Some answers may differ from the docs you are reading. Check the linked sources for current guidance.'
+            : 'These answers use the same documentation snapshot as this page. Check the linked sources before applying suggestions.';
+        snapshot.textContent = [
+          `Local documentation build: ${docs.commit}.`,
+          ...snapshots.map((source, index) => `Answer ${index + 1}: ${source.commit}. ${
+            source.fingerprint === docs.fingerprint
+              ? 'Documentation fingerprint matches this page.'
+              : 'Documentation fingerprint differs; sources are not verified-current local content.'
+          }`),
+          'Matching fingerprints do not verify answer quality or service readiness.',
+        ].join('\n');
         knowledge.hidden = false;
         provenance.hidden = false;
       }
