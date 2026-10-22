@@ -4,6 +4,8 @@
   "version": "0.0.1",
   "scripts": {
     "dev": "astro dev",
+    "dev:private-chat": "node --experimental-strip-types scripts/private-chat.mjs",
+    "test:private-chat": "node --experimental-strip-types --test tests/private-chat.test.mjs",
     "start": "astro dev",
     "prebuild": "npm run test:docs",
     "build": "astro build",

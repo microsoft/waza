@@ -1,10 +1,12 @@
 ---
 const enabled = import.meta.env.PUBLIC_CHAT_ENABLED === 'true';
 const fixtures = import.meta.env.DEV && import.meta.env.PUBLIC_CHAT_FIXTURES === 'true';
+const privatePreview = import.meta.env.DEV && import.meta.env.PUBLIC_CHAT_PRIVATE_PREVIEW === 'true';
+const interactive = fixtures || privatePreview;
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 ---
 
-{(enabled || fixtures) && (
+{(enabled || interactive) && (
   <div data-chat-root
     data-meta-url={`${base}/chat-meta.json`}>
     <button type="button" class="chat-launcher" data-chat-open aria-haspopup="dialog">Ask Waza</button>
@@ -14,7 +16,9 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
         <button type="button" data-chat-close aria-label="Close Ask Waza">Close</button>
       </div>
       <p class="chat-notice">
-        {fixtures
+        {privatePreview
+          ? 'Private authenticated operator preview. Sends real questions to the deployed Azure hosted-skills service through this local server.'
+          : fixtures
           ? 'Development fixtures only. Answers are simulated, not live model responses.'
           : 'Public chat is unavailable. Sending is disabled until a separate authenticated integration is approved.'}
         Do not paste secrets or sensitive content. Operator-preview history may be retained.
@@ -28,24 +32,24 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
       <p data-chat-status role="status" aria-live="polite"></p>
       <form data-chat-form>
         <label for="chat-question">Question or error message</label>
-        <textarea id="chat-question" name="question" required rows="3" disabled={!fixtures}
+        <textarea id="chat-question" name="question" required rows="3" disabled={!interactive}
           placeholder="How do I write an eval for a custom agent?"></textarea>
         <details>
           <summary>Check pasted YAML (optional)</summary>
           <label for="chat-document-kind">Document type</label>
-          <select id="chat-document-kind" name="documentKind" disabled={!fixtures}>
+          <select id="chat-document-kind" name="documentKind" disabled={!interactive}>
             <option value="eval">Eval specification</option>
             <option value="task">Task</option>
             <option value="config">Project configuration</option>
           </select>
           <label for="chat-yaml">YAML without credentials</label>
-          <textarea id="chat-yaml" name="yaml" rows="5" spellcheck="false" disabled={!fixtures}></textarea>
+          <textarea id="chat-yaml" name="yaml" rows="5" spellcheck="false" disabled={!interactive}></textarea>
         </details>
         <div data-chat-challenge></div>
         <div class="chat-actions">
           <button type="submit" data-chat-send disabled>Send</button>
           <button type="button" data-chat-cancel disabled>Cancel request</button>
-          <button type="button" data-chat-clear disabled={!fixtures}>Clear conversation</button>
+          <button type="button" data-chat-clear disabled={!interactive}>Clear conversation</button>
         </div>
       </form>
     </dialog>

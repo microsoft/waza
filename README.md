@@ -7,8 +7,9 @@ A Go CLI for evaluating agent workflows, skills, and custom agents — author re
 The docs site also supports an optional **Ask Waza** assistant for cited
 documentation Q&A and pasted YAML/error troubleshooting. Public sending is
 source-hard-disabled, including when the optional launcher is shown. Development
-fixtures are explicitly simulated; the operator-only backend is not a browser
-integration. See [scope, privacy, and integration handoff](site/src/content/docs/guides/docs-assistant.mdx).
+fixtures are explicitly simulated. A separately launched, authenticated
+loopback-only private preview can test the operator backend without putting its
+Function key in the browser. See [scope, privacy, and integration handoff](site/src/content/docs/guides/docs-assistant.mdx).
 
 **Choose your path:** [Concepts and learning order](site/src/content/docs/concepts.mdx)
 → [offline harness Quick Start](site/src/content/docs/quick-start.mdx)

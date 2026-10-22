@@ -5,6 +5,7 @@ import {
 
 // No environment variable or DOM attribute can enable sending in a production build.
 const fixtures = import.meta.env.DEV && import.meta.env.PUBLIC_CHAT_FIXTURES === 'true';
+const privatePreview = import.meta.env.DEV && import.meta.env.PUBLIC_CHAT_PRIVATE_PREVIEW === 'true';
 const api = 'https://waza-chat.example/api';
 type Turnstile = {
   render(element: HTMLElement, options: Record<string, unknown>): string;
@@ -13,7 +14,10 @@ type Turnstile = {
 declare global {
   interface Window { turnstile?: Turnstile }
   interface ImportMeta {
-    readonly env: { readonly DEV: boolean; readonly PUBLIC_CHAT_FIXTURES?: string };
+    readonly env: {
+      readonly DEV: boolean; readonly PUBLIC_CHAT_FIXTURES?: string;
+      readonly PUBLIC_CHAT_PRIVATE_PREVIEW?: string;
+    };
   }
 }
 
@@ -53,7 +57,7 @@ export async function initializeChat(root: HTMLElement) {
   const cancel = required<HTMLButtonElement>('[data-chat-cancel]');
   const challenge = required('[data-chat-challenge]');
   const clear = required<HTMLButtonElement>('[data-chat-clear]');
-  if (!fixtures) {
+  if (!fixtures && !privatePreview) {
     form.addEventListener('submit', (event) => event.preventDefault());
     status.textContent = 'Public chat is unavailable. Use documentation search or browse the CLI reference.';
     return;
@@ -69,7 +73,7 @@ export async function initializeChat(root: HTMLElement) {
   let cooldownTimer: number | undefined;
   const sessionValid = () => session && session.expires > Date.now() + 1000;
   const update = () => {
-    send.disabled = busy || Date.now() < cooldownUntil || !expected || (!sessionValid() && !challengeToken);
+    send.disabled = busy || Date.now() < cooldownUntil || !expected || (!privatePreview && !sessionValid() && !challengeToken);
     cancel.disabled = !busy;
     question.disabled = busy;
     yaml.disabled = busy;
@@ -128,7 +132,7 @@ export async function initializeChat(root: HTMLElement) {
     update();
     status.textContent = 'Checking the documentation...';
     try {
-      if (!sessionValid()) {
+      if (!privatePreview && !sessionValid()) {
         if (!challengeToken) throw new Error('Complete bot protection before sending.');
         const token = challengeToken;
         challengeToken = '';
@@ -148,9 +152,10 @@ export async function initializeChat(root: HTMLElement) {
             || value.expiresAt <= Date.now()) throw new Error('The chat service returned an invalid session.');
         session = { token: value.sessionToken, expires: value.expiresAt };
       }
-      const response = await fetch(`${api}/chat`, {
-        method: 'POST', credentials: 'omit', cache: 'no-store', signal,
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session!.token}` },
+      const response = await fetch(privatePreview ? '/waza/__private-chat' : `${api}/chat`, {
+        method: 'POST', credentials: privatePreview ? 'same-origin' : 'omit', cache: 'no-store', signal,
+        headers: privatePreview ? { 'Content-Type': 'application/json' }
+          : { 'Content-Type': 'application/json', Authorization: `Bearer ${session!.token}` },
         body,
       });
       if (!response.ok) {
@@ -159,10 +164,17 @@ export async function initializeChat(root: HTMLElement) {
       }
       const value = await json(response);
       if (!answer(value)) throw new Error('The chat service returned an invalid answer.');
-      if (value.knowledge.fingerprint !== expected.fingerprint) {
+      if (!privatePreview && value.knowledge.fingerprint !== expected.fingerprint) {
         throw new Error('The assistant documentation needs updating. Please use documentation search.');
       }
       if (signal.aborted) throw new DOMException('Cancelled', 'AbortError');
+      if (privatePreview) {
+        knowledge.textContent = `Live operator knowledge ${value.knowledge.commit.slice(0, 12)}. ${
+          value.knowledge.fingerprint === expected.fingerprint
+            ? 'Fingerprint matches this local docs build (not a readiness attestation).'
+            : 'Snapshot differs from local docs; citations refer to the backend snapshot, not verified-current local content.'
+        }`;
+      }
       message('You', input);
       const item = message('Waza', value.answer);
       if (value.validation) {
@@ -189,7 +201,9 @@ export async function initializeChat(root: HTMLElement) {
       history = boundedHistory(nextHistory);
       question.value = '';
       yaml.value = '';
-      status.textContent = 'Fixture answer ready (simulated, not live). Verify suggestions against the cited documentation.';
+      status.textContent = privatePreview
+        ? 'Live operator answer ready. Verify suggestions against the cited documentation.'
+        : 'Fixture answer ready (simulated, not live). Verify suggestions against the cited documentation.';
     } catch (error) {
       status.textContent = signal.aborted
         ? 'Request cancelled or timed out. Usage may have been consumed; provider cancellation or refund is not guaranteed. No automatic retry was made.'
@@ -213,7 +227,7 @@ export async function initializeChat(root: HTMLElement) {
   status.textContent = 'Loading bot protection...';
   try {
     const response = await fetch(root.dataset.metaUrl!, {
-      credentials: 'omit', cache: 'no-store', signal: AbortSignal.timeout(15000),
+      credentials: privatePreview ? 'same-origin' : 'omit', cache: 'no-store', signal: AbortSignal.timeout(15000),
     });
     if (!response.ok) {
       await response.body?.cancel();
@@ -223,6 +237,11 @@ export async function initializeChat(root: HTMLElement) {
     if (!object(value) || value.version !== 1 || !metadata(value)) throw new Error('Documentation metadata is invalid. Please use search.');
     expected = value;
     knowledge.textContent = `Knowledge must match docs build ${value.commit.slice(0, 12)}.`;
+    if (privatePreview) {
+      status.textContent = 'Private authenticated preview ready. Real requests may consume usage and retain history.';
+      update();
+      return;
+    }
     await loadChallenge();
     if (!window.turnstile) throw new Error('Bot protection is unavailable. Please use search.');
     widget = window.turnstile.render(challenge, {

@@ -12,8 +12,9 @@ Ordinary documentation search remains available without using chat.
 source-hard-disabled, regardless of public build variables. The backend uses
 the Python 3.13 Azure Functions hosted-skills operator preview, not a
 Node/Copilot SDK service. An authenticated operator test succeeded, but that
-does not authorize anonymous site inference. No authenticated browser/BFF
-architecture has been approved. A passing widget test with mocked responses
+does not authorize anonymous site inference. Only the local private preview
+below is approved; no public authenticated browser/BFF architecture is approved.
+A passing widget test with mocked responses
 is not evidence that the live service is ready.
 
 ## What it can help with
@@ -34,7 +35,8 @@ It becomes unavailable while its snapshot needs updating.
 The future public integration would send questions, bounded conversation
 context, and optional YAML to the configured Azure model service, with bot
 protection such as Cloudflare Turnstile. This production widget sends nothing.
-Provider processing and retention policies apply independently to operator use.
+Provider processing and retention policies apply independently to operator use,
+including the authenticated local preview.
 
 The widget keeps conversation and anonymous session credentials in browser
 memory, not browser storage. Reloading the page clears them.
@@ -82,8 +84,9 @@ production builds and cannot be enabled through DOM attributes.
 
 The deployed operator base is
 `https://func-chat-fskwox3ttikuc.azurewebsites.net` as of October 21, 2026.
-`POST /api/ask` is Function-key-protected and **must never be called by this
-widget**. Do not put Function keys or provider credentials in browser code,
+`POST /api/ask` is Function-key-protected and **must never be called directly
+from the browser**. Only the authenticated, loopback-only server adapter below
+may call it for the approved private test. Do not put Function keys or provider credentials in browser code,
 public build variables, storage, query parameters, HTML, fixtures, or CI.
 Do not add an unauthenticated key-hiding proxy. CORS is not authentication;
 the allowed `https://microsoft.github.io` origin is shared by GitHub Pages
@@ -147,3 +150,81 @@ simulated development adapter and UI.
 with all public/fixture flags set and proves that neither sending nor external
 requests can be enabled. These tests do not exercise live model calls or
 establish backend controls.
+
+## Authenticated local operator preview
+
+**Private testing only, approved October 22, 2026.** This is not anonymous
+public chat or a deployable proxy. Use only a trusted development machine;
+Basic authentication over loopback HTTP is not appropriate for a shared/public
+host. Do not tunnel, port-forward, or bind this server to a network interface.
+Other processes under your local user account can read its login file.
+
+From `site/`, with Node 22.19+ and Azure CLI already authenticated to the
+authorized subscription:
+
+```sh
+npm run dev:private-chat
+```
+
+The launcher binds **only** `http://127.0.0.1:4324`, fails if the port is occupied,
+and prints a PID, a temporary ask-key **name** (not value), and a `login.json`
+path in a private temporary directory outside the repository. Open
+`http://127.0.0.1:4324/waza/quick-start/`, read that file locally, and enter its
+`username` and `password` into the native browser login dialog. Do not paste
+the login values into chat, command arguments, screenshots, or issue comments.
+The login file has mode `0600` in a `0700` directory; it never contains a
+Function key. Every HTTP route, including docs, modules, metadata and the
+adapter, requires login. Host/Origin checks require the exact loopback address;
+Vite WebSocket upgrades also require the same login and exact Origin. HMR updates
+are disabled; its authenticated connection is retained to avoid Vite's reconnect
+reload loop. No inference is accepted through WebSockets.
+
+The distinctly labeled **private authenticated operator preview** makes real
+requests through `POST /waza/__private-chat` on the same local origin. The
+server revalidates bounded input, strips the public `requestId`, and forwards
+only `question`, `history`, and optional `document` to the fixed deployed
+`/api/ask`. Browser authorization is not forwarded upstream. The server adds
+the Function key in its own upstream request only, with no redirects, automatic
+inference retries, or prompt/answer logging. At most one inference request can
+be active, and timeouts/cancellation do not guarantee provider cancellation or
+refund. Normal operator history retention applies.
+
+The live response shows its actual knowledge commit. If its fingerprint differs
+from this local docs build, the panel warns explicitly; it does not claim that
+the backend snapshot is current. The public/fixture fingerprint behavior is
+unchanged. `PUBLIC_CHAT_PRIVATE_PREVIEW` is only a development UI marker:
+setting it manually does not create an adapter or supply credentials, and
+production ignores it even alongside every other public flag.
+
+The launcher creates a unique **ask-scoped** key, keeps its value only in server
+memory, and revokes it on graceful stop or startup failure. Stop with
+`kill -TERM <printed-PID>` (or Ctrl+C in its terminal), then verify shutdown.
+Graceful cleanup removes the owned login file. SIGKILL, host failure, or Azure
+errors can prevent cleanup; retain the printed nonsecret key name for emergency
+revocation:
+
+```sh
+az functionapp function keys delete \
+  --subscription 5ca082f3-38f2-4bb0-b0a4-c401184ae3a8 \
+  --resource-group rg-waza-chat-preview \
+  --name func-chat-fskwox3ttikuc --function-name ask \
+  --key-name <printed-temporary-key-name> --output none
+```
+
+Do not list/print keys or retrieve host/master/provider keys. A revocation
+failure is reported as a failure, not successful cleanup.
+
+`npm run test:private-chat` uses the real authenticated Astro boundary and a
+fake upstream/key to test access denial, adaptation, response limits and lease
+cleanup without Azure calls. CI runs this offline test. For an explicitly
+authorized, benign **live** browser check only (one real request, not CI):
+
+```sh
+node scripts/check-private-chat-live.mjs /absolute/path/to/printed/login.json
+```
+
+It reads the login in the test process, drives the actual widget, and requires
+a rendered answer byte-for-byte matching the live response plus trusted
+documentation citations. It reports whether the answer contains `waza run`;
+this is transport/rendering evidence, not an attestation of model answer quality.
+It does not print credentials, record traces, or retry inference.
