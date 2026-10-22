@@ -3,9 +3,10 @@ title: Ask Waza (Optional)
 description: Scope, privacy, and limits of the optional documentation assistant.
 ---
 
-Ask Waza is an optional, independently operated documentation assistant.
-The launcher appears only when a site operator explicitly shows it; it currently
-opens an unavailable state, not a live assistant.
+Ask Waza is an independently operated documentation assistant in the site header,
+not a separate documentation sidebar section. Its privacy and integration
+guide remains available from the panel's **Privacy & limits** link.
+The launcher currently opens an unavailable state, not a live public assistant.
 Ordinary documentation search remains available without using chat.
 
 **Implementation preview (October 21, 2026):** public sending is
@@ -77,8 +78,9 @@ against every prompt injection or denial-of-service attack.
 ## Site integration handoff
 
 The component and adapter extend the existing Starlight header and preserve
-ordinary search. `PUBLIC_CHAT_ENABLED=true` only shows the unavailable panel in
-a production build. It cannot enable sending. `PUBLIC_CHAT_API_URL` and
+ordinary search. The header launcher is visible by default; the legacy
+`PUBLIC_CHAT_ENABLED` variable no longer controls its visibility or enables
+sending. `PUBLIC_CHAT_API_URL` and
 `PUBLIC_CHAT_TURNSTILE_SITEKEY` do not configure a live transport in this preview.
 The Pages workflow does not need a backend credential.
 

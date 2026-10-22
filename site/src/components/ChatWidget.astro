@@ -1,12 +1,10 @@
 ---
-const enabled = import.meta.env.PUBLIC_CHAT_ENABLED === 'true';
 const fixtures = import.meta.env.DEV && import.meta.env.PUBLIC_CHAT_FIXTURES === 'true';
 const privatePreview = import.meta.env.DEV && import.meta.env.PUBLIC_CHAT_PRIVATE_PREVIEW === 'true';
 const interactive = fixtures || privatePreview;
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 ---
 
-{(enabled || interactive) && (
   <div data-chat-root
     data-meta-url={`${base}/chat-meta.json`}>
     <button type="button" class="chat-button chat-launcher" data-chat-open aria-haspopup="dialog">Ask Waza</button>
@@ -63,7 +61,6 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
       </form>
     </dialog>
   </div>
-)}
 
 <script>
   for (const root of document.querySelectorAll<HTMLElement>('[data-chat-root]')) {

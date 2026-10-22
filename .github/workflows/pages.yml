@@ -43,7 +43,6 @@ jobs:
       - name: Build site
         run: cd site && npm run build
         env:
-          PUBLIC_CHAT_ENABLED: ${{ vars.PUBLIC_CHAT_ENABLED || 'false' }}
           PUBLIC_CHAT_API_URL: ${{ vars.PUBLIC_CHAT_API_URL }}
           PUBLIC_CHAT_TURNSTILE_SITEKEY: ${{ vars.PUBLIC_CHAT_TURNSTILE_SITEKEY }}
 
