@@ -1,8 +1,8 @@
 import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
-import { loginFile, startPrivateServer, temporaryKey } from './private-chat-server.mjs';
+import { loginFile, PreviewLoginError, startPrivateServer, temporaryKey } from './private-chat-server.mjs';
 
-export async function launchPreview({ createLease = temporaryKey, port = 4324 } = {}) {
+export async function launchPreview({ createLogin = loginFile, createLease = temporaryKey, port = 4324 } = {}) {
   let credentials;
   let lease;
   let server;
@@ -38,7 +38,7 @@ export async function launchPreview({ createLease = temporaryKey, port = 4324 } 
     });
   }
   try {
-    credentials = await loginFile();
+    credentials = await createLogin();
     lease = await createLease();
     console.log(`Temporary ask key name (not value): ${lease.name}`);
     ({ server, adapter } = await startPrivateServer({ port, login: credentials.login, key: lease.value }));
@@ -51,7 +51,8 @@ export async function launchPreview({ createLease = temporaryKey, port = 4324 } 
       console.log('Stop with SIGTERM to this PID; shutdown revokes the key and removes the login file.');
     }
   } catch (error) {
-    console.error(error instanceof Error && error.message.startsWith('Preview startup failed; manual ask-key')
+    console.error(error instanceof PreviewLoginError
+      || (error instanceof Error && error.message.startsWith('Preview startup failed; manual ask-key'))
       ? error.message : 'Private preview startup failed. No Azure output or credentials were logged.');
     await stop();
     process.exitCode = 1;

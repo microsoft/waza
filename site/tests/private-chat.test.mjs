@@ -1,10 +1,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { readFile, stat } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, rmdir, stat, symlink, unlink } from 'node:fs/promises';
 import { request as httpRequest } from 'node:http';
+import { tmpdir } from 'node:os';
+import { basename, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { chromium } from '@playwright/test';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { askBody, adapterPath, loginFile, startPrivateServer, temporaryKey, upstream } from '../scripts/private-chat-server.mjs';
 
 const input = () => ({ question: 'What is Waza?', history: [], requestId: randomUUID() });
@@ -62,6 +65,66 @@ test('preview login is exclusive/private and removed on graceful cleanup', async
     assert.equal(credentials.login.password.length > 32, true);
   } finally { await credentials.remove(); }
   await assert.rejects(stat(credentials.path), { code: 'ENOENT' });
+});
+
+test('launcher rejects checkout-local TMPDIR and symlink aliases before creating credentials or keys', async () => {
+  const local = await mkdtemp(fileURLToPath(new URL('../public/private-login-test-', import.meta.url)));
+  const external = await mkdtemp(join(tmpdir(), 'waza-login-alias-test-'));
+  const alias = join(external, 'checkout-alias');
+  await symlink(local, alias, 'dir');
+  try {
+    for (const temporary of [local, alias]) {
+      const child = spawnSync(process.execPath, ['--experimental-strip-types', '--input-type=module', '-e', `
+        import { launchPreview } from './scripts/private-chat.mjs';
+        await launchPreview({ createLease: async () => { console.log('UNEXPECTED_KEY_ATTEMPT'); throw new Error(); } });
+      `], {
+        cwd: new URL('../', import.meta.url),
+        env: { ...process.env, TMPDIR: temporary, TMP: temporary, TEMP: temporary },
+        encoding: 'utf8', timeout: 20000,
+      });
+      assert.equal(child.status, 1, child.stderr);
+      assert.match(child.stderr, /outside the checkout/);
+      assert.doesNotMatch(child.stdout, /UNEXPECTED_KEY_ATTEMPT/);
+      assert.deepEqual(await readdir(local), []);
+    }
+  } finally {
+    await unlink(alias);
+    await rmdir(external);
+    await rmdir(local);
+  }
+});
+
+test('launcher preserves safe residue diagnostics after partial login write and failed close', async () => {
+  const child = spawnSync(process.execPath, ['--experimental-strip-types', '--input-type=module', '-e', `
+    import { open } from 'node:fs/promises';
+    import { loginFile } from './scripts/private-chat-server.mjs';
+    import { launchPreview } from './scripts/private-chat.mjs';
+    await launchPreview({
+      createLease: async () => { console.log('UNEXPECTED_KEY_ATTEMPT'); throw new Error(); },
+      createLogin: () => loginFile({ openFile: async (...args) => {
+        const file = await open(...args);
+        return {
+          stat: () => file.stat(),
+          writeFile: async (value) => { await file.writeFile(value); throw new Error('sensitive-write-canary'); },
+          close: async () => { await file.close(); throw new Error('sensitive-close-canary'); },
+        };
+      } }),
+    });
+  `], { cwd: new URL('../', import.meta.url), encoding: 'utf8', timeout: 20000 });
+  assert.equal(child.status, 1);
+  assert.match(child.stderr, /File close also failed/);
+  assert.doesNotMatch(child.stderr, /sensitive-.*-canary/);
+  assert.doesNotMatch(child.stdout, /UNEXPECTED_KEY_ATTEMPT/);
+  const directory = child.stderr.match(/Inspect residue at ([^\n]+)/)?.[1];
+  assert.ok(directory);
+  assert.match(basename(directory), /^waza-private-preview-/);
+  try {
+    assert.deepEqual(await readdir(directory), ['login.json']);
+    assert.equal((await stat(join(directory, 'login.json'))).mode & 0o777, 0o600);
+  } finally {
+    await unlink(join(directory, 'login.json'));
+    await rmdir(directory);
+  }
 });
 
 function raw(url, headers) {

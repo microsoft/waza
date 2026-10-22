@@ -193,6 +193,12 @@ Vite WebSocket upgrades also require the same login and exact Origin. HMR update
 are disabled; its authenticated connection is retained to avoid Vite's reconnect
 reload loop. No inference is accepted through WebSockets.
 
+Before writing credentials, the launcher canonicalizes the checkout and
+temporary parent, and rejects checkout-local storage, including symlink aliases.
+If `TMPDIR` points into the checkout, select an external temporary directory
+before restarting. A partial write or close failure reports the residue
+directory for inspection without logging credential contents.
+
 The distinctly labeled **private authenticated operator preview** makes real
 requests through `POST /waza/__private-chat` on the same local origin. The
 server revalidates bounded input, strips the public `requestId`, and forwards
@@ -241,4 +247,5 @@ It reads the login in the test process, drives the actual widget, and requires
 a rendered answer byte-for-byte matching the live response plus trusted
 documentation citations. It reports whether the answer contains `waza run`;
 this is transport/rendering evidence, not an attestation of model answer quality.
+Its response wait covers the full 45-second widget/adapter request window.
 It does not print credentials, record traces, or retry inference.

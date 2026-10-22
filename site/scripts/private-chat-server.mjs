@@ -1,9 +1,9 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { mkdtemp, open, lstat, unlink, rmdir } from 'node:fs/promises';
+import { mkdtemp, open, lstat, realpath, unlink, rmdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { isAbsolute, join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { answer, json, object, requestBody, serviceError } from '../src/scripts/chat-contract.ts';
 
@@ -52,12 +52,25 @@ export async function temporaryKey(run = azureKey) {
   }
 }
 
-export async function loginFile() {
-  const directory = await mkdtemp(join(tmpdir(), 'waza-private-preview-'));
-  const path = join(directory, 'login.json');
+export class PreviewLoginError extends Error {}
+
+export async function loginFile({ temporaryParent = tmpdir(), openFile = open } = {}) {
+  let directory;
   let handle;
   try {
-    handle = await open(path, 'wx', 0o600);
+    const checkout = await realpath(fileURLToPath(new URL('../../', import.meta.url)));
+    const parent = await realpath(temporaryParent);
+    const checkExternal = (location) => {
+      const path = relative(checkout, location);
+      if (!isAbsolute(path) && path !== '..' && !path.startsWith(`..${sep}`)) {
+        throw new PreviewLoginError('Preview temporary storage must be outside the checkout, including symlink aliases.');
+      }
+    };
+    checkExternal(parent);
+    directory = await mkdtemp(join(parent, 'waza-private-preview-'));
+    checkExternal(await realpath(directory));
+    const path = join(directory, 'login.json');
+    handle = await openFile(path, 'wx', 0o600);
     const identity = await handle.stat();
     const login = { username: 'waza-preview', password: randomBytes(32).toString('base64url') };
     await handle.writeFile(JSON.stringify(login));
@@ -74,10 +87,16 @@ export async function loginFile() {
         await rmdir(directory);
       },
     };
-  } catch {
-    if (handle) await handle.close();
+  } catch (error) {
+    let closeFailed = false;
+    if (handle) {
+      try { await handle.close(); } catch { closeFailed = true; }
+    }
     // Leave uncertain entries alone rather than deleting replacements.
-    throw new Error(`Could not create private preview login. Inspect residue at ${directory}`);
+    if (!directory && error instanceof PreviewLoginError) throw error;
+    throw new PreviewLoginError(directory
+      ? `Could not create private preview login.${closeFailed ? ' File close also failed.' : ''} Inspect residue at ${directory}`
+      : 'Could not create private preview login directory; no credentials were written.');
   }
 }
 

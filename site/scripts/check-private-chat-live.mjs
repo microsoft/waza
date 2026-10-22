@@ -25,7 +25,7 @@ try {
   await page.getByLabel('Question or error message').fill('What is Waza, and what command runs an evaluation?');
   stage = 'sending one live request';
   const response = page.waitForResponse((value) =>
-    value.url().endsWith('/waza/__private-chat') && value.request().method() === 'POST');
+    value.url().endsWith('/waza/__private-chat') && value.request().method() === 'POST', { timeout: 50000 });
   await page.getByRole('button', { name: 'Send', exact: true }).click();
   const result = await response;
   stage = `checking adapter HTTP status ${result.status()}`;
