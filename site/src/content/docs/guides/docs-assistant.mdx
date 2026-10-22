@@ -9,14 +9,13 @@ guide remains available from the panel's **Privacy & limits** link.
 The launcher currently opens an unavailable state, not a live public assistant.
 Ordinary documentation search remains available without using chat.
 
-**Implementation preview (October 21, 2026):** public sending is
-source-hard-disabled, regardless of public build variables. The backend uses
+**Deployment status:** the backend uses
 the Python 3.13 Azure Functions hosted-skills operator preview, not a
 Node/Copilot SDK service. An authenticated operator test succeeded, but that
-does not authorize anonymous site inference. Only the local private preview
-below is working. The requested next step is sign-in-free access for published
-docs visitors through the protected public API, not anonymous access to the
-operator adapter. That rollout remains blocked on backend readiness.
+does not demonstrate anonymous site inference. The local private preview
+below is working. Sign-in-free access for published docs visitors has not been
+deployed. It uses the public API, not anonymous access to the operator adapter.
+The known deployed public routes currently return disabled.
 A passing widget test with mocked responses
 is not evidence that the live service is ready.
 
@@ -48,25 +47,22 @@ belong in this guide, not the introductory help.
 ## Privacy
 
 **Do not paste credentials, secrets, confidential code, or personal information.**
-The future public integration would send questions, bounded conversation
-context, and optional YAML to the configured Azure model service, with bot
-protection such as Cloudflare Turnstile. This production widget sends nothing.
-Provider processing and retention policies apply independently to operator use,
-including the authenticated local preview.
+When chat is available, it sends questions, bounded conversation context, and
+optional YAML to the Azure-hosted assistant and its configured model service.
+Sessions are saved in Blob storage in the Function App's storage account.
+This is normal runtime behavior, not a zero-retention service. Model-provider
+processing and retention policies apply separately.
 
 The widget keeps conversation and anonymous session credentials in browser
 memory, not browser storage. Reloading the page clears them.
-The operator preview uses ordinary runtime Blob/file history and fresh
-server-generated session IDs. **Do not assume zero retention.** Clearing the
-widget does not delete server-side data. The widget adds no prompt, answer,
-YAML, or token logging or analytics.
+Clearing the widget or reloading the page does not delete server-side session
+history. The widget adds no prompt, answer, YAML, or token logging or analytics.
 
 ## Limits and availability
 
-The proposed public flow requires bot verification, per-session and per-client
-quotas, and a global usage limit. Those controls still require live verification.
-Visitors behind a shared network may share a client limit.
-When a quota is reached, use the normal docs search. Requests are not
+The service can limit the number of requests it accepts. Request limits are
+not hard limits on the model's internal calls, retries, or total spending.
+When a request limit is reached, use the normal docs search. Requests are not
 automatically retried, and a cancelled request may already have consumed model
 usage.
 
@@ -81,16 +77,15 @@ The component and adapter extend the existing Starlight header and preserve
 ordinary search. The header launcher is visible by default; the legacy
 `PUBLIC_CHAT_ENABLED` variable no longer controls its visibility or enables
 sending. `PUBLIC_CHAT_API_URL` and
-`PUBLIC_CHAT_TURNSTILE_SITEKEY` do not configure a live transport in this preview.
+`PUBLIC_CHAT_TURNSTILE_SITEKEY` configure the public transport.
 The Pages workflow does not need a backend credential.
 
-The protected public adapter has a separate source approval gate in
-`chat-public-config.ts`, which remains off. Its prepared configuration accepts
-only the fixed HTTPS deployment and an approved public Turnstile sitekey; it
-cannot fall back to the operator API. The real challenge script and production
-origin checks are distinct from the simulated fixture transport. Configuration
-validation does not attest backend readiness: public rollout still requires
-the separately reviewed deployment, policy and live integration evidence.
+There is no source approval switch. The public adapter accepts the fixed HTTPS
+deployment and a public Turnstile sitekey; it cannot fall back to the operator
+API. Without public configuration, the panel offers search and the CLI
+reference instead. The real challenge script and production-origin checks
+are distinct from the simulated fixture transport. Configuration alone is not
+evidence of a successful anonymous answer.
 
 For **local, simulated UI testing only**:
 

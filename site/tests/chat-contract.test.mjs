@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { answer, boundedHistory, bytes, json, requestBody, serviceError } from '../src/scripts/chat-contract.ts';
 import {
-  approvedPublicChatConfig, parsePublicChatConfig, PUBLIC_CHAT_ROLLOUT_APPROVED,
+  publicChatConfig, parsePublicChatConfig,
 } from '../src/scripts/chat-public-config.ts';
 
 const publicApi = 'https://func-chat-fskwox3ttikuc.azurewebsites.net/api';
@@ -30,14 +30,14 @@ test('public transport rejects endpoint overrides and invalid challenge configur
   }
 });
 
-test('public configuration preparation does not approve or enable the deployed service', () => {
-  assert.equal(PUBLIC_CHAT_ROLLOUT_APPROVED, false);
-  for (const DEV of [false, true]) {
-    assert.equal(approvedPublicChatConfig({
-      DEV, PUBLIC_CHAT_API_URL: publicApi, PUBLIC_CHAT_TURNSTILE_SITEKEY: 'sitekey',
-    }), undefined);
-    assert.equal(approvedPublicChatConfig({ DEV }), undefined);
-  }
+test('production uses public configuration without a source approval switch', () => {
+  const env = { PUBLIC_CHAT_API_URL: publicApi, PUBLIC_CHAT_TURNSTILE_SITEKEY: 'sitekey' };
+  assert.deepEqual(publicChatConfig({ DEV: false, ...env }), parsePublicChatConfig(publicApi, 'sitekey'));
+  assert.equal(publicChatConfig({ DEV: true, ...env }), undefined);
+  assert.equal(publicChatConfig({ DEV: false }), undefined);
+  assert.equal(publicChatConfig({ DEV: true }), undefined);
+  assert.throws(() => publicChatConfig({ DEV: false, PUBLIC_CHAT_API_URL: publicApi }), /Turnstile sitekey/);
+  assert.throws(() => publicChatConfig({ DEV: false, PUBLIC_CHAT_TURNSTILE_SITEKEY: 'sitekey' }), /API URL/);
 });
 
 const history = (content) => [{ role: 'user', content }];

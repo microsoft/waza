@@ -1,5 +1,3 @@
-export const PUBLIC_CHAT_ROLLOUT_APPROVED = false;
-
 interface PublicChatEnvironment {
   readonly DEV: boolean;
   readonly PUBLIC_CHAT_API_URL?: string;
@@ -9,7 +7,7 @@ interface PublicChatEnvironment {
 const publicApi = 'https://func-chat-fskwox3ttikuc.azurewebsites.net/api';
 
 export function parsePublicChatConfig(api: string | undefined, sitekey: string | undefined) {
-  if (!api) throw new Error('Configure the approved public chat API URL.');
+  if (!api) throw new Error('Configure the public chat API URL.');
   let url: URL;
   try {
     url = new URL(api);
@@ -17,10 +15,10 @@ export function parsePublicChatConfig(api: string | undefined, sitekey: string |
     throw new Error('The public chat API URL is invalid.');
   }
   if (url.href.replace(/\/$/, '') !== publicApi || url.username || url.password || api.includes('@')) {
-    throw new Error('Public chat must use the approved HTTPS API without credentials, query parameters or fragments.');
+    throw new Error('Public chat must use the configured HTTPS API without credentials, query parameters or fragments.');
   }
   if (!sitekey || !/^[a-zA-Z0-9_-]+$/.test(sitekey)) {
-    throw new Error('Configure the approved public Turnstile sitekey.');
+    throw new Error('Configure the public Turnstile sitekey.');
   }
   return {
     api: publicApi,
@@ -30,7 +28,7 @@ export function parsePublicChatConfig(api: string | undefined, sitekey: string |
   };
 }
 
-export function approvedPublicChatConfig(env: PublicChatEnvironment) {
-  if (!PUBLIC_CHAT_ROLLOUT_APPROVED || env.DEV) return undefined;
+export function publicChatConfig(env: PublicChatEnvironment) {
+  if (env.DEV || (!env.PUBLIC_CHAT_API_URL && !env.PUBLIC_CHAT_TURNSTILE_SITEKEY)) return undefined;
   return parsePublicChatConfig(env.PUBLIC_CHAT_API_URL, env.PUBLIC_CHAT_TURNSTILE_SITEKEY);
 }

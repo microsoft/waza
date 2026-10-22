@@ -2,11 +2,11 @@ import {
   answer, boundedHistory, bytes, json, metadata, object, requestBody, ServiceError, serviceError,
   type HistoryItem, type Metadata,
 } from './chat-contract';
-import { approvedPublicChatConfig } from './chat-public-config';
+import { publicChatConfig } from './chat-public-config';
 
 const fixtures = import.meta.env.DEV && import.meta.env.PUBLIC_CHAT_FIXTURES === 'true';
 const privatePreview = import.meta.env.DEV && import.meta.env.PUBLIC_CHAT_PRIVATE_PREVIEW === 'true';
-const publicChat = approvedPublicChatConfig(import.meta.env);
+const publicChat = publicChatConfig(import.meta.env);
 const api = publicChat?.api ?? 'https://waza-chat.example/api';
 const maxVisibleAnswers = 6;
 type Turnstile = {

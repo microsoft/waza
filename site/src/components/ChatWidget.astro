@@ -1,9 +1,9 @@
 ---
-import { approvedPublicChatConfig } from '../scripts/chat-public-config';
+import { publicChatConfig } from '../scripts/chat-public-config';
 
 const fixtures = import.meta.env.DEV && import.meta.env.PUBLIC_CHAT_FIXTURES === 'true';
 const privatePreview = import.meta.env.DEV && import.meta.env.PUBLIC_CHAT_PRIVATE_PREVIEW === 'true';
-const publicChat = approvedPublicChatConfig(import.meta.env);
+const publicChat = publicChatConfig(import.meta.env);
 const interactive = fixtures || privatePreview || !!publicChat;
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 ---
