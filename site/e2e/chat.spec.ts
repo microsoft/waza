@@ -156,6 +156,53 @@ test('mobile dialog is keyboard accessible and Escape returns focus to launcher'
   await expect(page.getByRole('button', { name: 'Ask Waza', exact: true })).toBeFocused();
 });
 
+for (const theme of ['light', 'dark']) {
+  for (const width of [390, 1280]) {
+    test(`chat uses site controls and readable snapshot details in ${theme} at ${width}px`, async ({ page }, testInfo) => {
+      await page.setViewportSize({ width, height: 900 });
+      await setup(page);
+      await page.evaluate((value) => { document.documentElement.dataset.theme = value; }, theme);
+      await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeEnabled();
+      const colors = await page.evaluate(() => {
+        const probe = document.createElement('span');
+        probe.style.backgroundColor = 'var(--sl-color-accent-high)';
+        probe.style.color = 'var(--sl-color-black)';
+        document.body.append(probe);
+        const result = { background: getComputedStyle(probe).backgroundColor, text: getComputedStyle(probe).color };
+        probe.remove();
+        return result;
+      });
+      const primary = page.getByRole('button', { name: 'Send', exact: true });
+      await expect(primary).toHaveCSS('background-color', colors.background);
+      await expect(primary).toHaveCSS('color', colors.text);
+      for (const button of await page.locator('[data-chat-root] button').all()) {
+        const size = await button.boundingBox();
+        expect(size?.height).toBeGreaterThanOrEqual(44);
+        expect(await button.evaluate((element) => parseFloat(getComputedStyle(element).borderRadius)))
+          .toBeGreaterThanOrEqual(size!.height / 2);
+      }
+      await send(page);
+      await expect(page.getByRole('status')).toContainText('Fixture answer ready');
+      await expect(page.locator('[data-chat-knowledge]')).not.toContainText(knowledge.commit);
+      await expect(page.locator('[data-chat-snapshot]')).not.toBeVisible();
+      await primary.scrollIntoViewIfNeeded();
+      await page.screenshot({ path: testInfo.outputPath('chat.png') });
+      await page.getByText('About these answers', { exact: true }).click();
+      await expect(page.locator('[data-chat-snapshot]')).toBeVisible();
+      await expect(page.locator('[data-chat-snapshot]')).toContainText(knowledge.commit);
+      expect(await page.getByRole('dialog').evaluate((dialog) => dialog.scrollWidth <= dialog.clientWidth)).toBe(true);
+      await page.keyboard.press('Tab');
+      await page.getByText('About these answers', { exact: true }).focus();
+      await expect(page.getByText('About these answers', { exact: true })).toHaveCSS('outline-style', 'solid');
+      await page.keyboard.press('Escape');
+      const launcher = page.getByRole('button', { name: 'Ask Waza', exact: true });
+      await expect(launcher).toBeFocused();
+      await expect(launcher).toHaveCSS('outline-style', 'solid');
+      await page.screenshot({ path: testInfo.outputPath('launcher.png') });
+    });
+  }
+}
+
 test('input byte budget rejects excessive Unicode and YAML before contacting the service', async ({ page }) => {
   await setup(page);
   let calls = 0;

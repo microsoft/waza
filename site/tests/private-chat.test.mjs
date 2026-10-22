@@ -82,6 +82,7 @@ test('actual Astro server protects bootstrap and adapter, forwards fixed bounded
   const authorization = `Basic ${Buffer.from(`${login.username}:${login.password}`).toString('base64')}`;
   const calls = [];
   let mode = 'answer';
+  let returnedKnowledge = result.knowledge;
   let release;
   const { server, adapter } = await startPrivateServer({
     port, login, key: () => 'server-only-canary-key',
@@ -96,7 +97,7 @@ test('actual Astro server protects bootstrap and adapter, forwards fixed bounded
       if (mode === 'quota') return Response.json({
         version: 1, error: { code: 'QUOTA_EXCEEDED', message: 'server-only-canary-key', retryAfterSeconds: 12 },
       }, { status: 429 });
-      return Response.json(result);
+      return Response.json({ ...result, knowledge: returnedKnowledge });
     },
   });
 
@@ -167,9 +168,23 @@ test('actual Astro server protects bootstrap and adapter, forwards fixed bounded
       await page.getByRole('button', { name: 'Send', exact: true }).click();
       await page.getByRole('status').filter({ hasText: 'Live operator answer ready' }).waitFor();
       assert.equal(await page.locator('[data-chat-messages] a').count(), 1);
-      assert.match(await page.locator('[data-chat-knowledge]').innerText(), /Snapshot differs/);
+      assert.match(await page.locator('[data-chat-knowledge]').innerText(), /Answers may differ from the docs/);
+      assert.doesNotMatch(await page.locator('[data-chat-knowledge]').innerText(), /aaaa|fingerprint|operator knowledge/);
+      assert.equal(await page.locator('[data-chat-snapshot]').isVisible(), false);
+      await page.getByText('About these answers', { exact: true }).click();
+      assert.equal(await page.locator('[data-chat-snapshot]').isVisible(), true);
+      assert.match(await page.locator('[data-chat-snapshot]').innerText(), new RegExp(result.knowledge.commit));
+      assert.match(await page.locator('[data-chat-snapshot]').innerText(), /fingerprints differ/);
+      const docs = await (await fetch(`${origin}/waza/chat-meta.json`, { headers: { authorization } })).json();
+      returnedKnowledge = { commit: docs.commit, fingerprint: docs.fingerprint };
+      await page.getByLabel('Question or error message').fill('And the current docs?');
+      await page.getByRole('button', { name: 'Send', exact: true }).click();
+      await page.getByRole('status').filter({ hasText: 'Live operator answer ready' }).waitFor();
+      assert.match(await page.locator('[data-chat-knowledge]').innerText(), /same documentation snapshot/);
+      assert.doesNotMatch(await page.locator('[data-chat-knowledge]').innerText(), /Answers may differ/);
+      assert.match(await page.locator('[data-chat-snapshot]').innerText(), /fingerprints match/);
       assert.equal(navigations, 1, 'authenticated Vite socket must not cause reconnect reloads');
-      assert.equal(calls.length, 9);
+      assert.equal(calls.length, 10);
       await context.close();
     } finally { await browser.close(); }
     adapter.stop();

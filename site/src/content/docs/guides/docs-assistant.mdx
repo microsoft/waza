@@ -13,7 +13,9 @@ source-hard-disabled, regardless of public build variables. The backend uses
 the Python 3.13 Azure Functions hosted-skills operator preview, not a
 Node/Copilot SDK service. An authenticated operator test succeeded, but that
 does not authorize anonymous site inference. Only the local private preview
-below is approved; no public authenticated browser/BFF architecture is approved.
+below is working. The requested next step is sign-in-free access for published
+docs visitors through the protected public API, not anonymous access to the
+operator adapter. That rollout remains blocked on backend readiness.
 A passing widget test with mocked responses
 is not evidence that the live service is ready.
 
@@ -27,7 +29,10 @@ It cannot execute commands, run evaluations, access your repository, or verify
 that a schema-valid evaluation will work at runtime. Answers are AI-generated:
 check the cited documentation before applying a suggestion.
 The assistant checks that its knowledge snapshot matches the published docs.
-It becomes unavailable while its snapshot needs updating.
+It becomes unavailable while its snapshot needs updating. The private operator
+preview instead warns when its snapshot differs, so integration can be tested.
+**About these answers** shows the source commits and fingerprint comparison;
+those details do not establish answer quality or service readiness.
 
 ## Privacy
 
@@ -132,12 +137,21 @@ pin its observed fingerprint as a timeless value.
 
 ### Public integration blockers
 
-A separate reviewed change must approve authenticated browser/BFF architecture
-and resolve backend runtime isolation, history retention, inference bounds,
-challenge verification, quotas, storage/client identity, and matching knowledge
-promotion. Public health/session/chat readiness and deployed-origin integration
-must then be demonstrated before changing the source lock. This frontend PR
-does not provision resources, deploy a backend, or authorize public launch.
+Sign-in-free public access is the requested outcome, using challenge-protected
+`/api/session` and token-authenticated `/api/chat`. Removing the local preview
+login would not implement that flow; it would expose the privileged operator
+adapter.
+
+As confirmed on October 22, backend runtime and client-identity admission remain
+denied, public transcript retention has no approved policy, and public challenge
+configuration, admission secrets/ledger, and live privacy/usage/cancellation
+probes are not ready. No production public sitekey is available.
+Runtime isolation, history retention, inference bounds, quotas, and matching
+knowledge promotion must be resolved. Public health/session/chat readiness and
+deployed-origin integration must then be demonstrated before changing the
+source lock. Keep private-preview authentication in place in the meantime.
+This frontend PR does not provision resources, deploy a backend, or enable
+anonymous visitors.
 
 ### Frontend verification
 

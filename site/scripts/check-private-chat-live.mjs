@@ -50,6 +50,7 @@ try {
   if (storage.local.length || storage.session) throw new Error();
   console.log('LIVE BROWSER VERIFIED: one real operator answer rendered with trusted documentation citations.');
   console.log(await page.locator('[data-chat-knowledge]').innerText());
+  console.log(await page.locator('[data-chat-snapshot]').textContent());
   console.log(`Trusted citations rendered: ${citations.length}. No Function key or external service request observed in browser.`);
   console.log(`Literal "waza run" in model answer: ${/waza\s+run/i.test(text)}. This transport check does not attest answer quality.`);
   await context.close();

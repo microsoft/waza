@@ -52,6 +52,8 @@ export async function initializeChat(root: HTMLElement) {
   const kind = required<HTMLSelectElement>('#chat-document-kind');
   const status = required('[data-chat-status]');
   const knowledge = required('[data-chat-knowledge]');
+  const provenance = required('[data-chat-provenance]');
+  const snapshot = required('[data-chat-snapshot]');
   const messages = required<HTMLOListElement>('[data-chat-messages]');
   const send = required<HTMLButtonElement>('[data-chat-send]');
   const cancel = required<HTMLButtonElement>('[data-chat-cancel]');
@@ -169,10 +171,14 @@ export async function initializeChat(root: HTMLElement) {
       }
       if (signal.aborted) throw new DOMException('Cancelled', 'AbortError');
       if (privatePreview) {
-        knowledge.textContent = `Live operator knowledge ${value.knowledge.commit.slice(0, 12)}. ${
+        knowledge.textContent =
           value.knowledge.fingerprint === expected.fingerprint
-            ? 'Fingerprint matches this local docs build (not a readiness attestation).'
-            : 'Snapshot differs from local docs; citations refer to the backend snapshot, not verified-current local content.'
+            ? 'Answers use the same documentation snapshot as this page. Check the linked sources before applying suggestions.'
+            : 'Answers may differ from the docs you are reading. Check the linked sources for current guidance.';
+        snapshot.textContent = `Answer snapshot: ${value.knowledge.commit}. Local docs: ${expected.commit}. ${
+          value.knowledge.fingerprint === expected.fingerprint
+            ? 'The documentation fingerprints match; this does not verify answer quality or service readiness.'
+            : 'The documentation fingerprints differ; the linked sources belong to the answer snapshot, not verified-current local content.'
         }`;
       }
       message('You', input);
@@ -236,7 +242,12 @@ export async function initializeChat(root: HTMLElement) {
     const value = await json(response);
     if (!object(value) || value.version !== 1 || !metadata(value)) throw new Error('Documentation metadata is invalid. Please use search.');
     expected = value;
-    knowledge.textContent = `Knowledge must match docs build ${value.commit.slice(0, 12)}.`;
+    knowledge.textContent = privatePreview
+      ? 'Check answers against the linked documentation before applying suggestions.'
+      : 'Answers are checked against this page\'s documentation snapshot.';
+    snapshot.textContent = `Local documentation build: ${value.commit}. A matching fingerprint does not verify answer quality or service readiness.`;
+    knowledge.hidden = false;
+    provenance.hidden = false;
     if (privatePreview) {
       status.textContent = 'Private authenticated preview ready. Real requests may consume usage and retain history.';
       update();
