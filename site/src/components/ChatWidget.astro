@@ -1,7 +1,10 @@
 ---
+import { approvedPublicChatConfig } from '../scripts/chat-public-config';
+
 const fixtures = import.meta.env.DEV && import.meta.env.PUBLIC_CHAT_FIXTURES === 'true';
 const privatePreview = import.meta.env.DEV && import.meta.env.PUBLIC_CHAT_PRIVATE_PREVIEW === 'true';
-const interactive = fixtures || privatePreview;
+const publicChat = approvedPublicChatConfig(import.meta.env);
+const interactive = fixtures || privatePreview || !!publicChat;
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 ---
 
@@ -21,7 +24,7 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
       {fixtures && <p class="chat-notice">Development fixtures: answers are simulated, not live.</p>}
       <p class="chat-notice">
         AI answers can be wrong. Do not share secrets or sensitive information.
-        {privatePreview && ' History may be retained.'}
+        {(privatePreview || publicChat) && ' History may be retained.'}
       </p>
       <p class="chat-help">
         <a href={`${base}/reference/cli/`}>CLI reference</a>

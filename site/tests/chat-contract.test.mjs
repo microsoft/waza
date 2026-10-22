@@ -1,6 +1,44 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { answer, boundedHistory, bytes, json, requestBody, serviceError } from '../src/scripts/chat-contract.ts';
+import {
+  approvedPublicChatConfig, parsePublicChatConfig, PUBLIC_CHAT_ROLLOUT_APPROVED,
+} from '../src/scripts/chat-public-config.ts';
+
+const publicApi = 'https://func-chat-fskwox3ttikuc.azurewebsites.net/api';
+
+test('prepared public transport uses only the fixed deployment and official explicit challenge script', () => {
+  for (const api of [publicApi, `${publicApi}/`]) {
+    assert.deepEqual(parsePublicChatConfig(api, 'approved-public-sitekey'), {
+      api: publicApi, sitekey: 'approved-public-sitekey', origin: 'https://microsoft.github.io',
+      challengeScript: 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit',
+    });
+  }
+});
+
+test('public transport rejects endpoint overrides and invalid challenge configuration explicitly', () => {
+  for (const api of [
+    undefined, '', 'not a URL', publicApi.replace('https:', 'http:'),
+    'https://other.example/api', `${publicApi}/ask`, `${publicApi}?code=not-a-real-key`,
+    `${publicApi}#fragment`, publicApi.replace('https://', 'https://user:password@'),
+    publicApi.replace('https://', 'https://@'),
+  ]) {
+    assert.throws(() => parsePublicChatConfig(api, 'sitekey'), /public chat|Public chat/);
+  }
+  for (const sitekey of [undefined, '', ' key ', 'key\ninjected', '<script>']) {
+    assert.throws(() => parsePublicChatConfig(publicApi, sitekey), /Turnstile sitekey/);
+  }
+});
+
+test('public configuration preparation does not approve or enable the deployed service', () => {
+  assert.equal(PUBLIC_CHAT_ROLLOUT_APPROVED, false);
+  for (const DEV of [false, true]) {
+    assert.equal(approvedPublicChatConfig({
+      DEV, PUBLIC_CHAT_API_URL: publicApi, PUBLIC_CHAT_TURNSTILE_SITEKEY: 'sitekey',
+    }), undefined);
+    assert.equal(approvedPublicChatConfig({ DEV }), undefined);
+  }
+});
 
 const history = (content) => [{ role: 'user', content }];
 const request = (question = 'Question', prior = [], yaml = '') =>

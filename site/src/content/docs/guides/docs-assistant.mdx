@@ -84,6 +84,14 @@ sending. `PUBLIC_CHAT_API_URL` and
 `PUBLIC_CHAT_TURNSTILE_SITEKEY` do not configure a live transport in this preview.
 The Pages workflow does not need a backend credential.
 
+The protected public adapter has a separate source approval gate in
+`chat-public-config.ts`, which remains off. Its prepared configuration accepts
+only the fixed HTTPS deployment and an approved public Turnstile sitekey; it
+cannot fall back to the operator API. The real challenge script and production
+origin checks are distinct from the simulated fixture transport. Configuration
+validation does not attest backend readiness: public rollout still requires
+the separately reviewed deployment, policy and live integration evidence.
+
 For **local, simulated UI testing only**:
 
 ```text
