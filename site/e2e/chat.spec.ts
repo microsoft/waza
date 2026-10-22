@@ -36,6 +36,28 @@ async function send(page: Page, question = 'How do I run an eval?') {
   await page.getByRole('button', { name: 'Send', exact: true }).click();
 }
 
+test('launcher waits for its bootstrap listener before accepting clicks', async ({ page }) => {
+  let release!: () => void;
+  let loading = false;
+  const delayed = new Promise<void>((resolve) => { release = resolve; });
+  await page.route('**/src/components/ChatWidget.astro*', async (route) => {
+    loading = true;
+    await delayed;
+    await route.continue();
+  });
+  await page.route('**/chat-meta.json', (route) => route.fulfill({ status: 503, body: 'unavailable' }));
+  await page.goto('/waza/quick-start/', { waitUntil: 'commit' });
+  const launcher = page.getByRole('button', { name: 'Ask Waza', exact: true });
+  await expect(launcher).toBeVisible();
+  await expect.poll(() => loading).toBe(true);
+  await expect(launcher).toBeDisabled();
+  release();
+  await expect(launcher).toBeEnabled();
+  await launcher.click();
+  await expect(page.getByRole('dialog')).toBeVisible();
+  await expect(page.getByRole('status')).toContainText('metadata is unavailable');
+});
+
 test('lazy loads, exchanges challenge once and sends bounded typed conversation', async ({ page }) => {
   const requests: unknown[] = [];
   let sessions = 0;
