@@ -15,17 +15,21 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
         <h2 id="chat-title">Ask Waza</h2>
         <button type="button" class="chat-button chat-button-quiet" data-chat-close aria-label="Close Ask Waza">Close</button>
       </div>
-      <p class="chat-notice">
-        {privatePreview
-          ? 'Private authenticated operator preview. Sends real questions to the deployed Azure hosted-skills service through this local server.'
-          : fixtures
-          ? 'Development fixtures only. Answers are simulated, not live model responses.'
-          : 'Public chat is unavailable. Sending is disabled until a separate authenticated integration is approved.'}{' '}
-        Do not paste secrets or sensitive content. Operator-preview history may be retained.
-        {' '}<a href={`${base}/guides/docs-assistant/`}>Limits and privacy</a>
+      <p class="chat-intro">
+        {interactive
+          ? 'Ask about Waza commands, writing evals, or troubleshooting an error. Paste YAML below for a schema check.'
+          : 'Chat is not available yet. Use documentation search or the CLI reference to find an answer.'}
       </p>
-      <a class="chat-help" href={`${base}/reference/cli/`}>Browse the CLI reference</a>
-      {fixtures && <p class="chat-notice">Only the latest six messages of at most 2000 Unicode characters each are eligible for context. Longer messages remain visible but are not sent again.</p>}
+      {fixtures && <p class="chat-notice">Development fixtures: answers are simulated, not live.</p>}
+      <p class="chat-notice">
+        AI answers can be wrong. Do not share secrets or sensitive information.
+        {privatePreview && ' History may be retained.'}
+      </p>
+      <p class="chat-help">
+        <a href={`${base}/reference/cli/`}>CLI reference</a>
+        {' | '}
+        <a href={`${base}/guides/docs-assistant/`}>Privacy &amp; limits</a>
+      </p>
       <p data-chat-knowledge class="chat-notice" hidden></p>
       <details class="chat-provenance" data-chat-provenance hidden>
         <summary>About these answers</summary>
@@ -92,6 +96,7 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
   .chat-actions { flex-wrap: wrap; margin-block-start: .5rem; }
   .chat-submit-actions { flex-wrap: wrap; margin-inline-start: auto; }
   h2 { margin: 0; font-size: 1.25rem; color: var(--waza-text-heading); }
+  .chat-intro { margin-block: .75rem .5rem; }
   .chat-notice, .chat-help, .chat-provenance { font-size: .875rem; line-height: 1.5; }
   .chat-notice, .chat-provenance { color: var(--sl-color-gray-2); }
   .chat-provenance { margin-block: .75rem; }

@@ -31,7 +31,7 @@ test('production cannot send even with all public flags and DOM controls enabled
   expect(prevented).toBe(true);
   await expect(page).toHaveURL(url);
   expect(external).toEqual([]);
-  await expect(page.getByRole('link', { name: 'Browse the CLI reference' })).toHaveAttribute('href', '/waza/reference/cli/');
+  await expect(page.getByRole('link', { name: 'CLI reference', exact: true })).toHaveAttribute('href', '/waza/reference/cli/');
   await page.keyboard.press('Escape');
   await expect(launcher).toBeFocused();
   await page.getByRole('button', { name: 'Search', exact: false }).first().click();

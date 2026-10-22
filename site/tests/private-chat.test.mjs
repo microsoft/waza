@@ -226,10 +226,18 @@ test('actual Astro server protects bootstrap and adapter, forwards fixed bounded
       page.on('framenavigated', () => navigations++);
       await page.goto(`${origin}/waza/quick-start/`);
       await page.getByRole('button', { name: 'Ask Waza', exact: true }).click();
-      await page.getByRole('status').filter({ hasText: 'Private authenticated preview ready' }).waitFor();
+      await page.getByRole('status').filter({ hasText: 'Ready for your question.' }).waitFor();
+      const introduction = await page.locator('.chat-intro').innerText();
+      assert.match(introduction, /Waza commands, writing evals, or troubleshooting/);
+      assert.doesNotMatch(introduction, /Azure|hosted-skills|operator|local server/);
+      assert.doesNotMatch(await page.getByRole('dialog').innerText(), /Private preview|authenticated operator|Azure hosted-skills/);
+      assert.match(await page.getByRole('dialog').innerText(), /Do not share secrets/);
+      assert.match(await page.getByRole('dialog').innerText(), /History may be retained/);
+      assert.equal(await page.locator('[data-chat-knowledge]').isVisible(), false);
+      assert.equal(await page.locator('[data-chat-provenance]').isVisible(), false);
       await page.getByLabel('Question or error message').fill('What is Waza?');
       await page.getByRole('button', { name: 'Send', exact: true }).click();
-      await page.getByRole('status').filter({ hasText: 'Live operator answer ready' }).waitFor();
+      await page.getByRole('status').filter({ hasText: 'Answer ready.' }).waitFor();
       assert.equal(await page.locator('[data-chat-messages] a').count(), 1);
       assert.match(await page.locator('[data-chat-knowledge]').innerText(), /Answers may differ from the docs/);
       assert.doesNotMatch(await page.locator('[data-chat-knowledge]').innerText(), /aaaa|fingerprint|operator knowledge/);
@@ -242,10 +250,13 @@ test('actual Astro server protects bootstrap and adapter, forwards fixed bounded
       returnedKnowledge = { commit: docs.commit, fingerprint: docs.fingerprint };
       await page.getByLabel('Question or error message').fill('And the current docs?');
       await page.getByRole('button', { name: 'Send', exact: true }).click();
-      await page.getByRole('status').filter({ hasText: 'Live operator answer ready' }).waitFor();
+      await page.getByRole('status').filter({ hasText: 'Answer ready.' }).waitFor();
       assert.match(await page.locator('[data-chat-knowledge]').innerText(), /same documentation snapshot/);
       assert.doesNotMatch(await page.locator('[data-chat-knowledge]').innerText(), /Answers may differ/);
       assert.match(await page.locator('[data-chat-snapshot]').innerText(), /fingerprints match/);
+      await page.getByRole('button', { name: 'Clear conversation', exact: true }).click();
+      assert.equal(await page.locator('[data-chat-knowledge]').isVisible(), false);
+      assert.equal(await page.locator('[data-chat-provenance]').isVisible(), false);
       assert.equal(navigations, 1, 'authenticated Vite socket must not cause reconnect reloads');
       assert.equal(calls.length, 10);
       await context.close();
@@ -287,5 +298,103 @@ test('actual launcher SIGTERM awaits revocation and removes login instead of Vit
   } finally {
     clearTimeout(timer);
     if (child.exitCode === null && child.signalCode === null) child.kill('SIGTERM');
+  }
+});
+
+test('authenticated adapter aborts upstream on deadline, disconnect and active shutdown without retries', async () => {
+  const port = 4325;
+  const origin = `http://127.0.0.1:${port}`;
+  const login = { username: 'test-preview', password: 'test-only-password' };
+  const authorization = `Basic ${Buffer.from(`${login.username}:${login.password}`).toString('base64')}`;
+  const headers = { authorization, origin, 'Content-Type': 'application/json' };
+  let calls = 0;
+  let pending = true;
+  let signal;
+  let expire;
+  let started = Promise.withResolvers();
+  let aborted = Promise.withResolvers();
+  async function within(promise) {
+    let timer;
+    try {
+      return await Promise.race([promise, new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error('Expected cancellation barrier was not reached.')), 3000);
+      })]);
+    } finally { clearTimeout(timer); }
+  }
+  const { server, adapter } = await startPrivateServer({
+    port, login, key: () => 'test-only-key',
+    scheduleDeadline: (abort) => { expire = abort; },
+    fetchImpl: async (_url, options) => {
+      calls++;
+      if (!pending) return Response.json(result);
+      signal = options.signal;
+      const response = new Promise((_, reject) => {
+        const cancelled = () => {
+          aborted.resolve();
+          reject(new DOMException('Test upstream cancelled', 'AbortError'));
+        };
+        if (signal.aborted) cancelled();
+        else signal.addEventListener('abort', cancelled, { once: true });
+      });
+      started.resolve();
+      return response;
+    },
+  });
+  const post = () => fetch(`${origin}${adapterPath}`, {
+    method: 'POST', headers, body: JSON.stringify(input()),
+  });
+  const recovered = async () => {
+    pending = false;
+    const response = await within(post());
+    assert.equal(response.status, 200);
+    await response.body.cancel();
+    pending = true;
+    started = Promise.withResolvers();
+    aborted = Promise.withResolvers();
+  };
+  try {
+    const deadline = post();
+    await within(started.promise);
+    assert.equal(calls, 1);
+    assert.equal(signal.aborted, false);
+    expire();
+    assert.equal((await within(deadline)).status, 502);
+    await within(aborted.promise);
+    assert.equal(signal.aborted, true);
+    assert.equal(calls, 1);
+    await recovered();
+    assert.equal(calls, 2);
+
+    const disconnected = Promise.withResolvers();
+    const client = httpRequest(`${origin}${adapterPath}`, { method: 'POST', headers }, (response) => {
+      response.resume();
+      disconnected.reject(new Error(`Unexpected disconnect response: ${response.statusCode}`));
+    });
+    client.on('error', disconnected.resolve);
+    client.end(JSON.stringify(input()));
+    await within(started.promise);
+    assert.equal(calls, 3);
+    assert.equal(signal.aborted, false);
+    client.destroy(new Error('Intentional test client disconnect'));
+    await within(disconnected.promise);
+    await within(aborted.promise);
+    assert.equal(signal.aborted, true);
+    assert.equal(calls, 3);
+    await recovered();
+    assert.equal(calls, 4);
+
+    const shutdown = post();
+    await within(started.promise);
+    assert.equal(signal.aborted, false);
+    adapter.stop();
+    await within(aborted.promise);
+    assert.equal((await within(shutdown)).status, 502);
+    assert.equal(signal.aborted, true);
+    assert.equal((await within(post())).status, 503);
+    assert.equal(calls, 5, 'shutdown must not retry or admit another upstream call');
+  } finally {
+    adapter.stop();
+    await server.stop();
+    delete process.env.PUBLIC_CHAT_PRIVATE_PREVIEW;
   }
 });

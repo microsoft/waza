@@ -136,7 +136,10 @@ async function readBody(req) {
   return JSON.parse(Buffer.concat(chunks).toString('utf8'));
 }
 
-export function privatePlugin({ port, login, key, fetchImpl = fetch }) {
+export function privatePlugin({
+  port, login, key, fetchImpl = fetch,
+  scheduleDeadline = (abort) => setTimeout(abort, 45000),
+}) {
   const origin = `http://127.0.0.1:${port}`;
   const expected = createHash('sha256').update(`Basic ${Buffer.from(`${login.username}:${login.password}`).toString('base64')}`).digest();
   let busy = false;
@@ -214,7 +217,7 @@ export function privatePlugin({ port, login, key, fetchImpl = fetch }) {
         busy = true;
         const controller = new AbortController();
         controllers.add(controller);
-        const timeout = setTimeout(() => controller.abort(), 45000);
+        const timeout = scheduleDeadline(() => controller.abort());
         const abortUpload = () => { if (!req.complete) req.destroy(); };
         controller.signal.addEventListener('abort', abortUpload, { once: true });
         const disconnected = () => { if (!res.writableEnded) controller.abort(); };
@@ -275,9 +278,9 @@ export function privatePlugin({ port, login, key, fetchImpl = fetch }) {
   };
 }
 
-export async function startPrivateServer({ port, login, key, fetchImpl }) {
+export async function startPrivateServer({ port, login, key, fetchImpl, scheduleDeadline }) {
   const { dev } = await import('astro');
-  const adapter = privatePlugin({ port, login, key, fetchImpl });
+  const adapter = privatePlugin({ port, login, key, fetchImpl, scheduleDeadline });
   process.env.PUBLIC_CHAT_PRIVATE_PREVIEW = 'true';
   process.env.PUBLIC_CHAT_FIXTURES = 'false';
   // Vite otherwise calls process.exit on SIGTERM before our asynchronous key revocation.

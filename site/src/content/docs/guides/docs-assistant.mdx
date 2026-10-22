@@ -32,7 +32,14 @@ The assistant checks that its knowledge snapshot matches the published docs.
 It becomes unavailable while its snapshot needs updating. The private operator
 preview instead warns when its snapshot differs, so integration can be tested.
 **About these answers** shows the source commits and fingerprint comparison;
-those details do not establish answer quality or service readiness.
+those details do not establish answer quality or service readiness. In the
+private preview, snapshot information appears only after an answer. Clearing
+the conversation hides the previous answer's snapshot information.
+
+The chat introduction suggests questions about commands, writing evals, and
+troubleshooting, with an optional pasted-YAML schema check. A short privacy
+reminder stays visible; infrastructure and integration details
+belong in this guide, not the introductory help.
 
 ## Privacy
 
@@ -236,7 +243,9 @@ failure is reported as a failure, not successful cleanup.
 
 `npm run test:private-chat` uses the real authenticated Astro boundary and a
 fake upstream/key to test access denial, adaptation, response limits and lease
-cleanup without Azure calls. CI runs this offline test. For an explicitly
+cleanup without Azure calls. Controllable deadline and disconnect/shutdown
+barriers verify upstream aborts, no automatic replay, and single-flight
+recovery through the authenticated adapter. CI runs this offline test. For an explicitly
 authorized, benign **live** browser check only (one real request, not CI):
 
 ```sh

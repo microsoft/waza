@@ -31,7 +31,7 @@ try {
   stage = `checking adapter HTTP status ${result.status()}`;
   if (result.status() !== 200) throw new Error();
   const payload = await result.json();
-  await page.getByRole('status').filter({ hasText: 'Live operator answer ready' }).waitFor({ timeout: 50000 });
+  await page.getByRole('status').filter({ hasText: 'Answer ready.' }).waitFor({ timeout: 50000 });
   stage = 'checking rendered answer and citations';
   const messages = page.locator('[data-chat-messages]');
   const text = await messages.locator(':scope > li').last().locator('pre').first().textContent();

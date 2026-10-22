@@ -109,11 +109,15 @@ export async function initializeChat(root: HTMLElement) {
   clear.addEventListener('click', () => {
     history = [];
     messages.replaceChildren();
+    if (privatePreview) {
+      knowledge.hidden = true;
+      provenance.hidden = true;
+    }
     question.value = '';
     yaml.value = '';
     status.textContent = Date.now() < cooldownUntil
       ? 'Conversation cleared. The service cooldown still applies.'
-      : 'Conversation cleared from this page. Server-side retention is independent.';
+      : 'Conversation cleared from this page.';
     question.focus();
   });
   form.addEventListener('submit', async (event) => {
@@ -180,6 +184,8 @@ export async function initializeChat(root: HTMLElement) {
             ? 'The documentation fingerprints match; this does not verify answer quality or service readiness.'
             : 'The documentation fingerprints differ; the linked sources belong to the answer snapshot, not verified-current local content.'
         }`;
+        knowledge.hidden = false;
+        provenance.hidden = false;
       }
       message('You', input);
       const item = message('Waza', value.answer);
@@ -208,7 +214,7 @@ export async function initializeChat(root: HTMLElement) {
       question.value = '';
       yaml.value = '';
       status.textContent = privatePreview
-        ? 'Live operator answer ready. Verify suggestions against the cited documentation.'
+        ? 'Answer ready. Check the linked sources before applying suggestions.'
         : 'Fixture answer ready (simulated, not live). Verify suggestions against the cited documentation.';
     } catch (error) {
       status.textContent = signal.aborted
@@ -242,14 +248,12 @@ export async function initializeChat(root: HTMLElement) {
     const value = await json(response);
     if (!object(value) || value.version !== 1 || !metadata(value)) throw new Error('Documentation metadata is invalid. Please use search.');
     expected = value;
-    knowledge.textContent = privatePreview
-      ? 'Check answers against the linked documentation before applying suggestions.'
-      : 'Answers are checked against this page\'s documentation snapshot.';
+    knowledge.textContent = 'Answers are checked against this page\'s documentation snapshot.';
     snapshot.textContent = `Local documentation build: ${value.commit}. A matching fingerprint does not verify answer quality or service readiness.`;
-    knowledge.hidden = false;
-    provenance.hidden = false;
+    knowledge.hidden = privatePreview;
+    provenance.hidden = privatePreview;
     if (privatePreview) {
-      status.textContent = 'Private authenticated preview ready. Real requests may consume usage and retain history.';
+      status.textContent = 'Ready for your question.';
       update();
       return;
     }
