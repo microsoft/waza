@@ -18,7 +18,7 @@ require (
 	github.com/Masterminds/semver/v3 v3.5.0
 	github.com/azure/azure-dev/cli/azd v1.35.0
 	github.com/charmbracelet/huh v1.0.0
-	github.com/github/copilot-sdk/go v1.0.21
+	github.com/github/copilot-sdk/go v1.0.24
 	github.com/go-viper/mapstructure/v2 v2.5.0
 	github.com/klauspost/compress v1.20.3
 	github.com/mattn/go-runewidth v0.0.31
