@@ -1341,17 +1341,44 @@ Remote program graders require `--allow-exec` or interactive confirmation before
 Improve skill compliance iteratively.
 
 ```bash
-waza dev [skill-name | skill-path]
+waza dev <skill-name | skill-path>
+waza dev <skill-name...>
+waza dev --all
 ```
+
+A single target can be a workspace skill name, a directory, or a `SKILL.md`
+file, using relative or absolute paths. Bare names resolve workspace skills
+first, then fall back to existing local directories. Prefix a directory with
+`./` (or `.\` on Windows) to select that path explicitly. Other file targets are
+rejected. Multiple positional arguments remain workspace skill names.
+
+```bash
+waza dev ./skills/code-explainer
+waza dev ./skills/code-explainer/SKILL.md
+waza dev SKILL.md
+waza dev .
+```
+
+```powershell
+waza dev .\skills\code-explainer\SKILL.md
+```
+
+The same single-target forms work with `--copilot` and `--scaffold-triggers`.
 
 ### Flags
 
 | Flag | Description |
 |------|-------------|
-| `--target` | Target level: `low`, `medium`, `high` |
+| `--target` | Target level: `low`, `medium`, `medium-high`, `high` (default: `medium-high`; iterative mode only) |
 | `--max-iterations` | Max improvement loops (default: 5) |
 | `--auto` | Auto-apply without prompting |
-| `--fast` | Skip integration tests |
+| `--copilot` | Generate a non-interactive recommendations report without modifying the skill |
+| `--model` | Model to use with `--copilot` |
+| `--scaffold-triggers` | Generate `tests/trigger_tests.yaml` from frontmatter trigger phrases |
+| `--all` | Process all skills in the workspace |
+| `--filter` | Filter `--all` skills by adherence level |
+
+`--target`, `--max-iterations`, and `--auto` are not valid with `--copilot`.
 
 ### Workflow
 

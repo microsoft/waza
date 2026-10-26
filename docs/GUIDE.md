@@ -626,6 +626,38 @@ waza run evals/code-explainer/eval.yaml -o results.json
 
 ---
 
+### `waza dev <skill-name | skill-path>`
+
+Iteratively score and improve a skill's frontmatter. A single target can be a
+workspace skill name, a directory, or a `SKILL.md` file. Both relative and
+absolute paths are supported.
+
+```bash
+waza dev code-explainer
+waza dev ./skills/code-explainer --target high
+waza dev ./skills/code-explainer/SKILL.md
+waza dev SKILL.md
+waza dev .
+```
+
+On Windows, native paths work too:
+
+```powershell
+waza dev .\skills\code-explainer\SKILL.md
+```
+
+Bare names resolve workspace skills first and fall back to existing local
+directories only when no skill matches. Use `./directory` (or `.\directory` on
+Windows) to select a directory explicitly when its name collides with a skill.
+Files other than `SKILL.md` are rejected.
+
+These target forms also work with `--copilot` for a non-mutating recommendations
+report and `--scaffold-triggers` to generate `tests/trigger_tests.yaml`.
+Multiple positional arguments remain workspace skill names; use `--all` to
+process every skill in the workspace.
+
+---
+
 ### `waza check [skill-name | skill-path]`
 
 Validate that a skill is ready for submission.
