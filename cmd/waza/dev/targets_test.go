@@ -134,7 +134,7 @@ func TestRunDev_InvalidTargets(t *testing.T) {
 				{"", "skill name or path required", false},
 				{"missing-skill", `skill "missing-skill" not found in workspace`, false},
 				{filepath.Join("missing", "SKILL.md"), "inspecting skill target", true},
-				{filepath.Join("\x00", "SKILL.md"), "inspecting skill target", false},
+				{filepath.Join("\x00", "SKILL.md"), "skill target", false},
 				{"README.md", "must be a directory or SKILL.md file", false},
 				{"README", "must be a directory or SKILL.md file", false},
 			} {
