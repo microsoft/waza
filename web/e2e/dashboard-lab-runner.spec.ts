@@ -3,6 +3,44 @@ import { inspectRunnerResult, parseRunnerResults, type RunnerOutcome } from "../
 import { runnerCollection, runnerResult } from "./fixtures/runner-data";
 import identity from "../../internal/runnercontract/testdata/identity.json" with { type: "json" };
 
+const outcomes: RunnerOutcome[] = ["success", "evaluation_failure", "infrastructure_failure",
+  "canceled", "timeout", "unsupported_capability", "invalid_request"];
+
+function contradictions(outcome: RunnerOutcome): unknown[] {
+  const result = runnerResult(outcome);
+  const partial = { ...result } as Partial<typeof result>;
+  delete partial.outcome;
+  const cases: unknown[] = [
+    partial,
+    { ...result, exit_code: (result.exit_code + 1) % outcomes.length },
+    { ...result, failure_boundary: outcome === "success" ? "execution" : "none" },
+  ];
+  if (outcome !== "success") cases.push({ ...result, diagnostics: [] });
+  if (result.selection_valid) {
+    cases.push(
+      { ...result, resolved: { ...result.resolved, trial: 1 } },
+      { ...result, observation: { ...result.observation, attempts: 1 } },
+      { ...result, observation: { ...result.observation, run_number: 1 } },
+    );
+  } else {
+    cases.push(
+      { ...result, observation: runnerResult().observation },
+      { ...runnerResult(), outcome, exit_code: result.exit_code, failure_boundary: result.failure_boundary },
+    );
+  }
+  if (outcome === "evaluation_failure") {
+    for (const change of [
+      { status: "passed" }, { status: "error" }, { status: "skipped" },
+      { error_msg: "runtime failed, not grading" }, { validations: null }, { validations: {} },
+      { validations: runnerResult().observation!.validations },
+    ]) cases.push({ ...result, observation: { ...result.observation, ...change } });
+    const absent = { ...result };
+    delete absent.observation;
+    cases.push(absent, { ...result, failure_boundary: "execution" });
+  }
+  return cases;
+}
+
 async function archive(page: Page, value: unknown = runnerCollection()) {
   await page.route("**/api/v1/lab/runs", (route) => route.fulfill({ json: [] }));
   await page.route("**/api/v1/lab/runner-results", (route) => route.fulfill({ json: value }));
@@ -15,6 +53,80 @@ test.describe("Runner result contracts", () => {
     expect(result.identity).toEqual(identity);
     expect(inspectRunnerResult(result)).toEqual({ state: "recorded", result });
     expect(JSON.stringify(result)).toBe(original);
+  });
+
+  for (const outcome of outcomes) {
+    test(`validates ${outcome} without coercing missing or contradictory evidence`, () => {
+      const result = runnerResult(outcome);
+      const original = JSON.stringify(result);
+      expect(inspectRunnerResult(result)).toEqual({ state: "recorded", result });
+      for (const key of ["kind", "schema_version", "outcome", "exit_code", "failure_boundary",
+        "negotiation", "selection_valid", "adjacent_work_selected", "diagnostics", "envelope_valid"]) {
+        const missing = { ...result } as unknown as Record<string, unknown>;
+        delete missing[key];
+        expect(inspectRunnerResult(missing).state, `${outcome}.${key}`).toBe("malformed");
+      }
+      for (const value of contradictions(outcome)) {
+        expect(inspectRunnerResult(value).state, JSON.stringify(value)).toBe("malformed");
+      }
+      expect(JSON.stringify(result)).toBe(original);
+    });
+  }
+
+  test("checks every outcome against every boundary without inventing evidence", () => {
+    const allowed = {
+      success: ["none"], evaluation_failure: ["grading"],
+      infrastructure_failure: ["execution", "grading", "shutdown", "terminalization"],
+      canceled: ["execution"], timeout: ["execution"],
+      unsupported_capability: ["negotiation"], invalid_request: ["admission", "selection"],
+    };
+    for (const outcome of outcomes) {
+      for (const failure_boundary of ["none", "admission", "negotiation", "selection",
+        "execution", "grading", "shutdown", "terminalization"] as const) {
+        const result = { ...runnerResult(outcome), failure_boundary };
+        expect(inspectRunnerResult(result).state, `${outcome}/${failure_boundary}`)
+          .toBe(allowed[outcome].includes(failure_boundary) ? "recorded" : "malformed");
+      }
+      if (outcome !== "success" && outcome !== "evaluation_failure") {
+        const result = runnerResult(outcome);
+        delete result.observation;
+        expect(inspectRunnerResult(result)).toEqual({ state: "recorded", result });
+      }
+    }
+  });
+
+  test("retains passing or failed observations when a later boundary fails, without inferring success", () => {
+    for (const failure_boundary of ["shutdown", "terminalization"] as const) {
+      for (const graded of ["success", "evaluation_failure"] as const) {
+        const result = {
+          ...runnerResult(graded), outcome: "infrastructure_failure" as const, exit_code: 2, failure_boundary,
+          diagnostics: [{ code: "late_failure", message: "Failed after grading." }],
+        };
+        expect(inspectRunnerResult(result)).toEqual({ state: "recorded", result });
+      }
+    }
+    for (const outcome of ["canceled", "timeout"] as const) {
+      const result = runnerResult(outcome);
+      result.observation = runnerResult().observation;
+      expect(inspectRunnerResult(result)).toEqual({ state: "recorded", result });
+      // Interruption can also occur before admission has derived any identity.
+      result.selection_valid = false;
+      delete result.requested;
+      delete result.resolved;
+      delete result.identity;
+      delete result.observation;
+      expect(inspectRunnerResult(result)).toEqual({ state: "recorded", result });
+    }
+    const terminalization = runnerResult("infrastructure_failure");
+    terminalization.failure_boundary = "terminalization";
+    terminalization.selection_valid = false;
+    delete terminalization.requested;
+    delete terminalization.resolved;
+    delete terminalization.identity;
+    delete terminalization.observation;
+    expect(inspectRunnerResult(terminalization).state).toBe("recorded");
+    terminalization.failure_boundary = "shutdown";
+    expect(inspectRunnerResult(terminalization).state).toBe("malformed");
   });
 
   test("rejects every missing required envelope and nested contract field", () => {
@@ -130,8 +242,6 @@ test.describe("Saved Lab runner results", () => {
     await expect(article).toContainText("Recorded timeout diagnostic.");
   });
 
-  const outcomes: RunnerOutcome[] = ["success", "evaluation_failure", "infrastructure_failure",
-    "canceled", "timeout", "unsupported_capability", "invalid_request"];
   for (const [exit, outcome] of outcomes.entries()) {
     test(`displays terminal ${outcome} and exit ${exit} without deriving it from HTTP 200 or passed observation`, async ({ page }) => {
       const result = runnerResult(outcome);
@@ -151,7 +261,33 @@ test.describe("Saved Lab runner results", () => {
         await expect(article).toContainText("Required capability future-required is unavailable.");
       }
     });
+
+    test(`withholds missing and contradictory ${outcome} rows instead of reinterpreting them`, async ({ page }) => {
+      const invalid = contradictions(outcome);
+      await archive(page, runnerCollection([...invalid, runnerResult(outcome)]));
+      await page.goto("/#/lab/runner");
+      await expect(page.getByRole("alert")).toHaveCount(invalid.length);
+      await expect(page.getByRole("heading", { name: /: Malformed envelope$/ })).toHaveCount(invalid.length);
+      await expect(page.getByRole("heading", {
+        name: `Result ${invalid.length + 1}: ${outcome}`, exact: true,
+      })).toBeVisible();
+      if (outcome !== "success") {
+        await expect(page.getByRole("heading", { name: /: success$/ })).toHaveCount(0);
+      }
+    });
   }
+
+  test("shutdown and publication failures display retained passing evidence as failures", async ({ page }) => {
+    const results = (["shutdown", "terminalization"] as const).map((failure_boundary) => ({
+      ...runnerResult(), outcome: "infrastructure_failure", exit_code: 2, failure_boundary,
+      diagnostics: [{ code: "late_failure", message: "Failed after passing checks." }],
+    }));
+    await archive(page, runnerCollection(results));
+    await page.goto("/#/lab/runner");
+    await expect(page.getByRole("heading", { name: /: infrastructure_failure$/ })).toHaveCount(2);
+    await expect(page.getByRole("heading", { name: /: success$/ })).toHaveCount(0);
+    await expect(page.getByRole("alert")).toHaveCount(0);
+  });
 
   test("loading and empty results are explicit, not success", async ({ page }) => {
     let release!: () => void;

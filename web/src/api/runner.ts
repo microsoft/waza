@@ -64,6 +64,18 @@ const validate = ajv.compile<RunnerResult>(schema);
 const object = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === "object" && !Array.isArray(value);
 
+// Service.Run, Interrupted and PublicationFailed retain observations on later
+// failures (notably shutdown/terminalization); passing evidence is not success.
+const boundaries: Record<RunnerOutcome, RunnerResult["failure_boundary"][]> = {
+  success: ["none"],
+  evaluation_failure: ["grading"],
+  infrastructure_failure: ["execution", "grading", "shutdown", "terminalization"],
+  canceled: ["execution"],
+  timeout: ["execution"],
+  unsupported_capability: ["negotiation"],
+  invalid_request: ["admission", "selection"],
+};
+
 export function inspectRunnerResult(value: unknown): RunnerEntry {
   if (object(value) && typeof value.schema_version === "string" && value.schema_version !== "1.0") {
     return { state: "unsupported", reason: `Unsupported runner result version: ${value.schema_version}` };
@@ -73,10 +85,26 @@ export function inspectRunnerResult(value: unknown): RunnerEntry {
   }
   const result = value;
   const { requested, resolved, observation } = result;
-  // Match ValidateResult's cross-field invariants; observation status never selects an outcome.
+  if (!boundaries[result.outcome].includes(result.failure_boundary)) {
+    return { state: "malformed", reason: "Terminal outcome and failure boundary disagree." };
+  }
+  if (result.outcome !== "success" && result.diagnostics.length === 0) {
+    return { state: "malformed", reason: "A terminal failure requires recorded diagnostics." };
+  }
   if (result.selection_valid && (!requested || !resolved ||
     (["shard", "task", "trial", "attempt"] as const).some((key) => requested[key] !== resolved[key]))) {
     return { state: "malformed", reason: "Resolved selection must match the exact requested tuple." };
+  }
+  if ((result.outcome === "unsupported_capability" || result.outcome === "invalid_request") &&
+    (result.selection_valid || observation !== undefined)) {
+    return { state: "malformed", reason: "Admission and negotiation failures cannot contain execution evidence." };
+  }
+  if ((result.failure_boundary === "grading" || result.failure_boundary === "shutdown") && !result.selection_valid) {
+    return { state: "malformed", reason: "Grading and shutdown require a resolved selection." };
+  }
+  if (observation && (!resolved || observation.run_number !== resolved.trial ||
+    observation.attempts !== resolved.attempt)) {
+    return { state: "malformed", reason: "Observation does not bind the exact resolved trial and attempt." };
   }
   if (result.outcome === "success" || result.outcome === "evaluation_failure") {
     if (!observation || observation.run_number !== resolved?.trial || observation.attempts !== resolved?.attempt) {
@@ -87,6 +115,12 @@ export function inspectRunnerResult(value: unknown): RunnerEntry {
       !object(observation.validations) || Object.keys(observation.validations).length === 0 ||
       !Object.values(observation.validations).every((check) => object(check) && check.passed === true))) {
       return { state: "malformed", reason: "Success requires complete passing checks without execution errors." };
+    }
+    if (result.outcome === "evaluation_failure" && (observation.status !== "failed" ||
+      (observation.error_msg !== undefined && observation.error_msg !== "") ||
+      !object(observation.validations) ||
+      !Object.values(observation.validations).some((check) => object(check) && check.passed === false))) {
+      return { state: "malformed", reason: "Evaluation failure requires a failed check without execution errors." };
     }
   }
   return { state: "recorded", result };

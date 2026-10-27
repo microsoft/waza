@@ -30,6 +30,9 @@ Engine 29.1.3, Buildx 0.30.1 and BuildKit 0.26.2.
 `test.sh` repeats compilation and packaging without Docker layer-cache reuse,
 compares image IDs, checks the exact fixture and rejects floating/malformed pins.
 It also runs the publisher's offline failure/reconciliation tests.
+The tests replace only the HTTPS transport and local Docker/filesystem operations:
+real urllib requests must carry the acquired bearer token on manifest, blob and
+tag operations. They never write to a registry.
 
 `smoke.sh --local` is **local CI evidence only**. An image ID is not a published
 reference. The fixture requests shard `shard-a`, task `selected`, trial `2`,
@@ -59,6 +62,11 @@ package registry, and does not touch Waza release/tag workflows.
    404 permits a first push. Authorization/network errors stop; existing tags
    with different image bytes are never overwritten. An uncertain push must be
    reconciled by registry read before another write.
+   The publisher uses `docker save` only to obtain local image bytes; OCI blob
+   uploads and the commit-manifest write use the acquired GHCR bearer directly,
+   not ambient Docker login credentials. Redirects and upload locations outside
+   this package are rejected. Tokens never enter subprocess arguments or logs.
+   Each write is attempted once; read-back must match the submitted manifest.
 5. Retrieve the **confirmed** digest reference from the successful run's summary
    and `runner-reference-<commit>` artifact. It is independently hashed from the
    registry manifest, checked anonymously, then smoke-tested by digest. Only then

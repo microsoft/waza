@@ -128,6 +128,27 @@ envelope validity and client contract validation remain separate. HTTP 200,
 passing observation status, or an empty diagnostic list never imply success.
 Use each result's **Diagnostics** link to focus its recorded code/message list.
 
+Client validation rejects contradictory terminal evidence rather than changing
+the recorded outcome. Exit categories 0–6 must match the outcome, and failure
+boundaries must agree with the runner contract:
+
+| Outcome | Allowed boundary |
+| --- | --- |
+| `success` | `none` |
+| `evaluation_failure` | `grading` |
+| `infrastructure_failure` | `execution`, `grading`, `shutdown`, `terminalization` |
+| `canceled`, `timeout` | `execution` |
+| `unsupported_capability` | `negotiation` |
+| `invalid_request` | `admission`, `selection` |
+
+Success requires nonempty, entirely passing checks and no execution error.
+Evaluation failure requires `failed` observation status, at least one failed
+check and no execution error. Every observation must bind the resolved trial
+and attempt. Rejected requests and unsupported capabilities cannot carry
+execution evidence; every failure needs recorded diagnostics. A later shutdown,
+publication, cancellation or timeout failure may retain passing observations:
+those observations never turn the terminal result into success.
+
 **Refresh runner results** explicitly reloads the archive. Loading, empty,
 malformed/unsupported responses and API failures have distinct states. A failed
 refresh hides previous success rather than silently retaining it. Missing

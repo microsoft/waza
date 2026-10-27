@@ -14,6 +14,20 @@ export function runnerResult(outcome: RunnerOutcome = "success"): RunnerResult {
   if (outcome !== "success") {
     result.failure_boundary = "execution";
     result.diagnostics = [{ code: "recorded_test_diagnostic", message: `Recorded ${outcome} diagnostic.` }];
+    result.observation!.status = "error";
+    result.observation!.error_msg = `Recorded ${outcome} execution error.`;
+    result.observation!.validations = null;
+  }
+  if (outcome === "evaluation_failure") {
+    result.failure_boundary = "grading";
+    result.observation!.status = "failed";
+    delete result.observation!.error_msg;
+    result.observation!.validations = {
+      output: {
+        identifier: "output", type: "contains", score: 0, weight: 1,
+        passed: false, feedback: "required output absent", duration_ms: 0,
+      },
+    };
   }
   if (outcome === "unsupported_capability" || outcome === "invalid_request") {
     result.failure_boundary = outcome === "unsupported_capability" ? "negotiation" : "selection";
