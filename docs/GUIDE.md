@@ -789,6 +789,19 @@ waza serve --tcp :9000
 
 ## Advanced Usage
 
+### Multi-turn conversations
+
+Use `inputs.follow_up_prompts` for a fixed sequence of user messages, or
+`inputs.responder` for a simulated user that answers the agent's questions.
+Do not configure both in one task. Scripted follow-ups reuse the actor session;
+an adaptive responder has a separate persistent classification session.
+
+The [complete two-question example](../site/src/content/docs/guides/eval-yaml.mdx#complete-multi-turn-example)
+includes runnable eval/task YAML, preflight, a scripted offline control, and
+authenticated real-execution commands. Adaptive runs can incur usage for both
+models. A responder's `stopped` outcome does not imply the graders passed;
+`abstained` and `cap_exhausted` describe different incomplete conversations.
+
 ### Controlled Dependency Failures
 
 MCP mock `error` responses and command mock `stderr`/`exit_code` responses can model permanent failures or permission denial without contacting the dependency. Legacy responses return the first matching fixture on every call; scenario evals can instead opt into finite recovery sequences. Configured unmatched calls fail closed, and MCP unmatched diagnostics omit argument values. The MCP mock subprocess accepts per-request cancellation without resetting consumed steps or terminating the server. See the [dependency recovery guide](../site/src/content/docs/guides/dependency-recovery.mdx) for dispatch, interruption, and evidence boundaries.

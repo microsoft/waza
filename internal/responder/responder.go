@@ -71,6 +71,7 @@ func (d *decisionRecorder) tools() []copilot.Tool {
 		{
 			Name:        toolRespond,
 			Description: "Answer the agent's question as the user. Call this exactly once with your answer.",
+			IsTerminal:  true,
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -97,6 +98,7 @@ func (d *decisionRecorder) tools() []copilot.Tool {
 		{
 			Name:        toolStop,
 			Description: "Signal that the agent has finished and needs no further input. Call this when there is no question to answer.",
+			IsTerminal:  true,
 			Parameters: map[string]any{
 				"type":       "object",
 				"properties": map[string]any{},
@@ -108,6 +110,7 @@ func (d *decisionRecorder) tools() []copilot.Tool {
 		{
 			Name:        toolAbstain,
 			Description: "Signal that you cannot answer the agent's question from your configuration. Call this only when the information is genuinely missing.",
+			IsTerminal:  true,
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{

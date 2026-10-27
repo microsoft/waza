@@ -2012,6 +2012,11 @@ inputs:
 
 After each agent turn the responder either **replies** (the answer is sent back, continuing the conversation), **stops** (the agent is done), or **abstains** — which fails the run with a distinct `abstained` outcome, signalling the brief is too vague. If `max_followups` is reached while the agent is still asking questions, the loop stops with outcome `cap_exhausted` and graders evaluate the final state. Each task carries its own responder, so the same skill can be tested against several target configurations.
 
+For complete, copyable scripted and adaptive tasks, see the
+[two-question multi-turn example](site/src/content/docs/guides/eval-yaml.mdx#complete-multi-turn-example).
+It includes agent-free preflight, a scripted mock control, real-execution
+prerequisites, and how to interpret stop, abstention, and follow-up limits.
+
 **Fields** (under `inputs.responder`):
 
 | Field           | Required | Description |
