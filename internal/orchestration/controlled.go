@@ -49,6 +49,10 @@ func ValidateControlledConfiguration(spec *models.EvalSpec, tc *models.TestCase)
 	if spec.Config.EngineType != "mock" || !spec.SkillsDisabledForTask(tc.SkillPaths) {
 		return fmt.Errorf("controlled mock execution requires actual mock configuration with ambient skills disabled")
 	}
+	return validateSingleTurnTextConfiguration(spec, tc)
+}
+
+func validateSingleTurnTextConfiguration(spec *models.EvalSpec, tc *models.TestCase) error {
 	if spec.Baseline || spec.Config.Concurrent ||
 		!reflect.ValueOf(spec.Hooks).IsZero() || len(spec.MCPMocks) != 0 ||
 		len(spec.Config.ServerConfigs) != 0 || len(spec.CommandMocks) != 0 ||

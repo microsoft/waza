@@ -46,6 +46,7 @@ export default defineConfig({
 					items: [
 						{ label: 'Writing Eval Specs', slug: 'guides/eval-yaml' },
 						{ label: 'Offline Eval Preflight', slug: 'guides/preflight' },
+						{ label: 'Public single-unit runner', slug: 'guides/runner-contract' },
 						{ label: 'Dependency Recovery', slug: 'guides/dependency-recovery' },
 
 						{ label: 'Controlled comparisons', slug: 'guides/controlled-comparisons' },

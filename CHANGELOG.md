@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Public runner foundation (#754, #757–#762)** — Independently versioned request/result `1.0`, exact single-unit CLI/API execution, offline fail-closed negotiation/admission, `sha256-json-v1` logical identities, explicit terminal outcomes/exit codes, bounded source adapters, Lab backend artifact endpoint, a `dashboard` alias for `serve`, and an immutable-local-image container reference. Native execution requires explicit paid consent; deterministic checks use mocks. See [contract, migration and handoffs](docs/RUNNER_CONTRACT.md). Lab UI, broader legacy mappings and a published registry image remain follow-ups; this is not a claim that all v0.40.0 acceptance criteria or native live quality have been completed.
+
 ## [0.39.0] - 2026-10-20
 
 ### Added

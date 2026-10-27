@@ -2,6 +2,12 @@ package schemas
 
 import _ "embed"
 
+//go:embed runner-request-1.0.schema.json
+var RunnerRequestSchemaJSON string
+
+//go:embed runner-result-1.0.schema.json
+var RunnerResultSchemaJSON string
+
 //go:embed eval.schema.json
 var EvalSchemaJSON string
 

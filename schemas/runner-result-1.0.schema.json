@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://microsoft.github.io/waza/schemas/runner-result-1.0.schema.json",
+  "title": "Waza terminal runner result 1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["kind", "schema_version", "outcome", "exit_code", "failure_boundary", "negotiation", "selection_valid", "adjacent_work_selected", "diagnostics", "envelope_valid"],
+  "properties": {
+    "kind": {"const": "waza.runner-result"},
+    "schema_version": {"const": "1.0"},
+    "outcome": {"enum": ["success", "evaluation_failure", "infrastructure_failure", "canceled", "timeout", "unsupported_capability", "invalid_request"]},
+    "exit_code": {"type": "integer", "minimum": 0, "maximum": 6},
+    "failure_boundary": {"enum": ["none", "admission", "negotiation", "selection", "execution", "grading", "shutdown", "terminalization"]},
+    "negotiation": {
+      "type": "object", "additionalProperties": false,
+      "required": ["requested_versions", "required_capabilities", "optional_capabilities", "available_capabilities", "selected_capabilities", "unavailable_optional_capabilities"],
+      "properties": {
+        "version": {"const": "1.0"},
+        "requested_versions": {"$ref": "#/$defs/strings"},
+        "required_capabilities": {"$ref": "#/$defs/strings"},
+        "optional_capabilities": {"$ref": "#/$defs/strings"},
+        "available_capabilities": {"$ref": "#/$defs/strings"},
+        "selected_capabilities": {"$ref": "#/$defs/strings"},
+        "unavailable_optional_capabilities": {"$ref": "#/$defs/strings"}
+      }
+    },
+    "requested": {"$ref": "#/$defs/selection"},
+    "resolved": {"$ref": "#/$defs/selection"},
+    "selection_valid": {"type": "boolean"},
+    "adjacent_work_selected": {"const": false},
+    "identity": {
+      "type": "object", "additionalProperties": false,
+      "required": ["version", "canonical_digest", "run", "shard", "task", "trial", "attempt"],
+      "properties": {
+        "version": {"const": "sha256-json-v1"},
+        "canonical_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "run": {"type": "string", "pattern": "^run-[0-9a-f]{64}$"},
+        "shard": {"type": "string", "pattern": "^shard-[0-9a-f]{64}$"},
+        "task": {"type": "string", "pattern": "^task-[0-9a-f]{64}$"},
+        "trial": {"type": "string", "pattern": "^trial-[0-9a-f]{64}$"},
+        "attempt": {"type": "string", "pattern": "^attempt-[0-9a-f]{64}$"}
+      }
+    },
+    "observation": {"type": "object"},
+    "diagnostics": {
+      "type": "array", "items": {
+        "type": "object", "additionalProperties": false, "required": ["code", "message"],
+        "properties": {"code": {"type": "string", "minLength": 1}, "message": {"type": "string", "minLength": 1}}
+      }
+    },
+    "envelope_valid": {"const": true}
+  },
+  "allOf": [
+    {"if": {"properties": {"selection_valid": {"const": true}}}, "then": {"required": ["requested", "resolved", "identity"]}, "else": {"not": {"anyOf": [{"required": ["resolved"]}, {"required": ["identity"]}]}}},
+    {"if": {"properties": {"outcome": {"const": "success"}}}, "then": {"required": ["identity", "resolved", "observation"], "properties": {"exit_code": {"const": 0}, "selection_valid": {"const": true}, "failure_boundary": {"const": "none"}}}},
+    {"if": {"properties": {"outcome": {"const": "evaluation_failure"}}}, "then": {"required": ["identity", "resolved", "observation"], "properties": {"exit_code": {"const": 1}, "selection_valid": {"const": true}}}},
+    {"if": {"properties": {"outcome": {"const": "infrastructure_failure"}}}, "then": {"properties": {"exit_code": {"const": 2}}}},
+    {"if": {"properties": {"outcome": {"const": "canceled"}}}, "then": {"properties": {"exit_code": {"const": 3}}}},
+    {"if": {"properties": {"outcome": {"const": "timeout"}}}, "then": {"properties": {"exit_code": {"const": 4}}}},
+    {"if": {"properties": {"outcome": {"const": "unsupported_capability"}}}, "then": {"properties": {"exit_code": {"const": 5}}}},
+    {"if": {"properties": {"outcome": {"const": "invalid_request"}}}, "then": {"properties": {"exit_code": {"const": 6}}}}
+  ],
+  "$defs": {
+    "strings": {"type": "array", "uniqueItems": true, "items": {"type": "string"}},
+    "selection": {
+      "type": "object", "additionalProperties": false, "required": ["shard", "task", "trial", "attempt"],
+      "properties": {
+        "shard": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"},
+        "task": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"},
+        "trial": {"type": "integer", "minimum": 1, "maximum": 2147483647},
+        "attempt": {"type": "integer", "minimum": 1, "maximum": 2147483647}
+      }
+    }
+  }
+}

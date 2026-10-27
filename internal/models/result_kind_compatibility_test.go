@@ -14,7 +14,7 @@ func TestResultsKindFencePreservesUnknownSameMajorFields(t *testing.T) {
 	require.NoError(t, err)
 	var original map[string]json.RawMessage
 	require.NoError(t, json.Unmarshal(data, &original))
-	for _, kind := range []string{`42`, `true`, `null`, `[]`, `{}`, `"unknown"`, `"WAZA.PREFLIGHT"`, `"waza.preflight"`} {
+	for _, kind := range []string{`42`, `true`, `null`, `[]`, `{}`, `"unknown"`, `"WAZA.PREFLIGHT"`, `"waza.preflight"`, `"waza.runner-result"`} {
 		t.Run(kind, func(t *testing.T) {
 			fields := make(map[string]json.RawMessage, len(original)+1)
 			for key, value := range original {
@@ -26,7 +26,7 @@ func TestResultsKindFencePreservesUnknownSameMajorFields(t *testing.T) {
 			outcome, parseErr := ParseEvaluationOutcome(bytes, "results.json")
 			_, accepted, probeErr := ProbeEvaluationOutcomeSchemaVersion(bytes)
 			require.NoError(t, probeErr)
-			if kind == `"waza.preflight"` {
+			if kind == `"waza.preflight"` || kind == `"waza.runner-result"` {
 				require.ErrorContains(t, parseErr, "not evaluation results")
 				require.Nil(t, outcome)
 				require.False(t, accepted)

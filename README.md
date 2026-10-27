@@ -147,6 +147,10 @@ the absence of transient edits or external side effects.
 # Build
 make build
 
+# Execute one versioned, explicitly selected unit (unreleased source-build feature)
+waza runner capabilities
+waza runner run < examples/runner/request.json > selected.runner.json
+
 # Initialize a project workspace
 waza init [directory]
 
@@ -248,6 +252,11 @@ to create or update evals and guide eval-driven implementation. It provides the
 canonical workflow, target-specific validation steps, and a reusable delegation prompt.
 
 ## Commands
+
+The unreleased `waza runner` family adds a separate single-unit CLI/API boundary:
+`capabilities`, `run`, `adapt`, and offline `validate-result`.
+See the [runner contract and migration/reference guide](docs/RUNNER_CONTRACT.md).
+Existing local commands and result schemas retain their behavior.
 
 ### `waza preflight <eval.yaml>`
 

@@ -1,0 +1,6 @@
+[
+  {"versions":["1.0"],"required":["exact-unit"],"optional":[],"outcome":"success","selected_version":"1.0","unavailable_optional":[]},
+  {"versions":["2.0","1.0"],"required":["exact-unit"],"optional":["future"],"outcome":"success","selected_version":"1.0","unavailable_optional":["future"]},
+  {"versions":["2.0"],"required":[],"optional":[],"outcome":"unsupported_capability","selected_version":"","unavailable_optional":[]},
+  {"versions":["1.0"],"required":["future"],"optional":[],"outcome":"unsupported_capability","selected_version":"1.0","unavailable_optional":[]}
+]

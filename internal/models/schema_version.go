@@ -90,7 +90,7 @@ func hasEvaluationOutcomeShape(fields map[string]json.RawMessage) bool {
 	var kind string
 	if raw, exists := fields["kind"]; exists {
 		if err := json.Unmarshal(raw, &kind); err == nil &&
-			(kind == "waza.preflight" || strings.HasPrefix(kind, "waza.release-")) {
+			(kind == "waza.preflight" || kind == "waza.runner-result" || strings.HasPrefix(kind, "waza.release-")) {
 			return false
 		}
 	}
@@ -191,6 +191,9 @@ func ParseEvaluationOutcome(data []byte, source string) (*EvaluationOutcome, err
 	var kind string
 	if json.Unmarshal(header.Kind, &kind) == nil && kind == "waza.preflight" {
 		return nil, fmt.Errorf("%s is an offline preflight report, not evaluation results", source)
+	}
+	if kind == "waza.runner-result" {
+		return nil, fmt.Errorf("%s is a terminal runner envelope, not evaluation results; use waza runner validate-result", source)
 	}
 	version, err := ValidateSchemaVersion("results.json", source, header.SchemaVersion)
 	if err != nil {

@@ -131,6 +131,15 @@ jobs:
           fi
           echo "Integration test completed (exit code: $EXIT_CODE)"
 
+      - name: Public single-unit container conformance
+        if: matrix.os == 'ubuntu-latest'
+        env:
+          ENABLE_COPILOT_TESTS: 'false'
+          NO_COLOR: '1'
+        run: |
+          bash examples/runner/build.sh
+          bash examples/runner/smoke.sh
+
   build-and-test-windows:
     name: ${{ matrix.os }}
     runs-on: windows-latest

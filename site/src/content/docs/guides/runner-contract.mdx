@@ -1,0 +1,113 @@
+---
+title: Public single-unit runner
+description: Unreleased versioned CLI/API foundation, exact selection, identities, terminal results, and bounded container reference.
+---
+
+This is an **unreleased backend/runtime foundation** for the v0.40.0 roadmap,
+not a completed release or a published container image. Local `waza run`,
+`grade`, `replay` and historical schemas keep their existing behavior.
+
+## Run one explicit unit
+
+From a source checkout with embedded dashboard assets built:
+
+```bash
+go build -o waza ./cmd/waza
+./waza runner capabilities
+./waza runner run < examples/runner/request.json > selected.runner.json
+./waza runner validate-result < selected.runner.json
+```
+
+The request captures one eval and task source. It explicitly selects shard,
+task ID, trial and attempt. The runner never expands globs, scans adjacent tasks,
+automatically retries or converts a missing observation into success.
+The example selects `shard-a / selected / trial 2 / attempt 2` despite the eval
+declaring three trials/attempts and an adjacent-task glob.
+
+The current profiles support single-turn mock/native execution with inline
+resources, text checks and ambient skills disabled. Unsupported source semantics
+fail explicitly. Native execution additionally requires
+`allow_paid_execution: true` and required capability `inline.native-text`; it can
+incur usage. The example uses mock execution and does not authorize paid calls.
+
+## API, schemas and negotiation
+
+`waza serve` (alias `waza dashboard`) exposes `POST /api/v1/runner/run` with the same request/result as
+the CLI. Send `Content-Type: application/json`; cross-origin calls are rejected.
+Execution accepts only `localhost` or literal loopback Host names, not DNS aliases;
+this is a local service, not a remotely authenticated execution endpoint.
+`GET /api/v1/runner/capabilities` advertises supported versions and capabilities.
+HTTP 200 carries application failures too: inspect the terminal outcome.
+
+- Request bootstrap schema, selected runner and terminal result are independently
+  versioned `1.0`; identity derivation is `sha256-json-v1`.
+- Offering `["2.0","1.0"]` permits the supported `1.0` fallback;
+  offering only `["2.0"]` fails before execution.
+- Unknown required capabilities fail closed; unknown optional ones are recorded
+  as unavailable. Neither implies a silent feature substitution.
+- [Request schema](https://github.com/microsoft/waza/blob/main/schemas/runner-request-1.0.schema.json)
+  and [result schema](https://github.com/microsoft/waza/blob/main/schemas/runner-result-1.0.schema.json)
+  are validated offline.
+
+The [canonical developer/user contract](https://github.com/microsoft/waza/blob/main/docs/RUNNER_CONTRACT.md)
+defines fields, normalization, digest namespaces, evolution and failure boundaries.
+Its [frozen identity vector](https://github.com/microsoft/waza/blob/main/internal/runnercontract/testdata/identity.json)
+is tested across subprocesses and the normal Linux/Windows Go CI.
+Comments, YAML mapping order and LF/CRLF do not change logical identity; material
+source/selection changes do. Identical logical IDs do not imply deduplication or
+exactly-once execution.
+
+## Terminal outcomes
+
+| Outcome | Exit code | Interpretation |
+|---|---:|---|
+| `success` | 0 | Graded selected attempt passed |
+| `evaluation_failure` | 1 | Check failure |
+| `infrastructure_failure` | 2 | Setup/execution/shutdown/output failure |
+| `canceled` | 3 | Observed cancellation |
+| `timeout` | 4 | Deadline exceeded |
+| `unsupported_capability` | 5 | Runner version/capability mismatch |
+| `invalid_request` | 6 | Schema/source/selection/profile rejection |
+
+Every recoverable runner path converges on one validated envelope. SIGKILL,
+machine loss or an unwritable channel cannot promise output; missing output is
+unknown, never success. Missing identity/usage/observation remains unavailable.
+The contract guide explains schema examples and diagnostics; deterministic tests
+cover every state without paid/live execution.
+
+## Migration and container walkthrough
+
+Use `runner adapt` only with two explicit supported source files:
+
+```bash
+./waza runner adapt --eval path/to/eval.yaml --task path/to/task.yaml \
+  --run-key qualification-42 --shard shard-a --task-id selected \
+  --trial 1 --attempt 1 > request.json
+```
+
+The adapter preserves source bytes. It never silently removes unsupported skills,
+hooks, CSVs or multi-turn behavior; retain `waza run` for those workflows.
+Historical result IDs and schemas are not rewritten.
+
+For the bounded Linux-container proof of concept:
+
+```bash
+bash examples/runner/build.sh
+bash examples/runner/smoke.sh
+```
+
+This builds a static binary with Go `1.26.4`, uses OCI `scratch`, and records a
+local immutable image ID. Smoke accepts only that pin, runs network-disabled and
+non-root, and verifies `.runner-reference/output/unit.runner.json` through the
+public contract. It requires Docker, Python 3, Go build dependencies and built
+dashboard assets. No image is published and no scheduler code is added.
+See the contract for build/update guidance and isolation limitations.
+
+## Dashboard status
+
+`GET /api/v1/lab/runner-results` exposes validated `*.runner.json` artifacts,
+including negotiation, exact selection, identity lineage and terminal state.
+The dedicated Lab UI remains a Yen follow-up; this backend does not claim that
+the current dashboard renders these fields.
+Compatibility adapters (#761) and the bounded reference (#762) require **no
+dashboard UI change**.

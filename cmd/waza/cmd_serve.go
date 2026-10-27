@@ -26,8 +26,9 @@ func newServeCommand() *cobra.Command {
 	var resultsDir string
 
 	cmd := &cobra.Command{
-		Use:   "serve",
-		Short: "Start the waza server (HTTP dashboard or JSON-RPC)",
+		Use:     "serve",
+		Aliases: []string{"dashboard"},
+		Short:   "Start the waza server (HTTP dashboard or JSON-RPC)",
 		Long: `Start the waza server.
 
 By default, an HTTP server is started that serves the waza dashboard and API.

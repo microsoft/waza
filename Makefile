@@ -1,5 +1,5 @@
 # Waza Build System
-.PHONY: all build build-web clean test test-compat lint fmt install help
+.PHONY: all build build-web clean test test-compat test-runner lint fmt install help
 
 # Build configuration
 BINARY_NAME=waza
@@ -33,9 +33,12 @@ test-compat:
 	@echo "Running offline compatibility corpus and package-owned preservation tests..."
 	@for tool in git node; do command -v "$$tool" >/dev/null 2>&1 || { echo "test-compat requires $$tool on PATH; no grader family may be silently skipped"; exit 1; }; done
 	@python3 --version >/dev/null 2>&1 || python --version >/dev/null 2>&1 || { echo "test-compat requires working python3 or python on PATH; no grader family may be silently skipped"; exit 1; }
-	@ENABLE_COPILOT_TESTS=false NO_COLOR=1 TZ=UTC LC_ALL=C go test -count=1 ./cmd/waza/... ./internal/models ./internal/validation ./internal/graders/... ./internal/execution ./internal/orchestration ./internal/commandmock ./internal/mcpmock ./internal/cache ./internal/snapshot ./internal/registry ./internal/skill ./internal/checks ./internal/quality ./internal/responder ./internal/trigger ./internal/adversarial ./internal/scoring ./internal/workspace ./internal/webapi
+	@ENABLE_COPILOT_TESTS=false NO_COLOR=1 TZ=UTC LC_ALL=C go test -count=1 ./cmd/waza/... ./internal/models ./internal/validation ./internal/graders/... ./internal/execution ./internal/orchestration ./internal/commandmock ./internal/mcpmock ./internal/cache ./internal/snapshot ./internal/registry ./internal/skill ./internal/checks ./internal/quality ./internal/responder ./internal/trigger ./internal/adversarial ./internal/scoring ./internal/workspace ./internal/webapi ./internal/runnercontract
 
 # Run linter
+test-runner:
+	@ENABLE_COPILOT_TESTS=false NO_COLOR=1 go test -count=1 ./internal/runnercontract ./internal/webapi ./internal/webserver ./cmd/waza -run Runner
+
 lint:
 	@echo "Running linter..."
 	@if command -v golangci-lint >/dev/null 2>&1; then \
