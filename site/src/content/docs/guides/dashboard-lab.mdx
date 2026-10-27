@@ -89,7 +89,7 @@ the frontend-only development workflow above.
 | Reports | Filtered JSON/CSV downloads and browser print/save-PDF |
 | Skills & evals | Suites observed in run history; readiness, requirement coverage, and skill token budgets explicitly unavailable |
 
-Try **Overview → failing run → Grader evidence → Recorded evidence → Trajectory → Reports**.
+Try **Overview → failing run → Grader evidence → Conversation → Recorded evidence → Trajectory → Reports**.
 The inspector uses actual recorded prompts, graders, session digests, responder
 metadata, model usage, reliability statistics, portable evidence, scoped
 requirement observations, prompt-judging metadata, and the existing trajectory
@@ -99,6 +99,29 @@ transcripts for the overview.
 Evidence tabs use a single Tab stop with ArrowLeft/ArrowRight, Home, and End to
 move focus and selection. Nullable task/grader arrays are empty recorded
 evidence, not errors or invented scores, including in JSON reports.
+
+### Read a multi-turn conversation
+
+Open a run, select its task, and choose **Conversation**. Recorded user and
+**Agent under test** messages appear in their saved order, fully expanded with
+line breaks preserved. Tool events, reasoning and streaming deltas are omitted;
+use **Trajectory** for the underlying event view.
+
+This view uses only saved `user.message` and `assistant.message` events from the
+**first repetition**. It does not assess transcript completeness or reconstruct
+missing messages from the initial prompt, grader feedback or final output.
+Missing message content and tasks with no recorded conversation are explicit.
+The existing API omits empty text, so **No message text recorded** does not
+distinguish an empty original message from unavailable text.
+The synthetic demo does not invent a recorded conversation.
+
+**User** labels identify the message role, not whether a human or model authored
+that specific message. When responder metadata exists, its simulated-user
+follow-up count is shown separately; per-message provenance is unavailable.
+Changing tasks or refreshing saved results updates the conversation along with
+the other inspector evidence.
+
+<ZoomImage src="../../images/dashboard-lab-conversation.png" alt="Lab Conversation tab showing expanded, ordered user and agent messages from an authored mock fixture." />
 
 <ZoomImage src="../../images/dashboard-lab-compare.png" alt="Baseline comparison with aligned task scores, regressions, and added task coverage." />
 

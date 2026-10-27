@@ -6,6 +6,7 @@ import { evidenceDetail } from "./fixtures/evidence-data";
 import promptJudging from "./fixtures/prompt-judging.json" with { type: "json" };
 
 import { RECORDED_RELIABILITY } from "./fixtures/reliability-data";
+import { CONVERSATION_DETAIL, CONVERSATION_SUMMARY } from "./fixtures/conversation-data";
 
 test.describe("Dashboard lab screenshots", () => {
   test.use({ viewport: { width: 1440, height: 1000 } });
@@ -24,6 +25,24 @@ test.describe("Dashboard lab screenshots", () => {
     for (const path of ["../docs/images/dashboard-lab-compare.png", "../site/public/images/dashboard-lab-compare.png"]) {
       await page.screenshot({ path, animations: "disabled", fullPage: true });
     }
+  });
+
+  test("dashboard-lab-conversation", async ({ page }) => {
+    await page.route("**/api/v1/lab/runs", (route) =>
+      route.fulfill({ json: [CONVERSATION_SUMMARY] }),
+    );
+    await page.route("**/api/runs/conversation", (route) =>
+      route.fulfill({ json: CONVERSATION_DETAIL }),
+    );
+    await page.goto("/#/lab/history");
+    await page.getByRole("button", { name: "conversation-review", exact: true }).click();
+    const dialog = page.getByRole("dialog");
+    await dialog.getByRole("tab", { name: "Conversation", exact: true }).click();
+    await expect(dialog.getByRole("list", { name: "Recorded conversation" }).getByRole("listitem")).toHaveCount(6);
+    await expect(dialog).toContainText("Responder recorded 2 simulated-user follow-ups.");
+    const path = "../docs/images/dashboard-lab-conversation.png";
+    await page.screenshot({ path, animations: "disabled", fullPage: true });
+    await copyFile(path, "../site/public/images/dashboard-lab-conversation.png");
   });
 
   test("dashboard-lab-evidence", async ({ page }) => {
