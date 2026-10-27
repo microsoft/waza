@@ -1,0 +1,58 @@
+name: Publish bounded runner reference
+
+on:
+  workflow_dispatch:
+    inputs:
+      commit:
+        description: Full reviewed commit SHA already merged to main (no Waza release/tag)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: runner-reference-publication
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.repository == 'microsoft/waza' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Validate immutable source input
+        env:
+          COMMIT: ${{ inputs.commit }}
+        run: '[[ "$COMMIT" =~ ^[0-9a-f]{40}$ ]]'
+      - name: Checkout reviewed source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.commit }}
+          fetch-depth: 0
+          lfs: true
+      - name: Require merged main ancestry
+        run: git merge-base --is-ancestor HEAD origin/main
+      - name: Build and verify exact local unit
+        run: |
+          bash examples/runner/build.sh
+          bash examples/runner/smoke.sh --local
+      - name: Authenticate only to the reference registry
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: printf '%s' "$GHCR_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+      - name: Reconcile, publish, and independently verify public digest
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 examples/runner/publish.py
+      - name: Retain confirmed reference and terminal envelope
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: runner-reference-${{ inputs.commit }}
+          path: |
+            .runner-reference/published-reference
+            .runner-reference/output/unit.runner.json
+          if-no-files-found: error

@@ -138,7 +138,7 @@ jobs:
           NO_COLOR: '1'
         run: |
           bash examples/runner/build.sh
-          bash examples/runner/smoke.sh
+          bash examples/runner/test.sh
 
   build-and-test-windows:
     name: ${{ matrix.os }}
