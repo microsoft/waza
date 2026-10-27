@@ -1626,7 +1626,7 @@ Copilot-backed runs query the SDK's typed `session.usage.getMetrics` after compl
 | `summary.usage.model_metrics.<model>.ai_credits` | Final AI Credits attributed to a model |
 | `summary.usage.model_metrics.<model>.{input,output,cache_read,cache_write}_tokens` | Token-category diagnostics |
 
-The CLI usage summary prints `AI Credits` (and a per-model column) at nano-unit precision, and the classic dashboard shows **AI Credits** plus a **Usage by model** table. Totals include task, trigger, and prompt-grader sessions initiated by waza, not account-wide Copilot usage. A run or model aggregate with missing contributing metrics is unavailable, never a partial subtotal. Main currently uses `github.com/github/copilot-sdk/go` v1.0.21; published standalone `v0.38.10` uses v1.0.15. Older result artifacts show `—` in the dashboard (`n/a` in the CLI) rather than an estimate.
+The CLI usage summary prints `AI Credits` (and a per-model column) at nano-unit precision, and the classic dashboard shows **AI Credits** plus a **Usage by model** table. Totals include task, trigger, and prompt-grader sessions initiated by waza, not account-wide Copilot usage. A run or model aggregate with missing contributing metrics is unavailable, never a partial subtotal. Main currently uses `github.com/github/copilot-sdk/go` v1.0.24 with bundled CLI 1.0.101; published standalone `v0.38.10` uses v1.0.15. Older result artifacts show `—` in the dashboard (`n/a` in the CLI) rather than an estimate.
 
 ## Graders
 
