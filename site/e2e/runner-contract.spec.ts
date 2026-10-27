@@ -11,4 +11,12 @@ test('runner contract is navigable from CLI with schema and migration guidance',
     .toHaveAttribute('href', 'https://github.com/microsoft/waza/blob/main/schemas/runner-result-1.0.schema.json');
   await expect(page.getByRole('heading', { name: 'Migration and container walkthrough', exact: true })).toBeVisible();
   await expect(page.getByRole('main')).toContainText('no dashboard UI change');
+  await page.getByRole('link', { name: 'the Lab guide', exact: true }).click();
+  await expect(page).toHaveURL(/\/waza\/guides\/dashboard-lab\/#inspect-terminal-runner-results$/);
+  await expect(page.getByRole('heading', { name: 'Inspect terminal runner results', exact: true })).toBeVisible();
+  await expect(page.getByRole('main')).toContainText('HTTP 200');
+  await expect(page.getByRole('main')).toContainText('no-dashboard-UI');
+  const screenshot = page.getByRole('img', { name: 'Fixture-backed Lab runner result with a recorded timeout, negotiation, exact work tuple, identity lineage and diagnostics.', exact: true });
+  await expect(screenshot).toBeVisible();
+  expect(await screenshot.evaluate((image: HTMLImageElement) => image.complete && image.naturalWidth > 0)).toBe(true);
 });

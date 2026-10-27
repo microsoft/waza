@@ -32,6 +32,7 @@ import { reportDetails, useLabSource, useLabComparison } from "./source";
 import RunActivity from "./RunActivity";
 import { ModelChart, QualityChart } from "./Charts";
 import RunInspector from "./RunInspector";
+import RunnerResults from "./RunnerResults";
 import {
   alignTasks,
   duration,
@@ -57,6 +58,7 @@ const sections = [
   { id: "overview", label: "Overview", icon: LayoutDashboard },
   { id: "current", label: "Current runs", icon: Radio },
   { id: "history", label: "Run history", icon: History },
+  { id: "runner", label: "Runner results", icon: ShieldCheck },
   { id: "compare", label: "Compare", icon: GitCompareArrows },
   { id: "reports", label: "Reports", icon: FileBarChart2 },
   { id: "catalog", label: "Skills & evals", icon: Layers3 },
@@ -1112,7 +1114,9 @@ export default function DashboardLab({ demo = false }: { demo?: boolean }) {
             <small>
               {demo
                 ? "No credentials or backend required"
-                : refreshDescription}
+                : section === "runner"
+                  ? "Runner results refresh on demand"
+                  : refreshDescription}
             </small>
           </div>
           <a href="#/">
@@ -1221,6 +1225,8 @@ export default function DashboardLab({ demo = false }: { demo?: boolean }) {
                     ? "Follow progress, investigate failures, and keep execution visible."
                     : section === "history"
                       ? "A searchable record of what ran, what changed, and what it cost."
+                      : section === "runner"
+                        ? "Inspect recorded negotiation, exact selection, identity and terminal envelopes."
                       : section === "compare"
                         ? "Make a change. Measure its impact. Inspect the evidence."
                         : section === "reports"
@@ -1228,7 +1234,7 @@ export default function DashboardLab({ demo = false }: { demo?: boolean }) {
                           : "Connect skill readiness, evaluation coverage, and execution evidence."}
               </p>
             </div>
-            <button
+            {section !== "runner" && <button
               className="lab-button"
               onClick={() =>
                 navigate(section === "reports" ? "history" : "reports")
@@ -1240,9 +1246,9 @@ export default function DashboardLab({ demo = false }: { demo?: boolean }) {
                 <FileBarChart2 size={15} />
               )}
               {section === "reports" ? "Explore runs" : "Build report"}
-            </button>
+            </button>}
           </div>
-          <div className="lab-filterbar">
+          {section !== "runner" && <div className="lab-filterbar">
             <span>
               <SlidersHorizontal size={15} />
               Scope
@@ -1353,8 +1359,8 @@ export default function DashboardLab({ demo = false }: { demo?: boolean }) {
             >
               Reset filters
             </button>
-          </div>
-          {!demo && (
+          </div>}
+          {!demo && section !== "runner" && (
             <div className="lab-history-toolbar">
               <p role={source.isError ? "alert" : "status"}>
                 {source.isError
@@ -1372,6 +1378,7 @@ export default function DashboardLab({ demo = false }: { demo?: boolean }) {
               </button>
             </div>
           )}
+          {section === "runner" && <RunnerResults demo={demo} />}
           {section === "overview" && (
             <>
               <Metrics items={filtered} />

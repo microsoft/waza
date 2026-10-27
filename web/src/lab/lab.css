@@ -1,3 +1,61 @@
+.lab-runner {
+  display: grid;
+  gap: 18px;
+}
+.lab-runner-result,
+.lab-runner-message {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.lab-runner-message,
+.lab-runner-body {
+  padding: 22px;
+}
+.lab-runner-body {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 24px;
+}
+.lab-runner-body section:last-child {
+  grid-column: 1 / -1;
+}
+.lab-runner-fields,
+.lab-runner-tuple {
+  display: grid;
+  grid-template-columns: minmax(100px, 1fr) minmax(0, 1.4fr);
+  gap: 8px 16px;
+}
+.lab-runner-fields dt,
+.lab-runner-tuple dt {
+  color: var(--lab-muted);
+}
+.lab-runner-body dd {
+  margin: 0;
+}
+.lab-runner-body ul {
+  margin: 0;
+  padding-left: 18px;
+}
+.lab-runner-tuples {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+}
+.lab-runner-body ol {
+  padding-left: 22px;
+}
+.lab-runner-body ol code {
+  display: block;
+}
+.lab-runner-diagnostics li + li {
+  margin-top: 12px;
+}
+@media (max-width: 900px) {
+  .lab-runner-body,
+  .lab-runner-tuples {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
 .lab-root {
   --lab-bg: oklch(0.982 0.004 260);
   --lab-surface: oklch(1 0 0);

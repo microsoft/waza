@@ -1,0 +1,81 @@
+{
+  "kind": "waza.runner-result",
+  "schema_version": "1.0",
+  "outcome": "success",
+  "exit_code": 0,
+  "failure_boundary": "none",
+  "negotiation": {
+    "version": "1.0",
+    "requested_versions": [
+      "1.0"
+    ],
+    "required_capabilities": [
+      "exact-unit",
+      "inline.mock-text",
+      "terminal-result"
+    ],
+    "optional_capabilities": [],
+    "available_capabilities": [
+      "exact-unit",
+      "identity.sha256-json-v1",
+      "inline.mock-text",
+      "inline.native-text",
+      "terminal-result"
+    ],
+    "selected_capabilities": [
+      "exact-unit",
+      "inline.mock-text",
+      "terminal-result"
+    ],
+    "unavailable_optional_capabilities": []
+  },
+  "requested": {
+    "shard": "shard-a",
+    "task": "selected",
+    "trial": 2,
+    "attempt": 2
+  },
+  "resolved": {
+    "shard": "shard-a",
+    "task": "selected",
+    "trial": 2,
+    "attempt": 2
+  },
+  "selection_valid": true,
+  "adjacent_work_selected": false,
+  "identity": {
+    "version": "sha256-json-v1",
+    "canonical_digest": "1c43e5f40d3d15fc7fa686e5892812aa60c0a507007a15648c5abf7817787819",
+    "run": "run-736b3c11744c5b7fa19feb3af62694a79a35df7b4b028e24b3b1fd8cecb6655d",
+    "shard": "shard-b39bf28ce7764204f56310808a835a3fb93a4c3f7cdbf60172174c218573271c",
+    "task": "task-d2f2576629bf3e3b4d3d71f44ae0590fde1178e4d9694d83204b9c662d8d6899",
+    "trial": "trial-55b36a9dbd790f261b4071665b2792f5ed29219ae938d7f680d43f81ebb02b9e",
+    "attempt": "attempt-9f37cac7d3d41fff1179df116799a18a10b25414a1e01b37f25d72791d3f4dfd"
+  },
+  "observation": {
+    "run_number": 2,
+    "attempts": 2,
+    "prompt": "hello",
+    "status": "passed",
+    "duration_ms": 0,
+    "validations": {
+      "_output_contains": {
+        "identifier": "_output_contains",
+        "type": "",
+        "score": 1,
+        "weight": 1,
+        "passed": true,
+        "feedback": "matched 1/1 required strings",
+        "duration_ms": 0
+      }
+    },
+    "session_digest": {
+      "tool_call_count": 0,
+      "tools_used": [],
+      "errors": []
+    },
+    "final_output": "Mock response for: hello\nTask: Selected task"
+  },
+  "diagnostics": [],
+  "envelope_valid": true
+}

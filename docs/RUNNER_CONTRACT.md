@@ -256,12 +256,21 @@ reports reload errors rather than retaining stale success. Historical result
 listing remains separate; no synthetic passing `EvaluationOutcome` is created
 for rejected or canceled requests.
 
-**Yen:** add a typed client in `web/src/api/runner.ts` and a dedicated surface in
-`web/src/lab/DashboardLab.tsx` / `RunInspector.tsx`. Render the supplied negotiation,
-requested/resolved tuple, selection validation, adjacent-work flag, identity
-hierarchy/digest/version, terminal outcome/exit/failure boundary, diagnostics and
-envelope validation directly. Do not infer success from observation status or
-HTTP 200. This PR provides data, not the dashboard UI acceptance criteria.
+Open **Runner results** in `waza dashboard --lab` (or `waza serve --lab`) at
+`/#/lab/runner`. This read-only surface uses the typed client in
+`web/src/api/runner.ts` and displays the supplied negotiation, requested/resolved
+tuple, pre-execution selection validation, adjacent-work flag, identity
+hierarchy/digest/version, terminal outcome, stable exit code, failure boundary,
+linked diagnostics and recorded envelope validation. The client also checks the
+published result schema and cross-field invariants without repairing data.
+HTTP 200 and observation status never determine the displayed outcome.
+
+Use **Refresh runner results** to reload saved artifacts explicitly. Missing
+envelopes are unassessed; API errors hide prior success and never substitute
+demo fixtures. Unsupported or malformed data is withheld with diagnostics.
+The synthetic route `/#/lab/demo/runner` does not request runner data or create
+runner fixtures. Runner artifacts remain separate from evaluation history and
+its reports; the Lab does not submit work or provide scheduling controls.
 **#761 and #762 require no dashboard UI change.**
 
 **Rusty via coordinator:** review the new independent public boundary, inline-only

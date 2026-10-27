@@ -107,7 +107,14 @@ See the contract for build/update guidance and isolation limitations.
 
 `GET /api/v1/lab/runner-results` exposes validated `*.runner.json` artifacts,
 including negotiation, exact selection, identity lineage and terminal state.
-The dedicated Lab UI remains a Yen follow-up; this backend does not claim that
-the current dashboard renders these fields.
+Open **Runner results** at `/#/lab/runner` with `waza dashboard --lab` (or
+`waza serve --lab`). The read-only view displays the recorded negotiation,
+requested/resolved tuple, pre-execution validation, no-adjacent-work indication,
+identity hierarchy/digest/version, terminal outcome/exit code/failure boundary,
+envelope validation and linked diagnostics. It does not derive success from HTTP
+200 or observation status. Use **Refresh runner results** to reload explicitly;
+API errors, unsupported/malformed data and empty archives remain distinct.
+The synthetic demo does not request or invent runner results.
+See [the Lab guide](../dashboard-lab/#inspect-terminal-runner-results) for details.
 Compatibility adapters (#761) and the bounded reference (#762) require **no
 dashboard UI change**.

@@ -29,6 +29,17 @@ Runtime version and provider currency are unavailable; native assurance is
 unsupported. This screenshot demonstrates rendering, not paid/live execution
 or model quality.*
 
+For the source-build runner dashboard, open **Runner results** at `/#/lab/runner`
+with `waza dashboard --lab --results-dir ./results` (or `waza serve --lab`).
+Save runner stdout as `*.runner.json` in the configured directory and choose
+**Refresh runner results**. Inspect negotiation, exact work selection, identity
+lineage and the recorded terminal outcome/exit/failure boundary; HTTP 200 is not
+execution success. Errors and missing data remain explicit. The synthetic demo
+does not create runner envelopes. See [the runner contract](RUNNER_CONTRACT.md)
+for invocation details. #761/#762 retain **no dashboard UI change**.
+
+![Fixture-backed runner timeout with negotiation, selection and identity evidence](images/dashboard-lab-runner.png)
+
 Before any demo, ensure waza is installed:
 
 ```bash

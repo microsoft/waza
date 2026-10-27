@@ -7,6 +7,7 @@ import promptJudging from "./fixtures/prompt-judging.json" with { type: "json" }
 
 import { RECORDED_RELIABILITY } from "./fixtures/reliability-data";
 import { CONVERSATION_DETAIL, CONVERSATION_SUMMARY } from "./fixtures/conversation-data";
+import { runnerCollection, runnerResult } from "./fixtures/runner-data";
 
 test.describe("Dashboard lab screenshots", () => {
   test.use({ viewport: { width: 1440, height: 1000 } });
@@ -15,6 +16,22 @@ test.describe("Dashboard lab screenshots", () => {
     await page.goto("/#/lab/demo");
     await expect(page.getByRole("heading", { name: "Know where your skills stand." })).toBeVisible();
     for (const path of ["../docs/images/dashboard-lab-overview.png", "../site/public/images/dashboard-lab-overview.png"]) {
+      await page.screenshot({ path, animations: "disabled", fullPage: true });
+    }
+  });
+
+  test("dashboard-lab-runner", async ({ page }) => {
+    const result = runnerResult("timeout");
+    result.negotiation.requested_versions = ["2.0", "1.0"];
+    result.negotiation.optional_capabilities = ["future"];
+    result.negotiation.unavailable_optional_capabilities = ["future"];
+    await page.route("**/api/v1/lab/runs", (route) => route.fulfill({ json: [] }));
+    await page.route("**/api/v1/lab/runner-results", (route) =>
+      route.fulfill({ json: runnerCollection([result]) }),
+    );
+    await page.goto("/#/lab/runner");
+    await expect(page.getByRole("heading", { name: "Result 1: timeout" })).toBeVisible();
+    for (const path of ["../docs/images/dashboard-lab-runner.png", "../site/public/images/dashboard-lab-runner.png"]) {
       await page.screenshot({ path, animations: "disabled", fullPage: true });
     }
   });

@@ -16,7 +16,7 @@ evaluation engine is unchanged; the lab is a viewer, not an execution service.
 
 <ZoomImage src="../../images/dashboard-lab-overview.png" alt="Dashboard lab with linked quality charts, model performance, attention items, and run history." />
 
-The screenshots show the separately labeled **synthetic demo** at `/#/lab/demo`.
+The overview and comparison screenshots show the separately labeled **synthetic demo** at `/#/lab/demo`.
 The default lab reads your saved Waza results, never substitutes synthetic data
 on errors, and labels unsupported metadata as unavailable.
 
@@ -85,6 +85,7 @@ the frontend-only development workflow above.
 | Overview | Eval/skill/model/window filters, selectable quality-chart dates, model cross-filtering, failing-run drilldown |
 | Current runs | Select a saved run and inspect artifact-derived SSE activity; reconnection, deduplication, and terminal states |
 | Run history | Search, outcome filters, task evidence inspection, and selection of two runs from the same eval |
+| Runner results | Read-only saved terminal envelopes, negotiation, exact selection, identity lineage and linked diagnostics |
 | Compare | Baseline/candidate selection, reported weighted task-score deltas, regression evidence, added/missing task coverage |
 | Reports | Filtered JSON/CSV downloads and browser print/save-PDF |
 | Skills & evals | Suites observed in run history; readiness, requirement coverage, and skill token budgets explicitly unavailable |
@@ -99,6 +100,40 @@ transcripts for the overview.
 Evidence tabs use a single Tab stop with ArrowLeft/ArrowRight, Home, and End to
 move focus and selection. Nullable task/grader arrays are empty recorded
 evidence, not errors or invented scores, including in JSON reports.
+
+### Inspect terminal runner results
+
+From a source build, run `waza dashboard --lab --results-dir ./results` (or
+`waza serve --lab --results-dir ./results`) and open **Runner results** at
+`/#/lab/runner`. Save runner stdout as `*.runner.json` in that directory; see
+the [runner contract](../runner-contract/) for invocation examples. These
+artifacts are separate from evaluation history, filters and JSON/CSV reports.
+This view does not submit work or control execution.
+
+Each result displays requested and negotiated runner/API versions; required,
+optional, available, selected and unavailable optional capabilities; requested
+and resolved shard/task/trial/attempt tuples; pre-execution validation; and the
+recorded no-adjacent-work flag. Identity lineage includes the run, shard, task,
+trial and attempt IDs, canonical digest and derivation version. Logical identity
+does not imply exactly-once execution.
+
+Terminal outcome, stable exit category (`exit_code`), failure boundary, recorded
+envelope validity and client contract validation remain separate. HTTP 200,
+passing observation status, or an empty diagnostic list never imply success.
+Use each result's **Diagnostics** link to focus its recorded code/message list.
+
+**Refresh runner results** explicitly reloads the archive. Loading, empty,
+malformed/unsupported responses and API failures have distinct states. A failed
+refresh hides previous success rather than silently retaining it. Missing
+selection or identity is unavailable / unassessed, never invented. The synthetic
+demo's Runner results page does not request the API or fabricate envelopes.
+Compatibility adapters (#761) and the bounded reference (#762) retain their
+**no-dashboard-UI** decision.
+
+<ZoomImage src="../../images/dashboard-lab-runner.png" alt="Fixture-backed Lab runner result with a recorded timeout, negotiation, exact work tuple, identity lineage and diagnostics." />
+
+This screenshot is an authored terminal-state fixture derived from a mock-only
+CLI result, not a live provider execution or a success claim.
 
 ### Read a multi-turn conversation
 

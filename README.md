@@ -1182,6 +1182,11 @@ waza serve --lab --results-dir ./results
 ```
 The lab uses saved Waza results for linked charts, searchable history, stable-task
 comparisons, recorded evidence, and JSON/CSV/print reports.
+Source builds also provide **Runner results** at `/#/lab/runner`: saved
+`*.runner.json` envelopes show negotiation, exact selection, identity lineage
+and terminal outcome/exit/failure evidence without inferring success from HTTP
+200. Runner artifacts refresh on demand, remain separate from history/reports,
+and are never synthesized in demo mode.
 The inspector's **Conversation** tab shows full recorded user/agent messages
 without tool-event noise or per-message expansion. It uses the first repetition;
 missing messages are not reconstructed, and responder metadata does not establish
