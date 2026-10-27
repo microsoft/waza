@@ -1,6 +1,7 @@
 package models
 
 import (
+	"bytes"
 	"encoding/json"
 	"log/slog"
 
@@ -92,9 +93,29 @@ func (te TranscriptEvent) MarshalJSON() ([]byte, error) {
 }
 
 func (te *TranscriptEvent) UnmarshalJSON(data []byte) error {
-	var v transcriptEventJSON
+	return te.unmarshalJSON(data, false)
+}
 
-	if err := json.Unmarshal(data, &v); err != nil {
+// UnmarshalJSONExact is used by versioned evidence readers without changing
+// the dynamic-number representation of historical result readers.
+func (te *TranscriptEvent) UnmarshalJSONExact(data []byte) error {
+	return te.unmarshalJSON(data, true)
+}
+
+func (te *TranscriptEvent) unmarshalJSON(data []byte, exact bool) error {
+	var v transcriptEventJSON
+	if exact {
+		// Keep the full-document syntax admission of the historical decoder.
+		var raw json.RawMessage
+		if err := json.Unmarshal(data, &raw); err != nil {
+			return err
+		}
+		decoder := json.NewDecoder(bytes.NewReader(raw))
+		decoder.UseNumber()
+		if err := decoder.Decode(&v); err != nil {
+			return err
+		}
+	} else if err := json.Unmarshal(data, &v); err != nil {
 		return err
 	}
 

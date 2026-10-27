@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"testing/synctest"
 
 	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/models"
@@ -13,12 +14,19 @@ import (
 )
 
 func TestRunnerNativeFactoryDoesNotReuseAnotherRequestsClient(t *testing.T) {
+	var previous execution.CopilotClient
 	for _, name := range []string{"first-missing-cli", "second-missing-cli"} {
 		path := filepath.Join(t.TempDir(), name)
 		t.Setenv("COPILOT_CLI_PATH", path)
 		engine, err := defaultEngine(models.Config{EngineType: "copilot-sdk", ModelID: "fixed"})
 		require.NoError(t, err)
-		require.ErrorContains(t, engine.Initialize(t.Context()), path)
+		native, ok := engine.(*execution.CopilotEngine)
+		require.True(t, ok)
+		if previous != nil {
+			require.NotSame(t, previous, native.CopilotClient())
+		}
+		previous = native.CopilotClient()
+		require.ErrorContains(t, engine.Initialize(t.Context()), "initialize/start_failed")
 		require.NoError(t, engine.Shutdown(t.Context()))
 	}
 }
@@ -29,8 +37,12 @@ type instrumentedEngine struct {
 	request                          *execution.ExecutionRequest
 }
 
-func (e *instrumentedEngine) Initialize(context.Context) error {
+func (e *instrumentedEngine) Initialize(ctx context.Context) error {
 	e.initializes++
+	if e.mode == "initialize-timeout" {
+		<-ctx.Done()
+		return errors.New("sanitized startup failure")
+	}
 	if e.mode == "initialize" {
 		return errors.New("injected initialize failure")
 	}
@@ -69,53 +81,55 @@ func (*instrumentedEngine) SessionUsage(string) *models.UsageStats { return nil 
 func TestRunnerActualLifecycleAndNativeRequestPropagation(t *testing.T) {
 	for _, mode := range []string{"mock", "native", "initialize", "execution", "nil-response", "timeout", "engine-canceled", "unsuccessful-response", "shutdown"} {
 		t.Run(mode, func(t *testing.T) {
-			request := fixture(t)
-			if mode == "native" {
-				request.Input.Eval = strings.Replace(request.Input.Eval, "executor: mock", "executor: copilot-sdk", 1)
-				request.RequiredCapabilities = append(request.RequiredCapabilities, "inline.native-text")
-				request.AllowPaidExecution = true
-			}
-			if mode == "timeout" {
-				request.TimeoutMS = 1
-			}
-			engine := &instrumentedEngine{mode: mode}
-			factories := 0
-			service := NewService(WithEngineFactory(func(cfg models.Config) (execution.AgentEngine, error) {
-				factories++
-				require.Equal(t, "mock-model", cfg.ModelID)
-				return engine, nil
-			}))
-			result := service.Run(t.Context(), wire(t, request))
-			require.Equal(t, 1, factories)
-			require.Equal(t, 1, engine.initializes)
-			require.Equal(t, 1, engine.shutdowns)
-			executions := 1
-			if mode == "initialize" {
-				executions = 0
-			}
-			require.Equal(t, executions, engine.executes)
-			expected := InfrastructureFailure
-			switch mode {
-			case "mock", "native":
-				expected = Success
-				require.True(t, engine.request.NoSkills)
-				require.Empty(t, engine.request.SkillPaths)
-				require.Empty(t, engine.request.MCPServers)
-				require.Equal(t, "hello", engine.request.Message)
-				require.Equal(t, "mock-model", engine.request.ModelID)
-				require.Equal(t, 2, result.Observation.RunNumber)
-				require.Equal(t, 2, result.Observation.Attempts)
-				require.Nil(t, result.Observation.Usage)
-			case "timeout":
-				expected = Timeout
-			case "engine-canceled":
-				expected = Canceled
-			case "shutdown":
-				require.Equal(t, "shutdown", result.Boundary)
-				require.NotNil(t, result.Observation, "retain observed checks despite shutdown failure")
-			}
-			require.Equal(t, expected, result.Outcome, "%+v", result.Diagnostics)
-			require.NoError(t, ValidateResult(&result))
+			synctest.Test(t, func(t *testing.T) {
+				request := fixture(t)
+				if mode == "native" {
+					request.Input.Eval = strings.Replace(request.Input.Eval, "executor: mock", "executor: copilot-sdk", 1)
+					request.RequiredCapabilities = append(request.RequiredCapabilities, "inline.native-text")
+					request.AllowPaidExecution = true
+				}
+				if mode == "timeout" {
+					request.TimeoutMS = 1
+				}
+				engine := &instrumentedEngine{mode: mode}
+				factories := 0
+				service := NewService(WithEngineFactory(func(cfg models.Config) (execution.AgentEngine, error) {
+					factories++
+					require.Equal(t, "mock-model", cfg.ModelID)
+					return engine, nil
+				}))
+				result := service.Run(t.Context(), wire(t, request))
+				require.Equal(t, 1, factories)
+				require.Equal(t, 1, engine.initializes)
+				require.Equal(t, 1, engine.shutdowns)
+				executions := 1
+				if mode == "initialize" {
+					executions = 0
+				}
+				require.Equal(t, executions, engine.executes)
+				expected := InfrastructureFailure
+				switch mode {
+				case "mock", "native":
+					expected = Success
+					require.True(t, engine.request.NoSkills)
+					require.Empty(t, engine.request.SkillPaths)
+					require.Empty(t, engine.request.MCPServers)
+					require.Equal(t, "hello", engine.request.Message)
+					require.Equal(t, "mock-model", engine.request.ModelID)
+					require.Equal(t, 2, result.Observation.RunNumber)
+					require.Equal(t, 2, result.Observation.Attempts)
+					require.Nil(t, result.Observation.Usage)
+				case "timeout":
+					expected = Timeout
+				case "engine-canceled":
+					expected = Canceled
+				case "shutdown":
+					require.Equal(t, "shutdown", result.Boundary)
+					require.NotNil(t, result.Observation, "retain observed checks despite shutdown failure")
+				}
+				require.Equal(t, expected, result.Outcome, "%+v", result.Diagnostics)
+				require.NoError(t, ValidateResult(&result))
+			})
 		})
 	}
 }

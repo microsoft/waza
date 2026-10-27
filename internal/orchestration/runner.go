@@ -60,6 +60,7 @@ type EvalRunner struct {
 	evidenceExecutor graders.Executor
 	verbose          bool
 	controlledOutput func(string)
+	singleUnit       bool
 
 	// newClassifier builds a responder classifier for a task. Overridable in
 	// tests; defaults to a responder backed by the runner's engine.
@@ -387,6 +388,7 @@ func (r *EvalRunner) runNormalBenchmark(ctx context.Context) (*models.Evaluation
 
 	// Execute tests
 	var testOutcomes []models.TestOutcome
+	r.singleUnit = len(testCases) == 1 && spec.Config.TrialsPerTask == 1 && spec.Config.MaxAttempts <= 1
 
 	// Now that CopilotEngine is concurrency-safe (protected by mutex),
 	// we can safely use concurrent execution when configured
@@ -1060,6 +1062,9 @@ func (r *EvalRunner) executeRun(ctx context.Context, tc *models.TestCase, runNum
 }
 
 func (r *EvalRunner) executeAttempt(ctx context.Context, tc *models.TestCase, runNum, attempt int) models.RunResult {
+	if run, ok := r.adaptLocalUnit(ctx, tc, runNum, attempt); ok {
+		return run
+	}
 	return r.executeAttemptWithRequest(ctx, tc, runNum, attempt, nil, false)
 }
 

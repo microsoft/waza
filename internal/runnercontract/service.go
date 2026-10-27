@@ -59,6 +59,8 @@ func defaultEngine(cfg models.Config) (execution.AgentEngine, error) {
 	case "copilot-sdk":
 		return execution.NewCopilotEngineBuilder(cfg.ModelID, &execution.CopilotEngineBuilderOptions{
 			OwnClient: true, DisableCommandMocks: true,
+			RequestOwnedLifecycle: true, AllowUnavailableUsage: true,
+			DiagnosticObserver: func(execution.ExecutionDiagnostic) error { return nil },
 		}).Build(), nil
 	default:
 		return nil, fmt.Errorf("unsupported admitted engine")
@@ -351,6 +353,9 @@ func executeInline(ctx context.Context, input *admitted, factory EngineFactory) 
 		}
 	}()
 	if err := engine.Initialize(ctx); err != nil {
+		if ctx.Err() != nil {
+			return nil, errors.Join(err, ctx.Err())
+		}
 		return nil, err
 	}
 	observation, err := runner.ExecuteInlineAttempt(ctx, input.task, models.EvidenceOrigin{
@@ -390,6 +395,13 @@ func Write(w io.Writer, result *Result) error {
 func Rejected(message string) Result {
 	result := baseResult()
 	result.fail(InvalidRequest, "admission", "input_error", message)
+	return result
+}
+
+// PublicationFailed retains the execution evidence but never reports success
+// when the host could not save the terminal artifact for later inspection.
+func PublicationFailed(result Result, err error) Result {
+	result.fail(InfrastructureFailure, "terminalization", "publication_failed", err.Error())
 	return result
 }
 

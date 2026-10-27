@@ -49,7 +49,11 @@ func writePrivateSnapshotWithHooks(root string, data []byte, hooks privateWriter
 	if identityErr := checkPrivatePublicationDirectoryIdentity(absolute, dir); identityErr != nil {
 		return "", identityErr
 	}
-	name := "evidence-" + rand.Text() + ".json"
+	suffix := hooks.suffix
+	if suffix == "" {
+		suffix = ".json"
+	}
+	name := "evidence-" + rand.Text() + suffix
 	temporary := "." + name + ".tmp"
 	fd, createErr := unix.Openat(int(dir.Fd()), temporary, unix.O_WRONLY|unix.O_CREAT|unix.O_EXCL|unix.O_NOFOLLOW|unix.O_CLOEXEC|unix.O_NONBLOCK, 0o600)
 	if createErr != nil {

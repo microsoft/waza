@@ -1,0 +1,50 @@
+{
+  "execution": {
+    "run": "Single selected mock/text task, one trial/attempt, uncached and graded: adaptLocalUnit -> prepareInlineAttempt -> executeAttemptWithRequest; historical aggregate writer and lifecycle retained.",
+    "runner adapt": "Exact captured mock/text eval/task -> AdaptLocal -> Parse/admit; no discovery, source rewriting, runtime construction or execution. Native adaptation is rejected: runner native execution requires explicit paid-execution consent.",
+    "runner run": "Versioned request -> Parse/admit -> ExecuteInlineAttempt -> prepareInlineAttempt -> executeAttemptWithRequest; runner terminal writer, not historical results.",
+    "serve": "POST /api/v1/runner/run uses runner run's service; terminals persisted under results/.runner and inspected by Lab on Linux/macOS. Other platforms explicitly return publication_failed infrastructure_failure with retained execution evidence; safe private publication is unsupported, never silently reported as persisted."
+  },
+  "historical_inputs": {
+    "eval": "Omitted/default 1.4 and supported 1.x minors remain readable; captured 1.x text profile requires explicit disabled_skills [*]. Scenario 2.0 has no ambient skill discovery.",
+    "task": "Unversioned historical task YAML; enabled omitted/null inherit true, false is not executable; timeout omitted/null inherit, explicit zero rejected; command_mocks null inherits, [] is an explicit unsupported override.",
+    "results": "Historical 1.x EvaluationOutcome readers retained unchanged; current aggregate writers emit 1.7. Runner 1.0 kind is explicitly not EvaluationOutcome.",
+    "snapshot_sidecar": "Independent historical snapshot/evidence families remain accepted by their own readers, never converted into runner success."
+  },
+  "not_single_unit_execution": {
+    "run": "Multiple resolved tasks/trials/attempts, baseline, concurrent, CSV, caching, snapshots, execution-only, hooks, skills, files, dependency mocks and multiturn retain historical orchestration. Native local modes retain the legacy shared SDK lifecycle rather than silently acquiring the runner's request-owned cleanup/consent policy.",
+    "dev": "Iterative/batch optimization; no exact single-unit mapping.",
+    "compare": "Paired/multiple observations; no exact single-unit mapping.",
+    "compare-collect": "Controlled baseline/candidate collection with independent frozen evidence; not one runner unit.",
+    "compare-plan": "Offline paired collection planning; not execution.",
+    "compare-assurance-plan": "Offline comparison/assurance planning; not execution.",
+    "assure": "Frozen multi-artifact assurance assessment; not one runner unit.",
+    "quality": "LLM judge with skill-file loading and structured quality report; unsupported inline text profile, historical command unchanged.",
+    "suggest": "LLM artifact authoring with skill-file loading and optional writes; unsupported runner result/side-effect mapping, historical command unchanged.",
+    "models": "SDK model catalog discovery; not task execution.",
+    "adversarial": "Multi-arm fault execution; no exact single-unit mapping.",
+    "grade": "Offline regrading of historical evidence, not execution.",
+    "replay": "Historical snapshot/artifact operation, not a runner invocation.",
+    "preflight": "Offline static validation, not execution.",
+    "results": "Historical artifact inspection, not execution.",
+    "spec": "Static schema tooling, not execution.",
+    "migrate": "Historical file migration, not execution."
+  },
+  "other_local_surfaces": {
+    "init": "Project scaffolding, not execution.",
+    "new": "Skill/eval/task scaffolding, not execution.",
+    "get": "Skill retrieval/installation, not execution.",
+    "update": "CLI installation/update, not execution.",
+    "tokens": "Static token analysis, not execution.",
+    "gate": "Recorded evaluation policy assessment, not execution.",
+    "coverage": "Static skill/eval coverage inspection, not execution.",
+    "metadata": "Skill metadata inspection/editing, not execution.",
+    "check": "Static skill checks, not execution.",
+    "cache": "Historical cache inspection/management, not execution.",
+    "session": "Historical NDJSON log inspection, not execution.",
+    "mcp-mock": "Dependency-mock service/configuration, not one runner unit.",
+    "command-mock": "Command-mock service/configuration, not one runner unit.",
+    "registry": "Skill registry management, not execution."
+  },
+  "unsupported_runner_mapping": "Hard admission error, no engine construction. Continue waza run, or choose one exact unit, inline prompt/resources, explicitly disable ambient skills and use builtin text checks. Never infer success from unavailable historical evidence."
+}

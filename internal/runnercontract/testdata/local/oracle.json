@@ -1,0 +1,12 @@
+{
+  "task_id": "selected",
+  "task_name": "Selected task",
+  "status": "passed",
+  "run_number": 1,
+  "attempts": 1,
+  "check": "_output_contains",
+  "passed": true,
+  "score": 1,
+  "result_writer_version": "1.7",
+  "runner_writer_version": "1.0"
+}

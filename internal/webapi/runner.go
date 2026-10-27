@@ -1,6 +1,7 @@
 package webapi
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -10,9 +11,11 @@ import (
 	"net/netip"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/microsoft/waza/internal/runnercontract"
+	"github.com/microsoft/waza/internal/snapshot"
 )
 
 // RegisterRunnerRoutes exposes synchronous single-unit execution, not a job API.
@@ -42,6 +45,9 @@ func RegisterRunnerRoutes(mux *http.ServeMux, resultsDir string) {
 				result = runnercontract.Rejected(fmt.Sprintf("reading request: %v", err))
 			} else {
 				result = runnercontract.NewService().Run(r.Context(), data)
+				if err := persistRunnerResult(resultsDir, &result); err != nil {
+					result = runnercontract.PublicationFailed(result, err)
+				}
 			}
 		}
 		// All admitted HTTP invocations return a terminal envelope. Outcome and
@@ -70,12 +76,30 @@ func RegisterRunnerRoutes(mux *http.ServeMux, resultsDir string) {
 	})
 }
 
+func persistRunnerResult(dir string, result *runnercontract.Result) error {
+	var data bytes.Buffer
+	if err := runnercontract.Write(&data, result); err != nil {
+		return fmt.Errorf("encoding runner artifact: %w", err)
+	}
+	// Own a private child rather than chmod an existing historical results
+	// directory. CLI-created *.runner.json artifacts remain readable at its root.
+	name, err := snapshot.WritePrivateArtifact(filepath.Join(dir, ".runner"), data.Bytes(), ".runner.json")
+	if err != nil {
+		return fmt.Errorf("persisting runner artifact (residue %q): %w", name, err)
+	}
+	return nil
+}
+
 func readRunnerResults(dir string) (results []runnercontract.Result, err error) {
 	root, err := os.OpenRoot(dir)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { err = errors.Join(err, root.Close()) }()
+	return readRunnerRoot(root, true)
+}
+
+func readRunnerRoot(root *os.Root, includeHTTP bool) (results []runnercontract.Result, err error) {
 	directory, err := root.Open(".")
 	if err != nil {
 		return nil, err
@@ -87,11 +111,29 @@ func readRunnerResults(dir string) (results []runnercontract.Result, err error) 
 	}
 	results = []runnercontract.Result{}
 	for _, entry := range entries {
+		if includeHTTP && entry.Name() == ".runner" {
+			if !entry.IsDir() {
+				return nil, fmt.Errorf("runner artifact directory is not a regular directory")
+			}
+			child, err := root.OpenRoot(entry.Name())
+			if err != nil {
+				return nil, err
+			}
+			nested, readErr := readRunnerRoot(child, false)
+			if closeErr := child.Close(); readErr != nil || closeErr != nil {
+				return nil, errors.Join(readErr, closeErr)
+			}
+			results = append(results, nested...)
+			continue
+		}
 		if !strings.HasSuffix(entry.Name(), ".runner.json") {
 			continue
 		}
+		if !entry.Type().IsRegular() {
+			return nil, fmt.Errorf("runner artifact %s is not a regular file", entry.Name())
+		}
 		// Retain the root throughout each read; reject nonregular entries.
-		f, err := root.Open(entry.Name())
+		f, err := openRunnerArtifact(root, entry.Name())
 		if err != nil {
 			return nil, err
 		}

@@ -51,7 +51,24 @@ func (run *RunResult) unmarshalJSON(data []byte, exact bool) error {
 	if exact {
 		decoder.UseNumber()
 	}
-	if err := decoder.Decode(&decoded); err != nil {
+	if exact {
+		var raw struct {
+			*alias
+			Transcript []json.RawMessage `json:"transcript"`
+		}
+		raw.alias = &decoded
+		if err := decoder.Decode(&raw); err != nil {
+			return err
+		}
+		if raw.Transcript != nil {
+			decoded.Transcript = make([]TranscriptEvent, len(raw.Transcript))
+		}
+		for i, event := range raw.Transcript {
+			if err := decoded.Transcript[i].UnmarshalJSONExact(event); err != nil {
+				return err
+			}
+		}
+	} else if err := decoder.Decode(&decoded); err != nil {
 		return err
 	}
 	if decoded.Evidence != nil {

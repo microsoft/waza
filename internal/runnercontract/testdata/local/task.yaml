@@ -1,0 +1,6 @@
+id: selected
+name: Selected task
+inputs:
+  prompt: hello
+expected:
+  output_contains: [hello]

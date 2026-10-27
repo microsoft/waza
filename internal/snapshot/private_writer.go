@@ -1,6 +1,19 @@
 package snapshot
 
-import "os"
+import (
+	"fmt"
+	"os"
+)
+
+// WritePrivateArtifact publishes a complete, exclusive local artifact using the
+// same rooted directory admission and cleanup as private snapshot evidence.
+// The destination must be private; unsupported platforms fail explicitly.
+func WritePrivateArtifact(root string, data []byte, suffix string) (string, error) {
+	if suffix != ".runner.json" {
+		return "", fmt.Errorf("unsupported private artifact suffix %q", suffix)
+	}
+	return writePrivateSnapshotWithHooks(root, data, privateWriterHooks{suffix: suffix})
+}
 
 func writePrivateSnapshot(root string, data []byte) (string, error) {
 	return writePrivateSnapshotWithHooks(root, data, privateWriterHooks{})
@@ -9,6 +22,7 @@ func writePrivateSnapshot(root string, data []byte) (string, error) {
 // Per-call hooks permit deterministic admission/publication race tests without
 // mutable package globals or interference between concurrent writers.
 type privateWriterHooks struct {
+	suffix            string
 	beforeAdmission   func()
 	beforePublication func()
 	afterPublication  func()

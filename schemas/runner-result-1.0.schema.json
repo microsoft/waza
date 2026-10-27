@@ -41,7 +41,35 @@
         "attempt": {"type": "string", "pattern": "^attempt-[0-9a-f]{64}$"}
       }
     },
-    "observation": {"type": "object"},
+    "observation": {
+      "type": "object",
+      "required": ["run_number", "attempts", "status", "duration_ms", "validations", "session_digest", "final_output"],
+      "properties": {
+        "run_number": {"type": "integer"},
+        "attempts": {"type": "integer"},
+        "status": {"enum": ["passed", "failed", "error", "skipped"]},
+        "duration_ms": {"type": "integer"},
+        "final_output": {"type": "string"},
+        "error_msg": {"type": "string"},
+        "session_digest": {"type": "object"},
+        "validations": {
+          "type": ["object", "null"],
+          "additionalProperties": {
+            "type": "object",
+            "required": ["identifier", "type", "score", "weight", "passed", "feedback", "duration_ms"],
+            "properties": {
+              "identifier": {"type": "string"},
+              "type": {"type": "string"},
+              "score": {"type": "number"},
+              "weight": {"type": "number"},
+              "passed": {"type": "boolean"},
+              "feedback": {"type": "string"},
+              "duration_ms": {"type": "integer"}
+            }
+          }
+        }
+      }
+    },
     "diagnostics": {
       "type": "array", "items": {
         "type": "object", "additionalProperties": false, "required": ["code", "message"],

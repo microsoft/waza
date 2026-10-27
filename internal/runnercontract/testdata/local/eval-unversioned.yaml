@@ -1,0 +1,8 @@
+name: local-unit
+config:
+  executor: mock
+  model: mock-model
+  disabled_skills: ["*"]
+  trials_per_task: 1
+  timeout_seconds: 30
+tasks: ["task.yaml"]

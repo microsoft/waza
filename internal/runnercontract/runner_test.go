@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"testing/synctest"
 
 	"github.com/microsoft/waza/internal/models"
 	"github.com/stretchr/testify/require"
@@ -206,38 +207,41 @@ func TestRunnerStrictWireAdmission(t *testing.T) {
 func TestRunnerEveryTerminalOutcome(t *testing.T) {
 	for _, outcome := range []Outcome{Success, EvaluationFailure, InfrastructureFailure, Canceled, Timeout} {
 		t.Run(string(outcome), func(t *testing.T) {
-			req := fixture(t)
-			service := NewService()
-			calls := 0
-			service.execute = func(ctx context.Context, _ *admitted) (*models.RunResult, error) {
-				calls++
-				switch outcome {
-				case Success:
-					return passed(), nil
-				case EvaluationFailure:
-					return &models.RunResult{RunNumber: 2, Attempts: 2, Status: models.StatusFailed}, nil
-				case InfrastructureFailure:
-					return nil, errors.New("injected infrastructure failure")
-				case Canceled:
-					return nil, context.Canceled
-				default:
-					<-ctx.Done()
-					return nil, ctx.Err()
+			synctest.Test(t, func(t *testing.T) {
+				req := fixture(t)
+				service := NewService()
+				calls := 0
+				service.execute = func(ctx context.Context, _ *admitted) (*models.RunResult, error) {
+					calls++
+					switch outcome {
+					case Success:
+						return passed(), nil
+					case EvaluationFailure:
+						return &models.RunResult{RunNumber: 2, Attempts: 2, Status: models.StatusFailed,
+							Validations: map[string]models.GraderResults{"check": {Passed: false, Score: 0}}}, nil
+					case InfrastructureFailure:
+						return nil, errors.New("injected infrastructure failure")
+					case Canceled:
+						return nil, context.Canceled
+					default:
+						<-ctx.Done()
+						return nil, ctx.Err()
+					}
 				}
-			}
-			if outcome == Timeout {
-				req.TimeoutMS = 1
-			}
-			result := service.Run(t.Context(), wire(t, req))
-			require.Equal(t, outcome, result.Outcome, "%+v", result.Diagnostics)
-			require.Equal(t, outcome.ExitCode(), result.ExitCode)
-			require.Equal(t, 1, calls)
-			var b bytes.Buffer
-			require.NoError(t, Write(&b, &result))
-			var object any
-			decoder := json.NewDecoder(&b)
-			require.NoError(t, decoder.Decode(&object))
-			require.ErrorIs(t, decoder.Decode(&object), io.EOF, "exactly one envelope")
+				if outcome == Timeout {
+					req.TimeoutMS = 1
+				}
+				result := service.Run(t.Context(), wire(t, req))
+				require.Equal(t, outcome, result.Outcome, "%+v", result.Diagnostics)
+				require.Equal(t, outcome.ExitCode(), result.ExitCode)
+				require.Equal(t, 1, calls)
+				var b bytes.Buffer
+				require.NoError(t, Write(&b, &result))
+				var object any
+				decoder := json.NewDecoder(&b)
+				require.NoError(t, decoder.Decode(&object))
+				require.ErrorIs(t, decoder.Decode(&object), io.EOF, "exactly one envelope")
+			})
 		})
 	}
 }

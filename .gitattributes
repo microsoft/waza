@@ -10,6 +10,7 @@
 .squad/casting/history.json text eol=lf
 .squad/casting/legacy-v0.10.0/** -text
 testdata/frozen-assurance-readers/** -text
+internal/runnercontract/testdata/local/** -text
 schemas/grader-assurance-1.0.schema.json text eol=lf
 schemas/grader-reference-1.0.schema.json text eol=lf
 schemas/evidence-manifest-1.0.schema.json text eol=lf

@@ -76,15 +76,16 @@ func (e *DiagnosticError) Error() string {
 }
 
 type diagnosticState struct {
-	mu         sync.Mutex
-	observerMu sync.Mutex
-	observer   func(ExecutionDiagnostic) error
-	active     sync.WaitGroup
-	closed     bool
-	busy       map[string]bool
-	pending    map[string]bool
-	initOnce   sync.Once
-	initErr    error
+	allowUnavailableUsage bool
+	mu                    sync.Mutex
+	observerMu            sync.Mutex
+	observer              func(ExecutionDiagnostic) error
+	active                sync.WaitGroup
+	closed                bool
+	busy                  map[string]bool
+	pending               map[string]bool
+	initOnce              sync.Once
+	initErr               error
 }
 
 // Each lifecycle invocation owns its aggregate, including pre-session failures
@@ -104,7 +105,9 @@ func operationFrom(ctx context.Context) *diagnosticOperation {
 
 func (o *diagnosticOperation) report(stage DiagnosticStage, code DiagnosticCode, id string) {
 	d := ExecutionDiagnostic{Stage: stage, Code: code, SessionID: id}
-	if code != CodeExpectedSkillCancellation {
+	unavailable := o.state.allowUnavailableUsage &&
+		(code == CodeUsageMissingOrPartial || code == CodeModelAttributionMissing || code == CodeShutdownRPC)
+	if code != CodeExpectedSkillCancellation && !unavailable {
 		o.mu.Lock()
 		o.errs = append(o.errs, &DiagnosticError{Diagnostic: d})
 		o.mu.Unlock()
@@ -201,7 +204,7 @@ func (e *CopilotEngine) initializeDiagnostic(ctx context.Context) error {
 		case e.provider.err != nil:
 			op.report(StageInitialize, CodeProvider, "")
 		default:
-			if err := e.client.Start(context.Background()); err != nil {
+			if err := e.client.Start(e.startContext(ctx)); err != nil {
 				op.report(StageInitialize, CodeStart, "")
 			} else if !e.provider.enabled() {
 				auth, err := e.client.GetAuthStatus(ctx)

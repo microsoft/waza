@@ -76,21 +76,7 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 		}()
 	}
 
-	// Graceful shutdown on context cancellation.
-	go func() {
-		<-ctx.Done()
-		s.logger.Info("shutting down HTTP server")
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		if err := s.srv.Shutdown(shutdownCtx); err != nil {
-			s.logger.Error("HTTP server shutdown error", "error", err)
-		}
-	}()
-
-	if err := s.srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		return fmt.Errorf("HTTP server error: %w", err)
-	}
-	return nil
+	return s.serve(ctx, s.srv.ListenAndServe)
 }
 
 func (s *Server) dashboardURL() string {

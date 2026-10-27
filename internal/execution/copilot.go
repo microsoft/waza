@@ -44,7 +44,8 @@ type CopilotEngine struct {
 	// Shutdown deletes only this engine's sessions and leaves the underlying
 	// SDK process running for other engines / graders. The top-level
 	// command must call [ShutdownSharedClient] to actually stop it.
-	ownsClient bool
+	ownsClient            bool
+	requestOwnedLifecycle bool
 
 	startOnce sync.Once
 
@@ -172,6 +173,13 @@ type CopilotEngineBuilder struct {
 
 type CopilotEngineBuilderOptions struct {
 	NewCopilotClient func(clientOptions *copilot.ClientOptions) CopilotClient
+	// RequestOwnedLifecycle binds startup/process lifetime to the supplied
+	// Initialize context. The caller must retain it through Shutdown.
+	// Requires an owned client; historical shared-client behavior is unchanged.
+	RequestOwnedLifecycle bool
+	// AllowUnavailableUsage keeps missing usage/model attribution observable
+	// without classifying it as an execution or cleanup failure.
+	AllowUnavailableUsage bool
 	// OwnClient selects a fresh production client instead of SharedClient.
 	OwnClient bool
 	// DisableCommandMocks omits the shim registry and rejects command mocks.
@@ -203,7 +211,8 @@ func NewCopilotEngineBuilder(defaultModelID string, options *CopilotEngineBuilde
 	cliArgs := modelCLIArgs()
 
 	disableCommandMocks := options != nil && options.DisableCommandMocks
-	if disableCommandMocks && !options.OwnClient && options.NewCopilotClient == nil {
+	requestOwnedLifecycle := options != nil && options.RequestOwnedLifecycle
+	if (disableCommandMocks || requestOwnedLifecycle) && !options.OwnClient && options.NewCopilotClient == nil {
 		client = &startupErrorClient{err: fmt.Errorf("disabling command mocks requires an owned Copilot client")}
 	} else if options != nil && options.OwnClient && options.NewCopilotClient == nil {
 		resolveOptions := sharedClientOptions
@@ -236,11 +245,12 @@ func NewCopilotEngineBuilder(defaultModelID string, options *CopilotEngineBuilde
 
 	builder := &CopilotEngineBuilder{
 		engine: &CopilotEngine{
-			defaultModelID:      defaultModelID,
-			ownsClient:          ownsClient,
-			provider:            provider,
-			commandMockSessions: make(map[string]*commandmock.Session),
-			disableCommandMocks: disableCommandMocks,
+			defaultModelID:        defaultModelID,
+			ownsClient:            ownsClient,
+			provider:              provider,
+			commandMockSessions:   make(map[string]*commandmock.Session),
+			disableCommandMocks:   disableCommandMocks,
+			requestOwnedLifecycle: requestOwnedLifecycle,
 		},
 	}
 
@@ -248,6 +258,7 @@ func NewCopilotEngineBuilder(defaultModelID string, options *CopilotEngineBuilde
 	if options != nil && options.DiagnosticObserver != nil {
 		builder.engine.diagnostics = &diagnosticState{
 			observer: options.DiagnosticObserver, busy: make(map[string]bool), pending: make(map[string]bool),
+			allowUnavailableUsage: options.AllowUnavailableUsage,
 		}
 	}
 	return builder
@@ -310,7 +321,7 @@ func (e *CopilotEngine) Initialize(ctx context.Context) error {
 		// the background process which means we _cannot_ cancel the context passed to this function or else
 		// it'll kill the copilot process.
 		// Tracking here: https://github.com/github/copilot-sdk/issues/668
-		startErr = e.client.Start(context.Background())
+		startErr = e.client.Start(e.startContext(ctx))
 
 		if startErr != nil {
 			return

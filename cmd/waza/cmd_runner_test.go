@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -78,6 +79,13 @@ func TestRunnerCLIHTTPParity(t *testing.T) {
 			api, err := runnercontract.ParseResult(w.Body.Bytes())
 			require.NoError(t, err)
 			require.Equal(t, actual.Identity, api.Identity)
+			if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
+				require.Equal(t, runnercontract.InfrastructureFailure, api.Outcome)
+				require.Equal(t, 2, api.ExitCode)
+				require.Equal(t, "publication_failed", api.Diagnostics[len(api.Diagnostics)-1].Code)
+				require.Contains(t, api.Diagnostics[len(api.Diagnostics)-1].Message, "unsupported on this platform")
+				return
+			}
 			require.Equal(t, actual.Outcome, api.Outcome)
 			require.Equal(t, actual.ExitCode, api.ExitCode)
 			require.Equal(t, actual.Diagnostics, api.Diagnostics)

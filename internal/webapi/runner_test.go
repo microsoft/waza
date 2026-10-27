@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/microsoft/waza/internal/runnercontract"
@@ -35,7 +36,8 @@ func TestRunnerHTTPAndServiceParity(t *testing.T) {
 				body = []byte("{")
 			}
 			mux := http.NewServeMux()
-			RegisterRunnerRoutes(mux, t.TempDir())
+			resultsDir := t.TempDir()
+			RegisterRunnerRoutes(mux, resultsDir)
 			w := httptest.NewRecorder()
 			httpRequest := httptest.NewRequest(http.MethodPost, "/api/v1/runner/run", bytes.NewReader(body))
 			httpRequest.Host = "localhost"
@@ -45,12 +47,24 @@ func TestRunnerHTTPAndServiceParity(t *testing.T) {
 			actual, err := runnercontract.ParseResult(w.Body.Bytes())
 			require.NoError(t, err)
 			expected := runnercontract.NewService().Run(t.Context(), body)
+			if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
+				require.Equal(t, runnercontract.InfrastructureFailure, actual.Outcome)
+				require.Equal(t, 2, actual.ExitCode)
+				require.Equal(t, expected.Identity, actual.Identity)
+				require.Equal(t, "publication_failed", actual.Diagnostics[len(actual.Diagnostics)-1].Code)
+				require.Contains(t, actual.Diagnostics[len(actual.Diagnostics)-1].Message, "unsupported on this platform")
+				return
+			}
 			require.Equal(t, expected.Outcome, actual.Outcome)
 			require.Equal(t, expected.ExitCode, actual.ExitCode)
 			require.Equal(t, expected.Negotiation, actual.Negotiation)
 			require.Equal(t, expected.Identity, actual.Identity)
 			require.Equal(t, expected.Resolved, actual.Resolved)
 			require.Equal(t, expected.Diagnostics, actual.Diagnostics)
+			saved, err := readRunnerResults(resultsDir)
+			require.NoError(t, err)
+			require.Len(t, saved, 1, "retain admission/negotiation failures as well as executed units")
+			require.Equal(t, *actual, saved[0])
 		})
 	}
 }
@@ -141,7 +155,13 @@ func TestRunnerHTTPRejectsDNSAliasesBeforeAdmission(t *testing.T) {
 				require.Nil(t, result.Identity)
 				require.Contains(t, result.Diagnostics[0].Message, "loopback Host")
 			} else {
-				require.Equal(t, runnercontract.Success, result.Outcome)
+				if runtime.GOOS == "linux" || runtime.GOOS == "darwin" {
+					require.Equal(t, runnercontract.Success, result.Outcome)
+				} else {
+					require.Equal(t, runnercontract.InfrastructureFailure, result.Outcome)
+					require.NotNil(t, result.Observation)
+					require.Equal(t, "publication_failed", result.Diagnostics[len(result.Diagnostics)-1].Code)
+				}
 			}
 		})
 	}

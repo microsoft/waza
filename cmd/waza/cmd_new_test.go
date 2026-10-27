@@ -15,7 +15,7 @@ import (
 
 func TestNewCommand_InProjectMode(t *testing.T) {
 	// Set up a temp dir with a skills/ directory to trigger in-project mode
-	dir := t.TempDir()
+	dir := isolatedCLITempDir(t)
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, "skills"), 0o755))
 
 	origDir, err := os.Getwd()
@@ -61,7 +61,7 @@ func TestNewCommand_InProjectMode(t *testing.T) {
 }
 
 func TestNewCommand_InProjectModeCustomFileNaming(t *testing.T) {
-	dir := t.TempDir()
+	dir := isolatedCLITempDir(t)
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, "skills"), 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, ".waza.yaml"), []byte(`
 files:
@@ -97,7 +97,7 @@ files:
 
 func TestNewCommand_StandaloneMode(t *testing.T) {
 	// No skills/ directory → standalone mode
-	dir := t.TempDir()
+	dir := isolatedCLITempDir(t)
 
 	origDir, err := os.Getwd()
 	require.NoError(t, err)
@@ -135,7 +135,7 @@ func TestNewCommand_StandaloneMode(t *testing.T) {
 // ── No-Overwrite Safety Tests ──────────────────────────────────────────────────
 
 func TestNewCommand_NoOverwriteSafety(t *testing.T) {
-	dir := t.TempDir()
+	dir := isolatedCLITempDir(t)
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, "skills"), 0o755))
 
 	origDir, err := os.Getwd()
@@ -168,7 +168,7 @@ func TestNewCommand_NoOverwriteSafety(t *testing.T) {
 // ── Idempotent Behavior Tests ──────────────────────────────────────────────────
 
 func TestNewCommand_IdempotentWithExistingSkillMD(t *testing.T) {
-	dir := t.TempDir()
+	dir := isolatedCLITempDir(t)
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, "skills"), 0o755))
 
 	origDir, err := os.Getwd()
@@ -203,7 +203,7 @@ func TestNewCommand_IdempotentWithExistingSkillMD(t *testing.T) {
 }
 
 func TestNewCommand_IdempotentRunTwice(t *testing.T) {
-	dir := t.TempDir()
+	dir := isolatedCLITempDir(t)
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, "skills"), 0o755))
 
 	origDir, err := os.Getwd()
@@ -232,7 +232,7 @@ func TestNewCommand_IdempotentRunTwice(t *testing.T) {
 // ── SKILL.md Status Variation Tests ────────────────────────────────────────────
 
 func TestNewCommand_EmptySkillMD_NonTTY_OverwritesWithDefaults(t *testing.T) {
-	dir := t.TempDir()
+	dir := isolatedCLITempDir(t)
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, "skills"), 0o755))
 
 	origDir, err := os.Getwd()
@@ -269,7 +269,7 @@ func TestNewCommand_EmptySkillMD_NonTTY_OverwritesWithDefaults(t *testing.T) {
 }
 
 func TestNewCommand_MalformedSkillMD_NonTTY_OverwritesWithDefaults(t *testing.T) {
-	dir := t.TempDir()
+	dir := isolatedCLITempDir(t)
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, "skills"), 0o755))
 
 	origDir, err := os.Getwd()
@@ -300,7 +300,7 @@ func TestNewCommand_MalformedSkillMD_NonTTY_OverwritesWithDefaults(t *testing.T)
 }
 
 func TestNewCommand_ValidSkillMD_NonTTY_SkipsToInventory(t *testing.T) {
-	dir := t.TempDir()
+	dir := isolatedCLITempDir(t)
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, "skills"), 0o755))
 
 	origDir, err := os.Getwd()
@@ -335,7 +335,7 @@ func TestNewCommand_ValidSkillMD_NonTTY_SkipsToInventory(t *testing.T) {
 }
 
 func TestNewCommand_NoSkillMD_NonTTY_CreatesEverything(t *testing.T) {
-	dir := t.TempDir()
+	dir := isolatedCLITempDir(t)
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, "skills"), 0o755))
 
 	origDir, err := os.Getwd()
@@ -363,7 +363,7 @@ func TestNewCommand_NoSkillMD_NonTTY_CreatesEverything(t *testing.T) {
 }
 
 func TestNewCommand_EmptySkillMD_EvalFilesPreExist(t *testing.T) {
-	dir := t.TempDir()
+	dir := isolatedCLITempDir(t)
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, "skills"), 0o755))
 
 	origDir, err := os.Getwd()
@@ -447,7 +447,7 @@ func TestNewCommand_NameValidation(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			dir := t.TempDir()
+			dir := isolatedCLITempDir(t)
 
 			origDir, err := os.Getwd()
 			require.NoError(t, err)
@@ -475,7 +475,7 @@ func TestNewCommand_NameValidation(t *testing.T) {
 // ── Content Validation Tests ───────────────────────────────────────────────────
 
 func TestNewCommand_EvalYAMLContent(t *testing.T) {
-	dir := t.TempDir()
+	dir := isolatedCLITempDir(t)
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, "skills"), 0o755))
 
 	origDir, err := os.Getwd()
@@ -510,7 +510,7 @@ func TestNewCommand_EvalYAMLContent(t *testing.T) {
 }
 
 func TestNewCommand_WazaYAMLDefaults(t *testing.T) {
-	dir := t.TempDir()
+	dir := isolatedCLITempDir(t)
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, "skills"), 0o755))
 
 	// Write .waza.yaml with custom defaults
@@ -537,7 +537,7 @@ func TestNewCommand_WazaYAMLDefaults(t *testing.T) {
 }
 
 func TestNewCommand_SkillMDContent(t *testing.T) {
-	dir := t.TempDir()
+	dir := isolatedCLITempDir(t)
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, "skills"), 0o755))
 
 	origDir, err := os.Getwd()
@@ -564,7 +564,7 @@ func TestNewCommand_SkillMDContent(t *testing.T) {
 }
 
 func TestNewCommand_TaskFileIDs(t *testing.T) {
-	dir := t.TempDir()
+	dir := isolatedCLITempDir(t)
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, "skills"), 0o755))
 
 	origDir, err := os.Getwd()
@@ -612,7 +612,7 @@ func TestNewCommand_InteractiveFlagRemoved(t *testing.T) {
 // ── Template Flag Tests ────────────────────────────────────────────────────────
 
 func TestNewCommand_TemplateFlagNote(t *testing.T) {
-	dir := t.TempDir()
+	dir := isolatedCLITempDir(t)
 
 	origDir, err := os.Getwd()
 	require.NoError(t, err)
@@ -645,7 +645,7 @@ func TestRootCommand_HasNewSubcommand(t *testing.T) {
 // ── CI Workflow Content (Standalone Only) ──────────────────────────────────────
 
 func TestNewCommand_StandaloneCIWorkflowContent(t *testing.T) {
-	dir := t.TempDir()
+	dir := isolatedCLITempDir(t)
 
 	origDir, err := os.Getwd()
 	require.NoError(t, err)
@@ -666,7 +666,7 @@ func TestNewCommand_StandaloneCIWorkflowContent(t *testing.T) {
 }
 
 func TestNewCommand_StandaloneGitignoreContent(t *testing.T) {
-	dir := t.TempDir()
+	dir := isolatedCLITempDir(t)
 
 	origDir, err := os.Getwd()
 	require.NoError(t, err)
@@ -687,7 +687,7 @@ func TestNewCommand_StandaloneGitignoreContent(t *testing.T) {
 }
 
 func TestNewCommand_StandaloneReadmeContent(t *testing.T) {
-	dir := t.TempDir()
+	dir := isolatedCLITempDir(t)
 
 	origDir, err := os.Getwd()
 	require.NoError(t, err)
@@ -710,7 +710,7 @@ func TestNewCommand_StandaloneReadmeContent(t *testing.T) {
 // ── Fixture Content Test ───────────────────────────────────────────────────────
 
 func TestNewCommand_FixtureContent(t *testing.T) {
-	dir := t.TempDir()
+	dir := isolatedCLITempDir(t)
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, "skills"), 0o755))
 
 	origDir, err := os.Getwd()
@@ -751,7 +751,7 @@ func TestTitleCase(t *testing.T) {
 // ── Output Dir Flag Tests ──────────────────────────────────────────────────────
 
 func TestNewCommand_OutputDirFlag(t *testing.T) {
-	dir := t.TempDir()
+	dir := isolatedCLITempDir(t)
 	outDir := filepath.Join(dir, "output")
 
 	origDir, err := os.Getwd()

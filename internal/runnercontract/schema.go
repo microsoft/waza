@@ -103,6 +103,14 @@ func ValidateResult(result *Result) error {
 					return fmt.Errorf("success cannot contain failed checks")
 				}
 			}
+		} else {
+			failed := false
+			for _, check := range run.Validations {
+				failed = failed || !check.Passed
+			}
+			if run.Status != models.StatusFailed || run.ErrorMsg != "" || !failed {
+				return fmt.Errorf("evaluation failure requires a failed check without execution errors")
+			}
 		}
 	}
 	return nil
@@ -125,8 +133,19 @@ func ParseResult(data []byte) (*Result, error) {
 		return nil, fmt.Errorf("runner result schema: %w", err)
 	}
 	var result Result
-	if err := json.Unmarshal(data, &result); err != nil {
+	type envelope Result
+	raw := struct {
+		*envelope
+		Observation json.RawMessage `json:"observation"`
+	}{envelope: (*envelope)(&result)}
+	if err := json.Unmarshal(data, &raw); err != nil {
 		return nil, err
+	}
+	if len(raw.Observation) != 0 {
+		result.Observation = &models.RunResult{}
+		if err := result.Observation.UnmarshalJSONExact(raw.Observation); err != nil {
+			return nil, err
+		}
 	}
 	if err := ValidateResult(&result); err != nil {
 		return nil, err
