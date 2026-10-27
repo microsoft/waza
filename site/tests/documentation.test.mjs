@@ -230,6 +230,23 @@ test('release overview identifies the published version and retains the former a
   assert.match(read('site/src/content/docs/guides/dashboard-lab.mdx'), /Available in v0\.39\.0 and opt-in/);
 });
 
+test('extension installation guidance identifies the current registry version', () => {
+  const registry = JSON.parse(read('registry.json'));
+  const extension = registry.extensions.find(({ id }) => id === 'microsoft.azd.waza');
+  assert.ok(extension, 'waza extension must exist in the registry');
+  const versions = extension.versions.map(({ version }) => version);
+  assert.ok(versions.length > 0, 'waza registry must contain published versions');
+  const latest = versions.toSorted((a, b) => a.localeCompare(b, 'en', { numeric: true })).at(-1);
+  const guide = read('site/src/content/docs/getting-started.mdx');
+  const section = guide.match(/^### 3\. Azure Developer CLI Extension\n([\s\S]*?)(?=^## )/m)?.[1];
+  assert.ok(section, 'extension installation section must exist');
+  assert.equal(section.match(/The registry\s+lists through `([^`]+)`/)?.[1], latest);
+  assert.ok(section.includes(`releases/tag/azd-ext-microsoft-azd-waza_${latest})`));
+  assert.match(section, /azd waza --version/);
+  assert.match(section, /azd waza <command> --help/);
+  assert.doesNotMatch(section, /published `0\.38\.10` is a separate extension artifact/);
+});
+
 test('published workflow guides do not require unreleased main for v0.39.0 features', () => {
   const paths = [
     'README.md', 'docs/GETTING-STARTED.md', 'docs/GUIDE.md',
