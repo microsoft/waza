@@ -1,0 +1,67 @@
+---
+title: "v0.40.0 technical notes (unpublished)"
+description: "Unpublished technical release and migration notes for the versioned single-unit runner."
+---
+
+> **Unpublished / main-only preview.** These notes describe current source
+> changes for issues #754 and #757–#762. They are not a completed v0.40.0
+> release, do not imply that all acceptance gates are green, and do not claim a
+> published container image. Recheck the merged main branch, required CI and
+> publication state before changing this status or adding public release claims.
+
+## Runner interface 1.0
+
+The additive runner boundary supports one exact shard/task/trial/attempt through
+`waza runner` or synchronous HTTP. Request bootstrap schema, runner interface,
+terminal result schema and `sha256-json-v1` identity derivation are separately
+versioned. Version and required-capability mismatches fail before execution;
+unknown optional capabilities are recorded as unavailable. CLI and API share
+negotiation and admission behavior.
+
+- [User invocation, developer contract, schemas and capability negotiation](../../guides/runner-contract/)
+- [Request schema 1.0](https://github.com/microsoft/waza/blob/main/schemas/runner-request-1.0.schema.json)
+- [Terminal result schema 1.0](https://github.com/microsoft/waza/blob/main/schemas/runner-result-1.0.schema.json)
+- [Exact selection, identity, terminal states and failure boundaries](https://github.com/microsoft/waza/blob/main/docs/RUNNER_CONTRACT.md)
+
+`waza run`, `grade`, `replay` and historical schemas remain in their existing
+local compatibility families. Runner logical IDs do not rewrite historical
+IDs. Identical request identities do not provide exactly-once execution or
+deduplication; abrupt host loss and broken output can leave no result.
+
+## Compatibility, Lab and bounded reference
+
+- [#761 migration guide and developer mapping matrix](../../guides/runner-migration/):
+  preserved behaviors, unsupported mappings, actionable changes and no
+  deprecated command in this revision. **No Lab UI change is required for #761.**
+- [#757–#760 Dashboard Lab runner results](../../guides/dashboard-lab/#inspect-terminal-runner-results):
+  read-only saved envelopes with negotiation, requested/resolved selection,
+  identity, outcome, exit category, failure boundary and diagnostics. The
+  separately labeled synthetic demo does not call the runner-results API or
+  fabricate artifacts.
+- [#762 bounded container quickstart and maintainer policy](../../guides/runner-reference/):
+  mock-only, local input/output, exact selection, host assumptions,
+  troubleshooting and update procedure. It adds no scheduler-specific code and
+  makes no strong-isolation claim. **No Lab UI change is required for #762.**
+
+## Publication status and required workflow step
+
+The bounded container has a local build/smoke/conformance path, but **no
+published digest is currently available**. The latest handoff reports HTTP 403
+for registry-token authorization and package enumeration; no registry write
+occurred. Package existence and public digest availability are unknown. No
+`ghcr.io/...@sha256:...` value is asserted here.
+
+The next publication step is not complete. After the reviewed changes are
+merged and required CI and independent review have completed, an authorized
+maintainer must manually dispatch **Publish bounded runner reference** on
+`main`, supplying the full reviewed main commit SHA. Only that workflow's
+successful result—after independent manifest hashing, anonymous digest
+verification and digest-based smoke—may provide the literal reference for the
+walkthrough and release notes. Until then, mark the reference **not yet
+published**; do not insert a placeholder digest into release notes. The
+quickstart's visibly invalid placeholder exists only to explain expected
+syntax. Do not copy a tag, local image ID or fabricated hash as a published pin.
+
+These are technical preview notes, not the release blog post. Publish final
+release materials only after the feature changes have merged and have been
+verified on `main`.

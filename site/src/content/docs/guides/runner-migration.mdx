@@ -1,0 +1,107 @@
+---
+title: Runner compatibility and migration
+description: What remains compatible, how to opt into runner 1.0, and which local behaviors cannot map to one exact unit.
+---
+
+This is the migration and developer mapping reference for the **unreleased**
+runner 1.0 work. The runner is additive; existing `waza run`, `grade`, `replay`
+commands, historical schemas and established exit policies remain unchanged.
+No existing command is deprecated by this change.
+
+The complete compatibility matrix is derived from the committed
+[`adapter-matrix.json`](https://github.com/microsoft/waza/blob/main/internal/runnercontract/testdata/local/adapter-matrix.json).
+See the [repository migration reference](https://github.com/microsoft/waza/blob/main/docs/RUNNER_MIGRATION.md)
+for all historical/local command families.
+
+## Keep the existing workflow
+
+Historical batch semantics remain on the existing command:
+
+```bash
+waza run eval.yaml --task selected --trials 3 --output results.json
+```
+
+This is not implicitly changed into one runner unit. Keep `waza run` when the
+workflow includes task discovery, multiple tasks or trials, retries, baseline
+or parallel execution, cache, snapshots, hooks, skills, CSV, dependencies,
+multi-turn behavior or other semantics the single-unit profile cannot capture.
+
+## Explicitly select one supported unit
+
+For compatible inline mock/text inputs, capture the exact source files and
+selection, then run that request once:
+
+```bash
+waza runner adapt --eval eval.yaml --task tasks/selected.yaml \
+  --run-key qualification-42 --shard shard-a --task-id selected \
+  --trial 1 --attempt 1 --timeout-ms 60000 > request.json
+waza runner run < request.json > selected.runner.json
+waza runner validate-result < selected.runner.json
+```
+
+The authored task ID must equal `selected`; both shard fields must equal
+`shard-a`. Trial and attempt are one-based and bounded by the eval. Adaptation
+reads the named files only and preserves their bytes. It does not discover
+tasks, expand a glob, execute work, silently remove unsupported fields or
+authorize paid execution. If semantics cannot be preserved, it fails before
+runtime construction and directs the caller to keep `waza run`.
+
+Runner results are `waza.runner-result` envelopes, not legacy aggregate
+`results.json` files. Validate only runner envelopes with
+`waza runner validate-result`; keep historical result tooling for historical
+artifacts. Existing identifiers are not rewritten as runner identities.
+
+## Compatibility matrix
+
+| Surface | Runner 1.0 status | Migration action |
+|---|---|---|
+| Existing `waza run`, `grade`, `replay` behavior and exit policies | Preserved; no automatic rerouting | Continue using the same command unless intentionally selecting one supported exact unit. |
+| Eval/task/result/snapshot historical readers | Preserved by their own version/default rules | Keep historical artifacts and readers; runner envelopes are a separate family. |
+| `runner adapt` | Additive, exact captured mock/text source only | Supply exact `--eval`, `--task`, `--run-key`, `--shard`, `--task-id`, `--trial`, `--attempt`; no discovery or execution. |
+| `runner run` | Additive, one request and one exact selected attempt | Send the versioned JSON request on stdin; no adjacent selection or retry. |
+| `serve` / `dashboard` API | Additive `POST /api/v1/runner/run` to the same runner service | Read terminal `outcome`/`exit_code`; API HTTP 200 alone does not mean success. |
+| Batch/paired/iterative commands (`dev`, `compare`, `compare-collect`, `compare-plan`, `compare-assurance-plan`, `assure`, `adversarial`, `quality`, `suggest`) | No one-unit equivalent; multi-observation, judging, authoring or multi-arm semantics are not captured by the inline runner profile. | Keep the local command and its existing evidence/side-effect model. |
+| Static/management/artifact commands (`preflight`, `grade`, `replay`, `results`, `spec`, `migrate`, `init`, `new`, `get`, `update`, `tokens`, `gate`, `coverage`, `metadata`, `check`, `cache`, `session`, `mcp-mock`, `command-mock`, `registry`, `models`) | Not runner execution | Keep using the respective command; these are not adapted to one runner unit. |
+| Unsupported source features or inputs | Incompatible mapping; hard error before execution | Keep the old workflow or explicitly redesign a compatible source. No lossy conversion is done. |
+| Deprecated commands/schemas | None in this revision | No removal or rewrite is implied. |
+
+Important historical distinctions retained by adapters include:
+
+- Eval 1.x remains readable; captured 1.x runner text input requires explicit
+  `disabled_skills: [*]`. Scenario 2.0 has no ambient skill discovery.
+- Task YAML remains unversioned. Omitted/null `enabled` inherits the historical
+  true default; an explicitly disabled task is rejected. Omitted/null task
+  timeout inherits, explicit zero is rejected. `command_mocks: null` inherits;
+  `command_mocks: []` is an explicit unsupported override.
+- Historical result readers/writers stay in their own version family; current
+  aggregate writers emit 1.7. Runner 1.0 is not a historical
+  `EvaluationOutcome`.
+- Snapshot and sidecar versions remain independent; they are not converted into
+  runner success. Existing run IDs are not recalculated.
+
+## Developer mapping and version evolution
+
+Request bootstrap schema, runner interface, terminal result schema and identity
+algorithm are independent contracts. A new interpretation must use a new
+runner version or capability. Do not silently change a `1.0` meaning, reuse an
+identity algorithm name or reinterpret an outcome. Required capability
+mismatches fail before source/runtime execution; unknown optional capabilities
+are recorded unavailable. CLI and synchronous API share negotiation and
+admission behavior.
+
+Adapters must preserve captured source bytes and exact tuple identity, avoid
+runtime construction, and reject semantics they cannot preserve. They must not
+silently discover input, discard unsupported fields or manufacture evidence.
+Historical corpus/fixtures remain unchanged except through a separately
+reviewed compatibility decision. Full identity, result-envelope and evolution
+rules are in the [runner contract](../runner-contract/).
+
+**No Lab UI change is required for #761.** Compatibility and migration are
+command/schema/fixture/documentation concerns, not a new Lab status surface.
+
+## Next
+
+- [Runner contract, schemas and terminal results](../runner-contract/)
+- [Bounded reference quickstart and maintainer policy](../runner-reference/)
+- [Runner results in Dashboard Lab](../dashboard-lab/#inspect-terminal-runner-results)
+- [v0.40.0 unpublished release notes](../../releases/v0-40-0/)

@@ -110,6 +110,12 @@ the [runner contract](../runner-contract/) for invocation examples. These
 artifacts are separate from evaluation history, filters and JSON/CSV reports.
 This view does not submit work or control execution.
 
+The synchronous HTTP runner stores its terminal artifact below
+`<results-dir>/.runner/` where private publication is supported (Linux/macOS).
+On other platforms it returns an explicit `publication_failed` infrastructure
+result rather than claiming that the artifact was saved. For CLI execution,
+save stdout as `*.runner.json` in the configured results directory.
+
 Each result displays requested and negotiated runner/API versions; required,
 optional, available, selected and unavailable optional capabilities; requested
 and resolved shard/task/trial/attempt tuples; pre-execution validation; and the

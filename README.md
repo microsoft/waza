@@ -24,6 +24,10 @@ opt-in dashboard Lab described here are included in that release.
 Install the published binary or run `waza update`; a source build is optional.
 Platform, explicit opt-in, evidence, and paid-call restrictions still apply. See the
 [feature/platform matrix](site/src/content/docs/reference/releases.mdx#upcoming-main-only-capabilities).
+The versioned single-unit runner described in the v0.40.0 preview is **not**
+part of the published `v0.39.0` CLI; it is current-source behavior only.
+Publication and release status are tracked in the
+[unpublished v0.40.0 technical notes](site/src/content/docs/releases/v0-40-0.mdx).
 
 ## Installation
 
@@ -2199,6 +2203,9 @@ See the complete [Grader Reference](docs/GRADERS.md) for detailed configuration 
 - **[Tutorial](docs/TUTORIAL.md)** - Getting started with writing skill evals
 - **[CI Integration](docs/SKILLS_CI_INTEGRATION.md)** - GitHub Actions workflows for skill evaluation
 - **[Token Management](docs/TOKEN-LIMITS.md)** - Tracking and optimizing skill context size
+- **[Runner contract](docs/RUNNER_CONTRACT.md)** - Versioned CLI/API contract, negotiation, exact selection, identities, terminal results, and Lab artifacts
+- **[Runner migration matrix](docs/RUNNER_MIGRATION.md)** - Preserved local behavior, incompatible mappings, and actionable migration examples
+- **[Bounded runner container](docs/RUNNER_CONTAINER.md)** - Local mock reference quickstart, exact output, host assumptions, and publication/update policy
 
 ## Contributing
 

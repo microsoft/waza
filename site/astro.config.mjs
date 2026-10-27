@@ -47,6 +47,8 @@ export default defineConfig({
 						{ label: 'Writing Eval Specs', slug: 'guides/eval-yaml' },
 						{ label: 'Offline Eval Preflight', slug: 'guides/preflight' },
 						{ label: 'Public single-unit runner', slug: 'guides/runner-contract' },
+						{ label: 'Runner compatibility and migration', slug: 'guides/runner-migration' },
+						{ label: 'Bounded runner reference', slug: 'guides/runner-reference' },
 						{ label: 'Dependency Recovery', slug: 'guides/dependency-recovery' },
 
 						{ label: 'Controlled comparisons', slug: 'guides/controlled-comparisons' },
@@ -69,6 +71,7 @@ export default defineConfig({
 					label: 'Reference',
 					items: [
 						{ label: 'CLI Commands', slug: 'reference/cli' },
+						{ label: 'Runner CLI/API Contract', slug: 'guides/runner-contract' },
 						{ label: 'Project Configuration', slug: 'reference/waza-yaml' },
 						{ label: 'Statistical Fields', slug: 'reference/statistical-fields' },
 						{ label: 'YAML Schema', slug: 'reference/schema' },
@@ -79,6 +82,7 @@ export default defineConfig({
 							items: [
 								{ label: 'Overview & downloads', slug: 'reference/releases' },
 								{ label: 'Waza v0.39.0', slug: 'releases/v0-39-0' },
+								{ label: 'v0.40.0 technical notes (unpublished)', slug: 'releases/v0-40-0' },
 								{ label: 'Introducing Dashboard Lab', slug: 'releases/dashboard-lab' },
 							],
 						},

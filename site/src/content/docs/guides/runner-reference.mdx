@@ -1,0 +1,126 @@
+---
+title: Bounded runner reference quickstart
+description: Build and verify the mock-only container reference, inspect its exact local output, and follow the maintainer publication policy.
+---
+
+This is a bounded **mock-only** proof of concept for the public single-unit
+contract. It is not a general runtime image or production deployment guarantee.
+There is no scheduler-specific code and **no strong-isolation claim**.
+**No Lab UI change is required for #762.**
+
+## Publication status: no digest is available
+
+The local build and conformance scripts exist; the image has not been published.
+Do not present a tag, local Docker ID, placeholder or invented value as a
+published digest. After successful publication, the only user-facing registry
+reference form accepted by the script is the complete immutable digest:
+
+```bash
+# Illustrative only: replace after a successful verified publication.
+# This deliberately invalid placeholder is not a runnable image pin.
+REFERENCE='ghcr.io/microsoft/waza-runner-reference@sha256:<confirmed-64-hex-digest>'
+bash examples/runner/smoke.sh "$REFERENCE"
+```
+
+The placeholder above is explicitly not publication evidence. No runnable
+registry pin can be supplied until the workflow produces and verifies a real
+digest. For now, the commands below test a local build only.
+
+## Local quickstart
+
+Supported host: **native Linux x86_64** with a native `linux/amd64` Docker
+Engine and Buildx/BuildKit, Bash, `sha256sum`, Git + Git LFS, Python 3.11+, and
+a Go launcher able to obtain Go 1.26.4. Other architectures and emulation are
+not covered.
+Initial builds require network access to container base-image, npm and Go module
+services. Reserve at least 8 GiB for hydrated assets, frontend dependencies
+and Go build/test caches.
+
+```bash
+git lfs pull
+bash examples/runner/build.sh
+bash examples/runner/smoke.sh --local
+bash examples/runner/test.sh
+```
+
+Build snapshots tracked local files only, checks hydrated LFS payloads against
+their committed pointers, pins Node/npm and Go, verifies dependency checksums,
+and creates a static image from `scratch`. It records the local runnable image
+ID separately from its OCI config ID. Repeatability is tested with the same
+Docker/BuildKit implementation; equality across builders/toolchain versions is
+not claimed.
+
+## Exact input and expected output
+
+The build's only runner input is
+[`examples/runner/request.json`](https://github.com/microsoft/waza/blob/main/examples/runner/request.json),
+sent on stdin. The request names one captured mock task and selects
+`shard-a / selected / trial 2 / attempt 2`. The eval declares three trials and
+attempts and includes a neighboring glob as a conformance trap; no neighboring
+work is opened or executed. The image has no host-project mount, credentials,
+network, queue or scheduling integration.
+
+The smoke writes exactly one persistent result file:
+
+```text
+.runner-reference/output/unit.runner.json
+```
+
+It validates the envelope with the public `runner validate-result` command and
+checks the selected tuple, `adjacent_work_selected: false`, frozen identity,
+`success`/exit 0, observation trial and attempt both equal to 2, final output
+containing `hello`, and an invocation-owned workspace under `/work/`. The
+container uses a non-root identity, read-only root and private 32 MiB `/work`
+tmpfs with networking disabled. These bounds do not prove strong isolation.
+
+## Troubleshooting
+
+| Problem | Resolution |
+|---|---|
+| Unsupported host or Docker architecture | Use native Linux x86_64 and a native `linux/amd64` engine. Other architectures/emulation are outside this reference. |
+| Missing/corrupt embedded LFS runtime | Run `git lfs pull`; the build checks hydrated bytes against the committed pointer. |
+| Buildx/BuildKit missing | Use a Docker Engine with Buildx/BuildKit and verify the daemon's platform. |
+| Toolchain/dependency download or disk failure | First build needs network access and about 8 GiB available; the toolchain versions are pinned by the scripts. |
+| `smoke.sh --local` cannot find an image | Complete `bash examples/runner/build.sh` successfully first. |
+| Smoke rejects an image reference | Registry mode accepts only `ghcr.io/microsoft/waza-runner-reference@sha256:` plus 64 lowercase hex characters. Tags and local IDs are not registry pins. |
+| Selection, schema or vector check fails | Inspect with `waza runner validate-result`; keep the committed request/vector fixed and rerun `examples/runner/test.sh`. |
+| No output artifact | Check the smoke exit status. Runner stdout is captured in `.runner-reference/output/unit.runner.json`; failure stops before the output is accepted. |
+
+## Maintainer publication and updates
+
+The precise inputs, maintenance assumptions and update procedure are in
+[`examples/runner/MAINTAINERS.md`](https://github.com/microsoft/waza/blob/main/examples/runner/MAINTAINERS.md).
+Update toolchain or dependency pins only in a reviewed commit and repeat clean
+build, smoke and conformance.
+
+After the source/workflow merge, required CI and independent review, an
+authorized maintainer dispatches **Publish bounded runner reference** on
+`main`, supplying the full reviewed main commit SHA:
+
+```bash
+gh workflow run runner-reference-publish.yml --ref main \
+  -f commit="$FULL_REVIEWED_MAIN_SHA"
+```
+
+That workflow builds/smokes the exact source SHA, reconciles the commit tag
+before any write, refuses ambiguous authorization/network failures or
+conflicting bytes, independently hashes the registry manifest, verifies
+anonymous digest access and smoke-tests the resolved digest. A successful run
+retains the confirmed literal value in the run summary and
+`runner-reference-<commit>` artifact. Only then may docs replace the
+non-runnable placeholder with that exact confirmed reference.
+
+The latest publication handoff reports HTTP 403 while obtaining registry token
+authorization and enumerating organization packages. No registry write
+occurred; package existence and a public digest are unknown. Required CI on the
+exact merged head, normal review/merge, the named main-branch workflow
+dispatch, and authorized package access/public visibility remain external
+steps. Publication is not complete.
+
+## Related documentation
+
+- [Versioned contract, negotiation, schemas and result examples](../runner-contract/)
+- [Migration and complete compatibility matrix](../runner-migration/)
+- [Lab runner artifacts vs. synthetic demo](../dashboard-lab/#inspect-terminal-runner-results)
+- [Unpublished v0.40.0 release notes](../../releases/v0-40-0/)
+- [Repository quickstart and maintenance source](https://github.com/microsoft/waza/blob/main/docs/RUNNER_CONTAINER.md)

@@ -3,9 +3,16 @@ title: Public single-unit runner
 description: Unreleased versioned CLI/API foundation, exact selection, identities, terminal results, and bounded container reference.
 ---
 
-This is an **unreleased backend/runtime foundation** for the v0.40.0 roadmap,
-not a completed release or a published container image. Local `waza run`,
-`grade`, `replay` and historical schemas keep their existing behavior.
+This is the **unreleased v0.40.0 runner contract**, not a completed release or
+a published container image. Local `waza run`, `grade`, `replay` and historical
+schemas keep their existing behavior.
+
+Use the release path to move between the
+[contract and schemas](#api-schemas-and-negotiation),
+[compatibility/migration](../runner-migration/),
+[Lab artifacts](../dashboard-lab/#inspect-terminal-runner-results),
+[bounded reference](../runner-reference/) and
+[unpublished v0.40.0 notes](../../releases/v0-40-0/).
 
 ## Run one explicit unit
 
@@ -20,9 +27,22 @@ go build -o waza ./cmd/waza
 
 The request captures one eval and task source. It explicitly selects shard,
 task ID, trial and attempt. The runner never expands globs, scans adjacent tasks,
-automatically retries or converts a missing observation into success.
+automatically retries or converts a missing observation into success. Request
+and result size limits are 4 MiB and 16 MiB. JSON admission rejects duplicate
+keys, unknown fields, wrong/null types, invalid Unicode, trailing documents and
+out-of-range integers; captured YAML rejects unknown/duplicate fields,
+aliases/anchors and unsupported floats.
 The example selects `shard-a / selected / trial 2 / attempt 2` despite the eval
 declaring three trials/attempts and an adjacent-task glob.
+
+`selection.shard` must equal the captured input shard; `selection.task` must
+equal the authored task ID. `trial` and `attempt` are one-based and bounded by
+the declared eval; omitted/zero `max_attempts` is one. Disabled tasks, a
+conflicting tuple, unsupported source semantics and ambiguous/missing selectors
+fail before execution. Use exact source files and explicit task IDs; never
+resolve ambiguity by choosing a neighboring task. See the
+[migration guide](../runner-migration/) for before/after command examples and
+the complete adapter matrix.
 
 The current profiles support single-turn mock/native execution with inline
 resources, text checks and ambient skills disabled. Unsupported source semantics
@@ -57,6 +77,11 @@ Comments, YAML mapping order and LF/CRLF do not change logical identity; materia
 source/selection changes do. Identical logical IDs do not imply deduplication or
 exactly-once execution.
 
+The identity test vector is version `sha256-json-v1` and canonical digest
+`1c43e5f40d3d15fc7fa686e5892812aa60c0a507007a15648c5abf7817787819`.
+The fixture file contains the exact run/shard/task/trial/attempt IDs. The digest
+binds declared canonical input, not runtime/environment attestation.
+
 ## Terminal outcomes
 
 | Outcome | Exit code | Interpretation |
@@ -72,8 +97,11 @@ exactly-once execution.
 Every recoverable runner path converges on one validated envelope. SIGKILL,
 machine loss or an unwritable channel cannot promise output; missing output is
 unknown, never success. Missing identity/usage/observation remains unavailable.
-The contract guide explains schema examples and diagnostics; deterministic tests
-cover every state without paid/live execution.
+Exactly-once is limited to one terminalization/write attempt within a live
+process; it is not exactly-once execution or deduplication. Abrupt host loss or
+broken output can leave no envelope. The full contract documents the result
+schema, outcome examples, diagnostic codes and failure boundaries. Deterministic
+tests cover every state without paid/live execution.
 
 ## Migration and container walkthrough
 
@@ -92,16 +120,20 @@ Historical result IDs and schemas are not rewritten.
 For the bounded Linux-container proof of concept:
 
 ```bash
+git lfs pull
 bash examples/runner/build.sh
-bash examples/runner/smoke.sh
+bash examples/runner/smoke.sh --local
+bash examples/runner/test.sh
 ```
 
 This builds a static binary with Go `1.26.4`, uses OCI `scratch`, and records a
-local immutable image ID. Smoke accepts only that pin, runs network-disabled and
-non-root, and verifies `.runner-reference/output/unit.runner.json` through the
-public contract. It requires Docker, Python 3, Go build dependencies and built
-dashboard assets. No image is published and no scheduler code is added.
-See the contract for build/update guidance and isolation limitations.
+local image ID. The smoke checks
+`.runner-reference/output/unit.runner.json` against the exact task, attempt and
+identity vector. Supported host assumptions, expected output, diagnostics and
+maintainer update procedure are in the
+[bounded reference guide](../runner-reference/). No public image digest is
+available; do not treat a tag, local ID or placeholder as a published pin.
+There is no scheduler-specific code or strong-isolation claim.
 
 ## Dashboard status
 
@@ -118,3 +150,11 @@ The synthetic demo does not request or invent runner results.
 See [the Lab guide](../dashboard-lab/#inspect-terminal-runner-results) for details.
 Compatibility adapters (#761) and the bounded reference (#762) require **no
 dashboard UI change**.
+
+## Contract and release path
+
+- [#757–#760 contract, schemas, exact selection, identities and terminal outcomes](../runner-contract/)
+- [#761 user migration and complete compatibility matrix](../runner-migration/)
+- [#762 bounded container quickstart and maintainer policy](../runner-reference/)
+- [Lab runner artifacts and isolated synthetic demo](../dashboard-lab/#inspect-terminal-runner-results)
+- [v0.40.0 unpublished release notes and image publication status](../../releases/v0-40-0/)

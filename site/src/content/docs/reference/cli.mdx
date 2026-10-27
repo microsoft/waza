@@ -21,6 +21,26 @@ The unreleased `waza runner` source-build commands (`capabilities`, `run`,
 See the [public runner guide](../../guides/runner-contract/) for CLI/API parity,
 schemas, explicit selection, migration and the local container reference.
 
+### Current-source runner command reference
+
+These commands are in current source, not published standalone `v0.39.0`.
+Run `waza runner --help` and each subcommand's `--help` against the binary you
+intend to use.
+
+| Command | Input/output |
+|---|---|
+| `waza runner capabilities` | Prints supported request/result versions, identity algorithm and capabilities as JSON. |
+| `waza runner adapt --eval FILE --task FILE --run-key KEY --shard KEY --task-id ID --trial N --attempt N [--timeout-ms MS]` | Captures the exact source files and selection as a request on stdout; does not execute. Defaults `--timeout-ms` to 60000. |
+| `waza runner run` | Reads exactly one JSON request from stdin and writes one terminal result to stdout. No positional args or selection flags; process status is the result `exit_code`. |
+| `waza runner validate-result` | Reads and validates a saved terminal envelope from stdin; silent on success and offline. |
+
+`runner adapt` does not discover files or select a task from a batch. `runner
+run` executes no adjacent work and has no automatic retry. See the [contract
+guide](../../guides/runner-contract/), [migration matrix](../../guides/runner-migration/)
+and [bounded reference](../../guides/runner-reference/) before relying on
+current-source behavior. Global `--debug` and `--no-update-check` flags remain
+available.
+
 ```bash
 # macOS/Linux or Windows Git Bash/MSYS/Cygwin
 curl -fsSL https://raw.githubusercontent.com/microsoft/waza/main/install.sh | bash
