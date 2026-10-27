@@ -5,8 +5,9 @@ import { useLabDetails } from "./source";
 import { formatAICredits } from "../lib/format";
 import { canDisplayEvidence, canDisplayPromptJudging } from "../api/client";
 import TrajectoryViewer from "../components/TrajectoryViewer";
+import ConversationView from "./ConversationView";
 
-const evidenceTabs = ["graders", "trajectory", "configuration", "evidence"] as const;
+const evidenceTabs = ["graders", "conversation", "trajectory", "configuration", "evidence"] as const;
 
 function isProbability(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 1;
@@ -340,11 +341,7 @@ export default function RunInspector({
       run.tasks[0]?.id,
   );
   const [resolvedTasks, setResolvedTasks] = useState<LabRun["tasks"]>();
-  const [tab, setTab] = useState<
-    "graders" | "trajectory" | "configuration" | "evidence"
-  >(
-    "graders",
-  );
+  const [tab, setTab] = useState<(typeof evidenceTabs)[number]>("graders");
   const task =
     run.tasks.find((task) => task.id === taskId) ??
     run.tasks.find((task) => task.outcome === "failed") ??
@@ -509,16 +506,27 @@ export default function RunInspector({
                 >
                   {value === "graders"
                     ? "Grader evidence"
-                    : value === "trajectory"
-                      ? "Trajectory"
-                      : value === "configuration"
-                        ? "Configuration"
-                        : "Recorded evidence"}
+                    : value === "conversation"
+                      ? "Conversation"
+                      : value === "trajectory"
+                        ? "Trajectory"
+                        : value === "configuration"
+                          ? "Configuration"
+                          : "Recorded evidence"}
                 </button>
               ),
             )}
           </div>
           <div id="lab-evidence-panel" role="tabpanel" aria-labelledby={`lab-evidence-tab-${tab}`}>
+            {tab === "conversation" &&
+              (demo ? (
+                <p className="lab-note">
+                  The synthetic demo has no recorded conversation. Open a saved
+                  result in the real-results Lab to review user and agent messages.
+                </p>
+              ) : (
+                <ConversationView task={task?.api} />
+              ))}
             {tab === "evidence" &&
               (demo ? (
                 <p className="lab-note">

@@ -1,0 +1,77 @@
+{
+  "artifact": {
+    "eval_id": "conversation",
+    "eval_name": "conversation-review",
+    "skill": "conversation-review",
+    "timestamp": "2026-10-27T12:00:00Z",
+    "config": { "model_id": "mock-model", "runs_per_test": 2 },
+    "summary": { "total_tests": 2, "succeeded": 2 },
+    "tasks": [
+      {
+        "test_id": "multi-turn",
+        "display_name": "Review a multi-turn exchange",
+        "status": "passed",
+        "runs": [
+          {
+            "run_number": 1,
+            "attempts": 1,
+            "status": "passed",
+            "prompt": "Please review the deployment plan.",
+            "responder": { "followups_sent": 2, "outcome": "stopped" },
+            "transcript": [
+              { "type": "user.message", "content": "Please review the deployment plan." },
+              { "type": "tool.execution_start", "tool_call_id": "inspect", "tool_name": "read_file", "arguments": { "path": "plan.md" } },
+              { "type": "tool.execution_complete", "tool_call_id": "inspect", "success": true, "tool_result": { "content": "TOOL_OUTPUT_NOT_A_MESSAGE" } },
+              { "type": "assistant.message_delta", "content": "STREAMING_FRAGMENT_NOT_A_MESSAGE" },
+              { "type": "assistant.message", "content": "Which environment should I use?\n\nI can verify the plan before applying it." },
+              { "type": "user.message", "content": "Use staging.\n  Keep production unchanged." },
+              { "type": "assistant.message", "content": "I reviewed the staging plan. No production changes are proposed." },
+              { "type": "user.message", "content": "What is the rollback procedure?" },
+              { "type": "assistant.message", "content": "Restore the previous staging deployment.\nVerify health before routing traffic." }
+            ]
+          },
+          {
+            "run_number": 2,
+            "attempts": 1,
+            "status": "passed",
+            "transcript": [
+              { "type": "user.message", "content": "SECOND_REPETITION_NOT_THE_FIRST" },
+              { "type": "assistant.message", "content": "SECOND_REPETITION_RESPONSE" }
+            ]
+          }
+        ]
+      },
+      {
+        "test_id": "empty-messages",
+        "display_name": "Messages without text",
+        "status": "passed",
+        "runs": [
+          {
+            "run_number": 1,
+            "attempts": 1,
+            "status": "passed",
+            "transcript": [
+              { "type": "user.message", "content": "" },
+              { "type": "assistant.message" }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "expectedTranscript": [
+    { "type": "user.message", "content": "Please review the deployment plan." },
+    { "type": "tool.execution_start", "toolCallId": "inspect", "toolName": "read_file", "arguments": { "path": "plan.md" } },
+    { "type": "tool.execution_complete", "toolCallId": "inspect", "success": true, "toolResult": { "content": "TOOL_OUTPUT_NOT_A_MESSAGE" } },
+    { "type": "assistant.message_delta" },
+    { "type": "assistant.message", "content": "Which environment should I use?\n\nI can verify the plan before applying it." },
+    { "type": "user.message", "content": "Use staging.\n  Keep production unchanged." },
+    { "type": "assistant.message", "content": "I reviewed the staging plan. No production changes are proposed." },
+    { "type": "user.message", "content": "What is the rollback procedure?" },
+    { "type": "assistant.message", "content": "Restore the previous staging deployment.\nVerify health before routing traffic." }
+  ],
+  "expectedEmptyTranscript": [
+    { "type": "user.message" },
+    { "type": "assistant.message" }
+  ]
+}

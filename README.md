@@ -1172,8 +1172,13 @@ waza serve --lab --results-dir ./results
 # Opens http://localhost:3000/#/lab; classic dashboard stays at http://localhost:3000/#/
 ```
 The lab uses saved Waza results for linked charts, searchable history, stable-task
-comparisons, recorded evidence, and JSON/CSV/print reports. Local results refresh
-every 15 seconds or on demand; nonempty remote archives refresh on demand rather
+comparisons, recorded evidence, and JSON/CSV/print reports.
+The inspector's **Conversation** tab shows full recorded user/agent messages
+without tool-event noise or per-message expansion. It uses the first repetition;
+missing messages are not reconstructed, and responder metadata does not establish
+per-message simulated-user provenance.
+Local results refresh every 15 seconds or on demand; nonempty remote archives
+refresh on demand rather
 than being downloaded repeatedly. Current runs shows **saved-result event replay**,
 not live worker discovery or execution controls. Readiness, coverage, and revision
 metadata absent from the API remain explicitly unavailable. `--lab` cannot be

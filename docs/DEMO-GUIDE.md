@@ -671,6 +671,14 @@ replays artifact-derived events, not live worker telemetry; readiness, coverage,
 and git revisions are unavailable. The separate `/#/lab/demo` route is synthetic
 and is never used as an API-error fallback.
 
+In the real-results inspector, select **Conversation** to read the full recorded
+user/agent exchange without opening individual Trajectory events. Tool events,
+reasoning, and streaming deltas are excluded. This shows only the first
+repetition, not a complete trial export. User/agent labels describe message roles;
+the responder's simulated-user follow-up count does not establish per-message
+provenance. Missing messages stay unavailable. The synthetic demo has no recorded
+conversation; use a saved multi-turn evaluation for this walkthrough.
+
 ### Setup
 
 - **Prerequisite:** Run an evaluation first to generate results
