@@ -905,15 +905,18 @@ test.describe("Real dashboard lab", () => {
     await page.getByRole("button", { name: "custom-skill", exact: true }).first().click();
     const dialog = page.getByRole("dialog");
     const graders = dialog.getByRole("tab", { name: "Grader evidence" });
+    const conversation = dialog.getByRole("tab", { name: "Conversation", exact: true });
     const trajectory = dialog.getByRole("tab", { name: "Trajectory", exact: true });
     const configuration = dialog.getByRole("tab", { name: "Configuration" });
     const evidence = dialog.getByRole("tab", { name: "Recorded evidence" });
     await expect(graders).toHaveAttribute("tabindex", "0");
+    await expect(conversation).toHaveAttribute("tabindex", "-1");
     await expect(trajectory).toHaveAttribute("tabindex", "-1");
     await expect(configuration).toHaveAttribute("tabindex", "-1");
     await expect(evidence).toHaveAttribute("tabindex", "-1");
     await graders.focus();
     for (const [key, selected, name] of [
+      ["ArrowRight", conversation, "Conversation"],
       ["ArrowRight", trajectory, "Trajectory"],
       ["End", evidence, "Recorded evidence"],
       ["ArrowRight", graders, "Grader evidence"],
