@@ -50,6 +50,7 @@ export default defineConfig({
 
 						{ label: 'Controlled comparisons', slug: 'guides/controlled-comparisons' },
 						{ label: 'Preserving Existing Workflows', slug: 'guides/compatibility' },
+						{ label: 'Runner Contract & API', slug: 'guides/runner-contract' },
 						{ label: 'Evaluating Custom Agents', slug: 'guides/custom-agents' },
 						{ label: 'Validators & Graders', slug: 'guides/graders' },
 						{ label: 'Spec Verification', slug: 'guides/spec-verify' },

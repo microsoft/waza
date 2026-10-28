@@ -1575,3 +1575,20 @@
   border-radius: 0.5rem;
   color-scheme: dark;
 }
+.lab-runner-negotiation { padding: 24px; }
+.lab-runner-negotiation > label { display: block; margin: 16px 0 8px; }
+.lab-runner-negotiation textarea {
+  display: block;
+  width: 100%;
+  padding: 14px;
+  margin-bottom: 16px;
+  border: 1px solid var(--lab-border, #d5dbe5);
+  border-radius: 8px;
+  font: 13px/1.6 monospace;
+  resize: vertical;
+  color: inherit;
+  background: transparent;
+}
+.lab-runner-negotiation dl { display: grid; grid-template-columns: minmax(140px, 1fr) 2fr; gap: 10px 24px; }
+.lab-runner-negotiation dt { font-weight: 600; }
+.lab-runner-negotiation dd { margin: 0; overflow-wrap: anywhere; }

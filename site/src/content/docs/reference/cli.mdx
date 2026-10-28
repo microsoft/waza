@@ -1571,7 +1571,27 @@ Render a session timeline from an NDJSON event log.
 waza session view <session-file>
 ```
 
+## waza runner
+
+**Source-build preview:** inspect supported runner versions/capabilities and
+check compatibility without starting an eval or model:
+
+```bash
+waza runner capabilities
+waza runner negotiate < examples/runner/negotiation.json
+```
+
+The `negotiate` command takes one JSON request on stdin and writes one
+`waza.runner-negotiation` response to stdout. Exit 0 means compatible, 5 means
+unsupported version/capability, 6 means invalid request, and 2 means output
+failure. These are negotiation exits, not new meanings for local `waza run`.
+Only `negotiation` is implemented; `runner run` is not exposed yet.
+See [Runner contract, schemas, API and migration](../../guides/runner-contract/).
+
 ## waza serve
+
+The source-build preview also exposes offline runner negotiation through HTTP.
+See [Runner contract and API](../../guides/runner-contract/) for routes and schemas.
 
 Start the interactive dashboard.
 

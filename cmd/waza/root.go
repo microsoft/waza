@@ -82,6 +82,7 @@ performance against predefined test cases.`,
 	cmd.AddCommand(newReplayCommand())
 	cmd.AddCommand(newAdversarialCommand())
 	cmd.AddCommand(newRegistryCommand())
+	cmd.AddCommand(newRunnerCommand())
 
 	return cmd
 }
@@ -96,7 +97,7 @@ func shouldRunUpdateCheck(cmd *cobra.Command, noUpdateCheck bool) bool {
 		return false
 	}
 	for c := cmd; c != nil; c = c.Parent() {
-		if c.Name() == "update" || c.Name() == "preflight" || c.Name() == "compare-plan" || c.Name() == "compare-assurance-plan" || c.Name() == "compare-collect" || c.Name() == "assure" {
+		if c.Name() == "update" || c.Name() == "preflight" || c.Name() == "compare-plan" || c.Name() == "compare-assurance-plan" || c.Name() == "compare-collect" || c.Name() == "assure" || c.Name() == "runner" {
 			return false
 		}
 	}

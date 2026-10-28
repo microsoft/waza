@@ -31,6 +31,12 @@ human-labelled corpus, sandbox enforcement and default paid calibration are
 The historical skill-specific requirements below remain product context, not
 authority to infer current native grader keys or completed feature scope.
 
+The first v0.40.0 runner increment (#757) adds offline version/capability
+negotiation via CLI, HTTP and live Lab. It does not execute work or change local
+artifacts. Exact execution, identity, terminal envelopes, compatibility adapters
+and the container reference remain separately gated deliverables under #754.
+See the [runner contract](RUNNER_CONTRACT.md).
+
 ### The Problem
 
 The microsoft/skills repository hosts 132+ skills for AI coding agents, but the contribution process lacks automated tooling for:

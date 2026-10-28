@@ -249,6 +249,20 @@ canonical workflow, target-specific validation steps, and a reusable delegation 
 
 ## Commands
 
+### `waza runner` (source-build preview)
+
+Check the versioned runner contract without execution:
+
+```bash
+waza runner capabilities
+waza runner negotiate < examples/runner/negotiation.json
+```
+
+Only negotiation is available in this first v0.40.0 layer. Required future
+execution capabilities fail closed; compatible does not mean work executed.
+Existing local commands and artifacts are unchanged. See the
+[runner contract, HTTP API, schemas and migration guide](site/src/content/docs/guides/runner-contract.mdx).
+
 ### `waza preflight <eval.yaml>`
 
 Inspect eval setup **offline and agent-free** before execution:

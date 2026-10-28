@@ -1,0 +1,167 @@
+---
+title: Runner contract and capability negotiation
+description: Check the versioned runner CLI and HTTP API before execution, with explicit incompatibility diagnostics.
+---
+
+import ZoomImage from '../../../components/ZoomImage.astro';
+
+**Source-build preview for v0.40.0, negotiation only.** This first layer adds
+compatibility checks, not execution. Only `negotiation` is advertised. Exact
+work execution, identities, terminal results, archives, local adapters and the
+container reference remain later release layers. No release or container
+publication is announced here.
+
+## CLI: JSON stdin and stdout
+
+Build this source with `make build`, then inspect its capabilities:
+
+```bash
+waza runner capabilities
+```
+
+```json
+{"schema_version":"1.0","versions":["1.0"],"capabilities":["negotiation"]}
+```
+
+Negotiate without launching a model, tool, subprocess or runtime:
+
+```bash
+waza runner negotiate < examples/runner/negotiation.json
+```
+
+The example offers a future version with an explicit 1.0 fallback:
+
+```json
+{
+  "schema_version": "1.0",
+  "versions": ["2.0", "1.0"],
+  "required_capabilities": ["negotiation"],
+  "optional_capabilities": ["exact-unit"]
+}
+```
+
+The response has kind `waza.runner-negotiation`, schema version `1.0`, status
+`compatible`, and a `negotiation` object. Its selected `version` is `1.0`,
+`selected_capabilities` is `["negotiation"]`, and
+`unavailable_optional_capabilities` is `["exact-unit"]`. No execution occurred.
+Requested versions, required/optional capabilities and available capabilities
+are echoed separately. Empty arrays stay arrays, not `null`.
+
+To require execution instead, put `"exact-unit"` in `required_capabilities`
+and remove it from `optional_capabilities`. This layer returns
+`unsupported_capability` with an actionable diagnostic and exit 5, before
+interpreting any input or constructing an engine. Names are exact and
+case-sensitive: `Negotiation`, `negotiation.extra` and ` negotiation` do not
+silently become `negotiation`.
+
+| Status | CLI exit | Meaning |
+|---|---|---|
+| `compatible` | 0 | All required capabilities are implemented for the selected version; not execution success |
+| `unsupported_version` | 5 | No mutual version; offer `1.0` explicitly |
+| `unsupported_capability` | 5 | A required capability is unavailable |
+| `invalid_request` | 6 | Invalid JSON/schema, conflicting required/optional names, interrupted input, or command misuse |
+
+Failure to write the response exits 2. Standard output contains just one JSON
+response; command errors use standard error. Update discovery is disabled for
+all runner commands. SIGINT/SIGTERM while waiting for stdin can reject admission
+without waiting for a producer to close its pipe. Uncatchable termination,
+broken output pipes, and process crashes cannot guarantee response delivery.
+
+## HTTP API
+
+`waza serve --lab --no-browser` exposes the same offline contract:
+
+| Method and route | Behavior |
+|---|---|
+| `GET /api/v1/runner/capabilities` | Same advertisement as `runner capabilities` |
+| `POST /api/v1/runner/negotiate` | Same request and response as `runner negotiate` |
+
+```bash
+curl --silent --show-error \
+  -H 'Content-Type: application/json' \
+  --data-binary @examples/runner/negotiation.json \
+  http://127.0.0.1:3000/api/v1/runner/negotiate
+```
+
+A complete JSON request returns HTTP 200; inspect `status` rather than treating
+transport success as compatibility. Missing/non-JSON media type returns 415.
+An oversized or failed upload returns 400. A five-second body read deadline
+bounds partial uploads. Transport failures are not execution outcomes.
+The API reads no host input paths and stores no results. It retains the existing
+loopback server; no cloud authentication, scheduler or worker registry is added.
+
+## Schemas and presence
+
+- [Negotiation request 1.0 schema](../../schemas/runner-negotiation-request-1.0.schema.json)
+- [Negotiation response 1.0 schema](../../schemas/runner-negotiation-response-1.0.schema.json)
+- [Complete runner request 1.0 schema](../../schemas/runner-request-1.0.schema.json)
+- [Capability advertisement 1.0 schema](../../schemas/runner-capabilities-1.0.schema.json)
+
+All four compact request fields are required. `versions` must contain at least
+one distinct `major.minor` string. Capability arrays may explicitly be empty;
+omitted, `null`, `false`, zero or empty-string arrays are invalid. Duplicate
+JSON keys, unknown fields, duplicate array entries, malformed Unicode and
+trailing JSON are rejected. Compact arrays are limited to 64 entries.
+The wire size limit is 4 MiB.
+Invalid-request messages are bounded to 4,096 Unicode characters. Large
+complete requests report at most 64 individual missing required capabilities
+plus an explicit remaining count; the full requested lists remain available.
+
+The API also accepts the complete captured runner request defined by the
+separate schema. Its fields are `schema_version`, `versions`,
+`required_capabilities`, `optional_capabilities`, `run_key`, `selection`,
+`input`, `timeout_ms` and `allow_paid_execution`. All are required. Explicit
+`allow_paid_execution: false` is valid; omission or `null` is not. Selection
+requires shard, task, positive trial and positive attempt. Input carries inline
+shard/eval/task strings, not host paths. A complete request is only
+**shape-checked** here: YAML, selection validity and payment permission are
+never executed or interpreted. Do not treat compatibility as work admission.
+
+## Compatibility, migration and evolution
+
+Negotiation envelope schema version `1.0` is separate from the offered runner
+versions. Unsupported envelope versions are `invalid_request`; unsupported
+runner offers are `unsupported_version`. Version offers are exact strings,
+not ranges. `01.0` is not `1.0`. With several mutual versions, the server chooses
+its highest supported version, not client order. This implementation supports
+only `1.0`.
+
+Required and optional names must not overlap. Unsupported optional capabilities
+are listed without rejecting the request; unsupported required names reject the
+whole request and leave selected capabilities empty. No missing capability is
+silently downgraded. New compatible implementations may add advertised names;
+breaking semantics require a new version or capability name. Do not infer
+features from the Waza binary's release number.
+
+Existing `waza run`, eval/task schemas and historical results are unchanged.
+No published local command is deprecated by this layer. Migrate external
+compatibility checks to the explicit `runner` namespace, retain your current
+execution command, and require the capabilities you need before using any future
+runner execution surface. `runner run` is deliberately not yet exposed.
+
+The negotiation response has no execution outcome, logical identity, scores,
+billing or terminal result. It must not be ingested as an evaluation result.
+See the [developer boundary and layer allocation](https://github.com/microsoft/waza/blob/main/docs/RUNNER_CONTRACT.md)
+and [runner release roadmap](https://github.com/microsoft/waza/issues/754).
+
+## Dashboard Lab
+
+Open `waza serve --lab`, then **Runner contract**. Edit the JSON request and
+select **Check compatibility**. The live view displays the negotiated API/runner
+version, requested/available/selected capabilities, unavailable optional names
+and incompatibility diagnostics from the public API. The check never runs an
+evaluation. Editing or retrying clears prior results; failed refreshes show an
+error instead of stale compatibility.
+
+<ZoomImage src="../../images/dashboard-lab-negotiation.png" alt="Live Runner contract view showing an unavailable exact-unit requirement and available negotiation capability." />
+
+The synthetic demo does not call the runner API or fabricate negotiation data.
+On an older server or static host, the check reports an error, not success.
+
+## Initial contract notes (unreleased)
+
+This adds negotiation schemas and commands without changing local result or
+eval versions. No older binary gains these commands automatically. There is
+no execution, paid-provider call, adapter migration, container digest, durable
+publication or isolation guarantee in this layer. The v0.40.0 release article
+is deferred until the release's required items are merged.

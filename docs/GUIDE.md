@@ -457,6 +457,15 @@ The browser opens automatically to `http://localhost:3000`. You'll see:
 
 ## Command Reference
 
+### `waza runner` (source-build preview)
+
+`waza runner capabilities` advertises implemented versions and capabilities.
+`waza runner negotiate < examples/runner/negotiation.json` checks requirements
+through JSON stdin/stdout without execution. Only `negotiation` is currently
+available; required execution capabilities reject with exit 5.
+The HTTP API and live Lab use the same negotiation. See the
+[canonical contract and migration guide](../site/src/content/docs/guides/runner-contract.mdx).
+
 ### `waza init [directory]`
 
 Initialize a waza project with directory structure.

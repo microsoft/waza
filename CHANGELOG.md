@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Runner negotiation 1.0 (first v0.40.0 layer)** - Add offline JSON stdin/stdout `runner capabilities` and `runner negotiate`, matching HTTP APIs, strict request/response schemas, conformance fixtures and live Lab incompatibility diagnostics (#757). Only negotiation is advertised; execution/identity/terminal/container capabilities remain unavailable. Existing local commands and artifacts are unchanged; no forms are deprecated. See the [contract and migration guide](site/src/content/docs/guides/runner-contract.mdx).
+
 ## [0.39.1] - 2026-10-26
 
 ### Fixed

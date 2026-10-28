@@ -1,0 +1,6 @@
+{
+  "schema_version": "1.0",
+  "versions": ["2.0", "1.0"],
+  "required_capabilities": ["negotiation"],
+  "optional_capabilities": ["exact-unit"]
+}

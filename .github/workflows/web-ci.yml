@@ -5,6 +5,14 @@ on:
     branches: [main]
     paths:
       - 'web/**'
+      - 'cmd/waza/**'
+      - 'internal/runnercontract/**'
+      - 'internal/webapi/runner*.go'
+      - 'internal/webserver/**'
+      - 'schemas/runner*.json'
+      - 'schemas/embed.go'
+      - 'go.mod'
+      - 'go.sum'
       - '.github/workflows/web-ci.yml'
   pull_request:
     branches: [main]
@@ -39,6 +47,14 @@ jobs:
           filters: |
             web:
               - 'web/**'
+              - 'cmd/waza/**'
+              - 'internal/runnercontract/**'
+              - 'internal/webapi/runner*.go'
+              - 'internal/webserver/**'
+              - 'schemas/runner*.json'
+              - 'schemas/embed.go'
+              - 'go.mod'
+              - 'go.sum'
               - '.github/workflows/web-ci.yml'
 
       - name: Setup Node
@@ -53,6 +69,13 @@ jobs:
         if: steps.filter.outputs.web == 'true' || github.event_name != 'pull_request'
         working-directory: web
         run: npm ci
+
+      - name: Setup Go for real runner API browser coverage
+        if: steps.filter.outputs.web == 'true' || github.event_name != 'pull_request'
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.26'
+          cache-dependency-path: go.sum
 
       - name: Lint dashboard
         if: steps.filter.outputs.web == 'true' || github.event_name != 'pull_request'
