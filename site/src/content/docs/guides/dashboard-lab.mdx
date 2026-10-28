@@ -157,6 +157,26 @@ demo's Runner results page does not request the API or fabricate envelopes.
 Compatibility adapters (#761) and the bounded reference (#762) retain their
 **no-dashboard-UI** decision.
 
+#### Runner archive and API troubleshooting
+
+The current endpoint returns archive page schema `1.1`; embedded
+`waza.runner-result` envelopes remain schema `1.0`. Pages are ordered by
+artifact path and continued with `next_cursor`. The default page limit is 20
+(1–100); item and response bounds are 16 MiB and 17 MiB. A malformed,
+unreadable, non-regular or oversized artifact appears with its own diagnostic;
+it does not hide other valid artifacts. To see newly added paths that sort
+before a saved cursor, refresh from the first page.
+
+| Symptom | Check |
+|---|---|
+| HTTP 400 from the archive endpoint | Check `limit` is an integer from 1 to 100 and use the exact opaque cursor returned by the preceding page. Invalid or unsupported cursors are rejected. |
+| One artifact has a diagnostic, but others load | Inspect the named artifact for malformed JSON/schema, unreadability, non-regular-file status, or a size above 16 MiB. The per-artifact error does not invalidate valid siblings. |
+| A CLI result is missing from Lab | Save its stdout as a `*.runner.json` file in the configured results directory. HTTP execution stores artifacts under its `.runner/` child where private publication is supported. |
+| HTTP run returned `invalid_request` | An oversized, completely read request is rejected after the overflow-detection byte; it is not an admitted execution. Check the request is no larger than 4 MiB. |
+| Upload failed before a runner envelope was returned | Incomplete, timed-out, or disconnected body reads are pre-admission transport failures. No runner invocation or artifact is inferred from that response. |
+| HTTP run returned `infrastructure_failure` with `publication_failed` | Execution evidence may be retained, but private artifact persistence failed; the returned envelope is bounded and schema-valid when deliverable. Do not treat it as saved in Lab. |
+| Caller disconnected after admission | Delivery is not guaranteed. The server still attempts one terminal result and private publication; if the server/process/storage also fails, missing evidence remains unknown, not success. |
+
 <ZoomImage src="../../images/dashboard-lab-runner.png" alt="Fixture-backed Lab runner result with a recorded timeout, negotiation, exact work tuple, identity lineage and diagnostics." />
 
 This screenshot is an authored terminal-state fixture derived from a mock-only

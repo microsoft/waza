@@ -136,6 +136,10 @@ The request bootstrap schema (`schema_version: "1.0"`), offered runner interface
 (`sha256-json-v1`) are independent. Changing one does not implicitly version
 the others. A semantics change must use a new runner version or capability;
 do not reinterpret a `1.0` field, identity, outcome or capability in place.
+The Lab archive API is another independent version axis: it now returns
+paginated archive schema `1.1`, containing runner result schema `1.0`.
+Consumers of the prior unpaginated archive shape must explicitly support the
+1.1 entries and cursor; the server does not negotiate a 1.0 archive response.
 
 Adapters must preserve source bytes, exact selection and historical behavior.
 They must not discover additional inputs, create runtime clients during

@@ -82,6 +82,58 @@ The identity test vector is version `sha256-json-v1` and canonical digest
 The fixture file contains the exact run/shard/task/trial/attempt IDs. The digest
 binds declared canonical input, not runtime/environment attestation.
 
+The Lab archive is a separate version axis: `GET
+/api/v1/lab/runner-results` now returns archive page schema `1.1`, while each
+embedded runner envelope remains result schema `1.0`. This endpoint does not
+negotiate or emit the old unpaginated `1.0` archive shape. Consumers written
+for that shape must recognize `schema_version: "1.1"`, read each
+`{artifact, result}` or `{artifact, error}` entry, and follow `next_cursor`;
+keep rejecting unknown versions rather than treating them as empty success.
+The Lab browser client understands both archive `1.0` and `1.1`, but the
+current server emits `1.1`.
+See the
+[archive page schema](https://github.com/microsoft/waza/blob/main/schemas/runner-results-1.1.schema.json)
+for the strict response shape.
+
+The 1.1 archive sorts artifact paths lexicographically (bytewise) and uses an
+opaque versioned keyset cursor. `limit` defaults to 20 and accepts 1–100
+items; individual envelopes are bounded to 16 MiB and a response to 17 MiB,
+so a byte-bound page can contain fewer items. Malformed, unreadable,
+non-regular, or oversized artifacts produce an `error` for that artifact
+without suppressing valid siblings. This is a keyset continuation, not a
+snapshot: refresh from the first page to see newly added paths that sort
+before the cursor. Invalid/unsupported cursors and invalid limits return HTTP
+400.
+
+Fetch pages through the end of the archive with `curl` and `jq`:
+
+```bash
+cursor=
+while :; do
+  page=$(curl --fail-with-body --silent --show-error --get \
+    --data-urlencode 'limit=20' --data-urlencode "cursor=$cursor" \
+    http://127.0.0.1:3000/api/v1/lab/runner-results)
+  printf '%s\n' "$page"
+  cursor=$(printf '%s' "$page" | jq -r '.next_cursor // empty')
+  [ -n "$cursor" ] || break
+done
+```
+
+`POST /api/v1/runner/run` also distinguishes incomplete transport from an
+admitted invocation. The server reads at most 4 MiB plus one overflow-detection
+byte and for at most 30 seconds. An interrupted, disconnected, or failed read
+before a complete request returns an HTTP transport error with no invented
+runner envelope. A detected oversize request is an `invalid_request` terminal
+rejection and the remaining body is not drained. Once admitted, cancellation
+or client disconnect does not cancel terminalization: the server attempts to
+persist one terminal result under `<results-dir>/.runner/`, though delivery to
+the caller is not guaranteed. If private publication fails, the response is a
+bounded, schema-valid `infrastructure_failure` with `publication_failed`;
+original diagnostics/evidence are retained when they fit. When oversized
+evidence must be omitted, bounded diagnostics record that omission and an
+observation digest/encoded size when available. No persistence is claimed for
+a publication failure.
+
 ## Terminal outcomes
 
 | Outcome | Exit code | Interpretation |

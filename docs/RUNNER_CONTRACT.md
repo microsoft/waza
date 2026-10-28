@@ -424,6 +424,58 @@ supported on Linux/macOS. On other platforms it reports a
 The Lab API reads both locations; a caller must save CLI stdout if it wants the
 result included in Lab.
 
+### Archive API compatibility and pagination
+
+The Lab archive is versioned independently from the runner result envelope.
+`GET /api/v1/lab/runner-results` now returns archive schema `1.1`, while each
+embedded `waza.runner-result` remains schema `1.0`. The endpoint does not
+negotiate or emit the former unpaginated `1.0` archive response. Consumers
+expecting that shape must recognize `schema_version: "1.1"`, read each
+`{artifact, result}` or `{artifact, error}` entry, and follow `next_cursor`;
+they should continue to reject unknown versions rather than treat them as
+empty success. The Lab browser client accepts both archive 1.0 and 1.1 during
+the transition; the current server emits 1.1.
+
+The 1.1 endpoint sorts artifact paths lexicographically (bytewise) and uses an
+opaque, versioned keyset cursor. `limit` defaults to 20 and accepts 1–100
+items. Each stored result is bounded to 16 MiB; the complete UTF-8 response is
+bounded to 17 MiB, so the byte limit can end a page before its item limit.
+Malformed, oversized, unreadable and non-regular artifacts return a
+per-artifact error and do not hide unrelated valid results. Cursors continue
+after an artifact path and are not snapshot tokens: refresh from the first
+page to see additions that sort before the cursor. Invalid/unsupported
+cursors and invalid limits return HTTP 400.
+
+```bash
+cursor=
+while :; do
+  page=$(curl --fail-with-body --silent --show-error --get \
+    --data-urlencode 'limit=20' --data-urlencode "cursor=$cursor" \
+    http://127.0.0.1:3000/api/v1/lab/runner-results)
+  printf '%s\n' "$page"
+  cursor=$(printf '%s' "$page" | jq -r '.next_cursor // empty')
+  [ -n "$cursor" ] || break
+done
+```
+
+The synchronous `POST /api/v1/runner/run` reads a bounded body (4 MiB plus
+one overflow-detection byte, at most 30 seconds) before admission. A failed,
+timed-out or canceled read before a complete request returns an HTTP transport
+error, not a runner envelope or artifact. A fully detected size overflow
+produces an `invalid_request` admission-rejection envelope without draining
+the remaining body. Once admitted, cancellation or client disconnect still
+converges on one terminal envelope and attempts private persistence when the
+process and storage remain writable; delivery is not guaranteed.
+
+If publication fails, the returned result is a bounded, schema-valid
+`infrastructure_failure` with `publication_failed`; evidence and original
+diagnostics are preserved as far as the result bound allows. Oversized
+observations may be omitted with bounded diagnostics and an encoded size and
+digest when available. If even terminal metadata is invalid or too large, a
+schema-valid fallback records `evidence_omitted` rather than claiming a
+complete observation. A publication-failure response is not evidence that an
+archive artifact was saved.
+
 Open **Runner results** in `waza dashboard --lab` (or `waza serve --lab`) at
 `/#/lab/runner`. This read-only surface uses the typed client in
 `web/src/api/runner.ts` and displays the supplied negotiation, requested/resolved

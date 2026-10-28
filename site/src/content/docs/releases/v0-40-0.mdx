@@ -23,6 +23,12 @@ negotiation and admission behavior.
 - [Terminal result schema 1.0](https://github.com/microsoft/waza/blob/main/schemas/runner-result-1.0.schema.json)
 - [Exact selection, identity, terminal states and failure boundaries](https://github.com/microsoft/waza/blob/main/docs/RUNNER_CONTRACT.md)
 
+The Lab runner-results archive is independently versioned: the current API
+returns paginated archive schema `1.1`, containing runner result envelopes
+schema `1.0`. A consumer of the earlier unpaginated archive shape must update
+to the 1.1 entry and cursor contract; the server does not offer a 1.0 archive
+response. Per-artifact errors preserve valid sibling results.
+
 `waza run`, `grade`, `replay` and historical schemas remain in their existing
 local compatibility families. Runner logical IDs do not rewrite historical
 IDs. Identical request identities do not provide exactly-once execution or

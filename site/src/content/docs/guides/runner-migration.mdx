@@ -13,6 +13,13 @@ The complete compatibility matrix is derived from the committed
 See the [repository migration reference](https://github.com/microsoft/waza/blob/main/docs/RUNNER_MIGRATION.md)
 for all historical/local command families.
 
+The Lab runner archive is independently versioned from the runner result
+envelope. The current server returns archive schema `1.1`, while each result
+inside it remains schema `1.0`; older clients expecting the unpaginated
+`1.0` archive shape must explicitly add support for 1.1 entries and
+`next_cursor`. The endpoint does not negotiate a 1.0 response. The Lab browser
+client accepts both archive formats during this transition.
+
 ## Keep the existing workflow
 
 Historical batch semantics remain on the existing command:
