@@ -56,8 +56,24 @@ func registerRunnerRoutes(mux *http.ServeMux, resultsDir string, service *runner
 				return
 			} else {
 				result = service.Run(r.Context(), data)
-				if err := persistRunnerResult(resultsDir, &result); err != nil {
-					result = runnercontract.PublicationFailed(result, err)
+				if published, encoded, err := persistRunnerResult(resultsDir, &result); err != nil {
+					failed := runnercontract.PublicationFailed(result, err)
+					reconciliationFailed := false
+					if published != "" {
+						var failure bytes.Buffer
+						if writeErr := runnercontract.Write(&failure, &failed); writeErr != nil {
+							err = errors.Join(err, fmt.Errorf("encoding publication failure: %w", writeErr))
+							reconciliationFailed = true
+						} else if reconcileErr := snapshot.ReplacePrivateArtifact(filepath.Join(resultsDir, ".runner"), published, encoded, failure.Bytes()); reconcileErr != nil {
+							err = errors.Join(err, fmt.Errorf("reconciling committed runner artifact: %w", reconcileErr))
+							reconciliationFailed = true
+						}
+					}
+					if reconciliationFailed {
+						result = runnercontract.PublicationFailed(result, err)
+					} else {
+						result = failed
+					}
 				}
 			}
 		}
@@ -120,18 +136,18 @@ func closeRunnerBody(w http.ResponseWriter, r *http.Request) {
 	_ = r.Body.Close()
 }
 
-func persistRunnerResult(dir string, result *runnercontract.Result) error {
+func persistRunnerResult(dir string, result *runnercontract.Result) (string, []byte, error) {
 	var data bytes.Buffer
 	if err := runnercontract.Write(&data, result); err != nil {
-		return fmt.Errorf("encoding runner artifact: %w", err)
+		return "", nil, fmt.Errorf("encoding runner artifact: %w", err)
 	}
 	// Own a private child rather than chmod an existing historical results
 	// directory. CLI-created *.runner.json artifacts remain readable at its root.
 	name, err := snapshot.WritePrivateArtifact(filepath.Join(dir, ".runner"), data.Bytes(), ".runner.json")
 	if err != nil {
-		return fmt.Errorf("persisting runner artifact (residue %q): %w", name, err)
+		return name, data.Bytes(), fmt.Errorf("persisting runner artifact (residue %q): %w", name, err)
 	}
-	return nil
+	return name, data.Bytes(), nil
 }
 
 func readRunnerResults(dir string) (results []runnercontract.Result, err error) {
@@ -173,9 +189,13 @@ func readRunnerRoot(root *os.Root, includeHTTP bool) (results []runnercontract.R
 		if !strings.HasSuffix(entry.Name(), ".runner.json") {
 			continue
 		}
+		if runnerArtifactQuarantined(root, entry.Name()) {
+			continue
+		}
 		if !entry.Type().IsRegular() {
 			return nil, fmt.Errorf("runner artifact %s is not a regular file", entry.Name())
 		}
+
 		// Retain the root throughout each read; reject nonregular entries.
 		f, err := openRunnerArtifact(root, entry.Name())
 		if err != nil {
@@ -198,4 +218,10 @@ func readRunnerRoot(root *os.Root, includeHTTP bool) (results []runnercontract.R
 		results = append(results, *result)
 	}
 	return results, nil
+}
+
+func runnerArtifactQuarantined(root *os.Root, name string) bool {
+	marker := filepath.Join(filepath.Dir(name), "."+filepath.Base(name)+".publication-failed")
+	info, err := root.Lstat(marker)
+	return err == nil && info.Mode().IsRegular()
 }

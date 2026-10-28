@@ -134,6 +134,10 @@ func readRunnerArchiveEntry(root *os.Root, name string) runnerArchiveEntry {
 		entry.Error = "runner artifact directory .runner could not be enumerated as a directory"
 		return entry
 	}
+	if runnerArtifactQuarantined(root, name) {
+		entry.Error = "runner artifact withheld after failed publication reconciliation"
+		return entry
+	}
 	data, err := func() (data []byte, err error) {
 		before, err := root.Lstat(name)
 		if err != nil || !before.Mode().IsRegular() {

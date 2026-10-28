@@ -15,6 +15,13 @@ func WritePrivateArtifact(root string, data []byte, suffix string) (string, erro
 	return writePrivateSnapshotWithHooks(root, data, privateWriterHooks{suffix: suffix})
 }
 
+// ReplacePrivateArtifact atomically replaces a verified private artifact with
+// replacement. expected must be the complete content originally published by
+// this invocation; a replacement is never made over a competing file.
+func ReplacePrivateArtifact(root, publishedPath string, expected, replacement []byte) error {
+	return replacePrivateArtifact(root, publishedPath, expected, replacement)
+}
+
 func writePrivateSnapshot(root string, data []byte) (string, error) {
 	return writePrivateSnapshotWithHooks(root, data, privateWriterHooks{})
 }
