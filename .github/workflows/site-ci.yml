@@ -59,6 +59,8 @@ jobs:
               - 'README.md'
               - 'registry.json'
               - 'internal/models/outcome.go'
+              - 'internal/runneridentity/testdata/**'
+              - 'internal/runnerunit/testdata/**'
               - 'schemas/**'
               - '.github/workflows/site-ci.yml'
               - '.github/workflows/pages.yml'

@@ -1593,6 +1593,10 @@ is `waza.runner-unit`, not the later terminal envelope. Unit-command exits:
 0 ready/completed with passing checks, 1 completed with failing checks,
 2 execution/input/output failure, 5 incompatible runner requirements,
 6 invalid selection. Native execution is unavailable even with paid consent.
+Admitted receipts carry `identity` version `sha256-waza-c14n-v1`, canonical input
+digest and logical lineage; validation alone derives it without execution.
+Save stdout with `> validation.json`; identity is not proof of execution or
+duplicate suppression. See [logical identity fields and migration](../../guides/runner-identities/).
 See [Runner contract, schemas, API and migration](../../guides/runner-contract/).
 
 ## waza serve

@@ -1,10 +1,12 @@
-# Deterministic runner identities (preparation for #759)
+# Deterministic runner identities
 
 This page specifies the **unreleased** `sha256-waza-c14n-v1` identity ABI in
-`internal/runneridentity`. It prepares the independent foundation for
-[#759](https://github.com/microsoft/waza/issues/759), not completion of that
-issue or the [v0.40.0 release](https://github.com/microsoft/waza/issues/754).
+`internal/runneridentity` and its production integration for
+[#759](https://github.com/microsoft/waza/issues/759). This source preview does not
+announce the [v0.40.0 release](https://github.com/microsoft/waza/issues/754).
 The [negotiation contract](RUNNER_CONTRACT.md) is a separate boundary.
+The [site guide](../site/src/content/docs/guides/runner-identities.mdx) is the
+canonical user-facing normalization, lineage and migration reference.
 
 ## Reading an identity
 
@@ -194,27 +196,44 @@ historical results. An external consumer must compare both derivation version
 and ID, retain legacy IDs as legacy, and recalculate only from complete original
 declared sources when an explicit migration is requested.
 
-## Minimal final-layer integration handoff (not implemented here)
+## Production integration and terminal handoff
 
-After #758's actual committed parent is available, the owning #759 layer must:
+`runnerunit` invokes `Derive` after original-wire negotiation/parsing, exact
+source/profile validation and `PrepareInlineInput`, but before the runtime
+factory. The parsed request retains original authored strings; defaulted models
+and runtime paths never supply identity input. Errors reject explicitly with
+`invalid_identity`, zero calls and no identity. Unadmitted/unsupported requests
+have no identity. Later runtime rejection, factory failure, cancellation, timeout,
+execution or shutdown failure retains identity without implying execution.
 
-1. Invoke this derivation on the original validated request after exact-unit
-   admission but before engine construction. Preserve original authored YAML;
-   never reserialize admitted/defaulted model structs for identity.
-2. Record `*runneridentity.Identity` in the real report/result producer and
-   independently version its schema. Fail explicitly on derivation error before
-   runtime invocation; rejection paths without admitted input must not fabricate
-   identities. Keep declared identity distinct from observation/evidence.
-3. Coordinate with #760's actual terminal envelope, writer and reader so saved
-   JSON/API/export retains every identity field and the derivation version.
-   Use the same producer for CLI and HTTP; no second derivation implementation.
-4. Prove real producer-to-writer/API behavior and Lab lineage, including absent
-   metadata, retries, source mutations and alternative-valid sources. Surface
-   the complete hierarchy, canonical digest, attempt ID and version in Lab.
-5. Publish the dedicated site guide/vectors, hierarchy examples, discoverable
-   navigation and user/developer/release/migration notes; update shared release
-   docs only in the actual stacked layer, then run its browser/site/native gates.
+`Report.Identity` is `*runneridentity.Identity` with `json:"identity,omitempty"`.
+CLI stdout (including shell-redirection saves), HTTP responses, Lab lineage and
+validation JSON exports carry the same producer's seven fields. Receipt schema
+`waza.runner-unit` version `1.0` accepts this optional additive field; old receipts
+without it remain readable. Null/partial/unknown-version identity or identity on
+a rejected receipt is invalid. No historical eval reader or writer is tightened.
+This layer adds no advertised capability or request field.
 
-This preparation intentionally changes no #758 execution files, result schema,
-Lab view, shared documentation index, README, changelog, or workflow. It does
-not advertise an identity capability or close #759.
+The original 29-vector oracle above remains unchanged. Its `exact-unit` source
+labels describe source syntax, **not execution admission**: those task sources
+omit the grader required by the current bounded profile. A separate independent
+[producer reference](../internal/runnerunit/testdata/identity-reference.mjs)
+uses manually typed canonical trees for the real `examples/runner/unit.json`
+and ten controls. Its frozen [11 vectors](../internal/runnerunit/testdata/identities.json)
+are pinned to LF-normalized SHA-256
+`fea761f0270c22dbf3a79760b8877bfac32ab8e14022f7d058401e149e9e88b0`.
+Production tests compare every full identity through validation, execution,
+CLI serialization, HTTP, Lab rendering and downloaded JSON, including source
+presentation and negotiation-only alternatives. Runtime factory buffer mutation
+proves identity/prepared input are captured before construction.
+
+```sh
+node internal/runnerunit/testdata/identity-reference.mjs
+NO_COLOR=1 go test ./internal/runnerunit ./cmd/waza -run 'Test.*(Identity|Identities)' -count=1
+```
+
+The next #760 layer owns terminal schema/emission/exit mapping, not this receipt.
+It must use this canonical type and already-derived optional value after
+successful exact admission; it must not derive again from observations or
+invent identity on rejection. No persistence, archive ingestion, reconciliation,
+remote scheduling, terminal writer or terminal version is implemented here.

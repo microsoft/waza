@@ -17,6 +17,7 @@ import (
 	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/runnercontract"
+	"github.com/microsoft/waza/internal/runneridentity"
 	"github.com/microsoft/waza/internal/runnerunit"
 	"github.com/microsoft/waza/internal/webapi"
 	"github.com/stretchr/testify/require"
@@ -109,7 +110,11 @@ func TestRunnerExactUnitCLIHTTPConformance(t *testing.T) {
 						require.Equal(t, "rejected", report.Status)
 						require.Nil(t, report.Resolved)
 						require.Nil(t, report.Observation)
+						require.Nil(t, report.Identity)
 					} else {
+						expected, err := runneridentity.Derive(&req)
+						require.NoError(t, err)
+						require.Equal(t, expected, report.Identity)
 						require.Equal(t, req.Selection, *report.Resolved)
 						require.Equal(t, "valid", report.Validation)
 						if action == "run" {
@@ -169,6 +174,7 @@ func TestRunnerRejectsNonMockFactoryCLIHTTP(t *testing.T) {
 		for _, report := range []runnerunit.Report{cliReport, httpReport} {
 			require.Equal(t, "execution_error", report.Status)
 			require.Equal(t, "valid", report.Validation)
+			require.NotNil(t, report.Identity, "runtime rejection does not erase admitted input identity")
 			require.NotNil(t, report.Resolved)
 			require.Empty(t, report.Mode)
 			require.Zero(t, report.Calls)

@@ -14,6 +14,7 @@ import (
 	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/runnercontract"
+	"github.com/microsoft/waza/internal/runneridentity"
 	"github.com/microsoft/waza/internal/schemaloader"
 	"github.com/microsoft/waza/schemas"
 	"github.com/santhosh-tekuri/jsonschema/v6"
@@ -134,6 +135,9 @@ func TestExactUnitProductionAttemptAndRepeatedDispatch(t *testing.T) {
 		report := service.Run(t.Context(), wire(t, request))
 		require.Equal(t, "completed", report.Status, "%+v", report.Diagnostics)
 		require.Equal(t, "mock", report.Mode)
+		expected, err := runneridentity.Derive(&request)
+		require.NoError(t, err)
+		require.Equal(t, expected, report.Identity)
 		require.Equal(t, request.Selection, *report.Resolved)
 		require.False(t, report.AdjacentWork)
 		require.Equal(t, 1, report.Calls)
@@ -278,6 +282,7 @@ func TestInvalidSelectionsNeverConstructRuntime(t *testing.T) {
 				require.Equal(t, "rejected", report.Status, "%+v", report)
 				require.Nil(t, report.Resolved)
 				require.Nil(t, report.Observation)
+				require.Nil(t, report.Identity)
 				require.Zero(t, report.Calls)
 				require.NotZero(t, report.ExitCode())
 			}
@@ -309,6 +314,7 @@ func TestSelectionPresenceAndAlternatives(t *testing.T) {
 					return nil, nil
 				}).Run(t.Context(), data)
 				require.Equal(t, "rejected", report.Status)
+				require.Nil(t, report.Identity)
 				require.Zero(t, report.Calls)
 			})
 		}
@@ -365,6 +371,9 @@ func TestLifecycleFailuresAndCancellation(t *testing.T) {
 				defer stop()
 				report = execute(ctx, report, input, e)
 				require.Equal(t, "execution_error", report.Status)
+				expected, err := runneridentity.Derive(&req)
+				require.NoError(t, err)
+				require.Equal(t, expected, report.Identity, "later failures retain input identity, not execution success")
 				require.Equal(t, 2, report.ExitCode())
 				require.Equal(t, 1, e.initializes)
 				require.Equal(t, 1, e.shutdowns)
@@ -385,6 +394,7 @@ func TestLifecycleFailuresAndCancellation(t *testing.T) {
 	} {
 		report := NewService(factory).Run(t.Context(), wire(t, fixture(t)))
 		require.Equal(t, "execution_error", report.Status)
+		require.NotNil(t, report.Identity)
 		require.Zero(t, report.Calls)
 		require.Empty(t, report.Mode)
 		requireReceiptSchema(t, report)
@@ -396,6 +406,7 @@ func TestLifecycleFailuresAndCancellation(t *testing.T) {
 		return nil, nil
 	}).Run(ctx, wire(t, fixture(t)))
 	require.Equal(t, "execution_error", report.Status)
+	require.NotNil(t, report.Identity)
 	require.Zero(t, report.Calls)
 	require.Empty(t, report.Mode)
 	requireReceiptSchema(t, report)

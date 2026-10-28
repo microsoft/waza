@@ -1,6 +1,7 @@
 import { useState } from "react";
 import example from "../../../examples/runner/unit.json";
 import { validateRunnerSelection, type RunnerSelectionReport, type WorkSelection } from "../api/runner";
+import { downloadText } from "../lib/export";
 
 function tuple(value: WorkSelection | undefined): string {
   return value ? `${value.shard} / ${value.task} / trial ${value.trial} / attempt ${value.attempt}` : "Not resolved";
@@ -59,6 +60,27 @@ export default function RunnerSelection({ demo }: { demo: boolean }) {
                 <dt>Adjacent work selected</dt><dd>No</dd>
                 <dt>Engine calls</dt><dd>{result.engine_calls}</dd>
               </dl>
+              <section aria-label="Logical identity lineage">
+                <h3>Input-derived logical identity</h3>
+                <p>Names the admitted input, not execution, provenance, exactly-once delivery or duplicate suppression.</p>
+                {result.identity ? (
+                  <>
+                    <dl>
+                      <dt>Derivation version</dt><dd>{result.identity.version}</dd>
+                      <dt>Canonical input digest</dt><dd><code>{result.identity.canonical_digest}</code></dd>
+                      <dt>Run identity</dt><dd><code>{result.identity.run}</code></dd>
+                      <dt>Shard identity</dt><dd><code>{result.identity.shard}</code></dd>
+                      <dt>Task identity</dt><dd><code>{result.identity.task}</code></dd>
+                      <dt>Trial identity</dt><dd><code>{result.identity.trial}</code></dd>
+                      <dt>Attempt identity</dt><dd><code>{result.identity.attempt}</code></dd>
+                    </dl>
+                    <button className="lab-button"
+                      onClick={() => downloadText(JSON.stringify(result, null, 2), "runner-validation.json", "application/json")}>
+                      Export validation JSON
+                    </button>
+                  </>
+                ) : <p>Identity unavailable. Rejected or older receipts do not supply derivation metadata.</p>}
+              </section>
               {[...result.compatibility.diagnostics, ...result.diagnostics].map((diagnostic, index) => (
                 <p key={`${diagnostic.code}-${index}`}>{diagnostic.code}: {diagnostic.message}</p>
               ))}
