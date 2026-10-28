@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://microsoft.github.io/waza/schemas/runner-results-1.1.schema.json",
+  "title": "Waza Lab runner archive page 1.1",
+  "description": "UTF-8 response including framing is at most 17 MiB. Individual stored runner envelopes are at most 16 MiB. Entries are ordered by artifact path; cursors are opaque versioned keyset continuations, not snapshot tokens.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "results", "next_cursor"],
+  "properties": {
+    "schema_version": {"const": "1.1"},
+    "next_cursor": {
+      "oneOf": [
+        {"type": "null"},
+        {"type": "string", "minLength": 1, "maxLength": 1024, "pattern": "^[A-Za-z0-9_-]+$"}
+      ]
+    },
+    "results": {
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["artifact"],
+        "properties": {
+          "artifact": {"type": "string", "minLength": 1},
+          "result": {"$ref": "runner-result-1.0.schema.json"},
+          "error": {"type": "string", "minLength": 1}
+        },
+        "oneOf": [
+          {"required": ["result"], "not": {"required": ["error"]}},
+          {"required": ["error"], "not": {"required": ["result"]}}
+        ]
+      }
+    }
+  }
+}

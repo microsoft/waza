@@ -8,6 +8,9 @@ var RunnerRequestSchemaJSON string
 //go:embed runner-result-1.0.schema.json
 var RunnerResultSchemaJSON string
 
+//go:embed runner-results-1.1.schema.json
+var RunnerResultsSchemaJSON string
+
 //go:embed eval.schema.json
 var EvalSchemaJSON string
 

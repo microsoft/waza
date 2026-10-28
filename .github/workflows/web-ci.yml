@@ -5,6 +5,14 @@ on:
     branches: [main]
     paths:
       - 'web/**'
+      - 'cmd/waza/**'
+      - 'internal/runnercontract/**'
+      - 'internal/webapi/**'
+      - 'internal/webserver/**'
+      - 'internal/snapshot/**'
+      - 'schemas/runner-*.schema.json'
+      - 'go.mod'
+      - 'go.sum'
       - '.github/workflows/web-ci.yml'
   pull_request:
     branches: [main]
@@ -27,6 +35,7 @@ jobs:
       CI: 'true'
       ENABLE_COPILOT_TESTS: 'false'
       ENABLE_LIVE_COPILOT_TESTS: 'false'
+      COPILOT_CLI_PATH: /usr/bin/false
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -39,7 +48,22 @@ jobs:
           filters: |
             web:
               - 'web/**'
+              - 'cmd/waza/**'
+              - 'internal/runnercontract/**'
+              - 'internal/webapi/**'
+              - 'internal/webserver/**'
+              - 'internal/snapshot/**'
+              - 'schemas/runner-*.schema.json'
+              - 'go.mod'
+              - 'go.sum'
               - '.github/workflows/web-ci.yml'
+
+      - name: Setup Go for runner API integration
+        if: steps.filter.outputs.web == 'true' || github.event_name != 'pull_request'
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
 
       - name: Setup Node
         if: steps.filter.outputs.web == 'true' || github.event_name != 'pull_request'
@@ -91,4 +115,4 @@ jobs:
 
       - name: Skip (no dashboard changes)
         if: steps.filter.outputs.web != 'true' && github.event_name == 'pull_request'
-        run: echo "No web/** changes detected - skipping dashboard validation."
+        run: echo "No dashboard or runner contract changes detected - skipping dashboard validation."

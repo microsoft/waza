@@ -2,6 +2,7 @@ package webapi
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -13,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/microsoft/waza/internal/runnercontract"
 	"github.com/microsoft/waza/internal/snapshot"
@@ -22,8 +24,13 @@ import (
 // Sources are captured inline; the HTTP caller cannot name host input paths.
 // Compatibility adapters (#761) and the reference (#762) add no dashboard UI state.
 func RegisterRunnerRoutes(mux *http.ServeMux, resultsDir string) {
+	registerRunnerRoutes(mux, resultsDir, runnercontract.NewService())
+}
+
+func registerRunnerRoutes(mux *http.ServeMux, resultsDir string, service *runnercontract.Service) {
 	mux.HandleFunc("POST /api/v1/runner/run", func(w http.ResponseWriter, r *http.Request) {
 		var result runnercontract.Result
+		bodyRead := false
 		mediaType, _, mediaErr := mime.ParseMediaType(r.Header.Get("Content-Type"))
 		origin := r.Header.Get("Origin")
 		parsedOrigin, originErr := url.Parse(origin)
@@ -40,11 +47,15 @@ func RegisterRunnerRoutes(mux *http.ServeMux, resultsDir string) {
 			parsedOrigin.Scheme != "http" && parsedOrigin.Scheme != "https") {
 			result = runnercontract.Rejected("cross-origin runner execution is not permitted")
 		} else {
-			data, err := io.ReadAll(io.LimitReader(r.Body, runnercontract.MaxRequestBytes+1))
+			bodyRead = true
+			data, err := readRunnerBody(w, r, 30*time.Second)
 			if err != nil {
-				result = runnercontract.Rejected(fmt.Sprintf("reading request: %v", err))
+				// No complete request was admitted. Do not invent a runner
+				// identity or terminal envelope for incomplete transport.
+				writeError(w, http.StatusBadRequest, fmt.Sprintf("reading request before admission: %v", err))
+				return
 			} else {
-				result = runnercontract.NewService().Run(r.Context(), data)
+				result = service.Run(r.Context(), data)
 				if err := persistRunnerResult(resultsDir, &result); err != nil {
 					result = runnercontract.PublicationFailed(result, err)
 				}
@@ -52,6 +63,9 @@ func RegisterRunnerRoutes(mux *http.ServeMux, resultsDir string) {
 		}
 		// All admitted HTTP invocations return a terminal envelope. Outcome and
 		// exit_code, not an HTTP transport status, carry execution semantics.
+		if !bodyRead {
+			closeRunnerBody(w, r)
+		}
 		writeJSON(w, http.StatusOK, result)
 	})
 	mux.HandleFunc("GET /api/v1/runner/capabilities", func(w http.ResponseWriter, _ *http.Request) {
@@ -63,17 +77,47 @@ func RegisterRunnerRoutes(mux *http.ServeMux, resultsDir string) {
 			"capabilities":     runnercontract.Capabilities(),
 		})
 	})
-	mux.HandleFunc("GET /api/v1/lab/runner-results", func(w http.ResponseWriter, _ *http.Request) {
-		results, err := readRunnerResults(resultsDir)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-		writeJSON(w, http.StatusOK, struct {
-			SchemaVersion string                  `json:"schema_version"`
-			Results       []runnercontract.Result `json:"results"`
-		}{runnercontract.ResultVersion, results})
+	mux.HandleFunc("GET /api/v1/lab/runner-results", runnerResultsHandler(resultsDir))
+}
+
+func readRunnerBody(w http.ResponseWriter, r *http.Request, timeout time.Duration) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(r.Context(), timeout)
+	defer cancel()
+	controller := http.NewResponseController(w)
+	_ = controller.SetReadDeadline(time.Now().Add(timeout))
+	// Interrupt the network read before closing: net/http Body.Close can wait
+	// for an outstanding Read. Close also wakes injected/non-network bodies.
+	finished := make(chan struct{})
+	complete := false
+	stop := context.AfterFunc(ctx, func() {
+		defer close(finished)
+		_ = controller.SetReadDeadline(time.Now())
+		_ = r.Body.Close()
 	})
+	defer func() {
+		if !stop() {
+			<-finished
+		}
+		if complete {
+			_ = controller.SetReadDeadline(time.Time{})
+		} else {
+			closeRunnerBody(w, r)
+		}
+	}()
+	data, err := io.ReadAll(io.LimitReader(r.Body, runnercontract.MaxRequestBytes+1))
+	if err != nil {
+		return nil, errors.Join(err, ctx.Err())
+	}
+	complete = len(data) <= runnercontract.MaxRequestBytes
+	return data, nil
+}
+
+func closeRunnerBody(w http.ResponseWriter, r *http.Request) {
+	// Prevent net/http's response-time drain from blocking on a body whose
+	// transport was rejected, interrupted, or stopped at the size bound.
+	w.Header().Set("Connection", "close")
+	_ = http.NewResponseController(w).SetReadDeadline(time.Now())
+	_ = r.Body.Close()
 }
 
 func persistRunnerResult(dir string, result *runnercontract.Result) error {

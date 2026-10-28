@@ -240,15 +240,11 @@ func (s *Service) Run(ctx context.Context, data []byte) (result Result) {
 			result.fail(InfrastructureFailure, "execution", "runner_panic", fmt.Sprintf("runner panic: %v", recovered))
 		}
 		if err := ValidateResult(&result); err != nil {
-			original := result
-			result = baseResult()
-			result.Requested, result.Resolved, result.SelectionValid = original.Requested, original.Resolved, original.SelectionValid
-			result.Identity, result.Negotiation = original.Identity, original.Negotiation
+			result.Diagnostics = append(result.Diagnostics, Diagnostic{
+				Code: "prior_terminal", Message: fmt.Sprintf("outcome=%s boundary=%s", result.Outcome, result.Boundary),
+			})
 			result.fail(InfrastructureFailure, "terminalization", "invalid_envelope", err.Error())
-			if ValidateResult(&result) != nil {
-				result = baseResult()
-				result.fail(InfrastructureFailure, "terminalization", "invalid_envelope", err.Error())
-			}
+			result = boundedTerminal(result)
 		}
 	}()
 	req, err := Parse(data)
@@ -395,14 +391,18 @@ func Write(w io.Writer, result *Result) error {
 func Rejected(message string) Result {
 	result := baseResult()
 	result.fail(InvalidRequest, "admission", "input_error", message)
-	return result
+	return boundedTerminal(result)
 }
 
 // PublicationFailed retains the execution evidence but never reports success
 // when the host could not save the terminal artifact for later inspection.
 func PublicationFailed(result Result, err error) Result {
+	result.Diagnostics = slices.Clone(result.Diagnostics)
+	result.Diagnostics = append(result.Diagnostics, Diagnostic{
+		Code: "prior_terminal", Message: fmt.Sprintf("outcome=%s boundary=%s", result.Outcome, result.Boundary),
+	})
 	result.fail(InfrastructureFailure, "terminalization", "publication_failed", err.Error())
-	return result
+	return boundedTerminal(result)
 }
 
 // Interrupted represents cancellation while waiting for a complete input, before
@@ -410,5 +410,5 @@ func PublicationFailed(result Result, err error) Result {
 func Interrupted(err error) Result {
 	result := baseResult()
 	result.contextFailure(err)
-	return result
+	return boundedTerminal(result)
 }

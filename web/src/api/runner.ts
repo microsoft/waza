@@ -54,8 +54,9 @@ export type RunnerEntry =
   | { state: "malformed" | "unsupported"; reason: string };
 
 export interface RunnerResults {
-  schema_version: "1.0";
+  schema_version: "1.0" | "1.1";
   results: RunnerEntry[];
+  next_cursor?: string | null;
 }
 
 // Use the backend's published schema without coercion, defaults, or field removal.
@@ -77,6 +78,12 @@ const boundaries: Record<RunnerOutcome, RunnerResult["failure_boundary"][]> = {
 };
 
 export function inspectRunnerResult(value: unknown): RunnerEntry {
+  // Match Go's canonical HTML escaping and its final newline size allowance.
+  const encoded = (JSON.stringify(value) ?? "").replace(/[<>&\u2028\u2029]/g,
+    (character) => `\\u${character.charCodeAt(0).toString(16).padStart(4, "0")}`);
+  if (new TextEncoder().encode(encoded).byteLength + 1 > 16 * 1024 * 1024) {
+    return { state: "malformed", reason: "Runner artifact exceeds 16 MiB." };
+  }
   if (object(value) && typeof value.schema_version === "string" && value.schema_version !== "1.0") {
     return { state: "unsupported", reason: `Unsupported runner result version: ${value.schema_version}` };
   }
@@ -128,6 +135,31 @@ export function inspectRunnerResult(value: unknown): RunnerEntry {
 
 export function parseRunnerResults(value: unknown): RunnerResults {
   if (!object(value)) throw new Error("Malformed runner-results response: expected an object.");
+  if (value.schema_version === "1.1") {
+    if (!Array.isArray(value.results) || value.results.length > 100 ||
+      !(value.next_cursor === null || (typeof value.next_cursor === "string" &&
+        value.next_cursor.length > 0 && value.next_cursor.length <= 1024 &&
+        /^[A-Za-z0-9_-]+$/.test(value.next_cursor))) ||
+      Object.keys(value).some((key) => !["schema_version", "results", "next_cursor"].includes(key))) {
+      throw new Error("Malformed runner-results 1.1 page.");
+    }
+    return {
+      schema_version: "1.1",
+      next_cursor: value.next_cursor,
+      results: value.results.map((entry): RunnerEntry => {
+        if (!object(entry) || typeof entry.artifact !== "string" || entry.artifact.length === 0 ||
+          Object.keys(entry).some((key) => !["artifact", "result", "error"].includes(key)) ||
+          (("result" in entry) === ("error" in entry))) {
+          throw new Error("Malformed runner-results archive entry.");
+        }
+        if ("result" in entry) return inspectRunnerResult(entry.result);
+        if (typeof entry.error !== "string" || entry.error.length === 0) {
+          throw new Error("Malformed runner-results artifact error.");
+        }
+        return { state: "malformed", reason: `${entry.artifact}: ${entry.error}` };
+      }),
+    };
+  }
   if (typeof value.schema_version === "string" && value.schema_version !== "1.0") {
     throw new Error(`Unsupported runner-results API version: ${value.schema_version}`);
   }
@@ -139,13 +171,54 @@ export function parseRunnerResults(value: unknown): RunnerResults {
 }
 
 export async function fetchRunnerResults(signal?: AbortSignal): Promise<RunnerResults> {
-  const response = await fetch("/api/v1/lab/runner-results", { signal });
-  if (!response.ok) throw new Error(`Runner results API error: ${response.status} ${response.statusText}`);
-  let value: unknown;
+  const results: RunnerEntry[] = [];
+  const cursors = new Set<string>();
+  let cursor: string | null = null;
+  let version: RunnerResults["schema_version"] | undefined;
+  do {
+    const url: string = "/api/v1/lab/runner-results" + (cursor ? `?cursor=${encodeURIComponent(cursor)}` : "");
+    const response = await fetch(url, { signal });
+    if (!response.ok) throw new Error(`Runner results API error: ${response.status} ${response.statusText}`);
+    let value: unknown;
+    try {
+      value = parseStrictJSON(await boundedPageText(response), 17 * 1024 * 1024);
+    } catch {
+      throw new Error("Malformed runner-results response: invalid or ambiguous JSON.");
+    }
+    const page = parseRunnerResults(value);
+    if (version && version !== page.schema_version) throw new Error("Runner-results API version changed during pagination.");
+    version = page.schema_version;
+    results.push(...page.results);
+    cursor = page.next_cursor ?? null;
+    if (cursor && (cursors.has(cursor) || page.results.length === 0)) {
+      throw new Error("Malformed runner-results pagination: non-progressing cursor.");
+    }
+    if (cursor) cursors.add(cursor);
+  } while (cursor);
+  return { schema_version: version ?? "1.1", results };
+}
+
+async function boundedPageText(response: Response): Promise<string> {
+  if (!response.body) throw new Error("Missing runner-results body.");
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let bytes = 0;
   try {
-    value = parseStrictJSON(await response.text());
-  } catch {
-    throw new Error("Malformed runner-results response: invalid or ambiguous JSON.");
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      bytes += value.byteLength;
+      if (bytes > 17 * 1024 * 1024) throw new Error("Runner-results page exceeds 17 MiB.");
+      chunks.push(value);
+    }
+  } catch (error) {
+    await reader.cancel();
+    throw error;
+  } finally {
+    reader.releaseLock();
   }
-  return parseRunnerResults(value);
+  const data = new Uint8Array(bytes);
+  let offset = 0;
+  for (const chunk of chunks) { data.set(chunk, offset); offset += chunk.byteLength; }
+  return new TextDecoder("utf-8", { fatal: true }).decode(data);
 }

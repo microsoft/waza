@@ -32,7 +32,18 @@ loopback, not a remotely authenticated execution service.
 `GET /api/v1/runner/capabilities` advertises the same versions/capabilities as the
 CLI. The execution endpoint returns HTTP 200 with a terminal envelope for
 application failures as well as success. Interpret `outcome`/`exit_code`, not HTTP
-200, as the execution result. Transport disconnects can prevent delivery.
+200, as the execution result. Body acquisition is bounded to 4 MiB plus one
+overflow-detection byte and 30 seconds; cancellation interrupts the read.
+Erroring/canceled body reads before a complete request is available return a
+transport error without inventing a runner envelope. A detected size overflow
+is a recorded `invalid_request` admission rejection without draining the remaining
+body; header rejections likewise never drain an unfinished transport. After
+admission, even a canceled/disconnected caller converges on one persisted
+terminal envelope when the process and private storage remain writable.
+Delivery itself is not promised.
+Oversized terminal evidence is omitted with bounded original diagnostics,
+original outcome/boundary, and an observation digest/encoded size when available;
+publication failure is always a bounded schema-valid infrastructure result.
 
 The CLI and HTTP endpoint use the same request parser, negotiation, selection,
 execution service, result schema and terminal classification. The CLI writes one
@@ -388,8 +399,20 @@ digest.
 
 The new backend endpoint `GET /api/v1/lab/runner-results` loads only
 `*.runner.json` files from the configured results directory. It validates each
-original wire document, returns `{schema_version:"1.0", results:[...]}`, and
-reports reload errors rather than retaining stale success. Historical result
+original wire document and returns a versioned
+[`runner-results-1.1.schema.json`](../schemas/runner-results-1.1.schema.json) page:
+`{schema_version:"1.1", results:[{artifact, result}|{artifact, error}], next_cursor}`.
+Malformed, oversized, unreadable and nonregular artifacts yield per-entry errors,
+never inferred outcomes, without hiding valid siblings. Each item retains the
+16 MiB runner-result bound; the complete UTF-8 page is bounded to 17 MiB including
+framing. `limit` defaults to 20 (range 1–100); the byte bound can end a page earlier.
+Follow the opaque `next_cursor` with `?cursor=...` until it is null. Invalid or
+unsupported-version cursors return HTTP 400. Entries use lexicographic artifact
+path ordering (bytewise) across the root and `.runner/` child. Continuation is keyset-based,
+not a snapshot: concurrent additions before the cursor require a refresh, while
+later paths may appear on following pages. The client follows pages without an
+aggregate 16 MiB cutoff, rejects non-progressing pagination, and discards a failed
+refresh rather than retaining stale success. Historical result
 listing remains separate; no synthetic passing `EvaluationOutcome` is created
 for rejected or canceled requests.
 

@@ -87,20 +87,20 @@ func TestRunnerLabArtifactContract(t *testing.T) {
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/v1/lab/runner-results", nil))
 	require.Equal(t, http.StatusOK, w.Code)
-	var response struct {
-		SchemaVersion string                  `json:"schema_version"`
-		Results       []runnercontract.Result `json:"results"`
-	}
+	var response runnerArchivePage
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &response))
-	require.Equal(t, "1.0", response.SchemaVersion)
+	require.Equal(t, "1.1", response.SchemaVersion)
 	require.Len(t, response.Results, 1)
-	reloaded, err := json.Marshal(response.Results[0])
-	require.NoError(t, err)
-	require.JSONEq(t, string(artifact), string(reloaded))
+	require.JSONEq(t, string(artifact), string(response.Results[0].Result))
 	require.NoError(t, os.WriteFile(path, []byte(`{"schema_version":"1.0"}`), 0o600))
 	w = httptest.NewRecorder()
 	mux.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/v1/lab/runner-results", nil))
-	require.Equal(t, http.StatusInternalServerError, w.Code)
+	require.Equal(t, http.StatusOK, w.Code)
+	response = runnerArchivePage{}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &response))
+	require.Len(t, response.Results, 1)
+	require.NotEmpty(t, response.Results[0].Error)
+	require.Empty(t, response.Results[0].Result)
 	require.NotContains(t, w.Body.String(), `"outcome":"success"`, "invalid refresh must not retain stale success")
 }
 
