@@ -1,0 +1,15 @@
+{
+  "schema_version": "1.0",
+  "versions": ["1.0"],
+  "required_capabilities": ["exact-unit", "inline.mock-text"],
+  "optional_capabilities": [],
+  "run_key": "single-unit-example",
+  "selection": {"shard": "shard-a", "task": "selected", "trial": 2, "attempt": 2},
+  "input": {
+    "shard": "shard-a",
+    "eval": "schemaVersion: \"2.0\"\nscenario: runner-example\nname: Runner example\nconfig:\n  executor: mock\n  model: mock-model\n  trials_per_task: 3\n  max_attempts: 3\n  timeout_seconds: 30\ntasks:\n  - adjacent-must-not-be-opened/*.yaml\n",
+    "task": "id: selected\nname: Selected task\ninputs:\n  prompt: hello\nexpected:\n  output_contains:\n    - hello\n"
+  },
+  "timeout_ms": 60000,
+  "allow_paid_execution": false
+}

@@ -1,7 +1,8 @@
-# Runner contract: negotiation 1.0
+# Runner contract: negotiation and exact captured work 1.0
 
-This is the first, negotiation-only layer of [v0.40.0](https://github.com/microsoft/waza/issues/754),
-implementing [#757](https://github.com/microsoft/waza/issues/757). It is available
+This source preview of [v0.40.0](https://github.com/microsoft/waza/issues/754)
+implements negotiation [#757](https://github.com/microsoft/waza/issues/757)
+and bounded exact mock/text execution [#758](https://github.com/microsoft/waza/issues/758). It is available
 when built from this source, not retroactively in a published older binary.
 The [documentation-site guide](../site/src/content/docs/guides/runner-contract.mdx)
 is the canonical user invocation, API, compatibility and migration reference.
@@ -12,7 +13,8 @@ is the canonical user invocation, API, compatibility and migration reference.
 strictly parses UTF-8 JSON with duplicate-key and Unicode checks, validates
 against embedded offline schemas, then negotiates version and capabilities.
 It imports no model, engine, orchestration, subprocess, project configuration,
-or network client package. No runtime factory exists in this layer.
+or network client package. Semantic execution admission lives separately in
+`internal/runnerunit`, which imports the runtime/orchestration packages.
 
 The compact negotiation request and complete execution request are separate
 schemas. The latter preserves the pinned #779 source request's field names,
@@ -25,25 +27,67 @@ selected or executed, no identity was derived, and no observation or outcome is
 fabricated. Capability acceptance alone is not evidence that a provider, tool,
 skill, model, input or credential is usable. Future execution must invoke the
 same negotiation before any runtime construction, then perform its own exact
-selection and admission checks.
+selection and admission checks. `runnerunit` invokes this shared negotiation
+first; negotiation-only endpoints keep their original offline behavior.
+
+## Exact-unit execution boundary
+
+`runnerunit.Validate([]byte) Report` and
+`runnerunit.NewService(EngineFactory).Run(context.Context, []byte) Report`
+share strict captured-source parsing and exact selector resolution. They
+consume the original `runnercontract.Request` without changing its pinned schema.
+`Report` is an invocation-local `waza.runner-unit` receipt, not a #760 terminal
+envelope or historical evaluation artifact. It deliberately contains no
+deterministic identity, archive publication or envelope-validity claim.
+
+The CLI `runner validate` / `runner run` and HTTP
+`POST /api/v1/runner/{validate,run}` are public callers. Lab calls only validation,
+not execution. `exact-unit` and `inline.mock-text` must be required explicitly;
+the only admitted runtime is mock. No native startup is reachable even with paid
+consent. This bounded profile avoids importing the source draft's demonstrated
+native cleanup/startup defects; adding native capability requires its own
+request-owned cancellation/cleanup implementation and regression evidence.
+
+The single declared candidate is `input.task`; shard labels and task ID must
+match, and trial/attempt must lie within the eval's declared bounds. Eval `tasks`
+patterns are inert declarations in this profile, never discovery sources.
+Disabled tasks, ambiguous source documents and unsupported behavior fail before
+runtime construction. Text graders use offline `graders.ValidateConfig` for
+both eval and task scopes, including empty/invalid-regex checks.
+
+`orchestration.PrepareInlineInput` resolves and freezes the request before the
+runtime factory. `ExecuteInlineAttempt` reuses the current
+`executeAttemptWithRequest` seam, not `RunBenchmark`, task loading, `runTest`,
+cache or retry loops. A request-local engine wrapper limits actual Execute calls
+to one and reports their observed count. The caller initializes a fresh engine,
+passes cancellation/deadlines, and awaits shutdown even on initialization or
+execution failure. Explicit repeats execute again in independent workspaces.
+Legacy local execution and controlled-comparison admission remain unchanged.
+
+The schema documents receipt shape; it is not a strict terminal evidence
+admission schema. Nested observations are emitted directly from the attempt,
+not decoded/repaired by an archive reader. The Lab validation client accepts
+only zero-call `ready`/`rejected` reports and checks tuple equality.
 
 ## Layer allocation
 
 | Issue | Interface to extend later |
 |---|---|
-| #758 | Add `runner run` and exact-unit admission; consume the existing complete `Request` shape and shared negotiation first. Advertise `exact-unit` only after implementation. |
+| #758 | Implemented captured inline mock/text exact-unit admission and execution, CLI/API and Lab selection validation. Native execution remains unavailable. |
 | #759 | Add deterministic identity derivation and record its independent version. Do not equate negotiation with identity verification. |
 | #760 | Add independent terminal result schema, execution exit mapping, bounded/cancelable runtime lifecycle and output/archive publication. Negotiation responses must not be stored as execution results. |
 | #761 | Add explicit local compatibility adapters and historical regression evidence; this layer does not reroute `waza run` or artifact readers. |
 | #762 | Add pinned container proof/publication only after execution is implemented and independently reviewed. |
 
-All eleven unresolved source findings in #779 belong to those later runtime,
-terminal/archive or frontend-result layers: six HTTP/stdin/publication or
-numeric/archive-read issues, two tuple/terminal consistency issues, and three
-quarantine/reconciliation races. This layer imports none of that execution,
-result, persistence or archive code. Negotiation stdin cancellation is tested
-with an open pipe; HTTP body admission is deadline-bounded. This is not a claim
-that the later findings have been fixed.
+Source #779 at frozen `4fdbaf62e9dcf4ded2055c1919544973bc42761d`
+is source material, not approval. This layer adapts only its captured admission
+and single-attempt seam; it imports no identity, local adapter, native lifecycle,
+terminalization, publication or archive code. Source review findings about
+empty/invalid graders are addressed by offline parameter validation. Open-pipe
+stdin cancellation and HTTP cancellation during execution/partial upload have
+production-path regressions. Server shutdown cancels request contexts and
+awaits cleanup. Excluded persistence/terminal/frontend archive findings remain
+unresolved by this layer, not silently waived.
 
 ## Conformance and evolution
 
@@ -51,8 +95,11 @@ that the later findings have been fixed.
 unsupported and conflicting combinations. `testdata/request.json` preserves the
 pinned source request as a wire compatibility fixture; the original schema is
 retained unchanged. The public command/API parity test covers future execution
-capability rejection. Browser tests forward real requests to a freshly built Go
-server, rather than inventing responses a backend cannot emit.
+capability rejection. Exact-unit conformance instruments actual engine calls
+through CLI and HTTP, covering rejected input, selected ordinal alternatives,
+failed checks and repeated dispatch. Browser tests forward real requests to a
+freshly built Go server and run the compiled CLI, rather than inventing
+successful responses a backend cannot emit.
 
 Additive implementations may advertise new capability names for the same
 compatible runner version. A breaking request or capability semantic change

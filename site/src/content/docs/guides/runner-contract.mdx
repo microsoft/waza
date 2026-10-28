@@ -5,11 +5,11 @@ description: Check the versioned runner CLI and HTTP API before execution, with 
 
 import ZoomImage from '../../../components/ZoomImage.astro';
 
-**Source-build preview for v0.40.0, negotiation only.** This first layer adds
-compatibility checks, not execution. Only `negotiation` is advertised. Exact
-work execution, identities, terminal results, archives, local adapters and the
-container reference remain later release layers. No release or container
-publication is announced here.
+**Source-build preview for v0.40.0.** The implemented capabilities are
+`negotiation`, `exact-unit` and `inline.mock-text`. This bounded profile executes
+one captured mock/text attempt. Native/paid execution, deterministic identities,
+terminal envelopes, archives, local adapters and the container reference remain
+unavailable. No release or container publication is announced here.
 
 ## CLI: JSON stdin and stdout
 
@@ -20,7 +20,7 @@ waza runner capabilities
 ```
 
 ```json
-{"schema_version":"1.0","versions":["1.0"],"capabilities":["negotiation"]}
+{"schema_version":"1.0","versions":["1.0"],"capabilities":["negotiation","exact-unit","inline.mock-text"]}
 ```
 
 Negotiate without launching a model, tool, subprocess or runtime:
@@ -42,13 +42,12 @@ The example offers a future version with an explicit 1.0 fallback:
 
 The response has kind `waza.runner-negotiation`, schema version `1.0`, status
 `compatible`, and a `negotiation` object. Its selected `version` is `1.0`,
-`selected_capabilities` is `["negotiation"]`, and
-`unavailable_optional_capabilities` is `["exact-unit"]`. No execution occurred.
+`selected_capabilities` is `["exact-unit","negotiation"]`, and
+`unavailable_optional_capabilities` is `[]`. No execution occurred.
 Requested versions, required/optional capabilities and available capabilities
 are echoed separately. Empty arrays stay arrays, not `null`.
 
-To require execution instead, put `"exact-unit"` in `required_capabilities`
-and remove it from `optional_capabilities`. This layer returns
+Requiring `"terminal-result"` or `"inline.native-text"` instead returns
 `unsupported_capability` with an actionable diagnostic and exit 5, before
 interpreting any input or constructing an engine. Names are exact and
 case-sensitive: `Negotiation`, `negotiation.extra` and ` negotiation` do not
@@ -67,6 +66,96 @@ all runner commands. SIGINT/SIGTERM while waiting for stdin can reject admission
 without waiting for a producer to close its pipe. Uncatchable termination,
 broken output pipes, and process crashes cannot guarantee response delivery.
 
+## Execute one exact work unit
+
+The complete example contains one captured eval and task, not paths to read:
+
+```bash
+waza runner validate < examples/runner/unit.json
+waza runner run < examples/runner/unit.json
+```
+
+`validate` performs the same negotiation and admission as `run`, but creates no
+engine. `run` explicitly starts one fresh mock runtime and executes exactly one
+attempt. The example selects:
+
+```json
+{"shard":"shard-a","task":"selected","trial":2,"attempt":2}
+```
+
+Trial and attempt are **one-based selectors**, not counts of work to execute.
+The example's eval declares three trials and three maximum attempts. Selecting
+2/2 does not run trial 1, attempt 1, remaining retries, or adjacent tasks.
+The captured eval's `tasks` patterns are never expanded or opened: the supplied
+`input.task` is the only declared candidate. `input.shard` and the task's `id`
+must exactly match the selection. Names, file patterns and display names are
+not interchangeable selectors.
+
+The supported `inline.mock-text` profile requires both `exact-unit` and
+`inline.mock-text` in **required** capabilities, `executor: mock`, a captured
+inline `inputs.prompt`, disabled ambient skills, and at least one valid builtin
+text grader or nonblank text expectation. The example uses a skill-free `2.0`
+scenario; task `skill_directories: []` or explicit deny-all skills are also
+supported where the shared effective-skill rules disable discovery.
+Authored skill paths, external files, prompt files, context, environment
+variables, workdirs, repositories, MCP/command mocks, hooks, parallel execution,
+baselines, CSV sources, responders, follow-ups and checkpoints are rejected,
+not silently approximated. Captured YAML admits one document with exact native
+field names and scalar types. Aliases, anchors, merge keys, duplicate/non-string
+mapping keys, unknown fields, authored floating-point values and wrong scalar
+types (including null for non-nullable scalars) are rejected. Native nullable
+pointers and collections retain their existing null handling; original source
+strings remain unchanged. Invalid grader parameters, disabled tasks, conflicting
+IDs and out-of-range selectors also reject **before runtime construction**.
+Execution counts and timeouts must fit nonnegative signed 32-bit integers;
+the existing native loader additionally requires positive trial and timeout
+values. Omitted `max_attempts` or explicit zero means one allowed attempt,
+not an automatic retry. A task-level zero first-event timeout explicitly
+disables that watchdog; absent task timeout inherits the eval value.
+
+Only the selected attempt's engine response is graded. Cache replay and
+automatic retries are absent. An explicit repeat starts a fresh engine and
+workspace and executes the same tuple again; this is not cross-worker
+exactly-once execution, deduplication or idempotent side effects. Cancellation
+and the request/eval/task deadlines bound the attempt, and shutdown is attempted
+with a separate five-second budget. HTTP server shutdown cancels active
+requests and waits for handler cleanup.
+
+The response kind is **`waza.runner-unit`**, an invocation-local selection and
+attempt receipt, **not** the future terminal result envelope:
+
+| Field | Interpretation |
+|---|---|
+| `compatibility` | Shared negotiation response, separate from selection validation |
+| `requested` / `resolved` | Complete tuple; resolved is absent on rejection |
+| `validation` | `not_checked`, `invalid`, or `valid` |
+| `adjacent_work_selected` | Always false; no adjacent candidates are loaded |
+| `engine_calls` | Observed actual engine invocations, zero or one |
+| `status` | `ready` after validation only; `rejected`, `completed`, or `execution_error` |
+| `execution_mode` / `observation` | `mock` plus the original attempt's `RunResult` when available |
+
+`completed` means a graded attempt completed, not that every check passed.
+Inspect `observation.status` and `validations`. No deterministic logical ID,
+terminal-envelope validity, publication, billing estimate or archive assurance
+is invented. The nested observation remains the existing attempt shape;
+this layer provides no receipt ingestion/archive reader.
+
+Unit-command exits are 0 for ready/passing completion, 1 for completed failing
+checks, 2 for execution/input/output failure, 5 for unsupported negotiated
+requirements, and 6 for invalid selection. These are command-local behavior,
+not #760's final terminal categories. Transport/input interruptions may have no
+receipt. Native execution stays unavailable even if `allow_paid_execution` is
+true; this boolean never enables an unadvertised profile.
+
+### Troubleshooting selection
+
+For `selection conflicts with declared input shard/task`, compare shard labels
+and the captured task's exact `id`; do not pass a filename/glob as `selection.task`.
+For an out-of-range trial/attempt, declare that ordinal in the captured eval or
+select an existing ordinal. For an unsupported profile, retain `waza run` rather
+than dropping semantics to make admission succeed. Never treat compatibility
+alone or a declared tuple as evidence of actual execution.
+
 ## HTTP API
 
 `waza serve --lab --no-browser` exposes the same offline contract:
@@ -75,6 +164,8 @@ broken output pipes, and process crashes cannot guarantee response delivery.
 |---|---|
 | `GET /api/v1/runner/capabilities` | Same advertisement as `runner capabilities` |
 | `POST /api/v1/runner/negotiate` | Same request and response as `runner negotiate` |
+| `POST /api/v1/runner/validate` | Offline exact selection validation |
+| `POST /api/v1/runner/run` | Explicitly execute one admitted mock/text attempt |
 
 ```bash
 curl --silent --show-error \
@@ -83,11 +174,14 @@ curl --silent --show-error \
   http://127.0.0.1:3000/api/v1/runner/negotiate
 ```
 
+  Use `--data-binary @examples/runner/unit.json` and the `/validate` or `/run`
+  route for the same complete request used by the CLI.
+
 A complete JSON request returns HTTP 200; inspect `status` rather than treating
 transport success as compatibility. Missing/non-JSON media type returns 415.
 An oversized or failed upload returns 400. A five-second body read deadline
 bounds partial uploads. Transport failures are not execution outcomes.
-The API reads no host input paths and stores no results. It retains the existing
+The API reads no host input paths and stores no runner receipts. It retains the existing
 loopback server; no cloud authentication, scheduler or worker registry is added.
 
 ## Schemas and presence
@@ -96,6 +190,7 @@ loopback server; no cloud authentication, scheduler or worker registry is added.
 - [Negotiation response 1.0 schema](../../schemas/runner-negotiation-response-1.0.schema.json)
 - [Complete runner request 1.0 schema](../../schemas/runner-request-1.0.schema.json)
 - [Capability advertisement 1.0 schema](../../schemas/runner-capabilities-1.0.schema.json)
+- [Exact unit receipt 1.0 schema](../../schemas/runner-unit-1.0.schema.json)
 
 All four compact request fields are required. `versions` must contain at least
 one distinct `major.minor` string. Capability arrays may explicitly be empty;
@@ -113,9 +208,9 @@ separate schema. Its fields are `schema_version`, `versions`,
 `input`, `timeout_ms` and `allow_paid_execution`. All are required. Explicit
 `allow_paid_execution: false` is valid; omission or `null` is not. Selection
 requires shard, task, positive trial and positive attempt. Input carries inline
-shard/eval/task strings, not host paths. A complete request is only
-**shape-checked** here: YAML, selection validity and payment permission are
-never executed or interpreted. Do not treat compatibility as work admission.
+shard/eval/task strings, not host paths. `negotiate` only **shape-checks** this
+request and never interprets YAML. `validate`/`run` additionally perform the
+bounded profile's semantic admission. Do not treat compatibility as work admission.
 
 ## Compatibility, migration and evolution
 
@@ -136,8 +231,10 @@ features from the Waza binary's release number.
 Existing `waza run`, eval/task schemas and historical results are unchanged.
 No published local command is deprecated by this layer. Migrate external
 compatibility checks to the explicit `runner` namespace, retain your current
-execution command, and require the capabilities you need before using any future
-runner execution surface. `runner run` is deliberately not yet exposed.
+execution command for unsupported profiles. To use the new exact path, capture
+one task explicitly, require its profile, and submit a complete request to
+`runner run`. Do not replace local multi-task commands or relabel historical
+artifacts as exact-unit receipts.
 
 The negotiation response has no execution outcome, logical identity, scores,
 billing or terminal result. It must not be ingested as an evaluation result.
@@ -153,15 +250,22 @@ and incompatibility diagnostics from the public API. The check never runs an
 evaluation. Editing or retrying clears prior results; failed refreshes show an
 error instead of stale compatibility.
 
-<ZoomImage src="../../images/dashboard-lab-negotiation.png" alt="Live Runner contract view showing an unavailable exact-unit requirement and available negotiation capability." />
+<ZoomImage src="../../images/dashboard-lab-negotiation.png" alt="Live Runner contract view showing an unavailable terminal-result requirement and available negotiation and exact mock/text capabilities." />
+
+The **Validate exact work selection** panel sends the complete captured example
+to `/validate`. It displays requested/resolved shard/task/trial/attempt,
+validation state, no adjacent work selected, and zero engine calls. It does
+not call `/run`. Editing or failed reload clears old selection state.
+
+<ZoomImage src="../../images/dashboard-lab-selection.png" alt="Live Runner contract view showing the requested and resolved exact tuple with valid pre-execution selection, no adjacent work and zero engine calls." />
 
 The synthetic demo does not call the runner API or fabricate negotiation data.
 On an older server or static host, the check reports an error, not success.
 
 ## Initial contract notes (unreleased)
 
-This adds negotiation schemas and commands without changing local result or
-eval versions. No older binary gains these commands automatically. There is
-no execution, paid-provider call, adapter migration, container digest, durable
-publication or isolation guarantee in this layer. The v0.40.0 release article
+This adds negotiation and exact mock/text execution without changing local result
+or eval versions. No older binary gains these commands automatically. There is
+no paid-provider call, adapter migration, container digest, durable publication
+or strong-isolation guarantee in this layer. The v0.40.0 release article
 is deferred until the release's required items are merged.

@@ -41,7 +41,7 @@ type Input struct {
 }
 
 // Request retains the captured source's execution request wire contract.
-// Parsing it validates shape only; this layer does not admit or execute work.
+// Parsing it validates shape only; runnerunit owns semantic admission.
 type Request struct {
 	SchemaVersion        string    `json:"schema_version"`
 	Versions             []string  `json:"versions"`
@@ -64,7 +64,7 @@ func Capabilities() Advertisement {
 	return Advertisement{
 		SchemaVersion: NegotiationVersion,
 		Versions:      []string{"1.0"},
-		Capabilities:  []string{"negotiation"},
+		Capabilities:  []string{"negotiation", "exact-unit", "inline.mock-text"},
 	}
 }
 
