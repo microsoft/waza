@@ -1,0 +1,110 @@
+[
+  {
+    "kind": "waza.runner-terminal",
+    "schema_version": "1.0",
+    "outcome": "success",
+    "exit_code": 0,
+    "failure_boundary": "none",
+    "validation": "valid",
+    "engine_calls": 1,
+    "selection": {"shard": "only", "task": "task", "trial": 2, "attempt": 3},
+    "identity": {
+      "version": "sha256-waza-c14n-v1",
+      "canonical_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "run": "run-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "shard": "shard-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "task": "task-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "trial": "trial-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "attempt": "attempt-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "observation": {
+      "execution_mode": "mock",
+      "engine_calls": 1,
+      "selection": {"shard": "only", "task": "task", "trial": 2, "attempt": 3},
+      "run_number": 2,
+      "attempts": 1,
+      "status": "passed",
+      "validations": [{"identifier": "text", "passed": true}]
+    },
+    "diagnostics": []
+  },
+  {
+    "kind": "waza.runner-terminal",
+    "schema_version": "1.0",
+    "outcome": "evaluation_failure",
+    "exit_code": 1,
+    "failure_boundary": "none",
+    "validation": "valid",
+    "engine_calls": 1,
+    "selection": {"shard": "only", "task": "task", "trial": 2, "attempt": 3},
+    "identity": {
+      "version": "sha256-waza-c14n-v1",
+      "canonical_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "run": "run-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "shard": "shard-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "task": "task-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "trial": "trial-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "attempt": "attempt-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "observation": {
+      "execution_mode": "mock",
+      "engine_calls": 1,
+      "selection": {"shard": "only", "task": "task", "trial": 2, "attempt": 3},
+      "run_number": 2,
+      "attempts": 1,
+      "status": "failed",
+      "validations": [{"identifier": "text", "passed": false}]
+    },
+    "diagnostics": [{"code": "evaluation_failure", "message": "Synthetic example: text assertion failed."}]
+  },
+  {
+    "kind": "waza.runner-terminal",
+    "schema_version": "1.0",
+    "outcome": "infrastructure_failure",
+    "exit_code": 2,
+    "failure_boundary": "identity",
+    "validation": "valid",
+    "engine_calls": 0,
+    "diagnostics": [{"code": "identity_error", "message": "Synthetic example: identity derivation failed before runtime construction."}]
+  },
+  {
+    "kind": "waza.runner-terminal",
+    "schema_version": "1.0",
+    "outcome": "cancelled",
+    "exit_code": 3,
+    "failure_boundary": "input",
+    "validation": "not_checked",
+    "engine_calls": 0,
+    "diagnostics": [{"code": "cancelled", "message": "Synthetic example: input admission was cancelled."}]
+  },
+  {
+    "kind": "waza.runner-terminal",
+    "schema_version": "1.0",
+    "outcome": "timeout",
+    "exit_code": 4,
+    "failure_boundary": "input",
+    "validation": "not_checked",
+    "engine_calls": 0,
+    "diagnostics": [{"code": "timeout", "message": "Synthetic example: input admission deadline expired."}]
+  },
+  {
+    "kind": "waza.runner-terminal",
+    "schema_version": "1.0",
+    "outcome": "unsupported_capability",
+    "exit_code": 5,
+    "failure_boundary": "negotiation",
+    "validation": "not_checked",
+    "engine_calls": 0,
+    "diagnostics": [{"code": "unsupported_version", "message": "Synthetic example: no mutually supported interface version."}]
+  },
+  {
+    "kind": "waza.runner-terminal",
+    "schema_version": "1.0",
+    "outcome": "invalid_input",
+    "exit_code": 6,
+    "failure_boundary": "validation",
+    "validation": "invalid",
+    "engine_calls": 0,
+    "diagnostics": [{"code": "invalid_input", "message": "Synthetic example: requested task does not match the captured task."}]
+  }
+]
