@@ -21,7 +21,9 @@ Do not launch the whole team, anticipatory QA, or routine log-only agents by def
 Rusty owns cross-package architecture and scope. Linus owns Go/runtime behavior,
 Yen owns frontend/design, Basher owns test strategy, Turk owns measured performance,
 Livingston owns technical writing, Saul owns documentation architecture, Danny owns
-draft socialization, and Virgil owns release/developer infrastructure.
+draft socialization, Tess owns release-media capture/edit/export, and Virgil owns
+release/developer infrastructure and release-readiness verification. Tess's
+membership does not clear rejected-author lockouts or grant Go revision ownership.
 
 Scribe, Ralph, Rai, and Fact Checker are support identities, not specialist routing
 destinations. Retain their charters and activate only for necessary bounded work.

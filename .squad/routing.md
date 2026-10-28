@@ -16,6 +16,7 @@ How to decide who handles what.
 | Documentation architecture / review | Saul | Navigation, terminology, style, reference accuracy, documentation impact |
 | Go performance / reliability analysis | Turk | Reproducible profiles/benchmarks, allocation, contention, cancellation, capture/storage scaling |
 | Developer relations / socialization | Danny | DevRel, demo narratives, adoption journeys, draft announcements/social copy, community feedback |
+| Release media / capture / video exports | Tess | Release media, feature screenshots, screen recordings, promo clips, short-form video, media artifact organization |
 | Release / developer infrastructure | Virgil | CI, scripts, installers, embedded assets, Docker, azd packaging, Pages, dependency/toolchain maintenance |
 | Architecture / Design decisions | Rusty | System design, component architecture, API contracts, large refactors |
 | Code review | Rusty | Review all PRs, check quality, suggest improvements |
@@ -54,6 +55,8 @@ use `gpt-5.6-terra`, even when the selected reviewer's implementation model diff
 | `skills/` | Livingston | Linus |
 | `DEMO-SCRIPT.md` | Danny | Livingston |
 | `docs/DEMO-GUIDE.md` | Danny | Livingston |
+| `docs/RELEASE-MEDIA.md` | Tess | Livingston |
+| `docs/templates/release-media-task.md` | Tess | Livingston |
 | `.squad/config.json` | Rusty | Virgil |
 | `.squad/governance.md` | Rusty | Saul |
 | `.squad/model-policy.md` | Rusty | Virgil |
@@ -83,6 +86,7 @@ independent native approvals, or the project owner's decision authority.
 | `squad:turk` | Investigate the bounded performance/reliability question | Turk |
 | `squad:yen` | Own frontend implementation, design, or accessibility | Yen |
 | `squad:danny` | Own a demo, adoption, feedback, or draft socialization task | Danny |
+| `squad:tess` | Own release-media preparation; capture only after the documented readiness gate | Tess |
 | `squad:virgil` | Own build, release, packaging, or developer infrastructure | Virgil |
 | `squad:copilot` | Assign to @copilot for autonomous work (if enabled) | @copilot 🤖 |
 
@@ -94,6 +98,13 @@ independent native approvals, or the project owner's decision authority.
 4. When `squad:copilot` is applied and auto-assign is enabled, `@copilot` is assigned on the issue and picks it up autonomously.
 5. Members can reassign by removing their label and adding another member's label.
 6. The `squad` label is the "inbox" — untriaged issues waiting for Rusty's review.
+
+Release-media issues use `squad:tess` for AI ownership, not a human GitHub
+assignee. The label is not a readiness signal or permission to capture/publish.
+Ralph and dispatched agents must honor the task's unresolved readiness checklist.
+Use [the release-media process](../docs/RELEASE-MEDIA.md) for every release.
+Danny owns narrative, storyboards, hooks, scripts and caption copy; Tess owns
+actual capture, editing, caption timing and exports. Virgil verifies release scope.
 
 ### Lead Triage Guidance for @copilot
 
@@ -117,7 +128,7 @@ When triaging, Rusty should ask:
 8. **@copilot routing** — when evaluating issues, check @copilot's capability profile in `team.md`. Route 🟢 good-fit tasks to `squad:copilot`. Flag 🟡 needs-review tasks for PR review. Keep 🔴 not-suitable tasks with squad members.
 9. **Documentation impact** — Changes to CLI, internal contracts, schemas, and dashboard UX must assess documentation impact using the matrix below. Saul owns that assessment; Livingston writes technical updates. Do not automatically add another mandatory reviewer.
 10. **Selected gate** — Use one independent gate for ordinary work under `.squad/governance.md`. Saul normally gates documentation; Rusty normally gates code. Authors never self-approve.
-11. **Publication is separate** — Danny drafts; Virgil prepares releases. Neither publishes, posts, tags, merges, or incurs paid eval usage without the applicable explicit authorization.
+11. **Publication is separate** — Danny drafts, Tess prepares media, and Virgil prepares releases. None publishes, uploads, posts, tags, merges, or incurs paid eval usage without the applicable explicit authorization.
 
 ## Documentation Impact Matrix
 

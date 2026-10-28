@@ -8,8 +8,9 @@ distribution. The canonical roster and exact GPT model IDs are in
 Rusty owns architecture and independent code review. Linus owns Go/runtime
 implementation, Basher test/evaluation quality, Turk measured performance, Yen web
 design/frontend/accessibility, Livingston technical documentation/examples, Saul
-documentation architecture, Danny developer relations/socialization drafts, and
-Virgil release/developer infrastructure. Scribe, Ralph, Rai, and Fact Checker are
+documentation architecture, Danny developer relations/socialization drafts,
+Tess reproducible release-media capture/edit/export, and Virgil
+release/developer infrastructure. Scribe, Ralph, Rai, and Fact Checker are
 bounded support identities, not specialist issue owners.
 
 Squad membership and implementation routing are AI-only. Linus covers Copilot SDK
@@ -17,7 +18,8 @@ and backend responsibilities; Rusty covers architecture and independent review,
 with Basher covering test strategy. No human issue assignments, implementation
 consultations, or overflow handoffs are configured. Coverage gaps go to the
 coordinator, not a human fallback. Existing AI identities, model assignments,
-and reviewer/author lockouts are unchanged; no new specialist is needed.
+and reviewer/author lockouts are preserved. Tess is an AI media specialist, not
+a Go revision owner or a replacement for existing product owners.
 This does not remove repository collaborators, change CODEOWNERS or required
 native approvals, or change Shayne Boyer's project-owner/requester role.
 Historical decisions and member records remain intact.
@@ -27,6 +29,13 @@ bounded independent gate. [Model policy](.squad/model-policy.md) applies GPT-fir
 role assignments and pins code-review passes to GPT-5.6 Terra. The config does not
 override a host that cannot select per-agent models or grant access to a model.
 Danny drafts announcements; publishing still requires explicit approval.
+
+Every release has a [gated media task](docs/RELEASE-MEDIA.md), created or reused
+at a manual release-checklist checkpoint. Tess uses `gpt-6.1-sol` for capture and
+exports; Danny uses `gpt-6-luna` for narrative and copy; independent technical
+review uses `gpt-5.6-terra`. Actual footage waits for verified readiness. These
+are role-fit preferences, not proof of runtime enforcement or benchmark rankings;
+the process neither auto-creates issues nor authorizes publication.
 
 ## Verify the installation
 

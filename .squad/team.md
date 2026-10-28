@@ -30,6 +30,7 @@
 | Turk | Go Performance & Reliability | `.squad/agents/turk/charter.md` | `gpt-5.6-terra` | ✅ Active |
 | Yen | Web Design & Frontend | `.squad/agents/yen/charter.md` | `gpt-6.1-sol` | ✅ Active |
 | Danny | Developer Relations & Socialization | `.squad/agents/danny/charter.md` | `gpt-6-luna` | ✅ Active |
+| Tess | Release Media Producer | `.squad/agents/tess/charter.md` | `gpt-6.1-sol` | ✅ Active |
 | Virgil | Release & Developer Infrastructure | `.squad/agents/virgil/charter.md` | `gpt-6.1-sol` | ✅ Active |
 
 ## Built-in Support
@@ -49,7 +50,8 @@ only for bounded work under `.squad/governance.md`.
 Squad members and work-routing targets are AI agents only. Do not assign issues
 or implementation consultation to humans. Linus covers Copilot SDK and backend
 implementation; Rusty covers architecture and independent review, with Basher
-covering test strategy. No additional specialist is needed.
+covering test strategy. Tess owns release-media capture and exports, not product
+implementation or a human overflow handoff.
 
 Shayne Boyer remains the project owner/requester. Repository collaborators,
 CODEOWNERS, required native approvals, and historical records are unchanged.
