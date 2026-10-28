@@ -1,0 +1,9 @@
+{
+  "name": "waza-agentv-reference-evidence",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "yaml": "2.8.3",
+    "zod": "3.25.76"
+  }
+}

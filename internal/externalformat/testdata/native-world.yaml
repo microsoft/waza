@@ -1,0 +1,10 @@
+id: world
+name: world
+inputs:
+  prompt: Say hello to the world.
+graders:
+  - name: contains
+    type: text
+    config:
+      contains_cs:
+        - world

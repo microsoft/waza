@@ -1,0 +1,38 @@
+Reference-only sources for EntityProcess/agentv v5.3.3
+Pinned repository commit: 68df6d2206cea61f721d0445b405efcb5e94aff0
+Observed/reference execution: 2026-10-28
+License: MIT; Copyright (c) 2025 EntityProcess. See LICENSE.agentv.
+
+The following are exact, unmodified public upstream files at that commit:
+  eval-file.schema.ts
+    packages/core/src/evaluation/validation/eval-file.schema.ts
+  yaml-loader.ts
+    packages/core/src/evaluation/yaml-loader.ts
+  assertions.ts
+    packages/core/src/evaluation/graders/assertions.ts
+  scoring.ts
+    packages/core/src/evaluation/graders/scoring.ts
+  upstream-deterministic-suite.yaml
+    examples/features/deterministic-graders/evals/suite.yaml
+
+Canonical source URLs and SHA-256 values are in sources.json.
+Go regression tests pin the original bytes. Local .gitattributes disables
+checkout line-ending translation. No upstream source has been patched.
+
+../contains.eval.yaml, ../native-world.yaml, check.ts and the adapter/tests
+are Waza-authored under Waza's repository MIT license. The complete external
+suite was independently admitted by the actual pinned upstream parser/schema.
+observed.json records actual upstream pure-grader/verdict results on explicit
+output controls; it is not an upstream-authored result artifact.
+
+Neither the source fixture nor the reference run specifies/constructs an
+upstream provider. This evidence does not establish upstream agent/provider
+execution, response equivalence, or general AgentV/AgentEvals compatibility.
+
+Reference-only dependencies (not Waza production dependencies):
+  yaml 2.8.3, ISC: https://www.npmjs.com/package/yaml/v/2.8.3
+  zod 3.25.76, MIT: https://www.npmjs.com/package/zod/v/3.25.76
+Their exact public-registry tarball integrities are in package-lock.json.
+Their license texts are retained alongside this notice.
+No package lifecycle scripts are required or enabled.
+Advisory audit failed with read ENOTCONN; there is no clean audit claim.

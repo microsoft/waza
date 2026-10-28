@@ -1,0 +1,93 @@
+name: deterministic-graders
+description: Built-in deterministic assertions — contains, regex, JSON validation, equals
+providers:
+  - llm
+prompts:
+  - "{{ input }}"
+tests:
+  - id: contains-basic
+    assert:
+      - type: contains
+        value: Hello
+      - Response mentions the word "Hello"
+    vars:
+      input:
+        - role: system
+          content: Always start your response with 'Hello'.
+        - role: user
+          content: Say hello to the user.
+  - id: regex-email
+    assert:
+      - type: regex
+        value: "[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}"
+      - Response contains a valid email address
+    vars:
+      input:
+        - role: system
+          content: You must include the email support@example.com in every response.
+        - role: user
+          content: Provide your contact email.
+  - id: equals-exact
+    assert:
+      - type: equals
+        value: "4"
+      - Response is exactly the expected string
+    vars:
+      input:
+        - role: system
+          content: You are a calculator. Respond with ONLY the numeric result. No words, no punctuation, no
+            explanation, no newlines. Just the bare number.
+        - role: user
+          content: What is 2+2?
+  - id: starts-with-prefix
+    assert:
+      - type: regex
+        value: ^Dear User
+      - Response begins with a greeting
+    vars:
+      input:
+        - role: system
+          content: You MUST start every response with exactly 'Dear User,' followed by your message.
+        - role: user
+          content: Thank the user for contacting support.
+  - id: is-json-valid
+    assert:
+      - type: is-json
+      - Response is valid JSON
+    vars:
+      input:
+        - role: system
+          content: You are a JSON API. Respond with ONLY raw JSON. Never use markdown code blocks, backticks,
+            or any text outside the JSON object.
+        - role: user
+          content: Return a JSON object with a status field set to ok and code 200.
+  - id: multi-assertion
+    assert:
+      - type: is-json
+        required: true
+      - type: contains
+        value: "\"result\""
+      - Response is valid JSON that contains a "result" key
+    vars:
+      input:
+        - role: system
+          content: You are a JSON API. Respond with ONLY raw JSON. Never use markdown code blocks, backticks,
+            or any text outside the JSON object.
+        - role: user
+          content: Return a JSON object with a "result" key set to the number 42.
+  - id: required-gate
+    assert:
+      - type: is-json
+        required: true
+      - type: contains
+        value: "\"message\""
+      - type: contains
+        value: success
+      - Response must be valid JSON (required) and ideally contain a message field
+    vars:
+      input:
+        - role: system
+          content: You are a JSON API. Respond with ONLY raw JSON. Never use markdown code blocks, backticks,
+            or any text outside the JSON object.
+        - role: user
+          content: Return a JSON object with a "message" field set to "success".

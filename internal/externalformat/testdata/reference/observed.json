@@ -1,0 +1,81 @@
+{
+  "upstream": "EntityProcess/agentv@68df6d2206cea61f721d0445b405efcb5e94aff0",
+  "fixture": "Waza-authored complete conformance suite; not an unchanged upstream suite",
+  "parser": "parseYamlValue + EvalFileSchema.parse",
+  "grader": "runContainsAssertion + scoreToVerdict",
+  "provider_execution": "not invoked; no provider/model/tool execution or compatibility claim",
+  "observations": [
+    {
+      "id": "world",
+      "output": "Hello world",
+      "score": 1,
+      "verdict": "pass"
+    },
+    {
+      "id": "world",
+      "output": "prefix world suffix",
+      "score": 1,
+      "verdict": "pass"
+    },
+    {
+      "id": "world",
+      "output": "Hello World",
+      "score": 0,
+      "verdict": "fail"
+    },
+    {
+      "id": "world",
+      "output": "",
+      "score": 0,
+      "verdict": "fail"
+    },
+    {
+      "id": "unicode",
+      "output": "café 🌍",
+      "score": 1,
+      "verdict": "pass"
+    },
+    {
+      "id": "unicode",
+      "output": "café 🌍",
+      "score": 0,
+      "verdict": "fail"
+    },
+    {
+      "id": "unicode",
+      "output": "CAFÉ 🌍",
+      "score": 0,
+      "verdict": "fail"
+    },
+    {
+      "id": "unicode",
+      "output": "",
+      "score": 0,
+      "verdict": "fail"
+    },
+    {
+      "id": "exact",
+      "output": "A\r\nB",
+      "score": 1,
+      "verdict": "pass"
+    },
+    {
+      "id": "exact",
+      "output": "A\nB",
+      "score": 0,
+      "verdict": "fail"
+    },
+    {
+      "id": "exact",
+      "output": "A\rB",
+      "score": 0,
+      "verdict": "fail"
+    },
+    {
+      "id": "exact",
+      "output": "prefix A\r\nB suffix",
+      "score": 1,
+      "verdict": "pass"
+    }
+  ]
+}

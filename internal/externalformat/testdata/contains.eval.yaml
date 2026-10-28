@@ -1,0 +1,25 @@
+# Waza-authored conformance suite, independently admitted by pinned AgentV.
+name: contains-conformance
+requires:
+  agentv: "5.3.3"
+prompts:
+  - "{{ input }}"
+tests:
+  - id: world
+    vars:
+      input: Say hello to the world.
+    assert:
+      - type: contains
+        value: world
+  - id: unicode
+    vars:
+      input: Return the exact substring café 🌍.
+    assert:
+      - type: contains
+        value: café 🌍
+  - id: exact
+    vars:
+      input: Return the two-line text without normalizing its line endings.
+    assert:
+      - type: contains
+        value: "A\r\nB"

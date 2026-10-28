@@ -1,0 +1,40 @@
+{
+  "repository": "https://github.com/EntityProcess/agentv",
+  "implementation_tag": "v5.3.3",
+  "commit": "68df6d2206cea61f721d0445b405efcb5e94aff0",
+  "license": "MIT",
+  "observed": "2026-10-28",
+  "status": "active",
+  "files": [
+    {
+      "file": "eval-file.schema.ts",
+      "url": "https://raw.githubusercontent.com/EntityProcess/agentv/68df6d2206cea61f721d0445b405efcb5e94aff0/packages/core/src/evaluation/validation/eval-file.schema.ts",
+      "sha256": "ce8d433fac359995b1af8f12f12afc9477cdd386b0bd90409804758075705ea8"
+    },
+    {
+      "file": "yaml-loader.ts",
+      "url": "https://raw.githubusercontent.com/EntityProcess/agentv/68df6d2206cea61f721d0445b405efcb5e94aff0/packages/core/src/evaluation/yaml-loader.ts",
+      "sha256": "cd2460bd31c5ebda01282a756f9a57bf0a33af77e5e9a3d0b785f17186d8a29e"
+    },
+    {
+      "file": "assertions.ts",
+      "url": "https://raw.githubusercontent.com/EntityProcess/agentv/68df6d2206cea61f721d0445b405efcb5e94aff0/packages/core/src/evaluation/graders/assertions.ts",
+      "sha256": "152446e80042b29597eb9d124860a6eb67587be1d642b50c101af3711c9ecb02"
+    },
+    {
+      "file": "scoring.ts",
+      "url": "https://raw.githubusercontent.com/EntityProcess/agentv/68df6d2206cea61f721d0445b405efcb5e94aff0/packages/core/src/evaluation/graders/scoring.ts",
+      "sha256": "167936782bc74f93ccef9b026a94da46ca0a53759dd2f90a3df0ffcf2acbf59e"
+    },
+    {
+      "file": "upstream-deterministic-suite.yaml",
+      "url": "https://raw.githubusercontent.com/EntityProcess/agentv/68df6d2206cea61f721d0445b405efcb5e94aff0/examples/features/deterministic-graders/evals/suite.yaml",
+      "sha256": "ed93fed3aef2785399ea96c93e918ceba8d6557fc1ce637ccbb418349d8f70ca"
+    },
+    {
+      "file": "LICENSE.agentv",
+      "url": "https://raw.githubusercontent.com/EntityProcess/agentv/68df6d2206cea61f721d0445b405efcb5e94aff0/LICENSE",
+      "sha256": "a310bb09289f002d4d27912f9254926afb9510ce2289b6c6154816ab21fc577f"
+    }
+  ]
+}
