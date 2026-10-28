@@ -1,0 +1,72 @@
+{
+  "run_number": 1,
+  "attempts": 1,
+  "prompt": "hello",
+  "status": "passed",
+  "validations": {
+    "_output_contains": {
+      "identifier": "_output_contains",
+      "type": "",
+      "score": 1,
+      "weight": 1,
+      "passed": true,
+      "feedback": "matched 1/1 required strings"
+    },
+    "_output_contains_any": {
+      "identifier": "_output_contains_any",
+      "type": "",
+      "score": 1,
+      "weight": 1,
+      "passed": true,
+      "feedback": "found accepted string: \"hello\""
+    },
+    "_output_not_contains": {
+      "identifier": "_output_not_contains",
+      "type": "",
+      "score": 1,
+      "weight": 1,
+      "passed": true,
+      "feedback": "1/1 excluded strings absent"
+    },
+    "precise": {
+      "identifier": "precise",
+      "type": "text",
+      "score": 1,
+      "weight": 1,
+      "passed": true,
+      "feedback": "All text checks passed",
+      "details": {
+        "contains": null,
+        "contains_cs": ["Mock response for: hello"],
+        "failures": null,
+        "not_contains": null,
+        "not_contains_cs": null,
+        "regex_match": null,
+        "regex_not_match": null
+      }
+    },
+    "task-text": {
+      "identifier": "task-text",
+      "type": "text",
+      "score": 1,
+      "weight": 1,
+      "passed": true,
+      "feedback": "All text checks passed",
+      "details": {
+        "contains": null,
+        "contains_cs": null,
+        "failures": null,
+        "not_contains": null,
+        "not_contains_cs": null,
+        "regex_match": ["^Mock response for: hello"],
+        "regex_not_match": null
+      }
+    }
+  },
+  "session_digest": {
+    "tool_call_count": 0,
+    "tools_used": [],
+    "errors": []
+  },
+  "final_output": "Mock response for: hello\nTask: Selected task\nDescription: Frozen local mock/text control"
+}
