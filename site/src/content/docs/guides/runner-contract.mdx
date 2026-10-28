@@ -6,13 +6,13 @@ description: Check the versioned runner CLI and HTTP API before execution, with 
 import ZoomImage from '../../../components/ZoomImage.astro';
 
 **Source-build preview for v0.40.0.** The implemented capabilities are
-`negotiation`, `exact-unit` and `inline.mock-text`. This bounded profile executes
+`negotiation`, `exact-unit`, `inline.mock-text` and `terminal-result`. This bounded profile executes
 one captured mock/text attempt. Embedding hosts cannot substitute a native engine:
 the factory result must be a non-nil concrete mock engine; other implementations
 and wrappers fail before any engine lifecycle call, with zero calls, no
 observation and no claimed execution mode. Admitted receipts carry
 [input-derived identities](../runner-identities/). Native/paid execution,
-terminal envelopes, archives, local adapters and the container reference remain
+archives, local adapters and the container reference remain
 unavailable. No release or container publication is announced here.
 
 ## CLI: JSON stdin and stdout
@@ -24,7 +24,7 @@ waza runner capabilities
 ```
 
 ```json
-{"schema_version":"1.0","versions":["1.0"],"capabilities":["negotiation","exact-unit","inline.mock-text"]}
+{"schema_version":"1.0","versions":["1.0"],"capabilities":["negotiation","exact-unit","inline.mock-text","terminal-result"]}
 ```
 
 Negotiate without launching a model, tool, subprocess or runtime:
@@ -51,7 +51,7 @@ The response has kind `waza.runner-negotiation`, schema version `1.0`, status
 Requested versions, required/optional capabilities and available capabilities
 are echoed separately. Empty arrays stay arrays, not `null`.
 
-Requiring `"terminal-result"` or `"inline.native-text"` instead returns
+Requiring `"inline.native-text"` instead returns
 `unsupported_capability` with an actionable diagnostic and exit 5, before
 interpreting any input or constructing an engine. Names are exact and
 case-sensitive: `Negotiation`, `negotiation.extra` and ` negotiation` do not
@@ -125,8 +125,10 @@ and the request/eval/task deadlines bound the attempt, and shutdown is attempted
 with a separate five-second budget. HTTP server shutdown cancels active
 requests and waits for handler cleanup.
 
-The response kind is **`waza.runner-unit`**, an invocation-local selection and
-attempt receipt, **not** the future terminal result envelope:
+Offline validation returns **`waza.runner-unit`**, an invocation-local selection
+receipt. Execution now returns [**`waza.runner-terminal`**](../runner-terminal/),
+with a bounded observed summary and stable exit category. Internal unit receipt
+fields remain:
 
 | Field | Interpretation |
 |---|---|
@@ -141,15 +143,15 @@ attempt receipt, **not** the future terminal result envelope:
 
 `completed` means a graded attempt completed, not that every check passed.
 Inspect `observation.status` and `validations`. Logical IDs describe admitted
-input, not executed work. No terminal-envelope validity, publication, billing estimate or archive assurance
+input, not executed work. No publication, billing estimate or archive assurance
 is invented. The nested observation remains the existing attempt shape;
 this layer provides no receipt ingestion/archive reader.
 
-Unit-command exits are 0 for ready/passing completion, 1 for completed failing
-checks, 2 for execution/input/output failure, 5 for unsupported negotiated
-requirements, and 6 for invalid selection. These are command-local behavior,
-not #760's final terminal categories. Transport/input interruptions may have no
-receipt. Native execution stays unavailable even if `allow_paid_execution` is
+Run exits are 0 success, 1 failed checks, 2 infrastructure/output failure,
+3 cancellation, 4 timeout, 5 unsupported negotiated requirements and 6 invalid
+input. These are runner-local categories; legacy commands remain unchanged.
+Broken output and uncatchable termination cannot guarantee delivery.
+Native execution stays unavailable even if `allow_paid_execution` is
 true; this boolean never enables an unadvertised profile.
 
 ### Troubleshooting selection
@@ -182,10 +184,13 @@ curl --silent --show-error \
   Use `--data-binary @examples/runner/unit.json` and the `/validate` or `/run`
   route for the same complete request used by the CLI.
 
-A complete JSON request returns HTTP 200; inspect `status` rather than treating
+A complete JSON request returns HTTP 200; inspect negotiation/validation `status`
+or run `outcome`/`exit_code` rather than treating
 transport success as compatibility. Missing/non-JSON media type returns 415.
-An oversized or failed upload returns 400. A five-second body read deadline
-bounds partial uploads. Transport failures are not execution outcomes.
+Negotiation/validation oversized or failed uploads return 400.
+Run returns terminal bodies for invalid media (415), oversize (413), read
+failure (400), interrupted/timed-out body (408) and infrastructure failure (500),
+when output is writable. A five-second body read deadline bounds partial uploads.
 The API reads no host input paths and stores no runner receipts. It retains the existing
 loopback server; no cloud authentication, scheduler or worker registry is added.
 
@@ -196,6 +201,7 @@ loopback server; no cloud authentication, scheduler or worker registry is added.
 - [Complete runner request 1.0 schema](../../schemas/runner-request-1.0.schema.json)
 - [Capability advertisement 1.0 schema](../../schemas/runner-capabilities-1.0.schema.json)
 - [Exact unit receipt 1.0 schema](../../schemas/runner-unit-1.0.schema.json)
+- [Terminal envelope 1.0 schema](../../schemas/runner-terminal-1.0.schema.json)
 
 All four compact request fields are required. `versions` must contain at least
 one distinct `major.minor` string. Capability arrays may explicitly be empty;
@@ -255,7 +261,7 @@ and incompatibility diagnostics from the public API. The check never runs an
 evaluation. Editing or retrying clears prior results; failed refreshes show an
 error instead of stale compatibility.
 
-<ZoomImage src="../../images/dashboard-lab-negotiation.png" alt="Live Runner contract view showing an unavailable terminal-result requirement and available negotiation and exact mock/text capabilities." />
+<ZoomImage src="../../images/dashboard-lab-negotiation.png" alt="Live Runner contract view showing an unavailable native requirement and available negotiation, exact mock/text and terminal capabilities." />
 
 The **Validate exact work selection** panel sends the complete captured example
 to `/validate`. It displays requested/resolved shard/task/trial/attempt,
@@ -270,6 +276,9 @@ Rejected or older receipts show identity as unavailable; no ID is fabricated.
 
 The synthetic demo does not call the runner API or fabricate negotiation data.
 On an older server or static host, the check reports an error, not success.
+
+The separate **Run mock unit** action actually executes the captured request,
+then shows the [terminal outcome, exit, diagnostics and JSON export](../runner-terminal/).
 
 ## Initial contract notes (unreleased)
 

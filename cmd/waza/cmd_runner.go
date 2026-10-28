@@ -3,13 +3,16 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/microsoft/waza/internal/runnercontract"
+	"github.com/microsoft/waza/internal/runnerterminal"
 	"github.com/microsoft/waza/internal/runnerunit"
 	"github.com/spf13/cobra"
 )
@@ -70,20 +73,26 @@ func newRunnerCommandWithService(service *runnerunit.Service) *cobra.Command {
 			SilenceErrors: true,
 			RunE: func(cmd *cobra.Command, args []string) error {
 				if len(args) != 0 {
+					if action == "run" {
+						return emitTerminal(cmd, runnerterminal.NewFailure(runnerterminal.InvalidInput, "input", "not_checked",
+							"invalid_arguments", "runner run accepts no arguments; send one complete JSON request on stdin"), nil)
+					}
 					return fmt.Errorf("runner %s accepts no arguments; send one complete JSON request on stdin", action)
 				}
 				ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 				defer stop()
 				data, err := readRunnerInput(ctx, cmd.InOrStdin())
 				if err != nil {
+					if action == "run" {
+						return emitTerminal(cmd, runnerterminal.Failure("input", err), nil)
+					}
 					return &ExitCodeError{Code: 2, Err: err}
 				}
-				var report runnerunit.Report
 				if action == "run" {
-					report = service.Run(ctx, data)
-				} else {
-					report = runnerunit.Validate(data)
+					envelope, binding := service.RunTerminal(ctx, data)
+					return emitTerminal(cmd, envelope, binding)
 				}
+				report := runnerunit.Validate(data)
 				if err := json.NewEncoder(cmd.OutOrStdout()).Encode(report); err != nil {
 					return &ExitCodeError{Code: 2, Err: fmt.Errorf("writing runner unit receipt: %w", err)}
 				}
@@ -93,31 +102,107 @@ func newRunnerCommandWithService(service *runnerunit.Service) *cobra.Command {
 				return nil
 			},
 		}
+		if action == "run" {
+			unit.Short = "Run one exact mock unit from JSON stdin; emit one terminal JSON result with exit 0-6"
+			unit.SetFlagErrorFunc(func(cmd *cobra.Command, err error) error {
+				return emitTerminal(cmd, runnerterminal.NewFailure(runnerterminal.InvalidInput, "input", "not_checked",
+					"invalid_flags", fmt.Sprintf("runner run flags: %v; send requirements in JSON", err)), nil)
+			})
+		}
 		cmd.AddCommand(unit)
 	}
 	return cmd
 }
 
-// Cancellation must not depend on a producer closing an inherited stdin pipe.
-func readRunnerInput(ctx context.Context, input io.Reader) ([]byte, error) {
-	type result struct {
-		data []byte
-		err  error
-	}
-	read := make(chan result, 1)
-	go func() {
-		data, err := io.ReadAll(io.LimitReader(input, runnercontract.MaxRequestBytes+1))
-		read <- result{data, err}
-	}()
-	select {
-	case <-ctx.Done():
-		return nil, fmt.Errorf("runner input interrupted: %w", context.Cause(ctx))
-	case value := <-read:
-		if value.err != nil {
-			return nil, fmt.Errorf("reading runner request: %w", value.err)
+// Files use their poller to interrupt the read, joining the cancellation hook
+// before returning. No read goroutine survives terminalization. Other readers
+// used by embedders must themselves return promptly; they are never closed here.
+func readRunnerInput(ctx context.Context, input io.Reader) (data []byte, resultErr error) {
+	if input == os.Stdin {
+		file, cleanup, err := pollableRunnerStdio(os.Stdin)
+		if err != nil {
+			return nil, err
 		}
-		return value.data, nil
+		defer func() {
+			if err := cleanup(); err != nil {
+				resultErr = errors.Join(resultErr, fmt.Errorf("cleaning runner input: %w", err))
+			}
+		}()
+		input = file
 	}
+	if file, ok := input.(*os.File); ok {
+		if err := file.SetReadDeadline(time.Time{}); err == nil {
+			finished := make(chan struct{})
+			stop := context.AfterFunc(ctx, func() {
+				defer close(finished)
+				// The initial successful deadline call established poller support.
+				if err := file.SetReadDeadline(time.Now()); err != nil {
+					fmt.Fprintf(os.Stderr, "interrupting runner input: %v\n", err)
+				}
+			})
+			defer func() {
+				if !stop() {
+					<-finished
+				}
+				if err := file.SetReadDeadline(time.Time{}); err != nil {
+					resultErr = errors.Join(resultErr, fmt.Errorf("resetting runner input deadline: %w", err))
+				}
+			}()
+		} else if file == os.Stdin {
+			// Some inherited descriptors do not support deadlines. This process
+			// owns its stdin, but never closes a supplied caller-owned handle.
+			finished := make(chan struct{})
+			stop := context.AfterFunc(ctx, func() {
+				defer close(finished)
+				if err := file.Close(); err != nil {
+					fmt.Fprintf(os.Stderr, "closing interrupted runner stdin: %v\n", err)
+				}
+			})
+			defer func() {
+				if !stop() {
+					<-finished
+				}
+			}()
+		}
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("runner input interrupted: %w", err)
+	}
+	data, err := io.ReadAll(io.LimitReader(input, runnercontract.MaxRequestBytes+1))
+	if cause := ctx.Err(); cause != nil {
+		return nil, fmt.Errorf("runner input interrupted: %w", cause)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("reading runner request: %w", err)
+	}
+	return data, nil
+}
+
+func emitTerminal(cmd *cobra.Command, envelope runnerterminal.Envelope, binding *runnerterminal.Binding) (resultErr error) {
+	writer := cmd.OutOrStdout()
+	if writer == os.Stdout {
+		file, cleanup, err := pollableRunnerStdio(os.Stdout)
+		if err != nil {
+			return &ExitCodeError{Code: 2, Err: err}
+		}
+		defer func() {
+			if err := cleanup(); err != nil {
+				resultErr = &ExitCodeError{Code: 2, Err: errors.Join(resultErr, fmt.Errorf("closing runner output: %w", err))}
+			}
+		}()
+		if err := file.SetWriteDeadline(time.Now().Add(5 * time.Second)); err != nil && !errors.Is(err, os.ErrNoDeadline) {
+			return &ExitCodeError{Code: 2, Err: fmt.Errorf("setting runner output deadline: %w", err)}
+		}
+		writer = file
+	}
+	code, err := runnerterminal.NewEmitter(writer).Emit(envelope, binding)
+	if err != nil {
+		return &ExitCodeError{Code: 2, Err: err}
+	}
+	if code != 0 {
+		return &ExitCodeError{Code: code, Err: fmt.Errorf("runner run: %s", envelope.Outcome)}
+	}
+	return nil
 }
 
 func emitNegotiation(cmd *cobra.Command, response runnercontract.Response) error {

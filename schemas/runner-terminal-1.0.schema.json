@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://microsoft.github.io/waza/schemas/runner-terminal-1.0.schema.json",
-  "title": "Waza runner terminal envelope 1.0 (preparation; not yet a public runner)",
+  "title": "Waza runner terminal envelope 1.0",
   "type": "object",
   "additionalProperties": false,
   "required": ["kind", "schema_version", "outcome", "exit_code", "failure_boundary", "validation", "engine_calls", "diagnostics"],
@@ -161,17 +161,17 @@
       }
     },
     "identity": {
-      "description": "Reserved projection of canonical runneridentity.Identity; no independent derivation or attestation.",
+      "description": "Canonical admitted runneridentity.Identity; no independent derivation or attestation.",
       "type": "object", "additionalProperties": false,
       "required": ["version", "canonical_digest", "run", "shard", "task", "trial", "attempt"],
       "properties": {
         "version": {"const": "sha256-waza-c14n-v1"},
-        "canonical_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
-        "run": {"type": "string", "pattern": "^run-[0-9a-f]{64}$"},
-        "shard": {"type": "string", "pattern": "^shard-[0-9a-f]{64}$"},
-        "task": {"type": "string", "pattern": "^task-[0-9a-f]{64}$"},
-        "trial": {"type": "string", "pattern": "^trial-[0-9a-f]{64}$"},
-        "attempt": {"type": "string", "pattern": "^attempt-[0-9a-f]{64}$"}
+        "canonical_digest": {"type": "string", "minLength": 64, "maxLength": 64, "pattern": "^[0-9a-f]{64}$"},
+        "run": {"type": "string", "minLength": 68, "maxLength": 68, "pattern": "^run-[0-9a-f]{64}$"},
+        "shard": {"type": "string", "minLength": 70, "maxLength": 70, "pattern": "^shard-[0-9a-f]{64}$"},
+        "task": {"type": "string", "minLength": 69, "maxLength": 69, "pattern": "^task-[0-9a-f]{64}$"},
+        "trial": {"type": "string", "minLength": 70, "maxLength": 70, "pattern": "^trial-[0-9a-f]{64}$"},
+        "attempt": {"type": "string", "minLength": 72, "maxLength": 72, "pattern": "^attempt-[0-9a-f]{64}$"}
       }
     },
     "verdict": {
@@ -190,7 +190,7 @@
         "engine_calls": {"const": 1},
         "selection": {"$ref": "#/$defs/selection"},
         "run_number": {"type": "integer", "minimum": 1, "maximum": 2147483647},
-        "attempts": {"const": 1},
+        "attempts": {"type": "integer", "minimum": 1, "maximum": 2147483647},
         "status": {"enum": ["passed", "failed", "error"]},
         "validations": {"type": "array", "maxItems": 128, "items": {"$ref": "#/$defs/verdict"}},
         "error_msg": {"type": "string", "minLength": 1, "maxLength": 4096}

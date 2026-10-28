@@ -1,0 +1,152 @@
+---
+title: Runner terminal outcomes and exits
+description: Interpret schema-validated runner execution envelopes, cancellation boundaries, stable exit categories and source-preview migration.
+---
+
+import ZoomImage from '../../../components/ZoomImage.astro';
+import examples from '../../../../../internal/runnerterminal/testdata/envelopes.json';
+
+**Source-build preview for v0.40.0.** The `terminal-result` capability is now
+implemented for [exact captured mock/text units](../runner-contract/).
+Native/paid execution, archives, local adapters and container publication are
+not enabled by this capability.
+
+## Run and save the actual response
+
+```bash
+waza runner capabilities
+waza runner validate < examples/runner/unit.json
+waza runner run < examples/runner/unit.json > terminal.json
+```
+
+Only `run` starts a runtime. It emits one compact JSON line with kind
+`waza.runner-terminal` and independent terminal `schema_version: "1.0"`.
+Inspect the outcome and exit; do not treat an input-derived identity or an HTTP
+200 as success. The selected trial/attempt is executed once, without discovery,
+cache, automatic retry or adjacent work.
+
+For HTTP, submit the same complete JSON to `POST /api/v1/runner/run`:
+
+```bash
+curl --silent --show-error \
+  -H 'Content-Type: application/json' \
+  --data-binary @examples/runner/unit.json \
+  http://127.0.0.1:3000/api/v1/runner/run
+```
+
+A complete request returns HTTP 200 even for evaluation, admission or runtime
+failure; interpret `outcome` and `exit_code`. The `X-Waza-Exit-Code` response
+header repeats that code. Input transport errors use HTTP 400, invalid media
+415, oversized body 413, interrupted/timed-out body 408, and unsupported
+deadline transport 500, with the same terminal body when writable.
+
+## Outcomes and operator action
+
+| Outcome | Exit | Meaning and action |
+|---|---|---|
+| `success` | 0 | A complete passed observation contains every admitted check. This is mock evidence, not live model assurance. |
+| `evaluation_failure` | 1 | At least one observed check failed. Inspect the explicit verdicts; do not relabel it an infrastructure retry. |
+| `infrastructure_failure` | 2 | Startup, execution, shutdown, terminalization or delivery failed. Inspect the boundary and diagnostic; a completed observation cannot override this failure. |
+| `cancelled` | 3 | Cancellation was observed, including SIGINT/SIGTERM during blocked stdin or active HTTP request shutdown. |
+| `timeout` | 4 | An input, request or execution deadline expired. Inspect the boundary before changing a budget. |
+| `unsupported_capability` | 5 | Required capability or runner version is unavailable. `unsupported_version` distinguishes a version rejection. Negotiate supported requirements; consent does not enable native execution. |
+| `invalid_input` | 6 | JSON/schema, captured source, exact selection, flags or arguments are invalid. Correct the request rather than dropping unsupported semantics. |
+
+`failure_boundary` is `none` only for completed evaluation verdicts; other
+boundaries identify input, negotiation, validation, identity, startup, execution,
+shutdown, output or terminalization. Input rejection has zero engine calls and
+no identity/selection/observation. After admission, retain the actual canonical
+identity even on failure. It names input, not successful execution or delivery.
+
+Typed deadline causes take precedence over cancellation, which takes precedence
+over an ordinary runtime error. A later cleanup error is not swallowed: its
+boundary is reported and an earlier passed/failed observation remains recorded.
+Incomplete, malformed or oversized evidence cannot become success.
+
+## Schema and evidence limits
+
+Download the [terminal envelope 1.0 schema](../../schemas/runner-terminal-1.0.schema.json).
+It is independent of request and [identity algorithm versions](../runner-identities/).
+Unknown fields, duplicates, malformed Unicode, wrong scalar types, contradictory
+outcome/exit pairs and invalid presence fail closed. Schema shape alone is not
+proof that the identity was derived or that execution occurred.
+
+`observation` is a bounded projection of the **actual returned attempt**, not a
+full `RunResult` or authored expected response. It includes mock mode, call count,
+bound selection, `run_number`, selected `attempts`, status, explicit grader
+verdicts and an error for an error observation. The production `attempts` field
+is the selected ordinal (example: 2), not a newly invented local retry count.
+The complete admitted grader set includes eval/task graders and applicable text
+expectations. No transcript, final text, score or billing totals are asserted.
+Unavailable usage is not zero; explicit verdict `false` remains false.
+
+Limits are 1 MiB per envelope, 16 diagnostics, 4096 UTF-8 bytes per message,
+128 summarized graders and 256-byte grader/selection names. Overlong rejection
+messages explicitly mark truncation; excess rejection diagnostics have an
+explicit remaining count. Unrepresentable observed evidence yields
+`infrastructure_failure` / `terminalization` with `unrepresentable_evidence`;
+the identity, observed call count and original classification survive, while
+the missing summary is explicitly diagnosed.
+
+The following are **synthetic schema examples**, not execution receipts or live
+assurance. Each passes the same schema and contextual validator; actual
+producer conformance runs through CLI/HTTP and the frozen admitted identity vectors.
+
+{examples.map((envelope) => (
+  <section aria-label={`Example ${envelope.outcome}`}>
+    <h3>{envelope.outcome} (exit {envelope.exit_code})</h3>
+    <pre><code>{JSON.stringify(envelope, null, 2)}</code></pre>
+  </section>
+))}
+
+## Cancellation, output and delivery
+
+Input admission is bounded to 4 MiB. HTTP body reads have a five-second deadline;
+server cancellation interrupts partial uploads and waits for handler cleanup.
+CLI signal cancellation does not require the stdin producer to close its pipe.
+Execution observes request/eval/task deadlines and performs synchronous cleanup.
+Host-owned factories must return promptly: arbitrary host callback code is not
+sandboxed or forcibly preempted.
+
+One validated envelope receives one output attempt. Short writes, write errors
+and HTTP flush errors are never followed by a second envelope or fallback.
+CLI output failure exits 2 even if partial bytes already contain another encoded
+exit. HTTP write/flush failures are logged; a peer may see no response or partial
+bytes. A successful write is not downstream receipt, durability or atomic publication.
+SIGKILL, process crashes and host loss cannot guarantee a terminal record.
+There is no scheduler retry, cross-worker deduplication or exactly-once execution.
+Unix signal tests do not establish native Windows signal coverage.
+Pollable process-owned Unix stdout has a five-second write deadline; arbitrary
+embedding writers and descriptors without deadline support have no bounded-output
+guarantee. A rejected HTTP request is not drained before its terminal response.
+
+## Lab and export
+
+In live **Runner contract**, use **Run mock unit** explicitly. Compatibility and
+**Validate selection** remain offline. The result shows the producer outcome,
+exit, boundary, validation, mock observation, unavailable billing and linked
+diagnostics. The browser validates the schema and any claimed input identity binding; the
+producer checks the complete grader binding. **Export terminal JSON** saves the
+actual envelope. Editing the request or starting a new run removes old success;
+response errors do not leave a stale passing result. There is no execution in
+the synthetic demo.
+An HTTP rejection before run admission remains visible without claiming an
+execution identity, even when the separate offline validation succeeded.
+
+<ZoomImage src="../../images/dashboard-lab-terminal.png" alt="Actual mock producer terminal evaluation failure, exit 1, failed observed expectation and linked diagnostics in Lab." />
+
+## Migration and extension rules
+
+Earlier unshipped source-preview `runner run` responses used `waza.runner-unit`.
+Switch consumers of **run only** to `waza.runner-terminal`: use `selection`
+instead of `resolved`, `outcome`/`exit_code` instead of receipt `status`, and the
+bounded observation instead of a full `RunResult`. Cancellation and timeout now
+have exits 3 and 4 rather than generic execution exit 2. Invalid input/flags
+have exit 6. Validate and negotiate keep their existing non-execution receipts.
+
+Historical local `waza run`, eval/task schemas, saved evaluation artifacts and
+identity algorithm are unchanged. Do not rewrite old receipts into terminal
+success or infer missing identities/billing. Incompatible terminal fields,
+meaning or exit mappings require a new terminal schema version. Native, archive
+and container capability names require their own implementation and review.
+This page is contract documentation, not a release announcement or release blog.

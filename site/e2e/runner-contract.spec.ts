@@ -17,7 +17,7 @@ test('runner CLI/API navigation, schemas and screenshot retain deployed base', a
     expect(schema.$schema).toBe('https://json-schema.org/draft/2020-12/schema');
     expect(schema.additionalProperties).toBe(false);
   }
-  const image = page.getByRole('img', { name: /Live Runner contract view showing an unavailable/ });
+  const image = page.getByRole('img', { name: /Live Runner contract view showing an unavailable native/ });
   await expect(image).toBeVisible();
   expect(new URL((await image.getAttribute('src'))!, page.url()).pathname).toBe('/waza/images/dashboard-lab-negotiation.png');
   expect(await image.evaluate((img) => img instanceof HTMLImageElement && img.complete && img.naturalWidth > 0)).toBe(true);

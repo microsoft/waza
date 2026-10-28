@@ -1,9 +1,12 @@
-# Runner terminal foundation (preparation for #760)
+# Runner terminal envelope 1.0
 
-This is developer preparation, **not a released CLI/API contract or completion
-of #760**. It is intentionally independent of the in-progress execution and
-identity integrations. No command, HTTP route, artifact archive, persistence
-protocol, Lab view, scheduler retry policy, or release behavior changes here.
+This source-build preview implements #760 over the exact mock/text runner.
+`waza runner run` and `POST /api/v1/runner/run` share
+`runnerunit.Service.RunTerminal`: one admission, one execution and synchronous
+cleanup, then one schema-validated output attempt. Negotiation and offline
+validation retain their separate receipts and do not claim execution.
+The [site guide](../site/src/content/docs/guides/runner-terminal.mdx) is the
+canonical user, HTTP, exit-policy and migration reference.
 
 The implementation is `internal/runnerterminal`; the offline schema is
 [`runner-terminal-1.0.schema.json`](../schemas/runner-terminal-1.0.schema.json).
@@ -43,21 +46,19 @@ No admitted binding means no engine calls, identity, selection, or observation.
 ## Evidence and identities
 
 `Binding` is caller-supplied comparison context: the exact resolved selection,
-canonical identity JSON, and the complete set of admitted grader identifiers.
+canonical typed identity, and the complete set of admitted grader identifiers.
 Pass it only after successful exact validation **and** successful identity
 derivation, before constructing or calling a runtime. A derivation failure uses
 boundary `identity`, `validation: valid`, zero engine calls, and no fabricated or
 partial IDs. After successful derivation, retain that binding on later
 startup/execution/shutdown errors, cancellation, and timeout.
 
-The optional `identity` reserves the exact seven-field #759 representation:
+The optional `identity` uses the exact seven-field #759 representation:
 `version`, `canonical_digest`, `run`, `shard`, `task`, `trial`, `attempt`.
 The algorithm is `sha256-waza-c14n-v1`, with lowercase hexadecimal digests and
 level-specific prefixes. **No second Go identity model or derivation algorithm
-is defined here.** Preparation uses `json.RawMessage` because the canonical
-package is not in this parent. Final integration must use the actual
-`runneridentity.Identity` producer representation; no provisional type is an
-authority over that package. Omit the entire object until derivation succeeds;
+is defined here.** Both envelope and binding use `*runneridentity.Identity`
+from the admitted invocation directly. Omit the entire object until derivation succeeds;
 null, empty, partial, wrong-version, and unexpected-field objects are invalid.
 
 `schema_version: "1.0"` belongs to the **terminal result**, independently of
@@ -68,17 +69,18 @@ Version 1.0 rejects unknown fields, including nested fields and case aliases.
 
 `Observation` is an explicit, bounded **terminal summary**, not a complete
 `models.RunResult`, transcript, artifact manifest, billing record, or live
-execution attestation. The eventual producer must project it from the actual
+execution attestation. The producer projects it from the actual
 returned #758 observation and captured resolved selection, not from configured
 mock text or a declared expected result. The current supported execution mode
 is `mock`; native execution is not advertised by this foundation.
 
-The summary retains the observed selection, `run_number`, local `attempts`,
+The summary retains the admitted selection, observed `run_number`, selected `attempts`,
 status, explicit per-grader verdicts, and an error when status is `error`.
-Logical selection attempt 3 can legitimately have local `attempts: 1`: no
-automatic retries are introduced. The observed selection must match the admitted
-selection on **every outcome**, and `run_number` must equal the selected trial.
-Completed observations must contain exactly the admitted grader set, with no
+The production `RunResult.Attempts` carries the selected attempt ordinal, not
+the number of automatic retries. Its value must equal `selection.attempt`;
+`run_number` must equal `selection.trial`. No retries are introduced.
+Completed observations must contain exactly the admitted grader set (eval graders,
+task graders and applicable `_output_*` expectations), with no
 duplicates or unknown results. An explicit empty declared set with an explicit
 empty observed set is valid; an unavailable (`nil`) declared set is not.
 
@@ -114,14 +116,24 @@ observations, invents scores or IDs, or substitutes a passing result.
 | Diagnostic code | 64 UTF-8 bytes, lowercase identifier syntax |
 | Selection and grader identifiers | 256 UTF-8 bytes |
 | Observed and declared graders | 128 |
-| Canonical identity JSON | 2048 bytes |
+| Each canonical identity field | 292 UTF-8 bytes (schema further constrains shape) |
 
 JSON Schema string lengths are character counts; the Go checks additionally
-enforce these byte limits. The final producer must detect evidence it cannot
-represent **before** calling the writer and explicitly select an appropriate
+enforce these byte limits. The production projection detects evidence it cannot
+represent **before** calling the writer and explicitly selects an appropriate
 bounded failure envelope with an actionable diagnostic. That is not permission
 to silently drop oversized evidence from an otherwise successful outcome. This
-preparation intentionally has no oversized-success fallback or archive subsystem.
+implementation has no oversized-success fallback or archive subsystem.
+Unrepresentable observations produce `infrastructure_failure` at `terminalization`,
+with `unrepresentable_evidence`, the original outcome/boundary, retained admitted
+identity/selection and observed call count. No score, output or billing is invented.
+Large rejection lists retain the first 15 diagnostics plus an explicit remaining
+count; overlong rejection messages are marked as truncated. The original rejection
+outcome remains unchanged. This is diagnostic preview, never passing evidence.
+`NewFailure` similarly marks overlong messages as truncated and invalid UTF-8
+replacement explicitly, retaining the actual failure outcome and boundary.
+This keeps even oversized CLI flag and host error diagnostics writable; it does
+not permit truncating identities, observations or grader bindings.
 
 `NewEmitter(writer).Emit(envelope, binding)` owns **one emission attempt per
 invocation**. Create exactly one emitter and never copy or replace it for that
@@ -149,18 +161,48 @@ This follows the #750/#749 distinction: finishing one classification/invocation
 does not authorize swallowing conflicts that already occurred. A recorded
 decision is not itself proof that downstream delivery succeeded.
 
-## Integration still required
+## Production lifecycle and ownership
 
-The final dependency-ordered #760 layer must use the actual pushed #758/#759
-parents. It must project the actual `Report`/`models.RunResult` and canonical
-identity, and route CLI/process/API writers through one terminal decision.
-Define and test cancellation/deadline/error precedence in the real lifecycle;
-do not infer it from a generic error string.
+The internal `Report` retains an unserialized binding and typed error cause.
+Projection never derives identities again or guesses cancellation from strings.
+A typed deadline wins over cancellation; either wins over a joined runtime
+error. A later shutdown error changes the terminal boundary to `shutdown` while
+retaining any completed observation and earlier error cause. Input rejection
+precedes runtime construction. The host-owned factory is synchronous, not a
+sandbox: hosts must return promptly and own any work they start; the service
+does not launch detached constructor goroutines or preempt arbitrary host code.
+The concrete-mock admission guard remains unchanged.
 
-Acceptance still needs interruptible blocked stdin, partial HTTP input, runtime
-startup/shutdown and response delivery; deterministic process/signal tests;
-input-aware identity verification and preserved evidence; production-to-Lab
-outcome/exit/boundary/validation diagnostics; documentation-site examples and
-navigation; migration/release notes; current-head full gates and independent
-review. Helper/race/schema examples here do not close those criteria or claim
-native Linux/Windows or public-runner process coverage.
+On Unix, the CLI duplicates only process-owned inherited stdin/stdout, enables
+the Go poller, joins the input cancellation hook, bounds pollable output to five
+seconds, closes its duplicates, and restores descriptor flags. Supplied pollable files are never closed; their deadline is
+reset after the read. In-process embedders supplying arbitrary `io.Reader` or
+`io.Writer` implementations must provide prompt/cancellation-aware I/O: Go cannot
+interrupt arbitrary synchronous code safely. No reader goroutine is abandoned.
+Windows relies on Go's pipe I/O cancellation; native execution evidence must be
+obtained from the required Windows CI, not inferred from Unix signal tests.
+Descriptors without deadline support and arbitrary embedding writers do not
+have a bounded-output guarantee.
+
+HTTP body admission has a five-second deadline and context interruption. A body
+deadline also cancels net/http's request context; the actual read error and
+whether cancellation interrupted it before the deadline distinguish timeout
+from cancellation. The hook is joined before response delivery. Output gets a
+fresh five-second write deadline. Short writes/flush failures are logged and
+never trigger a second response. Rejections close the connection without draining
+an incomplete unadmitted body. A late write-deadline setup failure becomes an
+output infrastructure failure while retaining the admitted identity and actual
+observation. HTTP success and `X-Waza-Exit-Code` describe
+the encoded decision, not consumer receipt or durable publication.
+
+Lab validates original JSON and the terminal schema, compares identity/selection
+with offline admission for the same captured request, and checks observed
+tuple/ordinal/duplicate-verdict consistency. The producer validates the complete
+grader set; the browser does not independently reconstruct YAML or hashes.
+Edits, fresh requests and errors clear previous success. Downloads contain the
+actual producer envelope. Neither a validation receipt nor a terminal summary
+is a historical `EvaluationOutcome`, transcript, archive or billing record.
+Successful offline admission does not imply the subsequent HTTP upload was
+admitted. A real transport rejection without identity/selection/observation or
+engine calls remains visible and exportable as unadmitted failure, never as
+identity-bound execution evidence.

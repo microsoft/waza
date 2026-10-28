@@ -16,12 +16,12 @@ const slug = (text) => text.toLowerCase().replace(/<\/?[a-z][a-z0-9]*(?:\s[^>]*)
 
 test('runner identity fixtures trigger consumer validation and publication without skipping new specs', () => {
   const web = read('.github/workflows/web-ci.yml');
-  for (const path of ['internal/runnerunit/**', 'internal/runneridentity/**', 'examples/runner/**']) {
+  for (const path of ['internal/runnerunit/**', 'internal/runneridentity/**', 'internal/runnerterminal/**', 'examples/runner/**']) {
     assert.equal(web.split(`'${path}'`).length - 1, 2, `${path} must trigger push and PR filtering`);
   }
   const site = read('.github/workflows/site-ci.yml');
   const deploy = read('.github/workflows/pages.yml');
-  for (const path of ['internal/runnerunit/testdata/**', 'internal/runneridentity/testdata/**']) {
+  for (const path of ['internal/runnerunit/testdata/**', 'internal/runneridentity/testdata/**', 'internal/runnerterminal/testdata/**']) {
     assert.ok(site.includes(`'${path}'`), `${path} must select the site build`);
     assert.ok(deploy.includes(`'${path}'`), `${path} must select publication`);
   }
@@ -35,6 +35,7 @@ test('runner identity fixtures trigger consumer validation and publication witho
   assert.match(read('site/playwright.config.ts'), /testDir: '\.\/e2e'/);
   assert.ok(existsSync(resolve(root, 'web/e2e/runner-negotiation.spec.ts')));
   assert.ok(existsSync(resolve(root, 'site/e2e/runner-identities.spec.ts')));
+  assert.ok(existsSync(resolve(root, 'site/e2e/runner-terminal.spec.ts')));
   assert.doesNotMatch(read('site/playwright.config.ts'), /testIgnore:.*runner/);
 });
 

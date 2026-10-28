@@ -1589,10 +1589,11 @@ unsupported version/capability, 6 means invalid request, and 2 means output
 failure. These are negotiation exits, not new meanings for local `waza run`.
 `validate` checks a complete captured request without a runtime; `run` executes
 exactly one mock/text attempt with no discovery, cache or retries. The receipt
-is `waza.runner-unit`, not the later terminal envelope. Unit-command exits:
-0 ready/completed with passing checks, 1 completed with failing checks,
-2 execution/input/output failure, 5 incompatible runner requirements,
-6 invalid selection. Native execution is unavailable even with paid consent.
+is `waza.runner-unit` for offline validation, and `waza.runner-terminal` for run.
+Run exits: 0 success, 1 failed checks, 2 infrastructure/output failure,
+3 cancellation, 4 timeout, 5 incompatible runner requirements,
+6 invalid input. Native execution is unavailable even with paid consent.
+See [terminal outcomes, schema and migration](../../guides/runner-terminal/).
 Admitted receipts carry `identity` version `sha256-waza-c14n-v1`, canonical input
 digest and logical lineage; validation alone derives it without execution.
 Save stdout with `> validation.json`; identity is not proof of execution or
