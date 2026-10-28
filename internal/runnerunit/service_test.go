@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 	"testing/synctest"
+	"time"
 
 	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/models"
@@ -81,16 +82,16 @@ func (e *instrumented) Shutdown(ctx context.Context) error {
 	return err
 }
 
-func TestExactUnitProductionAttemptAndRepeatedDispatch(t *testing.T) {
+func TestAdmittedAttemptInstrumentationAndRepeatedDispatch(t *testing.T) {
 	request := fixture(t)
 	var engines []*instrumented
-	service := NewService(func(cfg models.Config) (execution.AgentEngine, error) {
-		e := &instrumented{AgentEngine: execution.NewMockEngine(cfg.ModelID)}
-		engines = append(engines, e)
-		return e, nil
-	})
 	for range 3 {
-		report := service.Run(t.Context(), wire(t, request))
+		report, input := admit(wire(t, request))
+		require.NotNil(t, input)
+		report.Mode = "mock"
+		e := &instrumented{AgentEngine: execution.NewMockEngine(input.spec.Config.ModelID)}
+		engines = append(engines, e)
+		report = execute(t.Context(), report, input, e)
 		require.Equal(t, "completed", report.Status, "%+v", report.Diagnostics)
 		require.Equal(t, request.Selection, *report.Requested)
 		require.Equal(t, request.Selection, *report.Resolved)
@@ -102,7 +103,6 @@ func TestExactUnitProductionAttemptAndRepeatedDispatch(t *testing.T) {
 		require.NotEmpty(t, report.Observation.Validations)
 		require.Contains(t, report.Observation.FinalOutput, "hello")
 		require.Nil(t, report.Observation.Usage, "mock evidence must not invent billing")
-		e := engines[len(engines)-1]
 		require.Equal(t, 1, e.initializes)
 		require.Equal(t, 1, e.calls)
 		require.Equal(t, 1, e.shutdowns)
@@ -120,6 +120,67 @@ func TestExactUnitProductionAttemptAndRepeatedDispatch(t *testing.T) {
 	}
 	require.Len(t, engines, 3, "no cache replay or shared engine")
 	require.NotEqual(t, engines[0].workspace, engines[1].workspace)
+}
+
+func TestExactUnitProductionAttemptAndRepeatedDispatch(t *testing.T) {
+	request := fixture(t)
+	var engines []*execution.MockEngine
+	service := NewService(func(cfg models.Config) (execution.AgentEngine, error) {
+		engine := execution.NewMockEngine(cfg.ModelID)
+		engines = append(engines, engine)
+		return engine, nil
+	})
+	for range 3 {
+		report := service.Run(t.Context(), wire(t, request))
+		require.Equal(t, "completed", report.Status, "%+v", report.Diagnostics)
+		require.Equal(t, "mock", report.Mode)
+		require.Equal(t, request.Selection, *report.Resolved)
+		require.False(t, report.AdjacentWork)
+		require.Equal(t, 1, report.Calls)
+		require.Equal(t, models.StatusPassed, report.Observation.Status)
+		require.Equal(t, 2, report.Observation.RunNumber)
+		require.Equal(t, 2, report.Observation.Attempts)
+		require.Contains(t, report.Observation.FinalOutput, "hello")
+		require.Nil(t, report.Observation.Usage)
+	}
+	require.Len(t, engines, 3)
+	require.NotSame(t, engines[0], engines[1])
+}
+
+func TestRuntimeAdmissionRejectsNonMockBeforeLifecycle(t *testing.T) {
+	for _, control := range []string{"native-like", "mock-wrapper", "copilot", "nil", "typed-nil"} {
+		t.Run(control, func(t *testing.T) {
+			e := &instrumented{}
+			var engine execution.AgentEngine = e
+			switch control {
+			case "mock-wrapper":
+				e.AgentEngine = execution.NewMockEngine("mock")
+			case "copilot":
+				engine = execution.NewCopilotEngineBuilder("must-not-launch", nil).Build()
+			case "nil":
+				engine = nil
+			case "typed-nil":
+				engine = (*execution.MockEngine)(nil)
+			}
+			req := fixture(t)
+			req.AllowPaidExecution = true
+			report := NewService(func(models.Config) (execution.AgentEngine, error) {
+				return engine, nil
+			}).Run(t.Context(), wire(t, req))
+			require.Equal(t, "execution_error", report.Status)
+			require.Equal(t, "valid", report.Validation)
+			require.Equal(t, req.Selection, *report.Resolved)
+			require.Empty(t, report.Mode)
+			require.Zero(t, report.Calls)
+			require.Nil(t, report.Observation)
+			require.Equal(t, 2, report.ExitCode())
+			require.Contains(t, report.Diagnostics[0].Message, "requires a non-nil concrete *execution.MockEngine")
+			require.Zero(t, e.initializes)
+			require.Zero(t, e.calls)
+			require.Zero(t, e.shutdowns, "rejected runtime shutdown could itself launch native work")
+			requireReceiptSchema(t, report)
+		})
+	}
 }
 
 func TestInvalidSelectionsNeverConstructRuntime(t *testing.T) {
@@ -297,7 +358,12 @@ func TestLifecycleFailuresAndCancellation(t *testing.T) {
 				if mode == "canceled" {
 					go func() { synctest.Wait(); cancel() }()
 				}
-				report := NewService(func(models.Config) (execution.AgentEngine, error) { return e, nil }).Run(ctx, wire(t, req))
+				report, input := admit(wire(t, req))
+				require.NotNil(t, input)
+				report.Mode = "mock"
+				ctx, stop := context.WithTimeout(ctx, time.Millisecond)
+				defer stop()
+				report = execute(ctx, report, input, e)
 				require.Equal(t, "execution_error", report.Status)
 				require.Equal(t, 2, report.ExitCode())
 				require.Equal(t, 1, e.initializes)
@@ -309,6 +375,7 @@ func TestLifecycleFailuresAndCancellation(t *testing.T) {
 				require.Equal(t, calls, e.calls)
 				require.Equal(t, calls, report.Calls)
 				require.NotEmpty(t, report.Diagnostics)
+				requireReceiptSchema(t, report)
 			})
 		})
 	}
@@ -319,6 +386,8 @@ func TestLifecycleFailuresAndCancellation(t *testing.T) {
 		report := NewService(factory).Run(t.Context(), wire(t, fixture(t)))
 		require.Equal(t, "execution_error", report.Status)
 		require.Zero(t, report.Calls)
+		require.Empty(t, report.Mode)
+		requireReceiptSchema(t, report)
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
@@ -328,6 +397,49 @@ func TestLifecycleFailuresAndCancellation(t *testing.T) {
 	}).Run(ctx, wire(t, fixture(t)))
 	require.Equal(t, "execution_error", report.Status)
 	require.Zero(t, report.Calls)
+	require.Empty(t, report.Mode)
+	requireReceiptSchema(t, report)
+}
+
+func TestFactoryMutationAndCancellation(t *testing.T) {
+	for _, control := range []string{"mutation", "cancellation"} {
+		t.Run(control, func(t *testing.T) {
+			req := fixture(t)
+			data := wire(t, req)
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			var mutated models.Config
+			report := NewService(func(cfg models.Config) (execution.AgentEngine, error) {
+				cfg.EngineType = "copilot-sdk"
+				cfg.ModelID = "mutated-model"
+				cfg.TrialsPerTask = 99
+				mutated = cfg
+				clear(data)
+				if control == "cancellation" {
+					cancel()
+				}
+				return execution.NewMockEngine(cfg.ModelID), nil
+			}).Run(ctx, data)
+			require.Equal(t, "copilot-sdk", mutated.EngineType)
+			require.Equal(t, "mutated-model", mutated.ModelID)
+			require.Equal(t, 99, mutated.TrialsPerTask)
+			require.Equal(t, req.Selection, *report.Resolved)
+			require.Equal(t, "mock", report.Mode)
+			if control == "cancellation" {
+				require.Equal(t, "execution_error", report.Status)
+				require.Zero(t, report.Calls)
+				require.Nil(t, report.Observation)
+				require.Contains(t, report.Diagnostics[0].Message, "context canceled")
+			} else {
+				require.Equal(t, "completed", report.Status, "%+v", report.Diagnostics)
+				require.Equal(t, 1, report.Calls)
+				require.Equal(t, 2, report.Observation.RunNumber)
+				require.Equal(t, 2, report.Observation.Attempts)
+				require.Contains(t, report.Observation.FinalOutput, "hello")
+			}
+			requireReceiptSchema(t, report)
+		})
+	}
 }
 
 func TestValidationIsOfflineAndReceiptSchema(t *testing.T) {
@@ -342,6 +454,23 @@ func TestValidationIsOfflineAndReceiptSchema(t *testing.T) {
 	require.Equal(t, "ready", report.Status, "%+v", report.Diagnostics)
 	require.Zero(t, report.Calls)
 	require.Nil(t, report.Observation)
+	for _, result := range []Report{report, NewService(nil).Run(t.Context(), data), Validate([]byte("{}"))} {
+		requireReceiptSchema(t, result)
+	}
+}
+
+func requireReceiptSchema(t *testing.T, report Report) {
+	t.Helper()
+	schema := receiptSchema(t)
+	encoded, err := json.Marshal(report)
+	require.NoError(t, err)
+	var doc any
+	require.NoError(t, json.Unmarshal(encoded, &doc))
+	require.NoError(t, schema.Validate(doc))
+}
+
+func receiptSchema(t *testing.T) *jsonschema.Schema {
+	t.Helper()
 	c := jsonschema.NewCompiler()
 	c.UseLoader(schemaloader.Offline{})
 	for name, text := range map[string]string{
@@ -354,11 +483,43 @@ func TestValidationIsOfflineAndReceiptSchema(t *testing.T) {
 	}
 	schema, err := c.Compile("https://microsoft.github.io/waza/schemas/runner-unit-1.0.schema.json")
 	require.NoError(t, err)
-	for _, result := range []Report{report, NewService(nil).Run(t.Context(), data), Validate([]byte("{}"))} {
-		encoded, err := json.Marshal(result)
-		require.NoError(t, err)
-		var doc any
-		require.NoError(t, json.Unmarshal(encoded, &doc))
-		require.NoError(t, schema.Validate(doc))
+	return schema
+}
+
+func TestReceiptRuntimePresence(t *testing.T) {
+	schema := receiptSchema(t)
+	report := NewService(nil).Run(t.Context(), wire(t, fixture(t)))
+	require.Equal(t, "completed", report.Status)
+	data, err := json.Marshal(report)
+	require.NoError(t, err)
+	for _, control := range []string{"completed-no-mode", "unadmitted-error", "unadmitted-observation", "unadmitted-call", "native-mode", "null-mode"} {
+		t.Run(control, func(t *testing.T) {
+			var fields map[string]any
+			require.NoError(t, json.Unmarshal(data, &fields))
+			require.NoError(t, schema.Validate(fields))
+			delete(fields, "execution_mode")
+			switch control {
+			case "unadmitted-error", "unadmitted-observation", "unadmitted-call":
+				fields["status"] = "execution_error"
+				fields["diagnostics"] = []any{map[string]any{"code": "execution_error", "message": "admitting runtime failed"}}
+				fields["engine_calls"] = 0
+				delete(fields, "observation")
+				if control == "unadmitted-observation" {
+					fields["observation"] = map[string]any{}
+				}
+				if control == "unadmitted-call" {
+					fields["engine_calls"] = 1
+				}
+			case "native-mode":
+				fields["execution_mode"] = "copilot-sdk"
+			case "null-mode":
+				fields["execution_mode"] = nil
+			}
+			if control == "unadmitted-error" {
+				require.NoError(t, schema.Validate(fields))
+			} else {
+				require.Error(t, schema.Validate(fields))
+			}
+		})
 	}
 }

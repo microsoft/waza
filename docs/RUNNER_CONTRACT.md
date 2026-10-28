@@ -48,6 +48,18 @@ consent. This bounded profile avoids importing the source draft's demonstrated
 native cleanup/startup defects; adding native capability requires its own
 request-owned cancellation/cleanup implementation and regression evidence.
 
+The exported factory retains its `EngineFactory` signature, but its result must
+be a non-nil concrete `*execution.MockEngine`. Runtime admission uses Go's
+concrete type, not a model name, marker method, embedded mock, or mode claim.
+Other engines and wrappers are rejected before `Initialize`, `Execute`, or
+`Shutdown`; calling shutdown on a rejected engine could itself start native
+work. This is an execution error with valid selection, zero calls, no observation
+and no `execution_mode`, not a mock execution. Factory errors likewise do not
+claim a runtime mode. The embedding host remains responsible for side effects
+inside its own factory; this boundary never invokes a returned non-mock runtime.
+Lifecycle fault injection is package-private test coverage, not an exported
+runtime-admission exception.
+
 The single declared candidate is `input.task`; shard labels and task ID must
 match, and trial/attempt must lie within the eval's declared bounds. Eval `tasks`
 patterns are inert declarations in this profile, never discovery sources.
@@ -95,11 +107,17 @@ unresolved by this layer, not silently waived.
 unsupported and conflicting combinations. `testdata/request.json` preserves the
 pinned source request as a wire compatibility fixture; the original schema is
 retained unchanged. The public command/API parity test covers future execution
-capability rejection. Exact-unit conformance instruments actual engine calls
+capability rejection. Exact-unit conformance checks observed engine calls
 through CLI and HTTP, covering rejected input, selected ordinal alternatives,
 failed checks and repeated dispatch. Browser tests forward real requests to a
 freshly built Go server and run the compiled CLI, rather than inventing
 successful responses a backend cannot emit.
+The CLI and real HTTP route also inject native-like engines and wrappers around
+real mocks, proving all lifecycle counters remain zero and no mock observation
+or mode is emitted. Service tests additionally reject a concrete Copilot engine
+and typed-nil mock without startup; default and factory-created concrete mocks
+remain valid. Separate package-private lifecycle tests retain deterministic
+initialization, execution, shutdown, timeout and cancellation failure controls.
 
 Additive implementations may advertise new capability names for the same
 compatible runner version. A breaking request or capability semantic change

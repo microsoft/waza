@@ -19,41 +19,24 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-type cancelUnitEngine struct {
-	started, cleaning, release chan struct{}
-}
-
-func (*cancelUnitEngine) Initialize(context.Context) error { return nil }
-func (e *cancelUnitEngine) Execute(ctx context.Context, _ *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
-	close(e.started)
-	<-ctx.Done()
-	return nil, ctx.Err()
-}
-func (e *cancelUnitEngine) Shutdown(ctx context.Context) error {
-	close(e.cleaning)
-	select {
-	case <-e.release:
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
-	}
-}
-func (*cancelUnitEngine) SessionUsage(string) *models.UsageStats { return nil }
-
-func TestRunnerServerCancellationWaitsForAttemptCleanup(t *testing.T) {
+func TestRunnerServerCancellationWaitsForRuntimeConstruction(t *testing.T) {
 	srv, err := New(Config{Port: freePort(t), ResultsDir: t.TempDir(), NoBrowser: true, Logger: discardLogger()})
 	require.NoError(t, err)
-	e := &cancelUnitEngine{make(chan struct{}), make(chan struct{}), make(chan struct{})}
+	started, cleaning, release := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
 	mux := http.NewServeMux()
 	webapi.RegisterRunnerRoutesWithService(mux, runnerunit.NewService(func(models.Config) (execution.AgentEngine, error) {
-		return e, nil
+		close(started)
+		<-ctx.Done()
+		close(cleaning)
+		<-release
+		return execution.NewMockEngine("mock"), nil
 	}))
 	mux.HandleFunc("GET /api/health", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
 	srv.srv.Handler = mux
-	ctx, cancel := context.WithCancel(t.Context())
-	defer cancel()
 	done := make(chan error, 1)
 	go func() { done <- srv.ListenAndServe(ctx) }()
 	waitForHealthEndpoint(t, srv.cfg.Port)
@@ -77,26 +60,27 @@ func TestRunnerServerCancellationWaitsForAttemptCleanup(t *testing.T) {
 		response <- report
 	}()
 	select {
-	case <-e.started:
+	case <-started:
 	case <-time.After(5 * time.Second):
-		t.Fatal("attempt did not start")
+		t.Fatal("runtime construction did not start")
 	}
 	cancel()
 	select {
-	case <-e.cleaning:
+	case <-cleaning:
 	case <-time.After(5 * time.Second):
-		t.Fatal("server cancellation did not reach attempt")
+		t.Fatal("server cancellation did not reach runtime construction")
 	}
 	select {
 	case err := <-done:
 		t.Fatalf("server exited before cleanup completed: %v", err)
 	default:
 	}
-	close(e.release)
+	close(release)
 	select {
 	case report := <-response:
 		require.Equal(t, "execution_error", report.Status)
-		require.Equal(t, 1, report.Calls)
+		require.Zero(t, report.Calls)
+		require.Nil(t, report.Observation)
 		require.Contains(t, report.Diagnostics[0].Message, "context canceled")
 	case err := <-clientErrors:
 		t.Fatal(err)

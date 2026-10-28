@@ -7,7 +7,10 @@ import ZoomImage from '../../../components/ZoomImage.astro';
 
 **Source-build preview for v0.40.0.** The implemented capabilities are
 `negotiation`, `exact-unit` and `inline.mock-text`. This bounded profile executes
-one captured mock/text attempt. Native/paid execution, deterministic identities,
+one captured mock/text attempt. Embedding hosts cannot substitute a native engine:
+the factory result must be a non-nil concrete mock engine; other implementations
+and wrappers fail before any engine lifecycle call, with zero calls, no
+observation and no claimed execution mode. Native/paid execution, deterministic identities,
 terminal envelopes, archives, local adapters and the container reference remain
 unavailable. No release or container publication is announced here.
 

@@ -147,6 +147,8 @@ func resolve(req *runnercontract.Request) (*admitted, error) {
 	return &admitted{request: req, spec: spec, task: task, input: prepared}, nil
 }
 
+// EngineFactory must return a non-nil concrete *execution.MockEngine.
+// Wrappers and other implementations are rejected without lifecycle calls.
 type EngineFactory func(models.Config) (execution.AgentEngine, error)
 
 // Service has no ambient configuration or mutable invocation state. Factory is
@@ -190,53 +192,65 @@ func (s *Service) Run(ctx context.Context, data []byte) (report Report) {
 	}
 	ctx, cancel := context.WithTimeout(ctx, time.Duration(input.request.TimeoutMS)*time.Millisecond)
 	defer cancel()
-	report.Mode = "mock"
-	fail := func(err error) {
-		report.Status = "execution_error"
-		diagnostic := runnercontract.Rejected(err.Error()).Diagnostics[0]
-		diagnostic.Code = "execution_error"
-		report.Diagnostics = append(report.Diagnostics, diagnostic)
-	}
 	if err := ctx.Err(); err != nil {
-		fail(err)
+		report.executionError(err)
 		return report
 	}
 	engine, err := s.factory(input.spec.Config)
 	if err != nil {
-		fail(fmt.Errorf("constructing runtime: %w", err))
+		report.executionError(fmt.Errorf("constructing runtime: %w", err))
 		return report
 	}
-	if engine == nil {
-		fail(fmt.Errorf("runtime factory returned no engine"))
+	mock, ok := engine.(*execution.MockEngine)
+	if !ok || mock == nil {
+		report.executionError(fmt.Errorf("admitting runtime: inline.mock-text requires a non-nil concrete *execution.MockEngine; factory returned %T", engine))
 		return report
 	}
+	report.Mode = "mock"
+	if err := ctx.Err(); err != nil {
+		report.executionError(err)
+		return report
+	}
+	return execute(ctx, report, input, mock)
+}
+
+func (r *Report) executionError(err error) {
+	r.Status = "execution_error"
+	diagnostic := runnercontract.Rejected(err.Error()).Diagnostics[0]
+	diagnostic.Code = "execution_error"
+	r.Diagnostics = append(r.Diagnostics, diagnostic)
+}
+
+// execute owns lifecycle only after Run admits the concrete mock runtime.
+func execute(ctx context.Context, report Report, input *admitted, engine execution.AgentEngine) (result Report) {
+	result = report
 	observed := &onceEngine{AgentEngine: engine}
 	defer func() {
 		shutdownCtx, stop := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 		defer stop()
 		if err := engine.Shutdown(shutdownCtx); err != nil {
-			fail(fmt.Errorf("runtime shutdown: %w", err))
+			result.executionError(fmt.Errorf("runtime shutdown: %w", err))
 		}
-		report.Calls = observed.calls
+		result.Calls = observed.calls
 	}()
 	if err := engine.Initialize(ctx); err != nil {
-		fail(fmt.Errorf("initializing runtime: %w", err))
-		return report
+		result.executionError(fmt.Errorf("initializing runtime: %w", err))
+		return result
 	}
 	runner := orchestration.NewEvalRunner(config.NewEvalConfig(input.spec), observed)
 	run, err := runner.ExecuteInlineAttempt(ctx, input.task, input.input, input.request.Selection.Trial, input.request.Selection.Attempt)
-	report.Observation = run
+	result.Observation = run
 	switch {
 	case ctx.Err() != nil:
-		fail(ctx.Err())
+		result.executionError(ctx.Err())
 	case err != nil:
-		fail(err)
+		result.executionError(err)
 	case run == nil:
-		fail(fmt.Errorf("execution returned no observation"))
+		result.executionError(fmt.Errorf("execution returned no observation"))
 	case run.Status != models.StatusPassed && run.Status != models.StatusFailed:
-		fail(errors.New("execution did not produce a graded observation: " + run.ErrorMsg))
+		result.executionError(errors.New("execution did not produce a graded observation: " + run.ErrorMsg))
 	default:
-		report.Status = "completed"
+		result.Status = "completed"
 	}
-	return report
+	return result
 }

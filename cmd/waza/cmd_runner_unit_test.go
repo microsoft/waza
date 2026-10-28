@@ -24,12 +24,22 @@ import (
 
 type publicUnitEngine struct {
 	execution.AgentEngine
-	calls *atomic.Int32
+	initializes, calls, shutdowns atomic.Int32
 }
 
-func (e publicUnitEngine) Execute(ctx context.Context, req *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
+func (e *publicUnitEngine) Initialize(context.Context) error {
+	e.initializes.Add(1)
+	return errors.New("native initialization must not run")
+}
+
+func (e *publicUnitEngine) Execute(context.Context, *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
 	e.calls.Add(1)
-	return e.AgentEngine.Execute(ctx, req)
+	return nil, errors.New("native execution must not run")
+}
+
+func (e *publicUnitEngine) Shutdown(context.Context) error {
+	e.shutdowns.Add(1)
+	return errors.New("native shutdown must not run")
 }
 
 func TestRunnerExactUnitCLIHTTPConformance(t *testing.T) {
@@ -37,10 +47,10 @@ func TestRunnerExactUnitCLIHTTPConformance(t *testing.T) {
 	require.NoError(t, err)
 	request, err := runnercontract.Parse(data)
 	require.NoError(t, err)
-	var calls, factories atomic.Int32
+	var factories atomic.Int32
 	service := runnerunit.NewService(func(cfg models.Config) (execution.AgentEngine, error) {
 		factories.Add(1)
-		return publicUnitEngine{execution.NewMockEngine(cfg.ModelID), &calls}, nil
+		return execution.NewMockEngine(cfg.ModelID), nil
 	})
 	mux := http.NewServeMux()
 	webapi.RegisterRunnerRoutesWithService(mux, service)
@@ -65,7 +75,7 @@ func TestRunnerExactUnitCLIHTTPConformance(t *testing.T) {
 					expectedCalls = 1
 				}
 				for _, transport := range []string{"cli", "http"} {
-					beforeCalls, beforeFactories := calls.Load(), factories.Load()
+					beforeFactories := factories.Load()
 					var report runnerunit.Report
 					if transport == "cli" {
 						cmd := newRunnerCommandWithService(service)
@@ -92,7 +102,6 @@ func TestRunnerExactUnitCLIHTTPConformance(t *testing.T) {
 						require.NoError(t, json.NewDecoder(response.Body).Decode(&report))
 						require.NoError(t, response.Body.Close())
 					}
-					require.Equal(t, expectedCalls, calls.Load()-beforeCalls, transport)
 					require.Equal(t, expectedCalls, factories.Load()-beforeFactories, transport)
 					require.EqualValues(t, expectedCalls, report.Calls)
 					require.False(t, report.AdjacentWork)
@@ -120,6 +129,56 @@ func TestRunnerExactUnitCLIHTTPConformance(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestRunnerRejectsNonMockFactoryCLIHTTP(t *testing.T) {
+	data, err := os.ReadFile("../../examples/runner/unit.json")
+	require.NoError(t, err)
+	for _, wrapped := range []bool{false, true} {
+		engine := &publicUnitEngine{}
+		if wrapped {
+			engine.AgentEngine = execution.NewMockEngine("mock")
+		}
+		service := runnerunit.NewService(func(models.Config) (execution.AgentEngine, error) {
+			return engine, nil
+		})
+		cmd := newRunnerCommandWithService(service)
+		cmd.SetArgs([]string{"run"})
+		cmd.SetIn(bytes.NewReader(data))
+		var output bytes.Buffer
+		cmd.SetOut(&output)
+		cmd.SetErr(&bytes.Buffer{})
+		err := cmd.Execute()
+		exit, ok := errors.AsType[*ExitCodeError](err)
+		require.True(t, ok)
+		require.Equal(t, 2, exit.Code)
+		var cliReport runnerunit.Report
+		require.NoError(t, json.Unmarshal(output.Bytes(), &cliReport))
+
+		mux := http.NewServeMux()
+		webapi.RegisterRunnerRoutesWithService(mux, service)
+		server := httptest.NewServer(mux)
+		response, err := server.Client().Post(server.URL+"/api/v1/runner/run", "application/json", bytes.NewReader(data))
+		require.NoError(t, err)
+		require.Equal(t, http.StatusOK, response.StatusCode)
+		var httpReport runnerunit.Report
+		require.NoError(t, json.NewDecoder(response.Body).Decode(&httpReport))
+		require.NoError(t, response.Body.Close())
+		server.Close()
+		for _, report := range []runnerunit.Report{cliReport, httpReport} {
+			require.Equal(t, "execution_error", report.Status)
+			require.Equal(t, "valid", report.Validation)
+			require.NotNil(t, report.Resolved)
+			require.Empty(t, report.Mode)
+			require.Zero(t, report.Calls)
+			require.Nil(t, report.Observation)
+			require.False(t, report.AdjacentWork)
+			require.Contains(t, report.Diagnostics[0].Message, "requires a non-nil concrete *execution.MockEngine")
+		}
+		require.Zero(t, engine.initializes.Load())
+		require.Zero(t, engine.calls.Load())
+		require.Zero(t, engine.shutdowns.Load())
 	}
 }
 
