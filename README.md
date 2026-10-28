@@ -268,7 +268,9 @@ derived from the original captured input, not proof of execution or deduplicatio
 `runner run` writes one [terminal envelope](site/src/content/docs/guides/runner-terminal.mdx):
 success 0, failed checks 1, infrastructure failure 2, cancellation 3, timeout 4,
 unsupported capability/version 5, invalid input 6. Validation remains an offline
-receipt, not execution evidence. Native/paid execution remains unavailable. Existing
+receipt, not execution evidence. An eval/task execution deadline still yields
+timeout 4 when the outer request budget remains active; task timeouts override
+the eval budget. Native/paid execution remains unavailable. Existing
 local commands and artifacts are unchanged. See the
 [runner contract, HTTP API, schemas and migration guide](site/src/content/docs/guides/runner-contract.mdx).
 

@@ -1,6 +1,7 @@
 package runnerunit
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -12,9 +13,103 @@ import (
 
 	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/models"
+	"github.com/microsoft/waza/internal/runneridentity"
 	"github.com/microsoft/waza/internal/runnerterminal"
 	"github.com/stretchr/testify/require"
 )
+
+type inlineCauseEngine struct {
+	execution.AgentEngine
+	execute func(context.Context) (*execution.ExecutionResponse, error)
+}
+
+func (e *inlineCauseEngine) Execute(ctx context.Context, _ *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
+	return e.execute(ctx)
+}
+
+func TestTerminalInlineExecutionCauses(t *testing.T) {
+	for _, control := range []string{"eval-deadline", "task-deadline", "task-override", "canceled-cause", "ordinary-error", "deadline-text-only"} {
+		t.Run(control, func(t *testing.T) {
+			request := fixture(t)
+			if control == "eval-deadline" || control == "task-override" {
+				request.Input.Eval = strings.Replace(request.Input.Eval, "timeout_seconds: 30", "timeout_seconds: 1", 1)
+			}
+			if control == "task-deadline" {
+				request.Input.Task += "timeout_seconds: 1\n"
+			}
+			if control == "task-override" {
+				request.Input.Task += "timeout_seconds: 3\n"
+			}
+			data := wire(t, request)
+			expectedIdentity, err := runneridentity.Derive(&request)
+			require.NoError(t, err)
+			report, input := admit(data)
+			require.NotNil(t, input)
+			report.Mode = "mock"
+			synctest.Test(t, func(t *testing.T) {
+				ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+				defer cancel()
+				start := time.Now()
+				want, code := runnerterminal.Timeout, 4
+				cause := context.DeadlineExceeded
+				engine := &inlineCauseEngine{
+					AgentEngine: execution.NewMockEngine("mock"),
+					execute: func(execCtx context.Context) (*execution.ExecutionResponse, error) {
+						if strings.HasSuffix(control, "deadline") || control == "task-override" {
+							<-execCtx.Done()
+							return nil, fmt.Errorf("inline execution interrupted: %w", execCtx.Err())
+						}
+						return nil, fmt.Errorf("inline execution interrupted: %w", cause)
+					},
+				}
+				switch control {
+				case "canceled-cause":
+					want, code, cause = runnerterminal.Canceled, 3, context.Canceled
+				case "ordinary-error":
+					want, code, cause = runnerterminal.InfrastructureFailure, 2, errors.New("runtime unavailable")
+				case "deadline-text-only":
+					want, code, cause = runnerterminal.InfrastructureFailure, 2, errors.New(context.DeadlineExceeded.Error())
+				}
+				// This is the lifecycle/attempt caller used by Service.Run, not
+				// a hand-built observation or a terminal classifier fixture.
+				result := execute(ctx, report, input, engine)
+				require.NoError(t, ctx.Err(), "the outer request deadline must still be active")
+				require.Equal(t, "execution_error", result.Status)
+				require.ErrorIs(t, result.failure, cause, "the typed cause must survive the inline attempt boundary")
+				require.Equal(t, 2, result.ExitCode(), "legacy unit receipt exit policy is unchanged")
+				require.NotNil(t, result.Observation)
+				require.Equal(t, models.StatusError, result.Observation.Status)
+				require.Equal(t, "inline execution interrupted: "+cause.Error(), result.Observation.ErrorMsg)
+				if strings.HasSuffix(control, "deadline") {
+					require.Equal(t, time.Second, time.Since(start), "the eval/task budget, not the outer budget, must expire")
+				}
+				if control == "task-override" {
+					require.Equal(t, 3*time.Second, time.Since(start), "the task budget must override the shorter eval budget")
+				}
+				envelope, binding := terminal(result)
+				var output bytes.Buffer
+				exit, err := runnerterminal.NewEmitter(&output).Emit(envelope, binding)
+				require.NoError(t, err)
+				require.Equal(t, code, exit)
+				decoded, err := runnerterminal.Validate(output.Bytes(), binding)
+				require.NoError(t, err, "%s", output.Bytes())
+				require.Equal(t, want, decoded.Outcome)
+				require.Equal(t, code, decoded.ExitCode)
+				require.Equal(t, "execution", decoded.FailureBoundary)
+				require.Equal(t, expectedIdentity, decoded.Identity)
+				require.Equal(t, request.Selection, *decoded.Selection)
+				require.Equal(t, request.Selection, decoded.Observation.Selection)
+				require.Equal(t, request.Selection.Trial, decoded.Observation.RunNumber)
+				require.Equal(t, request.Selection.Attempt, decoded.Observation.Attempts)
+				require.Equal(t, result.Observation.ErrorMsg, decoded.Observation.ErrorMsg)
+				require.Equal(t, "error", decoded.Observation.Status)
+				require.Equal(t, 1, decoded.EngineCalls)
+				require.Equal(t, 1, decoded.Observation.EngineCalls)
+				require.Empty(t, decoded.Observation.Validations, "execution failed before any grader ran")
+			})
+		})
+	}
+}
 
 func TestTerminalProductionOutcomes(t *testing.T) {
 	for _, control := range []string{"success", "failed", "invalid", "unsupported-version", "unsupported-capability", "factory", "cancel", "timeout", "oversize-diagnostic", "oversize-graders"} {

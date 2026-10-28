@@ -473,7 +473,10 @@ Identity version `sha256-waza-c14n-v1` names input, not observed execution;
 older receipts without it remain unavailable. `runner run` and HTTP `/runner/run`
 now return `waza.runner-terminal` rather than the earlier source-preview unit
 receipt. Lab's explicit **Run mock unit** shows the actual terminal outcome and
-exports that envelope. See [outcomes, exits and migration](../site/src/content/docs/guides/runner-terminal.mdx), the
+exports that envelope. Execution preserves typed eval/task deadline causes as
+`timeout` / exit 4 even before the outer request deadline; task timeout settings
+override eval settings. Historical local `waza run` exit/artifact behavior is
+unchanged. See [outcomes, exits and migration](../site/src/content/docs/guides/runner-terminal.mdx), the
 [identity guide](../site/src/content/docs/guides/runner-identities.mdx) and
 [canonical contract and migration guide](../site/src/content/docs/guides/runner-contract.mdx).
 

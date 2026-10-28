@@ -5,15 +5,20 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
 
+	"github.com/microsoft/waza/internal/runnercontract"
 	"github.com/microsoft/waza/internal/runnerterminal"
+	"github.com/microsoft/waza/internal/runnerunit"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sys/unix"
 )
@@ -155,7 +160,23 @@ func TestRunnerTerminalRealProcessOutputFailure(t *testing.T) {
 
 func TestRunnerTerminalRealProcessOutputPreservesInheritedPeerFlags(t *testing.T) {
 	binary := buildRecoveryCLI(t)
-	request, err := os.ReadFile("../../examples/runner/unit.json")
+	raw, err := os.ReadFile("../../examples/runner/unit.json")
+	require.NoError(t, err)
+	request, err := runnercontract.Parse(raw)
+	require.NoError(t, err)
+	// HTML-escaped, bounded grader names make the real terminal record larger
+	// than the pipe. A partial record is the output-readiness rendezvous.
+	request.Input.Eval += "graders:\n"
+	for i := range runnerterminal.MaxGraders - 1 {
+		request.Input.Eval += fmt.Sprintf("  - name: '%03d%s'\n    type: text\n    config:\n      contains: [hello]\n",
+			i, strings.Repeat("<", runnerterminal.MaxIdentifierBytes-3))
+	}
+	data, err := json.Marshal(request)
+	require.NoError(t, err)
+	envelope, binding := runnerunit.NewService(nil).RunTerminal(t.Context(), data)
+	require.Equal(t, runnerterminal.Success, envelope.Outcome)
+	require.Len(t, envelope.Observation.Validations, runnerterminal.MaxGraders)
+	expected, err := runnerterminal.Encode(envelope, binding)
 	require.NoError(t, err)
 	reader, writer, err := os.Pipe()
 	require.NoError(t, err)
@@ -163,26 +184,46 @@ func TestRunnerTerminalRealProcessOutputPreservesInheritedPeerFlags(t *testing.T
 	defer writer.Close() //nolint:errcheck
 	peer := duplicateRunnerFD(t, writer)
 	defer peer.Close() //nolint:errcheck
-	fillRunnerPipe(t, peer)
+	filled := fillRunnerPipe(t, peer)
+	require.Greater(t, len(expected), 2*len(filled), "the actual record must exceed the native pipe capacity")
 
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
 	child := exec.CommandContext(ctx, binary, "runner", "run")
 	child.Dir = t.TempDir()
-	child.Stdin, child.Stdout = bytes.NewReader(request), writer
+	child.Stdin, child.Stdout = bytes.NewReader(data), writer
 	var stderr bytes.Buffer
 	child.Stderr = &stderr
 	require.NoError(t, child.Start())
 	require.NoError(t, writer.Close())
-	wait := make(chan error, 1)
-	go func() { wait <- child.Wait() }()
+	done := make(chan struct{})
+	var waitErr error
+	go func() {
+		waitErr = child.Wait()
+		close(done)
+	}()
+	t.Cleanup(func() {
+		cancel()
+		<-done
+	})
+	deadline, ok := ctx.Deadline()
+	require.True(t, ok)
+	require.NoError(t, reader.SetReadDeadline(deadline))
+	drained := make([]byte, len(filled))
+	_, err = io.ReadFull(reader, drained)
+	require.NoError(t, err)
+	require.Equal(t, filled, drained)
+	prefix := make([]byte, 1)
+	_, err = io.ReadFull(reader, prefix)
+	require.NoError(t, err, "readiness requires bytes from the real terminal write, not child liveness")
+	require.Equal(t, expected[:1], prefix)
 
-	// The fault-controlled full pipe keeps the sole terminal write pending.
-	// Its liveness is the barrier before inspecting the shared peer descriptor.
+	// The real write has started and its oversized remainder cannot fit.
+	// Slow process startup cannot reach the flag assertion prematurely.
 	select {
-	case err := <-wait:
-		require.FailNowf(t, "terminal output did not block", "wait error: %v; stderr: %s", err, stderr.String())
-	case <-time.After(250 * time.Millisecond):
+	case <-done:
+		require.FailNowf(t, "terminal output did not block", "wait error: %v; stderr: %s", waitErr, stderr.String())
+	default:
 	}
 	require.Zero(t, runnerFDFlags(t, peer)&unix.O_NONBLOCK, "active output must not change its peer's status flags")
 
@@ -190,7 +231,8 @@ func TestRunnerTerminalRealProcessOutputPreservesInheritedPeerFlags(t *testing.T
 	// is blocked. Cleanup must not restore a cached stale value over that change.
 	require.NoError(t, unix.SetNonblock(int(peer.Fd()), true))
 	defer unix.SetNonblock(int(peer.Fd()), false) //nolint:errcheck
-	exit, ok := errors.AsType[*exec.ExitError](<-wait)
+	<-done
+	exit, ok := errors.AsType[*exec.ExitError](waitErr)
 	require.True(t, ok, "%s", stderr.String())
 	require.Equal(t, 2, exit.ExitCode(), "%s", stderr.String())
 	require.NoError(t, ctx.Err(), "output failure must return before forced termination")
@@ -198,7 +240,10 @@ func TestRunnerTerminalRealProcessOutputPreservesInheritedPeerFlags(t *testing.T
 	require.NoError(t, peer.Close())
 	output, err := io.ReadAll(reader)
 	require.NoError(t, err)
-	require.NotEmpty(t, output, "the native output pipe must really have been full")
+	output = append(prefix, output...)
+	require.GreaterOrEqual(t, len(output), len(filled), "the real terminal write must fill the pipe")
+	require.Less(t, len(output), len(expected), "the real terminal write must remain incomplete")
+	require.Equal(t, expected[:len(output)], output, "no terminal fallback may follow failed delivery")
 }
 
 func duplicateRunnerFD(t *testing.T, file *os.File) *os.File {
@@ -217,17 +262,22 @@ func runnerFDFlags(t *testing.T, file *os.File) int {
 	return flags
 }
 
-func fillRunnerPipe(t *testing.T, writer *os.File) {
+func fillRunnerPipe(t *testing.T, writer *os.File) []byte {
 	t.Helper()
 	fd := int(writer.Fd())
 	require.NoError(t, unix.SetNonblock(fd, true))
 	defer func() {
 		require.NoError(t, unix.SetNonblock(fd, false))
 	}()
+	var filled []byte
 	for {
-		_, err := unix.Write(fd, bytes.Repeat([]byte("x"), 4096))
+		n, err := unix.Write(fd, bytes.Repeat([]byte("x"), 4096))
+		if n > 0 {
+			filled = append(filled, bytes.Repeat([]byte("x"), n)...)
+		}
 		if errors.Is(err, unix.EAGAIN) {
-			return
+			require.NotEmpty(t, filled, "the native output pipe must really be full")
+			return filled
 		}
 		require.NoError(t, err)
 	}

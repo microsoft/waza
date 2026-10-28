@@ -59,7 +59,14 @@ no identity/selection/observation. After admission, retain the actual canonical
 identity even on failure. It names input, not successful execution or delivery.
 
 Typed deadline causes take precedence over cancellation, which takes precedence
-over an ordinary runtime error. A later cleanup error is not swallowed: its
+over an ordinary runtime error. An eval/task execution deadline produces
+`timeout` / exit 4 at the execution boundary even while the outer request budget
+is still active. A task's `timeout_seconds` overrides the eval timeout; the
+request's `timeout_ms` still bounds the complete invocation. The error
+observation retains the admitted identity, selection, trial/attempt and actual
+engine call count, without inventing grader verdicts. Error text alone does not
+establish a typed timeout or cancellation.
+A later cleanup error is not swallowed: its
 boundary is reported and an earlier passed/failed observation remains recorded.
 Incomplete, malformed or oversized evidence cannot become success.
 
@@ -116,9 +123,12 @@ bytes. A successful write is not downstream receipt, durability or atomic public
 SIGKILL, process crashes and host loss cannot guarantee a terminal record.
 There is no scheduler retry, cross-worker deduplication or exactly-once execution.
 Unix signal tests do not establish native Windows signal coverage.
-Pollable process-owned Unix stdout has a five-second write deadline; arbitrary
-embedding writers and descriptors without deadline support have no bounded-output
-guarantee. A rejected HTTP request is not drained before its terminal response.
+The Unix CLI bounds its sole inherited stdout write attempt to five seconds
+without changing shared open-file-description flags. Retained stdin/stdout
+peers keep their status flags, including legitimate flag changes made by peers
+during I/O; cleanup does not restore stale flags over them. This is a
+process-exit bound, not a deadline guarantee for arbitrary embedding writers.
+A rejected HTTP request is not drained before its terminal response.
 
 ## Lab and export
 

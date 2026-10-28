@@ -1060,14 +1060,21 @@ func (r *EvalRunner) executeRun(ctx context.Context, tc *models.TestCase, runNum
 }
 
 func (r *EvalRunner) executeAttempt(ctx context.Context, tc *models.TestCase, runNum, attempt int) models.RunResult {
-	return r.executeAttemptWithRequest(ctx, tc, runNum, attempt, nil, false)
+	return r.executeAttemptWithRequest(ctx, tc, runNum, attempt, nil, false).run
 }
 
 func (r *EvalRunner) executeRunWithAttempt(ctx context.Context, tc *models.TestCase, runNum, attempt int, prepared *execution.ExecutionRequest) models.RunResult {
-	return r.executeAttemptWithRequest(ctx, tc, runNum, attempt, prepared, attempt > 0)
+	return r.executeAttemptWithRequest(ctx, tc, runNum, attempt, prepared, attempt > 0).run
 }
 
-func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.TestCase, runNum, attempt int, prepared *execution.ExecutionRequest, controlled bool) models.RunResult {
+// Keep the in-process cause separate from the historical serialized run result.
+// Legacy callers consume the observation; inline callers also classify the cause.
+type attemptResult struct {
+	run   models.RunResult
+	cause error
+}
+
+func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.TestCase, runNum, attempt int, prepared *execution.ExecutionRequest, controlled bool) attemptResult {
 	startTime := time.Now()
 	var req *execution.ExecutionRequest
 	var resp *execution.ExecutionResponse
@@ -1075,7 +1082,7 @@ func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.T
 	var frozenJudgeEvidence *models.JudgeEvidence
 	var promptJudging []models.PromptJudgeObservation
 	diagnosticCategory := "setup"
-	returnWithArtifacts := func(run models.RunResult) models.RunResult {
+	returnWithArtifacts := func(run models.RunResult, cause error) attemptResult {
 		run.JudgeEvidence = frozenJudgeEvidence
 		run.PromptJudging = promptJudging
 		if attempt > 0 {
@@ -1102,13 +1109,14 @@ func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.T
 		r.captureSnapshot(tc, req, resp, &run, diagnosticCategory)
 		run.RequirementExplanations = evidence.ExplainRequirements(r.cfg.Spec(), tc, &run)
 		r.captureFailureArtifacts(&run)
-		return run
+		return attemptResult{run: run, cause: cause}
 	}
 
 	// Prepare execution request
 	if controlled && models.UsesJudgeEvidence(r.cfg.Spec().Graders, tc) {
+		err := fmt.Errorf("evidence_context is not supported by controlled execution")
 		return returnWithArtifacts(models.RunResult{RunNumber: runNum, Status: models.StatusError,
-			ErrorMsg: "evidence_context is not supported by controlled execution"})
+			ErrorMsg: err.Error()}, err)
 	}
 	req = prepared
 	if req == nil {
@@ -1121,7 +1129,7 @@ func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.T
 			Status:     models.StatusError,
 			DurationMs: time.Since(startTime).Milliseconds(),
 			ErrorMsg:   err.Error(),
-		})
+		}, err)
 	}
 
 	// Open the per-turn span around the initial Execute call. Follow-ups
@@ -1155,7 +1163,7 @@ func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.T
 			Status:     models.StatusError,
 			DurationMs: time.Since(startTime).Milliseconds(),
 			ErrorMsg:   err.Error(),
-		})
+		}, err)
 	}
 	execCtx, cancelExec := context.WithTimeout(turnCtx, timeout)
 	diagnosticCategory = "execution"
@@ -1177,7 +1185,7 @@ func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.T
 			Status:     models.StatusError,
 			DurationMs: time.Since(startTime).Milliseconds(),
 			ErrorMsg:   err.Error(),
-		})
+		}, err)
 	}
 
 	markToolPolicyViolation(resp)
@@ -1253,7 +1261,7 @@ func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.T
 		selection, selectionErr := judgeevidence.Selection(r.cfg.Spec().Graders, tc)
 		if selectionErr != nil {
 			return returnWithArtifacts(models.RunResult{RunNumber: runNum, Prompt: req.Message,
-				Status: models.StatusError, ErrorMsg: selectionErr.Error()})
+				Status: models.StatusError, ErrorMsg: selectionErr.Error()}, selectionErr)
 		}
 		origin, originErr := snapshot.CaptureOrigin(snapshot.CaptureInput{EvalID: r.evalRunID, Task: tc,
 			Run: &models.RunResult{RunNumber: runNum, Attempts: attempt}})
@@ -1296,7 +1304,7 @@ func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.T
 				ErrorMsg:       "running graders: " + err.Error(),
 				SessionDigest:  r.buildSessionDigest(resp),
 				GraderSessions: resp.GraderSessions,
-			})
+			}, fmt.Errorf("running graders: %w", err))
 		}
 	}
 
@@ -1385,7 +1393,7 @@ func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.T
 		ToolEvents:         buildToolEvents(sdkEvents),
 		CommandInvocations: commandInvocations,
 	}
-	return returnWithArtifacts(run)
+	return returnWithArtifacts(run, err)
 }
 
 // captureSnapshot writes recorded snapshot observations for the given run

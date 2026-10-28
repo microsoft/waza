@@ -62,6 +62,7 @@ func (r *EvalRunner) PrepareInlineInput(task *models.TestCase) (*ControlledInput
 
 // ExecuteInlineAttempt bypasses discovery, cache and retry loops. Admission and
 // lifecycle ownership stay with the caller; the request is frozen before Execute.
+// A failed attempt returns both its recorded observation and its typed cause.
 func (r *EvalRunner) ExecuteInlineAttempt(ctx context.Context, task *models.TestCase, input *ControlledInput, trial, attempt int) (*models.RunResult, error) {
 	if r == nil || r.cfg == nil {
 		return nil, fmt.Errorf("inline attempt requires a configured runner")
@@ -76,6 +77,6 @@ func (r *EvalRunner) ExecuteInlineAttempt(ctx context.Context, task *models.Test
 	if err != nil {
 		return nil, err
 	}
-	run := r.executeAttemptWithRequest(ctx, task, trial, attempt, frozen, true)
-	return &run, nil
+	result := r.executeAttemptWithRequest(ctx, task, trial, attempt, frozen, true)
+	return &result.run, result.cause
 }
