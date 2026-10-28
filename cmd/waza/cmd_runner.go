@@ -114,21 +114,11 @@ func newRunnerCommandWithService(service *runnerunit.Service) *cobra.Command {
 	return cmd
 }
 
-// Files use their poller to interrupt the read, joining the cancellation hook
-// before returning. No read goroutine survives terminalization. Other readers
-// used by embedders must themselves return promptly; they are never closed here.
+// Supplied readers remain caller-owned. Inherited stdin needs a separate path
+// because it can be a blocking pipe without deadline support.
 func readRunnerInput(ctx context.Context, input io.Reader) (data []byte, resultErr error) {
 	if input == os.Stdin {
-		file, cleanup, err := pollableRunnerStdio(os.Stdin)
-		if err != nil {
-			return nil, err
-		}
-		defer func() {
-			if err := cleanup(); err != nil {
-				resultErr = errors.Join(resultErr, fmt.Errorf("cleaning runner input: %w", err))
-			}
-		}()
-		input = file
+		return readInheritedRunnerInput(ctx)
 	}
 	if file, ok := input.(*os.File); ok {
 		if err := file.SetReadDeadline(time.Time{}); err == nil {
@@ -146,21 +136,6 @@ func readRunnerInput(ctx context.Context, input io.Reader) (data []byte, resultE
 				}
 				if err := file.SetReadDeadline(time.Time{}); err != nil {
 					resultErr = errors.Join(resultErr, fmt.Errorf("resetting runner input deadline: %w", err))
-				}
-			}()
-		} else if file == os.Stdin {
-			// Some inherited descriptors do not support deadlines. This process
-			// owns its stdin, but never closes a supplied caller-owned handle.
-			finished := make(chan struct{})
-			stop := context.AfterFunc(ctx, func() {
-				defer close(finished)
-				if err := file.Close(); err != nil {
-					fmt.Fprintf(os.Stderr, "closing interrupted runner stdin: %v\n", err)
-				}
-			})
-			defer func() {
-				if !stop() {
-					<-finished
 				}
 			}()
 		}
@@ -181,19 +156,14 @@ func readRunnerInput(ctx context.Context, input io.Reader) (data []byte, resultE
 func emitTerminal(cmd *cobra.Command, envelope runnerterminal.Envelope, binding *runnerterminal.Binding) (resultErr error) {
 	writer := cmd.OutOrStdout()
 	if writer == os.Stdout {
-		file, cleanup, err := pollableRunnerStdio(os.Stdout)
+		code, err := emitInheritedRunnerTerminal(envelope, binding)
 		if err != nil {
 			return &ExitCodeError{Code: 2, Err: err}
 		}
-		defer func() {
-			if err := cleanup(); err != nil {
-				resultErr = &ExitCodeError{Code: 2, Err: errors.Join(resultErr, fmt.Errorf("closing runner output: %w", err))}
-			}
-		}()
-		if err := file.SetWriteDeadline(time.Now().Add(5 * time.Second)); err != nil && !errors.Is(err, os.ErrNoDeadline) {
-			return &ExitCodeError{Code: 2, Err: fmt.Errorf("setting runner output deadline: %w", err)}
+		if code != 0 {
+			return &ExitCodeError{Code: code, Err: fmt.Errorf("runner run: %s", envelope.Outcome)}
 		}
-		writer = file
+		return nil
 	}
 	code, err := runnerterminal.NewEmitter(writer).Emit(envelope, binding)
 	if err != nil {

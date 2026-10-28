@@ -173,12 +173,16 @@ sandbox: hosts must return promptly and own any work they start; the service
 does not launch detached constructor goroutines or preempt arbitrary host code.
 The concrete-mock admission guard remains unchanged.
 
-On Unix, the CLI duplicates only process-owned inherited stdin/stdout, enables
-the Go poller, joins the input cancellation hook, bounds pollable output to five
-seconds, closes its duplicates, and restores descriptor flags. Supplied pollable files are never closed; their deadline is
-reset after the read. In-process embedders supplying arbitrary `io.Reader` or
-`io.Writer` implementations must provide prompt/cancellation-aware I/O: Go cannot
-interrupt arbitrary synchronous code safely. No reader goroutine is abandoned.
+On Unix, the CLI does not change flags or close inherited stdin/stdout: duplicated
+descriptors share an open file description, including `O_NONBLOCK`. It performs
+one asynchronous read or one prepared asynchronous terminal-write attempt so
+SIGINT/SIGTERM and the five-second output bound can win without changing a
+parent's or peer's descriptor behavior. The top-level CLI exits after that
+decision, so a blocked inherited I/O attempt cannot survive terminalization or
+produce a fallback record. Supplied pollable files are never closed; their
+deadline is reset after the read. In-process embedders supplying arbitrary
+`io.Reader` or `io.Writer` implementations must provide prompt/cancellation-aware
+I/O: Go cannot interrupt arbitrary synchronous code safely.
 Windows relies on Go's pipe I/O cancellation; native execution evidence must be
 obtained from the required Windows CI, not inferred from Unix signal tests.
 Descriptors without deadline support and arbitrary embedding writers do not
