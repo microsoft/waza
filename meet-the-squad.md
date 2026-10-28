@@ -12,6 +12,16 @@ documentation architecture, Danny developer relations/socialization drafts, and
 Virgil release/developer infrastructure. Scribe, Ralph, Rai, and Fact Checker are
 bounded support identities, not specialist issue owners.
 
+Squad membership and implementation routing are AI-only. Linus covers Copilot SDK
+and backend responsibilities; Rusty covers architecture and independent review,
+with Basher covering test strategy. No human issue assignments, implementation
+consultations, or overflow handoffs are configured. Coverage gaps go to the
+coordinator, not a human fallback. Existing AI identities, model assignments,
+and reviewer/author lockouts are unchanged; no new specialist is needed.
+This does not remove repository collaborators, change CODEOWNERS or required
+native approvals, or change Shayne Boyer's project-owner/requester role.
+Historical decisions and member records remain intact.
+
 [Governance](.squad/governance.md) gives each task one accountable owner and a
 bounded independent gate. [Model policy](.squad/model-policy.md) applies GPT-first
 role assignments and pins code-review passes to GPT-5.6 Terra. The config does not
@@ -91,8 +101,10 @@ rules apply to inline and multiline profiles and preserve base task subjects.
 This remains keyword routing, not proof of semantic eligibility. Missing,
 empty, malformed or duplicate tiers disable coding-agent routing and assignment
 with a diagnostic; there are no hardcoded default capability lists.
-Valid routing to a human continues, and assigning `copilot` still requires the
-explicit opt-in and no existing assignee. Real-roster workflow tests exercise
+The generic router can still parse human roster rows, but Waza's active roster
+and policy configure AI targets only; do not add human fallback rows. Assigning
+`copilot` still requires explicit opt-in and no existing assignee. Existing
+human assignees are left untouched. Real-roster workflow tests exercise
 every declared bullet and both ambiguous-requirements/multi-system exclusions.
 On Ubuntu and native Windows it also checks role-model agreement and a real Git
 `core.autocrlf=true` checkout: the hash-bound casting files must stay LF while a

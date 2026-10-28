@@ -44,13 +44,16 @@ only for bounded work under `.squad/governance.md`.
 | Rai | Responsible AI Reviewer | `.squad/agents/rai/charter.md` | `gpt-5.6-terra` |
 | Fact Checker | Evidence & Claim Verification | `.squad/agents/fact-checker/charter.md` | `gpt-5.6-terra` |
 
-## Human Members
+## AI-only Membership
 
-| Name | Handle | Role | Notes |
-|------|--------|------|-------|
-| Richard Park | @richardpark-msft | Copilot SDK Expert | 👤 Human |
-| Charles Lowell | @chlowell | Backend Developer | 👤 Human |
-| Wallace Breza | @wbreza | — | 👤 Human |
+Squad members and work-routing targets are AI agents only. Do not assign issues
+or implementation consultation to humans. Linus covers Copilot SDK and backend
+implementation; Rusty covers architecture and independent review, with Basher
+covering test strategy. No additional specialist is needed.
+
+Shayne Boyer remains the project owner/requester. Repository collaborators,
+CODEOWNERS, required native approvals, and historical records are unchanged.
+Existing reviewer/author lockouts remain in force.
 
 ## Coding Agent
 

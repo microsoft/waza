@@ -112,6 +112,6 @@ The `union` merge driver keeps all lines from both sides, which is correct for a
 8. **Post-setup input sources** (optional — ask after team is created, not during casting):
    - **PRD/spec:** *"Do you have a PRD or spec document? (file path, paste it, or skip)"* → If provided, follow PRD Mode flow.
    - **GitHub issues:** *"Is there a GitHub repo with issues I should pull from? (owner/repo, or skip)"* → If provided, follow GitHub Issues Mode flow.
-   - **Human members:** *"Are any humans joining the team? (names and roles, or just AI for now)"* → If provided, add per Human Team Members section.
+   - **Waza membership policy:** Propose AI members only under `.squad/governance.md`; do not add human members or human issue/implementation handoffs. Preserve the project owner/requester and required repository approvals.
    - **Copilot agent:** *"Want to include @copilot? It can pick up issues autonomously. (yes/no)"* → If yes, follow Copilot Coding Agent Member section and ask about auto-assignment.
    - These are additive. **Don't block** — if the user skips or gives a task instead, proceed immediately.

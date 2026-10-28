@@ -6,6 +6,14 @@ These Squad coordination rules do not apply to ordinary Copilot work.
 
 ## Ownership
 
+Squad membership, issue routing, and implementation consultation are AI-only.
+Do not assign issues or implementation handoffs to humans, including as an
+overflow fallback. Linus covers Copilot SDK/backend work and Rusty covers
+architecture/independent review; report uncovered expertise to the coordinator.
+This does not change the project owner's authority, repository collaborators,
+CODEOWNERS, or required independent native approvals. Existing reviewer/author
+lockouts survive roster changes; do not rename or add identities to evade them.
+
 Every task has one accountable specialist. Add bounded collaboration only when a
 concrete dependency, missing expertise, or selected review gate requires it.
 Do not launch the whole team, anticipatory QA, or routine log-only agents by default.

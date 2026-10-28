@@ -339,6 +339,13 @@ See `.squad/templates/ralph-reference.md` for Ralph's full lifecycle.
 
 ## PR Review Handling
 
+**Waza policy:** AI-only Squad membership is not a CI-only approval policy.
+Squad implementation and consultation stay with qualified AI members under
+`.squad/governance.md`; repository-required independent native approvals and
+CODEOWNERS remain unchanged. Do not select the automated-approval/no-review
+patterns below merely because humans are not Squad members. Roster changes do
+not reset author/reviewer lockouts or authorize merging.
+
 ### Automated Approval (CI-only projects)
 
 If the project has no human reviewers configured:

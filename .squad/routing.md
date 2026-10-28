@@ -58,11 +58,17 @@ use `gpt-5.6-terra`, even when the selected reviewer's implementation model diff
 | `.squad/governance.md` | Rusty | Saul |
 | `.squad/model-policy.md` | Rusty | Virgil |
 
-## Human Consultation
+## AI-only Consultation
 
-Richard Park provides Copilot SDK expertise and Charles Lowell provides backend
-expertise/overflow review. Consult them when needed; these are human handoffs,
-not spawnable specialist routing targets. Linus remains the implementation owner.
+Linus owns Copilot SDK and backend implementation. Rusty provides architecture
+and independent review; Basher provides bounded test-strategy input when needed.
+Route issues and implementation questions only to qualified AI members, never
+to humans. If coverage is missing, report the gap to the coordinator rather than
+creating a human handoff. Preserve existing reviewer/author lockouts when choosing
+an owner or reviewer; membership cleanup does not reset them.
+
+This routing policy does not change repository access, CODEOWNERS, required
+independent native approvals, or the project owner's decision authority.
 
 ## Issue Routing
 
