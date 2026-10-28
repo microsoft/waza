@@ -14,17 +14,19 @@ import (
 	"testing"
 
 	"github.com/microsoft/waza/internal/runnercontract"
+	"github.com/microsoft/waza/internal/runneridentity"
 	"github.com/microsoft/waza/internal/schemaloader"
 	"github.com/microsoft/waza/schemas"
 )
 
 func admittedFixture() *Binding {
 	digest := strings.Repeat("a", 64)
-	identity := fmt.Sprintf(`{"version":"sha256-waza-c14n-v1","canonical_digest":%q,"run":%q,"shard":%q,"task":%q,"trial":%q,"attempt":%q}`,
-		digest, "run-"+digest, "shard-"+digest, "task-"+digest, "trial-"+digest, "attempt-"+digest)
+	identity := &runneridentity.Identity{Version: runneridentity.Version, CanonicalDigest: digest,
+		Run: "run-" + digest, Shard: "shard-" + digest, Task: "task-" + digest,
+		Trial: "trial-" + digest, Attempt: "attempt-" + digest}
 	return &Binding{
 		Selection: runnercontract.Selection{Shard: "only", Task: "task", Trial: 2, Attempt: 3},
-		Identity:  json.RawMessage(identity),
+		Identity:  identity,
 		GraderIDs: []string{"text"},
 	}
 }
@@ -49,7 +51,7 @@ func fixture(outcome Outcome) (Envelope, *Binding) {
 		}
 		e.Observation = &Observation{
 			ExecutionMode: "mock", EngineCalls: 1, Selection: b.Selection,
-			RunNumber: 2, Attempts: 1, Status: status,
+			RunNumber: 2, Attempts: 3, Status: status,
 			Validations: []Verdict{{Identifier: "text", Passed: outcome == Success}},
 		}
 	case InfrastructureFailure:
@@ -75,6 +77,25 @@ func encodeFixture(t *testing.T, e Envelope, b *Binding) []byte {
 		t.Fatal(err)
 	}
 	return data
+}
+
+func TestFailureDiagnosticsRemainBoundedAndExplicit(t *testing.T) {
+	for _, control := range []struct {
+		message string
+		marker  string
+	}{
+		{strings.Repeat("large error ", 1000), "diagnostic truncated"},
+		{"invalid error " + string([]byte{0xff}), "invalid UTF-8 replaced"},
+	} {
+		envelope := NewFailure(InvalidInput, "input", "not_checked", "invalid_input", control.message)
+		data, err := Encode(envelope, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Contains(data, []byte(control.marker)) || envelope.Outcome != InvalidInput || envelope.ExitCode != 6 {
+			t.Fatalf("diagnostic normalization lost explicit failure: %s", data)
+		}
+	}
 }
 
 func TestOutcomeMappingAndRoundTrip(t *testing.T) {
@@ -116,18 +137,22 @@ func TestContextAndObservationConsistency(t *testing.T) {
 	}{
 		{"missing binding", func(_ *Envelope, b **Binding) { *b = nil }},
 		{"missing identity", func(e *Envelope, _ **Binding) { e.Identity = nil }},
-		{"identity null", func(e *Envelope, _ **Binding) { e.Identity = json.RawMessage(`null`) }},
-		{"identity partial", func(e *Envelope, _ **Binding) { e.Identity = json.RawMessage(`{"version":"sha256-waza-c14n-v1"}`) }},
+		{"identity partial", func(e *Envelope, _ **Binding) { e.Identity = &runneridentity.Identity{Version: runneridentity.Version} }},
 		{"identity wrong algorithm", func(e *Envelope, _ **Binding) {
-			e.Identity = bytes.Replace(e.Identity, []byte("sha256-waza-c14n-v1"), []byte("1.0"), 1)
+			e.Identity.Version = "1.0"
 		}},
 		{"identity wrong prefix", func(e *Envelope, _ **Binding) {
-			e.Identity = bytes.Replace(e.Identity, []byte("run-"), []byte("task-"), 1)
+			e.Identity.Run = e.Identity.Task
+		}},
+		{"identity trailing newline", func(e *Envelope, _ **Binding) {
+			e.Identity.Run += "\n"
 		}},
 		{"different admitted identity", func(_ *Envelope, b **Binding) {
-			(*b).Identity = bytes.ReplaceAll((*b).Identity, []byte(strings.Repeat("a", 64)), []byte(strings.Repeat("b", 64)))
+			copy := *(*b).Identity
+			copy.CanonicalDigest = strings.Repeat("b", 64)
+			(*b).Identity = &copy
 		}},
-		{"invalid admitted identity", func(_ *Envelope, b **Binding) { (*b).Identity = json.RawMessage(`{`) }},
+		{"invalid admitted identity", func(_ *Envelope, b **Binding) { (*b).Identity = nil }},
 		{"different selection", func(e *Envelope, _ **Binding) {
 			s := *e.Selection
 			s.Attempt++
@@ -135,7 +160,7 @@ func TestContextAndObservationConsistency(t *testing.T) {
 		}},
 		{"different observed selection", func(e *Envelope, _ **Binding) { e.Observation.Selection.Task = "adjacent" }},
 		{"wrong observed trial", func(e *Envelope, _ **Binding) { e.Observation.RunNumber = 1 }},
-		{"invented local retries", func(e *Envelope, _ **Binding) { e.Observation.Attempts = 3 }},
+		{"wrong selected attempt", func(e *Envelope, _ **Binding) { e.Observation.Attempts = 1 }},
 		{"zero engine calls", func(e *Envelope, _ **Binding) { e.EngineCalls = 0 }},
 		{"adjacent calls", func(e *Envelope, _ **Binding) { e.Observation.EngineCalls = 2 }},
 		{"native execution claim", func(e *Envelope, _ **Binding) { e.Observation.ExecutionMode = "native" }},
@@ -190,15 +215,6 @@ func TestAlternativeValidEvidence(t *testing.T) {
 	t.Run("explicit zero configured graders", func(t *testing.T) {
 		e, b := fixture(Success)
 		b.GraderIDs, e.Observation.Validations = []string{}, []Verdict{}
-		encodeFixture(t, e, b)
-	})
-	t.Run("identity formatting is not identity", func(t *testing.T) {
-		e, b := fixture(Success)
-		var pretty bytes.Buffer
-		if err := json.Indent(&pretty, b.Identity, "", "  "); err != nil {
-			t.Fatal(err)
-		}
-		b.Identity = pretty.Bytes()
 		encodeFixture(t, e, b)
 	})
 	t.Run("independent result version", func(t *testing.T) {
@@ -323,7 +339,7 @@ func TestBoundsBeforeSerialization(t *testing.T) {
 	}
 	for _, mutate := range []func(*Envelope, *Binding){
 		func(e *Envelope, _ *Binding) { e.Diagnostics = make([]Diagnostic, MaxDiagnostics+1) },
-		func(e *Envelope, _ *Binding) { e.Identity = bytes.Repeat([]byte(" "), MaxIdentityBytes+1) },
+		func(e *Envelope, _ *Binding) { e.Identity.Run = strings.Repeat("a", MaxIdentityBytes+1) },
 		func(e *Envelope, _ *Binding) { e.Kind = strings.Repeat("a", 65) },
 		func(e *Envelope, _ *Binding) {
 			e.Diagnostics = []Diagnostic{{Code: strings.Repeat("a", 65), Message: "error"}}
@@ -335,7 +351,9 @@ func TestBoundsBeforeSerialization(t *testing.T) {
 		func(e *Envelope, _ *Binding) {
 			e.Observation.Validations[0].Identifier = strings.Repeat("a", MaxIdentifierBytes+1)
 		},
-		func(_ *Envelope, b *Binding) { b.Identity = bytes.Repeat([]byte(" "), MaxIdentityBytes+1) },
+		func(_ *Envelope, b *Binding) {
+			b.Identity = &runneridentity.Identity{Run: strings.Repeat("a", MaxIdentityBytes+1)}
+		},
 		func(_ *Envelope, b *Binding) { b.Selection.Shard = strings.Repeat("a", MaxIdentifierBytes+1) },
 		func(_ *Envelope, b *Binding) { b.GraderIDs = make([]string, MaxGraders+1) },
 		func(_ *Envelope, b *Binding) { b.GraderIDs[0] = strings.Repeat("a", MaxIdentifierBytes+1) },

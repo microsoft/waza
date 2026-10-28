@@ -14,6 +14,7 @@ import (
 
 	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/models"
+	"github.com/microsoft/waza/internal/runnerterminal"
 	"github.com/microsoft/waza/internal/runnerunit"
 	"github.com/microsoft/waza/internal/webapi"
 	"github.com/stretchr/testify/require"
@@ -42,7 +43,7 @@ func TestRunnerServerCancellationWaitsForRuntimeConstruction(t *testing.T) {
 	waitForHealthEndpoint(t, srv.cfg.Port)
 	data, err := os.ReadFile("../../examples/runner/unit.json")
 	require.NoError(t, err)
-	response := make(chan runnerunit.Report, 1)
+	response := make(chan runnerterminal.Envelope, 1)
 	clientErrors := make(chan error, 1)
 	go func() {
 		client := &http.Client{Timeout: 10 * time.Second}
@@ -52,7 +53,7 @@ func TestRunnerServerCancellationWaitsForRuntimeConstruction(t *testing.T) {
 			return
 		}
 		defer resp.Body.Close() //nolint:errcheck
-		var report runnerunit.Report
+		var report runnerterminal.Envelope
 		if err := json.NewDecoder(resp.Body).Decode(&report); err != nil {
 			clientErrors <- err
 			return
@@ -78,8 +79,10 @@ func TestRunnerServerCancellationWaitsForRuntimeConstruction(t *testing.T) {
 	close(release)
 	select {
 	case report := <-response:
-		require.Equal(t, "execution_error", report.Status)
-		require.Zero(t, report.Calls)
+		require.Equal(t, runnerterminal.Canceled, report.Outcome)
+		require.Equal(t, 3, report.ExitCode)
+		require.Zero(t, report.EngineCalls)
+		require.NotNil(t, report.Identity)
 		require.Nil(t, report.Observation)
 		require.Contains(t, report.Diagnostics[0].Message, "context canceled")
 	case err := <-clientErrors:
@@ -116,7 +119,9 @@ func TestRunnerServerCancellationInterruptsPartialUpload(t *testing.T) {
 	cancel()
 	response, err := io.ReadAll(conn)
 	require.NoError(t, err)
-	require.Contains(t, string(response), "400 Bad Request")
+	require.Contains(t, string(response), "408 Request Timeout")
+	require.Contains(t, string(response), `"outcome":"`+string(runnerterminal.Canceled)+`"`)
+	require.Contains(t, string(response), `"exit_code":3`)
 	require.NotContains(t, string(response), `"status":"completed"`)
 	select {
 	case err := <-done:

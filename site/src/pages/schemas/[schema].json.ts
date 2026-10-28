@@ -4,6 +4,7 @@ import negotiation from '../../../../schemas/runner-negotiation-request-1.0.sche
 import response from '../../../../schemas/runner-negotiation-response-1.0.schema.json';
 import capabilities from '../../../../schemas/runner-capabilities-1.0.schema.json';
 import unit from '../../../../schemas/runner-unit-1.0.schema.json';
+import terminal from '../../../../schemas/runner-terminal-1.0.schema.json';
 
 export function getStaticPaths() {
   return [
@@ -12,6 +13,7 @@ export function getStaticPaths() {
     { params: { schema: 'runner-negotiation-response-1.0.schema' }, props: { schema: response } },
     { params: { schema: 'runner-capabilities-1.0.schema' }, props: { schema: capabilities } },
     { params: { schema: 'runner-unit-1.0.schema' }, props: { schema: unit } },
+    { params: { schema: 'runner-terminal-1.0.schema' }, props: { schema: terminal } },
   ];
 }
 

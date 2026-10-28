@@ -12,6 +12,7 @@ import (
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/runnercontract"
 	"github.com/microsoft/waza/internal/runneridentity"
+	"github.com/microsoft/waza/internal/runnerterminal"
 	"github.com/microsoft/waza/internal/runnerunit"
 	"github.com/microsoft/waza/internal/webapi"
 	"github.com/stretchr/testify/require"
@@ -51,8 +52,9 @@ func TestRunnerIdentityFrozenCLIHTTP(t *testing.T) {
 				// A grader failure is still a completed attempt and carries identity.
 				err = command.Execute()
 				var cli runnerunit.Report
-				require.NoError(t, json.Unmarshal(output.Bytes(), &cli))
-				if cli.ExitCode() == 0 {
+				var terminal runnerterminal.Envelope
+				code := decodeRunnerResponse(t, action, output.Bytes(), &cli, &terminal)
+				if code == 0 {
 					require.NoError(t, err)
 				} else {
 					require.Error(t, err)
@@ -61,7 +63,9 @@ func TestRunnerIdentityFrozenCLIHTTP(t *testing.T) {
 				require.NoError(t, err)
 				require.Equal(t, http.StatusOK, response.StatusCode)
 				var api runnerunit.Report
-				require.NoError(t, json.NewDecoder(response.Body).Decode(&api))
+				var raw json.RawMessage
+				require.NoError(t, json.NewDecoder(response.Body).Decode(&raw))
+				decodeRunnerResponse(t, action, raw, &api, &terminal)
 				require.NoError(t, response.Body.Close())
 				for _, report := range []runnerunit.Report{cli, api} {
 					require.Equal(t, &tc.Identity, report.Identity)

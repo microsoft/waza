@@ -1,18 +1,19 @@
-// Package runnerterminal prepares bounded, invocation-local terminal envelopes.
+// Package runnerterminal defines bounded, invocation-local terminal envelopes.
 // It neither executes work nor attests that caller-supplied evidence was observed.
 package runnerterminal
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"reflect"
 	"strings"
 	"sync"
 	"unicode/utf8"
 
 	"github.com/microsoft/waza/internal/jsonutil"
 	"github.com/microsoft/waza/internal/runnercontract"
+	"github.com/microsoft/waza/internal/runneridentity"
 	"github.com/microsoft/waza/internal/schemaloader"
 	"github.com/microsoft/waza/schemas"
 	"github.com/santhosh-tekuri/jsonschema/v6"
@@ -94,11 +95,9 @@ type Envelope struct {
 	Validation      string                    `json:"validation"`
 	EngineCalls     int                       `json:"engine_calls"`
 	Selection       *runnercontract.Selection `json:"selection,omitempty"`
-	// Identity reserves the canonical #759 wire representation without defining
-	// a competing Go identity type on a parent where that package is absent.
-	Identity    json.RawMessage `json:"identity,omitempty"`
-	Observation *Observation    `json:"observation,omitempty"`
-	Diagnostics []Diagnostic    `json:"diagnostics"`
+	Identity        *runneridentity.Identity  `json:"identity,omitempty"`
+	Observation     *Observation              `json:"observation,omitempty"`
+	Diagnostics     []Diagnostic              `json:"diagnostics"`
 }
 
 // Binding is supplied only after exact admission and successful identity
@@ -106,7 +105,7 @@ type Envelope struct {
 // It is comparison context, not a second serialized identity or execution proof.
 type Binding struct {
 	Selection runnercontract.Selection
-	Identity  json.RawMessage
+	Identity  *runneridentity.Identity
 	GraderIDs []string
 }
 
@@ -203,8 +202,18 @@ func bounds(e Envelope, expected *Binding) error {
 			return err
 		}
 	}
-	if len(e.Diagnostics) > MaxDiagnostics || len(e.Identity) > MaxIdentityBytes {
+	if len(e.Diagnostics) > MaxDiagnostics {
 		return ErrTooLarge
+	}
+	for _, identity := range []*runneridentity.Identity{e.Identity, bindingIdentity(expected)} {
+		if identity != nil {
+			for _, value := range []string{identity.Version, identity.CanonicalDigest, identity.Run,
+				identity.Shard, identity.Task, identity.Trial, identity.Attempt} {
+				if err := bounded(value, MaxIdentityBytes/7); err != nil {
+					return err
+				}
+			}
+		}
 	}
 	for _, diagnostic := range e.Diagnostics {
 		if err := errors.Join(bounded(diagnostic.Code, 64), bounded(diagnostic.Message, MaxMessageBytes)); err != nil {
@@ -230,8 +239,8 @@ func bounds(e Envelope, expected *Binding) error {
 			}
 		}
 	}
-	if expected != nil {
-		if len(expected.Identity) > MaxIdentityBytes || len(expected.GraderIDs) > MaxGraders {
+	if expected != nil && e.Observation != nil {
+		if len(expected.GraderIDs) > MaxGraders {
 			return ErrTooLarge
 		}
 		if err := selectionBounds(expected.Selection); err != nil {
@@ -248,7 +257,7 @@ func bounds(e Envelope, expected *Binding) error {
 
 func consistent(e Envelope, expected *Binding) error {
 	if expected == nil {
-		if e.Selection != nil || len(e.Identity) != 0 || e.Observation != nil || e.EngineCalls != 0 {
+		if e.Selection != nil || e.Identity != nil || e.Observation != nil || e.EngineCalls != 0 {
 			return errors.New("unadmitted envelope contains identity, selection, or observation")
 		}
 		return nil
@@ -256,16 +265,12 @@ func consistent(e Envelope, expected *Binding) error {
 	if e.Validation != "valid" || e.Selection == nil || *e.Selection != expected.Selection {
 		return errors.New("selection does not match admitted work")
 	}
-	got, err := jsonutil.Parse(e.Identity)
-	if err != nil {
-		return fmt.Errorf("identity: %w", err)
-	}
-	want, err := jsonutil.Parse(expected.Identity)
-	if err != nil {
-		return fmt.Errorf("admitted identity: %w", err)
-	}
-	if !reflect.DeepEqual(got, want) {
+	if e.Identity == nil || expected.Identity == nil || *e.Identity != *expected.Identity {
 		return errors.New("identity does not match admitted work")
+	}
+	o := e.Observation
+	if o == nil {
+		return nil
 	}
 	ids := make(map[string]bool, len(expected.GraderIDs))
 	if expected.GraderIDs == nil {
@@ -277,14 +282,10 @@ func consistent(e Envelope, expected *Binding) error {
 		}
 		ids[id] = true
 	}
-	o := e.Observation
-	if o == nil {
-		return nil
-	}
 	if e.EngineCalls != o.EngineCalls {
 		return errors.New("observation contradicts invocation engine call count")
 	}
-	if o.Selection != expected.Selection || o.RunNumber != expected.Selection.Trial {
+	if o.Selection != expected.Selection || o.RunNumber != expected.Selection.Trial || o.Attempts != expected.Selection.Attempt {
 		return errors.New("observation does not match admitted selection")
 	}
 	seen := make(map[string]bool, len(o.Validations))
@@ -305,4 +306,38 @@ func consistent(e Envelope, expected *Binding) error {
 		}
 	}
 	return nil
+}
+
+func bindingIdentity(binding *Binding) *runneridentity.Identity {
+	if binding == nil {
+		return nil
+	}
+	return binding.Identity
+}
+
+// Failure classifies a boundary error without guessing from its message.
+// Deadline expiration takes precedence over cancellation within a joined cause.
+func Failure(boundary string, err error) Envelope {
+	outcome := InfrastructureFailure
+	switch {
+	case errors.Is(err, context.DeadlineExceeded):
+		outcome = Timeout
+	case errors.Is(err, context.Canceled):
+		outcome = Canceled
+	}
+	return NewFailure(outcome, boundary, "not_checked", string(outcome), err.Error())
+}
+
+func NewFailure(outcome Outcome, boundary, validation, code, message string) Envelope {
+	exit, _ := outcome.ExitCode()
+	if !utf8.ValidString(message) {
+		message = strings.ToValidUTF8(message, "\uFFFD") + " [invalid UTF-8 replaced in diagnostic]"
+	}
+	if len(message) > MaxMessageBytes {
+		message = fmt.Sprintf("%.900s [diagnostic truncated; original failure detail exceeds terminal bounds]", message)
+	}
+	return Envelope{
+		Kind: "waza.runner-terminal", SchemaVersion: Version, Outcome: outcome, ExitCode: exit,
+		FailureBoundary: boundary, Validation: validation, Diagnostics: []Diagnostic{{Code: code, Message: message}},
+	}
 }

@@ -470,7 +470,10 @@ live Lab displays pre-execution selection validation and input-derived logical
 identity lineage, with a validation JSON export. CLI stdout can be saved using
 `waza runner validate < examples/runner/unit.json > validation.json`.
 Identity version `sha256-waza-c14n-v1` names input, not observed execution;
-older receipts without it remain unavailable. See the
+older receipts without it remain unavailable. `runner run` and HTTP `/runner/run`
+now return `waza.runner-terminal` rather than the earlier source-preview unit
+receipt. Lab's explicit **Run mock unit** shows the actual terminal outcome and
+exports that envelope. See [outcomes, exits and migration](../site/src/content/docs/guides/runner-terminal.mdx), the
 [identity guide](../site/src/content/docs/guides/runner-identities.mdx) and
 [canonical contract and migration guide](../site/src/content/docs/guides/runner-contract.mdx).
 

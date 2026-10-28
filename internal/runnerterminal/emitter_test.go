@@ -123,7 +123,7 @@ func TestEmitterPreparationErrorsWriteNothing(t *testing.T) {
 		want   error
 	}{
 		{"validation", func(e *Envelope) { e.ExitCode = 6 }, ErrInvalid},
-		{"encoding", func(e *Envelope) { e.Identity = []byte(`{`) }, ErrInvalid},
+		{"encoding", func(e *Envelope) { e.Identity = nil }, ErrInvalid},
 		{"bounds", func(e *Envelope) { e.Diagnostics = make([]Diagnostic, MaxDiagnostics+1) }, ErrTooLarge},
 	} {
 		t.Run(tt.name, func(t *testing.T) {

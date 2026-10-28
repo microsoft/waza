@@ -22,7 +22,7 @@
       "engine_calls": 1,
       "selection": {"shard": "only", "task": "task", "trial": 2, "attempt": 3},
       "run_number": 2,
-      "attempts": 1,
+      "attempts": 3,
       "status": "passed",
       "validations": [{"identifier": "text", "passed": true}]
     },
@@ -51,7 +51,7 @@
       "engine_calls": 1,
       "selection": {"shard": "only", "task": "task", "trial": 2, "attempt": 3},
       "run_number": 2,
-      "attempts": 1,
+      "attempts": 3,
       "status": "failed",
       "validations": [{"identifier": "text", "passed": false}]
     },

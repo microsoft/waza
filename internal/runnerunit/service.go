@@ -15,6 +15,7 @@ import (
 	"github.com/microsoft/waza/internal/orchestration"
 	"github.com/microsoft/waza/internal/runnercontract"
 	"github.com/microsoft/waza/internal/runneridentity"
+	"github.com/microsoft/waza/internal/runnerterminal"
 )
 
 // Report is an invocation-local selection/attempt receipt, not a persisted
@@ -33,6 +34,9 @@ type Report struct {
 	Calls         int                         `json:"engine_calls"`
 	Observation   *models.RunResult           `json:"observation,omitempty"`
 	Diagnostics   []runnercontract.Diagnostic `json:"diagnostics"`
+	binding       *runnerterminal.Binding
+	failure       error
+	boundary      string
 }
 
 func (r Report) ExitCode() int {
@@ -95,6 +99,7 @@ func admit(data []byte) (Report, *admitted) {
 	selected := req.Selection
 	report.Resolved = &selected
 	report.Identity = identity
+	report.binding = &runnerterminal.Binding{Selection: selected, Identity: identity, GraderIDs: graderIDs(input)}
 	report.Status, report.Validation = "ready", "valid"
 	return report, input
 }
@@ -202,29 +207,31 @@ func (s *Service) Run(ctx context.Context, data []byte) (report Report) {
 	ctx, cancel := context.WithTimeout(ctx, time.Duration(input.request.TimeoutMS)*time.Millisecond)
 	defer cancel()
 	if err := ctx.Err(); err != nil {
-		report.executionError(err)
+		report.executionError("startup", err)
 		return report
 	}
 	engine, err := s.factory(input.spec.Config)
 	if err != nil {
-		report.executionError(fmt.Errorf("constructing runtime: %w", err))
+		report.executionError("startup", errors.Join(fmt.Errorf("constructing runtime: %w", err), ctx.Err()))
 		return report
 	}
 	mock, ok := engine.(*execution.MockEngine)
 	if !ok || mock == nil {
-		report.executionError(fmt.Errorf("admitting runtime: inline.mock-text requires a non-nil concrete *execution.MockEngine; factory returned %T", engine))
+		report.executionError("startup", errors.Join(fmt.Errorf("admitting runtime: inline.mock-text requires a non-nil concrete *execution.MockEngine; factory returned %T", engine), ctx.Err()))
 		return report
 	}
 	report.Mode = "mock"
 	if err := ctx.Err(); err != nil {
-		report.executionError(err)
+		report.executionError("startup", err)
 		return report
 	}
 	return execute(ctx, report, input, mock)
 }
 
-func (r *Report) executionError(err error) {
+func (r *Report) executionError(boundary string, err error) {
 	r.Status = "execution_error"
+	r.failure = errors.Join(r.failure, err)
+	r.boundary = boundary
 	diagnostic := runnercontract.Rejected(err.Error()).Diagnostics[0]
 	diagnostic.Code = "execution_error"
 	r.Diagnostics = append(r.Diagnostics, diagnostic)
@@ -238,12 +245,15 @@ func execute(ctx context.Context, report Report, input *admitted, engine executi
 		shutdownCtx, stop := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 		defer stop()
 		if err := engine.Shutdown(shutdownCtx); err != nil {
-			result.executionError(fmt.Errorf("runtime shutdown: %w", err))
+			result.executionError("shutdown", fmt.Errorf("runtime shutdown: %w", err))
 		}
 		result.Calls = observed.calls
+		if err := ctx.Err(); err != nil && !errors.Is(result.failure, err) {
+			result.executionError("shutdown", err)
+		}
 	}()
 	if err := engine.Initialize(ctx); err != nil {
-		result.executionError(fmt.Errorf("initializing runtime: %w", err))
+		result.executionError("startup", errors.Join(fmt.Errorf("initializing runtime: %w", err), ctx.Err()))
 		return result
 	}
 	runner := orchestration.NewEvalRunner(config.NewEvalConfig(input.spec), observed)
@@ -251,13 +261,13 @@ func execute(ctx context.Context, report Report, input *admitted, engine executi
 	result.Observation = run
 	switch {
 	case ctx.Err() != nil:
-		result.executionError(ctx.Err())
+		result.executionError("execution", errors.Join(ctx.Err(), err))
 	case err != nil:
-		result.executionError(err)
+		result.executionError("execution", err)
 	case run == nil:
-		result.executionError(fmt.Errorf("execution returned no observation"))
+		result.executionError("execution", fmt.Errorf("execution returned no observation"))
 	case run.Status != models.StatusPassed && run.Status != models.StatusFailed:
-		result.executionError(errors.New("execution did not produce a graded observation: " + run.ErrorMsg))
+		result.executionError("execution", errors.New("execution did not produce a graded observation: "+run.ErrorMsg))
 	default:
 		result.Status = "completed"
 	}

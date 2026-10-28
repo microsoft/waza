@@ -18,6 +18,7 @@ import (
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/runnercontract"
 	"github.com/microsoft/waza/internal/runneridentity"
+	"github.com/microsoft/waza/internal/runnerterminal"
 	"github.com/microsoft/waza/internal/runnerunit"
 	"github.com/microsoft/waza/internal/webapi"
 	"github.com/stretchr/testify/require"
@@ -78,6 +79,8 @@ func TestRunnerExactUnitCLIHTTPConformance(t *testing.T) {
 				for _, transport := range []string{"cli", "http"} {
 					beforeFactories := factories.Load()
 					var report runnerunit.Report
+					var terminal runnerterminal.Envelope
+					var raw []byte
 					if transport == "cli" {
 						cmd := newRunnerCommandWithService(service)
 						cmd.SetArgs([]string{action})
@@ -86,21 +89,25 @@ func TestRunnerExactUnitCLIHTTPConformance(t *testing.T) {
 						cmd.SetOut(&output)
 						cmd.SetErr(&bytes.Buffer{})
 						err := cmd.Execute()
+						raw = bytes.Clone(output.Bytes())
 						decoder := json.NewDecoder(&output)
-						require.NoError(t, decoder.Decode(&report))
+						require.NoError(t, decoder.Decode(new(json.RawMessage)))
 						require.ErrorIs(t, decoder.Decode(new(any)), io.EOF, "one JSON receipt only")
-						if report.ExitCode() == 0 {
+						code := decodeRunnerResponse(t, action, raw, &report, &terminal)
+						if code == 0 {
 							require.NoError(t, err)
 						} else {
 							exit, ok := errors.AsType[*ExitCodeError](err)
 							require.True(t, ok)
-							require.Equal(t, report.ExitCode(), exit.Code)
+							require.Equal(t, code, exit.Code)
 						}
 					} else {
 						response, err := server.Client().Post(server.URL+"/api/v1/runner/"+action, "application/json", bytes.NewReader(body))
 						require.NoError(t, err)
 						require.Equal(t, http.StatusOK, response.StatusCode)
-						require.NoError(t, json.NewDecoder(response.Body).Decode(&report))
+						raw, err = io.ReadAll(response.Body)
+						require.NoError(t, err)
+						decodeRunnerResponse(t, action, raw, &report, &terminal)
 						require.NoError(t, response.Body.Close())
 					}
 					require.Equal(t, expectedCalls, factories.Load()-beforeFactories, transport)
@@ -121,7 +128,6 @@ func TestRunnerExactUnitCLIHTTPConformance(t *testing.T) {
 							require.Equal(t, "completed", report.Status)
 							require.Equal(t, req.Selection.Trial, report.Observation.RunNumber)
 							require.Equal(t, req.Selection.Attempt, report.Observation.Attempts)
-							require.Contains(t, report.Observation.FinalOutput, "hello")
 							if control == "failed-check" {
 								require.Equal(t, models.StatusFailed, report.Observation.Status)
 								require.Equal(t, 1, report.ExitCode())
@@ -158,7 +164,7 @@ func TestRunnerRejectsNonMockFactoryCLIHTTP(t *testing.T) {
 		exit, ok := errors.AsType[*ExitCodeError](err)
 		require.True(t, ok)
 		require.Equal(t, 2, exit.Code)
-		var cliReport runnerunit.Report
+		var cliReport runnerterminal.Envelope
 		require.NoError(t, json.Unmarshal(output.Bytes(), &cliReport))
 
 		mux := http.NewServeMux()
@@ -167,19 +173,17 @@ func TestRunnerRejectsNonMockFactoryCLIHTTP(t *testing.T) {
 		response, err := server.Client().Post(server.URL+"/api/v1/runner/run", "application/json", bytes.NewReader(data))
 		require.NoError(t, err)
 		require.Equal(t, http.StatusOK, response.StatusCode)
-		var httpReport runnerunit.Report
+		var httpReport runnerterminal.Envelope
 		require.NoError(t, json.NewDecoder(response.Body).Decode(&httpReport))
 		require.NoError(t, response.Body.Close())
 		server.Close()
-		for _, report := range []runnerunit.Report{cliReport, httpReport} {
-			require.Equal(t, "execution_error", report.Status)
+		for _, report := range []runnerterminal.Envelope{cliReport, httpReport} {
+			require.Equal(t, runnerterminal.InfrastructureFailure, report.Outcome)
 			require.Equal(t, "valid", report.Validation)
 			require.NotNil(t, report.Identity, "runtime rejection does not erase admitted input identity")
-			require.NotNil(t, report.Resolved)
-			require.Empty(t, report.Mode)
-			require.Zero(t, report.Calls)
+			require.NotNil(t, report.Selection)
+			require.Zero(t, report.EngineCalls)
 			require.Nil(t, report.Observation)
-			require.False(t, report.AdjacentWork)
 			require.Contains(t, report.Diagnostics[0].Message, "requires a non-nil concrete *execution.MockEngine")
 		}
 		require.Zero(t, engine.initializes.Load())
@@ -191,7 +195,8 @@ func TestRunnerRejectsNonMockFactoryCLIHTTP(t *testing.T) {
 func TestRunnerUnitInputCancellationAndFailures(t *testing.T) {
 	for _, action := range []string{"validate", "run"} {
 		t.Run(action, func(t *testing.T) {
-			input, producer := io.Pipe()
+			input, producer, err := os.Pipe()
+			require.NoError(t, err)
 			defer input.Close()    //nolint:errcheck
 			defer producer.Close() //nolint:errcheck
 			ctx, cancel := context.WithCancel(t.Context())
@@ -202,18 +207,30 @@ func TestRunnerUnitInputCancellationAndFailures(t *testing.T) {
 			}))
 			cmd.SetArgs([]string{action})
 			cmd.SetIn(input)
+			var output bytes.Buffer
+			cmd.SetOut(&output)
 			cmd.SetErr(&bytes.Buffer{})
 			done := make(chan error, 1)
 			go func() { done <- cmd.ExecuteContext(ctx) }()
-			_, err := producer.Write([]byte("{"))
+			_, err = producer.Write([]byte("{"))
 			require.NoError(t, err, "read is active while producer stays open")
 			cancel()
 			select {
 			case err := <-done:
-				require.ErrorContains(t, err, "runner input interrupted")
+				require.Error(t, err)
+				if action == "run" {
+					var envelope runnerterminal.Envelope
+					require.NoError(t, json.Unmarshal(output.Bytes(), &envelope))
+					require.Equal(t, runnerterminal.Canceled, envelope.Outcome)
+					require.Equal(t, 3, envelope.ExitCode)
+					require.Nil(t, envelope.Identity)
+				} else {
+					require.ErrorContains(t, err, "runner input interrupted")
+				}
 			case <-time.After(5 * time.Second):
 				t.Fatal("cancellation waited for producer EOF")
 			}
+
 			for _, input := range []io.Reader{errorReader{}, strings.NewReader("{}")} {
 				cmd := newRunnerCommand()
 				cmd.SetArgs([]string{action})
@@ -224,4 +241,26 @@ func TestRunnerUnitInputCancellationAndFailures(t *testing.T) {
 			}
 		})
 	}
+}
+
+// Normalize only the shared legacy assertions; terminal wire invariants are
+// checked against the actual encoded response and admitted request separately.
+func decodeRunnerResponse(t *testing.T, action string, raw []byte, report *runnerunit.Report, terminal *runnerterminal.Envelope) int {
+	t.Helper()
+	if action != "run" {
+		require.NoError(t, json.Unmarshal(raw, report))
+		return report.ExitCode()
+	}
+	require.NoError(t, json.Unmarshal(raw, terminal))
+	require.Equal(t, "waza.runner-terminal", terminal.Kind)
+	report.Validation, report.Identity, report.Resolved = terminal.Validation, terminal.Identity, terminal.Selection
+	report.Calls = terminal.EngineCalls
+	report.Status = "rejected"
+	if terminal.Outcome == runnerterminal.Success || terminal.Outcome == runnerterminal.EvaluationFailure {
+		report.Status = "completed"
+		require.NotNil(t, terminal.Observation)
+		report.Observation = &models.RunResult{RunNumber: terminal.Observation.RunNumber,
+			Attempts: terminal.Observation.Attempts, Status: models.Status(terminal.Observation.Status)}
+	}
+	return terminal.ExitCode
 }
