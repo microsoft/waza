@@ -86,7 +86,12 @@ curl --silent --show-error \
 A complete JSON request returns HTTP 200; inspect `status` rather than treating
 transport success as compatibility. Missing/non-JSON media type returns 415.
 An oversized or failed upload returns 400. A five-second body read deadline
-bounds partial uploads. Transport failures are not execution outcomes.
+is installed before media-type validation, bounding partial uploads even when
+the media type is missing or invalid and the server drains unread request bytes
+before completing a 415. Incomplete timed-out uploads close their connection;
+ordinary completed requests retain keep-alive. Middleware must preserve
+response-controller read-deadline support; inability to install the deadline
+fails closed with HTTP 500. Transport failures are not execution outcomes.
 The API reads no host input paths and stores no results. It retains the existing
 loopback server; no cloud authentication, scheduler or worker registry is added.
 

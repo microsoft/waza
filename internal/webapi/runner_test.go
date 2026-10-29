@@ -77,10 +77,14 @@ func TestRunnerNegotiationPartialUploadIsBounded(t *testing.T) {
 func TestRunnerNegotiationNoDeadlineSupportFailsClosed(t *testing.T) {
 	mux := http.NewServeMux()
 	RegisterRunnerRoutes(mux)
-	request := httptest.NewRequest(http.MethodPost, "/api/v1/runner/negotiate", bytes.NewBufferString("{}"))
-	request.Header.Set("Content-Type", "application/json")
-	recorder := httptest.NewRecorder()
-	mux.ServeHTTP(recorder, request)
-	require.Equal(t, http.StatusInternalServerError, recorder.Code)
-	require.Contains(t, recorder.Body.String(), "setting negotiation read deadline")
+	for _, media := range []string{"", "text/plain", "application/json"} {
+		t.Run(media, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodPost, "/api/v1/runner/negotiate", bytes.NewBufferString("{}"))
+			request.Header.Set("Content-Type", media)
+			recorder := httptest.NewRecorder()
+			mux.ServeHTTP(recorder, request)
+			require.Equal(t, http.StatusInternalServerError, recorder.Code)
+			require.Contains(t, recorder.Body.String(), "setting negotiation read deadline")
+		})
+	}
 }

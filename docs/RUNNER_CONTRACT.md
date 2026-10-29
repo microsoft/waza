@@ -51,6 +51,16 @@ result, persistence or archive code. Negotiation stdin cancellation is tested
 with an open pipe; HTTP body admission is deadline-bounded. This is not a claim
 that the later findings have been fixed.
 
+The HTTP route installs its five-second read deadline before media-type
+validation, including missing/malformed/non-JSON media types. This also bounds
+`net/http`'s unread-body drain before completing an early 415 on a partial
+keep-alive upload. Completed requests retain keep-alive; incomplete timed-out
+uploads close their connection. Response writers and any future middleware
+must support `http.ResponseController.SetReadDeadline` (or expose the underlying
+writer through `Unwrap`); otherwise admission fails closed with HTTP 500.
+Later execution routes need their own bounded admission/lifecycle handling:
+the dashboard server's `ReadHeaderTimeout` alone does not bound request bodies.
+
 ## Conformance and evolution
 
 `internal/runnercontract/testdata/negotiation.json` records supported, downgraded,
@@ -59,6 +69,11 @@ pinned source request as a wire compatibility fixture; the original schema is
 retained unchanged. The public command/API parity test covers future execution
 capability rejection. Browser tests forward real requests to a freshly built Go
 server, rather than inventing responses a backend cannot emit.
+The complete-request CLI/HTTP matrix sends deliberate LF and CRLF input bytes,
+including invalid, alternative-valid numeric, duplicate-key and Unicode cases.
+Its exact-count mutations use the selected line ending and assert that the
+missing payment-permission field is absent before either public path runs;
+neither input re-encoding nor checkout newline policy substitutes for this test.
 
 Additive implementations may advertise new capability names for the same
 compatible runner version. A breaking request or capability semantic change
