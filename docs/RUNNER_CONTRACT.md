@@ -42,6 +42,12 @@ first; negotiation-only endpoints keep their original offline behavior.
 `runnerunit.NewService(EngineFactory).Run(context.Context, []byte) Report`
 share strict captured-source parsing and exact selector resolution. They
 consume the original `runnercontract.Request` without changing its pinned schema.
+After schema validation, `Parse` converts the three integer fields exactly:
+`timeout_ms: 6e4`, `selection.trial: 2.0`, and `selection.attempt: 20e-1`
+become Go integers `60000`, `2`, and `2`. No floating-point conversion is used.
+Fractional numbers, schema-bound violations, nulls and wrong types remain
+invalid; conversion also checks the destination Go `int` range. Negotiation
+still checks shape only, without interpreting captured input.
 `Report` is an invocation-local `waza.runner-unit` receipt, not a #760 terminal
 envelope or historical evaluation artifact. It deliberately contains no
 deterministic identity, archive publication or envelope-validity claim.

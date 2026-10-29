@@ -94,6 +94,13 @@ The captured eval's `tasks` patterns are never expanded or opened: the supplied
 must exactly match the selection. Names, file patterns and display names are
 not interchangeable selectors.
 
+Integer fields follow JSON Schema numeric semantics, not just integer spellings:
+`"timeout_ms": 6e4`, `"trial": 2.0`, and `"attempt": 20e-1` mean `60000`, `2`,
+and `2` in negotiation, validation and execution. Conversion is exact, without
+floating-point rounding. Fractional values, out-of-range values, nulls and
+non-number types are rejected; the existing schema and declared eval bounds
+still apply.
+
 The supported `inline.mock-text` profile requires both `exact-unit` and
 `inline.mock-text` in **required** capabilities, `executor: mock`, a captured
 inline `inputs.prompt`, disabled ambient skills, and at least one valid builtin
