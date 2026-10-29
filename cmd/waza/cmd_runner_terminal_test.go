@@ -10,8 +10,11 @@ import (
 	"net/http/httptest"
 	"os"
 	"os/exec"
+	"os/signal"
 	"strings"
+	"syscall"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/microsoft/waza/internal/execution"
@@ -195,34 +198,300 @@ func TestRunnerTerminalPublicShortWriteNeverRetries(t *testing.T) {
 }
 
 func TestRunnerTerminalCancellationJoinsInputAndPreservesHandle(t *testing.T) {
-	input, producer, err := os.Pipe()
-	require.NoError(t, err)
-	defer input.Close()    //nolint:errcheck
-	defer producer.Close() //nolint:errcheck
-	ctx, cancel := context.WithCancel(t.Context())
-	command := newRunnerCommand()
-	command.SetArgs([]string{"run"})
-	command.SetIn(input)
-	var output bytes.Buffer
-	command.SetOut(&output)
-	command.SetErr(&bytes.Buffer{})
-	done := make(chan error, 1)
-	go func() { done <- command.ExecuteContext(ctx) }()
-	_, err = producer.Write([]byte("{"))
-	require.NoError(t, err)
-	cancel()
-	select {
-	case err := <-done:
-		require.Error(t, err)
-	case <-time.After(5 * time.Second):
-		t.Fatal("terminal return left input blocked")
+	for _, control := range []string{"caller-managed", "pollable-file"} {
+		t.Run(control, func(t *testing.T) {
+			input, producer, err := os.Pipe()
+			require.NoError(t, err)
+			defer input.Close()    //nolint:errcheck
+			defer producer.Close() //nolint:errcheck
+			if err := input.SetReadDeadline(time.Time{}); err != nil {
+				require.ErrorIs(t, err, os.ErrNoDeadline)
+				if control == "pollable-file" {
+					t.Skip("native supplied pipe has no deadline support; caller-managed ownership control still runs")
+				}
+				t.Log("nonpollable supplied pipe: owner supplies cancellation-aware read completion")
+			}
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			reader := &runnerOwnerCanceledPipeReader{
+				input: input, ctx: ctx, entered: make(chan struct{}), returned: make(chan struct{}),
+			}
+			factories := 0
+			command := newRunnerCommandWithService(runnerunit.NewService(func(cfg models.Config) (execution.AgentEngine, error) {
+				factories++
+				return execution.NewMockEngine(cfg.ModelID), nil
+			}))
+			command.SetArgs([]string{"run"})
+			if control == "pollable-file" {
+				command.SetIn(input)
+			} else {
+				command.SetIn(reader)
+			}
+			var output bytes.Buffer
+			if control == "caller-managed" {
+				command.SetOut(&runnerReadJoinedWriter{output: &output, returned: reader.returned})
+			} else {
+				command.SetOut(&output)
+			}
+			command.SetErr(&bytes.Buffer{})
+			done := startRunnerPipeOperation(t, input, producer, func() error { return command.ExecuteContext(ctx) })
+			if control == "pollable-file" {
+				// As in the compiled Unix control, a write beyond native pipe
+				// capacity proves the actual file reader has entered before cancellation.
+				padding := append(bytes.Repeat([]byte(" "), 2<<20), '{')
+				require.Less(t, len(padding), runnercontract.MaxRequestBytes)
+				written := startRunnerPipeOperation(t, input, producer, func() error {
+					n, err := producer.Write(padding)
+					if err == nil && n != len(padding) {
+						return io.ErrShortWrite
+					}
+					return err
+				})
+				require.NoError(t, awaitRunnerPipeOperation(t, written))
+				cancel()
+			} else {
+				select {
+				case <-reader.entered:
+				case <-time.After(5 * time.Second):
+					t.Fatal("runner never entered supplied reader")
+				}
+				cancel()
+				// Nonpollable supplied pipes require owner cooperation, not a runtime close.
+				written := startRunnerPipeOperation(t, input, producer, func() error {
+					n, err := producer.Write([]byte("{"))
+					if err == nil && n != 1 {
+						return io.ErrShortWrite
+					}
+					return err
+				})
+				require.NoError(t, awaitRunnerPipeOperation(t, written))
+			}
+			exit, ok := errors.AsType[*ExitCodeError](awaitRunnerPipeOperation(t, done))
+			require.True(t, ok)
+			require.Equal(t, 3, exit.Code)
+			require.EqualError(t, exit.Err, "runner run: "+string(runnerterminal.Canceled))
+			envelope, err := runnerterminal.Validate(output.Bytes(), nil)
+			require.NoError(t, err)
+			require.Equal(t, runnerterminal.Canceled, envelope.Outcome)
+			require.Equal(t, "input", envelope.FailureBoundary)
+			require.Equal(t, "not_checked", envelope.Validation)
+			require.Nil(t, envelope.Identity)
+			require.Nil(t, envelope.Selection)
+			require.Nil(t, envelope.Observation)
+			require.Zero(t, envelope.EngineCalls)
+			require.Zero(t, factories)
+			require.Len(t, envelope.Diagnostics, 1)
+			require.Contains(t, envelope.Diagnostics[0].Message, "context canceled")
+			if control == "caller-managed" {
+				require.Equal(t, 1, reader.reads, "the supplied read completed before terminal return")
+				select {
+				case <-reader.returned:
+				default:
+					t.Fatal("terminal return preceded supplied reader completion")
+				}
+			}
+			require.Equal(t, 1, bytes.Count(output.Bytes(), []byte{'\n'}))
+
+			value := make([]byte, len("still-owned"))
+			read := startRunnerPipeOperation(t, input, producer, func() error {
+				_, err := io.ReadFull(input, value)
+				return err
+			})
+			written := startRunnerPipeOperation(t, input, producer, func() error {
+				n, err := producer.Write([]byte("still-owned"))
+				if err == nil && n != len(value) {
+					return io.ErrShortWrite
+				}
+				return err
+			})
+			require.NoError(t, awaitRunnerPipeOperation(t, written))
+			require.NoError(t, awaitRunnerPipeOperation(t, read))
+			require.Equal(t, "still-owned", string(value), "terminalization must not close or retain a reader on caller-owned input")
+		})
 	}
-	require.Contains(t, output.String(), `"outcome":"`+string(runnerterminal.Canceled)+`"`)
-	require.NoError(t, input.SetReadDeadline(time.Now().Add(time.Second)))
-	_, err = producer.Write([]byte("still-owned"))
+}
+
+func TestRunnerTerminalUnsupportedDeadlinePreservesCallerFile(t *testing.T) {
+	raw, err := os.ReadFile("../../examples/runner/unit.json")
 	require.NoError(t, err)
-	value := make([]byte, 32)
-	n, err := input.Read(value)
-	require.NoError(t, err)
-	require.Contains(t, string(value[:n]), "still-owned", "terminalization must not close caller-owned input")
+	for _, canceled := range []bool{false, true} {
+		t.Run(map[bool]string{false: "active", true: "canceled"}[canceled], func(t *testing.T) {
+			input, err := os.CreateTemp(t.TempDir(), "runner-input")
+			require.NoError(t, err)
+			defer input.Close() //nolint:errcheck
+			_, err = input.Write(raw)
+			require.NoError(t, err)
+			_, err = input.Seek(0, io.SeekStart)
+			require.NoError(t, err)
+			require.ErrorIs(t, input.SetReadDeadline(time.Time{}), os.ErrNoDeadline)
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			if canceled {
+				cancel()
+			}
+			command := newRunnerCommand()
+			command.SetArgs([]string{"run"})
+			command.SetIn(input)
+			var output bytes.Buffer
+			command.SetOut(&output)
+			command.SetErr(&bytes.Buffer{})
+			err = command.ExecuteContext(ctx)
+			var binding *runnerterminal.Binding
+			if !canceled {
+				admitted := runnerunit.Validate(raw)
+				require.Equal(t, "ready", admitted.Status)
+				binding = &runnerterminal.Binding{Selection: *admitted.Resolved, Identity: admitted.Identity,
+					GraderIDs: []string{"_output_contains"}}
+			}
+			envelope, decodeErr := runnerterminal.Validate(output.Bytes(), binding)
+			require.NoError(t, decodeErr)
+			if canceled {
+				exit, ok := errors.AsType[*ExitCodeError](err)
+				require.True(t, ok)
+				require.Equal(t, 3, exit.Code)
+				require.Equal(t, runnerterminal.Canceled, envelope.Outcome)
+				require.Equal(t, "input", envelope.FailureBoundary)
+				require.Nil(t, envelope.Observation)
+				require.Zero(t, envelope.EngineCalls)
+			} else {
+				require.NoError(t, err)
+				require.Equal(t, runnerterminal.Success, envelope.Outcome)
+				require.Equal(t, 1, envelope.EngineCalls)
+				require.NotNil(t, envelope.Observation)
+			}
+			_, err = input.Seek(0, io.SeekStart)
+			require.NoError(t, err, "unsupported deadlines must not transfer file ownership")
+			retained, err := io.ReadAll(input)
+			require.NoError(t, err)
+			require.Equal(t, raw, retained)
+		})
+	}
+}
+
+func TestRunnerTerminalCancellationWaitsForSuppliedReader(t *testing.T) {
+	// Signal registration uses process-wide goroutines outside synctest's clock.
+	_, stop := signal.NotifyContext(t.Context(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	synctest.Test(t, func(t *testing.T) {
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+		reader := &runnerBlockedReader{
+			entered: make(chan struct{}), release: make(chan struct{}), returned: make(chan struct{}),
+		}
+		defer func() {
+			select {
+			case <-reader.release:
+			default:
+				close(reader.release)
+			}
+		}()
+		command := newRunnerCommand()
+		command.SetArgs([]string{"run"})
+		command.SetIn(reader)
+		var output bytes.Buffer
+		command.SetOut(&runnerReadJoinedWriter{output: &output, returned: reader.returned})
+		command.SetErr(&bytes.Buffer{})
+		done := make(chan error, 1)
+		go func() { done <- command.ExecuteContext(ctx) }()
+		<-reader.entered
+		cancel()
+		synctest.Wait()
+		select {
+		case <-done:
+			t.Fatal("terminal return left the supplied read unjoined")
+		default:
+		}
+		close(reader.release)
+		exit, ok := errors.AsType[*ExitCodeError](<-done)
+		require.True(t, ok)
+		require.Equal(t, 3, exit.Code)
+		envelope, err := runnerterminal.Validate(output.Bytes(), nil)
+		require.NoError(t, err)
+		require.Equal(t, runnerterminal.Canceled, envelope.Outcome)
+		require.Equal(t, "input", envelope.FailureBoundary)
+		require.Nil(t, envelope.Observation)
+		require.Zero(t, envelope.EngineCalls)
+	})
+}
+
+type runnerBlockedReader struct {
+	entered  chan struct{}
+	release  chan struct{}
+	returned chan struct{}
+}
+
+func (r *runnerBlockedReader) Read([]byte) (int, error) {
+	defer close(r.returned)
+	close(r.entered)
+	<-r.release
+	return 0, io.EOF
+}
+
+type runnerOwnerCanceledPipeReader struct {
+	input    *os.File
+	ctx      context.Context
+	entered  chan struct{}
+	returned chan struct{}
+	reads    int
+}
+
+func (r *runnerOwnerCanceledPipeReader) Read(data []byte) (int, error) {
+	defer close(r.returned)
+	r.reads++
+	if r.reads == 1 {
+		close(r.entered)
+	}
+	n, err := r.input.Read(data)
+	if r.ctx.Err() != nil {
+		return n, io.EOF
+	}
+	return n, err
+}
+
+func (r *runnerOwnerCanceledPipeReader) Close() error { return r.input.Close() }
+
+type runnerReadJoinedWriter struct {
+	output   io.Writer
+	returned <-chan struct{}
+}
+
+func (w *runnerReadJoinedWriter) Write(data []byte) (int, error) {
+	select {
+	case <-w.returned:
+		return w.output.Write(data)
+	default:
+		return 0, errors.New("terminal output preceded supplied reader completion")
+	}
+}
+
+func startRunnerPipeOperation(t *testing.T, input, producer *os.File, operation func() error) <-chan error {
+	t.Helper()
+	result := make(chan error, 1)
+	returned := make(chan struct{})
+	go func() {
+		defer close(returned)
+		result <- operation()
+	}()
+	t.Cleanup(func() {
+		// Cleanup unblocks only invocation-owned handles, including on assertion failure.
+		_ = input.Close()
+		_ = producer.Close()
+		select {
+		case <-returned:
+		case <-time.After(5 * time.Second):
+			t.Error("owned pipe operation survived handle cleanup")
+		}
+	})
+	return result
+}
+
+func awaitRunnerPipeOperation(t *testing.T, result <-chan error) error {
+	t.Helper()
+	select {
+	case err := <-result:
+		return err
+	case <-time.After(5 * time.Second):
+		t.Fatal("owned pipe operation did not complete")
+		return nil
+	}
 }

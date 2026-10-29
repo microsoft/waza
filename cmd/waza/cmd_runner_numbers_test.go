@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -12,6 +13,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/microsoft/waza/internal/execution"
@@ -238,7 +240,9 @@ func TestRunnerIntegerTimeoutCLIHTTP(t *testing.T) {
 							if transport == "cli" {
 								require.Equal(t, 4, exitCode)
 							}
-							require.Equal(t, before+1, factories.Load())
+							constructed := factories.Load() - before
+							require.Contains(t, []int32{0, 1}, constructed,
+								"startup may expire before construction or during the synchronous factory")
 							require.Len(t, envelope.Diagnostics, 1)
 							require.Contains(t, envelope.Diagnostics[0].Message, "context deadline exceeded")
 							return
@@ -256,6 +260,64 @@ func TestRunnerIntegerTimeoutCLIHTTP(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestRunnerIntegerTimeoutStartupBranches(t *testing.T) {
+	fixture, err := os.ReadFile("../../examples/runner/unit.json")
+	require.NoError(t, err)
+	for _, token := range []string{"2", "2.0", "20e-1", "2e0"} {
+		for _, entered := range []bool{false, true} {
+			t.Run(token+"/factory-entered="+strconv.FormatBool(entered), func(t *testing.T) {
+				synctest.Test(t, func(t *testing.T) {
+					var fields map[string]json.RawMessage
+					require.NoError(t, json.Unmarshal(fixture, &fields))
+					fields["timeout_ms"] = json.RawMessage(token)
+					body, err := json.Marshal(fields)
+					require.NoError(t, err)
+					require.Contains(t, string(body), `"timeout_ms":`+token)
+					admitted := runnerunit.Validate(body)
+					require.Equal(t, "ready", admitted.Status)
+					ctx, cancel := context.WithTimeout(t.Context(), 2*time.Millisecond)
+					defer cancel()
+					start := time.Now()
+					calls := 0
+					service := runnerunit.NewService(func(cfg models.Config) (execution.AgentEngine, error) {
+						calls++
+						<-ctx.Done()
+						return execution.NewMockEngine(cfg.ModelID), nil
+					})
+					if !entered {
+						<-ctx.Done()
+					}
+					envelope, binding := service.RunTerminal(ctx, body)
+					require.ErrorIs(t, ctx.Err(), context.DeadlineExceeded)
+					require.Equal(t, 2*time.Millisecond, time.Since(start), "advance only the actual virtual deadline")
+					wantCalls := 0
+					if entered {
+						wantCalls = 1
+					}
+					require.Equal(t, wantCalls, calls)
+					var output bytes.Buffer
+					code, err := runnerterminal.NewEmitter(&output).Emit(envelope, binding)
+					require.NoError(t, err)
+					require.Equal(t, 4, code)
+					decoded, err := runnerterminal.Validate(output.Bytes(), &runnerterminal.Binding{
+						Selection: *admitted.Resolved, Identity: admitted.Identity, GraderIDs: []string{"_output_contains"},
+					})
+					require.NoError(t, err)
+					require.Equal(t, runnerterminal.Timeout, decoded.Outcome)
+					require.Equal(t, "startup", decoded.FailureBoundary)
+					require.Equal(t, "valid", decoded.Validation)
+					require.Equal(t, admitted.Resolved, decoded.Selection)
+					require.Equal(t, admitted.Identity, decoded.Identity)
+					require.Zero(t, decoded.EngineCalls)
+					require.Nil(t, decoded.Observation)
+					require.Len(t, decoded.Diagnostics, 1)
+					require.Contains(t, decoded.Diagnostics[0].Message, "context deadline exceeded")
+				})
+			})
+		}
 	}
 }
 
