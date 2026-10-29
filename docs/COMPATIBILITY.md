@@ -23,6 +23,17 @@ SDK fakes rather than copying them into a second suite. It includes all CLI
 subpackages, every grader and the ownership areas below. Do not substitute
 only the new `Compatibility` selector for the release gate.
 
+The recovery lifecycle regressions include a forced readiness deadline and a
+joined child safety kill; an incomplete invocation keeps its exit code
+unavailable. Session inspection and finalization are serialized, including
+native capture, but callers must stop command processes before finalization.
+The SDK judge wire suite uses ordinary lifecycle budgets for admission and
+arms short cleanup bounds only after the relevant phase is reached. Separate
+delayed Start/Create controls require explicit deadline failure before any
+`session.create` request. Sanitized phase/deadline and RPC-method diagnostics
+are retained before count assertions; passing these controls does not identify
+the cause of an earlier uninstrumented timeout.
+
 For quick iteration on the new fixtures:
 
 ```bash
