@@ -105,6 +105,10 @@ for (const [title, owner] of [
   ['Improve navigation', 'saul'],
   ['frontend allocation', 'rusty'],
   ['Unclassified request', 'rusty'],
+  ['Prepare release media for v0.40.0', 'tess'],
+  ['Capture dashboard screen recordings', 'tess'],
+  ['Export short-form video', 'tess'],
+  ['Draft demo narratives', 'danny'],
 ]) {
   test(`actual labeled handler routes "${title}" to ${owner}`, async (t) => {
     const { calls } = await invoke(t, title);
@@ -124,6 +128,11 @@ for (const [name, options] of [
   ['pull request', { issue: { pull_request: {} } }],
   ['existing object owner label', { issue: { labels: [{ name: 'squad:linus' }] } }],
   ['existing string owner label', { issue: { labels: ['squad:virgil'] } }],
+  ['release-media owner awaiting readiness', { issue: {
+    title: 'Prepare release media for v0.40.0',
+    body: 'Capture deferred until verified release readiness.',
+    labels: ['squad:tess'],
+  } }],
 ]) {
   test(`actual handler does not mutate ${name}`, async (t) => {
     assert.deepEqual((await invoke(t, 'Build Docker image', options)).calls, []);

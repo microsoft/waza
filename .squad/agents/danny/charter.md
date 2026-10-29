@@ -24,6 +24,9 @@
 - Explain mocked outcomes, unreviewed assurance labels, unavailable usage, and paid-call requirements honestly
 - Have Livingston verify technical instructions and Saul check documentation consistency
 - Coordinate launch readiness with Virgil and dashboard demonstrations with Yen
+- Hand storyboards, hooks, scripts and caption copy to Tess for actual
+  screenshots, screen recordings, editing and social-ready exports under
+  `docs/RELEASE-MEDIA.md`; retain narrative/positioning ownership
 - Draft only in the requested destination; do not create an unsolicited campaign directory or publish artifacts
 - Summarize feedback with sources and uncertainty, not invented user counts or benchmark claims
 

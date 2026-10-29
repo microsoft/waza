@@ -26,10 +26,10 @@ test('casting pair matches its committed transaction and byte hashes', () => {
   assertPair(path.join(root, casting));
 });
 
-test('all 13 role models agree across config, active charters and roster', () => {
+test('all 14 role models agree across config, active charters and roster', () => {
   const config = JSON.parse(read('.squad/config.json'));
   const roster = read('.squad/team.md');
-  assert.equal(Object.keys(config.agentModelOverrides).length, 13);
+  assert.equal(Object.keys(config.agentModelOverrides).length, 14);
   for (const [member, model] of Object.entries(config.agentModelOverrides)) {
     const charter = `.squad/agents/${member}/charter.md`;
     assert.ok(read(charter).includes(model), `${charter}: missing ${model}`);
@@ -38,6 +38,30 @@ test('all 13 role models agree across config, active charters and roster', () =>
   }
   assert.match(read('.squad/model-policy.md'), /Code review:\*\* use `gpt-5\.6-terra`/);
   assert.match(read('.github/agents/squad.agent.md'), /SQUAD_COORDINATOR_CANARY_a8f3/);
+});
+
+test('Tess media ownership preserves role routing and generated capabilities', () => {
+  const config = JSON.parse(read('.squad/config.json'));
+  const registry = JSON.parse(read(`${casting}/registry.json`));
+  assert.equal(registry.agents.tess.role, 'Release Media Producer');
+  assert.equal(registry.agents.tess.status, 'active');
+  assert.equal(config.agentModelOverrides.tess, 'gpt-6.1-sol');
+  assert.equal(config.agentModelOverrides.danny, 'gpt-6-luna');
+  assert.equal(config.agentModelOverrides.rusty, 'gpt-5.6-terra');
+  assert.equal(config.agentModelOverrides.saul, 'gpt-6-luna');
+  assert.equal(config.taskModelOverrides, undefined);
+  for (const file of ['.github/agents/squad.agent.md', '.squad/templates/squad.agent.md.template']) {
+    const source = read(file);
+    const capabilities = source.split('<!-- SQUAD:TEAM-CAPABILITIES:BEGIN -->')[1]
+      .split('<!-- SQUAD:TEAM-CAPABILITIES:END -->')[0];
+    assert.match(capabilities, /\| Tess \| Release Media Producer \|/);
+    assert.match(capabilities, /\| Release media \/ capture \/ video exports \| Tess \|/);
+    assert.match(source, /SQUAD_COORDINATOR_CANARY_a8f3/);
+  }
+  assert.match(read('.github/agents/squad.agent.md'),
+    /Code-review assignments[\s\S]*?gpt-5\.6-terra/);
+  assert.match(read('.squad/agents/tess/charter.md'),
+    /Adding this identity does not clear author\/reviewer lockouts/);
 });
 
 test('Git autocrlf checkout preserves the hash-bound casting pair', async (t) => {
