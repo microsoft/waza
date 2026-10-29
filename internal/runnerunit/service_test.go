@@ -147,6 +147,32 @@ func TestExactUnitProductionAttemptAndRepeatedDispatch(t *testing.T) {
 	require.NotSame(t, engines[0], engines[1])
 }
 
+func TestCapturedPromptPresenceReachesFrozenExecutionRequest(t *testing.T) {
+	for _, prompt := range []string{"", "hello"} {
+		t.Run("prompt="+prompt, func(t *testing.T) {
+			request := fixture(t)
+			task, err := json.Marshal(map[string]any{
+				"id": request.Selection.Task, "name": "Prompt presence",
+				"inputs":   map[string]string{"prompt": prompt},
+				"expected": map[string]any{"output_contains": []string{"Mock response for:"}},
+			})
+			require.NoError(t, err)
+			request.Input.Task = string(task)
+			report, input := admit(wire(t, request))
+			require.Equal(t, "ready", report.Status, "%+v", report.Diagnostics)
+			require.NotNil(t, input)
+			engine := &instrumented{AgentEngine: execution.NewMockEngine("mock")}
+			report.Mode = "mock"
+			report = execute(t.Context(), report, input, engine)
+			require.Equal(t, "completed", report.Status)
+			require.Equal(t, 1, engine.calls)
+			require.Equal(t, prompt, engine.request.Message, "explicit empty prompt must survive request preparation")
+			require.Equal(t, models.StatusPassed, report.Observation.Status)
+			requireReceiptSchema(t, report)
+		})
+	}
+}
+
 func TestRuntimeAdmissionRejectsNonMockBeforeLifecycle(t *testing.T) {
 	for _, control := range []string{"native-like", "mock-wrapper", "copilot", "nil", "typed-nil"} {
 		t.Run(control, func(t *testing.T) {

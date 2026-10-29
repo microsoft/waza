@@ -113,6 +113,9 @@ func resolve(req *runnercontract.Request) (*admitted, error) {
 	if err != nil {
 		return nil, fmt.Errorf("captured task: %w", err)
 	}
+	if !task.HasCapturedInlinePrompt() {
+		return nil, fmt.Errorf("inline.mock-text requires an explicit inputs.prompt; an empty string is allowed")
+	}
 	if req.Selection.Shard != req.Input.Shard || req.Selection.Task != task.TestID {
 		return nil, fmt.Errorf("selection conflicts with declared input shard/task")
 	}

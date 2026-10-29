@@ -264,7 +264,9 @@ The source preview implements `negotiation`, `exact-unit` and `inline.mock-text`
 Only `runner run` starts an engine; each dispatch runs its selected task/trial/
 attempt once, without discovery, cache or retries. Native/paid execution,
 deterministic identities and terminal envelopes remain unavailable. Existing
-local commands and artifacts are unchanged. See the
+local commands and artifacts are unchanged. Captured tasks must explicitly
+declare `inputs.prompt`: `prompt: ""` is valid, but missing `inputs` or
+`inputs: {}` is rejected before runtime construction. See the
 [runner contract, HTTP API, schemas and migration guide](site/src/content/docs/guides/runner-contract.mdx).
 
 ### `waza preflight <eval.yaml>`

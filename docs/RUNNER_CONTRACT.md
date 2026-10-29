@@ -21,6 +21,12 @@ schemas. The latter preserves the pinned #779 source request's field names,
 types, required presence and bounds; its shape is accepted for negotiation,
 but its captured YAML is never interpreted. Partial execution forms are invalid.
 Shape validity is not semantic admission of the selected unit.
+Presence of any complete-only field selects the complete schema, even when
+that field is null or another required field is missing. Diagnostics therefore
+identify the invalid complete-request field instead of falling back to compact
+unknown-field errors. Only negotiation fields are decoded after shape validation;
+schema-valid integer spellings such as `timeout_ms: 6e4` and `trial: 2.0`
+negotiate identically to `60000` and `2`, without execution-value conversion.
 
 The negotiation response is **not** a terminal execution envelope. No work was
 selected or executed, no identity was derived, and no observation or outcome is
@@ -64,7 +70,13 @@ The single declared candidate is `input.task`; shard labels and task ID must
 match, and trial/attempt must lie within the eval's declared bounds. Eval `tasks`
 patterns are inert declarations in this profile, never discovery sources.
 Disabled tasks, ambiguous source documents and unsupported behavior fail before
-runtime construction. Text graders use offline `graders.ValidateConfig` for
+runtime construction. The strict captured parser retains original-wire
+`inputs.prompt` presence separately from the decoded message. Shared admission
+requires that presence: omitted `inputs`, `inputs: {}`, and prompt-file-only
+tasks cannot become zero-value empty messages. An explicitly authored
+`inputs: {prompt: ""}` remains valid. Null/wrong-type prompts and duplicate
+keys retain their strict-source rejection. This does not tighten the ordinary
+local task loaders. Text graders use offline `graders.ValidateConfig` for
 both eval and task scopes, including empty/invalid-regex checks.
 
 `orchestration.PrepareInlineInput` resolves and freezes the request before the

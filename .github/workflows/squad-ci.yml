@@ -3,7 +3,6 @@ name: Squad CI
 
 on:
   pull_request:
-    branches: [dev, preview, main, insider]
     types: [opened, synchronize, reopened]
   push:
     branches: [dev, insider]
@@ -214,6 +213,9 @@ jobs:
 
       - name: Test lint script failure handling
         run: bash .github/scripts/lint_test.sh
+
+      - name: Test Go workflow trigger selection
+        run: go test -count=1 ./.github/scripts
 
       - name: Verify configuration and run golangci-lint
         run: bash .github/scripts/lint.sh

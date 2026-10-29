@@ -39,14 +39,21 @@ type TestCase struct {
 	// against the cumulative conversation state at the end of that turn.
 	// Checkpoints are additive — task-level `graders:` still run against
 	// the final state after all turns complete.
-	Checkpoints    []Checkpoint  `yaml:"checkpoints,omitempty" json:"checkpoints,omitempty"`
-	Requirements   []Requirement `yaml:"requirements,omitempty" json:"requirements,omitempty"`
-	sourceDocument []byte
+	Checkpoints          []Checkpoint  `yaml:"checkpoints,omitempty" json:"checkpoints,omitempty"`
+	Requirements         []Requirement `yaml:"requirements,omitempty" json:"requirements,omitempty"`
+	sourceDocument       []byte
+	capturedInlinePrompt bool
 }
 
 // SourceBytes returns the original input, before prompt-file resolution.
 func (tc *TestCase) SourceBytes() []byte {
 	return bytes.Clone(tc.sourceDocument)
+}
+
+// HasCapturedInlinePrompt distinguishes an explicit (possibly empty) prompt
+// in strictly parsed captured source from omission or resolved prompt_file text.
+func (tc *TestCase) HasCapturedInlinePrompt() bool {
+	return tc.capturedInlinePrompt
 }
 
 // CheckpointOnFailure controls multi-turn behavior when a checkpoint fails.
@@ -548,7 +555,8 @@ func ParseCapturedTestCaseOffline(data []byte, path string, readFile func(string
 	if readFile == nil {
 		return nil, fmt.Errorf("offline task parsing requires a source reader")
 	}
-	if err := validateCapturedModelSource(data, true); err != nil {
+	source, err := validateCapturedModelSource(data, true)
+	if err != nil {
 		return nil, err
 	}
 	tc, err := parseTestCase(data, path, true, readFile, nil)
@@ -560,6 +568,7 @@ func ParseCapturedTestCaseOffline(data []byte, path string, readFile func(string
 		return nil, err
 	}
 	tc.Stimulus.Metadata = metadata
+	tc.capturedInlinePrompt = mappingValue(mappingValue(source, "inputs"), "prompt").Kind != 0
 	return tc, nil
 }
 
