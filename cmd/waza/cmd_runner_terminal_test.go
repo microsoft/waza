@@ -1,10 +1,12 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -235,10 +237,11 @@ func TestRunnerTerminalCancellationJoinsInputAndPreservesHandle(t *testing.T) {
 			}
 			command.SetErr(&bytes.Buffer{})
 			done := startRunnerPipeOperation(t, input, producer, func() error { return command.ExecuteContext(ctx) })
+			var padding []byte
 			if control == "pollable-file" {
 				// As in the compiled Unix control, a write beyond native pipe
 				// capacity proves the actual file reader has entered before cancellation.
-				padding := append(bytes.Repeat([]byte(" "), 2<<20), '{')
+				padding = append(bytes.Repeat([]byte(" "), 2<<20), '{')
 				require.Less(t, len(padding), runnercontract.MaxRequestBytes)
 				written := startRunnerPipeOperation(t, input, producer, func() error {
 					n, err := producer.Write(padding)
@@ -294,6 +297,14 @@ func TestRunnerTerminalCancellationJoinsInputAndPreservesHandle(t *testing.T) {
 
 			value := make([]byte, len("still-owned"))
 			read := startRunnerPipeOperation(t, input, producer, func() error {
+				if control == "pollable-file" {
+					received, err := readRunnerOwnershipMarker(input, padding)
+					if err != nil {
+						return err
+					}
+					copy(value, received[len(received)-len(value):])
+					return nil
+				}
 				_, err := io.ReadFull(input, value)
 				return err
 			})
@@ -307,6 +318,62 @@ func TestRunnerTerminalCancellationJoinsInputAndPreservesHandle(t *testing.T) {
 			require.NoError(t, awaitRunnerPipeOperation(t, written))
 			require.NoError(t, awaitRunnerPipeOperation(t, read))
 			require.Equal(t, "still-owned", string(value), "terminalization must not close or retain a reader on caller-owned input")
+		})
+	}
+}
+
+func readRunnerOwnershipMarker(input io.Reader, padding []byte) ([]byte, error) {
+	const marker = "still-owned"
+	// Cancellation may leave only a suffix of the known pre-cancel write.
+	reader := bufio.NewReader(io.LimitReader(input, int64(len(padding)+len(marker))))
+	received, err := reader.ReadBytes(marker[len(marker)-1])
+	if err != nil {
+		return nil, fmt.Errorf("reading bounded ownership marker: %w", err)
+	}
+	if !bytes.HasSuffix(received, []byte(marker)) {
+		return nil, errors.New("retained input did not end with the exact ownership marker")
+	}
+	residual := received[:len(received)-len(marker)]
+	if !bytes.HasSuffix(padding, residual) {
+		return nil, errors.New("retained input was not a suffix of the known pre-cancel padding")
+	}
+	return received, nil
+}
+
+func TestRunnerTerminalOwnershipResidualPadding(t *testing.T) {
+	padding := append(bytes.Repeat([]byte(" "), 2<<20), '{')
+	withMarker := func(residual []byte) []byte {
+		return append(bytes.Clone(residual), []byte("still-owned")...)
+	}
+	for _, control := range []struct {
+		name  string
+		wire  []byte
+		valid bool
+	}{
+		{"zero", withMarker(nil), true},
+		{"last-byte", withMarker(padding[len(padding)-1:]), true},
+		{"partial", withMarker(padding[len(padding)-4096:]), true},
+		{"maximal", withMarker(padding), true},
+		{"unexpected-prefix", withMarker([]byte("unexpected{")), false},
+		{"missing-final-padding-byte", withMarker([]byte(" ")), false},
+		{"reordered-padding", withMarker([]byte("{ ")), false},
+		{"wrong-marker", []byte("{other-owned"), false},
+		{"truncated-marker", []byte("{still-owne"), false},
+		{"missing-marker", bytes.Clone(padding), false},
+		{"excess-padding", withMarker(append([]byte(" "), padding...)), false},
+	} {
+		t.Run(control.name, func(t *testing.T) {
+			input := bytes.NewReader(control.wire)
+			received, err := readRunnerOwnershipMarker(input, padding)
+			require.LessOrEqual(t, len(control.wire)-input.Len(), len(padding)+len("still-owned"),
+				"never read beyond the known residual-plus-marker bound")
+			if control.valid {
+				require.NoError(t, err)
+				require.Equal(t, control.wire, received)
+			} else {
+				require.Error(t, err)
+				require.Nil(t, received)
+			}
 		})
 	}
 }
