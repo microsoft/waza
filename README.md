@@ -274,6 +274,13 @@ the eval budget. Native/paid execution remains unavailable. Existing
 local commands and artifacts are unchanged. See the
 [runner contract, HTTP API, schemas and migration guide](site/src/content/docs/guides/runner-contract.mdx).
 
+For one explicit mock/text suite, `waza run custom-suite.yaml --runner-compat
+--output local-results.json` routes through that same runner service while
+retaining historical result JSON and local 0/1/2 exits. `waza runner adapt`
+captures compatible sources offline as runner request JSON. Unsupported mappings
+are hard errors; remove `--runner-compat` to retain ordinary local workflows.
+See the [compatibility table and before/after examples](site/src/content/docs/guides/runner-compatibility.mdx).
+
 ### `waza preflight <eval.yaml>`
 
 Inspect eval setup **offline and agent-free** before execution:

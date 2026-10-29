@@ -1,14 +1,14 @@
 # Local workflow migration to the bounded runner
 
-This is the #761 **preparation contract**, based on runner request version 1.0.
-The adapter package and isolated command constructor are implemented here.
-The shared command tree and execution service are deliberately not changed:
-`runner adapt` is **not registered in the shipping CLI at this preparation
-head**. Registration, local execution routing and end-to-end equivalence belong
-to the final sequential layer after #758, #759 and #760.
+The source-build v0.40.0 preview provides `runner adapt` and the explicit
+`run --runner-compat` mode, based on runner request version 1.0.
+Both preserve original source bytes through `runnercompat.AdaptLocal`.
+Local compatible execution and `runner run` use the same `runnerunit.Service`
+execution path; the former projects the observed run through the historical
+benchmark aggregators and writer rather than emitting a terminal envelope.
 
 Existing local commands remain available. No command, historical schema or
-artifact is deprecated by this preparation. A failed adapter mapping is not
+artifact is deprecated. A failed adapter mapping is not
 permission to remove the unsupported declaration.
 
 ## What can be captured
@@ -47,9 +47,38 @@ local suite, copy the eval to `custom-suite.yaml` and the task to
 `tasks/selected.case.yaml` alongside it. Do not copy a populated `fixtures/`
 directory into this bounded example.
 
-**After: intended final-layer invocation, NOT executable at this preparation
-head.** These commands require registration of the constructor and the later
-execution/terminal layers. They are an integration target, not shipped examples:
+These are historical native-loader fixtures, not strict preflight-schema
+examples. `preflight --strict` reports `invalid eval.schema` because the strict
+schema additionally requires metrics and legacy skill/scenario declarations.
+The adapter does not fabricate those declarations. Use `runner adapt` and
+`runner validate` for this captured profile, and retain ordinary schema-based
+authoring/execution where those broader semantics matter.
+
+**After, preserving local artifacts and exits:**
+
+```bash
+waza run custom-suite.yaml --runner-compat --output local-results.json --no-summary
+```
+
+Run this mode from a directory without an inherited `.waza.yaml`. It rejects
+ambient project defaults/storage, adjacent trigger tests, every default fixture
+entry and unsupported flags before execution. Only `--output`, `--no-summary`,
+`--debug` and `--no-update-check` can accompany the mode. Explicit unsupported
+flags fail even when set to their default or false values. `--no-summary` is
+accepted because this single-suite path never creates a combined summary.
+No automatic upload or alternate output publication occurs.
+
+The local output remains `EvaluationOutcome` schema 1.7 with historical eval/task
+IDs, statistics, grader details and unavailable usage. Generated run/session IDs,
+timestamps, workspace paths and timing measurements remain invocation-specific.
+Exits remain 0 (passed), 1 (failed checks or a recorded execution-error attempt,
+with requested results saved), and 2 (invalid configuration, failure before an
+observed attempt, lifecycle or output error). An observed execution error keeps
+the native run `error` status and failed-task aggregate, including cancellation
+observed during the attempt. The external runner's typed failure and 0-6
+transport taxonomy remain separate.
+
+**After, explicitly choosing the external boundary instead:**
 
 ```bash
 waza runner adapt --eval custom-suite.yaml --task tasks/selected.case.yaml \
@@ -76,7 +105,8 @@ Mock execution is a harness control, not live qualification evidence.
 | Skills, tool policy/MCP servers, required skills, dependency mocks, hooks | Their discovery, policy and execution semantics cannot be dropped. Keep local execution. Explicit empty/null/false declarations of unsupported fields also fail, rather than being treated as omitted. |
 | Non-text graders, remote grader refs, authored grader weights | They are not represented by this adapter. In particular numeric declarations are rejected rather than rounded to fit the captured identity profile. Keep historical grading. |
 | Multi-turn/responder/checkpoints, requirements, metrics, baseline/adversarial behavior, golden policy | Not one bounded inline text attempt. Preserve the existing command and artifacts. |
-| Local run flags for cache, snapshots, model overrides, parallelism, telemetry, reporters or other side effects | They are not `runner adapt` flags. A future local routing caller must reject or retain legacy handling for these semantics before invoking the adapter; it must never ignore them. |
+| Local run flags for cache, snapshots, model overrides, parallelism, telemetry, reporters or other side effects | `runner adapt` and `run --runner-compat` reject these flags, including explicit defaults. Remove `--runner-compat` to keep ordinary execution and its side effects. |
+| Ambient `.waza.yaml` configuration or adjacent trigger tests | The local adapted mode rejects these rather than dropping defaults, storage uploads or extra work. Keep ordinary `run`, or deliberately author an isolated standalone suite. Offline `runner adapt` never loads project configuration; it captures only its explicit files. |
 | Unknown fields, aliases/anchors/merge keys, duplicate/nonstring keys, extra documents, invalid known types | Captured native parsing rejects these rather than silently making a different identity. Ordinary local loader compatibility is unchanged. |
 | Historical results, snapshots and IDs | No conversion to runner results or logical IDs. Continue using their native readers and `grade`, `gate`, `compare`, `replay` and other artifact commands. |
 
@@ -85,15 +115,15 @@ identifies the offending declaration or constraint. Preserve the original
 inputs and keep `waza run` when a mapping is unsupported; refactoring a workflow
 is a deliberate product choice, not an automatic migration.
 
-## Release-note facts for later shared publication
+## Release-note compatibility matrix
 
-| Category | Accurate statement at this preparation head |
+| Category | Source-build preview behavior |
 |---|---|
-| Preserved | Existing local commands and historical reader/writer families are not modified; the frozen local mock/text observation remains checked through the real `run` command. |
-| Additive preparation | Offline byte-preserving `runnercompat.AdaptLocal` and an isolated `newRunnerAdaptCommand` constructor; not registered and not a replacement execution path yet. |
+| Preserved | Ordinary local commands/defaults and historical reader/writer families remain available; the adapted mock/text mode retains result 1.7 and local 0/1/2 exits, checked through the public command against an independent frozen observation. |
+| Additive | Offline byte-preserving `runner adapt` and opt-in `run --runner-compat`, routed through the shared runner service. |
 | Incompatible mapping | Every unsupported declaration is a hard error with local-command guidance; no silent feature dropping, native execution or automatic schema conversion. |
 | Deprecated | None. |
-| Still required | Register the command, wire eligible supported local paths through the actual runner service while preserving local output/exit semantics, prove equivalence, publish site navigation/examples and final release notes. |
+| Migration | Choose the bounded mode only for the documented profile; remove the mode flag to retain unsupported local semantics. Choose `runner run` explicitly for terminal JSON instead of legacy artifacts. |
 | Lab | **No Lab dashboard change is required for #761.** Commands, source/schema diagnostics and frozen fixtures expose compatibility behavior; this issue adds no runtime-state surface. |
 
 Developer integration and oracle provenance are in

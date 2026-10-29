@@ -13,8 +13,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// Registration belongs to the sequential execution layer:
-// newRunnerCommand must add newRunnerAdaptCommand alongside validate/run.
 func newRunnerAdaptCommand() *cobra.Command {
 	var options runnercompat.Options
 	var timeoutMS int
@@ -30,11 +28,8 @@ func newRunnerAdaptCommand() *cobra.Command {
 			if cmd.Flags().Changed("timeout-ms") {
 				options.TimeoutMS = &timeoutMS
 			}
-			fixtures := filepath.Join(filepath.Dir(options.EvalPath), "fixtures")
-			if _, err := os.Lstat(fixtures); err == nil {
-				return fmt.Errorf("cannot preserve local default fixture behavior: %q exists; keep using waza run (runner adapt does not capture context directories)", fixtures)
-			} else if !os.IsNotExist(err) {
-				return fmt.Errorf("checking local default fixture directory %q: %w", fixtures, err)
+			if err := rejectAdapterFixtures(options.EvalPath); err != nil {
+				return err
 			}
 			eval, evalErr := readRunnerAdapterSource(options.EvalPath)
 			task, taskErr := readRunnerAdapterSource(options.TaskPath)
@@ -69,6 +64,16 @@ func newRunnerAdaptCommand() *cobra.Command {
 	cmd.Flags().IntVar(&options.Selection.Attempt, "attempt", 0, "Explicit local attempt (must be 1)")
 	cmd.Flags().IntVar(&timeoutMS, "timeout-ms", 0, "Optional assertion of the effective local deadline in milliseconds")
 	return cmd
+}
+
+func rejectAdapterFixtures(evalPath string) error {
+	fixtures := filepath.Join(filepath.Dir(evalPath), "fixtures")
+	if _, err := os.Lstat(fixtures); err == nil {
+		return fmt.Errorf("cannot preserve local default fixture behavior: %q exists; keep using waza run (runner adapt does not capture context directories)", fixtures)
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("checking local default fixture directory %q: %w", fixtures, err)
+	}
+	return nil
 }
 
 func readRunnerAdapterSource(path string) (data []byte, err error) {

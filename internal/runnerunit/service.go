@@ -37,6 +37,7 @@ type Report struct {
 	binding       *runnerterminal.Binding
 	failure       error
 	boundary      string
+	localOutcome  *models.EvaluationOutcome
 }
 
 func (r Report) ExitCode() int {
@@ -200,6 +201,10 @@ func (e *onceEngine) Execute(ctx context.Context, request *execution.ExecutionRe
 // Run invokes shared negotiation and exact admission before constructing a
 // fresh runtime. Each explicit repeat executes again; there is no deduplication.
 func (s *Service) Run(ctx context.Context, data []byte) (report Report) {
+	return s.run(ctx, data, false)
+}
+
+func (s *Service) run(ctx context.Context, data []byte, local bool) (report Report) {
 	report, input := admit(data)
 	if input == nil {
 		return report
@@ -225,7 +230,7 @@ func (s *Service) Run(ctx context.Context, data []byte) (report Report) {
 		report.executionError("startup", err)
 		return report
 	}
-	return execute(ctx, report, input, mock)
+	return executeWithProjection(ctx, report, input, mock, local)
 }
 
 func (r *Report) executionError(boundary string, err error) {
@@ -238,8 +243,14 @@ func (r *Report) executionError(boundary string, err error) {
 }
 
 // execute owns lifecycle only after Run admits the concrete mock runtime.
-func execute(ctx context.Context, report Report, input *admitted, engine execution.AgentEngine) (result Report) {
+func execute(ctx context.Context, report Report, input *admitted, engine execution.AgentEngine) Report {
+	return executeWithProjection(ctx, report, input, engine, false)
+}
+
+func executeWithProjection(ctx context.Context, report Report, input *admitted, engine execution.AgentEngine, local bool) (result Report) {
 	result = report
+	started := time.Now()
+	ctx, usage := execution.NewUsageScope(ctx)
 	observed := &onceEngine{AgentEngine: engine}
 	defer func() {
 		shutdownCtx, stop := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
@@ -271,5 +282,30 @@ func execute(ctx context.Context, report Report, input *admitted, engine executi
 	default:
 		result.Status = "completed"
 	}
+	if local && run != nil {
+		result.localOutcome, err = runner.ProjectInlineOutcome(input.task, run, started, usage.Snapshot())
+		if err != nil {
+			result.executionError("projection", err)
+		}
+	}
 	return result
+}
+
+// RunLocal projects the same admitted execution used by RunTerminal into the
+// historical result writer contract, not the terminal transport envelope.
+func (s *Service) RunLocal(ctx context.Context, data []byte) (*models.EvaluationOutcome, error) {
+	report := s.run(ctx, data, true)
+	// Legacy run saves observed execution errors as failed task artifacts.
+	// Keep their typed causes for terminal callers, not the local exit policy.
+	if report.localOutcome != nil && report.boundary == "execution" &&
+		report.Observation != nil && report.Observation.Status == models.StatusError {
+		return report.localOutcome, nil
+	}
+	if report.Status != "completed" || report.failure != nil || report.localOutcome == nil {
+		if report.failure != nil {
+			return nil, fmt.Errorf("local runner execution: %w", report.failure)
+		}
+		return nil, fmt.Errorf("local runner rejected input: %v %v", report.Compatibility.Diagnostics, report.Diagnostics)
+	}
+	return report.localOutcome, nil
 }

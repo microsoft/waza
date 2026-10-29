@@ -397,7 +397,19 @@ func (r *EvalRunner) runNormalBenchmark(ctx context.Context) (*models.Evaluation
 		testOutcomes = r.runSequential(ctx, testCases)
 	}
 
-	// Compute statistics
+	outcome := r.buildOutcome(testOutcomes, startTime, usageScope.Snapshot())
+	execution.UpdateOutcomeUsage(outcome, r.engine)
+
+	r.notifyProgress(ProgressEvent{
+		EventType:  EventBenchmarkComplete,
+		DurationMs: time.Since(startTime).Milliseconds(),
+	})
+
+	return outcome, nil
+}
+
+func (r *EvalRunner) buildOutcome(testOutcomes []models.TestOutcome, startTime time.Time, usage *models.EvaluationUsage) *models.EvaluationOutcome {
+	spec := r.cfg.Spec()
 	digest := BuildDigest(testOutcomes, time.Since(startTime).Milliseconds(), spec.Config.TrialsPerTask)
 	// Reuse RunBenchmark's evalRunID when set so snapshots written during
 	// per-run execution correlate with this outcome's RunID; fall back to
@@ -426,16 +438,9 @@ func (r *EvalRunner) runNormalBenchmark(ctx context.Context) (*models.Evaluation
 		Measures:        make(map[string]models.MeasureResult),
 		TestOutcomes:    testOutcomes,
 		Metadata:        make(map[string]any),
-		EvaluationUsage: usageScope.Snapshot(),
+		EvaluationUsage: usage,
 	}
-	execution.UpdateOutcomeUsage(outcome, r.engine)
-
-	r.notifyProgress(ProgressEvent{
-		EventType:  EventBenchmarkComplete,
-		DurationMs: time.Since(startTime).Milliseconds(),
-	})
-
-	return outcome, nil
+	return outcome
 }
 
 // runBaselineComparison orchestrates A/B testing: skills-enabled vs skills-disabled
@@ -1016,20 +1021,18 @@ func (r *EvalRunner) runTestUncached(ctx context.Context, tc *models.TestCase, t
 		})
 	}
 
-	// Compute test statistics
-	stats := ComputeTestStats(runs)
+	return r.buildTestOutcome(tc, runs)
+}
 
-	// Determine overall status
-	status := overallStatus(runs)
-
+func (r *EvalRunner) buildTestOutcome(tc *models.TestCase, runs []models.RunResult) models.TestOutcome {
 	return models.TestOutcome{
 		TestID:      tc.TestID,
 		DisplayName: tc.DisplayName,
 		Group:       r.resolveGroup(),
 		Golden:      tc.Golden,
-		Status:      status,
+		Status:      overallStatus(runs),
 		Runs:        runs,
-		Stats:       stats,
+		Stats:       ComputeTestStats(runs),
 	}
 }
 

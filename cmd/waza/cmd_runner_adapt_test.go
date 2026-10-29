@@ -187,8 +187,6 @@ func TestRunnerAdaptBadAndAlternativeLocalBehaviorControls(t *testing.T) {
 	}
 }
 
-// This proves the historical local command's side of the final comparison.
-// The parent has no runner execution: no adapted-run equivalence is asserted.
 func TestRunnerAdaptHistoricalLocalCommandFrozenOracle(t *testing.T) {
 	oraclePath := testutil.RepoFile(t, "internal", "runnercompat", "testdata", "local-observation.original")
 	oracle, err := os.ReadFile(oraclePath)
@@ -230,8 +228,15 @@ func TestRunnerAdaptHistoricalLocalCommandFrozenOracle(t *testing.T) {
 				require.Equal(t, "Selected task", outcome.TestOutcomes[0].DisplayName)
 				require.Len(t, outcome.TestOutcomes[0].Runs, 1)
 				require.JSONEq(t, string(oracle), string(adapterObservationProjection(t, data)))
-				adapt := newRunnerAdaptCommand()
-				adapt.SetArgs(adapterCommandArgs(evalPath, taskPath))
+				local := newRootCommand()
+				local.SetArgs([]string{"run", evalPath, "--runner-compat", "--output", outputPath, "--no-summary"})
+				require.NoError(t, local.Execute())
+				adapted, err := os.ReadFile(outputPath)
+				require.NoError(t, err)
+				require.JSONEq(t, string(oracle), string(adapterObservationProjection(t, adapted)))
+				require.JSONEq(t, string(adapterOutcomeProjection(t, data)), string(adapterOutcomeProjection(t, adapted)))
+				adapt := newRootCommand()
+				adapt.SetArgs(append([]string{"runner", "adapt"}, adapterCommandArgs(evalPath, taskPath)...))
 				var captured bytes.Buffer
 				adapt.SetOut(&captured)
 				require.NoError(t, adapt.Execute())
@@ -242,6 +247,62 @@ func TestRunnerAdaptHistoricalLocalCommandFrozenOracle(t *testing.T) {
 			})
 		}
 	}
+}
+
+func adapterOutcomeProjection(t *testing.T, data []byte) []byte {
+	t.Helper()
+	var raw map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(data, &raw))
+	delete(raw, "eval_id")
+	delete(raw, "timestamp")
+	var summary map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(raw["summary"], &summary))
+	delete(summary, "duration_ms")
+	encoded, err := json.Marshal(summary)
+	require.NoError(t, err)
+	raw["summary"] = encoded
+	var tasks []map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(raw["tasks"], &tasks))
+	require.Len(t, tasks, 1)
+	require.Contains(t, tasks[0], "stats")
+	var stats map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(tasks[0]["stats"], &stats))
+	require.NotEmpty(t, stats)
+	require.Contains(t, stats, "total_runs")
+	delete(stats, "avg_duration_ms")
+	encoded, err = json.Marshal(stats)
+	require.NoError(t, err)
+	tasks[0]["stats"] = encoded
+	tasks[0]["runs"] = append(append([]byte("["), adapterObservationProjection(t, data)...), ']')
+	encoded, err = json.Marshal(tasks)
+	require.NoError(t, err)
+	raw["tasks"] = encoded
+	var usage struct {
+		Sessions []map[string]json.RawMessage `json:"sessions"`
+	}
+	require.NoError(t, json.Unmarshal(raw["evaluation_usage"], &usage))
+	require.Len(t, usage.Sessions, 1)
+	var original struct {
+		Tasks []struct {
+			Runs []struct {
+				Session struct {
+					ID string `json:"session_id"`
+				} `json:"session_digest"`
+			} `json:"runs"`
+		} `json:"tasks"`
+	}
+	require.NoError(t, json.Unmarshal(data, &original))
+	var sessionID string
+	require.NoError(t, json.Unmarshal(usage.Sessions[0]["session_id"], &sessionID))
+	require.NotEmpty(t, sessionID)
+	require.Equal(t, original.Tasks[0].Runs[0].Session.ID, sessionID)
+	delete(usage.Sessions[0], "session_id")
+	encoded, err = json.Marshal(usage)
+	require.NoError(t, err)
+	raw["evaluation_usage"] = encoded
+	encoded, err = json.Marshal(raw)
+	require.NoError(t, err)
+	return encoded
 }
 
 func adapterObservationProjection(t *testing.T, data []byte) []byte {
