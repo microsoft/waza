@@ -34,6 +34,15 @@ delayed Start/Create controls require explicit deadline failure before any
 are retained before count assertions; passing these controls does not identify
 the cause of an earlier uninstrumented timeout.
 
+The real MCP subprocess lifecycle test gives process creation a separate
+30-second setup guard, then starts the unchanged 10-second MCP exchange/EOF
+budget. Cancellation callbacks are joined when changing phases or cleaning up;
+child `Wait` uses a separate three-second join bound. The setup guard detects
+a late `Start` return but cannot interrupt a blocked OS process-creation syscall.
+Fake-time controls cover delayed startup and both phase deadlines; the actual
+MCP caller also exercises a partial-request deadline with stdin still open.
+These controls do not establish why a particular host's startup was slow.
+
 For quick iteration on the new fixtures:
 
 ```bash
