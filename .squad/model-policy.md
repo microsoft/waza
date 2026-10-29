@@ -22,6 +22,7 @@ assignments in histories and decisions are historical, not current instructions.
 | Performance and reliability analysis | `gpt-5.6-terra` | Turk |
 | Web design and frontend implementation | `gpt-6.1-sol` | Yen |
 | Release and developer infrastructure | `gpt-6.1-sol` | Virgil |
+| Reproducible browser/CLI media capture, editing automation, exports | `gpt-6.1-sol` | Tess |
 | Documentation, information architecture, developer relations | `gpt-6-luna` | Livingston, Saul, Danny |
 | Bounded logging and work monitoring | `gpt-6-luna` | Scribe, Ralph |
 | Responsible AI and evidence verification | `gpt-5.6-terra` | Rai, Fact Checker |
@@ -29,6 +30,26 @@ assignments in histories and decisions are historical, not current instructions.
 These are host model IDs, not benchmark rankings or promises of account access.
 Do not replace them with older model names from the bundled catalog just because
 that catalog predates the host.
+
+## Release-media task routing
+
+For every release, follow `docs/RELEASE-MEDIA.md`. Select the role first, then
+pass the existing host's supported explicit model parameter at dispatch:
+
+| Media task | Accountable role | Explicit model | Role-fit rationale |
+|------------|------------------|----------------|--------------------|
+| Browser/CLI capture, FFmpeg/editing automation, caption timing, reproducible exports and artifact manifest | Tess | `gpt-6.1-sol` | Tool-driven implementation and reproducible technical work |
+| Narrative, storyboard, opening hook, script, caption copy and draft social copy | Danny | `gpt-6-luna` | Audience-aware writing grounded in verified features |
+| Independent technical, claim and code review | Rusty | `gpt-5.6-terra` | Independent evidence/contract gate; never author self-approval |
+| Bounded editorial documentation check, if needed | Saul | `gpt-6-luna` | Documentation consistency; not an automatic second blocking gate |
+
+These are role-fit selections, not empirically benchmarked "best" models.
+Use the supported `task` tool's `model` parameter (or the host's supported
+equivalent); config retains only `agentModelOverrides` and `defaultModel`.
+Do not invent per-task runtime fields or change another member's default for a
+media subtask. Report the actual model used or an enforcement limitation.
+Capture remains gated on verified release readiness even if a model is available;
+no paid evaluations or paid media services are authorized.
 
 ## Availability and fallbacks
 
