@@ -31,6 +31,29 @@ write access must select **Approve workflows to run** in the PR's merge box.
 Approving workflow execution does not replace the required code review or
 passing checks.
 
+## Release Media (Every Release)
+
+Plan a release-media task for **every** release, including patch releases. This
+is a manual release-planning checkpoint; no automation creates or runs the task.
+Before opening a new issue, search both open and closed issues for an existing
+task for the target version. Reuse an existing task when appropriate, or create
+one from [`docs/templates/release-media-task.md`](templates/release-media-task.md)
+and record its URL in the release plan. Assign AI ownership to Tess
+(`squad:tess`); do not assign a GitHub human.
+
+The task is tracked during planning, but capture starts only after Virgil verifies
+the release-candidate or shipped scope: record the full source commit SHA (or
+shipped tag and resolved SHA), confirm the required checks and usable
+deterministic fixture/capture paths, and identify which merged features are
+actually in scope. This is a readiness handoff, not a new code-merge or release
+blocker. A task noticed by an automated issue monitor, including one labeled
+`squad:tess`, is not thereby authorized or ready for capture. If the source SHA
+changes, revalidate the scope and recapture any affected assets.
+
+Follow the complete evidence, capture, review, and publication boundaries in
+[`docs/RELEASE-MEDIA.md`](RELEASE-MEDIA.md). The release-media deliverables are
+review-ready drafts, not an announcement or permission to publish.
+
 ## Version File Locations
 
 | File | Purpose |

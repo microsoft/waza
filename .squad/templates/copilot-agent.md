@@ -71,7 +71,7 @@ During triage, Lead evaluates each issue against @copilot's capability profile:
 
 1. **🟢 Match** — Auto-assign (if enabled) or recommend assignment.
 2. **🟡 Match** — Assign with note: "⚠️ May need review — @copilot is 🟡 for this type of work."
-3. **🔴 Match** — Skip @copilot; route to appropriate spawned agent or human.
+3. **🔴 Match** — Skip @copilot; route to an appropriate qualified AI specialist under `.squad/routing.md`. Waza has no human implementation fallback; report a coverage gap to the coordinator and preserve existing reviewer/author lockouts.
 
 ## Routing Details
 
