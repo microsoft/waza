@@ -12,7 +12,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/microsoft/waza/internal/execution"
+	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/runnercontract"
+	"github.com/microsoft/waza/internal/runnerunit"
 	"github.com/stretchr/testify/require"
 )
 
@@ -77,10 +80,37 @@ func TestRunnerNegotiationPartialUploadIsBounded(t *testing.T) {
 func TestRunnerNegotiationNoDeadlineSupportFailsClosed(t *testing.T) {
 	mux := http.NewServeMux()
 	RegisterRunnerRoutes(mux)
-	request := httptest.NewRequest(http.MethodPost, "/api/v1/runner/negotiate", bytes.NewBufferString("{}"))
-	request.Header.Set("Content-Type", "application/json")
-	recorder := httptest.NewRecorder()
-	mux.ServeHTTP(recorder, request)
-	require.Equal(t, http.StatusInternalServerError, recorder.Code)
-	require.Contains(t, recorder.Body.String(), "setting negotiation read deadline")
+	for _, media := range []string{"", "text/plain", "application/json"} {
+		t.Run(media, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodPost, "/api/v1/runner/negotiate", bytes.NewBufferString("{}"))
+			request.Header.Set("Content-Type", media)
+			recorder := httptest.NewRecorder()
+			mux.ServeHTTP(recorder, request)
+			require.Equal(t, http.StatusInternalServerError, recorder.Code)
+			require.Contains(t, recorder.Body.String(), "setting negotiation read deadline")
+		})
+	}
+
+}
+
+func TestRunnerUnitNoDeadlineSupportFailsClosedBeforeFactory(t *testing.T) {
+	mux := http.NewServeMux()
+	factories := 0
+	RegisterRunnerRoutesWithService(mux, runnerunit.NewService(func(models.Config) (execution.AgentEngine, error) {
+		factories++
+		return execution.NewMockEngine("mock"), nil
+	}))
+	for _, action := range []string{"validate", "run"} {
+		for _, media := range []string{"", "text/plain", "application/json; charset", "application/json"} {
+			t.Run(action+"/"+media, func(t *testing.T) {
+				request := httptest.NewRequest(http.MethodPost, "/api/v1/runner/"+action, bytes.NewBufferString("{}"))
+				request.Header.Set("Content-Type", media)
+				recorder := httptest.NewRecorder()
+				mux.ServeHTTP(recorder, request)
+				require.Equal(t, http.StatusInternalServerError, recorder.Code)
+				require.JSONEq(t, `{"code":500,"error":"setting runner read deadline: feature not supported"}`, recorder.Body.String())
+				require.Zero(t, factories)
+			})
+		}
+	}
 }

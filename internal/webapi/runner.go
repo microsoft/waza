@@ -24,14 +24,14 @@ func RegisterRunnerRoutesWithService(mux *http.ServeMux, service *runnerunit.Ser
 		writeJSON(w, http.StatusOK, runnercontract.Capabilities())
 	})
 	mux.HandleFunc("POST /api/v1/runner/negotiate", func(w http.ResponseWriter, r *http.Request) {
-		mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
-		if err != nil || mediaType != "application/json" {
-			writeJSON(w, http.StatusUnsupportedMediaType, runnercontract.Rejected("runner negotiation requires Content-Type: application/json"))
-			return
-		}
 		controller := http.NewResponseController(w)
 		if err := controller.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
 			writeError(w, http.StatusInternalServerError, fmt.Sprintf("setting negotiation read deadline: %v", err))
+			return
+		}
+		mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+		if err != nil || mediaType != "application/json" {
+			writeJSON(w, http.StatusUnsupportedMediaType, runnercontract.Rejected("runner negotiation requires Content-Type: application/json"))
 			return
 		}
 		data, err := io.ReadAll(http.MaxBytesReader(w, r.Body, runnercontract.MaxRequestBytes))
@@ -43,14 +43,14 @@ func RegisterRunnerRoutesWithService(mux *http.ServeMux, service *runnerunit.Ser
 	})
 	for _, action := range []string{"validate", "run"} {
 		mux.HandleFunc("POST /api/v1/runner/"+action, func(w http.ResponseWriter, r *http.Request) {
-			mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
-			if err != nil || mediaType != "application/json" {
-				writeError(w, http.StatusUnsupportedMediaType, "runner requires Content-Type: application/json")
-				return
-			}
 			controller := http.NewResponseController(w)
 			if err := controller.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
 				writeError(w, http.StatusInternalServerError, fmt.Sprintf("setting runner read deadline: %v", err))
+				return
+			}
+			mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+			if err != nil || mediaType != "application/json" {
+				writeError(w, http.StatusUnsupportedMediaType, "runner requires Content-Type: application/json")
 				return
 			}
 			interrupted := make(chan struct{})

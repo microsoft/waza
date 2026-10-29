@@ -113,6 +113,17 @@ production-path regressions. Server shutdown cancels request contexts and
 awaits cleanup. Excluded persistence/terminal/frontend archive findings remain
 unresolved by this layer, not silently waived.
 
+All three HTTP POST routes install their five-second read deadline before media-type
+validation, including missing/malformed/non-JSON media types. This also bounds
+`net/http`'s unread-body drain before completing an early 415 on a partial
+keep-alive upload. Completed requests retain keep-alive; incomplete timed-out
+uploads close their connection. Response writers and any future middleware
+must support `http.ResponseController.SetReadDeadline` (or expose the underlying
+writer through `Unwrap`); otherwise admission fails closed with HTTP 500.
+The exact-unit routes retain their separate request-cancellation and execution
+lifecycle handling; the dashboard server's `ReadHeaderTimeout` alone does not
+bound request bodies.
+
 ## Conformance and evolution
 
 `internal/runnercontract/testdata/negotiation.json` records supported, downgraded,
@@ -130,6 +141,11 @@ or mode is emitted. Service tests additionally reject a concrete Copilot engine
 and typed-nil mock without startup; default and factory-created concrete mocks
 remain valid. Separate package-private lifecycle tests retain deterministic
 initialization, execution, shutdown, timeout and cancellation failure controls.
+The complete-request CLI/HTTP matrix sends deliberate LF and CRLF input bytes,
+including invalid, alternative-valid numeric, duplicate-key and Unicode cases.
+Its exact-count mutations use the selected line ending and assert that the
+missing payment-permission field is absent before either public path runs;
+neither input re-encoding nor checkout newline policy substitutes for this test.
 
 Additive implementations may advertise new capability names for the same
 compatible runner version. A breaking request or capability semantic change
