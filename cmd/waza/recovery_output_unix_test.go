@@ -222,26 +222,6 @@ func TestRecoveryCommandMockDelayCancellationWithFullStderr(t *testing.T) {
 	}
 }
 
-// Keep observation on the caller goroutine: an asynchronous predicate may
-// outlive its timeout and race with session/child cleanup.
-func waitRecoveryCondition(ctx context.Context, condition func() bool) error {
-	ticker := time.NewTicker(10 * time.Millisecond)
-	defer ticker.Stop()
-	for {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		if condition() {
-			return nil
-		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-ticker.C:
-		}
-	}
-}
-
 func TestRecoveryReadinessDeadlineJoinsInspection(t *testing.T) {
 	synctest.Test(t, testRecoveryReadinessDeadlineJoinsInspection)
 }
