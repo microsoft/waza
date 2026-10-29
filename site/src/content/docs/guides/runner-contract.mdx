@@ -116,6 +116,12 @@ requires shard, task, positive trial and positive attempt. Input carries inline
 shard/eval/task strings, not host paths. A complete request is only
 **shape-checked** here: YAML, selection validity and payment permission are
 never executed or interpreted. Do not treat compatibility as work admission.
+Any complete-only field selects this schema, so partial complete requests report
+their missing or invalid fields rather than compact-profile unknown fields.
+Shape checks accept equivalent integer JSON numbers, for example
+`"timeout_ms": 6e4` and `"selection": {"shard": "s", "task": "t", "trial": 2.0, "attempt": 1}`.
+These numbers are validated against the published bounds without converting
+execution values into runtime settings.
 
 ## Compatibility, migration and evolution
 
