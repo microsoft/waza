@@ -20,11 +20,144 @@ import (
 
 type inlineCauseEngine struct {
 	execution.AgentEngine
-	execute func(context.Context) (*execution.ExecutionResponse, error)
+	execute     func(context.Context) (*execution.ExecutionResponse, error)
+	initializes int
+	calls       int
+	shutdowns   int
+}
+
+func (e *inlineCauseEngine) Initialize(ctx context.Context) error {
+	e.initializes++
+	return e.AgentEngine.Initialize(ctx)
 }
 
 func (e *inlineCauseEngine) Execute(ctx context.Context, _ *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
+	e.calls++
 	return e.execute(ctx)
+}
+
+func (e *inlineCauseEngine) Shutdown(ctx context.Context) error {
+	e.shutdowns++
+	return e.AgentEngine.Shutdown(ctx)
+}
+
+func TestTerminalInlineDeadlinePrecedence(t *testing.T) {
+	for _, budget := range []struct {
+		name        string
+		evalSeconds string
+		taskSeconds string
+		effective   time.Duration
+	}{
+		{"eval", "1", "", time.Second},
+		{"task", "30", "1", time.Second},
+		{"task-override", "1", "3", 3 * time.Second},
+	} {
+		for _, control := range []struct {
+			name    string
+			expired bool
+			cause   error
+			outcome runnerterminal.Outcome
+			code    int
+		}{
+			{"expired-ordinary", true, errors.New("runtime unavailable"), runnerterminal.Timeout, 4},
+			{"expired-canceled", true, context.Canceled, runnerterminal.Timeout, 4},
+			{"expired-wrapped-deadline", true, context.DeadlineExceeded, runnerterminal.Timeout, 4},
+			{"expired-nil", true, nil, runnerterminal.Timeout, 4},
+			{"active-ordinary", false, errors.New("runtime unavailable"), runnerterminal.InfrastructureFailure, 2},
+			{"active-canceled", false, context.Canceled, runnerterminal.Canceled, 3},
+		} {
+			t.Run(budget.name+"/"+control.name, func(t *testing.T) {
+				request := fixture(t)
+				require.Contains(t, request.Input.Eval, "timeout_seconds: 30")
+				request.Input.Eval = strings.Replace(request.Input.Eval, "timeout_seconds: 30",
+					"timeout_seconds: "+budget.evalSeconds, 1)
+				if budget.taskSeconds != "" {
+					request.Input.Task += "timeout_seconds: " + budget.taskSeconds + "\n"
+				}
+				expectedIdentity, err := runneridentity.Derive(&request)
+				require.NoError(t, err)
+				report, input := admit(wire(t, request))
+				require.NotNil(t, input, "%+v", report)
+				report.Mode = "mock"
+				var engineErr error
+				wantError := "controlled execution completed after its deadline or cancellation: context deadline exceeded"
+				if control.cause != nil {
+					engineErr = fmt.Errorf("inline execution interrupted: %w", control.cause)
+					wantError = engineErr.Error()
+				}
+				synctest.Test(t, func(t *testing.T) {
+					ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+					defer cancel()
+					start := time.Now()
+					engine := &inlineCauseEngine{
+						AgentEngine: execution.NewMockEngine("mock"),
+						execute: func(execCtx context.Context) (*execution.ExecutionResponse, error) {
+							deadline, ok := execCtx.Deadline()
+							require.True(t, ok)
+							require.Equal(t, start.Add(budget.effective), deadline)
+							if control.expired {
+								<-execCtx.Done()
+								require.ErrorIs(t, execCtx.Err(), context.DeadlineExceeded)
+							} else {
+								require.NoError(t, execCtx.Err())
+							}
+							require.NoError(t, ctx.Err(), "the outer request must remain active inside Execute")
+							return &execution.ExecutionResponse{Success: true, FinalOutput: "actual engine output"}, engineErr
+						},
+					}
+					result := execute(ctx, report, input, engine)
+					require.NoError(t, ctx.Err())
+					require.Equal(t, 1, engine.initializes)
+					require.Equal(t, 1, engine.calls)
+					require.Equal(t, 1, engine.shutdowns)
+					require.Equal(t, "execution_error", result.Status)
+					require.Equal(t, 2, result.ExitCode(), "the legacy unit receipt policy stays separate")
+					require.NotNil(t, result.Observation)
+					require.Equal(t, models.StatusError, result.Observation.Status)
+					require.Equal(t, wantError, result.Observation.ErrorMsg, "do not replace or append to engine error text")
+					require.Equal(t, "actual engine output", result.Observation.FinalOutput)
+					require.Equal(t, input.task.Stimulus.Message, result.Observation.Prompt)
+					require.Empty(t, result.Observation.Validations)
+					if engineErr != nil {
+						require.ErrorIs(t, result.failure, engineErr, "retain the original engine error object")
+					}
+					elapsed := time.Duration(0)
+					if control.expired {
+						elapsed = budget.effective
+					}
+					require.Equal(t, elapsed, time.Since(start), "wait for the actual inner deadline, not a sleep")
+					envelope, binding := terminal(result)
+					var output bytes.Buffer
+					exit, err := runnerterminal.NewEmitter(&output).Emit(envelope, binding)
+					require.NoError(t, err)
+					decoded, err := runnerterminal.Validate(output.Bytes(), binding)
+					require.NoError(t, err, "%s", output.Bytes())
+					require.Equal(t, control.outcome, decoded.Outcome, "%s", output.Bytes())
+					require.Equal(t, control.code, exit)
+					require.Equal(t, control.code, decoded.ExitCode)
+					require.Equal(t, "execution", decoded.FailureBoundary)
+					require.Equal(t, expectedIdentity, decoded.Identity)
+					require.Equal(t, request.Selection, *decoded.Selection)
+					require.Equal(t, request.Selection, decoded.Observation.Selection)
+					require.Equal(t, request.Selection.Trial, decoded.Observation.RunNumber)
+					require.Equal(t, request.Selection.Attempt, decoded.Observation.Attempts)
+					require.Equal(t, wantError, decoded.Observation.ErrorMsg)
+					require.Equal(t, "error", decoded.Observation.Status)
+					require.Equal(t, 1, decoded.EngineCalls)
+					require.Equal(t, 1, decoded.Observation.EngineCalls)
+					require.Empty(t, decoded.Observation.Validations)
+					if control.expired {
+						require.ErrorIs(t, result.failure, context.DeadlineExceeded)
+					} else {
+						require.NotErrorIs(t, result.failure, context.DeadlineExceeded)
+						if control.cause != context.Canceled {
+							require.NotErrorIs(t, result.failure, context.Canceled, "cleanup cancellation must not be added")
+						}
+					}
+				})
+			})
+		}
+	}
 }
 
 func TestTerminalInlineExecutionCauses(t *testing.T) {

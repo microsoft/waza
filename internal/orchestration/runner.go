@@ -2,6 +2,7 @@ package orchestration
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math"
@@ -1168,8 +1169,9 @@ func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.T
 	execCtx, cancelExec := context.WithTimeout(turnCtx, timeout)
 	diagnosticCategory = "execution"
 	resp, err = execution.ExecuteRecorded(execCtx, r.engine, req)
-	if controlled && err == nil && execCtx.Err() != nil {
-		err = fmt.Errorf("controlled execution completed after its deadline or cancellation: %w", execCtx.Err())
+	execErr := execCtx.Err()
+	if controlled && err == nil && execErr != nil {
+		err = fmt.Errorf("controlled execution completed after its deadline or cancellation: %w", execErr)
 	}
 	if controlled && err == nil && resp == nil {
 		err = fmt.Errorf("controlled execution returned no actual response")
@@ -1179,13 +1181,19 @@ func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.T
 	}
 	cancelExec()
 	if err != nil {
+		cause := err
+		if controlled && execErr != nil && !errors.Is(err, execErr) {
+			// Preserve the observed engine error text and both typed causes;
+			// cancellation above must not manufacture a new execution cause.
+			cause = errors.Join(err, execErr)
+		}
 		return returnWithArtifacts(models.RunResult{
 			RunNumber:  runNum,
 			Prompt:     req.Message,
 			Status:     models.StatusError,
 			DurationMs: time.Since(startTime).Milliseconds(),
 			ErrorMsg:   err.Error(),
-		}, err)
+		}, cause)
 	}
 
 	markToolPolicyViolation(resp)
