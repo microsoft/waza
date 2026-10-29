@@ -69,8 +69,10 @@ runtime construction. Text graders use offline `graders.ValidateConfig` for
 both eval and task scopes, including empty/invalid-regex checks.
 
 `orchestration.PrepareInlineInput` resolves and freezes the request before the
-runtime factory. After this exact source admission, `runneridentity.Derive`
-uses the original parsed request's authored sources, not defaulted models.
+runtime factory. After this exact source admission, `runneridentity.DeriveJSON`
+uses the original request bytes and authored sources, not defaulted models or
+re-encoded JSON. The 4 MiB wire limit applies to those original bytes; internal
+HTML escaping must not reject an otherwise admitted request.
 Derivation errors reject with `invalid_identity`, zero calls and no identity.
 Successful derivation is retained even if runtime admission, cancellation,
 execution or shutdown later fails. `ExecuteInlineAttempt` reuses the current

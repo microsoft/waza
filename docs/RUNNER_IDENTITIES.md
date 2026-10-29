@@ -43,7 +43,7 @@ are consistent or complete. Such aggregation/manifests are outside this ABI.
 
 ```go
 id, err := runneridentity.DeriveJSON(originalRequestBytes)
-// Or after strict original-wire parsing:
+// For callers with only a typed request:
 id, err = runneridentity.Derive(request) // *runnercontract.Request
 // Inspect the source encoding without deriving a hierarchy:
 canonical, err := runneridentity.CanonicalSource(request.Input.Eval)
@@ -57,6 +57,12 @@ A typed Go struct cannot distinguish a missing wire boolean from explicit
 false. Therefore **parse original bytes first**, or use `DeriveJSON`, at public
 boundaries. Neither API constructs a runtime, reads project configuration or
 files, calls a model, mutates caller input, or admits execution.
+
+The public 4 MiB limit applies to the original request bytes, not an internally
+re-encoded representation. Public callers retain those bytes for `DeriveJSON`;
+valid unescaped `<`, `>` and `&` must not become oversized merely because Go's
+default JSON encoder HTML-escapes them. `Derive` validates its own encoded typed
+shape and cannot recover the original wire size or field presence.
 
 The source normalizer deliberately supports more scalar precision than the
 current exact-unit execution profile. It is not a replacement for #758's
@@ -198,7 +204,7 @@ declared sources when an explicit migration is requested.
 
 ## Production integration and terminal handoff
 
-`runnerunit` invokes `Derive` after original-wire negotiation/parsing, exact
+`runnerunit` invokes `DeriveJSON` on the original bytes after negotiation/parsing, exact
 source/profile validation and `PrepareInlineInput`, but before the runtime
 factory. The parsed request retains original authored strings; defaulted models
 and runtime paths never supply identity input. Errors reject explicitly with

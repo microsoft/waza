@@ -86,7 +86,7 @@ func admit(data []byte) (Report, *admitted) {
 		report.reject(err)
 		return report, nil
 	}
-	identity, err := runneridentity.Derive(req)
+	identity, err := runneridentity.DeriveJSON(data)
 	if err != nil {
 		report.reject(fmt.Errorf("deriving admitted input identity: %w", err))
 		report.Diagnostics[0].Code = "invalid_identity"
