@@ -34,6 +34,26 @@ func buildRecoveryCLI(t *testing.T) string {
 	return binary
 }
 
+// Keep observation on the caller goroutine: an asynchronous predicate may
+// outlive its timeout and race with session/child cleanup.
+func waitRecoveryCondition(ctx context.Context, condition func() bool) error {
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if condition() {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
+	}
+}
+
 func TestRecoveryCommandMockContextCancellation(t *testing.T) {
 	canceled, cancel := context.WithCancel(t.Context())
 	cancel()
@@ -325,23 +345,66 @@ func TestRecoveryCommandMockPassThroughInterruption(t *testing.T) {
 	child.WaitDelay = time.Second
 	var output bytes.Buffer
 	child.Stdout, child.Stderr = &output, &output
+	started := time.Now()
 	require.NoError(t, child.Start())
+	startElapsed := time.Since(started)
+	done := make(chan error, 1)
+	go func() { done <- child.Wait() }()
 	waited := false
 	t.Cleanup(func() {
 		if !waited {
 			cancel()
-			require.Error(t, child.Wait())
+			select {
+			case err := <-done:
+				require.Error(t, err)
+			case <-time.After(3 * time.Second):
+				t.Error("pass-through child cleanup did not join within its bound")
+			}
 		}
 	})
 	var pid int
-	require.Eventually(t, func() bool {
-		data, err := os.ReadFile(ready)
-		if err != nil {
+	var readErr, parseErr error
+	inspections := 0
+	readyCtx, stopReady := context.WithTimeout(ctx, 5*time.Second)
+	defer stopReady()
+	readyErr := waitRecoveryCondition(readyCtx, func() bool {
+		inspections++
+		var data []byte
+		data, readErr = os.ReadFile(ready)
+		if readErr != nil {
 			return false
 		}
-		pid, err = strconv.Atoi(string(data))
-		return err == nil && pid > 0
-	}, 5*time.Second, 10*time.Millisecond, "pass-through host command never started")
+		pid, parseErr = strconv.Atoi(string(data))
+		return parseErr == nil && pid > 0
+	})
+	t.Logf("pass-through readiness: start=%s; elapsed=%s; inspections=%d; pid=%d; read=%v; parse=%v; readiness=%v; child context=%v",
+		startElapsed, time.Since(started), inspections, pid, readErr, parseErr, readyErr, ctx.Err())
+	if readyErr != nil {
+		contextErr := ctx.Err()
+		aliveErr := child.Process.Signal(syscall.Signal(0))
+		earlyExit := false
+		var waitErr, signalErr error
+		select {
+		case waitErr = <-done:
+			earlyExit, waited = true, true
+		default:
+			signalErr = child.Process.Signal(syscall.SIGTERM)
+			select {
+			case waitErr = <-done:
+				waited = true
+			case <-time.After(2 * time.Second):
+				cancel()
+				select {
+				case waitErr = <-done:
+					waited = true
+				case <-time.After(time.Second):
+					t.Fatal("pass-through readiness failure cleanup did not join within its bound")
+				}
+			}
+		}
+		t.Fatalf("pass-through host command never started: readiness=%v; context before cleanup=%v; child pid=%d; alive=%v; early exit=%t; cleanup signal=%v; joined wait=%v; state=%v; output=%q",
+			readyErr, contextErr, child.Process.Pid, aliveErr, earlyExit, signalErr, waitErr, child.ProcessState, output.String())
+	}
 	host, err := os.FindProcess(pid)
 	require.NoError(t, err)
 	t.Cleanup(func() {
@@ -352,7 +415,11 @@ func TestRecoveryCommandMockPassThroughInterruption(t *testing.T) {
 	})
 	require.NoError(t, host.Signal(syscall.Signal(0)), "the real host command must be running before termination")
 	require.NoError(t, child.Process.Signal(syscall.SIGTERM))
-	err = child.Wait()
+	select {
+	case err = <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("pass-through child did not join after termination within its bound")
+	}
 	waited = true
 	require.NoError(t, ctx.Err(), "shim did not finish before the test safety deadline")
 	var exit *exec.ExitError

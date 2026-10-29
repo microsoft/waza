@@ -22,6 +22,12 @@ schemas. The latter preserves the pinned #779 source request's field names,
 types, required presence and bounds; its shape is accepted for negotiation,
 but its captured YAML is never interpreted. Partial execution forms are invalid.
 Shape validity is not semantic admission of the selected unit.
+Presence of any complete-only field selects the complete schema, even when
+that field is null or another required field is missing. Diagnostics therefore
+identify the invalid complete-request field instead of falling back to compact
+unknown-field errors. Only negotiation fields are decoded after shape validation;
+schema-valid integer spellings such as `timeout_ms: 6e4` and `trial: 2.0`
+negotiate identically to `60000` and `2`, without execution-value conversion.
 
 The negotiation response is **not** a terminal execution envelope. No work was
 selected or executed, no identity was derived, and no observation or outcome is
@@ -37,8 +43,14 @@ first; negotiation-only endpoints keep their original offline behavior.
 `runnerunit.NewService(EngineFactory).Run(context.Context, []byte) Report`
 share strict captured-source parsing and exact selector resolution. They
 consume the original `runnercontract.Request` without changing its pinned schema.
-`Report` is an internal invocation-local `waza.runner-unit` receipt, not a
-historical evaluation artifact. Its optional `identity` is input
+After schema validation, `Parse` converts the three integer fields exactly:
+`timeout_ms: 6e4`, `selection.trial: 2.0`, and `selection.attempt: 20e-1`
+become Go integers `60000`, `2`, and `2`. No floating-point conversion is used.
+Fractional numbers, schema-bound violations, nulls and wrong types remain
+invalid; conversion also checks the destination Go `int` range. Negotiation
+still checks shape only, without interpreting captured input.
+`Report` is an internal invocation-local `waza.runner-unit` receipt, not a #760 terminal
+envelope or historical evaluation artifact. Its optional `identity` is input
 metadata, not archive publication, execution evidence or an envelope-validity claim.
 
 The CLI `runner validate` / `runner run` and HTTP
@@ -68,12 +80,20 @@ The single declared candidate is `input.task`; shard labels and task ID must
 match, and trial/attempt must lie within the eval's declared bounds. Eval `tasks`
 patterns are inert declarations in this profile, never discovery sources.
 Disabled tasks, ambiguous source documents and unsupported behavior fail before
-runtime construction. Text graders use offline `graders.ValidateConfig` for
+runtime construction. The strict captured parser retains original-wire
+`inputs.prompt` presence separately from the decoded message. Shared admission
+requires that presence: omitted `inputs`, `inputs: {}`, and prompt-file-only
+tasks cannot become zero-value empty messages. An explicitly authored
+`inputs: {prompt: ""}` remains valid. Null/wrong-type prompts and duplicate
+keys retain their strict-source rejection. This does not tighten the ordinary
+local task loaders. Text graders use offline `graders.ValidateConfig` for
 both eval and task scopes, including empty/invalid-regex checks.
 
 `orchestration.PrepareInlineInput` resolves and freezes the request before the
-runtime factory. After this exact source admission, `runneridentity.Derive`
-uses the original parsed request's authored sources, not defaulted models.
+runtime factory. After this exact source admission, `runneridentity.DeriveJSON`
+uses the original request bytes and authored sources, not defaulted models or
+re-encoded JSON. The 4 MiB wire limit applies to those original bytes; internal
+HTML escaping must not reject an otherwise admitted request.
 Derivation errors reject with `invalid_identity`, zero calls and no identity.
 Successful derivation is retained even if runtime admission, cancellation,
 execution or shutdown later fails. `ExecuteInlineAttempt` reuses the current
@@ -115,6 +135,20 @@ production-path regressions. Server shutdown cancels request contexts and
 awaits cleanup. Excluded persistence/frontend archive findings remain
 unresolved by this layer, not silently waived.
 
+All three HTTP POST routes install their five-second read deadline before media-type
+validation, including missing/malformed/non-JSON media types. This also bounds
+`net/http`'s unread-body drain before completing an early 415 on a partial
+keep-alive upload. Completed negotiation/validation requests and fully read run
+requests retain keep-alive. Run rejections before body admission are not drained:
+their HTTP/1.1 connections close even if the client has sent the complete body,
+so clients must reconnect. Incomplete timed-out uploads also close their
+connection. Response writers and any future middleware
+must support `http.ResponseController.SetReadDeadline` (or expose the underlying
+writer through `Unwrap`); otherwise admission fails closed with HTTP 500.
+The exact-unit routes retain their separate request-cancellation and execution
+lifecycle handling; the dashboard server's `ReadHeaderTimeout` alone does not
+bound request bodies.
+
 ## Conformance and evolution
 
 `internal/runnercontract/testdata/negotiation.json` records supported, downgraded,
@@ -132,6 +166,11 @@ or mode is emitted. Service tests additionally reject a concrete Copilot engine
 and typed-nil mock without startup; default and factory-created concrete mocks
 remain valid. Separate package-private lifecycle tests retain deterministic
 initialization, execution, shutdown, timeout and cancellation failure controls.
+The complete-request CLI/HTTP matrix sends deliberate LF and CRLF input bytes,
+including invalid, alternative-valid numeric, duplicate-key and Unicode cases.
+Its exact-count mutations use the selected line ending and assert that the
+missing payment-permission field is absent before either public path runs;
+neither input re-encoding nor checkout newline policy substitutes for this test.
 
 Additive implementations may advertise new capability names for the same
 compatible runner version. A breaking request or capability semantic change

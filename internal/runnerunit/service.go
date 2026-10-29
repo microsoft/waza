@@ -90,7 +90,7 @@ func admit(data []byte) (Report, *admitted) {
 		report.reject(err)
 		return report, nil
 	}
-	identity, err := runneridentity.Derive(req)
+	identity, err := runneridentity.DeriveJSON(data)
 	if err != nil {
 		report.reject(fmt.Errorf("deriving admitted input identity: %w", err))
 		report.Diagnostics[0].Code = "invalid_identity"
@@ -126,6 +126,9 @@ func resolve(req *runnercontract.Request) (*admitted, error) {
 	})
 	if err != nil {
 		return nil, fmt.Errorf("captured task: %w", err)
+	}
+	if !task.HasCapturedInlinePrompt() {
+		return nil, fmt.Errorf("inline.mock-text requires an explicit inputs.prompt; an empty string is allowed")
 	}
 	if req.Selection.Shard != req.Input.Shard || req.Selection.Task != task.TestID {
 		return nil, fmt.Errorf("selection conflicts with declared input shard/task")

@@ -4,7 +4,6 @@ on:
   push:
     branches: [ main, develop ]
   pull_request:
-    branches: [ main, develop ]
 
 permissions:
   contents: read
@@ -214,6 +213,9 @@ jobs:
 
       - name: Test lint script failure handling
         run: bash .github/scripts/lint_test.sh
+
+      - name: Test Go workflow trigger selection
+        run: go test -count=1 ./.github/scripts
 
       - name: Verify configuration and run golangci-lint
         run: bash .github/scripts/lint.sh

@@ -192,6 +192,160 @@ func TestRunnerRejectsNonMockFactoryCLIHTTP(t *testing.T) {
 	}
 }
 
+func TestRunnerInlinePromptPresenceCLIHTTP(t *testing.T) {
+	data, err := os.ReadFile("../../examples/runner/unit.json")
+	require.NoError(t, err)
+	request, err := runnercontract.Parse(data)
+	require.NoError(t, err)
+	for _, control := range []struct {
+		name       string
+		inputs     string
+		diagnostic string
+		valid      bool
+		prompt     string
+	}{
+		{name: "missing-inputs", diagnostic: "requires an explicit inputs.prompt"},
+		{name: "empty-inputs", inputs: "inputs: {}\n", diagnostic: "requires an explicit inputs.prompt"},
+		{name: "null-inputs", inputs: "inputs: null\n", diagnostic: "must not be null"},
+		{name: "scalar-inputs", inputs: "inputs: hello\n", diagnostic: "does not accept a scalar"},
+		{name: "sequence-inputs", inputs: "inputs: []\n", diagnostic: "does not accept a sequence"},
+		{name: "null-prompt", inputs: "inputs: {prompt: null}\n", diagnostic: "must not be null"},
+		{name: "numeric-prompt", inputs: "inputs: {prompt: 123}\n", diagnostic: "requires !!str"},
+		{name: "boolean-prompt", inputs: "inputs: {prompt: false}\n", diagnostic: "requires !!str"},
+		{name: "mapping-prompt", inputs: "inputs: {prompt: {value: hello}}\n", diagnostic: "does not accept a mapping"},
+		{name: "sequence-prompt", inputs: "inputs: {prompt: [hello]}\n", diagnostic: "does not accept a sequence"},
+		{name: "duplicate-prompt", inputs: "inputs: {prompt: hello, prompt: other}\n", diagnostic: "unique string mapping keys"},
+		{name: "duplicate-inputs", inputs: "inputs: {prompt: hello}\ninputs: {}\n", diagnostic: `mapping key "inputs" already defined`},
+		{name: "prompt-file", inputs: "inputs: {prompt_file: absent.txt}\n", diagnostic: "prompt_file cannot read host files"},
+		{name: "empty-prompt-file", inputs: "inputs: {prompt_file: ''}\n", diagnostic: "requires an explicit inputs.prompt"},
+		{name: "empty-prompt-with-file", inputs: "inputs: {prompt: '', prompt_file: absent.txt}\n", diagnostic: "prompt_file cannot read host files"},
+		{name: "empty-prompt", inputs: "inputs: {prompt: ''}\n", valid: true},
+		{name: "populated-prompt", inputs: "inputs: {prompt: hello}\n", valid: true, prompt: "hello"},
+	} {
+		t.Run(control.name, func(t *testing.T) {
+			req := *request
+			expectedOutput, err := json.Marshal("Mock response for: " + control.prompt + "\nTask: Prompt presence")
+			require.NoError(t, err)
+			req.Input.Task = "id: " + req.Selection.Task + "\nname: Prompt presence\n" + control.inputs +
+				"expected:\n  output_contains: [" + string(expectedOutput) + "]\n"
+			body, err := json.Marshal(req)
+			require.NoError(t, err)
+			var factories atomic.Int32
+			service := runnerunit.NewService(func(cfg models.Config) (execution.AgentEngine, error) {
+				factories.Add(1)
+				return execution.NewMockEngine(cfg.ModelID), nil
+			})
+			mux := http.NewServeMux()
+			webapi.RegisterRunnerRoutesWithService(mux, service)
+			server := httptest.NewServer(mux)
+			defer server.Close()
+			for _, action := range []string{"validate", "run"} {
+				for _, transport := range []string{"cli", "http"} {
+					t.Run(action+"/"+transport, func(t *testing.T) {
+						before := factories.Load()
+						var report runnerunit.Report
+						var terminal runnerterminal.Envelope
+						var raw []byte
+						if transport == "cli" {
+							cmd := newRunnerCommandWithService(service)
+							cmd.SetArgs([]string{action})
+							cmd.SetIn(bytes.NewReader(body))
+							var output bytes.Buffer
+							cmd.SetOut(&output)
+							cmd.SetErr(&bytes.Buffer{})
+							err := cmd.Execute()
+							raw = bytes.Clone(output.Bytes())
+							if control.valid {
+								require.NoError(t, err)
+							} else {
+								exit, ok := errors.AsType[*ExitCodeError](err)
+								require.True(t, ok, "invalid captured prompt must fail the CLI")
+								require.Equal(t, 6, exit.Code)
+							}
+						} else {
+							response, err := server.Client().Post(server.URL+"/api/v1/runner/"+action, "application/json", bytes.NewReader(body))
+							require.NoError(t, err)
+							require.Equal(t, http.StatusOK, response.StatusCode, "admission rejection is a runner receipt")
+							raw, err = io.ReadAll(response.Body)
+							require.NoError(t, err)
+							require.NoError(t, response.Body.Close())
+						}
+						decoder := json.NewDecoder(bytes.NewReader(raw))
+						require.NoError(t, decoder.Decode(new(json.RawMessage)))
+						require.ErrorIs(t, decoder.Decode(new(any)), io.EOF)
+						decodeRunnerResponse(t, action, raw, &report, &terminal)
+						if action == "run" {
+							var binding *runnerterminal.Binding
+							if control.valid {
+								admitted := runnerunit.Validate(body)
+								require.Equal(t, "ready", admitted.Status)
+								binding = &runnerterminal.Binding{Selection: req.Selection, Identity: admitted.Identity,
+									GraderIDs: []string{"_output_contains"}}
+							}
+							_, err := runnerterminal.Validate(raw, binding)
+							require.NoError(t, err)
+							if !control.valid {
+								require.Equal(t, runnerterminal.InvalidInput, terminal.Outcome)
+								require.Equal(t, "invalid", terminal.Validation)
+								require.Equal(t, 6, terminal.ExitCode)
+								require.Nil(t, terminal.Identity)
+								require.Nil(t, terminal.Selection)
+								require.Nil(t, terminal.Observation)
+								require.Zero(t, terminal.EngineCalls)
+								require.Equal(t, before, factories.Load(), "reject before runtime construction")
+								require.Len(t, terminal.Diagnostics, 1)
+								require.Equal(t, "invalid_selection", terminal.Diagnostics[0].Code)
+								require.Contains(t, terminal.Diagnostics[0].Message, control.diagnostic)
+								return
+							}
+							require.Equal(t, runnerterminal.Success, terminal.Outcome)
+							require.Zero(t, terminal.ExitCode)
+							require.Equal(t, "valid", terminal.Validation)
+							require.Equal(t, req.Selection, *terminal.Selection)
+							require.Equal(t, binding.Identity, terminal.Identity)
+							require.Empty(t, terminal.Diagnostics)
+							require.Equal(t, before+1, factories.Load())
+							require.Equal(t, 1, terminal.EngineCalls)
+							require.NotNil(t, terminal.Observation)
+							require.Equal(t, "mock", terminal.Observation.ExecutionMode)
+							require.Equal(t, "passed", terminal.Observation.Status)
+							require.Equal(t, req.Selection, terminal.Observation.Selection)
+							require.Equal(t, []runnerterminal.Verdict{{Identifier: "_output_contains", Passed: true}},
+								terminal.Observation.Validations, "grade the actual complete response, including the authored empty/populated prompt")
+							return
+						}
+						require.Equal(t, "compatible", report.Compatibility.Status)
+						require.Equal(t, req.Selection, *report.Requested)
+						require.False(t, report.AdjacentWork)
+						if !control.valid {
+							require.Equal(t, "rejected", report.Status)
+							require.Equal(t, "invalid", report.Validation)
+							require.Equal(t, 6, report.ExitCode())
+							require.Nil(t, report.Resolved)
+							require.Nil(t, report.Observation)
+							require.Empty(t, report.Mode)
+							require.Zero(t, report.Calls)
+							require.Equal(t, before, factories.Load(), "reject before runtime construction")
+							require.Len(t, report.Diagnostics, 1)
+							require.Equal(t, "invalid_selection", report.Diagnostics[0].Code)
+							require.Contains(t, report.Diagnostics[0].Message, control.diagnostic)
+							return
+						}
+						require.Equal(t, "valid", report.Validation)
+						require.Equal(t, req.Selection, *report.Resolved)
+						require.Empty(t, report.Diagnostics)
+						require.Equal(t, "ready", report.Status)
+						require.Nil(t, report.Observation)
+						require.Empty(t, report.Mode)
+						require.Zero(t, report.Calls)
+						require.Equal(t, before, factories.Load(), "validation stays offline")
+					})
+				}
+			}
+		})
+	}
+}
+
 func TestRunnerUnitInputCancellationAndFailures(t *testing.T) {
 	for _, action := range []string{"validate", "run"} {
 		t.Run(action, func(t *testing.T) {

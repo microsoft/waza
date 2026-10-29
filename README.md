@@ -271,7 +271,9 @@ unsupported capability/version 5, invalid input 6. Validation remains an offline
 receipt, not execution evidence. An eval/task execution deadline still yields
 timeout 4 when the outer request budget remains active; task timeouts override
 the eval budget. Native/paid execution remains unavailable. Existing
-local commands and artifacts are unchanged. See the
+local commands and artifacts are unchanged. Captured tasks must explicitly
+declare `inputs.prompt`: `prompt: ""` is valid, but missing `inputs` or
+`inputs: {}` is rejected before runtime construction. See the
 [runner contract, HTTP API, schemas and migration guide](site/src/content/docs/guides/runner-contract.mdx).
 
 ### `waza preflight <eval.yaml>`
