@@ -126,6 +126,28 @@ func TestCapturedRequestShapeRemainsCompatibleWithoutExecution(t *testing.T) {
 	}
 }
 
+func TestNegotiationSelectsCompleteProfileByPresence(t *testing.T) {
+	compact := `{"schema_version":"1.0","versions":["1.0"],"required_capabilities":[],"optional_capabilities":[]}`
+	require.Equal(t, "compatible", Negotiate([]byte(compact)).Status)
+	for _, field := range []string{"run_key", "selection", "input", "timeout_ms", "allow_paid_execution"} {
+		for _, value := range []string{"null", "false", "0", `""`, "{}"} {
+			t.Run(field+"/"+value, func(t *testing.T) {
+				data := strings.TrimSuffix(compact, "}") + fmt.Sprintf(",%q:%s}", field, value)
+				response := Negotiate([]byte(data))
+				require.Equal(t, "invalid_request", response.Status)
+				require.Empty(t, response.Negotiation.Selected)
+				require.Len(t, response.Diagnostics, 1)
+				require.Contains(t, response.Diagnostics[0].Message, "missing properties")
+				require.NotContains(t, response.Diagnostics[0].Message, "additional properties")
+			})
+		}
+	}
+	response := Negotiate([]byte(strings.TrimSuffix(compact, "}") + `,"unrecognized":null}`))
+	require.Equal(t, "invalid_request", response.Status)
+	require.Contains(t, response.Diagnostics[0].Message, "additional properties 'unrecognized'")
+	require.NotContains(t, response.Diagnostics[0].Message, "missing properties")
+}
+
 func TestNegotiationExampleAndDetachedAdvertisement(t *testing.T) {
 	data, err := os.ReadFile("../../examples/runner/negotiation.json")
 	require.NoError(t, err)

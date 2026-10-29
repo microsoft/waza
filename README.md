@@ -266,7 +266,9 @@ attempt once, without discovery, cache or retries. Admitted receipts include
 versioned [logical identities](site/src/content/docs/guides/runner-identities.mdx)
 derived from the original captured input, not proof of execution or deduplication.
 Native/paid execution and terminal envelopes remain unavailable. Existing
-local commands and artifacts are unchanged. See the
+local commands and artifacts are unchanged. Captured tasks must explicitly
+declare `inputs.prompt`: `prompt: ""` is valid, but missing `inputs` or
+`inputs: {}` is rejected before runtime construction. See the
 [runner contract, HTTP API, schemas and migration guide](site/src/content/docs/guides/runner-contract.mdx).
 
 ### `waza preflight <eval.yaml>`

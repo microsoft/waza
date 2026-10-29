@@ -101,6 +101,9 @@ inline `inputs.prompt`, disabled ambient skills, and at least one valid builtin
 text grader or nonblank text expectation. The example uses a skill-free `2.0`
 scenario; task `skill_directories: []` or explicit deny-all skills are also
 supported where the shared effective-skill rules disable discovery.
+The inline prompt must be explicitly present: `inputs: {prompt: ""}` is valid,
+but omitted `inputs`, `inputs: {}`, or a prompt-file-only task is rejected before
+runtime construction. Empty strings are not treated as missing prompts.
 Authored skill paths, external files, prompt files, context, environment
 variables, workdirs, repositories, MCP/command mocks, hooks, parallel execution,
 baselines, CSV sources, responders, follow-ups and checkpoints are rejected,
@@ -185,7 +188,12 @@ curl --silent --show-error \
 A complete JSON request returns HTTP 200; inspect `status` rather than treating
 transport success as compatibility. Missing/non-JSON media type returns 415.
 An oversized or failed upload returns 400. A five-second body read deadline
-bounds partial uploads. Transport failures are not execution outcomes.
+is installed before media-type validation, bounding partial uploads even when
+the media type is missing or invalid and the server drains unread request bytes
+before completing a 415. Incomplete timed-out uploads close their connection;
+ordinary completed requests retain keep-alive. Middleware must preserve
+response-controller read-deadline support; inability to install the deadline
+fails closed with HTTP 500. Transport failures are not execution outcomes.
 The API reads no host input paths and stores no runner receipts. It retains the existing
 loopback server; no cloud authentication, scheduler or worker registry is added.
 
@@ -214,8 +222,18 @@ separate schema. Its fields are `schema_version`, `versions`,
 `allow_paid_execution: false` is valid; omission or `null` is not. Selection
 requires shard, task, positive trial and positive attempt. Input carries inline
 shard/eval/task strings, not host paths. `negotiate` only **shape-checks** this
-request and never interprets YAML. `validate`/`run` additionally perform the
-bounded profile's semantic admission. Do not treat compatibility as work admission.
+request: captured YAML, semantic selection validity and payment permission are
+never executed or interpreted by negotiation. `validate`/`run` additionally
+perform the bounded profile's semantic admission; only `run` starts the admitted
+mock runtime. This layer advertises `negotiation`, `exact-unit` and
+`inline.mock-text`, not native execution or terminal results.
+Do not treat compatibility as work admission.
+Any complete-only field selects this schema, so partial complete requests report
+their missing or invalid fields rather than compact-profile unknown fields.
+Shape checks accept equivalent integer JSON numbers, for example
+`"timeout_ms": 6e4` and `"selection": {"shard": "s", "task": "t", "trial": 2.0, "attempt": 1}`.
+These numbers are validated against the published bounds without converting
+execution values into runtime settings.
 
 ## Compatibility, migration and evolution
 
