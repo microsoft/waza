@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/microsoft/waza/internal/rootedfile"
 	"github.com/microsoft/waza/internal/runnercompat"
 	"github.com/microsoft/waza/internal/runnercontract"
 	"github.com/spf13/cobra"
@@ -44,7 +45,9 @@ func newRunnerAdaptCommand() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("encoding adapted runner request: %w", err)
 			}
-			data = append(data, '\n')
+			if len(data) < runnercontract.MaxRequestBytes {
+				data = append(data, '\n')
+			}
 			n, err := cmd.OutOrStdout().Write(data)
 			if err != nil {
 				return fmt.Errorf("writing adapted runner request: %w", err)
@@ -77,7 +80,11 @@ func rejectAdapterFixtures(evalPath string) error {
 }
 
 func readRunnerAdapterSource(path string) (data []byte, err error) {
-	file, err := os.Open(path)
+	return readRunnerAdapterSourceWithOpener(path, rootedfile.OpenPath)
+}
+
+func readRunnerAdapterSourceWithOpener(path string, open func(string) (*os.File, error)) (data []byte, err error) {
+	file, err := open(path)
 	if err != nil {
 		return nil, fmt.Errorf("opening exact adapter source %q: %w", path, err)
 	}

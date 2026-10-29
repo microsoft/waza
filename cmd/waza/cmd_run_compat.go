@@ -56,10 +56,10 @@ func runLocalCompatibility(cmd *cobra.Command, args []string, service *runneruni
 	if len(spec.Tasks) != 1 || strings.TrimSpace(spec.Tasks[0]) == "" || strings.ContainsAny(spec.Tasks[0], "*?[") {
 		return fmt.Errorf("--runner-compat requires one literal eval.tasks filename; remove the flag for batch/glob/discovery workflows")
 	}
-	taskPath := spec.Tasks[0]
-	if !filepath.IsAbs(taskPath) {
-		taskPath = filepath.Join(filepath.Dir(evalPath), taskPath)
+	if filepath.IsAbs(spec.Tasks[0]) {
+		return fmt.Errorf("--runner-compat requires an eval-relative task filename; remove --runner-compat for absolute task entries")
 	}
+	taskPath := filepath.Join(filepath.Dir(evalPath), spec.Tasks[0])
 	task, err := readRunnerAdapterSource(taskPath)
 	if err != nil {
 		return err

@@ -594,7 +594,9 @@ Run an evaluation benchmark.
 The source-build `--runner-compat` mode routes one explicit compatible mock/text
 suite through runner 1.0 without changing local result JSON or 0/1/2 exits.
 Unsupported mappings fail rather than falling back; omit the flag for ordinary
-local semantics. `runner adapt` captures compatible sources offline.
+local semantics. `runner adapt` captures compatible sources offline, requiring
+an eval-relative task entry and shared runner admission before output. Its
+complete emitted JSON, including any trailing LF, fits the 4 MiB runner limit.
 See the [migration guide](RUNNER_COMPATIBILITY_MIGRATION.md) and
 [developer mapping reference](RUNNER_COMPATIBILITY_MAPPING.md).
 

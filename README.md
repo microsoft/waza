@@ -279,6 +279,8 @@ For one explicit mock/text suite, `waza run custom-suite.yaml --runner-compat
 retaining historical result JSON and local 0/1/2 exits. `waza runner adapt`
 captures compatible sources offline as runner request JSON. Unsupported mappings
 are hard errors; remove `--runner-compat` to retain ordinary local workflows.
+The task entry must be eval-relative, and successful adaptation passes shared
+offline admission within the complete 4 MiB emitted-byte limit.
 See the [compatibility table and before/after examples](site/src/content/docs/guides/runner-compatibility.mdx).
 
 ### `waza preflight <eval.yaml>`

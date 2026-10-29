@@ -111,6 +111,20 @@ effective timeout in milliseconds; it cannot shorten it. Validation failures
 emit no request. Discard incomplete output after write/short-write errors.
 Exact filenames are provenance, not a filesystem isolation/snapshot guarantee.
 
+The sole `eval.tasks` entry must be relative to the eval directory; absolute
+entries are rejected without changing ordinary native file selection. The
+adapter also applies shared offline runner admission: prompts requiring absent
+workspace files (for example `inspect ./file`) fail before output.
+
+The complete emitted request is limited to 4,194,304 bytes. A trailing LF is
+included only when it fits; exactly-limit JSON has no appended LF and remains
+valid input to `runner validate` and `runner run`. Oversized requests emit nothing.
+Unix callers use a nonblocking source open and check/read the same owned handle,
+including after path replacement; writerless FIFOs are rejected without waiting
+for a writer. Regular symlink targets retain native resolution. Windows uses a
+best-effort precheck and opened-handle check, not a race-free/nonblocking-open
+guarantee. Neither implementation promises stable contents or host isolation.
+
 `runner run` emits [terminal JSON and exits 0-6](../runner-terminal/), not
 `local-results.json`. `runner validate` is offline admission, not execution
 evidence. The external request schema and result writer versions are independent.

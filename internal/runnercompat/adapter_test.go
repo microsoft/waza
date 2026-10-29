@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"github.com/microsoft/waza/internal/runnercontract"
+	"github.com/microsoft/waza/internal/runnerunit"
 	"github.com/stretchr/testify/require"
 )
 
@@ -66,6 +67,7 @@ func TestAdapterHistoricalVersionsAndExactSource(t *testing.T) {
 				require.NoError(t, err)
 				parsed, err := runnercontract.Parse(wire)
 				require.NoError(t, err)
+				require.Equal(t, "ready", runnerunit.Validate(wire).Status)
 				require.Equal(t, string(eval), parsed.Input.Eval)
 				require.Equal(t, string(task), parsed.Input.Task)
 				require.Equal(t, options.Selection, parsed.Selection)
@@ -79,6 +81,36 @@ func TestAdapterHistoricalVersionsAndExactSource(t *testing.T) {
 				require.Equal(t, beforeTask, task)
 			})
 		}
+	}
+}
+
+func TestAdapterRejectsAbsoluteTaskAndUnadmittedPrompt(t *testing.T) {
+	for _, control := range []string{"absolute task", "prompt path", "alternative prompt", "relative custom task"} {
+		t.Run(control, func(t *testing.T) {
+			eval, task, options := inputs(t)
+			switch control {
+			case "absolute task":
+				absolute, err := filepath.Abs(options.TaskPath)
+				require.NoError(t, err)
+				eval = replace(t, eval, "tasks/selected.case.yaml", filepath.ToSlash(absolute))
+				options.TaskPath = absolute
+			case "prompt path":
+				task = replace(t, task, "prompt: hello", "prompt: inspect ./file")
+			case "alternative prompt":
+				task = replace(t, task, "prompt: hello", "prompt: hello alternative")
+			}
+			request, err := AdaptLocal(eval, task, options)
+			if control == "absolute task" || control == "prompt path" {
+				require.Error(t, err)
+				require.Nil(t, request)
+				return
+			}
+			require.NoError(t, err)
+			wire, err := json.Marshal(request)
+			require.NoError(t, err)
+			require.Equal(t, "ready", runnerunit.Validate(wire).Status)
+			require.Equal(t, string(task), request.Input.Task)
+		})
 	}
 }
 

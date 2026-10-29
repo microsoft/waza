@@ -15,7 +15,7 @@ permission to remove the unsupported declaration.
 
 | Input or behavior | Supported adapter mapping |
 |---|---|
-| Explicit eval and task filenames | Captures only the caller-named regular files. `eval.tasks` must contain exactly one literal filename resolving to the selected task path, relative to the eval directory. Custom filenames and nested directories are supported; no discovery or glob expansion. |
+| Explicit eval and task filenames | Captures only the caller-named regular files. `eval.tasks` must contain exactly one literal relative filename resolving to the selected task path from the eval directory. Absolute task entries are rejected; native path selection is unchanged. Custom filenames and nested directories are supported; no discovery or glob expansion. |
 | Eval schema | Versionless and native-supported same-major 1.x; scenario evals require explicit `schemaVersion: "2.0"` and a valid `scenario`. Original version declarations are retained, never upgraded. |
 | Task schema | Native unversioned task YAML; declaring a task `schemaVersion` is rejected by this adapter, even though the ordinary local loader warns and ignores unknown fields. |
 | Execution | Explicit `config.executor: mock` and nonblank `config.model`; one task, one trial, one attempt. `max_attempts` omitted/0/1 retains the local effective single-attempt default. |
@@ -89,11 +89,23 @@ waza runner run < request.json > unit.json
 ```
 
 All selection flags are required explicitly. The constructor writes a request
-only after source, profile and request-schema validation; those validation
+only after source, profile, request-schema and shared offline runner admission; those validation
 failures leave stdout empty. Filesystem and writer failures propagate, including
 short writes; a writer failure can leave incomplete output, which must be
 discarded. Successful adaptation proves neither execution nor model quality.
 Mock execution is a harness control, not live qualification evidence.
+
+The emitted request is at most 4,194,304 bytes, including an optional trailing
+LF. Exactly-limit JSON omits the LF. A prompt such as `inspect ./file`, which
+requires files absent from the inline empty workspace, is rejected before
+output; keep ordinary local execution for that workflow.
+
+Unix source admission opens nonblocking and checks/reads the same owned handle,
+so writerless FIFOs and nonregular replacements do not hang these callers.
+Regular symlink targets retain native path resolution. Windows retains the
+shared opener's best-effort precheck and opened-handle recheck, not a race-free
+or nonblocking-open guarantee. Neither path promises a stable-content snapshot,
+filesystem confinement or hostile-host isolation.
 
 ## Intentional incompatibilities
 

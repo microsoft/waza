@@ -9,7 +9,6 @@ import (
 
 	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/models"
-	"github.com/microsoft/waza/internal/runnercompat"
 	"github.com/microsoft/waza/internal/runnercontract"
 	"github.com/microsoft/waza/internal/runnerterminal"
 	"github.com/stretchr/testify/require"
@@ -21,12 +20,13 @@ func localRequest(t *testing.T) []byte {
 	require.NoError(t, err)
 	task, err := os.ReadFile("../runnercompat/testdata/task.yaml")
 	require.NoError(t, err)
-	request, err := runnercompat.AdaptLocal(eval, task, runnercompat.Options{
-		EvalPath: "custom-suite.yaml", TaskPath: "tasks/selected.case.yaml", RunKey: "local",
-		Selection: runnercontract.Selection{Shard: "local", Task: "selected", Trial: 1, Attempt: 1},
+	// Keep the service fixture independent of its upstream compatibility caller.
+	return wire(t, runnercontract.Request{
+		SchemaVersion: "1.0", Versions: []string{"1.0"},
+		RequiredCapabilities: []string{"exact-unit", "inline.mock-text"}, OptionalCapabilities: []string{},
+		RunKey: "local", Selection: runnercontract.Selection{Shard: "local", Task: "selected", Trial: 1, Attempt: 1},
+		Input: runnercontract.Input{Shard: "local", Eval: string(eval), Task: string(task)}, TimeoutMS: 30000,
 	})
-	require.NoError(t, err)
-	return wire(t, *request)
 }
 
 func TestLocalServiceUsesOneAdmittedMockAndHistoricalAggregation(t *testing.T) {

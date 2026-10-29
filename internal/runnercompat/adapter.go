@@ -13,6 +13,7 @@ import (
 	"github.com/microsoft/waza/internal/graders"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/runnercontract"
+	"github.com/microsoft/waza/internal/runnerunit"
 	"gopkg.in/yaml.v3"
 )
 
@@ -61,10 +62,10 @@ func adapt(eval, task []byte, options Options) (*runnercontract.Request, error) 
 	if len(spec.Tasks) != 1 || strings.TrimSpace(spec.Tasks[0]) == "" || strings.ContainsAny(spec.Tasks[0], "*?[") {
 		return nil, fmt.Errorf("eval.tasks must name exactly one literal task file; batch/glob/CSV selection is not one local runner unit")
 	}
-	declared := spec.Tasks[0]
-	if !filepath.IsAbs(declared) {
-		declared = filepath.Join(filepath.Dir(options.EvalPath), declared)
+	if filepath.IsAbs(spec.Tasks[0]) {
+		return nil, fmt.Errorf("eval.tasks must use an eval-relative filename; absolute task entries are outside the compatibility profile")
 	}
+	declared := filepath.Join(filepath.Dir(options.EvalPath), spec.Tasks[0])
 	declared, err := filepath.Abs(declared)
 	if err != nil {
 		return nil, fmt.Errorf("resolving declared task filename: %w", err)
@@ -126,7 +127,15 @@ func adapt(eval, task []byte, options Options) (*runnercontract.Request, error) 
 	if err != nil {
 		return nil, fmt.Errorf("encoding adapted request: %w", err)
 	}
-	return runnercontract.Parse(data)
+	parsed, err := runnercontract.Parse(data)
+	if err != nil {
+		return nil, err
+	}
+	admission := runnerunit.Validate(data)
+	if admission.Status != "ready" {
+		return nil, fmt.Errorf("shared runner admission rejected the captured input: %v", admission.Diagnostics)
+	}
+	return parsed, nil
 }
 
 func validateChecks(spec *models.EvalSpec, task *models.TestCase) error {
