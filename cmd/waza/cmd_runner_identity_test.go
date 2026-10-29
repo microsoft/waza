@@ -204,52 +204,70 @@ func TestRunnerIdentityFrozenCLIHTTP(t *testing.T) {
 	server := httptest.NewServer(mux)
 	defer server.Close()
 	for _, tc := range cases {
-		for _, action := range []string{"validate", "run"} {
-			t.Run(tc.Name+"/"+action, func(t *testing.T) {
-				body, err := json.Marshal(tc.Request)
-				require.NoError(t, err)
-				before := factories
-				command := newRunnerCommandWithService(service)
-				command.SetArgs([]string{action})
-				command.SetIn(bytes.NewReader(body))
-				command.SetErr(&bytes.Buffer{})
-				var output bytes.Buffer
-				command.SetOut(&output)
-				// A grader failure is still a completed attempt and carries identity.
-				err = command.Execute()
-				var cli runnerunit.Report
-				require.NoError(t, json.Unmarshal(output.Bytes(), &cli))
-				if cli.ExitCode() == 0 {
+		for _, suffix := range []string{"", ".0", "0e-1"} {
+			for _, action := range []string{"validate", "run"} {
+				t.Run(tc.Name+"/"+suffix+"/"+action, func(t *testing.T) {
+					body, err := json.Marshal(tc.Request)
 					require.NoError(t, err)
-				} else {
-					require.Error(t, err)
-				}
-				response, err := server.Client().Post(server.URL+"/api/v1/runner/"+action, "application/json", bytes.NewReader(body))
-				require.NoError(t, err)
-				require.Equal(t, http.StatusOK, response.StatusCode)
-				var api runnerunit.Report
-				require.NoError(t, json.NewDecoder(response.Body).Decode(&api))
-				require.NoError(t, response.Body.Close())
-				for _, report := range []runnerunit.Report{cli, api} {
-					require.Equal(t, &tc.Identity, report.Identity)
-					require.Equal(t, tc.Request.Selection, *report.Resolved)
-					require.False(t, report.AdjacentWork)
-					if action == "run" {
-						require.Equal(t, "completed", report.Status)
-						require.Equal(t, 1, report.Calls)
-						require.NotNil(t, report.Observation)
-					} else {
-						require.Equal(t, "ready", report.Status)
-						require.Zero(t, report.Calls)
-						require.Nil(t, report.Observation)
+					if suffix != "" {
+						var fields, selection map[string]json.RawMessage
+						require.NoError(t, json.Unmarshal(body, &fields))
+						require.NoError(t, json.Unmarshal(fields["selection"], &selection))
+						fields["timeout_ms"] = append(fields["timeout_ms"], suffix...)
+						for _, field := range []string{"trial", "attempt"} {
+							selection[field] = append(selection[field], suffix...)
+						}
+						fields["selection"], err = json.Marshal(selection)
+						require.NoError(t, err)
+						body, err = json.Marshal(fields)
+						require.NoError(t, err)
+						require.Contains(t, string(body), `"timeout_ms":`+string(fields["timeout_ms"]))
+						require.Contains(t, string(body), `"trial":`+string(selection["trial"]))
+						require.Contains(t, string(body), `"attempt":`+string(selection["attempt"]))
 					}
-				}
-				expected := 0
-				if action == "run" {
-					expected = 2
-				}
-				require.Equal(t, expected, factories-before)
-			})
+					before := factories
+					command := newRunnerCommandWithService(service)
+					command.SetArgs([]string{action})
+					command.SetIn(bytes.NewReader(body))
+					command.SetErr(&bytes.Buffer{})
+					var output bytes.Buffer
+					command.SetOut(&output)
+					// A grader failure is still a completed attempt and carries identity.
+					err = command.Execute()
+					var cli runnerunit.Report
+					require.NoError(t, json.Unmarshal(output.Bytes(), &cli))
+					if cli.ExitCode() == 0 {
+						require.NoError(t, err)
+					} else {
+						require.Error(t, err)
+					}
+					response, err := server.Client().Post(server.URL+"/api/v1/runner/"+action, "application/json", bytes.NewReader(body))
+					require.NoError(t, err)
+					require.Equal(t, http.StatusOK, response.StatusCode)
+					var api runnerunit.Report
+					require.NoError(t, json.NewDecoder(response.Body).Decode(&api))
+					require.NoError(t, response.Body.Close())
+					for _, report := range []runnerunit.Report{cli, api} {
+						require.Equal(t, &tc.Identity, report.Identity)
+						require.Equal(t, tc.Request.Selection, *report.Resolved)
+						require.False(t, report.AdjacentWork)
+						if action == "run" {
+							require.Equal(t, "completed", report.Status)
+							require.Equal(t, 1, report.Calls)
+							require.NotNil(t, report.Observation)
+						} else {
+							require.Equal(t, "ready", report.Status)
+							require.Zero(t, report.Calls)
+							require.Nil(t, report.Observation)
+						}
+					}
+					expected := 0
+					if action == "run" {
+						expected = 2
+					}
+					require.Equal(t, expected, factories-before)
+				})
+			}
 		}
 	}
 }

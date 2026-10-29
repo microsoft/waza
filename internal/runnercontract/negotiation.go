@@ -5,7 +5,9 @@ package runnercontract
 import (
 	"encoding/json"
 	"fmt"
+	"math/big"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -172,11 +174,56 @@ func Parse(data []byte) (*Request, error) {
 	if err := validateDocument(doc, requestSchema); err != nil {
 		return nil, err
 	}
+	fields, ok := doc.(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("decoding runner request: expected a JSON object")
+	}
+	selection, ok := fields["selection"].(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("decoding runner selection: expected a JSON object")
+	}
+	// JSON Schema integers include integral decimal/exponent tokens, whereas
+	// encoding/json's int decoder only accepts integer lexical forms.
+	for _, field := range []struct {
+		object map[string]any
+		key    string
+		path   string
+	}{
+		{fields, "timeout_ms", "timeout_ms"},
+		{selection, "trial", "selection.trial"},
+		{selection, "attempt", "selection.attempt"},
+	} {
+		value, err := exactInteger(field.object[field.key])
+		if err != nil {
+			return nil, fmt.Errorf("decoding runner request %s: %w", field.path, err)
+		}
+		field.object[field.key] = value
+	}
+	normalized, err := json.Marshal(doc)
+	if err != nil {
+		return nil, fmt.Errorf("encoding normalized runner request: %w", err)
+	}
 	var request Request
-	if err := json.Unmarshal(data, &request); err != nil {
+	if err := json.Unmarshal(normalized, &request); err != nil {
 		return nil, fmt.Errorf("decoding runner negotiation request: %w", err)
 	}
 	return &request, nil
+}
+
+func exactInteger(value any) (int, error) {
+	number, ok := value.(json.Number)
+	if !ok {
+		return 0, fmt.Errorf("expected a JSON number")
+	}
+	rational, ok := new(big.Rat).SetString(number.String())
+	if !ok || !rational.IsInt() {
+		return 0, fmt.Errorf("expected an exactly integral JSON number")
+	}
+	integer, err := strconv.Atoi(rational.Num().String())
+	if err != nil {
+		return 0, fmt.Errorf("integer is outside the Go int range: %w", err)
+	}
+	return integer, nil
 }
 
 func parseNegotiation(data []byte) (*NegotiationRequest, error) {
