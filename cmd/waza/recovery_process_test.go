@@ -57,33 +57,34 @@ func waitRecoveryCondition(ctx context.Context, condition func() bool) error {
 }
 
 func startRecoveryMCPProcess(parent context.Context, start func() error, cancelProcess context.CancelFunc) (context.Context, func(), error) {
-	phase := func(timeout time.Duration) (context.Context, func() error) {
-		ctx, cancel := context.WithTimeout(parent, timeout)
+	watch := func(ctx context.Context) func() {
 		done := make(chan struct{})
 		stop := context.AfterFunc(ctx, func() {
 			defer close(done)
 			cancelProcess()
 		})
-		return ctx, sync.OnceValue(func() error {
+		return sync.OnceFunc(func() {
 			if !stop() {
 				<-done
 			}
-			err := ctx.Err()
-			cancel()
-			return err
 		})
 	}
-	_, stopStartup := phase(30 * time.Second)
+	startup, cancelStartup := context.WithTimeout(parent, 30*time.Second)
+	stopStartup := watch(startup)
 	startErr := start()
-	startupErr := stopStartup()
+	stopStartup()
+	startupErr := startup.Err()
+	cancelStartup()
 	if err := errors.Join(startErr, startupErr); err != nil {
 		cancelProcess()
 		return nil, nil, fmt.Errorf("starting MCP subprocess: %w", err)
 	}
 	// OS process creation is setup, not part of the MCP exchange/EOF budget.
-	exchange, stopExchange := phase(10 * time.Second)
+	exchange, cancelExchange := context.WithTimeout(parent, 10*time.Second)
+	stopExchange := watch(exchange)
 	return exchange, sync.OnceFunc(func() {
 		stopExchange()
+		cancelExchange()
 		cancelProcess()
 	}), nil
 }
