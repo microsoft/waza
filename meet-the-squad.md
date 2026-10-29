@@ -8,15 +8,34 @@ distribution. The canonical roster and exact GPT model IDs are in
 Rusty owns architecture and independent code review. Linus owns Go/runtime
 implementation, Basher test/evaluation quality, Turk measured performance, Yen web
 design/frontend/accessibility, Livingston technical documentation/examples, Saul
-documentation architecture, Danny developer relations/socialization drafts, and
-Virgil release/developer infrastructure. Scribe, Ralph, Rai, and Fact Checker are
+documentation architecture, Danny developer relations/socialization drafts,
+Tess reproducible release-media capture/edit/export, and Virgil
+release/developer infrastructure. Scribe, Ralph, Rai, and Fact Checker are
 bounded support identities, not specialist issue owners.
+
+Squad membership and implementation routing are AI-only. Linus covers Copilot SDK
+and backend responsibilities; Rusty covers architecture and independent review,
+with Basher covering test strategy. No human issue assignments, implementation
+consultations, or overflow handoffs are configured. Coverage gaps go to the
+coordinator, not a human fallback. Existing AI identities, model assignments,
+and reviewer/author lockouts are preserved. Tess is an AI media specialist, not
+a Go revision owner or a replacement for existing product owners.
+This does not remove repository collaborators, change CODEOWNERS or required
+native approvals, or change Shayne Boyer's project-owner/requester role.
+Historical decisions and member records remain intact.
 
 [Governance](.squad/governance.md) gives each task one accountable owner and a
 bounded independent gate. [Model policy](.squad/model-policy.md) applies GPT-first
 role assignments and pins code-review passes to GPT-5.6 Terra. The config does not
 override a host that cannot select per-agent models or grant access to a model.
 Danny drafts announcements; publishing still requires explicit approval.
+
+Every release has a [gated media task](docs/RELEASE-MEDIA.md), created or reused
+at a manual release-checklist checkpoint. Tess uses `gpt-6.1-sol` for capture and
+exports; Danny uses `gpt-6-luna` for narrative and copy; independent technical
+review uses `gpt-5.6-terra`. Actual footage waits for verified readiness. These
+are role-fit preferences, not proof of runtime enforcement or benchmark rankings;
+the process neither auto-creates issues nor authorizes publication.
 
 ## Verify the installation
 
@@ -91,8 +110,10 @@ rules apply to inline and multiline profiles and preserve base task subjects.
 This remains keyword routing, not proof of semantic eligibility. Missing,
 empty, malformed or duplicate tiers disable coding-agent routing and assignment
 with a diagnostic; there are no hardcoded default capability lists.
-Valid routing to a human continues, and assigning `copilot` still requires the
-explicit opt-in and no existing assignee. Real-roster workflow tests exercise
+The generic router can still parse human roster rows, but Waza's active roster
+and policy configure AI targets only; do not add human fallback rows. Assigning
+`copilot` still requires explicit opt-in and no existing assignee. Existing
+human assignees are left untouched. Real-roster workflow tests exercise
 every declared bullet and both ambiguous-requirements/multi-system exclusions.
 On Ubuntu and native Windows it also checks role-model agreement and a real Git
 `core.autocrlf=true` checkout: the hash-bound casting files must stay LF while a
