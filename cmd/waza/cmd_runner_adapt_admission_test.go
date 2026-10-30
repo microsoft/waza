@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -172,7 +173,18 @@ func TestRunnerAdapterAdmissionCompiledProcess(t *testing.T) {
 			require.Len(t, outcome.TestOutcomes[0].Runs, 1)
 			require.Equal(t, "hello native-selected", outcome.TestOutcomes[0].Runs[0].Prompt)
 		}
-		for _, selected := range []string{external, nativeTask, taskPath} {
+		selectedTasks := []string{external, taskPath}
+		if filepath.VolumeName(external) == "" {
+			selectedTasks = append(selectedTasks, nativeTask)
+		} else {
+			// Windows cannot open the joined drive-qualified path, so source
+			// admission rejects it before checking the captured eval semantics.
+			output, diagnostic := adapterProcess(t, binary, directory, nil, 2,
+				append([]string{"runner", "adapt"}, adapterCommandArgs(evalPath, nativeTask)...)...)
+			require.Empty(t, output)
+			require.Contains(t, diagnostic, "opening exact adapter source "+strconv.Quote(nativeTask))
+		}
+		for _, selected := range selectedTasks {
 			output, diagnostic := adapterProcess(t, binary, directory, nil, 2,
 				append([]string{"runner", "adapt"}, adapterCommandArgs(evalPath, selected)...)...)
 			require.Empty(t, output)
