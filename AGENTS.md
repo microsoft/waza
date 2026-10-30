@@ -336,6 +336,22 @@ dependent job or remove a package without providing exhaustive required shards.
 Exercise discovery and all failure branches with
 `bash .github/scripts/go_test_shard_test.sh` when changing this arrangement.
 
+Squad Release and Squad Insider Release reuse the same four native shards and
+30-minute race/atomic package deadline. Their release job explicitly rejects
+failed, cancelled, or skipped shards and verifies all five coverage profiles and
+exactly-once native selection before publication. Test the release wiring with
+`go test -count=1 ./.github/scripts` and the offline runtime/integration controls
+with `bash .github/scripts/release_gate_test.sh`. Release tests and native shards
+install a verified rejecting Copilot runtime. The mock integration requires a
+fresh saved JSON outcome with the four expected tasks and all three trials,
+consistent summary/task/run/grader statuses, and zero errors, skips, or cached
+tasks. Exit 1 is accepted only for completed grader failures, never task/runtime
+errors, cancellation, or missing/incomplete evidence. Any attempted runtime launch
+also fails the gate. Both workflows execute the production-CLI regression controls
+in `.github/scripts`, including the otherwise indistinguishable task-error exit 1.
+The integration requires `jq` (available on the Ubuntu release runners).
+This is offline harness evidence, not live agent-quality evidence.
+
 Both Go lint workflows use `.github/scripts/lint.sh` to require configuration
 validation against a checksum-pinned upstream release schema before running lint.
 When upgrading golangci-lint, update both workflow versions and the script's

@@ -30,6 +30,8 @@ jobs:
           cache-dependency-path: go.sum
       - name: Test shard discovery and failure handling
         run: bash .github/scripts/go_test_shard_test.sh
+      - name: Install and prove rejecting runtime guard
+        run: bash .github/scripts/go_offline_env.sh >> "$GITHUB_ENV"
       - name: Execute exhaustive native test shard
         env:
           SHARD: ${{ matrix.shard }}
