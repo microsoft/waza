@@ -172,7 +172,7 @@ func TestRunnerTerminalHelperProtocol(t *testing.T) {
 		})
 	}
 	t.Run("controller-order", func(t *testing.T) {
-		kinds := []string{"ready", "armed", "capability", "started", "result", "finished"}
+		kinds := []string{"ready", "armed", "capability", "started", "consumed", "result", "finished"}
 		var output strings.Builder
 		for _, kind := range kinds {
 			fmt.Fprintf(&output, "{\"kind\":%q}\n", kind)
@@ -193,6 +193,8 @@ func TestRunnerTerminalHelperProtocol(t *testing.T) {
 		for _, invalid := range []string{
 			strings.Replace(output.String(), `"armed"`, `"ready"`, 1),
 			strings.Replace(output.String(), `"result"`, `"finished"`, 1),
+			strings.Replace(output.String(), "\"kind\":\"consumed\"", "\"kind\":\"started\"", 1),
+			strings.Replace(output.String(), "{\"kind\":\"consumed\"}\n", "", 1),
 			strings.Replace(output.String(), "{\"kind\":\"finished\"}\n", "", 1),
 		} {
 			_, err := decodeRunnerHelperSnapshot([]byte(invalid), kinds...)

@@ -123,11 +123,15 @@ func TestRunnerTerminalCompiledProcess(t *testing.T) {
 	binary := buildRecoveryCLI(t)
 	raw, err := os.ReadFile("../../examples/runner/unit.json")
 	require.NoError(t, err)
-	for _, control := range []string{"success", "failed", "invalid", "unsupported", "arguments", "flags", "oversize-flags", "runtime-filesystem"} {
+	for _, control := range []string{"success", "failed", "invalid", "unsupported", "arguments", "flags", "oversize-flags", "runtime-filesystem", "plain-validate-success", "plain-validate-invalid"} {
 		t.Run(control, func(t *testing.T) {
 			data := bytes.Clone(raw)
 			args, code := []string{"runner", "run"}, 0
 			switch control {
+			case "plain-validate-success":
+				args = []string{"runner", "validate"}
+			case "plain-validate-invalid":
+				args, data, code = []string{"runner", "validate"}, []byte(`{"kind":"bad"}`), 6
 			case "failed":
 				data = bytes.Replace(data, []byte("- hello"), []byte("- not-observed"), 1)
 				code = 1
@@ -163,6 +167,19 @@ func TestRunnerTerminalCompiledProcess(t *testing.T) {
 				require.Equal(t, code, exit.ExitCode())
 			}
 			var result runnerterminal.Envelope
+			if strings.HasPrefix(control, "plain-validate-") {
+				t.Log("ordinary compiled CLI complete-input/EOF control; not mid-read consumption/cancellation evidence")
+				t.Chdir(child.Dir)
+				expected, err := json.Marshal(runnerunit.Validate(data))
+				require.NoError(t, err)
+				require.JSONEq(t, string(expected), string(output))
+				require.Equal(t, 1, bytes.Count(output, []byte{'\n'}))
+				require.NotContains(t, stderr.String(), "Usage:")
+				if code == 0 {
+					require.Empty(t, stderr.String())
+				}
+				return
+			}
 			require.NoError(t, json.Unmarshal(output, &result), "%s", output)
 			require.Equal(t, code, result.ExitCode)
 			require.Equal(t, 1, bytes.Count(output, []byte{'\n'}))

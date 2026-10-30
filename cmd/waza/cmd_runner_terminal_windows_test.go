@@ -13,7 +13,6 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
-	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -26,128 +25,6 @@ import (
 )
 
 const runnerWindowsHelperEnv = "WAZA_RUNNER_WINDOWS_CONSOLE_HELPER"
-
-type runnerWindowsMessage struct {
-	Kind            string                  `json:"kind"`
-	Handle          uint64                  `json:"handle,omitempty"`
-	Binary          string                  `json:"binary,omitempty"`
-	Action          string                  `json:"action,omitempty"`
-	PID             uint32                  `json:"pid,omitempty"`
-	NoDeadline      bool                    `json:"no_deadline,omitempty"`
-	GoVersion       string                  `json:"go_version,omitempty"`
-	Code            int                     `json:"code,omitempty"`
-	Stdout          []byte                  `json:"stdout,omitempty"`
-	Stderr          []byte                  `json:"stderr,omitempty"`
-	StartupDeadline time.Time               `json:"startup_deadline,omitempty"`
-	Readiness       *runnerConsoleReadiness `json:"readiness,omitempty"`
-}
-
-type runnerWindowsOutput struct {
-	mu      sync.Mutex
-	data    []byte
-	framing *runnerHelperFraming
-	events  chan runnerWindowsMessage
-}
-
-func (w *runnerWindowsOutput) Write(data []byte) (int, error) {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	if len(w.data)+len(data) > 1<<20 {
-		return 0, errors.New("Windows runner process output exceeded 1 MiB")
-	}
-	w.data = append(w.data, data...)
-	if w.events != nil {
-		records, err := w.framing.write(data)
-		if err != nil {
-			return 0, fmt.Errorf("framing Windows controller output: %w", err)
-		}
-		for _, line := range records {
-			var event runnerWindowsMessage
-			if err := json.Unmarshal(line, &event); err != nil {
-				return 0, fmt.Errorf("decoding Windows controller event: %w", err)
-			}
-			select {
-			case w.events <- event:
-			default:
-				return 0, errors.New("Windows controller event queue overflow")
-			}
-		}
-	}
-	return len(data), nil
-}
-
-func (w *runnerWindowsOutput) finish() error {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	if w.framing != nil {
-		return w.framing.finish()
-	}
-	return nil
-}
-
-func (w *runnerWindowsOutput) snapshot() []byte {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	return bytes.Clone(w.data)
-}
-
-type runnerWindowsProcess struct {
-	cmd    *exec.Cmd
-	done   chan struct{}
-	err    error
-	stdout *runnerWindowsOutput
-	stderr *runnerWindowsOutput
-}
-
-func startRunnerWindowsProcess(cmd *exec.Cmd, protocol bool) (*runnerWindowsProcess, error) {
-	p := &runnerWindowsProcess{
-		cmd: cmd, done: make(chan struct{}),
-		stdout: &runnerWindowsOutput{}, stderr: &runnerWindowsOutput{},
-	}
-	if protocol {
-		p.stdout.events = make(chan runnerWindowsMessage, 16)
-		p.stdout.framing = newRunnerHelperFraming("ready", "armed", "capability", "started", "result", "finished")
-	}
-	cmd.Stdout, cmd.Stderr = p.stdout, p.stderr
-	cmd.WaitDelay = 5 * time.Second
-	if err := cmd.Start(); err != nil {
-		return nil, err
-	}
-	go func() {
-		defer close(p.done)
-		waitErr := cmd.Wait()
-		p.err = errors.Join(waitErr, p.stdout.finish())
-	}()
-	return p, nil
-}
-
-func (p *runnerWindowsProcess) wait(ctx context.Context) error {
-	select {
-	case <-p.done:
-		return p.err
-	case <-ctx.Done():
-		return fmt.Errorf("waiting for Windows process %d: %w", p.cmd.Process.Pid, ctx.Err())
-	}
-}
-
-func (p *runnerWindowsProcess) stop() error {
-	select {
-	case <-p.done:
-		return nil
-	default:
-	}
-	killErr := p.cmd.Process.Kill()
-	if errors.Is(killErr, os.ErrProcessDone) {
-		killErr = nil
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	waitErr := p.wait(ctx)
-	if _, exited := errors.AsType[*exec.ExitError](waitErr); exited {
-		waitErr = nil
-	}
-	return errors.Join(killErr, waitErr)
-}
 
 func (p *runnerWindowsProcess) event(ctx context.Context, kind string) (runnerWindowsMessage, error) {
 	accept := func(event runnerWindowsMessage) (runnerWindowsMessage, error) {
@@ -305,16 +182,6 @@ func runnerWindowsStartupFailure(target *runnerWindowsProcess, report runnerCons
 		cleanupErr, earlyWaitErr, waitErr, encodeErr, writeErr)
 }
 
-func runnerWindowsRemaining(input *os.File) (uint32, error) {
-	var remaining uint32
-	result, _, err := windows.NewLazySystemDLL("kernel32.dll").NewProc("PeekNamedPipe").Call(
-		input.Fd(), 0, 0, 0, uintptr(unsafe.Pointer(&remaining)), 0)
-	if result == 0 {
-		return 0, runnerWindowsCallError("observing inherited Windows pipe consumption", err)
-	}
-	return remaining, nil
-}
-
 func runnerWindowsCloseFile(file *os.File) error {
 	done := make(chan error, 1)
 	go func() { done <- file.Close() }()
@@ -332,7 +199,7 @@ type runnerWindowsOperation struct {
 }
 
 func TestRunnerTerminalWindowsInheritedStdinCancellation(t *testing.T) {
-	binary := buildRecoveryCLI(t)
+	binary, progressNonce := buildRunnerReadProgressCLI(t)
 	file, err := os.Open(binary)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, file.Close()) })
@@ -362,7 +229,8 @@ func TestRunnerTerminalWindowsInheritedStdinCancellation(t *testing.T) {
 		}
 	}
 	diagnostic, err := json.Marshal(map[string]any{
-		"machine": image.Machine, "subsystem": subsystem, "sha256": fmt.Sprintf("%x", digest.Sum(nil)),
+		"evidence_profile": "instrumented-source-bound-read-progress; not ordinary-binary timing equivalence",
+		"machine":          image.Machine, "subsystem": subsystem, "sha256": fmt.Sprintf("%x", digest.Sum(nil)),
 		"go_version": info.GoVersion, "build_settings_allowlist": settings,
 		"controller_requested_flags": windows.CREATE_NEW_CONSOLE, "target_requested_flags": windows.CREATE_NEW_PROCESS_GROUP,
 	})
@@ -471,7 +339,7 @@ func TestRunnerTerminalWindowsInheritedStdinCancellation(t *testing.T) {
 				deadline = startupLimit
 			}
 			require.NoError(t, requests.Encode(runnerWindowsMessage{
-				Kind: "start", Handle: remote, Binary: binary, Action: action, StartupDeadline: deadline,
+				Kind: "start", Handle: remote, Binary: binary, Action: action, StartupDeadline: deadline, ProgressNonce: progressNonce,
 			}))
 			started, err := controller.event(ctx, "started")
 			require.NoError(t, err)
@@ -507,6 +375,7 @@ func TestRunnerTerminalWindowsInheritedStdinCancellation(t *testing.T) {
 				}
 			}
 			padding := append(bytes.Repeat([]byte(" "), 2<<20), '{')
+			require.Equal(t, runnerReadProgressSize, len(padding))
 			require.Less(t, len(padding), runnercontract.MaxRequestBytes)
 			await(startOperation(func() error {
 				n, writeErr := producer.Write(padding)
@@ -515,25 +384,36 @@ func TestRunnerTerminalWindowsInheritedStdinCancellation(t *testing.T) {
 				}
 				return writeErr
 			}))
-			var remaining uint32
-			var peekErr error
 			readEntry, stopReadEntry := context.WithTimeout(ctx, 5*time.Second)
-			err = waitRecoveryCondition(readEntry, func() bool {
-				remaining, peekErr = runnerWindowsRemaining(input)
-				return peekErr != nil || uint64(remaining) < uint64(len(padding))
-			})
-			stopReadEntry()
+			defer stopReadEntry()
+			consumptionDeadline, bounded := readEntry.Deadline()
+			require.True(t, bounded)
+			expectedDigest := fmt.Sprintf("%x", sha256.Sum256(padding))
+			require.NoError(t, runnerConsoleContextError(readEntry))
+			require.NoError(t, requests.Encode(runnerWindowsMessage{
+				Kind: "observe", PID: started.PID, Action: action,
+				ConsumptionDeadline: consumptionDeadline, ExpectedBytes: len(padding), ExpectedSHA256: expectedDigest,
+			}))
+			consumed, err := controller.event(readEntry, "consumed")
 			require.NoError(t, err)
-			require.NoError(t, peekErr)
-			require.Less(t, uint64(remaining), uint64(len(padding)), "only the actual CLI may consume target input")
+			require.NoError(t, runnerConsoleContextError(readEntry))
+			require.Equal(t, started.PID, consumed.PID)
+			require.NotNil(t, consumed.Progress)
+			require.NoError(t, consumed.Progress.validate(progressNonce, started.PID, action, len(padding), expectedDigest))
+			require.NoError(t, runnerConsoleContextError(readEntry))
 			state, err := windows.WaitForSingleObject(targetHandle, 0)
 			require.NoError(t, err)
+			require.NoError(t, runnerConsoleContextError(readEntry))
 			require.Equal(t, uint32(windows.WAIT_TIMEOUT), state, "target must remain alive with producer open")
-			t.Logf("target/group PID=%d; written=%d remaining=%d; producer remains open", started.PID, len(padding), remaining)
+			t.Logf("instrumented-source-bound actual stdin.Read progress: target/group PID=%d; written=%d observed=%d sha256=%s no_deadline=%t; original producer remains open; kernel-read-at-signal not asserted",
+				started.PID, len(padding), consumed.Progress.Bytes, consumed.Progress.SHA256, consumed.Progress.NoDeadline)
+			require.NoError(t, runnerConsoleContextError(readEntry))
 			require.NoError(t, requests.Encode(runnerWindowsMessage{Kind: "cancel", PID: started.PID}))
 			result, err := controller.event(ctx, "result")
 			require.NoError(t, err)
 			require.Equal(t, started.PID, result.PID)
+			require.Contains(t, string(result.RawStderr), runnerReadProgressPrefix+progressNonce+" ")
+			t.Logf("instrumented raw target stderr=%q; CLI-only stderr=%q", result.RawStderr, result.Stderr)
 			require.NotContains(t, string(result.Stderr), "Usage:")
 			if action == "validate" {
 				require.Equal(t, 2, result.Code)
@@ -615,7 +495,13 @@ func spawnRunnerWindowsTarget(request runnerWindowsMessage, probe bool) (*runner
 	}
 	cmd.Stdin = input
 	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.CREATE_NEW_PROCESS_GROUP}
-	process, startErr := startRunnerWindowsProcess(cmd, false)
+	var process *runnerWindowsProcess
+	var startErr error
+	if probe {
+		process, startErr = startRunnerWindowsProcess(cmd, false)
+	} else {
+		process, startErr = startRunnerWindowsProcess(cmd, false, request.ProgressNonce)
+	}
 	closeErr := input.Close()
 	if err := errors.Join(startErr, closeErr); err != nil {
 		if process != nil {
@@ -644,6 +530,10 @@ func runRunnerWindowsController() (resultErr error) {
 	}
 	var target *runnerWindowsProcess
 	var targetHandle windows.Handle
+	var action string
+	var consumption context.Context
+	var cancelConsumption context.CancelFunc
+	consumed := false
 	probed := false
 	defer func() {
 		if target != nil {
@@ -691,7 +581,7 @@ func runRunnerWindowsController() (resultErr error) {
 			probed = true
 		case "start":
 			if !probed || target != nil || (request.Action != "validate" && request.Action != "run") ||
-				request.Binary == "" || request.StartupDeadline.IsZero() {
+				request.Binary == "" || request.StartupDeadline.IsZero() || !runnerProgressNonce(request.ProgressNonce) {
 				return errors.New("invalid or duplicate Windows CLI start")
 			}
 			startup, cancelStartup := context.WithDeadline(context.Background(), request.StartupDeadline)
@@ -706,6 +596,7 @@ func runRunnerWindowsController() (resultErr error) {
 				return err
 			}
 			pid := uint32(target.cmd.Process.Pid)
+			action = request.Action
 			targetHandle, err = windows.OpenProcess(windows.SYNCHRONIZE, false, pid)
 			if err != nil {
 				cancelStartup()
@@ -752,9 +643,60 @@ func runRunnerWindowsController() (resultErr error) {
 			if err != nil {
 				return err
 			}
+		case "observe":
+			if target == nil || target.progress == nil || consumed || consumption != nil ||
+				request.PID == 0 || request.PID != uint32(target.cmd.Process.Pid) ||
+				request.Action != action || request.ConsumptionDeadline.IsZero() {
+				return errors.New("invalid or duplicate exact-target consumption observation")
+			}
+			deadline := request.ConsumptionDeadline
+			if limit := time.Now().Add(5 * time.Second); limit.Before(deadline) {
+				deadline = limit
+			}
+			consumption, cancelConsumption = context.WithDeadline(context.Background(), deadline)
+			defer cancelConsumption()
+			proof, err := waitRunnerReadProgress(consumption, target.progress, target.done)
+			if err != nil {
+				return fmt.Errorf("observing actual Windows stdin consumption: %w; raw stderr=%s", err, target.stderr.snapshot())
+			}
+			if err := proof.validate(target.progress.nonce, request.PID, action, request.ExpectedBytes, request.ExpectedSHA256); err != nil {
+				return err
+			}
+			if err := runnerConsoleContextError(consumption); err != nil {
+				return err
+			}
+			state, err := windows.WaitForSingleObject(targetHandle, 0)
+			if err != nil {
+				return err
+			}
+			if err := runnerConsoleContextError(consumption); err != nil {
+				return err
+			}
+			if state != uint32(windows.WAIT_TIMEOUT) || len(target.stdout.snapshot()) != 0 {
+				return errors.New("Windows target completed or emitted output before consumption admission")
+			}
+			if err := runnerConsoleContextError(consumption); err != nil {
+				return err
+			}
+			if err := events.Encode(runnerWindowsMessage{Kind: "consumed", PID: request.PID, Progress: &proof}); err != nil {
+				return err
+			}
+			consumed = true
 		case "cancel":
 			if target == nil || request.PID == 0 || request.PID != uint32(target.cmd.Process.Pid) {
 				return errors.New("Windows cancellation did not name the exact owned target group")
+			}
+			if !consumed || consumption == nil {
+				return errors.New("Windows cancellation requires validated actual stdin consumption")
+			}
+			if err := runnerConsoleContextError(consumption); err != nil {
+				return err
+			}
+			if _, err := target.progress.result(); err != nil {
+				return err
+			}
+			if err := runnerConsoleContextError(consumption); err != nil {
+				return err
 			}
 			state, err := windows.WaitForSingleObject(targetHandle, 0)
 			if err != nil {
@@ -763,22 +705,32 @@ func runRunnerWindowsController() (resultErr error) {
 			if state != uint32(windows.WAIT_TIMEOUT) || len(target.stdout.snapshot()) != 0 {
 				return errors.New("Windows target completed or emitted output before input cancellation")
 			}
+			if err := runnerConsoleContextError(consumption); err != nil {
+				return err
+			}
 			if err := runnerWindowsConsoleContains(request.PID); err != nil {
+				return err
+			}
+			if err := runnerConsoleContextError(consumption); err != nil {
 				return err
 			}
 			if err := windows.GenerateConsoleCtrlEvent(windows.CTRL_BREAK_EVENT, request.PID); err != nil {
 				return fmt.Errorf("sending targeted CTRL_BREAK: %w", err)
 			}
+			cancelConsumption()
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			waitErr := target.wait(ctx)
 			cancel()
+			if _, progressErr := target.progress.result(); progressErr != nil {
+				return errors.Join(waitErr, fmt.Errorf("final stdin progress/copy integrity: %w", progressErr))
+			}
 			exit, ok := errors.AsType[*exec.ExitError](waitErr)
 			if !ok {
 				return fmt.Errorf("expected CLI cancellation exit after CTRL_BREAK, got %v", waitErr)
 			}
 			if err := events.Encode(runnerWindowsMessage{
 				Kind: "result", PID: request.PID, Code: exit.ExitCode(),
-				Stdout: target.stdout.snapshot(), Stderr: target.stderr.snapshot(),
+				Stdout: target.stdout.snapshot(), Stderr: target.progress.cliSnapshot(), RawStderr: target.stderr.snapshot(),
 			}); err != nil {
 				return err
 			}

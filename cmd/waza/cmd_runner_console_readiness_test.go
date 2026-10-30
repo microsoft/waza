@@ -275,10 +275,24 @@ func TestRunnerTerminalConsoleReadinessController(t *testing.T) {
 				switch declaration := declaration.(type) {
 				case *ast.FuncDecl:
 					matches = declaration.Name.Name == name
+					if declaration.Recv != nil {
+						receiver := declaration.Recv.List[0].Type
+						if pointer, ok := receiver.(*ast.StarExpr); ok {
+							receiver = pointer.X
+						}
+						if receiver, ok := receiver.(*ast.Ident); ok {
+							matches = matches || receiver.Name+"."+declaration.Name.Name == name
+						}
+					}
 				case *ast.GenDecl:
 					for _, spec := range declaration.Specs {
 						if spec, ok := spec.(*ast.TypeSpec); ok && spec.Name.Name == name {
 							matches = true
+						}
+						if spec, ok := spec.(*ast.ValueSpec); ok {
+							for _, identifier := range spec.Names {
+								matches = matches || identifier.Name == name
+							}
 						}
 					}
 				}
@@ -293,7 +307,13 @@ func TestRunnerTerminalConsoleReadinessController(t *testing.T) {
 		}
 		return output.String()
 	}
-	controller := declarations("cmd_runner_terminal_windows_test.go", "runnerWindowsMessage", "runRunnerWindowsController")
+	controller := declarations("cmd_runner_read_progress_test.go", "runnerWindowsMessage") +
+		declarations("cmd_runner_terminal_windows_test.go", "runRunnerWindowsController")
+	progress := declarations("cmd_runner_read_progress_test.go",
+		"runnerReadProgressSize", "runnerReadProgressPrefix", "runnerReadProgress", "validate", "runnerProgressNonce",
+		"runnerReadProgressStream", "newRunnerReadProgressStream", "notify",
+		"runnerReadProgressStream.Write", "runnerReadProgressStream.finish", "result", "cliSnapshot", "waitRunnerReadProgress")
+	progress = strings.Replace(progress, "func (s *runnerReadProgressStream) result(", "func (s *runnerReadProgressStream) fixtureResult(", 1)
 	t.Logf("exact native controller declarations SHA256=%x", sha256.Sum256([]byte(controller)))
 	policy := declarations("cmd_runner_console_readiness_test.go", "runnerConsoleSample", "runnerConsoleReadiness",
 		"record", "runnerConsoleContextError", "waitRunnerConsoleReady")
@@ -305,7 +325,7 @@ func TestRunnerTerminalConsoleReadinessController(t *testing.T) {
 	dir := t.TempDir()
 	for name, content := range map[string]string{
 		"go.mod":             "module controllerfixture\n\ngo 1.26\n",
-		"controller.go":      runnerConsoleControllerFixture + controller + policy + poll,
+		"controller.go":      runnerConsoleControllerFixture + controller + policy + poll + progress,
 		"controller_test.go": runnerConsoleControllerTests,
 		"context/context.go": runnerConsoleContextFixture,
 		"windows/windows.go": runnerConsoleWindowsFixture,
@@ -326,7 +346,10 @@ func TestRunnerTerminalConsoleReadinessController(t *testing.T) {
 		args = append(args, "-covermode=atomic", "-coverprofile="+filepath.Join(dir, "controller.cover"))
 	}
 	args = append(args, ".")
-	command := exec.CommandContext(t.Context(), "go", args...)
+	ctx, cancel := context.WithTimeout(t.Context(), 45*time.Second)
+	defer cancel()
+	command := exec.CommandContext(ctx, "go", args...)
+	command.WaitDelay = 2 * time.Second
 	command.Dir = dir
 	t.Logf("nonnative exact-source controller fixture command: go %q", args)
 	output, err := command.CombinedOutput()
@@ -335,6 +358,16 @@ func TestRunnerTerminalConsoleReadinessController(t *testing.T) {
 		"before-final/canceled", "before-final/deadline", "before-final/wall-clock",
 		"before-started/canceled", "before-started/deadline", "before-started/wall-clock",
 		"positive", "final-api-error", "final-exited", "final-wrong-pid", "final-overflow",
+		"progress/positive-signal", "progress/missing", "progress/wrong-pid", "progress/wrong-action",
+		"progress/wrong-digest", "progress/partial-bytes", "progress/duplicate", "progress/malformed",
+		"progress/early-exit", "progress/no-admission", "progress/after-progress/canceled",
+		"progress/late-duplicate", "progress/cleanup-error", "progress/wrong-cancel-pid",
+		"progress/duplicate-observe", "progress/early-output", "progress/wrong-nonce",
+		"progress/after-progress/deadline", "progress/after-progress/wall-clock",
+		"progress/before-consumed/canceled", "progress/before-consumed/deadline", "progress/before-consumed/wall-clock",
+		"progress/before-signal/canceled", "progress/before-signal/deadline", "progress/before-signal/wall-clock",
+		"progress/after-final-proof/canceled", "progress/after-final-proof/deadline", "progress/after-final-proof/wall-clock",
+		"progress/read-liveness-error", "progress/cancel-liveness-error",
 	} {
 		require.Contains(t, string(output), `"Action":"pass","Package":"controllerfixture","Test":"TestActualController/`+name+`"`)
 		t.Logf("actual controller regression/control passed: %s", name)
@@ -364,6 +397,7 @@ func TestRunnerTerminalConsoleReadinessController(t *testing.T) {
 		}
 		require.Positive(t, covered, "actual controller statements, not only fixture fakes, must execute under atomic coverage")
 		t.Logf("actual controller covered statements=%d; nonnative OS boundaries", covered)
+		t.Logf("nested_controller_atomic_profile_hex=%x", profile)
 	}
 }
 
@@ -375,6 +409,7 @@ import (
 )
 
 type Context = context.Context
+type CancelFunc = context.CancelFunc
 
 var Background = context.Background
 var WithTimeout = context.WithTimeout
@@ -382,6 +417,8 @@ var Canceled = context.Canceled
 var DeadlineExceeded = context.DeadlineExceeded
 var CancelStartup context.CancelFunc
 var HideTimerError bool
+var DeadlineCalls int
+var Consumption Context
 
 type delayedTimer struct{ context.Context }
 
@@ -389,14 +426,19 @@ func (c delayedTimer) Err() error { return nil }
 func WithDeadline(parent Context, deadline time.Time) (Context, context.CancelFunc) {
 	ctx, cancel := context.WithDeadline(parent, deadline)
 	CancelStartup = cancel
+	DeadlineCalls++
+	var result Context = ctx
 	if HideTimerError {
-		return delayedTimer{ctx}, cancel
+		result = delayedTimer{ctx}
 	}
-	return ctx, cancel
+	if DeadlineCalls == 2 { Consumption = result }
+	return result, cancel
 }
 `
 
 const runnerConsoleWindowsFixture = `package windows
+
+import "errors"
 
 type Handle uintptr
 
@@ -405,11 +447,22 @@ const WAIT_TIMEOUT = 258
 const CTRL_BREAK_EVENT = 1
 
 var Closed, Signals int
+var State uint32 = WAIT_TIMEOUT
+var SignalFailure = errors.New("fixture signal reached")
+var ContinueSignal bool
+var WaitCalls, WaitAfterBudget, FailWaitAt int
+var ObservationBudgetExpired func()bool
+var WaitFailure=errors.New("fixture liveness query failed")
 
 func OpenProcess(_ uint32, _ bool, _ uint32) (Handle, error) { return 7, nil }
 func CloseHandle(_ Handle) error                             { Closed++; return nil }
-func WaitForSingleObject(_ Handle, _ uint32) (uint32, error) { return WAIT_TIMEOUT, nil }
-func GenerateConsoleCtrlEvent(_ uint32, _ uint32) error      { Signals++; return nil }
+func WaitForSingleObject(_ Handle, _ uint32) (uint32, error) {
+	WaitCalls++
+	if ObservationBudgetExpired!=nil && ObservationBudgetExpired(){WaitAfterBudget++}
+	if WaitCalls==FailWaitAt{return 0,WaitFailure}
+	return State,nil
+}
+func GenerateConsoleCtrlEvent(_ uint32, _ uint32) error      { Signals++; if ContinueSignal{return nil}; return SignalFailure }
 `
 
 const runnerConsoleControllerFixture = `package main
@@ -419,10 +472,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"runtime"
 	"slices"
+	"strings"
+	"sync"
 	"time"
 
 	"controllerfixture/context"
@@ -438,27 +494,47 @@ var scenario, interval, interruption string
 var returnedReady, injected, wallClockOnly bool
 var observations, observationsAfterBudget, failures, targetStops int
 var failureReport runnerConsoleReadiness
+var progressChecks, progressResults int
+var cleanupFailure=errors.New("fixture owned cleanup failed")
 
-type fixtureOutput struct{ data []byte }
+func(s *runnerReadProgressStream)result()(runnerReadProgress,error){
+	proof,err:=s.fixtureResult()
+	progressResults++
+	if interval=="after-final-proof" && progressResults==2 {interruptProgress(context.Consumption)}
+	return proof,err
+}
 
-func (o *fixtureOutput) snapshot() []byte { return bytes.Clone(o.data) }
+type fixtureOutput struct{ mu sync.Mutex; data []byte }
+
+func (o *fixtureOutput) snapshot() []byte { o.mu.Lock(); defer o.mu.Unlock(); return bytes.Clone(o.data) }
+func (o *fixtureOutput) Write(p []byte) (int,error) { o.mu.Lock(); defer o.mu.Unlock(); o.data=append(o.data,p...); return len(p),nil }
 
 type runnerWindowsProcess struct {
 	cmd            *exec.Cmd
 	done           chan struct{}
 	stdout, stderr *fixtureOutput
 	stopped        bool
+	progress       *runnerReadProgressStream
 }
 
-func (p *runnerWindowsProcess) wait(context.Context) error { return nil }
+func (p *runnerWindowsProcess) wait(context.Context) error {
+	if scenario=="progress/late-duplicate" && p.cmd.Process.Pid==42 {
+		proof:=runnerReadProgress{1,p.progress.nonce,42,"validate",true,runnerReadProgressSize,strings.Repeat("b",64)}
+		data,_:=json.Marshal(proof)
+		p.progress.Write([]byte(runnerReadProgressPrefix+p.progress.nonce+" "+string(data)+"\n"))
+		return &exec.ExitError{}
+	}
+	return nil
+}
 func (p *runnerWindowsProcess) stop() error {
 	if p.cmd.Process.Pid == 42 && !p.stopped {
 		targetStops++
 		p.stopped = true
+		if scenario=="progress/cleanup-error" {return cleanupFailure}
 	}
 	return nil
 }
-func spawnRunnerWindowsTarget(_ runnerWindowsMessage, probe bool) (*runnerWindowsProcess, error) {
+func spawnRunnerWindowsTarget(request runnerWindowsMessage, probe bool) (*runnerWindowsProcess, error) {
 	p := &runnerWindowsProcess{
 		cmd: &exec.Cmd{Process: &os.Process{Pid: 42}}, done: make(chan struct{}),
 		stdout: &fixtureOutput{}, stderr: &fixtureOutput{},
@@ -467,7 +543,26 @@ func spawnRunnerWindowsTarget(_ runnerWindowsMessage, probe bool) (*runnerWindow
 		p.cmd.Process.Pid = 19
 		p.stdout.data, _ = json.Marshal(runnerWindowsMessage{Kind: "capability", NoDeadline: true, GoVersion: runtime.Version()})
 	}
-	close(p.done)
+	if !probe {
+		p.progress = newRunnerReadProgressStream(request.ProgressNonce, p.stderr)
+		if strings.HasPrefix(scenario,"progress/") && scenario!="progress/missing" {
+			proof:=runnerReadProgress{1,request.ProgressNonce,42,"validate",true,runnerReadProgressSize,strings.Repeat("b",64)}
+			switch scenario {
+			case "progress/wrong-pid": proof.PID=420
+			case "progress/wrong-action": proof.Action="run"
+			case "progress/wrong-digest","progress/cleanup-error": proof.SHA256=strings.Repeat("c",64)
+			case "progress/partial-bytes": proof.Bytes=1
+			case "progress/wrong-nonce": proof.Nonce=strings.Repeat("c",32)
+			}
+			data,_:=json.Marshal(proof)
+			frame:=runnerReadProgressPrefix+request.ProgressNonce+" "+string(data)+"\n"
+			if scenario=="progress/duplicate" { frame+=frame }
+			if scenario=="progress/malformed" { frame=runnerReadProgressPrefix+request.ProgressNonce+" {}\n" }
+			p.progress.Write([]byte(frame))
+			if scenario=="progress/early-output" {p.stdout.data=[]byte("unexpected output")}
+		}
+	}
+	if probe || !strings.HasPrefix(scenario,"progress/") || scenario=="progress/early-exit" { close(p.done) }
 	return p, nil
 }
 func decodeRunnerHelperSnapshot(data []byte, _ ...string) ([][]byte, error) {
@@ -478,7 +573,20 @@ func runnerWindowsStartupFailure(target *runnerWindowsProcess, report runnerCons
 	failureReport = report
 	return errors.Join(fmt.Errorf("Windows target startup admission: %w", err), target.stop())
 }
-func runnerWindowsConsoleContains(uint32) error { return nil }
+func interruptProgress(ctx context.Context) {
+	injected=true
+	switch interruption {
+	case "canceled": context.CancelStartup()
+	case "deadline","wall-clock":
+		deadline,_:=ctx.Deadline()
+		time.Sleep(time.Until(deadline))
+		wallClockOnly=ctx.Err()==nil && !time.Now().Before(deadline)
+	}
+}
+func runnerWindowsConsoleContains(uint32) error {
+	if interval=="before-signal" { interruptProgress(context.Consumption) }
+	return nil
+}
 func runnerWindowsConsoleObservation(windows.Handle) (runnerConsoleSample, error) {
 	observations++
 	if injected {
@@ -506,6 +614,11 @@ func waitRunnerConsoleReady(ctx context.Context, pid uint32, inspect func() (run
 }
 func runnerConsoleContextError(ctx context.Context) error {
 	err := fixtureConsoleContextError(ctx)
+	if ctx==context.Consumption {
+		progressChecks++
+		boundary:=interval=="after-progress" && progressChecks==2 || interval=="before-consumed" && progressChecks==4
+		if err==nil && !injected && boundary { interruptProgress(ctx) }
+	}
 	atBoundary := interval == "before-final" && returnedReady && observations == 1 ||
 		interval == "before-started" && observations == 2
 	if err == nil && !injected && atBoundary {
@@ -532,6 +645,7 @@ import (
 	"errors"
 	"io"
 	"os"
+	"strings"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -550,6 +664,24 @@ func TestActualController(t *testing.T) {
 		{"before-started/wall-clock", "before-started", "wall-clock"},
 		{name: "positive"}, {name: "final-api-error"}, {name: "final-exited"},
 		{name: "final-wrong-pid"}, {name: "final-overflow"},
+		{name:"progress/positive-signal"}, {name:"progress/missing"}, {name:"progress/wrong-pid"},
+		{name:"progress/wrong-action"}, {name:"progress/wrong-digest"}, {name:"progress/partial-bytes"},
+		{name:"progress/duplicate"}, {name:"progress/malformed"}, {name:"progress/early-exit"}, {name:"progress/no-admission"},
+		{name:"progress/late-duplicate"}, {name:"progress/cleanup-error"}, {name:"progress/wrong-cancel-pid"},
+		{name:"progress/duplicate-observe"}, {name:"progress/early-output"}, {name:"progress/wrong-nonce"},
+		{"progress/after-progress/canceled","after-progress","canceled"},
+		{"progress/after-progress/deadline","after-progress","deadline"},
+		{"progress/after-progress/wall-clock","after-progress","wall-clock"},
+		{"progress/before-consumed/canceled","before-consumed","canceled"},
+		{"progress/before-consumed/deadline","before-consumed","deadline"},
+		{"progress/before-consumed/wall-clock","before-consumed","wall-clock"},
+		{"progress/before-signal/canceled","before-signal","canceled"},
+		{"progress/before-signal/deadline","before-signal","deadline"},
+		{"progress/before-signal/wall-clock","before-signal","wall-clock"},
+		{"progress/after-final-proof/canceled","after-final-proof","canceled"},
+		{"progress/after-final-proof/deadline","after-final-proof","deadline"},
+		{"progress/after-final-proof/wall-clock","after-final-proof","wall-clock"},
+		{name:"progress/read-liveness-error"}, {name:"progress/cancel-liveness-error"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -559,7 +691,20 @@ func TestActualController(t *testing.T) {
 				observations, observationsAfterBudget, failures, targetStops = 0, 0, 0, 0
 				windows.Closed, windows.Signals = 0, 0
 				context.HideTimerError = interruption == "wall-clock"
+				context.DeadlineCalls, progressChecks = 0, 0
+				progressResults=0
+				context.Consumption=nil
+				windows.State=windows.WAIT_TIMEOUT
+				windows.WaitCalls,windows.WaitAfterBudget,windows.FailWaitAt=0,0,0
+				windows.ObservationBudgetExpired=func()bool{
+					return context.Consumption!=nil && fixtureConsoleContextError(context.Consumption)!=nil
+				}
+				windows.ContinueSignal=scenario=="progress/late-duplicate"
 				failureReport = runnerConsoleReadiness{}
+				if strings.HasPrefix(scenario,"progress/") {
+					runProgressScenario(t)
+					return
+				}
 				input, producer, err := os.Pipe()
 				if err != nil {
 					t.Fatal(err)
@@ -584,7 +729,7 @@ func TestActualController(t *testing.T) {
 				encoder := json.NewEncoder(&requests)
 				for _, request := range []runnerWindowsMessage{
 					{Kind: "arm"}, {Kind: "probe"},
-					{Kind: "start", Binary: "fake-owned-target", Action: "validate", StartupDeadline: time.Now().Add(time.Second)},
+					{Kind: "start", Binary: "fake-owned-target", Action: "validate", StartupDeadline: time.Now().Add(time.Second), ProgressNonce: strings.Repeat("a",32)},
 					{Kind: "finish"},
 				} {
 					if err := encoder.Encode(request); err != nil {
@@ -695,6 +840,87 @@ func TestActualController(t *testing.T) {
 				}
 			})
 		})
+	}
+}
+
+func runProgressScenario(t *testing.T) {
+	input, producer, err:=os.Pipe()
+	if err!=nil {t.Fatal(err)}
+	reader, output, err:=os.Pipe()
+	if err!=nil {t.Fatal(err)}
+	defer input.Close()
+	defer producer.Close()
+	defer reader.Close()
+	originalIn,originalOut:=os.Stdin,os.Stdout
+	os.Stdin,os.Stdout=input,output
+	defer func(){os.Stdin,os.Stdout=originalIn,originalOut}()
+	nonce:=strings.Repeat("a",32)
+	requests:=[]runnerWindowsMessage{
+		{Kind:"arm"},{Kind:"probe"},
+		{Kind:"start",Binary:"fake-owned-target",Action:"validate",StartupDeadline:time.Now().Add(time.Second),ProgressNonce:nonce},
+	}
+	if scenario!="progress/no-admission" {
+		observe:=runnerWindowsMessage{
+			Kind:"observe",PID:42,Action:"validate",ConsumptionDeadline:time.Now().Add(2*time.Second),
+			ExpectedBytes:runnerReadProgressSize,ExpectedSHA256:strings.Repeat("b",64),
+		}
+		requests=append(requests,observe)
+		if scenario=="progress/duplicate-observe" {requests=append(requests,observe)}
+	}
+	cancelPID:=uint32(42)
+	if scenario=="progress/wrong-cancel-pid" {cancelPID=420}
+	requests=append(requests,runnerWindowsMessage{Kind:"cancel",PID:cancelPID},runnerWindowsMessage{Kind:"finish"})
+	var wire bytes.Buffer
+	for _,request:=range requests {
+		if err:=json.NewEncoder(&wire).Encode(request); err!=nil {t.Fatal(err)}
+	}
+	if _,err:=producer.Write(wire.Bytes());err!=nil {t.Fatal(err)}
+	if scenario=="progress/early-exit" {windows.State=0}
+	if scenario=="progress/read-liveness-error" {windows.FailWaitAt=1}
+	if scenario=="progress/cancel-liveness-error" {windows.FailWaitAt=2}
+	result:=runRunnerWindowsController()
+	os.Stdout=originalOut
+	if err:=output.Close();err!=nil {t.Fatal(err)}
+	if result==nil {t.Fatal("fixture expected diagnostic, not native terminal acceptance")}
+	var events []runnerWindowsMessage
+	decoder:=json.NewDecoder(reader)
+	for {
+		var event runnerWindowsMessage
+		if err:=decoder.Decode(&event);errors.Is(err,io.EOF){break}else if err!=nil {t.Fatal(err)}
+		events=append(events,event)
+	}
+	kinds:=[]string{"ready","armed","capability","started"}
+	wantConsumed:=interval=="before-signal" || interval=="after-final-proof" || scenario=="progress/positive-signal" ||
+		scenario=="progress/late-duplicate" || scenario=="progress/wrong-cancel-pid" || scenario=="progress/duplicate-observe" ||
+		scenario=="progress/cancel-liveness-error"
+	if wantConsumed {kinds=append(kinds,"consumed")}
+	if len(events)!=len(kinds){t.Fatalf("events=%+v want=%v; error=%v",events,kinds,result)}
+	for i,kind:=range kinds {if events[i].Kind!=kind {t.Fatalf("event=%+v want=%s",events[i],kind)}}
+	wantSignals:=0
+	if scenario=="progress/positive-signal" || scenario=="progress/late-duplicate" {
+		wantSignals=1
+		if scenario=="progress/positive-signal" && !errors.Is(result,windows.SignalFailure){t.Fatalf("signal path not reached: %v",result)}
+		if scenario=="progress/late-duplicate" && !strings.Contains(result.Error(),"duplicate"){t.Fatalf("lost post-join parser error: %v",result)}
+	}
+	if windows.Signals!=wantSignals || windows.Closed!=1 || targetStops!=1 {
+		t.Fatalf("signal=%d want=%d close=%d stops=%d",windows.Signals,wantSignals,windows.Closed,targetStops)
+	}
+	if windows.WaitAfterBudget!=0 {t.Fatalf("post-budget liveness observations=%d",windows.WaitAfterBudget)}
+	if (scenario=="progress/read-liveness-error"||scenario=="progress/cancel-liveness-error")&&!errors.Is(result,windows.WaitFailure){
+		t.Fatalf("lost liveness API error: %v",result)
+	}
+	if interval!="" {
+		if !injected {t.Fatal("intended actual-controller return boundary not exercised")}
+		cause:=context.Canceled
+		if interruption!="canceled" {cause=context.DeadlineExceeded}
+		if !errors.Is(result,cause){t.Fatalf("cause=%v want=%v",result,cause)}
+		if interruption=="wall-clock" && !wallClockOnly {t.Fatal("did not isolate wall-clock expiry")}
+	}
+	if scenario=="progress/no-admission" && !strings.Contains(result.Error(),"requires validated") {
+		t.Fatalf("missing consumption enforcement: %v",result)
+	}
+	if scenario=="progress/cleanup-error" && (!errors.Is(result,cleanupFailure)||!strings.Contains(result.Error(),"identity")) {
+		t.Fatalf("lost original or cleanup error: %v",result)
 	}
 }
 `
