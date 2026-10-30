@@ -654,6 +654,11 @@ func (e *CopilotEngine) execute(ctx context.Context, req *ExecutionRequest) (*Ex
 	// session.shutdown events later during client.Stop(). The usage handler is
 	// stored in e.collectors so we can read final usage after shutdown.
 	var eventsMu sync.Mutex
+	collectEvent := func(event copilot.SessionEvent) {
+		eventsMu.Lock()
+		defer eventsMu.Unlock()
+		eventsCollector.On(event)
+	}
 	var sendDiagnostic atomic.Bool
 	finishEvents := func() {}
 	if e.diagnostics != nil {
@@ -681,9 +686,7 @@ func (e *CopilotEngine) execute(ctx context.Context, req *ExecutionRequest) (*Ex
 				sendDiagnostic.Store(true)
 				event.Data = &copilot.SessionErrorData{Message: (&DiagnosticError{Diagnostic: ExecutionDiagnostic{Stage: StageExecute, Code: CodeSend}}).Error()}
 			}
-			eventsMu.Lock()
-			defer eventsMu.Unlock()
-			eventsCollector.On(event)
+			collectEvent(event)
 		})
 		var finishOnce sync.Once
 		finishEvents = func() {
@@ -699,7 +702,7 @@ func (e *CopilotEngine) execute(ctx context.Context, req *ExecutionRequest) (*Ex
 		}
 		defer finishEvents()
 	} else {
-		session.On(eventsCollector.On)
+		session.On(collectEvent)
 	}
 	session.On(usageCollector.On)
 
@@ -822,18 +825,13 @@ func (e *CopilotEngine) execute(ctx context.Context, req *ExecutionRequest) (*Ex
 	var skillInvocations []SkillInvocation
 	var toolCalls []models.ToolCall
 	func() {
-		if e.diagnostics != nil {
-			eventsMu.Lock()
-			defer eventsMu.Unlock()
-		}
+		// SendAndWait may return while the SDK is still delivering an event.
+		eventsMu.Lock()
+		defer eventsMu.Unlock()
 		finalOutput = joinStrings(eventsCollector.OutputParts())
-		collectedEvents = eventsCollector.SessionEvents()
-		skillInvocations = eventsCollector.SkillInvocations
+		collectedEvents = append([]copilot.SessionEvent(nil), eventsCollector.SessionEvents()...)
+		skillInvocations = append([]SkillInvocation(nil), eventsCollector.SkillInvocations...)
 		toolCalls = eventsCollector.ToolCalls()
-		if e.diagnostics != nil {
-			collectedEvents = append([]copilot.SessionEvent(nil), collectedEvents...)
-			skillInvocations = append([]SkillInvocation(nil), skillInvocations...)
-		}
 	}()
 	resp := &ExecutionResponse{
 		FinalOutput:        finalOutput,

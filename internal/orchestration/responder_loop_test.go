@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	copilot "github.com/github/copilot-sdk/go"
 	"github.com/microsoft/waza/internal/config"
 	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/models"
@@ -103,4 +104,64 @@ func TestResponderLoopCapExhausted(t *testing.T) {
 	require.Equal(t, models.ResponderOutcomeCapExhausted, rr.Responder.Outcome)
 	require.Equal(t, 2, rr.Responder.FollowupsSent)
 	require.NotEqual(t, models.StatusError, rr.Status)
+}
+
+type responderExecutorFunc func(context.Context, *execution.ExecutionRequest) (*execution.ExecutionResponse, error)
+
+func (f responderExecutorFunc) Execute(ctx context.Context, req *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
+	return f(ctx, req)
+}
+
+func TestResponderLoopPreservesExecutionFailure(t *testing.T) {
+	for _, phase := range []string{"initial", "resumed"} {
+		t.Run(phase, func(t *testing.T) {
+			r := newResponderTestRunner(t)
+			calls := 0
+			exec := responderExecutorFunc(func(_ context.Context, req *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
+				calls++
+				if calls == 1 {
+					require.Empty(t, req.SessionID)
+				} else {
+					require.Equal(t, "responder-session", req.SessionID)
+				}
+				if phase == "resumed" && calls == 1 {
+					for _, tool := range req.Tools {
+						if tool.Name == "responder_reply" {
+							_, err := tool.Handler(copilot.ToolInvocation{Arguments: map[string]any{"answer": "synthetic answer"}})
+							require.NoError(t, err)
+							return &execution.ExecutionResponse{SessionID: "responder-session", Success: true}, nil
+						}
+					}
+					t.Fatal("responder_reply tool missing")
+				}
+				return &execution.ExecutionResponse{
+					SessionID: "responder-session", Success: false, ErrorMsg: "synthetic provider rejection",
+				}, nil
+			})
+			r.newClassifier = func(cfg models.ResponderConfig, model string) responderClassifier {
+				return responder.New(exec, cfg, model)
+			}
+			tc := &models.TestCase{
+				TestID: "synthetic-responder-failure",
+				Stimulus: models.TaskStimulus{
+					Message: "Synthetic question?",
+					Responder: &models.ResponderConfig{
+						Instructions: "Use the synthetic answer.", MaxFollowups: 3,
+					},
+				},
+			}
+			rr := r.executeRun(t.Context(), tc, 1)
+			require.Equal(t, models.StatusError, rr.Status)
+			require.Equal(t, "responder error: responder execution failed: synthetic provider rejection", rr.ErrorMsg)
+			require.NotNil(t, rr.Responder)
+			require.Equal(t, models.ResponderOutcomeError, rr.Responder.Outcome)
+			require.Equal(t, "responder execution failed: synthetic provider rejection", rr.Responder.Reason)
+			wantCalls := 1
+			if phase == "resumed" {
+				wantCalls = 2
+			}
+			require.Equal(t, wantCalls, calls)
+			require.Equal(t, wantCalls-1, rr.Responder.FollowupsSent)
+		})
+	}
 }

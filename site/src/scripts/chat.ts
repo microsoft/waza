@@ -2,11 +2,12 @@ import {
   answer, boundedHistory, bytes, json, metadata, object, requestBody, ServiceError, serviceError,
   type HistoryItem, type Metadata,
 } from './chat-contract';
+import { publicChatConfig } from './chat-public-config';
 
-// No environment variable or DOM attribute can enable sending in a production build.
 const fixtures = import.meta.env.DEV && import.meta.env.PUBLIC_CHAT_FIXTURES === 'true';
 const privatePreview = import.meta.env.DEV && import.meta.env.PUBLIC_CHAT_PRIVATE_PREVIEW === 'true';
-const api = 'https://waza-chat.example/api';
+const publicChat = publicChatConfig(import.meta.env);
+const api = publicChat?.api ?? 'https://waza-chat.example/api';
 const maxVisibleAnswers = 6;
 type Turnstile = {
   render(element: HTMLElement, options: Record<string, unknown>): string;
@@ -18,6 +19,7 @@ declare global {
     readonly env: {
       readonly DEV: boolean; readonly PUBLIC_CHAT_FIXTURES?: string;
       readonly PUBLIC_CHAT_PRIVATE_PREVIEW?: string;
+      readonly PUBLIC_CHAT_API_URL?: string; readonly PUBLIC_CHAT_TURNSTILE_SITEKEY?: string;
     };
   }
 }
@@ -29,8 +31,7 @@ function loadChallenge() {
     challengeScript = new Promise<void>((resolve, reject) => {
       const script = document.createElement('script');
       const timeout = window.setTimeout(() => reject(new Error('Bot protection could not load. Please use documentation search.')), 15000);
-      // Reserved fixture origin only; never load a real challenge or service in this preview.
-      script.src = 'https://waza-chat.example/challenge.js';
+      script.src = publicChat?.challengeScript ?? 'https://waza-chat.example/challenge.js';
       script.async = true;
       script.onload = () => { clearTimeout(timeout); resolve(); };
       script.onerror = () => { clearTimeout(timeout); reject(new Error('Bot protection could not load. Please use documentation search.')); };
@@ -60,8 +61,9 @@ export async function initializeChat(root: HTMLElement) {
   const cancel = required<HTMLButtonElement>('[data-chat-cancel]');
   const challenge = required('[data-chat-challenge]');
   const clear = required<HTMLButtonElement>('[data-chat-clear]');
-  if (!fixtures && !privatePreview) {
+  if (!fixtures && !privatePreview && (!publicChat || location.origin !== publicChat.origin)) {
     form.addEventListener('submit', (event) => event.preventDefault());
+    question.disabled = yaml.disabled = kind.disabled = clear.disabled = true;
     status.textContent = 'Public chat is unavailable. Use documentation search or browse the CLI reference.';
     return;
   }
@@ -75,9 +77,10 @@ export async function initializeChat(root: HTMLElement) {
   let busy = false;
   let cooldownUntil = 0;
   let cooldownTimer: number | undefined;
+  const requiresChallenge = !privatePreview && (fixtures || !!publicChat?.sitekey);
   const sessionValid = () => session && session.expires > Date.now() + 1000;
   const update = () => {
-    send.disabled = busy || Date.now() < cooldownUntil || !expected || (!privatePreview && !sessionValid() && !challengeToken);
+    send.disabled = busy || Date.now() < cooldownUntil || !expected || (requiresChallenge && !sessionValid() && !challengeToken);
     cancel.disabled = !busy;
     question.disabled = busy;
     yaml.disabled = busy;
@@ -142,7 +145,7 @@ export async function initializeChat(root: HTMLElement) {
     status.textContent = 'Checking the documentation...';
     try {
       if (!privatePreview && !sessionValid()) {
-        if (!challengeToken) throw new Error('Complete bot protection before sending.');
+        if (requiresChallenge && !challengeToken) throw new Error('Complete bot protection before sending.');
         const token = challengeToken;
         challengeToken = '';
         if (Array.from(token).length > 2048 || bytes(JSON.stringify({ challengeToken: token })) > 4096) {
@@ -225,7 +228,7 @@ export async function initializeChat(root: HTMLElement) {
       history = boundedHistory(nextHistory);
       question.value = '';
       yaml.value = '';
-      status.textContent = privatePreview
+      status.textContent = privatePreview || !fixtures
         ? 'Answer ready. Check the linked sources before applying suggestions.'
         : 'Fixture answer ready (simulated, not live). Verify suggestions against the cited documentation.';
     } catch (error) {
@@ -247,8 +250,8 @@ export async function initializeChat(root: HTMLElement) {
       if (dialog.open) question.focus();
     }
   });
-  question.focus();
-  status.textContent = 'Loading bot protection...';
+  if (!form.contains(document.activeElement)) question.focus();
+  status.textContent = requiresChallenge ? 'Loading bot protection...' : 'Loading documentation metadata...';
   try {
     const response = await fetch(root.dataset.metaUrl!, {
       credentials: privatePreview ? 'same-origin' : 'omit', cache: 'no-store', signal: AbortSignal.timeout(15000),
@@ -264,7 +267,7 @@ export async function initializeChat(root: HTMLElement) {
     snapshot.textContent = `Local documentation build: ${value.commit}. A matching fingerprint does not verify answer quality or service readiness.`;
     knowledge.hidden = privatePreview;
     provenance.hidden = privatePreview;
-    if (privatePreview) {
+    if (!requiresChallenge) {
       status.textContent = 'Ready for your question.';
       update();
       return;
@@ -272,7 +275,7 @@ export async function initializeChat(root: HTMLElement) {
     await loadChallenge();
     if (!window.turnstile) throw new Error('Bot protection is unavailable. Please use search.');
     widget = window.turnstile.render(challenge, {
-      sitekey: 'test-public-sitekey', action: 'waza_chat', theme: 'auto',
+      sitekey: publicChat?.sitekey ?? 'test-public-sitekey', action: 'waza_chat', theme: 'auto',
       callback: (token: string) => {
         challengeToken = token;
         if (!busy) status.textContent = 'Ready for your question.';

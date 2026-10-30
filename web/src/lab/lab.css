@@ -1169,7 +1169,8 @@
 }
 .lab-tabs {
   display: flex;
-  gap: 20px;
+  flex-wrap: wrap;
+  gap: 0 20px;
   border-bottom: 1px solid #dce1ea;
   margin-bottom: 20px;
 }
@@ -1184,6 +1185,38 @@
 .lab-tabs button[aria-selected="true"] {
   border-color: #4163da;
   color: #4163da;
+}
+.lab-conversation {
+  display: grid;
+  gap: 16px;
+  list-style: none;
+  padding: 0;
+  margin: 20px 0;
+}
+.lab-conversation li {
+  min-width: 0;
+  border: 1px solid #dce1ea;
+  border-radius: 6px;
+  padding: 16px;
+}
+.lab-conversation .lab-message-user {
+  background: #f6f8fb;
+}
+.lab-message-heading {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+.lab-message-heading span {
+  font-size: 11px;
+  color: #647084;
+}
+.lab-message-content {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.7;
 }
 .lab-task-summary h3 {
   font-size: 15px;

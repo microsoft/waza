@@ -4,9 +4,9 @@ A Go CLI for evaluating agent workflows, skills, and custom agents — author re
 
 📖 **[Getting Started / Docs](https://microsoft.github.io/waza/)**
 
-The docs site also supports an optional **Ask Waza** assistant for cited
-documentation Q&A and pasted YAML/error troubleshooting. Public sending is
-source-hard-disabled, including when the optional launcher is shown. Development
+The docs header includes **Ask Waza** for cited documentation Q&A and pasted
+YAML/error troubleshooting. The panel currently explains that public chat is
+unavailable until the public service is configured. Development
 fixtures are explicitly simulated. A separately launched, authenticated
 loopback-only private preview can test the operator backend without putting its
 Function key in the browser. See [scope, privacy, and integration handoff](site/src/content/docs/guides/docs-assistant.mdx).
@@ -857,9 +857,26 @@ Append a remote grader preset reference to `eval.yaml`, resolve it with the same
 | `--set key=value` | Add a local override, repeatable (for example, `--set config.threshold=0.9`) |
 | `--allow-exec` | Allow remote program graders without interactive confirmation |
 
-### `waza dev [skill-path]`
+### `waza dev <skill-name | skill-path>`
 
 Iteratively score and improve skill frontmatter in a SKILL.md file.
+
+A single target can be a workspace skill name, a directory, or a `SKILL.md` file,
+using relative or absolute paths. Bare names resolve workspace skills first,
+then fall back to local directories; prefix a directory with `./` (or `.\` on
+Windows) to select that path explicitly.
+
+```bash
+waza dev code-explainer
+waza dev ./skills/code-explainer
+waza dev ./skills/code-explainer/SKILL.md
+waza dev SKILL.md                     # file in the current directory
+waza dev .                            # current skill directory
+```
+
+The same target forms work with `--copilot` and `--scaffold-triggers`.
+Multiple positional targets remain workspace skill names; `--all` processes
+all skills in the workspace.
 
 Use `--copilot` for a non-interactive, single-pass markdown report that:
 1. Summarizes current skill details and token usage
@@ -1155,8 +1172,13 @@ waza serve --lab --results-dir ./results
 # Opens http://localhost:3000/#/lab; classic dashboard stays at http://localhost:3000/#/
 ```
 The lab uses saved Waza results for linked charts, searchable history, stable-task
-comparisons, recorded evidence, and JSON/CSV/print reports. Local results refresh
-every 15 seconds or on demand; nonempty remote archives refresh on demand rather
+comparisons, recorded evidence, and JSON/CSV/print reports.
+The inspector's **Conversation** tab shows full recorded user/agent messages
+without tool-event noise or per-message expansion. It uses the first repetition;
+missing messages are not reconstructed, and responder metadata does not establish
+per-message simulated-user provenance.
+Local results refresh every 15 seconds or on demand; nonempty remote archives
+refresh on demand rather
 than being downloaded repeatedly. Current runs shows **saved-result event replay**,
 not live worker discovery or execution controls. Readiness, coverage, and revision
 metadata absent from the API remain explicitly unavailable. `--lab` cannot be
@@ -1994,6 +2016,14 @@ inputs:
 ```
 
 After each agent turn the responder either **replies** (the answer is sent back, continuing the conversation), **stops** (the agent is done), or **abstains** — which fails the run with a distinct `abstained` outcome, signalling the brief is too vague. If `max_followups` is reached while the agent is still asking questions, the loop stops with outcome `cap_exhausted` and graders evaluate the final state. Each task carries its own responder, so the same skill can be tested against several target configurations.
+
+For complete, copyable scripted and adaptive tasks, see the
+[two-question multi-turn example](site/src/content/docs/guides/eval-yaml.mdx#complete-multi-turn-example).
+It includes agent-free preflight, a scripted mock control, real-execution
+prerequisites, and how to interpret stop, abstention, and follow-up limits.
+
+When execution fails before a responder decision, Waza reports the available
+execution error instead of masking it as a missing decision-tool call.
 
 **Fields** (under `inputs.responder`):
 

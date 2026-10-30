@@ -22,11 +22,11 @@
   },
   "dependencies": {
     "@astrojs/starlight": "^0.42.6",
-    "astro": "^7.3.8",
+    "astro": "^7.4.1",
     "sharp": "^0.35.5"
   },
   "devDependencies": {
-    "@playwright/test": "^1.64.0",
+    "@playwright/test": "^1.64.1",
     "typescript": "6.0.3"
   },
   "overrides": {

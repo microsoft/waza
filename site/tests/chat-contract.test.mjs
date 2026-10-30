@@ -1,6 +1,56 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { answer, boundedHistory, bytes, json, requestBody, serviceError } from '../src/scripts/chat-contract.ts';
+import {
+  publicChatConfig, parsePublicChatConfig,
+} from '../src/scripts/chat-public-config.ts';
+
+const publicApi = 'https://func-chat-fskwox3ttikuc.azurewebsites.net/api';
+
+test('prepared public transport uses only the fixed deployment and official explicit challenge script', () => {
+  for (const api of [publicApi, `${publicApi}/`]) {
+    assert.deepEqual(parsePublicChatConfig(api, 'approved-public-sitekey'), {
+      api: publicApi, sitekey: 'approved-public-sitekey', origin: 'https://microsoft.github.io',
+      challengeScript: 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit',
+    });
+  }
+});
+
+test('public transport rejects endpoint overrides and invalid challenge configuration explicitly', () => {
+  for (const api of [
+    undefined, '', 'not a URL', publicApi.replace('https:', 'http:'),
+    'https://other.example/api', `${publicApi}/ask`, `${publicApi}?code=not-a-real-key`,
+    `${publicApi}#fragment`, publicApi.replace('https://', 'https://user:password@'),
+    publicApi.replace('https://', 'https://@'),
+  ]) {
+    assert.throws(() => parsePublicChatConfig(api, 'sitekey'), /public chat|Public chat/);
+  }
+  for (const sitekey of [' key ', 'key\ninjected', '<script>']) {
+    assert.throws(() => parsePublicChatConfig(publicApi, sitekey), /Turnstile sitekey/);
+  }
+});
+
+test('public transport accepts an absent or empty optional sitekey without changing its endpoint or origin', () => {
+  for (const sitekey of [undefined, '']) {
+    const config = parsePublicChatConfig(publicApi, sitekey);
+    assert.equal(config.api, publicApi);
+    assert.equal(config.origin, 'https://microsoft.github.io');
+    assert.equal(config.sitekey, undefined);
+    assert.deepEqual(publicChatConfig({
+      DEV: false, PUBLIC_CHAT_API_URL: publicApi, PUBLIC_CHAT_TURNSTILE_SITEKEY: sitekey,
+    }), config);
+  }
+});
+
+test('production uses public configuration without a source approval switch', () => {
+  const env = { PUBLIC_CHAT_API_URL: publicApi, PUBLIC_CHAT_TURNSTILE_SITEKEY: 'sitekey' };
+  assert.deepEqual(publicChatConfig({ DEV: false, ...env }), parsePublicChatConfig(publicApi, 'sitekey'));
+  assert.equal(publicChatConfig({ DEV: true, ...env }), undefined);
+  assert.equal(publicChatConfig({ DEV: false }), undefined);
+  assert.equal(publicChatConfig({ DEV: true }), undefined);
+  assert.deepEqual(publicChatConfig({ DEV: false, PUBLIC_CHAT_API_URL: publicApi }), parsePublicChatConfig(publicApi));
+  assert.throws(() => publicChatConfig({ DEV: false, PUBLIC_CHAT_TURNSTILE_SITEKEY: 'sitekey' }), /API URL/);
+});
 
 const history = (content) => [{ role: 'user', content }];
 const request = (question = 'Question', prior = [], yaml = '') =>

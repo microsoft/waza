@@ -80,7 +80,7 @@ jobs:
         if: steps.filter.outputs.site == 'true' || github.event_name == 'push'
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: '22.19.0'
+          node-version: '22.22.0'
           cache: npm
           cache-dependency-path: site/package-lock.json
 
@@ -157,7 +157,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: '22.19.0'
+          node-version: '22.22.0'
           cache: npm
           cache-dependency-path: web/package-lock.json
 

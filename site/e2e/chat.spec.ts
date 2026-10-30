@@ -36,6 +36,28 @@ async function send(page: Page, question = 'How do I run an eval?') {
   await page.getByRole('button', { name: 'Send', exact: true }).click();
 }
 
+test('launcher waits for its bootstrap listener before accepting clicks', async ({ page }) => {
+  let release!: () => void;
+  let loading = false;
+  const delayed = new Promise<void>((resolve) => { release = resolve; });
+  await page.route('**/src/components/ChatWidget.astro*', async (route) => {
+    loading = true;
+    await delayed;
+    await route.continue();
+  });
+  await page.route('**/chat-meta.json', (route) => route.fulfill({ status: 503, body: 'unavailable' }));
+  await page.goto('/waza/quick-start/', { waitUntil: 'commit' });
+  const launcher = page.getByRole('button', { name: 'Ask Waza', exact: true });
+  await expect(launcher).toBeVisible();
+  await expect.poll(() => loading).toBe(true);
+  await expect(launcher).toBeDisabled();
+  release();
+  await expect(launcher).toBeEnabled();
+  await launcher.click();
+  await expect(page.getByRole('dialog')).toBeVisible();
+  await expect(page.getByRole('status')).toContainText('metadata is unavailable');
+});
+
 test('lazy loads, exchanges challenge once and sends bounded typed conversation', async ({ page }) => {
   const requests: unknown[] = [];
   let sessions = 0;
@@ -300,9 +322,32 @@ test('rejects YAML byte excess before creating a session', async ({ page }) => {
   page.on('request', (request) => { if (request.url().includes('/api/')) calls++; });
   await page.locator('summary').filter({ hasText: 'Check pasted YAML' }).click();
   await page.getByLabel('YAML without credentials').fill('é'.repeat(4097));
+  await expect(page.getByLabel('YAML without credentials')).toHaveValue('é'.repeat(4097));
   await send(page);
   await expect(page.getByRole('status')).toContainText('8192 UTF-8 bytes');
   expect(calls).toBe(0);
+});
+
+test('lazy initialization preserves early YAML input and form focus', async ({ page }) => {
+  let release!: () => void;
+  let loading = false;
+  const delayed = new Promise<void>((resolve) => { release = resolve; });
+  await page.route('**/src/scripts/chat.ts*', async (route) => {
+    loading = true;
+    await delayed;
+    await route.continue();
+  });
+  await setup(page);
+  await expect.poll(() => loading).toBe(true);
+  await page.locator('summary').filter({ hasText: 'Check pasted YAML' }).click();
+  const yaml = page.getByLabel('YAML without credentials');
+  await yaml.fill('é'.repeat(4097));
+  release();
+  await expect(page.getByRole('status')).toHaveText('Ready for your question.');
+  await expect(yaml).toBeFocused();
+  await expect(yaml).toHaveValue('é'.repeat(4097));
+  await send(page);
+  await expect(page.getByRole('status')).toContainText('8192 UTF-8 bytes');
 });
 
 test('honors cooldown, prevents duplicate submits, and uses new IDs for manual submissions', async ({ page }) => {

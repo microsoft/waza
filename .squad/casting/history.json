@@ -7,6 +7,10 @@
     {
       "universe": "Ocean's Eleven",
       "used_at": "2026-10-15T19:07:46.602Z"
+    },
+    {
+      "universe": "Ocean's Eleven",
+      "used_at": "2026-10-28T17:51:06.508Z"
     }
   ],
   "assignment_cast_snapshots": {
@@ -36,8 +40,15 @@
         "danny",
         "virgil"
       ]
+    },
+    "member-add-tess-r2": {
+      "universe": "Ocean's Eleven",
+      "created_at": "2026-10-28T17:51:06.508Z",
+      "agents": [
+        "tess"
+      ]
     }
   },
-  "transaction_id": "e9ca261b-54b3-4daf-9046-f41d238ea53b",
-  "registry_revision": 1
+  "transaction_id": "ad3752ee-1f19-4bf6-85b4-c1e99c6266e4",
+  "registry_revision": 2
 }

@@ -132,6 +132,63 @@ test('copy/paste scaffold, preflight, mock capture and predicate controls', () =
   }
 });
 
+test('multi-turn examples preflight both modes and execute scripted offline controls', () => {
+  const fixture = allocateExampleFixture(root);
+  const run = cliRunner(fixture.env);
+  const snippets = blocks('site/src/content/docs/guides/eval-yaml.mdx');
+  const suite = snippets.find((block) => block.startsWith('name: multi-turn-demo'));
+  const scripted = snippets.find((block) => block.startsWith('id: scripted-preferences'));
+  const adaptive = snippets.find((block) => block.startsWith('id: adaptive-preferences'));
+  assert.ok(suite && scripted && adaptive, 'publish complete eval and both task files');
+  const project = fixture.directory;
+  try {
+    mkdirSync(join(project, 'tasks'));
+    writeFileSync(join(project, 'eval.yaml'), suite);
+    writeFileSync(join(project, 'tasks/scripted.yaml'), scripted);
+    writeFileSync(join(project, 'tasks/adaptive.yaml'), adaptive);
+    run(['preflight', 'eval.yaml'], project);
+    const mockSuite = replaceExactlyOnce(suite, 'executor: copilot-sdk', 'executor: mock');
+    writeFileSync(join(project, 'eval.yaml'), mockSuite);
+    run(['run', 'eval.yaml', '--task', 'Scripted preferences', '--output', 'scripted-smoke.json'], project, 1);
+    const result = JSON.parse(readFileSync(join(project, 'scripted-smoke.json'), 'utf8'));
+    assert.deepEqual(result.tasks.map((task) => [task.test_id, task.status]), [['scripted-preferences', 'failed']]);
+    assert.match(result.tasks[0].runs[0].final_output, /My favorite animal is a cat/);
+    writeFileSync(join(project, 'eval.yaml'), replaceExactlyOnce(
+      mockSuite, 'regex_match: ["(?i)blue", "(?i)cat"]', 'regex_match: ["^Mock response for:"]',
+    ));
+    run(['run', 'eval.yaml', '--task', 'Scripted preferences'], project);
+    writeFileSync(join(project, 'eval.yaml'), suite);
+    writeFileSync(join(project, 'tasks/scripted.yaml'), replaceExactlyOnce(
+      scripted, '  follow_up_prompts:', '  responder:\n    instructions: "Answer from the supplied facts."\n    max_followups: 3\n  follow_up_prompts:',
+    ));
+    run(['preflight', 'eval.yaml'], project, 1);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test('dependency recovery multi-turn MCP example preflights with native fields', () => {
+  const fixture = allocateExampleFixture(root);
+  const run = cliRunner(fixture.env);
+  const snippets = blocks('site/src/content/docs/guides/dependency-recovery.mdx');
+  const suite = snippets.find((block) => block.startsWith('name: multi-turn-mcp-sequence'));
+  const task = snippets.find((block) => block.startsWith('id: read-twice'));
+  assert.ok(suite && task, 'publish complete eval and task YAML');
+  assert.match(suite, /mcp_mocks:[\s\S]*sequence:/);
+  assert.match(task, /follow_up_prompts:/);
+  const project = fixture.directory;
+  try {
+    mkdirSync(join(project, 'tasks'));
+    writeFileSync(join(project, 'eval.yaml'), suite);
+    writeFileSync(join(project, 'tasks/read-twice.yaml'), task);
+    run(['preflight', 'eval.yaml'], project);
+    writeFileSync(join(project, 'eval.yaml'), replaceExactlyOnce(suite, 'schemaVersion: "2.0"', 'schemaVersion: "1.4"'));
+    run(['preflight', 'eval.yaml'], project, 1);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
 test('all published explanation walkthroughs execute only their selected task, including negative controls', () => {
   const fixture = allocateExampleFixture(root);
   const run = cliRunner(fixture.env);

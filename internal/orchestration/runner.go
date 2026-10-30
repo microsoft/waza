@@ -2,8 +2,10 @@ package orchestration
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"math"
 	"os"
 	"path/filepath"
@@ -923,7 +925,7 @@ func (r *EvalRunner) runTest(ctx context.Context, tc *models.TestCase, testNum, 
 		fmt.Fprintf(os.Stderr, "[WARN] Scenario caching disabled for test %q: external workflow dependencies are not fully fingerprinted\n", tc.DisplayName)
 	}
 	if r.cache != nil && spec.Scenario == "" && !models.UsesJudgeEvidence(spec.Graders, tc) {
-		cacheKey, err := cache.CacheKey(spec, tc, r.cfg.FixtureDir())
+		cacheKey, err := cache.CacheKeyWithSpecDir(spec, tc, r.cfg.FixtureDir(), r.cfg.SpecDir())
 		if err == nil {
 			if cachedOutcome, found := r.cache.Get(cacheKey); found {
 				// Return cached outcome with cached flag. Stats derive from the
@@ -1074,8 +1076,22 @@ func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.T
 	var err error
 	var frozenJudgeEvidence *models.JudgeEvidence
 	var promptJudging []models.PromptJudgeObservation
+	var mockAttempt *copilotconfig.MCPMockAttempt
 	diagnosticCategory := "setup"
 	returnWithArtifacts := func(run models.RunResult) models.RunResult {
+		if closeErr := mockAttempt.Close(); closeErr != nil {
+			run.Status = models.StatusError
+			cleanupErr := fmt.Errorf("clean up MCP mock attempt state: %w", closeErr)
+			if run.ErrorMsg != "" {
+				cleanupErr = fmt.Errorf("%s; %w", run.ErrorMsg, cleanupErr)
+			}
+			run.ErrorMsg = cleanupErr.Error()
+			diagnosticCategory = "execution"
+			if resp != nil {
+				resp.Success = false
+				resp.ErrorMsg = run.ErrorMsg
+			}
+		}
 		run.JudgeEvidence = frozenJudgeEvidence
 		run.PromptJudging = promptJudging
 		if attempt > 0 {
@@ -1112,7 +1128,7 @@ func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.T
 	}
 	req = prepared
 	if req == nil {
-		req, err = r.buildExecutionRequest(tc)
+		req, mockAttempt, err = r.buildAttemptExecutionRequest(tc)
 	}
 	if err != nil {
 		return returnWithArtifacts(models.RunResult{
@@ -1214,9 +1230,9 @@ func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.T
 	var responderInfo *models.ResponderInfo
 	if !stop && resp.ErrorMsg == "" {
 		if tc.Stimulus.Responder != nil {
-			responderInfo = r.executeResponderLoop(ctx, tc, resp, cps)
+			responderInfo = r.executeResponderLoop(ctx, tc, req, resp, cps)
 		} else if len(tc.Stimulus.FollowUps) > 0 {
-			r.executeFollowUps(ctx, tc, resp, cps)
+			r.executeFollowUps(ctx, tc, req, resp, cps)
 		}
 	}
 	commandInvocations := resp.CommandInvocations
@@ -1567,6 +1583,41 @@ func (r *EvalRunner) captureFailureArtifacts(run *models.RunResult) {
 }
 
 func (r *EvalRunner) buildExecutionRequest(tc *models.TestCase) (*execution.ExecutionRequest, error) {
+	return r.buildExecutionRequestWithMCP(tc, func(spec *models.EvalSpec) (map[string]copilot.MCPServerConfig, error) {
+		return copilotconfig.ResolveMCPServersWithVersion(spec.Config.ServerConfigs, spec.MCPMocks, r.cfg.SpecDir(), spec.SchemaVersion, warnStderr)
+	})
+}
+
+// buildAttemptExecutionRequest owns MCP mock state for every turn of one task attempt.
+func (r *EvalRunner) buildAttemptExecutionRequest(tc *models.TestCase) (*execution.ExecutionRequest, *copilotconfig.MCPMockAttempt, error) {
+	var attempt *copilotconfig.MCPMockAttempt
+	req, err := r.buildExecutionRequestWithMCP(tc, func(spec *models.EvalSpec) (map[string]copilot.MCPServerConfig, error) {
+		servers, owned, err := copilotconfig.ResolveMCPServersForAttempt(spec.Config.ServerConfigs, spec.MCPMocks, r.cfg.SpecDir(), spec.SchemaVersion, warnStderr)
+		attempt = owned
+		return servers, err
+	})
+	if err != nil {
+		return nil, nil, errors.Join(err, attempt.Close())
+	}
+	return req, attempt, nil
+}
+
+// buildTurnExecutionRequest reuses the initial MCP configuration so later turns
+// share the same attempt-owned mock state.
+func (r *EvalRunner) buildTurnExecutionRequest(tc *models.TestCase, initial *execution.ExecutionRequest) (*execution.ExecutionRequest, error) {
+	return r.buildExecutionRequestWithMCP(tc, func(*models.EvalSpec) (map[string]copilot.MCPServerConfig, error) {
+		if initial == nil {
+			return nil, fmt.Errorf("follow-up request requires its initial attempt request")
+		}
+		return maps.Clone(initial.MCPServers), nil
+	})
+}
+
+func warnStderr(format string, args ...any) {
+	fmt.Fprintf(os.Stderr, format, args...)
+}
+
+func (r *EvalRunner) buildExecutionRequestWithMCP(tc *models.TestCase, resolveMCP func(*models.EvalSpec) (map[string]copilot.MCPServerConfig, error)) (*execution.ExecutionRequest, error) {
 	// Load resource files
 	r.setRequestInputRole("context_fixture")
 	resources, err := r.loadContextFixtureResources(tc)
@@ -1592,9 +1643,7 @@ func (r *EvalRunner) buildExecutionRequest(tc *models.TestCase) (*execution.Exec
 	if err != nil {
 		return nil, err
 	}
-	mcpServers, err := copilotconfig.ResolveMCPServersWithVersion(spec.Config.ServerConfigs, spec.MCPMocks, r.cfg.SpecDir(), spec.SchemaVersion, func(format string, args ...any) {
-		fmt.Fprintf(os.Stderr, format, args...)
-	})
+	mcpServers, err := resolveMCP(spec)
 	if err != nil {
 		return nil, err
 	}
@@ -1732,9 +1781,9 @@ func rejectRelativePathPromptWithEmptySandbox(tc *models.TestCase, resources []e
 // aggregating results into the original response. When cps is non-nil, after
 // each follow-up turn it runs the matching checkpoint (if any) and stops the
 // loop early when a checkpoint with on_failure: stop fails.
-func (r *EvalRunner) executeFollowUps(ctx context.Context, tc *models.TestCase, resp *execution.ExecutionResponse, cps *checkpointRunner) {
+func (r *EvalRunner) executeFollowUps(ctx context.Context, tc *models.TestCase, initial *execution.ExecutionRequest, resp *execution.ExecutionResponse, cps *checkpointRunner) {
 	for i, prompt := range tc.Stimulus.FollowUps {
-		followReq, err := r.buildExecutionRequest(tc)
+		followReq, err := r.buildTurnExecutionRequest(tc, initial)
 		if err != nil {
 			resp.ErrorMsg = fmt.Sprintf("follow-up %d/%d setup failed: %v", i+1, len(tc.Stimulus.FollowUps), err)
 			break
@@ -1818,7 +1867,7 @@ func (r *EvalRunner) executeFollowUps(ctx context.Context, tc *models.TestCase, 
 // When cps is non-nil, checkpoints scheduled at each turn boundary run after
 // every successful reply, and the loop stops early when a checkpoint with
 // on_failure: stop fails.
-func (r *EvalRunner) executeResponderLoop(ctx context.Context, tc *models.TestCase, resp *execution.ExecutionResponse, cps *checkpointRunner) *models.ResponderInfo {
+func (r *EvalRunner) executeResponderLoop(ctx context.Context, tc *models.TestCase, initial *execution.ExecutionRequest, resp *execution.ExecutionResponse, cps *checkpointRunner) *models.ResponderInfo {
 	cfg := *tc.Stimulus.Responder
 	classifier := r.newClassifier(cfg, r.cfg.Spec().Config.ModelID)
 	defer func() {
@@ -1856,7 +1905,7 @@ func (r *EvalRunner) executeResponderLoop(ctx context.Context, tc *models.TestCa
 			return info
 
 		case responder.DecisionReply:
-			if !r.sendResponderReply(ctx, tc, resp, decision.Answer, info.FollowupsSent+1) {
+			if !r.sendResponderReply(ctx, tc, initial, resp, decision.Answer, info.FollowupsSent+1) {
 				info.Outcome = models.ResponderOutcomeError
 				info.Reason = resp.ErrorMsg
 				return info
@@ -1888,8 +1937,8 @@ func (r *EvalRunner) executeResponderLoop(ctx context.Context, tc *models.TestCa
 // sendResponderReply sends one responder answer to the agent session, reusing
 // the session and workspace, and merges the agent's response into resp. It
 // returns false (and sets resp.ErrorMsg) on failure.
-func (r *EvalRunner) sendResponderReply(ctx context.Context, tc *models.TestCase, resp *execution.ExecutionResponse, answer string, turn int) bool {
-	followReq, err := r.buildExecutionRequest(tc)
+func (r *EvalRunner) sendResponderReply(ctx context.Context, tc *models.TestCase, initial *execution.ExecutionRequest, resp *execution.ExecutionResponse, answer string, turn int) bool {
+	followReq, err := r.buildTurnExecutionRequest(tc, initial)
 	if err != nil {
 		resp.ErrorMsg = fmt.Sprintf("responder reply %d setup failed: %v", turn, err)
 		return false

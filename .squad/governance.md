@@ -6,6 +6,14 @@ These Squad coordination rules do not apply to ordinary Copilot work.
 
 ## Ownership
 
+Squad membership, issue routing, and implementation consultation are AI-only.
+Do not assign issues or implementation handoffs to humans, including as an
+overflow fallback. Linus covers Copilot SDK/backend work and Rusty covers
+architecture/independent review; report uncovered expertise to the coordinator.
+This does not change the project owner's authority, repository collaborators,
+CODEOWNERS, or required independent native approvals. Existing reviewer/author
+lockouts survive roster changes; do not rename or add identities to evade them.
+
 Every task has one accountable specialist. Add bounded collaboration only when a
 concrete dependency, missing expertise, or selected review gate requires it.
 Do not launch the whole team, anticipatory QA, or routine log-only agents by default.
@@ -13,7 +21,9 @@ Do not launch the whole team, anticipatory QA, or routine log-only agents by def
 Rusty owns cross-package architecture and scope. Linus owns Go/runtime behavior,
 Yen owns frontend/design, Basher owns test strategy, Turk owns measured performance,
 Livingston owns technical writing, Saul owns documentation architecture, Danny owns
-draft socialization, and Virgil owns release/developer infrastructure.
+draft socialization, Tess owns release-media capture/edit/export, and Virgil owns
+release/developer infrastructure and release-readiness verification. Tess's
+membership does not clear rejected-author lockouts or grant Go revision ownership.
 
 Scribe, Ralph, Rai, and Fact Checker are support identities, not specialist routing
 destinations. Retain their charters and activate only for necessary bounded work.
