@@ -107,7 +107,9 @@ func runLocalCompatibility(cmd *cobra.Command, args []string, service *runneruni
 			}
 		}
 	}
-	printSummary(outcome)
+	if err := printSummary(cmd.OutOrStdout(), outcome); err != nil {
+		return fmt.Errorf("printing local runner summary: %w", err)
+	}
 	path, err := cmd.Flags().GetString("output")
 	if err != nil {
 		return err

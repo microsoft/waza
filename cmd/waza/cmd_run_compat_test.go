@@ -3,9 +3,11 @@ package main
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -104,7 +106,11 @@ func TestRunnerCompatPropagatesOutputWriterFailures(t *testing.T) {
 			sentinel := errors.New("local stdout unavailable")
 			cmd := newRootCommand()
 			cmd.SetArgs([]string{"run", evalPath, "--runner-compat", "--output", output})
-			cmd.SetOut(adapterBrokenWriter{sentinel})
+			if executionFailure {
+				cmd.SetOut(adapterBrokenWriter{sentinel})
+			} else {
+				cmd.SetOut(&adapterConfirmationBrokenWriter{err: sentinel})
+			}
 			cmd.SetErr(io.Discard)
 			require.ErrorIs(t, cmd.Execute(), sentinel)
 			_, err := os.Stat(output)
@@ -115,6 +121,193 @@ func TestRunnerCompatPropagatesOutputWriterFailures(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestRunSingleModelNilCommandSummary(t *testing.T) {
+	for _, closed := range []bool{false, true} {
+		t.Run(fmt.Sprintf("closed=%t", closed), func(t *testing.T) {
+			resetRunGlobals()
+			t.Cleanup(resetRunGlobals)
+			evalPath, _, _, _ := adapterCommandInputs(t)
+			t.Chdir(filepath.Dir(evalPath))
+			spec, err := models.LoadEvalSpec(evalPath)
+			require.NoError(t, err)
+			stdout, err := os.CreateTemp(t.TempDir(), "summary-")
+			require.NoError(t, err)
+			t.Cleanup(func() {
+				if !closed {
+					require.NoError(t, stdout.Close())
+				}
+			})
+			if closed {
+				require.NoError(t, stdout.Close())
+			}
+			original := os.Stdout
+			os.Stdout = stdout
+			t.Cleanup(func() { os.Stdout = original })
+
+			outcome, err := runSingleModel(nil, spec, evalPath, nil)
+			if closed {
+				require.ErrorIs(t, err, os.ErrClosed)
+				require.ErrorContains(t, err, "printing benchmark summary:")
+				return
+			}
+			require.NoError(t, err)
+			require.NotNil(t, outcome)
+			require.Equal(t, 1, outcome.Digest.Succeeded)
+			require.Len(t, outcome.TestOutcomes, 1)
+			require.Len(t, outcome.TestOutcomes[0].Runs, 1)
+			require.True(t, outcome.TestOutcomes[0].Runs[0].Validations["_output_contains"].Passed)
+			output, err := os.ReadFile(stdout.Name())
+			require.NoError(t, err)
+			require.Contains(t, string(output), " BENCHMARK RESULTS\n")
+			require.Contains(t, string(output), "Succeeded:      1\n")
+			require.Contains(t, string(output), "  ✓ Selected task [passed]\n")
+		})
+	}
+}
+
+func TestRunSummaryConfiguredWriter(t *testing.T) {
+	for _, adapted := range []bool{false, true} {
+		for _, control := range []struct {
+			name       string
+			outputFile bool
+			noSummary  bool
+		}{
+			{name: "console"},
+			{name: "file", outputFile: true},
+			{name: "no-combined-summary", noSummary: true},
+			{name: "file-no-combined-summary", outputFile: true, noSummary: true},
+		} {
+			t.Run(fmt.Sprintf("compat=%t/%s", adapted, control.name), func(t *testing.T) {
+				resetRunGlobals()
+				t.Cleanup(resetRunGlobals)
+				evalPath, _, _, _ := adapterCommandInputs(t)
+				t.Chdir(filepath.Dir(evalPath))
+				args := []string{"run", evalPath, "--no-update-check"}
+				if adapted {
+					args = append(args, "--runner-compat")
+				}
+				output := filepath.Join(filepath.Dir(evalPath), "result.json")
+				if control.outputFile {
+					args = append(args, "--output", output)
+				}
+				if control.noSummary {
+					args = append(args, "--no-summary")
+				}
+				var summary bytes.Buffer
+				cmd := newRootCommand()
+				cmd.SetArgs(args)
+				cmd.SetOut(&summary)
+				cmd.SetErr(io.Discard)
+				require.NoError(t, cmd.Execute())
+				require.Contains(t, summary.String(), " BENCHMARK RESULTS\n")
+				require.Contains(t, summary.String(), "Total Tests:    1\n")
+				require.Contains(t, summary.String(), "Succeeded:      1\n")
+				require.Contains(t, summary.String(), "Failed:         0\n")
+				require.Contains(t, summary.String(), " PER-TASK BREAKDOWN\n")
+				require.Contains(t, summary.String(), "  ✓ Selected task [passed]\n")
+				require.NotContains(t, summary.String(), "[ERROR]")
+				if control.outputFile {
+					outcome, err := models.LoadEvaluationOutcome(output)
+					require.NoError(t, err)
+					require.Equal(t, 1, outcome.Digest.Succeeded)
+					require.Len(t, outcome.TestOutcomes, 1)
+					require.Len(t, outcome.TestOutcomes[0].Runs, 1)
+					require.True(t, outcome.TestOutcomes[0].Runs[0].Validations["_output_contains"].Passed)
+				}
+			})
+		}
+	}
+}
+
+func TestRunSummaryWriterFailures(t *testing.T) {
+	sentinel := errors.New("summary sink unavailable")
+	for _, adapted := range []bool{false, true} {
+		for _, outputFile := range []bool{false, true} {
+			for _, control := range []struct {
+				name   string
+				writer io.Writer
+				err    error
+			}{
+				{"rejected", adapterBrokenWriter{sentinel}, sentinel},
+				{"partial", adapterPartialWriter{sentinel}, sentinel},
+				{"short", adapterPartialWriter{}, io.ErrShortWrite},
+			} {
+				t.Run(fmt.Sprintf("compat=%t/file=%t/%s", adapted, outputFile, control.name), func(t *testing.T) {
+					resetRunGlobals()
+					t.Cleanup(resetRunGlobals)
+					evalPath, _, _, _ := adapterCommandInputs(t)
+					t.Chdir(filepath.Dir(evalPath))
+					args := []string{"run", evalPath, "--no-update-check"}
+					if adapted {
+						args = append(args, "--runner-compat")
+					}
+					output := filepath.Join(filepath.Dir(evalPath), "result.json")
+					if outputFile {
+						args = append(args, "--output", output)
+					}
+					cmd := newRootCommand()
+					cmd.SetArgs(args)
+					cmd.SetOut(control.writer)
+					cmd.SetErr(io.Discard)
+					err := cmd.Execute()
+					require.ErrorIs(t, err, control.err)
+					require.ErrorContains(t, err, "summary")
+					var failed *TestFailureError
+					require.False(t, errors.As(err, &failed), "output failures must not use the test-failure exit-1 policy")
+					var exit *ExitCodeError
+					require.False(t, errors.As(err, &exit), "output errors retain main's default exit-2 policy")
+					if outputFile {
+						_, err := os.Stat(output)
+						require.ErrorIs(t, err, os.ErrNotExist, "summary failure occurs before saving the requested file")
+					}
+				})
+			}
+		}
+	}
+}
+
+func TestRunnerCompatSummaryFailureProcessExit(t *testing.T) {
+	if evalPath := os.Getenv("WAZA_TEST_SUMMARY_FAILURE_EVAL"); evalPath != "" {
+		readOnly, err := os.Open(evalPath)
+		require.NoError(t, err)
+		os.Stdout = readOnly
+		os.Args = []string{"waza", "run", evalPath, "--runner-compat", "--no-update-check"}
+		main()
+		return
+	}
+	evalPath, _, _, _ := adapterCommandInputs(t)
+	executable, err := os.Executable()
+	require.NoError(t, err)
+	cmd := exec.Command(executable, "-test.run=^TestRunnerCompatSummaryFailureProcessExit$")
+	cmd.Dir = filepath.Dir(evalPath)
+	// main calls os.Exit, so let the parent's owned fixture clean child test storage.
+	cache := isolatedCLITempDir(t)
+	cmd.Env = append(os.Environ(), "WAZA_TEST_SUMMARY_FAILURE_EVAL="+evalPath,
+		"HOME="+cache, "XDG_CACHE_HOME="+cache, "LocalAppData="+cache)
+	output, err := cmd.CombinedOutput()
+	var exit *exec.ExitError
+	require.ErrorAs(t, err, &exit)
+	require.Equal(t, ExitError, exit.ExitCode(), string(output))
+	require.Contains(t, string(output), "printing local runner summary:")
+}
+
+type adapterConfirmationBrokenWriter struct {
+	err error
+}
+
+func (w *adapterConfirmationBrokenWriter) Write(p []byte) (int, error) {
+	if bytes.Contains(p, []byte("Results saved to:")) {
+		return 0, w.err
+	}
+	return len(p), nil
+}
+
+type adapterPartialWriter struct{ err error }
+
+func (w adapterPartialWriter) Write(p []byte) (int, error) {
+	return len(p) / 2, w.err
 }
 
 func TestRunnerCompatPublicFailedAndAlternative(t *testing.T) {
