@@ -1,18 +1,25 @@
 package webapi
 
 import (
+	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"mime"
 	"net/http"
 	"time"
 
 	"github.com/microsoft/waza/internal/runnercontract"
+	"github.com/microsoft/waza/internal/runnerunit"
 )
 
-// RegisterRunnerRoutes exposes offline negotiation only. No inputs, runtime,
-// artifacts, filesystem discovery or model credentials are consumed.
+// RegisterRunnerRoutes retains offline negotiation and adds explicit single-unit
+// validation/execution. No host input paths or saved artifacts are consumed.
 func RegisterRunnerRoutes(mux *http.ServeMux) {
+	RegisterRunnerRoutesWithService(mux, runnerunit.NewService(nil))
+}
+
+func RegisterRunnerRoutesWithService(mux *http.ServeMux, service *runnerunit.Service) {
 	mux.HandleFunc("GET /api/v1/runner/capabilities", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, runnercontract.Capabilities())
 	})
@@ -34,4 +41,44 @@ func RegisterRunnerRoutes(mux *http.ServeMux) {
 		}
 		writeJSON(w, http.StatusOK, runnercontract.Negotiate(data))
 	})
+	for _, action := range []string{"validate", "run"} {
+		mux.HandleFunc("POST /api/v1/runner/"+action, func(w http.ResponseWriter, r *http.Request) {
+			controller := http.NewResponseController(w)
+			if err := controller.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
+				writeError(w, http.StatusInternalServerError, fmt.Sprintf("setting runner read deadline: %v", err))
+				return
+			}
+			mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+			if err != nil || mediaType != "application/json" {
+				writeError(w, http.StatusUnsupportedMediaType, "runner requires Content-Type: application/json")
+				return
+			}
+			interrupted := make(chan struct{})
+			stop := context.AfterFunc(r.Context(), func() {
+				defer close(interrupted)
+				if err := controller.SetReadDeadline(time.Now()); err != nil {
+					slog.Error("interrupting runner body admission", "error", err)
+				}
+			})
+			data, err := io.ReadAll(http.MaxBytesReader(w, r.Body, runnercontract.MaxRequestBytes))
+			if !stop() {
+				<-interrupted
+			}
+			if err != nil {
+				writeError(w, http.StatusBadRequest, fmt.Sprintf("reading runner request: %v", err))
+				return
+			}
+			if err := r.Context().Err(); err != nil {
+				writeError(w, http.StatusRequestTimeout, fmt.Sprintf("runner admission canceled: %v", err))
+				return
+			}
+			var report runnerunit.Report
+			if action == "run" {
+				report = service.Run(r.Context(), data)
+			} else {
+				report = runnerunit.Validate(data)
+			}
+			writeJSON(w, http.StatusOK, report)
+		})
+	}
 }

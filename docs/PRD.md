@@ -31,10 +31,14 @@ human-labelled corpus, sandbox enforcement and default paid calibration are
 The historical skill-specific requirements below remain product context, not
 authority to infer current native grader keys or completed feature scope.
 
-The first v0.40.0 runner increment (#757) adds offline version/capability
-negotiation via CLI, HTTP and live Lab. It does not execute work or change local
-artifacts. Exact execution, identity, terminal envelopes, compatibility adapters
-and the container reference remain separately gated deliverables under #754.
+The v0.40.0 runner preview adds offline version/capability negotiation (#757)
+and one exact captured mock/text task/trial/attempt through CLI and HTTP (#758).
+Admitted receipts carry deterministic logical identities and their derivation
+version (#759). Live Lab displays input-derived lineage and pre-execution
+selection validation without launching a runtime.
+The exact path bypasses discovery, cache and retries; local commands/artifacts
+are unchanged. Native execution, terminal envelopes, compatibility
+adapters and the container reference remain unavailable under #754.
 See the [runner contract](RUNNER_CONTRACT.md).
 
 ### The Problem
