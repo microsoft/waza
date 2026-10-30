@@ -626,6 +626,38 @@ waza run evals/code-explainer/eval.yaml -o results.json
 
 ---
 
+### `waza dev <skill-name | skill-path>`
+
+Iteratively score and improve a skill's frontmatter. A single target can be a
+workspace skill name, a directory, or a `SKILL.md` file. Both relative and
+absolute paths are supported.
+
+```bash
+waza dev code-explainer
+waza dev ./skills/code-explainer --target high
+waza dev ./skills/code-explainer/SKILL.md
+waza dev SKILL.md
+waza dev .
+```
+
+On Windows, native paths work too:
+
+```powershell
+waza dev .\skills\code-explainer\SKILL.md
+```
+
+Bare names resolve workspace skills first and fall back to existing local
+directories only when no skill matches. Use `./directory` (or `.\directory` on
+Windows) to select a directory explicitly when its name collides with a skill.
+Files other than `SKILL.md` are rejected.
+
+These target forms also work with `--copilot` for a non-mutating recommendations
+report and `--scaffold-triggers` to generate `tests/trigger_tests.yaml`.
+Multiple positional arguments remain workspace skill names; use `--all` to
+process every skill in the workspace.
+
+---
+
 ### `waza check [skill-name | skill-path]`
 
 Validate that a skill is ready for submission.
@@ -757,9 +789,22 @@ waza serve --tcp :9000
 
 ## Advanced Usage
 
+### Multi-turn conversations
+
+Use `inputs.follow_up_prompts` for a fixed sequence of user messages, or
+`inputs.responder` for a simulated user that answers the agent's questions.
+Do not configure both in one task. Scripted follow-ups reuse the actor session;
+an adaptive responder has a separate persistent classification session.
+
+The [complete two-question example](../site/src/content/docs/guides/eval-yaml.mdx#complete-multi-turn-example)
+includes runnable eval/task YAML, preflight, a scripted offline control, and
+authenticated real-execution commands. Adaptive runs can incur usage for both
+models. A responder's `stopped` outcome does not imply the graders passed;
+`abstained` and `cap_exhausted` describe different incomplete conversations.
+
 ### Controlled Dependency Failures
 
-MCP mock `error` responses and command mock `stderr`/`exit_code` responses can model permanent failures or permission denial without contacting the dependency. Legacy responses return the first matching fixture on every call; scenario evals can instead opt into finite recovery sequences. Configured unmatched calls fail closed, and MCP unmatched diagnostics omit argument values. The MCP mock subprocess accepts per-request cancellation without resetting consumed steps or terminating the server. See the [dependency recovery guide](../site/src/content/docs/guides/dependency-recovery.mdx) for dispatch, interruption, and evidence boundaries.
+MCP mock `error` responses and command mock `stderr`/`exit_code` responses can model permanent failures or permission denial without contacting the dependency. Legacy responses return the first matching fixture on every call; scenario evals can instead opt into finite recovery sequences. Configured unmatched calls fail closed, and MCP unmatched diagnostics omit argument values. The MCP mock subprocess accepts per-request cancellation without resetting consumed steps or terminating the server. Finite MCP sequence progress spans every turn of one task attempt and resets for each task, trial, and retry. See the [dependency recovery guide](../site/src/content/docs/guides/dependency-recovery.mdx) for a multi-turn example, cleanup limitations, dispatch, interruption, and evidence boundaries.
 
 Use existing graders and checkpoints to check honest failure reporting and prohibited effects. A mocked interaction or responder message is not proof that an external operation occurred. Undeclared commands remain available through the host `PATH`, and command shim interception does not isolate the filesystem or network. See the [eval guide](../site/src/content/docs/guides/eval-yaml.mdx#choosing-a-test-boundary) for choosing mocked versus live dependencies.
 
@@ -873,7 +918,7 @@ Cache evaluation results to avoid redundant runs:
 waza run evals/code-explainer/eval.yaml --cache -o results.json
 ```
 
-The cache stores results by task ID and model, keyed on the prompt and expected output. Same inputs = same cached results.
+The cache stores results by task ID and model, keyed on the prompt and expected output. Same inputs = same cached results. MCP-backed task keys also include the resolved mock configuration, so changed inline or eval-relative fixture responses run again. Tasks without MCP mocks retain their existing cache keys.
 
 **Use cases:**
 - Development — Iterate on validators without re-running tasks

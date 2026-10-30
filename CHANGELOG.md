@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **MCP mock sequences across turns** - Finite MCP mock sequences now continue across initial, scripted follow-up, and responder-driven turns in one task attempt, even when the native runtime restarts the mock server. Each task, trial, and retry still starts fresh, and existing first-match and exhaustion behavior is unchanged. Existing eval YAML needs no new field or flag. Cleanup refuses detected replacements and fails the run if attempt-owned state cannot be removed.
+- **MCP mock cache invalidation** - MCP-backed task cache keys now include the resolved mock configuration, so changed inline or fixture responses run again. Tasks without MCP mocks keep their existing cache keys.
+
+## [0.39.1] - 2026-10-26
+
+### Fixed
+
+- **Single-skill dev targets** - `waza dev` accepts workspace skill names, directories, and existing `SKILL.md` files consistently in iterative, Copilot-report, and trigger-scaffolding modes, including Windows paths. Bare names retain workspace precedence; explicit paths never fall back to another skill. Batch names and `--all` are unchanged ([#747](https://github.com/microsoft/waza/pull/747), fixes [#746](https://github.com/microsoft/waza/issues/746)).
+
+### Changed
+
+- **Documentation assistant** - Add Ask Waza, guarded public-chat configuration, authenticated local-preview tooling, and optional Turnstile integration. Availability follows the deployed site's configuration ([#730](https://github.com/microsoft/waza/pull/730), [#731](https://github.com/microsoft/waza/pull/731), [#732](https://github.com/microsoft/waza/pull/732), [#733](https://github.com/microsoft/waza/pull/733)).
+- **Documentation** - Update skill-target examples and publish v0.39.0 and Dashboard Lab release articles ([#747](https://github.com/microsoft/waza/pull/747), [#726](https://github.com/microsoft/waza/pull/726)).
+- **Dashboard build dependencies** - Update Vite from 8.3.1 to 8.3.5 and coordinated locked build-tool dependencies ([#729](https://github.com/microsoft/waza/pull/729)).
+
+**Full comparison:** [v0.39.0...v0.39.1](https://github.com/microsoft/waza/compare/v0.39.0...v0.39.1). **Contributors:** @spboyer, Copilot, and Dependabot.
+
 ## [0.39.0] - 2026-10-20
 
 ### Added

@@ -11,6 +11,7 @@ import (
 	"sort"
 	"sync"
 
+	"github.com/microsoft/waza/internal/mcpmock"
 	"github.com/microsoft/waza/internal/models"
 )
 
@@ -31,7 +32,16 @@ func New(dir string) *Cache {
 // - task content (test case definition)
 // - model ID
 // - fixture file hashes
+// - resolved MCP mocks
+// MCP fixtures use fixtureDir as their base; use CacheKeyWithSpecDir when the
+// eval and task resource directories differ.
 func CacheKey(spec *models.EvalSpec, task *models.TestCase, fixtureDir string) (string, error) {
+	return CacheKeyWithSpecDir(spec, task, fixtureDir, fixtureDir)
+}
+
+// CacheKeyWithSpecDir resolves MCP fixtures relative to the eval directory,
+// independently of the task resource directory.
+func CacheKeyWithSpecDir(spec *models.EvalSpec, task *models.TestCase, fixtureDir, specDir string) (string, error) {
 	h := sha256.New()
 
 	// Include spec identity
@@ -108,6 +118,29 @@ func CacheKey(spec *models.EvalSpec, task *models.TestCase, fixtureDir string) (
 	}
 	if err := hashFixtures(h, fixtureDir, fixtures); err != nil {
 		return "", fmt.Errorf("hashing fixtures: %w", err)
+	}
+
+	if len(spec.MCPMocks) > 0 {
+		resolved := make(map[string]*mcpmock.Config, len(spec.MCPMocks))
+		for _, mock := range spec.MCPMocks {
+			cfg, err := mcpmock.FromEvalConfigOfflineWithVersion(mock, specDir, spec.SchemaVersion)
+			if err != nil {
+				return "", fmt.Errorf("resolving MCP mock %q for cache: %w", mock.Name, err)
+			}
+			resolved[cfg.Name] = cfg
+		}
+		// Earlier keys omitted MCP mocks, so salt only MCP-backed keys to
+		// invalidate entries that could not reflect their mock configuration.
+		if err := writeString(h, "mcp-mock-attempt-v1"); err != nil {
+			return "", err
+		}
+		mocksJSON, err := json.Marshal(resolved)
+		if err != nil {
+			return "", fmt.Errorf("marshaling MCP mocks for cache: %w", err)
+		}
+		if _, err := h.Write(mocksJSON); err != nil {
+			return "", err
+		}
 	}
 
 	return hex.EncodeToString(h.Sum(nil)), nil

@@ -3,21 +3,19 @@ title: Ask Waza (Optional)
 description: Scope, privacy, and limits of the optional documentation assistant.
 ---
 
-Ask Waza is an optional, independently operated documentation assistant.
-The launcher appears only when a site operator explicitly shows it; it currently
-opens an unavailable state, not a live assistant.
+Ask Waza is an independently operated documentation assistant in the site header,
+not a separate documentation sidebar section. Its privacy and integration
+guide remains available from the panel's **Privacy & limits** link.
+When the public service is unconfigured or disabled, the launcher opens an
+unavailable state instead of accepting questions.
 Ordinary documentation search remains available without using chat.
 
-**Implementation preview (October 21, 2026):** public sending is
-source-hard-disabled, regardless of public build variables. The backend uses
-the Python 3.13 Azure Functions hosted-skills operator preview, not a
-Node/Copilot SDK service. An authenticated operator test succeeded, but that
-does not authorize anonymous site inference. Only the local private preview
-below is working. The requested next step is sign-in-free access for published
-docs visitors through the protected public API, not anonymous access to the
-operator adapter. That rollout remains blocked on backend readiness.
-A passing widget test with mocked responses
-is not evidence that the live service is ready.
+The backend uses the Python 3.13 Azure Functions hosted-skills service, not a
+Node/Copilot SDK service. Published docs chat uses its public session/chat API,
+not anonymous access to the privileged operator adapter. The authenticated
+local preview below is a separate operator workflow. A successful operator
+test or a passing widget test with mocked responses does not demonstrate
+anonymous site inference; verify the deployed public flow separately.
 
 ## What it can help with
 
@@ -47,25 +45,22 @@ belong in this guide, not the introductory help.
 ## Privacy
 
 **Do not paste credentials, secrets, confidential code, or personal information.**
-The future public integration would send questions, bounded conversation
-context, and optional YAML to the configured Azure model service, with bot
-protection such as Cloudflare Turnstile. This production widget sends nothing.
-Provider processing and retention policies apply independently to operator use,
-including the authenticated local preview.
+When chat is available, it sends questions, bounded conversation context, and
+optional YAML to the Azure-hosted assistant and its configured model service.
+Sessions are saved in Blob storage in the Function App's storage account.
+This is normal runtime behavior, not a zero-retention service. Model-provider
+processing and retention policies apply separately.
 
 The widget keeps conversation and anonymous session credentials in browser
 memory, not browser storage. Reloading the page clears them.
-The operator preview uses ordinary runtime Blob/file history and fresh
-server-generated session IDs. **Do not assume zero retention.** Clearing the
-widget does not delete server-side data. The widget adds no prompt, answer,
-YAML, or token logging or analytics.
+Clearing the widget or reloading the page does not delete server-side session
+history. The widget adds no prompt, answer, YAML, or token logging or analytics.
 
 ## Limits and availability
 
-The proposed public flow requires bot verification, per-session and per-client
-quotas, and a global usage limit. Those controls still require live verification.
-Visitors behind a shared network may share a client limit.
-When a quota is reached, use the normal docs search. Requests are not
+The service can limit the number of requests it accepts. Request limits are
+not hard limits on the model's internal calls, retries, or total spending.
+When a request limit is reached, use the normal docs search. Requests are not
 automatically retried, and a cancelled request may already have consumed model
 usage.
 
@@ -77,10 +72,20 @@ against every prompt injection or denial-of-service attack.
 ## Site integration handoff
 
 The component and adapter extend the existing Starlight header and preserve
-ordinary search. `PUBLIC_CHAT_ENABLED=true` only shows the unavailable panel in
-a production build. It cannot enable sending. `PUBLIC_CHAT_API_URL` and
-`PUBLIC_CHAT_TURNSTILE_SITEKEY` do not configure a live transport in this preview.
+ordinary search. The header launcher is visible by default; the legacy
+`PUBLIC_CHAT_ENABLED` variable no longer controls its visibility or enables
+sending. `PUBLIC_CHAT_API_URL` configures the public transport.
+`PUBLIC_CHAT_TURNSTILE_SITEKEY` is optional: when absent or empty, the widget
+does not load a challenge script or widget and starts an anonymous session
+with `{"challengeToken":""}`. A configured sitekey enables Turnstile.
 The Pages workflow does not need a backend credential.
+
+There is no source approval switch. The public adapter accepts the fixed HTTPS
+deployment with an optional public Turnstile sitekey; it cannot fall back to the operator
+API. Without public configuration, the panel offers search and the CLI
+reference instead. The optional real challenge script and production-origin checks
+are distinct from the simulated fixture transport. Configuration alone is not
+evidence of a successful anonymous answer.
 
 For **local, simulated UI testing only**:
 
@@ -107,14 +112,17 @@ Do not add an unauthenticated key-hiding proxy. CORS is not authentication;
 the allowed `https://microsoft.github.io` origin is shared by GitHub Pages
 projects and does not identify a caller. Localhost CORS has not been approved.
 
-The future public flow is `POST /api/session` with `{challengeToken}`, followed
+The public integration contract is `POST /api/session` with `{challengeToken}`, followed
 by `POST /api/chat` with an in-memory bearer token and
 `{question, history, requestId, document?}`. Session expiry is Unix milliseconds.
 The adapter accepts full JSON responses, **not SSE**. It has no operator
 endpoint, model/tool selection, upload, retrieval URL, or caller-session override.
+Without a sitekey, `challengeToken` is the empty compatibility string, not a
+fabricated verification token. The backend must support anonymous admission;
+this client change does not demonstrate that it has been deployed.
 
-Currently `GET /api/health` intentionally returns HTTP 503 with
-`{"version":1,"status":"disabled"}`. Public session/chat requests remain denied.
+`GET /api/health` reports public-service availability. A disabled service returns
+HTTP 503 with `{"version":1,"status":"disabled"}` and denies public session/chat.
 The widget does not poll health, retry disabled requests, or fall back to the
 operator endpoint. Operator availability does not mean public readiness.
 
@@ -145,23 +153,25 @@ docs build commit, not a claim of live readiness or permanently current knowledg
 The October 21 operator snapshot may differ from newly published docs; do not
 pin its observed fingerprint as a timeless value.
 
-### Public integration blockers
+### Public deployment verification
 
-Sign-in-free public access is the requested outcome, using challenge-protected
+Sign-in-free public access is the requested outcome, using anonymous
 `/api/session` and token-authenticated `/api/chat`. Removing the local preview
 login would not implement that flow; it would expose the privileged operator
 adapter.
 
-As confirmed on October 22, backend runtime and client-identity admission remain
-denied, public transcript retention has no approved policy, and public challenge
-configuration, admission secrets/ledger, and live privacy/usage/cancellation
-probes are not ready. No production public sitekey is available.
-Runtime isolation, history retention, inference bounds, quotas, and matching
-knowledge promotion must be resolved. Public health/session/chat readiness and
-deployed-origin integration must then be demonstrated before changing the
-source lock. Keep private-preview authentication in place in the meantime.
-This frontend PR does not provision resources, deploy a backend, or enable
-anonymous visitors.
+The public flow uses the existing runtime, including normal Function App
+Blob-backed session history, without requiring runtime changes. No-history and
+hard per-inference launch gates are not Azure Functions requirements. Anonymous
+session admission uses the empty compatibility challenge string when no sitekey
+is configured; a Turnstile sitekey is not required for that flow.
+
+When deploying, verify public health, an anonymous session and answer, trusted
+citations, and the matching knowledge fingerprint against the published site.
+Configuration and simulated tests are not deployment evidence.
+There is no frontend source approval switch to remove.
+Keep private-preview authentication in place: it is a separate privileged path.
+Frontend builds do not provision resources or deploy the backend.
 
 ### Frontend verification
 
@@ -171,8 +181,10 @@ From `site/`, run `npm run test:chat-contract`, `npm run test:chat-types`,
 `npm run test:chat -- --project=chromium --retries=0` exercises the explicitly
 simulated development adapter and UI.
 `npm run test:chat-unavailable -- --project=chromium --retries=0` builds production
-with all public/fixture flags set and proves that neither sending nor external
-requests can be enabled. These tests do not exercise live model calls or
+with the fixed public API and no sitekey. It verifies untrusted-origin rejection,
+anonymous session-to-answer transport with explicitly simulated responses, no
+challenge requests, and explicit handling of a disabled backend without
+generation or automatic retry. These tests do not exercise live model calls or
 establish backend controls.
 
 ## Authenticated local operator preview

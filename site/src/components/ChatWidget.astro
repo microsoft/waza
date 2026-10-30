@@ -1,15 +1,16 @@
 ---
-const enabled = import.meta.env.PUBLIC_CHAT_ENABLED === 'true';
+import { publicChatConfig } from '../scripts/chat-public-config';
+
 const fixtures = import.meta.env.DEV && import.meta.env.PUBLIC_CHAT_FIXTURES === 'true';
 const privatePreview = import.meta.env.DEV && import.meta.env.PUBLIC_CHAT_PRIVATE_PREVIEW === 'true';
-const interactive = fixtures || privatePreview;
+const publicChat = publicChatConfig(import.meta.env);
+const interactive = fixtures || privatePreview || !!publicChat;
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 ---
 
-{(enabled || interactive) && (
   <div data-chat-root
     data-meta-url={`${base}/chat-meta.json`}>
-    <button type="button" class="chat-button chat-launcher" data-chat-open aria-haspopup="dialog">Ask Waza</button>
+    <button type="button" class="chat-button chat-launcher" data-chat-open aria-haspopup="dialog" disabled>Ask Waza</button>
     <dialog aria-labelledby="chat-title" data-chat-dialog>
       <div class="chat-heading">
         <h2 id="chat-title">Ask Waza</h2>
@@ -23,7 +24,7 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
       {fixtures && <p class="chat-notice">Development fixtures: answers are simulated, not live.</p>}
       <p class="chat-notice">
         AI answers can be wrong. Do not share secrets or sensitive information.
-        {privatePreview && ' History may be retained.'}
+        {(privatePreview || publicChat) && ' History may be retained.'}
       </p>
       <p class="chat-help">
         <a href={`${base}/reference/cli/`}>CLI reference</a>
@@ -63,12 +64,12 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
       </form>
     </dialog>
   </div>
-)}
 
 <script>
   for (const root of document.querySelectorAll<HTMLElement>('[data-chat-root]')) {
     let ready: Promise<void> | undefined;
-    root.querySelector('[data-chat-open]')?.addEventListener('click', () => {
+    const launcher = root.querySelector<HTMLButtonElement>('[data-chat-open]');
+    launcher?.addEventListener('click', () => {
       const dialog = root.querySelector<HTMLDialogElement>('[data-chat-dialog]');
       dialog?.showModal();
       if (!ready) {
@@ -82,6 +83,7 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
     root.querySelector('[data-chat-close]')?.addEventListener('click', () => {
       root.querySelector<HTMLDialogElement>('[data-chat-dialog]')?.close();
     });
+    if (launcher) launcher.disabled = false;
   }
 </script>
 

@@ -45,7 +45,6 @@ export default defineConfig({
 					label: 'Guides',
 					items: [
 						{ label: 'Writing Eval Specs', slug: 'guides/eval-yaml' },
-						{ label: 'Ask Waza (Optional)', slug: 'guides/docs-assistant' },
 						{ label: 'Offline Eval Preflight', slug: 'guides/preflight' },
 						{ label: 'Dependency Recovery', slug: 'guides/dependency-recovery' },
 

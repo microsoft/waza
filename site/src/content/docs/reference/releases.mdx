@@ -17,19 +17,28 @@ is listed separately below.
 takes a closer look at `waza serve --lab`: finding failures, inspecting task
 evidence, comparing saved runs, and sharing reports.
 
-## Current published standalone release: v0.39.0
+## Current published standalone release: v0.39.1
 
-**Released:** October 20, 2026.
+**Released:** October 26, 2026.
 
-Verified against the [standalone release](https://github.com/microsoft/waza/releases/tag/v0.39.0).
+Verified against the [standalone release](https://github.com/microsoft/waza/releases/tag/v0.39.1).
 The installers select published standalone releases, not unreleased main.
 Run `waza update` to upgrade an existing standalone installation.
+
+### Patch highlights
+
+- `waza dev` accepts a workspace skill name, directory, or `SKILL.md` file in
+  iterative, Copilot-report, and trigger-scaffolding modes, including Windows
+  paths. Bare names keep workspace precedence; batch names and `--all` are unchanged
+  ([#747](https://github.com/microsoft/waza/pull/747)).
+- Updated documentation examples, Ask Waza configuration, and dashboard build
+  dependencies are included in the [full comparison](https://github.com/microsoft/waza/compare/v0.39.0...v0.39.1).
 
 <span id="upcoming-main-only-capabilities"></span>
 
 ## Capabilities introduced in v0.39.0
 
-The following workflows are included in the published standalone `v0.39.0`.
+The following workflows were introduced in `v0.39.0` and remain included in `v0.39.1`.
 Their opt-in, platform, and evidence boundaries still apply.
 
 | Capability | Availability | Platform and scope |
@@ -137,12 +146,12 @@ Pre-built binaries for all major platforms:
 
 | Platform | Architecture | Download |
 |----------|-------------|----------|
-| macOS | Apple Silicon (ARM64) | [waza-darwin-arm64](https://github.com/microsoft/waza/releases/download/v0.39.0/waza-darwin-arm64) |
-| macOS | Intel (AMD64) | [waza-darwin-amd64](https://github.com/microsoft/waza/releases/download/v0.39.0/waza-darwin-amd64) |
-| Linux | x64 (AMD64) | [waza-linux-amd64](https://github.com/microsoft/waza/releases/download/v0.39.0/waza-linux-amd64) |
-| Linux | ARM64 | [waza-linux-arm64](https://github.com/microsoft/waza/releases/download/v0.39.0/waza-linux-arm64) |
-| Windows | x64 (AMD64) | [waza-windows-amd64.exe](https://github.com/microsoft/waza/releases/download/v0.39.0/waza-windows-amd64.exe) |
-| Windows | ARM64 | [waza-windows-arm64.exe](https://github.com/microsoft/waza/releases/download/v0.39.0/waza-windows-arm64.exe) |
+| macOS | Apple Silicon (ARM64) | [waza-darwin-arm64](https://github.com/microsoft/waza/releases/download/v0.39.1/waza-darwin-arm64) |
+| macOS | Intel (AMD64) | [waza-darwin-amd64](https://github.com/microsoft/waza/releases/download/v0.39.1/waza-darwin-amd64) |
+| Linux | x64 (AMD64) | [waza-linux-amd64](https://github.com/microsoft/waza/releases/download/v0.39.1/waza-linux-amd64) |
+| Linux | ARM64 | [waza-linux-arm64](https://github.com/microsoft/waza/releases/download/v0.39.1/waza-linux-arm64) |
+| Windows | x64 (AMD64) | [waza-windows-amd64.exe](https://github.com/microsoft/waza/releases/download/v0.39.1/waza-windows-amd64.exe) |
+| Windows | ARM64 | [waza-windows-arm64.exe](https://github.com/microsoft/waza/releases/download/v0.39.1/waza-windows-arm64.exe) |
 
 ---
 
@@ -164,7 +173,7 @@ On Windows, use this command only from Git Bash, MSYS2, or Cygwin. If PowerShell
 irm https://raw.githubusercontent.com/microsoft/waza/main/install.ps1 | iex
 ```
 
-The installers choose the latest standalone `waza` CLI release, download the matching binary, verify the checksum, and install it. You can also download the Windows binary from the [standalone waza release](https://github.com/microsoft/waza/releases/tag/v0.39.0), rename it to `waza.exe`, and place it in a directory on your `PATH`.
+The installers choose the latest standalone `waza` CLI release, download the matching binary, verify the checksum, and install it. You can also download the Windows binary from the [standalone waza release](https://github.com/microsoft/waza/releases/tag/v0.39.1), rename it to `waza.exe`, and place it in a directory on your `PATH`.
 
 </TabItem>
 </Tabs>
@@ -181,8 +190,8 @@ waza --version
 
 Install waza as an [Azure Developer CLI](https://learn.microsoft.com/azure/developer/azure-developer-cli/) extension.
 
-The [published extension release](https://github.com/microsoft/waza/releases/tag/azd-ext-microsoft-azd-waza_0.39.0)
-is `0.39.0`, separate from standalone `v0.39.0`. Registry availability follows
+The [published extension release](https://github.com/microsoft/waza/releases/tag/azd-ext-microsoft-azd-waza_0.39.1)
+is `0.39.1`, separate from standalone `v0.39.1`. Registry availability follows
 the release version-sync PR; publishing artifacts alone does not update the
 registry on main. Check the installed version after adding the source:
 

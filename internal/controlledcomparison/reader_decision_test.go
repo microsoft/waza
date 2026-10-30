@@ -143,45 +143,58 @@ func TestNativeReaderFrozen15cDecisionParity(t *testing.T) {
 	keyEnd := bytes.IndexByte(raw[start+2:], '"') + start + 2
 	require.Greater(t, keyEnd, start+2)
 	key := bytes.Clone(raw[start+1 : keyEnd+1])
-	duplicate := append(bytes.Clone(raw[:end-1]), ',')
-	duplicate = append(duplicate, key...)
-	duplicate = append(duplicate, []byte(`:""`)...)
-	duplicate = append(duplicate, raw[end-1:]...)
-	escaped := bytes.Replace(raw, []byte(`"blobs":`), []byte(`"\u0062lobs":`), 1)
-	require.NotEqual(t, raw, escaped)
-	reordered := append([]byte(`{"blobs":`), raw[start:end]...)
-	reordered = append(reordered, ',')
 	before := bytes.TrimSpace(raw[1 : start-len(`"blobs":`)])
 	after := bytes.TrimSpace(raw[end : len(raw)-1])
-	remainder := bytes.Clone(bytes.Trim(before, " ,\r\n\t"))
-	if len(remainder) > 0 && len(bytes.Trim(after, " ,\r\n\t")) > 0 {
-		remainder = append(remainder, ',')
-	}
-	remainder = append(remainder, bytes.Trim(after, " ,\r\n\t")...)
-	reordered = append(reordered, remainder...)
-	reordered = append(reordered, '}')
-	require.True(t, json.Valid(reordered), "top-level member reorder must retain valid raw nested JSON")
 	cases := []struct {
 		Name string
-		Raw  []byte
+		Raw  func() []byte
 		Want string
 	}{
-		{"writer", raw, ""},
-		{"whitespace", append(append([]byte(" \r\n\t"), raw...), []byte("\r\n ")...), ""},
-		{"escaped_member", escaped, ""},
-		{"member_order", reordered, ""},
-		{"trailing_document", append(bytes.Clone(raw), []byte("{}")...), "invalid JSON"},
-		{"duplicate_blob", duplicate, "duplicate JSON object key"},
-		{"unsafe_truncated_object", []byte(`{"blobs":{"a":"`), "invalid JSON"},
-		{"unicode_before_syntax", []byte(`{"kind":"\ud800",`), "unpaired Unicode surrogate"},
-		{"blob_failure_before_unknown", []byte(`{"blobs":{"a":"!!!"},"unknown":true}`), "illegal base64"},
-		{"unknown_before_blob_failure", []byte(`{"unknown":true,"blobs":{"a":"!!!"}}`), `unknown field "unknown"`},
+		{"writer", func() []byte { return raw }, ""},
+		{"whitespace", func() []byte {
+			return append(append(append([]byte(nil), " \r\n\t"...), raw...), "\r\n "...)
+		}, ""},
+		{"escaped_member", func() []byte {
+			escaped := bytes.Replace(raw, []byte(`"blobs":`), []byte(`"\u0062lobs":`), 1)
+			require.NotEqual(t, raw, escaped)
+			return escaped
+		}, ""},
+		{"member_order", func() []byte {
+			reordered := append([]byte(`{"blobs":`), raw[start:end]...)
+			reordered = append(reordered, ',')
+			remainder := bytes.Clone(bytes.Trim(before, " ,\r\n\t"))
+			if len(remainder) > 0 && len(bytes.Trim(after, " ,\r\n\t")) > 0 {
+				remainder = append(remainder, ',')
+			}
+			remainder = append(remainder, bytes.Trim(after, " ,\r\n\t")...)
+			reordered = append(reordered, remainder...)
+			reordered = append(reordered, '}')
+			require.True(t, json.Valid(reordered), "top-level member reorder must retain valid raw nested JSON")
+			return reordered
+		}, ""},
+		{"trailing_document", func() []byte {
+			return append(bytes.Clone(raw), []byte("{}")...)
+		}, "invalid JSON"},
+		{"duplicate_blob", func() []byte {
+			duplicate := append(bytes.Clone(raw[:end-1]), ',')
+			duplicate = append(duplicate, key...)
+			duplicate = append(duplicate, []byte(`:""`)...)
+			return append(duplicate, raw[end-1:]...)
+		}, "duplicate JSON object key"},
+		{"unsafe_truncated_object", func() []byte { return []byte(`{"blobs":{"a":"`) }, "invalid JSON"},
+		{"unicode_before_syntax", func() []byte { return []byte(`{"kind":"\ud800",`) }, "unpaired Unicode surrogate"},
+		{"blob_failure_before_unknown", func() []byte {
+			return []byte(`{"blobs":{"a":"!!!"},"unknown":true}`)
+		}, "illegal base64"},
+		{"unknown_before_blob_failure", func() []byte {
+			return []byte(`{"unknown":true,"blobs":{"a":"!!!"}}`)
+		}, `unknown field "unknown"`},
 	}
 	input := frozenDecisionInput{Directory: directory, Policy: policy}
 	observations := map[string]frozenDecisionObservation{}
 	for _, test := range cases {
 		t.Run(test.Name, func(t *testing.T) {
-			require.NoError(t, os.WriteFile(path, test.Raw, 0600))
+			require.NoError(t, os.WriteFile(path, test.Raw(), 0600))
 			frozen := readeroracle.Run(t, oracle, "TestNativeReaderFrozen15cDecisionParity", input)
 			var expected frozenDecisionObservation
 			require.NoError(t, json.Unmarshal(frozen, &expected))

@@ -898,6 +898,132 @@ inputs:
 
 After each agent turn the responder either **replies** (the answer is sent back, continuing the conversation), **stops** (the agent is done), or **abstains** — which fails the run with a distinct `abstained` outcome, signalling the brief is too vague. If `max_followups` is reached while the agent is still asking questions, the loop stops with outcome `cap_exhausted` and graders evaluate the final state. Each task carries its own responder, so the same skill can be tested against several target configurations.
 
+Each successful decision tool ends the responder's classification turn without
+another model round. This does not discard conflicting calls that were already
+issued: multiple decisions in one classification still fail the run.
+
+#### Complete multi-turn example
+
+Choose **scripted follow-ups** when the next user messages are known in advance.
+Choose an **adaptive responder** when the evaluated agent decides which question
+to ask next. The examples below use the same two-question interview without a
+skill or external tools, so you can check conversation setup independently of
+your product workflow.
+
+Create `eval.yaml` and a `tasks/` directory. This is a scenario eval, so it uses
+exact schema version `2.0` and does not discover ambient skills.
+
+```yaml
+name: multi-turn-demo
+scenario: two-question-interview
+schemaVersion: "2.0"
+version: "1.0"
+config:
+  executor: copilot-sdk
+  model: gpt-4.1
+  trials_per_task: 1
+  timeout_seconds: 120
+metrics:
+  - name: task_completion
+    weight: 1.0
+    threshold: 1.0
+graders:
+  - type: text
+    name: final-preferences
+    config:
+      regex_match: ["(?i)blue", "(?i)cat"]
+tasks:
+  - tasks/scripted.yaml
+  - tasks/adaptive.yaml
+```
+
+Create `tasks/scripted.yaml`:
+
+```yaml
+id: scripted-preferences
+name: Scripted preferences
+inputs:
+  prompt: |
+    Ask for my favorite color, then my favorite animal, one question at a time.
+    After both answers, summarize the color and animal without another question.
+  follow_up_prompts:
+    - "My favorite color is blue."
+    - "My favorite animal is a cat."
+```
+
+The scripted messages are sent in order after successive agent turns; they do
+not adapt to what the agent actually asked.
+
+Create `tasks/adaptive.yaml`:
+
+```yaml
+id: adaptive-preferences
+name: Adaptive preferences
+inputs:
+  prompt: |
+    Ask for my favorite color, then my favorite animal, one question at a time.
+    After both answers, summarize the color and animal without another question.
+  responder:
+    instructions: |
+      Your favorite color is blue and your favorite animal is a cat.
+      Answer only the question asked. Do not invent other preferences.
+      Stop when the agent has summarized both preferences and asks nothing else.
+      Abstain if an answer cannot be inferred from these facts.
+    max_followups: 3
+```
+
+The responder model defaults to `config.model`; set `inputs.responder.model`
+only when you intentionally want a different model. `max_followups` counts
+responder replies, not model requests or the initial actor turn, and must be at
+least one. Leave room beyond the expected two replies for the completion check:
+reaching the cap stops further classification and reports `cap_exhausted`,
+which is not proof the conversation completed successfully.
+
+`preflight` validates the configuration without starting a model:
+
+```bash
+waza preflight eval.yaml
+```
+
+**Before real execution**, configure SDK authentication, verify model access,
+and approve any runtime/tool permissions required by your environment. Both
+actor and responder inference may incur usage; the follow-up limit is not a
+provider spending cap. These commands exercise the real configured model:
+
+```bash
+waza run eval.yaml --task "Scripted preferences" --output scripted-results.json
+waza run eval.yaml --task "Adaptive preferences" --output adaptive-results.json
+```
+
+For an agent-free **scripted harness control only**, change `config.executor`
+from `copilot-sdk` to `mock` in `eval.yaml`, then run only the scripted task:
+
+```bash
+waza run eval.yaml --task "Scripted preferences" --output scripted-smoke.json
+```
+
+Expect exit `1`: generic mock output does not satisfy both preference predicates.
+This checks wiring, not real conversation quality. The mock engine does not call
+responder decision tools, so it is not an adaptive responder substitute. Restore
+`config.executor: copilot-sdk` before using the real-execution commands above.
+
+Inspect `tasks[].runs[].responder` in the adaptive results: `stopped` means the
+responder chose to stop, `abstained` means the brief could not supply an answer,
+and `cap_exhausted` means the reply limit was reached. Also check the run status
+and graders; a normal stop is not automatically a passing evaluation.
+
+:::caution[Duplicate decision errors]
+An error such as `responder called responder_stop after a decision was already recorded`
+is not an abstention or a follow-up limit. A nonterminal decision can allow an
+unnecessary model round before the accepted reply is delivered. The lifecycle
+fix in [#749](https://github.com/microsoft/waza/pull/749) marks the three
+internal decision tools terminal; check release notes before assuming an
+installed binary includes it. `IsTerminal` is an SDK registration option, not
+an eval YAML field or a prompt workaround. Terminality ends only the current
+classification; the responder session remains available for the next actor
+message. Conflicting decisions already issued in the same response remain errors.
+:::
+
 ### Per-Turn Checkpoints
 
 By default graders only run once, against the final state of a multi-turn conversation. For long conversations you can run graders at specific turn boundaries using a top-level `checkpoints:` list:

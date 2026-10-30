@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -18,17 +19,22 @@ import (
 const protocolVersion = "2024-11-05"
 
 type Server struct {
-	cfg    *Config
-	logger *slog.Logger
-	mu     sync.Mutex
-	steps  map[string]int
+	cfg       *Config
+	logger    *slog.Logger
+	mu        sync.Mutex
+	steps     map[string]int
+	toolIndex map[string]int
 }
 
 func NewServer(cfg *Config, logger *slog.Logger) *Server {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Server{cfg: cfg, logger: logger, steps: make(map[string]int)}
+	toolIndex := map[string]int{}
+	for index, name := range sortedToolNames(cfg.Tools) {
+		toolIndex[name] = index
+	}
+	return &Server{cfg: cfg, logger: logger, steps: make(map[string]int), toolIndex: toolIndex}
 }
 
 func (s *Server) HandleRequest(ctx context.Context, req *jsonrpc.Request) *jsonrpc.Response {
@@ -126,15 +132,12 @@ func (s *Server) call(ctx context.Context, toolName string, args map[string]any)
 	for index, response := range tool.Responses {
 		if response.matches(args) {
 			if len(response.Sequence) > 0 {
-				key := fmt.Sprintf("%s\x00%d", toolName, index)
-				s.mu.Lock()
-				stepIndex := s.steps[key]
-				if stepIndex < len(response.Sequence) {
-					s.steps[key] = stepIndex + 1
-				}
-				s.mu.Unlock()
-				if stepIndex >= len(response.Sequence) {
+				stepIndex, err := s.reserveStep(toolName, index, len(response.Sequence))
+				if errors.Is(err, faultsequence.ErrExhausted) {
 					return "", fmt.Errorf("mcp mock %q: response sequence exhausted for tool %q", s.cfg.Name, toolName)
+				}
+				if err != nil {
+					return "", fmt.Errorf("mcp mock %q tool %q: %w", s.cfg.Name, toolName, err)
 				}
 				s.logger.Debug("MCP mock sequence step reserved", "step", stepIndex)
 				step := response.Sequence[stepIndex]
@@ -162,6 +165,24 @@ func (s *Server) call(ctx context.Context, toolName string, args map[string]any)
 	}
 
 	return "", fmt.Errorf("mcp mock %q: unmatched tool call %q (arguments omitted); add a matching fixture response", s.cfg.Name, toolName)
+}
+
+// reserveStep consumes a step before delivery. Attempt-owned state survives
+// server restarts; otherwise state is local to this server process.
+func (s *Server) reserveStep(toolName string, responseIndex, steps int) (int, error) {
+	if s.cfg.StateDir != "" {
+		dir := sequenceStateDir(s.cfg.StateDir, s.toolIndex[toolName], responseIndex)
+		return faultsequence.Reserve(context.Background(), dir, steps)
+	}
+	key := fmt.Sprintf("%s\x00%d", toolName, responseIndex)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	stepIndex := s.steps[key]
+	if stepIndex >= steps {
+		return -1, faultsequence.ErrExhausted
+	}
+	s.steps[key] = stepIndex + 1
+	return stepIndex, nil
 }
 
 func (r Response) matches(args map[string]any) bool {

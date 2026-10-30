@@ -115,7 +115,7 @@ func TestEvidenceJudgePinnedRuntimeIsolation(t *testing.T) {
 	t.Setenv("COPILOT_CUSTOM_INSTRUCTIONS", "ACTOR_ENV_INSTRUCTION_CANARY")
 	t.Setenv("COPILOT_MCP_CONFIG", filepath.Join(actor, ".copilot/mcp-config.json"))
 	t.Setenv("COPILOT_CLI_PATH", cli)
-	t.Log("using embedded headless runtime 1.0.85 (its entrypoint deliberately does not implement --version)")
+	t.Log("using embedded headless runtime 1.0.101 (its entrypoint deliberately does not implement --version)")
 
 	for _, test := range []struct {
 		name        string

@@ -14,12 +14,13 @@ import (
 func newMCPMockCommand() *cobra.Command {
 	var configBase64 string
 	var configFile string
+	var attemptConfigFile string
 	cmd := &cobra.Command{
 		Use:    "__mcp-mock",
 		Short:  "Run an internal MCP mock server",
 		Hidden: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			data, err := readMCPMockConfig(configBase64, configFile)
+			data, err := readMCPMockConfig(configBase64, configFile, attemptConfigFile)
 			if err != nil {
 				return err
 			}
@@ -38,11 +39,22 @@ func newMCPMockCommand() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&configBase64, "config-base64", "", "base64-encoded MCP mock config")
 	cmd.Flags().StringVar(&configFile, "config-file", "", "path to MCP mock config JSON")
+	cmd.Flags().StringVar(&attemptConfigFile, "attempt-config-file", "", "path to retained task-attempt MCP mock config JSON")
 	return cmd
 }
 
-func readMCPMockConfig(configBase64, configFile string) ([]byte, error) {
+func readMCPMockConfig(configBase64, configFile, attemptConfigFile string) ([]byte, error) {
+	if attemptConfigFile != "" && (configBase64 != "" || configFile != "") {
+		return nil, fmt.Errorf("--attempt-config-file cannot be combined with --config-file or --config-base64")
+	}
 	switch {
+	case attemptConfigFile != "":
+		// The task attempt owns this file so restarted servers can reuse it.
+		data, err := os.ReadFile(attemptConfigFile)
+		if err != nil {
+			return nil, fmt.Errorf("read attempt mock config file: %w", err)
+		}
+		return data, nil
 	case configFile != "":
 		data, err := os.ReadFile(configFile)
 		if err != nil {
@@ -59,6 +71,6 @@ func readMCPMockConfig(configBase64, configFile string) ([]byte, error) {
 		}
 		return data, nil
 	default:
-		return nil, fmt.Errorf("--config-file or --config-base64 is required")
+		return nil, fmt.Errorf("--config-file, --attempt-config-file, or --config-base64 is required")
 	}
 }

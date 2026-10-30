@@ -50,7 +50,7 @@ func TestToolPolicyLaterTurns(t *testing.T) {
 				require.NoError(t, err)
 				resp, err := eng.Execute(context.Background(), req)
 				require.NoError(t, err)
-				require.False(t, runner.sendResponderReply(context.Background(), tc, resp, "try bash", 1))
+				require.False(t, runner.sendResponderReply(context.Background(), tc, req, resp, "try bash", 1))
 				require.False(t, resp.Success)
 				digest = runner.buildSessionDigest(resp)
 			} else {

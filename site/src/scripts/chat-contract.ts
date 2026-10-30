@@ -106,7 +106,7 @@ export class ServiceError extends Error {
 
 const errors: Record<string, string> = {
   INVALID_REQUEST: 'The request was rejected. Check the question and YAML limits.',
-  INVALID_SESSION: 'Your session has expired. Complete a new bot challenge.',
+  INVALID_SESSION: 'Your session has expired. Send again to start a new session.',
   CHALLENGE_FAILED: 'Bot verification failed. Complete a new challenge.',
   ORIGIN_DENIED: 'Chat is not available from this site. Please use documentation search.',
   QUOTA_EXCEEDED: 'The chat usage limit has been reached. Please use documentation search.',

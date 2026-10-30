@@ -5,8 +5,8 @@ description: Complete reference for all waza commands and flags.
 
 Complete reference for all `waza` CLI commands and their options.
 
-**Version boundary (October 20, 2026):** published standalone `v0.39.0`
-includes scenario flags, preflight,
+**Version boundary (October 26, 2026):** published standalone `v0.39.1`
+fixes `waza dev SKILL.md` file targets and retains the v0.39.0 scenario flags, preflight,
 selected-file evidence/regrade, assurance profiles, controlled policy commands
 and `serve --lab`. Install the release or run `waza update`; a source build is
 optional. Explicit opt-in and platform restrictions remain; see the
@@ -1341,17 +1341,44 @@ Remote program graders require `--allow-exec` or interactive confirmation before
 Improve skill compliance iteratively.
 
 ```bash
-waza dev [skill-name | skill-path]
+waza dev <skill-name | skill-path>
+waza dev <skill-name...>
+waza dev --all
 ```
+
+A single target can be a workspace skill name, a directory, or a `SKILL.md`
+file, using relative or absolute paths. Bare names resolve workspace skills
+first, then fall back to existing local directories. Prefix a directory with
+`./` (or `.\` on Windows) to select that path explicitly. Other file targets are
+rejected. Multiple positional arguments remain workspace skill names.
+
+```bash
+waza dev ./skills/code-explainer
+waza dev ./skills/code-explainer/SKILL.md
+waza dev SKILL.md
+waza dev .
+```
+
+```powershell
+waza dev .\skills\code-explainer\SKILL.md
+```
+
+The same single-target forms work with `--copilot` and `--scaffold-triggers`.
 
 ### Flags
 
 | Flag | Description |
 |------|-------------|
-| `--target` | Target level: `low`, `medium`, `high` |
+| `--target` | Target level: `low`, `medium`, `medium-high`, `high` (default: `medium-high`; iterative mode only) |
 | `--max-iterations` | Max improvement loops (default: 5) |
 | `--auto` | Auto-apply without prompting |
-| `--fast` | Skip integration tests |
+| `--copilot` | Generate a non-interactive recommendations report without modifying the skill |
+| `--model` | Model to use with `--copilot` |
+| `--scaffold-triggers` | Generate `tests/trigger_tests.yaml` from frontmatter trigger phrases |
+| `--all` | Process all skills in the workspace |
+| `--filter` | Filter `--all` skills by adherence level |
+
+`--target`, `--max-iterations`, and `--auto` are not valid with `--copilot`.
 
 ### Workflow
 
@@ -1599,7 +1626,7 @@ Copilot-backed runs query the SDK's typed `session.usage.getMetrics` after compl
 | `summary.usage.model_metrics.<model>.ai_credits` | Final AI Credits attributed to a model |
 | `summary.usage.model_metrics.<model>.{input,output,cache_read,cache_write}_tokens` | Token-category diagnostics |
 
-The CLI usage summary prints `AI Credits` (and a per-model column) at nano-unit precision, and the classic dashboard shows **AI Credits** plus a **Usage by model** table. Totals include task, trigger, and prompt-grader sessions initiated by waza, not account-wide Copilot usage. A run or model aggregate with missing contributing metrics is unavailable, never a partial subtotal. Main currently uses `github.com/github/copilot-sdk/go` v1.0.21; published standalone `v0.38.10` uses v1.0.15. Older result artifacts show `—` in the dashboard (`n/a` in the CLI) rather than an estimate.
+The CLI usage summary prints `AI Credits` (and a per-model column) at nano-unit precision, and the classic dashboard shows **AI Credits** plus a **Usage by model** table. Totals include task, trigger, and prompt-grader sessions initiated by waza, not account-wide Copilot usage. A run or model aggregate with missing contributing metrics is unavailable, never a partial subtotal. Main currently uses `github.com/github/copilot-sdk/go` v1.0.24 with bundled CLI 1.0.101; published standalone `v0.38.10` uses v1.0.15. Older result artifacts show `—` in the dashboard (`n/a` in the CLI) rather than an estimate.
 
 ## Graders
 

@@ -29,7 +29,7 @@ func TestPath(t *testing.T) {
 		}
 		require.NoError(t, err)
 		require.FileExists(t, path)
-		require.FileExists(t, filepath.Join(filepath.Dir(path), "sdk", "index.js"))
+		require.FileExists(t, filepath.Join(filepath.Dir(path), "copilot-sdk", "index.js"))
 		again, err := Path()
 		require.NoError(t, err)
 		require.Equal(t, path, again)
@@ -47,7 +47,7 @@ func TestPath(t *testing.T) {
 		require.NotNil(t, pong)
 		status, err := client.GetStatus(ctx)
 		require.NoError(t, err)
-		require.Equal(t, "1.0.85", status.Version)
+		require.Equal(t, "1.0.101", status.Version)
 		schemaBytes, err := os.ReadFile(filepath.Join(filepath.Dir(path), "schemas", "session-events.schema.json"))
 		require.NoError(t, err)
 		var schema struct {
@@ -58,7 +58,7 @@ func TestPath(t *testing.T) {
 			} `json:"definitions"`
 		}
 		require.NoError(t, json.Unmarshal(schemaBytes, &schema))
-		require.JSONEq(t, `"factory"`, string(schema.Definitions["PermissionRequestFactory"].Properties["kind"].Const))
+		require.JSONEq(t, `"workflow"`, string(schema.Definitions["PermissionRequestWorkflow"].Properties["kind"].Const))
 
 		var providerRequests atomic.Int32
 		provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -81,7 +81,7 @@ func TestPath(t *testing.T) {
 		require.NoError(t, session.Disconnect())
 		require.NoError(t, client.DeleteSession(ctx, session.SessionID))
 		require.Zero(t, providerRequests.Load(), "no provider requests are permitted in this smoke test")
-		t.Logf("bundled CLI %s: native ping/status/session.create/session.getMessages/session.detach/session.delete passed; schema kind=factory; provider requests=0", status.Version)
+		t.Logf("bundled CLI %s: native ping/status/session.create/session.getMessages/session.detach/session.delete passed; schema kind=workflow; provider requests=0", status.Version)
 		return
 	}
 
