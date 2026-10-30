@@ -55,9 +55,8 @@ func (e *terminalControlExecutor) Execute(ctx context.Context, req *execution.Ex
 	return e.Executor.Execute(ctx, req)
 }
 
-// This opt-in probe uses the real SDK and native CLI, but only synthetic
-// responses from a loopback provider. It never calls a paid model.
-func TestResponderTerminalRuntime(t *testing.T) {
+func responderRuntimeCLI(t *testing.T) string {
+	t.Helper()
 	if os.Getenv("WAZA_RESPONDER_RUNTIME_TEST") != "1" {
 		t.Skip("set WAZA_RESPONDER_RUNTIME_TEST=1 and COPILOT_CLI_PATH for the loopback runtime probe")
 	}
@@ -74,7 +73,58 @@ func TestResponderTerminalRuntime(t *testing.T) {
 	} {
 		t.Setenv(name, "")
 	}
+	return cli
+}
 
+func newResponderRuntimeEngine(t *testing.T, cli, origin string, emptyMode bool) (*execution.CopilotEngine, context.Context) {
+	t.Helper()
+	t.Setenv("COPILOT_BASE_URL", origin+"/v1")
+	t.Setenv("COPILOT_API_KEY", "synthetic-responder-key")
+	t.Setenv("COPILOT_PROVIDER_TYPE", "openai")
+	t.Setenv("COPILOT_WIRE_API", "completions")
+	home := t.TempDir()
+	transport := &loopbackTransport{origin: origin, client: &http.Transport{Proxy: nil}}
+	t.Cleanup(transport.client.CloseIdleConnections)
+	engine := execution.NewCopilotEngineBuilder("gpt-4.1", &execution.CopilotEngineBuilderOptions{
+		DisableCommandMocks: true,
+		NewCopilotClient: func(options *copilot.ClientOptions) execution.CopilotClient {
+			env := []string{"HOME=" + home, "USERPROFILE=" + home, "COPILOT_HOME=" + home}
+			for _, key := range []string{"SystemRoot", "WINDIR", "TEMP", "TMP", "PATH"} {
+				if value, ok := os.LookupEnv(key); ok {
+					env = append(env, key+"="+value)
+				}
+			}
+			no := false
+			options.Connection = copilot.StdioConnection{Path: cli, Env: env}
+			options.WorkingDirectory, options.BaseDirectory = home, home
+			options.UseLoggedInUser = &no
+			if emptyMode {
+				options.Mode = copilot.ModeEmpty
+			}
+			options.RequestHandler = &copilot.CopilotRequestHandler{
+				Transport: transport,
+				OpenWebSocket: func(*copilot.CopilotRequestContext) (copilot.CopilotWebSocketHandler, error) {
+					return nil, fmt.Errorf("responder probe denies WebSockets")
+				},
+			}
+			return execution.NewOwnedCopilotClient(options)
+		},
+	}).Build()
+	ctx, cancel := context.WithTimeout(t.Context(), 90*time.Second)
+	t.Cleanup(cancel)
+	require.NoError(t, engine.Initialize(ctx))
+	t.Cleanup(func() {
+		cleanup, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		require.NoError(t, engine.Shutdown(cleanup))
+	})
+	return engine, ctx
+}
+
+// These opt-in probes use the real SDK and native CLI, but only synthetic
+// responses from a loopback provider. They never call a paid model.
+func TestResponderTerminalRuntime(t *testing.T) {
+	cli := responderRuntimeCLI(t)
 	for _, tc := range []struct {
 		name string
 		args string
@@ -137,43 +187,7 @@ func TestResponderTerminalRuntime(t *testing.T) {
 					}
 				}))
 				defer server.Close()
-				t.Setenv("COPILOT_BASE_URL", server.URL+"/v1")
-				t.Setenv("COPILOT_API_KEY", "synthetic-responder-key")
-				t.Setenv("COPILOT_PROVIDER_TYPE", "openai")
-				t.Setenv("COPILOT_WIRE_API", "completions")
-				home := t.TempDir()
-				transport := &loopbackTransport{origin: server.URL, client: &http.Transport{Proxy: nil}}
-				defer transport.client.CloseIdleConnections()
-				engine := execution.NewCopilotEngineBuilder("gpt-4.1", &execution.CopilotEngineBuilderOptions{
-					DisableCommandMocks: true,
-					NewCopilotClient: func(options *copilot.ClientOptions) execution.CopilotClient {
-						env := []string{"HOME=" + home, "USERPROFILE=" + home, "COPILOT_HOME=" + home}
-						for _, key := range []string{"SystemRoot", "WINDIR", "TEMP", "TMP", "PATH"} {
-							if value, ok := os.LookupEnv(key); ok {
-								env = append(env, key+"="+value)
-							}
-						}
-						no := false
-						options.Connection = copilot.StdioConnection{Path: cli, Env: env}
-						options.WorkingDirectory, options.BaseDirectory = home, home
-						options.Mode, options.UseLoggedInUser = copilot.ModeEmpty, &no
-						options.RequestHandler = &copilot.CopilotRequestHandler{
-							Transport: transport,
-							OpenWebSocket: func(*copilot.CopilotRequestContext) (copilot.CopilotWebSocketHandler, error) {
-								return nil, fmt.Errorf("responder probe denies WebSockets")
-							},
-						}
-						return execution.NewOwnedCopilotClient(options)
-					},
-				}).Build()
-				ctx, cancel := context.WithTimeout(t.Context(), 90*time.Second)
-				defer cancel()
-				require.NoError(t, engine.Initialize(ctx))
-				defer func() {
-					cleanup, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-					defer cancel()
-					require.NoError(t, engine.Shutdown(cleanup))
-				}()
+				engine, ctx := newResponderRuntimeEngine(t, cli, server.URL, true)
 				control := &terminalControlExecutor{Executor: engine, nonterminal: nonterminal}
 				classifier := New(control, models.ResponderConfig{Instructions: "Use the synthetic decision."}, "gpt-4.1")
 				var sessionID string
@@ -212,6 +226,114 @@ func TestResponderTerminalRuntime(t *testing.T) {
 					}
 				}
 				require.Len(t, control.sessionIDs, 2)
+			})
+		}
+	}
+}
+
+func TestResponderExecutionErrorRuntime(t *testing.T) {
+	cli := responderRuntimeCLI(t)
+	for _, outcome := range []string{"decision", "text", "provider failure"} {
+		for _, phase := range []string{"initial", "resumed"} {
+			t.Run(outcome+"/"+phase, func(t *testing.T) {
+				var requests, callbacks atomic.Int32
+				var finalTurn atomic.Bool
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					_, err := io.Copy(io.Discard, io.LimitReader(r.Body, 4<<20))
+					if err != nil {
+						t.Errorf("reading synthetic request: %v", err)
+						w.WriteHeader(http.StatusBadRequest)
+						return
+					}
+					requests.Add(1)
+					w.Header().Set("Content-Type", "application/json")
+					if finalTurn.Load() && outcome == "provider failure" {
+						w.WriteHeader(http.StatusBadRequest)
+						_, err = io.WriteString(w, `{"error":{"message":"synthetic provider rejection","type":"invalid_request_error","code":"synthetic_rejection"}}`)
+					} else {
+						message := map[string]any{"role": "assistant", "content": "synthetic plain text"}
+						finish := "stop"
+						if !finalTurn.Load() || outcome == "decision" {
+							message["content"] = nil
+							message["tool_calls"] = []any{map[string]any{
+								"id": "decision", "type": "function",
+								"function": map[string]any{"name": toolRespond, "arguments": `{"answer":"synthetic answer"}`},
+							}}
+							finish = "tool_calls"
+						}
+						err = json.NewEncoder(w).Encode(map[string]any{
+							"id": "synthetic", "object": "chat.completion", "model": "gpt-4.1",
+							"choices": []any{map[string]any{"index": 0, "message": message, "finish_reason": finish}},
+							"usage":   map[string]int{"prompt_tokens": 12, "completion_tokens": 3, "total_tokens": 15},
+						})
+					}
+					if err != nil {
+						t.Errorf("writing synthetic response: %v", err)
+					}
+				}))
+				defer server.Close()
+				// Keep the default CLI mode and Classify's tool policy, unlike the
+				// terminality probe's empty mode and explicit decision allowlist.
+				engine, ctx := newResponderRuntimeEngine(t, cli, server.URL, false)
+				var response *execution.ExecutionResponse
+				exec := &fakeExecutor{respond: func(req *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
+					require.Nil(t, req.ToolPolicy)
+					for i := range req.Tools {
+						require.True(t, req.Tools[i].IsTerminal)
+						handler := req.Tools[i].Handler
+						req.Tools[i].Handler = func(inv copilot.ToolInvocation) (copilot.ToolResult, error) {
+							callbacks.Add(1)
+							return handler(inv)
+						}
+					}
+					var err error
+					response, err = engine.Execute(ctx, req)
+					require.NoError(t, err, "exercise the response-level failure contract, not a Go error")
+					require.NotNil(t, response)
+					return response, err
+				}}
+				classifier := New(exec, models.ResponderConfig{Instructions: "Use the synthetic decision."}, "gpt-4.1")
+				turns := 1
+				if phase == "resumed" {
+					turns = 4
+				}
+				var sessionID string
+				for turn := range turns {
+					finalTurn.Store(turn == turns-1)
+					requests.Store(0)
+					callbacks.Store(0)
+					d, err := classifier.Classify(ctx, "Synthetic question?")
+					require.NotEmpty(t, response.SessionID)
+					if turn == 0 {
+						require.Empty(t, exec.calls[turn].SessionID)
+						sessionID = response.SessionID
+					} else {
+						require.Equal(t, sessionID, exec.calls[turn].SessionID)
+						require.Equal(t, sessionID, response.SessionID)
+					}
+					require.EqualValues(t, 1, requests.Load())
+					if !finalTurn.Load() || outcome == "decision" {
+						require.NoError(t, err)
+						require.True(t, response.Success)
+						require.Empty(t, response.ErrorMsg)
+						require.Equal(t, Decision{Kind: DecisionReply, Answer: "synthetic answer"}, d)
+						require.EqualValues(t, 1, callbacks.Load())
+					} else {
+						require.Equal(t, Decision{}, d)
+						require.Zero(t, callbacks.Load())
+						if outcome == "text" {
+							require.True(t, response.Success)
+							require.Empty(t, response.ErrorMsg)
+							require.Equal(t, "synthetic plain text", response.FinalOutput)
+							require.EqualError(t, err, "responder did not call a decision tool")
+						} else {
+							require.False(t, response.Success)
+							require.Contains(t, response.ErrorMsg, "synthetic provider rejection")
+							require.EqualError(t, err, "responder execution failed: "+response.ErrorMsg)
+						}
+					}
+				}
+				require.Len(t, exec.calls, turns)
 			})
 		}
 	}

@@ -2022,6 +2022,9 @@ For complete, copyable scripted and adaptive tasks, see the
 It includes agent-free preflight, a scripted mock control, real-execution
 prerequisites, and how to interpret stop, abstention, and follow-up limits.
 
+When execution fails before a responder decision, Waza reports the available
+execution error instead of masking it as a missing decision-tool call.
+
 **Fields** (under `inputs.responder`):
 
 | Field           | Required | Description |

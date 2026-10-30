@@ -802,6 +802,10 @@ authenticated real-execution commands. Adaptive runs can incur usage for both
 models. A responder's `stopped` outcome does not imply the graders passed;
 `abstained` and `cap_exhausted` describe different incomplete conversations.
 
+If responder execution fails without a decision, the run's error and responder
+reason retain the available execution error. See the example's error guidance
+to distinguish execution failures from successful output without a decision.
+
 ### Controlled Dependency Failures
 
 MCP mock `error` responses and command mock `stderr`/`exit_code` responses can model permanent failures or permission denial without contacting the dependency. Legacy responses return the first matching fixture on every call; scenario evals can instead opt into finite recovery sequences. Configured unmatched calls fail closed, and MCP unmatched diagnostics omit argument values. The MCP mock subprocess accepts per-request cancellation without resetting consumed steps or terminating the server. Finite MCP sequence progress spans every turn of one task attempt and resets for each task, trial, and retry. See the [dependency recovery guide](../site/src/content/docs/guides/dependency-recovery.mdx) for a multi-turn example, cleanup limitations, dispatch, interruption, and evidence boundaries.
