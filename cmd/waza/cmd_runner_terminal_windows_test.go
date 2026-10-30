@@ -41,7 +41,7 @@ type runnerWindowsMessage struct {
 type runnerWindowsOutput struct {
 	mu      sync.Mutex
 	data    []byte
-	pending []byte
+	framing *runnerHelperFraming
 	events  chan runnerWindowsMessage
 }
 
@@ -53,18 +53,11 @@ func (w *runnerWindowsOutput) Write(data []byte) (int, error) {
 	}
 	w.data = append(w.data, data...)
 	if w.events != nil {
-		w.pending = append(w.pending, data...)
-		for {
-			index := bytes.IndexByte(w.pending, '\n')
-			if index < 0 {
-				break
-			}
-			line := w.pending[:index]
-			w.pending = w.pending[index+1:]
-			// Only the test-controller protocol, never CLI output, includes PASS.
-			if bytes.Equal(line, []byte("PASS")) {
-				continue
-			}
+		records, err := w.framing.write(data)
+		if err != nil {
+			return 0, fmt.Errorf("framing Windows controller output: %w", err)
+		}
+		for _, line := range records {
 			var event runnerWindowsMessage
 			if err := json.Unmarshal(line, &event); err != nil {
 				return 0, fmt.Errorf("decoding Windows controller event: %w", err)
@@ -77,6 +70,15 @@ func (w *runnerWindowsOutput) Write(data []byte) (int, error) {
 		}
 	}
 	return len(data), nil
+}
+
+func (w *runnerWindowsOutput) finish() error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.framing != nil {
+		return w.framing.finish()
+	}
+	return nil
 }
 
 func (w *runnerWindowsOutput) snapshot() []byte {
@@ -100,6 +102,7 @@ func startRunnerWindowsProcess(cmd *exec.Cmd, protocol bool) (*runnerWindowsProc
 	}
 	if protocol {
 		p.stdout.events = make(chan runnerWindowsMessage, 16)
+		p.stdout.framing = newRunnerHelperFraming("ready", "armed", "capability", "started", "result", "finished")
 	}
 	cmd.Stdout, cmd.Stderr = p.stdout, p.stderr
 	cmd.WaitDelay = 5 * time.Second
@@ -108,7 +111,8 @@ func startRunnerWindowsProcess(cmd *exec.Cmd, protocol bool) (*runnerWindowsProc
 	}
 	go func() {
 		defer close(p.done)
-		p.err = cmd.Wait()
+		waitErr := cmd.Wait()
+		p.err = errors.Join(waitErr, p.stdout.finish())
 	}()
 	return p, nil
 }
@@ -521,12 +525,12 @@ func runRunnerWindowsController() (resultErr error) {
 				return fmt.Errorf("inherited-pipe capability probe: %w; stdout=%s; stderr=%s",
 					err, probe.stdout.snapshot(), probe.stderr.snapshot())
 			}
-			lines := bytes.Split(bytes.TrimSpace(probe.stdout.snapshot()), []byte{'\n'})
-			if len(lines) != 2 || !bytes.Equal(lines[1], []byte("PASS")) {
-				return fmt.Errorf("invalid native capability probe output: %s", probe.stdout.snapshot())
+			records, err := decodeRunnerHelperSnapshot(probe.stdout.snapshot(), "capability")
+			if err != nil {
+				return fmt.Errorf("invalid native capability probe output: %w; stdout=%s", err, probe.stdout.snapshot())
 			}
 			var capability runnerWindowsMessage
-			if err := json.Unmarshal(lines[0], &capability); err != nil {
+			if err := json.Unmarshal(records[0], &capability); err != nil {
 				return err
 			}
 			if capability.Kind != "capability" || !capability.NoDeadline || capability.GoVersion != runtime.Version() {
