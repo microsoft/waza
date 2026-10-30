@@ -14,34 +14,34 @@ import (
 
 // These stricter captured-byte entrypoints do not alter same-major compatibility
 // warnings in the ordinary path loaders.
-func validateCapturedModelSource(data []byte, task bool) error {
+func validateCapturedModelSource(data []byte, task bool) (*yaml.Node, error) {
 	if err := guardOfflineModelSchemas(data, task, nil); err != nil {
-		return err
+		return nil, err
 	}
 	var doc yaml.Node
 	decoder := yaml.NewDecoder(bytes.NewReader(data))
 	if err := decoder.Decode(&doc); err != nil {
-		return err
+		return nil, err
 	}
 	if doc.Kind != yaml.DocumentNode || len(doc.Content) != 1 || doc.Content[0].Kind != yaml.MappingNode {
-		return fmt.Errorf("captured source requires one nonnull mapping document")
+		return nil, fmt.Errorf("captured source requires one nonnull mapping document")
 	}
 	var extra yaml.Node
 	if err := decoder.Decode(&extra); err != io.EOF {
-		return fmt.Errorf("captured source must contain exactly one YAML document")
+		return nil, fmt.Errorf("captured source must contain exactly one YAML document")
 	}
 	target := reflect.TypeFor[EvalSpec]()
 	if task {
 		target = reflect.TypeFor[TestCase]()
 	}
 	if err := checkCapturedFields(&doc, target); err != nil {
-		return err
+		return nil, err
 	}
 	for _, g := range mappingValue(doc.Content[0], "graders").Content {
 		kind := mappingValue(g, "type")
 		if kind.Value == string(GraderKindText) {
 			if err := checkCapturedFields(mappingValue(g, "config"), reflect.TypeFor[TextGraderParameters]()); err != nil {
-				return err
+				return nil, err
 			}
 		}
 	}
@@ -49,10 +49,10 @@ func validateCapturedModelSource(data []byte, task bool) error {
 		prompt := mappingValue(mappingValue(doc.Content[0], "inputs"), "prompt_file")
 		if prompt.Kind != 0 && prompt.Value != "" &&
 			(!filepath.IsLocal(prompt.Value) || filepath.Clean(prompt.Value) != prompt.Value || strings.Contains(prompt.Value, "\\")) {
-			return fmt.Errorf("unsupported noncanonical captured prompt_file path")
+			return nil, fmt.Errorf("unsupported noncanonical captured prompt_file path")
 		}
 	}
-	return nil
+	return doc.Content[0], nil
 }
 
 func mappingValue(node *yaml.Node, name string) *yaml.Node {

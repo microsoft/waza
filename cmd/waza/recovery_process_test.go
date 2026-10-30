@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -13,6 +14,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -32,6 +34,59 @@ func buildRecoveryCLI(t *testing.T) string {
 	log, err := exec.CommandContext(t.Context(), "go", "build", "-o", binary, ".").CombinedOutput()
 	require.NoError(t, err, "%s", log)
 	return binary
+}
+
+// Keep observation on the caller goroutine: an asynchronous predicate may
+// outlive its timeout and race with session/child cleanup.
+func waitRecoveryCondition(ctx context.Context, condition func() bool) error {
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if condition() {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
+	}
+}
+
+func startRecoveryMCPProcess(parent context.Context, start func() error, cancelProcess context.CancelFunc) (context.Context, func(), error) {
+	watch := func(ctx context.Context) func() {
+		done := make(chan struct{})
+		stop := context.AfterFunc(ctx, func() {
+			defer close(done)
+			cancelProcess()
+		})
+		return sync.OnceFunc(func() {
+			if !stop() {
+				<-done
+			}
+		})
+	}
+	startup, cancelStartup := context.WithTimeout(parent, 30*time.Second)
+	stopStartup := watch(startup)
+	startErr := start()
+	stopStartup()
+	startupErr := startup.Err()
+	cancelStartup()
+	if err := errors.Join(startErr, startupErr); err != nil {
+		cancelProcess()
+		return nil, nil, fmt.Errorf("starting MCP subprocess: %w", err)
+	}
+	// OS process creation is setup, not part of the MCP exchange/EOF budget.
+	exchange, cancelExchange := context.WithTimeout(parent, 10*time.Second)
+	stopExchange := watch(exchange)
+	return exchange, sync.OnceFunc(func() {
+		stopExchange()
+		cancelExchange()
+		cancelProcess()
+	}), nil
 }
 
 func TestRecoveryCommandMockContextCancellation(t *testing.T) {
@@ -105,12 +160,14 @@ func TestRecoveryCommandMockDelayedContextCancellation(t *testing.T) {
 func TestRecoveryMCPMockProcessStdinLifecycle(t *testing.T) {
 	binary := buildRecoveryCLI(t)
 	for _, test := range []struct {
-		name   string
-		signal os.Signal
+		name     string
+		signal   os.Signal
+		deadline bool
 	}{
-		{"EOF", nil},
-		{"SIGTERM with open stdin", syscall.SIGTERM},
-		{"SIGINT with open stdin", os.Interrupt},
+		{"EOF", nil, false},
+		{"SIGTERM with open stdin", syscall.SIGTERM, false},
+		{"SIGINT with open stdin", os.Interrupt, false},
+		{"I/O deadline with open stdin", nil, true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			if test.signal != nil && runtime.GOOS == "windows" {
@@ -128,32 +185,52 @@ func TestRecoveryMCPMockProcessStdinLifecycle(t *testing.T) {
 			// A real inherited file descriptor exercises blocking os.Stdin,
 			// unlike the interruptible io.Pipe endpoints in serving tests.
 			config := base64.StdEncoding.EncodeToString([]byte(`{"name":"dependency"}`))
-			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
-			t.Cleanup(cancel)
-			child := exec.CommandContext(ctx, binary, "__mcp-mock", "--config-base64", config)
+			childCtx, cancelChild := context.WithCancel(t.Context())
+			t.Cleanup(cancelChild)
+			child := exec.CommandContext(childCtx, binary, "__mcp-mock", "--config-base64", config)
 			child.Stdin = input
 			child.Env = append(os.Environ(), "WAZA_NO_UPDATE_CHECK=1")
+			child.WaitDelay = time.Second
 			var stderr bytes.Buffer
 			child.Stderr = &stderr
 			output, err := child.StdoutPipe()
 			require.NoError(t, err)
-			started := time.Now()
-			err = child.Start()
-			startElapsed := time.Since(started)
-			require.NoError(t, err, "MCP start elapsed: %s; context: %v", startElapsed, ctx.Err())
 			waited := false
-			var writeElapsed, decodeElapsed time.Duration
+			waitStarted := false
+			done := make(chan error, 1)
+			waitChild := func() (error, bool) {
+				if !waitStarted {
+					waitStarted = true
+					go func() { done <- child.Wait() }()
+				}
+				select {
+				case err := <-done:
+					return err, true
+				case <-time.After(3 * time.Second):
+					return errors.New("MCP child Wait did not join within its bound"), false
+				}
+			}
+			var startElapsed, writeElapsed, decodeElapsed time.Duration
 			// t.Context is canceled before cleanup, so snapshot before assertions.
 			var initializeContextErr error
 			t.Cleanup(func() {
-				if !waited {
-					cancel()
-					waitErr := child.Wait()
+				if child.Process != nil && !waited {
+					cancelChild()
+					waitErr, joined := waitChild()
+					require.True(t, joined, "%v; child context: %v", waitErr, childCtx.Err())
 					t.Logf("MCP subprocess failure: start elapsed: %s; write elapsed: %s; decode elapsed: %s; context after initialize I/O before cleanup cancel: %v; joined child Wait: %v; process state: %v; stderr: %s",
 						startElapsed, writeElapsed, decodeElapsed, initializeContextErr, waitErr, child.ProcessState, stderr.String())
 					require.Error(t, waitErr)
 				}
 			})
+			ctx, stopExchange, err := startRecoveryMCPProcess(t.Context(), func() error {
+				started := time.Now()
+				err := child.Start()
+				startElapsed = time.Since(started)
+				return err
+			}, cancelChild)
+			require.NoError(t, err, "MCP start elapsed: %s; child context: %v", startElapsed, childCtx.Err())
+			t.Cleanup(stopExchange)
 			writeStarted := time.Now()
 			_, err = io.WriteString(send, "{\"jsonrpc\":\"2.0\",\"method\":\"initialize\",\"id\":1}\n")
 			writeElapsed = time.Since(writeStarted)
@@ -168,6 +245,21 @@ func TestRecoveryMCPMockProcessStdinLifecycle(t *testing.T) {
 			require.JSONEq(t, "1", string(response.ID))
 			require.Nil(t, response.Error)
 			require.NotNil(t, response.Result, "the actual subprocess must be serving before shutdown")
+			if test.deadline {
+				_, err = io.WriteString(send, `{"jsonrpc":"2.0",`)
+				require.NoError(t, err)
+				err = json.NewDecoder(output).Decode(&response)
+				require.ErrorIs(t, err, io.EOF, "an incomplete request must not receive a fabricated response")
+				require.ErrorIs(t, ctx.Err(), context.DeadlineExceeded)
+				err, waited = waitChild()
+				require.True(t, waited, "%v", err)
+				var exit *exec.ExitError
+				require.ErrorAs(t, err, &exit)
+				require.Error(t, childCtx.Err(), "the exchange deadline must cancel the owned child")
+				_, statErr := send.Stat()
+				require.NoError(t, statErr, "stdin must remain open through deadline cleanup")
+				return
+			}
 			if test.signal == nil {
 				require.NoError(t, send.Close())
 				sendClosed = true
@@ -176,8 +268,8 @@ func TestRecoveryMCPMockProcessStdinLifecycle(t *testing.T) {
 				require.NoError(t, err)
 				require.NoError(t, child.Process.Signal(test.signal))
 			}
-			err = child.Wait()
-			waited = true
+			err, waited = waitChild()
+			require.True(t, waited, "%v", err)
 			require.NoError(t, ctx.Err(), "MCP shutdown required the safety timeout; stderr: %s", stderr.String())
 			if test.signal == nil {
 				require.NoError(t, err, "%s", stderr.String())
@@ -325,23 +417,66 @@ func TestRecoveryCommandMockPassThroughInterruption(t *testing.T) {
 	child.WaitDelay = time.Second
 	var output bytes.Buffer
 	child.Stdout, child.Stderr = &output, &output
+	started := time.Now()
 	require.NoError(t, child.Start())
+	startElapsed := time.Since(started)
+	done := make(chan error, 1)
+	go func() { done <- child.Wait() }()
 	waited := false
 	t.Cleanup(func() {
 		if !waited {
 			cancel()
-			require.Error(t, child.Wait())
+			select {
+			case err := <-done:
+				require.Error(t, err)
+			case <-time.After(3 * time.Second):
+				t.Error("pass-through child cleanup did not join within its bound")
+			}
 		}
 	})
 	var pid int
-	require.Eventually(t, func() bool {
-		data, err := os.ReadFile(ready)
-		if err != nil {
+	var readErr, parseErr error
+	inspections := 0
+	readyCtx, stopReady := context.WithTimeout(ctx, 5*time.Second)
+	defer stopReady()
+	readyErr := waitRecoveryCondition(readyCtx, func() bool {
+		inspections++
+		var data []byte
+		data, readErr = os.ReadFile(ready)
+		if readErr != nil {
 			return false
 		}
-		pid, err = strconv.Atoi(string(data))
-		return err == nil && pid > 0
-	}, 5*time.Second, 10*time.Millisecond, "pass-through host command never started")
+		pid, parseErr = strconv.Atoi(string(data))
+		return parseErr == nil && pid > 0
+	})
+	t.Logf("pass-through readiness: start=%s; elapsed=%s; inspections=%d; pid=%d; read=%v; parse=%v; readiness=%v; child context=%v",
+		startElapsed, time.Since(started), inspections, pid, readErr, parseErr, readyErr, ctx.Err())
+	if readyErr != nil {
+		contextErr := ctx.Err()
+		aliveErr := child.Process.Signal(syscall.Signal(0))
+		earlyExit := false
+		var waitErr, signalErr error
+		select {
+		case waitErr = <-done:
+			earlyExit, waited = true, true
+		default:
+			signalErr = child.Process.Signal(syscall.SIGTERM)
+			select {
+			case waitErr = <-done:
+				waited = true
+			case <-time.After(2 * time.Second):
+				cancel()
+				select {
+				case waitErr = <-done:
+					waited = true
+				case <-time.After(time.Second):
+					t.Fatal("pass-through readiness failure cleanup did not join within its bound")
+				}
+			}
+		}
+		t.Fatalf("pass-through host command never started: readiness=%v; context before cleanup=%v; child pid=%d; alive=%v; early exit=%t; cleanup signal=%v; joined wait=%v; state=%v; output=%q",
+			readyErr, contextErr, child.Process.Pid, aliveErr, earlyExit, signalErr, waitErr, child.ProcessState, output.String())
+	}
 	host, err := os.FindProcess(pid)
 	require.NoError(t, err)
 	t.Cleanup(func() {
@@ -352,7 +487,11 @@ func TestRecoveryCommandMockPassThroughInterruption(t *testing.T) {
 	})
 	require.NoError(t, host.Signal(syscall.Signal(0)), "the real host command must be running before termination")
 	require.NoError(t, child.Process.Signal(syscall.SIGTERM))
-	err = child.Wait()
+	select {
+	case err = <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("pass-through child did not join after termination within its bound")
+	}
 	waited = true
 	require.NoError(t, ctx.Err(), "shim did not finish before the test safety deadline")
 	var exit *exec.ExitError

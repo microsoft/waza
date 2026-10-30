@@ -5,7 +5,9 @@ package runnercontract
 import (
 	"encoding/json"
 	"fmt"
+	"math/big"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -142,14 +144,18 @@ var negotiationSchema = sync.OnceValues(func() (*jsonschema.Schema, error) {
 	return compileSchema(schemas.RunnerNegotiationRequestSchemaJSON)
 })
 
-func validate(data []byte, load func() (*jsonschema.Schema, error)) error {
+func parseRequestJSON(data []byte) (any, error) {
 	if len(data) > MaxRequestBytes {
-		return fmt.Errorf("runner request exceeds %d bytes", MaxRequestBytes)
+		return nil, fmt.Errorf("runner request exceeds %d bytes", MaxRequestBytes)
 	}
 	doc, err := jsonutil.Parse(data)
 	if err != nil {
-		return fmt.Errorf("parsing runner request: %w", err)
+		return nil, fmt.Errorf("parsing runner request: %w", err)
 	}
+	return doc, nil
+}
+
+func validateDocument(doc any, load func() (*jsonschema.Schema, error)) error {
 	schema, err := load()
 	if err != nil {
 		return err
@@ -161,20 +167,84 @@ func validate(data []byte, load func() (*jsonschema.Schema, error)) error {
 }
 
 func Parse(data []byte) (*Request, error) {
-	if err := validate(data, requestSchema); err != nil {
+	doc, err := parseRequestJSON(data)
+	if err != nil {
 		return nil, err
 	}
+	if err := validateDocument(doc, requestSchema); err != nil {
+		return nil, err
+	}
+	fields, ok := doc.(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("decoding runner request: expected a JSON object")
+	}
+	selection, ok := fields["selection"].(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("decoding runner selection: expected a JSON object")
+	}
+	// JSON Schema integers include integral decimal/exponent tokens, whereas
+	// encoding/json's int decoder only accepts integer lexical forms.
+	for _, field := range []struct {
+		object map[string]any
+		key    string
+		path   string
+	}{
+		{fields, "timeout_ms", "timeout_ms"},
+		{selection, "trial", "selection.trial"},
+		{selection, "attempt", "selection.attempt"},
+	} {
+		value, err := exactInteger(field.object[field.key])
+		if err != nil {
+			return nil, fmt.Errorf("decoding runner request %s: %w", field.path, err)
+		}
+		field.object[field.key] = value
+	}
+	normalized, err := json.Marshal(doc)
+	if err != nil {
+		return nil, fmt.Errorf("encoding normalized runner request: %w", err)
+	}
 	var request Request
-	if err := json.Unmarshal(data, &request); err != nil {
+	if err := json.Unmarshal(normalized, &request); err != nil {
 		return nil, fmt.Errorf("decoding runner negotiation request: %w", err)
 	}
 	return &request, nil
 }
 
+func exactInteger(value any) (int, error) {
+	number, ok := value.(json.Number)
+	if !ok {
+		return 0, fmt.Errorf("expected a JSON number")
+	}
+	rational, ok := new(big.Rat).SetString(number.String())
+	if !ok || !rational.IsInt() {
+		return 0, fmt.Errorf("expected an exactly integral JSON number")
+	}
+	integer, err := strconv.Atoi(rational.Num().String())
+	if err != nil {
+		return 0, fmt.Errorf("integer is outside the Go int range: %w", err)
+	}
+	return integer, nil
+}
+
 func parseNegotiation(data []byte) (*NegotiationRequest, error) {
-	if err := validate(data, negotiationSchema); err != nil {
+	doc, err := parseRequestJSON(data)
+	if err != nil {
 		return nil, err
 	}
+	load := negotiationSchema
+	if fields, ok := doc.(map[string]any); ok {
+		for _, field := range []string{"run_key", "selection", "input", "timeout_ms", "allow_paid_execution"} {
+			if _, present := fields[field]; present {
+				load = requestSchema
+				break
+			}
+		}
+	}
+	if err := validateDocument(doc, load); err != nil {
+		return nil, err
+	}
+	// Complete requests are shape-checked without converting execution values
+	// into Go ints or interpreting captured input.
 	var request NegotiationRequest
 	if err := json.Unmarshal(data, &request); err != nil {
 		return nil, fmt.Errorf("decoding runner negotiation request: %w", err)
@@ -186,17 +256,6 @@ func parseNegotiation(data []byte) (*NegotiationRequest, error) {
 // supported version. Optional capabilities never broaden required capabilities.
 func Negotiate(data []byte) Response {
 	request, err := parseNegotiation(data)
-	if err != nil {
-		// A complete execution request can be checked without interpreting its
-		// captured sources or constructing a runtime. Partial forms stay invalid.
-		if full, fullErr := Parse(data); fullErr == nil {
-			request = &NegotiationRequest{
-				SchemaVersion: full.SchemaVersion, Versions: full.Versions,
-				RequiredCapabilities: full.RequiredCapabilities, OptionalCapabilities: full.OptionalCapabilities,
-			}
-			err = nil
-		}
-	}
 	if err != nil {
 		return Rejected(err.Error())
 	}

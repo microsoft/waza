@@ -67,6 +67,11 @@ request limit and a 64-level canonical nesting bound. Identity reads original
 authored YAML nodes, **never defaulted model JSON**. The pinned `yaml.v3` resolver
 defines tags; changing its effective behavior requires conformance review.
 
+The 4 MiB wire limit applies to the original JSON request bytes. Validation and
+execution derive identities from those bytes, so valid unescaped `<`, `>` and
+`&` do not become oversized through internal HTML escaping. Sending an escaped
+representation that itself exceeds 4 MiB is still rejected.
+
 | Value | Canonical rule |
 |---|---|
 | Mapping | Unique string keys sorted by unsigned UTF-8 bytes; all declared key/value pairs retained |

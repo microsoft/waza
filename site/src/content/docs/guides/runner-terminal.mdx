@@ -108,7 +108,8 @@ producer conformance runs through CLI/HTTP and the frozen admitted identity vect
 
 ## Cancellation, output and delivery
 
-Input admission is bounded to 4 MiB. HTTP body reads have a five-second deadline;
+Input admission is bounded to 4 MiB. HTTP body reads install a five-second deadline
+before media-type validation and fail closed if read deadlines are unavailable;
 server cancellation interrupts partial uploads and waits for handler cleanup.
 CLI signal cancellation does not require the stdin producer to close its pipe.
 Execution observes request/eval/task deadlines and performs synchronous cleanup.
@@ -128,7 +129,10 @@ without changing shared open-file-description flags. Retained stdin/stdout
 peers keep their status flags, including legitimate flag changes made by peers
 during I/O; cleanup does not restore stale flags over them. This is a
 process-exit bound, not a deadline guarantee for arbitrary embedding writers.
-A rejected HTTP request is not drained before its terminal response.
+A request rejected before HTTP body admission is not drained before its terminal
+response. Its HTTP/1.1 connection closes even if the client sent the full body;
+clients must reconnect rather than relying on keep-alive for these rejections.
+Fully read requests retain keep-alive, including admitted terminal failures.
 
 ## Lab and export
 

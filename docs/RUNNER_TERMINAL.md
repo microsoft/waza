@@ -188,13 +188,16 @@ obtained from the required Windows CI, not inferred from Unix signal tests.
 Descriptors without deadline support and arbitrary embedding writers do not
 have a bounded-output guarantee.
 
-HTTP body admission has a five-second deadline and context interruption. A body
+HTTP body admission installs a five-second deadline before media-type validation,
+failing closed if read deadlines are unavailable, and supports context interruption. A body
 deadline also cancels net/http's request context; the actual read error and
 whether cancellation interrupted it before the deadline distinguish timeout
 from cancellation. The hook is joined before response delivery. Output gets a
 fresh five-second write deadline. Short writes/flush failures are logged and
-never trigger a second response. Rejections close the connection without draining
-an incomplete unadmitted body. A late write-deadline setup failure becomes an
+never trigger a second response. Rejections before body admission close the HTTP/1.1 connection without draining
+the unadmitted body, even if the client already sent it completely; clients
+must reconnect. Fully read requests retain keep-alive, including admitted
+terminal failures. A late write-deadline setup failure becomes an
 output infrastructure failure while retaining the admitted identity and actual
 observation. HTTP success and `X-Waza-Exit-Code` describe
 the encoded decision, not consumer receipt or durable publication.
