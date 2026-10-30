@@ -118,9 +118,18 @@ filesystem confinement or hostile-host isolation.
 | Non-text graders, remote grader refs, authored grader weights | They are not represented by this adapter. In particular numeric declarations are rejected rather than rounded to fit the captured identity profile. Keep historical grading. |
 | Multi-turn/responder/checkpoints, requirements, metrics, baseline/adversarial behavior, golden policy | Not one bounded inline text attempt. Preserve the existing command and artifacts. |
 | Local run flags for cache, snapshots, model overrides, parallelism, telemetry, reporters or other side effects | `runner adapt` and `run --runner-compat` reject these flags, including explicit defaults. Remove `--runner-compat` to keep ordinary execution and its side effects. |
-| Ambient `.waza.yaml` configuration or adjacent trigger tests | The local adapted mode rejects these rather than dropping defaults, storage uploads or extra work. Keep ordinary `run`, or deliberately author an isolated standalone suite. Offline `runner adapt` never loads project configuration; it captures only its explicit files. |
+| Ambient `.waza.yaml` configuration or adjacent trigger tests | The local adapted mode rejects existing entries without opening or parsing them, including directories, symlinks and named pipes. Configuration discovery checks the current directory and at most nine ancestors, matching the native limit. Keep ordinary `run`, or deliberately author an isolated standalone suite. Offline `runner adapt` never loads project configuration; it captures only its explicit files. |
 | Unknown fields, aliases/anchors/merge keys, duplicate/nonstring keys, extra documents, invalid known types | Captured native parsing rejects these rather than silently making a different identity. Ordinary local loader compatibility is unchanged. |
 | Historical results, snapshots and IDs | No conversion to runner results or logical IDs. Continue using their native readers and `grade`, `gate`, `compare`, `replay` and other artifact commands. |
+
+Source selection preserves native path handling: the eval is opened using the
+original argument, while task selection uses the cleaned eval-relative path.
+`runner adapt --task` opens the same cleaned absolute task path that it validates
+against the eval declaration. These can differ from an OS walk through a symlink
+followed by `..`; the adapter does not substitute bytes from that other task.
+CLI command registration does not read ambient model defaults for unrelated
+`quality` or `suggest` commands. Those commands resolve project model defaults
+when executed, and an explicit `--model` still takes precedence.
 
 An adapter error begins `cannot preserve local semantics in runner 1.0` and
 identifies the offending declaration or constraint. Preserve the original

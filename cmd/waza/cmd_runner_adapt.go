@@ -29,6 +29,10 @@ func newRunnerAdaptCommand() *cobra.Command {
 			if cmd.Flags().Changed("timeout-ms") {
 				options.TimeoutMS = &timeoutMS
 			}
+			taskPath, err := filepath.Abs(options.TaskPath)
+			if err != nil {
+				return fmt.Errorf("resolving selected task filename: %w", err)
+			}
 			if err := runnercompat.ValidateLiteralTaskPath(options.TaskPath); err != nil {
 				return err
 			}
@@ -36,7 +40,7 @@ func newRunnerAdaptCommand() *cobra.Command {
 				return err
 			}
 			eval, evalErr := readRunnerAdapterSource(options.EvalPath)
-			task, taskErr := readRunnerAdapterSource(options.TaskPath)
+			task, taskErr := readRunnerAdapterSource(taskPath)
 			if err := errors.Join(evalErr, taskErr); err != nil {
 				return err
 			}

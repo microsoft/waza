@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/microsoft/waza/internal/execution"
+	"github.com/microsoft/waza/internal/projectconfig"
 	"github.com/microsoft/waza/internal/quality"
 	"github.com/microsoft/waza/internal/scaffold"
 	"github.com/spf13/cobra"
@@ -23,9 +24,8 @@ type qualityFlags struct {
 }
 
 func newQualityCommand() *cobra.Command {
-	_, defaultModel := scaffold.ReadProjectDefaults()
 	flags := &qualityFlags{
-		model:  defaultModel,
+		model:  projectconfig.New().Defaults.Model,
 		format: "table",
 	}
 
@@ -38,12 +38,15 @@ clarity, completeness, trigger precision, scope coverage, and anti-patterns.
 Each dimension is scored 1-5 with specific feedback. Requires Copilot authentication.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if !cmd.Flags().Changed("model") {
+				_, flags.model = scaffold.ReadProjectDefaults()
+			}
 			return runQualityCommand(cmd, args[0], flags)
 		},
 		SilenceErrors: true,
 	}
 
-	cmd.Flags().StringVar(&flags.model, "model", flags.model, "Model to use as judge")
+	cmd.Flags().StringVar(&flags.model, "model", flags.model, "Model to use as judge (uses project defaults when unset)")
 	cmd.Flags().StringVar(&flags.format, "format", "table", "Output format: table|json")
 	cmd.Flags().StringVar(&flags.rubric, "rubric", "", "Path to custom rubric file (reserved for future use)")
 

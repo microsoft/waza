@@ -34,9 +34,8 @@ type suggestFlags struct {
 }
 
 func newSuggestCommand() *cobra.Command {
-	_, defaultModel := scaffold.ReadProjectDefaults()
 	flags := &suggestFlags{
-		model:  defaultModel,
+		model:  projectconfig.New().Defaults.Model,
 		dryRun: true,
 		format: "yaml",
 	}
@@ -56,12 +55,15 @@ and --force to overwrite existing files (default is merge-safe: existing eval.ya
 and task ids are preserved).`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if !cmd.Flags().Changed("model") {
+				_, flags.model = scaffold.ReadProjectDefaults()
+			}
 			return runSuggestCommand(cmd, args[0], flags)
 		},
 		SilenceErrors: true,
 	}
 
-	cmd.Flags().StringVar(&flags.model, "model", flags.model, "Model to use for suggestions")
+	cmd.Flags().StringVar(&flags.model, "model", flags.model, "Model to use for suggestions (uses project defaults when unset)")
 	cmd.Flags().BoolVar(&flags.dryRun, "dry-run", true, "Print suggestions to stdout without writing files")
 	cmd.Flags().BoolVar(&flags.apply, "apply", false, "Write suggested files to disk")
 	cmd.Flags().BoolVar(&flags.force, "force", false, "Overwrite existing files and duplicate task ids (use with --apply)")

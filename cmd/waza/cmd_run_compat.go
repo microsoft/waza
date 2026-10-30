@@ -14,7 +14,6 @@ import (
 	"github.com/microsoft/waza/internal/runnercompat"
 	"github.com/microsoft/waza/internal/runnercontract"
 	"github.com/microsoft/waza/internal/runnerunit"
-	"github.com/microsoft/waza/internal/trigger"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 )
@@ -34,18 +33,18 @@ func runLocalCompatibility(cmd *cobra.Command, args []string, service *runneruni
 	if len(args) != 1 || strings.TrimSpace(args[0]) == "" {
 		return fmt.Errorf("--runner-compat requires one exact eval filename; remove the flag to use workspace discovery")
 	}
-	project, err := projectconfig.Load(".")
-	if err != nil {
-		return fmt.Errorf("checking local project configuration: %w; retain waza run without --runner-compat", err)
-	}
-	if project != nil && project.Dir != "" {
+	if _, err := projectconfig.FindPath("."); err == nil {
 		return fmt.Errorf("runner compatibility cannot preserve ambient .waza.yaml defaults, discovery or storage; run from an unconfigured directory or remove --runner-compat")
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("checking local project configuration: %w; retain waza run without --runner-compat", err)
 	}
 	evalPath, err := filepath.Abs(args[0])
 	if err != nil {
 		return fmt.Errorf("resolving exact local eval: %w", err)
 	}
-	eval, err := readRunnerAdapterSource(evalPath)
+	// Native loading opens the original spelling, but resolves tasks from its
+	// cleaned directory. A symlink followed by ".." makes these paths distinct.
+	eval, err := readRunnerAdapterSource(args[0])
 	if err != nil {
 		return err
 	}
@@ -76,10 +75,10 @@ func runLocalCompatibility(cmd *cobra.Command, args []string, service *runneruni
 	if err := rejectAdapterFixtures(evalPath); err != nil {
 		return err
 	}
-	if tests, err := trigger.Discover(filepath.Dir(evalPath)); err != nil {
-		return fmt.Errorf("checking local trigger tests: %w", err)
-	} else if tests != nil {
+	if _, err := os.Lstat(filepath.Join(filepath.Dir(evalPath), "trigger_tests.yaml")); err == nil {
 		return fmt.Errorf("runner compatibility cannot preserve adjacent trigger tests; remove --runner-compat to run the original suite")
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("checking local trigger tests: %w", err)
 	}
 	request, err := runnercompat.AdaptLocal(eval, task, runnercompat.Options{
 		EvalPath: evalPath, TaskPath: taskPath, RunKey: "local", Selection: runnercontract.Selection{
