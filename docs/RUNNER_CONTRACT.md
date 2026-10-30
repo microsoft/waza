@@ -82,7 +82,8 @@ runtime construction. The strict captured parser retains original-wire
 requires that presence: omitted `inputs`, `inputs: {}`, and prompt-file-only
 tasks cannot become zero-value empty messages. An explicitly authored
 `inputs: {prompt: ""}` remains valid. Null/wrong-type prompts and duplicate
-keys retain their strict-source rejection. This does not tighten the ordinary
+keys retain their strict-source rejection. Private Go bookkeeping fields are
+not accepted as captured YAML declarations. This does not tighten the ordinary
 local task loaders. Text graders use offline `graders.ValidateConfig` for
 both eval and task scopes, including empty/invalid-regex checks.
 

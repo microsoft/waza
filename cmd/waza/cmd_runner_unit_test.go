@@ -212,6 +212,9 @@ func TestRunnerInlinePromptPresenceCLIHTTP(t *testing.T) {
 		{name: "sequence-prompt", inputs: "inputs: {prompt: [hello]}\n", diagnostic: "does not accept a sequence"},
 		{name: "duplicate-prompt", inputs: "inputs: {prompt: hello, prompt: other}\n", diagnostic: "unique string mapping keys"},
 		{name: "duplicate-inputs", inputs: "inputs: {prompt: hello}\ninputs: {}\n", diagnostic: `mapping key "inputs" already defined`},
+		{name: "unexported-prompt-presence-true", inputs: "inputs: {prompt: hello}\ncapturedinlineprompt: true\n", diagnostic: `unknown captured native field "capturedinlineprompt"`},
+		{name: "unexported-prompt-presence-false", inputs: "inputs: {prompt: hello}\ncapturedinlineprompt: false\n", diagnostic: `unknown captured native field "capturedinlineprompt"`},
+		{name: "unexported-source-document", inputs: "inputs: {prompt: hello}\nsourcedocument: []\n", diagnostic: `unknown captured native field "sourcedocument"`},
 		{name: "prompt-file", inputs: "inputs: {prompt_file: absent.txt}\n", diagnostic: "prompt_file cannot read host files"},
 		{name: "empty-prompt-file", inputs: "inputs: {prompt_file: ''}\n", diagnostic: "requires an explicit inputs.prompt"},
 		{name: "empty-prompt-with-file", inputs: "inputs: {prompt: '', prompt_file: absent.txt}\n", diagnostic: "prompt_file cannot read host files"},
@@ -274,6 +277,7 @@ func TestRunnerInlinePromptPresenceCLIHTTP(t *testing.T) {
 							require.Equal(t, 6, report.ExitCode())
 							require.Nil(t, report.Resolved)
 							require.Nil(t, report.Observation)
+							require.Nil(t, report.Identity)
 							require.Empty(t, report.Mode)
 							require.Zero(t, report.Calls)
 							require.Equal(t, before, factories.Load(), "reject before runtime construction")
