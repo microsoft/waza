@@ -9,9 +9,12 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/signal"
 	"strings"
 	"sync/atomic"
+	"syscall"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/microsoft/waza/internal/execution"
@@ -349,41 +352,179 @@ func TestRunnerInlinePromptPresenceCLIHTTP(t *testing.T) {
 func TestRunnerUnitInputCancellationAndFailures(t *testing.T) {
 	for _, action := range []string{"validate", "run"} {
 		t.Run(action, func(t *testing.T) {
-			input, producer, err := os.Pipe()
-			require.NoError(t, err)
-			defer input.Close()    //nolint:errcheck
-			defer producer.Close() //nolint:errcheck
-			ctx, cancel := context.WithCancel(t.Context())
-			defer cancel()
-			cmd := newRunnerCommandWithService(runnerunit.NewService(func(models.Config) (execution.AgentEngine, error) {
-				t.Fatal("canceled input constructed runtime")
-				return nil, nil
-			}))
-			cmd.SetArgs([]string{action})
-			cmd.SetIn(input)
-			var output bytes.Buffer
-			cmd.SetOut(&output)
-			cmd.SetErr(&bytes.Buffer{})
-			done := make(chan error, 1)
-			go func() { done <- cmd.ExecuteContext(ctx) }()
-			_, err = producer.Write([]byte("{"))
-			require.NoError(t, err, "read is active while producer stays open")
-			cancel()
-			select {
-			case err := <-done:
-				require.Error(t, err)
+			assertCanceled := func(t *testing.T, err error, output []byte, factories int32) {
+				t.Helper()
+				exit, ok := errors.AsType[*ExitCodeError](err)
+				require.True(t, ok, "%v", err)
+				require.Zero(t, factories, "canceled input must not construct runtime")
 				if action == "run" {
-					var envelope runnerterminal.Envelope
-					require.NoError(t, json.Unmarshal(output.Bytes(), &envelope))
+					require.Equal(t, 3, exit.Code)
+					require.EqualError(t, exit.Err, "runner run: "+string(runnerterminal.Canceled))
+					envelope, decodeErr := runnerterminal.Validate(output, nil)
+					require.NoError(t, decodeErr)
 					require.Equal(t, runnerterminal.Canceled, envelope.Outcome)
-					require.Equal(t, 3, envelope.ExitCode)
+					require.Equal(t, "input", envelope.FailureBoundary)
+					require.Equal(t, "not_checked", envelope.Validation)
 					require.Nil(t, envelope.Identity)
+					require.Nil(t, envelope.Selection)
+					require.Nil(t, envelope.Observation)
+					require.Zero(t, envelope.EngineCalls)
+					require.Len(t, envelope.Diagnostics, 1)
+					require.Contains(t, envelope.Diagnostics[0].Message, "context canceled")
+					require.Equal(t, 1, bytes.Count(output, []byte{'\n'}))
 				} else {
+					require.Equal(t, 2, exit.Code)
 					require.ErrorContains(t, err, "runner input interrupted")
+					require.ErrorIs(t, exit.Err, context.Canceled)
+					require.Empty(t, output, "validation input failure must not invent an envelope")
 				}
-			case <-time.After(5 * time.Second):
-				t.Fatal("cancellation waited for producer EOF")
 			}
+
+			for _, control := range []string{"caller-managed", "pollable-file"} {
+				t.Run(control, func(t *testing.T) {
+					input, producer, err := os.Pipe()
+					require.NoError(t, err)
+					defer input.Close()    //nolint:errcheck
+					defer producer.Close() //nolint:errcheck
+					if err := input.SetReadDeadline(time.Time{}); err != nil {
+						require.ErrorIs(t, err, os.ErrNoDeadline)
+						if control == "pollable-file" {
+							t.Skip("native supplied pipe has no deadline support; caller-managed ownership control still runs")
+						}
+						t.Log("nonpollable supplied pipe: owner supplies cancellation-aware read completion")
+					}
+					ctx, cancel := context.WithCancel(t.Context())
+					defer cancel()
+					reader := &runnerOwnerCanceledPipeReader{
+						input: input, ctx: ctx, entered: make(chan struct{}), returned: make(chan struct{}),
+					}
+					var factories atomic.Int32
+					cmd := newRunnerCommandWithService(runnerunit.NewService(func(models.Config) (execution.AgentEngine, error) {
+						factories.Add(1)
+						return nil, errors.New("canceled input constructed runtime")
+					}))
+					cmd.SetArgs([]string{action})
+					var output bytes.Buffer
+					if control == "caller-managed" {
+						cmd.SetIn(reader)
+						cmd.SetOut(&runnerReadJoinedWriter{output: &output, returned: reader.returned})
+					} else {
+						cmd.SetIn(input)
+						cmd.SetOut(&output)
+					}
+					cmd.SetErr(&bytes.Buffer{})
+					done := startRunnerPipeOperation(t, input, producer, func() error { return cmd.ExecuteContext(ctx) })
+					var padding []byte
+					if control == "pollable-file" {
+						padding = append(bytes.Repeat([]byte(" "), 2<<20), '{')
+						require.Less(t, len(padding), runnercontract.MaxRequestBytes)
+						written := startRunnerPipeOperation(t, input, producer, func() error {
+							n, err := producer.Write(padding)
+							if err == nil && n != len(padding) {
+								return io.ErrShortWrite
+							}
+							return err
+						})
+						require.NoError(t, awaitRunnerPipeOperation(t, written))
+						cancel()
+					} else {
+						select {
+						case <-reader.entered:
+						case <-time.After(5 * time.Second):
+							t.Fatal("runner never entered supplied reader")
+						}
+						cancel()
+						written := startRunnerPipeOperation(t, input, producer, func() error {
+							n, err := producer.Write([]byte("{"))
+							if err == nil && n != 1 {
+								return io.ErrShortWrite
+							}
+							return err
+						})
+						require.NoError(t, awaitRunnerPipeOperation(t, written))
+					}
+					assertCanceled(t, awaitRunnerPipeOperation(t, done), output.Bytes(), factories.Load())
+					if control == "caller-managed" {
+						require.Equal(t, 1, reader.reads)
+						select {
+						case <-reader.returned:
+						default:
+							t.Fatal("command return preceded supplied reader completion")
+						}
+					}
+					value := make([]byte, len("still-owned"))
+					read := startRunnerPipeOperation(t, input, producer, func() error {
+						if control == "pollable-file" {
+							received, err := readRunnerOwnershipMarker(input, padding)
+							if err != nil {
+								return err
+							}
+							copy(value, received[len(received)-len(value):])
+							return nil
+						}
+						_, err := io.ReadFull(input, value)
+						return err
+					})
+					written := startRunnerPipeOperation(t, input, producer, func() error {
+						n, err := producer.Write([]byte("still-owned"))
+						if err == nil && n != len(value) {
+							return io.ErrShortWrite
+						}
+						return err
+					})
+					require.NoError(t, awaitRunnerPipeOperation(t, written))
+					require.NoError(t, awaitRunnerPipeOperation(t, read))
+					require.Equal(t, "still-owned", string(value), "command must preserve the same caller-owned input")
+				})
+			}
+
+			t.Run("waits-for-supplied-reader", func(t *testing.T) {
+				// Signal handling must start outside synctest's clock.
+				_, stop := signal.NotifyContext(t.Context(), os.Interrupt, syscall.SIGTERM)
+				defer stop()
+				synctest.Test(t, func(t *testing.T) {
+					ctx, cancel := context.WithCancel(t.Context())
+					defer cancel()
+					reader := &runnerBlockedReader{
+						entered: make(chan struct{}), release: make(chan struct{}), returned: make(chan struct{}),
+					}
+					defer func() {
+						select {
+						case <-reader.release:
+						default:
+							close(reader.release)
+						}
+					}()
+					var factories atomic.Int32
+					cmd := newRunnerCommandWithService(runnerunit.NewService(func(models.Config) (execution.AgentEngine, error) {
+						factories.Add(1)
+						return nil, errors.New("canceled input constructed runtime")
+					}))
+					cmd.SetArgs([]string{action})
+					cmd.SetIn(reader)
+					var output bytes.Buffer
+					cmd.SetOut(&runnerReadJoinedWriter{output: &output, returned: reader.returned})
+					cmd.SetErr(&bytes.Buffer{})
+					done := make(chan error, 1)
+					go func() { done <- cmd.ExecuteContext(ctx) }()
+					<-reader.entered
+					cancel()
+					synctest.Wait()
+					select {
+					case <-done:
+						t.Fatal("command return left the supplied read unjoined")
+					default:
+					}
+					close(reader.release)
+					err := <-done
+					select {
+					case <-reader.returned:
+					default:
+						t.Fatal("command return preceded supplied reader completion")
+					}
+					assertCanceled(t, err, output.Bytes(), factories.Load())
+				})
+			})
 
 			for _, input := range []io.Reader{errorReader{}, strings.NewReader("{}")} {
 				cmd := newRunnerCommand()
