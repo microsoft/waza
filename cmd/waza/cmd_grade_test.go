@@ -380,6 +380,79 @@ graders:
 	require.Equal(t, 1.0, parsed["overall_score"])
 }
 
+func TestGradeCommand_CodeGraderReadsHostLifecycleFromResults(t *testing.T) {
+	const task = `id: task-shell
+name: Background shell
+inputs:
+  prompt: "Run the check in the background and report its exit code"
+graders:
+  - name: exit_seen_before_next_turn
+    type: code
+    config:
+      language: javascript
+      assertions:
+        - "host_lifecycle !== null"
+        - "host_lifecycle.shells.length === 1 && host_lifecycle.shells[0].calls[0].role === 'start' && host_lifecycle.shells[0].calls[0].mode === 'async'"
+        - "host_lifecycle.shells[0].exits.some(e => e.source === 'system.notification' && e.exit_code === 3 && host_lifecycle.model_turns.some(turn => turn.start_index > e.index))"
+`
+	lifecycle := &models.HostLifecycle{
+		ModelTurns: []models.ModelTurn{{TurnID: "0", StartIndex: 0, EndIndex: new(3)}, {TurnID: "1", StartIndex: 5}},
+		Shells: []models.ShellLifecycle{{
+			ShellID: "build",
+			Calls: []models.ShellToolCall{{ToolCallID: "start", ToolName: "bash", Role: models.ShellCallStart, Mode: new("async"),
+				StartIndex: 1, CompleteIndex: new(2), Success: new(true)}},
+			Exits: []models.ShellExitEvent{{Source: models.ShellExitSourceNotification, Kind: "shell_completed", ExitCode: new(int64(3)), Index: 4}},
+		}},
+	}
+	for _, tc := range []struct {
+		name      string
+		lifecycle func() *models.HostLifecycle
+		passed    bool
+	}{
+		{"recorded", func() *models.HostLifecycle { return lifecycle }, true},
+		{"unavailable", func() *models.HostLifecycle { return nil }, false},
+		{"exit after last turn", func() *models.HostLifecycle {
+			late := *lifecycle
+			late.ModelTurns = late.ModelTurns[:1]
+			return &late
+		}, false},
+		{"exit code unreported", func() *models.HostLifecycle {
+			missing := *lifecycle
+			shell := missing.Shells[0]
+			shell.Exits = []models.ShellExitEvent{{Source: models.ShellExitSourceNotification, Kind: "shell_completed", Index: 4}}
+			missing.Shells = []models.ShellLifecycle{shell}
+			return &missing
+		}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			specPath := gradeSpec(t, dir, minimalSpec)
+			writeTaskFile(t, dir, "task.yaml", task)
+			recorded := tc.lifecycle()
+			results := gradeResultsFile(t, dir, outcomeWithTasks(models.TestOutcome{
+				TestID: "task-shell",
+				Runs: []models.RunResult{{
+					RunNumber: 1, FinalOutput: "exit code 3", DurationMs: 1000,
+					SessionDigest: models.SessionDigest{SessionID: "s-shell"},
+					HostLifecycle: recorded,
+				}},
+			}))
+			outputPath := filepath.Join(dir, "graded.json")
+			output, err := executeGrade(t, specPath, "--task", "task-shell", "--results", results, "--output", outputPath)
+			require.NoError(t, err)
+			var parsed map[string]any
+			require.NoError(t, json.Unmarshal([]byte(output), &parsed))
+			require.Equal(t, tc.passed, parsed["passed"])
+
+			graded, err := models.LoadEvaluationOutcome(outputPath)
+			require.NoError(t, err)
+			require.Len(t, graded.TestOutcomes, 1)
+			require.Len(t, graded.TestOutcomes[0].Runs, 1)
+			require.Equal(t, recorded, graded.TestOutcomes[0].Runs[0].HostLifecycle, "regrade must preserve recorded lifecycle evidence and its absence")
+		})
+	}
+}
+
 func TestGradeCommand_SingleTask_Failing(t *testing.T) {
 	dir := t.TempDir()
 	specPath := gradeSpec(t, dir, minimalSpec)

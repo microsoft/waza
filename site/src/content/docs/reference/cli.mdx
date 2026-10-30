@@ -934,11 +934,11 @@ the `eval.yaml`/`eval.yml` filename convention; JSON results are recognized by
 their artifact shape, including custom `.json` filenames.
 
 This legacy input/reader policy is separate from new result emission: current
-evaluations and regrades write results `1.7`. Task YAML has no independent version
+evaluations and regrades write results `1.8`. Task YAML has no independent version
 field. Historical result versions and missing reliability metadata are preserved
 when reading/re-saving; migration does not upgrade them.
 Compatibility reports select the current version by artifact type: eval `1.4`
-or result writer `1.7`. Missing/`1.4` result versions are explicitly labeled as
+or result writer `1.8`. Missing/`1.4` result versions are explicitly labeled as
 the legacy reader default alongside the current writer version, not rewritten.
 
 A present `scenario` header requires a nonblank native string and exact schema

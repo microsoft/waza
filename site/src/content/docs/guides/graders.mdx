@@ -268,6 +268,7 @@ Evaluates Python or JavaScript assertion expressions against the execution conte
 | `tool_calls`  | `list` | Tool calls extracted from transcript |
 | `tool_events` | `list` | Canonical per-call evidence including arbitrary tool arguments, success, error, and result |
 | `command_invocations` | `list` | Sanitized mocked CLI attempts; omitted `exit_code` means no completed result was captured |
+| `host_lifecycle` | `dict` or `None` | Model turns and host shell calls/exits from native session events; `None` when unavailable |
 | `errors`      | `list` | Errors from transcript               |
 | `duration_ms` | `int`  | Execution wall-clock time            |
 
@@ -275,6 +276,39 @@ The evidence arrays default to empty when unavailable; absence is not proof that
 a dependency succeeded. Use `tool_events` for MCP operation arguments rather than
 the legacy typed `tool_calls` view. `command_invocations` preserves completed
 exit zero distinctly from an interrupted attempt with no `exit_code`.
+
+#### Background shell lifecycle
+
+`host_lifecycle` is `None`/`null` when no native session events were recorded
+(mock engines, historical results, snapshot replay). Otherwise it has:
+
+- `model_turns`: `turn_id`, `start_index`, optional `end_index`, and
+  `parent_tool_call_id` for sub-agent turns.
+- `shells`: one entry per `shell_id` with `calls` (built-in `bash`/`powershell`
+  start, `read_*`, `write_*` and `stop_*` calls that name the shell, with
+  `role`, optional `mode`/`detach`/`turn_id`, `start_index`, and
+  `complete_index`/`success` once completed) and `exits` (`source` is
+  `system.notification`, `tool_result` or `tool_execution`; `exit_code` is
+  omitted when the host did not report one).
+
+Every index is a position in the run's recorded event stream, so indexes from
+different lists can be compared. A `system.notification` exit is delivered to the
+model, so a later `model_turns` entry shows the model was given the exit before
+that turn. Values are never inferred from tool output text or command lines,
+and completions after recording ended (for example a detached shell finishing
+after the session went idle) are absent, so a missing exit is not proof that a
+process is still running. More than one `start` call for a `shell_id` means the
+ID was reused.
+
+```yaml
+- type: code
+  name: exit_seen_before_next_turn
+  config:
+    language: javascript
+    assertions:
+      - "host_lifecycle !== null"
+      - "host_lifecycle.shells.some(s => s.calls.some(c => c.role === 'start' && c.mode === 'async' && c.success === true) && s.exits.some(e => e.source === 'system.notification' && e.exit_code === 0 && host_lifecycle.model_turns.some(t => t.start_index > e.index)))"
+```
 
 **Built-in functions:** `len`, `any`, `all`, `str`, `int`, `float`, `bool`, `list`, `dict`, `re`
 

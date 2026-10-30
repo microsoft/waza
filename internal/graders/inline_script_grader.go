@@ -221,6 +221,7 @@ func getStdinTextForScript(gradingContext *Context, assertions []string) ([]byte
 		Transcript         []models.TranscriptEvent   `json:"transcript"`
 		ToolCalls          []models.ToolCall          `json:"tool_calls"`
 		ToolEvents         []models.ToolEvent         `json:"tool_events"`
+		HostLifecycle      *models.HostLifecycle      `json:"host_lifecycle"`
 		CommandInvocations []models.CommandInvocation `json:"command_invocations"`
 		DurationMS         int64                      `json:"duration_ms"`
 		Assertions         []string                   `json:"assertions"`
@@ -233,6 +234,7 @@ func getStdinTextForScript(gradingContext *Context, assertions []string) ([]byte
 		Transcript:         transcriptEvents,
 		ToolCalls:          toolCalls,
 		ToolEvents:         gradingContext.ToolEvents,
+		HostLifecycle:      gradingContext.HostLifecycle,
 		CommandInvocations: gradingContext.CommandInvocations,
 		DurationMS:         gradingContext.DurationMS,
 		Assertions:         assertions,

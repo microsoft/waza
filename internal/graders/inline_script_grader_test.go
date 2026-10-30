@@ -81,6 +81,47 @@ func TestInlineScriptRecoveryEvidence(t *testing.T) {
 	}
 }
 
+func TestInlineScriptHostLifecyclePresence(t *testing.T) {
+	for _, language := range []models.Language{models.LanguagePython, models.LanguageJavascript} {
+		t.Run(string(language), func(t *testing.T) {
+			if language == models.LanguagePython {
+				skipIfNoPython(t)
+			} else {
+				skipIfNoJavascript(t)
+			}
+			for _, present := range []bool{false, true} {
+				t.Run(fmt.Sprint(present), func(t *testing.T) {
+					ctx := &Context{}
+					assertions := []string{"host_lifecycle is None"}
+					if language == models.LanguageJavascript {
+						assertions = []string{"host_lifecycle === null"}
+					}
+					if present {
+						ctx.HostLifecycle = &models.HostLifecycle{ModelTurns: []models.ModelTurn{}, Shells: []models.ShellLifecycle{{
+							ShellID: "build", Calls: []models.ShellToolCall{},
+							Exits: []models.ShellExitEvent{{Source: models.ShellExitSourceNotification, Kind: "shell_completed", Index: 2}},
+						}}}
+						assertions = []string{
+							"host_lifecycle['shells'][0]['exits'][0]['index'] == 2",
+							"len(host_lifecycle['model_turns']) == 0",
+							"'exit_code' not in host_lifecycle['shells'][0]['exits'][0]",
+						}
+						if language == models.LanguageJavascript {
+							assertions[1] = "host_lifecycle.model_turns.length == 0"
+							assertions[2] = "!('exit_code' in host_lifecycle.shells[0].exits[0])"
+						}
+					}
+					grader, err := Create("lifecycle", models.InlineScriptGraderParameters{Language: language, Assertions: assertions})
+					require.NoError(t, err)
+					result, err := grader.Grade(t.Context(), ctx)
+					require.NoError(t, err)
+					require.True(t, result.Passed, "%+v", result)
+				})
+			}
+		})
+	}
+}
+
 func TestInlineScriptGrader(t *testing.T) {
 	skipIfNoPython(t)
 

@@ -24,6 +24,8 @@ eval_context = {
     "tool_calls": data['tool_calls'],
     "tool_events": data.get('tool_events') or [],
     "command_invocations": data.get('command_invocations') or [],
+    # None means host lifecycle evidence is unavailable, not that nothing ran.
+    "host_lifecycle": data.get('host_lifecycle'),
     "errors": [t for t in data['transcript'] if "error" in t.get("type") or "error" in str(t.get("content", ""))],
     "duration_ms": data['duration_ms'],
     "len": len,

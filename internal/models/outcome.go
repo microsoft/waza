@@ -278,6 +278,9 @@ type RunResult struct {
 	// backward compatibility; new consumers should prefer ToolEvents.
 	ToolEvents []ToolEvent `json:"tool_events,omitempty"`
 
+	// HostLifecycle is ordered model-turn and host shell evidence projected
+	// from structured native session events. Nil means unavailable.
+	HostLifecycle *HostLifecycle `json:"host_lifecycle,omitempty"`
 	// CommandInvocations records sanitized calls handled by declarative
 	// command_mocks. Response output is intentionally excluded.
 	CommandInvocations []CommandInvocation `json:"command_invocations,omitempty"`
