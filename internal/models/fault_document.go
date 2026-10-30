@@ -235,13 +235,11 @@ func validateDeclaredFaults(data []byte, version string, task bool) error {
 	if err != nil {
 		return err
 	}
-	if !task {
-		mcpFinite, err := faultPathPresent(root, []string{"mcp_mocks", "[]", "tools", "*", "responses", "[]", "sequence"}, nil)
-		if err != nil {
-			return err
-		}
-		finite = finite || mcpFinite
+	mcpFinite, err := faultPathPresent(root, []string{"mcp_mocks", "[]", "tools", "*", "responses", "[]", "sequence"}, nil)
+	if err != nil {
+		return err
 	}
+	finite = finite || mcpFinite
 	if !finite {
 		return nil
 	}
@@ -259,9 +257,7 @@ func validateDeclaredFaults(data []byte, version string, task bool) error {
 		case "command":
 			err = ValidateCommandFaultResponse(source.Data, FaultSourceYAML, version)
 		case "mcp":
-			if !task {
-				err = ValidateMCPFaultResponse(source.Data, FaultSourceYAML, version)
-			}
+			err = ValidateMCPFaultResponse(source.Data, FaultSourceYAML, version)
 		}
 		if err != nil {
 			errs = append(errs, fmt.Errorf("%s mock response[%d]: %w", source.Kind, source.Index, err))

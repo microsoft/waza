@@ -195,9 +195,20 @@ SKILL.md/agent/cwd/directory discovery precedence and report requested
 allowlist/deny-all as unresolved, never proof of enforcement or observed behavior.
 
 Command-mock fixtures resolve from the eval directory. Task `command_mocks`
-replaces eval mocks, including explicit `[]`. Same-name MCP mocks replace live
-server declarations. MCP fixture responses and matchers are parsed without
-starting a mock. External schema references are not fetched.
+replaces eval mocks, including explicit `[]`. Task `mcp_mocks` replace only the
+same-named eval MCP mocks and are listed as dependencies of their task. A task
+mock that fails to decode, such as an invalid matcher, is reported as
+`task.configuration` with its task file; fixture and admission failures are
+reported as `mock.mcp` with the task file and task id. When a task cannot be
+decoded offline, for example because a matcher references an external schema,
+its MCP mocks are still checked for executor, schema version, names and fixtures.
+Same-name MCP mocks replace live server declarations; a live server that every
+task replaces with its own mock is not inspected. An eval MCP mock that every
+task replaces is reported as `mock.mcp_replaced` and is not listed as a
+dependency; its fixtures are not read, but its inline tool declarations are
+still validated. `waza run` admits eval mock fixtures the same way, against the
+tasks selected to run. MCP fixture responses and matchers are parsed
+without starting a mock. External schema references are not fetched.
 Fixture and inline `input_schema` must be a JSON object when supplied; strings, numbers,
 booleans and arrays are invalid. Omitting it retains the default tool schema.
 Input schemas are checked independently of response matchers: an unavailable

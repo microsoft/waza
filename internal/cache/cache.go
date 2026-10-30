@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 
 	"github.com/microsoft/waza/internal/mcpmock"
@@ -32,7 +33,7 @@ func New(dir string) *Cache {
 // - task content (test case definition)
 // - model ID
 // - fixture file hashes
-// - resolved MCP mocks
+// - the task's effective MCP mocks, with fixture contents resolved
 // MCP fixtures use fixtureDir as their base; use CacheKeyWithSpecDir when the
 // eval and task resource directories differ.
 func CacheKey(spec *models.EvalSpec, task *models.TestCase, fixtureDir string) (string, error) {
@@ -120,9 +121,11 @@ func CacheKeyWithSpecDir(spec *models.EvalSpec, task *models.TestCase, fixtureDi
 		return "", fmt.Errorf("hashing fixtures: %w", err)
 	}
 
-	if len(spec.MCPMocks) > 0 {
-		resolved := make(map[string]*mcpmock.Config, len(spec.MCPMocks))
-		for _, mock := range spec.MCPMocks {
+	// Hash each task's effective mocks (task overrides applied), so an edited
+	// task or inherited eval mock does not reuse an outcome from different responses.
+	if effective := models.EffectiveMCPMocks(spec, task); len(effective) > 0 {
+		resolved := make(map[string]*mcpmock.Config, len(effective))
+		for _, mock := range effective {
 			cfg, err := mcpmock.FromEvalConfigOfflineWithVersion(mock, specDir, spec.SchemaVersion)
 			if err != nil {
 				return "", fmt.Errorf("resolving MCP mock %q for cache: %w", mock.Name, err)
@@ -144,6 +147,30 @@ func CacheKeyWithSpecDir(spec *models.EvalSpec, task *models.TestCase, fixtureDi
 	}
 
 	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+// RecordedMCPMocksMatch reports whether a cached outcome is safe to reuse for
+// the given effective MCP mocks. Keys written before MCP mocks were hashed
+// ignored eval-level mocks, so a mocked outcome can sit under the key a task
+// without mocks now computes. An outcome whose runs record a mocked MCP
+// dependency that is not currently mocked must be re-run. Runs that predate
+// recorded dependency modes cannot be checked.
+func RecordedMCPMocksMatch(outcome *models.TestOutcome, effective []models.MCPMockConfig) bool {
+	if outcome == nil {
+		return true
+	}
+	mocked := make(map[string]bool, len(effective))
+	for _, mock := range effective {
+		mocked[strings.TrimSpace(mock.Name)] = true
+	}
+	for _, run := range outcome.Runs {
+		for _, mode := range run.DependencyModes {
+			if mode.Kind == "mcp" && mode.Mode == "mocked" && !mocked[mode.Name] {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 // Get retrieves a cached test outcome if it exists

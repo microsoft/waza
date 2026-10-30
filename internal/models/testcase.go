@@ -32,7 +32,10 @@ type TestCase struct {
 	// nil inherits the eval-level value; 0 disables the check for this task.
 	FirstEventTimeoutSec *int                 `yaml:"first_event_timeout_seconds,omitempty" json:"first_event_timeout_sec,omitempty"`
 	CommandMocks         *[]CommandMockConfig `yaml:"command_mocks,omitempty" json:"command_mocks,omitempty"`
-	Validators           []ValidatorInline    `yaml:"graders,omitempty" json:"validators,omitempty"`
+	// MCPMocks replace same-named eval mcp_mocks for this task and add new
+	// names; other eval mocks still apply. See EffectiveMCPMocks.
+	MCPMocks   []MCPMockConfig   `yaml:"mcp_mocks,omitempty" json:"mcp_mocks,omitempty"`
+	Validators []ValidatorInline `yaml:"graders,omitempty" json:"validators,omitempty"`
 	// Checkpoints attach graders to intermediate turn boundaries in a
 	// multi-turn run. Each checkpoint specifies `after_turn: N` (1-based,
 	// where turn 1 is the initial prompt) and a list of graders that run
@@ -428,6 +431,9 @@ func (tc *TestCase) ValidateForExecutor(executor string) error {
 	if tc.CommandMocks != nil && executor != "copilot-sdk" {
 		return fmt.Errorf("test case %q: command_mocks requires executor copilot-sdk", tc.TestID)
 	}
+	if len(tc.MCPMocks) > 0 && executor != "copilot-sdk" {
+		return fmt.Errorf("test case %q: mcp_mocks requires executor copilot-sdk", tc.TestID)
+	}
 	for _, v := range tc.Validators {
 		if err := validateGraderReasoningEffort(v.Identifier, v.Parameters, executor); err != nil {
 			return fmt.Errorf("test case %q: %w", tc.TestID, err)
@@ -447,6 +453,14 @@ func (tc *TestCase) ValidateForExecutor(executor string) error {
 func (tc *TestCase) Validate() error {
 	if tc.CommandMocks != nil {
 		if err := ValidateCommandMocks(*tc.CommandMocks); err != nil {
+			return fmt.Errorf("test case %q: %w", tc.TestID, err)
+		}
+	}
+	if tc.MCPMocks != nil {
+		if len(tc.MCPMocks) == 0 {
+			return fmt.Errorf("test case %q: mcp_mocks must not be empty; omit it to use the eval mcp_mocks", tc.TestID)
+		}
+		if err := ValidateMCPMockNames(tc.MCPMocks); err != nil {
 			return fmt.Errorf("test case %q: %w", tc.TestID, err)
 		}
 	}

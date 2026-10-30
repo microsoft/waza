@@ -182,7 +182,7 @@ func TestInspectCSVSourcePathParity(t *testing.T) {
 			require.NoError(t, err)
 			spec.Config.InstructionFiles = []string{"missing.txt"}
 			diagnostics := &Report{Complete: true}
-			tasks, sources := discoverTasks(diagnostics, spec, dir)
+			tasks, sources, _ := discoverTasks(diagnostics, spec, dir)
 			require.Len(t, tasks, 1)
 			inspectTask(diagnostics, tasks[0], spec, sources[0], dir, filepath.Join(dir, "fixtures"))
 			require.True(t, hasDiagnostic(diagnostics, "instruction.file", Invalid))

@@ -94,6 +94,8 @@ tasks:
 
 Responses are matched in order. Use `match` for exact full-argument fixtures, `match_schema` for JSON Schema matching, and `match_regex` for per-field regular expressions. Unknown tools or unmatched calls fail with a clear MCP tool error so missing fixtures do not pass silently.
 
+A task YAML can also declare `mcp_mocks`. A task entry replaces the eval mock with the same name for that task only and a new name adds a mock; other eval mocks still apply. Put a case-specific response in the task that needs it rather than in `eval.yaml`, where every task would receive it.
+
 ### Hermetic CLI Command Mocks
 
 Use `command_mocks` when the skill invokes an executable through its shell instead of calling an MCP server. Waza creates temporary per-task shims and places them before the Copilot runtime's existing `PATH`. This requires `schemaVersion: "1.3"` or newer and `executor: copilot-sdk`.

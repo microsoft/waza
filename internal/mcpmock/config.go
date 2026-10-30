@@ -68,6 +68,59 @@ func ValidateEvalMocks(mocks []models.MCPMockConfig, baseDir, version string) er
 	return errors.Join(errs...)
 }
 
+// InlineMockDeclarations returns the inline part of a mock, without its
+// fixture directory. ok is false when nothing inline remains to validate.
+func InlineMockDeclarations(mock models.MCPMockConfig) (models.MCPMockConfig, bool) {
+	mock.Fixtures = ""
+	return mock, len(mock.Tools) > 0
+}
+
+// ValidateInlineMockDeclarations validates the inline tools of each mock
+// without reading fixture directories.
+func ValidateInlineMockDeclarations(mocks []models.MCPMockConfig, baseDir, version string) error {
+	var errs []error
+	for _, mock := range mocks {
+		declared, ok := InlineMockDeclarations(mock)
+		if !ok {
+			continue
+		}
+		if _, err := FromEvalConfigWithVersion(declared, baseDir, version); err != nil {
+			errs = append(errs, fmt.Errorf("resolve MCP mock %q: %w", mock.Name, err))
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// ValidateMCPMocksForTasks admits the MCP mocks that the given selected tasks
+// will start: each task's own mocks, and every eval mock that at least one
+// task still uses. For an eval mock that every task replaces by name, only its
+// inline declarations are validated. With no tasks, every eval mock is
+// admitted as before task-level mocks existed.
+func ValidateMCPMocksForTasks(spec *models.EvalSpec, tasks []*models.TestCase, baseDir string) error {
+	taskMocks := models.TaskMCPMocks(tasks)
+	var errs []error
+	for _, mock := range spec.MCPMocks {
+		if models.MCPMockReplacedByEveryTask(mock.Name, taskMocks) {
+			if err := ValidateInlineMockDeclarations([]models.MCPMockConfig{mock}, baseDir, spec.SchemaVersion); err != nil {
+				errs = append(errs, err)
+			}
+			continue
+		}
+		if _, err := FromEvalConfigWithVersion(mock, baseDir, spec.SchemaVersion); err != nil {
+			errs = append(errs, fmt.Errorf("resolve MCP mock %q: %w", mock.Name, err))
+		}
+	}
+	for _, task := range tasks {
+		if task == nil || len(task.MCPMocks) == 0 {
+			continue
+		}
+		if err := ValidateEvalMocks(task.MCPMocks, baseDir, spec.SchemaVersion); err != nil {
+			errs = append(errs, fmt.Errorf("task %q: %w", task.TestID, err))
+		}
+	}
+	return errors.Join(errs...)
+}
+
 // FromEvalConfigOffline reads declared local fixtures while refusing external
 // schema resources, including the compiler's default filesystem loader.
 // Response validation errors retain the resolved config for inventory only.

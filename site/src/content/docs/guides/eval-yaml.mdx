@@ -520,6 +520,33 @@ mcp_mocks:
 
 Each `.json` fixture can either contain a single tool definition (tool name from the filename) or a `{ "tools": { ... } }` object with multiple tools.
 
+### Task-level MCP mocks
+
+A task can declare `mcp_mocks` when one case needs a different response, for example approving a question that other tasks must decline. Each task entry replaces the eval mock with the same name for that task only, and a new name adds a mock. Other eval mocks still apply, so a task restates only the servers it changes.
+
+```yaml
+# tasks/publish.yaml
+id: publish
+name: Publish when the user confirms
+inputs:
+  prompt: Publish the reviewed version.
+mcp_mocks:
+  - name: host
+    tools:
+      ask_user:
+        responses:
+          - match_schema:
+              type: object
+              required: [choices]
+              properties:
+                choices: { type: array, contains: { const: Publish this version } }
+            return: { answer: Publish this version, wasFreeform: false }
+          - match_schema: {}
+            return: { answer: Not now, wasFreeform: false }
+```
+
+Task mocks follow the enclosing eval's `schemaVersion` (1.1 or newer, and scenario `2.0` for finite sequences) and require `executor: copilot-sdk`. Relative `fixtures` paths resolve from the eval directory, like task `command_mocks` fixtures. An eval mock that every selected task replaces is never started, so its fixtures are not read; its inline tools are still validated. An empty task list is rejected; omit the field to use the eval mocks.
+
 ## Command Mocks
 
 Use `command_mocks` when a skill shells out to a CLI such as Azure CLI (`az`), GitHub CLI (`gh`), or `kubectl`. Waza materializes temporary executable shims per task and prepends their directory to the Copilot runtime's existing `PATH`, preserving the host path. Command mocks require `executor: copilot-sdk` and `schemaVersion: "1.3"` or newer.

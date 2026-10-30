@@ -346,6 +346,8 @@ mcp_mocks:
 
 Response entries are checked in order. Unknown tools and unmatched calls fail loudly with a tool error that names the missing mock fixture. Finite `sequence` responses are available only in scenario evals using exact `schemaVersion: "2.0"`; each matching call consumes one step, sequences contain 1–100 steps, and optional step delays are bounded at 300,000 ms.
 
+A task can replace an eval-level mock by name with its own [`mcp_mocks`](#mcp_mocks-optional) entry. Other eval-level mocks remain available to that task.
+
 Unmatched-call diagnostics omit argument values, including nested payloads. A
 canceled or expired context at the in-process handler's tool-call admission
 boundary produces an MCP `isError` result before matching or returning a fixture.
@@ -859,6 +861,22 @@ Replace the eval-level command mock list for this task. The enclosing eval must 
 
 ```yaml
 command_mocks: []
+```
+
+### mcp_mocks (optional)
+
+Replace or add MCP mocks for this task. Each entry replaces the eval-level [`mcp_mocks`](#mcp_mocks) entry with the same name for this task only, and a new name adds a mock; other eval-level mocks still apply. Entries use the eval-level fields. The enclosing eval must use `schemaVersion: "1.1"` or newer and `executor: copilot-sdk`, and finite response sequences require scenario eval schema `2.0`. Relative `fixtures` paths resolve from the eval directory. An eval mock that every selected task replaces is never started, so its fixtures are not read; its inline tools are still validated. The list must not be empty; omit it to use the eval-level mocks.
+
+```yaml
+mcp_mocks:
+  - name: host
+    tools:
+      ask_user:
+        responses:
+          - match_regex: { question: "(?i)publish" }
+            return: { answer: Publish this version, wasFreeform: false }
+          - match_schema: {}
+            return: { answer: Not now, wasFreeform: false }
 ```
 
 ## inputs Section

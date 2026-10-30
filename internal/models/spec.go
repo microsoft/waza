@@ -623,23 +623,11 @@ func (s *EvalSpec) Validate() error {
 		}
 	}
 	if len(s.MCPMocks) > 0 {
-		_, minor, err := parseSchemaVersion(s.SchemaVersion)
-		if err != nil {
+		if err := ValidateMCPMocksSchemaVersion(s); err != nil {
 			return err
 		}
-		if minor < 1 && s.Scenario == "" {
-			return fmt.Errorf("mcp_mocks requires schemaVersion 1.1 or newer")
-		}
-		seen := make(map[string]bool, len(s.MCPMocks))
-		for i, mock := range s.MCPMocks {
-			name := strings.TrimSpace(mock.Name)
-			if name == "" {
-				return fmt.Errorf("mcp_mocks[%d].name is required", i)
-			}
-			if seen[name] {
-				return fmt.Errorf("mcp_mocks[%d].name %q is duplicated", i, name)
-			}
-			seen[name] = true
+		if err := ValidateMCPMockNames(s.MCPMocks); err != nil {
+			return err
 		}
 	}
 	if s.CommandMocks != nil {

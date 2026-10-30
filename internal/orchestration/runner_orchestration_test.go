@@ -544,6 +544,30 @@ func TestRunTest_CacheHitRecomputesStatsFromRuns(t *testing.T) {
 	assert.NotContains(t, string(data), "is_significant")
 }
 
+// Keys written before MCP mocks were hashed ignored eval mocks, so a mocked
+// outcome can share the key a task without mocks now computes.
+func TestRunTest_HistoricalMockedCacheEntryIsNotReusedAfterMocksRemoved(t *testing.T) {
+	spec := &models.EvalSpec{
+		SkillName: "cache-skill",
+		Config:    models.Config{TrialsPerTask: 1, TimeoutSec: 30, EngineType: "mock", ModelID: "mock-model"},
+	}
+	resultCache := cache.New(t.TempDir())
+	runner := NewEvalRunner(config.NewEvalConfig(spec), execution.NewMockEngine("mock-model"), WithCache(resultCache))
+	require.NoError(t, runner.engine.Initialize(context.Background()))
+	testCase := &models.TestCase{TestID: "upgraded", DisplayName: "Upgraded", Stimulus: models.TaskStimulus{Message: "go"}}
+	key, err := cache.CacheKey(spec, testCase, runner.cfg.FixtureDir())
+	require.NoError(t, err)
+
+	mocked := &models.TestOutcome{TestID: "upgraded", DisplayName: "Upgraded", Status: models.StatusPassed,
+		Runs: []models.RunResult{{Status: models.StatusPassed, DependencyModes: []models.DependencyMode{{Kind: "mcp", Name: "host", Mode: "mocked"}}}}}
+	require.NoError(t, resultCache.Put(key, mocked))
+	_, wasCached := runner.runTest(context.Background(), testCase, 1, 1)
+	require.False(t, wasCached, "an outcome recorded with a removed MCP mock must be re-run")
+
+	_, wasCached = runner.runTest(context.Background(), testCase, 1, 1)
+	require.True(t, wasCached, "the re-run outcome replaces the stale entry")
+}
+
 // --- Follow-up prompt test helpers ---
 
 type trackingCall struct {

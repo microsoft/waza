@@ -94,7 +94,7 @@ func ValidateNativeSnapshotConfiguration(spec *models.EvalSpec, tc *models.TestC
 		return fmt.Errorf("unsupported native model/skill/agent configuration")
 	}
 	if spec.Baseline || spec.Config.Concurrent || spec.Config.Workers != 0 ||
-		!reflect.ValueOf(spec.Hooks).IsZero() || len(spec.MCPMocks) != 0 ||
+		!reflect.ValueOf(spec.Hooks).IsZero() || len(spec.MCPMocks) != 0 || len(tc.MCPMocks) != 0 ||
 		len(spec.Config.ServerConfigs) != 0 || spec.CommandMocks != nil ||
 		tc.CommandMocks != nil || spec.Adversarial != nil || spec.TasksFrom != "" ||
 		len(spec.Inputs) != 0 || spec.Range != [2]int{} ||
