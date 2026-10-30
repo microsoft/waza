@@ -12,6 +12,7 @@ on:
       - 'internal/**'
       - 'web/**'
       - 'schemas/**'
+      - 'examples/runner/unit.json'
       - 'docs.go'
       - 'docs/graders/**'
       - '.github/workflows/docker-ci.yml'
@@ -19,10 +20,14 @@ on:
     branches: [main]
     paths: *docker-paths
 
+permissions:
+  contents: read
+
 jobs:
   docker-build:
     name: Build and Verify Docker Image
     runs-on: ubuntu-latest
+    timeout-minutes: 30
 
     steps:
       - name: Checkout Repository

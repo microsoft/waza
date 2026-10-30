@@ -9,6 +9,11 @@
 !docs.go
 !docs/graders/
 !version.txt
+!examples/
+examples/*
+!examples/runner/
+examples/runner/*
+!examples/runner/unit.json
 
 # Re-exclude some files pulled in by the allowlist above
 **/*_test.go
