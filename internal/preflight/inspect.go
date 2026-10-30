@@ -168,11 +168,16 @@ func discoverTasks(r *Report, spec *models.EvalSpec, base string) ([]*models.Tes
 				r.add("task.version", Invalid, path, task.TestID, "", "Task mock sequences require explicit enclosing scenario schemaVersion 2.0.", "Select schemaVersion 2.0 with a scenario, or use legacy single responses.")
 			}
 			if err := task.ValidateForExecutor(spec.Config.EngineType); err != nil {
-				r.add("task.executor", Invalid, path, task.TestID, "", "Task settings are incompatible with the configured executor.", "Use copilot-sdk for command mocks and explicit judge reasoning effort.")
+				r.add("task.executor", Invalid, path, task.TestID, "", "Task settings are incompatible with the configured executor.", "Use copilot-sdk for command mocks, user_input_responses, and explicit judge reasoning effort.")
 			}
 			if task.CommandMocks != nil {
 				if err := models.ValidateCommandMocksSchemaVersion(spec.SchemaVersion); err != nil {
 					r.add("task.version", Invalid, path, task.TestID, "", "Task command mocks require a supported enclosing schemaVersion.", "Select schemaVersion 1.3 or newer for legacy command mocks.")
+				}
+			}
+			if task.UserInputResponses != nil {
+				if err := models.ValidateUserInputResponsesSchemaVersion(spec.SchemaVersion); err != nil {
+					r.add("task.version", Invalid, path, task.TestID, "", "Task user_input_responses require explicit enclosing scenario schemaVersion 2.0.", "Select schemaVersion 2.0 with a scenario so older executables reject the eval instead of ignoring scripted answers.")
 				}
 			}
 			tasks = append(tasks, task)

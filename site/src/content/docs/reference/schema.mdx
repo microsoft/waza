@@ -861,6 +861,36 @@ Replace the eval-level command mock list for this task. The enclosing eval must 
 command_mocks: []
 ```
 
+### user_input_responses (optional)
+
+Script answers to native Copilot SDK user-input requests (the SDK `ask_user` tool,
+answered through `OnUserInputRequest`). Requires `executor: copilot-sdk` and an
+enclosing scenario eval with exact `schemaVersion: "2.0"`. Omit the field to leave
+the callback unregistered; `[]` registers it so that any question fails closed.
+
+Entries are consumed in order across the initial prompt, follow-up prompts, and
+responder replies of one trial; every trial and retry starts again at the first
+entry. Each entry needs exactly one of `question` (exact text) or `question_regex`
+(full-string RE2 match) and exactly one answer: `choice` (must be among the offered
+choices; recorded `was_freeform: false`) or `freeform` (rejected when the request
+sets `allowFreeform: false`; recorded `was_freeform: true`). Optional `choices`
+must equal the offered list exactly, in order.
+
+```yaml
+user_input_responses:
+  - question_regex: "(?is).*environment.*"
+    choices: [staging, production]
+    choice: staging
+  - question: "What release note should I use?"
+    freeform: Fixes the login timeout.
+```
+
+An unexpected, mismatched, or exhausted request returns an error to the SDK, never
+a default answer, and the run ends with status `error`. Unconsumed entries also
+fail the run. Every request is recorded in `runs[].user_input_requests` and passed
+to inline `code` graders as `user_input_requests`. This is the SDK-native callback,
+not an MCP `ask_user` tool mock, and structured elicitation forms are not supported.
+
 ## inputs Section
 
 Test inputs passed to the agent.

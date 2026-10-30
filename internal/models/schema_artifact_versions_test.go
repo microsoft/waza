@@ -13,7 +13,7 @@ import (
 
 func TestArtifactVersionSeparation(t *testing.T) {
 	require.Equal(t, "1.4", CurrentSchemaVersion)
-	require.Equal(t, "1.7", CurrentResultSchemaVersion)
+	require.Equal(t, "1.8", CurrentResultSchemaVersion)
 	require.Equal(t, "2.0", ScenarioSchemaVersion)
 	require.Equal(t, "1.4", defaultSchemaVersion(""))
 
@@ -70,7 +70,7 @@ func TestArtifactVersionSeparation(t *testing.T) {
 }
 
 func TestHistoricalResultVersionsSurviveWriterVersionBump(t *testing.T) {
-	for _, version := range []string{"", "1.0", "1.1", "1.4", "1.5", "1.6", "1.7", "1.99"} {
+	for _, version := range []string{"", "1.0", "1.1", "1.4", "1.5", "1.6", "1.7", "1.8", "1.99"} {
 		t.Run("version="+version, func(t *testing.T) {
 			outcome, err := ParseEvaluationOutcome([]byte(minimalOutcomeJSON(version)), "historical.json")
 			require.NoError(t, err)
@@ -162,7 +162,7 @@ func TestDependencyModesRoundTripInCurrentResultVersion(t *testing.T) {
 		} `json:"tasks"`
 	}
 	require.NoError(t, json.Unmarshal(data, &wire))
-	require.Equal(t, "1.7", wire.SchemaVersion)
+	require.Equal(t, "1.8", wire.SchemaVersion)
 	require.Equal(t, []DependencyMode{
 		{Kind: "mcp", Name: "inventory", Mode: "mocked"},
 		{Kind: "cli", Name: "az", Mode: "mocked"},

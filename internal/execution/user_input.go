@@ -1,0 +1,173 @@
+package execution
+
+import (
+	"errors"
+	"fmt"
+	"regexp"
+	"slices"
+	"sync"
+
+	copilot "github.com/github/copilot-sdk/go"
+	"github.com/microsoft/waza/internal/models"
+)
+
+// UserInputScript answers native SDK user-input requests from an ordered,
+// fixture-authored script and records every request. Unscripted or
+// mismatched requests fail closed: the SDK receives an error, never a
+// default answer. One script is shared by all turns of a single run.
+type UserInputScript struct {
+	mu         sync.Mutex
+	responses  []models.UserInputResponseConfig
+	patterns   []*regexp.Regexp
+	next       int
+	records    []models.UserInputRecord
+	rejections []error
+}
+
+// NewUserInputScript validates responses and returns a fresh script.
+func NewUserInputScript(responses []models.UserInputResponseConfig) (*UserInputScript, error) {
+	if err := models.ValidateUserInputResponses(responses); err != nil {
+		return nil, err
+	}
+	s := &UserInputScript{
+		responses: slices.Clone(responses),
+		patterns:  make([]*regexp.Regexp, len(responses)),
+	}
+	if s.responses == nil {
+		s.responses = []models.UserInputResponseConfig{}
+	}
+	for i, response := range responses {
+		if response.QuestionRegex == "" {
+			continue
+		}
+		pattern, err := models.CompileUserInputQuestionRegex(response.QuestionRegex)
+		if err != nil {
+			return nil, fmt.Errorf("user_input_responses[%d].question_regex is invalid: %w", i, err)
+		}
+		s.patterns[i] = pattern
+	}
+	return s, nil
+}
+
+// Handler returns the SDK callback, or nil for a nil script.
+func (s *UserInputScript) Handler() copilot.UserInputHandler {
+	if s == nil {
+		return nil
+	}
+	return s.handle
+}
+
+func (s *UserInputScript) handle(request copilot.UserInputRequest, invocation copilot.UserInputInvocation) (copilot.UserInputResponse, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	record := models.UserInputRecord{
+		Sequence:  len(s.records) + 1,
+		SessionID: invocation.SessionID,
+		Question:  request.Question,
+		Choices:   slices.Clone(request.Choices),
+	}
+	if request.AllowFreeform != nil {
+		allow := *request.AllowFreeform
+		record.AllowFreeform = &allow
+	}
+	reject := func(reason string) (copilot.UserInputResponse, error) {
+		err := fmt.Errorf("native user input request %d rejected: %s", record.Sequence, reason)
+		record.Outcome = models.UserInputOutcomeRejected
+		record.Error = err.Error()
+		s.records = append(s.records, record)
+		s.rejections = append(s.rejections, err)
+		return copilot.UserInputResponse{}, err
+	}
+
+	if s.next >= len(s.responses) {
+		return reject("no scripted user_input_responses entry remains")
+	}
+	index := s.next
+	s.next++
+	record.ResponseIndex = &index
+	scripted := s.responses[index]
+
+	if pattern := s.patterns[index]; pattern != nil {
+		if !pattern.MatchString(request.Question) {
+			return reject(fmt.Sprintf("question does not match user_input_responses[%d].question_regex", index))
+		}
+	} else if request.Question != scripted.Question {
+		return reject(fmt.Sprintf("question does not match user_input_responses[%d].question", index))
+	}
+	if scripted.Choices != nil && !slices.Equal(*scripted.Choices, request.Choices) {
+		return reject(fmt.Sprintf("offered choices do not match user_input_responses[%d].choices", index))
+	}
+
+	var response copilot.UserInputResponse
+	switch {
+	case scripted.Choice != nil:
+		if !slices.Contains(request.Choices, *scripted.Choice) {
+			return reject(fmt.Sprintf("user_input_responses[%d].choice was not offered", index))
+		}
+		response = copilot.UserInputResponse{Answer: *scripted.Choice}
+	case scripted.Freeform != nil:
+		if request.AllowFreeform != nil && !*request.AllowFreeform {
+			return reject(fmt.Sprintf("user_input_responses[%d].freeform is not allowed by the request", index))
+		}
+		response = copilot.UserInputResponse{Answer: *scripted.Freeform, WasFreeform: true}
+	default:
+		return reject(fmt.Sprintf("user_input_responses[%d] has no answer", index))
+	}
+
+	answer, wasFreeform := response.Answer, response.WasFreeform
+	record.Outcome = models.UserInputOutcomeAnswered
+	record.Answer = &answer
+	record.WasFreeform = &wasFreeform
+	s.records = append(s.records, record)
+	return response, nil
+}
+
+// Records returns the requests observed so far, in arrival order.
+func (s *UserInputScript) Records() []models.UserInputRecord {
+	if s == nil {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return slices.Clone(s.records)
+}
+
+// rejectionCount returns how many requests have been rejected so far.
+func (s *UserInputScript) rejectionCount() int {
+	if s == nil {
+		return 0
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.rejections)
+}
+
+// rejectionsSince returns rejections recorded after mark, joined.
+func (s *UserInputScript) rejectionsSince(mark int) error {
+	if s == nil {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if mark >= len(s.rejections) {
+		return nil
+	}
+	return errors.Join(s.rejections[mark:]...)
+}
+
+// Finish reports any rejection or unconsumed scripted answer for the run.
+func (s *UserInputScript) Finish() error {
+	if s == nil {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.rejections) > 0 {
+		return errors.Join(s.rejections...)
+	}
+	if remaining := len(s.responses) - s.next; remaining > 0 {
+		return fmt.Errorf("user_input_responses: %d scripted answer(s) were not consumed, starting at user_input_responses[%d]", remaining, s.next)
+	}
+	return nil
+}

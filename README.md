@@ -1669,7 +1669,7 @@ checks reject group/world-writable cache parents and private children with
 group/other mode bits. These retained-root checks do not certify Windows ACLs,
 cache confidentiality or whole-filesystem ancestry.
 
-`results.json` is currently emitted at `schemaVersion` `1.7`. Version `1.1` added per-turn checkpoints (`runs[].checkpoints[]`, see #358) and the normalized `runs[].tool_events[]` array (`turn`, `sequence`, `tool_call_id`, `tool_name`, `args`, `result`, `success`, `error`, `duration_ms`; see #366). Version `1.2` added `runs[].snapshot_path` for `waza run --snapshot` artifacts (#367) and the eval-level `adversarial:` block consumed by `waza adversarial --spec` (#365). Version `1.3` adds `session_digest.tool_policy_mode` and `tool_policy_denials` (#585). Version `1.4` adds sanitized `runs[].command_invocations` for declarative CLI mocks (#634). Version `1.5` adds `tasks[].stats.pass_rate_ci` and `summary.statistics.success_rate_ci` and `pass_hat_k`, and stops writing `is_significant`. Version `1.6` adds optional `runs[].evidence` and `runs[].requirement_explanations`. Version `1.7` adds optional frozen `runs[].judge_evidence`, metadata-only `runs[].prompt_judging` observations and separate current-regrade `regrade_usage.sessions` for evidence-enabled prompt graders, plus configured live/mocked `runs[].dependency_modes`. The saved bundle contains sanitized evidence, whereas API/report metadata does not copy its bodies. See [docs/PRD](docs/PRD.md) and [schema-changes](site/src/content/docs/reference/schema-changes.md) for details.
+`results.json` is currently emitted at `schemaVersion` `1.8`. Version `1.1` added per-turn checkpoints (`runs[].checkpoints[]`, see #358) and the normalized `runs[].tool_events[]` array (`turn`, `sequence`, `tool_call_id`, `tool_name`, `args`, `result`, `success`, `error`, `duration_ms`; see #366). Version `1.2` added `runs[].snapshot_path` for `waza run --snapshot` artifacts (#367) and the eval-level `adversarial:` block consumed by `waza adversarial --spec` (#365). Version `1.3` adds `session_digest.tool_policy_mode` and `tool_policy_denials` (#585). Version `1.4` adds sanitized `runs[].command_invocations` for declarative CLI mocks (#634). Version `1.5` adds `tasks[].stats.pass_rate_ci` and `summary.statistics.success_rate_ci` and `pass_hat_k`, and stops writing `is_significant`. Version `1.6` adds optional `runs[].evidence` and `runs[].requirement_explanations`. Version `1.7` adds optional frozen `runs[].judge_evidence`, metadata-only `runs[].prompt_judging` observations and separate current-regrade `regrade_usage.sessions` for evidence-enabled prompt graders, plus configured live/mocked `runs[].dependency_modes`. Version `1.8` adds optional `runs[].user_input_requests` records for native SDK question callbacks scripted by task-level `user_input_responses`. The saved bundle contains sanitized evidence, whereas API/report metadata does not copy its bodies. See [docs/PRD](docs/PRD.md) and [schema-changes](site/src/content/docs/reference/schema-changes.md) for details.
 
 The dashboard displays these recorded Wilson intervals and pass^k estimates separately from bootstrap weighted-score intervals, with available trial counts. Missing historical statistics show **Not assessed**; readers never infer them from scores or successful outcomes. None of these intervals is a significance test between runs.
 
@@ -1729,6 +1729,21 @@ Choose the mechanism that matches the dependency boundary:
 | `mcp_mocks` | The skill calls structured tools from an MCP server rather than a shell executable. |
 | Hooks | Setup, teardown, or validation should run around a task/eval; hooks do not intercept commands started by the agent. |
 | Live integration tests | Real CLI/service behavior, authentication, or infrastructure interaction is what the test must verify. Keep these separate from hermetic evals. |
+
+### Native Question Callbacks
+
+Use task-level `user_input_responses` when the agent asks the user a question through the Copilot SDK's native user-input callback (`ask_user`). Waza registers `OnUserInputRequest` on the initial and every resumed session of a trial and answers from an ordered script. This requires `executor: copilot-sdk` and a scenario eval with `schemaVersion: "2.0"`; omitting the field leaves the callback unregistered.
+
+```yaml
+user_input_responses:
+  - question_regex: "(?is).*environment.*"
+    choices: [staging, production]   # optional exact offered list
+    choice: staging                  # selected choice (was_freeform: false)
+  - question: "What release note should I use?"
+    freeform: Fixes the login timeout.  # typed answer (was_freeform: true)
+```
+
+Each entry needs one of `question` (exact) or `question_regex` (full match) and one of `choice` or `freeform`. Unexpected, mismatched, or exhausted questions return an error to the SDK instead of a default answer and fail the run; unconsumed entries also fail it. Each request is recorded in order under `runs[].user_input_requests` (session ID, question, offered choices, freeform permission, answer, `was_freeform`, outcome) and exposed to inline `code` graders as `user_input_requests`. This is separate from `mcp_mocks`, which can mock an MCP-provided `ask_user` tool. See [examples/scenarios/native-questions](examples/scenarios/native-questions).
 
 ### Adversarial Packs
 

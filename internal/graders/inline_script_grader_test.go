@@ -81,6 +81,50 @@ func TestInlineScriptRecoveryEvidence(t *testing.T) {
 	}
 }
 
+func TestInlineScriptNativeUserInputEvidence(t *testing.T) {
+	for _, language := range []models.Language{models.LanguagePython, models.LanguageJavascript} {
+		t.Run(string(language), func(t *testing.T) {
+			if language == models.LanguagePython {
+				skipIfNoPython(t)
+			} else {
+				skipIfNoJavascript(t)
+			}
+			answer := "staging"
+			ctx := &Context{UserInputRequests: []models.UserInputRecord{{
+				Sequence: 1, SessionID: "s-1", Question: "Deploy where?", Choices: []string{"staging", "prod"},
+				Outcome: models.UserInputOutcomeAnswered, Answer: &answer, WasFreeform: new(false),
+			}}}
+			absent := []string{"len(user_input_requests) == 0"}
+			present := []string{
+				"len(user_input_requests) == 1",
+				"user_input_requests[0]['answer'] == 'staging'",
+				"user_input_requests[0]['was_freeform'] == False",
+				"user_input_requests[0]['choices'] == ['staging', 'prod']",
+			}
+			if language == models.LanguageJavascript {
+				absent = []string{"user_input_requests.length == 0"}
+				present = []string{
+					"user_input_requests.length == 1",
+					"user_input_requests[0].answer == 'staging'",
+					"user_input_requests[0].was_freeform === false",
+					"user_input_requests[0].choices.join(',') == 'staging,prod'",
+				}
+			}
+			for _, tc := range []struct {
+				ctx        *Context
+				assertions []string
+				pass       bool
+			}{{&Context{}, absent, true}, {ctx, present, true}, {&Context{}, present[:1], false}} {
+				grader, err := Create("questions", models.InlineScriptGraderParameters{Language: language, Assertions: tc.assertions})
+				require.NoError(t, err)
+				result, err := grader.Grade(t.Context(), tc.ctx)
+				require.NoError(t, err)
+				require.Equal(t, tc.pass, result.Passed, "%+v", result)
+			}
+		})
+	}
+}
+
 func TestInlineScriptGrader(t *testing.T) {
 	skipIfNoPython(t)
 

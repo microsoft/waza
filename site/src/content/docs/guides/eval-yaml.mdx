@@ -564,6 +564,7 @@ empty-list replacement is unchanged.
 | --- | --- |
 | `command_mocks` | Commands the agent invokes through its shell, with deterministic process output and exit status. |
 | `mcp_mocks` | Structured MCP tool calls and server responses. |
+| `user_input_responses` (task) | Questions the agent asks the host through the Copilot SDK native user-input callback (`ask_user`). |
 | Hooks | Setup, teardown, or validation around tasks/evals; hooks do not intercept agent commands. |
 | Live integration tests | Verifying real CLI/service behavior, authentication, or infrastructure. Keep these separate from hermetic evals. |
 
@@ -785,6 +786,33 @@ expected:
 | `instruction_files` | string[] | Instruction files for this task (adds to eval-level files) |
 | `golden`      | bool   | Mark as a critical "golden" task — enforced by [`waza gate`](../../reference/cli/#waza-gate) (must always pass) |
 | `requirements` | array | Descriptive intent linked to explicitly scoped existing graders; does not add assertions or change pass/fail |
+| `user_input_responses` | array | Ordered scripted answers to native Copilot SDK user-input (`ask_user`) requests; requires `copilot-sdk` and scenario `schemaVersion: "2.0"`. See [schema reference](/waza/reference/schema/#user_input_responses-optional) |
+
+### Answer native agent questions
+
+When the agent should ask the host a question through the Copilot SDK native
+user-input callback, script the answers in order. Unscripted or mismatched
+questions fail the run instead of receiving a default answer, and unconsumed
+answers also fail it:
+
+```yaml
+user_input_responses:
+  - question_regex: "(?is).*environment.*"
+    choices: [staging, production]
+    choice: staging
+  - question: "What release note should I use?"
+    freeform: Fixes the login timeout.
+graders:
+  - name: answered
+    type: code
+    config:
+      language: javascript
+      assertions:
+        - "user_input_requests.length === 2 && user_input_requests.every(r => r.outcome === 'answered')"
+```
+
+Each request is recorded under `runs[].user_input_requests` with its session ID,
+offered choices, freeform permission, answer, and `was_freeform`.
 
 ### Link intent to existing checks
 

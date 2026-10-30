@@ -121,6 +121,51 @@ func TestRecoveryCLIExampleGradesArgumentsAndExitSequence(t *testing.T) {
 	}
 }
 
+func TestNativeQuestionsExampleGradesRecordedAnswers(t *testing.T) {
+	base := testutil.RepoFile(t, "examples", "scenarios", "native-questions")
+	spec, err := models.LoadEvalSpec(filepath.Join(base, "eval.yaml"))
+	require.NoError(t, err)
+	require.NoError(t, models.ValidateUserInputResponsesSchemaVersion(spec.SchemaVersion))
+	task, err := models.LoadTestCase(filepath.Join(base, "tasks", "choose-environment.yaml"))
+	require.NoError(t, err)
+	require.NoError(t, task.ValidateForExecutor(spec.Config.EngineType))
+	require.NotNil(t, task.UserInputResponses)
+	require.Len(t, *task.UserInputResponses, 2)
+	workspace := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(workspace, "deploy.txt"), []byte("staging\nFixes the login timeout.\n"), 0600))
+
+	record := func(sequence int, answer string, freeform bool, outcome string) models.UserInputRecord {
+		r := models.UserInputRecord{Sequence: sequence, SessionID: "s", Question: "q", Outcome: outcome}
+		if outcome == models.UserInputOutcomeAnswered {
+			r.Answer, r.WasFreeform = &answer, &freeform
+		}
+		return r
+	}
+	compliant := []models.UserInputRecord{
+		record(1, "staging", false, models.UserInputOutcomeAnswered),
+		record(2, "Fixes the login timeout.", true, models.UserInputOutcomeAnswered),
+	}
+	for _, test := range []struct {
+		name    string
+		records []models.UserInputRecord
+		passed  bool
+	}{
+		{"compliant", compliant, true},
+		{"no recorded questions", nil, false},
+		{"only one question", compliant[:1], false},
+		{"rejected question", []models.UserInputRecord{compliant[0], record(2, "", false, models.UserInputOutcomeRejected)}, false},
+		{"choice answered as freeform", []models.UserInputRecord{record(1, "staging", true, models.UserInputOutcomeAnswered), compliant[1]}, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			graded, err := gradeRunWithJudge(t.Context(), spec, task, &models.RunResult{UserInputRequests: test.records}, workspace, "", io.Discard, false, evidenceGradeSource{})
+			require.NoError(t, err)
+			require.NotEmpty(t, graded.Validations)
+			require.Equal(t, test.passed, graded.Status == models.StatusPassed, "%+v", graded.Validations)
+			require.Equal(t, test.records, graded.UserInputRequests)
+		})
+	}
+}
+
 func TestRecoveryExternalMCPAdmissionThroughRun(t *testing.T) {
 	for _, test := range []struct {
 		name, executor, response, inline string

@@ -222,6 +222,7 @@ func getStdinTextForScript(gradingContext *Context, assertions []string) ([]byte
 		ToolCalls          []models.ToolCall          `json:"tool_calls"`
 		ToolEvents         []models.ToolEvent         `json:"tool_events"`
 		CommandInvocations []models.CommandInvocation `json:"command_invocations"`
+		UserInputRequests  []models.UserInputRecord   `json:"user_input_requests"`
 		DurationMS         int64                      `json:"duration_ms"`
 		Assertions         []string                   `json:"assertions"`
 
@@ -234,6 +235,7 @@ func getStdinTextForScript(gradingContext *Context, assertions []string) ([]byte
 		ToolCalls:          toolCalls,
 		ToolEvents:         gradingContext.ToolEvents,
 		CommandInvocations: gradingContext.CommandInvocations,
+		UserInputRequests:  gradingContext.UserInputRequests,
 		DurationMS:         gradingContext.DurationMS,
 		Assertions:         assertions,
 		Debug:              slog.Default().Enabled(context.Background(), slog.LevelDebug),

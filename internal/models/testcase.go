@@ -32,7 +32,11 @@ type TestCase struct {
 	// nil inherits the eval-level value; 0 disables the check for this task.
 	FirstEventTimeoutSec *int                 `yaml:"first_event_timeout_seconds,omitempty" json:"first_event_timeout_sec,omitempty"`
 	CommandMocks         *[]CommandMockConfig `yaml:"command_mocks,omitempty" json:"command_mocks,omitempty"`
-	Validators           []ValidatorInline    `yaml:"graders,omitempty" json:"validators,omitempty"`
+	// UserInputResponses scripts answers to native SDK user-input requests.
+	// nil leaves the SDK callback unregistered; an empty list registers it
+	// so that any question fails closed.
+	UserInputResponses *[]UserInputResponseConfig `yaml:"user_input_responses,omitempty" json:"user_input_responses,omitempty"`
+	Validators         []ValidatorInline          `yaml:"graders,omitempty" json:"validators,omitempty"`
 	// Checkpoints attach graders to intermediate turn boundaries in a
 	// multi-turn run. Each checkpoint specifies `after_turn: N` (1-based,
 	// where turn 1 is the initial prompt) and a list of graders that run
@@ -428,6 +432,9 @@ func (tc *TestCase) ValidateForExecutor(executor string) error {
 	if tc.CommandMocks != nil && executor != "copilot-sdk" {
 		return fmt.Errorf("test case %q: command_mocks requires executor copilot-sdk", tc.TestID)
 	}
+	if tc.UserInputResponses != nil && executor != "copilot-sdk" {
+		return fmt.Errorf("test case %q: user_input_responses requires executor copilot-sdk", tc.TestID)
+	}
 	for _, v := range tc.Validators {
 		if err := validateGraderReasoningEffort(v.Identifier, v.Parameters, executor); err != nil {
 			return fmt.Errorf("test case %q: %w", tc.TestID, err)
@@ -447,6 +454,11 @@ func (tc *TestCase) ValidateForExecutor(executor string) error {
 func (tc *TestCase) Validate() error {
 	if tc.CommandMocks != nil {
 		if err := ValidateCommandMocks(*tc.CommandMocks); err != nil {
+			return fmt.Errorf("test case %q: %w", tc.TestID, err)
+		}
+	}
+	if tc.UserInputResponses != nil {
+		if err := ValidateUserInputResponses(*tc.UserInputResponses); err != nil {
 			return fmt.Errorf("test case %q: %w", tc.TestID, err)
 		}
 	}

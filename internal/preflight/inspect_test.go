@@ -252,6 +252,35 @@ mcp_mocks:
 	require.NotContains(t, string(data), "invalid.example")
 }
 
+func TestInspectUserInputResponsesRequireScenarioAndCopilot(t *testing.T) {
+	task := validTask + "\nuser_input_responses:\n  - question: Continue?\n    freeform: yes\n"
+	for _, tc := range []struct {
+		name, eval, code string
+		invalid          bool
+	}{
+		{"legacy schema", recoveryEval("1.4"), "task.version", true},
+		{"mock executor", validEval, "task.executor", true},
+		{"scenario copilot", recoveryEval("2.0"), "task.version", false},
+		{"scenario copilot executor", recoveryEval("2.0"), "task.executor", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path, _ := writeSuite(t, tc.eval, task)
+			r := Inspect(path, Options{})
+			require.Equal(t, tc.invalid, hasDiagnostic(r, tc.code, Invalid), "%+v", r.Diagnostics)
+			if !tc.invalid {
+				require.False(t, hasDiagnostic(r, "task.configuration", Invalid), "%+v", r.Diagnostics)
+				require.False(t, hasDiagnostic(r, "task.schema", Invalid), "%+v", r.Diagnostics)
+			}
+		})
+	}
+	invalid := validTask + "\nuser_input_responses:\n  - question: Continue?\n"
+	path, _ := writeSuite(t, recoveryEval("2.0"), invalid)
+	r := Inspect(path, Options{})
+	require.True(t, hasDiagnostic(r, "task.configuration", Invalid), "%+v", r.Diagnostics)
+	require.True(t, hasDiagnostic(r, "task.schema", Invalid), "%+v", r.Diagnostics)
+	require.False(t, r.Complete)
+}
+
 func TestInspectCommandFixtureInvalidIsNotVerified(t *testing.T) {
 	eval := strings.ReplaceAll(validEval, "executor: mock", "executor: copilot-sdk") + `
 command_mocks:

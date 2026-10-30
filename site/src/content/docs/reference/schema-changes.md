@@ -20,7 +20,7 @@ scenario semantics; `2.1` and future majors are not supported scenario versions.
 |---|---|---|
 | Legacy `eval.yaml` | `schemaVersion` | `1.4` |
 | Scenario `eval.yaml` | `schemaVersion` | Exact `2.0`, explicit opt-in |
-| Newly generated `results.json` | `schemaVersion` | `1.7` |
+| Newly generated `results.json` | `schemaVersion` | `1.8` |
 | Historical `results.json` | `schemaVersion` | Declared `1.x`; missing version defaults to `1.4` |
 | Task YAML | No independent version field | Existing legacy format, unchanged |
 | `snapshot.json` | `schemaVersion` | `1.1` (independent artifact) |
@@ -53,7 +53,7 @@ Schema versions use `MAJOR.MINOR` format with no patch component.
 - **Legacy MINOR** changes are backward-compatible additions, usually optional fields. Legacy readers accept same-major artifacts and warn when they see unknown fields. Scenario evals are an exception: only exact `2.0` is supported.
 - **MAJOR** changes are breaking. Legacy readers refuse artifacts from a different major version and point to `waza migrate <file>`; scenario-aware readers additionally accept explicitly selected scenario eval `2.0`.
 - Missing `schemaVersion` in legacy eval/result inputs continues to default to `1.4`. Declared same-major versions remain accepted and unchanged on read/re-save; unknown fields are warned about. Scenario-bearing evals must explicitly select `2.0` and cannot omit the version. Task YAML has no independent version field.
-- New evaluations and regrades write results `1.7`, independently of their eval input version. This does not upgrade legacy eval defaults or task formats. Scenario scaffolds explicitly emit eval `2.0`; scenario readers reject unknown eval/config fields instead of granting forward-minor compatibility. Reading/re-saving historical results does not invent reliability metadata or upgrade their declared version.
+- New evaluations and regrades write results `1.8`, independently of their eval input version. This does not upgrade legacy eval defaults or task formats. Scenario scaffolds explicitly emit eval `2.0`; scenario readers reject unknown eval/config fields instead of granting forward-minor compatibility. Reading/re-saving historical results does not invent reliability metadata or upgrade their declared version.
 
 Legacy results and snapshots without consumed evidence retain ordinary JSON
 decoding for opaque tool arguments, grader details and unknown fields, including
@@ -164,6 +164,26 @@ promised stable across runs.
 - Target-free scenarios without effective explicit skill directories disable native SDK skill discovery; disabling the last eval directory preserves that isolation. Explicit task directories still opt in, empty task directories disable discovery, and `--no-skills` overrides opt-ins.
 - Scenario evals reject unknown eval/config fields and future minor versions. Old executables reject major `2` before execution.
 - Scenario result caching is bypassed with a notice until external dependencies can be completely fingerprinted.
+
+### 1.8 (new results only)
+
+- Adds optional task-level `user_input_responses`, which register the Copilot SDK
+  native user-input callback (`OnUserInputRequest`, the legacy `ask_user` tool) on
+  the initial and every resumed session of a run. Entries are consumed strictly in
+  order; an unexpected, mismatched, or exhausted question returns an error to the SDK
+  (never a default answer) and fails the run, as do unconsumed entries. The field
+  requires `executor: copilot-sdk` and an enclosing scenario eval with exact
+  `schemaVersion: "2.0"`, so executables without this feature reject the eval
+  instead of silently ignoring the script. Omission leaves the callback unregistered.
+- Adds optional `tasks[].runs[].user_input_requests`: one record per observed
+  request in arrival order with `sequence`, `session_id`, `question`, offered
+  `choices` (`null` when none were sent, `[]` when an empty list was sent),
+  `allow_freeform` (omitted when the request did not specify it), `outcome`
+  (`answered` or `rejected`), the matched `response_index`, `answer`,
+  `was_freeform`, and rejection `error`. Inline `code` graders receive these
+  records as `user_input_requests`, including during offline regrading. They are
+  not copied into `snapshot.json` (still `1.1`). Structured elicitation forms
+  (`AskUserVariantElicitation`) are not supported.
 
 ### 1.7 (new results only)
 

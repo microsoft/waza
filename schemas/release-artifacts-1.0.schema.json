@@ -1063,6 +1063,15 @@
         "usage": {
           "$ref": "#/$defs/models_UsageStats"
         },
+        "user_input_requests": {
+          "items": {
+            "$ref": "#/$defs/models_UserInputRecord"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
         "validations": {
           "additionalProperties": {
             "$ref": "#/$defs/models_GraderResults"
@@ -1322,6 +1331,69 @@
         "cache_read_tokens",
         "cache_write_tokens",
         "premium_requests"
+      ],
+      "type": "object"
+    },
+    "models_UserInputRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "allow_freeform": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "answer": {
+          "type": "string"
+        },
+        "choices": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "error": {
+          "type": "string"
+        },
+        "outcome": {
+          "type": "string"
+        },
+        "question": {
+          "type": "string"
+        },
+        "response_index": {
+          "type": "integer"
+        },
+        "sequence": {
+          "type": "integer"
+        },
+        "session_id": {
+          "type": "string"
+        },
+        "was_freeform": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "sequence",
+        "session_id",
+        "question",
+        "choices",
+        "outcome"
       ],
       "type": "object"
     },

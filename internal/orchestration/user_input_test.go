@@ -1,0 +1,324 @@
+package orchestration
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"sync"
+	"testing"
+
+	copilot "github.com/github/copilot-sdk/go"
+	"github.com/microsoft/waza/internal/config"
+	"github.com/microsoft/waza/internal/execution"
+	"github.com/microsoft/waza/internal/models"
+	"github.com/microsoft/waza/internal/testutil/copilotfake"
+	"github.com/stretchr/testify/require"
+)
+
+// questionEngine simulates an agent that asks native SDK questions during a
+// turn by invoking the request's registered user-input callback, exactly as
+// the SDK would. It never calls a model.
+type questionEngine struct {
+	mu        sync.Mutex
+	questions map[string][]copilot.UserInputRequest
+	failOn    string
+	scripts   []*execution.UserInputScript
+	sessions  int
+}
+
+func (e *questionEngine) Initialize(context.Context) error       { return nil }
+func (e *questionEngine) Shutdown(context.Context) error         { return nil }
+func (e *questionEngine) SessionUsage(string) *models.UsageStats { return nil }
+
+func (e *questionEngine) Execute(_ context.Context, req *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.scripts = append(e.scripts, req.UserInput)
+	sessionID := req.SessionID
+	if sessionID == "" {
+		e.sessions++
+		sessionID = fmt.Sprintf("session-%d", e.sessions)
+	}
+	resp := &execution.ExecutionResponse{
+		FinalOutput: "response to: " + req.Message, SessionID: sessionID,
+		WorkspaceDir: "/workspace/q", DurationMs: 1, Success: true,
+	}
+	if handler := req.UserInput.Handler(); handler != nil {
+		for _, question := range e.questions[req.Message] {
+			if _, err := handler(question, copilot.UserInputInvocation{SessionID: sessionID}); err != nil {
+				resp.Success = false
+				resp.ErrorMsg = err.Error()
+			}
+		}
+	}
+	resp.UserInputRequests = req.UserInput.Records()
+	if req.Message == e.failOn {
+		return nil, fmt.Errorf("engine failure after questions")
+	}
+	return resp, nil
+}
+
+func writeUserInputEval(t *testing.T, task string, version string) (*config.EvalConfig, string) {
+	t.Helper()
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "task.yaml"), []byte(task), 0o600))
+	spec := &models.EvalSpec{
+		SchemaVersion: version,
+		SpecIdentity:  models.SpecIdentity{Name: "native-user-input"},
+		Config:        models.Config{EngineType: "copilot-sdk", ModelID: "test-model", TrialsPerTask: 1, TimeoutSec: 30},
+		Tasks:         []string{"task.yaml"},
+	}
+	if version == models.ScenarioSchemaVersion {
+		spec.Scenario = "native-questions"
+	}
+	return config.NewEvalConfig(spec, config.WithSpecDir(dir)), dir
+}
+
+const userInputTaskYAML = `id: native-questions
+name: Native questions
+inputs:
+  prompt: start
+  follow_up_prompts:
+    - continue
+user_input_responses:
+  - question: Deploy where?
+    choices: [staging, prod]
+    choice: staging
+  - question_regex: "Release note.*"
+    freeform: fixes login
+`
+
+func TestRunBenchmarkAnswersNativeQuestionsAcrossInitialAndResumedTurns(t *testing.T) {
+	engine := &questionEngine{questions: map[string][]copilot.UserInputRequest{
+		"start":    {{Question: "Deploy where?", Choices: []string{"staging", "prod"}, AllowFreeform: new(bool)}},
+		"continue": {{Question: "Release note for this change?"}},
+	}}
+	cfg, _ := writeUserInputEval(t, userInputTaskYAML, models.ScenarioSchemaVersion)
+	outcome, err := NewEvalRunner(cfg, engine, WithSkipGraders()).RunBenchmark(context.Background())
+	require.NoError(t, err)
+	require.Len(t, outcome.TestOutcomes, 1)
+	run := outcome.TestOutcomes[0].Runs[0]
+	require.Equal(t, models.StatusSkipped, run.Status, run.ErrorMsg)
+
+	require.Len(t, engine.scripts, 2)
+	require.NotNil(t, engine.scripts[0])
+	require.Same(t, engine.scripts[0], engine.scripts[1], "initial and resumed turns must share one ordered script")
+
+	require.Len(t, run.UserInputRequests, 2)
+	first, second := run.UserInputRequests[0], run.UserInputRequests[1]
+	require.Equal(t, 1, first.Sequence)
+	require.Equal(t, "session-1", first.SessionID)
+	require.Equal(t, []string{"staging", "prod"}, first.Choices)
+	require.False(t, *first.AllowFreeform)
+	require.Equal(t, "staging", *first.Answer)
+	require.False(t, *first.WasFreeform)
+	require.Equal(t, 2, second.Sequence)
+	require.Equal(t, "session-1", second.SessionID)
+	require.Nil(t, second.Choices)
+	require.Nil(t, second.AllowFreeform)
+	require.Equal(t, "fixes login", *second.Answer)
+	require.True(t, *second.WasFreeform)
+	require.Equal(t, 1, *second.ResponseIndex)
+
+	data, err := json.Marshal(outcome)
+	require.NoError(t, err)
+	var wire struct {
+		SchemaVersion string `json:"schemaVersion"`
+		Tasks         []struct {
+			Runs []struct {
+				UserInputRequests []map[string]any `json:"user_input_requests"`
+			} `json:"runs"`
+		} `json:"tasks"`
+	}
+	require.NoError(t, json.Unmarshal(data, &wire))
+	require.Equal(t, models.CurrentResultSchemaVersion, wire.SchemaVersion)
+	records := wire.Tasks[0].Runs[0].UserInputRequests
+	require.Len(t, records, 2)
+	require.Equal(t, map[string]any{
+		"sequence": float64(1), "session_id": "session-1", "question": "Deploy where?",
+		"choices": []any{"staging", "prod"}, "allow_freeform": false, "outcome": "answered",
+		"response_index": float64(0), "answer": "staging", "was_freeform": false,
+	}, records[0])
+	require.Contains(t, records[1], "choices")
+	require.Nil(t, records[1]["choices"], "absent offered choices are recorded as null, not []")
+	require.NotContains(t, records[1], "allow_freeform")
+
+	restored, err := models.ParseEvaluationOutcome(data, "results.json")
+	require.NoError(t, err)
+	require.Equal(t, run.UserInputRequests, restored.TestOutcomes[0].Runs[0].UserInputRequests)
+}
+
+func TestRunBenchmarkFailsClosedOnNativeQuestionProblems(t *testing.T) {
+	cases := []struct {
+		name      string
+		questions map[string][]copilot.UserInputRequest
+		failOn    string
+		message   string
+		records   int
+		turns     int
+	}{
+		{
+			name: "unconsumed scripted answer",
+			questions: map[string][]copilot.UserInputRequest{
+				"start": {{Question: "Deploy where?", Choices: []string{"staging", "prod"}}},
+			},
+			message: "1 scripted answer(s) were not consumed, starting at user_input_responses[1]",
+			records: 1, turns: 2,
+		},
+		{
+			name: "unexpected question in resumed turn",
+			questions: map[string][]copilot.UserInputRequest{
+				"start":    {{Question: "Deploy where?", Choices: []string{"staging", "prod"}}},
+				"continue": {{Question: "Delete production?", Choices: []string{"yes"}}},
+			},
+			message: "native user input request 2 rejected: question does not match user_input_responses[1].question_regex",
+			records: 2, turns: 2,
+		},
+		{
+			name: "records survive an engine error",
+			questions: map[string][]copilot.UserInputRequest{
+				"start": {{Question: "Deploy where?", Choices: []string{"staging", "prod"}}},
+			},
+			failOn:  "start",
+			message: "engine failure after questions",
+			records: 1, turns: 1,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			engine := &questionEngine{questions: tc.questions, failOn: tc.failOn}
+			cfg, _ := writeUserInputEval(t, userInputTaskYAML, models.ScenarioSchemaVersion)
+			outcome, err := NewEvalRunner(cfg, engine, WithSkipGraders()).RunBenchmark(context.Background())
+			require.NoError(t, err)
+			run := outcome.TestOutcomes[0].Runs[0]
+			require.Equal(t, models.StatusError, run.Status)
+			require.Contains(t, run.ErrorMsg, tc.message)
+			require.Len(t, run.UserInputRequests, tc.records)
+			require.Len(t, engine.scripts, tc.turns)
+		})
+	}
+}
+
+func TestRunBenchmarkUsesFreshNativeQuestionScriptPerTrial(t *testing.T) {
+	engine := &questionEngine{questions: map[string][]copilot.UserInputRequest{
+		"start":    {{Question: "Deploy where?", Choices: []string{"staging", "prod"}}},
+		"continue": {{Question: "Release note?"}},
+	}}
+	cfg, _ := writeUserInputEval(t, userInputTaskYAML, models.ScenarioSchemaVersion)
+	cfg.Spec().Config.TrialsPerTask = 2
+	outcome, err := NewEvalRunner(cfg, engine, WithSkipGraders()).RunBenchmark(context.Background())
+	require.NoError(t, err)
+	runs := outcome.TestOutcomes[0].Runs
+	require.Len(t, runs, 2)
+	for _, run := range runs {
+		require.Equal(t, models.StatusSkipped, run.Status, run.ErrorMsg)
+		require.Len(t, run.UserInputRequests, 2)
+		require.Equal(t, 1, run.UserInputRequests[0].Sequence)
+	}
+	require.Len(t, engine.scripts, 4)
+	require.Same(t, engine.scripts[0], engine.scripts[1])
+	require.Same(t, engine.scripts[2], engine.scripts[3])
+	require.NotSame(t, engine.scripts[0], engine.scripts[2])
+}
+
+func TestRunBenchmarkLeavesNativeQuestionCallbackUnsetWithoutScript(t *testing.T) {
+	engine := &questionEngine{questions: map[string][]copilot.UserInputRequest{
+		"start": {{Question: "Deploy where?"}},
+	}}
+	task := "id: plain\nname: Plain\ninputs:\n  prompt: start\n  follow_up_prompts: [continue]\n"
+	cfg, _ := writeUserInputEval(t, task, models.ScenarioSchemaVersion)
+	outcome, err := NewEvalRunner(cfg, engine, WithSkipGraders()).RunBenchmark(context.Background())
+	require.NoError(t, err)
+	run := outcome.TestOutcomes[0].Runs[0]
+	require.Equal(t, models.StatusSkipped, run.Status, run.ErrorMsg)
+	require.Nil(t, run.UserInputRequests)
+	require.Len(t, engine.scripts, 2)
+	require.Nil(t, engine.scripts[0])
+	require.Nil(t, engine.scripts[1])
+}
+
+func TestRunBenchmarkRejectsNativeQuestionsOutsideScenarioSchema(t *testing.T) {
+	for _, version := range []string{"", "1.4", "1.99"} {
+		engine := &questionEngine{}
+		cfg, _ := writeUserInputEval(t, userInputTaskYAML, version)
+		outcome, err := NewEvalRunner(cfg, engine, WithSkipGraders()).RunBenchmark(context.Background())
+		require.ErrorContains(t, err, "user_input_responses requires explicit enclosing scenario schemaVersion 2.0", version)
+		require.Nil(t, outcome)
+		require.Empty(t, engine.scripts)
+	}
+}
+
+// TestProductionCopilotEngineAnswersNativeQuestionsFromTaskYAML drives the
+// real CopilotEngine (with a CLI-free SDK client fake) from task YAML. The
+// fake invokes only the OnUserInputRequest callback registered on the actual
+// create and resume session configurations, as the SDK does.
+func TestProductionCopilotEngineAnswersNativeQuestionsFromTaskYAML(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		followUp string
+		status   models.Status
+		message  string
+		outcomes []string
+	}{
+		{"scripted", "Release note for this change?", models.StatusSkipped, "", []string{"answered", "answered"}},
+		{"unscripted resumed question", "Delete production?", models.StatusError,
+			"follow-up 1/1: native user input request 2 rejected: question does not match user_input_responses[1].question_regex",
+			[]string{"answered", "rejected"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var sdkErrors []error
+			client := &copilotfake.Client{Send: func(config *copilot.SessionConfig, options copilot.MessageOptions) ([]copilot.SessionEvent, error) {
+				require.NotNil(t, config.OnUserInputRequest, "callback must be registered for prompt %q", options.Prompt)
+				question := copilot.UserInputRequest{Question: "Deploy where?", Choices: []string{"staging", "prod"}}
+				if options.Prompt == "continue" {
+					question = copilot.UserInputRequest{Question: tc.followUp}
+				}
+				answer, err := config.OnUserInputRequest(question, copilot.UserInputInvocation{SessionID: "native-session"})
+				if err != nil {
+					sdkErrors = append(sdkErrors, err)
+				} else {
+					text := "selected " + answer.Answer
+					return []copilot.SessionEvent{{Data: &copilot.AssistantMessageData{Content: text}}}, nil
+				}
+				return []copilot.SessionEvent{{Data: &copilot.AssistantMessageData{Content: "continued without answer"}}}, nil
+			}}
+			engine := client.Engine()
+			require.NoError(t, engine.Initialize(t.Context()))
+			t.Cleanup(func() { require.NoError(t, engine.Shutdown(context.Background())) })
+
+			cfg, _ := writeUserInputEval(t, userInputTaskYAML, models.ScenarioSchemaVersion)
+			outcome, err := NewEvalRunner(cfg, engine, WithSkipGraders()).RunBenchmark(t.Context())
+			require.NoError(t, err)
+			run := outcome.TestOutcomes[0].Runs[0]
+			require.Equal(t, tc.status, run.Status, run.ErrorMsg)
+			require.Contains(t, run.ErrorMsg, tc.message)
+			require.EqualValues(t, 1, client.Creates.Load())
+			require.EqualValues(t, 1, client.Resumes.Load())
+			require.Len(t, run.UserInputRequests, len(tc.outcomes))
+			for i, record := range run.UserInputRequests {
+				require.Equal(t, i+1, record.Sequence)
+				require.Equal(t, "native-session", record.SessionID)
+				require.Equal(t, tc.outcomes[i], record.Outcome)
+			}
+			require.Equal(t, "staging", *run.UserInputRequests[0].Answer)
+			if tc.status == models.StatusError {
+				require.Len(t, sdkErrors, 1, "the SDK must receive an error, never a default answer")
+				require.Nil(t, run.UserInputRequests[1].Answer)
+			} else {
+				require.Empty(t, sdkErrors)
+				require.Equal(t, "fixes login", *run.UserInputRequests[1].Answer)
+				require.True(t, *run.UserInputRequests[1].WasFreeform)
+			}
+		})
+	}
+}
+
+func TestBuildGraderContextIncludesNativeQuestionRecords(t *testing.T) {
+	answer := "staging"
+	records := []models.UserInputRecord{{Sequence: 1, SessionID: "s", Question: "Q", Outcome: models.UserInputOutcomeAnswered, Answer: &answer}}
+	runner := NewEvalRunner(config.NewEvalConfig(&models.EvalSpec{}), &questionEngine{})
+	ctx := runner.buildGraderContext(&models.TestCase{}, &execution.ExecutionResponse{UserInputRequests: records}, nil)
+	require.Equal(t, records, ctx.UserInputRequests)
+}

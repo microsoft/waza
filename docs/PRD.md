@@ -89,6 +89,13 @@ transcript/checkpoint evidence. Results schema `1.7` records per-run configured
 dependency modes (`live` or `mocked`); this describes configuration, not proof
 of invocation. There is no recorded-replay mode.
 
+Scenario tasks can script answers to native Copilot SDK user-input requests with
+`user_input_responses`. Waza registers `OnUserInputRequest` on the initial and
+every resumed session of a trial, consumes entries strictly in order, and fails
+closed on unexpected, mismatched, exhausted, or unconsumed entries. Results
+schema `1.8` records each request in `runs[].user_input_requests`. This is
+distinct from MCP `ask_user` mocks and does not support structured elicitation.
+
 The private `internal/faultsequence` groundwork provides cross-process step
 reservation and cancellable, overflow-checked delays for the CLI shim. State
 consumes steps at exclusive creation and does not roll back after cancellation

@@ -506,6 +506,7 @@ func (e *CopilotEngine) execute(ctx context.Context, req *ExecutionRequest) (*Ex
 	if preToolUseHook != nil {
 		sessionHooks = &copilot.SessionHooks{OnPreToolUse: preToolUseHook}
 	}
+	userInputRejectionMark := req.UserInput.rejectionCount()
 
 	if req.SessionID == "" {
 		// Create session with updated API
@@ -515,6 +516,7 @@ func (e *CopilotEngine) execute(ctx context.Context, req *ExecutionRequest) (*Ex
 			Tools:           req.Tools,
 
 			OnPermissionRequest: permRequestCallback,
+			OnUserInputRequest:  req.UserInput.Handler(),
 			AvailableTools:      availableTools,
 			Hooks:               sessionHooks,
 
@@ -541,6 +543,7 @@ func (e *CopilotEngine) execute(ctx context.Context, req *ExecutionRequest) (*Ex
 			Tools:           req.Tools,
 
 			OnPermissionRequest: permRequestCallback,
+			OnUserInputRequest:  req.UserInput.Handler(),
 			AvailableTools:      availableTools,
 			Hooks:               sessionHooks,
 
@@ -846,10 +849,16 @@ func (e *CopilotEngine) execute(ctx context.Context, req *ExecutionRequest) (*Ex
 		WorkspaceFiles:     workspaceFiles,
 		JudgeFiles:         judgeFiles,
 		CommandInvocations: commandMockSession.Invocations(), // Checkpoint graders run before task finalization.
+		UserInputRequests:  req.UserInput.Records(),
 		SessionID:          sessionID,
 		Usage:              usage,
 		UsageIsCumulative:  true,
 		UsageRevision:      usageRevision,
+	}
+
+	if rejected := req.UserInput.rejectionsSince(userInputRejectionMark); rejected != nil && resp.Success {
+		resp.Success = false
+		resp.ErrorMsg = rejected.Error()
 	}
 
 	if req.ToolPolicy != nil {

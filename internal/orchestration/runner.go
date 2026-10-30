@@ -688,6 +688,11 @@ func (r *EvalRunner) loadTestCasesFromFiles() ([]*models.TestCase, error) {
 				return nil, fmt.Errorf("invalid test case %s: %w", path, err)
 			}
 		}
+		if tc.UserInputResponses != nil {
+			if err := models.ValidateUserInputResponsesSchemaVersion(spec.SchemaVersion); err != nil {
+				return nil, fmt.Errorf("invalid test case %s: %w", path, err)
+			}
+		}
 		// Only include active test cases
 		// LoadTestCase defaults Active to true (nil case), so include nil or explicitly true
 		if tc.Active == nil || *tc.Active {
@@ -1104,6 +1109,9 @@ func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.T
 			if run.CommandInvocations == nil {
 				run.CommandInvocations = resp.CommandInvocations
 			}
+			if run.UserInputRequests == nil {
+				run.UserInputRequests = resp.UserInputRequests
+			}
 			if run.Transcript == nil {
 				run.Transcript = transcript.BuildFromSessionEvents(copilotevents.ToSDK(resp.Events))
 			}
@@ -1115,6 +1123,9 @@ func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.T
 			}
 		}
 		run.DependencyModes = configuredDependencyModes(req, r.cfg.Spec().MCPMocks)
+		if run.UserInputRequests == nil && req != nil {
+			run.UserInputRequests = req.UserInput.Records()
+		}
 		r.captureSnapshot(tc, req, resp, &run, diagnosticCategory)
 		run.RequirementExplanations = evidence.ExplainRequirements(r.cfg.Spec(), tc, &run)
 		r.captureFailureArtifacts(&run)
@@ -1129,6 +1140,15 @@ func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.T
 	req = prepared
 	if req == nil {
 		req, mockAttempt, err = r.buildAttemptExecutionRequest(tc)
+	}
+	var userInput *execution.UserInputScript
+	if err == nil {
+		userInput, err = newUserInputScript(tc)
+	}
+	if err == nil && userInput != nil {
+		attemptReq := *req
+		attemptReq.UserInput = userInput
+		req = &attemptReq
 	}
 	if err != nil {
 		return returnWithArtifacts(models.RunResult{
@@ -1233,6 +1253,13 @@ func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.T
 			responderInfo = r.executeResponderLoop(ctx, tc, req, resp, cps)
 		} else if len(tc.Stimulus.FollowUps) > 0 {
 			r.executeFollowUps(ctx, tc, req, resp, cps)
+		}
+	}
+	if userInput != nil {
+		resp.UserInputRequests = userInput.Records()
+		if finishErr := userInput.Finish(); finishErr != nil && resp.ErrorMsg == "" {
+			resp.Success = false
+			resp.ErrorMsg = finishErr.Error()
 		}
 	}
 	commandInvocations := resp.CommandInvocations
@@ -1400,6 +1427,7 @@ func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.T
 		Checkpoints:        checkpointOutcomes,
 		ToolEvents:         buildToolEvents(sdkEvents),
 		CommandInvocations: commandInvocations,
+		UserInputRequests:  resp.UserInputRequests,
 	}
 	return returnWithArtifacts(run)
 }
@@ -1691,6 +1719,15 @@ func effectiveCommandMocks(tc *models.TestCase, spec *models.EvalSpec) []models.
 	return spec.CommandMocks
 }
 
+// newUserInputScript returns a fresh per-attempt script, or nil when the task
+// does not opt into native user-input scripting.
+func newUserInputScript(tc *models.TestCase) (*execution.UserInputScript, error) {
+	if tc.UserInputResponses == nil {
+		return nil, nil
+	}
+	return execution.NewUserInputScript(*tc.UserInputResponses)
+}
+
 func configuredDependencyModes(req *execution.ExecutionRequest, mcpMocks []models.MCPMockConfig) []models.DependencyMode {
 	if req == nil {
 		return nil
@@ -1790,6 +1827,7 @@ func (r *EvalRunner) executeFollowUps(ctx context.Context, tc *models.TestCase, 
 		}
 		followReq.Message = prompt
 		followReq.SessionID = resp.SessionID
+		followReq.UserInput = initial.UserInput
 		followReq.WorkspaceDir = resp.WorkspaceDir
 
 		if r.verbose {
@@ -1827,6 +1865,7 @@ func (r *EvalRunner) executeFollowUps(ctx context.Context, tc *models.TestCase, 
 		}
 
 		resp.CommandInvocations = followResp.CommandInvocations
+		resp.UserInputRequests = followResp.UserInputRequests
 		markToolPolicyViolation(followResp)
 		if followResp.ErrorMsg != "" {
 			emitChildSpans(turnCtx, r.telemetry, turnSpan, followResp, r.cfg.Spec().Config.ModelID)
@@ -1945,6 +1984,7 @@ func (r *EvalRunner) sendResponderReply(ctx context.Context, tc *models.TestCase
 	}
 	followReq.Message = answer
 	followReq.SessionID = resp.SessionID
+	followReq.UserInput = initial.UserInput
 	followReq.WorkspaceDir = resp.WorkspaceDir
 
 	if r.verbose {
@@ -1980,6 +2020,7 @@ func (r *EvalRunner) sendResponderReply(ctx context.Context, tc *models.TestCase
 		return false
 	}
 	resp.CommandInvocations = followResp.CommandInvocations
+	resp.UserInputRequests = followResp.UserInputRequests
 	markToolPolicyViolation(followResp)
 	if followResp.ErrorMsg != "" {
 		emitChildSpans(turnCtx, r.telemetry, turnSpan, followResp, r.cfg.Spec().Config.ModelID)
@@ -2297,6 +2338,7 @@ func (r *EvalRunner) buildGraderContext(tc *models.TestCase, resp *execution.Exe
 		Session:            &sessionDigest,
 		ToolEvents:         buildToolEvents(sdkEvents),
 		CommandInvocations: resp.CommandInvocations,
+		UserInputRequests:  resp.UserInputRequests,
 		Executor:           r.engine,
 		JudgeModelFallback: r.cfg.Spec().Config.ModelID,
 		RecordUsage: func(digest models.SessionDigest) {
