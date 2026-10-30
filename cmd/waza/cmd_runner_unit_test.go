@@ -9,15 +9,19 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/signal"
 	"strings"
 	"sync/atomic"
+	"syscall"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/runnercontract"
 	"github.com/microsoft/waza/internal/runneridentity"
+	"github.com/microsoft/waza/internal/runnerterminal"
 	"github.com/microsoft/waza/internal/runnerunit"
 	"github.com/microsoft/waza/internal/webapi"
 	"github.com/stretchr/testify/require"
@@ -78,6 +82,8 @@ func TestRunnerExactUnitCLIHTTPConformance(t *testing.T) {
 				for _, transport := range []string{"cli", "http"} {
 					beforeFactories := factories.Load()
 					var report runnerunit.Report
+					var terminal runnerterminal.Envelope
+					var raw []byte
 					if transport == "cli" {
 						cmd := newRunnerCommandWithService(service)
 						cmd.SetArgs([]string{action})
@@ -86,21 +92,25 @@ func TestRunnerExactUnitCLIHTTPConformance(t *testing.T) {
 						cmd.SetOut(&output)
 						cmd.SetErr(&bytes.Buffer{})
 						err := cmd.Execute()
+						raw = bytes.Clone(output.Bytes())
 						decoder := json.NewDecoder(&output)
-						require.NoError(t, decoder.Decode(&report))
+						require.NoError(t, decoder.Decode(new(json.RawMessage)))
 						require.ErrorIs(t, decoder.Decode(new(any)), io.EOF, "one JSON receipt only")
-						if report.ExitCode() == 0 {
+						code := decodeRunnerResponse(t, action, raw, &report, &terminal)
+						if code == 0 {
 							require.NoError(t, err)
 						} else {
 							exit, ok := errors.AsType[*ExitCodeError](err)
 							require.True(t, ok)
-							require.Equal(t, report.ExitCode(), exit.Code)
+							require.Equal(t, code, exit.Code)
 						}
 					} else {
 						response, err := server.Client().Post(server.URL+"/api/v1/runner/"+action, "application/json", bytes.NewReader(body))
 						require.NoError(t, err)
 						require.Equal(t, http.StatusOK, response.StatusCode)
-						require.NoError(t, json.NewDecoder(response.Body).Decode(&report))
+						raw, err = io.ReadAll(response.Body)
+						require.NoError(t, err)
+						decodeRunnerResponse(t, action, raw, &report, &terminal)
 						require.NoError(t, response.Body.Close())
 					}
 					require.Equal(t, expectedCalls, factories.Load()-beforeFactories, transport)
@@ -121,7 +131,6 @@ func TestRunnerExactUnitCLIHTTPConformance(t *testing.T) {
 							require.Equal(t, "completed", report.Status)
 							require.Equal(t, req.Selection.Trial, report.Observation.RunNumber)
 							require.Equal(t, req.Selection.Attempt, report.Observation.Attempts)
-							require.Contains(t, report.Observation.FinalOutput, "hello")
 							if control == "failed-check" {
 								require.Equal(t, models.StatusFailed, report.Observation.Status)
 								require.Equal(t, 1, report.ExitCode())
@@ -158,7 +167,7 @@ func TestRunnerRejectsNonMockFactoryCLIHTTP(t *testing.T) {
 		exit, ok := errors.AsType[*ExitCodeError](err)
 		require.True(t, ok)
 		require.Equal(t, 2, exit.Code)
-		var cliReport runnerunit.Report
+		var cliReport runnerterminal.Envelope
 		require.NoError(t, json.Unmarshal(output.Bytes(), &cliReport))
 
 		mux := http.NewServeMux()
@@ -167,19 +176,17 @@ func TestRunnerRejectsNonMockFactoryCLIHTTP(t *testing.T) {
 		response, err := server.Client().Post(server.URL+"/api/v1/runner/run", "application/json", bytes.NewReader(data))
 		require.NoError(t, err)
 		require.Equal(t, http.StatusOK, response.StatusCode)
-		var httpReport runnerunit.Report
+		var httpReport runnerterminal.Envelope
 		require.NoError(t, json.NewDecoder(response.Body).Decode(&httpReport))
 		require.NoError(t, response.Body.Close())
 		server.Close()
-		for _, report := range []runnerunit.Report{cliReport, httpReport} {
-			require.Equal(t, "execution_error", report.Status)
+		for _, report := range []runnerterminal.Envelope{cliReport, httpReport} {
+			require.Equal(t, runnerterminal.InfrastructureFailure, report.Outcome)
 			require.Equal(t, "valid", report.Validation)
 			require.NotNil(t, report.Identity, "runtime rejection does not erase admitted input identity")
-			require.NotNil(t, report.Resolved)
-			require.Empty(t, report.Mode)
-			require.Zero(t, report.Calls)
+			require.NotNil(t, report.Selection)
+			require.Zero(t, report.EngineCalls)
 			require.Nil(t, report.Observation)
-			require.False(t, report.AdjacentWork)
 			require.Contains(t, report.Diagnostics[0].Message, "requires a non-nil concrete *execution.MockEngine")
 		}
 		require.Zero(t, engine.initializes.Load())
@@ -220,8 +227,10 @@ func TestRunnerInlinePromptPresenceCLIHTTP(t *testing.T) {
 	} {
 		t.Run(control.name, func(t *testing.T) {
 			req := *request
+			expectedOutput, err := json.Marshal("Mock response for: " + control.prompt + "\nTask: Prompt presence")
+			require.NoError(t, err)
 			req.Input.Task = "id: " + req.Selection.Task + "\nname: Prompt presence\n" + control.inputs +
-				"expected:\n  output_contains: ['Mock response for:']\n"
+				"expected:\n  output_contains: [" + string(expectedOutput) + "]\n"
 			body, err := json.Marshal(req)
 			require.NoError(t, err)
 			var factories atomic.Int32
@@ -238,6 +247,8 @@ func TestRunnerInlinePromptPresenceCLIHTTP(t *testing.T) {
 					t.Run(action+"/"+transport, func(t *testing.T) {
 						before := factories.Load()
 						var report runnerunit.Report
+						var terminal runnerterminal.Envelope
+						var raw []byte
 						if transport == "cli" {
 							cmd := newRunnerCommandWithService(service)
 							cmd.SetArgs([]string{action})
@@ -246,9 +257,7 @@ func TestRunnerInlinePromptPresenceCLIHTTP(t *testing.T) {
 							cmd.SetOut(&output)
 							cmd.SetErr(&bytes.Buffer{})
 							err := cmd.Execute()
-							decoder := json.NewDecoder(&output)
-							require.NoError(t, decoder.Decode(&report))
-							require.ErrorIs(t, decoder.Decode(new(any)), io.EOF)
+							raw = bytes.Clone(output.Bytes())
 							if control.valid {
 								require.NoError(t, err)
 							} else {
@@ -260,10 +269,53 @@ func TestRunnerInlinePromptPresenceCLIHTTP(t *testing.T) {
 							response, err := server.Client().Post(server.URL+"/api/v1/runner/"+action, "application/json", bytes.NewReader(body))
 							require.NoError(t, err)
 							require.Equal(t, http.StatusOK, response.StatusCode, "admission rejection is a runner receipt")
-							decoder := json.NewDecoder(response.Body)
-							require.NoError(t, decoder.Decode(&report))
-							require.ErrorIs(t, decoder.Decode(new(any)), io.EOF)
+							raw, err = io.ReadAll(response.Body)
+							require.NoError(t, err)
 							require.NoError(t, response.Body.Close())
+						}
+						decoder := json.NewDecoder(bytes.NewReader(raw))
+						require.NoError(t, decoder.Decode(new(json.RawMessage)))
+						require.ErrorIs(t, decoder.Decode(new(any)), io.EOF)
+						decodeRunnerResponse(t, action, raw, &report, &terminal)
+						if action == "run" {
+							var binding *runnerterminal.Binding
+							if control.valid {
+								admitted := runnerunit.Validate(body)
+								require.Equal(t, "ready", admitted.Status)
+								binding = &runnerterminal.Binding{Selection: req.Selection, Identity: admitted.Identity,
+									GraderIDs: []string{"_output_contains"}}
+							}
+							_, err := runnerterminal.Validate(raw, binding)
+							require.NoError(t, err)
+							if !control.valid {
+								require.Equal(t, runnerterminal.InvalidInput, terminal.Outcome)
+								require.Equal(t, "invalid", terminal.Validation)
+								require.Equal(t, 6, terminal.ExitCode)
+								require.Nil(t, terminal.Identity)
+								require.Nil(t, terminal.Selection)
+								require.Nil(t, terminal.Observation)
+								require.Zero(t, terminal.EngineCalls)
+								require.Equal(t, before, factories.Load(), "reject before runtime construction")
+								require.Len(t, terminal.Diagnostics, 1)
+								require.Equal(t, "invalid_selection", terminal.Diagnostics[0].Code)
+								require.Contains(t, terminal.Diagnostics[0].Message, control.diagnostic)
+								return
+							}
+							require.Equal(t, runnerterminal.Success, terminal.Outcome)
+							require.Zero(t, terminal.ExitCode)
+							require.Equal(t, "valid", terminal.Validation)
+							require.Equal(t, req.Selection, *terminal.Selection)
+							require.Equal(t, binding.Identity, terminal.Identity)
+							require.Empty(t, terminal.Diagnostics)
+							require.Equal(t, before+1, factories.Load())
+							require.Equal(t, 1, terminal.EngineCalls)
+							require.NotNil(t, terminal.Observation)
+							require.Equal(t, "mock", terminal.Observation.ExecutionMode)
+							require.Equal(t, "passed", terminal.Observation.Status)
+							require.Equal(t, req.Selection, terminal.Observation.Selection)
+							require.Equal(t, []runnerterminal.Verdict{{Identifier: "_output_contains", Passed: true}},
+								terminal.Observation.Validations, "grade the actual complete response, including the authored empty/populated prompt")
+							return
 						}
 						require.Equal(t, "compatible", report.Compatibility.Status)
 						require.Equal(t, req.Selection, *report.Requested)
@@ -285,21 +337,11 @@ func TestRunnerInlinePromptPresenceCLIHTTP(t *testing.T) {
 						require.Equal(t, "valid", report.Validation)
 						require.Equal(t, req.Selection, *report.Resolved)
 						require.Empty(t, report.Diagnostics)
-						if action == "validate" {
-							require.Equal(t, "ready", report.Status)
-							require.Nil(t, report.Observation)
-							require.Empty(t, report.Mode)
-							require.Zero(t, report.Calls)
-							require.Equal(t, before, factories.Load(), "validation stays offline")
-						} else {
-							require.Equal(t, "completed", report.Status)
-							require.Equal(t, "mock", report.Mode)
-							require.Equal(t, before+1, factories.Load())
-							require.Equal(t, 1, report.Calls)
-							require.NotNil(t, report.Observation)
-							require.Equal(t, models.StatusPassed, report.Observation.Status)
-							require.Equal(t, "Mock response for: "+control.prompt+"\nTask: Prompt presence", report.Observation.FinalOutput)
-						}
+						require.Equal(t, "ready", report.Status)
+						require.Nil(t, report.Observation)
+						require.Empty(t, report.Mode)
+						require.Zero(t, report.Calls)
+						require.Equal(t, before, factories.Load(), "validation stays offline")
 					})
 				}
 			}
@@ -310,29 +352,180 @@ func TestRunnerInlinePromptPresenceCLIHTTP(t *testing.T) {
 func TestRunnerUnitInputCancellationAndFailures(t *testing.T) {
 	for _, action := range []string{"validate", "run"} {
 		t.Run(action, func(t *testing.T) {
-			input, producer := io.Pipe()
-			defer input.Close()    //nolint:errcheck
-			defer producer.Close() //nolint:errcheck
-			ctx, cancel := context.WithCancel(t.Context())
-			defer cancel()
-			cmd := newRunnerCommandWithService(runnerunit.NewService(func(models.Config) (execution.AgentEngine, error) {
-				t.Fatal("canceled input constructed runtime")
-				return nil, nil
-			}))
-			cmd.SetArgs([]string{action})
-			cmd.SetIn(input)
-			cmd.SetErr(&bytes.Buffer{})
-			done := make(chan error, 1)
-			go func() { done <- cmd.ExecuteContext(ctx) }()
-			_, err := producer.Write([]byte("{"))
-			require.NoError(t, err, "read is active while producer stays open")
-			cancel()
-			select {
-			case err := <-done:
-				require.ErrorContains(t, err, "runner input interrupted")
-			case <-time.After(5 * time.Second):
-				t.Fatal("cancellation waited for producer EOF")
+			assertCanceled := func(t *testing.T, err error, output []byte, factories int32) {
+				t.Helper()
+				exit, ok := errors.AsType[*ExitCodeError](err)
+				require.True(t, ok, "%v", err)
+				require.Zero(t, factories, "canceled input must not construct runtime")
+				if action == "run" {
+					require.Equal(t, 3, exit.Code)
+					require.EqualError(t, exit.Err, "runner run: "+string(runnerterminal.Canceled))
+					envelope, decodeErr := runnerterminal.Validate(output, nil)
+					require.NoError(t, decodeErr)
+					require.Equal(t, runnerterminal.Canceled, envelope.Outcome)
+					require.Equal(t, "input", envelope.FailureBoundary)
+					require.Equal(t, "not_checked", envelope.Validation)
+					require.Nil(t, envelope.Identity)
+					require.Nil(t, envelope.Selection)
+					require.Nil(t, envelope.Observation)
+					require.Zero(t, envelope.EngineCalls)
+					require.Len(t, envelope.Diagnostics, 1)
+					require.Contains(t, envelope.Diagnostics[0].Message, "context canceled")
+					require.Equal(t, 1, bytes.Count(output, []byte{'\n'}))
+				} else {
+					require.Equal(t, 2, exit.Code)
+					require.ErrorContains(t, err, "runner input interrupted")
+					require.ErrorIs(t, exit.Err, context.Canceled)
+					require.Empty(t, output, "validation input failure must not invent an envelope")
+				}
 			}
+
+			for _, control := range []string{"caller-managed", "pollable-file"} {
+				t.Run(control, func(t *testing.T) {
+					input, producer, err := os.Pipe()
+					require.NoError(t, err)
+					defer input.Close()    //nolint:errcheck
+					defer producer.Close() //nolint:errcheck
+					if err := input.SetReadDeadline(time.Time{}); err != nil {
+						require.ErrorIs(t, err, os.ErrNoDeadline)
+						if control == "pollable-file" {
+							t.Skip("native supplied pipe has no deadline support; caller-managed ownership control still runs")
+						}
+						t.Log("nonpollable supplied pipe: owner supplies cancellation-aware read completion")
+					}
+					ctx, cancel := context.WithCancel(t.Context())
+					defer cancel()
+					reader := &runnerOwnerCanceledPipeReader{
+						input: input, ctx: ctx, entered: make(chan struct{}), returned: make(chan struct{}),
+					}
+					var factories atomic.Int32
+					cmd := newRunnerCommandWithService(runnerunit.NewService(func(models.Config) (execution.AgentEngine, error) {
+						factories.Add(1)
+						return nil, errors.New("canceled input constructed runtime")
+					}))
+					cmd.SetArgs([]string{action})
+					var output bytes.Buffer
+					if control == "caller-managed" {
+						cmd.SetIn(reader)
+						cmd.SetOut(&runnerReadJoinedWriter{output: &output, returned: reader.returned})
+					} else {
+						cmd.SetIn(input)
+						cmd.SetOut(&output)
+					}
+					cmd.SetErr(&bytes.Buffer{})
+					done := startRunnerPipeOperation(t, input, producer, func() error { return cmd.ExecuteContext(ctx) })
+					var padding []byte
+					if control == "pollable-file" {
+						padding = append(bytes.Repeat([]byte(" "), 2<<20), '{')
+						require.Less(t, len(padding), runnercontract.MaxRequestBytes)
+						written := startRunnerPipeOperation(t, input, producer, func() error {
+							n, err := producer.Write(padding)
+							if err == nil && n != len(padding) {
+								return io.ErrShortWrite
+							}
+							return err
+						})
+						require.NoError(t, awaitRunnerPipeOperation(t, written))
+						cancel()
+					} else {
+						select {
+						case <-reader.entered:
+						case <-time.After(5 * time.Second):
+							t.Fatal("runner never entered supplied reader")
+						}
+						cancel()
+						written := startRunnerPipeOperation(t, input, producer, func() error {
+							n, err := producer.Write([]byte("{"))
+							if err == nil && n != 1 {
+								return io.ErrShortWrite
+							}
+							return err
+						})
+						require.NoError(t, awaitRunnerPipeOperation(t, written))
+					}
+					assertCanceled(t, awaitRunnerPipeOperation(t, done), output.Bytes(), factories.Load())
+					if control == "caller-managed" {
+						require.Equal(t, 1, reader.reads)
+						select {
+						case <-reader.returned:
+						default:
+							t.Fatal("command return preceded supplied reader completion")
+						}
+					}
+					value := make([]byte, len("still-owned"))
+					read := startRunnerPipeOperation(t, input, producer, func() error {
+						if control == "pollable-file" {
+							received, err := readRunnerOwnershipMarker(input, padding)
+							if err != nil {
+								return err
+							}
+							copy(value, received[len(received)-len(value):])
+							return nil
+						}
+						_, err := io.ReadFull(input, value)
+						return err
+					})
+					written := startRunnerPipeOperation(t, input, producer, func() error {
+						n, err := producer.Write([]byte("still-owned"))
+						if err == nil && n != len(value) {
+							return io.ErrShortWrite
+						}
+						return err
+					})
+					require.NoError(t, awaitRunnerPipeOperation(t, written))
+					require.NoError(t, awaitRunnerPipeOperation(t, read))
+					require.Equal(t, "still-owned", string(value), "command must preserve the same caller-owned input")
+				})
+			}
+
+			t.Run("waits-for-supplied-reader", func(t *testing.T) {
+				// Signal handling must start outside synctest's clock.
+				_, stop := signal.NotifyContext(t.Context(), os.Interrupt, syscall.SIGTERM)
+				defer stop()
+				synctest.Test(t, func(t *testing.T) {
+					ctx, cancel := context.WithCancel(t.Context())
+					defer cancel()
+					reader := &runnerBlockedReader{
+						entered: make(chan struct{}), release: make(chan struct{}), returned: make(chan struct{}),
+					}
+					defer func() {
+						select {
+						case <-reader.release:
+						default:
+							close(reader.release)
+						}
+					}()
+					var factories atomic.Int32
+					cmd := newRunnerCommandWithService(runnerunit.NewService(func(models.Config) (execution.AgentEngine, error) {
+						factories.Add(1)
+						return nil, errors.New("canceled input constructed runtime")
+					}))
+					cmd.SetArgs([]string{action})
+					cmd.SetIn(reader)
+					var output bytes.Buffer
+					cmd.SetOut(&runnerReadJoinedWriter{output: &output, returned: reader.returned})
+					cmd.SetErr(&bytes.Buffer{})
+					done := make(chan error, 1)
+					go func() { done <- cmd.ExecuteContext(ctx) }()
+					<-reader.entered
+					cancel()
+					synctest.Wait()
+					select {
+					case <-done:
+						t.Fatal("command return left the supplied read unjoined")
+					default:
+					}
+					close(reader.release)
+					err := <-done
+					select {
+					case <-reader.returned:
+					default:
+						t.Fatal("command return preceded supplied reader completion")
+					}
+					assertCanceled(t, err, output.Bytes(), factories.Load())
+				})
+			})
+
 			for _, input := range []io.Reader{errorReader{}, strings.NewReader("{}")} {
 				cmd := newRunnerCommand()
 				cmd.SetArgs([]string{action})
@@ -343,4 +536,26 @@ func TestRunnerUnitInputCancellationAndFailures(t *testing.T) {
 			}
 		})
 	}
+}
+
+// Normalize only the shared legacy assertions; terminal wire invariants are
+// checked against the actual encoded response and admitted request separately.
+func decodeRunnerResponse(t *testing.T, action string, raw []byte, report *runnerunit.Report, terminal *runnerterminal.Envelope) int {
+	t.Helper()
+	if action != "run" {
+		require.NoError(t, json.Unmarshal(raw, report))
+		return report.ExitCode()
+	}
+	require.NoError(t, json.Unmarshal(raw, terminal))
+	require.Equal(t, "waza.runner-terminal", terminal.Kind)
+	report.Validation, report.Identity, report.Resolved = terminal.Validation, terminal.Identity, terminal.Selection
+	report.Calls = terminal.EngineCalls
+	report.Status = "rejected"
+	if terminal.Outcome == runnerterminal.Success || terminal.Outcome == runnerterminal.EvaluationFailure {
+		report.Status = "completed"
+		require.NotNil(t, terminal.Observation)
+		report.Observation = &models.RunResult{RunNumber: terminal.Observation.RunNumber,
+			Attempts: terminal.Observation.Attempts, Status: models.Status(terminal.Observation.Status)}
+	}
+	return terminal.ExitCode
 }

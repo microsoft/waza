@@ -49,13 +49,16 @@ become Go integers `60000`, `2`, and `2`. No floating-point conversion is used.
 Fractional numbers, schema-bound violations, nulls and wrong types remain
 invalid; conversion also checks the destination Go `int` range. Negotiation
 still checks shape only, without interpreting captured input.
-`Report` is an invocation-local `waza.runner-unit` receipt, not a #760 terminal
+`Report` is an internal invocation-local `waza.runner-unit` receipt, not a #760 terminal
 envelope or historical evaluation artifact. Its optional `identity` is input
 metadata, not archive publication, execution evidence or an envelope-validity claim.
 
 The CLI `runner validate` / `runner run` and HTTP
-`POST /api/v1/runner/{validate,run}` are public callers. Lab calls only validation,
-not execution. `exact-unit` and `inline.mock-text` must be required explicitly;
+`POST /api/v1/runner/{validate,run}` are public callers. Run uses
+`Service.RunTerminal` to project the same invocation into the
+[terminal envelope](RUNNER_TERMINAL.md); validation keeps the receipt.
+Lab separates offline validation from the explicit **Run mock unit** action.
+`exact-unit` and `inline.mock-text` must be required explicitly;
 the only admitted runtime is mock. No native startup is reachable even with paid
 consent. This bounded profile avoids importing the source draft's demonstrated
 native cleanup/startup defects; adding native capability requires its own
@@ -116,7 +119,7 @@ The guard validates metadata shape, not independent hash reconstruction.
 |---|---|
 | #758 | Implemented captured inline mock/text exact-unit admission and execution, CLI/API and Lab selection validation. Native execution remains unavailable. |
 | #759 | Implemented original-source identity derivation, versioned metadata in CLI/API receipts and Lab lineage/validation JSON export. Negotiation alone derives no identity. |
-| #760 | Add independent terminal result schema, execution exit mapping, bounded/cancelable runtime lifecycle and output/archive publication. Negotiation responses must not be stored as execution results. |
+| #760 | Implemented independent terminal schema, seven execution exit categories, shared CLI/HTTP terminal projection, cancellation and Lab/export. No archive or durable publication. |
 | #761 | Add explicit local compatibility adapters and historical regression evidence; this layer does not reroute `waza run` or artifact readers. |
 | #762 | Add pinned container proof/publication only after execution is implemented and independently reviewed. |
 
@@ -124,18 +127,22 @@ Source #779 at frozen `4fdbaf62e9dcf4ded2055c1919544973bc42761d`
 is source material, not approval. This layer adapts only its captured admission
 and single-attempt seam; the separate #759 layer adds canonical identities.
 It imports no local adapter, native lifecycle,
-terminalization, publication or archive code. Source review findings about
+publication or archive code. Terminalization is independently integrated from
+the focused #760 preparation. Source review findings about
 empty/invalid graders are addressed by offline parameter validation. Open-pipe
 stdin cancellation and HTTP cancellation during execution/partial upload have
 production-path regressions. Server shutdown cancels request contexts and
-awaits cleanup. Excluded persistence/terminal/frontend archive findings remain
+awaits cleanup. Excluded persistence/frontend archive findings remain
 unresolved by this layer, not silently waived.
 
 All three HTTP POST routes install their five-second read deadline before media-type
 validation, including missing/malformed/non-JSON media types. This also bounds
 `net/http`'s unread-body drain before completing an early 415 on a partial
-keep-alive upload. Completed requests retain keep-alive; incomplete timed-out
-uploads close their connection. Response writers and any future middleware
+keep-alive upload. Completed negotiation/validation requests and fully read run
+requests retain keep-alive. Run rejections before body admission are not drained:
+their HTTP/1.1 connections close even if the client has sent the complete body,
+so clients must reconnect. Incomplete timed-out uploads also close their
+connection. Response writers and any future middleware
 must support `http.ResponseController.SetReadDeadline` (or expose the underlying
 writer through `Unwrap`); otherwise admission fails closed with HTTP 500.
 The exact-unit routes retain their separate request-cancellation and execution

@@ -76,7 +76,7 @@ func TestRunnerCompleteRequestCLIHTTPParity(t *testing.T) {
 		Negotiation: runnercontract.Negotiation{
 			Version: "1.0", RequestedVersions: []string{"1.0"},
 			RequiredCapabilities: []string{"negotiation"}, OptionalCapabilities: []string{},
-			Available: []string{"negotiation", "exact-unit", "inline.mock-text"}, Selected: []string{"negotiation"}, UnavailableOptional: []string{},
+			Available: []string{"negotiation", "exact-unit", "inline.mock-text", "terminal-result"}, Selected: []string{"negotiation"}, UnavailableOptional: []string{},
 		},
 		Diagnostics: []runnercontract.Diagnostic{},
 	}
@@ -190,9 +190,9 @@ func TestRunnerDoesNotCheckUpdatesOrAdvertiseDeferredCapabilities(t *testing.T) 
 	require.NoError(t, root.Execute())
 	var advertisement runnercontract.Advertisement
 	require.NoError(t, json.Unmarshal(output.Bytes(), &advertisement))
-	require.Equal(t, []string{"negotiation", "exact-unit", "inline.mock-text"}, advertisement.Capabilities)
+	require.Equal(t, []string{"negotiation", "exact-unit", "inline.mock-text", "terminal-result"}, advertisement.Capabilities)
 	require.NotContains(t, output.String(), "inline.native-text")
-	require.NotContains(t, output.String(), "terminal-result")
+	require.Contains(t, output.String(), "terminal-result")
 }
 
 func TestRunnerArgumentAndReadWriteFailures(t *testing.T) {
@@ -278,7 +278,7 @@ func TestRunnerNegotiationIgnoresAmbientRuntimeAndNetwork(t *testing.T) {
 		err := cmd.Execute()
 		var response runnercontract.Response
 		require.NoError(t, json.Unmarshal(stdout.Bytes(), &response))
-		if capability == "negotiation" || capability == "exact-unit" {
+		if capability == "negotiation" || capability == "exact-unit" || capability == "terminal-result" {
 			require.NoError(t, err)
 			require.Equal(t, "compatible", response.Status)
 		} else {

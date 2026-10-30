@@ -8,6 +8,7 @@ on:
       - 'schemas/**'
       - 'internal/runneridentity/testdata/**'
       - 'internal/runnerunit/testdata/**'
+      - 'internal/runnerterminal/testdata/**'
   workflow_run:
     workflows: ['Release']
     types: [completed]

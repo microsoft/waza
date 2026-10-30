@@ -260,12 +260,17 @@ waza runner validate < examples/runner/unit.json
 waza runner run < examples/runner/unit.json
 ```
 
-The source preview implements `negotiation`, `exact-unit` and `inline.mock-text`.
+The source preview implements `negotiation`, `exact-unit`, `inline.mock-text` and `terminal-result`.
 Only `runner run` starts an engine; each dispatch runs its selected task/trial/
 attempt once, without discovery, cache or retries. Admitted receipts include
 versioned [logical identities](site/src/content/docs/guides/runner-identities.mdx)
 derived from the original captured input, not proof of execution or deduplication.
-Native/paid execution and terminal envelopes remain unavailable. Existing
+`runner run` writes one [terminal envelope](site/src/content/docs/guides/runner-terminal.mdx):
+success 0, failed checks 1, infrastructure failure 2, cancellation 3, timeout 4,
+unsupported capability/version 5, invalid input 6. Validation remains an offline
+receipt, not execution evidence. An eval/task execution deadline still yields
+timeout 4 when the outer request budget remains active; task timeouts override
+the eval budget. Native/paid execution remains unavailable. Existing
 local commands and artifacts are unchanged. Captured tasks must explicitly
 declare `inputs.prompt`: `prompt: ""` is valid, but missing `inputs` or
 `inputs: {}` is rejected before runtime construction. See the
