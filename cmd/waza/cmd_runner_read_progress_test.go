@@ -405,9 +405,14 @@ func runnerProgressAST(source []byte) ([]byte, error) {
 }
 
 func runnerReadProgressOverlay(source []byte, nonce string) ([]byte, error) {
-	if fmt.Sprintf("%x", sha256.Sum256(source)) != runnerReadProgressOriginalSHA256 {
-		return nil, errors.New("inherited-reader source changed; review and rebind the test-only overlay")
+	canonical := bytes.ReplaceAll(source, []byte("\r\n"), []byte("\n"))
+	// Admit only exact LF or uniform CRLF checkouts of the pinned source.
+	if fmt.Sprintf("%x", sha256.Sum256(canonical)) != runnerReadProgressOriginalSHA256 ||
+		(!bytes.Equal(source, canonical) && !bytes.Equal(source, bytes.ReplaceAll(canonical, []byte("\n"), []byte("\r\n")))) {
+		return nil, fmt.Errorf("inherited-reader source changed; review and rebind the test-only overlay (raw_sha256=%x canonical_lf_sha256=%x)",
+			sha256.Sum256(source), sha256.Sum256(canonical))
 	}
+	source = canonical
 	if !runnerProgressNonce(nonce) {
 		return nil, errors.New("read-progress overlay requires a 32-character lowercase hex nonce")
 	}
@@ -522,6 +527,9 @@ func buildRunnerReadProgressCLI(t *testing.T) (string, string) {
 	_, err = rand.Read(random[:])
 	require.NoError(t, err)
 	nonce := fmt.Sprintf("%x", random)
+	t.Logf("inherited-reader source binding: raw_sha256=%x canonical_lf_sha256=%x bytes=%d crlf=%d",
+		sha256.Sum256(source), sha256.Sum256(bytes.ReplaceAll(source, []byte("\r\n"), []byte("\n"))),
+		len(source), bytes.Count(source, []byte("\r\n")))
 	overlay, err := runnerReadProgressOverlay(source, nonce)
 	require.NoError(t, err)
 	inverse, err := validateRunnerReadProgressOverlay(source, overlay, nonce)
@@ -570,6 +578,125 @@ func TestRunnerTerminalReadProgressOverlayBuildOnly(t *testing.T) {
 	data, err := os.ReadFile(binary)
 	require.NoError(t, err)
 	t.Logf("BUILD ONLY: source-bound Windows overlay compiled, PE machine=%d subsystem=%d sha256=%x; no Windows execution", image.Machine, subsystem, sha256.Sum256(data))
+}
+
+func TestRunnerTerminalReadProgressCheckout(t *testing.T) {
+	source, err := os.ReadFile("runner_stdin_windows.go")
+	require.NoError(t, err)
+	source = bytes.ReplaceAll(source, []byte("\r\n"), []byte("\n"))
+	require.Equal(t, runnerReadProgressOriginalSHA256, fmt.Sprintf("%x", sha256.Sum256(source)))
+	for _, autocrlf := range []bool{false, true} {
+		t.Run(fmt.Sprintf("autocrlf=%t", autocrlf), func(t *testing.T) {
+			root := t.TempDir()
+			directory := filepath.Join(root, "cmd", "waza")
+			for name, content := range map[string]string{
+				".gitattributes":                      "* text=auto\n",
+				"go.mod":                              "module github.com/microsoft/waza\n\ngo 1.26\n",
+				"cmd/waza/main.go":                    "package main\nfunc main() {}\n",
+				"internal/runnercontract/contract.go": "package runnercontract\nconst MaxRequestBytes=4<<20\n",
+				"internal/runnerterminal/terminal.go": "package runnerterminal\nimport \"io\"\ntype Envelope struct{}\ntype Binding struct{}\ntype Emitter struct{}\nfunc NewEmitter(io.Writer)*Emitter{return &Emitter{}}\nfunc(*Emitter)Emit(Envelope,*Binding)(int,error){return 0,nil}\n",
+				"cmd/waza/runner_stdin_windows.go":    string(source),
+			} {
+				file := filepath.Join(root, filepath.FromSlash(name))
+				require.NoError(t, os.MkdirAll(filepath.Dir(file), 0o700))
+				require.NoError(t, os.WriteFile(file, []byte(content), 0o600))
+			}
+			git := func(args ...string) []byte {
+				t.Helper()
+				command := exec.CommandContext(t.Context(), "git", args...)
+				command.Dir = root
+				output, err := command.CombinedOutput()
+				require.NoError(t, err, "git %q: %s", args, output)
+				return output
+			}
+			git("init", "--quiet")
+			git("config", "--local", "core.autocrlf", fmt.Sprint(autocrlf))
+			git("-c", "core.autocrlf=false", "add", "--", ".gitattributes", "cmd/waza/runner_stdin_windows.go")
+			index := git("show", ":cmd/waza/runner_stdin_windows.go")
+			require.Equal(t, source, index, "the frozen index blob must retain exact LF bytes")
+			require.NoError(t, os.Remove(filepath.Join(directory, "runner_stdin_windows.go")))
+			git("checkout-index", "--force", "--", "cmd/waza/runner_stdin_windows.go")
+			physical, err := os.ReadFile(filepath.Join(directory, "runner_stdin_windows.go"))
+			require.NoError(t, err)
+			expected := source
+			if autocrlf {
+				expected = bytes.ReplaceAll(source, []byte("\n"), []byte("\r\n"))
+				require.NotEqual(t, source, physical, "the regression must actually materialize CRLF")
+			}
+			require.Equal(t, expected, physical)
+			if autocrlf {
+				require.Equal(t, "54b52cb3eb11af200f2295b1cc2a3ecb2d7a8604b6a3df4e35ac66889bb7e2c6",
+					fmt.Sprintf("%x", sha256.Sum256(physical)))
+			}
+			t.Chdir(directory)
+			binary, nonce := buildRunnerReadProgressCLI(t)
+			image, err := pe.Open(binary)
+			require.NoError(t, err)
+			require.NoError(t, image.Close())
+			overlay, err := runnerReadProgressOverlay(physical, nonce)
+			require.NoError(t, err)
+			lfOverlay, err := runnerReadProgressOverlay(index, nonce)
+			require.NoError(t, err)
+			require.Equal(t, lfOverlay, overlay, "checkout encoding must not alter permitted instrumentation")
+			inverse, err := validateRunnerReadProgressOverlay(physical, overlay, nonce)
+			require.NoError(t, err)
+			originalAST, err := runnerProgressAST(index)
+			require.NoError(t, err)
+			require.Equal(t, originalAST, inverse)
+			current, err := os.ReadFile("runner_stdin_windows.go")
+			require.NoError(t, err)
+			require.Equal(t, physical, current, "the actual build caller must preserve raw checkout bytes")
+			require.Equal(t, index, git("show", ":cmd/waza/runner_stdin_windows.go"))
+			t.Logf("BUILD ONLY checkout control: autocrlf=%t index_sha256=%x raw_sha256=%x bytes=%d; real buildRunnerReadProgressCLI, stub contract/terminal/main; no Windows execution",
+				autocrlf, sha256.Sum256(index), sha256.Sum256(physical), len(physical))
+			for _, change := range []struct {
+				name   string
+				source []byte
+			}{
+				{"changed-caller", bytes.Replace(physical, []byte("os.Stdin.Close()"), []byte("os.Stdout.Close()"), 1)},
+				{"changed-comment", append([]byte("// changed source\n"), physical...)},
+				{"trailing-space", append(bytes.Clone(physical), ' ')},
+				{"missing-final-newline", bytes.TrimSuffix(physical, []byte("\n"))},
+				{"bom", append([]byte{0xef, 0xbb, 0xbf}, physical...)},
+				{"lone-cr", bytes.Replace(source, []byte("\n"), []byte("\r"), 1)},
+				{"mixed-endings", bytes.Replace(source, []byte("\n"), []byte("\r\n"), 1)},
+				{"doubled-cr", bytes.Replace(source, []byte("\n"), []byte("\r\r\n"), 1)},
+			} {
+				t.Run(change.name, func(t *testing.T) {
+					require.NotEqual(t, physical, change.source)
+					file := filepath.Join(directory, "runner_stdin_windows.go")
+					t.Cleanup(func() { require.NoError(t, os.WriteFile(file, physical, 0o600)) })
+					require.NoError(t, os.WriteFile(file, change.source, 0o600))
+					observed, err := os.ReadFile(file)
+					require.NoError(t, err)
+					executable, err := os.Executable()
+					require.NoError(t, err)
+					ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
+					defer cancel()
+					command := exec.CommandContext(ctx, executable, "-test.run=^TestRunnerTerminalReadProgressOverlayBuildOnly$",
+						"-test.v=true", "-test.timeout=10s")
+					command.Dir = filepath.Dir(file)
+					output, err := command.CombinedOutput()
+					require.NoError(t, ctx.Err(), "rejection must not depend on the outer deadline")
+					exit, ok := errors.AsType[*exec.ExitError](err)
+					require.True(t, ok, "%v: %s", err, output)
+					require.Equal(t, 1, exit.ExitCode(), "%s", output)
+					require.Contains(t, string(output), "--- FAIL: TestRunnerTerminalReadProgressOverlayBuildOnly")
+					require.Contains(t, string(output), "inherited-reader source changed")
+					require.Contains(t, string(output), fmt.Sprintf("raw_sha256=%x", sha256.Sum256(observed)))
+					after, err := os.ReadFile(file)
+					require.NoError(t, err)
+					require.Equal(t, observed, after)
+					t.Logf("actual build caller rejected %s checkout source: raw_sha256=%x; current-binary output_hex=%x",
+						change.name, sha256.Sum256(observed), output)
+				})
+			}
+			current, err = os.ReadFile("runner_stdin_windows.go")
+			require.NoError(t, err)
+			require.Equal(t, physical, current)
+			require.Equal(t, index, git("show", ":cmd/waza/runner_stdin_windows.go"))
+		})
+	}
 }
 
 func TestRunnerTerminalReadProgressOverlay(t *testing.T) {
