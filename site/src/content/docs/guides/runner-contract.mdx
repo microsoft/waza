@@ -12,8 +12,11 @@ the factory result must be a non-nil concrete mock engine; other implementations
 and wrappers fail before any engine lifecycle call, with zero calls, no
 observation and no claimed execution mode. Admitted receipts carry
 [input-derived identities](../runner-identities/). Native/paid execution,
-archives, local adapters and the container reference remain
+archives and the container reference remain
 unavailable. No release or container publication is announced here.
+The [local compatibility adapter](../runner-compatibility/) captures a narrower
+one-task mock/text suite offline; explicit `run --runner-compat` uses the same
+execution service while retaining historical artifacts and local exits.
 
 ## CLI: JSON stdin and stdout
 

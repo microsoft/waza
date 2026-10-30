@@ -1,0 +1,152 @@
+---
+title: Local runner compatibility
+description: Preserve compatible local artifacts through the runner service, or capture explicit sources as a runner request.
+---
+
+**Source-build v0.40.0 preview.** Ordinary local commands remain available.
+Nothing is deprecated. The explicit `run --runner-compat` mode routes a bounded
+local suite through the same mock-only execution service as `runner run`,
+without replacing historical result JSON with a terminal envelope.
+An unsupported mapping is a hard error, never a fallback or permission to drop
+configuration.
+
+## Compatibility table
+
+| Surface | Preserved or supported | Outside the adapter |
+|---|---|---|
+| Ordinary `run`, `grade`, `gate`, `compare`, `replay` | Existing commands, artifacts, defaults and exit policies remain available. | These are not all converted to runner requests. |
+| `run --runner-compat` | One explicit eval, one literal task filename relative to that eval, one trial and attempt, explicit mock executor/model, inline prompt and text checks. | Native/paid runtimes, discovery/globs/CSV, retries, parallelism and extra work. |
+| Eval/task schemas | Versionless/native-supported same-major 1.x evals; explicit 2.0 scenario evals; unversioned task YAML. Exact UTF-8 bytes, LF/CRLF and supported presence distinctions are retained. | Task `schemaVersion`, unsupported/unknown fields, duplicate keys, aliases, invalid types or silently coerced values. Ordinary tolerant loaders are unchanged. |
+| Skills/resources | Disabled ambient skills; no populated skill paths; no fixture entry. | Skills, files, prompt files, instructions, dependencies, hooks and workdir/environment semantics. |
+| Checks/deadline | Eval/task builtin text graders, output expectations, effective task-over-eval timeout. | Non-text graders, authored weights, multi-turn/checkpoints, requirements and metrics. |
+| Local results | Existing schema 1.7, native eval/task IDs, statistics, grader details, unavailable usage and 0/1/2 exit policy. | No runner identities or terminal envelopes are invented for legacy results. |
+| Local invocation | Only `--output`, `--no-summary`, `--debug`, `--no-update-check` alongside `--runner-compat`; no ambient `.waza.yaml` or adjacent trigger tests. | All other explicit flags, including false/default values, fail before execution. No cache, uploads, snapshots, telemetry or alternative reporters. |
+| `runner adapt` | Exact named sources captured offline into request 1.0; caller explicitly supplies run/shard/task/trial/attempt. | No runtime, project-default loading, task discovery, automatic schema upgrade or claim of execution. |
+
+Omitted/null task timeout inherits the eval timeout; a present positive timeout
+overrides it. Omitted/null `enabled` inherits true; false is rejected because
+ordinary local execution would skip it. The adapter rejects unsupported
+declarations even when explicitly null, empty or false. Preserve the originals
+and remove `--runner-compat` if those declarations matter.
+
+## Before and after: local artifacts
+
+Create these files in an isolated directory without an inherited `.waza.yaml`,
+default `fixtures` entry or `trigger_tests.yaml`.
+
+This is a **historical native-loader compatibility example**, not a strict
+preflight-schema example. The strict eval JSON Schema additionally requires
+metrics and legacy skill/scenario declarations; the adapter does not invent
+those semantics. `preflight --strict` reports `invalid eval.schema` for this
+legacy fixture. `runner adapt` followed by `runner validate` checks the captured
+profile. Preserve schema-based authoring workflows with ordinary `run` instead
+of weakening their schemas to fit this bounded adapter.
+
+```yaml title="custom-suite.yaml"
+schemaVersion: "1.4"
+name: compatible-local
+config:
+  executor: mock
+  model: mock-model
+  disabled_skills: ["*"]
+  trials_per_task: 1
+  timeout_seconds: 30
+tasks: ["tasks/selected.case.yaml"]
+```
+
+```yaml title="tasks/selected.case.yaml"
+id: selected
+name: Selected task
+inputs:
+  prompt: hello
+expected:
+  output_contains: [hello]
+```
+
+Before:
+
+```bash
+waza run custom-suite.yaml --output local-results.json --no-summary
+```
+
+After, through runner 1.0 while preserving local JSON:
+
+```bash
+waza run custom-suite.yaml --runner-compat --output local-results.json --no-summary
+```
+
+Both use historical result schema 1.7. Generated eval/session IDs, timestamps,
+workspace paths and durations vary per invocation. Missing usage is unavailable,
+not inferred credits or zero billing. `--no-summary` is accepted because this
+single-suite mode creates no combined summary.
+
+| Local exit | Meaning |
+|---|---|
+| 0 | All observed checks passed. |
+| 1 | Checks failed or an execution-error attempt was observed; requested results are saved with the native run status and failed-task aggregate. |
+| 2 | Invalid/unsupported configuration, failure before an observed attempt, lifecycle or output error. No success-shaped fallback. |
+
+Cancellation or timeout recorded by the attempt keeps the historical error
+artifact and local exit policy. External terminal callers instead classify
+the typed cause; their transport taxonomy is not written into local results.
+
+Change the expected string to `missing-marker` for a deliberately failing
+control. Change the prompt to `hello alternative` for an alternative-valid
+control. Mock execution checks harness wiring, not agent quality.
+
+## Explicit external request and terminal output
+
+To choose the external boundary instead of a local artifact:
+
+```bash
+waza runner adapt --eval custom-suite.yaml --task tasks/selected.case.yaml \
+  --run-key qualification-42 --shard local --task-id selected \
+  --trial 1 --attempt 1 > request.json
+waza runner validate < request.json
+waza runner run < request.json > terminal.json
+```
+
+All selection flags are required. Optional `--timeout-ms` asserts the exact
+effective timeout in milliseconds; it cannot shorten it. Validation failures
+emit no request. Discard incomplete output after write/short-write errors.
+Exact filenames are provenance, not a filesystem isolation/snapshot guarantee.
+
+The sole `eval.tasks` entry must be relative to the eval directory; absolute
+entries are rejected without changing ordinary native file selection. The
+adapter also applies shared offline runner admission: prompts requiring absent
+workspace files (for example `inspect ./file`) fail before output.
+
+The complete emitted request is limited to 4,194,304 bytes. A trailing LF is
+included only when it fits; exactly-limit JSON has no appended LF and remains
+valid input to `runner validate` and `runner run`. Oversized requests emit nothing.
+Unix callers use a nonblocking source open and check/read the same owned handle,
+including after path replacement; writerless FIFOs are rejected without waiting
+for a writer. Regular symlink targets retain native resolution. Windows uses a
+best-effort precheck and opened-handle check, not a race-free/nonblocking-open
+guarantee. Neither implementation promises stable contents or host isolation.
+
+`runner run` emits [terminal JSON and exits 0-6](../runner-terminal/), not
+`local-results.json`. `runner validate` is offline admission, not execution
+evidence. The external request schema and result writer versions are independent.
+
+## Migration and developer mapping
+
+Keep ordinary `waza run` for every unsupported local workflow; no input rewrite
+or deprecation is required. Do not remove meaningful fields merely to pass
+adaptation. `grade`, `gate`, `compare` and `replay` continue using their existing
+artifact readers; historical artifacts are not converted into runner evidence.
+
+The [developer mapping reference](https://github.com/microsoft/waza/blob/main/docs/RUNNER_COMPATIBILITY_MAPPING.md)
+describes original-byte capture, native loader reuse, single-execution routing,
+shared result aggregation and the independent frozen historical oracle.
+The [detailed migration guide](https://github.com/microsoft/waza/blob/main/docs/RUNNER_COMPATIBILITY_MIGRATION.md)
+lists unsupported declarations and their migration paths.
+See also [the runner contract](../runner-contract/) and
+[existing-workflow preservation](../compatibility/).
+
+**No Lab dashboard change is required for #761.** Command/schema adaptation
+adds no new runtime status, result data or execution evidence. Compatibility is
+observable through diagnostics, native result artifacts and regression fixtures,
+not a new Lab claim. Release-note status: preserved commands/schemas as above;
+no deprecated surfaces; intentional incompatibilities are limited to the explicit
+adapter profile. This is not a release announcement.

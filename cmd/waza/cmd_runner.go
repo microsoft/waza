@@ -26,6 +26,7 @@ func newRunnerCommandWithService(service *runnerunit.Service) *cobra.Command {
 		Use: "runner", Short: "Negotiate, validate or execute one exact captured work unit",
 		SilenceUsage: true,
 	}
+	cmd.AddCommand(newRunnerAdaptCommand())
 	cmd.AddCommand(&cobra.Command{
 		Use: "capabilities", Short: "Print supported runner versions and capabilities as JSON",
 		Args: cobra.NoArgs,

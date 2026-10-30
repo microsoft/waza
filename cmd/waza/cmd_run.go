@@ -37,6 +37,7 @@ import (
 	"github.com/microsoft/waza/internal/recommend"
 	"github.com/microsoft/waza/internal/registry"
 	"github.com/microsoft/waza/internal/reporting"
+	"github.com/microsoft/waza/internal/runnerunit"
 	"github.com/microsoft/waza/internal/session"
 	"github.com/microsoft/waza/internal/snapshot"
 	"github.com/microsoft/waza/internal/storage"
@@ -187,6 +188,7 @@ config.executor: mock checks only the harness, not agent quality.`,
 	cmd.Flags().BoolVar(&noSkillsFlag, "no-skills", false, "Disable all skill loading for the evaluation")
 	cmd.Flags().BoolVar(&keepWorkspace, "keep-workspace", false, "Preserve temp workspace directories after execution for debugging")
 	cmd.Flags().BoolVar(&autoFileIssue, "auto-file-issue", false, "Auto-file or update a GitHub issue for failing runs (requires gh and GITHUB_REPOSITORY)")
+	cmd.Flags().Bool("runner-compat", false, "Route one explicit inline mock/text suite through runner 1.0; reject unsupported mappings")
 
 	// OpenTelemetry trace export (off by default).
 	cmd.Flags().StringVar(&otelExporter, "otel-exporter", "", "Export OpenTelemetry traces using exporter: otlp|stdout|file (default: disabled)")
@@ -207,6 +209,11 @@ config.executor: mock checks only the harness, not agent quality.`,
 }
 
 func runCommandE(cmd *cobra.Command, args []string) error {
+	if enabled, err := cmd.Flags().GetBool("runner-compat"); err != nil {
+		return err
+	} else if enabled {
+		return runLocalCompatibility(cmd, args, runnerunit.NewService(nil))
+	}
 	if len(snapshotFiles) > 0 && snapshotDir == "" {
 		return fmt.Errorf("--snapshot-file requires --snapshot")
 	}
