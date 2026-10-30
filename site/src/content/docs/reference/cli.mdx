@@ -1579,18 +1579,29 @@ check compatibility without starting an eval or model:
 ```bash
 waza runner capabilities
 waza runner negotiate < examples/runner/negotiation.json
+waza runner validate < examples/runner/unit.json
+waza runner run < examples/runner/unit.json
 ```
 
 The `negotiate` command takes one JSON request on stdin and writes one
 `waza.runner-negotiation` response to stdout. Exit 0 means compatible, 5 means
 unsupported version/capability, 6 means invalid request, and 2 means output
 failure. These are negotiation exits, not new meanings for local `waza run`.
-Only `negotiation` is implemented; `runner run` is not exposed yet.
+`validate` checks a complete captured request without a runtime; `run` executes
+exactly one mock/text attempt with no discovery, cache or retries. The receipt
+is `waza.runner-unit`, not the later terminal envelope. Unit-command exits:
+0 ready/completed with passing checks, 1 completed with failing checks,
+2 execution/input/output failure, 5 incompatible runner requirements,
+6 invalid selection. Native execution is unavailable even with paid consent.
+Admitted receipts carry `identity` version `sha256-waza-c14n-v1`, canonical input
+digest and logical lineage; validation alone derives it without execution.
+Save stdout with `> validation.json`; identity is not proof of execution or
+duplicate suppression. See [logical identity fields and migration](../../guides/runner-identities/).
 See [Runner contract, schemas, API and migration](../../guides/runner-contract/).
 
 ## waza serve
 
-The source-build preview also exposes offline runner negotiation through HTTP.
+The source-build preview also exposes negotiation and exact-unit validation/run through HTTP.
 See [Runner contract and API](../../guides/runner-contract/) for routes and schemas.
 
 Start the interactive dashboard.

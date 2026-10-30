@@ -14,6 +14,9 @@ var RunnerRequestSchemaJSON string
 //go:embed runner-capabilities-1.0.schema.json
 var RunnerCapabilitiesSchemaJSON string
 
+//go:embed runner-unit-1.0.schema.json
+var RunnerUnitSchemaJSON string
+
 //go:embed eval.schema.json
 var EvalSchemaJSON string
 

@@ -165,7 +165,7 @@ func frozenOriginalCaptureBinary(t *testing.T) string {
 	for _, packageName := range []string{"nativesnapshot", "orchestration"} {
 		empty := filepath.Join(scratch, packageName+".go")
 		require.NoError(t, os.WriteFile(empty, []byte("package "+packageName+"\n"), 0600))
-		files := []string{"request_inputs.go", "request_inputs_test.go", "request_inputs_unix_test.go", "g2_original_constructor_test.go"}
+		files := []string{"request_inputs.go", "request_inputs_test.go", "request_inputs_unix_test.go", "g2_original_constructor_test.go", "inline.go"}
 		if packageName == "nativesnapshot" {
 			files = []string{"capture_associations.go", "association_validation.go", "projection_reconstruction.go", "collection.go", "collection_wire_test.go", "capture_associations_test.go", "g2_discovery_test.go", "g2_association_limits_test.go", "g2_capture_races_test.go", "g2_capture_races_unix_test.go", "g2_capture_windows_test.go"}
 			files = append(files, "slots.go", "slot_validation.go", "slots_test.go", "slots_boundary_test.go")

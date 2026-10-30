@@ -1,11 +1,12 @@
 import { useState } from "react";
 import { negotiateRunner, type RunnerNegotiation as Negotiation } from "../api/runner";
+import RunnerSelection from "./RunnerSelection";
 
 const example = JSON.stringify({
   schema_version: "1.0",
   versions: ["2.0", "1.0"],
   required_capabilities: ["negotiation"],
-  optional_capabilities: ["exact-unit"],
+  optional_capabilities: ["terminal-result"],
 }, null, 2);
 
 export default function RunnerNegotiation({ demo }: { demo: boolean }) {
@@ -28,6 +29,7 @@ export default function RunnerNegotiation({ demo }: { demo: boolean }) {
   }
 
   return (
+    <>
     <section className="lab-panel lab-runner-negotiation" aria-label="Runner compatibility">
       <div className="lab-panel-header">
         <div>
@@ -76,5 +78,7 @@ export default function RunnerNegotiation({ demo }: { demo: boolean }) {
         </>
       )}
     </section>
+    <RunnerSelection demo={demo} />
+    </>
   );
 }

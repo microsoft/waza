@@ -6,6 +6,8 @@ on:
     paths:
       - 'site/**'
       - 'schemas/**'
+      - 'internal/runneridentity/testdata/**'
+      - 'internal/runnerunit/testdata/**'
   workflow_run:
     workflows: ['Release']
     types: [completed]

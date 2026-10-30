@@ -4,8 +4,10 @@ package webserver
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"os/exec"
 	"runtime"
@@ -62,6 +64,9 @@ func New(cfg Config) (*Server, error) {
 
 // ListenAndServe starts the HTTP server and optionally opens a browser.
 func (s *Server) ListenAndServe(ctx context.Context) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	s.srv.BaseContext = func(net.Listener) context.Context { return ctx }
 	url := s.dashboardURL()
 	s.logger.Info("HTTP server starting", "address", s.srv.Addr, "url", url)
 	fmt.Printf("waza dashboard: %s\n", url)
@@ -77,20 +82,27 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 	}
 
 	// Graceful shutdown on context cancellation.
+	shutdown := make(chan error, 1)
 	go func() {
 		<-ctx.Done()
 		s.logger.Info("shutting down HTTP server")
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
+		shutdownCtx, stop := context.WithTimeout(context.Background(), 10*time.Second)
+		defer stop()
 		if err := s.srv.Shutdown(shutdownCtx); err != nil {
-			s.logger.Error("HTTP server shutdown error", "error", err)
+			shutdown <- errors.Join(fmt.Errorf("HTTP server shutdown: %w", err), s.srv.Close())
+			return
 		}
+		shutdown <- nil
 	}()
 
-	if err := s.srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		return fmt.Errorf("HTTP server error: %w", err)
+	err := s.srv.ListenAndServe()
+	cancel()
+	if err == http.ErrServerClosed {
+		err = nil
+	} else if err != nil {
+		err = fmt.Errorf("HTTP server error: %w", err)
 	}
-	return nil
+	return errors.Join(err, <-shutdown)
 }
 
 func (s *Server) dashboardURL() string {

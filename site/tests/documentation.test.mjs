@@ -14,6 +14,30 @@ const catalogInputs = {
 const withoutCode = (text) => text.replace(/^(`{3,}|~{3,})[^\n]*\n[\s\S]*?^\1\s*$/gm, '');
 const slug = (text) => text.toLowerCase().replace(/<\/?[a-z][a-z0-9]*(?:\s[^>]*)?>/g, '').replace(/[^\p{L}\p{N}_ -]/gu, '').replace(/ /g, '-');
 
+test('runner identity fixtures trigger consumer validation and publication without skipping new specs', () => {
+  const web = read('.github/workflows/web-ci.yml');
+  for (const path of ['internal/runnerunit/**', 'internal/runneridentity/**', 'examples/runner/**']) {
+    assert.equal(web.split(`'${path}'`).length - 1, 2, `${path} must trigger push and PR filtering`);
+  }
+  const site = read('.github/workflows/site-ci.yml');
+  const deploy = read('.github/workflows/pages.yml');
+  for (const path of ['internal/runnerunit/testdata/**', 'internal/runneridentity/testdata/**']) {
+    assert.ok(site.includes(`'${path}'`), `${path} must select the site build`);
+    assert.ok(deploy.includes(`'${path}'`), `${path} must select publication`);
+  }
+  for (const workflow of [web, site, deploy]) {
+    assert.match(workflow, /^permissions:\n/m);
+    assert.match(workflow, /timeout-minutes:/);
+  }
+  assert.match(web, /playwright test --project=chromium --retries=0/);
+  assert.match(site, /npm run test:e2e -- --project=chromium --retries=0/);
+  assert.match(read('web/playwright.config.ts'), /testDir: "\.\/e2e"/);
+  assert.match(read('site/playwright.config.ts'), /testDir: '\.\/e2e'/);
+  assert.ok(existsSync(resolve(root, 'web/e2e/runner-negotiation.spec.ts')));
+  assert.ok(existsSync(resolve(root, 'site/e2e/runner-identities.spec.ts')));
+  assert.doesNotMatch(read('site/playwright.config.ts'), /testIgnore:.*runner/);
+});
+
 function anchors(text) {
   const ids = new Set();
   const counts = new Map();

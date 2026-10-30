@@ -39,7 +39,7 @@ func TestNegotiationConformance(t *testing.T) {
 			require.Equal(t, tc.Versions, response.Negotiation.RequestedVersions)
 			require.Equal(t, tc.Required, response.Negotiation.RequiredCapabilities)
 			require.Equal(t, tc.Optional, response.Negotiation.OptionalCapabilities)
-			require.Equal(t, []string{"negotiation"}, response.Negotiation.Available)
+			require.Equal(t, Capabilities().Capabilities, response.Negotiation.Available)
 			encoded, err := json.Marshal(response)
 			require.NoError(t, err)
 			var doc any
@@ -102,7 +102,8 @@ func TestCapturedRequestShapeRemainsCompatibleWithoutExecution(t *testing.T) {
 	require.False(t, request.AllowPaidExecution)
 	response := Negotiate(data)
 	require.Equal(t, "unsupported_capability", response.Status)
-	require.Len(t, response.Diagnostics, 3)
+	require.Len(t, response.Diagnostics, 1)
+	require.Contains(t, response.Diagnostics[0].Message, "terminal-result")
 	require.Empty(t, response.Negotiation.Selected)
 	request.AllowPaidExecution = true
 	request.RequiredCapabilities = []string{"negotiation"}
@@ -152,12 +153,12 @@ func TestNegotiationExampleAndDetachedAdvertisement(t *testing.T) {
 	require.NoError(t, err)
 	response := Negotiate(data)
 	require.Equal(t, "compatible", response.Status)
-	require.Equal(t, []string{"exact-unit"}, response.Negotiation.UnavailableOptional)
+	require.Empty(t, response.Negotiation.UnavailableOptional)
 	first := Capabilities()
 	first.Versions[0] = "99.0"
 	first.Capabilities[0] = "exact-unit"
 	require.Equal(t, []string{"1.0"}, Capabilities().Versions)
-	require.Equal(t, []string{"negotiation"}, Capabilities().Capabilities)
+	require.Equal(t, []string{"negotiation", "exact-unit", "inline.mock-text"}, Capabilities().Capabilities)
 	schema, err := compileSchema(schemas.RunnerCapabilitiesSchemaJSON)
 	require.NoError(t, err)
 	encoded, err := json.Marshal(Capabilities())

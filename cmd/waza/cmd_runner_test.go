@@ -76,7 +76,7 @@ func TestRunnerCompleteRequestCLIHTTPParity(t *testing.T) {
 		Negotiation: runnercontract.Negotiation{
 			Version: "1.0", RequestedVersions: []string{"1.0"},
 			RequiredCapabilities: []string{"negotiation"}, OptionalCapabilities: []string{},
-			Available: []string{"negotiation"}, Selected: []string{"negotiation"}, UnavailableOptional: []string{},
+			Available: []string{"negotiation", "exact-unit", "inline.mock-text"}, Selected: []string{"negotiation"}, UnavailableOptional: []string{},
 		},
 		Diagnostics: []runnercontract.Diagnostic{},
 	}
@@ -179,7 +179,7 @@ func TestRunnerCompleteRequestCLIHTTPParity(t *testing.T) {
 	require.Zero(t, networkCalls.Load(), "negotiation must not access the network")
 }
 
-func TestRunnerDoesNotCheckUpdatesOrAdvertiseExecution(t *testing.T) {
+func TestRunnerDoesNotCheckUpdatesOrAdvertiseDeferredCapabilities(t *testing.T) {
 	root := newRootCommand()
 	command, _, err := root.Find([]string{"runner", "negotiate"})
 	require.NoError(t, err)
@@ -190,8 +190,8 @@ func TestRunnerDoesNotCheckUpdatesOrAdvertiseExecution(t *testing.T) {
 	require.NoError(t, root.Execute())
 	var advertisement runnercontract.Advertisement
 	require.NoError(t, json.Unmarshal(output.Bytes(), &advertisement))
-	require.Equal(t, []string{"negotiation"}, advertisement.Capabilities)
-	require.NotContains(t, output.String(), "exact-unit")
+	require.Equal(t, []string{"negotiation", "exact-unit", "inline.mock-text"}, advertisement.Capabilities)
+	require.NotContains(t, output.String(), "inline.native-text")
 	require.NotContains(t, output.String(), "terminal-result")
 }
 
@@ -278,7 +278,7 @@ func TestRunnerNegotiationIgnoresAmbientRuntimeAndNetwork(t *testing.T) {
 		err := cmd.Execute()
 		var response runnercontract.Response
 		require.NoError(t, json.Unmarshal(stdout.Bytes(), &response))
-		if capability == "negotiation" {
+		if capability == "negotiation" || capability == "exact-unit" {
 			require.NoError(t, err)
 			require.Equal(t, "compatible", response.Status)
 		} else {
