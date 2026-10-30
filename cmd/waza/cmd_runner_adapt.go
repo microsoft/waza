@@ -29,6 +29,9 @@ func newRunnerAdaptCommand() *cobra.Command {
 			if cmd.Flags().Changed("timeout-ms") {
 				options.TimeoutMS = &timeoutMS
 			}
+			if err := runnercompat.ValidateLiteralTaskPath(options.TaskPath); err != nil {
+				return err
+			}
 			if err := rejectAdapterFixtures(options.EvalPath); err != nil {
 				return err
 			}

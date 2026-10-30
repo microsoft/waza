@@ -60,6 +60,9 @@ func runLocalCompatibility(cmd *cobra.Command, args []string, service *runneruni
 		return fmt.Errorf("--runner-compat requires an eval-relative task filename; remove --runner-compat for absolute task entries")
 	}
 	taskPath := filepath.Join(filepath.Dir(evalPath), spec.Tasks[0])
+	if err := runnercompat.ValidateLiteralTaskPath(taskPath); err != nil {
+		return fmt.Errorf("%w; remove --runner-compat to retain native task selection", err)
+	}
 	task, err := readRunnerAdapterSource(taskPath)
 	if err != nil {
 		return err

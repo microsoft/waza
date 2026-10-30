@@ -59,6 +59,90 @@ func assertAdaptedAdmission(t *testing.T, binary, directory string, data []byte)
 	require.Equal(t, 1, terminal.Observation.Attempts)
 }
 
+func TestRunnerAdapterCompleteTaskPathCompiledProcess(t *testing.T) {
+	binary := buildRecoveryCLI(t)
+	for _, control := range []struct {
+		name, evalDir, entry, nativeDir, nativeEntry string
+		unixOnly, reject                             bool
+	}{
+		{"eval directory glob", "suite[1]", "tasks/selected.case.yaml", "suite1", "tasks/selected.case.yaml", false, true},
+		{"task filename escape", "suite", `tasks/selected\.case.yaml`, "suite", "tasks/selected.case.yaml", true, true},
+		{"eval directory escape", `suite\1`, "tasks/selected.case.yaml", "suite1", "tasks/selected.case.yaml", true, true},
+		{"literal closing bracket and native separators", "suite]1", filepath.Join("tasks", "nested", "selected.case.yaml"), "suite]1", filepath.Join("tasks", "nested", "selected.case.yaml"), false, false},
+	} {
+		t.Run(control.name, func(t *testing.T) {
+			if control.unixOnly && filepath.Separator == '\\' {
+				t.Skip("Windows treats backslashes as separators, not glob escapes")
+			}
+			originalEval, _, eval, task := adapterCommandInputs(t)
+			directory := filepath.Dir(originalEval)
+			evalPath := filepath.Join(directory, control.evalDir, "custom-suite.yaml")
+			taskPath := filepath.Join(directory, control.evalDir, control.entry)
+			nativeTask := filepath.Join(directory, control.nativeDir, control.nativeEntry)
+			eval = bytes.Replace(eval, []byte(`"tasks/selected.case.yaml"`), []byte("'"+control.entry+"'"), 1)
+			require.Contains(t, string(eval), "'"+control.entry+"'", "setup must change the declared task entry")
+			require.NoError(t, os.MkdirAll(filepath.Dir(taskPath), 0o700))
+			require.NoError(t, os.WriteFile(evalPath, eval, 0o600))
+			require.NoError(t, os.WriteFile(taskPath, task, 0o600))
+			nativeBytes := bytes.Replace(task, []byte("prompt: hello"), []byte("prompt: hello native-selected"), 1)
+			require.NotEqual(t, task, nativeBytes)
+			require.NoError(t, os.MkdirAll(filepath.Dir(nativeTask), 0o700))
+			require.NoError(t, os.WriteFile(nativeTask, nativeBytes, 0o600))
+			matches, err := filepath.Glob(filepath.Join(filepath.Dir(evalPath), control.entry))
+			require.NoError(t, err)
+			require.Equal(t, []string{nativeTask}, matches, "native glob must select exactly the intended control")
+			if control.reject {
+				require.NotEqual(t, taskPath, nativeTask)
+				literalBytes, err := os.ReadFile(taskPath)
+				require.NoError(t, err)
+				require.Equal(t, task, literalBytes, "the ambiguous literal task must exist and differ from native selection")
+			}
+			nativeArtifact := filepath.Join(directory, "native.json")
+			adapterProcess(t, binary, directory, nil, 0, "run", evalPath, "--output", nativeArtifact, "--no-summary")
+			outcome, err := models.LoadEvaluationOutcome(nativeArtifact)
+			require.NoError(t, err)
+			require.Len(t, outcome.TestOutcomes, 1)
+			require.Len(t, outcome.TestOutcomes[0].Runs, 1)
+			require.Equal(t, "hello native-selected", outcome.TestOutcomes[0].Runs[0].Prompt)
+
+			compatArtifact := filepath.Join(directory, "compat.json")
+			if !control.reject {
+				output, _ := adapterProcess(t, binary, directory, nil, 0,
+					append([]string{"runner", "adapt"}, adapterCommandArgs(evalPath, taskPath)...)...)
+				request, err := runnercontract.Parse(output)
+				require.NoError(t, err)
+				require.Equal(t, string(nativeBytes), request.Input.Task)
+				assertAdaptedAdmission(t, binary, directory, output)
+				adapterProcess(t, binary, directory, nil, 0, "run", evalPath,
+					"--runner-compat", "--output", compatArtifact, "--no-summary")
+				native, err := os.ReadFile(nativeArtifact)
+				require.NoError(t, err)
+				adapted, err := os.ReadFile(compatArtifact)
+				require.NoError(t, err)
+				require.JSONEq(t, string(adapterOutcomeProjection(t, native)), string(adapterOutcomeProjection(t, adapted)))
+				return
+			}
+			for _, literalExists := range []bool{true, false} {
+				if !literalExists {
+					require.NoError(t, os.Remove(taskPath))
+				}
+				output, diagnostic := adapterProcess(t, binary, directory, nil, 2,
+					append([]string{"runner", "adapt"}, adapterCommandArgs(evalPath, taskPath)...)...)
+				require.Empty(t, output, "rejection must not emit a runnable request")
+				require.Contains(t, diagnostic, "complete resolved task path")
+				require.Contains(t, diagnostic, "keep using waza run")
+				output, diagnostic = adapterProcess(t, binary, directory, nil, 2, "run", evalPath,
+					"--runner-compat", "--output", compatArtifact, "--no-summary")
+				require.Empty(t, output)
+				require.Contains(t, diagnostic, "complete resolved task path", "reject before reading even a missing literal task")
+				require.Contains(t, diagnostic, "remove --runner-compat")
+				_, err = os.Stat(compatArtifact)
+				require.ErrorIs(t, err, os.ErrNotExist, "rejection must not publish an outcome")
+			}
+		})
+	}
+}
+
 func TestRunnerAdapterAdmissionCompiledProcess(t *testing.T) {
 	binary := buildRecoveryCLI(t)
 	t.Run("absolute task cannot select an external file", func(t *testing.T) {

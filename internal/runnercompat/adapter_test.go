@@ -40,6 +40,39 @@ func replace(t *testing.T, data []byte, from, to string) []byte {
 	return changed
 }
 
+func TestAdapterCompleteResolvedTaskPath(t *testing.T) {
+	for _, control := range []struct {
+		name, parent, entry string
+		reject              bool
+	}{
+		{"directory character class", "suite[1]", "tasks/selected.case.yaml", true},
+		{"directory wildcard", "suite*", "tasks/selected.case.yaml", true},
+		{"directory question mark", "suite?", "tasks/selected.case.yaml", true},
+		{"task character class", "suite", "tasks/selected[1].yaml", true},
+		{"task wildcard", "suite", "tasks/selected*.yaml", true},
+		{"task question mark", "suite", "tasks/selected?.yaml", true},
+		{"directory escape or Windows separator", `suite\1`, "tasks/selected.case.yaml", filepath.Separator != '\\'},
+		{"task escape or Windows separator", "suite", `tasks\selected.case.yaml`, filepath.Separator != '\\'},
+		{"closing bracket is literal", "suite]1", "tasks/selected.case.yaml", false},
+		{"native nested separators", filepath.Join("suite", "nested"), filepath.Join("tasks", "selected.case.yaml"), false},
+	} {
+		t.Run(control.name, func(t *testing.T) {
+			eval, task, options := inputs(t)
+			eval = replace(t, eval, `"tasks/selected.case.yaml"`, "'"+control.entry+"'")
+			options.EvalPath = filepath.Join(control.parent, "custom-suite.yaml")
+			options.TaskPath = filepath.Join(control.parent, control.entry)
+			request, err := AdaptLocal(eval, task, options)
+			if control.reject {
+				require.ErrorContains(t, err, "literal")
+				require.Nil(t, request)
+			} else {
+				require.NoError(t, err)
+				require.Equal(t, string(task), request.Input.Task)
+			}
+		})
+	}
+}
+
 func TestAdapterHistoricalVersionsAndExactSource(t *testing.T) {
 	for _, version := range []string{"", "1.0", "1.1", "1.4", "1.99", "2.0"} {
 		for _, newline := range []string{"LF", "CRLF"} {

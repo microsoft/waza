@@ -15,7 +15,7 @@ permission to remove the unsupported declaration.
 
 | Input or behavior | Supported adapter mapping |
 |---|---|
-| Explicit eval and task filenames | Captures only the caller-named regular files. `eval.tasks` must contain exactly one literal relative filename resolving to the selected task path from the eval directory. Absolute task entries are rejected; native path selection is unchanged. Custom filenames and nested directories are supported; no discovery or glob expansion. |
+| Explicit eval and task filenames | Captures only the caller-named regular files. `eval.tasks` must contain exactly one literal relative filename resolving to the selected task path from the eval directory. The complete resolved task path, including eval parent directories, must contain no glob metacharacters (`*`, `?`, `[`) or Unix backslash escapes; Windows backslash separators remain supported. Absolute task entries are rejected; native path selection is unchanged. Custom filenames and nested directories are supported; no discovery or glob expansion. |
 | Eval schema | Versionless and native-supported same-major 1.x; scenario evals require explicit `schemaVersion: "2.0"` and a valid `scenario`. Original version declarations are retained, never upgraded. |
 | Task schema | Native unversioned task YAML; declaring a task `schemaVersion` is rejected by this adapter, even though the ordinary local loader warns and ignores unknown fields. |
 | Execution | Explicit `config.executor: mock` and nonblank `config.model`; one task, one trial, one attempt. `max_attempts` omitted/0/1 retains the local effective single-attempt default. |

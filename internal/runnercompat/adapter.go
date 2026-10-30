@@ -70,6 +70,9 @@ func adapt(eval, task []byte, options Options) (*runnercontract.Request, error) 
 	if err != nil {
 		return nil, fmt.Errorf("resolving declared task filename: %w", err)
 	}
+	if err := ValidateLiteralTaskPath(declared); err != nil {
+		return nil, err
+	}
 	selected, err := filepath.Abs(options.TaskPath)
 	if err != nil {
 		return nil, fmt.Errorf("resolving selected task filename: %w", err)
@@ -136,6 +139,24 @@ func adapt(eval, task []byte, options Options) (*runnercontract.Request, error) 
 		return nil, fmt.Errorf("shared runner admission rejected the captured input: %v", admission.Diagnostics)
 	}
 	return parsed, nil
+}
+
+// ValidateLiteralTaskPath rejects paths that native task loading would interpret
+// as a glob, including syntax in eval parent directories. Backslashes are path
+// separators on Windows, where filepath.Glob disables escape processing.
+func ValidateLiteralTaskPath(path string) error {
+	resolved, err := filepath.Abs(path)
+	if err != nil {
+		return fmt.Errorf("resolving literal task filename: %w", err)
+	}
+	syntax := "*?["
+	if filepath.Separator != '\\' {
+		syntax += `\`
+	}
+	if strings.ContainsAny(resolved, syntax) {
+		return fmt.Errorf("complete resolved task path %q must be literal, without glob metacharacters or Unix escapes; keep using waza run with the original inputs", resolved)
+	}
+	return nil
 }
 
 func validateChecks(spec *models.EvalSpec, task *models.TestCase) error {
