@@ -813,7 +813,7 @@ models. A responder's `stopped` outcome does not imply the graders passed;
 
 ### Controlled Dependency Failures
 
-MCP mock `error` responses and command mock `stderr`/`exit_code` responses can model permanent failures or permission denial without contacting the dependency. Legacy responses return the first matching fixture on every call; scenario evals can instead opt into finite recovery sequences. Configured unmatched calls fail closed, and MCP unmatched diagnostics omit argument values. The MCP mock subprocess accepts per-request cancellation without resetting consumed steps or terminating the server. See the [dependency recovery guide](../site/src/content/docs/guides/dependency-recovery.mdx) for dispatch, interruption, and evidence boundaries.
+MCP mock `error` responses and command mock `stderr`/`exit_code` responses can model permanent failures or permission denial without contacting the dependency. Legacy responses return the first matching fixture on every call; scenario evals can instead opt into finite recovery sequences. Configured unmatched calls fail closed, and MCP unmatched diagnostics omit argument values. The MCP mock subprocess accepts per-request cancellation without resetting consumed steps or terminating the server. Finite MCP sequence progress spans every turn of one task attempt and resets for each task, trial, and retry. See the [dependency recovery guide](../site/src/content/docs/guides/dependency-recovery.mdx) for a multi-turn example, cleanup limitations, dispatch, interruption, and evidence boundaries.
 
 Use existing graders and checkpoints to check honest failure reporting and prohibited effects. A mocked interaction or responder message is not proof that an external operation occurred. Undeclared commands remain available through the host `PATH`, and command shim interception does not isolate the filesystem or network. See the [eval guide](../site/src/content/docs/guides/eval-yaml.mdx#choosing-a-test-boundary) for choosing mocked versus live dependencies.
 
@@ -927,7 +927,7 @@ Cache evaluation results to avoid redundant runs:
 waza run evals/code-explainer/eval.yaml --cache -o results.json
 ```
 
-The cache stores results by task ID and model, keyed on the prompt and expected output. Same inputs = same cached results.
+The cache stores results by task ID and model, keyed on the prompt and expected output. Same inputs = same cached results. MCP-backed task keys also include the resolved mock configuration, so changed inline or eval-relative fixture responses run again. Tasks without MCP mocks retain their existing cache keys.
 
 **Use cases:**
 - Development — Iterate on validators without re-running tasks
