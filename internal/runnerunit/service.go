@@ -1,5 +1,5 @@
 // Package runnerunit admits one captured work tuple and executes one attempt.
-// It adds neither logical identity derivation nor the later terminal envelope.
+// Logical identities name admitted input; they do not attest execution.
 package runnerunit
 
 import (
@@ -14,6 +14,7 @@ import (
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/orchestration"
 	"github.com/microsoft/waza/internal/runnercontract"
+	"github.com/microsoft/waza/internal/runneridentity"
 )
 
 // Report is an invocation-local selection/attempt receipt, not a persisted
@@ -25,6 +26,7 @@ type Report struct {
 	Compatibility runnercontract.Response     `json:"compatibility"`
 	Requested     *runnercontract.Selection   `json:"requested,omitempty"`
 	Resolved      *runnercontract.Selection   `json:"resolved,omitempty"`
+	Identity      *runneridentity.Identity    `json:"identity,omitempty"`
 	Validation    string                      `json:"validation"`
 	AdjacentWork  bool                        `json:"adjacent_work_selected"`
 	Mode          string                      `json:"execution_mode,omitempty"`
@@ -62,8 +64,8 @@ func Validate(data []byte) Report {
 	return report
 }
 
-// Admission is adapted from frozen #779 service.go, deliberately excluding
-// identity, native lifecycle, persistence and terminalization surfaces.
+// Admission is adapted from frozen #779 service.go, excluding native lifecycle,
+// persistence and terminalization surfaces.
 func admit(data []byte) (Report, *admitted) {
 	report := Report{
 		Kind: "waza.runner-unit", Version: "1.0", Status: "rejected",
@@ -84,8 +86,15 @@ func admit(data []byte) (Report, *admitted) {
 		report.reject(err)
 		return report, nil
 	}
+	identity, err := runneridentity.DeriveJSON(data)
+	if err != nil {
+		report.reject(fmt.Errorf("deriving admitted input identity: %w", err))
+		report.Diagnostics[0].Code = "invalid_identity"
+		return report, nil
+	}
 	selected := req.Selection
 	report.Resolved = &selected
+	report.Identity = identity
 	report.Status, report.Validation = "ready", "valid"
 	return report, input
 }

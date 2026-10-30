@@ -35,10 +35,21 @@ export interface RunnerSelectionReport {
   compatibility: RunnerNegotiation;
   requested?: WorkSelection;
   resolved?: WorkSelection;
+  identity?: RunnerIdentity;
   validation: "not_checked" | "invalid" | "valid";
   adjacent_work_selected: false;
   engine_calls: 0;
   diagnostics: { code: string; message: string }[];
+}
+
+export interface RunnerIdentity {
+  version: "sha256-waza-c14n-v1";
+  canonical_digest: string;
+  run: string;
+  shard: string;
+  task: string;
+  trial: string;
+  attempt: string;
 }
 
 const validateUnit = new Ajv2020({ strict: false })

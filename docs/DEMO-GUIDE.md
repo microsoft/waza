@@ -12,7 +12,9 @@ For the source-build exact-unit preview, open **Runner contract** in
 `waza serve --lab`, then **Validate selection**. The requested and resolved
 tuple and validation state come from the offline API; this button never runs
 an engine. Execute the same mock-only example explicitly with
-`waza runner run < examples/runner/unit.json`. See the
+`waza runner run < examples/runner/unit.json`. The validation result also shows
+the input-derived identity hierarchy/version/digest and exports the same JSON;
+identity does not prove execution. See the
 [runner guide](../site/src/content/docs/guides/runner-contract.mdx); no native,
 terminal-envelope or release-publication claim is implied.
 

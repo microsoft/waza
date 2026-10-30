@@ -1,0 +1,196 @@
+---
+title: Deterministic runner logical identities
+description: Read input-derived runner lineage, reproduce frozen canonical vectors, and migrate without inventing execution evidence.
+---
+
+import ZoomImage from '../../../components/ZoomImage.astro';
+import producerVectors from '../../../../../internal/runnerunit/testdata/identities.json';
+
+**Source-build preview for v0.40.0, not a release announcement.** The
+[runner contract](../runner-contract/) admits one captured mock/text unit.
+After exact admission, its CLI/API receipt includes `identity`, using algorithm
+version **`sha256-waza-c14n-v1`**. Validation derives identities without creating
+an engine. Native execution, terminal envelopes and archives remain unavailable.
+
+## Read and save an identity
+
+```bash
+waza runner validate < examples/runner/unit.json > validation.json
+waza runner run < examples/runner/unit.json > attempt.json
+```
+
+Both use the same original-input producer. A receipt's `identity` contains seven
+required strings: `version`, `canonical_digest`, `run`, `shard`, `task`, `trial`
+and `attempt`. The digest is 64 lowercase hex characters; each logical ID has
+its namespace prefix and a full 64-character hash. The receipt schema stays
+`waza.runner-unit` / `1.0`; its optional additive identity field is independent
+of request version, negotiation version, local result version and any future
+terminal-envelope version.
+
+Logical identity means **declared input**, not observed execution, provenance,
+exactly-once delivery, duplicate suppression, trusted source files or isolation.
+Repeated dispatch intentionally executes again with the same IDs. A validation
+receipt has zero engine calls even when all identity fields are present.
+Invalid/unadmitted/unsupported input has no identity. Runtime admission/factory
+failure, cancellation, timeout or execution failure after derivation retains it;
+inspect status, diagnostics and observed calls separately.
+
+## Identity hierarchy and stability
+
+```mermaid
+flowchart LR
+  E["Canonical eval + run key + timeout + request schema"] --> R["run"]
+  R --> S["shard + declared shard key"]
+  S --> T["task + task key + canonical task"]
+  T --> U["trial + one-based ordinal"]
+  U --> A["attempt + one-based ordinal"]
+```
+
+Changing the attempt changes only its attempt ID and the complete canonical
+digest. Changing the trial also changes attempt, not its task/shard/run.
+Task-source changes preserve run/shard; shard changes preserve run.
+Eval-source, run-key or request-timeout changes rename the entire hierarchy.
+A run ID alone is not a manifest of every task in a scheduler's fleet.
+No timestamp, PID, hostname, current directory, runtime path, environment,
+model output, billing or session ID contributes.
+
+Version offers, required/optional capability arrays and `allow_paid_execution`
+are excluded negotiation/permission metadata. They must still pass admission;
+their exclusion neither enables native execution nor waives the required
+`exact-unit` and `inline.mock-text` capabilities.
+
+## Source and numeric grammar
+
+Captured eval/task input is one UTF-8 YAML mapping, within the runner's 4 MiB
+request limit and a 64-level canonical nesting bound. Identity reads original
+authored YAML nodes, **never defaulted model JSON**. The pinned `yaml.v3` resolver
+defines tags; changing its effective behavior requires conformance review.
+
+The 4 MiB wire limit applies to the original JSON request bytes. Validation and
+execution derive identities from those bytes, so valid unescaped `<`, `>` and
+`&` do not become oversized through internal HTML escaping. Sending an escaped
+representation that itself exceeds 4 MiB is still rejected.
+
+| Value | Canonical rule |
+|---|---|
+| Mapping | Unique string keys sorted by unsigned UTF-8 bytes; all declared key/value pairs retained |
+| Sequence | Preserve order and length |
+| String | Exact decoded Unicode; no NFC/NFD, trimming, case folding, path rewriting or environment expansion |
+| Integer | YAML `!!int` normalized with arbitrary-precision arithmetic; radices/signs/underscores and octal spelling may be equivalent |
+| Float | YAML `!!float`, finite exact decimal coefficient/exponent; never round through binary64; preserve negative float zero |
+| Boolean/null | Preserve scalar type; null, absent, false, zero, empty string/map/array remain distinct |
+| Presentation | Comments, key order, equivalent quoting, flow/block layout and physical LF/CRLF normalize |
+| Escaped text | Explicit `"\r\n"` differs from `"\n"`; physical YAML literal-block line breaks normalize to LF |
+
+`12.50e-1` and `1.25` encode the same exact decimal `125e-2`.
+Float `0.0` encodes `0e0`, float `-0.0` encodes `-0e0`; neither is integer zero.
+Arbitrarily large exponents stay symbolic rather than expanding into zeros.
+Use explicit numeric tags for canonical-only values outside the resolver's native
+range. Reject aliases, anchors, merge keys, duplicate/non-string keys, extra
+documents, invalid Unicode, timestamps, custom tags and non-finite floats.
+
+**Canonical support is wider than execution admission.** The current execution
+profile rejects authored floats, unknown fields, nonempty metadata/context and
+external paths. Canonical-only vectors illustrate encoding, not executable work.
+Do not drop declarations or widen admission to make a source execute. Omitted
+versus explicit defaults can hash differently even when execution behavior matches.
+
+## Canonical encoding and namespaces
+
+Structural tokens are ASCII. Lengths count UTF-8 bytes, not UTF-16 units;
+counts/lengths are unpadded decimal, with no extra separators or terminators.
+
+| Node | Encoding |
+|---|---|
+| String | `s<byte-length>:<decoded text>` |
+| Integer / float | `i<byte-length>:<decimal>` / `f<byte-length>:<coefficient>e<exponent>` |
+| False / true / null | `b0` / `b1` / `n` |
+| Sequence | `a<count>:<children>` |
+| Mapping | `m<count>:<string key><value>...` in UTF-8 key order |
+
+For example, `{v: null}` is `m1:s1:vn`; `{v: 0}` is
+`m1:s1:vi1:0`; `{v: "0"}` is `m1:s1:vs1:0`.
+Length framing prevents concatenation ambiguity, including embedded NUL.
+
+Hash each namespace with SHA-256 over UTF-8 version, NUL, namespace, NUL,
+then a canonical sequence of string fields. Parent hashes are **unprefixed**
+lowercase digests; ordinals/timeouts are unpadded decimal strings.
+
+| Namespace | Ordered string fields |
+|---|---|
+| `run` | request schema version, run key, request timeout milliseconds, canonical eval bytes |
+| `shard` | run digest, declared shard key |
+| `task` | shard digest, selected task key, canonical task bytes |
+| `trial` | task digest, trial ordinal |
+| `attempt` | trial digest, attempt ordinal |
+| `input` | run, shard, task, trial and attempt digests |
+
+The last hash is `canonical_digest`. No truncation or salting occurs.
+Hash-collision possibility is not eliminated; these are domain-separated
+identities with conformance coverage, not mathematical collision-proof evidence.
+
+## Frozen conformance vectors
+
+Download the [29 canonical vectors](../../runner-identities/canonical.json)
+and [11 admitted producer vectors](../../runner-identities/producer.json).
+The former includes canonical-only numeric/presence controls; its source-profile
+labels are not proof of admission. The latter uses the real executable example
+and equivalent, material-change, tuple and permission/offer controls.
+Both have independent Node references using manually typed canonical trees,
+not Go output or a second YAML parser.
+
+The real example's expected complete identity is:
+
+<dl>
+  {Object.entries(producerVectors[0].identity).map(([field, value]) => (
+    <><dt>{field}</dt><dd><code>{value}</code></dd></>
+  ))}
+</dl>
+
+Verify from a checkout:
+
+```bash
+node internal/runneridentity/testdata/reference.mjs
+node internal/runnerunit/testdata/identity-reference.mjs
+NO_COLOR=1 go test ./internal/runneridentity ./internal/runnerunit -count=1
+```
+
+The source oracle SHA-256 is
+`3acf83109f3939bed296b005d9802e5bd67c8c6730c6894a3bd411e408c738ae`;
+the producer oracle is
+`fea761f0270c22dbf3a79760b8877bfac32ab8e14022f7d058401e149e9e88b0`.
+Checksums normalize physical vector-file CRLF to LF, not request string content.
+Go subprocess tests derive vectors under different directories/timezones.
+The same Go tests are selected by native CI; local macOS checks or
+cross-compilation are not native Windows/Linux execution evidence.
+Never regenerate vectors merely to make changed code pass.
+
+## Lab and validation export
+
+Open `waza serve --lab`, then **Runner contract** and **Validate selection**.
+The live API supplies logical lineage, attempt identity, canonical digest and
+derivation version under **Input-derived logical identity**. The panel never
+calls `/run`. **Export validation JSON** downloads that exact validated report,
+not a fabricated observation or historical execution archive. Editing input,
+rejection or failed reload clears old success. The synthetic demo invents no IDs.
+
+<ZoomImage src="../../images/dashboard-lab-selection.png" alt="Live Runner contract validation showing input-derived logical identity lineage and derivation version, not execution evidence." />
+
+## Release and migration notes
+
+This unreleased layer adds metadata without changing existing local eval/task
+schemas, commands or historical result IDs. Receipts lacking `identity` stay
+readable and show **unavailable**; no implicit backfill or default version applies.
+Compare **both algorithm version and ID**. The unshipped draft
+`sha256-json-v1` is not this algorithm and produces different IDs.
+Recalculate only when complete original declared sources are available and
+migration is explicitly requested; retain old IDs as legacy rather than claiming
+verified reconstruction.
+
+Any change to canonical fields, type/tag/Unicode semantics, framing, namespaces,
+parent inclusion or hash algorithm needs a new identity version and new vectors.
+The current receipt is not the later terminal envelope. Terminal schema,
+emission, exit classification and persistence belong to the next release layer.
+See the [developer integration contract](https://github.com/microsoft/waza/blob/main/docs/RUNNER_IDENTITIES.md)
+and [runner migration guide](../runner-contract/#compatibility-migration-and-evolution).
+The release article remains deferred until the required roadmap items merge.

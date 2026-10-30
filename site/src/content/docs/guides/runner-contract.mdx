@@ -10,7 +10,8 @@ import ZoomImage from '../../../components/ZoomImage.astro';
 one captured mock/text attempt. Embedding hosts cannot substitute a native engine:
 the factory result must be a non-nil concrete mock engine; other implementations
 and wrappers fail before any engine lifecycle call, with zero calls, no
-observation and no claimed execution mode. Native/paid execution, deterministic identities,
+observation and no claimed execution mode. Admitted receipts carry
+[input-derived identities](../runner-identities/). Native/paid execution,
 terminal envelopes, archives, local adapters and the container reference remain
 unavailable. No release or container publication is announced here.
 
@@ -146,10 +147,11 @@ attempt receipt, **not** the future terminal result envelope:
 | `engine_calls` | Observed actual engine invocations, zero or one |
 | `status` | `ready` after validation only; `rejected`, `completed`, or `execution_error` |
 | `execution_mode` / `observation` | `mock` plus the original attempt's `RunResult` when available |
+| `identity` | Optional versioned input digest and logical hierarchy, derived after admission and before runtime construction |
 
 `completed` means a graded attempt completed, not that every check passed.
-Inspect `observation.status` and `validations`. No deterministic logical ID,
-terminal-envelope validity, publication, billing estimate or archive assurance
+Inspect `observation.status` and `validations`. Logical IDs describe admitted
+input, not executed work. No terminal-envelope validity, publication, billing estimate or archive assurance
 is invented. The nested observation remains the existing attempt shape;
 this layer provides no receipt ingestion/archive reader.
 
@@ -284,6 +286,10 @@ The **Validate exact work selection** panel sends the complete captured example
 to `/validate`. It displays requested/resolved shard/task/trial/attempt,
 validation state, no adjacent work selected, and zero engine calls. It does
 not call `/run`. Editing or failed reload clears old selection state.
+The same API result displays the derivation version, canonical input digest and
+full run/shard/task/trial/attempt identity hierarchy, with **Export validation
+JSON**. This is input-derived metadata, not execution/provenance evidence.
+Rejected or older receipts show identity as unavailable; no ID is fabricated.
 
 <ZoomImage src="../../images/dashboard-lab-selection.png" alt="Live Runner contract view showing the requested and resolved exact tuple with valid pre-execution selection, no adjacent work and zero engine calls." />
 

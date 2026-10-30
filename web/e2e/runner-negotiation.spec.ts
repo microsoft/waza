@@ -4,11 +4,17 @@ import { mkdtemp, mkdir, rm, copyFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { readFileSync } from "node:fs";
+import { closeSync, openSync, readFileSync } from "node:fs";
 
 const unitExample = JSON.parse(readFileSync(new URL("../../examples/runner/unit.json", import.meta.url), "utf8")) as {
   selection: { shard: string; task: string; trial: number; attempt: number };
 };
+
+const identityVectors = JSON.parse(readFileSync(new URL("../../internal/runnerunit/testdata/identities.json", import.meta.url), "utf8")) as {
+  name: string;
+  request: { selection: { task: string }; input: { task: string } };
+  identity: Record<string, string>;
+}[];
 
 test.describe("Runner negotiation through the real Go API", () => {
   test.describe.configure({ mode: "serial" });
@@ -104,6 +110,32 @@ test.describe("Runner negotiation through the real Go API", () => {
       }
   });
 
+  test("built CLI saves every frozen identity through actual stdout redirection", () => {
+    expect(identityVectors).toHaveLength(11);
+    for (const vector of identityVectors) {
+      for (const action of ["validate", "run"]) {
+        const path = join(directory, `${vector.name}-${action}.json`);
+        const file = openSync(path, "wx", 0o600);
+        let result;
+        try {
+          result = spawnSync(binary, ["runner", action], {
+            cwd: directory, input: JSON.stringify(vector.request), encoding: "utf8",
+            env: { ...process.env, COPILOT_CLI_PATH: "/usr/bin/false", WAZA_NO_UPDATE_CHECK: "1" },
+            stdio: ["pipe", file, "pipe"], timeout: 10_000,
+          });
+        } finally {
+          closeSync(file);
+        }
+        expect(result.error).toBeUndefined();
+        expect([0, 1]).toContain(result.status);
+        const saved = JSON.parse(readFileSync(path, "utf8"));
+        expect(saved.identity, `${vector.name}/${action}`).toEqual(vector.identity);
+        expect(saved.resolved).toEqual(vector.request.selection);
+        expect(saved.engine_calls).toBe(action === "run" ? 1 : 0);
+      }
+    }
+  });
+
   test("downgrades and exposes capabilities without execution", async ({ page }) => {
     await page.getByRole("button", { name: "Check compatibility" }).click();
     const result = page.getByRole("status", { name: "Negotiation result" });
@@ -189,6 +221,10 @@ test.describe("Runner negotiation through the real Go API", () => {
     await expect(result.locator("dd").nth(2)).toHaveText("valid");
     await expect(result.locator("dd").nth(3)).toHaveText("No");
     await expect(result.locator("dd").nth(4)).toHaveText("0");
+    const lineage = result.getByRole("region", { name: "Logical identity lineage" });
+    for (const value of Object.values(identityVectors[0].identity)) {
+      await expect(lineage).toContainText(value);
+    }
     await page.setViewportSize({ width: 1440, height: 1600 });
     const screenshot = "../docs/images/dashboard-lab-selection.png";
     await page.screenshot({ path: screenshot, fullPage: true, animations: "disabled" });
@@ -201,12 +237,85 @@ test.describe("Runner negotiation through the real Go API", () => {
     await expect(result).toContainText("Selection rejected");
     await expect(result).toContainText("selection conflicts with declared input shard/task");
     await expect(result.locator("dd").nth(1)).toHaveText("Not resolved");
+    await expect(result).toContainText("Identity unavailable");
+    await expect(result.getByRole("button", { name: "Export validation JSON" })).toHaveCount(0);
     await page.route("**/api/v1/runner/validate", (route) => route.fulfill({ status: 503 }));
     await check.click();
     await expect(page.getByRole("alert")).toContainText("HTTP 503");
     await expect(result).toHaveCount(0);
     expect(requests).not.toContain("/api/v1/runner/run");
     expect(requests.filter((path) => path === "/api/v1/runner/validate")).toHaveLength(3);
+  });
+
+  for (const vector of identityVectors) {
+    test(`real producer identity survives API, Lab and downloaded JSON: ${vector.name}`, async ({ page, request }) => {
+      expect(identityVectors).toHaveLength(11);
+      const input = page.getByRole("textbox", { name: "Exact work request (JSON)" });
+      const check = page.getByRole("button", { name: "Validate selection" });
+      await input.fill(JSON.stringify(vector.request));
+      const observed = page.waitForResponse((response) =>
+        response.url().endsWith("/api/v1/runner/validate") && response.request().method() === "POST");
+      await check.click();
+      const report = await (await observed).json();
+      expect(report.status, vector.name).toBe("ready");
+      expect(report.identity, vector.name).toEqual(vector.identity);
+      expect(report.engine_calls).toBe(0);
+      expect(report.observation).toBeUndefined();
+      const lineage = page.getByRole("region", { name: "Logical identity lineage" });
+      for (const value of Object.values(vector.identity)) {
+        await expect(lineage).toContainText(value);
+      }
+      await expect(lineage).toContainText("not execution");
+      const download = page.waitForEvent("download");
+      await lineage.getByRole("button", { name: "Export validation JSON" }).click();
+      const artifact = await download;
+      expect(artifact.suggestedFilename()).toBe("runner-validation.json");
+      const path = await artifact.path();
+      expect(path).not.toBeNull();
+      expect(JSON.parse(readFileSync(path!, "utf8"))).toEqual(report);
+      const execution = await request.post(`${base}/api/v1/runner/run`, {
+        headers: { "Content-Type": "application/json" }, data: vector.request,
+      });
+      expect(execution.ok()).toBe(true);
+      const completed = await execution.json();
+      expect(completed.status).toBe("completed");
+      expect(completed.identity).toEqual(vector.identity);
+      expect(completed.engine_calls).toBe(1);
+    });
+  }
+
+  test("identity guard preserves absence and rejects malformed or contradictory real reports", async ({ page, request }) => {
+    const response = await request.post(`${base}/api/v1/runner/validate`, {
+      headers: { "Content-Type": "application/json" }, data: identityVectors[0].request,
+    });
+    expect(response.ok()).toBe(true);
+    const ready = await response.json();
+    expect(ready.identity).toEqual(identityVectors[0].identity);
+    const { identity, ...historical } = ready;
+    await page.route("**/api/v1/runner/validate", (route) => route.fulfill({ json: historical }));
+    await page.getByRole("button", { name: "Validate selection" }).click();
+    await expect(page.getByRole("region", { name: "Logical identity lineage" })).toContainText("Identity unavailable");
+    await expect(page.getByRole("button", { name: "Export validation JSON" })).toHaveCount(0);
+    const partial = { ...identity };
+    delete partial.attempt;
+    for (const bad of [
+      { ...ready, identity: null },
+      { ...ready, identity: partial },
+      { ...ready, identity: { ...identity, version: "sha256-json-v1" } },
+      { ...ready, identity: { ...identity, attempt: identity.trial } },
+      { ...ready, identity: { ...identity, canonical_digest: identity.canonical_digest.slice(1) } },
+      { ...ready, identity: { ...identity, canonical_digest: identity.canonical_digest.toUpperCase() } },
+      { ...ready, identity: { ...identity, canonical_digest: identity.canonical_digest + "\n" } },
+      { ...ready, identity: { ...identity, attempt: identity.attempt + "\n" } },
+      { ...ready, identity: { ...identity, verified: true } },
+      { ...ready, status: "rejected", validation: "invalid", resolved: undefined },
+    ]) {
+      await page.route("**/api/v1/runner/validate", (route) => route.fulfill({ json: bad }));
+      await page.getByRole("button", { name: "Validate selection" }).click();
+      await expect(page.getByRole("alert")).toBeVisible();
+      await expect(page.getByRole("region", { name: "Logical identity lineage" })).toHaveCount(0);
+      await expect(page.getByRole("button", { name: "Export validation JSON" })).toHaveCount(0);
+    }
   });
 
   test("selection rejects contradictory and malformed backend reports", async ({ page, request }) => {

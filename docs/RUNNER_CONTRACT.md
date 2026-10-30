@@ -2,7 +2,8 @@
 
 This source preview of [v0.40.0](https://github.com/microsoft/waza/issues/754)
 implements negotiation [#757](https://github.com/microsoft/waza/issues/757)
-and bounded exact mock/text execution [#758](https://github.com/microsoft/waza/issues/758). It is available
+and bounded exact mock/text execution [#758](https://github.com/microsoft/waza/issues/758),
+with input-derived [logical identities](RUNNER_IDENTITIES.md) (#759). It is available
 when built from this source, not retroactively in a published older binary.
 The [documentation-site guide](../site/src/content/docs/guides/runner-contract.mdx)
 is the canonical user invocation, API, compatibility and migration reference.
@@ -49,8 +50,8 @@ Fractional numbers, schema-bound violations, nulls and wrong types remain
 invalid; conversion also checks the destination Go `int` range. Negotiation
 still checks shape only, without interpreting captured input.
 `Report` is an invocation-local `waza.runner-unit` receipt, not a #760 terminal
-envelope or historical evaluation artifact. It deliberately contains no
-deterministic identity, archive publication or envelope-validity claim.
+envelope or historical evaluation artifact. Its optional `identity` is input
+metadata, not archive publication, execution evidence or an envelope-validity claim.
 
 The CLI `runner validate` / `runner run` and HTTP
 `POST /api/v1/runner/{validate,run}` are public callers. Lab calls only validation,
@@ -86,7 +87,13 @@ local task loaders. Text graders use offline `graders.ValidateConfig` for
 both eval and task scopes, including empty/invalid-regex checks.
 
 `orchestration.PrepareInlineInput` resolves and freezes the request before the
-runtime factory. `ExecuteInlineAttempt` reuses the current
+runtime factory. After this exact source admission, `runneridentity.DeriveJSON`
+uses the original request bytes and authored sources, not defaulted models or
+re-encoded JSON. The 4 MiB wire limit applies to those original bytes; internal
+HTML escaping must not reject an otherwise admitted request.
+Derivation errors reject with `invalid_identity`, zero calls and no identity.
+Successful derivation is retained even if runtime admission, cancellation,
+execution or shutdown later fails. `ExecuteInlineAttempt` reuses the current
 `executeAttemptWithRequest` seam, not `RunBenchmark`, task loading, `runTest`,
 cache or retry loops. A request-local engine wrapper limits actual Execute calls
 to one and reports their observed count. The caller initializes a fresh engine,
@@ -97,21 +104,26 @@ Legacy local execution and controlled-comparison admission remain unchanged.
 The schema documents receipt shape; it is not a strict terminal evidence
 admission schema. Nested observations are emitted directly from the attempt,
 not decoded/repaired by an archive reader. The Lab validation client accepts
-only zero-call `ready`/`rejected` reports and checks tuple equality.
+only zero-call `ready`/`rejected` reports and checks tuple equality. The additive
+optional `identity` object has an exact seven-string shape and independent
+algorithm version. Older receipts may omit it; null, partial, malformed,
+unknown-version and rejected-with-identity reports fail the schema guard.
+The guard validates metadata shape, not independent hash reconstruction.
 
 ## Layer allocation
 
 | Issue | Interface to extend later |
 |---|---|
 | #758 | Implemented captured inline mock/text exact-unit admission and execution, CLI/API and Lab selection validation. Native execution remains unavailable. |
-| #759 | Add deterministic identity derivation and record its independent version. Do not equate negotiation with identity verification. |
+| #759 | Implemented original-source identity derivation, versioned metadata in CLI/API receipts and Lab lineage/validation JSON export. Negotiation alone derives no identity. |
 | #760 | Add independent terminal result schema, execution exit mapping, bounded/cancelable runtime lifecycle and output/archive publication. Negotiation responses must not be stored as execution results. |
 | #761 | Add explicit local compatibility adapters and historical regression evidence; this layer does not reroute `waza run` or artifact readers. |
 | #762 | Add pinned container proof/publication only after execution is implemented and independently reviewed. |
 
 Source #779 at frozen `4fdbaf62e9dcf4ded2055c1919544973bc42761d`
 is source material, not approval. This layer adapts only its captured admission
-and single-attempt seam; it imports no identity, local adapter, native lifecycle,
+and single-attempt seam; the separate #759 layer adds canonical identities.
+It imports no local adapter, native lifecycle,
 terminalization, publication or archive code. Source review findings about
 empty/invalid graders are addressed by offline parameter validation. Open-pipe
 stdin cancellation and HTTP cancellation during execution/partial upload have

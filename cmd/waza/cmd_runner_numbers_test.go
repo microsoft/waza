@@ -109,6 +109,7 @@ func TestRunnerIntegerSpellingsCLIHTTP(t *testing.T) {
 							if !accepted {
 								require.Equal(t, "rejected", report.Status)
 								require.Equal(t, 6, report.ExitCode())
+								require.Nil(t, report.Identity)
 								require.Nil(t, report.Resolved)
 								require.Nil(t, report.Observation)
 								require.Zero(t, report.Calls)

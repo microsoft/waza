@@ -12,6 +12,20 @@
     "compatibility": {"$ref": "runner-negotiation-response-1.0.schema.json"},
     "requested": {"$ref": "#/$defs/selection"},
     "resolved": {"$ref": "#/$defs/selection"},
+    "identity": {
+      "description": "Optional additive input-derived logical metadata, not execution evidence. Historical receipts may omit it.",
+      "type": "object", "additionalProperties": false,
+      "required": ["version", "canonical_digest", "run", "shard", "task", "trial", "attempt"],
+      "properties": {
+        "version": {"const": "sha256-waza-c14n-v1"},
+        "canonical_digest": {"type": "string", "minLength": 64, "maxLength": 64, "pattern": "^[a-f0-9]{64}$"},
+        "run": {"type": "string", "minLength": 68, "maxLength": 68, "pattern": "^run-[a-f0-9]{64}$"},
+        "shard": {"type": "string", "minLength": 70, "maxLength": 70, "pattern": "^shard-[a-f0-9]{64}$"},
+        "task": {"type": "string", "minLength": 69, "maxLength": 69, "pattern": "^task-[a-f0-9]{64}$"},
+        "trial": {"type": "string", "minLength": 70, "maxLength": 70, "pattern": "^trial-[a-f0-9]{64}$"},
+        "attempt": {"type": "string", "minLength": 72, "maxLength": 72, "pattern": "^attempt-[a-f0-9]{64}$"}
+      }
+    },
     "validation": {"enum": ["not_checked", "invalid", "valid"]},
     "adjacent_work_selected": {"const": false},
     "execution_mode": {"const": "mock"},
@@ -36,7 +50,7 @@
     },
     {
       "if": {"properties": {"status": {"const": "rejected"}}},
-      "then": {"properties": {"validation": {"enum": ["invalid", "not_checked"]}}, "not": {"required": ["resolved"]}}
+      "then": {"properties": {"validation": {"enum": ["invalid", "not_checked"]}}, "not": {"anyOf": [{"required": ["resolved"]}, {"required": ["identity"]}]}}
     },
     {
       "if": {"properties": {"status": {"enum": ["completed", "execution_error"]}}},
