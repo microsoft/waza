@@ -237,6 +237,9 @@ func (c *Classifier) Classify(ctx context.Context, agentMessage string) (Decisio
 		return Decision{}, fmt.Errorf("responder execution failed: %w", err)
 	}
 	if !rec.set {
+		if resp != nil && !resp.Success && resp.ErrorMsg != "" {
+			return Decision{}, fmt.Errorf("responder execution failed: %s", resp.ErrorMsg)
+		}
 		return Decision{}, errors.New("responder did not call a decision tool")
 	}
 	return rec.decision, nil
