@@ -9,9 +9,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/signal"
 	"strconv"
 	"strings"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -285,6 +287,8 @@ func TestRunnerIntegerTimeoutStartupBranches(t *testing.T) {
 					service := runnerunit.NewService(func(cfg models.Config) (execution.AgentEngine, error) {
 						calls++
 						<-ctx.Done()
+						// Parent Done closes before cancellation reaches the service's child.
+						synctest.Wait()
 						return execution.NewMockEngine(cfg.ModelID), nil
 					})
 					if !entered {
@@ -317,6 +321,108 @@ func TestRunnerIntegerTimeoutStartupBranches(t *testing.T) {
 					require.Contains(t, decoded.Diagnostics[0].Message, "context deadline exceeded")
 				})
 			})
+		}
+	}
+}
+
+func TestRunnerIntegerTimeoutStartupCLI(t *testing.T) {
+	fixture, err := os.ReadFile("../../examples/runner/unit.json")
+	require.NoError(t, err)
+	// The process-wide signal runtime must not be initialized inside a bubble.
+	_, stop := signal.NotifyContext(t.Context(), os.Interrupt, syscall.SIGTERM)
+	stop()
+	for _, token := range []string{"2", "2.0", "20e-1", "2e0"} {
+		for _, deadline := range []string{"parent", "service", "active"} {
+			for _, factoryError := range []bool{false, true} {
+				t.Run(token+"/"+deadline+"/factory-error="+strconv.FormatBool(factoryError), func(t *testing.T) {
+					synctest.Test(t, func(t *testing.T) {
+						var fields map[string]json.RawMessage
+						require.NoError(t, json.Unmarshal(fixture, &fields))
+						fields["timeout_ms"] = json.RawMessage(token)
+						body, err := json.Marshal(fields)
+						require.NoError(t, err)
+						require.Contains(t, string(body), `"timeout_ms":`+token)
+						admitted := runnerunit.Validate(body)
+						require.Equal(t, "ready", admitted.Status)
+						ctx, cancel := context.WithCancel(t.Context())
+						defer cancel()
+						if deadline == "parent" {
+							var stop context.CancelFunc
+							ctx, stop = context.WithTimeout(ctx, 2*time.Millisecond)
+							defer stop()
+						}
+						start := time.Now()
+						calls := 0
+						service := runnerunit.NewService(func(cfg models.Config) (execution.AgentEngine, error) {
+							calls++
+							switch deadline {
+							case "parent":
+								<-ctx.Done()
+							case "service":
+								// Advance exactly the request budget, not the parent deadline.
+								time.Sleep(2 * time.Millisecond)
+							}
+							// Drain cancellation through the CLI and service-owned contexts.
+							synctest.Wait()
+							if factoryError {
+								return nil, errors.New("injected startup factory failure")
+							}
+							return execution.NewMockEngine(cfg.ModelID), nil
+						})
+						command := newRunnerCommandWithService(service)
+						command.SetArgs([]string{"run"})
+						command.SetIn(bytes.NewReader(body))
+						var output bytes.Buffer
+						command.SetOut(&output)
+						command.SetErr(&bytes.Buffer{})
+						commandErr := command.ExecuteContext(ctx)
+						require.Equal(t, 1, calls, "the admitted factory must actually be entered")
+						if deadline == "parent" {
+							require.ErrorIs(t, ctx.Err(), context.DeadlineExceeded)
+						} else {
+							require.NoError(t, ctx.Err(), "do not borrow the parent's error for the service deadline")
+						}
+						decoded, err := runnerterminal.Validate(output.Bytes(), &runnerterminal.Binding{
+							Selection: *admitted.Resolved, Identity: admitted.Identity, GraderIDs: []string{"_output_contains"},
+						})
+						require.NoError(t, err, "%s", output.Bytes())
+						require.Equal(t, 1, bytes.Count(output.Bytes(), []byte{'\n'}))
+						require.Equal(t, "valid", decoded.Validation)
+						require.Equal(t, admitted.Resolved, decoded.Selection)
+						require.Equal(t, admitted.Identity, decoded.Identity)
+						if deadline == "active" && !factoryError {
+							require.NoError(t, commandErr)
+							require.Equal(t, runnerterminal.Success, decoded.Outcome)
+							require.Zero(t, decoded.ExitCode)
+							require.Equal(t, 1, decoded.EngineCalls)
+							require.NotNil(t, decoded.Observation)
+							require.Empty(t, decoded.Diagnostics)
+							require.Zero(t, time.Since(start))
+							return
+						}
+						want, code, elapsed := runnerterminal.Timeout, 4, 2*time.Millisecond
+						if deadline == "active" {
+							want, code, elapsed = runnerterminal.InfrastructureFailure, 2, 0
+						}
+						exit, ok := errors.AsType[*ExitCodeError](commandErr)
+						require.True(t, ok, "%v", commandErr)
+						require.Equal(t, code, exit.Code)
+						require.Equal(t, code, decoded.ExitCode)
+						require.Equal(t, want, decoded.Outcome)
+						require.Equal(t, "startup", decoded.FailureBoundary)
+						require.Zero(t, decoded.EngineCalls)
+						require.Nil(t, decoded.Observation)
+						require.Len(t, decoded.Diagnostics, 1)
+						require.Equal(t, elapsed, time.Since(start))
+						if deadline != "active" {
+							require.Contains(t, decoded.Diagnostics[0].Message, "context deadline exceeded")
+						}
+						if factoryError {
+							require.Contains(t, decoded.Diagnostics[0].Message, "injected startup factory failure")
+						}
+					})
+				})
+			}
 		}
 	}
 }
