@@ -2194,7 +2194,7 @@ not a grader kind; regex/keyword checks belong to `text`.
 | `prompt` | LLM-as-judge evaluation with rubrics (built-in: `groundedness`, `helpfulness`, `instruction-following`, `refusal-correctness`, `tool-use-appropriateness`) | [docs/GRADERS.md](docs/GRADERS.md#prompt---llm-based-evaluation) |
 | `trigger` | Prompt trigger accuracy detection | [Trigger](docs/graders/trigger.md) |
 | `json_schema` | Structured output validation | [JSON Schema](docs/graders/json_schema.md) |
-| `program` | External program exit-status checks | [Program](docs/graders/program.md) |
+| `program` | External program exit-status checks, with grading context JSON | [Program](docs/graders/program.md) |
 | `tool_constraint` | Required/forbidden tool policies | [Tool Constraint](docs/graders/tool_constraint.md) |
 | `tool_calls` | Tool event and argument checks | [Tool Calls](docs/graders/tool_calls.md) |
 

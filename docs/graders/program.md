@@ -1,6 +1,6 @@
 ### `program` - External Program Grader
 
-Runs an external program or script to grade agent output. The agent output is passed via stdin, and the workspace directory is available as the `WAZA_WORKSPACE_DIR` environment variable.
+Runs an external program or script to grade agent output. The agent output is passed via stdin, the workspace directory is available as the `WAZA_WORKSPACE_DIR` environment variable, and `WAZA_GRADING_CONTEXT` names a JSON file with the run's grading context.
 
 ```yaml
 - type: program
@@ -23,8 +23,60 @@ Runs an external program or script to grade agent output. The agent output is pa
 **Environment:**
 - **stdin**: The agent's output text
 - **`WAZA_WORKSPACE_DIR`**: Path to the post-execution workspace directory
+- **`WAZA_GRADING_CONTEXT`**: Path to a JSON file containing the run's grading context (see below)
 
 **stdout** from the program is captured and used as the grader feedback message on success.
+
+**Grading context file:**
+
+Waza writes the same run evidence that inline [`code`](code.md) graders receive on stdin to `context.json` in a new private temporary directory and passes the file's path in `WAZA_GRADING_CONTEXT`. Stdin is unchanged, so existing program graders keep working. After the program exits, Waza deletes the directory and everything in it, once it has verified that the directory and `context.json` are still the entries it created.
+
+- **Privacy:** the directory has mode `0700` and the file `0600` on Linux and macOS. On Windows, both get a protected DACL that grants access only to the current user.
+- **Ownership:** if the directory or `context.json` was moved away, deleted or replaced, Waza does not delete the replacement and grading fails with an error naming the path, because transcript data may remain elsewhere. Programs should treat the directory and file as read-only.
+- **Failures:** if the file cannot be written or the directory cannot be removed, grading fails with an error naming the path, so transcript data is never left behind silently.
+- **Trust model:** the grader program and other processes running as the same user are trusted; the program can read and copy the context anyway. The private directory protects against other local users. A replacement made by a concurrently running same-user process between Waza's check and its deletion is out of scope.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `version` | int | Context format version, currently `1`. Additive fields keep the version. |
+| `output` | string | Final agent output (same text as stdin) |
+| `outcome` | object | Outcome data (`{}` when none) |
+| `transcript` | list | Transcript events (`[]` when none) |
+| `tool_calls` | list | Tool calls derived from the transcript (`[]` when none) |
+| `tool_events` | list or `null` | Normalized per-call tool records |
+| `command_invocations` | list or `null` | Sanitized calls handled by `command_mocks`: `command`, `response_index`, and optional `args` and `exit_code` (absent when the attempt did not complete) |
+| `duration_ms` | int | Run duration in milliseconds |
+
+`null` for `tool_events` or `command_invocations` means no evidence was recorded or preserved for this run (for example, no `command_mocks` were configured, or a results file omits the field). It is not proof that zero calls happened. An empty list means the evidence was present and contained no calls. `waza grade --results` builds the file offline from the saved run.
+
+**Example: Python grader checking mocked CLI calls**
+
+```yaml
+- type: program
+  name: account_lookup
+  config:
+    command: python3
+    args: ["graders/check_commands.py"]
+```
+
+```python
+#!/usr/bin/env python3
+import json, os, sys
+
+with open(os.environ["WAZA_GRADING_CONTEXT"], encoding="utf-8") as f:
+    ctx = json.load(f)
+
+calls = ctx["command_invocations"]
+if calls is None:
+    print("no command invocation evidence recorded", file=sys.stderr)
+    sys.exit(1)
+
+if not any(c["command"] == "az" and c.get("args", [])[:2] == ["account", "show"] for c in calls):
+    print("expected 'az account show'", file=sys.stderr)
+    sys.exit(1)
+
+print(f"{len(calls)} mocked command call(s) checked")
+```
 
 **Example: Shell script grader**
 

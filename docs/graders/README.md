@@ -84,7 +84,7 @@ graders:
 - Complex pattern matching or analysis
 - Integration with external services
 
-The program grader passes agent output via stdin and the workspace directory via the `WAZA_WORKSPACE_DIR` environment variable. Exit code 0 means pass, non-zero means fail. See the [program grader docs](program.md) for details.
+The program grader passes agent output via stdin, the workspace directory via the `WAZA_WORKSPACE_DIR` environment variable, and the path of a grading context JSON file (including `tool_events` and `command_invocations`) via `WAZA_GRADING_CONTEXT`. Exit code 0 means pass, non-zero means fail. See the [program grader docs](program.md) for details.
 
 ## Azure ML Evaluator Integration
 
