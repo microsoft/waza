@@ -3,7 +3,9 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"debug/buildinfo"
+	"debug/pe"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -26,16 +28,18 @@ import (
 const runnerWindowsHelperEnv = "WAZA_RUNNER_WINDOWS_CONSOLE_HELPER"
 
 type runnerWindowsMessage struct {
-	Kind       string `json:"kind"`
-	Handle     uint64 `json:"handle,omitempty"`
-	Binary     string `json:"binary,omitempty"`
-	Action     string `json:"action,omitempty"`
-	PID        uint32 `json:"pid,omitempty"`
-	NoDeadline bool   `json:"no_deadline,omitempty"`
-	GoVersion  string `json:"go_version,omitempty"`
-	Code       int    `json:"code,omitempty"`
-	Stdout     []byte `json:"stdout,omitempty"`
-	Stderr     []byte `json:"stderr,omitempty"`
+	Kind            string                  `json:"kind"`
+	Handle          uint64                  `json:"handle,omitempty"`
+	Binary          string                  `json:"binary,omitempty"`
+	Action          string                  `json:"action,omitempty"`
+	PID             uint32                  `json:"pid,omitempty"`
+	NoDeadline      bool                    `json:"no_deadline,omitempty"`
+	GoVersion       string                  `json:"go_version,omitempty"`
+	Code            int                     `json:"code,omitempty"`
+	Stdout          []byte                  `json:"stdout,omitempty"`
+	Stderr          []byte                  `json:"stderr,omitempty"`
+	StartupDeadline time.Time               `json:"startup_deadline,omitempty"`
+	Readiness       *runnerConsoleReadiness `json:"readiness,omitempty"`
 }
 
 type runnerWindowsOutput struct {
@@ -188,22 +192,117 @@ func runnerWindowsInJob(process, job windows.Handle) error {
 	return nil
 }
 
-func runnerWindowsConsoleContains(pid uint32) error {
-	var processes [64]uint32
+func runnerWindowsConsoleInventory() (runnerConsoleSample, error) {
+	var processes [runnerConsoleInventoryLimit]uint32
 	count, _, err := windows.NewLazySystemDLL("kernel32.dll").NewProc("GetConsoleProcessList").Call(
 		uintptr(unsafe.Pointer(&processes[0])), uintptr(len(processes)))
+	sample := runnerConsoleSample{At: time.Now(), Count: uint32(count)}
 	if count == 0 {
-		return runnerWindowsCallError("enumerating isolated Windows console", err)
+		return sample, runnerWindowsCallError("enumerating isolated Windows console", err)
 	}
 	if count > uintptr(len(processes)) {
-		return errors.New("isolated Windows console process inventory exceeded its bound")
+		return sample, errors.New("isolated Windows console process inventory exceeded its bound")
 	}
-	for _, current := range processes[:count] {
+	sample.PIDs = append([]uint32(nil), processes[:count]...)
+	return sample, nil
+}
+
+func runnerWindowsConsoleContains(pid uint32) error {
+	sample, err := runnerWindowsConsoleInventory()
+	if err != nil {
+		return err
+	}
+	for _, current := range sample.PIDs {
 		if current == pid {
 			return nil
 		}
 	}
-	return fmt.Errorf("Windows target %d does not share the isolated controller console", pid)
+	return fmt.Errorf("Windows target %d does not share the isolated controller console: %+v", pid, sample)
+}
+
+func runnerWindowsConsoleObservation(handle windows.Handle) (runnerConsoleSample, error) {
+	before, err := windows.WaitForSingleObject(handle, 0)
+	sample := runnerConsoleSample{StateBefore: ^uint32(0), StateAfter: ^uint32(0)}
+	if err != nil {
+		return sample, fmt.Errorf("checking target before console observation: %w", err)
+	}
+	sample.StateBefore, sample.StateAfter = before, before
+	if before == windows.WAIT_OBJECT_0 {
+		return sample, nil
+	}
+	if before != uint32(windows.WAIT_TIMEOUT) {
+		return sample, fmt.Errorf("unexpected target handle state before console observation: %d", before)
+	}
+	sample, inventoryErr := runnerWindowsConsoleInventory()
+	after, waitErr := windows.WaitForSingleObject(handle, 0)
+	sample.StateBefore, sample.StateAfter = before, ^uint32(0)
+	if waitErr == nil {
+		sample.StateAfter = after
+	}
+	sample.Alive = waitErr == nil && after == uint32(windows.WAIT_TIMEOUT)
+	if waitErr == nil && after != windows.WAIT_OBJECT_0 && after != uint32(windows.WAIT_TIMEOUT) {
+		waitErr = fmt.Errorf("unexpected target handle state after console observation: %d", after)
+	}
+	return sample, errors.Join(inventoryErr, waitErr)
+}
+
+func runnerWindowsStartupFailure(target *runnerWindowsProcess, report runnerConsoleReadiness, startupErr error) error {
+	observedExit := len(report.Samples) != 0 &&
+		report.Samples[len(report.Samples)-1].StateAfter == windows.WAIT_OBJECT_0
+	var earlyWaitErr error
+	originalExit := "not observed before cleanup"
+	if observedExit {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		earlyWaitErr = target.wait(ctx)
+		cancel()
+		select {
+		case <-target.done:
+			if target.cmd.ProcessState != nil {
+				originalExit = target.cmd.ProcessState.String()
+			}
+		default:
+			originalExit = "exited handle observed; output join incomplete before cleanup"
+		}
+	}
+	cleanupErr := target.stop()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	waitErr := target.wait(ctx)
+	joined, exit := false, "not joined"
+	select {
+	case <-target.done:
+		joined = true
+		if target.cmd.ProcessState != nil {
+			exit = target.cmd.ProcessState.String()
+		} else {
+			exit = "unavailable after joined Wait"
+		}
+	default:
+	}
+	// Reserve room under the existing controller output bound, even after JSON
+	// escaping. Full-size captures remain bounded; truncation is explicit.
+	output := func(data []byte) map[string]any {
+		const limit = 64 << 10
+		return map[string]any{
+			"bytes": len(data), "sha256": fmt.Sprintf("%x", sha256.Sum256(data)),
+			"truncated": len(data) > limit, "prefix": data[:min(len(data), limit)],
+		}
+	}
+	diagnostic, encodeErr := json.Marshal(map[string]any{
+		"controller_pid": os.Getpid(), "target_pid": target.cmd.Process.Pid,
+		"controller_requested_flags": windows.CREATE_NEW_CONSOLE, "target_requested_flags": windows.CREATE_NEW_PROCESS_GROUP,
+		"readiness": report, "elapsed": report.Finished.Sub(report.Started).String(),
+		"wait_joined": joined, "original_exit": originalExit, "exit_after_cleanup": exit,
+		"wait_error": fmt.Sprint(waitErr), "early_wait_error": fmt.Sprint(earlyWaitErr),
+		"exit_observed_before_cleanup": observedExit, "cleanup_error": fmt.Sprint(cleanupErr),
+		"stdout": output(target.stdout.snapshot()), "stderr": output(target.stderr.snapshot()),
+	})
+	var writeErr error
+	if encodeErr == nil {
+		_, writeErr = fmt.Fprintf(os.Stderr, "Windows startup diagnostic: %s\n", diagnostic)
+	}
+	return errors.Join(fmt.Errorf("Windows target startup admission: %w; diagnostic=%s", startupErr, diagnostic),
+		cleanupErr, earlyWaitErr, waitErr, encodeErr, writeErr)
 }
 
 func runnerWindowsRemaining(input *os.File) (uint32, error) {
@@ -234,8 +333,42 @@ type runnerWindowsOperation struct {
 
 func TestRunnerTerminalWindowsInheritedStdinCancellation(t *testing.T) {
 	binary := buildRecoveryCLI(t)
-	info, err := buildinfo.ReadFile(binary)
+	file, err := os.Open(binary)
 	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, file.Close()) })
+	image, err := pe.NewFile(file)
+	require.NoError(t, err)
+	var subsystem uint16
+	switch header := image.OptionalHeader.(type) {
+	case *pe.OptionalHeader32:
+		subsystem = header.Subsystem
+	case *pe.OptionalHeader64:
+		subsystem = header.Subsystem
+	default:
+		t.Fatal("actual Windows target lacks a supported PE optional header")
+	}
+	digest := sha256.New()
+	_, err = io.Copy(digest, file)
+	require.NoError(t, err)
+	info, err := buildinfo.Read(file)
+	require.NoError(t, err)
+	settings := make(map[string]string)
+	for _, setting := range info.Settings {
+		switch setting.Key {
+		case "GOOS", "GOARCH", "GOAMD64", "CGO_ENABLED", "-buildmode", "-compiler", "-race", "-cover", "-trimpath":
+			settings[setting.Key] = setting.Value
+		case "-ldflags":
+			settings["-ldflags.sha256"] = fmt.Sprintf("%x", sha256.Sum256([]byte(setting.Value)))
+		}
+	}
+	diagnostic, err := json.Marshal(map[string]any{
+		"machine": image.Machine, "subsystem": subsystem, "sha256": fmt.Sprintf("%x", digest.Sum(nil)),
+		"go_version": info.GoVersion, "build_settings_allowlist": settings,
+		"controller_requested_flags": windows.CREATE_NEW_CONSOLE, "target_requested_flags": windows.CREATE_NEW_PROCESS_GROUP,
+	})
+	require.NoError(t, err)
+	t.Logf("actual built Windows target (not a crossbuild receipt): %s", diagnostic)
+	require.Equal(t, uint16(pe.IMAGE_SUBSYSTEM_WINDOWS_CUI), subsystem)
 	require.Equal(t, runtime.Version(), info.GoVersion, "capability probe and actual CLI must use the same Go runtime")
 	for _, action := range []string{"validate", "run"} {
 		t.Run(action, func(t *testing.T) {
@@ -331,12 +464,28 @@ func TestRunnerTerminalWindowsInheritedStdinCancellation(t *testing.T) {
 			t.Logf("inherited anonymous-pipe environment/handle capability: os.ErrNoDeadline; %s", capability.GoVersion)
 
 			input, producer, remote := pipe()
+			require.NoError(t, runnerConsoleContextError(ctx))
+			deadline, bounded := ctx.Deadline()
+			require.True(t, bounded)
+			if startupLimit := time.Now().Add(5 * time.Second); startupLimit.Before(deadline) {
+				deadline = startupLimit
+			}
 			require.NoError(t, requests.Encode(runnerWindowsMessage{
-				Kind: "start", Handle: remote, Binary: binary, Action: action,
+				Kind: "start", Handle: remote, Binary: binary, Action: action, StartupDeadline: deadline,
 			}))
 			started, err := controller.event(ctx, "started")
 			require.NoError(t, err)
+			require.NoError(t, runnerConsoleContextError(ctx))
 			require.NotZero(t, started.PID)
+			require.NotNil(t, started.Readiness)
+			require.Equal(t, started.PID, started.Readiness.TargetPID)
+			require.NotEmpty(t, started.Readiness.Samples)
+			last := started.Readiness.Samples[len(started.Readiness.Samples)-1]
+			require.True(t, last.Alive)
+			require.Contains(t, last.PIDs, started.PID)
+			readiness, err := json.Marshal(started.Readiness)
+			require.NoError(t, err)
+			t.Logf("controller PID=%d; positive live target shared-console admission: %s", ready.PID, readiness)
 			targetHandle, err = windows.OpenProcess(windows.SYNCHRONIZE|windows.PROCESS_QUERY_INFORMATION, false, started.PID)
 			require.NoError(t, err)
 			require.NoError(t, runnerWindowsInJob(targetHandle, job))
@@ -541,23 +690,66 @@ func runRunnerWindowsController() (resultErr error) {
 			}
 			probed = true
 		case "start":
-			if !probed || target != nil || (request.Action != "validate" && request.Action != "run") || request.Binary == "" {
+			if !probed || target != nil || (request.Action != "validate" && request.Action != "run") ||
+				request.Binary == "" || request.StartupDeadline.IsZero() {
 				return errors.New("invalid or duplicate Windows CLI start")
+			}
+			startup, cancelStartup := context.WithDeadline(context.Background(), request.StartupDeadline)
+			if err := runnerConsoleContextError(startup); err != nil {
+				cancelStartup()
+				return fmt.Errorf("Windows startup budget expired before target creation: %w", err)
 			}
 			var err error
 			target, err = spawnRunnerWindowsTarget(request, false)
 			if err != nil {
+				cancelStartup()
 				return err
 			}
 			pid := uint32(target.cmd.Process.Pid)
 			targetHandle, err = windows.OpenProcess(windows.SYNCHRONIZE, false, pid)
 			if err != nil {
-				return err
+				cancelStartup()
+				return runnerWindowsStartupFailure(target, runnerConsoleReadiness{TargetPID: pid}, err)
 			}
-			if err := runnerWindowsConsoleContains(pid); err != nil {
-				return err
+			report, readyErr := waitRunnerConsoleReady(startup, pid, func() (runnerConsoleSample, error) {
+				return runnerWindowsConsoleObservation(targetHandle)
+			})
+			if readyErr == nil {
+				readyErr = runnerConsoleContextError(startup)
 			}
-			if err := events.Encode(runnerWindowsMessage{Kind: "started", PID: pid}); err != nil {
+			if readyErr == nil {
+				if err := runnerConsoleContextError(startup); err != nil {
+					cancelStartup()
+					return runnerWindowsStartupFailure(target, report, err)
+				}
+				final, finalErr := runnerWindowsConsoleObservation(targetHandle)
+				report.record(final)
+				if finalErr != nil {
+					readyErr = finalErr
+				} else if !final.Alive {
+					readyErr = errRunnerConsoleExited
+				} else {
+					found := false
+					for _, member := range final.PIDs {
+						found = found || member == pid
+					}
+					if !found {
+						readyErr = errors.New("target lost shared-console membership before started")
+					}
+				}
+				readyErr = errors.Join(readyErr, runnerConsoleContextError(startup))
+			}
+			if readyErr != nil {
+				cancelStartup()
+				return runnerWindowsStartupFailure(target, report, readyErr)
+			}
+			if err := runnerConsoleContextError(startup); err != nil {
+				cancelStartup()
+				return runnerWindowsStartupFailure(target, report, err)
+			}
+			err = events.Encode(runnerWindowsMessage{Kind: "started", PID: pid, Readiness: &report})
+			cancelStartup()
+			if err != nil {
 				return err
 			}
 		case "cancel":
