@@ -2,6 +2,7 @@ package responder
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 
@@ -90,15 +91,142 @@ func TestClassifyAbstain(t *testing.T) {
 	require.Equal(t, "no info", d.Reason)
 }
 
-func TestClassifyNoDecisionToolIsError(t *testing.T) {
-	exec := &fakeExecutor{
-		respond: func(req *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
-			return &execution.ExecutionResponse{SessionID: "resp-1"}, nil
+func TestClassifyWithoutDecision(t *testing.T) {
+	executionErr := errors.New("synthetic transport failure")
+	for _, tc := range []struct {
+		name string
+		resp *execution.ExecutionResponse
+		err  error
+		want string
+	}{
+		{
+			name: "response failure",
+			resp: &execution.ExecutionResponse{SessionID: "resp-1", Success: false, ErrorMsg: "synthetic provider rejection"},
+			want: "responder execution failed: synthetic provider rejection",
 		},
+		{
+			name: "successful text",
+			resp: &execution.ExecutionResponse{SessionID: "resp-1", Success: true, FinalOutput: "synthetic plain text"},
+			want: "responder did not call a decision tool",
+		},
+		{
+			name: "failure without detail",
+			resp: &execution.ExecutionResponse{SessionID: "resp-1", Success: false},
+			want: "responder did not call a decision tool",
+		},
+		{
+			name: "nil response",
+			want: "responder did not call a decision tool",
+		},
+		{
+			name: "successful response with error text",
+			resp: &execution.ExecutionResponse{Success: true, ErrorMsg: "not a failed execution"},
+			want: "responder did not call a decision tool",
+		},
+		{
+			name: "Go error",
+			err:  executionErr,
+			want: "responder execution failed: synthetic transport failure",
+		},
+		{
+			name: "Go error precedes response failure",
+			resp: &execution.ExecutionResponse{Success: false, ErrorMsg: "synthetic provider rejection"},
+			err:  executionErr,
+			want: "responder execution failed: synthetic transport failure",
+		},
+	} {
+		for _, phase := range []string{"initial", "resumed"} {
+			t.Run(tc.name+"/"+phase, func(t *testing.T) {
+				exec := &fakeExecutor{
+					respond: func(req *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
+						_, err := findTool(t, req.Tools, toolStop).Handler(copilot.ToolInvocation{})
+						require.NoError(t, err)
+						return &execution.ExecutionResponse{SessionID: "resp-1", Success: true}, nil
+					},
+				}
+				c := New(exec, models.ResponderConfig{Instructions: "synthetic brief"}, "test-model")
+				wantSession, wantCalls := "", 1
+				if phase == "resumed" {
+					d, err := c.Classify(t.Context(), "Synthetic setup.")
+					require.NoError(t, err)
+					require.Equal(t, Decision{Kind: DecisionStop}, d)
+					wantSession, wantCalls = "resp-1", 2
+				}
+				exec.respond = func(req *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
+					require.Equal(t, wantSession, req.SessionID)
+					return tc.resp, tc.err
+				}
+				d, err := c.Classify(t.Context(), "Synthetic question?")
+				require.EqualError(t, err, tc.want)
+				if tc.err != nil {
+					require.ErrorIs(t, err, tc.err)
+				}
+				require.Equal(t, Decision{}, d)
+				require.Len(t, exec.calls, wantCalls, "classification must not retry")
+				if tc.resp != nil && tc.resp.SessionID != "" {
+					require.Equal(t, tc.resp.SessionID, c.sessionID)
+				}
+			})
+		}
 	}
-	c := New(exec, models.ResponderConfig{Instructions: "x", MaxFollowups: 5}, "gpt-4o")
-	_, err := c.Classify(context.Background(), "Q?")
-	require.Error(t, err)
+}
+
+func TestClassifyDecisionPrecedence(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		tool    string
+		args    map[string]any
+		want    Decision
+		wantErr string
+	}{
+		{"reply", toolRespond, map[string]any{"answer": "synthetic answer"}, Decision{Kind: DecisionReply, Answer: "synthetic answer"}, ""},
+		{"stop", toolStop, map[string]any{}, Decision{Kind: DecisionStop}, ""},
+		{"abstain", toolAbstain, map[string]any{"reason": "synthetic missing fact"}, Decision{Kind: DecisionAbstain, Reason: "synthetic missing fact"}, ""},
+		{"conflict", toolStop, map[string]any{}, Decision{}, "responder tool call invalid: responder called responder_stop after a decision was already recorded"},
+		{"invalid arguments", toolRespond, map[string]any{"answer": ""}, Decision{}, "responder tool call invalid: responder_reply called with empty answer"},
+	} {
+		for _, result := range []string{"response failure", "Go and response failure", "nil response"} {
+			t.Run(tc.name+"/"+result, func(t *testing.T) {
+				exec := &fakeExecutor{
+					respond: func(req *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
+						if tc.name == "conflict" {
+							_, err := findTool(t, req.Tools, toolRespond).Handler(copilot.ToolInvocation{Arguments: map[string]any{"answer": "first"}})
+							require.NoError(t, err)
+						}
+						_, err := findTool(t, req.Tools, tc.tool).Handler(copilot.ToolInvocation{Arguments: tc.args})
+						if tc.wantErr == "" {
+							require.NoError(t, err)
+						} else {
+							require.Error(t, err)
+						}
+						if result == "nil response" {
+							return nil, nil
+						}
+						resp := &execution.ExecutionResponse{SessionID: "resp-1", Success: false, ErrorMsg: "synthetic provider rejection"}
+						if result == "Go and response failure" {
+							return resp, errors.New("synthetic transport failure")
+						}
+						return resp, nil
+					},
+				}
+				c := New(exec, models.ResponderConfig{Instructions: "synthetic brief"}, "test-model")
+				for range 2 {
+					d, err := c.Classify(t.Context(), "Synthetic question?")
+					if tc.wantErr == "" {
+						require.NoError(t, err)
+					} else {
+						require.EqualError(t, err, tc.wantErr)
+					}
+					require.Equal(t, tc.want, d)
+				}
+				require.Len(t, exec.calls, 2)
+				require.Empty(t, exec.calls[0].SessionID)
+				if result != "nil response" {
+					require.Equal(t, "resp-1", exec.calls[1].SessionID)
+				}
+			})
+		}
+	}
 }
 
 func TestClassifyUsesDefaultModelWhenUnset(t *testing.T) {

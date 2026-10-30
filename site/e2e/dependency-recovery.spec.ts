@@ -7,6 +7,11 @@ test("dependency recovery guide states public support and safety boundaries", as
   await expect(page.locator("main")).toContainText("notifications/cancelled");
   await expect(page.locator("main")).toContainText("at most 64 pending requests");
   await expect(page.locator("main")).toContainText("canceled calls receive no fabricated response");
+  await expect(page.locator("main")).toContainText("Sequence state is scoped to one task attempt");
+  await expect(page.locator("main")).toContainText("Every task, trial, and retry starts at the");
+  await expect(page.locator("main")).toContainText("no command-line flag or wrapper is required");
+  await expect(page.locator("main")).toContainText("If cleanup cannot complete, the run fails");
+  await expect(page.locator("main")).toContainText("tasks without MCP mocks keep their existing keys");
   await expect(page.locator("main")).toContainText("exit_code omitted");
   await expect(page.locator("main")).toContainText("Writing the expected report without making the required calls does not pass");
   await expect(page.locator("main")).toContainText("undeclared executables may resolve through the host PATH");

@@ -14,6 +14,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Input-derived runner identities (v0.40.0 preview)** - Admitted validation/execution receipts now carry `identity` with version `sha256-waza-c14n-v1`, canonical input digest and run/shard/task/trial/attempt lineage through CLI JSON, HTTP, Lab and validation export (#759). Independent frozen source and producer vectors define the stability boundary. Invalid/unadmitted work has no identity; later execution failures retain it without implying execution success. Historical local results and receipts without identities are unchanged and are not backfilled. The unshipped `sha256-json-v1` draft is not compatible; compare version and ID together. See [normalization, conformance and migration](site/src/content/docs/guides/runner-identities.mdx).
 - **Runner terminal envelope (v0.40.0 preview)** - `runner run` and HTTP `/runner/run` now emit one schema-validated `waza.runner-terminal` envelope, with success/evaluation/infrastructure/cancellation/timeout/unsupported/invalid exits 0–6, actual admitted identity and bounded observed verdicts (#760). This replaces only the earlier unshipped run receipt, not offline negotiation/validation or local result artifacts. Lab's explicit mock-run action shows and exports the real response; edits and errors clear stale success. Short/failed output never retries, and SIGKILL/host loss cannot guarantee delivery. See [outcomes, failure boundaries and migration](site/src/content/docs/guides/runner-terminal.mdx). No release blog or publication is implied.
 
+### Fixed
+
+- **MCP mock sequences across turns** - Finite MCP mock sequences now continue across initial, scripted follow-up, and responder-driven turns in one task attempt, even when the native runtime restarts the mock server. Each task, trial, and retry still starts fresh, and existing first-match and exhaustion behavior is unchanged. Existing eval YAML needs no new field or flag. Cleanup refuses detected replacements and fails the run if attempt-owned state cannot be removed.
+- **MCP mock cache invalidation** - MCP-backed task cache keys now include the resolved mock configuration, so changed inline or fixture responses run again. Tasks without MCP mocks keep their existing cache keys.
+
 ## [0.39.1] - 2026-10-26
 
 ### Fixed

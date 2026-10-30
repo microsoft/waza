@@ -1012,6 +1012,16 @@ responder chose to stop, `abstained` means the brief could not supply an answer,
 and `cap_exhausted` means the reply limit was reached. Also check the run status
 and graders; a normal stop is not automatically a passing evaluation.
 
+If execution fails before the responder records a decision, an available
+execution error is reported as `responder execution failed: ...` in the run's
+error and responder reason. A successful response that contains only text still
+reports `responder did not call a decision tool`. That message also remains the
+fallback when no decision and no execution error detail are available. This
+distinction improves diagnosis; it does not repair provider failures or change
+grading. Execution responses snapshot collected diagnostic output safely alongside
+SDK event delivery; this does not wait for future events or change final usage
+collection.
+
 :::caution[Duplicate decision errors]
 An error such as `responder called responder_stop after a decision was already recorded`
 is not an abstention or a follow-up limit. A nonterminal decision can allow an

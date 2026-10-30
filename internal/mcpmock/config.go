@@ -17,6 +17,9 @@ import (
 type Config struct {
 	Name  string          `json:"name"`
 	Tools map[string]Tool `json:"tools"`
+	// StateDir persists finite sequence progress across server restarts in one
+	// task attempt. Empty keeps the legacy per-process state.
+	StateDir string `json:"state_dir,omitempty"`
 }
 
 // Tool defines one mocked MCP tool.

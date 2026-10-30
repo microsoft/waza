@@ -167,6 +167,28 @@ test('multi-turn examples preflight both modes and execute scripted offline cont
   }
 });
 
+test('dependency recovery multi-turn MCP example preflights with native fields', () => {
+  const fixture = allocateExampleFixture(root);
+  const run = cliRunner(fixture.env);
+  const snippets = blocks('site/src/content/docs/guides/dependency-recovery.mdx');
+  const suite = snippets.find((block) => block.startsWith('name: multi-turn-mcp-sequence'));
+  const task = snippets.find((block) => block.startsWith('id: read-twice'));
+  assert.ok(suite && task, 'publish complete eval and task YAML');
+  assert.match(suite, /mcp_mocks:[\s\S]*sequence:/);
+  assert.match(task, /follow_up_prompts:/);
+  const project = fixture.directory;
+  try {
+    mkdirSync(join(project, 'tasks'));
+    writeFileSync(join(project, 'eval.yaml'), suite);
+    writeFileSync(join(project, 'tasks/read-twice.yaml'), task);
+    run(['preflight', 'eval.yaml'], project);
+    writeFileSync(join(project, 'eval.yaml'), replaceExactlyOnce(suite, 'schemaVersion: "2.0"', 'schemaVersion: "1.4"'));
+    run(['preflight', 'eval.yaml'], project, 1);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
 test('all published explanation walkthroughs execute only their selected task, including negative controls', () => {
   const fixture = allocateExampleFixture(root);
   const run = cliRunner(fixture.env);
