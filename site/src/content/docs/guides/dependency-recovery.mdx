@@ -34,8 +34,9 @@ outputs, and bounds in the same response: those still fail non-strict preflight.
 Execution rejects invalid selected MCP fixtures before initializing the agent.
 Whole-tool inline overrides replace discarded fixture responses before admission.
 MCP subprocess setup errors also fail execution instead of dropping the mock.
-Temporary configuration creation is not a transaction: a late setup error lists
-any earlier generated configuration paths for inspection and cleanup.
+Single-request legacy conversion is not a transaction: a late setup error lists
+any earlier generated configuration paths for inspection and cleanup. Task
+attempts clean up partial setup before reporting the error.
 
 Execution invokes the configured Copilot SDK agent and therefore requires its
 normal runtime credentials:
@@ -50,13 +51,94 @@ The finite `sequence` field belongs to a matching MCP or CLI response; every
 call consumes one step, in order, and an exhausted sequence fails closed.
 Sequences contain at most 100 steps; each optional `delay_ms` is limited to
 300,000 and excessive values are rejected during source admission, before execution.
-Sequence state is scoped to the task's mock session/server instance.
 There is no automatic retry policy: the agent decides whether to call again,
 and the task graders decide whether its final behavior is acceptable.
 
 Each step must declare an output. Use `exit_code: 0` for a silent successful CLI
 step or `return: null` for an MCP null-success step. Typed JSON/YAML round-trips
 preserve these fields without adding a `return` to an MCP error-only step.
+
+### Multi-turn MCP sequences
+
+Sequence state is scoped to one task attempt. Initial, scripted follow-up, and
+responder-driven turns share progress, even when the runtime restarts the mock
+server after resuming the session. Every task, trial, and retry starts at the
+first step. The first matching response owns each call: once its sequence is
+exhausted, later matching responses are not used. Concurrent calls reserve
+distinct steps; their completion order can differ.
+
+Use the ordinary eval YAML fields; no command-line flag or wrapper is required.
+Create `eval.yaml`:
+
+```yaml
+name: multi-turn-mcp-sequence
+scenario: multi-turn-mcp-sequence
+schemaVersion: "2.0"
+version: "1.0"
+config:
+  trials_per_task: 1
+  timeout_seconds: 120
+  executor: copilot-sdk
+  model: claude-sonnet-4.6
+metrics:
+  - name: task_completion
+    weight: 1.0
+    threshold: 1.0
+mcp_mocks:
+  - name: dependency
+    tools:
+      read:
+        input_schema:
+          type: object
+          properties:
+            id: { type: string }
+          required: [id]
+        responses:
+          - match: { id: item }
+            sequence:
+              - return: { ordinal: 1 }
+              - return: { ordinal: 2 }
+graders:
+  - name: observed-sequence
+    type: code
+    config:
+      language: javascript
+      assertions:
+        - >-
+          (() => { const ordinal = (call) => { let value = call.result;
+          if (value && typeof value === 'object' && 'content' in value) value = value.content;
+          if (typeof value === 'string') value = JSON.parse(value);
+          return value && value.ordinal; };
+          const calls = tool_events.filter(e => e.tool_name === 'dependency-read');
+          return calls.length === 2 && calls.every(e => e.success)
+          && ordinal(calls[0]) === 1 && ordinal(calls[1]) === 2; })()
+tasks:
+  - tasks/*.yaml
+```
+
+Create `tasks/read-twice.yaml`:
+
+```yaml
+id: read-twice
+name: Read across turns
+inputs:
+  prompt: Call dependency read with id item once, then report the result.
+  follow_up_prompts:
+    - Call dependency read with id item again, then report the new result.
+```
+
+A responder-driven task can use the same mock declaration. Waza cleans up the
+attempt-owned mock configuration and state after the attempt. If cleanup cannot
+complete, the run fails and reports the original directory for inspection.
+Cleanup refuses detected replacements; it is not a transaction or protection
+against a hostile process running as the same user. Attempt-owned mocks are
+unavailable on JavaScript and Plan 9 platforms. With `--cache`, MCP-backed keys
+include the resolved mocks, so changed inline or eval-relative fixture
+responses run again; tasks without MCP mocks keep their existing keys. Scenario
+workflow caching remains disabled.
+
+A mock call is not a native user-input callback or proof of an external host UI
+effect.
 
 ## Authoring boundaries
 

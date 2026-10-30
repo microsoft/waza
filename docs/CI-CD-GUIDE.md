@@ -39,6 +39,12 @@ actual workflow sources. Shard and lint failure-handling checks remain
 `bash .github/scripts/go_test_shard_test.sh` and
 `bash .github/scripts/lint_test.sh`.
 
+The Docker dashboard build also consumes `examples/runner/unit.json`, the
+captured request imported by Lab selection validation. Keep its explicit
+`.dockerignore` admission, web-builder `COPY`, and Docker workflow path trigger
+in sync. `go test -count=1 ./.github/scripts` checks these build inputs; an
+actual Docker build is still required to verify container packaging.
+
 ## Prerequisites
 
 - waza binary in your PATH (install with the script below)

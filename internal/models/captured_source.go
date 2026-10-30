@@ -103,6 +103,9 @@ func checkCapturedFields(node *yaml.Node, target reflect.Type) error {
 		collect = func(t reflect.Type) {
 			for i := 0; i < t.NumField(); i++ {
 				f := t.Field(i)
+				if !f.IsExported() {
+					continue
+				}
 				tag := strings.Split(f.Tag.Get("yaml"), ",")
 				if len(tag) > 1 && tag[1] == "inline" {
 					collect(f.Type)

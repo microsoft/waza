@@ -90,6 +90,34 @@ func TestCapturedOfflineStrictSourceErrors(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestCapturedSourceRejectsUnexportedFields(t *testing.T) {
+	for _, control := range []struct {
+		name        string
+		declaration string
+		field       string
+		eval        bool
+	}{
+		{"prompt-presence-true", "capturedinlineprompt: true\n", "capturedinlineprompt", false},
+		{"prompt-presence-false", "capturedinlineprompt: false\n", "capturedinlineprompt", false},
+		{"task-source", "sourcedocument: []\n", "sourcedocument", false},
+		{"eval-source", "sourcedocument: []\n", "sourcedocument", true},
+	} {
+		t.Run(control.name, func(t *testing.T) {
+			var err error
+			if control.eval {
+				_, err = ParseCapturedEvalSpecOffline([]byte(capturedEvalFixture+control.declaration), "eval.yaml")
+			} else {
+				_, err = ParseCapturedTestCaseOffline([]byte("id: task\ninputs: {prompt: hello}\n"+control.declaration),
+					"task.yaml", func(string) ([]byte, error) {
+						t.Fatal("invalid source must not read prompt files")
+						return nil, fmt.Errorf("unexpected read")
+					})
+			}
+			require.ErrorContains(t, err, fmt.Sprintf("unknown captured native field %q", control.field))
+		})
+	}
+}
+
 func TestCapturedNativeIntegerSemantics(t *testing.T) {
 	task, err := ParseCapturedTestCaseOffline([]byte("id: task\ninputs: {prompt: hello, context: {hex: 0xFFFFFFFFFFFFFFFF, nested: [9007199254740993]}}\n"),
 		"task.yaml", func(string) ([]byte, error) { return nil, fmt.Errorf("unexpected prompt read") })

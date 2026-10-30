@@ -6,12 +6,14 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"os/signal"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"testing"
@@ -192,6 +194,9 @@ func TestRunnerIntegerSpellingsCLIHTTP(t *testing.T) {
 func TestRunnerIntegerTimeoutCLIHTTP(t *testing.T) {
 	fixture, err := os.ReadFile("../../examples/runner/unit.json")
 	require.NoError(t, err)
+	// Initialize the process-wide signal runtime outside the fake-clock bubble.
+	_, stop := signal.NotifyContext(t.Context(), os.Interrupt, syscall.SIGTERM)
+	stop()
 	for _, token := range []string{"2", "2.0", "20e-1", "2e0"} {
 		t.Run(token, func(t *testing.T) {
 			var fields map[string]json.RawMessage
@@ -200,64 +205,78 @@ func TestRunnerIntegerTimeoutCLIHTTP(t *testing.T) {
 			body, err := json.Marshal(fields)
 			require.NoError(t, err)
 			require.Contains(t, string(body), `"timeout_ms":`+token)
-			var factories atomic.Int32
-			service := runnerunit.NewService(func(cfg models.Config) (execution.AgentEngine, error) {
-				factories.Add(1)
-				// Return only after the admitted 2 ms execution deadline.
-				<-time.After(20 * time.Millisecond)
-				return execution.NewMockEngine(cfg.ModelID), nil
-			})
-			mux := http.NewServeMux()
-			webapi.RegisterRunnerRoutesWithService(mux, service)
-			server := httptest.NewServer(mux)
-			defer server.Close()
 			for _, action := range []string{"negotiate", "validate", "run"} {
 				for _, transport := range []string{"cli", "http"} {
 					t.Run(action+"/"+transport, func(t *testing.T) {
-						before := factories.Load()
-						output, exitCode := invokeRunnerNumbers(t, service, server, transport, action, body)
-						if action == "negotiate" {
-							var report runnercontract.Response
+						synctest.Test(t, func(t *testing.T) {
+							var factories atomic.Int32
+							service := runnerunit.NewService(func(cfg models.Config) (execution.AgentEngine, error) {
+								factories.Add(1)
+								// Advance the admitted deadline, then drain its cancellation callback.
+								start := time.Now()
+								time.Sleep(2 * time.Millisecond)
+								synctest.Wait()
+								require.Equal(t, 2*time.Millisecond, time.Since(start))
+								return execution.NewMockEngine(cfg.ModelID), nil
+							})
+							mux := http.NewServeMux()
+							webapi.RegisterRunnerRoutesWithService(mux, service)
+							clientConn, serverConn := net.Pipe()
+							server := httptest.NewUnstartedServer(mux)
+							require.NoError(t, server.Listener.Close())
+							server.Listener = &runnerIntegerTimeoutListener{conn: serverConn, closed: make(chan struct{})}
+							server.Start()
+							defer server.Close()
+							client := server.Client()
+							client.Transport = &http.Transport{DialContext: func(context.Context, string, string) (net.Conn, error) {
+								return clientConn, nil
+							}}
+							defer client.CloseIdleConnections()
+							before := factories.Load()
+							output, exitCode := invokeRunnerNumbers(t, service, server, transport, action, body)
+							if action == "negotiate" {
+								var report runnercontract.Response
+								require.NoError(t, json.Unmarshal(output, &report))
+								require.Equal(t, "compatible", report.Status)
+								require.Zero(t, exitCode)
+								require.Equal(t, before, factories.Load())
+								return
+							}
+							if action == "run" {
+								admitted := runnerunit.Validate(body)
+								require.Equal(t, "ready", admitted.Status)
+								envelope, err := runnerterminal.Validate(output, &runnerterminal.Binding{
+									Selection: *admitted.Resolved, Identity: admitted.Identity, GraderIDs: []string{"_output_contains"},
+								})
+								require.NoError(t, err)
+								require.Equal(t, runnerterminal.Timeout, envelope.Outcome)
+								require.Equal(t, 4, envelope.ExitCode)
+								require.Equal(t, "startup", envelope.FailureBoundary)
+								require.Equal(t, "valid", envelope.Validation)
+								require.Equal(t, admitted.Resolved, envelope.Selection)
+								require.Equal(t, admitted.Identity, envelope.Identity)
+								require.Zero(t, envelope.EngineCalls)
+								require.Nil(t, envelope.Observation)
+								if transport == "cli" {
+									require.Equal(t, 4, exitCode)
+								}
+								constructed := factories.Load() - before
+								require.Contains(t, []int32{0, 1}, constructed,
+									"startup may expire before construction or during the synchronous factory")
+								require.Len(t, envelope.Diagnostics, 1)
+								require.Contains(t, envelope.Diagnostics[0].Message, "context deadline exceeded")
+								return
+							}
+							var report runnerunit.Report
 							require.NoError(t, json.Unmarshal(output, &report))
-							require.Equal(t, "compatible", report.Status)
+							require.Equal(t, "valid", report.Validation)
+							require.NotNil(t, report.Resolved)
+							require.Zero(t, report.Calls)
+							require.Nil(t, report.Observation)
+							require.Equal(t, "ready", report.Status)
 							require.Zero(t, exitCode)
 							require.Equal(t, before, factories.Load())
-							return
-						}
-						if action == "run" {
-							admitted := runnerunit.Validate(body)
-							require.Equal(t, "ready", admitted.Status)
-							envelope, err := runnerterminal.Validate(output, &runnerterminal.Binding{
-								Selection: *admitted.Resolved, Identity: admitted.Identity, GraderIDs: []string{"_output_contains"},
-							})
-							require.NoError(t, err)
-							require.Equal(t, runnerterminal.Timeout, envelope.Outcome)
-							require.Equal(t, 4, envelope.ExitCode)
-							require.Equal(t, "startup", envelope.FailureBoundary)
-							require.Equal(t, "valid", envelope.Validation)
-							require.Equal(t, admitted.Resolved, envelope.Selection)
-							require.Equal(t, admitted.Identity, envelope.Identity)
-							require.Zero(t, envelope.EngineCalls)
-							require.Nil(t, envelope.Observation)
-							if transport == "cli" {
-								require.Equal(t, 4, exitCode)
-							}
-							constructed := factories.Load() - before
-							require.Contains(t, []int32{0, 1}, constructed,
-								"startup may expire before construction or during the synchronous factory")
-							require.Len(t, envelope.Diagnostics, 1)
-							require.Contains(t, envelope.Diagnostics[0].Message, "context deadline exceeded")
-							return
-						}
-						var report runnerunit.Report
-						require.NoError(t, json.Unmarshal(output, &report))
-						require.Equal(t, "valid", report.Validation)
-						require.NotNil(t, report.Resolved)
-						require.Zero(t, report.Calls)
-						require.Nil(t, report.Observation)
-						require.Equal(t, "ready", report.Status)
-						require.Zero(t, exitCode)
-						require.Equal(t, before, factories.Load())
+						})
 					})
 				}
 			}
@@ -470,4 +489,29 @@ func invokeRunnerNumbers(t *testing.T, service *runnerunit.Service, server *http
 		}
 	}
 	return output, exitCode
+}
+
+type runnerIntegerTimeoutListener struct {
+	conn   net.Conn
+	closed chan struct{}
+	once   sync.Once
+}
+
+func (l *runnerIntegerTimeoutListener) Accept() (net.Conn, error) {
+	if l.conn != nil {
+		conn := l.conn
+		l.conn = nil
+		return conn, nil
+	}
+	<-l.closed
+	return nil, net.ErrClosed
+}
+
+func (l *runnerIntegerTimeoutListener) Close() error {
+	l.once.Do(func() { close(l.closed) })
+	return nil
+}
+
+func (l *runnerIntegerTimeoutListener) Addr() net.Addr {
+	return &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 1}
 }
