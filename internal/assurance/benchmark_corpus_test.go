@@ -366,3 +366,68 @@ func TestBenchmarkCorpusVerifyPreserved(t *testing.T) {
 		require.Equal(t, PreservedReportVersion, report.SchemaVersion)
 	}
 }
+
+func TestBenchmarkCorpusCRLFAndContradictionRegressions(t *testing.T) {
+	scenarios := DefaultBenchmarkScenarios()
+	for _, scenario := range scenarios {
+		t.Run(scenario.ID, func(t *testing.T) {
+			outcomeParams := scenario.OutcomeParameters()
+			check := scenario.Task().Requirements[0].Checks[0]
+			taskID := scenario.Task().TestID
+
+			observeOutcome := func(t *testing.T, content string) Observation {
+				workspace := t.TempDir()
+				targetFile := filepath.Join(workspace, scenario.Path)
+				require.NoError(t, os.MkdirAll(filepath.Dir(targetFile), 0o700))
+				require.NoError(t, os.WriteFile(targetFile, []byte(content), 0o600))
+
+				input := ReferenceInput{
+					TaskID:     taskID,
+					Check:      check,
+					Parameters: outcomeParams,
+					Context:    scenario.Cases()[0].Context(workspace),
+				}
+				obs := ObserveMechanical(t.Context(), input)
+				require.Equal(t, Observed, obs.State)
+				require.NoError(t, obs.Err)
+				require.NotNil(t, obs.Result)
+				return obs
+			}
+
+			t.Run("valid-crlf-canonical", func(t *testing.T) {
+				content := fmt.Sprintf("%s=%s\r\n", scenario.Field, scenario.Want)
+				obs := observeOutcome(t, content)
+				require.True(t, obs.Result.Passed, "valid canonical CRLF content must pass")
+				require.Equal(t, 1.0, obs.Result.Score)
+			})
+
+			t.Run("valid-crlf-alternative", func(t *testing.T) {
+				content := fmt.Sprintf("# comment\r\n%s = %s\r\n", scenario.Field, scenario.Want)
+				obs := observeOutcome(t, content)
+				require.True(t, obs.Result.Passed, "valid alternative CRLF content must pass")
+				require.Equal(t, 1.0, obs.Result.Score)
+			})
+
+			t.Run("mixed-ending-contradiction-lf-want-crlf-wrong", func(t *testing.T) {
+				content := fmt.Sprintf("%s=%s\n%s=%s\r\n", scenario.Field, scenario.Want, scenario.Field, scenario.Wrong)
+				obs := observeOutcome(t, content)
+				require.False(t, obs.Result.Passed, "mixed ending contradiction (LF want, CRLF wrong) must be rejected")
+				require.Contains(t, obs.Result.Feedback, "contains forbidden pattern")
+			})
+
+			t.Run("mixed-ending-contradiction-crlf-want-lf-wrong", func(t *testing.T) {
+				content := fmt.Sprintf("%s=%s\r\n%s=%s\n", scenario.Field, scenario.Want, scenario.Field, scenario.Wrong)
+				obs := observeOutcome(t, content)
+				require.False(t, obs.Result.Passed, "mixed ending contradiction (CRLF want, LF wrong) must be rejected")
+				require.Contains(t, obs.Result.Feedback, "contains forbidden pattern")
+			})
+
+			t.Run("mixed-ending-contradiction-both-crlf", func(t *testing.T) {
+				content := fmt.Sprintf("%s=%s\r\n%s=%s\r\n", scenario.Field, scenario.Want, scenario.Field, scenario.Wrong)
+				obs := observeOutcome(t, content)
+				require.False(t, obs.Result.Passed, "pure CRLF contradiction must be rejected")
+				require.Contains(t, obs.Result.Feedback, "contains forbidden pattern")
+			})
+		})
+	}
+}

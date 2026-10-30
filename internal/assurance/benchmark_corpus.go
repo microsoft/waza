@@ -111,12 +111,12 @@ func DefaultBenchmarkScenarios() []BenchmarkScenario {
 
 // StateRegex returns the multiline regex pattern for the desired state.
 func (s BenchmarkScenario) StateRegex() string {
-	return fmt.Sprintf(`(?m)^%s[ \t]*=[ \t]*%s[ \t]*$`, regexp.QuoteMeta(s.Field), regexp.QuoteMeta(s.Want))
+	return fmt.Sprintf(`(?m)^%s[ \t]*=[ \t]*%s[ \t]*\r?$`, regexp.QuoteMeta(s.Field), regexp.QuoteMeta(s.Want))
 }
 
 // ContradictionRegex returns the multiline regex pattern for the contradictory (wrong) state.
 func (s BenchmarkScenario) ContradictionRegex() string {
-	return fmt.Sprintf(`(?m)^%s[ \t]*=[ \t]*%s[ \t]*$`, regexp.QuoteMeta(s.Field), regexp.QuoteMeta(s.Wrong))
+	return fmt.Sprintf(`(?m)^%s[ \t]*=[ \t]*%s[ \t]*\r?$`, regexp.QuoteMeta(s.Field), regexp.QuoteMeta(s.Wrong))
 }
 
 // OutcomeGraderID returns the globally unique identifier for this scenario's outcome grader.

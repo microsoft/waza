@@ -4,7 +4,7 @@
   "id": "waza-grader-assurance-benchmark",
   "version": "1.0.0",
   "eval_source_sha256": "a14eec370322370be9d8429eeaed8649495835b6187b430bfd24abde989209ef",
-  "eval_resolved_config_sha256": "a7e2ed445df4da1ba6c2e022bcd528fe4d8cb9f699ba5c5d0c5ac27181c2ec71",
+  "eval_resolved_config_sha256": "e9e2dec3225dc36519bac08a46ba4f79bd657e2c886c1d535fff5784bda8f124",
   "implementation_executable_sha256": null,
   "domains": [
     {
@@ -41,7 +41,7 @@
             "scope": "eval",
             "grader": "mcp-ticket-routing-outcome"
           },
-          "grader_declaration_sha256": "a894af38f2c161b75432845305271628ba1e2d5f7fa8bef40b35ed9cd217c272",
+          "grader_declaration_sha256": "c8727c50b389cba6de67e07a49de91581016160d4f842b63d74a36a32567735c",
           "rubric_content_sha256": null,
           "expected_passed": true,
           "evidence": [
@@ -97,7 +97,7 @@
             "scope": "eval",
             "grader": "mcp-ticket-routing-outcome"
           },
-          "grader_declaration_sha256": "a894af38f2c161b75432845305271628ba1e2d5f7fa8bef40b35ed9cd217c272",
+          "grader_declaration_sha256": "c8727c50b389cba6de67e07a49de91581016160d4f842b63d74a36a32567735c",
           "rubric_content_sha256": null,
           "expected_passed": true,
           "evidence": [
@@ -153,7 +153,7 @@
             "scope": "eval",
             "grader": "mcp-ticket-routing-outcome"
           },
-          "grader_declaration_sha256": "a894af38f2c161b75432845305271628ba1e2d5f7fa8bef40b35ed9cd217c272",
+          "grader_declaration_sha256": "c8727c50b389cba6de67e07a49de91581016160d4f842b63d74a36a32567735c",
           "rubric_content_sha256": null,
           "expected_passed": false,
           "evidence": [
@@ -209,7 +209,7 @@
             "scope": "eval",
             "grader": "mcp-ticket-routing-outcome"
           },
-          "grader_declaration_sha256": "a894af38f2c161b75432845305271628ba1e2d5f7fa8bef40b35ed9cd217c272",
+          "grader_declaration_sha256": "c8727c50b389cba6de67e07a49de91581016160d4f842b63d74a36a32567735c",
           "rubric_content_sha256": null,
           "expected_passed": true,
           "evidence": [
@@ -265,7 +265,7 @@
             "scope": "eval",
             "grader": "mcp-feature-toggle-outcome"
           },
-          "grader_declaration_sha256": "3f76b58ae915870e5047ae95cde813ba668aa852d153eb4dbba89d65e5f30e9b",
+          "grader_declaration_sha256": "e621522c45456fee4d76da2e482c3bbb7f2415cbb82c4498e3ba43ad701300fd",
           "rubric_content_sha256": null,
           "expected_passed": true,
           "evidence": [
@@ -321,7 +321,7 @@
             "scope": "eval",
             "grader": "mcp-feature-toggle-outcome"
           },
-          "grader_declaration_sha256": "3f76b58ae915870e5047ae95cde813ba668aa852d153eb4dbba89d65e5f30e9b",
+          "grader_declaration_sha256": "e621522c45456fee4d76da2e482c3bbb7f2415cbb82c4498e3ba43ad701300fd",
           "rubric_content_sha256": null,
           "expected_passed": true,
           "evidence": [
@@ -377,7 +377,7 @@
             "scope": "eval",
             "grader": "mcp-feature-toggle-outcome"
           },
-          "grader_declaration_sha256": "3f76b58ae915870e5047ae95cde813ba668aa852d153eb4dbba89d65e5f30e9b",
+          "grader_declaration_sha256": "e621522c45456fee4d76da2e482c3bbb7f2415cbb82c4498e3ba43ad701300fd",
           "rubric_content_sha256": null,
           "expected_passed": false,
           "evidence": [
@@ -433,7 +433,7 @@
             "scope": "eval",
             "grader": "mcp-feature-toggle-outcome"
           },
-          "grader_declaration_sha256": "3f76b58ae915870e5047ae95cde813ba668aa852d153eb4dbba89d65e5f30e9b",
+          "grader_declaration_sha256": "e621522c45456fee4d76da2e482c3bbb7f2415cbb82c4498e3ba43ad701300fd",
           "rubric_content_sha256": null,
           "expected_passed": true,
           "evidence": [
@@ -489,7 +489,7 @@
             "scope": "eval",
             "grader": "mcp-record-archive-outcome"
           },
-          "grader_declaration_sha256": "3dd085353feb59178e768c9d2e0d36b7d6f9361a757f99b23f17fd5f0d9cd174",
+          "grader_declaration_sha256": "d62f7aa82891313890193fa521a630a518df4e3b32ee3a353b17f5de2284d18e",
           "rubric_content_sha256": null,
           "expected_passed": true,
           "evidence": [
@@ -545,7 +545,7 @@
             "scope": "eval",
             "grader": "mcp-record-archive-outcome"
           },
-          "grader_declaration_sha256": "3dd085353feb59178e768c9d2e0d36b7d6f9361a757f99b23f17fd5f0d9cd174",
+          "grader_declaration_sha256": "d62f7aa82891313890193fa521a630a518df4e3b32ee3a353b17f5de2284d18e",
           "rubric_content_sha256": null,
           "expected_passed": true,
           "evidence": [
@@ -601,7 +601,7 @@
             "scope": "eval",
             "grader": "mcp-record-archive-outcome"
           },
-          "grader_declaration_sha256": "3dd085353feb59178e768c9d2e0d36b7d6f9361a757f99b23f17fd5f0d9cd174",
+          "grader_declaration_sha256": "d62f7aa82891313890193fa521a630a518df4e3b32ee3a353b17f5de2284d18e",
           "rubric_content_sha256": null,
           "expected_passed": false,
           "evidence": [
@@ -657,7 +657,7 @@
             "scope": "eval",
             "grader": "mcp-record-archive-outcome"
           },
-          "grader_declaration_sha256": "3dd085353feb59178e768c9d2e0d36b7d6f9361a757f99b23f17fd5f0d9cd174",
+          "grader_declaration_sha256": "d62f7aa82891313890193fa521a630a518df4e3b32ee3a353b17f5de2284d18e",
           "rubric_content_sha256": null,
           "expected_passed": true,
           "evidence": [
@@ -713,7 +713,7 @@
             "scope": "eval",
             "grader": "mcp-resource-access-outcome"
           },
-          "grader_declaration_sha256": "c363d325acb405ebd6cb882486f4e2b9e0772a48063cdfc18f01907019bd628d",
+          "grader_declaration_sha256": "2c068af4ff79139e9f5793fbb86c2c592cfdded2cfd5e57cd64bff77af7dcf8a",
           "rubric_content_sha256": null,
           "expected_passed": true,
           "evidence": [
@@ -769,7 +769,7 @@
             "scope": "eval",
             "grader": "mcp-resource-access-outcome"
           },
-          "grader_declaration_sha256": "c363d325acb405ebd6cb882486f4e2b9e0772a48063cdfc18f01907019bd628d",
+          "grader_declaration_sha256": "2c068af4ff79139e9f5793fbb86c2c592cfdded2cfd5e57cd64bff77af7dcf8a",
           "rubric_content_sha256": null,
           "expected_passed": true,
           "evidence": [
@@ -825,7 +825,7 @@
             "scope": "eval",
             "grader": "mcp-resource-access-outcome"
           },
-          "grader_declaration_sha256": "c363d325acb405ebd6cb882486f4e2b9e0772a48063cdfc18f01907019bd628d",
+          "grader_declaration_sha256": "2c068af4ff79139e9f5793fbb86c2c592cfdded2cfd5e57cd64bff77af7dcf8a",
           "rubric_content_sha256": null,
           "expected_passed": false,
           "evidence": [
@@ -881,7 +881,7 @@
             "scope": "eval",
             "grader": "mcp-resource-access-outcome"
           },
-          "grader_declaration_sha256": "c363d325acb405ebd6cb882486f4e2b9e0772a48063cdfc18f01907019bd628d",
+          "grader_declaration_sha256": "2c068af4ff79139e9f5793fbb86c2c592cfdded2cfd5e57cd64bff77af7dcf8a",
           "rubric_content_sha256": null,
           "expected_passed": true,
           "evidence": [
@@ -937,7 +937,7 @@
             "scope": "eval",
             "grader": "cli-config-target-outcome"
           },
-          "grader_declaration_sha256": "3139709cface32282b509e01f1367ae28f4c9ad53ca131d1d7092f0d3a597216",
+          "grader_declaration_sha256": "74acb50ae515083d4538b7fba6ba94d74188d902af7ae49a6887a212af5e6944",
           "rubric_content_sha256": null,
           "expected_passed": true,
           "evidence": [
@@ -993,7 +993,7 @@
             "scope": "eval",
             "grader": "cli-config-target-outcome"
           },
-          "grader_declaration_sha256": "3139709cface32282b509e01f1367ae28f4c9ad53ca131d1d7092f0d3a597216",
+          "grader_declaration_sha256": "74acb50ae515083d4538b7fba6ba94d74188d902af7ae49a6887a212af5e6944",
           "rubric_content_sha256": null,
           "expected_passed": true,
           "evidence": [
@@ -1049,7 +1049,7 @@
             "scope": "eval",
             "grader": "cli-config-target-outcome"
           },
-          "grader_declaration_sha256": "3139709cface32282b509e01f1367ae28f4c9ad53ca131d1d7092f0d3a597216",
+          "grader_declaration_sha256": "74acb50ae515083d4538b7fba6ba94d74188d902af7ae49a6887a212af5e6944",
           "rubric_content_sha256": null,
           "expected_passed": false,
           "evidence": [
@@ -1105,7 +1105,7 @@
             "scope": "eval",
             "grader": "cli-config-target-outcome"
           },
-          "grader_declaration_sha256": "3139709cface32282b509e01f1367ae28f4c9ad53ca131d1d7092f0d3a597216",
+          "grader_declaration_sha256": "74acb50ae515083d4538b7fba6ba94d74188d902af7ae49a6887a212af5e6944",
           "rubric_content_sha256": null,
           "expected_passed": true,
           "evidence": [
@@ -1161,7 +1161,7 @@
             "scope": "eval",
             "grader": "cli-export-format-outcome"
           },
-          "grader_declaration_sha256": "474cf70a3ac90f2edd2b2437ce912d61327770fb59c01874f98ed69070a789da",
+          "grader_declaration_sha256": "3030b0015469c16c0f762bb3e3a773eb71df4e45dfd0c1a7a1df873f4f492b33",
           "rubric_content_sha256": null,
           "expected_passed": true,
           "evidence": [
@@ -1217,7 +1217,7 @@
             "scope": "eval",
             "grader": "cli-export-format-outcome"
           },
-          "grader_declaration_sha256": "474cf70a3ac90f2edd2b2437ce912d61327770fb59c01874f98ed69070a789da",
+          "grader_declaration_sha256": "3030b0015469c16c0f762bb3e3a773eb71df4e45dfd0c1a7a1df873f4f492b33",
           "rubric_content_sha256": null,
           "expected_passed": true,
           "evidence": [
@@ -1273,7 +1273,7 @@
             "scope": "eval",
             "grader": "cli-export-format-outcome"
           },
-          "grader_declaration_sha256": "474cf70a3ac90f2edd2b2437ce912d61327770fb59c01874f98ed69070a789da",
+          "grader_declaration_sha256": "3030b0015469c16c0f762bb3e3a773eb71df4e45dfd0c1a7a1df873f4f492b33",
           "rubric_content_sha256": null,
           "expected_passed": false,
           "evidence": [
@@ -1329,7 +1329,7 @@
             "scope": "eval",
             "grader": "cli-export-format-outcome"
           },
-          "grader_declaration_sha256": "474cf70a3ac90f2edd2b2437ce912d61327770fb59c01874f98ed69070a789da",
+          "grader_declaration_sha256": "3030b0015469c16c0f762bb3e3a773eb71df4e45dfd0c1a7a1df873f4f492b33",
           "rubric_content_sha256": null,
           "expected_passed": true,
           "evidence": [
@@ -1385,7 +1385,7 @@
             "scope": "eval",
             "grader": "cli-deploy-environment-outcome"
           },
-          "grader_declaration_sha256": "23a04dcbd3e57274c87695e6d9ae5a0452d5a4d4317bd346329bb76986b1e55c",
+          "grader_declaration_sha256": "ba6a72e47721df4f93577d8c4b31ce1532951376fb650d06abec098e7364dd81",
           "rubric_content_sha256": null,
           "expected_passed": true,
           "evidence": [
@@ -1441,7 +1441,7 @@
             "scope": "eval",
             "grader": "cli-deploy-environment-outcome"
           },
-          "grader_declaration_sha256": "23a04dcbd3e57274c87695e6d9ae5a0452d5a4d4317bd346329bb76986b1e55c",
+          "grader_declaration_sha256": "ba6a72e47721df4f93577d8c4b31ce1532951376fb650d06abec098e7364dd81",
           "rubric_content_sha256": null,
           "expected_passed": true,
           "evidence": [
@@ -1497,7 +1497,7 @@
             "scope": "eval",
             "grader": "cli-deploy-environment-outcome"
           },
-          "grader_declaration_sha256": "23a04dcbd3e57274c87695e6d9ae5a0452d5a4d4317bd346329bb76986b1e55c",
+          "grader_declaration_sha256": "ba6a72e47721df4f93577d8c4b31ce1532951376fb650d06abec098e7364dd81",
           "rubric_content_sha256": null,
           "expected_passed": false,
           "evidence": [
@@ -1553,7 +1553,7 @@
             "scope": "eval",
             "grader": "cli-deploy-environment-outcome"
           },
-          "grader_declaration_sha256": "23a04dcbd3e57274c87695e6d9ae5a0452d5a4d4317bd346329bb76986b1e55c",
+          "grader_declaration_sha256": "ba6a72e47721df4f93577d8c4b31ce1532951376fb650d06abec098e7364dd81",
           "rubric_content_sha256": null,
           "expected_passed": true,
           "evidence": [
@@ -1609,7 +1609,7 @@
             "scope": "eval",
             "grader": "cli-package-version-outcome"
           },
-          "grader_declaration_sha256": "d45062257e206ee2d1a6f265cff6740ca5be07fedaf31e54f867e993be193964",
+          "grader_declaration_sha256": "75b58338a82a045bc53d360d11cf5a9806c81e6cbe5f2ec97ab849facae40f0a",
           "rubric_content_sha256": null,
           "expected_passed": true,
           "evidence": [
@@ -1665,7 +1665,7 @@
             "scope": "eval",
             "grader": "cli-package-version-outcome"
           },
-          "grader_declaration_sha256": "d45062257e206ee2d1a6f265cff6740ca5be07fedaf31e54f867e993be193964",
+          "grader_declaration_sha256": "75b58338a82a045bc53d360d11cf5a9806c81e6cbe5f2ec97ab849facae40f0a",
           "rubric_content_sha256": null,
           "expected_passed": true,
           "evidence": [
@@ -1721,7 +1721,7 @@
             "scope": "eval",
             "grader": "cli-package-version-outcome"
           },
-          "grader_declaration_sha256": "d45062257e206ee2d1a6f265cff6740ca5be07fedaf31e54f867e993be193964",
+          "grader_declaration_sha256": "75b58338a82a045bc53d360d11cf5a9806c81e6cbe5f2ec97ab849facae40f0a",
           "rubric_content_sha256": null,
           "expected_passed": false,
           "evidence": [
@@ -1777,7 +1777,7 @@
             "scope": "eval",
             "grader": "cli-package-version-outcome"
           },
-          "grader_declaration_sha256": "d45062257e206ee2d1a6f265cff6740ca5be07fedaf31e54f867e993be193964",
+          "grader_declaration_sha256": "75b58338a82a045bc53d360d11cf5a9806c81e6cbe5f2ec97ab849facae40f0a",
           "rubric_content_sha256": null,
           "expected_passed": true,
           "evidence": [
@@ -1833,7 +1833,7 @@
             "scope": "eval",
             "grader": "repository-config-fix-outcome"
           },
-          "grader_declaration_sha256": "8778230a177b49d4f05e9a965df34b2942a38e420519529c3823bfa6dfb8dfbe",
+          "grader_declaration_sha256": "54c4084b75815ed6b21716ac03bd1d58eb82944461f73ad8179ecea24232e789",
           "rubric_content_sha256": null,
           "expected_passed": true,
           "evidence": [
@@ -1889,7 +1889,7 @@
             "scope": "eval",
             "grader": "repository-config-fix-outcome"
           },
-          "grader_declaration_sha256": "8778230a177b49d4f05e9a965df34b2942a38e420519529c3823bfa6dfb8dfbe",
+          "grader_declaration_sha256": "54c4084b75815ed6b21716ac03bd1d58eb82944461f73ad8179ecea24232e789",
           "rubric_content_sha256": null,
           "expected_passed": true,
           "evidence": [
@@ -1945,7 +1945,7 @@
             "scope": "eval",
             "grader": "repository-config-fix-outcome"
           },
-          "grader_declaration_sha256": "8778230a177b49d4f05e9a965df34b2942a38e420519529c3823bfa6dfb8dfbe",
+          "grader_declaration_sha256": "54c4084b75815ed6b21716ac03bd1d58eb82944461f73ad8179ecea24232e789",
           "rubric_content_sha256": null,
           "expected_passed": false,
           "evidence": [
@@ -2001,7 +2001,7 @@
             "scope": "eval",
             "grader": "repository-config-fix-outcome"
           },
-          "grader_declaration_sha256": "8778230a177b49d4f05e9a965df34b2942a38e420519529c3823bfa6dfb8dfbe",
+          "grader_declaration_sha256": "54c4084b75815ed6b21716ac03bd1d58eb82944461f73ad8179ecea24232e789",
           "rubric_content_sha256": null,
           "expected_passed": true,
           "evidence": [
@@ -2057,7 +2057,7 @@
             "scope": "eval",
             "grader": "repository-doc-link-outcome"
           },
-          "grader_declaration_sha256": "d16b9629fa16ea4bd811139b5ebbd4cad9d6e33cfc5afbe727e4c8daed28e985",
+          "grader_declaration_sha256": "48711ec428c57ebe5d8362518eb830cbb0e11dac27198309231836f1cb50fa0c",
           "rubric_content_sha256": null,
           "expected_passed": true,
           "evidence": [
@@ -2113,7 +2113,7 @@
             "scope": "eval",
             "grader": "repository-doc-link-outcome"
           },
-          "grader_declaration_sha256": "d16b9629fa16ea4bd811139b5ebbd4cad9d6e33cfc5afbe727e4c8daed28e985",
+          "grader_declaration_sha256": "48711ec428c57ebe5d8362518eb830cbb0e11dac27198309231836f1cb50fa0c",
           "rubric_content_sha256": null,
           "expected_passed": true,
           "evidence": [
@@ -2169,7 +2169,7 @@
             "scope": "eval",
             "grader": "repository-doc-link-outcome"
           },
-          "grader_declaration_sha256": "d16b9629fa16ea4bd811139b5ebbd4cad9d6e33cfc5afbe727e4c8daed28e985",
+          "grader_declaration_sha256": "48711ec428c57ebe5d8362518eb830cbb0e11dac27198309231836f1cb50fa0c",
           "rubric_content_sha256": null,
           "expected_passed": false,
           "evidence": [
@@ -2225,7 +2225,7 @@
             "scope": "eval",
             "grader": "repository-doc-link-outcome"
           },
-          "grader_declaration_sha256": "d16b9629fa16ea4bd811139b5ebbd4cad9d6e33cfc5afbe727e4c8daed28e985",
+          "grader_declaration_sha256": "48711ec428c57ebe5d8362518eb830cbb0e11dac27198309231836f1cb50fa0c",
           "rubric_content_sha256": null,
           "expected_passed": true,
           "evidence": [
@@ -2281,7 +2281,7 @@
             "scope": "eval",
             "grader": "repository-dependency-pin-outcome"
           },
-          "grader_declaration_sha256": "8481ea8c1c6a1510a5e3cf209cb4142a64945a404b30435f2c4dc819815dc79d",
+          "grader_declaration_sha256": "0952c332f594f1728a8ef434d0708d6eba974372a985fafb867860841f29ef9e",
           "rubric_content_sha256": null,
           "expected_passed": true,
           "evidence": [
@@ -2337,7 +2337,7 @@
             "scope": "eval",
             "grader": "repository-dependency-pin-outcome"
           },
-          "grader_declaration_sha256": "8481ea8c1c6a1510a5e3cf209cb4142a64945a404b30435f2c4dc819815dc79d",
+          "grader_declaration_sha256": "0952c332f594f1728a8ef434d0708d6eba974372a985fafb867860841f29ef9e",
           "rubric_content_sha256": null,
           "expected_passed": true,
           "evidence": [
@@ -2393,7 +2393,7 @@
             "scope": "eval",
             "grader": "repository-dependency-pin-outcome"
           },
-          "grader_declaration_sha256": "8481ea8c1c6a1510a5e3cf209cb4142a64945a404b30435f2c4dc819815dc79d",
+          "grader_declaration_sha256": "0952c332f594f1728a8ef434d0708d6eba974372a985fafb867860841f29ef9e",
           "rubric_content_sha256": null,
           "expected_passed": false,
           "evidence": [
@@ -2449,7 +2449,7 @@
             "scope": "eval",
             "grader": "repository-dependency-pin-outcome"
           },
-          "grader_declaration_sha256": "8481ea8c1c6a1510a5e3cf209cb4142a64945a404b30435f2c4dc819815dc79d",
+          "grader_declaration_sha256": "0952c332f594f1728a8ef434d0708d6eba974372a985fafb867860841f29ef9e",
           "rubric_content_sha256": null,
           "expected_passed": true,
           "evidence": [
@@ -2505,7 +2505,7 @@
             "scope": "eval",
             "grader": "repository-migration-outcome"
           },
-          "grader_declaration_sha256": "c9a3e3b876ab9f7bde109a57abd727a7b6668f7983076db849961ace5faacd09",
+          "grader_declaration_sha256": "5fefa3b59c4c5cd0e350566c8279e9b04df3495d1d722c742fc3357f1a8eb6d9",
           "rubric_content_sha256": null,
           "expected_passed": true,
           "evidence": [
@@ -2561,7 +2561,7 @@
             "scope": "eval",
             "grader": "repository-migration-outcome"
           },
-          "grader_declaration_sha256": "c9a3e3b876ab9f7bde109a57abd727a7b6668f7983076db849961ace5faacd09",
+          "grader_declaration_sha256": "5fefa3b59c4c5cd0e350566c8279e9b04df3495d1d722c742fc3357f1a8eb6d9",
           "rubric_content_sha256": null,
           "expected_passed": true,
           "evidence": [
@@ -2617,7 +2617,7 @@
             "scope": "eval",
             "grader": "repository-migration-outcome"
           },
-          "grader_declaration_sha256": "c9a3e3b876ab9f7bde109a57abd727a7b6668f7983076db849961ace5faacd09",
+          "grader_declaration_sha256": "5fefa3b59c4c5cd0e350566c8279e9b04df3495d1d722c742fc3357f1a8eb6d9",
           "rubric_content_sha256": null,
           "expected_passed": false,
           "evidence": [
@@ -2673,7 +2673,7 @@
             "scope": "eval",
             "grader": "repository-migration-outcome"
           },
-          "grader_declaration_sha256": "c9a3e3b876ab9f7bde109a57abd727a7b6668f7983076db849961ace5faacd09",
+          "grader_declaration_sha256": "5fefa3b59c4c5cd0e350566c8279e9b04df3495d1d722c742fc3357f1a8eb6d9",
           "rubric_content_sha256": null,
           "expected_passed": true,
           "evidence": [

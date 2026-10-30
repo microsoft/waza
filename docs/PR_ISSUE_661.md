@@ -102,6 +102,7 @@ flowchart TD
   - `TestBenchmarkCorpusFixturePersistence`: Verified static fixture round-trip serialization and presence of all 48 reference snapshots.
   - `TestBenchmarkCorpusObservePreservedMechanical`: Verified mechanical evaluation against serialized snapshot bytes.
   - `TestBenchmarkCorpusVerifyPreserved`: Verified `VerifyPreserved` preserved assessment against committed reference testdata and snapshots.
+  - `TestBenchmarkCorpusCRLFAndContradictionRegressions`: Verified 60 mechanical evaluations covering valid CRLF endings, mixed-ending contradictions, and pure CRLF contradictions across all 12 scenarios.
 
 ## Documentation
 
