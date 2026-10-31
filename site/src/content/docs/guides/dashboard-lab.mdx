@@ -121,14 +121,17 @@ use **Trajectory** for the underlying event view.
 This view uses only saved `user.message` and `assistant.message` events from the
 **first repetition**. It does not assess transcript completeness or reconstruct
 missing messages from the initial prompt, grader feedback or final output.
-Missing message content and tasks with no recorded conversation are explicit.
-The existing API omits empty text, so **No message text recorded** does not
-distinguish an empty original message from unavailable text.
+Only messages with non-whitespace text appear. Missing, empty, non-string and
+whitespace-only content is omitted; substantive text is preserved verbatim.
+The count and numbering reflect messages with recorded text. If none remain, the
+empty state says no conversation text was recorded and points to **Trajectory**.
+Saved transcript data and **Trajectory** are unchanged.
 The synthetic demo does not invent a recorded conversation.
 
 **User** labels identify the message role, not whether a human or model authored
 that specific message. When responder metadata exists, its simulated-user
-follow-up count is shown separately; per-message provenance is unavailable.
+follow-up count is shown separately, even when no message text was recorded;
+per-message provenance is unavailable.
 Changing tasks or refreshing saved results updates the conversation along with
 the other inspector evidence.
 
