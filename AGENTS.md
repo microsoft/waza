@@ -347,7 +347,14 @@ fresh saved JSON outcome with the four expected tasks and all three trials,
 consistent summary/task/run/grader statuses, and zero errors, skips, or cached
 tasks. Exit 1 is accepted only for completed grader failures, never task/runtime
 errors, cancellation, or missing/incomplete evidence. Any attempted runtime launch
-also fails the gate. Both workflows execute the production-CLI regression controls
+also fails the gate.
+Inline grader exceptions carry `details.evaluation_errors` separately from false
+assertions and are rejected by the integration gate. Each native shard checks
+its own rejecting runtime marker after tests, including tolerated launches.
+Publication uses `!cancelled()` as well as explicit shard-result checks.
+The SIGTERM regression holds the production CLI inside a blocking grader
+subprocess until cancellation, rather than synchronizing on console output.
+Both workflows execute the production-CLI regression controls
 in `.github/scripts`, including the otherwise indistinguishable task-error exit 1.
 The integration requires `jq` (available on the Ubuntu release runners).
 This is offline harness evidence, not live agent-quality evidence.

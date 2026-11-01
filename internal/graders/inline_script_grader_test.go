@@ -224,6 +224,40 @@ func TestEmptyAssertions(t *testing.T) {
 	}, results)
 }
 
+func TestInlineScriptEvaluationErrors(t *testing.T) {
+	skipIfNoPython(t)
+	for _, tc := range []struct {
+		name       string
+		language   models.Language
+		assertions []string
+		errors     bool
+	}{
+		{"python-false", models.LanguagePython, []string{"False"}, false},
+		{"python-exception", models.LanguagePython, []string{"1 / 0"}, true},
+		{"python-mixed", models.LanguagePython, []string{"True", "False", "missing_field"}, true},
+		{"javascript-false", models.LanguageJavascript, []string{"false"}, false},
+		{"javascript-exception", models.LanguageJavascript, []string{"missing_field"}, true},
+		{"javascript-empty-exception", models.LanguageJavascript, []string{`(() => { throw ""; })()`}, true},
+		{"javascript-fail-exception", models.LanguageJavascript, []string{`(() => { throw "fail"; })()`}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			g, err := NewInlineScriptGrader("test", models.InlineScriptGraderParameters{
+				Language: tc.language, Assertions: tc.assertions,
+			})
+			require.NoError(t, err)
+			result, err := g.Grade(t.Context(), &Context{})
+			require.NoError(t, err)
+			require.False(t, result.Passed)
+			_, hasErrors := result.Details["evaluation_errors"]
+			require.Equal(t, tc.errors, hasErrors)
+			if tc.errors {
+				require.Len(t, result.Details["evaluation_errors"], 1)
+			}
+			require.Equal(t, len(tc.assertions), result.Details["total_assertions"])
+		})
+	}
+}
+
 func TestWithRealContextPython(t *testing.T) {
 	skipIfNoPython(t)
 

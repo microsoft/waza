@@ -33,6 +33,7 @@ if ! jq -e -s --argjson status "$status" '
     all(.validations | to_entries[];
       .key == .value.identifier and
       (.value.passed | type == "boolean") and
+      (.value.details | has("evaluation_errors") | not) and
       (.value.score | type == "number" and . >= 0 and . <= 1)
     ) and
     ((.status == "passed") == all(.validations[]; .passed));

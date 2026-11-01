@@ -35,7 +35,12 @@ jobs:
       - name: Execute exhaustive native test shard
         env:
           SHARD: ${{ matrix.shard }}
-        run: bash .github/scripts/go_test_shard.sh "$SHARD" "coverage-native-$SHARD.txt"
+        run: |
+          bash .github/scripts/go_test_shard.sh "$SHARD" "coverage-native-$SHARD.txt"
+          if [ -e "$COPILOT_CLI_PATH.invoked" ]; then
+            echo "Native shard attempted to launch the Copilot runtime." >&2
+            exit 1
+          fi
       - name: Retain coverage and test-selection evidence
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:

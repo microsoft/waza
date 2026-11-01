@@ -47,10 +47,16 @@ func TestReleaseWorkflowGates(t *testing.T) {
 				t.Fatal("release permissions and bounded job timeout must be preserved")
 			}
 			if workflow.Jobs["native-test-shards"].Uses != "./.github/workflows/go-native-shards.yml" ||
-				!reflect.DeepEqual(job.Needs, []string{"native-test-shards"}) ||
-				job.If != "${{ always() }}" {
+				!reflect.DeepEqual(job.Needs, []string{"native-test-shards"}) {
 				t.Fatal("release must explicitly gate on every reusable native shard, including skipped/canceled jobs")
 			}
+			t.Run("workflow-cancellation-blocks-publication", func(t *testing.T) {
+				// Pin the actual GitHub status function, not a shell simulation:
+				// unlike always(), !cancelled() is false after cancellation.
+				if job.If != "${{ !cancelled() }}" {
+					t.Fatal("publication must be ineligible after workflow cancellation")
+				}
+			})
 			indexes := map[string]int{}
 			steps := map[string]releaseStep{}
 			for i, step := range job.Steps {
@@ -133,10 +139,77 @@ func TestNativeShardsInstallOfflineGuard(t *testing.T) {
 			guard = i
 		case "Execute exhaustive native test shard":
 			execute = i
+			testNativeShardRuntimeGate(t, step.Run)
 		}
 	}
 	if guard < 0 || execute <= guard {
 		t.Fatal("native shards must install their runtime guard before actual discovery and execution")
+	}
+}
+
+func testNativeShardRuntimeGate(t *testing.T, script string) {
+	t.Helper()
+	dir := t.TempDir()
+	scripts := filepath.Join(dir, ".github", "scripts")
+	if err := os.MkdirAll(scripts, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	source, err := os.ReadFile("go_test_shard.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeReleaseFile(t, filepath.Join(scripts, "go_test_shard.sh"), source)
+	root, err := filepath.Abs(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	env, guard := releaseControlEnvironment(t, dir, root)
+	writeReleaseFile(t, filepath.Join(dir, "go"), []byte(`#!/usr/bin/env bash
+set -euo pipefail
+if [[ " $* " == *" -list "* ]]; then
+  printf '%s\n' TestOne TestTwo TestThree TestFour
+else
+  printf 'executed\n' > "$TEST_EXECUTED"
+  if [ "$TRY_RUNTIME" = true ]; then "$COPILOT_CLI_PATH" --version || true; fi
+  exit "$TEST_STATUS"
+fi
+`))
+	for _, tc := range []struct {
+		name   string
+		launch bool
+		status int
+		want   int
+	}{
+		{"clean", false, 0, 0},
+		{"tolerated-launch", true, 0, 1},
+		{"test-failure", false, 9, 9},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			executed := filepath.Join(dir, "executed")
+			cmd := exec.CommandContext(t.Context(), "bash", "-euo", "pipefail", "-c", script)
+			cmd.Dir = dir
+			cmd.Env = append(env, "SHARD=0", "PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"),
+				"TEST_EXECUTED="+executed, fmt.Sprintf("TRY_RUNTIME=%t", tc.launch), fmt.Sprintf("TEST_STATUS=%d", tc.status))
+			output, err := cmd.CombinedOutput()
+			if cmd.ProcessState == nil || cmd.ProcessState.ExitCode() != tc.want {
+				t.Fatalf("workflow shard gate: %v\n%s", err, output)
+			}
+			if _, err := os.Stat(executed); err != nil {
+				t.Fatalf("actual shard test command did not execute: %v", err)
+			}
+			if err := os.Remove(executed); err != nil {
+				t.Fatal(err)
+			}
+			if tc.launch {
+				if !strings.Contains(string(output), "Native shard attempted to launch the Copilot runtime.") {
+					t.Fatalf("tolerated launch was not rejected by workflow: %s", output)
+				}
+				if err := os.Remove(guard + ".invoked"); err != nil {
+					t.Fatal(err)
+				}
+			}
+			assertNoReleaseRuntime(t, guard)
+		})
 	}
 }
 

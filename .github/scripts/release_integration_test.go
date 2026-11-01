@@ -1,7 +1,6 @@
 package scripts
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -60,7 +59,7 @@ func TestReleaseIntegrationProductionOutcomes(t *testing.T) {
 	}
 	gate := filepath.Join(root, ".github", "scripts", "release_integration_test.sh")
 	var passing, failing []byte
-	for _, mode := range []string{"passed", "grader-failure", "task-error"} {
+	for _, mode := range []string{"passed", "grader-failure", "grader-exception", "task-error"} {
 		t.Run(mode, func(t *testing.T) {
 			dir := t.TempDir()
 			example := filepath.Join(dir, "examples", "code-explainer")
@@ -82,6 +81,12 @@ func TestReleaseIntegrationProductionOutcomes(t *testing.T) {
 				if original == string(data) {
 					t.Fatal("grader-failure control did not change the actual task assertion")
 				}
+			case "grader-exception":
+				original := string(data)
+				data = []byte(strings.Replace(original, `"len(output) > 10"`, `"1 / 0"`, 1))
+				if original == string(data) {
+					t.Fatal("exception control did not change the actual assertion")
+				}
 			case "task-error":
 				data = append(data, []byte("\ninstruction_files:\n  - missing-release-instruction.md\n")...)
 			}
@@ -98,7 +103,7 @@ func TestReleaseIntegrationProductionOutcomes(t *testing.T) {
 			if mode != "passed" {
 				wantCLI = "1"
 			}
-			if mode == "task-error" {
+			if mode == "task-error" || mode == "grader-exception" {
 				wantGate = 1
 			}
 			if code != wantGate {
@@ -127,6 +132,17 @@ func TestReleaseIntegrationProductionOutcomes(t *testing.T) {
 			}
 			if err := json.Unmarshal(outcome, &observed); err != nil {
 				t.Fatal(err)
+			}
+			if mode == "grader-exception" {
+				check := exec.CommandContext(t.Context(), "jq", "-e", `
+					[.tasks[] | select(.test_id == "explain-python-recursion-001") |
+					.runs[].validations.explains_recursion |
+					select(.passed == false and .score == 0 and
+					(.details.evaluation_errors | type == "array" and length == 1))] | length == 3`)
+				check.Stdin = bytes.NewReader(outcome)
+				if output, err := check.CombinedOutput(); err != nil {
+					t.Fatalf("exception evidence not exercised: %v\n%s\n%s", err, output, outcome)
+				}
 			}
 			runs, errors := 0, 0
 			for _, task := range observed.Tasks {
@@ -275,6 +291,20 @@ exit "$REPLAY_STATUS"
 			t.Fatal(err)
 		}
 		env, guard := releaseControlEnvironment(t, dir, root)
+		barrier := filepath.Join(dir, "grader-active")
+		shimDir := filepath.Join(dir, "bin")
+		if err := os.Mkdir(shimDir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		testBinary, err := os.Executable()
+		if err != nil {
+			t.Fatal(err)
+		}
+		writeReleaseFile(t, filepath.Join(shimDir, "python3"), []byte(`#!/usr/bin/env bash
+exec "$BLOCKING_GRADER_BINARY" -test.run=TestReleaseBlockingGrader -- "$@"
+`))
+		env = append(env, "PATH="+shimDir+string(os.PathListSeparator)+os.Getenv("PATH"),
+			"BLOCKING_GRADER_BINARY="+testBinary, "BLOCKING_GRADER_BARRIER="+barrier)
 		pidPath := filepath.Join(dir, "cli.pid")
 		launcher := filepath.Join(dir, "cancel-real-cli")
 		writeReleaseFile(t, launcher, []byte(releaseCaptureLauncher))
@@ -286,47 +316,76 @@ exit "$REPLAY_STATUS"
 		captured := filepath.Join(dir, "captured.json")
 		cmd.Env = append(env, "REAL_WAZA="+binary, "CAPTURE_PID="+pidPath,
 			"CAPTURE_STATUS="+statusPath, "CAPTURE_OUTCOME="+captured)
-		pipe, err := cmd.StdoutPipe()
-		if err != nil {
-			t.Fatal(err)
+		cmd.WaitDelay = 3 * time.Second
+		cmd.Cancel = func() error {
+			data, err := os.ReadFile(pidPath)
+			if err == nil {
+				pid, parseErr := strconv.Atoi(string(data))
+				if parseErr != nil {
+					return parseErr
+				}
+				process, findErr := os.FindProcess(pid)
+				if findErr != nil {
+					return findErr
+				}
+				return process.Signal(syscall.SIGTERM)
+			}
+			if !os.IsNotExist(err) {
+				return err
+			}
+			return cmd.Process.Kill()
 		}
 		var stderr, stdout bytes.Buffer
+		cmd.Stdout = &stdout
 		cmd.Stderr = &stderr
 		if err := cmd.Start(); err != nil {
 			t.Fatal(err)
 		}
-		signaled := false
-		scanner := bufio.NewScanner(pipe)
-		for scanner.Scan() {
-			line := scanner.Text()
-			fmt.Fprintln(&stdout, line)
-			if !signaled && strings.HasPrefix(line, "Running benchmark:") {
-				data, err := os.ReadFile(pidPath)
-				if err != nil {
-					t.Fatal(err)
-				}
-				pid, err := strconv.Atoi(string(data))
-				if err != nil {
-					t.Fatal(err)
-				}
-				process, err := os.FindProcess(pid)
-				if err != nil {
-					t.Fatal(err)
-				}
-				if err := process.Signal(syscall.SIGTERM); err != nil {
-					t.Fatal(err)
-				}
-				signaled = true
+		defer func() {
+			if cmd.ProcessState == nil {
+				cancel()
+				_ = cmd.Wait()
+			}
+		}()
+		for {
+			if _, err := os.Stat(barrier); err == nil {
+				break
+			} else if !os.IsNotExist(err) {
+				t.Fatal(err)
+			}
+			select {
+			case <-ctx.Done():
+				t.Fatal("CLI never entered the blocking grader")
+			case <-time.After(10 * time.Millisecond):
 			}
 		}
-		scanErr := scanner.Err()
+		data, err := os.ReadFile(pidPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		pid, err := strconv.Atoi(string(data))
+		if err != nil {
+			t.Fatal(err)
+		}
+		process, err := os.FindProcess(pid)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() {
+			if cmd.ProcessState == nil {
+				_ = process.Kill()
+			}
+		}()
+		if err := process.Signal(syscall.SIGTERM); err != nil {
+			t.Fatal(err)
+		}
 		err = cmd.Wait()
 		status, readErr := os.ReadFile(statusPath)
-		if !signaled || scanErr != nil || err == nil || ctx.Err() != nil || readErr != nil ||
+		if err == nil || ctx.Err() != nil || readErr != nil ||
 			(string(status) != "1" && string(status) != "2") ||
 			!strings.Contains(stderr.String(), "Release integration ") {
-			t.Fatalf("production cancellation: signaled=%t scan=%v wait=%v ctx=%v\n%s\n%s",
-				signaled, scanErr, err, ctx.Err(), &stdout, &stderr)
+			t.Fatalf("production cancellation: wait=%v ctx=%v\n%s\n%s",
+				err, ctx.Err(), &stdout, &stderr)
 		}
 		if string(status) == "1" {
 			// Some cancellation paths complete with exit 1 and save partial
@@ -375,6 +434,23 @@ exit "$REPLAY_STATUS"
 		}
 		t.Log("real copilot-sdk initialization reached the proven absolute rejecting guard; gate rejected launch; no live runtime")
 	})
+}
+
+func TestReleaseBlockingGrader(t *testing.T) {
+	barrier := os.Getenv("BLOCKING_GRADER_BARRIER")
+	if barrier == "" {
+		return
+	}
+	if os.Args[len(os.Args)-1] == "--version" {
+		os.Exit(0)
+	}
+	// The production inline grader is awaiting this subprocess. It cannot
+	// finish before SIGTERM; without cancellation the parent's deadline fails.
+	if err := os.WriteFile(barrier, []byte("active"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(2 * time.Minute)
+	os.Exit(0)
 }
 
 func logReleaseOutcome(t *testing.T, name string, outcome []byte) {
