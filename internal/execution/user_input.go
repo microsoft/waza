@@ -27,6 +27,10 @@ type UserInputScript struct {
 	fallback   UserInputFallback
 }
 
+// UserInputFallback answers a native user-input request that no scripted
+// entry handles. Returning an error fails the request closed.
+type UserInputFallback func(request copilot.UserInputRequest) (string, error)
+
 // NewUserInputScript validates responses and returns a fresh script.
 func NewUserInputScript(responses []models.UserInputResponseConfig) (*UserInputScript, error) {
 	if err := models.ValidateUserInputResponses(responses); err != nil {
@@ -36,20 +40,25 @@ func NewUserInputScript(responses []models.UserInputResponseConfig) (*UserInputS
 		responses: slices.Clone(responses),
 		patterns:  make([]*regexp.Regexp, len(responses)),
 	}
-	if s.responses == nil {
-		s.responses = []models.UserInputResponseConfig{}
-	}
 	for i, response := range responses {
-		if response.QuestionRegex == "" {
+		if response.Question == "" {
 			continue
 		}
-		pattern, err := models.CompileUserInputQuestionRegex(response.QuestionRegex)
+		pattern, err := models.CompileUserInputQuestion(response.Question)
 		if err != nil {
-			return nil, fmt.Errorf("user_input_responses[%d].question_regex is invalid: %w", i, err)
+			return nil, fmt.Errorf("user_input_responses[%d].question is not a valid regular expression: %w", i, err)
 		}
 		s.patterns[i] = pattern
 	}
 	return s, nil
+}
+
+// SetFallback installs the answerer for unscripted requests. It must be called
+// before the script is used. Fallback calls are serialized with the script.
+func (s *UserInputScript) SetFallback(fallback UserInputFallback) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.fallback = fallback
 }
 
 // Handler returns the SDK callback, or nil for a nil script.
@@ -70,110 +79,48 @@ func (s *UserInputScript) handle(request copilot.UserInputRequest, invocation co
 		Question:  request.Question,
 		Choices:   slices.Clone(request.Choices),
 	}
-	if request.AllowFreeform != nil {
-		allow := *request.AllowFreeform
-		record.AllowFreeform = &allow
-	}
-	reject := func(reason string) (copilot.UserInputResponse, error) {
-		err := fmt.Errorf("native user input request %d rejected: %s", record.Sequence, reason)
-		record.Outcome = models.UserInputOutcomeRejected
-		record.Error = err.Error()
-		s.records = append(s.records, record)
-		s.rejections = append(s.rejections, err)
-		return copilot.UserInputResponse{}, err
-	}
 
-	// The next scripted entry answers a matching question. With a fallback,
-	// a non-matching question leaves the entry pending for a later request;
-	// without one, it fails closed.
-	if s.next >= len(s.responses) || (s.fallback != nil && !s.questionMatches(s.next, request.Question)) {
-		if s.fallback == nil {
-			return reject("no scripted user_input_responses entry remains")
-		}
-		return s.answerWithFallback(request, &record, reject)
-	}
-	index := s.next
-	s.next++
-	record.ResponseIndex = &index
-	record.Source = models.UserInputSourceScript
-	scripted := s.responses[index]
-
-	if !s.questionMatches(index, request.Question) {
-		field := "question"
-		if s.patterns[index] != nil {
-			field = "question_regex"
-		}
-		return reject(fmt.Sprintf("question does not match user_input_responses[%d].%s", index, field))
-	}
-	if scripted.Choices != nil && !slices.Equal(*scripted.Choices, request.Choices) {
-		return reject(fmt.Sprintf("offered choices do not match user_input_responses[%d].choices", index))
-	}
-
-	var response copilot.UserInputResponse
+	var answer string
 	switch {
-	case scripted.Choice != nil:
-		if !slices.Contains(request.Choices, *scripted.Choice) {
-			return reject(fmt.Sprintf("user_input_responses[%d].choice was not offered", index))
+	case s.next < len(s.responses) && s.matches(s.next, request.Question):
+		record.Source = models.UserInputSourceScript
+		answer = *s.responses[s.next].Answer
+		s.next++
+	case s.fallback != nil:
+		record.Source = models.UserInputSourceResponder
+		var err error
+		if answer, err = s.fallback(request); err != nil {
+			return s.reject(record, fmt.Sprintf("responder could not answer: %v", err))
 		}
-		response = copilot.UserInputResponse{Answer: *scripted.Choice}
-	case scripted.Freeform != nil:
-		if request.AllowFreeform != nil && !*request.AllowFreeform {
-			return reject(fmt.Sprintf("user_input_responses[%d].freeform is not allowed by the request", index))
-		}
-		response = copilot.UserInputResponse{Answer: *scripted.Freeform, WasFreeform: true}
+	case s.next < len(s.responses):
+		return s.reject(record, fmt.Sprintf("question does not match user_input_responses[%d].question", s.next))
 	default:
-		return reject(fmt.Sprintf("user_input_responses[%d] has no answer", index))
+		return s.reject(record, "no scripted user_input_responses entry remains")
 	}
 
-	answer, wasFreeform := response.Answer, response.WasFreeform
-	record.Outcome = models.UserInputOutcomeAnswered
+	// An answer equal to an offered choice selects it; anything else is typed.
+	wasFreeform := !slices.Contains(request.Choices, answer)
+	if wasFreeform && request.AllowFreeform != nil && !*request.AllowFreeform {
+		return s.reject(record, fmt.Sprintf("answer %q is not an offered choice and the request does not allow typed answers", answer))
+	}
 	record.Answer = &answer
 	record.WasFreeform = &wasFreeform
 	s.records = append(s.records, record)
-	return response, nil
+	return copilot.UserInputResponse{Answer: answer, WasFreeform: wasFreeform}, nil
 }
 
-func (s *UserInputScript) questionMatches(index int, question string) bool {
-	if pattern := s.patterns[index]; pattern != nil {
-		return pattern.MatchString(question)
-	}
-	return question == s.responses[index].Question
+func (s *UserInputScript) matches(index int, question string) bool {
+	pattern := s.patterns[index]
+	return pattern == nil || pattern.MatchString(question)
 }
 
-// answerWithFallback asks the fallback (the adaptive responder) and validates
-// its answer against the request exactly as a scripted answer would be.
-func (s *UserInputScript) answerWithFallback(request copilot.UserInputRequest, record *models.UserInputRecord,
-	reject func(string) (copilot.UserInputResponse, error)) (copilot.UserInputResponse, error) {
-	record.Source = models.UserInputSourceResponder
-	response, err := s.fallback(request)
-	if err != nil {
-		return reject(fmt.Sprintf("responder could not answer: %v", err))
-	}
-	if response.WasFreeform {
-		if request.AllowFreeform != nil && !*request.AllowFreeform {
-			return reject("responder gave a freeform answer, which the request does not allow")
-		}
-	} else if !slices.Contains(request.Choices, response.Answer) {
-		return reject("responder selected a choice that was not offered")
-	}
-	answer, wasFreeform := response.Answer, response.WasFreeform
-	record.Outcome = models.UserInputOutcomeAnswered
-	record.Answer = &answer
-	record.WasFreeform = &wasFreeform
-	s.records = append(s.records, *record)
-	return response, nil
-}
-
-// UserInputFallback answers a native user-input request that no scripted
-// entry handles. Returning an error fails the request closed.
-type UserInputFallback func(request copilot.UserInputRequest) (copilot.UserInputResponse, error)
-
-// SetFallback installs the answerer for unscripted requests. It must be called
-// before the script is used. Fallback calls are serialized with the script.
-func (s *UserInputScript) SetFallback(fallback UserInputFallback) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.fallback = fallback
+// reject records a fail-closed request. The caller holds s.mu.
+func (s *UserInputScript) reject(record models.UserInputRecord, reason string) (copilot.UserInputResponse, error) {
+	err := fmt.Errorf("native user input request %d rejected: %s", record.Sequence, reason)
+	record.Error = err.Error()
+	s.records = append(s.records, record)
+	s.rejections = append(s.rejections, err)
+	return copilot.UserInputResponse{}, err
 }
 
 // Records returns the requests observed so far, in arrival order.
@@ -220,7 +167,7 @@ func (s *UserInputScript) Finish() error {
 		return errors.Join(s.rejections...)
 	}
 	if remaining := len(s.responses) - s.next; remaining > 0 {
-		return fmt.Errorf("user_input_responses: %d scripted answer(s) were not consumed, starting at user_input_responses[%d]", remaining, s.next)
+		return fmt.Errorf("user_input_responses: %d scripted answer(s) were not used, starting at user_input_responses[%d]", remaining, s.next)
 	}
 	return nil
 }

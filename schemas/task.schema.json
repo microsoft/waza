@@ -152,7 +152,7 @@
     },
     "user_input_responses": {
       "type": "array",
-      "description": "Ordered scripted answers to native Copilot SDK user-input (ask_user) requests. Presence registers the SDK callback; an empty list makes any question fail closed. Unexpected, mismatched, or unconsumed entries fail the run. Requires executor copilot-sdk and an enclosing scenario eval with schemaVersion 2.0.",
+      "description": "Ordered scripted answers to native Copilot SDK user-input (ask_user) requests. Presence registers the SDK callback; an empty list makes any question fail closed. Unexpected or unused entries fail the run. Requires executor copilot-sdk and an enclosing scenario eval with schemaVersion 2.0.",
       "items": {
         "$ref": "#/$defs/userInputResponse"
       }
@@ -162,40 +162,18 @@
     "userInputResponse": {
       "type": "object",
       "additionalProperties": false,
+      "required": ["answer"],
       "properties": {
         "question": {
           "type": "string",
-          "pattern": "\\S",
-          "description": "Exact expected question text."
-        },
-        "question_regex": {
-          "type": "string",
           "minLength": 1,
-          "description": "RE2 pattern that must match the whole question."
+          "description": "Optional RE2 pattern that must match the whole question. When omitted, the entry answers the next question."
         },
-        "choices": {
-          "type": "array",
-          "items": { "type": "string" },
-          "description": "Expected offered choices, in order. An empty list expects no choices."
-        },
-        "choice": {
+        "answer": {
           "type": "string",
-          "minLength": 1,
-          "description": "Offered choice to select (was_freeform false)."
-        },
-        "freeform": {
-          "type": "string",
-          "description": "Typed answer (was_freeform true); rejected when the request disallows freeform input."
+          "description": "Answer sent to the agent. Equal to an offered choice selects it; otherwise it is a typed answer."
         }
-      },
-      "oneOf": [
-        { "required": ["question"], "not": { "required": ["question_regex"] } },
-        { "required": ["question_regex"], "not": { "required": ["question"] } }
-      ],
-      "anyOf": [
-        { "required": ["choice"], "not": { "required": ["freeform"] } },
-        { "required": ["freeform"], "not": { "required": ["choice"] } }
-      ]
+      }
     },
     "commandMock": {
       "type": "object",

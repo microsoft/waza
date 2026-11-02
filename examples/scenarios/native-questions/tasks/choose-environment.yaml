@@ -8,11 +8,9 @@ inputs:
     Finally write deploy.txt containing the selected environment on the first
     line and the release note on the second line.
 user_input_responses:
-  - question_regex: "(?is).*environment.*"
-    choices: ["staging", "production"]
-    choice: staging
-  - question_regex: "(?is).*release note.*"
-    freeform: Fixes the login timeout.
+  - question: "(?is).*environment.*"
+    answer: staging
+  - answer: Fixes the login timeout.
 graders:
   - name: answered-native-questions
     type: code
@@ -21,7 +19,7 @@ graders:
       assertions:
         - >-
           user_input_requests.length === 2 &&
-          user_input_requests.every(r => r.outcome === 'answered') &&
+          user_input_requests.every(r => !r.error) &&
           user_input_requests[0].answer === 'staging' && user_input_requests[0].was_freeform === false &&
           user_input_requests[1].answer === 'Fixes the login timeout.' && user_input_requests[1].was_freeform === true
   - name: used-answers

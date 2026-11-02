@@ -786,33 +786,32 @@ expected:
 | `instruction_files` | string[] | Instruction files for this task (adds to eval-level files) |
 | `golden`      | bool   | Mark as a critical "golden" task — enforced by [`waza gate`](../../reference/cli/#waza-gate) (must always pass) |
 | `requirements` | array | Descriptive intent linked to explicitly scoped existing graders; does not add assertions or change pass/fail |
-| `user_input_responses` | array | Ordered scripted answers to native Copilot SDK user-input (`ask_user`) requests; requires `copilot-sdk` and scenario `schemaVersion: "2.0"`. See [schema reference](/waza/reference/schema/#user_input_responses-optional) |
+| `user_input_responses` | array | Ordered scripted answers (`answer`, optional `question` regex) to native Copilot SDK user-input (`ask_user`) requests; requires `copilot-sdk` and scenario `schemaVersion: "2.0"`. See [schema reference](/waza/reference/schema/#user_input_responses-optional) |
 
 ### Answer native agent questions
 
 When the agent should ask the host a question through the Copilot SDK native
 user-input callback, script the answers in order. Unscripted or mismatched
-questions fail the run instead of receiving a default answer, and unconsumed
-answers also fail it:
+questions fail the run instead of receiving a default answer, and unused
+answers also fail it. Each entry has a required `answer` and an optional `question`
+regex; an answer equal to an offered choice selects it:
 
 ```yaml
 user_input_responses:
-  - question_regex: "(?is).*environment.*"
-    choices: [staging, production]
-    choice: staging
-  - question: "What release note should I use?"
-    freeform: Fixes the login timeout.
+  - question: "(?is).*environment.*"
+    answer: staging
+  - answer: Fixes the login timeout.
 graders:
   - name: answered
     type: code
     config:
       language: javascript
       assertions:
-        - "user_input_requests.length === 2 && user_input_requests.every(r => r.outcome === 'answered')"
+        - "user_input_requests.length === 2 && user_input_requests.every(r => !r.error)"
 ```
 
 Each request is recorded under `runs[].user_input_requests` with its session ID,
-offered choices, freeform permission, answer, `was_freeform`, and `source`.
+offered choices, answer, `was_freeform`, `source`, and `error` when rejected.
 
 If the task also has an adaptive responder (`inputs.responder`), questions that
 the next scripted entry does not match are answered by the responder model

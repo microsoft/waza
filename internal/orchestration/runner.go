@@ -9,7 +9,6 @@ import (
 	"math"
 	"os"
 	"path/filepath"
-	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -1764,18 +1763,18 @@ func (r *EvalRunner) newAttemptUserInput(ctx context.Context, tc *models.TestCas
 // responderUserInputFallback answers a native question with the adaptive
 // responder. Only an explicit reply is an answer; stop and abstain fail closed.
 func responderUserInputFallback(ctx context.Context, classifier responderClassifier) execution.UserInputFallback {
-	return func(request copilot.UserInputRequest) (copilot.UserInputResponse, error) {
+	return func(request copilot.UserInputRequest) (string, error) {
 		decision, err := classifier.Classify(ctx, nativeQuestionMessage(request))
 		if err != nil {
-			return copilot.UserInputResponse{}, err
+			return "", err
 		}
 		switch decision.Kind {
 		case responder.DecisionReply:
-			return copilot.UserInputResponse{Answer: decision.Answer, WasFreeform: !slices.Contains(request.Choices, decision.Answer)}, nil
+			return decision.Answer, nil
 		case responder.DecisionAbstain:
-			return copilot.UserInputResponse{}, fmt.Errorf("responder abstained: %s", decision.Reason)
+			return "", fmt.Errorf("responder abstained: %s", decision.Reason)
 		default:
-			return copilot.UserInputResponse{}, fmt.Errorf("responder chose to stop instead of answering")
+			return "", fmt.Errorf("responder chose to stop instead of answering")
 		}
 	}
 }

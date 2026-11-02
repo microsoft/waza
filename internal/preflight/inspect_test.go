@@ -253,7 +253,7 @@ mcp_mocks:
 }
 
 func TestInspectUserInputResponsesRequireScenarioAndCopilot(t *testing.T) {
-	task := validTask + "\nuser_input_responses:\n  - question: Continue?\n    freeform: yes\n"
+	task := validTask + "\nuser_input_responses:\n  - question: \"Continue.*\"\n    answer: \"yes\"\n"
 	for _, tc := range []struct {
 		name, eval, code string
 		invalid          bool

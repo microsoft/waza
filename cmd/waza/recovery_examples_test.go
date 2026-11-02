@@ -134,16 +134,14 @@ func TestNativeQuestionsExampleGradesRecordedAnswers(t *testing.T) {
 	workspace := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(workspace, "deploy.txt"), []byte("staging\nFixes the login timeout.\n"), 0600))
 
-	record := func(sequence int, answer string, freeform bool, outcome string) models.UserInputRecord {
-		r := models.UserInputRecord{Sequence: sequence, SessionID: "s", Question: "q", Outcome: outcome}
-		if outcome == models.UserInputOutcomeAnswered {
-			r.Answer, r.WasFreeform = &answer, &freeform
-		}
-		return r
+	record := func(sequence int, answer string, freeform bool) models.UserInputRecord {
+		return models.UserInputRecord{Sequence: sequence, SessionID: "s", Question: "q",
+			Answer: &answer, WasFreeform: &freeform, Source: models.UserInputSourceScript}
 	}
+	rejected := models.UserInputRecord{Sequence: 2, SessionID: "s", Question: "q", Error: "rejected"}
 	compliant := []models.UserInputRecord{
-		record(1, "staging", false, models.UserInputOutcomeAnswered),
-		record(2, "Fixes the login timeout.", true, models.UserInputOutcomeAnswered),
+		record(1, "staging", false),
+		record(2, "Fixes the login timeout.", true),
 	}
 	for _, test := range []struct {
 		name    string
@@ -153,8 +151,8 @@ func TestNativeQuestionsExampleGradesRecordedAnswers(t *testing.T) {
 		{"compliant", compliant, true},
 		{"no recorded questions", nil, false},
 		{"only one question", compliant[:1], false},
-		{"rejected question", []models.UserInputRecord{compliant[0], record(2, "", false, models.UserInputOutcomeRejected)}, false},
-		{"choice answered as freeform", []models.UserInputRecord{record(1, "staging", true, models.UserInputOutcomeAnswered), compliant[1]}, false},
+		{"rejected question", []models.UserInputRecord{compliant[0], rejected}, false},
+		{"choice answered as freeform", []models.UserInputRecord{record(1, "staging", true), compliant[1]}, false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			graded, err := gradeRunWithJudge(t.Context(), spec, task, &models.RunResult{UserInputRequests: test.records}, workspace, "", io.Discard, false, evidenceGradeSource{})

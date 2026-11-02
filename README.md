@@ -1736,16 +1736,14 @@ Use task-level `user_input_responses` when the agent asks the user a question th
 
 ```yaml
 user_input_responses:
-  - question_regex: "(?is).*environment.*"
-    choices: [staging, production]   # optional exact offered list
-    choice: staging                  # selected choice (was_freeform: false)
-  - question: "What release note should I use?"
-    freeform: Fixes the login timeout.  # typed answer (was_freeform: true)
+  - question: "(?is).*environment.*"   # optional regex for the whole question
+    answer: staging                     # equals an offered choice, so it selects it
+  - answer: Fixes the login timeout.    # no question: answers the next one, as typed text
 ```
 
-Each entry needs one of `question` (exact) or `question_regex` (full match) and one of `choice` or `freeform`. Unexpected, mismatched, or exhausted questions return an error to the SDK instead of a default answer and fail the run; unconsumed entries also fail it. Each request is recorded in order under `runs[].user_input_requests` (session ID, question, offered choices, freeform permission, answer, `was_freeform`, outcome, and `source`) and exposed to inline `code` graders as `user_input_requests`. This is separate from `mcp_mocks`, which can mock an MCP-provided `ask_user` tool. See [examples/scenarios/native-questions](examples/scenarios/native-questions).
+Each entry has a required `answer` and an optional `question` regex. Questions that do not match the next entry, or arrive after the script is used up, return an error to the SDK instead of a default answer and fail the run; unused entries also fail it. Each request is recorded in order under `runs[].user_input_requests` (session ID, question, offered choices, answer, `was_freeform`, `source`, and `error` when rejected) and exposed to inline `code` graders as `user_input_requests`. This is separate from `mcp_mocks`, which can mock an MCP-provided `ask_user` tool. See [examples/scenarios/native-questions](examples/scenarios/native-questions).
 
-In scenario evals, a task with an adaptive responder (`inputs.responder`) also gets model-backed answers: scripted entries are tried first, and any question the next scripted entry does not match is answered by the responder model from its instructions (recorded with `source: responder`). Responder stop, abstain, or invalid answers fail the run. Legacy `1.x` evals with a responder are unchanged. See the [schema reference](site/src/content/docs/reference/schema.mdx#adaptive-responder-answers).
+In scenario evals, a task with an adaptive responder (`inputs.responder`) also gets model-backed answers: scripted entries are tried first, and any question the next scripted entry does not match is answered by the responder model from its instructions (recorded with `source: responder`). Responder stop, abstain, errors, or invalid answers fail the run. Legacy `1.x` evals with a responder are unchanged. See the [schema reference](site/src/content/docs/reference/schema.mdx#adaptive-responder-answers).
 
 ### Adversarial Packs
 

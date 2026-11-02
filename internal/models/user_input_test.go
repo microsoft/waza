@@ -17,18 +17,12 @@ func TestValidateUserInputResponses(t *testing.T) {
 		err       string
 	}{
 		{"empty list", []UserInputResponseConfig{}, ""},
-		{"choice", []UserInputResponseConfig{{Question: "Q", Choice: s("a")}}, ""},
-		{"choice within expected", []UserInputResponseConfig{{Question: "Q", Choices: &[]string{"a"}, Choice: s("a")}}, ""},
-		{"empty freeform", []UserInputResponseConfig{{QuestionRegex: "Q.*", Freeform: s("")}}, ""},
-		{"no question", []UserInputResponseConfig{{Choice: s("a")}}, "exactly one of question or question_regex"},
-		{"blank question", []UserInputResponseConfig{{Question: "  ", Choice: s("a")}}, "question must not be blank"},
-		{"both questions", []UserInputResponseConfig{{Question: "Q", QuestionRegex: "Q", Choice: s("a")}}, "exactly one of question or question_regex"},
-		{"invalid regex", []UserInputResponseConfig{{QuestionRegex: "(", Choice: s("a")}}, "question_regex is invalid"},
-		{"no answer", []UserInputResponseConfig{{Question: "Q"}}, "exactly one of choice or freeform"},
-		{"both answers", []UserInputResponseConfig{{Question: "Q", Choice: s("a"), Freeform: s("b")}}, "exactly one of choice or freeform"},
-		{"empty choice", []UserInputResponseConfig{{Question: "Q", Choice: s("")}}, "choice must not be empty"},
-		{"choice outside expected", []UserInputResponseConfig{{Question: "Q", Choices: &[]string{"a"}, Choice: s("b")}}, "is not one of the expected choices"},
-		{"second entry indexed", []UserInputResponseConfig{{Question: "Q", Choice: s("a")}, {Question: "R"}}, "user_input_responses[1]"},
+		{"answer only", []UserInputResponseConfig{{Answer: s("a")}}, ""},
+		{"empty answer", []UserInputResponseConfig{{Answer: s("")}}, ""},
+		{"question and answer", []UserInputResponseConfig{{Question: "Deploy .*\\?", Answer: s("a")}}, ""},
+		{"missing answer", []UserInputResponseConfig{{Question: "Q"}}, "user_input_responses[0].answer is required"},
+		{"invalid regex", []UserInputResponseConfig{{Question: "(", Answer: s("a")}}, "question is not a valid regular expression"},
+		{"second entry indexed", []UserInputResponseConfig{{Answer: s("a")}, {}}, "user_input_responses[1]"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -40,6 +34,13 @@ func TestValidateUserInputResponses(t *testing.T) {
 			require.ErrorContains(t, err, tc.err)
 		})
 	}
+}
+
+func TestCompileUserInputQuestionMatchesWholeQuestion(t *testing.T) {
+	pattern, err := CompileUserInputQuestion("Deploy")
+	require.NoError(t, err)
+	require.True(t, pattern.MatchString("Deploy"))
+	require.False(t, pattern.MatchString("Deploy where?"))
 }
 
 func TestValidateUserInputResponsesSchemaVersion(t *testing.T) {
@@ -58,7 +59,7 @@ func TestLoadTestCasePreservesUserInputResponsesPresence(t *testing.T) {
 	}{
 		{"absent", "", false, 0},
 		{"explicit empty", "user_input_responses: []\n", true, 0},
-		{"entries", "user_input_responses:\n  - question: Pick?\n    choices: []\n    freeform: x\n", true, 1},
+		{"entries", "user_input_responses:\n  - answer: ''\n  - question: Pick.*\n    answer: b\n", true, 2},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -72,9 +73,10 @@ func TestLoadTestCasePreservesUserInputResponsesPresence(t *testing.T) {
 			}
 			require.Len(t, *task.UserInputResponses, tc.count)
 			if tc.count > 0 {
-				choices := (*task.UserInputResponses)[0].Choices
-				require.NotNil(t, choices, "an explicit empty choices expectation must stay distinct from absent")
-				require.Empty(t, *choices)
+				first := (*task.UserInputResponses)[0]
+				require.NotNil(t, first.Answer, "an explicit empty answer must stay distinct from a missing answer")
+				require.Empty(t, *first.Answer)
+				require.Empty(t, first.Question)
 			}
 			data, err := json.Marshal(task)
 			require.NoError(t, err)
@@ -89,7 +91,7 @@ func TestLoadTestCaseRejectsInvalidUserInputResponses(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "task.yaml")
 	require.NoError(t, os.WriteFile(path, []byte("id: t\nname: T\ninputs:\n  prompt: go\nuser_input_responses:\n  - question: Pick?\n"), 0o600))
 	_, err := LoadTestCase(path)
-	require.ErrorContains(t, err, "user_input_responses[0] must specify exactly one of choice or freeform")
+	require.ErrorContains(t, err, "user_input_responses[0].answer is required")
 }
 
 func TestUserInputResponsesRequireCopilotExecutor(t *testing.T) {

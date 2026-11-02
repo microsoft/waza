@@ -247,10 +247,10 @@ func TestCacheKey_UserInputResponsesChangeKey(t *testing.T) {
 	variants := []*[]models.UserInputResponseConfig{
 		nil,
 		{},
-		{{Question: "Deploy where?", Choice: &answer}},
-		{{Question: "Deploy where?", Choice: &other}},
-		{{Question: "Deploy where?", Freeform: &answer}},
-		{{Question: "Deploy where?", Choices: &[]string{}, Freeform: &answer}},
+		{{Answer: &answer}},
+		{{Question: "Deploy where.*", Answer: &answer}},
+		{{Question: "Deploy where.*", Answer: &other}},
+		{{Question: "Deploy", Answer: &answer}},
 	}
 	seen := make(map[string]int, len(variants))
 	for i, responses := range variants {

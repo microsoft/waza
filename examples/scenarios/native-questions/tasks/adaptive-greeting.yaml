@@ -14,9 +14,8 @@ inputs:
       Abstain if a question cannot be answered from these facts.
     max_followups: 1
 user_input_responses:
-  - question_regex: "(?is).*environment.*"
-    choices: ["staging", "production"]
-    choice: staging
+  - question: "(?is).*environment.*"
+    answer: staging
 graders:
   - name: scripted-then-responder
     type: code
@@ -25,7 +24,7 @@ graders:
       assertions:
         - >-
           user_input_requests.length === 2 &&
-          user_input_requests.every(r => r.outcome === 'answered') &&
+          user_input_requests.every(r => !r.error) &&
           user_input_requests[0].source === 'script' && user_input_requests[0].answer === 'staging' &&
           user_input_requests[1].source === 'responder' && /ada/i.test(user_input_requests[1].answer)
   - name: used-answers

@@ -191,11 +191,11 @@ func TestNativeUserInputRecordsSurviveRegradeReaderAndAPI(t *testing.T) {
 			Runs: []models.RunResult{{RunNumber: 1, Status: models.StatusPassed}}}},
 	}
 	run := &outcome.TestOutcomes[0].Runs[0]
-	index, answer := 0, "staging"
+	answer := "staging"
 	run.UserInputRequests = []models.UserInputRecord{
-		{Sequence: 1, SessionID: "s-1", Question: "Deploy where?", Choices: []string{}, AllowFreeform: new(false),
-			Outcome: models.UserInputOutcomeAnswered, ResponseIndex: &index, Answer: &answer, WasFreeform: new(false)},
-		{Sequence: 2, SessionID: "s-1", Question: "Anything else?", Outcome: models.UserInputOutcomeRejected,
+		{Sequence: 1, SessionID: "s-1", Question: "Deploy where?", Choices: []string{},
+			Answer: &answer, WasFreeform: new(true), Source: models.UserInputSourceScript},
+		{Sequence: 2, SessionID: "s-1", Question: "Anything else?",
 			Error: "native user input request 2 rejected: no scripted user_input_responses entry remains"},
 	}
 	regraded := orchestration.RegradeOutcome(outcome, outcome.TestOutcomes, "judge-model", "")
@@ -210,7 +210,7 @@ func TestNativeUserInputRecordsSurviveRegradeReaderAndAPI(t *testing.T) {
 	require.Equal(t, run.UserInputRequests, detail.Tasks[0].UserInputRequests)
 	metadata, err := json.Marshal(detail.Tasks[0])
 	require.NoError(t, err)
-	require.Contains(t, string(metadata), `"userInputRequests":[{"sequence":1,"session_id":"s-1","question":"Deploy where?","choices":[],"allow_freeform":false,"outcome":"answered","response_index":0,"answer":"staging","was_freeform":false}`)
+	require.Contains(t, string(metadata), `"userInputRequests":[{"sequence":1,"session_id":"s-1","question":"Deploy where?","choices":[],"answer":"staging","was_freeform":true,"source":"script"}`)
 }
 
 func TestPromptJudgingAPIWithholdsTamperedCrossRunAndUnboundClaims(t *testing.T) {

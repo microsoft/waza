@@ -1337,16 +1337,6 @@
     "models_UserInputRecord": {
       "additionalProperties": false,
       "properties": {
-        "allow_freeform": {
-          "anyOf": [
-            {
-              "type": "boolean"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
         "answer": {
           "type": "string"
         },
@@ -1362,14 +1352,8 @@
         "error": {
           "type": "string"
         },
-        "outcome": {
-          "type": "string"
-        },
         "question": {
           "type": "string"
-        },
-        "response_index": {
-          "type": "integer"
         },
         "sequence": {
           "type": "integer"
@@ -1395,8 +1379,7 @@
         "sequence",
         "session_id",
         "question",
-        "choices",
-        "outcome"
+        "choices"
       ],
       "type": "object"
     },

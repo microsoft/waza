@@ -169,9 +169,10 @@ promised stable across runs.
 
 - Adds optional task-level `user_input_responses`, which register the Copilot SDK
   native user-input callback (`OnUserInputRequest`, the legacy `ask_user` tool) on
-  the initial and every resumed session of a run. Entries are consumed strictly in
-  order; an unexpected, mismatched, or exhausted question returns an error to the SDK
-  (never a default answer) and fails the run, as do unconsumed entries. The field
+  the initial and every resumed session of a run. Each entry has a required `answer`
+  and an optional `question` regex; entries are used in order, and an answer equal to
+  an offered choice selects it. A non-matching or unscripted question returns an
+  error to the SDK (never a default answer) and fails the run, as do unused entries. The field
   requires `executor: copilot-sdk` and an enclosing scenario eval with exact
   `schemaVersion: "2.0"`, so executables without this feature reject the eval
   instead of silently ignoring the script. Omission leaves the callback unregistered.
@@ -183,9 +184,8 @@ promised stable across runs.
 - Adds optional `tasks[].runs[].user_input_requests`: one record per observed
   request in arrival order with `sequence`, `session_id`, `question`, offered
   `choices` (`null` when none were sent, `[]` when an empty list was sent),
-  `allow_freeform` (omitted when the request did not specify it), `outcome`
-  (`answered` or `rejected`), `source` (`script` or `responder`), the matched
-  scripted `response_index`, `answer`, `was_freeform`, and rejection `error`. Inline `code` graders receive these
+  `answer`, `was_freeform`, `source` (`script` or `responder`), and `error` when
+  the request was rejected. Inline `code` graders receive these
   records as `user_input_requests`, including during offline regrading. They are
   not copied into `snapshot.json` (still `1.1`). Structured elicitation forms
   (`AskUserVariantElicitation`) are not supported.

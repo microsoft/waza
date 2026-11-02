@@ -91,8 +91,8 @@ of invocation. There is no recorded-replay mode.
 
 Scenario tasks can script answers to native Copilot SDK user-input requests with
 `user_input_responses`. Waza registers `OnUserInputRequest` on the initial and
-every resumed session of a trial, consumes entries strictly in order, and fails
-closed on unexpected, mismatched, exhausted, or unconsumed entries. Results
+every resumed session of a trial, uses entries (an `answer` plus an optional
+`question` regex) strictly in order, and fails closed on unexpected or unused entries. Results
 schema `1.8` records each request in `runs[].user_input_requests`. In scenario
 evals, a task with an adaptive responder answers questions the script does not
 match with the responder model, after scripted entries are tried. This is

@@ -85,11 +85,10 @@ inputs:
   follow_up_prompts:
     - continue
 user_input_responses:
-  - question: Deploy where?
-    choices: [staging, prod]
-    choice: staging
-  - question_regex: "Release note.*"
-    freeform: fixes login
+  - question: Deploy where\?
+    answer: staging
+  - question: "Release note.*"
+    answer: fixes login
 `
 
 func TestRunBenchmarkAnswersNativeQuestionsAcrossInitialAndResumedTurns(t *testing.T) {
@@ -113,16 +112,14 @@ func TestRunBenchmarkAnswersNativeQuestionsAcrossInitialAndResumedTurns(t *testi
 	require.Equal(t, 1, first.Sequence)
 	require.Equal(t, "session-1", first.SessionID)
 	require.Equal(t, []string{"staging", "prod"}, first.Choices)
-	require.False(t, *first.AllowFreeform)
 	require.Equal(t, "staging", *first.Answer)
 	require.False(t, *first.WasFreeform)
 	require.Equal(t, 2, second.Sequence)
 	require.Equal(t, "session-1", second.SessionID)
 	require.Nil(t, second.Choices)
-	require.Nil(t, second.AllowFreeform)
 	require.Equal(t, "fixes login", *second.Answer)
 	require.True(t, *second.WasFreeform)
-	require.Equal(t, 1, *second.ResponseIndex)
+	require.Equal(t, models.UserInputSourceScript, second.Source)
 
 	data, err := json.Marshal(outcome)
 	require.NoError(t, err)
@@ -140,12 +137,10 @@ func TestRunBenchmarkAnswersNativeQuestionsAcrossInitialAndResumedTurns(t *testi
 	require.Len(t, records, 2)
 	require.Equal(t, map[string]any{
 		"sequence": float64(1), "session_id": "session-1", "question": "Deploy where?",
-		"choices": []any{"staging", "prod"}, "allow_freeform": false, "outcome": "answered", "source": "script",
-		"response_index": float64(0), "answer": "staging", "was_freeform": false,
+		"choices": []any{"staging", "prod"}, "source": "script", "answer": "staging", "was_freeform": false,
 	}, records[0])
 	require.Contains(t, records[1], "choices")
 	require.Nil(t, records[1]["choices"], "absent offered choices are recorded as null, not []")
-	require.NotContains(t, records[1], "allow_freeform")
 
 	restored, err := models.ParseEvaluationOutcome(data, "results.json")
 	require.NoError(t, err)
@@ -166,7 +161,7 @@ func TestRunBenchmarkFailsClosedOnNativeQuestionProblems(t *testing.T) {
 			questions: map[string][]copilot.UserInputRequest{
 				"start": {{Question: "Deploy where?", Choices: []string{"staging", "prod"}}},
 			},
-			message: "1 scripted answer(s) were not consumed, starting at user_input_responses[1]",
+			message: "1 scripted answer(s) were not used, starting at user_input_responses[1]",
 			records: 1, turns: 2,
 		},
 		{
@@ -175,7 +170,7 @@ func TestRunBenchmarkFailsClosedOnNativeQuestionProblems(t *testing.T) {
 				"start":    {{Question: "Deploy where?", Choices: []string{"staging", "prod"}}},
 				"continue": {{Question: "Delete production?", Choices: []string{"yes"}}},
 			},
-			message: "native user input request 2 rejected: question does not match user_input_responses[1].question_regex",
+			message: "native user input request 2 rejected: question does not match user_input_responses[1].question",
 			records: 2, turns: 2,
 		},
 		{
@@ -262,12 +257,12 @@ func TestProductionCopilotEngineAnswersNativeQuestionsFromTaskYAML(t *testing.T)
 		followUp string
 		status   models.Status
 		message  string
-		outcomes []string
+		sources  []string
 	}{
-		{"scripted", "Release note for this change?", models.StatusSkipped, "", []string{"answered", "answered"}},
+		{"scripted", "Release note for this change?", models.StatusSkipped, "", []string{"script", "script"}},
 		{"unscripted resumed question", "Delete production?", models.StatusError,
-			"follow-up 1/1: native user input request 2 rejected: question does not match user_input_responses[1].question_regex",
-			[]string{"answered", "rejected"}},
+			"follow-up 1/1: native user input request 2 rejected: question does not match user_input_responses[1].question",
+			[]string{"script", ""}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var sdkErrors []error
@@ -298,11 +293,11 @@ func TestProductionCopilotEngineAnswersNativeQuestionsFromTaskYAML(t *testing.T)
 			require.Contains(t, run.ErrorMsg, tc.message)
 			require.EqualValues(t, 1, client.Creates.Load())
 			require.EqualValues(t, 1, client.Resumes.Load())
-			require.Len(t, run.UserInputRequests, len(tc.outcomes))
+			require.Len(t, run.UserInputRequests, len(tc.sources))
 			for i, record := range run.UserInputRequests {
 				require.Equal(t, i+1, record.Sequence)
 				require.Equal(t, "native-session", record.SessionID)
-				require.Equal(t, tc.outcomes[i], record.Outcome)
+				require.Equal(t, tc.sources[i], record.Source)
 			}
 			require.Equal(t, "staging", *run.UserInputRequests[0].Answer)
 			if tc.status == models.StatusError {
@@ -319,7 +314,7 @@ func TestProductionCopilotEngineAnswersNativeQuestionsFromTaskYAML(t *testing.T)
 
 func TestBuildGraderContextIncludesNativeQuestionRecords(t *testing.T) {
 	answer := "staging"
-	records := []models.UserInputRecord{{Sequence: 1, SessionID: "s", Question: "Q", Outcome: models.UserInputOutcomeAnswered, Answer: &answer}}
+	records := []models.UserInputRecord{{Sequence: 1, SessionID: "s", Question: "Q", Source: models.UserInputSourceScript, Answer: &answer}}
 	runner := NewEvalRunner(config.NewEvalConfig(&models.EvalSpec{}), &questionEngine{})
 	ctx := runner.buildGraderContext(&models.TestCase{}, &execution.ExecutionResponse{UserInputRequests: records}, nil)
 	require.Equal(t, records, ctx.UserInputRequests)
@@ -362,9 +357,8 @@ inputs:
     instructions: You deploy to staging and your name is Ada.
     max_followups: 2
 user_input_responses:
-  - question: Deploy where?
-    choices: [staging, prod]
-    choice: staging
+  - question: Deploy where\?
+    answer: staging
 `
 
 func TestRunBenchmarkAdaptiveResponderAnswersUnscriptedNativeQuestions(t *testing.T) {
@@ -431,7 +425,7 @@ func TestRunBenchmarkAdaptiveResponderNativeAnswerFailsClosed(t *testing.T) {
 			require.Equal(t, models.StatusError, run.Status)
 			require.Contains(t, run.ErrorMsg, tc.message)
 			require.Len(t, run.UserInputRequests, 1)
-			require.Equal(t, models.UserInputOutcomeRejected, run.UserInputRequests[0].Outcome)
+			require.NotEmpty(t, run.UserInputRequests[0].Error)
 			require.Equal(t, "responder", run.UserInputRequests[0].Source)
 		})
 	}

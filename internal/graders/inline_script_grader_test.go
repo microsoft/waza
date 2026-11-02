@@ -92,7 +92,7 @@ func TestInlineScriptNativeUserInputEvidence(t *testing.T) {
 			answer := "staging"
 			ctx := &Context{UserInputRequests: []models.UserInputRecord{{
 				Sequence: 1, SessionID: "s-1", Question: "Deploy where?", Choices: []string{"staging", "prod"},
-				Outcome: models.UserInputOutcomeAnswered, Answer: &answer, WasFreeform: new(false),
+				Source: models.UserInputSourceScript, Answer: &answer, WasFreeform: new(false),
 			}}}
 			absent := []string{"len(user_input_requests) == 0"}
 			present := []string{
