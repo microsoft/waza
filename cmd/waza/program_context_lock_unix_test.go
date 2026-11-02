@@ -26,5 +26,3 @@ func unlockUndeletableEntry(dir string) error {
 	}
 	return err
 }
-
-func undeletableEntriesEnforced() bool { return os.Geteuid() != 0 }

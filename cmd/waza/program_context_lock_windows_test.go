@@ -45,7 +45,7 @@ func lockUndeletableEntry(dir string) error {
 		{"os.RemoveAll(dir)", func() error { return os.RemoveAll(dir) }},
 	} {
 		if err := probe.remove(); !errors.Is(err, os.ErrPermission) {
-			return errors.Join(fmt.Errorf("expected deletion denial from %s for %s, got %v", probe.name, dir, err), unlockUndeletableEntry(dir))
+			return errors.Join(fmt.Errorf("%w: %s for %s, got %v", errDeletionNotDenied, probe.name, dir, err), unlockUndeletableEntry(dir))
 		}
 	}
 	return nil
@@ -68,8 +68,6 @@ func unlockUndeletableEntry(dir string) error {
 	}
 	return errors.Join(errs...)
 }
-
-func undeletableEntriesEnforced() bool { return true }
 
 func setProgramContextTestDACL(path, sddl string) error {
 	sd, err := windows.SecurityDescriptorFromString(sddl)
@@ -94,6 +92,7 @@ func currentUserSIDString() (string, error) {
 }
 
 func TestProgramContextUndeletableEntry(t *testing.T) {
+	requireUndeletableEntries(t)
 	dir := filepath.Join(t.TempDir(), "locked")
 	t.Cleanup(func() {
 		require.NoError(t, unlockUndeletableEntry(dir))

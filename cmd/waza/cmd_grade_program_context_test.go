@@ -20,6 +20,29 @@ const (
 	programContextLockEnv = "WAZA_TEST_PROGRAM_CONTEXT_LOCK"
 )
 
+// errDeletionNotDenied reports that the current account can delete an entry
+// the fixture tried to lock (for example, an elevated Windows runner).
+var errDeletionNotDenied = errors.New("the current account can delete the locked entry")
+
+// requireUndeletableEntries skips the test when this environment cannot make
+// deletion fail (root, or an elevated Windows account that bypasses the deny
+// ACEs), so the cleanup-failure path cannot be exercised end to end here.
+// Removal failures stay covered on every platform by the hook-injected tests
+// in internal/graders.
+func requireUndeletableEntries(t *testing.T) {
+	t.Helper()
+	probe := filepath.Join(t.TempDir(), "probe")
+	err := lockUndeletableEntry(probe)
+	if errors.Is(err, errDeletionNotDenied) {
+		t.Skipf("cannot make deletion fail in this environment: %v", err)
+	}
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, unlockUndeletableEntry(probe)) })
+	if os.Remove(filepath.Join(probe, "f")) == nil {
+		t.Skipf("cannot make deletion fail in this environment: %v", errDeletionNotDenied)
+	}
+}
+
 // TestProgramGradingContextCopyHelper runs as a program grader and copies the
 // grading context file so the parent test can inspect it.
 func TestProgramGradingContextCopyHelper(t *testing.T) {
@@ -91,9 +114,7 @@ graders:
 }
 
 func TestGradeCommand_ProgramGraderContextCleanupFailureFailsGrade(t *testing.T) {
-	if !undeletableEntriesEnforced() {
-		t.Skip("running as root: permissions cannot make cleanup fail")
-	}
+	requireUndeletableEntries(t)
 	dir := t.TempDir()
 	copyPath := filepath.Join(dir, "context-copy.json")
 	t.Setenv(programContextCopyEnv, copyPath)
