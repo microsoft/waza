@@ -5,6 +5,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -18,8 +20,33 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func callMCPMockProcess(t *testing.T, binary string, args []string) string {
+const mcpMockDiagnosticOutputLimit = 2048
+
+func runMCPMockProcess(ctx context.Context, invocation string, child *exec.Cmd, started time.Time, stdout, stderr *bytes.Buffer) error {
+	runStarted := time.Now()
+	err := child.Run()
+	runElapsed := time.Since(runStarted)
+	if err == nil {
+		return nil
+	}
+	exitCode := -1
+	if child.ProcessState != nil {
+		exitCode = child.ProcessState.ExitCode()
+	}
+	bounded := func(output string) string {
+		if len(output) > mcpMockDiagnosticOutputLimit {
+			return output[:mcpMockDiagnosticOutputLimit] + "...[truncated]"
+		}
+		return output
+	}
+	return fmt.Errorf("MCP mock invocation=%q started_at=%s start_elapsed=%s run_elapsed=%s ctx_err=%v exit_code=%d process_state=%v stdout=%q stderr=%q: %w",
+		invocation, started.Format(time.RFC3339Nano), runStarted.Sub(started), runElapsed, ctx.Err(),
+		exitCode, child.ProcessState, bounded(stdout.String()), bounded(stderr.String()), err)
+}
+
+func callMCPMockProcess(t *testing.T, invocation, binary string, args []string) string {
 	t.Helper()
+	started := time.Now()
 	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
 	defer cancel()
 	child := exec.CommandContext(ctx, binary, args...)
@@ -28,7 +55,7 @@ func callMCPMockProcess(t *testing.T, binary string, args []string) string {
 		"{\"jsonrpc\":\"2.0\",\"method\":\"tools/call\",\"params\":{\"name\":\"read\",\"arguments\":{\"id\":\"item\"}},\"id\":2}\n")
 	var stdout, stderr bytes.Buffer
 	child.Stdout, child.Stderr = &stdout, &stderr
-	require.NoError(t, child.Run(), "%s", stderr.String())
+	require.NoError(t, runMCPMockProcess(ctx, invocation, child, started, &stdout, &stderr))
 	scanner := bufio.NewScanner(&stdout)
 	var last map[string]any
 	for scanner.Scan() {
@@ -57,9 +84,9 @@ func TestMCPMockAttemptProcessesShareSequenceState(t *testing.T) {
 	stdio, ok := servers["counter"].(copilot.MCPStdioServerConfig)
 	require.True(t, ok)
 
-	require.Contains(t, callMCPMockProcess(t, binary, stdio.Args), `{\"ordinal\":1}`)
-	require.Contains(t, callMCPMockProcess(t, binary, stdio.Args), `{\"ordinal\":2}`)
-	exhausted := callMCPMockProcess(t, binary, stdio.Args)
+	require.Contains(t, callMCPMockProcess(t, "first attempt, invocation 1", binary, stdio.Args), `{\"ordinal\":1}`)
+	require.Contains(t, callMCPMockProcess(t, "first attempt, invocation 2", binary, stdio.Args), `{\"ordinal\":2}`)
+	exhausted := callMCPMockProcess(t, "first attempt, exhausted invocation 3", binary, stdio.Args)
 	require.Contains(t, exhausted, `"isError":true`)
 	require.Contains(t, exhausted, "response sequence exhausted")
 	require.FileExists(t, stdio.Args[2], "the attempt, not a server process, owns retained configuration")
@@ -69,7 +96,70 @@ func TestMCPMockAttemptProcessesShareSequenceState(t *testing.T) {
 	t.Cleanup(func() { require.NoError(t, otherAttempt.Close()) })
 	otherStdio, ok := other["counter"].(copilot.MCPStdioServerConfig)
 	require.True(t, ok)
-	require.Contains(t, callMCPMockProcess(t, binary, otherStdio.Args), `{\"ordinal\":1}`)
+	require.Contains(t, callMCPMockProcess(t, "independent attempt, invocation 1", binary, otherStdio.Args), `{\"ordinal\":1}`)
+}
+
+func TestMCPMockProcessFailureDiagnostics(t *testing.T) {
+	if mode := os.Getenv("WAZA_TEST_MCP_DIAGNOSTIC_CHILD"); mode != "" {
+		fmt.Fprint(os.Stdout, strings.Repeat("o", mcpMockDiagnosticOutputLimit)+"stdout-tail")
+		fmt.Fprint(os.Stderr, strings.Repeat("e", mcpMockDiagnosticOutputLimit)+"stderr-tail")
+		if mode == "success" {
+			os.Exit(0)
+		}
+		os.Exit(7)
+	}
+	binary, err := os.Executable()
+	require.NoError(t, err)
+	for _, mode := range []string{"exit", "success", "canceled", "deadline"} {
+		t.Run(mode, func(t *testing.T) {
+			started := time.Now()
+			ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
+			defer cancel()
+			if mode == "canceled" {
+				cancel()
+			}
+			if mode == "deadline" {
+				expired, expiredCancel := context.WithDeadline(t.Context(), started.Add(-time.Second))
+				defer expiredCancel()
+				ctx = expired
+			}
+			child := exec.CommandContext(ctx, binary, "-test.run=^TestMCPMockProcessFailureDiagnostics$")
+			child.Env = append(os.Environ(), "WAZA_TEST_MCP_DIAGNOSTIC_CHILD="+mode)
+			var stdout, stderr bytes.Buffer
+			child.Stdout, child.Stderr = &stdout, &stderr
+			err := runMCPMockProcess(ctx, "controlled "+mode, child, started, &stdout, &stderr)
+			if mode == "success" {
+				require.NoError(t, err)
+				require.Equal(t, strings.Repeat("o", mcpMockDiagnosticOutputLimit)+"stdout-tail", stdout.String())
+				require.Equal(t, strings.Repeat("e", mcpMockDiagnosticOutputLimit)+"stderr-tail", stderr.String())
+				return
+			}
+			require.Error(t, err)
+			message := err.Error()
+			require.Contains(t, message, fmt.Sprintf("invocation=%q", "controlled "+mode))
+			require.Contains(t, message, "started_at="+started.Format(time.RFC3339Nano))
+			require.Regexp(t, `start_elapsed=[0-9.]+[a-zµ]+ run_elapsed=[0-9.]+[a-zµ]+ ctx_err=`, message)
+			if mode == "exit" {
+				var exitErr *exec.ExitError
+				require.ErrorAs(t, err, &exitErr)
+				require.Equal(t, 7, exitErr.ExitCode())
+				require.Contains(t, message, "ctx_err=<nil> exit_code=7 process_state="+child.ProcessState.String())
+				require.Contains(t, message, `stdout="`+strings.Repeat("o", mcpMockDiagnosticOutputLimit)+`...[truncated]"`)
+				require.Contains(t, message, `stderr="`+strings.Repeat("e", mcpMockDiagnosticOutputLimit)+`...[truncated]"`)
+				require.NotContains(t, message, "stdout-tail")
+				require.NotContains(t, message, "stderr-tail")
+				require.Less(t, len(message), 2*mcpMockDiagnosticOutputLimit+1024)
+			} else {
+				expected := context.Canceled
+				if mode == "deadline" {
+					expected = context.DeadlineExceeded
+				}
+				require.True(t, errors.Is(err, expected))
+				require.Contains(t, message, "ctx_err="+expected.Error()+" exit_code=-1 process_state=<nil>")
+				require.Contains(t, message, `stdout="" stderr=""`)
+			}
+		})
+	}
 }
 
 func TestMCPMockConfigSourcesKeepLegacyOwnership(t *testing.T) {
