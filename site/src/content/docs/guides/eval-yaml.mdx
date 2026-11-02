@@ -551,6 +551,8 @@ The CLI discovers `trigger_tests.yaml` after `before_run`, before starting the e
 
 SDK startup cancellation releases the waiting run and cleans up partial startup without tying a successfully started client's lifetime to its original caller. Reinitializing a healthy client remains idempotent even with a canceled caller context. A canceled shared startup is replaceable after successful cleanup; global shared-client shutdown still rejects new clients. A custom client factory must honor startup-context cancellation or expose `ForceStop`. Each partial-startup cleanup wait has a two-second deadline and reports an error if cleanup has not settled; it cannot guarantee goroutine termination for a noncooperating custom client. Pending or failed cleanup remains tracked.
 
+Canceling one concurrent initialization waiter does not cache an engine-wide startup failure or prevent another waiter from authenticating successfully.
+
 After completed startup, the lifetime context stays alive through graceful SDK cleanup. Authentication failure cleans up an owned client immediately and retains cleanup errors; engine shutdown still performs final cleanup. Shared clients are stopped only by their top-level owner. Partial-startup cleanup remains once-only.
 
 ## Command Mocks

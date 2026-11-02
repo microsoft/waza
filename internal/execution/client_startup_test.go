@@ -18,7 +18,9 @@ type startupBarrierClient struct {
 	starts    atomic.Int32
 	stops     atomic.Int32
 	forces    atomic.Int32
+	authCalls atomic.Int32
 	force     func()
+	auth      func(context.Context) (*copilot.GetAuthStatusResponse, error)
 	authError error
 	stopError error
 }
@@ -40,8 +42,25 @@ func (c *startupBarrierClient) ForceStop() {
 	}
 }
 
-func (c *startupBarrierClient) GetAuthStatus(context.Context) (*copilot.GetAuthStatusResponse, error) {
+func (c *startupBarrierClient) GetAuthStatus(ctx context.Context) (*copilot.GetAuthStatusResponse, error) {
+	c.authCalls.Add(1)
+	if c.auth != nil {
+		return c.auth(ctx)
+	}
 	return &copilot.GetAuthStatusResponse{IsAuthenticated: true}, c.authError
+}
+
+type startupAfterStartClient struct {
+	CopilotClient
+	afterStart func()
+}
+
+func (c *startupAfterStartClient) Start(ctx context.Context) error {
+	err := c.CopilotClient.Start(ctx)
+	if err == nil {
+		c.afterStart()
+	}
+	return err
 }
 
 func startupTestEngine(t *testing.T, client CopilotClient, diagnostic bool) *CopilotEngine {
@@ -80,11 +99,17 @@ func startupResult(t *testing.T, done <-chan error) error {
 type startupWaitContext struct {
 	context.Context
 	registered chan struct{}
+	onDone     func()
 	once       sync.Once
 }
 
 func (c *startupWaitContext) Done() <-chan struct{} {
-	c.once.Do(func() { close(c.registered) })
+	c.once.Do(func() {
+		close(c.registered)
+		if c.onDone != nil {
+			c.onDone()
+		}
+	})
 	return c.Context.Done()
 }
 
@@ -236,6 +261,186 @@ func TestCopilotEngineStartupSharedWaiterDoesNotCancelOwner(t *testing.T) {
 	require.Zero(t, client.stops.Load(), "engines do not own the shared client")
 	require.NoError(t, ShutdownSharedClient(context.Background()))
 	require.EqualValues(t, 1, client.stops.Load())
+}
+
+func TestCopilotEngineStartupSameEngineCanceledWaiterDoesNotPoisonInitialization(t *testing.T) {
+	for _, diagnostic := range []bool{false, true} {
+		t.Run(map[bool]string{false: "ordinary", true: "diagnostic"}[diagnostic], func(t *testing.T) {
+			entered, release := make(chan struct{}), make(chan struct{})
+			var releaseOnce sync.Once
+			unblock := func() { releaseOnce.Do(func() { close(release) }) }
+			client := &startupBarrierClient{start: func(context.Context) error {
+				close(entered)
+				<-release
+				return nil
+			}}
+			engine := startupTestEngine(t, client, diagnostic)
+			t.Cleanup(func() {
+				unblock()
+				require.NoError(t, engine.Shutdown(context.Background()))
+			})
+			ctx, cancel := context.WithCancel(context.Background())
+			t.Cleanup(cancel)
+			canceledResult, remainingResult := make(chan error, 1), make(chan error, 1)
+			go func() { canceledResult <- engine.Initialize(ctx) }()
+			awaitStartup(t, entered)
+			waitContext := &startupWaitContext{Context: context.Background(), registered: make(chan struct{})}
+			go func() { remainingResult <- engine.Initialize(waitContext) }()
+			awaitStartup(t, waitContext.registered)
+			cancel()
+			canceledErr := startupResult(t, canceledResult)
+			require.Error(t, canceledErr)
+			require.Zero(t, client.forces.Load())
+			require.Zero(t, client.stops.Load())
+			unblock()
+			require.NoError(t, startupResult(t, remainingResult), "a canceled waiter must not consume engine-wide initialization")
+			require.ErrorIs(t, canceledErr, context.Canceled)
+			require.EqualValues(t, 1, client.authCalls.Load(), "the remaining caller must authenticate")
+			require.NoError(t, engine.Initialize(context.Background()))
+			require.EqualValues(t, 1, client.starts.Load())
+			require.EqualValues(t, 1, client.authCalls.Load(), "successful authentication stays cached")
+		})
+	}
+}
+
+func TestCopilotEngineStartupCompletionCancellationDoesNotPoisonInitialization(t *testing.T) {
+	for _, diagnostic := range []bool{false, true} {
+		t.Run(map[bool]string{false: "ordinary", true: "diagnostic"}[diagnostic], func(t *testing.T) {
+			client := &startupBarrierClient{start: func(context.Context) error { return nil }}
+			engine := startupTestEngine(t, client, diagnostic)
+			ctx, cancel := context.WithCancel(context.Background())
+			t.Cleanup(cancel)
+			engine.client = &startupAfterStartClient{CopilotClient: engine.client, afterStart: cancel}
+			require.ErrorIs(t, engine.Initialize(ctx), context.Canceled, "Start succeeded but the caller canceled before authentication")
+			require.Zero(t, client.authCalls.Load())
+			require.Zero(t, client.stops.Load())
+			require.NoError(t, engine.Initialize(context.Background()))
+			require.EqualValues(t, 1, client.authCalls.Load())
+			require.NoError(t, engine.Shutdown(context.Background()))
+		})
+	}
+}
+
+func TestCopilotEngineAuthenticationCanceledWaiterDoesNotPoisonInitialization(t *testing.T) {
+	for _, diagnostic := range []bool{false, true} {
+		t.Run(map[bool]string{false: "ordinary", true: "diagnostic"}[diagnostic], func(t *testing.T) {
+			authEntered, secondStarted := make(chan struct{}), make(chan struct{})
+			client := &startupBarrierClient{start: func(context.Context) error { return nil }}
+			client.auth = func(ctx context.Context) (*copilot.GetAuthStatusResponse, error) {
+				if client.authCalls.Load() == 1 {
+					close(authEntered)
+					<-ctx.Done()
+					return nil, ctx.Err()
+				}
+				return &copilot.GetAuthStatusResponse{IsAuthenticated: true}, nil
+			}
+			engine := startupTestEngine(t, client, diagnostic)
+			var starts atomic.Int32
+			engine.client = &startupAfterStartClient{CopilotClient: engine.client, afterStart: func() {
+				if starts.Add(1) == 2 {
+					close(secondStarted)
+				}
+			}}
+			ctx, cancel := context.WithCancel(context.Background())
+			t.Cleanup(cancel)
+			canceledResult, remainingResult := make(chan error, 1), make(chan error, 1)
+			go func() { canceledResult <- engine.Initialize(ctx) }()
+			awaitStartup(t, authEntered)
+			go func() { remainingResult <- engine.Initialize(context.Background()) }()
+			awaitStartup(t, secondStarted)
+			cancel()
+			require.ErrorIs(t, startupResult(t, canceledResult), context.Canceled)
+			require.NoError(t, startupResult(t, remainingResult))
+			require.EqualValues(t, 2, client.authCalls.Load(), "the remaining caller retries canceled authentication")
+			require.Zero(t, client.stops.Load(), "caller cancellation must not stop another caller's healthy client")
+			require.NoError(t, engine.Initialize(context.Background()))
+			require.EqualValues(t, 2, client.authCalls.Load())
+			require.NoError(t, engine.Shutdown(context.Background()))
+		})
+	}
+}
+
+func TestCopilotEngineAuthenticationWaitingCallerCanCancel(t *testing.T) {
+	for _, diagnostic := range []bool{false, true} {
+		t.Run(map[bool]string{false: "ordinary", true: "diagnostic"}[diagnostic], func(t *testing.T) {
+			authEntered, secondStarted, release := make(chan struct{}), make(chan struct{}), make(chan struct{})
+			var releaseOnce sync.Once
+			unblock := func() { releaseOnce.Do(func() { close(release) }) }
+			client := &startupBarrierClient{
+				start: func(context.Context) error { return nil },
+				auth: func(context.Context) (*copilot.GetAuthStatusResponse, error) {
+					close(authEntered)
+					<-release
+					return &copilot.GetAuthStatusResponse{IsAuthenticated: true}, nil
+				},
+			}
+			engine := startupTestEngine(t, client, diagnostic)
+			var starts atomic.Int32
+			engine.client = &startupAfterStartClient{CopilotClient: engine.client, afterStart: func() {
+				if starts.Add(1) == 2 {
+					close(secondStarted)
+				}
+			}}
+			t.Cleanup(func() {
+				unblock()
+				require.NoError(t, engine.Shutdown(context.Background()))
+			})
+			ctx, cancel := context.WithCancel(context.Background())
+			t.Cleanup(cancel)
+			ownerResult, canceledResult := make(chan error, 1), make(chan error, 1)
+			go func() { ownerResult <- engine.Initialize(context.Background()) }()
+			awaitStartup(t, authEntered)
+			go func() { canceledResult <- engine.Initialize(ctx) }()
+			awaitStartup(t, secondStarted)
+			cancel()
+			require.ErrorIs(t, startupResult(t, canceledResult), context.Canceled, "cancellation cannot wait for another caller's authentication")
+			require.Zero(t, client.stops.Load())
+			unblock()
+			require.NoError(t, startupResult(t, ownerResult))
+			require.NoError(t, engine.Initialize(context.Background()))
+			require.EqualValues(t, 1, client.authCalls.Load())
+		})
+	}
+}
+
+func TestCopilotEngineAuthenticationCompletionDoesNotEraseWaiterCancellation(t *testing.T) {
+	for _, diagnostic := range []bool{false, true} {
+		t.Run(map[bool]string{false: "ordinary", true: "diagnostic"}[diagnostic], func(t *testing.T) {
+			authEntered, release, ownerDone := make(chan struct{}), make(chan struct{}), make(chan struct{})
+			var releaseOnce sync.Once
+			unblock := func() { releaseOnce.Do(func() { close(release) }) }
+			client := &startupBarrierClient{
+				start: func(context.Context) error { return nil },
+				auth: func(context.Context) (*copilot.GetAuthStatusResponse, error) {
+					close(authEntered)
+					<-release
+					return &copilot.GetAuthStatusResponse{IsAuthenticated: true}, nil
+				},
+			}
+			engine := startupTestEngine(t, client, diagnostic)
+			t.Cleanup(func() {
+				unblock()
+				require.NoError(t, engine.Shutdown(context.Background()))
+			})
+			ownerResult := make(chan error, 1)
+			go func() {
+				ownerResult <- engine.Initialize(context.Background())
+				close(ownerDone)
+			}()
+			awaitStartup(t, authEntered)
+			ctx, cancel := context.WithCancel(context.Background())
+			t.Cleanup(cancel)
+			waitContext := &startupWaitContext{Context: ctx, registered: make(chan struct{}), onDone: func() {
+				cancel()
+				unblock()
+				awaitStartup(t, ownerDone)
+			}}
+			require.ErrorIs(t, engine.Initialize(waitContext), context.Canceled, "owner completion cannot erase a queued caller's cancellation")
+			require.NoError(t, startupResult(t, ownerResult))
+			require.EqualValues(t, 1, client.authCalls.Load())
+			require.NoError(t, engine.Initialize(context.Background()))
+		})
+	}
 }
 
 func TestCopilotEngineStartupCleanupBoundedForBrokenCustomClient(t *testing.T) {

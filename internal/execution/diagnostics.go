@@ -84,7 +84,7 @@ type diagnosticState struct {
 	closed       bool
 	busy         map[string]bool
 	pending      map[string]bool
-	initOnce     sync.Once
+	initMu       initializationMutex
 	initErr      error
 	initComplete atomic.Bool
 }
@@ -201,36 +201,50 @@ func (e *CopilotEngine) initializeDiagnostic(ctx context.Context) error {
 	if s.initComplete.Load() {
 		return s.initErr
 	}
+	var startErr error
 	if e.provider.err == nil {
-		if err := e.client.Start(ctx); err != nil {
-			op.report(StageInitialize, CodeStart, "")
-			s.initOnce.Do(func() {
-				s.initErr = op.err()
-				s.initComplete.Store(true)
-			})
-			return s.initErr
-		}
+		startErr = e.client.Start(ctx)
 	}
-	s.initOnce.Do(func() {
-		defer s.initComplete.Store(true)
-		switch {
-		case e.provider.err != nil:
-			op.report(StageInitialize, CodeProvider, "")
-		default:
-			if !e.provider.enabled() {
-				auth, err := e.client.GetAuthStatus(ctx)
-				if err != nil || auth == nil || !auth.IsAuthenticated {
-					op.report(StageInitialize, CodeAuth, "")
-					if e.ownsClient {
-						if err := e.client.Stop(); err != nil {
-							op.report(StageClientStop, CodeCleanup, "")
-						}
+	lockContext := ctx
+	if e.provider.err != nil {
+		lockContext = context.WithoutCancel(ctx)
+	}
+	if err := s.initMu.lock(lockContext); err != nil {
+		op.report(StageInitialize, CodeStart, "")
+		return errors.Join(err, op.err())
+	}
+	defer s.initMu.unlock()
+	if s.initComplete.Load() {
+		return s.initErr
+	}
+	if e.provider.err == nil && ctx.Err() != nil {
+		op.report(StageInitialize, CodeStart, "")
+		return errors.Join(ctx.Err(), op.err())
+	}
+	switch {
+	case e.provider.err != nil:
+		op.report(StageInitialize, CodeProvider, "")
+	case startErr != nil:
+		op.report(StageInitialize, CodeStart, "")
+	default:
+		if !e.provider.enabled() {
+			auth, err := e.client.GetAuthStatus(ctx)
+			if ctx.Err() != nil {
+				op.report(StageInitialize, CodeAuth, "")
+				return errors.Join(ctx.Err(), op.err())
+			}
+			if err != nil || auth == nil || !auth.IsAuthenticated {
+				op.report(StageInitialize, CodeAuth, "")
+				if e.ownsClient {
+					if err := e.client.Stop(); err != nil {
+						op.report(StageClientStop, CodeCleanup, "")
 					}
 				}
 			}
 		}
-		s.initErr = op.err()
-	})
+	}
+	s.initErr = op.err()
+	s.initComplete.Store(true)
 	return s.initErr
 }
 

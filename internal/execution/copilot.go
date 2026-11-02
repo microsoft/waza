@@ -46,7 +46,7 @@ type CopilotEngine struct {
 	// command must call [ShutdownSharedClient] to actually stop it.
 	ownsClient bool
 
-	startOnce    sync.Once
+	startMu      initializationMutex
 	startErr     error
 	authComplete atomic.Bool
 
@@ -308,23 +308,36 @@ func (e *CopilotEngine) Initialize(ctx context.Context) error {
 	if e.provider.err != nil {
 		return fmt.Errorf("copilot failed to start: %w", e.provider.err)
 	}
-	if e.authComplete.Load() && e.startErr != nil {
+	authenticated := e.authComplete.Load()
+	if authenticated && e.startErr != nil {
 		return fmt.Errorf("copilot failed to start: %w", e.startErr)
 	}
 	if err := e.client.Start(ctx); err != nil {
 		return fmt.Errorf("copilot failed to start: %w", err)
 	}
 
-	e.startOnce.Do(func() {
-		defer e.authComplete.Store(true)
+	if err := e.startMu.lock(ctx); err != nil {
+		if authenticated {
+			return nil
+		}
+		return fmt.Errorf("copilot failed to start: %w", err)
+	}
+	defer e.startMu.unlock()
+	if !e.authComplete.Load() {
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("copilot failed to start: %w", err)
+		}
 		// BYOK mode: a custom provider redirects model traffic away from
 		// GitHub Copilot MaaS, so the Copilot auth check is irrelevant.
 		if e.provider.enabled() {
-			return
+			e.authComplete.Store(true)
+			return nil
 		}
 
 		authStatusResp, err := e.client.GetAuthStatus(ctx)
-
+		if ctx.Err() != nil {
+			return fmt.Errorf("copilot failed to start: %w", ctx.Err())
+		}
 		if err != nil {
 			e.startErr = fmt.Errorf("failed to get copilot authentication status. Use any installed instance of copilot CLI and run \"copilot login\" before using this command: %w", err)
 		} else if authStatusResp == nil || !authStatusResp.IsAuthenticated {
@@ -335,7 +348,8 @@ func (e *CopilotEngine) Initialize(ctx context.Context) error {
 				e.startErr = errors.Join(e.startErr, fmt.Errorf("failed to stop unauthenticated Copilot client: %w", err))
 			}
 		}
-	})
+		e.authComplete.Store(true)
+	}
 
 	if e.startErr != nil {
 		return fmt.Errorf("copilot failed to start: %w", e.startErr)

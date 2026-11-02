@@ -9,6 +9,29 @@ import (
 
 const startupCleanupTimeout = 2 * time.Second
 
+type initializationMutex struct {
+	once sync.Once
+	gate chan struct{}
+}
+
+func (m *initializationMutex) lock(ctx context.Context) error {
+	m.once.Do(func() { m.gate = make(chan struct{}, 1) })
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case m.gate <- struct{}{}:
+		if err := ctx.Err(); err != nil {
+			m.unlock()
+			return err
+		}
+		return nil
+	}
+}
+
+func (m *initializationMutex) unlock() {
+	<-m.gate
+}
+
 // startupClient owns the lifetime context, not any individual Start caller.
 // Implementations supplied through NewCopilotClient must unblock Start on
 // context cancellation (or ForceStop). Cleanup bounds caller waiting, not the
