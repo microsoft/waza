@@ -1465,6 +1465,15 @@ skills/                Example skills
 
 ## Eval Spec Format
 
+Task YAML's `inputs.environment` is accepted for compatibility but is **not
+applied** during execution. Non-empty maps emit a task-load warning and an
+unsupported `task.environment` preflight diagnostic; omitted or empty maps do
+not. Variable names and values are not included in these messages. Existing run
+exit policies and preflight's default warning-only / opt-in `--strict` behavior
+are unchanged. Configure required environment outside Waza before starting the
+process, not per task. Native snapshot execution still rejects non-empty maps.
+See the [task schema reference](https://microsoft.github.io/waza/reference/schema/#inputsenvironment-unsupported).
+
 ```yaml
 name: my-eval
 skill: my-skill
@@ -2209,7 +2218,7 @@ not a grader kind; regex/keyword checks belong to `text`.
 | `prompt` | LLM-as-judge evaluation with rubrics (built-in: `groundedness`, `helpfulness`, `instruction-following`, `refusal-correctness`, `tool-use-appropriateness`) | [docs/GRADERS.md](docs/GRADERS.md#prompt---llm-based-evaluation) |
 | `trigger` | Prompt trigger accuracy detection | [Trigger](docs/graders/trigger.md) |
 | `json_schema` | Structured output validation | [JSON Schema](docs/graders/json_schema.md) |
-| `program` | External program exit-status checks | [Program](docs/graders/program.md) |
+| `program` | External program exit-status checks, with grading context JSON | [Program](docs/graders/program.md) |
 | `tool_constraint` | Required/forbidden tool policies | [Tool Constraint](docs/graders/tool_constraint.md) |
 | `tool_calls` | Tool event and argument checks | [Tool Calls](docs/graders/tool_calls.md) |
 
