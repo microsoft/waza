@@ -53,19 +53,7 @@ type VerifiedCollectionSources struct {
 // MatchSnapshot only compares retained inputs. It performs no source reads,
 // preparation, admission, execution, policy allocation or producer acceptance.
 func MatchSnapshot(ctx context.Context, admitted *Admitted, expectedKey releasepolicy.AttemptKey, req *execution.ExecutionRequest, sources []CapturedSource) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	converted := make([]verifiedCollectionSource, len(sources))
-	for i, source := range sources {
-		converted[i] = verifiedCollectionSource{
-			Executable: source.Executable,
-			Path:       source.Path,
-			Bytes:      []byte(source.Bytes),
-			Digest:     source.Digest,
-		}
-	}
-	return matchSnapshot(ctx, admitted, expectedKey, req, converted, false, false)
+	return matchSnapshot(ctx, admitted, expectedKey, req, sources, nil, false, false)
 }
 
 // MatchCollectionSnapshot admits the separately selected 2.0 collection
@@ -82,10 +70,11 @@ func MatchCollectionSnapshot(ctx context.Context, admitted *Admitted, expectedKe
 // descriptor inventory. Its CollectionCapture caller still rechecks current
 // rooted source bytes before every attempted execution.
 func MatchVerifiedCollectionSnapshot(ctx context.Context, admitted *Admitted, expectedKey releasepolicy.AttemptKey, req *execution.ExecutionRequest, verified VerifiedCollectionSources) error {
-	return matchSnapshot(ctx, admitted, expectedKey, req, verified.sources, true, true)
+	return matchSnapshot(ctx, admitted, expectedKey, req, nil, verified.sources, true, true)
 }
 
-func matchSnapshot(ctx context.Context, admitted *Admitted, expectedKey releasepolicy.AttemptKey, req *execution.ExecutionRequest, sources []verifiedCollectionSource, collection, verified bool) error {
+func matchSnapshot(ctx context.Context, admitted *Admitted, expectedKey releasepolicy.AttemptKey, req *execution.ExecutionRequest,
+	captured []CapturedSource, verifiedSources []verifiedCollectionSource, collection, verified bool) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -135,40 +124,58 @@ func matchSnapshot(ctx context.Context, admitted *Admitted, expectedKey releasep
 	if !bytes.Equal(want, got) {
 		return fmt.Errorf("native snapshot canonical request differs from preparation")
 	}
-	if len(sources) == 0 || len(sources) != len(data.Sources) {
+	sourceCount := len(captured)
+	if verified {
+		sourceCount = len(verifiedSources)
+	}
+	if sourceCount == 0 || sourceCount != len(data.Sources) {
 		return fmt.Errorf("native snapshot requires the complete prepared source inventory")
 	}
 	last := ""
-	for i, source := range sources {
+	for i := 0; i < sourceCount; i++ {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if source.Path <= last || source.Path == "." || !filepath.IsLocal(source.Path) ||
-			strings.Contains(source.Path, "\\") || filepath.ToSlash(filepath.Clean(source.Path)) != source.Path {
+		var executable bool
+		var path string
+		var size int
+		var sourceDigest models.EvidenceDigest
+		if verified {
+			source := verifiedSources[i]
+			executable, path, size, sourceDigest = source.Executable, source.Path, len(source.Bytes), source.Digest
+		} else {
+			source := captured[i]
+			executable, path, size, sourceDigest = source.Executable, source.Path, len(source.Bytes), source.Digest
+		}
+		if path <= last || path == "." || !filepath.IsLocal(path) ||
+			strings.Contains(path, "\\") || filepath.ToSlash(filepath.Clean(path)) != path {
 			return fmt.Errorf("native snapshot sources require canonical unique ordered paths")
 		}
 		sourceLimit := limit
 		if collection {
 			sourceLimit = 16 << 20
-			if source.Executable {
+			if executable {
 				sourceLimit = CollectionExecutableBytes
 			}
 		}
-		if len(source.Bytes) > sourceLimit || total > limit-len(source.Bytes) {
+		if size > sourceLimit || total > limit-size {
 			return fmt.Errorf("native snapshot bridge exceeds primitive bounded inventory")
 		}
 		prepared := data.Sources[i]
-		actualDigest := source.Digest
-		if !verified {
-			actualDigest = releasepolicy.SourceDigest(source.Bytes)
+		actualDigest := sourceDigest
+		sourceMatches := true
+		if verified {
+			sourceMatches = collection || bytes.Equal(verifiedSources[i].Bytes, prepared.Bytes)
+		} else {
+			actualDigest = releasepolicy.SourceDigest([]byte(captured[i].Bytes))
+			sourceMatches = collection || bytes.Equal([]byte(captured[i].Bytes), prepared.Bytes)
 		}
-		if source.Path != prepared.Path || source.Digest != actualDigest || prepared.Digest != actualDigest ||
-			(!collection && !bytes.Equal(source.Bytes, prepared.Bytes)) ||
-			(collection && len(prepared.Bytes) != 0) {
+		if path != prepared.Path || sourceDigest != actualDigest || prepared.Digest != actualDigest ||
+			!sourceMatches || (collection && len(prepared.Bytes) != 0) {
 			return fmt.Errorf("native snapshot source differs from preparation")
 		}
-		total += len(source.Bytes)
-		last = source.Path
+		total += size
+		last = path
 	}
 	payload, err := json.Marshal(preparedData{Arm: data.Arm, TaskID: data.TaskID, Request: intent, Sources: data.Sources, CollectionVersion: data.CollectionVersion})
 	if err != nil {

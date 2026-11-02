@@ -251,14 +251,32 @@ func VerifyCollectionSources(ctx context.Context, sources []CapturedSource) (Ver
 	if err := ctx.Err(); err != nil {
 		return VerifiedCollectionSources{}, err
 	}
+	if len(sources) == 0 || len(sources) > collectionSourceEntries {
+		return VerifiedCollectionSources{}, fmt.Errorf("native collection requires a bounded nonempty source inventory")
+	}
 	owned := make([]OwnedCapturedSource, len(sources))
+	total := 0
+	last := ""
 	for i, source := range sources {
+		sourceLimit := 16 << 20
+		if source.Executable {
+			sourceLimit = CollectionExecutableBytes
+		}
+		if source.Path <= last || len(source.Path) > collectionPathBytes || len(source.Bytes) > sourceLimit || !filepath.IsLocal(source.Path) ||
+			filepath.ToSlash(filepath.Clean(source.Path)) != source.Path || strings.Contains(source.Path, "\\") {
+			return VerifiedCollectionSources{}, fmt.Errorf("invalid retained native source inventory")
+		}
+		if len(source.Bytes) > collectionSourceBytes-total {
+			return VerifiedCollectionSources{}, fmt.Errorf("native inputs exceed bounded inventory")
+		}
+		total += len(source.Bytes)
 		owned[i] = OwnedCapturedSource{
 			Executable: source.Executable,
 			Path:       source.Path,
 			Bytes:      []byte(source.Bytes),
 			Digest:     source.Digest,
 		}
+		last = source.Path
 	}
 	return VerifyOwnedCollectionSources(ctx, owned)
 }

@@ -122,6 +122,36 @@ func TestOwnedCollectionSourcesTransferValidatedBuffers(t *testing.T) {
 	require.NotSame(t, &content[0], &copied.sources[0].Bytes[0], "caller-owned descriptors must remain detached")
 }
 
+func TestRejectedCollectionInputsDoNotCopyPayloads(t *testing.T) {
+	payload := strings.Repeat("x", 64<<10)
+	tooMany := make([]CapturedSource, collectionSourceEntries+1)
+	for i := range tooMany {
+		tooMany[i] = CapturedSource{Path: fmt.Sprintf("source-%05d", i), Bytes: payload}
+	}
+	allocations := testing.AllocsPerRun(1, func() {
+		_, err := VerifyCollectionSources(t.Context(), tooMany)
+		require.ErrorContains(t, err, "bounded nonempty source inventory")
+	})
+	require.Less(t, allocations, float64(20), "rejected inventory must not detach source payloads")
+
+	_, admitted, req, _, _ := collectionFixture(t)
+	mismatched := make([]CapturedSource, 256)
+	for i := range mismatched {
+		mismatched[i] = CapturedSource{Path: fmt.Sprintf("source-%05d", i), Bytes: payload}
+	}
+	binding, err := admitted.Binding()
+	require.NoError(t, err)
+	baseline := testing.AllocsPerRun(1, func() {
+		err := MatchSnapshot(t.Context(), admitted, binding.Key, req, nil)
+		require.ErrorContains(t, err, "does not admit collection preparation")
+	})
+	allocations = testing.AllocsPerRun(1, func() {
+		err := MatchSnapshot(t.Context(), admitted, binding.Key, req, mismatched)
+		require.ErrorContains(t, err, "does not admit collection preparation")
+	})
+	require.LessOrEqual(t, allocations, baseline+5, "rejected match must not detach source payloads")
+}
+
 func BenchmarkCollectionDescriptorAdmission81MiB(b *testing.B) {
 	benchmarkCollectionDescriptorAdmission(b, false)
 }
