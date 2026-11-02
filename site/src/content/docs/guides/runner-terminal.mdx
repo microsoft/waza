@@ -129,6 +129,16 @@ without changing shared open-file-description flags. Retained stdin/stdout
 peers keep their status flags, including legitimate flag changes made by peers
 during I/O; cleanup does not restore stale flags over them. This is a
 process-exit bound, not a deadline guarantee for arbitrary embedding writers.
+Before exit, Cobra and the final CLI error diagnostic share a separate 100 ms
+cumulative stderr write-wait budget; time between writes does not consume it.
+Writable stderr retains the same message bytes. Blocked, failed or short diagnostic delivery can be
+absent or partial; it stops further diagnostic attempts but never changes the
+selected exit code or adds a stdout terminal record. A full retained stderr
+pipe therefore adds at most this budget after the five-second stdout decision,
+not an unbounded exit delay. The process-only policy does not close inherited
+stderr, change shared flags, or bound unrelated command logging or arbitrary
+embedding writers. Supplied-input interruption errors return through the normal
+error path rather than printing synchronously from cancellation callbacks.
 A request rejected before HTTP body admission is not drained before its terminal
 response. Its HTTP/1.1 connection closes even if the client sent the full body;
 clients must reconnect rather than relying on keep-alive for these rejections.
