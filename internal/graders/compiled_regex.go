@@ -14,6 +14,9 @@ func compileRegex(source string) compiledRegex {
 }
 
 func compileRegexes(sources []string) []compiledRegex {
+	if sources == nil {
+		return nil
+	}
 	compiled := make([]compiledRegex, len(sources))
 	for i, source := range sources {
 		compiled[i] = compileRegex(source)
@@ -22,6 +25,9 @@ func compileRegexes(sources []string) []compiledRegex {
 }
 
 func regexSources(compiled []compiledRegex) []string {
+	if compiled == nil {
+		return nil
+	}
 	sources := make([]string, len(compiled))
 	for i, pattern := range compiled {
 		sources[i] = pattern.source
