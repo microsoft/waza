@@ -38,9 +38,15 @@ function parseHash(): Route {
   return { page: "home" };
 }
 
-function LoadingRoute({ label }: { label: string }) {
+function LoadingRoute({
+  label,
+  className = "text-zinc-400",
+}: {
+  label: string;
+  className?: string;
+}) {
   return (
-    <p role="status" className="text-zinc-400">
+    <p role="status" className={className}>
       Loading {label}...
     </p>
   );
@@ -57,7 +63,14 @@ export default function App() {
 
   if (route.page === "lab") {
     return (
-      <Suspense fallback={<LoadingRoute label="dashboard lab" />}>
+      <Suspense
+        fallback={
+          <LoadingRoute
+            label="dashboard lab"
+            className="p-8 text-zinc-100"
+          />
+        }
+      >
         <DashboardLab key={route.demo ? "demo" : "results"} demo={route.demo} />
       </Suspense>
     );
@@ -67,7 +80,22 @@ export default function App() {
     <Layout>
       {route.page === "home" && <Dashboard />}
       {route.page !== "home" && (
-        <Suspense fallback={<LoadingRoute label={route.page} />}>
+        <Suspense
+          fallback={
+            <LoadingRoute
+              label={
+                {
+                  run: "run details",
+                  compare: "run comparison",
+                  trends: "trends",
+                  live: "live view",
+                  assurance: "report inspector",
+                  release: "release policies",
+                }[route.page]
+              }
+            />
+          }
+        >
           {route.page === "run" && <RunDetail id={route.id} />}
           {route.page === "compare" && <CompareView />}
           {route.page === "trends" && <TrendsPage />}

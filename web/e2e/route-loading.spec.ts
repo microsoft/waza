@@ -42,25 +42,29 @@ test("lazy route loading is announced without moving keyboard focus", async ({
   page,
 }) => {
   await mockAllAPIs(page);
-  let releaseCompareChunk: (() => void) | undefined;
-  const compareChunkRequested = new Promise<void>((resolve) => {
-    releaseCompareChunk = resolve;
+  let blockChunks = false;
+  let releaseLazyChunks: (() => void) | undefined;
+  const lazyChunksReleased = new Promise<void>((resolve) => {
+    releaseLazyChunks = resolve;
   });
 
-  await page.route(/\/assets\/CompareView-[^/]+\.js$/, async (route) => {
-    await compareChunkRequested;
+  await page.route(/\/assets\/[^/]+\.js$/, async (route) => {
+    if (blockChunks) await lazyChunksReleased;
     await route.continue();
   });
   await page.goto("/");
+  blockChunks = true;
 
   const compareLink = page.getByRole("link", { name: "Compare" });
   await compareLink.focus();
   await page.keyboard.press("Enter");
 
-  await expect(page.getByRole("status")).toHaveText("Loading compare...");
+  await expect(page.getByRole("status")).toHaveText(
+    "Loading run comparison...",
+  );
   await expect(compareLink).toBeFocused();
 
-  releaseCompareChunk?.();
+  releaseLazyChunks?.();
   await expect(
     page.getByRole("heading", { name: "Compare Runs" }),
   ).toBeVisible();
