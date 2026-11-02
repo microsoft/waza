@@ -70,7 +70,10 @@ func SharedClient(opts SharedClientOptions) CopilotClient {
 		return &startupErrorClient{err: errSharedClientClosed}
 	}
 	if client := sharedClients[key]; client != nil {
-		return client
+		if managed, ok := client.(*startupClient); !ok || !managed.replaceable() {
+			return client
+		}
+		delete(sharedClients, key)
 	}
 
 	logLevel := opts.LogLevel

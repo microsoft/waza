@@ -549,7 +549,7 @@ Task mocks follow the enclosing eval's `schemaVersion` (1.1 or newer, and scenar
 
 The CLI discovers `trigger_tests.yaml` after `before_run`, before starting the engine, and reuses that parsed spec during execution. Trigger tests use eval-level MCP mocks and live servers rather than task overrides. Preflight inspects those dependencies using local reads only, including when a trigger file cannot be parsed; independent mock diagnostics are retained. The mock executor synthesizes trigger results without MCP. Task filtering, `--skip-graders`, `--no-skills`, and cached task results do not skip trigger tests.
 
-SDK startup cancellation releases the waiting run and cleans up partial startup without tying a successfully started client's lifetime to its original caller. A custom client factory must honor startup-context cancellation or expose `ForceStop`; partial-startup cleanup is bounded to two seconds and reports an error if the client fails to settle.
+SDK startup cancellation releases the waiting run and cleans up partial startup without tying a successfully started client's lifetime to its original caller. Reinitializing a healthy client remains idempotent even with a canceled caller context. A canceled shared startup is replaceable after successful cleanup; global shared-client shutdown still rejects new clients. A custom client factory must honor startup-context cancellation or expose `ForceStop`. Each partial-startup cleanup wait has a two-second deadline and reports an error if cleanup has not settled; it cannot guarantee goroutine termination for a noncooperating custom client. Pending or failed cleanup remains tracked.
 
 ## Command Mocks
 

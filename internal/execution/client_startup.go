@@ -11,8 +11,10 @@ const startupCleanupTimeout = 2 * time.Second
 
 // startupClient owns the lifetime context, not any individual Start caller.
 // Implementations supplied through NewCopilotClient must unblock Start on
-// context cancellation (or ForceStop). The SDK additionally needs ForceStop:
-// Stop takes the same mutex as Start, whereas ForceStop kills before locking.
+// context cancellation (or ForceStop). Cleanup bounds caller waiting, not the
+// lifetime of goroutines inside a noncooperating custom implementation.
+// The SDK additionally needs ForceStop: Stop takes the same mutex as Start,
+// whereas ForceStop kills before locking.
 type startupClient struct {
 	CopilotClient
 	mu         sync.Mutex
@@ -43,13 +45,18 @@ func manageStartup(client CopilotClient) *startupClient {
 }
 
 func (c *startupClient) Start(ctx context.Context) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
 	c.mu.Lock()
 	if c.closed {
 		c.mu.Unlock()
 		return errors.New("Copilot client startup has been closed")
+	}
+	if c.finished && c.err == nil {
+		c.mu.Unlock()
+		return nil
+	}
+	if err := ctx.Err(); err != nil {
+		c.mu.Unlock()
+		return err
 	}
 	if c.done == nil {
 		lifetime, cancel := context.WithCancel(context.Background())
@@ -158,6 +165,24 @@ func (c *startupClient) cancelPending() {
 	c.mu.Unlock()
 	if pending {
 		c.stop()
+	}
+}
+
+// replaceable keeps pending cleanup in the shared registry's ownership. A
+// successfully cleaned abandoned client can be replaced without affecting
+// healthy owners. Failed cleanup remains available to global shutdown.
+func (c *startupClient) replaceable() bool {
+	c.mu.Lock()
+	closed := c.closed
+	c.mu.Unlock()
+	if !closed {
+		return false
+	}
+	select {
+	case <-c.stopDone:
+		return c.stopErr == nil
+	default:
+		return false
 	}
 }
 
