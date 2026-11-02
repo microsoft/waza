@@ -3,17 +3,19 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
+	"testing"
 
+	"github.com/stretchr/testify/require"
 	"golang.org/x/sys/windows"
 )
 
 // lockUndeletableEntry creates dir containing a file whose removal fails:
-// deny ACEs for the current user block deleting the file and its parent's
-// child deletion.
+// protected DACLs deny both deletion routes for the current SID. Unlike an
+// open handle, these restrictions survive the grader subprocess exiting.
 func lockUndeletableEntry(dir string) error {
 	if err := os.Mkdir(dir, 0o700); err != nil {
 		return err
@@ -26,10 +28,24 @@ func lockUndeletableEntry(dir string) error {
 	if err != nil {
 		return err
 	}
-	if err := icacls(file, "/deny", "*"+sid+":(DE)"); err != nil {
-		return err
+	const fileDeleteChild = 0x40 // FILE_DELETE_CHILD is not the SDDL "DC" right.
+	sddl := fmt.Sprintf("D:P(D;;0x%x;;;%s)(A;;FA;;;%s)", windows.DELETE|fileDeleteChild, sid, sid)
+	for _, path := range []string{dir, file} {
+		if err := setProgramContextTestDACL(path, sddl); err != nil {
+			return errors.Join(err, unlockUndeletableEntry(dir))
+		}
 	}
-	return icacls(dir, "/deny", "*"+sid+":(DC)")
+	// Exercise both Windows deletion paths, without consuming the leaf, before
+	// trusting the fixture to make the production cleanup fail.
+	for _, remove := range []func() error{
+		func() error { return os.Remove(file) },
+		func() error { return os.RemoveAll(dir) },
+	} {
+		if err := remove(); !errors.Is(err, os.ErrPermission) {
+			return errors.Join(fmt.Errorf("expected deletion denial for %s, got %v", dir, err), unlockUndeletableEntry(dir))
+		}
+	}
+	return nil
 }
 
 func unlockUndeletableEntry(dir string) error {
@@ -40,19 +56,30 @@ func unlockUndeletableEntry(dir string) error {
 	if err != nil {
 		return err
 	}
-	if err := icacls(dir, "/remove:d", "*"+sid); err != nil {
-		return err
+	var errs []error
+	for _, path := range []string{dir, filepath.Join(dir, "f")} {
+		if _, err := os.Stat(path); os.IsNotExist(err) {
+			continue
+		}
+		errs = append(errs, setProgramContextTestDACL(path, "D:P(A;;FA;;;"+sid+")"))
 	}
-	return icacls(filepath.Join(dir, "f"), "/remove:d", "*"+sid)
+	return errors.Join(errs...)
 }
 
 func undeletableEntriesEnforced() bool { return true }
 
-func icacls(args ...string) error {
-	if out, err := exec.Command("icacls", args...).CombinedOutput(); err != nil {
-		return fmt.Errorf("icacls %v: %w: %s", args, err, out)
+func setProgramContextTestDACL(path, sddl string) error {
+	sd, err := windows.SecurityDescriptorFromString(sddl)
+	if err != nil {
+		return err
 	}
-	return nil
+	dacl, _, err := sd.DACL()
+	if err != nil {
+		return err
+	}
+	return windows.SetNamedSecurityInfo(path, windows.SE_FILE_OBJECT,
+		windows.DACL_SECURITY_INFORMATION|windows.PROTECTED_DACL_SECURITY_INFORMATION,
+		nil, nil, dacl, nil)
 }
 
 func currentUserSIDString() (string, error) {
@@ -61,4 +88,18 @@ func currentUserSIDString() (string, error) {
 		return "", err
 	}
 	return user.User.Sid.String(), nil
+}
+
+func TestProgramContextUndeletableEntry(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "locked")
+	t.Cleanup(func() {
+		require.NoError(t, unlockUndeletableEntry(dir))
+	})
+	require.NoError(t, lockUndeletableEntry(dir))
+	require.FileExists(t, filepath.Join(dir, "f"))
+	require.ErrorIs(t, os.RemoveAll(dir), os.ErrPermission)
+	require.FileExists(t, filepath.Join(dir, "f"))
+	require.NoError(t, unlockUndeletableEntry(dir))
+	require.NoError(t, os.RemoveAll(dir))
+	require.NoDirExists(t, dir)
 }
