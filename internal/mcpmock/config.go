@@ -4,11 +4,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/microsoft/waza/internal/models"
+	"github.com/microsoft/waza/internal/rootedfile"
 	"github.com/microsoft/waza/internal/schemaloader"
 	"github.com/santhosh-tekuri/jsonschema/v6"
 )
@@ -257,10 +259,11 @@ func loadFixtureDir(cfg *Config, dir, version string, allowSequences bool, overr
 			return nil
 		}
 
-		data, err := os.ReadFile(path)
+		data, err := readFixtureFile(path)
 		if err != nil {
-			return err
+			return fmt.Errorf("read MCP mock fixture %q: %w", path, err)
 		}
+
 		typedData := stripSourceSequences(data)
 		var bundle struct {
 			Tools map[string]Tool `json:"tools"`
@@ -315,6 +318,32 @@ func loadFixtureDir(cfg *Config, dir, version string, allowSequences bool, overr
 		return errors.Join(errs...)
 	}
 	return nil
+}
+
+func readFixtureFile(path string) (_ []byte, err error) {
+	// Preserve existing fixture symlinks, including targets outside the fixture directory.
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return nil, err
+	}
+	root, err := os.OpenRoot(filepath.Dir(resolved))
+	if err != nil {
+		return nil, err
+	}
+	defer func() { err = errors.Join(err, root.Close()) }()
+	file, err := rootedfile.Open(root, filepath.Base(resolved))
+	if err != nil {
+		return nil, err
+	}
+	defer func() { err = errors.Join(err, file.Close()) }()
+	info, err := file.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, errors.New("fixture must be a regular JSON file")
+	}
+	return io.ReadAll(file)
 }
 
 func convertResponses(in []models.MCPMockResponse) []Response {

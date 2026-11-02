@@ -1697,6 +1697,8 @@ mcp_mocks:
 
 Inline responses support exact full-argument matching (`match`), JSON Schema matching (`match_schema`), and per-field regex matching (`match_regex`). Unknown tools and unmatched calls fail loudly with an MCP tool error that names the missing fixture.
 
+Fixture entries must be regular JSON files; symlinks to regular files remain supported. On Unix, fixture admission uses nonblocking opens and checks the opened file, rejecting FIFOs without waiting for a writer so `after_run` can execute. This is not a deadline for unresponsive filesystems or a race-free/nonblocking opening guarantee on Windows.
+
 Unmatched MCP diagnostics omit argument values to avoid exposing credentials or private payloads. In scenario evals (`scenario` plus exact `schemaVersion: "2.0"`), a response may use a finite `sequence` of at most 100 `return` or `error` steps, optionally delayed up to 300,000 ms. Each matching call consumes one step; exhaustion returns an MCP error and never falls through to a live server. This can simulate an upstream timeout error, but not transport cancellation. Mock responses verify controlled interactions, not the external server implementation.
 
 A task can declare its own `mcp_mocks` when one case needs a different answer. Each task entry replaces the eval mock with the same name for that task only, a new name adds a mock, and the other eval mocks still apply. This keeps a case-specific response, such as approving one question, out of every other task. Task mocks follow the enclosing eval's `schemaVersion` and require `executor: copilot-sdk`; relative `fixtures` paths resolve from the eval directory. An empty task list is rejected; omit the field to use the eval mocks.
