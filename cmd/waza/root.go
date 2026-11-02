@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"io"
 	"log/slog"
 	"os"
 
@@ -87,8 +88,9 @@ performance against predefined test cases.`,
 	return cmd
 }
 
-func execute() error {
+func execute(diagnostics io.Writer) error {
 	rootCmd := newRootCommand()
+	rootCmd.SetErr(diagnostics)
 	return rootCmd.Execute()
 }
 

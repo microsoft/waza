@@ -178,8 +178,21 @@ descriptors share an open file description, including `O_NONBLOCK`. It performs
 one asynchronous read or one prepared asynchronous terminal-write attempt so
 SIGINT/SIGTERM and the five-second output bound can win without changing a
 parent's or peer's descriptor behavior. The top-level CLI exits after that
-decision, so a blocked inherited I/O attempt cannot survive terminalization or
-produce a fallback record. Supplied pollable files are never closed; their
+decision, so a blocked inherited I/O attempt cannot survive process exit or
+produce a fallback record. Before exit, Cobra and the final error diagnostic
+share a separate 100 ms cumulative stderr write-wait budget. Time between
+diagnostic writes does not consume that budget.
+Normally writable stderr receives the same diagnostic bytes and the selected
+exit code is preserved. A blocked, failed, or short diagnostic write stops
+further diagnostic attempts; delivery can be absent or partial, without
+replacing the command's exit code or emitting another stdout record. Thus a
+full retained stderr pipe adds at most this diagnostic budget after the
+five-second stdout decision, rather than preventing process exit. This
+process-only policy neither closes inherited stderr nor changes its flags;
+it does not bound unrelated command logging or arbitrary embedding writers.
+Supplied-input interruption errors are returned through the normal error path,
+not synchronously printed from the cancellation callback.
+Supplied pollable files are never closed; their
 deadline is reset after the read. In-process embedders supplying arbitrary
 `io.Reader` or `io.Writer` implementations must provide prompt/cancellation-aware
 I/O: Go cannot interrupt arbitrary synchronous code safely.

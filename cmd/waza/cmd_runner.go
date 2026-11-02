@@ -124,17 +124,19 @@ func readRunnerInput(ctx context.Context, input io.Reader) (data []byte, resultE
 	if file, ok := input.(*os.File); ok {
 		if err := file.SetReadDeadline(time.Time{}); err == nil {
 			finished := make(chan struct{})
+			var interruptErr error
 			stop := context.AfterFunc(ctx, func() {
 				defer close(finished)
 				// The initial successful deadline call established poller support.
 				if err := file.SetReadDeadline(time.Now()); err != nil {
-					fmt.Fprintf(os.Stderr, "interrupting runner input: %v\n", err)
+					interruptErr = fmt.Errorf("interrupting runner input: %w", err)
 				}
 			})
 			defer func() {
 				if !stop() {
 					<-finished
 				}
+				resultErr = errors.Join(resultErr, interruptErr)
 				if err := file.SetReadDeadline(time.Time{}); err != nil {
 					resultErr = errors.Join(resultErr, fmt.Errorf("resetting runner input deadline: %w", err))
 				}
