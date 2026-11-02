@@ -52,7 +52,22 @@
             "status": "passed",
             "transcript": [
               { "type": "user.message", "content": "" },
-              { "type": "assistant.message" }
+              { "type": "user.message" },
+              { "type": "user.message", "content": " \t\r\n" },
+              { "type": "user.message", "content": "\u00a0" },
+              { "type": "assistant.message", "content": "" },
+              { "type": "assistant.message" },
+              { "type": "assistant.message", "content": " \t\r\n" },
+              { "type": "assistant.message", "content": "\u00a0" }
+            ]
+          },
+          {
+            "run_number": 2,
+            "attempts": 1,
+            "status": "passed",
+            "transcript": [
+              { "type": "user.message", "content": "SECOND_REPETITION_HAS_USER_TEXT" },
+              { "type": "assistant.message", "content": "SECOND_REPETITION_HAS_ASSISTANT_TEXT" }
             ]
           }
         ]
@@ -72,6 +87,12 @@
   ],
   "expectedEmptyTranscript": [
     { "type": "user.message" },
-    { "type": "assistant.message" }
+    { "type": "user.message" },
+    { "type": "user.message", "content": " \t\r\n" },
+    { "type": "user.message", "content": "\u00a0" },
+    { "type": "assistant.message" },
+    { "type": "assistant.message" },
+    { "type": "assistant.message", "content": " \t\r\n" },
+    { "type": "assistant.message", "content": "\u00a0" }
   ]
 }

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -45,6 +46,57 @@ func (s *preflightEngineSpy) SessionUsage(string) *models.UsageStats {
 }
 
 type preflightTransportSpy struct{ calls atomic.Int64 }
+
+func TestPreflightTaskEnvironmentWarnOnly(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "eval.yaml")
+	require.NoError(t, os.WriteFile(path, []byte(`schemaVersion: "1.4"
+name: environment
+skill: example
+config: {executor: mock, model: harness, trials_per_task: 1, timeout_seconds: 10}
+metrics: [{name: accuracy, weight: 1, threshold: 0.8}]
+tasks: [task.yaml]
+`), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "task.yaml"), []byte(`id: env-task
+name: Environment
+inputs:
+  prompt: Say ready.
+  environment: {PRIVATE_SETTING: sensitive-value}
+`), 0600))
+	for _, strict := range []bool{false, true} {
+		t.Run(fmt.Sprint("strict=", strict), func(t *testing.T) {
+			root := newRootCommand()
+			var out bytes.Buffer
+			root.SetOut(&out)
+			root.SetErr(&out)
+			args := []string{"preflight", path, "--format", "json"}
+			if strict {
+				args = append(args, "--strict")
+			}
+			root.SetArgs(args)
+			err := root.Execute()
+			if strict {
+				require.Error(t, err, "existing --strict policy remains in effect")
+			} else {
+				require.NoError(t, err)
+			}
+			var report preflight.Report
+			require.NoError(t, json.Unmarshal(out.Bytes(), &report))
+			require.Len(t, report.Tasks, 1)
+			var found bool
+			for _, diagnostic := range report.Diagnostics {
+				if diagnostic.Code == "task.environment" {
+					found = true
+					require.Equal(t, preflight.Unsupported, diagnostic.State)
+					require.Equal(t, "warning", diagnostic.Severity)
+				}
+			}
+			require.True(t, found)
+			require.NotContains(t, out.String(), "PRIVATE_SETTING")
+			require.NotContains(t, out.String(), "sensitive-value")
+		})
+	}
+}
 
 func (s *preflightTransportSpy) RoundTrip(*http.Request) (*http.Response, error) {
 	s.calls.Add(1)

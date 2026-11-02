@@ -45,6 +45,17 @@ test('CLI reference documents opt-in preflight exits', async ({ page }) => {
   await expect(page.locator('main')).toContainText('Usage/output errors use exit 2');
 });
 
+test('task environment reference discloses unsupported configuration without promising isolation', async ({ page }) => {
+  await page.goto('/waza/reference/schema/#inputsenvironment-unsupported');
+  await expect(page.getByRole('heading', { name: 'inputs.environment (unsupported)', exact: true })).toBeVisible();
+  await expect(page.locator('main')).toContainText('not applied');
+  await expect(page.locator('main')).toContainText('task.environment');
+  await expect(page.locator('main')).toContainText('without printing variable names or values');
+  await expect(page.locator('main')).toContainText('Omitted or empty maps emit neither');
+  await expect(page.locator('main')).toContainText('not per-task environment isolation');
+  await expect(page.locator('main')).toContainText('Native snapshot execution continues to reject');
+});
+
 for (const source of ['guides/ci-cd', 'reference/schema-changes']) {
   test(`${source} preflight link preserves the deployed site base`, async ({ page }) => {
     await page.goto(`/waza/${source}/`);
