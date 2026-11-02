@@ -63,6 +63,7 @@ func TestReleaseIntegrationProductionOutcomes(t *testing.T) {
 	for _, mode := range []string{
 		"passed", "grader-failure", "grader-exception", "task-error",
 		"invalid-regex", "valid-regex-failure", "checkpoint-exception", "checkpoint-passed",
+		"hook-after-run", "hook-after-task", "retry-exception", "retry-unused", "missing-program",
 	} {
 		t.Run(mode, func(t *testing.T) {
 			dir := t.TempDir()
@@ -106,10 +107,43 @@ checkpoints:
 				if original == string(data) {
 					t.Fatal("exception control did not change the actual assertion")
 				}
+			case "retry-exception":
+				marker := strconv.Quote(filepath.Join(dir, "first-attempt"))
+				assertion := fmt.Sprintf(
+					`re.__builtins__["__import__"]("pathlib").Path(%s).exists() or (re.__builtins__["__import__"]("pathlib").Path(%s).write_text("first") and 1 / 0)`,
+					marker, marker)
+				original := string(data)
+				data = []byte(strings.Replace(original, `"len(output) > 10"`, strconv.Quote(assertion), 1))
+				if original == string(data) {
+					t.Fatal("retry control did not change the actual assertion")
+				}
 			case "task-error":
 				data = append(data, []byte("\ninstruction_files:\n  - missing-release-instruction.md\n")...)
 			}
 			writeReleaseFile(t, task, data)
+			if strings.HasPrefix(mode, "hook-") || strings.HasPrefix(mode, "retry-") || mode == "missing-program" {
+				evalPath := filepath.Join(example, "eval.yaml")
+				source, err := os.ReadFile(evalPath)
+				if err != nil {
+					t.Fatal(err)
+				}
+				changed := string(source)
+				switch {
+				case strings.HasPrefix(mode, "hook-"):
+					hook := strings.ReplaceAll(strings.TrimPrefix(mode, "hook-"), "-", "_")
+					changed += fmt.Sprintf("\nhooks:\n  %s:\n    - command: \"false\"\n      error_on_fail: true\n", hook)
+				case strings.HasPrefix(mode, "retry-"):
+					changed = strings.Replace(changed, "  parallel: false", "  parallel: false\n  max_attempts: 2", 1)
+				case mode == "missing-program":
+					changed = strings.Replace(changed,
+						"- type: code\n    name: has_explanation\n    config:\n      assertions:\n        - \"len(output) > 10\"",
+						"- type: program\n    name: has_explanation\n    config:\n      command: "+strconv.Quote(filepath.Join(dir, "missing-grader")), 1)
+				}
+				if changed == string(source) {
+					t.Fatal("production admission control did not change the actual eval")
+				}
+				writeReleaseFile(t, evalPath, []byte(changed))
+			}
 			if mode == "invalid-regex" || mode == "valid-regex-failure" {
 				evalPath := filepath.Join(example, "eval.yaml")
 				source, err := os.ReadFile(evalPath)
@@ -127,29 +161,66 @@ checkpoints:
 				writeReleaseFile(t, evalPath, []byte(changed))
 			}
 			env, guard := releaseControlEnvironment(t, dir, root)
+			traceDir := filepath.Join(dir, "python-traces")
+			if mode == "retry-exception" {
+				python, err := exec.LookPath("python3")
+				if err != nil {
+					t.Fatal(err)
+				}
+				shimDir := filepath.Join(dir, "bin")
+				for _, path := range []string{traceDir, shimDir} {
+					if err := os.Mkdir(path, 0o700); err != nil {
+						t.Fatal(err)
+					}
+				}
+				writeReleaseFile(t, filepath.Join(shimDir, "python3"), []byte(`#!/usr/bin/env bash
+set -uo pipefail
+if [ "$1" = --version ]; then exec "$REAL_PYTHON" "$@"; fi
+trace=$(mktemp "$PYTHON_TRACES/grade.XXXXXX") || exit 74
+"$REAL_PYTHON" "$@" > "$trace"
+status=$?
+cat "$trace" || exit 74
+exit "$status"
+`))
+				env = append(env, "REAL_PYTHON="+python, "PYTHON_TRACES="+traceDir,
+					"PATH="+shimDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+			}
 			captured := filepath.Join(dir, "captured.json")
 			statusPath := filepath.Join(dir, "cli-status")
 			launcher := filepath.Join(dir, "launch-real-cli")
 			writeReleaseFile(t, launcher, []byte(releaseCaptureLauncher))
 			env = append(env, "REAL_WAZA="+binary, "CAPTURE_STATUS="+statusPath,
 				"CAPTURE_OUTCOME="+captured, "CAPTURE_PID="+filepath.Join(dir, "cli.pid"))
-			if mode == "invalid-regex" || mode == "task-error" {
-				// Preserve the production run's error evidence even when the
-				// gate rejects its configuration before starting execution.
+			if mode == "invalid-regex" || mode == "task-error" || strings.HasPrefix(mode, "hook-") {
+				// Preserve production evidence even when admission rejects
+				// the declarations before starting execution.
 				cmd := exec.CommandContext(t.Context(), launcher, "run", "./examples/code-explainer/eval.yaml",
 					"--verbose", "--output", filepath.Join(dir, "direct-invalid.json"))
 				cmd.Dir, cmd.Env = dir, env
-				if output, err := cmd.CombinedOutput(); err == nil || cmd.ProcessState == nil || cmd.ProcessState.ExitCode() != 1 {
-					t.Fatalf("invalid configuration production control: %v\n%s", err, output)
+				directWant := 1
+				if strings.HasPrefix(mode, "hook-") {
+					directWant = 0
+				}
+				directOutput, directErr := cmd.CombinedOutput()
+				if (directErr == nil) != (directWant == 0) || cmd.ProcessState == nil || cmd.ProcessState.ExitCode() != directWant {
+					t.Fatalf("direct production control: %v\n%s", directErr, directOutput)
+				}
+				if strings.HasPrefix(mode, "hook-") {
+					hook := strings.ReplaceAll(strings.TrimPrefix(mode, "hook-"), "-", "_")
+					if !strings.Contains(string(directOutput), "[WARN] "+hook+" hook error") ||
+						!strings.Contains(string(directOutput), "command exited with code 1") {
+						t.Fatalf("failing hook was not exercised:\n%s", directOutput)
+					}
 				}
 			}
 			code, output := runReleaseGate(t, gate, launcher, dir, env)
 			wantGate, wantCLI := 0, "0"
-			if mode != "passed" {
+			if mode != "passed" && mode != "retry-exception" && mode != "retry-unused" && !strings.HasPrefix(mode, "hook-") {
 				wantCLI = "1"
 			}
 			if mode == "task-error" || mode == "grader-exception" || mode == "invalid-regex" ||
-				strings.HasPrefix(mode, "checkpoint-") {
+				strings.HasPrefix(mode, "checkpoint-") || strings.HasPrefix(mode, "hook-") ||
+				mode == "retry-exception" || mode == "missing-program" {
 				wantGate = 1
 			}
 			status, err := os.ReadFile(statusPath)
@@ -175,6 +246,61 @@ checkpoints:
 			}
 			if err := json.Unmarshal(outcome, &observed); err != nil {
 				t.Fatal(err)
+			}
+			if strings.HasPrefix(mode, "hook-") && code == 1 && !strings.Contains(string(output), `"hooks.execution"`) {
+				t.Fatalf("hook admission did not identify unresolved hook execution:\n%s", output)
+			}
+			if mode == "retry-exception" || mode == "retry-unused" || mode == "missing-program" {
+				filter := `[.tasks[].runs[] | select(.attempts == 1)] | length == 12`
+				switch mode {
+				case "retry-exception":
+					filter = `.summary.succeeded == 4 and
+						([.tasks[] | select(.test_id == "explain-python-recursion-001") | .runs[] |
+						select(.attempts == 2 and .status == "passed" and
+						.validations.explains_recursion.passed == true and
+						(.validations.explains_recursion.details | has("evaluation_errors") | not))] | length == 1)`
+				case "missing-program":
+					filter = `[.tasks[].runs[].validations.has_explanation |
+						select(.type == "program" and .passed == false and .score == 0 and
+						(.details.exit_error | type == "string" and length > 0) and
+						(.details | has("evaluation_errors") | not))] | length == 12`
+				}
+				check := exec.CommandContext(t.Context(), "jq", "-e", filter)
+				check.Stdin = bytes.NewReader(outcome)
+				if output, err := check.CombinedOutput(); err != nil {
+					t.Fatalf("admission evidence not exercised: %v\n%s\n%s", err, output, outcome)
+				}
+			}
+			if mode == "retry-exception" {
+				traces, err := os.ReadDir(traceDir)
+				if err != nil {
+					t.Fatal(err)
+				}
+				exceptions := 0
+				for _, trace := range traces {
+					data, err := os.ReadFile(filepath.Join(traceDir, trace.Name()))
+					if err != nil {
+						t.Fatal(err)
+					}
+					var evidence struct {
+						Results          []string          `json:"results"`
+						EvaluationErrors map[string]string `json:"evaluation_errors"`
+					}
+					if err := json.Unmarshal(data, &evidence); err != nil {
+						t.Fatalf("decoding actual Python output: %v\n%s", err, data)
+					}
+					if len(evidence.EvaluationErrors) > 0 {
+						if len(evidence.EvaluationErrors) != 1 || evidence.EvaluationErrors["0"] != "division by zero" ||
+							len(evidence.Results) == 0 || evidence.Results[0] != "division by zero" {
+							t.Fatalf("unexpected first-attempt evidence: %s", data)
+						}
+						exceptions++
+						t.Logf("actual discarded first-attempt exception: %s", data)
+					}
+				}
+				if exceptions != 1 {
+					t.Fatalf("expected one actual first-attempt evaluation exception, got %d from %d traces", exceptions, len(traces))
+				}
 			}
 			if mode == "grader-exception" {
 				check := exec.CommandContext(t.Context(), "jq", "-e", `
@@ -236,7 +362,7 @@ checkpoints:
 			// Production currently aggregates run errors as failed tasks, with
 			// summary.errors still zero. The gate must inspect the runs too.
 			if observed.Summary.TotalTests != 4 || observed.Summary.Errors != 0 ||
-				(observed.Summary.Failed > 0) != (mode != "passed") {
+				(observed.Summary.Failed > 0) != (wantCLI == "1") {
 				t.Fatalf("unexpected production summary: %+v", observed.Summary)
 			}
 			assertNoReleaseRuntime(t, guard)
@@ -298,6 +424,11 @@ exit "$REPLAY_STATUS"
 			{"missing-run", "del(.tasks[0].runs[0])", 0, 1, false},
 			{"null-runs", ".tasks[0].runs = null", 0, 1, false},
 			{"duplicate-run", ".tasks[0].runs[0].run_number = 2", 0, 1, false},
+			{"missing-attempts", "del(.tasks[0].runs[0].attempts)", 0, 1, false},
+			{"null-attempts", ".tasks[0].runs[0].attempts = null", 0, 1, false},
+			{"zero-attempts", ".tasks[0].runs[0].attempts = 0", 0, 1, false},
+			{"retried-run", ".tasks[0].runs[0].attempts = 2", 0, 1, false},
+			{"string-attempts", ".tasks[0].runs[0].attempts = \"1\"", 0, 1, false},
 			{"error-run-with-clean-summary", ".tasks[0].runs[0].status = \"error\"", 0, 1, false},
 			{"skipped-run", ".tasks[0].runs[0].status = \"skipped\"", 0, 1, false},
 			{"error-message", ".tasks[0].runs[0].error_msg = \"runtime failed\"", 0, 1, false},
@@ -308,6 +439,12 @@ exit "$REPLAY_STATUS"
 			{"missing-task-grader", "del(.tasks[0].runs[0].validations.explains_async_pattern)", 0, 1, false},
 			{"missing-expectation-grader", "del(.tasks[0].runs[0].validations._output_contains)", 0, 1, false},
 			{"wrong-grader-identity", ".tasks[0].runs[0].validations.no_errors.identifier = \"other\"", 0, 1, false},
+			{"missing-grader-type", "del(.tasks[0].runs[0].validations.has_explanation.type)", 0, 1, false},
+			{"null-grader-type", ".tasks[0].runs[0].validations.no_errors.type = null", 0, 1, false},
+			{"wrong-code-grader-type", ".tasks[0].runs[0].validations.has_explanation.type = \"program\"", 0, 1, false},
+			{"wrong-text-grader-type", ".tasks[0].runs[0].validations.no_errors.type = \"code\"", 0, 1, false},
+			{"wrong-task-grader-type", ".tasks[0].runs[0].validations.explains_async_pattern.type = \"text\"", 0, 1, false},
+			{"wrong-expectation-grader-type", ".tasks[0].runs[0].validations._output_contains.type = \"code\"", 0, 1, false},
 			{"missing-score", "del(.tasks[0].runs[0].validations.no_errors.score)", 0, 1, false},
 			{"invalid-score", ".tasks[0].runs[0].validations.no_errors.score = \"1\"", 0, 1, false},
 			{"passed-with-zero-score", ".tasks[0].runs[0].validations.no_errors.score = 0", 0, 1, false},

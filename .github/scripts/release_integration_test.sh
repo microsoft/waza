@@ -31,12 +31,12 @@ if ! jq -e -s '
     all(.diagnostics[];
       (.code | type == "string" and length > 0) and
       (.state == "verified" or .state == "unresolved" or .state == "unsupported") and
-      .code != "grader.result_collision"
+      .code != "grader.result_collision" and .code != "hooks.execution"
     )
   )
 ' "$scratch/preflight.json" > /dev/null; then
   cat "$scratch/preflight.json" >&2
-  echo "Release preflight lacks complete, valid, collision-free grader declarations." >&2
+  echo "Release preflight lacks complete, valid, hook-free and collision-free grader declarations." >&2
   exit 1
 fi
 status=0
@@ -53,12 +53,18 @@ if ! jq -e -s --argjson status "$status" '
   def nonempty_string: type == "string" and length > 0;
   def completed_run($task_grader):
     (.status == "passed" or .status == "failed") and
+    .attempts == 1 and
     (has("error_msg") | not) and
     ((has("checkpoints") | not) or (.checkpoints | type == "array" and length == 0)) and
     (.validations | type == "object" and length > 0) and
     (.validations | keys) == (["_output_contains", $task_grader, "has_explanation", "no_errors"] | sort) and
     all(.validations | to_entries[];
       .key == .value.identifier and
+      # Synthesized expectation results currently serialize an empty type.
+      (if .key == "_output_contains" then .value.type == ""
+       elif .key == $task_grader or .key == "has_explanation" then
+        .value.type == "code"
+       else .value.type == "text" end) and
       (.value.passed | type == "boolean") and
       (.value.details | has("evaluation_errors") | not) and
       (.value.score | type == "number" and . >= 0 and . <= 1) and

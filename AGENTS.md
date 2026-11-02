@@ -362,6 +362,9 @@ subprocess until cancellation, rather than synchronizing on console output.
 Both workflows execute the production-CLI regression controls
 in `.github/scripts`, including the otherwise indistinguishable task-error exit 1.
 The integration requires `jq` (available on the Ubuntu release runners).
+The fixed release example is hook-free, requires one recorded attempt per run,
+and pins each named grader result to its expected type; retries must not hide
+discarded evaluation exceptions or substitute executable-launch failures.
 Before execution it requires a complete offline preflight report, rejects invalid
 configuration and colliding final grader names (including synthesized expectation
 names), and leaves interpreter/model availability unresolved for the actual guarded

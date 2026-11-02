@@ -84,6 +84,8 @@ for report in \
   '{"kind":"waza.preflight","schemaVersion":"1.0","complete":false,"diagnostics":[]}' \
   '{"kind":"waza.preflight","schemaVersion":"1.0","complete":true,"diagnostics":null}' \
   '{"kind":"waza.preflight","schemaVersion":"1.0","complete":true,"diagnostics":[{"code":"grader.result_collision","state":"unresolved"}]}' \
+  '{"kind":"waza.preflight","schemaVersion":"1.0","complete":true,"diagnostics":[{"code":"hooks.execution","state":"unresolved"}]}' \
+  '{"kind":"waza.preflight","schemaVersion":"1.0","complete":true,"diagnostics":[{"code":"hooks.execution","state":"verified"}]}' \
   '{"kind":"waza.preflight","schemaVersion":"1.0","complete":true,"diagnostics":[{"code":"grader.name","state":"invalid"}]}'; do
   expect_status 1 env RUN_STARTED="$scratch/run-started" PREFLIGHT_JSON="$report" bash "$scripts/release_integration_test.sh" "$scratch/waza"
   grep -F 'collision-free grader declarations' "$scratch/output"
