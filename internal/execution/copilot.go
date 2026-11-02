@@ -326,21 +326,14 @@ func (e *CopilotEngine) Initialize(ctx context.Context) error {
 		authStatusResp, err := e.client.GetAuthStatus(ctx)
 
 		if err != nil {
-			if e.ownsClient {
-				_ = e.client.Stop()
-			}
-
 			e.startErr = fmt.Errorf("failed to get copilot authentication status. Use any installed instance of copilot CLI and run \"copilot login\" before using this command: %w", err)
-			return
-		}
-
-		if authStatusResp == nil || !authStatusResp.IsAuthenticated {
-			if e.ownsClient {
-				_ = e.client.Stop()
-			}
-
+		} else if authStatusResp == nil || !authStatusResp.IsAuthenticated {
 			e.startErr = fmt.Errorf("copilot is not authenticated. Use any installed instance of copilot CLI and run \"copilot login\" before using this command")
-			return
+		}
+		if e.startErr != nil && e.ownsClient {
+			if err := e.client.Stop(); err != nil {
+				e.startErr = errors.Join(e.startErr, fmt.Errorf("failed to stop unauthenticated Copilot client: %w", err))
+			}
 		}
 	})
 

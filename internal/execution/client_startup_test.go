@@ -178,8 +178,9 @@ func TestCopilotEngineAuthenticationFailurePersists(t *testing.T) {
 	require.ErrorIs(t, engine.Initialize(context.Background()), failure)
 	require.ErrorIs(t, engine.Initialize(context.Background()), failure)
 	require.EqualValues(t, 1, client.starts.Load())
+	require.EqualValues(t, 1, client.stops.Load(), "authentication failure cleans up immediately")
 	require.NoError(t, engine.Shutdown(context.Background()))
-	require.EqualValues(t, 1, client.stops.Load())
+	require.EqualValues(t, 2, client.stops.Load(), "shutdown still performs final cleanup after auth failure")
 }
 
 func TestCopilotEngineStartupShutdownRejectsLateSuccess(t *testing.T) {

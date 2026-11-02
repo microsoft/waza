@@ -123,12 +123,20 @@ func TestOwnedNativeShutdownPreservesSharedCommandMockRuntime(t *testing.T) {
 		}
 		return stub
 	}
-	require.Same(t, stub, SharedClient(SharedClientOptions{}))
+	shared := SharedClient(SharedClientOptions{})
+	managed, ok := shared.(*startupClient)
+	require.True(t, ok)
+	require.Same(t, stub, managed.CopilotClient)
+	require.Same(t, shared, SharedClient(SharedClientOptions{}))
 	require.NotEmpty(t, registry)
 	marker := filepath.Join(registry, "still-active")
 	require.NoError(t, os.WriteFile(marker, []byte("shared client owns this registry"), 0o600))
 	engine := NewCopilotEngineBuilder("fixed-model", &CopilotEngineBuilderOptions{OwnClient: true, DisableCommandMocks: true}).Build()
+	require.NotSame(t, shared, engine.CopilotClient())
+	require.True(t, engine.ownsClient)
 	require.NoError(t, engine.Shutdown(t.Context()))
+	require.Same(t, shared, SharedClient(SharedClientOptions{}))
+	require.Same(t, stub, managed.CopilotClient)
 	require.Zero(t, stub.stops)
 	content, err := os.ReadFile(marker)
 	require.NoError(t, err)

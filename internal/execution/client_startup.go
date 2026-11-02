@@ -25,6 +25,7 @@ type startupClient struct {
 	closed     bool
 	closedDone chan struct{}
 	err        error
+	stopMu     sync.Mutex
 	stopOnce   sync.Once
 	stopDone   chan struct{}
 	stopErr    error
@@ -123,13 +124,16 @@ func (c *startupClient) start(ctx context.Context) {
 	}
 }
 
-// stop launches exactly one cleanup, including for a late successful Start.
-func (c *startupClient) stop() {
+// stop launches exactly one partial-start cleanup, including for a late success.
+// Explicit Stop calls after completed startup retain the SDK's cleanup semantics.
+func (c *startupClient) stop() (started bool) {
 	c.stopOnce.Do(func() {
+		started = true
 		go func() {
 			c.mu.Lock()
 			pending := c.done != nil && !c.finished
 			done := c.done
+			cancel := c.cancel
 			c.mu.Unlock()
 			if pending {
 				if force, ok := c.CopilotClient.(interface{ ForceStop() }); ok {
@@ -138,19 +142,35 @@ func (c *startupClient) stop() {
 				<-done
 			}
 			c.stopErr = c.CopilotClient.Stop()
+			if cancel != nil {
+				cancel()
+			}
 			close(c.stopDone)
 		}()
 	})
+	return started
 }
 
 func (c *startupClient) Stop() error {
 	c.mu.Lock()
 	bounded := c.done != nil && (!c.finished || c.err != nil)
+	healthy := c.finished && c.err == nil
 	c.closeLocked()
-	if c.cancel != nil {
+	if !healthy && c.cancel != nil {
 		c.cancel()
 	}
 	c.mu.Unlock()
+	if healthy {
+		// Authentication failure stops an owned client immediately. Its later
+		// engine shutdown must still perform final cleanup, as before wrapping.
+		// Keep the lifetime alive through the first graceful SDK Stop.
+		c.stopMu.Lock()
+		defer c.stopMu.Unlock()
+		if !c.stop() {
+			return c.CopilotClient.Stop()
+		}
+		return c.waitStop(false)
+	}
 	c.stop()
 	return c.waitStop(bounded)
 }
