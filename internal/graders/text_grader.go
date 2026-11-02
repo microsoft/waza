@@ -3,6 +3,7 @@ package graders
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/microsoft/waza/internal/models"
@@ -15,8 +16,8 @@ type TextGrader struct {
 	notContains   []string
 	containsCS    []string
 	notContainsCS []string
-	regexMatch    []compiledRegex
-	regexNotMatch []compiledRegex
+	regexMatch    []string
+	regexNotMatch []string
 }
 
 // NewTextGrader creates a [TextGrader] that checks for substring presence/absence
@@ -28,8 +29,8 @@ func NewTextGrader(name string, args models.TextGraderParameters) (*TextGrader, 
 		notContains:   args.NotContains,
 		containsCS:    args.ContainsCS,
 		notContainsCS: args.NotContainsCS,
-		regexMatch:    compileRegexes(args.RegexMatch),
-		regexNotMatch: compileRegexes(args.RegexNotMatch),
+		regexMatch:    args.RegexMatch,
+		regexNotMatch: args.RegexNotMatch,
 	}, nil
 }
 
@@ -71,23 +72,25 @@ func (tg *TextGrader) Grade(ctx context.Context, gradingContext *Context) (*mode
 
 		// Regex must match
 		for _, pattern := range tg.regexMatch {
-			if pattern.err != nil {
-				failures = append(failures, fmt.Sprintf("Invalid regex_match pattern %q: %v", pattern.source, pattern.err))
+			re, err := regexp.Compile(pattern)
+			if err != nil {
+				failures = append(failures, fmt.Sprintf("Invalid regex_match pattern %q: %v", pattern, err))
 				continue
 			}
-			if !pattern.regexp.MatchString(gradingContext.Output) {
-				failures = append(failures, fmt.Sprintf("Missing expected pattern: %s", pattern.source))
+			if !re.MatchString(gradingContext.Output) {
+				failures = append(failures, fmt.Sprintf("Missing expected pattern: %s", pattern))
 			}
 		}
 
 		// Regex must not match
 		for _, pattern := range tg.regexNotMatch {
-			if pattern.err != nil {
-				failures = append(failures, fmt.Sprintf("Invalid regex_not_match pattern %q: %v", pattern.source, pattern.err))
+			re, err := regexp.Compile(pattern)
+			if err != nil {
+				failures = append(failures, fmt.Sprintf("Invalid regex_not_match pattern %q: %v", pattern, err))
 				continue
 			}
-			if pattern.regexp.MatchString(gradingContext.Output) {
-				failures = append(failures, fmt.Sprintf("Found forbidden pattern: %s", pattern.source))
+			if re.MatchString(gradingContext.Output) {
+				failures = append(failures, fmt.Sprintf("Found forbidden pattern: %s", pattern))
 			}
 		}
 
@@ -117,8 +120,8 @@ func (tg *TextGrader) Grade(ctx context.Context, gradingContext *Context) (*mode
 				"not_contains":    tg.notContains,
 				"contains_cs":     tg.containsCS,
 				"not_contains_cs": tg.notContainsCS,
-				"regex_match":     regexSources(tg.regexMatch),
-				"regex_not_match": regexSources(tg.regexNotMatch),
+				"regex_match":     tg.regexMatch,
+				"regex_not_match": tg.regexNotMatch,
 				"failures":        failures,
 			},
 		}, nil

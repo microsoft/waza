@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/microsoft/waza/internal/models"
@@ -18,14 +19,7 @@ type fileGrader struct {
 	name            string
 	mustExist       []string
 	mustNotExist    []string
-	contentPatterns []compiledFileContentPattern
-	rawPatterns     []models.FileContentPatternParameters
-}
-
-type compiledFileContentPattern struct {
-	path         string
-	mustMatch    []compiledRegex
-	mustNotMatch []compiledRegex
+	contentPatterns []models.FileContentPatternParameters
 }
 
 // NewFileGrader creates a [fileGrader], which can be used to perform simple existence (or non-existence) checks with
@@ -36,20 +30,11 @@ func NewFileGrader(name string, args models.FileGraderParameters) (*fileGrader, 
 		return nil, fmt.Errorf(errFileGraderNoChecks, name)
 	}
 
-	contentPatterns := make([]compiledFileContentPattern, len(args.ContentPatterns))
-	for i, pattern := range args.ContentPatterns {
-		contentPatterns[i] = compiledFileContentPattern{
-			path:         pattern.Path,
-			mustMatch:    compileRegexes(pattern.MustMatch),
-			mustNotMatch: compileRegexes(pattern.MustNotMatch),
-		}
-	}
 	return &fileGrader{
 		name:            name,
 		mustExist:       args.MustExist,
 		mustNotExist:    args.MustNotExist,
-		contentPatterns: contentPatterns,
-		rawPatterns:     args.ContentPatterns,
+		contentPatterns: args.ContentPatterns,
 	}, nil
 }
 
@@ -111,27 +96,19 @@ func (fg *fileGrader) checkMustNotExist(workspaceDir string) []string {
 func (fg *fileGrader) checkContentPatterns(workspaceDir string) []string {
 	var failures []string
 	for _, cp := range fg.contentPatterns {
-		fullPath := filepath.Join(workspaceDir, cp.path)
+		fullPath := filepath.Join(workspaceDir, cp.Path)
 
 		content, err := os.ReadFile(fullPath)
 		if err != nil {
-			failures = append(failures, compiledFileReadFailures(cp, err)...)
+			failures = append(failures, fileReadFailures(cp, err)...)
 			continue
 		}
 
 		contentStr := string(content)
-		failures = append(failures, matchCompiledRegexPatterns(contentStr, cp.path, cp.mustMatch, true)...)
-		failures = append(failures, matchCompiledRegexPatterns(contentStr, cp.path, cp.mustNotMatch, false)...)
+		failures = append(failures, matchRegexPatterns(contentStr, cp.Path, cp.MustMatch, true)...)
+		failures = append(failures, matchRegexPatterns(contentStr, cp.Path, cp.MustNotMatch, false)...)
 	}
 	return failures
-}
-
-func compiledFileReadFailures(contentPattern compiledFileContentPattern, err error) []string {
-	return fileReadFailures(models.FileContentPatternParameters{
-		Path:         contentPattern.path,
-		MustMatch:    regexSources(contentPattern.mustMatch),
-		MustNotMatch: regexSources(contentPattern.mustNotMatch),
-	}, err)
 }
 
 // fileReadFailures returns failure messages when a file required for content checking cannot be read.
@@ -160,26 +137,23 @@ func fileReadFailures(contentPattern models.FileContentPatternParameters, err er
 // matchRegexPatterns checks content against a list of regex patterns. When mustMatch is true,
 // the content is expected to match each pattern; when false, it must not match.
 func matchRegexPatterns(content, filePath string, regexPatterns []string, mustMatch bool) []string {
-	return matchCompiledRegexPatterns(content, filePath, compileRegexes(regexPatterns), mustMatch)
-}
-
-func matchCompiledRegexPatterns(content, filePath string, regexPatterns []compiledRegex, mustMatch bool) []string {
 	var failures []string
 	for _, pattern := range regexPatterns {
-		if pattern.err != nil {
+		re, err := regexp.Compile(pattern)
+		if err != nil {
 			kind := "must_match"
 			if !mustMatch {
 				kind = "must_not_match"
 			}
-			failures = append(failures, fmt.Sprintf("Invalid '%s' regex pattern %q for file %s: %v", kind, pattern.source, filePath, pattern.err))
+			failures = append(failures, fmt.Sprintf("Invalid '%s' regex pattern %q for file %s: %v", kind, pattern, filePath, err))
 			continue
 		}
 
-		matched := pattern.regexp.MatchString(content)
+		matched := re.MatchString(content)
 		if mustMatch && !matched {
-			failures = append(failures, fmt.Sprintf("File %s missing expected pattern: %s", filePath, pattern.source))
+			failures = append(failures, fmt.Sprintf("File %s missing expected pattern: %s", filePath, pattern))
 		} else if !mustMatch && matched {
-			failures = append(failures, fmt.Sprintf("File %s contains forbidden pattern: %s", filePath, pattern.source))
+			failures = append(failures, fmt.Sprintf("File %s contains forbidden pattern: %s", filePath, pattern))
 		}
 	}
 	return failures
@@ -230,7 +204,7 @@ func (fg *fileGrader) validateAllPaths(workspaceDir string) error {
 		}
 	}
 	for _, cp := range fg.contentPatterns {
-		if err := validatePathInWorkspace(workspaceDir, cp.path); err != nil {
+		if err := validatePathInWorkspace(workspaceDir, cp.Path); err != nil {
 			return err
 		}
 	}
@@ -244,7 +218,7 @@ func (fg *fileGrader) countTotalChecks() int {
 
 	// patterns per file
 	for _, cp := range fg.contentPatterns {
-		total += len(cp.mustMatch) + len(cp.mustNotMatch) + 1 // +1 is the implicit check for file existence,
+		total += len(cp.MustMatch) + len(cp.MustNotMatch) + 1 // +1 is the implicit check for file existence,
 	}
 
 	return total
@@ -274,7 +248,7 @@ func (fg *fileGrader) buildResult(failures []string, workspaceDir string) *model
 		Details: map[string]any{
 			"must_exist":       fg.mustExist,
 			"must_not_exist":   fg.mustNotExist,
-			"content_patterns": fg.rawPatterns,
+			"content_patterns": fg.contentPatterns,
 			"failures":         failures,
 			"workspace_dir":    workspaceDir,
 		},
