@@ -20,9 +20,10 @@ const (
 	programContextLockEnv = "WAZA_TEST_PROGRAM_CONTEXT_LOCK"
 )
 
-// errDeletionNotDenied reports that the current account can delete an entry
-// the fixture tried to lock (for example, an elevated Windows runner).
-var errDeletionNotDenied = errors.New("the current account can delete the locked entry")
+// errDeletionNotDenied reports that this environment cannot deny deletion of
+// the locked entry (for example, an elevated Windows runner that rewrites or
+// bypasses the deny ACEs, or root).
+var errDeletionNotDenied = errors.New("this environment cannot deny deletion of the locked entry")
 
 // requireUndeletableEntries skips the test when this environment cannot make
 // deletion fail (root, or an elevated Windows account that bypasses the deny
