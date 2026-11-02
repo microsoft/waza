@@ -102,6 +102,9 @@ func TestCopilotEngineStartupCancellationCleansPartialClient(t *testing.T) {
 	for _, diagnostic := range []bool{false, true} {
 		t.Run(map[bool]string{false: "ordinary", true: "diagnostic"}[diagnostic], func(t *testing.T) {
 			entered, forced := make(chan struct{}), make(chan struct{})
+			var forceOnce sync.Once
+			releaseForce := func() { forceOnce.Do(func() { close(forced) }) }
+			t.Cleanup(releaseForce)
 			client := &startupBarrierClient{
 				start: func(ctx context.Context) error {
 					close(entered)
@@ -109,7 +112,7 @@ func TestCopilotEngineStartupCancellationCleansPartialClient(t *testing.T) {
 					<-forced
 					return ctx.Err()
 				},
-				force: func() { close(forced) },
+				force: releaseForce,
 			}
 			engine := startupTestEngine(t, client, diagnostic)
 			ctx, cancel := context.WithCancel(context.Background())
@@ -183,9 +186,12 @@ func TestCopilotEngineStartupShutdownRejectsLateSuccess(t *testing.T) {
 	for _, diagnostic := range []bool{false, true} {
 		t.Run(map[bool]string{false: "ordinary", true: "diagnostic"}[diagnostic], func(t *testing.T) {
 			entered, forced := make(chan struct{}), make(chan struct{})
+			var forceOnce sync.Once
+			releaseForce := func() { forceOnce.Do(func() { close(forced) }) }
+			t.Cleanup(releaseForce)
 			client := &startupBarrierClient{
 				start: func(context.Context) error { close(entered); <-forced; return nil },
-				force: func() { close(forced) },
+				force: releaseForce,
 			}
 			engine := startupTestEngine(t, client, diagnostic)
 			result := make(chan error, 1)
@@ -241,9 +247,15 @@ func TestCopilotEngineStartupCleanupBoundedForBrokenCustomClient(t *testing.T) {
 	result := make(chan error, 1)
 	go func() { result <- engine.Initialize(ctx) }()
 	awaitStartup(t, entered)
+	canceledAt := time.Now()
 	cancel()
-	require.ErrorIs(t, startupResult(t, result), context.Canceled)
+	initErr := startupResult(t, result)
+	require.ErrorIs(t, initErr, context.Canceled)
+	require.ErrorContains(t, initErr, "startup cleanup exceeded")
+	require.Less(t, time.Since(canceledAt), 3*time.Second, "fixed caller budget, including scheduler margin")
+	shutdownAt := time.Now()
 	require.ErrorContains(t, engine.Shutdown(context.Background()), "startup cleanup exceeded")
+	require.Less(t, time.Since(shutdownAt), 3*time.Second, "each cleanup caller has a fixed budget")
 	releaseOnce.Do(func() { close(release) })
 	awaitStartup(t, engine.client.(*startupClient).stopDone)
 	require.EqualValues(t, 1, client.stops.Load(), "late completion is disposed")
@@ -266,8 +278,12 @@ func TestCopilotEngineStartupSharedCanceledOwnerCanBeReplaced(t *testing.T) {
 				start: func(ctx context.Context) error {
 					close(entered)
 					if mode != "late-success" {
-						<-ctx.Done()
-						return ctx.Err()
+						select {
+						case <-ctx.Done():
+							return ctx.Err()
+						case <-release:
+							return errors.New("test cleanup released startup")
+						}
 					}
 					<-release
 					return nil

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -234,12 +235,17 @@ type blockedStartupClient struct {
 	execution.CopilotClient
 	entered chan struct{}
 	stopped chan struct{}
+	release chan struct{}
 }
 
 func (c *blockedStartupClient) Start(ctx context.Context) error {
 	close(c.entered)
-	<-ctx.Done()
-	return ctx.Err()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-c.release:
+		return errors.New("test cleanup released startup")
+	}
 }
 
 func (c *blockedStartupClient) Stop() error {
@@ -251,7 +257,8 @@ func TestRunCommandInterruptDuringActualCopilotStartupRunsAfterRunOnce(t *testin
 	resetRunGlobals()
 	dir := t.TempDir()
 	path, log := writeInterruptSuite(t, dir, "")
-	client := &blockedStartupClient{entered: make(chan struct{}), stopped: make(chan struct{})}
+	client := &blockedStartupClient{entered: make(chan struct{}), stopped: make(chan struct{}), release: make(chan struct{})}
+	t.Cleanup(func() { close(client.release) })
 	previous := newRunEngine
 	t.Cleanup(func() { newRunEngine = previous })
 	newRunEngine = func(models.Config) (execution.AgentEngine, error) {
