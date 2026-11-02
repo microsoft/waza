@@ -108,12 +108,13 @@ for (const availability of ["reported", "mixed", "unavailable"] as const) {
     await expect(page.getByText(/Est\. Cost/)).toHaveCount(0);
     const missing = credits.filter((value) => value == null).length;
     await expect(chart.getByRole("status")).toHaveText(`${missing} of 3 runs have unavailable AI Credit usage and are not charted.`);
-    await expect(chart.locator("svg circle")).toHaveCount(3 - missing);
     if (availability === "unavailable") {
       await expect(chart.getByText("AI Credit usage unavailable for these runs.")).toBeVisible();
       await expect(chart.locator("svg")).toHaveCount(0);
     } else {
       await expect(chart.locator("svg")).toBeVisible();
+      const markerPath = await chart.getByTestId("trend-points").getAttribute("d");
+      expect(markerPath?.match(/\bM /g)).toHaveLength(3 - missing);
       await expect(chart.locator("svg")).toContainText("9/1");
       await expect(chart.locator("svg")).toContainText("9/3");
       if (availability === "mixed") {
