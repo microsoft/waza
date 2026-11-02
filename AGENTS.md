@@ -348,8 +348,11 @@ consistent summary/task/run/grader statuses, and zero errors, skips, or cached
 tasks. Exit 1 is accepted only for completed grader failures, never task/runtime
 errors, cancellation, or missing/incomplete evidence. Any attempted runtime launch
 also fails the gate.
-Inline grader exceptions carry `details.evaluation_errors` separately from false
-assertions and are rejected by the integration gate. Each native shard checks
+Inline grader exceptions and text-grader regex configuration errors carry
+`details.evaluation_errors` separately from false assertions and are rejected by
+the integration gate. The fixed mock example permits no checkpoint results and
+requires grader scores to agree with verdicts (1 for pass, less than 1 for fail).
+Each native shard checks
 its own rejecting runtime marker after tests, including tolerated launches.
 Publication uses `!cancelled()` as well as explicit shard-result checks.
 The SIGTERM regression holds the production CLI inside a blocking grader

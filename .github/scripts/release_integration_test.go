@@ -59,7 +59,10 @@ func TestReleaseIntegrationProductionOutcomes(t *testing.T) {
 	}
 	gate := filepath.Join(root, ".github", "scripts", "release_integration_test.sh")
 	var passing, failing []byte
-	for _, mode := range []string{"passed", "grader-failure", "grader-exception", "task-error"} {
+	for _, mode := range []string{
+		"passed", "grader-failure", "grader-exception", "task-error",
+		"invalid-regex", "valid-regex-failure", "checkpoint-exception", "checkpoint-passed",
+	} {
 		t.Run(mode, func(t *testing.T) {
 			dir := t.TempDir()
 			example := filepath.Join(dir, "examples", "code-explainer")
@@ -75,11 +78,26 @@ func TestReleaseIntegrationProductionOutcomes(t *testing.T) {
 				t.Fatal(err)
 			}
 			switch mode {
-			case "grader-failure":
+			case "grader-failure", "checkpoint-exception", "checkpoint-passed":
 				original := string(data)
 				data = []byte(strings.Replace(original, `"len(output) > 10"`, `"len(output) < 0"`, 1))
 				if original == string(data) {
 					t.Fatal("grader-failure control did not change the actual task assertion")
+				}
+				if strings.HasPrefix(mode, "checkpoint-") {
+					assertion := "True"
+					if mode == "checkpoint-exception" {
+						assertion = "1 / 0"
+					}
+					data = append(data, []byte(fmt.Sprintf(`
+checkpoints:
+  - after_turn: 1
+    graders:
+      - name: intermediate
+        type: code
+        config:
+          assertions: [%q]
+`, assertion))...)
 				}
 			case "grader-exception":
 				original := string(data)
@@ -91,6 +109,22 @@ func TestReleaseIntegrationProductionOutcomes(t *testing.T) {
 				data = append(data, []byte("\ninstruction_files:\n  - missing-release-instruction.md\n")...)
 			}
 			writeReleaseFile(t, task, data)
+			if mode == "invalid-regex" || mode == "valid-regex-failure" {
+				evalPath := filepath.Join(example, "eval.yaml")
+				source, err := os.ReadFile(evalPath)
+				if err != nil {
+					t.Fatal(err)
+				}
+				pattern := "["
+				if mode == "valid-regex-failure" {
+					pattern = "."
+				}
+				changed := strings.Replace(string(source), "(?i)fatal error|crashed|exception occurred", pattern, 1)
+				if changed == string(source) {
+					t.Fatal("regex control did not change the actual grader configuration")
+				}
+				writeReleaseFile(t, evalPath, []byte(changed))
+			}
 			env, guard := releaseControlEnvironment(t, dir, root)
 			captured := filepath.Join(dir, "captured.json")
 			statusPath := filepath.Join(dir, "cli-status")
@@ -103,11 +137,9 @@ func TestReleaseIntegrationProductionOutcomes(t *testing.T) {
 			if mode != "passed" {
 				wantCLI = "1"
 			}
-			if mode == "task-error" || mode == "grader-exception" {
+			if mode == "task-error" || mode == "grader-exception" || mode == "invalid-regex" ||
+				strings.HasPrefix(mode, "checkpoint-") {
 				wantGate = 1
-			}
-			if code != wantGate {
-				t.Fatalf("gate exit=%d, want=%d\n%s", code, wantGate, output)
 			}
 			status, err := os.ReadFile(statusPath)
 			if err != nil || string(status) != wantCLI {
@@ -144,6 +176,33 @@ func TestReleaseIntegrationProductionOutcomes(t *testing.T) {
 					t.Fatalf("exception evidence not exercised: %v\n%s\n%s", err, output, outcome)
 				}
 			}
+			if strings.HasPrefix(mode, "checkpoint-") {
+				check := exec.CommandContext(t.Context(), "jq", "-e", "--arg", "mode", mode, `
+						[.tasks[] | select(.test_id == "explain-python-recursion-001") | .runs[] |
+						select(.status == "failed" and .validations.explains_recursion.passed == false and
+						(.validations.explains_recursion.details | has("evaluation_errors") | not) and
+						(.checkpoints | length == 1) and .checkpoints[0].after_turn == 1 and
+						(if $mode == "checkpoint-exception" then
+						  .checkpoints[0].status == "failed" and
+						  (.checkpoints[0].validations.intermediate.details.evaluation_errors | length == 1)
+						 else .checkpoints[0].status == "passed" end))] | length == 3`)
+				check.Stdin = bytes.NewReader(outcome)
+				if output, err := check.CombinedOutput(); err != nil {
+					t.Fatalf("checkpoint control not exercised: %v\n%s\n%s", err, output, outcome)
+				}
+			}
+			if mode == "invalid-regex" || mode == "valid-regex-failure" {
+				check := exec.CommandContext(t.Context(), "jq", "-e", "--arg", "mode", mode, `
+						[.tasks[].runs[].validations.no_errors |
+						select(.passed == false and .score == 0 and
+						(if $mode == "invalid-regex" then
+						  (.details.evaluation_errors | type == "array" and length == 1)
+						 else (.details | has("evaluation_errors") | not) end))] | length == 12`)
+				check.Stdin = bytes.NewReader(outcome)
+				if output, err := check.CombinedOutput(); err != nil {
+					t.Fatalf("regex control not exercised: %v\n%s\n%s", err, output, outcome)
+				}
+			}
 			runs, errors := 0, 0
 			for _, task := range observed.Tasks {
 				for _, run := range task.Runs {
@@ -172,6 +231,9 @@ func TestReleaseIntegrationProductionOutcomes(t *testing.T) {
 			assertNoReleaseRuntime(t, guard)
 			t.Logf("real CLI %s: CLI exit=%s gate exit=%d; tasks=4 trials=12 run errors=%d; no runtime launch", mode, status, code, errors)
 			logReleaseOutcome(t, mode, outcome)
+			if code != wantGate {
+				t.Fatalf("gate exit=%d, want=%d\n%s", code, wantGate, output)
+			}
 			switch mode {
 			case "passed":
 				passing = outcome
@@ -233,6 +295,12 @@ exit "$REPLAY_STATUS"
 			{"wrong-grader-identity", ".tasks[0].runs[0].validations.no_errors.identifier = \"other\"", 0, 1, false},
 			{"missing-score", "del(.tasks[0].runs[0].validations.no_errors.score)", 0, 1, false},
 			{"invalid-score", ".tasks[0].runs[0].validations.no_errors.score = \"1\"", 0, 1, false},
+			{"passed-with-zero-score", ".tasks[0].runs[0].validations.no_errors.score = 0", 0, 1, false},
+			{"passed-with-partial-score", ".tasks[0].runs[0].validations.no_errors.score = 0.5", 0, 1, false},
+			{"failed-with-perfect-score", "(.tasks[].runs[].validations[] | select(.passed == false)).score = 1", 1, 1, true},
+			{"failed-with-partial-score", "(.tasks[].runs[].validations[] | select(.passed == false)).score = 0.5", 1, 0, true},
+			{"empty-checkpoints", ".tasks[].runs[].checkpoints = []", 0, 0, false},
+			{"null-checkpoints", ".tasks[0].runs[0].checkpoints = null", 0, 1, false},
 			{"grader-failure-with-passed-status", ".tasks[0].runs[0].validations.no_errors.passed = false", 0, 1, false},
 			{"invalid-grader-result", ".tasks[0].runs[0].validations.no_errors.passed = \"true\"", 0, 1, false},
 			{"cached", ".tasks[0].cached = true", 0, 1, false},

@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	copilot "github.com/github/copilot-sdk/go"
@@ -225,7 +226,6 @@ func TestEmptyAssertions(t *testing.T) {
 }
 
 func TestInlineScriptEvaluationErrors(t *testing.T) {
-	skipIfNoPython(t)
 	for _, tc := range []struct {
 		name       string
 		language   models.Language
@@ -241,6 +241,11 @@ func TestInlineScriptEvaluationErrors(t *testing.T) {
 		{"javascript-fail-exception", models.LanguageJavascript, []string{`(() => { throw "fail"; })()`}, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			if tc.language == models.LanguagePython {
+				skipIfNoPython(t)
+			} else {
+				skipIfNoJavascript(t)
+			}
 			g, err := NewInlineScriptGrader("test", models.InlineScriptGraderParameters{
 				Language: tc.language, Assertions: tc.assertions,
 			})
@@ -254,6 +259,41 @@ func TestInlineScriptEvaluationErrors(t *testing.T) {
 				require.Len(t, result.Details["evaluation_errors"], 1)
 			}
 			require.Equal(t, len(tc.assertions), result.Details["total_assertions"])
+		})
+	}
+}
+
+func TestInlineScriptEvaluationErrorsInterpreterIsolation(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX PATH isolation uses executable symlinks; language subtests still run natively")
+	}
+	executable, err := os.Executable()
+	require.NoError(t, err)
+	for _, tc := range []struct {
+		name, interpreter, passed, skipped string
+	}{
+		{"python-only", "python3", "python-exception", "javascript-exception"},
+		{"node-only", "node", "javascript-exception", "python-exception"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path, err := exec.LookPath(tc.interpreter)
+			if err != nil {
+				t.Skipf("%s unavailable: %v", tc.interpreter, err)
+			}
+			dir := t.TempDir()
+			name := tc.interpreter
+			if filepath.Ext(path) == ".exe" {
+				name += ".exe"
+			}
+			if err := os.Symlink(path, filepath.Join(dir, name)); err != nil {
+				t.Fatal(err)
+			}
+			cmd := exec.CommandContext(t.Context(), executable, "-test.run=^TestInlineScriptEvaluationErrors$", "-test.v")
+			cmd.Env = append(os.Environ(), "PATH="+dir)
+			output, err := cmd.CombinedOutput()
+			require.NoError(t, err, "%s", output)
+			require.Contains(t, string(output), "--- PASS: TestInlineScriptEvaluationErrors/"+tc.passed)
+			require.Contains(t, string(output), "--- SKIP: TestInlineScriptEvaluationErrors/"+tc.skipped)
 		})
 	}
 }

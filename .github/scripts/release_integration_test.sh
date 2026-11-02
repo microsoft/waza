@@ -28,13 +28,15 @@ if ! jq -e -s --argjson status "$status" '
   def completed_run($task_grader):
     (.status == "passed" or .status == "failed") and
     (has("error_msg") | not) and
+    ((has("checkpoints") | not) or (.checkpoints | type == "array" and length == 0)) and
     (.validations | type == "object" and length > 0) and
     (.validations | keys) == (["_output_contains", $task_grader, "has_explanation", "no_errors"] | sort) and
     all(.validations | to_entries[];
       .key == .value.identifier and
       (.value.passed | type == "boolean") and
       (.value.details | has("evaluation_errors") | not) and
-      (.value.score | type == "number" and . >= 0 and . <= 1)
+      (.value.score | type == "number" and . >= 0 and . <= 1) and
+      (.value.passed == (.value.score == 1))
     ) and
     ((.status == "passed") == all(.validations[]; .passed));
   {
