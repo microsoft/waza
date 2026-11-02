@@ -52,8 +52,8 @@ func TestReleaseWorkflowGates(t *testing.T) {
 			}
 			t.Run("workflow-cancellation-blocks-publication", func(t *testing.T) {
 				// Pin the actual GitHub status function, not a shell simulation:
-				// unlike always(), !cancelled() is false after cancellation.
-				if job.If != "${{ !cancelled() }}" {
+				// Unlike always(), this predicate is false after cancellation.
+				if job.If != "${{ !cancelled() }}" { //nolint:misspell // GitHub's exact status function.
 					t.Fatal("publication must be ineligible after workflow cancellation")
 				}
 			})
