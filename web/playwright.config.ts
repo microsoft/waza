@@ -12,8 +12,8 @@ export default defineConfig({
   use: {
     baseURL: `http://localhost:${port}`,
     screenshot: "only-on-failure",
-    video: "retain-on-failure",
-    trace: "retain-on-failure",
+    video: process.env.CI ? "on-first-retry" : "retain-on-failure",
+    trace: process.env.CI ? "on-first-retry" : "retain-on-failure",
   },
 
   webServer: {
