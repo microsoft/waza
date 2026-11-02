@@ -389,11 +389,17 @@ func (r *EvalRunner) runNormalBenchmark(ctx context.Context) (*models.Evaluation
 	// The first pass uses the setup that ran before admission; a later pass
 	// (the second baseline pass) runs before_run again. after_run runs on exit,
 	// even on error.
+	alreadyAdmitted := r.setup != nil
 	setup, err := r.takeSetup(ctx)
 	if err != nil {
 		return nil, err
 	}
 	defer setup.Teardown(ctx)
+	if !alreadyAdmitted {
+		if err := r.admitEvalMCPMocks(); err != nil {
+			return nil, err
+		}
+	}
 
 	// Preflight check: validate required skills
 	if err := r.validateRequiredSkills(); err != nil {

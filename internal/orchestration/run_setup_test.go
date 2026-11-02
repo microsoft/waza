@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -31,6 +32,18 @@ func TestRunHookHelperProcess(t *testing.T) {
 		data, err := os.ReadFile(args[1])
 		require.NoError(t, err)
 		require.NoError(t, os.WriteFile(args[2], data, 0o600))
+	case "copy-pass":
+		log, err := os.ReadFile(args[4])
+		if !os.IsNotExist(err) {
+			require.NoError(t, err)
+		}
+		source := args[1]
+		if strings.Contains(string(log), "before_run\n") {
+			source = args[2]
+		}
+		data, err := os.ReadFile(source)
+		require.NoError(t, err)
+		require.NoError(t, os.WriteFile(args[3], data, 0o600))
 	default:
 		t.Fatalf("unknown hook helper action %q", args[0])
 	}
@@ -269,4 +282,121 @@ func requireHookLogLines(t *testing.T, log string, want ...string) {
 	data, err := os.ReadFile(log)
 	require.NoError(t, err)
 	require.Equal(t, strings.Join(want, "\n")+"\n", strings.ReplaceAll(string(data), "\r\n", "\n"))
+}
+
+type baselineSetupEngine struct {
+	*admissionEngine
+	log      string
+	prompts  []string
+	answers  []string
+	baseline []bool
+}
+
+func (e *baselineSetupEngine) Execute(ctx context.Context, req *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
+	e.prompts = append(e.prompts, req.Message)
+	e.baseline = append(e.baseline, len(req.SkillPaths) == 0)
+	if len(e.prompts) == 1 {
+		requireHookLogLines(e.t, e.log, "before_run")
+	} else {
+		requireHookLogLines(e.t, e.log, "before_run", "after_run", "before_run")
+	}
+	result, err := e.admissionEngine.Execute(ctx, req)
+	e.answers = append(e.answers, e.admissionEngine.answers[req.TaskName])
+	return result, err
+}
+
+func TestRunBenchmark_ReadmitsBaselineSetup(t *testing.T) {
+	const fixtureTask = admissionInheritTask + "mcp_mocks:\n  - name: host\n    fixtures: generated-mocks\n"
+	const originalFixture = `{"responses":[{"return":{"answer":"Not now"}}]}`
+	const invalidFixture = `{"responses":[{"sequence":[]}]}`
+	validReplacement := strings.Replace(admissionReplaceTask("inherit"), "Publish the skill.", "Inspect the changed baseline.", 1)
+	for _, tt := range []struct {
+		name        string
+		firstTask   string
+		secondTask  string
+		fixture     string
+		wantErr     string
+		wantPrompts []string
+		wantAnswers []string
+	}{
+		{
+			name: "missing fixture", firstTask: admissionInheritTask,
+			secondTask: admissionInheritTask + "mcp_mocks:\n  - name: host\n    fixtures: missing-baseline-fixtures\n",
+			wantErr:    `MCP mock admission: task "inherit": resolve MCP mock "host"`,
+		},
+		{
+			name: "empty fault steps", firstTask: fixtureTask, secondTask: fixtureTask,
+			fixture: invalidFixture, wantErr: "fault sequence must contain at least one step",
+		},
+		{
+			name: "unchanged valid", firstTask: admissionInheritTask, secondTask: admissionInheritTask,
+			wantPrompts: []string{"Publish the skill.", "Publish the skill."},
+			wantAnswers: []string{"Not now", "Not now"},
+		},
+		{
+			name: "changed valid", firstTask: admissionInheritTask, secondTask: validReplacement,
+			wantPrompts: []string{"Publish the skill.", "Inspect the changed baseline."},
+			wantAnswers: []string{"Not now", "Publish this version"},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			runner, engine, log := writeHookSuite(t, hookHostMock, tt.firstTask)
+			dir := filepath.Dir(log)
+			task := filepath.Join(dir, "tasks", "generated.yaml")
+			require.NoFileExists(t, task, "before_run must generate the first task")
+			second := filepath.Join(dir, "second-task.yaml")
+			require.NoError(t, os.WriteFile(second, []byte(tt.secondTask), 0o600))
+			spec := runner.cfg.Spec()
+			spec.Baseline = true
+			spec.Config.SkillPaths = []string{dir}
+			spec.Hooks.BeforeRun[0].Command = hookCommand(t, "copy-pass", filepath.Join(dir, "staged-task.yaml"), second, task, log)
+			var fixture string
+			if tt.fixture != "" {
+				spec.SchemaVersion = models.ScenarioSchemaVersion
+				spec.Scenario = "recovery"
+				mocks := filepath.Join(dir, "generated-mocks")
+				require.NoError(t, os.Mkdir(mocks, 0o755))
+				fixture = filepath.Join(mocks, "ask_user.json")
+				first := filepath.Join(dir, "first-fixture.json")
+				second := filepath.Join(dir, "second-fixture.json")
+				require.NoError(t, os.WriteFile(first, []byte(originalFixture), 0o600))
+				require.NoError(t, os.WriteFile(second, []byte(tt.fixture), 0o600))
+				copyFixture := spec.Hooks.BeforeRun[0]
+				copyFixture.Command = hookCommand(t, "copy-pass", first, second, fixture, log)
+				spec.Hooks.BeforeRun = slices.Insert(spec.Hooks.BeforeRun, 1, copyFixture)
+				require.NoFileExists(t, fixture, "each before_run generates the fixture")
+			}
+			recorder := &baselineSetupEngine{admissionEngine: engine, log: log}
+			runner.engine = recorder
+			outcome, err := runner.RunBenchmark(t.Context())
+			require.Equal(t, 1, engine.initialized)
+			requireHookLogLines(t, log, "before_run", "after_run", "before_run", "after_run")
+			data, readErr := os.ReadFile(task)
+			require.NoError(t, readErr)
+			require.Equal(t, tt.secondTask, string(data), "second before_run must replace the generated task")
+			if fixture != "" {
+				data, readErr = os.ReadFile(fixture)
+				require.NoError(t, readErr)
+				require.Equal(t, tt.fixture, string(data))
+				require.NotEqual(t, originalFixture, string(data))
+			}
+			require.Equal(t, []string{dir}, spec.Config.SkillPaths, "baseline must restore skills even on admission failure")
+			require.Nil(t, runner.setup, "no completed setup may remain pending")
+			if tt.wantErr != "" {
+				require.Equal(t, []string{"Publish the skill."}, recorder.prompts, "only the first pass may execute")
+				require.Equal(t, []string{"Not now"}, recorder.answers)
+				require.Equal(t, []bool{false}, recorder.baseline, "baseline must never reach Execute")
+				require.ErrorContains(t, err, "baseline run (skills disabled) failed:")
+				require.ErrorContains(t, err, tt.wantErr)
+				require.Nil(t, outcome)
+				return
+			}
+			require.NoError(t, err)
+			require.NotNil(t, outcome)
+			require.Len(t, outcome.TestOutcomes, 1)
+			require.Equal(t, tt.wantPrompts, recorder.prompts)
+			require.Equal(t, tt.wantAnswers, recorder.answers)
+			require.Equal(t, []bool{false, true}, recorder.baseline)
+		})
+	}
 }

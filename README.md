@@ -1701,7 +1701,7 @@ Unmatched MCP diagnostics omit argument values to avoid exposing credentials or 
 
 A task can declare its own `mcp_mocks` when one case needs a different answer. Each task entry replaces the eval mock with the same name for that task only, a new name adds a mock, and the other eval mocks still apply. This keeps a case-specific response, such as approving one question, out of every other task. Task mocks follow the enclosing eval's `schemaVersion` and require `executor: copilot-sdk`; relative `fixtures` paths resolve from the eval directory. An empty task list is rejected; omit the field to use the eval mocks.
 
-Task loading and filter errors are reported before engine startup. The runner repeats admission after engine initialization and returns detected configuration errors before task execution. Inline mock `input_schema` declarations are validated offline during admission, including declarations on replaced eval mocks; use self-contained schemas (internal `$ref` values are supported), or omit the schema for the default.
+Task loading and filter errors are reported before engine startup. The runner repeats admission after engine initialization and after each new pass's `before_run` setup (including the second baseline pass), returning detected configuration errors before task execution without repeating hooks. Inline mock `input_schema` declarations are validated offline during admission, including declarations on replaced eval mocks; use self-contained schemas (internal `$ref` values are supported), or omit the schema for the default.
 
 ```yaml
 # tasks/publish.yaml
