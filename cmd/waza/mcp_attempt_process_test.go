@@ -101,8 +101,12 @@ func TestMCPMockAttemptProcessesShareSequenceState(t *testing.T) {
 
 func TestMCPMockProcessFailureDiagnostics(t *testing.T) {
 	if mode := os.Getenv("WAZA_TEST_MCP_DIAGNOSTIC_CHILD"); mode != "" {
-		fmt.Fprint(os.Stdout, strings.Repeat("o", mcpMockDiagnosticOutputLimit)+"stdout-tail")
-		fmt.Fprint(os.Stderr, strings.Repeat("e", mcpMockDiagnosticOutputLimit)+"stderr-tail")
+		if _, err := fmt.Fprint(os.Stdout, strings.Repeat("o", mcpMockDiagnosticOutputLimit)+"stdout-tail"); err != nil {
+			t.Fatalf("writing synthetic stdout: %v", err)
+		}
+		if _, err := fmt.Fprint(os.Stderr, strings.Repeat("e", mcpMockDiagnosticOutputLimit)+"stderr-tail"); err != nil {
+			t.Fatalf("writing synthetic stderr: %v", err)
+		}
 		if mode == "success" {
 			os.Exit(0)
 		}
