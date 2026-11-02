@@ -387,6 +387,46 @@ func (p *recoveryCommandMockProcess) diagnostic(failed bool) string {
 		p.readyCtxErr, p.readyBudget, waitErr, p.waitTime, p.child.ProcessState, p.stdout.String(), p.stderr.String())
 }
 
+func recoveryMissingExecutable(err error) bool {
+	return errors.Is(err, os.ErrNotExist) || errors.Is(err, exec.ErrNotFound)
+}
+
+func TestRecoveryMissingExecutableStartupErrors(t *testing.T) {
+	require.False(t, recoveryMissingExecutable(nil), "successful startup is not a missing executable")
+	for _, test := range []struct {
+		name    string
+		err     error
+		missing bool
+	}{
+		{"path not found", &os.PathError{Op: "fork/exec", Path: "missing-cli", Err: os.ErrNotExist}, true},
+		{"executable not found", &exec.Error{Name: "missing-cli", Err: exec.ErrNotFound}, true},
+		{"wrapped path not found", fmt.Errorf("starting child: %w", os.ErrNotExist), true},
+		{"wrapped executable not found", fmt.Errorf("starting child: %w", exec.ErrNotFound), true},
+		{"permission denied", &os.PathError{Op: "fork/exec", Path: "missing-cli", Err: os.ErrPermission}, false},
+		{"canceled", context.Canceled, false},
+		{"deadline exceeded", context.DeadlineExceeded, false},
+		{"unsafe current directory", &exec.Error{Name: "missing-cli", Err: exec.ErrDot}, false},
+		{"unrelated failure", errors.New("startup failed"), false},
+		{"matching message is not a missing executable", errors.New(exec.ErrNotFound.Error()), false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
+			defer cancel()
+			child := exec.CommandContext(ctx, filepath.Join(t.TempDir(), "missing-cli"), "__command-mock")
+			// Cmd.Err models both platform startup errors without launching a child.
+			child.Err = test.err
+			process := startRecoveryCommandMockProcess(t, ctx, child, cancel)
+			require.ErrorIs(t, process.startErr, test.err)
+			require.Equal(t, test.missing, recoveryMissingExecutable(process.startErr))
+			require.Nil(t, process.startCtxErr)
+			require.Nil(t, child.Process)
+			require.Nil(t, process.wait, "failed Start has no process to Wait")
+			require.Zero(t, process.stdout.reads)
+			require.Zero(t, process.stderr.reads)
+		})
+	}
+}
+
 func TestRecoveryCommandMockStartupDiagnostics(t *testing.T) {
 	binary := buildRecoveryCLI(t)
 	t.Run("start_failure", func(t *testing.T) {
@@ -394,7 +434,7 @@ func TestRecoveryCommandMockStartupDiagnostics(t *testing.T) {
 		defer cancel()
 		child := exec.CommandContext(ctx, filepath.Join(t.TempDir(), "missing-cli"), "__command-mock")
 		process := startRecoveryCommandMockProcess(t, ctx, child, cancel)
-		require.ErrorIs(t, process.startErr, os.ErrNotExist)
+		require.True(t, recoveryMissingExecutable(process.startErr), "expected a missing-executable startup failure, got %v", process.startErr)
 		require.Nil(t, process.startCtxErr)
 		require.Nil(t, process.wait, "failed Start has no process to Wait")
 		require.Zero(t, process.stdout.reads)

@@ -30,10 +30,13 @@ func TestRunnerTerminalRealProcessSignalsWithOpenStdin(t *testing.T) {
 			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 			defer cancel()
 			child := exec.CommandContext(ctx, binary, "runner", "run")
+			child.WaitDelay = time.Second
 			child.Dir = t.TempDir()
 			input, err := child.StdinPipe()
 			require.NoError(t, err)
 			defer input.Close() //nolint:errcheck
+			inputFile, ok := input.(*os.File)
+			require.True(t, ok, "real process stdin must support a native write deadline")
 			var stdout, stderr bytes.Buffer
 			child.Stdout, child.Stderr = &stdout, &stderr
 			require.NoError(t, child.Start())
@@ -45,8 +48,7 @@ func TestRunnerTerminalRealProcessSignalsWithOpenStdin(t *testing.T) {
 			})
 			// More than the native pipe capacity, below request size bounds:
 			// completed write proves the real command has entered its read.
-			_, err = input.Write(append(bytes.Repeat([]byte(" "), 2<<20), '{'))
-			require.NoError(t, err)
+			requireRunnerStartupInput(t, ctx, cancel, child, inputFile, &stdout, &stderr)
 			require.NoError(t, child.Process.Signal(signal))
 			err = child.Wait()
 			exit, ok := errors.AsType[*exec.ExitError](err)
@@ -80,6 +82,7 @@ func TestRunnerTerminalRealProcessInputPreservesInheritedPeerFlags(t *testing.T)
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
 	child := exec.CommandContext(ctx, binary, "runner", "run")
+	child.WaitDelay = time.Second
 	child.Dir = t.TempDir()
 	child.Stdin = reader
 	var stdout, stderr bytes.Buffer
@@ -94,8 +97,7 @@ func TestRunnerTerminalRealProcessInputPreservesInheritedPeerFlags(t *testing.T)
 
 	// A completed oversized write proves the child is blocked in its inherited
 	// stdin read. The peer shares that input's open file description.
-	_, err = producer.Write(append(bytes.Repeat([]byte(" "), 2<<20), '{'))
-	require.NoError(t, err)
+	requireRunnerStartupInput(t, ctx, cancel, child, producer, &stdout, &stderr)
 	require.Zero(t, runnerFDFlags(t, peer)&unix.O_NONBLOCK, "active input must not change its peer's status flags")
 
 	require.NoError(t, child.Process.Signal(syscall.SIGTERM))
@@ -104,6 +106,112 @@ func TestRunnerTerminalRealProcessInputPreservesInheritedPeerFlags(t *testing.T)
 	require.Equal(t, 3, exit.ExitCode(), "stderr: %s; stdout: %s", stderr.String(), stdout.String())
 	require.Zero(t, runnerFDFlags(t, peer)&unix.O_NONBLOCK, "cancellation cleanup must not restore or mutate peer flags")
 	require.Equal(t, 1, bytes.Count(stdout.Bytes(), []byte{'\n'}))
+}
+
+func writeRunnerStartupInput(ctx context.Context, writer *os.File, data []byte) (int, error) {
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		return 0, errors.New("runner startup input requires a deadline")
+	}
+	if err := writer.SetWriteDeadline(deadline); err != nil {
+		return 0, fmt.Errorf("bound runner startup input: %w", err)
+	}
+	return writer.Write(data)
+}
+
+func requireRunnerStartupInput(t *testing.T, ctx context.Context, cancel context.CancelFunc, child *exec.Cmd, input *os.File, stdout, stderr *bytes.Buffer) {
+	t.Helper()
+	payload := append(bytes.Repeat([]byte(" "), 2<<20), '{')
+	n, err := writeRunnerStartupInput(ctx, input, payload)
+	if err != nil {
+		contextErr := ctx.Err()
+		cancel()
+		waitErr := child.Wait()
+		t.Fatalf("runner startup input: wrote %d/%d bytes: %v; context before cleanup: %v; joined Wait: %v; state: %v; stdout: %q; stderr: %q",
+			n, len(payload), err, contextErr, waitErr, child.ProcessState, stdout.String(), stderr.String())
+	}
+	require.Equal(t, len(payload), n, "readiness requires the complete oversized input write")
+}
+
+func TestRunnerStartupInputWriteBound(t *testing.T) {
+	t.Run("retained readers cannot outlive write deadline", func(t *testing.T) {
+		reader, writer, err := os.Pipe()
+		require.NoError(t, err)
+		t.Cleanup(func() { require.NoError(t, reader.Close()) })
+		t.Cleanup(func() { require.NoError(t, writer.Close()) })
+		peer := duplicateRunnerFD(t, reader)
+		t.Cleanup(func() { require.NoError(t, peer.Close()) })
+		before := runnerFDFlags(t, peer)
+		ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
+		defer cancel()
+		payload := bytes.Repeat([]byte("x"), 2<<20)
+		n, err := writeRunnerStartupInput(ctx, writer, payload)
+		require.ErrorIs(t, err, os.ErrDeadlineExceeded)
+		require.Positive(t, n, "the actual native pipe must receive a partial write")
+		require.Less(t, n, len(payload), "retained readers must not turn incomplete startup into readiness")
+		require.Equal(t, before, runnerFDFlags(t, peer), "write deadlines must not mutate inherited reader flags")
+		require.NoError(t, reader.SetReadDeadline(time.Now().Add(time.Second)))
+		got := make([]byte, n)
+		_, err = io.ReadFull(reader, got)
+		require.NoError(t, err)
+		require.Equal(t, payload[:n], got, "deadline failure must preserve the actual accepted bytes")
+	})
+	t.Run("draining reader completes", func(t *testing.T) {
+		reader, writer, err := os.Pipe()
+		require.NoError(t, err)
+		t.Cleanup(func() { require.NoError(t, reader.Close()) })
+		t.Cleanup(func() { require.NoError(t, writer.Close()) })
+		ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+		defer cancel()
+		payload := bytes.Repeat([]byte("x"), 2<<20)
+		require.NoError(t, reader.SetReadDeadline(time.Now().Add(time.Second)))
+		type readResult struct {
+			data []byte
+			err  error
+		}
+		done := make(chan readResult, 1)
+		go func() {
+			data := make([]byte, len(payload))
+			_, err := io.ReadFull(reader, data)
+			done <- readResult{data, err}
+		}()
+		n, err := writeRunnerStartupInput(ctx, writer, payload)
+		result := <-done
+		require.NoError(t, err)
+		require.Equal(t, len(payload), n)
+		require.NoError(t, result.err)
+		require.Equal(t, payload, result.data)
+	})
+	t.Run("closed reader preserves broken pipe", func(t *testing.T) {
+		reader, writer, err := os.Pipe()
+		require.NoError(t, err)
+		require.NoError(t, reader.Close())
+		t.Cleanup(func() { require.NoError(t, writer.Close()) })
+		ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+		defer cancel()
+		n, err := writeRunnerStartupInput(ctx, writer, []byte("x"))
+		require.ErrorIs(t, err, syscall.EPIPE)
+		require.Zero(t, n)
+	})
+	t.Run("closed writer reports deadline setup failure", func(t *testing.T) {
+		reader, writer, err := os.Pipe()
+		require.NoError(t, err)
+		t.Cleanup(func() { require.NoError(t, reader.Close()) })
+		require.NoError(t, writer.Close())
+		wantErr := writer.SetWriteDeadline(time.Now())
+		require.Error(t, wantErr)
+		ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+		defer cancel()
+		n, err := writeRunnerStartupInput(ctx, writer, []byte("x"))
+		require.ErrorIs(t, err, wantErr, "retain the native deadline setup error")
+		require.ErrorContains(t, err, "bound runner startup input")
+		require.Zero(t, n)
+	})
+	t.Run("missing deadline is rejected", func(t *testing.T) {
+		n, err := writeRunnerStartupInput(t.Context(), nil, []byte("x"))
+		require.ErrorContains(t, err, "requires a deadline")
+		require.Zero(t, n)
+	})
 }
 
 func TestRunnerTerminalRealProcessOutputFailure(t *testing.T) {
