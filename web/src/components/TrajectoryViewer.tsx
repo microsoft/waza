@@ -145,11 +145,11 @@ function TimelineRow({
 
   const description = event.toolName
     ? event.toolName
-    : event.content
+    : event.content?.trim()
       ? event.content.length > 120
         ? event.content.slice(0, 120) + "…"
         : event.content
-      : event.message
+      : event.message?.trim()
         ? event.message.length > 120
           ? event.message.slice(0, 120) + "…"
           : event.message

@@ -46,7 +46,7 @@ func TestConversationSavedResultThroughHTTP(t *testing.T) {
 	require.NotContains(t, string(transcript), "SECOND_REPETITION")
 	emptyTask := detail.Tasks[1]
 	require.Equal(t, "empty-messages", emptyTask.ID)
-	require.Len(t, emptyTask.Transcript, 2)
+	require.Len(t, emptyTask.Transcript, 8)
 	emptyTranscript, err := json.Marshal(emptyTask.Transcript)
 	require.NoError(t, err)
 	require.JSONEq(t, string(fixture.ExpectedEmptyTranscript), string(emptyTranscript))

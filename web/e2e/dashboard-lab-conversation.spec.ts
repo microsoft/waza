@@ -2,10 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import type { RunDetail, TranscriptEvent } from "../src/api/client";
 import { CONVERSATION_DETAIL, CONVERSATION_SUMMARY } from "./fixtures/conversation-data";
 
-const textlessMessages: TranscriptEvent[] = ["user.message", "assistant.message"].flatMap((type) => [
-  { type },
-  ...["", " \t\r\n", "\u00a0"].map((content) => ({ type, content })),
-]);
+const textlessMessages = CONVERSATION_DETAIL.tasks[1]!.transcript!;
 
 async function openConversation(page: Page, detail: RunDetail = CONVERSATION_DETAIL) {
   await page.route("**/api/v1/lab/runs", (route) =>
@@ -80,8 +77,32 @@ test.describe("Lab conversation", () => {
     await expect(dialog.getByRole("heading", { name: /Trajectory/ })).toBeVisible();
     await expect(dialog.getByText("event", { exact: true })).toHaveCount(transcript.length);
     await expect(dialog.getByText("session.start", { exact: true })).toBeVisible();
-    await expect(dialog.getByText("user.message", { exact: true })).toHaveCount(6);
-    await expect(dialog.getByText("assistant.message", { exact: true })).toHaveCount(6);
+    await expect(dialog.getByText("user.message", { exact: true })).toHaveCount(12);
+    await expect(dialog.getByText("assistant.message", { exact: true })).toHaveCount(12);
+    await expect(dialog.getByText(`${longMessage.slice(0, 120)}…`, { exact: true })).toBeVisible();
+  });
+
+  test("keeps every saved textless message identifiable in Trajectory", async ({ page }) => {
+    const recorded = CONVERSATION_DETAIL.tasks[1]!;
+    const dialog = await openConversation(page, {
+      ...CONVERSATION_DETAIL, tasks: [recorded],
+    });
+    await expect(dialog).toContainText("No recorded conversation text for this task.");
+    await expect(dialog.getByRole("list", { name: "Recorded conversation" })).toHaveCount(0);
+    await dialog.getByRole("tab", { name: "Trajectory", exact: true }).click();
+    const descriptions = dialog.locator("p.break-words");
+    await expect(descriptions).toHaveText(recorded.transcript!.map((event) => event.type));
+    await expect(dialog.getByText("event", { exact: true })).toHaveCount(8);
+    for (const [index, event] of recorded.transcript!.entries()) {
+      await expect(descriptions.nth(index)).toBeVisible();
+      const row = descriptions.nth(index).locator("..");
+      if (event.content) {
+        await row.getByRole("button", { name: "Show details", exact: true }).click();
+        expect(await row.locator("pre code").textContent()).toBe(event.content);
+      } else {
+        await expect(row.getByRole("button", { name: "Show details", exact: true })).toHaveCount(0);
+      }
+    }
   });
 
   test("does not reconstruct a conversation from prompt or grader output", async ({ page }) => {
@@ -100,6 +121,30 @@ test.describe("Lab conversation", () => {
       await expect(dialog).toContainText("No recorded conversation text for this task.");
       await expect(dialog.getByRole("list", { name: "Recorded conversation" })).toHaveCount(0);
       await expect(dialog).not.toContainText("PROMPT_IS_NOT_A_TRANSCRIPT");
+    }
+  });
+
+  test("uses event types for blank message fields without trimming substantive messages", async ({ page }) => {
+    const longMessage = ` \t${"Recorded session error. ".repeat(10)}\r\n`;
+    const transcript = ["", " \t\r\n", "\u00a0", " \tRecorded error.\r\n", longMessage]
+      .map((message) => ({ type: "session.error", message }));
+    const dialog = await openConversation(page, {
+      ...CONVERSATION_DETAIL,
+      tasks: [{ ...CONVERSATION_DETAIL.tasks[0]!, transcript }],
+    });
+    await expect(dialog.getByRole("list", { name: "Recorded conversation" })).toHaveCount(0);
+    await dialog.getByRole("tab", { name: "Trajectory", exact: true }).click();
+    const descriptions = dialog.locator("p.break-words");
+    await expect(descriptions).toHaveCount(5);
+    for (const [index, event] of transcript.entries()) {
+      const expected = index < 3 ? event.type
+        : index === 3 ? event.message : `${longMessage.slice(0, 120)}…`;
+      expect(await descriptions.nth(index).textContent()).toBe(expected);
+      if (event.message) {
+        const row = descriptions.nth(index).locator("..");
+        await row.getByRole("button", { name: "Show details", exact: true }).click();
+        expect(await row.locator("pre code").textContent()).toBe(event.message);
+      }
     }
   });
 
@@ -193,6 +238,12 @@ test.describe("Lab conversation", () => {
     await expect(dialog.locator("script")).toHaveCount(0);
     await expect(dialog).not.toContainText("Responder recorded");
     await expect(dialog.getByText("User", { exact: true })).toHaveCount(1);
+    await dialog.getByRole("tab", { name: "Trajectory", exact: true }).click();
+    const descriptions = dialog.locator("p.break-words");
+    await expect(descriptions).toHaveCount(4);
+    expect(await descriptions.nth(2).textContent()).toBe(" \tKeep this spacing.\n  And this indentation. \t");
+    expect(await descriptions.nth(3).textContent()).toBe("<script>unsafe()</script>");
+    await expect(dialog.locator("script")).toHaveCount(0);
   });
 
   test("switches tasks and refreshes the mounted conversation without stale messages", async ({ page }) => {
