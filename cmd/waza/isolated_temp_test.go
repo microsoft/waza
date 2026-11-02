@@ -11,6 +11,13 @@ import (
 )
 
 func TestMain(m *testing.M) {
+	if mode := os.Getenv("WAZA_TEST_MCP_DIAGNOSTIC_CHILD"); mode != "" {
+		code, err := runMCPMockDiagnosticChild(mode)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+		}
+		os.Exit(code)
+	}
 	os.Exit(runIsolatedCLITests(m))
 }
 

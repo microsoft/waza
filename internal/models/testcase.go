@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -124,12 +125,13 @@ func (c *Checkpoint) Validate() error {
 //
 // Deprecated alias: TestStimulus is provided for backward compatibility.
 type TaskStimulus struct {
-	Message     string            `yaml:"prompt" json:"message"`
-	MessageFile string            `yaml:"prompt_file,omitempty" json:"message_file,omitempty"`
-	Metadata    map[string]any    `yaml:"context,omitempty" json:"metadata,omitempty"`
-	Resources   []ResourceRef     `yaml:"files,omitempty" json:"resources,omitempty"`
-	Repos       []GitResource     `yaml:"repos,omitempty" json:"repos,omitempty"`
-	WorkDir     string            `yaml:"workdir,omitempty" json:"workdir,omitempty"`
+	Message     string         `yaml:"prompt" json:"message"`
+	MessageFile string         `yaml:"prompt_file,omitempty" json:"message_file,omitempty"`
+	Metadata    map[string]any `yaml:"context,omitempty" json:"metadata,omitempty"`
+	Resources   []ResourceRef  `yaml:"files,omitempty" json:"resources,omitempty"`
+	Repos       []GitResource  `yaml:"repos,omitempty" json:"repos,omitempty"`
+	WorkDir     string         `yaml:"workdir,omitempty" json:"workdir,omitempty"`
+	// Environment is retained for compatibility but is not applied during execution.
 	Environment map[string]string `yaml:"environment,omitempty" json:"environment,omitempty"`
 	FollowUps   []string          `yaml:"follow_up_prompts,omitempty" json:"follow_ups,omitempty"`
 	Responder   *ResponderConfig  `yaml:"responder,omitempty" json:"responder,omitempty"`
@@ -614,6 +616,9 @@ func parseTestCase(data []byte, path string, offline bool, readFile func(string)
 
 	if err := tc.Validate(); err != nil {
 		return nil, err
+	}
+	if len(tc.Stimulus.Environment) > 0 {
+		slog.Warn("inputs.environment is unsupported and is not applied during task execution")
 	}
 
 	// Resolve prompt_file into the prompt message
