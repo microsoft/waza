@@ -362,6 +362,13 @@ exercise default discovery must also change into their fixture directory.
 it does not disable the production SDK execution path. Deterministic CLI gates
 must also use an absolute, verified `COPILOT_CLI_PATH` that rejects runtime launch.
 
+For MCP process-test failures, distinguish CLI build time, OS process creation,
+and protocol exchange/shutdown time. Record elapsed phases and context state
+before cleanup; inspect output buffers only after `Wait` joins their copy
+goroutines. An empty-stderr exit or a test's total duration does not establish a
+protocol failure. Retain fresh production-CLI execution and existing deadlines
+while diagnosing startup delays; a diagnostic-only pass is not a root-cause fix.
+
 ## Documentation Requirements
 
 **Use Mermaid for all diagrams** in markdown files (docs, design docs, plans). No ASCII art diagrams.

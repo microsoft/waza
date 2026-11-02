@@ -24,7 +24,14 @@ const mcpMockDiagnosticOutputLimit = 2048
 
 func runMCPMockProcess(ctx context.Context, invocation string, child *exec.Cmd, started time.Time, stdout, stderr *bytes.Buffer) error {
 	runStarted := time.Now()
-	err := child.Run()
+	err := child.Start()
+	startElapsed, startContextErr := time.Since(runStarted), ctx.Err()
+	var waitElapsed time.Duration
+	if err == nil {
+		waitStarted := time.Now()
+		err = child.Wait()
+		waitElapsed = time.Since(waitStarted)
+	}
 	runElapsed := time.Since(runStarted)
 	if err == nil {
 		return nil
@@ -39,9 +46,9 @@ func runMCPMockProcess(ctx context.Context, invocation string, child *exec.Cmd, 
 		}
 		return output
 	}
-	return fmt.Errorf("MCP mock invocation=%q started_at=%s start_elapsed=%s run_elapsed=%s ctx_err=%v exit_code=%d process_state=%v stdout=%q stderr=%q: %w",
+	return fmt.Errorf("MCP mock invocation=%q started_at=%s start_elapsed=%s run_elapsed=%s ctx_err=%v exit_code=%d process_state=%v stdout=%q stderr=%q process_start_elapsed=%s wait_elapsed=%s start_ctx_err=%v: %w",
 		invocation, started.Format(time.RFC3339Nano), runStarted.Sub(started), runElapsed, ctx.Err(),
-		exitCode, child.ProcessState, bounded(stdout.String()), bounded(stderr.String()), err)
+		exitCode, child.ProcessState, bounded(stdout.String()), bounded(stderr.String()), startElapsed, waitElapsed, startContextErr, err)
 }
 
 func callMCPMockProcess(t *testing.T, invocation, binary string, args []string) string {
@@ -152,11 +159,13 @@ func TestMCPMockProcessFailureDiagnostics(t *testing.T) {
 			require.Contains(t, message, fmt.Sprintf("invocation=%q", "controlled "+mode))
 			require.Contains(t, message, "started_at="+started.Format(time.RFC3339Nano))
 			require.Regexp(t, `start_elapsed=[0-9.]+[a-zµ]+ run_elapsed=[0-9.]+[a-zµ]+ ctx_err=`, message)
+			require.Regexp(t, `process_start_elapsed=[0-9.]+[a-zµ]+ wait_elapsed=[0-9.]+[a-zµ]+ start_ctx_err=`, message)
 			if mode == "exit" {
 				var exitErr *exec.ExitError
 				require.ErrorAs(t, err, &exitErr)
 				require.Equal(t, 7, exitErr.ExitCode())
 				require.Contains(t, message, "ctx_err=<nil> exit_code=7 process_state="+child.ProcessState.String())
+				require.Contains(t, message, "start_ctx_err=<nil>")
 				require.Contains(t, message, `stdout="`+strings.Repeat("o", mcpMockDiagnosticOutputLimit)+`...[truncated]"`)
 				require.Contains(t, message, `stderr="`+strings.Repeat("e", mcpMockDiagnosticOutputLimit)+`...[truncated]"`)
 				require.NotContains(t, message, "stdout-tail")
@@ -170,6 +179,7 @@ func TestMCPMockProcessFailureDiagnostics(t *testing.T) {
 				require.True(t, errors.Is(err, expected))
 				require.Contains(t, message, "ctx_err="+expected.Error()+" exit_code=-1 process_state=<nil>")
 				require.Contains(t, message, `stdout="" stderr=""`)
+				require.Contains(t, message, "wait_elapsed=0s start_ctx_err="+expected.Error())
 			}
 		})
 	}
