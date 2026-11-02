@@ -14,26 +14,44 @@ import (
 
 // toolConstraintGrader validates which tools an agent should/shouldn't use
 type toolConstraintGrader struct {
-	name        string
-	expectTools []models.ToolSpecParameters
-	rejectTools []models.ToolSpecParameters
+	name           string
+	expectTools    []models.ToolSpecParameters
+	rejectTools    []models.ToolSpecParameters
+	compiledExpect []compiledToolSpec
+	compiledReject []compiledToolSpec
 
 	// allowOnly implements the policy allow-list. When non-nil, every
 	// observed tool call must match at least one entry; violations are
 	// reported as failures. A non-nil empty slice denies all tool calls.
-	allowOnly *[]models.ToolSpecParameters
+	allowOnly         *[]models.ToolSpecParameters
+	compiledAllowOnly *[]compiledToolSpec
+}
+
+type compiledToolSpec struct {
+	raw            models.ToolSpecParameters
+	tool           *regexp.Regexp
+	commandPattern *regexp.Regexp
+	skillPattern   *regexp.Regexp
+	pathPattern    *regexp.Regexp
 }
 
 // validateToolSpecs ensures each spec has a valid tool regex and optional args regex.
 func validateToolSpecs(specs []models.ToolSpecParameters, fieldName string) ([]models.ToolSpecParameters, error) {
-	return validateToolSpecsWithLoader(specs, fieldName, nil)
+	compiled, err := validateToolSpecsWithLoader(specs, fieldName, nil)
+	if err != nil {
+		return nil, err
+	}
+	normalized := make([]models.ToolSpecParameters, len(compiled))
+	for i := range compiled {
+		normalized[i] = compiled[i].raw
+	}
+	return normalized, nil
 }
 
-func validateToolSpecsWithLoader(specs []models.ToolSpecParameters, fieldName string, loader jsonschema.URLLoader) ([]models.ToolSpecParameters, error) {
-	normalized := make([]models.ToolSpecParameters, len(specs))
-	copy(normalized, specs)
+func validateToolSpecsWithLoader(specs []models.ToolSpecParameters, fieldName string, loader jsonschema.URLLoader) ([]compiledToolSpec, error) {
+	normalized := make([]compiledToolSpec, len(specs))
 
-	for i, spec := range normalized {
+	for i, spec := range specs {
 		var err error
 		spec, err = validateToolSpecFields(spec, fieldName, i, false)
 		if err != nil {
@@ -49,7 +67,11 @@ func validateToolSpecsWithLoader(specs []models.ToolSpecParameters, fieldName st
 			spec.Args[argName] = m
 		}
 
-		normalized[i] = spec
+		compiled, err := compileToolSpec(spec, false)
+		if err != nil {
+			return nil, fmt.Errorf("config.%s[%d]: %w", fieldName, i, err)
+		}
+		normalized[i] = compiled
 	}
 
 	return normalized, nil
@@ -60,11 +82,10 @@ func validateToolSpecsWithLoader(specs []models.ToolSpecParameters, fieldName st
 // grade time — it is NOT compiled as a regex — so we only require a non-empty
 // name here. The other pattern fields (CommandPattern, SkillPattern,
 // PathPattern) are still regexes and still compiled/validated.
-func validateAllowOnlySpecsWithLoader(specs []models.ToolSpecParameters, fieldName string, loader jsonschema.URLLoader) ([]models.ToolSpecParameters, error) {
-	normalized := make([]models.ToolSpecParameters, len(specs))
-	copy(normalized, specs)
+func validateAllowOnlySpecsWithLoader(specs []models.ToolSpecParameters, fieldName string, loader jsonschema.URLLoader) ([]compiledToolSpec, error) {
+	normalized := make([]compiledToolSpec, len(specs))
 
-	for i, spec := range normalized {
+	for i, spec := range specs {
 		var err error
 		spec, err = validateToolSpecFields(spec, fieldName, i, true)
 		if err != nil {
@@ -79,10 +100,39 @@ func validateAllowOnlySpecsWithLoader(specs []models.ToolSpecParameters, fieldNa
 			spec.Args[argName] = m
 		}
 
-		normalized[i] = spec
+		compiled, err := compileToolSpec(spec, true)
+		if err != nil {
+			return nil, fmt.Errorf("config.%s[%d]: %w", fieldName, i, err)
+		}
+		normalized[i] = compiled
 	}
 
 	return normalized, nil
+}
+
+func compileToolSpec(spec models.ToolSpecParameters, literalTool bool) (compiledToolSpec, error) {
+	compiled := compiledToolSpec{raw: spec}
+	var err error
+	if !literalTool {
+		compiled.tool, err = regexp.Compile("(?i)" + spec.Tool)
+		if err != nil {
+			return compiledToolSpec{}, fmt.Errorf("tool: invalid regex: %w", err)
+		}
+	}
+	for pattern, target := range map[string]**regexp.Regexp{
+		spec.CommandPattern: &compiled.commandPattern,
+		spec.SkillPattern:   &compiled.skillPattern,
+		spec.PathPattern:    &compiled.pathPattern,
+	} {
+		if pattern == "" {
+			continue
+		}
+		*target, err = regexp.Compile("(?i)" + pattern)
+		if err != nil {
+			return compiledToolSpec{}, fmt.Errorf("invalid regex: %w", err)
+		}
+	}
+	return compiled, nil
 }
 
 func validateToolSpecFields(spec models.ToolSpecParameters, fieldName string, index int, literalTool bool) (models.ToolSpecParameters, error) {
@@ -145,30 +195,46 @@ func newToolConstraintGraderWithLoader(name string, params models.ToolConstraint
 		return nil, err
 	}
 
-	expectSpecs, err := validateToolSpecsWithLoader(params.ExpectTools, "expect_tools", loader)
+	compiledExpect, err := validateToolSpecsWithLoader(params.ExpectTools, "expect_tools", loader)
 	if err != nil {
 		return nil, fmt.Errorf("tool_constraint grader '%s': %w", name, err)
 	}
-	rejectSpecs, err := validateToolSpecsWithLoader(params.RejectTools, "reject_tools", loader)
+	compiledReject, err := validateToolSpecsWithLoader(params.RejectTools, "reject_tools", loader)
 	if err != nil {
 		return nil, fmt.Errorf("tool_constraint grader '%s': %w", name, err)
 	}
 
+	expectSpecs := rawToolSpecs(compiledExpect)
+	rejectSpecs := rawToolSpecs(compiledReject)
 	var allowOnly *[]models.ToolSpecParameters
+	var compiledAllowOnly *[]compiledToolSpec
 	if params.AllowOnly != nil {
 		allowSpecs, err := validateAllowOnlySpecsWithLoader(*params.AllowOnly, "allow_only", loader)
 		if err != nil {
 			return nil, fmt.Errorf("tool_constraint grader '%s': %w", name, err)
 		}
-		allowOnly = &allowSpecs
+		rawAllowSpecs := rawToolSpecs(allowSpecs)
+		allowOnly = &rawAllowSpecs
+		compiledAllowOnly = &allowSpecs
 	}
 
 	return &toolConstraintGrader{
-		name:        name,
-		expectTools: expectSpecs,
-		rejectTools: rejectSpecs,
-		allowOnly:   allowOnly,
+		name:              name,
+		expectTools:       expectSpecs,
+		rejectTools:       rejectSpecs,
+		compiledExpect:    compiledExpect,
+		compiledReject:    compiledReject,
+		allowOnly:         allowOnly,
+		compiledAllowOnly: compiledAllowOnly,
 	}, nil
+}
+
+func rawToolSpecs(compiled []compiledToolSpec) []models.ToolSpecParameters {
+	specs := make([]models.ToolSpecParameters, len(compiled))
+	for i := range compiled {
+		specs[i] = compiled[i].raw
+	}
+	return specs
 }
 
 func (tc *toolConstraintGrader) Name() string            { return tc.name }
@@ -210,15 +276,15 @@ func (tc *toolConstraintGrader) Grade(ctx context.Context, gradingContext *Conte
 		}
 
 		details := map[string]any{
-			"expect_tools": describeToolSpecs(tc.expectTools),
-			"reject_tools": describeToolSpecs(tc.rejectTools),
+			"expect_tools": describeToolSpecs(tc.compiledExpect),
+			"reject_tools": describeToolSpecs(tc.compiledReject),
 			"failures":     failures,
 			"tools_used":   session.ToolsUsed,
 		}
 		if tc.allowOnly != nil {
-			details["allow_only"] = describeToolSpecs(*tc.allowOnly)
+			details["allow_only"] = describeToolSpecs(*tc.compiledAllowOnly)
 			details["allow_only_declared"] = true
-			details["allow_only_violations"] = allowOnlyViolationNames(*tc.allowOnly, session.ToolCalls)
+			details["allow_only_violations"] = allowOnlyViolationNames(*tc.compiledAllowOnly, session.ToolCalls)
 		}
 		if session.Usage != nil {
 			details["tokens_total"] = session.Usage.InputTokens + session.Usage.OutputTokens
@@ -237,41 +303,33 @@ func (tc *toolConstraintGrader) Grade(ctx context.Context, gradingContext *Conte
 
 // matchesToolCall returns true if spec matches the given tool call constraints.
 // NOTE: this function assumes that the regexes have already been validated.
-func matchesToolCall(spec models.ToolSpecParameters, call models.ToolCall) bool {
-	checkPattern := func(pattern, text string) bool {
-		// empty pattern automatically passes - we validate that they have passed at least one check in
-		// validateToolSpecs().
-		if pattern == "" {
-			return true
-		}
-
-		// pre-req that the regex is valid.
-		matched, _ := regexp.MatchString("(?i)"+pattern, text)
-		return matched
+func matchesToolCall(spec compiledToolSpec, call models.ToolCall) bool {
+	checkPattern := func(pattern *regexp.Regexp, text string) bool {
+		return pattern == nil || pattern.MatchString(text)
 	}
 
-	if !checkPattern(spec.Tool, call.Name) {
+	if !checkPattern(spec.tool, call.Name) {
 		return false
 	}
 
-	if !checkPattern(spec.CommandPattern, call.Arguments.Command) {
+	if !checkPattern(spec.commandPattern, call.Arguments.Command) {
 		return false
 	}
 
-	if !checkPattern(spec.PathPattern, call.Arguments.Path) {
+	if !checkPattern(spec.pathPattern, call.Arguments.Path) {
 		return false
 	}
 
-	if !checkPattern(spec.SkillPattern, call.Arguments.Skill) {
+	if !checkPattern(spec.skillPattern, call.Arguments.Skill) {
 		return false
 	}
 
-	if len(spec.Args) > 0 {
+	if len(spec.raw.Args) > 0 {
 		args, err := normalizeToolCallArgs(call)
 		if err != nil {
 			return false
 		}
-		if failures := evaluateArgMatchers(spec.Args, args); len(failures) > 0 {
+		if failures := evaluateArgMatchers(spec.raw.Args, args); len(failures) > 0 {
 			return false
 		}
 	}
@@ -285,35 +343,31 @@ func matchesToolCall(spec models.ToolSpecParameters, call models.ToolCall) bool 
 // match `bash-experimental` or `bashful`. The other pattern fields
 // (CommandPattern etc.) still use regex, so callers can restrict which
 // invocations of an allowed tool are permitted.
-func matchesAllowSpec(spec models.ToolSpecParameters, call models.ToolCall) bool {
-	if !models.MatchesToolCallName(spec.Tool, call.Name) {
+func matchesAllowSpec(spec compiledToolSpec, call models.ToolCall) bool {
+	if !models.MatchesToolCallName(spec.raw.Tool, call.Name) {
 		return false
 	}
 
-	checkPattern := func(pattern, text string) bool {
-		if pattern == "" {
-			return true
-		}
-		matched, _ := regexp.MatchString("(?i)"+pattern, text)
-		return matched
+	checkPattern := func(pattern *regexp.Regexp, text string) bool {
+		return pattern == nil || pattern.MatchString(text)
 	}
 
-	if !checkPattern(spec.CommandPattern, call.Arguments.Command) {
+	if !checkPattern(spec.commandPattern, call.Arguments.Command) {
 		return false
 	}
-	if !checkPattern(spec.PathPattern, call.Arguments.Path) {
+	if !checkPattern(spec.pathPattern, call.Arguments.Path) {
 		return false
 	}
-	if !checkPattern(spec.SkillPattern, call.Arguments.Skill) {
+	if !checkPattern(spec.skillPattern, call.Arguments.Skill) {
 		return false
 	}
 
-	if len(spec.Args) > 0 {
+	if len(spec.raw.Args) > 0 {
 		args, err := normalizeToolCallArgs(call)
 		if err != nil {
 			return false
 		}
-		if failures := evaluateArgMatchers(spec.Args, args); len(failures) > 0 {
+		if failures := evaluateArgMatchers(spec.raw.Args, args); len(failures) > 0 {
 			return false
 		}
 	}
@@ -351,10 +405,10 @@ func describeToolSpec(spec models.ToolSpecParameters) string {
 }
 
 // describeToolSpecs returns human-readable labels for a slice of ToolSpecs.
-func describeToolSpecs(specs []models.ToolSpecParameters) []string {
+func describeToolSpecs(specs []compiledToolSpec) []string {
 	out := make([]string, len(specs))
 	for i, s := range specs {
-		out[i] = describeToolSpec(s)
+		out[i] = describeToolSpec(s.raw)
 	}
 	return out
 }
@@ -365,7 +419,7 @@ func (tc *toolConstraintGrader) checkExpectTools(session *models.SessionDigest) 
 	}
 
 	var failures []string
-	for _, spec := range tc.expectTools {
+	for _, spec := range tc.compiledExpect {
 		found := false
 
 		for _, call := range session.ToolCalls {
@@ -376,7 +430,7 @@ func (tc *toolConstraintGrader) checkExpectTools(session *models.SessionDigest) 
 		}
 
 		if !found {
-			failures = append(failures, fmt.Sprintf("Expected tool not used: %s", describeToolSpec(spec)))
+			failures = append(failures, fmt.Sprintf("Expected tool not used: %s", describeToolSpec(spec.raw)))
 		}
 	}
 	return failures
@@ -388,7 +442,7 @@ func (tc *toolConstraintGrader) checkRejectTools(session *models.SessionDigest) 
 	}
 
 	var failures []string
-	for _, spec := range tc.rejectTools {
+	for _, spec := range tc.compiledReject {
 		found := false
 
 		for _, call := range session.ToolCalls {
@@ -399,7 +453,7 @@ func (tc *toolConstraintGrader) checkRejectTools(session *models.SessionDigest) 
 		}
 
 		if found {
-			failures = append(failures, fmt.Sprintf("Rejected tool was used: %s", describeToolSpec(spec)))
+			failures = append(failures, fmt.Sprintf("Rejected tool was used: %s", describeToolSpec(spec.raw)))
 		}
 	}
 	return failures
@@ -426,12 +480,12 @@ func (tc *toolConstraintGrader) checkAllowOnly(
 		return nil, 1, 0
 	}
 
-	allowed := describeToolSpecs(*tc.allowOnly)
+	allowed := describeToolSpecs(*tc.compiledAllowOnly)
 
 	violationCounts := map[string]int{}
 	violationOrder := []string{}
 	for _, call := range calls {
-		if allowOnlyMatches(*tc.allowOnly, call) {
+		if allowOnlyMatches(*tc.compiledAllowOnly, call) {
 			continue
 		}
 		name := call.Name
@@ -461,7 +515,7 @@ func (tc *toolConstraintGrader) checkAllowOnly(
 
 // allowOnlyMatches reports whether at least one allow-list entry matches
 // the observed call.
-func allowOnlyMatches(specs []models.ToolSpecParameters, call models.ToolCall) bool {
+func allowOnlyMatches(specs []compiledToolSpec, call models.ToolCall) bool {
 	for _, spec := range specs {
 		if matchesAllowSpec(spec, call) {
 			return true
@@ -473,7 +527,7 @@ func allowOnlyMatches(specs []models.ToolSpecParameters, call models.ToolCall) b
 // allowOnlyViolationNames returns the deduplicated list of tool names in the
 // session that failed the allow-only policy. Preserves observation order for
 // deterministic reporting.
-func allowOnlyViolationNames(specs []models.ToolSpecParameters, calls []models.ToolCall) []string {
+func allowOnlyViolationNames(specs []compiledToolSpec, calls []models.ToolCall) []string {
 	seen := map[string]struct{}{}
 	var out []string
 	for _, call := range calls {
