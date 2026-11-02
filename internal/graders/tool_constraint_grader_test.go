@@ -851,3 +851,29 @@ func TestToolConstraintGrader_AllowOnly_UnnamedCallReportedAsUnnamed(t *testing.
 	require.True(t, ok)
 	require.Equal(t, []string{"<unnamed>"}, violations)
 }
+
+func TestToolConstraintGrader_CompilesIdenticalPatternsForEachField(t *testing.T) {
+	grader, err := NewToolConstraintGrader("constraints", models.ToolConstraintGraderParameters{
+		ExpectTools: []models.ToolSpecParameters{{
+			Tool:           "^bash$",
+			CommandPattern: "^same$",
+			PathPattern:    "^same$",
+			SkillPattern:   "^same$",
+		}},
+	})
+	require.NoError(t, err)
+
+	result, err := grader.Grade(t.Context(), &Context{Session: &models.SessionDigest{
+		ToolCalls: []models.ToolCall{{
+			Name: "bash",
+			Arguments: models.ToolCallArgs{
+				Command: "same",
+				Path:    "different",
+				Skill:   "same",
+			},
+		}},
+	}})
+	require.NoError(t, err)
+	require.False(t, result.Passed)
+	require.Contains(t, result.Feedback, "Expected tool not used")
+}

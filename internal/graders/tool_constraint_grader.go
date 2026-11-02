@@ -119,15 +119,18 @@ func compileToolSpec(spec models.ToolSpecParameters, literalTool bool) (compiled
 			return compiledToolSpec{}, fmt.Errorf("tool: invalid regex: %w", err)
 		}
 	}
-	for pattern, target := range map[string]**regexp.Regexp{
-		spec.CommandPattern: &compiled.commandPattern,
-		spec.SkillPattern:   &compiled.skillPattern,
-		spec.PathPattern:    &compiled.pathPattern,
+	for _, field := range []struct {
+		pattern string
+		target  **regexp.Regexp
+	}{
+		{spec.CommandPattern, &compiled.commandPattern},
+		{spec.SkillPattern, &compiled.skillPattern},
+		{spec.PathPattern, &compiled.pathPattern},
 	} {
-		if pattern == "" {
+		if field.pattern == "" {
 			continue
 		}
-		*target, err = regexp.Compile("(?i)" + pattern)
+		*field.target, err = regexp.Compile("(?i)" + field.pattern)
 		if err != nil {
 			return compiledToolSpec{}, fmt.Errorf("invalid regex: %w", err)
 		}
