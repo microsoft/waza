@@ -27,33 +27,47 @@ func TestProgramGradingContextCopyHelper(t *testing.T) {
 	if dest == "" {
 		return
 	}
-	if _, err := io.Copy(io.Discard, os.Stdin); err != nil {
+	err := copyProgramGradingContext(dest)
+	status := "ready"
+	if err != nil {
+		status = err.Error()
+	}
+	// Program exit failures are ordinary failed grades, not CLI errors. Report
+	// fixture setup independently so they cannot impersonate cleanup failures.
+	if statusErr := os.WriteFile(dest+".status", []byte(status), 0o600); statusErr != nil {
+		err = errors.Join(err, fmt.Errorf("reporting fixture setup: %w", statusErr))
+	}
+	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(2)
+	}
+	fmt.Print("context copied")
+	os.Exit(0)
+}
+
+func copyProgramGradingContext(dest string) error {
+	if _, err := io.Copy(io.Discard, os.Stdin); err != nil {
+		return fmt.Errorf("reading grader input: %w", err)
 	}
 	contextPath := os.Getenv(graders.ProgramGradingContextEnv)
 	data, err := os.ReadFile(contextPath)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(2)
+		return fmt.Errorf("reading grading context: %w", err)
 	}
 	if err := errors.Join(
 		os.WriteFile(dest, data, 0o600),
 		os.WriteFile(dest+".path", []byte(contextPath), 0o600),
 	); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(2)
+		return fmt.Errorf("copying grading context: %w", err)
 	}
 	if os.Getenv(programContextLockEnv) != "" {
 		// Leave an entry in the context directory that the grader's own user
 		// cannot delete, so Waza's cleanup fails.
 		if err := lockUndeletableEntry(filepath.Join(filepath.Dir(contextPath), "locked")); err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(2)
+			return fmt.Errorf("setting up cleanup failure: %w", err)
 		}
 	}
-	fmt.Print("context copied")
-	os.Exit(0)
+	return nil
 }
 
 func writeProgramContextTask(t *testing.T, dir string) string {
@@ -88,7 +102,7 @@ func TestGradeCommand_ProgramGraderContextCleanupFailureFailsGrade(t *testing.T)
 	results := gradeResultsFile(t, dir, outcomeWithTasks(taskOutcome("task-program", "saved output")))
 	output := filepath.Join(dir, "graded.json")
 
-	_, err := executeGrade(t, specPath, "--task", "task-program", "--results", results, "--workspace", dir, "--output", output)
+	cliOutput, err := executeGrade(t, specPath, "--task", "task-program", "--results", results, "--workspace", dir, "--output", output)
 	contextPath, readErr := os.ReadFile(copyPath + ".path")
 	require.NoError(t, readErr)
 	contextDir := filepath.Dir(string(contextPath))
@@ -97,10 +111,47 @@ func TestGradeCommand_ProgramGraderContextCleanupFailureFailsGrade(t *testing.T)
 		require.NoError(t, os.RemoveAll(contextDir))
 	})
 
+	status, statusErr := os.ReadFile(copyPath + ".status")
+	require.NoError(t, statusErr, "fixture setup report missing; CLI output: %s", cliOutput)
+	require.Equal(t, "ready", string(status), "fixture setup failed; CLI output: %s", cliOutput)
 	require.ErrorContains(t, err, "removing grading context directory "+contextDir)
 	require.ErrorContains(t, err, "transcript data may remain")
 	require.NoFileExists(t, output, "a cleanup failure must not produce a graded result")
 	require.DirExists(t, contextDir, "residue remains at the reported path")
+}
+
+func TestGradeCommand_ProgramGraderContextSetupFailureIsObservable(t *testing.T) {
+	dir := t.TempDir()
+	copyPath := filepath.Join(dir, "context-copy.json")
+	require.NoError(t, os.Mkdir(copyPath, 0o700))
+	t.Setenv(programContextCopyEnv, copyPath)
+	t.Setenv(programContextLockEnv, "")
+	specPath := writeProgramContextTask(t, dir)
+	results := gradeResultsFile(t, dir, outcomeWithTasks(taskOutcome("task-program", "saved output")))
+	output := filepath.Join(dir, "graded.json")
+
+	_, err := executeGrade(t, specPath, "--task", "task-program", "--results", results, "--workspace", dir, "--output", output)
+	require.NoError(t, err, "a program's nonzero exit is a failed grade, not a CLI error")
+	status, err := os.ReadFile(copyPath + ".status")
+	require.NoError(t, err)
+	require.Contains(t, string(status), "copying grading context:")
+	require.Contains(t, string(status), copyPath)
+	contextPath, err := os.ReadFile(copyPath + ".path")
+	require.NoError(t, err)
+	require.NoDirExists(t, filepath.Dir(string(contextPath)))
+
+	data, err := os.ReadFile(output)
+	require.NoError(t, err)
+	var graded models.EvaluationOutcome
+	require.NoError(t, json.Unmarshal(data, &graded))
+	require.Len(t, graded.TestOutcomes, 1)
+	require.Len(t, graded.TestOutcomes[0].Runs, 1)
+	result, ok := graded.TestOutcomes[0].Runs[0].Validations["context_check"]
+	require.True(t, ok)
+	require.False(t, result.Passed)
+	require.Zero(t, result.Score)
+	require.Contains(t, result.Feedback, "Program exited with error:")
+	require.Contains(t, result.Feedback, string(status))
 }
 
 func TestGradeCommand_ProgramGraderReceivesSavedRunContext(t *testing.T) {
@@ -129,6 +180,9 @@ func TestGradeCommand_ProgramGraderReceivesSavedRunContext(t *testing.T) {
 
 			data, err := os.ReadFile(copyPath)
 			require.NoError(t, err)
+			status, err := os.ReadFile(copyPath + ".status")
+			require.NoError(t, err)
+			require.Equal(t, "ready", string(status))
 			var fields map[string]json.RawMessage
 			require.NoError(t, json.Unmarshal(data, &fields))
 			require.JSONEq(t, "1", string(fields["version"]))

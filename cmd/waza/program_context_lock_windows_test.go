@@ -37,12 +37,15 @@ func lockUndeletableEntry(dir string) error {
 	}
 	// Exercise both Windows deletion paths, without consuming the leaf, before
 	// trusting the fixture to make the production cleanup fail.
-	for _, remove := range []func() error{
-		func() error { return os.Remove(file) },
-		func() error { return os.RemoveAll(dir) },
+	for _, probe := range []struct {
+		name   string
+		remove func() error
+	}{
+		{"os.Remove(file)", func() error { return os.Remove(file) }},
+		{"os.RemoveAll(dir)", func() error { return os.RemoveAll(dir) }},
 	} {
-		if err := remove(); !errors.Is(err, os.ErrPermission) {
-			return errors.Join(fmt.Errorf("expected deletion denial for %s, got %v", dir, err), unlockUndeletableEntry(dir))
+		if err := probe.remove(); !errors.Is(err, os.ErrPermission) {
+			return errors.Join(fmt.Errorf("expected deletion denial from %s for %s, got %v", probe.name, dir, err), unlockUndeletableEntry(dir))
 		}
 	}
 	return nil
