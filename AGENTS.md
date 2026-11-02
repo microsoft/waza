@@ -360,6 +360,11 @@ subprocess until cancellation, rather than synchronizing on console output.
 Both workflows execute the production-CLI regression controls
 in `.github/scripts`, including the otherwise indistinguishable task-error exit 1.
 The integration requires `jq` (available on the Ubuntu release runners).
+Before execution it requires a complete offline preflight report, rejects invalid
+configuration and colliding final grader names (including synthesized expectation
+names), and leaves interpreter/model availability unresolved for the actual guarded
+run to prove. This release-only admission does not change legacy runtime overwrite
+behavior or preflight's default non-strict exit policy.
 This is offline harness evidence, not live agent-quality evidence.
 
 Both Go lint workflows use `.github/scripts/lint.sh` to require configuration

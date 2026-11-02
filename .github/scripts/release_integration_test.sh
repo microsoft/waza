@@ -13,6 +13,32 @@ fi
 
 scratch="$(mktemp -d "${TMPDIR:-/tmp}/waza-release-integration.XXXXXX")"
 trap 'rm -rf "$scratch"' EXIT
+preflight_status=0
+"$1" preflight ./examples/code-explainer/eval.yaml --format json > "$scratch/preflight.json" || preflight_status=$?
+if [ -e "$COPILOT_CLI_PATH.invoked" ]; then
+  echo "Release preflight attempted to launch the Copilot runtime." >&2
+  exit 1
+fi
+if [ "$preflight_status" -ne 0 ]; then
+  cat "$scratch/preflight.json" >&2
+  echo "Release preflight failed with exit code $preflight_status." >&2
+  exit "$preflight_status"
+fi
+if ! jq -e -s '
+  length == 1 and
+  (.[0] | .kind == "waza.preflight" and .schemaVersion == "1.0" and .complete == true and
+    (.diagnostics | type == "array") and
+    all(.diagnostics[];
+      (.code | type == "string" and length > 0) and
+      (.state == "verified" or .state == "unresolved" or .state == "unsupported") and
+      .code != "grader.result_collision"
+    )
+  )
+' "$scratch/preflight.json" > /dev/null; then
+  cat "$scratch/preflight.json" >&2
+  echo "Release preflight lacks complete, valid, collision-free grader declarations." >&2
+  exit 1
+fi
 status=0
 "$1" run ./examples/code-explainer/eval.yaml --verbose --output "$scratch/outcome.json" || status=$?
 if [ -e "$COPILOT_CLI_PATH.invoked" ]; then

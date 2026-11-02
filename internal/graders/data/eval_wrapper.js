@@ -60,8 +60,9 @@ for (const [index, assertion] of assertions.entries()) {
     const result = vm.runInContext(assertion, evalContext, { timeout: 5000 });
     results.push(!!result ? "" : "fail");
   } catch (err) {
-    results.push(String(err));
-    evaluationErrors[index] = String(err);
+    const message = String(err);
+    results.push(message);
+    evaluationErrors[index] = message;
   }
 }
 

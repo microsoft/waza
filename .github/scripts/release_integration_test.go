@@ -18,6 +18,7 @@ import (
 
 const releaseCaptureLauncher = `#!/usr/bin/env bash
 set -uo pipefail
+if [ "$1" = preflight ]; then exec "$REAL_WAZA" "$@"; fi
 bash -c 'printf "%s" "$$" > "$CAPTURE_PID"; exec "$REAL_WAZA" "$@"' bash "$@"
 status=$?
 printf '%s' "$status" > "$CAPTURE_STATUS"
@@ -132,6 +133,16 @@ checkpoints:
 			writeReleaseFile(t, launcher, []byte(releaseCaptureLauncher))
 			env = append(env, "REAL_WAZA="+binary, "CAPTURE_STATUS="+statusPath,
 				"CAPTURE_OUTCOME="+captured, "CAPTURE_PID="+filepath.Join(dir, "cli.pid"))
+			if mode == "invalid-regex" || mode == "task-error" {
+				// Preserve the production run's error evidence even when the
+				// gate rejects its configuration before starting execution.
+				cmd := exec.CommandContext(t.Context(), launcher, "run", "./examples/code-explainer/eval.yaml",
+					"--verbose", "--output", filepath.Join(dir, "direct-invalid.json"))
+				cmd.Dir, cmd.Env = dir, env
+				if output, err := cmd.CombinedOutput(); err == nil || cmd.ProcessState == nil || cmd.ProcessState.ExitCode() != 1 {
+					t.Fatalf("invalid configuration production control: %v\n%s", err, output)
+				}
+			}
 			code, output := runReleaseGate(t, gate, launcher, dir, env)
 			wantGate, wantCLI := 0, "0"
 			if mode != "passed" {
@@ -252,6 +263,10 @@ checkpoints:
 		launcher := filepath.Join(dir, "replay")
 		writeReleaseFile(t, launcher, []byte(`#!/usr/bin/env bash
 set -euo pipefail
+if [ "$1" = preflight ]; then
+  printf '%s\n' '{"kind":"waza.preflight","schemaVersion":"1.0","complete":true,"diagnostics":[]}'
+  exit 0
+fi
 if [ "${OMIT_OUTCOME:-false}" != true ]; then cp "$REPLAY_OUTCOME" "$5"; fi
 exit "$REPLAY_STATUS"
 `))
@@ -347,6 +362,117 @@ exit "$REPLAY_STATUS"
 		code, output := runReleaseGate(t, gate, launcher, dir, append(env, "REPLAY_STATUS=0", "OMIT_OUTCOME=true"))
 		if code != 1 {
 			t.Fatalf("missing fresh evidence: gate exit=%d\n%s", code, output)
+		}
+	})
+	t.Run("production-grader-collisions", func(t *testing.T) {
+		for _, mode := range []string{"task", "eval", "eval-task", "expectation"} {
+			t.Run(mode, func(t *testing.T) {
+				dir := t.TempDir()
+				example := filepath.Join(dir, "examples", "code-explainer")
+				if err := os.MkdirAll(filepath.Dir(example), 0o700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.CopyFS(example, os.DirFS(filepath.Join(root, "examples", "code-explainer"))); err != nil {
+					t.Fatal(err)
+				}
+				task := filepath.Join(example, "tasks", "explain-python-recursion.yaml")
+				data, err := os.ReadFile(task)
+				if err != nil {
+					t.Fatal(err)
+				}
+				var declaration string
+				switch mode {
+				case "task":
+					original := string(data)
+					data = []byte(strings.Replace(original, `"len(output) > 10"`, `"1 / 0"`, 1))
+					if original == string(data) {
+						t.Fatal("duplicate control did not change the actual assertion")
+					}
+					declaration = "\n  - name: explains_recursion\n    type: code\n    config:\n      assertions: ['True']\n"
+				case "eval", "eval-task":
+					evalPath := filepath.Join(example, "eval.yaml")
+					source, err := os.ReadFile(evalPath)
+					if err != nil {
+						t.Fatal(err)
+					}
+					changed := strings.Replace(string(source), `"len(output) > 10"`, `"1 / 0"`, 1)
+					if changed == string(source) {
+						t.Fatal("eval collision control did not change the actual assertion")
+					}
+					declaration = "\n  - name: has_explanation\n    type: code\n    config:\n      assertions: ['True']\n"
+					if mode == "eval" {
+						withDuplicate := strings.Replace(changed, "\n# Task files", declaration+"\n# Task files", 1)
+						if withDuplicate == changed {
+							t.Fatal("eval duplicate control did not append the passing grader")
+						}
+						writeReleaseFile(t, evalPath, []byte(withDuplicate))
+						declaration = ""
+						break
+					}
+					writeReleaseFile(t, evalPath, []byte(changed))
+					tasks, err := filepath.Glob(filepath.Join(example, "tasks", "*.yaml"))
+					if err != nil {
+						t.Fatal(err)
+					}
+					if len(tasks) != 4 {
+						t.Fatalf("cross-scope control needs all four tasks, got %d", len(tasks))
+					}
+					for _, path := range tasks {
+						if path == task {
+							continue
+						}
+						source, err := os.ReadFile(path)
+						if err != nil {
+							t.Fatal(err)
+						}
+						writeReleaseFile(t, path, append(source, []byte(declaration)...))
+					}
+				case "expectation":
+					declaration = "\n  - name: _output_contains\n    type: code\n    config:\n      assertions: ['1 / 0']\n"
+				}
+				writeReleaseFile(t, task, append(data, []byte(declaration)...))
+				env, guard := releaseControlEnvironment(t, dir, root)
+				direct := filepath.Join(dir, "direct.json")
+				cmd := exec.CommandContext(t.Context(), binary, "run", "./examples/code-explainer/eval.yaml", "--output", direct)
+				cmd.Dir, cmd.Env = dir, env
+				// The production loader intentionally retains legacy name
+				// overwrites. The release gate must reject these declarations.
+				output, err := cmd.CombinedOutput()
+				if err != nil {
+					t.Fatalf("production collision run: %v\n%s", err, output)
+				}
+				check := exec.CommandContext(t.Context(), "jq", "-e", `
+					.summary.succeeded == 4 and .summary.failed == 0 and (.tasks | length == 4) and
+					([.tasks[] | select(.test_id == "explain-python-recursion-001") | .runs[] |
+					select(.status == "passed" and (.validations | length == 4) and
+					all(.validations[]; .passed and (.details | has("evaluation_errors") | not)))] | length == 3)`, direct)
+				if output, err := check.CombinedOutput(); err != nil {
+					t.Fatalf("production overwrite not exercised: %v\n%s", err, output)
+				}
+				launcher := filepath.Join(dir, "gate-launcher")
+				writeReleaseFile(t, launcher, []byte(`#!/usr/bin/env bash
+set -euo pipefail
+if [ "$1" = run ]; then : > "$RUN_STARTED"; fi
+exec "$REAL_WAZA" "$@"
+`))
+				started := filepath.Join(dir, "run-started")
+				code, output := runReleaseGate(t, gate, launcher, dir,
+					append(env, "REAL_WAZA="+binary, "RUN_STARTED="+started))
+				if code != 1 {
+					t.Fatalf("collision gate exit=%d, want=1\n%s", code, output)
+				}
+				diagnostic := "grader.result_collision"
+				if mode == "task" || mode == "eval" {
+					diagnostic = "grader.name"
+				}
+				if !strings.Contains(string(output), `"`+diagnostic+`"`) {
+					t.Fatalf("collision admission did not identify %s\n%s", diagnostic, output)
+				}
+				if _, err := os.Stat(started); !os.IsNotExist(err) {
+					t.Fatalf("colliding graders reached runtime execution: %v", err)
+				}
+				assertNoReleaseRuntime(t, guard)
+			})
 		}
 	})
 	t.Run("production-cancellation", func(t *testing.T) {

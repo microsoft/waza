@@ -81,6 +81,38 @@ func TestInspectValidDeterministicAndDescriptive(t *testing.T) {
 	require.Equal(t, first, Inspect(path, Options{}))
 }
 
+func TestInspectExpectationResultNameCollisions(t *testing.T) {
+	for _, tc := range []struct {
+		field, name     string
+		schemaSupported bool
+	}{
+		{"output_contains", "_output_contains", true},
+		{"output_not_contains", "_output_not_contains", true},
+		{"output_contains_any", "_output_contains_any", false},
+	} {
+		for _, scope := range []string{"eval", "task"} {
+			for _, values := range []string{"[]", "['ready']"} {
+				t.Run(tc.field+"/"+scope+"/"+values, func(t *testing.T) {
+					eval, task := validEval, validTask
+					if scope == "eval" {
+						eval += "\ngraders:\n  - name: " + tc.name + "\n    type: text\n    config: {contains: ['ready']}\n"
+					} else {
+						task = strings.ReplaceAll(task, "state", tc.name)
+					}
+					task += "\nexpected:\n  " + tc.field + ": " + values + "\n"
+					path, _ := writeSuite(t, eval, task)
+					report := Inspect(path, Options{})
+					require.True(t, report.Complete)
+					require.Equal(t, !tc.schemaSupported, report.Failed(false), "%+v", report.Diagnostics)
+					require.Equal(t, !tc.schemaSupported, hasDiagnostic(report, "task.schema", Invalid))
+					require.Equal(t, values != "[]", hasDiagnostic(report, "grader.result_collision", Unresolved))
+					require.Equal(t, values != "[]" || !tc.schemaSupported, report.Failed(true), "%+v", report.Diagnostics)
+				})
+			}
+		}
+	}
+}
+
 func TestInspectInvalidConfigurations(t *testing.T) {
 	tests := []struct {
 		name, eval, task, code string

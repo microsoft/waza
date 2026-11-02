@@ -39,6 +39,22 @@ cat > "$scratch/waza" <<'EOF'
 set -euo pipefail
 test "$ENABLE_COPILOT_TESTS" = false
 test "$NO_COLOR" = 1
+if [ "$1" = preflight ]; then
+  test "$#" -eq 4
+  test "$2" = ./examples/code-explainer/eval.yaml
+  test "$3" = --format
+  test "$4" = json
+  if [ "${TRY_PREFLIGHT_RUNTIME:-false}" = true ]; then
+    "$COPILOT_CLI_PATH" --version || true
+  fi
+  if [ "${PREFLIGHT_JSON+x}" = x ]; then
+    printf '%s\n' "$PREFLIGHT_JSON"
+  else
+    printf '%s\n' '{"kind":"waza.preflight","schemaVersion":"1.0","complete":true,"diagnostics":[]}'
+  fi
+  exit "${PREFLIGHT_STATUS:-0}"
+fi
+if [ -n "${RUN_STARTED:-}" ]; then : > "$RUN_STARTED"; fi
 test "$#" -eq 5
 test "$1" = run
 test "$2" = ./examples/code-explainer/eval.yaml
@@ -58,6 +74,28 @@ for status in 0 1; do
   grep -F 'lacks a complete error-free mock outcome' "$scratch/output"
   test ! -e "$COPILOT_CLI_PATH.invoked"
 done
+for status in 1 2 64 130 143; do
+  expect_status "$status" env RUN_STARTED="$scratch/run-started" PREFLIGHT_STATUS="$status" bash "$scripts/release_integration_test.sh" "$scratch/waza"
+  grep -F "Release preflight failed with exit code $status" "$scratch/output"
+  test ! -e "$scratch/run-started"
+done
+for report in \
+  'not-json' \
+  '{"kind":"waza.preflight","schemaVersion":"1.0","complete":false,"diagnostics":[]}' \
+  '{"kind":"waza.preflight","schemaVersion":"1.0","complete":true,"diagnostics":null}' \
+  '{"kind":"waza.preflight","schemaVersion":"1.0","complete":true,"diagnostics":[{"code":"grader.result_collision","state":"unresolved"}]}' \
+  '{"kind":"waza.preflight","schemaVersion":"1.0","complete":true,"diagnostics":[{"code":"grader.name","state":"invalid"}]}'; do
+  expect_status 1 env RUN_STARTED="$scratch/run-started" PREFLIGHT_JSON="$report" bash "$scripts/release_integration_test.sh" "$scratch/waza"
+  grep -F 'collision-free grader declarations' "$scratch/output"
+  test ! -e "$scratch/run-started"
+done
+expect_status 2 env WAZA_STATUS=2 PREFLIGHT_JSON='{"kind":"waza.preflight","schemaVersion":"1.0","complete":true,"diagnostics":[{"code":"grader.subprocess","state":"unresolved"}]}' bash "$scripts/release_integration_test.sh" "$scratch/waza"
+grep -F 'Release integration failed with exit code 2.' "$scratch/output"
+expect_status 1 env RUN_STARTED="$scratch/run-started" TRY_PREFLIGHT_RUNTIME=true bash "$scripts/release_integration_test.sh" "$scratch/waza"
+grep -F 'Release preflight attempted to launch the Copilot runtime.' "$scratch/output"
+test ! -e "$scratch/run-started"
+test -f "$COPILOT_CLI_PATH.invoked"
+rm "$COPILOT_CLI_PATH.invoked"
 for status in 2 64 124 130 137 143; do
   expect_status "$status" env WAZA_STATUS="$status" bash "$scripts/release_integration_test.sh" "$scratch/waza"
 done

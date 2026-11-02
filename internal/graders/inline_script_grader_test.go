@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 
 	copilot "github.com/github/copilot-sdk/go"
@@ -239,6 +240,12 @@ func TestInlineScriptEvaluationErrors(t *testing.T) {
 		{"javascript-exception", models.LanguageJavascript, []string{"missing_field"}, true},
 		{"javascript-empty-exception", models.LanguageJavascript, []string{`(() => { throw ""; })()`}, true},
 		{"javascript-fail-exception", models.LanguageJavascript, []string{`(() => { throw "fail"; })()`}, true},
+		{"javascript-stateful-exception", models.LanguageJavascript, []string{
+			`(() => { throw { count: 0, toString() { if (this.count++) throw "converted twice"; return "first"; } }; })()`,
+		}, true},
+		{"javascript-stateful-changing", models.LanguageJavascript, []string{
+			`(() => { throw { count: 0, toString() { return this.count++ ? "second" : "first"; } }; })()`,
+		}, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if tc.language == models.LanguagePython {
@@ -257,6 +264,11 @@ func TestInlineScriptEvaluationErrors(t *testing.T) {
 			require.Equal(t, tc.errors, hasErrors)
 			if tc.errors {
 				require.Len(t, result.Details["evaluation_errors"], 1)
+			}
+			if strings.HasPrefix(tc.name, "javascript-stateful-") {
+				require.Equal(t, []string{"first"}, result.Details["evaluation_errors"])
+				require.Equal(t, []string{"Failed: " + tc.assertions[0] + ": first"}, result.Details["failures"])
+				require.Zero(t, result.Score)
 			}
 			require.Equal(t, len(tc.assertions), result.Details["total_assertions"])
 		})
