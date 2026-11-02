@@ -360,7 +360,7 @@ cd web
 npm run build
 npm run lint
 npx playwright test e2e/dashboard-lab.spec.ts e2e/dashboard-lab-real.spec.ts --project=chromium
-npx playwright test e2e/screenshots.spec.ts --project=chromium --grep dashboard-lab
+npm run refresh:docs-media -- e2e/screenshots.spec.ts --grep dashboard-lab
 ```
 
 Browser coverage exercises real summaries, arbitrary models, lazy evidence,

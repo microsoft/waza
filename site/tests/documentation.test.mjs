@@ -48,6 +48,8 @@ test('runner identity fixtures trigger consumer validation and publication witho
     'site/e2e/screenshots.spec.ts']) {
     assert.match(read(path), /test\.skip\(process\.env\.WAZA_REFRESH_DOCS_MEDIA !== ['"]1['"]/);
   }
+  assert.match(read('site/src/content/docs/guides/dashboard-lab.mdx'),
+    /npm run refresh:docs-media -- e2e\/screenshots\.spec\.ts --grep dashboard-lab/);
   assert.match(read('web/playwright.config.ts'), /testDir: "\.\/e2e"/);
   assert.match(read('site/playwright.config.ts'), /testDir: '\.\/e2e'/);
   assert.ok(existsSync(resolve(root, 'web/e2e/runner-negotiation.spec.ts')));

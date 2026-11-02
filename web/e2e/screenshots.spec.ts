@@ -98,7 +98,7 @@ test.describe("Dashboard lab screenshots", () => {
 /**
  * Screenshot capture for dashboard documentation.
  * Generates deterministic PNGs at 1280×720 using mock data.
- * Run: npx playwright test e2e/screenshots.spec.ts --project=chromium
+ * Run: npm run refresh:docs-media -- e2e/screenshots.spec.ts --grep dashboard-lab
  */
 test.describe("Screenshots", () => {
   test.use({ viewport: { width: 1280, height: 720 } });
