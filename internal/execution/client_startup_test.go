@@ -258,7 +258,9 @@ func TestCopilotEngineStartupCleanupBoundedForBrokenCustomClient(t *testing.T) {
 	require.ErrorContains(t, engine.Shutdown(context.Background()), "startup cleanup exceeded")
 	require.Less(t, time.Since(shutdownAt), 3*time.Second, "each cleanup caller has a fixed budget")
 	releaseOnce.Do(func() { close(release) })
-	awaitStartup(t, engine.client.(*startupClient).stopDone)
+	managed, ok := engine.client.(*startupClient)
+	require.True(t, ok)
+	awaitStartup(t, managed.stopDone)
 	require.EqualValues(t, 1, client.stops.Load(), "late completion is disposed")
 }
 

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -103,17 +104,28 @@ type triggerConfigCapture struct {
 }
 
 func (e *triggerConfigCapture) Execute(_ context.Context, req *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
-	cfg := req.MCPServers["host"].(copilot.MCPStdioServerConfig)
+	cfg, ok := req.MCPServers["host"].(copilot.MCPStdioServerConfig)
+	if !ok || len(cfg.Args) == 0 {
+		return nil, fmt.Errorf("host mock requires stdio configuration with a fixture argument: %T", req.MCPServers["host"])
+	}
 	data, err := os.ReadFile(cfg.Args[len(cfg.Args)-1])
 	var mock mcpmock.Config
 	if err == nil {
 		err = json.Unmarshal(data, &mock)
 	}
+	var answer string
+	if err == nil {
+		value, ok := mock.Tools["ask_user"].Responses[0].Return.(map[string]any)
+		if !ok {
+			err = fmt.Errorf("ask_user response must be an object")
+		} else if answer, ok = value["answer"].(string); !ok {
+			err = fmt.Errorf("ask_user answer must be a string")
+		}
+	}
 	e.mu.Lock()
 	e.readErrs = append(e.readErrs, err)
 	e.prompts = append(e.prompts, req.Message)
 	if err == nil {
-		answer := mock.Tools["ask_user"].Responses[0].Return.(map[string]any)["answer"].(string)
 		e.answers = append(e.answers, answer)
 	}
 	e.mu.Unlock()

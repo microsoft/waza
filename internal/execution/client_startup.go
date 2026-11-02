@@ -49,7 +49,7 @@ func (c *startupClient) Start(ctx context.Context) error {
 	c.mu.Lock()
 	if c.closed {
 		c.mu.Unlock()
-		return errors.New("Copilot client startup has been closed")
+		return errors.New("copilot client startup has been closed")
 	}
 	if c.finished && c.err == nil {
 		c.mu.Unlock()
@@ -225,6 +225,6 @@ func (c *startupClient) waitStop(bounded bool) error {
 	case <-c.stopDone:
 		return c.stopErr
 	case <-timer.C:
-		return errors.New("Copilot client startup cleanup exceeded 2s; client must unblock Start on cancellation or ForceStop")
+		return errors.New("copilot client startup cleanup exceeded 2s; client must unblock Start on cancellation or ForceStop")
 	}
 }
