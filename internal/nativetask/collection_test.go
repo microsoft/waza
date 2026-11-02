@@ -107,6 +107,21 @@ func TestVerifiedCollectionSourcesFreezeValidatedDescriptors(t *testing.T) {
 	require.ErrorContains(t, err, "invalid retained native source inventory")
 }
 
+func TestOwnedCollectionSourcesTransferValidatedBuffers(t *testing.T) {
+	content := []byte("owned evaluator bytes")
+	owned, err := VerifyOwnedCollectionSources(t.Context(), []OwnedCapturedSource{{
+		Path: "evaluator", Bytes: content, Digest: releasepolicy.SourceDigest(content), Executable: true,
+	}})
+	require.NoError(t, err)
+	require.Same(t, &content[0], &owned.sources[0].Bytes[0])
+
+	copied, err := VerifyCollectionSources(t.Context(), []CapturedSource{{
+		Path: "evaluator", Bytes: string(content), Digest: releasepolicy.SourceDigest(content), Executable: true,
+	}})
+	require.NoError(t, err)
+	require.NotSame(t, &content[0], &copied.sources[0].Bytes[0], "caller-owned descriptors must remain detached")
+}
+
 func BenchmarkCollectionDescriptorAdmission81MiB(b *testing.B) {
 	benchmarkCollectionDescriptorAdmission(b, false)
 }

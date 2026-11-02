@@ -26,18 +26,46 @@ type CapturedSource struct {
 	Digest     models.EvidenceDigest
 }
 
+// OwnedCapturedSource transfers an already detached byte inventory into
+// verification without converting large binary sources through strings.
+type OwnedCapturedSource struct {
+	Executable bool
+	Path       string
+	Bytes      []byte
+	Digest     models.EvidenceDigest
+}
+
+type verifiedCollectionSource struct {
+	Executable bool
+	Path       string
+	Bytes      []byte
+	Digest     models.EvidenceDigest
+}
+
 // VerifiedCollectionSources is an immutable descriptor inventory whose byte
 // identities were checked when it was constructed. It is intended for a
 // CollectionCapture that separately rechecks its rooted sources before each
 // attempt; callers with arbitrary inventories must use PrepareCaptured.
 type VerifiedCollectionSources struct {
-	sources []CapturedSource
+	sources []verifiedCollectionSource
 }
 
 // MatchSnapshot only compares retained inputs. It performs no source reads,
 // preparation, admission, execution, policy allocation or producer acceptance.
 func MatchSnapshot(ctx context.Context, admitted *Admitted, expectedKey releasepolicy.AttemptKey, req *execution.ExecutionRequest, sources []CapturedSource) error {
-	return matchSnapshot(ctx, admitted, expectedKey, req, sources, false, false)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	converted := make([]verifiedCollectionSource, len(sources))
+	for i, source := range sources {
+		converted[i] = verifiedCollectionSource{
+			Executable: source.Executable,
+			Path:       source.Path,
+			Bytes:      []byte(source.Bytes),
+			Digest:     source.Digest,
+		}
+	}
+	return matchSnapshot(ctx, admitted, expectedKey, req, converted, false, false)
 }
 
 // MatchCollectionSnapshot admits the separately selected 2.0 collection
@@ -57,7 +85,7 @@ func MatchVerifiedCollectionSnapshot(ctx context.Context, admitted *Admitted, ex
 	return matchSnapshot(ctx, admitted, expectedKey, req, verified.sources, true, true)
 }
 
-func matchSnapshot(ctx context.Context, admitted *Admitted, expectedKey releasepolicy.AttemptKey, req *execution.ExecutionRequest, sources []CapturedSource, collection, verified bool) error {
+func matchSnapshot(ctx context.Context, admitted *Admitted, expectedKey releasepolicy.AttemptKey, req *execution.ExecutionRequest, sources []verifiedCollectionSource, collection, verified bool) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -132,10 +160,10 @@ func matchSnapshot(ctx context.Context, admitted *Admitted, expectedKey releasep
 		prepared := data.Sources[i]
 		actualDigest := source.Digest
 		if !verified {
-			actualDigest = releasepolicy.SourceDigest([]byte(source.Bytes))
+			actualDigest = releasepolicy.SourceDigest(source.Bytes)
 		}
 		if source.Path != prepared.Path || source.Digest != actualDigest || prepared.Digest != actualDigest ||
-			(!collection && !bytes.Equal([]byte(source.Bytes), prepared.Bytes)) ||
+			(!collection && !bytes.Equal(source.Bytes, prepared.Bytes)) ||
 			(collection && len(prepared.Bytes) != 0) {
 			return fmt.Errorf("native snapshot source differs from preparation")
 		}
