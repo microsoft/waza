@@ -163,7 +163,7 @@ func matchSnapshot(ctx context.Context, admitted *Admitted, expectedKey releasep
 		}
 		prepared := data.Sources[i]
 		actualDigest := sourceDigest
-		sourceMatches := true
+		var sourceMatches bool
 		if verified {
 			sourceMatches = collection || bytes.Equal(verifiedSources[i].Bytes, prepared.Bytes)
 		} else {
