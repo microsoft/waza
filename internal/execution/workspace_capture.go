@@ -10,18 +10,21 @@ import (
 
 const (
 	maxWorkspaceCaptureFiles      = 10_000
+	maxWorkspaceCaptureEntries    = 20_000
 	maxWorkspaceCaptureFileBytes  = 16 << 20
 	maxWorkspaceCaptureTotalBytes = 64 << 20
 )
 
 type workspaceCaptureLimits struct {
 	maxFiles      int
+	maxEntries    int
 	maxFileBytes  int64
 	maxTotalBytes int64
 }
 
 var defaultWorkspaceCaptureLimits = workspaceCaptureLimits{
 	maxFiles:      maxWorkspaceCaptureFiles,
+	maxEntries:    maxWorkspaceCaptureEntries,
 	maxFileBytes:  maxWorkspaceCaptureFileBytes,
 	maxTotalBytes: maxWorkspaceCaptureTotalBytes,
 }
@@ -37,21 +40,43 @@ func captureWorkspaceFilesWithLimits(dir string, preservePaths []string, limits 
 	if dir == "" {
 		return nil, nil
 	}
-	if limits.maxFiles <= 0 || limits.maxFileBytes <= 0 || limits.maxTotalBytes <= 0 {
-		return nil, fmt.Errorf("workspace capture requires positive file-count, per-file, and total-byte limits")
+	if limits.maxFiles <= 0 || limits.maxEntries <= 0 || limits.maxFileBytes <= 0 || limits.maxTotalBytes <= 0 {
+		return nil, fmt.Errorf("workspace capture requires positive file-count, traversal-entry, per-file, and total-byte limits")
 	}
+
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return nil, fmt.Errorf("workspace capture incomplete: open workspace root: %w", err)
+	}
+	defer func() { _ = root.Close() }()
 
 	files := make(map[string][]byte)
 	var totalBytes int64
-	captureFile := func(path, rel string, entry os.DirEntry) error {
+	captureFile := func(path, rel string, required bool) (captureErr error) {
 		if _, ok := files[rel]; ok {
 			return nil
 		}
-		info, err := entry.Info()
+		file, err := root.Open(path)
+		if required && os.IsNotExist(err) {
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("open %q: %w", rel, err)
+		}
+		defer func() {
+			if closeErr := file.Close(); captureErr == nil && closeErr != nil {
+				captureErr = fmt.Errorf("close %q: %w", rel, closeErr)
+			}
+		}()
+
+		info, err := file.Stat()
 		if err != nil {
 			return fmt.Errorf("inspect %q: %w", rel, err)
 		}
 		if !info.Mode().IsRegular() {
+			if required {
+				return fmt.Errorf("preserved path %q is not a regular file", rel)
+			}
 			return nil
 		}
 		if len(files) >= limits.maxFiles {
@@ -65,7 +90,7 @@ func captureWorkspaceFilesWithLimits(dir string, preservePaths []string, limits 
 		}
 
 		readLimit := min(limits.maxFileBytes, limits.maxTotalBytes-totalBytes)
-		content, exceeded, err := readWorkspaceCaptureFile(path, readLimit)
+		content, exceeded, err := readWorkspaceCaptureFile(file, readLimit)
 		if err != nil {
 			return fmt.Errorf("read %q: %w", rel, err)
 		}
@@ -82,35 +107,17 @@ func captureWorkspaceFilesWithLimits(dir string, preservePaths []string, limits 
 	}
 
 	for _, preserved := range preservePaths {
-		rel, path, err := resolveWorkspaceCapturePath(dir, preserved)
+		path, rel, err := resolveWorkspaceCapturePath(dir, preserved)
 		if err != nil {
 			return nil, fmt.Errorf("workspace capture incomplete: %w", err)
 		}
-		entry, err := os.Lstat(path)
-		if os.IsNotExist(err) {
-			continue
-		}
-		if err != nil {
-			return nil, fmt.Errorf("workspace capture incomplete: inspect %q: %w", rel, err)
-		}
-		if err := captureFile(path, rel, fileInfoDirEntry{entry}); err != nil {
+		if err := captureFile(path, rel, true); err != nil {
 			return nil, fmt.Errorf("workspace capture incomplete: %w", err)
 		}
 	}
 
-	err := filepath.WalkDir(dir, func(path string, entry os.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return fmt.Errorf("walk %q: %w", workspaceRelativePath(dir, path), walkErr)
-		}
-		if entry.IsDir() {
-			if path != dir && excludedWorkspaceCaptureDir(entry.Name()) {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-
-		rel := workspaceRelativePath(dir, path)
-		return captureFile(path, rel, entry)
+	err = walkWorkspaceCapture(root, limits.maxEntries, func(path, rel string) error {
+		return captureFile(path, rel, false)
 	})
 	if err != nil {
 		return nil, fmt.Errorf("workspace capture incomplete: %w", err)
@@ -118,24 +125,16 @@ func captureWorkspaceFilesWithLimits(dir string, preservePaths []string, limits 
 	return files, nil
 }
 
-type fileInfoDirEntry struct {
-	os.FileInfo
-}
-
-func (entry fileInfoDirEntry) Type() os.FileMode          { return entry.Mode().Type() }
-func (entry fileInfoDirEntry) Info() (os.FileInfo, error) { return entry.FileInfo, nil }
-
 func resolveWorkspaceCapturePath(root, requested string) (string, string, error) {
 	if filepath.IsAbs(requested) {
 		return "", "", fmt.Errorf("preserved path %q must be relative", requested)
 	}
 	rel := filepath.Clean(requested)
-	path := filepath.Join(root, rel)
-	check, err := filepath.Rel(root, path)
+	check, err := filepath.Rel(root, filepath.Join(root, rel))
 	if err != nil || check == ".." || strings.HasPrefix(check, ".."+string(filepath.Separator)) {
 		return "", "", fmt.Errorf("preserved path %q escapes workspace", requested)
 	}
-	return filepath.ToSlash(check), path, nil
+	return check, filepath.ToSlash(check), nil
 }
 
 func excludedWorkspaceCaptureDir(name string) bool {
@@ -147,25 +146,74 @@ func excludedWorkspaceCaptureDir(name string) bool {
 	}
 }
 
-func workspaceRelativePath(root, path string) string {
-	rel, err := filepath.Rel(root, path)
-	if err != nil {
-		return filepath.ToSlash(path)
+func walkWorkspaceCapture(root *os.Root, maxEntries int, captureFile func(path, rel string) error) error {
+	directories := []string{"."}
+	entriesSeen := 0
+	for len(directories) > 0 {
+		index := len(directories) - 1
+		dirPath := directories[index]
+		directories = directories[:index]
+
+		dir, err := root.Open(dirPath)
+		if err != nil {
+			return fmt.Errorf("open directory %q: %w", filepath.ToSlash(dirPath), err)
+		}
+		info, err := dir.Stat()
+		if err != nil {
+			_ = dir.Close()
+			return fmt.Errorf("inspect directory %q: %w", filepath.ToSlash(dirPath), err)
+		}
+		if !info.IsDir() {
+			_ = dir.Close()
+			return fmt.Errorf("workspace directory %q changed during capture", filepath.ToSlash(dirPath))
+		}
+
+		var walkErr error
+		for {
+			entries, readErr := dir.ReadDir(128)
+			for _, entry := range entries {
+				entriesSeen++
+				if entriesSeen > maxEntries {
+					walkErr = fmt.Errorf("traversal entries exceed limit of %d", maxEntries)
+					break
+				}
+				path := entry.Name()
+				if dirPath != "." {
+					path = filepath.Join(dirPath, entry.Name())
+				}
+				if entry.IsDir() {
+					if !excludedWorkspaceCaptureDir(entry.Name()) {
+						directories = append(directories, path)
+					}
+					continue
+				}
+				if entry.Type()&os.ModeSymlink != 0 {
+					continue
+				}
+				if err := captureFile(path, filepath.ToSlash(path)); err != nil {
+					walkErr = err
+					break
+				}
+			}
+			if walkErr != nil || readErr == io.EOF {
+				break
+			}
+			if readErr != nil {
+				walkErr = fmt.Errorf("read directory %q: %w", filepath.ToSlash(dirPath), readErr)
+				break
+			}
+		}
+		if closeErr := dir.Close(); walkErr == nil && closeErr != nil {
+			walkErr = fmt.Errorf("close directory %q: %w", filepath.ToSlash(dirPath), closeErr)
+		}
+		if walkErr != nil {
+			return walkErr
+		}
 	}
-	return filepath.ToSlash(rel)
+	return nil
 }
 
-func readWorkspaceCaptureFile(path string, limit int64) (content []byte, exceeded bool, err error) {
-	file, err := os.Open(path)
-	if err != nil {
-		return nil, false, err
-	}
-	defer func() {
-		if closeErr := file.Close(); err == nil && closeErr != nil {
-			err = closeErr
-		}
-	}()
-
+func readWorkspaceCaptureFile(file *os.File, limit int64) (content []byte, exceeded bool, err error) {
 	content, err = io.ReadAll(io.LimitReader(file, limit+1))
 	if err != nil {
 		return nil, false, err

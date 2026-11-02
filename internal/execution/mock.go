@@ -158,6 +158,7 @@ func (m *MockEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Execu
 	}
 	if workspaceCaptureErr != nil {
 		resp.ErrorMsg = workspaceCaptureErr.Error()
+		resp.WorkspaceCaptureError = workspaceCaptureErr.Error()
 	}
 	if req.CaptureJudgeFiles != nil {
 		resp.JudgeFiles = req.CaptureJudgeFiles(m.workspace)

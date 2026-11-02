@@ -809,13 +809,15 @@ func (e *CopilotEngine) execute(ctx context.Context, req *ExecutionRequest) (*Ex
 	// so we snapshot them now to guarantee graders see the agent's changes.
 	var workspaceFiles map[string][]byte
 	var workspaceCaptureErr error
+	var workspaceCaptureError string
 	if !req.SkipWorkspaceCapture {
 		workspaceFiles, workspaceCaptureErr = captureWorkspaceFiles(workspaceDir, req.WorkspaceCapturePaths)
 		if workspaceCaptureErr != nil {
+			workspaceCaptureError = workspaceCaptureErr.Error()
 			if errMsg == "" {
-				errMsg = workspaceCaptureErr.Error()
+				errMsg = workspaceCaptureError
 			} else {
-				errMsg += "; " + workspaceCaptureErr.Error()
+				errMsg += "; " + workspaceCaptureError
 			}
 		}
 	}
@@ -842,22 +844,23 @@ func (e *CopilotEngine) execute(ctx context.Context, req *ExecutionRequest) (*Ex
 		toolCalls = eventsCollector.ToolCalls()
 	}()
 	resp := &ExecutionResponse{
-		FinalOutput:        finalOutput,
-		Events:             copilotevents.FromSDK(collectedEvents),
-		ModelID:            modelID,
-		SkillInvocations:   skillInvocations,
-		DurationMs:         duration.Milliseconds(),
-		ToolCalls:          toolCalls,
-		ErrorMsg:           errMsg,
-		Success:            err == nil && workspaceCaptureErr == nil,
-		WorkspaceDir:       workspaceDir,
-		WorkspaceFiles:     workspaceFiles,
-		JudgeFiles:         judgeFiles,
-		CommandInvocations: commandMockSession.Invocations(), // Checkpoint graders run before task finalization.
-		SessionID:          sessionID,
-		Usage:              usage,
-		UsageIsCumulative:  true,
-		UsageRevision:      usageRevision,
+		FinalOutput:           finalOutput,
+		Events:                copilotevents.FromSDK(collectedEvents),
+		ModelID:               modelID,
+		SkillInvocations:      skillInvocations,
+		DurationMs:            duration.Milliseconds(),
+		ToolCalls:             toolCalls,
+		ErrorMsg:              errMsg,
+		Success:               err == nil && workspaceCaptureErr == nil,
+		WorkspaceDir:          workspaceDir,
+		WorkspaceFiles:        workspaceFiles,
+		WorkspaceCaptureError: workspaceCaptureError,
+		JudgeFiles:            judgeFiles,
+		CommandInvocations:    commandMockSession.Invocations(), // Checkpoint graders run before task finalization.
+		SessionID:             sessionID,
+		Usage:                 usage,
+		UsageIsCumulative:     true,
+		UsageRevision:         usageRevision,
 	}
 
 	if req.ToolPolicy != nil {

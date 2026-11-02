@@ -1197,6 +1197,22 @@ func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.T
 	}
 
 	markToolPolicyViolation(resp)
+	workspaceCaptureFailure := func() models.RunResult {
+		message := resp.ErrorMsg
+		if message == "" {
+			message = resp.WorkspaceCaptureError
+		}
+		return models.RunResult{
+			RunNumber:      runNum,
+			Prompt:         req.Message,
+			Status:         models.StatusError,
+			DurationMs:     resp.DurationMs,
+			Validations:    make(map[string]models.GraderResults),
+			SessionDigest:  r.buildSessionDigest(resp),
+			GraderSessions: resp.GraderSessions,
+			ErrorMsg:       message,
+		}
+	}
 
 	// Emit child tool_call/model_call spans from the engine response. These
 	// are after-the-fact records (waza only learns about them when Execute
@@ -1215,6 +1231,10 @@ func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.T
 				"tool_calls": len(resp.ToolCalls),
 			},
 		})
+	}
+	if resp.WorkspaceCaptureError != "" {
+		diagnosticCategory = "execution"
+		return returnWithArtifacts(workspaceCaptureFailure())
 	}
 
 	// Build the per-turn checkpoint runner. Nil when the task has no
@@ -1243,6 +1263,10 @@ func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.T
 			resp.ErrorMsg = err.Error()
 		}
 		resp.CommandInvocations = commandInvocations
+	}
+	if resp.WorkspaceCaptureError != "" {
+		diagnosticCategory = "execution"
+		return returnWithArtifacts(workspaceCaptureFailure())
 	}
 	if r.verbose {
 		for _, invocation := range commandInvocations {
@@ -1869,6 +1893,7 @@ func (r *EvalRunner) executeFollowUps(ctx context.Context, tc *models.TestCase, 
 			emitChildSpans(turnCtx, r.telemetry, turnSpan, followResp, r.cfg.Spec().Config.ModelID)
 			turnSpan.End()
 			mergeToolPolicyResult(resp, followResp)
+			resp.WorkspaceCaptureError = followResp.WorkspaceCaptureError
 			resp.ErrorMsg = fmt.Sprintf("follow-up %d/%d: %s", i+1, len(tc.Stimulus.FollowUps), followResp.ErrorMsg)
 			break
 		}
@@ -2021,6 +2046,7 @@ func (r *EvalRunner) sendResponderReply(ctx context.Context, tc *models.TestCase
 	if followResp.ErrorMsg != "" {
 		emitChildSpans(turnCtx, r.telemetry, turnSpan, followResp, r.cfg.Spec().Config.ModelID)
 		mergeToolPolicyResult(resp, followResp)
+		resp.WorkspaceCaptureError = followResp.WorkspaceCaptureError
 		resp.ErrorMsg = fmt.Sprintf("responder reply %d: %s", turn, followResp.ErrorMsg)
 		return false
 	}

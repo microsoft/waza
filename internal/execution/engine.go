@@ -177,9 +177,12 @@ type ExecutionResponse struct {
 	Success          bool
 	WorkspaceDir     string            // Path to workspace directory (for file grading)
 	WorkspaceFiles   map[string][]byte // Post-execution workspace file contents captured before session disconnect
-	JudgeFiles       *models.JudgeFileCapture
-	SessionID        string // Copilot session ID
-	Usage            *models.UsageStats
+	// WorkspaceCaptureError is set when bounded post-execution capture could
+	// not produce a complete snapshot. Runners must not grade this response.
+	WorkspaceCaptureError string
+	JudgeFiles            *models.JudgeFileCapture
+	SessionID             string // Copilot session ID
+	Usage                 *models.UsageStats
 	// UsageIsCumulative distinguishes a session snapshot from per-execution
 	// usage. Engines that report per-turn usage leave this false.
 	UsageIsCumulative bool

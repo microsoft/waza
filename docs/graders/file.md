@@ -46,7 +46,7 @@ Each check counts separately:
 
 **Path Safety:** All paths must be relative to the workspace. Absolute paths and paths that escape the workspace (e.g., via `..` traversal) are rejected.
 
-**Post-execution capture:** Waza preserves regular workspace files before the agent session disconnects so diff grading can observe edits that disconnect may restore. `.git` and `node_modules` trees are excluded by default, but files explicitly referenced by a diff grader are still preserved. Capture is limited to 10,000 files, 16 MiB per file, and 64 MiB total; exceeding a limit marks the run as an error instead of grading a partial snapshot.
+**Post-execution capture:** Waza preserves regular workspace files before the agent session disconnects so diff grading can observe edits that disconnect may restore. `.git` and `node_modules` trees are excluded by default, but files explicitly referenced by a diff grader are still preserved. Capture is limited to 10,000 files, 20,000 traversal entries, 16 MiB per file, and 64 MiB total; exceeding a limit marks the run as an error and skips workspace grading instead of grading a partial snapshot.
 
 **Example: Verify generated project structure**
 

@@ -129,19 +129,19 @@ func TestCaptureWorkspaceFiles_RejectsIncompleteCapture(t *testing.T) {
 	}{
 		{
 			name:   "file count",
-			limits: workspaceCaptureLimits{maxFiles: 1, maxFileBytes: 10, maxTotalBytes: 20},
+			limits: workspaceCaptureLimits{maxFiles: 1, maxEntries: 10, maxFileBytes: 10, maxTotalBytes: 20},
 			files:  map[string]string{"a.txt": "a", "b.txt": "b"},
 			want:   "file count exceeds limit",
 		},
 		{
 			name:   "per file",
-			limits: workspaceCaptureLimits{maxFiles: 2, maxFileBytes: 3, maxTotalBytes: 20},
+			limits: workspaceCaptureLimits{maxFiles: 2, maxEntries: 10, maxFileBytes: 3, maxTotalBytes: 20},
 			files:  map[string]string{"large.txt": "four"},
 			want:   "exceeds per-file limit",
 		},
 		{
 			name:   "total bytes",
-			limits: workspaceCaptureLimits{maxFiles: 2, maxFileBytes: 10, maxTotalBytes: 5},
+			limits: workspaceCaptureLimits{maxFiles: 2, maxEntries: 10, maxFileBytes: 10, maxTotalBytes: 5},
 			files:  map[string]string{"a.txt": "aaa", "b.txt": "bbb"},
 			want:   "would exceed total limit",
 		},
@@ -157,6 +157,46 @@ func TestCaptureWorkspaceFiles_RejectsIncompleteCapture(t *testing.T) {
 			require.Nil(t, files, "partial captures must not reach graders")
 		})
 	}
+}
+
+func TestCaptureWorkspaceFiles_BoundsTraversalEntries(t *testing.T) {
+	dir := t.TempDir()
+	for i := range 4 {
+		require.NoError(t, os.WriteFile(filepath.Join(dir, fmt.Sprintf("%d.txt", i)), nil, 0o644))
+	}
+
+	files, err := captureWorkspaceFilesWithLimits(dir, nil, workspaceCaptureLimits{
+		maxFiles: 10, maxEntries: 3, maxFileBytes: 10, maxTotalBytes: 10,
+	})
+	require.ErrorContains(t, err, "traversal entries exceed limit")
+	require.Nil(t, files)
+}
+
+func TestCaptureWorkspaceFiles_PreservedSymlinkCannotEscapeWorkspace(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink creation may require elevated privileges on Windows")
+	}
+	dir := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "outside.txt")
+	require.NoError(t, os.WriteFile(outside, []byte("outside"), 0o644))
+	require.NoError(t, os.Symlink(filepath.Dir(outside), filepath.Join(dir, "output")))
+
+	files, err := captureWorkspaceFiles(dir, []string{"output/outside.txt"})
+	require.Error(t, err)
+	require.Nil(t, files)
+}
+
+func TestCaptureWorkspaceFiles_PreservesConfinedSymlinkTarget(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink creation may require elevated privileges on Windows")
+	}
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "target.txt"), []byte("ready"), 0o644))
+	require.NoError(t, os.Symlink("target.txt", filepath.Join(dir, "result.txt")))
+
+	files, err := captureWorkspaceFiles(dir, []string{"result.txt"})
+	require.NoError(t, err)
+	require.Equal(t, []byte("ready"), files["result.txt"])
 }
 
 func BenchmarkCaptureWorkspaceFilesDependencyTree(b *testing.B) {
