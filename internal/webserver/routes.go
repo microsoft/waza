@@ -26,7 +26,7 @@ func registerRoutes(mux *http.ServeMux, cfg Config) error {
 					"error", err,
 					"provider", cfg.StorageConfig.Provider)
 			}
-			runStore = webapi.NewFileStore(cfg.ResultsDir)
+			runStore = webapi.NewDashboardFileStore(cfg.ResultsDir)
 			storageCfg = &webapi.StorageConfig{
 				Configured: false,
 			}
@@ -35,6 +35,9 @@ func registerRoutes(mux *http.ServeMux, cfg Config) error {
 			source := cfg.StorageConfig.Provider
 			if source == "" {
 				source = "local"
+			}
+			if source == "local" {
+				resultStore = storage.NewDashboardLocalStore(cfg.ResultsDir)
 			}
 			runStore = webapi.NewStorageAdapter(resultStore, source)
 			storageCfg = &webapi.StorageConfig{
@@ -51,7 +54,7 @@ func registerRoutes(mux *http.ServeMux, cfg Config) error {
 		}
 	} else {
 		// No storage configured, use local FileStore.
-		runStore = webapi.NewFileStore(cfg.ResultsDir)
+		runStore = webapi.NewDashboardFileStore(cfg.ResultsDir)
 		storageCfg = &webapi.StorageConfig{
 			Configured: false,
 		}
