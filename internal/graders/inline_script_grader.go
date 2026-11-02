@@ -190,7 +190,20 @@ func (isg *InlineScriptGrader) runScript(ctx context.Context, gradingContext *Co
 	return failures, passed, nil
 }
 
-func getStdinTextForScript(gradingContext *Context, assertions []string) ([]byte, error) {
+// gradingContextPayload is the run evidence shared by inline script graders
+// (on stdin) and program graders (via WAZA_GRADING_CONTEXT). Nil tool_events
+// and command_invocations serialize as null: no evidence was recorded.
+type gradingContextPayload struct {
+	Output             string                     `json:"output"`
+	Outcome            map[string]any             `json:"outcome"`
+	Transcript         []models.TranscriptEvent   `json:"transcript"`
+	ToolCalls          []models.ToolCall          `json:"tool_calls"`
+	ToolEvents         []models.ToolEvent         `json:"tool_events"`
+	CommandInvocations []models.CommandInvocation `json:"command_invocations"`
+	DurationMS         int64                      `json:"duration_ms"`
+}
+
+func newGradingContextPayload(gradingContext *Context) gradingContextPayload {
 	var sessionEvents []copilot.SessionEvent
 
 	for _, te := range gradingContext.Transcript {
@@ -215,19 +228,7 @@ func getStdinTextForScript(gradingContext *Context, assertions []string) ([]byte
 		toolCalls = []models.ToolCall{}
 	}
 
-	scriptStdin := struct {
-		Output             string                     `json:"output"`
-		Outcome            map[string]any             `json:"outcome"`
-		Transcript         []models.TranscriptEvent   `json:"transcript"`
-		ToolCalls          []models.ToolCall          `json:"tool_calls"`
-		ToolEvents         []models.ToolEvent         `json:"tool_events"`
-		CommandInvocations []models.CommandInvocation `json:"command_invocations"`
-		DurationMS         int64                      `json:"duration_ms"`
-		Assertions         []string                   `json:"assertions"`
-
-		// Debug causes the underlying scripts to print, to stderr, their stdin contents.
-		Debug bool `json:"debug"`
-	}{
+	return gradingContextPayload{
 		Output:             gradingContext.Output,
 		Outcome:            outcome,
 		Transcript:         transcriptEvents,
@@ -235,8 +236,20 @@ func getStdinTextForScript(gradingContext *Context, assertions []string) ([]byte
 		ToolEvents:         gradingContext.ToolEvents,
 		CommandInvocations: gradingContext.CommandInvocations,
 		DurationMS:         gradingContext.DurationMS,
-		Assertions:         assertions,
-		Debug:              slog.Default().Enabled(context.Background(), slog.LevelDebug),
+	}
+}
+
+func getStdinTextForScript(gradingContext *Context, assertions []string) ([]byte, error) {
+	scriptStdin := struct {
+		gradingContextPayload
+		Assertions []string `json:"assertions"`
+
+		// Debug causes the underlying scripts to print, to stderr, their stdin contents.
+		Debug bool `json:"debug"`
+	}{
+		gradingContextPayload: newGradingContextPayload(gradingContext),
+		Assertions:            assertions,
+		Debug:                 slog.Default().Enabled(context.Background(), slog.LevelDebug),
 	}
 
 	scriptJSON, err := json.MarshalIndent(scriptStdin, "  ", "  ")
