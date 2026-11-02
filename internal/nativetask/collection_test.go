@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -150,6 +151,22 @@ func TestRejectedCollectionInputsDoNotCopyPayloads(t *testing.T) {
 		require.ErrorContains(t, err, "does not admit collection preparation")
 	})
 	require.LessOrEqual(t, allocations, baseline+128, "rejected match must not detach source payloads")
+}
+
+func TestInvalidFirstDigestDoesNotCopyLaterPayloads(t *testing.T) {
+	payload := strings.Repeat("x", 4<<20)
+	digest := releasepolicy.SourceDigest([]byte(payload))
+	sources := []CapturedSource{{Path: "a", Digest: models.EvidenceDigest{Encoding: "source-bytes", SHA256: strings.Repeat("0", 64)}}}
+	for _, path := range []string{"b", "c", "d", "e"} {
+		sources = append(sources, CapturedSource{Path: path, Bytes: payload, Digest: digest})
+	}
+	runtime.GC()
+	var before, after runtime.MemStats
+	runtime.ReadMemStats(&before)
+	_, err := VerifyCollectionSources(t.Context(), sources)
+	runtime.ReadMemStats(&after)
+	require.ErrorContains(t, err, "invalid retained native source inventory")
+	require.Less(t, after.TotalAlloc-before.TotalAlloc, uint64(1<<20), "invalid first digest must reject before later payloads are detached")
 }
 
 func BenchmarkCollectionDescriptorAdmission81MiB(b *testing.B) {
