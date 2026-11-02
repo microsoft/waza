@@ -165,7 +165,7 @@ func TestDashboardLocalStoreRejectsSameSizeInvalidChangeWithRestoredMtime(t *tes
 	invalid[0] = '{'
 	require.NoError(t, os.WriteFile(path, invalid, 0o600))
 	require.NoError(t, os.Chtimes(path, mtime, mtime))
-	require.ErrorContains(t, store.Reload(), path)
+	require.ErrorContains(t, store.Reload(), strconv.Quote(path))
 
 	after, err := store.Download(t.Context(), "cached")
 	require.NoError(t, err)
