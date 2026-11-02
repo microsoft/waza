@@ -10,6 +10,20 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestCompileSchemaOnceDefersAndCachesCompilation(t *testing.T) {
+	var invalid func() any
+	require.NotPanics(t, func() {
+		compiled := compileSchemaOnce("{", "invalid.json")
+		invalid = func() any { return compiled() }
+	})
+	require.Panics(t, func() {
+		invalid()
+	})
+
+	compiled := compileSchemaOnce(`{"type":"object"}`, "test.json")
+	require.Same(t, compiled(), compiled())
+}
+
 func TestTaskReasoningEffortSchemaAndExecutor(t *testing.T) {
 	for _, checkpoint := range []bool{false, true} {
 		for _, effort := range []string{"low", "medium", "high", "xhigh", "max", "invalid"} {
