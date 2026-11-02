@@ -2,6 +2,8 @@ import { test, expect, type Page } from "@playwright/test";
 
 const start = Date.UTC(2026, 0, 1);
 
+test.use({ timezoneId: "UTC" });
+
 function makeRuns(count: number, passCount = (index: number) => index % 101) {
   return Array.from({ length: count }, (_, index) => ({
     id: `run-${index}`,
@@ -40,6 +42,8 @@ test("large trend histories keep bounded DOM and exact endpoint tooltips", async
   await expect(pointPaths).toHaveCount(4);
   for (const path of await pointPaths.all()) {
     await expect(path).toHaveAttribute("data-point-count", String(count));
+    const data = await path.getAttribute("d");
+    expect(data?.match(/\b[ML] /g)).toHaveLength(count);
     const marker = await path.getAttribute("marker-start");
     expect(marker).toMatch(/^url\(#trend-point-.+\)$/);
     await expect(path).toHaveAttribute("marker-mid", marker!);
