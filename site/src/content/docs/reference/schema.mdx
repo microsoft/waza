@@ -867,6 +867,8 @@ command_mocks: []
 
 Replace or add MCP mocks for this task. Each entry replaces the eval-level [`mcp_mocks`](#mcp_mocks) entry with the same name for this task only, and a new name adds a mock; other eval-level mocks still apply. Entries use the eval-level fields. The enclosing eval must use `schemaVersion: "1.1"` or newer and `executor: copilot-sdk`, and finite response sequences require scenario eval schema `2.0`. Relative `fixtures` paths resolve from the eval directory. An eval mock that every selected task replaces is never started, so its fixtures are not read; its inline tools are still validated. The list must not be empty; omit it to use the eval-level mocks.
 
+Task loading and filter errors are reported before engine startup. Admission validates inline mock `input_schema` declarations offline, even on replaced eval mocks. Schemas must be self-contained (internal `$ref` values are supported); omission or `null` retains the default tool schema.
+
 ```yaml
 mcp_mocks:
   - name: host

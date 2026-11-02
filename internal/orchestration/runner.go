@@ -640,27 +640,29 @@ func AdmitEvalMCPMocks(cfg *config.EvalConfig, taskFilters, tagFilters []string)
 }
 
 func (r *EvalRunner) admitEvalMCPMocks() error {
-	if err := mcpmock.ValidateMCPMocksForTasks(r.cfg.Spec(), r.admissionTestCases(), r.cfg.SpecDir()); err != nil {
-		return fmt.Errorf("MCP mock admission: %w", err)
+	testCases, selectionErr := r.admissionTestCases()
+	// Failed selection cannot establish task overrides, but must not hide
+	// independent eval mock errors or allow engine initialization.
+	if err := mcpmock.ValidateMCPMocksForTasks(r.cfg.Spec(), testCases, r.cfg.SpecDir()); err != nil {
+		return errors.Join(selectionErr, fmt.Errorf("MCP mock admission: %w", err))
 	}
-	return nil
+	return selectionErr
 }
 
 // admissionTestCases selects the active tasks a run would execute, after task
-// and tag filters, without side effects. It returns nil when selection fails,
-// which admits every eval mock; the run reports the selection error itself.
-func (r *EvalRunner) admissionTestCases() []*models.TestCase {
+// and tag filters, without starting an engine.
+func (r *EvalRunner) admissionTestCases() ([]*models.TestCase, error) {
 	testCases, err := r.loadTestCases()
 	if err != nil {
-		return nil
+		return nil, fmt.Errorf("failed to load test cases: %w", err)
 	}
 	if len(r.taskFilters) > 0 || len(r.tagFilters) > 0 {
 		testCases, err = FilterTestCases(testCases, r.taskFilters, r.tagFilters)
 		if err != nil {
-			return nil
+			return nil, fmt.Errorf("task/tag filter error: %w", err)
 		}
 	}
-	return testCases
+	return testCases, nil
 }
 func (r *EvalRunner) loadTestCases() ([]*models.TestCase, error) {
 	spec := r.cfg.Spec()

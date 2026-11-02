@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"testing"
 
@@ -111,6 +112,86 @@ mcp_mocks:
 
 const missingFixtureHost = `  - name: host
     fixtures: missing-host-fixtures`
+
+func TestRunBenchmark_TaskMCPAdmissionRejectsBeforeStartup(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		task    string
+		options []RunnerOption
+		wantErr string
+	}{
+		{name: "invalid task", task: "id: first\nname: first\ninputs: {prompt: inspect}\nmcp_mocks: []\n", wantErr: "mcp_mocks must not be empty"},
+		{name: "invalid task filter", task: admissionReplaceTask("first"), options: []RunnerOption{WithTaskFilters("[")}, wantErr: `invalid task filter pattern "["`},
+		{name: "invalid tag filter", task: "tags: [selected]\n" + admissionReplaceTask("first"), options: []RunnerOption{WithTagFilters("[")}, wantErr: `invalid tag filter pattern "["`},
+		{name: "invalid input schema", task: strings.Replace(admissionReplaceTask("first"), "        responses:", "        input_schema: {type: 42}\n        responses:", 1), wantErr: `tool "ask_user" input schema`},
+		{name: "external input schema", task: strings.Replace(admissionReplaceTask("first"), "        responses:", "        input_schema: {$ref: 'https://never-read.invalid/schema'}\n        responses:", 1), wantErr: "external schema references are unavailable offline"},
+		{name: "file input schema reference", task: strings.Replace(admissionReplaceTask("first"), "        responses:", "        input_schema: {$ref: 'file:///never-read-admission-schema.json'}\n        responses:", 1), wantErr: "external schema references are unavailable offline"},
+		{name: "default input schema", task: admissionReplaceTask("first")},
+		{name: "null input schema", task: strings.Replace(admissionReplaceTask("first"), "        responses:", "        input_schema: null\n        responses:", 1)},
+		{name: "empty input schema", task: strings.Replace(admissionReplaceTask("first"), "        responses:", "        input_schema: {}\n        responses:", 1)},
+		{name: "local input schema reference", task: strings.Replace(admissionReplaceTask("first"), "        responses:", "        input_schema: {type: object, $defs: {answer: {type: string}}, properties: {answer: {$ref: '#/$defs/answer'}}}\n        responses:", 1), options: []RunnerOption{WithTaskFilters("fir*")}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			runner, engine := writeAdmissionSuite(t, `  - name: host
+    tools:
+      ask_user:
+        responses: [{return: {answer: Not now}}]`, map[string]string{"first.yaml": test.task}, test.options...)
+			outcome, err := runner.RunBenchmark(t.Context())
+			if test.wantErr != "" {
+				require.ErrorContains(t, err, test.wantErr)
+				require.Nil(t, outcome)
+				require.Zero(t, engine.initialized, "invalid configuration must not start an engine")
+				require.Empty(t, engine.answers)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, 1, engine.initialized)
+			require.Len(t, outcome.TestOutcomes, 1)
+			require.Equal(t, "Publish this version", engine.answers["first"])
+		})
+	}
+}
+
+func TestRunBenchmark_ReplacedEvalMockInputSchemaIsValidated(t *testing.T) {
+	runner, engine := writeAdmissionSuite(t, missingFixtureHost+`
+    tools:
+      ask_user:
+        input_schema: {type: 42}
+        responses: [{return: {answer: Not now}}]`, map[string]string{"first.yaml": admissionReplaceTask("first")})
+	outcome, err := runner.RunBenchmark(t.Context())
+	require.ErrorContains(t, err, `tool "ask_user" input schema`)
+	require.NotContains(t, err.Error(), "missing-host-fixtures")
+	require.Nil(t, outcome)
+	require.Zero(t, engine.initialized)
+}
+
+func TestRunBenchmark_TaskSelectionErrorRetainsEvalMockErrors(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		task    string
+		options []RunnerOption
+		wantErr string
+	}{
+		{name: "invalid task", task: "id: first\nname: first\ninputs: {prompt: inspect}\nmcp_mocks: []\n", wantErr: "mcp_mocks must not be empty"},
+		{name: "invalid filter", task: admissionReplaceTask("first"), options: []RunnerOption{WithTaskFilters("[")}, wantErr: `invalid task filter pattern "["`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			runner, engine := writeAdmissionSuite(t, missingFixtureHost+`
+    tools:
+      ask_user:
+        input_schema: {type: 42}
+        responses: [{return: {answer: Not now}}]`, map[string]string{"first.yaml": test.task}, test.options...)
+			outcome, err := runner.RunBenchmark(t.Context())
+			require.ErrorContains(t, err, test.wantErr)
+			require.ErrorContains(t, err, "MCP mock admission")
+			require.ErrorContains(t, err, `tool "ask_user" input schema`)
+			require.ErrorContains(t, err, "missing-host-fixtures")
+			require.Nil(t, outcome)
+			require.Zero(t, engine.initialized)
+			require.Empty(t, engine.answers)
+		})
+	}
+}
 
 func TestRunBenchmark_EvalMockReplacedByEveryTaskSkipsFixtureAdmission(t *testing.T) {
 	runner, engine := writeAdmissionSuite(t, missingFixtureHost, map[string]string{

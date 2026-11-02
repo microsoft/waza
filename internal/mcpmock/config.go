@@ -61,9 +61,25 @@ func FromEvalConfigWithVersion(mock models.MCPMockConfig, baseDir, version strin
 func ValidateEvalMocks(mocks []models.MCPMockConfig, baseDir, version string) error {
 	var errs []error
 	for _, mock := range mocks {
-		if _, err := FromEvalConfigWithVersion(mock, baseDir, version); err != nil {
+		if err := validateMockAdmission(mock, baseDir, version); err != nil {
 			errs = append(errs, fmt.Errorf("resolve MCP mock %q: %w", mock.Name, err))
 		}
+	}
+	return errors.Join(errs...)
+}
+
+func validateMockAdmission(mock models.MCPMockConfig, baseDir, version string) error {
+	var errs []error
+	for name, tool := range mock.Tools {
+		if tool.InputSchema == nil {
+			continue
+		}
+		if err := models.ValidateMCPInputSchemaOffline(tool.InputSchema, filepath.Join(baseDir, "mock-input-schema.json")); err != nil {
+			errs = append(errs, fmt.Errorf("mcp mock %q tool %q input schema: %w", mock.Name, name, err))
+		}
+	}
+	if _, err := FromEvalConfigWithVersion(mock, baseDir, version); err != nil {
+		errs = append(errs, err)
 	}
 	return errors.Join(errs...)
 }
@@ -84,7 +100,7 @@ func ValidateInlineMockDeclarations(mocks []models.MCPMockConfig, baseDir, versi
 		if !ok {
 			continue
 		}
-		if _, err := FromEvalConfigWithVersion(declared, baseDir, version); err != nil {
+		if err := validateMockAdmission(declared, baseDir, version); err != nil {
 			errs = append(errs, fmt.Errorf("resolve MCP mock %q: %w", mock.Name, err))
 		}
 	}
@@ -106,7 +122,7 @@ func ValidateMCPMocksForTasks(spec *models.EvalSpec, tasks []*models.TestCase, b
 			}
 			continue
 		}
-		if _, err := FromEvalConfigWithVersion(mock, baseDir, spec.SchemaVersion); err != nil {
+		if err := validateMockAdmission(mock, baseDir, spec.SchemaVersion); err != nil {
 			errs = append(errs, fmt.Errorf("resolve MCP mock %q: %w", mock.Name, err))
 		}
 	}
