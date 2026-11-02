@@ -781,6 +781,20 @@ expected: # Required: validation rules
     max_tool_calls: 5
 ```
 
+### inputs.environment (unsupported)
+
+This compatibility field is accepted as a string-to-string map, but its values
+are **not applied** during task execution. A non-empty map emits a task-load
+warning and an unsupported `task.environment` preflight diagnostic without
+printing variable names or values. Omitted or empty maps emit neither.
+Existing run exit policies are unchanged; preflight remains warning-only by
+default and retains its existing `--strict` failure policy.
+
+Remove this field and configure required environment variables outside Waza
+before starting the process. The Copilot client process is shared across tasks,
+so this is not per-task environment isolation. Native snapshot execution
+continues to reject non-empty task environment maps.
+
 ### id
 
 **Type:** string  

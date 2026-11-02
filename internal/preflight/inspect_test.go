@@ -81,6 +81,48 @@ func TestInspectValidDeterministicAndDescriptive(t *testing.T) {
 	require.Equal(t, first, Inspect(path, Options{}))
 }
 
+func TestInspectUnsupportedTaskEnvironment(t *testing.T) {
+	for _, tt := range []struct {
+		name, field    string
+		wantDiagnostic bool
+	}{
+		{"absent", "", false},
+		{"empty", "  environment: {}\n", false},
+		{"populated", "  environment: {PRIVATE_SETTING: sensitive-value}\n", true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			task := strings.Replace(validTask, "inputs:\n", "inputs:\n"+tt.field, 1)
+			require.Contains(t, task, tt.field)
+			path, dir := writeSuite(t, validEval, task)
+			r := Inspect(path, Options{})
+			require.Len(t, r.Tasks, 1)
+			require.True(t, r.Complete)
+			require.False(t, r.Failed(false), "%+v", r.Diagnostics)
+			require.Equal(t, tt.wantDiagnostic, r.Failed(true))
+			var diagnostics []Diagnostic
+			for _, diagnostic := range r.Diagnostics {
+				if diagnostic.Code == "task.environment" {
+					diagnostics = append(diagnostics, diagnostic)
+					require.Equal(t, Unsupported, diagnostic.State)
+					require.Equal(t, "warning", diagnostic.Severity)
+					require.Equal(t, filepath.Join(dir, "task.yaml"), diagnostic.Source)
+					require.Equal(t, "task", diagnostic.TaskID)
+					require.Contains(t, diagnostic.Message, "not applied during task execution")
+				}
+			}
+			if tt.wantDiagnostic {
+				require.Len(t, diagnostics, 1)
+			} else {
+				require.Empty(t, diagnostics)
+			}
+			data, err := json.Marshal(r)
+			require.NoError(t, err)
+			require.NotContains(t, string(data), "PRIVATE_SETTING")
+			require.NotContains(t, string(data), "sensitive-value")
+		})
+	}
+}
+
 func TestInspectInvalidConfigurations(t *testing.T) {
 	tests := []struct {
 		name, eval, task, code string

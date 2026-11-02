@@ -333,7 +333,7 @@
           "additionalProperties": {
             "type": "string"
           },
-          "description": "Environment variables set during task execution."
+          "description": "Unsupported compatibility field; values are not applied during task execution. Non-empty maps produce a task-load warning and an unsupported task.environment preflight diagnostic."
         },
         "follow_up_prompts": {
           "type": "array",
