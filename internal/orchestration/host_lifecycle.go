@@ -77,7 +77,8 @@ func buildHostLifecycle(events []copilot.SessionEvent) *models.HostLifecycle {
 		}
 		if start, ok := copilotevents.ToolStart(evt); ok {
 			role, known := shellToolRoles[start.ToolName]
-			if !known || start.MCPServerName != nil || start.ToolCallID == "" {
+			if !known || start.MCPServerName != nil || start.MCPToolName != nil ||
+				start.MCPConfigSource != nil || start.MCPConfigServerName != nil || start.ToolCallID == "" {
 				continue
 			}
 			if _, seen := calls[start.ToolCallID]; seen {

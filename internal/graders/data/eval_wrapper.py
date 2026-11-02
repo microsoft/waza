@@ -49,7 +49,8 @@ results: list[str] = []
 
 for assertion in data['assertions']:
     try:
-        result = eval(assertion, {"__builtins__": {}}, eval_context)
+        # Nested comprehensions resolve names in globals, so use one restricted namespace.
+        result = eval(assertion, {"__builtins__": {}, **eval_context})
         results.append("" if not not result else "fail")
     except Exception as e:
         results.append(str(e))

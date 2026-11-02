@@ -386,7 +386,7 @@ name: Background shell
 inputs:
   prompt: "Run the check in the background and report its exit code"
 graders:
-  - name: exit_seen_before_next_turn
+  - name: exit_notification_recorded_before_next_turn
     type: code
     config:
       language: javascript

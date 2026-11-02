@@ -292,17 +292,21 @@ exit zero distinctly from an interrupted attempt with no `exit_code`.
   omitted when the host did not report one).
 
 Every index is a position in the run's recorded event stream, so indexes from
-different lists can be compared. A `system.notification` exit is delivered to the
-model, so a later `model_turns` entry shows the model was given the exit before
-that turn. Values are never inferred from tool output text or command lines,
+different lists can be compared. A `system.notification` exit followed by a later
+`model_turns` entry establishes only that the host notification was recorded
+before that turn. It does not verify delivery into the model's context or model
+awareness of the exit; notification delivery by the embedded CLI is unverified.
+Values are never inferred from tool output text or command lines,
 and completions after recording ended (for example a detached shell finishing
 after the session went idle) are absent, so a missing exit is not proof that a
 process is still running. More than one `start` call for a `shell_id` means the
 ID was reused.
+MCP-attributed tool calls are excluded even when they share a built-in shell
+tool's name.
 
 ```yaml
 - type: code
-  name: exit_seen_before_next_turn
+  name: exit_notification_recorded_before_next_turn
   config:
     language: javascript
     assertions:
@@ -314,17 +318,13 @@ ID was reused.
 
 **Scoring:** `passed_assertions / total_assertions`
 
-<Aside type="caution" title="No generator expressions">
-Python's `eval()` does not support generator expressions in a restricted scope.
+<Aside type="tip" title="Nested Python expressions">
+Python generator expressions and comprehensions can access the execution context
+and allowed helpers from nested scopes. Other built-in functions remain unavailable.
 
 ```yaml
-# ❌ Fails at runtime
 assertions:
   - "any(kw in output for kw in ['azure', 'deploy'])"
-
-# ✅ Use explicit boolean chains instead
-assertions:
-  - "'azure' in output.lower() or 'deploy' in output.lower()"
 ```
 
 </Aside>

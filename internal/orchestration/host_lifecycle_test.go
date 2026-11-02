@@ -3,7 +3,9 @@ package orchestration
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -39,9 +41,9 @@ func int64Ptr(v int64) *int64 { return &v }
 func strPtr(v string) *string { return &v }
 func boolPtr(v bool) *bool    { return &v }
 
-// attachedShellEvents is a generic attached background shell: the agent starts
-// a command asynchronously, the host reports its exit in a model-facing
-// notification, the next model turn reads it, and the session goes idle.
+// attachedShellEvents is a synthetic attached background shell event stream:
+// an async start, an exit notification, a later model turn with a shell read,
+// and session idle. It tests recorded ordering, not model-context delivery.
 func attachedShellEvents(t *testing.T) []copilot.SessionEvent {
 	return decodeEventLines(t,
 		wireEvent("assistant.turn_start", `{"turnId":"0"}`),
@@ -89,11 +91,16 @@ inputs:
 				Tasks:        []string{"task.yaml"},
 				Config:       models.Config{EngineType: "mock", ModelID: "mock", TrialsPerTask: 1, TimeoutSec: 30},
 				Graders: []models.GraderConfig{{
-					Kind: models.GraderKindInlineScript, Identifier: "exit-delivered",
+					Kind: models.GraderKindInlineScript, Identifier: "exit-notification-before-turn",
 					Parameters: models.InlineScriptGraderParameters{Language: models.LanguageJavascript, Assertions: []string{
 						"host_lifecycle !== null",
 						"host_lifecycle.shells[0].exits.some(e => e.source === 'system.notification' && e.exit_code === 3 && host_lifecycle.model_turns.some(turn => turn.start_index > e.index))",
 						"host_lifecycle.shells[0].calls.some(c => c.role === 'read' && c.start_index > host_lifecycle.shells[0].exits[0].index)",
+					}},
+				}, {
+					Kind: models.GraderKindInlineScript, Identifier: "python-exit-notification-before-turn",
+					Parameters: models.InlineScriptGraderParameters{Language: models.LanguagePython, Assertions: []string{
+						"host_lifecycle is not None and any(e.get('exit_code') == 3 and any(turn['start_index'] > e['index'] for turn in host_lifecycle['model_turns']) for s in host_lifecycle['shells'] for e in s['exits'] if e['source'] == 'system.notification')",
 					}},
 				}},
 			}
@@ -108,13 +115,89 @@ inputs:
 			require.Equal(t, buildHostLifecycle(events), run.HostLifecycle)
 			present := events != nil
 			require.Equal(t, present, run.HostLifecycle != nil)
-			require.Equal(t, present, run.Validations["exit-delivered"].Passed, "%+v", run.Validations)
+			require.Equal(t, present, run.Validations["exit-notification-before-turn"].Passed, "%+v", run.Validations)
+			require.Equal(t, present, run.Validations["python-exit-notification-before-turn"].Passed, "%+v", run.Validations)
 
 			data, err := json.Marshal(outcome)
 			require.NoError(t, err)
 			restored, err := models.ParseEvaluationOutcome(data, "results.json")
 			require.NoError(t, err)
 			require.Equal(t, run.HostLifecycle, restored.TestOutcomes[0].Runs[0].HostLifecycle)
+		})
+	}
+}
+
+func TestRunBenchmarkHostLifecycleRejectsMCPMarkers(t *testing.T) {
+	require.NoError(t, exec.Command("node", "--version").Run(), "this regression requires a working Node runtime")
+	for _, tc := range []struct {
+		name       string
+		marker     string
+		wantShells int
+		omitStart  bool
+	}{
+		{name: "native", wantShells: 2},
+		{name: "null markers", marker: `,"mcpServerName":null,"mcpToolName":null,"mcpConfigSource":null,"mcpConfigServerName":null`, wantShells: 2},
+		{name: "completion without start", omitStart: true},
+		{name: "server", marker: `,"mcpServerName":"remote"`},
+		{name: "empty server", marker: `,"mcpServerName":""`},
+		{name: "tool", marker: `,"mcpToolName":"bash"`},
+		{name: "empty tool", marker: `,"mcpToolName":""`},
+		{name: "config source", marker: `,"mcpConfigSource":"project"`},
+		{name: "empty config source", marker: `,"mcpConfigSource":""`},
+		{name: "config server", marker: `,"mcpConfigServerName":"remote"`},
+		{name: "empty config server", marker: `,"mcpConfigServerName":""`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			events := decodeEventLines(t,
+				wireEvent("tool.execution_start", `{"toolCallId":"call","toolName":"bash","arguments":{"shellId":"build"}`+tc.marker+`}`),
+				wireEvent("tool.execution_complete", `{"toolCallId":"call","success":true,"shellExecution":{"exitCode":3},"result":{"content":"","contents":[{"type":"shell_exit","shellId":"result-shell","exitCode":7}]}}`),
+			)
+			start, ok := copilotevents.ToolStart(events[0])
+			require.True(t, ok)
+			markers := []bool{start.MCPServerName != nil, start.MCPToolName != nil, start.MCPConfigSource != nil, start.MCPConfigServerName != nil}
+			markerCount := 0
+			for _, present := range markers {
+				if present {
+					markerCount++
+				}
+			}
+			if tc.wantShells == 0 && !tc.omitStart {
+				require.Equal(t, 1, markerCount, "exercise each MCP marker independently")
+			} else {
+				require.Zero(t, markerCount)
+			}
+			if tc.omitStart {
+				events = events[1:]
+			}
+			dir := t.TempDir()
+			require.NoError(t, os.WriteFile(filepath.Join(dir, "task.yaml"), []byte("id: shell\ninputs:\n  prompt: Run the check.\n"), 0o600))
+			assertions := []string{fmt.Sprintf("host_lifecycle !== null && host_lifecycle.shells.length === %d", tc.wantShells)}
+			if tc.wantShells != 0 {
+				assertions = append(assertions,
+					"host_lifecycle.shells[0].shell_id === 'build' && host_lifecycle.shells[0].calls[0].complete_index === 1 && host_lifecycle.shells[0].exits[0].exit_code === 3",
+					"host_lifecycle.shells[1].shell_id === 'result-shell' && host_lifecycle.shells[1].calls.length === 0 && host_lifecycle.shells[1].exits[0].exit_code === 7",
+				)
+			}
+			spec := &models.EvalSpec{
+				SpecIdentity: models.SpecIdentity{Name: "MCP lifecycle isolation"},
+				Tasks:        []string{"task.yaml"},
+				Config:       models.Config{EngineType: "mock", ModelID: "mock", TrialsPerTask: 1, TimeoutSec: 30},
+				Graders: []models.GraderConfig{{
+					Kind: models.GraderKindInlineScript, Identifier: "host-only",
+					Parameters: models.InlineScriptGraderParameters{Language: models.LanguageJavascript, Assertions: assertions},
+				}},
+			}
+			engine := &lifecycleEventsEngine{AgentEngine: execution.NewMockEngine("mock"), events: events}
+			outcome, err := NewEvalRunner(config.NewEvalConfig(spec, config.WithSpecDir(dir)), engine).RunBenchmark(t.Context())
+			require.NoError(t, err)
+			require.Len(t, outcome.TestOutcomes, 1)
+			require.Len(t, outcome.TestOutcomes[0].Runs, 1)
+			run := outcome.TestOutcomes[0].Runs[0]
+			validation, ok := run.Validations["host-only"]
+			require.True(t, ok)
+			require.True(t, validation.Passed, "%+v", validation)
+			require.NotNil(t, run.HostLifecycle)
+			require.Len(t, run.HostLifecycle.Shells, tc.wantShells, "MCP completions must not create host calls or exits")
 		})
 	}
 }

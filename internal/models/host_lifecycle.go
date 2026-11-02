@@ -7,7 +7,8 @@ package models
 //
 // Every Index is the 0-based position of the source event in the run's
 // recorded session event stream (including follow-up turns), so values from
-// different lists can be compared to order host and model activity. Only
+// different lists can be compared to order recorded host and model activity.
+// This ordering does not verify model-context delivery or model awareness. Only
 // structured event fields are used: shell IDs, exit codes and turn IDs are
 // never inferred from tool output text, command lines or telemetry. Events the
 // host emitted after recording ended (for example a detached shell finishing
@@ -42,12 +43,12 @@ const (
 
 // Shell exit observation sources.
 const (
-	// ShellExitSourceNotification is a host-authored system.notification. The
-	// notification is model-facing, so a model turn that starts after it was
-	// given the exit.
+	// ShellExitSourceNotification is a recorded host-authored system.notification.
+	// Its index orders the notification against recorded model turns; it does
+	// not verify that the notification reached the model's context.
 	ShellExitSourceNotification = "system.notification"
-	// ShellExitSourceToolResult is a structured shell_exit block in a shell
-	// tool result returned to the model.
+	// ShellExitSourceToolResult is a structured shell_exit block in a recorded
+	// shell tool result.
 	ShellExitSourceToolResult = "tool_result"
 	// ShellExitSourceToolExecution is the shell driver's exit code attached to
 	// the completion of the tool call that ran the command.

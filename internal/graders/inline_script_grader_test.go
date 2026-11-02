@@ -122,6 +122,72 @@ func TestInlineScriptHostLifecyclePresence(t *testing.T) {
 	}
 }
 
+func TestInlineScriptHostLifecycleNestedPython(t *testing.T) {
+	require.NoError(t, exec.Command(resolvePythonBin(), "--version").Run(), "this regression requires a working Python runtime")
+	const ordering = "host_lifecycle is not None and any(e.get('exit_code') == 3 and any(turn['start_index'] > e['index'] for turn in host_lifecycle['model_turns']) for s in host_lifecycle['shells'] for e in s['exits'])"
+	const comprehension = "host_lifecycle is not None and True in [turn['start_index'] > e['index'] for s in host_lifecycle['shells'] for e in s['exits'] for turn in host_lifecycle['model_turns']]"
+	const helpers = "host_lifecycle is not None and any(all([bool(int(float(str(e['exit_code'])))), len(list(dict(e))) > 0, re.fullmatch('build', str(s['shell_id'])) is not None]) for s in host_lifecycle['shells'] for e in s['exits'])"
+	for _, tc := range []struct {
+		name      string
+		lifecycle *models.HostLifecycle
+		orderOK   bool
+		helpersOK bool
+	}{
+		{name: "absent"},
+		{name: "observed empty", lifecycle: &models.HostLifecycle{ModelTurns: []models.ModelTurn{}, Shells: []models.ShellLifecycle{}}},
+		{name: "exit before turn", lifecycle: &models.HostLifecycle{
+			ModelTurns: []models.ModelTurn{{TurnID: "next", StartIndex: 5}},
+			Shells: []models.ShellLifecycle{{ShellID: "build", Calls: []models.ShellToolCall{},
+				Exits: []models.ShellExitEvent{{Index: 4, ExitCode: new(int64(3))}}}},
+		}, orderOK: true, helpersOK: true},
+		{name: "exit after turn", lifecycle: &models.HostLifecycle{
+			ModelTurns: []models.ModelTurn{{TurnID: "previous", StartIndex: 3}},
+			Shells: []models.ShellLifecycle{{ShellID: "build", Calls: []models.ShellToolCall{},
+				Exits: []models.ShellExitEvent{{Index: 4, ExitCode: new(int64(3))}}}},
+		}, helpersOK: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, assertion := range []struct {
+				name string
+				code string
+				pass bool
+			}{
+				{"cross-list ordering", ordering, tc.orderOK},
+				{"cross-list comprehension", comprehension, tc.orderOK},
+				{"allowed helpers in nested scopes", helpers, tc.helpersOK},
+			} {
+				t.Run(assertion.name, func(t *testing.T) {
+					grader, err := Create("nested", models.InlineScriptGraderParameters{Language: models.LanguagePython, Assertions: []string{assertion.code}})
+					require.NoError(t, err)
+					result, err := grader.Grade(t.Context(), &Context{HostLifecycle: tc.lifecycle})
+					require.NoError(t, err)
+					require.Equal(t, assertion.pass, result.Passed, "%+v", result)
+					if assertion.pass {
+						require.Equal(t, 1.0, result.Score)
+						require.Equal(t, "All assertions passed", result.Feedback)
+					} else {
+						require.Zero(t, result.Score)
+						require.Equal(t, "Failed: "+assertion.code, result.Feedback, "a false predicate must not be a name-resolution error")
+					}
+				})
+			}
+		})
+	}
+	t.Run("restricted builtins remain unavailable", func(t *testing.T) {
+		grader, err := Create("restricted", models.InlineScriptGraderParameters{Language: models.LanguagePython, Assertions: []string{
+			"any(open for _ in [1])",
+			"any(__import__ for _ in [1])",
+		}})
+		require.NoError(t, err)
+		result, err := grader.Grade(t.Context(), &Context{})
+		require.NoError(t, err)
+		require.False(t, result.Passed)
+		require.Zero(t, result.Score)
+		require.Contains(t, result.Feedback, "name 'open' is not defined")
+		require.Contains(t, result.Feedback, "name '__import__' is not defined")
+	})
+}
+
 func TestInlineScriptGrader(t *testing.T) {
 	skipIfNoPython(t)
 
