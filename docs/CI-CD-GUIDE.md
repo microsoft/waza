@@ -21,6 +21,12 @@ base branch, including feature branches used by stacked PRs. Both retain the
 Push triggers remain restricted to `main`/`develop` in `go-ci.yml` and
 `dev`/`insider` in `squad-ci.yml`.
 
+The four native Linux shards use measured top-level test costs and deterministic
+longest-processing-time grouping. Newly discovered tests use a conservative
+one-minute estimate until successful CI timings are used to refresh the cost
+table. Verification requires identical discovery and assignment artifacts plus
+exactly-once selection across all shards.
+
 These are ordinary `pull_request` workflows with `contents: read`, not
 `pull_request_target` or release/dispatch workflows. The existing `Lint`,
 `ubuntu-latest`, and `windows-latest` jobs, four native Linux shards, exhaustive

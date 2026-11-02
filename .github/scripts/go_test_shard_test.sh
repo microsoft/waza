@@ -63,6 +63,16 @@ done
 printf 'mode: atomic\nexample.go:1.1,2.1 1 1\n' > "$scratch/reports/coverage.txt"
 bash "$scripts/go_test_shard_verify.sh" "$scratch/reports"
 
+assignment="$scratch/reports/coverage-native-0.txt.assignment"
+grep -F $'\t60000\tTestAlpha' "$assignment" > /dev/null
+grep -F $'\t875875\tTestNativeReaderFrozen15cDecisionParity' "$assignment" > /dev/null
+cp "$assignment" "$scratch/saved-assignment"
+cp "$INVENTORY" "$scratch/order-inventory"
+LC_ALL=C sort -r "$INVENTORY" -o "$INVENTORY"
+bash "$scripts/go_test_shard.sh" 0 "$scratch/reordered-profile"
+cmp "$scratch/saved-assignment" "$scratch/reordered-profile.assignment"
+cp "$scratch/order-inventory" "$INVENTORY"
+
 expect_status 7 env LIST_STATUS=7 bash "$scripts/go_test_shard.sh" 0 "$scratch/profile"
 expect_status 9 env TEST_STATUS=9 bash "$scripts/go_test_shard.sh" 0 "$scratch/profile"
 expect_status 2 bash "$scripts/go_test_shard.sh" 4 "$scratch/profile"
@@ -96,5 +106,9 @@ mv "$scratch/truncated" "$profile.selected"
 expect_status 1 bash "$scripts/go_test_shard_verify.sh" "$scratch/reports"
 cp "$scratch/saved-selected" "$profile.selected"
 printf 'TestUnexpected\n' >> "$profile.all"
+expect_status 1 bash "$scripts/go_test_shard_verify.sh" "$scratch/reports"
+sed -i '$d' "$profile.all"
+awk -F '\t' 'BEGIN { OFS = FS } { $1 = ($1 + 1) % 4; print }' "$profile.assignment" > "$scratch/changed-assignment"
+mv "$scratch/changed-assignment" "$profile.assignment"
 expect_status 1 bash "$scripts/go_test_shard_verify.sh" "$scratch/reports"
 echo "Native shard discovery, selection, failure propagation, and required artifact verification: PASS"

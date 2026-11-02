@@ -325,14 +325,18 @@ Linux executes `internal/controlledcomparison` in four deterministic shards
 through `.github/workflows/go-native-shards.yml`; all remaining packages run in
 the main Linux build job. Discovery uses the same race/atomic build and includes
 tests, examples, and fuzz seed targets without changing their fixtures or
-internal skip behavior. Each shard retains the 30-minute Go test deadline.
-Windows continues to execute the complete suite in one job.
+internal skip behavior. Shards use measured top-level test costs with
+deterministic longest-processing-time grouping; unknown tests use a conservative
+one-minute fallback until successful CI timings refresh the cost table. Each
+shard retains the 30-minute Go test deadline. Windows continues to execute the
+complete suite in one job.
 
 The required `ubuntu-latest` gate explicitly fails if any build or native shard
 fails, is cancelled, or is skipped. It also requires all five atomic coverage
-profiles, identical native test inventories, and exactly-once selection across
-the four shards before uploading coverage. Do not replace it with a skipped
-dependent job or remove a package without providing exhaustive required shards.
+profiles, identical native test inventories and assignments, and exactly-once
+selection across the four shards before uploading coverage. Do not replace it
+with a skipped dependent job or remove a package without providing exhaustive
+required shards.
 Exercise discovery and all failure branches with
 `bash .github/scripts/go_test_shard_test.sh` when changing this arrangement.
 
