@@ -1,3 +1,5 @@
+# syntax=docker/dockerfile:1
+
 # Dockerfile for waza - AI agent skill evaluation CLI
 # This provides a containerized environment for running waza in CI/CD pipelines
 
@@ -23,7 +25,8 @@ WORKDIR /build
 COPY go.mod go.sum ./
 
 # Download dependencies
-RUN go mod download
+RUN --mount=type=cache,id=waza-go-mod,target=/go/pkg/mod \
+    go mod download
 
 # Copy source code
 COPY . .
@@ -32,7 +35,9 @@ COPY . .
 COPY --from=web-builder /build/web/dist/ web/dist/
 
 # Build the binary with static linking
-RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -ldflags '-s -w' -o waza ./cmd/waza
+RUN --mount=type=cache,id=waza-go-mod,target=/go/pkg/mod \
+    --mount=type=cache,id=waza-go-build,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS=linux go build -ldflags '-s -w' -o waza ./cmd/waza
 
 # Verify the binary works
 RUN ./waza --version
