@@ -330,6 +330,15 @@ expectedOutput:
 tags: ["basic", "core"]
 ```
 
+Task `inputs.environment` is a compatibility field, not implemented per-task
+environment configuration. A non-empty map produces a task-load warning and an
+unsupported `task.environment` preflight diagnostic without logging variable
+names or values. Empty or omitted maps do not warn. Run exit policies are
+unchanged; preflight retains default warning-only behavior and opt-in
+`--strict` failures. Remove this field and configure required environment
+outside Waza before process startup. Native snapshot execution still rejects
+non-empty maps.
+
 Add fixtures in `fixtures/`:
 
 ```python
