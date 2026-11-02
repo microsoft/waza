@@ -14,6 +14,11 @@ import (
 
 type workflowTriggers map[string]map[string][]string
 
+type workflowConcurrency struct {
+	Group            string `yaml:"group"`
+	CancelInProgress string `yaml:"cancel-in-progress"`
+}
+
 func readTriggers(source []byte) (workflowTriggers, error) {
 	var workflow struct {
 		On workflowTriggers `yaml:"on"`
@@ -33,6 +38,26 @@ func checkTriggers(source []byte, want workflowTriggers) error {
 		return fmt.Errorf("workflow triggers = %#v; want %#v", got, want)
 	}
 	return nil
+}
+
+func TestGoWorkflowConcurrency(t *testing.T) {
+	source, err := os.ReadFile(filepath.Join("..", "workflows", "go-ci.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var workflow struct {
+		Concurrency workflowConcurrency `yaml:"concurrency"`
+	}
+	if err := yaml.Unmarshal(source, &workflow); err != nil {
+		t.Fatal(err)
+	}
+	want := workflowConcurrency{
+		Group:            "go-ci-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.run_id }}",
+		CancelInProgress: "${{ github.event_name == 'pull_request' }}",
+	}
+	if !reflect.DeepEqual(workflow.Concurrency, want) {
+		t.Fatalf("workflow concurrency = %#v; want %#v", workflow.Concurrency, want)
+	}
 }
 
 // Selection is deliberately limited to the exact, literal branch/type filters
