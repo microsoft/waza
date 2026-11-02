@@ -18,48 +18,48 @@ if [ -z "$names" ]; then
   exit 1
 fi
 
-# Millisecond estimates are the mean top-level durations from successful Go CI
-# runs 41096175508 and 41074210725. Unknown tests get one minute so they are
-# included conservatively until the table is refreshed.
+# Millisecond estimates are the maximum top-level durations observed across
+# successful runs 41096175508, 41074210725, 41462829641, and 41462830074.
+# Unknown tests get one minute until the table is refreshed.
 test_cost_millis() {
   case "$1" in
     TestAssuredBuiltCLIWorkflow) echo 1000 ;;
-    TestAssuredCollectionRealOfflineVerifierAndRegrade) echo 104845 ;;
-    TestAssuredCurrentReviewRevocationAndArmSwap) echo 56660 ;;
-    TestAssuredCurrentSourceChangesRejectBeforeCollection) echo 63965 ;;
-    TestAssuredFullRowsAndRegradeCannotAdoptPass) echo 30565 ;;
-    TestAssuredRechecksAfterActualVerifier) echo 24640 ;;
-    TestAssuredUnreviewedRemainsNonpass) echo 35805 ;;
+    TestAssuredCollectionRealOfflineVerifierAndRegrade) echo 104930 ;;
+    TestAssuredCurrentReviewRevocationAndArmSwap) echo 65990 ;;
+    TestAssuredCurrentSourceChangesRejectBeforeCollection) echo 68750 ;;
+    TestAssuredFullRowsAndRegradeCannotAdoptPass) echo 42090 ;;
+    TestAssuredRechecksAfterActualVerifier) echo 27430 ;;
+    TestAssuredUnreviewedRemainsNonpass) echo 38670 ;;
     TestNativeArtifactPublicWireBoundBeforeOpen) echo 0 ;;
     TestNativeArtifactRejectsFIFOReplacementBeforeOpen) echo 0 ;;
-    TestNativeArtifactsAreRequiredAndConfined) echo 161535 ;;
-    TestNativeCollectionAcceptedAndFrozenReader) echo 134355 ;;
-    TestNativeCollectionDefaultClientDoesNotAllocateCommandMockRuntime) echo 63360 ;;
-    TestNativeCollectionDiscoveryOrder) echo 87400 ;;
-    TestNativeCollectionObservedFailures) echo 825775 ;;
-    TestNativeCollectionProductionLifecycle) echo 100200 ;;
-    TestNativeCollectionPublicPayloads) echo 500285 ;;
-    TestNativeFrozenResourcesReachFreshSDKWorkspace) echo 34800 ;;
+    TestNativeArtifactsAreRequiredAndConfined) echo 168690 ;;
+    TestNativeCollectionAcceptedAndFrozenReader) echo 158250 ;;
+    TestNativeCollectionDefaultClientDoesNotAllocateCommandMockRuntime) echo 72840 ;;
+    TestNativeCollectionDiscoveryOrder) echo 131570 ;;
+    TestNativeCollectionObservedFailures) echo 861020 ;;
+    TestNativeCollectionProductionLifecycle) echo 114630 ;;
+    TestNativeCollectionPublicPayloads) echo 556450 ;;
+    TestNativeFrozenResourcesReachFreshSDKWorkspace) echo 48260 ;;
     TestNativeInnerProfileRejectsFrozenPolicyMemberOracle) echo 0 ;;
-    TestNativeLateFailurePreservesEveryStartedAttempt) echo 441335 ;;
-    TestNativeReadSelectedDecisionCaptureVerification) echo 330620 ;;
-    TestNativeReaderFrozen15cDecisionParity) echo 875875 ;;
-    TestNativeReaderPreservesPrePolicyCoreFailures) echo 111705 ;;
-    TestNativeReaderSuppliedDecisionProcess) echo 6290 ;;
-    TestNativeSourceCurrentnessBeforeSideEffects) echo 192590 ;;
-    TestNativeStaticRequirementsAndConfiguration) echo 7520 ;;
-    TestNativeTerminalPolicyAndLateStop) echo 204095 ;;
+    TestNativeLateFailurePreservesEveryStartedAttempt) echo 484820 ;;
+    TestNativeReadSelectedDecisionCaptureVerification) echo 364330 ;;
+    TestNativeReaderFrozen15cDecisionParity) echo 1363230 ;;
+    TestNativeReaderPreservesPrePolicyCoreFailures) echo 113610 ;;
+    TestNativeReaderSuppliedDecisionProcess) echo 6950 ;;
+    TestNativeSourceCurrentnessBeforeSideEffects) echo 213850 ;;
+    TestNativeStaticRequirementsAndConfiguration) echo 10590 ;;
+    TestNativeTerminalPolicyAndLateStop) echo 204320 ;;
     TestNativeUnsupportedPlatformBeforeEffects) echo 1000 ;;
-    TestOriginalMockGuardAndLockErrorParity) echo 2910 ;;
-    TestOriginalMockPolicyGoldenUnionParity) echo 3850 ;;
-    TestOriginalMockSourceProjectionParity) echo 13845 ;;
+    TestOriginalMockGuardAndLockErrorParity) echo 3330 ;;
+    TestOriginalMockPolicyGoldenUnionParity) echo 5180 ;;
+    TestOriginalMockSourceProjectionParity) echo 14910 ;;
     TestPlanningInputRequiresExplicitFields) echo 0 ;;
-    TestReadSelectedDecisionBindsEveryCoreArtifactConsumedByAssessment) echo 270475 ;;
-    TestReadSelectedDecisionRejectsCollectionReplacedAfterSelection) echo 69910 ;;
-    TestReadSelectedDecisionRejectsMockCollectionReplacedAfterSelection) echo 8060 ;;
-    TestSourceBoundCollection) echo 4695 ;;
-    TestSourceDriftBeforeBegin) echo 1635 ;;
-    TestSourcePlanBoundaries) echo 7825 ;;
+    TestReadSelectedDecisionBindsEveryCoreArtifactConsumedByAssessment) echo 297150 ;;
+    TestReadSelectedDecisionRejectsCollectionReplacedAfterSelection) echo 95120 ;;
+    TestReadSelectedDecisionRejectsMockCollectionReplacedAfterSelection) echo 8120 ;;
+    TestSourceBoundCollection) echo 5410 ;;
+    TestSourceDriftBeforeBegin) echo 1900 ;;
+    TestSourcePlanBoundaries) echo 11100 ;;
     *) echo 60000 ;;
   esac
 }

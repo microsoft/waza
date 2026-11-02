@@ -65,7 +65,18 @@ bash "$scripts/go_test_shard_verify.sh" "$scratch/reports"
 
 assignment="$scratch/reports/coverage-native-0.txt.assignment"
 grep -F $'\t60000\tTestAlpha' "$assignment" > /dev/null
-grep -F $'\t875875\tTestNativeReaderFrozen15cDecisionParity' "$assignment" > /dev/null
+cat > "$scratch/expected-assignment" <<'EOF'
+2	60000	ExampleComparison
+3	60000	FuzzBytes
+2	60000	FuzzUnicode
+3	60000	TestAlpha
+1	114630	TestNativeCollectionProductionLifecycle
+0	1363230	TestNativeReaderFrozen15cDecisionParity
+3	6950	TestNativeReaderSuppliedDecisionProcess
+1	60000	TestZulu
+2	60000	TestΩmega
+EOF
+diff -u "$scratch/expected-assignment" "$assignment"
 cp "$assignment" "$scratch/saved-assignment"
 cp "$INVENTORY" "$scratch/order-inventory"
 LC_ALL=C sort -r "$INVENTORY" -o "$INVENTORY"
