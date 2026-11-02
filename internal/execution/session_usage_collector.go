@@ -539,22 +539,19 @@ func (b *sessionEventModelObservationBuilder) addValue(model string) {
 		b.models = append(b.models, model)
 		return
 	}
+	for _, existing := range b.models {
+		if existing == model {
+			return
+		}
+	}
 	if len(b.models) == linearModelDedupLimit {
 		b.seen = make(map[string]struct{}, len(b.models)+1)
 		for _, existing := range b.models {
 			b.seen[existing] = struct{}{}
 		}
-		if _, ok := b.seen[model]; ok {
-			return
-		}
 		b.seen[model] = struct{}{}
 		b.models = append(b.models, model)
 		return
-	}
-	for _, existing := range b.models {
-		if existing == model {
-			return
-		}
 	}
 	b.models = append(b.models, model)
 }
