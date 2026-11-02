@@ -99,23 +99,26 @@ func TestMCPMockAttemptProcessesShareSequenceState(t *testing.T) {
 	require.Contains(t, callMCPMockProcess(t, "independent attempt, invocation 1", binary, otherStdio.Args), `{\"ordinal\":1}`)
 }
 
-func TestMCPMockProcessFailureDiagnostics(t *testing.T) {
-	if mode := os.Getenv("WAZA_TEST_MCP_DIAGNOSTIC_CHILD"); mode != "" {
-		if _, err := fmt.Fprint(os.Stdout, strings.Repeat("o", mcpMockDiagnosticOutputLimit)+"stdout-tail"); err != nil {
-			t.Fatalf("writing synthetic stdout: %v", err)
-		}
-		if _, err := fmt.Fprint(os.Stderr, strings.Repeat("e", mcpMockDiagnosticOutputLimit)+"stderr-tail"); err != nil {
-			t.Fatalf("writing synthetic stderr: %v", err)
-		}
-		if mode == "success" {
-			os.Exit(0)
-		}
-		os.Exit(7)
+func runMCPMockDiagnosticChild(mode string) (int, error) {
+	if _, err := fmt.Fprint(os.Stdout, strings.Repeat("o", mcpMockDiagnosticOutputLimit)+"stdout-tail"); err != nil {
+		return 1, fmt.Errorf("writing synthetic stdout: %w", err)
 	}
+	if _, err := fmt.Fprint(os.Stderr, strings.Repeat("e", mcpMockDiagnosticOutputLimit)+"stderr-tail"); err != nil {
+		return 1, fmt.Errorf("writing synthetic stderr: %w", err)
+	}
+	if mode == "success" {
+		return 0, nil
+	}
+	return 7, nil
+}
+
+func TestMCPMockProcessFailureDiagnostics(t *testing.T) {
 	binary, err := os.Executable()
 	require.NoError(t, err)
 	for _, mode := range []string{"exit", "success", "canceled", "deadline"} {
 		t.Run(mode, func(t *testing.T) {
+			cacheBlocker := filepath.Join(t.TempDir(), "cache-must-not-be-used")
+			require.NoError(t, os.WriteFile(cacheBlocker, []byte("unchanged"), 0o600))
 			started := time.Now()
 			ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
 			defer cancel()
@@ -129,9 +132,15 @@ func TestMCPMockProcessFailureDiagnostics(t *testing.T) {
 			}
 			child := exec.CommandContext(ctx, binary, "-test.run=^TestMCPMockProcessFailureDiagnostics$")
 			child.Env = append(os.Environ(), "WAZA_TEST_MCP_DIAGNOSTIC_CHILD="+mode)
+			for _, key := range []string{"LOCALAPPDATA", "XDG_CACHE_HOME", "HOME", "USERPROFILE"} {
+				child.Env = append(child.Env, key+"="+cacheBlocker)
+			}
 			var stdout, stderr bytes.Buffer
 			child.Stdout, child.Stderr = &stdout, &stderr
 			err := runMCPMockProcess(ctx, "controlled "+mode, child, started, &stdout, &stderr)
+			cacheContents, readErr := os.ReadFile(cacheBlocker)
+			require.NoError(t, readErr)
+			require.Equal(t, "unchanged", string(cacheContents))
 			if mode == "success" {
 				require.NoError(t, err)
 				require.Equal(t, strings.Repeat("o", mcpMockDiagnosticOutputLimit)+"stdout-tail", stdout.String())
