@@ -40,6 +40,7 @@ func (tg *TextGrader) Kind() models.GraderKind { return models.GraderKindText }
 func (tg *TextGrader) Grade(ctx context.Context, gradingContext *Context) (*models.GraderResults, error) {
 	return measureTime(func() (*models.GraderResults, error) {
 		var failures []string
+		var evaluationErrors []string
 		outputLower := strings.ToLower(gradingContext.Output)
 
 		// Case-insensitive contains
@@ -74,7 +75,9 @@ func (tg *TextGrader) Grade(ctx context.Context, gradingContext *Context) (*mode
 		for _, pattern := range tg.regexMatch {
 			re, err := regexp.Compile(pattern)
 			if err != nil {
-				failures = append(failures, fmt.Sprintf("Invalid regex_match pattern %q: %v", pattern, err))
+				message := fmt.Sprintf("Invalid regex_match pattern %q: %v", pattern, err)
+				failures = append(failures, message)
+				evaluationErrors = append(evaluationErrors, message)
 				continue
 			}
 			if !re.MatchString(gradingContext.Output) {
@@ -86,7 +89,9 @@ func (tg *TextGrader) Grade(ctx context.Context, gradingContext *Context) (*mode
 		for _, pattern := range tg.regexNotMatch {
 			re, err := regexp.Compile(pattern)
 			if err != nil {
-				failures = append(failures, fmt.Sprintf("Invalid regex_not_match pattern %q: %v", pattern, err))
+				message := fmt.Sprintf("Invalid regex_not_match pattern %q: %v", pattern, err)
+				failures = append(failures, message)
+				evaluationErrors = append(evaluationErrors, message)
 				continue
 			}
 			if re.MatchString(gradingContext.Output) {
@@ -109,21 +114,25 @@ func (tg *TextGrader) Grade(ctx context.Context, gradingContext *Context) (*mode
 			feedback = strings.Join(failures, "; ")
 		}
 
+		details := map[string]any{
+			"contains":        tg.contains,
+			"not_contains":    tg.notContains,
+			"contains_cs":     tg.containsCS,
+			"not_contains_cs": tg.notContainsCS,
+			"regex_match":     tg.regexMatch,
+			"regex_not_match": tg.regexNotMatch,
+			"failures":        failures,
+		}
+		if len(evaluationErrors) > 0 {
+			details["evaluation_errors"] = evaluationErrors
+		}
 		return &models.GraderResults{
 			Name:     tg.name,
 			Type:     models.GraderKindText,
 			Score:    score,
 			Passed:   len(failures) == 0,
 			Feedback: feedback,
-			Details: map[string]any{
-				"contains":        tg.contains,
-				"not_contains":    tg.notContains,
-				"contains_cs":     tg.containsCS,
-				"not_contains_cs": tg.notContainsCS,
-				"regex_match":     tg.regexMatch,
-				"regex_not_match": tg.regexNotMatch,
-				"failures":        failures,
-			},
+			Details:  details,
 		}, nil
 	})
 }

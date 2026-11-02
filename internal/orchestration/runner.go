@@ -346,6 +346,10 @@ func (r *EvalRunner) RunBenchmark(ctx context.Context) (*models.EvaluationOutcom
 	if err := r.engine.Initialize(ctx); err != nil {
 		return nil, err
 	}
+	// Initialization can change task inputs; re-admit without repeating setup.
+	if err := r.admitEvalMCPMocks(); err != nil {
+		return nil, err
+	}
 
 	spec := r.cfg.Spec()
 

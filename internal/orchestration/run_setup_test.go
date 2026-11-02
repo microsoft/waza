@@ -1,12 +1,14 @@
 package orchestration
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/microsoft/waza/internal/config"
+	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/stretchr/testify/require"
 )
@@ -108,6 +110,91 @@ const hookHostMock = `mcp_mocks:
           - match_schema: {}
             return: {answer: Not now}
 `
+
+type setupMutationEngine struct {
+	*admissionEngine
+	task        string
+	original    string
+	replacement string
+	executes    int
+}
+
+func (e *setupMutationEngine) Initialize(ctx context.Context) error {
+	data, err := os.ReadFile(e.task)
+	if err != nil {
+		return err
+	}
+	require.Equal(e.t, e.original, string(data), "before_run must generate the admitted task before initialization")
+	if err := os.WriteFile(e.task, []byte(e.replacement), 0o600); err != nil {
+		return err
+	}
+	return e.admissionEngine.Initialize(ctx)
+}
+
+func (e *setupMutationEngine) Execute(ctx context.Context, req *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
+	e.executes++
+	return e.admissionEngine.Execute(ctx, req)
+}
+
+func TestRunBenchmark_ReadmitsHookGeneratedTaskAfterInitialization(t *testing.T) {
+	for _, tt := range []struct {
+		name        string
+		replacement string
+		wantErr     string
+		wantAnswer  string
+	}{
+		{
+			name:        "empty task mocks",
+			replacement: admissionInheritTask + "mcp_mocks: []\n",
+			wantErr:     "mcp_mocks must not be empty",
+		},
+		{
+			name:        "missing task fixtures",
+			replacement: admissionInheritTask + "mcp_mocks:\n  - name: host\n    fixtures: missing-startup-fixtures\n",
+			wantErr:     `MCP mock admission: task "inherit": resolve MCP mock "host"`,
+		},
+		{name: "unchanged valid", replacement: admissionInheritTask, wantAnswer: "Not now"},
+		{name: "valid replacement", replacement: admissionReplaceTask("inherit"), wantAnswer: "Publish this version"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			runner, engine, log := writeHookSuite(t, hookHostMock, admissionInheritTask)
+			task := filepath.Join(filepath.Dir(log), "tasks", "generated.yaml")
+			mutator := &setupMutationEngine{
+				admissionEngine: engine,
+				task:            task,
+				original:        admissionInheritTask,
+				replacement:     tt.replacement,
+			}
+			runner.engine = mutator
+			outcome, err := runner.RunBenchmark(t.Context())
+			require.Equal(t, 1, engine.initialized)
+			data, readErr := os.ReadFile(task)
+			require.NoError(t, readErr)
+			require.Equal(t, tt.replacement, string(data))
+			if tt.name != "unchanged valid" {
+				require.NotEqual(t, admissionInheritTask, string(data))
+			}
+			requireHookLog(t, log)
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				if tt.name == "missing task fixtures" {
+					require.ErrorContains(t, err, "missing-startup-fixtures")
+				}
+				require.Nil(t, outcome)
+				require.Zero(t, mutator.executes)
+				require.Empty(t, engine.answers, "invalid initialization changes must not reach Execute")
+				return
+			}
+			require.NoError(t, err)
+			require.Len(t, outcome.TestOutcomes, 1)
+			require.Equal(t, 1, mutator.executes)
+			require.Equal(t, models.StatusSkipped, outcome.TestOutcomes[0].Status)
+			require.Len(t, outcome.TestOutcomes[0].Runs, 1)
+			require.Equal(t, models.StatusSkipped, outcome.TestOutcomes[0].Runs[0].Status)
+			require.Equal(t, map[string]string{"inherit": tt.wantAnswer}, engine.answers)
+		})
+	}
+}
 
 func TestRunBenchmark_BeforeRunGeneratesTaskBeforeLoading(t *testing.T) {
 	runner, engine, log := writeHookSuite(t, hookHostMock, admissionInheritTask)
