@@ -1,10 +1,12 @@
 package skill
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
 
+	"github.com/microsoft/waza/internal/tokens"
 	"github.com/stretchr/testify/require"
 )
 
@@ -109,6 +111,80 @@ Some body content here.
 	require.Greater(t, skill.Tokens, 0, "tokens should be estimated")
 	require.Equal(t, len(content), skill.Characters, "characters should match raw content length")
 	require.Greater(t, skill.Lines, 0, "lines should be counted")
+}
+
+func TestUnmarshalTextWithoutTokenCount(t *testing.T) {
+	content := []byte(`---
+name: metadata-test
+description: A test skill for metadata-only parsing
+---
+
+# Metadata Test
+
+Some body content here.
+`)
+	var skill Skill
+	require.NoError(t, skill.UnmarshalTextWithoutTokenCount(content))
+	require.Equal(t, "metadata-test", skill.Frontmatter.Name)
+	require.Equal(t, "A test skill for metadata-only parsing", skill.Frontmatter.Description)
+	require.Contains(t, skill.Body, "Some body content here.")
+	require.Equal(t, string(content), skill.RawContent)
+	require.Zero(t, skill.Tokens)
+	require.Equal(t, len(content), skill.Characters)
+	require.Greater(t, skill.Lines, 0)
+}
+
+func TestUnmarshalTextWithoutTokenCount_DoesNotInitializeCounter(t *testing.T) {
+	original := defaultTokenCounter
+	defaultTokenCounter = func() (tokens.Counter, error) {
+		return nil, errors.New("token counter should not be initialized")
+	}
+	t.Cleanup(func() {
+		defaultTokenCounter = original
+	})
+
+	var skill Skill
+	require.NoError(t, skill.UnmarshalTextWithoutTokenCount(benchmarkSkillContent))
+	require.Zero(t, skill.Tokens)
+	require.EqualError(t, skill.UnmarshalText(benchmarkSkillContent), "token counter should not be initialized")
+}
+
+func TestUnmarshalTextWithoutTokenCount_ParseErrors(t *testing.T) {
+	var skill Skill
+	require.EqualError(t, skill.UnmarshalTextWithoutTokenCount(nil), "SKILL.md is empty")
+	require.EqualError(
+		t,
+		skill.UnmarshalTextWithoutTokenCount([]byte("---\nname: invalid")),
+		"parsing frontmatter: closing frontmatter delimiter not found",
+	)
+}
+
+var benchmarkSkillContent = []byte(`---
+name: benchmark-skill
+description: A representative skill used to compare parsing paths
+---
+
+# Benchmark Skill
+
+Use this skill when benchmarking skill parsing.
+`)
+
+func BenchmarkUnmarshalText(b *testing.B) {
+	for b.Loop() {
+		var skill Skill
+		if err := skill.UnmarshalText(benchmarkSkillContent); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkUnmarshalTextWithoutTokenCount(b *testing.B) {
+	for b.Loop() {
+		var skill Skill
+		if err := skill.UnmarshalTextWithoutTokenCount(benchmarkSkillContent); err != nil {
+			b.Fatal(err)
+		}
+	}
 }
 
 func TestMarshalText_RoundTrip(t *testing.T) {
