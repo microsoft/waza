@@ -3,6 +3,7 @@
 package main
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 )
@@ -26,3 +27,6 @@ func unlockUndeletableEntry(dir string) error {
 	}
 	return err
 }
+
+// deletionDenied reports whether a removal failed because deletion was denied.
+func deletionDenied(err error) bool { return errors.Is(err, os.ErrPermission) }

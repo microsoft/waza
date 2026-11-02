@@ -3,13 +3,18 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 	"unsafe"
 
 	"github.com/stretchr/testify/require"
@@ -17,8 +22,10 @@ import (
 )
 
 // lockUndeletableEntry creates dir containing a file whose removal fails:
-// protected DACLs deny both deletion routes for the current SID. Unlike an
-// open handle, these restrictions survive the grader subprocess exiting.
+// protected DACLs deny both deletion routes for the current SID, and a
+// separate holder process keeps the file open without FILE_SHARE_DELETE.
+// Both survive the grader subprocess exiting; unlockUndeletableEntry
+// releases them.
 func lockUndeletableEntry(dir string) error {
 	// Keep the effective thread identity consistent through diagnostics and probes.
 	runtime.LockOSThread()
@@ -126,7 +133,15 @@ func lockUndeletableEntry(dir string) error {
 		diagnostics = append(diagnostics, fmt.Sprintf("%s=%t", access.name, granted))
 	}
 	// Exercise both Windows deletion paths, without consuming the leaf, before
-	// trusting the fixture to make the production cleanup fail.
+	// trusting the fixture to make the production cleanup fail. A separate
+	// process holds the file open without FILE_SHARE_DELETE first: elevated
+	// tokens can bypass the deny ACEs, but not another handle's sharing mode.
+	// The access probes above run before it so their results are unaffected.
+	if err := startProgramContextFileHolder(dir, file); err != nil {
+		verificationErrors = append(verificationErrors, err)
+		return errors.Join(fmt.Errorf("%w; fixture diagnostics: %v", errors.Join(verificationErrors...), diagnostics), unlockUndeletableEntry(dir))
+	}
+	diagnostics = append(diagnostics, "open_handle_holder=true")
 	for _, probe := range []struct {
 		name   string
 		remove func() error
@@ -135,8 +150,8 @@ func lockUndeletableEntry(dir string) error {
 		{"os.RemoveAll(dir)", func() error { return os.RemoveAll(dir) }},
 	} {
 		err := probe.remove()
-		diagnostics = append(diagnostics, fmt.Sprintf("%s_denied=%t", probe.name, errors.Is(err, os.ErrPermission)))
-		if !errors.Is(err, os.ErrPermission) {
+		diagnostics = append(diagnostics, fmt.Sprintf("%s_denied=%t", probe.name, deletionDenied(err)))
+		if !deletionDenied(err) {
 			verificationErrors = append(verificationErrors, fmt.Errorf("expected deletion denial from %s for %s, got %v", probe.name, dir, err))
 		}
 	}
@@ -222,14 +237,15 @@ func programContextEffectiveSIDMatches(sid string) (matches, impersonating bool,
 }
 
 func unlockUndeletableEntry(dir string) error {
+	holderErr := stopProgramContextFileHolder(dir)
 	if _, err := os.Stat(dir); os.IsNotExist(err) {
-		return nil
+		return holderErr
 	}
 	sid, err := currentUserSIDString()
 	if err != nil {
-		return err
+		return errors.Join(holderErr, err)
 	}
-	var errs []error
+	errs := []error{holderErr}
 	for _, path := range []string{dir, filepath.Join(dir, "f")} {
 		if _, err := os.Stat(path); os.IsNotExist(err) {
 			continue
@@ -275,6 +291,132 @@ func currentUserSIDString() (string, error) {
 	return user.User.Sid.String(), nil
 }
 
+const (
+	programContextHoldEnv    = "WAZA_TEST_PROGRAM_CONTEXT_HOLD"
+	programContextHoldPIDEnv = "WAZA_TEST_PROGRAM_CONTEXT_HOLD_PID"
+	// The holder exits on its own after this long if nobody releases it.
+	programContextHolderLifetime = 5 * time.Minute
+)
+
+// deletionDenied reports whether a removal failed because Windows refused to
+// delete the entry: by access check, or by another handle's sharing mode.
+func deletionDenied(err error) bool {
+	return errors.Is(err, os.ErrPermission) || errors.Is(err, windows.ERROR_SHARING_VIOLATION)
+}
+
+// programContextHolderPIDPath names the holder's PID file. It lives beside
+// the locked directory's parent in a stable, process-independent location so
+// a holder started by the grader subprocess can be released by the test.
+func programContextHolderPIDPath(dir string) string {
+	sum := sha256.Sum256([]byte(strings.ToLower(filepath.Clean(dir))))
+	return filepath.Join(filepath.Dir(filepath.Dir(filepath.Clean(dir))), "waza-holder-"+hex.EncodeToString(sum[:8])+".pid")
+}
+
+// startProgramContextFileHolder starts a process that opens file without
+// FILE_SHARE_DELETE and keeps it open until released. It returns once the
+// handle is open, so deletion is denied regardless of the caller's privileges.
+func startProgramContextFileHolder(dir, file string) error {
+	exe, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("locating holder executable: %w", err)
+	}
+	pidPath := programContextHolderPIDPath(dir)
+	cmd := exec.Command(exe, "-test.run=^TestProgramContextFileHolder$")
+	cmd.Env = append(os.Environ(), programContextHoldEnv+"="+file, programContextHoldPIDEnv+"="+pidPath)
+	// No stdio: the holder must not keep a grader's output pipes open.
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("starting open-handle holder: %w", err)
+	}
+	exited := make(chan error, 1)
+	go func() { exited <- cmd.Wait() }()
+	deadline := time.After(30 * time.Second)
+	for {
+		if _, err := os.Stat(pidPath); err == nil {
+			return nil
+		}
+		select {
+		case err := <-exited:
+			return fmt.Errorf("open-handle holder exited before holding %s: %v", file, err)
+		case <-deadline:
+			return errors.Join(fmt.Errorf("open-handle holder did not hold %s in time", file), cmd.Process.Kill())
+		case <-time.After(20 * time.Millisecond):
+		}
+	}
+}
+
+// stopProgramContextFileHolder releases the holder for dir, if any, and waits
+// for its handle to close so the entry becomes deletable again.
+func stopProgramContextFileHolder(dir string) error {
+	pidPath := programContextHolderPIDPath(dir)
+	data, err := os.ReadFile(pidPath)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("reading open-handle holder PID: %w", err)
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil {
+		return fmt.Errorf("parsing open-handle holder PID: %w", err)
+	}
+	process, findErr := os.FindProcess(pid)
+	// Removing the PID file tells the holder to close its handle and exit.
+	if err := os.Remove(pidPath); err != nil {
+		return fmt.Errorf("releasing open-handle holder: %w", err)
+	}
+	if findErr != nil {
+		return nil // already exited
+	}
+	defer process.Release() //nolint:errcheck // best-effort handle release after exit
+	done := make(chan struct{})
+	go func() {
+		_, _ = process.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return nil
+	case <-time.After(30 * time.Second):
+		killErr := process.Kill()
+		<-done
+		return errors.Join(errors.New("open-handle holder did not exit after release; killed"), killErr)
+	}
+}
+
+// TestProgramContextFileHolder runs as the open-handle holder process.
+func TestProgramContextFileHolder(t *testing.T) {
+	file := os.Getenv(programContextHoldEnv)
+	pidPath := os.Getenv(programContextHoldPIDEnv)
+	if file == "" || pidPath == "" {
+		return
+	}
+	path, err := windows.UTF16PtrFromString(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handle, err := windows.CreateFile(path, windows.GENERIC_READ,
+		windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE, // deliberately no FILE_SHARE_DELETE
+		nil, windows.OPEN_EXISTING, windows.FILE_ATTRIBUTE_NORMAL, 0)
+	if err != nil {
+		t.Fatalf("holding %s: %v", file, err)
+	}
+	defer windows.CloseHandle(handle) //nolint:errcheck // closing on exit
+	tmp := pidPath + ".tmp"
+	if err := os.WriteFile(tmp, []byte(strconv.Itoa(os.Getpid())), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(tmp, pidPath); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(programContextHolderLifetime)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(pidPath); errors.Is(err, os.ErrNotExist) {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
 func TestProgramContextUndeletableEntry(t *testing.T) {
 	requireUndeletableEntries(t)
 	dir := filepath.Join(t.TempDir(), "locked")
@@ -283,7 +425,7 @@ func TestProgramContextUndeletableEntry(t *testing.T) {
 	})
 	require.NoError(t, lockUndeletableEntry(dir))
 	require.FileExists(t, filepath.Join(dir, "f"))
-	require.ErrorIs(t, os.RemoveAll(dir), os.ErrPermission)
+	require.True(t, deletionDenied(os.RemoveAll(dir)))
 	require.FileExists(t, filepath.Join(dir, "f"))
 	require.NoError(t, unlockUndeletableEntry(dir))
 	require.NoError(t, os.RemoveAll(dir))

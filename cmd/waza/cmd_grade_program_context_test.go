@@ -35,8 +35,8 @@ func requireUndeletableEntriesWith(t *testing.T, lock func(string) error) {
 	probe := filepath.Join(t.TempDir(), "probe")
 	t.Cleanup(func() { require.NoError(t, unlockUndeletableEntry(probe)) })
 	require.NoError(t, lock(probe), "native cleanup fixture setup must succeed")
-	require.ErrorIs(t, os.Remove(filepath.Join(probe, "f")), os.ErrPermission,
-		"native cleanup fixture must deny deletion")
+	err := os.Remove(filepath.Join(probe, "f"))
+	require.True(t, deletionDenied(err), "native cleanup fixture must deny deletion, got %v", err)
 }
 
 func TestProgramContextUndeletableSetupFailureFailsTest(t *testing.T) {
