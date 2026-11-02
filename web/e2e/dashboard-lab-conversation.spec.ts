@@ -191,31 +191,55 @@ test.describe("Lab conversation", () => {
     }
   });
 
-  test("defensively omits non-string content in a malformed API response", async ({ page }) => {
-    const dialog = await openConversation(page);
-    // These values violate the typed API contract; inject them only at the HTTP boundary.
-    const transcript = ["user.message", "assistant.message"].flatMap((type) =>
-      [null, 0, 42, false, true, [], ["not dialogue"], { text: "not dialogue" }]
-        .map((content) => ({ type, content })),
-    );
-    await page.route("**/api/runs/conversation", (route) => route.fulfill({
-      json: {
-        ...CONVERSATION_DETAIL,
-        tasks: [{
-          ...CONVERSATION_DETAIL.tasks[0]!,
-          transcript: [...transcript, { type: "assistant.message", content: "0" }],
-        }],
-      },
-    }));
-    await page.getByRole("button", { name: "Refresh results", exact: true, includeHidden: true })
-      .evaluate((element: HTMLButtonElement) => element.click());
-    const messages = dialog.getByRole("list", { name: "Recorded conversation" }).getByRole("listitem");
-    await expect(messages).toHaveCount(1);
-    await expect(messages.locator(".lab-message-content")).toHaveText("0");
-    await expect(messages.locator(".lab-message-heading span")).toHaveText("Message 1");
-    await expect(dialog).toContainText("1 message with recorded text.");
-    await expect(dialog).not.toContainText("No message text recorded.");
-  });
+  for (const field of ["content", "message"]) {
+    test(`defensively handles non-string ${field} in Conversation and Trajectory`, async ({ page }) => {
+      const errors: Error[] = [];
+      page.on("pageerror", (error) => errors.push(error));
+      const dialog = await openConversation(page);
+      // These values violate the typed API contract; inject them only at the HTTP boundary.
+      const transcript = ["user.message", "assistant.message"].flatMap((type) =>
+        [null, 0, 42, false, true, [], ["not dialogue"], { text: "not dialogue" }]
+          .map((value) => ({ type, [field]: value })),
+      );
+      const controls = [
+        { type: "assistant.message", content: "0" },
+        { type: "session.error", content: 0, message: " \tRecorded error.\n" },
+        { type: "session.error", content: " \tRecorded content.\n", message: false },
+      ];
+      await page.route("**/api/runs/conversation", (route) => route.fulfill({
+        json: {
+          ...CONVERSATION_DETAIL,
+          tasks: [{
+            ...CONVERSATION_DETAIL.tasks[0]!,
+            transcript: [...transcript, ...controls],
+          }],
+        },
+      }));
+      await page.getByRole("button", { name: "Refresh results", exact: true, includeHidden: true })
+        .evaluate((element: HTMLButtonElement) => element.click());
+      const messages = dialog.getByRole("list", { name: "Recorded conversation" }).getByRole("listitem");
+      await expect(messages).toHaveCount(1);
+      await expect(messages.locator(".lab-message-content")).toHaveText("0");
+      await expect(messages.locator(".lab-message-heading span")).toHaveText("Message 1");
+      await expect(dialog).toContainText("1 message with recorded text.");
+      await expect(dialog).not.toContainText("No message text recorded.");
+      await dialog.getByRole("tab", { name: "Trajectory", exact: true }).click();
+      const descriptions = dialog.locator("p.break-words");
+      const expected = [...transcript.map((event) => event.type), "0", " \tRecorded error.\n", " \tRecorded content.\n"];
+      await expect(descriptions).toHaveCount(expected.length);
+      for (const [index, text] of expected.entries()) {
+        expect(await descriptions.nth(index).textContent()).toBe(text);
+        const row = descriptions.nth(index).locator("..");
+        if (index < transcript.length) {
+          await expect(row.getByRole("button", { name: "Show details", exact: true })).toHaveCount(0);
+        } else {
+          await row.getByRole("button", { name: "Show details", exact: true }).click();
+          expect(await row.locator("pre code").textContent()).toBe(text);
+        }
+      }
+      expect(errors).toEqual([]);
+    });
+  }
 
   test("preserves whitespace and renders message text without inventing pairings or HTML", async ({ page }) => {
     const dialog = await openConversation(page, {
