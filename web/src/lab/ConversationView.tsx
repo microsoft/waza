@@ -19,9 +19,9 @@ export default function ConversationView({ task }: { task?: TaskResult }) {
         </p>
       ) : (
         <p className="lab-note">
-          No recorded conversation text for this task. Use Trajectory for
-          underlying events. Prompts, grader feedback, and tool events are not
-          reconstructed into a conversation.
+          No recorded conversation text for the first repetition of this task.
+          Use Trajectory for underlying events. Prompts, grader feedback, and
+          tool events are not reconstructed into a conversation.
         </p>
       )}
       {task?.responder && (

@@ -124,7 +124,8 @@ missing messages from the initial prompt, grader feedback or final output.
 Only messages with non-whitespace text appear. Missing, empty, non-string and
 whitespace-only content is omitted; substantive text is preserved verbatim.
 The count and numbering reflect messages with recorded text. If none remain, the
-empty state says no conversation text was recorded and points to **Trajectory**.
+empty state says "No recorded conversation text for the first repetition of this
+task." and points to **Trajectory**; later repetitions may contain recorded text.
 Saved transcript data is unchanged. **Trajectory** retains every event and shows
 the original event type for user and assistant messages without non-whitespace text.
 The synthetic demo does not invent a recorded conversation.

@@ -87,7 +87,7 @@ test.describe("Lab conversation", () => {
     const dialog = await openConversation(page, {
       ...CONVERSATION_DETAIL, tasks: [recorded],
     });
-    await expect(dialog).toContainText("No recorded conversation text for this task.");
+    await expect(dialog).toContainText("No recorded conversation text for the first repetition of this task.");
     await expect(dialog.getByRole("list", { name: "Recorded conversation" })).toHaveCount(0);
     await dialog.getByRole("tab", { name: "Trajectory", exact: true }).click();
     const descriptions = dialog.locator("p.break-words");
@@ -118,7 +118,7 @@ test.describe("Lab conversation", () => {
     const task = dialog.getByRole("combobox", { name: "Task", exact: true });
     for (const id of ["absent", "empty", "tools"]) {
       await task.selectOption(`id:${id}`);
-      await expect(dialog).toContainText("No recorded conversation text for this task.");
+      await expect(dialog).toContainText("No recorded conversation text for the first repetition of this task.");
       await expect(dialog.getByRole("list", { name: "Recorded conversation" })).toHaveCount(0);
       await expect(dialog).not.toContainText("PROMPT_IS_NOT_A_TRANSCRIPT");
     }
@@ -148,7 +148,7 @@ test.describe("Lab conversation", () => {
     }
   });
 
-  test("shows the empty state when all recorded messages lack text", async ({ page }) => {
+  test("scopes the empty state to the first repetition when later repetitions contain text", async ({ page }) => {
     const dialog = await openConversation(page, {
       ...CONVERSATION_DETAIL,
       tasks: [
@@ -165,7 +165,9 @@ test.describe("Lab conversation", () => {
     });
     for (const id of ["empty-messages", "textless"]) {
       await dialog.getByRole("combobox", { name: "Task", exact: true }).selectOption(`id:${id}`);
-      await expect(dialog).toContainText("No recorded conversation text for this task.");
+      await expect(dialog).toContainText("No recorded conversation text for the first repetition of this task.");
+      await expect(dialog).not.toContainText("No recorded conversation text for this task.");
+      await expect(dialog).not.toContainText("SECOND_REPETITION");
       await expect(dialog.getByRole("list", { name: "Recorded conversation" })).toHaveCount(0);
       await expect(dialog).not.toContainText("No message text recorded.");
       await expect(dialog).not.toContainText("Responder recorded");
@@ -183,7 +185,7 @@ test.describe("Lab conversation", () => {
     });
     for (const count of [0, 1, 2]) {
       await dialog.getByRole("combobox", { name: "Task", exact: true }).selectOption(`id:responder-${count}`);
-      await expect(dialog).toContainText("No recorded conversation text for this task.");
+      await expect(dialog).toContainText("No recorded conversation text for the first repetition of this task.");
       await expect(dialog).toContainText("Use Trajectory for underlying events.");
       await expect(dialog.getByRole("list", { name: "Recorded conversation" })).toHaveCount(0);
       await expect(dialog).toContainText(`Responder recorded ${count} simulated-user ${count === 1 ? "follow-up" : "follow-ups"}.`);
