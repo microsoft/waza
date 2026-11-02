@@ -1465,6 +1465,15 @@ skills/                Example skills
 
 ## Eval Spec Format
 
+Task YAML's `inputs.environment` is accepted for compatibility but is **not
+applied** during execution. Non-empty maps emit a task-load warning and an
+unsupported `task.environment` preflight diagnostic; omitted or empty maps do
+not. Variable names and values are not included in these messages. Existing run
+exit policies and preflight's default warning-only / opt-in `--strict` behavior
+are unchanged. Configure required environment outside Waza before starting the
+process, not per task. Native snapshot execution still rejects non-empty maps.
+See the [task schema reference](https://microsoft.github.io/waza/reference/schema/#inputsenvironment-unsupported).
+
 ```yaml
 name: my-eval
 skill: my-skill
