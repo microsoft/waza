@@ -1197,21 +1197,41 @@ func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.T
 	}
 
 	markToolPolicyViolation(resp)
-	workspaceCaptureFailure := func() models.RunResult {
+	workspaceCaptureFailure := func(cps *checkpointRunner, responderInfo *models.ResponderInfo, commandInvocations []models.CommandInvocation) models.RunResult {
 		message := resp.ErrorMsg
 		if message == "" {
 			message = resp.WorkspaceCaptureError
 		}
 		return models.RunResult{
-			RunNumber:      runNum,
-			Prompt:         req.Message,
-			Status:         models.StatusError,
-			DurationMs:     resp.DurationMs,
-			Validations:    make(map[string]models.GraderResults),
-			SessionDigest:  r.buildSessionDigest(resp),
-			GraderSessions: resp.GraderSessions,
-			ErrorMsg:       message,
+			RunNumber:          runNum,
+			Prompt:             req.Message,
+			Status:             models.StatusError,
+			DurationMs:         resp.DurationMs,
+			Validations:        make(map[string]models.GraderResults),
+			SessionDigest:      r.buildSessionDigest(resp),
+			GraderSessions:     resp.GraderSessions,
+			ErrorMsg:           message,
+			WorkspaceDir:       resp.WorkspaceDir,
+			Responder:          responderInfo,
+			Checkpoints:        cps.results(),
+			CommandInvocations: commandInvocations,
 		}
+	}
+	finalizeCommandMocks := func() []models.CommandInvocation {
+		commandInvocations := resp.CommandInvocations
+		if finalizer, ok := r.engine.(execution.CommandMockFinalizer); ok {
+			commandInvocations, err = finalizer.FinalizeCommandMocks(resp.WorkspaceDir)
+			if err != nil {
+				resp.Success = false
+				if resp.WorkspaceCaptureError != "" && resp.ErrorMsg != "" {
+					resp.ErrorMsg = fmt.Sprintf("%s; command mock finalization: %v", resp.ErrorMsg, err)
+				} else {
+					resp.ErrorMsg = err.Error()
+				}
+			}
+			resp.CommandInvocations = commandInvocations
+		}
+		return commandInvocations
 	}
 
 	// Emit child tool_call/model_call spans from the engine response. These
@@ -1234,7 +1254,7 @@ func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.T
 	}
 	if resp.WorkspaceCaptureError != "" {
 		diagnosticCategory = "execution"
-		return returnWithArtifacts(workspaceCaptureFailure())
+		return returnWithArtifacts(workspaceCaptureFailure(nil, nil, finalizeCommandMocks()))
 	}
 
 	// Build the per-turn checkpoint runner. Nil when the task has no
@@ -1255,18 +1275,10 @@ func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.T
 			r.executeFollowUps(ctx, tc, req, resp, cps)
 		}
 	}
-	commandInvocations := resp.CommandInvocations
-	if finalizer, ok := r.engine.(execution.CommandMockFinalizer); ok {
-		commandInvocations, err = finalizer.FinalizeCommandMocks(resp.WorkspaceDir)
-		if err != nil {
-			resp.Success = false
-			resp.ErrorMsg = err.Error()
-		}
-		resp.CommandInvocations = commandInvocations
-	}
+	commandInvocations := finalizeCommandMocks()
 	if resp.WorkspaceCaptureError != "" {
 		diagnosticCategory = "execution"
-		return returnWithArtifacts(workspaceCaptureFailure())
+		return returnWithArtifacts(workspaceCaptureFailure(cps, responderInfo, commandInvocations))
 	}
 	if r.verbose {
 		for _, invocation := range commandInvocations {

@@ -56,11 +56,25 @@ func captureWorkspaceFilesWithLimits(dir string, preservePaths []string, limits 
 		if _, ok := files[rel]; ok {
 			return nil
 		}
-		file, err := root.Open(path)
+		info, err := root.Stat(path)
 		if required && os.IsNotExist(err) {
 			return nil
 		}
 		if err != nil {
+			return fmt.Errorf("inspect %q: %w", rel, err)
+		}
+		if !info.Mode().IsRegular() {
+			if required {
+				return fmt.Errorf("preserved path %q is not a regular file", rel)
+			}
+			return nil
+		}
+
+		file, err := openWorkspaceCaptureFile(root, path)
+		if err != nil {
+			if current, statErr := root.Stat(path); !required && statErr == nil && !current.Mode().IsRegular() {
+				return nil
+			}
 			return fmt.Errorf("open %q: %w", rel, err)
 		}
 		defer func() {
@@ -69,7 +83,7 @@ func captureWorkspaceFilesWithLimits(dir string, preservePaths []string, limits 
 			}
 		}()
 
-		info, err := file.Stat()
+		info, err = file.Stat()
 		if err != nil {
 			return fmt.Errorf("inspect %q: %w", rel, err)
 		}
@@ -188,6 +202,14 @@ func walkWorkspaceCapture(root *os.Root, maxEntries int, captureFile func(path, 
 					continue
 				}
 				if entry.Type()&os.ModeSymlink != 0 {
+					continue
+				}
+				info, err := entry.Info()
+				if err != nil {
+					walkErr = fmt.Errorf("inspect %q: %w", filepath.ToSlash(path), err)
+					break
+				}
+				if !info.Mode().IsRegular() {
 					continue
 				}
 				if err := captureFile(path, filepath.ToSlash(path)); err != nil {
