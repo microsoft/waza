@@ -103,6 +103,7 @@ implementations. See [Dependency Recovery](/waza/guides/dependency-recovery/).
 |------|-------|------|---------|-------------|
 | `--context-dir` | `-c` | string | `./fixtures` | Fixtures directory path |
 | `--output` | `-o` | string | | Save results JSON to file |
+| `--runner-compat` | | bool | false | Source-build preview: route one compatible inline mock/text suite through runner 1.0, retaining local results and exits; unsupported mappings/flags fail. |
 | `--output-dir` | `-d` | string | | Directory for structured output; each run creates a UTC-timestamped subdirectory of the specified directory. Mutually exclusive with `--output`. |
 | `--verbose` | `-v` | bool | false | Detailed progress output |
 | `--parallel` | | bool | false | Run tasks concurrently |
@@ -1572,6 +1573,13 @@ waza session view <session-file>
 ```
 
 ## waza runner
+
+`runner adapt --eval <file> --task <file> --run-key <key> --shard <key>
+--task-id <id> --trial 1 --attempt 1` captures a compatible local mock/text suite
+offline as request JSON. `--timeout-ms` optionally asserts its effective timeout.
+To preserve local result JSON instead, use `run <file> --runner-compat --output
+<file>`. See [local compatibility and migration](../../guides/runner-compatibility/)
+for the exact supported profile, rejected flags and before/after examples.
 
 **Source-build preview:** inspect supported runner versions/capabilities and
 check compatibility without starting an eval or model:

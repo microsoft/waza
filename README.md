@@ -276,6 +276,15 @@ declare `inputs.prompt`: `prompt: ""` is valid, but missing `inputs` or
 `inputs: {}` is rejected before runtime construction. See the
 [runner contract, HTTP API, schemas and migration guide](site/src/content/docs/guides/runner-contract.mdx).
 
+For one explicit mock/text suite, `waza run custom-suite.yaml --runner-compat
+--output local-results.json` routes through that same runner service while
+retaining historical result JSON and local 0/1/2 exits. `waza runner adapt`
+captures compatible sources offline as runner request JSON. Unsupported mappings
+are hard errors; remove `--runner-compat` to retain ordinary local workflows.
+The task entry must be eval-relative, and successful adaptation passes shared
+offline admission within the complete 4 MiB emitted-byte limit.
+See the [compatibility table and before/after examples](site/src/content/docs/guides/runner-compatibility.mdx).
+
 ### `waza preflight <eval.yaml>`
 
 Inspect eval setup **offline and agent-free** before execution:

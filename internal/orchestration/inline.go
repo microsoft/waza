@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/microsoft/waza/internal/graders"
 	"github.com/microsoft/waza/internal/models"
@@ -15,6 +16,7 @@ func ValidateInlineConfiguration(spec *models.EvalSpec, task *models.TestCase) e
 	if err := ValidateControlledConfiguration(spec, task); err != nil {
 		return err
 	}
+
 	for _, value := range []int{spec.Config.TrialsPerTask, spec.Config.MaxAttempts, spec.Config.TimeoutSec, spec.Config.FirstEventTimeoutSec} {
 		if value < 0 || int64(value) > 2147483647 {
 			return fmt.Errorf("inline execution counts and timeouts must fit nonnegative signed 32-bit integers")
@@ -43,6 +45,23 @@ func ValidateInlineConfiguration(spec *models.EvalSpec, task *models.TestCase) e
 		}
 	}
 	return nil
+}
+
+// ProjectInlineOutcome uses the historical benchmark aggregation on an already
+// observed attempt. It never executes, loads files, or substitutes missing runs.
+func (r *EvalRunner) ProjectInlineOutcome(task *models.TestCase, run *models.RunResult, started time.Time, usage *models.EvaluationUsage) (*models.EvaluationOutcome, error) {
+	if r == nil || r.cfg == nil || r.cfg.Spec() == nil || task == nil || run == nil || usage == nil {
+		return nil, fmt.Errorf("local projection requires configured, observed input and evaluation usage scope")
+	}
+	if err := ValidateInlineConfiguration(r.cfg.Spec(), task); err != nil {
+		return nil, err
+	}
+	if run.RunNumber != 1 || run.Attempts != 1 ||
+		(run.Status != models.StatusPassed && run.Status != models.StatusFailed && run.Status != models.StatusError) ||
+		(run.Status == models.StatusError && run.ErrorMsg == "") {
+		return nil, fmt.Errorf("local projection requires one observed graded or explicitly failed trial and attempt")
+	}
+	return r.buildOutcome([]models.TestOutcome{r.buildTestOutcome(task, []models.RunResult{*run})}, started, usage), nil
 }
 
 // PrepareInlineInput resolves the selected request without an execution engine.

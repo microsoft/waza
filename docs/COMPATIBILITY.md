@@ -23,6 +23,12 @@ SDK fakes rather than copying them into a second suite. It includes all CLI
 subpackages, every grader and the ownership areas below. Do not substitute
 only the new `Compatibility` selector for the release gate.
 
+Ordinary and `--runner-compat` benchmark summaries use the command's configured
+output writer and propagate write failures, including short writes, as output
+errors (exit 2), before saving the requested result file. The summary text is
+unchanged. Direct `runSingleModel` callers without a Cobra command retain stdout
+output and the same write-error checks.
+
 The recovery lifecycle regressions include a forced readiness deadline and a
 joined child safety kill; an incomplete invocation keeps its exit code
 unavailable. Session inspection and finalization are serialized, including
