@@ -3,8 +3,10 @@ package assurance
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/microsoft/waza/internal/evidence"
@@ -14,6 +16,9 @@ import (
 )
 
 func BenchmarkVerifyFileCaseRepeatedEvidenceReferences(b *testing.B) {
+	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
+		b.Skip("secure preserved-file restoration is supported on Linux and macOS")
+	}
 	task := &models.TestCase{TestID: "task", Requirements: []models.Requirement{{
 		ID: "state", Checks: []models.RequirementCheck{{Scope: "eval", Grader: "check"}},
 	}}}
@@ -27,6 +32,15 @@ func BenchmarkVerifyFileCaseRepeatedEvidenceReferences(b *testing.B) {
 	if err := os.WriteFile(filepath.Join(workspace, "state.txt"), []byte("state: ready\n"), 0o600); err != nil {
 		b.Fatal(err)
 	}
+	workspacePaths := make([]string, 64)
+	workspacePaths[0] = "state.txt"
+	for i := 1; i < len(workspacePaths); i++ {
+		name := fmt.Sprintf("evidence-%02d.txt", i)
+		workspacePaths[i] = name
+		if err := os.WriteFile(filepath.Join(workspace, name), []byte(name+"\n"), 0o600); err != nil {
+			b.Fatal(err)
+		}
+	}
 	snap, err := snapshot.Capture(snapshot.CaptureInput{
 		EvalID: "benchmark", Task: task, Spec: spec, ExecutionMode: "mock",
 		Request: &execution.ExecutionRequest{Message: "benchmark", WorkspaceDir: workspace},
@@ -34,8 +48,8 @@ func BenchmarkVerifyFileCaseRepeatedEvidenceReferences(b *testing.B) {
 			RunNumber: 1, Attempts: 1, Status: models.StatusPassed,
 			FinalOutput: "done", WorkspaceDir: workspace,
 		},
-		WorkspacePaths:  []string{"state.txt"},
-		WorkspaceLimits: snapshot.WorkspaceLimits{MaxFileBytes: 1024, MaxTotalBytes: 4096},
+		WorkspacePaths:  workspacePaths,
+		WorkspaceLimits: snapshot.WorkspaceLimits{MaxFileBytes: 1024, MaxTotalBytes: 64 << 10},
 	})
 	if err != nil {
 		b.Fatal(err)
@@ -61,10 +75,6 @@ func BenchmarkVerifyFileCaseRepeatedEvidenceReferences(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
-	reference, err := evidence.Reference(snap.Evidence, "workspace-file/state.txt")
-	if err != nil {
-		b.Fatal(err)
-	}
 	expected := true
 	candidate := ReferenceCase{
 		ID: "case", ScenarioID: "benchmark", Domain: "benchmark", Classification: CaseGood,
@@ -75,10 +85,35 @@ func BenchmarkVerifyFileCaseRepeatedEvidenceReferences(b *testing.B) {
 		RequirementID: "state", Check: task.Requirements[0].Checks[0],
 		GraderDeclarationSHA256: declarationDigest.SHA256, ExpectedPassed: &expected,
 	}
-	check.Evidence = make([]models.EvidenceReference, 64)
-	for i := range check.Evidence {
+	check.Evidence = make([]models.EvidenceReference, len(workspacePaths))
+	for i, path := range workspacePaths {
+		reference, err := evidence.Reference(snap.Evidence, "workspace-file/"+path)
+		if err != nil {
+			b.Fatal(err)
+		}
 		check.Evidence[i] = reference
 	}
+	document := ReferenceDocument{
+		SchemaVersion: ReferenceVersion, Kind: ReferenceKind, ID: "benchmark-labels", Version: "1",
+		EvalSourceSHA256: taskDigest.SHA256, EvalResolvedConfigSHA256: declarationDigest.SHA256,
+		Domains: []DomainCriteria{{ID: "benchmark", MinimumCases: 1, MinimumAgreement: 1}},
+		Cases:   []ReferenceCase{candidate},
+	}
+	document.Cases[0].Checks = []ReferenceCheck{check}
+	labels, err := json.Marshal(document)
+	if err != nil {
+		b.Fatal(err)
+	}
+	references, err := ParseReferences(labels)
+	if err != nil {
+		b.Fatal(err)
+	}
+	admitted, err := references.Document()
+	if err != nil {
+		b.Fatal(err)
+	}
+	candidate = admitted.Cases[0]
+	check = candidate.Checks[0]
 	request := VerifyRequest{Spec: spec, Tasks: map[string]*models.TestCase{"task": task}, SnapshotRoot: root}
 	b.ReportAllocs()
 	b.ResetTimer()
