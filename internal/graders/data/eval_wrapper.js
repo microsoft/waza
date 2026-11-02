@@ -55,14 +55,17 @@ vm.createContext(evalContext);
 
 const assertions = data.assertions || [];
 const results = [];
+const evaluationErrors = {};
 
-for (const assertion of assertions) {
+for (const [index, assertion] of assertions.entries()) {
   try {
     const result = vm.runInContext(assertion, evalContext, { timeout: 5000 });
     results.push(!!result ? "" : "fail");
   } catch (err) {
-    results.push(String(err));
+    const message = String(err);
+    results.push(message);
+    evaluationErrors[index] = message;
   }
 }
 
-process.stdout.write(JSON.stringify({ results }));
+process.stdout.write(JSON.stringify({ results, evaluation_errors: evaluationErrors }));

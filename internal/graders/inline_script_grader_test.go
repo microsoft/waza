@@ -9,6 +9,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 
 	copilot "github.com/github/copilot-sdk/go"
@@ -329,6 +331,119 @@ func TestEmptyAssertions(t *testing.T) {
 		Passed:   true,
 		Feedback: "No assertions configured",
 	}, results)
+}
+
+func TestInlineScriptEvaluationErrors(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		language   models.Language
+		assertions []string
+		errors     bool
+	}{
+		{"python-false", models.LanguagePython, []string{"False"}, false},
+		{"python-exception", models.LanguagePython, []string{"1 / 0"}, true},
+		{"python-mixed", models.LanguagePython, []string{"True", "False", "missing_field"}, true},
+		{"javascript-false", models.LanguageJavascript, []string{"false"}, false},
+		{"javascript-exception", models.LanguageJavascript, []string{"missing_field"}, true},
+		{"javascript-empty-exception", models.LanguageJavascript, []string{`(() => { throw ""; })()`}, true},
+		{"javascript-fail-exception", models.LanguageJavascript, []string{`(() => { throw "fail"; })()`}, true},
+		{"javascript-stateful-exception", models.LanguageJavascript, []string{
+			`(() => { throw { count: 0, toString() { if (this.count++) throw "converted twice"; return "first"; } }; })()`,
+		}, true},
+		{"javascript-stateful-changing", models.LanguageJavascript, []string{
+			`(() => { throw { count: 0, toString() { return this.count++ ? "second" : "first"; } }; })()`,
+		}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.language == models.LanguagePython {
+				skipIfNoPython(t)
+			} else {
+				skipIfNoJavascript(t)
+			}
+			g, err := NewInlineScriptGrader("test", models.InlineScriptGraderParameters{
+				Language: tc.language, Assertions: tc.assertions,
+			})
+			require.NoError(t, err)
+			result, err := g.Grade(t.Context(), &Context{})
+			require.NoError(t, err)
+			require.False(t, result.Passed)
+			_, hasErrors := result.Details["evaluation_errors"]
+			require.Equal(t, tc.errors, hasErrors)
+			if tc.errors {
+				require.Len(t, result.Details["evaluation_errors"], 1)
+			}
+			if strings.HasPrefix(tc.name, "javascript-stateful-") {
+				require.Equal(t, []string{"first"}, result.Details["evaluation_errors"])
+				require.Equal(t, []string{"Failed: " + tc.assertions[0] + ": first"}, result.Details["failures"])
+				require.Zero(t, result.Score)
+			}
+			require.Equal(t, len(tc.assertions), result.Details["total_assertions"])
+		})
+	}
+}
+
+func TestInlineScriptPythonExceptionStringifiesOnce(t *testing.T) {
+	skipIfNoPython(t)
+	for _, tc := range []struct {
+		name, secondConversion string
+	}{
+		{"changing-message", `"second"`},
+		{"throwing-conversion", "1 / 0"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Construct the exception using only the public assertion context.
+			assertion := fmt.Sprintf(`(_ for _ in []).throw(int.__class__("StatefulError", (re.error,), {"__str__": lambda self: (self.__dict__.update(calls=self.__dict__.get("calls", 0) + 1), "first" if self.calls == 1 else %s)[1]})("unused"))`, tc.secondConversion)
+			g, err := NewInlineScriptGrader("test", models.InlineScriptGraderParameters{
+				Language: models.LanguagePython, Assertions: []string{assertion, "True", "False"},
+			})
+			require.NoError(t, err)
+			result, err := g.Grade(t.Context(), &Context{})
+			require.NoError(t, err)
+			require.False(t, result.Passed)
+			require.Equal(t, float64(1)/3, result.Score)
+			require.Equal(t, 3, result.Details["total_assertions"])
+			require.Equal(t, 1, result.Details["passed_assertions"])
+			require.Equal(t, []string{"first"}, result.Details["evaluation_errors"])
+			failures := []string{"Failed: " + assertion + ": first", "Failed: False"}
+			require.Equal(t, failures, result.Details["failures"])
+			require.Equal(t, strings.Join(failures, "; "), result.Feedback)
+		})
+	}
+}
+
+func TestInlineScriptEvaluationErrorsInterpreterIsolation(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX PATH isolation uses executable symlinks; language subtests still run natively")
+	}
+	executable, err := os.Executable()
+	require.NoError(t, err)
+	for _, tc := range []struct {
+		name, interpreter, passed, skipped string
+	}{
+		{"python-only", "python3", "python-exception", "javascript-exception"},
+		{"node-only", "node", "javascript-exception", "python-exception"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path, err := exec.LookPath(tc.interpreter)
+			if err != nil {
+				t.Skipf("%s unavailable: %v", tc.interpreter, err)
+			}
+			dir := t.TempDir()
+			name := tc.interpreter
+			if filepath.Ext(path) == ".exe" {
+				name += ".exe"
+			}
+			if err := os.Symlink(path, filepath.Join(dir, name)); err != nil {
+				t.Fatal(err)
+			}
+			cmd := exec.CommandContext(t.Context(), executable, "-test.run=^TestInlineScriptEvaluationErrors$", "-test.v")
+			cmd.Env = append(os.Environ(), "PATH="+dir)
+			output, err := cmd.CombinedOutput()
+			require.NoError(t, err, "%s", output)
+			require.Contains(t, string(output), "--- PASS: TestInlineScriptEvaluationErrors/"+tc.passed)
+			require.Contains(t, string(output), "--- SKIP: TestInlineScriptEvaluationErrors/"+tc.skipped)
+		})
+	}
 }
 
 func TestWithRealContextPython(t *testing.T) {
