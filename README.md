@@ -1986,7 +1986,7 @@ hooks:
 
 **Lifecycle Points:**
 - `before_run` — Execute once before all tasks, before task files are loaded, MCP mocks are admitted, or the engine starts, so it can generate task YAML, `prompt_file` inputs, or CSV datasets
-- `after_run` — Execute once after all tasks
+- `after_run` — Execute once after all tasks, including after an interrupted run (bounded to one minute)
 - `before_task` — Execute before each task
 - `after_task` — Execute after each task
 

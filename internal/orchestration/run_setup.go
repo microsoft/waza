@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/microsoft/waza/internal/config"
 	"github.com/microsoft/waza/internal/hooks"
@@ -32,36 +33,27 @@ func StartRunSetup(ctx context.Context, cfg *config.EvalConfig, verbose bool) (*
 	return setup, nil
 }
 
-// Teardown runs the eval's after_run hooks once; later calls do nothing.
+// interruptedTeardownTimeout bounds after_run when the run was interrupted, so
+// cleanup still runs but cannot keep an interrupted process alive indefinitely.
+const interruptedTeardownTimeout = time.Minute
+
+// Teardown runs the eval's after_run hooks once; later calls do nothing. If
+// ctx was canceled (for example by Ctrl+C), after_run still runs, bounded by
+// interruptedTeardownTimeout.
 func (s *RunSetup) Teardown(ctx context.Context) {
 	if s == nil {
 		return
 	}
 	s.teardown.Do(func() {
+		if ctx.Err() != nil {
+			var cancel context.CancelFunc
+			ctx, cancel = context.WithTimeout(context.WithoutCancel(ctx), interruptedTeardownTimeout)
+			defer cancel()
+		}
 		if after := s.cfg.Spec().Hooks.AfterRun; len(after) > 0 {
 			if err := s.hooks.Execute(ctx, "after_run", after); err != nil {
 				fmt.Printf("[WARN] after_run hook error: %v\n", err)
 			}
 		}
 	})
-}
-
-// WithRunSetup hands a setup that already ran to the runner. Its first
-// benchmark pass uses it instead of running before_run again and owns its
-// teardown; the caller may still call Teardown, which is then a no-op.
-func WithRunSetup(setup *RunSetup) RunnerOption {
-	return func(r *EvalRunner) {
-		r.setup = setup
-	}
-}
-
-// takeSetup returns the pending setup for a benchmark pass, starting a new one
-// when none is pending (for example, the second baseline pass).
-func (r *EvalRunner) takeSetup(ctx context.Context) (*RunSetup, error) {
-	setup := r.setup
-	r.setup = nil
-	if setup != nil {
-		return setup, nil
-	}
-	return StartRunSetup(ctx, r.cfg, r.verbose)
 }

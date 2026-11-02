@@ -804,9 +804,13 @@ func runSingleModel(cmd *cobra.Command, spec *models.EvalSpec, specPath string, 
 	defer setup.Teardown(ctx)
 
 	// Admit MCP mocks before the engine starts, against the tasks this run
-	// selects; RunBenchmark repeats the same check.
+	// selects; RunBenchmark repeats the same check. An interrupt during setup or
+	// admission stops here, before any engine is created.
 	if err := orchestration.AdmitEvalMCPMocks(cfg, taskFilters, tagFilters); err != nil {
 		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("benchmark failed: %w", err)
 	}
 
 	// Create engine based on spec
@@ -820,7 +824,8 @@ func runSingleModel(cmd *cobra.Command, spec *models.EvalSpec, specPath string, 
 		}
 
 	}
-	if err := engine.Initialize(context.Background()); err != nil {
+	// The signal handler is already installed, so initialization must observe it.
+	if err := engine.Initialize(ctx); err != nil {
 		return nil, fmt.Errorf("failed to initialize agent: %w", err)
 	}
 	defer func() {

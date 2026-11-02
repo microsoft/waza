@@ -296,6 +296,26 @@ func (r *EvalRunner) notifyProgress(event ProgressEvent) {
 	}
 }
 
+// WithRunSetup hands a setup that already ran to the runner. Its first
+// benchmark pass uses it instead of running before_run again and owns its
+// teardown; the caller may still call Teardown, which is then a no-op.
+func WithRunSetup(setup *RunSetup) RunnerOption {
+	return func(r *EvalRunner) {
+		r.setup = setup
+	}
+}
+
+// takeSetup returns the pending setup for a benchmark pass, starting a new one
+// when none is pending (for example, the second baseline pass).
+func (r *EvalRunner) takeSetup(ctx context.Context) (*RunSetup, error) {
+	setup := r.setup
+	r.setup = nil
+	if setup != nil {
+		return setup, nil
+	}
+	return StartRunSetup(ctx, r.cfg, r.verbose)
+}
+
 // RunBenchmark executes the entire benchmark
 // If Baseline is enabled, runs twice: skills-enabled and skills-disabled
 func (r *EvalRunner) RunBenchmark(ctx context.Context) (*models.EvaluationOutcome, error) {
@@ -318,6 +338,9 @@ func (r *EvalRunner) RunBenchmark(ctx context.Context) (*models.EvaluationOutcom
 		setup.Teardown(ctx)
 	}()
 	if err := r.admitEvalMCPMocks(); err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	if err := r.engine.Initialize(ctx); err != nil {
