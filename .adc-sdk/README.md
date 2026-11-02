@@ -12,6 +12,23 @@ go get github.com/coreai-microsoft/adc-sdk-go
 
 ## Quick Start
 
+`New` initializes every API namespace, including `Apps`; successful `Login`
+refreshes all namespaces with the authenticated HTTP client.
+
+`Config.MaxRetries = N` allows at most `N + 1` HTTP attempts. Zero retains the
+default of three retries; a negative value disables retries. Transient network
+errors and HTTP 408, 429, 500, 502, 503, and 504 are retried with exponential
+backoff starting at 100ms and capped at 2s per delay. Cancellation interrupts
+both requests and backoff. Request bodies are replayed unchanged, including
+mutating requests: a server may have applied an operation before returning a
+retryable failure, so callers should account for possible duplicate effects.
+Streaming responses are only retried before a successful response is returned,
+never after the caller starts consuming its body.
+
+`PortForwardSession.Read(ctx)` closes its channel on cancellation even if the
+peer is idle. Cancellation closes the tunnel; it cannot then be reused. Use
+only one reader per session.
+
 ```go
 package main
 

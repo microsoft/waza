@@ -357,6 +357,11 @@ func inspectLockedGraders(r *Report, spec *models.EvalSpec, path string) {
 }
 
 func inspectTask(r *Report, task *models.TestCase, spec *models.EvalSpec, source, base, fixtures string) {
+	if len(task.Stimulus.Environment) > 0 {
+		r.add("task.environment", Unsupported, source, task.TestID, "",
+			"inputs.environment is unsupported and is not applied during task execution.",
+			"Remove inputs.environment; configure any required environment outside Waza before starting the process.")
+	}
 	for _, ref := range task.Stimulus.Resources {
 		if !safeWorkspacePath(ref.Location) {
 			r.add("resource.path", Invalid, source, task.TestID, "", "Resource destination is not a bounded relative path.", "Use a workspace-relative path without traversal segments.")

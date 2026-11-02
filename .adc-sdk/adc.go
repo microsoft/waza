@@ -116,13 +116,7 @@ func New(config Config) *Client {
 		client: httpClient,
 	}
 
-	c.DiskImages = NewDiskImageAPI(httpClient)
-	c.Sandboxes = NewSandboxAPI(httpClient, cm)
-	c.SandboxGroups = NewSandboxGroupAPI(httpClient, cm)
-	c.Snapshots = NewSnapshotAPI(httpClient)
-	c.Volumes = NewVolumeAPI(httpClient)
-	c.Secrets = NewSecretAPI(httpClient)
-	c.ContentPackages = NewContentPackageAPI(httpClient)
+	c.initializeAPIs()
 
 	return c
 }
@@ -150,6 +144,7 @@ func createHTTPClient(cm *ConfigManager) *HTTPClient {
 		BaseURL:       cm.APIURL,
 		Headers:       headers,
 		Timeout:       cm.Timeout,
+		MaxRetries:    cm.MaxRetries,
 		DefaultParams: defaultParams,
 	})
 }
@@ -180,7 +175,12 @@ func (c *Client) Login(ctx context.Context, opts *LoginOptions) error {
 	// Reinitialize HTTP client with new token
 	c.client = createHTTPClient(c.config)
 
-	// Reinitialize API namespaces with new client
+	c.initializeAPIs()
+
+	return nil
+}
+
+func (c *Client) initializeAPIs() {
 	c.DiskImages = NewDiskImageAPI(c.client)
 	c.Sandboxes = NewSandboxAPI(c.client, c.config)
 	c.SandboxGroups = NewSandboxGroupAPI(c.client, c.config)
@@ -189,8 +189,6 @@ func (c *Client) Login(ctx context.Context, opts *LoginOptions) error {
 	c.Volumes = NewVolumeAPI(c.client)
 	c.Secrets = NewSecretAPI(c.client)
 	c.ContentPackages = NewContentPackageAPI(c.client)
-
-	return nil
 }
 
 // LoginOptions contains options for the Login method.
