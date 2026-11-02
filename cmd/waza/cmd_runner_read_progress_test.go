@@ -30,7 +30,7 @@ import (
 
 const runnerReadProgressSize = (2 << 20) + 1
 const runnerReadProgressPrefix = "WAZA_TEST_STDIN_PROGRESS/"
-const runnerReadProgressOriginalSHA256 = "ec26f3f332c3f114445c6641b2feda5c34bda87fad0a6f3c345eb9e4e98d723e"
+const runnerReadProgressOriginalSHA256 = "cd17c9e7da436c66052f666b3ab609bb199e327965f0b11dbf7afc18d081da7e"
 
 // Sharing OS-independent process ownership lets portable fixtures run
 // the same sole-Wait/copy/cleanup path as the native Windows controller.
@@ -699,7 +699,7 @@ func TestRunnerTerminalReadProgressCheckout(t *testing.T) {
 				}
 				require.Equal(t, expected, physical)
 				if autocrlf {
-					require.Equal(t, "54b52cb3eb11af200f2295b1cc2a3ecb2d7a8604b6a3df4e35ac66889bb7e2c6",
+					require.Equal(t, "9b71e2ed723b093d707ac6a2952310b2ae3d28d62f412856aae2e4934196dd80",
 						fmt.Sprintf("%x", sha256.Sum256(physical)))
 				}
 				t.Chdir(directory)
@@ -1044,6 +1044,7 @@ import (
 	"time"
 )
 var ErrNoDeadline=errors.New("fixture no deadline")
+var ErrDeadlineExceeded=errors.New("fixture i/o timeout")
 var Args=[]string{"waza","runner","validate"}
 type File struct {
 	Reader io.Reader

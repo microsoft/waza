@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -57,8 +58,31 @@ func readInheritedRunnerInput(ctx context.Context) (data []byte, resultErr error
 }
 
 func emitInheritedRunnerTerminal(envelope runnerterminal.Envelope, binding *runnerterminal.Binding) (int, error) {
-	if err := os.Stdout.SetWriteDeadline(time.Now().Add(5 * time.Second)); err != nil && !errors.Is(err, os.ErrNoDeadline) {
-		return 2, fmt.Errorf("setting runner output deadline: %w", err)
+	return runnerterminal.NewEmitter(runnerTerminalProcessWriter{}).Emit(envelope, binding)
+}
+
+type runnerTerminalProcessWriter struct{}
+
+func (runnerTerminalProcessWriter) Write(data []byte) (int, error) {
+	owned := bytes.Clone(data)
+	type result struct {
+		n   int
+		err error
 	}
-	return runnerterminal.NewEmitter(os.Stdout).Emit(envelope, binding)
+	done := make(chan result, 1)
+	go func() {
+		n, err := os.Stdout.Write(owned)
+		if err == nil && n != len(owned) {
+			err = io.ErrShortWrite
+		}
+		done <- result{n: n, err: err}
+	}()
+	timer := time.NewTimer(5 * time.Second)
+	defer timer.Stop()
+	select {
+	case written := <-done:
+		return written.n, written.err
+	case <-timer.C:
+		return 0, fmt.Errorf("writing runner terminal output: %w", os.ErrDeadlineExceeded)
+	}
 }

@@ -87,7 +87,11 @@ func RegisterRunnerRoutesWithService(mux *http.ServeMux, service *runnerunit.Ser
 	}
 }
 
-func runTerminal(w http.ResponseWriter, r *http.Request, service *runnerunit.Service) {
+type terminalRunner interface {
+	RunTerminal(context.Context, []byte) (runnerterminal.Envelope, *runnerterminal.Binding)
+}
+
+func runTerminal(w http.ResponseWriter, r *http.Request, service terminalRunner) {
 	controller := http.NewResponseController(w)
 	inputComplete := false
 	emit := func(status int, envelope runnerterminal.Envelope, binding *runnerterminal.Binding) {
@@ -126,9 +130,9 @@ func runTerminal(w http.ResponseWriter, r *http.Request, service *runnerunit.Ser
 		fail(http.StatusInternalServerError, fmt.Errorf("setting runner read deadline: %w", err))
 		return
 	}
-	if err := controller.SetWriteDeadline(time.Now().Add(5 * time.Second)); err != nil {
+	if err := controller.SetWriteDeadline(time.Time{}); err != nil {
 		emit(http.StatusInternalServerError, runnerterminal.NewFailure(runnerterminal.InfrastructureFailure, "output", "not_checked",
-			"output_deadline", fmt.Sprintf("Setting runner write deadline: %.600s", err)), nil)
+			"output_deadline", fmt.Sprintf("Probing runner write deadline support: %.600s", err)), nil)
 		return
 	}
 	mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))

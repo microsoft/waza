@@ -202,6 +202,56 @@ func TestRunnerTerminalLateOutputFailureRetainsObservation(t *testing.T) {
 	require.Equal(t, 1, bytes.Count(body, []byte{'\n'}))
 }
 
+type delayedTerminalRunner struct {
+	envelope runnerterminal.Envelope
+	binding  *runnerterminal.Binding
+	delay    time.Duration
+}
+
+func (s delayedTerminalRunner) RunTerminal(ctx context.Context, _ []byte) (runnerterminal.Envelope, *runnerterminal.Binding) {
+	timer := time.NewTimer(s.delay)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+		return s.envelope, s.binding
+	case <-ctx.Done():
+		return runnerterminal.Failure("execution", ctx.Err()), nil
+	}
+}
+
+func TestRunnerTerminalHTTP2OutputDeadlineStartsAfterExecution(t *testing.T) {
+	request, err := os.ReadFile("../../examples/runner/unit.json")
+	require.NoError(t, err)
+	envelope, binding := runnerunit.NewService(nil).RunTerminal(t.Context(), request)
+	require.Equal(t, runnerterminal.Success, envelope.Outcome)
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /api/v1/runner/run", func(w http.ResponseWriter, r *http.Request) {
+		runTerminal(w, r, delayedTerminalRunner{envelope: envelope, binding: binding, delay: 6 * time.Second})
+	})
+	server := httptest.NewUnstartedServer(mux)
+	server.EnableHTTP2 = true
+	server.StartTLS()
+	defer server.Close()
+
+	started := time.Now()
+	client := server.Client()
+	client.Timeout = 12 * time.Second
+	response, err := client.Post(server.URL+"/api/v1/runner/run", "application/json", bytes.NewReader(request))
+	require.NoError(t, err)
+	defer response.Body.Close() //nolint:errcheck
+	require.Equal(t, 2, response.ProtoMajor)
+	require.GreaterOrEqual(t, time.Since(started), 6*time.Second)
+	body, err := io.ReadAll(response.Body)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, response.StatusCode)
+	require.Equal(t, "0", response.Header.Get("X-Waza-Exit-Code"))
+	decoded, err := runnerterminal.Validate(body, binding)
+	require.NoError(t, err, "%s", body)
+	require.Equal(t, runnerterminal.Success, decoded.Outcome)
+	require.Equal(t, 1, bytes.Count(body, []byte{'\n'}))
+}
+
 type terminalTransportFailure struct {
 	http.ResponseWriter
 	control string
