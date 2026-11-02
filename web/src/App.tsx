@@ -1,13 +1,13 @@
 import { lazy, Suspense, useState, useEffect } from "react";
 import Layout from "./components/Layout";
 import Dashboard from "./components/Dashboard";
-import RunDetail from "./components/RunDetail";
-import CompareView from "./components/CompareView";
-import TrendsPage from "./components/TrendsPage";
-import LiveView from "./components/LiveView";
-import ReleaseView from "./components/ReleaseView";
 
+const RunDetail = lazy(() => import("./components/RunDetail"));
+const CompareView = lazy(() => import("./components/CompareView"));
+const TrendsPage = lazy(() => import("./components/TrendsPage"));
+const LiveView = lazy(() => import("./components/LiveView"));
 const AssurancePage = lazy(() => import("./components/AssurancePage"));
+const ReleaseView = lazy(() => import("./components/ReleaseView"));
 const DashboardLab = lazy(() => import("./lab/DashboardLab"));
 
 type Route =
@@ -38,6 +38,14 @@ function parseHash(): Route {
   return { page: "home" };
 }
 
+function LoadingRoute({ label }: { label: string }) {
+  return (
+    <p role="status" className="text-zinc-400">
+      Loading {label}...
+    </p>
+  );
+}
+
 export default function App() {
   const [route, setRoute] = useState<Route>(parseHash);
 
@@ -49,9 +57,7 @@ export default function App() {
 
   if (route.page === "lab") {
     return (
-      <Suspense
-        fallback={<p className="p-8 text-zinc-100">Loading dashboard lab...</p>}
-      >
+      <Suspense fallback={<LoadingRoute label="dashboard lab" />}>
         <DashboardLab key={route.demo ? "demo" : "results"} demo={route.demo} />
       </Suspense>
     );
@@ -60,16 +66,16 @@ export default function App() {
   return (
     <Layout>
       {route.page === "home" && <Dashboard />}
-      {route.page === "run" && <RunDetail id={route.id} />}
-      {route.page === "compare" && <CompareView />}
-      {route.page === "trends" && <TrendsPage />}
-      {route.page === "live" && <LiveView />}
-      {route.page === "assurance" && (
-        <Suspense fallback={<p role="status">Loading report inspector...</p>}>
-          <AssurancePage />
+      {route.page !== "home" && (
+        <Suspense fallback={<LoadingRoute label={route.page} />}>
+          {route.page === "run" && <RunDetail id={route.id} />}
+          {route.page === "compare" && <CompareView />}
+          {route.page === "trends" && <TrendsPage />}
+          {route.page === "live" && <LiveView />}
+          {route.page === "assurance" && <AssurancePage />}
+          {route.page === "release" && <ReleaseView />}
         </Suspense>
       )}
-      {route.page === "release" && <ReleaseView />}
     </Layout>
   );
 }
