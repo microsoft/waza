@@ -446,6 +446,18 @@ func inspectTask(r *Report, task *models.TestCase, spec *models.EvalSpec, source
 		graders = append(graders, models.GraderConfig{Identifier: g.Identifier, Kind: g.Kind, Parameters: g.Parameters})
 	}
 	inspectGraders(r, graders, source, task.TestID, fixtures)
+	for _, expectation := range []struct {
+		name   string
+		values []string
+	}{
+		{"_output_contains", task.Expectation.MustInclude},
+		{"_output_not_contains", task.Expectation.MustExclude},
+		{"_output_contains_any", task.Expectation.MayInclude},
+	} {
+		if len(expectation.values) > 0 && finalNames[expectation.name] {
+			r.add("grader.result_collision", Unresolved, source, task.TestID, "", "A final grader name collides with a synthesized expectation result and may be overwritten.", "Use distinct names before joining runtime evidence to scoped declarations.")
+		}
+	}
 	for _, checkpoint := range task.Checkpoints {
 		var checks []models.GraderConfig
 		for _, g := range checkpoint.Graders {
