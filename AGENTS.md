@@ -336,6 +336,42 @@ dependent job or remove a package without providing exhaustive required shards.
 Exercise discovery and all failure branches with
 `bash .github/scripts/go_test_shard_test.sh` when changing this arrangement.
 
+Squad Release and Squad Insider Release reuse the same four native shards and
+30-minute race/atomic package deadline. Their release job explicitly rejects
+failed, cancelled, or skipped shards and verifies all five coverage profiles and
+exactly-once native selection before publication. Test the release wiring with
+`go test -count=1 ./.github/scripts` and the offline runtime/integration controls
+with `bash .github/scripts/release_gate_test.sh`. Release tests and native shards
+install a verified rejecting Copilot runtime. The mock integration requires a
+fresh saved JSON outcome with the four expected tasks and all three trials,
+consistent summary/task/run/grader statuses, and zero errors, skips, or cached
+tasks. Exit 1 is accepted only for completed grader failures, never task/runtime
+errors, cancellation, or missing/incomplete evidence. Any attempted runtime launch
+also fails the gate.
+Inline grader exceptions and text-grader regex configuration errors carry
+`details.evaluation_errors` separately from false assertions and are rejected by
+the integration gate. Both inline runtimes convert each caught exception to a
+message once and reuse it for ordinary failures and structured error evidence.
+The fixed mock example permits no checkpoint results and
+requires grader scores to agree with verdicts (1 for pass, less than 1 for fail).
+Each native shard checks
+its own rejecting runtime marker after tests, including tolerated launches.
+Publication uses `!cancelled()` as well as explicit shard-result checks.
+The SIGTERM regression holds the production CLI inside a blocking grader
+subprocess until cancellation, rather than synchronizing on console output.
+Both workflows execute the production-CLI regression controls
+in `.github/scripts`, including the otherwise indistinguishable task-error exit 1.
+The integration requires `jq` (available on the Ubuntu release runners).
+The fixed release example is hook-free, requires one recorded attempt per run,
+and pins each named grader result to its expected type; retries must not hide
+discarded evaluation exceptions or substitute executable-launch failures.
+Before execution it requires a complete offline preflight report, rejects invalid
+configuration and colliding final grader names (including synthesized expectation
+names), and leaves interpreter/model availability unresolved for the actual guarded
+run to prove. This release-only admission does not change legacy runtime overwrite
+behavior or preflight's default non-strict exit policy.
+This is offline harness evidence, not live agent-quality evidence.
+
 Both Go lint workflows use `.github/scripts/lint.sh` to require configuration
 validation against a checksum-pinned upstream release schema before running lint.
 When upgrading golangci-lint, update both workflow versions and the script's
