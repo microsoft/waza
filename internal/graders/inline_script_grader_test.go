@@ -275,6 +275,35 @@ func TestInlineScriptEvaluationErrors(t *testing.T) {
 	}
 }
 
+func TestInlineScriptPythonExceptionStringifiesOnce(t *testing.T) {
+	skipIfNoPython(t)
+	for _, tc := range []struct {
+		name, secondConversion string
+	}{
+		{"changing-message", `"second"`},
+		{"throwing-conversion", "1 / 0"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Construct the exception using only the public assertion context.
+			assertion := fmt.Sprintf(`(_ for _ in []).throw(int.__class__("StatefulError", (re.error,), {"__str__": lambda self: (self.__dict__.update(calls=self.__dict__.get("calls", 0) + 1), "first" if self.calls == 1 else %s)[1]})("unused"))`, tc.secondConversion)
+			g, err := NewInlineScriptGrader("test", models.InlineScriptGraderParameters{
+				Language: models.LanguagePython, Assertions: []string{assertion, "True", "False"},
+			})
+			require.NoError(t, err)
+			result, err := g.Grade(t.Context(), &Context{})
+			require.NoError(t, err)
+			require.False(t, result.Passed)
+			require.Equal(t, float64(1)/3, result.Score)
+			require.Equal(t, 3, result.Details["total_assertions"])
+			require.Equal(t, 1, result.Details["passed_assertions"])
+			require.Equal(t, []string{"first"}, result.Details["evaluation_errors"])
+			failures := []string{"Failed: " + assertion + ": first", "Failed: False"}
+			require.Equal(t, failures, result.Details["failures"])
+			require.Equal(t, strings.Join(failures, "; "), result.Feedback)
+		})
+	}
+}
+
 func TestInlineScriptEvaluationErrorsInterpreterIsolation(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("POSIX PATH isolation uses executable symlinks; language subtests still run natively")

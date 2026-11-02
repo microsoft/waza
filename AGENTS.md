@@ -350,7 +350,9 @@ errors, cancellation, or missing/incomplete evidence. Any attempted runtime laun
 also fails the gate.
 Inline grader exceptions and text-grader regex configuration errors carry
 `details.evaluation_errors` separately from false assertions and are rejected by
-the integration gate. The fixed mock example permits no checkpoint results and
+the integration gate. Both inline runtimes convert each caught exception to a
+message once and reuse it for ordinary failures and structured error evidence.
+The fixed mock example permits no checkpoint results and
 requires grader scores to agree with verdicts (1 for pass, less than 1 for fail).
 Each native shard checks
 its own rejecting runtime marker after tests, including tolerated launches.

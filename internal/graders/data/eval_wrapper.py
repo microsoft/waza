@@ -51,8 +51,9 @@ for index, assertion in enumerate(data['assertions']):
         result = eval(assertion, {"__builtins__": {}}, eval_context)
         results.append("" if not not result else "fail")
     except Exception as e:
-        results.append(str(e))
-        evaluation_errors[index] = str(e)
+        message = str(e)
+        results.append(message)
+        evaluation_errors[index] = message
 
 print(json.dumps({
     "results": results,
