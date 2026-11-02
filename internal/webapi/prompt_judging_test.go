@@ -192,7 +192,7 @@ func TestNativeUserInputRecordsSurviveRegradeReaderAndAPI(t *testing.T) {
 	}
 	run := &outcome.TestOutcomes[0].Runs[0]
 	answer := "staging"
-	run.UserInputRequests = []models.UserInputRecord{
+	run.UserInputRequests = &[]models.UserInputRecord{
 		{Sequence: 1, SessionID: "s-1", Question: "Deploy where?", Choices: []string{},
 			Answer: &answer, WasFreeform: new(true), Source: models.UserInputSourceScript},
 		{Sequence: 2, SessionID: "s-1", Question: "Anything else?",
@@ -204,8 +204,9 @@ func TestNativeUserInputRecordsSurviveRegradeReaderAndAPI(t *testing.T) {
 	parsed, err := models.ParseEvaluationOutcome(encoded, "regraded-results.json")
 	require.NoError(t, err)
 	require.Equal(t, run.UserInputRequests, parsed.TestOutcomes[0].Runs[0].UserInputRequests)
-	require.NotNil(t, parsed.TestOutcomes[0].Runs[0].UserInputRequests[0].Choices, "explicit empty offered choices must stay distinct from absent")
-	require.Nil(t, parsed.TestOutcomes[0].Runs[0].UserInputRequests[1].Choices)
+	parsedRecords := *parsed.TestOutcomes[0].Runs[0].UserInputRequests
+	require.NotNil(t, parsedRecords[0].Choices, "explicit empty offered choices must stay distinct from absent")
+	require.Nil(t, parsedRecords[1].Choices)
 	detail := outcomeToDetail(parsed)
 	require.Equal(t, run.UserInputRequests, detail.Tasks[0].UserInputRequests)
 	metadata, err := json.Marshal(detail.Tasks[0])
@@ -263,4 +264,25 @@ func TestPromptJudgingSnapshotReferencesFrozenBundleWithoutCopyingItsBodies(t *t
 	encoded, err := json.Marshal(snap)
 	require.NoError(t, err)
 	require.NotContains(t, string(encoded), "PRIVATE_FILE_BODY")
+}
+
+func TestNativeUserInputEmptyRecordsSurviveReaderAndAPI(t *testing.T) {
+	for _, records := range []*[]models.UserInputRecord{{}, nil} {
+		outcome := &models.EvaluationOutcome{
+			SchemaVersion: models.CurrentResultSchemaVersion,
+			TestOutcomes: []models.TestOutcome{{TestID: "native", DisplayName: "Native", Status: models.StatusPassed,
+				Runs: []models.RunResult{{RunNumber: 1, Status: models.StatusPassed, UserInputRequests: records}}}},
+		}
+		encoded, err := json.Marshal(outcome)
+		require.NoError(t, err)
+		parsed, err := models.ParseEvaluationOutcome(encoded, "results.json")
+		require.NoError(t, err)
+		metadata, err := json.Marshal(outcomeToDetail(parsed).Tasks[0])
+		require.NoError(t, err)
+		if records == nil {
+			require.NotContains(t, string(metadata), "userInputRequests")
+		} else {
+			require.Contains(t, string(metadata), `"userInputRequests":[]`)
+		}
+	}
 }

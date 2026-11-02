@@ -181,7 +181,8 @@ promised stable across runs.
   using its existing session and instructions. Scripted entries are tried first;
   responder stop, abstain, errors, or invalid answers fail the run. Without the
   flag, responders are unchanged.
-- Adds optional `tasks[].runs[].user_input_requests`: one record per observed
+- Adds optional `tasks[].runs[].user_input_requests` (`[]` when the flag is on
+  and no question was asked; absent when it is off): one record per observed
   request in arrival order with `sequence`, `session_id`, `question`, offered
   `choices` (`null` when none were sent, `[]` when an empty list was sent),
   `answer`, `was_freeform`, `source` (`script` or `responder`), and `error` when

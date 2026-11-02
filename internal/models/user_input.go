@@ -20,10 +20,13 @@ type UserInputResponseConfig struct {
 	// invalidQuestion records an authored question that is null, empty, or
 	// not a string. Omission is the only way to answer any question.
 	invalidQuestion bool
+	// invalidAnswer records an authored answer that is not a string.
+	invalidAnswer bool
 }
 
 // UnmarshalYAML keeps an explicit empty or null question distinct from an
-// omitted one, so it cannot silently become a wildcard.
+// omitted one, so it cannot silently become a wildcard, and rejects non-string
+// answers. Effective values are resolved through YAML merges.
 func (c *UserInputResponseConfig) UnmarshalYAML(node *yaml.Node) error {
 	type plain UserInputResponseConfig
 	var decoded plain
@@ -34,19 +37,31 @@ func (c *UserInputResponseConfig) UnmarshalYAML(node *yaml.Node) error {
 	if node.Kind != yaml.MappingNode {
 		return nil
 	}
-	for i := 0; i+1 < len(node.Content); i += 2 {
-		if node.Content[i].Value != "question" {
-			continue
-		}
-		value := node.Content[i+1]
-		for value.Kind == yaml.AliasNode && value.Alias != nil {
-			value = value.Alias
-		}
-		if value.Kind != yaml.ScalarNode || value.Tag != "!!str" || value.Value == "" {
-			c.invalidQuestion = true
-		}
+	question, err := effectiveStringNode(node, "question")
+	if err != nil {
+		return err
+	}
+	if question != nil && (question.Kind != yaml.ScalarNode || question.Tag != "!!str" || question.Value == "") {
+		c.invalidQuestion = true
+	}
+	answer, err := effectiveStringNode(node, "answer")
+	if err != nil {
+		return err
+	}
+	if answer != nil && answer.Tag != "!!null" && (answer.Kind != yaml.ScalarNode || answer.Tag != "!!str") {
+		c.invalidAnswer = true
 	}
 	return nil
+}
+
+// effectiveStringNode returns the effective value of key, following merges
+// and aliases, or nil when the key is absent.
+func effectiveStringNode(node *yaml.Node, key string) (*yaml.Node, error) {
+	value, err := faultDocumentValue(node, key)
+	if err != nil || value == nil {
+		return nil, err
+	}
+	return faultAliasTarget(value)
 }
 
 const (
@@ -73,9 +88,21 @@ type UserInputRecord struct {
 	Error  string `json:"error,omitempty"`
 }
 
+// UserInputRecordsOf returns the recorded requests, or nil when none were
+// recorded because the native callback was not registered.
+func UserInputRecordsOf(records *[]UserInputRecord) []UserInputRecord {
+	if records == nil {
+		return nil
+	}
+	return *records
+}
+
 // ValidateUserInputResponses checks scripted native user-input answers.
 func ValidateUserInputResponses(responses []UserInputResponseConfig) error {
 	for i, response := range responses {
+		if response.invalidAnswer {
+			return fmt.Errorf("user_input_responses[%d].answer must be a string", i)
+		}
 		if response.Answer == nil {
 			return fmt.Errorf("user_input_responses[%d].answer is required", i)
 		}

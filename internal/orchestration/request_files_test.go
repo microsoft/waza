@@ -205,3 +205,22 @@ func TestNativeSnapshotRejectsNativeUserInput(t *testing.T) {
 		})
 	}
 }
+
+func TestFreezeCapturedNativeRequestOmitsUserInput(t *testing.T) {
+	spec := &models.EvalSpec{Config: models.Config{EngineType: "copilot-sdk", ModelID: "offline-model",
+		DisabledSkills: []string{"*"}},
+		Graders: []models.GraderConfig{{Identifier: "text", Kind: models.GraderKindText, Parameters: models.TextGraderParameters{Contains: []string{"hello"}}}}}
+	task := &models.TestCase{TestID: "task", Stimulus: models.TaskStimulus{Message: "hello"}}
+	req, err := BuildCapturedNativeRequest(spec, task, t.TempDir(), t.TempDir(), inertRequestFixture{})
+	require.NoError(t, err)
+	disabled, err := FreezeCapturedNativeRequest(req)
+	require.NoError(t, err)
+	require.NotContains(t, string(disabled), "UserInput", "frozen native CLIENT bytes must not change for tasks without native questions")
+
+	script, err := execution.NewUserInputScript(nil)
+	require.NoError(t, err)
+	req.UserInput = script
+	withScript, err := FreezeCapturedNativeRequest(req)
+	require.NoError(t, err)
+	require.Equal(t, string(disabled), string(withScript), "runtime callback state is never serialized")
+}

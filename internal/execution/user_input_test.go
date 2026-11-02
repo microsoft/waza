@@ -432,3 +432,62 @@ func TestCopilotEngineBindsTurnContextForUserInput(t *testing.T) {
 	require.True(t, resp.Success, resp.ErrorMsg)
 	require.Equal(t, deadline, gotDeadline)
 }
+
+func TestUserInputScriptRecordsStartEmptyNotNil(t *testing.T) {
+	script := newTestScript(t, nil)
+	require.NotNil(t, script.Records(), "an enabled script with no questions records [] rather than nothing")
+	require.Empty(t, script.Records())
+}
+
+func TestUserInputScriptFinishWaitsForInflightResponder(t *testing.T) {
+	script := newTestScript(t, nil)
+	started, release := make(chan struct{}), make(chan struct{})
+	script.SetFallback(func(context.Context, copilot.UserInputRequest) (string, error) {
+		close(started)
+		<-release
+		return "late answer", nil
+	})
+	go func() {
+		_, _ = script.Handler()(copilot.UserInputRequest{Question: "Q"}, copilot.UserInputInvocation{})
+	}()
+	<-started
+	finished := make(chan error, 1)
+	go func() { finished <- script.Finish() }()
+	select {
+	case <-finished:
+		t.Fatal("Finish must wait for a callback that is still answering")
+	case <-time.After(100 * time.Millisecond):
+	}
+	close(release)
+	require.NoError(t, <-finished)
+	require.Equal(t, "late answer", *script.Records()[0].Answer)
+}
+
+func TestUserInputScriptDrainEndsStuckResponderAsError(t *testing.T) {
+	previous := drainTimeout
+	drainTimeout = 50 * time.Millisecond
+	t.Cleanup(func() { drainTimeout = previous })
+
+	script := newTestScript(t, nil)
+	started, release := make(chan struct{}), make(chan struct{})
+	script.SetFallback(func(context.Context, copilot.UserInputRequest) (string, error) {
+		close(started)
+		<-release
+		return "too late", nil
+	})
+	callback := make(chan error, 1)
+	go func() {
+		_, err := script.Handler()(copilot.UserInputRequest{Question: "Q"}, copilot.UserInputInvocation{})
+		callback <- err
+	}()
+	<-started
+	err := script.Finish()
+	require.ErrorContains(t, err, "the responder did not answer before the run ended")
+	record := script.Records()[0]
+	require.Nil(t, record.Answer)
+	require.Contains(t, record.Error, "did not answer before the run ended")
+
+	close(release)
+	require.Error(t, <-callback, "the late answer is not delivered after the request was ended")
+	require.Nil(t, script.Records()[0].Answer, "a late answer must not overwrite the ended request")
+}

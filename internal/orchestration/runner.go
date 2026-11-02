@@ -1107,9 +1107,6 @@ func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.T
 			if run.CommandInvocations == nil {
 				run.CommandInvocations = resp.CommandInvocations
 			}
-			if run.UserInputRequests == nil {
-				run.UserInputRequests = resp.UserInputRequests
-			}
 			if run.Transcript == nil {
 				run.Transcript = transcript.BuildFromSessionEvents(copilotevents.ToSDK(resp.Events))
 			}
@@ -1121,8 +1118,12 @@ func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.T
 			}
 		}
 		run.DependencyModes = configuredDependencyModes(req, r.cfg.Spec().MCPMocks)
-		if run.UserInputRequests == nil && req != nil {
-			run.UserInputRequests = req.UserInput.Records()
+		if req != nil && req.UserInput != nil {
+			// The attempt's script is authoritative; drain any question still
+			// waiting on the responder so it ends as an error, not pending.
+			req.UserInput.Drain()
+			records := req.UserInput.Records()
+			run.UserInputRequests = &records
 		}
 		r.captureSnapshot(tc, req, resp, &run, diagnosticCategory)
 		run.RequirementExplanations = evidence.ExplainRequirements(r.cfg.Spec(), tc, &run)
@@ -1267,8 +1268,9 @@ func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.T
 		}
 	}
 	if userInput != nil {
+		finishErr := userInput.Finish()
 		resp.UserInputRequests = userInput.Records()
-		if finishErr := userInput.Finish(); finishErr != nil && resp.ErrorMsg == "" {
+		if finishErr != nil && resp.ErrorMsg == "" {
 			resp.Success = false
 			resp.ErrorMsg = finishErr.Error()
 		}
@@ -1438,7 +1440,6 @@ func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.T
 		Checkpoints:        checkpointOutcomes,
 		ToolEvents:         buildToolEvents(sdkEvents),
 		CommandInvocations: commandInvocations,
-		UserInputRequests:  resp.UserInputRequests,
 	}
 	return returnWithArtifacts(run)
 }

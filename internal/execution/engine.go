@@ -135,7 +135,7 @@ type ExecutionRequest struct {
 	// UserInput scripts answers to native SDK user-input requests. Nil leaves
 	// OnUserInputRequest unregistered. Callers share one script across the
 	// initial and resumed turns of a run so order is preserved.
-	UserInput *UserInputScript
+	UserInput *UserInputScript `json:"-"`
 }
 
 // ResourceFile represents a file resource

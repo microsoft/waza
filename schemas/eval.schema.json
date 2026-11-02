@@ -114,6 +114,27 @@
   "allOf": [
     {
       "if": {
+        "required": ["config"],
+        "properties": {
+          "config": {
+            "required": ["native_user_input"],
+            "properties": { "native_user_input": { "const": true } }
+          }
+        }
+      },
+      "then": {
+        "required": ["schemaVersion", "config"],
+        "properties": {
+          "schemaVersion": { "const": "2.0" },
+          "config": {
+            "required": ["executor"],
+            "properties": { "executor": { "const": "copilot-sdk" } }
+          }
+        }
+      }
+    },
+    {
+      "if": {
         "not": {
           "required": ["schemaVersion"],
           "properties": { "schemaVersion": { "const": "2.0" } }

@@ -544,3 +544,26 @@ func TestValidateEvalFile_NativeUserInput(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateEvalBytes_NativeUserInputRequiresScenarioCopilot(t *testing.T) {
+	scenario := "schemaVersion: \"2.0\"\nname: native\nscenario: native-questions\nversion: \"1.0\"\nconfig:\n  trials_per_task: 1\n  timeout_seconds: 60\n  executor: copilot-sdk\n  model: m\n  native_user_input: true\nmetrics: [{name: m, weight: 1, threshold: 1}]\ntasks: [tasks/*.yaml]\n"
+	require.Empty(t, ValidateEvalBytes([]byte(scenario)), "control: scenario copilot-sdk opt-in is valid")
+	for name, eval := range map[string]string{
+		"legacy version":   strings.Replace(strings.Replace(scenario, "schemaVersion: \"2.0\"", "schemaVersion: \"1.4\"", 1), "scenario: native-questions\n", "skill: s\n", 1),
+		"missing version":  strings.Replace(strings.Replace(scenario, "schemaVersion: \"2.0\"\n", "", 1), "scenario: native-questions\n", "skill: s\n", 1),
+		"mock executor":    strings.Replace(scenario, "executor: copilot-sdk", "executor: mock", 1),
+		"default executor": strings.Replace(scenario, "  executor: copilot-sdk\n", "", 1),
+	} {
+		t.Run(name, func(t *testing.T) {
+			require.NotEmpty(t, ValidateEvalBytes([]byte(eval)))
+		})
+	}
+	for name, eval := range map[string]string{
+		"flag false in legacy eval": strings.Replace(strings.Replace(strings.Replace(scenario, "schemaVersion: \"2.0\"", "schemaVersion: \"1.4\"", 1), "scenario: native-questions\n", "skill: s\n", 1), "native_user_input: true", "native_user_input: false", 1),
+		"flag omitted with mock":    strings.Replace(strings.Replace(scenario, "executor: copilot-sdk", "executor: mock", 1), "  native_user_input: true\n", "", 1),
+	} {
+		t.Run(name, func(t *testing.T) {
+			require.Empty(t, ValidateEvalBytes([]byte(eval)))
+		})
+	}
+}

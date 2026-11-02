@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"slices"
 	"sync"
+	"time"
 
 	copilot "github.com/github/copilot-sdk/go"
 	"github.com/microsoft/waza/internal/models"
@@ -27,7 +28,12 @@ type UserInputScript struct {
 	rejections []error
 	fallback   UserInputFallback
 	turnCtx    context.Context
+	inflight   sync.WaitGroup
 }
+
+// drainTimeout bounds how long Drain waits for callbacks still answering.
+// Responder calls use the asking turn's context, so they normally end with it.
+var drainTimeout = 30 * time.Second
 
 // UserInputFallback answers a native user-input request that no scripted
 // entry handles. ctx belongs to the agent turn that asked, so the call ends
@@ -42,6 +48,7 @@ func NewUserInputScript(responses []models.UserInputResponseConfig) (*UserInputS
 	s := &UserInputScript{
 		responses: slices.Clone(responses),
 		patterns:  make([]*regexp.Regexp, len(responses)),
+		records:   []models.UserInputRecord{},
 	}
 	for i, response := range responses {
 		if response.Question == "" {
@@ -91,6 +98,8 @@ func (s *UserInputScript) bindTurn(ctx context.Context) func() {
 }
 
 func (s *UserInputScript) handle(request copilot.UserInputRequest, invocation copilot.UserInputInvocation) (copilot.UserInputResponse, error) {
+	s.inflight.Add(1)
+	defer s.inflight.Done()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -119,6 +128,10 @@ func (s *UserInputScript) handle(request copilot.UserInputRequest, invocation co
 		s.mu.Unlock()
 		reply, err := fallback(ctx, request)
 		s.mu.Lock()
+		if failed := s.records[index].Error; failed != "" {
+			// Drain already ended this request as an error.
+			return copilot.UserInputResponse{}, errors.New(failed)
+		}
 		if err != nil {
 			return s.reject(index, fmt.Sprintf("responder could not answer: %v", err))
 		}
@@ -186,11 +199,38 @@ func (s *UserInputScript) rejectionsSince(mark int) error {
 	return errors.Join(s.rejections[mark:]...)
 }
 
-// Finish reports any rejection or unconsumed scripted answer for the run.
+// Drain waits, within a bound, for callbacks still answering, then ends any
+// request that is still pending as an error so no record is left without
+// an answer or error.
+func (s *UserInputScript) Drain() {
+	if s == nil {
+		return
+	}
+	done := make(chan struct{})
+	go func() {
+		s.inflight.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(drainTimeout):
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.records {
+		if s.records[i].Answer == nil && s.records[i].Error == "" {
+			_, _ = s.reject(i, "the responder did not answer before the run ended")
+		}
+	}
+}
+
+// Finish drains pending callbacks, then reports any rejection or unused
+// scripted answer for the run.
 func (s *UserInputScript) Finish() error {
 	if s == nil {
 		return nil
 	}
+	s.Drain()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if len(s.rejections) > 0 {

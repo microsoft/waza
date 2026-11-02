@@ -156,11 +156,11 @@ func TestNativeQuestionsExampleGradesRecordedAnswers(t *testing.T) {
 		{"choice answered as freeform", []models.UserInputRecord{record(1, "staging", true), compliant[1]}, false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			graded, err := gradeRunWithJudge(t.Context(), spec, task, &models.RunResult{UserInputRequests: test.records}, workspace, "", io.Discard, false, evidenceGradeSource{})
+			graded, err := gradeRunWithJudge(t.Context(), spec, task, &models.RunResult{UserInputRequests: &test.records}, workspace, "", io.Discard, false, evidenceGradeSource{})
 			require.NoError(t, err)
 			require.NotEmpty(t, graded.Validations)
 			require.Equal(t, test.passed, graded.Status == models.StatusPassed, "%+v", graded.Validations)
-			require.Equal(t, test.records, graded.UserInputRequests)
+			require.Equal(t, test.records, models.UserInputRecordsOf(graded.UserInputRequests))
 		})
 	}
 }

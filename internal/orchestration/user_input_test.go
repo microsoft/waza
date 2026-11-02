@@ -109,8 +109,8 @@ func TestRunBenchmarkAnswersNativeQuestionsAcrossInitialAndResumedTurns(t *testi
 	require.NotNil(t, engine.scripts[0])
 	require.Same(t, engine.scripts[0], engine.scripts[1], "initial and resumed turns must share one ordered script")
 
-	require.Len(t, run.UserInputRequests, 2)
-	first, second := run.UserInputRequests[0], run.UserInputRequests[1]
+	require.Len(t, models.UserInputRecordsOf(run.UserInputRequests), 2)
+	first, second := models.UserInputRecordsOf(run.UserInputRequests)[0], models.UserInputRecordsOf(run.UserInputRequests)[1]
 	require.Equal(t, 1, first.Sequence)
 	require.Equal(t, "session-1", first.SessionID)
 	require.Equal(t, []string{"staging", "prod"}, first.Choices)
@@ -146,7 +146,7 @@ func TestRunBenchmarkAnswersNativeQuestionsAcrossInitialAndResumedTurns(t *testi
 
 	restored, err := models.ParseEvaluationOutcome(data, "results.json")
 	require.NoError(t, err)
-	require.Equal(t, run.UserInputRequests, restored.TestOutcomes[0].Runs[0].UserInputRequests)
+	require.Equal(t, models.UserInputRecordsOf(run.UserInputRequests), models.UserInputRecordsOf(restored.TestOutcomes[0].Runs[0].UserInputRequests))
 }
 
 func TestRunBenchmarkFailsClosedOnNativeQuestionProblems(t *testing.T) {
@@ -194,7 +194,7 @@ func TestRunBenchmarkFailsClosedOnNativeQuestionProblems(t *testing.T) {
 			run := outcome.TestOutcomes[0].Runs[0]
 			require.Equal(t, models.StatusError, run.Status)
 			require.Contains(t, run.ErrorMsg, tc.message)
-			require.Len(t, run.UserInputRequests, tc.records)
+			require.Len(t, models.UserInputRecordsOf(run.UserInputRequests), tc.records)
 			require.Len(t, engine.scripts, tc.turns)
 		})
 	}
@@ -213,8 +213,8 @@ func TestRunBenchmarkUsesFreshNativeQuestionScriptPerTrial(t *testing.T) {
 	require.Len(t, runs, 2)
 	for _, run := range runs {
 		require.Equal(t, models.StatusSkipped, run.Status, run.ErrorMsg)
-		require.Len(t, run.UserInputRequests, 2)
-		require.Equal(t, 1, run.UserInputRequests[0].Sequence)
+		require.Len(t, models.UserInputRecordsOf(run.UserInputRequests), 2)
+		require.Equal(t, 1, models.UserInputRecordsOf(run.UserInputRequests)[0].Sequence)
 	}
 	require.Len(t, engine.scripts, 4)
 	require.Same(t, engine.scripts[0], engine.scripts[1])
@@ -233,7 +233,7 @@ func TestRunBenchmarkLeavesNativeQuestionCallbackUnsetWithoutScript(t *testing.T
 	require.NoError(t, err)
 	run := outcome.TestOutcomes[0].Runs[0]
 	require.Equal(t, models.StatusSkipped, run.Status, run.ErrorMsg)
-	require.Nil(t, run.UserInputRequests)
+	require.Nil(t, models.UserInputRecordsOf(run.UserInputRequests))
 	require.Len(t, engine.scripts, 2)
 	require.Nil(t, engine.scripts[0])
 	require.Nil(t, engine.scripts[1])
@@ -263,7 +263,7 @@ func TestRunBenchmarkScenarioResponderWithoutFlagLeavesNativeCallbackUnset(t *te
 	require.NoError(t, err)
 	run := outcome.TestOutcomes[0].Runs[0]
 	require.Equal(t, models.StatusSkipped, run.Status, run.ErrorMsg)
-	require.Nil(t, run.UserInputRequests)
+	require.Nil(t, models.UserInputRecordsOf(run.UserInputRequests))
 	require.Nil(t, engine.scripts[0], "the adaptive user answers native questions only when the eval opts in")
 	require.Len(t, classifier.messages, 1, "only the between-turn classification runs")
 }
@@ -325,20 +325,20 @@ func TestProductionCopilotEngineAnswersNativeQuestionsFromTaskYAML(t *testing.T)
 			require.Contains(t, run.ErrorMsg, tc.message)
 			require.EqualValues(t, 1, client.Creates.Load())
 			require.EqualValues(t, 1, client.Resumes.Load())
-			require.Len(t, run.UserInputRequests, len(tc.sources))
-			for i, record := range run.UserInputRequests {
+			require.Len(t, models.UserInputRecordsOf(run.UserInputRequests), len(tc.sources))
+			for i, record := range models.UserInputRecordsOf(run.UserInputRequests) {
 				require.Equal(t, i+1, record.Sequence)
 				require.Equal(t, "native-session", record.SessionID)
 				require.Equal(t, tc.sources[i], record.Source)
 			}
-			require.Equal(t, "staging", *run.UserInputRequests[0].Answer)
+			require.Equal(t, "staging", *models.UserInputRecordsOf(run.UserInputRequests)[0].Answer)
 			if tc.status == models.StatusError {
 				require.Len(t, sdkErrors, 1, "the SDK must receive an error, never a default answer")
-				require.Nil(t, run.UserInputRequests[1].Answer)
+				require.Nil(t, models.UserInputRecordsOf(run.UserInputRequests)[1].Answer)
 			} else {
 				require.Empty(t, sdkErrors)
-				require.Equal(t, "fixes login", *run.UserInputRequests[1].Answer)
-				require.True(t, *run.UserInputRequests[1].WasFreeform)
+				require.Equal(t, "fixes login", *models.UserInputRecordsOf(run.UserInputRequests)[1].Answer)
+				require.True(t, *models.UserInputRecordsOf(run.UserInputRequests)[1].WasFreeform)
 			}
 		})
 	}
@@ -418,14 +418,14 @@ func TestRunBenchmarkAdaptiveResponderAnswersUnscriptedNativeQuestions(t *testin
 	require.Equal(t, models.StatusSkipped, run.Status, run.ErrorMsg)
 	require.Equal(t, models.ResponderOutcomeStopped, run.Responder.Outcome)
 
-	require.Len(t, run.UserInputRequests, 3)
-	sources := []string{run.UserInputRequests[0].Source, run.UserInputRequests[1].Source, run.UserInputRequests[2].Source}
+	require.Len(t, models.UserInputRecordsOf(run.UserInputRequests), 3)
+	sources := []string{models.UserInputRecordsOf(run.UserInputRequests)[0].Source, models.UserInputRecordsOf(run.UserInputRequests)[1].Source, models.UserInputRecordsOf(run.UserInputRequests)[2].Source}
 	require.Equal(t, []string{"responder", "script", "responder"}, sources)
-	require.Equal(t, "Ada", *run.UserInputRequests[0].Answer)
-	require.True(t, *run.UserInputRequests[0].WasFreeform)
-	require.Equal(t, "staging", *run.UserInputRequests[1].Answer)
-	require.Equal(t, "west", *run.UserInputRequests[2].Answer)
-	require.False(t, *run.UserInputRequests[2].WasFreeform, "a reply equal to an offered choice is a selection")
+	require.Equal(t, "Ada", *models.UserInputRecordsOf(run.UserInputRequests)[0].Answer)
+	require.True(t, *models.UserInputRecordsOf(run.UserInputRequests)[0].WasFreeform)
+	require.Equal(t, "staging", *models.UserInputRecordsOf(run.UserInputRequests)[1].Answer)
+	require.Equal(t, "west", *models.UserInputRecordsOf(run.UserInputRequests)[2].Answer)
+	require.False(t, *models.UserInputRecordsOf(run.UserInputRequests)[2].WasFreeform, "a reply equal to an offered choice is a selection")
 
 	require.Equal(t, 1, created, "native questions and between-turn replies share one responder per attempt")
 	require.Equal(t, 1, classifier.closed)
@@ -456,9 +456,9 @@ func TestRunBenchmarkAdaptiveResponderNativeAnswerFailsClosed(t *testing.T) {
 			run := outcome.TestOutcomes[0].Runs[0]
 			require.Equal(t, models.StatusError, run.Status)
 			require.Contains(t, run.ErrorMsg, tc.message)
-			require.Len(t, run.UserInputRequests, 1)
-			require.NotEmpty(t, run.UserInputRequests[0].Error)
-			require.Equal(t, "responder", run.UserInputRequests[0].Source)
+			require.Len(t, models.UserInputRecordsOf(run.UserInputRequests), 1)
+			require.NotEmpty(t, models.UserInputRecordsOf(run.UserInputRequests)[0].Error)
+			require.Equal(t, "responder", models.UserInputRecordsOf(run.UserInputRequests)[0].Source)
 		})
 	}
 }
@@ -474,7 +474,7 @@ func TestRunBenchmarkLegacyAdaptiveResponderLeavesNativeCallbackUnset(t *testing
 	require.NoError(t, err)
 	run := outcome.TestOutcomes[0].Runs[0]
 	require.Equal(t, models.StatusSkipped, run.Status, run.ErrorMsg)
-	require.Nil(t, run.UserInputRequests)
+	require.Nil(t, models.UserInputRecordsOf(run.UserInputRequests))
 	require.Nil(t, engine.scripts[0], "legacy adaptive tasks keep their existing behavior without the native question tool")
 	require.Len(t, classifier.messages, 1)
 }
@@ -519,8 +519,8 @@ func TestProductionEngineAdaptiveResponderAnswersNativeQuestionMidTurn(t *testin
 	run := outcome.TestOutcomes[0].Runs[0]
 	require.Equal(t, models.StatusSkipped, run.Status, run.ErrorMsg)
 	require.Equal(t, []copilot.UserInputResponse{{Answer: "Ada", WasFreeform: true}}, agentAnswers)
-	require.Len(t, run.UserInputRequests, 1)
-	require.Equal(t, "responder", run.UserInputRequests[0].Source)
+	require.Len(t, models.UserInputRecordsOf(run.UserInputRequests), 1)
+	require.Equal(t, "responder", models.UserInputRecordsOf(run.UserInputRequests)[0].Source)
 	require.Equal(t, models.ResponderOutcomeStopped, run.Responder.Outcome)
 	require.Len(t, responderPrompts, 2)
 	require.Contains(t, responderPrompts[0], "Your name is Ada.", "the first responder call seeds its instructions")
@@ -559,4 +559,85 @@ func TestNativeQuestionResponderCallUsesTaskTimeout(t *testing.T) {
 	inTurn := classifier.deadlines[0]
 	require.Greater(t, inTurn, 200*time.Second, "the in-turn responder call must not fall back to the SDK's 60 second default")
 	require.LessOrEqual(t, inTurn, 240*time.Second)
+}
+
+func TestRunBenchmarkKeepsEmptyNativeQuestionRecordsDistinctFromAbsent(t *testing.T) {
+	for _, enabled := range []bool{true, false} {
+		t.Run(fmt.Sprint(enabled), func(t *testing.T) {
+			engine := &questionEngine{}
+			cfg, _ := writeUserInputEval(t, "id: a\nname: A\ninputs:\n  prompt: start\n", models.ScenarioSchemaVersion)
+			cfg.Spec().Config.NativeUserInput = enabled
+			outcome, err := NewEvalRunner(cfg, engine, WithSkipGraders()).RunBenchmark(context.Background())
+			require.NoError(t, err)
+			run := outcome.TestOutcomes[0].Runs[0]
+			require.Equal(t, models.StatusSkipped, run.Status, run.ErrorMsg)
+			data, err := json.Marshal(outcome)
+			require.NoError(t, err)
+			restored, err := models.ParseEvaluationOutcome(data, "results.json")
+			require.NoError(t, err)
+			got := models.UserInputRecordsOf(restored.TestOutcomes[0].Runs[0].UserInputRequests)
+			if enabled {
+				require.NotNil(t, models.UserInputRecordsOf(run.UserInputRequests))
+				require.Empty(t, models.UserInputRecordsOf(run.UserInputRequests))
+				require.Contains(t, string(data), `"user_input_requests":[]`, "zero recorded questions is evidence, not absence")
+				require.NotNil(t, got)
+				require.Empty(t, got)
+			} else {
+				require.Nil(t, models.UserInputRecordsOf(run.UserInputRequests))
+				require.NotContains(t, string(data), "user_input_requests")
+				require.Nil(t, got)
+			}
+		})
+	}
+}
+
+// detachedQuestionEngine returns from its turn while the question callback is
+// still waiting on the responder, as happens when a turn times out.
+type detachedQuestionEngine struct {
+	questionEngine
+	started chan struct{}
+}
+
+func (e *detachedQuestionEngine) Execute(_ context.Context, req *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
+	handler := req.UserInput.Handler()
+	go func() {
+		_, _ = handler(copilot.UserInputRequest{Question: "Your name?"}, copilot.UserInputInvocation{SessionID: "s"})
+	}()
+	<-e.started
+	return &execution.ExecutionResponse{SessionID: "s", WorkspaceDir: "/workspace/q",
+		ErrorMsg: "turn timed out", UserInputRequests: req.UserInput.Records()}, nil
+}
+
+type slowAbstainClassifier struct {
+	started chan struct{}
+	once    sync.Once
+}
+
+func (c *slowAbstainClassifier) Classify(context.Context, string) (responder.Decision, error) {
+	c.once.Do(func() { close(c.started) })
+	time.Sleep(100 * time.Millisecond)
+	return responder.Decision{Kind: responder.DecisionAbstain, Reason: "unknown"}, nil
+}
+
+func (c *slowAbstainClassifier) Close(context.Context) error { return nil }
+
+func TestRunBenchmarkDrainsQuestionStillWithResponder(t *testing.T) {
+	started := make(chan struct{})
+	engine := &detachedQuestionEngine{started: started}
+	task := "id: a\nname: A\ninputs:\n  prompt: start\n  responder: {instructions: x, max_followups: 1}\n"
+	cfg, _ := writeUserInputEval(t, task, models.ScenarioSchemaVersion)
+	runner := NewEvalRunner(cfg, engine, WithSkipGraders())
+	runner.newClassifier = func(models.ResponderConfig, string) responderClassifier {
+		return &slowAbstainClassifier{started: started}
+	}
+	outcome, err := runner.RunBenchmark(context.Background())
+	require.NoError(t, err)
+	run := outcome.TestOutcomes[0].Runs[0]
+	require.Equal(t, models.StatusError, run.Status)
+	require.Len(t, models.UserInputRecordsOf(run.UserInputRequests), 1)
+	record := models.UserInputRecordsOf(run.UserInputRequests)[0]
+	require.Nil(t, record.Answer)
+	require.Contains(t, record.Error, "responder could not answer: responder abstained: unknown",
+		"the saved record must be the drained outcome, not a pending entry")
+	require.Contains(t, run.ErrorMsg, "turn timed out")
 }
