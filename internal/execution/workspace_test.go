@@ -1,6 +1,7 @@
 package execution
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -16,6 +17,7 @@ func TestSetupWorkspaceResources_WritesFiles(t *testing.T) {
 	resources := []ResourceFile{
 		{Path: "root.txt", Content: []byte("root")},
 		{Path: "nested/child.txt", Content: []byte("child")},
+		{Path: "nested/sibling.txt", Content: []byte("sibling")},
 		{Path: "", Content: []byte("ignored")},
 	}
 
@@ -29,6 +31,10 @@ func TestSetupWorkspaceResources_WritesFiles(t *testing.T) {
 	childContent, err := os.ReadFile(filepath.Join(workspace, "nested", "child.txt"))
 	require.NoError(t, err)
 	assert.Equal(t, "child", string(childContent))
+
+	siblingContent, err := os.ReadFile(filepath.Join(workspace, "nested", "sibling.txt"))
+	require.NoError(t, err)
+	assert.Equal(t, "sibling", string(siblingContent))
 }
 
 func TestSetupWorkspaceResources_RejectsAbsolutePath(t *testing.T) {
@@ -51,6 +57,32 @@ func TestSetupWorkspaceResources_EmptyWorkspace(t *testing.T) {
 	err := setupWorkspaceResources("", []ResourceFile{{Path: "file.txt", Content: []byte("x")}})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "escapes workspace")
+}
+
+func BenchmarkSetupWorkspaceResourcesSharedDirectories(b *testing.B) {
+	const fileCount = 2048
+	resources := make([]ResourceFile, fileCount)
+	for i := range resources {
+		resources[i] = ResourceFile{
+			Path:    filepath.Join("fixtures", fmt.Sprintf("group-%02d", i%16), fmt.Sprintf("file-%04d.txt", i)),
+			Content: []byte("benchmark fixture"),
+		}
+	}
+
+	root := b.TempDir()
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		workspace := filepath.Join(root, fmt.Sprintf("run-%d", i))
+		if err := setupWorkspaceResources(workspace, resources); err != nil {
+			b.Fatal(err)
+		}
+		b.StopTimer()
+		if err := os.RemoveAll(workspace); err != nil {
+			b.Fatal(err)
+		}
+		b.StartTimer()
+	}
 }
 
 func TestCaptureWorkspaceFiles_CapturesAllFiles(t *testing.T) {
