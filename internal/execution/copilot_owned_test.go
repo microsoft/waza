@@ -38,12 +38,21 @@ func TestOwnedNativeClientDoesNotAllocateCommandMockRuntime(t *testing.T) {
 			if phase != "invalid-path" {
 				require.IsType(t, &copilotClientWrapper{}, engine.client)
 			}
-			if phase != "shutdown" {
+			if phase == "invalid-path" {
 				require.ErrorContains(t, engine.Initialize(t.Context()), "initialize/start_failed")
+			}
+			var startupErr error
+			if phase == "startup-failure" {
+				startupErr = engine.Initialize(t.Context())
+				if startupErr != nil {
+					require.ErrorContains(t, startupErr, "initialize/start_failed")
+				}
 			}
 			shutdownErr := engine.Shutdown(t.Context())
 			if phase == "startup-failure" {
-				require.ErrorContains(t, shutdownErr, "client_stop/cleanup_failed")
+				if shutdownErr != nil {
+					require.ErrorContains(t, shutdownErr, "client_stop/cleanup_failed")
+				}
 			} else {
 				require.NoError(t, shutdownErr)
 			}

@@ -125,15 +125,15 @@ test('every catalog input enables PR site checks and the main push workflow', ()
 
 test('site validation and deployment pin a supported Astro Node runtime', () => {
   const lock = JSON.parse(read('site/package-lock.json'));
-  assert.match(lock.packages['node_modules/astro'].engines.node, />=22\.22\.0/);
+  assert.match(lock.packages['node_modules/astro'].engines.node, />=22\.23\.4/);
   for (const path of ['.github/workflows/site-ci.yml', '.github/workflows/pages.yml']) {
     const versions = [...read(path).matchAll(/node-version: '([^']+)'/g)].map((match) => match[1]);
     assert.ok(versions.length > 0, `${path}: expected an explicit Node version`);
     for (const version of versions) {
-      assert.equal(version, '22.22.0', `${path}: keep site CI and deployment on the supported pinned runtime`);
+      assert.equal(version, '22.23.4', `${path}: keep site CI and deployment on the supported pinned runtime`);
     }
   }
-  assert.match(read('site/README.md'), /Use Node\.js 22\.22\.0 or later/);
+  assert.match(read('site/README.md'), /Use Node\.js 22\.23\.4 or later/);
 });
 
 test('onboarding and active grader docs reject obsolete example contracts', () => {

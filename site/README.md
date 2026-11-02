@@ -76,8 +76,8 @@ through `make build` (real dashboard assets, no stubs), and invokes
 `test:examples` with that binary. The built-in Node test runner needs no separate
 site dependency installation for this job.
 
-Use Node.js 22.22.0 or later. Astro requires this minimum; the site CI and GitHub
-Pages workflows use Node.js 22.22.0.
+Use Node.js 22.23.4 or later. Astro requires this minimum; the site CI and GitHub
+Pages workflows use Node.js 22.23.4.
 
 All commands are run from the root of the project, from a terminal:
 
