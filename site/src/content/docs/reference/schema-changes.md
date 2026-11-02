@@ -98,7 +98,8 @@ unchanged; it does not downgrade scenario discovery semantics to `1.x`.
 - Exit codes, shell IDs and turn IDs are never inferred from tool output text,
   command lines or telemetry. Events emitted after recording ended, such as a
   detached shell finishing after the session went idle, are absent.
-- Inline `code` graders receive `host_lifecycle` (null when unavailable) during
+- Inline `code` graders and `program` graders (via `WAZA_GRADING_CONTEXT`,
+  still context version `1`) receive `host_lifecycle` (null when unavailable) during
   execution and regrading. Regrading preserves the recorded value. Snapshots do
   not capture it, so snapshot replays see it as unavailable.
 - The release artifact schema admits the field on run rows. Native text-primitive
