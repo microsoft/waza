@@ -400,7 +400,9 @@ must also use an absolute, verified `COPILOT_CLI_PATH` that rejects runtime laun
 
 For MCP process-test failures, distinguish CLI build time, OS process creation,
 and protocol exchange/shutdown time. Record elapsed phases and context state
-before cleanup; inspect output buffers only after `Wait` joins their copy
+before cleanup; label invocation setup as `setup_elapsed` and context observed
+immediately after `Start` returns as `post_start_ctx_err`. Inspect output buffers
+only after `Wait` joins their copy
 goroutines. An empty-stderr exit or a test's total duration does not establish a
 protocol failure. Retain fresh production-CLI execution and existing deadlines
 while diagnosing startup delays; a diagnostic-only pass is not a root-cause fix.
