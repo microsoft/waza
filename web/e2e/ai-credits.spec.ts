@@ -113,8 +113,10 @@ for (const availability of ["reported", "mixed", "unavailable"] as const) {
       await expect(chart.locator("svg")).toHaveCount(0);
     } else {
       await expect(chart.locator("svg")).toBeVisible();
-      const markerPath = await chart.getByTestId("trend-points").getAttribute("d");
-      expect(markerPath?.match(/\bM /g)).toHaveLength(3 - missing);
+      await expect(chart.getByTestId("trend-points")).toHaveAttribute(
+        "data-point-count",
+        String(3 - missing),
+      );
       await expect(chart.locator("svg")).toContainText("9/1");
       await expect(chart.locator("svg")).toContainText("9/3");
       if (availability === "mixed") {

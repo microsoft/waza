@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useMemo } from "react";
+import { useState, useRef, useEffect, useId, useMemo } from "react";
 
 export interface DataPoint {
   label: string;
@@ -40,12 +40,6 @@ function chartGeometry(data: DataPoint[], svgWidth: number) {
   const linePath = coordinates
     .map(({ x, y }, index) => `${index === 0 ? "M" : "L"} ${x} ${y}`)
     .join(" ");
-  const pointPath = coordinates
-    .map(
-      ({ x, y }) =>
-        `M ${x - 3} ${y} a 3 3 0 1 0 6 0 a 3 3 0 1 0 -6 0`,
-    )
-    .join(" ");
 
   return {
     plotW,
@@ -53,7 +47,6 @@ function chartGeometry(data: DataPoint[], svgWidth: number) {
     toX,
     toY,
     linePath,
-    pointPath,
     areaPath: data.length
       ? `${linePath} L ${toX(data.length - 1)} ${PADDING.top + plotH} L ${toX(0)} ${PADDING.top + plotH} Z`
       : "",
@@ -69,6 +62,7 @@ export default function TrendChart({
   data,
   formatValue,
 }: TrendChartProps) {
+  const markerId = `trend-point-${useId().replace(/:/g, "")}`;
   const svgRef = useRef<SVGSVGElement>(null);
   const [tooltip, setTooltip] = useState<{
     x: number;
@@ -112,7 +106,6 @@ export default function TrendChart({
     toX,
     toY,
     linePath,
-    pointPath,
     areaPath,
     gridYValues,
   } = geometry;
@@ -129,7 +122,7 @@ export default function TrendChart({
         : 0;
     const closest = Math.max(
       0,
-      Math.min(data.length - 1, Math.round(position)),
+      Math.min(data.length - 1, Math.ceil(position - 0.5)),
     );
 
     const pt = data[closest];
@@ -152,6 +145,26 @@ export default function TrendChart({
         onMouseMove={handleMouseMove}
         onMouseLeave={() => setTooltip(null)}
       >
+        <defs>
+          <marker
+            id={markerId}
+            markerWidth={10}
+            markerHeight={10}
+            refX={5}
+            refY={5}
+            markerUnits="userSpaceOnUse"
+          >
+            <circle
+              cx={5}
+              cy={5}
+              r={3}
+              fill="rgb(59 130 246)"
+              stroke="rgb(39 39 42)"
+              strokeWidth={2}
+            />
+          </marker>
+        </defs>
+
         {/* Grid lines */}
         {gridYValues.map((v, i) => (
           <g key={i}>
@@ -224,10 +237,13 @@ export default function TrendChart({
         {/* Data points */}
         <path
           data-testid="trend-points"
-          d={pointPath}
-          fill="rgb(59 130 246)"
-          stroke="rgb(39 39 42)" // zinc-800
-          strokeWidth={2}
+          data-point-count={data.length}
+          d={linePath}
+          fill="none"
+          stroke="none"
+          markerStart={`url(#${markerId})`}
+          markerMid={`url(#${markerId})`}
+          markerEnd={`url(#${markerId})`}
         />
 
         {/* Tooltip crosshair & dot */}
