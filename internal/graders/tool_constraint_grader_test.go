@@ -863,17 +863,23 @@ func TestToolConstraintGrader_CompilesIdenticalPatternsForEachField(t *testing.T
 	})
 	require.NoError(t, err)
 
-	result, err := grader.Grade(t.Context(), &Context{Session: &models.SessionDigest{
-		ToolCalls: []models.ToolCall{{
-			Name: "bash",
-			Arguments: models.ToolCallArgs{
-				Command: "same",
-				Path:    "different",
-				Skill:   "same",
-			},
-		}},
-	}})
-	require.NoError(t, err)
-	require.False(t, result.Passed)
-	require.Contains(t, result.Feedback, "Expected tool not used")
+	for _, field := range []string{"command", "path", "skill"} {
+		t.Run(field, func(t *testing.T) {
+			arguments := models.ToolCallArgs{Command: "same", Path: "same", Skill: "same"}
+			switch field {
+			case "command":
+				arguments.Command = "different"
+			case "path":
+				arguments.Path = "different"
+			case "skill":
+				arguments.Skill = "different"
+			}
+			result, err := grader.Grade(t.Context(), &Context{Session: &models.SessionDigest{
+				ToolCalls: []models.ToolCall{{Name: "bash", Arguments: arguments}},
+			}})
+			require.NoError(t, err)
+			require.False(t, result.Passed)
+			require.Contains(t, result.Feedback, "Expected tool not used")
+		})
+	}
 }
