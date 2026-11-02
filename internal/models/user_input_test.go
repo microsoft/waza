@@ -43,11 +43,53 @@ func TestCompileUserInputQuestionMatchesWholeQuestion(t *testing.T) {
 	require.False(t, pattern.MatchString("Deploy where?"))
 }
 
-func TestValidateUserInputResponsesSchemaVersion(t *testing.T) {
-	require.NoError(t, ValidateUserInputResponsesSchemaVersion(ScenarioSchemaVersion))
-	for _, version := range []string{"", "1.0", "1.4", "1.99", "2.1", "3.0"} {
-		require.ErrorContains(t, ValidateUserInputResponsesSchemaVersion(version), "requires explicit enclosing scenario schemaVersion 2.0", version)
+func TestCompileUserInputQuestionRejectsAnchorEscape(t *testing.T) {
+	// Wrapped naively, this unbalanced pattern compiles as ^(?:Deploy)|(?:Delete)$
+	// and would match any question starting with "Deploy".
+	_, err := CompileUserInputQuestion("Deploy)|(?:Delete")
+	require.Error(t, err)
+	require.ErrorContains(t, ValidateUserInputResponses([]UserInputResponseConfig{{Question: "Deploy)|(?:Delete", Answer: new("a")}}),
+		"question is not a valid regular expression")
+}
+
+func TestConfigValidateNativeUserInput(t *testing.T) {
+	require.NoError(t, Config{}.ValidateNativeUserInput("1.4"), "the flag is off by default")
+	on := Config{NativeUserInput: true, EngineType: "copilot-sdk"}
+	require.NoError(t, on.ValidateNativeUserInput(ScenarioSchemaVersion))
+	for _, version := range []string{"", "1.4", "1.99", "2.1"} {
+		require.ErrorContains(t, on.ValidateNativeUserInput(version), "requires a scenario eval with schemaVersion 2.0", version)
 	}
+	require.ErrorContains(t, Config{NativeUserInput: true, EngineType: "mock"}.ValidateNativeUserInput(ScenarioSchemaVersion), "requires executor copilot-sdk")
+}
+
+func TestValidateTaskUserInputRequiresEvalFlag(t *testing.T) {
+	scripted := &TestCase{TestID: "t", UserInputResponses: &[]UserInputResponseConfig{}}
+	require.ErrorContains(t, ValidateTaskUserInput(Config{}, scripted), "user_input_responses requires config.native_user_input: true")
+	require.NoError(t, ValidateTaskUserInput(Config{NativeUserInput: true}, scripted))
+	require.NoError(t, ValidateTaskUserInput(Config{}, &TestCase{TestID: "t"}))
+	invalid := &TestCase{TestID: "t", UserInputResponses: &[]UserInputResponseConfig{{Question: "("}}}
+	require.ErrorContains(t, ValidateTaskUserInput(Config{NativeUserInput: true}, invalid), "answer is required")
+}
+
+func TestLoadTestCaseRejectsExplicitEmptyQuestion(t *testing.T) {
+	for _, value := range []string{`""`, `''`, "null", "~", "5", "[a]"} {
+		t.Run(value, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "task.yaml")
+			task := "id: t\nname: T\ninputs:\n  prompt: go\nuser_input_responses:\n  - question: " + value + "\n    answer: a\n"
+			require.NoError(t, os.WriteFile(path, []byte(task), 0o600))
+			_, err := LoadTestCase(path)
+			require.Error(t, err)
+			if value != "[a]" {
+				require.ErrorContains(t, err, "user_input_responses[0].question must be a non-empty string")
+			}
+		})
+	}
+	path := filepath.Join(t.TempDir(), "task.yaml")
+	require.NoError(t, os.WriteFile(path, []byte("id: t\nname: T\ninputs:\n  prompt: go\nuser_input_responses:\n  - answer: a\n  - question: \"Q.*\"\n    answer: b\n"), 0o600))
+	task, err := LoadTestCase(path)
+	require.NoError(t, err, "omitting question remains the wildcard")
+	require.Empty(t, (*task.UserInputResponses)[0].Question)
+	require.Equal(t, "Q.*", (*task.UserInputResponses)[1].Question)
 }
 
 func TestLoadTestCasePreservesUserInputResponsesPresence(t *testing.T) {

@@ -75,6 +75,7 @@ func writeUserInputEval(t *testing.T, task string, version string) (*config.Eval
 	}
 	if version == models.ScenarioSchemaVersion {
 		spec.Scenario = "native-questions"
+		spec.Config.NativeUserInput = true
 	}
 	return config.NewEvalConfig(spec, config.WithSpecDir(dir)), dir
 }
@@ -227,6 +228,7 @@ func TestRunBenchmarkLeavesNativeQuestionCallbackUnsetWithoutScript(t *testing.T
 	}}
 	task := "id: plain\nname: Plain\ninputs:\n  prompt: start\n  follow_up_prompts: [continue]\n"
 	cfg, _ := writeUserInputEval(t, task, models.ScenarioSchemaVersion)
+	cfg.Spec().Config.NativeUserInput = false
 	outcome, err := NewEvalRunner(cfg, engine, WithSkipGraders()).RunBenchmark(context.Background())
 	require.NoError(t, err)
 	run := outcome.TestOutcomes[0].Runs[0]
@@ -237,15 +239,44 @@ func TestRunBenchmarkLeavesNativeQuestionCallbackUnsetWithoutScript(t *testing.T
 	require.Nil(t, engine.scripts[1])
 }
 
-func TestRunBenchmarkRejectsNativeQuestionsOutsideScenarioSchema(t *testing.T) {
-	for _, version := range []string{"", "1.4", "1.99"} {
+func TestRunBenchmarkRejectsScriptedAnswersWithoutEvalFlag(t *testing.T) {
+	for _, version := range []string{"", "1.4", models.ScenarioSchemaVersion} {
 		engine := &questionEngine{}
 		cfg, _ := writeUserInputEval(t, userInputTaskYAML, version)
+		cfg.Spec().Config.NativeUserInput = false
 		outcome, err := NewEvalRunner(cfg, engine, WithSkipGraders()).RunBenchmark(context.Background())
-		require.ErrorContains(t, err, "user_input_responses requires explicit enclosing scenario schemaVersion 2.0", version)
+		require.ErrorContains(t, err, "user_input_responses requires config.native_user_input: true", version)
 		require.Nil(t, outcome)
 		require.Empty(t, engine.scripts)
 	}
+}
+
+func TestRunBenchmarkScenarioResponderWithoutFlagLeavesNativeCallbackUnset(t *testing.T) {
+	engine := &questionEngine{questions: map[string][]copilot.UserInputRequest{"start": {{Question: "Your name?"}}}}
+	classifier := &recordingClassifier{between: responder.Decision{Kind: responder.DecisionStop}}
+	task := "id: a\nname: A\ninputs:\n  prompt: start\n  responder: {instructions: x, max_followups: 1}\n"
+	cfg, _ := writeUserInputEval(t, task, models.ScenarioSchemaVersion)
+	cfg.Spec().Config.NativeUserInput = false
+	runner := NewEvalRunner(cfg, engine, WithSkipGraders())
+	runner.newClassifier = func(models.ResponderConfig, string) responderClassifier { return classifier }
+	outcome, err := runner.RunBenchmark(context.Background())
+	require.NoError(t, err)
+	run := outcome.TestOutcomes[0].Runs[0]
+	require.Equal(t, models.StatusSkipped, run.Status, run.ErrorMsg)
+	require.Nil(t, run.UserInputRequests)
+	require.Nil(t, engine.scripts[0], "the adaptive user answers native questions only when the eval opts in")
+	require.Len(t, classifier.messages, 1, "only the between-turn classification runs")
+}
+
+func TestRunBenchmarkFlagWithoutScriptOrResponderFailsClosed(t *testing.T) {
+	engine := &questionEngine{questions: map[string][]copilot.UserInputRequest{"start": {{Question: "Anything?"}}}}
+	cfg, _ := writeUserInputEval(t, "id: a\nname: A\ninputs:\n  prompt: start\n", models.ScenarioSchemaVersion)
+	outcome, err := NewEvalRunner(cfg, engine, WithSkipGraders()).RunBenchmark(context.Background())
+	require.NoError(t, err)
+	run := outcome.TestOutcomes[0].Runs[0]
+	require.Equal(t, models.StatusError, run.Status)
+	require.Contains(t, run.ErrorMsg, "no scripted user_input_responses entry remains")
+	require.NotNil(t, engine.scripts[0])
 }
 
 // TestProductionCopilotEngineAnswersNativeQuestionsFromTaskYAML drives the

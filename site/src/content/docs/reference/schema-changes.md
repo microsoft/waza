@@ -167,20 +167,20 @@ promised stable across runs.
 
 ### 1.8 (new results only)
 
-- Adds optional task-level `user_input_responses`, which register the Copilot SDK
-  native user-input callback (`OnUserInputRequest`, the legacy `ask_user` tool) on
-  the initial and every resumed session of a run. Each entry has a required `answer`
+- Adds optional eval `config.native_user_input` (scenario `2.0` and `copilot-sdk`
+  only), which registers the Copilot SDK native user-input callback
+  (`OnUserInputRequest`, the `ask_user` tool) on the initial and every resumed
+  session of a run. Older executables reject the unknown config field instead of
+  silently ignoring scripted answers.
+- Adds optional task-level `user_input_responses`, which require the flag. Each entry has a required `answer`
   and an optional `question` regex; entries are used in order, and an answer equal to
   an offered choice selects it. A non-matching or unscripted question returns an
-  error to the SDK (never a default answer) and fails the run, as do unused entries. The field
-  requires `executor: copilot-sdk` and an enclosing scenario eval with exact
-  `schemaVersion: "2.0"`, so executables without this feature reject the eval
-  instead of silently ignoring the script. Omission leaves the callback unregistered.
-- In scenario evals, an adaptive responder (`inputs.responder`) also registers the
-  callback and answers native questions that no pending scripted entry matches,
+  error to the SDK (never a default answer) and fails the run, as do unused entries.
+- With the flag, an adaptive responder (`inputs.responder`) answers native
+  questions that no pending scripted entry matches,
   using its existing session and instructions. Scripted entries are tried first;
-  responder stop, abstain, errors, or invalid answers fail the run. Legacy `1.x`
-  evals with a responder are unchanged.
+  responder stop, abstain, errors, or invalid answers fail the run. Without the
+  flag, responders are unchanged.
 - Adds optional `tasks[].runs[].user_input_requests`: one record per observed
   request in arrival order with `sequence`, `session_id`, `question`, offered
   `choices` (`null` when none were sent, `[]` when an empty list was sent),

@@ -507,6 +507,8 @@ func (e *CopilotEngine) execute(ctx context.Context, req *ExecutionRequest) (*Ex
 		sessionHooks = &copilot.SessionHooks{OnPreToolUse: preToolUseHook}
 	}
 	userInputRejectionMark := req.UserInput.rejectionCount()
+	// The responder answering a native question must stop with this turn.
+	defer req.UserInput.bindTurn(ctx)()
 
 	if req.SessionID == "" {
 		// Create session with updated API

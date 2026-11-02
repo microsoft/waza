@@ -648,6 +648,25 @@ config:
   trigger_skill_routing: true
 ```
 
+### native_user_input
+
+**Type:** boolean
+**Default:** false
+
+Gives the agent the Copilot SDK `ask_user` tool, so it can ask the host questions
+mid-task (through `OnUserInputRequest`). Each question is answered by the task's
+[`user_input_responses`](#user_input_responses-optional) first, then by the
+task's adaptive responder (`inputs.responder`) if it has one. Anything else fails
+the run. Requires a scenario eval (`schemaVersion: "2.0"`) and
+`executor: copilot-sdk`; older Waza versions reject this field rather than
+ignoring it.
+
+```yaml
+config:
+  executor: copilot-sdk
+  native_user_input: true
+```
+
 ### required_skills
 
 **Type:** list[string]  
@@ -877,10 +896,10 @@ command_mocks: []
 
 ### user_input_responses (optional)
 
-Script answers to native Copilot SDK user-input requests (the SDK `ask_user` tool,
-answered through `OnUserInputRequest`). Requires `executor: copilot-sdk` and an
-enclosing scenario eval with exact `schemaVersion: "2.0"`. Omit the field to leave
-the callback unregistered; `[]` registers it so that any question fails closed.
+Script answers to the agent's native questions (the SDK `ask_user` tool). Requires
+[`config.native_user_input: true`](#native_user_input) in the eval. With the flag
+set, omitting the field (or `[]`) means only the adaptive responder, if any, can
+answer.
 
 Each entry has a required `answer` and an optional `question`, an RE2 pattern that
 must match the whole question. Entries are used in order across the initial prompt,
@@ -905,18 +924,17 @@ mock, and structured elicitation forms are not supported.
 
 #### Adaptive responder answers
 
-In a scenario eval, a task with an adaptive responder (`inputs.responder`) also
-registers the callback, even without `user_input_responses`. Scripted entries are
-still tried first. A question that the next entry does not match goes to the
+When `native_user_input` is enabled and the task has an adaptive responder
+(`inputs.responder`), scripted entries are still tried first. A question that the next entry does not match goes to the
 responder model instead, and that entry waits for a later question. The responder
 uses the same session and instructions as its between-turn replies and receives the
 question and offered choices. Its answer follows the same choice-or-typed rule. A
 responder stop, abstain, or error fails the run. Answers given during a turn do not
 count toward `max_followups`. Each in-turn responder call may take up to the task timeout, and its time counts against the agent's turn.
 
-Each record's `source` is `script` or `responder`. Legacy (`1.x`) evals with a
-responder keep their existing behavior and do not register the callback. Responder
-answers call a model and can differ between runs.
+Each record's `source` is `script` or `responder`. Without the flag, a task's
+responder keeps its existing between-turn behavior only. Responder answers call a
+model and can differ between runs.
 
 ## inputs Section
 

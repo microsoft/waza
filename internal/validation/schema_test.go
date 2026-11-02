@@ -507,3 +507,40 @@ tasks: ["tasks/*.yaml"]`
 	require.NotEmpty(t, ValidateEvalBytes([]byte(yaml)))
 	require.Empty(t, ValidateEvalBytes([]byte(strings.Replace(yaml, "executor: mock", "executor: copilot-sdk", 1))))
 }
+
+func TestValidateEvalFile_NativeUserInput(t *testing.T) {
+	legacy := "schemaVersion: \"1.4\"\nname: legacy\nskill: s\nconfig:\n  trials_per_task: 1\n  timeout_seconds: 60\n  executor: copilot-sdk\n  model: m\nmetrics: [{name: m, weight: 1, threshold: 1}]\ntasks: [tasks/*.yaml]\n"
+	scenario := "schemaVersion: \"2.0\"\nname: native\nscenario: native-questions\nversion: \"1.0\"\nconfig:\n  trials_per_task: 1\n  timeout_seconds: 60\n  executor: copilot-sdk\n  model: m\n  native_user_input: true\nmetrics: [{name: m, weight: 1, threshold: 1}]\ntasks: [tasks/*.yaml]\n"
+	scripted := "id: t\nname: T\ninputs:\n  prompt: go\nuser_input_responses:\n  - question: \"Deploy.*\"\n    answer: staging\n"
+	cases := []struct {
+		name, eval, task string
+		evalErr, taskErr string
+	}{
+		{"valid scenario opt-in", scenario, scripted, "", ""},
+		{"legacy scripted answers", legacy, scripted, "", "requires config.native_user_input: true"},
+		{"legacy empty script", legacy, "id: t\nname: T\ninputs:\n  prompt: go\nuser_input_responses: []\n", "", "requires config.native_user_input: true"},
+		{"legacy opt-in", strings.Replace(legacy, "  model: m\n", "  model: m\n  native_user_input: true\n", 1), "id: t\nname: T\ninputs:\n  prompt: go\n", "requires a scenario eval with schemaVersion 2.0", ""},
+		{"invalid question regex", scenario, "id: t\nname: T\ninputs:\n  prompt: go\nuser_input_responses:\n  - question: \"Deploy)|(?:Delete\"\n    answer: a\n", "", "question is not a valid regular expression"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			evalPath := filepath.Join(dir, "eval.yaml")
+			require.NoError(t, os.WriteFile(evalPath, []byte(tc.eval), 0o600))
+			require.NoError(t, os.MkdirAll(filepath.Join(dir, "tasks"), 0o755))
+			require.NoError(t, os.WriteFile(filepath.Join(dir, "tasks", "t.yaml"), []byte(tc.task), 0o600))
+			evalErrs, taskErrs, err := ValidateEvalFile(evalPath)
+			require.NoError(t, err)
+			if tc.evalErr == "" {
+				require.Empty(t, evalErrs)
+			} else {
+				require.Contains(t, joinErrs(evalErrs), tc.evalErr)
+			}
+			if tc.taskErr == "" {
+				require.Empty(t, taskErrs)
+			} else {
+				require.Contains(t, joinErrs(taskErrs[filepath.Join("tasks", "t.yaml")]), tc.taskErr)
+			}
+		})
+	}
+}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	copilot "github.com/github/copilot-sdk/go"
 	"github.com/microsoft/waza/internal/models"
@@ -129,7 +130,7 @@ func TestNewUserInputScriptRejectsInvalidConfig(t *testing.T) {
 func TestUserInputScriptFallbackAnswersUnscriptedQuestions(t *testing.T) {
 	script := newTestScript(t, []models.UserInputResponseConfig{{Question: "Deploy where\\?", Answer: strPtr("staging")}})
 	var asked []string
-	script.SetFallback(func(request copilot.UserInputRequest) (string, error) {
+	script.SetFallback(func(_ context.Context, request copilot.UserInputRequest) (string, error) {
 		asked = append(asked, request.Question)
 		if request.Question == "Pick one" {
 			return "b", nil
@@ -175,7 +176,7 @@ func TestUserInputScriptFallbackFailsClosed(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			script := newTestScript(t, tc.scripted)
 			calls := 0
-			script.SetFallback(func(copilot.UserInputRequest) (string, error) {
+			script.SetFallback(func(context.Context, copilot.UserInputRequest) (string, error) {
 				calls++
 				return tc.answer, tc.err
 			})
@@ -193,7 +194,7 @@ func TestUserInputScriptFallbackFailsClosed(t *testing.T) {
 
 func TestUserInputScriptFallbackKeepsUnusedEntriesFailing(t *testing.T) {
 	script := newTestScript(t, []models.UserInputResponseConfig{{Question: "Never asked", Answer: strPtr("x")}})
-	script.SetFallback(func(copilot.UserInputRequest) (string, error) { return "y", nil })
+	script.SetFallback(func(context.Context, copilot.UserInputRequest) (string, error) { return "y", nil })
 	_, err := script.Handler()(copilot.UserInputRequest{Question: "Other"}, copilot.UserInputInvocation{})
 	require.NoError(t, err)
 	require.ErrorContains(t, script.Finish(), "1 scripted answer(s) were not used")
@@ -329,4 +330,105 @@ func TestCopilotLeavesUserInputCallbackUnsetWithoutScript(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, createCalled)
 	require.True(t, resumeCalled)
+}
+
+// TestUserInputScriptFallbackDoesNotHoldLockAndUsesTurnContext proves the
+// responder runs with the bound agent-turn context and without the script
+// lock, so recording can continue while the responder waits.
+func TestUserInputScriptFallbackDoesNotHoldLockAndUsesTurnContext(t *testing.T) {
+	script := newTestScript(t, nil)
+	started := make(chan struct{})
+	var gotCtx context.Context
+	script.SetFallback(func(ctx context.Context, _ copilot.UserInputRequest) (string, error) {
+		gotCtx = ctx
+		close(started)
+		<-ctx.Done()
+		return "", ctx.Err()
+	})
+	turnCtx, cancelTurn := context.WithCancel(context.Background())
+	release := script.bindTurn(turnCtx)
+	defer release()
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := script.Handler()(copilot.UserInputRequest{Question: "Name?"}, copilot.UserInputInvocation{SessionID: "s"})
+		done <- err
+	}()
+	<-started
+
+	records := make(chan []models.UserInputRecord, 1)
+	go func() { records <- script.Records() }()
+	select {
+	case pending := <-records:
+		require.Len(t, pending, 1)
+		require.Nil(t, pending[0].Answer)
+		require.Empty(t, pending[0].Error, "a pending request has neither answer nor error")
+	case <-time.After(5 * time.Second):
+		t.Fatal("Records blocked while the responder was answering")
+	}
+
+	cancelTurn()
+	select {
+	case err := <-done:
+		require.ErrorContains(t, err, context.Canceled.Error())
+	case <-time.After(5 * time.Second):
+		t.Fatal("ending the agent turn did not cancel the responder call")
+	}
+	require.Equal(t, turnCtx, gotCtx)
+	require.Contains(t, script.Records()[0].Error, "responder could not answer")
+}
+
+func TestUserInputScriptFallbackWithoutBoundTurnUsesBackground(t *testing.T) {
+	script := newTestScript(t, nil)
+	script.SetFallback(func(ctx context.Context, _ copilot.UserInputRequest) (string, error) {
+		require.NoError(t, ctx.Err())
+		return "ok", nil
+	})
+	release := script.bindTurn(context.Background())
+	release()
+	_, err := script.Handler()(copilot.UserInputRequest{Question: "Q"}, copilot.UserInputInvocation{})
+	require.NoError(t, err)
+}
+
+// TestCopilotEngineBindsTurnContextForUserInput checks the production engine
+// passes its turn context, including its deadline, to the responder.
+func TestCopilotEngineBindsTurnContextForUserInput(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	clientMock := newClientMock(ctrl)
+	sessionMock := newSessionMock(ctrl)
+	var cfg *copilot.SessionConfig
+	clientMock.EXPECT().CreateSession(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, c *copilot.SessionConfig) (CopilotSession, error) {
+			cfg = c
+			return sessionMock, nil
+		})
+	sessionMock.EXPECT().Disconnect().AnyTimes()
+	clientMock.EXPECT().DeleteSession(gomock.Any(), gomock.Any()).AnyTimes()
+	sessionMock.EXPECT().On(gomock.Any()).AnyTimes().Return(func() {})
+	sessionMock.EXPECT().SessionID().AnyTimes().Return("session-t")
+	sessionMock.EXPECT().SendAndWait(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(context.Context, copilot.MessageOptions) (*copilot.SessionEvent, error) {
+			_, err := cfg.OnUserInputRequest(copilot.UserInputRequest{Question: "Q"}, copilot.UserInputInvocation{SessionID: "session-t"})
+			require.NoError(t, err)
+			return &copilot.SessionEvent{}, nil
+		})
+	engine := NewCopilotEngineBuilder("gpt-4o-mini", &CopilotEngineBuilderOptions{
+		NewCopilotClient: func(*copilot.ClientOptions) CopilotClient { return clientMock },
+	}).Build()
+	defer func() { require.NoError(t, engine.Shutdown(context.Background())) }()
+	require.NoError(t, engine.Initialize(context.Background()))
+
+	deadline := time.Now().Add(time.Hour).Truncate(time.Second)
+	turnCtx, cancel := context.WithDeadline(context.Background(), deadline)
+	defer cancel()
+	var gotDeadline time.Time
+	script := newTestScript(t, nil)
+	script.SetFallback(func(ctx context.Context, _ copilot.UserInputRequest) (string, error) {
+		gotDeadline, _ = ctx.Deadline()
+		return "a", nil
+	})
+	resp, err := engine.Execute(turnCtx, &ExecutionRequest{Message: "go", UserInput: script})
+	require.NoError(t, err)
+	require.True(t, resp.Success, resp.ErrorMsg)
+	require.Equal(t, deadline, gotDeadline)
 }

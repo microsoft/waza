@@ -294,33 +294,46 @@ mcp_mocks:
 	require.NotContains(t, string(data), "invalid.example")
 }
 
-func TestInspectUserInputResponsesRequireScenarioAndCopilot(t *testing.T) {
+func nativeUserInputEval(version string) string {
+	return strings.Replace(recoveryEval(version), "executor: copilot-sdk", "executor: copilot-sdk\n  native_user_input: true", 1)
+}
+
+func TestInspectUserInputResponsesRequireEvalOptIn(t *testing.T) {
 	task := validTask + "\nuser_input_responses:\n  - question: \"Continue.*\"\n    answer: \"yes\"\n"
 	for _, tc := range []struct {
 		name, eval, code string
 		invalid          bool
 	}{
-		{"legacy schema", recoveryEval("1.4"), "task.version", true},
+		{"no opt-in", recoveryEval("2.0"), "task.user_input", true},
+		{"opt-in", nativeUserInputEval("2.0"), "task.user_input", false},
 		{"mock executor", validEval, "task.executor", true},
-		{"scenario copilot", recoveryEval("2.0"), "task.version", false},
-		{"scenario copilot executor", recoveryEval("2.0"), "task.executor", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			path, _ := writeSuite(t, tc.eval, task)
 			r := Inspect(path, Options{})
 			require.Equal(t, tc.invalid, hasDiagnostic(r, tc.code, Invalid), "%+v", r.Diagnostics)
 			if !tc.invalid {
-				require.False(t, hasDiagnostic(r, "task.configuration", Invalid), "%+v", r.Diagnostics)
-				require.False(t, hasDiagnostic(r, "task.schema", Invalid), "%+v", r.Diagnostics)
+				require.False(t, r.Failed(false), "%+v", r.Diagnostics)
 			}
 		})
 	}
-	invalid := validTask + "\nuser_input_responses:\n  - question: Continue?\n"
-	path, _ := writeSuite(t, recoveryEval("2.0"), invalid)
-	r := Inspect(path, Options{})
-	require.True(t, hasDiagnostic(r, "task.configuration", Invalid), "%+v", r.Diagnostics)
-	require.True(t, hasDiagnostic(r, "task.schema", Invalid), "%+v", r.Diagnostics)
-	require.False(t, r.Complete)
+	t.Run("opt-in outside scenario eval", func(t *testing.T) {
+		path, _ := writeSuite(t, nativeUserInputEval("1.4"), validTask)
+		r := Inspect(path, Options{})
+		require.True(t, r.Failed(false), "%+v", r.Diagnostics)
+	})
+	for name, entry := range map[string]string{
+		"missing answer": "  - question: Continue?\n",
+		"empty question": "  - question: \"\"\n    answer: a\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			path, _ := writeSuite(t, nativeUserInputEval("2.0"), validTask+"\nuser_input_responses:\n"+entry)
+			r := Inspect(path, Options{})
+			require.True(t, hasDiagnostic(r, "task.configuration", Invalid), "%+v", r.Diagnostics)
+			require.True(t, hasDiagnostic(r, "task.schema", Invalid), "%+v", r.Diagnostics)
+			require.False(t, r.Complete)
+		})
+	}
 }
 
 func TestInspectCommandFixtureInvalidIsNotVerified(t *testing.T) {

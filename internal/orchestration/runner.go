@@ -688,10 +688,8 @@ func (r *EvalRunner) loadTestCasesFromFiles() ([]*models.TestCase, error) {
 				return nil, fmt.Errorf("invalid test case %s: %w", path, err)
 			}
 		}
-		if tc.UserInputResponses != nil {
-			if err := models.ValidateUserInputResponsesSchemaVersion(spec.SchemaVersion); err != nil {
-				return nil, fmt.Errorf("invalid test case %s: %w", path, err)
-			}
+		if err := models.ValidateTaskUserInput(spec.Config, tc); err != nil {
+			return nil, fmt.Errorf("invalid test case %s: %w", path, err)
 		}
 		// Only include active test cases
 		// LoadTestCase defaults Active to true (nil case), so include nil or explicitly true
@@ -1144,7 +1142,7 @@ func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.T
 	var userInput *execution.UserInputScript
 	var classifier responderClassifier
 	if err == nil {
-		userInput, classifier, err = r.newAttemptUserInput(ctx, tc)
+		userInput, classifier, err = r.newAttemptUserInput(tc)
 	}
 	if classifier != nil {
 		defer func() {
@@ -1733,17 +1731,16 @@ func effectiveCommandMocks(tc *models.TestCase, spec *models.EvalSpec) []models.
 }
 
 // newAttemptUserInput returns a fresh per-attempt native user-input script and
-// the attempt's adaptive responder classifier. The script exists when the task
-// scripts answers or, in scenario evals, configures an adaptive responder; the
-// responder then answers questions that no scripted entry matches. Both are
-// nil when neither applies, leaving the SDK callback unregistered.
-func (r *EvalRunner) newAttemptUserInput(ctx context.Context, tc *models.TestCase) (*execution.UserInputScript, responderClassifier, error) {
+// the attempt's adaptive responder classifier. The script exists only when the
+// eval sets config.native_user_input; the task's scripted answers are used
+// first and its adaptive responder, if any, answers the rest. Without the flag
+// the SDK callback stays unregistered.
+func (r *EvalRunner) newAttemptUserInput(tc *models.TestCase) (*execution.UserInputScript, responderClassifier, error) {
 	var classifier responderClassifier
 	if cfg := tc.Stimulus.Responder; cfg != nil {
 		classifier = &serializedClassifier{inner: r.newClassifier(*cfg, r.cfg.Spec().Config.ModelID)}
 	}
-	adaptive := classifier != nil && r.cfg.Spec().SchemaVersion == models.ScenarioSchemaVersion
-	if tc.UserInputResponses == nil && !adaptive {
+	if !r.cfg.Spec().Config.NativeUserInput {
 		return nil, classifier, nil
 	}
 	var responses []models.UserInputResponseConfig
@@ -1754,22 +1751,23 @@ func (r *EvalRunner) newAttemptUserInput(ctx context.Context, tc *models.TestCas
 	if err != nil {
 		return nil, classifier, err
 	}
-	if adaptive {
+	if classifier != nil {
 		timeout, err := r.executionTimeout(tc)
 		if err != nil {
 			return nil, classifier, err
 		}
-		script.SetFallback(responderUserInputFallback(ctx, classifier, timeout))
+		script.SetFallback(responderUserInputFallback(classifier, timeout))
 	}
 	return script, classifier, nil
 }
 
 // responderUserInputFallback answers a native question with the adaptive
 // responder. Only an explicit reply is an answer; stop and abstain fail closed.
-// Each call is bounded by the task timeout; without a deadline the SDK would
-// apply its own 60 second default to the responder turn.
-func responderUserInputFallback(ctx context.Context, classifier responderClassifier, timeout time.Duration) execution.UserInputFallback {
-	return func(request copilot.UserInputRequest) (string, error) {
+// ctx is the asking agent turn, so the call ends with that turn. Each call is
+// also bounded by the task timeout; without a deadline the SDK would apply
+// its own 60 second default to the responder turn.
+func responderUserInputFallback(classifier responderClassifier, timeout time.Duration) execution.UserInputFallback {
+	return func(ctx context.Context, request copilot.UserInputRequest) (string, error) {
 		callCtx, cancel := context.WithTimeout(ctx, timeout)
 		defer cancel()
 		decision, err := classifier.Classify(callCtx, nativeQuestionMessage(request))

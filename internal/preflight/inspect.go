@@ -175,10 +175,8 @@ func discoverTasks(r *Report, spec *models.EvalSpec, base string) ([]*models.Tes
 					r.add("task.version", Invalid, path, task.TestID, "", "Task command mocks require a supported enclosing schemaVersion.", "Select schemaVersion 1.3 or newer for legacy command mocks.")
 				}
 			}
-			if task.UserInputResponses != nil {
-				if err := models.ValidateUserInputResponsesSchemaVersion(spec.SchemaVersion); err != nil {
-					r.add("task.version", Invalid, path, task.TestID, "", "Task user_input_responses require explicit enclosing scenario schemaVersion 2.0.", "Select schemaVersion 2.0 with a scenario so older executables reject the eval instead of ignoring scripted answers.")
-				}
+			if err := models.ValidateTaskUserInput(spec.Config, task); err != nil {
+				r.add("task.user_input", Invalid, path, task.TestID, "", "Task user_input_responses require config.native_user_input: true in the eval.", "Enable native_user_input in a scenario eval (schemaVersion 2.0) with executor copilot-sdk.")
 			}
 			tasks = append(tasks, task)
 			sources = append(sources, path)

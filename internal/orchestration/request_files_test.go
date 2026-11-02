@@ -174,3 +174,34 @@ func TestCapturedNativeRejectsLoaderSkippedResource(t *testing.T) {
 		})
 	}
 }
+
+func TestNativeSnapshotRejectsNativeUserInput(t *testing.T) {
+	newSpec := func() *models.EvalSpec {
+		return &models.EvalSpec{Config: models.Config{EngineType: "copilot-sdk", ModelID: "offline-model",
+			DisabledSkills: []string{"*"}},
+			Graders: []models.GraderConfig{{Identifier: "text", Kind: models.GraderKindText, Parameters: models.TextGraderParameters{Contains: []string{"hello"}}}}}
+	}
+	newTask := func() *models.TestCase {
+		return &models.TestCase{TestID: "task", Stimulus: models.TaskStimulus{Message: "hello"}}
+	}
+	require.NoError(t, ValidateNativeSnapshotConfiguration(newSpec(), newTask()), "control: the baseline is admitted")
+
+	answer := "a"
+	for name, mutate := range map[string]func(*models.EvalSpec, *models.TestCase){
+		"empty script": func(_ *models.EvalSpec, tc *models.TestCase) {
+			tc.UserInputResponses = &[]models.UserInputResponseConfig{}
+		},
+		"scripted answer": func(_ *models.EvalSpec, tc *models.TestCase) {
+			tc.UserInputResponses = &[]models.UserInputResponseConfig{{Answer: &answer}}
+		},
+		"eval opt-in": func(spec *models.EvalSpec, _ *models.TestCase) { spec.Config.NativeUserInput = true },
+	} {
+		t.Run(name, func(t *testing.T) {
+			spec, task := newSpec(), newTask()
+			mutate(spec, task)
+			require.ErrorContains(t, ValidateNativeSnapshotConfiguration(spec, task), "unsupported native")
+			_, err := BuildCapturedNativeRequest(spec, task, t.TempDir(), t.TempDir(), inertRequestFixture{})
+			require.ErrorContains(t, err, "unsupported native")
+		})
+	}
+}

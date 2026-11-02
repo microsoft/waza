@@ -89,13 +89,12 @@ transcript/checkpoint evidence. Results schema `1.7` records per-run configured
 dependency modes (`live` or `mocked`); this describes configuration, not proof
 of invocation. There is no recorded-replay mode.
 
-Scenario tasks can script answers to native Copilot SDK user-input requests with
-`user_input_responses`. Waza registers `OnUserInputRequest` on the initial and
+Scenario evals can opt in with `config.native_user_input` to answer native Copilot
+SDK user-input requests, using task `user_input_responses`. Waza registers `OnUserInputRequest` on the initial and
 every resumed session of a trial, uses entries (an `answer` plus an optional
 `question` regex) strictly in order, and fails closed on unexpected or unused entries. Results
-schema `1.8` records each request in `runs[].user_input_requests`. In scenario
-evals, a task with an adaptive responder answers questions the script does not
-match with the responder model, after scripted entries are tried. This is
+schema `1.8` records each request in `runs[].user_input_requests`. A task's
+adaptive responder answers questions the script does not match. This is
 distinct from MCP `ask_user` mocks and does not support structured elicitation.
 
 The private `internal/faultsequence` groundwork provides cross-process step

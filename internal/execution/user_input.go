@@ -1,6 +1,7 @@
 package execution
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"regexp"
@@ -25,11 +26,13 @@ type UserInputScript struct {
 	records    []models.UserInputRecord
 	rejections []error
 	fallback   UserInputFallback
+	turnCtx    context.Context
 }
 
 // UserInputFallback answers a native user-input request that no scripted
-// entry handles. Returning an error fails the request closed.
-type UserInputFallback func(request copilot.UserInputRequest) (string, error)
+// entry handles. ctx belongs to the agent turn that asked, so the call ends
+// with that turn. Returning an error fails the request closed.
+type UserInputFallback func(ctx context.Context, request copilot.UserInputRequest) (string, error)
 
 // NewUserInputScript validates responses and returns a fresh script.
 func NewUserInputScript(responses []models.UserInputResponseConfig) (*UserInputScript, error) {
@@ -69,43 +72,70 @@ func (s *UserInputScript) Handler() copilot.UserInputHandler {
 	return s.handle
 }
 
+// bindTurn makes ctx the context passed to the fallback until the returned
+// release function is called. The engine binds each agent turn.
+func (s *UserInputScript) bindTurn(ctx context.Context) func() {
+	if s == nil {
+		return func() {}
+	}
+	s.mu.Lock()
+	s.turnCtx = ctx
+	s.mu.Unlock()
+	return func() {
+		s.mu.Lock()
+		if s.turnCtx == ctx {
+			s.turnCtx = nil
+		}
+		s.mu.Unlock()
+	}
+}
+
 func (s *UserInputScript) handle(request copilot.UserInputRequest, invocation copilot.UserInputInvocation) (copilot.UserInputResponse, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	record := models.UserInputRecord{
-		Sequence:  len(s.records) + 1,
+	// Reserve the record slot so arrival order is kept while the lock is
+	// released for a responder call.
+	index := len(s.records)
+	s.records = append(s.records, models.UserInputRecord{
+		Sequence:  index + 1,
 		SessionID: invocation.SessionID,
 		Question:  request.Question,
 		Choices:   slices.Clone(request.Choices),
-	}
+	})
 
 	var answer string
 	switch {
 	case s.next < len(s.responses) && s.matches(s.next, request.Question):
-		record.Source = models.UserInputSourceScript
+		s.records[index].Source = models.UserInputSourceScript
 		answer = *s.responses[s.next].Answer
 		s.next++
 	case s.fallback != nil:
-		record.Source = models.UserInputSourceResponder
-		var err error
-		if answer, err = s.fallback(request); err != nil {
-			return s.reject(record, fmt.Sprintf("responder could not answer: %v", err))
+		s.records[index].Source = models.UserInputSourceResponder
+		fallback, ctx := s.fallback, s.turnCtx
+		if ctx == nil {
+			ctx = context.Background()
 		}
+		s.mu.Unlock()
+		reply, err := fallback(ctx, request)
+		s.mu.Lock()
+		if err != nil {
+			return s.reject(index, fmt.Sprintf("responder could not answer: %v", err))
+		}
+		answer = reply
 	case s.next < len(s.responses):
-		return s.reject(record, fmt.Sprintf("question does not match user_input_responses[%d].question", s.next))
+		return s.reject(index, fmt.Sprintf("question does not match user_input_responses[%d].question", s.next))
 	default:
-		return s.reject(record, "no scripted user_input_responses entry remains")
+		return s.reject(index, "no scripted user_input_responses entry remains")
 	}
 
 	// An answer equal to an offered choice selects it; anything else is typed.
 	wasFreeform := !slices.Contains(request.Choices, answer)
 	if wasFreeform && request.AllowFreeform != nil && !*request.AllowFreeform {
-		return s.reject(record, fmt.Sprintf("answer %q is not an offered choice and the request does not allow typed answers", answer))
+		return s.reject(index, fmt.Sprintf("answer %q is not an offered choice and the request does not allow typed answers", answer))
 	}
-	record.Answer = &answer
-	record.WasFreeform = &wasFreeform
-	s.records = append(s.records, record)
+	s.records[index].Answer = &answer
+	s.records[index].WasFreeform = &wasFreeform
 	return copilot.UserInputResponse{Answer: answer, WasFreeform: wasFreeform}, nil
 }
 
@@ -115,15 +145,15 @@ func (s *UserInputScript) matches(index int, question string) bool {
 }
 
 // reject records a fail-closed request. The caller holds s.mu.
-func (s *UserInputScript) reject(record models.UserInputRecord, reason string) (copilot.UserInputResponse, error) {
-	err := fmt.Errorf("native user input request %d rejected: %s", record.Sequence, reason)
-	record.Error = err.Error()
-	s.records = append(s.records, record)
+func (s *UserInputScript) reject(index int, reason string) (copilot.UserInputResponse, error) {
+	err := fmt.Errorf("native user input request %d rejected: %s", index+1, reason)
+	s.records[index].Error = err.Error()
 	s.rejections = append(s.rejections, err)
 	return copilot.UserInputResponse{}, err
 }
 
-// Records returns the requests observed so far, in arrival order.
+// Records returns the requests observed so far, in arrival order. A request
+// still waiting for the responder has neither Answer nor Error.
 func (s *UserInputScript) Records() []models.UserInputRecord {
 	if s == nil {
 		return nil

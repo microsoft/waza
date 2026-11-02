@@ -87,17 +87,21 @@ type Config struct {
 	// never started the agent's first turn). It is much shorter than
 	// TimeoutSec, which must cover the slowest legitimate full turn. 0 (the
 	// default) disables the check. Per-task overrides live on TestCase.
-	FirstEventTimeoutSec int            `yaml:"first_event_timeout_seconds,omitempty" json:"first_event_timeout_sec,omitempty"`
-	Concurrent           bool           `yaml:"parallel" json:"concurrent"`
-	Workers              int            `yaml:"workers,omitempty" json:"workers,omitempty"`
-	StopOnError          bool           `yaml:"fail_fast,omitempty" json:"stop_on_error,omitempty"`
-	EngineType           string         `yaml:"executor" json:"engine_type"`
-	ModelID              string         `yaml:"model" json:"model_id"`
-	ReasoningEffort      string         `yaml:"reasoning_effort,omitempty" json:"reasoning_effort,omitempty"`
-	SkillPaths           []string       `yaml:"skill_directories,omitempty" json:"skill_paths,omitempty"`
-	InstructionFiles     []string       `yaml:"instruction_files,omitempty" json:"instruction_files,omitempty"`
-	InjectSkillBody      *bool          `yaml:"inject_skill_body,omitempty" json:"inject_skill_body,omitempty"`
-	TriggerSkillRouting  bool           `yaml:"trigger_skill_routing,omitempty" json:"trigger_skill_routing,omitempty"`
+	FirstEventTimeoutSec int      `yaml:"first_event_timeout_seconds,omitempty" json:"first_event_timeout_sec,omitempty"`
+	Concurrent           bool     `yaml:"parallel" json:"concurrent"`
+	Workers              int      `yaml:"workers,omitempty" json:"workers,omitempty"`
+	StopOnError          bool     `yaml:"fail_fast,omitempty" json:"stop_on_error,omitempty"`
+	EngineType           string   `yaml:"executor" json:"engine_type"`
+	ModelID              string   `yaml:"model" json:"model_id"`
+	ReasoningEffort      string   `yaml:"reasoning_effort,omitempty" json:"reasoning_effort,omitempty"`
+	SkillPaths           []string `yaml:"skill_directories,omitempty" json:"skill_paths,omitempty"`
+	InstructionFiles     []string `yaml:"instruction_files,omitempty" json:"instruction_files,omitempty"`
+	InjectSkillBody      *bool    `yaml:"inject_skill_body,omitempty" json:"inject_skill_body,omitempty"`
+	TriggerSkillRouting  bool     `yaml:"trigger_skill_routing,omitempty" json:"trigger_skill_routing,omitempty"`
+	// NativeUserInput gives the agent the SDK ask_user tool. Questions are
+	// answered by task user_input_responses first, then the task's adaptive
+	// responder. Scenario evals only, so older readers reject the field.
+	NativeUserInput      bool           `yaml:"native_user_input,omitempty" json:"native_user_input,omitempty"`
 	DisabledSkills       []string       `yaml:"disabled_skills,omitempty" json:"disabled_skills,omitempty"`
 	RequiredSkills       []string       `yaml:"required_skills,omitempty" json:"required_skills,omitempty"`
 	ServerConfigs        map[string]any `yaml:"mcp_servers,omitempty" json:"server_configs,omitempty"`
@@ -652,6 +656,9 @@ func (s *EvalSpec) Validate() error {
 		if err := ValidateCommandMocks(s.CommandMocks); err != nil {
 			return err
 		}
+	}
+	if err := s.Config.ValidateNativeUserInput(s.SchemaVersion); err != nil {
+		return err
 	}
 	if s.Adversarial != nil {
 		_, minor, err := parseSchemaVersion(s.SchemaVersion)

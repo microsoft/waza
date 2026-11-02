@@ -329,6 +329,11 @@
           "default": false,
           "description": "When true with inject_skill_body=false, append an eval-only routing instruction that asks the agent to invoke the target skill when the task is in scope. This preserves ordinary eval behavior unless explicitly enabled."
         },
+        "native_user_input": {
+          "type": "boolean",
+          "default": false,
+          "description": "Give the agent the Copilot SDK ask_user tool. Questions are answered by task user_input_responses first, then the task's adaptive responder; anything else fails the run. Requires a scenario eval (schemaVersion 2.0) and executor copilot-sdk."
+        },
         "disabled_skills": {
           "type": "array",
           "items": {

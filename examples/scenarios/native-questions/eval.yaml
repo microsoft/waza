@@ -8,6 +8,8 @@ config:
   timeout_seconds: 300
   parallel: false
   executor: copilot-sdk
+  # Gives the agent the ask_user tool; tasks script answers and/or use an adaptive responder.
+  native_user_input: true
   model: "claude-sonnet-4.6"
 metrics:
   - name: task_completion

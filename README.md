@@ -1741,9 +1741,15 @@ Choose the mechanism that matches the dependency boundary:
 
 ### Native Question Callbacks
 
-Use task-level `user_input_responses` when the agent asks the user a question through the Copilot SDK's native user-input callback (`ask_user`). Waza registers `OnUserInputRequest` on the initial and every resumed session of a trial and answers from an ordered script. This requires `executor: copilot-sdk` and a scenario eval with `schemaVersion: "2.0"`; omitting the field leaves the callback unregistered.
+Set `config.native_user_input: true` to give the agent the Copilot SDK's native `ask_user` tool. Waza then answers each question from the task's ordered `user_input_responses` first, and from the task's adaptive responder (`inputs.responder`) for anything the script does not match. The flag requires `executor: copilot-sdk` and a scenario eval (`schemaVersion: "2.0"`); older Waza versions reject it instead of silently ignoring the answers.
 
 ```yaml
+# eval.yaml
+config:
+  executor: copilot-sdk
+  native_user_input: true
+
+# task.yaml
 user_input_responses:
   - question: "(?is).*environment.*"   # optional regex for the whole question
     answer: staging                     # equals an offered choice, so it selects it
@@ -1752,7 +1758,7 @@ user_input_responses:
 
 Each entry has a required `answer` and an optional `question` regex. Questions that do not match the next entry, or arrive after the script is used up, return an error to the SDK instead of a default answer and fail the run; unused entries also fail it. Each request is recorded in order under `runs[].user_input_requests` (session ID, question, offered choices, answer, `was_freeform`, `source`, and `error` when rejected) and exposed to inline `code` graders as `user_input_requests`. This is separate from `mcp_mocks`, which can mock an MCP-provided `ask_user` tool. See [examples/scenarios/native-questions](examples/scenarios/native-questions).
 
-In scenario evals, a task with an adaptive responder (`inputs.responder`) also gets model-backed answers: scripted entries are tried first, and any question the next scripted entry does not match is answered by the responder model from its instructions (recorded with `source: responder`). Responder stop, abstain, errors, or invalid answers fail the run. Legacy `1.x` evals with a responder are unchanged. See the [schema reference](site/src/content/docs/reference/schema.mdx#adaptive-responder-answers).
+With an adaptive responder, any question the next scripted entry does not match is answered by the responder model from its instructions (recorded with `source: responder`). Responder stop, abstain, errors, or invalid answers fail the run. Without the flag, responders keep their existing between-turn behavior only. See the [schema reference](site/src/content/docs/reference/schema.mdx#adaptive-responder-answers).
 
 ### Adversarial Packs
 
