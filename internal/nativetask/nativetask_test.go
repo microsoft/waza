@@ -243,7 +243,7 @@ func TestTapeDigestsPreserveRawNumberTokens(t *testing.T) {
 }
 
 func TestPrepareRejectsUnsupportedInputs(t *testing.T) {
-	for _, name := range []string{"nil policy", "unrestricted", "callback", "custom tool", "skills", "ephemeral", "workspace capture", "session", "traversal", "workdir alias", "workdir dot", "duplicate", "negative timeout", "missing source", "source alias", "source directory", "symlink", "cancel"} {
+	for _, name := range []string{"nil policy", "unrestricted", "callback", "custom tool", "skills", "ephemeral", "workspace capture", "workspace capture paths", "session", "traversal", "workdir alias", "workdir dot", "duplicate", "negative timeout", "missing source", "source alias", "source directory", "symlink", "cancel"} {
 		t.Run(name, func(t *testing.T) {
 			directory := t.TempDir()
 			require.NoError(t, os.WriteFile(directory+"/eval.yaml", []byte("source"), 0o600))
@@ -273,6 +273,8 @@ func TestPrepareRejectsUnsupportedInputs(t *testing.T) {
 				req.EphemeralSession = true
 			case "workspace capture":
 				req.SkipWorkspaceCapture = false
+			case "workspace capture paths":
+				req.WorkspaceCapturePaths = []string{"output.txt"}
 			case "session":
 				req.SessionID = "resume"
 			case "traversal":

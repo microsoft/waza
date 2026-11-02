@@ -140,19 +140,24 @@ func (m *MockEngine) Execute(ctx context.Context, req *ExecutionRequest) (*Execu
 		sessionID = fmt.Sprintf("mock-session-%d", time.Now().UnixNano())
 	}
 
+	var workspaceFiles map[string][]byte
+	var workspaceCaptureErr error
+	if !req.SkipWorkspaceCapture {
+		workspaceFiles, workspaceCaptureErr = captureWorkspaceFiles(m.workspace, req.WorkspaceCapturePaths)
+	}
 	resp := &ExecutionResponse{
 		FinalOutput:    output,
 		Events:         []agentevent.Event{},
 		ModelID:        m.modelID,
 		DurationMs:     time.Since(start).Milliseconds(),
 		ToolCalls:      []models.ToolCall{},
-		Success:        true,
+		Success:        workspaceCaptureErr == nil,
 		SessionID:      sessionID,
 		WorkspaceDir:   m.workspace,
-		WorkspaceFiles: captureWorkspaceFiles(m.workspace),
+		WorkspaceFiles: workspaceFiles,
 	}
-	if req.SkipWorkspaceCapture {
-		resp.WorkspaceFiles = nil
+	if workspaceCaptureErr != nil {
+		resp.ErrorMsg = workspaceCaptureErr.Error()
 	}
 	if req.CaptureJudgeFiles != nil {
 		resp.JudgeFiles = req.CaptureJudgeFiles(m.workspace)

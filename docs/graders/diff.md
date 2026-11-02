@@ -93,3 +93,5 @@ Each expected file contributes:
 **Workspace Context:**
 
 The diff grader operates on the post-execution workspace directory. Each task gets a fresh workspace with fixtures copied in (see [Fixture Isolation](../../README.md#fixture-isolation)). The `snapshot` path is resolved relative to `--context-dir`.
+
+Waza preserves regular workspace files before the agent session disconnects so this grader can observe edits that disconnect may restore. `.git` and `node_modules` trees are excluded by default, while every `expected_files[].path` remains explicitly preserved even inside those directories. Capture is limited to 10,000 files, 16 MiB per file, and 64 MiB total. If a target or workspace exceeds those limits, the run reports a workspace-capture error rather than grading an incomplete snapshot.

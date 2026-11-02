@@ -77,7 +77,7 @@ func TestMatchSnapshotRequestAndSourceRejection(t *testing.T) {
 		"missing", "extra", "duplicate", "path_alias", "source_mutation", "digest_mutation",
 		"nil_policy", "unrestricted", "skills", "ephemeral", "capture", "session", "workspace",
 		"streaming", "message_mode", "cancel_skill", "route_skill", "suppress_skill", "skill_name",
-		"skill_paths", "git_resources", "mcp", "mocks", "mocks_base", "negative_timeout", "callback", "tools",
+		"skill_paths", "git_resources", "workspace_capture_paths", "mcp", "mocks", "mocks_base", "negative_timeout", "callback", "tools",
 	} {
 		t.Run(name, func(t *testing.T) {
 			req, sources := matchRequest(), matchSources()
@@ -153,6 +153,8 @@ func TestMatchSnapshotRequestAndSourceRejection(t *testing.T) {
 				req.SkillPaths = []string{"skill"}
 			case "git_resources":
 				req.GitResources = []models.GitResource{{}}
+			case "workspace_capture_paths":
+				req.WorkspaceCapturePaths = []string{"output.txt"}
 			case "mcp":
 				req.MCPServers = map[string]copilot.MCPServerConfig{"server": nil}
 			case "mocks":

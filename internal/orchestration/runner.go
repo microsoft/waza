@@ -1673,15 +1673,52 @@ func (r *EvalRunner) buildExecutionRequestWithMCP(tc *models.TestCase, resolveMC
 		SuppressSkillBody: !spec.Config.ShouldInjectSkillBody(),
 		TriggerSkillRouting: spec.Config.ShouldTriggerSkillRouting() &&
 			execution.IsSkillAvailable(resolvedSkillPaths, spec.SkillName),
-		MCPServers:          mcpServers,
-		CommandMocks:        effectiveCommandMocks(tc, spec),
-		CommandMocksBaseDir: r.cfg.SpecDir(),
-		FirstEventTimeout:   r.firstEventTimeout(tc),
-		ToolPolicy:          resolveToolPolicy(fm),
-		ModelID:             spec.Config.ModelID,
-		ReasoningEffort:     spec.Config.ReasoningEffort,
-		CaptureJudgeFiles:   captureJudgeFiles,
+		MCPServers:            mcpServers,
+		CommandMocks:          effectiveCommandMocks(tc, spec),
+		CommandMocksBaseDir:   r.cfg.SpecDir(),
+		FirstEventTimeout:     r.firstEventTimeout(tc),
+		ToolPolicy:            resolveToolPolicy(fm),
+		ModelID:               spec.Config.ModelID,
+		ReasoningEffort:       spec.Config.ReasoningEffort,
+		CaptureJudgeFiles:     captureJudgeFiles,
+		WorkspaceCapturePaths: workspaceCapturePaths(spec.Graders, tc),
 	}, nil
+}
+
+func workspaceCapturePaths(configs []models.GraderConfig, tc *models.TestCase) []string {
+	seen := make(map[string]bool)
+	var paths []string
+	add := func(kind models.GraderKind, parameters models.GraderParameters) {
+		if kind != models.GraderKindDiff {
+			return
+		}
+		diff, ok := parameters.(models.DiffGraderParameters)
+		if !ok {
+			return
+		}
+		for _, expected := range diff.ExpectedFiles {
+			path := filepath.ToSlash(expected.Path)
+			if path != "" && !seen[path] {
+				seen[path] = true
+				paths = append(paths, path)
+			}
+		}
+	}
+	for _, config := range configs {
+		add(config.Kind, config.Parameters)
+	}
+	if tc != nil {
+		for _, config := range tc.Validators {
+			add(config.Kind, config.Parameters)
+		}
+		for _, checkpoint := range tc.Checkpoints {
+			for _, config := range checkpoint.Graders {
+				add(config.Kind, config.Parameters)
+			}
+		}
+	}
+	sort.Strings(paths)
+	return paths
 }
 
 func effectiveCommandMocks(tc *models.TestCase, spec *models.EvalSpec) []models.CommandMockConfig {

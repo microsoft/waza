@@ -808,8 +808,16 @@ func (e *CopilotEngine) execute(ctx context.Context, req *ExecutionRequest) (*Ex
 	// The deferred session.Disconnect() may modify or restore workspace files,
 	// so we snapshot them now to guarantee graders see the agent's changes.
 	var workspaceFiles map[string][]byte
+	var workspaceCaptureErr error
 	if !req.SkipWorkspaceCapture {
-		workspaceFiles = captureWorkspaceFiles(workspaceDir)
+		workspaceFiles, workspaceCaptureErr = captureWorkspaceFiles(workspaceDir, req.WorkspaceCapturePaths)
+		if workspaceCaptureErr != nil {
+			if errMsg == "" {
+				errMsg = workspaceCaptureErr.Error()
+			} else {
+				errMsg += "; " + workspaceCaptureErr.Error()
+			}
+		}
 	}
 	var judgeFiles *models.JudgeFileCapture
 	if req.CaptureJudgeFiles != nil {
@@ -841,7 +849,7 @@ func (e *CopilotEngine) execute(ctx context.Context, req *ExecutionRequest) (*Ex
 		DurationMs:         duration.Milliseconds(),
 		ToolCalls:          toolCalls,
 		ErrorMsg:           errMsg,
-		Success:            err == nil,
+		Success:            err == nil && workspaceCaptureErr == nil,
 		WorkspaceDir:       workspaceDir,
 		WorkspaceFiles:     workspaceFiles,
 		JudgeFiles:         judgeFiles,
@@ -1222,36 +1230,6 @@ func (e *CopilotEngine) setupWorkspace(ctx context.Context, resources []Resource
 	}
 
 	return workspaceDir, nil
-}
-
-// captureWorkspaceFiles reads all files from the workspace directory into memory,
-// preserving the post-execution state. This is called before session.Disconnect()
-// to ensure graders see the agent's modifications even if the SDK restores the
-// workspace to its pre-execution state during disconnect.
-// Keys are forward-slash-separated paths relative to dir for cross-platform consistency.
-func captureWorkspaceFiles(dir string) map[string][]byte {
-	if dir == "" {
-		return nil
-	}
-
-	files := make(map[string][]byte)
-	_ = filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
-			return nil
-		}
-		rel, relErr := filepath.Rel(dir, path)
-		if relErr != nil {
-			return nil
-		}
-		content, readErr := os.ReadFile(path)
-		if readErr != nil {
-			return nil
-		}
-		// Normalize to forward slashes so map keys match eval YAML paths on all platforms.
-		files[filepath.ToSlash(rel)] = content
-		return nil
-	})
-	return files
 }
 
 func joinStrings(parts []string) string {

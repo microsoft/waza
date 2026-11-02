@@ -211,6 +211,7 @@ func TestEvidenceJudgeRequestRejectsActorAccessBeforeRuntime(t *testing.T) {
 		{"skills enabled", func(r *ExecutionRequest) { r.NoSkills = false }},
 		{"non ephemeral", func(r *ExecutionRequest) { r.EphemeralSession = false }},
 		{"workspace capture", func(r *ExecutionRequest) { r.SkipWorkspaceCapture = false }},
+		{"workspace capture paths", func(r *ExecutionRequest) { r.WorkspaceCapturePaths = []string{"actor.txt"} }},
 		{"resume", func(r *ExecutionRequest) { r.SessionID = "actor-session" }},
 		{"workspace", func(r *ExecutionRequest) { r.WorkspaceDir = "actor-workspace" }},
 		{"workdir", func(r *ExecutionRequest) { r.WorkDir = "actor-workdir" }},

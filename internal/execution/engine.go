@@ -124,6 +124,11 @@ type ExecutionRequest struct {
 	// detected, avoiding unnecessary wait for the agent to finish its full turn.
 	CancelOnSkillInvocation bool
 
+	// WorkspaceCapturePaths lists grader-relevant files that must be preserved
+	// even when they are inside an otherwise excluded metadata or dependency
+	// directory. Missing paths remain absent rather than failing capture.
+	WorkspaceCapturePaths []string
+
 	// ToolPolicy is the resolved tool-capability boundary derived from the
 	// target .agent.md `tools:` declaration (see [NewToolPolicy]). Nil means
 	// no policy was resolved and preserves the pre-existing unrestricted
