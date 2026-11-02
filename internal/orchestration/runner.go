@@ -9,6 +9,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -1142,8 +1143,21 @@ func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.T
 		req, mockAttempt, err = r.buildAttemptExecutionRequest(tc)
 	}
 	var userInput *execution.UserInputScript
+	var classifier responderClassifier
 	if err == nil {
-		userInput, err = newUserInputScript(tc)
+		userInput, classifier, err = r.newAttemptUserInput(ctx, tc)
+	}
+	if classifier != nil {
+		defer func() {
+			// Tear down the persistent responder session with a detached context so
+			// cleanup still runs even if ctx was canceled during the run.
+			cleanupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			if err := classifier.Close(cleanupCtx); err != nil {
+				slog.WarnContext(ctx, "failed to clean up responder session",
+					"test", tc.DisplayName, "error", err)
+			}
+		}()
 	}
 	if err == nil && userInput != nil {
 		attemptReq := *req
@@ -1250,7 +1264,7 @@ func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.T
 	var responderInfo *models.ResponderInfo
 	if !stop && resp.ErrorMsg == "" {
 		if tc.Stimulus.Responder != nil {
-			responderInfo = r.executeResponderLoop(ctx, tc, req, resp, cps)
+			responderInfo = r.executeResponderLoop(ctx, tc, req, resp, cps, classifier)
 		} else if len(tc.Stimulus.FollowUps) > 0 {
 			r.executeFollowUps(ctx, tc, req, resp, cps)
 		}
@@ -1719,13 +1733,86 @@ func effectiveCommandMocks(tc *models.TestCase, spec *models.EvalSpec) []models.
 	return spec.CommandMocks
 }
 
-// newUserInputScript returns a fresh per-attempt script, or nil when the task
-// does not opt into native user-input scripting.
-func newUserInputScript(tc *models.TestCase) (*execution.UserInputScript, error) {
-	if tc.UserInputResponses == nil {
-		return nil, nil
+// newAttemptUserInput returns a fresh per-attempt native user-input script and
+// the attempt's adaptive responder classifier. The script exists when the task
+// scripts answers or, in scenario evals, configures an adaptive responder; the
+// responder then answers questions that no scripted entry matches. Both are
+// nil when neither applies, leaving the SDK callback unregistered.
+func (r *EvalRunner) newAttemptUserInput(ctx context.Context, tc *models.TestCase) (*execution.UserInputScript, responderClassifier, error) {
+	var classifier responderClassifier
+	if cfg := tc.Stimulus.Responder; cfg != nil {
+		classifier = &serializedClassifier{inner: r.newClassifier(*cfg, r.cfg.Spec().Config.ModelID)}
 	}
-	return execution.NewUserInputScript(*tc.UserInputResponses)
+	adaptive := classifier != nil && r.cfg.Spec().SchemaVersion == models.ScenarioSchemaVersion
+	if tc.UserInputResponses == nil && !adaptive {
+		return nil, classifier, nil
+	}
+	var responses []models.UserInputResponseConfig
+	if tc.UserInputResponses != nil {
+		responses = *tc.UserInputResponses
+	}
+	script, err := execution.NewUserInputScript(responses)
+	if err != nil {
+		return nil, classifier, err
+	}
+	if adaptive {
+		script.SetFallback(responderUserInputFallback(ctx, classifier))
+	}
+	return script, classifier, nil
+}
+
+// responderUserInputFallback answers a native question with the adaptive
+// responder. Only an explicit reply is an answer; stop and abstain fail closed.
+func responderUserInputFallback(ctx context.Context, classifier responderClassifier) execution.UserInputFallback {
+	return func(request copilot.UserInputRequest) (copilot.UserInputResponse, error) {
+		decision, err := classifier.Classify(ctx, nativeQuestionMessage(request))
+		if err != nil {
+			return copilot.UserInputResponse{}, err
+		}
+		switch decision.Kind {
+		case responder.DecisionReply:
+			return copilot.UserInputResponse{Answer: decision.Answer, WasFreeform: !slices.Contains(request.Choices, decision.Answer)}, nil
+		case responder.DecisionAbstain:
+			return copilot.UserInputResponse{}, fmt.Errorf("responder abstained: %s", decision.Reason)
+		default:
+			return copilot.UserInputResponse{}, fmt.Errorf("responder chose to stop instead of answering")
+		}
+	}
+}
+
+func nativeQuestionMessage(request copilot.UserInputRequest) string {
+	var b strings.Builder
+	b.WriteString("[The agent is asking you this question directly through a question prompt, mid-task.]\n\n")
+	b.WriteString("Question: " + request.Question + "\n")
+	if len(request.Choices) > 0 {
+		b.WriteString("Offered choices (to select one, reply with its exact text):\n")
+		for _, choice := range request.Choices {
+			b.WriteString("- " + choice + "\n")
+		}
+	}
+	if request.AllowFreeform != nil && !*request.AllowFreeform {
+		b.WriteString("You must reply with exactly one of the offered choices.\n")
+	}
+	return b.String()
+}
+
+// serializedClassifier keeps native questions and between-turn classification
+// on one responder session without concurrent use.
+type serializedClassifier struct {
+	mu    sync.Mutex
+	inner responderClassifier
+}
+
+func (c *serializedClassifier) Classify(ctx context.Context, agentMessage string) (responder.Decision, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.inner.Classify(ctx, agentMessage)
+}
+
+func (c *serializedClassifier) Close(ctx context.Context) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.inner.Close(ctx)
 }
 
 func configuredDependencyModes(req *execution.ExecutionRequest, mcpMocks []models.MCPMockConfig) []models.DependencyMode {
@@ -1906,19 +1993,19 @@ func (r *EvalRunner) executeFollowUps(ctx context.Context, tc *models.TestCase, 
 // When cps is non-nil, checkpoints scheduled at each turn boundary run after
 // every successful reply, and the loop stops early when a checkpoint with
 // on_failure: stop fails.
-func (r *EvalRunner) executeResponderLoop(ctx context.Context, tc *models.TestCase, initial *execution.ExecutionRequest, resp *execution.ExecutionResponse, cps *checkpointRunner) *models.ResponderInfo {
+func (r *EvalRunner) executeResponderLoop(ctx context.Context, tc *models.TestCase, initial *execution.ExecutionRequest, resp *execution.ExecutionResponse, cps *checkpointRunner, classifier responderClassifier) *models.ResponderInfo {
 	cfg := *tc.Stimulus.Responder
-	classifier := r.newClassifier(cfg, r.cfg.Spec().Config.ModelID)
-	defer func() {
-		// Tear down the persistent responder session with a detached context so
-		// cleanup still runs even if ctx was canceled during the run.
-		cleanupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		if err := classifier.Close(cleanupCtx); err != nil {
-			slog.WarnContext(ctx, "failed to clean up responder session",
-				"test", tc.DisplayName, "error", err)
-		}
-	}()
+	if classifier == nil {
+		classifier = r.newClassifier(cfg, r.cfg.Spec().Config.ModelID)
+		defer func() {
+			cleanupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			if err := classifier.Close(cleanupCtx); err != nil {
+				slog.WarnContext(ctx, "failed to clean up responder session",
+					"test", tc.DisplayName, "error", err)
+			}
+		}()
+	}
 
 	info := &models.ResponderInfo{}
 	left := cfg.MaxFollowups

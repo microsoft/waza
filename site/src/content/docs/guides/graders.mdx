@@ -268,7 +268,7 @@ Evaluates Python or JavaScript assertion expressions against the execution conte
 | `tool_calls`  | `list` | Tool calls extracted from transcript |
 | `tool_events` | `list` | Canonical per-call evidence including arbitrary tool arguments, success, error, and result |
 | `command_invocations` | `list` | Sanitized mocked CLI attempts; omitted `exit_code` means no completed result was captured |
-| `user_input_requests` | `list` | Native SDK user-input requests answered or rejected by task `user_input_responses`, in arrival order |
+| `user_input_requests` | `list` | Native SDK user-input requests answered or rejected in arrival order; `source` is `script` or `responder` |
 | `errors`      | `list` | Errors from transcript               |
 | `duration_ms` | `int`  | Execution wall-clock time            |
 

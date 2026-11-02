@@ -812,7 +812,12 @@ graders:
 ```
 
 Each request is recorded under `runs[].user_input_requests` with its session ID,
-offered choices, freeform permission, answer, and `was_freeform`.
+offered choices, freeform permission, answer, `was_freeform`, and `source`.
+
+If the task also has an adaptive responder (`inputs.responder`), questions that
+the next scripted entry does not match are answered by the responder model
+instead of failing (`source: responder`). This applies to scenario evals only;
+see [adaptive responder answers](/waza/reference/schema/#adaptive-responder-answers).
 
 ### Link intent to existing checks
 

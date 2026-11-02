@@ -26,6 +26,11 @@ type UserInputResponseConfig struct {
 const (
 	UserInputOutcomeAnswered = "answered"
 	UserInputOutcomeRejected = "rejected"
+
+	// UserInputSourceScript marks a request handled by a scripted entry.
+	UserInputSourceScript = "script"
+	// UserInputSourceResponder marks a request answered by the adaptive responder model.
+	UserInputSourceResponder = "responder"
 )
 
 // UserInputRecord is evidence for one native user-input request observed
@@ -39,6 +44,8 @@ type UserInputRecord struct {
 	Choices       []string `json:"choices"`
 	AllowFreeform *bool    `json:"allow_freeform,omitempty"`
 	Outcome       string   `json:"outcome"`
+	// Source is "script" or "responder"; omitted when nothing could answer.
+	Source string `json:"source,omitempty"`
 	// ResponseIndex identifies the scripted entry that was matched against
 	// this request; omitted when no scripted entry remained.
 	ResponseIndex *int    `json:"response_index,omitempty"`

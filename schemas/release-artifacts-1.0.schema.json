@@ -1377,6 +1377,9 @@
         "session_id": {
           "type": "string"
         },
+        "source": {
+          "type": "string"
+        },
         "was_freeform": {
           "anyOf": [
             {

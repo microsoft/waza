@@ -891,6 +891,26 @@ fail the run. Every request is recorded in `runs[].user_input_requests` and pass
 to inline `code` graders as `user_input_requests`. This is the SDK-native callback,
 not an MCP `ask_user` tool mock, and structured elicitation forms are not supported.
 
+#### Adaptive responder answers
+
+In a scenario eval (`schemaVersion: "2.0"`), a task with an adaptive responder
+(`inputs.responder`) also registers the callback, even without
+`user_input_responses`. Scripted entries are still tried first, in order. A
+question that the next scripted entry does not match goes to the responder model
+instead, and that entry stays pending for a later question. The responder uses the
+same session and instructions as its between-turn replies. It receives the
+question and the offered choices. A reply that exactly equals an offered choice
+is recorded as a selection; any other reply is freeform and is rejected when the
+request disallows freeform input. A responder stop or abstain, or any responder
+error, fails the request closed and the run ends with status `error`. A question
+whose scripted entry matches but whose scripted answer is invalid is never handed
+to the model. Answers given during a turn do not count toward `max_followups`.
+
+Each record's `source` is `script` or `responder`; it is omitted when nothing
+could answer. Legacy (`1.x`) evals with a responder keep their existing behavior
+and do not register the native callback. Responder answers call a model and can
+differ between runs.
+
 ## inputs Section
 
 Test inputs passed to the agent.

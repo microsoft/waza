@@ -175,12 +175,17 @@ promised stable across runs.
   requires `executor: copilot-sdk` and an enclosing scenario eval with exact
   `schemaVersion: "2.0"`, so executables without this feature reject the eval
   instead of silently ignoring the script. Omission leaves the callback unregistered.
+- In scenario evals, an adaptive responder (`inputs.responder`) also registers the
+  callback and answers native questions that no pending scripted entry matches,
+  using its existing session and instructions. Scripted entries are tried first;
+  responder stop, abstain, errors, or invalid answers fail the run. Legacy `1.x`
+  evals with a responder are unchanged.
 - Adds optional `tasks[].runs[].user_input_requests`: one record per observed
   request in arrival order with `sequence`, `session_id`, `question`, offered
   `choices` (`null` when none were sent, `[]` when an empty list was sent),
   `allow_freeform` (omitted when the request did not specify it), `outcome`
-  (`answered` or `rejected`), the matched `response_index`, `answer`,
-  `was_freeform`, and rejection `error`. Inline `code` graders receive these
+  (`answered` or `rejected`), `source` (`script` or `responder`), the matched
+  scripted `response_index`, `answer`, `was_freeform`, and rejection `error`. Inline `code` graders receive these
   records as `user_input_requests`, including during offline regrading. They are
   not copied into `snapshot.json` (still `1.1`). Structured elicitation forms
   (`AskUserVariantElicitation`) are not supported.

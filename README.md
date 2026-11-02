@@ -1743,7 +1743,9 @@ user_input_responses:
     freeform: Fixes the login timeout.  # typed answer (was_freeform: true)
 ```
 
-Each entry needs one of `question` (exact) or `question_regex` (full match) and one of `choice` or `freeform`. Unexpected, mismatched, or exhausted questions return an error to the SDK instead of a default answer and fail the run; unconsumed entries also fail it. Each request is recorded in order under `runs[].user_input_requests` (session ID, question, offered choices, freeform permission, answer, `was_freeform`, outcome) and exposed to inline `code` graders as `user_input_requests`. This is separate from `mcp_mocks`, which can mock an MCP-provided `ask_user` tool. See [examples/scenarios/native-questions](examples/scenarios/native-questions).
+Each entry needs one of `question` (exact) or `question_regex` (full match) and one of `choice` or `freeform`. Unexpected, mismatched, or exhausted questions return an error to the SDK instead of a default answer and fail the run; unconsumed entries also fail it. Each request is recorded in order under `runs[].user_input_requests` (session ID, question, offered choices, freeform permission, answer, `was_freeform`, outcome, and `source`) and exposed to inline `code` graders as `user_input_requests`. This is separate from `mcp_mocks`, which can mock an MCP-provided `ask_user` tool. See [examples/scenarios/native-questions](examples/scenarios/native-questions).
+
+In scenario evals, a task with an adaptive responder (`inputs.responder`) also gets model-backed answers: scripted entries are tried first, and any question the next scripted entry does not match is answered by the responder model from its instructions (recorded with `source: responder`). Responder stop, abstain, or invalid answers fail the run. Legacy `1.x` evals with a responder are unchanged. See the [schema reference](site/src/content/docs/reference/schema.mdx#adaptive-responder-answers).
 
 ### Adversarial Packs
 

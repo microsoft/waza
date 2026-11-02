@@ -2,6 +2,7 @@ package execution
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	copilot "github.com/github/copilot-sdk/go"
@@ -42,9 +43,9 @@ func TestUserInputScriptAnswersChoiceAndFreeformInOrder(t *testing.T) {
 	zero, one := 0, 1
 	require.Equal(t, []models.UserInputRecord{
 		{Sequence: 1, SessionID: "s-1", Question: "Which region?", Choices: []string{"east", "west"}, AllowFreeform: boolPtr(false),
-			Outcome: models.UserInputOutcomeAnswered, ResponseIndex: &zero, Answer: strPtr("west"), WasFreeform: boolPtr(false)},
+			Outcome: models.UserInputOutcomeAnswered, Source: models.UserInputSourceScript, ResponseIndex: &zero, Answer: strPtr("west"), WasFreeform: boolPtr(false)},
 		{Sequence: 2, SessionID: "s-1", Question: "What name should I use?",
-			Outcome: models.UserInputOutcomeAnswered, ResponseIndex: &one, Answer: strPtr("demo-app"), WasFreeform: boolPtr(true)},
+			Outcome: models.UserInputOutcomeAnswered, Source: models.UserInputSourceScript, ResponseIndex: &one, Answer: strPtr("demo-app"), WasFreeform: boolPtr(true)},
 	}, script.Records())
 }
 
@@ -134,6 +135,87 @@ func TestNilUserInputScriptIsInert(t *testing.T) {
 func TestNewUserInputScriptRejectsInvalidConfig(t *testing.T) {
 	_, err := NewUserInputScript([]models.UserInputResponseConfig{{Question: "Q"}})
 	require.ErrorContains(t, err, "exactly one of choice or freeform")
+}
+
+func TestUserInputScriptFallbackAnswersUnscriptedQuestions(t *testing.T) {
+	script := newTestScript(t, []models.UserInputResponseConfig{{Question: "Deploy where?", Choice: strPtr("staging")}})
+	var asked []string
+	script.SetFallback(func(request copilot.UserInputRequest) (copilot.UserInputResponse, error) {
+		asked = append(asked, request.Question)
+		if request.Question == "Pick one" {
+			return copilot.UserInputResponse{Answer: "b"}, nil
+		}
+		return copilot.UserInputResponse{Answer: "typed", WasFreeform: true}, nil
+	})
+	handler := script.Handler()
+
+	resp, err := handler(copilot.UserInputRequest{Question: "Your name?"}, copilot.UserInputInvocation{SessionID: "s"})
+	require.NoError(t, err)
+	require.Equal(t, copilot.UserInputResponse{Answer: "typed", WasFreeform: true}, resp)
+	resp, err = handler(copilot.UserInputRequest{Question: "Deploy where?", Choices: []string{"staging", "prod"}}, copilot.UserInputInvocation{SessionID: "s"})
+	require.NoError(t, err)
+	require.Equal(t, copilot.UserInputResponse{Answer: "staging"}, resp, "a pending scripted entry still answers its matching question")
+	resp, err = handler(copilot.UserInputRequest{Question: "Pick one", Choices: []string{"a", "b"}}, copilot.UserInputInvocation{SessionID: "s"})
+	require.NoError(t, err)
+	require.Equal(t, copilot.UserInputResponse{Answer: "b"}, resp)
+
+	require.Equal(t, []string{"Your name?", "Pick one"}, asked, "matching scripted questions never reach the model")
+	records := script.Records()
+	require.Equal(t, []string{models.UserInputSourceResponder, models.UserInputSourceScript, models.UserInputSourceResponder},
+		[]string{records[0].Source, records[1].Source, records[2].Source})
+	require.Nil(t, records[0].ResponseIndex)
+	require.Equal(t, 0, *records[1].ResponseIndex)
+	require.NoError(t, script.Finish())
+}
+
+func TestUserInputScriptFallbackFailsClosed(t *testing.T) {
+	cases := []struct {
+		name     string
+		request  copilot.UserInputRequest
+		answer   copilot.UserInputResponse
+		err      error
+		reason   string
+		scripted []models.UserInputResponseConfig
+	}{
+		{"responder error", copilot.UserInputRequest{Question: "Q"}, copilot.UserInputResponse{}, errors.New("responder abstained: unknown"),
+			"responder could not answer: responder abstained: unknown", nil},
+		{"choice not offered", copilot.UserInputRequest{Question: "Q", Choices: []string{"a"}}, copilot.UserInputResponse{Answer: "z"}, nil,
+			"responder selected a choice that was not offered", nil},
+		{"freeform disallowed", copilot.UserInputRequest{Question: "Q", Choices: []string{"a"}, AllowFreeform: boolPtr(false)},
+			copilot.UserInputResponse{Answer: "z", WasFreeform: true}, nil, "freeform answer, which the request does not allow", nil},
+		{"matched scripted entry is never handed to the model", copilot.UserInputRequest{Question: "Q", Choices: []string{"a"}},
+			copilot.UserInputResponse{Answer: "a"}, nil, "user_input_responses[0].choice was not offered",
+			[]models.UserInputResponseConfig{{Question: "Q", Choice: strPtr("missing")}}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			script := newTestScript(t, tc.scripted)
+			calls := 0
+			script.SetFallback(func(copilot.UserInputRequest) (copilot.UserInputResponse, error) {
+				calls++
+				return tc.answer, tc.err
+			})
+			resp, err := script.Handler()(tc.request, copilot.UserInputInvocation{})
+			require.ErrorContains(t, err, tc.reason)
+			require.Equal(t, copilot.UserInputResponse{}, resp)
+			require.Equal(t, models.UserInputOutcomeRejected, script.Records()[0].Outcome)
+			require.Nil(t, script.Records()[0].Answer)
+			require.ErrorContains(t, script.Finish(), tc.reason)
+			if tc.scripted != nil {
+				require.Zero(t, calls)
+			}
+		})
+	}
+}
+
+func TestUserInputScriptFallbackKeepsUnconsumedEntriesFailing(t *testing.T) {
+	script := newTestScript(t, []models.UserInputResponseConfig{{Question: "Never asked", Freeform: strPtr("x")}})
+	script.SetFallback(func(copilot.UserInputRequest) (copilot.UserInputResponse, error) {
+		return copilot.UserInputResponse{Answer: "y", WasFreeform: true}, nil
+	})
+	_, err := script.Handler()(copilot.UserInputRequest{Question: "Other"}, copilot.UserInputInvocation{})
+	require.NoError(t, err)
+	require.ErrorContains(t, script.Finish(), "1 scripted answer(s) were not consumed")
 }
 
 // TestCopilotUserInputCallbackOnCreateAndResume proves the SDK-native

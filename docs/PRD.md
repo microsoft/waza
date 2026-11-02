@@ -93,7 +93,9 @@ Scenario tasks can script answers to native Copilot SDK user-input requests with
 `user_input_responses`. Waza registers `OnUserInputRequest` on the initial and
 every resumed session of a trial, consumes entries strictly in order, and fails
 closed on unexpected, mismatched, exhausted, or unconsumed entries. Results
-schema `1.8` records each request in `runs[].user_input_requests`. This is
+schema `1.8` records each request in `runs[].user_input_requests`. In scenario
+evals, a task with an adaptive responder answers questions the script does not
+match with the responder model, after scripted entries are tried. This is
 distinct from MCP `ask_user` mocks and does not support structured elicitation.
 
 The private `internal/faultsequence` groundwork provides cross-process step

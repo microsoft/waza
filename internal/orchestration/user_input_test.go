@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 
@@ -13,6 +14,7 @@ import (
 	"github.com/microsoft/waza/internal/config"
 	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/models"
+	"github.com/microsoft/waza/internal/responder"
 	"github.com/microsoft/waza/internal/testutil/copilotfake"
 	"github.com/stretchr/testify/require"
 )
@@ -138,7 +140,7 @@ func TestRunBenchmarkAnswersNativeQuestionsAcrossInitialAndResumedTurns(t *testi
 	require.Len(t, records, 2)
 	require.Equal(t, map[string]any{
 		"sequence": float64(1), "session_id": "session-1", "question": "Deploy where?",
-		"choices": []any{"staging", "prod"}, "allow_freeform": false, "outcome": "answered",
+		"choices": []any{"staging", "prod"}, "allow_freeform": false, "outcome": "answered", "source": "script",
 		"response_index": float64(0), "answer": "staging", "was_freeform": false,
 	}, records[0])
 	require.Contains(t, records[1], "choices")
@@ -321,4 +323,180 @@ func TestBuildGraderContextIncludesNativeQuestionRecords(t *testing.T) {
 	runner := NewEvalRunner(config.NewEvalConfig(&models.EvalSpec{}), &questionEngine{})
 	ctx := runner.buildGraderContext(&models.TestCase{}, &execution.ExecutionResponse{UserInputRequests: records}, nil)
 	require.Equal(t, records, ctx.UserInputRequests)
+}
+
+// recordingClassifier is a model-free adaptive responder: it answers native
+// questions from a table and returns a fixed decision between turns.
+type recordingClassifier struct {
+	mu       sync.Mutex
+	messages []string
+	answers  map[string]responder.Decision
+	between  responder.Decision
+	closed   int
+}
+
+func (c *recordingClassifier) Classify(_ context.Context, message string) (responder.Decision, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.messages = append(c.messages, message)
+	for question, decision := range c.answers {
+		if strings.Contains(message, "Question: "+question+"\n") {
+			return decision, nil
+		}
+	}
+	return c.between, nil
+}
+
+func (c *recordingClassifier) Close(context.Context) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.closed++
+	return nil
+}
+
+const adaptiveTaskYAML = `id: adaptive-questions
+name: Adaptive questions
+inputs:
+  prompt: start
+  responder:
+    instructions: You deploy to staging and your name is Ada.
+    max_followups: 2
+user_input_responses:
+  - question: Deploy where?
+    choices: [staging, prod]
+    choice: staging
+`
+
+func TestRunBenchmarkAdaptiveResponderAnswersUnscriptedNativeQuestions(t *testing.T) {
+	engine := &questionEngine{questions: map[string][]copilot.UserInputRequest{
+		"start": {
+			{Question: "Your name?"},
+			{Question: "Deploy where?", Choices: []string{"staging", "prod"}},
+			{Question: "Region?", Choices: []string{"east", "west"}, AllowFreeform: new(bool)},
+		},
+	}}
+	classifier := &recordingClassifier{
+		answers: map[string]responder.Decision{
+			"Your name?": {Kind: responder.DecisionReply, Answer: "Ada"},
+			"Region?":    {Kind: responder.DecisionReply, Answer: "west"},
+		},
+		between: responder.Decision{Kind: responder.DecisionStop},
+	}
+	cfg, _ := writeUserInputEval(t, adaptiveTaskYAML, models.ScenarioSchemaVersion)
+	runner := NewEvalRunner(cfg, engine, WithSkipGraders())
+	created := 0
+	runner.newClassifier = func(models.ResponderConfig, string) responderClassifier { created++; return classifier }
+	outcome, err := runner.RunBenchmark(context.Background())
+	require.NoError(t, err)
+	run := outcome.TestOutcomes[0].Runs[0]
+	require.Equal(t, models.StatusSkipped, run.Status, run.ErrorMsg)
+	require.Equal(t, models.ResponderOutcomeStopped, run.Responder.Outcome)
+
+	require.Len(t, run.UserInputRequests, 3)
+	sources := []string{run.UserInputRequests[0].Source, run.UserInputRequests[1].Source, run.UserInputRequests[2].Source}
+	require.Equal(t, []string{"responder", "script", "responder"}, sources)
+	require.Equal(t, "Ada", *run.UserInputRequests[0].Answer)
+	require.True(t, *run.UserInputRequests[0].WasFreeform)
+	require.Equal(t, "staging", *run.UserInputRequests[1].Answer)
+	require.Equal(t, "west", *run.UserInputRequests[2].Answer)
+	require.False(t, *run.UserInputRequests[2].WasFreeform, "a reply equal to an offered choice is a selection")
+
+	require.Equal(t, 1, created, "native questions and between-turn replies share one responder per attempt")
+	require.Equal(t, 1, classifier.closed)
+	require.Len(t, classifier.messages, 3, "two native questions plus one between-turn classification")
+	require.Contains(t, classifier.messages[1], "- east\n- west\n")
+	require.Contains(t, classifier.messages[1], "You must reply with exactly one of the offered choices.")
+	require.NotContains(t, strings.Join(classifier.messages, "\n"), "Deploy where?", "scripted questions never reach the model")
+}
+
+func TestRunBenchmarkAdaptiveResponderNativeAnswerFailsClosed(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		decision responder.Decision
+		message  string
+	}{
+		{"abstain", responder.Decision{Kind: responder.DecisionAbstain, Reason: "unknown name"}, "responder abstained: unknown name"},
+		{"stop", responder.Decision{Kind: responder.DecisionStop}, "responder chose to stop instead of answering"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			engine := &questionEngine{questions: map[string][]copilot.UserInputRequest{"start": {{Question: "Your name?"}}}}
+			classifier := &recordingClassifier{answers: map[string]responder.Decision{"Your name?": tc.decision}}
+			task := "id: a\nname: A\ninputs:\n  prompt: start\n  responder: {instructions: x, max_followups: 1}\n"
+			cfg, _ := writeUserInputEval(t, task, models.ScenarioSchemaVersion)
+			runner := NewEvalRunner(cfg, engine, WithSkipGraders())
+			runner.newClassifier = func(models.ResponderConfig, string) responderClassifier { return classifier }
+			outcome, err := runner.RunBenchmark(context.Background())
+			require.NoError(t, err)
+			run := outcome.TestOutcomes[0].Runs[0]
+			require.Equal(t, models.StatusError, run.Status)
+			require.Contains(t, run.ErrorMsg, tc.message)
+			require.Len(t, run.UserInputRequests, 1)
+			require.Equal(t, models.UserInputOutcomeRejected, run.UserInputRequests[0].Outcome)
+			require.Equal(t, "responder", run.UserInputRequests[0].Source)
+		})
+	}
+}
+
+func TestRunBenchmarkLegacyAdaptiveResponderLeavesNativeCallbackUnset(t *testing.T) {
+	engine := &questionEngine{questions: map[string][]copilot.UserInputRequest{"start": {{Question: "Your name?"}}}}
+	classifier := &recordingClassifier{between: responder.Decision{Kind: responder.DecisionStop}}
+	task := "id: a\nname: A\ninputs:\n  prompt: start\n  responder: {instructions: x, max_followups: 1}\n"
+	cfg, _ := writeUserInputEval(t, task, "1.4")
+	runner := NewEvalRunner(cfg, engine, WithSkipGraders())
+	runner.newClassifier = func(models.ResponderConfig, string) responderClassifier { return classifier }
+	outcome, err := runner.RunBenchmark(context.Background())
+	require.NoError(t, err)
+	run := outcome.TestOutcomes[0].Runs[0]
+	require.Equal(t, models.StatusSkipped, run.Status, run.ErrorMsg)
+	require.Nil(t, run.UserInputRequests)
+	require.Nil(t, engine.scripts[0], "legacy adaptive tasks keep their existing behavior without the native question tool")
+	require.Len(t, classifier.messages, 1)
+}
+
+// TestProductionEngineAdaptiveResponderAnswersNativeQuestionMidTurn uses the
+// real responder classifier and CopilotEngine (CLI-free fake client). The
+// responder session runs while the agent's turn is blocked on its question.
+func TestProductionEngineAdaptiveResponderAnswersNativeQuestionMidTurn(t *testing.T) {
+	var agentAnswers []copilot.UserInputResponse
+	var responderPrompts []string
+	client := &copilotfake.Client{Send: func(config *copilot.SessionConfig, options copilot.MessageOptions) ([]copilot.SessionEvent, error) {
+		for _, tool := range config.Tools {
+			if tool.Name == "responder_reply" || tool.Name == "responder_stop" {
+				responderPrompts = append(responderPrompts, options.Prompt)
+				name, args := "responder_stop", map[string]any{}
+				if strings.Contains(options.Prompt, "Question: Your name?") {
+					name, args = "responder_reply", map[string]any{"answer": "Ada"}
+				}
+				for _, candidate := range config.Tools {
+					if candidate.Name == name {
+						_, err := candidate.Handler(copilot.ToolInvocation{ToolName: name, Arguments: args})
+						require.NoError(t, err)
+					}
+				}
+				return nil, nil
+			}
+		}
+		require.NotNil(t, config.OnUserInputRequest)
+		answer, err := config.OnUserInputRequest(copilot.UserInputRequest{Question: "Your name?"}, copilot.UserInputInvocation{SessionID: "agent"})
+		require.NoError(t, err)
+		agentAnswers = append(agentAnswers, answer)
+		return []copilot.SessionEvent{{Data: &copilot.AssistantMessageData{Content: "Hello " + answer.Answer}}}, nil
+	}}
+	engine := client.Engine()
+	require.NoError(t, engine.Initialize(t.Context()))
+	t.Cleanup(func() { require.NoError(t, engine.Shutdown(context.Background())) })
+
+	task := "id: a\nname: A\ninputs:\n  prompt: start\n  responder: {instructions: Your name is Ada., max_followups: 1}\n"
+	cfg, _ := writeUserInputEval(t, task, models.ScenarioSchemaVersion)
+	outcome, err := NewEvalRunner(cfg, engine, WithSkipGraders()).RunBenchmark(t.Context())
+	require.NoError(t, err)
+	run := outcome.TestOutcomes[0].Runs[0]
+	require.Equal(t, models.StatusSkipped, run.Status, run.ErrorMsg)
+	require.Equal(t, []copilot.UserInputResponse{{Answer: "Ada", WasFreeform: true}}, agentAnswers)
+	require.Len(t, run.UserInputRequests, 1)
+	require.Equal(t, "responder", run.UserInputRequests[0].Source)
+	require.Equal(t, models.ResponderOutcomeStopped, run.Responder.Outcome)
+	require.Len(t, responderPrompts, 2)
+	require.Contains(t, responderPrompts[0], "Your name is Ada.", "the first responder call seeds its instructions")
+	require.Contains(t, responderPrompts[1], "Hello Ada", "the between-turn call reuses the same responder session")
 }
