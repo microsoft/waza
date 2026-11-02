@@ -904,7 +904,8 @@ is recorded as a selection; any other reply is freeform and is rejected when the
 request disallows freeform input. A responder stop or abstain, or any responder
 error, fails the request closed and the run ends with status `error`. A question
 whose scripted entry matches but whose scripted answer is invalid is never handed
-to the model. Answers given during a turn do not count toward `max_followups`.
+to the model. Answers given during a turn do not count toward `max_followups`, but
+their model calls run inside the agent's turn and count against the task timeout.
 
 Each record's `source` is `script` or `responder`; it is omitted when nothing
 could answer. Legacy (`1.x`) evals with a responder keep their existing behavior

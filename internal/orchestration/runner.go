@@ -1793,6 +1793,8 @@ func nativeQuestionMessage(request copilot.UserInputRequest) string {
 	if request.AllowFreeform != nil && !*request.AllowFreeform {
 		b.WriteString("You must reply with exactly one of the offered choices.\n")
 	}
+	b.WriteString("\nTo answer, call responder_reply with its required `answer` argument set to your non-empty answer text. " +
+		"Call responder_abstain with a `reason` only if the answer cannot be inferred from your configuration.\n")
 	return b.String()
 }
 
