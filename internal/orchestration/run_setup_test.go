@@ -143,3 +143,43 @@ func TestRunBenchmark_AdmissionFailureAfterSetupStillTearsDown(t *testing.T) {
 	require.Zero(t, engine.initialized, "admission still fails before engine initialization")
 	requireHookLog(t, log)
 }
+
+// A failed pass tears down its setup; retrying RunBenchmark on the same runner
+// must run before_run again, so inputs removed by after_run are regenerated.
+func TestRunBenchmark_RetryAfterFailedStartRunsSetupAgain(t *testing.T) {
+	t.Run("admission failure", func(t *testing.T) {
+		runner, engine, log := writeHookSuite(t, `mcp_mocks:
+  - name: host
+    fixtures: mcp-host
+`, admissionInheritTask)
+		_, err := runner.RunBenchmark(t.Context())
+		require.ErrorContains(t, err, "MCP mock admission")
+		require.Zero(t, engine.initialized)
+
+		fixtures := filepath.Join(filepath.Dir(log), "mcp-host")
+		require.NoError(t, os.MkdirAll(fixtures, 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(fixtures, "ask_user.json"), []byte(`{"responses":[{"return":{"answer":"Not now"}}]}`), 0o600))
+		outcome, err := runner.RunBenchmark(t.Context())
+		require.NoError(t, err)
+		require.Len(t, outcome.TestOutcomes, 1)
+		requireHookLogLines(t, log, "before_run", "after_run", "before_run", "after_run")
+	})
+	t.Run("engine initialization failure", func(t *testing.T) {
+		runner, engine, log := writeHookSuite(t, hookHostMock, admissionInheritTask)
+		engine.failInits = 1
+		_, err := runner.RunBenchmark(t.Context())
+		require.ErrorContains(t, err, "engine unavailable")
+		outcome, err := runner.RunBenchmark(t.Context())
+		require.NoError(t, err)
+		require.Len(t, outcome.TestOutcomes, 1)
+		require.Equal(t, 2, engine.initialized)
+		requireHookLogLines(t, log, "before_run", "after_run", "before_run", "after_run")
+	})
+}
+
+func requireHookLogLines(t *testing.T, log string, want ...string) {
+	t.Helper()
+	data, err := os.ReadFile(log)
+	require.NoError(t, err)
+	require.Equal(t, strings.Join(want, "\n")+"\n", strings.ReplaceAll(string(data), "\r\n", "\n"))
+}

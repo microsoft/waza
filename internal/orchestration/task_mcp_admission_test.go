@@ -3,6 +3,7 @@ package orchestration
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"sort"
@@ -22,6 +23,7 @@ type admissionEngine struct {
 	t           *testing.T
 	mu          sync.Mutex
 	initialized int
+	failInits   int // Initialize fails this many times before succeeding
 	answers     map[string]string
 	servers     map[string][]string
 }
@@ -30,6 +32,10 @@ func (e *admissionEngine) Initialize(context.Context) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.initialized++
+	if e.failInits > 0 {
+		e.failInits--
+		return errors.New("engine unavailable")
+	}
 	return nil
 }
 func (e *admissionEngine) Shutdown(context.Context) error         { return nil }

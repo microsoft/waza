@@ -309,7 +309,14 @@ func (r *EvalRunner) RunBenchmark(ctx context.Context) (*models.EvaluationOutcom
 		}
 		r.setup = setup
 	}
-	defer r.setup.Teardown(ctx)
+	// A pass that never starts (admission or engine failure) must not leave
+	// this setup pending: it is torn down here, and a retry on the same runner
+	// must run before_run again.
+	setup := r.setup
+	defer func() {
+		r.setup = nil
+		setup.Teardown(ctx)
+	}()
 	if err := r.admitEvalMCPMocks(); err != nil {
 		return nil, err
 	}

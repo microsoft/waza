@@ -121,3 +121,26 @@ metrics:
 		})
 	}
 }
+
+func TestValidateTaskAndEvalBytes_MCPMockNullInputSchema(t *testing.T) {
+	task := strings.Replace(taskWithMCPMocksSingle, "      ask_user:\n", "      ask_user:\n        input_schema: null\n", 1)
+	require.Contains(t, task, "input_schema: null")
+	require.Empty(t, ValidateTaskBytes([]byte(task)), "null keeps the default tool schema, as at runtime")
+	require.NotEmpty(t, ValidateTaskBytes([]byte(strings.Replace(task, "input_schema: null", "input_schema: 42", 1))), "a non-object, non-null schema is still rejected")
+
+	eval := `schemaVersion: "1.1"
+name: null-schema
+skill: s
+config: {trials_per_task: 1, timeout_seconds: 60, executor: copilot-sdk, model: m}
+tasks: ["task.yaml"]
+metrics: [{name: pass, weight: 1, threshold: 1}]
+mcp_mocks:
+  - name: host
+    tools:
+      ask_user:
+        input_schema: null
+        responses: [{return: {answer: ok}}]
+`
+	require.Empty(t, ValidateEvalBytes([]byte(eval)))
+	require.NotEmpty(t, ValidateEvalBytes([]byte(strings.Replace(eval, "input_schema: null", "input_schema: [1]", 1))))
+}
