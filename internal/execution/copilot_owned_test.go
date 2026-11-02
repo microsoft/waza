@@ -13,6 +13,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestMain(m *testing.M) {
+	if os.Getenv("WAZA_REJECT_COPILOT_PROCESS") == "1" {
+		os.Exit(125)
+	}
+	os.Exit(m.Run())
+}
+
 func TestOwnedNativeClientDoesNotAllocateCommandMockRuntime(t *testing.T) {
 	for _, phase := range []string{"shutdown", "invalid-path", "startup-failure"} {
 		t.Run(phase, func(t *testing.T) {
@@ -26,6 +33,9 @@ func TestOwnedNativeClientDoesNotAllocateCommandMockRuntime(t *testing.T) {
 			if phase != "invalid-path" {
 				// Unlike a shell script, the native test executable starts on Windows
 				// too, then rejects the SDK's CLI flags before running any tests.
+				if phase == "startup-failure" {
+					t.Setenv("WAZA_REJECT_COPILOT_PROCESS", "1")
+				}
 				var err error
 				path, err = os.Executable()
 				require.NoError(t, err)
@@ -41,12 +51,8 @@ func TestOwnedNativeClientDoesNotAllocateCommandMockRuntime(t *testing.T) {
 			if phase == "invalid-path" {
 				require.ErrorContains(t, engine.Initialize(t.Context()), "initialize/start_failed")
 			}
-			var startupErr error
 			if phase == "startup-failure" {
-				startupErr = engine.Initialize(t.Context())
-				if startupErr != nil {
-					require.ErrorContains(t, startupErr, "initialize/start_failed")
-				}
+				require.ErrorContains(t, engine.Initialize(t.Context()), "initialize/start_failed")
 			}
 			shutdownErr := engine.Shutdown(t.Context())
 			if phase == "startup-failure" {
