@@ -806,7 +806,13 @@ func runSingleModel(cmd *cobra.Command, spec *models.EvalSpec, specPath string, 
 	// Admit MCP mocks before the engine starts, against the tasks this run
 	// selects; RunBenchmark repeats the same check. An interrupt during setup or
 	// admission stops here, before any engine is created.
-	if err := orchestration.AdmitEvalMCPMocks(cfg, taskFilters, tagFilters); err != nil {
+	triggerSpec, triggerErr := trigger.Discover(specDir)
+	if triggerErr != nil {
+		triggerErr = fmt.Errorf("loading trigger tests: %w", triggerErr)
+	}
+	admissionErr := orchestration.AdmitEvalMCPMocksForPhases(cfg, taskFilters, tagFilters,
+		triggerErr != nil || trigger.UsesEvalMCP(triggerSpec, spec.Config.EngineType))
+	if err := errors.Join(triggerErr, admissionErr); err != nil {
 		return nil, err
 	}
 	if err := ctx.Err(); err != nil {
@@ -983,10 +989,8 @@ func runSingleModel(cmd *cobra.Command, spec *models.EvalSpec, specPath string, 
 	var triggerResults []models.TriggerResult
 	ctx, supplementalUsage := execution.NewUsageScope(ctx)
 
-	// Discover and run trigger tests if present alongside the eval spec
-	if triggerSpec, err := trigger.Discover(specDir); err != nil {
-		return outcome, fmt.Errorf("loading trigger tests: %w", err)
-	} else if triggerSpec != nil {
+	// Run the trigger spec admitted before engine startup, outside task caching.
+	if triggerSpec != nil {
 		var tm *models.TriggerMetrics
 		if spec.Config.EngineType == "mock" {
 			// return perfect results

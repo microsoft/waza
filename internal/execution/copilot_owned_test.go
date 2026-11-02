@@ -36,7 +36,8 @@ func TestOwnedNativeClientDoesNotAllocateCommandMockRuntime(t *testing.T) {
 				DiagnosticObserver: func(ExecutionDiagnostic) error { return nil },
 			}).Build()
 			if phase != "invalid-path" {
-				require.IsType(t, &copilotClientWrapper{}, engine.client)
+				require.IsType(t, &startupClient{}, engine.client)
+				require.IsType(t, &copilotClientWrapper{}, engine.client.(*startupClient).CopilotClient)
 			}
 			if phase != "shutdown" {
 				require.ErrorContains(t, engine.Initialize(t.Context()), "initialize/start_failed")
@@ -147,8 +148,10 @@ func TestCopilotEngineBuilderOwnedProductionClient(t *testing.T) {
 		second := NewCopilotEngineBuilder("fixed-model", &CopilotEngineBuilderOptions{OwnClient: true}).Build()
 		require.True(t, first.ownsClient)
 		require.True(t, second.ownsClient)
-		require.IsType(t, &copilotClientWrapper{}, first.client)
-		require.IsType(t, &copilotClientWrapper{}, second.client)
+		require.IsType(t, &startupClient{}, first.client)
+		require.IsType(t, &startupClient{}, second.client)
+		require.IsType(t, &copilotClientWrapper{}, first.client.(*startupClient).CopilotClient)
+		require.IsType(t, &copilotClientWrapper{}, second.client.(*startupClient).CopilotClient)
 		require.NotSame(t, first.client, second.client)
 		require.NoError(t, first.Shutdown(t.Context()))
 		require.NoError(t, second.Shutdown(t.Context()))
@@ -157,7 +160,8 @@ func TestCopilotEngineBuilderOwnedProductionClient(t *testing.T) {
 		t.Setenv("COPILOT_CLI_PATH", filepath.Join(t.TempDir(), "missing-copilot"))
 		engine := NewCopilotEngineBuilder("fixed-model", &CopilotEngineBuilderOptions{OwnClient: true}).Build()
 		require.True(t, engine.ownsClient)
-		require.IsType(t, &startupErrorClient{}, engine.client)
+		require.IsType(t, &startupClient{}, engine.client)
+		require.IsType(t, &startupErrorClient{}, engine.client.(*startupClient).CopilotClient)
 		require.ErrorContains(t, engine.Initialize(t.Context()), "COPILOT_CLI_PATH")
 		require.NoError(t, engine.Shutdown(t.Context()))
 	})

@@ -113,10 +113,15 @@ func ValidateInlineMockDeclarations(mocks []models.MCPMockConfig, baseDir, versi
 // inline declarations are validated. With no tasks, every eval mock is
 // admitted as before task-level mocks existed.
 func ValidateMCPMocksForTasks(spec *models.EvalSpec, tasks []*models.TestCase, baseDir string) error {
+	return ValidateMCPMocksForPhases(spec, tasks, baseDir, false)
+}
+
+// ValidateMCPMocksForPhases also admits eval dependencies used outside tasks.
+func ValidateMCPMocksForPhases(spec *models.EvalSpec, tasks []*models.TestCase, baseDir string, usesEvalMCP bool) error {
 	taskMocks := models.TaskMCPMocks(tasks)
 	var errs []error
 	for _, mock := range spec.MCPMocks {
-		if models.MCPMockReplacedByEveryTask(mock.Name, taskMocks) {
+		if !usesEvalMCP && models.MCPMockReplacedByEveryTask(mock.Name, taskMocks) {
 			if err := ValidateInlineMockDeclarations([]models.MCPMockConfig{mock}, baseDir, spec.SchemaVersion); err != nil {
 				errs = append(errs, err)
 			}

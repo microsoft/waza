@@ -18,6 +18,7 @@ import (
 	"github.com/microsoft/waza/internal/orchestration"
 	"github.com/microsoft/waza/internal/registry"
 	"github.com/microsoft/waza/internal/schemaloader"
+	"github.com/microsoft/waza/internal/trigger"
 	"github.com/microsoft/waza/internal/utils"
 	"github.com/microsoft/waza/internal/validation"
 	"gopkg.in/yaml.v3"
@@ -42,6 +43,18 @@ func Inspect(evalPath string, opts Options) *Report {
 		r.Complete = false
 		return r
 	}
+	base, err := filepath.Abs(filepath.Dir(evalPath))
+	if err != nil {
+		r.add("eval.path", Invalid, evalPath, "", "", "Eval directory cannot be resolved.", "Use a valid local eval path.")
+		r.Complete = false
+		return r
+	}
+	triggerSpec, triggerErr := trigger.Discover(base)
+	if triggerErr != nil {
+		r.add("trigger.configuration", Invalid, filepath.Join(base, "trigger_tests.yaml"), "", "",
+			"Trigger tests could not be read or parsed.", "Supply a readable trigger_tests.yaml with a skill and valid prompts.")
+		r.Complete = false
+	}
 	for range validation.ValidateEvalBytes(data) {
 		r.add("eval.schema", Invalid, evalPath, "", "", "Eval configuration does not match the embedded schema.", "Check required fields, types, and configuration against schemas/eval.schema.json.")
 	}
@@ -53,12 +66,6 @@ func Inspect(evalPath string, opts Options) *Report {
 		return r
 	}
 	r.Executor = spec.Config.EngineType
-	base, err := filepath.Abs(filepath.Dir(evalPath))
-	if err != nil {
-		r.add("eval.path", Invalid, evalPath, "", "", "Eval directory cannot be resolved.", "Use a valid local eval path.")
-		r.Complete = false
-		return r
-	}
 	contextDir := filepath.Join(base, "fixtures")
 	if opts.ContextDir != "" {
 		contextDir, err = filepath.Abs(opts.ContextDir)
@@ -79,6 +86,10 @@ func Inspect(evalPath string, opts Options) *Report {
 	taskMocks := blockedMocks
 	for _, task := range tasks {
 		taskMocks = append(taskMocks, task.MCPMocks)
+	}
+	if triggerErr != nil || trigger.UsesEvalMCP(triggerSpec, spec.Config.EngineType) {
+		// An unresolved phase cannot establish that eval dependencies are unused.
+		taskMocks = nil
 	}
 	inspectMCP(r, spec, base, taskMocks)
 	ids := map[string]bool{}

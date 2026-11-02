@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	copilot "github.com/github/copilot-sdk/go"
 	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/stretchr/testify/require"
@@ -226,5 +227,47 @@ func TestRunCommandInterruptDuringEngineInitStopsPromptly(t *testing.T) {
 	err := executeUntil(t, []string{path, "--context-dir", dir, "--output", filepath.Join(dir, "results.json")}, engine.started)
 	require.ErrorContains(t, err, "failed to initialize agent")
 	require.ErrorContains(t, err, "context canceled")
+	requireCLIHookLog(t, log)
+}
+
+type blockedStartupClient struct {
+	execution.CopilotClient
+	entered chan struct{}
+	stopped chan struct{}
+}
+
+func (c *blockedStartupClient) Start(ctx context.Context) error {
+	close(c.entered)
+	<-ctx.Done()
+	return ctx.Err()
+}
+
+func (c *blockedStartupClient) Stop() error {
+	close(c.stopped)
+	return nil
+}
+
+func TestRunCommandInterruptDuringActualCopilotStartupRunsAfterRunOnce(t *testing.T) {
+	resetRunGlobals()
+	dir := t.TempDir()
+	path, log := writeInterruptSuite(t, dir, "")
+	client := &blockedStartupClient{entered: make(chan struct{}), stopped: make(chan struct{})}
+	previous := newRunEngine
+	t.Cleanup(func() { newRunEngine = previous })
+	newRunEngine = func(models.Config) (execution.AgentEngine, error) {
+		return execution.NewCopilotEngineBuilder("test", &execution.CopilotEngineBuilderOptions{
+			NewCopilotClient: func(*copilot.ClientOptions) execution.CopilotClient { return client },
+		}).Build(), nil
+	}
+	output := filepath.Join(dir, "results.json")
+	err := executeUntil(t, []string{path, "--context-dir", dir, "--output", output}, client.entered)
+	require.ErrorContains(t, err, "failed to initialize agent")
+	require.ErrorContains(t, err, "context canceled")
+	select {
+	case <-client.stopped:
+	case <-time.After(5 * time.Second):
+		t.Fatal("partial startup was not cleaned up")
+	}
+	require.NoFileExists(t, output)
 	requireCLIHookLog(t, log)
 }

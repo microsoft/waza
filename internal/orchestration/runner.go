@@ -681,15 +681,25 @@ func (r *EvalRunner) printSkillImpactReport(withSkills, withoutSkills *models.Ev
 // every selected task replaces is never started, so only its inline
 // declarations are validated.
 func AdmitEvalMCPMocks(cfg *config.EvalConfig, taskFilters, tagFilters []string) error {
+	return AdmitEvalMCPMocksForPhases(cfg, taskFilters, tagFilters, false)
+}
+
+// AdmitEvalMCPMocksForPhases includes eval dependencies consumed by a caller's
+// supplemental phase. Standalone EvalRunner executes only task phases.
+func AdmitEvalMCPMocksForPhases(cfg *config.EvalConfig, taskFilters, tagFilters []string, usesEvalMCP bool) error {
 	r := &EvalRunner{cfg: cfg, taskFilters: taskFilters, tagFilters: tagFilters}
-	return r.admitEvalMCPMocks()
+	return r.admitMCPMocksForPhases(usesEvalMCP)
 }
 
 func (r *EvalRunner) admitEvalMCPMocks() error {
+	return r.admitMCPMocksForPhases(false)
+}
+
+func (r *EvalRunner) admitMCPMocksForPhases(usesEvalMCP bool) error {
 	testCases, selectionErr := r.admissionTestCases()
 	// Failed selection cannot establish task overrides, but must not hide
 	// independent eval mock errors or allow engine initialization.
-	if err := mcpmock.ValidateMCPMocksForTasks(r.cfg.Spec(), testCases, r.cfg.SpecDir()); err != nil {
+	if err := mcpmock.ValidateMCPMocksForPhases(r.cfg.Spec(), testCases, r.cfg.SpecDir(), usesEvalMCP); err != nil {
 		return errors.Join(selectionErr, fmt.Errorf("MCP mock admission: %w", err))
 	}
 	return selectionErr

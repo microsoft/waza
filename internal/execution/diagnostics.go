@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"sync"
+	"sync/atomic"
 
 	"github.com/microsoft/waza/internal/models"
 )
@@ -76,15 +77,16 @@ func (e *DiagnosticError) Error() string {
 }
 
 type diagnosticState struct {
-	mu         sync.Mutex
-	observerMu sync.Mutex
-	observer   func(ExecutionDiagnostic) error
-	active     sync.WaitGroup
-	closed     bool
-	busy       map[string]bool
-	pending    map[string]bool
-	initOnce   sync.Once
-	initErr    error
+	mu           sync.Mutex
+	observerMu   sync.Mutex
+	observer     func(ExecutionDiagnostic) error
+	active       sync.WaitGroup
+	closed       bool
+	busy         map[string]bool
+	pending      map[string]bool
+	initOnce     sync.Once
+	initErr      error
+	initComplete atomic.Bool
 }
 
 // Each lifecycle invocation owns its aggregate, including pre-session failures
@@ -196,14 +198,26 @@ func (e *CopilotEngine) initializeDiagnostic(ctx context.Context) error {
 		return op.err()
 	}
 	defer done()
+	if s.initComplete.Load() {
+		return s.initErr
+	}
+	if e.provider.err == nil {
+		if err := e.client.Start(ctx); err != nil {
+			op.report(StageInitialize, CodeStart, "")
+			s.initOnce.Do(func() {
+				s.initErr = op.err()
+				s.initComplete.Store(true)
+			})
+			return s.initErr
+		}
+	}
 	s.initOnce.Do(func() {
+		defer s.initComplete.Store(true)
 		switch {
 		case e.provider.err != nil:
 			op.report(StageInitialize, CodeProvider, "")
 		default:
-			if err := e.client.Start(context.Background()); err != nil {
-				op.report(StageInitialize, CodeStart, "")
-			} else if !e.provider.enabled() {
+			if !e.provider.enabled() {
 				auth, err := e.client.GetAuthStatus(ctx)
 				if err != nil || auth == nil || !auth.IsAuthenticated {
 					op.report(StageInitialize, CodeAuth, "")

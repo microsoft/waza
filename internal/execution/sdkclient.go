@@ -83,7 +83,7 @@ func SharedClient(opts SharedClientOptions) CopilotClient {
 		sharedClients[key] = &startupErrorClient{err: err}
 		return sharedClients[key]
 	}
-	sharedClients[key] = sharedConstruct(clientOptions)
+	sharedClients[key] = manageStartup(sharedConstruct(clientOptions))
 	return sharedClients[key]
 }
 

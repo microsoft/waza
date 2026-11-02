@@ -545,7 +545,11 @@ mcp_mocks:
             return: { answer: Not now, wasFreeform: false }
 ```
 
-Task mocks follow the enclosing eval's `schemaVersion` (1.1 or newer, and scenario `2.0` for finite sequences) and require `executor: copilot-sdk`. Relative `fixtures` paths resolve from the eval directory, like task `command_mocks` fixtures. An eval mock that every selected task replaces is never started, so its fixtures are not read; its inline tools are still validated. An empty task list is rejected; omit the field to use the eval mocks.
+Task mocks follow the enclosing eval's `schemaVersion` (1.1 or newer, and scenario `2.0` for finite sequences) and require `executor: copilot-sdk`. Relative `fixtures` paths resolve from the eval directory, like task `command_mocks` fixtures. An eval mock that every selected task replaces has its fixtures skipped only when no trigger phase needs it; its inline tools are still validated. An empty task list is rejected; omit the field to use the eval mocks.
+
+The CLI discovers `trigger_tests.yaml` after `before_run`, before starting the engine, and reuses that parsed spec during execution. Trigger tests use eval-level MCP mocks and live servers rather than task overrides. Preflight inspects those dependencies using local reads only, including when a trigger file cannot be parsed; independent mock diagnostics are retained. The mock executor synthesizes trigger results without MCP. Task filtering, `--skip-graders`, `--no-skills`, and cached task results do not skip trigger tests.
+
+SDK startup cancellation releases the waiting run and cleans up partial startup without tying a successfully started client's lifetime to its original caller. A custom client factory must honor startup-context cancellation or expose `ForceStop`; partial-startup cleanup is bounded to two seconds and reports an error if the client fails to settle.
 
 ## Command Mocks
 
