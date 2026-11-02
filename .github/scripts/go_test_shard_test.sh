@@ -70,9 +70,9 @@ cat > "$scratch/expected-assignment" <<'EOF'
 3	60000	FuzzBytes
 2	60000	FuzzUnicode
 3	60000	TestAlpha
-1	114630	TestNativeCollectionProductionLifecycle
-0	1363230	TestNativeReaderFrozen15cDecisionParity
-3	6950	TestNativeReaderSuppliedDecisionProcess
+1	84986	TestNativeCollectionProductionLifecycle
+0	1302495	TestNativeReaderFrozen15cDecisionParity
+3	5599	TestNativeReaderSuppliedDecisionProcess
 1	60000	TestZulu
 2	60000	TestΩmega
 EOF
