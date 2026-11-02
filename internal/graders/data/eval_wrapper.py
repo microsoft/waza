@@ -45,14 +45,18 @@ eval_context = {
 # 'fail' if it's just an assertion failure
 # any other string is assumed to be an exception of some kind (ie, bad syntax, using a non-existent field).
 results: list[str] = []
+evaluation_errors: dict[int, str] = {}
 
-for assertion in data['assertions']:
+for index, assertion in enumerate(data['assertions']):
     try:
         result = eval(assertion, {"__builtins__": {}}, eval_context)
         results.append("" if not not result else "fail")
     except Exception as e:
-        results.append(str(e))
+        message = str(e)
+        results.append(message)
+        evaluation_errors[index] = message
 
 print(json.dumps({
     "results": results,
+    "evaluation_errors": evaluation_errors,
 }))
