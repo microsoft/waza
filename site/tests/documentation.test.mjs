@@ -31,6 +31,23 @@ test('runner identity fixtures trigger consumer validation and publication witho
   }
   assert.match(web, /playwright test --project=chromium --retries=0/);
   assert.match(site, /npm run test:e2e -- --project=chromium --retries=0/);
+  const webUpload = web.match(/- name: Upload dashboard test evidence\n([\s\S]*?)(?=^      - name:)/m)?.[1];
+  const siteUpload = site.match(/- name: Upload site test evidence\n([\s\S]*?)(?=^      - name:)/m)?.[1];
+  assert.ok(webUpload && siteUpload, 'expected browser evidence upload steps');
+  assert.match(webUpload, /path: web\/test-results\//);
+  assert.doesNotMatch(webUpload, /docs\/images|site\/public\/images|web\/dist/);
+  assert.match(siteUpload, /path: site\/test-results\//);
+  assert.doesNotMatch(siteUpload, /docs\/images|site\/public\/images|site\/dist/);
+  assert.equal(JSON.parse(read('web/package.json')).scripts['refresh:docs-media'],
+    'WAZA_REFRESH_DOCS_MEDIA=1 playwright test --project=chromium --retries=0');
+  assert.equal(JSON.parse(read('site/package.json')).scripts['refresh:docs-media'],
+    'WAZA_REFRESH_DOCS_MEDIA=1 playwright test --project=chromium --retries=0');
+  assert.equal(JSON.parse(read('web/package.json')).scripts['prerefresh:docs-media'], 'npm run build');
+  assert.equal(JSON.parse(read('site/package.json')).scripts['prerefresh:docs-media'], 'npm run build');
+  for (const path of ['web/e2e/screenshots.spec.ts', 'web/e2e/release-screenshots.spec.ts',
+    'site/e2e/screenshots.spec.ts']) {
+    assert.match(read(path), /test\.skip\(process\.env\.WAZA_REFRESH_DOCS_MEDIA !== ['"]1['"]/);
+  }
   assert.match(read('web/playwright.config.ts'), /testDir: "\.\/e2e"/);
   assert.match(read('site/playwright.config.ts'), /testDir: '\.\/e2e'/);
   assert.ok(existsSync(resolve(root, 'web/e2e/runner-negotiation.spec.ts')));

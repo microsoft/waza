@@ -105,24 +105,28 @@ jobs:
       - name: Test site
         id: tests
         if: steps.filter.outputs.site == 'true' || github.event_name == 'push'
-        run: cd site && npm run test:e2e -- --project=chromium --retries=0
+        run: cd site && npm run test:e2e -- --project=chromium --retries=0 --reporter=github,line,json --output=test-results/site
         env:
           CI: 'true'
+          PLAYWRIGHT_JSON_OUTPUT_NAME: test-results/site-report.json
 
       - name: Test optional chat with mocked service and bot protection
+        id: chat-tests
         if: steps.filter.outputs.site == 'true' || github.event_name == 'push'
-        run: cd site && npm run test:private-chat && npm run test:chat -- --project=chromium --retries=0 && npm run test:chat-unavailable -- --project=chromium --retries=0
+        run: |
+          cd site
+          npm run test:private-chat
+          PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/chat-report.json npm run test:chat -- --project=chromium --retries=0 --reporter=github,line,json --output=test-results/chat
+          PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/chat-unavailable-report.json npm run test:chat-unavailable -- --project=chromium --retries=0 --reporter=github,line,json --output=test-results/chat-unavailable
         env:
           CI: 'true'
 
       - name: Upload site test evidence
-        if: always() && steps.tests.outcome != 'skipped' && steps.tests.outcome != ''
+        if: always() && (steps.tests.outcome != 'skipped' && steps.tests.outcome != '' || steps.chat-tests.outcome != 'skipped' && steps.chat-tests.outcome != '')
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: site-chromium-${{ github.run_id }}
-          path: |
-            site/test-results/
-            docs/images/site-*.png
+          path: site/test-results/
           if-no-files-found: error
 
       - name: Skip (no site changes)
