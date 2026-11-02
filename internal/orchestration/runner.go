@@ -1755,16 +1755,24 @@ func (r *EvalRunner) newAttemptUserInput(ctx context.Context, tc *models.TestCas
 		return nil, classifier, err
 	}
 	if adaptive {
-		script.SetFallback(responderUserInputFallback(ctx, classifier))
+		timeout, err := r.executionTimeout(tc)
+		if err != nil {
+			return nil, classifier, err
+		}
+		script.SetFallback(responderUserInputFallback(ctx, classifier, timeout))
 	}
 	return script, classifier, nil
 }
 
 // responderUserInputFallback answers a native question with the adaptive
 // responder. Only an explicit reply is an answer; stop and abstain fail closed.
-func responderUserInputFallback(ctx context.Context, classifier responderClassifier) execution.UserInputFallback {
+// Each call is bounded by the task timeout; without a deadline the SDK would
+// apply its own 60 second default to the responder turn.
+func responderUserInputFallback(ctx context.Context, classifier responderClassifier, timeout time.Duration) execution.UserInputFallback {
 	return func(request copilot.UserInputRequest) (string, error) {
-		decision, err := classifier.Classify(ctx, nativeQuestionMessage(request))
+		callCtx, cancel := context.WithTimeout(ctx, timeout)
+		defer cancel()
+		decision, err := classifier.Classify(callCtx, nativeQuestionMessage(request))
 		if err != nil {
 			return "", err
 		}

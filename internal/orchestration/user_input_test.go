@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	copilot "github.com/github/copilot-sdk/go"
 	"github.com/microsoft/waza/internal/config"
@@ -493,4 +494,38 @@ func TestProductionEngineAdaptiveResponderAnswersNativeQuestionMidTurn(t *testin
 	require.Len(t, responderPrompts, 2)
 	require.Contains(t, responderPrompts[0], "Your name is Ada.", "the first responder call seeds its instructions")
 	require.Contains(t, responderPrompts[1], "Hello Ada", "the between-turn call reuses the same responder session")
+}
+
+// deadlineClassifier records the deadline each Classify call receives.
+type deadlineClassifier struct {
+	recordingClassifier
+	deadlines []time.Duration
+}
+
+func (c *deadlineClassifier) Classify(ctx context.Context, message string) (responder.Decision, error) {
+	if deadline, ok := ctx.Deadline(); ok {
+		c.deadlines = append(c.deadlines, time.Until(deadline))
+	} else {
+		c.deadlines = append(c.deadlines, 0)
+	}
+	return c.recordingClassifier.Classify(ctx, message)
+}
+
+func TestNativeQuestionResponderCallUsesTaskTimeout(t *testing.T) {
+	engine := &questionEngine{questions: map[string][]copilot.UserInputRequest{"start": {{Question: "Your name?"}}}}
+	classifier := &deadlineClassifier{recordingClassifier: recordingClassifier{
+		answers: map[string]responder.Decision{"Your name?": {Kind: responder.DecisionReply, Answer: "Ada"}},
+		between: responder.Decision{Kind: responder.DecisionStop},
+	}}
+	task := "id: a\nname: A\ntimeout_seconds: 240\ninputs:\n  prompt: start\n  responder: {instructions: x, max_followups: 1}\n"
+	cfg, _ := writeUserInputEval(t, task, models.ScenarioSchemaVersion)
+	runner := NewEvalRunner(cfg, engine, WithSkipGraders())
+	runner.newClassifier = func(models.ResponderConfig, string) responderClassifier { return classifier }
+	outcome, err := runner.RunBenchmark(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, models.StatusSkipped, outcome.TestOutcomes[0].Runs[0].Status, outcome.TestOutcomes[0].Runs[0].ErrorMsg)
+	require.NotEmpty(t, classifier.deadlines)
+	inTurn := classifier.deadlines[0]
+	require.Greater(t, inTurn, 200*time.Second, "the in-turn responder call must not fall back to the SDK's 60 second default")
+	require.LessOrEqual(t, inTurn, 240*time.Second)
 }

@@ -898,7 +898,7 @@ responder model instead, and that entry waits for a later question. The responde
 uses the same session and instructions as its between-turn replies and receives the
 question and offered choices. Its answer follows the same choice-or-typed rule. A
 responder stop, abstain, or error fails the run. Answers given during a turn do not
-count toward `max_followups`, but their model calls count against the task timeout.
+count toward `max_followups`. Each in-turn responder call may take up to the task timeout, and its time counts against the agent's turn.
 
 Each record's `source` is `script` or `responder`. Legacy (`1.x`) evals with a
 responder keep their existing behavior and do not register the callback. Responder
