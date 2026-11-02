@@ -785,6 +785,24 @@ func runSingleModel(cmd *cobra.Command, spec *models.EvalSpec, specPath string, 
 		}
 	}
 
+	// Use signal cancellation so Ctrl+C stops setup hooks and the long-running work.
+	var ctx context.Context
+	var stop context.CancelFunc
+	if cmd != nil {
+		ctx, stop = signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
+	} else {
+		ctx, stop = signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	}
+	defer stop()
+	// before_run may generate task inputs, so it runs before tasks are loaded
+	// for MCP admission and before the engine starts. The runner consumes this
+	// setup instead of running before_run again; after_run runs once on every exit.
+	setup, err := orchestration.StartRunSetup(ctx, cfg, verbose)
+	if err != nil {
+		return nil, fmt.Errorf("benchmark failed: %w", err)
+	}
+	defer setup.Teardown(ctx)
+
 	// Admit MCP mocks before the engine starts, against the tasks this run
 	// selects; RunBenchmark repeats the same check.
 	if err := orchestration.AdmitEvalMCPMocks(cfg, taskFilters, tagFilters); err != nil {
@@ -847,6 +865,7 @@ func runSingleModel(cmd *cobra.Command, spec *models.EvalSpec, specPath string, 
 			runnerOpts = append(runnerOpts, orchestration.WithRedactionPolicy(policy))
 		}
 	}
+	runnerOpts = append(runnerOpts, orchestration.WithRunSetup(setup))
 	runner := newBenchmarkRunner(cfg, engine, runnerOpts...)
 
 	// Setup session logger if enabled
@@ -909,16 +928,6 @@ func runSingleModel(cmd *cobra.Command, spec *models.EvalSpec, specPath string, 
 	} else {
 		runner.OnProgress(simpleProgressListener)
 	}
-
-	// Run benchmark with signal cancellation so Ctrl+C stops the long-running work.
-	var ctx context.Context
-	var stop context.CancelFunc
-	if cmd != nil {
-		ctx, stop = signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
-	} else {
-		ctx, stop = signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	}
-	defer stop()
 
 	fmt.Printf("Running benchmark: %s\n", spec.Name)
 	if spec.Scenario != "" {

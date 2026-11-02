@@ -1390,6 +1390,8 @@ hooks:
 | `before_task` | Before each individual task               |
 | `after_task`  | After each individual task                |
 
+`before_run` runs before task files are loaded, MCP mocks are admitted, or the engine starts, so it can generate task YAML, `prompt_file` inputs, or CSV datasets. In `--baseline` mode each pass runs `before_run` and `after_run`.
+
 Each hook entry:
 
 | Field               | Type      | Default      | Description                       |

@@ -84,6 +84,8 @@ type EvalRunner struct {
 
 	// Lifecycle hooks
 	hookRunner *hooks.Runner
+	// setup is a before_run execution not yet consumed by a benchmark pass.
+	setup *RunSetup
 
 	// Progress tracking
 	progressMu sync.Mutex
@@ -297,6 +299,17 @@ func (r *EvalRunner) notifyProgress(event ProgressEvent) {
 // RunBenchmark executes the entire benchmark
 // If Baseline is enabled, runs twice: skills-enabled and skills-disabled
 func (r *EvalRunner) RunBenchmark(ctx context.Context) (*models.EvaluationOutcome, error) {
+	// before_run may generate task inputs, so it runs before tasks are loaded
+	// for MCP admission and before the engine starts. The first benchmark pass
+	// consumes this setup; an earlier failure still runs after_run once.
+	if r.setup == nil {
+		setup, err := StartRunSetup(ctx, r.cfg, r.verbose)
+		if err != nil {
+			return nil, err
+		}
+		r.setup = setup
+	}
+	defer r.setup.Teardown(ctx)
 	if err := r.admitEvalMCPMocks(); err != nil {
 		return nil, err
 	}
@@ -339,21 +352,14 @@ func (r *EvalRunner) runNormalBenchmark(ctx context.Context) (*models.Evaluation
 	spec := r.cfg.Spec()
 	r.hookRunner = &hooks.Runner{Verbose: r.verbose}
 
-	// Run after_run hooks on exit (even on error)
-	defer func() {
-		if len(spec.Hooks.AfterRun) > 0 {
-			if err := r.hookRunner.Execute(ctx, "after_run", spec.Hooks.AfterRun); err != nil {
-				fmt.Printf("[WARN] after_run hook error: %v\n", err)
-			}
-		}
-	}()
-
-	// Run before_run hooks
-	if len(spec.Hooks.BeforeRun) > 0 {
-		if err := r.hookRunner.Execute(ctx, "before_run", spec.Hooks.BeforeRun); err != nil {
-			return nil, fmt.Errorf("before_run hook failed: %w", err)
-		}
+	// The first pass uses the setup that ran before admission; a later pass
+	// (the second baseline pass) runs before_run again. after_run runs on exit,
+	// even on error.
+	setup, err := r.takeSetup(ctx)
+	if err != nil {
+		return nil, err
 	}
+	defer setup.Teardown(ctx)
 
 	// Preflight check: validate required skills
 	if err := r.validateRequiredSkills(); err != nil {
