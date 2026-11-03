@@ -879,7 +879,16 @@ command_mocks: []
 
 ### mcp_mocks (optional)
 
-Replace or add MCP mocks for this task. Each entry replaces the eval-level [`mcp_mocks`](#mcp_mocks) entry with the same name for this task only, and a new name adds a mock; other eval-level mocks still apply. Entries use the eval-level fields. The enclosing eval must use `schemaVersion: "1.1"` or newer and `executor: copilot-sdk`, and finite response sequences require scenario eval schema `2.0`. Relative `fixtures` paths resolve from the eval directory. An eval mock that every selected task replaces is never started, so its fixtures are not read; its inline tools are still validated. The list must not be empty; omit it to use the eval-level mocks.
+Replace or add MCP mocks for this task. Each entry replaces the eval-level [`mcp_mocks`](#mcp_mocks) entry with the same name for this task only, and a new name adds a mock; other eval-level mocks still apply. Entries use the eval-level fields. The enclosing eval must use `schemaVersion: "1.1"` or newer and `executor: copilot-sdk`, and finite response sequences require scenario eval schema `2.0`. Relative `fixtures` paths resolve from the eval directory. The list must not be empty; omit it to use the eval-level mocks.
+
+An eval mock that every selected task replaces is unused by those tasks, but its
+fixtures are skipped only when no trigger phase needs it; its inline tools are
+still validated. Trigger tests use eval-level mocks and live servers, not task
+replacements. An eval-level mock still shadows the same-named live server in that
+phase. Successfully parsed trigger tests with the mock executor are synthesized
+without MCP; unresolved trigger discovery or parsing conservatively retains
+eval-level dependencies during preflight. See the
+[preflight dependency rules](/waza/guides/preflight/).
 
 Task loading and filter errors are reported before engine startup. Admission validates inline mock `input_schema` declarations offline, even on replaced eval mocks. Schemas must be self-contained (internal `$ref` values are supported); omission or `null` retains the default tool schema.
 
