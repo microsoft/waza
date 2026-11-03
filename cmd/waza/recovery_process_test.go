@@ -31,8 +31,12 @@ func buildRecoveryCLI(t *testing.T) string {
 	if runtime.GOOS == "windows" {
 		binary += ".exe"
 	}
+	started := time.Now()
 	log, err := exec.CommandContext(t.Context(), "go", "build", "-o", binary, ".").CombinedOutput()
 	require.NoError(t, err, "%s", log)
+	info, err := os.Stat(binary)
+	require.NoError(t, err)
+	t.Logf("production CLI build: elapsed=%s; bytes=%d", time.Since(started), info.Size())
 	return binary
 }
 
@@ -230,6 +234,7 @@ func TestRecoveryMCPMockProcessStdinLifecycle(t *testing.T) {
 				return err
 			}, cancelChild)
 			require.NoError(t, err, "MCP start elapsed: %s; child context: %v", startElapsed, childCtx.Err())
+			t.Logf("MCP lifecycle process: start=%s", startElapsed)
 			t.Cleanup(stopExchange)
 			writeStarted := time.Now()
 			_, err = io.WriteString(send, "{\"jsonrpc\":\"2.0\",\"method\":\"initialize\",\"id\":1}\n")
