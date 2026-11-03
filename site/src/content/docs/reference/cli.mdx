@@ -941,6 +941,10 @@ diagnoses excluded suite semantics. Export accepts one named text grader with
 exactly one `contains_cs` check and outputs one AgentV assertion. Unknown fields
 on the selected assertion/native grader fail; no silent grader substitution.
 Unknown versions, malformed/ambiguous YAML and invalid selections return exit 2.
+These pre-output failures emit no converted stdout. Delivery failures can leave
+partial output; a broken pipe may terminate the process instead of returning
+exit 2. Discard output from failed commands. Shell redirection can create or
+truncate a file before failure.
 Input is bounded to 4 MiB; no providers, scripts, reference reads or model calls.
 
 See [External Assertion Interoperability](/waza/guides/external-interoperability/)

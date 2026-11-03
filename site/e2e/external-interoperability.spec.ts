@@ -26,6 +26,9 @@ test('external assertion guide preserves navigation, exact pin and unsupported b
   await expect(main).toContainText('Issue #789 remains open');
   await expect(main).toContainText('No adapter; real task success depends on container and executable verifier semantics');
   await expect(main).toContainText('positive and negative');
+  await expect(main).toContainText('Validation/conversion errors before output delivery return exit 2 with no converted stdout.');
+  await expect(main).toContainText('failed or short writes can expose partial output that cannot be rolled back.');
+  await expect(main).toContainText('A broken pipe may terminate the process instead of returning exit 2.');
   await expect(page.getByRole('link', { name: 'verified compatibility matrix, source pins, licensing and remaining acceptance gaps', exact: true }))
     .toHaveAttribute('href', 'https://github.com/microsoft/waza/blob/main/docs/INTEROPERABILITY.md');
   await expect(page.getByRole('link', { name: 'native eval authoring guide', exact: true }))

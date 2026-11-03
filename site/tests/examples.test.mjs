@@ -59,6 +59,50 @@ test('every interop command example creates the grader consumed by export', () =
   }
 });
 
+test('interop runnable example retains artifacts and never deletes a replaced scratch entry', () => {
+  for (const replaceScratch of [true, false]) {
+    const fixture = allocateExampleFixture(root);
+    try {
+      const tmp = join(fixture.directory, 'tmp');
+      mkdirSync(tmp);
+      const replacement = join(fixture.directory, 'replace-scratch.sh');
+      writeFileSync(replacement, `#!/usr/bin/env bash
+set -euo pipefail
+set -- "$TMPDIR"/waza-interop-example.*
+test "$#" -eq 1
+mv "$1" "$1.displaced"
+mkdir "$1"
+printf 'competing contents\\n' > "$1/sentinel"
+exit 19
+`, { mode: 0o700 });
+      const result = spawnSync('bash', [
+        join(root, 'examples/interop/run.sh'), replaceScratch ? replacement : binary,
+      ], {
+        cwd: fixture.directory,
+        env: { ...fixture.env, TMPDIR: tmp },
+        encoding: 'utf8',
+        timeout: 90_000,
+      });
+      assert.equal(result.error, undefined, String(result.error));
+      assert.equal(result.status, replaceScratch ? 19 : 0, `${result.stdout}\n${result.stderr}`);
+      const scratch = result.stderr.match(/^Scratch retained at (.+); automatic cleanup is disabled/m)?.[1];
+      assert.ok(scratch, result.stderr);
+      assert.equal(resolve(scratch, '..'), tmp);
+      if (replaceScratch) {
+        assert.equal(readFileSync(join(scratch, 'sentinel'), 'utf8'), 'competing contents\n');
+        assert.ok(existsSync(join(`${scratch}.displaced`, 'grader.yaml')));
+      } else {
+        assert.match(result.stdout, /positive=1, negative=0/);
+        const outcome = JSON.parse(readFileSync(join(scratch, 'results.json'), 'utf8'));
+        assert.equal(outcome.summary.errors, 0);
+        assert.equal(outcome.summary.total_tests, 2);
+      }
+    } finally {
+      fixture.cleanup();
+    }
+  }
+});
+
 test('local runner compatibility examples execute the actual CLI and retain local exit policy', () => {
   const fixture = allocateExampleFixture(root);
   const run = cliRunner(fixture.env);

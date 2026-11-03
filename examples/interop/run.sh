@@ -9,7 +9,7 @@ case "$waza" in
 esac
 command -v jq >/dev/null
 scratch="$(mktemp -d "${TMPDIR:-/tmp}/waza-interop-example.XXXXXX")"
-trap 'rm -rf "$scratch"' EXIT
+printf 'Scratch retained at %s; automatic cleanup is disabled because pathname ownership cannot be guaranteed. Inspect before removing manually.\n' "$scratch" >&2
 
 adapter=agentv-68df6d2206cea61f721d0445b405efcb5e94aff0-contains-v1
 "$waza" interop import --adapter "$adapter" --test contains-check --assertion 1 \

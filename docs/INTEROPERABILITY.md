@@ -80,8 +80,12 @@ environment interpolation and Nunjucks expressions, statements and comments
 must be resolved outside this literal-only adapter, in both directions.
 `file://../../secret` in a `contains` value is literal text, never a read.
 Unknown adapter IDs/versions fail; there is no auto-detection or latest fallback.
-Failure is exit 2 with no converted stdout. Output/diagnostic delivery errors
-propagate; shell redirection may still create a file before the command fails.
+Validation/conversion failures before output delivery return exit 2 with no
+converted stdout. Output/diagnostic delivery errors propagate, but a failed or
+short write can expose partial output that cannot be rolled back. A broken pipe
+may terminate the process instead of returning exit 2. Shell redirection may
+create or truncate a file before the command fails; discard output from failed
+commands rather than treating it as a complete converted assertion.
 
 Source SHA256 and adapter comments are **unverified advisory provenance** only.
 They do not certify origin, execution, evidence, billing or scores, and native
@@ -96,6 +100,12 @@ repository root:
 go build -o /tmp/waza-interop ./cmd/waza
 bash examples/interop/run.sh /tmp/waza-interop
 ```
+
+The example reports and retains its scratch directory on success or failure.
+It does not recursively clean a pathname that could have been replaced in a
+writable temporary parent. Inspect the reported location before manual removal;
+if it was renamed or replaced externally, the printed path may no longer locate
+the original artifacts. Use a trusted temporary parent for execution.
 
 The example imports the real pinned upstream assertion, assembles a native mock
 eval and runs positive and negative controls. It expects one pass and one

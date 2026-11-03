@@ -170,6 +170,58 @@ type interopShortWriter struct{}
 
 func (interopShortWriter) Write([]byte) (int, error) { return 0, nil }
 
+type interopPartialWriter struct {
+	bytes.Buffer
+	err error
+}
+
+func (w *interopPartialWriter) Write(p []byte) (int, error) {
+	n, _ := w.Buffer.Write(p[:min(12, len(p))])
+	return n, w.err
+}
+
+func TestInteropCommandPartialOutput(t *testing.T) {
+	deliveryErr := errors.New("output delivery failure")
+	for _, operation := range []struct {
+		name  string
+		input string
+		args  []string
+	}{
+		{"import", "tests: [{id: t, assert: [{type: contains, value: Hello}]}]", []string{"--test", "t", "--assertion", "1"}},
+		{"export", "name: greeting\ntype: text\nconfig:\n  contains_cs: [Hello]\n", nil},
+	} {
+		t.Run(operation.name, func(t *testing.T) {
+			invoke := func(out io.Writer) error {
+				cmd := newRootCommand()
+				cmd.SetIn(strings.NewReader(operation.input))
+				cmd.SetOut(out)
+				cmd.SetErr(io.Discard)
+				cmd.SetArgs(append([]string{"interop", operation.name, "--adapter", interop.Adapter}, operation.args...))
+				return cmd.Execute()
+			}
+			var complete bytes.Buffer
+			require.NoError(t, invoke(&complete))
+			require.Greater(t, complete.Len(), 12)
+			for _, tc := range []struct {
+				name string
+				err  error
+				want error
+			}{
+				{"partial write with error", deliveryErr, deliveryErr},
+				{"partial short write", nil, io.ErrShortWrite},
+			} {
+				t.Run(tc.name, func(t *testing.T) {
+					out := &interopPartialWriter{err: tc.err}
+					err := invoke(out)
+					require.ErrorIs(t, err, tc.want)
+					require.ErrorContains(t, err, "writing converted assertion")
+					require.Equal(t, complete.Bytes()[:12], out.Bytes())
+				})
+			}
+		})
+	}
+}
+
 func TestInteropCommandIOAndOfflinePolicy(t *testing.T) {
 	input := "name: greeting\ntype: text\nconfig:\n  contains_cs: [Hello]\n"
 	for _, tc := range []struct {

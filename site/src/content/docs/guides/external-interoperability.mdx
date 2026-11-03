@@ -53,8 +53,12 @@ non-UTF-8 input and input exceeding 4 MiB. No model/tool calls, ambient config
 loading or reference reads occur. A value resembling a path remains literal
 text. Selected strings containing `${`, `{{`, `}}`, `{%` or `{#` are rejected in
 both directions rather than interpreting environment interpolation or Nunjucks
-expressions, statements or comments. Conversion/selection errors
-return exit 2; no converted stdout is emitted.
+expressions, statements or comments. Validation/conversion errors before output
+delivery return exit 2 with no converted stdout. Delivery errors propagate, but
+failed or short writes can expose partial output that cannot be rolled back.
+A broken pipe may terminate the process instead of returning exit 2. Shell
+redirection can create or truncate a file before failure; discard output from
+failed commands.
 
 ## Coverage and evidence
 
@@ -74,6 +78,11 @@ without inference. This is not whole-suite or agent-quality evidence.
 go build -o /tmp/waza-interop ./cmd/waza
 bash examples/interop/run.sh /tmp/waza-interop
 ```
+
+The example reports and retains scratch files on success or failure, rather than
+recursively deleting a pathname that could have been replaced. Use a trusted
+temporary parent and inspect the reported location before manual removal; an
+external rename or replacement can make that path stale.
 
 The example uses a mock executor and checks one passing and one failing control.
 It requires Bash, `jq`, and the repository fixtures. The Go conformance tests
