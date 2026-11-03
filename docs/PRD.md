@@ -51,7 +51,7 @@ is required: adaptation introduces no new runtime status or evidence.
 The [local container foundation](../site/src/content/docs/guides/runner-container.mdx)
 builds and tests the existing mock/text profile with local input/output (#762);
 it adds no Lab status surface. Native runner execution, pinned published-image
-acceptance and the external schema adapter remain outstanding under #754;
+acceptance and full external task/suite interoperability remain outstanding under #754;
 this foundation does not complete #762.
 See the [compatibility migration guide](RUNNER_COMPATIBILITY_MIGRATION.md).
 See the [runner contract](RUNNER_CONTRACT.md).
