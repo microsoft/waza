@@ -5,7 +5,7 @@ description: Preserve compatible local artifacts through the runner service, or 
 
 **Source-build v0.40.0 preview.** Ordinary local commands remain available.
 Nothing is deprecated. The explicit `run --runner-compat` mode routes a bounded
-local suite through the same mock-only execution service as `runner run`,
+local suite through the service's unchanged mock-only profile as `runner run`,
 without replacing historical result JSON with a terminal envelope.
 An unsupported mapping is a hard error, never a fallback or permission to drop
 configuration.

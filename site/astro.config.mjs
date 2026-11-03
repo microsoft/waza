@@ -54,6 +54,7 @@ export default defineConfig({
 						{ label: 'Runner Logical Identities', slug: 'guides/runner-identities' },
 						{ label: 'Runner Terminal Outcomes', slug: 'guides/runner-terminal' },
 						{ label: 'Local Runner Compatibility', slug: 'guides/runner-compatibility' },
+						{ label: 'Local Runner Container', slug: 'guides/runner-container' },
 						{ label: 'Evaluating Custom Agents', slug: 'guides/custom-agents' },
 						{ label: 'Validators & Graders', slug: 'guides/graders' },
 						{ label: 'Spec Verification', slug: 'guides/spec-verify' },

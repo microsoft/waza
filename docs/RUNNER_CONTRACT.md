@@ -2,7 +2,7 @@
 
 This source preview of [v0.40.0](https://github.com/microsoft/waza/issues/754)
 implements negotiation [#757](https://github.com/microsoft/waza/issues/757)
-and bounded exact mock/text execution [#758](https://github.com/microsoft/waza/issues/758),
+and bounded exact inline text execution [#758](https://github.com/microsoft/waza/issues/758),
 with input-derived [logical identities](RUNNER_IDENTITIES.md) (#759). It is available
 when built from this source, not retroactively in a published older binary.
 The [documentation-site guide](../site/src/content/docs/guides/runner-contract.mdx)
@@ -57,24 +57,104 @@ The CLI `runner validate` / `runner run` and HTTP
 `POST /api/v1/runner/{validate,run}` are public callers. Run uses
 `Service.RunTerminal` to project the same invocation into the
 [terminal envelope](RUNNER_TERMINAL.md); validation keeps the receipt.
-Lab separates offline validation from the explicit **Run mock unit** action.
-`exact-unit` and `inline.mock-text` must be required explicitly;
-the only admitted runtime is mock. No native startup is reachable even with paid
-consent. This bounded profile avoids importing the source draft's demonstrated
-native cleanup/startup defects; adding native capability requires its own
-request-owned cancellation/cleanup implementation and regression evidence.
+Lab separates offline validation from the explicit **Run selected unit** action.
+`exact-unit` and exactly one profile (`inline.mock-text` or
+`inline.copilot-text`) must be required explicitly. Optional capabilities and
+paid consent alone never select a profile. Copilot additionally requires
+`config.executor: copilot-sdk`, an explicit nonblank model and
+`allow_paid_execution: true`. Both profiles retain identical selection limits;
+neither enables file, tool, skill, MCP, hook or multi-turn execution.
 
 The exported factory retains its `EngineFactory` signature, but its result must
-be a non-nil concrete `*execution.MockEngine`. Runtime admission uses Go's
+be a non-nil concrete `*execution.MockEngine` for mock input or
+`*execution.CopilotEngine` for Copilot input. Runtime admission uses Go's
 concrete type, not a model name, marker method, embedded mock, or mode claim.
 Other engines and wrappers are rejected before `Initialize`, `Execute`, or
 `Shutdown`; calling shutdown on a rejected engine could itself start native
 work. This is an execution error with valid selection, zero calls, no observation
 and no `execution_mode`, not a mock execution. Factory errors likewise do not
 claim a runtime mode. The embedding host remains responsible for side effects
-inside its own factory; this boundary never invokes a returned non-mock runtime.
+inside its own factory; this boundary never invokes a mismatched runtime.
 Lifecycle fault injection is package-private test coverage, not an exported
 runtime-admission exception.
+
+Copilot admission also requires a private managed, force-stoppable client,
+disabled command mocks, disabled ambient discovery and failure-retaining diagnostic mode. The default
+factory uses the existing owned SDK builder, not the process-wide shared
+client. `ExecuteInlineAttempt` applies the existing deny-all `ToolPolicy` to
+the frozen request, so SDK tool filtering, permission checks and pre-tool
+hooks agree. Skills remain explicitly disabled at the SDK boundary.
+Session configuration explicitly sets `EnableConfigDiscovery`, `EnableFileHooks`
+and `EnableOnDemandInstructionDiscovery` to false, rather than inheriting runtime
+defaults; no explicit hook/plugin/instruction discovery roots are supplied.
+It also skips custom instructions and embedding retrieval, disables the shared
+session store and memory, and disables host git context. The configuration
+executor remains `copilot-sdk`; the separate terminal execution mode is `copilot`.
+The SDK also sends `skipCustomInstructions: true` in its post-create/resume
+`session.options.update`; a rejected update fails execution before any prompt
+is sent.
+Ordinary execution retains its previous discovery defaults. Production CLI/HTTP
+captures and an offline real-SDK wire control verify those settings, not actual
+provider behavior or a host filesystem sandbox. The synthetic peer does not
+reproduce or attest execution of ambient hooks.
+Diagnostic failures, including incomplete usage and cleanup failures, propagate
+to terminal failure instead of becoming successful partial evidence. The
+terminal summary still does not export billing.
+If final usage is unavailable after disconnect, isolated runner sessions do not
+resume solely for shutdown-usage retrieval: that SDK fallback uses unrestricted
+defaults. Missing usage remains explicit and fails terminalization rather than
+being invented as zero. Ordinary execution retains its existing fallback.
+
+Paid native HTTP execution is local-only: the immediate peer must be a loopback
+IP, `Host` must be `localhost` or a literal loopback IP, and any browser `Origin`
+must exactly match that request's HTTP(S) scheme and authority. Cross-site or
+same-site (but not same-origin) Fetch Metadata is rejected. Untrusted forwarded
+headers cannot authorize execution. Rejection returns HTTP 403 with a
+`native_http_denied` terminal diagnostic, zero engine calls and no identity or
+observation, before constructing a runtime. Offline validation/negotiation,
+remote mock execution and existing remote read/static serving remain unchanged.
+Use local `waza runner run` for native execution outside this HTTP boundary.
+This is local-process trust, not authentication of OS-local users. Do not expose
+the paid endpoint through a reverse proxy that rewrites remote peer, Host or
+Origin into trusted local values; no proxy or remote-user authorization is
+provided. `allow_paid_execution` is request consent, not server-owner authorization.
+
+Request cancellation and the effective task/eval execution deadline interrupt
+the private SDK transport with `ForceStop`; the separate five-second shutdown
+budget also interrupts it on expiry. Each callback is joined before returning.
+This handles RPCs that ignore their caller context but unblock when the owned
+transport is killed. It is not a guarantee against a non-cooperating custom
+transport whose `ForceStop` itself blocks, arbitrary filesystem hangs, SIGKILL
+or host loss. Deterministic production-caller tests cover hanging startup,
+send and stop, including send ignoring context, plus cancellation, task timeout,
+denied tools and disconnect/delete failure. They are SDK-fake evidence on the
+tested host, not live-provider or native Windows/Linux execution evidence.
+Effective nonzero `first_event_timeout_seconds` is rejected before runtime
+construction for this profile: its legacy child-context watchdog cannot bound
+an uncooperative RPC. Use `timeout_seconds` or request `timeout_ms` instead.
+A task override of zero explicitly disables an eval-level first-event setting.
+
+### Attempt-only metric metadata
+
+Both exact-unit profiles accept eval `metrics` as **uncomputed, identity-bound
+metadata**. Nonempty declarations are validated offline against the canonical
+eval schema's metric definition, before numeric decoding can round a threshold.
+Numbers must be finite and must not underflow the native numeric range.
+Malformed, wrong-type or out-of-range nonempty declarations reject before
+runtime construction. For historical compatibility, explicit `metrics: null`
+decodes as nil, like an omitted field, in the shared captured reader used by
+mock execution and native snapshot reconstruction; exact-unit Copilot admission
+still rejects explicit null. Existing empty arrays also remain accepted. The
+local compatibility adapter independently rejects an explicit `metrics` field,
+including null, rather than dropping unsupported metadata. This captured-reader
+compatibility does not relax strict canonical eval-schema admission, which still
+requires a nonempty metrics array.
+
+Terminal `success` describes only the selected graded attempt. No aggregate
+metric values, metric-threshold decisions or whole-evaluation success are
+computed or claimed. Changing authored metric metadata changes the input
+identity, not this scope. The local compatibility adapter still rejects
+nonempty metrics rather than projecting uncomputed aggregate evidence.
 
 The single declared candidate is `input.task`; shard labels and task ID must
 match, and trial/attempt must lie within the eval's declared bounds. Eval `tasks`
@@ -118,17 +198,21 @@ The guard validates metadata shape, not independent hash reconstruction.
 
 | Issue | Interface to extend later |
 |---|---|
-| #758 | Implemented captured inline mock/text exact-unit admission and execution, CLI/API and Lab selection validation. Native execution remains unavailable. |
+| #758 | Captured inline mock/text and explicitly opted-in Copilot/text exact execution, CLI/API and Lab selection validation. Files, tools, skills and general native eval workflows remain unsupported. |
 | #759 | Implemented original-source identity derivation, versioned metadata in CLI/API receipts and Lab lineage/validation JSON export. Negotiation alone derives no identity. |
 | #760 | Implemented independent terminal schema, seven execution exit categories, shared CLI/HTTP terminal projection, cancellation and Lab/export. No archive or durable publication. |
 | #761 | Add explicit local compatibility adapters and historical regression evidence; this layer does not reroute `waza run` or artifact readers. |
-| #762 | Add pinned container proof/publication only after execution is implemented and independently reviewed. |
+| #762 | Local mock/text container build/test foundation only. Native integration and pinned published-image acceptance remain outstanding; the issue stays open. |
+
+The [local container quickstart](../site/src/content/docs/guides/runner-container.mdx)
+and [maintainer procedure](../examples/runner/container/MAINTAINERS.md) use the
+existing public CLI unchanged. No scheduler integration or Lab change is added.
 
 Source #779 at frozen `4fdbaf62e9dcf4ded2055c1919544973bc42761d`
 is source material, not approval. This layer adapts only its captured admission
 and single-attempt seam; the separate #759 layer adds canonical identities.
-It imports no local adapter, native lifecycle,
-publication or archive code. Terminalization is independently integrated from
+The current additive Copilot/text layer uses the owned production lifecycle;
+it adds no publication or archive code. Terminalization is independently integrated from
 the focused #760 preparation. Source review findings about
 empty/invalid graders are addressed by offline parameter validation. Open-pipe
 stdin cancellation and HTTP cancellation during execution/partial upload have
@@ -181,3 +265,51 @@ its highest implemented mutual version, independently of client ordering.
 Only 1.0 is implemented. Envelope `schema_version` is independent of offered
 runner versions: unsupported envelope shapes fail schema validation rather
 than being decoded as another profile. Unknown fields fail closed.
+
+### Offline production-process controls
+
+Run the bounded subprocess controls from the repository root:
+
+```bash
+NO_COLOR=1 go test -count=1 ./.github/scripts/testdata/runner-runtime
+NO_COLOR=1 go test -count=1 -run '^TestRunnerNativeProductionProcess$' -v ./.github/scripts
+```
+
+The second command builds the real `cmd/waza` executable and a **synthetic**
+stdio runtime peer, then invokes `waza runner run` with derivatives of the
+current `examples/runner/copilot-unit.json`. An absolute `COPILOT_CLI_PATH`
+selects the fixture; no embedded runtime or provider is used. Each invocation
+gets a fresh working directory and an environment containing only test-owned
+`HOME`, `COPILOT_HOME`, `TMPDIR`, `PATH`, the override, `NO_COLOR`, and the two
+synthetic fixture controls. Credentials, provider settings and proxy variables
+are not inherited. The SDK additionally injects its
+`COPILOT_RUNTIME_PROCESS_FILE_LOGGING` flag; the fixture records environment key
+names and asserts the complete inventory, including absence of deliberately
+seeded ambient credential/provider sentinels.
+
+The controls validate the actual terminal JSON against its schema and
+input-derived identity, the selected task/trial/attempt, grader verdicts, and
+the complete recorded RPC inventory. They cover successful execution, failed
+checks, session errors, request timeout, startup rejection, incompatible runtime
+protocol and unsupported capabilities. A selected ordinal of 2/2 still sends
+one prompt to one session; it does not execute prior or neighboring work.
+Unexpected fixture methods fail with JSON-RPC errors. Frame sizes and child
+process waiting are bounded.
+
+This is production CLI/SDK subprocess evidence with synthetic text, authentication
+and usage responses, **not** native Copilot runtime, inference, billing,
+credential-isolation or container-image assurance. The fixture itself makes no
+network requests; it does not sandbox the production CLI. Unix host process
+controls currently skip Windows. Container/runtime probes must additionally
+execute on their actual target platform with networking disabled and no
+credential mounts; host passes and cross-compilation alone do not prove that
+the bundled runtime starts in an image. No image, release or tag is published
+by these controls.
+
+The [shared container controls](../examples/runner/container/MAINTAINERS.md)
+also exercise these boundaries with runtime networking disabled. Their synthetic
+target asserts all explicit ambient-context opt-outs and the required
+`session.options.update`; rejecting that update must emit infrastructure failure
+without sending a prompt. The unchanged default scratch reference is not
+native-ready. A separate pinned Alpine no-Send smoke starts the actual bundle
+and checks its local-provider lifecycle with zero provider requests, not inference.

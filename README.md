@@ -251,7 +251,7 @@ canonical workflow, target-specific validation steps, and a reusable delegation 
 
 ### `waza runner` (source-build preview)
 
-Negotiate, validate offline, then explicitly execute one captured mock/text unit:
+Negotiate, validate offline, then explicitly execute one captured inline text unit:
 
 ```bash
 waza runner capabilities
@@ -260,7 +260,8 @@ waza runner validate < examples/runner/unit.json
 waza runner run < examples/runner/unit.json
 ```
 
-The source preview implements `negotiation`, `exact-unit`, `inline.mock-text` and `terminal-result`.
+The source preview implements `negotiation`, `exact-unit`, `inline.mock-text`,
+`terminal-result` and opt-in `inline.copilot-text`.
 Only `runner run` starts an engine; each dispatch runs its selected task/trial/
 attempt once, without discovery, cache or retries. Admitted receipts include
 versioned [logical identities](site/src/content/docs/guides/runner-identities.mdx)
@@ -270,11 +271,28 @@ success 0, failed checks 1, infrastructure failure 2, cancellation 3, timeout 4,
 unsupported capability/version 5, invalid input 6. Validation remains an offline
 receipt, not execution evidence. An eval/task execution deadline still yields
 timeout 4 when the outer request budget remains active; task timeouts override
-the eval budget. Native/paid execution remains unavailable. Existing
+the eval budget. Copilot/text execution requires the new profile, an explicit
+model and `allow_paid_execution: true`; all tools and skills are disabled.
+The eval executor is `copilot-sdk`, while the terminal execution mode is `copilot`.
+Paid native HTTP execution additionally requires a loopback peer,
+`localhost`/loopback Host and same-origin browser requests; it is not exposed
+for remote users or through trust-rewriting reverse proxies. Remote mock and
+offline routes retain their existing behavior. Use local `waza runner run`
+outside this HTTP boundary; request consent is not server-owner authorization.
+For both profiles, eval metrics are validated, identity-bound metadata only:
+success describes the selected attempt, not aggregate metrics, metric thresholds
+or whole-evaluation success. The local compatibility adapter still rejects
+nonempty metrics.
+`examples/runner/copilot-unit.json` can be validated offline; running it may
+incur charges on every dispatch. General native file/tool/skill workflows remain
+unsupported. Existing
 local commands and artifacts are unchanged. Captured tasks must explicitly
 declare `inputs.prompt`: `prompt: ""` is valid, but missing `inputs` or
 `inputs: {}` is rejected before runtime construction. See the
 [runner contract, HTTP API, schemas and migration guide](site/src/content/docs/guides/runner-contract.mdx).
+Maintainers can run the [offline production-process controls](docs/RUNNER_CONTRACT.md#offline-production-process-controls)
+with a synthetic stdio peer; these do not call a provider or prove bundled-runtime
+or container-image readiness.
 
 For one explicit mock/text suite, `waza run custom-suite.yaml --runner-compat
 --output local-results.json` routes through that same runner service while
@@ -284,6 +302,11 @@ are hard errors; remove `--runner-compat` to retain ordinary local workflows.
 The task entry must be eval-relative, and successful adaptation passes shared
 offline admission within the complete 4 MiB emitted-byte limit.
 See the [compatibility table and before/after examples](site/src/content/docs/guides/runner-compatibility.mdx).
+
+The [local container reference](site/src/content/docs/guides/runner-container.mdx)
+builds and exercises this mock/text profile with local JSON input/output and
+no runtime network. It is not a published v0.40.0 image; native execution and
+published-image acceptance remain separate work under #762.
 
 ### `waza preflight <eval.yaml>`
 

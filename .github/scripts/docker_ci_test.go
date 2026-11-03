@@ -1,6 +1,7 @@
 package scripts
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -46,5 +47,46 @@ func TestDockerRunnerBuildInputs(t *testing.T) {
 		if !slices.Contains(triggers[event]["paths"], "examples/runner/unit.json") {
 			t.Errorf("%s must select changes to the runner example", event)
 		}
+		if !slices.Contains(triggers[event]["paths"], "examples/runner/container/**") {
+			t.Errorf("%s must select changes to nested runner container inputs", event)
+		}
+		for _, path := range []string{"examples/runner/copilot-unit.json", ".github/scripts/testdata/runner-runtime/**"} {
+			if !slices.Contains(triggers[event]["paths"], path) {
+				t.Errorf("%s must select native container input %s", event, path)
+			}
+		}
 	}
+	workflow := read(".github/workflows/docker-ci.yml")
+	if err := checkDockerRunnerBranches([]byte(workflow)); err != nil {
+		t.Fatal(err)
+	}
+	for _, event := range []string{"push", "pull_request"} {
+		t.Run(event+"-main-target-removal", func(t *testing.T) {
+			selector := event + ":\n    branches: [main]"
+			mutated := strings.Replace(workflow, selector, event+":\n    branches: []", 1)
+			if mutated == workflow {
+				t.Fatal("mutation did not remove the main selector")
+			}
+			if err := checkDockerRunnerBranches([]byte(mutated)); err == nil {
+				t.Fatal("removing main must fail Docker discovery validation")
+			}
+		})
+	}
+	if !strings.Contains(workflow, "run: node --test examples/runner/container/native-test.mjs") {
+		t.Fatal("Docker CI must execute native production-boundary controls")
+	}
+}
+
+func checkDockerRunnerBranches(source []byte) error {
+	triggers, err := readTriggers(source)
+	if err != nil {
+		return err
+	}
+	if !slices.Equal(triggers["push"]["branches"], []string{"main"}) {
+		return fmt.Errorf("Docker pushes must remain limited to main")
+	}
+	if !slices.Equal(triggers["pull_request"]["branches"], []string{"main"}) {
+		return fmt.Errorf("Docker pull requests must select main")
+	}
+	return nil
 }

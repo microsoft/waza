@@ -71,7 +71,7 @@ Bare skill-name operands are rejected, matching ordinary `run` routing: use
 `./suite` to select an extensionless local file, or remove `--runner-compat`
 for skill lookup. A same-named local file is never silently selected.
 
-The local output uses current `EvaluationOutcome` writer schema 1.8 with native
+The local output uses current `EvaluationOutcome` writer schema 1.9 with native
 eval/task IDs, statistics, grader details and unavailable usage. Historical 1.7
 results remain readable. Generated run/session IDs,
 timestamps, workspace paths and timing measurements remain invocation-specific.
