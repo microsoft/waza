@@ -31,6 +31,7 @@ export default function RunnerTerminal({ request }: { request: string }) {
     <section aria-label="Runner terminal outcome">
       <h3>Execute one selected unit</h3>
       <p>Runs the captured request once. The Copilot profile requires explicit paid consent in the request and disables all tools. Repeating runs executes again and may incur charges.</p>
+      <p>Success describes only the selected attempt. Eval metrics are uncomputed, identity-bound metadata: no aggregate metric values, threshold decisions, or whole-evaluation success are reported.</p>
       <button className="lab-button" disabled={pending} onClick={() => void run()}>
         {pending ? "Running selected unit..." : "Run selected unit"}
       </button>

@@ -37,6 +37,9 @@ func validateCapturedModelSource(data []byte, task bool) (*yaml.Node, error) {
 	if err := checkCapturedFields(&doc, target); err != nil {
 		return nil, err
 	}
+	if !task && mappingValue(doc.Content[0], "metrics").Tag == "!!null" {
+		return nil, fmt.Errorf("captured metrics must not be null; omit the field or provide an array")
+	}
 	for _, g := range mappingValue(doc.Content[0], "graders").Content {
 		kind := mappingValue(g, "type")
 		if kind.Value == string(GraderKindText) {
@@ -89,6 +92,9 @@ func checkCapturedFields(node *yaml.Node, target reflect.Type) error {
 	}
 	for target.Kind() == reflect.Pointer {
 		target = target.Elem()
+	}
+	if target == reflect.TypeFor[MeasurementDef]() {
+		return validateCapturedMetric(node)
 	}
 	if node.Tag == "!!float" || target.Kind() == reflect.Float32 || target.Kind() == reflect.Float64 {
 		return fmt.Errorf("unsupported authored floating-point declaration identity")

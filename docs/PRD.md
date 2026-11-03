@@ -35,8 +35,12 @@ authority to infer current native grader keys or completed feature scope.
 The v0.40.0 runner preview adds offline version/capability negotiation (#757)
 and one exact captured inline text task/trial/attempt through CLI and HTTP (#758).
 The additive `inline.copilot-text` profile uses a private production SDK runtime,
-explicit model and paid opt-in, disabled skills and deny-all tools. Mock/text
-requests and the mock-only local adapter remain unchanged. General native
+explicit model and paid opt-in, disabled skills and deny-all tools. Both exact
+profiles accept validated eval metrics as uncomputed, identity-bound metadata;
+terminal success claims only the selected attempt, not aggregate values,
+metric-threshold decisions or whole-evaluation success. Existing metric-free
+mock/text requests and the mock-only local adapter remain unchanged; the adapter
+still rejects nonempty metrics. General native
 file/tool/skill workflows and live-provider conformance remain out of scope.
 Admitted receipts carry deterministic logical identities and their derivation
 version (#759). Live Lab displays input-derived lineage and pre-execution

@@ -8,6 +8,7 @@ import { closeSync, openSync, readFileSync } from "node:fs";
 
 const unitExample = JSON.parse(readFileSync(new URL("../../examples/runner/unit.json", import.meta.url), "utf8")) as {
   selection: { shard: string; task: string; trial: number; attempt: number };
+  input: { eval: string; task: string };
 };
 
 const identityVectors = JSON.parse(readFileSync(new URL("../../internal/runnerunit/testdata/identities.json", import.meta.url), "utf8")) as {
@@ -553,6 +554,37 @@ test.describe("Runner negotiation through the real Go API", () => {
       await expect(page.getByRole("status", { name: "Terminal result" })).toHaveCount(0);
       expect(runs).toBe(0);
     }
+  });
+
+  test("metric metadata stays identity-bound without aggregate terminal or export claims", async ({ page, request }) => {
+    const baseline = await request.post(`${base}/api/v1/runner/run`, { data: unitExample });
+    expect(baseline.ok()).toBe(true);
+    const original = await baseline.json();
+    expect(original.outcome).toBe("success");
+    const captured = structuredClone(unitExample);
+    captured.input.eval += "\nmetrics: [{name: quality, weight: 1, threshold: 0.99}]\n";
+    await page.getByRole("textbox", { name: "Exact work request (JSON)" }).fill(JSON.stringify(captured));
+    const region = page.getByRole("region", { name: "Runner terminal outcome" });
+    await expect(region).toContainText("Success describes only the selected attempt.");
+    await expect(region).toContainText("no aggregate metric values, threshold decisions, or whole-evaluation success");
+    const response = page.waitForResponse("**/api/v1/runner/run");
+    await region.getByRole("button", { name: "Run selected unit", exact: true }).click();
+    const executionResponse = await response;
+    expect(executionResponse.request().postDataJSON().input.eval).toBe(captured.input.eval);
+    const actual = await executionResponse.json();
+    expect(actual.outcome).toBe("success");
+    expect(actual.engine_calls).toBe(1);
+    expect(actual.identity.canonical_digest).not.toBe(original.identity.canonical_digest);
+    expect(actual.metrics).toBeUndefined();
+    expect(actual.summary).toBeUndefined();
+    expect(actual.observation.metrics).toBeUndefined();
+    const result = page.getByRole("status", { name: "Terminal result" });
+    await expect(result).toContainText("mock / passed");
+    await expect(result).not.toContainText("quality");
+    const downloaded = page.waitForEvent("download");
+    await result.getByRole("button", { name: "Export terminal JSON" }).click();
+    const artifact = await downloaded;
+    expect(JSON.parse(readFileSync((await artifact.path())!, "utf8"))).toEqual(actual);
   });
 
   test("terminal input transport rejection remains visible after successful offline admission", async ({ page, request }) => {

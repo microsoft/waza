@@ -8,7 +8,7 @@
   "properties": {
     "kind": {"const": "waza.runner-terminal"},
     "schema_version": {"const": "1.0"},
-    "outcome": {"enum": ["success", "evaluation_failure", "infrastructure_failure", "cancelled", "timeout", "unsupported_capability", "invalid_input"]},
+    "outcome": {"enum": ["success", "evaluation_failure", "infrastructure_failure", "cancelled", "timeout", "unsupported_capability", "invalid_input"], "description": "Outcome of this selected attempt and its lifecycle only; no aggregate metric values, metric-threshold decisions, or whole-evaluation success are claimed."},
     "exit_code": {"type": "integer", "minimum": 0, "maximum": 6},
     "failure_boundary": {"enum": ["none", "input", "negotiation", "validation", "identity", "startup", "execution", "shutdown", "output", "terminalization"]},
     "validation": {"enum": ["not_checked", "invalid", "valid"]},
@@ -182,7 +182,7 @@
       }
     },
     "observation": {
-      "description": "Explicit observed summary, not a complete RunResult, billing record, or live execution attestation.",
+      "description": "Explicit selected-attempt summary, not aggregate metric evidence, a complete RunResult, billing record, or live execution attestation.",
       "type": "object", "additionalProperties": false,
       "required": ["execution_mode", "engine_calls", "selection", "run_number", "attempts", "status", "validations"],
       "properties": {

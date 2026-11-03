@@ -7,7 +7,7 @@
   "selection": {"shard": "shard-a", "task": "selected", "trial": 2, "attempt": 2},
   "input": {
     "shard": "shard-a",
-    "eval": "schemaVersion: \"2.0\"\nscenario: runner-example\nname: Copilot runner example\nconfig:\n  executor: copilot\n  model: gpt-4.1\n  trials_per_task: 3\n  max_attempts: 3\n  timeout_seconds: 30\ntasks:\n  - adjacent-must-not-be-opened/*.yaml\n",
+    "eval": "schemaVersion: \"2.0\"\nscenario: runner-example\nname: Copilot runner example\nconfig:\n  executor: copilot-sdk\n  model: gpt-4.1\n  disabled_skills: ['*']\n  trials_per_task: 3\n  max_attempts: 3\n  timeout_seconds: 30\nmetrics:\n  - name: quality\n    weight: 1\n    threshold: 0.8\ntasks:\n  - adjacent-must-not-be-opened/*.yaml\n",
     "task": "id: selected\nname: Selected task\ninputs:\n  prompt: hello\nexpected:\n  output_contains:\n    - hello\n"
   },
   "timeout_ms": 60000,
