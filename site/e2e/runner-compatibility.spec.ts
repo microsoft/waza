@@ -23,7 +23,7 @@ test('local compatibility navigation, profiles and executable examples retain /w
 test('release preview links open the source-build runner guides under /waza', async ({ page }) => {
   await page.goto('/waza/');
   await expect(page.locator('main')).toContainText('Runner execution supports mock/text and explicitly opted-in Copilot/text with tools and skills disabled.');
-  await expect(page.locator('main')).toContainText('General native file/tool/skill workflows, pinned published-image acceptance and the external schema adapter remain incomplete.');
+  await expect(page.locator('main')).toContainText('General native file/tool/skill workflows, pinned published-image acceptance and the full external task/suite interoperability remain incomplete.');
   for (const [name, url] of [
     ['runner contract and exact work-unit guide', /\/waza\/guides\/runner-contract\/$/],
     ['logical identities', /\/waza\/guides\/runner-identities\/$/],

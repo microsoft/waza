@@ -59,10 +59,20 @@ is required: adaptation introduces no new runtime status or evidence.
 The [local container foundation](../site/src/content/docs/guides/runner-container.mdx)
 builds and tests the existing mock/text profile with local input/output (#762);
 it adds no Lab status surface. General native file/tool/skill workflows, pinned
-published-image acceptance and the external schema adapter remain outstanding under #754;
+published-image acceptance and full external task/suite interoperability remain outstanding under #754;
 this foundation does not complete #762.
 See the [compatibility migration guide](RUNNER_COMPATIBILITY_MIGRATION.md).
 See the [runner contract](RUNNER_CONTRACT.md).
+
+External-schema interoperability (#789) remains partial. The source-build
+preview projects one explicitly selected, commit-pinned AgentV case-sensitive
+`contains` assertion to a single native text grader and exports the same
+single-check subset. Conversion is offline and reports excluded task, provider,
+fixture and sibling-assertion semantics. A retained upstream fixture and runnable
+assertion oracle cover positive and negative production-CLI decisions without
+inference. Whole-task/suite import, AgentEvals-spec/Harbor/ASSERT support and full
+evidence/provenance round trips are not delivered. See the
+[verified interoperability matrix](INTEROPERABILITY.md).
 
 ### The Problem
 

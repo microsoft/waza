@@ -22,6 +22,87 @@ function cliRunner(env) {
   };
 }
 
+test('every interop command example creates the grader consumed by export', () => {
+  for (const path of [
+    'README.md',
+    'docs/INTEROPERABILITY.md',
+    'site/src/content/docs/guides/external-interoperability.mdx',
+    'site/src/content/docs/reference/cli.mdx',
+  ]) {
+    const fixture = allocateExampleFixture(root);
+    try {
+      const commands = [...read(path).matchAll(/```bash\n([\s\S]*?)```/g)]
+        .map((match) => match[1]).filter((block) => block.includes('waza interop '));
+      assert.ok(commands.length > 0, `${path}: no interop command blocks inspected`);
+      const script = commands.join('\n');
+      assert.equal((script.match(/waza interop import /g) ?? []).length, 1, path);
+      assert.equal((script.match(/waza interop export /g) ?? []).length, 1, path);
+      const upstream = 'internal/interop/testdata/agentv/suite.yaml';
+      mkdirSync(join(fixture.directory, 'internal/interop/testdata/agentv'), { recursive: true });
+      writeFileSync(join(fixture.directory, upstream), readFileSync(join(root, upstream)));
+      const result = spawnSync('bash', ['-euc', `waza() { "$WAZA_BIN" "$@"; }\n${script}`], {
+        cwd: fixture.directory,
+        env: { ...fixture.env, WAZA_BIN: binary },
+        encoding: 'utf8',
+        timeout: 90_000,
+      });
+      assert.equal(result.error, undefined, `${path}: ${result.error}`);
+      assert.equal(result.status, 0, `${path}\n${result.stdout}\n${result.stderr}`);
+      const grader = readFileSync(join(fixture.directory, 'one-native-grader.yaml'), 'utf8');
+      assert.match(grader, /^type: text$/m, path);
+      assert.match(grader, /^    contains_cs:$/m, path);
+      assert.equal(result.stdout, 'metric: agentv-contains\ntype: contains\nvalue: Hello\n', path);
+      assert.match(result.stderr, /ASSERTION-ONLY PROJECTION/, path);
+    } finally {
+      fixture.cleanup();
+    }
+  }
+});
+
+test('interop runnable example retains artifacts and never deletes a replaced scratch entry', () => {
+  for (const replaceScratch of [true, false]) {
+    const fixture = allocateExampleFixture(root);
+    try {
+      const tmp = join(fixture.directory, 'tmp');
+      mkdirSync(tmp);
+      const replacement = join(fixture.directory, 'replace-scratch.sh');
+      writeFileSync(replacement, `#!/usr/bin/env bash
+set -euo pipefail
+set -- "$TMPDIR"/waza-interop-example.*
+test "$#" -eq 1
+mv "$1" "$1.displaced"
+mkdir "$1"
+printf 'competing contents\\n' > "$1/sentinel"
+exit 19
+`, { mode: 0o700 });
+      const result = spawnSync('bash', [
+        join(root, 'examples/interop/run.sh'), replaceScratch ? replacement : binary,
+      ], {
+        cwd: fixture.directory,
+        env: { ...fixture.env, TMPDIR: tmp },
+        encoding: 'utf8',
+        timeout: 90_000,
+      });
+      assert.equal(result.error, undefined, String(result.error));
+      assert.equal(result.status, replaceScratch ? 19 : 0, `${result.stdout}\n${result.stderr}`);
+      const scratch = result.stderr.match(/^Scratch retained at (.+); automatic cleanup is disabled/m)?.[1];
+      assert.ok(scratch, result.stderr);
+      assert.equal(resolve(scratch, '..'), tmp);
+      if (replaceScratch) {
+        assert.equal(readFileSync(join(scratch, 'sentinel'), 'utf8'), 'competing contents\n');
+        assert.ok(existsSync(join(`${scratch}.displaced`, 'grader.yaml')));
+      } else {
+        assert.match(result.stdout, /positive=1, negative=0/);
+        const outcome = JSON.parse(readFileSync(join(scratch, 'results.json'), 'utf8'));
+        assert.equal(outcome.summary.errors, 0);
+        assert.equal(outcome.summary.total_tests, 2);
+      }
+    } finally {
+      fixture.cleanup();
+    }
+  }
+});
+
 test('local runner compatibility examples execute the actual CLI and retain local exit policy', () => {
   const fixture = allocateExampleFixture(root);
   const run = cliRunner(fixture.env);

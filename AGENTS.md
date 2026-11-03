@@ -240,6 +240,11 @@ Sources: [major API break](https://github.com/microsoft/waza/pull/684#discussion
 
 > **Requires Go 1.26 or later.** The module targets `go 1.26` (`go.mod`), which means Go 1.26 language features and standard library APIs are safe to use. If you want to rely on features or stdlib additions introduced after Go 1.26, first bump the `go` version in `go.mod` to that minimum version.
 
+The ordinary `cmd/waza` tests and `go test ./...` also require **Node.js 22.18+
+or 24+** on `PATH`. The interoperability conformance test executes the retained
+upstream TypeScript assertion oracle using Node's type stripping; it needs no
+npm packages or inference. Missing Node is a test failure, not a skipped oracle.
+
 ```bash
 # Build
 make build
