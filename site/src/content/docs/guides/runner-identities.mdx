@@ -10,7 +10,8 @@ import producerVectors from '../../../../../internal/runnerunit/testdata/identit
 [runner contract](../runner-contract/) admits one captured mock/text unit.
 After exact admission, its CLI/API receipt includes `identity`, using algorithm
 version **`sha256-waza-c14n-v1`**. Validation derives identities without creating
-an engine. Native execution, terminal envelopes and archives remain unavailable.
+an engine. Native execution and archives remain unavailable.
+Execution now returns a [terminal envelope](../runner-terminal/).
 
 ## Read and save an identity
 
@@ -22,10 +23,10 @@ waza runner run < examples/runner/unit.json > attempt.json
 Both use the same original-input producer. A receipt's `identity` contains seven
 required strings: `version`, `canonical_digest`, `run`, `shard`, `task`, `trial`
 and `attempt`. The digest is 64 lowercase hex characters; each logical ID has
-its namespace prefix and a full 64-character hash. The receipt schema stays
-`waza.runner-unit` / `1.0`; its optional additive identity field is independent
-of request version, negotiation version, local result version and any future
-terminal-envelope version.
+its namespace prefix and a full 64-character hash. Offline validation keeps
+`waza.runner-unit` / `1.0`; execution uses `waza.runner-terminal` / `1.0`.
+Identity versioning is independent of request, negotiation, local result and
+terminal-envelope versions.
 
 Logical identity means **declared input**, not observed execution, provenance,
 exactly-once delivery, duplicate suppression, trusted source files or isolation.
