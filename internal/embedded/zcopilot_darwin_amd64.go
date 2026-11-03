@@ -14,35 +14,35 @@ import (
 	"github.com/klauspost/compress/zstd"
 )
 
-//go:embed zcopilot_1.0.101_darwin_amd64.zst
+//go:embed zcopilot_1.0.105_darwin_amd64.zst
 var localEmbeddedCopilotCLI []byte
 
-//go:embed zcopilot_1.0.101_darwin_amd64.license
+//go:embed zcopilot_1.0.105_darwin_amd64.license
 var localEmbeddedCopilotCLILicense []byte
 
-//go:embed zcopilotruntime_1.0.101_darwin-x64.dylib.zst
+//go:embed zcopilotruntime_1.0.105_darwin-x64.dylib.zst
 var localEmbeddedCopilotRuntimeLib []byte
 
-//go:embed zcopilotruntimewrapper_1.0.101_darwin-x64_copilot-runtime.zst
+//go:embed zcopilotruntimewrapper_1.0.105_darwin-x64_copilot-runtime.zst
 var localEmbeddedCopilotRuntimeExecutable []byte
 
-//go:embed zcopilotruntimeassets_1.0.101_darwin-x64.tgz
+//go:embed zcopilotruntimeassets_1.0.105_darwin-x64.tgz
 var localEmbeddedCopilotRuntimeAssets []byte
 
 func init() {
 	embeddedcli.Setup(embeddedcli.Config{
 		Cli:                   cliReader(),
 		License:               localEmbeddedCopilotCLILicense,
-		Version:               "1.0.101",
-		CliHash:               mustDecodeBase64("UBzknU2JSsEXwssoP2ka7kT5ugJHGVUKFXF8xpulmAM="),
+		Version:               "1.0.105",
+		CliHash:               mustDecodeBase64("RazF6xlQ8hoQQ5fsn25o75hyh/aCTLaR7+LoIKXADuw="),
 		RuntimeLib:            runtimeLibReader(),
-		RuntimeLibHash:        mustDecodeBase64("SVTQtgZkqeOnlQf641YShIgmNIim20+TUJWB4US0Zqc="),
+		RuntimeLibHash:        mustDecodeBase64("tpM5dMqzYFIcNVt/Tho8+dYFC2vJw+GlXCKeaplldSU="),
 		RuntimeNode:           runtimeLibReader(),
-		RuntimeNodeHash:       mustDecodeBase64("SVTQtgZkqeOnlQf641YShIgmNIim20+TUJWB4US0Zqc="),
+		RuntimeNodeHash:       mustDecodeBase64("tpM5dMqzYFIcNVt/Tho8+dYFC2vJw+GlXCKeaplldSU="),
 		RuntimeExecutable:     runtimeExecutableReader(),
-		RuntimeExecutableHash: mustDecodeBase64("UBzknU2JSsEXwssoP2ka7kT5ugJHGVUKFXF8xpulmAM="),
+		RuntimeExecutableHash: mustDecodeBase64("RazF6xlQ8hoQQ5fsn25o75hyh/aCTLaR7+LoIKXADuw="),
 		RuntimeAssets:         bytes.NewReader(localEmbeddedCopilotRuntimeAssets),
-		RuntimeAssetsHash:     mustDecodeBase64("vafCcWtRI8NKf1B2rGXkzhC4juwApeqHu1izOYxT7tI="),
+		RuntimeAssetsHash:     mustDecodeBase64("AoaxX6hOEwL3blCMWInJHITUQGagJqBTSyNga9tvLlU="),
 	})
 }
 

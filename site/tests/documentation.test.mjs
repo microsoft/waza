@@ -243,15 +243,35 @@ test('interop script-only changes select executable controls and selector remova
 
 test('site validation and deployment pin a supported Astro Node runtime', () => {
   const lock = JSON.parse(read('site/package-lock.json'));
-  assert.match(lock.packages['node_modules/astro'].engines.node, />=22\.22\.0/);
+  assert.match(lock.packages['node_modules/astro'].engines.node, />=22\.23\.4/);
   for (const path of ['.github/workflows/site-ci.yml', '.github/workflows/pages.yml']) {
     const versions = [...read(path).matchAll(/node-version: '([^']+)'/g)].map((match) => match[1]);
     assert.ok(versions.length > 0, `${path}: expected an explicit Node version`);
     for (const version of versions) {
-      assert.equal(version, '22.22.0', `${path}: keep site CI and deployment on the supported pinned runtime`);
+      assert.equal(version, '24', `${path}: keep site CI and deployment on the supported Node major`);
     }
   }
-  assert.match(read('site/README.md'), /Use Node\.js 22\.22\.0 or later/);
+  assert.match(read('site/README.md'), /Node\.js 22\.23\.4\+ \(22\.x\)/);
+  assert.match(read('site/README.md'), /Pages workflows use Node\.js 24/);
+});
+
+test('source development prerequisites agree with the locked frontend engines', () => {
+  const site = JSON.parse(read('site/package-lock.json')).packages;
+  const web = JSON.parse(read('web/package-lock.json')).packages;
+  assert.equal(site['node_modules/astro'].engines.node, '>=22.23.4');
+  assert.equal(site['node_modules/astro'].engines.npm, '>=9.6.5');
+  assert.equal(web['node_modules/eslint'].engines.node, '^20.19.0 || ^22.13.0 || >=24');
+  assert.equal(web['node_modules/vite'].engines.node, '^20.19.0 || >=22.12.0');
+  for (const path of [
+    'README.md', 'docs/GUIDE.md', 'site/src/content/docs/getting-started.mdx',
+    'site/src/content/docs/quick-start.mdx', 'site/src/content/docs/about.mdx',
+    'site/src/content/docs/reference/releases.mdx', 'site/src/content/docs/guides/ci-cd.mdx',
+    'site/src/content/docs/guides/docs-assistant.mdx',
+  ]) {
+    const text = read(path);
+    assert.match(text, /Node(?:\.js)? 22\.23\.4\+/, `${path}: document the shared Node 22 minimum`);
+    assert.match(text, /npm 9\.6\.5\+/, `${path}: document the site npm minimum`);
+  }
 });
 
 test('onboarding and active grader docs reject obsolete example contracts', () => {
@@ -455,6 +475,12 @@ test('release entry points agree on published versions and the current runner re
   }
   assert.ok(read('site/src/content/docs/reference/cli.mdx').includes(
     `github.com/github/copilot-sdk/go\` v${sdk} with bundled CLI ${bundledCLI}`,
+  ));
+  const runtimeEntry = read('CHANGELOG.md').split('\n')
+    .find((line) => line.startsWith('- **Copilot runtime dependencies**'));
+  assert.ok(runtimeEntry?.includes(`Go SDK to \`${sdk}\` and bundled CLI to \`${bundledCLI}\``));
+  assert.ok(read('site/src/content/docs/guides/custom-agents.mdx').includes(
+    `The bundled Copilot CLI ${bundledCLI} uses the \`workflow\` permission kind.`,
   ));
 });
 

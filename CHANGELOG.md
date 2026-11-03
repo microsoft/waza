@@ -28,7 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **Copilot runtime dependencies** - Update the Go SDK to `1.0.24` and bundled CLI to `1.0.101` (#751). Published standalone `v0.39.1` bundled SDK `1.0.21` and CLI `1.0.85`.
+- **Copilot runtime dependencies** - Update the Go SDK to `1.0.28` and bundled CLI to `1.0.105` (#751, #820). Published standalone `v0.39.1` bundled SDK `1.0.21` and CLI `1.0.85`.
 - **Release validation** - Harden offline release gates to require complete fresh mock outcomes, reject forbidden runtime launches and verify all native test shards (#800).
 - **Frontend dependencies** - Update the dashboard's `fast-uri` and site's `postcss-selector-parser` transitive dependencies (#780).
 

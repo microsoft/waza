@@ -178,6 +178,7 @@ func TestRunnerNativeProductionProcess(t *testing.T) {
 					expectedCounts["runtime.shutdown"] = 1
 				} else {
 					expectedCounts["session.send"] = 1
+					expectedCounts["session.sendAndWait"] = 1
 				}
 				if control.mode != "timeout" && control.mode != "options-failure" {
 					expectedCounts["session.usage.getMetrics"] = 1

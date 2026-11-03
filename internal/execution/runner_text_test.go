@@ -27,6 +27,10 @@ func TestRunnerTextUsageFallbackTransport(t *testing.T) {
 							s.respond(req, map[string]any{}, false)
 						case "session.send":
 							s.respond(req, map[string]any{"messageId": "offline-message"}, false)
+							messageID := "offline-message"
+							s.emit(req.Params.SessionID, copilot.SessionEvent{Data: &copilot.UserMessageData{
+								Content: req.Params.Prompt, MessageID: &messageID,
+							}})
 							s.emit(req.Params.SessionID, copilot.SessionEvent{Data: &copilot.AssistantMessageData{Content: "hello"}})
 							s.emit(req.Params.SessionID, copilot.SessionEvent{Data: &copilot.SessionIdleData{}})
 						case "session.usage.getMetrics":
