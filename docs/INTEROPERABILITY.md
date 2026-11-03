@@ -74,8 +74,9 @@ load ambient config, execute hooks/scripts/providers or contact a model.
 Inputs are UTF-8, at most 4 MiB and one YAML mapping document. Duplicate/merge
 keys, anchors, aliases, custom tags and excessive nesting fail before projection.
 Selected null/non-string/empty values are rejected, not defaulted.
-Selected strings containing `${`, `{{` or `}}` are rejected: environment or
-template interpolation must be resolved outside this literal-only adapter.
+Selected strings containing `${`, `{{`, `}}`, `{%` or `{#` are rejected:
+environment interpolation and Nunjucks expressions, statements and comments
+must be resolved outside this literal-only adapter, in both directions.
 `file://../../secret` in a `contains` value is literal text, never a read.
 Unknown adapter IDs/versions fail; there is no auto-detection or latest fallback.
 Failure is exit 2 with no converted stdout. Output/diagnostic delivery errors

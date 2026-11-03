@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -126,6 +127,38 @@ func TestInteropProductionCLIUpstreamDecisions(t *testing.T) {
 		require.Error(t, err)
 		require.Contains(t, diagnostics, "literal identity without interpolation")
 		require.Empty(t, out)
+	})
+	t.Run("Nunjucks syntax is rejected in both directions", func(t *testing.T) {
+		for _, value := range []string{"He{# note #}llo", "He{% if true %}ll{% endif %}o"} {
+			t.Run(value, func(t *testing.T) {
+				mutated := bytes.Replace(source, []byte("value: Hello"), []byte("value: "+strconv.Quote(value)), 1)
+				require.NotEqual(t, source, mutated)
+				native := "name: greeting\ntype: text\nconfig:\n  contains_cs:\n    - " + strconv.Quote(value) + "\n"
+				for operation, input := range map[string][]byte{"import": mutated, "export": []byte(native)} {
+					args := []string{"interop", operation, "--adapter", interop.Adapter}
+					if operation == "import" {
+						args = append(args, "--test", "contains-check", "--assertion", "1")
+					}
+					out, diagnostics, err := invoke(input, args...)
+					var exit *exec.ExitError
+					require.ErrorAs(t, err, &exit)
+					require.Equal(t, ExitError, exit.ExitCode(), diagnostics)
+					require.Contains(t, diagnostics, "expected nonempty")
+					require.Empty(t, out, operation)
+				}
+			})
+		}
+	})
+	t.Run("non-template braces percent and hash remain literal", func(t *testing.T) {
+		for _, value := range []string{"He{note}llo", "He%llo", "He#llo", "He%}llo", "He#}llo"} {
+			mutated := bytes.Replace(source, []byte("value: Hello"), []byte("value: "+value), 1)
+			require.NotEqual(t, source, mutated)
+			native, diagnostics, err := invoke(mutated, "interop", "import", "--adapter", interop.Adapter, "--test", "contains-check", "--assertion", "1")
+			require.NoError(t, err, diagnostics)
+			external, diagnostics, err := invoke(native, "interop", "export", "--adapter", interop.Adapter)
+			require.NoError(t, err, diagnostics)
+			require.Contains(t, string(external), "value: "+value+"\n")
+		}
 	})
 }
 

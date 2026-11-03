@@ -70,6 +70,10 @@ func TestAgentVRejectsLossAndAmbiguity(t *testing.T) {
 		{"empty", strings.Replace(base, "value: Hello", `value: ""`, 1), "nonempty literal"},
 		{"environment interpolation", strings.Replace(base, "value: Hello", "value: ${EXPECTED}", 1), "literal"},
 		{"template interpolation", strings.Replace(base, "value: Hello", `value: "{{ expected_output }}"`, 1), "literal"},
+		{"template comment", strings.Replace(base, "value: Hello", `value: "He{# note #}llo"`, 1), "literal"},
+		{"template statement", strings.Replace(base, "value: Hello", `value: "He{% if true %}ll{% endif %}o"`, 1), "literal"},
+		{"metric comment", base + "        metric: \"greet{# note #}ing\"\n", "nonblank string"},
+		{"metric statement", base + "        metric: \"greet{% if true %}ing{% endif %}\"\n", "nonblank string"},
 		{"metric interpolation", base + "        metric: ${METRIC}\n", "nonblank string"},
 		{"mapping", strings.Replace(base, "value: Hello", "value: {file: /etc/passwd}", 1), "nonempty literal"},
 		{"duplicate", base + "        value: goodbye\n", "unique string keys"},
@@ -112,7 +116,7 @@ func TestAgentVRejectsLossAndAmbiguity(t *testing.T) {
 		require.Contains(t, string(output), "name: greeting")
 	})
 	t.Run("interpolated selected identity", func(t *testing.T) {
-		for _, id := range []string{"${TEST_ID}", "{{ vars.id }}"} {
+		for _, id := range []string{"${TEST_ID}", "{{ vars.id }}", "test{# note #}id", "{% if true %}id{% endif %}"} {
 			source := strings.Replace(base, "id: selected", "id: "+strconv.Quote(id), 1)
 			output, err := ImportContains([]byte(source), id, 1)
 			require.ErrorContains(t, err, "literal identity without interpolation")
@@ -130,6 +134,10 @@ func TestAgentVExportRejectsUnsupportedNativeSemantics(t *testing.T) {
 		strings.Replace(base, "[Hello]", "[null]", 1),
 		strings.Replace(base, "[Hello]", `[""]`, 1),
 		strings.Replace(base, "[Hello]", `["${EXPECTED}"]`, 1),
+		strings.Replace(base, "[Hello]", `["He{# note #}llo"]`, 1),
+		strings.Replace(base, "[Hello]", `["He{% if true %}ll{% endif %}o"]`, 1),
+		strings.Replace(base, "name: greeting", "name: greeting{# note #}", 1),
+		strings.Replace(base, "name: greeting", "name: greeting{% if true %}x{% endif %}", 1),
 		strings.Replace(base, "name: greeting", "name: null", 1),
 		strings.Replace(base, "type: text", "type: program", 1),
 		strings.Replace(base, "contains_cs", "contains", 1),

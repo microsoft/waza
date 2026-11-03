@@ -49,8 +49,9 @@ Both commands use stdin/stdout only. They reject unknown adapter versions,
 duplicate/merge keys, aliases, anchors, multiple documents, custom tags,
 non-UTF-8 input and input exceeding 4 MiB. No model/tool calls, ambient config
 loading or reference reads occur. A value resembling a path remains literal
-text. Selected strings containing `${`, `{{` or `}}` are rejected rather than
-performing environment/template interpolation. Conversion/selection errors
+text. Selected strings containing `${`, `{{`, `}}`, `{%` or `{#` are rejected in
+both directions rather than interpreting environment interpolation or Nunjucks
+expressions, statements or comments. Conversion/selection errors
 return exit 2; no converted stdout is emitted.
 
 ## Coverage and evidence

@@ -217,8 +217,10 @@ func text(node *yaml.Node) (string, error) {
 	if node == nil || node.Kind != yaml.ScalarNode || node.Tag != "!!str" {
 		return "", fmt.Errorf("expected string")
 	}
-	if strings.Contains(node.Value, "${") || strings.Contains(node.Value, "{{") || strings.Contains(node.Value, "}}") {
-		return "", fmt.Errorf("interpolation is unsupported; supply a resolved literal")
+	for _, delimiter := range []string{"${", "{{", "}}", "{%", "{#"} {
+		if strings.Contains(node.Value, delimiter) {
+			return "", fmt.Errorf("interpolation is unsupported; supply a resolved literal")
+		}
 	}
 	return node.Value, nil
 }
