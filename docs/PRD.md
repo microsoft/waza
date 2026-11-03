@@ -56,8 +56,11 @@ and retaining local 0/1/2 exits. Historical 1.7 results remain readable.
 Unsupported mappings fail with migration guidance; ordinary
 local defaults and historical artifact readers remain available. No Lab change
 is required: adaptation introduces no new runtime status or evidence.
-General native file/tool/skill workflows, the container reference and the
-external schema adapter remain incomplete under #754.
+The [local container foundation](../site/src/content/docs/guides/runner-container.mdx)
+builds and tests the existing mock/text profile with local input/output (#762);
+it adds no Lab status surface. General native file/tool/skill workflows, pinned
+published-image acceptance and the external schema adapter remain outstanding under #754;
+this foundation does not complete #762.
 See the [compatibility migration guide](RUNNER_COMPATIBILITY_MIGRATION.md).
 See the [runner contract](RUNNER_CONTRACT.md).
 
