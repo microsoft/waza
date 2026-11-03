@@ -14,6 +14,67 @@ import (
 
 type workflowTriggers map[string]map[string][]string
 
+func checkOfflineAssertionOracleRuntime(source []byte) error {
+	var workflow struct {
+		Jobs map[string]struct {
+			Steps []struct {
+				Name string            `yaml:"name"`
+				Uses string            `yaml:"uses"`
+				If   string            `yaml:"if"`
+				With map[string]string `yaml:"with"`
+			} `yaml:"steps"`
+		} `yaml:"jobs"`
+	}
+	if err := yaml.Unmarshal(source, &workflow); err != nil {
+		return err
+	}
+	for _, name := range []string{"build-and-test", "build-and-test-windows"} {
+		found := false
+		for _, step := range workflow.Jobs[name].Steps {
+			if strings.HasPrefix(step.Uses, "actions/setup-node@") {
+				if step.If != "" || step.With["node-version"] != "22" {
+					return fmt.Errorf("%s: offline TypeScript oracle requires unconditional Node 22 setup", name)
+				}
+				found = true
+			}
+			if step.Name == "Execute Tests" && !found {
+				return fmt.Errorf("%s: tests precede offline oracle runtime setup", name)
+			}
+		}
+		if !found {
+			return fmt.Errorf("%s: missing offline oracle Node setup", name)
+		}
+	}
+	return nil
+}
+
+func TestGoWorkflowsInstallOfflineAssertionOracleRuntimeOnEveryPlatform(t *testing.T) {
+	for _, name := range []string{"go-ci.yml", "squad-ci.yml"} {
+		t.Run(name, func(t *testing.T) {
+			source, err := os.ReadFile(filepath.Join("..", "workflows", name))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := checkOfflineAssertionOracleRuntime(source); err != nil {
+				t.Fatal(err)
+			}
+			for _, replacement := range []string{
+				"      - name: Setup Node.js (web build and offline assertion oracle)\n        if: matrix.os == 'ubuntu-latest'",
+				"      - name: Setup Node.js (web build and offline assertion oracle)\n        if: false",
+			} {
+				mutated := strings.Replace(string(source), "      - name: Setup Node.js (web build and offline assertion oracle)", replacement, 1)
+				if mutated == string(source) || checkOfflineAssertionOracleRuntime([]byte(mutated)) == nil {
+					t.Fatal("mutation failed to reject conditional/skipped Node setup")
+				}
+			}
+			mutated := strings.Replace(string(source), "node-version: '22'", "node-version: '20'", 1)
+			if mutated == string(source) || checkOfflineAssertionOracleRuntime([]byte(mutated)) == nil {
+				t.Fatal("mutation failed to reject unsupported TypeScript runtime")
+			}
+		})
+	}
+}
+
 func readTriggers(source []byte) (workflowTriggers, error) {
 	var workflow struct {
 		On workflowTriggers `yaml:"on"`
