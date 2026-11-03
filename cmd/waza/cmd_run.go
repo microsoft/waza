@@ -37,6 +37,7 @@ import (
 	"github.com/microsoft/waza/internal/recommend"
 	"github.com/microsoft/waza/internal/registry"
 	"github.com/microsoft/waza/internal/reporting"
+	"github.com/microsoft/waza/internal/runnerunit"
 	"github.com/microsoft/waza/internal/session"
 	"github.com/microsoft/waza/internal/snapshot"
 	"github.com/microsoft/waza/internal/storage"
@@ -187,6 +188,7 @@ config.executor: mock checks only the harness, not agent quality.`,
 	cmd.Flags().BoolVar(&noSkillsFlag, "no-skills", false, "Disable all skill loading for the evaluation")
 	cmd.Flags().BoolVar(&keepWorkspace, "keep-workspace", false, "Preserve temp workspace directories after execution for debugging")
 	cmd.Flags().BoolVar(&autoFileIssue, "auto-file-issue", false, "Auto-file or update a GitHub issue for failing runs (requires gh and GITHUB_REPOSITORY)")
+	cmd.Flags().Bool("runner-compat", false, "Route one explicit inline mock/text suite through runner 1.0; reject unsupported mappings")
 
 	// OpenTelemetry trace export (off by default).
 	cmd.Flags().StringVar(&otelExporter, "otel-exporter", "", "Export OpenTelemetry traces using exporter: otlp|stdout|file (default: disabled)")
@@ -207,6 +209,11 @@ config.executor: mock checks only the harness, not agent quality.`,
 }
 
 func runCommandE(cmd *cobra.Command, args []string) error {
+	if enabled, err := cmd.Flags().GetBool("runner-compat"); err != nil {
+		return err
+	} else if enabled {
+		return runLocalCompatibility(cmd, args, runnerunit.NewService(nil))
+	}
 	if len(snapshotFiles) > 0 && snapshotDir == "" {
 		return fmt.Errorf("--snapshot-file requires --snapshot")
 	}
@@ -1047,7 +1054,13 @@ func runSingleModel(cmd *cobra.Command, spec *models.EvalSpec, specPath string, 
 	case "github-comment":
 		fmt.Print(FormatGitHubComment(outcome))
 	case "default":
-		printSummary(outcome)
+		var output io.Writer = os.Stdout
+		if cmd != nil {
+			output = cmd.OutOrStdout()
+		}
+		if err := printSummary(output, outcome); err != nil {
+			return nil, fmt.Errorf("printing benchmark summary: %w", err)
+		}
 		printSnapshotUpdateSummary(outcome)
 		if interpret {
 			fmt.Println()
@@ -1335,97 +1348,99 @@ func formatPassHatK(curve []float64) string {
 	return strings.Join(parts, "  ")
 }
 
-func printSummary(outcome *models.EvaluationOutcome) {
-	fmt.Println("=" + strings.Repeat("=", 50))
-	fmt.Println(" BENCHMARK RESULTS")
-	fmt.Println("=" + strings.Repeat("=", 50))
-	fmt.Println()
+func printSummary(output io.Writer, outcome *models.EvaluationOutcome) error {
+	var summary bytes.Buffer
+	w := &summary
+	fmt.Fprintln(w, "="+strings.Repeat("=", 50))
+	fmt.Fprintln(w, " BENCHMARK RESULTS")
+	fmt.Fprintln(w, "="+strings.Repeat("=", 50))
+	fmt.Fprintln(w)
 
 	digest := outcome.Digest
 
-	fmt.Printf("Total Tests:    %d\n", digest.TotalTests)
-	fmt.Printf("Succeeded:      %d\n", digest.Succeeded)
-	fmt.Printf("Failed:         %d\n", digest.Failed)
-	fmt.Printf("Errors:         %d\n", digest.Errors)
-	fmt.Printf("Success Rate:   %.1f%%\n", digest.SuccessRate*100)
-	fmt.Printf("Aggregate Score: %.2f\n", digest.AggregateScore)
-	fmt.Printf("Min Score:      %.2f\n", digest.MinScore)
-	fmt.Printf("Max Score:      %.2f\n", digest.MaxScore)
-	fmt.Printf("Std Dev:        %.4f\n", digest.StdDev)
+	fmt.Fprintf(w, "Total Tests:    %d\n", digest.TotalTests)
+	fmt.Fprintf(w, "Succeeded:      %d\n", digest.Succeeded)
+	fmt.Fprintf(w, "Failed:         %d\n", digest.Failed)
+	fmt.Fprintf(w, "Errors:         %d\n", digest.Errors)
+	fmt.Fprintf(w, "Success Rate:   %.1f%%\n", digest.SuccessRate*100)
+	fmt.Fprintf(w, "Aggregate Score: %.2f\n", digest.AggregateScore)
+	fmt.Fprintf(w, "Min Score:      %.2f\n", digest.MinScore)
+	fmt.Fprintf(w, "Max Score:      %.2f\n", digest.MaxScore)
+	fmt.Fprintf(w, "Std Dev:        %.4f\n", digest.StdDev)
 	if s := digest.Statistics; s != nil {
 		if ci := s.SuccessRateCI; ci != nil {
-			fmt.Printf("Success CI95:   [%.1f%%, %.1f%%]\n", ci.Lower*100, ci.Upper*100)
+			fmt.Fprintf(w, "Success CI95:   [%.1f%%, %.1f%%]\n", ci.Lower*100, ci.Upper*100)
 		}
 		if len(s.PassHatK) > 0 {
-			fmt.Printf("Reliability:    %s\n", formatPassHatK(s.PassHatK))
+			fmt.Fprintf(w, "Reliability:    %s\n", formatPassHatK(s.PassHatK))
 		}
 	}
 
 	duration := time.Duration(digest.DurationMs) * time.Millisecond
-	fmt.Printf("Duration:       %v\n", duration)
-	fmt.Println()
+	fmt.Fprintf(w, "Duration:       %v\n", duration)
+	fmt.Fprintln(w)
 
 	// Grouped results summary
 	if len(digest.Groups) > 0 {
-		fmt.Println("-" + strings.Repeat("-", 50))
-		fmt.Println(" RESULTS BY GROUP")
-		fmt.Println("-" + strings.Repeat("-", 50))
+		fmt.Fprintln(w, "-"+strings.Repeat("-", 50))
+		fmt.Fprintln(w, " RESULTS BY GROUP")
+		fmt.Fprintln(w, "-"+strings.Repeat("-", 50))
 		for _, g := range digest.Groups {
 			pct := 0.0
 			if g.Total > 0 {
 				pct = float64(g.Passed) / float64(g.Total) * 100
 			}
-			fmt.Printf("  %-20s %d/%d passed (%.0f%%)  avg: %.2f\n",
+			fmt.Fprintf(w, "  %-20s %d/%d passed (%.0f%%)  avg: %.2f\n",
 				g.Name+":", g.Passed, g.Total, pct, g.AvgScore)
 		}
-		fmt.Println()
+		fmt.Fprintln(w)
 	}
 
 	// Per-task breakdown
-	fmt.Println("-" + strings.Repeat("-", 50))
-	fmt.Println(" PER-TASK BREAKDOWN")
-	fmt.Println("-" + strings.Repeat("-", 50))
+	fmt.Fprintln(w, "-"+strings.Repeat("-", 50))
+	fmt.Fprintln(w, " PER-TASK BREAKDOWN")
+	fmt.Fprintln(w, "-"+strings.Repeat("-", 50))
 	for _, to := range outcome.TestOutcomes {
 		icon := "✓"
 		if to.Status != models.StatusPassed {
 			icon = "✗"
 		}
-		fmt.Printf("  %s %s [%s]\n", icon, to.DisplayName, to.Status)
+		fmt.Fprintf(w, "  %s %s [%s]\n", icon, to.DisplayName, to.Status)
 		if to.Stats != nil {
 			passRate := fmt.Sprintf("%.1f%%", to.Stats.PassRate*100)
 			if ci := to.Stats.PassRateCI; ci != nil {
 				passRate += fmt.Sprintf(" [CI95 %.0f-%.0f%%]", ci.Lower*100, ci.Upper*100)
 			}
-			fmt.Printf("      pass_rate=%s  avg=%.2f  min=%.2f  max=%.2f  stddev=%.4f  avg_dur=%dms\n",
+			fmt.Fprintf(w, "      pass_rate=%s  avg=%.2f  min=%.2f  max=%.2f  stddev=%.4f  avg_dur=%dms\n",
 				passRate, to.Stats.AvgScore,
 				to.Stats.MinScore, to.Stats.MaxScore,
 				to.Stats.StdDevScore, to.Stats.AvgDurationMs)
 		}
 	}
-	fmt.Println()
+	fmt.Fprintln(w)
 
 	// Show failed tests
 	if digest.Failed > 0 || digest.Errors > 0 {
-		fmt.Println("Failed Tests:")
+		fmt.Fprintln(w, "Failed Tests:")
 		for _, to := range outcome.TestOutcomes {
 			if to.Status != models.StatusPassed {
-				fmt.Printf("  - %s (%s)\n", to.DisplayName, to.Status)
+				fmt.Fprintf(w, "  - %s (%s)\n", to.DisplayName, to.Status)
 
 				// Show validation failures
 				if len(to.Runs) > 0 {
 					for _, run := range to.Runs {
 						for _, val := range run.Validations {
 							if !val.Passed {
-								fmt.Printf("    • %s: %s\n", val.Name, val.Feedback)
+								fmt.Fprintf(w, "    • %s: %s\n", val.Name, val.Feedback)
 							}
 						}
 					}
 				}
 			}
 		}
-		fmt.Println()
+		fmt.Fprintln(w)
 	}
-	printTriageHighlights(os.Stdout, outcome)
+	printTriageHighlights(w, outcome)
 
 	// Show flaky tasks
 	var flakyTasks []models.TestOutcome
@@ -1435,9 +1450,9 @@ func printSummary(outcome *models.EvaluationOutcome) {
 		}
 	}
 	if len(flakyTasks) > 0 {
-		fmt.Println("\u26a0 Flaky Tasks (inconsistent pass/fail across trials):")
+		fmt.Fprintln(w, "\u26a0 Flaky Tasks (inconsistent pass/fail across trials):")
 		for _, to := range flakyTasks {
-			fmt.Printf("  - %s  pass_rate=%.0f%%  flakiness=%.1f%%  score=%.2f\u00b1%.2f  CI95=[%.2f, %.2f]\n",
+			fmt.Fprintf(w, "  - %s  pass_rate=%.0f%%  flakiness=%.1f%%  score=%.2f\u00b1%.2f  CI95=[%.2f, %.2f]\n",
 				to.DisplayName,
 				to.Stats.PassRate*100,
 				to.Stats.FlakinessPercent,
@@ -1447,26 +1462,28 @@ func printSummary(outcome *models.EvaluationOutcome) {
 				to.Stats.CI95Hi,
 			)
 		}
-		fmt.Println()
+		fmt.Fprintln(w)
 	}
 
 	// Show trigger accuracy if trigger tests were run
 	if outcome.TriggerMetrics != nil {
 		m := outcome.TriggerMetrics
-		fmt.Println("-" + strings.Repeat("-", 50))
-		fmt.Println(" TRIGGER ACCURACY")
-		fmt.Println("-" + strings.Repeat("-", 50))
-		fmt.Printf("  Accuracy:  %.1f%%\n", m.Accuracy*100)
+		fmt.Fprintln(w, "-"+strings.Repeat("-", 50))
+		fmt.Fprintln(w, " TRIGGER ACCURACY")
+		fmt.Fprintln(w, "-"+strings.Repeat("-", 50))
+		fmt.Fprintf(w, "  Accuracy:  %.1f%%\n", m.Accuracy*100)
 		if m.Errors > 0 {
-			fmt.Printf("  Errors:    %d prompt(s) returned errors\n", m.Errors)
+			fmt.Fprintf(w, "  Errors:    %d prompt(s) returned errors\n", m.Errors)
 		}
-		fmt.Printf("  Precision: %.1f%%  Recall: %.1f%%  F1: %.1f%%\n", m.Precision*100, m.Recall*100, m.F1*100)
-		fmt.Printf("  TP: %d  FP: %d  FN: %d  TN: %d\n", m.TP, m.FP, m.FN, m.TN)
-		fmt.Println()
+		fmt.Fprintf(w, "  Precision: %.1f%%  Recall: %.1f%%  F1: %.1f%%\n", m.Precision*100, m.Recall*100, m.F1*100)
+		fmt.Fprintf(w, "  TP: %d  FP: %d  FN: %d  TN: %d\n", m.TP, m.FP, m.FN, m.TN)
+		fmt.Fprintln(w)
 	}
 
 	// Show usage summary if available
-	printUsageSummary(digest.Usage)
+	printUsageSummary(w, digest.Usage)
+	_, err := summary.WriteTo(output)
+	return err
 }
 
 func printTriageHighlights(w io.Writer, outcome *models.EvaluationOutcome) {
@@ -1801,26 +1818,26 @@ func warnAutoIssue(cmd *cobra.Command, format string, args ...any) {
 	_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Warning: auto-file-issue: %s\n", fmt.Sprintf(format, args...))
 }
 
-func printUsageSummary(usage *models.UsageStats) {
+func printUsageSummary(w *bytes.Buffer, usage *models.UsageStats) {
 	if usage == nil || usage.IsZero() {
 		return
 	}
 
 	printer := message.NewPrinter(language.English)
 
-	fmt.Println("-" + strings.Repeat("-", 50))
-	fmt.Println(" USAGE SUMMARY")
-	fmt.Println("-" + strings.Repeat("-", 50))
+	fmt.Fprintln(w, "-"+strings.Repeat("-", 50))
+	fmt.Fprintln(w, " USAGE SUMMARY")
+	fmt.Fprintln(w, "-"+strings.Repeat("-", 50))
 
 	switch usage.Provider {
 	case models.UsageProviderCustom:
 		if usage.ProviderHost != "" {
-			fmt.Printf("  Provider:                 custom (%s)\n", usage.ProviderHost)
+			fmt.Fprintf(w, "  Provider:                 custom (%s)\n", usage.ProviderHost)
 		} else {
-			fmt.Println("  Provider:                 custom")
+			fmt.Fprintln(w, "  Provider:                 custom")
 		}
 	case models.UsageProviderMixed:
-		fmt.Println("  Provider:                 mixed")
+		fmt.Fprintln(w, "  Provider:                 mixed")
 	}
 
 	if usage.PremiumRequests > 0 {
@@ -1831,35 +1848,35 @@ func printUsageSummary(usage *models.UsageStats) {
 		case models.UsageProviderMixed:
 			label = "Requests"
 		}
-		fmt.Printf("  %-25s %.0f\n", label+":", usage.PremiumRequests)
+		fmt.Fprintf(w, "  %-25s %.0f\n", label+":", usage.PremiumRequests)
 	}
 	if usage.AICredits != nil {
-		fmt.Printf("  %-25s %.9f\n", "AI Credits:", *usage.AICredits)
+		fmt.Fprintf(w, "  %-25s %.9f\n", "AI Credits:", *usage.AICredits)
 	}
 	if usage.Turns > 0 {
-		fmt.Printf("  Turns:                    %s\n", printer.Sprint(usage.Turns))
+		fmt.Fprintf(w, "  Turns:                    %s\n", printer.Sprint(usage.Turns))
 	}
-	fmt.Printf("  Input Tokens:             %s\n", printer.Sprint(usage.InputTokens))
-	fmt.Printf("  Output Tokens:            %s\n", printer.Sprint(usage.OutputTokens))
+	fmt.Fprintf(w, "  Input Tokens:             %s\n", printer.Sprint(usage.InputTokens))
+	fmt.Fprintf(w, "  Output Tokens:            %s\n", printer.Sprint(usage.OutputTokens))
 	if usage.CacheReadTokens > 0 {
-		fmt.Printf("  Cached Tokens Read:       %s\n", printer.Sprint(usage.CacheReadTokens))
+		fmt.Fprintf(w, "  Cached Tokens Read:       %s\n", printer.Sprint(usage.CacheReadTokens))
 	}
 	if usage.CacheWriteTokens > 0 {
-		fmt.Printf("  Cached Tokens Written:    %s\n", printer.Sprint(usage.CacheWriteTokens))
+		fmt.Fprintf(w, "  Cached Tokens Written:    %s\n", printer.Sprint(usage.CacheWriteTokens))
 	}
-	fmt.Printf("  Total Tokens (in + out):  %s\n", printer.Sprint(usage.InputTokens+usage.OutputTokens))
+	fmt.Fprintf(w, "  Total Tokens (in + out):  %s\n", printer.Sprint(usage.InputTokens+usage.OutputTokens))
 
 	if len(usage.ModelMetrics) > 1 {
-		fmt.Println()
-		fmt.Printf("  %-25s %-12s %-12s %-10s %s\n", "Model", "In", "Out", "Requests", "AI Credits")
-		fmt.Println("  " + strings.Repeat("─", 73))
+		fmt.Fprintln(w)
+		fmt.Fprintf(w, "  %-25s %-12s %-12s %-10s %s\n", "Model", "In", "Out", "Requests", "AI Credits")
+		fmt.Fprintln(w, "  "+strings.Repeat("─", 73))
 		for _, model := range slices.Sorted(maps.Keys(usage.ModelMetrics)) {
 			mu := usage.ModelMetrics[model]
 			credits := "n/a"
 			if mu.AICredits != nil {
 				credits = fmt.Sprintf("%.9f", *mu.AICredits)
 			}
-			fmt.Printf("  %-25s %-12s %-12s %-10.0f %s\n",
+			fmt.Fprintf(w, "  %-25s %-12s %-12s %-10.0f %s\n",
 				truncate(model, 25),
 				printer.Sprint(mu.InputTokens),
 				printer.Sprint(mu.OutputTokens),
@@ -1868,7 +1885,7 @@ func printUsageSummary(usage *models.UsageStats) {
 			)
 		}
 	}
-	fmt.Println()
+	fmt.Fprintln(w)
 }
 
 func saveOutcome(outcome *models.EvaluationOutcome, path string) error {

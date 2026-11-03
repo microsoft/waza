@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"io"
 	"log/slog"
 	"os"
 
@@ -87,8 +88,9 @@ performance against predefined test cases.`,
 	return cmd
 }
 
-func execute() error {
+func execute(diagnostics io.Writer) error {
 	rootCmd := newRootCommand()
+	rootCmd.SetErr(diagnostics)
 	return rootCmd.Execute()
 }
 
@@ -102,6 +104,7 @@ func shouldRunUpdateCheck(cmd *cobra.Command, noUpdateCheck bool) bool {
 		}
 	}
 	for _, name := range []string{"release-policy", "collection-dir", "assurance-contract",
+		"runner-compat",
 		"baseline-eval", "candidate-eval", "baseline-context-dir", "candidate-context-dir",
 		"baseline-references", "candidate-references", "baseline-review", "candidate-review",
 		"baseline-accept-review-source", "candidate-accept-review-source"} {

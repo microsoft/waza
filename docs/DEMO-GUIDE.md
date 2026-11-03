@@ -15,8 +15,11 @@ an engine. Execute the same mock-only example explicitly with
 `waza runner run < examples/runner/unit.json`. The validation result also shows
 the input-derived identity hierarchy/version/digest and exports the same JSON;
 identity does not prove execution. See the
-[runner guide](../site/src/content/docs/guides/runner-contract.mdx); no native,
-terminal-envelope or release-publication claim is implied.
+[runner guide](../site/src/content/docs/guides/runner-contract.mdx).
+The separate **Run mock unit** action actually executes once and displays
+the [terminal outcome and diagnostics](../site/src/content/docs/guides/runner-terminal.mdx),
+with an exact terminal JSON export. Native execution and release publication
+remain unavailable.
 
 For an offline controlled-comparison demo, follow
 [the source-bound planning and collection example](CONTROLLED-COMPARISONS.md).

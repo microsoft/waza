@@ -398,7 +398,19 @@ func (r *EvalRunner) runNormalBenchmark(ctx context.Context) (*models.Evaluation
 		testOutcomes = r.runSequential(ctx, testCases)
 	}
 
-	// Compute statistics
+	outcome := r.buildOutcome(testOutcomes, startTime, usageScope.Snapshot())
+	execution.UpdateOutcomeUsage(outcome, r.engine)
+
+	r.notifyProgress(ProgressEvent{
+		EventType:  EventBenchmarkComplete,
+		DurationMs: time.Since(startTime).Milliseconds(),
+	})
+
+	return outcome, nil
+}
+
+func (r *EvalRunner) buildOutcome(testOutcomes []models.TestOutcome, startTime time.Time, usage *models.EvaluationUsage) *models.EvaluationOutcome {
+	spec := r.cfg.Spec()
 	digest := BuildDigest(testOutcomes, time.Since(startTime).Milliseconds(), spec.Config.TrialsPerTask)
 	// Reuse RunBenchmark's evalRunID when set so snapshots written during
 	// per-run execution correlate with this outcome's RunID; fall back to
@@ -427,16 +439,9 @@ func (r *EvalRunner) runNormalBenchmark(ctx context.Context) (*models.Evaluation
 		Measures:        make(map[string]models.MeasureResult),
 		TestOutcomes:    testOutcomes,
 		Metadata:        make(map[string]any),
-		EvaluationUsage: usageScope.Snapshot(),
+		EvaluationUsage: usage,
 	}
-	execution.UpdateOutcomeUsage(outcome, r.engine)
-
-	r.notifyProgress(ProgressEvent{
-		EventType:  EventBenchmarkComplete,
-		DurationMs: time.Since(startTime).Milliseconds(),
-	})
-
-	return outcome, nil
+	return outcome
 }
 
 // runBaselineComparison orchestrates A/B testing: skills-enabled vs skills-disabled
@@ -1017,20 +1022,18 @@ func (r *EvalRunner) runTestUncached(ctx context.Context, tc *models.TestCase, t
 		})
 	}
 
-	// Compute test statistics
-	stats := ComputeTestStats(runs)
+	return r.buildTestOutcome(tc, runs)
+}
 
-	// Determine overall status
-	status := overallStatus(runs)
-
+func (r *EvalRunner) buildTestOutcome(tc *models.TestCase, runs []models.RunResult) models.TestOutcome {
 	return models.TestOutcome{
 		TestID:      tc.TestID,
 		DisplayName: tc.DisplayName,
 		Group:       r.resolveGroup(),
 		Golden:      tc.Golden,
-		Status:      status,
+		Status:      overallStatus(runs),
 		Runs:        runs,
-		Stats:       stats,
+		Stats:       ComputeTestStats(runs),
 	}
 }
 
@@ -1062,14 +1065,21 @@ func (r *EvalRunner) executeRun(ctx context.Context, tc *models.TestCase, runNum
 }
 
 func (r *EvalRunner) executeAttempt(ctx context.Context, tc *models.TestCase, runNum, attempt int) models.RunResult {
-	return r.executeAttemptWithRequest(ctx, tc, runNum, attempt, nil, false)
+	return r.executeAttemptWithRequest(ctx, tc, runNum, attempt, nil, false).run
 }
 
 func (r *EvalRunner) executeRunWithAttempt(ctx context.Context, tc *models.TestCase, runNum, attempt int, prepared *execution.ExecutionRequest) models.RunResult {
-	return r.executeAttemptWithRequest(ctx, tc, runNum, attempt, prepared, attempt > 0)
+	return r.executeAttemptWithRequest(ctx, tc, runNum, attempt, prepared, attempt > 0).run
 }
 
-func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.TestCase, runNum, attempt int, prepared *execution.ExecutionRequest, controlled bool) models.RunResult {
+// Keep the in-process cause separate from the historical serialized run result.
+// Legacy callers consume the observation; inline callers also classify the cause.
+type attemptResult struct {
+	run   models.RunResult
+	cause error
+}
+
+func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.TestCase, runNum, attempt int, prepared *execution.ExecutionRequest, controlled bool) attemptResult {
 	startTime := time.Now()
 	var req *execution.ExecutionRequest
 	var resp *execution.ExecutionResponse
@@ -1078,10 +1088,11 @@ func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.T
 	var promptJudging []models.PromptJudgeObservation
 	var mockAttempt *copilotconfig.MCPMockAttempt
 	diagnosticCategory := "setup"
-	returnWithArtifacts := func(run models.RunResult) models.RunResult {
+	returnWithArtifacts := func(run models.RunResult, cause error) attemptResult {
 		if closeErr := mockAttempt.Close(); closeErr != nil {
 			run.Status = models.StatusError
 			cleanupErr := fmt.Errorf("clean up MCP mock attempt state: %w", closeErr)
+			cause = errors.Join(cause, cleanupErr)
 			if run.ErrorMsg != "" {
 				cleanupErr = fmt.Errorf("%s; %w", run.ErrorMsg, cleanupErr)
 			}
@@ -1118,13 +1129,14 @@ func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.T
 		r.captureSnapshot(tc, req, resp, &run, diagnosticCategory)
 		run.RequirementExplanations = evidence.ExplainRequirements(r.cfg.Spec(), tc, &run)
 		r.captureFailureArtifacts(&run)
-		return run
+		return attemptResult{run: run, cause: cause}
 	}
 
 	// Prepare execution request
 	if controlled && models.UsesJudgeEvidence(r.cfg.Spec().Graders, tc) {
+		err := fmt.Errorf("evidence_context is not supported by controlled execution")
 		return returnWithArtifacts(models.RunResult{RunNumber: runNum, Status: models.StatusError,
-			ErrorMsg: "evidence_context is not supported by controlled execution"})
+			ErrorMsg: err.Error()}, err)
 	}
 	req = prepared
 	if req == nil {
@@ -1137,7 +1149,7 @@ func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.T
 			Status:     models.StatusError,
 			DurationMs: time.Since(startTime).Milliseconds(),
 			ErrorMsg:   err.Error(),
-		})
+		}, err)
 	}
 
 	// Open the per-turn span around the initial Execute call. Follow-ups
@@ -1171,13 +1183,14 @@ func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.T
 			Status:     models.StatusError,
 			DurationMs: time.Since(startTime).Milliseconds(),
 			ErrorMsg:   err.Error(),
-		})
+		}, err)
 	}
 	execCtx, cancelExec := context.WithTimeout(turnCtx, timeout)
 	diagnosticCategory = "execution"
 	resp, err = execution.ExecuteRecorded(execCtx, r.engine, req)
-	if controlled && err == nil && execCtx.Err() != nil {
-		err = fmt.Errorf("controlled execution completed after its deadline or cancellation: %w", execCtx.Err())
+	execErr := execCtx.Err()
+	if controlled && err == nil && execErr != nil {
+		err = fmt.Errorf("controlled execution completed after its deadline or cancellation: %w", execErr)
 	}
 	if controlled && err == nil && resp == nil {
 		err = fmt.Errorf("controlled execution returned no actual response")
@@ -1187,13 +1200,19 @@ func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.T
 	}
 	cancelExec()
 	if err != nil {
+		cause := err
+		if controlled && execErr != nil && !errors.Is(err, execErr) {
+			// Preserve the observed engine error text and both typed causes;
+			// cancellation above must not manufacture a new execution cause.
+			cause = errors.Join(err, execErr)
+		}
 		return returnWithArtifacts(models.RunResult{
 			RunNumber:  runNum,
 			Prompt:     req.Message,
 			Status:     models.StatusError,
 			DurationMs: time.Since(startTime).Milliseconds(),
 			ErrorMsg:   err.Error(),
-		})
+		}, cause)
 	}
 
 	markToolPolicyViolation(resp)
@@ -1269,7 +1288,7 @@ func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.T
 		selection, selectionErr := judgeevidence.Selection(r.cfg.Spec().Graders, tc)
 		if selectionErr != nil {
 			return returnWithArtifacts(models.RunResult{RunNumber: runNum, Prompt: req.Message,
-				Status: models.StatusError, ErrorMsg: selectionErr.Error()})
+				Status: models.StatusError, ErrorMsg: selectionErr.Error()}, selectionErr)
 		}
 		origin, originErr := snapshot.CaptureOrigin(snapshot.CaptureInput{EvalID: r.evalRunID, Task: tc,
 			Run: &models.RunResult{RunNumber: runNum, Attempts: attempt}})
@@ -1312,7 +1331,7 @@ func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.T
 				ErrorMsg:       "running graders: " + err.Error(),
 				SessionDigest:  r.buildSessionDigest(resp),
 				GraderSessions: resp.GraderSessions,
-			})
+			}, fmt.Errorf("running graders: %w", err))
 		}
 	}
 
@@ -1401,7 +1420,7 @@ func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.T
 		ToolEvents:         buildToolEvents(sdkEvents),
 		CommandInvocations: commandInvocations,
 	}
-	return returnWithArtifacts(run)
+	return returnWithArtifacts(run, err)
 }
 
 // captureSnapshot writes recorded snapshot observations for the given run
