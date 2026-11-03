@@ -396,7 +396,8 @@ test('new feature guides identify the unpublished source-build boundary', () => 
   const homepage = read('site/src/content/docs/index.mdx')
     .split('<Aside type="note" title="Source-build v0.40.0 preview">')[1]?.split('</Aside>')[0];
   assert.match(homepage ?? '', /Runner execution supports mock\/text\s+and explicitly opted-in Copilot\/text with tools and skills disabled/);
-  assert.match(homepage ?? '', /General\s+native file\/tool\/skill workflows, the container reference and the external\s+schema adapter remain incomplete/);
+  assert.match(homepage ?? '', /General\s+native file\/tool\/skill workflows, pinned published-image acceptance and the\s+external schema adapter remain incomplete/);
+  assert.match(homepage ?? '', /\[local mock\/text container foundation\]\(\/waza\/guides\/runner-container\/\)/);
 
   const overview = read('site/src/content/docs/reference/releases.mdx')
     .split('## Source-build v0.40.0 preview')[1]?.split('<span id=')[0];
