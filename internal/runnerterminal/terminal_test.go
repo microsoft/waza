@@ -25,9 +25,10 @@ func admittedFixture() *Binding {
 		Run: "run-" + digest, Shard: "shard-" + digest, Task: "task-" + digest,
 		Trial: "trial-" + digest, Attempt: "attempt-" + digest}
 	return &Binding{
-		Selection: runnercontract.Selection{Shard: "only", Task: "task", Trial: 2, Attempt: 3},
-		Identity:  identity,
-		GraderIDs: []string{"text"},
+		Selection:     runnercontract.Selection{Shard: "only", Task: "task", Trial: 2, Attempt: 3},
+		Identity:      identity,
+		GraderIDs:     []string{"text"},
+		ExecutionMode: "mock",
 	}
 }
 
@@ -105,6 +106,7 @@ func TestOutcomeMappingAndRoundTrip(t *testing.T) {
 			if !ok || got != code {
 				t.Fatalf("exit=(%d,%v), want=(%d,true)", got, ok, code)
 			}
+
 			e, b := fixture(outcome)
 			data := encodeFixture(t, e, b)
 			if bytes.Count(data, []byte{'\n'}) != 1 || data[len(data)-1] != '\n' {
@@ -127,6 +129,23 @@ func TestOutcomeMappingAndRoundTrip(t *testing.T) {
 	}
 	if code, ok := Outcome("unknown").ExitCode(); ok || code != 2 {
 		t.Fatalf("unknown outcome defaults to (%d,%v)", code, ok)
+	}
+}
+
+func TestExecutionModeMatchesAdmittedProfile(t *testing.T) {
+	for _, mode := range []string{"mock", "copilot"} {
+		t.Run(mode, func(t *testing.T) {
+			e, binding := fixture(Success)
+			e.Observation.ExecutionMode = mode
+			binding.ExecutionMode = mode
+			if _, err := Encode(e, binding); err != nil {
+				t.Fatal(err)
+			}
+			binding.ExecutionMode = map[string]string{"mock": "copilot", "copilot": "mock"}[mode]
+			if _, err := Encode(e, binding); !errors.Is(err, ErrInvalid) {
+				t.Fatalf("mismatched execution mode must be rejected, got %v", err)
+			}
+		})
 	}
 }
 

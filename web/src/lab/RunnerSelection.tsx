@@ -32,7 +32,7 @@ export default function RunnerSelection({ demo }: { demo: boolean }) {
       <div className="lab-panel-header">
         <div>
           <h2>Validate exact work selection</h2>
-          <p>Pre-execution validation of one captured inline mock/text unit. No engine is launched here.</p>
+          <p>Pre-execution validation of one captured inline text unit. No engine is launched here, including for the Copilot profile.</p>
         </div>
       </div>
       {demo ? (
