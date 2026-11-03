@@ -45,6 +45,9 @@ type runnerSDKClient struct {
 
 func (c *runnerSDKClient) Start(context.Context) error {
 	c.starts.Add(1)
+	if c.mode == "startup-failure" {
+		return errors.New("injected startup rejection")
+	}
 	if c.mode == "startup-hang" {
 		<-c.forced
 		return errors.New("transport killed during startup")
@@ -302,7 +305,7 @@ func TestRunnerCopilotAdmissionNeverConstructsRuntime(t *testing.T) {
 }
 
 func TestRunnerCopilotBoundedLifecycle(t *testing.T) {
-	for _, control := range []string{"startup-hang", "send-hang", "task-timeout", "cancel", "shutdown-hang", "denied-tool", "delete-failure", "disconnect-failure"} {
+	for _, control := range []string{"startup-failure", "startup-hang", "send-hang", "task-timeout", "cancel", "shutdown-hang", "denied-tool", "delete-failure", "disconnect-failure"} {
 		t.Run(control, func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
 				request := copilotRunnerRequest(t)
@@ -343,6 +346,12 @@ func TestRunnerCopilotBoundedLifecycle(t *testing.T) {
 					require.LessOrEqual(t, time.Since(started), 6*time.Second)
 				default:
 					require.Equal(t, runnerterminal.InfrastructureFailure, envelope.Outcome)
+				}
+				if control == "startup-failure" {
+					require.Zero(t, envelope.EngineCalls)
+					require.Nil(t, envelope.Observation)
+					require.Contains(t, envelope.Diagnostics[0].Message, "initialize/start_failed")
+					require.Zero(t, time.Since(started), "rejection is not an expired deadline")
 				}
 
 				require.LessOrEqual(t, c.sends.Load(), int32(1))

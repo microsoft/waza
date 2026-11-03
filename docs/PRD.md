@@ -47,13 +47,13 @@ The exact path bypasses discovery, cache and retries; local commands/artifacts
 are unchanged. CLI/HTTP execution emits a schema-checked terminal envelope with
 seven stable exit categories. The bounded local compatibility adapter (#761)
 captures exact legacy sources offline and routes explicit `run --runner-compat`
-through the same mock-only execution service while writing result schema 1.8
+through the service's unchanged mock-only profile while writing result schema 1.8
 and retaining local 0/1/2 exits. Historical 1.7 results remain readable.
 Unsupported mappings fail with migration guidance; ordinary
 local defaults and historical artifact readers remain available. No Lab change
 is required: adaptation introduces no new runtime status or evidence.
-Native runner execution, the container reference and the external schema
-adapter remain unavailable under #754.
+General native file/tool/skill workflows, the container reference and the
+external schema adapter remain incomplete under #754.
 See the [compatibility migration guide](RUNNER_COMPATIBILITY_MIGRATION.md).
 See the [runner contract](RUNNER_CONTRACT.md).
 
