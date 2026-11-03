@@ -44,6 +44,28 @@ test('real CLI/container boundary with synthetic SDK peer and distinct bundled-r
       console.log(`${target}: ${image.Id}; native ${image.Os}/${image.Architecture}; host ${process.platform}/${process.arch}`);
     }
 
+    const collisionName = `waza-native-collision-${randomUUID()}`;
+    const competing = command([
+      'create', '--name', collisionName, '--network=none', '--read-only',
+      images.reference, '--version',
+    ]);
+    assert.equal(competing.status, 0, competing.stderr);
+    const competingID = competing.stdout.trim();
+    assert.match(competingID, /^[0-9a-f]{64}$/);
+    try {
+      assert.throws(() => runNamedContainer(command, collisionName, [
+        'run', '--name', collisionName, '--network=none', '--read-only',
+        images.reference, '--version',
+      ], {}, () => assert.fail('colliding run must not reach verification')),
+      /docker run rejected container[\s\S]*Conflict[\s\S]*ownership unproven/);
+      const retained = command(['inspect', competingID]);
+      assert.equal(retained.status, 0, 'name collision must not remove the competing container');
+      assert.equal(JSON.parse(retained.stdout)[0].Id, competingID);
+    } finally {
+      const removed = command(['rm', '-f', competingID]);
+      assert.equal(removed.status, 0, removed.stderr);
+    }
+
     function invoke(target, request, mode, action = 'run', extra = []) {
       const name = `waza-native-${randomUUID()}`;
       const synthetic = mode !== undefined;

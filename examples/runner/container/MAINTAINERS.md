@@ -69,7 +69,11 @@ without granting other UIDs write access; no credentials or environment values
 are recorded. Run `node --test examples/runner/container/native-lifecycle.test.mjs`
 for deterministic pre-creation rejection, timeout and cleanup-failure controls.
 The harness preserves original Docker errors and reports cleanup failures
-separately, removing only its specifically named container when present.
+separately. A private Docker `--cidfile` binds cleanup to the immutable ID created
+by that invocation, never its reusable name. Unproven ownership reports potential
+residue for manual inspection rather than deleting a competing container.
+Deterministic collision/replacement controls and an actual Docker name collision
+verify that existing containers survive failed admission.
 The peer's authentication, text and zero-usage responses
 are synthetic, not provider evidence. Assert all explicit context opt-outs,
 the required `session.options.update` before sending, and update rejection
