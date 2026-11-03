@@ -825,6 +825,7 @@ func (e *CopilotEngine) execute(ctx context.Context, req *ExecutionRequest) (*Ex
 	if req.FirstEventTimeout > 0 {
 		var cancelFirst context.CancelCauseFunc
 		sendCtx, cancelFirst = context.WithCancelCause(ctx)
+		defer cancelFirst(nil)
 		timer := time.AfterFunc(req.FirstEventTimeout, func() {
 			cancelFirst(errFirstEventTimeout)
 		})
@@ -834,7 +835,6 @@ func (e *CopilotEngine) execute(ctx context.Context, req *ExecutionRequest) (*Ex
 		stopFirstEventWatchdog = func() {
 			stopWatchdog.Do(func() {
 				timer.Stop()
-				cancelFirst(nil)
 				close(watchdogDone)
 			})
 		}
