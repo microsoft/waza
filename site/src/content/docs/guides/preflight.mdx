@@ -202,12 +202,21 @@ mock that fails to decode, such as an invalid matcher, is reported as
 reported as `mock.mcp` with the task file and task id. When a task cannot be
 decoded offline, for example because a matcher references an external schema,
 its MCP mocks are still checked for executor, schema version, names and fixtures.
-Same-name MCP mocks replace live server declarations; a live server that every
-task replaces with its own mock is not inspected. An eval MCP mock that every
-task replaces is reported as `mock.mcp_replaced` and is not listed as a
-dependency; its fixtures are not read, but its inline tool declarations are
-still validated. `waza run` admits eval mock fixtures the same way, against the
-tasks selected to run. MCP fixture responses and matchers are parsed
+Same-name MCP mocks shadow live server declarations in the phase that uses those
+mocks. A live server that every inspected task mocks is not inspected only when
+no eval-level trigger phase needs it. Likewise, an eval MCP mock that every task
+replaces is reported as `mock.mcp_replaced`, omitted from dependencies, and its
+fixtures left unread only when no trigger phase needs it; its inline tool
+declarations are still validated.
+
+Trigger tests use eval-level MCP mocks and live servers, not task replacements.
+Their dependencies are retained even when every task supplies its own mock.
+Retention does not unshadow a live server covered by an eval-level mock.
+The mock executor synthesizes successfully parsed trigger tests without MCP.
+If trigger discovery or parsing fails, preflight conservatively retains eval-level
+dependencies and reports independent diagnostics instead of assuming they are
+unused. `waza run` applies the same dependency rule to the tasks selected to run.
+MCP fixture responses and matchers are parsed
 without starting a mock. External schema references are not fetched.
 Fixture and inline `input_schema` must be a JSON object when supplied; strings, numbers,
 booleans and arrays are invalid. Omitting it retains the default tool schema.
