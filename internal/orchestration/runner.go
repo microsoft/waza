@@ -115,6 +115,14 @@ type EvalRunner struct {
 	// correlated back to their parent results.json. Set at the start of a
 	// benchmark run; empty for code paths that bypass the orchestrator.
 	evalRunID string
+
+	partialMu       sync.Mutex
+	partialWriter   func(*models.EvaluationOutcome) error
+	partialOutcomes []models.TestOutcome
+	partialStart    time.Time
+	partialUsage    *execution.UsageScope
+	partialErr      error
+	partialCancel   context.CancelCauseFunc
 }
 
 // ProgressListener receives progress updates
@@ -254,6 +262,13 @@ func WithWazaVersion(v string) RunnerOption {
 	}
 }
 
+// WithPartialOutcomeWriter persists a current incomplete outcome after each trial.
+func WithPartialOutcomeWriter(write func(*models.EvaluationOutcome) error) RunnerOption {
+	return func(r *EvalRunner) {
+		r.partialWriter = write
+	}
+}
+
 // NewEvalRunner creates a new test runner. The caller owns the engine and is responsible for initializing and shutting it down as needed.
 func NewEvalRunner(cfg *config.EvalConfig, engine execution.AgentEngine, opts ...RunnerOption) *EvalRunner {
 	r := &EvalRunner{
@@ -390,6 +405,8 @@ func (r *EvalRunner) RunBenchmark(ctx context.Context) (*models.EvaluationOutcom
 func (r *EvalRunner) runNormalBenchmark(ctx context.Context) (*models.EvaluationOutcome, error) {
 	ctx, usageScope := execution.NewUsageScope(ctx)
 	startTime := time.Now()
+	ctx, cancelPartial := context.WithCancelCause(ctx)
+	defer cancelPartial(nil)
 
 	// Set up hooks runner
 	spec := r.cfg.Spec()
@@ -437,6 +454,13 @@ func (r *EvalRunner) runNormalBenchmark(ctx context.Context) (*models.Evaluation
 	if len(testCases) == 0 {
 		return nil, fmt.Errorf("no test cases found")
 	}
+	r.partialMu.Lock()
+	r.partialOutcomes = make([]models.TestOutcome, len(testCases))
+	r.partialStart = startTime
+	r.partialUsage = usageScope
+	r.partialErr = nil
+	r.partialCancel = cancelPartial
+	r.partialMu.Unlock()
 	r.notifyProgress(ProgressEvent{
 		EventType:  EventBenchmarkStart,
 		TotalTests: len(testCases),
@@ -455,6 +479,15 @@ func (r *EvalRunner) runNormalBenchmark(ctx context.Context) (*models.Evaluation
 
 	outcome := r.buildOutcome(testOutcomes, startTime, usageScope.Snapshot())
 	execution.UpdateOutcomeUsage(outcome, r.engine)
+	r.partialMu.Lock()
+	partialErr := r.partialErr
+	r.partialMu.Unlock()
+	if partialErr != nil {
+		return outcome, partialErr
+	}
+	if err := context.Cause(ctx); err != nil {
+		return outcome, err
+	}
 
 	r.notifyProgress(ProgressEvent{
 		EventType:  EventBenchmarkComplete,
@@ -892,6 +925,9 @@ func (r *EvalRunner) runSequential(ctx context.Context, testCases []*models.Test
 		outcome, wasCached := r.runTest(ctx, tc, i+1, len(testCases))
 		r.writeTaskTranscript(tc, outcome, taskStart)
 		outcomes = append(outcomes, outcome)
+		if ctx.Err() != nil {
+			return outcomes
+		}
 
 		// Run after_task hooks
 		if r.hookRunner != nil && len(spec.Hooks.AfterTask) > 0 {
@@ -1117,6 +1153,7 @@ func (r *EvalRunner) runTestUncached(ctx context.Context, tc *models.TestCase, t
 		}
 
 		runs = append(runs, run)
+		r.publishPartialOutcome(testNum, tc, runs)
 
 		r.notifyProgress(ProgressEvent{
 			EventType:  EventRunComplete,
@@ -1129,6 +1166,9 @@ func (r *EvalRunner) runTestUncached(ctx context.Context, tc *models.TestCase, t
 			DurationMs: run.DurationMs,
 			Details:    map[string]any{"workspace_dir": run.WorkspaceDir, "session_digest": run.SessionDigest},
 		})
+		if ctx.Err() != nil {
+			break
+		}
 	}
 
 	return r.buildTestOutcome(tc, runs)
@@ -1534,6 +1574,35 @@ func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.T
 		CommandInvocations: commandInvocations,
 	}
 	return returnWithArtifacts(run, err)
+}
+
+func (r *EvalRunner) publishPartialOutcome(testNum int, tc *models.TestCase, runs []models.RunResult) {
+	if r.partialWriter == nil {
+		return
+	}
+	r.partialMu.Lock()
+	defer r.partialMu.Unlock()
+	if r.partialErr != nil {
+		return
+	}
+
+	r.partialOutcomes[testNum-1] = r.buildTestOutcome(tc, append([]models.RunResult(nil), runs...))
+	testOutcomes := make([]models.TestOutcome, 0, len(r.partialOutcomes))
+	for _, outcome := range r.partialOutcomes {
+		if outcome.TestID != "" || outcome.DisplayName != "" {
+			testOutcomes = append(testOutcomes, outcome)
+		}
+	}
+	outcome := r.buildOutcome(testOutcomes, r.partialStart, r.partialUsage.Snapshot())
+	execution.UpdateOutcomeUsage(outcome, r.engine)
+	if outcome.Metadata == nil {
+		outcome.Metadata = make(map[string]any)
+	}
+	outcome.Metadata["incomplete"] = true
+	if err := r.partialWriter(outcome); err != nil {
+		r.partialErr = fmt.Errorf("write partial results: %w", err)
+		r.partialCancel(r.partialErr)
+	}
 }
 
 // captureSnapshot writes recorded snapshot observations for the given run

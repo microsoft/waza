@@ -125,8 +125,9 @@ type benchmarkRunner interface {
 
 // modelResult pairs a model identifier with its evaluation outcome.
 type modelResult struct {
-	modelID string
-	outcome *models.EvaluationOutcome
+	modelID     string
+	outcome     *models.EvaluationOutcome
+	partialPath string
 }
 
 func newRunCommand() *cobra.Command {
@@ -381,6 +382,9 @@ func runCommandE(cmd *cobra.Command, args []string) error {
 			}); wErr != nil {
 				return fmt.Errorf("failed to write output directory: %w", wErr)
 			}
+			if err := removePartialOutcomes(results); err != nil {
+				return err
+			}
 		}
 
 		// Auto-upload after all local writes succeed
@@ -461,6 +465,11 @@ func runCommandE(cmd *cobra.Command, args []string) error {
 	if outputDir != "" {
 		if err := writeOutputDir(outputDir, allSkillResults); err != nil {
 			return fmt.Errorf("failed to write output directory: %w", err)
+		}
+		for _, result := range allSkillResults {
+			if err := removePartialOutcomes(result.outcomes); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -661,19 +670,20 @@ func runCommandForSpec(cmd *cobra.Command, sp skillSpecPath, defaultSkills []str
 	for _, modelID := range modelsToRun {
 		// Override spec model for this iteration
 		spec.Config.ModelID = modelID
+		partialPath := partialOutcomePath(spec)
 
 		outcome, err := runSingleModel(cmd, spec, specPath, defaultSkills)
 		if err != nil {
 			var testErr *TestFailureError
 			if errors.As(err, &testErr) {
 				// Test failures are recorded but don't stop a multi-model run
-				allResults = append(allResults, modelResult{modelID: modelID, outcome: outcome})
+				allResults = append(allResults, modelResult{modelID: modelID, outcome: outcome, partialPath: partialPath})
 				lastErr = err
 				continue
 			}
 			return nil, err
 		}
-		allResults = append(allResults, modelResult{modelID: modelID, outcome: outcome})
+		allResults = append(allResults, modelResult{modelID: modelID, outcome: outcome, partialPath: partialPath})
 	}
 
 	// Print comparison table when multiple models were evaluated
@@ -853,6 +863,12 @@ func runSingleModel(cmd *cobra.Command, spec *models.EvalSpec, specPath string, 
 		orchestration.WithTagFilters(tagFilters...),
 		orchestration.WithSupplementalEvalMCP(usesEvalMCP),
 	}
+	partialPath := partialOutcomePath(spec)
+	if partialPath != "" {
+		runnerOpts = append(runnerOpts, orchestration.WithPartialOutcomeWriter(func(outcome *models.EvaluationOutcome) error {
+			return savePartialOutcome(outcome, partialPath)
+		}))
+	}
 	if resultCache != nil {
 		runnerOpts = append(runnerOpts, orchestration.WithCache(resultCache))
 	}
@@ -983,7 +999,7 @@ func runSingleModel(cmd *cobra.Command, spec *models.EvalSpec, specPath string, 
 
 	outcome, err := runner.RunBenchmark(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("benchmark failed: %w", err)
+		return outcome, fmt.Errorf("benchmark failed: %w", err)
 	}
 
 	// Log task completion and session summary from outcome data
@@ -1915,6 +1931,37 @@ func saveOutcome(outcome *models.EvaluationOutcome, path string) error {
 	}
 
 	return os.WriteFile(path, data, 0644)
+}
+
+func savePartialOutcome(outcome *models.EvaluationOutcome, path string) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return err
+	}
+	return saveOutcome(outcome, path)
+}
+
+func partialOutcomePath(spec *models.EvalSpec) string {
+	if outputDir == "" {
+		return ""
+	}
+	name := spec.SkillName
+	if strings.TrimSpace(name) == "" {
+		name = spec.Name
+	}
+	return filepath.Join(outputDir, ".partial",
+		sanitizePathSegment(name)+"_"+sanitizePathSegment(spec.Config.ModelID)+".json")
+}
+
+func removePartialOutcomes(results []modelResult) error {
+	for _, result := range results {
+		if result.partialPath == "" {
+			continue
+		}
+		if err := os.Remove(result.partialPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("remove partial results %s: %w", result.partialPath, err)
+		}
+	}
+	return nil
 }
 
 // autoUploadOutcomes uploads outcomes to configured remote storage.

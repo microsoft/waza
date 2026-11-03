@@ -32,6 +32,49 @@ import (
 // session-start hang apart from a genuinely long-running turn that timed out.
 var errFirstEventTimeout = errors.New("no first session event within first-event timeout")
 
+var sendCancellationGrace = 2 * time.Second
+
+type sendAndWaitResult struct {
+	event *copilot.SessionEvent
+	err   error
+}
+
+func sendAndWaitBounded(
+	ctx context.Context,
+	session CopilotSession,
+	options copilot.MessageOptions,
+	forceStop func(),
+) (*copilot.SessionEvent, error, bool) {
+	done := make(chan sendAndWaitResult, 1)
+	go func() {
+		event, err := session.SendAndWait(ctx, options)
+		done <- sendAndWaitResult{event: event, err: err}
+	}()
+
+	select {
+	case result := <-done:
+		return result.event, result.err, false
+	case <-ctx.Done():
+	}
+
+	timer := time.NewTimer(sendCancellationGrace)
+	defer timer.Stop()
+	select {
+	case result := <-done:
+		return result.event, result.err, false
+	case <-timer.C:
+		forceStop()
+	}
+
+	timer.Reset(sendCancellationGrace)
+	select {
+	case result := <-done:
+		return result.event, result.err, false
+	case <-timer.C:
+		return nil, ctx.Err(), true
+	}
+}
+
 // CopilotEngine integrates with GitHub Copilot SDK
 type CopilotEngine struct {
 	defaultModelID string
@@ -601,7 +644,12 @@ func (e *CopilotEngine) execute(ctx context.Context, req *ExecutionRequest) (*Ex
 			e.diagnostics.mu.Unlock()
 		}()
 	}
+	sessionAbandoned := false
 	defer func() {
+		if sessionAbandoned {
+			slog.Warn("abandoned unresponsive Copilot session after force stop", "sessionID", sessionID)
+			return
+		}
 		// Close the session, release its resources, and trigger any session end events. The destroy
 		// operation doesn't remove data and isn't final in that the caller can resume the session by
 		// calling Execute again with [ExecutionRequest.SessionID] set
@@ -771,9 +819,13 @@ func (e *CopilotEngine) execute(ctx context.Context, req *ExecutionRequest) (*Ex
 	}
 
 	// Send prompt with updated API
-	_, err = session.SendAndWait(sendCtx, copilot.MessageOptions{
+	_, err, sessionAbandoned = sendAndWaitBounded(sendCtx, session, copilot.MessageOptions{
 		Prompt: req.Message,
 		Mode:   string(req.MessageMode),
+	}, func() {
+		if force, ok := e.client.(interface{ ForceStop() }); ok {
+			force.ForceStop()
+		}
 	})
 	stopFirstEventWatchdog()
 	finishEvents()
@@ -794,6 +846,9 @@ func (e *CopilotEngine) execute(ctx context.Context, req *ExecutionRequest) (*Ex
 			// Surface a distinct, actionable error rather than the opaque
 			// context-canceled / deadline message SendAndWait returns.
 			err = fmt.Errorf("session start timeout: no first turn within %s (engine launched but produced no events): %w", req.FirstEventTimeout, errFirstEventTimeout)
+			errMsg = err.Error()
+		} else if errors.Is(sendCtx.Err(), context.DeadlineExceeded) {
+			err = fmt.Errorf("trial timed out: %w", context.DeadlineExceeded)
 			errMsg = err.Error()
 		} else {
 			// errors that are returned inline, as part of the conversation, also come back
